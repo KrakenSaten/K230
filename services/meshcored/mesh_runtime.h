@@ -99,6 +99,15 @@ struct mcd_node {
     double last_snr_db;
     bool last_rssi_known;
     double last_rssi_dbm;
+    /* How many relays the node's last advert passed through on its way
+     * here: MeshCore's own hop count of the advert packet's path, 0 when it
+     * was heard with nothing in between (a zero-hop advert, or a flood heard
+     * before any repeater took it up). Observed this run only, like the
+     * signal, and only when an advert from the node was heard. Not the
+     * route back (path_*), which is learned separately and may differ. */
+    bool advert_hops_known;
+    uint8_t advert_hops;
+    uint64_t advert_mono_ms;      /* when that advert was heard, by ours */
 };
 
 /* ---- a channel ---------------------------------------------------------
@@ -327,6 +336,48 @@ void mcd_runtime_set_profile(struct mcd_runtime *rt, int spreading_factor, doubl
 /* The local identity. name is this node's advert name. */
 void mcd_runtime_identity(const struct mcd_runtime *rt, uint8_t pub_key[MCD_PUB_KEY_LEN],
                           char *name, size_t name_len);
+
+/* ---- the node's own name ------------------------------------------------
+ *
+ * Where the name in use came from: the command line (--name, from
+ * MESHCORED_NAME in /etc/default/meshcored), which replaces the stored one at
+ * every start; state.v1; or derived from the key on a first start. */
+enum mcd_name_source {
+    MCD_NAME_CONFIG = 0,
+    MCD_NAME_STORED,
+    MCD_NAME_DERIVED,
+};
+enum mcd_name_source mcd_runtime_name_source(const struct mcd_runtime *rt);
+
+/* Rename this node: 1 to MCD_NODE_NAME_LEN - 1 bytes of well-formed UTF-8,
+ * one line, not only spaces. The name is what this node's adverts carry and
+ * what it writes in front of every channel message ("<name>: "), so a peer
+ * learns it at this node's next advert; nothing is transmitted here. Written
+ * to state.v1 straight away (*persisted says whether that happened).
+ * Refused while the name comes from the command line, which would put the
+ * old one back at the next start. */
+enum mcd_rename_result {
+    MCD_RENAME_OK = 0,
+    MCD_RENAME_BAD_NAME,
+    MCD_RENAME_PINNED,
+};
+enum mcd_rename_result mcd_runtime_set_name(struct mcd_runtime *rt, const char *name,
+                                            bool *persisted);
+
+/* ---- the path hash size --------------------------------------------------
+ *
+ * How many bytes of each relay's public key a flood this node starts asks
+ * repeaters to write into its path - MeshCore's path hash size, set upstream
+ * by the companion's CMD_SET_PATH_HASH_MODE (mode 0..2 is 1..3 bytes; mode 3
+ * is reserved). 1 is the default and what every MeshCore node understands;
+ * 2 and 3 tell more relays apart in a large mesh, and need repeaters whose
+ * firmware reads the size bits of the path length. Kept in settings.v1. */
+#define MCD_PATH_HASH_MIN 1
+#define MCD_PATH_HASH_MAX 3
+int mcd_runtime_path_hash_bytes(const struct mcd_runtime *rt);
+/* Returns false, changing nothing, for a size outside 1..3. *persisted says
+ * whether settings.v1 was written; the size applies either way. */
+bool mcd_runtime_set_path_hash_bytes(struct mcd_runtime *rt, int bytes, bool *persisted);
 
 int mcd_runtime_node_count(const struct mcd_runtime *rt);
 /* Copy node idx (0-based, stable within one call sequence) into n. */

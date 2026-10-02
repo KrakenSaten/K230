@@ -105,6 +105,19 @@ struct fake_meshcored_script {
     /* Hold the events until mesh.app_inbox has been answered, the way
      * events_after_snapshot holds them for the snapshots. */
     int events_after_inbox;
+
+    /* Managing the node (mesh.channel_add / channel_remove / set_name /
+     * set_path_hash). Every such request is appended here, one to a line:
+     * "<method>|<params as JSON>" - which is how a test proves what a
+     * reader's press asked for, key and all, and that nothing else did. */
+    const char *manage_log;
+    /* mesh.identity says the name came from the command line, and
+     * mesh.set_name refuses, as the real service does then. */
+    int name_pinned;
+    /* Answer mesh.path_hash as a service too old to know it: unknown method. */
+    int no_path_hash;
+    /* Take management requests and never answer them. */
+    int manage_silent;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

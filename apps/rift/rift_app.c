@@ -15,6 +15,9 @@
 #include "rift_activity.h"
 #include "rift_comms.h"
 #include "rift_detail.h"
+#include "rift_device.h"
+#include "rift_manage.h"
+#include "rift_netview.h"
 #include "rift_nodes.h"
 #include "rift_sound.h"
 
@@ -90,6 +93,28 @@ static void on_composer_ready(lv_event_t *e)
     rift_comms_submit(a, lv_textarea_get_text(a->composer));
 }
 
+/* The one key sink, outside the command line so the line can go away without
+ * taking the keys with it. It stays in the layout at 1 px and is never
+ * hidden: it is the object the arrows arrive on, and a hidden object is not
+ * one LVGL will move focus to reliably.
+ *
+ * Made, put in the focus group and focused BEFORE any section is built. LVGL
+ * focuses the first object an empty group is given, and focusing scrolls to
+ * it: with ACTIVITY's management fields and buttons built first, that object
+ * was one of them and ACTIVITY opened scrolled to it (unit B, 2026-10-01).
+ * With the sink in first, nothing built after it is focused on its own. */
+static void build_keysink(struct rift_app *a)
+{
+    a->keysink = lv_label_create(a->frame);
+    lv_obj_remove_style_all(a->keysink);
+    lv_obj_add_flag(a->keysink, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(a->keysink, 1, 1);
+    lv_obj_set_pos(a->keysink, 0, 0);
+    lv_label_set_text(a->keysink, "");
+    pos_input_add_obj(a->keysink);
+    pos_input_focus(a->keysink);
+}
+
 static void build_cmdline(struct rift_app *a)
 {
     lv_obj_t *prompt;
@@ -132,17 +157,6 @@ static void build_cmdline(struct rift_app *a)
      * at a larger text size (DS §46.5) the reason in brackets no longer
      * fits the line. Where it fits, as it always was. */
     pocketui_label_fit(a->cmd_status, 1);
-
-    /* The one key sink, outside the command line so the line can go away
-     * without taking the keys with it. It stays in the layout at 1 px and is
-     * never hidden: it is the object the arrows arrive on, and a hidden
-     * object is not one LVGL will move focus to reliably. */
-    a->keysink = lv_label_create(a->frame);
-    lv_obj_remove_style_all(a->keysink);
-    lv_obj_add_flag(a->keysink, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_size(a->keysink, 1, 1);
-    lv_obj_set_pos(a->keysink, 0, 0);
-    lv_label_set_text(a->keysink, "");
 
     /* The landscape composer. The design makes the command line the
      * composer in landscape (handoff §8), so the field is chrome and lives
@@ -244,33 +258,6 @@ static void paint_cmdline(struct rift_app *a)
  * none; the touch actions there say what they do. */
 /* ---- sections -------------------------------------------------------------- */
 
-static void build_placeholder(struct rift_app *a)
-{
-    lv_obj_t *panel;
-    lv_obj_t *label;
-
-    a->placeholder = lv_obj_create(a->content);
-    lv_obj_remove_style_all(a->placeholder);
-    lv_obj_set_size(a->placeholder, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_flex_flow(a->placeholder, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(a->placeholder, RIFT_PAD, 0);
-    lv_obj_remove_flag(a->placeholder, LV_OBJ_FLAG_SCROLLABLE);
-
-    panel = rift_panel(a->placeholder, "NOT IN THIS BUILD");
-    label = lv_label_create(panel);
-    lv_obj_remove_style_all(label);
-    pos_style_add(label, POS_STYLE_TEXT_SECONDARY, 0);
-    lv_obj_set_width(label, LV_PCT(100));
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    /* An empty view here would read as a quiet mesh. The section keeps its
-     * place in the navigation - four sections is the approved design - and
-     * says what it is instead of pretending to be empty. */
-    lv_label_set_text(label, "NET is designed and is not in this build. The hop rings, the "
-                             "path chain and the relay view arrive in a later phase; nothing "
-                             "is missing from the mesh. The routes NET would draw are in "
-                             "NODES, on each node's own detail.");
-}
-
 static void show_only(struct rift_app *a, lv_obj_t *keep)
 {
     uint32_t n = lv_obj_get_child_count(a->content);
@@ -298,6 +285,12 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         /* Leaving NODES is a Cancel for any confirmation left up there. */
         rift_nodes_cancel_confirm(a);
     }
+    if (section != RIFT_SEC_ACTIVITY) {
+        /* And leaving ACTIVITY for what is open there - a form, a LEAVE or
+         * path hash confirmation, a key shown for sharing. */
+        rift_manage_cancel(a);
+        rift_device_cancel(a);
+    }
     rift_tabs_paint(a);
     switch (section) {
     case RIFT_SEC_ACTIVITY:
@@ -310,7 +303,7 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         show_only(a, a->comms_root);
         break;
     default:
-        show_only(a, a->placeholder);
+        show_only(a, a->net_root);
         break;
     }
     rift_app_refresh(a);
@@ -387,6 +380,8 @@ void rift_app_refresh(struct rift_app *a)
         rift_nodes_refresh(a);
     } else if (a->section == RIFT_SEC_COMMS) {
         rift_comms_refresh(a);
+    } else if (a->section == RIFT_SEC_NET) {
+        rift_net_view_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
     rift_tabs_paint(a);
@@ -542,6 +537,11 @@ static void layout(struct rift_app *a)
         a->wide = wide;
         /* A pane left open in one shape does not follow into the other. */
         a->details_open = 0;
+        /* Nor does a form or a confirmation on ACTIVITY: turning the panel is
+         * Cancel, as it is for FORGET. Only on a turn - the touch keyboard
+         * coming up also lays the frame out, under somebody typing. */
+        rift_manage_cancel(a);
+        rift_device_cancel(a);
     }
     /* The chrome's heights from the timer, not from inside this layout
      * pass (rift_app.h, chrome_pending). */
@@ -549,6 +549,7 @@ static void layout(struct rift_app *a)
     rift_activity_shape(a);
     rift_nodes_shape(a);
     rift_comms_shape(a);
+    rift_net_view_shape(a);
     /* Draw now, so the new shape is not empty for a frame, and ask for
      * another pass from the timer: this one is inside LVGL's layout update,
      * where no width can be settled on demand and anything fitted to a
@@ -638,6 +639,7 @@ static void *rift_create(lv_obj_t *root)
     lv_obj_remove_flag(a->frame, LV_OBJ_FLAG_SCROLLABLE);
 
     rift_tabs_build(a);
+    build_keysink(a);
 
     a->content = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->content);
@@ -648,8 +650,11 @@ static void *rift_create(lv_obj_t *root)
     a->activity_root = rift_activity_create(a, a->content);
     a->nodes_root = rift_nodes_create(a, a->content);
     a->comms_root = rift_comms_create(a, a->content);
-    build_placeholder(a);
+    a->net_root = rift_net_view_create(a, a->content);
     build_cmdline(a);
+    /* The sink was made first (build_keysink); it goes last among the
+     * frame's children, where it has always been. */
+    lv_obj_move_to_index(a->keysink, -1);
     if (a->composer) {
         lv_obj_add_event_cb(a->composer, on_composer_key, LV_EVENT_KEY, a);
         lv_obj_add_event_cb(a->composer, on_composer_focus, LV_EVENT_FOCUSED, a);
@@ -660,7 +665,6 @@ static void *rift_create(lv_obj_t *root)
      * the focus group, and the arrows, Enter and Esc reach whichever section
      * is showing (DS §17.2, §17.4). */
     lv_obj_add_event_cb(a->keysink, on_key, LV_EVENT_KEY, a);
-    pos_input_add_obj(a->keysink);
     pos_input_focus(a->keysink);
 
     /* One object watched for theme changes; invalidating the frame repaints
@@ -687,6 +691,8 @@ static void *rift_create(lv_obj_t *root)
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
     lv_obj_update_layout(a->frame);
     layout(a);
+    /* RIFT opens on ACTIVITY, read from its top. */
+    lv_obj_scroll_to_y(a->activity_root, 0, LV_ANIM_OFF);
     LOG_INFO("rift: open, %s", rift_ipc_connected(&a->ipc) ? "meshcored connected"
                                                            : "meshcored not answering");
     return a;
@@ -741,6 +747,7 @@ static void rift_destroy(void *priv)
         pocketos_shell_keyboard_hide();
     }
     rift_comms_destroy(a);
+    rift_net_view_destroy(a);
     rift_nodes_destroy(a);
     rift_activity_destroy(a);
     /* The LVGL objects are children of the shell's body and are deleted

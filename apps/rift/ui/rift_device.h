@@ -1,0 +1,32 @@
+/*
+ * THIS DEVICE's own settings on ACTIVITY: the node's name and the path hash
+ * size of the floods it starts. The service does both (docs/api/mesh.md,
+ * mesh.set_name and mesh.set_path_hash); neither transmits.
+ *
+ *   RENAME      a form in place, the current name in it. Refused - and said
+ *               so before anything is asked - when the name is set by the
+ *               service's configuration (MESHCORED_NAME), which would put the
+ *               old one back at its next start. Peers learn a new name from
+ *               this node's next advert, and the caption says so.
+ *   PATH HASH   1, 2 or 3 bytes of each relay's key in the paths of this
+ *               node's floods. 1 is what every MeshCore node reads; a move to
+ *               2 or 3 asks first, because repeaters whose firmware does not
+ *               read multi-byte paths drop such floods.
+ *
+ * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ */
+#ifndef RIFT_DEVICE_H
+#define RIFT_DEVICE_H
+
+#include "rift_app.h"
+
+/* The controls, at the end of the THIS DEVICE panel. */
+void rift_device_build(struct rift_app *app, lv_obj_t *panel);
+void rift_device_refresh(struct rift_app *app);
+/* Leaving ACTIVITY or turning the panel is Cancel for the rename form and
+ * the path hash confirmation. Touches no widget: it may run in a layout. */
+void rift_device_cancel(struct rift_app *app);
+void rift_device_destroy(struct rift_app *app);
+lv_obj_t *rift_device_rename_field(const struct rift_app *app);
+
+#endif

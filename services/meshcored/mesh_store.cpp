@@ -792,4 +792,83 @@ bool channelsSave(const ChannelState& cs, const char* dir, char* err)
     return writeWhole(path, buf, len, 0600, err);
 }
 
+/* ---- settings.v1 -----------------------------------------------------------
+ *
+ * Text, one key=value a line, so an operator can read it with cat. Small and
+ * not key material, but written the same way as everything else here: a
+ * temporary, fsync, rename, the directory flushed. */
+static const char kSettingsName[] = "settings.v1";
+static const size_t kSettingsMax = 1024;
+
+int settingsLoad(Settings& s, const char* dir, char* err)
+{
+    char path[256];
+    uint8_t buf[kSettingsMax + 1];
+    long n;
+    size_t at = 0;
+
+    s = Settings();
+    joinPath(path, sizeof(path), dir, kSettingsName);
+    n = readWhole(path, buf, kSettingsMax, err);
+    if (n == -2) {
+        return 1;
+    }
+    if (n < 0) {
+        return -1;
+    }
+    buf[n] = '\0';
+    while (at < (size_t)n) {
+        char line[128];
+        size_t len = 0;
+        char* eq;
+
+        while (at < (size_t)n && buf[at] != '\n' && len + 1 < sizeof(line)) {
+            line[len++] = (char)buf[at++];
+        }
+        while (at < (size_t)n && buf[at] != '\n') {
+            at++; /* a line longer than any value: the rest of it is skipped */
+        }
+        at++;
+        line[len] = '\0';
+        if (len > 0 && line[len - 1] == '\r') {
+            line[--len] = '\0';
+        }
+        if (len == 0 || line[0] == '#') {
+            continue;
+        }
+        eq = strchr(line, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        if (strcmp(line, "path_hash_bytes") == 0) {
+            const char* v = eq + 1;
+
+            if (v[0] < '1' || v[0] > '3' || v[1] != '\0') {
+                snprintf(err, ERR_SIZE, "%s: path_hash_bytes must be 1, 2 or 3, not \"%s\"",
+                         path, v);
+                s = Settings();
+                return -1;
+            }
+            s.path_hash_bytes = v[0] - '0';
+        }
+    }
+    return 0;
+}
+
+bool settingsSave(const Settings& s, const char* dir, char* err)
+{
+    char path[256];
+    char text[64];
+    int len;
+
+    if (s.path_hash_bytes < 1 || s.path_hash_bytes > 3) {
+        snprintf(err, ERR_SIZE, "path_hash_bytes %d is not 1, 2 or 3", s.path_hash_bytes);
+        return false;
+    }
+    len = snprintf(text, sizeof(text), "path_hash_bytes=%d\n", s.path_hash_bytes);
+    joinPath(path, sizeof(path), dir, kSettingsName);
+    return writeWhole(path, (const uint8_t*)text, (size_t)len, 0600, err);
+}
+
 }  // namespace mcdstore

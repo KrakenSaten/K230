@@ -187,10 +187,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_messages.c
     ${REPO_DIR}/apps/rift/rift_channels.c
     ${REPO_DIR}/apps/rift/rift_actions.c
+    ${REPO_DIR}/apps/rift/rift_identity.c
+    ${REPO_DIR}/apps/rift/rift_keys.c
     ${REPO_DIR}/apps/rift/rift_order.c
+    ${REPO_DIR}/apps/rift/rift_net.c
     ${REPO_DIR}/apps/rift/rift_format.c
     ${REPO_DIR}/apps/rift/rift_format_msg.c
     ${REPO_DIR}/apps/rift/rift_ipc.c
+    ${REPO_DIR}/apps/rift/rift_ipc_manage.c
     ${REPO_DIR}/apps/rift/rift_notify.c
     ${REPO_DIR}/apps/rift/rift_sound.c
     ${REPO_DIR}/apps/rift/rift_store.c
@@ -202,6 +206,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_graph.c
     ${REPO_DIR}/apps/rift/ui/rift_activity.c
     ${REPO_DIR}/apps/rift/ui/rift_nodes.c
+    ${REPO_DIR}/apps/rift/ui/rift_find.c
+    ${REPO_DIR}/apps/rift/ui/rift_netview.c
+    ${REPO_DIR}/apps/rift/ui/rift_manage.c
+    ${REPO_DIR}/apps/rift/ui/rift_device.c
+    ${REPO_DIR}/apps/rift/ui/rift_form.c
     ${REPO_DIR}/apps/rift/ui/rift_node_row.c
     ${REPO_DIR}/apps/rift/ui/rift_detail.c
     ${REPO_DIR}/apps/rift/ui/rift_comms.c
@@ -1288,10 +1297,14 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_messages.c
         ${REPO_DIR}/apps/rift/rift_channels.c
         ${REPO_DIR}/apps/rift/rift_actions.c
+        ${REPO_DIR}/apps/rift/rift_identity.c
+        ${REPO_DIR}/apps/rift/rift_keys.c
         ${REPO_DIR}/apps/rift/rift_order.c
+        ${REPO_DIR}/apps/rift/rift_net.c
         ${REPO_DIR}/apps/rift/rift_format.c
         ${REPO_DIR}/apps/rift/rift_format_msg.c
         ${REPO_DIR}/apps/rift/rift_ipc.c
+        ${REPO_DIR}/apps/rift/rift_ipc_manage.c
         ${REPO_DIR}/apps/rift/rift_notify.c
         ${REPO_DIR}/apps/rift/rift_sound.c
         ${REPO_DIR}/apps/rift/rift_store.c
@@ -1303,6 +1316,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_graph.c
         ${REPO_DIR}/apps/rift/ui/rift_activity.c
         ${REPO_DIR}/apps/rift/ui/rift_nodes.c
+        ${REPO_DIR}/apps/rift/ui/rift_find.c
+        ${REPO_DIR}/apps/rift/ui/rift_netview.c
+        ${REPO_DIR}/apps/rift/ui/rift_manage.c
+        ${REPO_DIR}/apps/rift/ui/rift_device.c
+        ${REPO_DIR}/apps/rift/ui/rift_form.c
         ${REPO_DIR}/apps/rift/ui/rift_node_row.c
         ${REPO_DIR}/apps/rift/ui/rift_detail.c
         ${REPO_DIR}/apps/rift/ui/rift_comms.c

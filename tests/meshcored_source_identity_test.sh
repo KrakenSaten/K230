@@ -106,7 +106,17 @@ if [ ! -d "$RIFT_SRC/src" ]; then
     echo "        This is a build-integrity gate; not running it is not a pass."
     exit 77
 fi
-cp -a "$RIFT_SRC" "$TMP/unnamed-rift"
+# The tree's contents into a directory of our own, never the tree itself:
+# when vendor/RIFT is a symbolic link (a build copy that links the vendored
+# trees in one by one), `cp -a` copies the link, and the rm below then
+# deleted the real checkout's .git through it (2026-10-01). The .git is
+# removed only from what is now certainly a copy.
+mkdir -p "$TMP/unnamed-rift"
+cp -a "$RIFT_SRC/." "$TMP/unnamed-rift/"
+if [ -L "$TMP/unnamed-rift" ] || [ "$(cd "$TMP/unnamed-rift" && pwd -P)" = "$(cd "$RIFT_SRC" && pwd -P)" ]; then
+    echo "FAIL the copy of $RIFT_SRC is not a copy; refusing to touch it"
+    exit 1
+fi
 rm -rf "$TMP/unnamed-rift/.git"
 
 make ENABLE_MESHCORED=1 MESHCORE_RIFT_DIR="$TMP/unnamed-rift" meshcored \

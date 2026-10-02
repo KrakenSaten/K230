@@ -294,7 +294,8 @@ refuse "nothing advertises on a timer" \
 check "the IPC surface is documented" "$([ -f docs/api/mesh.md ] && echo 1 || echo 0)"
 check "and the service itself" "$([ -f docs/services/MESHCORED.md ] && echo 1 || echo 0)"
 for m in mesh.info mesh.status mesh.identity mesh.nodes mesh.node mesh.messages \
-         mesh.send mesh.advert mesh.subscribe mesh.unsubscribe; do
+         mesh.send mesh.advert mesh.subscribe mesh.unsubscribe mesh.set_name mesh.path_hash \
+         mesh.set_path_hash; do
     check "docs/api/mesh.md describes $m" \
         "$(grep -q "$m" docs/api/mesh.md 2>/dev/null && echo 1 || echo 0)"
     check "and $m is implemented" \

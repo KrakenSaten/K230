@@ -183,6 +183,15 @@ struct rift_node {
     double snr_db;
     int have_rssi;
     double rssi_dbm;
+    /* How many relays the node's last advert passed through before this
+     * device heard it (mesh.nodes, advert_hops): 0 is heard straight from
+     * the node - a zero-hop neighbour. Not the route back above, which is
+     * learned separately. Absent until an advert was heard in the
+     * service's current run. */
+    int have_advert_hops;
+    int advert_hops;
+    int have_advert_mono;
+    int64_t advert_mono_ms;              /* ours */
 
     /* How many adverts this app has seen name this node, and its path
      * history since RIFT opened. Both are this app's own observations and
@@ -394,6 +403,13 @@ enum rift_action {
     RIFT_ACTION_ADVERT_MESH,  /* mesh.advert, flooded */
     RIFT_ACTION_FORGET,       /* mesh.node_remove */
     RIFT_ACTION_RESET_PATH,   /* mesh.node_reset_path */
+    /* Managing this node (ui/rift_manage.c), one at a time in m->manage_op.
+     * None transmits: a channel is a key held here, a name reaches peers at
+     * the next advert, and a path hash size applies to the next flood. */
+    RIFT_ACTION_CHANNEL_ADD,     /* mesh.channel_add */
+    RIFT_ACTION_CHANNEL_REMOVE,  /* mesh.channel_remove */
+    RIFT_ACTION_RENAME,          /* mesh.set_name */
+    RIFT_ACTION_PATH_HASH,       /* mesh.set_path_hash */
 };
 
 struct rift_action_state {
@@ -404,6 +420,7 @@ struct rift_action_state {
     int unknown; /* of failed: nobody knows - the service went before answering */
     char key[RIFT_KEY_HEX];     /* the node, for FORGET and RESET_PATH */
     char label[RIFT_NAME_MAX];  /* what the node was called when asked */
+    int value;                  /* the slot, or the path hash size, asked about */
     int have_mono;
     int64_t mono_ms;            /* written, and then answered */
     char error[RIFT_TEXT_MAX];
@@ -507,6 +524,19 @@ struct rift_model {
     char self_key[RIFT_KEY_HEX];
     char self_hash[RIFT_HASH_HEX];
     char self_name[RIFT_NAME_MAX];
+    /* Where the name came from (mesh.identity name_source): RIFT_NAME_SOURCE_*.
+     * CONFIG is the operator's --name, which the service will not rename. */
+    int self_name_source;
+    int self_name_max; /* bytes; 0 when the service did not say */
+
+    /* The path hash size this node's floods ask for (mesh.path_hash): bytes
+     * of each relay's hash a repeater writes, 1 to 3. have_path_hash is 0
+     * until it is read; path_hash_unsupported is set when the service
+     * answered that it has no such method (a build older than it). */
+    int have_path_hash;
+    int path_hash_bytes;
+    unsigned path_hash_allowed; /* bit n set: n bytes is allowed */
+    int path_hash_unsupported;
 
     /* ---- what is shown, and how sure it is ------------------------- */
     /* A snapshot has been read since the last connection was made. Until
@@ -616,7 +646,15 @@ struct rift_model {
      * change is what NODES reports. Each holds one request at a time. */
     struct rift_action_state advert;
     struct rift_action_state node_op;
+    /* The third: managing this node - a channel joined or left, a rename, a
+     * path hash size. ACTIVITY reports it. */
+    struct rift_action_state manage_op;
 };
+
+#define RIFT_NAME_SOURCE_UNKNOWN 0
+#define RIFT_NAME_SOURCE_CONFIG 1
+#define RIFT_NAME_SOURCE_STORED 2
+#define RIFT_NAME_SOURCE_DERIVED 3
 
 /* An empty model: no service, no identity, no nodes, nothing known. */
 void rift_model_init(struct rift_model *m);
@@ -639,6 +677,8 @@ int rift_model_apply_info(struct rift_model *m, const cJSON *result);
  * tested without waiting for a real clock. */
 int rift_model_apply_status(struct rift_model *m, const cJSON *result, int64_t now_ms);
 int rift_model_apply_identity(struct rift_model *m, const cJSON *result);
+/* A mesh.path_hash (or mesh.set_path_hash) result: bytes and allowed. */
+int rift_model_apply_path_hash(struct rift_model *m, const cJSON *result);
 /* A whole mesh.nodes result: the cache becomes exactly this list, in the
  * order the service gave, and the snapshot becomes valid. */
 int rift_model_apply_nodes(struct rift_model *m, const cJSON *result);
@@ -695,6 +735,32 @@ int rift_model_order(const struct rift_model *m, int64_t now_ms, const struct ri
 /* How many of the ordered nodes are fresh (heard within RIFT_STALE_MS).
  * The rest of the order is the stale group and then the never-heard. */
 int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
+
+/* ---- finding nodes (rift_order.c) -----------------------------------------
+ *
+ * A search is a question asked of the list, never a change to it: nothing
+ * here writes a node.
+ *
+ * rift_node_matches: whether a node answers what a reader typed. Case does
+ * not matter (ASCII, and the Latin-1 letters Æ Ø Å and their kin); the
+ * spaces around the query do not count. A node matches when its name holds
+ * the query, or when the query is two or more hex characters its key starts
+ * with - the node hash, which is how a hop is written. An empty query
+ * matches everything.
+ *
+ * rift_node_zero_hop: heard straight from it - its last advert came through
+ * no relay (advert_hops 0), or the learned route back has none (direct).
+ *
+ * rift_node_filter keeps, in place and in order, the nodes that match the
+ * query and - when zero_hop_repeaters is set - are repeaters heard zero-hop.
+ * Returns how many are kept. */
+#define RIFT_QUERY_MAX 40
+#define RIFT_NODE_TYPE_REPEATER 2
+int rift_node_matches(const struct rift_node *n, const char *query);
+int rift_node_is_repeater(const struct rift_node *n);
+int rift_node_zero_hop(const struct rift_node *n);
+int rift_node_filter(const struct rift_node **list, int count, const char *query,
+                     int zero_hop_repeaters);
 
 /* ---- activity (rift_format.h, rift_pulse_of, for the words) ----------
  *

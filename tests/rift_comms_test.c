@@ -369,6 +369,61 @@ static void test_body_and_meta(void)
     text_is("nor any body", rift_msg_body(NULL), "");
 }
 
+/* ---- emoji and other multi-byte text: limits are bytes, as on the air ------ */
+static void test_multibyte_limits(void)
+{
+    static struct rift_model s;
+    char text[256];
+    char why[128];
+    int i;
+
+    for (i = 0; i < 40; i++) {
+        memcpy(text + 4 * i, "\xF0\x9F\x99\x82", 4);
+    }
+    text[160] = '\0';
+    check("forty 4-byte emoji are 160 bytes, and a message takes them",
+          rift_send_text_bytes(text) == 160 && rift_send_text_check(text, why, sizeof(why)) == 0);
+    memcpy(text + 160, "\xF0\x9F\x99\x82", 5);
+    check("forty-one are 164 bytes, and refused in bytes, not characters",
+          rift_send_text_check(text, why, sizeof(why)) != 0 && strstr(why, "164 bytes") != NULL);
+    check("text that is not well-formed is refused before it is asked",
+          rift_send_text_check("hei \xF0\x9F\x99", why, sizeof(why)) != 0 &&
+              strstr(why, "UTF-8") != NULL);
+    check("Norwegian letters are two bytes each and fine",
+          rift_send_text_check("bl\xC3\xA5" "b\xC3\xA6rsyltet\xC3\xB8y", why, sizeof(why)) == 0);
+    check("a text smiley is plain ASCII", rift_send_text_check(":) <3 :D", why, sizeof(why)) == 0);
+
+    /* A channel's limit is bytes too: 147 here, so 36 emoji (144 bytes) go and
+     * 37 (148 bytes) do not, though both are far fewer characters. */
+    rift_model_init(&s);
+    {
+        cJSON *o = cJSON_Parse("{\"channels\":[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":"
+                               "\"8c\",\"key_bits\":128,\"text_limit\":147}],\"count\":1,\"max\":8}");
+
+        rift_model_apply_channels(&s, o);
+        cJSON_Delete(o);
+    }
+    s.state = RIFT_SVC_ONLINE;
+    s.have_status = 1;
+    s.radio_online = 1;
+    {
+        char key[RIFT_KEY_HEX];
+
+        rift_channel_key(0, "8c", "SITE", key, sizeof(key));
+        for (i = 0; i < 37; i++) {
+            memcpy(text + 4 * i, "\xF0\x9F\x98\x82", 4);
+        }
+        text[144] = '\0';
+        check("a channel takes what fits its byte limit",
+              rift_model_send_begin(&s, key, text, 1000) == 0);
+        rift_model_send_failed(&s, "x");
+        rift_model_send_clear(&s);
+        memcpy(text + 144, "\xF0\x9F\x98\x82", 5);
+        check("and refuses a character more, which would be 148 bytes",
+              rift_model_send_begin(&s, key, text, 1000) == -1);
+    }
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -1325,6 +1380,7 @@ int main(void)
     test_body_and_meta();
     test_slot_reuse();
 
+    test_multibyte_limits();
     printf("rift_comms_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

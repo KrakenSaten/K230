@@ -135,16 +135,16 @@ big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" 
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
 for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c \
             rift_order.c rift_format.c rift_format_msg.c rift_ipc.c rift_notify.c rift_sound.c \
-            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c rift_strip.c \
+            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c rift_strip.c rift_net.c \
             ui/rift_widgets.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
-            ui/rift_thread.c; do
+            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
-            rift_notify.c rift_sound.c rift_store.c rift_traffic.c; do
+            rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
@@ -225,28 +225,70 @@ check "and its one bounded wait is the connect" \
 check "all four sections keep their place in the navigation" \
     "$(grep -q 'RIFT_SEC_COMMS' "$SRC/rift_app.h" && grep -q 'RIFT_SEC_NET' "$SRC/rift_app.h" &&
        echo 1 || echo 0)"
-check "and NET says it is not in this build rather than showing an empty view" \
-    "$(grep -q 'not in this build' "$SRC/rift_app.c" && echo 1 || echo 0)"
+# NET is drawn now: the hop rings of handoff §7, placed from what the node
+# cache holds (rift_net.c) and drawn by its own screen. What must stay true is
+# that it draws only what was observed - a hop count the service reported, a
+# route it learned - and that looking at it asks the service for nothing.
+check "NET is drawn, from the node cache" \
+    "$(grep -q 'rift_net_view_refresh' "$SRC/rift_app.c" && grep -q 'rift_net_build' \
+        "$SRC/ui/rift_netview.c" && ! grep -q 'not in this build' "$SRC/rift_app.c" &&
+       echo 1 || echo 0)"
+check "a ring is placed by a learned route or an advert's hop count, and nothing else" \
+    "$(grep -q 'RIFT_NET_SOURCE_ROUTE' "$SRC/rift_net.c" && grep -q 'RIFT_NET_SOURCE_ADVERT' \
+        "$SRC/rift_net.c" && ! grep -qE 'rssi|snr' "$SRC/rift_net.c" && echo 1 || echo 0)"
+check "and NET asks the service for nothing" \
+    "$(grep -q 'rift_ipc_' "$SRC/ui/rift_netview.c" && echo 0 || echo 1)"
+# The find bar narrows the node list and changes nothing. The one request it
+# makes is a fresh node list when the zero-hop view is turned on - a question,
+# not a packet: discovering repeaters by transmitting is not in the API.
+findipc=$(grep -o 'rift_ipc_[a-z_]*' "$SRC/ui/rift_find.c" | sort -u | tr '\n' ' ')
+check "the find bar only ever asks for the node list (${findipc:-nothing})" \
+    "$([ "$findipc" = "rift_ipc_request_nodes " ] && echo 1 || echo 0)"
+check "and searching writes no node" \
+    "$(grep -qE 'rift_model_(apply|drop)' "$SRC/ui/rift_find.c" "$SRC/rift_order.c" &&
+       echo 0 || echo 1)"
 check "there is no command parser in this phase" \
     "$(grep -rqE 'strcmp\(.*"/msg"|"/nodes"|"/advert"' "$SRC" && echo 0 || echo 1)"
 
-# ---- channels are the service's, and this app only shows them -----------------
-# The approved design merges channels into the COMMS list with a "#" glyph,
-# and now there is something to merge. What must stay true is that every
-# channel on screen is one the service reported: this app holds no key,
-# derives no channel from a name, and cannot join one. A channel row that did
-# not come from mesh.channels would be this app inventing a place to write
-# that nothing would carry.
+# ---- channels are the service's; this app joins and leaves them on request --
+# The approved design merges channels into the COMMS list with a "#" glyph.
+# Since feat/rift-management the owner asked for channels to be managed here
+# too, and the rules are the ones every other change to the service follows:
+# named once, reached only from the panel a reader pressed, leaving only from
+# its confirmation. And a key is never kept: it is made or checked in
+# rift_keys.c, typed into the CHANNELS form, written into one request and
+# wiped - the service's channels.v1 is its only home. No key in the model, the
+# store, the client's own state or any other screen.
 check "channels are compiled into the protocol core" \
     "$(grep -q 'MAX_GROUP_CHANNELS' protocols/meshcore/compat/mc_channels.h && echo 1 || echo 0)"
-check "the app holds no channel key" \
-    "$(grep -rqiE 'psk|pre_shared|secret\[|channel_key\[|base64' "$SRC" && echo 0 || echo 1)"
-# The quoted method string, which is what a call looks like - rift_ipc.h
-# names both methods in prose to say why they are not used, and a check that
-# could not tell the two apart would fail on the explanation.
-check "and cannot join or leave one: that takes a key" \
-    "$(grep -rq --include='*.c' '"mesh\.channel_add"\|"mesh\.channel_remove"' "$SRC" &&
+keyfiles=$(grep -rliE 'psk|pre_shared|secret\[|channel_key\[|base64' "$SRC" --include='*.c' \
+            --include='*.h' | sort | tr '\n' ' ')
+check "key material is handled in the key module and the CHANNELS form only (${keyfiles:-nowhere})" \
+    "$([ "$keyfiles" = "$SRC/rift_keys.c $SRC/rift_keys.h $SRC/ui/rift_manage.c " ] && echo 1 || echo 0)"
+check "and the model holds no key" \
+    "$(grep -qiE '\bkey_b64|shared_key|psk' "$SRC/rift_model.h" "$SRC/rift_store.h" &&
        echo 0 || echo 1)"
+chanhits=$(grep -rlnE '"mesh\.channel_(add|remove)"' "$SRC" | sort | tr '\n' ' ')
+check "joining and leaving are named only in the meshcored client (${chanhits:-nowhere})" \
+    "$([ "$chanhits" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+chancallers=$(grep -rlnE 'rift_ipc_channel_(add|remove)\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "and are called only from the CHANNELS panel (${chancallers:-nowhere})" \
+    "$([ "$chancallers" = "$SRC/rift_ipc_manage.c $SRC/ui/rift_manage.c " ] && echo 1 || echo 0)"
+check "a channel is left only from the confirmation, never from the first press" \
+    "$([ "$(grep -c 'rift_ipc_channel_remove(' "$SRC/ui/rift_manage.c")" = "1" ] &&
+       grep -B 14 'rift_ipc_channel_remove(' "$SRC/ui/rift_manage.c" |
+       grep -q 'static void on_leave_confirm(lv_event_t' && echo 1 || echo 0)"
+devcallers=$(grep -rlnE 'rift_ipc_set_(name|path_hash)\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "a rename and the path hash size are asked only from THIS DEVICE (${devcallers:-nowhere})" \
+    "$([ "$devcallers" = "$SRC/rift_ipc_manage.c $SRC/ui/rift_device.c " ] && echo 1 || echo 0)"
+check "and a size other than 1 only from its confirmation" \
+    "$(grep -B 12 'rift_ipc_set_path_hash(&a->ipc, v->bytes_pending)' "$SRC/ui/rift_device.c" |
+       grep -q 'static void on_bytes_confirm(lv_event_t' &&
+       [ "$(grep -c 'rift_ipc_set_path_hash(' "$SRC/ui/rift_device.c")" = "2" ] &&
+       grep -q 'rift_ipc_set_path_hash(&a->ipc, 1)' "$SRC/ui/rift_device.c" && echo 1 || echo 0)"
+check "a random key comes from the kernel's source, never a weaker one" \
+    "$(grep -q 'getrandom(' "$SRC/rift_keys.c" && ! grep -rqE '\brand\(|srand\(|random\(\)' "$SRC" &&
+       echo 1 || echo 0)"
 check "the channel list comes from the service" \
     "$(grep -q 'mesh.channels' "$SRC/rift_ipc.c" && echo 1 || echo 0)"
 check "and a channel row is drawn only from it" \
@@ -266,7 +308,8 @@ check "and the delivery tally counts channel sends apart" \
 # A sender's name on a channel is a claim: nothing signs a group frame. It
 # must not be drawn the way a peer's name is.
 check "a claimed sender name is marked as a claim" \
-    "$(grep -q '"%s?", msg->sender_name' "$SRC/rift_format_msg.c" &&
+    "$(grep -q 'rift_text_shown(msg->sender_name' "$SRC/rift_format_msg.c" &&
+       grep -q '"%s?", shown' "$SRC/rift_format_msg.c" &&
        grep -q 'rift_fmt_msg_meta' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
 # And the thread prints the body without the "<sender>: " MeshCore writes
 # into a channel payload - the caption names the sender, once, as a claim.

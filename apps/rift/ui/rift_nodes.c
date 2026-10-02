@@ -16,6 +16,7 @@
 
 #include "pos_styles.h"
 #include "rift_detail.h"
+#include "rift_find.h"
 #include "rift_node_row.h"
 
 #include <stdio.h>
@@ -397,6 +398,7 @@ void rift_nodes_shape(struct rift_app *app)
         app->detail_open = 0;
     }
     rift_nodes_cancel_confirm(app);
+    rift_find_shape(app);
     if (v->head_cell[1]) {
         lv_obj_set_width(v->head_cell[1], rift_node_strip_width(app));
     }
@@ -468,6 +470,8 @@ lv_obj_t *rift_nodes_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_flex_flow(v->pane_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_hor(v->pane_list, RIFT_PAD, 0);
     lv_obj_remove_flag(v->pane_list, LV_OBJ_FLAG_SCROLLABLE);
+    /* Finding a node first, over the list it narrows (ui/rift_find.c). */
+    rift_find_create(app, v->pane_list);
     build_head(v);
 
     /* The list lays nothing out itself: every child is placed by
@@ -536,6 +540,8 @@ void rift_nodes_destroy(struct rift_app *app)
     rift_detail_destroy(v->detail_full);
     /* Every object is a child of the section container and is deleted with
      * it by the shell; the private blocks are this app's to release. */
+    free(app->find);
+    app->find = NULL;
     free(v);
     app->nodes = NULL;
 }
@@ -548,18 +554,43 @@ int rift_nodes_rows_built(const struct rift_app *app)
 /* The list's footer: shown only for what the rows cannot say themselves -
  * that there are none, that they are cached, that a node was just forgotten,
  * or that the service's table had no room for some. */
-static void paint_note(struct rift_nodes *v, int count)
+static void paint_note(struct rift_nodes *v, int count, int held)
 {
     const struct rift_model *m = &v->app->model;
     const struct rift_action_state *op = &m->node_op;
     int64_t now = rift_app_now(v->app);
     char text[RIFT_ACTION_TEXT_MAX];
     int show = 1;
+    int searching = v->app->node_query[0] != '\0';
+    int zero_hop = v->app->node_zero_hop;
 
     unsigned turned_away = rift_model_unretained_recent(m);
     int forgot = op->kind == RIFT_ACTION_FORGET && op->done;
 
-    if (count > 0 && m->stale) {
+    if ((searching || zero_hop) && count == 0 && held > 0) {
+        /* Nothing answers: said, rather than an empty list that reads as an
+         * empty mesh. What zero-hop is built on is said with it, because an
+         * empty view there is a quiet neighbourhood, not a fault. */
+        if (zero_hop && !searching) {
+            lv_label_set_text(v->note, "No repeater heard zero-hop since the radio service "
+                                       "started. One appears here when its advert reaches "
+                                       "this device with no relay in between; nothing is "
+                                       "sent to ask.");
+        } else if (zero_hop) {
+            lv_label_set_text_fmt(v->note, "No zero-hop repeater matches \"%s\".",
+                                  v->app->node_query);
+        } else {
+            lv_label_set_text_fmt(v->note, "No node matches \"%s\" (name, or hash from 2 hex).",
+                                  v->app->node_query);
+        }
+    } else if (zero_hop && count > 0) {
+        lv_label_set_text_fmt(v->note,
+                              "%d of %d" RIFT_SEP "repeaters whose last advert reached this "
+                              "device with no relay in between",
+                              count, held);
+    } else if (searching && count > 0) {
+        lv_label_set_text_fmt(v->note, "%d of %d match", count, held);
+    } else if (count > 0 && m->stale) {
         lv_label_set_text_fmt(v->note, "%d node%s, cached: meshcored is not answering.", count,
                               count == 1 ? "" : "s");
     } else if (op->kind == RIFT_ACTION_FORGET && (op->done || op->failed) && op->have_mono &&
@@ -602,6 +633,7 @@ void rift_nodes_refresh(struct rift_app *app)
     const struct rift_node *sel;
     int64_t now;
     int count;
+    int held;
     int fresh;
     int stale_count = 0;
     int unheard_count = 0;
@@ -611,11 +643,16 @@ void rift_nodes_refresh(struct rift_app *app)
         return;
     }
     now = rift_app_now(app);
-    count = rift_model_order(&app->model, now, order, RIFT_MAX_NODES);
-    fresh = rift_model_fresh_count(&app->model, now);
-    if (fresh > count) {
-        fresh = count;
+    held = rift_model_order(&app->model, now, order, RIFT_MAX_NODES);
+    /* The find bar narrows the order and changes nothing in it: the same
+     * groups, the same order, fewer rows. */
+    count = rift_node_filter(order, held, app->node_query, app->node_zero_hop);
+    /* The order puts the fresh first, so they are the head of what is left. */
+    for (fresh = 0; fresh < count && order[fresh]->have_heard &&
+                    !rift_node_is_stale(order[fresh], now);
+         fresh++) {
     }
+    rift_find_refresh(app);
     sel = rift_app_selected(app);
 
     /* A detail with nothing to show is closed rather than left saying so: the
@@ -642,18 +679,21 @@ void rift_nodes_refresh(struct rift_app *app)
     }
     /* The group labels carry the counts (and in landscape the strip does). */
     {
-        char text[48];
+        /* In the zero-hop view every group says so: the toggle's colour is
+         * never the only thing that does. */
+        const char *pre = app->node_zero_hop ? "ZERO-HOP RPT" RIFT_SEP : "";
+        char text[64];
 
-        snprintf(text, sizeof(text), "HEARD < 12 H" RIFT_SEP "%d", fresh);
+        snprintf(text, sizeof(text), "%sHEARD < 12 H" RIFT_SEP "%d", pre, fresh);
         lv_label_set_text(v->group[0], text);
-        snprintf(text, sizeof(text), "NOT HEARD > 12 H" RIFT_SEP "%d", stale_count);
+        snprintf(text, sizeof(text), "%sNOT HEARD > 12 H" RIFT_SEP "%d", pre, stale_count);
         lv_label_set_text(v->group[1], text);
-        snprintf(text, sizeof(text), "NEVER HEARD" RIFT_SEP "%d", unheard_count);
+        snprintf(text, sizeof(text), "%sNEVER HEARD" RIFT_SEP "%d", pre, unheard_count);
         lv_label_set_text(v->group[2], text);
     }
     /* The footer first, only when it has something the list does not already
      * say: whether it is there decides how tall the list is. */
-    paint_note(v, count);
+    paint_note(v, count, held);
     lay_out(v, fresh);
     /* One layout, so the list's height and every row's name box are settled
      * before anything is bound or fitted against them. */

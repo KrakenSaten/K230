@@ -6,7 +6,9 @@
 #include "rift_activity.h"
 
 #include "pos_styles.h"
+#include "rift_device.h"
 #include "rift_graph.h"
+#include "rift_manage.h"
 #include "rift_sound.h"
 
 #include <stdio.h>
@@ -184,6 +186,8 @@ static void build_identity(struct rift_activity_view *v, lv_obj_t *parent)
     v->advert_near = rift_action(bar, "ADVERT NEAR", 0, 0, on_advert, v);
     v->advert_mesh = rift_action(bar, "ADVERT MESH", 0, 0, on_advert, v);
     v->advert_line = wrapping(panel, POS_STYLE_CAPTION);
+    /* The name and the path hash size: this node's own, so in its panel. */
+    rift_device_build(v->app, panel);
 }
 
 /* The DM sound's setting: a press turns it over, and that is all it does.
@@ -310,6 +314,9 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
      * device, heard, feed. */
     build_service(v, v->col[0]);
     build_sound(v, v->col[0]);
+    /* The channels this node holds, joined and left here (ui/rift_manage.c);
+     * built before THIS DEVICE, which adds its controls to the same block. */
+    rift_manage_build_channels(app, v->col[0]);
     build_identity(v, v->col[1]);
     build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
@@ -321,6 +328,8 @@ void rift_activity_destroy(struct rift_app *app)
     if (!app || !app->activity) {
         return;
     }
+    rift_manage_destroy(app);
+    rift_device_destroy(app);
     free(app->activity);
     app->activity = NULL;
 }
@@ -703,6 +712,8 @@ void rift_activity_refresh(struct rift_app *app)
     refresh_service(v);
     refresh_sound(v);
     refresh_identity(v);
+    rift_manage_refresh(app);
+    rift_device_refresh(app);
     refresh_heard(v, now);
     refresh_feed(v, now);
 }

@@ -45,7 +45,72 @@ struct state {
     int removed_count;
     char unrouted[8][65];
     int unrouted_count;
+    /* Managing the node: the channel table as it now stands (taken from the
+     * script on first use, then changed by channel_add / channel_remove),
+     * the keys behind it, the name and the path hash size. */
+    cJSON *channels;
+    char channel_key[8][48];
+    char name[32];
+    int path_hash_bytes;
 };
+
+static cJSON *channels_now(struct state *st)
+{
+    if (!st->channels) {
+        st->channels = st->script->channels_json ? cJSON_Parse(st->script->channels_json)
+                                                 : cJSON_CreateArray();
+        if (!cJSON_IsArray(st->channels)) {
+            cJSON_Delete(st->channels);
+            st->channels = cJSON_CreateArray();
+        }
+    }
+    return st->channels;
+}
+
+static void manage_log(struct state *st, const char *name, const cJSON *params)
+{
+    FILE *f;
+    char *text;
+
+    if (!st->script->manage_log) {
+        return;
+    }
+    f = fopen(st->script->manage_log, "a");
+    if (!f) {
+        return;
+    }
+    text = params ? cJSON_PrintUnformatted(params) : NULL;
+    fprintf(f, "%s|%s\n", name, text ? text : "{}");
+    free(text);
+    fclose(f);
+}
+
+static cJSON *identity_json(struct state *st)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(o, "public_key", SELF_KEY);
+    cJSON_AddStringToObject(o, "node_hash", "5f");
+    cJSON_AddStringToObject(o, "name", st->name[0] ? st->name : "K230-A");
+    cJSON_AddStringToObject(o, "name_source", st->script->name_pinned ? "config" : "stored");
+    cJSON_AddNumberToObject(o, "name_max", 31);
+    return o;
+}
+
+static cJSON *path_hash_json(struct state *st)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON *allowed = cJSON_CreateArray();
+    int b;
+
+    for (b = 1; b <= 3; b++) {
+        cJSON_AddItemToArray(allowed, cJSON_CreateNumber(b));
+    }
+    cJSON_AddNumberToObject(o, "bytes", st->path_hash_bytes ? st->path_hash_bytes : 1);
+    cJSON_AddItemToObject(o, "allowed", allowed);
+    cJSON_AddNumberToObject(o, "default", 1);
+    return o;
+}
 
 static int listed(char (*keys)[65], int count, const char *key)
 {
@@ -209,10 +274,145 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
     } else if (strcmp(name, "mesh.status") == 0) {
         result = status_json(st);
     } else if (strcmp(name, "mesh.identity") == 0) {
-        result = cJSON_CreateObject();
-        cJSON_AddStringToObject(result, "public_key", SELF_KEY);
-        cJSON_AddStringToObject(result, "node_hash", "5f");
-        cJSON_AddStringToObject(result, "name", "K230-A");
+        result = identity_json(st);
+    } else if (strcmp(name, "mesh.path_hash") == 0 && !st->script->no_path_hash) {
+        result = path_hash_json(st);
+    } else if (strcmp(name, "mesh.channel_add") == 0 ||
+               strcmp(name, "mesh.channel_remove") == 0 || strcmp(name, "mesh.set_name") == 0 ||
+               strcmp(name, "mesh.set_path_hash") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        cJSON *table = channels_now(st);
+
+        manage_log(st, name, params);
+        if (st->script->manage_silent) {
+            return;
+        }
+        if (strcmp(name, "mesh.channel_add") == 0) {
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(params, "name");
+            const cJSON *key = cJSON_GetObjectItemCaseSensitive(params, "key");
+            size_t klen = cJSON_IsString(key) ? strlen(key->valuestring) : 0;
+            int used[8] = { 0 };
+            const cJSON *item;
+            cJSON *ch;
+            cJSON *data;
+            int slot = -1;
+            int i;
+
+            if (!cJSON_IsString(nm) || !nm->valuestring[0] || strlen(nm->valuestring) > 31) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "name must be 1 to 31 bytes"));
+                return;
+            }
+            if (klen != 24 && klen != 44) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "key must be standard base64 decoding to "
+                                                 "exactly 16 or 32 non-zero bytes"));
+                return;
+            }
+            cJSON_ArrayForEach (item, table) {
+                const cJSON *sl = cJSON_GetObjectItemCaseSensitive(item, "channel");
+
+                if (cJSON_IsNumber(sl) && sl->valuedouble >= 0 && sl->valuedouble < 8) {
+                    used[(int)sl->valuedouble] = 1;
+                }
+            }
+            for (i = 0; i < 8; i++) {
+                if (used[i] && strcmp(st->channel_key[i], key->valuestring) == 0) {
+                    pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                     id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                     "that key is already a channel on this node"));
+                    return;
+                }
+            }
+            for (i = 0; i < 8 && slot < 0; i++) {
+                if (!used[i]) {
+                    slot = i;
+                }
+            }
+            if (slot < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_BUSY,
+                                                 "all 8 channel slots are taken"));
+                return;
+            }
+            snprintf(st->channel_key[slot], sizeof(st->channel_key[slot]), "%s", key->valuestring);
+            ch = cJSON_CreateObject();
+            cJSON_AddNumberToObject(ch, "channel", slot);
+            cJSON_AddStringToObject(ch, "name", nm->valuestring);
+            cJSON_AddStringToObject(ch, "channel_hash", "a5");
+            cJSON_AddNumberToObject(ch, "key_bits", klen == 24 ? 128 : 256);
+            cJSON_AddNumberToObject(ch, "text_limit", 147);
+            cJSON_AddBoolToObject(ch, "ack_expected", 0);
+            cJSON_AddItemToArray(table, cJSON_Duplicate(ch, 1));
+            data = cJSON_CreateObject();
+            cJSON_AddStringToObject(data, "reason", "added");
+            cJSON_AddItemToObject(data, "channel", cJSON_Duplicate(ch, 1));
+            pocketipc_server_broadcast(s, pocketipc_event("mesh.channel", data));
+            result = ch;
+        } else if (strcmp(name, "mesh.channel_remove") == 0) {
+            const cJSON *sl = cJSON_GetObjectItemCaseSensitive(params, "channel");
+            cJSON *gone = NULL;
+            cJSON *data;
+            int at = 0;
+            const cJSON *item;
+
+            cJSON_ArrayForEach (item, table) {
+                const cJSON *x = cJSON_GetObjectItemCaseSensitive(item, "channel");
+
+                if (cJSON_IsNumber(sl) && cJSON_IsNumber(x) && x->valuedouble == sl->valuedouble) {
+                    gone = cJSON_DetachItemFromArray(table, at);
+                    break;
+                }
+                at++;
+            }
+            if (!gone) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "no channel in that slot"));
+                return;
+            }
+            data = cJSON_CreateObject();
+            cJSON_AddStringToObject(data, "reason", "removed");
+            cJSON_AddItemToObject(data, "channel", gone);
+            pocketipc_server_broadcast(s, pocketipc_event("mesh.channel", data));
+            result = cJSON_CreateObject();
+            cJSON_AddBoolToObject(result, "removed", 1);
+            cJSON_AddNumberToObject(result, "channel", sl->valuedouble);
+            cJSON_AddBoolToObject(result, "key_forgotten", 1);
+        } else if (strcmp(name, "mesh.set_name") == 0) {
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(params, "name");
+
+            if (st->script->name_pinned) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "the name is set by meshcored's configuration"));
+                return;
+            }
+            if (!cJSON_IsString(nm) || !nm->valuestring[0] || strlen(nm->valuestring) > 31) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "name must be 1 to 31 bytes"));
+                return;
+            }
+            snprintf(st->name, sizeof(st->name), "%s", nm->valuestring);
+            result = identity_json(st);
+            cJSON_AddBoolToObject(result, "persisted", 1);
+        } else {
+            const cJSON *b = cJSON_GetObjectItemCaseSensitive(params, "bytes");
+
+            if (!cJSON_IsNumber(b) || b->valuedouble < 1 || b->valuedouble > 3 ||
+                b->valuedouble != (double)(int)b->valuedouble) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "bytes must be 1, 2 or 3"));
+                return;
+            }
+            st->path_hash_bytes = (int)b->valuedouble;
+            result = path_hash_json(st);
+            cJSON_AddBoolToObject(result, "persisted", 1);
+        }
     } else if (strcmp(name, "mesh.nodes") == 0) {
         cJSON *arr;
 
@@ -251,13 +451,8 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             return;
         }
     } else if (strcmp(name, "mesh.channels") == 0) {
-        cJSON *arr = st->script->channels_json ? cJSON_Parse(st->script->channels_json)
-                                               : cJSON_CreateArray();
+        cJSON *arr = cJSON_Duplicate(channels_now(st), 1);
 
-        if (!cJSON_IsArray(arr)) {
-            cJSON_Delete(arr);
-            arr = cJSON_CreateArray();
-        }
         result = cJSON_CreateObject();
         cJSON_AddNumberToObject(result, "count", cJSON_GetArraySize(arr));
         cJSON_AddNumberToObject(result, "max", 8);

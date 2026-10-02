@@ -966,6 +966,57 @@ static void test_channels_quarantine(void)
           !mcdstore::channelsQuarantine(g_dir, kept, sizeof(kept), err));
 }
 
+/* ---- settings.v1: the service's own settings ----------------------------- */
+static void test_settings(void)
+{
+    mcdstore::Settings st;
+    struct stat sb;
+    char path[512];
+
+    removeFile("settings.v1");
+    st.path_hash_bytes = 3;
+    check("no settings file is the defaults, and says so",
+          mcdstore::settingsLoad(st, g_dir, g_err) == 1 && st.path_hash_bytes == 1);
+    st.path_hash_bytes = 2;
+    check("a path hash size is saved", mcdstore::settingsSave(st, g_dir, g_err));
+    joinp(path, sizeof(path), "settings.v1");
+    check("at 0600, like everything this service writes",
+          stat(path, &sb) == 0 && (sb.st_mode & 0777) == 0600);
+    st = mcdstore::Settings();
+    check("and read back", mcdstore::settingsLoad(st, g_dir, g_err) == 0 &&
+                               st.path_hash_bytes == 2);
+    st.path_hash_bytes = 4;
+    check("a size outside 1..3 is not written", !mcdstore::settingsSave(st, g_dir, g_err));
+    st = mcdstore::Settings();
+    check("and the file still holds the last good one",
+          mcdstore::settingsLoad(st, g_dir, g_err) == 0 && st.path_hash_bytes == 2);
+    {
+        const char text[] = "# written by hand\r\nsomething_newer=7\npath_hash_bytes=3\n";
+
+        writeRaw("settings.v1", (const uint8_t*)text, sizeof(text) - 1, 0600);
+        st = mcdstore::Settings();
+        check("comments, CR LF and keys this build does not know are passed over",
+              mcdstore::settingsLoad(st, g_dir, g_err) == 0 && st.path_hash_bytes == 3);
+    }
+    {
+        const char text[] = "path_hash_bytes=9\n";
+
+        writeRaw("settings.v1", (const uint8_t*)text, sizeof(text) - 1, 0600);
+        st.path_hash_bytes = 2;
+        check("a value out of range is refused, with the defaults and a reason",
+              mcdstore::settingsLoad(st, g_dir, g_err) == -1 && st.path_hash_bytes == 1 &&
+                  strstr(g_err, "path_hash_bytes") != NULL);
+    }
+    {
+        const char text[] = "path_hash_bytes=22\n";
+
+        writeRaw("settings.v1", (const uint8_t*)text, sizeof(text) - 1, 0600);
+        check("and so is one with more than a digit",
+              mcdstore::settingsLoad(st, g_dir, g_err) == -1 && st.path_hash_bytes == 1);
+    }
+    removeFile("settings.v1");
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-store-XXXXXX";
@@ -987,6 +1038,7 @@ int main(void)
     test_channels_round_trip();
     test_channels_corruption();
     test_channels_quarantine();
+    test_settings();
     test_directory_durability();
     test_dir_rules();
 

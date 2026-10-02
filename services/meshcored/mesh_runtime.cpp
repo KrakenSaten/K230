@@ -26,6 +26,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "mesh_runtime.h"
+#include "mcd_util.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -425,7 +426,8 @@ public:
           _chan_count(0), _chan_head(0), _next_msg_id(1),
           _path_refused(0), _unparsed(0), _rx_logged(0), _unretained(0),
           _contacts_full(0), _chan_unmatched(0), _app_count(0), _app_head(0), _next_app_id(1),
-          _rx_flood(false), _app_rx(0), _app_tx(0), _app_receipts(0), _app_refused(0)
+          _rx_flood(false), _app_rx(0), _app_tx(0), _app_receipts(0), _app_refused(0),
+          _path_hash_bytes(1)
     {
         memset(_app, 0, sizeof(_app));
         memset(_outbox, 0, sizeof(_outbox));
@@ -441,6 +443,37 @@ public:
         snprintf(_name, sizeof(_name), "%s", n ? n : "");
     }
     const char* name() const { return _name; }
+    /* A rename is a change to what state.v1 holds (its header carries the
+     * name), so the table is marked for writing like any other change. */
+    void rename(const char* n)
+    {
+        setName(n);
+        _dirty = true;
+    }
+
+    /* How many bytes of each relay's hash a flood this node starts asks the
+     * repeaters to write into its path: MeshCore's path hash size, 1 to 3
+     * (upstream's path_hash_mode 0..2 plus one; mode 3 is reserved there).
+     * 1 is what every MeshCore build has always done and stays the default. */
+    void setPathHashBytes(uint8_t bytes) { _path_hash_bytes = bytes; }
+    uint8_t pathHashBytes() const { return _path_hash_bytes; }
+
+    /* Every flood this node starts goes through these two - a message or a
+     * returned path to a node, a message to a channel (BaseChatMesh) - and
+     * the advert (mcd_runtime_send_advert). They are upstream's
+     * sendFloodScoped with no scope, as the companion firmware's own
+     * (examples/companion_radio/MyMesh.cpp, sendFloodScoped with a null
+     * TransportKey): sendFlood with the configured path hash size. No
+     * transport codes are written; this service has no flood scopes. */
+    void sendFloodScoped(const ContactInfo&, mesh::Packet* pkt, uint32_t delay_millis) override
+    {
+        sendFlood(pkt, delay_millis, _path_hash_bytes);
+    }
+    void sendFloodScoped(const mesh::GroupChannel&, mesh::Packet* pkt,
+                         uint32_t delay_millis) override
+    {
+        sendFlood(pkt, delay_millis, _path_hash_bytes);
+    }
 
     bool dirty() const { return _dirty; }
     void clearDirty() { _dirty = false; }
@@ -887,7 +920,7 @@ protected:
         return lookupContactByPubKey(contact.id.pub_key, PUB_KEY_SIZE) == &contact;
     }
 
-    void onDiscoveredContact(ContactInfo& contact, bool, uint8_t, const uint8_t*) override
+    void onDiscoveredContact(ContactInfo& contact, bool, uint8_t path_len, const uint8_t*) override
     {
         /* is_new is deliberately ignored: BaseChatMesh declares it false and
          * never assigns it (vendor/RIFT/src/helpers/BaseChatMesh.cpp:154 and
@@ -899,7 +932,24 @@ protected:
         }
         _dirty = true;
         stamp(contact.id.pub_key);
+        /* path_len is the advert packet's own (BaseChatMesh::onAdvertRecv
+         * passes packet->path_len), so its hop count is how many relays the
+         * advert came through: 0 when it was heard straight from the node.
+         * Read, not inferred, and kept beside the signal for this run. */
+        noteAdvertHops(contact.id.pub_key, mesh::Packet::pathHashCount(path_len));
         emitNode(contact, "discovered");
+    }
+
+    void noteAdvertHops(const uint8_t* key, uint8_t hops)
+    {
+        Telemetry& t = slotFor(key);
+
+        if (!t.used || memcmp(t.key, key, PUB_KEY_SIZE) != 0) {
+            return; /* stamp() has just made the slot; nothing else may */
+        }
+        t.advert_hops_known = true;
+        t.advert_hops = hops;
+        t.advert_ms = t.heard_ms;
     }
 
     /* Counted rather than logged per advert: on a full table this fires for
@@ -1405,6 +1455,13 @@ private:
         mcd_rx_meta meta;
         Telemetry& t = slotFor(key);
 
+        /* A slot taken over from another node carries nothing of it over:
+         * its advert's hop count was that node's. */
+        if (!t.used || memcmp(t.key, key, PUB_KEY_SIZE) != 0) {
+            t.advert_hops_known = false;
+            t.advert_hops = 0;
+            t.advert_ms = 0;
+        }
         t.used = true;
         memcpy(t.key, key, PUB_KEY_SIZE);
         t.heard_known = true;
@@ -1431,6 +1488,11 @@ public:
         double snr_db;
         bool rssi_known;
         double rssi_dbm;
+        /* The hop count of the node's last advert, as the packet carried it
+         * (mcd_node.advert_hops). */
+        bool advert_hops_known;
+        uint8_t advert_hops;
+        uint64_t advert_ms;
     };
 
     const Telemetry* telemetryFor(const uint8_t* key) const
@@ -1482,6 +1544,9 @@ public:
             n.last_snr_db = t->snr_db;
             n.last_rssi_known = t->rssi_known;
             n.last_rssi_dbm = t->rssi_dbm;
+            n.advert_hops_known = t->advert_hops_known;
+            n.advert_hops = t->advert_hops;
+            n.advert_mono_ms = t->advert_ms;
         }
     }
 
@@ -1586,6 +1651,7 @@ private:
     uint64_t _app_tx;
     uint64_t _app_receipts;
     uint64_t _app_refused;
+    uint8_t _path_hash_bytes; /* setPathHashBytes */
 
     char _name[MCD_NODE_NAME_LEN];
 };
@@ -1628,6 +1694,8 @@ struct mcd_runtime {
      * for the rest of this run: the file is the only evidence there is. */
     bool persist_blocked;
     bool channels_blocked;
+    /* Where the name in use came from (mcd_runtime_name_source). */
+    enum mcd_name_source name_source;
 
     explicit mcd_runtime(const mcd_runtime_hooks& hooks)
         : mgr(32), radio(hooks),
@@ -1638,6 +1706,7 @@ struct mcd_runtime {
         state_fault[0] = '\0';
         channel_fault[0] = '\0';
         channels_blocked = false;
+        name_source = MCD_NAME_DERIVED;
     }
 };
 
@@ -1830,14 +1899,32 @@ struct mcd_runtime* mcd_runtime_create(const struct mcd_runtime_config* cfg,
      * node hash is anyway. */
     if (cfg->node_name && cfg->node_name[0]) {
         rt->node.setName(cfg->node_name);
+        rt->name_source = MCD_NAME_CONFIG;
     } else if (st.name[0]) {
         rt->node.setName(st.name);
+        rt->name_source = MCD_NAME_STORED;
     } else {
         char derived[MCD_NODE_NAME_LEN];
 
         snprintf(derived, sizeof(derived), "Doors-%02x%02x",
                  (unsigned)id.pub_key[0], (unsigned)id.pub_key[1]);
         rt->node.setName(derived);
+    }
+
+    /* The service's own settings: today the path hash size. A file that
+     * cannot be read leaves the default (1, what MeshCore has always sent)
+     * and says so; it holds nothing that cannot be set again. */
+    {
+        mcdstore::Settings set;
+        char set_err[mcdstore::ERR_SIZE] = "";
+        int set_rc = mcdstore::settingsLoad(set, cfg->state_dir, set_err);
+
+        if (set_rc < 0) {
+            mcport::logWrite(mcport::LOG_WARN, "meshcored: %s; path hash size stays 1 byte",
+                             set_err);
+        } else {
+            rt->node.setPathHashBytes((uint8_t)set.path_hash_bytes);
+        }
     }
 
     rt->node.begin();
@@ -1987,6 +2074,89 @@ void mcd_runtime_identity(const struct mcd_runtime* rt, uint8_t pub_key[MCD_PUB_
 {
     memcpy(pub_key, rt->node.self_id.pub_key, PUB_KEY_SIZE);
     snprintf(name, name_len, "%s", rt->node.name());
+}
+
+enum mcd_name_source mcd_runtime_name_source(const struct mcd_runtime* rt)
+{
+    return rt->name_source;
+}
+
+enum mcd_rename_result mcd_runtime_set_name(struct mcd_runtime* rt, const char* name,
+                                            bool* persisted)
+{
+    char clean[MCD_SANITIZED_SIZE(MCD_NODE_NAME_LEN)];
+    size_t len;
+    size_t i;
+    bool blank = true;
+
+    if (persisted) {
+        *persisted = false;
+    }
+    if (rt->name_source == MCD_NAME_CONFIG) {
+        /* The operator gave this name on the command line (--name, which
+         * S65meshcored passes from MESHCORED_NAME), and it replaces the
+         * stored one at every start: a rename here would be undone at the
+         * next one, silently. Refused, and the reason says where it is set. */
+        return MCD_RENAME_PINNED;
+    }
+    if (!name || !mcd_text_acceptable(name, MCD_NODE_NAME_LEN - 1)) {
+        return MCD_RENAME_BAD_NAME;
+    }
+    len = strlen(name);
+    for (i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+
+        /* A name is one line: no newline or tab, which a message may hold. */
+        if (c == '\n' || c == '\t') {
+            return MCD_RENAME_BAD_NAME;
+        }
+        if (c != ' ') {
+            blank = false;
+        }
+    }
+    /* Well-formed UTF-8 only: the name goes on the air in every advert and
+     * into every channel message, and a peer shows what it receives. What
+     * mcd_text_sanitize would change is what a peer could not show. */
+    mcd_text_sanitize(name, clean, sizeof(clean));
+    if (blank || strcmp(clean, name) != 0) {
+        return MCD_RENAME_BAD_NAME;
+    }
+    rt->node.rename(name);
+    rt->name_source = MCD_NAME_STORED;
+    /* Written now, as forgetting a node is: a rename answered and then lost
+     * to a restart ten seconds later would make the answer untrue. */
+    if (persisted) {
+        *persisted = !rt->persist_blocked && mcd_runtime_persist(rt) == 0 && !rt->node.dirty();
+    } else if (!rt->persist_blocked) {
+        (void)mcd_runtime_persist(rt);
+    }
+    return MCD_RENAME_OK;
+}
+
+int mcd_runtime_path_hash_bytes(const struct mcd_runtime* rt)
+{
+    return rt->node.pathHashBytes();
+}
+
+bool mcd_runtime_set_path_hash_bytes(struct mcd_runtime* rt, int bytes, bool* persisted)
+{
+    mcdstore::Settings set;
+    char err[mcdstore::ERR_SIZE] = "";
+    bool written;
+
+    if (bytes < MCD_PATH_HASH_MIN || bytes > MCD_PATH_HASH_MAX) {
+        return false;
+    }
+    rt->node.setPathHashBytes((uint8_t)bytes);
+    set.path_hash_bytes = bytes;
+    written = mcdstore::settingsSave(set, rt->state_dir, err);
+    if (!written) {
+        mcport::logWrite(mcport::LOG_ERROR, "meshcored: %s", err);
+    }
+    if (persisted) {
+        *persisted = written;
+    }
+    return true;
 }
 
 int mcd_runtime_node_count(const struct mcd_runtime* rt)
@@ -2330,7 +2500,9 @@ bool mcd_runtime_send_advert(struct mcd_runtime* rt)
     if (pkt == NULL) {
         return false;
     }
-    rt->node.sendFlood(pkt);
+    /* With the configured path hash size, as every other flood this node
+     * starts (Node::sendFloodScoped). */
+    rt->node.sendFlood(pkt, 0, rt->node.pathHashBytes());
     return true;
 }
 

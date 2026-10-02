@@ -34,8 +34,9 @@
  * needs - not half the row: the field is what a reader works in. */
 #define SEND_W 128
 
-/* One message: the 2 px rule that says whose it is, the body, and ONE
- * caption - age · [claimed sender] · state · evidence.
+/* One message: the 2 px rule that says whose it is, on a channel the
+ * claimed sender BEFORE the body, the body, and ONE caption - age · state ·
+ * evidence.
  *
  * It used to be three lines: a line of age and sender over the body, then
  * the state under it. In a direct thread the sender line said "you" or the
@@ -304,9 +305,14 @@ static void build_row(struct rift_thread *t)
     lv_obj_set_style_pad_column(r->column, CAPTION_GAP, 0);
     lv_obj_remove_flag(r->column, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(r->column, LV_OBJ_FLAG_CLICKABLE);
-    r->body = fit_label(r->column, POS_STYLE_TEXT_PRIMARY);
+    /* Who spoke comes first, then what they said, then the caption: a
+     * channel line is read "ANNA? hei" the way a conversation is spoken.
+     * The three are items of one wrapping row, so a short message keeps the
+     * name, the body and the caption on one line, and a body too long for
+     * what the name leaves goes under it whole - "Sender" over "Message". */
     r->sender = fit_label(r->column, POS_STYLE_CAPTION);
     lv_obj_add_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
+    r->body = fit_label(r->column, POS_STYLE_TEXT_PRIMARY);
     r->caption = fit_label(r->column, POS_STYLE_CAPTION);
     r->out = -1; /* neither side yet: the first update sets it */
     t->row_count++;
@@ -348,7 +354,14 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
      * MeshCore writes into the payload, because the caption below names the
      * sender - as a claim, with a trailing "?", since nothing signs a group
      * frame and anyone holding the key can send any name. */
-    rift_label_set(r->body, rift_msg_body(msg));
+    {
+        /* Drawn with its emoji written as smileys (rift_text_shown): the
+         * fonts carry none. The stored text is untouched. */
+        char shown[RIFT_MSG_TEXT_MAX];
+
+        rift_text_shown(rift_msg_body(msg), shown, sizeof(shown));
+        rift_label_set(r->body, shown);
+    }
     /* An age, not a time of day. The design's mock reads "11:32"; this board
      * has no clock that survives a power cut (docs/hardware/T-DISPLAY-K230.md)
      * and a message's own timestamp is the *sender's* clock (docs/api/mesh.md),

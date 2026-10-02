@@ -152,6 +152,20 @@ bool channelsSave(const ChannelState& cs, const char* dir, char* err);
  * as stateQuarantine: renamed, never rewritten. */
 bool channelsQuarantine(const char* dir, char* kept, size_t kept_len, char* err);
 
+/* The service's own settings, settings.v1: text, one key=value a line, so an
+ * operator can read it. Today one value, path_hash_bytes (1..3). A key this
+ * build does not know is skipped, so a newer file is still read.
+ *
+ * settingsLoad returns 0 when the file was read, 1 when there is none (the
+ * defaults stand), -1 when it could not be read or holds a value out of
+ * range (the defaults stand, err says why). */
+struct Settings {
+    int path_hash_bytes;
+    Settings() : path_hash_bytes(1) {}
+};
+int settingsLoad(Settings& s, const char* dir, char* err);
+bool settingsSave(const Settings& s, const char* dir, char* err);
+
 #ifdef MCD_STORE_TEST_HOOKS
 /* Present only in the hooked build of mesh_store.cpp, which the test binaries
  * link in place of the shipped one; tests/meshcored_lint.sh checks the symbol
@@ -159,6 +173,7 @@ bool channelsQuarantine(const char* dir, char* kept, size_t kept_len, char* err)
  * a working filesystem will not do on request - and an error path that has
  * never been executed is a guess rather than a behaviour. */
 void failNextDirSyncForTest(int n);
+
 #endif
 
 }  // namespace mcdstore
