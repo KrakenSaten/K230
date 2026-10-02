@@ -135,3 +135,16 @@ hw_actions_shell_test 0, package_sync_test 0, notices_test 0, style_lint 0.
   session row.
 - Flashing the `c655e2b` image is not needed for this branch; the unit has
   its toolbox files.
+
+## Follow-up: the first frame's cursor (2026-10-02, `0330d93`)
+
+On unit B a new session's first frame left a cursor-coloured block at the
+top-left once the login banner (which starts with a new line) moved the
+cursor away without writing row 0. Fixed in `0330d93`; `terminal_app_test`
+now checks the flushed pixels of that cell (144 cursor pixels before, 0
+after). Unit A runs the production build of `0330d93` (md5 `b229c364…`,
+11:52Z): first frame with the banner clean, the cursor only at the prompt;
+open, leave, reopen kept the shell; CLOSE SESSION by touch left nothing;
+`settings.conf` and `identity.id` unchanged. **Unit B was left on `2ace5b7`**:
+the owner was using it (RIFT open, a Terminal session running, settings
+changed), so its shell was not restarted. Rollbacks unchanged.
