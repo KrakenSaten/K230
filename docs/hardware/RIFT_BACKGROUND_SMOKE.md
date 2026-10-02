@@ -37,3 +37,22 @@ the background. Note: that shell carries master's Zabbix connection settings
 (a24e86c), whose helper the unit's v0.3.0 `pos-zabbix` predates, so Zabbix's
 CONNECTION screen is not expected to work on this unit until it is restored or
 updated. Restore with `/root/rollback-rift-bg/RESTORE.sh`.
+
+## Visible navigation controls (2026-10-02, doors-shell `0600641`)
+
+The owner found the first pass's navigation unchanged to the eye (only the row
+and the targets had grown). **Unit B now runs doors-shell `0600641`** (md5
+`05381d601999ad090c68b771713ef932`), same rollback. Landscape, Large:
+
+| | master | first pass (`3353659`) | now (`0600641`) |
+| --- | --- | --- | --- |
+| Row | 36 px | 56 px | 64 px |
+| Back | 56 x 32 slab | 64 x 52 slab | 72 x 56 face |
+| Tabs | caption words | caption words, 56 px targets | 56 px faces, button type |
+
+Captured on the panel: the five faces in one look on ACTIVITY, NODES, COMMS
+and NET; a finger tap on each tab switched to it; Back went home with the RIFT
+mark up; reopening was the kept session (`open again ... open 2`). doors-shell
+pid unchanged, 0 ERROR/assert lines. Seen, not changed: NET's ring column
+headings overlap at Large in landscape (NET's own layout; not compared with
+master here).
