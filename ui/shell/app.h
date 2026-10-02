@@ -60,6 +60,13 @@ struct pocketos_app {
      * DS §47 - back to that app). May be NULL: Back is then the back slab. Never called from
      * inside an LVGL event. Appended and zero, so the API version stays. */
     int (*back)(void *priv);
+    /* The shell is about to exit or re-execute itself (a rotation, a stop):
+     * end whatever the app keeps running while it is not open. Called once,
+     * after the open app was closed, on the LVGL thread. For the one app
+     * whose work outlives its screen - the Terminal's session (TERMINAL.md)
+     * - so that it ends cleanly instead of being cut off by the exec. May be
+     * NULL. Appended and zero, so the API version stays. */
+    void (*shutdown)(void);
 };
 
 /* Shell services available to apps. */

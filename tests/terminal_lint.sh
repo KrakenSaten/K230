@@ -54,6 +54,16 @@ check "only the Terminal asks for raw keys" "$([ -z "$hits" ] && echo 1 || echo 
 check "the Terminal gives the raw key path back when it closes" \
     "$(grep -q 'pos_input_set_raw_target(NULL)' $T/terminal_app.c && echo 1 || echo 0)"
 
+# The session outlives the screen (TERMINAL.md): its one timer is made where
+# a session starts and nowhere else, and the Doors shell ends it before it
+# exits or re-executes, so an exec never leaves its processes to nobody.
+check "the session's timer is made only where a session starts" \
+    "$([ "$(grep -c 'lv_timer_create(' $T/terminal_app.c)" = "1" ] &&
+       awk '/^static void session_start\(/,/^}/' $T/terminal_app.c | grep -q 'lv_timer_create(' && echo 1 || echo 0)"
+check "the Doors shell ends the session on its way out" \
+    "$(grep -q '\.shutdown = terminal_shutdown' $T/terminal_app.c && grep -q 'apps\[i\]->shutdown()' ui/shell/shell.c &&
+       echo 1 || echo 0)"
+
 check "make test runs the Terminal suites and this lint" \
     "$(grep -q 'TERMINAL_TEST_RUN' Makefile && grep -q 'bash tests/terminal_lint.sh' Makefile && echo 1 || echo 0)"
 check "the test binaries are ignored" \
