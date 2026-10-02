@@ -470,6 +470,8 @@ the branch (VERIFIED, 2026-10-01/02):
 | `tests/license_audit_test.sh` after B1 (new classes; every brand file listed in BRAND.md with no Apache-2.0 tag; NOTICE names the brand terms) | `cb86af8` | 0 failures; candidate assets: 108 ORIGINAL, 158 OWNER-VECTOR, 16 OWNER-AI-RASTER, 16 BRAND, 35 DERIVED-ART, 1 DERIVED-BRAND, 103 CAPTURE |
 | `tests/notices_test.sh` (NOTICE changed; pocketos.hash regenerated) | `cb86af8` | 0 failures |
 | public-source export | `cb86af8` | 1,852 files, 8 exclusions, none of the excluded groups present |
+| `tests/license_audit_test.sh`, `tests/notices_test.sh` after re-admitting the RIFT package | `d35b9be` | 0 failures each; candidate assets add 11 OWNER-AI-RASTER (RIFT shots) and 1 OWNER-DESIGN |
+| public-source export | `d35b9be` | 1,866 files; `docs/design/rift/` present without `support.js`; no `.zip`, `.otf`, `originals/` or `mockups/` |
 
 Not run, by the owner's instruction on 2026-10-02: the riscv64 and DRM
 cross builds, `apply_to_sdk.sh` / `build_image.sh` against the SDK, and
