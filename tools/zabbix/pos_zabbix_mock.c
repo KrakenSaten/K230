@@ -6,7 +6,7 @@
  * built by `make test` and by name, and never installed into an image.
  *
  *   pos-zabbix-mock [--listen ADDR] [--port N] [--scenario NAME]
- *                   [--tls CERT KEY] [--port-file FILE]
+ *                   [--tls CERT KEY] [--port-file FILE] [--close]
  *
  * Listens on 127.0.0.1 unless told otherwise; --port 0 picks a free port and
  * --port-file writes it out for a test. Serves POST .../api_jsonrpc.php with
@@ -16,7 +16,9 @@
  * refusal closes it without an answer (curl: "Empty reply"), and DNS and
  * TLS faults have no socket equivalent and answer 502.
  *
- * One connection at a time, which is all the helper ever opens.
+ * One connection at a time, which is all the helper's session opens. The
+ * CONNECTION screen's trial opens a second one beside it; --close ends every
+ * connection after its answer so that both get served.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -47,6 +49,10 @@
 #define IDLE_MS 30000
 
 static volatile sig_atomic_t stop;
+/* --close: every answer ends its connection. With one connection served at a
+ * time, a kept-alive session would hold the mock for IDLE_MS, and the
+ * CONNECTION screen's trial opens a second one (a real frontend serves both). */
+static bool close_each;
 
 static void on_signal(int sig)
 {
@@ -149,7 +155,7 @@ static int serve_one(struct conn *c, struct zbx_fake *f)
     char path[256];
     char bearer[512] = "";
     long clen = 0;
-    bool keep = true;
+    bool keep = !close_each;
     size_t have;
     char *line;
     struct zbx_fake_answer a;
@@ -308,9 +314,11 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--tls") == 0 && i + 2 < argc) {
             cert = argv[++i];
             key = argv[++i];
+        } else if (strcmp(argv[i], "--close") == 0) {
+            close_each = true;
         } else {
             fprintf(stderr, "usage: pos-zabbix-mock [--listen ADDR] [--port N] [--scenario NAME] "
-                            "[--tls CERT KEY] [--port-file FILE]\n");
+                            "[--tls CERT KEY] [--port-file FILE] [--close]\n");
             return 2;
         }
     }

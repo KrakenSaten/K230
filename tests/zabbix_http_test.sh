@@ -246,6 +246,17 @@ if command -v curl >/dev/null 2>&1; then
     out=$("$H" check 2>/dev/null); rc=$?
     check "connection: what was saved is what pos-zabbix check now uses, online" \
         "$([ $rc = 0 ] && printf '%s\n' "$out" | grep -q $'^pend\t.*\t9$' && echo 1 || echo 0)"
+    # The trial beside a live session to the same server (unit B found the
+    # mock serving one kept-alive connection at a time; --close lets both in,
+    # as a real frontend would). The stored password is kept ("-").
+    stop_mock
+    start_mock --close
+    conf "url=http://127.0.0.1:$PORT/zabbix/" "allow_insecure_http=1" "timeout_s=3" "auth=password" "user=demo"
+    out=$( { sleep 1.5; printf 'ctest\t%s\tpassword\t%s\t-\n' "$(hex "http://127.0.0.1:$PORT/zabbix/")" "$(hex demo)"
+             sleep 2; printf 'quit\n'; } | "$H" session 2>/dev/null)
+    check "connection test beside a live session to the same server: CONNECTED with the stored password" \
+        "$(printf '%s\n' "$out" | grep -q $'^state\tonline' &&
+           printf '%s\n' "$out" | grep -q $'^cresult\ttest\tconnected\t0\t' && echo 1 || echo 0)"
     stop_mock
     check "the password is in no log" "$(grep -rqsF "$PASSWORD" "$T/log" && echo 0 || echo 1)"
 else
