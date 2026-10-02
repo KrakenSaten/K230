@@ -1493,6 +1493,7 @@ static void text_size_session(void)
                     lv_obj_t *box = kid(rings, (uint32_t)i);
                     lv_obj_t *head = kid(box, 0);
                     lv_area_t bx;
+                    lv_area_t col;
                     uint32_t j;
 
                     if (!visible(box)) {
@@ -1501,19 +1502,26 @@ static void text_size_session(void)
                     seen++;
                     /* The heading column: in portrait the row holds the pills too. */
                     lv_obj_get_coords(head, &bx);
+                    lv_obj_get_coords(box, &col);
                     for (j = 0; j < 2; j++) {
                         lv_obj_t *l = kid(head, j);
                         lv_area_t la;
+                        int32_t ends;
 
                         if (!l || !visible(l)) {
                             continue;
                         }
                         lv_obj_get_coords(l, &la);
-                        if (words_w(l) > lv_obj_get_content_width(l) || la.x2 > bx.x2) {
+                        /* Where the words end, not the label's box: and in
+                         * landscape, where the columns meet edge to edge, at
+                         * least 8 px short of the next ring's words. */
+                        ends = la.x1 + words_w(l) - 1;
+                        if (words_w(l) > lv_obj_get_content_width(l) || la.x2 > bx.x2 ||
+                            (app->wide && ends > col.x2 - 8)) {
                             bad++;
-                            printf("     NET %s %s: \"%s\" %d px in %d (column ends %d, label %d)\n",
+                            printf("     NET %s %s: \"%s\" %d px in %d (words end %d, column %d)\n",
                                    size, shape, lv_label_get_text(l), (int)words_w(l),
-                                   (int)lv_obj_get_content_width(l), (int)bx.x2, (int)la.x2);
+                                   (int)lv_obj_get_content_width(l), (int)ends, (int)col.x2);
                         }
                     }
                 }

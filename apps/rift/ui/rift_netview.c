@@ -22,6 +22,10 @@
 #define PILL_H 26
 #define PILL_HIT ((RIFT_ROW_H - PILL_H) / 2)
 #define RING_LABEL_W 92
+/* Landscape: room kept clear at the right of a ring's heading. The columns
+ * meet edge to edge, so a heading that filled its column ran straight into
+ * the next one's ("1 DIRECT 2", unit B at Large) without overlapping it. */
+#define RING_GUTTER_WIDE 12
 #define RAIL_W 2
 /* Landscape: a column per ring, side by side under the path panel, sharing
  * the width equally (about 108 px each for all eleven). A pill's name is cut
@@ -408,6 +412,7 @@ void rift_net_view_shape(struct rift_app *app)
         lv_obj_set_style_border_width(rv->box, app->wide ? 0 : 1, 0);
         rv->empty = -1; /* heights are the shape's: set again on refresh */
         lv_obj_set_width(rv->head, app->wide ? LV_PCT(100) : RING_LABEL_W);
+        lv_obj_set_style_pad_right(rv->head, app->wide ? RING_GUTTER_WIDE : 0, 0);
         lv_obj_set_flex_grow(rv->pills, app->wide ? 0 : 1);
         lv_obj_set_width(rv->pills, app->wide ? LV_PCT(100) : 1);
         lv_obj_set_flex_flow(rv->pills, app->wide ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW_WRAP);
