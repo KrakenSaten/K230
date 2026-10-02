@@ -37,6 +37,10 @@ struct rift_action_state *rift_model_action_slot(struct rift_model *m, enum rift
     if (is_node_action(kind)) {
         return &m->node_op;
     }
+    if (kind == RIFT_ACTION_CHANNEL_ADD || kind == RIFT_ACTION_CHANNEL_REMOVE ||
+        kind == RIFT_ACTION_RENAME || kind == RIFT_ACTION_PATH_HASH) {
+        return &m->manage_op;
+    }
     return NULL;
 }
 

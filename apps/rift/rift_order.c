@@ -139,6 +139,148 @@ const char *rift_model_name_for_hash(const struct rift_model *m, const char *has
     return hit->name;
 }
 
+/* ---- searching the node list ----------------------------------------------
+ *
+ * What a reader can type to find a node: part of its name, or the first hex
+ * of its key - the node hash, which is what a hop is written as. Nothing
+ * here changes a node or the cache; a filter is a question asked of the
+ * order the list already has. */
+
+/* Fold for comparing: ASCII upper case, and the Latin-1 capitals of UTF-8
+ * (C3 80..C3 9E, but not the multiplication sign C3 97) onto their small
+ * letters, which is every letter a Norwegian name has (Æ Ø Å). Anything else
+ * is compared byte for byte, so a search never matches half a character. */
+static size_t fold(const char *in, char *out, size_t out_len)
+{
+    size_t o = 0;
+    size_t i;
+
+    if (!out || out_len == 0) {
+        return 0;
+    }
+    for (i = 0; in && in[i] && o + 1 < out_len; i++) {
+        unsigned char c = (unsigned char)in[i];
+
+        if (c >= 'A' && c <= 'Z') {
+            out[o++] = (char)(c - 'A' + 'a');
+        } else if (c == 0xC3 && in[i + 1] && o + 2 < out_len) {
+            unsigned char d = (unsigned char)in[i + 1];
+
+            out[o++] = (char)c;
+            out[o++] = (char)((d >= 0x80 && d <= 0x9E && d != 0x97) ? d + 0x20 : d);
+            i++;
+        } else if (c == 0xC3) {
+            break; /* no room for the whole character: stop before it */
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+    return o;
+}
+
+/* The query without the spaces around it, folded. 0 when nothing is left. */
+static size_t query_of(const char *query, char *out, size_t out_len)
+{
+    char trimmed[RIFT_QUERY_MAX];
+    size_t len;
+    size_t start = 0;
+
+    if (!query) {
+        out[0] = '\0';
+        return 0;
+    }
+    while (query[start] == ' ' || query[start] == '\t') {
+        start++;
+    }
+    rift_utf8_copy(trimmed, sizeof(trimmed), query + start);
+    len = strlen(trimmed);
+    while (len > 0 && (trimmed[len - 1] == ' ' || trimmed[len - 1] == '\t')) {
+        trimmed[--len] = '\0';
+    }
+    return fold(trimmed, out, out_len);
+}
+
+static int all_hex(const char *s)
+{
+    size_t i;
+
+    for (i = 0; s[i]; i++) {
+        char c = s[i];
+
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return 0;
+        }
+    }
+    return i > 0;
+}
+
+int rift_node_matches(const struct rift_node *n, const char *query)
+{
+    char q[RIFT_QUERY_MAX];
+    char name[RIFT_NAME_MAX];
+    size_t len;
+
+    if (!n) {
+        return 0;
+    }
+    len = query_of(query, q, sizeof(q));
+    if (len == 0) {
+        return 1; /* nothing asked: everything answers */
+    }
+    if (n->have_name && n->name[0]) {
+        fold(n->name, name, sizeof(name));
+        if (strstr(name, q)) {
+            return 1;
+        }
+    }
+    /* Two hex characters at least: one would be a sixteenth of the mesh,
+     * which is not finding anything. The key is stored in lower case. */
+    if (len >= 2 && len <= 64 && all_hex(q) && strncmp(n->key, q, len) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+int rift_node_is_repeater(const struct rift_node *n)
+{
+    return n && n->have_type && n->type == RIFT_NODE_TYPE_REPEATER;
+}
+
+int rift_node_zero_hop(const struct rift_node *n)
+{
+    if (!n) {
+        return 0;
+    }
+    /* Heard straight from it: its last advert came through no relay, or the
+     * route the service learned back to it has none. Either is a fact the
+     * service reported; nothing is inferred from a strong signal. */
+    return (n->have_advert_hops && n->advert_hops == 0) || (n->path_known && n->direct);
+}
+
+int rift_node_filter(const struct rift_node **list, int count, const char *query,
+                     int zero_hop_repeaters)
+{
+    int kept = 0;
+    int i;
+
+    if (!list || count <= 0) {
+        return 0;
+    }
+    for (i = 0; i < count; i++) {
+        const struct rift_node *n = list[i];
+
+        if (!rift_node_matches(n, query)) {
+            continue;
+        }
+        if (zero_hop_repeaters && !(rift_node_is_repeater(n) && rift_node_zero_hop(n))) {
+            continue;
+        }
+        list[kept++] = n;
+    }
+    return kept;
+}
+
 int rift_model_conv_heard(const struct rift_model *m, const struct rift_conv *c, int64_t *ms)
 {
     int have = 0;

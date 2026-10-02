@@ -1057,6 +1057,29 @@ so that pass stayed the size it was scoped to be.
 
 ## RIFT, the mesh client
 
+- **Channel management, rename and the path hash size have not been tried
+  on air** (`feat/rift-management`; gate run on unit B 2026-10-02 without
+  transmitting). Joins, leaves, the key checks and the path hash setting
+  passed on the unit, and channel hashes matched an independent computation
+  and, for Public, unit A; a live Public message was received and shown. No
+  channel joined from RIFT has been written to by RIFT and read by another
+  client, no rename has reached a peer, and no 2- or 3-byte flood *from
+  meshcored* has been sent. The bench mesh's repeaters do carry other nodes'
+  2- and 3-byte path floods (up to 11 relays, radio log of the gate); older
+  repeater firmware elsewhere may not, which RIFT's confirmation says. Gate
+  sheet: `docs/hardware/RIFT_MANAGEMENT_GATE.md` (steps 7 and 8 open).
+- **No flood scopes, so a channel's scope cannot be set.** meshcored writes
+  no transport codes (upstream's per-channel scope is a TODO; the T-Deck
+  RIFT's is its own extension). Every channel floods unscoped, and the
+  CHANNELS panel says so. Needs an owner decision and an on-air gate.
+- **No repeater discovery request.** ZERO-HOP lists repeaters whose own
+  adverts reached this node with no relay (`advert_hops: 0`, this run of the
+  service) or with a direct learned route; MeshCore's
+  `CTL_TYPE_NODE_DISCOVER_REQ` is not implemented in meshcored, so a quiet
+  repeater in range appears only at its next advert.
+- **Emoji draw as text smileys or boxes.** The Doors fonts carry no emoji;
+  RIFT writes the common faces, hearts and thumbs as `:)`, `<3`, `(y)` and
+  leaves the rest as the font's box. Stored and sent text is unchanged.
 - **RIFT caches a thousand nodes; meshcored holds 256.** `RIFT_MAX_NODES`
   is 1000 (DS §37.5), in a virtual NODES list that builds rows only for the
   screen, and the thousand is host-tested only (`tests/rift_app_test.c`:

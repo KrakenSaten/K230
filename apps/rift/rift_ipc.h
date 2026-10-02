@@ -28,10 +28,12 @@
  * And, on a reader's explicit request: mesh.advert, mesh.node_remove and
  * mesh.node_reset_path.
  *
- * It does not JOIN or LEAVE a channel. mesh.channel_add takes a pre-shared
- * key, and there is nowhere on a RIFT screen to type one; adding it here
- * would be this app growing a key-entry surface nobody asked for. This
- * client reads the channels the service holds and writes to them.
+ * And, from ACTIVITY's management panels (ui/rift_manage.c), each only on a
+ * reader's press and none of them transmitting: mesh.channel_add (a key the
+ * reader typed, pasted, or had made here - rift_keys.h - written once into
+ * the request and kept nowhere), mesh.channel_remove (only after a
+ * confirmation), mesh.set_name and mesh.set_path_hash; and mesh.path_hash
+ * to read the size, asked on connecting.
  *
  * Two of those transmit, and each from exactly one function. mesh.send is
  * written only by rift_ipc_send_message, which is reached only from the
@@ -122,6 +124,11 @@ enum rift_req {
     RIFT_REQ_ADVERT,
     RIFT_REQ_NODE_REMOVE,
     RIFT_REQ_NODE_RESET_PATH,
+    RIFT_REQ_CHANNEL_ADD,
+    RIFT_REQ_CHANNEL_REMOVE,
+    RIFT_REQ_SET_NAME,
+    RIFT_REQ_PATH_HASH,
+    RIFT_REQ_SET_PATH_HASH,
 };
 
 struct rift_pending {
@@ -218,6 +225,29 @@ int rift_ipc_send_advert(struct rift_ipc *c, int zero_hop);
  * reason in the model (m->node_op). */
 int rift_ipc_forget_node(struct rift_ipc *c, const char *key, const char *label);
 int rift_ipc_reset_path(struct rift_ipc *c, const char *key, const char *label);
+
+/* Managing this node, each recorded in the model's manage_op before it is
+ * written (rift_model_action_begin) and answered or refused there. None of
+ * them transmits. Each returns 0 when the request went out, -1 otherwise,
+ * with the reason in the model.
+ *
+ * rift_ipc_channel_add writes name and key into the request and keeps
+ * neither: the key's one copy is the service's (channels.v1). label is what
+ * the screen calls the channel afterwards. */
+int rift_ipc_channel_add(struct rift_ipc *c, const char *name, const char *key_b64);
+/* Leave the channel in that slot: its key is forgotten by the service, and
+ * nothing on the air gives it back. Reached only from a confirmation. */
+int rift_ipc_channel_remove(struct rift_ipc *c, int slot, const char *label);
+int rift_ipc_set_name(struct rift_ipc *c, const char *name);
+int rift_ipc_set_path_hash(struct rift_ipc *c, int bytes);
+/* Ask for the path hash size now (mesh.path_hash): a question. */
+int rift_ipc_request_path_hash(struct rift_ipc *c);
+
+/* Write one request (rift_ipc.c's own writer), for rift_ipc_manage.c and
+ * nothing else: every screen goes through the named calls above. params is
+ * consumed. Returns 0, or -1 with the connection already dropped when the
+ * write failed. */
+int rift_ipc_write(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_t now_ms);
 
 int rift_ipc_connected(const struct rift_ipc *c);
 

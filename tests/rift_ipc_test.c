@@ -19,6 +19,7 @@
 #include "rift_ipc.h"
 
 #include "fake_meshcored.h"
+#include "rift_keys.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -295,6 +296,182 @@ static void test_node_changes(const char *runtime)
     check("and the node is still shown, as cached", rift_model_find(&m, KEY_B) != NULL && m.stale);
     rift_ipc_close(&c);
     fake_meshcored_stop(pid);
+}
+
+static int manage_settled(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return !m->manage_op.active;
+}
+
+/* Does this block of memory hold these bytes anywhere? A key the client was
+ * handed must not outlive the request it went out in. */
+static int holds_bytes(const void *block, size_t len, const char *what)
+{
+    size_t n = strlen(what);
+    const unsigned char *b = block;
+    size_t i;
+
+    for (i = 0; n && i + n <= len; i++) {
+        if (memcmp(b + i, what, n) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+#define SITE_CHANNEL \
+    "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":128," \
+    "\"text_limit\":147,\"ack_expected\":false}]"
+
+/* Managing the node: a channel joined and left, a rename, a path hash size.
+ * None transmits; each is asked for once, on request, and the client keeps
+ * no key it was handed. */
+static void test_management(const char *runtime)
+{
+    static struct rift_model m;
+    static struct rift_ipc c;
+    struct fake_meshcored_script script;
+    char manage[600];
+    char key[RIFT_KEY_B64_MAX];
+    char line[512];
+    int lines = 0;
+    FILE *f;
+    pid_t pid;
+
+    snprintf(manage, sizeof(manage), "%s/manage", runtime);
+    unlink(manage);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.channels_json = SITE_CHANNEL;
+    script.manage_log = manage;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service that can be managed is running", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("the service answered a later request too", round_trip(&c, &m));
+    check("the path hash size is read on connecting",
+          m.have_path_hash && m.path_hash_bytes == 1 && !m.path_hash_unsupported);
+    check("and where the name came from", m.self_name_source == RIFT_NAME_SOURCE_STORED &&
+                                              m.self_name_max == 31);
+    f = fopen(manage, "r");
+    check("connecting changed nothing", f == NULL);
+    if (f) {
+        fclose(f);
+    }
+
+    check("a hashtag key is derived", rift_hashtag_key("#test", key, sizeof(key)) == 0);
+    check("a channel is joined on request", rift_ipc_channel_add(&c, "#test", key) == 0);
+    check("one change at a time: a second is refused and not written",
+          rift_ipc_set_name(&c, "Other") == -1);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("the answer settles it", m.manage_op.done && m.manage_op.kind == RIFT_ACTION_CHANNEL_ADD);
+    text_is("under the name it was asked for", m.manage_op.label, "#test");
+    check("and the channel is listed", round_trip(&c, &m) && m.channel_count == 2 &&
+                                           rift_model_channel(&m, 1) &&
+                                           strcmp(rift_model_channel(&m, 1)->name, "#test") == 0);
+    check("the model holds no key", !holds_bytes(&m, sizeof(m), key));
+    check("nor does the client", !holds_bytes(&c, sizeof(c), key));
+
+    rift_ipc_channel_add(&c, "#again", key);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("the same key twice is refused in the service's words",
+          m.manage_op.failed && strstr(m.manage_op.error, "already a channel") != NULL);
+
+    check("a channel is left on request", rift_ipc_channel_remove(&c, 1, "#test") == 0);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("which settles it", m.manage_op.done && m.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE &&
+                                  m.manage_op.value == 1);
+    check("and only that channel is gone", round_trip(&c, &m) && m.channel_count == 1 &&
+                                               rift_model_channel(&m, 0) &&
+                                               !rift_model_channel(&m, 1));
+
+    check("the node is renamed on request", rift_ipc_set_name(&c, "K230-\xC3\x98st") == 0);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("and the identity is the service's answer",
+          m.manage_op.done && strcmp(m.self_name, "K230-\xC3\x98st") == 0);
+
+    check("2-byte path hashes are asked for", rift_ipc_set_path_hash(&c, 2) == 0);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("and the size is the service's answer", m.manage_op.done && m.path_hash_bytes == 2);
+    rift_ipc_set_path_hash(&c, 4);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("a size the service will not take is refused, and the size stays",
+          m.manage_op.failed && m.path_hash_bytes == 2);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    f = fopen(manage, "r");
+    while (f && fgets(line, sizeof(line), f)) {
+        lines++;
+        if (lines == 1) {
+            line[strcspn(line, "\n")] = '\0';
+            text_is("the join carried the name and the derived key, and nothing else", line,
+                    "mesh.channel_add|{\"name\":\"#test\",\"key\":\"nNj88ipHMztZHZaiuEi3Pw==\"}");
+        }
+    }
+    if (f) {
+        fclose(f);
+    }
+    check("six changes were asked for, each once: no second, nothing on its own", lines == 6);
+
+    /* A name set by the operator's configuration. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.name_pinned = 1;
+    script.no_path_hash = 1;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service with a pinned name and no path hash setting is running",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("the service answered a later request too", round_trip(&c, &m));
+    check("a pinned name says so", m.self_name_source == RIFT_NAME_SOURCE_CONFIG);
+    check("a service with no path hash setting is told apart from one not yet asked",
+          m.path_hash_unsupported && !m.have_path_hash);
+    check("and that is not a malformed event or a lost connection",
+          rift_ipc_connected(&c) && m.events_malformed == 0);
+    rift_ipc_set_name(&c, "Other");
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("a rename is refused with where the name is set",
+          m.manage_op.failed && strstr(m.manage_op.error, "configuration") != NULL &&
+              strcmp(m.self_name, "K230-A") == 0);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* Taken and never answered. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.manage_silent = 1;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service that will not answer is running", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    rift_ipc_channel_remove(&c, 0, "SITE");
+    check("the service took the leave and has not answered it",
+          round_trip(&c, &m) && m.manage_op.active);
+    fake_meshcored_stop(pid);
+    spin(&c, WAIT_MS, is_down, &m);
+    check("a leave nobody answered is not called done, and says it may have happened",
+          !m.manage_op.done && m.manage_op.failed && m.manage_op.unknown &&
+              strstr(m.manage_op.error, "may or may not") != NULL);
+    rift_ipc_close(&c);
+
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored-that-is-not-there");
+    check("a join with no connection is refused", rift_ipc_channel_add(&c, "#x", key) == -1);
+    check("and says nothing was changed",
+          m.manage_op.failed && strstr(m.manage_op.error, "nothing was changed") != NULL);
+    rift_ipc_close(&c);
 }
 
 static int64_t now_ms(void)
@@ -964,7 +1141,7 @@ int main(void)
             } else if (strcmp(line, "mesh.info") != 0 && strcmp(line, "mesh.status") != 0 &&
                        strcmp(line, "mesh.identity") != 0 && strcmp(line, "mesh.nodes") != 0 &&
                        strcmp(line, "mesh.node") != 0 && strcmp(line, "mesh.messages") != 0 &&
-                       strcmp(line, "mesh.channels") != 0) {
+                       strcmp(line, "mesh.channels") != 0 && strcmp(line, "mesh.path_hash") != 0) {
                 saw_unexpected = 1;
                 printf("     unexpected method: %s\n", line);
             }
@@ -1409,6 +1586,7 @@ int main(void)
 
     test_adverts(runtime);
     test_node_changes(runtime);
+    test_management(runtime);
     {
         char path[700];
 

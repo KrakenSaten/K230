@@ -27,7 +27,12 @@
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
+#include "rift_device.h"
+#include "rift_find.h"
 #include "rift_graph.h"
+#include "rift_manage.h"
+#include "rift_net.h"
+#include "rift_netview.h"
 #include "rift_nodes.h"
 #include "rift_sound.h"
 #include "rift_store.h"
@@ -37,7 +42,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <time.h>
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
@@ -1794,6 +1803,881 @@ static void scale_session(void)
     app_stop();
 }
 
+/* ==== feat/rift-management ===================================================
+ *
+ * Each session opens an app of its own, so what it checks does not depend on
+ * what the long walk above left on screen. */
+
+/* a starts before b in reading order: wholly above it, or on the same line
+ * and to its left. */
+static int reads_before(lv_obj_t *a, lv_obj_t *b)
+{
+    lv_area_t x;
+    lv_area_t y;
+
+    if (!a || !b) {
+        return 0;
+    }
+    lv_obj_update_layout(a);
+    lv_obj_get_coords(a, &x);
+    lv_obj_get_coords(b, &y);
+    if (x.y2 <= y.y1) {
+        return 1;
+    }
+    return x.y1 < y.y2 && x.x2 <= y.x1;
+}
+
+/* How many visible labels under obj say exactly this. */
+static int count_exact(lv_obj_t *obj, const char *text)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || !visible(obj)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        const char *t = lv_label_get_text(obj);
+
+        if (t && strcmp(t, text) == 0) {
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += count_exact(lv_obj_get_child(obj, (int32_t)i), text);
+    }
+    return n;
+}
+
+/* One message on the SITE channel. sender NULL leaves sender_name out, as the
+ * service does when the payload carries no "<name>: " it could parse. */
+static void give_site_line(int id, const char *dir, const char *sender, const char *body)
+{
+    char json[1024];
+    char who[96] = "";
+    char text[512];
+    cJSON *o;
+
+    if (sender) {
+        snprintf(who, sizeof(who), "\"sender_name\":\"%s\",", sender);
+        snprintf(text, sizeof(text), "%s: %s", sender, body);
+    } else {
+        snprintf(text, sizeof(text), "%s", body);
+    }
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"kind\":\"channel\","
+             "\"channel\":0,\"channel_name\":\"SITE\",\"channel_hash\":\"8c\",%s"
+             "\"text\":\"%s\",\"state\":\"%s\",\"ack_expected\":false,\"mono_ms\":%lld}}",
+             id, dir, who, text, strcmp(dir, "out") == 0 ? "sent_flood" : "received",
+             (long long)(rift_mono_ms() - 10000));
+    o = cJSON_Parse(json);
+    check("a channel line fixture is valid JSON", o != NULL);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+}
+
+#define LONG_SENDER "S\xC3\xB8rlandet fjellstasjon relay"
+#define LONG_BODY "Stromen er tilbake p\xC3\xA5 hytta, veien er br\xC3\xB8ytet opp til " \
+                  "demningen og radioen p\xC3\xA5 toppen svarer igjen etter natten uten nett"
+
+/* COMMS: on a channel, who spoke comes before what they said. */
+static void sender_session(void)
+{
+    int pass;
+
+    app_start();
+    quiet_client();
+    give_service();
+    give_channels();
+    give_site_line(40, "in", "HYTTA", "kort");
+    give_site_line(41, "in", LONG_SENDER, LONG_BODY);
+    give_site_line(42, "in", NULL, "ingen navn her");
+    give_site_line(43, "out", "K230-A", "mitt svar");
+    rift_app_open_conversation(app, site_key());
+    pump(120);
+
+    for (pass = 0; pass < 2; pass++) {
+        const char *where = pass ? "turned: " : "";
+        char what[160];
+        lv_obj_t *who = find_exact(thread_pane(), "HYTTA?");
+        lv_obj_t *body = find_exact(thread_pane(), "kort");
+        lv_obj_t *long_who = find_exact(thread_pane(), LONG_SENDER "?");
+        lv_obj_t *long_body = find_exact(thread_pane(), LONG_BODY);
+        lv_obj_t *anon = find_exact(thread_pane(), "UNNAMED");
+        lv_obj_t *anon_body = find_exact(thread_pane(), "ingen navn her");
+
+        snprintf(what, sizeof(what), "%sa channel sender is drawn before the message", where);
+        check(what, who && body && reads_before(who, body));
+        snprintf(what, sizeof(what), "%sin the same message as it, not a line of its own", where);
+        check(what, who && body && lv_obj_get_parent(who) == lv_obj_get_parent(body) &&
+                        lv_obj_get_index(who) < lv_obj_get_index(body));
+        snprintf(what, sizeof(what), "%sand the caption still comes after the body", where);
+        check(what, body && lv_obj_get_index(body) <
+                                lv_obj_get_index(lv_obj_get_child(lv_obj_get_parent(body), -1)));
+        snprintf(what, sizeof(what), "%sa long name over a long message: the name, then the body under it",
+                 where);
+        check(what, long_who && long_body && reads_before(long_who, long_body));
+        snprintf(what, sizeof(what), "%sneither is cut off the pane", where);
+        check(what, long_who && long_body && inside_body(long_who) &&
+                        lv_obj_get_width(long_body) <= lv_obj_get_width(thread_pane()));
+        snprintf(what, sizeof(what), "%sa line with no claimed name says so, first", where);
+        check(what, anon && anon_body && reads_before(anon, anon_body));
+        snprintf(what, sizeof(what), "%sour own line names nobody: the rule's side says whose",
+                 where);
+        check(what, find_exact(thread_pane(), "K230-A?") == NULL &&
+                        find_exact(thread_pane(), "mitt svar") != NULL);
+        snprintf(what, sizeof(what), "%sand the stored text is untouched", where);
+        check(what, strstr(app->model.msg[app->model.msg_count - 1].text, "K230-A: mitt svar") != NULL);
+        if (pass == 0) {
+            shot("portrait-comms-channel-senders");
+            use_display(POS_ROTATION_270, PANEL_CORNER);
+            pump(160);
+        } else {
+            shot("landscape-comms-channel-senders");
+        }
+    }
+    /* A direct thread has no sender line at all: two parties, and the
+     * header and the rule already say which. */
+    give_messages();
+    rift_app_open_conversation(app, KEY_B);
+    pump(120);
+    check("a direct thread names no sender before its lines",
+          find_exact(thread_pane(), "HYTTA?") == NULL &&
+              find_text(thread_pane(), "tilbake p\xC3\xA5 hytta") != NULL);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+}
+
+/* A node row, given whole: for the zero-hop fixtures. */
+static void give_node_json(const char *json)
+{
+    cJSON *o = cJSON_Parse(json);
+
+    check("a node fixture is valid JSON", o != NULL);
+    rift_model_apply_event(&app->model, "mesh.node", o);
+    cJSON_Delete(o);
+}
+
+#define KEY_R1 "71aa000000000000000000000000000000000000000000000000000000000071"
+#define KEY_R2 "72bb000000000000000000000000000000000000000000000000000000000072"
+#define KEY_R3 "73cc000000000000000000000000000000000000000000000000000000000073"
+#define KEY_CH "74dd000000000000000000000000000000000000000000000000000000000074"
+
+static void type_into(lv_obj_t *field, const char *text)
+{
+    pos_input_focus(field);
+    pump(40);
+    while (*text) {
+        pos_input_push_key((uint32_t)(unsigned char)*text++);
+        pump(30);
+    }
+    pump(120);
+}
+
+/* NODES: finding a node, and the repeaters heard zero-hop. */
+static void find_session(void)
+{
+    lv_obj_t *field;
+    char json[1024];
+    int64_t now;
+
+    app_start();
+    quiet_client();
+    give_service();
+    give_nodes();
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(120);
+    field = rift_find_field(app);
+    check("NODES has a search field", field && visible(field));
+    check("which is empty, and the whole list shows",
+          field && lv_textarea_get_text(field)[0] == '\0' && find_text(content(), "OSLO-01") &&
+              find_text(content(), "HYTTA") && find_text(content(), "never-heard"));
+    check("with no CLEAR while there is nothing to clear", find_exact(content(), "CLEAR") == NULL);
+
+    type_into(field, "oslo");
+    check("typing narrows the list as it goes, whatever the case",
+          find_exact(content(), "OSLO-01") != NULL && find_text(content(), "HYTTA") == NULL &&
+              find_text(content(), "never-heard") == NULL);
+    check("and says how many of how many match", find_text(content(), "1 of 5 match") != NULL);
+    check("CLEAR is there now", find_exact(content(), "CLEAR") != NULL);
+    check("the match is listed once", count_exact(content(), "OSLO-01") == 1);
+
+    rift_find_set_query(app, "  S\xC3\x98RLANDET ");
+    pump(120);
+    check("setting the query fills the field with all of it",
+          strcmp(lv_textarea_get_text(field), "  S\xC3\x98RLANDET ") == 0);
+    check("capital \xC3\x98 finds a small \xC3\xB8, and spaces around a query do not count",
+          find_text(content(), "S\xC3\xB8rlandet") != NULL && find_exact(content(), "OSLO-01") == NULL);
+    rift_find_set_query(app, "b2");
+    pump(120);
+    check("two hex characters find a node by its hash",
+          find_exact(content(), "HYTTA") != NULL && find_exact(content(), "OSLO-01") == NULL);
+    rift_find_set_query(app, "B2CAFE1E");
+    pump(120);
+    check("and more of its key, in capitals", find_exact(content(), "HYTTA") != NULL);
+    rift_find_set_query(app, "zzz");
+    pump(120);
+    check("nothing matching is said, and no row is left over",
+          find_text(content(), "No node matches \"zzz\"") != NULL &&
+              find_text(content(), "OSLO-01") == NULL && find_text(content(), "HYTTA") == NULL);
+    shot("portrait-nodes-find-none");
+    tap(action_of(find_exact(content(), "CLEAR")));
+    pump(150);
+    check("CLEAR gives the whole list back",
+          app->node_query[0] == '\0' && lv_textarea_get_text(field)[0] == '\0' &&
+              find_text(content(), "OSLO-01") && find_text(content(), "HYTTA") &&
+              find_text(content(), "never-heard"));
+    check("and goes away again", find_exact(content(), "CLEAR") == NULL);
+    type_into(field, "hy");
+    pos_input_push_key(LV_KEY_ESC);
+    pump(120);
+    check("Esc in the field clears what was typed",
+          app->node_query[0] == '\0' && find_text(content(), "OSLO-01") != NULL);
+    check("searching changed nothing the cache holds",
+          app->model.node_count == 5 && rift_model_find(&app->model, KEY_A) &&
+              strcmp(rift_model_find(&app->model, KEY_A)->name, "OSLO-01") == 0);
+
+    /* ---- ZERO-HOP ------------------------------------------------------- */
+    now = rift_mono_ms();
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"" KEY_R1 "\",\"name\":\"RPT-NORD\","
+             "\"type\":2,\"path_known\":false,\"last_heard_mono_ms\":%lld,\"advert_hops\":0,"
+             "\"advert_mono_ms\":%lld,\"last_rssi_dbm\":-61.0}}",
+             (long long)(now - 20000), (long long)(now - 20000));
+    give_node_json(json);
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"" KEY_R2 "\",\"name\":\"RPT-SYD\","
+             "\"type\":2,\"path_known\":false,\"last_heard_mono_ms\":%lld,\"advert_hops\":3,"
+             "\"advert_mono_ms\":%lld}}",
+             (long long)(now - 30000), (long long)(now - 30000));
+    give_node_json(json);
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"path\",\"node\":{\"public_key\":\"" KEY_R3 "\",\"name\":\"RPT-VEST\","
+             "\"type\":2,\"path_known\":true,\"hops\":0,\"direct\":true,"
+             "\"last_heard_mono_ms\":%lld}}",
+             (long long)(now - 40000));
+    give_node_json(json);
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"" KEY_CH "\",\"name\":\"CHAT-NEAR\","
+             "\"type\":1,\"path_known\":false,\"last_heard_mono_ms\":%lld,\"advert_hops\":0,"
+             "\"advert_mono_ms\":%lld}}",
+             (long long)(now - 50000), (long long)(now - 50000));
+    give_node_json(json);
+    rift_app_refresh(app);
+    pump(80);
+    tap(action_of(find_exact(content(), "ZERO-HOP")));
+    pump(150); /* the list follows on the app's next timer pass */
+    check("ZERO-HOP turns the view on", app->node_zero_hop == 1);
+    check("and shows the repeaters heard with no relay between",
+          find_exact(content(), "RPT-NORD") != NULL && find_exact(content(), "RPT-VEST") != NULL);
+    check("not a repeater three relays out", find_exact(content(), "RPT-SYD") == NULL);
+    check("nor one whose route has relays on it", find_exact(content(), "HYTTA") == NULL);
+    check("nor a chat node heard straight: it is not a repeater",
+          find_exact(content(), "CHAT-NEAR") == NULL && find_exact(content(), "OSLO-01") == NULL);
+    check("the groups say which view this is", find_text(content(), "ZERO-HOP RPT") != NULL);
+    check("and the footer what it is built on",
+          find_text(content(), "no relay in between") != NULL);
+    shot("portrait-nodes-zero-hop");
+    rift_find_set_query(app, "vest");
+    pump(120);
+    check("search works inside the zero-hop view",
+          find_exact(content(), "RPT-VEST") != NULL && find_exact(content(), "RPT-NORD") == NULL);
+    rift_find_set_query(app, "");
+    rift_model_drop_node(&app->model, KEY_R1);
+    rift_model_drop_node(&app->model, KEY_R3);
+    rift_app_refresh(app);
+    pump(120);
+    check("an empty zero-hop view says so, and that nothing is sent to look",
+          find_text(content(), "No repeater heard zero-hop") != NULL &&
+              find_text(content(), "nothing is sent") != NULL);
+    tap(action_of(find_exact(content(), "ZERO-HOP")));
+    pump(150);
+    check("and off again shows every node", app->node_zero_hop == 0 &&
+                                               find_exact(content(), "RPT-SYD") != NULL &&
+                                               find_exact(content(), "OSLO-01") != NULL);
+
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(160);
+    check("turned, the search bar is a data row",
+          rift_find_field(app) && visible(rift_find_field(app)) &&
+              lv_obj_get_height(action_of(find_exact(content(), "ZERO-HOP"))) == RIFT_ROW_H);
+    rift_find_set_query(app, "oslo");
+    pump(120);
+    check("and still narrows the list", find_exact(content(), "OSLO-01") != NULL &&
+                                             find_text(content(), "HYTTA") == NULL);
+    check("every word inside its button", labels_overflowing(content()) == 0);
+    shot("landscape-nodes-find");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+}
+
+/* ---- managing the node, with no service: what is checked before asking -- */
+
+/* A field's text, set the way typing would leave it. */
+static void field_set(lv_obj_t *field, const char *text)
+{
+    check("the field is there", field != NULL);
+    if (field) {
+        lv_textarea_set_text(field, text);
+    }
+    pump(40);
+}
+
+static void manage_session(void)
+{
+    lv_obj_t *add;
+    lv_obj_t *join;
+
+    app_start();
+    quiet_client();
+    give_service();
+    give_channels();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(120);
+
+    /* Found on unit B: ACTIVITY opened scrolled down. A field in a closed
+     * form was the first object the focus group got, LVGL focused it, and
+     * focusing scrolls. Closed forms keep their fields out of the group. */
+    check("closed forms keep their fields out of the focus group",
+          lv_obj_get_group(rift_manage_name_field(app)) == NULL &&
+              lv_obj_get_group(rift_manage_key_field(app)) == NULL &&
+              lv_obj_get_group(rift_device_rename_field(app)) == NULL);
+    check("so the keys go to the app's key sink, and ACTIVITY is read from its top",
+          pos_input_focused() == app->keysink && lv_obj_get_scroll_y(app->activity_root) == 0);
+    check("ACTIVITY lists the channels the service holds",
+          find_exact(content(), "SITE") != NULL && find_exact(content(), "OPS") != NULL);
+    check("with their slot, hash and key size",
+          find_text(content(), "SLOT 2 \xC2\xB7 HASH 4d \xC2\xB7 128-BIT") != NULL);
+    check("and what every channel is: an unscoped flood",
+          find_text(content(), "2 OF 8 SLOTS \xC2\xB7 UNSCOPED FLOOD") != NULL);
+    check("each row can be left", count_exact(content(), "LEAVE") == 2);
+    shot("portrait-activity-channels");
+
+    /* LEAVE asks first; Cancel changes nothing. */
+    tap(action_of(find_exact(content(), "LEAVE")));
+    pump(150);
+    check("LEAVE asks first, naming the channel", find_text(content(), "Leave SITE?") != NULL);
+    check("and says what it costs", find_text(content(), "Nothing on the air gives it back") != NULL);
+    check("nothing is asked yet", app->model.manage_op.kind == RIFT_ACTION_NONE);
+    shot("portrait-activity-leave-confirm");
+    tap(action_of(find_exact(content(), "CANCEL")));
+    pump(150);
+    check("Cancel puts it away and asks nothing",
+          find_text(content(), "Leave SITE?") == NULL &&
+              app->model.manage_op.kind == RIFT_ACTION_NONE);
+
+    tap(action_of(find_exact(content(), "LEAVE")));
+    pump(150);
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(60);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(150);
+    check("leaving ACTIVITY is Cancel for a LEAVE left up",
+          find_text(content(), "Leave SITE?") == NULL);
+
+    tap(action_of(find_exact(content(), "LEAVE")));
+    pump(150);
+    {
+        /* The confirmation's LEAVE is the one after its CANCEL; the rows'
+         * own LEAVEs are disabled while it is up. */
+        lv_obj_t *confirm_cancel = action_of(find_exact(content(), "CANCEL"));
+        lv_obj_t *bar = confirm_cancel ? lv_obj_get_parent(confirm_cancel) : NULL;
+
+        tap(kid(bar, 1));
+    }
+    pump(150);
+    check("the confirmation's LEAVE asks to leave slot 0, by name",
+          app->model.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE &&
+              app->model.manage_op.value == 0 && strcmp(app->model.manage_op.label, "SITE") == 0);
+    check("and with no service says nothing was changed",
+          app->model.manage_op.failed &&
+              strstr(app->model.manage_op.error, "nothing was changed") != NULL);
+    check("the channel is still listed: only the service's answer removes it",
+          find_exact(content(), "SITE") != NULL);
+
+    /* ADD CHANNEL: a form in place, checked before anything is asked. */
+    add = action_of(find_exact(content(), "ADD CHANNEL"));
+    tap(add);
+    pump(150);
+    check("ADD CHANNEL opens a form in place, a hashtag by default",
+          rift_manage_name_field(app) && visible(rift_manage_name_field(app)) &&
+              find_text(content(), "A public topic") != NULL);
+    check("with no key field for a hashtag", !visible(rift_manage_key_field(app)));
+    check("its name field joins the focus group while the form is open, the key's does not",
+          lv_obj_get_group(rift_manage_name_field(app)) != NULL &&
+              lv_obj_get_group(rift_manage_key_field(app)) == NULL);
+    join = action_of(find_exact(content(), "JOIN"));
+    tap(join);
+    pump(150);
+    check("an empty name is said, not sent",
+          find_text(content(), "needs a name after the #") != NULL &&
+              app->model.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE);
+    field_set(rift_manage_name_field(app), "abcdefghijabcdefghijabcdefghijk");
+    tap(join);
+    pump(150);
+    check("a hashtag name that only fits without its # is refused, not cut",
+          find_text(content(), "at most 31 bytes") != NULL);
+    field_set(rift_manage_name_field(app), "  oslo ");
+    tap(join);
+    pump(150);
+    check("a hashtag is asked for under its canonical name",
+          app->model.manage_op.kind == RIFT_ACTION_CHANNEL_ADD &&
+              strcmp(app->model.manage_op.label, "#oslo") == 0);
+    check("and with no service the form says nothing was changed, and stays",
+          find_text(content(), "nothing was changed") != NULL &&
+              visible(rift_manage_name_field(app)));
+
+    tap(action_of(find_exact(content(), "KEY")));
+    pump(150);
+    check("KEY shows the key field", visible(rift_manage_key_field(app)) &&
+                                         find_text(content(), "somebody shared") != NULL);
+    field_set(rift_manage_name_field(app), "Felles");
+    field_set(rift_manage_key_field(app), "not a key!");
+    tap(join);
+    pump(150);
+    check("a key that is not base64 is said, before anything is asked",
+          find_text(content(), "not a base64 key") != NULL &&
+              strcmp(app->model.manage_op.label, "#oslo") == 0);
+    field_set(rift_manage_key_field(app), "AAECAwQFBgcICQoL");
+    tap(join);
+    pump(150);
+    check("and one of the wrong length", find_text(content(), "16 or 32 bytes") != NULL);
+    field_set(rift_manage_name_field(app), "SITE");
+    field_set(rift_manage_key_field(app), "izOH6cXN6mrJ5e26oRXNcg==");
+    tap(join);
+    pump(150);
+    check("a name already joined is said", find_text(content(), "called SITE is joined") != NULL);
+    tap(action_of(find_exact(content(), "PRIVATE")));
+    pump(150);
+    check("PRIVATE needs no key: it makes one", !visible(rift_manage_key_field(app)) &&
+                                                   find_text(content(), "new random key") != NULL);
+    shot("portrait-activity-add-channel");
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(60);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(150);
+    check("leaving ACTIVITY closes the form and empties its fields",
+          !visible(rift_manage_name_field(app)) &&
+              lv_textarea_get_text(rift_manage_key_field(app))[0] == '\0' &&
+              lv_textarea_get_text(rift_manage_name_field(app))[0] == '\0');
+
+    /* THIS DEVICE: the name, and the path hash size. */
+    check("THIS DEVICE has RENAME", find_exact(content(), "RENAME") != NULL);
+    check("and the path hash choices, disabled until the service says the size",
+          find_exact(content(), "2 B") != NULL &&
+              lv_obj_has_state(action_of(find_exact(content(), "2 B")), LV_STATE_DISABLED));
+    tap(action_of(find_exact(content(), "RENAME")));
+    pump(150);
+    check("RENAME opens the name in place, filled with the current one",
+          rift_device_rename_field(app) && visible(rift_device_rename_field(app)) &&
+              strcmp(lv_textarea_get_text(rift_device_rename_field(app)), "K230-A") == 0);
+    field_set(rift_device_rename_field(app), "   ");
+    tap(action_of(find_exact(content(), "SAVE")));
+    pump(150);
+    check("a name of spaces is said, not sent",
+          find_text(content(), "not only spaces") != NULL &&
+              app->model.manage_op.kind != RIFT_ACTION_RENAME);
+    field_set(rift_device_rename_field(app), "Ny K230");
+    tap(action_of(find_exact(content(), "SAVE")));
+    pump(150);
+    check("a good name is asked for", app->model.manage_op.kind == RIFT_ACTION_RENAME &&
+                                          strcmp(app->model.manage_op.label, "Ny K230") == 0);
+    {
+        cJSON *o = cJSON_Parse("{\"public_key\":\"5f0000000000000000000000000000000000000000000000"
+                               "00000000000000ff\",\"name\":\"K230-A\",\"name_source\":\"config\"}");
+
+        rift_model_apply_identity(&app->model, o);
+        cJSON_Delete(o);
+    }
+    rift_app_refresh(app);
+    pump(150);
+    check("a name set by the configuration cannot be renamed here, and says where it is set",
+          lv_obj_has_state(action_of(find_exact(content(), "RENAME")), LV_STATE_DISABLED) &&
+              find_text(content(), "MESHCORED_NAME") != NULL);
+    {
+        cJSON *o = cJSON_Parse("{\"bytes\":1,\"allowed\":[1,2,3]}");
+
+        rift_model_apply_path_hash(&app->model, o);
+        cJSON_Delete(o);
+        rift_model_action_clear(&app->model, RIFT_ACTION_RENAME);
+    }
+    rift_app_refresh(app);
+    pump(150);
+    check("with the size known, the choices are there and 1 B is the chosen one",
+          !lv_obj_has_state(action_of(find_exact(content(), "2 B")), LV_STATE_DISABLED) &&
+              find_text(content(), "1 BYTE PER RELAY") != NULL);
+    tap(action_of(find_exact(content(), "3 B")));
+    pump(150);
+    check("a move off 1 byte asks first, and says what it costs",
+          find_text(content(), "Use 3-byte path hashes?") != NULL &&
+              find_text(content(), "drop such floods") != NULL &&
+              app->model.manage_op.kind != RIFT_ACTION_PATH_HASH);
+    shot("portrait-activity-path-hash-confirm");
+    tap(action_of(find_exact(content(), "CANCEL")));
+    pump(150);
+    check("Cancel asks nothing", find_text(content(), "Use 3-byte") == NULL &&
+                                     app->model.manage_op.kind != RIFT_ACTION_PATH_HASH);
+    tap(action_of(find_exact(content(), "2 B")));
+    pump(150);
+    tap(action_of(find_exact(content(), "USE IT")));
+    pump(150);
+    check("the confirmation asks for that size",
+          app->model.manage_op.kind == RIFT_ACTION_PATH_HASH && app->model.manage_op.value == 2);
+
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(160);
+    check("turned, the panels are still there, every word inside its button",
+          find_exact(content(), "ADD CHANNEL") != NULL && labels_overflowing(content()) == 0);
+    shot("landscape-activity-manage");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+}
+
+/* ---- managing the node, end to end against the scripted service ---------- */
+
+/* Does this block of memory hold these bytes anywhere? */
+static int mem_holds(const void *block, size_t len, const char *what)
+{
+    size_t n = strlen(what);
+    const unsigned char *b = block;
+    size_t i;
+
+    for (i = 0; n && i + n <= len; i++) {
+        if (memcmp(b + i, what, n) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int live_until(int (*cond)(void), int ms)
+{
+    int t;
+
+    for (t = 0; t < ms; t += 20) {
+        if (cond()) {
+            return 1;
+        }
+        pump(20);
+        usleep(20000);
+    }
+    return cond();
+}
+
+static int live_ready(void)
+{
+    return app && app->model.channels_valid && app->model.have_path_hash &&
+           app->model.have_identity;
+}
+
+static int live_settled(void)
+{
+    return app && !app->model.manage_op.active;
+}
+
+static int live_two_channels(void)
+{
+    return app && app->model.channel_count == 2;
+}
+
+static int live_one_channel(void)
+{
+    return app && app->model.channel_count == 1;
+}
+
+static pid_t live_spawn(const char *bin, const char *manage_log)
+{
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", "[]", 1);
+        setenv("FAKE_MESHCORED_CHANNELS",
+               "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":128,"
+               "\"text_limit\":147,\"ack_expected\":false}]",
+               1);
+        setenv("FAKE_MESHCORED_MANAGE", manage_log, 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+
+static void manage_live_session(void)
+{
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    char sock[512];
+    char manage_log[512];
+    char line[512];
+    char shared[64] = "";
+    struct stat st;
+    int lines = 0;
+    int waited;
+    pid_t pid;
+    FILE *f;
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the live management session needs RIFT_FAKE_MESHCORED and "
+               "POCKETOS_RUNTIME_DIR; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(manage_log, sizeof(manage_log), "%s/rift-manage-log", g_state_dir);
+    unlink(manage_log);
+    pid = live_spawn(bin, manage_log);
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+
+    app_start();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    check("RIFT reads the service: identity, channels and the path hash size",
+          live_until(live_ready, 8000));
+
+    /* A private channel: a key made here, joined, shown once. */
+    tap(action_of(find_exact(content(), "ADD CHANNEL")));
+    pump(150);
+    tap(action_of(find_exact(content(), "PRIVATE")));
+    pump(150);
+    field_set(rift_manage_name_field(app), "Hytta");
+    tap(action_of(find_exact(content(), "JOIN")));
+    check("the join is answered", live_until(live_settled, 8000) &&
+                                      app->model.manage_op.done &&
+                                      app->model.manage_op.kind == RIFT_ACTION_CHANNEL_ADD);
+    check("and the channel is listed", live_until(live_two_channels, 8000) &&
+                                           find_exact(content(), "Hytta") != NULL);
+    pump(150);
+    check("the key made here is shown once, to be shared",
+          find_text(content(), "KEY TO SHARE") != NULL &&
+              find_text(content(), "Give this key") != NULL);
+    {
+        lv_obj_t *share_key = find_text(content(), "==");
+
+        if (share_key) {
+            snprintf(shared, sizeof(shared), "%s", lv_label_get_text(share_key));
+        }
+    }
+    check("as 16 bytes of base64", strlen(shared) == 24);
+    check("and is held nowhere in the model",
+          shared[0] && !mem_holds(&app->model, sizeof(app->model), shared));
+    tap(action_of(find_exact(content(), "DONE")));
+    pump(150);
+    check("DONE puts it away for good", find_text(content(), "KEY TO SHARE") == NULL &&
+                                            (!shared[0] || find_text(content(), shared) == NULL));
+
+    /* Leave it again, through the confirmation. */
+    {
+        lv_obj_t *row_name = find_exact(content(), "Hytta");
+        lv_obj_t *row = ancestor(row_name, 2);
+        lv_obj_t *confirm_cancel;
+
+        tap(kid(row, 1));
+        pump(150);
+        check("its LEAVE asks first", find_text(content(), "Leave Hytta?") != NULL);
+        confirm_cancel = action_of(find_exact(content(), "CANCEL"));
+        tap(kid(confirm_cancel ? lv_obj_get_parent(confirm_cancel) : NULL, 1));
+    }
+    check("the leave is answered", live_until(live_settled, 8000) && app->model.manage_op.done &&
+                                       app->model.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE);
+    check("and only that channel is gone", live_until(live_one_channel, 8000) &&
+                                               find_exact(content(), "SITE") != NULL);
+    pump(150);
+    check("which the panel says", find_text(content(), "Hytta LEFT") != NULL);
+    check("and the path hash size is still drawn as the chosen one after both",
+          lv_color_eq(lv_obj_get_style_bg_color(action_of(find_exact(content(), "1 B")),
+                                                LV_PART_MAIN),
+                      pos_theme_color(POS_COLOR_ACCENT_PRIMARY)) &&
+              !lv_color_eq(lv_obj_get_style_bg_color(action_of(find_exact(content(), "2 B")),
+                                                     LV_PART_MAIN),
+                           pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
+
+    /* Rename. */
+    tap(action_of(find_exact(content(), "RENAME")));
+    pump(150);
+    field_set(rift_device_rename_field(app), "K230-\xC3\x98st");
+    tap(action_of(find_exact(content(), "SAVE")));
+    check("the rename is answered", live_until(live_settled, 8000) && app->model.manage_op.done);
+    pump(150);
+    check("THIS DEVICE shows the new name, and when peers will see it",
+          find_exact(content(), "K230-\xC3\x98st") != NULL &&
+              find_text(content(), "AFTER YOUR NEXT ADVERT") != NULL);
+
+    /* Path hash size, through its confirmation. */
+    tap(action_of(find_exact(content(), "2 B")));
+    pump(150);
+    tap(action_of(find_exact(content(), "USE IT")));
+    check("the size is answered", live_until(live_settled, 8000) && app->model.manage_op.done &&
+                                      app->model.path_hash_bytes == 2);
+    pump(150);
+    check("and said", find_text(content(), "2 BYTES PER RELAY") != NULL);
+    check("with 2 B the chosen one",
+          lv_color_eq(lv_obj_get_style_bg_color(action_of(find_exact(content(), "2 B")),
+                                                LV_PART_MAIN),
+                      pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
+    tap(action_of(find_exact(content(), "1 B")));
+    check("back to 1 byte needs no confirmation", live_until(live_settled, 8000) &&
+                                                     app->model.path_hash_bytes == 1);
+    app_stop();
+    kill(pid, SIGTERM);
+    waitpid(pid, NULL, 0);
+
+    f = fopen(manage_log, "r");
+    while (f && fgets(line, sizeof(line), f)) {
+        lines++;
+        if (lines == 1) {
+            check("the join carried the key that was shown, and the name typed",
+                  shared[0] && strstr(line, shared) != NULL &&
+                      strstr(line, "\"name\":\"Hytta\"") != NULL);
+        }
+    }
+    if (f) {
+        fclose(f);
+    }
+    check("five changes, each asked for once by a press: join, leave, rename, 2 B, 1 B",
+          lines == 5);
+    unlink(manage_log);
+}
+
+/* NET's rings container: the section's fourth child (the PATH panel, the
+ * legend and the note come first). */
+static lv_obj_t *net_rings(void)
+{
+    return kid(kid(content(), 3), 3);
+}
+
+/* NET: the rings, from real nodes, and nothing drawn that was not observed. */
+static void net_session(void)
+{
+    struct rift_net net;
+    char json[1024];
+    lv_obj_t *hytta;
+    lv_obj_t *oslo;
+    cJSON *o;
+
+    app_start();
+    quiet_client();
+    rift_app_show_section(app, RIFT_SEC_NET);
+    pump(80);
+    check("NET before any snapshot waits for the service",
+          find_text(content(), "Waiting for meshcored") != NULL);
+    o = cJSON_Parse("{\"count\":0,\"nodes\":[]}");
+    rift_model_apply_nodes(&app->model, o);
+    cJSON_Delete(o);
+    rift_app_refresh(app);
+    pump(80);
+    check("an empty mesh is said, not drawn as empty rings",
+          find_text(content(), "No node has adverted") != NULL);
+    check("and with nothing selected the panel says how to choose",
+          find_text(content(), "No node selected") != NULL &&
+              find_exact(content(), "MESSAGE") == NULL);
+
+    give_service();
+    give_nodes();
+    rift_app_refresh(app);
+    pump(120);
+    rift_net_build(&app->model, rift_mono_ms(), &net);
+    check("the node heard direct is on ring 1",
+          net.ring[1].count == 1 && strcmp(net.ring[1].node[0]->key, KEY_A) == 0);
+    check("eight relays out is the 9+ ring",
+          net.ring[9].count == 1 && strcmp(net.ring[9].node[0]->key, KEY_B) == 0);
+    check("three relays out is ring 4",
+          net.ring[4].count == 1 && strcmp(net.ring[4].node[0]->key, KEY_D) == 0);
+    check("nodes with nothing observed are on NO PATH, not on a guess", net.ring[10].count == 2);
+    check("and every ring was placed by a learned route",
+          net.ring[1].route == 1 && net.ring[4].route == 1 && net.ring[9].route == 1);
+    check("NET shows the rings it holds",
+          find_exact(content(), "0 SELF") && find_exact(content(), "1 DIRECT") &&
+              find_exact(content(), "9+") && find_exact(content(), "? NO PATH"));
+    check("ring 0 is this device", find_exact(content(), "K230-A") != NULL);
+    check("a pill per node, bounded",
+          rift_net_view_pills(app, 1) == 1 && rift_net_view_pills(app, 10) == 2 &&
+              rift_net_view_pills(app, 9) <= RIFT_NET_RING_SHOWN + 1);
+    check("no node is drawn twice", count_exact(content(), "OSLO-01") == 1);
+
+    hytta = action_of(find_exact(content(), "HYTTA"));
+    tap(hytta);
+    check("a pill selects its node", app->have_selected && strcmp(app->selected, KEY_B) == 0);
+    check("and does nothing else: NET stays", app->section == RIFT_SEC_NET);
+    check("the panel says which ring and how it was placed",
+          find_text(content(), "RING 9+") != NULL && find_text(content(), "LEARNED ROUTE") != NULL);
+    check("and writes the route out, from this device",
+          find_text(content(), "K230-A \xE2\x80\xBA") != NULL);
+    /* In the rings, not the PATH panel, which now names the node too. */
+    hytta = action_of(find_exact(net_rings(), "HYTTA"));
+    oslo = action_of(find_exact(net_rings(), "OSLO-01"));
+    check("the selected node is filled in the accent",
+          hytta && lv_color_eq(lv_obj_get_style_bg_color(hytta, 0),
+                               pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
+    check("a node the route runs through carries the outline",
+          oslo && lv_obj_get_style_outline_width(oslo, 0) > 0);
+    check("one it does not run through does not",
+          lv_obj_get_style_outline_width(action_of(find_exact(content(), "never-heard")), 0) == 0);
+    shot("portrait-net");
+
+    /* A node placed by its advert alone says so, and draws no chain. */
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"" KEY_R2 "\",\"name\":\"RPT-SYD\","
+             "\"type\":2,\"path_known\":false,\"last_heard_mono_ms\":%lld,\"advert_hops\":2,"
+             "\"advert_mono_ms\":%lld}}",
+             (long long)(rift_mono_ms() - 30000), (long long)(rift_mono_ms() - 30000));
+    give_node_json(json);
+    rift_app_refresh(app);
+    pump(80);
+    rift_net_build(&app->model, rift_mono_ms(), &net);
+    check("an advert two relays out is ring 3, placed by the advert",
+          net.ring[3].count == 1 && net.ring[3].advert == 1);
+    tap(action_of(find_exact(content(), "RPT-SYD")));
+    check("and its panel says no route is learned, and how far the advert came",
+          find_text(content(), "NO ROUTE LEARNED") != NULL &&
+              find_text(content(), "THROUGH 2 RELAYS") != NULL);
+    check("its ring's count says it was placed by an advert",
+          find_text(content(), "1 \xC2\xB7 1 ADV") != NULL);
+    check("and the legend counts rings as the panel does: hops, one more than the relays",
+          find_text(content(), "RING = HOPS: 1 IS DIRECT") != NULL &&
+              find_text(content(), "RELAYS BETWEEN") == NULL);
+
+    tap(action_of(find_exact(content(), "MESSAGE")));
+    check("MESSAGE opens COMMS on the node, and sends nothing",
+          app->section == RIFT_SEC_COMMS && rift_comms_open_peer(app) &&
+              strcmp(rift_comms_open_peer(app), KEY_R2) == 0 && !rift_model_sending(&app->model));
+    rift_app_show_section(app, RIFT_SEC_NET);
+    pump(60);
+    tap(action_of(find_exact(content(), "DETAIL \xE2\x80\xBA")));
+    check("DETAIL opens the node in NODES", app->section == RIFT_SEC_NODES && app->detail_open);
+    rift_app_show_section(app, RIFT_SEC_NET);
+    pump(60);
+    check("Back from NET is ACTIVITY", app_rift.back(app) == 1 &&
+                                           app->section == RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_NET);
+    pump(60);
+
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(160);
+    {
+        lv_obj_t *dir = find_exact(content(), "1 DIRECT");
+        lv_obj_t *none = find_exact(content(), "? NO PATH");
+        lv_area_t a;
+        lv_area_t b;
+
+        check("turned, NET is still there", app->section == RIFT_SEC_NET && dir && none);
+        if (dir && none) {
+            lv_obj_get_coords(dir, &a);
+            lv_obj_get_coords(none, &b);
+        }
+        check("and the rings are columns side by side",
+              dir && none && a.y1 == b.y1 && a.x2 < b.x1);
+        check("inside the body", none && inside_body(none));
+        check("with every word inside its button", labels_overflowing(content()) == 0);
+    }
+    shot("landscape-net");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -2373,7 +3257,7 @@ int main(void)
      * of the two it is rather than leaving a reader who knows the design to
      * wonder where the channels went. */
     check("and says where a channel is joined",
-          find_text(content(), "joined with its key on the radio service") != NULL);
+          find_text(content(), "joined on ACTIVITY, under CHANNELS") != NULL);
 
     give_messages();
     check("the history on opening makes no sound", fake_plays == 0);
@@ -2720,8 +3604,9 @@ int main(void)
 
     tap(tab(3));
     check("NET is reachable", app->section == RIFT_SEC_NET);
-    check("and is the one section that says it is not in this build",
-          find_text(content(), "not in this build") != NULL);
+    check("and draws the rings, not a placeholder",
+          find_text(content(), "not in this build") == NULL &&
+              find_exact(content(), "1 DIRECT") != NULL);
     tap(tab(1));
     check("and NODES comes back", app->section == RIFT_SEC_NODES);
 
@@ -3101,6 +3986,13 @@ int main(void)
     sound_session(g_state_dir);
     landscape_start_session();
     scale_session();
+    /* feat/rift-management: who said it before what was said, finding a node
+     * and the zero-hop repeaters, and NET. */
+    sender_session();
+    find_session();
+    net_session();
+    manage_session();
+    manage_live_session();
     text_size_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
