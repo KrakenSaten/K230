@@ -40,7 +40,7 @@ start() {
 		echo "already running"; return 0
 	fi
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
-	nohup "$SUPERVISE" sysd "$DAEMON" >"$LOGFILE" 2>&1 &
+	POS_SUPERVISE_PIDFILE="$PIDFILE" nohup "$SUPERVISE" sysd "$DAEMON" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }

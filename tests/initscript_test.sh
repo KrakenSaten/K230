@@ -567,6 +567,8 @@ check "with the marker the bring-up checklist names" \
 check "its last exit code recorded" $([ "$(mcd_state last_exit_code)" = "3" ] && echo 1 || echo 0)
 check "and no daemon or pid file left behind" \
       $([ "$(count_mcd)" -eq 0 ] && [ ! -e "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+check "nor the supervisor's pid file, which would name a pid free for reuse" \
+      $([ ! -e "$MCD_SUP_PIDFILE" ] && echo 1 || echo 0)
 out=$("$S65" stop 2>&1); rc=$?
 check "S65 stop after a crash loop is safe" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
 make_meshcored

@@ -55,7 +55,7 @@ start() {
 		echo "already running"; return 0
 	fi
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
-	nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" --tx-power-dbm "$RADIOD_TX_POWER_DBM" >"$LOGFILE" 2>&1 &
+	POS_SUPERVISE_PIDFILE="$PIDFILE" nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" --tx-power-dbm "$RADIOD_TX_POWER_DBM" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }
