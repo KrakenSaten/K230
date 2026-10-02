@@ -63,6 +63,10 @@ int shell_kbd_attach(const struct kbd_bus *bus);
  * is the shortcut as usual. */
 void shell_kbd_on_action(void (*fn)(enum hw_action action, void *user), void *user);
 
+/* Asked at every press that would type or act, before it does: false stops
+ * the press there (it only woke the screen, shell_power.h). NULL: none. */
+void shell_kbd_set_wake_gate(bool (*gate)(void));
+
 /* The microphone and camera LEDs (kbd_leds.h KBD_LED_MIC | KBD_LED_CAMERA).
  * The Caps LED follows the keyboard's own Caps state and is not set here.
  * Written at once when it changes; nothing when no base is attached. */

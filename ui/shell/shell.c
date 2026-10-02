@@ -40,6 +40,9 @@
 #include "shell_ipc.h"
 #include "shell_kb_state.h"
 #include "shell_kbd.h"
+#include "shell_overlay.h"
+#include "shell_power.h"
+#include "tz_zones.h"
 #include "hw_actions.h"
 #include "hw_activity.h"
 #include "kbd_leds.h"
@@ -152,6 +155,7 @@ struct shell {
     int background_count;
     char status_hint[96];   /* what the app last wrote with pocketos_shell_set_status_hint() */
     lv_obj_t *header_hint;  /* where the app header shows it, or NULL with no app open */
+    lv_obj_t *header_title; /* the header's title (pocketos_shell_set_title), or NULL */
     lv_obj_t *content;      /* the content area: the whole display but the keyboard */
     enum pocketos_chrome chrome; /* the status chrome in force (chrome.h), resolved by the shell */
     bool cluster_shown;     /* the cluster as drawn now: the chrome's, but for the lock over NONE */
@@ -564,6 +568,162 @@ void pocketos_shell_set_status_hint(const char *text)
     }
 }
 
+/* The header's title: the page an app is on, or its name (app.h). */
+void pocketos_shell_set_title(const char *title)
+{
+    if (!sh.header_title || !sh.app) {
+        return;
+    }
+    lv_label_set_text(sh.header_title, title && title[0] ? title : sh.app->name);
+}
+
+/* ---- Power & Sleep, the time zone, the overlay (DS §52) ----------------- */
+
+int pocketos_shell_screen_off_after(void)
+{
+    return shell_power_timeout(POWER_TIMER_SCREEN);
+}
+
+int pocketos_shell_set_screen_off_after(int seconds)
+{
+    return shell_power_set_timeout(POWER_TIMER_SCREEN, seconds);
+}
+
+int pocketos_shell_lock_after(void)
+{
+    return shell_power_timeout(POWER_TIMER_LOCK);
+}
+
+int pocketos_shell_set_lock_after(int seconds)
+{
+    return shell_power_set_timeout(POWER_TIMER_LOCK, seconds);
+}
+
+/* settings.conf: lock_screen=0 starts the shell open (a bench unit, a kiosk). */
+#define LOCK_SETTING "lock_screen"
+
+int pocketos_shell_lock_at_start(void)
+{
+    return strcmp(settings_get(LOCK_SETTING, "1"), "0") != 0;
+}
+
+int pocketos_shell_set_lock_at_start(int on)
+{
+    if (on != 0 && on != 1) {
+        return -1;
+    }
+    if (settings_set(LOCK_SETTING, on ? "1" : "0") < 0) {
+        LOG_WARN("lock at start %s not persisted to %s: %s", on ? "on" : "off", settings_path(), strerror(errno));
+        return -1;
+    }
+    LOG_INFO("lock at start: %s", on ? "on" : "off");
+    return 0;
+}
+
+/* The zone in force: the stored one when it is one of the table's, else UTC
+ * - which is what an image with no zone database has always shown. */
+const char *pocketos_shell_timezone(void)
+{
+    const struct tz_zone *z = tz_zone_find(settings_get(TZ_SETTING, NULL));
+
+    return z ? z->id : TZ_DEFAULT_ID;
+}
+
+/* Called once at start, before the first clock reading. A name that is not
+ * one of ours leaves the environment as it was (UTC), and says so. */
+static void timezone_restore(void)
+{
+    const char *stored = settings_get(TZ_SETTING, NULL);
+    const struct tz_zone *z = tz_zone_find(stored);
+
+    if (!stored) {
+        LOG_INFO("time zone: none stored, local time is UTC");
+        return;
+    }
+    if (!z) {
+        LOG_WARN("time zone: stored %s=%s is not a zone this build knows, local time is UTC", TZ_SETTING, stored);
+        return;
+    }
+    if (tz_zone_apply(z) < 0) {
+        LOG_WARN("time zone: %s could not be applied: %s", z->id, strerror(errno));
+        return;
+    }
+    LOG_INFO("time zone: %s", z->id);
+}
+
+int pocketos_shell_set_timezone(const char *id)
+{
+    const struct tz_zone *z = tz_zone_find(id);
+
+    if (!z) {
+        return -1;
+    }
+    /* Stored first: a zone that could not be kept is not applied either, so
+     * the running clock never disagrees with what the next start will do. */
+    if (settings_set(TZ_SETTING, z->id) < 0) {
+        LOG_WARN("time zone %s not persisted to %s: %s", z->id, settings_path(), strerror(errno));
+        return -1;
+    }
+    if (tz_zone_apply(z) < 0) {
+        LOG_WARN("time zone %s stored but not applied: %s", z->id, strerror(errno));
+        return -1;
+    }
+    LOG_INFO("time zone: %s", z->id);
+    /* The clocks on screen take it at the next tick, within a second: the
+     * tick is the clock runtime's one stepper (on_tick), and a second
+     * stepper here could fire an alarm twice. */
+    if (sh.server) {
+        cJSON *data = cJSON_CreateObject();
+
+        cJSON_AddStringToObject(data, "zone", z->id);
+        pocketipc_server_broadcast(sh.server, pocketipc_event("shell.timezone", data));
+    }
+    return 0;
+}
+
+int pocketos_shell_debug_overlay(void)
+{
+    return shell_overlay_enabled() ? 1 : 0;
+}
+
+int pocketos_shell_set_debug_overlay(int on)
+{
+    if (on != 0 && on != 1) {
+        return -1;
+    }
+    return shell_overlay_set_enabled(on == 1);
+}
+
+/* An alarm ringing, or an app that plays or watches: the screen stays on and
+ * the lock stays up while one of them is in front (DS §52.4). By id, from
+ * this table, so the apps themselves do not change. */
+static const char *const awake_apps[] = { "video", "camera", "vision", "deskbuddy" };
+
+static bool power_hold(void)
+{
+    size_t k;
+
+    if (shell_alarm_visible()) {
+        return true;
+    }
+    for (k = 0; sh.app && k < sizeof(awake_apps) / sizeof(awake_apps[0]); k++) {
+        if (strcmp(sh.app->id, awake_apps[k]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool power_locked(void)
+{
+    return shell_lock_is_locked();
+}
+
+static void power_lock(const char *why)
+{
+    shell_lock_engage(why);
+}
+
 int pocketos_shell_reduced_motion(void)
 {
     const char *v = settings_get("reduced_motion", "0");
@@ -767,8 +927,7 @@ static void brightness_restore(void)
 #define RESUME_FOLDER_ENV "DOORS_LAUNCHER_FOLDER"
 #define RESUME_LOCKED "locked"
 #define RESUME_OPEN "open"
-/* settings.conf: lock_screen=0 starts the shell open (a bench unit, a kiosk). */
-#define LOCK_SETTING "lock_screen"
+/* LOCK_SETTING (lock_screen=0 starts the shell open) is with Power & Sleep. */
 
 static bool restart_pending;
 static lv_timer_t *rotate_timer;
@@ -937,6 +1096,12 @@ static void content_box(int32_t reserve_bottom)
 
     lv_obj_set_y(sh.content, b.y);
     lv_obj_set_height(sh.content, b.height);
+    /* The debug overlay sits at the content's foot: above the keyboard while
+     * it is up. */
+    if (shell_overlay_enabled()) {
+        lv_obj_update_layout(sh.content);
+        shell_overlay_place();
+    }
 }
 
 static void on_keyboard_done(void *user)
@@ -1112,6 +1277,7 @@ static void app_close(void)
     sh.app = NULL;
     sh.app_priv = NULL;
     sh.header_hint = NULL; /* it goes with the header */
+    sh.header_title = NULL;
     sh.app_header = NULL;
     sh.app_body = NULL;
     lv_obj_delete(sh.app_root);
@@ -1239,11 +1405,31 @@ static void app_leave(void)
     pocketos_shell_go_home();
 }
 
+/* The back slab of an app that takes it one level back first (app.h
+ * `back_slab_in_app`): run on the next timer pass, outside the tap's event,
+ * as `back` must be. Only for the app that was open when the slab was
+ * tapped; anything opened since has its own slab. */
+static void back_slab_requested(void *user)
+{
+    if (!sh.app || sh.app != (const struct pocketos_app *)user) {
+        return;
+    }
+    if (sh.app->back && sh.app->back(sh.app_priv)) {
+        return;
+    }
+    app_leave();
+}
+
 static void on_back(lv_event_t *e)
 {
     const struct pocketos_app *parent = page_parent(sh.app);
 
     (void)e;
+    if (sh.app && sh.app->back_slab_in_app && sh.app->back) {
+        lv_async_call_cancel(back_slab_requested, (void *)sh.app);
+        lv_async_call(back_slab_requested, (void *)sh.app);
+        return;
+    }
     if (parent) {
         pocketos_shell_open_app(parent->id);
         return;
@@ -1300,6 +1486,7 @@ static void app_open(const struct pocketos_app *app)
         is_landscape(sh.display.geometry.rotation)) {
         header = NULL;
         sh.header_hint = NULL;
+        sh.header_title = NULL;
         goto body;
     }
     header = lv_obj_create(sh.app_root);
@@ -1343,6 +1530,7 @@ static void app_open(const struct pocketos_app *app)
     }
 
     name = pocketui_label(header, app->name, POS_STYLE_TITLE);
+    sh.header_title = name;
     /* The hint: what an app writes with pocketos_shell_set_status_hint() is
      * state the player or the user needs - Fleet's turn, Radar's and
      * Timber's run state, Wave's MIC ON, a Clock or Notes storage error (DS
@@ -1943,6 +2131,19 @@ static int host_kbd_light_set(void *ctx, int pct)
     return kbd_light_apply(pct, true);
 }
 
+int pocketos_shell_keyboard_light(void)
+{
+    return kbd_light_level();
+}
+
+int pocketos_shell_set_keyboard_light(int percent)
+{
+    if (percent < 0 || percent > 100 || percent % 10 != 0) {
+        return -1;
+    }
+    return kbd_light_apply(percent, true);
+}
+
 /* After the keyboard's bus exists (shell_kbd_probe), which owns the pin
  * mux. A stored level is applied; with nothing stored the light is left as
  * the board booted it. */
@@ -2210,6 +2411,11 @@ static enum hw_result hw_dispatch(enum hw_action a, const char *source, int *val
 static void on_hw_action(enum hw_action a, void *user)
 {
     (void)user;
+    /* A key that only woke the screen does nothing else (shell_power.h). */
+    if (!shell_power_gate()) {
+        LOG_INFO("action %s from keyboard: woke the screen only", hw_action_name(a));
+        return;
+    }
     (void)hw_dispatch(a, "keyboard", NULL);
 }
 
@@ -2392,6 +2598,47 @@ static int test_tap_start(int32_t x, int32_t y, uint32_t hold_ms)
 }
 #endif
 
+/* shell.info's and shell.power's view of Power & Sleep. */
+static cJSON *power_json(void)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(o, "screen", shell_power_screen_off() ? "off" : "on");
+    cJSON_AddNumberToObject(o, "screen_off_s", shell_power_timeout(POWER_TIMER_SCREEN));
+    cJSON_AddNumberToObject(o, "auto_lock_s", shell_power_timeout(POWER_TIMER_LOCK));
+    cJSON_AddBoolToObject(o, "lock_at_start", pocketos_shell_lock_at_start());
+    cJSON_AddBoolToObject(o, "held", power_hold());
+    cJSON_AddNumberToObject(o, "idle_ms", shell_power_idle_ms());
+    cJSON_AddNumberToObject(o, "screen_offs", shell_power_off_count());
+    /* Not offered, and said so rather than left out (power_policy.h). */
+    cJSON_AddStringToObject(o, "sleep", "unavailable");
+    return o;
+}
+
+static cJSON *timezone_json(void)
+{
+    const struct tz_zone *z = tz_zone_find(pocketos_shell_timezone());
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(o, "zone", z->id);
+    cJSON_AddStringToObject(o, "place", z->place);
+    cJSON_AddStringToObject(o, "offset", z->offset);
+    cJSON_AddBoolToObject(o, "stored", settings_get(TZ_SETTING, NULL) != NULL);
+    return o;
+}
+
+static cJSON *overlay_json(void)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddBoolToObject(o, "enabled", shell_overlay_enabled());
+    cJSON_AddBoolToObject(o, "alive", shell_overlay_alive());
+    cJSON_AddStringToObject(o, "text", shell_overlay_text());
+    cJSON_AddNumberToObject(o, "refreshes", shell_overlay_refreshes());
+    cJSON_AddNumberToObject(o, "period_ms", OVERLAY_REFRESH_MS);
+    return o;
+}
+
 static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client *c,
                              cJSON *req, void *user)
 {
@@ -2402,6 +2649,18 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
     cJSON *result = NULL;
 
     (void)user;
+    /* A request that acts the way a person would - opening, going home,
+     * pressing an action - is activity, and wakes a dark screen first, as a
+     * touch would. Reading the state does neither, and a key goes through
+     * the key's own gate (shell_kbd), so it only wakes, as a pressed one; a
+     * test tap lands on the cover like a finger. */
+    if (strcmp(method, "shell.info") != 0 && strcmp(method, "shell.audit") != 0 &&
+        strcmp(method, "shell.screenshot") != 0 && strcmp(method, "shell.subscribe") != 0 &&
+        strcmp(method, "shell.unsubscribe") != 0 && strcmp(method, "shell.key") != 0 &&
+        strcmp(method, "shell.tap") != 0 && strcmp(method, "shell.lock") != 0) {
+        shell_power_wake(method);
+        shell_power_activity();
+    }
     if (strcmp(method, "shell.info") == 0) {
         cJSON *list = cJSON_CreateArray();
         cJSON *display = cJSON_CreateObject();
@@ -2448,6 +2707,12 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddItemToObject(result, "hardware", hardware_json());
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddStringToObject(result, "text_size", pos_text_size_name(pos_theme_current_text_size()));
+        cJSON_AddItemToObject(result, "power", power_json());
+        cJSON_AddItemToObject(result, "timezone", timezone_json());
+        cJSON_AddItemToObject(result, "debug_overlay", overlay_json());
+        if (sh.header_title) {
+            cJSON_AddStringToObject(result, "title", lv_label_get_text(sh.header_title));
+        }
         cJSON_AddNumberToObject(display, "width", sh.display.geometry.width);
         cJSON_AddNumberToObject(display, "height", sh.display.geometry.height);
         cJSON_AddStringToObject(display, "backend", sh.backend_name);
@@ -3013,6 +3278,64 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddNumberToObject(result, "x", tx);
         cJSON_AddNumberToObject(result, "y", ty);
 #endif
+    } else if (strcmp(method, "shell.power") == 0) {
+        /* Power & Sleep (DS §52.4): reads, or sets either timeout, or the
+         * lock at start. A request is taken whole or not at all. */
+        const cJSON *so = params ? cJSON_GetObjectItemCaseSensitive(params, "screen_off_s") : NULL;
+        const cJSON *al = params ? cJSON_GetObjectItemCaseSensitive(params, "auto_lock_s") : NULL;
+        const cJSON *ls = params ? cJSON_GetObjectItemCaseSensitive(params, "lock_at_start") : NULL;
+
+        if ((so && (!cJSON_IsNumber(so) || power_option_index(POWER_TIMER_SCREEN, so->valueint) < 0 ||
+                    so->valuedouble != (double)so->valueint)) ||
+            (al && (!cJSON_IsNumber(al) || power_option_index(POWER_TIMER_LOCK, al->valueint) < 0 ||
+                    al->valuedouble != (double)al->valueint)) ||
+            (ls && !cJSON_IsBool(ls))) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                id, POCKETIPC_ERR_INVALID_PARAMS,
+                "screen_off_s one of 0 30 60 120 300 600, auto_lock_s one of 0 60 120 300 600 1800, "
+                "lock_at_start true or false"));
+            return;
+        }
+        if ((so && shell_power_set_timeout(POWER_TIMER_SCREEN, so->valueint) < 0) ||
+            (al && shell_power_set_timeout(POWER_TIMER_LOCK, al->valueint) < 0) ||
+            (ls && pocketos_shell_set_lock_at_start(cJSON_IsTrue(ls) ? 1 : 0) < 0)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BACKEND,
+                                                                  "the setting could not be stored"));
+            return;
+        }
+        result = power_json();
+    } else if (strcmp(method, "shell.timezone") == 0) {
+        const cJSON *zn = params ? cJSON_GetObjectItemCaseSensitive(params, "zone") : NULL;
+
+        if (zn) {
+            if (!cJSON_IsString(zn) || !tz_zone_find(zn->valuestring)) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_INVALID_PARAMS, "zone must be one of the names Settings offers"));
+                return;
+            }
+            if (pocketos_shell_set_timezone(zn->valuestring) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BACKEND,
+                                                                      "the zone could not be stored"));
+                return;
+            }
+        }
+        result = timezone_json();
+    } else if (strcmp(method, "shell.debug_overlay") == 0) {
+        const cJSON *en = params ? cJSON_GetObjectItemCaseSensitive(params, "enabled") : NULL;
+
+        if (en) {
+            if (!cJSON_IsBool(en)) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                      "enabled must be true or false"));
+                return;
+            }
+            if (shell_overlay_set_enabled(cJSON_IsTrue(en)) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BACKEND,
+                                                                      "the setting could not be stored"));
+                return;
+            }
+        }
+        result = overlay_json();
     } else if (strcmp(method, "shell.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();
@@ -3041,6 +3364,7 @@ static void on_tick(lv_timer_t *timer)
      * (clock_runtime.h). */
     clock_runtime_step();
     status_update();
+    shell_power_tick();
     controls_tick();
     shot_reap();
     if (sh.app && sh.app->tick) {
@@ -3189,6 +3513,9 @@ int main(int argc, char **argv)
      * before the display is opened, not a second later. The probe needs no
      * LVGL: it takes the bus, asks the controller and gives an answer. */
     loaded = settings_init();
+    /* Before anything reads a clock: every local time this run shows is in
+     * the stored zone (tz_zones.h). */
+    timezone_restore();
     shell_kbd_probe();
     shell_display_resolve(rotation_arg, &sh.display);
     kbd_presence_set_listener(on_keyboard_presence, NULL);
@@ -3394,6 +3721,15 @@ int main(int argc, char **argv)
     } else {
         shell_lock_engage("start");
     }
+    /* Power & Sleep, and the developer overlay (DS §52): last of the things
+     * on screen, so the cover is over all of them and the overlay over all
+     * but the cover. */
+    {
+        static const struct shell_power_hooks power_hooks = { power_hold, power_locked, power_lock };
+
+        shell_power_init(&power_hooks);
+        shell_overlay_init(sh.content);
+    }
     environment_apply();
     sh.server = pocketipc_server_new("shell", on_shell_request, NULL);
     if (sh.server) {
@@ -3407,6 +3743,7 @@ int main(int argc, char **argv)
     /* The keyboard base's own keys, and the LEDs that say what the
      * microphone and the camera are doing. */
     shell_kbd_on_action(on_hw_action, NULL);
+    shell_kbd_set_wake_gate(shell_power_gate);
     if (hw_activity_init(&sh.activity, proc_root(), sysfs_root()) == 0) {
         LOG_INFO("camera: no capture node found; the camera LED stays off");
     }
@@ -3446,6 +3783,8 @@ int main(int argc, char **argv)
     /* The open app is closed the ordinary way, so it persists what it holds
      * exactly as it would on any other exit. */
     app_close();
+    /* No overlay refresh may run into a shell on its way out. */
+    shell_overlay_shutdown();
     /* Then what an app keeps running without its screen (the Terminal's
      * session): ended here, the ordinary way, because an exec would only
      * close its descriptors and leave its processes to nobody. */

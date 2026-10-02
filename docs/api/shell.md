@@ -121,6 +121,47 @@ developer tooling, not for applications.
   it to pos-wave (`--volume-percent`) and sends nothing while muted.
   `pos shell volume [10..100|mute|unmute]`.
 
+- `shell.power` params `{screen_off_s?, auto_lock_s?, lock_at_start?}`
+  (DS §52.4, ui/shell/power_policy.h): reads, or sets, Power & Sleep.
+  `screen_off_s` is one of 0 (never), 30, 60, 120, 300, 600; `auto_lock_s`
+  one of 0, 60, 120, 300, 600, 1800; `lock_at_start` a boolean (settings key
+  `lock_screen`, read at the next start). All params are checked before any
+  is applied: anything else is error 2 with nothing changed; error 4 when a
+  value could not be stored. Stored as `screen_off_s` and `auto_lock_s`. A set
+  counts as activity, so the new time runs from the call. Result, and
+  `shell.info.power`: `{screen: "on"|"off", screen_off_s, auto_lock_s,
+  lock_at_start, held, idle_ms, screen_offs, sleep: "unavailable"}` - `held`
+  while an alarm rings or Video, Camera, Vision or DeskBuddy is in front (no
+  timer runs then), `idle_ms` since the last touch, key or acting request,
+  `screen_offs` since start. Screen off is a black cover; the touch or key
+  that wakes it does nothing else. `pos call shell shell.power
+  screen_off_s=60`.
+
+- `shell.timezone` params `{zone?}` (DS §52.7, ui/shell/tz_zones.h): reads,
+  or with `zone` (an IANA name from the list Settings offers) sets, the time
+  zone the shell shows local time in, applied at once and stored as
+  `timezone`. Error 2 for a name not in the list, error 4 when it could not
+  be stored (nothing applied then). Result, and `shell.info.timezone`:
+  `{zone, place, offset, stored}`. Event `shell.timezone` `{zone}` on every
+  set. `pos call shell shell.timezone zone=Europe/Oslo`.
+
+- `shell.debug_overlay` params `{enabled?}` (DS §52.6,
+  ui/shell/shell_overlay.h): reads, or sets, the developer overlay, stored as
+  `debug_overlay`. Error 2 for anything but a boolean, error 4 when it could
+  not be stored. Result, and `shell.info.debug_overlay`: `{enabled, alive,
+  text, refreshes, period_ms}` - `alive` whether its object and timer exist
+  (never while off), `text` the line on show ("" while off).
+
+- `shell.info` also carries `title` with an app open: the header's title, the
+  app's name or the page it is on (app.h `pocketos_shell_set_title`).
+
+Requests that act like a person - every method but `shell.info`,
+`shell.audit`, `shell.screenshot`, `shell.subscribe`, `shell.unsubscribe`,
+`shell.lock`, `shell.key` and `shell.tap` - count as activity for Power &
+Sleep and wake a dark screen first. `shell.key` and `shell.tap` take the
+physical key's and the finger's own path: while the screen is off they only
+wake it.
+
 - `shell.rotation` params `{mode?}`: reads, or with `mode` stores, the
   rotation mode (`automatic`, `portrait`, `landscape`; settings key
   `display_rotation`). The display is rotated when it is opened, so a change

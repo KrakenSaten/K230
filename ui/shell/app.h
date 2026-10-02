@@ -67,6 +67,16 @@ struct pocketos_app {
      * - so that it ends cleanly instead of being cut off by the exec. May be
      * NULL. Appended and zero, so the API version stays. */
     void (*shutdown)(void);
+    /* The header's back slab goes one level back inside the app first, as
+     * the Back action does (`back` above): for an app whose own pages are
+     * reached from a list of its own - Settings' categories, System's
+     * Diagnostics (DS §52) - so the slab a person sees above a page leads
+     * to the list it came from, not out of the app. The shell calls `back`
+     * after the tap, outside the event; when it returns 0 the slab goes
+     * where it always went. false (the default) keeps the slab leaving the
+     * app, as it does for every app written before this. Appended and zero,
+     * so the API version stays. */
+    bool back_slab_in_app;
 };
 
 /* Shell services available to apps. */
@@ -235,6 +245,51 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
                                   void (*on_done)(void *user), void *user);
 void pocketos_shell_keyboard_hide(void);
 int pocketos_shell_keyboard_visible(void);
+
+/* ---- the app header's title --------------------------------------------- *
+ *
+ * The words in the header beside the back slab: the app's name, or, while
+ * an app shows one of its own pages, the page's ("Power & Sleep" in
+ * Settings). NULL or "" puts the app's name back. Lasts until the app is
+ * closed; ignored while no header is shown. */
+void pocketos_shell_set_title(const char *title);
+
+/* ---- Power & Sleep (power_policy.h, DS §52.4) --------------------------- *
+ *
+ * Screen off and lock, after this many seconds without a touch or a key: 0
+ * is never (the default), anything else one of power_policy.h's options. The
+ * shell applies a change at once and keeps it in settings.conf. _set returns
+ * 0, or -1 when the value is not an option or could not be stored (nothing
+ * changes). System sleep is not offered: see power_policy.h.
+ *
+ * _lock_at_start: whether the lock engages when Doors starts (settings.conf
+ * lock_screen, 1 by default); takes effect at the next start. */
+int pocketos_shell_screen_off_after(void);
+int pocketos_shell_set_screen_off_after(int seconds);
+int pocketos_shell_lock_after(void);
+int pocketos_shell_set_lock_after(int seconds);
+int pocketos_shell_lock_at_start(void);
+int pocketos_shell_set_lock_at_start(int on);
+
+/* ---- time zone (tz_zones.h) --------------------------------------------- *
+ *
+ * The zone local time is shown in, by its IANA name ("Europe/Oslo"); "UTC"
+ * when none was chosen. _set applies it at once, everywhere the shell shows
+ * a time, and stores it; returns 0, or -1 for a name that is not one of
+ * tz_zones.h's or could not be stored (nothing changes). */
+const char *pocketos_shell_timezone(void);
+int pocketos_shell_set_timezone(const char *id);
+
+/* ---- the keyboard base's light (kbd_light.h) ---------------------------- *
+ *
+ * 0..100 in steps of 10, 0 off; -1 when this board has no such light. _set
+ * applies and stores, returns the level applied or -1. */
+int pocketos_shell_keyboard_light(void);
+int pocketos_shell_set_keyboard_light(int percent);
+
+/* ---- the developer debug overlay (shell_overlay.h, DS §52.6) ------------ */
+int pocketos_shell_debug_overlay(void);
+int pocketos_shell_set_debug_overlay(int on);
 
 /* v0.1 lifecycle limitation: an app is created when opened and destroyed
  * when left; there is no pause/resume/suspend. Apps that need continuity

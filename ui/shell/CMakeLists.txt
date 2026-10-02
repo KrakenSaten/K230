@@ -64,6 +64,11 @@ add_executable(pocketos-shell
     kbd_light.c
     hw_actions.c
     hw_activity.c
+    power_policy.c
+    shell_power.c
+    tz_zones.c
+    overlay_model.c
+    shell_overlay.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ../pocketui/pos_brand_mark.c
