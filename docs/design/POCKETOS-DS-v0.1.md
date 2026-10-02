@@ -4659,8 +4659,12 @@ after the app is opened again. Screenshots with `ZABBIX_SHOTS=<dir>`:
 `connection`, `connection-typed`, `connection-authfail`,
 `connection-saved`.
 
-## 51. Amendment AI — RIFT kept in the background, its mark, and the navigation row [PROPOSED]
+## 51. Amendment AI — RIFT kept in the background, its mark, and the navigation row [ACCEPTED]
 
+**ACCEPTED 2026-10-02** by the owner, after the unit B checks
+(docs/hardware/RIFT_BACKGROUND_SMOKE.md: the kept session, the RIFT mark,
+CLOSE RIFT, the visible navigation faces and the top row without a band) and
+the merge to master (`80f31ed`, PR #29).
 **Proposed 2026-10-02** on branch `feat/rift-background-lifecycle`, at the
 owner's request: leaving RIFT should not end it, the status cluster should
 say when it runs behind another screen, there should be an explicit way to
