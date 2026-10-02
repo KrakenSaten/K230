@@ -135,7 +135,19 @@ static void build_row(struct rift_conv_list *l)
     r->pulse = rift_pulse_create(r->line);
     lv_obj_set_style_margin_left(r->pulse, PULSE_PULL, 0);
     r->route = rift_cell(r->line, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
+    rift_conv_cols_widen(r->heard, r->route);
     l->row_count++;
+}
+
+/* Each column's widest words: its header and the longest value update_row
+ * writes into it. */
+void rift_conv_cols_widen(lv_obj_t *heard, lv_obj_t *route)
+{
+    rift_cell_widen(heard, "HEARD");
+    rift_cell_widen(heard, ">99d");
+    rift_cell_widen(route, "ROUTE");
+    rift_cell_widen(route, "NO PATH");
+    rift_cell_widen(route, "64 HOPS");
 }
 
 static void unbind(struct conv_row *r)

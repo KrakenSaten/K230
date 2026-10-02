@@ -1261,6 +1261,171 @@ static void landscape_start_session(void)
     use_display(POS_ROTATION_0, PANEL_CORNER);
 }
 
+/* ---- every text size (DS §46) ---------------------------------------------- */
+
+/* The width a label's words take in the font and spacing it is drawn in,
+ * which is what a text size changes. */
+static int32_t words_w(lv_obj_t *label)
+{
+    lv_point_t size;
+    const char *t = lv_label_get_text(label);
+
+    if (!t || !t[0]) {
+        return 0;
+    }
+    lv_text_get_size(&size, t, lv_obj_get_style_text_font(label, LV_PART_MAIN),
+                     lv_obj_get_style_text_letter_space(label, LV_PART_MAIN),
+                     lv_obj_get_style_text_line_space(label, LV_PART_MAIN), LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+/* Visible one-line labels under obj that do not show their words whole:
+ * wider than their own box, which LVGL clips at an edge - the left one, for
+ * a right-aligned number - or reaching outside their parent's box, where
+ * they are drawn over a neighbour or cut by the row. A wrapping label says
+ * its words on more lines and is not counted. */
+static int captions_clipped(lv_obj_t *obj)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || !visible(obj)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) &&
+        lv_label_get_long_mode(obj) != LV_LABEL_LONG_WRAP && words_w(obj) > 0) {
+        lv_area_t c;
+        lv_area_t p;
+
+        lv_obj_update_layout(obj);
+        lv_obj_get_coords(obj, &c);
+        lv_obj_get_coords(lv_obj_get_parent(obj), &p);
+        if (words_w(obj) > lv_obj_get_content_width(obj)) {
+            printf("     \"%s\" is %d px in a %d px cell\n", lv_label_get_text(obj),
+                   (int)words_w(obj), (int)lv_obj_get_content_width(obj));
+            n++;
+        } else if (c.x1 < p.x1 || c.x2 > p.x2) {
+            printf("     \"%s\" at x %d..%d reaches outside its row's %d..%d\n",
+                   lv_label_get_text(obj), (int)c.x1, (int)c.x2, (int)p.x1, (int)p.x2);
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += captions_clipped(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+/* RIFT at Small, Medium and Large, upright and turned: every caption in the
+ * strip and the three sections that draw one shows its words whole. Seen on
+ * unit B at Large in landscape (docs/hardware/RIFT_MANAGEMENT_GATE.md, "Seen,
+ * not changed"): the strip's keys cut at their left edge, NODES' HOPS and
+ * HEARD clipped by their columns, COMMS' CONVERSATIONS run under HEARD, and
+ * MESH ACTIVITY's caption cut by its legend. The shell re-creates the open
+ * app when the size changes (DS §46), so each size is a new app here too. */
+static void text_size_session(void)
+{
+    static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
+                                                POS_TEXT_SIZE_LARGE };
+    static const enum pos_rotation turns[] = { POS_ROTATION_270, POS_ROTATION_0 };
+    enum pos_text_size was = pos_theme_current_text_size();
+    size_t s;
+    size_t t;
+
+    for (t = 0; t < sizeof(turns) / sizeof(turns[0]); t++) {
+        for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+            const char *size = pos_text_size_name(sizes[s]);
+            const char *shape = turns[t] == POS_ROTATION_0 ? "portrait" : "landscape";
+            char what[160];
+
+            pos_theme_select_text_size(sizes[s]);
+            use_display(turns[t], PANEL_CORNER);
+            app_start();
+            quiet_client();
+            give_nodes();
+            give_service();
+            give_messages();
+            pump(200);
+
+            rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+            pump(200);
+            snprintf(what, sizeof(what), "%s, %s: ACTIVITY's captions are whole", size, shape);
+            check(what, captions_clipped(frame()) == 0);
+            snprintf(what, sizeof(what), "%s, %s: MESH ACTIVITY keeps its value beside the legend",
+                     size, shape);
+            check(what, find_text(content(), "PEAK 1/MIN") != NULL);
+            if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
+                shot("landscape-activity-large");
+            }
+
+            rift_app_show_section(app, RIFT_SEC_NODES);
+            pump(200);
+            snprintf(what, sizeof(what), "%s, %s: NODES' captions are whole", size, shape);
+            check(what, captions_clipped(frame()) == 0);
+            {
+                lv_obj_t *hops = find_exact(content(), "HOPS");
+                lv_obj_t *heard = find_exact(content(), "HEARD");
+
+                snprintf(what, sizeof(what), "%s, %s: HOPS and HEARD fit their columns", size,
+                         shape);
+                check(what, hops && heard && words_w(hops) <= lv_obj_get_content_width(hops) &&
+                                words_w(heard) <= lv_obj_get_content_width(heard));
+            }
+            if (app->wide) {
+                /* The strip's caption leads with the keys, whatever it has to
+                 * leave off its end; 256 nodes is unit B's count. */
+                give_many_nodes(256);
+                pump(200);
+                snprintf(what, sizeof(what), "%s, %s: the strip names the keys first and whole",
+                         size, shape);
+                check(what, app->cmd_hint &&
+                                strncmp(lv_label_get_text(app->cmd_hint),
+                                        "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP
+                                        "ENTER MESSAGE",
+                                        strlen("\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP
+                                               "ENTER MESSAGE")) == 0 &&
+                                captions_clipped(strip()) == 0);
+                printf("     %s strip: \"%s\"\n", size, lv_label_get_text(app->cmd_hint));
+                if (sizes[s] == POS_TEXT_SIZE_LARGE) {
+                    shot("landscape-nodes-large");
+                }
+                give_nodes();
+                rift_app_refresh(app);
+                pump(200);
+            }
+
+            rift_app_show_section(app, RIFT_SEC_COMMS);
+            rift_app_open_conversation(app, KEY_B);
+            pump(200);
+            snprintf(what, sizeof(what), "%s, %s: COMMS' captions are whole", size, shape);
+            check(what, captions_clipped(frame()) == 0);
+            {
+                lv_obj_t *title = find_text(content(), "CONVERSA");
+                lv_obj_t *heard = find_exact(content(), "HEARD");
+                lv_area_t a = { 0 };
+                lv_area_t b = { 0 };
+
+                if (title && heard) {
+                    lv_obj_get_coords(title, &a);
+                    lv_obj_get_coords(heard, &b);
+                    printf("     \"%s\" %d..%d, HEARD %d..%d\n", lv_label_get_text(title),
+                           (int)a.x1, (int)a.x2, (int)b.x1, (int)b.x2);
+                }
+                snprintf(what, sizeof(what),
+                         "%s, %s: the list's title ends before HEARD begins", size, shape);
+                check(what, title && heard && a.x2 < b.x1);
+            }
+            if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
+                shot("landscape-comms-large");
+            }
+            app_stop();
+        }
+    }
+    pos_theme_select_text_size(was);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+}
+
 static void scale_session(void)
 {
     lv_obj_t *list;
@@ -2936,6 +3101,7 @@ int main(void)
     sound_session(g_state_dir);
     landscape_start_session();
     scale_session();
+    text_size_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */
