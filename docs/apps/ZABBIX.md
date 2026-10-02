@@ -752,14 +752,18 @@ run, not `make test`:
 | `tests/zbx_proto_test` | `settings`/`cresult` lines, damaged ones refused; hex both ways; `ctest`/`csave` built and parsed, every field at its longest, broken ones refused | 60 ok |
 | `tests/zabbix_view_test` | the model keeps settings and counts answers; the four result words and tones, "Saved"/"Not saved"; the secret's caption and note | 68 ok |
 | `tests/zabbix_session_test` | the real helper: the settings line, AUTH FAILED, CONNECTED, INVALID CONFIG, a save and its files, the same helper still serving data, the saved settings after a new start, no secret in cmdline, environ or log | 43 ok |
-| `tests/zabbix_http_test.sh` | `ctest`/`csave` over libcurl against the mock: one failed login, a save beside the kept keys, the password 0600 and in no helper line, the trial logged out, `pos-zabbix check` online on what was saved | 53 ok |
-| `zabbix_app_test` | CONNECTION in both shapes: load, targets, keyboard on a tap, mask, AUTH FAILED, CONNECTED, INVALID CONFIG, UNREACHABLE, save, refused save keeps the files, Back, reopen; the layout audit at Small, Medium and Large | 135 ok |
+| `tests/zabbix_http_test.sh` | `ctest`/`csave` over libcurl against the mock: one failed login, a save beside the kept keys, the password 0600 and in no helper line, the trial logged out, `pos-zabbix check` online on what was saved; a trial beside a live session to the same server (mock `--close`) | 54 ok |
+| `zabbix_app_test` | CONNECTION in both shapes: load, targets, keyboard on a tap, mask, AUTH FAILED, CONNECTED, INVALID CONFIG, UNREACHABLE, an edit clearing the result, save, refused save keeps the files, Back, reopen; the layout audit at Small, Medium and Large | 137 ok |
 | `tests/zabbix_lint.sh` | seven more rules for the screen (§7) | 43 ok |
 
 Eight mutants of zbx_settings.c and zbx_proto.c (saving without a
 connection, no rollback, mode=fake kept, an unchecked user, a trial without
 `problem.get`, no logout, a NUL accepted in hex, the keep flag lost) were
 each caught by a suite.
+
+**riscv64:** `make all` with the package's flags (`-Werror`, ZABBIX_CURL=1
+and the rest of pocketos.mk's options) and the DRM/sysroot shell build with
+no first-party warning. **On unit B:** docs/hardware/ZABBIX_CONNECTION_SETTINGS_GATE.md.
 
 ### 11.1 Full validation
 
