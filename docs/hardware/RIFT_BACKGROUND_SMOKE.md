@@ -53,6 +53,20 @@ and the targets had grown). **Unit B now runs doors-shell `0600641`** (md5
 Captured on the panel: the five faces in one look on ACTIVITY, NODES, COMMS
 and NET; a finger tap on each tab switched to it; Back went home with the RIFT
 mark up; reopening was the kept session (`open again ... open 2`). doors-shell
-pid unchanged, 0 ERROR/assert lines. Seen, not changed: NET's ring column
-headings overlap at Large in landscape (NET's own layout; not compared with
-master here).
+pid unchanged, 0 ERROR/assert lines. Seen then: NET's ring column headings
+ran together at Large in landscape - fixed below.
+
+## NET ring headings (2026-10-02, doors-shell `be5ff22`)
+
+**Unit B now runs doors-shell `be5ff22`** (md5 `2897555a68d110c9e6f03d29a67d48ca`),
+same rollback. The shell's own layout audit on the panel showed no heading
+overlapped another: the landscape columns (108 px each at Large) meet edge to
+edge, so a heading or count that filled its column ended 1-2 px before the
+next one's words. Now each heading is its column's width less a 12 px gutter,
+one line, in the longest form that fits ("1 DIRECT" / "1 DIR" / "1",
+"5 · 5 ADV" / "5·5 ADV" / "5", "? NO PATH" / "? NONE" / "?"). Measured on
+the panel capture at Large: counts row 26-28 px between columns, headings row
+at least 14 px ("1 DIRECT" ends at x 222, the empty ring 2's "2" starts at 237).
+Portrait's 92 px heading column, which the counts overran into the pills from
+Medium up, is fitted the same way. Pills wider than a landscape column at
+Large are still cut at its edge (audit: 12 clipped pills) - not changed.
