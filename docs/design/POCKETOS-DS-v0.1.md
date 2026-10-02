@@ -4476,3 +4476,11 @@ pressed state while scrolling) each fail it. `tests/back_corner_shell_test.sh`
 (the running shell, portrait, landscape and landscape with 50 px corners,
 by `shell.tap`): every app with the shell's header, Settings -> System ->
 Settings -> home, three folders and Controls, thirty rounds, no fault.
+
+### 48.5 Gate (before acceptance)
+
+Run on unit A on `doors-shell` `8e2fac5`, 2026-10-02, by touches injected
+through the panel's input device (docs/hardware/BACK_CORNER_GATE.md):
+landscape and portrait 18/18 each, against 7/18 for master `3a1303b` in the
+same script; the header pixel-identical to master; 100 soak rounds with
+VmRSS flat and no fault. Left for the owner: the feel under a real finger.
