@@ -122,6 +122,21 @@ unsigned zabbix_model_apply(struct zabbix_model *m, const struct zbx_rx_msg *msg
         snprintf(m->detail_missing, sizeof(m->detail_missing), "%.23s", msg->word);
         snprintf(m->detail_missing_text, sizeof(m->detail_missing_text), "%s", msg->text);
         return ZABBIX_CHANGED_DETAIL;
+    case ZBX_RX_SETTINGS:
+        m->have_settings = true;
+        snprintf(m->set_url, sizeof(m->set_url), "%s", msg->url);
+        m->set_password = strcmp(msg->word, "password") == 0;
+        snprintf(m->set_user, sizeof(m->set_user), "%s", msg->user);
+        m->set_stored = msg->flag;
+        snprintf(m->set_note, sizeof(m->set_note), "%s", msg->text);
+        return ZABBIX_CHANGED_SETTINGS;
+    case ZBX_RX_CRESULT:
+        m->cresult_seq++;
+        m->cresult_save = msg->save;
+        m->cresult = msg->result;
+        m->cresult_saved = msg->flag;
+        snprintf(m->cresult_text, sizeof(m->cresult_text), "%s", msg->text);
+        return ZABBIX_CHANGED_SETTINGS;
     case ZBX_RX_BYE:
     case ZBX_RX_NONE:
     case ZBX_RX_BAD:
@@ -521,4 +536,64 @@ void zabbix_view_status(const struct zabbix_model *m, int64_t now_ms, struct zab
     snprintf(t1, sizeof(t1), "%d s", m->refresh_s);
     snprintf(t2, sizeof(t2), "%d s", m->hosts_s);
     line(v, "REFRESH", ZABBIX_TONE_PLAIN, "problems every %s, hosts every %s", t1, t2);
+}
+
+/* ---- CONNECTION ------------------------------------------------------------------------ */
+
+void zabbix_view_cresult(enum zbx_cresult r, bool save, bool saved, const char *text,
+                         struct zabbix_cresult_view *v)
+{
+    const char *what = text && *text ? text : "";
+
+    memset(v, 0, sizeof(*v));
+    switch (r) {
+    case ZBX_CRESULT_CONNECTED:
+        snprintf(v->word, sizeof(v->word), "CONNECTED");
+        v->tone = saved || !save ? ZABBIX_TONE_OK : ZABBIX_TONE_WARN;
+        break;
+    case ZBX_CRESULT_AUTH_FAILED:
+        snprintf(v->word, sizeof(v->word), "AUTH FAILED");
+        v->tone = ZABBIX_TONE_ERROR;
+        break;
+    case ZBX_CRESULT_UNREACHABLE:
+        snprintf(v->word, sizeof(v->word), "UNREACHABLE");
+        v->tone = ZABBIX_TONE_ERROR;
+        break;
+    case ZBX_CRESULT_INVALID:
+    default:
+        snprintf(v->word, sizeof(v->word), "INVALID CONFIG");
+        v->tone = ZABBIX_TONE_ERROR;
+        break;
+    }
+    if (!save) {
+        snprintf(v->text, sizeof(v->text), "%s", what);
+    } else if (saved) {
+        snprintf(v->text, sizeof(v->text), "Saved and in use. %s", what);
+    } else {
+        /* A save that did not connect stored nothing: say so, because that
+         * is what keeps the unit working. */
+        size_t n = strlen(what);
+
+        snprintf(v->text, sizeof(v->text), "%s%sNot saved: the previous settings stay in use.", what,
+                 n == 0 ? "" : what[n - 1] == '.' ? " " : ". ");
+    }
+}
+
+void zabbix_view_secret_caption(bool password, char *out, size_t len)
+{
+    snprintf(out, len, "%s", password ? "PASSWORD" : "API TOKEN");
+}
+
+void zabbix_view_secret_note(bool password, bool stored, size_t typed, char *out, size_t len)
+{
+    const char *what = password ? "password" : "token";
+
+    if (typed > 0) {
+        snprintf(out, len, "%zu character%s typed; it replaces the stored %s on SAVE", typed,
+                 typed == 1 ? "" : "s", what);
+    } else if (stored) {
+        snprintf(out, len, "A %s is stored and never shown. Leave this empty to keep it.", what);
+    } else {
+        snprintf(out, len, "No %s is stored yet.", what);
+    }
 }

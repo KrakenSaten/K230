@@ -55,6 +55,7 @@ enum zabbix_exit {
 #define ZABBIX_CHANGED_HOSTS 0x04u
 #define ZABBIX_CHANGED_DETAIL 0x08u
 #define ZABBIX_CHANGED_EXITED 0x10u
+#define ZABBIX_CHANGED_SETTINGS 0x20u  /* a settings or a cresult line */
 
 struct zabbix_model {
     /* what the helper said about itself */
@@ -93,6 +94,20 @@ struct zabbix_model {
     int64_t detail_ms;
     char detail_missing[ZBX_ID_MAX]; /* the host the helper could not read */
     char detail_missing_text[ZBX_TEXT_MAX];
+
+    /* the CONNECTION screen: what the files hold (never the secret, only
+     * whether one is stored), and the last answer to a test or save */
+    bool have_settings;
+    char set_url[ZBX_URL_MAX];
+    bool set_password;          /* auth=password, else a token */
+    char set_user[ZBX_PROTO_USER_MAX];
+    bool set_stored;
+    char set_note[ZBX_TEXT_MAX];
+    unsigned cresult_seq;       /* counts the answers; 0: none yet */
+    bool cresult_save;
+    enum zbx_cresult cresult;
+    bool cresult_saved;
+    char cresult_text[ZBX_TEXT_MAX];
 
     /* the helper itself */
     bool helper_running;
@@ -229,5 +244,24 @@ void zabbix_view_status(const struct zabbix_model *m, int64_t now_ms, struct zab
 
 /* Group digits for a count: 1734 -> "1 734". */
 void zabbix_format_count(char *out, size_t len, int n);
+
+/* ---- CONNECTION ---------------------------------------------------------------------- */
+
+/* How a test or save came out, in the screen's words: "CONNECTED", "AUTH
+ * FAILED", "UNREACHABLE", "INVALID CONFIG"; and the sentence under it, which
+ * says for a save whether anything was stored. */
+struct zabbix_cresult_view {
+    char word[24];
+    enum zabbix_tone tone;
+    char text[ZABBIX_LINE_TEXT];
+};
+void zabbix_view_cresult(enum zbx_cresult r, bool save, bool saved, const char *text,
+                         struct zabbix_cresult_view *v);
+
+/* The secret field: its caption ("API TOKEN", "PASSWORD"), and the line
+ * under it, which never holds the secret: whether one is stored and what an
+ * empty field means, or how many characters are typed. */
+void zabbix_view_secret_caption(bool password, char *out, size_t len);
+void zabbix_view_secret_note(bool password, bool stored, size_t typed, char *out, size_t len);
 
 #endif

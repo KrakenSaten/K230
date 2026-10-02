@@ -1102,6 +1102,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/core/zabbix/zbx_proto.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pocketui_audit.c
         ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c

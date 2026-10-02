@@ -88,6 +88,30 @@ check "a secret never reaches argv: the helper is started with session and --fak
     "$(code $A/zabbix_session.c | grep -E 'argv\[argc\+\+\] =' | grep -vqE '"session"|"--fake"|helper|fake' && echo 0 || echo 1)"
 check "and set-secret reads stdin" "$(grep -q 'fgets(value, sizeof(value), stdin)' $H && echo 1 || echo 0)"
 
+# ---- the CONNECTION screen (DS 50, docs/apps/ZABBIX.md section 7) ---------------
+S=$C/zbx_settings.c
+check "the typed secret is masked from its first character" \
+    "$(grep -q 'lv_textarea_set_password_mode(a->cn_secret, true);' $APP &&
+       grep -q 'lv_textarea_set_password_show_time(a->cn_secret, 0);' $APP && echo 1 || echo 0)"
+check "the secret field is never filled: the only text it is given is empty" \
+    "$(code $APP | grep -q 'lv_textarea_set_text(a->cn_secret' && echo 0 || echo 1)"
+check "the settings line carries no secret, only whether one is stored" \
+    "$(grep -q 'int zbx_proto_settings(FILE \*out, const char \*url, const char \*auth, const char \*user,' $C/zbx_proto.c &&
+       grep -A1 'int zbx_proto_settings(' $C/zbx_proto.c | grep -q 'bool stored, const char \*note)' && echo 1 || echo 0)"
+check "the typed secret is wiped: the app's line, the field, the helper's input and command" \
+    "$(grep -q 'explicit_bzero(line, sizeof(line));' $A/zabbix_session.c &&
+       grep -q 'explicit_bzero(t, strlen(t));' $APP && [ "$(code $APP | grep -c 'wipe_field(a, a->cn_secret)')" -ge 4 ] &&
+       grep -q 'explicit_bzero(s->in, sizeof(s->in));' $H && grep -q 'explicit_bzero(&cmd, sizeof(cmd));' $H &&
+       echo 1 || echo 0)"
+check "only what connected is stored" \
+    "$(grep -q 'if (!save || r != ZBX_CRESULT_CONNECTED) {' $S && echo 1 || echo 0)"
+check "the conf is staged 0644, the secret through the secret store's own path, renames undone on failure" \
+    "$(grep -q 'O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644' $S && grep -q 'zbx_config_stage_secret(' $S &&
+       grep -q 'link(secret_path, prev)' $S && grep -q 'rename(prev, secret_path);' $S && echo 1 || echo 0)"
+check "a settings change never reaches argv: the helper hears it on the socketpair" \
+    "$(code $A/zabbix_session.c | grep -q 'zbx_proto_cmd_settings(line, sizeof(line)' &&
+       grep -q 'send(s->fd, line, n, MSG_NOSIGNAL | MSG_DONTWAIT)' $A/zabbix_session.c && echo 1 || echo 0)"
+
 # ---- lifetime ------------------------------------------------------------------
 check "the helper leaves with the shell (PR_SET_PDEATHSIG)" \
     "$(grep -q 'prctl(PR_SET_PDEATHSIG, SIGTERM);' $A/zabbix_session.c && echo 1 || echo 0)"
