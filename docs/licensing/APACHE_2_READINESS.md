@@ -492,6 +492,11 @@ the branch (VERIFIED, 2026-10-01/02):
 | `tests/deploy_staging_test.sh` (the bench deploy archive carries LICENSE and NOTICE) | `55c5133` | 0 failures |
 | host `make all` | `55c5133`, `47edddc` | rc 0 |
 | `bash -n` of the changed packaging scripts (`apply_to_sdk.sh`, `build_image.sh`, `deploy.sh`) | final tip | rc 0 |
+| `tests/license_audit_test.sh` with the public-source checks (exclusions tracked, no build/generator/test input excluded, exporter executed, no design export or supplied font in the candidate, no vendor defconfig kept) | `32eab38` | 0 failures |
+| `tests/notices_test.sh` (LVGL pin file; the vendor board defconfig at the pinned BSP commit builds that LVGL) | `32eab38` | 0 failures |
+| `tests/package_sync_test.sh` (snapshot rules for the fragment; the composition executed against the vendor checkout: equals vendor file + fragment, builds the pinned LVGL, refuses a restating fragment) | `32eab38`; baseline origin/master `426b1d8` | 0 failures on both |
+| `tools/legal/public_source_tree.sh` export and `--list` | `61211d8`, `32eab38` | 1,849 files, 8 exclusions, no `.dc.html`, `support.js`, `.zip` or `.otf` |
+| composed defconfig = removed `k230_pocketos_defconfig` | vendor `bb831ab` | byte-identical (sha256 `e0b0b6ce…1c7d`) |
 
 Not run, by the owner's instruction on 2026-10-02: the riscv64 and DRM
 cross builds, `apply_to_sdk.sh` / `build_image.sh` against the SDK, and
