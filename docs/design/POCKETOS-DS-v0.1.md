@@ -4778,3 +4778,111 @@ the scripted meshcored, one connection and one subscription for six opens,
 a message taken in while left, the subscription given back on CLOSE RIFT
 and meshcored still running after it. `tests/rift_shell_test.sh`: the real
 shell's `shell.info` mark across home, another app and RIFT again.
+
+## 52. Amendment AJ — Settings in categories, System in tabs, Power & Sleep, the debug overlay [PROPOSED]
+
+**Proposed 2026-10-02** on branch `feat/settings-system-cleanup`, at the
+owner's request: Settings and System had grown into long pages with more
+than one scrolling region, settings mixed with status, and inconsistent
+grouping. This amends §24 (Settings landscape) and §25 (System landscape) and
+the Settings half of §47; it adds Power & Sleep, a time zone choice and a
+developer overlay. Nothing in §1-§51 is renumbered. Behaviour:
+docs/apps/SETTINGS.md; API: docs/api/shell.md (`shell.power`,
+`shell.timezone`, `shell.debug_overlay`), docs/api/system.md (`rx_bytes`,
+`tx_bytes`).
+
+### 52.1 Settings is a list of categories
+
+Settings opens on two panels of category rows - Display, Appearance, Sound,
+Keyboard, Power & Sleep; Time & Region, Network, System, Developer - one above
+the other when tall, side by side when wide. Each row is the category's name
+over one caption line saying what is set, with a chevron; the whole row is
+the target, never under 64 px, growing with its words at larger text sizes.
+A tap opens the category's page; System opens the System app (§47). The
+header's title names the page on show.
+
+**Navigation.** One level: the list, a page, and from two pages one page
+further (Network > a network, Time & Region > the zone list). The header's
+back slab and Back each go one level back - a page to the list - and from the
+list out of Settings (app.h `back_slab_in_app`; the slab used to leave the
+app from anywhere). Home goes home. Settings opens on the list every time.
+
+### 52.2 One box scrolls
+
+On every Settings and System page the page itself is the only box that
+scrolls, and only when what it holds is taller than the room. Columns,
+panels and rows never scroll on their own (§24's and §25's separately
+scrolling landscape columns are withdrawn). A page has at most two columns:
+side by side in the wide shape (each half the width, 22 px apart, each at
+least 528 px - the §24 rule), one above the other when tall; a page of one
+column keeps it across the body, and its list rows go two to a line when
+wide. On the reference panel every page but the two lists fits without
+scrolling at Small, Medium and Large in both orientations (System's NETWORK
+and SERVICES may take a short scroll at Large in landscape).
+
+### 52.3 What is on each Settings page
+
+Display: brightness (stepper), rotation (three modes), text size (three
+sizes). Appearance: the themes as rows with SELECTED, the display modes as
+three buttons. Sound: volume (stepper, steps of 10) and Mute (switch).
+Keyboard: the base's state (chip) and its key light (stepper, Off to 100 %).
+Power & Sleep: §52.4. Time & Region: the zone in force, the local time,
+CHANGE TIME ZONE, and whether the clock is set. Network: the Wi-Fi panel and
+its sheet, unchanged (§24.2's sheet halves included). Developer: §52.6.
+Every value is the shell's or netd's; Settings stores nothing.
+
+A **switch** is a 120 x 64 secondary button reading ON (accented) or OFF; a
+**stepper** is the row's title, a 96 px `-`, the value in a 112 px slot and a
+96 px `+`, the ends disabled.
+
+### 52.4 Power & Sleep
+
+Three things, never one, and the page says which is which in words:
+
+- **Screen off after** 30 s, 1, 2, 5, 10 min or Never (default Never). The
+  screen goes black over everything (the shell's system layer); the first
+  touch or key only wakes it and does nothing else. Everything keeps running.
+  The backlight level is not touched (its level 0 is UNKNOWN on this panel).
+- **Lock after** 1, 2, 5, 10, 30 min or Never (default Never): the §31.4 lock
+  comes down. **Lock when Doors starts** is the existing `lock_screen` key.
+- **Sleep is not offered.** The kernel has `freeze` and `mem`, but the wake
+  sources are unverified and there is no RTC for a timed wake; until both are
+  established on hardware, Doors does not suspend. The page says so.
+
+Neither timer runs while an alarm rings or while Video, Camera, Vision or
+DeskBuddy is in front. Stored in seconds: `screen_off_s`, `auto_lock_s`.
+
+### 52.5 System in tabs
+
+System is four pages under a row of four tabs (56 px, the page on show
+accented; two to a line when the text size makes a word wider than its
+quarter): **OVERVIEW** (the six vitals; storage; Restart and Power off, last),
+**NETWORK** (each interface with its state, address and traffic - the rate
+between two answers and the totals; Wi-Fi; the LoRa radio's chip, region,
+packets received and sent, CRC errors and last signal; the mesh),
+**SERVICES** (the services; Diagnostics) and **ABOUT** (Doors, the card when
+it differs, model, kernel, platform, vendor SDK, CPUs). The freshness line
+sits under the tabs when tall and at the end of their row when wide; ABOUT,
+which shows nothing live, has none and polls nothing. NETWORK adds one bounded
+call a second, in turn, to radiod, netd and meshcored. Diagnostics (§31.5)
+opens from SERVICES and its Back returns there; from a tab, Back is Settings.
+
+### 52.6 The debug overlay
+
+Settings > Developer > **Debug overlay**, off by default and stored
+(`debug_overlay`). One line, caption type held at Small, on a slab at 80 %
+centred at the foot of the content area (above the touch keyboard when it is
+up, clear of the rounded corners and of the status cluster):
+`CPU 18% · RAM 42% · 51°C · NET ↓12 ↑2 KB/s · LORA ↓848 ↑1`. It takes no
+touch and carries no address, name or identifier. While it is off it does not
+exist: no object, no timer, no request. While on it asks sysd for
+`system.status` and, when the status bar's poll says radiod answers, radiod
+for `radio.stats`, every 2 seconds.
+
+### 52.7 The time zone
+
+The zone is chosen from a list of 32 (UTC first, then west to east, each row
+its places and its standard offset with "summer time" where it has one). The
+shell applies it at once - TZ and `tzset()`, the C library's own mechanism; the
+image has no zone database, so each zone is a POSIX rule - and stores its IANA
+name (`timezone`). Services keep UTC, which their logs say they use.

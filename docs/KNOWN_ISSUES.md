@@ -31,6 +31,37 @@ state after reset. Not a radiod defect, not a runtime blocker, and not
 investigated further unless it recurs: the probe now names it
 chip-state dependent and dumps both transports' windows when it does.
 
+## Settings and System cleanup (feat/settings-system-cleanup, DS §52)
+
+- **No system sleep.** The kernel lists `freeze mem` in `/sys/power/state`
+  and `s2idle [deep]` in `mem_sleep` (unit B, 2026-10-02), with four wakeup
+  sources that are not identified. Which of touch, the keyboard base, the
+  buttons or the radio can wake the board from either state is unverified;
+  there is no RTC (`/dev/rtc*` absent), so no wake on a timer; and a board
+  that does not wake needs USB power out for 30 seconds. Power & Sleep
+  therefore offers screen off and lock only and says sleep is not available.
+  Establishing wake sources is hardware work of its own.
+- **Screen off is a black cover, not a panel power state.** The backlight
+  device's level 0 (DCS 0x51 00) and `bl_power` are DOCUMENTED to blank by
+  brightness only; what they show on this AMOLED is UNKNOWN
+  (docs/hardware/DISPLAY_BRIGHTNESS.md), so neither is used. Black pixels
+  are off pixels on the AMOLED; the panel itself stays powered and the shell
+  keeps drawing under the cover (LVGL skips what the cover hides).
+- **The time zone is the shell's.** It is applied in the shell process
+  (TZ + `tzset()`) and inherited by what the shell starts afterwards. Services
+  started by init, SSH sessions and `date` keep UTC; their logs already say
+  UTC. A helper the shell started before a change keeps the old zone until it
+  is started again. The image has no zone database, so the zones are a fixed
+  list of POSIX rules as in force in 2026 (`ui/shell/tz_zones.c`).
+- **No 12/24-hour setting.** Every clock in Doors is 24-hour and there is no
+  setting for it to move; none was added.
+- **The debug overlay is not in `shell.screenshot`.** It is on LVGL's top
+  layer, which `lv_snapshot_take(lv_screen_active())` does not include; the
+  panel shows it (an F7/kmsgrab capture does too).
+- **Keep-awake is a list in the shell.** Video, Camera, Vision and DeskBuddy
+  hold the screen and the lock off by id (`awake_apps` in `ui/shell/shell.c`);
+  a new app that plays or watches has to be added there.
+
 ## Open on feat/device-controls-diagnostics (not merged)
 
 Radio on/off with SX1262 off by default, the antenna question, system volume
