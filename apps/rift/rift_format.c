@@ -393,36 +393,6 @@ int rift_utf8_valid(const char *s)
     return 1;
 }
 
-/* The faces and the few signs that have a text smiley everybody reads the
- * same way. Not a translation of emoji: anything not here is left alone. */
-static const struct {
-    uint32_t cp;
-    const char *text;
-} smileys[] = {
-    { 0x263A, ":)" },   { 0x2639, ":(" },   { 0x2764, "<3" },   { 0x1F44B, "o/" },
-    { 0x1F44D, "(y)" }, { 0x1F44E, "(n)" }, { 0x1F494, "</3" }, { 0x1F600, ":D" },
-    { 0x1F601, ":D" },  { 0x1F602, ":'D" }, { 0x1F603, ":D" },  { 0x1F604, ":D" },
-    { 0x1F605, "^^;" }, { 0x1F606, "XD" },  { 0x1F609, ";)" },  { 0x1F60A, ":)" },
-    { 0x1F60D, "<3" },  { 0x1F60E, "B)" },  { 0x1F610, ":|" },  { 0x1F611, "-_-" },
-    { 0x1F612, ":/" },  { 0x1F615, ":/" },  { 0x1F618, ":*" },  { 0x1F61B, ":P" },
-    { 0x1F61C, ";P" },  { 0x1F61D, "XP" },  { 0x1F61E, ":(" },  { 0x1F620, ">:(" },
-    { 0x1F621, ">:(" }, { 0x1F622, ":'(" }, { 0x1F62D, ":'(" }, { 0x1F62E, ":O" },
-    { 0x1F632, ":O" },  { 0x1F633, "O_O" }, { 0x1F641, ":(" },  { 0x1F642, ":)" },
-    { 0x1F643, "(:" },  { 0x1F914, ":?" },  { 0x1F923, ":'D" },
-};
-
-static const char *smiley_for(uint32_t cp)
-{
-    size_t i;
-
-    for (i = 0; i < sizeof(smileys) / sizeof(smileys[0]); i++) {
-        if (smileys[i].cp == cp) {
-            return smileys[i].text;
-        }
-    }
-    return NULL;
-}
-
 size_t rift_text_shown(const char *in, char *out, size_t out_len)
 {
     const unsigned char *p = (const unsigned char *)in;
@@ -438,27 +408,17 @@ size_t rift_text_shown(const char *in, char *out, size_t out_len)
     while (*p) {
         uint32_t cp = 0;
         size_t l = decode(p, &cp);
-        const char *text = l ? smiley_for(cp) : NULL;
-        size_t n;
 
         if (l == 0) {
             l = 1; /* a byte that starts nothing: copied, as rift_utf8_copy would */
         }
-        /* Variation selectors and the zero-width joiner have no glyph of their
-         * own and none in the Doors fonts: kept, each drew a box of its own
-         * after the emoji's (a node named "... \u2600\uFE0F" showed two on unit B,
-         * 2026-10-02). They only shape the emoji, which stays as it came. */
-        if (cp == 0xFE0Eu || cp == 0xFE0Fu || cp == 0x200Du) {
-            p += l;
-            continue;
-        }
-        if (text) {
-            n = strlen(text);
-            if (o + n + 1 > out_len) {
-                break;
-            }
-            memcpy(out + o, text, n);
-            o += n;
+        /* What only shapes an emoji has no glyph of its own in the Doors
+         * fonts, and each drew a box of its own after the emoji's (a node
+         * named "... ☀️" showed two on unit B, 2026-10-02): the
+         * variation selectors, the joiner, the keycap mark and the tag
+         * characters. A skin-tone modifier goes too: RIFT shows the base. */
+        if (cp == 0xFE0Eu || cp == 0xFE0Fu || cp == 0x200Du || cp == 0x20E3u ||
+            (cp >= 0x1F3FBu && cp <= 0x1F3FFu) || (cp >= 0xE0020u && cp <= 0xE007Fu)) {
             p += l;
             continue;
         }
@@ -485,7 +445,7 @@ void rift_fmt_label(const struct rift_node *n, char *out, size_t out_len)
     if (n->have_name && n->name[0]) {
         char shown[RIFT_NAME_MAX];
 
-        /* A name is remote text: an emoji in it is drawn as its smiley. */
+        /* A name is remote text: what only shapes an emoji in it is dropped. */
         rift_text_shown(n->name, shown, sizeof(shown));
         rift_utf8_ellipsis(out, out_len, shown);
         return;

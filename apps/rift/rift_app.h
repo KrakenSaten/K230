@@ -179,9 +179,9 @@ struct rift_app {
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
     lv_obj_t *net_root;
-    /* Set only when pos_theme_watch's table was full and this app had to
-     * listen for the theme event itself; it is removed from the screen on
-     * destroy, because the screen outlives the app. */
+    /* The screen this app listens on for the theme-changed event (the
+     * colour-emoji styles follow the text size there, and the frame is
+     * repainted); removed on destroy, because the screen outlives the app. */
     lv_obj_t *theme_host;
 
     /* ---- the session: from here to the end, kept while RIFT is left ---- */

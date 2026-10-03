@@ -130,8 +130,10 @@ check "and the screens parse no JSON of their own" \
     "$(grep -rq 'cJSON_Parse' "$SRC/ui" && echo 0 || echo 1)"
 
 # One screen to a file, and no file that is all of them. 900 lines is well
-# above anything here and well below a monolith.
-big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" {print $2}')
+# above anything here and well below a monolith. The generated emoji tables
+# (tools/design/gen_rift_emoji.js) are data, not code, and are not counted.
+big=$(find "$SRC" -name '*.c' ! -name 'rift_emoji_img.c' ! -name 'rift_emoji_seq.c' -exec wc -l {} + |
+      awk '$1 > 900 && $2 != "total" {print $2}')
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
 for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c \
             rift_order.c rift_format.c rift_format_msg.c rift_ipc.c rift_notify.c rift_sound.c \
@@ -324,7 +326,7 @@ check "and the delivery tally counts channel sends apart" \
 # A sender's name on a channel is a claim: nothing signs a group frame. It
 # must not be drawn the way a peer's name is.
 check "a claimed sender name is marked as a claim" \
-    "$(grep -q 'rift_text_shown(msg->sender_name' "$SRC/rift_format_msg.c" &&
+    "$(grep -q 'rift_emoji_fold(msg->sender_name' "$SRC/rift_format_msg.c" &&
        grep -q '"%s?", shown' "$SRC/rift_format_msg.c" &&
        grep -q 'rift_fmt_msg_meta' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
 # And the thread prints the body without the "<sender>: " MeshCore writes

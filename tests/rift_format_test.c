@@ -10,6 +10,7 @@
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
+#include "rift_emoji.h"
 #include "rift_format.h"
 
 #include <stdio.h>
@@ -61,7 +62,7 @@ static const char *resolve_rpt(const char *hop_id, void *user)
 }
 
 /* ---- UTF-8: checked, shown, and never cut through a character ------------ */
-static void test_utf8_and_smileys(void)
+static void test_utf8_and_emoji(void)
 {
     char out[64];
     char small[8];
@@ -77,25 +78,23 @@ static void test_utf8_and_smileys(void)
     check("nor anything past U+10FFFF", !rift_utf8_valid("\xF4\x90\x80\x80"));
     check("nor a NULL", !rift_utf8_valid(NULL));
 
+    /* Names drop what only shapes an emoji, and write none as text. */
     rift_text_shown("hei \xF0\x9F\x99\x82", out, sizeof(out));
-    text_is("a slight smile is drawn as :)", out, "hei :)");
+    text_is("a slight smile is left as it came, not written as :)", out, "hei \xF0\x9F\x99\x82");
     rift_text_shown("\xE2\x9D\xA4\xEF\xB8\x8F takk", out, sizeof(out));
-    text_is("a heart with its variation selector is <3, the selector gone", out, "<3 takk");
-    rift_text_shown("\xF0\x9F\x91\x8D\xF0\x9F\x98\x82", out, sizeof(out));
-    text_is("a thumb and tears of joy", out, "(y):'D");
-    rift_text_shown("\xF0\x9F\x9A\x80 ok", out, sizeof(out));
-    text_is("an emoji with no smiley is left as it came", out, "\xF0\x9F\x9A\x80 ok");
+    text_is("a heart loses its variation selector, not written as <3", out, "\xE2\x9D\xA4 takk");
+    rift_text_shown("\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD", out, sizeof(out));
+    text_is("a toned thumb is the thumb", out, "\xF0\x9F\x91\x8D");
     rift_text_shown("rpt \xE2\x98\x80\xEF\xB8\x8F", out, sizeof(out));
-    text_is("and loses its variation selector, which would draw a second box", out,
-            "rpt \xE2\x98\x80");
-    rift_text_shown("a\xE2\x80\x8D\xEF\xB8\x8E" "b", out, sizeof(out));
-    text_is("a zero-width joiner and a text selector are not drawn either", out, "ab");
+    text_is("a sun loses its selector, which would draw a second box", out, "rpt \xE2\x98\x80");
+    rift_text_shown("a\xE2\x80\x8D\xEF\xB8\x8E" "b1\xE2\x83\xA3", out, sizeof(out));
+    text_is("a joiner, a text selector and a keycap mark are not drawn either", out, "ab1");
     rift_text_shown("bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92", out, sizeof(out));
     text_is("letters and punctuation the fonts carry are untouched", out,
             "bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92");
     n = rift_text_shown("\xF0\x9F\x99\x82\xF0\x9F\x99\x82\xF0\x9F\x99\x82", small, sizeof(small));
-    check("a short buffer stops before a smiley that does not fit", n == 6 &&
-                                                                      strcmp(small, ":):):)") == 0);
+    check("a short buffer stops before an emoji that does not fit", n == 4 &&
+                                                                     strcmp(small, "\xF0\x9F\x99\x82") == 0);
     n = rift_text_shown("ab\xF0\x9F\x9A\x80\xF0\x9F\x9A\x80", small, sizeof(small));
     check("and never copies half a character", n == 6 && rift_utf8_valid(small));
     {
@@ -108,8 +107,7 @@ static void test_utf8_and_smileys(void)
         }
         longest[160] = '\0';
         rift_text_shown(longest, shown, sizeof(shown));
-        check("forty emoji in 160 bytes are drawn in no more than 160", strlen(shown) <= 160 &&
-                                                                          strlen(shown) == 120);
+        check("forty emoji in 160 bytes are drawn as all forty", strcmp(shown, longest) == 0);
     }
 
     /* The copy every remote string goes through cuts on a boundary. */
@@ -125,10 +123,137 @@ static void test_utf8_and_smileys(void)
         memset(&n, 0, sizeof(n));
         snprintf(n.key, sizeof(n.key), "%064d", 0);
         n.have_name = 1;
-        snprintf(n.name, sizeof(n.name), "Hytta \xF0\x9F\x99\x82");
+        snprintf(n.name, sizeof(n.name), "Hytta \xF0\x9F\x99\x82\xEF\xB8\x8F");
         rift_fmt_label(&n, out, sizeof(out));
-        text_is("an emoji in a node's name is drawn as its smiley", out, "Hytta :)");
-        check("and the name itself is untouched", strstr(n.name, "\xF0\x9F\x99\x82") != NULL);
+        text_is("an emoji in a node's name is left as it came, its selector dropped", out,
+                "Hytta \xF0\x9F\x99\x82");
+        check("and the name itself is untouched", strstr(n.name, "\xF0\x9F\x99\x82\xEF\xB8\x8F") != NULL);
+    }
+}
+
+/* ---- emoji folded for the colour font (rift_emoji.h) --------------------- */
+
+/* The one code point s holds, or 0 when it holds anything else. */
+static uint32_t only_cp(const char *s)
+{
+    const unsigned char *p = (const unsigned char *)s;
+
+    if ((p[0] & 0xF8) == 0xF0 && p[4] == '\0') {
+        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
+               ((uint32_t)(p[2] & 0x3F) << 6) | (uint32_t)(p[3] & 0x3F);
+    }
+    return 0;
+}
+
+/* Whether s folded to the one sequence that is exactly these code points. */
+static int folds_to(const char *s, const uint32_t *cps, unsigned len)
+{
+    char out[64];
+    uint32_t cp;
+    unsigned i;
+
+    rift_emoji_fold(s, out, sizeof(out));
+    cp = only_cp(out);
+    if (cp < RIFT_EMOJI_PUA || cp - RIFT_EMOJI_PUA >= rift_emoji_seq_count) {
+        return 0;
+    }
+    i = cp - RIFT_EMOJI_PUA;
+    if (rift_emoji_seqs[i].len != len) {
+        return 0;
+    }
+    return memcmp(&rift_emoji_seq_cps[rift_emoji_seqs[i].at], cps, len * sizeof(uint32_t)) == 0;
+}
+
+static void test_emoji_fold(void)
+{
+    static const uint32_t fire_heart[] = { 0x2764, 0x200D, 0x1F525 };
+    static const uint32_t family[] = { 0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467 };
+    static const uint32_t norway[] = { 0x1F1F3, 0x1F1F4 };
+    static const uint32_t sweden[] = { 0x1F1F8, 0x1F1EA };
+    static const uint32_t keycap1[] = { 0x31, 0x20E3 };
+    static const uint32_t scotland[] = { 0x1F3F4, 0xE0067, 0xE0062, 0xE0073, 0xE0063, 0xE0074, 0xE007F };
+    static const uint32_t rainbow[] = { 0x1F3F3, 0x200D, 0x1F308 };
+    char out[256];
+    char small[8];
+    unsigned i;
+    int sorted = 1;
+
+    for (i = 1; i < rift_emoji_seq_count; i++) {
+        const struct rift_emoji_seq *a = &rift_emoji_seqs[i - 1];
+        const struct rift_emoji_seq *b = &rift_emoji_seqs[i];
+        unsigned k;
+        int c = 0;
+
+        for (k = 0; k < a->len && k < b->len && !c; k++) {
+            uint32_t x = rift_emoji_seq_cps[a->at + k];
+            uint32_t y = rift_emoji_seq_cps[b->at + k];
+
+            c = x < y ? -1 : x > y ? 1 : 0;
+        }
+        if (c > 0 || (c == 0 && a->len >= b->len) || b->len < 2 || b->len > RIFT_EMOJI_SEQ_MAX) {
+            sorted = 0;
+        }
+    }
+    check("the sequence table is sorted, each 2 to RIFT_EMOJI_SEQ_MAX long", sorted && rift_emoji_seq_count > 500);
+
+    rift_emoji_fold("Hei \xF0\x9F\x98\x80", out, sizeof(out));
+    text_is("a face is left as it came", out, "Hei \xF0\x9F\x98\x80");
+    rift_emoji_fold("\xE2\x9D\xA4\xEF\xB8\x8F", out, sizeof(out));
+    text_is("a heart loses its selector", out, "\xE2\x9D\xA4");
+    check("the heart on fire is one image", folds_to("\xE2\x9D\xA4\xEF\xB8\x8F\xE2\x80\x8D\xF0\x9F\x94\xA5", fire_heart, 3));
+    check("a family is one image",
+          folds_to("\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7", family, 5));
+    check("a toned family is the family: the tones go first",
+          folds_to("\xF0\x9F\x91\xA8\xF0\x9F\x8F\xBD\xE2\x80\x8D\xF0\x9F\x91\xA9\xF0\x9F\x8F\xBD\xE2\x80\x8D"
+                   "\xF0\x9F\x91\xA7\xF0\x9F\x8F\xBD",
+                   family, 5));
+    check("Norway's flag is one image", folds_to("\xF0\x9F\x87\xB3\xF0\x9F\x87\xB4", norway, 2));
+    check("so is Sweden's", folds_to("\xF0\x9F\x87\xB8\xF0\x9F\x87\xAA", sweden, 2));
+    check("a keycap with its selector is one image", folds_to("1\xEF\xB8\x8F\xE2\x83\xA3", keycap1, 2));
+    check("and without it", folds_to("1\xE2\x83\xA3", keycap1, 2));
+    check("Scotland's tag flag is one image",
+          folds_to("\xF0\x9F\x8F\xB4\xF3\xA0\x81\xA7\xF3\xA0\x81\xA2\xF3\xA0\x81\xB3\xF3\xA0\x81\xA3\xF3\xA0\x81\xB4"
+                   "\xF3\xA0\x81\xBF",
+                   scotland, 7));
+    check("the rainbow flag is the longest match, not the white flag",
+          folds_to("\xF0\x9F\x8F\xB3\xEF\xB8\x8F\xE2\x80\x8D\xF0\x9F\x8C\x88", rainbow, 3));
+    rift_emoji_fold("\xF0\x9F\x8F\xB3\xEF\xB8\x8F", out, sizeof(out));
+    text_is("the white flag alone is itself", out, "\xF0\x9F\x8F\xB3");
+
+    rift_emoji_fold("\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBB \xF0\x9F\x91\x8D\xF0\x9F\x8F\xBF \xF0\x9F\x91\x8B\xF0\x9F\x8F\xBD", out,
+                    sizeof(out));
+    text_is("skin tones are stripped: toned thumbs and wave are their base", out,
+            "\xF0\x9F\x91\x8D \xF0\x9F\x91\x8D \xF0\x9F\x91\x8B");
+    rift_emoji_fold("\xF0\x9F\x8F\xBB", out, sizeof(out));
+    text_is("a modifier on its own goes too", out, "");
+    rift_emoji_fold("\xF0\x9F\x90\xB6\xE2\x80\x8D\xF0\x9F\x8D\x95", out, sizeof(out));
+    text_is("a joined pair with no image is its parts, the joiner dropped", out, "\xF0\x9F\x90\xB6\xF0\x9F\x8D\x95");
+    rift_emoji_fold("\xF0\x9F\x87\xA6\xF0\x9F\x87\xA6", out, sizeof(out));
+    text_is("two regional indicators that are no flag stay two letters", out, "\xF0\x9F\x87\xA6\xF0\x9F\x87\xA6");
+    rift_emoji_fold("x\xE2\x83\xA3 \xF3\xA0\x81\xA7!", out, sizeof(out));
+    text_is("a keycap mark on no digit, and a stray tag, are dropped", out, "x !");
+    rift_emoji_fold("a\xF3\xB0\x80\x81" "b\x80" "c", out, sizeof(out));
+    text_is("a private code point sent in is U+FFFD, and so is a stray byte", out,
+            "a\xEF\xBF\xBD" "b\xEF\xBF\xBD" "c");
+    rift_emoji_fold("bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92 #1", out, sizeof(out));
+    text_is("letters, punctuation and digits are untouched", out, "bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92 #1");
+    rift_emoji_fold("ab\xF0\x9F\x87\xB3\xF0\x9F\x87\xB4\xF0\x9F\x87\xB3\xF0\x9F\x87\xB4", small, sizeof(small));
+    check("a short buffer holds whole code points only", strlen(small) == 6 && rift_utf8_valid(small));
+    {
+        char longest[RIFT_MSG_TEXT_MAX];
+        int k;
+
+        for (k = 0; k < 40; k++) {
+            memcpy(longest + 4 * k, "\xF0\x9F\x98\x82", 4);
+        }
+        longest[160] = '\0';
+        rift_emoji_fold(longest, out, sizeof(out));
+        check("forty emoji in 160 bytes are drawn as all forty", strcmp(out, longest) == 0);
+        for (k = 0; k < 20; k++) {
+            memcpy(longest + 8 * k, "\xF0\x9F\x87\xB3\xF0\x9F\x87\xB4", 8);
+        }
+        rift_emoji_fold(longest, out, sizeof(out));
+        check("twenty flags fold into half the bytes", strlen(out) == 80);
     }
 }
 
@@ -412,7 +537,8 @@ int main(void)
     check("and a different one is not", rift_ident_hash("HYTTA") != rift_ident_hash("HYTTB"));
     check("nothing hashes to nothing", rift_ident_hash(NULL) == 0);
 
-    test_utf8_and_smileys();
+    test_utf8_and_emoji();
+    test_emoji_fold();
     printf("rift_format_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

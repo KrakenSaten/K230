@@ -16,6 +16,7 @@
 #include "rift_comms.h"
 #include "rift_detail.h"
 #include "rift_device.h"
+#include "rift_emoji_style.h"
 #include "rift_manage.h"
 #include "rift_netview.h"
 #include "rift_find.h"
@@ -639,6 +640,9 @@ static void on_theme_changed(lv_event_t *e)
 {
     struct rift_app *a = lv_event_get_user_data(e);
 
+    /* The shared styles are refilled by now (the event follows them): the
+     * colour-emoji styles take the new size's fonts. */
+    rift_emoji_style_refresh();
     if (a && a->frame) {
         lv_obj_invalidate(a->frame);
     }
@@ -706,15 +710,16 @@ static void *rift_create(lv_obj_t *root)
     /* One object watched for theme changes; invalidating the frame repaints
      * every custom-drawn glyph and strip under it, because they read tokens
      * in a draw callback and shared styles alone would not reach them
-     * (pos_styles.h). The table holds 32 across the whole platform, so the
-     * documented fallback is taken if it is full. */
-    if (pos_theme_watch(a->frame) != 0) {
-        a->theme_host = lv_screen_active();
-        if (a->theme_host) {
-            lv_obj_add_event_cb(a->theme_host, on_theme_changed,
-                                (lv_event_code_t)pos_event_theme_changed(), a);
-        }
+     * (pos_styles.h). The table holds 32 across the whole platform; the
+     * screen's theme-changed event below repaints it too when it is full.
+     * That event is listened to whatever the table says: the colour-emoji
+     * styles follow the text size there (rift_emoji_style.h). */
+    pos_theme_watch(a->frame);
+    a->theme_host = lv_screen_active();
+    if (a->theme_host) {
+        lv_obj_add_event_cb(a->theme_host, on_theme_changed, (lv_event_code_t)pos_event_theme_changed(), a);
     }
+    rift_emoji_style_refresh();
 
     /* A fresh session opens on ACTIVITY; a kept one where the reader left it
      * - the section, the node selected, the conversation open and what the

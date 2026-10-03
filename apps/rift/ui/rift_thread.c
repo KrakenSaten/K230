@@ -9,6 +9,8 @@
 #include "pocketui.h"
 #include "pos_styles.h"
 #include "rift_comms.h"
+#include "rift_emoji.h"
+#include "rift_emoji_style.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,8 +313,10 @@ static void build_row(struct rift_thread *t)
      * name, the body and the caption on one line, and a body too long for
      * what the name leaves goes under it whole - "Sender" over "Message". */
     r->sender = fit_label(r->column, POS_STYLE_CAPTION);
+    rift_emoji_style_add(r->sender, POS_STYLE_CAPTION);
     lv_obj_add_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
     r->body = fit_label(r->column, POS_STYLE_TEXT_PRIMARY);
+    rift_emoji_style_add(r->body, POS_STYLE_TEXT_PRIMARY);
     r->caption = fit_label(r->column, POS_STYLE_CAPTION);
     r->out = -1; /* neither side yet: the first update sets it */
     t->row_count++;
@@ -355,11 +359,11 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
      * sender - as a claim, with a trailing "?", since nothing signs a group
      * frame and anyone holding the key can send any name. */
     {
-        /* Drawn with its emoji written as smileys (rift_text_shown): the
-         * fonts carry none. The stored text is untouched. */
+        /* Drawn with its emoji in colour: sequences folded for the colour
+         * emoji font (rift_emoji_fold). The stored text is untouched. */
         char shown[RIFT_MSG_TEXT_MAX];
 
-        rift_text_shown(rift_msg_body(msg), shown, sizeof(shown));
+        rift_emoji_fold(rift_msg_body(msg), shown, sizeof(shown));
         rift_label_set(r->body, shown);
     }
     /* An age, not a time of day. The design's mock reads "11:32"; this board

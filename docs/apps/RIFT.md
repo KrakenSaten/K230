@@ -368,16 +368,56 @@ bytes, never characters - when it is longer than 160 bytes or a channel's
 `text_limit`, or is not well-formed UTF-8. An emoji is four bytes: forty fill
 a message.
 
-The Doors fonts carry Latin-1, typographic punctuation and arrows and no
-emoji (`tools/design/gen_fonts.sh`), so an emoji used to arrive as a box. The
-common faces, hearts and thumbs are now **drawn** as the text smiley they
-stand for (`rift_text_shown`: 🙂 `:)`, 😂 `:'D`, ❤️ `<3`, 👍 `(y)`, …) in
-message bodies, previews, claimed sender names and node names; anything else
-is left as it came, and still draws as a box - one box: the variation
-selectors and zero-width joiner that only shape an emoji are not drawn, as
-each would be a box of its own. Presentation only: what is
-stored, counted and sent is the text as it arrived. A colour emoji font was
-not added - it would be megabytes in a 600 MB rootfs for a handful of glyphs.
+### Colour emoji
+
+Message bodies, conversation previews and the sender a channel line claims
+are drawn with **full-colour emoji** inline in the Plex text. Plex stays the
+text font, untouched: each of those labels draws in a RIFT copy of its role's
+Plex font descriptor (`ui/rift_emoji_font.h`) whose fallback is a colour
+emoji font, so LVGL asks the colour font only for a character Plex lacks. No
+other app and no other RIFT label changes.
+
+- **The images** are Noto Color Emoji (googlefonts/noto-emoji `2D/png/72`,
+  pinned at e20cbc2) and its region flags, converted at build time by
+  `tools/design/gen_rift_emoji.sh` to 18 px **RGB565A8** - the format LVGL's
+  software renderer blends straight onto the 16-bit panel - and compiled into
+  `doors-shell` (`ui/rift_emoji_px.bin`, embedded by `ui/rift_emoji_px.S`).
+  Nothing is decoded at run time, the image cache (off on the device,
+  `LV_CACHE_DEF_SIZE 0`) is never needed, and neither FreeType nor LVGL's
+  imgfont module (not built on the device) is used: an image glyph
+  (`LV_FONT_GLYPH_FORMAT_IMAGE`) is drawn by the core renderer. An image sits
+  centred in its line, a pixel of space each side; 18 px fits RIFT's shortest
+  line (Mono 14, 18 px).
+- **What is in it**, by rule, not by hand: every single-code-point emoji of
+  the set (1422) except what Plex already draws and the skin-tone modifiers;
+  every sequence (261 ZWJ - families, the heart on fire, the rainbow flag -
+  and keycaps) without a skin tone; the 259 two-letter region flags and the
+  three tag flags (England, Scotland, Wales). 1945 images, 1,787,528 bytes.
+- **Sequences** are folded for display by `rift_emoji_fold` (`rift_emoji.h`):
+  the variation selectors and skin-tone modifiers are dropped, then the
+  longest sequence with an image at each place becomes one private-use code
+  point (U+F0000 + its index) that the colour font draws. Remote text that
+  already holds such a code point is shown as U+FFFD. This is table lookup,
+  not shaping: nothing is reordered or positioned.
+- **Skin tones are not supported, by decision**: the modifier is stripped and
+  the base emoji is shown (👍🏻, 👍🏿 → 👍; 👋🏽 → 👋), and no toned artwork is
+  made. A toned family folds to the family.
+- **What is left** of a sequence with no image is its parts: the joiner, the
+  keycap mark and stray tag characters are dropped, a pair of regional
+  indicators that is no flag stays two letters. An emoji newer than the
+  pinned artwork draws as Plex's box.
+- **Not themed**: the images keep their colours in Night and Outdoor mode.
+- **Names elsewhere** - node rows, the NET view, details, the thread header -
+  are drawn in plain Plex through `rift_text_shown`, which drops what only
+  shapes an emoji and writes none as text; an emoji there is still a box.
+
+The proof that one image glyph draws in colour between Plex letters under
+the device's LVGL configuration is `tests/rift_emoji_glyph_test.c`, also run
+once against LVGL built from the device's own `lv_conf.h`.
+
+Presentation only: what is stored, counted and sent is the text as it
+arrived. The text smileys RIFT used to write in place of emoji (`:)`, `<3`,
+`(y)`, …) are gone.
 
 ## Activity: how lately it was heard from
 
@@ -731,7 +771,9 @@ the air must not be able to disconnect this app from its own service.
 
 | | |
 | --- | --- |
-| `tests/rift_format_test.c` | 123 checks: well-formed UTF-8 and the emoji drawn as text smileys (never splitting a character); ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names, and who gets an identity accent and that the hash is FNV-1a |
+| `tests/rift_format_test.c` | 145 checks: well-formed UTF-8, names with no emoji written as text, and the emoji folding - the heart on fire, a family (toned too), flags, a keycap, tag and rainbow flags as one image each, skin tones stripped, leftovers and private code points (never splitting a character); ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names, and who gets an identity accent and that the hash is FNV-1a |
+| `tests/rift_emoji_glyph_test.c` (CMake, LVGL; `tests/rift_emoji_shell_test.sh`) | 12 checks, the proof: one RGB565A8 image glyph drawn in colour inline between plain Plex letters, measured, placed and wrapped, with no imgfont and no image cache; every image well-formed. Also run once against LVGL built from the device's `lv_conf.h` |
+| `tests/rift_emoji_ui_test.c` (CMake, LVGL) | 24 checks: the sample folded and drawn through the body and preview styles at Small, Medium and Large, each emoji an image glyph, no box, each row with its artwork's colour, the styles following the text size; frame and lookup cost as notes; `EMOJI_SHOTS=<dir>` keeps PNGs |
 | `tests/rift_model_test.c` | 322 checks: searching the node list (case, Æ Ø Å, hash prefixes) and the zero-hop filter; NET's rings and what placed each node, ambiguous hops, a bounded ring; channel keys (SHA-256 vectors, the `#test` hashtag key, strict base64, random keys); where the name came from and the path hash size; the management slot and its no-answer; the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
 | `tests/rift_comms_test.c` | 305 checks: byte-correct limits with 4-byte emoji, direct and on a channel, and malformed text refused; the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
 | `tests/rift_ipc_test.c` | 240 checks against a real socket and a scripted service in a child process: joining a channel (the derived key checked byte for byte in the request, and absent from the model and the client afterwards), a duplicate key refused, leaving, renaming, the path hash size, a pinned name, a service without the setting, a change nobody answered; and connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
@@ -864,8 +906,10 @@ them, one after the other, are two runs of a service and not one.
     encoding, exercised between two meshcored runtimes and in the service
     test; no repeater has carried one for this node yet, and older repeater
     firmware drops them by design (which the confirmation says).
-20. **Emoji are drawn as smileys or boxes, never as emoji.** See "Emoji and
-    other text".
+20. **Colour emoji only in message bodies, previews and claimed senders.**
+    Skin tones are stripped by decision, a sequence with no artwork shows its
+    parts, the images are not themed, and names elsewhere draw an emoji as a
+    box. See "Colour emoji".
 
 ## What needs hardware
 

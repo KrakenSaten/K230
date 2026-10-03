@@ -3,6 +3,7 @@
 *.png binary
 *.img binary
 *.xrgb binary
+*.bin binary
 # The Doors graphics packages are kept byte-for-byte as supplied, so the hashes
 # in docs/design/brand/README.md and in each package's own README/SHA256SUMS
 # stay true (the first two packages' OFL texts have CRLF endings).
