@@ -129,7 +129,9 @@ static void on_leave_confirm(lv_event_t *e)
         return;
     }
     ch = rift_model_key_channel(&a->model, v->confirm_conv);
-    if (ch && ch->slot == v->confirm_slot) {
+    /* Never the standard Public channel: it is mandatory (the service
+     * refuses it too). */
+    if (ch && ch->slot == v->confirm_slot && !ch->is_public) {
         rift_ipc_channel_remove(&a->ipc, v->confirm_slot, v->confirm_label);
     }
     v->confirming = 0;
@@ -460,7 +462,10 @@ static void refresh_rows(struct rift_manage *v, int can)
             snprintf(text, sizeof(text), "CHANNEL %d", ch->slot);
             rift_cell_set_text_fit(r->name, text);
         }
-        snprintf(text, sizeof(text), "SLOT %d" RIFT_SEP "HASH %s", ch->slot,
+        /* The standard Public channel, by the service's word about its key:
+         * mandatory in Doors, so it is said, and it has no LEAVE. */
+        snprintf(text, sizeof(text), "%sSLOT %d" RIFT_SEP "HASH %s",
+                 ch->is_public ? "STANDARD" RIFT_SEP : "", ch->slot,
                  ch->have_hash ? ch->hash : RIFT_UNKNOWN);
         if (ch->have_key_bits) {
             size_t at = strlen(text);
@@ -470,7 +475,8 @@ static void refresh_rows(struct rift_manage *v, int can)
         rift_label_set(r->meta, text);
         /* Muting is the reader's, not the service's: always pressable. */
         paint_mute(r, rift_app_channel_muted(v->app, r->conv));
-        rift_action_set_enabled(r->leave, 0, can && !v->confirming);
+        rift_action_set_enabled(r->leave, 0, can && !v->confirming && !ch->is_public);
+        rift_form_show(r->leave, !ch->is_public);
         rift_form_show(r->row, 1);
     }
 }

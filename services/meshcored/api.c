@@ -838,7 +838,14 @@ static cJSON *m_channel_remove(struct mcd *d, const cJSON *params, int *code, ch
         *code = POCKETIPC_ERR_INVALID_PARAMS;
         return NULL;
     }
-    if (mcd_runtime_channel_remove(d->rt, slot) != MCD_CHANNEL_OK) {
+    switch (mcd_runtime_channel_remove(d->rt, slot)) {
+    case MCD_CHANNEL_OK:
+        break;
+    case MCD_CHANNEL_MANDATORY:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "the standard Public channel cannot be left: Doors keeps it");
+        return NULL;
+    default:
         *code = POCKETIPC_ERR_INVALID_PARAMS;
         snprintf(err, errlen, "there is no channel in slot %d", slot);
         return NULL;

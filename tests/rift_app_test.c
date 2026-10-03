@@ -2802,6 +2802,12 @@ static void public_mute_session(void)
     check("SYSTEM lists the Public channel once, by the service's key",
           count_exact(content(), "torget") == 1 && count_exact(content(), "Public") == 1);
     row = ancestor(find_exact(content(), "torget"), 2);
+    /* Public is mandatory in Doors: no LEAVE on its row, MUTE kept; every
+     * other channel keeps its LEAVE. */
+    check("the Public row has MUTE and no LEAVE, and says it is the standard channel",
+          row && visible(kid(row, 1)) && !visible(kid(row, 2)) &&
+              find_text(content(), "STANDARD \xC2\xB7 SLOT 1") != NULL);
+    check("the other three channels can still be left", count_exact(content(), "LEAVE") == 3);
     tap(row ? kid(row, 1) : NULL);
     pump(150);
     check("MUTE on Public mutes the Public channel and nothing else",

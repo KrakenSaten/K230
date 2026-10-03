@@ -755,14 +755,19 @@ if ev:
 KEY_ONE = "//79/Pv6+fj39vX08/Lx8O/u7ezr6uno5+bl5OPi4eA="
 KEY_TWO = "kJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmk="
 
-ok("A holds no channels to begin with", ca.result("mesh.channels")["count"] == 0)
+# The standard Public channel is mandatory: every node starts holding it.
+start = ca.result("mesh.channels")
+ok("A holds only the standard Public channel to begin with",
+   start["count"] == 1 and start["channels"][0].get("well_known") == "public", start)
+e = ca.error("mesh.channel_remove", {"channel": start["channels"][0]["channel"]})
+ok("and it cannot be left", e["code"] == 2 and "Public" in e["message"], e)
 ok("and the list says how many it could hold",
    ca.result("mesh.channels")["max"] >= 1)
 ok("and that channels do survive a restart",
    ca.result("mesh.channels")["persistent"] is True)
 
 cha = ca.result("mesh.channel_add", {"name": "HARNESS", "key": KEY_ONE})
-ok("A joins a channel", cha["channel"] == 0, cha)
+ok("A joins a channel, in the first slot after Public", cha["channel"] == 1, cha)
 ok("the key itself is not reported back",
    "key" not in cha and "secret" not in cha, cha)
 ok("but the hash MeshCore puts on the air is", len(cha["channel_hash"]) == 2, cha)
@@ -775,7 +780,7 @@ ok("and that nothing acknowledges a channel message",
 ev = ca.wait_event("mesh.channel", seconds=10,
                    match=lambda d: d["reason"] == "added")
 ok("an added event was raised", ev is not None, ev)
-ok("naming the channel", ev is not None and ev["data"]["channel"]["channel"] == 0, ev)
+ok("naming the channel", ev is not None and ev["data"]["channel"]["channel"] == cha["channel"], ev)
 ok("and not the key", ev is not None and "key" not in ev["data"]["channel"], ev)
 
 chb = cb.result("mesh.channel_add", {"name": "site-b", "key": KEY_ONE})
@@ -783,7 +788,7 @@ ok("B joins the same key under another name", chb["name"] == "site-b", chb)
 ok("and derives the same channel hash from it",
    chb["channel_hash"] == cha["channel_hash"], chb)
 
-one = ca.result("mesh.channel", {"channel": 0})
+one = ca.result("mesh.channel", {"channel": cha["channel"]})
 ok("one channel can be read back by slot", one["name"] == "HARNESS", one)
 e = ca.error("mesh.channel", {"channel": 4})
 ok("an empty slot is refused", e["code"] == 2, e)
@@ -797,10 +802,10 @@ e = ca.error("mesh.channel_add", {"name": "", "key": KEY_TWO})
 ok("an empty name is refused", e["code"] == 2, e)
 
 # ---- a message on the channel ----
-res = ca.result("mesh.send", {"channel": 0, "text": "channel check"})
+res = ca.result("mesh.send", {"channel": cha["channel"], "text": "channel check"})
 ok("A sends on the channel", res["accepted"] is True, res)
 ok("flood, because that is all a group frame is", res["route"] == "flood", res)
-ok("it names the channel back", res["channel"] == 0, res)
+ok("it names the channel back", res["channel"] == cha["channel"], res)
 # No ack_timeout_ms: there is no ACK to time out, and a timeout of 0 would
 # read as "answered instantly".
 ok("no acknowledgement is expected", res["ack_expected"] is False, res)
@@ -849,8 +854,8 @@ ok("and still expecting an acknowledgement when they are ours",
 
 # ---- a channel B does not hold ----
 before = cb.result("mesh.status")["counters"]["channel_frames_unmatched"]
-ca.result("mesh.channel_add", {"name": "PRIVATE", "key": KEY_TWO})
-res = ca.result("mesh.send", {"channel": 1, "text": "not for you"})
+priv = ca.result("mesh.channel_add", {"name": "PRIVATE", "key": KEY_TWO})
+res = ca.result("mesh.send", {"channel": priv["channel"], "text": "not for you"})
 ok("A sends on a channel B has not joined", res["accepted"] is True, res)
 time.sleep(3)
 after = cb.result("mesh.status")["counters"]["channel_frames_unmatched"]
@@ -861,9 +866,9 @@ ok("and did not read it", held == [], held)
 
 # ---- the length limit is a refusal, not a truncation ----
 limit = cha["text_limit"]
-res = ca.result("mesh.send", {"channel": 0, "text": "y" * limit})
+res = ca.result("mesh.send", {"channel": cha["channel"], "text": "y" * limit})
 ok("a body of exactly the limit is accepted", res["accepted"] is True, res)
-e = ca.error("mesh.send", {"channel": 0, "text": "y" * (limit + 1)})
+e = ca.error("mesh.send", {"channel": cha["channel"], "text": "y" * (limit + 1)})
 ok("one byte more is refused rather than cut", e["code"] == 2, e)
 ok("and the message says how much fits", str(limit) in e["message"], e)
 
@@ -877,26 +882,26 @@ ok("sending on an empty slot is refused", e["code"] == 2, e)
 
 # ---- status ----
 st = ca.result("mesh.status")
-ok("the status counts the channels", st["channels"] == 2, st)
+ok("the status counts the channels, Public included", st["channels"] == 3, st)
 ok("and reports no channel fault", "channel_fault" not in st, st)
 
 # ---- leaving ----
-res = ca.result("mesh.channel_remove", {"channel": 1})
+res = ca.result("mesh.channel_remove", {"channel": priv["channel"]})
 ok("A leaves the second channel", res["removed"] is True, res)
 ok("and is told the key is gone", res["key_forgotten"] is True, res)
 ev = ca.wait_event("mesh.channel", seconds=10,
                    match=lambda d: d["reason"] == "removed")
 ok("a removed event was raised", ev is not None, ev)
 ok("naming the slot that was left",
-   ev is not None and ev["data"]["channel"]["channel"] == 1, ev)
-ok("A now holds one channel", ca.result("mesh.channels")["count"] == 1)
+   ev is not None and ev["data"]["channel"]["channel"] == priv["channel"], ev)
+ok("A now holds one channel and Public", ca.result("mesh.channels")["count"] == 2)
 # The slot is emptied rather than compacted, so the channel a client already
-# knows by slot 0 is still in slot 0.
+# knows by its slot is still in it.
 ok("and the one it kept is still in the slot it was in",
-   ca.result("mesh.channel", {"channel": 0})["name"] == "HARNESS")
-e = ca.error("mesh.channel_remove", {"channel": 1})
+   ca.result("mesh.channel", {"channel": cha["channel"]})["name"] == "HARNESS")
+e = ca.error("mesh.channel_remove", {"channel": priv["channel"]})
 ok("leaving it twice is refused", e["code"] == 2, e)
-e = ca.error("mesh.send", {"channel": 1, "text": "gone"})
+e = ca.error("mesh.send", {"channel": priv["channel"], "text": "gone"})
 ok("and sending on it is refused", e["code"] == 2, e)
 
 # ---------------------------------------------------------------------------

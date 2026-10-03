@@ -349,8 +349,10 @@ went first - said to have had no answer.
   slot is taken by another channel meanwhile, it is dropped. Leaving the
   channel whose thread is open leaves the thread showing its messages and
   `LEFT · NOT JOINED ANY MORE`, with the composer refusing - the existing
-  behaviour for a left channel. There are no mandatory channels: upstream
-  does not require Public in slot 0.
+  behaviour for a left channel. **The standard Public channel is mandatory**
+  (meshcored joins it on start when missing, by its key; docs/api/mesh.md):
+  its row reads `STANDARD · SLOT n`, has **MUTE** and no **LEAVE**, and the
+  service refuses to remove it. A hashtag `#public` is an ordinary channel.
 - **ADD CHANNEL** opens a form in place with three kinds, the three the T-Deck
   RIFT offers: **HASHTAG** (a public topic: the key is the first 16 bytes of
   SHA-256 over the name with its `#`, upstream's `addGroupChannelHashtag`,
