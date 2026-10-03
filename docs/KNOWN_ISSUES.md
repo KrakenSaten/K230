@@ -1115,7 +1115,7 @@ so that pass stayed the size it was scoped to be.
   artwork shows its parts, the images keep their colours in Night and Outdoor
   mode, and at Large text an 18 px emoji is small beside 22 px letters. Node
   names, the NET view and details still draw an emoji as Plex's box, as does
-  every other app. Not yet seen on hardware. Stored and sent text is
+  every other app. Seen on unit B (docs/hardware/RIFT_COLOUR_EMOJI_GATE.md). Stored and sent text is
   unchanged.
 - **RIFT caches a thousand nodes; meshcored holds 256.** `RIFT_MAX_NODES`
   is 1000 (DS §37.5), in a virtual NODES list that builds rows only for the
