@@ -324,6 +324,13 @@ static void repaint(struct system_app *a)
             lv_label_set_text(a->svc_detail[i], v->services[i].detail);
         }
     }
+    if (a->expand_line) {
+        lv_label_set_text(a->expand_line, v->expand_line);
+        lv_obj_remove_style(a->expand_line, pos_style(POS_STYLE_STATUS_ERROR_TEXT), 0);
+        if (v->expand_warn) {
+            pos_style_add(a->expand_line, POS_STYLE_STATUS_ERROR_TEXT, 0);
+        }
+    }
     system_net_repaint(a);
     if (a->toast) {
         lv_label_set_text(a->toast, v->error);
@@ -350,6 +357,14 @@ static void on_poweroff(lv_event_t *e)
     struct system_app *a = lv_event_get_user_data(e);
 
     system_view_request(&a->view, SYSTEM_VIEW_ACTION_POWEROFF);
+    rebuild(a);
+}
+
+static void on_expand(lv_event_t *e)
+{
+    struct system_app *a = lv_event_get_user_data(e);
+
+    system_view_request(&a->view, SYSTEM_VIEW_ACTION_EXPAND);
     rebuild(a);
 }
 
@@ -820,6 +835,15 @@ static void build_overview(struct system_app *a)
         lv_obj_clear_flag(a->mount_bar[i], LV_OBJ_FLAG_SCROLLABLE);
     }
 
+    /* The microSD card: how much of it is unused and the way to use it, or
+     * how an expansion is going. Nothing at all when there is nothing to say. */
+    if (v->expand_line[0] || v->expand == SYSTEM_VIEW_EXPAND_OFFER) {
+        a->expand_line = system_wrap_label(p, v->expand_line, POS_STYLE_TEXT_SECONDARY);
+    }
+    if (v->expand == SYSTEM_VIEW_EXPAND_OFFER) {
+        restrain(row_button(button_row(p), "Expand storage", on_expand, a));
+    }
+
     p = system_panel(a, SYSTEM_COL_RIGHT);
     buttons = button_row(p);
     row_button(buttons, "Restart", on_restart, a);
@@ -1089,6 +1113,7 @@ static void rebuild(struct system_app *a)
     memset(a->vital, 0, sizeof(a->vital));
     memset(a->mount_detail, 0, sizeof(a->mount_detail));
     memset(a->mount_bar, 0, sizeof(a->mount_bar));
+    a->expand_line = NULL;
     memset(a->svc_chip, 0, sizeof(a->svc_chip));
     memset(a->svc_detail, 0, sizeof(a->svc_detail));
     memset(&a->net, 0, sizeof(a->net));
@@ -1117,8 +1142,8 @@ static void rebuild(struct system_app *a)
         /* Nothing is being polled any more, so there is no freshness to
          * report and claiming one would be a lie. */
         build_terminal(a);
-    } else if (v->phase == SYSTEM_VIEW_CONFIRM_REBOOT ||
-               v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
+    } else if (v->phase == SYSTEM_VIEW_CONFIRM_REBOOT || v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF ||
+               v->phase == SYSTEM_VIEW_CONFIRM_EXPAND) {
         build_freshness(a);
         build_confirm(a);
     } else {
@@ -1153,6 +1178,7 @@ static void rebuild(struct system_app *a)
     a->built_services = v->service_count;
     a->built_card = v->show_card;
     a->built_phase = v->phase;
+    a->built_expand = v->expand;
     a->built_diag = a->diag;
     a->built_tab = a->tab;
     arrange(a);
@@ -1166,7 +1192,8 @@ static int shape_changed(const struct system_app *a)
 
     return a->built_mounts != v->mount_count || a->built_ifaces != v->iface_count ||
            a->built_services != v->service_count || a->built_card != v->show_card ||
-           a->built_phase != v->phase || a->built_diag != a->diag || a->built_tab != a->tab;
+           a->built_phase != v->phase || a->built_diag != a->diag || a->built_tab != a->tab ||
+           a->built_expand != v->expand;
 }
 
 /* ---- app lifecycle ----------------------------------------------------- */
@@ -1181,6 +1208,14 @@ static void poll_status(struct system_app *a)
                                 sizeof(err));
     system_view_apply_status(&a->view, st, a->clock_ms);
     if (st) {
+        cJSON_Delete(st);
+    }
+    /* The card's expansion is shown on OVERVIEW only, so it is asked for
+     * only there: a second bounded call, every other second. */
+    if (a->tab == SYSTEM_TAB_OVERVIEW) {
+        err[0] = '\0';
+        st = shell_ipc_call_timeout("sysd", "storage.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err, sizeof(err));
+        system_view_apply_storage(&a->view, st);
         cJSON_Delete(st);
     }
 }

@@ -4910,6 +4910,18 @@ which shows nothing live, has none and polls nothing. NETWORK adds one bounded
 call a second, in turn, to radiod, netd and meshcored. Diagnostics (§31.5)
 opens from SERVICES and its Back returns there; from a tab, Back is Settings.
 
+**52.5.1 Expand storage [PROPOSED 2026-10-03, branch `feat/storage-expand`].**
+Under OVERVIEW's storage meters, while sysd reports unused card space, one
+secondary-text line ("13.9 GB of the card is not used yet") and a restrained
+56 px **Expand storage** button. It opens the §17.5-style confirmation
+("Expand storage?", what it adds, that it cannot be undone without reflashing
+the card); the accent is on Cancel, as for Power off. Accepted, the screen
+stays live and the line follows sysd: "Expanding storage... keep the device
+powered", "Restart to finish expanding storage" (the Restart button below is
+the way), "Storage expanded to use the whole card"; a failure is the line in
+the error role, with the button still there. Nothing is shown when there is
+nothing to expand. OVERVIEW adds one bounded `storage.status` call to its poll.
+
 ### 52.6 The debug overlay
 
 Settings > Developer > **Debug overlay**, off by default and stored

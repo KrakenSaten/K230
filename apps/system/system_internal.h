@@ -94,6 +94,7 @@ struct system_app {
     lv_obj_t *vital[6];
     lv_obj_t *mount_detail[SYSTEM_VIEW_MAX_MOUNTS];
     lv_obj_t *mount_bar[SYSTEM_VIEW_MAX_MOUNTS];
+    lv_obj_t *expand_line; /* the microSD card's expansion, under the mounts */
     lv_obj_t *svc_chip[SYSTEM_VIEW_MAX_SERVICES];
     lv_obj_t *svc_detail[SYSTEM_VIEW_MAX_SERVICES];
     struct system_net_widgets net;
@@ -117,6 +118,7 @@ struct system_app {
     int built_services;
     int built_card;
     enum system_view_phase built_phase;
+    enum system_view_expand built_expand;
     bool built_diag;
     enum system_tab built_tab;
 };

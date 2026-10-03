@@ -11,6 +11,11 @@
  * (services/sysd/sysd_storage.c). That is the only device it opens, and only
  * to read the drive's first sectors.
  *
+ * And of growing the root filesystem over the rest of the microSD card when
+ * the owner asks: storage.expand (services/sysd/sysd_expand.c), which reads
+ * the card's partition table and the root superblock to decide, and runs
+ * parted, partprobe and resize2fs to do it.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #define _GNU_SOURCE
@@ -19,6 +24,7 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketpaths.h"
 #include "pocketsys.h"
+#include "sysd_expand.h"
 #include "sysd_logs.h"
 #include "sysd_power.h"
 #include "sysd_services.h"
@@ -55,6 +61,7 @@ struct sysd {
     enum sysd_power_action pending;
     uint64_t pending_at;
     struct sysd_storage storage;
+    struct sysd_expand expand;
 };
 
 /* storage.* take no parameters; like the power actions, eject does not act on
@@ -106,6 +113,13 @@ static void on_power(struct pocketipc_server *s, struct pocketipc_client *c, con
     }
     if (sd->pending != SYSD_POWER_NONE) {
         snprintf(msg, sizeof(msg), "%s already pending", sysd_power_name(sd->pending));
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
+        return;
+    }
+    /* Not in the middle of rewriting the card's partition table or growing
+     * the root filesystem. */
+    if (sysd_expand_busy(&sd->expand)) {
+        snprintf(msg, sizeof(msg), "the storage expansion is running; %s when it has finished", name);
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
         return;
     }
@@ -172,6 +186,26 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         return;
     } else if (strcmp(method, "storage.status") == 0) {
         result = sysd_storage_status(&sd->storage);
+        cJSON_AddItemToObject(result, "internal", sysd_expand_status(&sd->expand));
+    } else if (strcmp(method, "storage.expand") == 0) {
+        int r;
+
+        if (!no_params(params)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "storage.expand takes no parameters"));
+            return;
+        }
+        r = sysd_expand_start(&sd->expand, msg, sizeof(msg));
+        if (r < 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, r == -2   ? POCKETIPC_ERR_BUSY
+                                                                      : r == -1 ? POCKETIPC_ERR_POLICY
+                                                                                : POCKETIPC_ERR_BACKEND,
+                                                                  msg));
+            return;
+        }
+        /* Accepted, not finished: storage.status says when it is. */
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "state", sysd_expand_state_name(SYSD_EXPAND_RUNNING));
     } else if (strcmp(method, "storage.eject") == 0) {
         int r;
 
@@ -207,8 +241,8 @@ static int run(struct sysd *sd)
         uint64_t now;
         int uevent = 0;
         int timeout = sd->pending != SYSD_POWER_NONE ? SYSD_POWER_POLL_MS
-                      : sysd_storage_busy(&sd->storage) ? SYSD_EJECT_POLL_MS
-                                                         : SYSD_CPU_SAMPLE_MS / 4;
+                      : sysd_storage_busy(&sd->storage) || sysd_expand_busy(&sd->expand) ? SYSD_EJECT_POLL_MS
+                                                                                          : SYSD_CPU_SAMPLE_MS / 4;
 
         if (pocketipc_server_poll_fd(sd->server, timeout, sd->storage.uevent_fd, &uevent) < 0) {
             LOG_ERROR("poll: %s", strerror(errno));
@@ -220,6 +254,7 @@ static int run(struct sysd *sd)
         if (sysd_storage_busy(&sd->storage)) {
             sysd_storage_scan(&sd->storage); /* collects a finished eject */
         }
+        sysd_expand_reap(&sd->expand);
         now = mono_ms();
         /* The pending action is consumed before it is run, so it runs at most
          * once whatever the command does or how long it takes.
@@ -257,7 +292,7 @@ static void usage(FILE *out)
     fprintf(out,
             "usage: sysd [--socket-name NAME] [--verbose]\n"
             "Serves system.info, system.status, system.logs, system.crashes,\n"
-            "system.reboot, system.poweroff, storage.status and storage.eject\n"
+            "system.reboot, system.poweroff, storage.status, storage.eject and storage.expand\n"
             "(docs/api/system.md).\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
             POCKETIPC_DEFAULT_DIR);
@@ -303,6 +338,18 @@ int main(int argc, char **argv)
     sysd_storage_init(&sd.storage, &sysd_storage_real_paths, &sysd_storage_real_ops);
     sysd_storage_listen(&sd.storage);
     sysd_storage_scan(&sd.storage);
+    /* An expansion that needed a restart is finished here, and only one the
+     * owner asked for: there is no first-boot resize. */
+    {
+        static char pending[512];
+        static char log[512];
+        struct sysd_expand_paths xp = { "/sys/class/block", "/dev", "/proc/cmdline", pending, log };
+
+        snprintf(pending, sizeof(pending), "%s/storage-expand.pending", pocketos_state_dir());
+        snprintf(log, sizeof(log), "%s/storage-expand.log", pocketos_log_dir());
+        sysd_expand_init(&sd.expand, &xp, &sysd_expand_real_ops);
+        sysd_expand_startup(&sd.expand);
+    }
 
     rc = run(&sd);
     LOG_INFO("shutting down (rc=%d)", rc);

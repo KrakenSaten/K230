@@ -190,6 +190,18 @@ static const char *g_wifi_status = "{\"available\":true,\"enabled\":true,\"state
                                    "\"ssid\":\"Home\",\"signal_bars\":3}";
 static int g_log_entries = 3;
 static char g_logs_level[16];
+/* storage.status: NULL leaves the card unknown, as an older sysd would, so
+ * the OVERVIEW the other cases check carries no expansion row. storage.expand
+ * accepts unless g_expand_error is set, and turns the card to running. */
+static const char *g_storage;
+static const char *g_expand_error;
+#define STORAGE_AVAILABLE "{\"usb\":{\"state\":\"absent\"},\"internal\":{\"state\":\"available\"," \
+    "\"device\":\"/dev/mmcblk1p2\",\"disk_bytes\":15634268160,\"partition_bytes\":629145600," \
+    "\"filesystem_bytes\":629145600,\"unused_bytes\":14871953408,\"can_expand\":true,\"reason\":null," \
+    "\"error\":null,\"done\":false}}"
+#define STORAGE_RUNNING "{\"internal\":{\"state\":\"running\",\"error\":null,\"done\":false}}"
+#define STORAGE_RESTART "{\"internal\":{\"state\":\"reboot_required\",\"error\":null,\"done\":false}}"
+#define STORAGE_DONE "{\"internal\":{\"state\":\"not_needed\",\"error\":null,\"done\":true}}"
 
 static cJSON *logs_reply(void)
 {
@@ -280,6 +292,15 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
             reply = g_info;
         } else if (strcmp(method, "system.status") == 0) {
             reply = g_status;
+        } else if (strcmp(method, "storage.status") == 0) {
+            reply = g_storage;
+        } else if (strcmp(method, "storage.expand") == 0) {
+            if (g_expand_error) {
+                snprintf(err, errlen, "%s", g_expand_error);
+                return NULL;
+            }
+            g_storage = STORAGE_RUNNING;
+            reply = "{\"state\":\"running\"}";
         } else if (strcmp(method, "system.reboot") == 0 || strcmp(method, "system.poweroff") == 0) {
             if (g_power_error) {
                 snprintf(err, errlen, "%s", g_power_error);
@@ -1764,6 +1785,64 @@ int main(void)
             app_stop();
         }
     }
+    /* ---- 9. the microSD card's expansion, on OVERVIEW ----------------------------------- */
+    {
+        int r;
+
+        for (r = 0; r < 2; r++) {
+            const char *name = r ? "landscape" : "portrait";
+            char what[160];
+
+            use_display(r ? POS_ROTATION_90 : POS_ROTATION_0, PANEL_CORNER);
+            g_storage = STORAGE_AVAILABLE;
+            g_expand_error = NULL;
+            calls_reset();
+            app_start();
+            snprintf(what, sizeof(what), "[%s] the card's unused space and Expand storage under STORAGE", name);
+            check(what, shows("13.9 GB of the card is not used yet") && target_of("Expand storage") &&
+                            called("storage.status") == 1);
+            snprintf(what, sizeof(what), "[%s] OVERVIEW with the expansion", name);
+            check_page(what, 1);
+
+            calls_reset();
+            tap("Expand storage");
+            snprintf(what, sizeof(what), "[%s] Expand storage asks first and calls nothing", name);
+            check(what, shows("Expand storage?") && shows("Cancel") && call_count == 0);
+            snprintf(what, sizeof(what), "[%s] the expansion's confirmation", name);
+            check_dialog_shape(what);
+            tap("Cancel");
+            snprintf(what, sizeof(what), "[%s] Cancel goes back, having called nothing", name);
+            check(what, live() && call_count == 0 && target_of("Expand storage"));
+
+            g_expand_error = "the storage expansion is already running";
+            tap("Expand storage");
+            tap("Expand");
+            snprintf(what, sizeof(what), "[%s] a refused expansion says why", name);
+            check(what, live() && called("storage.expand") == 1 && shows("the storage expansion is already running"));
+            g_expand_error = NULL;
+
+            calls_reset();
+            tap("Expand storage");
+            tap("Expand");
+            snprintf(what, sizeof(what), "[%s] Expand calls storage.expand once and comes back running", name);
+            check(what, called("storage.expand") == 1 && live() && !target_of("Expand storage") &&
+                            shows("Expanding storage... keep the device powered"));
+            g_storage = STORAGE_RESTART;
+            tick();
+            tick();
+            snprintf(what, sizeof(what), "[%s] a restart is asked for when the kernel needs one", name);
+            check(what, shows("Restart to finish expanding storage") && target_of("Restart"));
+            g_storage = STORAGE_DONE;
+            tick();
+            tick();
+            snprintf(what, sizeof(what), "[%s] and when it is done, it says so", name);
+            check(what, shows("Storage expanded to use the whole card") && !target_of("Expand storage"));
+            check("every call stayed within the UI deadline", every_call_bounded());
+            app_stop();
+        }
+        g_storage = NULL;
+    }
+
     use_display(POS_ROTATION_0, PANEL_CORNER);
     check("every round leaves nothing behind", lv_obj_get_child_count(g_content) == 0u);
     check("and nothing was asked of the shell, no keyboard at any point", shell_calls == 0 && keyboard_requests == 0);

@@ -354,6 +354,22 @@ fi
 out=$("$POS" call sysd storage.eject x=1 2>&1)
 check "storage.eject takes no params (code 2)" 'code 2' "$out"
 
+# storage.expand: the build host's root is not on a microSD card, so the card
+# is "unsupported" and the expansion is refused before anything runs - this
+# suite must never be able to repartition the machine it runs on. The job
+# itself is tests/sysd_expand_test.c.
+out=$("$POS" call sysd storage.status 2>&1)
+check "storage.status carries the internal card" '"internal"' "$out"
+if grep -q 'root=/dev/mmcblk' /proc/cmdline 2>/dev/null; then
+    echo "skip   storage.expand refusal: this host's root is on an mmcblk device"
+else
+    check "the build host's card is unsupported" '"state":[[:space:]]*"unsupported"' "$out"
+    out=$("$POS" call sysd storage.expand 2>&1)
+    check "storage.expand refuses it (code 3)" 'code 3' "$out"
+fi
+out=$("$POS" call sysd storage.expand x=1 2>&1)
+check "storage.expand takes no params (code 2)" 'code 2' "$out"
+
 kill $SYSD_PID
 wait $SYSD_PID 2>/dev/null
 rc=$?
