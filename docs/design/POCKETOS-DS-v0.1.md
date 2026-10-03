@@ -4004,13 +4004,20 @@ after the shell ended; the screen itself says how it ended, in reverse
 video, and that Enter starts a new shell. The session row under the grid
 and CLOSE SESSION: §49.2-§49.3 (ACCEPTED).
 
-## 44. Amendment AB — The keyboard base's own keys and lights [PROPOSED]
+## 44. Amendment AB — The keyboard base's own keys and lights [PROPOSED; §44.1 ACCEPTED]
 
 **PROPOSED 2026-09-30** on branch `feat/hardware-controls`. Nothing in
 §1-§43 changes or is renumbered. Mechanism, evidence and the gate:
-docs/hardware/HARDWARE_CONTROLS.md.
+docs/hardware/HARDWARE_CONTROLS.md. §44.1 is ACCEPTED (below); §44.2 onward
+remain PROPOSED.
 
-### 44.1 What the keys mean
+### 44.1 What the keys mean [ACCEPTED]
+
+**ACCEPTED 2026-10-03** by the owner: the keys' actions after the owner's
+physical test of 2026-10-01 (docs/hardware/HARDWARE_CONTROLS.md: F1-F11,
+microphone, LILYGO, light and Fn with a function key all OK), and the
+long-press letters after the unit B hardware check of `doors-shell`
+`582328c` and the merge to master (`1d2e26d`, PR #35).
 
 The function row, the orange microphone key and the LILYGO key type
 nothing; each carries one Doors action (`ui/shell/hw_actions.h`): F1 Home,
@@ -4023,8 +4030,8 @@ screen or an alert (§18.8) is up, keys that would open or leave an app do
 nothing; the levels still work. With Fn held, a function key goes to the
 Terminal (§43.3) as the key itself; everywhere else Fn changes nothing.
 
-**Long-press letters (PROPOSED 2026-10-03, branch
-`fix/rift-norwegian-input`).** No keycap carries them, so in a text field A
+**Long-press letters (proposed 2026-10-03 on branch
+`fix/rift-norwegian-input`, accepted with §44.1).** No keycap carries them, so in a text field A
 and O held for the touch keyboard's hold time (400 ms, §17.3) open a small
 row beside the field: å Å ä Ä æ Æ for A, ø Ø ö Ö for O, both cases always,
 the first selected. Left and Right move, Enter types the selection, Esc or a
