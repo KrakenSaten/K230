@@ -1122,7 +1122,7 @@ RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
              $(RIFT_DIR)/rift_arrivals.o \
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
-             $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o \
+             $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
              $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
              $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
              $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o \
@@ -1136,7 +1136,8 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
                    $(RIFT_DIR)/rift_arrivals.o \
                    $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
-                   $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_format.o \
+                   $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
+                   $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \

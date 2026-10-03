@@ -50,11 +50,12 @@
  * stays lit on it, and Esc or LIST goes back to the node list). SYSTEM holds
  * what manages this node and this app - the name and its adverts, the path
  * hash, the channels, the sounds and CLOSE RIFT - so ACTIVITY is status and
- * traffic only. */
+ * traffic only. MAP places the nodes that said where they are. */
 enum rift_section {
     RIFT_SEC_ACTIVITY = 0,
     RIFT_SEC_NODES,
     RIFT_SEC_COMMS,
+    RIFT_SEC_MAP,
     RIFT_SEC_SYSTEM,
     RIFT_SEC_NET,
     RIFT_SEC_COUNT,
@@ -92,6 +93,7 @@ struct rift_manage;
 struct rift_device;
 struct rift_session_view;
 struct rift_system_view;
+struct rift_map_ui;
 
 /* The app's id in the shell's registry, and the name its session is marked
  * by in the status cluster. */
@@ -202,11 +204,13 @@ struct rift_app {
     struct rift_device *device;
     struct rift_session_view *session;
     struct rift_system_view *system;
+    struct rift_map_ui *map;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
     lv_obj_t *net_root;
     lv_obj_t *system_root;
+    lv_obj_t *map_root;
     /* The screen this app listens on for the theme-changed event (the
      * colour-emoji styles follow the text size there, and the frame is
      * repainted); removed on destroy, because the screen outlives the app. */

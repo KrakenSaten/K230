@@ -83,6 +83,14 @@ badsubmit=$(grep -rn 'rift_comms_submit(' "$SRC" --include='*.c' |
 check "every send carries text a reader typed${badsubmit:+ (}${badsubmit:+)}" \
     "$([ -z "$badsubmit" ] && echo 1 || echo 0)"
 
+# ---- MAP: positions as the nodes claim them, and nothing fetched ---------------
+check "MAP fetches nothing: no tile, map service, URL or API key" \
+    "$(grep -niE 'https?://|tile|mapbox|google|openstreetmap|api[_-]?key|curl_|socket\(' \
+        "$SRC/rift_map.c" "$SRC/rift_map.h" "$SRC/ui/rift_mapview.c" "$SRC/ui/rift_mapview.h" |
+       grep -viE 'no tile|no basemap|tiles, no|no tiles' >/dev/null && echo 0 || echo 1)"
+check "and places only nodes that claimed a location" \
+    "$(grep -c 'have_location' "$SRC/rift_map.c" | awk '{print ($1 >= 3) ? 1 : 0}')"
+
 # ---- RIFT owns no colour, no font and no hardware ------------------------------
 # tests/style_lint.sh covers ui/ and apps/ for colour literals; these are the
 # rules that are RIFT's own.
@@ -150,13 +158,13 @@ for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_ac
             ui/rift_widgets.c ui/rift_fit.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
             ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c \
-            ui/rift_system.c; do
+            ui/rift_system.c rift_map.c ui/rift_mapview.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
-            rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c; do
+            rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c rift_map.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done

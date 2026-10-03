@@ -32,6 +32,8 @@
 #include "rift_graph.h"
 #include "rift_manage.h"
 #include "rift_net.h"
+#include "rift_map.h"
+#include "rift_mapview.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
 #include "rift_session.h"
@@ -41,6 +43,7 @@
 #include "rift_test_clock.h"
 #include "rift_thread.h"
 
+#include <math.h>
 #include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -3685,6 +3688,254 @@ static int same_face(lv_obj_t *a, lv_obj_t *b)
            lv_obj_get_height(a) == lv_obj_get_height(b);
 }
 
+/* ---- MAP ------------------------------------------------------------------ */
+
+/* Every object under obj, itself included. */
+static uint32_t count_objects(lv_obj_t *obj)
+{
+    uint32_t n = 1;
+    uint32_t i;
+
+    for (i = 0; obj && i < lv_obj_get_child_count(obj); i++) {
+        n += count_objects(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+/* A node with a claimed location, as mesh.node carries it. */
+static void give_located(const char *key, const char *name, int type, const char *where)
+{
+    char json[640];
+
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"%s\",\"name\":\"%s\","
+             "\"type\":%d,\"path_known\":false,\"last_heard_mono_ms\":%lld%s%s}}",
+             key, name, type, (long long)(rift_mono_ms() - 60000), where[0] ? "," : "", where);
+    give_node_json(json);
+}
+
+/* Tap the marker of this node, where the map put it. */
+static void tap_marker(const char *key)
+{
+    const struct rift_node *n = rift_model_find(&app->model, key);
+    const struct rift_map_view *v = rift_map_view_geometry(app);
+    lv_area_t a;
+    double x;
+    double y;
+
+    if (!n || !v) {
+        return;
+    }
+    lv_obj_get_coords(rift_map_view_canvas(app), &a);
+    rift_map_project(v, n->lat, n->lon, &x, &y);
+    tap_at(a.x1 + (int32_t)x, a.y1 + (int32_t)y);
+    pump(80);
+}
+
+#define KEY_M1 "81aa000000000000000000000000000000000000000000000000000000000081"
+#define KEY_M2 "82bb000000000000000000000000000000000000000000000000000000000082"
+#define KEY_M3 "83cc000000000000000000000000000000000000000000000000000000000083"
+#define KEY_M4 "84dd000000000000000000000000000000000000000000000000000000000084"
+#define KEY_M5 "85ee000000000000000000000000000000000000000000000000000000000085"
+
+static void map_session(void)
+{
+    static const enum pos_rotation shapes[2] = { POS_ROTATION_0, POS_ROTATION_270 };
+    int k;
+
+    /* The geometry, on its own. */
+    {
+        static struct rift_model m;
+        struct rift_map_view v;
+        double x;
+        double y;
+        double lat;
+        double lon;
+        int32_t px;
+        double metres;
+
+        rift_model_init(&m);
+        check("an empty mesh places nothing", rift_map_fit(&v, &m, 500, 400) == 0 &&
+                                                  rift_map_located(&m) == 0);
+        check("valid places are valid", rift_location_valid(59.9, 10.7) &&
+                                            rift_location_valid(-33.9, 151.2));
+        check("0,0 is none, past a pole or the date line is nothing, NaN is nothing",
+              !rift_location_valid(0, 0) && !rift_location_valid(95, 10) &&
+                  !rift_location_valid(10, 181) && !rift_location_valid(0.0 / 0.0, 10));
+        m.node_count = 2;
+        m.nodes[0].have_location = 1;
+        m.nodes[0].lat = 59.90;
+        m.nodes[0].lon = 10.70;
+        m.nodes[1].have_location = 1;
+        m.nodes[1].lat = 59.95;
+        m.nodes[1].lon = 10.80;
+        check("two located nodes are fitted", rift_map_fit(&v, &m, 500, 400) == 2);
+        rift_map_project(&v, 59.90, 10.70, &x, &y);
+        check("both inside the area, clear of its edge",
+              x >= RIFT_MAP_FIT_MARGIN - 1 && y <= 400 - RIFT_MAP_FIT_MARGIN + 1);
+        rift_map_project(&v, 59.95, 10.80, &x, &y);
+        check("the other too", x <= 500 - RIFT_MAP_FIT_MARGIN + 1 && y >= RIFT_MAP_FIT_MARGIN - 1);
+        check("north is up and east is right", x > 250 && y < 200);
+        rift_map_unproject(&v, x, y, &lat, &lon);
+        check("and back again", fabs(lat - 59.95) < 1e-9 && fabs(lon - 10.80) < 1e-9);
+        check("a tap on a marker finds it", rift_map_hit(&v, &m, x + 5, y - 5) == 1);
+        check("and one far from both finds nothing", rift_map_hit(&v, &m, 250, 200) == -1);
+        metres = rift_map_scale(&v, 120, &px);
+        check("the scale bar is a round length that fits",
+              px > 0 && px <= 120 && (metres == 1000 || metres == 2000 || metres == 500 ||
+                                      metres == 5000 || metres == 200));
+        m.node_count = 1;
+        rift_map_fit(&v, &m, 500, 400);
+        check("one node alone is not an infinite zoom",
+              v.ppd <= 400.0 / (RIFT_MAP_MIN_SPAN_M / RIFT_MAP_M_PER_DEG) + 1e-6);
+        rift_map_zoom(&v, 1e9);
+        check("nor is zooming in for ever", v.ppd <= 400.0 / (RIFT_MAP_MIN_SPAN_M / RIFT_MAP_M_PER_DEG) + 1e-6);
+        rift_map_zoom(&v, 1e-9);
+        check("and zooming out stops at the world", v.ppd >= 400.0 / RIFT_MAP_MAX_SPAN_DEG - 1e-6);
+    }
+
+    for (k = 0; k < 2; k++) {
+        const char *tag = k ? "landscape" : "portrait";
+        char what[200];
+
+        use_display(shapes[k], PANEL_CORNER);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        tap(tab(RIFT_SEC_MAP));
+        pump(120);
+        snprintf(what, sizeof(what), "%s: MAP is a tab of its own", tag);
+        check(what, app->section == RIFT_SEC_MAP);
+        snprintf(what, sizeof(what), "%s: with no location to place, it says so and draws none",
+                 tag);
+        check(what, find_text(content(), "No node has said where it is") != NULL &&
+                        rift_map_view_markers(app) == 0 &&
+                        find_text(content(), "0 OF 5 KNOWN NODES HAVE A LOCATION") != NULL);
+        snprintf(what, sizeof(what), "%s: and says this device has none", tag);
+        check(what, find_text(content(), "THIS DEVICE HAS NONE") != NULL);
+
+        give_located(KEY_M1, "RPT-HOLMEN", 2, "\"lat\":59.9672,\"lon\":10.6650");
+        give_located(KEY_M2, "Kari-T", 1, "\"lat\":59.9139,\"lon\":10.7522");
+        give_located(KEY_M3, "NULL-ISLAND", 1, "\"lat\":0,\"lon\":0");
+        give_located(KEY_M4, "OFF-THE-MAP", 1, "\"lat\":95.0,\"lon\":10.0");
+        give_located(KEY_M5, "NO-GPS", 1, "");
+        rift_app_refresh(app);
+        pump(200);
+        snprintf(what, sizeof(what), "%s: valid coordinates are taken", tag);
+        check(what, rift_model_find(&app->model, KEY_M1)->have_location &&
+                        rift_model_find(&app->model, KEY_M2)->have_location);
+        snprintf(what, sizeof(what), "%s: 0,0, out of range and missing are not", tag);
+        check(what, !rift_model_find(&app->model, KEY_M3)->have_location &&
+                        !rift_model_find(&app->model, KEY_M4)->have_location &&
+                        !rift_model_find(&app->model, KEY_M5)->have_location);
+        lv_refr_now(NULL);
+        snprintf(what, sizeof(what), "%s: two markers, for the two that said where they are", tag);
+        check(what, rift_map_view_markers(app) == 2 &&
+                        find_text(content(), "2 OF 10 KNOWN NODES HAVE A LOCATION") != NULL &&
+                        find_text(content(), "No node has said where it is") == NULL);
+        snprintf(what, sizeof(what), "%s: the map is inside the body", tag);
+        check(what, inside_body(content()) && labels_overflowing(content()) == 0);
+
+        tap_marker(KEY_M1);
+        snprintf(what, sizeof(what), "%s: a tap on the repeater selects it", tag);
+        check(what, app->have_selected && strcmp(app->selected, KEY_M1) == 0 &&
+                        find_text(content(), "RPT-HOLMEN") != NULL);
+        snprintf(what, sizeof(what), "%s: and says what it is, where, and offers DETAIL, not MESSAGE",
+                 tag);
+        check(what, find_text(content(), "RPT") != NULL &&
+                        find_text(content(), "59.96720\xC2\xB0 N") != NULL &&
+                        find_exact(content(), "DETAIL \xE2\x80\xBA") != NULL &&
+                        find_exact(content(), "MESSAGE") == NULL);
+        shot(k ? "landscape-map" : "portrait-map");
+        tap_marker(KEY_M2);
+        snprintf(what, sizeof(what), "%s: a chat node offers MESSAGE", tag);
+        check(what, strcmp(app->selected, KEY_M2) == 0 &&
+                        find_exact(content(), "MESSAGE") != NULL);
+        tap(action_of(find_exact(content(), "MESSAGE")));
+        pump(80);
+        snprintf(what, sizeof(what), "%s: which opens its conversation", tag);
+        check(what, app->section == RIFT_SEC_COMMS && app->have_conv &&
+                        strcmp(app->conv, KEY_M2) == 0);
+        tap(tab(RIFT_SEC_MAP));
+        pump(80);
+        tap(action_of(find_exact(content(), "DETAIL \xE2\x80\xBA")));
+        pump(80);
+        snprintf(what, sizeof(what), "%s: DETAIL opens the node in NODES", tag);
+        check(what, app->section == RIFT_SEC_NODES && strcmp(app->selected, KEY_M2) == 0);
+        tap(tab(RIFT_SEC_MAP));
+        pump(80);
+        {
+            double before = rift_map_view_geometry(app)->ppd;
+
+            tap(action_of(find_exact(content(), "+")));
+            pump(60);
+            snprintf(what, sizeof(what), "%s: + zooms in", tag);
+            check(what, rift_map_view_geometry(app)->ppd > before);
+            tap(action_of(find_exact(content(), "FIT")));
+            pump(120);
+            snprintf(what, sizeof(what), "%s: FIT puts every located node back in view", tag);
+            check(what, fabs(rift_map_view_geometry(app)->ppd - before) < 1e-6 * before);
+        }
+        app_stop();
+    }
+
+    /* A thousand known nodes, all of them placed: one drawn object, and a
+     * draw that does not take a noticeable time. */
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_service();
+    {
+        uint32_t objects;
+        int64_t t0;
+        int64_t spent;
+        int i;
+
+        app->model.node_count = RIFT_MAX_NODES;
+        for (i = 0; i < RIFT_MAX_NODES; i++) {
+            struct rift_node *n = &app->model.nodes[i];
+
+            memset(n, 0, sizeof(*n));
+            snprintf(n->key, sizeof(n->key), "%064x", i + 1);
+            snprintf(n->hash, sizeof(n->hash), "%02x", (i + 1) & 0xff);
+            snprintf(n->name, sizeof(n->name), "N%04d", i);
+            n->have_name = 1;
+            n->have_type = 1;
+            n->type = i % 5 == 0 ? 2 : 1;
+            n->have_location = 1;
+            n->lat = 58.0 + (double)(i % 40) * 0.05;
+            n->lon = 8.0 + (double)(i / 40) * 0.1;
+            n->have_heard = 1;
+            n->heard_mono_ms = rift_mono_ms() - 1000;
+            n->seq = (uint32_t)i + 1;
+        }
+        app->model.seq = RIFT_MAX_NODES + 1;
+        tap(tab(RIFT_SEC_MAP));
+        pump(200);
+        objects = count_objects(app->map_root);
+        t0 = rift_mono_ms();
+        lv_obj_invalidate(rift_map_view_canvas(app));
+        lv_refr_now(NULL);
+        spent = rift_mono_ms() - t0;
+        printf("     MAP with %d placed nodes: %d markers drawn, %lld ms a full draw, %u objects\n",
+               RIFT_MAX_NODES, rift_map_view_markers(app), (long long)spent, (unsigned)objects);
+        check("1000 located nodes are all placed", rift_map_view_markers(app) == RIFT_MAX_NODES);
+        check("and drawn in one object, not one each", objects < 40);
+        check("a full draw stays well under a second on the host", spent < 1000);
+        {
+            unsigned draws = rift_map_view_draws(app);
+
+            rift_app_refresh(app);
+            pump(1200);
+            check("nothing changed, nothing is drawn again", rift_map_view_draws(app) == draws);
+        }
+        app->model.node_count = 0;
+    }
+    app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+}
+
 /* ---- repeaters take no direct messages ----------------------------------- */
 
 /* By the node's advertised type, never its name: upstream MeshCore's
@@ -3842,7 +4093,7 @@ static void navigation_session(void)
         snprintf(what, sizeof(what), "%s: the strip is a %d px row", tag,
                  wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
         check(what, lv_area_get_height(&s) == (wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H));
-        snprintf(what, sizeof(what), "%s: ACTIVITY, NODES, COMMS and SYSTEM are %d px faces, centred",
+        snprintf(what, sizeof(what), "%s: every tab is a %d px face, centred",
                  tag, RIFT_NAV_FACE_H);
         check(what, tall);
         snprintf(what, sizeof(what), "%s: each tab is a visible face, all four alike", tag);
@@ -3872,9 +4123,12 @@ static void navigation_session(void)
         tap_at(t[1].x2 + 3, (s.y1 + s.y2) / 2);
         snprintf(what, sizeof(what), "%s: a tap in the gap just after NODES is NODES", tag);
         check(what, app->section == RIFT_SEC_NODES);
-        tap_at((t[3].x1 + t[3].x2) / 2, t[3].y1 - 4);
+        tap_at((t[RIFT_SEC_SYSTEM].x1 + t[RIFT_SEC_SYSTEM].x2) / 2, t[RIFT_SEC_SYSTEM].y1 - 4);
         snprintf(what, sizeof(what), "%s: SYSTEM answers 4 px above its face", tag);
         check(what, app->section == RIFT_SEC_SYSTEM);
+        tap_at((t[RIFT_SEC_MAP].x1 + t[RIFT_SEC_MAP].x2) / 2, (s.y1 + s.y2) / 2);
+        snprintf(what, sizeof(what), "%s: and MAP its own", tag);
+        check(what, app->section == RIFT_SEC_MAP);
         tap_at((t[0].x1 + t[0].x2) / 2, t[0].y2 + 4);
         snprintf(what, sizeof(what), "%s: and ACTIVITY 4 px below its own", tag);
         check(what, app->section == RIFT_SEC_ACTIVITY);
@@ -4155,9 +4409,10 @@ int main(void)
           app->keysink && lv_obj_get_parent(app->keysink) == frame());
     check("takes no taps", !lv_obj_has_flag(app->keysink, LV_OBJ_FLAG_CLICKABLE));
     check("and is never hidden", visible(app->keysink));
-    check("the tabs are ACTIVITY, NODES, COMMS and SYSTEM",
+    check("the tabs are ACTIVITY, NODES, COMMS, MAP and SYSTEM",
           find_text(strip(), "ACTIVITY") && find_text(strip(), "NODES") &&
-              find_text(strip(), "COMMS") && find_text(strip(), "SYSTEM"));
+              find_text(strip(), "COMMS") && find_exact(strip(), "MAP") &&
+              find_text(strip(), "SYSTEM"));
     check("and NET is not a tab of its own (it is under NODES)",
           find_exact(strip(), "NET") == NULL);
     check("each of them is a 56 px target",
@@ -5433,6 +5688,7 @@ int main(void)
     find_session();
     net_session();
     repeater_session();
+    map_session();
     manage_session();
     manage_live_session();
     comms_usability_session();

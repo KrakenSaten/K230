@@ -41,8 +41,12 @@ package is the contract and this phase implements part of it.
 
 ## What it is
 
-Four sections, in the design's fixed order: **ACTIVITY · NODES · COMMS ·
-NET**. RIFT draws all four.
+Five tabs: **ACTIVITY · NODES · COMMS · MAP · SYSTEM**. NET, the design's
+fourth section, is a view under NODES (its tab stays lit; LIST, Esc or Back
+return to the node list), opened from NET in NODES' find bar. ACTIVITY is
+status and traffic only; every setting is on SYSTEM. The strip fits its tabs
+to the row: their padding gives way first, then ACTIVITY and SYSTEM shorten
+to ACT and SYS (portrait at a larger text size).
 
 - **ACTIVITY** — the radio service's state and the reason for it in the
   service's own words; on one line, whether radiod is connected and what
@@ -50,10 +54,15 @@ NET**. RIFT draws all four.
   transmit; how many nodes the service holds, which build of meshcored is
   answering, and the service's own traffic count (`RX 2627 · TX 6 OK`, with
   failed, unknown and no-receive-after transmits named only when there were
-  any). **THIS DEVICE** — this node's name, hash and key, and the two
-  **ADVERT** buttons (below). Then the nodes heard most recently, and the raw
-  frame feed. A full node table is said here in words, with what to do about
-  it.
+  any), and this node's name and hash, read only. Then the nodes heard most
+  recently, and the raw frame feed. A full node table is said here in words,
+  with what to do about it. Nothing on ACTIVITY changes a setting.
+- **SYSTEM** — **DEVICE**: this node's name, hash and key, the two **ADVERT**
+  buttons (below) and RENAME; **ADDRESSING**: the 1/2/3-byte path hash;
+  **SOUND**: the DM and channel sound switches; **CHANNELS**: join, leave and
+  mute; **SESSION**: CLOSE RIFT ("Managing the node", "The message sounds").
+- **MAP** — the nodes whose adverts carry a location, on a dark graticule
+  ("MAP").
 - **NODES** — every node the service holds (all 1000 its table can), as
   36 px rows: link glyph, name, role, hop strip, hop count, RSSI, SNR
   (landscape), last heard and the activity pulse (below). Grouped into
@@ -62,7 +71,7 @@ NET**. RIFT draws all four.
   so 1000 nodes cost what a screenful does. A row selects and
   does nothing else; the selection expands in place into the state line, the
   path written out, the signal, and a 56 px action bar: **MESSAGE** and
-  **DETAIL ›**. **DETAIL** pushes a screen that opens with its actions —
+  **DETAIL ›** (no MESSAGE for a repeater or sensor, "Repeaters"). **DETAIL** pushes a screen that opens with its actions —
   **MESSAGE**, **RE-ROUTE**, **FORGET** — then the link state, the hop
   ladder, the path changes RIFT has seen, and the identity. In landscape the
   same detail is the pane beside the list.
@@ -377,6 +386,53 @@ scope to choose. The CHANNELS caption says `UNSCOPED FLOOD` rather than
 offering a setting the service would ignore. Adding scopes is a change to
 what goes on the air and to a persisted store, and needs the owner's decision
 and an on-air gate.
+
+## MAP
+
+A tab of its own: the nodes that **said where they are**, placed on a dark
+latitude/longitude graticule (`rift_map.c` for the geometry,
+`ui/rift_mapview.c` for the drawing).
+
+- **Where the positions come from.** A MeshCore advert may carry the node's
+  latitude and longitude (`ADV_LATLON_MASK`, degrees x 1e6); upstream
+  `BaseChatMesh` keeps it in the contact and meshcored has always stored it
+  in state.v1. `mesh.nodes` / `mesh.node` now report it as `lat` / `lon`
+  (docs/api/mesh.md) - the only service change MAP needed. A position is the
+  node's **claim**, never a measurement. MeshCore's 0,0 ("never set") and
+  anything out of range are not a position, in the service and again in
+  RIFT (`rift_location_valid`).
+- **This device has no position**: its adverts carry none and the board has
+  no GPS. MAP says so; nothing is plotted for it and nothing is guessed.
+- **What is drawn.** One custom-drawn object holds the whole map - grid,
+  markers, names, scale bar - so 1000 known nodes cost no LVGL objects (23
+  objects for the whole screen, measured by `rift_app_test`), and it is
+  repainted only when a node or the selection changed. A **repeater** is a
+  square, **any other node** a dot, both in the theme's tokens; a node not
+  heard for 12 hours is drawn muted; the **selected** node is ringed in the
+  accent and named. Names are drawn for every marker while at most twelve are
+  on screen, otherwise only for the selected one. The caption says the
+  shapes in words and how many were placed; the panel says how many of the
+  known nodes have a location.
+- **Touch.** A tap selects the nearest marker within 28 px (the selection
+  NODES and NET share); drag pans; `+` / `−` zoom about the centre (400 m
+  across at the closest, the world at the furthest); **FIT** puts every
+  located node back in view. The panel - under the map in portrait, beside it
+  in landscape - names the node, its type, hash, link state and age, its
+  coordinates "as its adverts say", **DETAIL ›** (the node in NODES) and,
+  for a node that takes direct messages, **MESSAGE**.
+- **Projection.** Equirectangular about the view's centre, longitude scaled
+  by the cosine of the centre latitude: over the tens of kilometres a LoRa
+  mesh spans it is indistinguishable from Web Mercator and needs no library.
+- **No basemap.** There are no coastlines, roads or tiles: nothing is
+  downloaded, no map service or key is used (`tests/rift_lint.sh` checks
+  this). Options for one, none implemented: (1) a small offline vector
+  coastline/border set (Natural Earth 1:10m clipped to a region, a few
+  hundred KB in the image, drawn as polylines); (2) an offline raster tile
+  pack for one region (MBTiles or a directory of PNG tiles on the SD card,
+  tens to hundreds of MB, a tile decoder and cache in the shell); (3) online
+  OpenStreetMap tiles over Wi-Fi (needs netd, a TLS client, a cache and the
+  tile servers' usage policy - and a network dependency in a mesh client).
+  Each needs the owner's decision.
 
 ## Repeaters
 

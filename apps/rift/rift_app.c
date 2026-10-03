@@ -18,6 +18,7 @@
 #include "rift_emoji_style.h"
 #include "rift_netview.h"
 #include "rift_find.h"
+#include "rift_mapview.h"
 #include "rift_nodes.h"
 #include "rift_sound.h"
 #include "rift_system.h"
@@ -320,6 +321,9 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
     case RIFT_SEC_SYSTEM:
         show_only(a, a->system_root);
         break;
+    case RIFT_SEC_MAP:
+        show_only(a, a->map_root);
+        break;
     default:
         show_only(a, a->net_root);
         break;
@@ -411,6 +415,8 @@ void rift_app_refresh(struct rift_app *a)
         rift_net_view_refresh(a);
     } else if (a->section == RIFT_SEC_SYSTEM) {
         rift_system_refresh(a);
+    } else if (a->section == RIFT_SEC_MAP) {
+        rift_map_view_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
     rift_tabs_paint(a);
@@ -541,6 +547,7 @@ static void layout(struct rift_app *a)
     rift_comms_shape(a);
     rift_net_view_shape(a);
     rift_system_shape(a);
+    rift_map_view_shape(a);
     /* Draw now, so the new shape is not empty for a frame, and ask for
      * another pass from the timer: this one is inside LVGL's layout update,
      * where no width can be settled on demand and anything fitted to a
@@ -660,6 +667,7 @@ static void *rift_create(lv_obj_t *root)
     a->nodes_root = rift_nodes_create(a, a->content);
     a->comms_root = rift_comms_create(a, a->content);
     a->net_root = rift_net_view_create(a, a->content);
+    a->map_root = rift_map_view_create(a, a->content);
     a->system_root = rift_system_create(a, a->content);
     build_cmdline(a);
     /* The sink was made first (build_keysink); it goes last among the
@@ -772,6 +780,7 @@ static void rift_destroy(void *priv)
     rift_net_view_destroy(a);
     rift_nodes_destroy(a);
     rift_system_destroy(a);
+    rift_map_view_destroy(a);
     rift_activity_destroy(a);
     /* The LVGL objects are children of the shell's body and are deleted
      * with it; the private blocks were this app's to release, and every

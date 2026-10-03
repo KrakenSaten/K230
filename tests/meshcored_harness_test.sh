@@ -1487,7 +1487,9 @@ ok("with its 64-byte path and its name made safe",
 heard_extra = len(',"last_heard_mono_ms":9007199254740992'
                   ',"last_snr_db":-1.2345678901234567e-300'
                   ',"last_rssi_dbm":-1.2345678901234567e-300'
-                  ',"advert_hops":63,"advert_mono_ms":9007199254740992')
+                  ',"advert_hops":63,"advert_mono_ms":9007199254740992'
+                  # and where its adverts say it is, at cJSON's longest double
+                  ',"lat":-89.999999999999986,"lon":-179.99999999999997')
 print("info mesh.nodes at 1000: %d bytes, %d with every reading at its longest; limit %d"
       % (size_full or 0, (size_full or 0) + FULL * heard_extra, FRAME_MAX))
 ok("in one frame inside pocketipc's limit",

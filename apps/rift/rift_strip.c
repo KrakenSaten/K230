@@ -40,8 +40,9 @@
 #define BACK_REACH_TOP ((RIFT_NAV_ROW_H_TOP - FACE_H) / 2)
 #define UNDERLINE_H 2
 
-static const char *const section_name[RIFT_TAB_COUNT] = { "ACTIVITY", "NODES", "COMMS", "SYSTEM" };
-static const char *const section_short[RIFT_TAB_COUNT] = { "ACT", "NODES", "COMMS", "SYS" };
+static const char *const section_name[RIFT_TAB_COUNT] = { "ACTIVITY", "NODES", "COMMS", "MAP",
+                                                           "SYSTEM" };
+static const char *const section_short[RIFT_TAB_COUNT] = { "ACT", "NODES", "COMMS", "MAP", "SYS" };
 
 const char *rift_tab_word(int tab, int short_word)
 {

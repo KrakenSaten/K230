@@ -247,6 +247,15 @@ int rift_node_is_repeater(const struct rift_node *n)
     return n && n->have_type && n->type == RIFT_NODE_TYPE_REPEATER;
 }
 
+int rift_location_valid(double lat, double lon)
+{
+    /* NaN fails every comparison, and so is refused with the rest. */
+    if (!(lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0)) {
+        return 0;
+    }
+    return !(lat == 0.0 && lon == 0.0);
+}
+
 int rift_node_can_message(const struct rift_node *n)
 {
     return !n || !n->have_type ||

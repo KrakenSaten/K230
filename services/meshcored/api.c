@@ -101,6 +101,12 @@ static cJSON *node_json(const struct mcd_node *n)
         cJSON_AddNumberToObject(o, "advert_hops", (double)n->advert_hops);
         cJSON_AddNumberToObject(o, "advert_mono_ms", (double)n->advert_mono_ms);
     }
+    /* Where the node's adverts say it is, in degrees: absent when no advert
+     * carried a location (0,0 is MeshCore's "none") or one out of range. */
+    if (n->location_known) {
+        cJSON_AddNumberToObject(o, "lat", (double)n->lat_e6 / 1e6);
+        cJSON_AddNumberToObject(o, "lon", (double)n->lon_e6 / 1e6);
+    }
     return o;
 }
 

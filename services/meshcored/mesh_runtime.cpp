@@ -1533,6 +1533,12 @@ public:
         snprintf(n.name, sizeof(n.name), "%s", c.name);
         n.type = c.type;
         n.last_advert_timestamp = c.last_advert_timestamp;
+        if ((c.gps_lat != 0 || c.gps_lon != 0) && c.gps_lat >= -90000000 &&
+            c.gps_lat <= 90000000 && c.gps_lon >= -180000000 && c.gps_lon <= 180000000) {
+            n.location_known = true;
+            n.lat_e6 = c.gps_lat;
+            n.lon_e6 = c.gps_lon;
+        }
         if (c.out_path_len != OUT_PATH_UNKNOWN) {
             uint8_t bytes = (uint8_t)(mesh::Packet::pathHashSize(c.out_path_len) *
                                       mesh::Packet::pathHashCount(c.out_path_len));

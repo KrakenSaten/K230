@@ -378,6 +378,19 @@ static int apply_node(struct rift_model *m, const cJSON *o)
             n->advert_mono_ms = (int64_t)d;
         }
     }
+    /* Where it says it is: both halves or nothing, and only a place that
+     * can be one. Like the signal, an object without it leaves it alone - a
+     * node's location is a stored fact, not a reading of this frame. */
+    {
+        double lat;
+        double lon;
+
+        if (num_of(o, "lat", &lat) && num_of(o, "lon", &lon)) {
+            n->have_location = rift_location_valid(lat, lon);
+            n->lat = n->have_location ? lat : 0.0;
+            n->lon = n->have_location ? lon : 0.0;
+        }
+    }
     n->seq = ++m->seq;
     return 0;
 }

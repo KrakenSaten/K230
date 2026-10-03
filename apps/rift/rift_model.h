@@ -198,6 +198,12 @@ struct rift_node {
     int advert_hops;
     int have_advert_mono;
     int64_t advert_mono_ms;              /* ours */
+    /* Where the node's adverts say it is (mesh.nodes lat/lon, degrees): a
+     * claim by the node, absent unless both came, finite and in range, and
+     * not MeshCore's 0,0 for "none". What MAP plots, and nothing else. */
+    int have_location;
+    double lat;
+    double lon;
 
     /* How many adverts this app has seen name this node, and its path
      * history since RIFT opened. Both are this app's own observations and
@@ -804,6 +810,9 @@ int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
  * refused here. A node whose type is not known yet is not refused on a
  * guess. NULL is a node nobody has heard: not refused. */
 int rift_node_can_message(const struct rift_node *n);
+/* Whether lat/lon are a location this app will plot: both finite, inside
+ * -90..90 and -180..180, and not exactly 0,0 (MeshCore's "never set"). */
+int rift_location_valid(double lat, double lon);
 /* Why not, in a reader's words, or NULL when it can. */
 const char *rift_node_no_message_why(const struct rift_node *n);
 int rift_node_matches(const struct rift_node *n, const char *query);

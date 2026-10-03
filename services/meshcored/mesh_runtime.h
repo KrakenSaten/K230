@@ -108,6 +108,15 @@ struct mcd_node {
     bool advert_hops_known;
     uint8_t advert_hops;
     uint64_t advert_mono_ms;      /* when that advert was heard, by ours */
+    /* Where the node says it is: the latitude and longitude its adverts
+     * carried (MeshCore ADV_LATLON_MASK, degrees x 1e6), as MeshCore keeps
+     * them in the contact and state.v1 stores them. Known only when an
+     * advert carried one inside the valid range: MeshCore keeps 0,0 for "no
+     * location ever", so exactly 0,0 is not a location. Claimed by the node,
+     * never measured here. */
+    bool location_known;
+    int32_t lat_e6;
+    int32_t lon_e6;
 };
 
 /* ---- a channel ---------------------------------------------------------

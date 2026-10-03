@@ -282,6 +282,7 @@ A node:
 | `last_heard_mono_ms` | by **ours**, `CLOCK_MONOTONIC` |
 | `last_snr_db`, `last_rssi_dbm` | **only when radiod reported them for the frame that was heard** |
 | `advert_hops`, `advert_mono_ms` | **only when an advert from the node was heard in this run**: how many relays that last advert came through (MeshCore's own hop count of the advert packet's path - `0` is heard straight from the node, by a zero-hop advert or a flood no repeater had taken up yet), and when, by ours |
+| `lat`, `lon` | **only when one of the node's adverts carried a location** (MeshCore `ADV_LATLON_MASK`): degrees, WGS84 as the node claims it, 6 decimals. Kept across a restart with the node (state.v1). Absent for MeshCore's 0,0 ("never set") and for anything outside -90..90 / -180..180. A claim by the node, never a measurement; this node's own adverts carry none |
 
 `advert_hops` is the advert's way **here**, read off the packet; it is not the
 route back (`hops`, `path_hex`), which MeshCore learns separately and only

@@ -1311,13 +1311,15 @@ static void test_restart(Node& a, Air& air)
  * advert from every stranger.
  */
 static int craftAdvert(uint8_t* frame, const mesh::LocalIdentity& id, const char* name,
-                       uint32_t timestamp)
+                       uint32_t timestamp, const double* lat = NULL, const double* lon = NULL,
+                       uint8_t type = ADV_TYPE_CHAT)
 {
     uint8_t payload[MAX_PACKET_PAYLOAD];
     uint8_t app_data[MAX_ADVERT_DATA_SIZE];
     uint8_t message[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
-    AdvertDataBuilder builder(ADV_TYPE_CHAT, name);
-    uint8_t app_len = builder.encodeTo(app_data);
+    AdvertDataBuilder plain(type, name);
+    AdvertDataBuilder located(type, name, lat ? *lat : 0.0, lon ? *lon : 0.0);
+    uint8_t app_len = (lat && lon) ? located.encodeTo(app_data) : plain.encodeTo(app_data);
     int len = 0;
     int msg_len = 0;
 
@@ -1345,6 +1347,72 @@ static int craftAdvert(uint8_t* frame, const mesh::LocalIdentity& id, const char
     return buildFrame(frame,
                       (uint8_t)((PAYLOAD_TYPE_ADVERT << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD),
                       payload, len);
+}
+
+/* ---- where a node says it is --------------------------------------------
+ *
+ * MeshCore carries an optional latitude/longitude in the advert
+ * (ADV_LATLON_MASK, degrees x 1e6) and BaseChatMesh keeps it in the contact;
+ * mesh.nodes reports it. 0,0 is MeshCore's "never set" and is not a
+ * location; neither is anything outside the valid range. */
+static void test_location(void)
+{
+    Air air;
+    Node b;
+    mesh::LocalIdentity b_id;
+    mesh::LocalIdentity r_id;
+    mesh::LocalIdentity z_id;
+    mesh::LocalIdentity x_id;
+    char store_err[mcdstore::ERR_SIZE] = "";
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_node node;
+    double lat = 59.913900;
+    double lon = 10.752200;
+    double zero = 0.0;
+    double far = 95.0;
+    int len;
+
+    check("identities for the location case",
+          mcdstore::identityCreate(b_id, store_err) && mcdstore::identityCreate(r_id, store_err) &&
+              mcdstore::identityCreate(z_id, store_err) &&
+              mcdstore::identityCreate(x_id, store_err));
+    check("the map listener starts", makeNode(b, air, "MAPLISTENER", &b_id));
+    if (!b.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(b.rt, true);
+
+    len = craftAdvert(frame, r_id, "RPT-OSLO", 1789300000u, &lat, &lon, ADV_TYPE_REPEATER);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 1; });
+    check("an advert with a location gives the node one",
+          mcd_runtime_node_by_prefix(b.rt, r_id.pub_key, 8, &node) == 1 && node.location_known &&
+              node.lat_e6 == 59913900 && node.lon_e6 == 10752200 && node.type == ADV_TYPE_REPEATER);
+    len = craftAdvert(frame, r_id, "RPT-OSLO", 1789300010u);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pump(air, 10);
+    check("a later advert without one keeps it, as MeshCore does",
+          mcd_runtime_node_by_prefix(b.rt, r_id.pub_key, 8, &node) == 1 && node.location_known &&
+              node.lat_e6 == 59913900);
+
+    len = craftAdvert(frame, z_id, "NULL-ISLAND", 1789300020u, &zero, &zero);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 2; });
+    check("0,0 is MeshCore's none, not a place",
+          mcd_runtime_node_by_prefix(b.rt, z_id.pub_key, 8, &node) == 1 && !node.location_known);
+
+    len = craftAdvert(frame, x_id, "OFF-THE-MAP", 1789300030u, &far, &lon);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 3; });
+    check("a latitude past the pole is not a location",
+          mcd_runtime_node_by_prefix(b.rt, x_id.pub_key, 8, &node) == 1 && !node.location_known);
+    mcd_runtime_destroy(b.rt);
+    b.rt = NULL;
 }
 
 /* Remote text, where it is actually reachable.
@@ -3121,6 +3189,7 @@ int main(void)
     test_corrupt_identity_stops_the_runtime();
     test_corrupt_state_is_survivable();
     test_hostile_remote_text();
+    test_location();
     test_full_contact_table();
     test_nodes_newest_first();
     test_ack_deadlines(a, b, air);
