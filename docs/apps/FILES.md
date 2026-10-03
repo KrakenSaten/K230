@@ -91,7 +91,8 @@ only **strictly inside** a writable root - `/root`, `/home`, `/tmp`, `/mnt`,
 
 So `/etc`, `/usr`, `/boot`, `/proc`, `/sys`, `/dev`, `/var` and `/` itself are
 read-only; a writable root itself (`/root`, `/tmp`...) cannot be renamed, moved
-or deleted; and a folder that contains a protected path cannot be moved or
+or deleted, and neither can a mounted filesystem's top folder inside one (the
+USB drive's `/media/usb`: deleting it would empty the drive); and a folder that contains a protected path cannot be moved or
 deleted either. Paths are resolved through symbolic links before they are
 judged, so a link inside `/root` that points at `/etc` does not open a way in
 (the link itself can still be removed; it is never followed).
