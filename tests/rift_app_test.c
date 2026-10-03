@@ -2773,6 +2773,96 @@ static void give_public_channels(void)
     pump(60);
 }
 
+/* ---- Public, muted ------------------------------------------------------ */
+
+/* MeshCore's Public channel is identified by the service from its key
+ * (well_known), never by its name: muting it keeps it the one Public row,
+ * first in COMMS, the same channel in SYSTEM > CHANNELS, and silent. */
+static void public_mute_session(void)
+{
+    char pub[RIFT_KEY_HEX];
+    char decoy[RIFT_KEY_HEX];
+    lv_obj_t *row;
+    cJSON *o;
+    int plays;
+
+    rift_channel_key(1, "11", "torget", pub, sizeof(pub));
+    rift_channel_key(3, "11", "Public", decoy, sizeof(decoy));
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    give_public_channels();
+    rift_app_set_dm_sound(app, 1);
+    rift_app_set_channel_sound(app, 1);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(150);
+    check("SYSTEM lists the Public channel once, by the service's key",
+          count_exact(content(), "torget") == 1 && count_exact(content(), "Public") == 1);
+    row = ancestor(find_exact(content(), "torget"), 2);
+    tap(row ? kid(row, 1) : NULL);
+    pump(150);
+    check("MUTE on Public mutes the Public channel and nothing else",
+          app->prefs.mute_count == 1 && rift_app_channel_muted(app, pub) &&
+              !rift_app_channel_muted(app, decoy));
+    check("it is still there, once, with the same identity",
+          count_exact(content(), "torget") == 1 && rift_model_key_channel(&app->model, pub) &&
+              rift_model_key_channel(&app->model, pub)->is_public);
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(200);
+    {
+        /* As COMMS draws it: the Public row above every other row on screen. */
+        static const char *const others[] = { "HYT", "OSL", "SIT", "OPS", "Pub" };
+        int32_t top = top_of(find_exact(content(), "torget"));
+        int above = 1;
+        size_t k;
+
+        for (k = 0; k < sizeof(others) / sizeof(others[0]); k++) {
+            lv_obj_t *o = find_text(content(), others[k]);
+
+            if (o && top_of(o) <= top) {
+                above = 0;
+            }
+        }
+        check("muted, Public is still the first row in COMMS",
+              top >= 0 && above && find_text(content(), "Pub") != NULL);
+    }
+    check("COMMS shows the Public row once", count_exact(content(), "torget") == 1);
+    pump(RIFT_NOTIFY_GAP_MS + 200);
+    plays = fake_plays;
+    o = cJSON_Parse("{\"message\":{\"id\":990,\"direction\":\"in\",\"kind\":\"channel\","
+                    "\"channel\":1,\"channel_name\":\"torget\",\"channel_hash\":\"11\","
+                    "\"sender_name\":\"Per\",\"text\":\"Per: hei\",\"state\":\"received\","
+                    "\"timestamp\":7990}}");
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+    pump(150);
+    check("a message on muted Public makes no sound, and is unread",
+          fake_plays == plays && rift_model_unread(&app->model, pub) >= 1);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(150);
+    row = ancestor(find_exact(content(), "torget"), 2);
+    tap(row ? kid(row, 1) : NULL);
+    pump(150);
+    check("unmuted, the same Public channel, still once",
+          app->prefs.mute_count == 0 && count_exact(content(), "torget") == 1);
+    pump(RIFT_NOTIFY_GAP_MS + 200);
+    plays = fake_plays;
+    o = cJSON_Parse("{\"message\":{\"id\":991,\"direction\":\"in\",\"kind\":\"channel\","
+                    "\"channel\":1,\"channel_name\":\"torget\",\"channel_hash\":\"11\","
+                    "\"sender_name\":\"Per\",\"text\":\"Per: igjen\",\"state\":\"received\","
+                    "\"timestamp\":7991}}");
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+    pump(150);
+    check("and a message on it makes the channel sound again",
+          fake_plays == plays + 1 && fake_kind == RIFT_SOUND_CHANNEL);
+    rift_app_set_dm_sound(app, 0);
+    app_stop();
+}
+
 static void comms_usability_session(void)
 {
     static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
@@ -5692,6 +5782,7 @@ int main(void)
     manage_session();
     manage_live_session();
     comms_usability_session();
+    public_mute_session();
     text_size_session();
     /* feat/rift-background-lifecycle: RIFT kept behind other screens, its
      * mark, CLOSE RIFT, and the navigation row's targets (DS §51). */
