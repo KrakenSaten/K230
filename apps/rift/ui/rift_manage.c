@@ -16,12 +16,16 @@
 #include <string.h>
 
 #define LEAVE_W 120
+/* Wide enough for MUTED at the largest text size (DS §46). */
+#define MUTE_W 136
 
 struct chan_row {
     lv_obj_t *row;
     lv_obj_t *name;
     lv_obj_t *meta;
     lv_obj_t *leave;
+    lv_obj_t *mute;
+    int mute_drawn; /* -1 not yet */
     int slot;
     char conv[RIFT_KEY_HEX]; /* the channel this row is, as COMMS keys it */
     char label[RIFT_CHANNEL_NAME_MAX];
@@ -130,6 +134,37 @@ static void on_leave_confirm(lv_event_t *e)
     }
     v->confirming = 0;
     a->refresh_pending = 1;
+}
+
+/* ---- MUTE ------------------------------------------------------------------ */
+
+/* MUTE: this channel's messages are still received, kept and counted
+ * unread; only its sound is not played (rift_notify.h). The reader's own
+ * choice, stored by RIFT (rift_store.h), never sent to the service. */
+static void on_mute(lv_event_t *e)
+{
+    struct rift_manage *v = of(lv_event_get_user_data(e));
+    lv_obj_t *btn = lv_event_get_target_obj(e);
+    int i;
+
+    for (i = 0; v && i < RIFT_MAX_CHANNELS; i++) {
+        if (v->row[i].mute == btn && v->row[i].conv[0]) {
+            rift_app_set_channel_muted(v->app, v->row[i].conv,
+                                       !rift_app_channel_muted(v->app, v->row[i].conv));
+            v->app->refresh_pending = 1;
+            return;
+        }
+    }
+}
+
+static void paint_mute(struct chan_row *r, int muted)
+{
+    if (muted == r->mute_drawn) {
+        return;
+    }
+    lv_label_set_text(lv_obj_get_child(r->mute, 0), muted ? "MUTED" : "MUTE");
+    rift_form_chosen(r->mute, muted);
+    r->mute_drawn = muted;
 }
 
 /* ---- ADD CHANNEL ------------------------------------------------------------ */
@@ -344,6 +379,10 @@ void rift_manage_build_channels(struct rift_app *app, lv_obj_t *parent)
         lv_obj_set_width(r->name, LV_PCT(100));
         r->meta = rift_cell(words, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
         lv_obj_set_width(r->meta, LV_PCT(100));
+        r->mute = rift_action(r->row, "MUTE", 0, 1, on_mute, app);
+        lv_obj_set_flex_grow(r->mute, 0);
+        lv_obj_set_width(r->mute, MUTE_W);
+        r->mute_drawn = -1;
         r->leave = rift_action(r->row, "LEAVE", 0, 1, on_leave, app);
         lv_obj_set_flex_grow(r->leave, 0);
         lv_obj_set_width(r->leave, LEAVE_W);
@@ -429,6 +468,8 @@ static void refresh_rows(struct rift_manage *v, int can)
             snprintf(text + at, sizeof(text) - at, RIFT_SEP "%d-BIT", ch->key_bits);
         }
         rift_label_set(r->meta, text);
+        /* Muting is the reader's, not the service's: always pressable. */
+        paint_mute(r, rift_app_channel_muted(v->app, r->conv));
         rift_action_set_enabled(r->leave, 0, can && !v->confirming);
         rift_form_show(r->row, 1);
     }

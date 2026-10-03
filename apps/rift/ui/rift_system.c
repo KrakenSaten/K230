@@ -41,6 +41,7 @@ struct rift_system_view {
     int advert_warn;
 
     struct sound_switch dm;
+    struct sound_switch ch;
     lv_obj_t *sound_note;
 };
 
@@ -200,6 +201,13 @@ static void on_dm_toggle(lv_event_t *e)
     rift_app_set_dm_sound(v->app, !v->app->prefs.dm_sound);
 }
 
+static void on_ch_toggle(lv_event_t *e)
+{
+    struct rift_system_view *v = lv_event_get_user_data(e);
+
+    rift_app_set_channel_sound(v->app, !v->app->prefs.ch_sound);
+}
+
 static void build_switch(struct sound_switch *s, lv_obj_t *panel, const char *title_text,
                          lv_event_cb_t cb, void *user)
 {
@@ -243,35 +251,37 @@ static void build_sound(struct rift_system_view *v, lv_obj_t *parent)
     lv_obj_t *panel = rift_panel(parent, "SOUND");
 
     build_switch(&v->dm, panel, "Sound for a new DM", on_dm_toggle, v);
+    build_switch(&v->ch, panel, "Sound for channels", on_ch_toggle, v);
     v->sound_note = wrapping(panel, POS_STYLE_CAPTION);
 }
 
-/* The switch, and one line saying what it will actually do on this device -
- * which, with no platform sound to ask for, is nothing, and a switch that
- * says ON must not leave that unsaid. */
+/* The switches, and a note saying what they will actually do on this
+ * device - which, with no sound to be had or Doors muted, is nothing, and a
+ * switch that says ON must not leave that unsaid. */
 static void refresh_sound(struct rift_system_view *v)
 {
     const struct rift_app *a = v->app;
-    int on = a->prefs.dm_sound ? 1 : 0;
-    const char *what;
+    int dm = a->prefs.dm_sound ? 1 : 0;
+    int ch = a->prefs.ch_sound ? 1 : 0;
+    const char *why = "";
+    char text[480];
 
-    paint_switch(&v->dm, on);
-    if (!on) {
-        what = "Off: a new direct message is shown, not heard.";
-    } else if (!rift_sound_available()) {
-        what = rift_sound_why();
-    } else if (!rift_app_can_sound(a)) {
-        what = "Doors is muted: nothing is heard until the volume is up.";
-    } else {
-        what = "One short sound for a new direct message, at most one every 10 s. "
-               "Not for channels, history or your own.";
+    paint_switch(&v->dm, dm);
+    paint_switch(&v->ch, ch);
+    if ((dm || ch) && !rift_sound_available()) {
+        why = rift_sound_why();
+    } else if ((dm || ch) && !rift_app_can_sound(a)) {
+        why = "Doors is muted: nothing is heard until the volume is up.";
     }
-    if (!a->prefs_saved) {
-        lv_label_set_text_fmt(v->sound_note, "%s Not saved: this lasts until RIFT closes.",
-                              what);
-    } else {
-        lv_label_set_text(v->sound_note, what);
-    }
+    snprintf(text, sizeof(text), "%s%s%s %s%s%s", why, why[0] ? " " : "",
+             dm ? "A new direct message: two short rising notes."
+                : "Off: a new direct message is shown, not heard.",
+             ch ? "A new channel message: one softer note, unless that channel is muted under "
+                  "CHANNELS."
+                : "Off: a new channel message is shown, not heard.",
+             dm || ch ? " At most one sound every 10 s, never for history or your own." : "",
+             a->prefs_saved ? "" : " Not saved: this lasts until RIFT closes.");
+    lv_label_set_text(v->sound_note, text);
 }
 
 /* ---- the screen ------------------------------------------------------------- */
@@ -306,13 +316,13 @@ lv_obj_t *rift_system_create(struct rift_app *app, lv_obj_t *parent)
 
     v->col[0] = column(v->split);
     v->col[1] = column(v->split);
-    /* This node on the left - who it is, then how its floods are addressed -
-     * and CLOSE RIFT last, under what it governs; what it plays and the
-     * channels it holds on the right. Stacked in portrait in that order. */
+    /* This node on the left - who it is, then how its floods are addressed;
+     * what it plays and the channels it holds on the right, and CLOSE RIFT
+     * last of all. Stacked in portrait in that order. */
     build_device(v, v->col[0]);
-    rift_session_build(app, v->col[0]);
     build_sound(v, v->col[1]);
     rift_manage_build_channels(app, v->col[1]);
+    rift_session_build(app, v->col[1]);
     return v->root;
 }
 

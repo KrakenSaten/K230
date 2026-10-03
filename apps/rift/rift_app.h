@@ -308,13 +308,21 @@ void rift_bg_end(void);
 /* Clear the screen's half of the block (everything before `section`). */
 void rift_bg_forget_screen(struct rift_app *a);
 
-/* The DM sound's setting: applied at once, and stored. */
+/* The sounds' settings, each applied at once and stored: a new direct
+ * message, a new channel message, and one channel muted (its conversation
+ * key). Muting returns -1 when the key is not a channel's or the list of
+ * muted channels is full (rift_store.h). */
 void rift_app_set_dm_sound(struct rift_app *a, int on);
+void rift_app_set_channel_sound(struct rift_app *a, int on);
+int rift_app_set_channel_muted(struct rift_app *a, const char *conv_key, int muted);
+int rift_app_channel_muted(const struct rift_app *a, const char *conv_key);
+/* Hand the policy the channel setting and the mute list (rift_bg_new). */
+void rift_app_sound_attach(struct rift_app *a);
 /* Whether a sound could be heard now: a backend that can play one, and
  * Doors not muted. The setting is a separate question. */
 int rift_app_can_sound(const struct rift_app *a);
-/* After every pass at the socket: a sound, if a direct message has just
- * arrived and the setting, the platform and the policy all say yes. */
+/* After every pass at the socket: a sound, if a message has just arrived and
+ * its setting, its channel's mute, the platform and the policy all say yes. */
 void rift_app_notify_pass(struct rift_app *a, int64_t now);
 
 /* The glyph a node's row and its captions carry. */

@@ -222,6 +222,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_ipc_manage.c
     ${REPO_DIR}/apps/rift/rift_notify.c
     ${REPO_DIR}/apps/rift/rift_sound.c
+    ${REPO_DIR}/apps/rift/rift_sound_helper.c
     ${REPO_DIR}/apps/rift/rift_store.c
     ${REPO_DIR}/apps/rift/rift_dm_sound.c
     ${REPO_DIR}/apps/rift/rift_arrivals.c
@@ -1368,6 +1369,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_ipc_manage.c
         ${REPO_DIR}/apps/rift/rift_notify.c
         ${REPO_DIR}/apps/rift/rift_sound.c
+        ${REPO_DIR}/apps/rift/rift_sound_helper.c
         ${REPO_DIR}/apps/rift/rift_store.c
         ${REPO_DIR}/apps/rift/rift_dm_sound.c
         ${REPO_DIR}/apps/rift/rift_arrivals.c
@@ -1393,6 +1395,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${RIFT_EMOJI_SOURCES}
         ${REPO_DIR}/core/pocketipc/pocketipc.c
         ${REPO_DIR}/core/pocketpaths.c
+        ${REPO_DIR}/core/pocketwav/pocketwav.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c

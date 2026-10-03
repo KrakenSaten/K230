@@ -20,10 +20,14 @@
 #include "rift_sound.h"
 #include "rift_store.h"
 
+#include "pocketwav/pocketwav.h"
+
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static int failed;
@@ -294,6 +298,7 @@ static void test_policy(void)
 
 static int fake_plays;
 static int fake_volume;
+static int fake_kind = -1;
 static int fake_stops;
 
 static int fake_available(void)
@@ -301,9 +306,10 @@ static int fake_available(void)
     return 1;
 }
 
-static int fake_play(int volume_percent)
+static int fake_play(enum rift_sound_kind kind, int volume_percent)
 {
     fake_plays++;
+    fake_kind = kind;
     fake_volume = volume_percent;
     return 0;
 }
@@ -323,21 +329,266 @@ static const struct rift_sound_backend fake = {
 
 static void test_sound(void)
 {
-    check("the built-in backend has no sound", !rift_sound_available());
+    check("the built-in backend is Doors's own audio path, pos-record",
+          strcmp(rift_sound_backend_name(), "pos-record") == 0);
+    rift_sound_set_backend(NULL);
+    check("the silent backend has no sound", !rift_sound_available());
     check("and says why", strstr(rift_sound_why(), "No system notification sound") != NULL);
-    check("asking it to play does nothing", rift_sound_play(80) == -1);
+    check("asking it to play does nothing", rift_sound_play(RIFT_SOUND_DM, 80) == -1);
     rift_sound_stop();
     rift_sound_set_backend(&fake);
     check("a registered backend is used", strcmp(rift_sound_backend_name(), "fake") == 0 &&
                                               rift_sound_available());
-    check("it plays at the volume given", rift_sound_play(70) == 0 && fake_plays == 1 &&
-                                              fake_volume == 70);
-    check("never at zero - muted is no sound", rift_sound_play(0) == -1 && fake_plays == 1);
-    check("never above the system level", rift_sound_play(150) == 0 && fake_volume == 100);
+    check("it plays the kind asked, at the volume given",
+          rift_sound_play(RIFT_SOUND_CHANNEL, 70) == 0 && fake_plays == 1 && fake_volume == 70 &&
+              fake_kind == RIFT_SOUND_CHANNEL);
+    check("never at zero - muted is no sound",
+          rift_sound_play(RIFT_SOUND_DM, 0) == -1 && fake_plays == 1);
+    check("never above the system level",
+          rift_sound_play(RIFT_SOUND_DM, 150) == 0 && fake_volume == 100 && fake_kind == RIFT_SOUND_DM);
+    check("never a kind there is no sound for", rift_sound_play((enum rift_sound_kind)7, 50) == -1);
     rift_sound_stop();
     check("and is stopped when asked", fake_stops == 1);
     rift_sound_set_backend(NULL);
-    check("NULL puts the built-in one back", !rift_sound_available());
+    check("NULL puts the silent one in", !rift_sound_available());
+    rift_sound_set_backend(&rift_sound_pos_record);
+}
+
+/* ---- the two sounds, and the helper that plays them ----------------------- */
+
+static int16_t tone[48000];
+
+static void test_tones(void)
+{
+    size_t dm = rift_sound_tone_render(RIFT_SOUND_DM, tone, 48000);
+    size_t ch;
+    int peak_dm = 0;
+    int peak_ch = 0;
+    int crossings_lead = 0;
+    size_t i;
+
+    for (i = 0; i < dm; i++) {
+        peak_dm = abs(tone[i]) > peak_dm ? abs(tone[i]) : peak_dm;
+    }
+    for (i = 0; i < 48000 * 30 / 1000; i++) {
+        crossings_lead += tone[i] != 0;
+    }
+    check("the DM sound is short: under a quarter of a second", dm > 0 && dm < 48000 / 4);
+    check("it starts with silence, for the amplifier", crossings_lead == 0);
+    check("subtle: well under full scale", peak_dm > 3000 && peak_dm < 12000);
+    check("and ends at rest, no click", abs(tone[dm - 1]) < 200);
+    ch = rift_sound_tone_render(RIFT_SOUND_CHANNEL, tone, 48000);
+    for (i = 0; i < ch; i++) {
+        peak_ch = abs(tone[i]) > peak_ch ? abs(tone[i]) : peak_ch;
+    }
+    check("the channel sound is short too, and a different length",
+          ch > 0 && ch < 48000 / 4 && ch != dm);
+    check("and softer", peak_ch > 2000 && peak_ch < peak_dm);
+    check("a buffer too small is refused", rift_sound_tone_render(RIFT_SOUND_DM, tone, 100) == 0);
+    check("the length is asked for without a buffer",
+          rift_sound_tone_render(RIFT_SOUND_DM, NULL, 0) == dm);
+}
+
+static int file_has(const char *path, const char *text)
+{
+    char buf[1024] = "";
+    FILE *f = fopen(path, "r");
+    size_t n = 0;
+
+    if (f) {
+        n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+    }
+    buf[n] = '\0';
+    return strstr(buf, text) != NULL;
+}
+
+static void test_helper(void)
+{
+    char run[] = "/tmp/rift-sound-XXXXXX";
+    char fake_helper[600];
+    char log[600];
+    struct pocketwav_info info;
+    const char *dm;
+    const char *ch;
+    int fd;
+    int waited;
+    FILE *f;
+
+    if (!mkdtemp(run)) {
+        check("a temporary directory", 0);
+        return;
+    }
+    setenv("POCKETOS_RUNTIME_DIR", run, 1);
+    dm = rift_sound_wav_path(RIFT_SOUND_DM);
+    check("the DM sound's file is written in RIFT's runtime directory",
+          dm && strncmp(dm, run, strlen(run)) == 0 && strstr(dm, "/rift/dm.wav") != NULL);
+    fd = dm ? open(dm, O_RDONLY) : -1;
+    check("as a WAV pos-record plays: 48 kHz mono 16-bit",
+          fd >= 0 && pocketwav_probe_fd(fd, &info) == POCKETWAV_OK && info.rate == 48000 &&
+              info.channels == 1 && info.frames == rift_sound_tone_render(RIFT_SOUND_DM, NULL, 0));
+    if (fd >= 0) {
+        close(fd);
+    }
+    ch = rift_sound_wav_path(RIFT_SOUND_CHANNEL);
+    check("and the channel sound's beside it", ch && strstr(ch, "/rift/channel.wav") != NULL);
+
+    /* The helper: a stand-in for pos-record that writes down how it was
+     * started and stays a moment, as a short sound does. */
+    snprintf(fake_helper, sizeof(fake_helper), "%s/pos-record", run);
+    snprintf(log, sizeof(log), "%s/helper.log", run);
+    f = fopen(fake_helper, "w");
+    if (f) {
+        fprintf(f, "#!/bin/sh\necho \"$@\" >> %s\nsleep 0.3\n", log);
+        fclose(f);
+        chmod(fake_helper, 0755);
+    }
+    setenv("POCKETOS_RECORD_HELPER", "/nonexistent/pos-record", 1);
+    check("with no helper installed the backend says it cannot play",
+          !rift_sound_available() && strstr(rift_sound_why(), "pos-record") != NULL);
+    setenv("POCKETOS_RECORD_HELPER", fake_helper, 1);
+    check("with the helper there, it can", rift_sound_available());
+    check("a DM sound starts the helper and returns at once",
+          rift_sound_play(RIFT_SOUND_DM, 40) == 0);
+    check("a second while the first still sounds is refused, never stacked",
+          rift_sound_play(RIFT_SOUND_CHANNEL, 40) == -1);
+    for (waited = 0; waited < 3000 && !file_has(log, "dm.wav"); waited += 20) {
+        usleep(20000);
+    }
+    check("pos-record play, at the system volume, on the DM file",
+          file_has(log, "play --volume-percent 40 ") && file_has(log, "/rift/dm.wav"));
+    usleep(400000);
+    check("once it has finished the next is played",
+          rift_sound_play(RIFT_SOUND_CHANNEL, 55) == 0);
+    for (waited = 0; waited < 3000 && !file_has(log, "channel.wav"); waited += 20) {
+        usleep(20000);
+    }
+    check("the channel sound, on its own file",
+          file_has(log, "play --volume-percent 55 ") && file_has(log, "/rift/channel.wav"));
+    rift_sound_stop();
+    check("stop ends it, and another can start straight after",
+          rift_sound_play(RIFT_SOUND_DM, 40) == 0);
+    rift_sound_stop();
+    unsetenv("POCKETOS_RECORD_HELPER");
+    unsetenv("POCKETOS_RUNTIME_DIR");
+}
+
+/* ---- channel messages ---------------------------------------------------- */
+
+static int chan(struct rift_model *m, int id, const char *dir, int slot, const char *name,
+                const char *sender, long stamp, const char *text)
+{
+    char json[768];
+
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"kind\":\"channel\",\"channel\":%d,"
+             "\"channel_name\":\"%s\",\"channel_hash\":\"8c\",\"sender_name\":\"%s\","
+             "\"text\":\"%s: %s\",\"state\":\"%s\",\"timestamp\":%ld}}",
+             id, dir, slot, name, sender, sender, text,
+             strcmp(dir, "in") == 0 ? "received" : "sent_flood", stamp);
+    return event(m, "mesh.message", json);
+}
+
+static const char *muted_key;
+
+static int muted_fake(const char *conv, void *user)
+{
+    (void)user;
+    return muted_key && strcmp(conv, muted_key) == 0;
+}
+
+static void test_channels(void)
+{
+    static struct rift_model m;
+    struct rift_notify n;
+    char site[RIFT_KEY_HEX];
+    char ops[RIFT_KEY_HEX];
+    int64_t t = 5000000;
+
+    rift_model_init(&m);
+    check("the channel history on opening is taken",
+          snapshot(&m, "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"kind\":\"channel\",\"channel\":0,"
+                       "\"channel_name\":\"SITE\",\"channel_hash\":\"8c\",\"sender_name\":\"X\","
+                       "\"text\":\"X: old\",\"state\":\"received\",\"timestamp\":10}],"
+                       "\"persistent\":false}") == 0);
+    check("and none of it is an arrival", m.ch_arrivals == 0 && m.ch_high_id == 1);
+    chan(&m, 2, "in", 0, "SITE", "Kari", 20, "hei alle");
+    check("a live channel message is a channel arrival, not a DM",
+          m.ch_arrivals == 1 && m.dm_arrivals == 0);
+    snprintf(site, sizeof(site), "%s", rift_model_ch_arrival_conv(&m, 1));
+    check("with the channel it came in on", site[0] == '#' && strstr(site, ":8c:") != NULL);
+    chan(&m, 2, "in", 0, "SITE", "Kari", 20, "hei alle");
+    check("the same event again is not a second one", m.ch_arrivals == 1 && m.ch_repeats >= 1);
+    chan(&m, 3, "out", 0, "SITE", "K230-A", 21, "mine");
+    check("this device's own channel message is never an arrival", m.ch_arrivals == 1);
+    chan(&m, 4, "in", 0, "SITE", "Kari", 20, "hei alle");
+    check("a repeater's second copy under a fresh id is not one either", m.ch_arrivals == 1);
+    chan(&m, 5, "in", 2, "OPS", "Per", 30, "status");
+    snprintf(ops, sizeof(ops), "%s", rift_model_ch_arrival_conv(&m, 2));
+    check("another channel's message is, with its own key",
+          m.ch_arrivals == 2 && strcmp(ops, site) != 0);
+
+    /* The policy: two sounds, the channel one with its setting and mutes. */
+    rift_model_init(&m);
+    rift_notify_init(&n, &m, 1);
+    check("channel sounds are on by default", n.ch_enabled == 1);
+    rift_notify_set_channel(&n, 1, muted_fake, NULL);
+    chan(&m, 10, "in", 0, "SITE", "Kari", 100, "a");
+    check("a channel message plays the channel sound",
+          rift_notify_poll(&n, &m, t, 1) == RIFT_NOTIFY_CHANNEL && n.ch_played == 1);
+    dm(&m, 11, "in", KEY_A, 101, "dm", "received");
+    chan(&m, 12, "in", 0, "SITE", "Kari", 102, "b");
+    check("a DM and a channel message together are one sound, the DM's",
+          rift_notify_poll(&n, &m, t + RIFT_NOTIFY_GAP_MS, 1) == RIFT_NOTIFY_DM && n.played == 1);
+    chan(&m, 13, "in", 0, "SITE", "Kari", 103, "c");
+    check("and nothing more inside the gap",
+          rift_notify_poll(&n, &m, t + RIFT_NOTIFY_GAP_MS + 100, 1) == RIFT_NOTIFY_NONE);
+    muted_key = site;
+    {
+        static struct rift_model q;
+        struct rift_notify k;
+
+        rift_model_init(&q);
+        rift_notify_init(&k, &q, 1);
+        rift_notify_set_channel(&k, 1, muted_fake, NULL);
+        chan(&q, 1, "in", 0, "SITE", "Kari", 1, "muted one");
+        check("a muted channel makes no sound",
+              rift_notify_poll(&k, &q, t, 1) == RIFT_NOTIFY_NONE && k.ch_muted == 1);
+        check("but its message is still received and unread",
+              q.msg_count == 1 && rift_model_unread(&q, site) == 1);
+        chan(&q, 2, "in", 2, "OPS", "Per", 2, "unmuted one");
+        check("an unmuted channel still does",
+              rift_notify_poll(&k, &q, t + 1, 1) == RIFT_NOTIFY_CHANNEL);
+        chan(&q, 3, "in", 0, "SITE", "Kari", 3, "muted again");
+        dm(&q, 4, "in", KEY_B, 4, "a dm", "received");
+        check("a muted channel does not keep a DM quiet",
+              rift_notify_poll(&k, &q, t + 2 * RIFT_NOTIFY_GAP_MS, 1) == RIFT_NOTIFY_DM);
+        rift_notify_set_channel(&k, 0, muted_fake, NULL);
+        chan(&q, 5, "in", 2, "OPS", "Per", 5, "off");
+        check("channel sounds off: no channel sound, any channel",
+              rift_notify_poll(&k, &q, t + 4 * RIFT_NOTIFY_GAP_MS, 1) == RIFT_NOTIFY_NONE &&
+                  k.ch_off == 1);
+        rift_notify_set_channel(&k, 1, muted_fake, NULL);
+        check("and turning them on again plays nothing that arrived while off",
+              rift_notify_poll(&k, &q, t + 5 * RIFT_NOTIFY_GAP_MS, 1) == RIFT_NOTIFY_NONE);
+        dm(&q, 6, "in", KEY_B, 6, "dm while channels off", "received");
+        rift_notify_set_channel(&k, 0, muted_fake, NULL);
+        check("the channel setting does not silence a DM",
+              rift_notify_poll(&k, &q, t + 6 * RIFT_NOTIFY_GAP_MS, 1) == RIFT_NOTIFY_DM);
+        {
+            int i;
+            int sounds = 0;
+
+            rift_notify_set_channel(&k, 1, muted_fake, NULL);
+            for (i = 0; i < 20; i++) {
+                chan(&q, 100 + i, "in", 2, "OPS", "Per", 100 + i, "burst");
+                sounds += rift_notify_poll(&k, &q, t + 8 * RIFT_NOTIFY_GAP_MS + 100 * i, 1) != 0;
+            }
+            check("a burst of twenty channel messages is one sound", sounds == 1);
+        }
+    }
+    muted_key = NULL;
 }
 
 /* ---- the preferences file ------------------------------------------------ */
@@ -345,13 +596,58 @@ static void test_sound(void)
 static void test_store(void)
 {
     struct rift_prefs p;
-    char text[RIFT_STORE_TEXT_MAX];
+    char text[RIFT_STORE_FILE_MAX];
     char dir[] = "/tmp/rift-store-XXXXXX";
     char path[512];
     FILE *f;
 
     rift_prefs_defaults(&p);
     check("the DM sound is on by default", p.dm_sound == 1);
+    check("and so is the channel sound, with no channel muted",
+          p.ch_sound == 1 && p.mute_count == 0);
+    check("channel sounds off is read as off",
+          rift_prefs_parse(&p, "channel_sound=0\n") == 0 && p.ch_sound == 0);
+    check("a channel sound value this build could not have written is refused",
+          rift_prefs_parse(&p, "channel_sound=x\n") == 2 && p.ch_sound == 0);
+    p.ch_sound = 1;
+    check("a muted channel is read by its conversation key",
+          rift_prefs_parse(&p, "channel_mute=#0:8c:1a2b3c4d\nchannel_mute=#2:4d:00ff00ff\n") == 0 &&
+              p.mute_count == 2 && rift_prefs_channel_muted(&p, "#0:8c:1a2b3c4d") &&
+              rift_prefs_channel_muted(&p, "#2:4d:00ff00ff"));
+    check("the same one twice is one", rift_prefs_parse(&p, "channel_mute=#0:8c:1a2b3c4d\n") == 0 &&
+                                         p.mute_count == 2);
+    check("a key that is not a channel's is refused",
+          rift_prefs_parse(&p, "channel_mute=" KEY_A "\n") == 4 && p.mute_count == 2);
+    check("another channel in the same slot is not muted by it",
+          !rift_prefs_channel_muted(&p, "#0:8c:99999999"));
+    check("unmuting takes it off the list",
+          rift_prefs_set_channel_muted(&p, "#2:4d:00ff00ff", 0) == 0 && p.mute_count == 1 &&
+              !rift_prefs_channel_muted(&p, "#2:4d:00ff00ff"));
+    {
+        struct rift_prefs full;
+        char key[32];
+        int i;
+        int ok = 1;
+
+        rift_prefs_defaults(&full);
+        for (i = 0; i < RIFT_PREF_MUTE_MAX; i++) {
+            snprintf(key, sizeof(key), "#%d:%02x:0000%04x", i % 8, i, i);
+            ok = ok && rift_prefs_set_channel_muted(&full, key, 1) == 0;
+        }
+        check("the list holds its bound", ok && full.mute_count == RIFT_PREF_MUTE_MAX);
+        check("and refuses past it rather than dropping one",
+              rift_prefs_set_channel_muted(&full, "#7:ff:ffffffff", 1) == -1);
+        {
+            char all[RIFT_STORE_FILE_MAX];
+            struct rift_prefs back;
+
+            rift_prefs_defaults(&back);
+            check("a full list is written and read back whole",
+                  rift_prefs_format(&full, all, sizeof(all)) > 0 &&
+                      rift_prefs_parse(&back, all) == 0 && back.mute_count == RIFT_PREF_MUTE_MAX);
+        }
+    }
+    rift_prefs_defaults(&p);
     check("a file saying off is read as off",
           rift_prefs_parse(&p, "# c\ndm_sound=0\n") == 0 && p.dm_sound == 0);
     check("spaces around it are allowed", rift_prefs_parse(&p, " dm_sound = 1 \r\n") == 0 &&
@@ -378,6 +674,13 @@ static void test_store(void)
     check("a choice is saved, creating the directory", rift_store_save(&p) == 0);
     rift_prefs_defaults(&p);
     check("and read back", rift_store_load(&p) == 0 && p.dm_sound == 0);
+    p.ch_sound = 0;
+    rift_prefs_set_channel_muted(&p, "#1:9a:12345678", 1);
+    check("the channel setting and a mute are saved", rift_store_save(&p) == 0);
+    rift_prefs_defaults(&p);
+    check("and survive a reload", rift_store_load(&p) == 0 && p.ch_sound == 0 &&
+                                      rift_prefs_channel_muted(&p, "#1:9a:12345678") &&
+                                      p.dm_sound == 0);
     /* Somebody else's edit that this build cannot read leaves the default
      * standing, and the file where it is. */
     snprintf(path, sizeof(path), "%s", rift_store_path());
@@ -560,6 +863,9 @@ int main(void)
     test_arrivals();
     test_policy();
     test_sound();
+    test_tones();
+    test_helper();
+    test_channels();
     test_store();
     test_pulse();
     test_long_chain();

@@ -45,6 +45,7 @@ struct rift_app *rift_bg_new(void)
     a->prefs_saved = 1;
     /* Everything the model holds now is history: nothing has arrived yet. */
     rift_notify_init(&a->notify, &a->model, a->prefs.dm_sound);
+    rift_app_sound_attach(a);
     a->section = RIFT_SEC_ACTIVITY;
     return a;
 }

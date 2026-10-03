@@ -73,6 +73,7 @@ static lv_obj_t *app_header; /* the shell's header row as the test builds it */
 static int32_t header_h_for(int landscape);
 
 static lv_obj_t *strip(void);
+static int count_exact(lv_obj_t *obj, const char *text);
 static lv_obj_t *kid(lv_obj_t *parent, uint32_t i);
 /* The strip's i-th section tab: the back slab (landscape's way home) is the
  * strip's first child, and the tabs follow it. */
@@ -185,17 +186,20 @@ int pocketos_shell_volume_muted(void)
  * at what volume, and how often it asked it to stop. */
 static int fake_plays;
 static int fake_volume;
+static int fake_kind = -1;
 static int fake_stops;
 static int fake_available(void)
 {
     return 1;
 }
-static int fake_play(int volume_percent)
+static int fake_play(enum rift_sound_kind kind, int volume_percent)
 {
     fake_plays++;
+    fake_kind = kind;
     fake_volume = volume_percent;
     return 0;
 }
+
 static void fake_stop(void)
 {
     fake_stops++;
@@ -1055,6 +1059,23 @@ static lv_obj_t *cmdline(void)
 
 /* One live mesh.message event: what the service raises for a message that
  * has just arrived or been sent, and again on every state change. */
+/* One live channel message on SITE (slot 0, hash 8c), as give_channels()
+ * holds it. */
+static void live_chan(int id, const char *dir, long stamp, const char *text)
+{
+    char json[768];
+    cJSON *o;
+
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"kind\":\"channel\",\"channel\":0,"
+             "\"channel_name\":\"SITE\",\"channel_hash\":\"8c\",\"sender_name\":\"Kari\","
+             "\"text\":\"Kari: %s\",\"state\":\"%s\",\"timestamp\":%ld}}",
+             id, dir, text, strcmp(dir, "in") == 0 ? "received" : "sent_flood", stamp);
+    o = cJSON_Parse(json);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+}
+
 static void live_dm(int id, const char *dir, const char *key, long stamp, const char *text)
 {
     char json[768];
@@ -1118,6 +1139,7 @@ static void sound_session(const char *state_dir)
     live_dm(900, "in", KEY_B, 1900, "a new one");
     pump(120);
     check("a new direct message makes one sound", fake_plays == plays + 1);
+    check("the direct message's sound", fake_kind == RIFT_SOUND_DM);
     check("at the system volume", fake_volume == 80);
     live_dm(900, "in", KEY_B, 1900, "a new one");
     pump(120);
@@ -1137,7 +1159,10 @@ static void sound_session(const char *state_dir)
         cJSON_Delete(o);
         pump(120);
     }
-    check("nor does a channel message", fake_plays == plays);
+    check("a channel message makes the other sound",
+          fake_plays == plays + 1 && fake_kind == RIFT_SOUND_CHANNEL);
+    pump(RIFT_NOTIFY_GAP_MS + 200);
+    plays = fake_plays;
     live_dm(903, "in", KEY_B, 1900, "a new one");
     pump(120);
     check("nor the sender's retry of one already heard", fake_plays == plays);
@@ -1174,8 +1199,11 @@ static void sound_session(const char *state_dir)
     check("SYSTEM has the DM sound's switch", toggle != NULL &&
                                                     find_text(content(), "Sound for a new DM") != NULL);
     check("a 56 px action", toggle && lv_obj_get_height(toggle) == RIFT_TOUCH_H);
-    check("saying what it does", find_text(content(), "One short sound for a new direct message") !=
+    check("saying what it does", find_text(content(), "A new direct message: two short rising notes") !=
                                      NULL);
+    check("beside the channel message's own switch",
+          find_text(content(), "Sound for channels") != NULL &&
+              find_text(content(), "one softer note") != NULL);
     check("with its caption drawn whole", caption_unclipped("SOUND"));
     shot("portrait-activity-notify");
     tap(toggle);
@@ -1241,6 +1269,99 @@ static void sound_session(const char *state_dir)
           app->prefs.dm_sound == 0 && find_text(content(), "Not saved") != NULL);
     app_stop();
     setenv("POCKETOS_STATE_DIR", state_dir, 1);
+
+    /* ---- the channel sound, and one channel muted ------------------------- */
+    app_start();
+    quiet_client();
+    give_service();
+    give_channels();
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(120);
+    rift_app_set_dm_sound(app, 1); /* the file above was left with it off */
+    pump(RIFT_NOTIFY_GAP_MS + 200);
+    plays = fake_plays;
+    live_chan(950, "in", 2950, "hei");
+    pump(120);
+    check("a new channel message makes the channel sound",
+          fake_plays == plays + 1 && fake_kind == RIFT_SOUND_CHANNEL);
+    {
+        lv_obj_t *mute = action_of(find_exact(content(), "MUTE"));
+        lv_obj_t *ch_row;
+        lv_obj_t *ch_toggle;
+        char site[RIFT_KEY_HEX] = "";
+
+        check("each channel row has MUTE, as a 56 px action",
+              mute && count_exact(content(), "MUTE") == 2 &&
+                  lv_obj_get_height(mute) == RIFT_TOUCH_H);
+        tap(mute);
+        pump(120);
+        if (app->prefs.mute_count == 1) {
+            snprintf(site, sizeof(site), "%s", app->prefs.mute[0]);
+        }
+        check("a press mutes that channel, and only that one",
+              app->prefs.mute_count == 1 && site[0] == '#' && strstr(site, ":8c:") != NULL);
+        check("the row says so: MUTED, on that row alone",
+              count_exact(content(), "MUTED") == 1 && count_exact(content(), "MUTE") == 1);
+        snprintf(path, sizeof(path), "%s/rift/prefs.v1", state_dir);
+        check("stored in the app's own preferences file", file_says(path, "channel_mute=#0:8c:"));
+        pump(RIFT_NOTIFY_GAP_MS + 200);
+        plays = fake_plays;
+        live_chan(951, "in", 2951, "while muted");
+        pump(120);
+        check("a muted channel makes no sound", fake_plays == plays);
+        check("but its message is received, kept and unread",
+              rift_model_unread(&app->model, site) >= 1);
+        live_dm(952, "in", KEY_B, 2952, "a dm meanwhile");
+        pump(120);
+        check("and a direct message still sounds", fake_plays == plays + 1 &&
+                                                       fake_kind == RIFT_SOUND_DM);
+
+        /* The global channel switch is not a mute, and a mute is not it. */
+        ch_row = lv_obj_get_parent(find_text(content(), "Sound for channels"));
+        ch_toggle = ch_row ? lv_obj_get_child(ch_row, 1) : NULL;
+        tap(action_of(find_exact(content(), "MUTED")));
+        pump(120);
+        check("MUTED again unmutes it", app->prefs.mute_count == 0 &&
+                                            !file_says(path, "channel_mute="));
+        tap(ch_toggle);
+        pump(120);
+        check("channel sounds off is the switch, not a mute",
+              app->prefs.ch_sound == 0 && app->prefs.mute_count == 0 &&
+                  file_says(path, "channel_sound=0") &&
+                  find_text(content(), "Off: a new channel message is shown") != NULL);
+        pump(RIFT_NOTIFY_GAP_MS + 200);
+        plays = fake_plays;
+        live_chan(953, "in", 2953, "channels off");
+        pump(120);
+        check("with channel sounds off, an unmuted channel makes no sound", fake_plays == plays);
+        tap(ch_toggle);
+        pump(120);
+        pump(RIFT_NOTIFY_GAP_MS + 200);
+        plays = fake_plays;
+        live_chan(954, "out", 2954, "mine");
+        pump(120);
+        check("this device's own channel message makes none", fake_plays == plays);
+        rift_app_refresh(app);
+        rift_app_show_section(app, RIFT_SEC_COMMS);
+        pump(200);
+        rift_app_show_section(app, RIFT_SEC_SYSTEM);
+        pump(200);
+        check("and repainting, or the thread being drawn again, makes none", fake_plays == plays);
+        tap(action_of(find_exact(content(), "MUTE")));
+        pump(120);
+    }
+    app_stop();
+    app_start();
+    quiet_client();
+    give_channels();
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(120);
+    check("the mute survives closing and opening",
+          app->prefs.mute_count == 1 && find_exact(content(), "MUTED") != NULL);
+    tap(action_of(find_exact(content(), "MUTED")));
+    pump(120);
+    rift_app_set_dm_sound(app, 0); /* as the sessions after this one found it */
+    app_stop();
 }
 
 /* ---- scale: the whole node table, many contacts, a long history ------------ */
@@ -3093,7 +3214,7 @@ static void manage_live_session(void)
         lv_obj_t *row = ancestor(row_name, 2);
         lv_obj_t *confirm_cancel;
 
-        tap(kid(row, 1));
+        tap(kid(row, 2)); /* name, MUTE, LEAVE */
         pump(150);
         check("its LEAVE asks first", find_text(content(), "Leave Hytta?") != NULL);
         confirm_cancel = action_of(find_exact(content(), "CANCEL"));

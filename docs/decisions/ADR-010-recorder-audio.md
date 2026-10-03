@@ -110,3 +110,48 @@ commands; pocketaudio, pocketwav and the file logic move unchanged.
   tests/rec_ctl_test.c, tests/rec_tool_test.sh and tests/rec_app_test.c; not
   on hardware.
 - Recording and playback on the K230 itself: not yet tested (RECORDER_GATE).
+
+## Amendment 1 (PROPOSED 2026-10-03): RIFT's message sounds through pos-record
+
+Status: proposed on `feat/rift-system-map-repeater`; needs the product
+owner's acceptance before merge.
+
+Context: the owner asked RIFT for two short notification sounds (a direct
+message, a channel message) "through the existing DOORS audio path, not a
+parallel audio subsystem". RIFT had a backend seam for this since v0.3.0
+(`apps/rift/rift_sound.h`) with a silent built-in backend, because ADR-004
+and this ADR scope their helpers to Wave and the Recorder.
+
+Decision (proposed): RIFT plays its sounds with **`pos-record play`,
+unchanged**, as a third client of the same narrow exception:
+
+- RIFT writes two WAV files (48 kHz mono 16-bit, 150 and 222 ms including a
+  30 ms silent lead-in, peak about a quarter of full scale) into
+  `$POCKETOS_RUNTIME_DIR/rift/` from code (`rift_sound_tone_render`), and
+  starts `/usr/bin/pos-record play --volume-percent <system volume> <file>`
+  per sound (`apps/rift/rift_sound_helper.c`), with the Recorder's spawn
+  shape: socketpair stdin/stdout, PR_SET_PDEATHSIG, inherited descriptors
+  closed, bounded stop, `pos-record recover` detached after a SIGKILL.
+- Only while RIFT's screen is open (the background session plays nothing,
+  DS §51), one sound at a time, never queued, never mixed: the shared audio
+  lock means a sound while Wave, the Recorder or another player holds the
+  card is simply not heard.
+- `tests/rift_lint.sh` holds the boundary: only that file forks or execs,
+  only pos-record by execv, only `play` and `recover`, files only in the
+  runtime directory.
+
+Why this and not `audiod`: neither of ADR-004's triggers is met - the sound
+plays only while the app's own screen is up, and there is no mixing. It adds
+no mechanism, no daemon and no new protocol, and pocketaudio's lock, route,
+amplifier, level ceiling and crash recovery apply unchanged.
+
+Revisit (unchanged): sound outside an app's screen (for example a sound for
+a message while RIFT runs in the background), or a second app wanting
+notification sounds - then a platform sound API (`docs/apps/RIFT.md`,
+"Shared requirements") or `audiod`.
+
+Evidence: both WAVs accepted and played to the end by the real `pos-record`
+(test-hooks build, file-backed sound card): VERIFIED on the host. The spawn,
+the refusal while sounding and the stop: VERIFIED on the host by
+`tests/rift_notify_test.c` against a stand-in helper. On the K230 speaker:
+see the RIFT gate notes; audibility is for the owner to judge.

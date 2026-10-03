@@ -20,7 +20,64 @@ void rift_prefs_defaults(struct rift_prefs *p)
     if (p) {
         memset(p, 0, sizeof(*p));
         p->dm_sound = RIFT_PREF_DM_SOUND_DEFAULT;
+        p->ch_sound = RIFT_PREF_CH_SOUND_DEFAULT;
     }
+}
+
+/* A conversation key that names a channel: '#', then printable ASCII with
+ * no spaces, as rift_channel_key() writes it. */
+static int channel_key_ok(const char *k)
+{
+    size_t i;
+
+    if (!k || k[0] != '#' || strlen(k) >= RIFT_PREF_MUTE_KEY_MAX || !k[1]) {
+        return 0;
+    }
+    for (i = 1; k[i]; i++) {
+        if ((unsigned char)k[i] <= 0x20 || (unsigned char)k[i] >= 0x7F) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int rift_prefs_channel_muted(const struct rift_prefs *p, const char *conv_key)
+{
+    int i;
+
+    for (i = 0; p && conv_key && i < p->mute_count; i++) {
+        if (strcmp(p->mute[i], conv_key) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int rift_prefs_set_channel_muted(struct rift_prefs *p, const char *conv_key, int muted)
+{
+    int i;
+
+    if (!p || !channel_key_ok(conv_key)) {
+        return -1;
+    }
+    for (i = 0; i < p->mute_count; i++) {
+        if (strcmp(p->mute[i], conv_key) == 0) {
+            if (!muted) {
+                memmove(&p->mute[i], &p->mute[i + 1],
+                        sizeof(p->mute[0]) * (size_t)(p->mute_count - i - 1));
+                p->mute_count--;
+            }
+            return 0;
+        }
+    }
+    if (!muted) {
+        return 0;
+    }
+    if (p->mute_count >= RIFT_PREF_MUTE_MAX) {
+        return -1;
+    }
+    snprintf(p->mute[p->mute_count++], RIFT_PREF_MUTE_KEY_MAX, "%s", conv_key);
+    return 0;
 }
 
 /* One "key=value" line, trimmed of the spaces settings.conf also allows. */
@@ -59,6 +116,18 @@ static int parse_line(struct rift_prefs *p, char *line)
         }
         return 1;
     }
+    if (strcmp(key, RIFT_PREF_CH_SOUND) == 0) {
+        if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0) {
+            p->ch_sound = value[0] == '1';
+            return 0;
+        }
+        return 2;
+    }
+    if (strcmp(key, RIFT_PREF_CH_MUTE) == 0) {
+        /* A channel's key, or not kept; a list already full keeps what it
+         * has, and a repeat is one entry. */
+        return rift_prefs_set_channel_muted(p, value, 1) == 0 ? 0 : 4;
+    }
     return 0;
 }
 
@@ -90,16 +159,30 @@ int rift_prefs_parse(struct rift_prefs *p, const char *text)
 
 int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len)
 {
+    size_t at;
     int n;
+    int i;
 
     if (!p || !out) {
         return -1;
     }
     n = snprintf(out, out_len,
                  "# RIFT preferences. Written by RIFT; see docs/apps/RIFT.md.\n"
-                 "%s=%d\n",
-                 RIFT_PREF_DM_SOUND, p->dm_sound ? 1 : 0);
-    return (n < 0 || (size_t)n >= out_len) ? -1 : n;
+                 "%s=%d\n%s=%d\n",
+                 RIFT_PREF_DM_SOUND, p->dm_sound ? 1 : 0, RIFT_PREF_CH_SOUND,
+                 p->ch_sound ? 1 : 0);
+    if (n < 0 || (size_t)n >= out_len) {
+        return -1;
+    }
+    at = (size_t)n;
+    for (i = 0; i < p->mute_count; i++) {
+        n = snprintf(out + at, out_len - at, "%s=%s\n", RIFT_PREF_CH_MUTE, p->mute[i]);
+        if (n < 0 || (size_t)n >= out_len - at) {
+            return -1;
+        }
+        at += (size_t)n;
+    }
+    return (int)at;
 }
 
 const char *rift_store_dir(void)
@@ -116,7 +199,7 @@ const char *rift_store_path(void)
 
 int rift_store_load(struct rift_prefs *p)
 {
-    char text[RIFT_STORE_TEXT_MAX * 4];
+    char text[RIFT_STORE_FILE_MAX];
     struct rift_prefs read;
     size_t got;
     FILE *f;
@@ -144,7 +227,7 @@ int rift_store_load(struct rift_prefs *p)
 
 int rift_store_save(const struct rift_prefs *p)
 {
-    char text[RIFT_STORE_TEXT_MAX];
+    char text[RIFT_STORE_FILE_MAX];
     char tmp[sizeof(path_buf) + 8];
     const char *path;
     FILE *f;

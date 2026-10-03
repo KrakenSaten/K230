@@ -89,8 +89,10 @@ check "every send carries text a reader typed${badsubmit:+ (}${badsubmit:+)}" \
 check "no colour is named in the app" \
     "$(grep -rnE 'lv_color_hex|lv_palette_|0x[0-9a-fA-F]{6}\b' "$SRC" --include='*.c' \
         --include='*.h' >/dev/null 2>&1 && echo 0 || echo 1)"
+# /dev/null is where the sound helper's stderr goes; it is not a device.
 check "no device path or GPIO is touched" \
-    "$(grep -rnE '/dev/|gpiod_|spidev' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+    "$(grep -rnE '/dev/|gpiod_|spidev' "$SRC" | grep -v '"/dev/null"' >/dev/null 2>&1 &&
+       echo 0 || echo 1)"
 # The prose here names MeshCore constantly - it is the protocol on the other
 # end of the API - so what is checked is what is *included* and what is
 # *called*, not what is written about.
@@ -106,9 +108,15 @@ check "and no MeshCore symbol is called" \
 stores=$(ls "$SRC"/*store*.[ch] "$SRC"/ui/*store*.[ch] 2>/dev/null | sort | tr '\n' ' ')
 check "the app stores only the reader's preferences (${stores:-nothing})" \
     "$([ "$stores" = "$SRC/rift_store.c $SRC/rift_store.h " ] && echo 1 || echo 0)"
+# The other file RIFT writes is not a store: the two short WAV files its
+# sounds are played from, made from code into the runtime directory (a
+# tmpfs) by the sound backend, and nothing about the mesh in them.
 fileio=$(grep -rlE '\bfopen\(|\brename\(|\bunlink\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
-check "and the only file it opens is that one (${fileio:-none})" \
-    "$([ "$fileio" = "$SRC/rift_store.c " ] && echo 1 || echo 0)"
+check "and the only files it writes are that one and its two sounds (${fileio:-none})" \
+    "$([ "$fileio" = "$SRC/rift_sound_helper.c $SRC/rift_store.c " ] && echo 1 || echo 0)"
+check "the sounds are written to the runtime directory, never the state directory" \
+    "$(grep -q 'pocketos_runtime_dir()' "$SRC/rift_sound_helper.c" &&
+       ! grep -q 'pocketos_state_dir' "$SRC/rift_sound_helper.c" && echo 1 || echo 0)"
 check "which holds nothing about the mesh" \
     "$(grep -qE 'struct rift_(model|message|node|conv)|peer_key|self_key|read_mark|cJSON' \
         "$SRC/rift_store.c" "$SRC/rift_store.h" && echo 0 || echo 1)"
@@ -187,14 +195,26 @@ playcallers=$(grep -rln 'rift_sound_play(' "$SRC" --include='*.c' | sort | tr '\
 check "the sound is asked for in one place (${playcallers:-nowhere})" \
     "$([ "$playcallers" = "$SRC/rift_dm_sound.c $SRC/rift_sound.c " ] && echo 1 || echo 0)"
 check "and only when the policy says so" \
-    "$(grep -B3 'rift_sound_play(' "$SRC/rift_dm_sound.c" | grep -q 'rift_notify_poll(' &&
+    "$(grep -B8 'rift_sound_play(' "$SRC/rift_dm_sound.c" | grep -q 'rift_notify_poll(' &&
        echo 1 || echo 0)"
 check "RIFT opens no sound device of its own" \
     "$(grep -rnE '#include[[:space:]]*[<\"](alsa/|pocketaudio|sound/)|snd_pcm_|pocketaudio_' \
         --include='*.c' --include='*.h' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
-check "and starts no helper process to play one" \
-    "$(grep -rnE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' \
-        --include='*.c' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+# The sound is played by Doors's existing audio helper, pos-record (ADR-010
+# Amendment 1), started from one file and for nothing else: no shell, no
+# other program, and only its play and recover commands.
+spawners=$(grep -rlE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' \
+    --include='*.c' "$SRC" | sort | tr '\n' ' ')
+check "and starts a helper only from the sound backend (${spawners:-nowhere})" \
+    "$([ "$spawners" = "$SRC/rift_sound_helper.c " ] && echo 1 || echo 0)"
+check "that helper is pos-record, by execv, never a shell" \
+    "$(grep -q '#define HELPER_DEFAULT "/usr/bin/pos-record"' "$SRC/rift_sound_helper.c" &&
+       ! grep -nE '\b(popen|system|execl[pe]?|execvp)\(|"/bin/sh"' "$SRC/rift_sound_helper.c" \
+           >/dev/null && echo 1 || echo 0)"
+check "asked only to play or to recover" \
+    "$([ "$(grep -oE '= "(play|recover|record|info)"|"(play|recover|record|info)", NULL' \
+            "$SRC/rift_sound_helper.c" | grep -oE 'play|recover|record|info' | sort -u |
+            tr '\n' ' ')" = "play recover " ] && echo 1 || echo 0)"
 check "and stops its sound when it goes" \
     "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
        grep -q 'rift_sound_stop' && echo 1 || echo 0)"

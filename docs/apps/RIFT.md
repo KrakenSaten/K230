@@ -326,7 +326,8 @@ updates the node without being counted as an event about it.
 
 ## Managing the node
 
-On ACTIVITY (`ui/rift_manage.c`, `ui/rift_device.c`, `ui/rift_form.c`), the
+On SYSTEM (`ui/rift_system.c`, with `ui/rift_manage.c`, `ui/rift_device.c`,
+`ui/rift_form.c`; ACTIVITY holds no settings), the
 service doing each (`docs/api/mesh.md`). **None of it transmits.** Each is one
 request on a reader's press, recorded in the model's `manage_op` (one at a
 time) and answered, refused in the service's words, or - when the connection
@@ -347,12 +348,14 @@ went first - said to have had no answer.
   test vector `#test` → `9cd8fcf2…b73f`; a name that only fits without its
   `#` is refused rather than cut), **PRIVATE** (a new random 16-byte key from
   the kernel's `getrandom`, shown once after joining - `KEY TO SHARE` - and
-  wiped on DONE, on leaving ACTIVITY, on turning the panel or when the app
+  wiped on DONE, on leaving SYSTEM, on turning the panel or when the app
   closes), and **KEY** (a key somebody shared: strict base64 of 16 or 32
   bytes, refused before asking if it is not, if it is all zero, or if a
   32-byte key has an empty upper half). A name already joined is refused, so
   COMMS never lists two channels nobody can tell apart; a full table is said.
-- **Name** (THIS DEVICE): RENAME opens the current name in place. The rule is
+- **MUTE** on each channel's row: that channel's sound off (see "The message
+  sounds"). MUTED while it is.
+- **Name** (DEVICE): RENAME opens the current name in place. The rule is
   the service's (1 to 31 bytes, one line, not only spaces). Peers learn the new
   name from this node's next advert - the caption says so, and the ADVERT
   buttons are right above. A name set by `MESHCORED_NAME` (`name_source:
@@ -360,7 +363,7 @@ went first - said to have had no answer.
   that configured name. When the service answers `persisted: false` the name
   is in use but was not written, and RIFT says in a warning line that the
   old name returns when the radio service restarts - never "renamed" alone.
-- **Path hash** (THIS DEVICE): 1, 2 or 3 bytes of each relay's key in the
+- **Path hash** (ADDRESSING): 1, 2 or 3 bytes of each relay's key in the
   paths of this node's floods (MeshCore's path hash size; `mesh.path_hash`).
   1 is the default and what every MeshCore node reads. A move to 2 or 3 asks
   first, saying that repeaters whose firmware does not read multi-byte paths
@@ -532,62 +535,84 @@ in Night at least as far apart from black as the theme's own secondary text
 (`tests/theme_test.c`). Eight hues over a mesh of hundreds means many share
 one; that is what a hash gives, and the name settles it.
 
-## The DM sound
+## The message sounds
 
-A short sound when a **direct message genuinely arrives**, behind a setting
-on ACTIVITY (**NOTIFY · Sound for a new DM**, `ON` / `OFF`, on by default).
+Two short sounds, told apart by ear: a **direct message** is two notes rising
+(E6, A6; 222 ms with a 30 ms silent lead-in), a **channel message** one
+softer, lower note (B5; 150 ms). Both sit in the 1 - 2 kHz band a small
+speaker carries, peak about a quarter of full scale, with a soft attack and
+decay so nothing clicks. Behind two switches on **SYSTEM · SOUND** (**Sound
+for a new DM**, **Sound for channels**, `ON` / `OFF`, both on by default), and
+a **MUTE** per channel on **SYSTEM · CHANNELS**.
+
 Which messages count is decided once, in the model, where the message is
-filed (`rift_model_apply_live_message`, `rift_arrivals.c`). All five must hold:
+filed (`rift_model_apply_live_message`, `rift_arrivals.c`). All five must hold,
+for each kind with its own marks:
 
 1. it arrived as a live `mesh.message` **event** - never from a
    `mesh.messages` snapshot, which is history however recent: the one taken on
    opening, and the one taken after every reconnect;
-2. it is **incoming and direct** - not this device's own, not a channel's;
+2. it is **incoming** - never this device's own, of either kind;
 3. its id is **new to the window** - an id already held is a state change or
    the same event again;
-4. its id is **above every id this run has shown**, live or in a snapshot -
-   anything at or below is history coming round again. The mark goes with the
-   window when the service restarts, because the ids start again from 1;
-5. its peer, sender timestamp and text are **not those of one of the last
-   eight arrivals** - a sender's retry, which meshcored records as a new
-   message with a new id (docs/KNOWN_ISSUES.md). Only when the sender's
-   timestamp is known.
+4. its id is **above every id of its kind this run has shown**, live or in a
+   snapshot - anything at or below is history coming round again. The marks
+   go with the window when the service restarts, because the ids start again
+   from 1;
+5. it is **not a repeat of one of the last eight arrivals** of its kind - for
+   a direct message its peer, sender timestamp and text (a sender's retry,
+   which meshcored records as a new message with a new id, docs/KNOWN_ISSUES.md);
+   for a channel message its channel, claimed sender name, timestamp and text
+   (a second copy relayed back). Only when the sender's timestamp is known.
 
-Then the policy (`rift_notify.c`): nothing while the setting is off, nothing
-while Doors is muted (`pocketos_shell_volume_effective()` is 0) or there is
-no sound to play, and at most **one sound in 10 s** however many arrive - a
-burst of twenty is one sound, and nothing is queued to play later. An arrival
-the setting, the volume or the gap kept quiet is dropped, never replayed when
-they change. The sound is played at the system volume and stopped when RIFT
-closes.
+Then the policy (`rift_notify.c`): a direct message only while its switch is
+on; a channel message only while channel sounds are on **and that channel is
+not muted**; nothing while Doors is muted (`pocketos_shell_volume_effective()`
+is 0) or there is no sound to play; and at most **one sound of either kind in
+10 s** however many arrive - a burst of twenty is one sound, nothing is queued
+to play later, and a direct message wins a pass that has both. An arrival a
+switch, a mute, the volume or the gap kept quiet is dropped, never replayed
+when they change. Only while RIFT's screen is open: the background session
+(DS §51) files and counts, and plays nothing.
 
-**In this build the sound is silent, and the switch says so.** Apps never
-touch the sound card (ADR-002), and the one exception - pocketaudio driven by
-a per-operation `pos-wave` helper - is Wave's and is not to be extended
-(ADR-004). ADR-004 names system sounds as the point at which audio moves to
-a platform owner, and that decision is not RIFT's. So the sound goes through
-a backend seam (`rift_sound.h`, in the shape of PocketClock's
-`clock_alert.h`), whose built-in backend has no sound and says: *No system
-notification sound in this build of Doors: a new direct message is shown, not
-heard.* Everything above is built and host-tested against a fake backend; the
-setting is stored and honoured, so the day a backend is registered the sound
-works and nothing else changes.
+A **muted channel** still receives, keeps and displays its messages and its
+unread count moves as before; only its sound is not played. The mute is per
+channel, keyed by the conversation key (`#<slot>:<hash>:<name fingerprint>`),
+so a different channel later joined into the same slot is not muted by it.
+Muting is the reader's own choice, kept by RIFT and never sent to the
+service. **Sound for channels OFF** is a different thing: no channel sound at
+all, whatever is muted.
 
-The setting lives in `$POCKETOS_STATE_DIR/rift/prefs.v1` (`dm_sound=0|1`,
-settings.conf's `key=value` format), the app-owned-store pattern Fleet, Radar
-and Timber use; the shell's `settings.conf` is the shell's and no app writes
-it. A file that cannot be read leaves the default; one that cannot be written
-keeps the choice for the session and the switch says it is not saved.
+**How it is played: Doors's existing audio path.** RIFT never opens the
+sound card (ADR-002). The built-in backend (`rift_sound_helper.c`) writes the
+two WAVs into `$POCKETOS_RUNTIME_DIR/rift/` once per boot and starts
+`pos-record play --volume-percent <system volume> <file>` - the Recorder's
+helper, unchanged, on `core/pocketaudio` - per sound, with the Recorder's
+spawn shape (socketpair, PR_SET_PDEATHSIG, bounded stop, `pos-record recover`
+after a SIGKILL). One sound at a time, and the shared audio lock means a
+sound while Wave, the Recorder or another player holds the card is not heard.
+This is **ADR-010 Amendment 1, PROPOSED** and awaiting the owner's
+acceptance. Where pos-record is not installed (a host build) the switch says
+so: *pos-record, Doors's audio helper, is not installed: a new message is
+shown, not heard.* `rift_sound_set_backend(NULL)` installs the silent
+backend.
+
+The settings live in `$POCKETOS_STATE_DIR/rift/prefs.v1` (`dm_sound=0|1`,
+`channel_sound=0|1`, one `channel_mute=<conversation key>` per muted channel,
+at most 16; settings.conf's `key=value` format), the app-owned-store pattern
+Fleet, Radar and Timber use; the shell's `settings.conf` is the shell's and no
+app writes it. A file that cannot be read leaves the defaults; one that cannot
+be written keeps the choice for the session and SOUND says it is not saved.
 
 ### Shared requirements left for integration
 
 Not implemented here, because each is a platform API rather than RIFT's:
 
-- **A notification sound an app can ask for** - for example
-  `pocketos_shell_play_sound(POCKETOS_SOUND_MESSAGE)` in `app.h`: short,
-  non-blocking, at the system volume, silent while muted, with the shell (or
-  an `audiod`, ADR-004 Option A) owning the card. Needs the ADR-004 revisit.
-  RIFT's side is one backend of about twenty lines in `rift_sound.c`'s shape.
+- **A notification sound an app can ask for**, if more than RIFT needs one
+  or a sound is wanted outside an app's screen - for example
+  `pocketos_shell_play_sound(POCKETOS_SOUND_MESSAGE)` in `app.h`, with the
+  shell or an `audiod` (ADR-004 Option A) owning the card. RIFT's pos-record
+  backend would then be replaced by one of about twenty lines.
 - **Optionally, an app-preference store** (`pocketos_shell_pref_get/set(app,
   key)` over settings.conf), if the product owner would rather apps did not
   each keep a file. RIFT would move `dm_sound` over and drop `rift_store.c`.
