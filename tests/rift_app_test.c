@@ -152,12 +152,14 @@ int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
     (void)mode;
     return 0;
 }
+static int kb_shows;
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user),
                                  void *user)
 {
     (void)ret;
     (void)on_done;
     (void)user;
+    kb_shows++;
 }
 void pocketos_shell_keyboard_hide(void) {}
 int pocketos_shell_keyboard_visible(void)
@@ -1869,9 +1871,12 @@ static void scale_session(void)
         /* The console shape (DS §37.2): no shell header, a data-row strip
          * with the way back in it, a narrow list, a one-line thread header,
          * the details pane closed, a short command line. The thread has
-         * more than half the display, and shows more than half again the
-         * eleven messages the handoff's layout showed. */
-        check("and shows at least sixteen one-line messages above the composer", rows >= 16);
+         * more than half the display, and still shows more than the eleven
+         * messages the handoff's layout showed - fourteen, where it was
+         * seventeen before a message's body went from body type to the
+         * label type (the owner's call, 2026-10-03: what is read is
+         * larger). */
+        check("and shows at least fourteen one-line messages above the composer", rows >= 14);
         check("the thread is more than half the display", thread_share(scroll) > 50.0);
         check("its header is a header row, not a data row",
               lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == rift_header_row_h());
@@ -2407,9 +2412,79 @@ static void manage_session(void)
     }
     rift_app_refresh(app);
     pump(150);
-    check("a name set by the configuration cannot be renamed here, and says where it is set",
-          lv_obj_has_state(action_of(find_exact(content(), "RENAME")), LV_STATE_DISABLED) &&
-              find_text(content(), "MESHCORED_NAME") != NULL);
+    /* A configured name is this node's to change like any other: the form
+     * that was open stays open, and nothing sends the reader elsewhere. */
+    check("a name set by the configuration is renamed here too: the form stays",
+          visible(rift_device_rename_field(app)) &&
+              find_text(content(), "MESHCORED_NAME") == NULL);
+    tap(action_of(find_exact(content(), "CANCEL")));
+    pump(150);
+    check("and with the form closed RENAME is there to press",
+          !visible(rift_device_rename_field(app)) &&
+              !lv_obj_has_state(action_of(find_exact(content(), "RENAME")), LV_STATE_DISABLED));
+    /* The service took a rename and said it could not write it. */
+    check("no unsaved warning before there is one",
+          find_text(content(), "could not save it") == NULL ||
+              !visible(find_text(content(), "could not save it")));
+    memset(&app->model.manage_op, 0, sizeof(app->model.manage_op));
+    app->model.manage_op.kind = RIFT_ACTION_RENAME;
+    app->model.manage_op.done = 1;
+    app->model.manage_op.unsaved = 1;
+    app->model.manage_op.have_mono = 1;
+    app->model.manage_op.mono_ms = rift_mono_ms();
+    rift_app_refresh(app);
+    pump(150);
+    check("a rename the service could not save is not shown as saved: a warning says so",
+          find_text(content(), "could not save it") != NULL &&
+              visible(find_text(content(), "could not save it")) &&
+              find_text(content(), "old name returns") != NULL);
+    check("and the caption says NOT SAVED rather than only RENAMED",
+          find_text(content(), "NOT SAVED") != NULL &&
+              find_text(content(), "AFTER YOUR NEXT ADVERT") == NULL);
+    check("with RENAME still there to try again",
+          !lv_obj_has_state(action_of(find_exact(content(), "RENAME")), LV_STATE_DISABLED));
+    /* Refused: said under the name, in the service's words, not only in
+     * the status line at the foot of the panel. */
+    rift_model_action_failed(&app->model, RIFT_ACTION_RENAME,
+                             "the name is set by meshcored's configuration", rift_mono_ms());
+    rift_app_refresh(app);
+    pump(150);
+    {
+        lv_obj_t *said = find_text(content(), "Not renamed - the name is still K230-A");
+        lv_obj_t *button = action_of(find_exact(content(), "RENAME"));
+        lv_area_t s = { 0 };
+        lv_area_t r = { 0 };
+
+        if (said && button) {
+            lv_obj_get_coords(said, &s);
+            lv_obj_get_coords(button, &r);
+        }
+        check("a refused rename is said under the name, with the service's reason",
+              said && visible(said) &&
+                  strstr(lv_label_get_text(said), "meshcored's configuration") != NULL);
+        check("right under the Name row, not at the foot of the panel",
+              said && button && s.y1 >= r.y2 && s.y1 - r.y2 < 160);
+        check("and does not read as unsaved", find_text(content(), "could not save it") == NULL ||
+                                                  !visible(find_text(content(), "could not save it")));
+    }
+    app->model.manage_op.unknown = 1;
+    rift_app_refresh(app);
+    pump(150);
+    check("a rename nobody answered says that the name may or may not have changed",
+          find_text(content(), "may or may not have changed") != NULL &&
+              visible(find_text(content(), "may or may not have changed")));
+    memset(&app->model.manage_op, 0, sizeof(app->model.manage_op));
+    app->model.manage_op.kind = RIFT_ACTION_RENAME;
+    app->model.manage_op.done = 1;
+    app->model.manage_op.have_mono = 1;
+    app->model.manage_op.mono_ms = rift_mono_ms();
+    rift_app_refresh(app);
+    pump(150);
+    check("a saved rename carries no warning",
+          (find_text(content(), "could not save it") == NULL ||
+           !visible(find_text(content(), "could not save it"))) &&
+              find_text(content(), "Not renamed") == NULL &&
+              find_text(content(), "AFTER YOUR NEXT ADVERT") != NULL);
     {
         cJSON *o = cJSON_Parse("{\"bytes\":1,\"allowed\":[1,2,3]}");
 
@@ -2519,6 +2594,420 @@ static pid_t live_spawn(const char *bin, const char *manage_log)
         _exit(127);
     }
     return pid;
+}
+
+/* ---- feat/rift-comms-usability ---------------------------------------------
+ *
+ * COMMS' rows at a readable size, the Public channel first, and the composer
+ * taking the keys when a conversation opens - in both shapes, and the rows
+ * at every text size. */
+
+static int32_t top_of(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        return -1;
+    }
+    lv_obj_get_coords(obj, &a);
+    return a.y1;
+}
+
+static void give_public_channels(void)
+{
+    cJSON *o;
+
+    /* The service's answer: slot 1 holds MeshCore's well-known Public key
+     * under a local name; slot 3 is merely called Public. */
+    o = cJSON_Parse("{\"count\":4,\"max\":8,\"persistent\":true,\"channels\":["
+                    "{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\","
+                    "\"key_bits\":256,\"text_limit\":147,\"ack_expected\":false},"
+                    "{\"channel\":1,\"name\":\"torget\",\"channel_hash\":\"11\","
+                    "\"key_bits\":128,\"well_known\":\"public\",\"text_limit\":147,"
+                    "\"ack_expected\":false},"
+                    "{\"channel\":2,\"name\":\"OPS\",\"channel_hash\":\"4d\","
+                    "\"key_bits\":128,\"text_limit\":147,\"ack_expected\":false},"
+                    "{\"channel\":3,\"name\":\"Public\",\"channel_hash\":\"11\","
+                    "\"key_bits\":128,\"text_limit\":147,\"ack_expected\":false}]}");
+    check("the Public channel fixture is taken",
+          o != NULL && rift_model_apply_channels(&app->model, o) == 0);
+    cJSON_Delete(o);
+    rift_app_refresh(app);
+    pump(60);
+}
+
+static void comms_usability_session(void)
+{
+    static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
+                                                POS_TEXT_SIZE_LARGE };
+    static const enum pos_rotation turns[] = { POS_ROTATION_0, POS_ROTATION_270 };
+    /* The start of each other row's name: at the larger sizes the list cuts
+     * a name with an ellipsis, as it always has. */
+    static const char *const others[] = { "HYT", "OSL", "SIT", "OPS", "Pub" };
+    enum pos_text_size was = pos_theme_current_text_size();
+    char pub[RIFT_KEY_HEX];
+    size_t s;
+    size_t t;
+    size_t k;
+
+    rift_channel_key(1, "11", "torget", pub, sizeof(pub));
+
+    /* ---- the rows and the order, at every size, in both shapes ---------- */
+    for (t = 0; t < sizeof(turns) / sizeof(turns[0]); t++) {
+        for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+            const char *size = pos_text_size_name(sizes[s]);
+            const char *shape = turns[t] == POS_ROTATION_0 ? "portrait" : "landscape";
+            char what[200];
+            lv_obj_t *name;
+            lv_obj_t *line;
+            lv_obj_t *list;
+            int32_t row_h = RIFT_ROW_H;
+            int first = 1;
+            int seen = 0;
+
+            pos_theme_select_text_size(sizes[s]);
+            use_display(turns[t], PANEL_CORNER);
+            app_start();
+            quiet_client();
+            give_nodes();
+            give_service();
+            give_messages();
+            give_public_channels();
+            give_unread();
+            rift_app_show_section(app, RIFT_SEC_COMMS);
+            pump(200);
+
+            name = find_exact(content(), "torget");
+            line = ancestor(name, 1);
+            list = ancestor(name, 3);
+            snprintf(what, sizeof(what), "%s, %s: the Public channel has a row", size, shape);
+            check(what, name != NULL && line != NULL && list != NULL);
+            if (!name || !line || !list) {
+                app_stop();
+                continue;
+            }
+            /* Every other row that is on screen is under it. Landscape's
+             * list is shorter than its six rows, so the last may not be
+             * built; the newest talk, which would have headed the list, is. */
+            for (k = 0; k < sizeof(others) / sizeof(others[0]); k++) {
+                lv_obj_t *o = find_text(list, others[k]);
+
+                if (o) {
+                    seen++;
+                    if (top_of(o) <= top_of(name)) {
+                        first = 0;
+                    }
+                }
+            }
+            snprintf(what, sizeof(what),
+                     "%s, %s: it is the first row - above newer talk, and above a channel only "
+                     "called Public",
+                     size, shape);
+            check(what, first && seen >= 1 && top_of(line) - top_of(list) < row_h / 2);
+            if (!app->wide) {
+                snprintf(what, sizeof(what),
+                         "%s, %s: and every other row is there under it, the namesake too",
+                         size, shape);
+                check(what, seen == (int)(sizeof(others) / sizeof(others[0])));
+            }
+            {
+                /* One row for it, however the list is walked. */
+                uint32_t n = lv_obj_get_child_count(list);
+                uint32_t c;
+                int rows = 0;
+
+                for (c = 0; c < n; c++) {
+                    lv_obj_t *slot = lv_obj_get_child(list, (int32_t)c);
+
+                    if (!lv_obj_has_flag(slot, LV_OBJ_FLAG_HIDDEN) &&
+                        find_exact(slot, "torget")) {
+                        rows++;
+                    }
+                }
+                snprintf(what, sizeof(what), "%s, %s: and there is one of it", size, shape);
+                check(what, rows == 1);
+            }
+
+            /* The list's rows are what they were: the 36 px data row, the
+             * name in the row-title type, the age and the route beside it. */
+            snprintf(what, sizeof(what), "%s, %s: a list row is the 36 px data row it was",
+                     size, shape);
+            check(what, lv_obj_get_height(line) == RIFT_ROW_H &&
+                            lv_font_get_line_height(
+                                lv_obj_get_style_text_font(name, LV_PART_MAIN)) ==
+                                pocketui_role_line_height(POS_STYLE_ROW_TITLE));
+            snprintf(what, sizeof(what), "%s, %s: the unread count and the age are still there",
+                     size, shape);
+            check(what, rift_model_unread_total(&app->model) > 0 &&
+                            find_exact(content(), "HEARD") != NULL);
+
+            /* The opened conversation is what is larger: the body and the
+             * claimed sender in the label type, the caption a caption. */
+            give_channel_message();
+            rift_app_open_conversation(app, site_key());
+            pump(250);
+            {
+                lv_obj_t *body = find_text(thread_pane(), "tilbake");
+                lv_obj_t *sender = find_exact(thread_pane(), "HYTTA?");
+                lv_obj_t *column = ancestor(body, 1);
+                lv_obj_t *caption =
+                    column ? lv_obj_get_child(column, (int32_t)lv_obj_get_child_count(column) - 1)
+                           : NULL;
+                lv_obj_t *mslot = ancestor(body, 3);
+                int32_t body_lh = body ? lv_font_get_line_height(
+                                             lv_obj_get_style_text_font(body, LV_PART_MAIN))
+                                       : 0;
+
+                snprintf(what, sizeof(what), "%s, %s: a channel message is drawn in the thread",
+                         size, shape);
+                check(what, body && sender && caption && caption != body && mslot);
+                if (body && sender && caption && mslot) {
+                    lv_area_t a;
+                    lv_area_t v;
+
+                    printf("     %s, %s: body %d px type (was %d), sender %d (was %d), caption "
+                           "%d; line %d px (was %d)\n",
+                           size, shape, pos_type_current(POS_TYPE_LABEL).px,
+                           pos_type_current(POS_TYPE_BODY).px, pos_type_current(POS_TYPE_LABEL).px,
+                           pos_type_current(POS_TYPE_META).px, pos_type_current(POS_TYPE_META).px,
+                           (int)body_lh,
+                           (int)pocketui_role_line_height(POS_STYLE_TEXT_PRIMARY));
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the message body is the label type, larger than body type",
+                             size, shape);
+                    check(what, body_lh == pocketui_role_line_height(POS_STYLE_ROW_TITLE) &&
+                                    body_lh > pocketui_role_line_height(POS_STYLE_TEXT_PRIMARY));
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the sender is the same size, larger than a caption", size,
+                             shape);
+                    check(what, lv_font_get_line_height(
+                                    lv_obj_get_style_text_font(sender, LV_PART_MAIN)) == body_lh &&
+                                    body_lh > pocketui_role_line_height(POS_STYLE_CAPTION));
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the caption after them is still a caption, with its state",
+                             size, shape);
+                    check(what, lv_font_get_line_height(
+                                    lv_obj_get_style_text_font(caption, LV_PART_MAIN)) ==
+                                    pocketui_role_line_height(POS_STYLE_CAPTION) &&
+                                    strstr(lv_label_get_text(caption), "RECEIVED") != NULL);
+                    snprintf(what, sizeof(what), "%s, %s: messages are %d px apart", size, shape,
+                             app->wide ? 2 : 8);
+                    check(what, lv_obj_get_style_pad_bottom(mslot, LV_PART_MAIN) ==
+                                    (app->wide ? 2 : 8));
+                    lv_obj_get_coords(body, &a);
+                    lv_obj_get_coords(thread_pane(), &v);
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the body's line is whole and inside the thread", size, shape);
+                    check(what, lv_obj_get_height(body) >= body_lh && a.y1 >= v.y1 &&
+                                    a.y2 <= v.y2 && a.x1 >= v.x1 && a.x2 <= v.x2);
+                    snprintf(what, sizeof(what),
+                             "%s, %s: a short message is still one line: sender, body, caption",
+                             size, shape);
+                    check(what, app->wide ? lv_obj_get_height(column) <= body_lh + 2 : 1);
+                }
+            }
+            /* A direct thread: the same type, and no sender label. */
+            rift_app_open_conversation(app, KEY_B);
+            pump(250);
+            {
+                lv_obj_t *body = find_exact(thread_pane(), "Fint, ser deg");
+
+                snprintf(what, sizeof(what), "%s, %s: a direct message's body is the label type",
+                         size, shape);
+                check(what, body && lv_font_get_line_height(
+                                        lv_obj_get_style_text_font(body, LV_PART_MAIN)) ==
+                                        pocketui_role_line_height(POS_STYLE_ROW_TITLE));
+                snprintf(what, sizeof(what), "%s, %s: its state is still said under it", size,
+                         shape);
+                check(what, find_text(thread_pane(), "DELIVERED") != NULL &&
+                                find_text(thread_pane(), "NO ACK") != NULL);
+            }
+            /* The list's names are fitted on a repaint, after the open row
+             * has taken its slab's inset. */
+            rift_app_refresh(app);
+            pump(120);
+            snprintf(what, sizeof(what), "%s, %s: COMMS' captions are whole", size, shape);
+            check(what, captions_clipped(frame()) == 0);
+            snprintf(what, sizeof(what), "%s, %s: and COMMS stays inside the body", size, shape);
+            check(what, inside_body(content()));
+            if (sizes[s] == POS_TEXT_SIZE_SMALL) {
+                shot(app->wide ? "landscape-thread-small" : "portrait-thread-small");
+            } else if (sizes[s] == POS_TEXT_SIZE_LARGE) {
+                shot(app->wide ? "landscape-thread-large" : "portrait-thread-large");
+            }
+            app_stop();
+        }
+    }
+    pos_theme_select_text_size(was);
+
+    /* ---- the composer takes the keys when a conversation opens ---------- */
+    for (t = 0; t < sizeof(turns) / sizeof(turns[0]); t++) {
+        const char *shape = turns[t] == POS_ROTATION_0 ? "portrait" : "landscape";
+        char what[200];
+        char opened[RIFT_KEY_HEX];
+        lv_obj_t *field;
+        lv_group_t *dialog;
+
+        use_display(turns[t], PANEL_CORNER);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        give_messages();
+        give_public_channels();
+        rift_app_show_section(app, RIFT_SEC_COMMS);
+        pump(200);
+        snprintf(what, sizeof(what), "%s: with nothing open the list has the keys", shape);
+        check(what, pos_input_focused() == app->keysink && !app->composer_focused);
+
+        /* A direct conversation, by a tap on its row. */
+        tap(ancestor(find_exact(content(), "HYTTA"), 1));
+        pump(200);
+        field = app->wide ? app->composer : rift_comms_field(app);
+        snprintf(what, sizeof(what), "%s: a tap on a direct conversation opens it", shape);
+        check(what, app->have_conv && strcmp(app->conv, KEY_B) == 0 && field != NULL);
+        snprintf(what, sizeof(what), "%s: and its composer has the keys, with no tap on it",
+                 shape);
+        check(what, pos_input_focused() == field && app->composer_focused);
+        pos_input_push_key('h');
+        pos_input_push_key('i');
+        pump(120);
+        snprintf(what, sizeof(what), "%s: so what is typed lands in the message", shape);
+        check(what, field && strcmp(lv_textarea_get_text(field), "hi") == 0);
+        {
+            int r;
+
+            for (r = 0; r < 6; r++) {
+                rift_app_refresh(app);
+                pump(40);
+            }
+        }
+        pos_input_push_key('!');
+        pump(80);
+        snprintf(what, sizeof(what), "%s: and keeps landing there across repaints", shape);
+        check(what, field && strcmp(lv_textarea_get_text(field), "hi!") == 0 &&
+                        pos_input_focused() == field);
+        pos_input_push_key(LV_KEY_ESC);
+        pump(160);
+        snprintf(what, sizeof(what), "%s: Esc clears what was typed and stays", shape);
+        check(what, field && lv_textarea_get_text(field)[0] == '\0' &&
+                        pos_input_focused() == field && app->section == RIFT_SEC_COMMS);
+
+        /* A channel, by a tap; then the list walked by key from the field. */
+        tap(ancestor(find_exact(content(), "torget"), 1));
+        pump(200);
+        snprintf(what, sizeof(what), "%s: a channel opened by a tap gives its composer the keys",
+                 shape);
+        check(what, strcmp(app->conv, pub) == 0 && pos_input_focused() == field);
+        pos_input_push_key('o');
+        pos_input_push_key('k');
+        pump(120);
+        snprintf(what, sizeof(what), "%s: and typing goes to it", shape);
+        check(what, strcmp(lv_textarea_get_text(field), "ok") == 0);
+        lv_textarea_set_text(field, "");
+        snprintf(opened, sizeof(opened), "%s", app->conv);
+        pos_input_push_key(LV_KEY_DOWN);
+        pump(200);
+        snprintf(what, sizeof(what),
+                 "%s: Down still steps to the next conversation, from the composer", shape);
+        check(what, strcmp(app->conv, opened) != 0 && pos_input_focused() == field);
+        pos_input_push_key(LV_KEY_UP);
+        pump(200);
+        snprintf(what, sizeof(what), "%s: and Up back to the first row, the Public channel",
+                 shape);
+        check(what, strcmp(app->conv, pub) == 0 && pos_input_focused() == field);
+
+        /* Back and Esc are what they were. */
+        pos_input_push_key(LV_KEY_ESC);
+        pump(200);
+        snprintf(what, sizeof(what),
+                 "%s: Esc with nothing typed is the list's Esc - back to ACTIVITY", shape);
+        check(what, app->section == RIFT_SEC_ACTIVITY && pos_input_focused() == app->keysink &&
+                        !app->composer_focused);
+        tap(tab(2));
+        pump(200);
+        snprintf(what, sizeof(what),
+                 "%s: back on COMMS the open conversation's composer has the keys again", shape);
+        check(what, app->section == RIFT_SEC_COMMS && pos_input_focused() == field);
+        snprintf(what, sizeof(what), "%s: the Back action leaves COMMS for ACTIVITY as before",
+                 shape);
+        check(what, app_rift.back(app) == 1 && app->section == RIFT_SEC_ACTIVITY);
+        pump(200);
+        snprintf(what, sizeof(what), "%s: and the keys are the list's there", shape);
+        check(what, pos_input_focused() == app->keysink);
+
+        /* A form on ACTIVITY keeps the keys it has: repaints and arriving
+         * messages do not hand them to a composer. */
+        tap(action_of(find_exact(content(), "RENAME")));
+        pump(150);
+        pos_input_focus(rift_device_rename_field(app));
+        pump(80);
+        live_dm(700 + (int)t, "in", KEY_B, 9000, "mens du skriver");
+        {
+            int r;
+
+            for (r = 0; r < 6; r++) {
+                rift_app_refresh(app);
+                pump(40);
+            }
+        }
+        snprintf(what, sizeof(what), "%s: a form's field keeps the focus through a message "
+                                     "arriving", shape);
+        check(what, pos_input_focused() == rift_device_rename_field(app) &&
+                        !app->focus_composer_pending);
+        tap(action_of(find_exact(content(), "CANCEL")));
+        pump(150);
+
+        /* A dialog that has taken the keys (the shell redirects the group to
+         * it) keeps them when a conversation opens under it. */
+        pos_input_focus(app->keysink);
+        pump(80);
+        dialog = lv_group_create();
+        snprintf(what, sizeof(what), "%s: a dialog takes the keys", shape);
+        check(what, pos_input_push_group(dialog));
+        rift_app_open_conversation(app, KEY_A);
+        pump(240);
+        snprintf(what, sizeof(what), "%s: a conversation opened under it does not take them",
+                 shape);
+        check(what, pos_input_group_redirected() && !app->composer_focused &&
+                        !app->focus_composer_pending);
+        pos_input_pop_group();
+        lv_group_delete(dialog);
+        pump(120);
+        snprintf(what, sizeof(what), "%s: and when it closes the focus is where it was", shape);
+        check(what, pos_input_focused() == app->keysink);
+
+        /* The row tapped again is the reader asking again. */
+        tap(ancestor(find_exact(content(), "OSLO-01"), 1));
+        pump(200);
+        snprintf(what, sizeof(what), "%s: tapping the open conversation's row gives the "
+                                     "composer the keys", shape);
+        check(what, strcmp(app->conv, KEY_A) == 0 && pos_input_focused() == field);
+        snprintf(what, sizeof(what), "%s: no touch keyboard was asked for by any of it", shape);
+        check(what, kb_shows == 0);
+        app_stop();
+    }
+
+    /* Turning the panel while writing: the other shape's composer takes over. */
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    rift_app_open_conversation(app, KEY_B);
+    pump(200);
+    check("portrait: opened from code, the thread's field has the keys",
+          rift_comms_field(app) && pos_input_focused() == rift_comms_field(app));
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(300);
+    check("turned to landscape, the command line's composer has them",
+          app->wide && pos_input_focused() == app->composer);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pump(300);
+    check("and turned back, the thread's field again",
+          !app->wide && pos_input_focused() == rift_comms_field(app));
+    app_stop();
 }
 
 static void manage_live_session(void)
@@ -4643,6 +5132,7 @@ int main(void)
     net_session();
     manage_session();
     manage_live_session();
+    comms_usability_session();
     text_size_session();
     /* feat/rift-background-lifecycle: RIFT kept behind other screens, its
      * mark, CLOSE RIFT, and the navigation row's targets (DS §51). */

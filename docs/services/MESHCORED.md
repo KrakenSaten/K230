@@ -588,8 +588,12 @@ echo MESHCORED_ENABLE=1 > /etc/default/meshcored
 /etc/init.d/S65meshcored restart
 ```
 
-Leave `MESHCORED_NAME` unset unless the node is to be renamed: the name is
-stored in `state.v1`, and a name given here replaces it at every start.
+Leave `MESHCORED_NAME` unset unless the node is to be named from here: the
+name is stored in `state.v1`, and a name given here replaces it at a start.
+A rename made on the device afterwards (`mesh.set_name`, RIFT's RENAME) is
+kept over the configured name - `settings.v1` records which configured name
+it replaced - until `MESHCORED_NAME` is changed to something else, which
+then wins again.
 `MESHCORED_TX_POWER_DBM` defaults to 2 dBm.
 
 Before doing that on a real radio, know what it means:

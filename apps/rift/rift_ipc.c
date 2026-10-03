@@ -662,6 +662,14 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
          * list is read again as well. */
         rift_model_apply_identity(c->model, result);
         rift_model_action_done(c->model, RIFT_ACTION_RENAME, rift_mono_ms());
+        /* Renamed is not saved. The service says whether the name was
+         * written ("persisted"); when it was not, the rename holds only
+         * until the service restarts, and the caption must not read as if
+         * it were kept (rift_fmt_action). */
+        if (c->model->manage_op.kind == RIFT_ACTION_RENAME && c->model->manage_op.done) {
+            c->model->manage_op.unsaved =
+                cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(result, "persisted"));
+        }
         (void)rift_ipc_request_channels(c);
         break;
     case RIFT_REQ_PATH_HASH:

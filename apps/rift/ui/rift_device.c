@@ -22,6 +22,12 @@ struct rift_device {
     struct rift_app *app;
     lv_obj_t *rename;
     lv_obj_t *rename_note;
+    /* The warning under it, for what the last rename came to when that was
+     * not "renamed and saved": refused, unanswered, or in use and not
+     * written. Beside the name, because the panel's status line is at its
+     * foot - below the fold on unit B, where a refused rename read as one
+     * that had been taken (2026-10-03). */
+    lv_obj_t *rename_unsaved;
     lv_obj_t *rename_form;
     lv_obj_t *rename_field;
     lv_obj_t *rename_status;
@@ -97,8 +103,9 @@ static void on_rename_save(lv_event_t *e)
         snprintf(v->rename_error, sizeof(v->rename_error), "%s",
                  typed[0] ? "A name is one line, with no control characters and not only spaces."
                           : "A node needs a name.");
-    } else if (strcmp(typed, a->model.self_name) == 0) {
-        v->rename_open = 0; /* the same name: nothing to ask */
+    } else if (strcmp(typed, a->model.self_name) == 0 &&
+               !(a->model.manage_op.kind == RIFT_ACTION_RENAME && a->model.manage_op.unsaved)) {
+        v->rename_open = 0; /* the same name, and it is saved: nothing to ask */
     } else if (rift_ipc_set_name(&a->ipc, typed) == 0) {
         v->rename_open = 0;
     } else {
@@ -184,6 +191,8 @@ void rift_device_build(struct rift_app *app, lv_obj_t *panel)
     lv_obj_set_flex_grow(v->rename, 0);
     lv_obj_set_width(v->rename, RENAME_W);
     v->rename_note = rift_form_text(panel, POS_STYLE_CAPTION);
+    v->rename_unsaved = rift_form_text(panel, POS_STYLE_STATUS_WARN_TEXT);
+    lv_obj_add_flag(v->rename_unsaved, LV_OBJ_FLAG_HIDDEN);
 
     v->rename_form = rift_form_column(panel);
     v->rename_field = rift_form_field(app, v->rename_form, "Node name", RIFT_NAME_MAX - 1);
@@ -224,7 +233,6 @@ void rift_device_refresh(struct rift_app *app)
     const struct rift_model *m;
     const struct rift_action_state *op;
     int can;
-    int pinned;
     char text[RIFT_ACTION_TEXT_MAX];
     int b;
 
@@ -234,16 +242,37 @@ void rift_device_refresh(struct rift_app *app)
     m = &app->model;
     op = &m->manage_op;
     can = rift_form_service_ready(app) && !busy(app);
-    pinned = m->self_name_source == RIFT_NAME_SOURCE_CONFIG;
 
-    rift_action_set_enabled(v->rename, 0, can && !pinned && !v->rename_open);
-    rift_label_set(v->rename_note,
-                   pinned ? "Set by the radio service's configuration (MESHCORED_NAME); change "
-                            "it there."
-                          : "The name goes out in this node's adverts and in front of every "
-                            "channel message.");
-    rift_form_show(v->rename_form, v->rename_open && !pinned);
-    rift_form_field_live(v->rename_field, v->rename_open && !pinned);
+    /* The name is this node's to change wherever it came from: one given in
+     * the service's configuration is renamed too, and the service keeps the
+     * rename over it (docs/api/mesh.md, mesh.set_name). */
+    rift_action_set_enabled(v->rename, 0, can && !v->rename_open);
+    rift_label_set(v->rename_note, "The name goes out in this node's adverts and in front of "
+                                   "every channel message.");
+    /* What the last rename came to, when it was not a name taken and
+     * saved - said here, under the name, for as long as it is the last
+     * thing a rename did. A refusal is the service's own words. */
+    text[0] = '\0';
+    if (op->kind == RIFT_ACTION_RENAME && !op->active) {
+        if (op->failed && op->unknown) {
+            snprintf(text, sizeof(text),
+                     "The radio service did not answer: the name may or may not have "
+                     "changed. It is %s now.",
+                     m->self_name[0] ? m->self_name : RIFT_UNKNOWN);
+        } else if (op->failed) {
+            snprintf(text, sizeof(text), "Not renamed - the name is still %s. %s",
+                     m->self_name[0] ? m->self_name : RIFT_UNKNOWN, op->error);
+        } else if (op->done && op->unsaved) {
+            snprintf(text, sizeof(text),
+                     "The new name is in use, but the radio service could not save it: "
+                     "the old name returns when that service restarts. RENAME again to "
+                     "retry.");
+        }
+    }
+    rift_label_set(v->rename_unsaved, text);
+    rift_form_show(v->rename_unsaved, text[0] != '\0');
+    rift_form_show(v->rename_form, v->rename_open);
+    rift_form_field_live(v->rename_field, v->rename_open);
     rift_label_set(v->rename_status, v->rename_error);
     rift_form_show(v->rename_status, v->rename_error[0] != '\0');
 

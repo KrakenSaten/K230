@@ -600,6 +600,13 @@ void rift_comms_refresh(struct rift_app *app)
         }
     }
 
+    /* MeshCore's Public channel is the first row, always: it is the one
+     * channel every node is expected to hold, and a reader should not have
+     * to look for it among whatever spoke last. Which row that is, is the
+     * service's word about the key (rift_channel.is_public), not a name.
+     * Everything else keeps the order it had. */
+    (void)rift_conv_public_first(m, conv, count);
+
     v->order_count = count;
     for (i = 0; i < count; i++) {
         copy_key(v->order_key[i], sizeof(v->order_key[i]), conv[i].key);
@@ -655,20 +662,13 @@ void rift_comms_refresh(struct rift_app *app)
 
 /* ---- keys ------------------------------------------------------------------------ */
 
-int rift_comms_key(struct rift_app *app, uint32_t key)
+int rift_comms_step(struct rift_app *app, int dir)
 {
     struct rift_comms *v = app ? app->comms : NULL;
     int at = -1;
     int i;
 
-    if (!v) {
-        return 0;
-    }
-    /* While the composer holds focus the arrows belong to it: they move a
-     * caret through what is being typed. TAB is what moves between the two
-     * panes (handoff §9), and rift_app owns it, because the landscape
-     * composer is the command line. */
-    if (app->composer_focused || v->order_count == 0) {
+    if (!v || v->order_count == 0 || dir == 0) {
         return 0;
     }
     for (i = 0; i < v->order_count; i++) {
@@ -677,18 +677,45 @@ int rift_comms_key(struct rift_app *app, uint32_t key)
             break;
         }
     }
+    if (dir < 0) {
+        at = at <= 0 ? 0 : at - 1;
+    } else {
+        at = (at < 0 || at + 1 >= v->order_count) ? (at < 0 ? 0 : at) : at + 1;
+    }
+    rift_app_open_conversation(app, v->order_key[at]);
+    return 1;
+}
+
+int rift_comms_key(struct rift_app *app, uint32_t key)
+{
+    struct rift_comms *v = app ? app->comms : NULL;
+
+    if (!v) {
+        return 0;
+    }
+    /* While the composer holds focus the keys are its own: left and right
+     * move a caret through what is being typed, and up and down - which a
+     * one-line field has no use for - are handed back here by the composer
+     * itself (rift_app.c, on_composer_key), so stepping through the list
+     * works from either place. TAB is what moves between the two panes
+     * (handoff §9), and rift_app owns it, because the landscape composer is
+     * the command line. */
+    if (app->composer_focused || v->order_count == 0) {
+        return 0;
+    }
     switch (key) {
     case LV_KEY_UP:
     case LV_KEY_LEFT:
-        at = at <= 0 ? 0 : at - 1;
-        rift_app_open_conversation(app, v->order_key[at]);
-        return 1;
+        return rift_comms_step(app, -1);
     case LV_KEY_DOWN:
     case LV_KEY_RIGHT:
-        at = (at < 0 || at + 1 >= v->order_count) ? (at < 0 ? 0 : at) : at + 1;
-        rift_app_open_conversation(app, v->order_key[at]);
-        return 1;
+        return rift_comms_step(app, 1);
     default:
         return 0;
     }
+}
+
+lv_obj_t *rift_comms_field(const struct rift_app *app)
+{
+    return (app && app->comms) ? rift_thread_field(app->comms->thread) : NULL;
 }

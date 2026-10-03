@@ -19,6 +19,7 @@
 #include "rift_ipc.h"
 
 #include "fake_meshcored.h"
+#include "rift_format.h"
 #include "rift_keys.h"
 
 #include <stdio.h>
@@ -437,11 +438,73 @@ static void test_management(const char *runtime)
           m.path_hash_unsupported && !m.have_path_hash);
     check("and that is not a malformed event or a lost connection",
           rift_ipc_connected(&c) && m.events_malformed == 0);
+    /* A configured name is renamed like any other, and saved. */
     rift_ipc_set_name(&c, "Other");
     spin(&c, WAIT_MS, manage_settled, &m);
-    check("a rename is refused with where the name is set",
-          m.manage_op.failed && strstr(m.manage_op.error, "configuration") != NULL &&
-              strcmp(m.self_name, "K230-A") == 0);
+    check("a configured name is renamed on request",
+          m.manage_op.done && !m.manage_op.failed && strcmp(m.self_name, "Other") == 0);
+    check("and the answer says it was saved: nothing is shown as unsaved",
+          !m.manage_op.unsaved);
+    check("the name is the stored one afterwards",
+          m.self_name_source == RIFT_NAME_SOURCE_STORED);
+    {
+        char caption[RIFT_ACTION_TEXT_MAX];
+
+        rift_fmt_action(&m.manage_op, rift_mono_ms(), caption, sizeof(caption));
+        check("the caption is the plain renamed one",
+              strstr(caption, "RENAMED") != NULL && strstr(caption, "NOT SAVED") == NULL);
+    }
+    /* The Public channel is known by the service's word about its key. */
+    check("the well-known Public key is joined under a local name",
+          rift_ipc_channel_add(&c, "torget", "izOH6cXN6mrJ5e26oRXNcg==") == 0);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("and a channel merely called Public, with another key",
+          rift_ipc_channel_add(&c, "Public", "AAECAwQFBgcICQoLDA0ODw==") == 0);
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("the list is read again", round_trip(&c, &m) && m.channel_count == 2);
+    {
+        int publics = 0;
+        int i;
+
+        for (i = 0; i < m.channel_count; i++) {
+            if (m.channels[i].is_public) {
+                publics++;
+                check("the Public channel is the one holding the well-known key",
+                      strcmp(m.channels[i].name, "torget") == 0);
+            }
+        }
+        check("exactly one channel is the Public one, and not by its name", publics == 1);
+    }
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* Renamed for this run, and not written. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.rename_unsaved = 1;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service that cannot save a name is running",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    rift_ipc_set_name(&c, "Fleeting");
+    spin(&c, WAIT_MS, manage_settled, &m);
+    check("a rename it took but did not save is in use",
+          m.manage_op.done && strcmp(m.self_name, "Fleeting") == 0);
+    check("and is recorded as unsaved", m.manage_op.unsaved);
+    {
+        char caption[RIFT_ACTION_TEXT_MAX];
+
+        rift_fmt_action(&m.manage_op, rift_mono_ms(), caption, sizeof(caption));
+        check("the caption says NOT SAVED and that the old name returns",
+              strstr(caption, "NOT SAVED") != NULL && strstr(caption, "OLD NAME RETURNS") != NULL);
+        check("and does not read as an ordinary rename",
+              strstr(caption, "PEERS SEE IT") == NULL);
+    }
+    script.rename_unsaved = 0;
     rift_ipc_close(&c);
     fake_meshcored_stop(pid);
 

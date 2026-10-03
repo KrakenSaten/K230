@@ -373,6 +373,13 @@ void rift_fmt_action(const struct rift_action_state *s, int64_t now_ms, char *ou
                  s->label[0] ? s->label : "CHANNEL", age);
         break;
     case RIFT_ACTION_RENAME:
+        if (s->unsaved) {
+            /* In use, and not written: said as that, never as renamed. */
+            snprintf(out, out_len, "RENAMED %s AGO" RIFT_SEP "NOT SAVED" RIFT_SEP
+                                   "THE OLD NAME RETURNS WHEN THE RADIO SERVICE RESTARTS",
+                     age);
+            break;
+        }
         /* Peers learn a name from an advert; nothing was sent to tell them. */
         snprintf(out, out_len, "RENAMED %s AGO" RIFT_SEP "PEERS SEE IT AFTER YOUR NEXT ADVERT",
                  age);

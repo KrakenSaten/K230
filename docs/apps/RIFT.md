@@ -77,10 +77,26 @@ NET**. RIFT draws all four.
   the cache or the service.
 - **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
   message as a preview, the unread pill, when the other side was last heard
-  from with its activity pulse, and how that peer is reached. In portrait
+  from with its activity pulse, and how that peer is reached. **MeshCore's Public
+  channel is always the first row**: it is known by the service's word about
+  its key (`mesh.channels`, `well_known: "public"` - the service compares
+  the key it holds with `8b3387e9c5cdea6ac9e5edbaa115cd72`), never by its
+  local name or its one-byte hash, and every other row keeps the order it
+  had - newest talk first, then joined channels nothing was said on. A node
+  that does not hold the Public key has no such row; none is invented.
+  **Opening a conversation gives its composer the keys**: the thread's
+  field in portrait, the command line's in landscape, so typing on the
+  keyboard base needs no tap first (the touch keyboard still comes up only
+  on a tap). Up and Down in the composer step through the conversations,
+  Esc clears what was typed and, with nothing typed, goes back to ACTIVITY
+  as it did from the list. A dialog or a form that holds the keys keeps
+  them. In portrait
   the list is as tall as its rows - up to five while a thread is open, and
   all but the composer's room while none is - rather than a fixed 268 px.
-  Choosing one opens its thread: the messages oldest first, each a body, a
+  Choosing one opens its thread: the messages oldest first, each a body in
+  the label type (sans 20 / 24 / 28 at Small / Medium / Large; it was body
+  type, 16 / 19 / 22) - on a channel with the claimed sender before it in
+  the same size and its identity accent (it was a 14 px caption) - a
   2 px rule on the side that says which of you said it, and **one** caption
   — on the body's own line when both fit, which for a short message is one
   line in all — how long ago, then the service's own word for its state:
@@ -340,8 +356,10 @@ went first - said to have had no answer.
   the service's (1 to 31 bytes, one line, not only spaces). Peers learn the new
   name from this node's next advert - the caption says so, and the ADVERT
   buttons are right above. A name set by `MESHCORED_NAME` (`name_source:
-  config`) is not renamed here: the service refuses, because its next start
-  would put the old name back, and RIFT says where to change it instead.
+  config`) is renamed here like any other: the service keeps the rename over
+  that configured name. When the service answers `persisted: false` the name
+  is in use but was not written, and RIFT says in a warning line that the
+  old name returns when the radio service restarts - never "renamed" alone.
 - **Path hash** (THIS DEVICE): 1, 2 or 3 bytes of each relay's key in the
   paths of this node's floods (MeshCore's path hash size; `mesh.path_hash`).
   1 is the default and what every MeshCore node reads. A move to 2 or 3 asks

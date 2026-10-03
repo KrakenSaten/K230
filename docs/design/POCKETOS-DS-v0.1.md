@@ -3274,6 +3274,13 @@ screen all the time that is not messages or the way to them.
   identity mark, the glyph, the name, the unread pill and the age; the
   preview and the route are the thread's header's. The list is virtual
   (§37.5).
+- **A message is set to be read** *[PROPOSED, feat/rift-comms-usability]*:
+  the body, and on a channel the claimed sender before it, in the label
+  type (sans 20 / 24 / 28; the body was body type 16 / 19 / 22 and the
+  sender a caption 14 / 17 / 19). The caption after them stays a caption.
+  Messages are 8 px apart in portrait (were 6) and still 2 px in landscape.
+  One-line messages on screen at Small: 21 in portrait (were 27), 14 in
+  landscape (were 17).
 - **The thread's header is one line**, 28 px (handoff §4 "row header"):
   glyph, name, state, the route compressed as the hop strip compresses it
   (`K230-A › OSLO-01 › … +5 › HYTTA`), `N EARLIER`, and `DETAILS ›`.

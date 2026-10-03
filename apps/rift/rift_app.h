@@ -156,6 +156,17 @@ struct rift_app {
      * group's focus from inside the event LVGL is dispatching does not
      * stick. */
     int focus_list_pending;
+    /* A conversation was opened: its composer - the command line's field in
+     * landscape, the thread's in portrait - takes the keys as soon as it
+     * can, so typing needs no tap first. From the timer, for the reason
+     * above, and only from the list's key sink or the other composer: a
+     * dialog or a form that holds the focus keeps it. */
+    int focus_composer_pending;
+    /* The composer has the focus because a conversation was opened, not
+     * because a reader went to it with TAB: Esc on it, empty, is then the
+     * list's Esc (back to ACTIVITY), as it was before the composer took the
+     * focus by itself. */
+    int composer_auto;
     int wide; /* the landscape split is on */
     int32_t body_w;
     int32_t body_h;
@@ -243,6 +254,13 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section);
 void rift_app_toggle_details(struct rift_app *a);
 /* Whether the landscape command line is the composer right now. */
 int rift_app_composer_live(const struct rift_app *a);
+/* The composers and the keys (rift_focus.c). attach follows both fields'
+ * keys and focus, once per screen built; composer gives the open
+ * conversation's field the focus when focus_composer_pending asks and
+ * nothing else that should keep the keys has them - called from the timer,
+ * never from inside an LVGL event. */
+void rift_focus_attach(struct rift_app *a);
+void rift_focus_composer(struct rift_app *a);
 /* Everything on screen, from the model as it stands. Cheap enough to call
  * on every repaint: the screens update labels in place and only rebuild
  * when the set of rows itself changed. */

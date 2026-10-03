@@ -111,9 +111,12 @@ struct fake_meshcored_script {
      * "<method>|<params as JSON>" - which is how a test proves what a
      * reader's press asked for, key and all, and that nothing else did. */
     const char *manage_log;
-    /* mesh.identity says the name came from the command line, and
-     * mesh.set_name refuses, as the real service does then. */
+    /* mesh.identity says the name came from the command line; a rename is
+     * taken all the same, and the name is the stored one afterwards. */
     int name_pinned;
+    /* mesh.set_name renames and answers "persisted": false - the name could
+     * not be written, and the old one returns at the service's next start. */
+    int rename_unsaved;
     /* Answer mesh.path_hash as a service too old to know it: unknown method. */
     int no_path_hash;
     /* Take management requests and never answer them. */

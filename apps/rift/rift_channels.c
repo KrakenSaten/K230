@@ -108,7 +108,35 @@ static int apply_channel(struct rift_model *m, const cJSON *o)
         ch->have_text_limit = 1;
         ch->text_limit = (int)d;
     }
+    {
+        const char *known = str_of(o, "well_known");
+
+        ch->is_public = known && strcmp(known, "public") == 0;
+    }
     return 0;
+}
+
+int rift_conv_public_first(const struct rift_model *m, struct rift_conv *list, int count)
+{
+    int i;
+
+    if (!m || !list) {
+        return -1;
+    }
+    for (i = 0; i < count; i++) {
+        const struct rift_channel *ch =
+            list[i].is_channel ? rift_model_key_channel(m, list[i].key) : NULL;
+
+        if (ch && ch->is_public) {
+            struct rift_conv pub = list[i];
+
+            /* The rows above it move down one, in the order they had. */
+            memmove(&list[1], &list[0], sizeof(list[0]) * (size_t)i);
+            list[0] = pub;
+            return i;
+        }
+    }
+    return -1;
 }
 
 int rift_model_apply_channels(struct rift_model *m, const cJSON *result)

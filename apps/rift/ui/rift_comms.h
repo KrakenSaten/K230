@@ -25,6 +25,12 @@ void rift_comms_shape(struct rift_app *app);
 /* Arrows, Enter and Esc while COMMS is showing. Returns 1 when the key was
  * used. */
 int rift_comms_key(struct rift_app *app, uint32_t key);
+/* Open the conversation before (dir < 0) or after (dir > 0) the open one in
+ * the list's order, stopping at either end. Returns 1 when there was a list
+ * to step through. */
+int rift_comms_step(struct rift_app *app, int dir);
+/* The portrait composer's field (the thread's), or NULL before it is built. */
+lv_obj_t *rift_comms_field(const struct rift_app *app);
 
 /* Send text to the open conversation. Called by the portrait composer's
  * SEND and by the landscape command line's Enter, which are the only two
