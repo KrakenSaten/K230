@@ -697,8 +697,7 @@ helper, unchanged, on `core/pocketaudio` - per sound, with the Recorder's
 spawn shape (socketpair, PR_SET_PDEATHSIG, bounded stop, `pos-record recover`
 after a SIGKILL). One sound at a time, and the shared audio lock means a
 sound while Wave, the Recorder or another player holds the card is not heard.
-This is **ADR-010 Amendment 1, PROPOSED** and awaiting the owner's
-acceptance. Where pos-record is not installed (a host build) the switch says
+This is **ADR-010 Amendment 1, ACCEPTED** (2026-10-03). Where pos-record is not installed (a host build) the switch says
 so: *pos-record, Doors's audio helper, is not installed: a new message is
 shown, not heard.* `rift_sound_set_backend(NULL)` installs the silent
 backend.

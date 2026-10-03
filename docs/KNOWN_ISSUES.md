@@ -220,7 +220,7 @@ DEVICE VERIFIED unless it says so.
 - **Adverts sent before the clock is set are ignored by peers** (meshcored
   section below).
 - **RIFT's message sounds are not yet heard on hardware**: they play through
-  pos-record (ADR-010 Amendment 1, proposed); audibility on the speaker is
+  pos-record (ADR-010 Amendment 1, accepted); audibility on the speaker is
   the owner's to judge (RIFT section below).
 
 
@@ -1129,7 +1129,7 @@ so that pass stayed the size it was scoped to be.
   ~31 % shell CPU (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested,
   and nothing above it can be until the service's table grows.
 - **The message sounds play through pos-record** (ADR-010 Amendment 1,
-  PROPOSED): only while RIFT's screen is open, and not at all while another
+  ACCEPTED): only while RIFT's screen is open, and not at all while another
   app holds the audio lock. Whether the 150 / 222 ms tones are audible and
   pleasant on the speaker is not measured; host tests prove the files play
   to the end through the real helper on a fake card.

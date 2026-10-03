@@ -111,10 +111,12 @@ commands; pocketaudio, pocketwav and the file logic move unchanged.
   on hardware.
 - Recording and playback on the K230 itself: not yet tested (RECORDER_GATE).
 
-## Amendment 1 (PROPOSED 2026-10-03): RIFT's message sounds through pos-record
+## Amendment 1 (ACCEPTED 2026-10-03): RIFT's message sounds through pos-record
 
-Status: proposed on `feat/rift-system-map-repeater`; needs the product
-owner's acceptance before merge.
+Status: Accepted (product owner, 2026-10-03), after the change was merged to
+master in PR #44 (150e286). Proposed the same day on branch
+`feat/rift-system-map-repeater`. Audibility on the speaker is still the
+owner's to judge (no message arrived during the unit B smoke).
 
 Context: the owner asked RIFT for two short notification sounds (a direct
 message, a channel message) "through the existing DOORS audio path, not a
@@ -122,7 +124,7 @@ parallel audio subsystem". RIFT had a backend seam for this since v0.3.0
 (`apps/rift/rift_sound.h`) with a silent built-in backend, because ADR-004
 and this ADR scope their helpers to Wave and the Recorder.
 
-Decision (proposed): RIFT plays its sounds with **`pos-record play`,
+Decision: RIFT plays its sounds with **`pos-record play`,
 unchanged**, as a third client of the same narrow exception:
 
 - RIFT writes two WAV files (48 kHz mono 16-bit, 150 and 222 ms including a
