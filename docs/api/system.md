@@ -414,6 +414,14 @@ partprobe and resize2fs 1.47.2 on the image.
    what the owner asked for before the restart. A marker with nothing to
    finish is removed.
 
+VERIFIED on unit B (2026-10-03, build 393cdb1, 16 GB card): Expand grew p2
+from 1228800 to 30273536 sectors and the root filesystem from 153600 to
+3784192 4 KiB blocks in about 1.6 s. The kernel took the new size at once, so
+no restart was needed; parted rejected the leading "Fix" as an invalid token
+and took "Yes". After a reboot the card read back the same, the filesystem
+was clean, and sysd started nothing. The restart path (marker, finish at the
+next start) is covered by `tests/sysd_expand_test.c` only.
+
 The procedure is the vendor launcher's
 (`vendor/T-Display-K230/k230_launcher/k230_phone_ui/src/k230_storage_expand.sh`,
 DOCUMENTED); Doors does not run that script, because its finishing step lives
