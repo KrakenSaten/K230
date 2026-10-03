@@ -332,4 +332,8 @@ const struct pocketos_app app_timber = {
      * the body from the header down. Whatever this app writes to the hint
      * the shell shows in its header instead. */
     .chrome = POCKETOS_CHROME_NONE,
+    /* Portrait only (app.h `orientation`): the tower is tall and gains
+     * nothing from landscape but a scroll. The shell holds the display in
+     * portrait while Timber is open and gives the mode back when it closes. */
+    .orientation = POCKETOS_APP_ORIENTATION_PORTRAIT,
 };

@@ -94,7 +94,7 @@ static int bench_rotation(enum pos_rotation *out)
     return 1;
 }
 
-void shell_display_resolve(const char *mode_arg, struct shell_display *d)
+void shell_display_resolve(const char *mode_arg, const char *portrait_app, struct shell_display *d)
 {
     const char *stored = settings_get(ORIENTATION_SETTING, NULL);
     const char *source = mode_arg ? "--rotation" : stored ? "stored" : "default";
@@ -107,12 +107,19 @@ void shell_display_resolve(const char *mode_arg, struct shell_display *d)
      * display is rotated when it is opened: a keyboard noticed afterwards
      * would cost a restart on every boot with the base attached. */
     d->mode = orientation_mode_from_setting(mode_arg ? mode_arg : stored, &d->mode_valid);
+    d->mode_from_arg = mode_arg != NULL;
     if (!d->mode_valid) {
         LOG_WARN("display: %s rotation mode \"%s\" is not automatic, portrait or landscape; using automatic",
                  source, mode_arg ? mode_arg : stored);
     }
     d->keyboard = kbd_presence_get();
     d->requested = orientation_resolve(d->mode, d->keyboard);
+    if (portrait_app && d->requested != orientation_hold(d->requested, true)) {
+        LOG_INFO("display: %s runs in portrait only; the %s mode's rotation %d waits until it closes",
+                 portrait_app, orientation_mode_name(d->mode), pos_rotation_degrees(d->requested));
+    }
+    d->portrait_app = portrait_app;
+    d->requested = orientation_hold(d->requested, portrait_app != NULL);
     if (bench_rotation(&d->requested)) {
         d->bench_override = true;
         LOG_WARN("display: rotation %d from POCKETOS_DRM_ROTATION overrides the %s mode; display and touch "
@@ -141,7 +148,9 @@ enum pos_rotation shell_display_next_rotation(const struct shell_display *d)
     if (d->bench_override) {
         return d->requested;
     }
-    r = orientation_resolve(orientation_mode_from_setting(settings_get(ORIENTATION_SETTING, NULL), &valid),
+    r = orientation_resolve(d->mode_from_arg
+                                ? d->mode
+                                : orientation_mode_from_setting(settings_get(ORIENTATION_SETTING, NULL), &valid),
                             kbd_presence_get());
-    return r;
+    return orientation_hold(r, d->portrait_app != NULL);
 }

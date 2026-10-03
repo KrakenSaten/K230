@@ -397,6 +397,11 @@ separate because it shows different content. There is no pause screen: a
 turn has no clock, and leaving the app abandons the run under the v0.1
 lifecycle. Reading order, top to bottom, is the one the review set:
 
+Timber runs in portrait only (`.orientation` in `timber_app.c`, DS §53):
+the shell holds the display in portrait while it is open, turning it first
+when Timber is opened in landscape, and gives the rotation mode back when it
+closes. There is no landscape layout and none is wanted.
+
 ```text
 HUD          SCORE (BEST in standby), LAYERS, and STABILITY as a ten-block
              meter reading the hinge's effective margin
@@ -635,6 +640,7 @@ The three rulings the review left open, and what became of them:
 | `tests/timber_shell_test.sh` | the app in the running shell: every state renders from a fixed seed, none logs a fault, standby opens with nothing asked for, a finished run stores its record and the next launch reads it back, damaged, truncated, foreign and newer records are refused without stopping play, an unwritable directory is reported once, a record is replaced in place, the placeholder path renders, reduced motion draws the tower without the sway |
 | `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, the shift lean and its accumulation over pulls (the sum of every shift's share, signed by direction and by offset, with the generator untouched), all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the summit reached from a constructed tower (nothing in hand, everything refused after), snapshots of the run resumed before and after the summit and mid-run, the event queue, replay determinism and the untouched generator |
 | `tests/timber_input_test.c` | the app under a real LVGL pointer device, hosted as the shell hosts it: BEGIN, a tap selecting a block, TEST answering once a block is selected, a pull with a finger's uneven steps let go part way and pulled again, the block pushed back into its seat and the turn opening, another block selected, a drag with a vertical wobble, a finger that wanders off the track and back, leaving with a block part way out or mid-press and reopening to a fresh instance with nothing of the last run or the last finger, and the screen fitting the body with nothing to scroll; the D3 bench sequence of 2026-09-09, which found TEST dead after a selection and a pushed-back block still locked; a thumb whose contact drifts off the track keeps pulling, through the virtual pointer and through LVGL's real evdev parser fed the GT9895's protocol-B event grammar (candidate 2's dead drags were the block being dragged on the table instead of on the track; the K230 pulls) |
+| `tests/app_orientation_shell_test.sh` | portrait only in the running shell: opened in landscape the display turns first and Timber is created once, in portrait; neither the mode nor the keyboard turns it while open; Home, Back, the back slab, the Home action and another app all give the mode back; reopening turns it again; the GAMES folder comes back; no loop, the stored mode untouched, the lock turns nothing, `--open` only at a cold start, the bench override wins |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc

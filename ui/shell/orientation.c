@@ -62,3 +62,8 @@ enum pos_rotation orientation_resolve(enum orientation_mode m, enum kbd_presence
         return keyboard == KBD_PRESENCE_PRESENT ? ORIENTATION_LANDSCAPE_ROTATION : POS_ROTATION_0;
     }
 }
+
+enum pos_rotation orientation_hold(enum pos_rotation resolved, bool portrait_only)
+{
+    return portrait_only ? POS_ROTATION_0 : resolved;
+}

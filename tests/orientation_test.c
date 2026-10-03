@@ -68,6 +68,31 @@ int main(void)
           orientation_resolve(ORIENTATION_LANDSCAPE, KBD_PRESENCE_ABSENT) !=
               orientation_resolve(ORIENTATION_AUTOMATIC, KBD_PRESENCE_ABSENT));
 
+    /* ---- a portrait-only app's hold (app.h `orientation`) --------------- */
+    {
+        static const enum orientation_mode modes[] = { ORIENTATION_AUTOMATIC, ORIENTATION_PORTRAIT,
+                                                       ORIENTATION_LANDSCAPE };
+        size_t m;
+        int held_portrait = 0;
+        int unheld_same = 0;
+
+        for (m = 0; m < 3; m++) {
+            for (i = 0; i < 3; i++) {
+                enum pos_rotation r = orientation_resolve(modes[m], all[i]);
+
+                held_portrait += orientation_hold(r, true) == POS_ROTATION_0;
+                unheld_same += orientation_hold(r, false) == r;
+            }
+        }
+        check("a hold is portrait in every mode, whatever the keyboard", held_portrait == 9);
+        check("without a hold the mode and the keyboard decide, as before", unheld_same == 9);
+        check("a hold over forced Landscape is portrait, and released it is Landscape again",
+              orientation_hold(orientation_resolve(ORIENTATION_LANDSCAPE, KBD_PRESENCE_ABSENT), true) ==
+                      POS_ROTATION_0 &&
+                  orientation_hold(orientation_resolve(ORIENTATION_LANDSCAPE, KBD_PRESENCE_ABSENT), false) ==
+                      POS_ROTATION_270);
+    }
+
     /* ---- names --------------------------------------------------------- */
     {
         enum orientation_mode m = ORIENTATION_PORTRAIT;

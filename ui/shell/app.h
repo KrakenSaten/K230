@@ -18,6 +18,12 @@
 
 #define POCKETOS_APP_API_VERSION 0
 
+/* The orientations an app runs in (DS §21, `orientation` below). */
+enum pocketos_app_orientation {
+    POCKETOS_APP_ORIENTATION_ANY = 0,  /* whatever the mode and the keyboard give */
+    POCKETOS_APP_ORIENTATION_PORTRAIT, /* portrait only */
+};
+
 struct pocketos_app {
     const char *id;       /* stable identifier, e.g. "radio" */
     const char *name;     /* launcher label */
@@ -77,6 +83,17 @@ struct pocketos_app {
      * app, as it does for every app written before this. Appended and zero,
      * so the API version stays. */
     bool back_slab_in_app;
+    /* The orientations the app runs in (DS §21). ANY is every one: the app
+     * lays out in whatever body the shell's mode and the keyboard give it.
+     * PORTRAIT is portrait only, for an app that has nothing to gain from
+     * landscape (Timber's tower): while it is open the shell holds the
+     * display in portrait, whatever the mode and the keyboard say, and when
+     * it closes the mode has its say again. Opened in landscape, the shell
+     * turns to portrait first - its ordinary restart in place - and creates
+     * the app there, so it is never laid out sideways. A declaration, like
+     * `chrome`: the app never rotates anything and the stored mode is never
+     * touched. Appended and zero, so the API version stays. */
+    enum pocketos_app_orientation orientation;
 };
 
 /* Shell services available to apps. */

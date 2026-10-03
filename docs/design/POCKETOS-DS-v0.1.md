@@ -1118,7 +1118,9 @@ verified hardware operation and nothing in this amendment asks for it.
 
 - Orientation belongs to the system. Settings > Display > Rotation offers
   **Automatic**, **Portrait** and **Landscape**; apps never choose or change
-  it and lay out in the body they are given.
+  it and lay out in the body they are given. (An app may declare that it runs
+  in portrait only, and the system then holds portrait while it is open:
+  §53.)
 - Portrait and Landscape are forced whatever the keyboard. Automatic is
   Landscape only when a keyboard is known to be present; absent or unknown is
   Portrait. A keyboard attached or removed while Doors runs changes the
@@ -4886,3 +4888,46 @@ its places and its standard offset with "summer time" where it has one). The
 shell applies it at once - TZ and `tzset()`, the C library's own mechanism; the
 image has no zone database, so each zone is a POSIX rule - and stores its IANA
 name (`timezone`). Services keep UTC, which their logs say they use.
+
+## 53. Amendment AK — Portrait-only apps: Timber [PROPOSED]
+
+**Proposed 2026-10-03** on branch `feat/timber-portrait-only`, at the owner's
+request: Timber gains nothing from landscape and needed a scroll there. This
+amends §21.2 (apps never choose the orientation) with one declaration; the
+mode, its setting and its three choices are unchanged. Nothing in §1-§52 is
+renumbered. API: `ui/shell/app.h` (`orientation`), docs/api/shell.md
+(`portrait_app`).
+
+### 53.1 The declaration
+
+An app declares the orientations it runs in: **any** (the default, every app
+before this) or **portrait only**. It is a declaration like the chrome (§30):
+the app never rotates anything, never reads or writes the mode, and lays out
+in the body it is given. Timber is the one app that declares portrait only.
+
+### 53.2 What the system does with it
+
+- While a portrait-only app is open the display is held in portrait, whatever
+  the mode and the keyboard say. A keyboard attached or removed, or a mode
+  chosen over IPC, is stored and noted, and turns nothing until the app
+  closes.
+- Opened while the display is in landscape, the app is not created sideways:
+  the system turns the display first - the same restart in place as §21.2,
+  in the same process, no settle window since the tap is the whole change -
+  and the app opens in the run that comes back, once.
+- Every way out of it - the back slab, Back, Home, another app opened over
+  it - gives the mode its say back. If that is not portrait, the system turns
+  the display again the same way and comes back where the owner was going:
+  the launcher (on the folder the app was opened from), or the other app.
+- The stored mode is never written by any of this. A turn for an app is never
+  repeated in the run it produced, so a display that cannot come back in
+  portrait opens the app as it is instead of looping; the bench's
+  `POCKETOS_DRM_ROTATION` override wins over the hold.
+- The lock, the screen going off and a text size change do not close the app
+  and so do not turn anything.
+
+### 53.3 What it costs
+
+Each turn is the dark moment of §21.2 (the display opened again), so opening
+Timber from landscape and leaving it costs two. In Portrait, or in Automatic
+with no keyboard, it costs nothing: there is nothing to turn.
