@@ -2097,12 +2097,13 @@ static void type_into(lv_obj_t *field, const char *text)
  * else: the stream carries code points. This types on the keyboard base
  * instead - raw TCA8418 events through pos_keymap.c, the key it gives pushed
  * as shell_kbd.c pushes it - so what reaches a RIFT field is exactly what a
- * person pressing the keys would put there. a-z bare, A-Z with Shift, the
- * space bar, and æ ø å on the Fn layer (Fn+A, Fn+O, Fn+E) with Shift for
- * their capitals. Returns 0 for a character with no key, or a key the
- * stream refused. */
+ * person pressing the keys would put there. a-z bare, A-Z under Caps (Shift
+ * would give most letters' orange legend), the space bar, and æ ø å on the
+ * Fn layer (Fn+A, Fn+O, Fn+E) with Shift for their capitals. Returns 0 for a
+ * character with no key, or a key the stream refused. */
 #define KB_SHIFT 7
 #define KB_FN 9
+#define KB_CAPS 10
 #define KB_SPACE 5
 
 static uint8_t kb_code_named(char letter)
@@ -2131,6 +2132,7 @@ static int kbd_type(lv_obj_t *field, const char *text)
     while (*p) {
         uint8_t code = 0;
         int shift = 0;
+        int caps = 0;
         int fn = 0;
         pos_key_t key;
 
@@ -2141,7 +2143,7 @@ static int kbd_type(lv_obj_t *field, const char *text)
             code = kb_code_named((char)(*p++ - 'a' + 'A'));
         } else if (*p >= 'A' && *p <= 'Z') {
             code = kb_code_named((char)*p++);
-            shift = 1;
+            caps = 1;
         } else if (p[0] == 0xC3 && p[1] != 0) {
             fn = 1;
             switch (p[1]) {
@@ -2158,6 +2160,10 @@ static int kbd_type(lv_obj_t *field, const char *text)
         if (code == 0) {
             return 0;
         }
+        if (caps) {
+            pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_CAPS, NULL);
+            pos_keymap_event(&km, KB_CAPS, NULL);
+        }
         if (fn) {
             pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_FN, NULL);
         }
@@ -2171,6 +2177,10 @@ static int kbd_type(lv_obj_t *field, const char *text)
         }
         if (fn) {
             pos_keymap_event(&km, KB_FN, NULL);
+        }
+        if (caps) {
+            pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_CAPS, NULL);
+            pos_keymap_event(&km, KB_CAPS, NULL);
         }
         if (key == 0 || !pos_input_push_key(key)) {
             return 0;

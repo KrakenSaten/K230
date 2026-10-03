@@ -302,9 +302,10 @@ static void tap_code(uint8_t code)
 }
 
 /* Type UTF-8 text the way a person would on the keyboard base: a-z bare,
- * A-Z with Shift, space on the space bar, and æ ø å through the Fn layer
- * (Fn+E, Fn+O, Fn+A), with Shift for the capitals. One character per drain,
- * so the 32-deep FIFO never fills. False for a character with no key. */
+ * A-Z under Caps (Shift would give most letters' orange legend: Shift+T is
+ * '='), space on the space bar, and æ ø å through the Fn layer (Fn+E, Fn+O,
+ * Fn+A), with Shift for the capitals. One character per drain, so the
+ * 32-deep FIFO never fills. False for a character with no key. */
 static int type_text(const char *text)
 {
     const unsigned char *p = (const unsigned char *)text;
@@ -312,6 +313,7 @@ static int type_text(const char *text)
     while (*p) {
         char name[2] = { 0, 0 };
         int shift = 0;
+        int caps = 0;
         int fn = 0;
         uint8_t code;
 
@@ -323,7 +325,7 @@ static int type_text(const char *text)
             code = code_named(name);
         } else if (*p >= 'A' && *p <= 'Z') {
             name[0] = (char)*p++;
-            shift = 1;
+            caps = 1;
             code = code_named(name);
         } else if (p[0] == 0xC3 && p[1] != 0) {
             /* U+00C0..U+00FF: the three the Fn layer has, either case. */
@@ -345,6 +347,10 @@ static int type_text(const char *text)
         if (code == 0) {
             return 0;
         }
+        if (caps) {
+            feed(CAPS_PRESS);
+            feed(CAPS_RELEASE);
+        }
         if (fn) {
             feed(FN_PRESS);
         }
@@ -357,6 +363,10 @@ static int type_text(const char *text)
         }
         if (fn) {
             feed(FN_RELEASE);
+        }
+        if (caps) {
+            feed(CAPS_PRESS);
+            feed(CAPS_RELEASE);
         }
         settle();
     }
