@@ -127,6 +127,12 @@ static cJSON *channel_json(const struct mcd_channel *c)
         cJSON_AddStringToObject(o, "channel_hash", hash);
     }
     cJSON_AddNumberToObject(o, "key_bits", (double)c->key_bits);
+    /* MeshCore's well-known Public channel, said by the one party that holds
+     * the key and can compare it. The key is published by upstream, so this
+     * tells a client nothing about a secret; absent for every other channel. */
+    if (c->is_public) {
+        cJSON_AddStringToObject(o, "well_known", "public");
+    }
     /* The longest body mesh.send will take on this channel. It is smaller
      * than a direct message's 160 because MeshCore puts this node's name
      * inside the payload, and it is given rather than left to be worked out
@@ -448,9 +454,10 @@ static cJSON *m_identity(struct mcd *d)
     /* Our own name, and still sanitised: it can come from state.v1, which is
      * a file on disk that this service does not get to assume is well formed. */
     add_remote_text(o, "name", name);
-    /* Where it came from, so a client can tell whether mesh.set_name can
-     * change it: "config" (the command line, which wins at every start),
-     * "stored" (state.v1), "derived" (from the key, on a first start). */
+    /* Where it came from: "config" (the command line), "stored" (state.v1,
+     * which is also where a rename made over a configured name is kept),
+     * "derived" (from the key, on a first start). mesh.set_name renames a
+     * node whichever it is. */
     switch (mcd_runtime_name_source(d->rt)) {
     case MCD_NAME_CONFIG:
         cJSON_AddStringToObject(o, "name_source", "config");
@@ -486,13 +493,6 @@ static cJSON *m_set_name(struct mcd *d, const cJSON *params, int *code, char *er
     switch (mcd_runtime_set_name(d->rt, jname->valuestring, &persisted)) {
     case MCD_RENAME_OK:
         break;
-    case MCD_RENAME_PINNED:
-        *code = POCKETIPC_ERR_INVALID_PARAMS;
-        snprintf(err, errlen,
-                 "the name is set by meshcored's configuration (--name, MESHCORED_NAME in "
-                 "/etc/default/meshcored) and would come back at the next start; change it "
-                 "there");
-        return NULL;
     case MCD_RENAME_BAD_NAME:
     default:
         *code = POCKETIPC_ERR_INVALID_PARAMS;

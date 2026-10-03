@@ -31,6 +31,10 @@ void rift_conv_list_shape(struct rift_conv_list *l, int wide);
  * because a scroll binds rows between refreshes. */
 void rift_conv_list_refresh(struct rift_conv_list *l, const struct rift_conv *conv, int count,
                             const char *open, int64_t now, int reveal);
+/* How tall one conversation row is at the text size in use: a touch
+ * target's height at least. Landscape (wide) is the name's line alone;
+ * portrait is the name's line and the preview's under it. */
+int32_t rift_conv_row_h(int wide);
 /* Rows in the pool, for the test: bounded by the pane, not by the count. */
 int rift_conv_list_rows_built(const struct rift_conv_list *l);
 /* The height every row would take laid out, for the portrait pane. */

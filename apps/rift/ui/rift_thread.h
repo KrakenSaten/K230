@@ -48,6 +48,7 @@ void rift_thread_shape(struct rift_thread *t, int wide);
 /* What is in the portrait composer, and how to empty it once a request has
  * actually been written. */
 const char *rift_thread_composer_text(const struct rift_thread *t);
+lv_obj_t *rift_thread_field(struct rift_thread *t);
 void rift_thread_composer_clear(struct rift_thread *t);
 
 /* Why the composer cannot be used, or NULL when it can. Shown rather than

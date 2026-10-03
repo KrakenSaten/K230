@@ -9,10 +9,10 @@
  *               form in place: a hashtag topic (key derived from the name), a
  *               private channel (a new random key, shown once to be shared),
  *               or a key somebody shared.
- *   THIS DEVICE RENAME, unless the name is set by the service's
- *               configuration; and the path hash size, 1 to 3 bytes, where a
- *               move away from 1 asks first, because older repeaters drop
- *               what they cannot read.
+ *   THIS DEVICE RENAME, whichever way the name was set (and said when the
+ *               service could not save it); and the path hash size, 1 to 3
+ *               bytes, where a move away from 1 asks first, because older
+ *               repeaters drop what they cannot read.
  *
  * Nothing here transmits. A channel is a key held by the service, a name
  * reaches peers in this node's next advert (the ADVERT buttons are right

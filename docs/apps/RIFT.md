@@ -75,9 +75,27 @@ NET**. RIFT draws all four.
   fresh node list as it turns on. Nothing is transmitted to find them: a
   repeater appears when its own advert reaches this device. Neither changes
   the cache or the service.
-- **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
-  message as a preview, the unread pill, when the other side was last heard
-  from with its activity pulse, and how that peer is reached. In portrait
+- **COMMS** — the conversations as rows a reader picks from by name: the
+  name in the title type on a line of its own, with the link glyph, the
+  unread pill, when the other side was last heard from with its activity
+  pulse, and how that peer is reached; in portrait the newest message is a
+  preview in body type on a second line under the name. A row is at least a
+  touch target tall - 62 px in portrait and 56 px in landscape at Small,
+  where it was a 36 px data row with the name and a 14 px preview sharing
+  one line - and grows with the text size (DS §46). **MeshCore's Public
+  channel is always the first row**: it is known by the service's word about
+  its key (`mesh.channels`, `well_known: "public"` - the service compares
+  the key it holds with `8b3387e9c5cdea6ac9e5edbaa115cd72`), never by its
+  local name or its one-byte hash, and every other row keeps the order it
+  had - newest talk first, then joined channels nothing was said on. A node
+  that does not hold the Public key has no such row; none is invented.
+  **Opening a conversation gives its composer the keys**: the thread's
+  field in portrait, the command line's in landscape, so typing on the
+  keyboard base needs no tap first (the touch keyboard still comes up only
+  on a tap). Up and Down in the composer step through the conversations,
+  Esc clears what was typed and, with nothing typed, goes back to ACTIVITY
+  as it did from the list. A dialog or a form that holds the keys keeps
+  them. In portrait
   the list is as tall as its rows - up to five while a thread is open, and
   all but the composer's room while none is - rather than a fixed 268 px.
   Choosing one opens its thread: the messages oldest first, each a body, a
@@ -93,7 +111,7 @@ NET**. RIFT draws all four.
   empty — no placeholder message is invented to make it look begun.
   **Turned, COMMS is a console** (DS §37.2): the shell builds no header for
   RIFT in landscape, so the section strip is the top row - a data row with
-  a back slab at its left - the list is 260 px of glyph, name, pill and
+  a back slab at its left - the list is 300 px of glyph, name, pill and
   age, the thread has the rest of the width under a one-line header that
   carries the route compressed and `DETAILS ›`, and the command line is a
   data row with a short field. The route pane the handoff kept on screen is
@@ -340,8 +358,10 @@ went first - said to have had no answer.
   the service's (1 to 31 bytes, one line, not only spaces). Peers learn the new
   name from this node's next advert - the caption says so, and the ADVERT
   buttons are right above. A name set by `MESHCORED_NAME` (`name_source:
-  config`) is not renamed here: the service refuses, because its next start
-  would put the old name back, and RIFT says where to change it instead.
+  config`) is renamed here like any other: the service keeps the rename over
+  that configured name. When the service answers `persisted: false` the name
+  is in use but was not written, and RIFT says in a warning line that the
+  old name returns when the radio service restarts - never "renamed" alone.
 - **Path hash** (THIS DEVICE): 1, 2 or 3 bytes of each relay's key in the
   paths of this node's floods (MeshCore's path hash size; `mesh.path_hash`).
   1 is the default and what every MeshCore node reads. A move to 2 or 3 asks

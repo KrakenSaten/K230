@@ -31,8 +31,10 @@
  * and the thread with everything else. The details pane is shown only
  * while a reader has asked for it, and takes its width from the thread
  * then. The handoff's 372 / 560 / 300 gave the thread 45 % of the width
- * all the time; this gives it 79 %, and 55 % with the details open. */
-#define LIST_W_WIDE 260
+ * all the time; this gives it 75 %, and 50 % with the details open. The
+ * list was 260 until its names went to the title type: 300 keeps as many
+ * letters of a name as 260 held in the smaller one. */
+#define LIST_W_WIDE 300
 #define CTX_W_WIDE 300
 /* The open row's slab is 2 px taller top and bottom than a row, with 2 px
  * of air each side for the focus outline: 8 px on the list's height. */
@@ -356,7 +358,7 @@ void rift_comms_shape(struct rift_app *app)
          * is sized by its content, is a size LVGL can never settle, and it
          * lays the frame out for ever (found 2026-09-28). */
         lv_obj_set_flex_grow(v->list, 1);
-        lv_obj_set_height(v->list, RIFT_ROW_H);
+        lv_obj_set_height(v->list, rift_conv_row_h(1));
         lv_obj_set_height(v->pane_thread, LV_PCT(100));
         lv_obj_set_flex_grow(v->pane_thread, 1);
         lv_obj_add_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
@@ -392,15 +394,16 @@ static void size_portrait_list(struct rift_comms *v, int count, int open)
 {
     /* What every row laid out takes: a row each, and the open one's slab 8
      * px more (the list lays them out the same way, rift_conv_list.c). */
-    int32_t rows_h = (int32_t)count * RIFT_ROW_H + (open && count > 0 ? SELECTED_EXTRA : 0);
+    int32_t row_h = rift_conv_row_h(0);
+    int32_t rows_h = (int32_t)count * row_h + (open && count > 0 ? SELECTED_EXTRA : 0);
     int32_t cap;
 
     if (open && count > 0) {
-        cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + SELECTED_EXTRA;
+        cap = PORTRAIT_OPEN_ROWS * row_h + SELECTED_EXTRA;
     } else {
         cap = lv_obj_get_height(v->root) - rift_header_row_h() - 1 - THREAD_MIN_H;
-        if (cap < RIFT_ROW_H) {
-            cap = RIFT_ROW_H;
+        if (cap < row_h) {
+            cap = row_h;
         }
     }
     if (rows_h > cap) {
@@ -600,6 +603,13 @@ void rift_comms_refresh(struct rift_app *app)
         }
     }
 
+    /* MeshCore's Public channel is the first row, always: it is the one
+     * channel every node is expected to hold, and a reader should not have
+     * to look for it among whatever spoke last. Which row that is, is the
+     * service's word about the key (rift_channel.is_public), not a name.
+     * Everything else keeps the order it had. */
+    (void)rift_conv_public_first(m, conv, count);
+
     v->order_count = count;
     for (i = 0; i < count; i++) {
         copy_key(v->order_key[i], sizeof(v->order_key[i]), conv[i].key);
@@ -655,20 +665,13 @@ void rift_comms_refresh(struct rift_app *app)
 
 /* ---- keys ------------------------------------------------------------------------ */
 
-int rift_comms_key(struct rift_app *app, uint32_t key)
+int rift_comms_step(struct rift_app *app, int dir)
 {
     struct rift_comms *v = app ? app->comms : NULL;
     int at = -1;
     int i;
 
-    if (!v) {
-        return 0;
-    }
-    /* While the composer holds focus the arrows belong to it: they move a
-     * caret through what is being typed. TAB is what moves between the two
-     * panes (handoff §9), and rift_app owns it, because the landscape
-     * composer is the command line. */
-    if (app->composer_focused || v->order_count == 0) {
+    if (!v || v->order_count == 0 || dir == 0) {
         return 0;
     }
     for (i = 0; i < v->order_count; i++) {
@@ -677,18 +680,45 @@ int rift_comms_key(struct rift_app *app, uint32_t key)
             break;
         }
     }
+    if (dir < 0) {
+        at = at <= 0 ? 0 : at - 1;
+    } else {
+        at = (at < 0 || at + 1 >= v->order_count) ? (at < 0 ? 0 : at) : at + 1;
+    }
+    rift_app_open_conversation(app, v->order_key[at]);
+    return 1;
+}
+
+int rift_comms_key(struct rift_app *app, uint32_t key)
+{
+    struct rift_comms *v = app ? app->comms : NULL;
+
+    if (!v) {
+        return 0;
+    }
+    /* While the composer holds focus the keys are its own: left and right
+     * move a caret through what is being typed, and up and down - which a
+     * one-line field has no use for - are handed back here by the composer
+     * itself (rift_app.c, on_composer_key), so stepping through the list
+     * works from either place. TAB is what moves between the two panes
+     * (handoff §9), and rift_app owns it, because the landscape composer is
+     * the command line. */
+    if (app->composer_focused || v->order_count == 0) {
+        return 0;
+    }
     switch (key) {
     case LV_KEY_UP:
     case LV_KEY_LEFT:
-        at = at <= 0 ? 0 : at - 1;
-        rift_app_open_conversation(app, v->order_key[at]);
-        return 1;
+        return rift_comms_step(app, -1);
     case LV_KEY_DOWN:
     case LV_KEY_RIGHT:
-        at = (at < 0 || at + 1 >= v->order_count) ? (at < 0 ? 0 : at) : at + 1;
-        rift_app_open_conversation(app, v->order_key[at]);
-        return 1;
+        return rift_comms_step(app, 1);
     default:
         return 0;
     }
+}
+
+lv_obj_t *rift_comms_field(const struct rift_app *app)
+{
+    return (app && app->comms) ? rift_thread_field(app->comms->thread) : NULL;
 }

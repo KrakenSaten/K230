@@ -851,6 +851,23 @@ int settingsLoad(Settings& s, const char* dir, char* err)
                 return -1;
             }
             s.path_hash_bytes = v[0] - '0';
+        } else if (strcmp(line, "renamed_over") == 0) {
+            const char* v = eq + 1;
+            size_t k = 0;
+
+            /* Sixteen lower-case hex characters or it is not a mark. One
+             * that is not is left out rather than refused: without it the
+             * configured name wins, which is what an operator who edited
+             * this file by hand would expect, and the path hash size on the
+             * next line is still worth reading. */
+            while (v[k] && ((v[k] >= '0' && v[k] <= '9') || (v[k] >= 'a' && v[k] <= 'f'))) {
+                k++;
+            }
+            if (k == (size_t)RENAMED_OVER_HEX && v[k] == '\0') {
+                memcpy(s.renamed_over, v, k + 1);
+            } else {
+                s.renamed_over[0] = '\0';
+            }
         }
     }
     return 0;
@@ -859,7 +876,7 @@ int settingsLoad(Settings& s, const char* dir, char* err)
 bool settingsSave(const Settings& s, const char* dir, char* err)
 {
     char path[256];
-    char text[64];
+    char text[128];
     int len;
 
     if (s.path_hash_bytes < 1 || s.path_hash_bytes > 3) {
@@ -867,6 +884,10 @@ bool settingsSave(const Settings& s, const char* dir, char* err)
         return false;
     }
     len = snprintf(text, sizeof(text), "path_hash_bytes=%d\n", s.path_hash_bytes);
+    if (s.renamed_over[0]) {
+        len += snprintf(text + len, sizeof(text) - (size_t)len, "renamed_over=%.*s\n",
+                        RENAMED_OVER_HEX, s.renamed_over);
+    }
     joinPath(path, sizeof(path), dir, kSettingsName);
     return writeWhole(path, (const uint8_t*)text, (size_t)len, 0600, err);
 }

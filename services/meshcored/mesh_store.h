@@ -153,15 +153,23 @@ bool channelsSave(const ChannelState& cs, const char* dir, char* err);
 bool channelsQuarantine(const char* dir, char* kept, size_t kept_len, char* err);
 
 /* The service's own settings, settings.v1: text, one key=value a line, so an
- * operator can read it. Today one value, path_hash_bytes (1..3). A key this
- * build does not know is skipped, so a newer file is still read.
+ * operator can read it. Two values: path_hash_bytes (1..3), and renamed_over,
+ * which is not a name. It is the mark of the configured name (--name) that
+ * was in force when the node was renamed through mesh.set_name: 16 hex
+ * characters, mcd_runtime's hash of that configured name. While the
+ * configured name still hashes to it, the name in state.v1 - the rename -
+ * is the one used at a start; a configured name that has been changed since
+ * wins again. Empty when the node was never renamed over a configured name.
+ * A key this build does not know is skipped, so a newer file is still read.
  *
  * settingsLoad returns 0 when the file was read, 1 when there is none (the
  * defaults stand), -1 when it could not be read or holds a value out of
  * range (the defaults stand, err says why). */
+static const int RENAMED_OVER_HEX = 16;
 struct Settings {
     int path_hash_bytes;
-    Settings() : path_hash_bytes(1) {}
+    char renamed_over[RENAMED_OVER_HEX + 1]; /* "" when there is none */
+    Settings() : path_hash_bytes(1) { renamed_over[0] = '\0'; }
 };
 int settingsLoad(Settings& s, const char* dir, char* err);
 bool settingsSave(const Settings& s, const char* dir, char* err);

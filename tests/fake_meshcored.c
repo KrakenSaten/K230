@@ -51,6 +51,7 @@ struct state {
     cJSON *channels;
     char channel_key[8][48];
     char name[32];
+    int renamed; /* mesh.set_name was taken: the name is the stored one now */
     int path_hash_bytes;
 };
 
@@ -92,7 +93,8 @@ static cJSON *identity_json(struct state *st)
     cJSON_AddStringToObject(o, "public_key", SELF_KEY);
     cJSON_AddStringToObject(o, "node_hash", "5f");
     cJSON_AddStringToObject(o, "name", st->name[0] ? st->name : "K230-A");
-    cJSON_AddStringToObject(o, "name_source", st->script->name_pinned ? "config" : "stored");
+    cJSON_AddStringToObject(o, "name_source",
+                            (st->script->name_pinned && !st->renamed) ? "config" : "stored");
     cJSON_AddNumberToObject(o, "name_max", 31);
     return o;
 }
@@ -343,6 +345,10 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             cJSON_AddStringToObject(ch, "name", nm->valuestring);
             cJSON_AddStringToObject(ch, "channel_hash", "a5");
             cJSON_AddNumberToObject(ch, "key_bits", klen == 24 ? 128 : 256);
+            /* As the service does: the Public channel is known by its key. */
+            if (strcmp(key->valuestring, "izOH6cXN6mrJ5e26oRXNcg==") == 0) {
+                cJSON_AddStringToObject(ch, "well_known", "public");
+            }
             cJSON_AddNumberToObject(ch, "text_limit", 147);
             cJSON_AddBoolToObject(ch, "ack_expected", 0);
             cJSON_AddItemToArray(table, cJSON_Duplicate(ch, 1));
@@ -384,12 +390,6 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         } else if (strcmp(name, "mesh.set_name") == 0) {
             const cJSON *nm = cJSON_GetObjectItemCaseSensitive(params, "name");
 
-            if (st->script->name_pinned) {
-                pocketipc_server_reply(s, c, pocketipc_error_response(
-                                                 id, POCKETIPC_ERR_INVALID_PARAMS,
-                                                 "the name is set by meshcored's configuration"));
-                return;
-            }
             if (!cJSON_IsString(nm) || !nm->valuestring[0] || strlen(nm->valuestring) > 31) {
                 pocketipc_server_reply(s, c, pocketipc_error_response(
                                                  id, POCKETIPC_ERR_INVALID_PARAMS,
@@ -397,8 +397,9 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                 return;
             }
             snprintf(st->name, sizeof(st->name), "%s", nm->valuestring);
+            st->renamed = 1;
             result = identity_json(st);
-            cJSON_AddBoolToObject(result, "persisted", 1);
+            cJSON_AddBoolToObject(result, "persisted", !st->script->rename_unsaved);
         } else {
             const cJSON *b = cJSON_GetObjectItemCaseSensitive(params, "bytes");
 

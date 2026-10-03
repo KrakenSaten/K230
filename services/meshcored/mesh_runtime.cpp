@@ -84,6 +84,14 @@ static_assert(mcdstore::MAX_NODES == MAX_CONTACTS,
 
 namespace {
 
+/* MeshCore's well-known Public channel key: upstream's PUBLIC_GROUP_PSK
+ * ("izOH6cXN6mrJ5e26oRXNcg==", examples/companion_radio/MyMesh.cpp), the
+ * 128-bit key every stock MeshCore node joins as its first channel. It is
+ * public by design; it is here so the service can say which of the channels
+ * it holds is that one (mcd_channel.is_public). */
+const uint8_t kPublicChannelKey[16] = { 0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a,
+                                        0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72 };
+
 /* How many received frames wait between one turn of the loop and the next.
  * A burst larger than this is dropped and counted rather than making the
  * daemon allocate without bound because somebody is transmitting quickly. */
@@ -702,6 +710,9 @@ public:
         snprintf(out.name, sizeof(out.name), "%s", ch.name);
         out.hash = ch.channel.hash[0];
         out.key_bits = _key_len[slot] * 8;
+        out.is_public = _key_len[slot] == (int)sizeof(kPublicChannelKey) &&
+                        memcmp(ch.channel.secret, kPublicChannelKey,
+                               sizeof(kPublicChannelKey)) == 0;
         out.text_limit = channelTextLimit();
         return true;
     }
@@ -1696,6 +1707,11 @@ struct mcd_runtime {
     bool channels_blocked;
     /* Where the name in use came from (mcd_runtime_name_source). */
     enum mcd_name_source name_source;
+    /* The mark of the name this start was configured with (--name), "" when
+     * none was; and settings.v1's renamed_over as it stands. Both are needed
+     * by whatever writes settings.v1 next, which writes the whole file. */
+    char config_mark[mcdstore::RENAMED_OVER_HEX + 1];
+    char renamed_over[mcdstore::RENAMED_OVER_HEX + 1];
 
     explicit mcd_runtime(const mcd_runtime_hooks& hooks)
         : mgr(32), radio(hooks),
@@ -1707,8 +1723,39 @@ struct mcd_runtime {
         channel_fault[0] = '\0';
         channels_blocked = false;
         name_source = MCD_NAME_DERIVED;
+        config_mark[0] = '\0';
+        renamed_over[0] = '\0';
     }
 };
+
+/* The mark of a configured name: FNV-1a over its bytes, as 16 hex. It tells
+ * one configured name from another and nothing more - it is not a secret and
+ * nothing is protected by it. */
+static void nameMark(const char* name, char out[mcdstore::RENAMED_OVER_HEX + 1])
+{
+    uint64_t h = 14695981039346656037ULL;
+
+    for (const unsigned char* p = (const unsigned char*)name; *p; p++) {
+        h ^= *p;
+        h *= 1099511628211ULL;
+    }
+    snprintf(out, mcdstore::RENAMED_OVER_HEX + 1, "%016llx", (unsigned long long)h);
+}
+
+/* settings.v1 is written whole, from what the runtime holds. */
+static bool saveSettings(struct mcd_runtime* rt)
+{
+    mcdstore::Settings set;
+    char err[mcdstore::ERR_SIZE] = "";
+
+    set.path_hash_bytes = rt->node.pathHashBytes();
+    snprintf(set.renamed_over, sizeof(set.renamed_over), "%s", rt->renamed_over);
+    if (!mcdstore::settingsSave(set, rt->state_dir, err)) {
+        mcport::logWrite(mcport::LOG_ERROR, "meshcored: %s", err);
+        return false;
+    }
+    return true;
+}
 
 extern "C" {
 
@@ -1894,12 +1941,46 @@ struct mcd_runtime* mcd_runtime_create(const struct mcd_runtime_config* cfg,
     snprintf(rt->state_dir, sizeof(rt->state_dir), "%s", cfg->state_dir);
     rt->node.self_id = id;
 
-    /* The name: what the operator gave wins and is then persisted; otherwise
-     * the stored one; otherwise one derived from the key, which is what the
-     * node hash is anyway. */
+    /* The service's own settings, read before the name is chosen: one of
+     * them says whether the stored name is a rename made over the configured
+     * one. A file that cannot be read leaves the defaults (path hash 1, what
+     * MeshCore has always sent; no rename) and says so; it holds nothing that
+     * cannot be set again. */
+    mcdstore::Settings set;
+    bool stale_mark = false;
+    {
+        char set_err[mcdstore::ERR_SIZE] = "";
+
+        if (mcdstore::settingsLoad(set, cfg->state_dir, set_err) < 0) {
+            mcport::logWrite(mcport::LOG_WARN,
+                             "meshcored: %s; path hash size stays 1 byte, and a configured "
+                             "name is used as given",
+                             set_err);
+            set = mcdstore::Settings();
+        }
+    }
+    snprintf(rt->renamed_over, sizeof(rt->renamed_over), "%s", set.renamed_over);
     if (cfg->node_name && cfg->node_name[0]) {
+        nameMark(cfg->node_name, rt->config_mark);
+    }
+
+    /* The name: what the operator gave wins and is then persisted - unless
+     * the node was renamed (mesh.set_name) while that same configured name
+     * was in force, in which case the rename in state.v1 stands until the
+     * operator configures a different one; otherwise the stored one;
+     * otherwise one derived from the key, which is what the node hash is
+     * anyway. */
+    if (rt->config_mark[0] && st.name[0] && strcmp(rt->config_mark, rt->renamed_over) == 0) {
+        rt->node.setName(st.name);
+        rt->name_source = MCD_NAME_STORED;
+    } else if (cfg->node_name && cfg->node_name[0]) {
         rt->node.setName(cfg->node_name);
         rt->name_source = MCD_NAME_CONFIG;
+        /* The operator configured a different name since the rename, and it
+         * has won: the mark is spent. Left in place it would hand the name
+         * back to state.v1 the day the old configured name was put back. */
+        stale_mark = rt->renamed_over[0] != '\0';
+        rt->renamed_over[0] = '\0';
     } else if (st.name[0]) {
         rt->node.setName(st.name);
         rt->name_source = MCD_NAME_STORED;
@@ -1911,20 +1992,10 @@ struct mcd_runtime* mcd_runtime_create(const struct mcd_runtime_config* cfg,
         rt->node.setName(derived);
     }
 
-    /* The service's own settings: today the path hash size. A file that
-     * cannot be read leaves the default (1, what MeshCore has always sent)
-     * and says so; it holds nothing that cannot be set again. */
-    {
-        mcdstore::Settings set;
-        char set_err[mcdstore::ERR_SIZE] = "";
-        int set_rc = mcdstore::settingsLoad(set, cfg->state_dir, set_err);
-
-        if (set_rc < 0) {
-            mcport::logWrite(mcport::LOG_WARN, "meshcored: %s; path hash size stays 1 byte",
-                             set_err);
-        } else {
-            rt->node.setPathHashBytes((uint8_t)set.path_hash_bytes);
-        }
+    rt->node.setPathHashBytes((uint8_t)set.path_hash_bytes);
+    if (stale_mark && !saveSettings(rt)) {
+        mcport::logWrite(mcport::LOG_WARN, "meshcored: could not clear renamed_over in "
+                                           "settings.v1");
     }
 
     rt->node.begin();
@@ -2088,16 +2159,11 @@ enum mcd_rename_result mcd_runtime_set_name(struct mcd_runtime* rt, const char* 
     size_t len;
     size_t i;
     bool blank = true;
+    bool mark_written = true;
+    bool state_written;
 
     if (persisted) {
         *persisted = false;
-    }
-    if (rt->name_source == MCD_NAME_CONFIG) {
-        /* The operator gave this name on the command line (--name, which
-         * S65meshcored passes from MESHCORED_NAME), and it replaces the
-         * stored one at every start: a rename here would be undone at the
-         * next one, silently. Refused, and the reason says where it is set. */
-        return MCD_RENAME_PINNED;
     }
     if (!name || !mcd_text_acceptable(name, MCD_NODE_NAME_LEN - 1)) {
         return MCD_RENAME_BAD_NAME;
@@ -2121,14 +2187,34 @@ enum mcd_rename_result mcd_runtime_set_name(struct mcd_runtime* rt, const char* 
     if (blank || strcmp(clean, name) != 0) {
         return MCD_RENAME_BAD_NAME;
     }
+    /* A name configured on the command line (--name, which S65meshcored
+     * passes from MESHCORED_NAME) replaces the stored one at a start. So
+     * that this rename is not undone at the next one, settings.v1 records
+     * which configured name it replaced - before the name itself is
+     * written, so that a failure between the two leaves the old name on
+     * both sides of a restart rather than a rename that silently goes. */
+    if (rt->config_mark[0] && strcmp(rt->renamed_over, rt->config_mark) != 0) {
+        char was[sizeof(rt->renamed_over)];
+
+        memcpy(was, rt->renamed_over, sizeof(was));
+        memcpy(rt->renamed_over, rt->config_mark, sizeof(rt->renamed_over));
+        if (!saveSettings(rt)) {
+            memcpy(rt->renamed_over, was, sizeof(was));
+            mark_written = false;
+        }
+    }
     rt->node.rename(name);
     rt->name_source = MCD_NAME_STORED;
     /* Written now, as forgetting a node is: a rename answered and then lost
      * to a restart ten seconds later would make the answer untrue. */
+    state_written = !rt->persist_blocked && mcd_runtime_persist(rt) == 0 && !rt->node.dirty();
     if (persisted) {
-        *persisted = !rt->persist_blocked && mcd_runtime_persist(rt) == 0 && !rt->node.dirty();
-    } else if (!rt->persist_blocked) {
-        (void)mcd_runtime_persist(rt);
+        *persisted = mark_written && state_written;
+    }
+    if (!mark_written || !state_written) {
+        mcport::logWrite(mcport::LOG_WARN,
+                         "meshcored: renamed for this run only; the name was not saved and "
+                         "the old one returns at the next start");
     }
     return MCD_RENAME_OK;
 }
@@ -2140,19 +2226,13 @@ int mcd_runtime_path_hash_bytes(const struct mcd_runtime* rt)
 
 bool mcd_runtime_set_path_hash_bytes(struct mcd_runtime* rt, int bytes, bool* persisted)
 {
-    mcdstore::Settings set;
-    char err[mcdstore::ERR_SIZE] = "";
     bool written;
 
     if (bytes < MCD_PATH_HASH_MIN || bytes > MCD_PATH_HASH_MAX) {
         return false;
     }
     rt->node.setPathHashBytes((uint8_t)bytes);
-    set.path_hash_bytes = bytes;
-    written = mcdstore::settingsSave(set, rt->state_dir, err);
-    if (!written) {
-        mcport::logWrite(mcport::LOG_ERROR, "meshcored: %s", err);
-    }
+    written = saveSettings(rt);
     if (persisted) {
         *persisted = written;
     }

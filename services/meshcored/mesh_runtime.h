@@ -135,6 +135,11 @@ struct mcd_channel {
     char name[MCD_CHANNEL_NAME_LEN];
     uint8_t hash;     /* SHA-256(key)[0] - what MeshCore puts on the air */
     int key_bits;     /* 128 or 256 */
+    /* The key is MeshCore's well-known Public channel key (upstream
+     * PUBLIC_GROUP_PSK, 8b3387e9c5cdea6ac9e5edbaa115cd72): decided here, from
+     * the key itself, because a client is never given the key and a name or
+     * a one-byte hash would be a guess. */
+    bool is_public;
     /* The longest body this node can send on this channel. MeshCore puts
      * "<our name>: " inside the encrypted payload (BaseChatMesh.cpp:492) and
      * silently TRUNCATES the text to make it fit MAX_TEXT_LEN; this service
@@ -341,7 +346,9 @@ void mcd_runtime_identity(const struct mcd_runtime *rt, uint8_t pub_key[MCD_PUB_
  *
  * Where the name in use came from: the command line (--name, from
  * MESHCORED_NAME in /etc/default/meshcored), which replaces the stored one at
- * every start; state.v1; or derived from the key on a first start. */
+ * a start unless the node was renamed over that very configured name since
+ * (settings.v1, renamed_over); state.v1; or derived from the key on a first
+ * start. */
 enum mcd_name_source {
     MCD_NAME_CONFIG = 0,
     MCD_NAME_STORED,
@@ -353,13 +360,20 @@ enum mcd_name_source mcd_runtime_name_source(const struct mcd_runtime *rt);
  * one line, not only spaces. The name is what this node's adverts carry and
  * what it writes in front of every channel message ("<name>: "), so a peer
  * learns it at this node's next advert; nothing is transmitted here. Written
- * to state.v1 straight away (*persisted says whether that happened).
- * Refused while the name comes from the command line, which would put the
- * old one back at the next start. */
+ * to state.v1 straight away, the one place a name is kept.
+ *
+ * A node whose name came from the command line is renamed too. So that the
+ * next start does not put the configured name back, settings.v1 records
+ * which configured name the rename replaced (not the name: its mark); a
+ * configured name changed after that wins again, so the operator keeps the
+ * last word.
+ *
+ * *persisted is true only when everything a restart needs was written: the
+ * state file, and that mark when the name was configured. When it is false
+ * the node runs under the new name now and comes back under the old one. */
 enum mcd_rename_result {
     MCD_RENAME_OK = 0,
     MCD_RENAME_BAD_NAME,
-    MCD_RENAME_PINNED,
 };
 enum mcd_rename_result mcd_runtime_set_name(struct mcd_runtime *rt, const char *name,
                                             bool *persisted);

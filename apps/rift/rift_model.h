@@ -217,6 +217,10 @@ struct rift_channel {
     int have_hash;
     int key_bits;
     int have_key_bits;
+    /* MeshCore's well-known Public channel, by the service's word
+     * (mesh.channels "well_known": "public"): it holds the key and compared
+     * it. Never inferred here from the name or the one-byte hash. */
+    int is_public;
     /* The longest body mesh.send will take on this channel. Smaller than a
      * direct message's 160, because this node's name is sent inside a
      * channel payload. */
@@ -418,6 +422,10 @@ struct rift_action_state {
     int done;    /* the service said yes */
     int failed;  /* it said no, or nobody knows */
     int unknown; /* of failed: nobody knows - the service went before answering */
+    /* Of done, for a rename: the service took the name and said it could
+     * not write it ("persisted": false) - it is in use now and the old one
+     * returns at the service's next start. */
+    int unsaved;
     char key[RIFT_KEY_HEX];     /* the node, for FORGET and RESET_PATH */
     char label[RIFT_NAME_MAX];  /* what the node was called when asked */
     int value;                  /* the slot, or the path hash size, asked about */
@@ -708,6 +716,12 @@ const struct rift_channel *rift_model_channel(const struct rift_model *m, int sl
  * has taken since, for "#<slot>:?", and for anything that is not a channel
  * key. This, and never the slot alone, is what may be written to. */
 const struct rift_channel *rift_model_key_channel(const struct rift_model *m, const char *key);
+/* COMMS' one fixed place: the row of MeshCore's well-known Public channel
+ * (rift_channel.is_public) is moved to the front of list[0..count). Every
+ * other row keeps the order it came in. Nothing is added: a node that does
+ * not hold the channel has no such row, and one that does has exactly one.
+ * Returns the index the row was found at, or -1. */
+int rift_conv_public_first(const struct rift_model *m, struct rift_conv *list, int count);
 
 /* One event: "mesh.state", "mesh.node", "mesh.channel" or "mesh.activity".
  * Anything else -

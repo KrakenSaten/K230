@@ -999,6 +999,34 @@ static void test_settings(void)
               mcdstore::settingsLoad(st, g_dir, g_err) == 0 && st.path_hash_bytes == 3);
     }
     {
+        /* renamed_over: the mark of a configured name a rename replaced. */
+        st = mcdstore::Settings();
+        check("a new Settings carries no rename mark", st.renamed_over[0] == '\0');
+        st.path_hash_bytes = 2;
+        snprintf(st.renamed_over, sizeof(st.renamed_over), "%s", "0123456789abcdef");
+        check("a rename mark is saved beside the path hash size",
+              mcdstore::settingsSave(st, g_dir, g_err));
+        st = mcdstore::Settings();
+        check("and both are read back",
+              mcdstore::settingsLoad(st, g_dir, g_err) == 0 && st.path_hash_bytes == 2 &&
+                  strcmp(st.renamed_over, "0123456789abcdef") == 0);
+        st.renamed_over[0] = '\0';
+        check("saved without one", mcdstore::settingsSave(st, g_dir, g_err));
+        st = mcdstore::Settings();
+        snprintf(st.renamed_over, sizeof(st.renamed_over), "%s", "ffffffffffffffff");
+        check("the file holds none",
+              mcdstore::settingsLoad(st, g_dir, g_err) == 0 && st.renamed_over[0] == '\0');
+    }
+    {
+        const char text[] = "path_hash_bytes=3\nrenamed_over=K230-B\n";
+
+        writeRaw("settings.v1", (const uint8_t*)text, sizeof(text) - 1, 0600);
+        st = mcdstore::Settings();
+        check("a mark that is not 16 hex characters is no mark, and the rest is read",
+              mcdstore::settingsLoad(st, g_dir, g_err) == 0 && st.path_hash_bytes == 3 &&
+                  st.renamed_over[0] == '\0');
+    }
+    {
         const char text[] = "path_hash_bytes=9\n";
 
         writeRaw("settings.v1", (const uint8_t*)text, sizeof(text) - 1, 0600);

@@ -7,6 +7,7 @@
 
 #include "app.h"
 #include "pocketui.h"
+#include "pos_input.h"
 #include "pos_styles.h"
 #include "rift_comms.h"
 #include "rift_emoji.h"
@@ -199,6 +200,11 @@ const char *rift_thread_refusal(const struct rift_app *app)
 const char *rift_thread_composer_text(const struct rift_thread *t)
 {
     return (t && t->field) ? lv_textarea_get_text(t->field) : NULL;
+}
+
+lv_obj_t *rift_thread_field(struct rift_thread *t)
+{
+    return t ? t->field : NULL;
 }
 
 void rift_thread_composer_clear(struct rift_thread *t)
@@ -843,6 +849,13 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
          * from it (see field_enabled above): typing survived only until the
          * next repaint. */
         if (want != t->field_enabled) {
+            /* A field that is disabled leaves the focus group, and whoever
+             * was typing in it - one message is on its way - would have to
+             * tap it again once it is back. Asked for, so the timer returns
+             * the focus when the field can take it (rift_app.c). */
+            if (!want && pos_input_focused() == t->field) {
+                a->focus_composer_pending = 1;
+            }
             t->field_enabled = want;
             pocketui_text_field_set_enabled(t->field, want != 0);
         }

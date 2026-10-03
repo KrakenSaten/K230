@@ -3,11 +3,13 @@
  * size of the floods it starts. The service does both (docs/api/mesh.md,
  * mesh.set_name and mesh.set_path_hash); neither transmits.
  *
- *   RENAME      a form in place, the current name in it. Refused - and said
- *               so before anything is asked - when the name is set by the
- *               service's configuration (MESHCORED_NAME), which would put the
- *               old one back at its next start. Peers learn a new name from
- *               this node's next advert, and the caption says so.
+ *   RENAME      a form in place, the current name in it. A name set by the
+ *               service's configuration (MESHCORED_NAME) is renamed like any
+ *               other; the service keeps the rename over it. Peers learn a
+ *               new name from this node's next advert, and the caption says
+ *               so. A rename the service took and could not write
+ *               ("persisted": false) is shown as NOT SAVED, with a warning
+ *               that the old name returns when the service restarts.
  *   PATH HASH   1, 2 or 3 bytes of each relay's key in the paths of this
  *               node's floods. 1 is what every MeshCore node reads; a move to
  *               2 or 3 asks first, because repeaters whose firmware does not

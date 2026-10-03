@@ -192,8 +192,9 @@ is what MeshCore routes on), `name`, `name_source` and `name_max`.
 
 `name_source` says where the name in use came from: `config` - the command
 line (`--name`, which `S65meshcored` passes from `MESHCORED_NAME` in
-`/etc/default/meshcored`) and which replaces the stored name at every start;
-`stored` - `state.v1`; `derived` - made from the key on a first start.
+`/etc/default/meshcored`); `stored` - `state.v1`, which is also where a rename
+made over a configured name is kept; `derived` - made from the key on a first
+start.
 `name_max` is the most bytes a name can be (31, MeshCore's `node_name`).
 
 The private key is not reported by this method or any other, at any verbosity.
@@ -208,13 +209,22 @@ Renames this node: the name its adverts carry, and the `"<name>: "` it writes
 in front of every channel message - so each channel's `text_limit` changes
 with it, and a client re-reads `mesh.channels`. **Nothing is transmitted.**
 Peers learn the new name from this node's next advert (`mesh.advert`); until
-then they show the old one. `state.v1` is written before the answer is sent,
-and `persisted` says whether it was (false while the stored table is not being
-written, see "A node state this service will not read").
+then they show the old one.
 
-Errors: 2 for a name that breaks the rule above, and 2 while `name_source` is
-`config`: a name given on the command line comes back at the next start, so
-a rename here would be undone silently. Change `MESHCORED_NAME` instead.
+`state.v1` is the one place the name is kept, and it is written before the
+answer is sent. A node whose name is configured (`name_source` `config`) is
+renamed too: `settings.v1` then records which configured name the rename
+replaced (`renamed_over`, a mark of that name and not a name), so the next
+start keeps the rename instead of putting the configured name back. A
+configured name that is changed afterwards wins again.
+
+`persisted` is `true` only when everything a restart needs was written. When
+it is `false` the node runs under the new name now and **comes back under the
+old one at the next start**; a client must not show such a rename as saved.
+(False while the stored table is not being written, see "A node state this
+service will not read", or when either file could not be written.)
+
+Errors: 2 for a name that breaks the rule above.
 
 ### mesh.path_hash
 
@@ -352,6 +362,7 @@ A channel:
 | `name` | local, and **never on the air**. Two nodes on one channel routinely call it different things. |
 | `channel_hash` | one byte, hex: `SHA-256(key)[0]`, which is what MeshCore puts in the clear at the head of every group frame |
 | `key_bits` | 128 or 256 |
+| `well_known` | `"public"` when the key is MeshCore's well-known Public channel key (`8b3387e9c5cdea6ac9e5edbaa115cd72`, upstream `PUBLIC_GROUP_PSK`); absent otherwise. Decided by the service from the key itself, never from the name or the hash. |
 | `text_limit` | the longest body `mesh.send` will take on this channel |
 | `ack_expected` | always `false` |
 

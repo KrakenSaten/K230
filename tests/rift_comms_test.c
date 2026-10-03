@@ -166,6 +166,96 @@ static int name_is(const char *got, const char *want)
     "\"peer_name\":\"HYTTA\",\"text\":\"direct\",\"state\":\"received\","                          \
     "\"ack_expected\":false,\"mono_ms\":" #id "00}"
 
+/* A channel message in a slot of the caller's choosing. */
+#define MSG_CH(id, slot, hash, name)                                                               \
+    "{\"id\":" #id ",\"direction\":\"in\",\"kind\":\"channel\",\"channel\":" #slot ","             \
+    "\"channel_name\":\"" name "\",\"channel_hash\":\"" hash "\",\"sender_name\":\"X\","           \
+    "\"text\":\"X: hello\",\"state\":\"received\",\"ack_expected\":false,\"mono_ms\":" #id "00}"
+
+/* COMMS puts MeshCore's Public channel first, known by the service's word
+ * about its key - never by a name, never by the one-byte hash - and moves
+ * nothing else. */
+static void test_public_first(void)
+{
+    static struct rift_model s;
+    static struct rift_conv conv[RIFT_MAX_CONVERSATIONS];
+    static struct rift_conv was[RIFT_MAX_CONVERSATIONS];
+    char bench[RIFT_KEY_HEX];
+    char pub[RIFT_KEY_HEX];
+    char fake[RIFT_KEY_HEX];
+    int n;
+    int i;
+    int hits;
+
+    rift_channel_key(0, "9a", "#doorsbench", bench, sizeof(bench));
+    rift_channel_key(1, "11", "torget", pub, sizeof(pub));
+    rift_channel_key(2, "11", "Public", fake, sizeof(fake));
+    rift_model_init(&s);
+    /* Slot 1 holds the well-known key under a local name. Slot 2 is called
+     * Public and even shares the hash byte, and is not it. */
+    apply_channels_json(&s,
+                        "{\"channels\":["
+                        "{\"channel\":0,\"name\":\"#doorsbench\",\"channel_hash\":\"9a\","
+                        "\"key_bits\":128,\"text_limit\":150},"
+                        "{\"channel\":1,\"name\":\"torget\",\"channel_hash\":\"11\","
+                        "\"key_bits\":128,\"well_known\":\"public\",\"text_limit\":150},"
+                        "{\"channel\":2,\"name\":\"Public\",\"channel_hash\":\"11\","
+                        "\"key_bits\":128,\"text_limit\":150}],\"count\":3,\"max\":8}");
+    check("public first: the service's mark is taken for the channel that has it",
+          rift_model_channel(&s, 1) && rift_model_channel(&s, 1)->is_public);
+    check("public first: a channel named Public with the same hash byte is not it",
+          rift_model_channel(&s, 2) && !rift_model_channel(&s, 2)->is_public &&
+              !rift_model_channel(&s, 0)->is_public);
+    /* Public spoke first, so it is the oldest conversation and sorts last. */
+    check("public first: messages on all three and a direct one",
+          apply_message(&s, MSG_CH(1, 1, "11", "torget")) == 0 &&
+              apply_message(&s, MSG_CH(2, 2, "11", "Public")) == 0 &&
+              apply_message(&s, MSG_CH(3, 0, "9a", "#doorsbench")) == 0 &&
+              apply_message(&s, MSG_DIRECT(4)) == 0);
+    n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
+    check("public first: four conversations, newest first as before",
+          n == 4 && strcmp(conv[0].key, KEY_A) == 0 && strcmp(conv[1].key, bench) == 0 &&
+              strcmp(conv[2].key, fake) == 0 && strcmp(conv[3].key, pub) == 0);
+    memcpy(was, conv, sizeof(conv[0]) * (size_t)n);
+    check("public first: the Public row is found where the order had left it",
+          rift_conv_public_first(&s, conv, n) == 3);
+    check("public first: and is the first row now", strcmp(conv[0].key, pub) == 0);
+    check("public first: the others keep the order they had",
+          strcmp(conv[1].key, was[0].key) == 0 && strcmp(conv[2].key, was[1].key) == 0 &&
+              strcmp(conv[3].key, was[2].key) == 0);
+    check("public first: the row itself is unchanged - its unread, its newest message",
+          conv[0].unread == was[3].unread && conv[0].newest == was[3].newest &&
+              conv[0].total == was[3].total && conv[0].is_channel);
+    hits = 0;
+    for (i = 0; i < n; i++) {
+        if (strcmp(conv[i].key, pub) == 0) {
+            hits++;
+        }
+    }
+    check("public first: there is one Public row, not two", hits == 1);
+    check("public first: asked again, it is already first and nothing moves",
+          rift_conv_public_first(&s, conv, n) == 0 && strcmp(conv[0].key, pub) == 0 &&
+              strcmp(conv[1].key, was[0].key) == 0);
+
+    /* The same node without the service's mark: nothing is guessed. */
+    apply_channels_json(&s,
+                        "{\"channels\":["
+                        "{\"channel\":0,\"name\":\"#doorsbench\",\"channel_hash\":\"9a\","
+                        "\"key_bits\":128,\"text_limit\":150},"
+                        "{\"channel\":1,\"name\":\"torget\",\"channel_hash\":\"11\","
+                        "\"key_bits\":128,\"text_limit\":150},"
+                        "{\"channel\":2,\"name\":\"Public\",\"channel_hash\":\"11\","
+                        "\"key_bits\":128,\"well_known\":\"somethingelse\",\"text_limit\":150}],"
+                        "\"count\":3,\"max\":8}");
+    n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
+    memcpy(was, conv, sizeof(conv[0]) * (size_t)n);
+    check("public first: with no mark from the service no row is moved",
+          rift_conv_public_first(&s, conv, n) == -1 &&
+              memcmp(was, conv, sizeof(conv[0]) * (size_t)n) == 0);
+    check("public first: nothing to do with no list", rift_conv_public_first(&s, NULL, 0) == -1 &&
+                                                          rift_conv_public_first(&s, conv, 0) == -1);
+}
+
 static void test_slot_reuse(void)
 {
     static struct rift_model s;
@@ -432,6 +522,8 @@ int main(void)
     char text[RIFT_MSG_CAPTION_MAX];
     int older = 0;
     int n;
+
+    test_public_first();
 
     /* ---- a snapshot is history, not news -------------------------------- */
     rift_model_init(&m);

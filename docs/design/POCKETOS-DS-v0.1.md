@@ -3270,10 +3270,15 @@ screen all the time that is not messages or the way to them.
   targets there, against RIFT-DEV-1's 56 for navigation: the owner's call,
   in the brief, for the shape where a keyboard base is attached and the
   tabs are also Esc and the arrows. Portrait keeps the 56 px strip.
-- **The list is narrow**: 260 px (`LIST_W_WIDE`; was 372), showing the
-  identity mark, the glyph, the name, the unread pill and the age; the
-  preview and the route are the thread's header's. The list is virtual
-  (§37.5).
+- **The list is narrow**: 300 px (`LIST_W_WIDE`; was 372, then 260),
+  showing the identity mark, the glyph, the name, the unread pill and the
+  age; the preview and the route are the thread's header's. The list is
+  virtual (§37.5). *[PROPOSED, feat/rift-comms-usability]* A conversation
+  row is a 56 px target with the name in the title type (it was a 36 px
+  data row in the row-title type), and the 40 px of extra width keeps as
+  many letters of a name as before; the thread still has three quarters of
+  the width. Portrait's row is the name's line and the preview's under it
+  (62 px at Small). The row's height follows the text size (§46).
 - **The thread's header is one line**, 28 px (handoff §4 "row header"):
   glyph, name, state, the route compressed as the hop strip compresses it
   (`K230-A › OSLO-01 › … +5 › HYTTA`), `N EARLIER`, and `DETAILS ›`.

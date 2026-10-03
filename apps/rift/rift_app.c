@@ -213,7 +213,7 @@ static void paint_cmdline(struct rift_app *a)
         if (live) {
             lv_obj_remove_flag(wrap, LV_OBJ_FLAG_HIDDEN);
         } else {
-            if (a->composer_focused) {
+            if (pos_input_focused() == a->composer) {
                 /* Focus does not stay in a field that is no longer there.
                  * Moved before it is hidden, so the field's own DEFOCUSED
                  * event is what clears the flag. */
@@ -283,6 +283,16 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         return;
     }
     a->section = section;
+    if (section != RIFT_SEC_COMMS) {
+        /* The composer is COMMS': the keys go back to the list's sink, from
+         * the timer (this may be running inside the field's own key event). */
+        a->focus_composer_pending = 0;
+        if (a->composer_focused) {
+            a->focus_list_pending = 1;
+        }
+    } else if (a->have_conv) {
+        a->focus_composer_pending = 1;
+    }
     if (section != RIFT_SEC_NODES) {
         a->detail_open = 0;
         /* Leaving NODES is a Cancel for any confirmation left up there. */
@@ -321,6 +331,9 @@ void rift_app_open_conversation(struct rift_app *a, const char *key)
     if (a->section != RIFT_SEC_COMMS) {
         rift_app_show_section(a, RIFT_SEC_COMMS);
     }
+    /* Opened to be written in: the composer takes the keys (the timer does
+     * it, see focus_composer_pending). The row tapped again asks again. */
+    a->focus_composer_pending = 1;
     if (a->have_conv && strcmp(a->conv, key) == 0) {
         return;
     }
@@ -394,25 +407,6 @@ void rift_app_refresh(struct rift_app *a)
 
 /* ---- keys ------------------------------------------------------------------ */
 
-/* Which of the two has the focus is LVGL's business, not this app's: the
- * command line's field and the key sink are both in the one Doors focus
- * group, and TAB moves between them because that is what a focus group
- * does (DS §17.2). This only *follows* that, so the hint line and the
- * arrow keys know where the keys are going. */
-static void on_composer_focus(lv_event_t *e)
-{
-    struct rift_app *a = lv_event_get_user_data(e);
-
-    a->composer_focused = (lv_event_get_code(e) == LV_EVENT_FOCUSED);
-    /* Asked for, not done here. This runs inside lv_group_focus_obj, which
-     * sends DEFOCUSED to the old object and *abandons the focus change* if
-     * that event does not come back clean - and a refresh rebuilds rows,
-     * which is exactly the kind of thing that does not. Leaving the group's
-     * bookkeeping alone and repainting on the next timer pass keeps Esc's
-     * way out of the composer working. */
-    a->refresh_pending = 1;
-}
-
 static void on_key(lv_event_t *e)
 {
     struct rift_app *a = lv_event_get_user_data(e);
@@ -427,57 +421,6 @@ static void on_key(lv_event_t *e)
     if (key == LV_KEY_ESC && a->section != RIFT_SEC_ACTIVITY) {
         rift_app_show_section(a, RIFT_SEC_ACTIVITY);
     }
-}
-
-/* Keys while the landscape composer holds focus. Enter is the field's own
- * READY event; this is Esc, which clears what was typed and, when there is
- * nothing left to clear, hands the list its focus back.
- *
- * TAB is deliberately not handled. It reaches the field as character 9 and
- * the text area inserts it, which is a tab in the message - legal text, one
- * of the two control characters mesh.send takes. Taking it back off the
- * field to move focus would mean undoing an edit the widget has already
- * made; Esc is the way out, and the hint line says so. */
-static void on_composer_key(lv_event_t *e)
-{
-    struct rift_app *a = lv_event_get_user_data(e);
-    uint32_t key = lv_event_get_key(e);
-
-    const char *text;
-    int typed = 0;
-    int i;
-
-    if (key != LV_KEY_ESC || !a->composer) {
-        return;
-    }
-    /* The field already holds this Esc.
-     *
-     * A text area's own class handler runs before any callback added to it
-     * and puts the key in the buffer, so by the time this is reached the
-     * field contains character 27 whether or not anything was typed before
-     * it. Asking whether the field is empty would therefore always answer
-     * no, and Esc would never do anything but clear itself. What counts as
-     * typed is a character somebody could have meant: a control character
-     * is not one, and mesh.send would refuse it anyway. */
-    text = lv_textarea_get_text(a->composer);
-    for (i = 0; text && text[i]; i++) {
-        if ((unsigned char)text[i] >= 0x20 && (unsigned char)text[i] != 0x7F) {
-            typed = 1;
-            break;
-        }
-    }
-    lv_textarea_set_text(a->composer, "");
-    if (typed) {
-        /* There was something to clear, and now it is cleared. */
-        rift_model_send_clear(&a->model);
-        rift_app_refresh(a);
-        return;
-    }
-    /* Nothing to clear, so Esc means "give the list its focus back". Asked
-     * for rather than done here: changing the group's focus from inside the
-     * event LVGL is dispatching does not stick. */
-    a->focus_list_pending = 1;
-    a->refresh_pending = 1;
 }
 
 /* ---- layout ---------------------------------------------------------------- */
@@ -562,6 +505,11 @@ static void layout(struct rift_app *a)
     wide = w > h && w >= RIFT_SPLIT_MIN_W;
     if (wide != a->wide) {
         a->wide = wide;
+        /* Whoever was writing keeps writing: the other shape's composer
+         * takes the focus this one had. */
+        if (a->composer_focused) {
+            a->focus_composer_pending = 1;
+        }
         /* A pane left open in one shape does not follow into the other. */
         a->details_open = 0;
         /* Nor does a form or a confirmation on ACTIVITY: turning the panel is
@@ -632,6 +580,9 @@ static void pump(lv_timer_t *t)
         a->focus_list_pending = 0;
         pos_input_focus(a->keysink);
     }
+    if (a->focus_composer_pending) {
+        rift_focus_composer(a);
+    }
 }
 
 /* ---- lifecycle --------------------------------------------------------------- */
@@ -695,11 +646,7 @@ static void *rift_create(lv_obj_t *root)
     /* The sink was made first (build_keysink); it goes last among the
      * frame's children, where it has always been. */
     lv_obj_move_to_index(a->keysink, -1);
-    if (a->composer) {
-        lv_obj_add_event_cb(a->composer, on_composer_key, LV_EVENT_KEY, a);
-        lv_obj_add_event_cb(a->composer, on_composer_focus, LV_EVENT_FOCUSED, a);
-        lv_obj_add_event_cb(a->composer, on_composer_focus, LV_EVENT_DEFOCUSED, a);
-    }
+    rift_focus_attach(a);
 
     /* One key sink for the app, as the calculator has: the rows stay out of
      * the focus group, and the arrows, Enter and Esc reach whichever section

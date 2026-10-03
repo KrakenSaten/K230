@@ -778,8 +778,9 @@ static void test_advert_hops(Node& a, Node& b, Air& air)
 }
 
 /* Start a node again on its own state directory, as the daemon would after a
- * restart, with no --name: whatever is stored is what it comes back with. */
-static bool restartNode(Node& a, Air& air)
+ * restart. With no --name whatever is stored is what it comes back with;
+ * name is what MESHCORED_NAME would pass. */
+static bool restartNode(Node& a, Air& air, const char* name = NULL)
 {
     char err[256] = "";
     struct mcd_runtime_hooks hooks;
@@ -797,7 +798,7 @@ static bool restartNode(Node& a, Air& air)
     hooks.user = &a;
     memset(&cfg, 0, sizeof(cfg));
     cfg.state_dir = a.dir;
-    cfg.node_name = NULL;
+    cfg.node_name = name;
     a.rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
     if (!a.rt) {
         fprintf(stderr, "restart: %s\n", err);
@@ -856,7 +857,6 @@ static void test_rename_and_path_hash(Node& a, Node& b, Air& air)
     uint8_t frame[MCD_MAX_FRAME];
     struct mcd_node node;
     bool persisted = false;
-    bool pin_persisted = true;
     int len;
 
     mcd_runtime_identity(a.rt, a_key, was, sizeof(was));
@@ -911,15 +911,11 @@ static void test_rename_and_path_hash(Node& a, Node& b, Air& air)
           mcd_runtime_node_by_prefix(b.rt, a_key, 8, &node) == 1 &&
               strcmp(node.name, "K230-\xC3\x98st") == 0);
 
-    /* B was started with --name: its name is the operator's. */
+    /* B was started with --name: its name is the operator's until somebody
+     * renames it (test_rename_over_config, on a node of its own). */
     mcd_runtime_identity(b.rt, key, was, sizeof(was));
     check("a name given on the command line says so",
           mcd_runtime_name_source(b.rt) == MCD_NAME_CONFIG);
-    check("and is not renamed over IPC, since the next start would undo it",
-          mcd_runtime_set_name(b.rt, "Other", &pin_persisted) == MCD_RENAME_PINNED &&
-              !pin_persisted);
-    mcd_runtime_identity(b.rt, key, name, sizeof(name));
-    check("so B keeps its name", strcmp(name, was) == 0);
 
     /* ---- the path hash size ---- */
     check("the path hash size starts at 1 byte, as MeshCore always has",
@@ -973,6 +969,161 @@ static void test_rename_and_path_hash(Node& a, Node& b, Air& air)
     /* A zero-hop advert carries no path at all, whatever the size. */
     check("the old name is put back for the tests after this",
           mcd_runtime_set_name(a.rt, "K230-A", &persisted) == MCD_RENAME_OK);
+}
+
+/* ---- renaming a node whose name is configured, and a rename not saved ---- */
+static void test_rename_over_config(void)
+{
+    Air air;
+    Node c;
+    uint8_t key[MCD_PUB_KEY_LEN];
+    char name[MCD_NODE_NAME_LEN];
+    char file[256];
+    char state[512];
+    bool persisted = false;
+
+    /* Started as S65meshcored starts a unit with MESHCORED_NAME=CFG-NAME. */
+    check("a node with a configured name starts", makeNode(c, air, "CFG-NAME", NULL));
+    if (!c.rt) {
+        return;
+    }
+    check("its name is the configured one",
+          mcd_runtime_name_source(c.rt) == MCD_NAME_CONFIG);
+    check("it is renamed all the same",
+          mcd_runtime_set_name(c.rt, "Renamed", &persisted) == MCD_RENAME_OK);
+    check("and the rename is saved", persisted);
+    mcd_runtime_identity(c.rt, key, name, sizeof(name));
+    check("the node runs under the new name", strcmp(name, "Renamed") == 0);
+    check("which is the stored one now", mcd_runtime_name_source(c.rt) == MCD_NAME_STORED);
+    readFile(c.dir, "settings.v1", file, sizeof(file));
+    check("settings.v1 marks which configured name was renamed over",
+          strstr(file, "renamed_over=") != NULL);
+    check("and holds no name: the name is in state.v1 alone",
+          strstr(file, "Renamed") == NULL && strstr(file, "CFG-NAME") == NULL);
+    readFile(c.dir, "state.v1", state, sizeof(state));
+    check("state.v1 carries it", memcmp(state + 8, "Renamed", 8) == 0);
+
+    check("the node restarts, configured as before", restartNode(c, air, "CFG-NAME"));
+    if (!c.rt) {
+        return;
+    }
+    mcd_runtime_identity(c.rt, key, name, sizeof(name));
+    check("and keeps the rename over the configured name",
+          strcmp(name, "Renamed") == 0 && mcd_runtime_name_source(c.rt) == MCD_NAME_STORED);
+    check("a path hash change", mcd_runtime_set_path_hash_bytes(c.rt, 2, &persisted) &&
+                                     persisted);
+    readFile(c.dir, "settings.v1", file, sizeof(file));
+    check("writes settings.v1 with the mark still in it",
+          strstr(file, "path_hash_bytes=2\n") != NULL && strstr(file, "renamed_over=") != NULL);
+    check("so the rename survives that too",
+          restartNode(c, air, "CFG-NAME") && mcd_runtime_name_source(c.rt) == MCD_NAME_STORED);
+    if (!c.rt) {
+        return;
+    }
+    persisted = false;
+    check("a second rename needs no new mark",
+          mcd_runtime_set_name(c.rt, "Again", &persisted) == MCD_RENAME_OK && persisted);
+
+    /* The operator keeps the last word: a different configured name wins. */
+    check("the node restarts with another configured name",
+          restartNode(c, air, "OPERATOR"));
+    if (!c.rt) {
+        return;
+    }
+    mcd_runtime_identity(c.rt, key, name, sizeof(name));
+    check("which replaces the rename",
+          strcmp(name, "OPERATOR") == 0 && mcd_runtime_name_source(c.rt) == MCD_NAME_CONFIG);
+    readFile(c.dir, "settings.v1", file, sizeof(file));
+    check("the mark is spent, and the path hash size kept",
+          strstr(file, "renamed_over=") == NULL && strstr(file, "path_hash_bytes=2\n") != NULL);
+    check("the first configured name put back", restartNode(c, air, "CFG-NAME"));
+    if (!c.rt) {
+        return;
+    }
+    mcd_runtime_identity(c.rt, key, name, sizeof(name));
+    check("is used as given: an old rename does not come back",
+          strcmp(name, "CFG-NAME") == 0 && mcd_runtime_name_source(c.rt) == MCD_NAME_CONFIG);
+
+    /* A rename that cannot be written: taken for this run, and said to be
+     * unsaved - never answered as if it would survive. The directory is made
+     * read-only, which stops a temporary file being created in it (root is
+     * not stopped by that, and the case is skipped for root). */
+    if (geteuid() != 0) {
+        check("the state directory is made read-only", chmod(c.dir, 0500) == 0);
+        persisted = true;
+        check("a rename is still taken",
+              mcd_runtime_set_name(c.rt, "Unsaved", &persisted) == MCD_RENAME_OK);
+        check("but is reported as not saved", !persisted);
+        mcd_runtime_identity(c.rt, key, name, sizeof(name));
+        check("the node runs under it for now", strcmp(name, "Unsaved") == 0);
+        check("the directory is writable again", chmod(c.dir, 0700) == 0);
+        readFile(c.dir, "state.v1", state, sizeof(state));
+        check("state.v1 was not touched", memcmp(state + 8, "CFG-NAME", 9) == 0);
+        readFile(c.dir, "settings.v1", file, sizeof(file));
+        check("nor was a mark written", strstr(file, "renamed_over=") == NULL);
+        /* SIGKILL, in effect: destroy would write the state on the way out. */
+        check("asked again once it can be written, the same name is saved",
+              mcd_runtime_set_name(c.rt, "Unsaved", &persisted) == MCD_RENAME_OK && persisted);
+        check("and survives a restart",
+              restartNode(c, air, "CFG-NAME") && mcd_runtime_name_source(c.rt) == MCD_NAME_STORED);
+        if (c.rt) {
+            mcd_runtime_identity(c.rt, key, name, sizeof(name));
+            check("under the saved name", strcmp(name, "Unsaved") == 0);
+        }
+    }
+    if (c.rt) {
+        mcd_runtime_destroy(c.rt);
+        c.rt = NULL;
+    }
+}
+
+/* ---- the well-known Public channel ---------------------------------------- */
+static void test_public_channel(void)
+{
+    Air air;
+    Node c;
+    struct mcd_channel pub;
+    struct mcd_channel other;
+    struct mcd_channel named;
+    struct mcd_channel at;
+
+    check("a node for the Public channel case starts", makeNode(c, air, "PUB-NODE", NULL));
+    if (!c.rt) {
+        return;
+    }
+    memset(&pub, 0, sizeof(pub));
+    memset(&other, 0, sizeof(other));
+    memset(&named, 0, sizeof(named));
+    /* A channel only called Public: a 128-bit key that is not the one. */
+    check("a channel named Public with another key is joined",
+          mcd_runtime_channel_add(c.rt, "Public", "AAECAwQFBgcICQoLDA0ODw==", &named) ==
+              MCD_CHANNEL_OK);
+    check("and is not the Public channel: the name decides nothing", !named.is_public);
+    /* MeshCore's PUBLIC_GROUP_PSK, 8b3387e9c5cdea6ac9e5edbaa115cd72, under a
+     * local name of the operator's choosing. */
+    check("the well-known key is joined under another name",
+          mcd_runtime_channel_add(c.rt, "torget", "izOH6cXN6mrJ5e26oRXNcg==", &pub) ==
+              MCD_CHANNEL_OK);
+    check("and is the Public channel, by its key", pub.is_public && pub.key_bits == 128);
+    check("its hash is the one MeshCore nodes put on the air for Public", pub.hash == 0x11);
+    check("a second copy of that key is refused: there is one Public row",
+          mcd_runtime_channel_add(c.rt, "Public 2", "izOH6cXN6mrJ5e26oRXNcg==", &other) !=
+              MCD_CHANNEL_OK);
+    check("the list says the same after a restart", restartNode(c, air, "PUB-NODE"));
+    if (c.rt) {
+        int publics = 0;
+
+        for (int i = 0; mcd_runtime_channel_at(c.rt, i, &at); i++) {
+            if (at.is_public) {
+                publics++;
+                check("the Public channel kept its slot and its local name",
+                      at.slot == pub.slot && strcmp(at.name, "torget") == 0);
+            }
+        }
+        check("exactly one channel is the Public one", publics == 1);
+        mcd_runtime_destroy(c.rt);
+        c.rt = NULL;
+    }
 }
 
 /* ---- the PATH guard ----------------------------------------------------- */
@@ -2960,6 +3111,8 @@ int main(void)
     test_path_guard(a, b, air, a_id, b_id);
     test_restart(a, air);
     test_rename_and_path_hash(a, b, air);
+    test_rename_over_config();
+    test_public_channel();
     test_channels(a, b, air);
     test_channel_empty_slot_guard(a, air);
     test_channel_restart(a, air);
