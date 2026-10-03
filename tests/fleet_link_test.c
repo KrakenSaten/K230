@@ -181,6 +181,84 @@ static int events_done(struct fleet_link *l)
     return l->ops->peers(l->ctx, p, 4) == 1;
 }
 
+static int has_peers(struct fleet_link *l)
+{
+    struct fleet_link_peer p[1];
+
+    return l->ops->peers(l->ctx, p, 1) == 1;
+}
+
+/* A mesh.nodes array of nodes first..last (either way round): node i's key is
+ * byte i throughout, it was heard i seconds ago, and it is a companion - one
+ * that could play - from node `players_from` on; before that, alternately a
+ * repeater and a room server. */
+static void crowd_json(char *out, size_t size, int first, int last, int players_from)
+{
+    int step = first <= last ? 1 : -1;
+    size_t used = 0;
+    int i;
+
+    used += (size_t)snprintf(out + used, size - used, "[");
+    for (i = first;; i += step) {
+        char hex[2 * FLEET_KEY_BYTES + 1];
+        int b;
+
+        for (b = 0; b < FLEET_KEY_BYTES; b++) {
+            snprintf(hex + 2 * b, 3, "%02x", i);
+        }
+        used += (size_t)snprintf(out + used, size - used,
+                                 "%s{\"public_key\":\"%s\",\"name\":\"N%d\",\"type\":%d,"
+                                 "\"path_known\":true,\"hops\":1,\"last_heard_mono_ms\":-%d}",
+                                 i == first ? "" : ",", hex, i,
+                                 i >= players_from ? 1 : 2 + (i & 1), i * 1000);
+        if (i == last) {
+            break;
+        }
+    }
+    snprintf(out + used, size - used, "]");
+}
+
+/* Who the link lists from a service holding `nodes`, into peers. */
+static int crowd_peers(const char *nodes, struct fleet_link_peer *peers, int max)
+{
+    struct fake_meshcored_script script;
+    struct fleet_link *l;
+    pid_t pid;
+    int n = -1;
+
+    memset(&script, 0, sizeof(script));
+    script.nodes_json = nodes;
+    script.life_ms = 20000;
+    pid = fake_meshcored_spawn(&script);
+    if (pid > 0 && fake_meshcored_wait_ready(WAIT_MS)) {
+        l = fleet_link_mesh_open(NULL);
+        spin(l, WAIT_MS, is_up);
+        spin(l, WAIT_MS, has_peers);
+        n = l->ops->peers(l->ctx, peers, max);
+        l->ops->close(l->ctx);
+    }
+    if (pid > 0) {
+        fake_meshcored_stop(pid);
+    }
+    return n;
+}
+
+/* Every peer i in order is node first + i, for count of them. */
+static int peers_are(const struct fleet_link_peer *peers, int count, int first)
+{
+    int i;
+    int b;
+
+    for (i = 0; i < count; i++) {
+        for (b = 0; b < FLEET_KEY_BYTES; b++) {
+            if (peers[i].key[b] != (uint8_t)(first + i)) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 int main(void)
 {
     char runtime[] = "/tmp/fleet_link_test.XXXXXX";
@@ -361,6 +439,31 @@ int main(void)
         check("and nothing was asked to go out", file_size(apps) == 0);
         l->ops->close(l->ctx);
         fake_meshcored_stop(pid);
+    }
+
+    /* ---- more nodes than the link holds ------------------------------------------ */
+    /* The link holds 64 players. It used to hold the first 64 nodes the service
+     * listed, repeaters and room servers included, and filter after: a player
+     * listed 65th never reached the lobby. */
+    {
+        static char nodes[16384];
+        struct fleet_link_peer many[80];
+
+        crowd_json(nodes, sizeof(nodes), 1, 65, 65);
+        n = crowd_peers(nodes, many, 80);
+        check("64 repeaters and room servers do not crowd out the player listed 65th",
+              n == 1 && peers_are(many, 1, 65) && strcmp(many[0].name, "N65") == 0);
+
+        crowd_json(nodes, sizeof(nodes), 1, 70, 1);
+        n = crowd_peers(nodes, many, 80);
+        check("of 70 players, the 64 most recently heard are listed, most recent first",
+              n == 64 && peers_are(many, 64, 1));
+        crowd_json(nodes, sizeof(nodes), 70, 1, 1);
+        n = crowd_peers(nodes, many, 80);
+        check("the same 64 in the same order, whichever way round the service lists them",
+              n == 64 && peers_are(many, 64, 1));
+        n = crowd_peers(nodes, many, 5);
+        check("and a lobby asking for 5 gets the 5 most recent", n == 5 && peers_are(many, 5, 1));
     }
 
     {

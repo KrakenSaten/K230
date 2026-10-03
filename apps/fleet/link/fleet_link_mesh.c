@@ -53,6 +53,9 @@
  * quarter of an hour ago is not one to show. */
 #define STALE_MS (15 * 60 * 1000)
 #define RX_QUEUE 16
+/* Players held, not nodes heard: the service lists every node, but only those
+ * that could play are kept (node_apply), and when more than this many could,
+ * the most recently heard are. The lobby shows far fewer. */
 #define NODES_MAX 64
 #define ADV_TYPE_CHAT 1              /* MeshCore's advert type for a companion (DOCUMENTED:
                                       * vendor/RIFT/src/helpers/AdvertDataHelpers.h) */
@@ -85,7 +88,6 @@ struct node {
     char name[FLEET_LINK_NAME_MAX];
     int64_t heard_ms;
     int hops;
-    int chat;
 };
 
 struct mesh {
@@ -368,6 +370,24 @@ static struct node *node_find(struct mesh *m, const uint8_t key[FLEET_KEY_BYTES]
     return NULL;
 }
 
+/* A slot for a player heard at heard_ms: a free one, else the least recently
+ * heard player's when this one was heard later, else NULL. */
+static struct node *node_slot(struct mesh *m, int64_t heard_ms)
+{
+    struct node *oldest = NULL;
+    int i;
+
+    if (m->node_count < NODES_MAX) {
+        return &m->nodes[m->node_count++];
+    }
+    for (i = 0; i < m->node_count; i++) {
+        if (!oldest || m->nodes[i].heard_ms < oldest->heard_ms) {
+            oldest = &m->nodes[i];
+        }
+    }
+    return oldest->heard_ms < heard_ms ? oldest : NULL;
+}
+
 static void node_apply(struct mesh *m, const cJSON *o)
 {
     uint8_t key[FLEET_KEY_BYTES];
@@ -375,17 +395,28 @@ static void node_apply(struct mesh *m, const cJSON *o)
     const cJSON *type = cJSON_GetObjectItemCaseSensitive(o, "type");
     const cJSON *hops = cJSON_GetObjectItemCaseSensitive(o, "hops");
     const cJSON *heard = cJSON_GetObjectItemCaseSensitive(o, "last_heard_mono_ms");
+    /* meshcored and this app read the same CLOCK_MONOTONIC on one device. */
+    int64_t heard_ms = cJSON_IsNumber(heard) ? (int64_t)heard->valuedouble : 0;
     struct node *n;
 
     if (!cJSON_IsObject(o) || key_of(o, "public_key", key) != 0) {
         return;
     }
     n = node_find(m, key);
+    /* Only a node that could play is kept: a repeater or a room server cannot,
+     * nor can our own key. Filtered here, before the table's bound, so however
+     * many of those the service has heard they never take a player's place. */
+    if (!cJSON_IsNumber(type) || type->valueint != ADV_TYPE_CHAT ||
+        (m->have_key && memcmp(key, m->key, FLEET_KEY_BYTES) == 0)) {
+        if (n) {
+            *n = m->nodes[--m->node_count];
+        }
+        return;
+    }
     if (!n) {
-        if (m->node_count >= NODES_MAX) {
+        if (!(n = node_slot(m, heard_ms))) {
             return;
         }
-        n = &m->nodes[m->node_count++];
         memset(n, 0, sizeof(*n));
         memcpy(n->key, key, FLEET_KEY_BYTES);
     }
@@ -393,10 +424,8 @@ static void node_apply(struct mesh *m, const cJSON *o)
      * "Remote text"); it is copied, cut to fit, and never interpreted. */
     snprintf(n->name, sizeof(n->name), "%s",
              cJSON_IsString(name) && name->valuestring ? name->valuestring : "");
-    n->chat = cJSON_IsNumber(type) && type->valueint == ADV_TYPE_CHAT;
     n->hops = cJSON_IsNumber(hops) ? hops->valueint : -1;
-    /* meshcored and this app read the same CLOCK_MONOTONIC on one device. */
-    n->heard_ms = cJSON_IsNumber(heard) ? (int64_t)heard->valuedouble : 0;
+    n->heard_ms = heard_ms;
 }
 
 static void node_forget(struct mesh *m, const cJSON *o)
@@ -756,9 +785,9 @@ static int m_peers(void *ctx, struct fleet_link_peer *out, int max)
         const struct node *nd = &m->nodes[i];
         int j;
 
-        /* A repeater or a room server cannot play; our own key never is one
-         * of these, but is refused all the same. */
-        if (!nd->chat || (m->have_key && memcmp(nd->key, m->key, FLEET_KEY_BYTES) == 0)) {
+        /* Only players are kept (node_apply); our own key is refused again
+         * here in case it was listed before the service told us which it is. */
+        if (m->have_key && memcmp(nd->key, m->key, FLEET_KEY_BYTES) == 0) {
             continue;
         }
         /* Insertion into a list kept most recently heard first. */
