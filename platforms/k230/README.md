@@ -23,22 +23,26 @@ vendor_bsp_commit.txt             Pinned Xinyuan-LilyGO/T-Display-K230 commit
 vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
 ```
 
-The vendor LVGL launcher is still installed by `apply_to_sdk.sh` and owns
-the display and the radio by default. `apply_to_sdk.sh` adds one switch to
-its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 1); the
-Doors shell is installed as `/usr/bin/doors-shell` with
-`S90doors-shell` disabled, radiod runs with the mock backend, and meshcored
+The Doors shell owns the display by default, from the first boot of a
+freshly flashed card: it is installed as `/usr/bin/doors-shell` with
+`S90doors-shell` enabled. The vendor LVGL launcher is still installed by
+`apply_to_sdk.sh` as the recovery path, and `apply_to_sdk.sh` adds one switch
+to its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 0 -
+it was 1 up to v0.3.0, which is why a fresh card used to boot the LILYGO
+launcher once). Neither settings file is in the image. radiod runs with the
+mock backend, and meshcored
 is installed as `/usr/sbin/meshcored` with `S65meshcored` disabled
 (`MESHCORED_ENABLE=1` in `/etc/default/meshcored` switches it on; see
 docs/services/MESHCORED.md before doing that on a real radio).
 
 ## Panel ownership (persistent across reboots)
 
-Hand the panel and the radio to Doors:
+With no settings files (a fresh card), Doors has the panel. Writing them
+pins the choice, and the radio is a separate switch:
 
 ```sh
-echo ENABLE=0 > /etc/default/k230_phone_ui      # vendor launcher stays down
-echo ENABLE=1 > /etc/default/doors-shell        # Doors shell takes the panel
+echo ENABLE=0 > /etc/default/k230_phone_ui      # vendor launcher stays down (default)
+echo ENABLE=1 > /etc/default/doors-shell        # Doors shell takes the panel (default)
 echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
 reboot
 ```
