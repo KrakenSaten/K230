@@ -910,15 +910,17 @@ them, one after the other, are two runs of a service and not one.
     opened and not before; a per-node rate would need per-node timestamps
     RIFT does not keep. RSSI and SNR stay in their own columns and are never
     folded into either.
-17. **A full table of 1000 is host-tested only.** The cache
+17. **A table of 1000 has not been reached by a real mesh.** The cache
     (`RIFT_MAX_NODES`) and meshcored's table (`MAX_CONTACTS`,
     `protocols/meshcore/compat/mc_contacts.h`) are both a thousand now, so
-    the list stops where the service does and says so in its footer. No
-    unit has held more than the 37 nodes of the 256 gate
-    (docs/hardware/MESH_NODE_CAPACITY_256_GATE.md); a 1000-node
-    `mesh.nodes` reply larger than the socket buffer reaches RIFT only if
-    the shell drains it within pocketipc's 200 ms send budget
-    (docs/services/MESHCORED.md, "Node capacity").
+    the list stops where the service does and says so in its footer.
+    - Unit B outgrew 256 on real adverts.
+    - With 1000 loaded (259 real, 741 synthetic), RIFT listed `1000 KNOWN`
+      and kept its connection (docs/hardware/MESH_NODE_CAPACITY_1000_GATE.md).
+    - A 1000-node `mesh.nodes` reply larger than the socket buffer reaches
+      RIFT only if the shell drains it within pocketipc's 200 ms send budget
+      (docs/services/MESHCORED.md, "Node capacity"). A stalled shell was not
+      provoked.
 18. **No flood scopes.** See "Managing the node": the service writes no
     transport codes, so a channel's scope cannot be changed - there is only
     the unscoped flood.

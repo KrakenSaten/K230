@@ -418,8 +418,8 @@ measurement at the previous 256:
 
 The two `state.v1` buffers are static (296 KB of bss at 1000) and the
 `NodeState` the runtime loads and saves through is on the stack (about
-184 KB, twice at start), well inside the default 8 MiB stack; the board's
-stack limit is ASSUMED to be that default.
+184 KB, twice at start), well inside meshcored's 8 MiB stack limit
+(VERIFIED on unit B, `/proc/<pid>/limits`).
 
 Every received packet walks the table linearly a few times: MeshCore's
 `lookupContactByPubKey()` and `searchPeersByHash()`, and this service's
@@ -433,9 +433,14 @@ time. About 215 KB fits in a Unix socket here before the first `EAGAIN`, so
 a 181 KB reply never waits, and a 431 KB one waits for one drain: RIFT reads
 every 100 ms and the harness proves that at its cadence, but a shell stalled
 for more than 200 ms while a large reply is in flight loses its connection
-and asks again after reconnecting. The board's socket buffer is ASSUMED to
-match the host's (`net.core.wmem_default` 212,992); neither has been
-measured on a unit.
+and asks again after reconnecting. The board's socket buffer is the host's:
+`net.core.wmem_default` 212,992, VERIFIED on unit B.
+
+On unit B (docs/hardware/MESH_NODE_CAPACITY_1000_GATE.md), with 1000 nodes
+of which 741 were synthetic at their longest, the reply was 368 KB. It was
+built and sent in 90 ms. Readers draining every 50, 100 and 150 ms all got it
+whole, and RIFT on the panel held the connection and listed all 1000.
+meshcored's resident set was about 5.9 MB, against 4.0 MB at 256.
 
 ### A fault in one is not a fault in the other
 
