@@ -2891,6 +2891,21 @@ a file copied, moved and deleted on the SD card; `/etc` and
 
 Amendment Q (§33) accepted 2026-09-23 (Files unit A gate, docs/hardware/FILES_GATE.md), with the landscape launcher wrap of §33.4.
 
+### 33.7 Storage [PROPOSED]
+
+**Proposed 2026-10-03** on branch `feat/usb-storage`; not accepted. A fifth
+Files screen, reached from a second slab in the path bar (72 x 56, beside Up,
+`LV_SYMBOL_DRIVE` in `accent_primary`). One column in either shape: a row with
+Close (primary), the title "Storage" and Eject (secondary, §9 disabled
+treatment unless a drive is mounted); a `pocketui_card` with two 64 px place
+rows drawn like §33.1's list rows (symbol, row title, caption) - Internal
+Storage (`LV_SYMBOL_SD_CARD`, free of total) and USB Drive (`LV_SYMBOL_USB`,
+the drive's state); and a caption line for what just happened. No new role,
+token or colour; the browser's own layout (§33.2, §33.3) is unchanged except
+that the path is shortened for one more slab. Validation:
+`tests/files_app_test.c` in both shapes, touch targets and the corner safe
+area included.
+
 ## 34. Amendment R — Camera [ACCEPTED]
 
 **ACCEPTED 2026-09-25** by the owner, after the unit A gate

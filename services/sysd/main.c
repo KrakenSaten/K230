@@ -1,10 +1,15 @@
 /*
  * sysd: PocketOS system service. Serves system.* over pocketipc from the
  * facts core/pocketsys collects and what pos-supervise records
- * (docs/api/system.md). It opens no device node. Everything it reports is
- * read-only; the two things it can change are system.reboot and
+ * (docs/api/system.md). Everything it reports about the machine is
+ * read-only; the two things it can change there are system.reboot and
  * system.poweroff, which it does not do itself but asks init to do
  * (services/sysd/sysd_power.c).
+ *
+ * It is also the one owner of the USB drive: storage.status and
+ * storage.eject, and the mount it makes when a FAT drive is plugged in
+ * (services/sysd/sysd_storage.c). That is the only device it opens, and only
+ * to read the drive's first sectors.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -17,6 +22,7 @@
 #include "sysd_logs.h"
 #include "sysd_power.h"
 #include "sysd_services.h"
+#include "sysd_storage.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -36,6 +42,8 @@
 /* While an action is pending the loop wakes more often, so the delay above is
  * what decides when it runs rather than the sampler's poll timeout. */
 #define SYSD_POWER_POLL_MS 50
+/* While an eject runs, how soon its end is noticed. */
+#define SYSD_EJECT_POLL_MS 100
 
 struct sysd {
     struct pocketipc_server *server;
@@ -46,7 +54,15 @@ struct sysd {
      * consumed by the main loop; the handler never runs it itself. */
     enum sysd_power_action pending;
     uint64_t pending_at;
+    struct sysd_storage storage;
 };
+
+/* storage.* take no parameters; like the power actions, eject does not act on
+ * a request it does not fully understand. */
+static bool no_params(const cJSON *params)
+{
+    return !params || cJSON_IsNull(params) || (cJSON_IsObject(params) && cJSON_GetArraySize(params) == 0);
+}
 
 static volatile sig_atomic_t stop_requested;
 
@@ -154,6 +170,27 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
     } else if (strcmp(method, "system.poweroff") == 0) {
         on_power(s, c, id, params, sd, SYSD_POWER_POWEROFF);
         return;
+    } else if (strcmp(method, "storage.status") == 0) {
+        result = sysd_storage_status(&sd->storage);
+    } else if (strcmp(method, "storage.eject") == 0) {
+        int r;
+
+        if (!no_params(params)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "storage.eject takes no parameters"));
+            return;
+        }
+        r = sysd_storage_eject(&sd->storage, msg, sizeof(msg));
+        if (r < 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, r == -2   ? POCKETIPC_ERR_BUSY
+                                                                      : r == -1 ? POCKETIPC_ERR_POLICY
+                                                                                : POCKETIPC_ERR_BACKEND,
+                                                                  msg));
+            return;
+        }
+        /* Accepted, not finished: storage.status says when it is. */
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "state", sysd_storage_state_name(sd->storage.state));
     } else {
         snprintf(msg, sizeof(msg), "unknown method %s", method);
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD, msg));
@@ -168,12 +205,20 @@ static int run(struct sysd *sd)
 
     while (!stop_requested) {
         uint64_t now;
+        int uevent = 0;
         int timeout = sd->pending != SYSD_POWER_NONE ? SYSD_POWER_POLL_MS
-                                                     : SYSD_CPU_SAMPLE_MS / 4;
+                      : sysd_storage_busy(&sd->storage) ? SYSD_EJECT_POLL_MS
+                                                         : SYSD_CPU_SAMPLE_MS / 4;
 
-        if (pocketipc_server_poll(sd->server, timeout) < 0) {
+        if (pocketipc_server_poll_fd(sd->server, timeout, sd->storage.uevent_fd, &uevent) < 0) {
             LOG_ERROR("poll: %s", strerror(errno));
             return 1;
+        }
+        if (uevent) {
+            sysd_storage_on_uevent(&sd->storage);
+        }
+        if (sysd_storage_busy(&sd->storage)) {
+            sysd_storage_scan(&sd->storage); /* collects a finished eject */
         }
         now = mono_ms();
         /* The pending action is consumed before it is run, so it runs at most
@@ -212,7 +257,7 @@ static void usage(FILE *out)
     fprintf(out,
             "usage: sysd [--socket-name NAME] [--verbose]\n"
             "Serves system.info, system.status, system.logs, system.crashes,\n"
-            "system.reboot and system.poweroff\n"
+            "system.reboot, system.poweroff, storage.status and storage.eject\n"
             "(docs/api/system.md).\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
             POCKETIPC_DEFAULT_DIR);
@@ -252,9 +297,16 @@ int main(int argc, char **argv)
         return 1;
     }
     LOG_INFO("listening on %s", pocketipc_server_path(sd.server));
+    /* A drive already plugged in sent its events before anyone listened: look
+     * once now. The drive stays mounted when sysd stops; the next sysd finds
+     * the mount and keeps it, and shutdown's umount -a unmounts it. */
+    sysd_storage_init(&sd.storage, &sysd_storage_real_paths, &sysd_storage_real_ops);
+    sysd_storage_listen(&sd.storage);
+    sysd_storage_scan(&sd.storage);
 
     rc = run(&sd);
     LOG_INFO("shutting down (rc=%d)", rc);
+    sysd_storage_close(&sd.storage);
     pocketipc_server_free(sd.server);
     pocketlog_close();
     return rc;

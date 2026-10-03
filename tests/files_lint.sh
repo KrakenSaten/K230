@@ -9,8 +9,8 @@ code() { grep -vE '^[[:space:]]*(/\*|\*|//)' "$@" 2>/dev/null | sed 's|/\*.*\*/|
 D=apps/files
 APP=$D/files_app.c
 
-hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $D/files_fs.[ch] $D/files_job.[ch] $D/files_view.[ch] 2>/dev/null)
-check "the filesystem layer, the worker and the text are free of LVGL" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $D/files_fs.[ch] $D/files_job.[ch] $D/files_view.[ch] $D/files_storage.[ch] 2>/dev/null)
+check "the filesystem layer, the worker, the text and the storage text are free of LVGL" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits"
 
 # Only files_fs.c touches the filesystem; the app goes through it, and the
@@ -28,6 +28,19 @@ check "no thread outlives the app" \
     "$(code $APP | grep -q 'files_job_abandon(&a->job)' && echo 1 || echo 0)"
 hits=$(code $D/files_job.c $D/files_fs.c | grep -nE 'lv_|pocketos_shell_')
 check "the worker never calls into LVGL or the shell" "$([ -z "$hits" ] && echo 1 || echo 0)"
+
+# The USB drive is sysd's (docs/api/system.md, Storage): Files asks for
+# storage.status and storage.eject and never mounts, unmounts or syncs a
+# filesystem itself.
+hits=$(code $D/*.c $D/*.h | grep -nE '\b(mount|umount2?|syncfs|sync)\(|MNT_DETACH')
+check "Files never mounts, unmounts or ejects anything itself" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -3
+check "it asks sysd for the drive, with the UI deadline" \
+    "$(code $APP | grep -q 'shell_ipc_call_timeout("sysd", "storage.eject", NULL, SHELL_IPC_UI_TIMEOUT_MS' &&
+       code $APP | grep -q 'shell_ipc_call_timeout("sysd", "storage.status", NULL, SHELL_IPC_UI_TIMEOUT_MS' &&
+       echo 1 || echo 0)"
+check "and sysd is asked only while Storage is on screen" \
+    "$(awk '/^static void on_timer\(/,/^}/' $APP | grep -q 'SCREEN_STORAGE\], LV_OBJ_FLAG_HIDDEN' && echo 1 || echo 0)"
 
 # Nothing is ever replaced, and a copy is only ever renamed into place.
 check "renames never replace (RENAME_NOREPLACE)" \

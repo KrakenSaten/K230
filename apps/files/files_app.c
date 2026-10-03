@@ -2,8 +2,16 @@
  * Files: a file explorer - browse, read text, and create, rename, copy, move
  * and delete, with the places Doors and the system depend on kept read-only.
  *
- * Four screens in one body, one visible at a time: the browser, the text
- * viewer, the name entry (new folder, rename) and the delete confirmation.
+ * Five screens in one body, one visible at a time: the browser, the text
+ * viewer, the name entry (new folder, rename), the delete confirmation and
+ * Storage (Internal Storage and the USB drive, from the drive button beside
+ * Up).
+ *
+ * The USB drive is sysd's. Storage asks sysd for storage.status while it is
+ * on screen and for storage.eject when Eject is pressed, both with the UI
+ * deadline (SHELL_IPC_UI_TIMEOUT_MS); the eject runs in sysd and Storage
+ * shows "Ejecting…" until sysd says it is safe to remove. Files itself never
+ * mounts or unmounts anything (docs/api/system.md, "Storage").
  *
  * Nothing here touches the filesystem directly. Listing and reading text go
  * through files_fs.h on the LVGL thread - both are bounded, a directory to
@@ -42,9 +50,11 @@
 #include "app.h"
 #include "files_fs.h"
 #include "files_job.h"
+#include "files_storage.h"
 #include "files_view.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "shell_ipc.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -67,12 +77,17 @@
 #define FILES_NAME_BTN_W 140
 /* How often the timer looks at the worker and at deferred actions. */
 #define FILES_TIMER_MS 30
+/* How often Storage asks sysd about the drive while it is on screen, and
+ * how often while an eject runs. */
+#define FILES_USB_POLL_MS 1000
+#define FILES_USB_EJECT_POLL_MS 300
 
 enum files_screen {
     SCREEN_BROWSE = 0,
     SCREEN_VIEWER,
     SCREEN_NAME,
     SCREEN_CONFIRM,
+    SCREEN_STORAGE,
     SCREEN_COUNT
 };
 
@@ -87,8 +102,9 @@ struct files_app {
 
     /* the browser */
     lv_obj_t *main;        /* the list column */
-    lv_obj_t *bar;         /* Up, the path; in the wide shape also Sort and New folder */
+    lv_obj_t *bar;         /* Up, Storage, the path; in the wide shape also Sort and New folder */
     lv_obj_t *up;
+    lv_obj_t *drive;       /* opens Storage */
     lv_obj_t *path;
     lv_obj_t *tools;       /* Sort and New folder, in the tall shape */
     lv_obj_t *sort;
@@ -125,6 +141,14 @@ struct files_app {
     lv_obj_t *c_title;
     lv_obj_t *c_body;
 
+    /* Storage */
+    lv_obj_t *s_internal;  /* Internal Storage's caption */
+    lv_obj_t *s_usb;       /* the USB drive's caption */
+    lv_obj_t *s_eject;
+    lv_obj_t *s_status;
+    struct files_usb usb;
+    uint32_t usb_polled_at;
+
     struct pocketui_layout_guard layout_guard;
     bool wide;
     int32_t width;         /* the frame's content width the shape was chosen for */
@@ -154,6 +178,7 @@ struct files_app {
 
 static void refresh(struct files_app *a, const char *select_name);
 static void update_selection(struct files_app *a);
+static void start_dir(char *out, size_t out_len);
 
 /* ---- small things ---------------------------------------------------------- */
 
@@ -273,7 +298,7 @@ static void show_screen(struct files_app *a, enum files_screen which)
 static void show_path(struct files_app *a)
 {
     char text[FILES_PATH_MAX + 4];
-    int32_t room = a->width - FILES_UP_W - FILES_GAP;
+    int32_t room = a->width - 2 * (FILES_UP_W + FILES_GAP);
 
     if (a->wide) {
         room -= FILES_SIDE_W + POCKETUI_PAD + 2 * (FILES_TOOL_W + FILES_GAP);
@@ -619,6 +644,146 @@ static void on_viewer_close(lv_event_t *e)
     show_screen(lv_event_get_user_data(e), SCREEN_BROWSE);
 }
 
+/* ---- Storage: Internal Storage and the USB drive ------------------------------- */
+
+static void storage_say(struct files_app *a, const char *text, bool error)
+{
+    lv_label_set_text(a->s_status, text ? text : "");
+    lv_obj_remove_style(a->s_status, pos_style(POS_STYLE_STATUS_ERROR_TEXT), 0);
+    if (error) {
+        pos_style_add(a->s_status, POS_STYLE_STATUS_ERROR_TEXT, 0);
+    }
+}
+
+/* Both places' second lines, from the root filesystem and from sysd. Run when
+ * Storage opens, from the timer while it is on screen, never in a layout or
+ * draw pass; the sysd call has the UI deadline. */
+static void storage_update(struct files_app *a)
+{
+    enum files_usb_state was = a->usb.state;
+    char line[200];
+    char err[128] = "";
+    int64_t total;
+    int64_t avail;
+    cJSON *r;
+
+    files_space("/", &total, &avail);
+    files_space_caption(line, sizeof(line), total, avail);
+    lv_label_set_text(a->s_internal, line[0] ? line : "The microSD card");
+
+    r = shell_ipc_call_timeout("sysd", "storage.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err, sizeof(err));
+    files_usb_parse(r, &a->usb);
+    cJSON_Delete(r);
+    files_usb_caption(line, sizeof(line), &a->usb);
+    lv_label_set_text(a->s_usb, line);
+    button_enable(a->s_eject, files_usb_can_eject(&a->usb) && !files_job_busy(&a->job));
+    if (was == FILES_USB_EJECTING && a->usb.state == FILES_USB_EJECTED) {
+        storage_say(a, "Safe to remove the USB drive", false);
+    } else if (was == FILES_USB_EJECTING && a->usb.state == FILES_USB_MOUNTED) {
+        storage_say(a, a->usb.error[0] ? a->usb.error : "The drive was not ejected", true);
+    }
+    a->usb_polled_at = lv_tick_get();
+}
+
+static void on_storage(lv_event_t *e)
+{
+    struct files_app *a = lv_event_get_user_data(e);
+
+    a->usb.state = FILES_USB_UNKNOWN;
+    storage_say(a, "", false);
+    show_screen(a, SCREEN_STORAGE);
+    storage_update(a);
+}
+
+/* Back to the browser, which reads its folder again: a folder on a drive that
+ * has just been ejected is gone, and the browser says so and goes up. */
+static void on_storage_close(lv_event_t *e)
+{
+    struct files_app *a = lv_event_get_user_data(e);
+    const struct files_entry *sel = selected_entry(a);
+    char keep[FILES_NAME_MAX + 1] = "";
+
+    if (sel) {
+        snprintf(keep, sizeof(keep), "%s", sel->name);
+    }
+    show_screen(a, SCREEN_BROWSE);
+    refresh(a, keep[0] ? keep : NULL);
+}
+
+static void open_place(struct files_app *a, const char *path)
+{
+    int r = go(a, path, NULL);
+
+    if (r != 0) {
+        storage_say(a, files_strerror(r), true);
+        return;
+    }
+    show_screen(a, SCREEN_BROWSE);
+}
+
+static void on_internal(lv_event_t *e)
+{
+    struct files_app *a = lv_event_get_user_data(e);
+    char start[FILES_PATH_MAX];
+
+    start_dir(start, sizeof(start));
+    open_place(a, start);
+}
+
+static void on_usb(lv_event_t *e)
+{
+    struct files_app *a = lv_event_get_user_data(e);
+
+    switch (a->usb.state) {
+    case FILES_USB_MOUNTED:
+        open_place(a, a->usb.path);
+        return;
+    case FILES_USB_ABSENT:
+        storage_say(a, "Connect a FAT32 USB drive", false);
+        return;
+    case FILES_USB_EJECTED:
+        storage_say(a, "Ejected. Remove the drive, then connect it again to use it.", false);
+        return;
+    case FILES_USB_EJECTING:
+        storage_say(a, "Ejecting\xE2\x80\xA6", false);
+        return;
+    default: {
+        char line[200];
+
+        files_usb_caption(line, sizeof(line), &a->usb);
+        storage_say(a, line, true);
+        return;
+    }
+    }
+}
+
+static void on_eject(lv_event_t *e)
+{
+    struct files_app *a = lv_event_get_user_data(e);
+    char err[128] = "";
+    char line[200];
+    cJSON *r;
+
+    if (files_job_busy(&a->job)) {
+        storage_say(a, "Wait until the copy, move or delete has finished", true);
+        return;
+    }
+    r = shell_ipc_call_timeout("sysd", "storage.eject", NULL, SHELL_IPC_UI_TIMEOUT_MS, err, sizeof(err));
+    if (!r) {
+        storage_say(a, err[0] ? err : "sysd is not answering", true);
+        return;
+    }
+    cJSON_Delete(r);
+    /* Accepted: sysd syncs and unmounts, and storage.status says when it is
+     * done. Until then the drive is shown ejecting and cannot be opened. */
+    a->usb.state = FILES_USB_EJECTING;
+    files_usb_caption(line, sizeof(line), &a->usb);
+    lv_label_set_text(a->s_usb, line);
+    button_enable(a->s_eject, false);
+    storage_say(a, "Ejecting\xE2\x80\xA6 Do not remove the drive yet.", false);
+    a->usb_polled_at = lv_tick_get();
+}
+
 /* ---- the worker ------------------------------------------------------------------ */
 
 static void start_job(struct files_app *a, enum files_op op, const char *src, const char *dst,
@@ -693,6 +858,11 @@ static void on_timer(lv_timer_t *t)
     if (a->open_pending) {
         a->open_pending = false;
         open_selected(a);
+    }
+    if (!lv_obj_has_flag(a->screen[SCREEN_STORAGE], LV_OBJ_FLAG_HIDDEN) &&
+        lv_tick_elaps(a->usb_polled_at) >= (a->usb.state == FILES_USB_EJECTING ? FILES_USB_EJECT_POLL_MS
+                                                                                : FILES_USB_POLL_MS)) {
+        storage_update(a);
     }
 }
 
@@ -931,10 +1101,28 @@ static lv_obj_t *caption(lv_obj_t *parent, enum pos_style_role role)
     return lb;
 }
 
+/* A square button in the path bar with one accent symbol: Up, Storage. */
+static lv_obj_t *slab_button(lv_obj_t *parent, const char *symbol, lv_event_cb_t cb, void *user)
+{
+    lv_obj_t *b = lv_button_create(parent);
+    lv_obj_t *glyph;
+
+    lv_obj_remove_style_all(b);
+    pos_style_add(b, POS_STYLE_SLAB, 0);
+    pos_style_add(b, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_size(b, FILES_UP_W, FILES_BTN_H);
+    lv_obj_clear_flag(b, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
+    lv_obj_set_user_data(b, (void *)(uintptr_t)0);
+    glyph = pocketui_label(b, symbol, POS_STYLE_SYMBOL);
+    pos_style_add(glyph, POS_STYLE_ACCENT_TEXT, 0);
+    lv_obj_center(glyph);
+    return b;
+}
+
 static void build_browser(struct files_app *a)
 {
     lv_obj_t *s = a->screen[SCREEN_BROWSE];
-    lv_obj_t *glyph;
     static const char *const labels[ACT_COUNT] = { "Open", "Rename", "Copy", "Move", "Delete" };
     static const lv_event_cb_t cbs[ACT_COUNT] = { on_open, on_rename, on_copy, on_move, on_delete };
     int i;
@@ -945,17 +1133,9 @@ static void build_browser(struct files_app *a)
     a->bar = box(a->main, LV_FLEX_FLOW_ROW);
     lv_obj_set_size(a->bar, LV_PCT(100), FILES_BTN_H);
     lv_obj_set_flex_align(a->bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    a->up = lv_button_create(a->bar);
-    lv_obj_remove_style_all(a->up);
-    pos_style_add(a->up, POS_STYLE_SLAB, 0);
-    pos_style_add(a->up, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_size(a->up, FILES_UP_W, FILES_BTN_H);
-    lv_obj_clear_flag(a->up, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    lv_obj_add_event_cb(a->up, on_up, LV_EVENT_CLICKED, a);
-    lv_obj_set_user_data(a->up, (void *)(uintptr_t)0);
-    glyph = pocketui_label(a->up, LV_SYMBOL_UP, POS_STYLE_SYMBOL);
-    pos_style_add(glyph, POS_STYLE_ACCENT_TEXT, 0);
-    lv_obj_center(glyph);
+    a->up = slab_button(a->bar, LV_SYMBOL_UP, on_up, a);
+    /* Storage: Internal Storage and the USB drive. */
+    a->drive = slab_button(a->bar, LV_SYMBOL_DRIVE, on_storage, a);
     a->path = pocketui_label(a->bar, "", POS_STYLE_TEXT_PRIMARY);
     one_line(a->path);
     lv_obj_set_flex_grow(a->path, 1);
@@ -1098,6 +1278,89 @@ static void build_confirm(struct files_app *a)
     lv_obj_set_flex_grow(confirm, 1);
     pos_input_add_obj(cancel);
     pos_input_add_obj(confirm);
+}
+
+/* One place: a symbol, its name and a second line, the whole row the hit
+ * area (DS section 9), drawn like a row of the list. */
+static lv_obj_t *place_row(lv_obj_t *parent, const char *symbol, const char *title, lv_obj_t **caption_out,
+                           lv_event_cb_t cb, void *user, bool divider)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_t *glyph;
+    lv_obj_t *text;
+    lv_obj_t *lb;
+
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), POCKETUI_ROW_H);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 16, 0);
+    lv_obj_set_style_pad_hor(row, 8, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    pos_style_add(row, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    if (divider) {
+        pos_style_add(row, POS_STYLE_DIVIDER, 0);
+    }
+    lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, user);
+
+    /* The colour role first and the symbol font after it, as in add_row. */
+    glyph = pocketui_label(row, symbol, POS_STYLE_ACCENT_TEXT);
+    pos_style_add(glyph, POS_STYLE_SYMBOL, 0);
+    lv_obj_set_width(glyph, 28);
+
+    text = lv_obj_create(row);
+    lv_obj_remove_style_all(text);
+    lv_obj_set_height(text, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(text, 1);
+    lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(text, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lb = pocketui_label(text, title, POS_STYLE_ROW_TITLE);
+    lv_obj_set_width(lb, LV_PCT(100));
+    one_line(lb);
+    *caption_out = pocketui_label(text, "", POS_STYLE_CAPTION);
+    lv_obj_set_width(*caption_out, LV_PCT(100));
+    one_line(*caption_out);
+    return row;
+}
+
+/* Storage: Close, the title and Eject in one row, the two places in a card
+ * under it, and a line for what just happened. One column in either shape:
+ * it is three rows, which fit the wide body as they are. */
+static void build_storage(struct files_app *a)
+{
+    lv_obj_t *s = a->screen[SCREEN_STORAGE];
+    lv_obj_t *head = box(s, LV_FLEX_FLOW_ROW);
+    lv_obj_t *close;
+    lv_obj_t *title;
+    lv_obj_t *card;
+
+    lv_obj_set_size(head, LV_PCT(100), FILES_BTN_H);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    close = button(head, "Close", on_storage_close, a, true);
+    lv_obj_set_width(close, FILES_NAME_BTN_W);
+    title = pocketui_label(head, "Storage", POS_STYLE_ROW_TITLE);
+    one_line(title);
+    lv_obj_set_flex_grow(title, 1);
+    a->s_eject = button(head, "Eject", on_eject, a, false);
+    lv_obj_set_width(a->s_eject, FILES_NAME_BTN_W);
+    button_enable(a->s_eject, false);
+
+    card = pocketui_card(s);
+    lv_obj_set_width(card, LV_PCT(100));
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_hor(card, POCKETUI_PAD - 8, 0);
+    lv_obj_set_style_pad_ver(card, 4, 0);
+    /* A list like the browser's, which a third place would scroll. */
+    lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(card, LV_DIR_VER);
+    place_row(card, LV_SYMBOL_SD_CARD, "Internal Storage", &a->s_internal, on_internal, a, true);
+    place_row(card, LV_SYMBOL_USB, "USB Drive", &a->s_usb, on_usb, a, false);
+
+    a->s_status = pocketui_label(s, "", POS_STYLE_CAPTION);
+    lv_obj_set_width(a->s_status, LV_PCT(100));
+    lv_label_set_long_mode(a->s_status, LV_LABEL_LONG_WRAP);
 }
 
 /* ---- the layout ------------------------------------------------------------------ */
@@ -1252,6 +1515,7 @@ static void *files_create(lv_obj_t *root)
     build_viewer(a);
     build_name(a);
     build_confirm(a);
+    build_storage(a);
     show_screen(a, SCREEN_BROWSE);
     pocketos_shell_set_status_hint("");
 

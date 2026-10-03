@@ -16,6 +16,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -1097,6 +1098,19 @@ int files_delete(const struct files_policy *pol, const char *path, atomic_int *c
         }
     }
     return remove_tree(path, st.st_dev, false, cancel);
+}
+
+int files_space(const char *path, int64_t *total, int64_t *avail)
+{
+    struct statvfs vfs;
+
+    *total = *avail = -1;
+    if (statvfs(path, &vfs) < 0) {
+        return -errno;
+    }
+    *total = (int64_t)vfs.f_blocks * (int64_t)vfs.f_frsize;
+    *avail = (int64_t)vfs.f_bavail * (int64_t)vfs.f_frsize;
+    return 0;
 }
 
 int files_read_text(const char *path, char *buf, size_t buf_len, bool *truncated)

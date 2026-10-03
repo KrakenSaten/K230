@@ -25,6 +25,7 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pos_keyboard.h"
+#include "shell_ipc.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -110,6 +111,44 @@ void pocketos_shell_keyboard_hide(void)
 int pocketos_shell_keyboard_visible(void)
 {
     return pos_keyboard_is_shown(g_keyboard);
+}
+
+/* ---- sysd, played here --------------------------------------------------------- */
+
+/* storage.status answers g_usb (NULL: sysd is not answering). storage.eject
+ * answers g_eject_error as an error when it is set, else accepts and turns
+ * the drive to ejecting, as sysd does. */
+static const char *g_usb;
+static const char *g_eject_error;
+static int g_status_calls;
+static int g_eject_calls;
+static char g_usb_json[1024];
+
+cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *params, int timeout_ms, char *err,
+                              size_t errlen)
+{
+    (void)timeout_ms;
+    cJSON_Delete(params);
+    if (err && errlen) {
+        err[0] = '\0';
+    }
+    if (strcmp(service, "sysd") != 0) {
+        return NULL;
+    }
+    if (strcmp(method, "storage.status") == 0) {
+        g_status_calls++;
+        return g_usb ? cJSON_Parse(g_usb) : NULL;
+    }
+    if (strcmp(method, "storage.eject") == 0) {
+        g_eject_calls++;
+        if (g_eject_error) {
+            snprintf(err, errlen, "%s", g_eject_error);
+            return NULL;
+        }
+        g_usb = "{\"usb\":{\"state\":\"ejecting\",\"present\":true,\"filesystem\":\"FAT32\"}}";
+        return cJSON_Parse("{\"state\":\"ejecting\"}");
+    }
+    return NULL;
 }
 
 /* ---- display and finger -------------------------------------------------------- */
@@ -1036,6 +1075,119 @@ static void landscape_layout(void)
     check("then back to name", shows("Sort: Name"));
 }
 
+/* ---- Storage ----------------------------------------------------------------------------- */
+
+static void usb_mounted(const char *path)
+{
+    snprintf(g_usb_json, sizeof(g_usb_json),
+             "{\"usb\":{\"state\":\"mounted\",\"present\":true,\"device\":\"/dev/sda1\",\"filesystem\":\"FAT32\","
+             "\"label\":\"SANDISK\",\"mount_path\":\"%s\",\"total_bytes\":61505273856,"
+             "\"free_bytes\":56908316672,\"safe_to_remove\":false,\"error\":null}}",
+             path);
+    g_usb = g_usb_json;
+}
+
+/* The drive is played by a folder: Files only ever opens the path sysd gives
+ * it, so a folder is all it can tell from a mounted drive. */
+static void storage(const char *shape)
+{
+    char usb[600];
+    char what[160];
+    lv_obj_t *drive;
+    int calls;
+
+    snprintf(usb, sizeof(usb), "%s/usb", root);
+    sh("mkdir -p '%s'", usb);
+    {
+        char p[700];
+
+        snprintf(p, sizeof(p), "%s/song-list.txt", usb);
+        put(p, "track one\n", 10);
+    }
+
+    g_usb = "{\"usb\":{\"state\":\"absent\",\"present\":false,\"safe_to_remove\":false}}";
+    g_eject_error = NULL;
+    drive = find_labelled(LV_SYMBOL_DRIVE);
+    snprintf(what, sizeof(what), "%s: the drive button sits in the path bar, right of Up", shape);
+    check(what, drive && same_row(drive, find_labelled(LV_SYMBOL_UP)) && left_of(find_labelled(LV_SYMBOL_UP), drive));
+    tap_obj(drive);
+    check("Storage lists Internal Storage and the USB drive",
+          shows("Storage") && row("Internal Storage") && row("USB Drive") && !shows("New folder"));
+    check("Internal Storage says how much is free", shows_part(" free of "));
+    check("no drive: Not connected, and no Eject", shows("Not connected") && !enabled("Eject"));
+    snprintf(what, sizeof(what), "%s, Storage", shape);
+    check_targets(what);
+    tap_obj(row("USB Drive"));
+    check("tapping an absent drive says what to do", shows("Connect a FAT32 USB drive"));
+
+    /* Plugged in while Storage is open: the next poll shows it. */
+    usb_mounted(usb);
+    calls = g_status_calls;
+    pump(1100);
+    check("Storage asks sysd again while it is open", g_status_calls > calls);
+    check("a mounted drive: label, filesystem, free of total",
+          shows("SANDISK \xC2\xB7 FAT32 \xC2\xB7 53 GB free of 57 GB") && enabled("Eject"));
+    check("Close and Eject share the title row", same_row(find_labelled("Close"), find_labelled("Eject")));
+    check_targets(what);
+
+    tap_obj(row("USB Drive"));
+    check("the drive opens in the browser at its mount path", path_ends_with("/usb") && row("song-list.txt"));
+    tap_obj(row("song-list.txt"));
+    tap_obj(row("song-list.txt"));
+    check("and a file on it reads", shows("track one\n"));
+    tap_obj(find_labelled("Close"));
+
+    calls = g_status_calls;
+    pump(1100);
+    check("the browser does not poll sysd", g_status_calls == calls);
+
+    /* Eject refused: the reason, and the drive still mounted. */
+    tap_obj(find_labelled(LV_SYMBOL_DRIVE));
+    g_eject_error = "an eject is already running";
+    tap_obj(find_labelled("Eject"));
+    check("a refused eject says why", shows("an eject is already running") && enabled("Eject"));
+    g_eject_error = NULL;
+
+    /* Eject. */
+    calls = g_eject_calls;
+    tap_obj(find_labelled("Eject"));
+    check("Eject asks sysd once", g_eject_calls == calls + 1);
+    check("ejecting: said, and no second Eject", shows("Ejecting\xE2\x80\xA6") && !enabled("Eject"));
+    tap_obj(row("USB Drive"));
+    check("an ejecting drive does not open", shows("Storage") && !shows("song-list.txt"));
+    g_usb = "{\"usb\":{\"state\":\"ejected\",\"present\":true,\"filesystem\":\"FAT32\",\"safe_to_remove\":true}}";
+    pump(400);
+    check("then Safe to remove", shows("Safe to remove") && shows("Safe to remove the USB drive") && !enabled("Eject"));
+    tap_obj(row("USB Drive"));
+    check("an ejected drive says to take it out first", shows_part("Remove the drive"));
+
+    /* A failed eject from sysd's side. */
+    usb_mounted(usb);
+    pump(1100);
+    tap_obj(find_labelled("Eject"));
+    snprintf(g_usb_json, sizeof(g_usb_json),
+             "{\"usb\":{\"state\":\"mounted\",\"present\":true,\"filesystem\":\"FAT32\",\"label\":\"SANDISK\","
+             "\"mount_path\":\"%s\",\"error\":\"The drive is in use. Close what is open on it, then eject again.\"}}",
+             usb);
+    g_usb = g_usb_json;
+    pump(400);
+    check("a busy drive stays mounted, and Storage says why",
+          shows_part("The drive is in use") && enabled("Eject"));
+
+    /* The other answers. */
+    g_usb = "{\"usb\":{\"state\":\"unsupported\",\"present\":true,\"filesystem\":\"exFAT\"}}";
+    pump(1100);
+    check("an exFAT drive is named and not offered", shows("exFAT is not supported \xE2\x80\x94 use FAT32") &&
+                                                       !enabled("Eject"));
+    g_usb = NULL;
+    pump(1100);
+    check("sysd not answering is said, not guessed", shows("Storage service not answering") && !enabled("Eject"));
+
+    tap_obj(row("Internal Storage"));
+    check("Internal Storage opens the home folder", path_ends_with("/home") && row("docs"));
+    sh("rm -rf '%s'", usb);
+}
+
 /* Closing the app with a copy running leaves no thread and no half copy. */
 static void close_while_copying(void)
 {
@@ -1105,11 +1257,18 @@ int main(void)
     missing_and_refused();
     app_stop();
 
-    /* Landscape. */
     mkdir(at("docs"), 0755);
+    app_start();
+    storage("portrait");
+    app_stop();
+
+    /* Landscape. */
     use_display(POS_ROTATION_90);
     app_start();
     landscape_layout();
+    app_stop();
+    app_start();
+    storage("landscape");
     app_stop();
 
     close_while_copying();

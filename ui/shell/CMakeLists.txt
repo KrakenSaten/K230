@@ -151,6 +151,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/files/files_app.c
     ${REPO_DIR}/apps/files/files_fs.c
     ${REPO_DIR}/apps/files/files_job.c
+    ${REPO_DIR}/apps/files/files_storage.c
     ${REPO_DIR}/apps/files/files_view.c
     ${REPO_DIR}/apps/wave/wave_app.c
     ${REPO_DIR}/apps/wave/wave_view.c
@@ -929,6 +930,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/files/files_app.c
         ${REPO_DIR}/apps/files/files_fs.c
         ${REPO_DIR}/apps/files/files_job.c
+        ${REPO_DIR}/apps/files/files_storage.c
         ${REPO_DIR}/apps/files/files_view.c
         ${REPO_DIR}/core/pocketpaths.c
         ../pocketui/pos_app_icons.c
@@ -949,7 +951,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_include_directories(files_app_test PRIVATE "${LVGL_DIR}")
         target_compile_definitions(files_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
-    target_link_libraries(files_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m Threads::Threads)
+    target_link_libraries(files_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m Threads::Threads)
 
     # Camera in the running app, tapped on the panel, with the real helper on
     # the fake backend behind it (run by tests/camera_shell_test.sh, which

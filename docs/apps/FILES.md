@@ -43,6 +43,29 @@ launcher wrap it brings.**
 A folder of more than 200 entries shows the first 200 and says how many there
 are (a folder is read up to 2048 entries).
 
+## Storage
+
+The drive button beside Up opens **Storage**: two places, and Eject.
+
+- **Internal Storage** - the microSD card's root filesystem, with how much of
+  it is free. A tap opens the home folder.
+- **USB Drive** - what sysd says about the drive: "Not connected"; the label,
+  filesystem and free space ("SANDISK · FAT32 · 53 GB free of 57 GB");
+  "Ejecting…"; "Safe to remove"; "exFAT is not supported - use FAT32"; or
+  sysd's reason it could not be mounted. A tap on a mounted drive opens
+  `/media/usb` in the browser.
+- **Eject**, beside the title, only while the drive is mounted and no copy,
+  move or delete is running. sysd syncs and unmounts; Storage says
+  "Ejecting…" and then "Safe to remove the USB drive", or why it was not
+  ejected (a file still open on it).
+
+Files never mounts, unmounts or ejects anything itself: the drive belongs to
+sysd (`docs/api/system.md`, "Storage"), and Storage asks `storage.status`
+once a second while it is on screen (never while the browser is) and
+`storage.eject` when Eject is pressed, both with the UI deadline. FAT32 (and
+FAT12/16) only; one drive, its first partition. The browser treats the drive
+like any other writable folder under `/media`. Layout: DS §33.7 (proposed).
+
 Camera's EXPORT copies a photo into `~/Pictures` (docs/apps/CAMERA.md, "The
 gallery"), so exported photos are on Files' first screen and fully writable;
 Camera's own library under `/var/lib/pocketos/camera` is shown read-only like
@@ -51,7 +74,8 @@ the rest of Doors' data. Files itself is unchanged.
 ## What it is not (v1)
 
 No network shares, archives (ZIP), thumbnails or image preview; no text
-editing; no multi-select; no search; no trash or undo; no free-space display.
+editing; no multi-select; no search; no trash or undo; no formatting; no
+free-space display outside Storage.
 `tests/files_lint.sh` holds the scope.
 
 ## Safety
@@ -99,6 +123,7 @@ Existing files are preserved on errors:
 | `apps/files/files_fs.[ch]` | Listing, sorting, paths, names, the write policy and every operation. No LVGL. The only file that touches the filesystem. |
 | `apps/files/files_job.[ch]` | One worker thread for copy, move and delete. No LVGL. |
 | `apps/files/files_view.[ch]` | Sizes, types, times, drawable names, the shortened path. No LVGL. |
+| `apps/files/files_storage.[ch]` | sysd's `storage.status` read, and Storage's words. No LVGL. |
 | `apps/files/files_app.c` | The LVGL app (`app_files`, id `files`). |
 
 Listing a folder and reading a text file are bounded and run on the LVGL
@@ -135,6 +160,10 @@ from the body the app is given, never from the orientation, through
   permission failures (skipped as root), 255-byte names, text reading and
   the worker.
 - `tests/files_view_test.c` (`make test`): the on-screen text.
+- `tests/files_storage_test.c` (`make test`): every `storage.status` state
+  read and worded. `tests/files_app_test.c` plays sysd for Storage: absent,
+  plugged in while open, opened and read, eject refused, ejecting, safe to
+  remove, a busy drive, exFAT, sysd silent, in both shapes.
 - `tests/files_lint.sh` (`make test`): layering, no filesystem access outside
   `files_fs.c`, the worker boundary, the no-replace and no-follow rules, the
   policy in every operation, the v1 scope, and the responsive-layout rules.
