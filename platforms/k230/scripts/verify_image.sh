@@ -151,15 +151,16 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
             fi
         done
         # With no settings file the defaults decide the first boot of a fresh
-        # card, and it has to be Doors': the vendor launcher off, the shell on.
+        # card, and it has to be Doors': no vendor launcher, the shell on.
         rootfs_cat() { debugfs -R "cat \"$1\"" "${P2}" 2>/dev/null; }
-        if rootfs_has /etc/init.d/S99zz_k230_phone_ui; then
-            if rootfs_cat /etc/init.d/S99zz_k230_phone_ui | grep -q '^ENABLE=0$'; then
-                note "ok  /etc/init.d/S99zz_k230_phone_ui off by default (first boot is Doors)"
+        for path in /etc/init.d/S99zz_k230_phone_ui /root/app/k230_phone_ui \
+                    /root/music /root/videos /root/notification; do
+            if rootfs_has "${path}"; then
+                bad "${path}: the vendor launcher is still in the image"
             else
-                bad "/etc/init.d/S99zz_k230_phone_ui is not off by default: a fresh card would boot the vendor launcher"
+                note "ok  ${path} absent (no vendor launcher; first boot is Doors)"
             fi
-        fi
+        done
         if rootfs_has /etc/init.d/S90doors-shell; then
             if rootfs_cat /etc/init.d/S90doors-shell | grep -q '^ENABLE=1$'; then
                 note "ok  /etc/init.d/S90doors-shell on by default"

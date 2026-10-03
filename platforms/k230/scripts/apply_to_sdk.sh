@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the LILYGO BSP, the vendor launcher (temporary) and the Doors package
+# Apply the LILYGO BSP and the Doors package
 # (Buildroot package `pocketos`) to a pinned K230 Linux SDK checkout.
 #
 # Usage: apply_to_sdk.sh [/path/to/T-Display-K230 checkout]
@@ -321,46 +321,72 @@ echo "      Doors kernel patches: ${KERNEL_PATCHES:-none}"
 echo "[2/5] Doors defconfig (${CONF})"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
 
-echo "[3/5] Vendor launcher (kept in the image; the panel switch below hands the panel to the Doors shell)"
-"${VENDOR_DIR}/k230_launcher/scripts/install_to_sdk.sh" "${SDK_DIR}" "${CONF}"
-
-echo "[3b/5] Panel switch for the vendor launcher (default off)"
-# The vendor init script is patched in place at apply time rather than
-# copied into this repository (the LILYGO tree carries no licence): an ENABLE
-# switch in /etc/default/k230_phone_ui decides who owns the panel across
-# reboots. S90doors-shell reads the same file and refuses to start while the
-# launcher is enabled. The launcher itself stays in the image as the recovery
-# path: ENABLE=1 in that file (and ENABLE=0 in /etc/default/doors-shell)
-# brings it back.
+echo "[3/5] Vendor launcher: not in the image"
+# Up to v0.3.x the LILYGO launcher (k230_phone_ui) was installed here with the
+# vendor's own install_to_sdk.sh and kept, switched off, as a recovery path.
+# It is no longer built or shipped: nothing in Doors runs it, and nothing it
+# did at runtime ran on Doors either, since it was disabled (the charger and
+# gauge set-up, audio routing and low-battery shutdown it does live inside its
+# own process; docs/KNOWN_ISSUES.md "Vendor launcher removed").
 #
-# The default is off. Up to v0.3.0 it was on, so a freshly flashed card showed
-# the LILYGO launcher until someone wrote the two /etc/default files by hand -
-# the "vendor menu on the first boot only". There is no first-boot flag behind
-# it: the LILYGO BSP removes the SDK's /first_boot_flag and S00resizemmc.
-# Neither settings file is shipped, so a unit that has one keeps its choice.
-S99="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
-[ -f "${S99}" ] || { echo "vendor launcher init script missing: ${S99}" >&2; exit 1; }
-if ! grep -q '/etc/default/k230_phone_ui' "${S99}"; then
-    sed -i \
-        -e '/^DRM_NODE=/a\
-# Doors: off unless /etc/default/k230_phone_ui says ENABLE=1; the Doors shell owns the panel.\
-ENABLE=0\
-[ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui' \
-        -e '/printf "Starting k230_phone_ui: "/a\
-\	[ "$ENABLE" = "1" ] || { echo "disabled (/etc/default/k230_phone_ui)"; return 0; }' \
-        "${S99}"
+# The SDK tree is persistent, so a launcher installed by an earlier apply is
+# still sitting in it, and Buildroot never deletes from an existing target
+# tree. Everything install_to_sdk.sh put there is taken out again, in the
+# three places the stale PocketOS-era shell below is cleared from: the
+# overlay this script writes, Buildroot's synced copy of it (the copy the
+# rootfs is really built from) and the target tree - plus the package itself
+# and its line in the vendor package menu. The vendor's own SD card stays the
+# way back to the launcher (docs/hardware/FIRST_BOOT.md, "Recovery").
+LAUNCHER_ROOT_DIRS="music nes videos photos screenshots recordings lorawan meshtastic notification nrf52840 picoclaw maps"
+_gone=0
+_rm_launcher() { # <path>
+    [ -e "$1" ] || [ -L "$1" ] || return 0
+    rm -rf "$1" || { echo "cannot remove the vendor launcher's ${1#"${SDK_DIR}"/}" >&2; exit 1; }
+    echo "      removed ${1#"${SDK_DIR}"/}"
+    _gone=$((_gone + 1))
+}
+for root in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay" \
+            "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/rootfs_overlay \
+            "${SDK_DIR}/output/${CONF}/target"; do
+    [ -d "${root}" ] || continue
+    _rm_launcher "${root}/etc/init.d/S99zz_k230_phone_ui"
+    _rm_launcher "${root}/root/app/k230_phone_ui"
+    for d in ${LAUNCHER_ROOT_DIRS}; do
+        _rm_launcher "${root}/root/${d}"
+    done
+done
+for p in "${SDK_DIR}/buildroot-overlay/package/k230_phone_ui" \
+         "${SDK_DIR}"/output/buildroot-*/package/k230_phone_ui \
+         "${SDK_DIR}"/output/"${CONF}"/build/k230_phone_ui*; do
+    _rm_launcher "${p}"
+done
+for menu in "${SDK_DIR}/buildroot-overlay/package/Config_canaan.in" \
+            "${SDK_DIR}"/output/buildroot-*/package/Config_canaan.in; do
+    [ -f "${menu}" ] || continue
+    if grep -q 'package/k230_phone_ui/Config.in' "${menu}"; then
+        sed -i '\#^source "package/k230_phone_ui/Config.in"$#d' "${menu}"
+        echo "      removed the launcher from ${menu#"${SDK_DIR}"/}"
+        _gone=$((_gone + 1))
+    fi
+    if grep -q 'k230_phone_ui' "${menu}"; then
+        echo "the vendor launcher is still in ${menu}" >&2
+        exit 1
+    fi
+done
+if grep -q 'K230_PHONE_UI' "${SDK_DIR}/buildroot-overlay/configs/${CONF}"; then
+    echo "the Doors defconfig ${CONF} still names the vendor launcher" >&2
+    exit 1
 fi
-# A copy patched by an older apply carries the old default; correct it too.
-sed -i 's/^ENABLE=1$/ENABLE=0/' "${S99}"
-grep -q 'disabled (/etc/default/k230_phone_ui)' "${S99}" && grep -q '^ENABLE=0$' "${S99}" \
-    && ! grep -q '^ENABLE=1$' "${S99}" \
-    || { echo "failed to add the panel switch (default off) to ${S99}" >&2; exit 1; }
+if [ "${_gone}" -eq 0 ]; then
+    echo "      no vendor launcher in the SDK"
+fi
 
 echo "[3c/5] sshd: no empty-password logins"
 # Vendor sshd_config allows root with an empty password over the network
 # (PermitRootLogin yes, PasswordAuthentication yes, PermitEmptyPasswords yes)
 # and the root account ships with no password. Patch the vendor file in place
-# at apply time, like the launcher switch above: SSH then refuses the empty
+# at apply time, rather than copied into this repository (the LILYGO tree
+# carries no licence): SSH then refuses the empty
 # password until the operator sets one on the serial console (`passwd`), or
 # installs a key in /root/.ssh/authorized_keys; local serial login is
 # untouched and no password is embedded in the image.

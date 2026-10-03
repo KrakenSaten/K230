@@ -1,7 +1,8 @@
 #!/bin/sh
 # The Doors shell (DRM + evdev) under pos-supervise. Enabled by default, so a
 # freshly flashed card boots straight into Doors (up to v0.3.0 it was disabled
-# and the vendor launcher took the first boot).
+# and the vendor launcher took the first boot). The vendor launcher is no
+# longer in the image; the checks for it below stay for units on older images.
 #
 # ADR-005 Phase 3: the service is doors-shell. The binary, this script, the
 # supervisor's identity and the runtime files it writes carry that name; the
@@ -9,10 +10,12 @@
 # change (they are Phase 4, if ever).
 #
 # Panel ownership (survives reboot, see platforms/k230/README.md):
-#   /etc/default/k230_phone_ui   ENABLE=0  vendor launcher stays down (default)
 #   /etc/default/doors-shell     ENABLE=1  the Doors shell takes the panel (default)
+#   /etc/default/k230_phone_ui   ENABLE=0  vendor launcher stays down (older
+#                                          images only; ignored without it)
 # Neither file is in the image; a unit writes them only to change that.
-# The shell refuses to start while the vendor launcher is enabled or running,
+# The shell refuses to start while an installed vendor launcher is enabled, or
+# while one is running,
 # and refuses to start beside a PocketOS-era shell service, so there is never
 # more than one owner of the panel.
 #
@@ -26,6 +29,7 @@ PIDFILE=/var/run/doors-shell-supervise.pid
 # the supervisor to go is not the same as the daemon going.
 CHILD_PIDFILE=/run/pocketos/doors-shell.pid
 LAUNCHER_PIDFILE=/var/run/k230_phone_ui.pid
+LAUNCHER_INIT=/etc/init.d/S99zz_k230_phone_ui
 LOGDIR=/var/lib/pocketos/log
 LOGFILE=$LOGDIR/shell.stdio.log
 # The PocketOS-era service this one replaces. Nothing here recreates any of
@@ -68,10 +72,17 @@ for v in POCKETOS_DRM_DEVICE POCKETOS_TOUCH_DEVICE POCKETOS_DRM_ROTATION \
 	eval "[ -n \"\${$v:-}\" ] && export $v"
 done
 
-launcher_enabled() {
-	# The vendor launcher's own switch (added by apply_to_sdk.sh); default off,
-	# the same default the patched launcher script uses.
+launcher_switch_on() {
+	# The vendor launcher's own switch (added to its script by apply_to_sdk.sh
+	# up to v0.3.x); default off, the same default that script used.
 	[ "$( ENABLE=0; [ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui; echo "$ENABLE" )" = "1" ]
+}
+
+launcher_enabled() {
+	# Doors images carry no launcher. A unit still running an older image
+	# can have it, and then its switch decides; without the launcher a
+	# leftover ENABLE=1 decides nothing, or it would leave the panel dark.
+	[ -x "$LAUNCHER_INIT" ] && launcher_switch_on
 }
 
 launcher_running() {
@@ -132,6 +143,9 @@ start() {
 	if launcher_enabled; then
 		echo "not started: vendor launcher owns the panel (set ENABLE=0 in /etc/default/k230_phone_ui)"
 		return 0
+	fi
+	if [ ! -x "$LAUNCHER_INIT" ] && launcher_switch_on; then
+		printf "(vendor launcher not installed; ENABLE=1 in /etc/default/k230_phone_ui ignored) "
 	fi
 	if launcher_running; then
 		echo "not started: vendor launcher is running (/etc/init.d/S99zz_k230_phone_ui stop)"

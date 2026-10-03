@@ -167,18 +167,30 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         "$(grep -q '/usr/sbin/meshcored is build abc1234' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and the pass says the services were checked" \
         "$(grep -q 'every service is whole and from one build' "${TMP}/out.txt" && echo 1 || echo 0)"
-    check "the pass says the first boot is Doors' (launcher off by default)" \
-        "$(grep -q 'S99zz_k230_phone_ui off by default' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "the pass says the first boot is Doors' (no vendor launcher)" \
+        "$(grep -q 'S99zz_k230_phone_ui absent (no vendor launcher' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and the shell on by default" \
         "$(grep -q 'S90doors-shell on by default' "${TMP}/out.txt" && echo 1 || echo 0)"
 
-    launcher_on() { mkbootimg_rootfs_doors "$1"; sed -i 's/^ENABLE=0$/ENABLE=1/' "$1/etc/init.d/S99zz_k230_phone_ui"; }
-    if rootfs_img "${TMP}/launcher-on.img" launcher_on; then
-        rc="$(run_gate "${TMP}/launcher-on.img")"
-        check "NEGATIVE CONTROL: a vendor launcher on by default is refused" \
+    # Even switched off, as it shipped up to v0.3.x, the launcher is refused.
+    launcher_off() {
+        mkbootimg_rootfs_doors "$1"
+        printf '#!/bin/sh\nDAEMON=/root/app/k230_phone_ui/k230_phone_ui\nENABLE=0\n' \
+            > "$1/etc/init.d/S99zz_k230_phone_ui"
+        chmod 0755 "$1/etc/init.d/S99zz_k230_phone_ui"
+    }
+    if rootfs_img "${TMP}/launcher-off.img" launcher_off; then
+        rc="$(run_gate "${TMP}/launcher-off.img")"
+        check "NEGATIVE CONTROL: a vendor launcher init script, even off, is refused" \
             "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
-        check "NEGATIVE CONTROL: it says a fresh card would boot the vendor launcher" \
-            "$(grep -q 'a fresh card would boot the vendor launcher' "${TMP}/out.txt" && echo 1 || echo 0)"
+        check "NEGATIVE CONTROL: it says the vendor launcher is still in the image" \
+            "$(grep -q 'S99zz_k230_phone_ui: the vendor launcher is still in the image' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
+    launcher_media() { mkbootimg_rootfs_doors "$1"; mkdir -p "$1/root/music"; printf 'x' > "$1/root/music/music01.mp3"; }
+    if rootfs_img "${TMP}/launcher-media.img" launcher_media; then
+        rc="$(run_gate "${TMP}/launcher-media.img")"
+        check "NEGATIVE CONTROL: the launcher's sample media is refused" \
+            "$([ "${rc}" != "0" ] && grep -q '/root/music: the vendor launcher is still in the image' "${TMP}/out.txt" && echo 1 || echo 0)"
     fi
     shell_off() { mkbootimg_rootfs_doors "$1"; sed -i '/^ENABLE=1$/d' "$1/etc/init.d/S90doors-shell"; }
     if rootfs_img "${TMP}/shell-off.img" shell_off; then

@@ -548,10 +548,15 @@ rm -f "$ROOT/etc/default/doors-shell"
 
 printf 'ENABLE=1\n' > "$ROOT/etc/default/pocketos-shell"
 printf 'ENABLE=1\n' > "$ROOT/etc/default/k230_phone_ui"
+# Doors images carry no launcher; a unit on an older image still has one, and
+# then its switch decides.
+printf '#!/bin/sh\nexit 0\n' > "$ROOT/etc/init.d/S99zz_k230_phone_ui"
+chmod 0755 "$ROOT/etc/init.d/S99zz_k230_phone_ui"
 out=$("$S90" start 2>&1)
-check "S90 refuses while the vendor launcher is enabled" $(contains "$out" "owns the panel")
+check "S90 refuses while an installed vendor launcher is enabled" $(contains "$out" "owns the panel")
 check "S90 refusal names the launcher switch" $(contains "$out" "/etc/default/k230_phone_ui")
 check "S90 refusal starts nothing" $([ ! -e "$ROOT/shell.env" ] && echo 1 || echo 0)
+rm -f "$ROOT/etc/init.d/S99zz_k230_phone_ui"
 
 printf 'ENABLE=0\n' > "$ROOT/etc/default/k230_phone_ui"
 sleep 600 &
@@ -564,8 +569,14 @@ kill "$LAUNCHER" 2>/dev/null
 rm -f "$ROOT/var/run/k230_phone_ui.pid"
 
 printf 'ENABLE=1\nPOCKETOS_DRM_ROTATION=180\nPOCKETOS_SAFE_CORNERS=24,24,24,24\n' > "$ROOT/etc/default/pocketos-shell"
+# A switch left at ENABLE=1 from an older image, with no launcher installed:
+# it decides nothing, or the panel would stay dark.
+printf 'ENABLE=1\n' > "$ROOT/etc/default/k230_phone_ui"
 out=$("$S90" start 2>&1)
+rm -f "$ROOT/etc/default/k230_phone_ui"
 check "S90 starts when it owns the panel" $(contains "$out" "OK")
+check "S90 ignores a leftover launcher switch with no launcher installed" \
+      $(contains "$out" "vendor launcher not installed")
 check "S90 starts the shell" $(wait_for "$ROOT/shell.env" && echo 1 || echo 0)
 SHPID=$(pidof_file "$ROOT/var/run/doors-shell-supervise.pid")
 check "S90 start writes the supervise pid file" $([ -n "$SHPID" ] && echo 1 || echo 0)

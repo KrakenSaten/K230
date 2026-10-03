@@ -169,13 +169,16 @@ else
         fi
     done
     # Without those files the defaults decide, and the first boot of a fresh
-    # card has to be Doors': launcher off, shell on (apply_to_sdk.sh [3b/5]).
-    LAUNCHER_INIT="${TGT}/etc/init.d/S99zz_k230_phone_ui"
-    if [ -e "${LAUNCHER_INIT}" ] && ! grep -q '^ENABLE=0$' "${LAUNCHER_INIT}"; then
-        echo "ERROR: the vendor launcher in the target tree is not off by default." >&2
-        echo "       Re-run apply_to_sdk.sh (it patches S99zz_k230_phone_ui)." >&2
-        SHELL_TROUBLE=1
-    fi
+    # card has to be Doors': no vendor launcher at all (apply_to_sdk.sh [3/5]
+    # removes it), shell on.
+    for gone in etc/init.d/S99zz_k230_phone_ui root/app/k230_phone_ui \
+                root/music root/videos root/notification; do
+        if [ -e "${TGT}/${gone}" ]; then
+            echo "ERROR: the vendor launcher is still in the target tree: ${gone}" >&2
+            echo "       Re-run apply_to_sdk.sh (it removes it)." >&2
+            SHELL_TROUBLE=1
+        fi
+    done
     if ! grep -q '^ENABLE=1$' "${TGT}/etc/init.d/S90doors-shell" 2>/dev/null; then
         echo "ERROR: S90doors-shell in the target tree is not on by default." >&2
         SHELL_TROUBLE=1
