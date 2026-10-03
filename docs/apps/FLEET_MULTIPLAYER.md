@@ -357,7 +357,7 @@ multiplayer to them exactly as it holds single player.
 | --- | --- | --- |
 | Multiplayer menu | Command: a MULTIPLAYER panel under OPPONENT | "Play another Doors device over the mesh." MULTIPLAYER; or "An engagement with X is waiting." RESUME MATCH. Either opens the Lobby; with a match in hand it says "An engagement with X is under way." and offers RESUME (back to the board) and FORFEIT |
 | Mesh unavailable | Lobby, ENGAGEMENT | "The mesh service is not running on this device, and multiplayer needs it." |
-| Create game | Lobby | PLAYERS IN RANGE ("ANNA · DIRECT · HEARD JUST NOW"), MAKE VISIBLE (zero-hop advert), INVITE |
+| Create game | Lobby | PLAYERS IN RANGE ("ANNA · DIRECT · HEARD JUST NOW"), MAKE VISIBLE (zero-hop advert), INVITE. The list is most recently heard first and re-sorts as nodes are heard; the choice is the player, not the row, so the light and INVITE follow that player, and a player no longer listed is no longer chosen |
 | Waiting for player | Lobby | "Inviting Anna…", "no answer yet (try 3 of 6)", CANCEL |
 | Incoming invite | Lobby | "Anna invites you to an engagement." ACCEPT / DECLINE |
 | Declined, busy, no answer, withdrawn, crossed | Lobby | one sentence each |
@@ -391,9 +391,10 @@ Screenshots: `docs/design/shots/fleet-mp-<state>[-landscape].png`.
 virtual opponent (`apps/fleet/link/fleet_link_loop.c`): a second match state
 machine, played by PocketFleet's AI, over a channel that can lose, duplicate,
 delay and be cut (`loss=20,dup=5,delay=800,invite=3000,think=2500,level=3,
-decline,silent,cut=60000,chat,seed=7`; `chat` has it answer every line
-"Copy that."). With it, one simulator shell plays a whole
-match against the real protocol. With `POCKETFLEET_SCREEN=lobby|mp_invited|
+decline,silent,cut=60000,chat,crowd=3,seed=7`; `chat` has it answer every line
+"Copy that."; `crowd` lists that many silent bystanders beside it, for the
+lobby). With it, one simulator shell plays a whole match against the real
+protocol. With `POCKETFLEET_SCREEN=lobby|mp_invited|
 mp_deploy|mp_battle|mp_waiting|mp_lost|mp_result|mp_chat` the app drives the match
 into that state on a skipped clock, for screenshots. Both are inert unless
 set, and nothing either does reaches a radio.

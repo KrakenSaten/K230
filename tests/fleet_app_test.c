@@ -1680,6 +1680,34 @@ static lv_obj_t *lobby_player_row(int i) { return kid(kid(lobby_col(0), 0), KID_
 static lv_obj_t *lobby_act(void) { return kid(lobby_col(1), 1); }
 static lv_obj_t *lobby_alt(void) { return kid(lobby_col(1), 2); }
 
+/* A listed row lit in the accent: the player INVITE would go to. */
+static int lobby_row_lit(int i)
+{
+    lv_style_value_t accent;
+
+    return visible(lobby_player_row(i)) &&
+           lv_style_get_prop(pos_style(POS_STYLE_ACCENT_TEXT), LV_STYLE_TEXT_COLOR, &accent) ==
+               LV_STYLE_RES_FOUND &&
+           lv_color_eq(lv_obj_get_style_text_color(kid(lobby_player_row(i), 0), 0), accent.color);
+}
+
+static int lobby_rows_lit(void)
+{
+    int n = 0;
+    int i;
+
+    for (i = 0; i < 5; i++) {
+        n += lobby_row_lit(i);
+    }
+    return n;
+}
+
+static int lobby_row_is(int i, const char *name)
+{
+    return visible(lobby_player_row(i)) &&
+           strncmp(text_of(kid(lobby_player_row(i), 0)), name, strlen(name)) == 0;
+}
+
 /* Our side's shot: the first square in reading order not yet fired at. */
 static int mp_our_turn(int check_layout)
 {
@@ -1849,6 +1877,68 @@ static void test_multiplayer_reopen(void)
     tap_obj(lobby_act());
     check("RESUME goes back to the battle, and asks the peer where it stands",
           app->current == FLEET_SCREEN_BATTLE && app->mp->sent >= 1);
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+/* The lobby's choice is a player, not a row. meshcored lists the most recently
+ * heard first, so rows re-sort under the finger; unit B, 2026-09-30: the
+ * opponent chosen on row 4 moved to row 1 after a match, and row 4 - now a
+ * stranger's node - stayed lit with INVITE ready to send to it. The virtual
+ * opponent is listed among bystanders here, and the bystanders are heard. */
+static void test_multiplayer_lobby_choice(void)
+{
+    const struct fleet_match *opponent;
+
+    phase = "multiplayer, the lobby's choice follows the player";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=7,crowd=5", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(1500);
+    check("the lobby lists the opponent first, then bystanders",
+          lobby_row_is(0, "SIM OPPONENT") && lobby_row_is(4, "BYSTANDER 4"));
+    check("with no row lit", lobby_rows_lit() == 0);
+
+    /* A choice that falls off the list is no choice. */
+    tap_obj(lobby_player_row(4));
+    check("a tapped row is lit", lobby_row_lit(4) && lobby_rows_lit() == 1);
+    check("and INVITE can be pressed", lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    fleet_link_loop_hear(app->link, 5);
+    mp_wait(1500);
+    check("a node heard goes to the top", lobby_row_is(0, "BYSTANDER 5"));
+    check("the player chosen, pushed off the list, is no longer chosen",
+          lobby_rows_lit() == 0 && !lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    fleet_link_loop_hear(app->link, 4);
+    mp_wait(1500);
+    check("nor chosen again when heard again",
+          lobby_row_is(0, "BYSTANDER 4") && lobby_rows_lit() == 0 &&
+          !lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    tap_obj(lobby_act());
+    check("INVITE then goes to nobody, not to whoever now holds the old row",
+          lobby_row_is(4, "BYSTANDER 2") && app->mp->m.phase != FLEET_MP_INVITING &&
+          app->mp->sent == 0);
+
+    /* Rows: BYSTANDER 4, 5, the opponent, BYSTANDER 1, 2. */
+    check("the opponent is on row 2", lobby_row_is(2, "SIM OPPONENT"));
+    tap_obj(lobby_player_row(2));
+    fleet_link_loop_hear(app->link, 1);
+    fleet_link_loop_hear(app->link, 2);
+    mp_wait(1500);
+    check("the opponent moves down to row 4", lobby_row_is(4, "SIM OPPONENT"));
+    check("and the light goes with it", lobby_row_lit(4) && lobby_rows_lit() == 1);
+    fleet_link_loop_hear(app->link, 0);
+    mp_wait(1500);
+    check("heard, the opponent moves up to row 0", lobby_row_is(0, "SIM OPPONENT"));
+    check("the light goes with it again", lobby_row_lit(0) && lobby_rows_lit() == 1);
+    check("not left on the stranger now on row 4",
+          lobby_row_is(4, "BYSTANDER 5") && !lobby_row_lit(4));
+    tap_obj(lobby_act());
+    opponent = fleet_link_loop_peer(app->link);
+    check("INVITE goes to the player chosen",
+          app->mp->m.phase == FLEET_MP_INVITING && app->mp->sent == 1 &&
+          memcmp(app->mp->m.peer_key, opponent->self_key, FLEET_KEY_BYTES) == 0);
     app_stop();
     unsetenv("POCKETFLEET_MP_FAKE");
 }
@@ -2900,6 +2990,7 @@ int main(void)
     test_multiplayer(POS_ROTATION_0);
     test_multiplayer(POS_ROTATION_270);
     test_multiplayer_reopen();
+    test_multiplayer_lobby_choice();
     test_multiplayer_forfeit();
     test_multiplayer_auto_varies();
     test_multiplayer_lost();
