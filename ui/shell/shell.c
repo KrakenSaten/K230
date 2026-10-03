@@ -145,10 +145,11 @@ struct shell {
     lv_obj_t *cluster;      /* the status cluster (DS §36): chip and clock, top right */
     lv_obj_t *status_clock;
     lv_obj_t *status_radio;
-    /* The mark beside the chip for work an app keeps running behind other
-     * screens (app.h pocketos_shell_set_background, DS §51), hidden while
-     * there is none; and what the apps told the shell, in the order told. */
-    lv_obj_t *status_bg;
+    /* The marks beside the chip for work apps keep running behind other
+     * screens (app.h pocketos_shell_set_background, DS §51), one per app,
+     * hidden while there is none; and what the apps told the shell, in the
+     * order told. */
+    lv_obj_t *status_bg[POCKETOS_BACKGROUND_MAX];
     struct {
         char id[32];
         char label[16];
@@ -258,29 +259,40 @@ const char *pocketos_shell_radio_state(void)
 
 /* ---- work behind another screen (app.h, DS §51) ----------------------- */
 
-/* The mark shows what the apps said and nothing else: the first label told,
- * and how many more there are. The cluster is as wide as what it holds, so
- * it grows to the left by the mark and shrinks back without it; the rows
+/* The marks show what the apps said and nothing else: one per app, its
+ * label, in the order told. Alone, a mark is the app's word with
+ * POCKETOS_CHROME_MARK_PAD each side. With more than one they share the room
+ * one takes - in portrait the launcher's and the lock's centred clock leaves
+ * the cluster none to spare at Large - so a word longer than two characters
+ * shows its first, and each side has MARK_PAD_SHARED (RIFT and the
+ * Terminal: "R" and ">_"). The cluster is as wide as what it holds, so it
+ * grows to the left by the marks and shrinks back without them; the rows
  * under it make room from the next screen laid out (cluster_reserve_compute
  * at every chrome_apply), which is the next thing that happens after any
  * app's create, destroy or CLOSE. */
+#define MARK_PAD_SHARED 2
 static void background_paint(void)
 {
-    if (!sh.status_bg) {
-        return;
+    bool shared = sh.background_count > 1;
+    int i;
+
+    for (i = 0; i < POCKETOS_BACKGROUND_MAX && sh.status_bg[i]; i++) {
+        lv_obj_t *m = sh.status_bg[i];
+        const char *label = sh.background[i].label;
+
+        if (i >= sh.background_count) {
+            lv_obj_add_flag(m, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(m, "");
+            continue;
+        }
+        if (shared && strlen(label) > 2) {
+            lv_label_set_text_fmt(m, "%.1s", label);
+        } else {
+            lv_label_set_text(m, label);
+        }
+        lv_obj_set_style_pad_hor(m, shared ? MARK_PAD_SHARED : POCKETOS_CHROME_MARK_PAD, 0);
+        lv_obj_remove_flag(m, LV_OBJ_FLAG_HIDDEN);
     }
-    if (sh.background_count == 0) {
-        lv_obj_add_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(sh.status_bg, "");
-        return;
-    }
-    if (sh.background_count == 1) {
-        lv_label_set_text(sh.status_bg, sh.background[0].label);
-    } else {
-        lv_label_set_text_fmt(sh.status_bg, "%s +%d", sh.background[0].label,
-                              sh.background_count - 1);
-    }
-    lv_obj_remove_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN);
 }
 
 void pocketos_shell_set_background(const char *app_id, const char *label, const char *help)
@@ -448,12 +460,16 @@ static void status_cluster_create(lv_obj_t *screen)
      * chip's glyph font is, and its padding tight: in portrait the
      * launcher's and the lock's large clock is centred and does not move, and
      * the cluster with the mark has to stay 16 px clear of it at every size. */
-    sh.status_bg = lv_label_create(c);
-    pos_style_add(sh.status_bg, POS_STYLE_CHIP, 0);
-    pos_style_add(sh.status_bg, POS_STYLE_CHIP_RX, 0);
-    lv_obj_add_style(sh.status_bg, pos_style_fixed_size(POS_STYLE_CHIP), 0);
-    lv_obj_set_style_pad_hor(sh.status_bg, POCKETOS_CHROME_MARK_PAD, 0);
-    lv_obj_set_style_text_letter_space(sh.status_bg, 0, 0);
+    for (int i = 0; i < POCKETOS_BACKGROUND_MAX; i++) {
+        lv_obj_t *m = lv_label_create(c);
+
+        pos_style_add(m, POS_STYLE_CHIP, 0);
+        pos_style_add(m, POS_STYLE_CHIP_RX, 0);
+        lv_obj_add_style(m, pos_style_fixed_size(POS_STYLE_CHIP), 0);
+        lv_obj_set_style_pad_hor(m, POCKETOS_CHROME_MARK_PAD, 0);
+        lv_obj_set_style_text_letter_space(m, 0, 0);
+        sh.status_bg[i] = m;
+    }
     background_paint();
 
     sh.status_clock = pocketui_label(c, "--:--", POS_STYLE_CAPTION);
@@ -502,10 +518,13 @@ static void cluster_reserve_compute(void)
      * Only while it is shown - it comes and goes only when an app opens or
      * closes, and every screen laid out after that measures again here -
      * so no row gives up its room for a mark that is not there. */
-    if (sh.status_bg && !lv_obj_has_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN)) {
-        chip += POCKETOS_CHROME_CLUSTER_GAP + text_width(sh.status_bg, lv_label_get_text(sh.status_bg)) +
-                lv_obj_get_style_pad_left(sh.status_bg, LV_PART_MAIN) +
-                lv_obj_get_style_pad_right(sh.status_bg, LV_PART_MAIN);
+    for (k = 0; k < POCKETOS_BACKGROUND_MAX; k++) {
+        lv_obj_t *m = sh.status_bg[k];
+
+        if (m && !lv_obj_has_flag(m, LV_OBJ_FLAG_HIDDEN)) {
+            chip += POCKETOS_CHROME_CLUSTER_GAP + text_width(m, lv_label_get_text(m)) +
+                    lv_obj_get_style_pad_left(m, LV_PART_MAIN) + lv_obj_get_style_pad_right(m, LV_PART_MAIN);
+        }
     }
     for (k = 0; k < 10; k++) {
         char a[2] = { (char)('0' + k), '\0' };
@@ -1238,14 +1257,14 @@ static void status_chip_fit(void)
     lv_obj_set_style_height(sh.status_radio, c.height, 0);
     lv_obj_set_style_pad_top(sh.status_radio, c.pad_top, 0);
     lv_obj_set_style_pad_bottom(sh.status_radio, c.pad_bottom, 0);
-    if (sh.status_bg) {
+    for (int i = 0; i < POCKETOS_BACKGROUND_MAX && sh.status_bg[i]; i++) {
         /* The radio chip's height, the mark's own type centred in it. */
-        int32_t spare = c.height - lv_font_get_line_height(
-                                       lv_obj_get_style_text_font(sh.status_bg, LV_PART_MAIN));
+        lv_obj_t *m = sh.status_bg[i];
+        int32_t spare = c.height - lv_font_get_line_height(lv_obj_get_style_text_font(m, LV_PART_MAIN));
 
-        lv_obj_set_style_height(sh.status_bg, c.height, 0);
-        lv_obj_set_style_pad_top(sh.status_bg, spare > 0 ? spare / 2 : 0, 0);
-        lv_obj_set_style_pad_bottom(sh.status_bg, spare > 0 ? spare - spare / 2 : 0, 0);
+        lv_obj_set_style_height(m, c.height, 0);
+        lv_obj_set_style_pad_top(m, spare > 0 ? spare / 2 : 0, 0);
+        lv_obj_set_style_pad_bottom(m, spare > 0 ? spare - spare / 2 : 0, 0);
     }
 }
 
@@ -2800,11 +2819,12 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 cJSON_AddStringToObject(o, "app", sh.background[i].id);
                 cJSON_AddStringToObject(o, "label", sh.background[i].label);
                 cJSON_AddStringToObject(o, "help", sh.background[i].help);
+                cJSON_AddStringToObject(o, "shown", sh.status_bg[i] ? lv_label_get_text(sh.status_bg[i]) : "");
                 cJSON_AddItemToArray(bg, o);
             }
             cJSON_AddItemToObject(result, "background", bg);
             cJSON_AddBoolToObject(result, "background_mark",
-                                  sh.status_bg && !lv_obj_has_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN));
+                                  sh.status_bg[0] && !lv_obj_has_flag(sh.status_bg[0], LV_OBJ_FLAG_HIDDEN));
         }
         cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
         cJSON_AddItemToObject(result, "hardware", hardware_json());
