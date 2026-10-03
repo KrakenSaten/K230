@@ -1109,9 +1109,14 @@ so that pass stayed the size it was scoped to be.
   service) or with a direct learned route; MeshCore's
   `CTL_TYPE_NODE_DISCOVER_REQ` is not implemented in meshcored, so a quiet
   repeater in range appears only at its next advert.
-- **Emoji draw as text smileys or boxes.** The Doors fonts carry no emoji;
-  RIFT writes the common faces, hearts and thumbs as `:)`, `<3`, `(y)` and
-  leaves the rest as the font's box. Stored and sent text is unchanged.
+- **RIFT's colour emoji reach message bodies, previews and claimed senders
+  only.** They are compiled-in Noto Color Emoji images (docs/apps/RIFT.md,
+  "Colour emoji"); skin tones are stripped by decision, a sequence with no
+  artwork shows its parts, the images keep their colours in Night and Outdoor
+  mode, and at Large text an 18 px emoji is small beside 22 px letters. Node
+  names, the NET view and details still draw an emoji as Plex's box, as does
+  every other app. Not yet seen on hardware. Stored and sent text is
+  unchanged.
 - **RIFT caches a thousand nodes; meshcored holds 256.** `RIFT_MAX_NODES`
   is 1000 (DS §37.5), in a virtual NODES list that builds rows only for the
   screen, and the thousand is host-tested only (`tests/rift_app_test.c`:

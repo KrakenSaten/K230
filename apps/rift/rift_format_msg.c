@@ -7,6 +7,7 @@
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
+#include "rift_emoji.h"
 #include "rift_format.h"
 
 #include <stdio.h>
@@ -180,7 +181,7 @@ void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len)
         char shown[RIFT_MSG_TEXT_MAX];
         const char *body = shown;
 
-        rift_text_shown(rift_msg_body(msg), shown, sizeof(shown));
+        rift_emoji_fold(rift_msg_body(msg), shown, sizeof(shown));
         for (i = 0; i + 1 < sizeof(folded) && body[i]; i++) {
             char c = body[i];
 
@@ -200,7 +201,7 @@ void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len)
              * same "?" the thread uses: nothing signs a group frame. */
             char who[RIFT_NAME_MAX];
 
-            rift_text_shown(msg->sender_name, who, sizeof(who));
+            rift_emoji_fold(msg->sender_name, who, sizeof(who));
             snprintf(whole, sizeof(whole), "%s?: %s", who, folded);
         } else {
             snprintf(whole, sizeof(whole), "%s", folded);
@@ -265,7 +266,7 @@ void rift_fmt_msg_meta_split(const struct rift_message *msg, int64_t now_ms, cha
         if (msg->have_sender_name && msg->sender_name[0]) {
             char shown[RIFT_NAME_MAX];
 
-            rift_text_shown(msg->sender_name, shown, sizeof(shown));
+            rift_emoji_fold(msg->sender_name, shown, sizeof(shown));
             snprintf(who, who_len, "%s?", shown);
         } else {
             snprintf(who, who_len, "UNNAMED");

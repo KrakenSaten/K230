@@ -7,6 +7,7 @@
 
 #include "pos_styles.h"
 #include "rift_widgets.h"
+#include "rift_emoji_style.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,6 +129,7 @@ static void build_row(struct rift_conv_list *l)
     lv_obj_set_flex_grow(r->name, 1);
     lv_obj_set_width(r->name, 1);
     r->preview = rift_cell(r->line, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    rift_emoji_style_add(r->preview, POS_STYLE_CAPTION);
     lv_obj_set_flex_grow(r->preview, 2);
     lv_obj_set_width(r->preview, 1);
     r->pill = rift_unread_pill(r->line);

@@ -51,12 +51,12 @@ size_t rift_utf8_ellipsis(char *out, size_t out_len, const char *src);
  * short, no overlong form, no surrogate, nothing above U+10FFFF. */
 int rift_utf8_valid(const char *s);
 
-/* What a piece of remote text is drawn as. The Doors fonts carry Latin-1,
- * typographic punctuation and arrows (tools/design/gen_fonts.sh) and no
- * emoji, so an emoji arrives as a box. The common faces, hearts and thumbs
- * are written as the text smiley they stand for - U+1F642 as ":)", U+2764 as
- * "<3", U+1F44D as "(y)" - with a variation selector after one dropped. Any
- * other character is copied as it is. Presentation only: what is stored,
+/* A remote name as RIFT draws it. No emoji is written as text: what only
+ * shapes one is dropped - the variation selectors, the joiner U+200D, the
+ * keycap mark U+20E3, tag characters and the skin-tone modifiers - and every
+ * other character is copied as it is. (Message bodies and previews go
+ * through rift_emoji_fold, which also folds sequences for the colour emoji
+ * font; names are drawn in plain Plex.) Presentation only: what is stored,
  * sent and counted is the text as it came. The result is never longer than
  * the source, and is cut on a character boundary if out is short. */
 size_t rift_text_shown(const char *in, char *out, size_t out_len);

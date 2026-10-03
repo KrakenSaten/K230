@@ -323,6 +323,19 @@ the IBM Plex TTFs plus their OFL text are in `~/work/fonts`. Then:
 PATH=$HOME/tools/node/bin:$HOME/tools/npm/bin:$PATH tools/design/gen_fonts.sh $HOME/work/fonts
 ```
 
+RIFT's colour emoji (`apps/rift/ui/rift_emoji_px.bin` and its tables) come
+from a sparse checkout of googlefonts/noto-emoji at the commit pinned in
+`tools/design/gen_rift_emoji.sh` (`2D/png/72` and
+`third_party/region-flags/png` are all it reads; `~/work/noto-emoji` here),
+with the same Node and `lv_font_conv`, whose pngjs and opentype.js it uses:
+
+```sh
+PATH=$HOME/tools/node/bin:$HOME/tools/npm/bin:$PATH tools/design/gen_rift_emoji.sh $HOME/work/noto-emoji $HOME/work/fonts
+```
+
+The shell's CMake project enables ASM for `rift_emoji_px.S`, which embeds the
+pixels with `.incbin`.
+
 ## Test
 
 Native, inside WSL (needs `libcjson-dev`, installed 2026-09-04, and
