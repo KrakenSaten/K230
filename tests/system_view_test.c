@@ -622,6 +622,86 @@ int main(void)
                   strcmp(n.cpus, "1") == 0);
     }
 
+    /* The microSD card's expansion (storage.status "internal"). */
+    {
+        struct system_view e;
+        cJSON *o;
+
+        system_view_init(&e);
+        check("expand: nothing known, nothing offered", e.expand == SYSTEM_VIEW_EXPAND_UNKNOWN && !e.expand_line[0]);
+        system_view_request(&e, SYSTEM_VIEW_ACTION_EXPAND);
+        check("expand: not offered, so not even asked", e.phase == SYSTEM_VIEW_LIVE);
+
+        /* Unit B's card as flashed: 14.6 GB, 600 MiB used by the root. */
+        o = parse("{\"usb\":{\"state\":\"absent\"},\"internal\":{\"state\":\"available\",\"device\":\"/dev/mmcblk1p2\","
+                  "\"disk_bytes\":15634268160,\"partition_bytes\":629145600,\"filesystem_bytes\":629145600,"
+                  "\"unused_bytes\":14871953408,\"can_expand\":true,\"reason\":null,\"error\":null,\"done\":false}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("available: offered, with what is unused",
+              e.expand == SYSTEM_VIEW_EXPAND_OFFER && strcmp(e.expand_line, "13.9 GB of the card is not used yet") == 0 &&
+                  !e.expand_warn);
+        system_view_request(&e, SYSTEM_VIEW_ACTION_EXPAND);
+        check("Expand asks first", e.phase == SYSTEM_VIEW_CONFIRM_EXPAND && system_view_is_polling(&e));
+        check("the confirmation names it and what it adds",
+              strcmp(system_view_dialog_title(&e), "Expand storage?") == 0 &&
+                  strstr(system_view_dialog_body(&e), "adding 13.9 GB") != NULL &&
+                  strstr(system_view_dialog_body(&e), "cannot be undone") != NULL &&
+                  strcmp(system_view_dialog_confirm_label(&e), "Expand") == 0);
+        check("the accent is on Cancel: it cannot be undone",
+              system_view_dialog_emphasis(&e) == SYSTEM_VIEW_EMPHASIS_CANCEL);
+        system_view_cancel(&e);
+        check("Cancel calls nothing", e.phase == SYSTEM_VIEW_LIVE && system_view_confirm(&e) == NULL);
+        system_view_request(&e, SYSTEM_VIEW_ACTION_EXPAND);
+        check("confirming hands over storage.expand", strcmp(system_view_confirm(&e), "storage.expand") == 0);
+        system_view_action_ok(&e);
+        check("accepted: live again, shown running, still polling",
+              e.phase == SYSTEM_VIEW_LIVE && e.expand == SYSTEM_VIEW_EXPAND_RUNNING && system_view_is_polling(&e) &&
+                  strstr(e.expand_line, "Expanding storage") != NULL);
+        system_view_request(&e, SYSTEM_VIEW_ACTION_EXPAND);
+        check("running: not offered again", e.phase == SYSTEM_VIEW_LIVE);
+
+        o = parse("{\"internal\":{\"state\":\"reboot_required\",\"error\":null,\"done\":false}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("reboot_required: says to restart", e.expand == SYSTEM_VIEW_EXPAND_RESTART &&
+                                                    strcmp(e.expand_line, "Restart to finish expanding storage") == 0);
+        system_view_apply_storage(&e, NULL);
+        check("a missed poll keeps the line", e.expand == SYSTEM_VIEW_EXPAND_RESTART && e.expand_line[0]);
+
+        o = parse("{\"internal\":{\"state\":\"finish\",\"partition_bytes\":15005122560,"
+                  "\"filesystem_bytes\":629145600,\"error\":null,\"done\":false}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("finish: offered, with what the filesystem has not taken",
+              e.expand == SYSTEM_VIEW_EXPAND_OFFER && strcmp(e.expand_line, "13.4 GB of the card is not used yet") == 0);
+
+        o = parse("{\"internal\":{\"state\":\"available\",\"unused_bytes\":14871953408,"
+                  "\"error\":\"The partition could not be grown (parted).\",\"done\":false}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("a failed expansion: still offered, the reason shown as a warning",
+              e.expand == SYSTEM_VIEW_EXPAND_OFFER && e.expand_warn && strstr(e.expand_line, "parted") != NULL);
+        system_view_request(&e, SYSTEM_VIEW_ACTION_EXPAND);
+        system_view_action_failed(&e, "the storage expansion is already running");
+        check("a refused call: live, with sysd's reason",
+              e.phase == SYSTEM_VIEW_LIVE && strcmp(e.error, "the storage expansion is already running") == 0);
+
+        o = parse("{\"internal\":{\"state\":\"not_needed\",\"error\":null,\"done\":true}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("done: nothing offered, and it says so",
+              e.expand == SYSTEM_VIEW_EXPAND_NONE && strcmp(e.expand_line, "Storage expanded to use the whole card") == 0);
+        o = parse("{\"internal\":{\"state\":\"unsupported\",\"reason\":\"the card is GPT\",\"done\":false}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("unsupported: nothing offered, nothing said", e.expand == SYSTEM_VIEW_EXPAND_NONE && !e.expand_line[0]);
+        o = parse("{\"usb\":{\"state\":\"absent\"}}");
+        system_view_apply_storage(&e, o);
+        cJSON_Delete(o);
+        check("a sysd without the internal card changes nothing", e.expand == SYSTEM_VIEW_EXPAND_NONE);
+    }
+
     printf("system_view_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

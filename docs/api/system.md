@@ -16,8 +16,10 @@ a fake root so the absence of every optional source is a tested case.
 
 Everything sysd *reports* is read-only. The things it can *do* are
 `system.reboot` and `system.poweroff`, which it does not do itself but asks
-init to do, and the USB drive's mount and `storage.eject`, which it does
-itself and is the only owner of (Storage, below). Service restart through the
+init to do, the USB drive's mount and `storage.eject`, which it does itself
+and is the only owner of, and `storage.expand`, which grows the root
+filesystem over the rest of the microSD card when the owner asks (Storage,
+below). Service restart through the
 API is still a later addition.
 
 Rule for every field: a board that lacks the source gets JSON `null` (or an
@@ -386,6 +388,82 @@ not be started.
 
 The drive stays mounted when sysd stops or restarts (the next sysd keeps the
 mount); shutdown's `umount -a -r` unmounts it.
+
+### Storage: the microSD card
+
+The image's root filesystem is about 600 MiB, so most of a 16 or 64 GB card is
+never used. VERIFIED on unit B (2026-10-03): an MBR (`msdos`) card of
+30535680 sectors; p1 `boot` at sector 61440, 163840 sectors; p2 the root at
+sector 262144, 1228800 sectors (600 MiB), ext4 with 4 KiB blocks and 37
+reserved GDT blocks (room to grow online far past 64 GB); parted 3.6,
+partprobe and resize2fs 1.47.2 on the image.
+
+**Nothing grows it on its own: there is no first-boot resize.** The owner asks
+(System > OVERVIEW > Expand storage, confirmed), and sysd does it
+(`services/sysd/sysd_expand.c`) in a child process, with the tools' output in
+`storage-expand.log` in the log directory:
+
+1. `parted ---pretend-input-tty <disk> resizepart <n> 100%`, answering its
+   question about the in-use root partition; `parted -s` if that fails;
+2. `sync`, `partprobe <disk>`;
+3. if the kernel now sees the larger partition, `resize2fs <partition>`
+   online. If it does not, a marker `storage-expand.pending` is written to the
+   state directory and `reboot_required` is reported; the next sysd, at
+   start, finds the marker and a grown partition and runs `resize2fs` itself.
+   That is the only thing sysd starts without being asked, and only to finish
+   what the owner asked for before the restart. A marker with nothing to
+   finish is removed.
+
+VERIFIED on unit B (2026-10-03, build 393cdb1, 16 GB card): Expand grew p2
+from 1228800 to 30273536 sectors and the root filesystem from 153600 to
+3784192 4 KiB blocks in about 1.6 s. The kernel took the new size at once, so
+no restart was needed; parted rejected the leading "Fix" as an invalid token
+and took "Yes". After a reboot the card read back the same, the filesystem
+was clean, and sysd started nothing. The restart path (marker, finish at the
+next start) is covered by `tests/sysd_expand_test.c` only.
+
+The procedure is the vendor launcher's
+(`vendor/T-Display-K230/k230_launcher/k230_phone_ui/src/k230_storage_expand.sh`,
+DOCUMENTED); Doors does not run that script, because its finishing step lives
+in the vendor launcher's start-up, which is disabled on Doors, and its
+licence is not stated. sysd reimplements the steps.
+
+Only the image's layout is changed: root named `root=/dev/mmcblk<N>p<M>` on
+the kernel command line, a plain MBR (no GPT, no extended partition), no
+partition after the root, the MBR's entry agreeing with the kernel's start,
+and an ext4 superblock. Anything else is `unsupported`, with the reason.
+`system.reboot` and `system.poweroff` are refused (code 5) while an expansion
+runs.
+
+`storage.status` carries the card as `internal`:
+
+```
+"internal": { "state": "available", "device": "/dev/mmcblk1p2",
+              "disk_bytes": 15634268160, "partition_bytes": 629145600,
+              "filesystem_bytes": 629145600, "unused_bytes": 14871953408,
+              "can_expand": true, "reason": null, "error": null, "done": false }
+```
+
+| `state` | Meaning |
+| --- | --- |
+| `available` | at least 256 MiB unused after the root partition: Expand |
+| `finish` | the partition is grown and the filesystem is more than 64 MiB smaller: Expand runs `resize2fs` only |
+| `running` | the job is running |
+| `reboot_required` | the card's table is grown, the kernel still has the old size: restart |
+| `not_needed` | the root filesystem already uses the card |
+| `unsupported` | not the layout above; `reason` says why |
+
+`error` is why the last job failed (parted, the partition not growing,
+resize2fs), until the next one; `done` is true once a job has finished the
+expansion.
+
+### storage.expand
+
+Takes no parameters and refuses any (code 2). Replies at once with
+`{"state": "running"}`; `storage.status` then follows the job. Refused with
+code 3 when there is nothing to expand (`not_needed`, `reboot_required`,
+`unsupported`, with the reason), code 5 while a job runs, code 4 when the job
+could not be started.
 
 ### Trust model
 

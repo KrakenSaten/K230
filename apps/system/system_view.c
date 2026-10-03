@@ -671,7 +671,73 @@ void system_view_apply_mesh(struct system_view *v, const cJSON *st)
     }
 }
 
-/* ---- the two destructive actions --------------------------------------- */
+/* ---- the microSD card -------------------------------------------------- */
+
+static double number_or(const cJSON *o, const char *key, double fallback)
+{
+    const cJSON *n = cJSON_GetObjectItemCaseSensitive(o, key);
+
+    return cJSON_IsNumber(n) ? n->valuedouble : fallback;
+}
+
+void system_view_apply_storage(struct system_view *v, const cJSON *storage)
+{
+    const cJSON *in = storage ? cJSON_GetObjectItemCaseSensitive(storage, "internal") : NULL;
+    const cJSON *st = cJSON_GetObjectItemCaseSensitive(in, "state");
+    const cJSON *err = cJSON_GetObjectItemCaseSensitive(in, "error");
+    const cJSON *done = cJSON_GetObjectItemCaseSensitive(in, "done");
+    const char *s;
+    char size[32];
+    double add;
+
+    if (!cJSON_IsObject(in) || !cJSON_IsString(st)) {
+        return; /* no answer, or a sysd without it: keep what is shown */
+    }
+    s = st->valuestring;
+    v->expand_line[0] = '\0';
+    v->expand_warn = 0;
+    if (strcmp(s, "available") == 0 || strcmp(s, "finish") == 0) {
+        /* What Expand would add: the space after the partition, or, when the
+         * partition is grown already, what the filesystem has not taken. */
+        add = strcmp(s, "available") == 0
+                  ? number_or(in, "unused_bytes", -1)
+                  : number_or(in, "partition_bytes", -1) - number_or(in, "filesystem_bytes", 0);
+        system_view_bytes(add, size, sizeof(size));
+        v->expand = SYSTEM_VIEW_EXPAND_OFFER;
+        if (cJSON_IsString(err)) {
+            snprintf(v->expand_line, sizeof(v->expand_line), "%s", err->valuestring);
+            v->expand_warn = 1;
+        } else {
+            snprintf(v->expand_line, sizeof(v->expand_line), "%s of the card is not used yet", size);
+        }
+        snprintf(v->expand_body, sizeof(v->expand_body),
+                 "Doors' storage grows into the rest of the microSD card, adding %s. It takes a "
+                 "minute or two; keep the device powered until it says it is done. It cannot be "
+                 "undone without reflashing the card.",
+                 size);
+    } else if (strcmp(s, "running") == 0) {
+        v->expand = SYSTEM_VIEW_EXPAND_RUNNING;
+        snprintf(v->expand_line, sizeof(v->expand_line), "Expanding storage... keep the device powered");
+    } else if (strcmp(s, "reboot_required") == 0) {
+        v->expand = SYSTEM_VIEW_EXPAND_RESTART;
+        snprintf(v->expand_line, sizeof(v->expand_line), "Restart to finish expanding storage");
+    } else {
+        /* not_needed, unsupported, or a state this screen does not know:
+         * nothing to offer, and nothing to nag about. */
+        v->expand = SYSTEM_VIEW_EXPAND_NONE;
+        if (cJSON_IsTrue(done)) {
+            snprintf(v->expand_line, sizeof(v->expand_line), "Storage expanded to use the whole card");
+        }
+    }
+}
+
+/* ---- the destructive actions -------------------------------------------- */
+
+static int confirming(const struct system_view *v)
+{
+    return v->phase == SYSTEM_VIEW_CONFIRM_REBOOT || v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF ||
+           v->phase == SYSTEM_VIEW_CONFIRM_EXPAND;
+}
 
 int system_view_is_polling(const struct system_view *v)
 {
@@ -683,14 +749,18 @@ void system_view_request(struct system_view *v, enum system_view_action action)
     if (!system_view_is_polling(v)) {
         return;
     }
+    if (action == SYSTEM_VIEW_ACTION_EXPAND && v->expand != SYSTEM_VIEW_EXPAND_OFFER) {
+        return; /* only what sysd said it can do */
+    }
     v->error[0] = '\0';
-    v->phase = action == SYSTEM_VIEW_ACTION_REBOOT ? SYSTEM_VIEW_CONFIRM_REBOOT
-                                                   : SYSTEM_VIEW_CONFIRM_POWEROFF;
+    v->phase = action == SYSTEM_VIEW_ACTION_REBOOT     ? SYSTEM_VIEW_CONFIRM_REBOOT
+               : action == SYSTEM_VIEW_ACTION_POWEROFF ? SYSTEM_VIEW_CONFIRM_POWEROFF
+                                                       : SYSTEM_VIEW_CONFIRM_EXPAND;
 }
 
 void system_view_cancel(struct system_view *v)
 {
-    if (v->phase == SYSTEM_VIEW_CONFIRM_REBOOT || v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
+    if (confirming(v)) {
         v->phase = SYSTEM_VIEW_LIVE;
     }
 }
@@ -706,6 +776,9 @@ const char *system_view_confirm(struct system_view *v)
     if (v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
         return "system.poweroff";
     }
+    if (v->phase == SYSTEM_VIEW_CONFIRM_EXPAND) {
+        return "storage.expand";
+    }
     return NULL;
 }
 
@@ -715,13 +788,20 @@ void system_view_action_ok(struct system_view *v)
         v->phase = SYSTEM_VIEW_TERMINAL_REBOOT;
     } else if (v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
         v->phase = SYSTEM_VIEW_TERMINAL_POWEROFF;
+    } else if (v->phase == SYSTEM_VIEW_CONFIRM_EXPAND) {
+        /* Accepted, not done: sysd works on, and the next storage.status
+         * says how it went. Until then it is shown running. */
+        v->phase = SYSTEM_VIEW_LIVE;
+        v->expand = SYSTEM_VIEW_EXPAND_RUNNING;
+        v->expand_warn = 0;
+        snprintf(v->expand_line, sizeof(v->expand_line), "Expanding storage... keep the device powered");
     }
     v->error[0] = '\0';
 }
 
 void system_view_action_failed(struct system_view *v, const char *message)
 {
-    if (v->phase != SYSTEM_VIEW_CONFIRM_REBOOT && v->phase != SYSTEM_VIEW_CONFIRM_POWEROFF) {
+    if (!confirming(v)) {
         return;
     }
     v->phase = SYSTEM_VIEW_LIVE;
@@ -734,8 +814,11 @@ enum system_view_emphasis system_view_dialog_emphasis(const struct system_view *
     /* A restart costs about thirty-five seconds and undoes itself. A
      * power-off costs a walk to the bench and thirty seconds with the cable
      * out, so the glass must not put the brighter treatment on it. */
-    return v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF ? SYSTEM_VIEW_EMPHASIS_CANCEL
-                                                    : SYSTEM_VIEW_EMPHASIS_CONFIRM;
+    /* An expansion cannot be undone without reflashing the card: the accent
+     * goes on Cancel there too. */
+    return v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF || v->phase == SYSTEM_VIEW_CONFIRM_EXPAND
+               ? SYSTEM_VIEW_EMPHASIS_CANCEL
+               : SYSTEM_VIEW_EMPHASIS_CONFIRM;
 }
 
 const char *system_view_dialog_title(const struct system_view *v)
@@ -745,6 +828,9 @@ const char *system_view_dialog_title(const struct system_view *v)
     }
     if (v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
         return "Power off Doors?";
+    }
+    if (v->phase == SYSTEM_VIEW_CONFIRM_EXPAND) {
+        return "Expand storage?";
     }
     return NULL;
 }
@@ -762,6 +848,9 @@ const char *system_view_dialog_body(const struct system_view *v)
                "To switch it back on, disconnect USB power for about 30 seconds, "
                "then reconnect.";
     }
+    if (v->phase == SYSTEM_VIEW_CONFIRM_EXPAND) {
+        return v->expand_body;
+    }
     return NULL;
 }
 
@@ -772,6 +861,9 @@ const char *system_view_dialog_confirm_label(const struct system_view *v)
     }
     if (v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
         return "Power off";
+    }
+    if (v->phase == SYSTEM_VIEW_CONFIRM_EXPAND) {
+        return "Expand";
     }
     return NULL;
 }

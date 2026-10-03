@@ -35,12 +35,23 @@ enum system_view_phase {
     SYSTEM_VIEW_CONFIRM_REBOOT,    /* dialog up, nothing called yet */
     SYSTEM_VIEW_CONFIRM_POWEROFF,
     SYSTEM_VIEW_TERMINAL_REBOOT,   /* accepted: stop polling, stop input */
-    SYSTEM_VIEW_TERMINAL_POWEROFF
+    SYSTEM_VIEW_TERMINAL_POWEROFF,
+    SYSTEM_VIEW_CONFIRM_EXPAND     /* dialog up; accepted, it is back to LIVE */
 };
 
 enum system_view_action {
     SYSTEM_VIEW_ACTION_REBOOT = 0,
-    SYSTEM_VIEW_ACTION_POWEROFF
+    SYSTEM_VIEW_ACTION_POWEROFF,
+    SYSTEM_VIEW_ACTION_EXPAND      /* storage.expand: only while it is offered */
+};
+
+/* The microSD card, from storage.status "internal" (docs/api/system.md). */
+enum system_view_expand {
+    SYSTEM_VIEW_EXPAND_UNKNOWN = 0, /* sysd has not said */
+    SYSTEM_VIEW_EXPAND_NONE,        /* nothing to offer: the card is used, or cannot be grown */
+    SYSTEM_VIEW_EXPAND_OFFER,       /* space is unused: Expand storage */
+    SYSTEM_VIEW_EXPAND_RUNNING,
+    SYSTEM_VIEW_EXPAND_RESTART      /* a restart finishes it */
 };
 
 /* The three states a service is ever shown in (docs/api/system.md). There is
@@ -140,6 +151,12 @@ struct system_view {
     int stale;
     char freshness[SYSTEM_VIEW_TEXT];    /* "LIVE" or "STALE 6s" */
 
+    /* the microSD card's expansion */
+    enum system_view_expand expand;
+    char expand_line[SYSTEM_VIEW_TEXT];  /* "13.9 GB of the card is not used", "" when nothing to say */
+    int expand_warn;                     /* the line is a failure */
+    char expand_body[256];               /* the confirmation's text, with the size */
+
     /* actions */
     enum system_view_phase phase;
     char error[SYSTEM_VIEW_TEXT];        /* last action error, empty if none */
@@ -173,6 +190,11 @@ void system_view_apply_radio_stats(struct system_view *v, const cJSON *stats);
 void system_view_apply_wifi(struct system_view *v, const cJSON *wifi_status);
 void system_view_apply_mesh(struct system_view *v, const cJSON *mesh_status);
 
+/* storage.status, for its "internal" object: whether the card can be
+ * expanded, is expanding, or needs a restart to finish. NULL (no answer)
+ * keeps what is on screen. */
+void system_view_apply_storage(struct system_view *v, const cJSON *storage);
+
 /* "23.7 MB", "512 kB", "1.4 GB" - a byte count as a person reads one. */
 void system_view_bytes(double bytes, char *out, size_t n);
 
@@ -188,11 +210,13 @@ int system_view_is_polling(const struct system_view *v);
 void system_view_request(struct system_view *v, enum system_view_action action);
 /* Back out: calls nothing, changes nothing else. */
 void system_view_cancel(struct system_view *v);
-/* Confirm. Returns the method the app must call ("system.reboot" or
- * "system.poweroff"), or NULL when nothing was pending - which is what makes
- * it impossible to reach the API without having gone through a confirmation. */
+/* Confirm. Returns the method the app must call ("system.reboot",
+ * "system.poweroff" or "storage.expand"), or NULL when nothing was pending -
+ * which is what makes it impossible to reach the API without having gone
+ * through a confirmation. */
 const char *system_view_confirm(struct system_view *v);
-/* The call succeeded: the machine is going, so stop everything. */
+/* The call succeeded: for a power action the machine is going, so stop
+ * everything; an expansion runs on in sysd and the screen goes back to live. */
 void system_view_action_ok(struct system_view *v);
 /* The call failed: back to a usable screen carrying the reason. */
 void system_view_action_failed(struct system_view *v, const char *message);

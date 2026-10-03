@@ -14,6 +14,7 @@
 /tests/sysd_services_test
 /tests/sysd_logs_test
 /tests/sysd_storage_test
+/tests/sysd_expand_test
 /tests/sysd-testhooks
 /tests/system_view_test
 /tests/diag_view_test
