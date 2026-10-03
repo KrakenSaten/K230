@@ -32,8 +32,8 @@ void rift_conv_list_shape(struct rift_conv_list *l, int wide);
 void rift_conv_list_refresh(struct rift_conv_list *l, const struct rift_conv *conv, int count,
                             const char *open, int64_t now, int reveal);
 /* How tall one conversation row is at the text size in use: a touch
- * target's height at least. Landscape (wide) is the name's line alone;
- * portrait is the name's line and the preview's under it. */
+ * target's height at least. It is the name's line and a line under it -
+ * the preview's in portrait, the age's (a caption) in landscape (wide). */
 int32_t rift_conv_row_h(int wide);
 /* Rows in the pool, for the test: bounded by the pane, not by the count. */
 int rift_conv_list_rows_built(const struct rift_conv_list *l);

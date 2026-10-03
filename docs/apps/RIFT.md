@@ -79,10 +79,12 @@ NET**. RIFT draws all four.
   name in the title type on a line of its own, with the link glyph, the
   unread pill, when the other side was last heard from with its activity
   pulse, and how that peer is reached; in portrait the newest message is a
-  preview in body type on a second line under the name. A row is at least a
-  touch target tall - 62 px in portrait and 56 px in landscape at Small,
-  where it was a 36 px data row with the name and a 14 px preview sharing
-  one line - and grows with the text size (DS §46). **MeshCore's Public
+  preview in body type on a second line under the name, and in landscape
+  that second line is `HEARD 22m` with the pulse, so the name has the whole
+  width of the narrow list. A row is at least a touch target tall - 62 px
+  in portrait and 59 px in landscape at Small, where it was a 36 px data
+  row with the name and a 14 px preview sharing one line - and grows with
+  the text size (DS §46). **MeshCore's Public
   channel is always the first row**: it is known by the service's word about
   its key (`mesh.channels`, `well_known: "public"` - the service compares
   the key it holds with `8b3387e9c5cdea6ac9e5edbaa115cd72`), never by its

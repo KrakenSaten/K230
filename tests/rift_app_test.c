@@ -1459,9 +1459,21 @@ static void text_size_session(void)
                     printf("     \"%s\" %d..%d, HEARD %d..%d\n", lv_label_get_text(title),
                            (int)a.x1, (int)a.x2, (int)b.x1, (int)b.x2);
                 }
-                snprintf(what, sizeof(what),
-                         "%s, %s: the list's title ends before HEARD begins", size, shape);
-                check(what, title && heard && a.x2 < b.x1);
+                if (app->wide) {
+                    /* Landscape's rows carry the age under the name, so the
+                     * header is the title alone - and whole, with nothing
+                     * beside it to make room for. */
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the list's title is whole, with no HEARD column beside it",
+                             size, shape);
+                    check(what, title && !heard &&
+                                    strcmp(lv_label_get_text(title), "CONVERSATIONS") == 0 &&
+                                    find_text(content(), "HEARD ") != NULL);
+                } else {
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the list's title ends before HEARD begins", size, shape);
+                    check(what, title && heard && a.x2 < b.x1);
+                }
             }
             if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
                 shot("landscape-comms-large");
@@ -2668,10 +2680,7 @@ static void comms_usability_session(void)
                      "%s, %s: it is the first row - above newer talk, and above a channel only "
                      "called Public",
                      size, shape);
-            /* (A name too long for landscape's list at Large is cut with an
-             * ellipsis, so the newest talk is looked for by its start.) */
-            check(what, first && seen >= 2 && find_text(list, "OSLO") != NULL &&
-                            top_of(find_text(list, "OSLO")) > top_of(name) &&
+            check(what, first && seen >= 2 && find_exact(list, "OSLO-01") != NULL &&
                             top_of(line) - top_of(list) < row_h / 2);
             if (!app->wide) {
                 snprintf(what, sizeof(what),
@@ -2743,7 +2752,8 @@ static void comms_usability_session(void)
             snprintf(what, sizeof(what), "%s, %s: the unread count and the age are still there",
                      size, shape);
             check(what, rift_model_unread_total(&app->model) > 0 &&
-                            find_exact(content(), "HEARD") != NULL);
+                            (app->wide ? find_text(list, "HEARD 0s") != NULL
+                                       : find_exact(content(), "HEARD") != NULL));
             if (!app->wide) {
                 lv_obj_t *preview = find_text(list, "er du der?");
 

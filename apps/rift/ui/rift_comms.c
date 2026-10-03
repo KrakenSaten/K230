@@ -32,8 +32,8 @@
  * while a reader has asked for it, and takes its width from the thread
  * then. The handoff's 372 / 560 / 300 gave the thread 45 % of the width
  * all the time; this gives it 75 %, and 50 % with the details open. The
- * list was 260 until its names went to the title type: 300 keeps as many
- * letters of a name as 260 held in the smaller one. */
+ * list was 260 until its names went to the title type on a line of their
+ * own: 300 gives a name the width of some fifteen letters at Small. */
 #define LIST_W_WIDE 300
 #define CTX_W_WIDE 300
 /* The open row's slab is 2 px taller top and bottom than a row, with 2 px
@@ -57,6 +57,7 @@ struct rift_comms {
     lv_obj_t *head;
     lv_obj_t *head_title; /* CONVERSATIONS, fitted to what the columns leave */
     lv_obj_t *head_heard;
+    lv_obj_t *head_pulse; /* the room the rows' pulse takes, under no word */
     lv_obj_t *head_route; /* the ROUTE column header, portrait only */
     lv_obj_t *list;       /* the rows' scrolling object (rift_conv_list.h) */
     struct rift_conv_list *rows;
@@ -361,7 +362,11 @@ void rift_comms_shape(struct rift_app *app)
         lv_obj_set_height(v->list, rift_conv_row_h(1));
         lv_obj_set_height(v->pane_thread, LV_PCT(100));
         lv_obj_set_flex_grow(v->pane_thread, 1);
+        /* Landscape's rows carry the age under the name, with its word:
+         * there is no column for a header to stand over. */
         lv_obj_add_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(v->head_heard, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(v->head_pulse, LV_OBJ_FLAG_HIDDEN);
         /* The details pane only while asked for: the thread has the width
          * the rest of the time (DS §37.2). */
         if (app->details_open) {
@@ -371,6 +376,8 @@ void rift_comms_shape(struct rift_app *app)
         }
     } else {
         lv_obj_remove_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(v->head_heard, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(v->head_pulse, LV_OBJ_FLAG_HIDDEN);
         /* As tall as what is in it; the list inside is sized to its rows on
          * every refresh (size_portrait_list). */
         lv_obj_set_width(v->pane_list, LV_PCT(100));
@@ -456,6 +463,7 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
     v->head_heard = cell;
     cell = rift_cell(head, POS_STYLE_CAPTION, RIFT_PULSE_W, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_style_margin_left(cell, PULSE_PULL, 0);
+    v->head_pulse = cell;
     v->head_route = rift_cell(head, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(v->head_route, "ROUTE");
     rift_conv_cols_widen(v->head_heard, v->head_route);
