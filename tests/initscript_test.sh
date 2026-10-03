@@ -538,9 +538,13 @@ rm -f "$ROOT/etc/default/meshcored" "$ROOT/meshcored.env" "$ROOT/meshcored.args"
 
 # ---- S90doors-shell --------------------------------------------------
 
+# On by default (a fresh card boots Doors; tests/first_boot_default_test.sh),
+# so off is a unit's own setting.
+printf 'ENABLE=0\n' > "$ROOT/etc/default/doors-shell"
 out=$("$S90" start 2>&1)
-check "S90 is disabled by default" $(contains "$out" "disabled")
+check "S90 switched off in its settings file is disabled" $(contains "$out" "disabled")
 check "S90 disabled starts nothing" $([ ! -e "$ROOT/shell.env" ] && echo 1 || echo 0)
+rm -f "$ROOT/etc/default/doors-shell"
 
 printf 'ENABLE=1\n' > "$ROOT/etc/default/pocketos-shell"
 printf 'ENABLE=1\n' > "$ROOT/etc/default/k230_phone_ui"

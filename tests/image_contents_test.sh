@@ -167,6 +167,31 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         "$(grep -q '/usr/sbin/meshcored is build abc1234' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and the pass says the services were checked" \
         "$(grep -q 'every service is whole and from one build' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "the pass says the first boot is Doors' (launcher off by default)" \
+        "$(grep -q 'S99zz_k230_phone_ui off by default' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "and the shell on by default" \
+        "$(grep -q 'S90doors-shell on by default' "${TMP}/out.txt" && echo 1 || echo 0)"
+
+    launcher_on() { mkbootimg_rootfs_doors "$1"; sed -i 's/^ENABLE=0$/ENABLE=1/' "$1/etc/init.d/S99zz_k230_phone_ui"; }
+    if rootfs_img "${TMP}/launcher-on.img" launcher_on; then
+        rc="$(run_gate "${TMP}/launcher-on.img")"
+        check "NEGATIVE CONTROL: a vendor launcher on by default is refused" \
+            "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+        check "NEGATIVE CONTROL: it says a fresh card would boot the vendor launcher" \
+            "$(grep -q 'a fresh card would boot the vendor launcher' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
+    shell_off() { mkbootimg_rootfs_doors "$1"; sed -i '/^ENABLE=1$/d' "$1/etc/init.d/S90doors-shell"; }
+    if rootfs_img "${TMP}/shell-off.img" shell_off; then
+        rc="$(run_gate "${TMP}/shell-off.img")"
+        check "NEGATIVE CONTROL: a shell off by default is refused" \
+            "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+    fi
+    launcher_conf() { mkbootimg_rootfs_doors "$1"; printf 'ENABLE=0\n' > "$1/etc/default/k230_phone_ui"; }
+    if rootfs_img "${TMP}/launcher-conf.img" launcher_conf; then
+        rc="$(run_gate "${TMP}/launcher-conf.img")"
+        check "NEGATIVE CONTROL: a launcher settings file shipped in the image is refused" \
+            "$([ "${rc}" != "0" ] && grep -q 'etc/default/k230_phone_ui must not be in the image' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
 
     both() { mkbootimg_rootfs_doors "$1"; printf '#!/bin/sh\n' > "$1/etc/init.d/S90pocketos-shell"; }
     if rootfs_img "${TMP}/two-services.img" both; then

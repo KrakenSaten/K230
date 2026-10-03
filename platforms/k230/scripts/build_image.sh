@@ -161,13 +161,25 @@ else
             SHELL_TROUBLE=1
         fi
     done
-    # Panel ownership is a per-unit decision, so neither settings file is packaged.
-    for never in etc/default/doors-shell etc/default/pocketos-shell; do
+    # Panel ownership is a per-unit decision, so no settings file is packaged.
+    for never in etc/default/doors-shell etc/default/pocketos-shell etc/default/k230_phone_ui; do
         if [ -e "${TGT}/${never}" ]; then
             echo "ERROR: ${never} must not be shipped in the image (it is a unit's own setting)." >&2
             SHELL_TROUBLE=1
         fi
     done
+    # Without those files the defaults decide, and the first boot of a fresh
+    # card has to be Doors': launcher off, shell on (apply_to_sdk.sh [3b/5]).
+    LAUNCHER_INIT="${TGT}/etc/init.d/S99zz_k230_phone_ui"
+    if [ -e "${LAUNCHER_INIT}" ] && ! grep -q '^ENABLE=0$' "${LAUNCHER_INIT}"; then
+        echo "ERROR: the vendor launcher in the target tree is not off by default." >&2
+        echo "       Re-run apply_to_sdk.sh (it patches S99zz_k230_phone_ui)." >&2
+        SHELL_TROUBLE=1
+    fi
+    if ! grep -q '^ENABLE=1$' "${TGT}/etc/init.d/S90doors-shell" 2>/dev/null; then
+        echo "ERROR: S90doors-shell in the target tree is not on by default." >&2
+        SHELL_TROUBLE=1
+    fi
     [ "${SHELL_TROUBLE}" -eq 0 ] || exit 1
     echo "Shell service: one identity in the target tree (doors-shell), no PocketOS-era leftovers."
 fi

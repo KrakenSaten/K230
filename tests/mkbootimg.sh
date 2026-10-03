@@ -99,6 +99,12 @@ mkbootimg_rootfs_doors() {
         printf '#!/bin/sh\n# %s\nDAEMON=/%s\n' "${name}" "${bin}" > "${d}/etc/init.d/${init}"
         chmod 0755 "${d}/etc/init.d/${init}"
     done
+    # The first boot of a fresh card is Doors': the shell on and the patched
+    # vendor launcher off by default (apply_to_sdk.sh [3b/5]).
+    printf 'ENABLE=1\n' >> "${d}/etc/init.d/S90doors-shell"
+    printf '#!/bin/sh\nDAEMON=/root/app/k230_phone_ui/k230_phone_ui\nENABLE=0\n' \
+        > "${d}/etc/init.d/S99zz_k230_phone_ui"
+    chmod 0755 "${d}/etc/init.d/S99zz_k230_phone_ui"
     mkbootimg_stamped "${d}/usr/bin/doors" "${id}"
     printf '#!/bin/sh\n' > "${d}/usr/bin/pos-supervise"
     chmod 0755 "${d}/usr/bin/pos-supervise"

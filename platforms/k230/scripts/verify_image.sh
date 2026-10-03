@@ -141,7 +141,8 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
         # /etc/default file would decide panel ownership for every unit from
         # the image instead of from the unit, which is why neither is packaged.
         for path in /usr/bin/pocketos-shell /etc/init.d/S90pocketos-shell \
-                    /etc/default/doors-shell /etc/default/pocketos-shell; do
+                    /etc/default/doors-shell /etc/default/pocketos-shell \
+                    /etc/default/k230_phone_ui; do
             if rootfs_has "${path}"; then
                 echo "  PRESENT: ${path} must not be in the image (ADR-005 Phase 3)" >&2
                 failed=$((failed + 1))
@@ -149,6 +150,23 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 note "ok  ${path} absent, as it must be"
             fi
         done
+        # With no settings file the defaults decide the first boot of a fresh
+        # card, and it has to be Doors': the vendor launcher off, the shell on.
+        rootfs_cat() { debugfs -R "cat \"$1\"" "${P2}" 2>/dev/null; }
+        if rootfs_has /etc/init.d/S99zz_k230_phone_ui; then
+            if rootfs_cat /etc/init.d/S99zz_k230_phone_ui | grep -q '^ENABLE=0$'; then
+                note "ok  /etc/init.d/S99zz_k230_phone_ui off by default (first boot is Doors)"
+            else
+                bad "/etc/init.d/S99zz_k230_phone_ui is not off by default: a fresh card would boot the vendor launcher"
+            fi
+        fi
+        if rootfs_has /etc/init.d/S90doors-shell; then
+            if rootfs_cat /etc/init.d/S90doors-shell | grep -q '^ENABLE=1$'; then
+                note "ok  /etc/init.d/S90doors-shell on by default"
+            else
+                bad "/etc/init.d/S90doors-shell is not on by default: a fresh card would leave the panel to nobody"
+            fi
+        fi
         # Every service whole, and every binary the build the release file
         # names: the same check deploy.sh makes of the tree it copies from
         # (tools/release/check_rootfs.sh), made here of what the card will
