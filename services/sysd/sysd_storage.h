@@ -94,7 +94,7 @@ struct sysd_storage_ops {
  * tests: nosuid, nodev, noexec, noatime; UTF-8 names, mixed-case short names
  * kept, writes flushed early (flush), files 0644 and folders 0755, and the
  * filesystem remounted read-only on an error rather than carrying on. */
-#define SYSD_STORAGE_FAT_DATA "utf8,shortname=mixed,flush,fmask=0022,dmask=0022,errors=remount-ro"
+#define SYSD_STORAGE_FAT_DATA "utf8,shortname=mixed,flush,fmask=0133,dmask=0022,errors=remount-ro"
 extern const struct sysd_storage_ops sysd_storage_real_ops;
 extern const struct sysd_storage_paths sysd_storage_real_paths;
 

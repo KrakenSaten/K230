@@ -322,7 +322,7 @@ events before anyone listened) and on every `storage.status`. The vendor's
 unmounting, so that nothing saved "to the drive" while none is mounted can
 land on the root filesystem. `mount(2)` with type `vfat`, flags `nosuid`,
 `nodev`, `noexec`, `noatime`, and data
-`utf8,shortname=mixed,flush,fmask=0022,dmask=0022,errors=remount-ro`: UTF-8
+`utf8,shortname=mixed,flush,fmask=0133,dmask=0022,errors=remount-ro`: UTF-8
 names, short names kept as written, writes pushed out early (`flush`), files
 0644 and folders 0755, and the filesystem made read-only on an error rather
 than written on. The kernel's default FAT `iocharset` is `iso8859-1`, which is
