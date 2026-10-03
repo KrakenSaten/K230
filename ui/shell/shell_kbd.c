@@ -11,6 +11,7 @@
 
 #include "kbd_bus_k230.h"
 #include "kbd_leds.h"
+#include "kbd_picker.h"
 #include "kbd_presence.h"
 #include "kbd_tca8418.h"
 #include "pocketlog/pocketlog.h"
@@ -67,6 +68,14 @@ static struct {
     struct kbd_leds leds;
     unsigned indicators; /* KBD_LED_MIC | KBD_LED_CAMERA, from the shell */
     unsigned led_tries;  /* expander retries left for this keyboard */
+    /* A long-press key (pos_keymap_hold_choices) held down in a text field
+     * and not typed yet: its release before KBD_PICKER_HOLD_MS types it, the
+     * hold opens the picker instead (kbd_picker.h). held_key 0 with a
+     * held_code means the picker took it and the release types nothing. */
+    uint8_t held_code;
+    pos_key_t held_key;
+    unsigned held_mods;
+    uint64_t held_since_us;
 } kbd;
 
 /* How often the watch retries an expander that did not answer, per keyboard
@@ -83,6 +92,62 @@ static uint64_t now_us(void)
     return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000);
 }
 
+static void deliver(pos_key_t key, unsigned mods)
+{
+    if (pos_input_push_key_mods(key, mods)) {
+        kbd.delivered++;
+    } else {
+        kbd.dropped++; /* the queue is full; the oldest keys survive */
+    }
+}
+
+/* Type the held long-press key now, if it is still owed, and forget it. */
+static void flush_held(void)
+{
+    if (kbd.held_code && kbd.held_key) {
+        deliver(kbd.held_key, kbd.held_mods);
+    }
+    kbd.held_code = 0;
+    kbd.held_key = 0;
+}
+
+/* Whether this press is held back to be timed: a key with long-press
+ * letters giving its own letter (Shift+A is '~', which is not), no Ctrl or
+ * Alt (a shortcut is never a letter), and a text field to put a choice in. */
+static bool holds(uint8_t code, pos_key_t key, unsigned mods)
+{
+    const char *name = pos_keymap_name(code);
+
+    if ((mods & (POS_INPUT_MOD_CTRL | POS_INPUT_MOD_ALT)) || !name ||
+        pos_keymap_hold_choices(code, NULL) == 0) {
+        return false;
+    }
+    if (key != (pos_key_t)name[0] && key != (pos_key_t)(name[0] - 'A' + 'a')) {
+        return false;
+    }
+    return kbd_picker_can_open();
+}
+
+/* Run from the poll: a held key that has been down long enough opens its
+ * picker. If the picker cannot open (the field went away while the key was
+ * down) the key is typed as a short press would have typed it. */
+static void hold_tick(void)
+{
+    const pos_key_t *choices;
+    unsigned n;
+
+    if (!kbd.held_code || !kbd.held_key ||
+        now_us() - kbd.held_since_us < (uint64_t)KBD_PICKER_HOLD_MS * 1000u) {
+        return;
+    }
+    n = pos_keymap_hold_choices(kbd.held_code, &choices);
+    if (kbd_picker_open(choices, n)) {
+        kbd.held_key = 0; /* the picker has it; the release types nothing */
+    } else {
+        flush_held();
+    }
+}
+
 /* One raw FIFO byte. The translation, the modifier state and the decision
  * about what a key even means all belong to pos_keymap, which is tested on
  * its own; this only carries the result into the stream. */
@@ -90,14 +155,26 @@ static void on_event(void *user, uint8_t raw)
 {
     enum pos_keymap_effect effect;
     pos_key_t key;
+    uint8_t code = (uint8_t)(raw & POS_KEYMAP_EVENT_CODE);
 
     (void)user;
     key = pos_keymap_event(&kbd.map, raw, &effect);
+    /* The release of a held long-press key: before the hold it is a tap and
+     * types the letter now; after it the picker has the key. */
+    if (!(raw & POS_KEYMAP_EVENT_PRESSED) && kbd.held_code && code == kbd.held_code) {
+        flush_held();
+        return;
+    }
     /* A press that only wakes the screen goes no further. After the key map,
      * so the modifiers it tracks stay right. */
     if ((raw & POS_KEYMAP_EVENT_PRESSED) && (effect == POS_KEYMAP_KEY || effect == POS_KEYMAP_RESERVED) &&
         kbd.wake_gate && !kbd.wake_gate()) {
         return;
+    }
+    /* Fast typing overlaps keys: anything pressed while a long-press key is
+     * still down comes after it, so the held letter is typed first. */
+    if ((raw & POS_KEYMAP_EVENT_PRESSED) && (effect == POS_KEYMAP_KEY || effect == POS_KEYMAP_RESERVED)) {
+        flush_held();
     }
     if (effect == POS_KEYMAP_KEY && key != 0) {
         /* The modifiers held at this press go with the key. Only a raw key
@@ -107,11 +184,19 @@ static void on_event(void *user, uint8_t raw)
                         (kbd.map.ctrl ? POS_INPUT_MOD_CTRL : 0u) |
                         (kbd.map.alt ? POS_INPUT_MOD_ALT : 0u);
 
-        if (pos_input_push_key_mods(key, mods)) {
-            kbd.delivered++;
-        } else {
-            kbd.dropped++; /* the queue is full; the oldest keys survive */
+        /* While the picker is up its keys are its own; any other key closes
+         * it and then does what it always does. */
+        if (kbd_picker_key(key)) {
+            return;
         }
+        if (holds(code, key, mods)) {
+            kbd.held_code = code;
+            kbd.held_key = key;
+            kbd.held_mods = mods;
+            kbd.held_since_us = now_us();
+            return;
+        }
+        deliver(key, mods);
     } else if (effect == POS_KEYMAP_NONE && (raw & POS_KEYMAP_EVENT_PRESSED) &&
                !pos_keymap_name((uint8_t)(raw & POS_KEYMAP_EVENT_CODE))) {
         /* A position neither the vendor's table nor ours names (4, 30, 31,
@@ -195,6 +280,9 @@ static void on_overflow(void *user)
 {
     (void)user;
     pos_keymap_reset(&kbd.map);
+    /* The same goes for a held long-press key: its release may be among the
+     * events lost. It was pressed, so it is typed rather than timed. */
+    flush_held();
 }
 
 static void on_poll(lv_timer_t *timer)
@@ -207,6 +295,10 @@ static void on_poll(lv_timer_t *timer)
      * below, of the driver rather than of this return value. */
     (void)kbd_tca8418_poll(&kbd.chip, now_us(), on_event, on_overflow, NULL);
     flush();
+    /* The long press is timed here, on the poll that already runs: the
+     * controller reports a press and a release and nothing in between. */
+    hold_tick();
+    kbd_picker_check();
 
     if (kbd_tca8418_take_overflow(&kbd.chip)) {
         LOG_WARN("keyboard: controller overflow, modifier state dropped");
@@ -243,6 +335,7 @@ static void on_poll(lv_timer_t *timer)
         LOG_WARN("keyboard: the controller stopped answering; retrying");
     } else if (!kbd.ready && ready) {
         pos_keymap_reset(&kbd.map);
+        flush_held(); /* its release went with the controller */
         LOG_INFO("keyboard: the controller is answering again");
         /* Whatever took the controller away may have taken the expander
          * with it, and the Caps state just went: write all three again. */
@@ -342,6 +435,8 @@ static int bring_up(void)
      * from the truth rather than from a default. */
     kbd.ready = kbd_tca8418_ready(&kbd.chip);
     pos_keymap_reset(&kbd.map);
+    kbd.held_code = 0;
+    kbd.held_key = 0;
     leds_bring_up();
     return 1;
 }
@@ -486,6 +581,11 @@ void shell_kbd_destroy(void)
     kbd_leds_off(&kbd.leds);
     kbd.indicators = 0;
     kbd.npending = 0;
+    /* A key held as the keyboard goes is not typed afterwards, and a picker
+     * it opened goes with it. */
+    kbd.held_code = 0;
+    kbd.held_key = 0;
+    kbd_picker_close();
     /* This is what puts the pin mux back, so it runs whether or not a
      * keyboard was ever found - but only when the lines were actually taken:
      * the bus is now kept across a failed probe, and destroying one that was

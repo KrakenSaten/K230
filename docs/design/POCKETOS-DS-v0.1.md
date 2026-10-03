@@ -4023,6 +4023,18 @@ screen or an alert (§18.8) is up, keys that would open or leave an app do
 nothing; the levels still work. With Fn held, a function key goes to the
 Terminal (§43.3) as the key itself; everywhere else Fn changes nothing.
 
+**Long-press letters (PROPOSED 2026-10-03, branch
+`fix/rift-norwegian-input`).** No keycap carries them, so in a text field A
+and O held for the touch keyboard's hold time (400 ms, §17.3) open a small
+row beside the field: å Å ä Ä æ Æ for A, ø Ø ö Ö for O, both cases always,
+the first selected. Left and Right move, Enter types the selection, Esc or a
+tap outside cancels, a tap on a letter types it, and any other key closes
+the row and then does what it always does. A quick tap types a or o on its
+release, never a letter and then the row. The field keeps the focus
+throughout, and the letter reaches it as UTF-8 through the one stream
+(§17.4). Anywhere but a text field, in the Terminal, and with Ctrl or Alt
+held, A and O are plain keys. Mechanism: `ui/shell/kbd_picker.h`.
+
 ### 44.2 Back
 
 Back is the header's back slab (§7), with one step before it: an app that

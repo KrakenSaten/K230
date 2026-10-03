@@ -54,9 +54,10 @@ int shell_kbd_attach(const struct kbd_bus *bus);
  * controller's FIFO has been drained and the bus released - never from
  * inside the drain, where opening an app would hold the bus for as long as
  * the app takes to build. Only presses act: a release carries nothing, and
- * the controller does not auto-repeat, so a held key is one action. (A
- * later long press would be timed between the two, which this leaves room
- * for: the release still passes through on_event.)
+ * the controller does not auto-repeat, so a held key is one action. A long
+ * press is timed between the two: A and O held in a text field type nothing
+ * until they are released, and held for KBD_PICKER_HOLD_MS they open the
+ * letter picker instead (kbd_picker.h).
  *
  * With Fn held, a function key goes to a raw key target instead (the
  * Terminal, pos_input.h), as the F-key itself; with no raw target focused it

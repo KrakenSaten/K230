@@ -85,4 +85,16 @@ const char *pos_keymap_name(uint8_t code);
 /* True when the code is a modifier this layer tracks. */
 bool pos_keymap_is_modifier(uint8_t code);
 
+/* ---- long-press letters ------------------------------------------------ *
+ *
+ * No keycap carries the Nordic and German letters, so holding a key offers
+ * them in a small picker (ui/shell/kbd_picker.h): A offers å Å ä Ä æ Æ and
+ * O offers ø Ø ö Ö, both cases always, whatever Shift and Caps say. Only A
+ * and O have any. This is the table; timing the hold and showing the picker
+ * are the driver's, since this layer has no clock.
+ *
+ * Returns how many characters the key offers and points *choices at them
+ * (Unicode code points, small letter first in each pair), or returns 0. */
+unsigned pos_keymap_hold_choices(uint8_t code, const pos_key_t **choices);
+
 #endif
