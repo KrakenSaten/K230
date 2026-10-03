@@ -570,6 +570,35 @@ static void test_move_across(void)
     }
 }
 
+/* A mount point inside a writable root - the USB drive at /media/usb - is a
+ * root of its own: its contents can change, the folder itself cannot be
+ * renamed, moved or deleted. /dev/shm stands in for the drive: a real mount
+ * point. Only the policy is asked; nothing under /dev is touched. */
+static void test_mount_point(void)
+{
+    struct files_policy dev = { { "/dev", NULL }, { NULL } };
+    char inside[128];
+    struct stat a;
+    struct stat b;
+
+    if (stat("/dev/shm", &a) != 0 || stat("/dev", &b) != 0 || a.st_dev == b.st_dev) {
+        printf("skip mount points: /dev/shm is not a mount point here\n");
+        return;
+    }
+    check("a mount point inside a writable root is a root itself",
+          files_policy_entry(&dev, "/dev/shm") == FILES_ACCESS_ROOT);
+    check("and can still be written into", files_policy_dir(&dev, "/dev/shm") == FILES_ACCESS_OK);
+    snprintf(inside, sizeof(inside), "/dev/shm/files-fs-mp-%ld", (long)getpid());
+    if (mkdir(inside, 0755) == 0) {
+        check("what is in it can be changed", files_policy_entry(&dev, inside) == FILES_ACCESS_OK);
+        rmdir(inside);
+    }
+    mk(at("w/plainfolder"));
+    check("an ordinary folder is still an ordinary folder",
+          files_policy_entry(&pol, at("w/plainfolder")) == FILES_ACCESS_OK);
+    rmdir(at("w/plainfolder"));
+}
+
 /* ---- 7. delete ------------------------------------------------------------------------ */
 
 static void test_delete(void)
@@ -730,6 +759,7 @@ int main(void)
     test_copy();
     test_move();
     test_move_across();
+    test_mount_point();
     test_delete();
     test_text();
     test_job();

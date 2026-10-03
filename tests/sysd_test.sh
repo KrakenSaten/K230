@@ -340,6 +340,20 @@ out=$("$POS" call sysd system.status 2>&1)
 check "system.status carries a bluetooth object" '"bluetooth"' "$out"
 check "and the power source" '"source"' "$out"
 
+# storage.*: the build host has no USB drive on /sys/block (WSL's disks are on
+# VMBus), so the answer is the absent shape and eject is refused. The state
+# machine itself is tests/sysd_storage_test.c.
+out=$("$POS" call sysd storage.status 2>&1)
+check "storage.status answers with a usb object" '"usb"' "$out"
+check "with a state" '"state":[[:space:]]*"\(absent\|mounted\|ejected\|unsupported\|error\)"' "$out"
+check "and safe_to_remove" '"safe_to_remove":[[:space:]]*\(true\|false\)' "$out"
+if printf '%s' "$out" | grep -q '"state":[[:space:]]*"absent"'; then
+    out=$("$POS" call sysd storage.eject 2>&1)
+    check "storage.eject with nothing mounted is refused (code 3)" 'code 3' "$out"
+fi
+out=$("$POS" call sysd storage.eject x=1 2>&1)
+check "storage.eject takes no params (code 2)" 'code 2' "$out"
+
 kill $SYSD_PID
 wait $SYSD_PID 2>/dev/null
 rc=$?

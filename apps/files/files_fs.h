@@ -197,4 +197,8 @@ int files_delete(const struct files_policy *pol, const char *path, atomic_int *c
  * *truncated says whether there was more. */
 int files_read_text(const char *path, char *buf, size_t buf_len, bool *truncated);
 
+/* The size of the filesystem path is on and what an unprivileged writer may
+ * still use of it, in bytes. Returns 0, or -errno with both set to -1. */
+int files_space(const char *path, int64_t *total, int64_t *avail);
+
 #endif

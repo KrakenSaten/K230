@@ -13,6 +13,7 @@
 /tests/pocketsys_test
 /tests/sysd_services_test
 /tests/sysd_logs_test
+/tests/sysd_storage_test
 /tests/sysd-testhooks
 /tests/system_view_test
 /tests/diag_view_test
@@ -63,6 +64,7 @@ BUILD_ID
 /tests/notes_store_test
 /tests/files_fs_test
 /tests/files_view_test
+/tests/files_storage_test
 /tests/clock_engine_test
 /tests/clock_time_test
 /tests/clock_store_test

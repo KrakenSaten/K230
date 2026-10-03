@@ -16,6 +16,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -535,14 +536,38 @@ static enum files_access judge(const struct files_policy *pol, const char *c, bo
     return FILES_ACCESS_SYSTEM;
 }
 
+/* A folder that is the top of another filesystem than the one it is in. */
+static bool is_mount_point(const char *c)
+{
+    char parent[FILES_PATH_MAX];
+    struct stat st;
+    struct stat ps;
+
+    if (lstat(c, &st) != 0 || !S_ISDIR(st.st_mode) || files_path_parent(parent, sizeof(parent), c) != 0 ||
+        stat(parent, &ps) != 0) {
+        return false;
+    }
+    return st.st_dev != ps.st_dev;
+}
+
 enum files_access files_policy_entry(const struct files_policy *pol, const char *path)
 {
     char c[FILES_PATH_MAX];
+    enum files_access a;
 
     if (canon(path, c, sizeof(c), true) != 0) {
         return FILES_ACCESS_MISSING;
     }
-    return judge(pol, c, true);
+    a = judge(pol, c, true);
+    /* A mounted filesystem's top - the USB drive at /media/usb - is treated
+     * like a writable root: what is in it can be changed, the folder itself
+     * cannot be renamed, moved or deleted. Deleting it would empty the
+     * whole drive behind one confirmation, and renaming a mount point only
+     * fails. */
+    if (a == FILES_ACCESS_OK && is_mount_point(c)) {
+        return FILES_ACCESS_ROOT;
+    }
+    return a;
 }
 
 enum files_access files_policy_dir(const struct files_policy *pol, const char *dir)
@@ -1097,6 +1122,19 @@ int files_delete(const struct files_policy *pol, const char *path, atomic_int *c
         }
     }
     return remove_tree(path, st.st_dev, false, cancel);
+}
+
+int files_space(const char *path, int64_t *total, int64_t *avail)
+{
+    struct statvfs vfs;
+
+    *total = *avail = -1;
+    if (statvfs(path, &vfs) < 0) {
+        return -errno;
+    }
+    *total = (int64_t)vfs.f_blocks * (int64_t)vfs.f_frsize;
+    *avail = (int64_t)vfs.f_bavail * (int64_t)vfs.f_frsize;
+    return 0;
 }
 
 int files_read_text(const char *path, char *buf, size_t buf_len, bool *truncated)

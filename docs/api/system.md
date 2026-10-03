@@ -9,13 +9,16 @@ Started on the device by `/etc/init.d/S50sysd` under `pos-supervise`, ahead of
 identity, uptime, load, memory, temperature, storage, the network interfaces,
 the power supply and the health of the supervised services. It reads `/proc`,
 `/sys`, `/etc`, the PocketOS runtime directory and (for `system.logs` and
-`system.crashes`) the log directory, and opens no device node.
+`system.crashes`) the log directory. The one device node it opens is a USB
+drive's partition, read-only, to identify its filesystem (Storage, below).
 The facts themselves come from `core/pocketsys`, which is unit-tested against
 a fake root so the absence of every optional source is a tested case.
 
-Everything sysd *reports* is read-only. The two things it can *do* are
-`system.reboot` and `system.poweroff`, and it does neither itself: it asks
-init. Service restart through the API is still a later addition.
+Everything sysd *reports* is read-only. The things it can *do* are
+`system.reboot` and `system.poweroff`, which it does not do itself but asks
+init to do, and the USB drive's mount and `storage.eject`, which it does
+itself and is the only owner of (Storage, below). Service restart through the
+API is still a later addition.
 
 Rule for every field: a board that lacks the source gets JSON `null` (or an
 empty array). Nothing is estimated, and no sentinel stands in for an absence:
@@ -294,6 +297,96 @@ way past.
 **Confirmation is not this API's job.** "Are you sure?" belongs to whatever UI
 a person is touching. The API does what it is told, once.
 
+### Storage: the USB drive
+
+sysd is the one owner of the USB drive. Nothing else mounts, unmounts or
+ejects it: Files reads `storage.status` and asks for `storage.eject`
+(`services/sysd/sysd_storage.c`, `docs/apps/FILES.md`).
+
+**Scope (v1).** One drive: the first USB disk on `/sys/block` (`sd*` whose
+sysfs path runs through `/usb`) that has a medium. Its first partition, or
+the whole disk when it has no partition table. **FAT12, FAT16 and FAT32
+only.** exFAT and NTFS are recognised by their boot sector so the owner can be
+told why the drive was not mounted; they are never mounted (the kernel has
+neither: `CONFIG_EXFAT_FS` and `CONFIG_NTFS3_FS` are not set, VERIFIED in the
+SDK's kernel `.config`). No hubs of several drives, no second partition.
+
+**Detection.** sysd listens on the kernel's uevent netlink socket (the stream
+BusyBox `mdev -d` reads; any number of processes may) and, on a block event,
+looks at `/sys/block` and `/proc/mounts` afresh. Nothing is taken from the
+event itself. It also looks at start (a drive plugged in before boot sent its
+events before anyone listened) and on every `storage.status`. The vendor's
+`/etc/mdev.conf` is not changed; devtmpfs creates `/dev/sdX` itself.
+
+**Mount.** At `/media/usb`, which sysd makes before mounting and removes after
+unmounting, so that nothing saved "to the drive" while none is mounted can
+land on the root filesystem. `mount(2)` with type `vfat`, flags `nosuid`,
+`nodev`, `noexec`, `noatime`, and data
+`utf8,shortname=mixed,flush,fmask=0133,dmask=0022,errors=remount-ro`: UTF-8
+names, short names kept as written, writes pushed out early (`flush`), files
+0644 and folders 0755, and the filesystem made read-only on an error rather
+than written on. The kernel's default FAT `iocharset` is `iso8859-1`, which is
+a module on this image (`nls_iso8859_1.ko`, present and loaded on unit B).
+
+**Already mounted.** A drive already mounted at `/media/usb` (an earlier sysd)
+is kept as it is. `/media/usb` taken by anything else, or the drive mounted
+somewhere else, is the `error` state and is left alone. A drive unmounted
+from outside sysd (a terminal) is taken as ejected and is not mounted again.
+
+**Pulled out without Eject.** The stale mount is unmounted plainly. If a file
+is still open on it the kernel refuses with `EBUSY`, and then, and only then,
+the mount is detached (`MNT_DETACH`): the device is gone, so there is nothing
+left to flush, and a mount with no device behind it must stop handing out
+files. That is the one lazy unmount sysd ever does.
+
+**After an eject, or a failure,** the same device (`sdX1` and its
+major:minor) is left alone until it is removed: Safe to remove stays true, and
+a drive that could not be mounted is not retried on every look. That memory
+is sysd's own and is not kept across a restart: a sysd started while an
+ejected drive is still plugged in mounts it again (seen on unit B when sysd
+was redeployed).
+
+### storage.status
+
+Takes no parameters (ignores any). Looks at the drive first.
+
+```
+$ pos call sysd storage.status
+{ "usb": { "state": "mounted", "present": true, "device": "/dev/sda1",
+           "filesystem": "FAT32", "label": "SANDISK", "mount_path": "/media/usb",
+           "total_bytes": 61505273856, "free_bytes": 56908316672,
+           "safe_to_remove": false, "error": null } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `absent`, `mounted`, `ejecting`, `ejected` (safe to remove), `unsupported` (not FAT), `error` |
+| `present` | a USB drive is there (every state but `absent`) |
+| `device` | the partition sysd chose, or null |
+| `filesystem` | `FAT12`, `FAT16`, `FAT32`, `exFAT`, `NTFS`, or `unknown`; null when absent |
+| `label` | the volume label (the root directory's label entry, else the boot sector's), printable ASCII with anything else as `?`; null when none |
+| `mount_path` | `/media/usb` while mounted, else null |
+| `total_bytes`, `free_bytes` | `statvfs` of the mount, free as an unprivileged writer sees it; null unless mounted |
+| `safe_to_remove` | true only in `ejected` |
+| `error` | why the drive is not mounted (`error`), or why the last eject failed (back in `mounted`); else null |
+
+### storage.eject
+
+Takes no parameters and refuses any (code 2). Replies at once with
+`{"state": "ejecting"}`: the eject runs in a child process so sysd keeps
+answering while the drive flushes. The child calls `syncfs` on the mount and
+`sync`, then a plain `umount(2)`. `storage.status` then says `ejected` (and
+`safe_to_remove: true`), or `mounted` again with `error` set: a drive with a
+file open on it is reported as in use and **stays mounted**; there is no lazy
+unmount of a drive that is still plugged in.
+
+Refused with code 3 (`POCKETIPC_ERR_POLICY`) when nothing is mounted, code 5
+(`POCKETIPC_ERR_BUSY`) while an eject runs, and code 4 when the child could
+not be started.
+
+The drive stays mounted when sysd stops or restarts (the next sysd keeps the
+mount); shutdown's `umount -a -r` unmounts it.
+
 ### Trust model
 
 There is no authorization layer in v0, and the socket permissions are the
@@ -314,8 +407,10 @@ the methods that change the machine will need a real answer.
 | Code | Meaning |
 | --- | --- |
 | 1 | `POCKETIPC_ERR_UNKNOWN_METHOD`: no such method |
-| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes`, which take none, or a bad `system.logs` parameter |
-| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending |
+| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes` / `storage.eject`, which take none, or a bad `system.logs` parameter |
+| 3 | `POCKETIPC_ERR_POLICY`: `storage.eject` with no USB drive mounted |
+| 4 | `POCKETIPC_ERR_BACKEND`: the eject could not be started |
+| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending, or an eject is running |
 
 `system.info` and `system.status` take no parameters and ignore any that are
 sent. `system.reboot` and `system.poweroff` take none and refuse any, because
