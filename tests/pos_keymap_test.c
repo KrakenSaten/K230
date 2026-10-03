@@ -71,6 +71,7 @@ static enum pos_keymap_effect effect_of(uint8_t event)
 #define C_CTRL 23
 #define C_ALT 19
 #define C_FN 9
+#define C_O 43
 #define C_CAPS 10
 #define C_SPACE 5
 #define C_SPACE2 14
@@ -350,6 +351,33 @@ int main(void)
     check("and NULL for a gap", pos_keymap_name(4) == NULL);
     check("and NULL past the matrix", pos_keymap_name(200) == NULL);
     check("and NULL for zero", pos_keymap_name(0) == NULL);
+
+    /* ---- 15. what a long press offers (the picker's table) ------------- */
+    {
+        static const pos_key_t want_a[] = { 0xE5, 0xC5, 0xE4, 0xC4, 0xE6, 0xC6 };
+        static const pos_key_t want_o[] = { 0xF8, 0xD8, 0xF6, 0xD6 };
+        const pos_key_t *got = NULL;
+        unsigned others = 0;
+
+        check("A offers \xC3\xA5 \xC3\x85 \xC3\xA4 \xC3\x84 \xC3\xA6 \xC3\x86, in that order",
+              pos_keymap_hold_choices(C_A, &got) == 6 && got &&
+                  memcmp(got, want_a, sizeof(want_a)) == 0);
+        check("O offers \xC3\xB8 \xC3\x98 \xC3\xB6 \xC3\x96, in that order",
+              pos_keymap_hold_choices(C_O, &got) == 4 && got &&
+                  memcmp(got, want_o, sizeof(want_o)) == 0);
+        for (code = 0; code <= POS_KEYMAP_MAX_CODE + 1; code++) {
+            if (code != C_A && code != C_O && pos_keymap_hold_choices((uint8_t)code, &got) != 0) {
+                others++;
+            }
+        }
+        check("and no other key offers anything", others == 0);
+        check("a NULL list pointer is allowed", pos_keymap_hold_choices(C_A, NULL) == 6);
+        pos_keymap_reset(&km);
+        press_is("the table changes nothing a press types: A is a", C_A, 'a');
+        release(C_A);
+        press_is("and O is o", C_O, 'o');
+        release(C_O);
+    }
 
     printf("pos_keymap_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

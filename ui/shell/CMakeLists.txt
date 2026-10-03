@@ -60,6 +60,7 @@ add_executable(pocketos-shell
     ../pocketui/pos_keymap.c
     kbd_tca8418.c
     shell_kbd.c
+    kbd_picker.c
     kbd_leds.c
     kbd_light.c
     hw_actions.c
@@ -1648,6 +1649,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(shell_kbd_test
         ${REPO_DIR}/tests/shell_kbd_test.c
         shell_kbd.c
+        kbd_picker.c
         kbd_tca8418.c
         kbd_presence.c
         kbd_bus_absent.c

@@ -111,6 +111,34 @@ bool pos_keymap_is_modifier(uint8_t code)
            code == K_FN || code == K_FN_R;
 }
 
+/* What a long press offers (pos_keymap.h). Latin-1 code points, so the fonts
+ * already carry every one of them (DS C9: 0xA0-0xFF). */
+static const pos_key_t hold_a[] = { 0xE5, 0xC5, 0xE4, 0xC4, 0xE6, 0xC6 }; /* å Å ä Ä æ Æ */
+static const pos_key_t hold_o[] = { 0xF8, 0xD8, 0xF6, 0xD6 };             /* ø Ø ö Ö */
+
+unsigned pos_keymap_hold_choices(uint8_t code, const pos_key_t **choices)
+{
+    const pos_key_t *list = NULL;
+    unsigned n = 0;
+
+    switch (code) {
+    case 29: /* A, VERIFIED on unit A */
+        list = hold_a;
+        n = sizeof(hold_a) / sizeof(hold_a[0]);
+        break;
+    case 43: /* O, DOCUMENTED */
+        list = hold_o;
+        n = sizeof(hold_o) / sizeof(hold_o[0]);
+        break;
+    default:
+        break;
+    }
+    if (choices) {
+        *choices = list;
+    }
+    return n;
+}
+
 void pos_keymap_reset(struct pos_keymap *k)
 {
     if (k) {

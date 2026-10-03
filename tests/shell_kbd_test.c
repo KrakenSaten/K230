@@ -16,8 +16,10 @@
 #include "hw_actions.h"
 #include "kbd_bus.h"
 #include "kbd_leds.h"
+#include "kbd_picker.h"
 #include "pocketui.h"
 #include "pos_input.h"
+#include "pos_keymap.h"
 #include "shell_kbd.h"
 
 #include <stdio.h>
@@ -279,6 +281,318 @@ static void on_raw_key(lv_event_t *e)
     }
 }
 
+/* ---- the long-press letter picker (kbd_picker.h) ------------------------ */
+
+/* A finger, so the picker's letters are tapped the way a person taps them:
+ * through a real LVGL pointer device, not by sending events. */
+static lv_point_t finger;
+static lv_indev_state_t finger_state = LV_INDEV_STATE_RELEASED;
+
+static void finger_read(lv_indev_t *d, lv_indev_data_t *data)
+{
+    (void)d;
+    data->point = finger;
+    data->state = finger_state;
+}
+
+static void tap_at(int32_t x, int32_t y)
+{
+    finger.x = x;
+    finger.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    settle();
+    finger_state = LV_INDEV_STATE_RELEASED;
+    settle();
+}
+
+static void tap_obj(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        return;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    tap_at(a.x1 + lv_area_get_width(&a) / 2, a.y1 + lv_area_get_height(&a) / 2);
+}
+
+#define K_A 29
+#define K_O 43
+#define K_W 39
+#define K_RIGHT 1
+#define K_LEFT 2
+#define K_ENTER 21
+#define K_ESC 40
+#define K_SPACE 5
+
+static void key_down(uint8_t code)
+{
+    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | code));
+    settle();
+}
+
+static void key_up(uint8_t code)
+{
+    feed(code);
+    settle();
+}
+
+static void tap_key(uint8_t code)
+{
+    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | code));
+    feed(code);
+    settle();
+}
+
+/* The driver times a hold on CLOCK_MONOTONIC, which lv_tick_inc() cannot
+ * reach, so a hold takes as long here as it does on the keyboard. */
+static void hold_past_threshold(void)
+{
+    struct timespec ts = { 0, (long)(KBD_PICKER_HOLD_MS + 100) * 1000L * 1000L };
+
+    nanosleep(&ts, NULL);
+    settle();
+}
+
+/* Hold a key until the picker opens, let go, move right n times, Enter. */
+static void pick(uint8_t code, int right)
+{
+    key_down(code);
+    hold_past_threshold();
+    key_up(code);
+    while (right-- > 0) {
+        tap_key(K_RIGHT);
+    }
+    tap_key(K_ENTER);
+}
+
+static uint8_t letter_code(char lower)
+{
+    unsigned c;
+
+    for (c = 1; c <= POS_KEYMAP_MAX_CODE; c++) {
+        const char *n = pos_keymap_name((uint8_t)c);
+
+        if (n && n[1] == '\0' && n[0] == lower - 'a' + 'A') {
+            return (uint8_t)c;
+        }
+    }
+    return 0;
+}
+
+/* Type UTF-8 text as a person would: a-z and space tapped, and every
+ * letter a picker offers chosen from it with the arrows. False for a
+ * character the keyboard cannot give. */
+static int type_with_picker(const char *text)
+{
+    static const struct {
+        unsigned char second; /* the UTF-8 continuation byte after 0xC3 */
+        uint8_t code;
+        int index;
+    } offered[] = {
+        { 0xA5, K_A, 0 }, { 0x85, K_A, 1 }, { 0xA4, K_A, 2 }, { 0x84, K_A, 3 },
+        { 0xA6, K_A, 4 }, { 0x86, K_A, 5 }, { 0xB8, K_O, 0 }, { 0x98, K_O, 1 },
+        { 0xB6, K_O, 2 }, { 0x96, K_O, 3 },
+    };
+    const unsigned char *p = (const unsigned char *)text;
+
+    while (*p) {
+        if (*p == ' ') {
+            tap_key(K_SPACE);
+            p++;
+        } else if (*p >= 'a' && *p <= 'z') {
+            uint8_t code = letter_code((char)*p++);
+
+            if (!code) {
+                return 0;
+            }
+            tap_key(code);
+        } else if (p[0] == 0xC3 && p[1]) {
+            size_t i;
+
+            for (i = 0; i < sizeof(offered) / sizeof(offered[0]); i++) {
+                if (offered[i].second == p[1]) {
+                    break;
+                }
+            }
+            if (i == sizeof(offered) / sizeof(offered[0])) {
+                return 0;
+            }
+            pick(offered[i].code, offered[i].index);
+            p += 2;
+        } else {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *choice_text(unsigned i)
+{
+    lv_obj_t *b = kbd_picker_choice(i);
+    lv_obj_t *lb = b ? lv_obj_get_child(b, 0) : NULL;
+
+    return lb ? lv_label_get_text(lb) : NULL;
+}
+
+static void picker_section(lv_obj_t *screen)
+{
+    lv_obj_t *line = pocketui_text_field(screen, "Message", true);
+    static const char *const a_offers[] = {
+        "\xC3\xA5", "\xC3\x85", "\xC3\xA4", "\xC3\x84", "\xC3\xA6", "\xC3\x86",
+    };
+    static const char *const o_offers[] = { "\xC3\xB8", "\xC3\x98", "\xC3\xB6", "\xC3\x96" };
+    static const struct {
+        const char *text;
+        const char *bytes;
+        size_t len;
+    } mixed[] = {
+        { "blåbær og øl", "bl\xC3\xA5" "b\xC3\xA6r og \xC3\xB8l", 15 },
+        { "smörgås", "sm\xC3\xB6rg\xC3\xA5s", 9 },
+    };
+    unsigned i;
+
+    pos_input_focus(line);
+    settle();
+    check("the one-line field has the focus", pos_input_focused() == line);
+
+    /* 1, 2. A quick tap types the letter - on the release, never before. */
+    key_down(K_A);
+    check_str("A pressed types nothing yet", lv_textarea_get_text(line), "");
+    check("and opens nothing", !kbd_picker_is_open());
+    key_up(K_A);
+    check_str("released quickly, it types a", lv_textarea_get_text(line), "a");
+    tap_key(K_O);
+    check_str("a quick O types o", lv_textarea_get_text(line), "ao");
+    tap_key(K_W);
+    check_str("and W, which has no picker, types w", lv_textarea_get_text(line), "aow");
+    feed(CAPS_PRESS);
+    feed(CAPS_RELEASE);
+    tap_key(K_A);
+    tap_key(K_O);
+    feed(CAPS_PRESS);
+    feed(CAPS_RELEASE);
+    settle();
+    check_str("under Caps, A and O type capitals as ever", lv_textarea_get_text(line), "aowAO");
+    feed(SHIFT_PRESS);
+    key_down(K_A);
+    check_str("Shift+A is its orange '~' at once, with no picker", lv_textarea_get_text(line),
+              "aowAO~");
+    key_up(K_A);
+    feed(SHIFT_RELEASE);
+    settle();
+    /* Fast typing overlaps keys: W goes down before A comes up. */
+    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | K_A));
+    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | K_W));
+    feed(K_A);
+    feed(K_W);
+    settle();
+    check_str("overlapping keys keep their order", lv_textarea_get_text(line), "aowAO~aw");
+    lv_textarea_set_text(line, "");
+
+    /* 3. Held A: the picker, and no 'a' typed first. */
+    key_down(K_A);
+    hold_past_threshold();
+    check("holding A opens the picker", kbd_picker_is_open());
+    check_str("with nothing typed before it", lv_textarea_get_text(line), "");
+    check("the field keeps the focus", pos_input_focused() == line);
+    check("A offers six letters", kbd_picker_choice(5) && !kbd_picker_choice(6));
+    for (i = 0; i < 6; i++) {
+        check_str("each one shown as UTF-8", choice_text(i), a_offers[i]);
+    }
+    check("the first selected", kbd_picker_selected() == 0);
+    key_up(K_A);
+    check("letting go of A leaves it up", kbd_picker_is_open());
+    check_str("and still types nothing", lv_textarea_get_text(line), "");
+
+    /* 5. å by Enter, æ by the arrows, ä by a finger. */
+    tap_key(K_ENTER);
+    check_str("Enter types the selected \xC3\xA5", lv_textarea_get_text(line), "\xC3\xA5");
+    check("and closes the picker", !kbd_picker_is_open());
+    pick(K_A, 4);
+    check_str("Right four times, Enter: \xC3\xA6", lv_textarea_get_text(line), "\xC3\xA5\xC3\xA6");
+    key_down(K_A);
+    hold_past_threshold();
+    key_up(K_A);
+    tap_key(K_LEFT);
+    check("Left stops at the first", kbd_picker_selected() == 0);
+    for (i = 0; i < 9; i++) {
+        tap_key(K_RIGHT);
+    }
+    check("Right stops at the last", kbd_picker_selected() == 5);
+    tap_obj(kbd_picker_choice(2));
+    check_str("a finger on \xC3\xA4 types it", lv_textarea_get_text(line),
+              "\xC3\xA5\xC3\xA6\xC3\xA4");
+    check("and closes the picker", !kbd_picker_is_open());
+    check("the field still has the focus after the tap", pos_input_focused() == line);
+
+    /* 4, 6. Held O: ø and ö. */
+    key_down(K_O);
+    hold_past_threshold();
+    check("holding O opens the picker", kbd_picker_is_open());
+    check("O offers four letters", kbd_picker_choice(3) && !kbd_picker_choice(4));
+    for (i = 0; i < 4; i++) {
+        check_str("each one shown as UTF-8", choice_text(i), o_offers[i]);
+    }
+    key_up(K_O);
+    tap_key(K_ENTER);
+    pick(K_O, 2);
+    check_str("\xC3\xB8 and \xC3\xB6 follow", lv_textarea_get_text(line),
+              "\xC3\xA5\xC3\xA6\xC3\xA4\xC3\xB8\xC3\xB6");
+    check("ten bytes: five two-byte letters",
+          strlen(lv_textarea_get_text(line)) == 10);
+
+    /* 7. Cancel: Esc, a tap outside, or another key, and nothing chosen. */
+    lv_textarea_set_text(line, "x");
+    key_down(K_A);
+    hold_past_threshold();
+    key_up(K_A);
+    tap_key(K_ESC);
+    check("Esc closes the picker", !kbd_picker_is_open());
+    check_str("and types nothing, nor reaches the field", lv_textarea_get_text(line), "x");
+    key_down(K_O);
+    hold_past_threshold();
+    key_up(K_O);
+    tap_at(PANEL_W / 2, PANEL_H - 40);
+    check("a tap outside it closes it", !kbd_picker_is_open());
+    check_str("and types nothing", lv_textarea_get_text(line), "x");
+    key_down(K_A);
+    hold_past_threshold();
+    key_up(K_A);
+    tap_key(K_W);
+    check("another key closes it", !kbd_picker_is_open());
+    check_str("and then types as it always does", lv_textarea_get_text(line), "xw");
+
+    /* 8. Mixed text, byte for byte. */
+    for (i = 0; i < sizeof(mixed) / sizeof(mixed[0]); i++) {
+        const char *got;
+
+        lv_textarea_set_text(line, "");
+        check("the phrase can be typed", type_with_picker(mixed[i].text));
+        got = lv_textarea_get_text(line);
+        check_str("and the field holds it, byte for byte", got, mixed[i].bytes);
+        check("its length is UTF-8's", got && strlen(got) == mixed[i].len);
+    }
+
+    /* Nowhere to put a letter, no picker: held on anything but a text
+     * field, A is just a key. */
+    {
+        lv_obj_t *button = lv_button_create(screen);
+
+        pos_input_add_obj(button);
+        pos_input_focus(button);
+        settle();
+        key_down(K_A);
+        hold_past_threshold();
+        check("held on a button, A opens no picker", !kbd_picker_is_open());
+        key_up(K_A);
+        lv_obj_delete(button);
+    }
+    lv_obj_delete(line);
+    settle();
+}
+
 int main(void)
 {
     lv_display_t *disp;
@@ -286,6 +600,7 @@ int main(void)
     lv_obj_t *field;
     unsigned resets_before;
     unsigned fails_before;
+    lv_indev_t *pointer;
 
     lv_init();
     disp = lv_display_create(PANEL_W, PANEL_H);
@@ -294,6 +609,9 @@ int main(void)
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
 
     pos_input_init();
+    pointer = lv_indev_create();
+    lv_indev_set_type(pointer, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(pointer, finger_read);
     pocketui_init();
     screen = lv_screen_active();
     pocketui_style_screen(screen);
@@ -603,6 +921,12 @@ int main(void)
     settle();
     check("an overflow that drops Caps puts its LED out", !led_lit(KBD_LEDS_PIN_CAPS));
     feed(W_RELEASE);
+    settle();
+
+    /* ---- 5b. the long-press letter picker ------------------------------ */
+
+    picker_section(screen);
+    pos_input_focus(field);
     settle();
 
     /* ---- 6. destroy stops the keyboard --------------------------------- */
