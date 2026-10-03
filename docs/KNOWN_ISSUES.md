@@ -31,6 +31,47 @@ state after reset. Not a radiod defect, not a runtime blocker, and not
 investigated further unless it recurs: the probe now names it
 chip-state dependent and dumps both transports' windows when it does.
 
+## Vendor launcher removed (chore/remove-vendor-launcher)
+
+The LILYGO launcher (`k230_phone_ui`, its init script
+`S99zz_k230_phone_ui`, its helpers under `/root/app/k230_phone_ui` and the
+sample media it installed in `/root/music`, `/root/videos` and
+`/root/notification`, about 100 MB) is no longer built into the image.
+Doors had run with it disabled since the panel handover, so no Doors
+function changes. What the image loses, and what is left open:
+
+- **Charger set-up, gauge capacity, low-battery shutdown.** The launcher's
+  own start-up turned off the BQ25896 I2C watchdog, set a 704 mA charge
+  current and a 4288 mV charge voltage, wrote a 6000 mAh design capacity
+  into the BQ27220 once, and powered the unit off at 3600 mV on battery
+  (DOCUMENTED from its source, ui_hardware.c). None of that ran on Doors
+  before this change either: the charger runs on its own power-on defaults
+  and nothing reads the gauge (see "No battery reading"). Doors owning
+  charger configuration, battery percentage and low-battery shutdown is
+  open work that needs the bus-ownership decision first; whether the
+  vendor's 704 mA / 4288 mV suit the fitted cell is unknown (ASSUMED
+  neither way).
+- **Base-board external speaker route** (I2S route plus amplifier GPIO):
+  only the launcher drove it; Doors plays through the board codec.
+- **On-device recovery to the vendor UI.** `ENABLE=1` in
+  `/etc/default/k230_phone_ui` no longer brings anything back. Recovery is
+  the serial console, SSH and the vendor's own SD card
+  (docs/hardware/FIRST_BOOT.md, "Recovery"). The launcher's bench pages
+  (I2C scan, charger page, LED test) go with it.
+- **Units on older images** keep their `/etc/default/k230_phone_ui`. S90
+  honours `ENABLE=1` only while the launcher's init script is installed and
+  ignores it otherwise, saying so, so a leftover switch cannot leave the
+  panel dark. The guards in S90, `ui/shell/kbd_bus_k230.c` and `pos-hwcheck`
+  against a running launcher stay for those units.
+- **Shared SDK tree.** `apply_to_sdk.sh` removes the launcher package and
+  its menu line from the SDK, so a vendor reference build
+  (`k230_canmv_t_display_rm69a10_defconfig`) from the same tree needs the
+  vendor's `install_to_sdk.sh` run again first.
+- Buildroot: `BR2_PACKAGE_POCKETOS` now selects libdrm, libevdev and jpeg
+  itself. libevdev had no other selector; with it the image's `.config`
+  differs from the v0.3.x one only by `BR2_PACKAGE_K230_PHONE_UI`
+  (kconfig comparison, 2026-10-03).
+
 ## Settings and System cleanup (feat/settings-system-cleanup, DS §52)
 
 - **No system sleep.** The kernel lists `freeze mem` in `/sys/power/state`
@@ -558,21 +599,11 @@ DEVICE VERIFIED unless it says so.
   no /usr/sbin/crond found; none killed` followed by `FAIL`, from the vendor
   crond init script (seen on unit A with v0.0.8 and v0.0.10); vendor noise
   too.
-- The vendor launcher is still in the image, as the recovery path. Up to
-  v0.3.0 it was on by default, so a freshly flashed card booted the LILYGO
-  launcher once, until the panel switch was written by hand. There was no
-  first-boot flag behind that. Since fix/first-boot-doors-default it is off
-  by default and the Doors shell owns the panel from the first boot.
-  radiod still starts with the mock backend. The switch is persistent
-  (`/etc/default/k230_phone_ui`, see platforms/k230/README.md), and
-  S90doors-shell refuses to start while the launcher is enabled or
-  running. The launcher has no kernel driver for the LoRa module, so with
-  it running the sx1262 backend must not be used. Skipping the launcher's
-  first run skips nothing Doors uses. The launcher's own startup writes
-  (BQ25896 watchdog off, its charge current and voltage, a one-time
-  BQ27220 design capacity) do not happen on a fresh card, just as they
-  never happened on a unit after the handover. Doors has no charger or
-  gauge driver (see "No battery reading" above).
+- The vendor launcher is not in the image (see "Vendor launcher removed"
+  at the top). Up to v0.3.0 it was on by default, so a freshly flashed card
+  booted the LILYGO launcher once, until the panel switch was written by
+  hand; there was no first-boot flag behind that. radiod still starts with
+  the mock backend.
 - On the K230 image /var/log is a tmpfs. PocketOS logs, crash reports and
   the supervisor logs therefore go to /var/lib/pocketos/log (persistent
   ext4); the stdio capture of each service is restarted on every boot with

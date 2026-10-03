@@ -49,13 +49,13 @@ BusyBox init (rcS runs S?? scripts in order; rcK stops them in reverse)
  ├─ S55netd              pos-supervise netd --interface wlan0 (Wi-Fi off until turned on)
  ├─ S60radiod            pos-supervise radiod --backend <mock|sx1262> --region EU868
  ├─ S65meshcored         pos-supervise meshcored (MESHCORED_ENABLE in /etc/default/meshcored, default 0)
- ├─ S90doors-shell    pos-supervise doors-shell (ENABLE=1 in /etc/default/doors-shell)
- └─ S99zz_k230_phone_ui  vendor launcher (ENABLE in /etc/default/k230_phone_ui, default 1)
+ └─ S90doors-shell       pos-supervise doors-shell (ENABLE in /etc/default/doors-shell, default 1)
 ```
 
-Exactly one of the shell and the vendor launcher owns the panel: S90 refuses
-to start while the launcher is enabled or running (platforms/k230/README.md,
-"Panel ownership"). Both services run under `pos-supervise` (restart with
+The shell owns the panel; the vendor launcher is not in the image. On a unit
+still carrying one from an older image, S90 refuses to start while it is
+installed and enabled, or running (platforms/k230/README.md, "Panel
+ownership"). The services run under `pos-supervise` (restart with
 backoff, one state file per service in /run/pocketos and a crash-loop
 marker after five restarts in a minute; nothing displays either yet).
 
