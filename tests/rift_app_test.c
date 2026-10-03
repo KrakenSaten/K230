@@ -37,6 +37,7 @@
 #include "rift_session.h"
 #include "rift_sound.h"
 #include "rift_store.h"
+#include "rift_strip.h"
 #include "rift_test_clock.h"
 #include "rift_thread.h"
 
@@ -1166,16 +1167,16 @@ static void sound_session(const char *state_dir)
     }
     check("twenty in a few seconds are one sound", fake_plays == plays + 1);
 
-    /* The setting, on ACTIVITY, in the Settings app's shape. */
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    /* The setting, on SYSTEM, in the Settings app's shape. */
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(60);
     toggle = action_of(find_exact(content(), "ON"));
-    check("ACTIVITY has the DM sound's switch", toggle != NULL &&
+    check("SYSTEM has the DM sound's switch", toggle != NULL &&
                                                     find_text(content(), "Sound for a new DM") != NULL);
     check("a 56 px action", toggle && lv_obj_get_height(toggle) == RIFT_TOUCH_H);
     check("saying what it does", find_text(content(), "One short sound for a new direct message") !=
                                      NULL);
-    check("with its caption drawn whole", caption_unclipped("NOTIFY"));
+    check("with its caption drawn whole", caption_unclipped("SOUND"));
     shot("portrait-activity-notify");
     tap(toggle);
     snprintf(path, sizeof(path), "%s/rift/prefs.v1", state_dir);
@@ -1221,6 +1222,8 @@ static void sound_session(const char *state_dir)
 
     app_start();
     quiet_client();
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(60);
     check("the setting survives closing and opening", app->prefs.dm_sound == 0 &&
                                                           find_exact(content(), "OFF") != NULL);
     app_stop();
@@ -1231,6 +1234,8 @@ static void sound_session(const char *state_dir)
     app_start();
     quiet_client();
     check("a store that cannot be read is the defaults", app->prefs.dm_sound == 1);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(60);
     tap(action_of(find_exact(content(), "ON")));
     check("an unwritable store keeps the choice for the session",
           app->prefs.dm_sound == 0 && find_text(content(), "Not saved") != NULL);
@@ -1404,6 +1409,12 @@ static void text_size_session(void)
             if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
                 shot("landscape-activity-large");
             }
+
+            rift_app_show_section(app, RIFT_SEC_SYSTEM);
+            pump(200);
+            snprintf(what, sizeof(what), "%s, %s: SYSTEM's captions are whole, its words in their buttons",
+                     size, shape);
+            check(what, captions_clipped(frame()) == 0 && labels_overflowing(content()) == 0);
 
             rift_app_show_section(app, RIFT_SEC_NODES);
             pump(200);
@@ -2253,7 +2264,7 @@ static void manage_session(void)
     quiet_client();
     give_service();
     give_channels();
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(120);
 
     /* Found on unit B: ACTIVITY opened scrolled down. A field in a closed
@@ -2263,9 +2274,9 @@ static void manage_session(void)
           lv_obj_get_group(rift_manage_name_field(app)) == NULL &&
               lv_obj_get_group(rift_manage_key_field(app)) == NULL &&
               lv_obj_get_group(rift_device_rename_field(app)) == NULL);
-    check("so the keys go to the app's key sink, and ACTIVITY is read from its top",
-          pos_input_focused() == app->keysink && lv_obj_get_scroll_y(app->activity_root) == 0);
-    check("ACTIVITY lists the channels the service holds",
+    check("so the keys go to the app's key sink, and SYSTEM is read from its top",
+          pos_input_focused() == app->keysink && lv_obj_get_scroll_y(app->system_root) == 0);
+    check("SYSTEM lists the channels the service holds",
           find_exact(content(), "SITE") != NULL && find_exact(content(), "OPS") != NULL);
     check("with their slot, hash and key size",
           find_text(content(), "SLOT 2 \xC2\xB7 HASH 4d \xC2\xB7 128-BIT") != NULL);
@@ -2291,9 +2302,9 @@ static void manage_session(void)
     pump(150);
     rift_app_show_section(app, RIFT_SEC_NODES);
     pump(60);
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(150);
-    check("leaving ACTIVITY is Cancel for a LEAVE left up",
+    check("leaving SYSTEM is Cancel for a LEAVE left up",
           find_text(content(), "Leave SITE?") == NULL);
 
     tap(action_of(find_exact(content(), "LEAVE")));
@@ -2375,15 +2386,15 @@ static void manage_session(void)
     shot("portrait-activity-add-channel");
     rift_app_show_section(app, RIFT_SEC_NODES);
     pump(60);
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(150);
-    check("leaving ACTIVITY closes the form and empties its fields",
+    check("leaving SYSTEM closes the form and empties its fields",
           !visible(rift_manage_name_field(app)) &&
               lv_textarea_get_text(rift_manage_key_field(app))[0] == '\0' &&
               lv_textarea_get_text(rift_manage_name_field(app))[0] == '\0');
 
     /* THIS DEVICE: the name, and the path hash size. */
-    check("THIS DEVICE has RENAME", find_exact(content(), "RENAME") != NULL);
+    check("DEVICE has RENAME", find_exact(content(), "RENAME") != NULL);
     check("and the path hash choices, disabled until the service says the size",
           find_exact(content(), "2 B") != NULL &&
               lv_obj_has_state(action_of(find_exact(content(), "2 B")), LV_STATE_DISABLED));
@@ -2936,8 +2947,10 @@ static void comms_usability_session(void)
         snprintf(what, sizeof(what), "%s: and the keys are the list's there", shape);
         check(what, pos_input_focused() == app->keysink);
 
-        /* A form on ACTIVITY keeps the keys it has: repaints and arriving
+        /* A form on SYSTEM keeps the keys it has: repaints and arriving
          * messages do not hand them to a composer. */
+        rift_app_show_section(app, RIFT_SEC_SYSTEM);
+        pump(150);
         tap(action_of(find_exact(content(), "RENAME")));
         pump(150);
         pos_input_focus(rift_device_rename_field(app));
@@ -3039,7 +3052,7 @@ static void manage_live_session(void)
     check("the scripted service is up", pid > 0 && stat(sock, &st) == 0);
 
     app_start();
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     check("RIFT reads the service: identity, channels and the path hash size",
           live_until(live_ready, 8000));
 
@@ -3107,7 +3120,7 @@ static void manage_live_session(void)
     tap(action_of(find_exact(content(), "SAVE")));
     check("the rename is answered", live_until(live_settled, 8000) && app->model.manage_op.done);
     pump(150);
-    check("THIS DEVICE shows the new name, and when peers will see it",
+    check("DEVICE shows the new name, and when peers will see it",
           find_exact(content(), "K230-\xC3\x98st") != NULL &&
               find_text(content(), "AFTER YOUR NEXT ADVERT") != NULL);
 
@@ -3255,8 +3268,26 @@ static void net_session(void)
     check("DETAIL opens the node in NODES", app->section == RIFT_SEC_NODES && app->detail_open);
     rift_app_show_section(app, RIFT_SEC_NET);
     pump(60);
-    check("Back from NET is ACTIVITY", app_rift.back(app) == 1 &&
-                                           app->section == RIFT_SEC_ACTIVITY);
+    check("Back from NET is the node list it lives under", app_rift.back(app) == 1 &&
+                                           app->section == RIFT_SEC_NODES);
+    /* NET is reached from NODES, and leaves back to it. */
+    pump(60);
+    check("NODES' find bar offers NET", action_of(find_exact(content(), "NET")) != NULL);
+    tap(action_of(find_exact(content(), "NET")));
+    pump(60);
+    check("NET opens under NODES: the NODES tab stays lit",
+          app->section == RIFT_SEC_NET && rift_tab_of(app->section) == RIFT_SEC_NODES &&
+              visible(app->tab_rule[RIFT_SEC_NODES]) && !visible(app->tab_rule[RIFT_SEC_ACTIVITY]));
+    check("with the rings as they were", find_exact(content(), "1 DIRECT") != NULL);
+    tap(action_of(find_text(content(), "LIST")));
+    pump(60);
+    check("LIST goes back to the node list", app->section == RIFT_SEC_NODES &&
+                                                 find_text(content(), "HOPS") != NULL);
+    tap(action_of(find_exact(content(), "NET")));
+    pump(60);
+    pos_input_push_key(LV_KEY_ESC);
+    pump(60);
+    check("and Esc in NET is the node list too", app->section == RIFT_SEC_NODES);
     rift_app_show_section(app, RIFT_SEC_NET);
     pump(60);
 
@@ -3403,7 +3434,7 @@ static void background_session(void)
           rift_find_field(app) && strcmp(lv_textarea_get_text(rift_find_field(app)), "OSLO") == 0);
     check("and no late sound for a message already filed", fake_plays == plays);
     check("the screen is whole: four sections, built once",
-          lv_obj_get_child_count(content()) == 4u && inside_body(content()));
+          lv_obj_get_child_count(content()) == (uint32_t)RIFT_SEC_COUNT && inside_body(content()));
 
     /* ---- Back and Home -------------------------------------------------------- */
     check("Back inside RIFT is RIFT's: COMMS goes to ACTIVITY",
@@ -3451,14 +3482,14 @@ static void background_session(void)
     check("twenty leaves and reopens: one session, one timer, every round",
           round == 20 && app == s && timer_count() == timers_open && app->opens == 4 + 3 + 1 + 20);
     check("one screen at a time", lv_obj_get_child_count(g_content) == 1u &&
-                                      lv_obj_get_child_count(content()) == 4u);
+                                      lv_obj_get_child_count(content()) == (uint32_t)RIFT_SEC_COUNT);
     check("and less than one screen's memory kept over all twenty",
           heap_open > heap_left && heap_after < heap_before + (heap_open - heap_left));
 
     /* ---- CLOSE RIFT ------------------------------------------------------------ */
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(120);
-    check("ACTIVITY has CLOSE RIFT, in SESSION",
+    check("SYSTEM has CLOSE RIFT, in SESSION",
           rift_session_close_button(app) && find_exact(content(), "SESSION") != NULL &&
               visible(rift_session_close_button(app)));
     check("a 56 px target", lv_obj_get_height(rift_session_close_button(app)) == RIFT_TOUCH_H);
@@ -3482,9 +3513,9 @@ static void background_session(void)
     tap(rift_session_close_button(app));
     pump(120);
     rift_app_show_section(app, RIFT_SEC_NODES);
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(120);
-    check("leaving ACTIVITY is Cancel for it too", !rift_session_confirming(app));
+    check("leaving SYSTEM is Cancel for it too", !rift_session_confirming(app));
     tap(rift_session_close_button(app));
     pump(120);
     tap(rift_session_confirm_button(app, 1));
@@ -3539,8 +3570,8 @@ static void navigation_session(void)
         const char *tag = wide ? "landscape" : "portrait";
         char what[200];
         lv_area_t s;
-        lv_area_t t[RIFT_SEC_COUNT];
-        lv_area_t l[RIFT_SEC_COUNT];
+        lv_area_t t[RIFT_TAB_COUNT];
+        lv_area_t l[RIFT_TAB_COUNT];
         lv_obj_t *probe;
         int tall = 1;
         int faces = 1;
@@ -3553,7 +3584,7 @@ static void navigation_session(void)
         give_service();
         pump(200);
         lv_obj_get_coords(strip(), &s);
-        for (i = 0; i < RIFT_SEC_COUNT; i++) {
+        for (i = 0; i < RIFT_TAB_COUNT; i++) {
             lv_obj_get_coords(tab(i), &t[i]);
             lv_obj_get_coords(app->tab_label[i], &l[i]);
             tall = tall && lv_area_get_height(&t[i]) == RIFT_NAV_FACE_H &&
@@ -3569,7 +3600,7 @@ static void navigation_session(void)
         snprintf(what, sizeof(what), "%s: the strip is a %d px row", tag,
                  wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
         check(what, lv_area_get_height(&s) == (wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H));
-        snprintf(what, sizeof(what), "%s: ACTIVITY, NODES, COMMS and NET are %d px faces, centred",
+        snprintf(what, sizeof(what), "%s: ACTIVITY, NODES, COMMS and SYSTEM are %d px faces, centred",
                  tag, RIFT_NAV_FACE_H);
         check(what, tall);
         snprintf(what, sizeof(what), "%s: each tab is a visible face, all four alike", tag);
@@ -3600,8 +3631,8 @@ static void navigation_session(void)
         snprintf(what, sizeof(what), "%s: a tap in the gap just after NODES is NODES", tag);
         check(what, app->section == RIFT_SEC_NODES);
         tap_at((t[3].x1 + t[3].x2) / 2, t[3].y1 - 4);
-        snprintf(what, sizeof(what), "%s: NET answers 4 px above its face", tag);
-        check(what, app->section == RIFT_SEC_NET);
+        snprintf(what, sizeof(what), "%s: SYSTEM answers 4 px above its face", tag);
+        check(what, app->section == RIFT_SEC_SYSTEM);
         tap_at((t[0].x1 + t[0].x2) / 2, t[0].y2 + 4);
         snprintf(what, sizeof(what), "%s: and ACTIVITY 4 px below its own", tag);
         check(what, app->section == RIFT_SEC_ACTIVITY);
@@ -3662,15 +3693,17 @@ static void navigation_session(void)
             pos_theme_select_text_size(sizes[z]);
             pump(300);
             lv_obj_get_coords(strip(), &s);
-            lv_obj_get_coords(tab(RIFT_SEC_COUNT - 1), &last);
-            for (i = 0; i < RIFT_SEC_COUNT; i++) {
+            lv_obj_get_coords(tab(RIFT_TAB_COUNT - 1), &last);
+            for (i = 0; i < RIFT_TAB_COUNT; i++) {
                 lv_obj_get_coords(app->tab_label[i], &lab);
                 lv_obj_get_coords(tab(i), &t[i]);
                 words = words && lab.x1 >= t[i].x1 && lab.x2 <= t[i].x2 &&
-                        strcmp(lv_label_get_text(app->tab_label[i]), (const char *[]){
-                                   "ACTIVITY", "NODES", "COMMS", "NET" }[i]) == 0;
+                        strcmp(lv_label_get_text(app->tab_label[i]),
+                               rift_tab_word(i, app->tab_short)) == 0;
+                /* Shortened only where the row is short of room. */
+                words = words && (!app->tab_short || (!wide && sizes[z] != POS_TEXT_SIZE_SMALL));
             }
-            snprintf(what, sizeof(what), "%s %s: the five faces inside the row (NET ends %d, row %d)",
+            snprintf(what, sizeof(what), "%s %s: every face inside the row (the last ends %d, row %d)",
                      tag, pos_text_size_name(sizes[z]), (int)last.x2, (int)(s.x2 - RIFT_PAD));
             check(what, last.x2 <= s.x2 - RIFT_PAD &&
                             lv_obj_get_height(strip()) ==
@@ -3798,7 +3831,7 @@ static void background_live_session(void)
     check("live: nothing was put on the air",
           count_lines(methods, "mesh.send") == 0 && count_lines(methods, "mesh.advert") == 0);
 
-    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
     pump(120);
     home_before = home_calls;
     tap(rift_session_close_button(app));
@@ -3880,9 +3913,11 @@ int main(void)
           app->keysink && lv_obj_get_parent(app->keysink) == frame());
     check("takes no taps", !lv_obj_has_flag(app->keysink, LV_OBJ_FLAG_CLICKABLE));
     check("and is never hidden", visible(app->keysink));
-    check("all four sections are in the navigation",
+    check("the tabs are ACTIVITY, NODES, COMMS and SYSTEM",
           find_text(strip(), "ACTIVITY") && find_text(strip(), "NODES") &&
-              find_text(strip(), "COMMS") && find_text(strip(), "NET"));
+              find_text(strip(), "COMMS") && find_text(strip(), "SYSTEM"));
+    check("and NET is not a tab of its own (it is under NODES)",
+          find_exact(strip(), "NET") == NULL);
     check("each of them is a 56 px target",
           lv_obj_get_height(tab(0)) == RIFT_TOUCH_H &&
               lv_obj_get_height(tab(3)) == RIFT_TOUCH_H);
@@ -4019,20 +4054,33 @@ int main(void)
             check("into room the section has, not off the top of it", c.y1 >= v.y1);
         }
         check("and no ancestor clips any ACTIVITY caption either",
-              caption_unclipped("RADIO SERVICE") && caption_unclipped("THIS DEVICE") &&
-                  caption_unclipped("RECENTLY HEARD") && caption_unclipped("MESH ACTIVITY"));
+              caption_unclipped("RADIO SERVICE") && caption_unclipped("RECENTLY HEARD") &&
+                  caption_unclipped("MESH ACTIVITY"));
     }
+    /* ACTIVITY is status and traffic: nothing on it changes a setting. */
+    check("ACTIVITY holds no settings: no RENAME, path hash, channel or sound control",
+          find_exact(content(), "RENAME") == NULL && find_exact(content(), "2 B") == NULL &&
+              find_exact(content(), "ADD CHANNEL") == NULL &&
+              find_text(content(), "Sound for a new DM") == NULL &&
+              find_exact(content(), "CLOSE RIFT") == NULL &&
+              find_text(content(), "ADVERT NEAR") == NULL);
 
     /* The traffic the service counted, in its own words. */
     check("the service's transmit counts are drawn, outcomes kept apart",
           find_text(content(), "TX 3 OK \xC2\xB7 1 FAILED") != NULL);
 
-    /* ---- ADVERT: only on a press ------------------------------------------ */
+    /* ---- ADVERT: only on a press, on SYSTEM's DEVICE panel ---------------- */
+    rift_app_show_section(app, RIFT_SEC_SYSTEM);
+    pump(60);
+    check("SYSTEM holds the moved settings, captions whole",
+          caption_unclipped("DEVICE") && caption_unclipped("ADDRESSING") &&
+              caption_unclipped("SOUND") && caption_unclipped("CHANNELS") &&
+              find_exact(content(), "RENAME") != NULL && find_exact(content(), "2 B") != NULL);
     {
         lv_obj_t *near = action_of(find_text(content(), "ADVERT NEAR"));
         lv_obj_t *mesh = action_of(find_text(content(), "ADVERT MESH"));
 
-        check("THIS DEVICE offers both adverts", near != NULL && mesh != NULL);
+        check("DEVICE offers both adverts", near != NULL && mesh != NULL);
         check("as 56 px actions", near && lv_obj_get_height(near) == RIFT_TOUCH_H);
         check("which a service whose radio can send makes pressable",
               near && !lv_obj_has_state(near, LV_STATE_DISABLED) && mesh &&
@@ -4070,7 +4118,9 @@ int main(void)
                   lv_obj_has_state(mesh, LV_STATE_DISABLED));
         check("and says why", find_text(content(), "not ready to send") != NULL);
         /* A full node table: the service keeps no more, and a node it could
-         * not keep is one nothing can be sent to. */
+         * not keep is one nothing can be sent to. ACTIVITY says it. */
+        rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+        pump(60);
         check("a full node table is said, with what to do about it",
               find_text(content(), "node table is full") != NULL &&
                   find_text(content(), "Forget a node in NODES") != NULL);
@@ -4396,7 +4446,7 @@ int main(void)
      * of the two it is rather than leaving a reader who knows the design to
      * wonder where the channels went. */
     check("and says where a channel is joined",
-          find_text(content(), "joined on ACTIVITY, under CHANNELS") != NULL);
+          find_text(content(), "joined on SYSTEM, under CHANNELS") != NULL);
 
     give_messages();
     check("the history on opening makes no sound", fake_plays == 0);
@@ -4741,8 +4791,9 @@ int main(void)
         }
     }
 
-    tap(tab(3));
-    check("NET is reachable", app->section == RIFT_SEC_NET);
+    tap(tab(1));
+    tap(action_of(find_exact(content(), "NET")));
+    check("NET is reachable, under NODES", app->section == RIFT_SEC_NET);
     check("and draws the rings, not a placeholder",
           find_text(content(), "not in this build") == NULL &&
               find_exact(content(), "1 DIRECT") != NULL);
@@ -4830,20 +4881,29 @@ int main(void)
 
     tap(tab(0));
     check("ACTIVITY is laid out in landscape too", app->section == RIFT_SEC_ACTIVITY);
-    check("with the same four panels", find_text(content(), "RADIO SERVICE") != NULL &&
-                                           find_text(content(), "THIS DEVICE") != NULL &&
-                                           find_text(content(), "RECENTLY HEARD") != NULL &&
-                                           find_text(content(), "MESH ACTIVITY") != NULL);
+    check("with the same three panels", find_text(content(), "RADIO SERVICE") != NULL &&
+                                            find_text(content(), "RECENTLY HEARD") != NULL &&
+                                            find_text(content(), "MESH ACTIVITY") != NULL);
     check("their captions drawn whole side by side too",
-          caption_unclipped("RADIO SERVICE") && caption_unclipped("THIS DEVICE") &&
-              caption_unclipped("RECENTLY HEARD"));
-    /* THIS DEVICE heads the right column, so the one action on ACTIVITY is
-     * on screen as it opens, not under a scroll. */
-    check("the ADVERT buttons are in view without scrolling",
-          within(action_of(find_text(content(), "ADVERT NEAR")), kid(content(), 0)) &&
-              within(action_of(find_text(content(), "ADVERT MESH")), kid(content(), 0)));
+          caption_unclipped("RADIO SERVICE") && caption_unclipped("RECENTLY HEARD"));
     check("and inside the body", inside_body(content()));
     shot("landscape-activity");
+
+    /* ---- SYSTEM, turned ------------------------------------------------- */
+    tap(tab(RIFT_SEC_SYSTEM));
+    pump(120);
+    check("SYSTEM is laid out in landscape too", app->section == RIFT_SEC_SYSTEM);
+    check("its panels side by side, captions whole",
+          caption_unclipped("DEVICE") && caption_unclipped("ADDRESSING") &&
+              caption_unclipped("SOUND") && caption_unclipped("CHANNELS"));
+    /* DEVICE heads the left column, so the ADVERT buttons are on screen as
+     * SYSTEM opens, not under a scroll. */
+    check("the ADVERT buttons are in view without scrolling",
+          within(action_of(find_text(content(), "ADVERT NEAR")), app->system_root) &&
+              within(action_of(find_text(content(), "ADVERT MESH")), app->system_root));
+    check("SYSTEM is inside the body", inside_body(content()));
+    check("with every word inside its button", labels_overflowing(content()) == 0);
+    shot("landscape-system");
 
     /* ---- COMMS, turned --------------------------------------------------- */
     tap(tab(2));
@@ -5013,10 +5073,10 @@ int main(void)
     use_display(POS_ROTATION_0, PANEL_CORNER);
     pump(120);
     check("turning back gives the single column", !app->wide);
-    /* ACTIVITY, NODES, COMMS and the one placeholder NET uses. Turning the
-     * panel twice must not build a second set of them. */
+    /* One container a screen. Turning the panel twice must not build a
+     * second set of them. */
     check("without making a second set of panels",
-          lv_obj_get_child_count(content()) == 4u);
+          lv_obj_get_child_count(content()) == (uint32_t)RIFT_SEC_COUNT);
     check("and the portrait composer is back under the thread",
           find_text(content(), "SEND") != NULL);
 
@@ -5029,7 +5089,7 @@ int main(void)
         quiet_client();
         give_nodes();
         give_service();
-        check("with its sections built once", lv_obj_get_child_count(content()) == 4u);
+        check("with its sections built once", lv_obj_get_child_count(content()) == (uint32_t)RIFT_SEC_COUNT);
         check("and the mesh on screen", find_text(content(), "OSLO-01") != NULL);
         /* COMMS is reached on every round, so its IPC client, its rows and
          * its composer are created and destroyed three times over. A

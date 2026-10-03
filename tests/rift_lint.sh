@@ -30,7 +30,7 @@ check "the parts without a display are built and tested by the root Makefile" \
 # longer "never" - it is "from one place, on purpose, and never on its own".
 #
 # mesh.advert follows the same rule since the ADVERT buttons: named once, in
-# the client; one function writes it; only ACTIVITY's two buttons call that
+# the client; one function writes it; only SYSTEM's two ADVERT buttons call that
 # function; and nothing on a timer, a poll, a snapshot or the app's creation
 # reaches it.
 advhits=$(grep -rln '"mesh.advert"' "$SRC" | sort | tr '\n' ' ')
@@ -39,11 +39,11 @@ check "mesh.advert is named only in the meshcored client (${advhits:-nowhere})" 
 check "and only one call writes it" \
     "$([ "$(grep -c 'RIFT_REQ_ADVERT, params' "$SRC/rift_ipc.c")" = "1" ] && echo 1 || echo 0)"
 advcallers=$(grep -rln 'rift_ipc_send_advert' "$SRC" --include='*.c' | sort | tr '\n' ' ')
-check "the advert is called only from ACTIVITY (${advcallers:-nowhere})" \
-    "$([ "$advcallers" = "$SRC/rift_ipc.c $SRC/ui/rift_activity.c " ] && echo 1 || echo 0)"
+check "the advert is called only from SYSTEM's DEVICE panel (${advcallers:-nowhere})" \
+    "$([ "$advcallers" = "$SRC/rift_ipc.c $SRC/ui/rift_system.c " ] && echo 1 || echo 0)"
 check "and only from the handler of a button a reader pressed" \
-    "$([ "$(grep -c 'rift_ipc_send_advert(' "$SRC/ui/rift_activity.c")" = "1" ] &&
-       grep -B 12 'rift_ipc_send_advert(' "$SRC/ui/rift_activity.c" |
+    "$([ "$(grep -c 'rift_ipc_send_advert(' "$SRC/ui/rift_system.c")" = "1" ] &&
+       grep -B 12 'rift_ipc_send_advert(' "$SRC/ui/rift_system.c" |
        grep -q 'static void on_advert(lv_event_t' && echo 1 || echo 0)"
 # Forgetting a node, or its route, transmits nothing but changes what the
 # service holds, so it is held to the same rule: named once, called only from
@@ -141,7 +141,8 @@ for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_ac
             rift_strip.c rift_net.c \
             ui/rift_widgets.c ui/rift_fit.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
-            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c; do
+            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c \
+            ui/rift_system.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:

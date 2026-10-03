@@ -6,11 +6,7 @@
 #include "rift_activity.h"
 
 #include "pos_styles.h"
-#include "rift_device.h"
-#include "rift_session.h"
 #include "rift_graph.h"
-#include "rift_manage.h"
-#include "rift_sound.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,9 +18,6 @@
 #define FEED_ROWS 8
 /* The window the mesh's recent traffic is counted over. */
 #define TRAFFIC_WINDOW_MS (5 * 60 * 1000LL)
-/* The DM sound's ON/OFF, as Settings draws a switch: a 56 px action beside
- * its title, primary while on. */
-#define SOUND_TOGGLE_W 112
 
 struct heard_row {
     lv_obj_t *row;
@@ -51,25 +44,12 @@ struct rift_activity_view {
     lv_obj_t *svc_state;
     lv_obj_t *svc_reason;
     lv_obj_t *svc_radio; /* radiod, its state, the lease, and transmit: one line */
+    lv_obj_t *svc_self; /* this node's name and hash: status, not a setting */
     lv_obj_t *svc_nodes;
     lv_obj_t *svc_build;
     lv_obj_t *svc_fault;
 
     lv_obj_t *svc_traffic;
-
-    lv_obj_t *id_glyph;
-    lv_obj_t *id_name;
-    lv_obj_t *id_hash;
-    lv_obj_t *id_key;
-    lv_obj_t *advert_near;
-    lv_obj_t *advert_mesh;
-    lv_obj_t *advert_line;
-    int advert_warn;
-
-    lv_obj_t *sound_toggle;
-    lv_obj_t *sound_label;
-    lv_obj_t *sound_note;
-    int sound_drawn; /* the state the toggle was last drawn in; -1 not yet */
 
     lv_obj_t *heard_note;
     struct heard_row heard[HEARD_ROWS];
@@ -142,6 +122,9 @@ static void build_service(struct rift_activity_view *v, lv_obj_t *parent)
     v->state_role = POS_STYLE_TEXT_MUTED;
     v->svc_reason = wrapping(panel, POS_STYLE_TEXT_SECONDARY);
     v->svc_radio = wrapping(panel, POS_STYLE_CAPTION);
+    /* Who this node is on the air, read only: renaming and adverts are
+     * SYSTEM's (DEVICE). */
+    v->svc_self = pocketui_kv_row(panel, "This node", RIFT_UNKNOWN);
     v->svc_nodes = pocketui_kv_row(panel, "Nodes held", RIFT_UNKNOWN);
     v->svc_build = pocketui_kv_row(panel, "Service", RIFT_UNKNOWN);
     /* The service's own counts of what it put on the air and what it heard,
@@ -150,73 +133,6 @@ static void build_service(struct rift_activity_view *v, lv_obj_t *parent)
      * ellipsis at 60 % of the width, and a count cut short is a wrong count. */
     v->svc_traffic = wrapping(panel, POS_STYLE_CAPTION);
     v->svc_fault = wrapping(panel, POS_STYLE_STATUS_WARN_TEXT);
-}
-
-/* An advert, on a reader's press, and only then: the one handler for both
- * buttons, and the only caller of the advert in this app. Zero-hop is heard
- * in direct range and repeated by nobody; the mesh one is flooded. */
-static void on_advert(lv_event_t *e)
-{
-    struct rift_activity_view *v = lv_event_get_user_data(e);
-    int zero_hop = lv_event_get_target_obj(e) == v->advert_near;
-
-    rift_ipc_send_advert(&v->app->ipc, zero_hop);
-    rift_app_refresh(v->app);
-}
-
-static void build_identity(struct rift_activity_view *v, lv_obj_t *parent)
-{
-    lv_obj_t *panel = rift_panel(parent, "THIS DEVICE");
-    lv_obj_t *line = dense(panel, 10);
-    lv_obj_t *bar;
-
-    v->id_glyph = rift_glyph_create(line);
-    rift_glyph_set(v->id_glyph, RIFT_GLYPH_SELF);
-    v->id_name = rift_cell(line, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(v->id_name, 1);
-    v->id_hash = rift_cell(line, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_RIGHT);
-    v->id_key = pocketui_kv_row(panel, "Key", RIFT_UNKNOWN);
-
-    /* Telling the mesh this node is here. Nothing in RIFT does it on its
-     * own - there is no periodic advert, by decision (docs/services/
-     * MESHCORED.md) - so a peer that has lost this node's key, or one that
-     * has never heard it, waits for a reader to press one of these. */
-    bar = dense(panel, 12);
-    lv_obj_set_height(bar, RIFT_TOUCH_H);
-    lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
-    v->advert_near = rift_action(bar, "ADVERT NEAR", 0, 0, on_advert, v);
-    v->advert_mesh = rift_action(bar, "ADVERT MESH", 0, 0, on_advert, v);
-    v->advert_line = wrapping(panel, POS_STYLE_CAPTION);
-    /* The name and the path hash size: this node's own, so in its panel. */
-    rift_device_build(v->app, panel);
-}
-
-/* The DM sound's setting: a press turns it over, and that is all it does.
- * It sends nothing and plays nothing. */
-static void on_sound_toggle(lv_event_t *e)
-{
-    struct rift_activity_view *v = lv_event_get_user_data(e);
-
-    rift_app_set_dm_sound(v->app, !v->app->prefs.dm_sound);
-}
-
-static void build_sound(struct rift_activity_view *v, lv_obj_t *parent)
-{
-    lv_obj_t *panel = rift_panel(parent, "NOTIFY");
-    lv_obj_t *row = dense(panel, 12);
-    lv_obj_t *title;
-
-    lv_obj_set_height(row, RIFT_TOUCH_H);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    title = rift_cell(row, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_text(title, "Sound for a new DM");
-    v->sound_toggle = rift_action(row, "ON", 1, 1, on_sound_toggle, v);
-    lv_obj_set_flex_grow(v->sound_toggle, 0);
-    lv_obj_set_width(v->sound_toggle, SOUND_TOGGLE_W);
-    v->sound_label = lv_obj_get_child(v->sound_toggle, 0);
-    v->sound_note = wrapping(panel, POS_STYLE_CAPTION);
-    v->sound_drawn = -1;
 }
 
 static void build_heard(struct rift_activity_view *v, lv_obj_t *parent)
@@ -309,19 +225,10 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
 
     v->col[0] = column(v->split);
     v->col[1] = column(v->split);
-    /* The radio service alone on the left; this device - with the ADVERT
-     * buttons - at the head of the right, where landscape shows it without
-     * a scroll. Stacked in portrait, the order is the same as ever: service,
-     * device, heard, feed. */
+    /* The radio service alone on the left; what was heard, and the feed,
+     * on the right. Stacked in portrait in the same order. Everything that
+     * changes a setting is on SYSTEM (ui/rift_system.c). */
     build_service(v, v->col[0]);
-    build_sound(v, v->col[0]);
-    /* The channels this node holds, joined and left here (ui/rift_manage.c);
-     * built before THIS DEVICE, which adds its controls to the same block. */
-    rift_manage_build_channels(app, v->col[0]);
-    /* How to end RIFT, which keeps running when it is left (DS §51): last
-     * in the left column, under what it governs. */
-    rift_session_build(app, v->col[0]);
-    build_identity(v, v->col[1]);
     build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
     return v->root;
@@ -332,9 +239,6 @@ void rift_activity_destroy(struct rift_app *app)
     if (!app || !app->activity) {
         return;
     }
-    rift_manage_destroy(app);
-    rift_device_destroy(app);
-    rift_session_destroy(app);
     free(app->activity);
     app->activity = NULL;
 }
@@ -422,6 +326,11 @@ static void refresh_service(struct rift_activity_view *v)
                               m->radio_lease_held ? "HELD" : "NOT HELD",
                               m->radio_online ? "READY" : "NOT READY");
     }
+    if (m->have_identity && m->self_name[0]) {
+        lv_label_set_text_fmt(v->svc_self, "%s" RIFT_SEP "%s", m->self_name, m->self_hash);
+    } else {
+        lv_label_set_text(v->svc_self, RIFT_UNKNOWN);
+    }
     if (m->have_nodes_reported) {
         lv_label_set_text_fmt(v->svc_nodes, "%d", m->nodes_reported);
     } else {
@@ -489,105 +398,6 @@ static void refresh_service(struct rift_activity_view *v)
     } else {
         lv_obj_add_flag(v->svc_fault, LV_OBJ_FLAG_HIDDEN);
     }
-}
-
-/* The ADVERT buttons: pressable only when the service is answering, its
- * radio can send, and no advert is already on its way. The line under them
- * says what became of the last one, or - before any - what the two do. */
-static void refresh_advert(struct rift_activity_view *v)
-{
-    const struct rift_model *m = &v->app->model;
-    /* The model's word for it, as the composer's (rift_thread_refusal): the
-     * service said its radio can send. A press while the socket is between
-     * connections is refused by the client, with a reason, here. */
-    int ready = !m->stale && m->state != RIFT_SVC_ABSENT && m->have_status &&
-                m->radio_online && !rift_model_action_busy(m, RIFT_ACTION_ADVERT_MESH);
-    char text[RIFT_ACTION_TEXT_MAX];
-    int warn = 0;
-
-    rift_action_set_enabled(v->advert_near, 0, ready);
-    rift_action_set_enabled(v->advert_mesh, 0, ready);
-    rift_fmt_action(&m->advert, rift_app_now(v->app), text, sizeof(text));
-    if (text[0]) {
-        warn = m->advert.failed;
-        lv_label_set_text(v->advert_line, text);
-    } else if (!ready && (m->stale || m->state == RIFT_SVC_ABSENT)) {
-        lv_label_set_text(v->advert_line, "meshcored is not answering.");
-    } else if (!ready && !m->advert.active) {
-        lv_label_set_text(v->advert_line, "The radio is not ready to send.");
-    } else {
-        lv_label_set_text(v->advert_line, "NEAR: heard in direct range, repeated by nobody. "
-                                          "MESH: flooded through every repeater.");
-    }
-    if (warn != v->advert_warn) {
-        if (warn) {
-            pos_style_add(v->advert_line, POS_STYLE_STATUS_WARN_TEXT, 0);
-        } else {
-            lv_obj_remove_style(v->advert_line, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
-        }
-        v->advert_warn = warn;
-    }
-}
-
-/* The DM sound: the switch, and one line saying what it will actually do on
- * this device - which, with no platform sound to ask for, is nothing, and a
- * switch that says ON must not leave that unsaid. */
-static void refresh_sound(struct rift_activity_view *v)
-{
-    const struct rift_app *a = v->app;
-    int on = a->prefs.dm_sound ? 1 : 0;
-    const char *what;
-
-    if (on != v->sound_drawn) {
-        lv_label_set_text(v->sound_label, on ? "ON" : "OFF");
-        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
-        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED),
-                            LV_STATE_PRESSED);
-        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
-        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
-        if (on) {
-            pos_style_add(v->sound_toggle, POS_STYLE_BUTTON_PRIMARY, 0);
-            pos_style_add(v->sound_toggle, POS_STYLE_BUTTON_PRIMARY_PRESSED, LV_STATE_PRESSED);
-        } else {
-            pos_style_add(v->sound_toggle, POS_STYLE_BUTTON_SECONDARY, 0);
-            pos_style_add(v->sound_toggle, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-        }
-        v->sound_drawn = on;
-    }
-    if (!on) {
-        what = "Off: a new direct message is shown, not heard.";
-    } else if (!rift_sound_available()) {
-        what = rift_sound_why();
-    } else if (!rift_app_can_sound(a)) {
-        what = "Doors is muted: nothing is heard until the volume is up.";
-    } else {
-        what = "One short sound for a new direct message, at most one every 10 s. "
-               "Not for channels, history or your own.";
-    }
-    if (!a->prefs_saved) {
-        lv_label_set_text_fmt(v->sound_note, "%s Not saved: this lasts until RIFT closes.",
-                              what);
-    } else {
-        lv_label_set_text(v->sound_note, what);
-    }
-}
-
-static void refresh_identity(struct rift_activity_view *v)
-{
-    const struct rift_model *m = &v->app->model;
-    char text[RIFT_KEY_SHORT_MAX];
-
-    refresh_advert(v);
-    if (!m->have_identity) {
-        lv_label_set_text(v->id_name, RIFT_UNKNOWN);
-        lv_label_set_text(v->id_hash, "");
-        lv_label_set_text(v->id_key, RIFT_UNKNOWN);
-        return;
-    }
-    lv_label_set_text(v->id_name, m->self_name[0] ? m->self_name : RIFT_UNKNOWN);
-    lv_label_set_text(v->id_hash, m->self_hash);
-    rift_fmt_key_short(m->self_key, text, sizeof(text));
-    lv_label_set_text(v->id_key, text);
 }
 
 static void refresh_heard(struct rift_activity_view *v, int64_t now)
@@ -732,11 +542,6 @@ void rift_activity_refresh(struct rift_app *app)
     }
     now = rift_app_now(app);
     refresh_service(v);
-    refresh_sound(v);
-    refresh_identity(v);
-    rift_manage_refresh(app);
-    rift_device_refresh(app);
-    rift_session_refresh(app);
     refresh_heard(v, now);
     refresh_feed(v, now);
 }

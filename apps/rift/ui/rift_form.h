@@ -1,5 +1,5 @@
 /*
- * The small parts ACTIVITY's management panels are built from - rows, a
+ * The small parts SYSTEM's management panels are built from - rows, a
  * wrapping line, a choice drawn as chosen, a text field with the Doors touch
  * keyboard - so ui/rift_manage.c (channels) and ui/rift_device.c (this
  * node's name and path hash size) are built the same way.

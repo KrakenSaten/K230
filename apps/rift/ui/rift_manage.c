@@ -1,5 +1,5 @@
 /*
- * ACTIVITY's CHANNELS panel. See rift_manage.h.
+ * SYSTEM's CHANNELS panel. See rift_manage.h.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

@@ -25,8 +25,11 @@
 #define FACE_H RIFT_NAV_FACE_H
 /* The shell header's own back slab (DS §7): 72 wide, as tall as a tab. */
 #define BACK_W 72
-/* Inside a tab's face, either side of its word. */
+/* Inside a tab's face, either side of its word; as little as TAB_PAD_MIN
+ * when the row is short of room (portrait at a larger text size), and the
+ * short words below only when even that does not fit. */
 #define TAB_PAD 20
+#define TAB_PAD_MIN 8
 /* Between two faces; each face takes half of it, and the air above and
  * below it, as extra target, so no tap on the row lands on nothing. */
 #define FACE_GAP 8
@@ -37,14 +40,82 @@
 #define BACK_REACH_TOP ((RIFT_NAV_ROW_H_TOP - FACE_H) / 2)
 #define UNDERLINE_H 2
 
-static const char *const section_name[RIFT_SEC_COUNT] = { "ACTIVITY", "NODES", "COMMS", "NET" };
+static const char *const section_name[RIFT_TAB_COUNT] = { "ACTIVITY", "NODES", "COMMS", "SYSTEM" };
+static const char *const section_short[RIFT_TAB_COUNT] = { "ACT", "NODES", "COMMS", "SYS" };
+
+const char *rift_tab_word(int tab, int short_word)
+{
+    if (tab < 0 || tab >= RIFT_TAB_COUNT) {
+        return "";
+    }
+    return short_word ? section_short[tab] : section_name[tab];
+}
+
+static int32_t word_w(lv_obj_t *label, const char *text)
+{
+    lv_point_t size;
+
+    lv_text_get_size(&size, text, lv_obj_get_style_text_font(label, LV_PART_MAIN),
+                     lv_obj_get_style_text_letter_space(label, LV_PART_MAIN), 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+/* The tabs fitted to the row the body gives them, from the font's metrics
+ * and the body's width alone - no layout is read, so this is safe inside a
+ * layout pass. Their padding gives way first, down to TAB_PAD_MIN; then the
+ * two long words are shortened (ACT, SYS). The row never scrolls and no
+ * word is clipped, at any text size (DS §46). */
+static void fit_tabs(struct rift_app *a)
+{
+    int32_t room;
+    int32_t words = 0;
+    int32_t pad;
+    int short_words = 0;
+    int pass;
+    int i;
+
+    if (!a->tab_label[0] || a->body_w <= 0) {
+        return;
+    }
+    room = a->body_w - LV_MAX(RIFT_PAD, a->strip_inset_left) -
+           LV_MAX(RIFT_PAD, a->strip_inset_right) - FACE_GAP * (RIFT_TAB_COUNT - 1) -
+           (FACE_GAP + 12); /* the caption after the last tab: its gap and pad */
+    if (a->wide) {
+        room -= BACK_W + FACE_GAP;
+    }
+    for (pass = 0; pass < 2; pass++) {
+        words = 0;
+        for (i = 0; i < RIFT_TAB_COUNT; i++) {
+            words += word_w(a->tab_label[i], rift_tab_word(i, short_words));
+            if (a->tab_pill[i] && !lv_obj_has_flag(a->tab_pill[i], LV_OBJ_FLAG_HIDDEN)) {
+                words += lv_obj_get_width(a->tab_pill[i]) + 6;
+            }
+        }
+        if (room - words >= 2 * TAB_PAD_MIN * RIFT_TAB_COUNT) {
+            break;
+        }
+        short_words = 1;
+    }
+    pad = (room - words) / (2 * RIFT_TAB_COUNT);
+    pad = LV_CLAMP(TAB_PAD_MIN, pad, TAB_PAD);
+    if (pad != a->tab_pad || short_words != a->tab_short) {
+        a->tab_pad = pad;
+        a->tab_short = short_words;
+        for (i = 0; i < RIFT_TAB_COUNT; i++) {
+            lv_obj_set_style_pad_hor(a->tab[i], pad, 0);
+            lv_label_set_text(a->tab_label[i], rift_tab_word(i, short_words));
+        }
+    }
+}
 
 void rift_tabs_paint(struct rift_app *a)
 {
     int i;
 
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        int active = (i == (int)a->section);
+    fit_tabs(a);
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
+        int active = (i == (int)rift_tab_of(a->section));
 
         if (!a->tab[i] || !a->tab_label[i]) {
             continue;
@@ -71,7 +142,7 @@ static void on_tab(lv_event_t *e)
     lv_obj_t *tab = lv_event_get_target_obj(e);
     int i;
 
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
         if (a->tab[i] == tab) {
             rift_app_show_section(a, (enum rift_section)i);
             return;
@@ -138,7 +209,7 @@ void rift_tabs_build(struct rift_app *a)
         lv_obj_center(glyph);
     }
 
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
         lv_obj_t *head;
 
         /* A tab is a navigation control, never the 36 px row exception
@@ -149,6 +220,7 @@ void rift_tabs_build(struct rift_app *a)
         face_style(a->tab[i]);
         lv_obj_set_width(a->tab[i], LV_SIZE_CONTENT);
         lv_obj_set_style_pad_hor(a->tab[i], TAB_PAD, 0);
+        a->tab_pad = TAB_PAD;
         lv_obj_set_style_pad_ver(a->tab[i], 0, 0);
         lv_obj_set_flex_flow(a->tab[i], LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(a->tab[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,

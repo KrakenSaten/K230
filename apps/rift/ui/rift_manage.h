@@ -1,5 +1,5 @@
 /*
- * Managing this node, on ACTIVITY: its channels, its name and its path hash
+ * Managing this node, on SYSTEM: its channels, its name and its path hash
  * size. The service does each (docs/api/mesh.md); this is where a reader
  * asks, sees what became of it, and is asked first when it cannot be undone.
  *
@@ -25,11 +25,11 @@
 
 #include "rift_app.h"
 
-/* The CHANNELS panel, in parent (ACTIVITY's left column). The name and the
+/* The CHANNELS panel, in parent (SYSTEM's right column). The name and the
  * path hash size are ui/rift_device.c's, in THIS DEVICE. */
 void rift_manage_build_channels(struct rift_app *app, lv_obj_t *parent);
 void rift_manage_refresh(struct rift_app *app);
-/* Leaving ACTIVITY, closing the app or turning the panel is Cancel for any
+/* Leaving SYSTEM, closing the app or turning the panel is Cancel for any
  * confirmation or form left open, and forgets a key shown for sharing. */
 void rift_manage_cancel(struct rift_app *app);
 void rift_manage_destroy(struct rift_app *app);

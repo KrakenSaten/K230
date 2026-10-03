@@ -1,5 +1,5 @@
 /*
- * THIS DEVICE's name and path hash size. See rift_device.h.
+ * SYSTEM's DEVICE name and ADDRESSING path hash size. See rift_device.h.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -39,7 +39,8 @@ struct rift_device {
     lv_obj_t *bytes_confirm;
     lv_obj_t *bytes_confirm_title;
     int bytes_pending; /* the size a confirmation is up for; 0 none */
-    lv_obj_t *status;
+    lv_obj_t *status;      /* the last rename, under the name */
+    lv_obj_t *path_status; /* the last path hash change, under the sizes */
 };
 
 static struct rift_device *of(const struct rift_app *app)
@@ -167,7 +168,7 @@ static void on_bytes_confirm(lv_event_t *e)
 
 /* ---- the entry points ------------------------------------------------------- */
 
-void rift_device_build(struct rift_app *app, lv_obj_t *panel)
+void rift_device_build(struct rift_app *app, lv_obj_t *panel, lv_obj_t *path_panel)
 {
     static const char *const words[3] = { "1 B", "2 B", "3 B" };
     struct rift_device *v = calloc(1, sizeof(*v));
@@ -201,7 +202,11 @@ void rift_device_build(struct rift_app *app, lv_obj_t *panel)
     rift_action(bar, "CANCEL", 0, 1, on_rename_cancel, app);
     rift_action(bar, "SAVE", 1, 1, on_rename_save, app);
     lv_obj_add_flag(v->rename_form, LV_OBJ_FLAG_HIDDEN);
+    v->status = rift_form_text(panel, POS_STYLE_CAPTION);
 
+    /* The path hash size has its own panel (ADDRESSING), the same controls
+     * and the same confirmation as when it shared THIS DEVICE's. */
+    panel = path_panel ? path_panel : panel;
     row = rift_form_row(panel, RIFT_TOUCH_H);
     title = rift_cell(row, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(title, 1);
@@ -224,7 +229,7 @@ void rift_device_build(struct rift_app *app, lv_obj_t *panel)
     rift_action(bar, "CANCEL", 1, 1, on_bytes_cancel, app);
     rift_action(bar, "USE IT", 0, 1, on_bytes_confirm, app);
     lv_obj_add_flag(v->bytes_confirm, LV_OBJ_FLAG_HIDDEN);
-    v->status = rift_form_text(panel, POS_STYLE_CAPTION);
+    v->path_status = rift_form_text(panel, POS_STYLE_CAPTION);
 }
 
 void rift_device_refresh(struct rift_app *app)
@@ -310,12 +315,19 @@ void rift_device_refresh(struct rift_app *app)
         rift_label_set(v->bytes_confirm_title, text);
     }
 
+    /* Each change's progress under its own controls. */
     text[0] = '\0';
-    if (op->kind == RIFT_ACTION_RENAME || op->kind == RIFT_ACTION_PATH_HASH) {
+    if (op->kind == RIFT_ACTION_RENAME) {
         rift_fmt_action(op, rift_app_now(app), text, sizeof(text));
     }
     rift_label_set(v->status, text);
     rift_form_show(v->status, text[0] != '\0');
+    text[0] = '\0';
+    if (op->kind == RIFT_ACTION_PATH_HASH) {
+        rift_fmt_action(op, rift_app_now(app), text, sizeof(text));
+    }
+    rift_label_set(v->path_status, text);
+    rift_form_show(v->path_status, text[0] != '\0');
 }
 
 void rift_device_cancel(struct rift_app *app)
