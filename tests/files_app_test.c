@@ -1161,9 +1161,13 @@ static void storage(const char *shape)
     tap_obj(row("USB Drive"));
     check("an ejected drive says to take it out first", shows_part("Remove the drive"));
 
-    /* A failed eject from sysd's side. */
+    /* Out and in again: what was said about the old drive goes (unit B). */
     usb_mounted(usb);
     pump(1100);
+    check("a reinserted drive is mounted, and Safe to remove is no longer said",
+          enabled("Eject") && !shows("Safe to remove the USB drive") && !shows("Safe to remove"));
+
+    /* A failed eject from sysd's side. */
     tap_obj(find_labelled("Eject"));
     snprintf(g_usb_json, sizeof(g_usb_json),
              "{\"usb\":{\"state\":\"mounted\",\"present\":true,\"filesystem\":\"FAT32\",\"label\":\"SANDISK\","

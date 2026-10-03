@@ -681,6 +681,10 @@ static void storage_update(struct files_app *a)
         storage_say(a, "Safe to remove the USB drive", false);
     } else if (was == FILES_USB_EJECTING && a->usb.state == FILES_USB_MOUNTED) {
         storage_say(a, a->usb.error[0] ? a->usb.error : "The drive was not ejected", true);
+    } else if (was != a->usb.state) {
+        /* What was said belonged to the drive as it was: "Safe to remove"
+         * outlived a reinserted drive on unit B. */
+        storage_say(a, "", false);
     }
     a->usb_polled_at = lv_tick_get();
 }
