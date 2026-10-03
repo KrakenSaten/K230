@@ -2,8 +2,8 @@
 
 Branch `feat/hardware-controls`, from master `749f4f1`. What the keyboard
 base's own controls are, where each one reaches Linux, what the vendor
-launcher did with them, and what Doors now does. DS §44 (PROPOSED) is the
-design side; `docs/api/shell.md` has `shell.action`, `shell.key` and
+launcher did with them, and what Doors now does. DS §44 (PROPOSED; §44.1,
+what the keys mean, ACCEPTED 2026-10-03) is the design side; `docs/api/shell.md` has `shell.action`, `shell.key` and
 `shell.info.hardware`.
 
 Evidence classes as in AGENTS.md: **VERIFIED** (measured on unit A or B),
