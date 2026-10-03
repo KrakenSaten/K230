@@ -18,7 +18,6 @@
 #include "kbd_leds.h"
 #include "pocketui.h"
 #include "pos_input.h"
-#include "pos_keymap.h"
 #include "shell_kbd.h"
 
 #include <stdio.h>
@@ -278,117 +277,6 @@ static void on_raw_key(lv_event_t *e)
         raw_mods[raw_count] = mods;
         raw_count++;
     }
-}
-
-/* The matrix code whose key is named name, or 0. */
-static uint8_t code_named(const char *name)
-{
-    unsigned c;
-
-    for (c = 1; c <= POS_KEYMAP_MAX_CODE; c++) {
-        const char *n = pos_keymap_name((uint8_t)c);
-
-        if (n && strcmp(n, name) == 0) {
-            return (uint8_t)c;
-        }
-    }
-    return 0;
-}
-
-static void tap_code(uint8_t code)
-{
-    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | code));
-    feed(code);
-}
-
-/* Type UTF-8 text the way a person would on the keyboard base: a-z bare,
- * A-Z under Caps (Shift would give most letters' orange legend: Shift+T is
- * '='), space on the space bar, and æ ø å through the Fn layer (Fn+E, Fn+O,
- * Fn+A), with Shift for the capitals. One character per drain, so the
- * 32-deep FIFO never fills. False for a character with no key. */
-static int type_text(const char *text)
-{
-    const unsigned char *p = (const unsigned char *)text;
-
-    while (*p) {
-        char name[2] = { 0, 0 };
-        int shift = 0;
-        int caps = 0;
-        int fn = 0;
-        uint8_t code;
-
-        if (*p == ' ') {
-            code = 5; /* one of the two space bars */
-            p++;
-        } else if (*p >= 'a' && *p <= 'z') {
-            name[0] = (char)(*p++ - 'a' + 'A');
-            code = code_named(name);
-        } else if (*p >= 'A' && *p <= 'Z') {
-            name[0] = (char)*p++;
-            caps = 1;
-            code = code_named(name);
-        } else if (p[0] == 0xC3 && p[1] != 0) {
-            /* U+00C0..U+00FF: the three the Fn layer has, either case. */
-            switch (p[1]) {
-            case 0xA5: name[0] = 'A'; break;            /* å */
-            case 0x85: name[0] = 'A'; shift = 1; break; /* Å */
-            case 0xB8: name[0] = 'O'; break;            /* ø */
-            case 0x98: name[0] = 'O'; shift = 1; break; /* Ø */
-            case 0xA6: name[0] = 'E'; break;            /* æ */
-            case 0x86: name[0] = 'E'; shift = 1; break; /* Æ */
-            default: return 0;
-            }
-            fn = 1;
-            code = code_named(name);
-            p += 2;
-        } else {
-            return 0;
-        }
-        if (code == 0) {
-            return 0;
-        }
-        if (caps) {
-            feed(CAPS_PRESS);
-            feed(CAPS_RELEASE);
-        }
-        if (fn) {
-            feed(FN_PRESS);
-        }
-        if (shift) {
-            feed(SHIFT_PRESS);
-        }
-        tap_code(code);
-        if (shift) {
-            feed(SHIFT_RELEASE);
-        }
-        if (fn) {
-            feed(FN_RELEASE);
-        }
-        if (caps) {
-            feed(CAPS_PRESS);
-            feed(CAPS_RELEASE);
-        }
-        settle();
-    }
-    return 1;
-}
-
-/* Well-formed UTF-8 of at most two bytes a character, which is all a field
- * here can hold: ASCII and U+0080..U+07FF, no overlong forms. */
-static int utf8_valid(const char *s)
-{
-    const unsigned char *p = (const unsigned char *)s;
-
-    while (*p) {
-        if (*p < 0x80) {
-            p++;
-        } else if (*p >= 0xC2 && *p <= 0xDF && (p[1] & 0xC0) == 0x80) {
-            p += 2;
-        } else {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 int main(void)
@@ -716,76 +604,6 @@ int main(void)
     check("an overflow that drops Caps puts its LED out", !led_lit(KBD_LEDS_PIN_CAPS));
     feed(W_RELEASE);
     settle();
-
-    /* ---- 5b. Norwegian letters, as UTF-8, in the field RIFT uses ------- *
-     *
-     * No keycap carries æ ø å: the Fn layer does (pos_keymap.h). Typed key by
-     * key from raw controller bytes into a one-line field - the kind every
-     * RIFT text input is - and compared byte for byte, so a code point that
-     * reached the field unpacked, or packed twice, cannot pass. */
-    {
-        lv_obj_t *line = pocketui_text_field(screen, "Message", true);
-        static const struct {
-            const char *text;
-            const char *bytes; /* the same, spelled out as UTF-8 */
-            size_t len;
-        } cases[] = {
-            { "hei på deg", "hei p\xC3\xA5 deg", 11 },
-            { "blåbær og øl", "bl\xC3\xA5" "b\xC3\xA6r og \xC3\xB8l", 15 },
-            { "ÆØÅ æøå", "\xC3\x86\xC3\x98\xC3\x85 \xC3\xA6\xC3\xB8\xC3\xA5", 13 },
-            { "Tromsø Ærlig Åsen", "Troms\xC3\xB8 \xC3\x86rlig \xC3\x85sen", 20 },
-        };
-        size_t c;
-
-        pos_input_focus(line);
-        settle();
-        check("the one-line field takes the focus", pos_input_focused() == line);
-        for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
-            const char *got;
-
-            lv_textarea_set_text(line, "");
-            check("the case is spelled the same twice", strcmp(cases[c].text, cases[c].bytes) == 0);
-            check("typing it sends no key the map does not know", type_text(cases[c].text));
-            got = lv_textarea_get_text(line);
-            check_str("the field holds it, byte for byte", got, cases[c].bytes);
-            check("and its length in bytes is UTF-8's", got && strlen(got) == cases[c].len);
-            check("and is valid UTF-8", got && utf8_valid(got));
-        }
-        /* Caps instead of Shift, and Fn with a key outside the layer. */
-        lv_textarea_set_text(line, "");
-        feed(CAPS_PRESS);
-        feed(CAPS_RELEASE);
-        feed(FN_PRESS);
-        feed(0x80 | 43); /* O */
-        feed(43);
-        feed(FN_RELEASE);
-        feed(CAPS_PRESS);
-        feed(CAPS_RELEASE);
-        feed(FN_PRESS);
-        feed(W_PRESS);
-        feed(W_RELEASE);
-        feed(FN_RELEASE);
-        settle();
-        check_str("Caps+Fn+O is \xC3\x98 and Fn+W is still w", lv_textarea_get_text(line),
-                  "\xC3\x98w");
-        /* Backspace takes a whole letter, never half of its two bytes. */
-        feed(FN_PRESS);
-        feed(0x80 | 29); /* A */
-        feed(29);
-        feed(FN_RELEASE);
-        feed(0x80 | 41); /* DEL */
-        feed(41);
-        settle();
-        check_str("Backspace removes all of \xC3\xA5", lv_textarea_get_text(line), "\xC3\x98w");
-        feed(0x80 | 41);
-        feed(41);
-        feed(0x80 | 41);
-        feed(41);
-        settle();
-        check_str("and of \xC3\x98, leaving nothing behind", lv_textarea_get_text(line), "");
-        pos_input_focus(field);
-        settle();
-    }
 
     /* ---- 6. destroy stops the keyboard --------------------------------- */
 

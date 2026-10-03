@@ -4021,12 +4021,7 @@ launcher's own path and is never opened a second time: the key on its own
 app does nothing. Levels stop at their bounds and never wrap. While the lock
 screen or an alert (§18.8) is up, keys that would open or leave an app do
 nothing; the levels still work. With Fn held, a function key goes to the
-Terminal (§43.3) as the key itself, and A, O and E type å, ø and æ (Å, Ø
-and Æ with Shift or Caps), which no keycap carries; with any other key Fn
-changes nothing. The Fn letters are **PROPOSED 2026-10-03** on branch
-`fix/rift-norwegian-input` (`ui/pocketui/pos_keymap.h`); they are the
-touch keyboard's C9 letters (§14) for the keyboard base, and reach every
-text field, RIFT's included, as UTF-8.
+Terminal (§43.3) as the key itself; everywhere else Fn changes nothing.
 
 ### 44.2 Back
 

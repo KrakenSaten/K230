@@ -71,9 +71,6 @@ static enum pos_keymap_effect effect_of(uint8_t event)
 #define C_CTRL 23
 #define C_ALT 19
 #define C_FN 9
-#define C_FN_R 3
-#define C_O 43
-#define C_E 38
 #define C_CAPS 10
 #define C_SPACE 5
 #define C_SPACE2 14
@@ -253,7 +250,7 @@ int main(void)
     press_is("Right", C_RIGHT, LV_KEY_RIGHT);
     release(C_RIGHT);
 
-    /* ---- 8. Ctrl, Alt, Fn are tracked; alone they produce nothing ------- */
+    /* ---- 8. Ctrl, Alt, Fn are tracked but produce nothing yet ---------- */
 
     check("Ctrl is a modifier",
           effect_of(C_CTRL | POS_KEYMAP_EVENT_PRESSED) == POS_KEYMAP_MODIFIER);
@@ -269,81 +266,6 @@ int main(void)
           effect_of(C_FN | POS_KEYMAP_EVENT_PRESSED) == POS_KEYMAP_MODIFIER);
     release(C_FN);
     check("the right-hand Fn is the same modifier", pos_keymap_is_modifier(3));
-
-    /* ---- 8b. the Fn layer: æ ø å, which no keycap carries -------------- */
-
-    pos_keymap_reset(&km);
-    press(C_FN);
-    press_is("Fn+A types \xC3\xA5", C_A, 0xE5);
-    release(C_A);
-    press_is("Fn+O types \xC3\xB8", C_O, 0xF8);
-    release(C_O);
-    press_is("Fn+E types \xC3\xA6", C_E, 0xE6);
-    release(C_E);
-    check("each is a key, not a modifier or nothing",
-          effect_of(C_A | POS_KEYMAP_EVENT_PRESSED) == POS_KEYMAP_KEY);
-    release(C_A);
-    press_is("Fn with another letter is that letter", C_Z, 'z');
-    release(C_Z);
-    press_is("and with a digit, the digit", C_1, '1');
-    release(C_1);
-    press_is("and Fn does not take Enter", C_ENTER, LV_KEY_ENTER);
-    release(C_ENTER);
-    press_is("or the space bar", C_SPACE, ' ');
-    release(C_SPACE);
-
-    press(C_SHIFT);
-    press_is("Fn+Shift+A types \xC3\x85, not the '~' Shift+A gives", C_A, 0xC5);
-    release(C_A);
-    press_is("Fn+Shift+O types \xC3\x98", C_O, 0xD8);
-    release(C_O);
-    press_is("Fn+Shift+E types \xC3\x86", C_E, 0xC6);
-    release(C_E);
-    press_is("Fn+Shift with another key keeps its orange legend", C_W, '_');
-    release(C_W);
-    release(C_SHIFT);
-
-    press(C_CAPS);
-    release(C_CAPS);
-    press_is("Caps gives the capital too", C_O, 0xD8);
-    release(C_O);
-    press(C_SHIFT);
-    press_is("and Caps with Shift the small letter, as A-Z do", C_O, 0xF8);
-    release(C_O);
-    release(C_SHIFT);
-    press(C_CAPS);
-    release(C_CAPS);
-    release(C_FN);
-
-    press_is("released, Fn leaves A an a", C_A, 'a');
-    release(C_A);
-    press_is("and O an o", C_O, 'o');
-    release(C_O);
-    press_is("and E an e", C_E, 'e');
-    release(C_E);
-    press(C_SHIFT);
-    press_is("and Shift+A is '~' again", C_A, '~');
-    release(C_A);
-    press_is("Shift+O ':'", C_O, ':');
-    release(C_O);
-    press_is("Shift+E '-'", C_E, '-');
-    release(C_E);
-    release(C_SHIFT);
-
-    press(C_FN_R);
-    press_is("the right-hand Fn is the same layer", C_A, 0xE5);
-    release(C_A);
-    release(C_FN_R);
-    press_is("and lets go of it the same way", C_A, 'a');
-    release(C_A);
-
-    press(C_CTRL);
-    press(C_FN);
-    press_is("Ctrl does not stop Fn+O being \xC3\xB8 (a field drops Ctrl)", C_O, 0xF8);
-    release(C_O);
-    release(C_FN);
-    release(C_CTRL);
-    pos_keymap_reset(&km);
 
     /* ---- 9. releases deliver nothing ----------------------------------- */
 

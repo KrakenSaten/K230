@@ -24,7 +24,6 @@
 #include "app.h"
 #include "pocketui.h"
 #include "pos_input.h"
-#include "pos_keymap.h"
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
@@ -2091,160 +2090,6 @@ static void type_into(lv_obj_t *field, const char *text)
     pump(120);
 }
 
-/* ---- the keyboard base, through its real key map ----------------------- *
- *
- * type_into() pushes bytes, which is right for ASCII and wrong for anything
- * else: the stream carries code points. This types on the keyboard base
- * instead - raw TCA8418 events through pos_keymap.c, the key it gives pushed
- * as shell_kbd.c pushes it - so what reaches a RIFT field is exactly what a
- * person pressing the keys would put there. a-z bare, A-Z under Caps (Shift
- * would give most letters' orange legend), the space bar, and æ ø å on the
- * Fn layer (Fn+A, Fn+O, Fn+E) with Shift for their capitals. Returns 0 for a
- * character with no key, or a key the stream refused. */
-#define KB_SHIFT 7
-#define KB_FN 9
-#define KB_CAPS 10
-#define KB_SPACE 5
-
-static uint8_t kb_code_named(char letter)
-{
-    char name[2] = { letter, '\0' };
-    unsigned c;
-
-    for (c = 1; c <= POS_KEYMAP_MAX_CODE; c++) {
-        const char *n = pos_keymap_name((uint8_t)c);
-
-        if (n && strcmp(n, name) == 0) {
-            return (uint8_t)c;
-        }
-    }
-    return 0;
-}
-
-static int kbd_type(lv_obj_t *field, const char *text)
-{
-    const unsigned char *p = (const unsigned char *)text;
-    struct pos_keymap km;
-
-    pos_keymap_reset(&km);
-    pos_input_focus(field);
-    pump(40);
-    while (*p) {
-        uint8_t code = 0;
-        int shift = 0;
-        int caps = 0;
-        int fn = 0;
-        pos_key_t key;
-
-        if (*p == ' ') {
-            code = KB_SPACE;
-            p++;
-        } else if (*p >= 'a' && *p <= 'z') {
-            code = kb_code_named((char)(*p++ - 'a' + 'A'));
-        } else if (*p >= 'A' && *p <= 'Z') {
-            code = kb_code_named((char)*p++);
-            caps = 1;
-        } else if (p[0] == 0xC3 && p[1] != 0) {
-            fn = 1;
-            switch (p[1]) {
-            case 0xA5: code = kb_code_named('A'); break;            /* å */
-            case 0x85: code = kb_code_named('A'); shift = 1; break; /* Å */
-            case 0xB8: code = kb_code_named('O'); break;            /* ø */
-            case 0x98: code = kb_code_named('O'); shift = 1; break; /* Ø */
-            case 0xA6: code = kb_code_named('E'); break;            /* æ */
-            case 0x86: code = kb_code_named('E'); shift = 1; break; /* Æ */
-            default: return 0;
-            }
-            p += 2;
-        }
-        if (code == 0) {
-            return 0;
-        }
-        if (caps) {
-            pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_CAPS, NULL);
-            pos_keymap_event(&km, KB_CAPS, NULL);
-        }
-        if (fn) {
-            pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_FN, NULL);
-        }
-        if (shift) {
-            pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_SHIFT, NULL);
-        }
-        key = pos_keymap_event(&km, (uint8_t)(POS_KEYMAP_EVENT_PRESSED | code), NULL);
-        pos_keymap_event(&km, code, NULL);
-        if (shift) {
-            pos_keymap_event(&km, KB_SHIFT, NULL);
-        }
-        if (fn) {
-            pos_keymap_event(&km, KB_FN, NULL);
-        }
-        if (caps) {
-            pos_keymap_event(&km, POS_KEYMAP_EVENT_PRESSED | KB_CAPS, NULL);
-            pos_keymap_event(&km, KB_CAPS, NULL);
-        }
-        if (key == 0 || !pos_input_push_key(key)) {
-            return 0;
-        }
-        pump(30);
-    }
-    pump(120);
-    return 1;
-}
-
-/* Every RIFT text input is a pocketui text field. Each is given the same
- * three phrases, typed on the keyboard, and must hold their UTF-8 bytes
- * exactly - spelled out here byte by byte, so the check does not lean on how
- * this file happens to be encoded. The field is left empty. */
-static void check_norwegian(const char *where, lv_obj_t *field)
-{
-    static const struct {
-        const char *typed;
-        const char *bytes;
-        size_t len;
-    } cases[] = {
-        { "hei p\xC3\xA5 deg", "\x68\x65\x69\x20\x70\xC3\xA5\x20\x64\x65\x67", 11 },
-        { "bl\xC3\xA5" "b\xC3\xA6r og \xC3\xB8l",
-          "\x62\x6C\xC3\xA5\x62\xC3\xA6\x72\x20\x6F\x67\x20\xC3\xB8\x6C", 15 },
-        { "\xC3\x86\xC3\x98\xC3\x85 \xC3\xA6\xC3\xB8\xC3\xA5",
-          "\xC3\x86\xC3\x98\xC3\x85\x20\xC3\xA6\xC3\xB8\xC3\xA5", 13 },
-    };
-    size_t c;
-
-    checks++;
-    if (!field) {
-        failed++;
-        printf("FAIL %s: no field\n", where);
-        return;
-    }
-    for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
-        const char *got;
-        int typed;
-
-        lv_textarea_set_text(field, "");
-        pump(40);
-        typed = kbd_type(field, cases[c].typed);
-        got = lv_textarea_get_text(field);
-        checks++;
-        if (!typed || !got || strlen(got) != cases[c].len ||
-            memcmp(got, cases[c].bytes, cases[c].len) != 0) {
-            failed++;
-            printf("FAIL %s: typing \"%s\" left \"%s\" (%zu bytes, want %zu)%s\n", where,
-                   cases[c].typed, got ? got : "(null)", got ? strlen(got) : 0, cases[c].len,
-                   typed ? "" : ", a key did not go in");
-        }
-        /* And it is text the send path takes as it is: well-formed UTF-8,
-         * no control character (rift_send_text_check, the guard in front of
-         * mesh.send). Nothing is converted on the way. */
-        checks++;
-        if (!got || !rift_utf8_valid(got) || rift_send_text_check(got, NULL, 0) != 0) {
-            failed++;
-            printf("FAIL %s: \"%s\" is not text RIFT would send\n", where, got ? got : "(null)");
-        }
-    }
-    lv_textarea_set_text(field, "");
-    pump(40);
-}
-
 /* NODES: finding a node, and the repeaters heard zero-hop. */
 static void find_session(void)
 {
@@ -2279,16 +2124,6 @@ static void find_session(void)
           strcmp(lv_textarea_get_text(field), "  S\xC3\x98RLANDET ") == 0);
     check("capital \xC3\x98 finds a small \xC3\xB8, and spaces around a query do not count",
           find_text(content(), "S\xC3\xB8rlandet") != NULL && find_exact(content(), "OSLO-01") == NULL);
-    /* Typed on the keyboard base rather than set: the Fn layer's ø reaches
-     * the query as UTF-8 and finds the node as a set query does. */
-    rift_find_set_query(app, "");
-    pump(120);
-    check("s, Fn+O, r, l typed on the keyboard base go in",
-          kbd_type(field, "s\xC3\xB8rl"));
-    check("and the query holds them as UTF-8", strcmp(app->node_query, "s\xC3\xB8rl") == 0);
-    check("which finds S\xC3\xB8rlandet and nothing else",
-          find_text(content(), "S\xC3\xB8rlandet") != NULL && find_exact(content(), "OSLO-01") == NULL);
-    check_norwegian("the NODES search field", field);
     rift_find_set_query(app, "b2");
     pump(120);
     check("two hex characters find a node by its hash",
@@ -2487,7 +2322,6 @@ static void manage_session(void)
     check("its name field joins the focus group while the form is open, the key's does not",
           lv_obj_get_group(rift_manage_name_field(app)) != NULL &&
               lv_obj_get_group(rift_manage_key_field(app)) == NULL);
-    check_norwegian("the channel name field", rift_manage_name_field(app));
     join = action_of(find_exact(content(), "JOIN"));
     tap(join);
     pump(150);
@@ -2553,7 +2387,6 @@ static void manage_session(void)
     check("RENAME opens the name in place, filled with the current one",
           rift_device_rename_field(app) && visible(rift_device_rename_field(app)) &&
               strcmp(lv_textarea_get_text(rift_device_rename_field(app)), "K230-A") == 0);
-    check_norwegian("the node rename field", rift_device_rename_field(app));
     field_set(rift_device_rename_field(app), "   ");
     tap(action_of(find_exact(content(), "SAVE")));
     pump(150);
@@ -4357,7 +4190,6 @@ int main(void)
         check("typing survives the refreshes in between",
               strcmp(lv_textarea_get_text(field), "hei") == 0);
         lv_textarea_set_text(field, "");
-        check_norwegian("the portrait composer", field);
     }
 
     /* 4. There was no way to start one. The list holds only peers with
@@ -4648,7 +4480,6 @@ int main(void)
         check("and typing into it survives them",
               strcmp(lv_textarea_get_text(app->composer), "zy") == 0);
         lv_textarea_set_text(app->composer, "");
-        check_norwegian("the landscape composer", app->composer);
     }
 
     pos_input_focus(app->keysink);

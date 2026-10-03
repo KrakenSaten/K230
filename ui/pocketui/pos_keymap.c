@@ -80,24 +80,6 @@ static uint32_t shifted_symbol(uint8_t code)
     }
 }
 
-/* The Fn layer: the three Norwegian letters, which no keycap carries. Fn+A
- * gives å, Fn+O gives ø and Fn+E gives æ - a ring on the a, a stroke through
- * the o, and the e that joins the a in the ligature. Their capitals follow
- * Shift and Caps exactly as A-Z do. Nothing else changes: Fn with any other
- * key types what that key types without it, and Fn with a function key is
- * shell_kbd.c's business. The letters are code points, like every other
- * printable key here; pos_input.c packs them as UTF-8 for LVGL. Returns the
- * lower-case code point, or 0. */
-static uint32_t fn_letter(uint8_t code)
-{
-    switch (code) {
-    case 29: return 0xE5u; /* A: å, capital Å U+00C5 */
-    case 43: return 0xF8u; /* O: ø, capital Ø U+00D8 */
-    case 38: return 0xE6u; /* E: æ, capital Æ U+00C6 */
-    default: return 0;
-    }
-}
-
 static uint32_t digit_for(uint8_t code)
 {
     switch (code) {
@@ -211,20 +193,6 @@ pos_key_t pos_keymap_event(struct pos_keymap *k, uint8_t event,
     case 5:
     case 14: sym = ' '; goto key;         /* two space bars, one meaning */
     default: break;
-    }
-
-    /* The Fn layer comes before the orange legend, so Fn+Shift+A is Å and
-     * not the '~' that Shift+A gives. In Latin-1 each of the three capitals
-     * is its small letter less 0x20. */
-    if (k->fn) {
-        sym = fn_letter(code);
-        if (sym) {
-            upper = (k->caps != 0) != (k->shift != 0);
-            if (upper) {
-                sym -= 0x20u;
-            }
-            goto key;
-        }
     }
 
     /* Shifted punctuation takes precedence over the unshifted legend. */
