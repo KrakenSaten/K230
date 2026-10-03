@@ -11,7 +11,9 @@
  *   - a send reads the system volume first and does not start while it is
  *     muted;
  *   - the history is saved after every change, and the preset when it is
- *     picked; a capture file is removed once it has been decoded or dropped;
+ *     picked; a history save that fails stays due and is retried, so a
+ *     transient failure loses nothing; a capture file is removed once it has
+ *     been decoded or dropped;
  *   - close() ends whatever runs within its bound and leaves nothing behind.
  *
  * AUDIO OWNERSHIP. At most one helper exists at any time, because the model
@@ -40,6 +42,10 @@
  * is killed. */
 #define WAVE_DESTROY_GRACE_MS 300
 
+/* poll(): a history save that failed is retried no sooner than this. close()
+ * and clear() always retry. */
+#define WAVE_SAVE_RETRY_MS 1000
+
 struct wave_ctl {
     struct wave_view view;
     struct wave_session session;
@@ -47,6 +53,7 @@ struct wave_ctl {
     int (*volume)(void);
     unsigned saved_changes;  /* history.changes when it was last saved */
     int store_failed;        /* the last save did not reach the disk */
+    int64_t save_retry_ms;   /* poll(): next retry of a failed history save */
     int history_skipped;     /* damaged lines dropped when the history was read */
     unsigned starts;         /* helpers started, for tests and logs */
 };
