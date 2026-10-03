@@ -54,12 +54,12 @@ NET**. RIFT draws all four.
   **ADVERT** buttons (below). Then the nodes heard most recently, and the raw
   frame feed. A full node table is said here in words, with what to do about
   it.
-- **NODES** — every node the service holds (all 256 its table can), as
+- **NODES** — every node the service holds (all 1000 its table can), as
   36 px rows: link glyph, name, role, hop strip, hop count, RSSI, SNR
   (landscape), last heard and the activity pulse (below). Grouped into
   heard within 12 h, not heard for longer, and never heard. The list is
   virtual: a pool of rows is placed over whatever part of it is on screen,
-  so 256 nodes cost what a screenful does. A row selects and
+  so 1000 nodes cost what a screenful does. A row selects and
   does nothing else; the selection expands in place into the state line, the
   path written out, the signal, and a 56 px action bar: **MESSAGE** and
   **DETAIL ›**. **DETAIL** pushes a screen that opens with its actions —
@@ -149,7 +149,7 @@ NET**. RIFT draws all four.
   selection moves; any other way out — another section, closing the detail,
   turning the panel — is Cancel, so nobody comes back to a FORGET left armed.
   The node comes back when it next adverts; until then no
-  message can be sent to it. MeshCore's contact table holds 256 and evicts
+  message can be sent to it. MeshCore's contact table holds 1000 and evicts
   nothing on its own, so this is what makes room when a new node's adverts
   are being turned away — which on unit A blocked a direct message to a new
   peer until the state file was moved aside by hand
@@ -602,7 +602,7 @@ What RIFT holds, and what it builds for it:
 
 | | Held | Built |
 | --- | --- | --- |
-| Nodes | 1000 (`RIFT_MAX_NODES`; was 256, and 64 before that - more than meshcored's table of 256, see gap 17) | rows for the screen only: 31 in portrait, 35 at most after turning (`rift_nodes_rows_built`), whatever the count |
+| Nodes | 1000 (`RIFT_MAX_NODES`; was 256, and 64 before that - the same as meshcored's table, see gap 17) | rows for the screen only: 31 in portrait, 35 at most after turning (`rift_nodes_rows_built`), whatever the count |
 | Messages | 512 (`RIFT_MAX_MESSAGES`; was 256) | a thread's newest 64 (`RIFT_THREAD_ROWS`), "136 EARLIER" for the rest |
 | Conversations | 256 (`RIFT_MAX_CONVERSATIONS`; was 64) | rows for the screen only, as NODES: a pool of at most 40 over a spacer (`ui/rift_conv_list.c`, `rift_comms_rows_built`) |
 | Hops on a detail's ladder | all 63 MeshCore allows | a rung each, built when the path changes |
@@ -910,13 +910,17 @@ them, one after the other, are two runs of a service and not one.
     opened and not before; a per-node rate would need per-node timestamps
     RIFT does not keep. RSSI and SNR stay in their own columns and are never
     folded into either.
-17. **RIFT caches more nodes than the service holds.** The cache is sized
-    for a thousand (`RIFT_MAX_NODES`) and measured at that; meshcored's
-    table is still 256 (`MAX_CONTACTS`, `protocols/meshcore/compat/
-    mc_contacts.h`), so on a unit the list stops where the service does and
-    says so in its footer. Raising the service's table is a change to a
-    persisted store with its own gate (docs/hardware/MESH_NODE_CAPACITY_256_GATE.md)
-    and is not this one.
+17. **A table of 1000 has not been reached by a real mesh.** The cache
+    (`RIFT_MAX_NODES`) and meshcored's table (`MAX_CONTACTS`,
+    `protocols/meshcore/compat/mc_contacts.h`) are both a thousand now, so
+    the list stops where the service does and says so in its footer.
+    - Unit B outgrew 256 on real adverts.
+    - With 1000 loaded (259 real, 741 synthetic), RIFT listed `1000 KNOWN`
+      and kept its connection (docs/hardware/MESH_NODE_CAPACITY_1000_GATE.md).
+    - A 1000-node `mesh.nodes` reply larger than the socket buffer reaches
+      RIFT only if the shell drains it within pocketipc's 200 ms send budget
+      (docs/services/MESHCORED.md, "Node capacity"). A stalled shell was not
+      provoked.
 18. **No flood scopes.** See "Managing the node": the service writes no
     transport codes, so a channel's scope cannot be changed - there is only
     the unscoped flood.

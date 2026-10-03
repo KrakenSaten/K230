@@ -544,9 +544,11 @@ static cJSON *m_set_path_hash(struct mcd *d, const cJSON *params, int *code, cha
 }
 
 /* Most recently heard first (mcd_runtime_nodes_recent), so a client that
- * keeps fewer nodes than the service holds - RIFT keeps 64 - keeps the ones
+ * keeps fewer nodes than the service holds - Fleet keeps 64 - keeps the ones
  * that were heard last rather than whichever the table happens to list
- * first. */
+ * first. At MCD_MAX_NODES the reply is about 180 KB with short names and no
+ * paths, and at most about 600 KB, inside POCKETIPC_MAX_FRAME (1 MiB); see
+ * docs/services/MESHCORED.md, "Node capacity". */
 static cJSON *m_nodes(struct mcd *d)
 {
     struct mcd_node *nodes = calloc(MCD_MAX_NODES, sizeof(*nodes));

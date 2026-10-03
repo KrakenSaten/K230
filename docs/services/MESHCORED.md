@@ -214,7 +214,7 @@ choice worth naming:
 
 - **Contacts are added automatically**, as upstream does
   (`isAutoAddEnabled()` returns true). Any node that adverts within range
-  becomes a contact, up to 256 (`MAX_CONTACTS`, set in
+  becomes a contact, up to 1000 (`MAX_CONTACTS`, set in
   `protocols/meshcore/compat/mc_contacts.h`; upstream's default is 32, which
   a dense mesh filled within minutes). Past that, MeshCore reports the discovery
   anyway, with a contact it is about to throw away, so a UI can say somebody
@@ -394,6 +394,53 @@ Messages are left out deliberately. Writing decrypted message text to the
 device is a privacy decision the owner has not made, and this phase was asked
 to keep persistence small. It is the obvious next step and is recorded in
 docs/KNOWN_ISSUES.md.
+
+### Node capacity
+
+The node table holds **1000** (`MAX_CONTACTS`,
+`protocols/meshcore/compat/mc_contacts.h`), and everything sized by it
+follows that one number: `mcdstore::MAX_NODES` (what `state.v1` carries),
+`MCD_MAX_NODES` (what `mesh.nodes` lists), and the per-node signal readings.
+`mesh_runtime.cpp` static-asserts the three against each other. Nothing is
+evicted at any size; see "Forgetting a node".
+
+Measured on the x86-64 host with a real service on a seeded table
+(`tests/meshcored_harness_test.sh`, section 8b), against the same
+measurement at the previous 256:
+
+| | 256 | 1000 |
+| --- | --- | --- |
+| `state.v1`, full | 37,932 B | 148,044 B (44 + 148 per node; the count is 16 bits, so the format is unchanged) |
+| resident at start, full table | 3,828 kB | 4,484 kB |
+| `mesh.nodes`, short names, no paths | 46 KB | 181 KB |
+| `mesh.nodes`, every stored field at its longest | 110 KB | 431 KB; about 600 KB with a run's signal readings on every node, against `POCKETIPC_MAX_FRAME` 1 MiB |
+| peak resident after `mesh.nodes`, longest fields | 4,512 kB | 6,824 kB (the reply is built whole, as cJSON and then as text) |
+
+The two `state.v1` buffers are static (296 KB of bss at 1000) and the
+`NodeState` the runtime loads and saves through is on the stack (about
+184 KB, twice at start), well inside meshcored's 8 MiB stack limit
+(VERIFIED on unit B, `/proc/<pid>/limits`).
+
+Every received packet walks the table linearly a few times: MeshCore's
+`lookupContactByPubKey()` and `searchPeersByHash()`, and this service's
+telemetry slot and retained-contact checks - a few thousand 32-byte compares
+at 1000, against an Ed25519 verify per advert that costs far more.
+
+**A reply larger than the socket buffer needs a reader that keeps up.**
+pocketipc gives a frame one 200 ms budget from its first `EAGAIN`
+(`POCKETIPC_SEND_TIMEOUT_MS`) and drops a client that does not drain it in
+time. About 215 KB fits in a Unix socket here before the first `EAGAIN`, so
+a 181 KB reply never waits, and a 431 KB one waits for one drain: RIFT reads
+every 100 ms and the harness proves that at its cadence, but a shell stalled
+for more than 200 ms while a large reply is in flight loses its connection
+and asks again after reconnecting. The board's socket buffer is the host's:
+`net.core.wmem_default` 212,992, VERIFIED on unit B.
+
+On unit B (docs/hardware/MESH_NODE_CAPACITY_1000_GATE.md), with 1000 nodes
+of which 741 were synthetic at their longest, the reply was 368 KB. It was
+built and sent in 90 ms. Readers draining every 50, 100 and 150 ms all got it
+whole, and RIFT on the panel held the connection and listed all 1000.
+meshcored's resident set was about 5.9 MB, against 4.0 MB at 256.
 
 ### A fault in one is not a fault in the other
 
@@ -615,8 +662,8 @@ Stopping it releases the lease and writes the node table.
 | --- | --- | --- |
 | An enabled build cannot be installed, packaged or imaged while the notices say nothing about what it contains | **VERIFIED host** | `tests/notices_test.sh` executes the refusal on the install, image and package paths, and proves the gate is driven by the notices rather than unconditional |
 | A refused profile releases the radio and another client can take it | **VERIFIED host** | `tests/meshcored_service_test.sh`, against the real radiod |
-| A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 256 real contacts (255, then the 256th, then the 257th turned away) then 18 more adverts |
-| A full table of 256 is persisted and reloaded whole, and is still full after the reload | **VERIFIED host** | same (`test_full_contact_table`); the 256 / 257 record boundary of `state.v1` in `tests/meshcored_store_test.cpp` |
+| A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 1000 real contacts (999, then the 1000th, then the 1001st turned away) then 18 more adverts |
+| A full table of 1000 is persisted and reloaded whole, and is still full after the reload | **VERIFIED host** | same (`test_full_contact_table`); the 1000 / 1001 record boundary of `state.v1` in `tests/meshcored_store_test.cpp` |
 | `mesh.nodes` lists the most recently heard first, and after a restart by the stored last-updated time | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_nodes_newest_first`); RIFT's 64-node cache keeps the head of that list, `tests/rift_model_test.c` |
 | Each sent message times out on its own deadline; an ACK for one does not strand another; a full outbox refuses rather than overwrites | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_ack_deadlines`), three nodes, deadlines driven through `mcd_runtime_expire_acks` |
 | A send after every deadline has passed is not refused as busy; an ACK queued behind another frame is matched before its deadline is judged | **VERIFIED host** | same, in real time: no tick between the deadlines passing and the send, and an ACK held one turn behind a frame A hears back |

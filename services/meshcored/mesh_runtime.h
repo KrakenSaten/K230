@@ -43,7 +43,7 @@ extern "C" {
 /* MeshCore's MAX_CONTACTS (protocols/meshcore/compat/mc_contacts.h): the
  * most nodes the table holds and mesh.nodes can list. Static-asserted like
  * the rest. */
-#define MCD_MAX_NODES 256
+#define MCD_MAX_NODES 1000
 
 /* ---- what came off the air --------------------------------------------
  *

@@ -2,9 +2,10 @@
  *
  * Upstream's default is 32 (BaseChatMesh.h:37-39, `#ifndef MAX_CONTACTS`).
  * A dense mesh filled that within minutes, after which every new node's
- * advert was turned away and no message could be sent to it. 256 is an
- * interim number, until wider node addressing and a node list that does not
- * build one row per node make a larger table worth having.
+ * advert was turned away and no message could be sent to it. 256 followed,
+ * and then 1000 once RIFT's node list stopped building a row per node
+ * (RIFT_MAX_NODES, apps/rift/rift_model.h). Nothing is evicted at either
+ * size: the table still fills, later.
  *
  * ---- why this lives in a header -----------------------------------------
  *
@@ -23,8 +24,8 @@
  *
  * ---- what a contact costs ------------------------------------------------
  *
- * 184 bytes in the table and 4 in the sort array, so 256 contacts is about
- * 48 KiB inside the runtime object. services/meshcored keeps one telemetry
+ * 184 bytes in the table and 4 in the sort array, so 1000 contacts is about
+ * 184 KiB inside the runtime object. services/meshcored keeps one telemetry
  * slot per contact and persists at most this many (mesh_store.h); both
  * follow this value rather than repeating it, and mesh_runtime.cpp
  * static_asserts the one number its API publishes (MCD_MAX_NODES).
@@ -40,4 +41,4 @@
 #ifdef MAX_CONTACTS
 #error "MAX_CONTACTS is decided in protocols/meshcore/compat/mc_contacts.h and nowhere else"
 #endif
-#define MAX_CONTACTS 256
+#define MAX_CONTACTS 1000

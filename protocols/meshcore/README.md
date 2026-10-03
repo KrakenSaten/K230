@@ -79,15 +79,17 @@ through `setChannel()`, which derives the hash and takes a slot.
 
 ### Contact table
 
-`MAX_CONTACTS` is **256** here, not upstream's 32, set in
+`MAX_CONTACTS` is **1000** here, not upstream's 32, set in
 **`compat/mc_contacts.h`** and reached through `compat/Arduino.h` exactly as
 `mc_channels.h` is, because it sizes `BaseChatMesh`'s contact table and so
 its layout (`contacts[MAX_CONTACTS+MAX_ANON_CONTACTS]`, `BaseChatMesh.h:64`).
-It is an `#error` rather than an `#ifndef` if anything else defines it. 256
-is interim: MeshCore still matches an inbound direct packet by a one-byte
-hash and tries at most eight contacts that share it
-(`MAX_SEARCH_RESULTS`, `BaseChatMesh.h:12`), and the table is still a flat
-array searched linearly.
+It is an `#error` rather than an `#ifndef` if anything else defines it. A
+bigger table does not change addressing: MeshCore still matches an inbound
+direct packet by a one-byte hash and tries at most eight contacts that share
+it (`MAX_SEARCH_RESULTS`, `BaseChatMesh.h:12`), and the table is still a flat
+array searched linearly. At 1000 contacts about four share each hash value
+on average, so a ninth sharing one - whose direct messages cannot then be
+matched - is rare but possible.
 
 Crypto, from the two libraries MeshCore itself uses:
 
