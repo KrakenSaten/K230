@@ -5,7 +5,6 @@
  */
 #include "rift_conv_list.h"
 
-#include "pocketui.h"
 #include "pos_styles.h"
 #include "rift_widgets.h"
 #include "rift_emoji_style.h"
@@ -17,21 +16,7 @@
 /* Rows in the pool: enough for the tallest pane a list can have (portrait
  * with nothing open, about 25 rows) with a margin each side. */
 #define POOL_MAX 40
-/* A conversation row. It was one 36 px data row - a name in the row-title
- * type sharing the width with a preview in the 14 px caption - which is the
- * density of a table and too small for the one list a reader picks from by
- * name. Now the name is in the title type on a line that is its own, with
- * a second line under it: in portrait the preview, in body type, so neither
- * is cut short to make room for the other; in landscape's narrow list, which
- * has no preview (the thread is beside it), when the other side was last
- * heard. One line in landscape left a name the width of nine letters at
- * Small and six at Large (unit B, 2026-10-03). A row is a touch target tall
- * at least, and every height follows the text size (DS §46). */
-#define CONV_ROW_MIN_H RIFT_TOUCH_H
-#define CONV_LINE_AIR 6
-#define CONV_ROLE_NAME POS_STYLE_TITLE
-#define CONV_ROLE_PREVIEW POS_STYLE_TEXT_SECONDARY
-#define BIND_MARGIN (2 * rift_conv_row_h(l->wide))
+#define BIND_MARGIN (2 * RIFT_ROW_H)
 #define COL_GAP 8
 #define COL_ROUTE 72
 #define COL_HEARD 44
@@ -41,32 +26,11 @@
 #define SELECTED_INSET_H 8
 #define SELECTED_INSET_V 2
 #define SELECTED_AIR 2
-#define SELECTED_H (rift_conv_row_h(l->wide) + 2 * SELECTED_INSET_V + 2 * SELECTED_AIR)
-
-/* The line with the name on it, and the line under it: the preview in
- * portrait, the age in landscape. */
-static int32_t name_line_h(void)
-{
-    return pocketui_role_line_height(CONV_ROLE_NAME) + CONV_LINE_AIR;
-}
-
-static int32_t below_line_h(int wide)
-{
-    return pocketui_role_line_height(wide ? POS_STYLE_CAPTION : CONV_ROLE_PREVIEW) +
-           CONV_LINE_AIR;
-}
-
-int32_t rift_conv_row_h(int wide)
-{
-    return LV_MAX(CONV_ROW_MIN_H, name_line_h() + below_line_h(wide));
-}
+#define SELECTED_H (RIFT_ROW_H + 2 * SELECTED_INSET_V + 2 * SELECTED_AIR)
 
 struct conv_row {
     lv_obj_t *slot;
     lv_obj_t *line;
-    lv_obj_t *below; /* the line under the name */
-    lv_obj_t *heard2; /* landscape: the age, on the line under the name */
-    lv_obj_t *pulse2;
     lv_obj_t *ident; /* the identity mark (DS §37.3) */
     lv_obj_t *glyph;
     lv_obj_t *name;
@@ -150,7 +114,7 @@ static void build_row(struct rift_conv_list *l)
     lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(r->slot, LV_OBJ_FLAG_HIDDEN);
 
-    r->line = dense_row(r->slot, name_line_h());
+    r->line = dense_row(r->slot, RIFT_ROW_H);
     /* A tap opens the conversation and does nothing else: choosing where a
      * message would go is not sending one (RIFT-DEV-1). */
     lv_obj_add_flag(r->line, LV_OBJ_FLAG_CLICKABLE);
@@ -161,29 +125,19 @@ static void build_row(struct rift_conv_list *l)
     r->ident = rift_vrule(r->line, RIFT_IDENT_W);
     rift_vrule_set(r->ident, RIFT_TONE_NONE);
     r->glyph = rift_glyph_create(r->line);
-    r->name = rift_cell(r->line, CONV_ROLE_NAME, 0, LV_TEXT_ALIGN_LEFT);
+    r->name = rift_cell(r->line, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(r->name, 1);
     lv_obj_set_width(r->name, 1);
+    r->preview = rift_cell(r->line, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    rift_emoji_style_add(r->preview, POS_STYLE_CAPTION);
+    lv_obj_set_flex_grow(r->preview, 2);
+    lv_obj_set_width(r->preview, 1);
     r->pill = rift_unread_pill(r->line);
     r->heard = rift_cell(r->line, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
     r->pulse = rift_pulse_create(r->line);
     lv_obj_set_style_margin_left(r->pulse, PULSE_PULL, 0);
     r->route = rift_cell(r->line, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
     rift_conv_cols_widen(r->heard, r->route);
-    /* The line under the name, starting where the name does: the preview
-     * in portrait, the age and its pulse in landscape. The same tap as the
-     * line above it: the row is one target. */
-    r->below = dense_row(r->slot, below_line_h(l->wide));
-    lv_obj_set_style_pad_left(r->below, RIFT_IDENT_W + COL_GAP + RIFT_GLYPH_BOX + COL_GAP, 0);
-    lv_obj_add_flag(r->below, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(r->below, on_conv_row, LV_EVENT_CLICKED, r);
-    r->preview = rift_cell(r->below, CONV_ROLE_PREVIEW, 0, LV_TEXT_ALIGN_LEFT);
-    rift_emoji_style_add(r->preview, CONV_ROLE_PREVIEW);
-    lv_obj_set_flex_grow(r->preview, 1);
-    lv_obj_set_width(r->preview, 1);
-    r->heard2 = rift_cell(r->below, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    r->pulse2 = rift_pulse_create(r->below);
-    lv_obj_set_style_margin_left(r->pulse2, PULSE_PULL, 0);
     l->row_count++;
 }
 
@@ -226,29 +180,15 @@ static void select_row(struct conv_row *r, int selected)
 
 static void shape_row(struct conv_row *r, int wide)
 {
-    /* Landscape is the narrow list: the name and the pill, and the age
-     * under the name. The preview and the route are the thread's header's
-     * there. Portrait keeps the age and the route in their columns beside
-     * the name, under the list's header, and the preview under it. */
-    lv_obj_t *const wide_only[] = { r->heard2, r->pulse2 };
-    lv_obj_t *const tall_only[] = { r->preview, r->heard, r->pulse, r->route };
-    size_t i;
-
-    for (i = 0; i < sizeof(wide_only) / sizeof(wide_only[0]); i++) {
-        if (wide) {
-            lv_obj_remove_flag(wide_only[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(wide_only[i], LV_OBJ_FLAG_HIDDEN);
-        }
+    /* Landscape is the narrow list: the name, the pill and the age. The
+     * preview and the route are the thread's header's there. */
+    if (wide) {
+        lv_obj_add_flag(r->preview, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(r->route, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(r->preview, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(r->route, LV_OBJ_FLAG_HIDDEN);
     }
-    for (i = 0; i < sizeof(tall_only) / sizeof(tall_only[0]); i++) {
-        if (wide) {
-            lv_obj_add_flag(tall_only[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_remove_flag(tall_only[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-    lv_obj_set_height(r->below, below_line_h(wide));
 }
 
 static void update_row(struct rift_conv_list *l, struct conv_row *r, const struct rift_conv *c)
@@ -296,19 +236,12 @@ static void update_row(struct rift_conv_list *l, struct conv_row *r, const struc
         int64_t heard_ms = 0;
         int heard = rift_model_conv_heard(&a->model, c, &heard_ms);
 
-        rift_fmt_age(now - heard_ms, heard, text, sizeof(text));
-        if (l->wide) {
-            char line[RIFT_PREVIEW_MAX + 8];
-
-            /* No column header says what this is in landscape, so the word
-             * is on the line itself. */
-            snprintf(line, sizeof(line), "HEARD %s", text);
-            rift_label_set(r->heard2, line);
-            rift_pulse_set(r->pulse2, rift_pulse_of(now - heard_ms, heard));
-            return;
-        }
         rift_pulse_set(r->pulse, rift_pulse_of(now - heard_ms, heard));
+        rift_fmt_age(now - heard_ms, heard, text, sizeof(text));
         rift_label_set(r->heard, text);
+    }
+    if (l->wide) {
+        return;
     }
     if (c->is_channel) {
         /* A channel has no path and cannot have one: a group frame is
@@ -334,17 +267,17 @@ static void update_row(struct rift_conv_list *l, struct conv_row *r, const struc
 
 static int32_t item_y(const struct rift_conv_list *l, int i)
 {
-    int32_t y = (int32_t)i * rift_conv_row_h(l->wide);
+    int32_t y = (int32_t)i * RIFT_ROW_H;
 
     if (l->sel >= 0 && i > l->sel) {
-        y += SELECTED_H - rift_conv_row_h(l->wide);
+        y += SELECTED_H - RIFT_ROW_H;
     }
     return y;
 }
 
 static int32_t item_h(const struct rift_conv_list *l, int i)
 {
-    return i == l->sel ? SELECTED_H : rift_conv_row_h(l->wide);
+    return i == l->sel ? SELECTED_H : RIFT_ROW_H;
 }
 
 /* Bind the pool to the part of the list on screen plus a margin, plus the
@@ -430,16 +363,6 @@ static void bind_window(struct rift_conv_list *l, int every)
             continue;
         }
         select_row(r, r->item == l->sel);
-        /* The row's heights follow the text size, which can change under a
-         * row already built. The slot is as tall as a row says it is, so a
-         * row shorter than a touch target's height still takes that. */
-        if (lv_obj_get_style_height(r->line, LV_PART_MAIN) != name_line_h()) {
-            lv_obj_set_height(r->line, name_line_h());
-        }
-        if (lv_obj_get_style_height(r->below, LV_PART_MAIN) != below_line_h(l->wide)) {
-            lv_obj_set_height(r->below, below_line_h(l->wide));
-        }
-        lv_obj_set_style_min_height(r->slot, rift_conv_row_h(l->wide), 0);
         y = item_y(l, r->item) + (r->item == l->sel ? SELECTED_AIR : 0);
         if (lv_obj_get_y(r->slot) != y || lv_obj_get_x(r->slot) != 0) {
             lv_obj_set_pos(r->slot, 0, y);

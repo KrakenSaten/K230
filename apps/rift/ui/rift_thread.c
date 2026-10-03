@@ -23,8 +23,22 @@
  * height of the panel; and in landscape, where it has 354 px under the
  * strip less the header and the command line, and every four pixels
  * between messages is a message fewer on screen (DS §37.2). */
-#define MSG_GAP 6
+#define MSG_GAP 8
 #define MSG_GAP_WIDE 2
+/* What a message is set in. The body was body type (sans 16 / 19 / 22 at
+ * Small / Medium / Large) and the claimed sender a caption (mono 14 / 17 /
+ * 19): the smallest type on the screen for the one thing the screen is for.
+ * Both are the label type now (sans 20 / 24 / 28) - the size the
+ * conversation list sets a name in - and the sender is told from the body
+ * by its identity accent and its "?", as it was. The caption after them -
+ * age, state, signal - stays a caption: it is the evidence, not the
+ * message. A line of body is 5 px taller at Small. Portrait, which has the
+ * panel's height, also gets 2 px more between messages; landscape keeps its
+ * 2 px gap, because there every pixel is a message. The cost, measured at
+ * Small with one-line messages: 21 on screen in portrait where there were
+ * 27, 14 in landscape where there were 17 - for type a quarter larger. */
+#define MSG_ROLE_BODY POS_STYLE_ROW_TITLE
+#define MSG_ROLE_SENDER POS_STYLE_ROW_TITLE
 /* The thread's header row: a 36 px data row in portrait, where a finger
  * lands on it; the 28 px header-row height of handoff §4 in landscape,
  * where it is read and never tapped, and the 8 px are the messages'. */
@@ -318,11 +332,11 @@ static void build_row(struct rift_thread *t)
      * The three are items of one wrapping row, so a short message keeps the
      * name, the body and the caption on one line, and a body too long for
      * what the name leaves goes under it whole - "Sender" over "Message". */
-    r->sender = fit_label(r->column, POS_STYLE_CAPTION);
-    rift_emoji_style_add(r->sender, POS_STYLE_CAPTION);
+    r->sender = fit_label(r->column, MSG_ROLE_SENDER);
+    rift_emoji_style_add(r->sender, MSG_ROLE_SENDER);
     lv_obj_add_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
-    r->body = fit_label(r->column, POS_STYLE_TEXT_PRIMARY);
-    rift_emoji_style_add(r->body, POS_STYLE_TEXT_PRIMARY);
+    r->body = fit_label(r->column, MSG_ROLE_BODY);
+    rift_emoji_style_add(r->body, MSG_ROLE_BODY);
     r->caption = fit_label(r->column, POS_STYLE_CAPTION);
     r->out = -1; /* neither side yet: the first update sets it */
     t->row_count++;

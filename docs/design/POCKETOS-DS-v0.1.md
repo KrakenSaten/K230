@@ -3270,16 +3270,17 @@ screen all the time that is not messages or the way to them.
   targets there, against RIFT-DEV-1's 56 for navigation: the owner's call,
   in the brief, for the shape where a keyboard base is attached and the
   tabs are also Esc and the arrows. Portrait keeps the 56 px strip.
-- **The list is narrow**: 300 px (`LIST_W_WIDE`; was 372, then 260),
-  showing the identity mark, the glyph, the name, the unread pill and the
-  age; the preview and the route are the thread's header's. The list is
-  virtual (§37.5). *[PROPOSED, feat/rift-comms-usability]* A conversation
-  row is two lines, at least a 56 px target: the name in the title type on
-  a line of its own (it was a 36 px data row in the row-title type), and
-  under it `HEARD <age>` with the pulse in landscape, the preview in body
-  type in portrait. The list has no HEARD column header in landscape. The
-  thread still has three quarters of the width. The row's height follows
-  the text size (§46).
+- **The list is narrow**: 260 px (`LIST_W_WIDE`; was 372), showing the
+  identity mark, the glyph, the name, the unread pill and the age; the
+  preview and the route are the thread's header's. The list is virtual
+  (§37.5).
+- **A message is set to be read** *[PROPOSED, feat/rift-comms-usability]*:
+  the body, and on a channel the claimed sender before it, in the label
+  type (sans 20 / 24 / 28; the body was body type 16 / 19 / 22 and the
+  sender a caption 14 / 17 / 19). The caption after them stays a caption.
+  Messages are 8 px apart in portrait (were 6) and still 2 px in landscape.
+  One-line messages on screen at Small: 21 in portrait (were 27), 14 in
+  landscape (were 17).
 - **The thread's header is one line**, 28 px (handoff §4 "row header"):
   glyph, name, state, the route compressed as the hop strip compresses it
   (`K230-A › OSLO-01 › … +5 › HYTTA`), `N EARLIER`, and `DETAILS ›`.

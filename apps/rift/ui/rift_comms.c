@@ -31,10 +31,8 @@
  * and the thread with everything else. The details pane is shown only
  * while a reader has asked for it, and takes its width from the thread
  * then. The handoff's 372 / 560 / 300 gave the thread 45 % of the width
- * all the time; this gives it 75 %, and 50 % with the details open. The
- * list was 260 until its names went to the title type on a line of their
- * own: 300 gives a name the width of some fifteen letters at Small. */
-#define LIST_W_WIDE 300
+ * all the time; this gives it 79 %, and 55 % with the details open. */
+#define LIST_W_WIDE 260
 #define CTX_W_WIDE 300
 /* The open row's slab is 2 px taller top and bottom than a row, with 2 px
  * of air each side for the focus outline: 8 px on the list's height. */
@@ -57,7 +55,6 @@ struct rift_comms {
     lv_obj_t *head;
     lv_obj_t *head_title; /* CONVERSATIONS, fitted to what the columns leave */
     lv_obj_t *head_heard;
-    lv_obj_t *head_pulse; /* the room the rows' pulse takes, under no word */
     lv_obj_t *head_route; /* the ROUTE column header, portrait only */
     lv_obj_t *list;       /* the rows' scrolling object (rift_conv_list.h) */
     struct rift_conv_list *rows;
@@ -359,14 +356,10 @@ void rift_comms_shape(struct rift_app *app)
          * is sized by its content, is a size LVGL can never settle, and it
          * lays the frame out for ever (found 2026-09-28). */
         lv_obj_set_flex_grow(v->list, 1);
-        lv_obj_set_height(v->list, rift_conv_row_h(1));
+        lv_obj_set_height(v->list, RIFT_ROW_H);
         lv_obj_set_height(v->pane_thread, LV_PCT(100));
         lv_obj_set_flex_grow(v->pane_thread, 1);
-        /* Landscape's rows carry the age under the name, with its word:
-         * there is no column for a header to stand over. */
         lv_obj_add_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(v->head_heard, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(v->head_pulse, LV_OBJ_FLAG_HIDDEN);
         /* The details pane only while asked for: the thread has the width
          * the rest of the time (DS §37.2). */
         if (app->details_open) {
@@ -376,8 +369,6 @@ void rift_comms_shape(struct rift_app *app)
         }
     } else {
         lv_obj_remove_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(v->head_heard, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(v->head_pulse, LV_OBJ_FLAG_HIDDEN);
         /* As tall as what is in it; the list inside is sized to its rows on
          * every refresh (size_portrait_list). */
         lv_obj_set_width(v->pane_list, LV_PCT(100));
@@ -401,16 +392,15 @@ static void size_portrait_list(struct rift_comms *v, int count, int open)
 {
     /* What every row laid out takes: a row each, and the open one's slab 8
      * px more (the list lays them out the same way, rift_conv_list.c). */
-    int32_t row_h = rift_conv_row_h(0);
-    int32_t rows_h = (int32_t)count * row_h + (open && count > 0 ? SELECTED_EXTRA : 0);
+    int32_t rows_h = (int32_t)count * RIFT_ROW_H + (open && count > 0 ? SELECTED_EXTRA : 0);
     int32_t cap;
 
     if (open && count > 0) {
-        cap = PORTRAIT_OPEN_ROWS * row_h + SELECTED_EXTRA;
+        cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + SELECTED_EXTRA;
     } else {
         cap = lv_obj_get_height(v->root) - rift_header_row_h() - 1 - THREAD_MIN_H;
-        if (cap < row_h) {
-            cap = row_h;
+        if (cap < RIFT_ROW_H) {
+            cap = RIFT_ROW_H;
         }
     }
     if (rows_h > cap) {
@@ -463,7 +453,6 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
     v->head_heard = cell;
     cell = rift_cell(head, POS_STYLE_CAPTION, RIFT_PULSE_W, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_style_margin_left(cell, PULSE_PULL, 0);
-    v->head_pulse = cell;
     v->head_route = rift_cell(head, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(v->head_route, "ROUTE");
     rift_conv_cols_widen(v->head_heard, v->head_route);

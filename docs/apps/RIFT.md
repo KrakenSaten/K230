@@ -75,16 +75,9 @@ NET**. RIFT draws all four.
   fresh node list as it turns on. Nothing is transmitted to find them: a
   repeater appears when its own advert reaches this device. Neither changes
   the cache or the service.
-- **COMMS** — the conversations as rows a reader picks from by name: the
-  name in the title type on a line of its own, with the link glyph, the
-  unread pill, when the other side was last heard from with its activity
-  pulse, and how that peer is reached; in portrait the newest message is a
-  preview in body type on a second line under the name, and in landscape
-  that second line is `HEARD 22m` with the pulse, so the name has the whole
-  width of the narrow list. A row is at least a touch target tall - 62 px
-  in portrait and 59 px in landscape at Small, where it was a 36 px data
-  row with the name and a 14 px preview sharing one line - and grows with
-  the text size (DS §46). **MeshCore's Public
+- **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
+  message as a preview, the unread pill, when the other side was last heard
+  from with its activity pulse, and how that peer is reached. **MeshCore's Public
   channel is always the first row**: it is known by the service's word about
   its key (`mesh.channels`, `well_known: "public"` - the service compares
   the key it holds with `8b3387e9c5cdea6ac9e5edbaa115cd72`), never by its
@@ -100,7 +93,10 @@ NET**. RIFT draws all four.
   them. In portrait
   the list is as tall as its rows - up to five while a thread is open, and
   all but the composer's room while none is - rather than a fixed 268 px.
-  Choosing one opens its thread: the messages oldest first, each a body, a
+  Choosing one opens its thread: the messages oldest first, each a body in
+  the label type (sans 20 / 24 / 28 at Small / Medium / Large; it was body
+  type, 16 / 19 / 22) - on a channel with the claimed sender before it in
+  the same size and its identity accent (it was a 14 px caption) - a
   2 px rule on the side that says which of you said it, and **one** caption
   — on the body's own line when both fit, which for a short message is one
   line in all — how long ago, then the service's own word for its state:
@@ -113,7 +109,7 @@ NET**. RIFT draws all four.
   empty — no placeholder message is invented to make it look begun.
   **Turned, COMMS is a console** (DS §37.2): the shell builds no header for
   RIFT in landscape, so the section strip is the top row - a data row with
-  a back slab at its left - the list is 300 px of glyph, name, pill and
+  a back slab at its left - the list is 260 px of glyph, name, pill and
   age, the thread has the rest of the width under a one-line header that
   carries the route compressed and `DETAILS ›`, and the command line is a
   data row with a short field. The route pane the handoff kept on screen is

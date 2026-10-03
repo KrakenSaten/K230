@@ -27,7 +27,6 @@
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
-#include "rift_conv_list.h"
 #include "rift_device.h"
 #include "rift_find.h"
 #include "rift_graph.h"
@@ -1459,21 +1458,9 @@ static void text_size_session(void)
                     printf("     \"%s\" %d..%d, HEARD %d..%d\n", lv_label_get_text(title),
                            (int)a.x1, (int)a.x2, (int)b.x1, (int)b.x2);
                 }
-                if (app->wide) {
-                    /* Landscape's rows carry the age under the name, so the
-                     * header is the title alone - and whole, with nothing
-                     * beside it to make room for. */
-                    snprintf(what, sizeof(what),
-                             "%s, %s: the list's title is whole, with no HEARD column beside it",
-                             size, shape);
-                    check(what, title && !heard &&
-                                    strcmp(lv_label_get_text(title), "CONVERSATIONS") == 0 &&
-                                    find_text(content(), "HEARD ") != NULL);
-                } else {
-                    snprintf(what, sizeof(what),
-                             "%s, %s: the list's title ends before HEARD begins", size, shape);
-                    check(what, title && heard && a.x2 < b.x1);
-                }
+                snprintf(what, sizeof(what),
+                         "%s, %s: the list's title ends before HEARD begins", size, shape);
+                check(what, title && heard && a.x2 < b.x1);
             }
             if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
                 shot("landscape-comms-large");
@@ -1774,7 +1761,7 @@ static void scale_session(void)
     rift_app_open_conversation(app, key_of(10, 0x40));
     pump(120);
     check("opening one gives the thread the height back",
-          list && lv_obj_get_height(list) <= 5 * rift_conv_row_h(0) + 8 &&
+          list && lv_obj_get_height(list) <= 5 * RIFT_ROW_H + 8 &&
               lv_obj_get_height(thread_pane()) > lv_obj_get_height(content()) / 2);
     check("with the open conversation in view", within(ancestor(find_exact(content(), "PEER-10"), 2),
                                                       list));
@@ -1884,9 +1871,12 @@ static void scale_session(void)
         /* The console shape (DS §37.2): no shell header, a data-row strip
          * with the way back in it, a narrow list, a one-line thread header,
          * the details pane closed, a short command line. The thread has
-         * more than half the display, and shows more than half again the
-         * eleven messages the handoff's layout showed. */
-        check("and shows at least sixteen one-line messages above the composer", rows >= 16);
+         * more than half the display, and still shows more than the eleven
+         * messages the handoff's layout showed - fourteen, where it was
+         * seventeen before a message's body went from body type to the
+         * label type (the owner's call, 2026-10-03: what is read is
+         * larger). */
+        check("and shows at least fourteen one-line messages above the composer", rows >= 14);
         check("the thread is more than half the display", thread_share(scroll) > 50.0);
         check("its header is a header row, not a data row",
               lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == rift_header_row_h());
@@ -2616,7 +2606,9 @@ static void comms_usability_session(void)
     static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
                                                 POS_TEXT_SIZE_LARGE };
     static const enum pos_rotation turns[] = { POS_ROTATION_0, POS_ROTATION_270 };
-    static const char *const others[] = { "HYTTA", "OSLO-01", "SITE", "OPS", "Public" };
+    /* The start of each other row's name: at the larger sizes the list cuts
+     * a name with an ellipsis, as it always has. */
+    static const char *const others[] = { "HYT", "OSL", "SIT", "OPS", "Pub" };
     enum pos_text_size was = pos_theme_current_text_size();
     char pub[RIFT_KEY_HEX];
     size_t s;
@@ -2633,11 +2625,9 @@ static void comms_usability_session(void)
             char what[200];
             lv_obj_t *name;
             lv_obj_t *line;
-            lv_obj_t *slot;
             lv_obj_t *list;
-            int32_t row_h;
+            int32_t row_h = RIFT_ROW_H;
             int first = 1;
-            int whole = 1;
             int seen = 0;
 
             pos_theme_select_text_size(sizes[s]);
@@ -2652,10 +2642,8 @@ static void comms_usability_session(void)
             rift_app_show_section(app, RIFT_SEC_COMMS);
             pump(200);
 
-            row_h = rift_conv_row_h(app->wide);
             name = find_exact(content(), "torget");
             line = ancestor(name, 1);
-            slot = ancestor(name, 2);
             list = ancestor(name, 3);
             snprintf(what, sizeof(what), "%s, %s: the Public channel has a row", size, shape);
             check(what, name != NULL && line != NULL && list != NULL);
@@ -2667,7 +2655,7 @@ static void comms_usability_session(void)
              * list is shorter than its six rows, so the last may not be
              * built; the newest talk, which would have headed the list, is. */
             for (k = 0; k < sizeof(others) / sizeof(others[0]); k++) {
-                lv_obj_t *o = find_exact(list, others[k]);
+                lv_obj_t *o = find_text(list, others[k]);
 
                 if (o) {
                     seen++;
@@ -2680,8 +2668,7 @@ static void comms_usability_session(void)
                      "%s, %s: it is the first row - above newer talk, and above a channel only "
                      "called Public",
                      size, shape);
-            check(what, first && seen >= 2 && find_exact(list, "OSLO-01") != NULL &&
-                            top_of(line) - top_of(list) < row_h / 2);
+            check(what, first && seen >= 1 && top_of(line) - top_of(list) < row_h / 2);
             if (!app->wide) {
                 snprintf(what, sizeof(what),
                          "%s, %s: and every other row is there under it, the namesake too",
@@ -2706,76 +2693,112 @@ static void comms_usability_session(void)
                 check(what, rows == 1);
             }
 
-            /* The row: a touch target's height where it was a 36 px data
-             * row, the name in the title type where it was the row title. */
-            snprintf(what, sizeof(what), "%s, %s: a conversation row is %d px, not the 36 px "
-                                         "data row", size, shape, (int)row_h);
-            check(what, lv_obj_get_height(slot) == row_h && row_h >= RIFT_TOUCH_H &&
-                            row_h > RIFT_ROW_H);
-            printf("     %s, %s: conversation row %d px (was %d)\n", size, shape, (int)row_h,
-                   RIFT_ROW_H);
-            {
-                /* The name has the line to itself: all the width the fixed
-                 * columns leave, where it had a third of it. */
-                int32_t fixed = lv_obj_get_width(line) - lv_obj_get_width(name);
-
-                snprintf(what, sizeof(what),
-                         "%s, %s: the name has the row's width, less the fixed columns (%d of %d)",
-                         size, shape, (int)lv_obj_get_width(name), (int)lv_obj_get_width(line));
-                check(what, lv_obj_get_width(name) >= lv_obj_get_width(line) / 3 &&
-                                fixed < lv_obj_get_width(line));
-            }
-            snprintf(what, sizeof(what), "%s, %s: the name is set in the title type", size, shape);
-            check(what, lv_font_get_line_height(lv_obj_get_style_text_font(name, LV_PART_MAIN)) ==
-                            pocketui_role_line_height(POS_STYLE_TITLE) &&
-                            pocketui_role_line_height(POS_STYLE_TITLE) >
-                                pocketui_role_line_height(POS_STYLE_ROW_TITLE));
-            for (k = 0; k < sizeof(others) / sizeof(others[0]); k++) {
-                lv_obj_t *o = find_exact(list, others[k]);
-                lv_area_t a;
-                lv_area_t r;
-
-                if (!o) {
-                    continue; /* not built: below the fold in landscape */
-                }
-                lv_obj_get_coords(o, &a);
-                lv_obj_get_coords(ancestor(o, 1), &r);
-                if (a.y1 < r.y1 || a.y2 > r.y2 ||
-                    lv_obj_get_height(o) <
-                        lv_font_get_line_height(lv_obj_get_style_text_font(o, LV_PART_MAIN))) {
-                    whole = 0;
-                }
-            }
-            snprintf(what, sizeof(what), "%s, %s: every name's line is whole inside its row",
+            /* The list's rows are what they were: the 36 px data row, the
+             * name in the row-title type, the age and the route beside it. */
+            snprintf(what, sizeof(what), "%s, %s: a list row is the 36 px data row it was",
                      size, shape);
-            check(what, whole);
+            check(what, lv_obj_get_height(line) == RIFT_ROW_H &&
+                            lv_font_get_line_height(
+                                lv_obj_get_style_text_font(name, LV_PART_MAIN)) ==
+                                pocketui_role_line_height(POS_STYLE_ROW_TITLE));
             snprintf(what, sizeof(what), "%s, %s: the unread count and the age are still there",
                      size, shape);
             check(what, rift_model_unread_total(&app->model) > 0 &&
-                            (app->wide ? find_text(list, "HEARD 0s") != NULL
-                                       : find_exact(content(), "HEARD") != NULL));
-            if (!app->wide) {
-                lv_obj_t *preview = find_text(list, "er du der?");
+                            find_exact(content(), "HEARD") != NULL);
 
-                snprintf(what, sizeof(what),
-                         "%s, %s: the preview is body type, and the route column is kept", size,
-                         shape);
-                check(what, preview &&
-                                lv_font_get_line_height(
-                                    lv_obj_get_style_text_font(preview, LV_PART_MAIN)) ==
-                                    pocketui_role_line_height(POS_STYLE_TEXT_SECONDARY) &&
-                                pocketui_role_line_height(POS_STYLE_TEXT_SECONDARY) >
+            /* The opened conversation is what is larger: the body and the
+             * claimed sender in the label type, the caption a caption. */
+            give_channel_message();
+            rift_app_open_conversation(app, site_key());
+            pump(250);
+            {
+                lv_obj_t *body = find_text(thread_pane(), "tilbake");
+                lv_obj_t *sender = find_exact(thread_pane(), "HYTTA?");
+                lv_obj_t *column = ancestor(body, 1);
+                lv_obj_t *caption =
+                    column ? lv_obj_get_child(column, (int32_t)lv_obj_get_child_count(column) - 1)
+                           : NULL;
+                lv_obj_t *mslot = ancestor(body, 3);
+                int32_t body_lh = body ? lv_font_get_line_height(
+                                             lv_obj_get_style_text_font(body, LV_PART_MAIN))
+                                       : 0;
+
+                snprintf(what, sizeof(what), "%s, %s: a channel message is drawn in the thread",
+                         size, shape);
+                check(what, body && sender && caption && caption != body && mslot);
+                if (body && sender && caption && mslot) {
+                    lv_area_t a;
+                    lv_area_t v;
+
+                    printf("     %s, %s: body %d px type (was %d), sender %d (was %d), caption "
+                           "%d; line %d px (was %d)\n",
+                           size, shape, pos_type_current(POS_TYPE_LABEL).px,
+                           pos_type_current(POS_TYPE_BODY).px, pos_type_current(POS_TYPE_LABEL).px,
+                           pos_type_current(POS_TYPE_META).px, pos_type_current(POS_TYPE_META).px,
+                           (int)body_lh,
+                           (int)pocketui_role_line_height(POS_STYLE_TEXT_PRIMARY));
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the message body is the label type, larger than body type",
+                             size, shape);
+                    check(what, body_lh == pocketui_role_line_height(POS_STYLE_ROW_TITLE) &&
+                                    body_lh > pocketui_role_line_height(POS_STYLE_TEXT_PRIMARY));
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the sender is the same size, larger than a caption", size,
+                             shape);
+                    check(what, lv_font_get_line_height(
+                                    lv_obj_get_style_text_font(sender, LV_PART_MAIN)) == body_lh &&
+                                    body_lh > pocketui_role_line_height(POS_STYLE_CAPTION));
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the caption after them is still a caption, with its state",
+                             size, shape);
+                    check(what, lv_font_get_line_height(
+                                    lv_obj_get_style_text_font(caption, LV_PART_MAIN)) ==
                                     pocketui_role_line_height(POS_STYLE_CAPTION) &&
-                                find_exact(list, "FLOOD") != NULL);
+                                    strstr(lv_label_get_text(caption), "RECEIVED") != NULL);
+                    snprintf(what, sizeof(what), "%s, %s: messages are %d px apart", size, shape,
+                             app->wide ? 2 : 8);
+                    check(what, lv_obj_get_style_pad_bottom(mslot, LV_PART_MAIN) ==
+                                    (app->wide ? 2 : 8));
+                    lv_obj_get_coords(body, &a);
+                    lv_obj_get_coords(thread_pane(), &v);
+                    snprintf(what, sizeof(what),
+                             "%s, %s: the body's line is whole and inside the thread", size, shape);
+                    check(what, lv_obj_get_height(body) >= body_lh && a.y1 >= v.y1 &&
+                                    a.y2 <= v.y2 && a.x1 >= v.x1 && a.x2 <= v.x2);
+                    snprintf(what, sizeof(what),
+                             "%s, %s: a short message is still one line: sender, body, caption",
+                             size, shape);
+                    check(what, app->wide ? lv_obj_get_height(column) <= body_lh + 2 : 1);
+                }
             }
+            /* A direct thread: the same type, and no sender label. */
+            rift_app_open_conversation(app, KEY_B);
+            pump(250);
+            {
+                lv_obj_t *body = find_exact(thread_pane(), "Fint, ser deg");
+
+                snprintf(what, sizeof(what), "%s, %s: a direct message's body is the label type",
+                         size, shape);
+                check(what, body && lv_font_get_line_height(
+                                        lv_obj_get_style_text_font(body, LV_PART_MAIN)) ==
+                                        pocketui_role_line_height(POS_STYLE_ROW_TITLE));
+                snprintf(what, sizeof(what), "%s, %s: its state is still said under it", size,
+                         shape);
+                check(what, find_text(thread_pane(), "DELIVERED") != NULL &&
+                                find_text(thread_pane(), "NO ACK") != NULL);
+            }
+            /* The list's names are fitted on a repaint, after the open row
+             * has taken its slab's inset. */
+            rift_app_refresh(app);
+            pump(120);
             snprintf(what, sizeof(what), "%s, %s: COMMS' captions are whole", size, shape);
             check(what, captions_clipped(frame()) == 0);
             snprintf(what, sizeof(what), "%s, %s: and COMMS stays inside the body", size, shape);
             check(what, inside_body(content()));
             if (sizes[s] == POS_TEXT_SIZE_SMALL) {
-                shot(app->wide ? "landscape-comms-rows" : "portrait-comms-rows");
+                shot(app->wide ? "landscape-thread-small" : "portrait-thread-small");
             } else if (sizes[s] == POS_TEXT_SIZE_LARGE) {
-                shot(app->wide ? "landscape-comms-rows-large" : "portrait-comms-rows-large");
+                shot(app->wide ? "landscape-thread-large" : "portrait-thread-large");
             }
             app_stop();
         }
