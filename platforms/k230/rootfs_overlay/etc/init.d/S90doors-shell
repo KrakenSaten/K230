@@ -1,5 +1,7 @@
 #!/bin/sh
-# The Doors shell (DRM + evdev) under pos-supervise. Disabled by default.
+# The Doors shell (DRM + evdev) under pos-supervise. Enabled by default, so a
+# freshly flashed card boots straight into Doors (up to v0.3.0 it was disabled
+# and the vendor launcher took the first boot).
 #
 # ADR-005 Phase 3: the service is doors-shell. The binary, this script, the
 # supervisor's identity and the runtime files it writes carry that name; the
@@ -7,8 +9,9 @@
 # change (they are Phase 4, if ever).
 #
 # Panel ownership (survives reboot, see platforms/k230/README.md):
-#   /etc/default/k230_phone_ui   ENABLE=0  vendor launcher stays down
-#   /etc/default/doors-shell     ENABLE=1  the Doors shell takes the panel
+#   /etc/default/k230_phone_ui   ENABLE=0  vendor launcher stays down (default)
+#   /etc/default/doors-shell     ENABLE=1  the Doors shell takes the panel (default)
+# Neither file is in the image; a unit writes them only to change that.
 # The shell refuses to start while the vendor launcher is enabled or running,
 # and refuses to start beside a PocketOS-era shell service, so there is never
 # more than one owner of the panel.
@@ -31,7 +34,7 @@ OLD_INIT=/etc/init.d/S90pocketos-shell
 OLD_DAEMON=/usr/bin/pocketos-shell
 OLD_PIDFILE=/var/run/pocketos-shell-supervise.pid
 OLD_CHILD_PIDFILE=/run/pocketos/pocketos-shell.pid
-ENABLE=0
+ENABLE=1
 # Vendor LVGL DRM patch 0004 (lvgl/drm: K230 staging scanout buffer): render
 # into normal memory and copy whole frames to the scanout buffer, which the
 # vendor documents as the fix for flicker while scrolling on the RM69A10.
@@ -66,8 +69,9 @@ for v in POCKETOS_DRM_DEVICE POCKETOS_TOUCH_DEVICE POCKETOS_DRM_ROTATION \
 done
 
 launcher_enabled() {
-	# The vendor launcher's own switch (added by apply_to_sdk.sh); default on.
-	[ "$( ENABLE=1; [ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui; echo "$ENABLE" )" = "1" ]
+	# The vendor launcher's own switch (added by apply_to_sdk.sh); default off,
+	# the same default the patched launcher script uses.
+	[ "$( ENABLE=0; [ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui; echo "$ENABLE" )" = "1" ]
 }
 
 launcher_running() {

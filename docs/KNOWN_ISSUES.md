@@ -558,13 +558,21 @@ DEVICE VERIFIED unless it says so.
   no /usr/sbin/crond found; none killed` followed by `FAIL`, from the vendor
   crond init script (seen on unit A with v0.0.8 and v0.0.10); vendor noise
   too.
-- The vendor launcher is still in the PocketOS image and owns the display
-  and the radio by default; radiod runs with the mock backend until the
-  launcher is switched off. The switch is persistent
-  (`/etc/default/k230_phone_ui`, see platforms/k230/README.md) and
+- The vendor launcher is still in the image, as the recovery path. Up to
+  v0.3.0 it was on by default, so a freshly flashed card booted the LILYGO
+  launcher once, until the panel switch was written by hand. There was no
+  first-boot flag behind that. Since fix/first-boot-doors-default it is off
+  by default and the Doors shell owns the panel from the first boot.
+  radiod still starts with the mock backend. The switch is persistent
+  (`/etc/default/k230_phone_ui`, see platforms/k230/README.md), and
   S90doors-shell refuses to start while the launcher is enabled or
   running. The launcher has no kernel driver for the LoRa module, so with
-  it running the sx1262 backend must not be used.
+  it running the sx1262 backend must not be used. Skipping the launcher's
+  first run skips nothing Doors uses. The launcher's own startup writes
+  (BQ25896 watchdog off, its charge current and voltage, a one-time
+  BQ27220 design capacity) do not happen on a fresh card, just as they
+  never happened on a unit after the handover. Doors has no charger or
+  gauge driver (see "No battery reading" above).
 - On the K230 image /var/log is a tmpfs. PocketOS logs, crash reports and
   the supervisor logs therefore go to /var/lib/pocketos/log (persistent
   ext4); the stdio capture of each service is restarted on every boot with

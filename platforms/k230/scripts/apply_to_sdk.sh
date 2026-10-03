@@ -324,26 +324,37 @@ install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/bui
 echo "[3/5] Vendor launcher (kept in the image; the panel switch below hands the panel to the Doors shell)"
 "${VENDOR_DIR}/k230_launcher/scripts/install_to_sdk.sh" "${SDK_DIR}" "${CONF}"
 
-echo "[3b/5] Panel switch for the vendor launcher"
+echo "[3b/5] Panel switch for the vendor launcher (default off)"
 # The vendor init script is patched in place at apply time rather than
 # copied into this repository (the LILYGO tree carries no licence): an ENABLE
-# switch in /etc/default/k230_phone_ui lets pocketos-shell own the panel
-# across reboots. S90doors-shell reads the same file and refuses to start
-# while the launcher is enabled. The launcher itself stays in the image.
+# switch in /etc/default/k230_phone_ui decides who owns the panel across
+# reboots. S90doors-shell reads the same file and refuses to start while the
+# launcher is enabled. The launcher itself stays in the image as the recovery
+# path: ENABLE=1 in that file (and ENABLE=0 in /etc/default/doors-shell)
+# brings it back.
+#
+# The default is off. Up to v0.3.0 it was on, so a freshly flashed card showed
+# the LILYGO launcher until someone wrote the two /etc/default files by hand -
+# the "vendor menu on the first boot only". There is no first-boot flag behind
+# it: the LILYGO BSP removes the SDK's /first_boot_flag and S00resizemmc.
+# Neither settings file is shipped, so a unit that has one keeps its choice.
 S99="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
 [ -f "${S99}" ] || { echo "vendor launcher init script missing: ${S99}" >&2; exit 1; }
 if ! grep -q '/etc/default/k230_phone_ui' "${S99}"; then
     sed -i \
         -e '/^DRM_NODE=/a\
-# PocketOS: ENABLE=0 in /etc/default/k230_phone_ui hands the panel to pocketos-shell.\
-ENABLE=1\
+# Doors: off unless /etc/default/k230_phone_ui says ENABLE=1; the Doors shell owns the panel.\
+ENABLE=0\
 [ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui' \
         -e '/printf "Starting k230_phone_ui: "/a\
 \	[ "$ENABLE" = "1" ] || { echo "disabled (/etc/default/k230_phone_ui)"; return 0; }' \
         "${S99}"
 fi
-grep -q 'disabled (/etc/default/k230_phone_ui)' "${S99}" && grep -q '^ENABLE=1$' "${S99}" \
-    || { echo "failed to add the panel switch to ${S99}" >&2; exit 1; }
+# A copy patched by an older apply carries the old default; correct it too.
+sed -i 's/^ENABLE=1$/ENABLE=0/' "${S99}"
+grep -q 'disabled (/etc/default/k230_phone_ui)' "${S99}" && grep -q '^ENABLE=0$' "${S99}" \
+    && ! grep -q '^ENABLE=1$' "${S99}" \
+    || { echo "failed to add the panel switch (default off) to ${S99}" >&2; exit 1; }
 
 echo "[3c/5] sshd: no empty-password logins"
 # Vendor sshd_config allows root with an empty password over the network
