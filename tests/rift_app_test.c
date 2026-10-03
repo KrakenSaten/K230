@@ -2443,12 +2443,47 @@ static void manage_session(void)
               find_text(content(), "AFTER YOUR NEXT ADVERT") == NULL);
     check("with RENAME still there to try again",
           !lv_obj_has_state(action_of(find_exact(content(), "RENAME")), LV_STATE_DISABLED));
-    app->model.manage_op.unsaved = 0;
+    /* Refused: said under the name, in the service's words, not only in
+     * the status line at the foot of the panel. */
+    rift_model_action_failed(&app->model, RIFT_ACTION_RENAME,
+                             "the name is set by meshcored's configuration", rift_mono_ms());
+    rift_app_refresh(app);
+    pump(150);
+    {
+        lv_obj_t *said = find_text(content(), "Not renamed - the name is still K230-A");
+        lv_obj_t *button = action_of(find_exact(content(), "RENAME"));
+        lv_area_t s = { 0 };
+        lv_area_t r = { 0 };
+
+        if (said && button) {
+            lv_obj_get_coords(said, &s);
+            lv_obj_get_coords(button, &r);
+        }
+        check("a refused rename is said under the name, with the service's reason",
+              said && visible(said) &&
+                  strstr(lv_label_get_text(said), "meshcored's configuration") != NULL);
+        check("right under the Name row, not at the foot of the panel",
+              said && button && s.y1 >= r.y2 && s.y1 - r.y2 < 160);
+        check("and does not read as unsaved", find_text(content(), "could not save it") == NULL ||
+                                                  !visible(find_text(content(), "could not save it")));
+    }
+    app->model.manage_op.unknown = 1;
+    rift_app_refresh(app);
+    pump(150);
+    check("a rename nobody answered says that the name may or may not have changed",
+          find_text(content(), "may or may not have changed") != NULL &&
+              visible(find_text(content(), "may or may not have changed")));
+    memset(&app->model.manage_op, 0, sizeof(app->model.manage_op));
+    app->model.manage_op.kind = RIFT_ACTION_RENAME;
+    app->model.manage_op.done = 1;
+    app->model.manage_op.have_mono = 1;
+    app->model.manage_op.mono_ms = rift_mono_ms();
     rift_app_refresh(app);
     pump(150);
     check("a saved rename carries no warning",
           (find_text(content(), "could not save it") == NULL ||
            !visible(find_text(content(), "could not save it"))) &&
+              find_text(content(), "Not renamed") == NULL &&
               find_text(content(), "AFTER YOUR NEXT ADVERT") != NULL);
     {
         cJSON *o = cJSON_Parse("{\"bytes\":1,\"allowed\":[1,2,3]}");
