@@ -780,6 +780,8 @@ int rift_nodes_key(struct rift_app *app, uint32_t key)
          * list, so Enter does what the keyboard is there for: it opens the
          * conversation with the selected node. It sends nothing. */
         if (app->wide) {
+            /* Nothing for a node that takes no direct messages: the detail
+             * beside the list already says so. */
             rift_app_open_conversation(app, app->selected);
         } else {
             rift_app_open_detail(app, 1);

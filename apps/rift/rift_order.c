@@ -247,6 +247,33 @@ int rift_node_is_repeater(const struct rift_node *n)
     return n && n->have_type && n->type == RIFT_NODE_TYPE_REPEATER;
 }
 
+int rift_location_valid(double lat, double lon)
+{
+    /* NaN fails every comparison, and so is refused with the rest. */
+    if (!(lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0)) {
+        return 0;
+    }
+    return !(lat == 0.0 && lon == 0.0);
+}
+
+int rift_node_can_message(const struct rift_node *n)
+{
+    return !n || !n->have_type ||
+           (n->type != RIFT_NODE_TYPE_REPEATER && n->type != RIFT_NODE_TYPE_SENSOR);
+}
+
+const char *rift_node_no_message_why(const struct rift_node *n)
+{
+    if (rift_node_can_message(n)) {
+        return NULL;
+    }
+    return n->type == RIFT_NODE_TYPE_REPEATER
+               ? "A repeater takes no direct messages: it reads text only from a logged-in "
+                 "admin, as a command."
+               : "A sensor takes no direct messages: it reads text only from a logged-in "
+                 "admin, as a command.";
+}
+
 int rift_node_zero_hop(const struct rift_node *n)
 {
     if (!n) {

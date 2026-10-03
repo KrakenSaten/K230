@@ -159,6 +159,7 @@ static void forget_old_run(struct rift_model *m)
      * are not: they are about what was said, which a restart does not
      * change (rift_model.h, dm_recent_fp). */
     m->dm_high_id = 0;
+    m->ch_high_id = 0;
     /* Nothing has been read from this run yet, which is not the same as
      * this run holding nothing. The next snapshot says which. */
     m->messages_valid = 0;
@@ -477,9 +478,14 @@ int rift_model_apply_messages(struct rift_model *m, const cJSON *result)
         int i;
 
         for (i = 0; i < m->msg_count; i++) {
-            if (m->msg[i].dir == RIFT_MSG_IN && !m->msg[i].is_channel &&
-                m->msg[i].id > m->dm_high_id) {
+            if (m->msg[i].dir != RIFT_MSG_IN) {
+                continue;
+            }
+            if (!m->msg[i].is_channel && m->msg[i].id > m->dm_high_id) {
                 m->dm_high_id = m->msg[i].id;
+            }
+            if (m->msg[i].is_channel && m->msg[i].id > m->ch_high_id) {
+                m->ch_high_id = m->msg[i].id;
             }
         }
     }

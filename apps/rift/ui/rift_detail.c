@@ -76,6 +76,10 @@ struct rift_detail {
     /* What became of the last change asked for on this node. */
     lv_obj_t *op_line;
     int op_warn;
+    /* What this node is for, when that changes what can be done with it: a
+     * repeater or a sensor takes no messages and is managed only after an
+     * admin login; a room's posts need a login too. */
+    lv_obj_t *cap_line;
 
     /* The confirmation FORGET asks for before anything is sent (DS §17.5):
      * shown in place of the action bar, for one node, and dropped the moment
@@ -342,6 +346,8 @@ static void build_actions(struct rift_detail *d, lv_obj_t *parent)
 
     d->op_line = wrapping(parent, POS_STYLE_CAPTION);
     lv_obj_add_flag(d->op_line, LV_OBJ_FLAG_HIDDEN);
+    d->cap_line = wrapping(parent, POS_STYLE_CAPTION);
+    lv_obj_add_flag(d->cap_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 struct rift_detail *rift_detail_create(struct rift_app *app, lv_obj_t *parent, int compact)
@@ -550,6 +556,34 @@ static void refresh_history(struct rift_detail *d, const struct rift_node *n, in
 
 /* Which actions can be pressed, whether the confirmation is up, and what
  * became of the last change asked for on this node. */
+/* The capability line. Upstream MeshCore manages a repeater (and a sensor)
+ * only after a password login - an ANON_REQ the repeater answers with its
+ * permissions - and then by requests (status, telemetry, neighbours) and
+ * admin CLI text. meshcored implements none of that yet (docs/api/mesh.md,
+ * "Not in v0"), so RIFT says what the node is and that control is not
+ * available, rather than offering buttons that could only fail. */
+static void refresh_capability(struct rift_detail *d, const struct rift_node *n)
+{
+    const char *text = NULL;
+
+    if (n->have_type && n->type == RIFT_NODE_TYPE_REPEATER) {
+        text = "REPEATER" RIFT_SEP "TAKES NO DIRECT MESSAGES" RIFT_SEP
+               "CONTROL NOT AVAILABLE: MeshCore manages a repeater after an admin login "
+               "(status, neighbours, commands), and this radio service has no login yet.";
+    } else if (n->have_type && n->type == RIFT_NODE_TYPE_SENSOR) {
+        text = "SENSOR" RIFT_SEP "TAKES NO DIRECT MESSAGES" RIFT_SEP
+               "CONTROL NOT AVAILABLE: a sensor answers only after an admin login, and this "
+               "radio service has no login yet.";
+    } else if (n->have_type && n->type == 3) {
+        text = "ROOM SERVER" RIFT_SEP "A room keeps posts only from a client logged in to it; "
+               "this radio service has no login yet, so a message may go unanswered.";
+    }
+    if (text) {
+        set_text(d->cap_line, text);
+    }
+    show(d->cap_line, text != NULL);
+}
+
 static void refresh_actions(struct rift_detail *d, const struct rift_node *n)
 {
     const struct rift_model *m = &d->app->model;
@@ -573,9 +607,13 @@ static void refresh_actions(struct rift_detail *d, const struct rift_node *n)
         rift_fmt_label(n, label, sizeof(label));
         lv_label_set_text_fmt(d->confirm_title, "Forget %s?", label);
     }
+    /* MESSAGE only for a node that takes direct messages (rift_model.h);
+     * for a repeater or a sensor the capability line says why, and what
+     * managing one would need. */
+    show(d->act_message, rift_node_can_message(n));
+    refresh_capability(d, n);
     /* A route can be forgotten only when there is one; either change needs a
-     * service to ask, and one change at a time. MESSAGE is always there: it
-     * only opens a conversation. */
+     * service to ask, and one change at a time. */
     rift_action_set_enabled(d->act_reset, 0, answering && !busy && n->path_known);
     rift_action_set_enabled(d->act_forget, 0, answering && !busy);
 

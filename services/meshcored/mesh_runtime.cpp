@@ -1533,6 +1533,12 @@ public:
         snprintf(n.name, sizeof(n.name), "%s", c.name);
         n.type = c.type;
         n.last_advert_timestamp = c.last_advert_timestamp;
+        if ((c.gps_lat != 0 || c.gps_lon != 0) && c.gps_lat >= -90000000 &&
+            c.gps_lat <= 90000000 && c.gps_lon >= -180000000 && c.gps_lon <= 180000000) {
+            n.location_known = true;
+            n.lat_e6 = c.gps_lat;
+            n.lon_e6 = c.gps_lon;
+        }
         if (c.out_path_len != OUT_PATH_UNKNOWN) {
             uint8_t bytes = (uint8_t)(mesh::Packet::pathHashSize(c.out_path_len) *
                                       mesh::Packet::pathHashCount(c.out_path_len));
@@ -1764,6 +1770,40 @@ extern "C" {
  * waiting for the daemon's timer - see mcd_runtime_channel_add. */
 static int persistChannels(struct mcd_runtime* rt);
 
+/* The standard Public channel, joined if no slot holds its key (see
+ * mesh_runtime.h, "THE PUBLIC CHANNEL IS MANDATORY"). Called once, after the
+ * stored channels are restored. */
+static void ensurePublicChannel(struct mcd_runtime* rt)
+{
+    uint8_t key[PUB_KEY_SIZE];
+    int slot;
+
+    /* holdsKey compares the whole secret buffer, which MeshCore keeps
+     * zero-padded past a 16-byte key. */
+    memset(key, 0, sizeof(key));
+    memcpy(key, kPublicChannelKey, sizeof(kPublicChannelKey));
+    if (rt->node.holdsKey(key, (int)sizeof(kPublicChannelKey))) {
+        return;
+    }
+    slot = rt->node.freeChannelSlot();
+    if (slot < 0) {
+        mcport::logWrite(mcport::LOG_WARN,
+                         "meshcored: every channel slot is taken, so the standard Public "
+                         "channel could not be added; no other channel was removed");
+        return;
+    }
+    if (!rt->node.installChannel(slot, "Public", key, (int)sizeof(kPublicChannelKey))) {
+        mcport::logWrite(mcport::LOG_WARN,
+                         "meshcored: the standard Public channel could not be installed in "
+                         "slot %d", slot);
+        return;
+    }
+    mcport::logWrite(mcport::LOG_INFO,
+                     "meshcored: joined the standard Public channel into slot %d", slot);
+    /* Written at once, like any join: the next start finds it stored. */
+    (void)persistChannels(rt);
+}
+
 const char* mcd_tx_outcome_name(enum mcd_tx_outcome o)
 {
     switch (o) {
@@ -1786,6 +1826,7 @@ const char* mcd_channel_result_name(enum mcd_channel_result r)
     case MCD_CHANNEL_DUPLICATE: return "duplicate";
     case MCD_CHANNEL_NOT_FOUND: return "not_found";
     case MCD_CHANNEL_FAILED: return "failed";
+    case MCD_CHANNEL_MANDATORY: return "mandatory";
     }
     return "failed";
 }
@@ -2063,6 +2104,7 @@ struct mcd_runtime* mcd_runtime_create(const struct mcd_runtime_config* cfg,
         /* Restoring is not a change. Leaving the flag set would rewrite a
          * file identical to the one just read, on every start. */
         rt->node.clearChannelsDirty();
+        ensurePublicChannel(rt);
     }
 
     mcport::logWrite(mcport::LOG_INFO, "meshcored: node %s, %d known node(s), %d channel(s)",
@@ -2550,6 +2592,12 @@ enum mcd_channel_result mcd_runtime_channel_add(struct mcd_runtime* rt, const ch
 
 enum mcd_channel_result mcd_runtime_channel_remove(struct mcd_runtime* rt, int slot)
 {
+    mcd_channel c;
+
+    /* The standard Public channel is mandatory (mesh_runtime.h). */
+    if (rt->node.channelBySlot(slot, c) && c.is_public) {
+        return MCD_CHANNEL_MANDATORY;
+    }
     if (!rt->node.removeChannel(slot)) {
         return MCD_CHANNEL_NOT_FOUND;
     }

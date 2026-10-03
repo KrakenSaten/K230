@@ -21,6 +21,8 @@ void rift_tabs_build(struct rift_app *a);
 void rift_tabs_paint(struct rift_app *a);
 /* The right caption: key hints and mesh counts, landscape only. */
 void rift_tabs_paint_caption(struct rift_app *a);
+/* A tab's word: its full one, or the short one a narrow row takes. */
+const char *rift_tab_word(int tab, int short_word);
 /* Heights and the back slab for the shape. */
 void rift_tabs_shape(struct rift_app *a);
 

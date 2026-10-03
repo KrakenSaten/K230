@@ -41,8 +41,12 @@ package is the contract and this phase implements part of it.
 
 ## What it is
 
-Four sections, in the design's fixed order: **ACTIVITY · NODES · COMMS ·
-NET**. RIFT draws all four.
+Five tabs: **ACTIVITY · NODES · COMMS · MAP · SYSTEM**. NET, the design's
+fourth section, is a view under NODES (its tab stays lit; LIST, Esc or Back
+return to the node list), opened from NET in NODES' find bar. ACTIVITY is
+status and traffic only; every setting is on SYSTEM. The strip fits its tabs
+to the row: their padding gives way first, then ACTIVITY and SYSTEM shorten
+to ACT and SYS (portrait at a larger text size).
 
 - **ACTIVITY** — the radio service's state and the reason for it in the
   service's own words; on one line, whether radiod is connected and what
@@ -50,10 +54,15 @@ NET**. RIFT draws all four.
   transmit; how many nodes the service holds, which build of meshcored is
   answering, and the service's own traffic count (`RX 2627 · TX 6 OK`, with
   failed, unknown and no-receive-after transmits named only when there were
-  any). **THIS DEVICE** — this node's name, hash and key, and the two
-  **ADVERT** buttons (below). Then the nodes heard most recently, and the raw
-  frame feed. A full node table is said here in words, with what to do about
-  it.
+  any), and this node's name and hash, read only. Then the nodes heard most
+  recently, and the raw frame feed. A full node table is said here in words,
+  with what to do about it. Nothing on ACTIVITY changes a setting.
+- **SYSTEM** — **DEVICE**: this node's name, hash and key, the two **ADVERT**
+  buttons (below) and RENAME; **ADDRESSING**: the 1/2/3-byte path hash;
+  **SOUND**: the DM and channel sound switches; **CHANNELS**: join, leave and
+  mute; **SESSION**: CLOSE RIFT ("Managing the node", "The message sounds").
+- **MAP** — the nodes whose adverts carry a location, on a dark graticule
+  ("MAP").
 - **NODES** — every node the service holds (all 1000 its table can), as
   36 px rows: link glyph, name, role, hop strip, hop count, RSSI, SNR
   (landscape), last heard and the activity pulse (below). Grouped into
@@ -62,7 +71,7 @@ NET**. RIFT draws all four.
   so 1000 nodes cost what a screenful does. A row selects and
   does nothing else; the selection expands in place into the state line, the
   path written out, the signal, and a 56 px action bar: **MESSAGE** and
-  **DETAIL ›**. **DETAIL** pushes a screen that opens with its actions —
+  **DETAIL ›** (no MESSAGE for a repeater or sensor, "Repeaters"). **DETAIL** pushes a screen that opens with its actions —
   **MESSAGE**, **RE-ROUTE**, **FORGET** — then the link state, the hop
   ladder, the path changes RIFT has seen, and the identity. In landscape the
   same detail is the pane beside the list.
@@ -326,7 +335,8 @@ updates the node without being counted as an event about it.
 
 ## Managing the node
 
-On ACTIVITY (`ui/rift_manage.c`, `ui/rift_device.c`, `ui/rift_form.c`), the
+On SYSTEM (`ui/rift_system.c`, with `ui/rift_manage.c`, `ui/rift_device.c`,
+`ui/rift_form.c`; ACTIVITY holds no settings), the
 service doing each (`docs/api/mesh.md`). **None of it transmits.** Each is one
 request on a reader's press, recorded in the model's `manage_op` (one at a
 time) and answered, refused in the service's words, or - when the connection
@@ -339,20 +349,24 @@ went first - said to have had no answer.
   slot is taken by another channel meanwhile, it is dropped. Leaving the
   channel whose thread is open leaves the thread showing its messages and
   `LEFT · NOT JOINED ANY MORE`, with the composer refusing - the existing
-  behaviour for a left channel. There are no mandatory channels: upstream
-  does not require Public in slot 0.
+  behaviour for a left channel. **The standard Public channel is mandatory**
+  (meshcored joins it on start when missing, by its key; docs/api/mesh.md):
+  its row reads `STANDARD · SLOT n`, has **MUTE** and no **LEAVE**, and the
+  service refuses to remove it. A hashtag `#public` is an ordinary channel.
 - **ADD CHANNEL** opens a form in place with three kinds, the three the T-Deck
   RIFT offers: **HASHTAG** (a public topic: the key is the first 16 bytes of
   SHA-256 over the name with its `#`, upstream's `addGroupChannelHashtag`,
   test vector `#test` → `9cd8fcf2…b73f`; a name that only fits without its
   `#` is refused rather than cut), **PRIVATE** (a new random 16-byte key from
   the kernel's `getrandom`, shown once after joining - `KEY TO SHARE` - and
-  wiped on DONE, on leaving ACTIVITY, on turning the panel or when the app
+  wiped on DONE, on leaving SYSTEM, on turning the panel or when the app
   closes), and **KEY** (a key somebody shared: strict base64 of 16 or 32
   bytes, refused before asking if it is not, if it is all zero, or if a
   32-byte key has an empty upper half). A name already joined is refused, so
   COMMS never lists two channels nobody can tell apart; a full table is said.
-- **Name** (THIS DEVICE): RENAME opens the current name in place. The rule is
+- **MUTE** on each channel's row: that channel's sound off (see "The message
+  sounds"). MUTED while it is.
+- **Name** (DEVICE): RENAME opens the current name in place. The rule is
   the service's (1 to 31 bytes, one line, not only spaces). Peers learn the new
   name from this node's next advert - the caption says so, and the ADVERT
   buttons are right above. A name set by `MESHCORED_NAME` (`name_source:
@@ -360,7 +374,7 @@ went first - said to have had no answer.
   that configured name. When the service answers `persisted: false` the name
   is in use but was not written, and RIFT says in a warning line that the
   old name returns when the radio service restarts - never "renamed" alone.
-- **Path hash** (THIS DEVICE): 1, 2 or 3 bytes of each relay's key in the
+- **Path hash** (ADDRESSING): 1, 2 or 3 bytes of each relay's key in the
   paths of this node's floods (MeshCore's path hash size; `mesh.path_hash`).
   1 is the default and what every MeshCore node reads. A move to 2 or 3 asks
   first, saying that repeaters whose firmware does not read multi-byte paths
@@ -374,6 +388,101 @@ scope to choose. The CHANNELS caption says `UNSCOPED FLOOD` rather than
 offering a setting the service would ignore. Adding scopes is a change to
 what goes on the air and to a persisted store, and needs the owner's decision
 and an on-air gate.
+
+## MAP
+
+A tab of its own: the nodes that **said where they are**, placed on a dark
+latitude/longitude graticule (`rift_map.c` for the geometry,
+`ui/rift_mapview.c` for the drawing).
+
+- **Where the positions come from.** A MeshCore advert may carry the node's
+  latitude and longitude (`ADV_LATLON_MASK`, degrees x 1e6); upstream
+  `BaseChatMesh` keeps it in the contact and meshcored has always stored it
+  in state.v1. `mesh.nodes` / `mesh.node` now report it as `lat` / `lon`
+  (docs/api/mesh.md) - the only service change MAP needed. A position is the
+  node's **claim**, never a measurement. MeshCore's 0,0 ("never set") and
+  anything out of range are not a position, in the service and again in
+  RIFT (`rift_location_valid`).
+- **This device has no position**: its adverts carry none and the board has
+  no GPS. MAP says so; nothing is plotted for it and nothing is guessed.
+- **What is drawn.** One custom-drawn object holds the whole map - grid,
+  markers, names, scale bar - so 1000 known nodes cost no LVGL objects (23
+  objects for the whole screen, measured by `rift_app_test`), and it is
+  repainted only when a node or the selection changed. A **repeater** is a
+  square, **any other node** a dot, both in the theme's tokens; a node not
+  heard for 12 hours is drawn muted; the **selected** node is ringed in the
+  accent and named. Names are drawn for every marker while at most twelve are
+  on screen, otherwise only for the selected one. The caption says the
+  shapes in words and how many were placed; the panel says how many of the
+  known nodes have a location.
+- **Touch.** A tap selects the nearest marker within 28 px (the selection
+  NODES and NET share); drag pans; `+` / `−` zoom about the centre (400 m
+  across at the closest, the world at the furthest); **FIT** puts every
+  located node back in view. The panel - under the map in portrait, beside it
+  in landscape - names the node, its type, hash, link state and age, its
+  coordinates "as its adverts say", **DETAIL ›** (the node in NODES) and,
+  for a node that takes direct messages, **MESSAGE**.
+- **Projection.** Equirectangular about the view's centre, longitude scaled
+  by the cosine of the centre latitude: over the tens of kilometres a LoRa
+  mesh spans it is indistinguishable from Web Mercator and needs no library.
+- **No basemap.** There are no coastlines, roads or tiles: nothing is
+  downloaded, no map service or key is used (`tests/rift_lint.sh` checks
+  this). Options for one, none implemented: (1) a small offline vector
+  coastline/border set (Natural Earth 1:10m clipped to a region, a few
+  hundred KB in the image, drawn as polylines); (2) an offline raster tile
+  pack for one region (MBTiles or a directory of PNG tiles on the SD card,
+  tens to hundreds of MB, a tile decoder and cache in the shell); (3) online
+  OpenStreetMap tiles over Wi-Fi (needs netd, a TLS client, a cache and the
+  tile servers' usage policy - and a network dependency in a mesh client).
+  Each needs the owner's decision.
+
+## Repeaters
+
+**Who can be written to** is decided by the node's advertised type
+(MeshCore `ADV_TYPE_*`, `mesh.nodes` `type`), never its name
+(`rift_node_can_message`, `rift_order.c`):
+
+| type | upstream behaviour for a plain direct message | RIFT |
+|---|---|---|
+| 1 chat | accepted and ACKed (`BaseChatMesh::onPeerDataRecv`) | MESSAGE |
+| 2 repeater | read only from an ACL client logged in as **admin**, and then run as a CLI command; from anyone else not even decrypted, no ACK (`examples/simple_repeater` `onPeerDataRecv`, `searchPeersByHash` over the ACL) | no MESSAGE, no conversation, composer refuses |
+| 3 room server | a post, only from a client logged in with more than guest rights (`examples/simple_room_server`) | MESSAGE; the detail says posts need a login this service does not do |
+| 4 sensor | as a repeater: admin only, as a command (`examples/simple_sensor`) | as a repeater |
+| unknown | - | not refused on a guess |
+
+Every way into a conversation goes through `rift_app_open_conversation`,
+which refuses a repeater or sensor; the row's expansion, the detail and NET's
+PATH panel show no MESSAGE for one (DETAIL stays), Enter on one in landscape
+opens nothing and its key hint drops ENTER MESSAGE, and a thread that was
+open before the type was known refuses in the composer with the reason. A
+repeater is still listed, with its telemetry, path, history, RE-ROUTE and
+FORGET. Upstream's companion firmware does not refuse text to a repeater; the
+restriction is the client's, as the T-Deck RIFT's (`ENTER: control`).
+
+**Repeater control is not in this build.** What upstream MeshCore offers a
+client (vendor/RIFT at the pin, everything server-side upstream as is):
+
+| operation | upstream | needs | meshcored today |
+|---|---|---|---|
+| login | `ANON_REQ` with timestamp + password; repeater answers `RESPONSE` with admin flag and ACL permissions; a wrong password gets no reply (`simple_repeater` `handleLoginReq`, client `BaseChatMesh::sendLogin`) | admin or guest password | not implemented (`onContactResponse` is empty) |
+| status | `REQ_TYPE_GET_STATUS` → `RepeaterStats` (battery, queue, noise floor, RSSI/SNR, packet and air-time counters, uptime) | logged in (guest is enough) | no |
+| telemetry | `REQ_TYPE_GET_TELEMETRY_DATA` → CayenneLPP | logged in | no |
+| neighbours | `REQ_TYPE_GET_NEIGHBOURS` → key prefix, heard-ago, SNR per neighbour | logged in | no |
+| access list | `REQ_TYPE_GET_ACCESS_LIST` | admin | no |
+| owner info | `REQ_TYPE_GET_OWNER_INFO` | logged in | no |
+| CLI | `TXT_TYPE_CLI_DATA` text (`advert`, `reboot`, `clock sync`, `get`/`set` ...) | admin | no |
+| anonymous regions / owner / clock | `ANON_REQ` types 1-3, answered only when the request came direct | none | no |
+| trace | `PAYLOAD_TYPE_TRACE` along a given path | none | no (mesh.md "Not in v0") |
+
+There is no logout on the wire, and the repeater refuses any request whose
+timestamp is not later than the last one it saw from that client - which on
+a board with no RTC needs the clock set first (mesh.md, the 1970 problem).
+Adding control is a service change (`mesh.login`, `mesh.request`, a response
+event, a pending-request table, password handling that is never logged or
+stored), its tests, and an on-air gate against a real repeater; RIFT's side is
+a login form and a status panel under the repeater's detail. Until then the
+detail says `CONTROL NOT AVAILABLE` and why, rather than offering buttons that
+could only fail.
 
 ## Emoji and other text
 
@@ -532,62 +641,84 @@ in Night at least as far apart from black as the theme's own secondary text
 (`tests/theme_test.c`). Eight hues over a mesh of hundreds means many share
 one; that is what a hash gives, and the name settles it.
 
-## The DM sound
+## The message sounds
 
-A short sound when a **direct message genuinely arrives**, behind a setting
-on ACTIVITY (**NOTIFY · Sound for a new DM**, `ON` / `OFF`, on by default).
+Two short sounds, told apart by ear: a **direct message** is two notes rising
+(E6, A6; 222 ms with a 30 ms silent lead-in), a **channel message** one
+softer, lower note (B5; 150 ms). Both sit in the 1 - 2 kHz band a small
+speaker carries, peak about a quarter of full scale, with a soft attack and
+decay so nothing clicks. Behind two switches on **SYSTEM · SOUND** (**Sound
+for a new DM**, **Sound for channels**, `ON` / `OFF`, both on by default), and
+a **MUTE** per channel on **SYSTEM · CHANNELS**.
+
 Which messages count is decided once, in the model, where the message is
-filed (`rift_model_apply_live_message`, `rift_arrivals.c`). All five must hold:
+filed (`rift_model_apply_live_message`, `rift_arrivals.c`). All five must hold,
+for each kind with its own marks:
 
 1. it arrived as a live `mesh.message` **event** - never from a
    `mesh.messages` snapshot, which is history however recent: the one taken on
    opening, and the one taken after every reconnect;
-2. it is **incoming and direct** - not this device's own, not a channel's;
+2. it is **incoming** - never this device's own, of either kind;
 3. its id is **new to the window** - an id already held is a state change or
    the same event again;
-4. its id is **above every id this run has shown**, live or in a snapshot -
-   anything at or below is history coming round again. The mark goes with the
-   window when the service restarts, because the ids start again from 1;
-5. its peer, sender timestamp and text are **not those of one of the last
-   eight arrivals** - a sender's retry, which meshcored records as a new
-   message with a new id (docs/KNOWN_ISSUES.md). Only when the sender's
-   timestamp is known.
+4. its id is **above every id of its kind this run has shown**, live or in a
+   snapshot - anything at or below is history coming round again. The marks
+   go with the window when the service restarts, because the ids start again
+   from 1;
+5. it is **not a repeat of one of the last eight arrivals** of its kind - for
+   a direct message its peer, sender timestamp and text (a sender's retry,
+   which meshcored records as a new message with a new id, docs/KNOWN_ISSUES.md);
+   for a channel message its channel, claimed sender name, timestamp and text
+   (a second copy relayed back). Only when the sender's timestamp is known.
 
-Then the policy (`rift_notify.c`): nothing while the setting is off, nothing
-while Doors is muted (`pocketos_shell_volume_effective()` is 0) or there is
-no sound to play, and at most **one sound in 10 s** however many arrive - a
-burst of twenty is one sound, and nothing is queued to play later. An arrival
-the setting, the volume or the gap kept quiet is dropped, never replayed when
-they change. The sound is played at the system volume and stopped when RIFT
-closes.
+Then the policy (`rift_notify.c`): a direct message only while its switch is
+on; a channel message only while channel sounds are on **and that channel is
+not muted**; nothing while Doors is muted (`pocketos_shell_volume_effective()`
+is 0) or there is no sound to play; and at most **one sound of either kind in
+10 s** however many arrive - a burst of twenty is one sound, nothing is queued
+to play later, and a direct message wins a pass that has both. An arrival a
+switch, a mute, the volume or the gap kept quiet is dropped, never replayed
+when they change. Only while RIFT's screen is open: the background session
+(DS §51) files and counts, and plays nothing.
 
-**In this build the sound is silent, and the switch says so.** Apps never
-touch the sound card (ADR-002), and the one exception - pocketaudio driven by
-a per-operation `pos-wave` helper - is Wave's and is not to be extended
-(ADR-004). ADR-004 names system sounds as the point at which audio moves to
-a platform owner, and that decision is not RIFT's. So the sound goes through
-a backend seam (`rift_sound.h`, in the shape of PocketClock's
-`clock_alert.h`), whose built-in backend has no sound and says: *No system
-notification sound in this build of Doors: a new direct message is shown, not
-heard.* Everything above is built and host-tested against a fake backend; the
-setting is stored and honoured, so the day a backend is registered the sound
-works and nothing else changes.
+A **muted channel** still receives, keeps and displays its messages and its
+unread count moves as before; only its sound is not played. The mute is per
+channel, keyed by the conversation key (`#<slot>:<hash>:<name fingerprint>`),
+so a different channel later joined into the same slot is not muted by it.
+Muting is the reader's own choice, kept by RIFT and never sent to the
+service. **Sound for channels OFF** is a different thing: no channel sound at
+all, whatever is muted.
 
-The setting lives in `$POCKETOS_STATE_DIR/rift/prefs.v1` (`dm_sound=0|1`,
-settings.conf's `key=value` format), the app-owned-store pattern Fleet, Radar
-and Timber use; the shell's `settings.conf` is the shell's and no app writes
-it. A file that cannot be read leaves the default; one that cannot be written
-keeps the choice for the session and the switch says it is not saved.
+**How it is played: Doors's existing audio path.** RIFT never opens the
+sound card (ADR-002). The built-in backend (`rift_sound_helper.c`) writes the
+two WAVs into `$POCKETOS_RUNTIME_DIR/rift/` once per boot and starts
+`pos-record play --volume-percent <system volume> <file>` - the Recorder's
+helper, unchanged, on `core/pocketaudio` - per sound, with the Recorder's
+spawn shape (socketpair, PR_SET_PDEATHSIG, bounded stop, `pos-record recover`
+after a SIGKILL). One sound at a time, and the shared audio lock means a
+sound while Wave, the Recorder or another player holds the card is not heard.
+This is **ADR-010 Amendment 1, PROPOSED** and awaiting the owner's
+acceptance. Where pos-record is not installed (a host build) the switch says
+so: *pos-record, Doors's audio helper, is not installed: a new message is
+shown, not heard.* `rift_sound_set_backend(NULL)` installs the silent
+backend.
+
+The settings live in `$POCKETOS_STATE_DIR/rift/prefs.v1` (`dm_sound=0|1`,
+`channel_sound=0|1`, one `channel_mute=<conversation key>` per muted channel,
+at most 16; settings.conf's `key=value` format), the app-owned-store pattern
+Fleet, Radar and Timber use; the shell's `settings.conf` is the shell's and no
+app writes it. A file that cannot be read leaves the defaults; one that cannot
+be written keeps the choice for the session and SOUND says it is not saved.
 
 ### Shared requirements left for integration
 
 Not implemented here, because each is a platform API rather than RIFT's:
 
-- **A notification sound an app can ask for** - for example
-  `pocketos_shell_play_sound(POCKETOS_SOUND_MESSAGE)` in `app.h`: short,
-  non-blocking, at the system volume, silent while muted, with the shell (or
-  an `audiod`, ADR-004 Option A) owning the card. Needs the ADR-004 revisit.
-  RIFT's side is one backend of about twenty lines in `rift_sound.c`'s shape.
+- **A notification sound an app can ask for**, if more than RIFT needs one
+  or a sound is wanted outside an app's screen - for example
+  `pocketos_shell_play_sound(POCKETOS_SOUND_MESSAGE)` in `app.h`, with the
+  shell or an `audiod` (ADR-004 Option A) owning the card. RIFT's pos-record
+  backend would then be replaced by one of about twenty lines.
 - **Optionally, an app-preference store** (`pocketos_shell_pref_get/set(app,
   key)` over settings.conf), if the product owner would rather apps did not
   each keep a file. RIFT would move `dm_sound` over and drop `rift_store.c`.

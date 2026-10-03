@@ -19,6 +19,7 @@
 #define FIELD_H_WIDE 32
 #define ZERO_W 156
 #define CLEAR_W 112
+#define NET_W 96
 
 struct rift_find {
     lv_obj_t *row;
@@ -26,6 +27,7 @@ struct rift_find {
     lv_obj_t *zero;
     lv_obj_t *zero_label;
     lv_obj_t *clear;
+    lv_obj_t *net;
     int zero_drawn;  /* the toggle's look as last drawn; -1 not yet */
     int clear_shown; /* -1 not yet */
 };
@@ -120,6 +122,13 @@ static void on_clear(lv_event_t *e)
     rift_find_set_query(lv_event_get_user_data(e), "");
 }
 
+/* NET is a view of the same nodes, under NODES: the hop rings
+ * (ui/rift_netview.c). LIST there comes back. */
+static void on_net(lv_event_t *e)
+{
+    rift_app_show_section(lv_event_get_user_data(e), RIFT_SEC_NET);
+}
+
 static void on_zero(lv_event_t *e)
 {
     struct rift_app *a = lv_event_get_user_data(e);
@@ -166,6 +175,9 @@ void rift_find_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_flex_grow(f->zero, 0);
     lv_obj_set_width(f->zero, ZERO_W);
     f->zero_label = lv_obj_get_child(f->zero, 0);
+    f->net = rift_action(f->row, "NET", 0, 1, on_net, app);
+    lv_obj_set_flex_grow(f->net, 0);
+    lv_obj_set_width(f->net, NET_W);
 }
 
 void rift_find_shape(struct rift_app *app)
@@ -180,6 +192,7 @@ void rift_find_shape(struct rift_app *app)
     lv_obj_set_style_pad_ver(f->row, app->wide ? 2 : 6, 0);
     lv_obj_set_height(f->zero, h);
     lv_obj_set_height(f->clear, h);
+    lv_obj_set_height(f->net, h);
     if (f->field) {
         lv_obj_set_height(f->field, app->wide ? FIELD_H_WIDE : 64);
         lv_obj_set_style_pad_ver(f->field, app->wide ? 4 : 16, 0);
@@ -187,7 +200,7 @@ void rift_find_shape(struct rift_app *app)
 }
 
 /* The toggle in the look of what it is: primary while the view is on, as
- * ACTIVITY's NOTIFY switch is. The colour is never the only thing that says
+ * SYSTEM's SOUND switches are. The colour is never the only thing that says
  * so: the list's group label reads ZERO-HOP REPEATERS while it is on. */
 static void paint_zero(struct rift_find *f, int on)
 {

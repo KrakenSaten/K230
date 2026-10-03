@@ -282,6 +282,7 @@ A node:
 | `last_heard_mono_ms` | by **ours**, `CLOCK_MONOTONIC` |
 | `last_snr_db`, `last_rssi_dbm` | **only when radiod reported them for the frame that was heard** |
 | `advert_hops`, `advert_mono_ms` | **only when an advert from the node was heard in this run**: how many relays that last advert came through (MeshCore's own hop count of the advert packet's path - `0` is heard straight from the node, by a zero-hop advert or a flood no repeater had taken up yet), and when, by ours |
+| `lat`, `lon` | **only when one of the node's adverts carried a location** (MeshCore `ADV_LATLON_MASK`): degrees, WGS84 as the node claims it, 6 decimals. Kept across a restart with the node (state.v1). Absent for MeshCore's 0,0 ("never set") and for anything outside -90..90 / -180..180. A claim by the node, never a measurement; this node's own adverts carry none |
 
 `advert_hops` is the advert's way **here**, read off the packet; it is not the
 route back (`hops`, `path_hex`), which MeshCore learns separately and only
@@ -366,6 +367,17 @@ A channel:
 | `text_limit` | the longest body `mesh.send` will take on this channel |
 | `ack_expected` | always `false` |
 
+**The standard Public channel is mandatory in Doors.** On every start, after
+`channels.v1` is restored, the service joins MeshCore's well-known Public key
+(`izOH6cXN6mrJ5e26oRXNcg==`) as `Public` into the lowest free slot when no
+slot holds that exact key, and writes `channels.v1` at once - so an empty
+store, or one written before this rule, gets it, and one that has it (under
+any name, in any slot) is left alone. It is identified by the key alone: a
+hashtag channel called `#public` (its key is `SHA-256("#public")[:16]`) is a
+different channel and is untouched. With every slot already taken by other
+channels nothing is evicted and the start is logged as a warning. Joining
+transmits nothing. `mesh.channel_remove` refuses it (below).
+
 **The key is not here, and no method reports it.** It is written to
 `channels.v1` at mode 0600 and read back, and that is the whole of its travel:
 anything else would put a shared secret into an IPC frame, a log, or a
@@ -401,9 +413,10 @@ channel.
 Params: `name` (1 to 31 bytes, no control characters), `key` (standard base64,
 decoding to exactly 16 or 32 bytes). Result: the channel that was created.
 
-This is the **only** way a key reaches the service, and deliberately the only
-one: nothing here derives a key from a name, generates one, or ships a
-well-known one. A channel exists because somebody supplied the secret for it.
+This is the only way a key a reader chose reaches the service: nothing here
+derives a key from a name or generates one. The one exception is the standard
+Public channel, which the service joins itself (`mesh.channels`, "mandatory"):
+its key is public by design and every MeshCore node holds it.
 It goes into the lowest free slot.
 
 Errors, all code 2 except a full table (5):
@@ -424,7 +437,8 @@ The key is overwritten in the service's own table, not merely marked unused,
 and `channels.v1` is rewritten without it. This node held the only copy, and
 nothing on the air will give it back - which is what `key_forgotten` says.
 
-Errors: 2 for a slot that holds no channel.
+Errors: 2 for a slot that holds no channel, and 2 for the standard Public
+channel, which is mandatory ("the standard Public channel cannot be left").
 
 ### mesh.messages
 

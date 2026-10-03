@@ -3,7 +3,7 @@
  * joined or left, a rename, a path hash size. See rift_ipc.h. Kept apart from
  * rift_ipc.c, which owns the connection, so neither file is everything.
  *
- * None of these transmits. Each is reached only from ACTIVITY's management
+ * None of these transmits. Each is reached only from SYSTEM's management
  * panels (ui/rift_manage.c), on a reader's press, and leaving a channel only
  * from its confirmation (tests/rift_lint.sh). The method names are the
  * connection's (rift_ipc.c, method_of); this file names none.

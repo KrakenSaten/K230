@@ -1,10 +1,11 @@
 /*
  * ACTIVITY: what this node is doing, and what it has heard.
  *
- * Not a dashboard of cards. Four things, each of them a fact somebody can
- * act on: what state the service is in and why, who this device is, which
- * nodes were heard most recently, and the raw feed underneath - frames in
- * and submissions out, with the signal only where one was measured.
+ * Not a dashboard of cards, and no settings: those are SYSTEM's. Three
+ * things, each of them a fact somebody can act on: what state the service
+ * is in and why, which nodes were heard most recently, and the raw feed
+ * underneath - frames in and submissions out, with the signal only where
+ * one was measured.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

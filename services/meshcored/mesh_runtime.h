@@ -108,6 +108,15 @@ struct mcd_node {
     bool advert_hops_known;
     uint8_t advert_hops;
     uint64_t advert_mono_ms;      /* when that advert was heard, by ours */
+    /* Where the node says it is: the latitude and longitude its adverts
+     * carried (MeshCore ADV_LATLON_MASK, degrees x 1e6), as MeshCore keeps
+     * them in the contact and state.v1 stores them. Known only when an
+     * advert carried one inside the valid range: MeshCore keeps 0,0 for "no
+     * location ever", so exactly 0,0 is not a location. Claimed by the node,
+     * never measured here. */
+    bool location_known;
+    int32_t lat_e6;
+    int32_t lon_e6;
 };
 
 /* ---- a channel ---------------------------------------------------------
@@ -452,7 +461,8 @@ enum mcd_channel_result {
     MCD_CHANNEL_FULL,
     MCD_CHANNEL_DUPLICATE,   /* that key is already in the table */
     MCD_CHANNEL_NOT_FOUND,
-    MCD_CHANNEL_FAILED       /* MeshCore refused the slot */
+    MCD_CHANNEL_FAILED,      /* MeshCore refused the slot */
+    MCD_CHANNEL_MANDATORY    /* the standard Public channel cannot be left */
 };
 
 const char *mcd_channel_result_name(enum mcd_channel_result r);
@@ -473,7 +483,18 @@ enum mcd_channel_result mcd_runtime_channel_add(struct mcd_runtime *rt, const ch
                                                 const char *psk_base64,
                                                 struct mcd_channel *out);
 /* Leave a channel: its slot is emptied, not compacted, so every other
- * channel keeps the slot a client already knows it by. */
+ * channel keeps the slot a client already knows it by. The standard Public
+ * channel is mandatory in Doors and is refused (MCD_CHANNEL_MANDATORY).
+ *
+ * THE PUBLIC CHANNEL IS MANDATORY. MeshCore's well-known Public key
+ * (PUBLIC_GROUP_PSK) is held by every Doors node: when the runtime starts
+ * and the stored channels hold no slot with that exact key, it is joined
+ * into the lowest free slot as "Public" and written at once - so a store
+ * that predates the rule, or none at all, gets it, and one that has it is
+ * left alone. Identified by the key only: a hashtag channel named "#public"
+ * is a different channel and is untouched. With all slots taken by other
+ * channels nothing is evicted; the service logs that Public could not be
+ * added. Joining transmits nothing. */
 enum mcd_channel_result mcd_runtime_channel_remove(struct mcd_runtime *rt, int slot);
 
 /* Send text on a channel. There is no ACK, no timeout and no delivery

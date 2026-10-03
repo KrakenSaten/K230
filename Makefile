@@ -1122,12 +1122,12 @@ RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
              $(RIFT_DIR)/rift_arrivals.o \
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
-             $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o \
+             $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
              $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
              $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
              $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o \
-             $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o \
-             $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o
+             $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
+             $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o core/pocketwav/pocketwav.o
 # The model is several translation units over one struct: rift_model.c
 # dispatches mesh.message and mesh.channel events into rift_messages.c (and
 # rift_arrivals.c, which says which direct messages just arrived) and
@@ -1136,7 +1136,8 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
                    $(RIFT_DIR)/rift_arrivals.o \
                    $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
-                   $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_format.o \
+                   $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
+                   $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
@@ -1160,11 +1161,13 @@ tests/rift_model_test: tests/rift_model_test.o $(RIFT_MODEL_OBJS)
 tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
-# The DM sound: which direct messages are arrivals, when one sounds, the
-# preferences file its setting lives in, the seam the sound goes through, and
-# the activity measure the lists draw.
+# The message sounds: which messages are arrivals, when one sounds and which,
+# the preferences file their settings and channel mutes live in, the seam the
+# sound goes through and its pos-record backend, and the activity measure the
+# lists draw.
 tests/rift_notify_test: tests/rift_notify_test.o $(RIFT_MODEL_OBJS) $(RIFT_DIR)/rift_notify.o \
-                        $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_store.o $(PATHS_OBJS)
+                        $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
+                        $(RIFT_DIR)/rift_store.o core/pocketwav/pocketwav.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_ipc_test: tests/rift_ipc_test.o tests/fake_meshcored.o $(RIFT_OBJS) $(IPC_OBJS) \

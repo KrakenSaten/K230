@@ -1,6 +1,6 @@
 /*
- * THIS DEVICE's own settings on ACTIVITY: the node's name and the path hash
- * size of the floods it starts. The service does both (docs/api/mesh.md,
+ * This node's own settings on SYSTEM: its name (the DEVICE panel) and the
+ * path hash size of the floods it starts (the ADDRESSING panel). The service does both (docs/api/mesh.md,
  * mesh.set_name and mesh.set_path_hash); neither transmits.
  *
  *   RENAME      a form in place, the current name in it. A name set by the
@@ -22,10 +22,11 @@
 
 #include "rift_app.h"
 
-/* The controls, at the end of the THIS DEVICE panel. */
-void rift_device_build(struct rift_app *app, lv_obj_t *panel);
+/* The name's controls at the end of panel, the path hash's at the end of
+ * path_panel (panel too when it is NULL). */
+void rift_device_build(struct rift_app *app, lv_obj_t *panel, lv_obj_t *path_panel);
 void rift_device_refresh(struct rift_app *app);
-/* Leaving ACTIVITY or turning the panel is Cancel for the rename form and
+/* Leaving SYSTEM or turning the panel is Cancel for the rename form and
  * the path hash confirmation. Touches no widget: it may run in a layout. */
 void rift_device_cancel(struct rift_app *app);
 void rift_device_destroy(struct rift_app *app);

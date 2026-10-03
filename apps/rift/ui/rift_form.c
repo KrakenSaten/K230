@@ -1,5 +1,5 @@
 /*
- * The parts of ACTIVITY's management panels. See rift_form.h.
+ * The parts of SYSTEM's management panels. See rift_form.h.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

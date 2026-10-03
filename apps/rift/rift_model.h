@@ -105,6 +105,12 @@
 /* How many recent direct-message arrivals are remembered to recognise a
  * retransmission (rift_model_apply_live_message). */
 #define RIFT_DM_RECENT 8
+/* The same, for channel-message arrivals, and how many of the newest of
+ * them keep the conversation they arrived in - which channel, so a muted one
+ * can be told apart (rift_notify.h). One poll reads them all; more than this
+ * many in one poll is still at most one sound. */
+#define RIFT_CH_RECENT 8
+#define RIFT_CH_ARRIVAL_RING 8
 /* Channels the service will hold (mesh.channels, "max"). A service that
  * grows its table past this shows its first RIFT_MAX_CHANNELS here and says
  * so rather than silently listing some of them. */
@@ -192,6 +198,12 @@ struct rift_node {
     int advert_hops;
     int have_advert_mono;
     int64_t advert_mono_ms;              /* ours */
+    /* Where the node's adverts say it is (mesh.nodes lat/lon, degrees): a
+     * claim by the node, absent unless both came, finite and in range, and
+     * not MeshCore's 0,0 for "none". What MAP plots, and nothing else. */
+    int have_location;
+    double lat;
+    double lon;
 
     /* How many adverts this app has seen name this node, and its path
      * history since RIFT opened. Both are this app's own observations and
@@ -646,6 +658,21 @@ struct rift_model {
     int dm_recent_count;
     int dm_recent_at;
 
+    /* ---- new channel messages (the channel notification) -------------- */
+    /* The same five conditions as a direct message (below), over incoming
+     * channel messages: a live event, new to the window, above every channel
+     * id this run has shown, and not a retransmission of one of the last
+     * few (channel, claimed sender, sender's timestamp, text). ch_arrivals
+     * only grows; the newest RIFT_CH_ARRIVAL_RING arrivals keep their
+     * conversation key, at ch_arrival_conv[(n - 1) % RING] for the n-th. */
+    unsigned ch_arrivals;
+    unsigned ch_repeats;
+    char ch_arrival_conv[RIFT_CH_ARRIVAL_RING][RIFT_KEY_HEX];
+    int64_t ch_high_id;
+    uint32_t ch_recent_fp[RIFT_CH_RECENT];
+    int ch_recent_count;
+    int ch_recent_at;
+
     struct rift_outbox outbox;
 
     /* ---- actions (rift_actions.c) ------------------------------------- */
@@ -770,6 +797,24 @@ int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
  * Returns how many are kept. */
 #define RIFT_QUERY_MAX 40
 #define RIFT_NODE_TYPE_REPEATER 2
+#define RIFT_NODE_TYPE_SENSOR 4
+
+/* Whether a node takes a normal direct message, by its advertised type
+ * (MeshCore ADV_TYPE_*), never its name. Upstream MeshCore's repeater
+ * (examples/simple_repeater, onPeerDataRecv) and sensor (simple_sensor) read
+ * a text message only from a client logged in as admin, and then run it as a
+ * CLI command; from anyone else it is not even decrypted, and no ACK comes.
+ * So a repeater (2) and a sensor (4) are never offered a conversation and
+ * nothing is sent to one. A chat node (1) is; so is a room server (3),
+ * whose posts upstream also need a login - that is said in the thread, not
+ * refused here. A node whose type is not known yet is not refused on a
+ * guess. NULL is a node nobody has heard: not refused. */
+int rift_node_can_message(const struct rift_node *n);
+/* Whether lat/lon are a location this app will plot: both finite, inside
+ * -90..90 and -180..180, and not exactly 0,0 (MeshCore's "never set"). */
+int rift_location_valid(double lat, double lon);
+/* Why not, in a reader's words, or NULL when it can. */
+const char *rift_node_no_message_why(const struct rift_node *n);
 int rift_node_matches(const struct rift_node *n, const char *query);
 int rift_node_is_repeater(const struct rift_node *n);
 int rift_node_zero_hop(const struct rift_node *n);
@@ -842,8 +887,15 @@ int rift_model_file_message(struct rift_model *m, const cJSON *message,
  *      Only when the sender's timestamp is known: without it two messages
  *      that happen to say the same thing are not the same message.
  *
+ * An incoming CHANNEL message that meets the same five conditions - over
+ * ch_high_id, with the channel and the claimed sender name in place of the
+ * peer - is counted in ch_arrivals instead, with its conversation key.
+ *
  * Returns what rift_model_apply_message returns. */
 int rift_model_apply_live_message(struct rift_model *m, const cJSON *message);
+/* The conversation of the n-th channel arrival (1-based, as ch_arrivals
+ * counts), or NULL when it is older than the ring keeps. */
+const char *rift_model_ch_arrival_conv(const struct rift_model *m, unsigned n);
 
 /* A whole mesh.messages result. The messages are merged by id, so a
  * snapshot taken after events have already delivered some of the same

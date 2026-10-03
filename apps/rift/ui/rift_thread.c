@@ -205,6 +205,14 @@ const char *rift_thread_refusal(const struct rift_app *app)
         return m->channels_valid ? "This channel is not joined any more."
                                  : "The channel list has not been read yet.";
     }
+    if (rift_key_is_channel(rift_comms_open_peer(app)) < 0) {
+        const char *why =
+            rift_node_no_message_why(rift_model_find(m, rift_comms_open_peer(app)));
+
+        if (why) {
+            return why;
+        }
+    }
     if (rift_model_sending(m)) {
         return "One message is on its way.";
     }

@@ -1,5 +1,5 @@
 /*
- * SESSION, on ACTIVITY: the way to end RIFT (DS §51).
+ * SESSION, on SYSTEM: the way to end RIFT (DS §51).
  *
  * RIFT keeps running when it is left with Back or Home (rift_app.h): its
  * meshcored connection, its model and where the reader was all stay, and the
@@ -21,7 +21,7 @@
 /* The panel, at the end of the column it is given. */
 void rift_session_build(struct rift_app *app, lv_obj_t *parent);
 void rift_session_refresh(struct rift_app *app);
-/* Leaving ACTIVITY or turning the panel is Cancel for the confirmation.
+/* Leaving SYSTEM or turning the panel is Cancel for the confirmation.
  * Touches no widget: it may run in a layout. */
 void rift_session_cancel(struct rift_app *app);
 void rift_session_destroy(struct rift_app *app);

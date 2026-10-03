@@ -1099,13 +1099,15 @@ static void test_public_channel(void)
           mcd_runtime_channel_add(c.rt, "Public", "AAECAwQFBgcICQoLDA0ODw==", &named) ==
               MCD_CHANNEL_OK);
     check("and is not the Public channel: the name decides nothing", !named.is_public);
-    /* MeshCore's PUBLIC_GROUP_PSK, 8b3387e9c5cdea6ac9e5edbaa115cd72, under a
-     * local name of the operator's choosing. */
-    check("the well-known key is joined under another name",
-          mcd_runtime_channel_add(c.rt, "torget", "izOH6cXN6mrJ5e26oRXNcg==", &pub) ==
-              MCD_CHANNEL_OK);
-    check("and is the Public channel, by its key", pub.is_public && pub.key_bits == 128);
+    /* MeshCore's PUBLIC_GROUP_PSK, 8b3387e9c5cdea6ac9e5edbaa115cd72: mandatory
+     * in Doors, so the node already holds it (test_public_mandatory). */
+    check("the node holds the well-known key from the start",
+          mcd_runtime_channel_by_slot(c.rt, 0, &pub) && strcmp(pub.name, "Public") == 0);
+    check("and it is the Public channel, by its key", pub.is_public && pub.key_bits == 128);
     check("its hash is the one MeshCore nodes put on the air for Public", pub.hash == 0x11);
+    check("the well-known key under another name is a second copy, refused",
+          mcd_runtime_channel_add(c.rt, "torget", "izOH6cXN6mrJ5e26oRXNcg==", &other) ==
+              MCD_CHANNEL_DUPLICATE);
     check("a second copy of that key is refused: there is one Public row",
           mcd_runtime_channel_add(c.rt, "Public 2", "izOH6cXN6mrJ5e26oRXNcg==", &other) !=
               MCD_CHANNEL_OK);
@@ -1117,7 +1119,7 @@ static void test_public_channel(void)
             if (at.is_public) {
                 publics++;
                 check("the Public channel kept its slot and its local name",
-                      at.slot == pub.slot && strcmp(at.name, "torget") == 0);
+                      at.slot == pub.slot && strcmp(at.name, "Public") == 0);
             }
         }
         check("exactly one channel is the Public one", publics == 1);
@@ -1311,13 +1313,15 @@ static void test_restart(Node& a, Air& air)
  * advert from every stranger.
  */
 static int craftAdvert(uint8_t* frame, const mesh::LocalIdentity& id, const char* name,
-                       uint32_t timestamp)
+                       uint32_t timestamp, const double* lat = NULL, const double* lon = NULL,
+                       uint8_t type = ADV_TYPE_CHAT)
 {
     uint8_t payload[MAX_PACKET_PAYLOAD];
     uint8_t app_data[MAX_ADVERT_DATA_SIZE];
     uint8_t message[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
-    AdvertDataBuilder builder(ADV_TYPE_CHAT, name);
-    uint8_t app_len = builder.encodeTo(app_data);
+    AdvertDataBuilder plain(type, name);
+    AdvertDataBuilder located(type, name, lat ? *lat : 0.0, lon ? *lon : 0.0);
+    uint8_t app_len = (lat && lon) ? located.encodeTo(app_data) : plain.encodeTo(app_data);
     int len = 0;
     int msg_len = 0;
 
@@ -1345,6 +1349,72 @@ static int craftAdvert(uint8_t* frame, const mesh::LocalIdentity& id, const char
     return buildFrame(frame,
                       (uint8_t)((PAYLOAD_TYPE_ADVERT << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD),
                       payload, len);
+}
+
+/* ---- where a node says it is --------------------------------------------
+ *
+ * MeshCore carries an optional latitude/longitude in the advert
+ * (ADV_LATLON_MASK, degrees x 1e6) and BaseChatMesh keeps it in the contact;
+ * mesh.nodes reports it. 0,0 is MeshCore's "never set" and is not a
+ * location; neither is anything outside the valid range. */
+static void test_location(void)
+{
+    Air air;
+    Node b;
+    mesh::LocalIdentity b_id;
+    mesh::LocalIdentity r_id;
+    mesh::LocalIdentity z_id;
+    mesh::LocalIdentity x_id;
+    char store_err[mcdstore::ERR_SIZE] = "";
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_node node;
+    double lat = 59.913900;
+    double lon = 10.752200;
+    double zero = 0.0;
+    double far = 95.0;
+    int len;
+
+    check("identities for the location case",
+          mcdstore::identityCreate(b_id, store_err) && mcdstore::identityCreate(r_id, store_err) &&
+              mcdstore::identityCreate(z_id, store_err) &&
+              mcdstore::identityCreate(x_id, store_err));
+    check("the map listener starts", makeNode(b, air, "MAPLISTENER", &b_id));
+    if (!b.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(b.rt, true);
+
+    len = craftAdvert(frame, r_id, "RPT-OSLO", 1789300000u, &lat, &lon, ADV_TYPE_REPEATER);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 1; });
+    check("an advert with a location gives the node one",
+          mcd_runtime_node_by_prefix(b.rt, r_id.pub_key, 8, &node) == 1 && node.location_known &&
+              node.lat_e6 == 59913900 && node.lon_e6 == 10752200 && node.type == ADV_TYPE_REPEATER);
+    len = craftAdvert(frame, r_id, "RPT-OSLO", 1789300010u);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pump(air, 10);
+    check("a later advert without one keeps it, as MeshCore does",
+          mcd_runtime_node_by_prefix(b.rt, r_id.pub_key, 8, &node) == 1 && node.location_known &&
+              node.lat_e6 == 59913900);
+
+    len = craftAdvert(frame, z_id, "NULL-ISLAND", 1789300020u, &zero, &zero);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 2; });
+    check("0,0 is MeshCore's none, not a place",
+          mcd_runtime_node_by_prefix(b.rt, z_id.pub_key, 8, &node) == 1 && !node.location_known);
+
+    len = craftAdvert(frame, x_id, "OFF-THE-MAP", 1789300030u, &far, &lon);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 3; });
+    check("a latitude past the pole is not a location",
+          mcd_runtime_node_by_prefix(b.rt, x_id.pub_key, 8, &node) == 1 && !node.location_known);
+    mcd_runtime_destroy(b.rt);
+    b.rt = NULL;
 }
 
 /* Remote text, where it is actually reachable.
@@ -2145,15 +2215,22 @@ static void test_channels(Node& a, Node& b, Air& air)
     mcd_runtime_set_radio_online(a.rt, true);
     mcd_runtime_set_radio_online(b.rt, true);
 
-    check("this node starts with no channels", mcd_runtime_channel_count(a.rt) == 0);
-    check("and sending on one is refused while there are none",
-          mcd_runtime_send_channel_text(a.rt, 0, "nobody", &msg_id) == MCD_SEND_NO_CHANNEL);
+    {
+        struct mcd_channel pub;
+
+        check("this node starts with only the standard Public channel",
+              mcd_runtime_channel_count(a.rt) == 1 && mcd_runtime_channel_by_slot(a.rt, 0, &pub) &&
+                  pub.is_public);
+    }
+    check("and sending on an empty slot is refused",
+          mcd_runtime_send_channel_text(a.rt, 1, "nobody", &msg_id) == MCD_SEND_NO_CHANNEL);
 
     /* ---- joining ---- */
     a.channel_events = 0;
+    a.channel_added = 0; /* the start-up join of Public is not this test's */
     check("node A joins a channel",
           mcd_runtime_channel_add(a.rt, "SITE", KEY_A, &ca) == MCD_CHANNEL_OK);
-    check("it went into the lowest free slot", ca.slot == 0);
+    check("it went into the lowest free slot, after Public", ca.slot == 1);
     {
         /* Written on the join, not on the daemon's persist timer. A channel
          * key is the one thing here nothing can give back: a power cut inside
@@ -2169,7 +2246,7 @@ static void test_channels(Node& a, Node& b, Air& air)
         check("and the join left nothing for the timer to write",
               !mcd_runtime_dirty(a.rt));
     }
-    check("an added event was raised", a.channel_added == 1 && a.last_channel.slot == 0);
+    check("an added event was raised", a.channel_added == 1 && a.last_channel.slot == ca.slot);
     check("the channel is a 256-bit one", ca.key_bits == 256);
     check("and its name is what was asked for", strcmp(ca.name, "SITE") == 0);
     /* MeshCore puts "<our name>: " inside the payload, so the body a composer
@@ -2211,7 +2288,7 @@ static void test_channels(Node& a, Node& b, Air& air)
     b.message_events = 0;
     a.message_events = 0;
     check("node A sends on the channel",
-          mcd_runtime_send_channel_text(a.rt, 0, "site check", &msg_id) ==
+          mcd_runtime_send_channel_text(a.rt, ca.slot, "site check", &msg_id) ==
               MCD_SEND_ACCEPTED_FLOOD);
     check("the send has a message id", msg_id != 0);
     check("node B received it", pumpUntil(air, [&] { return b.message_events >= 1; }));
@@ -2255,7 +2332,7 @@ static void test_channels(Node& a, Node& b, Air& air)
         check("and no acknowledgement is expected", found && !mine.ack_expected);
     }
     check("node A did not receive its own message back",
-          channelMessagesFor(a, 0) == 1);
+          channelMessagesFor(a, ca.slot) == 1);
 
     /* ---- a channel nobody holds ---- */
     check("sending on an empty slot is refused",
@@ -2271,16 +2348,16 @@ static void test_channels(Node& a, Node& b, Air& air)
         memset(body, 'x', sizeof(body));
         body[ca.text_limit] = '\0';
         check("a body of exactly the limit is accepted",
-              mcd_runtime_send_channel_text(a.rt, 0, body, &msg_id) == MCD_SEND_ACCEPTED_FLOOD);
+              mcd_runtime_send_channel_text(a.rt, ca.slot, body, &msg_id) == MCD_SEND_ACCEPTED_FLOOD);
         body[ca.text_limit] = 'x';
         body[ca.text_limit + 1] = '\0';
         /* Upstream's sendGroupMessage() would silently cut this to fit
          * (BaseChatMesh.cpp:496). Reporting success for a message somebody
          * typed and this node shortened is not something the service does. */
         check("one byte more is refused rather than truncated",
-              mcd_runtime_send_channel_text(a.rt, 0, body, &msg_id) == MCD_SEND_TOO_LONG);
+              mcd_runtime_send_channel_text(a.rt, ca.slot, body, &msg_id) == MCD_SEND_TOO_LONG);
         check("and an empty body is refused",
-              mcd_runtime_send_channel_text(a.rt, 0, "", &msg_id) == MCD_SEND_TOO_LONG);
+              mcd_runtime_send_channel_text(a.rt, ca.slot, "", &msg_id) == MCD_SEND_TOO_LONG);
     }
 
     /* ---- two channels, and messages kept apart ---- */
@@ -2290,19 +2367,19 @@ static void test_channels(Node& a, Node& b, Air& air)
 
         check("a second channel joins the next free slot",
               mcd_runtime_channel_add(a.rt, "OPS", KEY_B, &c2) == MCD_CHANNEL_OK &&
-                  c2.slot == 1);
+                  c2.slot == 2);
         check("node B joins it too",
               mcd_runtime_channel_add(b.rt, "OPS", KEY_B, NULL) == MCD_CHANNEL_OK);
-        check("node A now holds two channels", mcd_runtime_channel_count(a.rt) == 2);
+        check("node A now holds two channels and Public", mcd_runtime_channel_count(a.rt) == 3);
 
-        before = channelMessagesFor(b, 1);
+        before = channelMessagesFor(b, 2);
         b.message_events = 0;
         check("a message on the second channel is sent",
-              mcd_runtime_send_channel_text(a.rt, 1, "ops only", &msg_id) ==
+              mcd_runtime_send_channel_text(a.rt, c2.slot, "ops only", &msg_id) ==
                   MCD_SEND_ACCEPTED_FLOOD);
         check("and arrives", pumpUntil(air, [&] { return b.message_events >= 1; }));
         check("on the second channel and not the first",
-              channelMessagesFor(b, 1) == before + 1 && b.last_msg.channel_slot == 1);
+              channelMessagesFor(b, 2) == before + 1 && b.last_msg.channel_slot == 2);
     }
 
     /* ---- a key node B does not hold ---- */
@@ -2333,26 +2410,29 @@ static void test_channels(Node& a, Node& b, Air& air)
         a.channel_removed = 0;
         check("leaving a channel nobody is in is refused",
               mcd_runtime_channel_remove(a.rt, 6) == MCD_CHANNEL_NOT_FOUND);
-        check("leaving channel 1 works", mcd_runtime_channel_remove(a.rt, 1) == MCD_CHANNEL_OK);
+        check("leaving the standard Public channel is refused: it is mandatory",
+              mcd_runtime_channel_remove(a.rt, 0) == MCD_CHANNEL_MANDATORY &&
+                  mcd_runtime_channel_count(a.rt) == held);
+        check("leaving channel 2 works", mcd_runtime_channel_remove(a.rt, 2) == MCD_CHANNEL_OK);
         /* mesh.channel_remove answers key_forgotten; a key still on the disk
          * ten seconds later would make that untrue. */
         check("and the removal is on disk at once", !mcd_runtime_dirty(a.rt));
         check("a removed event was raised",
-              a.channel_removed == 1 && a.last_channel.slot == 1);
+              a.channel_removed == 1 && a.last_channel.slot == 2);
         check("one fewer channel is held", mcd_runtime_channel_count(a.rt) == held - 1);
-        check("slot 1 is empty", !mcd_runtime_channel_by_slot(a.rt, 1, &gone));
+        check("slot 2 is empty", !mcd_runtime_channel_by_slot(a.rt, 2, &gone));
         /* The slot is emptied, not compacted: every other channel keeps the
          * slot a client already knows it by. */
-        check("and slot 0 is still the same channel",
-              mcd_runtime_channel_by_slot(a.rt, 0, &gone) && gone.hash == ca.hash &&
+        check("and slot 1 is still the same channel",
+              mcd_runtime_channel_by_slot(a.rt, 1, &gone) && gone.hash == ca.hash &&
                   strcmp(gone.name, "SITE") == 0);
         check("sending on the slot that was left is refused",
-              mcd_runtime_send_channel_text(a.rt, 1, "gone", &msg_id) == MCD_SEND_NO_CHANNEL);
+              mcd_runtime_send_channel_text(a.rt, 2, "gone", &msg_id) == MCD_SEND_NO_CHANNEL);
         /* And the freed slot is the next one an add takes. */
         check("a new channel takes the freed slot",
               mcd_runtime_channel_add(a.rt, "BACK", KEY_B, &gone) == MCD_CHANNEL_OK &&
-                  gone.slot == 1);
-        check("leaving it again", mcd_runtime_channel_remove(a.rt, 1) == MCD_CHANNEL_OK);
+                  gone.slot == 2);
+        check("leaving it again", mcd_runtime_channel_remove(a.rt, 2) == MCD_CHANNEL_OK);
     }
 
     /* ---- the table is bounded ---- */
@@ -2391,11 +2471,12 @@ static void test_channels(Node& a, Node& b, Air& air)
         check("the table fills and then refuses", rc == MCD_CHANNEL_FULL);
         check("with every slot taken", mcd_runtime_channel_count(a.rt) == MCD_MAX_CHANNELS);
         check("and it took as many as there were free slots",
-              added == MCD_MAX_CHANNELS - 2);
+              added == MCD_MAX_CHANNELS - 3);
         mcd_runtime_stats(a.rt, &st);
         check("the stats agree", st.channels == MCD_MAX_CHANNELS);
 
-        /* Back to two, so what follows is not testing a full table. */
+        /* Back to Public and SITE, so what follows is not testing a full
+         * table. */
         for (int i = 2; i < MCD_MAX_CHANNELS; i++) {
             mcd_runtime_channel_remove(a.rt, i);
         }
@@ -2445,6 +2526,153 @@ static void test_channel_empty_slot_guard(Node& a, Air& air)
 }
 
 /* ---- channels survive a restart ---------------------------------------- */
+/* ---- the standard Public channel is mandatory ----------------------------
+ *
+ * Doors keeps MeshCore's well-known Public channel joined: added on start
+ * when the stored channels lack its key, never twice, never in place of
+ * another channel, and refused to mesh.channel_remove. Identified by the key,
+ * so a hashtag channel called "#public" is another channel and stays. */
+static int publicCount(struct mcd_runtime* rt, int* slot)
+{
+    int n = 0;
+
+    for (int i = 0; i < mcd_runtime_channel_count(rt); i++) {
+        struct mcd_channel c;
+
+        if (mcd_runtime_channel_at(rt, i, &c) && c.is_public) {
+            n++;
+            if (slot) {
+                *slot = c.slot;
+            }
+        }
+    }
+    return n;
+}
+
+static bool startIn(Node& n, Air& air, const char* dir_name)
+{
+    return makeNode(n, air, dir_name, NULL);
+}
+
+static void storeChannels(const char* dir_name, const mcdstore::ChannelRecord* recs, int count)
+{
+    char dir[512];
+    char err[mcdstore::ERR_SIZE] = "";
+    mcdstore::ChannelState cs;
+
+    snprintf(dir, sizeof(dir), "%s/%s", g_root, dir_name);
+    mcdstore::ensureDir(dir, err);
+    cs = mcdstore::ChannelState();
+    for (int i = 0; i < count; i++) {
+        cs.channels[cs.count++] = recs[i];
+    }
+    check("a channel store is written for the case", mcdstore::channelsSave(cs, dir, err));
+}
+
+static mcdstore::ChannelRecord record(int slot, const char* name, uint8_t fill)
+{
+    mcdstore::ChannelRecord r = mcdstore::ChannelRecord();
+
+    r.slot = slot;
+    snprintf(r.name, sizeof(r.name), "%s", name);
+    for (int i = 0; i < 16; i++) {
+        r.secret[i] = (uint8_t)(fill + i);
+    }
+    r.key_len = 16;
+    return r;
+}
+
+static void test_public_mandatory(void)
+{
+    int slot = -1;
+    struct mcd_channel c;
+
+    /* An empty store: Public is created, and stored. */
+    {
+        Air air;
+        Node n;
+
+        check("PUB: a node with no stored channels starts", startIn(n, air, "PUB-EMPTY"));
+        check("PUB: an empty store gets the standard Public channel",
+              publicCount(n.rt, &slot) == 1 && slot == 0 && mcd_runtime_channel_count(n.rt) == 1);
+        check("PUB: named Public, with the standard hash",
+              mcd_runtime_channel_by_slot(n.rt, 0, &c) && strcmp(c.name, "Public") == 0 &&
+                  c.hash == 0x11 && c.key_bits == 128);
+        check("PUB: it cannot be left", mcd_runtime_channel_remove(n.rt, 0) == MCD_CHANNEL_MANDATORY &&
+                                            publicCount(n.rt, NULL) == 1);
+        check("PUB: and cannot be added a second time",
+              mcd_runtime_channel_add(n.rt, "Public 2", "izOH6cXN6mrJ5e26oRXNcg==", NULL) ==
+                      MCD_CHANNEL_DUPLICATE &&
+                  publicCount(n.rt, NULL) == 1);
+        check("PUB: a restart keeps exactly one", restartNode(n, air) && publicCount(n.rt, &slot) == 1 &&
+                                                       slot == 0 &&
+                                                       mcd_runtime_channel_count(n.rt) == 1);
+        mcd_runtime_destroy(n.rt);
+    }
+
+    /* A store from before the rule: Public added once, the others untouched,
+     * a hashtag "#public" kept beside it. */
+    {
+        Air air;
+        Node n;
+        mcdstore::ChannelRecord recs[2] = { record(0, "#public", 0x40), record(2, "#test", 0x60) };
+
+        storeChannels("PUB-OLD", recs, 2);
+        check("PUB: a node with an old store starts", startIn(n, air, "PUB-OLD"));
+        check("PUB: Public is added once, into the lowest free slot",
+              publicCount(n.rt, &slot) == 1 && slot == 1 && mcd_runtime_channel_count(n.rt) == 3);
+        check("PUB: the other channels keep their slots and names",
+              mcd_runtime_channel_by_slot(n.rt, 0, &c) && strcmp(c.name, "#public") == 0 &&
+                  !c.is_public && mcd_runtime_channel_by_slot(n.rt, 2, &c) &&
+                  strcmp(c.name, "#test") == 0);
+        check("PUB: a restart keeps exactly one, nothing added again",
+              restartNode(n, air) && publicCount(n.rt, &slot) == 1 && slot == 1 &&
+                  mcd_runtime_channel_count(n.rt) == 3);
+        check("PUB: an ordinary channel can still be left",
+              mcd_runtime_channel_remove(n.rt, 2) == MCD_CHANNEL_OK &&
+                  mcd_runtime_channel_count(n.rt) == 2 && publicCount(n.rt, NULL) == 1);
+        mcd_runtime_destroy(n.rt);
+    }
+
+    /* A store that has Public already, under another name and slot. */
+    {
+        Air air;
+        Node n;
+        mcdstore::ChannelRecord recs[2] = { record(0, "SITE", 0x20), record(4, "torget", 0) };
+
+        static const uint8_t pub[16] = { 0x8b, 0x33, 0x87, 0xe9, 0xc5, 0xcd, 0xea, 0x6a,
+                                         0xc9, 0xe5, 0xed, 0xba, 0xa1, 0x15, 0xcd, 0x72 };
+
+        memcpy(recs[1].secret, pub, sizeof(pub));
+        memset(recs[1].secret + 16, 0, 16);
+        storeChannels("PUB-HAS", recs, 2);
+        check("PUB: a node with Public stored starts", startIn(n, air, "PUB-HAS"));
+        check("PUB: a stored Public is kept where it is, under its name, and not duplicated",
+              publicCount(n.rt, &slot) == 1 && slot == 4 && mcd_runtime_channel_count(n.rt) == 2 &&
+                  mcd_runtime_channel_by_slot(n.rt, 4, &c) && strcmp(c.name, "torget") == 0);
+        mcd_runtime_destroy(n.rt);
+    }
+
+    /* Every slot taken by other channels: nothing is evicted. */
+    {
+        Air air;
+        Node n;
+        mcdstore::ChannelRecord recs[MAX_GROUP_CHANNELS];
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            char name[16];
+
+            snprintf(name, sizeof(name), "#c%d", i);
+            recs[i] = record(i, name, (uint8_t)(0x80 + 16 * i));
+        }
+        storeChannels("PUB-FULL", recs, MAX_GROUP_CHANNELS);
+        check("PUB: a node with a full table starts", startIn(n, air, "PUB-FULL"));
+        check("PUB: a full table loses no channel to Public",
+              mcd_runtime_channel_count(n.rt) == MAX_GROUP_CHANNELS && publicCount(n.rt, NULL) == 0);
+        mcd_runtime_destroy(n.rt);
+    }
+}
+
 static void test_channel_restart(Node& a, Air& air)
 {
     struct mcd_runtime_hooks hooks;
@@ -2563,7 +2791,7 @@ static void test_corrupt_channels_is_survivable(void)
     if (!rt) {
         return;
     }
-    check("with no channels", mcd_runtime_channel_count(rt) == 0);
+    check("with only the standard Public channel", mcd_runtime_channel_count(rt) == 1);
     check("and says what happened to them", mcd_runtime_channel_fault(rt, fault, sizeof(fault)));
     check("naming the version it could not read", strstr(fault, "version") != NULL);
     check("and where the file was kept", strstr(fault, "kept as") != NULL);
@@ -2576,8 +2804,9 @@ static void test_corrupt_channels_is_survivable(void)
 
         snprintf(path, sizeof(path), "%s/channels.v1.corrupt.0", dir);
         check("the unreadable file was kept, not deleted", stat(path, &sb) == 0);
+        /* A new file holds only the Public channel the start added. */
         snprintf(path, sizeof(path), "%s/channels.v1", dir);
-        check("and is no longer in the way", stat(path, &sb) != 0);
+        check("and a new store holds the Public channel in its place", stat(path, &sb) == 0);
     }
     /* A channel can be joined again on top of it. */
     check("a channel can be joined after the fault",
@@ -3117,10 +3346,12 @@ int main(void)
     test_channels(a, b, air);
     test_channel_empty_slot_guard(a, air);
     test_channel_restart(a, air);
+    test_public_mandatory();
     test_corrupt_channels_is_survivable();
     test_corrupt_identity_stops_the_runtime();
     test_corrupt_state_is_survivable();
     test_hostile_remote_text();
+    test_location();
     test_full_contact_table();
     test_nodes_newest_first();
     test_ack_deadlines(a, b, air);

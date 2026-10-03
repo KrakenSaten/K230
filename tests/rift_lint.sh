@@ -30,7 +30,7 @@ check "the parts without a display are built and tested by the root Makefile" \
 # longer "never" - it is "from one place, on purpose, and never on its own".
 #
 # mesh.advert follows the same rule since the ADVERT buttons: named once, in
-# the client; one function writes it; only ACTIVITY's two buttons call that
+# the client; one function writes it; only SYSTEM's two ADVERT buttons call that
 # function; and nothing on a timer, a poll, a snapshot or the app's creation
 # reaches it.
 advhits=$(grep -rln '"mesh.advert"' "$SRC" | sort | tr '\n' ' ')
@@ -39,11 +39,11 @@ check "mesh.advert is named only in the meshcored client (${advhits:-nowhere})" 
 check "and only one call writes it" \
     "$([ "$(grep -c 'RIFT_REQ_ADVERT, params' "$SRC/rift_ipc.c")" = "1" ] && echo 1 || echo 0)"
 advcallers=$(grep -rln 'rift_ipc_send_advert' "$SRC" --include='*.c' | sort | tr '\n' ' ')
-check "the advert is called only from ACTIVITY (${advcallers:-nowhere})" \
-    "$([ "$advcallers" = "$SRC/rift_ipc.c $SRC/ui/rift_activity.c " ] && echo 1 || echo 0)"
+check "the advert is called only from SYSTEM's DEVICE panel (${advcallers:-nowhere})" \
+    "$([ "$advcallers" = "$SRC/rift_ipc.c $SRC/ui/rift_system.c " ] && echo 1 || echo 0)"
 check "and only from the handler of a button a reader pressed" \
-    "$([ "$(grep -c 'rift_ipc_send_advert(' "$SRC/ui/rift_activity.c")" = "1" ] &&
-       grep -B 12 'rift_ipc_send_advert(' "$SRC/ui/rift_activity.c" |
+    "$([ "$(grep -c 'rift_ipc_send_advert(' "$SRC/ui/rift_system.c")" = "1" ] &&
+       grep -B 12 'rift_ipc_send_advert(' "$SRC/ui/rift_system.c" |
        grep -q 'static void on_advert(lv_event_t' && echo 1 || echo 0)"
 # Forgetting a node, or its route, transmits nothing but changes what the
 # service holds, so it is held to the same rule: named once, called only from
@@ -83,14 +83,24 @@ badsubmit=$(grep -rn 'rift_comms_submit(' "$SRC" --include='*.c' |
 check "every send carries text a reader typed${badsubmit:+ (}${badsubmit:+)}" \
     "$([ -z "$badsubmit" ] && echo 1 || echo 0)"
 
+# ---- MAP: positions as the nodes claim them, and nothing fetched ---------------
+check "MAP fetches nothing: no tile, map service, URL or API key" \
+    "$(grep -niE 'https?://|tile|mapbox|google|openstreetmap|api[_-]?key|curl_|socket\(' \
+        "$SRC/rift_map.c" "$SRC/rift_map.h" "$SRC/ui/rift_mapview.c" "$SRC/ui/rift_mapview.h" |
+       grep -viE 'no tile|no basemap|tiles, no|no tiles' >/dev/null && echo 0 || echo 1)"
+check "and places only nodes that claimed a location" \
+    "$(grep -c 'have_location' "$SRC/rift_map.c" | awk '{print ($1 >= 3) ? 1 : 0}')"
+
 # ---- RIFT owns no colour, no font and no hardware ------------------------------
 # tests/style_lint.sh covers ui/ and apps/ for colour literals; these are the
 # rules that are RIFT's own.
 check "no colour is named in the app" \
     "$(grep -rnE 'lv_color_hex|lv_palette_|0x[0-9a-fA-F]{6}\b' "$SRC" --include='*.c' \
         --include='*.h' >/dev/null 2>&1 && echo 0 || echo 1)"
+# /dev/null is where the sound helper's stderr goes; it is not a device.
 check "no device path or GPIO is touched" \
-    "$(grep -rnE '/dev/|gpiod_|spidev' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+    "$(grep -rnE '/dev/|gpiod_|spidev' "$SRC" | grep -v '"/dev/null"' >/dev/null 2>&1 &&
+       echo 0 || echo 1)"
 # The prose here names MeshCore constantly - it is the protocol on the other
 # end of the API - so what is checked is what is *included* and what is
 # *called*, not what is written about.
@@ -106,9 +116,15 @@ check "and no MeshCore symbol is called" \
 stores=$(ls "$SRC"/*store*.[ch] "$SRC"/ui/*store*.[ch] 2>/dev/null | sort | tr '\n' ' ')
 check "the app stores only the reader's preferences (${stores:-nothing})" \
     "$([ "$stores" = "$SRC/rift_store.c $SRC/rift_store.h " ] && echo 1 || echo 0)"
+# The other file RIFT writes is not a store: the two short WAV files its
+# sounds are played from, made from code into the runtime directory (a
+# tmpfs) by the sound backend, and nothing about the mesh in them.
 fileio=$(grep -rlE '\bfopen\(|\brename\(|\bunlink\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
-check "and the only file it opens is that one (${fileio:-none})" \
-    "$([ "$fileio" = "$SRC/rift_store.c " ] && echo 1 || echo 0)"
+check "and the only files it writes are that one and its two sounds (${fileio:-none})" \
+    "$([ "$fileio" = "$SRC/rift_sound_helper.c $SRC/rift_store.c " ] && echo 1 || echo 0)"
+check "the sounds are written to the runtime directory, never the state directory" \
+    "$(grep -q 'pocketos_runtime_dir()' "$SRC/rift_sound_helper.c" &&
+       ! grep -q 'pocketos_state_dir' "$SRC/rift_sound_helper.c" && echo 1 || echo 0)"
 check "which holds nothing about the mesh" \
     "$(grep -qE 'struct rift_(model|message|node|conv)|peer_key|self_key|read_mark|cJSON' \
         "$SRC/rift_store.c" "$SRC/rift_store.h" && echo 0 || echo 1)"
@@ -141,13 +157,14 @@ for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_ac
             rift_strip.c rift_net.c \
             ui/rift_widgets.c ui/rift_fit.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
-            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c; do
+            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c \
+            ui/rift_system.c rift_map.c ui/rift_mapview.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
-            rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c; do
+            rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c rift_map.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
@@ -186,14 +203,26 @@ playcallers=$(grep -rln 'rift_sound_play(' "$SRC" --include='*.c' | sort | tr '\
 check "the sound is asked for in one place (${playcallers:-nowhere})" \
     "$([ "$playcallers" = "$SRC/rift_dm_sound.c $SRC/rift_sound.c " ] && echo 1 || echo 0)"
 check "and only when the policy says so" \
-    "$(grep -B3 'rift_sound_play(' "$SRC/rift_dm_sound.c" | grep -q 'rift_notify_poll(' &&
+    "$(grep -B8 'rift_sound_play(' "$SRC/rift_dm_sound.c" | grep -q 'rift_notify_poll(' &&
        echo 1 || echo 0)"
 check "RIFT opens no sound device of its own" \
     "$(grep -rnE '#include[[:space:]]*[<\"](alsa/|pocketaudio|sound/)|snd_pcm_|pocketaudio_' \
         --include='*.c' --include='*.h' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
-check "and starts no helper process to play one" \
-    "$(grep -rnE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' \
-        --include='*.c' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+# The sound is played by Doors's existing audio helper, pos-record (ADR-010
+# Amendment 1), started from one file and for nothing else: no shell, no
+# other program, and only its play and recover commands.
+spawners=$(grep -rlE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' \
+    --include='*.c' "$SRC" | sort | tr '\n' ' ')
+check "and starts a helper only from the sound backend (${spawners:-nowhere})" \
+    "$([ "$spawners" = "$SRC/rift_sound_helper.c " ] && echo 1 || echo 0)"
+check "that helper is pos-record, by execv, never a shell" \
+    "$(grep -q '#define HELPER_DEFAULT "/usr/bin/pos-record"' "$SRC/rift_sound_helper.c" &&
+       ! grep -nE '\b(popen|system|execl[pe]?|execvp)\(|"/bin/sh"' "$SRC/rift_sound_helper.c" \
+           >/dev/null && echo 1 || echo 0)"
+check "asked only to play or to recover" \
+    "$([ "$(grep -oE '= "(play|recover|record|info)"|"(play|recover|record|info)", NULL' \
+            "$SRC/rift_sound_helper.c" | grep -oE 'play|recover|record|info' | sort -u |
+            tr '\n' ' ')" = "play recover " ] && echo 1 || echo 0)"
 check "and stops its sound when it goes" \
     "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
        grep -q 'rift_sound_stop' && echo 1 || echo 0)"

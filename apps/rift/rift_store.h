@@ -4,8 +4,9 @@
  *
  * RIFT keeps no messages, nodes, keys or read marks: those are the
  * service's, or this session's, and docs/apps/RIFT.md says why. What it does
- * keep is what a reader chose and would be annoyed to choose again - today
- * one thing, whether a new direct message makes a sound.
+ * keep is what a reader chose and would be annoyed to choose again: whether
+ * a new direct message makes a sound, whether a new channel message does,
+ * and which channels are muted.
  *
  * Location: $POCKETOS_STATE_DIR/rift/prefs.v1, default
  * /var/lib/pocketos/rift/prefs.v1 - app-owned storage, the pattern
@@ -38,20 +39,42 @@
 #define RIFT_PREF_DM_SOUND "dm_sound" /* 0|1 */
 /* A new direct message makes a sound unless the reader turned it off. */
 #define RIFT_PREF_DM_SOUND_DEFAULT 1
+/* A new channel message makes its own, different sound unless the reader
+ * turned channel sounds off, or muted that one channel. */
+#define RIFT_PREF_CH_SOUND "channel_sound" /* 0|1 */
+#define RIFT_PREF_CH_SOUND_DEFAULT 1
+/* One line per muted channel, its conversation key as COMMS keys it
+ * ("#<slot>:<hash>:<name fingerprint>", rift_model.h): that names the
+ * channel and not merely its slot, so a different channel later joined into
+ * the same slot is not muted by it. At most RIFT_PREF_MUTE_MAX are kept. */
+#define RIFT_PREF_CH_MUTE "channel_mute"
+#define RIFT_PREF_MUTE_MAX 16
+#define RIFT_PREF_MUTE_KEY_MAX 65
+/* The longest line this build writes, and the whole file. */
 #define RIFT_STORE_TEXT_MAX 256
+#define RIFT_STORE_FILE_MAX 2048
 
 struct rift_prefs {
     int dm_sound; /* 0 or 1 */
+    int ch_sound; /* 0 or 1 */
+    char mute[RIFT_PREF_MUTE_MAX][RIFT_PREF_MUTE_KEY_MAX];
+    int mute_count;
 };
 
 void rift_prefs_defaults(struct rift_prefs *p);
 
 /* Read the file's text into p, over whatever p held. Returns a mask of the
- * known keys whose value was unusable (1: dm_sound), which keep what p had;
- * 0 when everything present was usable. Pure: no I/O. */
+ * known keys whose value was unusable (1: dm_sound, 2: channel_sound, 4: a
+ * channel_mute line), which keep what p had; 0 when everything present was
+ * usable. Pure: no I/O. */
 int rift_prefs_parse(struct rift_prefs *p, const char *text);
 /* The file's text. Returns the length, or -1 when out is too small. */
 int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len);
+
+/* Whether this channel (a conversation key) is muted, and muting it or not.
+ * set returns 0, or -1 when the key is not a channel's or the list is full. */
+int rift_prefs_channel_muted(const struct rift_prefs *p, const char *conv_key);
+int rift_prefs_set_channel_muted(struct rift_prefs *p, const char *conv_key, int muted);
 
 const char *rift_store_dir(void);
 const char *rift_store_path(void);

@@ -219,8 +219,9 @@ DEVICE VERIFIED unless it says so.
   under "No RTC").
 - **Adverts sent before the clock is set are ignored by peers** (meshcored
   section below).
-- **RIFT's DM sound is silent**: Doors has no notification sound for an app
-  to ask for (RIFT section below).
+- **RIFT's message sounds are not yet heard on hardware**: they play through
+  pos-record (ADR-010 Amendment 1, proposed); audibility on the speaker is
+  the owner's to judge (RIFT section below).
 
 
 ## Hardware and BSP
@@ -1127,12 +1128,11 @@ so that pass stayed the size it was scoped to be.
   of 241 nodes on unit A, scrolled end to end in both orientations at up to
   ~31 % shell CPU (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested,
   and nothing above it can be until the service's table grows.
-- **The DM sound is silent in this build.** RIFT decides which direct
-  messages are new and when one is worth a sound, behind a setting, and asks
-  through a backend seam (`rift_sound.h`); the built-in backend has no sound,
-  because apps do not open the card (ADR-002) and ADR-004's exception is
-  Wave's. Needs a platform notification sound (docs/apps/RIFT.md, "Shared
-  requirements left for integration"). The setting says so on screen.
+- **The message sounds play through pos-record** (ADR-010 Amendment 1,
+  PROPOSED): only while RIFT's screen is open, and not at all while another
+  app holds the audio lock. Whether the 150 / 222 ms tones are audible and
+  pleasant on the speaker is not measured; host tests prove the files play
+  to the end through the real helper on a fake card.
 - **A resent direct message is shown once per attempt** (meshcored section
   above); RIFT's DM sound recognises the retry by sender, timestamp and text
   and does not sound twice, but the thread shows what the service recorded.

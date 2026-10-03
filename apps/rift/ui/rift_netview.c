@@ -63,6 +63,7 @@ struct rift_net_view {
     lv_obj_t *path_bar;
     lv_obj_t *path_message;
     lv_obj_t *path_detail;
+    lv_obj_t *list_btn;
     lv_obj_t *legend;
     lv_obj_t *rings;
     lv_obj_t *note;
@@ -220,6 +221,14 @@ static void on_detail(lv_event_t *e)
     }
 }
 
+/* NET lives under NODES: LIST goes back to the node list it came from. */
+static void on_list(lv_event_t *e)
+{
+    struct rift_net_view *v = lv_event_get_user_data(e);
+
+    rift_app_show_section(v->app, RIFT_SEC_NODES);
+}
+
 static void build_path(struct rift_net_view *v)
 {
     lv_obj_t *panel = rift_panel(v->root, "PATH");
@@ -353,8 +362,21 @@ lv_obj_t *rift_net_view_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_scroll_dir(v->root, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(v->root, LV_SCROLLBAR_MODE_AUTO);
 
+    /* The way back to the list first, beside the legend: NET is a view of
+     * NODES, not a section of its own. */
+    {
+        lv_obj_t *top = box(v->root, LV_FLEX_FLOW_ROW);
+
+        lv_obj_set_style_pad_column(top, 12, 0);
+        lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        v->list_btn = rift_action(top, "\xE2\x80\xB9 LIST", 0, 1, on_list, v);
+        lv_obj_set_flex_grow(v->list_btn, 0);
+        lv_obj_set_width(v->list_btn, 120);
+        v->legend = wrapping(top, POS_STYLE_CAPTION);
+        lv_obj_set_flex_grow(v->legend, 1);
+        lv_obj_set_width(v->legend, 1);
+    }
     build_path(v);
-    v->legend = wrapping(v->root, POS_STYLE_CAPTION);
     /* Hop count, as handoff §7 has it: ring 1 is direct, each relay adds one,
      * so the PATH panel's "RING 8 ... THROUGH 7 RELAYS" agrees with it. */
     lv_label_set_text(v->legend, "RING = HOPS: 1 IS DIRECT, EACH RELAY ADDS ONE - ON ITS "
@@ -459,6 +481,13 @@ static void paint_path(struct rift_net_view *v, const struct rift_node *sel, int
         return;
     }
     lv_obj_remove_flag(v->path_bar, LV_OBJ_FLAG_HIDDEN);
+    /* No MESSAGE for a node that takes none (rift_model.h): a repeater keeps
+     * DETAIL, where it says why. */
+    if (rift_node_can_message(sel)) {
+        lv_obj_remove_flag(v->path_message, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(v->path_message, LV_OBJ_FLAG_HIDDEN);
+    }
     rift_fmt_label(sel, label, sizeof(label));
     rift_label_set(v->path_name, label);
     if (src == RIFT_NET_SOURCE_ROUTE) {

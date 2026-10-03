@@ -15,14 +15,13 @@
 #include "rift_activity.h"
 #include "rift_comms.h"
 #include "rift_detail.h"
-#include "rift_device.h"
 #include "rift_emoji_style.h"
-#include "rift_manage.h"
 #include "rift_netview.h"
 #include "rift_find.h"
+#include "rift_mapview.h"
 #include "rift_nodes.h"
-#include "rift_session.h"
 #include "rift_sound.h"
+#include "rift_system.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -261,6 +260,11 @@ static void paint_cmdline(struct rift_app *a)
  * none; the touch actions there say what they do. */
 /* ---- sections -------------------------------------------------------------- */
 
+enum rift_section rift_tab_of(enum rift_section section)
+{
+    return section == RIFT_SEC_NET ? RIFT_SEC_NODES : section;
+}
+
 static void show_only(struct rift_app *a, lv_obj_t *keep)
 {
     uint32_t n = lv_obj_get_child_count(a->content);
@@ -298,12 +302,10 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         /* Leaving NODES is a Cancel for any confirmation left up there. */
         rift_nodes_cancel_confirm(a);
     }
-    if (section != RIFT_SEC_ACTIVITY) {
-        /* And leaving ACTIVITY for what is open there - a form, a LEAVE or
-         * path hash confirmation, a key shown for sharing. */
-        rift_manage_cancel(a);
-        rift_device_cancel(a);
-        rift_session_cancel(a);
+    if (section != RIFT_SEC_SYSTEM) {
+        /* And leaving SYSTEM for what is open there - a form, a LEAVE, path
+         * hash or CLOSE RIFT confirmation, a key shown for sharing. */
+        rift_system_cancel(a);
     }
     rift_tabs_paint(a);
     switch (section) {
@@ -316,6 +318,12 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
     case RIFT_SEC_COMMS:
         show_only(a, a->comms_root);
         break;
+    case RIFT_SEC_SYSTEM:
+        show_only(a, a->system_root);
+        break;
+    case RIFT_SEC_MAP:
+        show_only(a, a->map_root);
+        break;
     default:
         show_only(a, a->net_root);
         break;
@@ -326,6 +334,12 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
 void rift_app_open_conversation(struct rift_app *a, const char *key)
 {
     if (!a || !key || !key[0]) {
+        return;
+    }
+    /* A node that takes no direct messages - a repeater, a sensor, by its
+     * advertised type - has no conversation to open (rift_model.h). Every
+     * MESSAGE and Enter comes through here, so none of them can open one. */
+    if (rift_key_is_channel(key) < 0 && !rift_node_can_message(rift_model_find(&a->model, key))) {
         return;
     }
     if (a->section != RIFT_SEC_COMMS) {
@@ -399,6 +413,10 @@ void rift_app_refresh(struct rift_app *a)
         rift_comms_refresh(a);
     } else if (a->section == RIFT_SEC_NET) {
         rift_net_view_refresh(a);
+    } else if (a->section == RIFT_SEC_SYSTEM) {
+        rift_system_refresh(a);
+    } else if (a->section == RIFT_SEC_MAP) {
+        rift_map_view_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
     rift_tabs_paint(a);
@@ -418,7 +436,11 @@ static void on_key(lv_event_t *e)
     if (a->section == RIFT_SEC_COMMS && rift_comms_key(a, key)) {
         return;
     }
-    if (key == LV_KEY_ESC && a->section != RIFT_SEC_ACTIVITY) {
+    /* Esc goes one step up: NET to the node list it lives under, any other
+     * section to ACTIVITY. */
+    if (key == LV_KEY_ESC && a->section == RIFT_SEC_NET) {
+        rift_app_show_section(a, RIFT_SEC_NODES);
+    } else if (key == LV_KEY_ESC && a->section != RIFT_SEC_ACTIVITY) {
         rift_app_show_section(a, RIFT_SEC_ACTIVITY);
     }
 }
@@ -512,12 +534,10 @@ static void layout(struct rift_app *a)
         }
         /* A pane left open in one shape does not follow into the other. */
         a->details_open = 0;
-        /* Nor does a form or a confirmation on ACTIVITY: turning the panel is
+        /* Nor does a form or a confirmation on SYSTEM: turning the panel is
          * Cancel, as it is for FORGET. Only on a turn - the touch keyboard
          * coming up also lays the frame out, under somebody typing. */
-        rift_manage_cancel(a);
-        rift_device_cancel(a);
-        rift_session_cancel(a);
+        rift_system_cancel(a);
     }
     /* The chrome's heights from the timer, not from inside this layout
      * pass (rift_app.h, chrome_pending). */
@@ -526,6 +546,8 @@ static void layout(struct rift_app *a)
     rift_nodes_shape(a);
     rift_comms_shape(a);
     rift_net_view_shape(a);
+    rift_system_shape(a);
+    rift_map_view_shape(a);
     /* Draw now, so the new shape is not empty for a frame, and ask for
      * another pass from the timer: this one is inside LVGL's layout update,
      * where no width can be settled on demand and anything fitted to a
@@ -596,6 +618,9 @@ static void on_theme_changed(lv_event_t *e)
     rift_emoji_style_refresh();
     if (a && a->frame) {
         lv_obj_invalidate(a->frame);
+        /* The tabs are fitted to the row by the font's metrics: again, from
+         * the timer, at the new size. */
+        a->refresh_pending = 1;
     }
 }
 
@@ -642,6 +667,8 @@ static void *rift_create(lv_obj_t *root)
     a->nodes_root = rift_nodes_create(a, a->content);
     a->comms_root = rift_comms_create(a, a->content);
     a->net_root = rift_net_view_create(a, a->content);
+    a->map_root = rift_map_view_create(a, a->content);
+    a->system_root = rift_system_create(a, a->content);
     build_cmdline(a);
     /* The sink was made first (build_keysink); it goes last among the
      * frame's children, where it has always been. */
@@ -752,6 +779,8 @@ static void rift_destroy(void *priv)
     rift_comms_destroy(a);
     rift_net_view_destroy(a);
     rift_nodes_destroy(a);
+    rift_system_destroy(a);
+    rift_map_view_destroy(a);
     rift_activity_destroy(a);
     /* The LVGL objects are children of the shell's body and are deleted
      * with it; the private blocks were this app's to release, and every
@@ -782,8 +811,8 @@ static void rift_shutdown(void)
 }
 
 /* The Back action (app.h `back`, hw_actions.h): the ways out RIFT already has on
- * screen and on Esc - a node's detail back to the list ("‹ NODES"), any
- * section back to Activity - and at Activity the shell's own back slab. */
+ * screen and on Esc - a node's detail back to the list ("‹ NODES"), NET back
+ * to the node list, any section back to Activity - and at Activity the shell's own back slab. */
 static int rift_back(void *priv)
 {
     struct rift_app *a = priv;
@@ -793,6 +822,10 @@ static int rift_back(void *priv)
     }
     if (a->section == RIFT_SEC_NODES && a->detail_open) {
         rift_app_open_detail(a, 0);
+        return 1;
+    }
+    if (a->section == RIFT_SEC_NET) {
+        rift_app_show_section(a, RIFT_SEC_NODES);
         return 1;
     }
     if (a->section != RIFT_SEC_ACTIVITY) {

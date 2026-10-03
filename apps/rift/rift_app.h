@@ -13,9 +13,10 @@
  *   rift_app      chrome, sections, layout, lifecycle      LVGL
  *   ui/rift_*     one screen each                          LVGL
  *
- * RIFT draws all four sections of the approved design: ACTIVITY, NODES,
- * COMMS and NET - the hop rings of handoff §7, from the node cache
- * (rift_net.h for the placement, ui/rift_netview.c for the drawing).
+ * RIFT draws the four sections of the approved design - ACTIVITY, NODES,
+ * COMMS and NET, the hop rings of handoff §7 from the node cache (rift_net.h
+ * for the placement, ui/rift_netview.c for the drawing) - with NET now a
+ * view under NODES, and SYSTEM beside them for what manages this node.
  *
  * COMMS holds direct conversations and the channels the service reported,
  * in one list; a channel is a conversation keyed "#<slot>" (rift_model.h).
@@ -23,7 +24,7 @@
  * This app transmits in two places, each reached only by a reader's press.
  * mesh.send is written only by rift_ipc_send_message, reached only from the
  * composer, on text a reader typed. mesh.advert is written only by
- * rift_ipc_send_advert, reached only from ACTIVITY's two ADVERT buttons.
+ * rift_ipc_send_advert, reached only from SYSTEM's two ADVERT buttons.
  * Nothing automatic can reach either: opening a screen, a snapshot, a period
  * expiring and a reconnect all still put nothing on the air.
  * tests/rift_lint.sh checks each link, and tests/rift_ipc_test.c proves it
@@ -44,14 +45,25 @@
 #include "lvgl.h"
 #include "pocketui.h"
 
-/* The four sections, in the fixed order of the handoff §3. */
+/* The screens. The first RIFT_TAB_COUNT are the strip's tabs, in their
+ * order; NET is not a tab of its own but a view under NODES (the NODES tab
+ * stays lit on it, and Esc or LIST goes back to the node list). SYSTEM holds
+ * what manages this node and this app - the name and its adverts, the path
+ * hash, the channels, the sounds and CLOSE RIFT - so ACTIVITY is status and
+ * traffic only. MAP places the nodes that said where they are. */
 enum rift_section {
     RIFT_SEC_ACTIVITY = 0,
     RIFT_SEC_NODES,
     RIFT_SEC_COMMS,
+    RIFT_SEC_MAP,
+    RIFT_SEC_SYSTEM,
     RIFT_SEC_NET,
     RIFT_SEC_COUNT,
 };
+#define RIFT_TAB_COUNT RIFT_SEC_NET
+
+/* The tab a screen is reached from: its own, or NODES for NET. */
+enum rift_section rift_tab_of(enum rift_section section);
 
 /* How often the client takes a pass at its socket. Not the shell's
  * once-a-second tick: a subscriber that reads once a second is a subscriber
@@ -80,6 +92,8 @@ struct rift_net_view;
 struct rift_manage;
 struct rift_device;
 struct rift_session_view;
+struct rift_system_view;
+struct rift_map_ui;
 
 /* The app's id in the shell's registry, and the name its session is marked
  * by in the status cluster. */
@@ -96,7 +110,7 @@ struct rift_session_view;
  * subscription, the model built from it - activity, traffic, messages, read
  * marks - and where the reader was stay, and the pump timer goes on taking
  * the mesh in. The next open builds a screen over the same block. The
- * session ends only when it is asked to: CLOSE RIFT on ACTIVITY (after a
+ * session ends only when it is asked to: CLOSE RIFT on SYSTEM (after a
  * confirmation), or the Doors shell stopping or re-executing (app.h
  * shutdown).
  *
@@ -111,10 +125,13 @@ struct rift_app {
     lv_obj_t *frame;  /* exactly the body's content box */
     lv_obj_t *strip;  /* the section strip */
     lv_obj_t *back;   /* the strip's back slab, landscape only (DS §37.2) */
-    lv_obj_t *tab[RIFT_SEC_COUNT];
-    lv_obj_t *tab_rule[RIFT_SEC_COUNT];
-    lv_obj_t *tab_label[RIFT_SEC_COUNT];
-    lv_obj_t *tab_pill[RIFT_SEC_COUNT];
+    lv_obj_t *tab[RIFT_TAB_COUNT];
+    lv_obj_t *tab_rule[RIFT_TAB_COUNT];
+    lv_obj_t *tab_label[RIFT_TAB_COUNT];
+    lv_obj_t *tab_pill[RIFT_TAB_COUNT];
+    /* How the tabs were last fitted to the row (rift_strip.c fit_tabs). */
+    int32_t tab_pad;
+    int tab_short;
     lv_obj_t *content;
     /* The command line: present only as the landscape composer, or to say
      * the service is not answering (cmd_status). Otherwise hidden, and the
@@ -186,10 +203,14 @@ struct rift_app {
     struct rift_manage *manage;
     struct rift_device *device;
     struct rift_session_view *session;
+    struct rift_system_view *system;
+    struct rift_map_ui *map;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
     lv_obj_t *net_root;
+    lv_obj_t *system_root;
+    lv_obj_t *map_root;
     /* The screen this app listens on for the theme-changed event (the
      * colour-emoji styles follow the text size there, and the frame is
      * repainted); removed on destroy, because the screen outlives the app. */
@@ -291,13 +312,21 @@ void rift_bg_end(void);
 /* Clear the screen's half of the block (everything before `section`). */
 void rift_bg_forget_screen(struct rift_app *a);
 
-/* The DM sound's setting: applied at once, and stored. */
+/* The sounds' settings, each applied at once and stored: a new direct
+ * message, a new channel message, and one channel muted (its conversation
+ * key). Muting returns -1 when the key is not a channel's or the list of
+ * muted channels is full (rift_store.h). */
 void rift_app_set_dm_sound(struct rift_app *a, int on);
+void rift_app_set_channel_sound(struct rift_app *a, int on);
+int rift_app_set_channel_muted(struct rift_app *a, const char *conv_key, int muted);
+int rift_app_channel_muted(const struct rift_app *a, const char *conv_key);
+/* Hand the policy the channel setting and the mute list (rift_bg_new). */
+void rift_app_sound_attach(struct rift_app *a);
 /* Whether a sound could be heard now: a backend that can play one, and
  * Doors not muted. The setting is a separate question. */
 int rift_app_can_sound(const struct rift_app *a);
-/* After every pass at the socket: a sound, if a direct message has just
- * arrived and the setting, the platform and the policy all say yes. */
+/* After every pass at the socket: a sound, if a message has just arrived and
+ * its setting, its channel's mute, the platform and the policy all say yes. */
 void rift_app_notify_pass(struct rift_app *a, int64_t now);
 
 /* The glyph a node's row and its captions carry. */

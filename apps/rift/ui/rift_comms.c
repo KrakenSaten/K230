@@ -635,7 +635,7 @@ void rift_comms_refresh(struct rift_app *app)
         } else {
             lv_label_set_text(v->note,
                               "No conversations and no channels. A channel is joined on "
-                              "ACTIVITY, under CHANNELS; a conversation is started from a "
+                              "SYSTEM, under CHANNELS; a conversation is started from a "
                               "node's MESSAGE.");
         }
         note_shown(v->note, 1);
