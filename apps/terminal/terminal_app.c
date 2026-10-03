@@ -115,6 +115,12 @@ struct terminal_app {
 #endif
 };
 
+/* The status cluster's mark while a running shell is kept with no screen
+ * over it (app.h pocketos_shell_set_background, DS §51.4), as RIFT's. */
+#define TERMINAL_APP_ID "terminal"
+#define TERMINAL_BACKGROUND_LABEL ">_"
+#define TERMINAL_BACKGROUND_HELP "Terminal session active in background"
+
 /* The session: one per Doors shell run, and not the screen's. `ui` is the
  * screen showing it, or NULL while the app is not open. */
 static struct {
@@ -758,6 +764,7 @@ static void session_end(void)
         term_session_close(&bg.session);
         bg.live = false;
     }
+    pocketos_shell_set_background(TERMINAL_APP_ID, NULL, NULL);
 }
 
 /* ---- the confirmation (DS §17.5) ----------------------------------------- */
@@ -892,9 +899,11 @@ static void tick(void)
         update_bar(a);
     } else if (bg.session.phase == TERM_SESSION_ENDED && bg.timer) {
         /* No screen, and the shell has ended and been read to the end:
-         * nothing more will come until the app is opened again. */
+         * nothing more will come until the app is opened again, and nothing
+         * runs behind the other screens: the mark goes. */
         lv_timer_pause(bg.timer);
         bg.paused = true;
+        pocketos_shell_set_background(TERMINAL_APP_ID, NULL, NULL);
     }
 }
 
@@ -1173,6 +1182,8 @@ static void *terminal_create(lv_obj_t *root)
         }
     }
     bg.ui = a;
+    /* On screen: not in the background any more. */
+    pocketos_shell_set_background(TERMINAL_APP_ID, NULL, NULL);
     if (bg.live) {
         a->seen_scrolled = bg.session.screen.scrolled;
         term_screen_clear_damage(&bg.session.screen);
@@ -1210,7 +1221,8 @@ static void *terminal_create(lv_obj_t *root)
 
 /* Leaving the app takes the screen away and leaves the session running. An
  * ended shell is not kept: there is nothing in it to come back to but its
- * last words, and the next open should be a working shell. */
+ * last words, and the next open should be a working shell. A kept one is
+ * marked; the next open, session_end() and tick() clear the mark. */
 static void terminal_destroy(void *priv)
 {
     struct terminal_app *a = priv;
@@ -1232,6 +1244,8 @@ static void terminal_destroy(void *priv)
     }
     if (bg.live && bg.session.phase != TERM_SESSION_RUNNING) {
         session_end();
+    } else if (bg.live) {
+        pocketos_shell_set_background(TERMINAL_APP_ID, TERMINAL_BACKGROUND_LABEL, TERMINAL_BACKGROUND_HELP);
     }
     if (a->hint) {
         pocketos_shell_set_status_hint("");

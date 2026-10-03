@@ -167,17 +167,17 @@ if [ -x "$FAKE" ] && [ -x "$POS" ]; then
     for _ in $(seq 1 60); do [ -S "$RUN/meshcored.sock" ] && break; sleep 0.05; done
     # Portrait at Large with the widest chip: where the launcher's centred
     # clock and the cluster with the mark come closest (DS §51.4).
-    POCKETOS_TEST_RADIO_STATE=rx \
+    POCKETOS_TEST_RADIO_STATE=rx POCKETOS_TERMINAL_SHELL=/bin/sh \
     "$SHELL_BIN" --theme carbon --rotation portrait --text-size large >"$LOGD/out" 2>&1 & SP=$!
     for _ in $(seq 1 80); do [ -S "$RUN/shell.sock" ] && break; sleep 0.1; done
     sleep 0.4
     logged() { grep -rqF "$1" "$LOGD"; }
-    # "<app>:<label>:<help>,... <mark shown> <cluster width> <current>"
+    # "<app>:<mark's text>,... <mark shown> <cluster width> <current>"
     bgstate() {
         "$POS" shell info 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-print(",".join(b["app"] + ":" + b["label"] for b in d["background"]) or "-",
+print(",".join(b["app"] + ":" + b["shown"] for b in d["background"]) or "-",
       d["background_mark"], d["chrome"]["cluster"]["w"], d["current"])' 2>/dev/null
     }
     set -- $(bgstate); w0=${3:-0}
@@ -213,6 +213,32 @@ print(k["x"] - (t["x"] + t["w"]))' 2>/dev/null)
         "$([ "${4:-}" = "rift" ] && [ "${1:-}" = "-" ] && [ "${2:-}" = "False" ] && echo 1 || echo 0)"
     check "and RIFT says it reopened the session it kept" \
         "$(logged 'rift: open again (session kept' && echo 1 || echo 0)"
+    # The Terminal's kept shell: its own mark beside RIFT's, each set and
+    # cleared by its own app only; two fit where one did (R and >_).
+    "$POS" app start terminal >/dev/null 2>&1; sleep 0.8
+    set -- $(bgstate)
+    check "Terminal open: only RIFT marked (${1:-?})" "$([ "${1:-}" = "rift:RIFT" ] && echo 1 || echo 0)"
+    "$POS" call shell shell.home >/dev/null 2>&1; sleep 0.5
+    info=$("$POS" shell info 2>/dev/null)
+    set -- $(bgstate)
+    check "home: two marks, RIFT's and the Terminal's (${1:-?}, ${3:-?} px)" \
+        "$([ "${1:-}" = "rift:R,terminal:>_" ] && [ "${2:-}" = "True" ] && echo 1 || echo 0)"
+    clear=$(printf '%s' "$info" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(d["chrome"]["cluster"]["x"] - d["launcher"]["time"]["x"] - d["launcher"]["time"]["w"])' 2>/dev/null)
+    check "the launcher's clock stays 16 px clear of both at Large (${clear:-?} px)" \
+        "$([ "${clear:-0}" -ge 16 ] && echo 1 || echo 0)"
+    "$POS" app start rift >/dev/null 2>&1; sleep 0.8
+    set -- $(bgstate)
+    check "RIFT open: only the Terminal marked, in full (${1:-?})" \
+        "$([ "${1:-}" = "terminal:>_" ] && echo 1 || echo 0)"
+    "$POS" call shell shell.home >/dev/null 2>&1; sleep 0.5
+    tsh=$(ps -o pid= --ppid "$SP" 2>/dev/null | tr -d ' ' | head -n 1)
+    [ -n "$tsh" ] && kill -KILL "$tsh" 2>/dev/null; sleep 0.8
+    set -- $(bgstate)
+    check "the Terminal's shell ended: its mark goes, RIFT's stays (${1:-?})" \
+        "$([ -n "$tsh" ] && [ "${1:-}" = "rift:RIFT" ] && echo 1 || echo 0)"
     "$POS" call shell shell.home >/dev/null 2>&1; sleep 0.4
     kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
     check "the shell stopping ends the kept session" \

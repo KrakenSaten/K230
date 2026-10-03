@@ -90,6 +90,22 @@ void pocketos_shell_orientation(struct pocketos_orientation *out)
     out->keyboard = g_keyboard;
 }
 
+/* The status cluster's mark (DS §51.4), as the Terminal last told it. */
+static char g_mark[16];
+
+void pocketos_shell_set_background(const char *app_id, const char *label, const char *help)
+{
+    (void)help;
+    if (app_id && strcmp(app_id, "terminal") == 0) {
+        snprintf(g_mark, sizeof(g_mark), "%s", label ? label : "");
+    }
+}
+
+static bool marked(void)
+{
+    return strcmp(g_mark, ">_") == 0;
+}
+
 /* The real one closes the app; here the test does, after counting it. */
 void pocketos_shell_go_home(void)
 {
@@ -592,6 +608,7 @@ static void journey(const char *name, bool landscape)
         CHECK("confirming ends it within the close bound",
               took <= TERM_PTY_HUP_GRACE_MS + TERM_PTY_KILL_REAP_MS + 100);
         CHECK("the session is gone", sess() == NULL);
+        CHECK("and its mark", g_mark[0] == '\0');
         CHECK("the shell and its job are gone", term_pty_session_count(sid) == 0);
         CHECK("reaped", no_child());
         pump(50);
@@ -766,6 +783,7 @@ static void persistence(void)
     app_stop();
     check("leave: the shell keeps running", sess() == s && s->phase == TERM_SESSION_RUNNING &&
                                                 term_pty_session_count(sid) > 0);
+    check("leave: the status cluster marks it >_", marked());
     pump(4000); /* another app in use */
     check("leave: the command ran to its end with no screen", shows_("done-64", true) && shows_("tick-80", true));
     check("leave: every line of it is kept", shows_("tick-1", true) && shows_("tick-20", true));
@@ -773,6 +791,7 @@ static void persistence(void)
     app_start();
     check("reopen: the same session, not a new one",
           sess() == s && s->pty.pid == sid && terminal_app_sessions_started() == started);
+    check("reopen: the mark goes", g_mark[0] == '\0');
     check("reopen: what it wrote meanwhile is on the screen", shows_("done-64", true));
     check("reopen: and what came before is in the history", shows_("first-9", true));
     type("echo back-$((2+3))\r");
@@ -809,6 +828,7 @@ static void persistence(void)
                                                             shows_("status 3", false));
     check("shell exits away: its session is cleared", term_pty_session_count(sid) == 0);
     check("shell exits away: the timer rests", !terminal_app_timer_running());
+    check("shell exits away: the mark goes", g_mark[0] == '\0');
     app_start();
     check("shell exits away: reopening shows how it ended", sess() == s && strcmp(g_hint, "ENDED") == 0 &&
                                                                 strcmp(terminal_app_bar_text(app_priv),
@@ -826,7 +846,7 @@ static void persistence(void)
     pump(800);
     check("exit: the screen says it ended", s->phase == TERM_SESSION_ENDED);
     app_stop();
-    check("leaving an ended shell lets it go", sess() == NULL);
+    check("leaving an ended shell lets it go, unmarked", sess() == NULL && g_mark[0] == '\0');
     check("no timer left", count_timers() == timers0);
     check("no descriptor left", count_fds() == fds0);
     check("no child left", no_child());
@@ -852,6 +872,7 @@ static void persistence(void)
     app_stop();
     shell_exit();
     check("the shell's exit ends the session", sess() == NULL && term_pty_session_count(sid) == 0);
+    check("shell exit: the mark goes", g_mark[0] == '\0');
     check("shell exit: reaped", no_child());
     check("shell exit: no timer", count_timers() == timers0);
     check("shell exit: no descriptor", count_fds() == fds0);
