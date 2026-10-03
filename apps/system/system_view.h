@@ -18,6 +18,7 @@
 #define POCKETOS_SYSTEM_VIEW_H
 
 #include <cjson/cJSON.h>
+#include <stddef.h>
 
 /* Every unknown renders as this and never as 0, "", or a guess. U+2014 is in
  * the generated body and mono fonts (0x2013-0x2026); the symbol font is not
@@ -80,6 +81,14 @@ struct system_view_iface {
     char state[12];                /* chip text: UP / DOWN / operstate */
     char addr[SYSTEM_VIEW_TEXT];   /* IPv4 or the unknown dash */
     int up;
+    /* Traffic (DS §52.5): the byte counters sysd reports, and the rate over
+     * the time since the previous answer that had them for this interface.
+     * "↓1.2 ↑0.3 KB/s · 23.7 MB in · 105.8 MB out", or the dash. */
+    double rx_bytes;
+    double tx_bytes;
+    int have_bytes;
+    unsigned long bytes_ms;        /* when they were counted */
+    char traffic[SYSTEM_VIEW_TEXT];
 };
 
 struct system_view_service {
@@ -96,6 +105,9 @@ struct system_view {
     int show_card;                       /* only when the card differs */
     char model[SYSTEM_VIEW_TEXT];
     char kernel[SYSTEM_VIEW_TEXT];
+    char platform[SYSTEM_VIEW_TEXT];     /* os-release PRETTY_NAME: "Buildroot 2025.02.1" */
+    char sdk[SYSTEM_VIEW_TEXT];          /* the vendor SDK's release line */
+    char cpus[16];                       /* online CPUs */
 
     /* vitals, six cells in three rows of two */
     struct system_view_metric vitals[6];
@@ -113,6 +125,14 @@ struct system_view {
     /* Whether the live half is known. The detail is configuration and stays
      * readable when it is not; the screen mutes it rather than blanking it. */
     int radio_state_known;
+
+    /* The network page's links (DS §52.5), each from its own service and
+     * each a dash until it has answered once. */
+    char radio_packets[SYSTEM_VIEW_TEXT]; /* radio.stats: "848 received · 1 sent · 36 CRC errors" */
+    char radio_signal[SYSTEM_VIEW_TEXT];  /* "Last packet -74 dBm, SNR 12.3 dB" */
+    char wifi[SYSTEM_VIEW_TEXT];          /* wifi.status: "Connected to Home, signal 4/4" */
+    char mesh[SYSTEM_VIEW_TEXT];          /* mesh.status: "Online", "Waiting: ..." */
+    int mesh_warn;
 
     /* freshness */
     int have_status;
@@ -145,6 +165,16 @@ void system_view_set_radio_detail(struct system_view *v, const char *region,
                                   const char *backend);
 /* Which treatment the chip should wear for the state it is showing. */
 enum system_view_radio_chip system_view_radio_chip_state(const struct system_view *v);
+
+/* The network page's three other answers. NULL: the service did not answer,
+ * which is said in words (radiod, netd) or, for meshcored, which is off by
+ * default, as the ordinary state it is. */
+void system_view_apply_radio_stats(struct system_view *v, const cJSON *stats);
+void system_view_apply_wifi(struct system_view *v, const cJSON *wifi_status);
+void system_view_apply_mesh(struct system_view *v, const cJSON *mesh_status);
+
+/* "23.7 MB", "512 kB", "1.4 GB" - a byte count as a person reads one. */
+void system_view_bytes(double bytes, char *out, size_t n);
 
 /* Recompute "LIVE" / "STALE 6s" without a new poll, so the age keeps counting
  * up while nothing is answering. */

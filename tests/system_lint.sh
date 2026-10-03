@@ -16,7 +16,8 @@ code() { grep -vE '^[[:space:]]*(/\*|\*|//)' "$@"; }
 
 APP=apps/system/system_app.c
 VIEW=apps/system/system_view.c
-ALL="apps/system/system_app.c apps/system/system_view.c apps/system/system_view.h apps/system/diag_view.c apps/system/diag_view.h"
+ALL="apps/system/system_app.c apps/system/system_net.c apps/system/system_internal.h apps/system/system_view.c
+     apps/system/system_view.h apps/system/diag_view.c apps/system/diag_view.h"
 
 check "the view model has no LVGL" "$(code "$VIEW" apps/system/system_view.h | grep -q 'lvgl\|lv_' && echo 0 || echo 1)"
 check "nor does the Diagnostics model" "$(code apps/system/diag_view.c apps/system/diag_view.h | grep -q 'lvgl\|lv_' && echo 0 || echo 1)"
@@ -24,8 +25,12 @@ check "System reads nothing from the machine itself: no file I/O" \
     "$(code $ALL | grep -qE '\b(fopen|open|openat|read|write|opendir|statvfs)\s*\(' && echo 0 || echo 1)"
 check "and no /proc, /sys or /run path" "$(code $ALL | grep -qE '"/(proc|sys|run)' && echo 0 || echo 1)"
 check "every IPC call carries the UI deadline" \
-    "$(code "$APP" | grep -q 'shell_ipc_call(' && echo 0 || echo 1)"
-hits=$(code "$APP" | grep -nE '"system\.(reboot|poweroff)"')
+    "$(code $ALL | grep -q 'shell_ipc_call(' && echo 0 || echo 1)"
+# DS §52.2: one box scrolls on a page - the page. Nothing System builds is
+# made to scroll; boxes it makes clear the flag.
+check "System makes nothing scroll but the page" \
+    "$(code $ALL | grep -qE 'lv_obj_add_flag\([^)]*SCROLLABLE' && echo 0 || echo 1)"
+hits=$(code "$APP" apps/system/system_net.c | grep -nE '"system\.(reboot|poweroff)"')
 check "the app never names a power method: it calls only what a confirmation hands over" \
     "$([ -z "$hits" ] && [ "$(code "$APP" | grep -c 'system_view_confirm(')" = 1 ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3

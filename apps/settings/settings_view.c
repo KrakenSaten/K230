@@ -6,6 +6,8 @@
 #define _GNU_SOURCE
 #include "settings_view.h"
 
+#include "power_policy.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -436,5 +438,79 @@ void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int land
     } else {
         snprintf(r->note, sizeof(r->note), "%s%s, whatever the keyboard.", prefix,
                  r->selected == 2 ? "Landscape" : "Portrait");
+    }
+}
+
+/* ---- sound ---------------------------------------------------------------- */
+
+void sv_volume_apply(struct sv_volume *v, int percent, int muted, int available, int min, int max)
+{
+    memset(v, 0, sizeof(*v));
+    v->available = available != 0;
+    v->muted = muted != 0;
+    snprintf(v->value, sizeof(v->value), "%d %%", percent);
+    v->can_down = percent > min;
+    v->can_up = percent < max;
+    if (!v->available) {
+        /* The level is still kept and can still be set: a card that appears
+         * later plays at it. Saying why nothing is heard is the point. */
+        copy(v->note, sizeof(v->note), "No sound card was found, so nothing plays at any volume.");
+        copy(v->summary, sizeof(v->summary), "No sound output");
+    } else if (v->muted) {
+        copy(v->note, sizeof(v->note), "Muted: nothing plays until sound is turned back on.");
+        snprintf(v->summary, sizeof(v->summary), "Muted (volume %d %%)", percent);
+    } else {
+        snprintf(v->summary, sizeof(v->summary), "Volume %d %%", percent);
+    }
+}
+
+/* ---- the keyboard base ------------------------------------------------------ */
+
+void sv_keyboard_text(int keyboard, int light, char *state, size_t n_state, char *summary, size_t n_summary)
+{
+    const char *word = keyboard == 2 ? "ATTACHED" : keyboard == 1 ? "NOT ATTACHED" : "UNKNOWN";
+
+    copy(state, n_state, word);
+    if (keyboard != 2) {
+        snprintf(summary, n_summary, "%s", keyboard == 1 ? "Keyboard base not attached" : "Keyboard base unknown");
+    } else if (light < 0) {
+        snprintf(summary, n_summary, "Keyboard base attached");
+    } else if (light == 0) {
+        snprintf(summary, n_summary, "Keyboard base attached" SEP "light off");
+    } else {
+        snprintf(summary, n_summary, "Keyboard base attached" SEP "light %d %%", light);
+    }
+}
+
+/* ---- Power & Sleep ------------------------------------------------------------ */
+
+void sv_timer_apply(struct sv_timer *t, int which, int seconds)
+{
+    enum power_timer pt = which == POWER_TIMER_LOCK ? POWER_TIMER_LOCK : POWER_TIMER_SCREEN;
+    int i = power_option_index(pt, seconds);
+
+    memset(t, 0, sizeof(*t));
+    power_option_label(seconds, t->value, sizeof(t->value));
+    /* A value that is not an option (it cannot be stored, but the shell is
+     * not this file) still steps: to the first option either way. */
+    t->can_down = i != 0;
+    t->can_up = i != power_option_count(pt) - 1;
+}
+
+void sv_power_summary(int screen_off_s, int lock_s, char *out, size_t n)
+{
+    char a[16];
+    char b[16];
+
+    power_option_label(screen_off_s, a, sizeof(a));
+    power_option_label(lock_s, b, sizeof(b));
+    if (screen_off_s <= 0 && lock_s <= 0) {
+        snprintf(out, n, "Screen stays on, no automatic lock");
+    } else if (lock_s <= 0) {
+        snprintf(out, n, "Screen off after %s", a);
+    } else if (screen_off_s <= 0) {
+        snprintf(out, n, "Lock after %s", b);
+    } else {
+        snprintf(out, n, "Screen off after %s" SEP "lock after %s", a, b);
     }
 }

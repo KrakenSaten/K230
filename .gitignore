@@ -95,6 +95,9 @@ BUILD_ID
 /tests/wifi_parse_test
 /tests/wifi_store_test
 /tests/settings_view_test
+/tests/power_policy_test
+/tests/tz_zones_test
+/tests/overlay_model_test
 /tools/wave/pos-wave
 /tests/pocketaudio_test
 /tests/wave_view_test

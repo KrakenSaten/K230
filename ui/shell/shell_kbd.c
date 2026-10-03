@@ -63,6 +63,7 @@ static struct {
     unsigned npending;
     void (*on_action)(enum hw_action action, void *user);
     void *action_user;
+    bool (*wake_gate)(void); /* shell_kbd_set_wake_gate */
     struct kbd_leds leds;
     unsigned indicators; /* KBD_LED_MIC | KBD_LED_CAMERA, from the shell */
     unsigned led_tries;  /* expander retries left for this keyboard */
@@ -92,6 +93,12 @@ static void on_event(void *user, uint8_t raw)
 
     (void)user;
     key = pos_keymap_event(&kbd.map, raw, &effect);
+    /* A press that only wakes the screen goes no further. After the key map,
+     * so the modifiers it tracks stay right. */
+    if ((raw & POS_KEYMAP_EVENT_PRESSED) && (effect == POS_KEYMAP_KEY || effect == POS_KEYMAP_RESERVED) &&
+        kbd.wake_gate && !kbd.wake_gate()) {
+        return;
+    }
     if (effect == POS_KEYMAP_KEY && key != 0) {
         /* The modifiers held at this press go with the key. Only a raw key
          * target (the Terminal, pos_input.h) ever sees them; every field
@@ -497,6 +504,11 @@ void shell_kbd_on_action(void (*fn)(enum hw_action action, void *user), void *us
 {
     kbd.on_action = fn;
     kbd.action_user = user;
+}
+
+void shell_kbd_set_wake_gate(bool (*gate)(void))
+{
+    kbd.wake_gate = gate;
 }
 
 void shell_kbd_set_indicators(unsigned mask)

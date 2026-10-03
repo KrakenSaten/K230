@@ -522,6 +522,106 @@ int main(void)
           vital_is(&v, "CPU", SYSTEM_VIEW_UNKNOWN) && vital_is(&v, "MEMORY", SYSTEM_VIEW_UNKNOWN));
     check("and no rows at all", v.mount_count == 0 && v.iface_count == 0 && v.service_count == 0);
 
+    /* ---- DS §52.5: traffic, the links, more identity ---- */
+    {
+        struct system_view n;
+        char b[32];
+
+        system_view_init(&n);
+        check("links start as dashes", strcmp(n.wifi, SYSTEM_VIEW_UNKNOWN) == 0 &&
+                                           strcmp(n.mesh, SYSTEM_VIEW_UNKNOWN) == 0 &&
+                                           strcmp(n.radio_packets, SYSTEM_VIEW_UNKNOWN) == 0);
+        o = parse("{\"network\":[{\"name\":\"eth0\",\"operstate\":\"up\",\"mac\":\"00:e0:4c:3a:5e:d0\","
+                  "\"ipv4\":\"10.0.0.2\",\"rx_bytes\":1048576,\"tx_bytes\":2048},"
+                  "{\"name\":\"wlan0\",\"operstate\":\"down\",\"mac\":\"88:3b:dc:b7:9e:c7\",\"ipv4\":null,"
+                  "\"rx_bytes\":null,\"tx_bytes\":null}]}");
+        if (!o) {
+            return 1;
+        }
+        system_view_apply_status(&n, o, 10000);
+        cJSON_Delete(o);
+        check("first answer: totals only, no rate yet", strcmp(n.ifaces[0].traffic, "1.0 MB in \xC2\xB7 2 kB out") == 0);
+        check("an interface without counters: the dash", strcmp(n.ifaces[1].traffic, SYSTEM_VIEW_UNKNOWN) == 0);
+        o = parse("{\"network\":[{\"name\":\"eth0\",\"operstate\":\"up\",\"mac\":\"00:e0:4c:3a:5e:d0\","
+                  "\"ipv4\":\"10.0.0.2\",\"rx_bytes\":1069056,\"tx_bytes\":6144}]}");
+        system_view_apply_status(&n, o, 12000);
+        cJSON_Delete(o);
+        check("two seconds later: the rate over them (10.0 and 2.0 KB/s) and the totals",
+              strcmp(n.ifaces[0].traffic, "\xE2\x86\x93" "10 \xE2\x86\x91" "2.0 KB/s \xC2\xB7 1.0 MB in \xC2\xB7 6 kB out") == 0);
+        if (strstr(n.ifaces[0].traffic, "KB/s") == NULL) {
+            printf("     traffic: %s\n", n.ifaces[0].traffic);
+        }
+        o = parse("{\"network\":[{\"name\":\"eth0\",\"operstate\":\"up\",\"mac\":\"00:e0:4c:3a:5e:d0\","
+                  "\"ipv4\":\"10.0.0.2\",\"rx_bytes\":100,\"tx_bytes\":100}]}");
+        system_view_apply_status(&n, o, 14000);
+        cJSON_Delete(o);
+        check("a counter that went down: no rate from it, never a wrapped one",
+              strstr(n.ifaces[0].traffic, "KB/s") == NULL && strstr(n.ifaces[0].traffic, " in ") != NULL);
+        system_view_apply_status(&n, NULL, 16000);
+        check("sysd silent: the line stays as it was", strstr(n.ifaces[0].traffic, " in ") != NULL);
+
+        system_view_bytes(512, b, sizeof(b));
+        check("bytes: under a kilobyte", strcmp(b, "0 kB") == 0 || strcmp(b, "1 kB") == 0);
+        system_view_bytes(1.5 * 1024 * 1024 * 1024, b, sizeof(b));
+        check("bytes: gigabytes", strcmp(b, "1.5 GB") == 0);
+        system_view_bytes(-1, b, sizeof(b));
+        check("bytes: no count is the dash", strcmp(b, SYSTEM_VIEW_UNKNOWN) == 0);
+
+        o = parse("{\"tx_packets\":1,\"rx_packets\":848,\"rx_crc_errors\":36,\"last_rssi_dbm\":-74,\"last_snr_db\":12.25}");
+        system_view_apply_radio_stats(&n, o);
+        cJSON_Delete(o);
+        check("radio packets in words", strcmp(n.radio_packets, "848 received \xC2\xB7 1 sent \xC2\xB7 36 CRC errors") == 0);
+        check("and the last packet's signal", strcmp(n.radio_signal, "Last packet -74 dBm, SNR 12.2 dB") == 0 ||
+                                                  strcmp(n.radio_signal, "Last packet -74 dBm, SNR 12.3 dB") == 0);
+        o = parse("{\"tx_packets\":0,\"rx_packets\":0,\"last_rssi_dbm\":0,\"last_snr_db\":0}");
+        system_view_apply_radio_stats(&n, o);
+        cJSON_Delete(o);
+        check("nothing heard yet: no signal claimed", strcmp(n.radio_signal, "No packet received yet") == 0);
+        system_view_apply_radio_stats(&n, NULL);
+        check("radiod silent: said so, nothing else", strcmp(n.radio_packets, "radiod not answering") == 0 &&
+                                                          n.radio_signal[0] == '\0');
+
+        o = parse("{\"available\":true,\"enabled\":true,\"state\":\"connected\",\"ssid\":\"Home\",\"signal_bars\":3}");
+        system_view_apply_wifi(&n, o);
+        cJSON_Delete(o);
+        check("Wi-Fi connected", strcmp(n.wifi, "Connected to Home, signal 3/4") == 0);
+        o = parse("{\"available\":true,\"enabled\":false,\"state\":\"off\"}");
+        system_view_apply_wifi(&n, o);
+        cJSON_Delete(o);
+        check("Wi-Fi off", strcmp(n.wifi, "Off") == 0);
+        o = parse("{\"available\":false,\"enabled\":false,\"state\":\"unavailable\"}");
+        system_view_apply_wifi(&n, o);
+        cJSON_Delete(o);
+        check("no Wi-Fi hardware", strcmp(n.wifi, "No Wi-Fi hardware") == 0);
+        system_view_apply_wifi(&n, NULL);
+        check("netd silent", strcmp(n.wifi, "Wi-Fi service is not running") == 0);
+
+        o = parse("{\"state\":\"online\"}");
+        system_view_apply_mesh(&n, o);
+        cJSON_Delete(o);
+        check("mesh online", strcmp(n.mesh, "Online") == 0 && !n.mesh_warn);
+        o = parse("{\"state\":\"degraded\",\"reason\":\"the radio is switched off\",\"radio\":{\"radio_state\":\"off\"}}");
+        system_view_apply_mesh(&n, o);
+        cJSON_Delete(o);
+        check("mesh waiting on a switched-off radio is not a fault",
+              strcmp(n.mesh, "Waiting: the radio is switched off") == 0 && !n.mesh_warn);
+        o = parse("{\"state\":\"error\",\"reason\":\"radiod unavailable\"}");
+        system_view_apply_mesh(&n, o);
+        cJSON_Delete(o);
+        check("mesh error warns", strcmp(n.mesh, "error: radiod unavailable") == 0 && n.mesh_warn);
+        system_view_apply_mesh(&n, NULL);
+        check("meshcored off by default: the ordinary state", strcmp(n.mesh, "meshcored not running") == 0 &&
+                                                                  !n.mesh_warn);
+
+        o = parse("{\"version\":\"0.3.0\",\"build\":\"abc1234\",\"os\":\"Buildroot 2025.02.1\","
+                  "\"vendor_sdk\":\"v1.2-20260909-22d02c6\",\"cpus\":1}");
+        system_view_apply_info(&n, o);
+        cJSON_Delete(o);
+        check("about: platform, SDK and CPUs from system.info",
+              strcmp(n.platform, "Buildroot 2025.02.1") == 0 && strcmp(n.sdk, "v1.2-20260909-22d02c6") == 0 &&
+                  strcmp(n.cpus, "1") == 0);
+    }
+
     printf("system_view_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

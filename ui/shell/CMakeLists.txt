@@ -64,15 +64,23 @@ add_executable(pocketos-shell
     kbd_light.c
     hw_actions.c
     hw_activity.c
+    power_policy.c
+    shell_power.c
+    tz_zones.c
+    overlay_model.c
+    shell_overlay.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ../pocketui/pos_brand_mark.c
     ../pocketui/pos_app_icons.c
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
+    ${REPO_DIR}/apps/system/system_net.c
     ${REPO_DIR}/apps/system/system_view.c
     ${REPO_DIR}/apps/system/diag_view.c
     ${REPO_DIR}/apps/settings/settings_app.c
+    ${REPO_DIR}/apps/settings/settings_pages.c
+    ${REPO_DIR}/apps/settings/settings_wifi.c
     ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
     ${REPO_DIR}/apps/fleet/engine/fleet_types.c
@@ -1283,7 +1291,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(settings_app_test
         ${REPO_DIR}/tests/settings_app_test.c
         chrome.c
+        power_policy.c
+        tz_zones.c
         ${REPO_DIR}/apps/settings/settings_app.c
+        ${REPO_DIR}/apps/settings/settings_pages.c
+        ${REPO_DIR}/apps/settings/settings_wifi.c
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
@@ -1388,6 +1400,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/system_app_test.c
         chrome.c
         ${REPO_DIR}/apps/system/system_app.c
+        ${REPO_DIR}/apps/system/system_net.c
         ${REPO_DIR}/apps/system/system_view.c
         ${REPO_DIR}/apps/system/diag_view.c
         ../pocketui/pos_app_icons.c

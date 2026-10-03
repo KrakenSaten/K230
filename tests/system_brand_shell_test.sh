@@ -6,7 +6,7 @@
 #
 #   - every theme in every display mode, as selected at start;
 #   - one theme in every display mode in landscape, where the identity row is
-#     in the second of System's two columns (DS §25);
+#     the first panel of System's ABOUT page, its left column (DS §52.5);
 #   - a live theme change, which must repaint it without a rebuild (DS §8);
 #   - reduced motion, which must change nothing about it (DS §19.4).
 #
@@ -16,11 +16,13 @@
 #
 # Requires: SHELL_BIN (the CMake-built pocketos-shell) and pos (make all). Run
 # from the repository root. No sysd is started, so the System screen is the
-# same short one on every host and the identity row is on screen.
+# same short one on every host. The identity row is on the ABOUT tab (DS
+# §52.5), which the simulator's POCKETOS_TEST_SYSTEM_TAB opens System on.
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 POS=${POS:-tools/pos/pos}
 export SDL_VIDEODRIVER=dummy
+export POCKETOS_TEST_SYSTEM_TAB=about
 POCKETOS_RUNTIME_DIR=$(mktemp -d)
 POCKETOS_LOG_DIR=$(mktemp -d)
 POCKETOS_CONFIG_DIR=$(mktemp -d)
@@ -103,9 +105,8 @@ for theme in doors ice brass olive slate carbon; do
 done
 
 # ---- in landscape ----------------------------------------------------------------
-# The identity panel is in the right-hand of System's two columns there
-# (DS 25.1): the same mark on that panel's content edge, the screen's 20, the
-# left column's 585 and the 22 px gap before the hairline and the panel's 20.
+# The identity panel is ABOUT's left column there (DS 52.5): the same mark on
+# that panel's content edge, the screen's 20, the hairline and the panel's 20.
 for mode in normal outdoor night; do
     png="$OUT/system-landscape-ice-$mode.png"
     "$SHELL_BIN" --rotation landscape --open system --theme ice --mode "$mode" --screenshot "$png" \
@@ -113,8 +114,8 @@ for mode in normal outdoor night; do
     where=$(find_mark "$png" ice "$mode" 2>&1)
     check "landscape ice/$mode: the mark is drawn once, in accent_primary, clear space and gap intact ($where)" \
         "$(printf '%s' "$where" | grep -qE '^[0-9]+ [0-9]+$' && echo 1 || echo 0)"
-    edge=$((20 + 585 + 22 + $(hairline "$mode") + 20))
-    check "landscape ice/$mode: it starts on the right column's panel content edge, x = $edge" \
+    edge=$((20 + $(hairline "$mode") + 20))
+    check "landscape ice/$mode: it starts on the left column's panel content edge, x = $edge" \
         "$([ "${where%% *}" = "$edge" ] && echo 1 || echo 0)"
 done
 

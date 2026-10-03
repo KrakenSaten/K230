@@ -581,13 +581,45 @@ tests/diag_view_test: tests/diag_view_test.o apps/system/diag_view.o apps/system
 # Settings presentation (pure C, no LVGL), arranged like System Status: what
 # a Wi-Fi state or a tap on a network means is decided here and unit-tested;
 # the screen is built by ui/shell (CMake).
-apps/settings/settings_view.o: apps/settings/settings_view.c apps/settings/settings_view.h
-	$(CC) $(ALL_CFLAGS) -Iapps/settings -c -o $@ $<
+apps/settings/settings_view.o: apps/settings/settings_view.c apps/settings/settings_view.h \
+                               ui/shell/power_policy.h ui/shell/tz_zones.h
+	$(CC) $(ALL_CFLAGS) -Iapps/settings -Iui/shell -c -o $@ $<
 
 tests/settings_view_test.o: tests/settings_view_test.c apps/settings/settings_view.h
-	$(CC) $(ALL_CFLAGS) -Iapps/settings -c -o $@ $<
+	$(CC) $(ALL_CFLAGS) -Iapps/settings -Iui/shell -c -o $@ $<
 
-tests/settings_view_test: tests/settings_view_test.o apps/settings/settings_view.o
+tests/settings_view_test: tests/settings_view_test.o apps/settings/settings_view.o ui/shell/power_policy.o \
+                          ui/shell/tz_zones.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# Power & Sleep, the time zones and the debug overlay's line (pure C, DS §52):
+# the decisions the shell acts on, unit-tested here; the shell links the same
+# sources (CMake).
+ui/shell/power_policy.o: ui/shell/power_policy.c ui/shell/power_policy.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+ui/shell/tz_zones.o: ui/shell/tz_zones.c ui/shell/tz_zones.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+ui/shell/overlay_model.o: ui/shell/overlay_model.c ui/shell/overlay_model.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/power_policy_test.o: tests/power_policy_test.c ui/shell/power_policy.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/power_policy_test: tests/power_policy_test.o ui/shell/power_policy.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/tz_zones_test.o: tests/tz_zones_test.c ui/shell/tz_zones.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/tz_zones_test: tests/tz_zones_test.o ui/shell/tz_zones.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/overlay_model_test.o: tests/overlay_model_test.c ui/shell/overlay_model.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/overlay_model_test: tests/overlay_model_test.o ui/shell/overlay_model.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # PocketFleet game engine (pure C, no LVGL). It lives beside its app in
@@ -2131,6 +2163,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/wifi_store_test tests/airtime_test tests/radiod_tx_test \
              tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
+             tests/power_policy_test tests/tz_zones_test tests/overlay_model_test \
              tests/theme_test tests/text_size_test \
              tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test \
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
@@ -2155,6 +2188,9 @@ test: all $(TEST_BINS)
 	./tests/system_view_test
 	./tests/diag_view_test
 	./tests/settings_view_test
+	./tests/power_policy_test
+	./tests/tz_zones_test
+	./tests/overlay_model_test
 	./tests/theme_test docs/design/themes.json
 	./tests/text_size_test
 	./tests/settings_test

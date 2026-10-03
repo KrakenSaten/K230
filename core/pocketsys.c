@@ -453,6 +453,28 @@ static const char *ipv4_of(int sock, const char *name, char *buf, size_t n)
     return inet_ntop(AF_INET, &sin->sin_addr, buf, (socklen_t)n);
 }
 
+/* One of the interface's statistics counters (/sys/class/net/<if>/statistics,
+ * a decimal count since the driver loaded) as a JSON number, or null when the
+ * file is absent or not a plain unsigned decimal. A double holds a byte count
+ * exactly up to 2^53 (8 PiB), which no interface here reaches. */
+static void add_counter_or_null(cJSON *o, const char *field, const char *ifname, const char *stat)
+{
+    char path[128];
+    char buf[32];
+    char *end;
+    unsigned long long v;
+
+    snprintf(path, sizeof(path), "/sys/class/net/%s/statistics/%s", ifname, stat);
+    if (read_line(path, buf, sizeof(buf)) == 0 && buf[0] >= '0' && buf[0] <= '9') {
+        v = strtoull(buf, &end, 10);
+        if (*end == '\0') {
+            cJSON_AddNumberToObject(o, field, (double)v);
+            return;
+        }
+    }
+    cJSON_AddNullToObject(o, field);
+}
+
 static void add_network(cJSON *o)
 {
     char *names[32];
@@ -484,6 +506,8 @@ static void add_network(cJSON *o)
         snprintf(path, sizeof(path), "/sys/class/net/%s/address", names[i]);
         add_string_or_null(e, "mac", read_line(path, buf, sizeof(buf)) == 0 ? buf : NULL);
         add_string_or_null(e, "ipv4", ipv4_of(sock, names[i], ip, sizeof(ip)));
+        add_counter_or_null(e, "rx_bytes", names[i], "rx_bytes");
+        add_counter_or_null(e, "tx_bytes", names[i], "tx_bytes");
         cJSON_AddItemToArray(arr, e);
     }
     if (sock >= 0) {

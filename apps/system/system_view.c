@@ -59,6 +59,13 @@ void system_view_init(struct system_view *v)
     set_text(v->kernel, sizeof(v->kernel), NULL);
     set_text(v->radio_state, sizeof(v->radio_state), "--");
     set_text(v->radio_detail, sizeof(v->radio_detail), NULL);
+    set_text(v->platform, sizeof(v->platform), NULL);
+    set_text(v->sdk, sizeof(v->sdk), NULL);
+    set_text(v->cpus, sizeof(v->cpus), NULL);
+    set_text(v->radio_packets, sizeof(v->radio_packets), NULL);
+    set_text(v->radio_signal, sizeof(v->radio_signal), NULL);
+    set_text(v->wifi, sizeof(v->wifi), NULL);
+    set_text(v->mesh, sizeof(v->mesh), NULL);
     metric_unknown(&v->vitals[0], "CPU");
     metric_unknown(&v->vitals[1], "TEMP");
     metric_unknown(&v->vitals[2], "MEMORY");
@@ -125,6 +132,17 @@ void system_view_apply_info(struct system_view *v, const cJSON *info)
         snprintf(v->kernel, sizeof(v->kernel), "%s %s", kernel, machine);
     } else {
         set_text(v->kernel, sizeof(v->kernel), kernel);
+    }
+    set_text(v->platform, sizeof(v->platform), string_of(info, "os"));
+    set_text(v->sdk, sizeof(v->sdk), string_of(info, "vendor_sdk"));
+    {
+        double cpus;
+
+        if (number_of(info, "cpus", &cpus)) {
+            snprintf(v->cpus, sizeof(v->cpus), "%d", (int)cpus);
+        } else {
+            set_text(v->cpus, sizeof(v->cpus), NULL);
+        }
     }
     v->have_info = 1;
 }
@@ -296,11 +314,63 @@ static int is_six_octet_mac(const char *mac)
     return 1;
 }
 
-static void ifaces_from(struct system_view *v, const cJSON *status)
+void system_view_bytes(double bytes, char *out, size_t n)
+{
+    if (bytes < 0) {
+        snprintf(out, n, "%s", SYSTEM_VIEW_UNKNOWN);
+    } else if (bytes < 1000.0 * 1024) {
+        snprintf(out, n, "%.0f kB", bytes / 1024.0);
+    } else if (bytes < 1000.0 * 1024 * 1024) {
+        snprintf(out, n, "%.1f MB", bytes / (1024.0 * 1024.0));
+    } else {
+        snprintf(out, n, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    }
+}
+
+static void rate_of(double bytes_per_s, char *out, size_t n)
+{
+    double kbs = bytes_per_s / 1024.0;
+
+    snprintf(out, n, kbs < 10.0 ? "%.1f" : "%.0f", kbs);
+}
+
+/* The interface's line of traffic: the rate since the answer before, when
+ * there was one that counted it, and the totals since its driver loaded. */
+static void traffic_of(struct system_view_iface *n, const struct system_view_iface *prev, unsigned long now_ms)
+{
+    char in[16];
+    char out[16];
+
+    if (!n->have_bytes) {
+        snprintf(n->traffic, sizeof(n->traffic), "%s", SYSTEM_VIEW_UNKNOWN);
+        return;
+    }
+    system_view_bytes(n->rx_bytes, in, sizeof(in));
+    system_view_bytes(n->tx_bytes, out, sizeof(out));
+    if (prev && prev->have_bytes && now_ms > prev->bytes_ms && n->rx_bytes >= prev->rx_bytes &&
+        n->tx_bytes >= prev->tx_bytes) {
+        double s = (double)(now_ms - prev->bytes_ms) / 1000.0;
+        char down[12];
+        char up[12];
+
+        rate_of((n->rx_bytes - prev->rx_bytes) / s, down, sizeof(down));
+        rate_of((n->tx_bytes - prev->tx_bytes) / s, up, sizeof(up));
+        snprintf(n->traffic, sizeof(n->traffic),
+                 "\xE2\x86\x93%s \xE2\x86\x91%s KB/s \xC2\xB7 %s in \xC2\xB7 %s out", down, up, in, out);
+    } else {
+        snprintf(n->traffic, sizeof(n->traffic), "%s in \xC2\xB7 %s out", in, out);
+    }
+}
+
+static void ifaces_from(struct system_view *v, const cJSON *status, unsigned long now_ms)
 {
     const cJSON *arr = cJSON_GetObjectItemCaseSensitive(status, "network");
     const cJSON *e;
+    struct system_view_iface before[SYSTEM_VIEW_MAX_IFACES];
+    int before_count = v->iface_count;
 
+    /* What the last answer counted, by name, for the rates. */
+    memcpy(before, v->ifaces, sizeof(before));
     v->iface_count = 0;
     v->ifaces_hidden = 0;
     if (!cJSON_IsArray(arr)) {
@@ -336,6 +406,25 @@ static void ifaces_from(struct system_view *v, const cJSON *status)
             snprintf(n->state, sizeof(n->state), "%s", "?");
         }
         set_text(n->addr, sizeof(n->addr), string_of(e, "ipv4"));
+        {
+            const struct system_view_iface *prev = NULL;
+            double rx;
+            double tx;
+            int k;
+
+            for (k = 0; k < before_count && k < SYSTEM_VIEW_MAX_IFACES; k++) {
+                if (strcmp(before[k].name, n->name) == 0) {
+                    prev = &before[k];
+                }
+            }
+            if (number_of(e, "rx_bytes", &rx) && number_of(e, "tx_bytes", &tx) && rx >= 0 && tx >= 0) {
+                n->rx_bytes = rx;
+                n->tx_bytes = tx;
+                n->have_bytes = 1;
+                n->bytes_ms = now_ms;
+            }
+            traffic_of(n, prev, now_ms);
+        }
         v->iface_count++;
     }
 }
@@ -444,7 +533,7 @@ void system_view_apply_status(struct system_view *v, const cJSON *status, unsign
     }
     vitals_from(v, status);
     mounts_from(v, status);
-    ifaces_from(v, status);
+    ifaces_from(v, status, now_ms);
     services_from(v, status);
     v->have_status = 1;
     v->last_ok_ms = now_ms;
@@ -494,6 +583,91 @@ void system_view_set_radio_detail(struct system_view *v, const char *region, con
         snprintf(v->radio_detail, sizeof(v->radio_detail), "%s", backend);
     } else {
         snprintf(v->radio_detail, sizeof(v->radio_detail), "%s", SYSTEM_VIEW_UNKNOWN);
+    }
+}
+
+/* ---- the network page's links (DS §52.5) ------------------------------- */
+
+void system_view_apply_radio_stats(struct system_view *v, const cJSON *stats)
+{
+    double rx;
+    double tx;
+    double crc;
+    double rssi;
+    double snr;
+
+    if (!stats || !number_of(stats, "rx_packets", &rx) || !number_of(stats, "tx_packets", &tx)) {
+        snprintf(v->radio_packets, sizeof(v->radio_packets), "%s", "radiod not answering");
+        /* Nothing more to say: the line above says it all. */
+        v->radio_signal[0] = '\0';
+        return;
+    }
+    if (number_of(stats, "rx_crc_errors", &crc)) {
+        snprintf(v->radio_packets, sizeof(v->radio_packets), "%.0f received \xC2\xB7 %.0f sent \xC2\xB7 %.0f CRC errors",
+                 rx, tx, crc);
+    } else {
+        snprintf(v->radio_packets, sizeof(v->radio_packets), "%.0f received \xC2\xB7 %.0f sent", rx, tx);
+    }
+    /* The radio keeps the last packet's figures from before any was heard
+     * as whatever it holds; with nothing received they are not a signal. */
+    if (rx > 0 && number_of(stats, "last_rssi_dbm", &rssi) && number_of(stats, "last_snr_db", &snr)) {
+        snprintf(v->radio_signal, sizeof(v->radio_signal), "Last packet %.0f dBm, SNR %.1f dB", rssi, snr);
+    } else {
+        snprintf(v->radio_signal, sizeof(v->radio_signal), "No packet received yet");
+    }
+}
+
+void system_view_apply_wifi(struct system_view *v, const cJSON *st)
+{
+    const char *state = string_of(st, "state");
+    const char *ssid = string_of(st, "ssid");
+    const cJSON *avail = st ? cJSON_GetObjectItemCaseSensitive(st, "available") : NULL;
+    double bars;
+
+    if (!st || !state) {
+        snprintf(v->wifi, sizeof(v->wifi), "Wi-Fi service is not running");
+    } else if (cJSON_IsFalse(avail)) {
+        snprintf(v->wifi, sizeof(v->wifi), "No Wi-Fi hardware");
+    } else if (strcmp(state, "off") == 0) {
+        snprintf(v->wifi, sizeof(v->wifi), "Off");
+    } else if (strcmp(state, "connected") == 0 && ssid) {
+        if (number_of(st, "signal_bars", &bars)) {
+            snprintf(v->wifi, sizeof(v->wifi), "Connected to %s, signal %.0f/4", ssid, bars);
+        } else {
+            snprintf(v->wifi, sizeof(v->wifi), "Connected to %s", ssid);
+        }
+    } else if (strcmp(state, "connecting") == 0 && ssid) {
+        snprintf(v->wifi, sizeof(v->wifi), "Joining %s", ssid);
+    } else if (strcmp(state, "failed") == 0) {
+        snprintf(v->wifi, sizeof(v->wifi), "On, the last join failed");
+    } else {
+        snprintf(v->wifi, sizeof(v->wifi), "On, not connected");
+    }
+}
+
+/* The same words Diagnostics uses for the same answer (diag_view.c). */
+void system_view_apply_mesh(struct system_view *v, const cJSON *st)
+{
+    const char *state = string_of(st, "state");
+    const char *reason = string_of(st, "reason");
+    const cJSON *radio = st ? cJSON_GetObjectItemCaseSensitive(st, "radio") : NULL;
+    const char *radio_state = cJSON_IsObject(radio) ? string_of(radio, "radio_state") : NULL;
+
+    v->mesh_warn = 0;
+    if (!st || !state) {
+        /* meshcored is off by default (MESHCORED_ENABLE=0). */
+        snprintf(v->mesh, sizeof(v->mesh), "meshcored not running");
+    } else if (strcmp(state, "online") == 0) {
+        snprintf(v->mesh, sizeof(v->mesh), "Online");
+    } else if (strcmp(state, "degraded") == 0 && radio_state && strcmp(radio_state, "off") == 0) {
+        snprintf(v->mesh, sizeof(v->mesh), "Waiting: the radio is switched off");
+    } else {
+        if (reason && reason[0]) {
+            snprintf(v->mesh, sizeof(v->mesh), "%s: %s", state, reason);
+        } else {
+            snprintf(v->mesh, sizeof(v->mesh), "%s", state);
+        }
+        v->mesh_warn = strcmp(state, "error") == 0 || strcmp(state, "degraded") == 0;
     }
 }
 
