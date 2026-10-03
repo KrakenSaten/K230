@@ -341,7 +341,10 @@ files. That is the one lazy unmount sysd ever does.
 
 **After an eject, or a failure,** the same device (`sdX1` and its
 major:minor) is left alone until it is removed: Safe to remove stays true, and
-a drive that could not be mounted is not retried on every look.
+a drive that could not be mounted is not retried on every look. That memory
+is sysd's own and is not kept across a restart: a sysd started while an
+ejected drive is still plugged in mounts it again (seen on unit B when sysd
+was redeployed).
 
 ### storage.status
 
