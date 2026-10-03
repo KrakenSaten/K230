@@ -9,6 +9,7 @@
 #include "../net/fleet_match.h"
 #include "../net/fleet_match_save.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -46,6 +47,10 @@ struct loop {
     int cut;
     unsigned answered;      /* lines of ours the opponent has answered */
     int64_t answer_at;
+    /* The list peers() gives, top first: 0 the opponent, 1..crowd the
+     * bystanders, and when each bystander was last heard. */
+    int order[1 + FLEET_LINK_LOOP_CROWD_MAX];
+    int64_t heard[1 + FLEET_LINK_LOOP_CROWD_MAX];
 };
 
 void fleet_link_loop_defaults(struct fleet_link_loop_cfg *cfg)
@@ -95,6 +100,8 @@ int fleet_link_loop_parse(const char *spec, struct fleet_link_loop_cfg *cfg)
             cfg->cut_after_ms = atoi(p);
         } else if (word(&p, "chat")) {
             cfg->chat = 1;
+        } else if (word(&p, "crowd=")) {
+            cfg->crowd = atoi(p);
         }
         p = strchr(p, ',');
         if (p) {
@@ -106,6 +113,9 @@ int fleet_link_loop_parse(const char *spec, struct fleet_link_loop_cfg *cfg)
     }
     if (cfg->delay_ms < 0) {
         cfg->delay_ms = 0;
+    }
+    if (cfg->crowd < 0 || cfg->crowd > FLEET_LINK_LOOP_CROWD_MAX) {
+        cfg->crowd = 0;
     }
     return 0;
 }
@@ -325,19 +335,40 @@ static enum fleet_link_state loop_state(void *ctx)
     return FLEET_LINK_UP;
 }
 
+/* Bystander n's key: first byte n, so none is the opponent's or ours. */
+static void bystander_key(int n, uint8_t key[FLEET_KEY_BYTES])
+{
+    int i;
+
+    for (i = 0; i < FLEET_KEY_BYTES; i++) {
+        key[i] = (uint8_t)(0x60 + i);
+    }
+    key[0] = (uint8_t)n;
+}
+
 static int loop_peers(void *ctx, struct fleet_link_peer *out, int max)
 {
     struct loop *l = of(ctx);
+    int count = 0;
+    int who;
+    int k;
 
-    if (max < 1) {
-        return 0;
+    for (k = 0; k <= l->cfg.crowd && count < max; k++, count++) {
+        who = l->order[k];
+        memset(&out[count], 0, sizeof(out[count]));
+        if (who == 0) {
+            memcpy(out[count].key, l->peer_key, FLEET_KEY_BYTES);
+            strncpy(out[count].name, PEER_NAME, sizeof(out[count].name) - 1);
+            out[count].heard_ms = l->now;
+            out[count].hops = 0;
+        } else {
+            bystander_key(who, out[count].key);
+            snprintf(out[count].name, sizeof(out[count].name), "BYSTANDER %d", who);
+            out[count].heard_ms = l->heard[who];
+            out[count].hops = 1;
+        }
     }
-    memset(out, 0, sizeof(*out));
-    memcpy(out->key, l->peer_key, FLEET_KEY_BYTES);
-    strncpy(out->name, PEER_NAME, sizeof(out->name) - 1);
-    out->heard_ms = l->now;
-    out->hops = 0;
-    return 1;
+    return count;
 }
 
 static const char *loop_peer_name(void *ctx, const uint8_t key[FLEET_KEY_BYTES])
@@ -382,6 +413,9 @@ struct fleet_link *fleet_link_loop_open(const struct fleet_link_loop_cfg *cfg)
         l->self[i] = (uint8_t)(0xD0 + i);
         l->peer_key[i] = (uint8_t)(0x50 + i);
     }
+    for (i = 0; i <= FLEET_LINK_LOOP_CROWD_MAX; i++) {
+        l->order[i] = i;
+    }
     fleet_rng_seed(&l->rng, cfg->seed ^ 0x100F);
     fleet_match_init(&l->peer, l->peer_key, cfg->seed);
     l->seen = -1;
@@ -406,6 +440,24 @@ int fleet_link_loop_say(struct fleet_link *link, const char *text)
     rc = fleet_match_chat_send(&l->peer, text, l->now);
     peer_flush(l);
     return rc;
+}
+
+void fleet_link_loop_hear(struct fleet_link *link, int who)
+{
+    struct loop *l = link ? link->ctx : NULL;
+    int k = 0;
+
+    if (!l || who < 0 || who > l->cfg.crowd) {
+        return;
+    }
+    while (l->order[k] != who) {
+        k++;
+    }
+    for (; k > 0; k--) {
+        l->order[k] = l->order[k - 1];
+    }
+    l->order[0] = who;
+    l->heard[who] = l->now;
 }
 
 void fleet_link_loop_set_cut(struct fleet_link *link, int cut)

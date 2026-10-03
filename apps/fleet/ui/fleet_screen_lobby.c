@@ -55,7 +55,11 @@ struct fleet_lobby_ui {
     lv_obj_t *back;
     struct fleet_link_peer peers[PEER_ROWS];
     int count;
-    int selected;
+    /* The player chosen, by key: the list re-sorts as nodes are heard, so a
+     * row is only where that player happens to be this refresh. */
+    uint8_t chosen[FLEET_KEY_BYTES];
+    int has_chosen;
+    int selected;           /* the chosen player's row now, or -1 */
     uint8_t act_kind;
     uint8_t alt_kind;
     char visible_note[64];
@@ -86,9 +90,10 @@ static void on_row(lv_event_t *e)
     lv_obj_t *row = lv_event_get_target_obj(e);
     int i;
 
-    for (i = 0; i < PEER_ROWS; i++) {
+    for (i = 0; i < ui->count; i++) {
         if (ui->row[i] == row) {
-            ui->selected = i;
+            memcpy(ui->chosen, ui->peers[i].key, FLEET_KEY_BYTES);
+            ui->has_chosen = 1;
         }
     }
     fleet_screen_lobby_refresh(ui->app);
@@ -285,8 +290,16 @@ static void refresh_players(struct fleet_lobby_ui *ui, int can_choose)
     if (link && ui->app->mp && ui->app->mp->engaged) {
         ui->count = link->ops->peers(link->ctx, ui->peers, PEER_ROWS);
     }
-    if (ui->selected >= ui->count) {
-        ui->selected = -1;
+    /* Find the chosen player's row again; one no longer listed is unchosen,
+     * so INVITE can only ever go to the player whose row is lit. */
+    ui->selected = -1;
+    for (i = 0; ui->has_chosen && i < ui->count; i++) {
+        if (memcmp(ui->peers[i].key, ui->chosen, FLEET_KEY_BYTES) == 0) {
+            ui->selected = i;
+        }
+    }
+    if (ui->selected < 0) {
+        ui->has_chosen = 0;
     }
     for (i = 0; i < PEER_ROWS; i++) {
         if (i >= ui->count) {
