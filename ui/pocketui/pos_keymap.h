@@ -26,6 +26,14 @@
  * key has been pressed on the hardware and no other keycap has been read.
  * See docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md.
  *
+ * THE Fn LAYER is Doors' own, not the vendor's: no keycap carries æ, ø or å,
+ * so Fn+A types å, Fn+O ø and Fn+E æ, with Shift or Caps for Å, Ø and Æ.
+ * Fn with any other letter, digit or symbol types what the key types alone.
+ * The codes it uses are the vendor's: A 29 is VERIFIED, O 43, E 38 and the
+ * two Fn keys 9 and 3 are DOCUMENTED. Like every printable key here, the
+ * three are Unicode code points (U+00E5, U+00F8, U+00E6 and their capitals);
+ * pos_input.c is what packs them as UTF-8 for a text area.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef POS_KEYMAP_H
