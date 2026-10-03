@@ -62,6 +62,8 @@ struct rift_node_row {
     lv_obj_t *exp_state;
     lv_obj_t *exp_chain;
     lv_obj_t *exp_signal;
+    lv_obj_t *exp_message; /* MESSAGE, hidden for a node that takes none */
+    lv_obj_t *exp_why;
     /* What it is showing: a key, and where that key is in the list. An
      * empty key is a row in the pool that shows nothing and is hidden. */
     char key[RIFT_KEY_HEX];

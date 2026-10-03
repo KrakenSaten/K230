@@ -378,6 +378,54 @@ offering a setting the service would ignore. Adding scopes is a change to
 what goes on the air and to a persisted store, and needs the owner's decision
 and an on-air gate.
 
+## Repeaters
+
+**Who can be written to** is decided by the node's advertised type
+(MeshCore `ADV_TYPE_*`, `mesh.nodes` `type`), never its name
+(`rift_node_can_message`, `rift_order.c`):
+
+| type | upstream behaviour for a plain direct message | RIFT |
+|---|---|---|
+| 1 chat | accepted and ACKed (`BaseChatMesh::onPeerDataRecv`) | MESSAGE |
+| 2 repeater | read only from an ACL client logged in as **admin**, and then run as a CLI command; from anyone else not even decrypted, no ACK (`examples/simple_repeater` `onPeerDataRecv`, `searchPeersByHash` over the ACL) | no MESSAGE, no conversation, composer refuses |
+| 3 room server | a post, only from a client logged in with more than guest rights (`examples/simple_room_server`) | MESSAGE; the detail says posts need a login this service does not do |
+| 4 sensor | as a repeater: admin only, as a command (`examples/simple_sensor`) | as a repeater |
+| unknown | - | not refused on a guess |
+
+Every way into a conversation goes through `rift_app_open_conversation`,
+which refuses a repeater or sensor; the row's expansion, the detail and NET's
+PATH panel show no MESSAGE for one (DETAIL stays), Enter on one in landscape
+opens nothing and its key hint drops ENTER MESSAGE, and a thread that was
+open before the type was known refuses in the composer with the reason. A
+repeater is still listed, with its telemetry, path, history, RE-ROUTE and
+FORGET. Upstream's companion firmware does not refuse text to a repeater; the
+restriction is the client's, as the T-Deck RIFT's (`ENTER: control`).
+
+**Repeater control is not in this build.** What upstream MeshCore offers a
+client (vendor/RIFT at the pin, everything server-side upstream as is):
+
+| operation | upstream | needs | meshcored today |
+|---|---|---|---|
+| login | `ANON_REQ` with timestamp + password; repeater answers `RESPONSE` with admin flag and ACL permissions; a wrong password gets no reply (`simple_repeater` `handleLoginReq`, client `BaseChatMesh::sendLogin`) | admin or guest password | not implemented (`onContactResponse` is empty) |
+| status | `REQ_TYPE_GET_STATUS` → `RepeaterStats` (battery, queue, noise floor, RSSI/SNR, packet and air-time counters, uptime) | logged in (guest is enough) | no |
+| telemetry | `REQ_TYPE_GET_TELEMETRY_DATA` → CayenneLPP | logged in | no |
+| neighbours | `REQ_TYPE_GET_NEIGHBOURS` → key prefix, heard-ago, SNR per neighbour | logged in | no |
+| access list | `REQ_TYPE_GET_ACCESS_LIST` | admin | no |
+| owner info | `REQ_TYPE_GET_OWNER_INFO` | logged in | no |
+| CLI | `TXT_TYPE_CLI_DATA` text (`advert`, `reboot`, `clock sync`, `get`/`set` ...) | admin | no |
+| anonymous regions / owner / clock | `ANON_REQ` types 1-3, answered only when the request came direct | none | no |
+| trace | `PAYLOAD_TYPE_TRACE` along a given path | none | no (mesh.md "Not in v0") |
+
+There is no logout on the wire, and the repeater refuses any request whose
+timestamp is not later than the last one it saw from that client - which on
+a board with no RTC needs the clock set first (mesh.md, the 1970 problem).
+Adding control is a service change (`mesh.login`, `mesh.request`, a response
+event, a pending-request table, password handling that is never logged or
+stored), its tests, and an on-air gate against a real repeater; RIFT's side is
+a login form and a status panel under the repeater's detail. Until then the
+detail says `CONTROL NOT AVAILABLE` and why, rather than offering buttons that
+could only fail.
+
 ## Emoji and other text
 
 What a reader can type is what the Doors keyboards produce - the touch

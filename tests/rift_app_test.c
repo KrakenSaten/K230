@@ -374,6 +374,8 @@ static void app_stop(void)
 #define KEY_B "b2cafe1e7d0411223344556677889900aabbccddeeff001122334455667788b2"
 #define KEY_C "c3beef1e7d0411223344556677889900aabbccddeeff001122334455667788b3"
 #define KEY_D "d4dead1e7d0411223344556677889900aabbccddeeff001122334455667788b4"
+/* The node of unknown type the fixture never heard: a peer RIFT may write to. */
+#define KEY_E "e500000000000000000000000000000000000000000000000000000000000005"
 
 /* Five nodes, chosen to be every case the row has to draw: heard direct with
  * a full measurement, relayed with a long path and no SNR, a path nobody has
@@ -392,7 +394,7 @@ static void give_nodes(void)
              "\"last_heard_mono_ms\":%lld,\"last_rssi_dbm\":-71.0,\"last_snr_db\":9.5,"
              "\"last_advert_timestamp\":1750000000},"
              "{\"public_key\":\"" KEY_B "\",\"node_hash\":\"b2\",\"name\":\"HYTTA\","
-             "\"type\":2,\"path_known\":true,\"hops\":8,\"direct\":false,"
+             "\"type\":1,\"path_known\":true,\"hops\":8,\"direct\":false,"
              "\"path_hex\":\"a1c2d34a5b6c7d8e\",\"last_heard_mono_ms\":%lld,"
              "\"last_rssi_dbm\":-88.0},"
              "{\"public_key\":\"" KEY_C "\",\"node_hash\":\"c3\",\"name\":\"NO-3241 FO\","
@@ -575,8 +577,8 @@ static void give_long_thread(void)
 
     for (i = 0; i < LONG_THREAD; i++) {
         snprintf(json, sizeof(json),
-                 "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"peer_public_key\":\"" KEY_D "\","
-                 "\"peer_name\":\"S\xC3\xB8rlandet\",\"text\":\"%s %d\",\"state\":\"%s\","
+                 "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"peer_public_key\":\"" KEY_E "\","
+                 "\"peer_name\":\"never-heard\",\"text\":\"%s %d\",\"state\":\"%s\","
                  "\"mono_ms\":%lld}}",
                  100 + i, i % 2 ? "out" : "in", i == LONG_THREAD - 1 ? "the newest line" : "line",
                  i, i % 2 ? "sent_direct" : "received",
@@ -3379,11 +3381,18 @@ static void net_session(void)
           find_text(content(), "RING = HOPS: 1 IS DIRECT") != NULL &&
               find_text(content(), "RELAYS BETWEEN") == NULL);
 
+    check("a repeater's PATH panel offers no MESSAGE, only DETAIL",
+          find_exact(content(), "MESSAGE") == NULL &&
+              find_exact(content(), "DETAIL \xE2\x80\xBA") != NULL);
+    tap(action_of(find_exact(net_rings(), "HYTTA")));
+    pump(60);
     tap(action_of(find_exact(content(), "MESSAGE")));
-    check("MESSAGE opens COMMS on the node, and sends nothing",
+    check("a chat node's MESSAGE opens COMMS on it, and sends nothing",
           app->section == RIFT_SEC_COMMS && rift_comms_open_peer(app) &&
-              strcmp(rift_comms_open_peer(app), KEY_R2) == 0 && !rift_model_sending(&app->model));
+              strcmp(rift_comms_open_peer(app), KEY_B) == 0 && !rift_model_sending(&app->model));
     rift_app_show_section(app, RIFT_SEC_NET);
+    pump(60);
+    tap(action_of(find_exact(net_rings(), "RPT-SYD")));
     pump(60);
     tap(action_of(find_exact(content(), "DETAIL \xE2\x80\xBA")));
     check("DETAIL opens the node in NODES", app->section == RIFT_SEC_NODES && app->detail_open);
@@ -3674,6 +3683,118 @@ static int same_face(lv_obj_t *a, lv_obj_t *b)
                lv_obj_get_style_border_width(b, LV_PART_MAIN) &&
            lv_obj_get_style_radius(a, LV_PART_MAIN) == lv_obj_get_style_radius(b, LV_PART_MAIN) &&
            lv_obj_get_height(a) == lv_obj_get_height(b);
+}
+
+/* ---- repeaters take no direct messages ----------------------------------- */
+
+/* By the node's advertised type, never its name: upstream MeshCore's
+ * repeater and sensor read text only from a logged-in admin, as a command. */
+static void repeater_session(void)
+{
+    static const enum pos_rotation shapes[2] = { POS_ROTATION_0, POS_ROTATION_270 };
+    int k;
+
+    {
+        struct rift_node n;
+
+        memset(&n, 0, sizeof(n));
+        check("a node of unknown type is not refused on a guess", rift_node_can_message(&n));
+        n.have_type = 1;
+        n.type = 1;
+        check("a chat node takes direct messages", rift_node_can_message(&n));
+        n.type = 3;
+        check("so does a room server", rift_node_can_message(&n));
+        n.type = 2;
+        check("a repeater does not, and says why",
+              !rift_node_can_message(&n) && strstr(rift_node_no_message_why(&n), "repeater"));
+        n.type = 4;
+        check("nor does a sensor", !rift_node_can_message(&n) &&
+                                       strstr(rift_node_no_message_why(&n), "sensor"));
+        snprintf(n.name, sizeof(n.name), "chat-repeater");
+        n.have_name = 1;
+        n.type = 1;
+        check("a name that says repeater does not make one", rift_node_can_message(&n));
+    }
+
+    for (k = 0; k < 2; k++) {
+        const char *tag = k ? "landscape" : "portrait";
+        char what[160];
+
+        use_display(shapes[k], PANEL_CORNER);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        give_messages();
+        rift_app_show_section(app, RIFT_SEC_NODES);
+        pump(80);
+
+        /* A repeater cannot be opened as a conversation, by any door. */
+        rift_app_open_conversation(app, KEY_D);
+        pump(60);
+        snprintf(what, sizeof(what), "%s: a repeater opens no conversation", tag);
+        check(what, app->section == RIFT_SEC_NODES &&
+                        !(app->have_conv && strcmp(app->conv, KEY_D) == 0));
+        rift_app_select(app, KEY_D);
+        pump(120);
+        if (!app->wide) {
+            snprintf(what, sizeof(what), "%s: its row offers DETAIL, not MESSAGE, and says why",
+                     tag);
+            check(what, find_exact(content(), "MESSAGE") == NULL &&
+                            find_exact(content(), "DETAIL \xE2\x80\xBA") != NULL &&
+                            find_text(content(), "A repeater takes no direct messages") != NULL);
+            rift_app_open_detail(app, 1);
+            pump(120);
+        } else {
+            pos_input_focus(app->keysink);
+            pos_input_push_key(LV_KEY_ENTER);
+            pump(120);
+            snprintf(what, sizeof(what), "%s: Enter on a repeater opens nothing", tag);
+            check(what, app->section == RIFT_SEC_NODES &&
+                            !(app->have_conv && strcmp(app->conv, KEY_D) == 0));
+            snprintf(what, sizeof(what), "%s: and the key hint offers no ENTER MESSAGE", tag);
+            check(what, find_text(app->cmd_hint, "ENTER MESSAGE") == NULL);
+        }
+        snprintf(what, sizeof(what), "%s: the detail has no MESSAGE", tag);
+        check(what, find_exact(content(), "MESSAGE") == NULL);
+        snprintf(what, sizeof(what), "%s: and says it is a repeater, and that control is not "
+                                     "available", tag);
+        check(what, find_text(content(), "TAKES NO DIRECT MESSAGES") != NULL &&
+                        find_text(content(), "CONTROL NOT AVAILABLE") != NULL);
+        snprintf(what, sizeof(what), "%s: it keeps its telemetry, path and node actions", tag);
+        check(what, find_text(content(), "RPT") != NULL && find_exact(content(), "RE-ROUTE") &&
+                        find_exact(content(), "FORGET") && find_text(content(), "7.5") != NULL);
+        snprintf(what, sizeof(what), "%s: its words fit their buttons", tag);
+        check(what, labels_overflowing(content()) == 0);
+        if (!app->wide) {
+            shot("portrait-repeater-detail");
+            rift_app_open_detail(app, 0);
+        } else {
+            shot("landscape-repeater-detail");
+        }
+
+        /* An ordinary chat node still can. */
+        rift_app_open_conversation(app, KEY_A);
+        pump(80);
+        snprintf(what, sizeof(what), "%s: a chat node still opens a conversation", tag);
+        check(what, app->section == RIFT_SEC_COMMS && app->have_conv &&
+                        strcmp(app->conv, KEY_A) == 0);
+
+        /* A thread that was open before its node's type was known: the
+         * composer refuses, and nothing is asked of the service. */
+        snprintf(app->conv, sizeof(app->conv), "%s", KEY_D);
+        app->have_conv = 1;
+        rift_app_refresh(app);
+        pump(80);
+        rift_comms_submit(app, "hei");
+        pump(80);
+        snprintf(what, sizeof(what), "%s: the composer refuses a repeater, in words", tag);
+        check(what, !rift_model_sending(&app->model) && app->model.outbox.failed &&
+                        strstr(app->model.outbox.error, "repeater takes no direct messages") &&
+                        find_text(content(), "repeater takes no direct messages") != NULL);
+        app_stop();
+    }
+    use_display(POS_ROTATION_0, PANEL_CORNER);
 }
 
 static void navigation_session(void)
@@ -4656,7 +4777,7 @@ int main(void)
         lv_obj_t *newest;
 
         give_long_thread();
-        rift_app_open_conversation(app, KEY_D);
+        rift_app_open_conversation(app, KEY_E);
         pump(120);
         newest = find_text(thread_pane(), "the newest line");
         if (!newest || !within(newest, ancestor(newest, 4)) ||
@@ -5110,7 +5231,7 @@ int main(void)
         rift_app_refresh(app);
         pump(60);
         check("with no conversation open the command line is not drawn", !visible(cmdline()));
-        rift_app_open_conversation(app, KEY_D);
+        rift_app_open_conversation(app, KEY_E);
         newest = find_text(thread_pane(), "the newest line");
         check("opening one draws the composer, and the newest message above it, in one pass",
               visible(cmdline()) && newest && within(newest, ancestor(newest, 4)));
@@ -5311,6 +5432,7 @@ int main(void)
     sender_session();
     find_session();
     net_session();
+    repeater_session();
     manage_session();
     manage_live_session();
     comms_usability_session();

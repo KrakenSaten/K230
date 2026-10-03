@@ -115,8 +115,15 @@ static void build_expansion(struct rift_node_row *r)
      * button that can never be pressed is width taken from the two that can. */
     bar = rift_node_row_line(r->expand, RIFT_TOUCH_H);
     lv_obj_set_style_pad_column(bar, 12, 0);
-    rift_action(bar, "MESSAGE", 1, 1, on_message, r);
+    r->exp_message = rift_action(bar, "MESSAGE", 1, 1, on_message, r);
     rift_action(bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, r);
+    r->exp_why = lv_label_create(r->expand);
+    lv_obj_remove_style_all(r->exp_why);
+    pos_style_add(r->exp_why, POS_STYLE_CAPTION, 0);
+    lv_obj_set_width(r->exp_why, LV_PCT(100));
+    lv_label_set_long_mode(r->exp_why, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(r->exp_why, "");
+    lv_obj_add_flag(r->exp_why, LV_OBJ_FLAG_HIDDEN);
 }
 
 void rift_node_row_drop_expansion(struct rift_node_row *r)
@@ -128,6 +135,8 @@ void rift_node_row_drop_expansion(struct rift_node_row *r)
         r->exp_state = NULL;
         r->exp_chain = NULL;
         r->exp_signal = NULL;
+        r->exp_message = NULL;
+        r->exp_why = NULL;
     }
 }
 
@@ -300,5 +309,15 @@ void rift_node_row_update(struct rift_node_row *r, const struct rift_node *n, in
                  rift_pulse_word(rift_pulse_of(now - n->heard_mono_ms, n->have_heard)),
                  n->observations);
         rift_label_set(r->exp_signal, text);
+        /* No MESSAGE for a node that takes none; the line under the bar
+         * says why, and DETAIL is still there. */
+        if (rift_node_can_message(n)) {
+            lv_obj_remove_flag(r->exp_message, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(r->exp_why, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(r->exp_message, LV_OBJ_FLAG_HIDDEN);
+            rift_label_set(r->exp_why, rift_node_no_message_why(n));
+            lv_obj_remove_flag(r->exp_why, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }

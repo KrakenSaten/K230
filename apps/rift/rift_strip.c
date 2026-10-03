@@ -323,7 +323,10 @@ void rift_tabs_paint_caption(struct rift_app *a)
         return;
     }
     if (a->section == RIFT_SEC_NODES) {
-        keys = "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP "ENTER MESSAGE" RIFT_SEP;
+        /* Enter writes to the selected node - unless it takes no messages. */
+        keys = rift_node_can_message(rift_app_selected(a))
+                   ? "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP "ENTER MESSAGE" RIFT_SEP
+                   : "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP;
     } else if (a->section == RIFT_SEC_COMMS && !rift_app_composer_live(a)) {
         keys = "\xE2\x86\x91\xE2\x86\x93 CHOOSE" RIFT_SEP;
     }

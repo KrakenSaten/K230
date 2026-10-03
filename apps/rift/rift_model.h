@@ -791,6 +791,21 @@ int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
  * Returns how many are kept. */
 #define RIFT_QUERY_MAX 40
 #define RIFT_NODE_TYPE_REPEATER 2
+#define RIFT_NODE_TYPE_SENSOR 4
+
+/* Whether a node takes a normal direct message, by its advertised type
+ * (MeshCore ADV_TYPE_*), never its name. Upstream MeshCore's repeater
+ * (examples/simple_repeater, onPeerDataRecv) and sensor (simple_sensor) read
+ * a text message only from a client logged in as admin, and then run it as a
+ * CLI command; from anyone else it is not even decrypted, and no ACK comes.
+ * So a repeater (2) and a sensor (4) are never offered a conversation and
+ * nothing is sent to one. A chat node (1) is; so is a room server (3),
+ * whose posts upstream also need a login - that is said in the thread, not
+ * refused here. A node whose type is not known yet is not refused on a
+ * guess. NULL is a node nobody has heard: not refused. */
+int rift_node_can_message(const struct rift_node *n);
+/* Why not, in a reader's words, or NULL when it can. */
+const char *rift_node_no_message_why(const struct rift_node *n);
 int rift_node_matches(const struct rift_node *n, const char *query);
 int rift_node_is_repeater(const struct rift_node *n);
 int rift_node_zero_hop(const struct rift_node *n);

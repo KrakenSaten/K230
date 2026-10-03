@@ -481,6 +481,13 @@ static void paint_path(struct rift_net_view *v, const struct rift_node *sel, int
         return;
     }
     lv_obj_remove_flag(v->path_bar, LV_OBJ_FLAG_HIDDEN);
+    /* No MESSAGE for a node that takes none (rift_model.h): a repeater keeps
+     * DETAIL, where it says why. */
+    if (rift_node_can_message(sel)) {
+        lv_obj_remove_flag(v->path_message, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(v->path_message, LV_OBJ_FLAG_HIDDEN);
+    }
     rift_fmt_label(sel, label, sizeof(label));
     rift_label_set(v->path_name, label);
     if (src == RIFT_NET_SOURCE_ROUTE) {

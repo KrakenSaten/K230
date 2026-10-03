@@ -332,6 +332,12 @@ void rift_app_open_conversation(struct rift_app *a, const char *key)
     if (!a || !key || !key[0]) {
         return;
     }
+    /* A node that takes no direct messages - a repeater, a sensor, by its
+     * advertised type - has no conversation to open (rift_model.h). Every
+     * MESSAGE and Enter comes through here, so none of them can open one. */
+    if (rift_key_is_channel(key) < 0 && !rift_node_can_message(rift_model_find(&a->model, key))) {
+        return;
+    }
     if (a->section != RIFT_SEC_COMMS) {
         rift_app_show_section(a, RIFT_SEC_COMMS);
     }
