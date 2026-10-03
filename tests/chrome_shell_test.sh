@@ -252,8 +252,10 @@ for rot in portrait landscape; do
     done
     check "$rot: the eight other apps open under the cluster and the sixteen fullscreen ones under NONE, faulting nothing ($n of 24)" \
         "$([ "$n" = 24 ] && echo 1 || echo 0)"
-    corner=30; [ $rot = landscape ] && corner=50
     for id in system timber; do
+        # Timber runs in portrait only (DS §53): asked for landscape, it opens
+        # in portrait, with portrait's corner.
+        corner=30; [ $rot = landscape ] && [ $id != timber ] && corner=50
         set -- $(pixels "$OUT/$r-$id.png")
         check "$rot $id: no full-width rule, the back corner from the top edge to row 70 and x $((corner + 70)) (got $1 $2 $3 $4)" \
             "$([ "$1" = -1 ] && [ "$2" = 0 ] && [ "$3" = $((corner + 70)) ] && [ "$4" = 70 ] && echo 1 || echo 0)"
@@ -312,18 +314,24 @@ cycles=0
 for id in system $FULLSCREEN $FULLSCREEN; do
     want='"policy":"cluster"'
     is_fullscreen "$id" && want='"policy":"none"'
-    "$POS" app start "$id" >/dev/null 2>&1; sleep 0.4
+    # Timber runs in portrait only (DS §53): in this landscape run opening it
+    # and leaving it each restart the shell, so give the turn its time.
+    turn=0; [ "$id" = timber ] && turn=0.8
+    "$POS" app start "$id" >/dev/null 2>&1; sleep 0.4; sleep $turn
     a=$(chrome_of)
-    "$POS" app home >/dev/null 2>&1; sleep 0.3
+    "$POS" app home >/dev/null 2>&1; sleep 0.3; sleep $turn
     b=$(chrome_of)
     [ "$a" = "$want" ] && [ "$b" = '"policy":"cluster"' ] && cycles=$((cycles + 1))
 done
 check "System, then each fullscreen app opened, closed and reopened: the cluster or NONE while open, the cluster at home, every time ($cycles of 33)" \
     "$([ "$cycles" = 33 ] && echo 1 || echo 0)"
-check "each opening and each return logged its chrome" \
-    "$([ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for system' "$POCKETOS_LOG_DIR/shell.log")" = 1 ] &&
-       [ "$(grep -c 'chrome: none, content from y 0, cluster hidden' "$POCKETOS_LOG_DIR/shell.log")" = 32 ] &&
-       [ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for home' "$POCKETOS_LOG_DIR/shell.log")" = 34 ] && echo 1 || echo 0)"
+# 34 returns home, plus the launcher's chrome at the start of each run the
+# two Timber visits restart into (into portrait, back to landscape): 38.
+c_sys=$(grep -c 'chrome: cluster, content from y 0, cluster shown, for system' "$POCKETOS_LOG_DIR/shell.log")
+c_none=$(grep -c 'chrome: none, content from y 0, cluster hidden' "$POCKETOS_LOG_DIR/shell.log")
+c_home=$(grep -c 'chrome: cluster, content from y 0, cluster shown, for home' "$POCKETOS_LOG_DIR/shell.log")
+check "each opening and each return logged its chrome ($c_sys $c_none $c_home)" \
+    "$([ "$c_sys" = 1 ] && [ "$c_none" = 32 ] && [ "$c_home" = 38 ] && echo 1 || echo 0)"
 # The lock over a fullscreen app: the lock lies under the cluster, so while
 # it is engaged the cluster comes back and the lock looks the same over
 # either; opened again, the app is fullscreen as it was.

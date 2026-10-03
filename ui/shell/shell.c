@@ -2,7 +2,9 @@
  * PocketOS shell: status bar, launcher and in-process app host (ADR-002).
  *
  * Options:
- *   --open <app-id>          open an app at start
+ *   --open <app-id>          open an app at start (a cold start: a restart
+ *                            to apply a rotation opens the app it was for,
+ *                            if any, and not this one again)
  *   --screenshot <file.png>  save the screen after the first tick
  *   --exit-after-ms <n>      quit after n milliseconds (headless testing)
  *   --rotation <mode>        automatic|portrait|landscape for this run only,
@@ -927,11 +929,33 @@ static void brightness_restore(void)
 #define RESUME_FOLDER_ENV "DOORS_LAUNCHER_FOLDER"
 #define RESUME_LOCKED "locked"
 #define RESUME_OPEN "open"
+/* And the app to open again, when the restart was an app's turn: one that
+ * runs in portrait only opened in landscape (it opens once the display has
+ * turned), or the app open as such an app closed. Any other restart comes
+ * back to the launcher, as it always did. */
+#define RESUME_APP_ENV "DOORS_SHELL_APP"
 /* LOCK_SETTING (lock_screen=0 starts the shell open) is with Power & Sleep. */
+
+/* An app's own turn (app.h `orientation`) has nothing to settle: the tap
+ * that opened or left the app is the whole of the change, so it is applied
+ * on the next timer pass. Still a timer, so that leaving such an app and
+ * opening it again inside one pass (a text size change re-creating it)
+ * cancels the turn instead of making it. */
+#define ROTATE_APP_MS 0
 
 static bool restart_pending;
 static lv_timer_t *rotate_timer;
 static char **shell_argv;
+/* The app the restart being applied is for (RESUME_APP_ENV): turn_app, one
+ * that runs in portrait only and waits for the display to turn before it is
+ * created; or, with app_turn, the app open when the restart goes. */
+static const struct pocketos_app *turn_app;
+static bool app_turn;
+/* The app this run was started for by such a restart. It never turns the
+ * display again in this run: if the display did not come back in portrait
+ * (a backend that could not open it there), the app opens as it is rather
+ * than asking for the same restart over and over. */
+static const struct pocketos_app *turned_for;
 
 _Static_assert((int)POCKETOS_ROTATION_AUTOMATIC == (int)ORIENTATION_AUTOMATIC &&
                    (int)POCKETOS_ROTATION_PORTRAIT == (int)ORIENTATION_PORTRAIT &&
@@ -976,6 +1000,11 @@ static void rotation_to_json(cJSON *o)
     cJSON_AddBoolToObject(o, "applying", now.applying);
     cJSON_AddStringToObject(o, "keyboard", kbd_presence_name(kbd_presence_get()));
     cJSON_AddBoolToObject(o, "bench_override", sh.display.bench_override);
+    if (sh.display.portrait_app) {
+        cJSON_AddStringToObject(o, "portrait_app", sh.display.portrait_app);
+    } else {
+        cJSON_AddNullToObject(o, "portrait_app");
+    }
 }
 
 static void rotate_settled(lv_timer_t *timer)
@@ -988,6 +1017,7 @@ static void rotate_settled(lv_timer_t *timer)
     if (next == sh.display.geometry.rotation) {
         LOG_INFO("display: rotation %d again before it was applied; the shell stays up",
                  pos_rotation_degrees(next));
+        app_turn = false;
         return;
     }
     restart_pending = true;
@@ -995,8 +1025,10 @@ static void rotate_settled(lv_timer_t *timer)
 
 /* Apply what the policy now says, unless it is already what this run is
  * showing. Every caller goes through here, so there is one settle window and
- * one restart however many times the mode or the keyboard changes inside it. */
-static void rotation_apply_soon(const char *why)
+ * one restart however many times the mode, the keyboard or the open app
+ * changes inside it. settle_ms: ROTATE_SETTLE_MS, or ROTATE_APP_MS for an
+ * app's own turn; a window already running is kept as it is. */
+static void rotation_apply_soon(const char *why, uint32_t settle_ms)
 {
     enum pos_rotation next = shell_display_next_rotation(&sh.display);
 
@@ -1010,19 +1042,49 @@ static void rotation_apply_soon(const char *why)
             LOG_INFO("display: %s puts the orientation back to rotation %d; nothing to apply", why,
                      pos_rotation_degrees(next));
         }
+        app_turn = false;
         return;
     }
     if (rotate_timer) {
         return;
     }
-    rotate_timer = lv_timer_create(rotate_settled, ROTATE_SETTLE_MS, NULL);
+    rotate_timer = lv_timer_create(rotate_settled, settle_ms, NULL);
     if (!rotate_timer) {
         LOG_WARN("display: no timer to apply rotation %d; it applies at the next start",
                  pos_rotation_degrees(next));
         return;
     }
     LOG_INFO("display: %s asks for rotation %d; applying it in %d ms", why, pos_rotation_degrees(next),
-             ROTATE_SETTLE_MS);
+             (int)settle_ms);
+}
+
+/* The open app's say in the orientation (app.h `orientation`): one that runs
+ * in portrait only holds the display there while it is open; anything else,
+ * or no app, gives the mode and the keyboard their say back. The stored mode
+ * is never written. Called as an app opens (with it) and as one closes (with
+ * NULL); a change of hold is applied at once, through the one path. */
+static void orientation_follow(const struct pocketos_app *app)
+{
+    const char *hold = app && app->orientation == POCKETOS_APP_ORIENTATION_PORTRAIT ? app->id : NULL;
+    const char *was = sh.display.portrait_app;
+    char why[64];
+
+    if (hold == was) {
+        return;
+    }
+    sh.display.portrait_app = hold;
+    if (stop_requested) {
+        return; /* the shell is stopping, not turning */
+    }
+    if (hold) {
+        snprintf(why, sizeof(why), "%s, which runs in portrait only,", hold);
+    } else {
+        snprintf(why, sizeof(why), "%s closing", was);
+    }
+    if (shell_display_next_rotation(&sh.display) != sh.display.geometry.rotation) {
+        app_turn = true;
+    }
+    rotation_apply_soon(why, ROTATE_APP_MS);
 }
 
 static void announce_rotation(void)
@@ -1054,7 +1116,7 @@ int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
     LOG_INFO("rotation mode %s stored: rotation %d", orientation_mode_name((enum orientation_mode)mode),
              pos_rotation_degrees(next));
     announce_rotation();
-    rotation_apply_soon("Settings");
+    rotation_apply_soon("Settings", ROTATE_SETTLE_MS);
     return 0;
 }
 
@@ -1071,7 +1133,7 @@ static void on_keyboard_presence(enum kbd_presence now, void *user)
              pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
     announce_rotation();
     snprintf(why, sizeof(why), "the keyboard being %s", kbd_presence_name(now));
-    rotation_apply_soon(why);
+    rotation_apply_soon(why, ROTATE_SETTLE_MS);
 }
 
 /* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
@@ -1284,15 +1346,19 @@ static void app_close(void)
     sh.app_root = NULL;
     pocketos_shell_set_status_hint("");
     announce_current();
+    orientation_follow(NULL);
 }
 
 static void open_requested(void *user);
 
 void pocketos_shell_go_home(void)
 {
-    /* Home is where this ends, whatever an app asked to open next. */
+    /* Home is where this ends, whatever an app asked to open next - and
+     * whatever app was waiting for the display to turn (app_turns_first). */
     lv_async_call_cancel(open_requested, NULL);
+    turn_app = NULL;
     app_close();
+    orientation_follow(NULL);
     /* The launcher's own chrome, whatever the app that just closed had. */
     chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
                  "home");
@@ -1453,6 +1519,35 @@ static void header_fit(lv_obj_t *header)
     }
 }
 
+/* An app that runs in portrait only (app.h `orientation`), opened while the
+ * display is not in portrait: the display turns first, by the shell's one
+ * restart in place, and the app is created in the run that comes back
+ * (RESUME_APP_ENV), so it is never laid out sideways. Until the restart goes,
+ * whatever was on screen stays. Returns true when that is what happens. */
+static bool app_turns_first(const struct pocketos_app *app)
+{
+    const char *was = sh.display.portrait_app;
+
+    if (app->orientation != POCKETOS_APP_ORIENTATION_PORTRAIT) {
+        return false;
+    }
+    sh.display.portrait_app = app->id;
+    if (shell_display_next_rotation(&sh.display) == sh.display.geometry.rotation) {
+        sh.display.portrait_app = was; /* already portrait: it opens here, as any app does */
+        return false;
+    }
+    if (app == turned_for) {
+        LOG_WARN("open app %s: the display turned for it once and is still at rotation %d; opening it as it is",
+                 app->id, pos_rotation_degrees(sh.display.geometry.rotation));
+        return false;
+    }
+    LOG_INFO("open app %s: it runs in portrait only; turning the display first", app->id);
+    turn_app = app;
+    app_turn = true;
+    rotation_apply_soon(app->id, ROTATE_APP_MS);
+    return true;
+}
+
 static void app_open(const struct pocketos_app *app)
 {
     lv_obj_t *header;
@@ -1463,7 +1558,15 @@ static void app_open(const struct pocketos_app *app)
     /* Whatever opens now is what was asked for last. */
     lv_async_call_cancel(open_requested, NULL);
     open_request[0] = '\0';
+    turn_app = NULL;
+    if (app_turns_first(app)) {
+        return;
+    }
     app_close();
+    /* The app opens in this run's orientation (app_turns_first saw to a
+     * portrait-only one), so this only holds the display where it is, or
+     * gives a hold the closed app had back to the mode. */
+    orientation_follow(app);
     lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
     /* The launcher is under the app now; its keys are the app's. */
     home_keys_detach();
@@ -3394,7 +3497,7 @@ static void on_tick(lv_timer_t *timer)
  * back open would defeat it. `locked` is the lock as the loop left it - a
  * door that was still opening counts as locked, so the owner swipes again
  * rather than finding it open. */
-static void restart_in_place(bool locked)
+static void restart_in_place(bool locked, const struct pocketos_app *resume_app)
 {
     char exe[PATH_MAX];
     ssize_t n;
@@ -3406,8 +3509,9 @@ static void restart_in_place(bool locked)
     } else {
         snprintf(exe, sizeof(exe), "%s", shell_argv[0]);
     }
-    LOG_INFO("display: restarting in place (%s) to open the display at rotation %d", exe,
-             pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
+    LOG_INFO("display: restarting in place (%s) to open the display at rotation %d%s%s", exe,
+             pos_rotation_degrees(shell_display_next_rotation(&sh.display)), resume_app ? ", with " : "",
+             resume_app ? resume_app->id : "");
     pocketlog_close();
     for (fd = 3; fd < 64; fd++) {
         close(fd);
@@ -3417,6 +3521,11 @@ static void restart_in_place(bool locked)
         setenv(RESUME_FOLDER_ENV, home_folder_current(), 1);
     } else {
         unsetenv(RESUME_FOLDER_ENV);
+    }
+    if (resume_app) {
+        setenv(RESUME_APP_ENV, resume_app->id, 1);
+    } else {
+        unsetenv(RESUME_APP_ENV);
     }
     execv(exe, shell_argv);
     pocketlog_init("shell");
@@ -3441,6 +3550,8 @@ int main(int argc, char **argv)
     char resume_folder[32] = "";
     long exit_after_ms = -1;
     const char *audit_path = NULL;
+    const struct pocketos_app *start_app = NULL;
+    const struct pocketos_app *resume_app = NULL;
     int loaded;
     lv_display_t *disp;
     lv_obj_t *screen;
@@ -3506,6 +3617,29 @@ int main(int argc, char **argv)
         }
         unsetenv(RESUME_FOLDER_ENV);
     }
+    /* And the app this run opens with. A continuation decides that too: the
+     * app its restart was for (RESUME_APP_ENV), or none - never --open
+     * again, which the restart's argv still carries, so that leaving an app
+     * that turned the display cannot open it again from the command line.
+     * An app that runs in portrait only is part of the orientation decision
+     * below, so it is created once, in portrait. */
+    {
+        const char *ra = getenv(RESUME_APP_ENV);
+
+        if (resumed) {
+            start_app = ra ? find_app(ra) : NULL;
+            turned_for = start_app;
+            if (ra && !start_app) {
+                LOG_WARN("resume: no app %.32s in this build; back on the launcher", ra);
+            }
+        } else if (open_id) {
+            start_app = find_app(open_id);
+            if (!start_app) {
+                LOG_WARN("unknown app %s", open_id);
+            }
+        }
+        unsetenv(RESUME_APP_ENV);
+    }
     /* The settings come first: the orientation is decided from them before
      * the display exists, because the display is rotated when it is opened.
      * The keyboard is probed in the same breath and for the same reason -
@@ -3517,7 +3651,10 @@ int main(int argc, char **argv)
      * the stored zone (tz_zones.h). */
     timezone_restore();
     shell_kbd_probe();
-    shell_display_resolve(rotation_arg, &sh.display);
+    shell_display_resolve(rotation_arg,
+                          start_app && start_app->orientation == POCKETOS_APP_ORIENTATION_PORTRAIT ? start_app->id
+                                                                                                   : NULL,
+                          &sh.display);
     kbd_presence_set_listener(on_keyboard_presence, NULL);
     lv_init();
     disp = pocketos_platform_init(&sh.display.panel, &sh.display.geometry);
@@ -3687,26 +3824,22 @@ int main(int argc, char **argv)
         break;
     }
 
-    if (open_id) {
-        size_t k;
-
-        for (k = 0; k < APP_COUNT; k++) {
-            if (strcmp(apps[k]->id, open_id) == 0) {
-                app_open(apps[k]);
-            }
+    /* Back in the folder that was open when the shell turned round - under
+     * the app the restart was for, when it was for one, so that leaving the
+     * app comes back to the page it was opened from. */
+    if (resume_folder[0] && !start_controls) {
+        if (home_folder_open(resume_folder)) {
+            LOG_INFO("launcher: folder %s open again after the restart", resume_folder);
         }
-        if (!sh.app) {
-            LOG_WARN("unknown app %s", open_id);
+    }
+    if (start_app) {
+        app_open(start_app);
+        if (resumed) {
+            LOG_INFO("open app %s again after the restart", start_app->id);
         }
     }
     if (start_controls && !sh.app) {
         controls_open();
-    }
-    /* Back in the folder that was open when the shell turned round. */
-    if (resume_folder[0] && !sh.app && !controls_visible()) {
-        if (home_folder_open(resume_folder)) {
-            LOG_INFO("launcher: folder %s open again after the restart", resume_folder);
-        }
     }
     /* A continuation decides before the arguments do: the restart keeps the
      * argv, so a shell started with --no-lock or --open and locked since is
@@ -3766,6 +3899,10 @@ int main(int argc, char **argv)
         }
         if (restart_pending) {
             restart_locked = shell_lock_is_locked();
+            /* An app's turn comes back in its app: the one waiting to be
+             * created in portrait, or the one open as a portrait-only app
+             * closed. Taken before the open app is closed below. */
+            resume_app = turn_app ? turn_app : app_turn ? sh.app : NULL;
             break;
         }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
@@ -3817,7 +3954,11 @@ int main(int argc, char **argv)
     pocketipc_server_free(sh.server);
     shell_ipc_shutdown();
     if (restart_pending) {
-        restart_in_place(restart_locked); /* returns only when the exec failed */
+        /* What the next run opens at, for the log line: closing the app
+         * above gave up any hold it had. */
+        sh.display.portrait_app =
+            resume_app && resume_app->orientation == POCKETOS_APP_ORIENTATION_PORTRAIT ? resume_app->id : NULL;
+        restart_in_place(restart_locked, resume_app); /* returns only when the exec failed */
         return 1;
     }
     pocketlog_close();

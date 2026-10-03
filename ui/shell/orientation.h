@@ -45,4 +45,9 @@ enum orientation_mode orientation_mode_from_setting(const char *stored, bool *va
 /* The one decision. */
 enum pos_rotation orientation_resolve(enum orientation_mode m, enum kbd_presence keyboard);
 
+/* And what an open app that runs in portrait only (app.h `orientation`)
+ * makes of it: portrait while it holds, the decision above otherwise. A hold
+ * does not change the mode; it only sets it aside until the app closes. */
+enum pos_rotation orientation_hold(enum pos_rotation resolved, bool portrait_only);
+
 #endif

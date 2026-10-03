@@ -169,13 +169,17 @@ wake it.
   settle window) it re-executes itself in place, keeping its pid, and comes
   back on the launcher. Result: `{rotation_mode, rotation_mode_valid,
   rotation, orientation, next_rotation, next_orientation, applying, keyboard,
-  bench_override}`: `rotation`/`orientation` are this run (degrees,
-  `portrait`/`landscape`), `next_*` what the stored mode gives with the
-  keyboard as it is now, `applying` whether those differ and the shell is
-  therefore about to restart itself, `keyboard` `unknown`/`absent`/`present`
-  (`ui/shell/shell_kbd.c` probes the keyboard base at start-up and watches for
-  one being attached or removed), and `bench_override` whether
-  `POCKETOS_DRM_ROTATION` decided instead. Any other `mode` is error 2;
+  bench_override, portrait_app}`: `rotation`/`orientation` are this run
+  (degrees, `portrait`/`landscape`), `next_*` what the stored mode (or the
+  `--rotation` one in a run given it, which every restart keeps) gives with
+  the keyboard as it is now and the open app's hold, `applying` whether those
+  differ and the shell is therefore about to restart itself, `keyboard`
+  `unknown`/`absent`/`present` (`ui/shell/shell_kbd.c` probes the keyboard
+  base at start-up and watches for one being attached or removed),
+  `bench_override` whether `POCKETOS_DRM_ROTATION` decided instead, and
+  `portrait_app` the id of the open app that runs in portrait only and holds
+  the display there (DS §53; `timber`), or null. While an app holds it, a
+  stored mode waits until the app closes. Any other `mode` is error 2;
   error 4 when it could not be stored. `pos call shell shell.rotation
   mode=landscape`.
 
