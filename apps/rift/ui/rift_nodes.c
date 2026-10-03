@@ -608,7 +608,7 @@ static void paint_note(struct rift_nodes *v, int count, int held)
                                             : "No node has adverted since this service "
                                               "started.");
     } else if (turned_away > 0) {
-        /* MeshCore's contact table is fixed (256) and keeps no more; a node it had
+        /* MeshCore's contact table is fixed (1000) and keeps no more; a node it had
          * no room for is one nobody can be asked about or written to, and a
          * quiet list would not say so (docs/api/mesh.md). Forgetting a node
          * on its DETAIL is what makes room. Counted from the last node this

@@ -76,8 +76,8 @@
  * anything past the bound is counted, not kept. It was held at 64 while the
  * NODES list built a row per cached node; the list builds rows only for
  * what is on screen (ui/rift_nodes.c), so the cache is sized for the mesh
- * rather than the screen: 1000, which is more than the service holds today
- * (256, MCD_MAX_NODES) and what a Norwegian-scale mesh may reach. A node
+ * rather than the screen: 1000, which is what the service holds
+ * (MCD_MAX_NODES) and what a Norwegian-scale mesh may reach. A node
  * is about 830 bytes, so this is about 830 KB of the shell's heap, measured
  * on the host by tests/rift_app_test.c (docs/apps/RIFT.md, Scale). */
 #define RIFT_MAX_NODES 1000

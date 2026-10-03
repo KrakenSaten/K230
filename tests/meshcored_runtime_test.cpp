@@ -1298,7 +1298,7 @@ static void test_restart(Node& a, Air& air)
 
 /* ---- the contact table, full -------------------------------------------
  *
- * MeshCore's table holds MAX_CONTACTS (256) contacts. Once it is full, allocateContactSlot()
+ * MeshCore's table holds MAX_CONTACTS (1000) contacts. Once it is full, allocateContactSlot()
  * returns NULL and BaseChatMesh reports the discovery anyway, with a
  * ContactInfo on its own stack, purely so a UI can say "somebody adverted and
  * I could not keep them". It is not in the table and it is gone the moment
@@ -1479,7 +1479,7 @@ static void test_full_contact_table(void)
     int len;
     bool ids_ok = true;
 
-    check("the table is 256, not upstream's 32", TABLE == 256 && TABLE == MCD_MAX_NODES);
+    check("the table is 1000, not upstream's 32", TABLE == 1000 && TABLE == MCD_MAX_NODES);
     check("an identity for the crowded node", mcdstore::identityCreate(self, store_err));
     check("the crowded node starts", makeNode(n, air, "CROWD", &self));
     if (!n.rt) {
@@ -1503,12 +1503,12 @@ static void test_full_contact_table(void)
         pumpUntil(air, [&] { return mcd_runtime_node_count(n.rt) == i + 1; });
         if (i == TABLE - 2) {
             mcd_runtime_stats(n.rt, &st);
-            check("255 nodes are held", mcd_runtime_node_count(n.rt) == TABLE - 1);
+            check("999 nodes are held", mcd_runtime_node_count(n.rt) == TABLE - 1);
             check("with nothing turned away yet", st.nodes_unretained == 0 && st.contacts_full == 0);
         }
     }
     mcd_runtime_stats(n.rt, &st);
-    check("the 256th is kept: the table fills to its limit", mcd_runtime_node_count(n.rt) == TABLE);
+    check("the 1000th is kept: the table fills to its limit", mcd_runtime_node_count(n.rt) == TABLE);
     check("and nothing was turned away to get there",
           st.nodes_unretained == 0 && st.contacts_full == 0);
     check("and every one of them raised a discovery", n.node_discovered == TABLE);
@@ -1529,7 +1529,7 @@ static void test_full_contact_table(void)
     mcd_runtime_stats(n.rt, &st);
     uint64_t unretained_before = st.nodes_unretained;
 
-    /* The 257th, on its own first: turned away, counted, and nowhere. */
+    /* The 1001st, on its own first: turned away, counted, and nowhere. */
     {
         uint64_t full_before = st.contacts_full;
 
@@ -1543,15 +1543,15 @@ static void test_full_contact_table(void)
             return s.nodes_unretained > unretained_before;
         });
         mcd_runtime_stats(n.rt, &st);
-        check("the 257th is turned away and counted",
+        check("the 1001st is turned away and counted",
               st.nodes_unretained == unretained_before + 1 && st.contacts_full == full_before + 1);
-        check("the table still holds 256", mcd_runtime_node_count(n.rt) == TABLE);
-        check("and the 257th cannot be looked up",
+        check("the table still holds 1000", mcd_runtime_node_count(n.rt) == TABLE);
+        check("and the 1001st cannot be looked up",
               mcd_runtime_node_by_prefix(n.rt, peers[TABLE].pub_key, 8, NULL) == 0);
         unretained_before = st.nodes_unretained;
     }
 
-    /* Now node 257 and onwards, repeatedly - the case that used to churn. */
+    /* Now node 1001 and onwards, repeatedly - the case that used to churn. */
     for (int round = 0; round < 3; round++) {
         for (int i = 0; i < EXTRA; i++) {
             char name[16];
@@ -1684,7 +1684,7 @@ static void test_full_contact_table(void)
 
     /* ---- a full table across a restart ----
      *
-     * All 256 written, all 256 read back - none lost to a limit on either
+     * All 1000 written, all 1000 read back - none lost to a limit on either
      * side of the file - and the table is still full afterwards, so the next
      * stranger is turned away exactly as before. */
     {
@@ -1718,7 +1718,7 @@ static void test_full_contact_table(void)
         }
         air.nodes[n.index] = &n;
         mcd_runtime_set_radio_online(n.rt, true);
-        check("with all 256 nodes", mcd_runtime_node_count(n.rt) == TABLE);
+        check("with all 1000 nodes", mcd_runtime_node_count(n.rt) == TABLE);
         for (int i = 0; i < held; i++) {
             if (mcd_runtime_node_by_prefix(n.rt, keys[i], PUB_KEY_SIZE, NULL) != 1) {
                 all_back = false;
@@ -1747,8 +1747,9 @@ static void test_full_contact_table(void)
 
 /* ---- mesh.nodes: most recently heard first ------------------------------
  *
- * The service holds 256 nodes and RIFT keeps 64, so the order mesh.nodes
- * lists them in decides which 64 a client keeps. Nodes heard during this run
+ * The service holds 1000 nodes and a client may keep fewer (Fleet keeps 64),
+ * so the order mesh.nodes lists them in decides which ones a client keeps.
+ * Nodes heard during this run
  * come first, newest first; after a restart nothing has been heard yet, and
  * the stored last-updated time (MeshCore's lastmod) is what orders them. */
 static void test_nodes_newest_first(void)

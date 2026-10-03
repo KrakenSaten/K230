@@ -1419,6 +1419,117 @@ ok("the node state is 0600", (os.stat(st_path).st_mode & 0o777) == 0o600)
 ok("and the directory is 0700", (os.stat(svc_b.state_dir).st_mode & 0o777) == 0o700)
 
 # ---------------------------------------------------------------------------
+# 8b. a full table of 1000 over the socket
+#
+# The node table holds MAX_CONTACTS (1000). A third service starts on a
+# state.v1 of 1000 nodes, each as long as a node can be on the wire: a
+# 31-byte name of bytes the sanitiser turns into three each, a 64-byte
+# path, the largest advert timestamp. mesh.nodes must list them all in one
+# frame inside pocketipc's limit with room left for the readings a node
+# heard during the run adds, and must reach a client that drains its
+# socket every 100 ms, as RIFT does (RIFT_POLL_MS).
+# ---------------------------------------------------------------------------
+FULL = 1000
+FRAME_MAX = 1 << 20          # POCKETIPC_MAX_FRAME
+
+
+def full_record(i):
+    key = bytes([i >> 8, i & 0xff]) + bytes((0x5a + k) & 0xff for k in range(30))
+    name = b"\xff" * 31 + b"\0"
+    rec = key + name + bytes([1, 0, (1 << 6) | 32, 0]) + bytes(range(64))
+    rec += struct.pack("<IIii", 0xFFFFFFFF, 1000 + i, -123456, 654321)
+    return rec
+
+
+svc_full = Service("meshcored-full", "harness-c")
+radio_c = MockRadiod(os.path.join(ROOT, "run", "harness-c.sock"), "c", air)
+radio_c.bridge = False
+radio_c.open()
+radio_c.start()
+os.makedirs(svc_full.state_dir, mode=0o700, exist_ok=True)
+state_full = (b"MCDS" + struct.pack("<HH", 1, 0) + b"MESHCORED-FULL".ljust(32, b"\0")
+              + struct.pack("<HH", FULL, 0) + b"".join(full_record(i) for i in range(FULL)))
+with open(os.path.join(svc_full.state_dir, "state.v1"), "wb") as f:
+    f.write(state_full)
+os.chmod(os.path.join(svc_full.state_dir, "state.v1"), 0o600)
+ok("a state.v1 of 1000 nodes is 148,044 bytes", len(state_full) == 148044, len(state_full))
+ok("the full service starts on it", svc_full.start())
+cf = Conn(svc_full.sock)
+
+
+def raw_call(conn, method):
+    """One request; the reply's frame length and the reply."""
+    body = json.dumps({"id": 9000, "method": method}).encode()
+    conn.s.sendall(struct.pack(">I", len(body)) + body)
+    while True:
+        while len(conn.buf) < 4 or len(conn.buf) < 4 + struct.unpack(">I", conn.buf[:4])[0]:
+            chunk = conn.s.recv(65536)
+            if not chunk:
+                return None, None
+            conn.buf += chunk
+        n = struct.unpack(">I", conn.buf[:4])[0]
+        msg = json.loads(conn.buf[4:4 + n])
+        conn.buf = conn.buf[4 + n:]
+        if msg.get("id") == 9000:
+            return n, msg
+
+
+size_full, reply = raw_call(cf, "mesh.nodes")
+nodes_full = reply["result"]["nodes"] if reply and "result" in reply else []
+ok("mesh.nodes lists all 1000", reply is not None and reply["result"]["count"] == FULL
+   and len(nodes_full) == FULL, None if reply is None else reply.get("result", {}).get("count"))
+ok("every one of them a node of its own",
+   len(set(nd["public_key"] for nd in nodes_full)) == FULL)
+ok("with its 64-byte path and its name made safe",
+   all(len(nd.get("path_hex", "")) == 128 and nd["name"] == "�" * 31
+       for nd in nodes_full))
+# What a node heard during the run adds, each at its longest.
+heard_extra = len(',"last_heard_mono_ms":9007199254740992'
+                  ',"last_snr_db":-1.2345678901234567e-300'
+                  ',"last_rssi_dbm":-1.2345678901234567e-300'
+                  ',"advert_hops":63,"advert_mono_ms":9007199254740992')
+print("info mesh.nodes at 1000: %d bytes, %d with every reading at its longest; limit %d"
+      % (size_full or 0, (size_full or 0) + FULL * heard_extra, FRAME_MAX))
+ok("in one frame inside pocketipc's limit",
+   size_full is not None and size_full < FRAME_MAX, size_full)
+ok("with room for every node's readings as well",
+   size_full is not None and size_full + FULL * heard_extra < FRAME_MAX, size_full)
+
+# RIFT's cadence: a non-blocking socket drained every 100 ms.
+slow = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+slow.connect(svc_full.sock)
+body = json.dumps({"id": 1, "method": "mesh.nodes"}).encode()
+slow.sendall(struct.pack(">I", len(body)) + body)
+slow.setblocking(False)
+got = b""
+closed = False
+deadline = time.monotonic() + 10
+while time.monotonic() < deadline:
+    time.sleep(0.1)
+    while True:
+        try:
+            chunk = slow.recv(4096)
+        except BlockingIOError:
+            break
+        if not chunk:
+            closed = True
+            break
+        got += chunk
+    if closed or (len(got) >= 4 and len(got) >= 4 + struct.unpack(">I", got[:4])[0]):
+        break
+slow.close()
+ok("and reaches a client that drains it every 100 ms",
+   not closed and len(got) >= 4 and len(got) == 4 + struct.unpack(">I", got[:4])[0],
+   "closed" if closed else len(got))
+
+cf.close()
+rc_full = svc_full.stop()
+ok("the full service stops cleanly", rc_full == 0, rc_full)
+ok("and its state.v1 still holds 1000",
+   os.path.getsize(os.path.join(svc_full.state_dir, "state.v1")) == 148044)
+radio_c.stop()
+
+# ---------------------------------------------------------------------------
 # 9. shutdown
 # ---------------------------------------------------------------------------
 ca.close()
@@ -1430,7 +1541,7 @@ ok("B stops cleanly", rc_b == 0, rc_b)
 radio_a.stop()
 radio_b.stop()
 
-for svc in (svc_a, svc_b):
+for svc in (svc_a, svc_b, svc_full):
     with open(svc.log, "rb") as f:
         text = f.read().decode("utf-8", "replace")
     ok(svc.name + " logged no ERROR", " ERROR " not in text,

@@ -175,7 +175,7 @@ they count what radiod said, not what MeshCore believes.
 | `lease_acquired` / `lease_refused` / `lease_lost` | |
 | `sent_flood` / `sent_direct` / `recv_flood` / `recv_direct` | the MeshCore dispatcher's own |
 | `path_payloads_refused` | see "The PATH guard" in docs/services/MESHCORED.md |
-| `nodes_unretained` | adverts from nodes the 256-slot contact table had no room for |
+| `nodes_unretained` | adverts from nodes the 1000-slot contact table had no room for |
 | `contacts_full` | how often MeshCore reported the table full |
 | `app_rx` / `app_tx` / `app_receipts` | app datagrams received, sent, and flood receipts answered (see "App datagrams") |
 
@@ -264,7 +264,7 @@ rather than read as a size somebody may not have meant.
 
 Result: `nodes` (array), `count`.
 
-At most 256 nodes, **most recently heard first**: the nodes heard since the
+At most 1000 nodes, **most recently heard first**: the nodes heard since the
 service started, newest `last_heard_mono_ms` first; then the ones not heard
 since it started, newest first by when MeshCore last updated the contact
 (kept in the service's state across a restart); ties in table order. A
@@ -329,7 +329,7 @@ transmitted.
 It is the node's entry that goes, not the node: it is **added back the next
 time it adverts**. Until then a message to it is refused (error 2, no single
 node matches) because there is no contact to encrypt to. MeshCore's table
-holds 256 and evicts nothing on its own, so this is what makes room when
+holds 1000 and evicts nothing on its own, so this is what makes room when
 `nodes_unretained` says adverts are being turned away. A message already
 waiting for its ACK keeps waiting.
 
@@ -763,7 +763,7 @@ destroy that. The node still runs; it simply starts empty again next time.
 
 ## Nodes the table had no room for
 
-MeshCore's contact table holds 256 on this port (upstream's default is 32;
+MeshCore's contact table holds 1000 on this port (upstream's default is 32;
 `protocols/meshcore/compat/mc_contacts.h`). Once it is full an advert from a new node
 is reported to the service anyway, with a contact MeshCore is about to throw
 away, so that a UI can say "somebody adverted and I could not keep them".

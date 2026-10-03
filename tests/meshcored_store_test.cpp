@@ -308,10 +308,10 @@ static void test_state_round_trip(void)
 
 /* ---- the node limit, at its edge -----------------------------------------
  *
- * state.v1 carries every contact MeshCore's table can hold, 256. A full table
- * must come back whole and in order, and a well-formed file one node longer -
- * which only a build with a bigger table could have written - must be refused
- * by its count rather than read as far as fits. */
+ * state.v1 carries every contact MeshCore's table can hold, 1000. A full
+ * table must come back whole and in order, and a well-formed file one node
+ * longer - which only a build with a bigger table could have written - must
+ * be refused by its count rather than read as far as fits. */
 static void test_state_capacity(void)
 {
     mcdstore::NodeState* out = new mcdstore::NodeState();
@@ -320,25 +320,29 @@ static void test_state_capacity(void)
     const size_t full = 44 + 148 * (size_t)limit;
     uint8_t* raw = (uint8_t*)malloc(full + 148);
 
-    check("the persisted limit is MeshCore's table, 256",
-          limit == 256 && limit == MAX_CONTACTS);
+    check("the persisted limit is MeshCore's table, 1000",
+          limit == 1000 && limit == MAX_CONTACTS);
+    check("and a full state.v1 is 148,044 bytes", full == 148044);
     snprintf(out->name, sizeof(out->name), "K230-A");
     for (int i = 0; i < limit; i++) {
         char name[16];
 
         snprintf(name, sizeof(name), "N%03d", i);
-        out->nodes[i] = makeNode((uint8_t)i, name, 0);  /* distinct first bytes */
+        out->nodes[i] = makeNode((uint8_t)i, name, 0);
+        /* The first byte repeats past 256; the second keeps every key its
+         * own, which the loader insists on. */
+        out->nodes[i].id.pub_key[1] = (uint8_t)(i >> 8);
     }
 
     out->count = limit - 1;
-    check("255 nodes save", mcdstore::stateSave(*out, g_dir, g_err));
-    check("255 nodes load as 255",
+    check("999 nodes save", mcdstore::stateSave(*out, g_dir, g_err));
+    check("999 nodes load as 999",
           mcdstore::stateLoad(*in, g_dir, g_err) == 1 && in->count == limit - 1);
 
     out->count = limit;
-    check("256 nodes save", mcdstore::stateSave(*out, g_dir, g_err));
-    check("as exactly 256 records", fileSize("state.v1") == (long)full);
-    check("256 nodes load as 256",
+    check("1000 nodes save", mcdstore::stateSave(*out, g_dir, g_err));
+    check("as exactly 1000 records", fileSize("state.v1") == (long)full);
+    check("1000 nodes load as 1000",
           mcdstore::stateLoad(*in, g_dir, g_err) == 1 && in->count == limit);
     {
         bool same = true;
@@ -353,7 +357,7 @@ static void test_state_capacity(void)
         check("every one of them, in order", same);
     }
 
-    /* 257: the full file plus one well-formed record with a key of its own,
+    /* 1001: the full file plus one well-formed record with a key of its own,
      * and a count that says so. */
     {
         char p[512];
@@ -370,15 +374,15 @@ static void test_state_capacity(void)
         if (read_ok) {
             memcpy(&raw[full], &raw[44], 148);
             raw[full + 1] = 0xEE;  /* no other key starts 00 EE */
-            raw[40] = 0x01;        /* 257 */
-            raw[41] = 0x01;
+            raw[40] = (uint8_t)((limit + 1) & 0xff);  /* 1001 */
+            raw[41] = (uint8_t)((limit + 1) >> 8);
             writeRaw("state.v1", raw, full + 148, 0600);
-            check("a well-formed file of 257 nodes is refused",
+            check("a well-formed file of 1001 nodes is refused",
                   mcdstore::stateLoad(*in, g_dir, g_err) == -1);
-            /* Before its count is even read: the file is longer than 256
-             * records can be. A count of 257 in a short file is refused by
+            /* Before its count is even read: the file is longer than 1000
+             * records can be. A count of 1001 in a short file is refused by
              * the count itself - see test_state_corruption. */
-            check("as longer than 256 nodes can be", strstr(g_err, "longer than") != NULL);
+            check("as longer than 1000 nodes can be", strstr(g_err, "longer than") != NULL);
         }
     }
     removeFile("state.v1");
@@ -450,8 +454,9 @@ static void test_state_corruption(void)
         uint8_t bad[44 + 148];
 
         memcpy(bad, buf, sizeof(bad));
-        bad[40] = 0x01;  /* 257, little-endian: one more than the limit */
-        bad[41] = 0x01;
+        /* One more than the limit, little-endian. */
+        bad[40] = (uint8_t)((mcdstore::MAX_NODES + 1) & 0xff);
+        bad[41] = (uint8_t)((mcdstore::MAX_NODES + 1) >> 8);
         writeRaw("state.v1", bad, sizeof(bad), 0600);
         check("a count beyond the node limit is refused",
               mcdstore::stateLoad(in, g_dir, g_err) == -1);
