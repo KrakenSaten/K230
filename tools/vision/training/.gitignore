@@ -1,0 +1,2 @@
+__pycache__/
+# Datasets, runs and environments live in a work directory outside git.

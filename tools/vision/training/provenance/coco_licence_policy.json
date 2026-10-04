@@ -1,0 +1,22 @@
+{
+  "comment": "Per-image licence policy for COCO 2017 images. Matched on the licence URL in the 'licenses' table of instances_*2017.json (never on the numeric id). 'allow' = used by default; 'review' = only with --allow-review after an owner decision; 'exclude' = never. An URL not listed here is excluded and reported. Rationale: docs/vision/DATASET_PROVENANCE.md section 3.",
+  "policy_version": 1,
+  "licences": [
+    {"url": "http://creativecommons.org/licenses/by/2.0/", "name": "CC BY 2.0", "tier": "allow",
+     "reason": "Commercial use and adaptation permitted; attribution required if the work or an adaptation is shared."},
+    {"url": "http://flickr.com/commons/usage/", "name": "No known copyright restrictions (Flickr Commons)", "tier": "allow",
+     "reason": "Institution states no known copyright restrictions; not a licence grant, keep the source link."},
+    {"url": "http://www.usa.gov/copyright.shtml", "name": "United States Government Work", "tier": "allow",
+     "reason": "US federal works are not subject to US copyright; status outside the US can differ."},
+    {"url": "http://creativecommons.org/licenses/by-sa/2.0/", "name": "CC BY-SA 2.0", "tier": "review",
+     "reason": "If trained weights were held to be an adaptation, share-alike would require CC BY-SA for them; unsettled."},
+    {"url": "http://creativecommons.org/licenses/by-nd/2.0/", "name": "CC BY-ND 2.0", "tier": "exclude",
+     "reason": "No derivatives; whether training creates one is unsettled, so excluded."},
+    {"url": "http://creativecommons.org/licenses/by-nc/2.0/", "name": "CC BY-NC 2.0", "tier": "exclude",
+     "reason": "Non-commercial only; DOORS may be distributed commercially."},
+    {"url": "http://creativecommons.org/licenses/by-nc-sa/2.0/", "name": "CC BY-NC-SA 2.0", "tier": "exclude",
+     "reason": "Non-commercial only."},
+    {"url": "http://creativecommons.org/licenses/by-nc-nd/2.0/", "name": "CC BY-NC-ND 2.0", "tier": "exclude",
+     "reason": "Non-commercial, no derivatives."}
+  ]
+}

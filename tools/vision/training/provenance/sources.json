@@ -1,0 +1,122 @@
+{
+  "format": "doors-training-provenance-v1",
+  "updated": "2026-10-04",
+  "note": "Machine-readable companion of docs/vision/DATASET_PROVENANCE.md. 'status': approved = used by the pipeline today; planned = needs an owner decision or download approval first; excluded = not to be used. Evidence: VERIFIED = read from the primary source on the date; DOCUMENTED = secondary source; ASSUMED = not verified. This is an engineering record, not legal advice.",
+  "sources": [
+    {
+      "id": "yolox-code",
+      "kind": "training code",
+      "source": "https://github.com/Megvii-BaseDetection/YOLOX",
+      "pin": "6ddff4824372906469a7fae2dc3206c7aa4bbaee (main, 2025-06-08)",
+      "licence": "Apache-2.0 (LICENSE file at the pin)",
+      "evidence": "VERIFIED",
+      "training_use": "yes",
+      "attribution": "Apache-2.0 copy + NOTICE line naming YOLOX (Megvii) when the derived model ships",
+      "redistribution": "Apache-2.0; the trained weights are produced by the code, they are not a copy of it",
+      "uncertainty": "none material; GPL-3.0 augmentation code was removed upstream in 2021 (#765, PR #781), long before the pin",
+      "status": "approved"
+    },
+    {
+      "id": "yolox-pretrained-checkpoints",
+      "kind": "pretrained weights",
+      "source": "https://github.com/Megvii-BaseDetection/YOLOX/releases (0.1.1rc0 yolox_tiny.pth, yolox_nano.pth)",
+      "licence": "not stated (issue #1865 unanswered)",
+      "evidence": "VERIFIED (2026-10-04 evaluation)",
+      "training_use": "NOT USED - no initialisation from them",
+      "status": "excluded"
+    },
+    {
+      "id": "imagenet-backbones",
+      "kind": "pretrained weights",
+      "source": "any ImageNet-pretrained backbone (torchvision, timm, OpenMMLab)",
+      "licence": "ImageNet terms restrict use to non-commercial research; weights carry unclear dataset-derived terms",
+      "evidence": "DOCUMENTED",
+      "training_use": "NOT USED - YOLOX trains from scratch (YOLOX paper, arXiv 2107.08430)",
+      "status": "excluded"
+    },
+    {
+      "id": "coco2017-annotations",
+      "kind": "annotations",
+      "source": "http://images.cocodataset.org/annotations/annotations_trainval2017.zip",
+      "sha256": {
+        "annotations_trainval2017.zip": "113a836d90195ee1f884e704da6304dfaaecff1f023f49b6ca93c4aaae470268",
+        "instances_train2017.json": "610fce4944abdeb15354cc765333805529359d12d88f2f711393ca586901d01d",
+        "instances_val2017.json": "e8c7f7908f1d7278341fae127d0da654f102f11bd7b21d8aeefa635b8c810b6f"
+      },
+      "licence": "CC BY 4.0 (COCO Consortium), https://cocodataset.org/#termsofuse",
+      "evidence": "VERIFIED 2026-10-04 (terms page read)",
+      "training_use": "yes",
+      "attribution": "credit the COCO Consortium, link CC BY 4.0, state that the annotations were filtered and relabelled",
+      "redistribution": "we redistribute only the model, not the annotations; attribution kept in MODEL_LICENSES anyway",
+      "uncertainty": "low",
+      "status": "approved"
+    },
+    {
+      "id": "coco2017-images-tierA",
+      "kind": "images",
+      "source": "COCO train2017/val2017 images whose per-image licence is CC BY 2.0 or 'No known copyright restrictions'",
+      "licence": "per image, from the 'licenses' table of the annotation file; policy provenance/coco_licence_policy.json",
+      "terms_note": "COCO terms: 'The COCO Consortium does not own the copyright of the images. Use of the images must abide by the Flickr Terms of Use. The users of the images accept full responsibility for the use of the dataset'",
+      "evidence": "VERIFIED (terms page and the per-image licence field, 2026-10-04)",
+      "training_use": "yes, under the conservative policy (commercial use and adaptation permitted by the image licence)",
+      "attribution": "CC BY 2.0 asks for attribution when the work or an adaptation is shared; COCO stores no author names, only the Flickr URL. ATTRIBUTION.tsv lists every training image with licence and Flickr URL",
+      "redistribution": "images are never redistributed; whether weights are an adaptation of training images is legally unsettled",
+      "counts_traffic4": {"train_positive": 3077, "train_negative_pool": 9223, "train_boxes": 11918, "val_positive": 143, "val_boxes": 551},
+      "uncertainty": "Flickr licence labels are uploader-asserted; COCO's licence field is not independently verified; no author names; weights-as-adaptation unsettled",
+      "status": "approved"
+    },
+    {
+      "id": "coco2017-images-by-sa",
+      "kind": "images",
+      "source": "COCO images under CC BY-SA 2.0",
+      "licence": "CC BY-SA 2.0",
+      "evidence": "VERIFIED (per-image field)",
+      "training_use": "only with --allow-review after an owner decision",
+      "uncertainty": "if weights were an adaptation, share-alike would bind them to CC BY-SA",
+      "counts_traffic4": {"train_positive_added": 1784, "train_boxes_added": 6986},
+      "status": "planned"
+    },
+    {
+      "id": "coco2017-images-nc-nd",
+      "kind": "images",
+      "source": "COCO images under CC BY-NC, BY-NC-SA, BY-NC-ND, BY-ND",
+      "licence": "non-commercial and/or no-derivatives",
+      "evidence": "VERIFIED (per-image field)",
+      "training_use": "no",
+      "status": "excluded"
+    },
+    {
+      "id": "open-images-v7",
+      "kind": "images + boxes",
+      "source": "https://storage.googleapis.com/openimages/web/factsfigures_v7.html",
+      "licence": "annotations CC BY 4.0 (Google LLC); images 'listed as having a CC BY 2.0 license', per-image License, Author and OriginalURL columns",
+      "evidence": "VERIFIED 2026-10-04 (licence paragraph read); per-image columns DOCUMENTED",
+      "training_use": "yes once fetched and filtered to images whose listed licence is CC BY 2.0",
+      "attribution": "author name + original URL per image are available, better than COCO",
+      "uncertainty": "Google states it makes no representations on each image's licence status; vehicle box counts not yet measured; download of metadata (several GB) not yet approved",
+      "status": "planned"
+    },
+    {
+      "id": "doors-camera-captures",
+      "kind": "images + own labels",
+      "source": "captured by the owner with a DOORS unit (narrow roads, the Traffic use case)",
+      "licence": "owner's own copyright; labels made by the project",
+      "evidence": "ASSUMED until captured",
+      "training_use": "TEST set first (never trained on); a separate capture session/location may later feed training",
+      "privacy": "number plates and faces are personal data under GDPR; keep raw footage local, outside git; blur before any sharing; record capture place/date/purpose",
+      "status": "planned"
+    },
+    {
+      "id": "doors-eval-2026-10-04",
+      "kind": "evaluation frames",
+      "source": "out/detector-eval (vendor SDK test pictures, DOORS camera frames, synthetic ladder)",
+      "training_use": "never; its sha256 list is the --exclude-sha256 input",
+      "status": "approved (evaluation only)"
+    },
+    {"id": "bdd100k", "licence": "BSD-3-style text, but commercial use only for BDD/BAIR members or via a UC Berkeley licence", "evidence": "DOCUMENTED", "training_use": "no", "status": "excluded"},
+    {"id": "kitti", "licence": "CC BY-NC-SA 3.0", "evidence": "DOCUMENTED", "training_use": "no", "status": "excluded"},
+    {"id": "cityscapes", "licence": "custom, non-commercial", "evidence": "DOCUMENTED", "training_use": "no", "status": "excluded"},
+    {"id": "nuscenes / waymo-open / mapillary-vistas", "licence": "non-commercial terms", "evidence": "ASSUMED (not re-read)", "training_use": "no", "status": "excluded"},
+    {"id": "ua-detrac / mio-tcd / objects365 / pascal-voc / roboflow-universe", "licence": "not verified (research terms, Flickr terms without per-image licence, or per-uploader claims)", "evidence": "ASSUMED", "training_use": "no until verified", "status": "excluded"}
+  ]
+}

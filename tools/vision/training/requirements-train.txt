@@ -1,0 +1,21 @@
+# Training environment, Python 3.10. Install torch/torchvision first from
+# the PyTorch index for the platform (setup_env.sh does it):
+#   GPU: torch==2.1.2+cu121 torchvision==0.16.2+cu121
+#   CPU: torch==2.1.2+cpu   torchvision==0.16.2+cpu   (smoke runs only)
+# Versions below are the ones the 2026-10-04 CPU smoke run used, except
+# tensorboard and mlflow-free extras, which YOLOX's Trainer imports on GPU
+# runs only (pinned, not yet exercised here).
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+loguru==0.7.3
+tqdm==4.70.1
+thop==0.1.1.post2209072238
+ninja==1.13.2
+tabulate==0.10.0
+psutil==7.2.2
+packaging==26.3
+pycocotools==2.0.11
+onnx==1.16.2
+onnxsim==0.4.36
+onnxruntime==1.18.1
+tensorboard==2.15.1

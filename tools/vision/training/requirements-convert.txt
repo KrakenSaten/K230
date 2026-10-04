@@ -1,0 +1,10 @@
+# Conversion environment (ONNX -> kmodel), Python 3.10 on x86-64 Linux.
+# nncase must equal the runtime in the DOORS image (2.11.0). nncase needs
+# the .NET 7 runtime (setup_env.sh installs it in-tree with Microsoft's
+# dotnet-install.sh --runtime dotnet --channel 7.0).
+nncase==2.11.0
+nncase-kpu==2.11.0
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+onnx==1.16.2
+onnxruntime==1.18.1
