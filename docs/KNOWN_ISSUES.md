@@ -1144,11 +1144,21 @@ so that pass stayed the size it was scoped to be.
   no transport codes (upstream's per-channel scope is a TODO; the T-Deck
   RIFT's is its own extension). Every channel floods unscoped, and the
   CHANNELS panel says so. Needs an owner decision and an on-air gate.
-- **No repeater discovery request.** ZERO-HOP lists repeaters whose own
-  adverts reached this node with no relay (`advert_hops: 0`, this run of the
-  service) or with a direct learned route; MeshCore's
-  `CTL_TYPE_NODE_DISCOVER_REQ` is not implemented in meshcored, so a quiet
-  repeater in range appears only at its next advert.
+- **NODES' ZERO-HOP is passive; SCAN 0-HOP is the active one.** ZERO-HOP
+  lists repeaters whose own adverts reached this node with no relay
+  (`advert_hops: 0`, this run) or with a direct learned route, so a quiet
+  repeater appears there only at its next advert. ACTIVITY's SCAN 0-HOP asks
+  (`CTL_TYPE_NODE_DISCOVER_REQ`, docs/api/mesh.md "Repeater control") and
+  lists every repeater that answers directly; host-tested, not yet on air
+  (docs/hardware/RIFT_REPEATER_CONTROL_GATE.md).
+- **Repeater control: a wrong password is indistinguishable from not being
+  heard.** Upstream's repeater answers a wrong password with nothing, so
+  RIFT shows "No answer to the login" for both. Logout is local only (MeshCore
+  has none on the air). The password is wiped in RIFT and meshcored, but
+  upstream's `sendLogin` copies it to a stack buffer it does not clear, and
+  the request frame passes through pocketipc buffers that are freed, not
+  wiped. A 48-byte RepeaterStats reply (one firmware generation) is padded to
+  the AES block, so its last two fields may read as 0. Not yet on air.
 - **RIFT's colour emoji reach message bodies, previews and claimed senders
   only.** They are compiled-in Noto Color Emoji images (docs/apps/RIFT.md,
   "Colour emoji"); skin tones are stripped by decision, a sequence with no

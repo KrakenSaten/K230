@@ -278,7 +278,9 @@ nothing, and raises `mesh.node` with the reason `path`.
 ### What it transmits unasked
 
 Nothing on a timer. There is no periodic advert, and `mesh.advert`,
-`mesh.send` and `mesh.app_send` are the only ways a client makes it transmit. `mesh.advert` takes
+`mesh.send`, `mesh.app_send`, `mesh.discover` and `mesh.remote_login` /
+`_request` / `_cli` (docs/api/mesh.md, "Repeater control") are the only ways a
+client makes it transmit; none of them is ever resent. `mesh.advert` takes
 `zero_hop: true` for an advert sent zero-hop - heard in direct range and
 repeated by nobody, at the airtime of one packet - and floods otherwise.
 
