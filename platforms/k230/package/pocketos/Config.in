@@ -4,6 +4,12 @@ config BR2_PACKAGE_POCKETOS
 	select BR2_PACKAGE_LIBGPIOD2
 	select BR2_PACKAGE_ALSA_LIB
 	select BR2_PACKAGE_ALSA_LIB_PCM
+	# The shell's display and input layer. These came in with the vendor
+	# launcher's package until it left the image; libevdev had no other
+	# selector at all.
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_LIBEVDEV
+	select BR2_PACKAGE_JPEG
 	help
 	  Doors tools, services and shell for the LILYGO T-Display K230:
 	  the doors CLI (with pos as its alias), pos-hwcheck, radiod, sysd,

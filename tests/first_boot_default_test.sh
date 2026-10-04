@@ -1,21 +1,21 @@
 #!/bin/bash
-# The first boot of a freshly flashed card is Doors', not the vendor
-# launcher's.
+# The first boot of a freshly flashed card is Doors', and the vendor launcher
+# is not in the image at all.
 #
 # Up to v0.3.0 the patched vendor launcher (S99zz_k230_phone_ui) was on and
 # S90doors-shell off unless /etc/default said otherwise, and no image ships
 # those files, so every fresh card booted into the LILYGO launcher until
-# someone wrote them by hand. There is no first-boot flag involved: the
-# LILYGO BSP removes the SDK's /first_boot_flag and S00resizemmc. The fix is
-# the two defaults, checked here:
-#   - the real [3b/5] block of apply_to_sdk.sh, run on a launcher script,
-#     leaves it off by default and on only with ENABLE=1 in its file (also
-#     when the script was patched by an older apply, with the old default);
-#   - S90doors-shell starts with no settings file at all, and still yields
-#     to the launcher when a unit switches it back on.
-# The block runs on a stand-in with the vendor script's two anchor lines, and
-# on the vendor script itself when a vendor checkout is present
-# ($POCKETOS_VENDOR_DIR or vendor/T-Display-K230).
+# someone wrote them by hand (there is no first-boot flag: the LILYGO BSP
+# removes the SDK's /first_boot_flag and S00resizemmc). After that the
+# launcher shipped switched off; now it is not shipped. Checked here:
+#   - the real [3/5] block of apply_to_sdk.sh, run on an SDK tree an earlier
+#     apply left the launcher in, takes every piece of it out - the overlay,
+#     Buildroot's synced copy, the target tree, the package and its menu
+#     line - leaves the vendor's own files alone, and finds nothing the
+#     second time;
+#   - S90doors-shell starts with no settings file at all, ignores a leftover
+#     ENABLE=1 for a launcher that is not installed, and still yields to one
+#     that is (a unit on an older image).
 #
 # Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
 set -u
@@ -30,108 +30,77 @@ contains() { case "$1" in *"$2"*) echo 1 ;; *) echo 0 ;; esac; }
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# ---- the launcher switch, as apply_to_sdk.sh writes it -------------------
+# ---- the launcher removal, as apply_to_sdk.sh does it ---------------------
 
 # The block itself, from its echo to the next step's, so a change to it is
 # what gets tested rather than a copy of it.
-sed -n '/^echo "\[3b\/5\]/,/^echo "\[3c\/5\]/p' "$APPLY" | sed '$d' > "$TMP/block.sh"
-check "the panel-switch block is found in apply_to_sdk.sh" \
+sed -n '/^echo "\[3\/5\]/,/^echo "\[3c\/5\]/p' "$APPLY" | sed '$d' > "$TMP/block.sh"
+check "the launcher-removal block is found in apply_to_sdk.sh" \
     "$(grep -q 'S99zz_k230_phone_ui' "$TMP/block.sh" && echo 1 || echo 0)"
+check "and it no longer runs the vendor's installer" \
+    "$(grep -v '^ *#' "$TMP/block.sh" | grep -q 'install_to_sdk' && echo 0 || echo 1)"
 
-# The vendor script's shape where the block anchors: DRM_NODE= at the top,
-# the "Starting" printf at the head of start().
-stand_in() {
-    cat > "$1" <<'EOF'
-#!/bin/sh
-DAEMON=/root/app/k230_phone_ui/k230_phone_ui
-PIDFILE=/var/run/k230_phone_ui.pid
-DRM_NODE=/dev/dri/card0
+SDK="$TMP/sdk"
+CONF=k230_pocketos_defconfig
+BR="$SDK/output/buildroot-2025.02.1"
+OVL=board/canaan/k230-soc/rootfs_overlay
+# An SDK tree as the vendor's install_to_sdk.sh leaves it, with the vendor's
+# own files beside it that must survive.
+for root in "$SDK/buildroot-overlay/$OVL" "$BR/$OVL" "$SDK/output/$CONF/target"; do
+    mkdir -p "$root/etc/init.d" "$root/root/script" "$root/root/app/face_detect"
+    printf '#!/bin/sh\n' > "$root/etc/init.d/S99zz_k230_phone_ui"
+    printf '#!/bin/sh\n' > "$root/etc/init.d/S40bluetoothd"
+    printf 'x' > "$root/root/script/sensor.sh"
+    printf 'x' > "$root/root/app/face_detect/face_detect"
+    for d in music nes videos photos screenshots recordings lorawan meshtastic notification nrf52840 picoclaw; do
+        mkdir -p "$root/root/$d"
+    done
+    printf 'x' > "$root/root/music/music01.mp3"
+done
+mkdir -p "$SDK/output/$CONF/target/root/app/k230_phone_ui"
+printf 'x' > "$SDK/output/$CONF/target/root/app/k230_phone_ui/k230_phone_ui"
+mkdir -p "$SDK/buildroot-overlay/package/k230_phone_ui" "$BR/package/k230_phone_ui" \
+         "$SDK/output/$CONF/build/k230_phone_ui-custom" "$SDK/buildroot-overlay/configs"
+for menu in "$SDK/buildroot-overlay/package/Config_canaan.in" "$BR/package/Config_canaan.in"; do
+    printf 'source "package/vvcam/Config.in"\n\nsource "package/k230_phone_ui/Config.in"\n' > "$menu"
+done
+printf 'BR2_PACKAGE_VVCAM=y\n' > "$SDK/buildroot-overlay/configs/$CONF"
 
-start()
-{
-	printf "Starting k230_phone_ui: "
-
-	if [ ! -x "$DAEMON" ]; then
-		echo "missing"
-		return 0
-	fi
-	echo "OK"
-}
-
-case "$1" in
-	start) start ;;
-esac
-exit 0
-EOF
-}
-
-# patch <script>: run the block on it the way apply_to_sdk.sh does.
-patch_launcher() {
-    local sdk="$TMP/sdk"
-    rm -rf "$sdk"
-    mkdir -p "$sdk/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d"
-    cp "$1" "$sdk/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
-    ( SDK_DIR="$sdk"; set -e; . "$TMP/block.sh" ) > "$TMP/apply.log" 2>&1 || return 1
-    cp "$sdk/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui" "$1"
-}
-
-# run_launcher <script> <root>: start it with /etc/default moved under <root>.
-run_launcher() {
-    sed "s#/etc/default/#$2/etc/default/#g" "$1" > "$2/S99"
-    sh "$2/S99" start 2>&1
-}
-
-launcher_cases() { # <label> <script>
-    local label="$1" s="$2" root="$TMP/root-$1" out
-    mkdir -p "$root/etc/default"
-    if ! patch_launcher "$s"; then
-        check "$label: the block patches the launcher script" 0
-        sed 's/^/    /' "$TMP/apply.log"
-        return
-    fi
-    check "$label: the block patches the launcher script" 1
-    check "$label: the default it writes is off" \
-        "$(grep -q '^ENABLE=0$' "$s" && ! grep -q '^ENABLE=1$' "$s" && echo 1 || echo 0)"
-    out=$(run_launcher "$s" "$root")
-    check "$label: with no settings file the launcher does not start" \
-        "$(contains "$out" "disabled (")"
-    printf 'ENABLE=1\n' > "$root/etc/default/k230_phone_ui"
-    out=$(run_launcher "$s" "$root")
-    check "$label: ENABLE=1 in its file still brings it back" \
-        "$([ "$(contains "$out" "disabled (")" = 0 ] && echo 1 || echo 0)"
-    printf 'ENABLE=0\n' > "$root/etc/default/k230_phone_ui"
-    out=$(run_launcher "$s" "$root")
-    check "$label: ENABLE=0 in its file keeps it down" "$(contains "$out" "disabled (")"
-    cp "$s" "$s.once"
-    patch_launcher "$s"
-    check "$label: a second apply changes nothing" \
-        "$(cmp -s "$s" "$s.once" && echo 1 || echo 0)"
-}
-
-stand_in "$TMP/S99.stand-in"
-launcher_cases stand-in "$TMP/S99.stand-in"
-
-# A copy an older apply left patched carries the old default, ENABLE=1.
-stand_in "$TMP/S99.old"
-patch_launcher "$TMP/S99.old"
-sed -i 's/^ENABLE=0$/ENABLE=1/' "$TMP/S99.old"
-patch_launcher "$TMP/S99.old"
-check "an older apply's default (on) is corrected to off" \
-    "$(grep -q '^ENABLE=0$' "$TMP/S99.old" && ! grep -q '^ENABLE=1$' "$TMP/S99.old" && echo 1 || echo 0)"
-
-VENDOR_S99="${POCKETOS_VENDOR_DIR:-$REPO/vendor/T-Display-K230}/k230_launcher/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
-if [ -f "$VENDOR_S99" ]; then
-    cp "$VENDOR_S99" "$TMP/S99.vendor"
-    launcher_cases vendor "$TMP/S99.vendor"
+run_block() { ( SDK_DIR="$SDK"; set -e; . "$TMP/block.sh" ) > "$TMP/apply.log" 2>&1; }
+if run_block; then
+    check "the block runs on an SDK the launcher was installed into" 1
 else
-    echo "skip the vendor launcher script itself (no vendor checkout at ${VENDOR_S99%/k230_launcher/*})"
+    check "the block runs on an SDK the launcher was installed into" 0
+    sed 's/^/    /' "$TMP/apply.log"
 fi
+left=$(find "$SDK" \( -name 'S99zz_k230_phone_ui' -o -name 'k230_phone_ui*' \
+        -o -path '*/root/music' -o -path '*/root/videos' -o -path '*/root/notification' \
+        -o -path '*/root/picoclaw' -o -path '*/root/nrf52840' \) | sed "s#$SDK/##")
+check "no piece of the launcher is left in the SDK${left:+ (left: $(echo $left))}" \
+    "$([ -z "$left" ] && echo 1 || echo 0)"
+check "the package menus no longer name it" \
+    "$(grep -q k230_phone_ui "$SDK/buildroot-overlay/package/Config_canaan.in" "$BR/package/Config_canaan.in" && echo 0 || echo 1)"
+check "and keep the vendor's other packages" \
+    "$(grep -q 'package/vvcam/Config.in' "$SDK/buildroot-overlay/package/Config_canaan.in" \
+       && grep -q 'package/vvcam/Config.in' "$BR/package/Config_canaan.in" && echo 1 || echo 0)"
+kept=0
+for root in "$SDK/buildroot-overlay/$OVL" "$BR/$OVL" "$SDK/output/$CONF/target"; do
+    [ -f "$root/etc/init.d/S40bluetoothd" ] && [ -f "$root/root/script/sensor.sh" ] \
+        && [ -f "$root/root/app/face_detect/face_detect" ] && kept=$((kept + 1))
+done
+check "the vendor's own files beside it are kept" "$([ "$kept" = 3 ] && echo 1 || echo 0)"
+run_block
+check "a second apply finds nothing to remove" \
+    "$(contains "$(cat "$TMP/apply.log")" "no vendor launcher in the SDK")"
+printf 'BR2_PACKAGE_K230_PHONE_UI=y\n' >> "$SDK/buildroot-overlay/configs/$CONF"
+check "NEGATIVE CONTROL: a Doors defconfig that names the launcher is refused" \
+    "$(run_block && echo 0 || echo 1)"
 
 # ---- S90doors-shell with no settings file ---------------------------------
 
 ROOT="$TMP/s90"
-mkdir -p "$ROOT/etc/default" "$ROOT/usr/bin" "$ROOT/run/pocketos" "$ROOT/var/run" \
-         "$ROOT/var/lib/pocketos/log" "$ROOT/dev/dri"
+mkdir -p "$ROOT/etc/default" "$ROOT/etc/init.d" "$ROOT/usr/bin" "$ROOT/run/pocketos" \
+         "$ROOT/var/run" "$ROOT/var/lib/pocketos/log" "$ROOT/dev/dri"
 : > "$ROOT/dev/dri/card0"
 # A supervisor stand-in that records it was started, then waits to be stopped.
 printf '#!/bin/sh\nenv > "%s/shell.env"\nexec sleep 30\n' "$ROOT" > "$ROOT/usr/bin/pos-supervise"
@@ -153,12 +122,24 @@ check "with no settings file at all, S90 starts the shell (a fresh card boots Do
     "$([ "$(contains "$out" "OK")" = 1 ] && started && echo 1 || echo 0)"
 s90 stop >/dev/null; rm -f "$ROOT/shell.env"
 
+# A unit flashed with this image keeps its /etc/default files, and one that
+# had switched the launcher back on still says ENABLE=1 for a launcher that
+# is gone. Yielding to it would leave the panel dark.
 printf 'ENABLE=1\n' > "$ROOT/etc/default/k230_phone_ui"
 out=$(s90 start)
-check "a unit that switches the launcher back on keeps it: S90 yields" \
+check "a leftover ENABLE=1 with no launcher installed does not stop the shell" \
+    "$([ "$(contains "$out" "OK")" = 1 ] && started && echo 1 || echo 0)"
+check "and S90 says it ignored the switch" "$(contains "$out" "vendor launcher not installed")"
+s90 stop >/dev/null; rm -f "$ROOT/shell.env"
+
+# A unit on an older image, which still has the launcher, keeps its choice.
+printf '#!/bin/sh\nexit 0\n' > "$ROOT/etc/init.d/S99zz_k230_phone_ui"
+chmod 0755 "$ROOT/etc/init.d/S99zz_k230_phone_ui"
+out=$(s90 start)
+check "a unit whose installed launcher is switched back on keeps it: S90 yields" \
     "$(contains "$out" "owns the panel")"
 check "and starts nothing" "$([ ! -e "$ROOT/shell.env" ] && echo 1 || echo 0)"
-rm -f "$ROOT/etc/default/k230_phone_ui"
+rm -f "$ROOT/etc/default/k230_phone_ui" "$ROOT/etc/init.d/S99zz_k230_phone_ui"
 
 printf 'ENABLE=0\n' > "$ROOT/etc/default/doors-shell"
 out=$(s90 start)

@@ -130,7 +130,7 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 | Notices for third-party code compiled into Doors binaries, and for LVGL and its bundled components | **(a) resolved** - shipped and verified |
 | Libraries Doors and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libjpeg, libpng, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
 | C and C++ runtime libraries from the external Xuantie toolchain (glibc, libstdc++, libgcc) | **(b) blocks distribution**: not in legal-info's manifest (open item 8) |
-| Other vendor SDK packages without licence metadata: libnncase and gsl-lite ("unknown" in the manifest), and the vendor local packages absent from it (`k230_phone_ui`, `vvcam`, `face_detect`, `ai_demo`) | **(b) blocks distribution**: unchanged (open item 5) |
+| Other vendor SDK packages without licence metadata: libnncase and gsl-lite ("unknown" in the manifest), and the vendor local packages absent from it (`vvcam`, `face_detect`, `ai_demo`) | **(b) blocks distribution**: unchanged (open item 5). The LILYGO launcher `k230_phone_ui`, which carries no licence at all, is no longer in the image (chore/remove-vendor-launcher) |
 | Doors' own licence (PocketOS through v0.0.9) | **(c) undecided**; external redistribution not authorised (open item 1) |
 
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)

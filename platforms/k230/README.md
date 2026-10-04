@@ -14,7 +14,7 @@ written with `pos` keep working.
 ```text
 configs/k230_pocketos_defconfig   Vendor board defconfig + BR2_PACKAGE_POCKETOS
 package/pocketos/                 Buildroot package building the repository root Makefile
-scripts/apply_to_sdk.sh           BSP overlay + vendor launcher + Doors package into the SDK
+scripts/apply_to_sdk.sh           BSP overlay + Doors package into the SDK (removes the vendor launcher)
 scripts/build_image.sh            Build and export sysimage-sdcard.img and doors-*.img.gz (+ .sha256) to out/k230/
 scripts/deploy.sh                 Push built binaries to a running board over SSH
 scripts/verify_image.sh           Refuse an image whose boot partition cannot boot
@@ -25,43 +25,41 @@ vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
 
 The Doors shell owns the display by default, from the first boot of a
 freshly flashed card: it is installed as `/usr/bin/doors-shell` with
-`S90doors-shell` enabled. The vendor LVGL launcher is still installed by
-`apply_to_sdk.sh` as the recovery path, and `apply_to_sdk.sh` adds one switch
-to its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 0 -
-it was 1 up to v0.3.0, which is why a fresh card used to boot the LILYGO
-launcher once). Neither settings file is in the image. radiod runs with the
-mock backend, and meshcored
+`S90doors-shell` enabled. The vendor LVGL launcher (`k230_phone_ui`) is not
+in the image: `apply_to_sdk.sh` no longer installs it, removes what an
+earlier apply left in the SDK, and `build_image.sh` and `verify_image.sh`
+refuse an image that still carries it (up to v0.3.0 it was installed and on
+by default, which is why a fresh card used to boot the LILYGO launcher once;
+after that it was installed but off). radiod runs with the mock backend, and
+meshcored
 is installed as `/usr/sbin/meshcored` with `S65meshcored` disabled
 (`MESHCORED_ENABLE=1` in `/etc/default/meshcored` switches it on; see
 docs/services/MESHCORED.md before doing that on a real radio).
 
 ## Panel ownership (persistent across reboots)
 
-With no settings files (a fresh card), Doors has the panel. Writing them
-pins the choice, and the radio is a separate switch:
+With no settings file (a fresh card), Doors has the panel; the radio is a
+separate switch:
 
 ```sh
-echo ENABLE=0 > /etc/default/k230_phone_ui      # vendor launcher stays down (default)
-echo ENABLE=1 > /etc/default/doors-shell        # Doors shell takes the panel (default)
 echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
 reboot
 ```
 
-After the reboot: `doors app list`, `doors radio info`. Without a reboot, the
-same state is reached with `/etc/init.d/S99zz_k230_phone_ui stop`, then
-`/etc/init.d/S60radiod restart` and `/etc/init.d/S90doors-shell start`.
-S90 refuses to start while the launcher is enabled or running, so the two
-never fight for DRM master.
+After the reboot: `doors app list`, `doors radio info`.
+`echo ENABLE=0 > /etc/default/doors-shell` keeps the shell down (bench work
+on the panel); remove the file or set `ENABLE=1` to hand the panel back.
 
-Back to the vendor launcher (recovery and reference path; nothing is removed
-from the image):
+A unit still on an image from before the launcher was removed may carry
+`/etc/default/k230_phone_ui`. S90 honours `ENABLE=1` in it only while
+`/etc/init.d/S99zz_k230_phone_ui` is installed, and always refuses to start
+beside a running launcher, so the two never fight for DRM master. Once a
+Doors image without the launcher is on the card, a leftover `ENABLE=1` is
+ignored (S90 says so) rather than leaving the panel dark.
 
-```sh
-echo ENABLE=1 > /etc/default/k230_phone_ui
-echo ENABLE=0 > /etc/default/doors-shell
-rm -f /etc/default/radiod
-reboot
-```
+There is no on-device way back to the vendor launcher any more. The vendor's
+own SD card is the reference image (docs/hardware/FIRST_BOOT.md,
+"Recovery").
 
 `/etc/default/doors-shell` is a whole file: keep `ENABLE=1` in it when
 adding the bench overrides (`K230_LVGL_DRM_STAGING`, `POCKETOS_DRM_ROTATION`,

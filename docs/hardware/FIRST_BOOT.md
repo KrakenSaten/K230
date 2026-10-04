@@ -97,9 +97,12 @@ pos app list && pos radio info && pos logs
   console within a second of power-on to stop at the U-Boot prompt
   (DOCUMENTED: `board/canaan/k230-soc/default.env`). `run blinux` continues
   the normal boot.
-- PocketOS never removes the vendor launcher. If the shell misbehaves, the
-  reverse switch from platforms/k230/README.md restores the vendor UI at the
-  next boot; over the serial console it can be done from the getty on UART0.
+- The Doors image no longer carries the vendor launcher, so there is no
+  on-device switch back to the vendor UI. If the shell misbehaves, keep it
+  down with `ENABLE=0` in `/etc/default/doors-shell` and work over SSH or
+  the serial console (the getty on UART0); for the vendor UI itself, boot
+  the vendor card (next item). Section 3 below is the original bring-up
+  procedure, written when the launcher was still in the image.
 - If the card does not boot at all, swap in the vendor card (unit A keeps
   one) and re-flash the PocketOS card from `out/k230/sysimage-sdcard.img`
   with Rufus or balenaEtcher. Nothing on the board is changed by booting
