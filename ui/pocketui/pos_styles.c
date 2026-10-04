@@ -792,6 +792,13 @@ static void fill_styles(void)
     lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY));
     lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
 
+    /* Screen off, DS §52.4: the screen goes black over everything. Black is
+     * the panel's "off", not a theme colour, so no token applies to it. */
+    s = &styles[POS_STYLE_SCREEN_OFF];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x000000));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+
     fill_env_styles();
     fill_identity_styles();
     fill_size_samples();

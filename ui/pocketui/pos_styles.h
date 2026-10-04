@@ -100,6 +100,7 @@ enum pos_style_role {
     POS_STYLE_ENV_SLIDER_KNOB,     /* slider knob (LV_PART_KNOB) */
     POS_STYLE_ENV_DOT,             /* a small "on" dot: env text fill, round */
     POS_STYLE_ENV_ICON,            /* full-colour portal icons: dimmed with the photograph in Night */
+    POS_STYLE_SCREEN_OFF,          /* the screen-off cover (DS §52.4): opaque black in every theme and mode */
     POS_STYLE_COUNT
 };
 
