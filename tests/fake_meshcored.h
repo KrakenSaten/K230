@@ -121,6 +121,21 @@ struct fake_meshcored_script {
     int no_path_hash;
     /* Take management requests and never answer them. */
     int manage_silent;
+
+    /* Repeater control (docs/api/mesh.md, "Repeater control"). By default
+     * the service knows the methods: mesh.discover opens a round and, when
+     * repeater_json is set, raises one mesh.discover "reply" event for it;
+     * a login with the password "hunter2" is answered OK (admin), any other
+     * is answered as the 20 s wait running out (outcome "timeout") at once;
+     * status, neighbours, owner and a command are answered at once. */
+    /* One repeater, as a mesh.discovered entry (JSON object text). */
+    const char *repeater_json;
+    /* Every repeater-control request, one to a line: "<method>|<params>". */
+    const char *remote_log;
+    /* Accept repeater requests and raise nothing about them. */
+    int remote_silent;
+    /* Answer every repeater method as a service too old to know it. */
+    int no_remote;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

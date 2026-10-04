@@ -21,6 +21,7 @@
 #include "rift_find.h"
 #include "rift_mapview.h"
 #include "rift_nodes.h"
+#include "rift_repeater_view.h"
 #include "rift_sound.h"
 #include "rift_system.h"
 
@@ -268,7 +269,9 @@ static void paint_cmdline(struct rift_app *a)
 
 enum rift_section rift_tab_of(enum rift_section section)
 {
-    return section == RIFT_SEC_NET ? RIFT_SEC_NODES : section;
+    return section == RIFT_SEC_NET        ? RIFT_SEC_NODES
+           : section == RIFT_SEC_REPEATER ? RIFT_SEC_ACTIVITY
+                                          : section;
 }
 
 static void show_only(struct rift_app *a, lv_obj_t *keep)
@@ -313,6 +316,9 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
          * hash or CLOSE RIFT confirmation, a key shown for sharing. */
         rift_system_cancel(a);
     }
+    if (section != RIFT_SEC_REPEATER) {
+        rift_repeater_view_cancel(a); /* a command confirmation, the fields */
+    }
     rift_tabs_paint(a);
     switch (section) {
     case RIFT_SEC_ACTIVITY:
@@ -329,6 +335,9 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         break;
     case RIFT_SEC_MAP:
         show_only(a, a->map_root);
+        break;
+    case RIFT_SEC_REPEATER:
+        show_only(a, a->repeater_root);
         break;
     default:
         show_only(a, a->net_root);
@@ -423,6 +432,8 @@ void rift_app_refresh(struct rift_app *a)
         rift_system_refresh(a);
     } else if (a->section == RIFT_SEC_MAP) {
         rift_map_view_refresh(a);
+    } else if (a->section == RIFT_SEC_REPEATER) {
+        rift_repeater_view_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
     rift_tabs_paint(a);
@@ -440,6 +451,9 @@ static void on_key(lv_event_t *e)
         return;
     }
     if (a->section == RIFT_SEC_COMMS && rift_comms_key(a, key)) {
+        return;
+    }
+    if (rift_repeater_key(a, key)) { /* ACTIVITY's repeater rows, a repeater's page */
         return;
     }
     /* Esc goes one step up: NET to the node list it lives under, any other
@@ -559,6 +573,7 @@ static void layout(struct rift_app *a)
     rift_net_view_shape(a);
     rift_system_shape(a);
     rift_map_view_shape(a);
+    rift_repeater_view_shape(a);
     /* Draw now, so the new shape is not empty for a frame, and ask for
      * another pass from the timer: this one is inside LVGL's layout update,
      * where no width can be settled on demand and anything fitted to a
@@ -681,6 +696,7 @@ static void *rift_create(lv_obj_t *root)
     a->net_root = rift_net_view_create(a, a->content);
     a->map_root = rift_map_view_create(a, a->content);
     a->system_root = rift_system_create(a, a->content);
+    a->repeater_root = rift_repeater_view_create(a, a->content);
     build_cmdline(a);
     /* The sink was made first (build_keysink); it goes last among the
      * frame's children, where it has always been. */
@@ -795,7 +811,10 @@ static void rift_destroy(void *priv)
     rift_nodes_destroy(a);
     rift_system_destroy(a);
     rift_map_view_destroy(a);
+    rift_repeater_view_destroy(a);
     rift_activity_destroy(a);
+    /* A repeater session ends when RIFT is left (rift_ipc_repeater_leave). */
+    rift_ipc_repeater_leave(&a->ipc);
     /* The LVGL objects are children of the shell's body and are deleted
      * with it; the private blocks were this app's to release, and every
      * pointer to either is cleared with the rest of the screen's half. */

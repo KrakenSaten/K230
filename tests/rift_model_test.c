@@ -663,6 +663,213 @@ static void test_actions(void)
     check("a settled request can be put away", m.node_op.kind == RIFT_ACTION_NONE);
 }
 
+/* ---- repeater control (rift_repeater.h) --------------------------------- */
+
+static int rep_event(struct rift_repeater *r, const char *name, const char *json, int64_t now)
+{
+    cJSON *o = cJSON_Parse(json);
+    int rc = rift_rep_apply_event(r, name, o, now);
+
+    cJSON_Delete(o);
+    return rc;
+}
+
+static void rep_accept(struct rift_repeater *r, const char *json, int64_t now)
+{
+    cJSON *o = cJSON_Parse(json);
+
+    rift_rep_accepted(r, o, now);
+    cJSON_Delete(o);
+}
+
+#define REP_SESSION_OK                                                                        \
+    "\"session\":{\"active\":true,\"node\":\"" KEY_B "\",\"known\":true,\"type\":2,"           \
+    "\"login\":\"ok\",\"legacy\":false,\"admin\":true,\"permissions\":1,\"acl\":3,"           \
+    "\"firmware_level\":2,\"repeater_clock\":1790000000,\"stale_replies\":0,"                 \
+    "\"malformed_replies\":0}"
+
+static void test_repeater_scan(void)
+{
+    struct rift_repeater r;
+    cJSON *o;
+
+    rift_rep_init(&r);
+    check("nothing is scanning at first", !rift_rep_scanning(&r, 1000));
+    r.scan.asking = 1;
+    check("a scan written and not answered is scanning", rift_rep_scanning(&r, 1000));
+    o = cJSON_Parse("{\"started\":true,\"round\":1,\"open\":true,\"window_ms\":30000,"
+                    "\"started_mono_ms\":1000,\"until_mono_ms\":31000}");
+    rift_rep_apply_discover(&r, o);
+    cJSON_Delete(o);
+    check("the open round is scanning until its window ends",
+          rift_rep_scanning(&r, 30999) && !rift_rep_scanning(&r, 31000));
+    check("a repeater's answer is listed",
+          rep_event(&r, "mesh.discover",
+                    "{\"reason\":\"reply\",\"round\":1,\"open\":true,\"until_mono_ms\":31000,"
+                    "\"repeater\":{\"public_key\":\"" KEY_B "\",\"node_hash\":\"b2\","
+                    "\"name\":\"HYTTA\",\"known\":true,\"type\":2,\"round\":1,\"current\":true,"
+                    "\"mono_ms\":2000,\"their_snr_db\":5.5,\"snr_db\":8.25,\"rssi_dbm\":-71}}",
+                    2000) == 1 &&
+              r.scan.count == 1 && r.scan.found[0].current && r.scan.found[0].have_rssi);
+    check("an answer naming no key is not",
+          rep_event(&r, "mesh.discover",
+                    "{\"reason\":\"reply\",\"round\":1,\"open\":true,"
+                    "\"repeater\":{\"public_key\":\"not-hex\"}}", 2100) == 1 &&
+              r.scan.count == 1);
+    check("the same repeater again is one row",
+          rep_event(&r, "mesh.discover",
+                    "{\"reason\":\"reply\",\"round\":1,\"open\":true,\"repeater\":"
+                    "{\"public_key\":\"" KEY_B "\",\"round\":1,\"current\":true,"
+                    "\"mono_ms\":2500,\"their_snr_db\":6}}", 2500) == 1 &&
+              r.scan.count == 1);
+    check("a signal it did not report is absent, not zero", !r.scan.found[0].have_snr);
+    o = cJSON_Parse("{\"started\":true,\"round\":2,\"open\":true,\"until_mono_ms\":70000}");
+    rift_rep_apply_discover(&r, o);
+    cJSON_Delete(o);
+    check("a new round makes every earlier answer not current",
+          r.scan.count == 1 && !r.scan.found[0].current);
+    rift_rep_service_lost(&r);
+    check("meshcored going away keeps the list, marked not current, and stops the scan",
+          r.scan.count == 1 && !r.scan.found[0].current && !rift_rep_scanning(&r, 40000));
+    check("other events are not the repeater block's",
+          rep_event(&r, "mesh.node", "{\"reason\":\"path\"}", 1) == 0);
+}
+
+static void test_repeater_session(void)
+{
+    struct rift_repeater r;
+
+    rift_rep_init(&r);
+    rift_rep_set_target(&r, KEY_B);
+    check("a login is begun", rift_rep_begin(&r, RIFT_REP_LOGIN, 1000) == 0 &&
+                                  r.login == RIFT_REP_LOGIN_WAITING);
+    check("a second request while one waits is refused", rift_rep_begin(&r, RIFT_REP_STATUS,
+                                                                         1001) != 0);
+    rep_accept(&r, "{\"accepted\":true,\"request_id\":4,\"route\":\"flood\",\"wait_ms\":20000}",
+               1010);
+    check("the service's acceptance is not a login", r.login == RIFT_REP_LOGIN_WAITING &&
+                                                     r.request_id == 4 && r.deadline_ms == 21010);
+    /* Wrong password: upstream never answers, so the service says timeout. */
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":4,\"kind\":\"login\",\"outcome\":\"timeout\","
+              "\"node\":\"" KEY_B "\"},\"session\":{\"active\":true,\"node\":\"" KEY_B "\","
+              "\"login\":\"timeout\"}}", 21000);
+    check("no answer is a timeout, and nothing is waiting any more",
+          r.login == RIFT_REP_LOGIN_TIMEOUT && !rift_rep_busy(&r) &&
+              !rift_rep_logged_in(&r, KEY_B) && r.note_is_error &&
+              strstr(r.note, "wrong password") != NULL);
+
+    rift_rep_begin(&r, RIFT_REP_LOGIN, 22000);
+    rep_accept(&r, "{\"request_id\":5,\"route\":\"direct\",\"wait_ms\":20000}", 22000);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":5,\"kind\":\"login\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\"}," REP_SESSION_OK "}", 23000);
+    check("a login OK from the service is logged in, as admin",
+          rift_rep_logged_in(&r, KEY_B) && r.admin && r.have_clock && !rift_rep_busy(&r));
+
+    rift_rep_begin(&r, RIFT_REP_STATUS, 24000);
+    rep_accept(&r, "{\"request_id\":6,\"route\":\"direct\",\"wait_ms\":20000}", 24000);
+    check("a reply for another request is not this one's answer",
+          rep_event(&r, "mesh.remote",
+                    "{\"reply\":{\"request_id\":3,\"kind\":\"status\",\"outcome\":\"timeout\","
+                    "\"node\":\"" KEY_B "\"}," REP_SESSION_OK "}", 24100) == 1 &&
+              rift_rep_busy(&r));
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":6,\"kind\":\"status\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\",\"status\":{\"battery_mv\":4012,\"uptime_s\":360500,"
+              "\"air_time_s\":3605,\"noise_floor_dbm\":-118}}," REP_SESSION_OK "}", 25000);
+    check("its status is what the repeater said",
+          r.status.have && r.status.battery_mv == 4012 && r.status.uptime_s == 360500 &&
+              !rift_rep_busy(&r));
+    check("and a tier it did not send is not shown as zero",
+          !r.status.have_dups && !r.status.have_rx_air);
+
+    rift_rep_begin(&r, RIFT_REP_NEIGHBOURS, 26000);
+    rep_accept(&r, "{\"request_id\":7,\"wait_ms\":20000}", 26000);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":7,\"kind\":\"neighbours\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\",\"neighbours\":{\"total\":3,\"entries\":["
+              "{\"prefix\":\"a19ac21e7d04\",\"name\":\"OSLO-01\",\"heard_s_ago\":95,\"snr_db\":9.5},"
+              "{\"prefix\":\"zz\",\"heard_s_ago\":1},"
+              "{\"prefix\":\"77aa00bb11cc\",\"heard_s_ago\":3700,\"snr_db\":-4.25}]}},"
+              REP_SESSION_OK "}", 27000);
+    check("its neighbours, without the entry that was not hex",
+          r.neighbours.have && r.neighbours.total == 3 && r.neighbours.count == 2 &&
+              strcmp(r.neighbours.e[0].name, "OSLO-01") == 0 && r.neighbours.e[1].name[0] == 0);
+
+    check("a malformed remote event is the block's, and changes nothing",
+          rep_event(&r, "mesh.remote", "{\"reply\":7}", 27100) == 1 && r.neighbours.count == 2);
+
+    rift_rep_begin(&r, RIFT_REP_CLI, 28000);
+    rift_rep_note_command(&r, "ver");
+    rep_accept(&r, "{\"request_id\":8,\"wait_ms\":20000}", 28000);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":8,\"kind\":\"cli\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\",\"text\":\"v1.9.0\\nbuilt today\"}," REP_SESSION_OK "}",
+              29000);
+    check("a command and its answer are the transcript, a line each",
+          r.line_count == 3 && strcmp(rift_rep_line(&r, 0), "> ver") == 0 &&
+              strcmp(rift_rep_line(&r, 2), "  built today") == 0);
+
+    rift_rep_begin(&r, RIFT_REP_STATUS, 30000);
+    rep_accept(&r, "{\"request_id\":9,\"wait_ms\":20000}", 30000);
+    check("a request the service never ends is let go past its wait and the slack",
+          !rift_rep_expire(&r, 50000 + RIFT_REP_CLIENT_SLACK_MS) &&
+              rift_rep_expire(&r, 50001 + RIFT_REP_CLIENT_SLACK_MS) && !rift_rep_busy(&r));
+
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":10,\"kind\":\"status\",\"outcome\":\"cancelled\","
+              "\"node\":\"" KEY_B "\"},\"session\":{\"active\":false}}", 60000);
+    check("a session the service ended is gone, and so is what it answered",
+          !r.active && !rift_rep_logged_in(&r, KEY_B) && !r.status.have &&
+              r.line_count == 0 && !r.neighbours.have);
+
+    rift_rep_begin(&r, RIFT_REP_LOGIN, 61000);
+    rift_rep_service_lost(&r);
+    check("meshcored going away ends a session and the request waiting",
+          !r.active && !rift_rep_busy(&r) && r.login == RIFT_REP_LOGIN_NONE);
+    check("the page's repeater stays chosen", r.have_target && strcmp(r.target, KEY_B) == 0);
+}
+
+static void test_repeater_commands(void)
+{
+    const char *why = NULL;
+
+    check("ver is read-only", rift_rep_cli_class("ver", NULL) == RIFT_CLI_READ);
+    check("so are clock, neighbors and the stats",
+          rift_rep_cli_class("clock", NULL) == RIFT_CLI_READ &&
+              rift_rep_cli_class(" neighbors ", NULL) == RIFT_CLI_READ &&
+              rift_rep_cli_class("stats-radio", NULL) == RIFT_CLI_READ);
+    check("and get of an ordinary key", rift_rep_cli_class("get name", NULL) == RIFT_CLI_READ);
+    check("clock sync is not read-only", rift_rep_cli_class("clock sync", NULL) == RIFT_CLI_CONFIRM);
+    check("reboot asks first", rift_rep_cli_class("reboot", &why) == RIFT_CLI_CONFIRM && why);
+    check("a radio change asks first, and says it is one",
+          rift_rep_cli_class("set freq 869.525", &why) == RIFT_CLI_CONFIRM &&
+              rift_rep_cli_touches_radio("set freq 869.525") && strstr(why, "radio"));
+    check("so does any other setting", rift_rep_cli_class("set name X", NULL) == RIFT_CLI_CONFIRM);
+    check("neighbor.remove asks first",
+          rift_rep_cli_class("neighbor.remove ab12", NULL) == RIFT_CLI_CONFIRM);
+    check("erase is never sent", rift_rep_cli_class("erase", NULL) == RIFT_CLI_REFUSED);
+    check("nor a firmware update, a power-off or a log erase",
+          rift_rep_cli_class("start ota", NULL) == RIFT_CLI_REFUSED &&
+              rift_rep_cli_class("poweroff", NULL) == RIFT_CLI_REFUSED &&
+              rift_rep_cli_class("log erase", NULL) == RIFT_CLI_REFUSED);
+    check("nor a password, set or read",
+          rift_rep_cli_class("password hunter2", NULL) == RIFT_CLI_REFUSED &&
+              rift_rep_cli_class("get guest.password", NULL) == RIFT_CLI_REFUSED &&
+              rift_rep_cli_class("set guest.password x", NULL) == RIFT_CLI_REFUSED);
+    check("nor a key", rift_rep_cli_class("get prv.key", NULL) == RIFT_CLI_REFUSED &&
+                           rift_rep_cli_class("set bridge.secret x", NULL) == RIFT_CLI_REFUSED &&
+                           rift_rep_cli_class("set some.new.key x", NULL) == RIFT_CLI_REFUSED);
+    {
+        struct rift_repeater r;
+
+        rift_rep_init(&r);
+        rift_rep_note_command(&r, "password hunter2");
+        check("and a refused command never reaches the transcript", r.line_count == 0);
+    }
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -1306,6 +1513,9 @@ int main(void)
               b.count[19][RIFT_TRAFFIC_OTHER] == 0 && m.activity_count == 4);
     }
 
+    test_repeater_scan();
+    test_repeater_session();
+    test_repeater_commands();
     printf("rift_model_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

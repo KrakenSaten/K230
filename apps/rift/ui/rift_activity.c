@@ -7,6 +7,7 @@
 
 #include "pos_styles.h"
 #include "rift_graph.h"
+#include "rift_scan.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -229,6 +230,8 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
      * on the right. Stacked in portrait in the same order. Everything that
      * changes a setting is on SYSTEM (ui/rift_system.c). */
     build_service(v, v->col[0]);
+    /* The repeaters this node hears directly, under the radio service. */
+    rift_scan_build(app, v->col[0]);
     build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
     return v->root;
@@ -239,6 +242,7 @@ void rift_activity_destroy(struct rift_app *app)
     if (!app || !app->activity) {
         return;
     }
+    rift_scan_destroy(app);
     free(app->activity);
     app->activity = NULL;
 }
@@ -542,6 +546,7 @@ void rift_activity_refresh(struct rift_app *app)
     }
     now = rift_app_now(app);
     refresh_service(v);
+    rift_scan_refresh(app);
     refresh_heard(v, now);
     refresh_feed(v, now);
 }

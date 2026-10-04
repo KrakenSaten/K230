@@ -53,7 +53,263 @@ struct state {
     char name[32];
     int renamed; /* mesh.set_name was taken: the name is the stored one now */
     int path_hash_bytes;
+    /* Repeater control: the round, the session, the next request id. */
+    int round;
+    int64_t round_until;
+    int remote_id;
+    int session_active;
+    int session_ok;
+    char session_key[65];
 };
+
+/* ---- repeater control --------------------------------------------------- */
+
+static void remote_log(struct state *st, const char *name, const cJSON *params)
+{
+    FILE *f;
+    char *text;
+
+    if (!st->script->remote_log) {
+        return;
+    }
+    f = fopen(st->script->remote_log, "a");
+    if (!f) {
+        return;
+    }
+    text = params ? cJSON_PrintUnformatted(params) : NULL;
+    fprintf(f, "%s|%s\n", name, text ? text : "{}");
+    free(text);
+    fclose(f);
+}
+
+static int64_t now_ms(void);
+
+static void add_round(struct state *st, cJSON *o)
+{
+    cJSON_AddNumberToObject(o, "round", st->round);
+    cJSON_AddBoolToObject(o, "open", st->round > 0 && now_ms() < st->round_until);
+    cJSON_AddNumberToObject(o, "window_ms", 30000);
+    if (st->round > 0) {
+        cJSON_AddNumberToObject(o, "started_mono_ms", (double)(st->round_until - 30000));
+        cJSON_AddNumberToObject(o, "until_mono_ms", (double)st->round_until);
+    }
+}
+
+static cJSON *repeater_entry(struct state *st)
+{
+    cJSON *e = st->script->repeater_json ? cJSON_Parse(st->script->repeater_json) : NULL;
+
+    if (cJSON_IsObject(e)) {
+        cJSON_DeleteItemFromObject(e, "round");
+        cJSON_DeleteItemFromObject(e, "current");
+        cJSON_DeleteItemFromObject(e, "mono_ms");
+        cJSON_AddNumberToObject(e, "round", st->round);
+        cJSON_AddBoolToObject(e, "current", 1);
+        cJSON_AddNumberToObject(e, "mono_ms", (double)now_ms());
+    }
+    return e;
+}
+
+static cJSON *session_obj(struct state *st)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddBoolToObject(o, "active", st->session_active);
+    if (!st->session_active) {
+        return o;
+    }
+    cJSON_AddStringToObject(o, "node", st->session_key);
+    cJSON_AddBoolToObject(o, "known", 1);
+    cJSON_AddNumberToObject(o, "type", 2);
+    cJSON_AddStringToObject(o, "login", st->session_ok ? "ok" : "timeout");
+    if (st->session_ok) {
+        cJSON_AddBoolToObject(o, "legacy", 0);
+        cJSON_AddBoolToObject(o, "admin", 1);
+        cJSON_AddNumberToObject(o, "permissions", 1);
+        cJSON_AddNumberToObject(o, "acl", 3);
+        cJSON_AddNumberToObject(o, "firmware_level", 2);
+        cJSON_AddNumberToObject(o, "repeater_clock", 1790000000.0);
+    }
+    cJSON_AddNumberToObject(o, "stale_replies", 0);
+    cJSON_AddNumberToObject(o, "malformed_replies", 0);
+    return o;
+}
+
+/* The mesh.remote event that ends request `id`. */
+static void remote_event(struct state *st, int id, const char *kind, const char *outcome,
+                         const cJSON *params)
+{
+    cJSON *data = cJSON_CreateObject();
+    cJSON *reply = cJSON_AddObjectToObject(data, "reply");
+
+    cJSON_AddNumberToObject(reply, "request_id", id);
+    cJSON_AddStringToObject(reply, "kind", kind);
+    cJSON_AddStringToObject(reply, "outcome", outcome);
+    cJSON_AddStringToObject(reply, "node", st->session_key);
+    cJSON_AddNumberToObject(reply, "mono_ms", (double)now_ms());
+    if (strcmp(outcome, "replied") == 0) {
+        cJSON_AddNumberToObject(reply, "snr_db", 7.25);
+        cJSON_AddNumberToObject(reply, "rssi_dbm", -74);
+        if (strcmp(kind, "status") == 0) {
+            cJSON *s = cJSON_AddObjectToObject(reply, "status");
+
+            cJSON_AddNumberToObject(s, "battery_mv", 4012);
+            cJSON_AddNumberToObject(s, "tx_queue", 0);
+            cJSON_AddNumberToObject(s, "noise_floor_dbm", -118);
+            cJSON_AddNumberToObject(s, "last_rssi_dbm", -81);
+            cJSON_AddNumberToObject(s, "last_snr_db", 6.5);
+            cJSON_AddNumberToObject(s, "packets_recv", 15532);
+            cJSON_AddNumberToObject(s, "packets_sent", 4410);
+            cJSON_AddNumberToObject(s, "air_time_s", 3605);
+            cJSON_AddNumberToObject(s, "uptime_s", 360500);
+            cJSON_AddNumberToObject(s, "sent_flood", 4000);
+            cJSON_AddNumberToObject(s, "sent_direct", 410);
+            cJSON_AddNumberToObject(s, "recv_flood", 15000);
+            cJSON_AddNumberToObject(s, "recv_direct", 532);
+            cJSON_AddNumberToObject(s, "err_events", 0);
+            cJSON_AddNumberToObject(s, "direct_dups", 3);
+            cJSON_AddNumberToObject(s, "flood_dups", 211);
+        } else if (strcmp(kind, "neighbours") == 0) {
+            cJSON *nb = cJSON_AddObjectToObject(reply, "neighbours");
+            cJSON *arr = cJSON_AddArrayToObject(nb, "entries");
+            cJSON *e = cJSON_CreateObject();
+
+            cJSON_AddNumberToObject(nb, "total", 2);
+            cJSON_AddStringToObject(e, "prefix", "a19ac21e7d04");
+            cJSON_AddStringToObject(e, "name", "OSLO-01");
+            cJSON_AddBoolToObject(e, "known", 1);
+            cJSON_AddNumberToObject(e, "heard_s_ago", 95);
+            cJSON_AddNumberToObject(e, "snr_db", 9.5);
+            cJSON_AddItemToArray(arr, e);
+            e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "prefix", "77aa00bb11cc");
+            cJSON_AddBoolToObject(e, "known", 0);
+            cJSON_AddNumberToObject(e, "heard_s_ago", 3700);
+            cJSON_AddNumberToObject(e, "snr_db", -4.25);
+            cJSON_AddItemToArray(arr, e);
+        } else if (strcmp(kind, "owner") == 0) {
+            cJSON *o = cJSON_AddObjectToObject(reply, "owner");
+
+            cJSON_AddStringToObject(o, "firmware", "v1.9.0");
+            cJSON_AddStringToObject(o, "name", "HYTTA");
+            cJSON_AddStringToObject(o, "owner", "bench");
+        } else if (strcmp(kind, "cli") == 0) {
+            const cJSON *cmd = cJSON_GetObjectItemCaseSensitive(params, "command");
+            char text[200];
+
+            snprintf(text, sizeof(text), "-> %s\nOK", cJSON_IsString(cmd) ? cmd->valuestring : "");
+            cJSON_AddStringToObject(reply, "text", text);
+        }
+    }
+    cJSON_AddItemToObject(data, "session", session_obj(st));
+    pocketipc_server_broadcast(st->server, pocketipc_event("mesh.remote", data));
+}
+
+/* Answers a repeater method; returns 0 when name is not one. */
+static int remote_method(struct state *st, struct pocketipc_server *s,
+                         struct pocketipc_client *c, const cJSON *id, const char *name,
+                         const cJSON *params)
+{
+    const cJSON *node = cJSON_GetObjectItemCaseSensitive(params, "node");
+    cJSON *result;
+    int rid;
+
+    if (strcmp(name, "mesh.discover") != 0 && strcmp(name, "mesh.discovered") != 0 &&
+        strncmp(name, "mesh.remote_", 12) != 0) {
+        return 0;
+    }
+    remote_log(st, name, params);
+    if (st->script->no_remote) {
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD,
+                                                              "unknown method"));
+        return 1;
+    }
+    result = cJSON_CreateObject();
+    if (strcmp(name, "mesh.discover") == 0) {
+        int open = st->round > 0 && now_ms() < st->round_until;
+
+        if (!open) {
+            st->round++;
+            st->round_until = now_ms() + 30000;
+        }
+        cJSON_AddBoolToObject(result, "started", !open);
+        add_round(st, result);
+        pocketipc_server_reply(s, c, pocketipc_response(id, result));
+        if (!open && st->script->repeater_json && !st->script->remote_silent) {
+            cJSON *data = cJSON_CreateObject();
+
+            cJSON_AddStringToObject(data, "reason", "reply");
+            add_round(st, data);
+            cJSON_AddItemToObject(data, "repeater", repeater_entry(st));
+            pocketipc_server_broadcast(st->server, pocketipc_event("mesh.discover", data));
+        }
+        return 1;
+    }
+    if (strcmp(name, "mesh.discovered") == 0) {
+        cJSON *arr = cJSON_CreateArray();
+
+        add_round(st, result);
+        if (st->round > 0 && st->script->repeater_json) {
+            cJSON_AddItemToArray(arr, repeater_entry(st));
+        }
+        cJSON_AddNumberToObject(result, "count", cJSON_GetArraySize(arr));
+        cJSON_AddItemToObject(result, "repeaters", arr);
+    } else if (strcmp(name, "mesh.remote_session") == 0) {
+        cJSON_Delete(result);
+        result = session_obj(st);
+    } else if (strcmp(name, "mesh.remote_logout") == 0) {
+        cJSON_AddBoolToObject(result, "logged_out", st->session_active);
+        cJSON_AddBoolToObject(result, "transmitted", 0);
+        st->session_active = 0;
+        st->session_ok = 0;
+        cJSON_AddItemToObject(result, "session", session_obj(st));
+    } else {
+        const char *kind = strcmp(name, "mesh.remote_login") == 0 ? "login"
+                           : strcmp(name, "mesh.remote_cli") == 0 ? "cli"
+                                                                  : NULL;
+        const cJSON *k = cJSON_GetObjectItemCaseSensitive(params, "kind");
+
+        if (!kind && cJSON_IsString(k)) {
+            kind = k->valuestring;
+        }
+        if (!cJSON_IsString(node) || strlen(node->valuestring) != 64 || !kind) {
+            cJSON_Delete(result);
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                                             id, POCKETIPC_ERR_INVALID_PARAMS,
+                                             "node must be a whole public key, 64 hex characters"));
+            return 1;
+        }
+        if (strcmp(kind, "login") != 0 &&
+            (!st->session_ok || strcmp(st->session_key, node->valuestring) != 0)) {
+            cJSON_Delete(result);
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                                             id, POCKETIPC_ERR_INVALID_PARAMS,
+                                             "not logged in to that node"));
+            return 1;
+        }
+        rid = ++st->remote_id;
+        cJSON_AddBoolToObject(result, "accepted", 1);
+        cJSON_AddNumberToObject(result, "request_id", rid);
+        cJSON_AddStringToObject(result, "route", "flood");
+        cJSON_AddNumberToObject(result, "wait_ms", 20000);
+        if (strcmp(kind, "login") == 0) {
+            const cJSON *pw = cJSON_GetObjectItemCaseSensitive(params, "password");
+
+            st->session_active = 1;
+            snprintf(st->session_key, sizeof(st->session_key), "%s", node->valuestring);
+            st->session_ok = cJSON_IsString(pw) && strcmp(pw->valuestring, "hunter2") == 0;
+        }
+        pocketipc_server_reply(s, c, pocketipc_response(id, result));
+        if (!st->script->remote_silent) {
+            remote_event(st, rid, kind,
+                         (strcmp(kind, "login") == 0 && !st->session_ok) ? "timeout" : "replied",
+                         params);
+        }
+        return 1;
+    }
+    pocketipc_server_reply(s, c, pocketipc_response(id, result));
+    return 1;
+}
 
 static cJSON *channels_now(struct state *st)
 {
@@ -265,6 +521,9 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             fprintf(f, "%s\n", name);
             fclose(f);
         }
+    }
+    if (remote_method(st, s, c, id, name, cJSON_GetObjectItemCaseSensitive(req, "params"))) {
+        return;
     }
     if (strcmp(name, "mesh.info") == 0) {
         result = cJSON_CreateObject();
