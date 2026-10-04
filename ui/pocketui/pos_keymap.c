@@ -12,6 +12,8 @@
 #define K_FN 9
 #define K_FN_R 3
 #define K_CAPS 10
+#define K_SPACE_L 5  /* the Space bar's two contacts (pos_keymap_event) */
+#define K_SPACE_R 14
 
 static const char *const names[POS_KEYMAP_MAX_CODE + 1] = {
     [1] = "RIGHT",  [2] = "LEFT",   [3] = "FN-R",   [5] = "SPACE",
@@ -147,6 +149,7 @@ void pos_keymap_reset(struct pos_keymap *k)
         k->alt = 0;
         k->fn = 0;
         k->caps = 0;
+        k->space = 0;
     }
 }
 
@@ -198,6 +201,28 @@ pos_key_t pos_keymap_event(struct pos_keymap *k, uint8_t event,
         break;
     }
 
+    /* The Space bar is one key on two contacts: its left end closes code 5,
+     * its right end code 14, and a press near the middle closes both, the
+     * second 30-75 ms after the first and while the first is still down
+     * (unit A, 2026-10-04). It types once per press of the bar: a contact
+     * closing while the other is already down is the same press. No clock is
+     * involved, so typing is not delayed. */
+    if (code == K_SPACE_L || code == K_SPACE_R) {
+        uint8_t bit = code == K_SPACE_L ? 1u : 2u;
+        bool bar_down = (k->space & (uint8_t)~bit) != 0;
+
+        if (!pressed) {
+            k->space &= (uint8_t)~bit;
+            return 0;
+        }
+        k->space |= bit;
+        if (bar_down) {
+            return 0;
+        }
+        sym = ' ';
+        goto key;
+    }
+
     if (!pressed) {
         return 0; /* a release of an ordinary key delivers nothing */
     }
@@ -218,8 +243,6 @@ pos_key_t pos_keymap_event(struct pos_keymap *k, uint8_t event,
     case 40: sym = LV_KEY_ESC; goto key;
     case 41: sym = LV_KEY_BACKSPACE; goto key;
     case 6:  sym = LV_KEY_NEXT; goto key; /* TAB advances the focus (§17.2) */
-    case 5:
-    case 14: sym = ' '; goto key;         /* two space bars, one meaning */
     default: break;
     }
 

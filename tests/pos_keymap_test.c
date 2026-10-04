@@ -240,6 +240,35 @@ int main(void)
     release(C_ENTER);
     release(C_SHIFT);
 
+    /* The two space codes are one bar's two contacts: a press near the
+     * middle closes both, the second while the first is down (unit A,
+     * 2026-10-04). One press of the bar is one space. */
+    pos_keymap_reset(&km);
+    press_is("the middle of the bar: the first contact types", C_SPACE2, ' ');
+    check("the second contact, while the first is down, types nothing",
+          effect_of(C_SPACE | POS_KEYMAP_EVENT_PRESSED) == POS_KEYMAP_NONE);
+    release(C_SPACE);
+    release(C_SPACE2);
+    press_is("released, the bar types again", C_SPACE, ' ');
+    press_is("in either order", C_SPACE2, 0);
+    release(C_SPACE);
+    press_is("one contact still down is the same press", C_SPACE, 0);
+    release(C_SPACE2);
+    release(C_SPACE);
+    press_is("left end, tapped", C_SPACE, ' ');
+    release(C_SPACE);
+    press_is("left end, tapped again", C_SPACE, ' ');
+    release(C_SPACE);
+    press_is("right end, tapped", C_SPACE2, ' ');
+    release(C_SPACE2);
+    press_is("right end, tapped again", C_SPACE2, ' ');
+    release(C_SPACE2);
+    press(C_SPACE);
+    pos_keymap_reset(&km);
+    press_is("a reset forgets a contact whose release was lost", C_SPACE2, ' ');
+    press_is("a contact pressed again without its release still types", C_SPACE2, ' ');
+    release(C_SPACE2);
+
     /* ---- 7. arrows ------------------------------------------------------ */
 
     press_is("Up", C_UP, LV_KEY_UP);

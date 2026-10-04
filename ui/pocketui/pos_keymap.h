@@ -64,6 +64,7 @@ struct pos_keymap {
     uint8_t alt;   /* held */
     uint8_t fn;    /* held */
     uint8_t caps;  /* latched, toggles on press */
+    uint8_t space; /* Space-bar contacts down: bit 0 code 5, bit 1 code 14 */
 };
 
 void pos_keymap_reset(struct pos_keymap *k);
