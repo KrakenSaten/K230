@@ -502,6 +502,19 @@ static void picker_section(lv_obj_t *screen)
         check_str("each one shown as UTF-8", choice_text(i), a_offers[i]);
     }
     check("the first selected", kbd_picker_selected() == 0);
+    /* The row sits over whatever is beside the field: it must hide it, on
+     * the screen's own background, inside the panel's outline. */
+    {
+        lv_obj_t *box = lv_obj_get_parent(kbd_picker_choice(0));
+
+        check("the row's background is opaque",
+              lv_obj_get_style_bg_opa(box, LV_PART_MAIN) == LV_OPA_COVER);
+        check("in the screen's background colour",
+              lv_color_eq(lv_obj_get_style_bg_color(box, LV_PART_MAIN),
+                          lv_obj_get_style_bg_color(screen, LV_PART_MAIN)));
+        check("and keeps the panel's outline",
+              lv_obj_get_style_border_width(box, LV_PART_MAIN) > 0);
+    }
     key_up(K_A);
     check("letting go of A leaves it up", kbd_picker_is_open());
     check_str("and still types nothing", lv_textarea_get_text(line), "");
