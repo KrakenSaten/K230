@@ -7,6 +7,7 @@
 #include "shell_power.h"
 
 #include "pocketlog/pocketlog.h"
+#include "pos_styles.h"
 #include "settings.h"
 
 #include <errno.h>
@@ -64,8 +65,7 @@ void shell_power_init(const struct shell_power_hooks *hooks)
     pw.cover = lv_obj_create(lv_layer_sys());
     lv_obj_remove_style_all(pw.cover);
     lv_obj_set_size(pw.cover, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(pw.cover, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(pw.cover, LV_OPA_COVER, 0);
+    pos_style_add(pw.cover, POS_STYLE_SCREEN_OFF, 0);
     lv_obj_remove_flag(pw.cover, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(pw.cover, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(pw.cover, on_cover_pressed, LV_EVENT_PRESSED, NULL);
