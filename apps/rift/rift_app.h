@@ -147,6 +147,9 @@ struct rift_app {
      * lives here rather than in the COMMS screen; portrait has its own, in
      * the thread, where the design puts it. */
     lv_obj_t *composer;
+    /* The emoji button beside it (ui/rift_emoji_picker.h); the portrait
+     * composer has its own. Shown with the field. */
+    lv_obj_t *composer_emoji;
     lv_obj_t *cmd_send_hint; /* "TO HYTTA · FLOOD · ENTER SEND · ESC CLEAR" */
     int composer_focused;
 

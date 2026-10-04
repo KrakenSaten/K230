@@ -128,6 +128,20 @@ static int parse_line(struct rift_prefs *p, char *line)
          * has, and a repeat is one entry. */
         return rift_prefs_set_channel_muted(p, value, 1) == 0 ? 0 : 4;
     }
+    if (strcmp(key, RIFT_PREF_EMOJI_RECENT) == 0) {
+        size_t i;
+
+        if (strlen(value) >= sizeof(p->emoji_recent)) {
+            return 8;
+        }
+        for (i = 0; value[i]; i++) {
+            if ((unsigned char)value[i] < 0x20 || value[i] == 0x7F) {
+                return 8;
+            }
+        }
+        memcpy(p->emoji_recent, value, i + 1);
+        return 0;
+    }
     return 0;
 }
 
@@ -177,6 +191,13 @@ int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len)
     at = (size_t)n;
     for (i = 0; i < p->mute_count; i++) {
         n = snprintf(out + at, out_len - at, "%s=%s\n", RIFT_PREF_CH_MUTE, p->mute[i]);
+        if (n < 0 || (size_t)n >= out_len - at) {
+            return -1;
+        }
+        at += (size_t)n;
+    }
+    if (p->emoji_recent[0]) {
+        n = snprintf(out + at, out_len - at, "%s=%s\n", RIFT_PREF_EMOJI_RECENT, p->emoji_recent);
         if (n < 0 || (size_t)n >= out_len - at) {
             return -1;
         }

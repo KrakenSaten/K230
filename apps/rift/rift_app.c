@@ -15,6 +15,7 @@
 #include "rift_activity.h"
 #include "rift_comms.h"
 #include "rift_detail.h"
+#include "rift_emoji_picker.h"
 #include "rift_emoji_style.h"
 #include "rift_netview.h"
 #include "rift_find.h"
@@ -171,6 +172,9 @@ static void build_cmdline(struct rift_app *a)
         lv_obj_set_flex_grow(wrap, 1);
         lv_obj_add_flag(wrap, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_event_cb(a->composer, on_composer_ready, LV_EVENT_READY, a);
+        rift_emoji_style_add(a->composer, POS_STYLE_FIELD);
+        a->composer_emoji = rift_emoji_button(a, a->cmdline, a->composer);
+        lv_obj_add_flag(a->composer_emoji, LV_OBJ_FLAG_HIDDEN);
     }
 
     a->cmd_send_hint = lv_label_create(a->cmdline);
@@ -211,7 +215,9 @@ static void paint_cmdline(struct rift_app *a)
     if (wrap) {
         if (live) {
             lv_obj_remove_flag(wrap, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(a->composer_emoji, LV_OBJ_FLAG_HIDDEN);
         } else {
+            lv_obj_add_flag(a->composer_emoji, LV_OBJ_FLAG_HIDDEN);
             if (pos_input_focused() == a->composer) {
                 /* Focus does not stay in a field that is no longer there.
                  * Moved before it is hidden, so the field's own DEFOCUSED
@@ -464,6 +470,8 @@ static void shape_chrome(struct rift_app *a)
          * type and 4 px around it. */
         lv_obj_set_height(a->composer, wide ? COMPOSER_H_WIDE : 64);
         lv_obj_set_style_pad_ver(a->composer, wide ? 4 : 16, 0);
+        /* The emoji button beside it is as tall as the line. */
+        lv_obj_set_height(a->composer_emoji, wide ? CMDLINE_H_WIDE : CMDLINE_H);
     }
 }
 
@@ -539,6 +547,9 @@ static void layout(struct rift_app *a)
          * coming up also lays the frame out, under somebody typing. */
         rift_system_cancel(a);
     }
+    /* An emoji picker was placed beside a button this pass may move: it
+     * closes, and is opened again where the button now is. */
+    rift_emoji_picker_close();
     /* The chrome's heights from the timer, not from inside this layout
      * pass (rift_app.h, chrome_pending). */
     a->chrome_pending = 1;
@@ -605,6 +616,7 @@ static void pump(lv_timer_t *t)
     if (a->focus_composer_pending) {
         rift_focus_composer(a);
     }
+    rift_emoji_picker_check(a);
 }
 
 /* ---- lifecycle --------------------------------------------------------------- */
@@ -769,8 +781,10 @@ static void rift_destroy(void *priv)
     if (a->theme_host) {
         lv_obj_remove_event_cb_with_user_data(a->theme_host, on_theme_changed, a);
     }
-    /* Nothing of RIFT's sounds once its screen has gone. */
+    /* Nothing of RIFT's sounds once its screen has gone, and no emoji
+     * picker on the shell's top layer. */
     rift_sound_stop();
+    rift_emoji_picker_close();
     /* The touch keyboard is the shell's and outlives this app. An app that
      * left it up would hand the next screen a sheet over a third of it. */
     if (pocketos_shell_keyboard_visible()) {

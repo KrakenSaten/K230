@@ -18,6 +18,7 @@ file(GLOB POCKETUI_FONTS "${REPO_DIR}/ui/pocketui/fonts/pos_font_*.c")
 set(RIFT_EMOJI_SOURCES
     ${REPO_DIR}/apps/rift/rift_emoji.c
     ${REPO_DIR}/apps/rift/rift_emoji_seq.c
+    ${REPO_DIR}/apps/rift/rift_emoji_pick.c
     ${REPO_DIR}/apps/rift/ui/rift_emoji_font.c
     ${REPO_DIR}/apps/rift/ui/rift_emoji_style.c
     ${REPO_DIR}/apps/rift/ui/rift_emoji_img.c
@@ -247,6 +248,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_comms.c
     ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
     ${REPO_DIR}/apps/rift/ui/rift_thread.c
+    ${REPO_DIR}/apps/rift/ui/rift_emoji_picker.c
     ${RIFT_EMOJI_SOURCES}
     ${REPO_DIR}/apps/timber/timber_app.c
     ${REPO_DIR}/apps/timber/timber_store.c
@@ -1396,6 +1398,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_comms.c
         ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
         ${REPO_DIR}/apps/rift/ui/rift_thread.c
+        ${REPO_DIR}/apps/rift/ui/rift_emoji_picker.c
         ${RIFT_EMOJI_SOURCES}
         ${REPO_DIR}/core/pocketipc/pocketipc.c
         ${REPO_DIR}/core/pocketpaths.c

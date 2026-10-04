@@ -646,7 +646,37 @@ static void test_store(void)
                   rift_prefs_format(&full, all, sizeof(all)) > 0 &&
                       rift_prefs_parse(&back, all) == 0 && back.mute_count == RIFT_PREF_MUTE_MAX);
         }
+        {
+            char all[RIFT_STORE_FILE_MAX];
+            struct rift_prefs back;
+
+            /* The picker's recent emoji (rift_emoji_pick.h): the longest
+             * value the field holds, beside a full mute list, still fits
+             * the file. */
+            memset(full.emoji_recent, 'x', sizeof(full.emoji_recent) - 1);
+            full.emoji_recent[sizeof(full.emoji_recent) - 1] = '\0';
+            rift_prefs_defaults(&back);
+            check("the recent emoji are written and read back with a full mute list",
+                  rift_prefs_format(&full, all, sizeof(all)) > 0 &&
+                      rift_prefs_parse(&back, all) == 0 &&
+                      strcmp(back.emoji_recent, full.emoji_recent) == 0 &&
+                      back.mute_count == RIFT_PREF_MUTE_MAX);
+        }
     }
+    rift_prefs_defaults(&p);
+    check("no recent emoji by default, and none written", p.emoji_recent[0] == '\0' &&
+              rift_prefs_format(&p, text, sizeof(text)) > 0 &&
+              strstr(text, RIFT_PREF_EMOJI_RECENT) == NULL);
+    check("the recent emoji are read as written",
+          rift_prefs_parse(&p, "emoji_recent=\xF0\x9F\x91\x8D \xE2\x9D\xA4\xEF\xB8\x8F\n") == 0 &&
+              strcmp(p.emoji_recent, "\xF0\x9F\x91\x8D \xE2\x9D\xA4\xEF\xB8\x8F") == 0);
+    check("a recent list with a control byte in it is refused",
+          rift_prefs_parse(&p, "emoji_recent=a\tb\n") == 8 &&
+              strcmp(p.emoji_recent, "\xF0\x9F\x91\x8D \xE2\x9D\xA4\xEF\xB8\x8F") == 0);
+    check("and so is one longer than the field",
+          rift_prefs_parse(&p, "emoji_recent=0123456789012345678901234567890123456789012345678\n") ==
+                  8 &&
+              strcmp(p.emoji_recent, "\xF0\x9F\x91\x8D \xE2\x9D\xA4\xEF\xB8\x8F") == 0);
     rift_prefs_defaults(&p);
     check("a file saying off is read as off",
           rift_prefs_parse(&p, "# c\ndm_sound=0\n") == 0 && p.dm_sound == 0);

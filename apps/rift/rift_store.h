@@ -50,6 +50,11 @@
 #define RIFT_PREF_CH_MUTE "channel_mute"
 #define RIFT_PREF_MUTE_MAX 16
 #define RIFT_PREF_MUTE_KEY_MAX 65
+/* The emoji the composer's picker offered and this reader picked lately,
+ * newest first, separated by spaces (rift_emoji_pick.h owns the list and
+ * what may be in it). Kept as text here: no byte below a space, and short. */
+#define RIFT_PREF_EMOJI_RECENT "emoji_recent"
+#define RIFT_PREF_EMOJI_RECENT_LEN 48
 /* The longest line this build writes, and the whole file. */
 #define RIFT_STORE_TEXT_MAX 256
 #define RIFT_STORE_FILE_MAX 2048
@@ -59,14 +64,15 @@ struct rift_prefs {
     int ch_sound; /* 0 or 1 */
     char mute[RIFT_PREF_MUTE_MAX][RIFT_PREF_MUTE_KEY_MAX];
     int mute_count;
+    char emoji_recent[RIFT_PREF_EMOJI_RECENT_LEN]; /* "" when none */
 };
 
 void rift_prefs_defaults(struct rift_prefs *p);
 
 /* Read the file's text into p, over whatever p held. Returns a mask of the
  * known keys whose value was unusable (1: dm_sound, 2: channel_sound, 4: a
- * channel_mute line), which keep what p had; 0 when everything present was
- * usable. Pure: no I/O. */
+ * channel_mute line, 8: emoji_recent), which keep what p had; 0 when
+ * everything present was usable. Pure: no I/O. */
 int rift_prefs_parse(struct rift_prefs *p, const char *text);
 /* The file's text. Returns the length, or -1 when out is too small. */
 int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len);

@@ -76,6 +76,16 @@ static bool glyph_dsc(const lv_font_t *font, lv_font_glyph_dsc_t *g, uint32_t le
     int32_t h;
 
     (void)next;
+    if (letter == 0xFE0Eu || letter == 0xFE0Fu) {
+        /* A variation selector says how the emoji before it is drawn and is
+         * not drawn itself. Message text has them folded away
+         * (rift_emoji_fold); a composer's field holds the text as it will
+         * be sent, so there the selector is a glyph of no width rather
+         * than LVGL's placeholder box after the heart of U+2764 U+FE0F. */
+        memset(g, 0, sizeof(*g));
+        g->format = LV_FONT_GLYPH_FORMAT_NONE;
+        return true;
+    }
     d = rift_emoji_image(letter);
     if (!d) {
         return false;
