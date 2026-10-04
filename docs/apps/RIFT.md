@@ -488,7 +488,7 @@ could only fail.
 
 What a reader can type is what the Doors keyboards produce - the touch
 keyboard and the keyboard base type text, and text smileys like `:)` are
-plain ASCII. Remote text arrives from meshcored as well-formed UTF-8 (it
+plain ASCII - and the emoji the composer's picker offers (below). Remote text arrives from meshcored as well-formed UTF-8 (it
 sanitises on the way out) and RIFT keeps it so: every copy into a fixed field
 is cut on a character boundary (`rift_utf8_copy`), and a send is refused - in
 bytes, never characters - when it is longer than 160 bytes or a channel's
@@ -501,8 +501,11 @@ Message bodies, conversation previews and the sender a channel line claims
 are drawn with **full-colour emoji** inline in the Plex text. Plex stays the
 text font, untouched: each of those labels draws in a RIFT copy of its role's
 Plex font descriptor (`ui/rift_emoji_font.h`) whose fallback is a colour
-emoji font, so LVGL asks the colour font only for a character Plex lacks. No
-other app and no other RIFT label changes.
+emoji font, so LVGL asks the colour font only for a character Plex lacks. The
+two composers' fields draw in the same way, so an emoji in a message being
+written is in colour too; there the text is not folded (it is what will be
+sent), and the colour font draws a variation selector as nothing. No other app
+and no other RIFT label changes.
 
 - **The images** are Noto Color Emoji (googlefonts/noto-emoji `2D/png/72`,
   pinned at e20cbc2) and its region flags, converted at build time by
@@ -545,6 +548,32 @@ once against LVGL built from the device's own `lv_conf.h`.
 Presentation only: what is stored, counted and sent is the text as it
 arrived. The text smileys RIFT used to write in place of emoji (`:)`, `<3`,
 `(y)`, …) are gone.
+
+### The emoji picker
+
+Each composer - the portrait thread's and the landscape command line's - has
+an emoji button at the right of its field (`ui/rift_emoji_picker.h`). It opens
+a small panel above it: the group's name, the three groups' tabs down the
+left, and the group's emoji, five by three, drawn by the colour emoji font.
+
+- **What it offers** is a short fixed list (`rift_emoji_pick.h`), not an
+  emoji database: RECENT / COMMON (🙂 👍 👋 ❤️ 😂 🔥 ✅ ❌ ⚠️ 📡 📍 🚗 ☕ 🔦 🌲),
+  PEOPLE / REACTIONS and RADIO / FIELD, fifteen each, every one a single image
+  in the artwork, none toned. Each is inserted fully qualified (with U+FE0F
+  where Unicode wants it), so other MeshCore clients draw it as an emoji.
+- **Picking** - a tap, or Enter on the selection - puts the emoji's UTF-8 into
+  the field at the caret and closes the panel. **Nothing is sent**: sending is
+  still SEND, or Enter in the field with the panel closed.
+- **The keys and the focus**: the panel never takes the focus. The field keeps
+  it, with its caret, so the composer's automatic focus and typing work as
+  before. While the panel is up the field's keys reach it first: the arrows
+  move the selection (down past the last row is the next group, up past the
+  first the one before), Enter picks, Esc closes; any other key closes it and
+  types. A tap outside, the field losing the keys or being disabled, a turn
+  of the panel and leaving RIFT close it.
+- **Recently picked** emoji, up to five, go first in the first group. They
+  are kept in the preferences file as `emoji_recent=` (the emoji, space-
+  separated), the only addition to it; an entry not in the list is ignored.
 
 ## Activity: how lately it was heard from
 
