@@ -1155,9 +1155,9 @@ so that pass stayed the size it was scoped to be.
   heard.** Upstream's repeater answers a wrong password with nothing, so
   RIFT shows "No answer to the login" for both. Logout is local only (MeshCore
   has none on the air). The password is wiped in RIFT and meshcored, but
-  upstream's `sendLogin` copies it to a stack buffer it does not clear, and
-  the request frame passes through pocketipc buffers that are freed, not
-  wiped. A 48-byte RepeaterStats reply (one firmware generation) is padded to
+  upstream's `sendLogin` copies it to a stack buffer it does not clear
+  (vendored, not changed). pocketipc clears the frames it prints and reads;
+  the kernel's socket buffers and cJSON's own parse are outside reach. A 48-byte RepeaterStats reply (one firmware generation) is padded to
   the AES block, so its last two fields may read as 0. Not yet on air.
 - **RIFT's colour emoji reach message bodies, previews and claimed senders
   only.** They are compiled-in Noto Color Emoji images (docs/apps/RIFT.md,
