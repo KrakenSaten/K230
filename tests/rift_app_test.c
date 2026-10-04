@@ -4108,10 +4108,10 @@ static void repeater_session(void)
         }
         snprintf(what, sizeof(what), "%s: the detail has no MESSAGE", tag);
         check(what, find_exact(content(), "MESSAGE") == NULL);
-        snprintf(what, sizeof(what), "%s: and says it is a repeater, and that control is not "
-                                     "available", tag);
+        snprintf(what, sizeof(what), "%s: and says it is a repeater, and where it is controlled",
+                 tag);
         check(what, find_text(content(), "TAKES NO DIRECT MESSAGES") != NULL &&
-                        find_text(content(), "CONTROL NOT AVAILABLE") != NULL);
+                        find_text(content(), "CONTROL FROM ACTIVITY") != NULL);
         snprintf(what, sizeof(what), "%s: it keeps its telemetry, path and node actions", tag);
         check(what, find_text(content(), "RPT") != NULL && find_exact(content(), "RE-ROUTE") &&
                         find_exact(content(), "FORGET") && find_text(content(), "7.5") != NULL);

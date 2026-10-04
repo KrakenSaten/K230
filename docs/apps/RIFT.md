@@ -459,30 +459,66 @@ repeater is still listed, with its telemetry, path, history, RE-ROUTE and
 FORGET. Upstream's companion firmware does not refuse text to a repeater; the
 restriction is the client's, as the T-Deck RIFT's (`ENTER: control`).
 
-**Repeater control is not in this build.** What upstream MeshCore offers a
-client (vendor/RIFT at the pin, everything server-side upstream as is):
+### Repeater control
 
-| operation | upstream | needs | meshcored today |
-|---|---|---|---|
-| login | `ANON_REQ` with timestamp + password; repeater answers `RESPONSE` with admin flag and ACL permissions; a wrong password gets no reply (`simple_repeater` `handleLoginReq`, client `BaseChatMesh::sendLogin`) | admin or guest password | not implemented (`onContactResponse` is empty) |
-| status | `REQ_TYPE_GET_STATUS` → `RepeaterStats` (battery, queue, noise floor, RSSI/SNR, packet and air-time counters, uptime) | logged in (guest is enough) | no |
-| telemetry | `REQ_TYPE_GET_TELEMETRY_DATA` → CayenneLPP | logged in | no |
-| neighbours | `REQ_TYPE_GET_NEIGHBOURS` → key prefix, heard-ago, SNR per neighbour | logged in | no |
-| access list | `REQ_TYPE_GET_ACCESS_LIST` | admin | no |
-| owner info | `REQ_TYPE_GET_OWNER_INFO` | logged in | no |
-| CLI | `TXT_TYPE_CLI_DATA` text (`advert`, `reboot`, `clock sync`, `get`/`set` ...) | admin | no |
-| anonymous regions / owner / clock | `ANON_REQ` types 1-3, answered only when the request came direct | none | no |
-| trace | `PAYLOAD_TYPE_TRACE` along a given path | none | no (mesh.md "Not in v0") |
+Branch `feat/rift-repeater-control`. **VERIFIED host** (tests/rift_model_test.c,
+tests/rift_ipc_test.c against the scripted service, tests/rift_app_test.c, and
+on the service side tests/meshcored_repeater_test.cpp against a test repeater
+built from upstream's `simple_repeater` handlers). **Not yet run against a real
+repeater** - docs/hardware/RIFT_REPEATER_CONTROL_GATE.md.
 
-There is no logout on the wire, and the repeater refuses any request whose
-timestamp is not later than the last one it saw from that client - which on
-a board with no RTC needs the clock set first (mesh.md, the 1970 problem).
-Adding control is a service change (`mesh.login`, `mesh.request`, a response
-event, a pending-request table, password handling that is never logged or
-stored), its tests, and an on-air gate against a real repeater; RIFT's side is
-a login form and a status panel under the repeater's detail. Until then the
-detail says `CONTROL NOT AVAILABLE` and why, rather than offering buttons that
-could only fail.
+**SCAN 0-HOP** (ACTIVITY, panel REPEATERS 0-HOP, `ui/rift_scan.c`) asks
+meshcored for one zero-hop discovery round (`mesh.discover`: upstream's
+`CTL_TYPE_NODE_DISCOVER_REQ`, the request upstream RIFT's DISCOVER 0-HOP
+sends). Every repeater that can hear this node answers, zero-hop; MeshCore
+itself refuses a control answer that came through a relay, so **every row is
+a repeater heard directly**, with no inference from a name, a route or the
+repeater's own neighbour list. A row shows the name (or the key prefix and
+NO ADVERT YET when its advert was never heard), RSSI and SNR of its answer,
+and its age. The round collects answers for 30 s; SCAN reads SCANNING and
+takes no press meanwhile, and the client refuses a second request before the
+first is answered. Answers from earlier rounds stay listed under EARLIER
+SCANS with the stale glyph and their age, never as heard now.
+
+**A repeater's page** (`RIFT_SEC_REPEATER`, under ACTIVITY; Back or Esc
+returns; `ui/rift_repeater_view.c`, `ui/rift_repeater_cmd.c`):
+
+| panel | |
+|---|---|
+| REPEATER | key prefix, when it answered (latest or earlier scan), both halves of the link (how we heard it, how it heard us), and whether it is in the node list - a login needs its contact |
+| LOGIN | password field (masked, not even the last character shown) and LOGIN; LOGOUT while a session exists; the repeater's clock from its login answer |
+| READ | STATUS, NEIGHBOURS (the **repeater's** own zero-hop neighbours, named only where the six-byte prefix names one held node) and VERSION (firmware, name, owner); only what the repeater answered, a field it did not send is not shown |
+| COMMAND | one CLI line and SEND, VER / CLOCK / NEIGHBORS shortcuts, and the transcript |
+
+**Which commands are sent** is one rule (`rift_rep_cli_class`, applied by the
+console and again by the client): read-only commands (`ver`, `clock`,
+`board`, `neighbors`, `stats-*`, `get <key>`, `region`, `gps`,
+`powersaving`, `sensor list|get`) go at once; anything else upstream accepts
+- `reboot`, `set ...` (a radio setting says so), `tempradio`, `clock sync`,
+`advert`, `neighbor.remove` ... - only from its confirmation's SEND; and
+`erase`, `start ota`, `poweroff`/`shutdown`, `log erase` and any line naming
+a password or key (`password`, `*.password`, `*.key`, `*.secret`) are never
+sent from RIFT. A guest login gets no console: the repeater answers commands
+only for admin.
+
+**Login.** Upstream's repeater does not answer a wrong password at all, so
+a wrong password shows as "No answer to the login" after the wait (20 s at
+least), with the words "wrong password, or the repeater did not hear this
+node". A login OK that arrives late is still taken (upstream RIFT's rule).
+The password goes from the field into one request by reference and is wiped
+there; the field's own buffer is overwritten and emptied; nothing in RIFT or
+meshcored stores or logs it.
+
+**The session ends** on LOGOUT (local, as upstream's logout is: nothing is
+transmitted), when RIFT is left (Back/Home) or closed or the shell stops,
+when meshcored goes away or restarts (its session is memory only, and RIFT
+ends any session it finds on connecting), and when the repeater leaves the
+node list. One request at a time: every button is disabled while one waits.
+
+**Keys.** On ACTIVITY Up/Down walk SCAN 0-HOP and the rows and Enter presses
+or opens; on the page they walk its controls and Enter presses one or puts
+the keys in a field (Enter there sends, Esc comes back). The control the keys
+are on carries the DS §9 focus outline.
 
 ## Emoji and other text
 
