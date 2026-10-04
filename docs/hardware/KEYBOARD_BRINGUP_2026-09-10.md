@@ -232,7 +232,11 @@ settled by hardware (§5.1); the rest are still unread:
   **Resolved:** they are the Shift legends of Q and W.
 - `,` sits on **H** and `.` on **B**; `<` on **N** and `>` on **M**. Still
   unread.
-- There are two space codes, 5 and 14. Still unread.
+- There are two space codes, 5 and 14. **Resolved (VERIFIED, unit A,
+  2026-10-04):** one Space bar on two contacts. The left end closes 5, the
+  right end 14, and a press near the middle closes both, the second 30-75 ms
+  after the first while the first is still down. `pos_keymap` types one
+  space per press of the bar.
 
 The function row (F1–F11), the Fn keys, the LILYGO key and the mic key are
 deliberately **not mapped**. They are reported as reserved. The vendor binds
@@ -622,8 +626,8 @@ PocketOS driver must never run at the same time.
 - Whether the **remaining** keycap legends match the vendor's map: `,` on H,
   `.` on B, `<` on N, `>` on M, and every key outside §5.1. The duplicated
   `~` and `` ` `` and the missing `'` and `_` are settled (§5.1).
-- Whether the two space codes are one bar or two keys, and what the keys
-  named FN-R, TAB, CTRL and ALT actually say on their caps.
+- What the keys named FN-R, TAB, CTRL and ALT actually say on their caps.
+  (The two space codes are one bar: §5.)
 - What the function row, Fn, LILYGO and mic keys should do in PocketOS.
 - Whether the TCA8418 should be polled or driven from the GPIO42 interrupt.
   The vendor uses the interrupt by default and polls as a fallback; polling
