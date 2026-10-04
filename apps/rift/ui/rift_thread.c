@@ -11,6 +11,7 @@
 #include "pos_styles.h"
 #include "rift_comms.h"
 #include "rift_emoji.h"
+#include "rift_emoji_picker.h"
 #include "rift_emoji_style.h"
 
 #include <stdio.h>
@@ -288,7 +289,9 @@ static void build_composer(struct rift_thread *t)
         lv_obj_set_flex_grow(lv_obj_get_parent(t->field), 1);
         lv_obj_add_event_cb(t->field, on_field_clicked, LV_EVENT_CLICKED, t);
         lv_obj_add_event_cb(t->field, on_field_ready, LV_EVENT_READY, t);
+        rift_emoji_style_add(t->field, POS_STYLE_FIELD);
     }
+    rift_emoji_button(t->app, t->composer, t->field);
     t->send = rift_action(t->composer, "SEND", 1, 1, on_send, t);
     if (t->send) {
         lv_obj_set_flex_grow(t->send, 0);

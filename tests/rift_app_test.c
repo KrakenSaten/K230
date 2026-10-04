@@ -28,6 +28,8 @@
 #include "rift_app.h"
 #include "rift_comms.h"
 #include "rift_device.h"
+#include "rift_emoji_pick.h"
+#include "rift_emoji_picker.h"
 #include "rift_find.h"
 #include "rift_graph.h"
 #include "rift_manage.h"
@@ -4442,6 +4444,202 @@ static void background_live_session(void)
     unlink(events);
 }
 
+/* ---- the composer's emoji picker -------------------------------------------- */
+
+static void tap_point(int32_t x, int32_t y)
+{
+    finger_point.x = x;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+/* The button beside a composer's field: the next object in its row. */
+static lv_obj_t *emoji_button_of(lv_obj_t *field)
+{
+    lv_obj_t *wrap = field ? lv_obj_get_parent(field) : NULL;
+
+    return wrap ? lv_obj_get_child(lv_obj_get_parent(wrap), (int32_t)lv_obj_get_index(wrap) + 1)
+                : NULL;
+}
+
+/* Nothing went towards the service: no request on its way and no refusal. */
+static int nothing_sent(void)
+{
+    return !rift_model_sending(&app->model) && !app->model.outbox.failed;
+}
+
+static int stored_recent_first(const char *emoji)
+{
+    struct rift_prefs p;
+    size_t n = strlen(emoji);
+
+    return rift_store_load(&p) == 0 && strncmp(p.emoji_recent, emoji, n) == 0 &&
+           (p.emoji_recent[n] == '\0' || p.emoji_recent[n] == ' ');
+}
+
+/* An emoji button at the right of the composer, in both shapes, at Large:
+ * its picker inserts at the caret and sends nothing, keeps the field's
+ * focus, and closes on Esc, on a tap outside and on a key it does not use;
+ * what was picked comes first next time and is kept in the preferences. */
+static void emoji_picker_session(void)
+{
+    static const enum pos_rotation turns[] = { POS_ROTATION_0, POS_ROTATION_270 };
+    enum pos_text_size was = pos_theme_current_text_size();
+    size_t t;
+
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    for (t = 0; t < sizeof(turns) / sizeof(turns[0]); t++) {
+        const char *shape = turns[t] == POS_ROTATION_0 ? "portrait" : "landscape";
+        char what[200];
+        char want[64];
+        const char *picked;
+        lv_obj_t *field;
+        lv_obj_t *button;
+        lv_area_t fa;
+        lv_area_t ba;
+        lv_area_t box;
+
+        use_display(turns[t], PANEL_CORNER);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        give_messages();
+        rift_app_show_section(app, RIFT_SEC_COMMS);
+        pump(200);
+        tap(ancestor(find_exact(content(), "HYTTA"), 1));
+        pump(200);
+        field = app->wide ? app->composer : rift_comms_field(app);
+        button = emoji_button_of(field);
+        snprintf(what, sizeof(what), "%s, Large: the composer has an emoji button", shape);
+        check(what, field && button && visible(button) && (!app->wide || button == app->composer_emoji));
+        if (!field || !button) {
+            app_stop();
+            continue;
+        }
+        lv_obj_get_coords(lv_obj_get_parent(field), &fa);
+        lv_obj_get_coords(button, &ba);
+        snprintf(what, sizeof(what), "%s, Large: at the right of the field, on its line", shape);
+        check(what, ba.x1 >= fa.x2 && ba.y1 < fa.y2 && ba.y2 > fa.y1 && inside_body(button));
+        snprintf(what, sizeof(what), "%s, Large: and it does not take the focus group's place",
+                 shape);
+        check(what, lv_obj_get_group(button) == NULL &&
+                        !lv_obj_has_flag(button, LV_OBJ_FLAG_CLICK_FOCUSABLE));
+
+        pos_input_push_key('h');
+        pos_input_push_key('i');
+        pump(80);
+        lv_textarea_set_cursor_pos(field, 1);
+        tap(button);
+        snprintf(what, sizeof(what), "%s, Large: a tap opens the picker on the common emoji",
+                 shape);
+        check(what, rift_emoji_picker_is_open() && rift_emoji_picker_group() == 0 &&
+                        rift_emoji_picker_cell(RIFT_EMOJI_CELLS - 1) != NULL);
+        snprintf(what, sizeof(what), "%s, Large: and the field keeps the keys and its caret",
+                 shape);
+        check(what, pos_input_focused() == field && lv_textarea_get_cursor_pos(field) == 1);
+        lv_obj_update_layout(rift_emoji_picker_box());
+        lv_obj_get_coords(rift_emoji_picker_box(), &box);
+        snprintf(what, sizeof(what), "%s, Large: the picker is on screen, above the button",
+                 shape);
+        check(what, box.x1 >= 0 && box.y1 >= 0 && box.x2 < lv_display_get_horizontal_resolution(NULL) &&
+                        box.y2 < ba.y1 && labels_overflowing(rift_emoji_picker_box()) == 0);
+
+        /* The keys move the selection and change the group, and none of
+         * them reaches the field. */
+        pos_input_push_key(LV_KEY_RIGHT);
+        pos_input_push_key(LV_KEY_DOWN);
+        pump(80);
+        snprintf(what, sizeof(what), "%s, Large: the arrows move the selection, not the caret",
+                 shape);
+        check(what, rift_emoji_picker_selected() == RIFT_EMOJI_COLS + 1 &&
+                        lv_textarea_get_cursor_pos(field) == 1 &&
+                        strcmp(lv_textarea_get_text(field), "hi") == 0);
+        pos_input_push_key(LV_KEY_DOWN);
+        pos_input_push_key(LV_KEY_DOWN);
+        pump(80);
+        snprintf(what, sizeof(what), "%s, Large: down past the last row is the next group",
+                 shape);
+        check(what, rift_emoji_picker_group() == 1 && rift_emoji_picker_selected() == 1 &&
+                        strcmp(lv_textarea_get_text(field), "hi") == 0);
+        snprintf(what, sizeof(what), "%s, Large: the group's name is whole", shape);
+        check(what, captions_clipped(rift_emoji_picker_box()) == 0);
+        pos_input_push_key(LV_KEY_UP);
+        pump(80);
+        snprintf(what, sizeof(what), "%s, Large: and up past the first row the one before",
+                 shape);
+        check(what, rift_emoji_picker_group() == 0 &&
+                        rift_emoji_picker_selected() == 2 * RIFT_EMOJI_COLS + 1);
+        tap(rift_emoji_picker_tab(2));
+        snprintf(what, sizeof(what), "%s, Large: a tab shows its group", shape);
+        check(what, rift_emoji_picker_is_open() && rift_emoji_picker_group() == 2 &&
+                        pos_input_focused() == field);
+        pos_input_push_key(LV_KEY_ESC);
+        pump(80);
+        snprintf(what, sizeof(what), "%s, Large: Esc closes it and leaves the message as it was",
+                 shape);
+        check(what, !rift_emoji_picker_is_open() && strcmp(lv_textarea_get_text(field), "hi") == 0 &&
+                        pos_input_focused() == field && app->section == RIFT_SEC_COMMS);
+
+        /* A tap on an emoji: in at the caret, nothing sent. */
+        tap(button);
+        picked = rift_emoji_picker_item(3);
+        tap(rift_emoji_picker_cell(3));
+        snprintf(want, sizeof(want), "h%si", picked ? picked : "?");
+        snprintf(what, sizeof(what), "%s, Large: a tapped emoji goes in at the caret", shape);
+        check(what, picked && strcmp(lv_textarea_get_text(field), want) == 0 &&
+                        !rift_emoji_picker_is_open());
+        snprintf(what, sizeof(what), "%s, Large: and nothing is sent", shape);
+        check(what, nothing_sent());
+        snprintf(what, sizeof(what), "%s, Large: typing goes on after it", shape);
+        pos_input_push_key('!');
+        pump(80);
+        snprintf(want, sizeof(want), "h%s!i", picked ? picked : "?");
+        check(what, pos_input_focused() == field && strcmp(lv_textarea_get_text(field), want) == 0);
+        snprintf(what, sizeof(what), "%s, Large: it is kept as the most recent emoji", shape);
+        check(what, picked && stored_recent_first(picked));
+
+        /* Opened again: the recent one first, and Enter picks the
+         * selection rather than sending the message. */
+        lv_textarea_set_text(field, "");
+        tap(button);
+        snprintf(what, sizeof(what), "%s, Large: the recent emoji comes first next time", shape);
+        check(what, picked && rift_emoji_picker_item(0) == rift_emoji_pick_find(picked));
+        pos_input_push_key(LV_KEY_ENTER);
+        pump(120);
+        snprintf(what, sizeof(what), "%s, Large: Enter inserts the selected emoji, and sends nothing",
+                 shape);
+        check(what, picked && strcmp(lv_textarea_get_text(field), picked) == 0 &&
+                        !rift_emoji_picker_is_open() && nothing_sent());
+
+        /* A tap outside, and a key the picker has no use for. */
+        tap(button);
+        tap_point(box.x2 + 40 < lv_display_get_horizontal_resolution(NULL) ? box.x2 + 20 : 4, 4);
+        snprintf(what, sizeof(what), "%s, Large: a tap outside closes it", shape);
+        check(what, !rift_emoji_picker_is_open() && pos_input_focused() == field);
+        tap(button);
+        pos_input_push_key('k');
+        pump(80);
+        snprintf(want, sizeof(want), "%sk", picked ? picked : "?");
+        snprintf(what, sizeof(what), "%s, Large: a letter closes it and is typed", shape);
+        check(what, !rift_emoji_picker_is_open() && strcmp(lv_textarea_get_text(field), want) == 0);
+        tap(button);
+        pos_input_push_key(LV_KEY_NEXT);
+        pump(120);
+        snprintf(what, sizeof(what), "%s, Large: Tab takes the keys away, and closes it", shape);
+        check(what, !rift_emoji_picker_is_open() && strcmp(lv_textarea_get_text(field), want) == 0);
+
+        tap(button);
+        app_stop();
+        snprintf(what, sizeof(what), "%s: leaving RIFT takes the picker with it", shape);
+        check(what, !rift_emoji_picker_is_open());
+    }
+    pos_theme_select_text_size(was);
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -5790,6 +5988,8 @@ int main(void)
     comms_usability_session();
     public_mute_session();
     text_size_session();
+    /* feat/rift-emoji-picker: the composer's emoji button and picker. */
+    emoji_picker_session();
     /* feat/rift-background-lifecycle: RIFT kept behind other screens, its
      * mark, CLOSE RIFT, and the navigation row's targets (DS §51). */
     background_session();

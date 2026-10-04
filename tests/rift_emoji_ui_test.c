@@ -26,7 +26,9 @@
 #include "pos_theme.h"
 #include "rift_emoji.h"
 #include "rift_emoji_font.h"
+#include "rift_emoji_pick.h"
 #include "rift_emoji_style.h"
+#include "rift_store.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -248,6 +250,127 @@ static double ms_for_frames(lv_display_t *disp, lv_obj_t *screen, int frames)
     return ((double)(b.tv_sec - a.tv_sec) * 1e3 + (double)(b.tv_nsec - a.tv_nsec) / 1e6) / frames;
 }
 
+/* ---- the composer's picker (rift_emoji_pick.h) ---------------------------- */
+
+/* Every emoji the picker offers is one image in the colour font, untoned,
+ * offered once; the composer's field draws each as that one image and its
+ * variation selector as nothing; the recent list goes first and stays
+ * bounded. */
+static void picker_table(void)
+{
+    const lv_font_t *field = rift_emoji_font(role_font(POS_STYLE_FIELD));
+    const char *seen[RIFT_EMOJI_GROUPS * RIFT_EMOJI_CELLS + RIFT_EMOJI_GROUPS];
+    unsigned n_seen = 0;
+    unsigned g;
+    unsigned i;
+    int ok_one = 1;
+    int ok_tone = 1;
+    int ok_once = 1;
+    int ok_field = 1;
+    char what[200];
+
+    for (g = 0; g < RIFT_EMOJI_GROUPS; g++) {
+        const struct rift_emoji_group *grp = &rift_emoji_groups[g];
+
+        snprintf(what, sizeof(what), "picker: %s fills the grid", grp->title);
+        check(what, grp->count == RIFT_EMOJI_CELLS);
+        for (i = 0; i <= grp->count; i++) {
+            const char *e = i < grp->count ? grp->items[i] : grp->icon;
+            char shown[32];
+            const char *s;
+            unsigned k;
+            int cps = 0;
+            int images;
+            int boxes;
+
+            for (s = e; *s;) {
+                uint32_t cp = next_cp(&s);
+
+                ok_tone = ok_tone && !(cp >= 0x1F3FBu && cp <= 0x1F3FFu);
+            }
+            rift_emoji_fold(e, shown, sizeof(shown));
+            for (s = shown; *s; cps++) {
+                ok_one = ok_one && rift_emoji_image(next_cp(&s)) != NULL;
+            }
+            if (cps != 1 || strlen(e) >= RIFT_EMOJI_PICK_LEN) {
+                ok_one = 0;
+                printf("  picker: %s %u is not one emoji with an image\n", grp->title, i);
+            }
+            count_glyphs(field, e, &images, &boxes);
+            ok_field = ok_field && images == 1 && boxes == 0;
+            if (i == grp->count) {
+                continue; /* the tab's icon may be an item too */
+            }
+            for (k = 0; k < n_seen; k++) {
+                ok_once = ok_once && strcmp(seen[k], e) != 0;
+            }
+            seen[n_seen++] = e;
+            ok_once = ok_once && rift_emoji_pick_find(e) == e;
+        }
+    }
+    check("picker: every emoji and tab folds to one image of the colour font", ok_one);
+    check("picker: no skin-tone variant is offered", ok_tone);
+    check("picker: each emoji is offered once", ok_once);
+    check("picker: in the composer's field each is one image and its selector draws nothing",
+          ok_field);
+    check("picker: the owner's common row comes first, in the owner's order",
+          strcmp(rift_emoji_groups[0].items[0], "\xF0\x9F\x99\x82") == 0 &&
+              strcmp(rift_emoji_groups[0].items[3], "\xE2\x9D\xA4\xEF\xB8\x8F") == 0 &&
+              strcmp(rift_emoji_groups[0].items[14], "\xF0\x9F\x8C\xB2") == 0);
+    check("picker: what is not in the table is not found",
+          rift_emoji_pick_find("\xE2\x9D\xA4") == NULL &&
+              rift_emoji_pick_find("\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBB") == NULL &&
+              rift_emoji_pick_find("") == NULL);
+
+    {
+        const char *recent[RIFT_EMOJI_RECENT_MAX];
+        const char *items[RIFT_EMOJI_CELLS];
+        const char *people0 = rift_emoji_groups[1].items[0];
+        const char *fire = rift_emoji_groups[0].items[5];
+        char text[RIFT_EMOJI_RECENT_MAX * RIFT_EMOJI_PICK_LEN];
+        unsigned n = 0;
+        unsigned m;
+        int dup = 0;
+
+        n = rift_emoji_recent_push(recent, n, fire);
+        n = rift_emoji_recent_push(recent, n, people0);
+        n = rift_emoji_recent_push(recent, n, fire);
+        check("picker: a recent emoji picked again moves first and is not repeated",
+              n == 2 && recent[0] == fire && recent[1] == people0);
+        m = rift_emoji_group_items(0, recent, n, items);
+        for (i = 1; i < m; i++) {
+            dup += items[i] == fire;
+        }
+        check("picker: the first group shows the recent ones first, then the common ones, once",
+              m == RIFT_EMOJI_CELLS && items[0] == fire && items[1] == people0 &&
+                  items[2] == rift_emoji_groups[0].items[0] && dup == 0);
+        m = rift_emoji_group_items(1, recent, n, items);
+        check("picker: the other groups are as the table has them",
+              m == RIFT_EMOJI_CELLS && items[0] == people0);
+        for (i = 0; i < RIFT_EMOJI_CELLS; i++) {
+            n = rift_emoji_recent_push(recent, n, rift_emoji_groups[2].items[i]);
+        }
+        check("picker: the recent list keeps one row, the newest first",
+              n == RIFT_EMOJI_RECENT_MAX && recent[0] == rift_emoji_groups[2].items[14] &&
+                  recent[4] == rift_emoji_groups[2].items[10]);
+        check("picker: the recent list is written as the emoji, space-separated, and fits the file",
+              rift_emoji_recent_format(recent, n, text, sizeof(text)) > 0 &&
+                  strlen(text) < RIFT_PREF_EMOJI_RECENT_LEN);
+        {
+            const char *back[RIFT_EMOJI_RECENT_MAX];
+
+            check("picker: and read back the same",
+                  rift_emoji_recent_parse(text, back) == n && back[0] == recent[0] &&
+                      back[4] == recent[4]);
+            check("picker: unknown, toned and repeated entries are dropped when read",
+                  rift_emoji_recent_parse("x \xF0\x9F\x91\x8D\xF0\x9F\x8F\xBB \xF0\x9F\x99\x82 "
+                                          "\xF0\x9F\x99\x82  \xF0\x9F\x94\xA5",
+                                          back) == 2 &&
+                      back[0] == rift_emoji_groups[0].items[0] && back[1] == fire);
+        }
+    }
+}
+
 int main(void)
 {
     static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM, POS_TEXT_SIZE_LARGE };
@@ -297,6 +420,8 @@ int main(void)
     rift_emoji_fold(samples[7].text, shown, sizeof(shown));
     check("skin tones are stripped: the thumbs and the wave are their base",
           strcmp(shown, "Tone \xF0\x9F\x91\x8D \xF0\x9F\x91\x8D \xF0\x9F\x91\x8B") == 0);
+
+    picker_table();
 
     /* ---- the labels ---------------------------------------------------- */
     for (i = 0; i < SAMPLE_COUNT; i++) {
