@@ -192,6 +192,10 @@ bool kbd_picker_open(const pos_key_t *choices, unsigned n)
     lv_obj_remove_style_all(pk.box);
     pos_style_add(pk.box, POS_STYLE_SCREEN, 0);
     pos_style_add(pk.box, POS_STYLE_PANEL, 0);
+    /* The panel's outline on the screen's background: PANEL leaves the
+     * background transparent, and added last it would let the text beside
+     * the field show between the letters. */
+    lv_obj_set_style_bg_opa(pk.box, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(pk.box, FRAME_PAD, 0);
     lv_obj_set_style_pad_column(pk.box, CHOICE_GAP, 0);
     lv_obj_set_size(pk.box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
