@@ -22,8 +22,10 @@
  * Shift 7, Z 18, Q 20, A 29, J 34 and W 39 - each with its raw press and
  * release byte and its keycap legend. Two of the vendor's shifted symbols
  * were wrong there and are corrected in pos_keymap.c: W gives '_' and Q
- * gives '\''. Every other entry remains DOCUMENTED, not verified: no other
- * key has been pressed on the hardware and no other keycap has been read.
+ * gives '\''. Space was read on unit A on 2026-10-04: codes 5 and 14 are
+ * one bar on two contacts (pos_keymap_event). Every other entry remains
+ * DOCUMENTED, not verified: no other key has been pressed on the hardware
+ * and no other keycap has been read.
  * See docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
@@ -64,6 +66,7 @@ struct pos_keymap {
     uint8_t alt;   /* held */
     uint8_t fn;    /* held */
     uint8_t caps;  /* latched, toggles on press */
+    uint8_t space; /* Space-bar contacts down: bit 0 code 5, bit 1 code 14 */
 };
 
 void pos_keymap_reset(struct pos_keymap *k);

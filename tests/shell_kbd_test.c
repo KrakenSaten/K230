@@ -593,6 +593,53 @@ static void picker_section(lv_obj_t *screen)
     settle();
 }
 
+/* The Space bar's two contacts, in the byte orders unit A's controller gave
+ * on 2026-10-04: a press near the middle closes both, the second while the
+ * first is still down, and the two releases often share one drain. */
+#define K_SPACE2 14
+
+static void space_bar_section(lv_obj_t *screen)
+{
+    lv_obj_t *line = pocketui_text_field(screen, "Message", true);
+
+    pos_input_focus(line);
+    settle();
+    tap_key(K_SPACE);
+    tap_key(K_SPACE2);
+    check_str("each end of the bar types one space", lv_textarea_get_text(line), "  ");
+
+    lv_textarea_set_text(line, "");
+    key_down(K_SPACE2);
+    key_down(K_SPACE);
+    feed(K_SPACE2);
+    feed(K_SPACE);
+    settle();
+    check_str("the middle of the bar types one space", lv_textarea_get_text(line), " ");
+
+    key_down(K_SPACE2);
+    key_down(K_SPACE);
+    key_up(K_SPACE);
+    key_up(K_SPACE2);
+    check_str("whichever contact lets go first", lv_textarea_get_text(line), "  ");
+
+    key_down(K_SPACE);
+    key_down(K_SPACE2);
+    key_up(K_SPACE2);
+    key_up(K_SPACE);
+    check_str("and whichever closes first", lv_textarea_get_text(line), "   ");
+
+    /* One drain holding the whole press, as a slow poll would see it. */
+    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | K_SPACE2));
+    feed((uint8_t)(POS_KEYMAP_EVENT_PRESSED | K_SPACE));
+    feed(K_SPACE);
+    feed(K_SPACE2);
+    settle();
+    check_str("a whole press in one drain is still one space", lv_textarea_get_text(line), "    ");
+
+    lv_obj_delete(line);
+    settle();
+}
+
 int main(void)
 {
     lv_display_t *disp;
@@ -926,6 +973,7 @@ int main(void)
     /* ---- 5b. the long-press letter picker ------------------------------ */
 
     picker_section(screen);
+    space_bar_section(screen);
     pos_input_focus(field);
     settle();
 
