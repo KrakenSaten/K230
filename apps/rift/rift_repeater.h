@@ -44,6 +44,9 @@
  * answer event on its own: the service ends every wait itself, and this
  * covers only a service that went quiet without closing the socket. */
 #define RIFT_REP_CLIENT_SLACK_MS 5000
+/* And a request the service never even accepted (its answer lost or never
+ * matched) is let go this long after it was written. */
+#define RIFT_REP_ACCEPT_MS 15000
 
 enum rift_rep_login {
     RIFT_REP_LOGIN_NONE = 0,

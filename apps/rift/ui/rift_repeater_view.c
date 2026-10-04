@@ -61,6 +61,17 @@ static const char *target(const struct rift_app *a)
     return r->have_target ? r->target : NULL;
 }
 
+void rift_repeater_field_live(struct rift_app *a, lv_obj_t *field, int live)
+{
+    /* A field that has the keys and leaves the group would leave them with
+     * whatever LVGL picks next: the key sink takes them back instead, from
+     * the timer (lvgl-layout gotcha 3). */
+    if (!live && field && a && pos_input_focused() == field) {
+        a->focus_list_pending = 1;
+    }
+    rift_form_field_live(field, live);
+}
+
 /* ---- handlers: each a reader's press ----------------------------------------- */
 
 static void on_back(lv_event_t *e)
@@ -326,8 +337,8 @@ void rift_repeater_view_cancel(struct rift_app *app)
     rift_repeater_cmd_cancel(v);
     rift_repeater_cursor_move(&v->cursor, NULL);
     scrub_field(v->part[RIFT_REPV_PASSWORD]);
-    rift_form_field_live(v->part[RIFT_REPV_PASSWORD], 0);
-    rift_form_field_live(v->part[RIFT_REPV_COMMAND], 0);
+    rift_repeater_field_live(app, v->part[RIFT_REPV_PASSWORD], 0);
+    rift_repeater_field_live(app, v->part[RIFT_REPV_COMMAND], 0);
     v->fields_live = 0;
     v->cmd_live = 0;
 }
@@ -553,7 +564,7 @@ static void refresh_login(struct rift_repeater_view *v, const char *key, int rea
      * a change (lvgl-layout gotcha 4: re-adding moves the focus). */
     live = can_login && !logged;
     if (live != v->fields_live) {
-        rift_form_field_live(v->part[RIFT_REPV_PASSWORD], live);
+        rift_repeater_field_live(a, v->part[RIFT_REPV_PASSWORD], live);
         v->fields_live = live;
     }
     if (r->active && !other && r->have_clock) {

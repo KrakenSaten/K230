@@ -63,6 +63,10 @@ void rift_rep_service_lost(struct rift_repeater *r)
      * took it with it - whatever the page last showed is no longer true. */
     rift_rep_session_clear(r);
     r->note[0] = '\0';
+    /* The next service may know what this one did not (deploy.sh while RIFT
+     * ran in the background): asked again on connecting. */
+    r->unsupported = 0;
+    r->scan.unsupported = 0;
     r->scan.asking = 0;
     r->scan.open = 0;
     for (i = 0; i < r->scan.count; i++) {
@@ -642,7 +646,19 @@ int rift_rep_apply_event(struct rift_repeater *r, const char *name, const cJSON 
         if (!cJSON_IsObject(data) || !reason) {
             return 1;
         }
-        apply_round(&r->scan, data);
+        {
+            uint32_t before = r->scan.round;
+            int i;
+
+            apply_round(&r->scan, data);
+            /* A round another client started: what answered before it is
+             * not current any more. */
+            if (r->scan.round != before) {
+                for (i = 0; i < r->scan.count; i++) {
+                    r->scan.found[i].current = 0;
+                }
+            }
+        }
         if (strcmp(reason, "reply") == 0 &&
             found_of(cJSON_GetObjectItemCaseSensitive(data, "repeater"), &f) == 0) {
             upsert(&r->scan, &f);
@@ -671,7 +687,8 @@ int rift_rep_expire(struct rift_repeater *r, int64_t now_ms)
     if (!r || r->asking == RIFT_REP_NONE) {
         return 0;
     }
-    if (r->request_id > 0 && now_ms > r->deadline_ms + RIFT_REP_CLIENT_SLACK_MS) {
+    if ((r->request_id > 0 && now_ms > r->deadline_ms + RIFT_REP_CLIENT_SLACK_MS) ||
+        (r->request_id <= 0 && now_ms > r->asked_ms + RIFT_REP_ACCEPT_MS)) {
         r->asking = RIFT_REP_NONE;
         r->request_id = 0;
         note(r, 1, "meshcored never said how that request ended");

@@ -228,7 +228,7 @@ void rift_repeater_cmd_refresh(struct rift_repeater_view *v, int usable)
     rift_action_set_enabled(v->part[RIFT_REPV_QUICK_CLOCK], 0, can);
     rift_action_set_enabled(v->part[RIFT_REPV_QUICK_NEIGHBORS], 0, can);
     if (live != v->cmd_live) {
-        rift_form_field_live(v->part[RIFT_REPV_COMMAND], live);
+        rift_repeater_field_live(v->app, v->part[RIFT_REPV_COMMAND], live);
         v->cmd_live = live;
     }
     rift_form_show(v->confirm, v->confirming);

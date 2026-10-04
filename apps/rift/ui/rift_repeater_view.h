@@ -104,6 +104,10 @@ void rift_repeater_open(struct rift_app *app, const char *key);
 
 lv_obj_t *rift_repeater_view_part(const struct rift_app *app, enum rift_repv_part part);
 
+/* rift_form_field_live, and when the field had the keys they go back to the
+ * key sink from the timer. */
+void rift_repeater_field_live(struct rift_app *app, lv_obj_t *field, int live);
+
 /* rift_repeater_cmd.c, for the page. */
 void rift_repeater_cmd_build(struct rift_repeater_view *v, lv_obj_t *parent);
 void rift_repeater_cmd_refresh(struct rift_repeater_view *v, int usable);

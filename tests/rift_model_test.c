@@ -733,6 +733,19 @@ static void test_repeater_scan(void)
           r.scan.count == 1 && !r.scan.found[0].current && !rift_rep_scanning(&r, 40000));
     check("other events are not the repeater block's",
           rep_event(&r, "mesh.node", "{\"reason\":\"path\"}", 1) == 0);
+    check("a round started by another client makes earlier answers not current",
+          rep_event(&r, "mesh.discover",
+                    "{\"reason\":\"reply\",\"round\":1,\"open\":true,\"repeater\":"
+                    "{\"public_key\":\"" KEY_B "\",\"round\":1,\"current\":true}}", 1) == 1 &&
+              r.scan.found[0].current &&
+              rep_event(&r, "mesh.discover", "{\"reason\":\"closed\",\"round\":5,\"open\":false}",
+                        2) == 1 &&
+              !r.scan.found[0].current);
+    rift_rep_mark_unsupported(&r, 1);
+    rift_rep_mark_unsupported(&r, 0);
+    rift_rep_service_lost(&r);
+    check("a new connection asks again whether the service has repeater control",
+          !r.scan.unsupported && !r.unsupported);
 }
 
 static void test_repeater_session(void)
@@ -813,6 +826,15 @@ static void test_repeater_session(void)
 
     rift_rep_begin(&r, RIFT_REP_STATUS, 30000);
     rep_accept(&r, "{\"request_id\":9,\"wait_ms\":20000}", 30000);
+    {
+        struct rift_repeater q;
+
+        rift_rep_init(&q);
+        rift_rep_begin(&q, RIFT_REP_STATUS, 1000);
+        check("a request the service never accepted is let go too",
+              !rift_rep_expire(&q, 1000 + RIFT_REP_ACCEPT_MS) &&
+                  rift_rep_expire(&q, 1001 + RIFT_REP_ACCEPT_MS) && !rift_rep_busy(&q));
+    }
     check("a request the service never ends is let go past its wait and the slack",
           !rift_rep_expire(&r, 50000 + RIFT_REP_CLIENT_SLACK_MS) &&
               rift_rep_expire(&r, 50001 + RIFT_REP_CLIENT_SLACK_MS) && !rift_rep_busy(&r));
