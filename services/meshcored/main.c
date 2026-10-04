@@ -231,6 +231,22 @@ static void hook_on_app(void *user, const struct mcd_app_datagram *dg)
     mcd_broadcast(d, mcd_event_app(dg));
 }
 
+static void hook_on_discover(void *user, const struct mcd_discovered *r,
+                             const struct mcd_discover_state *s)
+{
+    struct mcd *d = user;
+
+    mcd_broadcast(d, mcd_event_discover(d, r, s));
+}
+
+static void hook_on_remote(void *user, const struct mcd_remote_reply *r,
+                           const struct mcd_remote_session *s)
+{
+    struct mcd *d = user;
+
+    mcd_broadcast(d, mcd_event_remote(d, r, s));
+}
+
 static void hook_on_channel(void *user, const struct mcd_channel *c, const char *reason)
 {
     struct mcd *d = user;
@@ -561,6 +577,8 @@ int main(int argc, char **argv)
     hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
     hooks.on_app = hook_on_app;
+    hooks.on_discover = hook_on_discover;
+    hooks.on_remote = hook_on_remote;
     hooks.user = &d;
 
     memset(&rcfg, 0, sizeof(rcfg));

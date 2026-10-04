@@ -45,6 +45,7 @@
 
 #include "airtime.h"
 #include "mc_port.h"
+#include "mesh_remote.h"
 #include "mesh_store.h"
 
 /* The sizes this service repeats in its C header must be MeshCore's own. */
@@ -640,6 +641,16 @@ public:
         if (!removeContact(*c)) {
             return false;
         }
+        /* The repeater the session is with has gone from the table: there is
+         * no contact to encrypt to or match a reply against, so the session
+         * ends, and a request it had outstanding is answered cancelled. */
+        if (_remote.isTarget(key)) {
+            mcd_remote_reply r;
+
+            if (_remote.end(&r, mcport::monotonicMillis())) {
+                emitRemote(r);
+            }
+        }
         /* What this service kept beside the contact goes with it, so a node
          * that adverts again is heard afresh rather than inheriting the
          * signal of a node that was forgotten. A message still waiting for
@@ -1064,10 +1075,21 @@ protected:
         emitMessage(m.id);
     }
 
-    /* A CLI-data message and a signed message are MeshCore payloads this
-     * service does not serve. They are counted as frames and dropped rather
-     * than shown as chat text they are not. */
-    void onCommandDataRecv(const ContactInfo&, mesh::Packet*, uint32_t, const char*) override { }
+    /* CLI data is a repeater's answer to a command this node sent it
+     * (mesh_remote.h). Taken only as the answer to the one command the
+     * session has outstanding, from the node it went to; anything else is
+     * counted stale and dropped rather than shown as chat text it is not. A
+     * signed message is a payload this service does not serve. */
+    void onCommandDataRecv(const ContactInfo& contact, mesh::Packet*, uint32_t,
+                           const char* text) override
+    {
+        mcd_remote_reply r;
+
+        if (_remote.onCommandData(contact.id.pub_key, text, mcport::monotonicMillis(), &r) ==
+            mcdremote::V_ANSWER) {
+            emitRemote(r);
+        }
+    }
     void onSignedMessageRecv(const ContactInfo&, mesh::Packet*, uint32_t, const uint8_t*,
                              const char*) override { }
     /* ---- the empty-slot guard ------------------------------------------
@@ -1243,9 +1265,83 @@ protected:
         _app_receipts++;
         return 5;
     }
-    void onContactResponse(const ContactInfo&, const uint8_t*, uint8_t) override { }
+    /* A RESPONSE: a repeater answering the session's login or request, or a
+     * Doors peer's app-datagram receipt, which carries nothing to read.
+     * Matched by mesh_remote.h's rules; everything else is ignored. A
+     * RESPONSE riding a PATH payload reaches here only past the PATH guard
+     * above. */
+    void onContactResponse(const ContactInfo& contact, const uint8_t* data, uint8_t len) override
+    {
+        mcd_remote_reply r;
+        mcdremote::Verdict v =
+            _remote.onResponse(contact.id.pub_key, data, len, mcport::monotonicMillis(), &r);
+
+        if (v == mcdremote::V_ANSWER || v == mcdremote::V_LATE_LOGIN) {
+            emitRemote(r);
+        }
+    }
+
+    /* A zero-hop CONTROL packet: mesh::Mesh delivers one here only when it
+     * came with no relay in its path (Mesh.cpp:70-75), so a discovery answer
+     * is proof the repeater was heard directly. This node serves no
+     * discovery requests of its own - it is not a repeater. */
+    void onControlDataRecv(mesh::Packet* packet) override
+    {
+        mcd_discovered d;
+        mcd_discover_state st;
+        mcd_rx_meta meta;
+        bool known = _adapter.currentMeta(meta);
+
+        if (packet == NULL ||
+            !_discovery.onResponse(packet->payload, packet->payload_len, self_id.pub_key, &meta,
+                                   known, mcport::monotonicMillis(), &d)) {
+            return;
+        }
+        _discovery.state(&st);
+        if (_hooks.on_discover) {
+            _hooks.on_discover(_hooks.user, &d, &st);
+        }
+    }
 
 public:
+    /* ---- repeater discovery and the session (mesh_remote.h) ---- */
+    mcdremote::Session& remote() { return _remote; }
+    const mcdremote::Session& remote() const { return _remote; }
+    mcdremote::Discovery& discovery() { return _discovery; }
+    const mcdremote::Discovery& discovery() const { return _discovery; }
+    /* Upstream's logout (companion CMD_LOGOUT): keep-alive state dropped,
+     * nothing transmitted. Protected upstream, so reached through here. */
+    void dropConnection(const uint8_t* key) { stopConnection(key); }
+
+    /* The answer, with the signal of the frame that carried it when this
+     * turn's frame is the one, and the session afterwards. */
+    void emitRemote(mcd_remote_reply& r)
+    {
+        mcd_remote_session s;
+        mcd_rx_meta meta;
+
+        if (r.outcome == MCD_REMOTE_REPLIED && _adapter.currentMeta(meta)) {
+            r.snr_known = meta.snr_known;
+            r.snr_db = meta.snr_db;
+            r.rssi_known = meta.rssi_known;
+            r.rssi_dbm = meta.rssi_dbm;
+        }
+        _remote.state(&s);
+        if (_hooks.on_remote) {
+            _hooks.on_remote(_hooks.user, &r, &s);
+        }
+    }
+
+    void emitDiscoverClosed()
+    {
+        mcd_discover_state st;
+
+        _discovery.state(&st);
+        if (_hooks.on_discover) {
+            _hooks.on_discover(_hooks.user, NULL, &st);
+        }
+    }
+
     int appInbox(int port, uint64_t after_id, mcd_app_datagram* out, int max) const
     {
         int n = 0;
@@ -1671,6 +1767,9 @@ private:
     uint8_t _path_hash_bytes; /* setPathHashBytes */
 
     char _name[MCD_NODE_NAME_LEN];
+
+    mcdremote::Session _remote;
+    mcdremote::Discovery _discovery;
 };
 
 /* The C log sink, behind a C++ one, so the daemon can point the protocol
@@ -2130,7 +2229,14 @@ void mcd_runtime_tick(struct mcd_runtime* rt)
      * and an ACK that arrived in time but is queued behind others must be
      * matched before its message's deadline is judged. */
     if (!rt->radio.pending()) {
-        mcd_runtime_expire_acks(rt, mcport::monotonicMillis());
+        uint64_t now = mcport::monotonicMillis();
+
+        mcd_runtime_expire_acks(rt, now);
+        /* The same rule for a repeater request's wait and a discovery
+         * round's window: an answer queued behind other frames is taken
+         * before the wait is called over. */
+        mcd_runtime_remote_expire(rt, now);
+        mcd_runtime_discover_expire(rt, now);
     }
 }
 
@@ -2649,6 +2755,373 @@ bool mcd_runtime_send_advert_zero_hop(struct mcd_runtime* rt)
      * same signed advert, at the airtime cost of one packet rather than of a
      * flood across the whole mesh. */
     rt->node.sendZeroHop(pkt);
+    return true;
+}
+
+/* ---- repeater discovery and control ------------------------------------- */
+
+const char* mcd_remote_kind_name(enum mcd_remote_kind k)
+{
+    switch (k) {
+    case MCD_REMOTE_LOGIN:
+        return "login";
+    case MCD_REMOTE_STATUS:
+        return "status";
+    case MCD_REMOTE_NEIGHBOURS:
+        return "neighbours";
+    case MCD_REMOTE_OWNER:
+        return "owner";
+    case MCD_REMOTE_CLI:
+        return "cli";
+    case MCD_REMOTE_NONE:
+    default:
+        return "none";
+    }
+}
+
+const char* mcd_login_state_name(enum mcd_login_state s)
+{
+    switch (s) {
+    case MCD_LOGIN_WAITING:
+        return "waiting";
+    case MCD_LOGIN_OK:
+        return "ok";
+    case MCD_LOGIN_REFUSED:
+        return "refused";
+    case MCD_LOGIN_TIMEOUT:
+        return "timeout";
+    case MCD_LOGIN_NONE:
+    default:
+        return "none";
+    }
+}
+
+const char* mcd_remote_outcome_name(enum mcd_remote_outcome o)
+{
+    switch (o) {
+    case MCD_REMOTE_REPLIED:
+        return "replied";
+    case MCD_REMOTE_REFUSED:
+        return "refused";
+    case MCD_REMOTE_TIMED_OUT:
+        return "timeout";
+    case MCD_REMOTE_CANCELLED:
+    default:
+        return "cancelled";
+    }
+}
+
+enum mcd_discover_result mcd_runtime_discover(struct mcd_runtime* rt,
+                                              struct mcd_discover_state* state)
+{
+    uint64_t now = mcport::monotonicMillis();
+    uint8_t data[10];
+    uint32_t tag = 0;
+    uint32_t since = 0;
+    mesh::Packet* pkt;
+
+    (void)mcd_runtime_discover_expire(rt, now);
+    if (rt->node.discovery().open(now)) {
+        /* Never re-armed: a new tag would orphan every answer the open round
+         * is still collecting. */
+        rt->node.discovery().state(state);
+        return MCD_DISCOVER_BUSY;
+    }
+    if (!rt->radio.online()) {
+        rt->node.discovery().state(state);
+        return MCD_DISCOVER_NO_RADIO;
+    }
+    /* Byte for byte the request simple_repeater answers and upstream RIFT's
+     * DISCOVER 0-HOP sends: prefix_only 0 (whole keys back), a repeater-only
+     * type filter, a random tag that is never 0, and no "changed since". */
+    rt->rng.random((uint8_t*)&tag, sizeof(tag));
+    if (tag == 0) {
+        tag = 1;
+    }
+    data[0] = mcdremote::CTL_DISCOVER_REQ;
+    data[1] = (uint8_t)(1u << ADV_TYPE_REPEATER);
+    memcpy(&data[2], &tag, 4);
+    memcpy(&data[6], &since, 4);
+    pkt = rt->node.createControlData(data, sizeof(data));
+    if (pkt == NULL) {
+        rt->node.discovery().state(state);
+        return MCD_DISCOVER_FAILED;
+    }
+    rt->node.discovery().begin(tag, now);
+    rt->node.sendZeroHop(pkt);
+    rt->node.discovery().state(state);
+    return MCD_DISCOVER_STARTED;
+}
+
+void mcd_runtime_discover_state(const struct mcd_runtime* rt, struct mcd_discover_state* out)
+{
+    rt->node.discovery().state(out);
+}
+
+int mcd_runtime_discovered(const struct mcd_runtime* rt, struct mcd_discovered* out, int max)
+{
+    return rt->node.discovery().list(out, max);
+}
+
+bool mcd_runtime_discover_expire(struct mcd_runtime* rt, uint64_t now_ms)
+{
+    if (!rt->node.discovery().expire(now_ms)) {
+        return false;
+    }
+    rt->node.emitDiscoverClosed();
+    return true;
+}
+
+/* Overwrite a buffer that held a password in a way the compiler may not
+ * drop as a dead store. */
+static void wipe(void* p, size_t n)
+{
+    volatile uint8_t* v = (volatile uint8_t*)p;
+
+    while (n--) {
+        *v++ = 0;
+    }
+}
+
+/* One line of printable text: no control character, no newline. A login
+ * password must not start with a byte below a space either way - upstream's
+ * repeater reads such a first byte as another anonymous request type. */
+static bool oneLine(const char* s, size_t max, bool allow_empty)
+{
+    size_t n;
+
+    if (s == NULL) {
+        return false;
+    }
+    n = strnlen(s, max + 1);
+    if (n > max || (n == 0 && !allow_empty)) {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++) {
+        unsigned char ch = (unsigned char)s[i];
+
+        if (ch < 0x20 || ch == 0x7F) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static ContactInfo* contactFor(struct mcd_runtime* rt, const uint8_t key[MCD_PUB_KEY_LEN])
+{
+    ContactInfo* c = rt->node.lookupContactByPubKey(key, PUB_KEY_SIZE);
+
+    return (c != NULL && c->type != ADV_TYPE_NONE) ? c : NULL;
+}
+
+static enum mcd_remote_result accepted(int rc)
+{
+    return rc == MSG_SEND_SENT_DIRECT ? MCD_REMOTE_ACCEPTED_DIRECT : MCD_REMOTE_ACCEPTED_FLOOD;
+}
+
+enum mcd_remote_result mcd_runtime_remote_login(struct mcd_runtime* rt,
+                                                const uint8_t key[MCD_PUB_KEY_LEN],
+                                                const char* password, uint64_t* request_id,
+                                                uint32_t* wait_ms)
+{
+    char pw[MCD_REMOTE_PASSWORD_MAX + 1];
+    uint64_t now = mcport::monotonicMillis();
+    mcd_remote_reply cancelled;
+    ContactInfo* c;
+    uint32_t est = 0;
+    uint32_t wait;
+    int rc;
+
+    if (!rt->radio.online()) {
+        return MCD_REMOTE_NO_RADIO;
+    }
+    /* Empty is upstream's own case: a blank password logs in only a node the
+     * repeater already holds in its access list. Longer than upstream's cut
+     * is refused rather than sent shortened - a password somebody typed and
+     * this node silently changed would fail for a reason nobody could see. */
+    if (!oneLine(password, MCD_REMOTE_PASSWORD_MAX, true)) {
+        return MCD_REMOTE_BAD_TEXT;
+    }
+    c = contactFor(rt, key);
+    if (c == NULL) {
+        return MCD_REMOTE_NO_CONTACT;
+    }
+    if (rt->node.remote().busy()) {
+        return MCD_REMOTE_BUSY;
+    }
+    if (rt->node.remote().retarget(key, &cancelled, now)) {
+        rt->node.emitRemote(cancelled);
+    }
+    snprintf(pw, sizeof(pw), "%s", password);
+    rc = rt->node.sendLogin(*c, pw, est);
+    wipe(pw, sizeof(pw));
+    if (rc == MSG_SEND_FAILED) {
+        return MCD_REMOTE_FAILED;
+    }
+    wait = mcdremote::waitFor(est);
+    if (request_id) {
+        *request_id = rt->node.remote().begin(MCD_REMOTE_LOGIN, 0, wait, now);
+    } else {
+        (void)rt->node.remote().begin(MCD_REMOTE_LOGIN, 0, wait, now);
+    }
+    if (wait_ms) {
+        *wait_ms = wait;
+    }
+    return accepted(rc);
+}
+
+/* The checks every request after a login shares. */
+static enum mcd_remote_result readyFor(struct mcd_runtime* rt, const uint8_t key[MCD_PUB_KEY_LEN],
+                                       ContactInfo** c)
+{
+    if (!rt->radio.online()) {
+        return MCD_REMOTE_NO_RADIO;
+    }
+    *c = contactFor(rt, key);
+    if (*c == NULL) {
+        return MCD_REMOTE_NO_CONTACT;
+    }
+    if (!rt->node.remote().loggedIn(key)) {
+        return MCD_REMOTE_NOT_LOGGED_IN;
+    }
+    if (rt->node.remote().busy()) {
+        return MCD_REMOTE_BUSY;
+    }
+    return MCD_REMOTE_ACCEPTED_FLOOD;
+}
+
+enum mcd_remote_result mcd_runtime_remote_ask(struct mcd_runtime* rt,
+                                              const uint8_t key[MCD_PUB_KEY_LEN],
+                                              enum mcd_remote_kind kind, uint64_t* request_id,
+                                              uint32_t* wait_ms)
+{
+    uint64_t now = mcport::monotonicMillis();
+    enum mcd_remote_result ready;
+    ContactInfo* c = NULL;
+    uint32_t tag = 0;
+    uint32_t est = 0;
+    uint32_t wait;
+    uint64_t id;
+    int rc;
+
+    if (kind != MCD_REMOTE_STATUS && kind != MCD_REMOTE_NEIGHBOURS && kind != MCD_REMOTE_OWNER) {
+        return MCD_REMOTE_BAD_TEXT;
+    }
+    ready = readyFor(rt, key, &c);
+    if (ready != MCD_REMOTE_ACCEPTED_FLOOD) {
+        return ready;
+    }
+    if (kind == MCD_REMOTE_STATUS) {
+        /* Upstream's own 13-byte status request: tag, type, four reserved
+         * bytes, four random ones. */
+        rc = rt->node.sendRequest(*c, mcdremote::REQ_GET_STATUS, tag, est);
+    } else if (kind == MCD_REMOTE_NEIGHBOURS) {
+        /* Version 0: how many, from where, newest first, how much of each
+         * key, and four random bytes for the packet hash. */
+        uint8_t req[11];
+
+        req[0] = mcdremote::REQ_GET_NEIGHBOURS;
+        req[1] = 0;
+        req[2] = MCD_REMOTE_NEIGHBOURS_MAX;
+        req[3] = 0;
+        req[4] = 0;
+        req[5] = 0;
+        req[6] = MCD_REMOTE_NEIGHBOUR_PREFIX;
+        rt->rng.random(&req[7], 4);
+        rc = rt->node.sendRequest(*c, req, sizeof(req), tag, est);
+    } else {
+        uint8_t req[1] = { mcdremote::REQ_GET_OWNER_INFO };
+
+        rc = rt->node.sendRequest(*c, req, sizeof(req), tag, est);
+    }
+    if (rc == MSG_SEND_FAILED) {
+        return MCD_REMOTE_FAILED;
+    }
+    wait = mcdremote::waitFor(est);
+    id = rt->node.remote().begin(kind, tag, wait, now);
+    if (request_id) {
+        *request_id = id;
+    }
+    if (wait_ms) {
+        *wait_ms = wait;
+    }
+    return accepted(rc);
+}
+
+enum mcd_remote_result mcd_runtime_remote_cli(struct mcd_runtime* rt,
+                                              const uint8_t key[MCD_PUB_KEY_LEN],
+                                              const char* command, uint64_t* request_id,
+                                              uint32_t* wait_ms)
+{
+    uint64_t now = mcport::monotonicMillis();
+    enum mcd_remote_result ready;
+    ContactInfo* c = NULL;
+    uint32_t est = 0;
+    uint32_t wait;
+    uint64_t id;
+    int rc;
+
+    if (!oneLine(command, MAX_TEXT_LEN, false)) {
+        return MCD_REMOTE_BAD_TEXT;
+    }
+    ready = readyFor(rt, key, &c);
+    if (ready != MCD_REMOTE_ACCEPTED_FLOOD) {
+        return ready;
+    }
+    /* A guest's commands are dropped by the repeater without an answer
+     * (simple_repeater onPeerDataRecv: client->isAdmin()), so sending one
+     * would only ever end as a timeout. */
+    if (rt->node.remote().knownGuest()) {
+        return MCD_REMOTE_NOT_ADMIN;
+    }
+    /* This node's own unique clock, as upstream RIFT sends it: the repeater
+     * refuses a timestamp older than the last it saw from us. */
+    rc = rt->node.sendCommandData(*c, rt->rtc.getCurrentTimeUnique(), 0, command, est);
+    if (rc == MSG_SEND_FAILED) {
+        return MCD_REMOTE_FAILED;
+    }
+    wait = mcdremote::waitFor(est);
+    id = rt->node.remote().begin(MCD_REMOTE_CLI, 0, wait, now);
+    if (request_id) {
+        *request_id = id;
+    }
+    if (wait_ms) {
+        *wait_ms = wait;
+    }
+    return accepted(rc);
+}
+
+bool mcd_runtime_remote_logout(struct mcd_runtime* rt, const uint8_t* key)
+{
+    mcd_remote_session s;
+    mcd_remote_reply cancelled;
+
+    rt->node.remote().state(&s);
+    if (!s.active || (key != NULL && !rt->node.remote().isTarget(key))) {
+        return false;
+    }
+    /* Upstream's logout, and all of it: keep-alive state dropped, nothing
+     * transmitted. */
+    rt->node.dropConnection(s.key);
+    if (rt->node.remote().end(&cancelled, mcport::monotonicMillis())) {
+        rt->node.emitRemote(cancelled);
+    }
+    return true;
+}
+
+void mcd_runtime_remote_session(const struct mcd_runtime* rt, struct mcd_remote_session* out)
+{
+    rt->node.remote().state(out);
+}
+
+bool mcd_runtime_remote_expire(struct mcd_runtime* rt, uint64_t now_ms)
+{
+    mcd_remote_reply r;
+
+    if (!rt->node.remote().expire(now_ms, &r)) {
+        return false;
+    }
+    rt->node.emitRemote(r);
     return true;
 }
 

@@ -1277,9 +1277,18 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "subscribed", false);
     } else {
-        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD,
-                                                              "unknown method"));
-        return;
+        /* Repeater discovery and the repeater session (api_remote.c). The
+         * request is the server's own, and a password in it is overwritten
+         * there once used - hence the cast away from const. */
+        bool handled = false;
+
+        result = mcd_remote_method(d, name, (cJSON *)params, &code, err, sizeof(err), &handled);
+        if (!handled) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD,
+                                                            "unknown method"));
+            return;
+        }
     }
 
     if (result) {
