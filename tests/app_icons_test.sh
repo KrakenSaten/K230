@@ -238,13 +238,24 @@ refused "a fully transparent icon" "every pixel is transparent" "${TMP}/clear"
 # is exactly the case this check exists to catch - read as a mask named NULL
 # and passed.
 python3 - <<'PY' >"${TMP}/apps.txt" 2>&1
-import glob, re, sys
+import glob, os, re, sys
 shell = open("ui/shell/shell.c", encoding="utf-8").read()
 listed = re.findall(r"&(app_\w+)", re.search(r"apps\[\]\s*=\s*\{(.*?)\};", shell, re.S).group(1))
 # The apps a shell can be configured without (OPTIONAL_APPS) are in the
 # registry by default, so the launcher lists them too.
 optional = re.search(r"^#define OPTIONAL_APPS (.+)$", shell, re.M)
 listed += re.findall(r"&(app_\w+)", optional.group(1)) if optional else []
+# An id may be a macro (RIFT: `.id = RIFT_APP_ID`). It is read through the
+# string #define in the app's own directory; one that does not resolve stays
+# its macro name, which matches no app id and fails below.
+def app_id(path, raw):
+    if raw.startswith('"'):
+        return raw.strip('"')
+    for src in sorted(glob.glob(os.path.join(os.path.dirname(path), "*.[ch]"))):
+        m = re.search(r'^#define %s "([^"]*)"' % re.escape(raw), open(src, encoding="utf-8").read(), re.M)
+        if m:
+            return m.group(1)
+    return raw
 descs = {}
 for path in sorted(glob.glob("apps/*/*.c")):
     text = open(path, encoding="utf-8").read()
@@ -253,7 +264,7 @@ for path in sorted(glob.glob("apps/*/*.c")):
         mask = field("icon_mask")
         if mask in (None, "NULL", "0"):
             mask = "-"
-        descs[var] = (path, field("id").strip('"'), field("icon"), mask)
+        descs[var] = (path, app_id(path, field("id")), field("icon"), mask)
 for var in listed:
     path, app_id, icon, mask = descs[var]
     print(app_id, icon, mask, path)
