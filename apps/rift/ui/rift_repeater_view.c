@@ -23,6 +23,8 @@ static struct rift_repeater_view *of(const struct rift_app *app)
     return app ? app->repeater : NULL;
 }
 
+static void focus_cursor_later(void *user);
+
 static lv_obj_t *column(lv_obj_t *parent)
 {
     lv_obj_t *c = lv_obj_create(parent);
@@ -294,6 +296,7 @@ void rift_repeater_view_destroy(struct rift_app *app)
         return;
     }
     scrub_field(v->part[RIFT_REPV_PASSWORD]);
+    lv_async_call_cancel(focus_cursor_later, app);
     free(v);
     app->repeater = NULL;
 }
@@ -658,6 +661,19 @@ void rift_repeater_cursor_move(lv_obj_t **cursor, lv_obj_t *to)
     }
 }
 
+/* The deferred half of Enter on a field: whatever field the keys are on
+ * by then, if the page is still there. */
+static void focus_cursor_later(void *user)
+{
+    struct rift_app *a = user;
+    struct rift_repeater_view *v = of(a);
+
+    if (v && v->cursor &&
+        (v->cursor == v->part[RIFT_REPV_PASSWORD] || v->cursor == v->part[RIFT_REPV_COMMAND])) {
+        pos_input_focus(v->cursor);
+    }
+}
+
 /* Shown, and not disabled, up to the page's root. */
 static int reachable(lv_obj_t *o, lv_obj_t *root)
 {
@@ -721,8 +737,10 @@ int rift_repeater_key(struct rift_app *app, uint32_t key)
         }
         if (v->cursor == v->part[RIFT_REPV_PASSWORD] || v->cursor == v->part[RIFT_REPV_COMMAND]) {
             /* Into the field: typing goes there, Enter in it sends, Esc
-             * comes back (on_field_key). */
-            pos_input_focus(v->cursor);
+             * comes back (on_field_key). Not from inside this key event -
+             * group focus moved there does not stick (lvgl-layout gotcha
+             * 3) - but on LVGL's next pass. */
+            lv_async_call(focus_cursor_later, app);
         } else {
             lv_obj_send_event(v->cursor, LV_EVENT_CLICKED, NULL);
         }

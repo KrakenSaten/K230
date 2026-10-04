@@ -4972,6 +4972,18 @@ static void repeater_control_session(void)
               strcmp(lv_textarea_get_text(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)), "") ==
                   0 &&
               find_text(content(), "wrong password") != NULL);
+    /* The keys reach the field: Down to the way back, Down to the field,
+     * Enter puts the keys in it (on LVGL's next pass). */
+    pos_input_focus(app->keysink);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(40);
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    check("Down, Down, Enter puts the keys in the password field",
+          pos_input_focused() == rift_repeater_view_part(app, RIFT_REPV_PASSWORD));
     type_into(rift_repeater_view_part(app, RIFT_REPV_PASSWORD), "hunter2");
     pos_input_push_key(LV_KEY_ENTER); /* Enter in the field is LOGIN */
     check("Enter in the field logs in, and the password is kept nowhere in RIFT",
