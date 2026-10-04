@@ -47,8 +47,12 @@ check "no Plex font is changed: none has a fallback" \
 check "no runtime PNG, FreeType or imgfont: the font driver reads compiled-in RGB565A8" \
     "$(! grep -q -E 'lodepng|lv_freetype|lv_imgfont|\.png' apps/rift/ui/rift_emoji_font.c &&
        grep -q 'LV_COLOR_FORMAT_RGB565A8' apps/rift/ui/rift_emoji_font.c && echo 1 || echo 0)"
+# The body's role is MSG_ROLE_BODY (a POS_STYLE_* alias since PR #39); its
+# colour style must be added for the same role the label is built with.
 check "the body and the preview use the colour styles" \
-    "$(grep -q 'rift_emoji_style_add(r->body, POS_STYLE_TEXT_PRIMARY)' apps/rift/ui/rift_thread.c &&
+    "$(grep -q -E '^#define MSG_ROLE_BODY POS_STYLE_[A-Z_]+$' apps/rift/ui/rift_thread.c &&
+       grep -q 'r->body = fit_label(r->column, MSG_ROLE_BODY);' apps/rift/ui/rift_thread.c &&
+       grep -q 'rift_emoji_style_add(r->body, MSG_ROLE_BODY)' apps/rift/ui/rift_thread.c &&
        grep -q 'rift_emoji_style_add(r->preview, POS_STYLE_CAPTION)' apps/rift/ui/rift_conv_list.c &&
        grep -q 'rift_emoji_fold(rift_msg_body(msg)' apps/rift/ui/rift_thread.c &&
        grep -q 'rift_emoji_fold(rift_msg_body(msg)' apps/rift/rift_format_msg.c && echo 1 || echo 0)"
