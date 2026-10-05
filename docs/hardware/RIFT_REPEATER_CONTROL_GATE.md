@@ -1,4 +1,14 @@
-# RIFT repeater control - hardware gate (PREPARED, NOT RUN)
+# RIFT repeater control - hardware gate (DEPLOYED to unit B, NOT RUN)
+
+**Build on unit B since 2026-10-05 15:28 UTC:** doors-shell and meshcored
+`6fe7db0` (riscv64, md5 `018903a8…` / `cf85c25f…`), hot-swapped from a clean
+clone's cross-build. **As found before:** doors-shell md5 `16522b79…`,
+meshcored `2fcc0f9a…` (build "unknown", release 0.3.0 / BUILD_ID 6b26f06 on
+the card) - kept in `/root/rollback-rift-repeater/` with copies of
+meshcored's state files; `RESTORE.sh` there puts both binaries back. After
+the deploy: meshcored online, 298 nodes, no session, no scan, radiod
+`tx_packets` 0 before and after; RIFT opens with REPEATERS 0-HOP and SCAN
+0-HOP enabled. Nothing was transmitted.
 
 Branch `feat/rift-repeater-control`. Prepared 2026-10-05. **Nothing here has
 been on a radio.** Host evidence: `tests/meshcored_repeater_test.cpp` (a
