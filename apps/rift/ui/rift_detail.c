@@ -559,17 +559,17 @@ static void refresh_history(struct rift_detail *d, const struct rift_node *n, in
 /* The capability line. Upstream MeshCore manages a repeater (and a sensor)
  * only after a password login - an ANON_REQ the repeater answers with its
  * permissions - and then by requests (status, telemetry, neighbours) and
- * admin CLI text. meshcored implements none of that yet (docs/api/mesh.md,
- * "Not in v0"), so RIFT says what the node is and that control is not
- * available, rather than offering buttons that could only fail. */
+ * admin CLI text. RIFT does that for a repeater from ACTIVITY's REPEATERS
+ * 0-HOP panel (ui/rift_scan.c, ui/rift_repeater_view.c), so the detail says
+ * where; a sensor's login is not offered, and the detail says so. */
 static void refresh_capability(struct rift_detail *d, const struct rift_node *n)
 {
     const char *text = NULL;
 
     if (n->have_type && n->type == RIFT_NODE_TYPE_REPEATER) {
         text = "REPEATER" RIFT_SEP "TAKES NO DIRECT MESSAGES" RIFT_SEP
-               "CONTROL NOT AVAILABLE: MeshCore manages a repeater after an admin login "
-               "(status, neighbours, commands), and this radio service has no login yet.";
+               "CONTROL FROM ACTIVITY: SCAN 0-HOP lists the repeaters this node hears "
+               "directly; open one there to log in, read it and send it commands.";
     } else if (n->have_type && n->type == RIFT_NODE_TYPE_SENSOR) {
         text = "SENSOR" RIFT_SEP "TAKES NO DIRECT MESSAGES" RIFT_SEP
                "CONTROL NOT AVAILABLE: a sensor answers only after an admin login, and this "

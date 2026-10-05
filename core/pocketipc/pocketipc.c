@@ -184,6 +184,16 @@ int pocketipc_send(int fd, const cJSON *msg)
         return -1;
     }
     rc = pocketipc_write_frame(fd, text, strlen(text));
+    /* Overwritten before it is freed: a frame can carry a secret (a
+     * repeater login's password, docs/api/mesh.md), and freed heap is not
+     * cleared. */
+    {
+        volatile char *p = text;
+
+        while (*p) {
+            *p++ = '\0';
+        }
+    }
     free(text);
     return rc;
 }
@@ -290,6 +300,9 @@ cJSON *pocketipc_reader_next(struct pocketipc_reader *r, int *bad)
     msg = cJSON_ParseWithLength((const char *)r->buf + 4, fl);
     memmove(r->buf, r->buf + 4 + fl, r->len - 4 - fl);
     r->len -= 4 + fl;
+    /* The consumed frame's bytes left behind the move are cleared, for the
+     * same reason pocketipc_send clears what it printed. */
+    memset(r->buf + r->len, 0, 4 + (size_t)fl);
     if (!msg || !cJSON_IsObject(msg)) {
         cJSON_Delete(msg);
         *bad = 1;

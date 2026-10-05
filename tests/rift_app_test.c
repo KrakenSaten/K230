@@ -38,6 +38,8 @@
 #include "rift_mapview.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
+#include "rift_repeater_view.h"
+#include "rift_scan.h"
 #include "rift_session.h"
 #include "rift_sound.h"
 #include "rift_store.h"
@@ -4106,10 +4108,10 @@ static void repeater_session(void)
         }
         snprintf(what, sizeof(what), "%s: the detail has no MESSAGE", tag);
         check(what, find_exact(content(), "MESSAGE") == NULL);
-        snprintf(what, sizeof(what), "%s: and says it is a repeater, and that control is not "
-                                     "available", tag);
+        snprintf(what, sizeof(what), "%s: and says it is a repeater, and where it is controlled",
+                 tag);
         check(what, find_text(content(), "TAKES NO DIRECT MESSAGES") != NULL &&
-                        find_text(content(), "CONTROL NOT AVAILABLE") != NULL);
+                        find_text(content(), "CONTROL FROM ACTIVITY") != NULL);
         snprintf(what, sizeof(what), "%s: it keeps its telemetry, path and node actions", tag);
         check(what, find_text(content(), "RPT") != NULL && find_exact(content(), "RE-ROUTE") &&
                         find_exact(content(), "FORGET") && find_text(content(), "7.5") != NULL);
@@ -4638,6 +4640,411 @@ static void emoji_picker_session(void)
         check(what, !rift_emoji_picker_is_open());
     }
     pos_theme_select_text_size(was);
+}
+
+/* ---- feat/rift-repeater-control ---------------------------------------------
+ *
+ * ACTIVITY's REPEATERS 0-HOP panel and a repeater's page, from fixtures (the
+ * screens, in both shapes and at Large, and the keys), then against the
+ * scripted service (what each press asks for, and what leaving RIFT does). */
+
+#define KEY_RPT1 "f7a00000000000000000000000000000000000000000000000000000000000f7"
+#define KEY_RPT2 "a7b10000000000000000000000000000000000000000000000000000000000a7"
+
+static void rep_apply(const char *name, const char *json)
+{
+    cJSON *o = cJSON_Parse(json);
+
+    check("the repeater fixture is valid JSON", o != NULL);
+    rift_rep_apply_event(&app->model.repeater, name, o, rift_mono_ms());
+    cJSON_Delete(o);
+}
+
+/* Three repeaters: the node-list repeater KEY_D and one whose advert was never
+ * heard, both answering the latest round; and one from an earlier round. */
+static void give_repeaters(int open)
+{
+    char json[1024];
+    int64_t now = rift_mono_ms();
+
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"reply\",\"round\":1,\"open\":false,\"repeater\":{"
+             "\"public_key\":\"" KEY_RPT2 "\",\"node_hash\":\"a7\",\"name\":\"BERG-RPT\","
+             "\"known\":true,\"round\":1,\"current\":true,\"mono_ms\":%lld,"
+             "\"their_snr_db\":-2.5,\"snr_db\":-4.0,\"rssi_dbm\":-109}}",
+             (long long)(now - 1800000));
+    rep_apply("mesh.discover", json);
+    {
+        cJSON *o;
+
+        snprintf(json, sizeof(json),
+                 "{\"started\":true,\"round\":2,\"open\":%s,\"started_mono_ms\":%lld,"
+                 "\"until_mono_ms\":%lld}",
+                 open ? "true" : "false", (long long)(now - 12000),
+                 (long long)(now + (open ? 18000 : -1000)));
+        o = cJSON_Parse(json);
+        rift_rep_apply_discover(&app->model.repeater, o);
+        cJSON_Delete(o);
+    }
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"reply\",\"round\":2,\"open\":%s,\"repeater\":{"
+             "\"public_key\":\"" KEY_D "\",\"node_hash\":\"d4\","
+             "\"name\":\"S\xC3\xB8rlandet fjellstasjon \xC3\xA6\xC3\xB8\xC3\xA5 relay\","
+             "\"known\":true,\"type\":2,\"round\":2,\"current\":true,\"mono_ms\":%lld,"
+             "\"their_snr_db\":5.5,\"snr_db\":8.25,\"rssi_dbm\":-71}}",
+             open ? "true" : "false", (long long)(now - 9000));
+    rep_apply("mesh.discover", json);
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"reply\",\"round\":2,\"open\":%s,\"repeater\":{"
+             "\"public_key\":\"" KEY_RPT1 "\",\"node_hash\":\"f7\",\"known\":false,"
+             "\"round\":2,\"current\":true,\"mono_ms\":%lld,\"their_snr_db\":1.0,"
+             "\"snr_db\":-1.5,\"rssi_dbm\":-98}}",
+             open ? "true" : "false", (long long)(now - 7000));
+    rep_apply("mesh.discover", json);
+    rift_app_refresh(app);
+    pump(120);
+}
+
+#define REP_FIX_SESSION                                                                       \
+    "\"session\":{\"active\":true,\"node\":\"" KEY_D "\",\"known\":true,\"type\":2,"           \
+    "\"login\":\"ok\",\"legacy\":false,\"admin\":true,\"permissions\":1,\"acl\":3,"           \
+    "\"firmware_level\":2,\"repeater_clock\":1790000000,\"stale_replies\":0,"                 \
+    "\"malformed_replies\":0}"
+
+/* Logged in to KEY_D, and what it answered: status, neighbours, version and
+ * two commands. */
+static void give_repeater_session(void)
+{
+    rep_apply("mesh.remote", "{\"reply\":{\"request_id\":1,\"kind\":\"login\",\"outcome\":"
+                             "\"replied\",\"node\":\"" KEY_D "\"}," REP_FIX_SESSION "}");
+    rep_apply("mesh.remote",
+              "{\"reply\":{\"request_id\":2,\"kind\":\"status\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_D "\",\"status\":{\"battery_mv\":4012,\"tx_queue\":0,"
+              "\"noise_floor_dbm\":-118,\"last_rssi_dbm\":-81,\"last_snr_db\":6.5,"
+              "\"packets_recv\":15532,\"packets_sent\":4410,\"air_time_s\":3605,"
+              "\"uptime_s\":360500,\"sent_flood\":4000,\"sent_direct\":410,"
+              "\"recv_flood\":15000,\"recv_direct\":532,\"err_events\":0,"
+              "\"direct_dups\":3,\"flood_dups\":211}}," REP_FIX_SESSION "}");
+    rep_apply("mesh.remote",
+              "{\"reply\":{\"request_id\":3,\"kind\":\"neighbours\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_D "\",\"neighbours\":{\"total\":2,\"entries\":["
+              "{\"prefix\":\"a19ac21e7d04\",\"name\":\"OSLO-01\",\"heard_s_ago\":95,"
+              "\"snr_db\":9.5},{\"prefix\":\"77aa00bb11cc\",\"heard_s_ago\":3700,"
+              "\"snr_db\":-4.25}]}}," REP_FIX_SESSION "}");
+    rep_apply("mesh.remote",
+              "{\"reply\":{\"request_id\":4,\"kind\":\"owner\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_D "\",\"owner\":{\"firmware\":\"v1.9.0 (Build: 12-Sep-2026)\","
+              "\"name\":\"Sorlandet\",\"owner\":\"bench\"}}," REP_FIX_SESSION "}");
+    rift_rep_note_command(&app->model.repeater, "ver");
+    rep_apply("mesh.remote", "{\"reply\":{\"request_id\":5,\"kind\":\"cli\",\"outcome\":"
+                             "\"replied\",\"node\":\"" KEY_D "\",\"text\":\"v1.9.0 (Build: "
+                             "12-Sep-2026)\"}," REP_FIX_SESSION "}");
+    rift_app_refresh(app);
+    pump(150);
+}
+
+static int rep_live_listed(void)
+{
+    return app && app->model.repeater.scan.count >= 1 && !app->model.repeater.scan.asking;
+}
+
+static int rep_live_logged(void)
+{
+    return app && rift_rep_logged_in(&app->model.repeater, KEY_D);
+}
+
+static int rep_live_idle(void)
+{
+    return app && !rift_rep_busy(&app->model.repeater);
+}
+
+static int rep_live_status(void)
+{
+    return app && app->model.repeater.status.have && !rift_rep_busy(&app->model.repeater);
+}
+
+static int rep_live_lines(void)
+{
+    return app && app->model.repeater.line_count >= 3 && !rift_rep_busy(&app->model.repeater);
+}
+
+static int rep_log_count(const char *path, const char *prefix)
+{
+    FILE *f = fopen(path, "r");
+    char line[512];
+    int n = 0;
+
+    if (!f) {
+        return 0;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        n += strncmp(line, prefix, strlen(prefix)) == 0;
+    }
+    fclose(f);
+    return n;
+}
+
+static void repeater_screens(enum pos_rotation shape, enum pos_text_size size)
+{
+    const char *tag = shape == POS_ROTATION_0 ? "portrait" : "landscape";
+    int large = size == POS_TEXT_SIZE_LARGE;
+    char what[200];
+    char name[96];
+    int rows = 0;
+    int i;
+
+    pos_theme_select_text_size(size);
+    use_display(shape, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_repeaters(0);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(200);
+    for (i = 0; i < RIFT_SCAN_ROWS; i++) {
+        rows += rift_scan_row(app, i) && visible(rift_scan_row(app, i));
+    }
+    snprintf(what, sizeof(what), "%s%s: ACTIVITY lists the three repeaters, the earlier apart",
+             tag, large ? ", Large" : "");
+    check(what, find_exact(content(), "REPEATERS 0-HOP") && rows == 3 &&
+                    visible(find_exact(content(), "EARLIER SCANS")));
+    snprintf(what, sizeof(what), "%s%s: a repeater whose advert was never heard says so", tag,
+             large ? ", Large" : "");
+    check(what, find_text(content(), large ? "f7a00000" : "NO ADVERT") != NULL);
+    snprintf(what, sizeof(what), "%s%s: each row is a 56 px target", tag, large ? ", Large" : "");
+    check(what, lv_obj_get_height(rift_scan_row(app, 0)) >= RIFT_TOUCH_H);
+    snprintf(what, sizeof(what), "%s%s: ACTIVITY's captions are whole, buttons unclipped", tag,
+             large ? ", Large" : "");
+    check(what, captions_clipped(frame()) == 0 && labels_overflowing(frame()) == 0);
+    snprintf(name, sizeof(name), "rift-activity-repeaters-%s%s", tag, large ? "-large" : "");
+    shot(name);
+
+    /* Newest answer first: the unnamed repeater (7 s), then KEY_D (9 s). */
+    tap(rift_scan_row(app, 1));
+    pump(150);
+    snprintf(what, sizeof(what), "%s%s: a row opens its repeater's page, under ACTIVITY", tag,
+             large ? ", Large" : "");
+    check(what, app->section == RIFT_SEC_REPEATER && rift_tab_of(app->section) == RIFT_SEC_ACTIVITY &&
+                    app->model.repeater.have_target &&
+                    strcmp(app->model.repeater.target, KEY_D) == 0);
+    snprintf(what, sizeof(what), "%s%s: not logged in, nothing can be read or sent", tag,
+             large ? ", Large" : "");
+    check(what, find_text(content(), "Not logged in") != NULL &&
+                    lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_STATUS),
+                                     LV_STATE_DISABLED) &&
+                    lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_SEND),
+                                     LV_STATE_DISABLED));
+    snprintf(name, sizeof(name), "rift-repeater-login-%s%s", tag, large ? "-large" : "");
+    shot(name);
+
+    give_repeater_session();
+    snprintf(what, sizeof(what), "%s%s: logged in as admin, in words", tag, large ? ", Large" : "");
+    check(what, find_text(content(), "Logged in as admin") != NULL &&
+                    !visible(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)));
+    snprintf(what, sizeof(what), "%s%s: what the repeater answered is shown, and only that", tag,
+             large ? ", Large" : "");
+    check(what, find_text(content(), "4.01 V") != NULL);
+    check("  and its neighbours, named where the node list names them",
+          find_text(content(), "OSLO-01") != NULL && find_text(content(), "77aa00bb11cc") != NULL);
+    check("  and its firmware", find_text(content(), "v1.9.0 (Build: 12-Sep-2026)") != NULL);
+    {
+        lv_obj_t *rx_time = find_exact(content(), "Receive time");
+
+        /* visible(NULL) is 1: a row nobody can find is a hidden one. */
+        check("  and not a tier it did not send", rx_time == NULL || !visible(rx_time));
+    }
+    snprintf(what, sizeof(what), "%s%s: the page fits its body, buttons unclipped", tag,
+             large ? ", Large" : "");
+    check(what, inside_body(content()) && labels_overflowing(app->repeater_root) == 0);
+    lv_obj_scroll_to_y(app->repeater_root, 0, LV_ANIM_OFF);
+    snprintf(name, sizeof(name), "rift-repeater-%s%s", tag, large ? "-large" : "");
+    shot(name);
+
+    /* The keys: Down walks the page's controls with the focus outline, Enter
+     * presses; the first is the way back. */
+    pos_input_focus(app->keysink);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    snprintf(what, sizeof(what), "%s%s: Down puts the outline on the way back", tag,
+             large ? ", Large" : "");
+    check(what, lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_BACK), LV_STATE_USER_1));
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    snprintf(what, sizeof(what), "%s%s: and Enter takes it, to ACTIVITY", tag, large ? ", Large" : "");
+    check(what, app->section == RIFT_SEC_ACTIVITY);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    snprintf(what, sizeof(what), "%s%s: on ACTIVITY Down and Enter open a repeater too", tag,
+             large ? ", Large" : "");
+    check(what, app->section == RIFT_SEC_REPEATER);
+    app_stop();
+}
+
+static void repeater_control_session(void)
+{
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    enum pos_text_size was = pos_theme_current_text_size();
+    char sock[512];
+    char rlog[512];
+    struct stat st;
+    int waited;
+    pid_t pid;
+
+    repeater_screens(POS_ROTATION_0, POS_TEXT_SIZE_SMALL);
+    repeater_screens(POS_ROTATION_270, POS_TEXT_SIZE_SMALL);
+    repeater_screens(POS_ROTATION_0, POS_TEXT_SIZE_LARGE);
+    repeater_screens(POS_ROTATION_270, POS_TEXT_SIZE_LARGE);
+    pos_theme_select_text_size(was);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+
+    /* A round still open: SCAN says so and takes no press. */
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_repeaters(1);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(150);
+    check("while a round is open SCAN says so and is not pressable",
+          find_exact(content(), "SCANNING") != NULL &&
+              lv_obj_has_state(rift_scan_button(app), LV_STATE_DISABLED));
+    shot("rift-activity-repeaters-scanning");
+    app_stop();
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the live repeater session needs RIFT_FAKE_MESHCORED; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(rlog, sizeof(rlog), "%s/rift-remote-log", g_state_dir);
+    unlink(rlog);
+    pid = fork();
+    if (pid == 0) {
+        char nodes[1024];
+
+        snprintf(nodes, sizeof(nodes),
+                 "[{\"public_key\":\"" KEY_D "\",\"node_hash\":\"d4\",\"name\":\"RPT-D\","
+                 "\"type\":2,\"path_known\":false,\"last_heard_mono_ms\":-5000}]");
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", nodes, 1);
+        setenv("FAKE_MESHCORED_REPEATER",
+               "{\"public_key\":\"" KEY_D "\",\"node_hash\":\"d4\",\"name\":\"RPT-D\","
+               "\"known\":true,\"type\":2,\"their_snr_db\":5.5,\"snr_db\":8.25,"
+               "\"rssi_dbm\":-71}",
+               1);
+        setenv("FAKE_MESHCORED_REMOTE_LOG", rlog, 1);
+        setenv("FAKE_MESHCORED_CLI_TIMEOUT_FIRST", "1", 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+
+    app_start();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    check("RIFT reads the service", live_until(live_ready, 8000));
+    check("opening RIFT asked no repeater anything that transmits",
+          rep_log_count(rlog, "mesh.discover|") == 0 &&
+              rep_log_count(rlog, "mesh.remote_login|") == 0);
+    tap(rift_scan_button(app));
+    check("SCAN 0-HOP asks the service once, and the repeater that answered is listed",
+          live_until(rep_live_listed, 8000) && rep_log_count(rlog, "mesh.discover|") == 1 &&
+              visible(rift_scan_row(app, 0)));
+    tap(rift_scan_row(app, 0));
+    pump(150);
+    check("its page opens", app->section == RIFT_SEC_REPEATER);
+
+    /* A wrong password: the service reports the wait running out. */
+    type_into(rift_repeater_view_part(app, RIFT_REPV_PASSWORD), "nope");
+    tap(rift_repeater_view_part(app, RIFT_REPV_LOGIN));
+    check("a wrong password ends as no answer, and the field is empty",
+          live_until(rep_live_idle, 8000) && app->model.repeater.login == RIFT_REP_LOGIN_TIMEOUT &&
+              strcmp(lv_textarea_get_text(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)), "") ==
+                  0 &&
+              find_text(content(), "wrong password") != NULL);
+    /* The keys reach the field: Down to the way back, Down to the field,
+     * Enter puts the keys in it (on LVGL's next pass). */
+    pos_input_focus(app->keysink);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(40);
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    check("Down, Down, Enter puts the keys in the password field",
+          pos_input_focused() == rift_repeater_view_part(app, RIFT_REPV_PASSWORD));
+    type_into(rift_repeater_view_part(app, RIFT_REPV_PASSWORD), "hunter2");
+    pos_input_push_key(LV_KEY_ENTER); /* Enter in the field is LOGIN */
+    check("Enter in the field logs in, and the password is kept nowhere in RIFT",
+          live_until(rep_live_logged, 8000) && !mem_holds(app, sizeof(*app), "hunter2") &&
+              strcmp(lv_textarea_get_text(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)), "") ==
+                  0);
+    pump(150);
+    tap(rift_repeater_view_part(app, RIFT_REPV_STATUS));
+    check("STATUS is answered", live_until(rep_live_status, 8000) &&
+                                     find_text(content(), "4.01 V") != NULL);
+    /* CLOCK first, and its answer lost: the service ends it as a timeout.
+     * (Unit B, 2026-10-05: every button stayed grey after CLOCK.) */
+    tap(rift_repeater_view_part(app, RIFT_REPV_QUICK_CLOCK));
+    check("CLOCK with no answer ends as no answer in time, in the transcript too",
+          live_until(rep_live_idle, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 1 &&
+              find_text(content(), "NO ANSWER IN TIME") != NULL &&
+              find_text(content(), "(no answer)") != NULL);
+    pump(150);
+    check("and every repeater button is usable again",
+          !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_QUICK_CLOCK),
+                            LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_QUICK_VER),
+                                LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_STATUS),
+                                LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_SEND), LV_STATE_DISABLED));
+    tap(rift_repeater_view_part(app, RIFT_REPV_QUICK_VER));
+    check("VER is a read-only command, sent at once, and its answer shown",
+          live_until(rep_live_lines, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 2 &&
+              find_text(content(), "-> ver") != NULL);
+
+    type_into(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "reboot");
+    tap(rift_repeater_view_part(app, RIFT_REPV_SEND));
+    pump(150);
+    check("reboot asks first, and nothing has been sent",
+          visible(rift_repeater_view_part(app, RIFT_REPV_CONFIRM)) &&
+              rep_log_count(rlog, "mesh.remote_cli|") == 2);
+    tap(rift_repeater_view_part(app, RIFT_REPV_CANCEL));
+    pump(150);
+    check("CANCEL sends nothing", !visible(rift_repeater_view_part(app, RIFT_REPV_CONFIRM)) &&
+                                      rep_log_count(rlog, "mesh.remote_cli|") == 2);
+    lv_textarea_set_text(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "");
+    type_into(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "erase");
+    tap(rift_repeater_view_part(app, RIFT_REPV_SEND));
+    pump(150);
+    check("erase is refused and never sent", find_text(content(), "Not sent") != NULL &&
+                                                  rep_log_count(rlog, "mesh.remote_cli|") == 2);
+    shot("rift-repeater-live");
+
+    app_leave();
+    pump(300);
+    check("leaving RIFT ends the repeater session",
+          rep_log_count(rlog, "mesh.remote_logout|") >= 2 &&
+              !rift_rep_logged_in(&rift_app_session()->model.repeater, KEY_D));
+    app_start();
+    app_stop();
+    kill(pid, SIGTERM);
+    waitpid(pid, NULL, 0);
+    unlink(sock);
+    unlink(rlog);
 }
 
 int main(void)
@@ -5982,6 +6389,7 @@ int main(void)
     find_session();
     net_session();
     repeater_session();
+    repeater_control_session();
     map_session();
     manage_session();
     manage_live_session();

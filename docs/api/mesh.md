@@ -614,8 +614,10 @@ holds a newer advert from this node treats it as a replay and ignores it
 and nothing reports that. A known limitation (docs/KNOWN_ISSUES.md); advert
 after the clock has been set.
 
-**This, `mesh.send` and `mesh.app_send` are the only ways meshcored transmits
-without having been sent something first.** There is no periodic advert. What
+**This, `mesh.send`, `mesh.app_send`, `mesh.discover` and the
+`mesh.remote_login` / `_request` / `_cli` requests (see "Repeater control") are
+the only ways meshcored transmits without having been sent something first.**
+There is no periodic advert, and nothing is resent on a timer. What
 it does send unasked is what the protocol owes a sender: an ACK, and a return
 path, for a message addressed to this node, and the receipt for an app
 datagram that arrived by flood (below).
@@ -687,6 +689,128 @@ A datagram, here and in the `mesh.app` event:
 A REQ from a node this service does not hold cannot be decrypted and never
 becomes a datagram: a peer has to have adverted first, as for a message.
 
+### Repeater control
+
+Finding the repeaters this node hears directly, logging in to one, and
+reading it back - with upstream MeshCore's own requests and its own matching
+rules, and no private protocol. **VERIFIED host** (tests/meshcored_repeater_test.cpp,
+a whole runtime against a test repeater built from upstream's
+`simple_repeater` handlers); **not yet run against a real repeater**
+(docs/hardware/RIFT_REPEATER_CONTROL_GATE.md).
+
+#### Repeaters heard directly: mesh.discover / mesh.discovered
+
+`mesh.discover` (no params) **transmits one packet**: a zero-hop
+`PAYLOAD_TYPE_CONTROL` `CTL_TYPE_NODE_DISCOVER_REQ` (`0x80`, whole keys) with
+a repeater-only type filter and a random tag - byte for byte what upstream's
+`simple_repeater` answers and what the T-Deck RIFT firmware's DISCOVER 0-HOP
+sends. Every repeater in direct range answers, after a random delay, with a
+zero-hop `CTL_TYPE_NODE_DISCOVER_RESP` carrying the tag, its whole public key
+and the SNR it heard the request at.
+
+**Proof of 0-hop is upstream's.** `mesh::Mesh` hands a control packet to the
+node only when it is direct-routed with no relay hash in its path
+(`Mesh.cpp:70-75`); a relayed or flooded answer never reaches this service.
+Nothing is inferred from a name, a cached route or the repeater's own
+neighbour list.
+
+A round stays open for **30 s** (`window_ms`) and collects answers as they
+arrive. While it is open, `mesh.discover` sends nothing and answers the open
+round with `started: false`, so repeated presses cannot put more requests on
+the air - and a repeater answers at most four requests in two minutes anyway
+(upstream's `discover_limiter`).
+
+Result: `started` (boolean), `round` (1 upwards, this run), `open`,
+`window_ms`, `started_mono_ms`, `until_mono_ms`.
+
+`mesh.discovered` (no params): the same round fields, `count`, and
+`repeaters` - at most 16, newest answer first, this run only:
+
+| Field | |
+| --- | --- |
+| `public_key`, `node_hash` | from the answer itself |
+| `name`, `type` | **only when this service holds the node as a contact** (its advert was heard) |
+| `known` | whether it does. A repeater that is not a contact cannot be logged in to |
+| `round`, `current` | the round it last answered, and whether that is the latest round. An answer to an earlier round is kept and marked, never passed off as current |
+| `mono_ms` | when that answer was heard |
+| `their_snr_db` | how the **repeater** heard our request (its own reading) |
+| `snr_db`, `rssi_dbm` | how **we** heard its answer - only when radiod reported them |
+
+Event `mesh.discover`: `reason` `reply` (with `repeater`, one entry as above)
+or `closed`, plus the round fields.
+
+#### The repeater session: mesh.remote_*
+
+One target and **one request at a time**. Every request needs the node's
+**whole** public key (`node`, 64 hex) and a contact for it.
+
+| Method | Params | On the air |
+| --- | --- | --- |
+| `mesh.remote_login` | `node`, `password` (0 to 15 printable bytes) | `BaseChatMesh::sendLogin`: an `ANON_REQ` with this node's clock and the password |
+| `mesh.remote_request` | `node`, `kind`: `status`, `neighbours` or `owner` | `sendRequest` with `REQ_TYPE_GET_STATUS`, `REQ_TYPE_GET_NEIGHBOURS` (version 0, 11 newest, 6-byte prefixes) or `REQ_TYPE_GET_OWNER_INFO` |
+| `mesh.remote_cli` | `node`, `command` (one line, 1 to 160 bytes) | `sendCommandData` (`TXT_TYPE_CLI_DATA`) |
+| `mesh.remote_logout` | `node` (optional: without it, whichever session there is) | **nothing** |
+| `mesh.remote_session` | - | - |
+
+The first three answer `accepted`, `request_id`, `route` (`flood` or
+`direct`) and `wait_ms`; the outcome arrives later as a `mesh.remote` event.
+Errors: 2 for a key, password, kind or command the service will not take, no
+contact for the node, a request before a login OK, or a command from a guest
+login (the repeater drops a guest's commands without answering); 5 when the
+radio is not available or a request is already waiting; 4 when the runtime
+could not build it.
+
+How answers are matched, upstream's way: a login answer from the target in
+the shape `RESP_SERVER_LOGIN_OK` (13 bytes: the repeater's clock, `0`, admin,
+permissions, firmware level) or the legacy `"OK"`; status, neighbours and
+owner by the tag the repeater reflects; a command's answer is command data
+from the target while a command waits (it carries no tag). Anything else from
+the target is counted as `stale_replies` or `malformed_replies` and ignored.
+A wait ends at `max(20 s, 2 x MeshCore's estimate + 8 s)` (upstream RIFT's
+rule). A login OK that arrives up to 5 minutes after its wait ended, while
+nothing else waits, is still taken and marked `late`, as upstream RIFT does.
+
+**A wrong password is not answered.** Upstream's repeater sends nothing back
+(`handleLoginReq` returns 0), so a wrong password ends as `timeout` and
+cannot be told apart from a request the repeater never heard. A login answer
+that is neither OK shape is reported `refused`, as upstream's companion
+firmware does, but no upstream repeater sends one.
+
+**There is no logout on the air.** Upstream's logout is
+`BaseChatMesh::stopConnection`: local keep-alive state, nothing transmitted.
+`mesh.remote_logout` does the same and forgets the session; the repeater
+keeps this node in its access list. The session is memory only, never
+written, and ends with a logout, with the service, and when the target's
+contact is forgotten (`mesh.node_remove`) - a request it had waiting is then
+answered `cancelled`.
+
+**The password** is copied, handed to `sendLogin` and wiped, and the
+request's own copy is overwritten once used. It is never logged, stored or
+echoed. A password longer than 15 bytes is refused rather than cut to
+upstream's 15.
+
+A session (`mesh.remote_session`, and in every event): `active`; when active,
+`node`, `name`/`type`/`known` as above, `login` (`none`, `waiting`, `ok`,
+`refused`, `timeout`), and after an OK `legacy` and - unless legacy -
+`admin`, `permissions`, `acl`, `firmware_level`; `repeater_clock` (from its
+login answer), `login_mono_ms`, `pending` (`kind`, `request_id`,
+`deadline_mono_ms`) while a request waits, `stale_replies`,
+`malformed_replies`.
+
+Event `mesh.remote`: `reply` and `session`. A reply: `request_id`, `kind`
+(`login`, `status`, `neighbours`, `owner`, `cli`), `outcome` (`replied`,
+`refused`, `timeout`, `cancelled`), `node`, `mono_ms`, `late` when it was,
+`snr_db`/`rssi_dbm` when known, and on `replied`:
+
+| kind | |
+| --- | --- |
+| `status` | `status`: `battery_mv`, `tx_queue`, `noise_floor_dbm`, `last_rssi_dbm`, `last_snr_db`, `packets_recv`, `packets_sent`, `air_time_s`, `uptime_s`, `sent_flood`, `sent_direct`, `recv_flood`, `recv_direct`, `err_events`, and **only when the reply carried them** `direct_dups`/`flood_dups` and `rx_air_time_s`/`recv_errors` (upstream's struct grew; an older repeater sends less) |
+| `neighbours` | `neighbours`: `total` the repeater holds, `entries` (`prefix` 12 hex, `name` only when the prefix names exactly one held node, `heard_s_ago`, `snr_db`) - the **repeater's** own list of repeaters it heard zero-hop, not this node's |
+| `owner` | `owner`: `firmware`, `name`, `owner` |
+| `cli` | `text`: the repeater's answer |
+
+Every string a repeater chose goes through the remote-text sanitiser.
+
 ### mesh.subscribe / mesh.unsubscribe
 
 No params. Result: `{"subscribed": true|false}`. Per connection, cleared by
@@ -706,6 +830,10 @@ disconnecting.
   timeout.
 - `mesh.app`: `datagram` (as above). One per app datagram received, on any
   port; a client filters on `port`.
+- `mesh.discover`: a repeater answered the open discovery round, or the round
+  closed (see "Repeater control").
+- `mesh.remote`: a repeater request ended, and the session afterwards (see
+  "Repeater control").
 - `mesh.activity`: the raw feed, for a client that wants to show the link
   rather than the conversation.
   - `kind: "rx"`: `payload_type` (`advert`, `text`, `ack`, `path`,
@@ -836,8 +964,9 @@ node.
 Contact import and export, a message store that survives a restart, `/trace`,
 flood scopes (regions: no transport codes are written, so every flood is
 unscoped, and there is no per-channel scope),
-node discovery (MeshCore's `CTL_TYPE_NODE_DISCOVER_REQ`, which transmits and
-whose replies this service does not match), repeater behaviour (`allowPacketForward()` stays
+discovery of anything but repeaters (only the repeater-filtered
+`CTL_TYPE_NODE_DISCOVER_REQ` is sent, see "Repeater control"), repeater
+behaviour (`allowPacketForward()` stays
 false, so this node hears everything and forwards nothing), a periodic advert,
 group **data** frames (`PAYLOAD_TYPE_GRP_DATA` is parsed by the protocol core
 and this service does nothing with it - only `GRP_TXT` becomes a message), and

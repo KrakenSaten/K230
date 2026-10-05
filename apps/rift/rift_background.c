@@ -73,7 +73,9 @@ void rift_bg_end(void)
         a->pump = NULL;
     }
     /* No sound to stop: the screen's destroy stopped it, and nothing sounds
-     * with no screen (rift_app.c pump). */
+     * with no screen (rift_app.c pump). A repeater session goes with RIFT -
+     * the shell stopping included - before the connection does. */
+    rift_ipc_repeater_leave(&a->ipc);
     rift_ipc_close(&a->ipc);
     session = NULL;
     pocketos_shell_set_background(RIFT_APP_ID, NULL, NULL);

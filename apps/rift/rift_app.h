@@ -58,11 +58,16 @@ enum rift_section {
     RIFT_SEC_MAP,
     RIFT_SEC_SYSTEM,
     RIFT_SEC_NET,
+    /* One repeater's control page, reached from ACTIVITY's REPEATERS 0-HOP
+     * list (ui/rift_scan.c, ui/rift_repeater_view.c); the ACTIVITY tab stays
+     * lit on it, as NODES does on NET. */
+    RIFT_SEC_REPEATER,
     RIFT_SEC_COUNT,
 };
 #define RIFT_TAB_COUNT RIFT_SEC_NET
 
-/* The tab a screen is reached from: its own, or NODES for NET. */
+/* The tab a screen is reached from: its own, NODES for NET, ACTIVITY for a
+ * repeater's page. */
 enum rift_section rift_tab_of(enum rift_section section);
 
 /* How often the client takes a pass at its socket. Not the shell's
@@ -94,6 +99,8 @@ struct rift_device;
 struct rift_session_view;
 struct rift_system_view;
 struct rift_map_ui;
+struct rift_scan_view;
+struct rift_repeater_view;
 
 /* The app's id in the shell's registry, and the name its session is marked
  * by in the status cluster. */
@@ -208,12 +215,15 @@ struct rift_app {
     struct rift_session_view *session;
     struct rift_system_view *system;
     struct rift_map_ui *map;
+    struct rift_scan_view *scan;
+    struct rift_repeater_view *repeater;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
     lv_obj_t *net_root;
     lv_obj_t *system_root;
     lv_obj_t *map_root;
+    lv_obj_t *repeater_root;
     /* The screen this app listens on for the theme-changed event (the
      * colour-emoji styles follow the text size there, and the frame is
      * repainted); removed on destroy, because the screen outlives the app. */

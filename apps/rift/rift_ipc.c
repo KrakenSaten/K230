@@ -51,6 +51,20 @@ static const char *method_of(enum rift_req what)
         return "mesh.path_hash";
     case RIFT_REQ_SET_PATH_HASH:
         return "mesh.set_path_hash";
+    case RIFT_REQ_DISCOVER:
+        return "mesh.discover";
+    case RIFT_REQ_DISCOVERED:
+        return "mesh.discovered";
+    case RIFT_REQ_REMOTE_LOGIN:
+        return "mesh.remote_login";
+    case RIFT_REQ_REMOTE_REQUEST:
+        return "mesh.remote_request";
+    case RIFT_REQ_REMOTE_CLI:
+        return "mesh.remote_cli";
+    case RIFT_REQ_REMOTE_LOGOUT:
+        return "mesh.remote_logout";
+    case RIFT_REQ_REMOTE_SESSION:
+        return "mesh.remote_session";
     case RIFT_REQ_NONE:
     default:
         return NULL;
@@ -96,6 +110,7 @@ static void drop(struct rift_ipc *c, const char *reason, int64_t now_ms)
     pocketipc_reader_init(&c->reader);
     snprintf(c->last_error, sizeof(c->last_error), "%s", reason ? reason : "");
     rift_model_service_lost(c->model, reason);
+    rift_rep_service_lost(&c->model->repeater);
     c->next_attempt_ms = now_ms + c->backoff_ms;
     if (c->backoff_ms < RIFT_BACKOFF_MAX_MS) {
         c->backoff_ms *= 2;
@@ -498,6 +513,14 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     if (request(c, RIFT_REQ_PATH_HASH, NULL, now_ms) != 0) {
         return;
     }
+    /* Repeater control: a session left in the service by an earlier RIFT is
+     * one this app cannot show, so it is ended (a logout transmits nothing);
+     * and the repeaters it discovered this run are read, as earlier ones. */
+    rift_rep_service_lost(&c->model->repeater);
+    if (request(c, RIFT_REQ_REMOTE_LOGOUT, NULL, now_ms) != 0 ||
+        request(c, RIFT_REQ_DISCOVERED, NULL, now_ms) != 0) {
+        return;
+    }
     c->revision++;
 }
 
@@ -514,6 +537,12 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         const cJSON *data = cJSON_GetObjectItemCaseSensitive(msg, "data");
 
         c->events_in++;
+        /* Repeater control's two events first (rift_repeater.h). */
+        if (rift_rep_apply_event(&c->model->repeater, event->valuestring, data,
+                                 rift_mono_ms())) {
+            c->revision++;
+            return 0;
+        }
         /* A malformed event is refused by the model and counted there. It
          * is not a reason to drop a connection: one bad event costs one
          * event, and a peer on the air must not be able to disconnect this
@@ -531,6 +560,10 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     }
     c->replies_in++;
     what = take_pending(c, (int)id->valuedouble);
+    if (rift_ipc_repeater_reply(c, what, msg)) {
+        c->revision++;
+        return 0;
+    }
     error = cJSON_GetObjectItemCaseSensitive(msg, "error");
     if (cJSON_IsObject(error)) {
         const cJSON *message = cJSON_GetObjectItemCaseSensitive(error, "message");
@@ -782,6 +815,7 @@ void rift_ipc_poll(struct rift_ipc *c, int64_t now_ms)
     if (c->fd < 0) {
         return;
     }
+    rift_ipc_repeater_poll(c, now_ms);
     /* What events do not carry. The service state does arrive as an event,
      * but only on a transition, so a client that never asked would show
      * nothing until something changed. */
