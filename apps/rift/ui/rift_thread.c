@@ -13,6 +13,7 @@
 #include "rift_emoji.h"
 #include "rift_emoji_picker.h"
 #include "rift_emoji_style.h"
+#include "rift_msgact.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +68,7 @@
  * two are items in a wrapping row, each as wide as its words and no wider
  * than the column, so a one-line message is one line. */
 struct msg_row {
+    struct rift_thread *t; /* whose row: a long press is told which */
     lv_obj_t *slot;
     lv_obj_t *body_row;
     lv_obj_t *rule;
@@ -76,6 +78,12 @@ struct msg_row {
      * (DS §37.3), its own label so the accent lands on the name alone. */
     lv_obj_t *sender;
     lv_obj_t *caption;
+    /* A reply's quotation (rift_reply.h), on a line of its own above who
+     * spoke, in the identity accent of whoever is quoted. Hidden otherwise. */
+    lv_obj_t *quote;
+    int quote_ident_on;
+    uint32_t quote_ident;
+    int selected;  /* the message the action bar is open on */
     int32_t max_w; /* the widest either may be, as last set */
     int warn;      /* the caption carries the warn colour */
     int out;       /* laid out as ours (1, right) or theirs (0, left); -1 not yet */
@@ -106,6 +114,8 @@ struct rift_thread {
 
     struct msg_row row[RIFT_THREAD_ROWS];
     int row_count;
+    /* The actions on one message (ui/rift_msgact.h), under the messages. */
+    struct rift_msgact *act;
 
     /* What the composer was last told. Enabling a field puts it back in the
      * focus group, and lv_group_add_obj() does that by removing and
@@ -176,49 +186,6 @@ static lv_obj_t *wrap_label(lv_obj_t *parent, enum pos_style_role role)
 }
 
 /* ---- the composer -------------------------------------------------------- */
-
-const char *rift_thread_refusal(const struct rift_app *app)
-{
-    const struct rift_model *m;
-
-    if (!app) {
-        return "No conversation is open.";
-    }
-    m = &app->model;
-    if (!rift_comms_open_peer(app)) {
-        return "Choose a conversation to write to.";
-    }
-    if (m->stale || m->state == RIFT_SVC_ABSENT) {
-        return "meshcored is not answering.";
-    }
-    if (m->have_status && !m->radio_online) {
-        /* The service is there and its radio is not usable. mesh.send would
-         * be refused with error 5 (docs/api/mesh.md); saying so first is
-         * better than sending something to be refused. */
-        return "The radio is not ready to send.";
-    }
-    /* A channel conversation whose channel is gone - left, or its slot
-     * taken by another channel since. Its messages are still shown; there
-     * is nowhere to write, and the slot's new owner is not it. Until the
-     * list has been read nothing is known either way, and nothing is sent. */
-    if (rift_key_is_channel(rift_comms_open_peer(app)) >= 0 &&
-        !rift_model_key_channel(m, rift_comms_open_peer(app))) {
-        return m->channels_valid ? "This channel is not joined any more."
-                                 : "The channel list has not been read yet.";
-    }
-    if (rift_key_is_channel(rift_comms_open_peer(app)) < 0) {
-        const char *why =
-            rift_node_no_message_why(rift_model_find(m, rift_comms_open_peer(app)));
-
-        if (why) {
-            return why;
-        }
-    }
-    if (rift_model_sending(m)) {
-        return "One message is on its way.";
-    }
-    return NULL;
-}
 
 const char *rift_thread_composer_text(const struct rift_thread *t)
 {
@@ -301,11 +268,28 @@ static void build_composer(struct rift_thread *t)
 
 /* ---- message rows -------------------------------------------------------- */
 
+/* Holding a message opens its actions. The row is found by where it is in
+ * the thread as built, which is the message it shows. */
+static void on_row_long_pressed(lv_event_t *e)
+{
+    struct msg_row *r = lv_event_get_user_data(e);
+    struct rift_thread *t = r->t;
+    int i = (int)(r - t->row);
+
+    if (i < 0 || i >= t->shape_count || !rift_comms_open_peer(t->app)) {
+        return;
+    }
+    rift_msgact_open(t->act, t->shape_id[i], rift_comms_open_peer(t->app), 0);
+    lv_indev_wait_release(lv_event_get_indev(e));
+    t->app->refresh_pending = 1;
+}
+
 static void build_row(struct rift_thread *t)
 {
     struct msg_row *r = &t->row[t->row_count];
 
     memset(r, 0, sizeof(*r));
+    r->t = t;
     r->slot = lv_obj_create(t->scroll);
     lv_obj_remove_style_all(r->slot);
     lv_obj_set_width(r->slot, LV_PCT(100));
@@ -313,7 +297,9 @@ static void build_row(struct rift_thread *t)
     lv_obj_set_flex_flow(r->slot, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_bottom(r->slot, t->wide ? MSG_GAP_WIDE : MSG_GAP, 0);
     lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_CLICKABLE);
+    /* Clickable for the long press only: a tap does nothing, and a drag
+     * still scrolls the thread (the scroll is chained to it). */
+    lv_obj_add_event_cb(r->slot, on_row_long_pressed, LV_EVENT_LONG_PRESSED, r);
 
     r->body_row = lv_obj_create(r->slot);
     lv_obj_remove_style_all(r->body_row);
@@ -343,6 +329,11 @@ static void build_row(struct rift_thread *t)
      * The three are items of one wrapping row, so a short message keeps the
      * name, the body and the caption on one line, and a body too long for
      * what the name leaves goes under it whole - "Sender" over "Message". */
+    r->quote = fit_label(r->column, POS_STYLE_CAPTION);
+    lv_obj_set_width(r->quote, LV_PCT(100)); /* a line of its own */
+    lv_label_set_long_mode(r->quote, LV_LABEL_LONG_MODE_DOTS);
+    rift_emoji_style_add(r->quote, POS_STYLE_CAPTION);
+    lv_obj_add_flag(r->quote, LV_OBJ_FLAG_HIDDEN);
     r->sender = fit_label(r->column, MSG_ROLE_SENDER);
     rift_emoji_style_add(r->sender, MSG_ROLE_SENDER);
     lv_obj_add_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
@@ -369,6 +360,7 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
         lv_obj_set_style_max_width(r->body, max_w, 0);
         lv_obj_set_style_max_width(r->sender, max_w, 0);
         lv_obj_set_style_max_width(r->caption, max_w, 0);
+        lv_obj_set_style_max_width(r->quote, max_w, 0);
         r->max_w = max_w;
     }
     /* Ours start at the right, theirs at the left, whether the two share a
@@ -393,9 +385,25 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
         /* Drawn with its emoji in colour: sequences folded for the colour
          * emoji font (rift_emoji_fold). The stored text is untouched. */
         char shown[RIFT_MSG_TEXT_MAX];
+        const char *body = rift_msg_body(msg);
 
-        rift_emoji_fold(rift_msg_body(msg), shown, sizeof(shown));
+        /* A reply's mention and quotation become the line above (ui/rift_msgact.h). */
+        if (msg->is_channel) {
+            body = rift_msgact_quote(r->quote, body, &r->quote_ident_on, &r->quote_ident);
+        } else {
+            lv_obj_add_flag(r->quote, LV_OBJ_FLAG_HIDDEN);
+        }
+        rift_emoji_fold(body, shown, sizeof(shown));
         rift_label_set(r->body, shown);
+    }
+    /* The message the action bar is open on carries the selection. */
+    if ((msg->id == rift_msgact_id(t->act)) != r->selected) {
+        r->selected = (msg->id == rift_msgact_id(t->act));
+        if (r->selected) {
+            pos_style_add(r->slot, POS_STYLE_SELECTED, 0);
+        } else {
+            lv_obj_remove_style(r->slot, pos_style(POS_STYLE_SELECTED), 0);
+        }
     }
     /* An age, not a time of day. The design's mock reads "11:32"; this board
      * has no clock that survives a power cut (docs/hardware/T-DISPLAY-K230.md)
@@ -460,55 +468,6 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
                        (!msg->is_channel && n && rift_link_of(n) == RIFT_LINK_DIRECT)
                            ? RIFT_TONE_RX
                            : RIFT_TONE_SECONDARY);
-    }
-}
-
-/* The note under the thread, only when there is something to say: what
- * became of the last send, what the composer cannot do, or that nothing has
- * been said yet. The rest of the time its lines are the thread's.
- *
- * What used to fill it otherwise - a delivery tally, and that the history
- * does not survive the service's restart - is said once where there is
- * room: every message carries its own state, the landscape route pane keeps
- * the tally and the caveat, and an empty thread, the one place the caveat
- * changes what a reader expects, says it here.
- *
- * Decided before the messages are laid out: whether it is shown changes how
- * tall they are, and the thread is scrolled to its end against that. */
-static void paint_note(struct rift_thread *t, const char *peer, int shown)
-{
-    const struct rift_model *m = &t->app->model;
-    const char *refusal = rift_thread_refusal(t->app);
-
-    lv_obj_remove_style(t->note, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
-    if (m->outbox.failed && m->outbox.error[0]) {
-        /* "Not sent" only when the service said no: a submission whose
-         * connection went before the answer may well have gone out. */
-        lv_label_set_text_fmt(t->note, "%s: %s", m->outbox.unknown ? "No answer" : "Not sent",
-                              m->outbox.error);
-        pos_style_add(t->note, POS_STYLE_STATUS_WARN_TEXT, 0);
-    } else if (rift_model_sending(m)) {
-        lv_label_set_text(t->note, "Sending\xE2\x80\xA6");
-    } else if (refusal) {
-        lv_label_set_text(t->note, refusal);
-    } else if (peer && shown == 0) {
-        if (rift_key_is_channel(peer) >= 0) {
-            lv_label_set_text(t->note,
-                              "Nothing on this channel yet. Anyone holding the same key can "
-                              "read what you send, and nothing will acknowledge it.");
-        } else if (m->messages_valid && !m->messages_persistent) {
-            lv_label_set_text(t->note, "Nothing said yet, or nothing since the radio service "
-                                       "last started: it keeps no history across a restart.");
-        } else {
-            lv_label_set_text(t->note, "Nothing said yet.");
-        }
-    } else {
-        lv_label_set_text(t->note, "");
-    }
-    if (lv_label_get_text(t->note)[0]) {
-        lv_obj_remove_flag(t->note, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(t->note, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -604,6 +563,7 @@ struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_scroll_dir(t->scroll, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(t->scroll, LV_SCROLLBAR_MODE_AUTO);
 
+    t->act = rift_msgact_create(app, t->root);
     t->note = wrap_label(t->root, POS_STYLE_CAPTION);
     /* Not 0 and not 1: nothing has been said to the field yet, so the first
      * refresh sets it whichever way it goes. */
@@ -617,6 +577,9 @@ void rift_thread_destroy(struct rift_thread *t)
 {
     /* Every object is a child of the pane the shell deletes; the private
      * block is this app's to release. */
+    if (t) {
+        rift_msgact_destroy(t->act);
+    }
     free(t);
 }
 
@@ -688,6 +651,7 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
     if (peer) {
         shown = rift_model_thread(m, peer, thread, RIFT_THREAD_ROWS, &older);
     }
+    rift_msgact_refresh(t->act, peer);
 
     /* Where the reader is now, before anything below moves it: at the end,
      * or back in the history. When the pane has changed height since the
@@ -741,7 +705,7 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         }
     }
     (void)conv;
-    paint_note(t, peer, shown);
+    rift_thread_note_paint(a, t->note, peer, shown);
     /* Settle the pane before the rows are filled in and the thread scrolled
      * to its end: a row built in this pass has not been laid out, and
      * anything measured against an unsettled pane would depend on which
@@ -894,4 +858,29 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
             lv_obj_add_flag(t->send, LV_OBJ_FLAG_CLICKABLE);
         }
     }
+}
+
+int rift_thread_key(struct rift_thread *t, uint32_t key)
+{
+    if (!t || !rift_msgact_id(t->act)) {
+        return 0;
+    }
+    return rift_msgact_key(t->act, key, t->shape_id, t->shape_valid ? t->shape_count : 0);
+}
+
+int rift_thread_select_newest(struct rift_thread *t)
+{
+    const char *peer = t ? rift_comms_open_peer(t->app) : NULL;
+
+    if (!peer || !t->shape_valid || t->shape_count == 0 || strcmp(peer, t->shape_peer) != 0) {
+        return 0;
+    }
+    rift_msgact_open(t->act, t->shape_id[t->shape_count - 1], peer, 1);
+    t->app->refresh_pending = 1;
+    return rift_msgact_id(t->act) != 0;
+}
+
+struct rift_msgact *rift_thread_actions(struct rift_thread *t)
+{
+    return t ? t->act : NULL;
 }

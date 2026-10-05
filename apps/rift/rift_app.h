@@ -58,11 +58,13 @@ enum rift_section {
     RIFT_SEC_MAP,
     RIFT_SEC_SYSTEM,
     RIFT_SEC_NET,
+    RIFT_SEC_CONTACTS,
     RIFT_SEC_COUNT,
 };
 #define RIFT_TAB_COUNT RIFT_SEC_NET
 
-/* The tab a screen is reached from: its own, or NODES for NET. */
+/* The tab a screen is reached from: its own, NODES for NET, COMMS for
+ * CONTACTS (ui/rift_contacts_view.h). */
 enum rift_section rift_tab_of(enum rift_section section);
 
 /* How often the client takes a pass at its socket. Not the shell's
@@ -94,6 +96,7 @@ struct rift_device;
 struct rift_session_view;
 struct rift_system_view;
 struct rift_map_ui;
+struct rift_contacts_view;
 
 /* The app's id in the shell's registry, and the name its session is marked
  * by in the status cluster. */
@@ -208,12 +211,14 @@ struct rift_app {
     struct rift_session_view *session;
     struct rift_system_view *system;
     struct rift_map_ui *map;
+    struct rift_contacts_view *contacts;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
     lv_obj_t *net_root;
     lv_obj_t *system_root;
     lv_obj_t *map_root;
+    lv_obj_t *contacts_root;
     /* The screen this app listens on for the theme-changed event (the
      * colour-emoji styles follow the text size there, and the frame is
      * repainted); removed on destroy, because the screen outlives the app. */
@@ -242,6 +247,11 @@ struct rift_app {
      * nothing more - neither changes a node, and neither is stored. */
     char node_query[RIFT_QUERY_MAX];
     int node_zero_hop;
+    /* CONTACTS (ui/rift_contacts_view.c): the search, RECENT rather than
+     * ALL, and the contact selected - a view, never stored. */
+    char contacts_query[RIFT_QUERY_MAX];
+    int contacts_recent;
+    char contacts_sel[RIFT_KEY_HEX];
 
     struct rift_model model;
     struct rift_ipc ipc;

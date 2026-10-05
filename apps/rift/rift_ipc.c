@@ -253,10 +253,12 @@ int rift_ipc_request_channels(struct rift_ipc *c)
     return request(c, RIFT_REQ_CHANNELS, NULL, c->last_channels_ms);
 }
 
+static int write_send(struct rift_ipc *c, const char *conv_key, const char *text,
+                      int64_t resend_id, int64_t now);
+
 int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *text)
 {
     char why[RIFT_TEXT_MAX];
-    cJSON *params;
     int64_t now;
 
     if (!c || !c->model) {
@@ -307,25 +309,70 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
         c->revision++;
         return -1;
     }
-    params = cJSON_CreateObject();
+    return write_send(c, conv_key, text, 0, now);
+}
+
+int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id)
+{
+    char why[RIFT_TEXT_MAX];
+    int64_t now;
+
+    if (!c || !c->model) {
+        return -1;
+    }
+    if (c->fd < 0) {
+        rift_model_send_failed(c->model, "meshcored is not answering; nothing was sent");
+        c->revision++;
+        return -1;
+    }
+    now = rift_mono_ms();
+    if (rift_model_resend_begin(c->model, message_id, now) != 0) {
+        rift_model_send_failed(c->model, rift_model_sending(c->model)
+                                             ? "one message is already on its way"
+                                             : "that message cannot be sent again");
+        c->revision++;
+        return -1;
+    }
+    /* An orphan goes as a new message, so its text is checked as one. */
+    if (!c->model->outbox.resend_id &&
+        rift_send_text_check(c->model->outbox.text, why, sizeof(why)) != 0) {
+        rift_model_send_failed(c->model, why);
+        c->revision++;
+        return -1;
+    }
+    return write_send(c, c->model->outbox.conv_key, c->model->outbox.text,
+                      c->model->outbox.resend_id, now);
+}
+
+/* The one place this app transmits a message: a first send, or a RESEND. */
+static int write_send(struct rift_ipc *c, const char *conv_key, const char *text,
+                      int64_t resend_id, int64_t now)
+{
+    cJSON *params = cJSON_CreateObject();
+
     if (!params) {
         rift_model_send_failed(c->model, "out of memory");
         c->revision++;
         return -1;
     }
-    {
+    if (resend_id > 0) {
+        /* The service still holds the message: it names the message and
+         * nothing else, and the service sends its own text and timestamp
+         * again with a new attempt (docs/api/mesh.md, mesh.send resend). */
+        cJSON_AddNumberToObject(params, "resend", (double)resend_id);
+    } else {
         int slot = rift_key_is_channel(conv_key);
 
-        /* The one place this app transmits, addressing either kind. Exactly
-         * one of the two parameters is written: mesh.send refuses both
-         * together rather than preferring one (docs/api/mesh.md). */
+        /* Addressing either kind. Exactly one of the two parameters is
+         * written: mesh.send refuses both together rather than preferring
+         * one (docs/api/mesh.md). */
         if (slot >= 0) {
             cJSON_AddNumberToObject(params, "channel", slot);
         } else {
             cJSON_AddStringToObject(params, "to", conv_key);
         }
+        cJSON_AddStringToObject(params, "text", text);
     }
-    cJSON_AddStringToObject(params, "text", text);
     if (request(c, RIFT_REQ_SEND, params, now) != 0) {
         /* request() has already dropped the connection if the write failed,
          * and rift_model_service_lost says what became of the submission. */

@@ -82,6 +82,27 @@ badsubmit=$(grep -rn 'rift_comms_submit(' "$SRC" --include='*.c' |
             grep -v 'lv_textarea_get_text' | grep -v 'void rift_comms_submit')
 check "every send carries text a reader typed${badsubmit:+ (}${badsubmit:+)}" \
     "$([ -z "$badsubmit" ] && echo 1 || echo 0)"
+# A RESEND sends what was already sent - the message's own text, or the
+# service's own copy of it by id - and is reached only from the action a
+# reader pressed on that message. A reply and a copy send nothing at all:
+# they put words in the composer, where SEND is still the reader's.
+recallers=$(grep -rln 'rift_ipc_resend_message(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "a resend is written only by the client, for COMMS (${recallers:-nowhere})" \
+    "$([ "$recallers" = "$SRC/rift_ipc.c $SRC/ui/rift_comms.c " ] && echo 1 || echo 0)"
+rcallers=$(grep -rln 'rift_comms_resend(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "and asked for only from a message's actions (${rcallers:-nowhere})" \
+    "$([ "$rcallers" = "$SRC/ui/rift_comms.c $SRC/ui/rift_msgact.c " ] &&
+       grep -B4 'rift_comms_resend(a, id)' "$SRC/ui/rift_msgact.c" | grep -q 'RIFT_MSGACT_RESEND' &&
+       echo 1 || echo 0)"
+check "the message actions send nothing else" \
+    "$(grep -qE 'rift_comms_submit|rift_ipc_send_message' "$SRC/ui/rift_msgact.c" && echo 0 || echo 1)"
+check "the resend param is named only in the client" \
+    "$([ "$(grep -rln --include='*.c' '"resend"' "$SRC" | sort | tr '\n' ' ')" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+# CONTACTS is a question asked of the node cache: it asks the service for
+# nothing and changes no contact.
+check "CONTACTS asks the service for nothing and writes no node" \
+    "$(grep -qE 'rift_ipc_|rift_model_(apply|drop)' "$SRC/ui/rift_contacts_view.c" "$SRC/rift_contacts.c" &&
+       echo 0 || echo 1)"
 
 # ---- MAP: positions as the nodes claim them, and nothing fetched ---------------
 check "MAP fetches nothing: no tile, map service, URL or API key" \

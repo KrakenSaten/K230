@@ -487,6 +487,7 @@ A message:
 | `state` | `received`, `sent_flood`, `sent_direct`, `acked`, `no_ack`, `failed`. `sent_*` means accepted, not transmitted, and `failed` is not produced in this version: see "Accepted is not transmitted" under `mesh.send` |
 | `ack_expected` | whether an acknowledgement can **ever** arrive for this message |
 | `ack_mono_ms` | when the ACK matched; absent until it does |
+| `attempts` | **outgoing direct only**: how many times it has been sent - 1, and one more for each `resend` (below) |
 | `snr_db`, `rssi_dbm` | only when known, by the same rule as a node's |
 
 **A channel message names no node.** A MeshCore group frame carries no public
@@ -518,6 +519,28 @@ Giving both is an error rather than a precedence rule: they are different
 destinations with different delivery semantics, and silently preferring one
 would send a message somewhere the caller did not mean. Giving neither is an
 error too.
+
+Or, instead of all of those, `resend`: the `id` of an outgoing direct message
+of **this run** that is `no_ack` (or `failed`). It is sent again the way
+upstream's companion clients retry one (`examples/companion_radio/MyMesh.cpp`,
+`CMD_SEND_TXT_MSG`): the **same text and the same sender timestamp**, with
+MeshCore's attempt number one higher. The attempt is part of what the
+recipient hashes into its ACK (`BaseChatMesh::composeMsgPacket`), so the new
+attempt is watched under a fresh expected ACK and its own deadline. The
+message keeps its id - there is still one message, sent more than once - goes
+back to `sent_flood` or `sent_direct`, and its `attempts` goes up; the answer
+is the one below, with `message_id` that id and `resent: true`. `resend` with
+`to`, `channel` or `text` beside it is refused (error 2), and so is an id that
+is not an unacknowledged direct message of this run - a received message, a
+channel message (nothing acknowledges one, so nothing says it failed), one
+delivered, one still waiting for its ACK, or one from a run before this one,
+which the service no longer holds. A message whose node has been forgotten
+since is refused too (error 2): there is no contact to encrypt to.
+
+The recipient sees a resend as a second copy of the message (a new packet:
+the attempt changes its hash), with the same timestamp and text. Upstream's
+firmware files both; a client may recognise the repeat by peer, timestamp
+and text, as RIFT does for its message sound.
 
 Result: `accepted` (always `true`), `message_id`, `route`, `ack_expected`, and
 then one of:
@@ -580,7 +603,20 @@ protocol core could not build the message.
 
 **Each direct message waits for its own ACK.** `ack_timeout_ms` is that
 message's own deadline, and when it passes with no ACK the message - that
-one, not the oldest one waiting - becomes `no_ack`. An ACK for one message
+one, not the oldest one waiting - becomes `no_ack`.
+
+**A late ACK still delivers.** The deadline is MeshCore's estimate from the
+airtime and the path, and an ACK can come back after it. Upstream's companion
+firmware keeps its expected ACKs in a circular table a timeout does not clear,
+so a late one still confirms the message; this service does the same with the
+last 16 expected ACKs whose wait is over, and a `no_ack` message whose ACK
+arrives late becomes `acked` (one more `mesh.message`). An ACK for **any**
+attempt of a resent message delivers it, and ends every wait for it. A
+message is delivered once: a second ACK for it - another packet with the same
+four bytes, or the ACK of its other attempt - changes nothing and raises no
+event, and `ack_mono_ms` stays the first. An ACK nobody is waiting for is
+ignored, and none survives a restart: an ACK for a message of an earlier run
+matches nothing. An ACK for one message
 does not end another's wait. (MeshCore itself keeps one timer for the whole
 node; see docs/services/MESHCORED.md for why the service does not use it.) A
 send that finds eight messages still waiting is refused with error 5 and

@@ -1120,6 +1120,7 @@ deskbuddy-test: $(DESKBUDDY_TESTS) tools/vision/pos-vision
 # are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
 RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
+             $(RIFT_DIR)/rift_threads.o $(RIFT_DIR)/rift_reply.o $(RIFT_DIR)/rift_contacts.o \
              $(RIFT_DIR)/rift_arrivals.o \
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
              $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
@@ -1134,13 +1135,14 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
 # rift_channels.c, and the service going away settles the requests
 # rift_actions.c holds, so anything linking one links them all.
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
+             $(RIFT_DIR)/rift_threads.o $(RIFT_DIR)/rift_reply.o $(RIFT_DIR)/rift_contacts.o \
                    $(RIFT_DIR)/rift_arrivals.o \
                    $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
                    $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o
-RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
+RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test               tests/rift_reliability_test \
               tests/rift_ipc_test tests/rift_notify_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
@@ -1159,6 +1161,11 @@ tests/rift_model_test: tests/rift_model_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# Delivery states and attempts, the unacknowledged messages kept across a
+# restart of meshcored, RESEND, replies as text, and the CONTACTS list.
+tests/rift_reliability_test: tests/rift_reliability_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # The message sounds: which messages are arrivals, when one sounds and which,
@@ -2295,6 +2302,7 @@ test: all $(TEST_BINS)
 	./tests/rift_format_test
 	./tests/rift_model_test
 	./tests/rift_comms_test
+	./tests/rift_reliability_test
 	./tests/rift_notify_test
 	./tests/rift_ipc_test
 	./tests/pocketcam_test

@@ -252,6 +252,28 @@ for more than one message at a time:
   message as soon as the first is accepted, so this was reachable from the
   composer.
 
+Two places where upstream's behaviour **is** kept, and how:
+
+- **A late ACK delivers** (`LATE_ACK_SLOTS`, 16). When a slot's deadline
+  passes, its expected ACK moves to a ring of the last 16 whose wait is over,
+  which `processAck()` reads after the outbox. Upstream's companion firmware
+  does the same thing differently: its `expected_ack_table` is circular and a
+  timeout never clears it (`examples/companion_radio/MyMesh.cpp`), and its
+  ui-rift marks a "no ack" line delivered when the ACK comes
+  (`RiftMsgLog::markDelivered`). Whatever matches, every slot of that message
+  goes, so a second ACK - or the ACK of its other attempt - finds nothing, and
+  `markAcked()` will not deliver a message twice either.
+- **A resend is upstream's retry** (`mcd_runtime_resend`, `mesh.send`
+  `resend`): the message's own text and sender timestamp, with
+  `sendMessage()`'s `attempt` one higher - what a companion client sends as
+  `CMD_SEND_TXT_MSG` with the same timestamp and the next attempt. The
+  attempt is in the flags byte the recipient hashes into its ACK (and past 3
+  also a byte after the text), so each attempt gets its own expected ACK, its
+  own outbox slot and its own deadline, and the recipient's seen table does
+  not drop it as a repeat. Only a `no_ack` (or `failed`) message is resent,
+  never one waiting or delivered, so two attempts of one message are never in
+  flight at once.
+
 ### Forgetting a node
 
 `mesh.node_remove` takes a node's **whole** public key - never a prefix - and

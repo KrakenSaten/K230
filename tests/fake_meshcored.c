@@ -504,7 +504,67 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         const cJSON *to = cJSON_GetObjectItemCaseSensitive(params, "to");
         const cJSON *chan = cJSON_GetObjectItemCaseSensitive(params, "channel");
         const cJSON *text = cJSON_GetObjectItemCaseSensitive(params, "text");
+        const cJSON *resend = cJSON_GetObjectItemCaseSensitive(params, "resend");
 
+        /* A RESEND names a message and nothing else, as the real one wants;
+         * the message is the scripted snapshot's, sent again: the same id,
+         * its state back to sent_direct and one attempt more. */
+        if (resend != NULL) {
+            cJSON *all = st->script->messages_json ? cJSON_Parse(st->script->messages_json) : NULL;
+            cJSON *item = NULL;
+            cJSON *found = NULL;
+
+            if (st->script->send_log && cJSON_IsNumber(resend)) {
+                FILE *f = fopen(st->script->send_log, "a");
+
+                if (f) {
+                    fprintf(f, "resend|%lld\n", (long long)resend->valuedouble);
+                    fclose(f);
+                }
+            }
+            cJSON_ArrayForEach (item, all) {
+                const cJSON *mid = cJSON_GetObjectItemCaseSensitive(item, "id");
+
+                if (cJSON_IsNumber(resend) && cJSON_IsNumber(mid) &&
+                    mid->valuedouble == resend->valuedouble) {
+                    found = item;
+                }
+            }
+            if (to != NULL || chan != NULL || text != NULL || !found || st->script->refuse_send) {
+                pocketipc_server_reply(
+                    s, c,
+                    pocketipc_error_response(id,
+                                             st->script->refuse_send ? POCKETIPC_ERR_BUSY
+                                                                     : POCKETIPC_ERR_INVALID_PARAMS,
+                                             "that message cannot be resent"));
+                cJSON_Delete(all);
+                return;
+            }
+            result = cJSON_CreateObject();
+            cJSON_AddBoolToObject(result, "accepted", 1);
+            cJSON_AddNumberToObject(result, "message_id", resend->valuedouble);
+            cJSON_AddStringToObject(result, "route", "direct");
+            cJSON_AddNumberToObject(result, "ack_timeout_ms", 30000);
+            cJSON_AddBoolToObject(result, "ack_expected", 1);
+            cJSON_AddBoolToObject(result, "resent", 1);
+            pocketipc_server_reply(s, c, pocketipc_response(id, result));
+            {
+                cJSON *data = cJSON_CreateObject();
+                cJSON *msg = cJSON_Duplicate(found, 1);
+                const cJSON *was = cJSON_GetObjectItemCaseSensitive(found, "attempts");
+
+                cJSON_DeleteItemFromObjectCaseSensitive(msg, "state");
+                cJSON_AddStringToObject(msg, "state", "sent_direct");
+                cJSON_DeleteItemFromObjectCaseSensitive(msg, "attempts");
+                cJSON_AddNumberToObject(msg, "attempts",
+                                        (cJSON_IsNumber(was) ? was->valuedouble : 1) + 1);
+                relative_to_now(msg, "mono_ms");
+                cJSON_AddItemToObject(data, "message", msg);
+                pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));
+            }
+            cJSON_Delete(all);
+            return;
+        }
         /* The real service refuses both together rather than preferring one
          * (docs/api/mesh.md), and a client that wrote both would otherwise
          * be tested against something more forgiving than what it will meet. */

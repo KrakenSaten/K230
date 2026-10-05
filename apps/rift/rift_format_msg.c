@@ -26,6 +26,12 @@ void rift_fmt_msg_state(const struct rift_message *msg, char *out, size_t out_le
         rift_utf8_copy(out, out_len, RIFT_UNKNOWN);
         return;
     }
+    /* Kept across a restart of the service, which can no longer match its
+     * ACK: NO ACK, whatever the last word was (rift_model.h, orphan). */
+    if (msg->orphan) {
+        rift_utf8_copy(out, out_len, "NO ACK");
+        return;
+    }
     switch (msg->state) {
     case RIFT_MSG_SENDING:
         word = "SENDING";
@@ -68,7 +74,7 @@ int rift_msg_is_warn(const struct rift_message *msg)
     if (!msg) {
         return 0;
     }
-    return msg->state == RIFT_MSG_NO_ACK || msg->state == RIFT_MSG_FAILED ||
+    return msg->orphan || msg->state == RIFT_MSG_NO_ACK || msg->state == RIFT_MSG_FAILED ||
            msg->state == RIFT_MSG_STATE_UNKNOWN;
 }
 
@@ -128,6 +134,18 @@ void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_
     if (msg->is_channel && msg->dir == RIFT_MSG_OUT && !msg->ack_expected) {
         snprintf(out + at, out_len - at, RIFT_SEP "FLOOD" RIFT_SEP "NO ACK ON CHANNELS");
         return;
+    }
+    if (msg->orphan) {
+        /* Why it is NO ACK, and that nothing is still waiting for it. */
+        snprintf(out + at, out_len - at, RIFT_SEP "SERVICE RESTARTED");
+        return;
+    }
+    /* Sent more than once (RESEND): which attempt the state is about. */
+    if (msg->dir == RIFT_MSG_OUT && msg->attempts > 1) {
+        at += (size_t)snprintf(out + at, out_len - at, RIFT_SEP "TRY %d", msg->attempts);
+        if (at >= out_len) {
+            return;
+        }
     }
     if (msg->state == RIFT_MSG_ACKED) {
         rift_fmt_ack(msg, ack, sizeof(ack));

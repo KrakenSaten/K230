@@ -56,4 +56,16 @@ void rift_thread_composer_clear(struct rift_thread *t);
  * command line asks it the same question. */
 const char *rift_thread_refusal(const struct rift_app *app);
 
+/* The note under the thread (rift_thread_note.c): what became of the last
+ * send, what the composer cannot do, or what an empty thread means. */
+void rift_thread_note_paint(struct rift_app *app, lv_obj_t *note, const char *peer, int shown);
+
+/* The actions on one message (ui/rift_msgact.h). A key while they are open
+ * is theirs (1); select_newest opens them on the newest message by key,
+ * returning 1 when there was one to open them on. */
+struct rift_msgact;
+int rift_thread_key(struct rift_thread *t, uint32_t key);
+int rift_thread_select_newest(struct rift_thread *t);
+struct rift_msgact *rift_thread_actions(struct rift_thread *t);
+
 #endif
