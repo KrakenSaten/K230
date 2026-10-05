@@ -1,6 +1,10 @@
-# RIFT repeater control - hardware gate (DEPLOYED to unit B, NOT RUN)
+# RIFT repeater control - hardware gate (unit B, PARTIAL: CLOCK defect found and fixed)
 
-**Build on unit B since 2026-10-05 15:28 UTC:** doors-shell and meshcored
+**Build on unit B since 2026-10-05 16:17 UTC:** doors-shell and meshcored
+`b79e297` (md5 `bcfba16a…` / `b2bddbb2…`). The rollback below still holds the
+binaries found before the first deploy.
+
+**Before that, 15:28-16:17 UTC:** doors-shell and meshcored
 `6fe7db0` (riscv64, md5 `018903a8…` / `cf85c25f…`), hot-swapped from a clean
 clone's cross-build. **As found before:** doors-shell md5 `16522b79…`,
 meshcored `2fcc0f9a…` (build "unknown", release 0.3.0 / BUILD_ID 6b26f06 on
@@ -89,3 +93,30 @@ as found.
   padded to the AES block; nothing in it says how long the struct was). Note
   firmware versions where the values look like 0.
 - Logout is local: the repeater keeps this node in its access list.
+
+## Findings, 2026-10-05 (unit B, repeater BREVDUE `5997dbcb…`, direct, RSSI -31)
+
+Run by the owner, then reproduced: SCAN 0-HOP, open, login worked; **after
+CLOCK every repeater button stayed grey and no time appeared.**
+
+- **Defect (fixed in `b79e297`):** meshcored sized a direct request's wait
+  from MeshCore's packed path byte. This mesh uses 2-byte path hashes, so a
+  zero-hop route is `0x40`, which was read as 65 hops: the login waited
+  146.9 s and CLOCK 104.5 s ("WAITING UP TO 105 S"), all buttons disabled.
+  It did end, as a timeout, after that. Upstream counts `path_len & 63`.
+- **CLOCK itself is correct:** sent as `TXT_TYPE_CLI_DATA` "clock", answered
+  by CLI data with no tag, matched by sender. Over the air it was answered
+  and matched in about 2 s (by flood when the repeater had no route back,
+  and direct afterwards); one press got no answer at all (radiod RX capture:
+  nothing from the repeater), which is ordinary loss of a single packet and
+  ends as a timeout.
+- **After the fix, on air:** login (blank password, as this node was already
+  in BREVDUE's access list) answered as admin; CLOCK "COMMAND ANSWERED" in
+  about 1.5 s with every button usable at once; STATUS straight after it
+  answered (battery 4.30 V, uptime 51m 30s); a direct command's wait is
+  21.3 s. Logged out afterwards; no session left.
+- **Seen, not changed:** a session ended by another client (`doors call
+  meshcored mesh.remote_logout`) raises no event, so an open RIFT page goes
+  on showing it logged in until its next request is refused.
+- **Steps still to run:** wrong password (step 4) and the confirmation and
+  refusal checks of step 8 with the owner present; step 9's restart.
