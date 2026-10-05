@@ -60,6 +60,7 @@ struct state {
     int session_active;
     int session_ok;
     char session_key[65];
+    int cli_seen;
 };
 
 /* ---- repeater control --------------------------------------------------- */
@@ -301,9 +302,11 @@ static int remote_method(struct state *st, struct pocketipc_server *s,
         }
         pocketipc_server_reply(s, c, pocketipc_response(id, result));
         if (!st->script->remote_silent) {
-            remote_event(st, rid, kind,
-                         (strcmp(kind, "login") == 0 && !st->session_ok) ? "timeout" : "replied",
-                         params);
+            int lost = (strcmp(kind, "login") == 0 && !st->session_ok) ||
+                       (strcmp(kind, "cli") == 0 && st->script->cli_timeout_first &&
+                        st->cli_seen++ == 0);
+
+            remote_event(st, rid, kind, lost ? "timeout" : "replied", params);
         }
         return 1;
     }

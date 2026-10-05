@@ -136,6 +136,9 @@ struct fake_meshcored_script {
     int remote_silent;
     /* Answer every repeater method as a service too old to know it. */
     int no_remote;
+    /* The first command (mesh.remote_cli) ends as meshcored ends one whose
+     * answer was lost on the air: outcome "timeout". Later ones answer. */
+    int cli_timeout_first;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

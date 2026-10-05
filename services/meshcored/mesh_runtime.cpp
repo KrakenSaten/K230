@@ -1369,10 +1369,16 @@ protected:
     {
         return 12000 + pkt_airtime_millis * 8;
     }
+    /* path_len is MeshCore's PACKED byte: the hop count in the low six bits
+     * and the path hash size in the top two. Per hop means per hop, as
+     * upstream's companion reads it (`path_len & 63`): on a mesh using
+     * 2-byte path hashes a zero-hop route is 0x40, and reading that as 65
+     * hops made a direct request to a repeater beside this node wait over
+     * two minutes (unit B, 2026-10-05). */
     uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis,
                                         uint8_t path_len) const override
     {
-        return 6000 + (pkt_airtime_millis * 2) * (path_len + 1);
+        return 6000 + (pkt_airtime_millis * 2) * (mesh::Packet::pathHashCount(path_len) + 1);
     }
 
     void onSendTimeout() override

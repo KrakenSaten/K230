@@ -580,6 +580,12 @@ static void apply_reply(struct rift_repeater *r, const cJSON *reply, int64_t now
     if (!ours && strcmp(outcome, "replied") != 0) {
         return;
     }
+    /* And while this app waits for its own request, an answer to any other
+     * one - a late one above all - is not drawn and does not end the wait:
+     * it would put an old CLOCK's time under a new command. */
+    if (!ours && r->asking != RIFT_REP_NONE) {
+        return;
+    }
     /* An answer about another repeater than the session's is not drawn as
      * this one's. The session object that rides with it says which. */
     if (node && r->active && strcmp(node, r->key) != 0) {

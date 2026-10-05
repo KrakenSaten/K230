@@ -304,6 +304,10 @@ static uint64_t g_submits[32];
 static int g_submit_count;
 static uint64_t g_next_submit = 1;
 static int g_control_tx;          /* CONTROL frames the runtime put on the air */
+static int g_rep_tx;              /* frames the test repeater put on the air */
+static int g_node_text;           /* TXT frames the runtime parsed */
+static int g_node_frames;         /* every frame the runtime parsed */
+static int g_delivered;           /* frames handed to the runtime */
 
 static int hook_tx_submit(void*, const uint8_t* bytes, int len, uint64_t* submit_id)
 {
@@ -328,6 +332,12 @@ struct Seen {
     mcd_remote_session session;
 };
 static Seen g_seen;
+
+static void hook_on_frame(void*, const mcd_rx_meta*, int, const char* outcome)
+{
+    g_node_frames++;
+    g_node_text += (outcome && strcmp(outcome, "text") == 0) ? 1 : 0;
+}
 
 static void hook_on_discover(void*, const mcd_discovered* d, const mcd_discover_state*)
 {
@@ -360,7 +370,13 @@ public:
     }
     uint32_t getEstAirtimeFor(int len) override { return (uint32_t)(len > 0 ? len : 1); }
     float packetScore(float, int) override { return 1.0f; }
-    bool startSendRaw(const uint8_t* bytes, int len) override { return g_to_node.push(bytes, len); }
+    bool startSendRaw(const uint8_t* bytes, int len) override
+    {
+        bool ok = g_to_node.push(bytes, len);
+
+        g_rep_tx += ok ? 1 : 0;
+        return ok;
+    }
     bool isSendComplete() override { return true; }
     void onSendFinished() override { }
     bool isInRecvMode() const override { return true; }
@@ -384,7 +400,7 @@ public:
     TestRepeater(mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng,
                  mesh::RTCClock& rtc, mesh::PacketManager& mgr, mesh::MeshTables& tables)
         : mesh::Mesh(radio, ms, rng, rtc, mgr, tables), answer_discover(true),
-          refuse_login(false), short_status(false), logins_ok(0), logins_bad(0), requests(0),
+          refuse_login(false), short_status(false), cli_silent(false), logins_ok(0), logins_bad(0), requests(0),
           cli_commands(0), discover_requests(0)
     {
         memset(matching, 0, sizeof(matching));
@@ -403,9 +419,19 @@ public:
         }
     }
 
+    /* Forget every client, as a repeater that rebooted without saving a
+     * guest would: the next login starts with no timestamp to beat. */
+    void forget_clients()
+    {
+        for (int i = 0; i < 4; i++) {
+            acl[i] = Client();
+        }
+    }
+
     bool answer_discover;
     bool refuse_login;   /* answer a wrong password explicitly (not upstream) */
     bool short_status;   /* answer STATUS with a reply too short to read */
+    bool cli_silent;     /* take a command and answer nothing */
     int logins_ok;
     int logins_bad;
     int requests;
@@ -575,13 +601,21 @@ protected:
             data[len] = 0;
             snprintf(last_cli, sizeof(last_cli), "%s", (const char*)&data[5]);
             cli_commands++;
+            if (cli_silent) {
+                return; /* heard, and the answer lost on the air */
+            }
             now = getRTCClock()->getCurrentTimeUnique();
             if (now == ts) {
                 now++;
             }
             memcpy(out, &now, 4);
             out[4] = (uint8_t)(TXT_TYPE_CLI_DATA << 2);
-            tlen = snprintf((char*)out + 5, sizeof(out) - 5, "-> %s", last_cli);
+            if (strcmp(last_cli, "clock") == 0) {
+                /* CommonCLI's own answer to "clock". */
+                tlen = snprintf((char*)out + 5, sizeof(out) - 5, "12:34 - 5/10/2026 UTC");
+            } else {
+                tlen = snprintf((char*)out + 5, sizeof(out) - 5, "-> %s", last_cli);
+            }
             {
                 mesh::Packet* r = createDatagram(PAYLOAD_TYPE_TXT_MSG, c->id, secret, out,
                                                  (size_t)(5 + tlen));
@@ -650,6 +684,7 @@ static bool startRuntime(World& w)
     memset(&hooks, 0, sizeof(hooks));
     hooks.tx_submit = hook_tx_submit;
     hooks.on_discover = hook_on_discover;
+    hooks.on_frame = hook_on_frame;
     hooks.on_remote = hook_on_remote;
     memset(&cfg, 0, sizeof(cfg));
     cfg.state_dir = w.dir;
@@ -685,7 +720,7 @@ static void step(World& w)
         meta.rssi_dbm = -71.0;
         meta.snr_known = true;
         meta.snr_db = 8.25;
-        mcd_runtime_deliver_rx(w.rt, buf, n, &meta);
+        g_delivered += mcd_runtime_deliver_rx(w.rt, buf, n, &meta) ? 1 : 0;
         mcd_runtime_tick(w.rt);
     }
     usleep(2000);
@@ -1031,6 +1066,101 @@ static void test_guest(World& w, const uint8_t* rep_key)
     mcd_runtime_remote_logout(w.rt, NULL);
 }
 
+/* CLOCK on a mesh with 2-byte path hashes, as unit B's (2026-10-05): the
+ * command is CLI data, answered by CLI data with no tag. Answered, lost,
+ * answered late; and the next request after a lost one. */
+static void test_clock(World& w, const uint8_t* rep_key)
+{
+    uint64_t id = 0;
+    uint32_t wait = 0;
+    bool persisted = false;
+    mcd_remote_session s;
+    struct mcd_node n;
+    int events;
+
+    printf("-- CLOCK on a 2-byte path hash route\n");
+    check("this node floods with 2-byte path hashes",
+          mcd_runtime_set_path_hash_bytes(w.rt, 2, &persisted));
+    mcd_runtime_node_reset_path(w.rt, rep_key, NULL);
+    w.rep.forget_clients();
+    /* The runtime was restarted by the case before, and its unique clock
+     * started again: a login built in the same second as the last run's
+     * would be byte for byte that login, and the repeater's duplicate table
+     * would drop it. A few seconds on, it is a new packet. */
+    settle(w, 3000);
+    mcd_runtime_remote_login(w.rt, rep_key, "hunter2", &id, &wait);
+    check("the flooded login is answered",
+          until(w, [&] { return g_seen.session.login == MCD_LOGIN_OK && g_seen.last.request_id == id; }));
+    check("and the route learned from it is zero hops in 2-byte hashes (0x40)",
+          mcd_runtime_node_by_prefix(w.rt, rep_key, 32, &n) == 1 && n.path_known &&
+              n.path_len == 0x40 && n.path_hops == 0);
+
+    check("CLOCK goes direct",
+          mcd_runtime_remote_cli(w.rt, rep_key, "clock", &id, &wait) == MCD_REMOTE_ACCEPTED_DIRECT);
+    /* Upstream counts hops as path_len & 63. Read as the whole byte, 0x40
+     * was 65 hops, and the wait ran to minutes. */
+    check("its wait is sized for zero hops, not for the packed byte",
+          wait >= MCD_REMOTE_MIN_WAIT_MS && wait < 30000);
+    check("CLOCK is answered with the repeater's time", until(w, [&] {
+              return g_seen.last.request_id == id && g_seen.last.outcome == MCD_REMOTE_REPLIED;
+          }) && g_seen.last.kind == MCD_REMOTE_CLI &&
+              strcmp(g_seen.last.text, "12:34 - 5/10/2026 UTC") == 0);
+    mcd_runtime_remote_session(w.rt, &s);
+    check("and nothing is waiting after it", s.pending == MCD_REMOTE_NONE);
+
+    /* The answer lost on the air. */
+    w.rep.cli_silent = true;
+    mcd_runtime_remote_cli(w.rt, rep_key, "clock", &id, &wait);
+    check("a lost CLOCK keeps waiting until its deadline, and no longer",
+          until(w, [&] { return w.rep.cli_commands >= 3; }, 3000) &&
+              !mcd_runtime_remote_expire(w.rt, mcport::monotonicMillis()));
+    mcd_runtime_remote_session(w.rt, &s);
+    check("its deadline is the wait it was given",
+          s.pending == MCD_REMOTE_CLI && s.deadline_mono_ms > 0);
+    check("then it ends as a timeout", mcd_runtime_remote_expire(w.rt, s.deadline_mono_ms) &&
+                                           g_seen.last.request_id == id &&
+                                           g_seen.last.outcome == MCD_REMOTE_TIMED_OUT);
+    mcd_runtime_remote_session(w.rt, &s);
+    check("and the session is free again, still logged in",
+          s.pending == MCD_REMOTE_NONE && s.login == MCD_LOGIN_OK);
+    w.rep.cli_silent = false;
+
+    /* Answered after its wait: stale, and no event revives it. */
+    g_hold_replies = true;
+    {
+        int sent_before = g_rep_tx;
+
+        mcd_runtime_remote_cli(w.rt, rep_key, "clock", &id, &wait);
+        /* Until the repeater has heard it AND put its answer on the air -
+         * its dispatcher may hold the answer back for airtime - so the wait
+         * below ends with the answer already in flight. */
+        check("the repeater hears the next CLOCK and answers it (held on the air)",
+              until(w, [&] { return w.rep.cli_commands >= 4 && g_rep_tx > sent_before; }));
+    }
+    mcd_runtime_remote_session(w.rt, &s);
+    mcd_runtime_remote_expire(w.rt, s.deadline_mono_ms);
+    events = g_seen.remote_events;
+    g_hold_replies = false;
+    check("an answer after the timeout is counted stale and raises nothing", until(w, [&] {
+              mcd_remote_session t;
+
+              mcd_runtime_remote_session(w.rt, &t);
+              return t.stale_replies >= 1;
+          }) && g_seen.remote_events == events);
+    mcd_runtime_remote_session(w.rt, &s);
+    printf("     (commands heard %d, stale %llu, events %d -> %d, rep tx %d, delivered %d, "
+           "parsed %d, text %d)\n", w.rep.cli_commands, (unsigned long long)s.stale_replies,
+           events, g_seen.remote_events, g_rep_tx, g_delivered, g_node_frames, g_node_text);
+
+    check("STATUS after the lost and late CLOCKs is taken",
+          mcd_runtime_remote_ask(w.rt, rep_key, MCD_REMOTE_STATUS, &id, &wait) ==
+              MCD_REMOTE_ACCEPTED_DIRECT && wait < 30000);
+    check("and answered", until(w, [&] {
+              return g_seen.last.request_id == id && g_seen.last.outcome == MCD_REMOTE_REPLIED;
+          }));
+    mcd_runtime_remote_logout(w.rt, NULL);
+}
+
 int main(void)
 {
     static World w;
@@ -1069,6 +1199,7 @@ int main(void)
     test_late_login(w, rep_key);
     test_guest(w, rep_key);
     test_logout_and_endings(w, rep_key);
+    test_clock(w, rep_key);
     mcd_runtime_destroy(w.rt);
 
     printf("meshcored_repeater_test: %d check(s), %d failure(s)\n", checks, failed);

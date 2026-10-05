@@ -4941,6 +4941,7 @@ static void repeater_control_session(void)
                "\"rssi_dbm\":-71}",
                1);
         setenv("FAKE_MESHCORED_REMOTE_LOG", rlog, 1);
+        setenv("FAKE_MESHCORED_CLI_TIMEOUT_FIRST", "1", 1);
         setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
         execl(bin, bin, (char *)NULL);
         _exit(127);
@@ -4994,9 +4995,25 @@ static void repeater_control_session(void)
     tap(rift_repeater_view_part(app, RIFT_REPV_STATUS));
     check("STATUS is answered", live_until(rep_live_status, 8000) &&
                                      find_text(content(), "4.01 V") != NULL);
+    /* CLOCK first, and its answer lost: the service ends it as a timeout.
+     * (Unit B, 2026-10-05: every button stayed grey after CLOCK.) */
+    tap(rift_repeater_view_part(app, RIFT_REPV_QUICK_CLOCK));
+    check("CLOCK with no answer ends as no answer in time, in the transcript too",
+          live_until(rep_live_idle, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 1 &&
+              find_text(content(), "NO ANSWER IN TIME") != NULL &&
+              find_text(content(), "(no answer)") != NULL);
+    pump(150);
+    check("and every repeater button is usable again",
+          !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_QUICK_CLOCK),
+                            LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_QUICK_VER),
+                                LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_STATUS),
+                                LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_SEND), LV_STATE_DISABLED));
     tap(rift_repeater_view_part(app, RIFT_REPV_QUICK_VER));
     check("VER is a read-only command, sent at once, and its answer shown",
-          live_until(rep_live_lines, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 1 &&
+          live_until(rep_live_lines, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 2 &&
               find_text(content(), "-> ver") != NULL);
 
     type_into(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "reboot");
@@ -5004,17 +5021,17 @@ static void repeater_control_session(void)
     pump(150);
     check("reboot asks first, and nothing has been sent",
           visible(rift_repeater_view_part(app, RIFT_REPV_CONFIRM)) &&
-              rep_log_count(rlog, "mesh.remote_cli|") == 1);
+              rep_log_count(rlog, "mesh.remote_cli|") == 2);
     tap(rift_repeater_view_part(app, RIFT_REPV_CANCEL));
     pump(150);
     check("CANCEL sends nothing", !visible(rift_repeater_view_part(app, RIFT_REPV_CONFIRM)) &&
-                                      rep_log_count(rlog, "mesh.remote_cli|") == 1);
+                                      rep_log_count(rlog, "mesh.remote_cli|") == 2);
     lv_textarea_set_text(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "");
     type_into(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "erase");
     tap(rift_repeater_view_part(app, RIFT_REPV_SEND));
     pump(150);
     check("erase is refused and never sent", find_text(content(), "Not sent") != NULL &&
-                                                  rep_log_count(rlog, "mesh.remote_cli|") == 1);
+                                                  rep_log_count(rlog, "mesh.remote_cli|") == 2);
     shot("rift-repeater-live");
 
     app_leave();

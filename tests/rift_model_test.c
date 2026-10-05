@@ -853,6 +853,57 @@ static void test_repeater_session(void)
     check("the page's repeater stays chosen", r.have_target && strcmp(r.target, KEY_B) == 0);
 }
 
+/* CLOCK, as found on unit B (2026-10-05): a command answered, a command
+ * with no answer, and an old answer arriving while the next request waits. */
+static void test_repeater_clock(void)
+{
+    struct rift_repeater r;
+
+    rift_rep_init(&r);
+    rift_rep_set_target(&r, KEY_B);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":1,\"kind\":\"login\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\"}," REP_SESSION_OK "}", 1000);
+
+    check("CLOCK begins and waits", rift_rep_begin(&r, RIFT_REP_CLI, 2000) == 0 &&
+                                        rift_rep_busy(&r));
+    rift_rep_note_command(&r, "clock");
+    rep_accept(&r, "{\"request_id\":2,\"route\":\"direct\",\"wait_ms\":22000}", 2000);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":2,\"kind\":\"cli\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\",\"text\":\"12:34 - 5/10/2026 UTC\"}," REP_SESSION_OK "}",
+              3000);
+    check("CLOCK answered: the time is in the transcript and nothing waits",
+          !rift_rep_busy(&r) && r.line_count == 2 &&
+              strcmp(rift_rep_line(&r, 1), "  12:34 - 5/10/2026 UTC") == 0);
+
+    rift_rep_begin(&r, RIFT_REP_CLI, 4000);
+    rift_rep_note_command(&r, "clock");
+    rep_accept(&r, "{\"request_id\":3,\"route\":\"direct\",\"wait_ms\":22000}", 4000);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":3,\"kind\":\"cli\",\"outcome\":\"timeout\","
+              "\"node\":\"" KEY_B "\"}," REP_SESSION_OK "}", 26000);
+    check("CLOCK with no answer ends as a timeout, and nothing waits",
+          !rift_rep_busy(&r) && r.note_is_error && strstr(r.note, "NO ANSWER") &&
+              strcmp(rift_rep_line(&r, r.line_count - 1), "  (no answer)") == 0);
+    check("still logged in", rift_rep_logged_in(&r, KEY_B));
+
+    check("the next request begins", rift_rep_begin(&r, RIFT_REP_STATUS, 27000) == 0);
+    rep_accept(&r, "{\"request_id\":4,\"route\":\"direct\",\"wait_ms\":22000}", 27000);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":3,\"kind\":\"cli\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\",\"text\":\"12:35 - 5/10/2026 UTC\"}," REP_SESSION_OK "}",
+              27500);
+    check("an old CLOCK's answer arriving now changes nothing and ends no wait",
+          rift_rep_busy(&r) && r.request_id == 4 &&
+              strcmp(rift_rep_line(&r, r.line_count - 1), "  (no answer)") == 0);
+    rep_event(&r, "mesh.remote",
+              "{\"reply\":{\"request_id\":4,\"kind\":\"status\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_B "\",\"status\":{\"battery_mv\":3900}}," REP_SESSION_OK "}",
+              28000);
+    check("and the next request is answered as usual", !rift_rep_busy(&r) && r.status.have);
+}
+
 static void test_repeater_commands(void)
 {
     const char *why = NULL;
@@ -1538,6 +1589,7 @@ int main(void)
     test_repeater_scan();
     test_repeater_session();
     test_repeater_commands();
+    test_repeater_clock();
     printf("rift_model_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

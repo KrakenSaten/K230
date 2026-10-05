@@ -49,6 +49,7 @@ int main(void)
     script.events_after_snapshot = getenv("FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT") != NULL;
     script.repeater_json = getenv("FAKE_MESHCORED_REPEATER");
     script.remote_log = getenv("FAKE_MESHCORED_REMOTE_LOG");
+    script.cli_timeout_first = getenv("FAKE_MESHCORED_CLI_TIMEOUT_FIRST") != NULL;
     script.life_ms = life ? atoi(life) : 10000;
     if (path) {
         FILE *f = fopen(path, "r");
