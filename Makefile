@@ -1129,7 +1129,8 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
              $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o \
              $(RIFT_DIR)/rift_ipc_repeater.o $(RIFT_DIR)/rift_repeater.o \
              $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
-             $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o core/pocketwav/pocketwav.o
+             $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o core/pocketwav/pocketwav.o \
+             $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o
 # The model is several translation units over one struct: rift_model.c
 # dispatches mesh.message and mesh.channel events into rift_messages.c (and
 # rift_arrivals.c, which says which direct messages just arrived) and
@@ -1141,10 +1142,11 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
                    $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
+                   $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
                    $(RIFT_DIR)/rift_repeater.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
-              tests/rift_ipc_test tests/rift_notify_test tests/fake-meshcored
+              tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1162,6 +1164,10 @@ tests/rift_model_test: tests/rift_model_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# RX LOG's ring, its mesh.rx reader and its words (rift_rxlog.h).
+tests/rift_rxlog_test: tests/rift_rxlog_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # The message sounds: which messages are arrivals, when one sounds and which,
@@ -2298,6 +2304,7 @@ test: all $(TEST_BINS)
 	./tests/rift_format_test
 	./tests/rift_model_test
 	./tests/rift_comms_test
+	./tests/rift_rxlog_test
 	./tests/rift_notify_test
 	./tests/rift_ipc_test
 	./tests/pocketcam_test

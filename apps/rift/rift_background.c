@@ -37,6 +37,8 @@ struct rift_app *rift_bg_new(void)
     }
     rift_model_init(&a->model);
     rift_ipc_init(&a->ipc, &a->model, RIFT_SERVICE);
+    rift_rxlog_init(&a->rxlog);
+    a->ipc.rxlog = &a->rxlog;
     /* The reader's choices, or the defaults when there are none (or none
      * that could be read): opening the app writes nothing. */
     if (rift_store_load(&a->prefs) < 0) {

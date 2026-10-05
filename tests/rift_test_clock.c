@@ -7,8 +7,16 @@
 #include "rift_test_clock.h"
 
 #include "rift_model.h"
+#include "rift_rxlog.h"
 
 static int64_t virtual_ms = RIFT_TEST_CLOCK_START_MS;
+
+/* The wall clock moves with the monotonic one, from a fixed instant:
+ * 2026-10-05T12:00:00.000Z when the monotonic clock is at its start. */
+int64_t rift_rxlog_wall_now(void)
+{
+    return RIFT_TEST_WALL_START_MS + (virtual_ms - RIFT_TEST_CLOCK_START_MS);
+}
 
 int64_t rift_mono_ms(void)
 {

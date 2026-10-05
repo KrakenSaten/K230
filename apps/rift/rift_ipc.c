@@ -6,6 +6,7 @@
 #include "rift_ipc.h"
 
 #include "rift_format.h"
+#include "rift_rxlog.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -103,6 +104,9 @@ static void drop(struct rift_ipc *c, const char *reason, int64_t now_ms)
         close(c->fd);
         c->fd = -1;
         c->disconnects++;
+    }
+    if (c->subscribed) {
+        rift_rxlog_service_lost(c->rxlog, now_ms);
     }
     c->subscribed = 0;
     forget_pending(c);
@@ -482,7 +486,7 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     /* Subscribe first, so nothing that happens while the snapshot is being
      * answered is missed: the node list and the events that change it then
      * both come from the same connection, in order. */
-    if (request(c, RIFT_REQ_SUBSCRIBE, NULL, now_ms) != 0) {
+    if (request(c, RIFT_REQ_SUBSCRIBE, rift_rxlog_subscribe_params(c->rxlog), now_ms) != 0) {
         return;
     }
     c->subscribed = 1;
@@ -541,6 +545,15 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         if (rift_rep_apply_event(&c->model->repeater, event->valuestring, data,
                                  rift_mono_ms())) {
             c->revision++;
+            return 0;
+        }
+        /* The receive log's, never the model's: a mesh.rx is a reception,
+         * and the model counts an event it does not know as malformed. */
+        if (strcmp(event->valuestring, "mesh.rx") == 0) {
+            if (c->rxlog) {
+                rift_rxlog_apply(c->rxlog, data, rift_mono_ms(), rift_rxlog_wall_now());
+                c->revision++;
+            }
             return 0;
         }
         /* A malformed event is refused by the model and counted there. It
@@ -736,6 +749,8 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         break;
     }
     case RIFT_REQ_SUBSCRIBE:
+        rift_rxlog_service_answered(c->rxlog, result, rift_mono_ms());
+        break;
     case RIFT_REQ_UNSUBSCRIBE:
     case RIFT_REQ_NONE:
     default:

@@ -970,11 +970,28 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddItemToObject(result, "datagrams", arr);
         st->inbox_answered = 1;
     } else if (strcmp(name, "mesh.subscribe") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+
+        if (st->script->subscribe_log) {
+            FILE *f = fopen(st->script->subscribe_log, "a");
+
+            if (f) {
+                char *text = params ? cJSON_PrintUnformatted(params) : NULL;
+
+                fprintf(f, "%s\n", text ? text : "{}");
+                free(text);
+                fclose(f);
+            }
+        }
         pocketipc_client_set_subscribed(c, true);
         st->subscribed = 1;
         st->subscribe_ms = now_ms();
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "subscribed", 1);
+        if (st->script->rx_log) {
+            cJSON_AddBoolToObject(result, "rx_log",
+                                  cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "rx_log")));
+        }
     } else if (strcmp(name, "mesh.unsubscribe") == 0) {
         pocketipc_client_set_subscribed(c, false);
         result = cJSON_CreateObject();

@@ -22,6 +22,7 @@
 #include "rift_mapview.h"
 #include "rift_nodes.h"
 #include "rift_repeater_view.h"
+#include "rift_rxlog_view.h"
 #include "rift_sound.h"
 #include "rift_system.h"
 
@@ -265,87 +266,6 @@ static void paint_cmdline(struct rift_app *a)
  * Doors's, so they come here (handoff §2). Portrait has no room for either
  * beside four section names, and a caption clipped to its tail is worse than
  * none; the touch actions there say what they do. */
-/* ---- sections -------------------------------------------------------------- */
-
-enum rift_section rift_tab_of(enum rift_section section)
-{
-    return section == RIFT_SEC_NET        ? RIFT_SEC_NODES
-           : section == RIFT_SEC_REPEATER ? RIFT_SEC_ACTIVITY
-                                          : section;
-}
-
-static void show_only(struct rift_app *a, lv_obj_t *keep)
-{
-    uint32_t n = lv_obj_get_child_count(a->content);
-    uint32_t i;
-
-    for (i = 0; i < n; i++) {
-        lv_obj_t *child = lv_obj_get_child(a->content, (int32_t)i);
-
-        if (child == keep) {
-            lv_obj_remove_flag(child, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(child, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-
-void rift_app_show_section(struct rift_app *a, enum rift_section section)
-{
-    if (!a || section < 0 || section >= RIFT_SEC_COUNT) {
-        return;
-    }
-    a->section = section;
-    if (section != RIFT_SEC_COMMS) {
-        /* The composer is COMMS': the keys go back to the list's sink, from
-         * the timer (this may be running inside the field's own key event). */
-        a->focus_composer_pending = 0;
-        if (a->composer_focused) {
-            a->focus_list_pending = 1;
-        }
-    } else if (a->have_conv) {
-        a->focus_composer_pending = 1;
-    }
-    if (section != RIFT_SEC_NODES) {
-        a->detail_open = 0;
-        /* Leaving NODES is a Cancel for any confirmation left up there. */
-        rift_nodes_cancel_confirm(a);
-    }
-    if (section != RIFT_SEC_SYSTEM) {
-        /* And leaving SYSTEM for what is open there - a form, a LEAVE, path
-         * hash or CLOSE RIFT confirmation, a key shown for sharing. */
-        rift_system_cancel(a);
-    }
-    if (section != RIFT_SEC_REPEATER) {
-        rift_repeater_view_cancel(a); /* a command confirmation, the fields */
-    }
-    rift_tabs_paint(a);
-    switch (section) {
-    case RIFT_SEC_ACTIVITY:
-        show_only(a, a->activity_root);
-        break;
-    case RIFT_SEC_NODES:
-        show_only(a, a->nodes_root);
-        break;
-    case RIFT_SEC_COMMS:
-        show_only(a, a->comms_root);
-        break;
-    case RIFT_SEC_SYSTEM:
-        show_only(a, a->system_root);
-        break;
-    case RIFT_SEC_MAP:
-        show_only(a, a->map_root);
-        break;
-    case RIFT_SEC_REPEATER:
-        show_only(a, a->repeater_root);
-        break;
-    default:
-        show_only(a, a->net_root);
-        break;
-    }
-    rift_app_refresh(a);
-}
-
 void rift_app_open_conversation(struct rift_app *a, const char *key)
 {
     if (!a || !key || !key[0]) {
@@ -434,6 +354,8 @@ void rift_app_refresh(struct rift_app *a)
         rift_map_view_refresh(a);
     } else if (a->section == RIFT_SEC_REPEATER) {
         rift_repeater_view_refresh(a);
+    } else if (a->section == RIFT_SEC_RXLOG) {
+        rift_rxlog_view_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
     rift_tabs_paint(a);
@@ -454,6 +376,9 @@ static void on_key(lv_event_t *e)
         return;
     }
     if (rift_repeater_key(a, key)) { /* ACTIVITY's repeater rows, a repeater's page */
+        return;
+    }
+    if (rift_rxlog_view_key(a, key)) {
         return;
     }
     /* Esc goes one step up: NET to the node list it lives under, any other
@@ -571,6 +496,7 @@ static void layout(struct rift_app *a)
     rift_nodes_shape(a);
     rift_comms_shape(a);
     rift_net_view_shape(a);
+    rift_rxlog_view_shape(a);
     rift_system_shape(a);
     rift_map_view_shape(a);
     rift_repeater_view_shape(a);
@@ -697,6 +623,7 @@ static void *rift_create(lv_obj_t *root)
     a->map_root = rift_map_view_create(a, a->content);
     a->system_root = rift_system_create(a, a->content);
     a->repeater_root = rift_repeater_view_create(a, a->content);
+    a->rxlog_root = rift_rxlog_view_create(a, a->content);
     build_cmdline(a);
     /* The sink was made first (build_keysink); it goes last among the
      * frame's children, where it has always been. */
@@ -812,6 +739,7 @@ static void rift_destroy(void *priv)
     rift_system_destroy(a);
     rift_map_view_destroy(a);
     rift_repeater_view_destroy(a);
+    rift_rxlog_view_destroy(a);
     rift_activity_destroy(a);
     /* A repeater session ends when RIFT is left (rift_ipc_repeater_leave). */
     rift_ipc_repeater_leave(&a->ipc);
@@ -859,6 +787,9 @@ static int rift_back(void *priv)
     }
     if (a->section == RIFT_SEC_NET) {
         rift_app_show_section(a, RIFT_SEC_NODES);
+        return 1;
+    }
+    if (a->section == RIFT_SEC_RXLOG && rift_rxlog_view_back(a)) {
         return 1;
     }
     if (a->section != RIFT_SEC_ACTIVITY) {

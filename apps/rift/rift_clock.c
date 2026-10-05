@@ -11,6 +11,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "rift_model.h"
+#include "rift_rxlog.h"
 
 #include <time.h>
 
@@ -19,5 +20,15 @@ int64_t rift_mono_ms(void)
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* The wall clock, for RX LOG's times of day only: everything else in RIFT
+ * is an age on the monotonic clock above. */
+int64_t rift_rxlog_wall_now(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
