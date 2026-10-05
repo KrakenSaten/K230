@@ -187,6 +187,16 @@ static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
     }
     v->graph = rift_traffic_graph_create(panel);
     lv_obj_set_style_margin_bottom(v->graph, 6, 0);
+    /* The packet inspector behind this feed (ui/rift_rxlog_view.h): every
+     * reception, repeats included, which this summary is not. Under the
+     * graph, where it is in view in landscape too; R opens it from the keys. */
+    {
+        lv_obj_t *actions = dense(panel, 12);
+
+        lv_obj_set_height(actions, RIFT_TOUCH_H);
+        lv_obj_set_style_margin_bottom(actions, 6, 0);
+        v->rxlog = rift_action(actions, "RX LOG", 0, 1, on_rxlog, v->app);
+    }
 
     for (i = 0; i < FEED_ROWS; i++) {
         struct feed_row *r = &v->feed[i];
@@ -198,16 +208,6 @@ static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
         lv_obj_set_flex_grow(r->detail, 1);
     }
     v->feed_note = wrapping(panel, POS_STYLE_TEXT_MUTED);
-    /* The packet inspector behind this feed (ui/rift_rxlog_view.h): every
-     * reception, repeats included, which this summary is not. R opens it
-     * from the keys. */
-    {
-        lv_obj_t *actions = dense(panel, 12);
-
-        lv_obj_set_height(actions, RIFT_TOUCH_H);
-        lv_obj_set_style_margin_top(actions, 8, 0);
-        v->rxlog = rift_action(actions, "RX LOG", 0, 1, on_rxlog, v->app);
-    }
 }
 
 lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
