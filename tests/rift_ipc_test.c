@@ -17,6 +17,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "rift_ipc.h"
+#include "rift_rxlog.h"
 
 #include "fake_meshcored.h"
 #include "rift_format.h"
@@ -740,6 +741,158 @@ static int64_t now_ms(void)
 
 /* Poll the client the way the app's timer does, until `done` or the budget
  * runs out. Returns the milliseconds spent. */
+/* ---- the receive log --------------------------------------------------- */
+
+static struct rift_rxlog *g_rxlog;
+
+static int rx_two(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->fd >= 0 && g_rxlog->count >= 2 && g_rxlog->supported >= 0;
+}
+
+static int rx_answered(const struct rift_ipc *c, const struct rift_model *m)
+{
+    return opening_answered(c, m) && c->events_in >= 3;
+}
+
+/* How many entries of a kind the log holds, and how many marks say note. */
+static int rx_kinds(const struct rift_rxlog *log, int kind, const char *note)
+{
+    int n = 0;
+    int i;
+
+    for (i = 0; i < log->count; i++) {
+        const struct rift_rx_entry *e = rift_rxlog_at(log, i);
+
+        if (e->kind == kind && (!note || strstr(e->text, note) != NULL)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static int rx_back(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->connects >= 2 && c->fd >= 0 && rx_kinds(g_rxlog, RIFT_RX_FRAME, NULL) >= 4 &&
+           rx_kinds(g_rxlog, RIFT_RX_MARK, "AGAIN") >= 1;
+}
+
+/* mesh.rx reaches RX LOG's ring and nothing else; it is asked for by name
+ * and only by a client that has a ring; an older service is told apart; and
+ * a service that goes away and comes back leaves a gap the log shows. */
+static void test_rx_log(const char *runtime)
+{
+    static struct rift_rxlog log;
+    static const char *const events[] = { "mesh.rx|{\"v\":1,\"seq\":1,\"mono_ms\":-200,\"bytes\":42,\"rssi_dbm\":-71,\"snr_db\":9,\"verdict\":\"new\",\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":2,\"path_hex\":\"6e67\",\"hash\":\"3c9a000000000001\",\"dup\":1,\"relayed\":false,\"own\":false,\"channel_hash\":\"a7\",\"channel_known\":true,\"decoded\":\"channel\",\"channel_name\":\"Public\",\"sender\":\"Anna\",\"text\":\"hei\"}", "mesh.rx|{\"v\":1,\"seq\":2,\"mono_ms\":-85,\"bytes\":42,\"rssi_dbm\":-76,\"snr_db\":7,\"verdict\":\"duplicate\",\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":0,\"hash\":\"3c9a000000000001\",\"dup\":2,\"relayed\":false,\"own\":false,\"channel_hash\":\"a7\",\"channel_known\":true}", "mesh.rx|{\"v\":1,\"seq\":3,\"mono_ms\":-1,\"bytes\":999,\"verdict\":\"new\"}", NULL };
+    struct fake_meshcored_script script;
+    struct rift_model m;
+    struct rift_ipc c;
+    char subs[600];
+    pid_t pid;
+    int matched = 0;
+
+    snprintf(subs, sizeof(subs), "%s/subscribes", runtime);
+    unlink(subs);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.events = events;
+    script.rx_log = 1;
+    script.subscribe_log = subs;
+    script.serve_clients = 1;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service with a receive log is up", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+
+    rift_rxlog_init(&log);
+    g_rxlog = &log;
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    c.rxlog = &log;
+    spin(&c, WAIT_MS, rx_two, &m);
+    spin(&c, 300, NULL, &m);
+    {
+        const char *want[] = { "{\"rx_log\":true}" };
+
+        check("the subscription asked for the receive log",
+              log_lines(subs, want, 1, &matched) == 1 && matched);
+    }
+    check("and the service said it keeps one", log.supported == 1);
+    check("both receptions are in the log", log.count == 2);
+    check("the repeat as its own entry, with the first copy's text",
+          rift_rxlog_at(&log, 0) && rift_rxlog_at(&log, 0)->dup == 2 &&
+              strcmp(rift_rxlog_at(&log, 0)->text, "hei") == 0);
+    check("the malformed one refused and counted by the log", log.malformed == 1);
+    check("and none of it reached the model as an event it does not know",
+          m.events_malformed == 0);
+
+    fake_meshcored_stop(pid);
+    spin(&c, WAIT_MS, is_down, &m);
+    check("when the service goes, the log says so",
+          rift_rxlog_at(&log, 0) && rift_rxlog_at(&log, 0)->kind == RIFT_RX_MARK &&
+              strstr(rift_rxlog_at(&log, 0)->text, "NOT ANSWERING") != NULL);
+    {
+        struct fake_meshcored_script again = script;
+
+        again.serve_clients = 0;
+        pid = fake_meshcored_spawn(&again);
+        check("the service comes back", fake_meshcored_wait_ready(WAIT_MS));
+        spin(&c, 2 * WAIT_MS, rx_back, &m);
+        spin(&c, 300, NULL, &m);
+        check("the log says that too, once",
+              rx_kinds(&log, RIFT_RX_MARK, "ANSWERING AGAIN") == 1 &&
+                  rx_kinds(&log, RIFT_RX_MARK, "NOT ANSWERING") == 1);
+        check("and receptions flow again", rx_kinds(&log, RIFT_RX_FRAME, NULL) == 4);
+        check("the receive log was asked for again on the new connection",
+              log_lines(subs, NULL, 0, &matched) == 2);
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+    }
+
+    /* An older meshcored: subscribed, and no rx_log in the answer. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("an older service is up", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_rxlog_init(&log);
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    c.rxlog = &log;
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("it is told apart: no receive log there", log.supported == 0);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* A client with no ring: it does not ask, and a mesh.rx is ignored. */
+    unlink(subs);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.events = events;
+    script.rx_log = 1;
+    script.subscribe_log = subs;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("the service is up for a client with no ring",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    spin(&c, WAIT_MS, rx_answered, &m);
+    {
+        const char *want[] = { "{}" };
+
+        check("it subscribes plainly", log_lines(subs, want, 1, &matched) == 1 && matched);
+    }
+    check("and the receptions are not the model's malformed events", m.events_malformed == 0);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+    unlink(subs);
+}
+
 static int spin(struct rift_ipc *c, int budget_ms, int (*done)(const struct rift_ipc *,
                                                                const struct rift_model *),
                 const struct rift_model *m)
@@ -1856,6 +2009,7 @@ int main(void)
     test_node_changes(runtime);
     test_management(runtime);
     test_repeater_control(runtime);
+    test_rx_log(runtime);
     {
         char path[700];
 

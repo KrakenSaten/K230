@@ -139,6 +139,14 @@ struct fake_meshcored_script {
     /* The first command (mesh.remote_cli) ends as meshcored ends one whose
      * answer was lost on the air: outcome "timeout". Later ones answer. */
     int cli_timeout_first;
+
+    /* The receive log (docs/api/mesh.md, "The receive log"). A service that
+     * keeps one answers mesh.subscribe {"rx_log": true} with "rx_log": true;
+     * without this it answers as a meshcored older than the log, with no
+     * rx_log at all. The mesh.rx events themselves are scripted in events. */
+    int rx_log;
+    /* Every mesh.subscribe's params, one to a line, as JSON ("{}" for none). */
+    const char *subscribe_log;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

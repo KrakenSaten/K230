@@ -227,14 +227,15 @@ for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_ac
             ui/rift_widgets.c ui/rift_fit.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
             ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c \
-            ui/rift_system.c rift_map.c ui/rift_mapview.c; do
+            ui/rift_system.c rift_map.c ui/rift_mapview.c \
+            rift_rxlog.c rift_rxlog_fmt.c ui/rift_rxlog_view.c ui/rift_rxlog_input.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
             rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c rift_map.c \
-            rift_emoji_pick.c; do
+            rift_emoji_pick.c rift_rxlog.c rift_rxlog_fmt.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done

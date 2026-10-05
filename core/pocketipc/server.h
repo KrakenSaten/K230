@@ -72,6 +72,19 @@ void pocketipc_server_reply(struct pocketipc_server *s, struct pocketipc_client 
 void pocketipc_server_broadcast(struct pocketipc_server *s, cJSON *msg);
 void pocketipc_client_set_subscribed(struct pocketipc_client *c, bool on);
 bool pocketipc_client_subscribed(const struct pocketipc_client *c);
+/* Topics: events a subscriber has to ask for by name, on top of the
+ * subscription. A service numbers its own topics as bits; a client starts
+ * with none and loses them with its connection. An event sent to a topic
+ * reaches only subscribed clients holding it, so a client that never asked
+ * - an older one that would not know the event - never sees it. */
+void pocketipc_client_set_topics(struct pocketipc_client *c, uint32_t topics);
+uint32_t pocketipc_client_topics(const struct pocketipc_client *c);
+/* msg is consumed; delivered to subscribed clients holding every bit of
+ * topic. */
+void pocketipc_server_broadcast_topic(struct pocketipc_server *s, cJSON *msg, uint32_t topic);
+/* Whether any subscribed client holds topic: a service can skip building an
+ * event nobody will receive. */
+bool pocketipc_server_topic_wanted(const struct pocketipc_server *s, uint32_t topic);
 int pocketipc_client_fd(const struct pocketipc_client *c);
 /* A connection's identity, 1 upwards, never reused while the server lives.
  * The file descriptor is not an identity: the kernel hands the same number

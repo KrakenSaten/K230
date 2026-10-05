@@ -21,5 +21,8 @@ void rift_activity_destroy(struct rift_app *app);
 /* The traffic graph (ui/rift_graph.h), for tests; NULL before the screen
  * exists. */
 lv_obj_t *rift_activity_graph(const struct rift_app *app);
+/* The RX LOG action under the feed, for tests; NULL before the screen
+ * exists. */
+lv_obj_t *rift_activity_rxlog_button(const struct rift_app *app);
 
 #endif

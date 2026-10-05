@@ -46,6 +46,7 @@
 #include "airtime.h"
 #include "mc_port.h"
 #include "mesh_remote.h"
+#include "mesh_rxlog.h"
 #include "mesh_store.h"
 
 /* The sizes this service repeats in its C header must be MeshCore's own. */
@@ -428,9 +429,10 @@ struct OutboxSlot {
 class Node : public BaseChatMesh {
 public:
     Node(mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc,
-         mesh::PacketManager& mgr, mesh::MeshTables& tables, RadiodRadio& adapter,
+         mesh::PacketManager& mgr, SimpleMeshTables& tables, RadiodRadio& adapter,
          const mcd_runtime_hooks& hooks)
         : BaseChatMesh(radio, ms, rng, rtc, mgr, tables), _adapter(adapter), _hooks(hooks),
+          _seen_tables(tables),
           _dirty(false), _channels_dirty(false), _msg_count(0), _msg_head(0),
           _chan_count(0), _chan_head(0), _next_msg_id(1),
           _path_refused(0), _unparsed(0), _rx_logged(0), _unretained(0),
@@ -502,6 +504,28 @@ public:
          * frees the packet and says nothing. */
         if (handed > _rx_logged) {
             _unparsed = handed - _rx_logged;
+        }
+    }
+
+    /* The receive log's two points outside the dispatcher: a raw frame it
+     * took off the air and never parsed (after the loop's turn), and one the
+     * receive queue turned away before the dispatcher saw it. */
+    void flushRxRaw()
+    {
+        mcd_rx_obs obs;
+
+        if (_hooks.on_rx_obs && _rxlog.takeRaw(obs)) {
+            _hooks.on_rx_obs(_hooks.user, &obs);
+        }
+    }
+    void observeTurnedAway(const uint8_t* bytes, int len, const mcd_rx_meta& meta,
+                           enum mcd_rx_reject why)
+    {
+        mcd_rx_obs obs;
+
+        if (_hooks.on_rx_obs) {
+            _rxlog.rejected(bytes, len, meta, why, obs);
+            _hooks.on_rx_obs(_hooks.user, &obs);
         }
     }
 
@@ -1397,10 +1421,60 @@ protected:
     {
         _rx_logged++;
         frameFor(packet, len);
+        observeRx(packet, len);
     }
-    void logTx(mesh::Packet*, int len) override
+    void logTx(mesh::Packet* packet, int len) override
     {
         mcport::logWrite(mcport::LOG_DEBUG, "meshcore: tx %d bytes", len);
+        if (_hooks.on_rx_obs && packet) {
+            _rxlog.noteOwn(packet);
+        }
+    }
+
+    /* ---- the receive log (mesh_runtime.h, mesh_rxlog.h) ----
+     *
+     * Three observation points, none of which changes what MeshCore does:
+     * the raw bytes (logRxRaw), the parsed packet (logRx, just above), and
+     * MeshCore's handler (onRecvPacket, wrapped). The dispatcher calls the
+     * first two in that order inside one checkRecv(), before the handler
+     * has seen the packet - so before its seen-table, before a flood waits
+     * out its receive delay, and before a relay rewrites the path. */
+    void logRxRaw(float, float, const uint8_t raw[], int len) override
+    {
+        mcd_rx_meta meta;
+
+        if (!_hooks.on_rx_obs) {
+            return;
+        }
+        if (!_adapter.currentMeta(meta)) {
+            memset(&meta, 0, sizeof(meta));
+            meta.mono_ms = mcport::monotonicMillis();
+        }
+        /* An empty pool means the dispatcher will not even try to parse
+         * these bytes (Dispatcher::checkRecv, allocNew). */
+        _rxlog.noteRaw(len, len > 0, len > 0 ? raw[0] : 0, _mgr->getFreeCount() == 0, meta);
+    }
+
+    /* MeshCore's handler, unchanged: the wrapper only reads what changed
+     * around the call - its seen-table's duplicate counters, the message
+     * ids, the action it returned - and reports. A packet with no
+     * observation held (the log is off) goes straight through. */
+    mesh::DispatcherAction onRecvPacket(mesh::Packet* pkt) override
+    {
+        mcd_rx_obs obs;
+
+        if (!_hooks.on_rx_obs || !_rxlog.take(pkt, obs)) {
+            return BaseChatMesh::onRecvPacket(pkt);
+        }
+        uint64_t dups = seenDuplicates();
+        uint64_t next_id = _next_msg_id;
+        mesh::DispatcherAction action = BaseChatMesh::onRecvPacket(pkt);
+
+        obs.verdict = seenDuplicates() != dups ? MCD_RX_DUPLICATE : MCD_RX_NEW;
+        obs.relayed = action != ACTION_RELEASE;
+        describeDecoded(obs, pkt, next_id);
+        _hooks.on_rx_obs(_hooks.user, &obs);
+        return action;
     }
     void logTxFail(mesh::Packet*, int len) override
     {
@@ -1707,6 +1781,95 @@ private:
         }
     }
 
+    void observeRx(mesh::Packet* packet, int len)
+    {
+        mcd_rx_obs obs;
+        mcd_rx_obs evicted;
+        mcd_rx_meta meta;
+
+        if (!_hooks.on_rx_obs || !packet) {
+            return;
+        }
+        _rxlog.clearRaw();
+        if (!_adapter.currentMeta(meta)) {
+            memset(&meta, 0, sizeof(meta));
+            meta.mono_ms = mcport::monotonicMillis();
+        }
+        _rxlog.capture(packet, len, meta, obs);
+        if (obs.has_channel_hash) {
+            obs.channel_known = holdsChannelHash(obs.channel_hash);
+        }
+        if (obs.has_dest_hash) {
+            obs.for_us = self_id.isHashMatch(&obs.dest_hash, 1);
+        }
+        if (_rxlog.hold(packet, obs, &evicted)) {
+            _hooks.on_rx_obs(_hooks.user, &evicted);
+        }
+    }
+
+    bool holdsChannelHash(uint8_t hash)
+    {
+        ChannelDetails ch;
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            if (_occupied[i] && getChannel(i, ch) && ch.channel.hash[0] == hash) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    uint64_t seenDuplicates() const
+    {
+        return (uint64_t)_seen_tables.getNumFloodDups() + _seen_tables.getNumDirectDups();
+    }
+
+    /* What MeshCore read of the packet, from what it recorded: a message it
+     * filed while handling this one, or the node table's name for an
+     * advert's key. Nothing is decrypted here. */
+    void describeDecoded(mcd_rx_obs& obs, const mesh::Packet* pkt, uint64_t next_id)
+    {
+        if (_next_msg_id > next_id) {
+            const mcd_message* m = find(_next_msg_id - 1);
+
+            if (m && !m->outgoing) {
+                if (m->is_channel) {
+                    const char* body = m->text;
+                    size_t claimed = strlen(m->sender_name);
+
+                    /* text holds the payload whole; the claimed name and its
+                     * ": " are the prefix (mcd_message.sender_name). */
+                    if (claimed > 0 && strncmp(body, m->sender_name, claimed) == 0 &&
+                        body[claimed] == ':' && body[claimed + 1] == ' ') {
+                        body += claimed + 2;
+                    }
+                    obs.decode = MCD_RX_DECODE_CHANNEL;
+                    snprintf(obs.sender, sizeof(obs.sender), "%s", m->sender_name);
+                    snprintf(obs.channel_name, sizeof(obs.channel_name), "%s", m->channel_name);
+                    snprintf(obs.text, sizeof(obs.text), "%s", body);
+                } else {
+                    obs.decode = MCD_RX_DECODE_DIRECT;
+                    obs.has_sender_key = true;
+                    memcpy(obs.sender_key, m->peer_key, PUB_KEY_SIZE);
+                    snprintf(obs.sender, sizeof(obs.sender), "%s", m->peer_name);
+                    snprintf(obs.recipient, sizeof(obs.recipient), "%s", _name);
+                    snprintf(obs.text, sizeof(obs.text), "%s", m->text);
+                }
+                return;
+            }
+        }
+        if (obs.payload_type == PAYLOAD_TYPE_ADVERT && pkt->payload_len >= PUB_KEY_SIZE) {
+            ContactInfo* c = lookupContactByPubKey(pkt->payload, PUB_KEY_SIZE);
+
+            if (c && c->name[0]) {
+                obs.decode = MCD_RX_DECODE_ADVERT;
+                obs.has_sender_key = true;
+                memcpy(obs.sender_key, c->id.pub_key, PUB_KEY_SIZE);
+                snprintf(obs.sender, sizeof(obs.sender), "%s", c->name);
+            }
+        }
+    }
+
     void frameFor(mesh::Packet* packet, int len)
     {
         static const char* names[16] = {
@@ -1729,6 +1892,8 @@ private:
 
     RadiodRadio& _adapter;
     mcd_runtime_hooks _hooks;
+    SimpleMeshTables& _seen_tables;  /* read only: its duplicate counters */
+    mcdrx::Log _rxlog;
     bool _dirty;
     bool _channels_dirty;
 
@@ -2229,6 +2394,7 @@ void mcd_runtime_tick(struct mcd_runtime* rt)
 {
     rt->radio.beginTurn();
     rt->node.loop();
+    rt->node.flushRxRaw();
     rt->node.noteHanded(rt->radio.handed());
     /* After the loop, and only once every frame already received has been
      * handed to the protocol core: the daemon hands over one frame a turn,
@@ -2264,7 +2430,17 @@ bool mcd_runtime_rx_pending(const struct mcd_runtime* rt)
 bool mcd_runtime_deliver_rx(struct mcd_runtime* rt, const uint8_t* bytes, int len,
                             const struct mcd_rx_meta* meta)
 {
-    return rt->radio.push(bytes, len, *meta);
+    uint64_t dropped = rt->radio.dropped();
+
+    if (rt->radio.push(bytes, len, *meta)) {
+        return true;
+    }
+    /* Turned away before MeshCore: a full queue (counted as dropped), or a
+     * length no frame can have. Both are receptions the log reports. */
+    rt->node.observeTurnedAway(bytes, len, *meta,
+                               rt->radio.dropped() != dropped ? MCD_RX_REJECT_QUEUE_FULL
+                                                              : MCD_RX_REJECT_UNPARSED);
+    return false;
 }
 
 uint64_t mcd_runtime_rx_dropped(const struct mcd_runtime* rt)

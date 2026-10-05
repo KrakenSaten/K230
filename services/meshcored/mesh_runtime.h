@@ -64,6 +64,108 @@ struct mcd_rx_meta {
     double freq_error_hz;
 };
 
+/* ---- one reception, as the receive log sees it --------------------------
+ *
+ * The receive log (docs/api/mesh.md, "The receive log") reports every frame
+ * this node took off the air, once per reception, duplicates included. It is
+ * observational: it is filled from the dispatcher's own logging hooks and a
+ * wrapper round MeshCore's packet handler, and nothing in it changes what
+ * MeshCore does with the frame - the deduplication, the routing and the
+ * decoding are exactly what they were.
+ *
+ * The packet is read when the dispatcher logs it, which is before MeshCore
+ * has looked at it at all: before its seen-table, before a flood waits out
+ * its receive delay, and before a relay rewrites its path. What MeshCore then
+ * made of it - the verdict, the relay, what it could read - is filled in when
+ * the handler returns, and the observation is reported then. A flood frame
+ * MeshCore holds back for its receive delay is therefore reported up to that
+ * delay late; seq and the receive time are the reception's own.
+ */
+#define MCD_RX_HASH_LEN 8   /* MeshCore's MAX_HASH_SIZE: the packet hash */
+
+enum mcd_rx_verdict {
+    MCD_RX_NEW = 0,       /* MeshCore handled it: it was not in its seen-table */
+    MCD_RX_DUPLICATE,     /* MeshCore's seen-table matched it and it went no further */
+    MCD_RX_REJECTED,      /* it never reached MeshCore's handler (mcd_rx_reject says why) */
+    MCD_RX_UNRESOLVED,    /* parsed, but the log lost track of it before MeshCore was done */
+};
+
+enum mcd_rx_reject {
+    MCD_RX_REJECT_NONE = 0,
+    MCD_RX_REJECT_QUEUE_FULL,  /* the receive queue was full; dropped before MeshCore */
+    MCD_RX_REJECT_UNPARSED,    /* the dispatcher's own parse refused the bytes */
+    MCD_RX_REJECT_NO_BUFFER,   /* the packet pool was empty when it arrived */
+};
+
+/* What MeshCore could read of it. Only what it decoded for its own use is
+ * reported: nothing is decrypted for the log. */
+enum mcd_rx_decode {
+    MCD_RX_DECODE_NONE = 0,    /* nothing read: not for us, no key, a duplicate, or no content */
+    MCD_RX_DECODE_DIRECT,      /* a direct text message to this node */
+    MCD_RX_DECODE_CHANNEL,     /* a text message on a channel this node holds */
+    MCD_RX_DECODE_ADVERT,      /* an advert from a node the table holds */
+};
+
+struct mcd_rx_obs {
+    uint64_t seq;                 /* 1 upwards, per run, in the order frames were received */
+    struct mcd_rx_meta meta;      /* the reception's own time and signal */
+    int bytes;                    /* the frame's length on the air */
+    bool parsed;                  /* false: only bytes, meta, verdict and reject are meaningful */
+    uint8_t header;               /* the raw header byte (also set for an unparsed frame of 1+ byte) */
+    bool header_known;
+    uint8_t payload_type;         /* MeshCore's PAYLOAD_TYPE_*, 0..15 */
+    uint8_t route_type;           /* MeshCore's ROUTE_TYPE_*, 0..3 */
+    uint8_t payload_ver;
+    /* The path as received. For every type but TRACE it is hops of
+     * path_hash_size bytes each: on a flood the relays it came through, first
+     * one first; on a direct packet the hops it still has to take. A TRACE
+     * carries the SNR each hop measured instead (path_is_snr), one byte each,
+     * a quarter dB. */
+    bool path_is_snr;
+    uint8_t path_hash_size;       /* 1..3; 1 for TRACE */
+    uint8_t path_hops;
+    uint8_t path_bytes;
+    uint8_t path[MCD_MAX_PATH];
+    bool hash_known;
+    uint8_t hash[MCD_RX_HASH_LEN];
+    /* The one-byte hashes the payload is addressed with, where its type has
+     * them: a group frame's channel, a peer packet's destination and source,
+     * an advert's sender (the first byte of its key). */
+    bool has_channel_hash;
+    uint8_t channel_hash;
+    bool channel_known;           /* this node holds a channel with that hash */
+    bool has_dest_hash;
+    uint8_t dest_hash;
+    bool for_us;                  /* the destination hash is this node's */
+    bool has_src_hash;
+    uint8_t src_hash;
+    /* A CONTROL payload's first byte: its control type in the high nibble
+     * (0x80 a node-discovery request, 0x90 its response, upstream's
+     * CTL_TYPE_NODE_DISCOVER_*) and its flags in the low one. */
+    bool has_control_flags;
+    uint8_t control_flags;
+    /* This node transmitted this very packet - sent it, or relayed it - and
+     * is hearing it again from somebody who repeated it. */
+    bool own;
+    /* How many times this receive log has seen this packet hash, this one
+     * included, among the last MCD_RX_SEEN_HASHES different hashes: 1 for
+     * the first reception. Counted by the log, not by MeshCore. */
+    uint32_t dup;
+    enum mcd_rx_verdict verdict;
+    enum mcd_rx_reject reject;
+    bool relayed;                 /* MeshCore queued it to be transmitted again */
+    enum mcd_rx_decode decode;
+    char sender[MCD_NODE_NAME_LEN];       /* DIRECT: the contact; CHANNEL: the claimed name; ADVERT: the node */
+    bool has_sender_key;                  /* DIRECT and ADVERT: who, by key (a channel names nobody) */
+    uint8_t sender_key[MCD_PUB_KEY_LEN];
+    char recipient[MCD_NODE_NAME_LEN];    /* DIRECT: this node's name */
+    char channel_name[MCD_CHANNEL_NAME_LEN]; /* CHANNEL: our local name for it */
+    char text[MCD_MAX_TEXT + 1];          /* DIRECT/CHANNEL: the body, without the sender prefix */
+};
+/* The distinct packet hashes the receive log remembers for counting
+ * repeats. MeshCore's own seen-table holds 160. */
+#define MCD_RX_SEEN_HASHES 256
+
 /* ---- how a transmit ended ---------------------------------------------
  *
  * The four outcomes radiod distinguishes, kept apart on purpose. A daemon
@@ -492,6 +594,12 @@ struct mcd_runtime_hooks {
      * s is the session afterwards. May be NULL. */
     void (*on_remote)(void *user, const struct mcd_remote_reply *r,
                       const struct mcd_remote_session *s);
+    /* One reception for the receive log (struct mcd_rx_obs). Appended like
+     * on_app; may be NULL, and when it is the runtime does no receive-log
+     * work at all. Called whether or not anyone is listening, so the repeat
+     * count stays true across a client coming and going; skipping the
+     * report is the daemon's business. */
+    void (*on_rx_obs)(void *user, const struct mcd_rx_obs *o);
 };
 
 struct mcd_runtime_config {

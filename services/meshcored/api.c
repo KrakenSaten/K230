@@ -325,6 +325,159 @@ cJSON *mcd_event_app(const struct mcd_app_datagram *dg)
     return pocketipc_event("mesh.app", data);
 }
 
+/* ---- the receive log (docs/api/mesh.md, "The receive log") ---------------- */
+
+/* MeshCore's PAYLOAD_TYPE_* words, the same ones mesh.activity uses
+ * (mesh_runtime.cpp frameFor), so the two feeds name a type alike. */
+static const char *const rx_type_word[16] = {
+    "req", "response", "text", "ack", "advert", "group_text", "group_data", "anon_req",
+    "path", "trace", "multipart", "control", "type12", "type13", "type14", "raw_custom"
+};
+
+static const char *rx_route_word(uint8_t route)
+{
+    switch (route & 0x03) {
+    case 0:
+        return "transport_flood";
+    case 1:
+        return "flood";
+    case 2:
+        return "direct";
+    default:
+        return "transport_direct";
+    }
+}
+
+static const char *rx_verdict_word(enum mcd_rx_verdict v)
+{
+    switch (v) {
+    case MCD_RX_NEW:
+        return "new";
+    case MCD_RX_DUPLICATE:
+        return "duplicate";
+    case MCD_RX_REJECTED:
+        return "rejected";
+    case MCD_RX_UNRESOLVED:
+    default:
+        return "unresolved";
+    }
+}
+
+static const char *rx_reject_word(enum mcd_rx_reject r)
+{
+    switch (r) {
+    case MCD_RX_REJECT_QUEUE_FULL:
+        return "queue_full";
+    case MCD_RX_REJECT_UNPARSED:
+        return "unparsed";
+    case MCD_RX_REJECT_NO_BUFFER:
+        return "no_buffer";
+    case MCD_RX_REJECT_NONE:
+    default:
+        return NULL;
+    }
+}
+
+static void add_hash_byte(cJSON *o, const char *field, uint8_t b)
+{
+    char hex[3];
+
+    if (mcd_hex_encode(&b, 1, hex, sizeof(hex))) {
+        cJSON_AddStringToObject(o, field, hex);
+    }
+}
+
+/* One reception, everything the runtime observed and nothing it did not:
+ * a field is absent when the frame did not carry it. Remote text - the
+ * names and the body - goes through the sanitiser like every other. */
+cJSON *mcd_event_rx(const struct mcd_rx_obs *o)
+{
+    cJSON *data = cJSON_CreateObject();
+    const char *reject = rx_reject_word(o->reject);
+
+    cJSON_AddNumberToObject(data, "v", 1);
+    cJSON_AddNumberToObject(data, "seq", (double)o->seq);
+    cJSON_AddNumberToObject(data, "mono_ms", (double)o->meta.mono_ms);
+    cJSON_AddNumberToObject(data, "bytes", (double)o->bytes);
+    if (o->meta.rssi_known) {
+        cJSON_AddNumberToObject(data, "rssi_dbm", o->meta.rssi_dbm);
+    }
+    if (o->meta.snr_known) {
+        cJSON_AddNumberToObject(data, "snr_db", o->meta.snr_db);
+    }
+    cJSON_AddStringToObject(data, "verdict", rx_verdict_word(o->verdict));
+    if (reject) {
+        cJSON_AddStringToObject(data, "reject", reject);
+    }
+    if (o->header_known) {
+        cJSON_AddNumberToObject(data, "header", (double)o->header);
+        cJSON_AddStringToObject(data, "type", rx_type_word[o->payload_type & 0x0F]);
+        cJSON_AddNumberToObject(data, "type_code", (double)(o->payload_type & 0x0F));
+        cJSON_AddStringToObject(data, "route", rx_route_word(o->route_type));
+    }
+    if (!o->parsed) {
+        return pocketipc_event("mesh.rx", data);
+    }
+    {
+        char path_hex[MCD_MAX_PATH * 2 + 1];
+        char hash_hex[MCD_RX_HASH_LEN * 2 + 1];
+
+        cJSON_AddStringToObject(data, "path_kind", o->path_is_snr ? "snr" : "hops");
+        cJSON_AddNumberToObject(data, "path_hash_size", (double)o->path_hash_size);
+        cJSON_AddNumberToObject(data, "path_hops", (double)o->path_hops);
+        if (o->path_bytes > 0 && mcd_hex_encode(o->path, o->path_bytes, path_hex, sizeof(path_hex))) {
+            cJSON_AddStringToObject(data, "path_hex", path_hex);
+        }
+        if (o->hash_known && mcd_hex_encode(o->hash, MCD_RX_HASH_LEN, hash_hex, sizeof(hash_hex))) {
+            cJSON_AddStringToObject(data, "hash", hash_hex);
+        }
+    }
+    cJSON_AddNumberToObject(data, "dup", (double)o->dup);
+    cJSON_AddBoolToObject(data, "relayed", o->relayed);
+    cJSON_AddBoolToObject(data, "own", o->own);
+    if (o->has_channel_hash) {
+        add_hash_byte(data, "channel_hash", o->channel_hash);
+        cJSON_AddBoolToObject(data, "channel_known", o->channel_known);
+    }
+    if (o->has_dest_hash) {
+        add_hash_byte(data, "dest_hash", o->dest_hash);
+        cJSON_AddBoolToObject(data, "for_us", o->for_us);
+    }
+    if (o->has_src_hash) {
+        add_hash_byte(data, "src_hash", o->src_hash);
+    }
+    if (o->has_control_flags) {
+        cJSON_AddNumberToObject(data, "control_flags", (double)o->control_flags);
+    }
+    if (o->has_sender_key) {
+        add_key(data, "sender_public_key", o->sender_key, MCD_PUB_KEY_LEN);
+    }
+    switch (o->decode) {
+    case MCD_RX_DECODE_DIRECT:
+        cJSON_AddStringToObject(data, "decoded", "direct");
+        add_remote_text(data, "sender", o->sender);
+        add_remote_text(data, "recipient", o->recipient);
+        add_remote_text(data, "text", o->text);
+        break;
+    case MCD_RX_DECODE_CHANNEL:
+        cJSON_AddStringToObject(data, "decoded", "channel");
+        add_remote_text(data, "channel_name", o->channel_name);
+        if (o->sender[0]) {
+            add_remote_text(data, "sender", o->sender);
+        }
+        add_remote_text(data, "text", o->text);
+        break;
+    case MCD_RX_DECODE_ADVERT:
+        cJSON_AddStringToObject(data, "decoded", "advert");
+        add_remote_text(data, "sender", o->sender);
+        break;
+    case MCD_RX_DECODE_NONE:
+    default:
+        break;
+    }
+    return pocketipc_event("mesh.rx", data);
+}
+
 /* ---- methods ------------------------------------------------------------ */
 
 static cJSON *m_info(struct mcd *d)
@@ -1269,11 +1422,21 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
     } else if (strcmp(name, "mesh.app_inbox") == 0) {
         result = m_app_inbox(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.subscribe") == 0) {
+        /* The receive log is asked for by name and by nothing else: a client
+         * that subscribes plainly - every client older than it - never sees
+         * a mesh.rx it would not know. Each subscribe says the whole of what
+         * it wants, so subscribing again without it turns it off. */
+        const cJSON *rx_log = cJSON_GetObjectItemCaseSensitive(params, "rx_log");
+        bool want_rx = cJSON_IsTrue(rx_log);
+
         pocketipc_client_set_subscribed(c, true);
+        pocketipc_client_set_topics(c, want_rx ? MCD_TOPIC_RX_LOG : 0);
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "subscribed", true);
+        cJSON_AddBoolToObject(result, "rx_log", want_rx);
     } else if (strcmp(name, "mesh.unsubscribe") == 0) {
         pocketipc_client_set_subscribed(c, false);
+        pocketipc_client_set_topics(c, 0);
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "subscribed", false);
     } else {

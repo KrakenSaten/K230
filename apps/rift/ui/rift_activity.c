@@ -60,6 +60,7 @@ struct rift_activity_view {
     lv_obj_t *graph;
     lv_obj_t *feed_note;
     struct feed_row feed[FEED_ROWS];
+    lv_obj_t *rxlog; /* the way into RX LOG */
 
     enum pos_style_role state_role;
 };
@@ -155,6 +156,11 @@ static void build_heard(struct rift_activity_view *v, lv_obj_t *parent)
     v->heard_note = wrapping(panel, POS_STYLE_TEXT_MUTED);
 }
 
+static void on_rxlog(lv_event_t *e)
+{
+    rift_app_show_section(lv_event_get_user_data(e), RIFT_SEC_RXLOG);
+}
+
 static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
 {
     lv_obj_t *panel = rift_panel(parent, "MESH ACTIVITY");
@@ -181,6 +187,16 @@ static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
     }
     v->graph = rift_traffic_graph_create(panel);
     lv_obj_set_style_margin_bottom(v->graph, 6, 0);
+    /* The packet inspector behind this feed (ui/rift_rxlog_view.h): every
+     * reception, repeats included, which this summary is not. Under the
+     * graph, where it is in view in landscape too; R opens it from the keys. */
+    {
+        lv_obj_t *actions = dense(panel, 12);
+
+        lv_obj_set_height(actions, RIFT_TOUCH_H);
+        lv_obj_set_style_margin_bottom(actions, 6, 0);
+        v->rxlog = rift_action(actions, "RX LOG", 0, 1, on_rxlog, v->app);
+    }
 
     for (i = 0; i < FEED_ROWS; i++) {
         struct feed_row *r = &v->feed[i];
@@ -554,4 +570,9 @@ void rift_activity_refresh(struct rift_app *app)
 lv_obj_t *rift_activity_graph(const struct rift_app *app)
 {
     return (app && app->activity) ? app->activity->graph : NULL;
+}
+
+lv_obj_t *rift_activity_rxlog_button(const struct rift_app *app)
+{
+    return (app && app->activity) ? app->activity->rxlog : NULL;
 }

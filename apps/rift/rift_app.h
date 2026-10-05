@@ -39,6 +39,7 @@
 #include "rift_ipc.h"
 #include "rift_model.h"
 #include "rift_notify.h"
+#include "rift_rxlog.h"
 #include "rift_store.h"
 #include "rift_widgets.h"
 
@@ -47,7 +48,8 @@
 
 /* The screens. The first RIFT_TAB_COUNT are the strip's tabs, in their
  * order; NET is not a tab of its own but a view under NODES (the NODES tab
- * stays lit on it, and Esc or LIST goes back to the node list). SYSTEM holds
+ * stays lit on it, and Esc or LIST goes back to the node list), and RX LOG
+ * one under ACTIVITY, the same way (ui/rift_rxlog_view.h). SYSTEM holds
  * what manages this node and this app - the name and its adverts, the path
  * hash, the channels, the sounds and CLOSE RIFT - so ACTIVITY is status and
  * traffic only. MAP places the nodes that said where they are. */
@@ -62,12 +64,13 @@ enum rift_section {
      * list (ui/rift_scan.c, ui/rift_repeater_view.c); the ACTIVITY tab stays
      * lit on it, as NODES does on NET. */
     RIFT_SEC_REPEATER,
+    RIFT_SEC_RXLOG,
     RIFT_SEC_COUNT,
 };
 #define RIFT_TAB_COUNT RIFT_SEC_NET
 
 /* The tab a screen is reached from: its own, NODES for NET, ACTIVITY for a
- * repeater's page. */
+ * repeater's page and for RX LOG. */
 enum rift_section rift_tab_of(enum rift_section section);
 
 /* How often the client takes a pass at its socket. Not the shell's
@@ -101,6 +104,7 @@ struct rift_system_view;
 struct rift_map_ui;
 struct rift_scan_view;
 struct rift_repeater_view;
+struct rift_rxlog_view;
 
 /* The app's id in the shell's registry, and the name its session is marked
  * by in the status cluster. */
@@ -217,6 +221,7 @@ struct rift_app {
     struct rift_map_ui *map;
     struct rift_scan_view *scan;
     struct rift_repeater_view *repeater;
+    struct rift_rxlog_view *rxlog_view;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
@@ -224,6 +229,7 @@ struct rift_app {
     lv_obj_t *system_root;
     lv_obj_t *map_root;
     lv_obj_t *repeater_root;
+    lv_obj_t *rxlog_root;
     /* The screen this app listens on for the theme-changed event (the
      * colour-emoji styles follow the text size there, and the frame is
      * repainted); removed on destroy, because the screen outlives the app. */
@@ -255,6 +261,10 @@ struct rift_app {
 
     struct rift_model model;
     struct rift_ipc ipc;
+    /* RX LOG's ring (rift_rxlog.h): the session's, so it goes on filling
+     * while the screen is closed or RIFT is in the background. The client
+     * above writes into it. */
+    struct rift_rxlog rxlog;
 
     /* The reader's own choices (rift_store.h) and the DM sound they govern
      * (rift_notify.h, rift_sound.h). prefs_saved is 0 after a change that

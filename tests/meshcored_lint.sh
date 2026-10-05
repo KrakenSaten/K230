@@ -44,7 +44,7 @@ refuse() { # <label> <regex> [files...]
 
 SRC=services/meshcored
 C_HALF="$SRC/main.c $SRC/api.c $SRC/api_remote.c $SRC/radio_link.c $SRC/tx_map.c $SRC/mcd_util.c $SRC/mcd.h $SRC/tx_map.h $SRC/mcd_util.h $SRC/radio_link.h"
-CXX_HALF="$SRC/mesh_runtime.cpp $SRC/mesh_store.cpp $SRC/mesh_store.h $SRC/mesh_remote.cpp $SRC/mesh_remote.h"
+CXX_HALF="$SRC/mesh_runtime.cpp $SRC/mesh_store.cpp $SRC/mesh_store.h $SRC/mesh_remote.cpp $SRC/mesh_remote.h $SRC/mesh_rxlog.cpp $SRC/mesh_rxlog.h"
 
 check "the service directory exists" "$([ -d "$SRC" ] && echo 1 || echo 0)"
 

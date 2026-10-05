@@ -144,8 +144,13 @@ struct rift_pending {
     enum rift_req what;
 };
 
+struct rift_rxlog;
+
 struct rift_ipc {
     struct rift_model *model;
+    /* RX LOG's ring (rift_rxlog.h), or NULL: then the subscription does not
+     * ask for the receive log and a mesh.rx is never expected. */
+    struct rift_rxlog *rxlog;
     char service[32];
 
     int fd;                       /* -1 when down */
