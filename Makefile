@@ -132,7 +132,7 @@ MESHCORED_C_OBJS := services/meshcored/main.o services/meshcored/api.o \
                     services/meshcored/radio_link.o services/meshcored/tx_map.o \
                     services/meshcored/mcd_util.o services/meshcored/api_remote.o
 MESHCORED_CXX_OBJS := services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
-                      services/meshcored/mesh_remote.o
+                      services/meshcored/mesh_remote.o services/meshcored/mesh_rxlog.o
 # radiod's airtime formula, linked rather than copied: the time-on-air the
 # protocol core budgets with has to be the one the radio will really take.
 MESHCORED_OBJS := $(MESHCORED_C_OBJS) $(MESHCORED_CXX_OBJS) services/radiod/airtime.o \
@@ -2543,7 +2543,7 @@ MESHCORED_SAN := -fsanitize=address,undefined -fno-omit-frame-pointer \
 MESHCORE_LIB_ASAN := $(MESHCORE_DIR)/libmeshcore-asan.a
 MESHCORED_TESTS := tests/meshcored_util_test tests/meshcored_txmap_test \
                    tests/meshcored_store_test tests/meshcored_runtime_test \
-                   tests/meshcored_repeater_test
+                   tests/meshcored_repeater_test tests/meshcored_rxlog_test
 MESHCORED_TESTS_ASAN := $(addsuffix -asan,$(MESHCORED_TESTS))
 
 .PHONY: meshcore-lib-asan
@@ -2572,25 +2572,26 @@ tests/meshcored_store_test: meshcore-lib tests/meshcored_store_test.o tests/mesh
 	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_store_test.o tests/meshcored_store_hooks.o \
 	       $(MESHCORE_LIB) $(LDFLAGS)
 
-tests/meshcored_runtime_test: meshcore-lib tests/meshcored_runtime_test.o \
-                              services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
-                              services/meshcored/mesh_remote.o \
+tests/meshcored_runtime_test: meshcore-lib tests/meshcored_runtime_test.o $(MESHCORED_CXX_OBJS) \
                               services/meshcored/mcd_util.o services/radiod/airtime.o
-	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_runtime_test.o \
-	       services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
-	       services/meshcored/mesh_remote.o \
+	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_runtime_test.o $(MESHCORED_CXX_OBJS) \
+	       services/meshcored/mcd_util.o services/radiod/airtime.o \
+	       $(MESHCORE_LIB) $(LDFLAGS)
+
+# The receive log (mesh_rxlog.h, docs/api/mesh.md "The receive log"): the
+# same two-runtimes-and-an-air arrangement as the runtime suite, kept apart
+# so the observation hook's cases read on their own.
+tests/meshcored_rxlog_test: meshcore-lib tests/meshcored_rxlog_test.o $(MESHCORED_CXX_OBJS) \
+                            services/meshcored/mcd_util.o services/radiod/airtime.o
+	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_rxlog_test.o $(MESHCORED_CXX_OBJS) \
 	       services/meshcored/mcd_util.o services/radiod/airtime.o \
 	       $(MESHCORE_LIB) $(LDFLAGS)
 
 # The repeater session against a test repeater built from upstream's
 # simple_repeater handlers (tests/meshcored_repeater_test.cpp).
-tests/meshcored_repeater_test: meshcore-lib tests/meshcored_repeater_test.o \
-                               services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
-                               services/meshcored/mesh_remote.o \
+tests/meshcored_repeater_test: meshcore-lib tests/meshcored_repeater_test.o $(MESHCORED_CXX_OBJS) \
                                services/meshcored/mcd_util.o services/radiod/airtime.o
-	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_repeater_test.o \
-	       services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
-	       services/meshcored/mesh_remote.o \
+	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_repeater_test.o $(MESHCORED_CXX_OBJS) \
 	       services/meshcored/mcd_util.o services/radiod/airtime.o \
 	       $(MESHCORE_LIB) $(LDFLAGS)
 
@@ -2601,6 +2602,9 @@ tests/meshcored_store_test.o: tests/meshcored_store_test.cpp
 	$(CXX) $(MESHCORED_CXXFLAGS) -DMCD_STORE_TEST_HOOKS=1 -c -o $@ $<
 
 tests/meshcored_runtime_test.o: tests/meshcored_runtime_test.cpp
+	$(CXX) $(MESHCORED_CXXFLAGS) -c -o $@ $<
+
+tests/meshcored_rxlog_test.o: tests/meshcored_rxlog_test.cpp
 	$(CXX) $(MESHCORED_CXXFLAGS) -c -o $@ $<
 
 # The sanitised builds compile from source into their own binaries rather
@@ -2625,27 +2629,32 @@ tests/meshcored_store_test-asan: meshcore-lib-asan tests/meshcored_store_test.cp
 	       tests/meshcored_store_test.cpp services/meshcored/mesh_store.cpp \
 	       $(MESHCORE_LIB_ASAN) $(LDFLAGS)
 
+MESHCORED_CXX_SRCS := $(MESHCORED_CXX_OBJS:.o=.cpp)
+
 tests/meshcored_runtime_test-asan: meshcore-lib-asan tests/meshcored_runtime_test.cpp \
-                                   services/meshcored/mesh_runtime.cpp \
-                                   services/meshcored/mesh_store.cpp \
-                                   services/meshcored/mesh_remote.cpp \
+                                   $(MESHCORED_CXX_SRCS) \
                                    tests/meshcored_airtime_asan.o \
                                    tests/meshcored_util_asan.o
 	$(CXX) $(MESHCORED_CXXFLAGS) $(MESHCORED_SAN) -o $@ \
-	       tests/meshcored_runtime_test.cpp services/meshcored/mesh_runtime.cpp \
-	       services/meshcored/mesh_store.cpp services/meshcored/mesh_remote.cpp \
+	       tests/meshcored_runtime_test.cpp $(MESHCORED_CXX_SRCS) \
 	       tests/meshcored_airtime_asan.o \
 	       tests/meshcored_util_asan.o $(MESHCORE_LIB_ASAN) $(LDFLAGS)
 
 tests/meshcored_repeater_test-asan: meshcore-lib-asan tests/meshcored_repeater_test.cpp \
-                                    services/meshcored/mesh_runtime.cpp \
-                                    services/meshcored/mesh_store.cpp \
-                                    services/meshcored/mesh_remote.cpp \
+                                    $(MESHCORED_CXX_SRCS) \
                                     tests/meshcored_airtime_asan.o \
                                     tests/meshcored_util_asan.o
 	$(CXX) $(MESHCORED_CXXFLAGS) $(MESHCORED_SAN) -o $@ \
-	       tests/meshcored_repeater_test.cpp services/meshcored/mesh_runtime.cpp \
-	       services/meshcored/mesh_store.cpp services/meshcored/mesh_remote.cpp \
+	       tests/meshcored_repeater_test.cpp $(MESHCORED_CXX_SRCS) \
+	       tests/meshcored_airtime_asan.o \
+	       tests/meshcored_util_asan.o $(MESHCORE_LIB_ASAN) $(LDFLAGS)
+
+tests/meshcored_rxlog_test-asan: meshcore-lib-asan tests/meshcored_rxlog_test.cpp \
+                                 $(MESHCORED_CXX_SRCS) \
+                                 tests/meshcored_airtime_asan.o \
+                                 tests/meshcored_util_asan.o
+	$(CXX) $(MESHCORED_CXXFLAGS) $(MESHCORED_SAN) -o $@ \
+	       tests/meshcored_rxlog_test.cpp $(MESHCORED_CXX_SRCS) \
 	       tests/meshcored_airtime_asan.o \
 	       tests/meshcored_util_asan.o $(MESHCORE_LIB_ASAN) $(LDFLAGS)
 
@@ -2661,11 +2670,13 @@ meshcored-test: meshcored $(MESHCORED_TESTS) $(MESHCORED_TESTS_ASAN)
 	./tests/meshcored_store_test
 	./tests/meshcored_runtime_test
 	./tests/meshcored_repeater_test
+	./tests/meshcored_rxlog_test
 	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_util_test-asan
 	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_txmap_test-asan
 	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_store_test-asan
 	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_runtime_test-asan
 	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_repeater_test-asan
+	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_rxlog_test-asan
 	bash tests/meshcored_lint.sh
 	bash tests/meshcored_source_identity_test.sh
 	bash tests/meshcored_service_test.sh
