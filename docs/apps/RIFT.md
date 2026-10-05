@@ -1087,6 +1087,7 @@ the air must not be able to disconnect this app from its own service.
 | `rift_format_msg.c` | the same for messages and requests: states, the one-line caption, the preview, the channel body, what became of an advert or a node change |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
 | `rift_app.c/.h` | the frame, the command line and composer, sections, layout and lifecycle: a screen built over the session on every open, let go of on every leave |
+| `rift_section.c` | which section is showing, the tab it is reached from, and what leaving one cancels (split from `rift_app.c` for the 900-line guard) |
 | `rift_background.c` | the session that outlives the screen (DS §51): the one block, its start, its end, and the screen's half cleared on a leave |
 | `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab; a 64 px row of five visible 56 px faces in both orientations (DS §51.3) |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar, the vertical rule in a tone or an identity accent |
