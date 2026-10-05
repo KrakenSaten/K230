@@ -156,6 +156,8 @@ struct mcd_rx_obs {
     bool relayed;                 /* MeshCore queued it to be transmitted again */
     enum mcd_rx_decode decode;
     char sender[MCD_NODE_NAME_LEN];       /* DIRECT: the contact; CHANNEL: the claimed name; ADVERT: the node */
+    bool has_sender_key;                  /* DIRECT and ADVERT: who, by key (a channel names nobody) */
+    uint8_t sender_key[MCD_PUB_KEY_LEN];
     char recipient[MCD_NODE_NAME_LEN];    /* DIRECT: this node's name */
     char channel_name[MCD_CHANNEL_NAME_LEN]; /* CHANNEL: our local name for it */
     char text[MCD_MAX_TEXT + 1];          /* DIRECT/CHANNEL: the body, without the sender prefix */

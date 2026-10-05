@@ -1849,6 +1849,8 @@ private:
                     snprintf(obs.text, sizeof(obs.text), "%s", body);
                 } else {
                     obs.decode = MCD_RX_DECODE_DIRECT;
+                    obs.has_sender_key = true;
+                    memcpy(obs.sender_key, m->peer_key, PUB_KEY_SIZE);
                     snprintf(obs.sender, sizeof(obs.sender), "%s", m->peer_name);
                     snprintf(obs.recipient, sizeof(obs.recipient), "%s", _name);
                     snprintf(obs.text, sizeof(obs.text), "%s", m->text);
@@ -1861,6 +1863,8 @@ private:
 
             if (c && c->name[0]) {
                 obs.decode = MCD_RX_DECODE_ADVERT;
+                obs.has_sender_key = true;
+                memcpy(obs.sender_key, c->id.pub_key, PUB_KEY_SIZE);
                 snprintf(obs.sender, sizeof(obs.sender), "%s", c->name);
             }
         }

@@ -431,6 +431,7 @@ static void test_channel_message(void)
     check("decoded on the channel", o[0]->decode == MCD_RX_DECODE_CHANNEL &&
                                         strcmp(o[0]->channel_name, "Public") == 0);
     check("from the claimed sender", strcmp(o[0]->sender, "RX-B") == 0);
+    check("which names nobody by key", !o[0]->has_sender_key);
     check("the body, without the prefix, emoji and all", strcmp(o[0]->text, body) == 0);
     check("the repeat is reception 2, a duplicate", o[1]->dup == 2 &&
                                                         o[1]->verdict == MCD_RX_DUPLICATE);
@@ -485,6 +486,13 @@ static void test_direct_message(void)
     check("addressed to this node", o->has_dest_hash && o->for_us && o->has_src_hash);
     check("decoded as a direct message", o->decode == MCD_RX_DECODE_DIRECT);
     check("from B, to A", strcmp(o->sender, "RX-B") == 0 && strcmp(o->recipient, "RX-A") == 0);
+    {
+        uint8_t b_key[MCD_PUB_KEY_LEN];
+
+        mcd_runtime_identity(g_b.rt, b_key, name, sizeof(name));
+        check("and B by its key", o->has_sender_key &&
+                                      memcmp(o->sender_key, b_key, MCD_PUB_KEY_LEN) == 0);
+    }
     check("with its text", strcmp(o->text, "hei A") == 0);
 
     check("C hears the same packet",

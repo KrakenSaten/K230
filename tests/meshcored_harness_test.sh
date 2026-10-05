@@ -726,7 +726,8 @@ if len(seen) == 2:
     ok("on a flood with no relay", r0.get("route") == "flood" and r0.get("path_hops") == 0 and
        "path_hex" not in r0, r0)
     ok("named from the node table", r0.get("decoded") == "advert" and
-       r0.get("sender") == "MESHCORED-A", r0)
+       r0.get("sender") == "MESHCORED-A" and
+       r0.get("sender_public_key") == ident_a["public_key"], r0)
 cb.drain(0.5)
 ok("the plain subscriber was sent none of them",
    not [e for e in cb.events if e.get("event") == "mesh.rx"])

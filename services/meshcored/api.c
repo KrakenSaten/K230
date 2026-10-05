@@ -449,6 +449,9 @@ cJSON *mcd_event_rx(const struct mcd_rx_obs *o)
     if (o->has_control_flags) {
         cJSON_AddNumberToObject(data, "control_flags", (double)o->control_flags);
     }
+    if (o->has_sender_key) {
+        add_key(data, "sender_public_key", o->sender_key, MCD_PUB_KEY_LEN);
+    }
     switch (o->decode) {
     case MCD_RX_DECODE_DIRECT:
         cJSON_AddStringToObject(data, "decoded", "direct");
