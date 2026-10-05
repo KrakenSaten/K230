@@ -813,8 +813,16 @@ Every string a repeater chose goes through the remote-text sanitiser.
 
 ### mesh.subscribe / mesh.unsubscribe
 
-No params. Result: `{"subscribed": true|false}`. Per connection, cleared by
-disconnecting.
+Params: none, or `{"rx_log": true}` to receive the receive log's `mesh.rx`
+events as well (below). Result: `{"subscribed": true|false, "rx_log":
+true|false}`. Per connection, cleared by disconnecting. Each `mesh.subscribe`
+says the whole of what it wants: subscribing again without `rx_log` turns the
+receive log off for that connection.
+
+A meshcored older than the receive log ignores the parameter and answers
+without `rx_log`; a client tells the two apart by its absence. A client that
+subscribes plainly - every client older than the receive log - is never sent
+a `mesh.rx`, so an older client never meets an event it does not know.
 
 ## Events
 
@@ -845,6 +853,57 @@ disconnecting.
 
 A client that treats the arrival of a `kind: "tx"` activity as "a packet went
 out" will be wrong for three of those five results. Read `result`.
+
+## The receive log
+
+`mesh.rx`, sent only to a connection that subscribed with `rx_log` (above):
+one event per frame this node took off the air, **every reception of it**,
+duplicates included. It is the packet inspector's feed (RIFT's RX LOG), not a
+summary: `mesh.activity` stays what it was.
+
+Where it is read (services/meshcored/mesh_rxlog.h): at the MeshCore
+dispatcher's own logging hooks, `logRxRaw` and `logRx`, inside the
+`checkRecv()` that took the frame off the queue - before MeshCore's seen-table
+has looked at it, before a flood waits out its receive delay, and before a
+relay rewrites its path. MeshCore's handler is then wrapped only to read what
+it did. Nothing in the receive log changes what MeshCore deduplicates,
+routes, relays or decodes. A frame MeshCore holds back for its receive delay
+is reported when MeshCore handles it, up to that delay late; `seq` and
+`mono_ms` are the reception's own, so a client puts it back in order.
+
+Fields - absent when the frame did not carry it, never a placeholder value:
+
+| field | meaning |
+|---|---|
+| `v` | `1`. A client refuses any other version rather than guessing. |
+| `seq` | 1 upwards per run, in the order frames were received |
+| `mono_ms` | the reception, CLOCK_MONOTONIC |
+| `bytes` | the frame's length on the air |
+| `rssi_dbm`, `snr_db` | only when radiod measured them |
+| `verdict` | `new` (MeshCore handled it), `duplicate` (MeshCore's seen-table matched it), `rejected` (it never reached MeshCore's handler), `unresolved` (the log lost track of it; not expected while the packet pool holds 32) |
+| `reject` | with `rejected`: `unparsed` (the dispatcher's parse refused it), `queue_full` (the receive queue turned it away), `no_buffer` (the packet pool was empty) |
+| `header`, `type`, `type_code`, `route` | the header byte, MeshCore's PAYLOAD_TYPE_* as the `mesh.activity` word and as its number, and `flood` / `direct` / `transport_flood` / `transport_direct`. Also on a rejected frame of one byte or more. |
+| `path_kind`, `path_hash_size`, `path_hops`, `path_hex` | the path as received, whole: `hops` of `path_hash_size` bytes each (on a flood the relays it came through, first first; on a direct packet the hops it has still to take), or `snr` for a TRACE, one byte per hop in quarter dB. `path_hex` is absent with no hops. |
+| `hash` | MeshCore's packet hash, 8 bytes as 16 hex: the key its seen-table uses, so the copies of one packet share it |
+| `dup` | how many times this log has seen that hash, this reception included, among the last 256 different hashes: 1 for the first. The log's own count, not MeshCore's. |
+| `relayed` | MeshCore queued it to be transmitted again |
+| `own` | this node transmitted this very packet (sent or relayed it) and is hearing it repeated |
+| `channel_hash`, `channel_known` | a group frame's one-byte channel hash, and whether this node holds a channel with it |
+| `dest_hash`, `for_us` | a peer packet's destination hash, and whether it is this node's |
+| `src_hash` | a peer packet's source hash; an advert's first key byte |
+| `control_flags` | a CONTROL packet's first byte (0x80 node-discovery request, 0x90 response) |
+| `decoded` | what MeshCore read for its own use: `direct` (a text message to this node: `sender`, `recipient`, `text`, `sender_public_key`), `channel` (a text on a held channel: `channel_name`, `sender` when the payload claims one, `text` without the name prefix), `advert` (a node the table holds: `sender`, `sender_public_key`). Absent when nothing was read - not for this node, no key, a repeat MeshCore did not read again, or no content. |
+
+Nothing is decrypted for the log: `text` is there only when MeshCore decoded
+the message for itself, exactly as `mesh.message` carries it, and through the
+same sanitiser (Remote text, below). A channel `sender` is a claim, as in a
+channel message.
+
+Cost: every frame is hashed and copied whether anyone is listening or not,
+so the repeat count stays true across a client coming and going; the event
+itself is built only while a connection holds the topic. It is one more frame
+per reception to that connection, under the same backpressure rule as every
+event (docs/api/pocketipc.md).
 
 ## Remote text
 

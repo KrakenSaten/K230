@@ -46,6 +46,14 @@ Event (service to client, only to subscribed clients, no `id`):
 Subscriptions are per connection, set with `<service>.subscribe` and cleared
 with `<service>.unsubscribe` or by disconnecting.
 
+A service may also have topics: events a subscriber asks for by name, on
+top of the subscription (`pocketipc_client_set_topics`,
+`pocketipc_server_broadcast_topic`). A connection starts with none and loses
+them with the connection; an event sent to a topic reaches only subscribed
+connections holding it, so a client that never asked - an older one that
+would not know the event - never receives it. meshcored's receive log is the
+first (docs/api/mesh.md, "The receive log").
+
 ## Backpressure
 
 Service-side client sockets are non-blocking. When a client stops reading
