@@ -194,6 +194,11 @@ static cJSON *message_json(const struct mcd_message *m)
     if (m->ack_known) {
         cJSON_AddNumberToObject(o, "ack_mono_ms", (double)m->ack_mono_ms);
     }
+    /* How many times it has been sent: 1, and one more for each resend. Only
+     * on a message an ACK can come for - nothing else is ever resent. */
+    if (m->outgoing && m->ack_expected) {
+        cJSON_AddNumberToObject(o, "attempts", (double)m->attempt + 1);
+    }
     if (m->snr_known) {
         cJSON_AddNumberToObject(o, "snr_db", m->snr_db);
     }
@@ -915,12 +920,45 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
     const cJSON *jtext = cJSON_GetObjectItemCaseSensitive(params, "text");
     const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
     const cJSON *jchan = cJSON_GetObjectItemCaseSensitive(params, "channel");
+    const cJSON *jresend = cJSON_GetObjectItemCaseSensitive(params, "resend");
     uint64_t msg_id = 0;
     uint32_t est = 0;
     enum mcd_send_result rc;
     int slot = -1;
     int n = 0;
 
+    /* A resend names the message and nothing else: its peer and its text are
+     * the message's own, and a caller that also gave either would be asking
+     * for two different things at once. */
+    if (jresend != NULL) {
+        if (jto != NULL || jchan != NULL || jtext != NULL) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "resend takes a message id and nothing else");
+            return NULL;
+        }
+        if (!cJSON_IsNumber(jresend) || jresend->valuedouble < 1 ||
+            jresend->valuedouble > 9007199254740991.0 ||
+            jresend->valuedouble != (double)(uint64_t)jresend->valuedouble) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "resend must be a message id");
+            return NULL;
+        }
+        msg_id = (uint64_t)jresend->valuedouble;
+        rc = mcd_runtime_resend(d->rt, msg_id, &est);
+        if (rc == MCD_SEND_NOT_RESENDABLE) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen,
+                     "message %llu is not an unacknowledged direct message of this run",
+                     (unsigned long long)msg_id);
+            return NULL;
+        }
+        if (rc == MCD_SEND_NO_CONTACT) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "the node that message went to is no longer held");
+            return NULL;
+        }
+        goto answered;
+    }
     if (jto != NULL && jchan != NULL) {
         *code = POCKETIPC_ERR_INVALID_PARAMS;
         snprintf(err, errlen, "give either to or channel, not both");
@@ -961,6 +999,7 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
     } else {
         rc = mcd_runtime_send_text(d->rt, prefix, (size_t)n, jtext->valuestring, &msg_id, &est);
     }
+answered:
     switch (rc) {
     case MCD_SEND_ACCEPTED_FLOOD:
     case MCD_SEND_ACCEPTED_DIRECT: {
@@ -981,6 +1020,9 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
         } else {
             cJSON_AddNumberToObject(o, "ack_timeout_ms", (double)est);
             cJSON_AddBoolToObject(o, "ack_expected", true);
+        }
+        if (jresend != NULL) {
+            cJSON_AddBoolToObject(o, "resent", true);
         }
         /* Accepted by the protocol core, which is not the same as
          * transmitted: the frame is queued for the dispatcher, goes to

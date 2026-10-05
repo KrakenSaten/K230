@@ -128,6 +128,21 @@ const int CHAN_MSG_RING = 64;
  * never time out either, which is the same fault by another route. */
 const int OUTBOX_SLOTS = 8;
 
+/* How many expected ACKs are remembered after their wait is over.
+ *
+ * A deadline is an estimate (calcFlood/DirectTimeoutMillisFor), and an ACK
+ * can come back after it - a busy mesh, a long flood. Upstream's companion
+ * firmware keeps every expected ACK in a circular table that a timeout does
+ * not clear (examples/companion_radio/MyMesh.cpp, expected_ack_table,
+ * processAck), so a late ACK there still confirms the message; its own UI
+ * then marks a "no ack" line delivered (ui-rift/RiftMsgLog.h, markDelivered).
+ * This keeps the same promise: a message that went no_ack becomes acked when
+ * its ACK arrives late, and so does one that was resent, by an ACK for any of
+ * its attempts. Twice upstream's eight, because each resend leaves one more
+ * attempt behind. Only this run: nothing here survives a restart, so an ACK
+ * for a message of an earlier run matches nothing and is ignored. */
+const int LATE_ACK_SLOTS = 16;
+
 /* ---- the radio --------------------------------------------------------- */
 
 struct RxFrame {
@@ -439,6 +454,8 @@ public:
     {
         memset(_app, 0, sizeof(_app));
         memset(_outbox, 0, sizeof(_outbox));
+        memset(_late, 0, sizeof(_late));
+        _late_next = 0;
         memset(_messages, 0, sizeof(_messages));
         memset(_chan_messages, 0, sizeof(_chan_messages));
         memset(_occupied, 0, sizeof(_occupied));
@@ -614,10 +631,51 @@ public:
             if (due < 0) {
                 return expired;
             }
+            /* Its wait is over; its ACK is still recognised if it comes. */
+            _late[_late_next] = _outbox[due];
+            _late_next = (_late_next + 1) % LATE_ACK_SLOTS;
             _outbox[due].used = false;
             markState(_outbox[due].msg_id, MCD_MSG_NO_ACK);
             expired++;
         }
+    }
+
+    /* Send message `id` again: its text and its timestamp, attempt + 1. The
+     * caller has checked the radio and the outbox; see mcd_runtime_resend. */
+    int resend(uint64_t id, uint32_t& est)
+    {
+        mcd_message* m = find(id);
+        uint32_t expected_ack = 0;
+        int rc;
+
+        /* A message waiting for its ACK is sent_*, and becomes no_ack only
+         * when its slot is let go, so the state alone keeps two attempts of
+         * one message from being in flight. The attempt is one byte on the
+         * air (composeMsgPacket); it does not wrap round to 0. */
+        if (m == NULL || !m->outgoing || m->is_channel || !m->ack_expected ||
+            (m->state != MCD_MSG_NO_ACK && m->state != MCD_MSG_FAILED) || m->attempt == 255) {
+            return -1;
+        }
+        ContactInfo* c = lookupContactByPubKey(m->peer_key, PUB_KEY_SIZE);
+
+        if (c == NULL || c->type == ADV_TYPE_NONE) {
+            return -2;
+        }
+        rc = sendMessage(*c, m->timestamp, (uint8_t)(m->attempt + 1), m->text, expected_ack, est);
+        if (rc == MSG_SEND_FAILED) {
+            return -3;
+        }
+        m->attempt++;
+        m->state = (rc == MSG_SEND_SENT_DIRECT) ? MCD_MSG_SENT_DIRECT : MCD_MSG_SENT_FLOOD;
+        m->ack_known = false;
+        m->ack_mono_ms = 0;
+        {
+            uint64_t now = mcport::monotonicMillis();
+
+            addToOutbox(expected_ack, id, m->peer_key, now, now + est);
+        }
+        emitMessage(id);
+        return rc;
     }
 
     /* ---- contacts --------------------------------------------------------
@@ -1023,19 +1081,44 @@ protected:
         uint32_t crc;
 
         memcpy(&crc, data, 4);
-        for (int i = 0; i < OUTBOX_SLOTS; i++) {
-            OutboxSlot& s = _outbox[i];
+        /* Waiting first, then the ones whose wait is over (LATE_ACK_SLOTS).
+         * Whichever matches, every slot of that message goes - an ACK for any
+         * attempt is delivery of the message - so a second copy of the same
+         * ACK, or an ACK for another attempt of it, matches nothing and
+         * changes nothing. A crc nobody is waiting for is ignored. */
+        for (int pass = 0; pass < 2; pass++) {
+            OutboxSlot* table = pass == 0 ? _outbox : _late;
+            int n = pass == 0 ? OUTBOX_SLOTS : LATE_ACK_SLOTS;
 
-            if (!s.used || s.expected_ack != crc) {
-                continue;
+            for (int i = 0; i < n; i++) {
+                OutboxSlot& s = table[i];
+
+                if (!s.used || s.expected_ack != crc) {
+                    continue;
+                }
+                uint64_t id = s.msg_id;
+                ContactInfo* c = lookupContactByPubKey(s.peer_key, PUB_KEY_SIZE);
+
+                forgetAcks(id);
+                markAcked(id);
+                return c;
             }
-            markAcked(s.msg_id);
-            ContactInfo* c = lookupContactByPubKey(s.peer_key, PUB_KEY_SIZE);
-
-            s.used = false;
-            return c;
         }
         return NULL;
+    }
+
+    void forgetAcks(uint64_t id)
+    {
+        for (int i = 0; i < OUTBOX_SLOTS; i++) {
+            if (_outbox[i].used && _outbox[i].msg_id == id) {
+                _outbox[i].used = false;
+            }
+        }
+        for (int i = 0; i < LATE_ACK_SLOTS; i++) {
+            if (_late[i].used && _late[i].msg_id == id) {
+                _late[i].used = false;
+            }
+        }
     }
 
     void onMessageRecv(const ContactInfo& contact, mesh::Packet*, uint32_t sender_timestamp,
@@ -1413,7 +1496,11 @@ private:
     {
         mcd_message* m = find(id);
 
-        if (m == NULL) {
+        /* Once: a message already delivered is not delivered again, and its
+         * first ACK's time is the one that is kept. processAck already lets go
+         * of every slot of a message it matches, so a second ACK finds none;
+         * this holds even if a later change reaches here another way. */
+        if (m == NULL || m->state == MCD_MSG_ACKED) {
             return;
         }
         m->state = MCD_MSG_ACKED;
@@ -1648,6 +1735,11 @@ private:
     int _key_len[MAX_GROUP_CHANNELS];
 
     OutboxSlot _outbox[OUTBOX_SLOTS];
+    /* Expected ACKs whose wait is over, newest overwriting oldest: see
+     * LATE_ACK_SLOTS. Only `used`, `expected_ack`, `msg_id` and `peer_key`
+     * mean anything here. */
+    OutboxSlot _late[LATE_ACK_SLOTS];
+    int _late_next;
     Telemetry _telemetry[MAX_CONTACTS];
 
     uint64_t _path_refused;
@@ -2488,6 +2580,39 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime* rt, const uint8_t
         if (msg_id) {
             *msg_id = id;
         }
+    }
+    if (est_timeout_ms) {
+        *est_timeout_ms = est;
+    }
+    return (rc == MSG_SEND_SENT_DIRECT) ? MCD_SEND_ACCEPTED_DIRECT : MCD_SEND_ACCEPTED_FLOOD;
+}
+
+enum mcd_send_result mcd_runtime_resend(struct mcd_runtime* rt, uint64_t msg_id,
+                                        uint32_t* est_timeout_ms)
+{
+    uint32_t est = 0;
+    int rc;
+
+    if (!rt->radio.online()) {
+        return MCD_SEND_NO_RADIO;
+    }
+    /* As a first send: anything past its deadline is answered first, which
+     * is also what lets a message that has just run out be resent at once. */
+    if (!rt->radio.pending()) {
+        mcd_runtime_expire_acks(rt, mcport::monotonicMillis());
+    }
+    if (rt->node.outboxFull()) {
+        return MCD_SEND_BUSY;
+    }
+    rc = rt->node.resend(msg_id, est);
+    if (rc == -1) {
+        return MCD_SEND_NOT_RESENDABLE;
+    }
+    if (rc == -2) {
+        return MCD_SEND_NO_CONTACT;
+    }
+    if (rc < 0) {
+        return MCD_SEND_FAILED;
     }
     if (est_timeout_ms) {
         *est_timeout_ms = est;

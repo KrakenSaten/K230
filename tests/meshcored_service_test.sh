@@ -625,6 +625,25 @@ one = [x for x in msgs["messages"] if x["id"] == msg_id][0]
 ok("recorded as outgoing", one["direction"] == "out")
 ok("with the text", one["text"] == "hello over the mock air")
 ok("and a state that is not 'acknowledged'", one["state"] != "acked", one["state"])
+ok("sent once so far", one.get("attempts") == 1, one)
+
+# A resend names the message and nothing else, and only one that went
+# unacknowledged. This one is still waiting for its ACK.
+e = m.error("mesh.send", {"resend": msg_id})
+ok("a message still waiting for its ACK is not resent", e["code"] == 2, e)
+e = m.error("mesh.send", {"resend": msg_id, "text": "other words"})
+ok("a resend with text of its own is refused", e["code"] == 2, e)
+e = m.error("mesh.send", {"resend": msg_id, "to": peer_key[:4]})
+ok("a resend with a recipient of its own is refused", e["code"] == 2, e)
+e = m.error("mesh.send", {"resend": "1"})
+ok("a resend id that is not a number is refused", e["code"] == 2, e)
+e = m.error("mesh.send", {"resend": 1.5})
+ok("nor one that is not a whole number", e["code"] == 2, e)
+e = m.error("mesh.send", {"resend": 987654})
+ok("nor one that names no message", e["code"] == 2, e)
+msgs = m.result("mesh.messages")
+ok("and none of them added a message",
+   sum(1 for x in msgs["messages"] if x["text"] == "hello over the mock air") == 1)
 
 # A zero-hop advert: the same signed advert, heard in direct range and
 # repeated by nobody. Asked for with a boolean and nothing else.

@@ -2831,6 +2831,265 @@ static int stateOf(mcd_runtime* rt, uint64_t id)
     return -1;
 }
 
+/* The whole message as the runtime holds it. */
+static bool messageOf(mcd_runtime* rt, uint64_t id, struct mcd_message& out)
+{
+    int n = mcd_runtime_message_count(rt);
+
+    for (int i = 0; i < n; i++) {
+        if (mcd_runtime_message_at(rt, i, &out) && out.id == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The air carried by hand for a while: everything is delivered as usual
+ * except what `held_from` transmits, which is kept in held[] - an ACK that is
+ * on its way and has not arrived yet. */
+struct Held {
+    Frame f[16];
+    int n;
+};
+
+static void carryHolding(Air& air, int held_from, Held& held, int steps)
+{
+    struct mcd_rx_meta meta;
+
+    for (int step = 0; step < steps; step++) {
+        for (int i = 0; i < air.count; i++) {
+            mcd_runtime_tick(air.nodes[i]->rt);
+        }
+        int n = air.qn;
+
+        air.qn = 0;
+        for (int q = 0; q < n; q++) {
+            Frame& f = air.queue[q];
+
+            if (f.from == held_from) {
+                if (held.n < 16) {
+                    held.f[held.n++] = f;
+                }
+            } else {
+                defaultMeta(meta);
+                for (int i = 0; i < air.count; i++) {
+                    if (i != f.from) {
+                        mcd_runtime_deliver_rx(air.nodes[i]->rt, f.bytes, f.len, &meta);
+                    }
+                }
+            }
+            mcd_runtime_tx_done(air.nodes[f.from]->rt, f.submit_id, MCD_TX_OK);
+        }
+        usleep(10000);
+    }
+}
+
+/* What was held arrives now, at one node, and that node handles it. */
+static void arrive(Node& to, Held& held)
+{
+    struct mcd_rx_meta meta;
+
+    for (int i = 0; i < held.n; i++) {
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(to.rt, held.f[i].bytes, held.f[i].len, &meta);
+        for (int k = 0; k < 4 && mcd_runtime_rx_pending(to.rt); k++) {
+            mcd_runtime_tick(to.rt);
+        }
+    }
+    mcd_runtime_tick(to.rt);
+    held.n = 0;
+}
+
+/* Late, duplicate and stale ACKs, and a resend, as upstream defines them.
+ *
+ * A late ACK still delivers (the companion firmware's expected_ack_table is
+ * not cleared by a timeout); a resend is the same text and timestamp with
+ * MeshCore's attempt one higher, which the recipient hashes into a new ACK;
+ * an ACK for any attempt delivers the message, once. a holds a direct route
+ * to c when this runs, and nothing is waiting. */
+static void test_late_ack_and_resend(Node& a, Node& c, Air& air, const uint8_t* c_key)
+{
+    uint64_t id = 0;
+    uint32_t t = 0;
+    Held ack0;
+    Held ack1;
+    struct mcd_message m;
+    int c_heard;
+
+    ack0.n = 0;
+    ack1.n = 0;
+    check("nothing is waiting when the late-ACK test starts", mcd_runtime_acks_waiting(a.rt) == 0);
+
+    /* ---- a late ACK delivers ---- */
+    c_heard = c.message_events;
+    check("M5 goes to C directly",
+          mcd_runtime_send_text(a.rt, c_key, 8, "late answer \xF0\x9F\x91\x8D", &id, &t) ==
+              MCD_SEND_ACCEPTED_DIRECT);
+    carryHolding(air, c.index, ack0, 60);
+    check("C received it and its ACK is on its way", c.message_events > c_heard && ack0.n > 0);
+    check("M5 is one attempt", messageOf(a.rt, id, m) && m.attempt == 0);
+    check("its deadline passes: no ACK",
+          mcd_runtime_expire_acks(a.rt, nowMs() + t + 1) == 1 && stateOf(a.rt, id) == MCD_MSG_NO_ACK);
+    arrive(a, ack0);
+    check("the ACK arrives late and M5 is delivered after all", stateOf(a.rt, id) == MCD_MSG_ACKED);
+    check("with the time it matched", messageOf(a.rt, id, m) && m.ack_known);
+    check("a delivered message is not resent",
+          mcd_runtime_resend(a.rt, id, &t) == MCD_SEND_NOT_RESENDABLE);
+
+    /* ---- a resend: same message, a fresh attempt, a fresh ACK ---- */
+    ack0.n = 0;
+    check("M6 goes to C directly",
+          mcd_runtime_send_text(a.rt, c_key, 8, "try again", &id, &t) == MCD_SEND_ACCEPTED_DIRECT);
+    check("a message still waiting is not resent",
+          mcd_runtime_resend(a.rt, id, &t) == MCD_SEND_NOT_RESENDABLE);
+    carryHolding(air, c.index, ack0, 60);
+    check("its ACK is held back", ack0.n > 0);
+    mcd_runtime_expire_acks(a.rt, nowMs() + t + 1);
+    check("M6 is no ACK", stateOf(a.rt, id) == MCD_MSG_NO_ACK);
+    {
+        int count = mcd_runtime_message_count(a.rt);
+        uint32_t stamp;
+
+        check("M6 is held with its text", messageOf(a.rt, id, m) && strcmp(m.text, "try again") == 0);
+        stamp = m.timestamp;
+        c_heard = c.message_events;
+        check("M6 is resent", mcd_runtime_resend(a.rt, id, &t) == MCD_SEND_ACCEPTED_DIRECT && t > 0);
+        check("as the same message: same id, same text, same timestamp, attempt 1",
+              messageOf(a.rt, id, m) && m.attempt == 1 && strcmp(m.text, "try again") == 0 &&
+                  m.timestamp == stamp && m.state == MCD_MSG_SENT_DIRECT && !m.ack_known);
+        check("and no second message is recorded", mcd_runtime_message_count(a.rt) == count);
+        check("and it waits again", mcd_runtime_acks_waiting(a.rt) == 1);
+        carryHolding(air, c.index, ack1, 60);
+        check("C receives the second attempt with the same text and timestamp",
+              c.message_events > c_heard && strcmp(c.last_msg.text, "try again") == 0 &&
+                  c.last_msg.timestamp == stamp);
+        check("and answers it with an ACK of its own", ack1.n > 0);
+    }
+    arrive(a, ack1);
+    check("the ACK for the second attempt delivers M6",
+          stateOf(a.rt, id) == MCD_MSG_ACKED && mcd_runtime_acks_waiting(a.rt) == 0);
+    {
+        int events = a.message_events;
+
+        arrive(a, ack0);
+        check("and the late ACK for the first attempt changes nothing",
+              stateOf(a.rt, id) == MCD_MSG_ACKED && a.message_events == events);
+    }
+
+    /* ---- an ACK for an earlier attempt delivers a resent message ---- */
+    ack0.n = 0;
+    ack1.n = 0;
+    check("M7 goes to C directly",
+          mcd_runtime_send_text(a.rt, c_key, 8, "either will do", &id, &t) == MCD_SEND_ACCEPTED_DIRECT);
+    carryHolding(air, c.index, ack0, 60);
+    mcd_runtime_expire_acks(a.rt, nowMs() + t + 1);
+    air.deliver = false;
+    check("M7 is resent into an air that carries nothing",
+          mcd_runtime_resend(a.rt, id, &t) == MCD_SEND_ACCEPTED_DIRECT);
+    pump(air, 10);
+    air.deliver = true;
+    arrive(a, ack0);
+    check("the first attempt's late ACK delivers M7 and ends the second's wait",
+          stateOf(a.rt, id) == MCD_MSG_ACKED && mcd_runtime_acks_waiting(a.rt) == 0);
+
+    /* ---- consecutive sends answered out of order ---- */
+    {
+        uint64_t m8 = 0;
+        uint64_t m9 = 0;
+        Held h8;
+        Held h9;
+
+        h8.n = 0;
+        h9.n = 0;
+        check("M8 goes to C",
+              mcd_runtime_send_text(a.rt, c_key, 8, "first", &m8, &t) == MCD_SEND_ACCEPTED_DIRECT);
+        carryHolding(air, c.index, h8, 40);
+        check("M9 goes right after it",
+              mcd_runtime_send_text(a.rt, c_key, 8, "second", &m9, &t) == MCD_SEND_ACCEPTED_DIRECT);
+        carryHolding(air, c.index, h9, 40);
+        check("both are waiting, each for its own ACK",
+              mcd_runtime_acks_waiting(a.rt) == 2 && h8.n > 0 && h9.n > 0);
+        arrive(a, h9);
+        check("M9's ACK delivers M9 and only M9",
+              stateOf(a.rt, m9) == MCD_MSG_ACKED && stateOf(a.rt, m8) == MCD_MSG_SENT_DIRECT);
+        arrive(a, h8);
+        check("M8's ACK delivers M8", stateOf(a.rt, m8) == MCD_MSG_ACKED);
+    }
+
+    /* ---- a duplicate ACK: two ACK packets for one message ----
+     *
+     * Upstream's recipient sends six bytes - the four the sender matches,
+     * the attempt and a random one - so two ACKs for the same message are two
+     * different packets and both pass the seen table; only the first may
+     * count. Built here from the message's own hash, which a positive control
+     * proves right before the duplicate is sent. */
+    {
+        uint8_t a_key[MCD_PUB_KEY_LEN];
+        char nm[MCD_NODE_NAME_LEN];
+        uint8_t temp[5 + MCD_MAX_TEXT];
+        uint8_t ack[6];
+        uint8_t frame[MCD_MAX_FRAME];
+        struct mcd_rx_meta meta;
+        uint64_t m10 = 0;
+        size_t tl;
+        int len;
+
+        air.deliver = false;
+        check("M10 goes to C, into an air that carries nothing",
+              mcd_runtime_send_text(a.rt, c_key, 8, "dup test", &m10, &t) == MCD_SEND_ACCEPTED_DIRECT);
+        pump(air, 10);
+        air.deliver = true;
+        check("M10 is held", messageOf(a.rt, m10, m));
+        mcd_runtime_identity(a.rt, a_key, nm, sizeof(nm));
+        tl = strlen(m.text);
+        memcpy(temp, &m.timestamp, 4);
+        temp[4] = (uint8_t)(m.attempt & 3);
+        memcpy(&temp[5], m.text, tl);
+        mesh::Utils::sha256(ack, 4, temp, (int)(5 + tl), a_key, MCD_PUB_KEY_LEN);
+        ack[4] = 0;
+        ack[5] = 0x11;
+        len = buildFrame(frame, (uint8_t)((PAYLOAD_TYPE_ACK << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD),
+                         ack, (int)sizeof(ack));
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(a.rt, frame, len, &meta);
+        mcd_runtime_tick(a.rt);
+        check("an ACK built from M10's hash delivers it (the control)",
+              stateOf(a.rt, m10) == MCD_MSG_ACKED && messageOf(a.rt, m10, m));
+        {
+            uint64_t first = m.ack_mono_ms;
+            int events = a.message_events;
+
+            usleep(20000);
+            ack[5] = 0x22; /* another packet, the same four bytes */
+            len = buildFrame(frame,
+                             (uint8_t)((PAYLOAD_TYPE_ACK << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD), ack,
+                             (int)sizeof(ack));
+            mcd_runtime_deliver_rx(a.rt, frame, len, &meta);
+            mcd_runtime_tick(a.rt);
+            check("a second ACK packet for it changes nothing",
+                  messageOf(a.rt, m10, m) && m.state == MCD_MSG_ACKED && m.ack_mono_ms == first &&
+                      a.message_events == events);
+        }
+    }
+
+    /* ---- a stale ACK, and a resend of nothing ---- */
+    {
+        uint8_t frame[MCD_MAX_FRAME];
+        uint8_t crc[4] = { 0x13, 0x57, 0x9b, 0xdf };
+        struct mcd_rx_meta meta;
+        int events = a.message_events;
+        int len = buildFrame(frame, (uint8_t)((PAYLOAD_TYPE_ACK << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD),
+                             crc, (int)sizeof(crc));
+
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(a.rt, frame, len, &meta);
+        mcd_runtime_tick(a.rt);
+        check("an ACK nobody is waiting for changes no message", a.message_events == events);
+        check("an id that is not a message is not resent",
+              mcd_runtime_resend(a.rt, 999999, &t) == MCD_SEND_NOT_RESENDABLE);
+    }
+}
+
 /* Every sent message is watched for its ACK against its OWN deadline.
  *
  * MeshCore keeps one timeout for the whole node: each send overwrites it and
@@ -3055,6 +3314,8 @@ static void test_ack_deadlines(Node& a, Node& b, Air& air)
               stateOf(a.rt, m4) == MCD_MSG_ACKED && mcd_runtime_acks_waiting(a.rt) == 0);
         pump(air, 5);
     }
+
+    test_late_ack_and_resend(a, c, air, c_key);
 
     /* ---- forgetting a node ---- */
     {
