@@ -4985,8 +4985,11 @@ Each turn is the dark moment of §21.2 (the display opened again), so opening
 Timber from landscape and leaving it costs two. In Portrait, or in Automatic
 with no keyboard, it costs nothing: there is nothing to turn.
 
-## 54. Amendment AL — RIFT RX LOG: a dense diagnostic list [PROPOSED]
+## 54. Amendment AL — RIFT RX LOG: a dense diagnostic list [ACCEPTED]
 
+**ACCEPTED 2026-10-05** by the owner, after the unit B smoke (real duplicates as
+separate rows, full paths, both ACTIVITY entries) and the merge to master
+(`3c1ff76`, PR #59).
 **Proposed 2026-10-05** on branch `feat/rift-rx-log`, at the owner's request:
 a packet inspector behind RIFT's ACTIVITY that lists every reception,
 duplicates included (docs/apps/RIFT.md, "RX LOG"). It amends §37 (identity
