@@ -31,6 +31,10 @@ int rift_comms_key(struct rift_app *app, uint32_t key);
 int rift_comms_step(struct rift_app *app, int dir);
 /* The portrait composer's field (the thread's), or NULL before it is built. */
 lv_obj_t *rift_comms_field(const struct rift_app *app);
+/* A tap on the portrait composer: bring the shell's touch keyboard up, with
+ * a Done that puts it away again. Nothing in landscape, which has the
+ * keyboard base, nor for a key that reached the field as a click. */
+void rift_comms_keyboard(struct rift_app *app);
 
 /* Send text to the open conversation. Called by the portrait composer's
  * SEND and by the landscape command line's Enter, which are the only two
