@@ -244,6 +244,17 @@ static void on_send(lv_event_t *e)
     rift_comms_submit(t->app, lv_textarea_get_text(t->field));
 }
 
+/* The keyboard's Done. Its Enter has already gone to whatever holds the
+ * focus - the composer, which sends, or the key sink after a section change,
+ * which does nothing - so putting the sheet away is this callback's alone. */
+static void on_keyboard_done(void *user)
+{
+    (void)user;
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+}
+
 static void on_field_clicked(lv_event_t *e)
 {
     struct rift_thread *t = lv_event_get_user_data(e);
@@ -255,7 +266,7 @@ static void on_field_clicked(lv_event_t *e)
         return;
     }
     if (!pocketos_shell_keyboard_visible()) {
-        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, t->app);
+        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, on_keyboard_done, t->app);
     }
 }
 
