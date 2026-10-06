@@ -40,6 +40,8 @@ Background:
 | `compile_kmodel.py` | nncase 2.11.0: int16 activations, uint8 weights, pinned calibration, determinism and simulator checks |
 | `decoder_check/` | runs DOORS' own `vision_decode`/`vision_nms`/labels/traffic on simulator output |
 | `convert.sh` | export + compile + decoder check + `hashes.json` in one step |
+| `eval/eval_mixed.py` | scores a checkpoint on val or the held-out test with a custom mixed COCO / Open Images metric (an Open Images class is scored only where its primary label is human-verified), per class and object size, with an error breakdown and the plain-COCOeval figure beside it |
+| `tests/test_eval_mixed.py` | focused tests of `eval_mixed.py`: the folded-label rule (Van/Taxi/Limousine, Man/Woman/Boy/Girl), size buckets, error split |
 | `eval/compare.sh` | scores a kmodel against YOLOv8n 320 and upstream YOLOX-Tiny 416 on the 2026-10-04 set |
 
 ## Recipe
