@@ -5098,3 +5098,42 @@ then one caption line for a refusal or a state. Entry: in portrait the COMMS
 list header's first word, `CONTACTS ›` in the accent, with the header row as
 the tap target; in landscape, whose 260 px list header has no room, a
 `CONTACTS` button under the list; `C` on the list's keys in both.
+
+## 56. Amendment AN — the power key [PROPOSED]
+
+**Proposed 2026-10-06** on branch `feat/k230-power-key`. Nothing in §1-§55
+is renumbered. Hardware: docs/hardware/K230_BUTTONS.md (SW2 "0", PMU INT0,
+`KEY_POWER`, one press and one release per push, no repeat).
+
+### 56.1 Short press
+
+- Screen on: it goes off, the same black cover as **Screen off after**
+  (§52.4). The lock is not engaged by the key: **Lock after** keeps counting
+  under the cover and brings the lock down when its time comes, as it would
+  have anyway. A lock that is up stays up.
+- Screen off: it wakes. Nothing under it changes; the lock stays as it was.
+- The power menu open: it closes, as Cancel.
+- An alarm ringing: nothing. The alarm is stopped on its own panel (§18).
+- A screen put out with the key while Video, Camera, Vision or DeskBuddy is
+  in front stays out; a hold that starts afterwards, or an alarm, wakes it.
+
+### 56.2 Hold (about one second)
+
+The power menu opens while the key is still held, once per hold; letting go
+afterwards does nothing. Held while dark, the screen wakes first. The menu
+is a §17.5 panel, centred on the top layer over whatever is on screen - an
+app, the launcher, the lock - on a 70 % scrim of the screen colour: the
+title **Power**, the line "Holding the power key for 5 seconds powers off."
+in `text_secondary`, then three 56 px buttons in one column, 8 apart:
+**Cancel** (accented, first), **Restart** and **Power off** (secondary).
+Restart and Power off call sysd's `system.reboot` and `system.poweroff`, the
+methods System's OVERVIEW uses; a refusal is shown under the buttons in the
+error colour and the menu stays. A tap outside the panel, a short press or
+the screen going dark is Cancel. The menu neither opens nor needs the lock:
+the lock is no security (§31.4), and the kernel powers off from under it.
+
+### 56.3 What the shell does not do
+
+The kernel's own 5 s hold (`orderly_poweroff`) is untouched. The shell does
+not see it coming, cannot cancel it and does not say it can. RESET and the
+BOOT0 button are not read.

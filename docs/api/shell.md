@@ -135,7 +135,14 @@ developer tooling, not for applications.
   timer runs then), `idle_ms` since the last touch, key or acting request,
   `screen_offs` since start. Screen off is a black cover; the touch or key
   that wakes it does nothing else. `pos call shell shell.power
-  screen_off_s=60`.
+  screen_off_s=60`. `key` (the board's power key, DS §56,
+  ui/shell/shell_power_key.h): `{enabled, connected, device, state:
+  "up"|"down"|"long"|"swallow", long_ms, shorts, longs, ignored, lost,
+  opens, losses, menu, menu_opens, menu_note}` - `device` the evdev node in
+  use (found by KEY_POWER, or `POCKETOS_POWER_KEY_DEVICE`; `none` turns the
+  key off), `ignored` repeats and unpaired events, `lost` presses ended by
+  lost input, `losses` times the device went away, `menu` whether the power
+  menu is open and `menu_note` the line under its buttons.
 
 - `shell.timezone` params `{zone?}` (DS §52.7, ui/shell/tz_zones.h): reads,
   or with `zone` (an IANA name from the list Settings offers) sets, the time

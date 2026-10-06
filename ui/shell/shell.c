@@ -44,6 +44,8 @@
 #include "shell_kbd.h"
 #include "shell_overlay.h"
 #include "shell_power.h"
+#include "shell_power_key.h"
+#include "shell_power_menu.h"
 #include "tz_zones.h"
 #include "hw_actions.h"
 #include "hw_activity.h"
@@ -743,6 +745,47 @@ static bool power_locked(void)
 static void power_lock(const char *why)
 {
     shell_lock_engage(why);
+}
+
+static bool power_urgent(void)
+{
+    return shell_alarm_visible() != 0;
+}
+
+/* ---- the power key (shell_power_key.h, shell_power_menu.h) -------------- *
+ *
+ * A short press: the open power menu closes; a dark screen wakes; a lit one
+ * goes dark - the same cover as Screen off after, and the lock left to Lock
+ * after, which keeps counting under it, so a lock that is up stays up and
+ * one that is not comes down when its setting says. While an alarm rings the
+ * screen stays on: the alarm is stopped on its own panel.
+ *
+ * A hold of about a second: the screen wakes if it was dark, and the power
+ * menu opens over whatever is there, the lock included, which it leaves as
+ * it is. The release that ends the hold does nothing.
+ */
+static void on_power_short(void)
+{
+    if (shell_power_menu_visible()) {
+        shell_power_menu_close("power key");
+        return;
+    }
+    if (shell_power_screen_off()) {
+        shell_power_wake("power key");
+        return;
+    }
+    if (shell_alarm_visible()) {
+        LOG_INFO("power key: an alarm is ringing; the screen stays on");
+        return;
+    }
+    shell_power_off_now("power key");
+}
+
+static void on_power_long(void)
+{
+    shell_power_wake("power key");
+    shell_power_activity();
+    shell_power_menu_open();
 }
 
 int pocketos_shell_reduced_motion(void)
@@ -2732,6 +2775,27 @@ static cJSON *power_json(void)
     cJSON_AddBoolToObject(o, "held", power_hold());
     cJSON_AddNumberToObject(o, "idle_ms", shell_power_idle_ms());
     cJSON_AddNumberToObject(o, "screen_offs", shell_power_off_count());
+    {
+        struct shell_power_key_status ks;
+        cJSON *k = cJSON_CreateObject();
+
+        shell_power_key_status(&ks);
+        cJSON_AddBoolToObject(k, "enabled", ks.enabled);
+        cJSON_AddBoolToObject(k, "connected", ks.connected);
+        cJSON_AddStringToObject(k, "device", ks.device);
+        cJSON_AddStringToObject(k, "state", power_key_state_name(ks.key.state));
+        cJSON_AddNumberToObject(k, "long_ms", POWER_KEY_LONG_MS);
+        cJSON_AddNumberToObject(k, "shorts", ks.key.shorts);
+        cJSON_AddNumberToObject(k, "longs", ks.key.longs);
+        cJSON_AddNumberToObject(k, "ignored", ks.key.ignored);
+        cJSON_AddNumberToObject(k, "lost", ks.key.lost);
+        cJSON_AddNumberToObject(k, "opens", ks.opens);
+        cJSON_AddNumberToObject(k, "losses", ks.losses);
+        cJSON_AddBoolToObject(k, "menu", shell_power_menu_visible());
+        cJSON_AddNumberToObject(k, "menu_opens", shell_power_menu_open_count());
+        cJSON_AddStringToObject(k, "menu_note", shell_power_menu_note());
+        cJSON_AddItemToObject(o, "key", k);
+    }
     /* Not offered, and said so rather than left out (power_policy.h). */
     cJSON_AddStringToObject(o, "sleep", "unavailable");
     return o;
@@ -3488,6 +3552,11 @@ static void on_tick(lv_timer_t *timer)
     clock_runtime_step();
     status_update();
     shell_power_tick();
+    /* A menu nobody can see is a menu nobody chose: the screen went dark
+     * under it, so it goes, as Cancel. */
+    if (shell_power_menu_visible() && shell_power_screen_off()) {
+        shell_power_menu_close("screen off");
+    }
     controls_tick();
     shot_reap();
     if (sh.app && sh.app->tick) {
@@ -3878,10 +3947,13 @@ int main(int argc, char **argv)
      * on screen, so the cover is over all of them and the overlay over all
      * but the cover. */
     {
-        static const struct shell_power_hooks power_hooks = { power_hold, power_locked, power_lock };
+        static const struct shell_power_hooks power_hooks = { power_hold, power_locked, power_lock,
+                                                              power_urgent };
+        static const struct shell_power_key_hooks key_hooks = { on_power_short, on_power_long };
 
         shell_power_init(&power_hooks);
         shell_overlay_init(sh.content);
+        shell_power_key_init(&key_hooks);
     }
     environment_apply();
     sh.server = pocketipc_server_new("shell", on_shell_request, NULL);
@@ -3940,8 +4012,11 @@ int main(int argc, char **argv)
     /* The open app is closed the ordinary way, so it persists what it holds
      * exactly as it would on any other exit. */
     app_close();
-    /* No overlay refresh may run into a shell on its way out. */
+    /* No overlay refresh may run into a shell on its way out, and no power
+     * key press: its descriptor is closed here, not left to the exec. */
     shell_overlay_shutdown();
+    shell_power_key_shutdown();
+    shell_power_menu_close("exit");
     /* Then what an app keeps running without its screen (the Terminal's
      * session): ended here, the ordinary way, because an exec would only
      * close its descriptors and leave its processes to nobody. */
