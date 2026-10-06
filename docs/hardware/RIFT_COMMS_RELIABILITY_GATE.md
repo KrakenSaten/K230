@@ -49,6 +49,16 @@ portrait.
    `/etc/init.d/S65meshcored restart` on the sender. PASS: the message stays,
    `NO ACK · SERVICE RESTARTED`; RESEND sends it as a new message, which
    replaces the row and is delivered.
+6b. **Channel send: transmitted and heard back.** Needs no peer, only a
+   repeater in range (unit B hears several). Send on Public. PASS: the
+   caption goes `SENT · FLOOD · NO ACK ON CHANNELS`, then within seconds
+   `TRANSMITTED · NOT HEARD BACK`, and - when a repeater relays it -
+   `HEARD BACK ×N · M HOP(S)`, N rising as more copies arrive; `doors call
+   meshcored mesh.messages` shows `transmitted: true`, `heard_back`,
+   `heard_back_hops` on that message, and its state stays `sent_flood`. It
+   never says DELIVERED. With the antenna removed or the radio switched off
+   from SYSTEM after accepting, `NOT TRANSMITTED` may show instead (warn).
+   This sends one line on the public channel: the owner's call.
 7. **Reply.** On a channel both nodes hold, hold the peer's line: REPLY is
    offered, RESEND is not. REPLY puts `@[Name] "…" ` into the composer;
    finish it with an emoji and SEND. PASS: RIFT on both units draws
