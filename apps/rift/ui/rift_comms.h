@@ -41,6 +41,15 @@ void rift_comms_keyboard(struct rift_app *app);
  * ways anything in RIFT transmits. Empty or unsendable text is refused
  * with a reason on screen and nothing is written. */
 void rift_comms_submit(struct rift_app *app, const char *text);
+/* RESEND of the message with this id (rift_ipc_resend_message), from its
+ * action in the thread (ui/rift_msgact.c) and nowhere else. */
+void rift_comms_resend(struct rift_app *app, int64_t message_id);
+/* The actions on the open thread's newest message, opened by key (LEFT on an
+ * empty composer). Returns 1 when there was a message to open them on. */
+int rift_comms_select_message(struct rift_app *app);
+/* The open thread's message actions (ui/rift_msgact.h), for the tests. */
+struct rift_msgact;
+struct rift_msgact *rift_comms_actions(const struct rift_app *app);
 
 /* The peer whose thread is open, or NULL. */
 const char *rift_comms_open_peer(const struct rift_app *app);

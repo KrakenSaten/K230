@@ -882,6 +882,12 @@ if mine:
     # sent_flood is where this ends: nothing will ever move it on.
     ok("its state is sent_flood", m["state"] == "sent_flood", m)
     ok("and no acknowledgement is expected", m["ack_expected"] is False, m)
+    # In place of an ACK: the radio's outcome, and copies heard relayed
+    # back. B is a companion and relays nothing, so none come back here.
+    ok("the radio's outcome is reported: transmitted", m.get("transmitted") is True, m)
+    ok("and no copy was heard relayed back", m.get("heard_back") == 0, m)
+    ok("so there is no relay count or time for one",
+       "heard_back_hops" not in m and "heard_back_mono_ms" not in m, m)
 
 # The direct messages from section 3 are still in the same list, unchanged,
 # and still marked as what they are.

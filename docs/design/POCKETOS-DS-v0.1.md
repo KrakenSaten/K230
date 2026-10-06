@@ -5048,3 +5048,53 @@ a 30-hop path wrapping whole, the fixed face at Large, PAUSE, CLEAR, the
 filters, the detail, keys, drag, landscape, a refused event, the bound, and
 no heap left behind across opening and closing. Screenshots
 `portrait-rxlog`, `portrait-rxlog-detail`, `landscape-rxlog`.
+
+## 55. Amendment AM — RIFT: message actions, replies and CONTACTS [PROPOSED]
+
+**Proposed 2026-10-05** on branch `feat/rift-comms-reliability`, after §54
+(RX LOG). Nothing in §1-§54 is renumbered. Behaviour: docs/apps/RIFT.md, "Delivery,
+RESEND and REPLY" and "CONTACTS".
+
+### 55.1 The actions on one message
+
+- **Holding a message** in a thread (the long press, as the launcher's cells
+  have it) selects it - the §7 selected outline on its row - and opens a bar
+  between the messages and the note: a caption line naming the message (its
+  preview, and its state when it can be resent), then one row of 56 px
+  actions in both shapes (they are touched), only the ones that message has,
+  in this order: REPLY, COPY, RESEND (primary), CLOSE.
+- **By key**: LEFT on an empty composer opens the bar on the newest message;
+  UP and DOWN move the selection, LEFT and RIGHT the outlined action, ENTER
+  does it, ESC closes the bar. The composer gets the keys back afterwards.
+- A tap does nothing; a drag still scrolls the thread.
+
+### 55.2 A reply
+
+A reply's quotation is a **caption** line of its own above the sender and
+the body - `↳ Name?: quotation`, cut with an ellipsis to one line, in the
+quoted name's identity accent (§37.3) - and the body is the answer. The "?"
+marks a claimed name as it does everywhere on a channel. Nothing else of the
+message changes.
+
+### 55.3 A channel message's caption
+
+An outgoing channel message is never DELIVERED and never NO ACK: there is no
+ACK to have or miss. Its caption says what is known instead, in the caption
+type, in this order of precedence: `NOT TRANSMITTED` (warn colour),
+`HEARD BACK ×N · M HOP(S)`, `TRANSMITTED · NOT HEARD BACK` (not a warning:
+silence proves nothing), and before the radio has said
+`SENT · FLOOD · NO ACK ON CHANNELS`. The landscape route pane's tally for a
+channel adds `N HEARD BACK`.
+
+### 55.4 CONTACTS
+
+A screen under COMMS, as NET is under NODES: its header row is `‹ COMMS`
+(accent, tappable), `CONTACTS`, and the count shown of the count stored; then
+a find bar - the search field, ALL (primary while it is the filter in force)
+and RECENT; then a virtual list of 36 px rows: the name (row title, fitted
+with an ellipsis), the kind in words (`CHAT`, `REPEATER`, `ROOM`, `SENSOR`),
+the key's first eight hex characters and the age it was heard (captions);
+then one caption line for a refusal or a state. Entry: in portrait the COMMS
+list header's first word, `CONTACTS ›` in the accent, with the header row as
+the tap target; in landscape, whose 260 px list header has no room, a
+`CONTACTS` button under the list; `C` on the list's keys in both.

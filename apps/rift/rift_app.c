@@ -14,6 +14,7 @@
 #include "pos_styles.h"
 #include "rift_activity.h"
 #include "rift_comms.h"
+#include "rift_contacts_view.h"
 #include "rift_detail.h"
 #include "rift_emoji_picker.h"
 #include "rift_emoji_style.h"
@@ -356,6 +357,8 @@ void rift_app_refresh(struct rift_app *a)
         rift_repeater_view_refresh(a);
     } else if (a->section == RIFT_SEC_RXLOG) {
         rift_rxlog_view_refresh(a);
+    } else if (a->section == RIFT_SEC_CONTACTS) {
+        rift_contacts_view_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
     rift_tabs_paint(a);
@@ -375,6 +378,9 @@ static void on_key(lv_event_t *e)
     if (a->section == RIFT_SEC_COMMS && rift_comms_key(a, key)) {
         return;
     }
+    if (a->section == RIFT_SEC_CONTACTS && rift_contacts_view_key(a, key)) {
+        return;
+    }
     if (rift_repeater_key(a, key)) { /* ACTIVITY's repeater rows, a repeater's page */
         return;
     }
@@ -385,6 +391,8 @@ static void on_key(lv_event_t *e)
      * section to ACTIVITY. */
     if (key == LV_KEY_ESC && a->section == RIFT_SEC_NET) {
         rift_app_show_section(a, RIFT_SEC_NODES);
+    } else if (key == LV_KEY_ESC && a->section == RIFT_SEC_CONTACTS) {
+        rift_app_show_section(a, RIFT_SEC_COMMS);
     } else if (key == LV_KEY_ESC && a->section != RIFT_SEC_ACTIVITY) {
         rift_app_show_section(a, RIFT_SEC_ACTIVITY);
     }
@@ -500,6 +508,7 @@ static void layout(struct rift_app *a)
     rift_system_shape(a);
     rift_map_view_shape(a);
     rift_repeater_view_shape(a);
+    rift_contacts_view_shape(a);
     /* Draw now, so the new shape is not empty for a frame, and ask for
      * another pass from the timer: this one is inside LVGL's layout update,
      * where no width can be settled on demand and anything fitted to a
@@ -621,6 +630,7 @@ static void *rift_create(lv_obj_t *root)
     a->comms_root = rift_comms_create(a, a->content);
     a->net_root = rift_net_view_create(a, a->content);
     a->map_root = rift_map_view_create(a, a->content);
+    a->contacts_root = rift_contacts_view_create(a, a->content);
     a->system_root = rift_system_create(a, a->content);
     a->repeater_root = rift_repeater_view_create(a, a->content);
     a->rxlog_root = rift_rxlog_view_create(a, a->content);
@@ -740,6 +750,7 @@ static void rift_destroy(void *priv)
     rift_map_view_destroy(a);
     rift_repeater_view_destroy(a);
     rift_rxlog_view_destroy(a);
+    rift_contacts_view_destroy(a);
     rift_activity_destroy(a);
     /* A repeater session ends when RIFT is left (rift_ipc_repeater_leave). */
     rift_ipc_repeater_leave(&a->ipc);
@@ -785,8 +796,8 @@ static int rift_back(void *priv)
         rift_app_open_detail(a, 0);
         return 1;
     }
-    if (a->section == RIFT_SEC_NET) {
-        rift_app_show_section(a, RIFT_SEC_NODES);
+    if (a->section == RIFT_SEC_NET || a->section == RIFT_SEC_CONTACTS) {
+        rift_app_show_section(a, rift_tab_of(a->section));
         return 1;
     }
     if (a->section == RIFT_SEC_RXLOG && rift_rxlog_view_back(a)) {

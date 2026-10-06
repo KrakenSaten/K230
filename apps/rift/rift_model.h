@@ -339,6 +339,30 @@ struct rift_message {
      * so sent_flood is where an outgoing channel message ends. Nothing in
      * this app may draw "delivered" or "no ack" where this is 0. */
     int ack_expected;
+    /* How many times the service has sent it (mesh.messages "attempts"): 1,
+     * and one more for each RESEND. 0 when the service did not say. */
+    int attempts;
+    /* Kept by this app when the service restarted under it: an outgoing
+     * direct message that had not been acknowledged. The new run of the
+     * service does not hold it and can never match its ACK, so it is shown
+     * as NO ACK, its text stays readable and it can be sent again - as a new
+     * message, since there is nothing left to resend. Its id is this app's
+     * own, below every id the service hands out (rift_messages.c). */
+    int orphan;
+    /* An outgoing CHANNEL message, in place of the ACK a group frame does
+     * not have (docs/api/mesh.md, mesh.messages): whether the radio sent it
+     * (have_transmitted), and how many copies of it the service heard
+     * relayed back by repeaters, the fewest relays one came through and when
+     * the first came. A repeater relaying it received it; nothing here says
+     * any member of the channel read it, and nothing may call it delivered.
+     * have_heard_back is 0 when the service does not watch for copies. */
+    int have_transmitted;
+    int transmitted;
+    int have_heard_back;
+    int heard_back;
+    int heard_back_hops;
+    int have_heard_back_mono;
+    int64_t heard_back_mono_ms;
 
     char text[RIFT_MSG_TEXT_MAX];
 
@@ -378,6 +402,8 @@ struct rift_conv {
      * tally can say "3 SENT, NO ACK ON CHANNELS" rather than implying three
      * deliveries were expected and did not arrive. */
     int unacknowledgeable;
+    /* Of those channel sends, how many were heard relayed back. */
+    int heard_back;
     int have_newest_mono;
     int64_t newest_mono_ms;
     /* The newest message the OTHER side said, on the service's clock: what
@@ -406,6 +432,11 @@ struct rift_outbox {
     int failed;
     int unknown;        /* of failed: the service went before it answered */
     char error[RIFT_TEXT_MAX];
+    /* A RESEND (rift_model_resend_begin): the service's id of the message
+     * sent again, or - for an orphan, which the service no longer holds -
+     * the orphan's own id, replaced by the new message once it is accepted. */
+    int64_t resend_id;
+    int64_t replaces_id;
 };
 
 /* The requests a reader makes that are not a message: an advert, forgetting
@@ -598,6 +629,10 @@ struct rift_model {
     unsigned msgs_applied;     /* created or updated */
     unsigned msgs_duplicate;   /* an id already held: updated, not added */
     unsigned msgs_forgotten;   /* the service restarted under them */
+    /* Of those, the unacknowledged outgoing direct ones kept as orphans
+     * (rift_message.orphan), and the counter their ids are made from. */
+    unsigned msgs_orphaned;
+    int64_t orphan_seq;
     /* Which run of the service the ids in here belong to: svc_restarts as
      * it stood when the cache was last filled. When it falls behind, the
      * cache is emptied before anything new is merged into it - see
@@ -963,6 +998,25 @@ void rift_model_send_failed(struct rift_model *m, const char *error);
 /* Forget the last failure, so the caption goes when the composer is used
  * again. */
 void rift_model_send_clear(struct rift_model *m);
+/* ---- sending again (RESEND) ------------------------------------------------
+ *
+ * A message in the window, by id, or NULL. */
+const struct rift_message *rift_model_message(const struct rift_model *m, int64_t id);
+/* Whether a message may be sent again: an outgoing direct message the
+ * service said went unacknowledged (no_ack, failed), or an orphan. Never a
+ * channel message - nothing acknowledges one, so nothing says it failed -
+ * and never one delivered or still waiting. */
+int rift_model_can_resend(const struct rift_message *msg);
+/* Take a RESEND of the message with this id. Like rift_model_send_begin it
+ * only records that a request is about to be written: the outbox holds the
+ * message's own text and conversation, and resend_id (the service still
+ * holds it: mesh.send {"resend": id}) or replaces_id (an orphan: a new
+ * mesh.send of the same text, and the orphan goes once that is accepted).
+ * -1 when one is already in flight or the message may not be resent. */
+int rift_model_resend_begin(struct rift_model *m, int64_t id, int64_t now_ms);
+/* How many orphans are kept at most; the oldest goes first. */
+#define RIFT_MAX_ORPHANS 16
+
 /* A submission is in flight: the composer's SEND is disabled while one is,
  * because this radio sends one message at a time and a queue would be this
  * app's fiction rather than the service's. */

@@ -14,6 +14,7 @@
 
 #include "pos_input.h"
 #include "rift_comms.h"
+#include "rift_msgact.h"
 
 #include <string.h>
 
@@ -64,8 +65,28 @@ static void on_composer_key(lv_event_t *e)
     int typed = 0;
     int i;
 
+    /* The actions on a message have the keys while they are open, even the
+     * few that reach the composer before the focus has followed them (it
+     * moves from the timer). The Esc the field took in is taken out again. */
+    if (rift_msgact_id(rift_comms_actions(a)) && field) {
+        if (key == LV_KEY_ESC) {
+            lv_textarea_delete_char(field);
+        }
+        (void)rift_comms_key(a, key);
+        return;
+    }
     if (key == LV_KEY_UP || key == LV_KEY_DOWN) {
         (void)rift_comms_step(a, key == LV_KEY_UP ? -1 : 1);
+        return;
+    }
+    /* LEFT with nothing typed has no caret to move: it goes up into the
+     * thread, onto the newest message and its actions (ui/rift_msgact.h),
+     * and the keys go with it - from the timer, as Esc's do. */
+    if (key == LV_KEY_LEFT && field && lv_textarea_get_text(field)[0] == '\0') {
+        if (rift_comms_select_message(a)) {
+            a->focus_list_pending = 1;
+            a->refresh_pending = 1;
+        }
         return;
     }
     if (key != LV_KEY_ESC || !field) {

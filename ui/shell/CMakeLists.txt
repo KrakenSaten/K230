@@ -212,6 +212,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
     ${REPO_DIR}/apps/rift/rift_messages.c
+    ${REPO_DIR}/apps/rift/rift_threads.c
+    ${REPO_DIR}/apps/rift/rift_reply.c
+    ${REPO_DIR}/apps/rift/rift_contacts.c
     ${REPO_DIR}/apps/rift/rift_channels.c
     ${REPO_DIR}/apps/rift/rift_actions.c
     ${REPO_DIR}/apps/rift/rift_identity.c
@@ -223,6 +226,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_format_msg.c
     ${REPO_DIR}/apps/rift/rift_ipc.c
     ${REPO_DIR}/apps/rift/rift_ipc_manage.c
+    ${REPO_DIR}/apps/rift/rift_ipc_resend.c
     ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
     ${REPO_DIR}/apps/rift/rift_repeater.c
     ${REPO_DIR}/apps/rift/rift_notify.c
@@ -258,6 +262,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_comms.c
     ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
     ${REPO_DIR}/apps/rift/ui/rift_thread.c
+    ${REPO_DIR}/apps/rift/ui/rift_thread_note.c
+    ${REPO_DIR}/apps/rift/ui/rift_msgact.c
+    ${REPO_DIR}/apps/rift/ui/rift_contacts_view.c
     ${REPO_DIR}/apps/rift/ui/rift_emoji_picker.c
     ${RIFT_EMOJI_SOURCES}
     ${REPO_DIR}/apps/timber/timber_app.c
@@ -1372,6 +1379,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_background.c
         ${REPO_DIR}/apps/rift/rift_model.c
         ${REPO_DIR}/apps/rift/rift_messages.c
+        ${REPO_DIR}/apps/rift/rift_threads.c
+        ${REPO_DIR}/apps/rift/rift_reply.c
+        ${REPO_DIR}/apps/rift/rift_contacts.c
         ${REPO_DIR}/apps/rift/rift_channels.c
         ${REPO_DIR}/apps/rift/rift_actions.c
         ${REPO_DIR}/apps/rift/rift_identity.c
@@ -1383,6 +1393,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_format_msg.c
         ${REPO_DIR}/apps/rift/rift_ipc.c
         ${REPO_DIR}/apps/rift/rift_ipc_manage.c
+        ${REPO_DIR}/apps/rift/rift_ipc_resend.c
         ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
         ${REPO_DIR}/apps/rift/rift_repeater.c
         ${REPO_DIR}/apps/rift/rift_notify.c
@@ -1418,6 +1429,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_comms.c
         ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
         ${REPO_DIR}/apps/rift/ui/rift_thread.c
+        ${REPO_DIR}/apps/rift/ui/rift_thread_note.c
+        ${REPO_DIR}/apps/rift/ui/rift_msgact.c
+        ${REPO_DIR}/apps/rift/ui/rift_contacts_view.c
         ${REPO_DIR}/apps/rift/ui/rift_emoji_picker.c
         ${RIFT_EMOJI_SOURCES}
         ${REPO_DIR}/core/pocketipc/pocketipc.c

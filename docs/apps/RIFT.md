@@ -520,6 +520,120 @@ or opens; on the page they walk its controls and Enter presses one or puts
 the keys in a field (Enter there sends, Esc comes back). The control the keys
 are on carries the DS §9 focus outline.
 
+## Delivery, RESEND and REPLY
+
+**What a message says about its delivery** is the service's word and nothing
+else (docs/api/mesh.md, `mesh.messages` / `mesh.send`), set in the caption
+under it:
+
+| caption | meaning | upstream |
+|---|---|---|
+| `Sending…` (the note under the thread) | the `mesh.send` request is written and not answered yet | - |
+| `SENT · FLOOD` / `SENT · DIRECT` | accepted on that route and waiting for the recipient's ACK - **not** delivered | `RESP_CODE_SENT` with `expected_ack` and `est_timeout` |
+| `DELIVERED · ACK 3 s` | the recipient's ACK matched this message; how long it took | `PUSH_CODE_SEND_CONFIRMED` (`processAck`) |
+| `NO ACK` | the deadline passed with no ACK - whether or not it was ever transmitted, and it may still have arrived | the companion's "no ack" |
+| `NO ACK · SERVICE RESTARTED` | meshcored restarted under it: nothing can match its ACK any more (an orphan, below) | - |
+| `· TRY 2` | sent twice (RESEND); the state is about the newest attempt | `attempt` |
+| `SENT · FLOOD · NO ACK ON CHANNELS` | a channel message the radio has not reported on yet (or a service that does not report it): accepted, and nothing acknowledges a group frame | `GRP_TXT` has no ACK |
+| `TRANSMITTED · NOT HEARD BACK` | a channel message the radio sent; no copy relayed back so far - which proves nothing, companions relay nothing | `logTx` |
+| `HEARD BACK ×2 · 1 HOP` | copies of our own channel packet heard relayed back, and the fewest relays: at least one repeater received it. **Not** delivered: no channel member is known to have read it | `Mesh.cpp:651` "rebroadcast back to us"; packet hash excludes the path |
+| `NOT TRANSMITTED` | the radio did not send the channel message (warn colour) | `logTxFail` |
+
+meshcored matches each ACK to its own message by the expected ACK MeshCore
+computed for it (`sha256(timestamp, attempt, text, sender key)`), watches
+each against its own deadline, and - as upstream's companion firmware does -
+still takes an ACK that comes after the deadline: a `NO ACK` message whose
+ACK arrives late becomes `DELIVERED`. A second ACK for a message, or one for a
+message of an earlier run, changes nothing.
+
+**Holding a message** (or LEFT on an empty composer, then UP / DOWN between
+messages, LEFT / RIGHT between actions, ENTER, ESC) opens a compact bar under
+the thread with the actions that message has, and selects it:
+
+| action | for | what it does |
+|---|---|---|
+| RESEND | an outgoing direct message that is `NO ACK` or `FAILED`, or an orphan | the message's own text, never the composer's. One the service holds goes as `mesh.send {"resend": id}`: the same text and sender timestamp, MeshCore's attempt one higher, a fresh expected ACK and deadline, **the same message** (one row, `TRY 2`). An orphan goes as a new `mesh.send` of its text and its row is replaced once the service takes it |
+| REPLY | an incoming channel message that names its sender | the reply prefix into the composer, to be read and finished there; nothing is sent until SEND |
+| COPY | any message | its words (without a channel's `<sender>: `) into the composer at the caret. Doors has no system clipboard |
+| CLOSE | - | the bar goes |
+
+A channel message is never offered RESEND: nothing acknowledges one, so
+nothing ever says it failed, and a second copy would be a second message.
+
+**Orphans.** meshcored keeps no messages across its restart, so RIFT empties
+its window when the run changes (`forget_old_run`, rift_messages.c) - except
+the outgoing direct messages that were never acknowledged. The newest 16 are
+kept under ids of RIFT's own (below every id the service hands out, in the
+order they were written), drawn `NO ACK · SERVICE RESTARTED`, counted as
+`NO ACK` in the tally, and can be sent again. They live in RIFT's memory: a
+restart of the shell itself loses them, as it loses the window.
+
+**A reply is message text.** MeshCore has no reply or reference field - a
+`GRP_TXT` payload is a timestamp, a flags byte and `<sender>: <text>`, and no
+client in the pinned tree carries a reference - so RIFT writes one every
+client can read:
+
+    @[Anna] "Are you coming up?" Yes, in 10 minutes 👍
+
+`@[name]` is the MeshCore app's mention (its 1.27.0 release notes add
+tagging channel members and drop square brackets from node names for it -
+DOCUMENTED there, not in the pinned source); the quotation is at most 32
+bytes of the message answered, cut at a word when one is near and never
+inside a character or an emoji sequence (a cut one ends in `…`), with `"`
+turned into `'` and newlines into spaces. The name is the sender's claimed
+one with `[` and `]` dropped. RIFT draws such a message - its own replies and
+anybody's mentions - with the quotation on a line above, `↳ Anna?: Are you
+coming up?`, in the quoted name's identity accent, and the answer as the
+body; the stored and sent text is unchanged. A client that knows neither
+convention shows the whole line. The prefix costs channel room: at most
+73 bytes (a 31-byte name and a cut quotation) of a channel's 140-odd.
+
+## CONTACTS
+
+`‹ COMMS` · `CONTACTS` - reached from COMMS (the header's `CONTACTS ›` in
+portrait, a `CONTACTS` button under the list in landscape, or `C` on the
+list's keys), with the COMMS tab lit, and Esc or `‹ COMMS` back.
+
+**What a contact is on this build** (VERIFIED in the source): MeshCore has
+one table, `BaseChatMesh::contacts[MAX_CONTACTS]`, and it is both the nodes
+heard and the contacts stored - every advert from a new node is added
+(`isAutoAddEnabled()`, upstream's default, not overridden), and a direct
+message can only be encrypted to a node in it. meshcored persists it in
+`state.v1` and lists it as `mesh.nodes`; RIFT holds all of it. So NODES and
+CONTACTS are two questions asked of the same stored contacts:
+
+| | NODES | CONTACTS |
+|---|---|---|
+| order | heard most recently first | A to Z (ALL), or the latest spoken with first (RECENT: a direct conversation in RIFT's window) |
+| a row | glyph, name, hops, hop strip, RSSI, SNR, heard | name, kind (`CHAT`, `REPEATER`, `ROOM`, `SENSOR`), key prefix, heard |
+| for | topology: routes, signal, NET, MAP | finding someone and writing to them |
+| a tap | selects; DETAIL, MESSAGE | opens the conversation; on a repeater or a sensor says why not |
+
+The search narrows either list by name (case and Æ Ø Å not counted) or by
+public key prefix of two hex characters or more (the node hash is the first
+two) - `rift_node_matches`, the NODES find bar's rule. It is done in RIFT over
+the cache: upstream's own lookups are `lookupContactByPubKey` (a prefix, one
+contact) and `searchContactsByPrefix` (a name prefix, the first match), and
+neither lists; meshcored's `mesh.node` is the first and answers one node. On
+the host, ordering all 1000 and searching them takes well under a
+millisecond (`tests/rift_reliability_test.c` prints it). The list is virtual:
+a pool of at most 32 rows over a spacer.
+
+**Capacity.** `MAX_CONTACTS` is **1000**, a compile-time constant in
+`protocols/meshcore/compat/mc_contacts.h` (a `-D` override is an `#error`),
+which `MCD_MAX_NODES`, `mcdstore::MAX_NODES` and `RIFT_MAX_NODES` all follow;
+`state.v1` persists all of them (about 148 KB at 1000). Upstream's default is
+32. When the table is full MeshCore evicts nothing (`shouldOverwriteWhenFull()`
+false): a new node's advert is counted as `nodes_unretained`, it is not a
+contact and cannot be written to, and CONTACTS says the table is full until a
+node is forgotten in NODES. Nothing is configurable at run time.
+
+**No favourites, no import or export.** Upstream's `ContactInfo.flags` has a
+favourite bit (companion_radio: "LSB used as 'favourite' bit") and `state.v1`
+stores the byte, but meshcored has no method that reads or sets it, and
+contact import and export are not in this API (mesh.md, "Not in v0"); adding
+or removing a contact is an advert heard or a FORGET in NODES.
+
 ## Emoji and other text
 
 What a reader can type is what the Doors keyboards produce - the touch
@@ -1066,6 +1180,9 @@ the air must not be able to disconnect this app from its own service.
 | File | |
 | --- | --- |
 | `rift_model.c/.h` | what is known and how sure it is: the bounded node cache, the activity ring, the service state and its counters. No LVGL |
+| `rift_threads.c` | a conversation's name and its thread in reading order, and a message taken to be sent again (RESEND). No LVGL |
+| `rift_reply.c/.h` | a reply as message text: the `@[name] "quotation" ` prefix written, and read back. No LVGL |
+| `rift_contacts.c/.h` | CONTACTS' lists: ALL A to Z, RECENT by conversation, searched. No LVGL |
 | `rift_messages.c` | the model's second translation unit, over the same struct: the message window, the conversations, how far each has been read, the submission in flight, and which run of the service the ids in all of it came from. No LVGL |
 | `rift_channels.c` | the channel table mesh.channels reports and the mesh.channel events that change it. No LVGL |
 | `rift_actions.c` | an advert, forgetting a node, forgetting a route: asked, then answered or refused. No LVGL |
@@ -1101,6 +1218,9 @@ the air must not be able to disconnect this app from its own service.
 | `ui/rift_comms.c` | COMMS: which conversations there are, the panes, and the landscape details pane (closed until asked for) |
 | `ui/rift_conv_list.c` | the conversation list - virtual like NODES: a pool of rows over a spacer, bound to the part on screen, the open row found by key |
 | `ui/rift_thread.c` | the open conversation: the header, the messages and the portrait composer. One builder for both orientations, as `rift_detail.c` is for NODES |
+| `ui/rift_thread_note.c` | the words under the thread: why the composer cannot send, what became of the last send |
+| `ui/rift_msgact.c/.h` | the actions on one message - RESEND, REPLY, COPY, CLOSE - by touch and by key, and a reply's quotation drawn above its answer |
+| `ui/rift_contacts_view.c/.h` | CONTACTS: the search, ALL and RECENT, the virtual list |
 | `ui/rift_find.c` | NODES' find bar: the search field, CLEAR and ZERO-HOP |
 | `ui/rift_netview.c` | NET: the PATH panel and the rings |
 | `ui/rift_manage.c` | ACTIVITY's CHANNELS panel: the list, LEAVE and its confirmation, the ADD CHANNEL form, a key shown once |
@@ -1117,6 +1237,7 @@ the air must not be able to disconnect this app from its own service.
 | `tests/rift_emoji_ui_test.c` (CMake, LVGL) | 24 checks: the sample folded and drawn through the body and preview styles at Small, Medium and Large, each emoji an image glyph, no box, each row with its artwork's colour, the styles following the text size; frame and lookup cost as notes; `EMOJI_SHOTS=<dir>` keeps PNGs |
 | `tests/rift_model_test.c` | 322 checks: searching the node list (case, Æ Ø Å, hash prefixes) and the zero-hop filter; NET's rings and what placed each node, ambiguous hops, a bounded ring; channel keys (SHA-256 vectors, the `#test` hashtag key, strict base64, random keys); where the name came from and the path hash size; the management slot and its no-answer; the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
 | `tests/rift_comms_test.c` | 305 checks: byte-correct limits with 4-byte emoji, direct and on a channel, and malformed text refused; the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
+| `tests/rift_reliability_test.c` | 78 checks: every delivery caption (SENT is never delivered, TRY n, an orphan's NO ACK), what may be resent and what may not, a RESEND by id that stays one message, a late ACK, orphans kept across a restart in order and bounded, an orphan's RESEND replacing it only once accepted, the reply prefix and its parse (names with brackets, quotes and newlines, emoji sequences and flags never cut), and CONTACTS: A to Z, by name, by key prefix, the empty search, RECENT, repeaters, 1000 contacts and the time a search takes |
 | `tests/rift_ipc_test.c` | 240 checks against a real socket and a scripted service in a child process: joining a channel (the derived key checked byte for byte in the request, and absent from the model and the client afterwards), a duplicate key refused, leaving, renaming, the path hash size, a pinned name, a service without the setting, a change nobody answered; and connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
 | `tests/rift_app_test.c` | 814 checks under a real LVGL pointer device: RIFT kept behind other screens (DS §51) - left, the session, its timer and its connection stay and the screen's half is empty, a message arriving while left is filed unread and unsounded, reopened in the same place with no second timer, Back and Home, twenty leaves and reopens with one timer and less than one screen's memory kept, CLOSE RIFT through its confirmation and a new session after it, the status cluster's mark set and cleared, the navigation row's five faces (size, look, gaps, targets, fit at S/M/L) in both orientations, and against the scripted service one subscription for six opens, a message taken in while left, the subscription given back on CLOSE RIFT and meshcored still running; a channel's sender before its message in both orientations (long, unnamed, own); the NODES search and ZERO-HOP view; NET from no snapshot to a real mesh, advert-placed nodes, MESSAGE and DETAIL, landscape columns; the CHANNELS and THIS DEVICE controls with no service (every refusal said before asking, every confirmation) and, given `RIFT_FAKE_MESHCORED`, live against the scripted service (a private channel joined and its key shown once, left, a rename, a path hash size); the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a 64 px row of 56 px faces with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 16 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
 | `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |

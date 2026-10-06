@@ -26,6 +26,12 @@ void rift_fmt_msg_state(const struct rift_message *msg, char *out, size_t out_le
         rift_utf8_copy(out, out_len, RIFT_UNKNOWN);
         return;
     }
+    /* Kept across a restart of the service, which can no longer match its
+     * ACK: NO ACK, whatever the last word was (rift_model.h, orphan). */
+    if (msg->orphan) {
+        rift_utf8_copy(out, out_len, "NO ACK");
+        return;
+    }
     switch (msg->state) {
     case RIFT_MSG_SENDING:
         word = "SENDING";
@@ -68,8 +74,9 @@ int rift_msg_is_warn(const struct rift_message *msg)
     if (!msg) {
         return 0;
     }
-    return msg->state == RIFT_MSG_NO_ACK || msg->state == RIFT_MSG_FAILED ||
-           msg->state == RIFT_MSG_STATE_UNKNOWN;
+    return msg->orphan || msg->state == RIFT_MSG_NO_ACK || msg->state == RIFT_MSG_FAILED ||
+           msg->state == RIFT_MSG_STATE_UNKNOWN ||
+           (msg->is_channel && msg->have_transmitted && !msg->transmitted);
 }
 
 void rift_fmt_ack(const struct rift_message *msg, char *out, size_t out_len)
@@ -126,8 +133,35 @@ void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_
      * coming, and a reader would learn to read a permanent "SENT" as a
      * failure. */
     if (msg->is_channel && msg->dir == RIFT_MSG_OUT && !msg->ack_expected) {
-        snprintf(out + at, out_len - at, RIFT_SEP "FLOOD" RIFT_SEP "NO ACK ON CHANNELS");
+        /* What can be known instead (docs/api/mesh.md): the radio's word on
+         * the frame, and copies of it heard relayed back. A copy proves a
+         * repeater received it - repeaters relay without the key - and not
+         * that anyone on the channel read it, so it is HEARD BACK and never
+         * delivered; and not hearing one proves nothing, since a node that
+         * does not relay sends nothing back. */
+        if (msg->have_transmitted && !msg->transmitted) {
+            rift_utf8_copy(out, out_len, "NOT TRANSMITTED");
+        } else if (msg->heard_back > 0) {
+            snprintf(out, out_len, "HEARD BACK \xC3\x97%d" RIFT_SEP "%d HOP%s", msg->heard_back,
+                     msg->heard_back_hops, msg->heard_back_hops == 1 ? "" : "S");
+        } else if (msg->have_transmitted) {
+            rift_utf8_copy(out, out_len, "TRANSMITTED" RIFT_SEP "NOT HEARD BACK");
+        } else {
+            snprintf(out + at, out_len - at, RIFT_SEP "FLOOD" RIFT_SEP "NO ACK ON CHANNELS");
+        }
         return;
+    }
+    if (msg->orphan) {
+        /* Why it is NO ACK, and that nothing is still waiting for it. */
+        snprintf(out + at, out_len - at, RIFT_SEP "SERVICE RESTARTED");
+        return;
+    }
+    /* Sent more than once (RESEND): which attempt the state is about. */
+    if (msg->dir == RIFT_MSG_OUT && msg->attempts > 1) {
+        at += (size_t)snprintf(out + at, out_len - at, RIFT_SEP "TRY %d", msg->attempts);
+        if (at >= out_len) {
+            return;
+        }
     }
     if (msg->state == RIFT_MSG_ACKED) {
         rift_fmt_ack(msg, ack, sizeof(ack));

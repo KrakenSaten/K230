@@ -305,6 +305,35 @@ struct mcd_message {
     bool ack_expected;
     bool ack_known;
     uint64_t ack_mono_ms;
+    /* MeshCore's attempt number of the last send of this message: 0 for the
+     * first, one more for each resend (mcd_runtime_resend). Upstream writes
+     * it into the payload's flags byte, so each attempt has an expected_ack
+     * of its own. Only meaningful for an outgoing direct message. */
+    uint8_t attempt;
+    /* ---- an outgoing CHANNEL message: what can be known instead of an ACK
+     *
+     * A group frame has no ACK (BaseChatMesh::sendGroupMessage); what the
+     * sender can learn is that the radio sent it and that the mesh carried
+     * it. Both are observations of this node's own packet, matched by
+     * MeshCore's packet hash, which covers the payload and not the path
+     * (Packet::calculatePacketHash) - so a copy a repeater relays back is the
+     * same packet. Neither says any channel member read it.
+     *
+     * tx_known / transmitted: the radio's outcome for the frame (the
+     * dispatcher's logTx / logTxFail). heard_back: how many copies of it
+     * this node has heard relayed back - each one a repeater that received
+     * it and sent it on (it appended its hash to the path:
+     * Mesh::routeRecvPacket), without needing the channel key -
+     * heard_back_hops the fewest relays any copy came through, and
+     * heard_back_mono_ms when the first was heard. echo_tracked says the
+     * service is watching for them; nothing is watched for a message of an
+     * earlier run, or past the last CHAN_ECHO_SLOTS sends. */
+    bool echo_tracked;
+    bool tx_known;
+    bool transmitted;
+    uint16_t heard_back;
+    uint8_t heard_back_hops;
+    uint64_t heard_back_mono_ms;
     bool snr_known;
     double snr_db;
     bool rssi_known;
@@ -761,7 +790,10 @@ enum mcd_send_result {
     /* Every slot that watches a message for its ACK is in use. The message
      * is not built and nothing is sent: one this service could not watch
      * would never be answered delivered or not. */
-    MCD_SEND_BUSY
+    MCD_SEND_BUSY,
+    /* mcd_runtime_resend only: no outgoing direct message has that id in
+     * this run, or it was delivered, or it is still waiting for its ACK. */
+    MCD_SEND_NOT_RESENDABLE
 };
 
 /* ---- channels -----------------------------------------------------------
@@ -838,6 +870,23 @@ enum mcd_send_result mcd_runtime_send_channel_text(struct mcd_runtime *rt, int s
 enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime *rt, const uint8_t *prefix,
                                            size_t prefix_len, const char *text,
                                            uint64_t *msg_id, uint32_t *est_timeout_ms);
+
+/* Send an outgoing direct message of this run again, as upstream's
+ * companion clients retry one (examples/companion_radio/MyMesh.cpp,
+ * CMD_SEND_TXT_MSG): the SAME text and the SAME sender timestamp, with
+ * MeshCore's attempt number one higher. The attempt is part of what the
+ * recipient hashes into its ACK (BaseChatMesh::composeMsgPacket), so the new
+ * attempt is watched under a fresh expected_ack and deadline; an ACK for an
+ * earlier attempt that arrives late still marks the message delivered.
+ *
+ * Only a message that is no_ack (or failed) may be resent: one that was
+ * delivered needs no second copy, and one still waiting would put two
+ * attempts in flight. The message keeps its id - there is still one message,
+ * sent more than once - and goes back to sent_flood or sent_direct.
+ * MCD_SEND_NOT_RESENDABLE for anything else; NO_CONTACT when the peer has been
+ * forgotten since; BUSY and NO_RADIO as mcd_runtime_send_text. */
+enum mcd_send_result mcd_runtime_resend(struct mcd_runtime *rt, uint64_t msg_id,
+                                        uint32_t *est_timeout_ms);
 
 /* Answer no_ack for every watched message whose deadline is at or before
  * now_ms (this service's CLOCK_MONOTONIC milliseconds). mcd_runtime_tick()

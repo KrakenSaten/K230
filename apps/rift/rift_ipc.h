@@ -221,6 +221,21 @@ int rift_ipc_request_channels(struct rift_ipc *c);
  * the reason. */
 int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *text);
 
+/* RESEND: send the message with this id again (rift_model_resend_begin).
+ * One the service still holds goes as mesh.send {"resend": id} - its own
+ * text and timestamp, MeshCore's attempt one higher, the same message; an
+ * orphan (the service restarted under it) goes as a new mesh.send of its
+ * text, and the orphan's row is replaced once that is accepted. Written by
+ * the same one call as rift_ipc_send_message, and reached only from a
+ * message's RESEND, which a reader pressed. Returns as rift_ipc_send_message. */
+int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id);
+/* The one writer of mesh.send, for rift_ipc_send_message and
+ * rift_ipc_resend_message (rift_ipc_resend.c): resend_id > 0 writes
+ * {"resend": id} alone, otherwise the destination and text. The submission is
+ * already recorded in the model. */
+int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *text,
+                        int64_t resend_id, int64_t now);
+
 /* Advert this node (mesh.advert): zero-hop when zero_hop is set - heard in
  * direct range and repeated by nobody - flooded otherwise.
  *

@@ -145,14 +145,48 @@ void rift_model_note_service_run(struct rift_model *m, const cJSON *result, int6
  *
  * Nothing here decides that the run changed; rift_model_apply_status does,
  * and this reads the count it keeps. */
+/* Whether a message is kept across a restart of the service (below). */
+static int orphan_worthy(const struct rift_message *x)
+{
+    return x->orphan || (x->dir == RIFT_MSG_OUT && !x->is_channel && x->ack_expected &&
+                         x->state != RIFT_MSG_ACKED);
+}
+
+/*
+ * With one exception: an outgoing direct message that was never
+ * acknowledged. The reader typed it, and the service that could have
+ * matched its ACK is gone with its tables, so it can no longer be delivered
+ * as far as anybody here will learn. It is kept as an orphan - its text
+ * readable, NO ACK on it, sendable again as a new message - under an id of
+ * this app's own: below zero, so below every id the service hands out, and
+ * counting upwards so orphans keep the order they were written in and sort
+ * before the new run's messages. The newest RIFT_MAX_ORPHANS are kept. */
 static void forget_old_run(struct rift_model *m)
 {
+    struct rift_message keep[RIFT_MAX_ORPHANS];
+    int kept = 0;
+    int i;
+
     if (m->msg_generation == m->svc_restarts) {
         return;
     }
-    m->msgs_forgotten += (unsigned)m->msg_count;
+    /* Newest first into the top of keep[], so it ends up oldest first. */
+    for (i = m->msg_count - 1; i >= 0 && kept < RIFT_MAX_ORPHANS; i--) {
+        if (orphan_worthy(&m->msg[i])) {
+            keep[RIFT_MAX_ORPHANS - 1 - kept++] = m->msg[i];
+        }
+    }
+    m->msgs_forgotten += (unsigned)(m->msg_count - kept);
     m->msg_count = 0;
     memset(m->msg, 0, sizeof(m->msg));
+    for (i = RIFT_MAX_ORPHANS - kept; i < RIFT_MAX_ORPHANS; i++) {
+        if (!keep[i].orphan) {
+            keep[i].orphan = 1;
+            keep[i].id = INT64_MIN / 2 + ++m->orphan_seq;
+            m->msgs_orphaned++;
+        }
+        m->msg[m->msg_count++] = keep[i];
+    }
     m->read_mark_count = 0;
     memset(m->read_mark, 0, sizeof(m->read_mark));
     /* The highest id seen is an id in the old space too. The fingerprints
@@ -330,6 +364,17 @@ int rift_model_file_message(struct rift_model *m, const cJSON *o, struct rift_me
      * still cannot make this app draw a delivery that cannot happen. */
     msg->ack_expected = bool_of(o, "ack_expected",
                                 !is_channel && msg->dir == RIFT_MSG_OUT);
+    msg->attempts = (num_of(o, "attempts", &d) && d >= 1 && d <= 256) ? (int)d : 0;
+    /* A channel send's evidence: the radio's word, and copies heard back.
+     * Each absent unless the service said, and a count it could not have
+     * reached is not taken. */
+    msg->have_transmitted = cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(o, "transmitted"));
+    msg->transmitted = msg->have_transmitted && bool_of(o, "transmitted", 0);
+    msg->have_heard_back = num_of(o, "heard_back", &d) && d >= 0 && d <= 65535;
+    msg->heard_back = msg->have_heard_back ? (int)d : 0;
+    msg->heard_back_hops = (num_of(o, "heard_back_hops", &d) && d >= 1 && d <= 64) ? (int)d : 0;
+    msg->have_heard_back_mono = num_of(o, "heard_back_mono_ms", &d);
+    msg->heard_back_mono_ms = msg->have_heard_back_mono ? (int64_t)d : 0;
     /* The body is remote text: meshcored has already made it well-formed
      * UTF-8 with no control characters but newline and tab (docs/api/mesh.md,
      * "Remote text"). This keeps that true when it is longer than the field
@@ -568,56 +613,6 @@ int rift_model_unread_total(const struct rift_model *m)
     return n;
 }
 
-const char *rift_model_conv_name(const struct rift_model *m, const char *conv_key)
-{
-    const struct rift_node *n;
-    const char *name = NULL;
-    int slot;
-    int i;
-
-    if (!m || !conv_key || !conv_key[0]) {
-        return NULL;
-    }
-    slot = rift_key_is_channel(conv_key);
-    if (slot >= 0) {
-        /* A channel's name is this node's own for it - it is never on the
-         * air, so there is nobody else's to prefer. The list is the first
-         * source because it is what mesh.channels last said; a message's
-         * copy is the fallback for a channel that has since been left but
-         * whose messages are still held. The list counts only while its slot
-         * still holds this channel: once another channel has taken the slot,
-         * its name is somebody else's. */
-        const struct rift_channel *ch = rift_model_key_channel(m, conv_key);
-
-        if (ch && ch->have_name && ch->name[0]) {
-            return ch->name;
-        }
-        for (i = 0; i < m->msg_count; i++) {
-            if (m->msg[i].have_channel_name && m->msg[i].channel_name[0] &&
-                strcmp(m->msg[i].conv_key, conv_key) == 0) {
-                name = m->msg[i].channel_name;
-            }
-        }
-        return name;
-    }
-    /* The newest message that carried a name wins: it is what the service
-     * called the peer most recently. */
-    for (i = 0; i < m->msg_count; i++) {
-        if (m->msg[i].have_peer_name && m->msg[i].peer_name[0] &&
-            strcmp(m->msg[i].peer_key, conv_key) == 0) {
-            name = m->msg[i].peer_name;
-        }
-    }
-    if (name) {
-        return name;
-    }
-    n = rift_model_find(m, conv_key);
-    if (n && n->have_name && n->name[0]) {
-        return n->name;
-    }
-    return NULL;
-}
-
 /* ---- conversations -------------------------------------------------------- */
 
 /* Which conversations make the list when there are more than it holds: the
@@ -693,9 +688,12 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
                  * message in no_ack would be reporting a failure the
                  * protocol never promised to avoid. */
                 c->unacknowledgeable++;
+                c->heard_back += msg->heard_back > 0;
             } else if (msg->state == RIFT_MSG_ACKED) {
                 c->acked++;
-            } else if (msg->state == RIFT_MSG_NO_ACK) {
+            } else if (msg->state == RIFT_MSG_NO_ACK || msg->orphan) {
+                /* An orphan is NO ACK whatever its last word was: the run
+                 * that could have matched its ACK is gone. */
                 c->no_ack++;
             } else if (msg->state == RIFT_MSG_FAILED) {
                 c->failed++;
@@ -747,46 +745,6 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
             out[j] = out[j - 1];
         }
         out[j] = tmp;
-    }
-    return n;
-}
-
-int rift_model_thread(const struct rift_model *m, const char *conv_key,
-                      const struct rift_message **out, int max, int *older)
-{
-    int total = 0;
-    int skip;
-    int n = 0;
-    int i;
-
-    if (older) {
-        *older = 0;
-    }
-    if (!m || !out || !conv_key || !conv_key[0] || max <= 0) {
-        return 0;
-    }
-    for (i = 0; i < m->msg_count; i++) {
-        if (strcmp(m->msg[i].conv_key, conv_key) == 0) {
-            total++;
-        }
-    }
-    /* A thread longer than the window is read from its end: the newest max,
-     * still oldest first, and the number left off the front is reported so
-     * the screen can say there are earlier ones rather than imply there are
-     * not. */
-    skip = total > max ? total - max : 0;
-    if (older) {
-        *older = skip;
-    }
-    for (i = 0; i < m->msg_count && n < max; i++) {
-        if (strcmp(m->msg[i].conv_key, conv_key) != 0) {
-            continue;
-        }
-        if (skip > 0) {
-            skip--;
-            continue;
-        }
-        out[n++] = &m->msg[i];
     }
     return n;
 }
@@ -870,6 +828,21 @@ void rift_model_send_accepted(struct rift_model *m, int64_t message_id, const ch
     m->outbox.message_id = message_id;
     if (route) {
         snprintf(m->outbox.route, sizeof(m->outbox.route), "%s", route);
+    }
+    /* An orphan sent again is the new message now: the old row goes, so the
+     * same words are not shown twice. Only once the service took it - a
+     * refusal keeps the orphan, and its text, where they were. */
+    if (m->outbox.replaces_id) {
+        int i;
+
+        for (i = 0; i < m->msg_count; i++) {
+            if (m->msg[i].orphan && m->msg[i].id == m->outbox.replaces_id) {
+                memmove(&m->msg[i], &m->msg[i + 1],
+                        sizeof(m->msg[0]) * (size_t)(m->msg_count - i - 1));
+                m->msg_count--;
+                break;
+            }
+        }
     }
     /* The submission is done with. The message itself is meshcored's now:
      * it arrives as mesh.message keyed by this id, and its state is the

@@ -57,6 +57,11 @@ struct rift_comms {
     lv_obj_t *head_title; /* CONVERSATIONS, fitted to what the columns leave */
     lv_obj_t *head_heard;
     lv_obj_t *head_route; /* the ROUTE column header, portrait only */
+    /* CONTACTS, the way to the address book: the header's first word in
+     * portrait, a button under the list in landscape, whose 260 px header
+     * has no room left beside the title and HEARD. */
+    lv_obj_t *head_contacts;
+    lv_obj_t *contacts_btn;
     lv_obj_t *list;       /* the rows' scrolling object (rift_conv_list.h) */
     struct rift_conv_list *rows;
     lv_obj_t *note;
@@ -236,7 +241,36 @@ void rift_comms_submit(struct rift_app *app, const char *text)
     rift_app_refresh(app);
 }
 
+void rift_comms_resend(struct rift_app *app, int64_t message_id)
+{
+    if (!app) {
+        return;
+    }
+    /* RESEND sends what was sent: the message's own text, never the
+     * composer's, so what the reader is typing stays where it is. */
+    rift_model_send_clear(&app->model);
+    (void)rift_ipc_resend_message(&app->ipc, message_id);
+    rift_app_refresh(app);
+}
+
+int rift_comms_select_message(struct rift_app *app)
+{
+    return (app && app->comms) ? rift_thread_select_newest(app->comms->thread) : 0;
+}
+
+struct rift_msgact *rift_comms_actions(const struct rift_app *app)
+{
+    return (app && app->comms) ? rift_thread_actions(app->comms->thread) : NULL;
+}
+
 /* ---- the conversation list -------------------------------------------------- */
+
+/* CONTACTS, from the list's header: the stored contacts as an address book
+ * (ui/rift_contacts_view.h). It sends nothing and changes nothing. */
+static void on_contacts(lv_event_t *e)
+{
+    rift_app_show_section(lv_event_get_user_data(e), RIFT_SEC_CONTACTS);
+}
 
 /* ---- the landscape route pane ------------------------------------------------ */
 
@@ -323,8 +357,9 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
             /* No DELIVERED and no NO ACK: neither is a number this protocol
              * can produce for a channel. */
             lv_label_set_text_fmt(v->ctx_tally,
-                                  "%d SENT" RIFT_SEP "NOTHING ACKNOWLEDGES A CHANNEL",
-                                  conv->outgoing);
+                                  "%d SENT" RIFT_SEP "%d HEARD BACK" RIFT_SEP
+                                  "NOTHING ACKNOWLEDGES A CHANNEL",
+                                  conv->outgoing, conv->heard_back);
         } else {
             lv_label_set_text(v->ctx_tally, "Nothing sent on this channel yet.");
         }
@@ -387,6 +422,9 @@ void rift_comms_shape(struct rift_app *app)
         lv_obj_set_height(v->pane_thread, LV_PCT(100));
         lv_obj_set_flex_grow(v->pane_thread, 1);
         lv_obj_add_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(v->head_contacts, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(v->contacts_btn, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(lv_obj_get_parent(v->head_contacts), LV_OBJ_FLAG_CLICKABLE);
         /* The details pane only while asked for: the thread has the width
          * the rest of the time (DS §37.2). */
         if (app->details_open) {
@@ -396,6 +434,9 @@ void rift_comms_shape(struct rift_app *app)
         }
     } else {
         lv_obj_remove_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(v->head_contacts, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(v->contacts_btn, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lv_obj_get_parent(v->head_contacts), LV_OBJ_FLAG_CLICKABLE);
         /* As tall as what is in it; the list inside is sized to its rows on
          * every refresh (size_portrait_list). */
         lv_obj_set_width(v->pane_list, LV_PCT(100));
@@ -483,6 +524,15 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
     v->head_route = rift_cell(head, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(v->head_route, "ROUTE");
     rift_conv_cols_widen(v->head_heard, v->head_route);
+    /* In portrait the header row is the tap target for CONTACTS, the way
+     * the thread's header is for DETAILS in landscape: the word sits first,
+     * in the accent, and the title takes what is left. */
+    v->head_contacts = rift_cell(head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    pos_style_add(v->head_contacts, POS_STYLE_ACCENT_TEXT, 0);
+    lv_label_set_text(v->head_contacts, "CONTACTS \xE2\x80\xBA");
+    lv_obj_move_to_index(v->head_contacts, 0);
+    lv_obj_add_flag(head, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(head, on_contacts, LV_EVENT_CLICKED, app);
     rift_rule(v->pane_list);
 
     /* The rows: virtual, a pool over a spacer (rift_conv_list.h). */
@@ -490,6 +540,11 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
     v->list = rift_conv_list_obj(v->rows);
 
     v->note = wrap_label(v->pane_list, POS_STYLE_CAPTION);
+    v->contacts_btn = rift_action(v->pane_list, "CONTACTS", 0, 1, on_contacts, app);
+    lv_obj_set_flex_grow(v->contacts_btn, 0);
+    lv_obj_set_width(v->contacts_btn, LV_PCT(100));
+    lv_obj_set_height(v->contacts_btn, RIFT_ROW_H);
+    lv_obj_add_flag(v->contacts_btn, LV_OBJ_FLAG_HIDDEN);
 
     v->pane_thread = lv_obj_create(v->root);
     lv_obj_remove_style_all(v->pane_thread);
@@ -719,6 +774,15 @@ int rift_comms_key(struct rift_app *app, uint32_t key)
 
     if (!v) {
         return 0;
+    }
+    /* The actions on one message have the keys while they are open. */
+    if (rift_thread_key(v->thread, key)) {
+        return 1;
+    }
+    /* C opens CONTACTS from the list (the composer types a "c"). */
+    if (!app->composer_focused && (key == 'c' || key == 'C')) {
+        rift_app_show_section(app, RIFT_SEC_CONTACTS);
+        return 1;
     }
     /* While the composer holds focus the keys are its own: left and right
      * move a caret through what is being typed, and up and down - which a

@@ -19,6 +19,7 @@ enum rift_section rift_tab_of(enum rift_section section)
 {
     return section == RIFT_SEC_NET                                  ? RIFT_SEC_NODES
            : section == RIFT_SEC_REPEATER || section == RIFT_SEC_RXLOG ? RIFT_SEC_ACTIVITY
+           : section == RIFT_SEC_CONTACTS                             ? RIFT_SEC_COMMS
                                                                      : section;
 }
 
@@ -96,6 +97,9 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         break;
     case RIFT_SEC_RXLOG:
         show_only(a, a->rxlog_root);
+        break;
+    case RIFT_SEC_CONTACTS:
+        show_only(a, a->contacts_root);
         break;
     default:
         show_only(a, a->net_root);

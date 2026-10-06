@@ -27,12 +27,14 @@
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
+#include "rift_contacts_view.h"
 #include "rift_device.h"
 #include "rift_emoji_pick.h"
 #include "rift_emoji_picker.h"
 #include "rift_find.h"
 #include "rift_graph.h"
 #include "rift_manage.h"
+#include "rift_msgact.h"
 #include "rift_net.h"
 #include "rift_map.h"
 #include "rift_mapview.h"
@@ -55,6 +57,8 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -5535,6 +5539,277 @@ static void repeater_control_session(void)
     unlink(rlog);
 }
 
+/* ---- feat/rift-comms-reliability ---------------------------------------------
+ *
+ * Holding a message opens what can be done with it - RESEND for one that went
+ * unacknowledged, REPLY for a channel line, COPY for any - and the same by
+ * key; a reply is drawn as one; CONTACTS lists the stored contacts apart from
+ * NODES, searched, with repeaters still repeaters. */
+
+/* A finger held on an object for longer than LVGL's long press. */
+static void hold(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        return;
+    }
+    lv_obj_scroll_to_view_recursive(obj, LV_ANIM_OFF);
+    pump(40);
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
+    finger_point.y = a.y1 + lv_area_get_height(&a) / 2;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(700);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+static void key(uint32_t k)
+{
+    pos_input_push_key(k);
+    pump(60);
+}
+
+/* What the app wrote on a socket it believes is meshcored's: the request
+ * a press made, read off the far end. */
+static int wire_holds(int fd, const char *want)
+{
+    char buf[4096];
+    ssize_t n = recv(fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
+
+    if (n <= 0) {
+        return 0;
+    }
+    buf[n] = '\0';
+    return mem_holds(buf, (size_t)n, want);
+}
+
+static void reliability_session(void)
+{
+    struct rift_msgact *act;
+    lv_obj_t *field;
+    enum pos_text_size was = pos_theme_current_text_size();
+    int pass;
+    int kb_before = kb_shows;
+
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    give_channels();
+    give_site_line(60, "in", "Anna", "Are you coming up? \xF0\x9F\x91\x8D");
+    give_site_line(61, "in", "OSLO-01", "@[Anna] \\\"Are you coming up?\\\" Ja, om ti minutter");
+    rift_app_open_conversation(app, KEY_B);
+    pump(160);
+    act = rift_comms_actions(app);
+    check("the thread has message actions, closed", act && rift_msgact_id(act) == 0);
+
+    /* ---- RESEND: held, pressed, and on the wire as the service wants ---- */
+    hold(find_exact(thread_pane(), "Pr\xC3\xB8ver direct"));
+    check("holding a no-ACK message opens its actions on it", rift_msgact_id(act) == 3);
+    check("with RESEND and COPY, and no REPLY in a direct thread",
+          rift_msgact_button(act, RIFT_MSGACT_RESEND) &&
+              visible(rift_msgact_button(act, RIFT_MSGACT_RESEND)) &&
+              rift_msgact_button(act, RIFT_MSGACT_COPY) &&
+              !rift_msgact_button(act, RIFT_MSGACT_REPLY));
+    check("and the bar says which message, and that it was not acknowledged",
+          find_text(thread_pane(), "NO ACK \xC2\xB7 you: Pr\xC3\xB8ver direct") != NULL);
+    shot("portrait-comms-message-actions");
+    {
+        int sv[2];
+
+        check("a socket stands in for meshcored", socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+        /* Non-blocking, as the client's own connection is
+         * (pocketipc_connect_timeout): its reader polls it. */
+        fcntl(sv[0], F_SETFL, fcntl(sv[0], F_GETFL) | O_NONBLOCK);
+        app->ipc.fd = sv[0];
+        tap(rift_msgact_button(act, RIFT_MSGACT_RESEND));
+        check("RESEND asks the service to resend that message by its id",
+              wire_holds(sv[1], "\"resend\":3"));
+        check("and the bar closes", rift_msgact_id(act) == 0);
+        check("the submission is in flight, as any send", rift_model_sending(&app->model));
+        quiet_client();
+        close(sv[1]);
+        pump(60);
+        rift_model_send_clear(&app->model);
+    }
+    hold(find_exact(thread_pane(), "Fint, ser deg"));
+    check("a delivered message has no RESEND", rift_msgact_id(act) == 2 &&
+                                                   !rift_msgact_button(act, RIFT_MSGACT_RESEND));
+    /* ---- COPY: the words into the composer, nothing sent ---- */
+    tap(rift_msgact_button(act, RIFT_MSGACT_COPY));
+    field = rift_comms_field(app);
+    check("COPY puts the message's words in the composer",
+          field && strcmp(lv_textarea_get_text(field), "Fint, ser deg") == 0);
+    check("and sends nothing", !rift_model_sending(&app->model) && !app->model.outbox.failed);
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+    lv_textarea_set_text(field, "");
+    pump(60);
+
+    /* ---- the same by key ---- */
+    pos_input_focus(field);
+    pump(60);
+    key(LV_KEY_LEFT);
+    pump(60);
+    check("LEFT on an empty composer opens the actions on the newest message",
+          rift_msgact_id(act) == 4 && rift_msgact_by_key(act));
+    check("and the keys go to them", pos_input_focused() == app->keysink);
+    key(LV_KEY_UP);
+    check("UP moves to the message before", rift_msgact_id(act) == 3);
+    check("whose RESEND the keys are on",
+          rift_msgact_button(act, RIFT_MSGACT_RESEND) != NULL);
+    key(LV_KEY_ENTER);
+    check("ENTER does it: with no service, the reader is told nothing was sent",
+          app->model.outbox.failed && strstr(app->model.outbox.error, "nothing was sent"));
+    rift_model_send_clear(&app->model);
+    key(LV_KEY_LEFT);
+    check("LEFT once more opens them again", rift_msgact_id(act) == 4);
+    key(LV_KEY_ESC);
+    pump(60);
+    check("ESC closes them and gives the composer the keys back",
+          rift_msgact_id(act) == 0 && pos_input_focused() == field);
+
+    /* ---- a reply on a channel ---- */
+    rift_app_open_conversation(app, site_key());
+    pump(160);
+    check("a reply is drawn with its quotation on a line above",
+          find_text(thread_pane(), "\xE2\x86\xB3 Anna?: Are you coming up?") != NULL);
+    check("and the answer as the body", find_exact(thread_pane(), "Ja, om ti minutter") != NULL);
+    check("the mention itself is not printed", find_text(thread_pane(), "@[Anna]") == NULL);
+    check("the stored text is the plain text that came",
+          strstr(app->model.msg[app->model.msg_count - 1].text,
+                 "@[Anna] \"Are you coming up?\" Ja, om ti minutter") != NULL);
+    hold(find_text(thread_pane(), "Are you coming up? "));
+    check("holding a channel line offers REPLY, and no RESEND",
+          rift_msgact_id(act) == 60 && rift_msgact_button(act, RIFT_MSGACT_REPLY) &&
+              !rift_msgact_button(act, RIFT_MSGACT_RESEND));
+    tap(rift_msgact_button(act, RIFT_MSGACT_REPLY));
+    field = rift_comms_field(app);
+    check("REPLY puts the mention and the quotation in the composer, emoji and all",
+          field && strcmp(lv_textarea_get_text(field),
+                          "@[Anna] \"Are you coming up? \xF0\x9F\x91\x8D\" ") == 0);
+    check("and sends nothing", !rift_model_sending(&app->model));
+    shot("portrait-comms-reply");
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+    lv_textarea_set_text(field, "");
+    pump(60);
+
+    /* ---- CONTACTS ---- */
+    for (pass = 0; pass < 2; pass++) {
+        const char *shape = pass ? "landscape, large" : "portrait";
+        char what[160];
+
+        rift_app_open_conversation(app, KEY_B);
+        pump(120);
+        if (pass == 0) {
+            tap(find_text(content(), "CONTACTS \xE2\x80\xBA"));
+        } else {
+            tap(find_exact(content(), "CONTACTS"));
+        }
+        /* The keys follow from the timer (the composer had them). */
+        pump(200);
+        snprintf(what, sizeof(what), "%s: CONTACTS opens from COMMS, with COMMS still lit", shape);
+        check(what, app->section == RIFT_SEC_CONTACTS && rift_tab_of(app->section) == RIFT_SEC_COMMS);
+        snprintf(what, sizeof(what), "%s: every stored contact, A to Z - not NODES' heard order",
+                 shape);
+        check(what, rift_contacts_view_count(app) == 5 &&
+                        strcmp(rift_contacts_view_key_at(app, 0), KEY_B) == 0 &&
+                        strcmp(rift_contacts_view_key_at(app, 3), KEY_A) == 0);
+        snprintf(what, sizeof(what), "%s: a row says what kind of node and its key", shape);
+        check(what, find_text(content(), "REPEATER") && find_text(content(), "B2CAFE1E"));
+        snprintf(what, sizeof(what), "%s: the rows are a pool, not one per contact", shape);
+        check(what, rift_contacts_view_rows_built(app) > 0 && rift_contacts_view_rows_built(app) <= 32);
+        snprintf(what, sizeof(what), "%s: CONTACTS' captions are whole", shape);
+        check(what, captions_clipped(frame()) == 0);
+        type_into(rift_contacts_view_field(app), "osl");
+        snprintf(what, sizeof(what), "%s: searching by name", shape);
+        check(what, rift_contacts_view_count(app) == 1 &&
+                        strcmp(rift_contacts_view_key_at(app, 0), KEY_A) == 0);
+        lv_textarea_set_text(rift_contacts_view_field(app), "");
+        pump(60);
+        type_into(rift_contacts_view_field(app), "d4de");
+        snprintf(what, sizeof(what), "%s: and by key prefix", shape);
+        check(what, rift_contacts_view_count(app) == 1 &&
+                        strcmp(rift_contacts_view_key_at(app, 0), KEY_D) == 0);
+        pos_input_focus(app->keysink);
+        pump(200);
+        key(LV_KEY_DOWN);
+        key(LV_KEY_ENTER);
+        snprintf(what, sizeof(what),
+                 "%s: a repeater is not written to: it says why, and stays (section %d, %d listed)",
+                 shape, (int)app->section, rift_contacts_view_count(app));
+        check(what, app->section == RIFT_SEC_CONTACTS && rift_contacts_view_note(app) &&
+                        rift_contacts_view_note(app)[0]);
+        if (pass == 0) {
+            shot("portrait-contacts-repeater");
+        } else {
+            shot("landscape-contacts-large");
+        }
+        lv_textarea_set_text(rift_contacts_view_field(app), "");
+        pump(60);
+        tap(rift_contacts_view_filter_button(app, 1));
+        pump(120);
+        snprintf(what, sizeof(what), "%s: RECENT is who was spoken with, the latest first (%d, query '%s', recent %d)",
+                 shape, rift_contacts_view_count(app), app->contacts_query, app->contacts_recent);
+        check(what, rift_contacts_view_count(app) == 2 &&
+                        strcmp(rift_contacts_view_key_at(app, 0), KEY_A) == 0 &&
+                        strcmp(rift_contacts_view_key_at(app, 1), KEY_B) == 0);
+        pos_input_focus(app->keysink);
+        pump(200);
+        key(LV_KEY_DOWN);
+        key(LV_KEY_ENTER);
+        snprintf(what, sizeof(what), "%s: ENTER on a contact opens its conversation", shape);
+        check(what, app->section == RIFT_SEC_COMMS && app->have_conv && strcmp(app->conv, KEY_A) == 0);
+        tap(find_text(content(), pass == 0 ? "CONTACTS \xE2\x80\xBA" : "CONTACTS"));
+        tap(rift_contacts_view_filter_button(app, 0));
+        pos_input_focus(app->keysink);
+        pump(40);
+        key(LV_KEY_ESC);
+        snprintf(what, sizeof(what), "%s: ESC goes back to COMMS", shape);
+        check(what, app->section == RIFT_SEC_COMMS);
+        if (pass == 0) {
+            /* Turned and at Large, as the owner's unit runs: the app opened
+             * again over it, the way the shell rebuilds it for a new size. */
+            app_stop();
+            use_display(POS_ROTATION_270, PANEL_CORNER);
+            pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+            app_start();
+            quiet_client();
+            give_nodes();
+            give_service();
+            give_messages();
+            act = rift_comms_actions(app);
+            pump(200);
+        }
+    }
+    /* ---- landscape, Large: the bar still fits ---- */
+    rift_app_open_conversation(app, KEY_B);
+    pump(160);
+    hold(find_exact(thread_pane(), "Pr\xC3\xB8ver direct"));
+    check("landscape, large: holding a message opens its actions", rift_msgact_id(act) == 3);
+    check("landscape, large: and their captions are whole", captions_clipped(frame()) == 0);
+    check("landscape, large: inside the panel",
+          inside_body(rift_msgact_button(act, RIFT_MSGACT_CLOSE)));
+    shot("landscape-comms-message-actions-large");
+    tap(rift_msgact_button(act, RIFT_MSGACT_CLOSE));
+    check("CLOSE closes them", rift_msgact_id(act) == 0);
+    pos_theme_select_text_size(was);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+    /* COPY and REPLY bring the touch keyboard up in portrait, on purpose;
+     * the sessions after this one count their own. */
+    check("COPY and REPLY asked for the touch keyboard in portrait", kb_shows > kb_before);
+    kb_shows = kb_before;
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -6874,6 +7149,7 @@ int main(void)
     /* feat/rift-management: who said it before what was said, finding a node
      * and the zero-hop repeaters, and NET. */
     sender_session();
+    reliability_session();
     find_session();
     net_session();
     /* feat/rift-rx-log: the receive log behind ACTIVITY (DS §54). */

@@ -1661,6 +1661,75 @@ int main(void)
         unlink(methods);
     }
 
+    /* ---- RESEND, against a real socket ------------------------------------ */
+    /* A message the service still holds is resent by its id and nothing
+     * else; an orphan - kept by this app across a restart of the service -
+     * goes as a new message with its own text. Both through the one call
+     * that writes mesh.send. */
+    {
+        char sends[600];
+        struct fake_meshcored_script script;
+        pid_t pid;
+
+        snprintf(sends, sizeof(sends), "%s/sends", runtime);
+        unlink(sends);
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.messages_json =
+            "[{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+            "\"text\":\"er du der?\",\"state\":\"received\",\"mono_ms\":-9000},"
+            "{\"id\":7,\"direction\":\"out\",\"kind\":\"direct\",\"peer_public_key\":\"" KEY_B "\","
+            "\"text\":\"ja, her\",\"state\":\"no_ack\",\"ack_expected\":true,\"attempts\":1,"
+            "\"mono_ms\":-4000}]";
+        script.send_log = sends;
+        script.life_ms = FAKE_LIFE_MS;
+        pid = fake_meshcored_spawn(&script);
+        check("a service holding a message that went unacknowledged",
+              pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, WAIT_MS, opening_answered, &m);
+        check("both messages are read", m.msg_count == 2);
+        check("a received message is not resent, and nothing is written",
+              rift_ipc_resend_message(&c, 1) == -1 && !rift_model_sending(&m) && m.outbox.failed);
+        events_target = c.events_in + 1;
+        check("the no-ACK one is resent", rift_ipc_resend_message(&c, 7) == 0);
+        spin(&c, WAIT_MS, send_reported, &m);
+        {
+            const struct rift_message *x = rift_model_message(&m, 7);
+
+            check("as the same message, waiting again on its second attempt",
+                  m.msg_count == 2 && x && x->state == RIFT_MSG_SENT_DIRECT && x->attempts == 2);
+        }
+        /* An orphan: what the model makes of an unanswered message when the
+         * service restarts under it, made here by hand. */
+        {
+            struct rift_message *x = &m.msg[1];
+
+            x->orphan = 1;
+            x->id = INT64_MIN / 2 + 1;
+            x->state = RIFT_MSG_NO_ACK;
+            events_target = c.events_in + 1;
+            check("an orphan is resent", rift_ipc_resend_message(&c, INT64_MIN / 2 + 1) == 0);
+            spin(&c, WAIT_MS, send_reported, &m);
+            check("and replaced by the new message the service took",
+                  m.msg_count == 2 && !m.msg[0].orphan && !m.msg[1].orphan &&
+                      strcmp(m.msg[1].text, "ja, her") == 0 && m.msg[1].id > 0);
+        }
+        {
+            static const char *const want[] = { "resend|7", KEY_B "|ja, her" };
+            int matched = 0;
+            int n = log_lines(sends, want, 2, &matched);
+
+            check("on the wire: a resend by id, then a new message of the orphan's text",
+                  n == 2 && matched);
+        }
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+        unlink(sends);
+    }
+
     /* ---- channels, against a real socket ---------------------------------- */
     /* The whole path: the channel list read on connect, a channel message
      * arriving as an event, a message sent to a channel rather than a node,
