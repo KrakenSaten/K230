@@ -437,6 +437,14 @@ check "and a channel row is drawn only from it" \
 # unacknowledged, so nothing in this app may draw a delivery for one.
 check "a channel message is never shown as delivered" \
     "$(grep -q 'NO ACK ON CHANNELS' "$SRC/rift_format_msg.c" && echo 1 || echo 0)"
+# What a channel send can show instead - its own packet sent, and copies of
+# it heard relayed back - is said in those words, in the branch for an
+# outgoing channel message, and that branch never says DELIVERED or ACK.
+chanbranch=$(sed -n '/if (msg->is_channel && msg->dir == RIFT_MSG_OUT && !msg->ack_expected) {/,/^        return;$/p' \
+    "$SRC/rift_format_msg.c")
+check "and its evidence is HEARD BACK or TRANSMITTED, never DELIVERED" \
+    "$(echo "$chanbranch" | grep -q '"HEARD BACK' && echo "$chanbranch" | grep -q '"TRANSMITTED' &&
+       ! echo "$chanbranch" | grep -qE '"[^"]*(DELIVERED|ACK [0-9%])' && echo 1 || echo 0)"
 # An advert the service answered was accepted - queued for its dispatcher -
 # and nothing in this app may call it sent: the transmit's outcome is the
 # service's to report, in the activity feed.

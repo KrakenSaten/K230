@@ -330,8 +330,9 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
             /* No DELIVERED and no NO ACK: neither is a number this protocol
              * can produce for a channel. */
             lv_label_set_text_fmt(v->ctx_tally,
-                                  "%d SENT" RIFT_SEP "NOTHING ACKNOWLEDGES A CHANNEL",
-                                  conv->outgoing);
+                                  "%d SENT" RIFT_SEP "%d HEARD BACK" RIFT_SEP
+                                  "NOTHING ACKNOWLEDGES A CHANNEL",
+                                  conv->outgoing, conv->heard_back);
         } else {
             lv_label_set_text(v->ctx_tally, "Nothing sent on this channel yet.");
         }

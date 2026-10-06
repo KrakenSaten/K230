@@ -488,6 +488,9 @@ A message:
 | `ack_expected` | whether an acknowledgement can **ever** arrive for this message |
 | `ack_mono_ms` | when the ACK matched; absent until it does |
 | `attempts` | **outgoing direct only**: how many times it has been sent - 1, and one more for each `resend` (below) |
+| `transmitted` | **outgoing channel only**, absent until the radio has said: `true` when the frame went on the air, `false` when the transmit failed. See "What a channel send can show" |
+| `heard_back` | **outgoing channel only**, when the service is watching for copies: how many copies of this packet it has heard relayed back by repeaters (0 when none) |
+| `heard_back_hops`, `heard_back_mono_ms` | with `heard_back` above 0: the fewest relays a copy came through, and when the first copy was heard (ours) |
 | `snr_db`, `rssi_dbm` | only when known, by the same rule as a node's |
 
 **A channel message names no node.** A MeshCore group frame carries no public
@@ -558,18 +561,19 @@ stated exactly so no client reads more into a state than it carries:
   The outgoing message is recorded with one of them the moment `mesh.send` is
   accepted, before anything reaches radiod. They are not a report that the
   frame went on the air.
-- **The radio's outcome is not in the message.** The frame goes to radiod as
-  an asynchronous transmit, and what radiod says about it arrives only as a
-  `mesh.activity` event of `kind: "tx"` - keyed by radiod's `submit_id`,
-  which no field of the message carries. A client cannot tie that outcome to
-  a message, and the service does not do it either.
+- **The radio's outcome is not in a direct message's state.** The frame goes
+  to radiod as an asynchronous transmit, and what radiod says about it
+  arrives as a `mesh.activity` event of `kind: "tx"`, keyed by radiod's
+  `submit_id`. For an outgoing **channel** message the service does tie the
+  outcome to the message, in its own field `transmitted` (below) - the
+  state stays `sent_flood`.
 - **`failed` is never produced in this version.** It is in the `state` table
   because the API reserves it; nothing assigns it.
 - So a frame that never left - radiod restarted before the dispatcher handed
   it over, a `tx` outcome of `tx_failed` or `refused`, the dispatcher giving
-  up on it - leaves a **channel** message at `sent_flood` for good, exactly
-  like one that went out, and a **direct** message at `sent_*` until its ACK
-  deadline passes and then `no_ack`, not `failed`.
+  up on it - leaves a **channel** message at `sent_flood` (with `transmitted:
+  false` once the dispatcher has given up on it), and a **direct** message at
+  `sent_*` until its ACK deadline passes and then `no_ack`, not `failed`.
 
 What the states do promise, by kind:
 
@@ -582,9 +586,31 @@ What the states do promise, by kind:
 
 A **channel message is an unacknowledged flood**: `PAYLOAD_TYPE_GRP_TXT` has
 no ACK, no timeout and no delivery report, so nothing - in the protocol or in
-this service - ever says a channel message arrived anywhere, and in this
-version nothing says it was transmitted either. Only a direct message can be
-confirmed, and only by its ACK.
+this service - ever says a channel message arrived anywhere. Only a direct
+message can be confirmed, and only by its ACK.
+
+**What a channel send can show** instead, and no more (the pinned source,
+vendor/RIFT 3ca7e3f):
+
+- *Sent by the radio* - `transmitted`. The dispatcher's `logTx` / `logTxFail`
+  for this very frame. `false` is a frame that never went out.
+- *Heard back* - `heard_back`. Upstream marks its own flood as seen "in case
+  it is rebroadcast back to us" (`Mesh.cpp:651`): a repeater that hears a
+  flood relays it, appending its own hash to the path (`routeRecvPacket`,
+  `Mesh.cpp:344`), and does so without the channel key. MeshCore's packet
+  hash covers the payload and not the path (`Packet::calculatePacketHash`),
+  so a relayed copy is the same packet; this service matches each copy that
+  reaches it to the message, before MeshCore's seen-table drops it, and
+  counts it. A copy with no relay in its path is not counted. The last 16
+  channel sends are watched; nothing from an earlier run.
+- A copy heard back proves that **a repeater** received the frame and sent it
+  on. It does not prove that any member of the channel read it, and it is
+  not a delivery to anyone: a channel message is never `acked` and never
+  `delivered`. Hearing no copy proves nothing either - a node that is not a
+  repeater (every companion) relays nothing, and a copy can be lost.
+- The companion firmware itself reports none of this: `CMD_SEND_CHANNEL_TXT_MSG`
+  answers OK and nothing follows (`MyMesh.cpp:2212`). A companion app can
+  count repeats only from the raw receive log it is also sent.
 
 The first message to a node goes `flood`, because no route back is known yet;
 that is what the ACK supplies, and the next one goes `direct`. A channel

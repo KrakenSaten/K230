@@ -349,6 +349,20 @@ struct rift_message {
      * message, since there is nothing left to resend. Its id is this app's
      * own, below every id the service hands out (rift_messages.c). */
     int orphan;
+    /* An outgoing CHANNEL message, in place of the ACK a group frame does
+     * not have (docs/api/mesh.md, mesh.messages): whether the radio sent it
+     * (have_transmitted), and how many copies of it the service heard
+     * relayed back by repeaters, the fewest relays one came through and when
+     * the first came. A repeater relaying it received it; nothing here says
+     * any member of the channel read it, and nothing may call it delivered.
+     * have_heard_back is 0 when the service does not watch for copies. */
+    int have_transmitted;
+    int transmitted;
+    int have_heard_back;
+    int heard_back;
+    int heard_back_hops;
+    int have_heard_back_mono;
+    int64_t heard_back_mono_ms;
 
     char text[RIFT_MSG_TEXT_MAX];
 
@@ -388,6 +402,8 @@ struct rift_conv {
      * tally can say "3 SENT, NO ACK ON CHANNELS" rather than implying three
      * deliveries were expected and did not arrive. */
     int unacknowledgeable;
+    /* Of those channel sends, how many were heard relayed back. */
+    int heard_back;
     int have_newest_mono;
     int64_t newest_mono_ms;
     /* The newest message the OTHER side said, on the service's clock: what

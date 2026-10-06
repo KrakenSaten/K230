@@ -534,7 +534,10 @@ under it:
 | `NO ACK` | the deadline passed with no ACK - whether or not it was ever transmitted, and it may still have arrived | the companion's "no ack" |
 | `NO ACK · SERVICE RESTARTED` | meshcored restarted under it: nothing can match its ACK any more (an orphan, below) | - |
 | `· TRY 2` | sent twice (RESEND); the state is about the newest attempt | `attempt` |
-| `SENT · FLOOD · NO ACK ON CHANNELS` | a channel message: flooded, and nothing acknowledges a group frame | `GRP_TXT` has no ACK |
+| `SENT · FLOOD · NO ACK ON CHANNELS` | a channel message the radio has not reported on yet (or a service that does not report it): accepted, and nothing acknowledges a group frame | `GRP_TXT` has no ACK |
+| `TRANSMITTED · NOT HEARD BACK` | a channel message the radio sent; no copy relayed back so far - which proves nothing, companions relay nothing | `logTx` |
+| `HEARD BACK ×2 · 1 HOP` | copies of our own channel packet heard relayed back, and the fewest relays: at least one repeater received it. **Not** delivered: no channel member is known to have read it | `Mesh.cpp:651` "rebroadcast back to us"; packet hash excludes the path |
+| `NOT TRANSMITTED` | the radio did not send the channel message (warn colour) | `logTxFail` |
 
 meshcored matches each ACK to its own message by the expected ACK MeshCore
 computed for it (`sha256(timestamp, attempt, text, sender key)`), watches

@@ -75,7 +75,8 @@ int rift_msg_is_warn(const struct rift_message *msg)
         return 0;
     }
     return msg->orphan || msg->state == RIFT_MSG_NO_ACK || msg->state == RIFT_MSG_FAILED ||
-           msg->state == RIFT_MSG_STATE_UNKNOWN;
+           msg->state == RIFT_MSG_STATE_UNKNOWN ||
+           (msg->is_channel && msg->have_transmitted && !msg->transmitted);
 }
 
 void rift_fmt_ack(const struct rift_message *msg, char *out, size_t out_len)
@@ -132,7 +133,22 @@ void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_
      * coming, and a reader would learn to read a permanent "SENT" as a
      * failure. */
     if (msg->is_channel && msg->dir == RIFT_MSG_OUT && !msg->ack_expected) {
-        snprintf(out + at, out_len - at, RIFT_SEP "FLOOD" RIFT_SEP "NO ACK ON CHANNELS");
+        /* What can be known instead (docs/api/mesh.md): the radio's word on
+         * the frame, and copies of it heard relayed back. A copy proves a
+         * repeater received it - repeaters relay without the key - and not
+         * that anyone on the channel read it, so it is HEARD BACK and never
+         * delivered; and not hearing one proves nothing, since a node that
+         * does not relay sends nothing back. */
+        if (msg->have_transmitted && !msg->transmitted) {
+            rift_utf8_copy(out, out_len, "NOT TRANSMITTED");
+        } else if (msg->heard_back > 0) {
+            snprintf(out, out_len, "HEARD BACK \xC3\x97%d" RIFT_SEP "%d HOP%s", msg->heard_back,
+                     msg->heard_back_hops, msg->heard_back_hops == 1 ? "" : "S");
+        } else if (msg->have_transmitted) {
+            rift_utf8_copy(out, out_len, "TRANSMITTED" RIFT_SEP "NOT HEARD BACK");
+        } else {
+            snprintf(out + at, out_len - at, RIFT_SEP "FLOOD" RIFT_SEP "NO ACK ON CHANNELS");
+        }
         return;
     }
     if (msg->orphan) {

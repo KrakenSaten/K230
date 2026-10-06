@@ -283,6 +283,89 @@ static void test_resend_and_orphans(void)
     }
 }
 
+/* ---- a channel send: no ACK, and what is known instead ------------------------ */
+
+static void test_channel_evidence(void)
+{
+    struct rift_model m;
+    const struct rift_message *x;
+    struct rift_conv conv[4];
+    char out[RIFT_MSG_CAPTION_MAX];
+    int n;
+
+#define CH_OUT(id, extra)                                                                      \
+    "{\"message\":{\"id\":" #id ",\"direction\":\"out\",\"kind\":\"channel\",\"channel\":0,"  \
+    "\"channel_hash\":\"11\",\"channel_name\":\"Public\",\"sender_name\":\"K230-A\","         \
+    "\"text\":\"K230-A: hei\",\"state\":\"sent_flood\",\"ack_expected\":false,"               \
+    "\"mono_ms\":1000" extra "}}"
+
+    rift_model_init(&m);
+    give_status(&m, 600, 600000);
+
+    /* A service that does not report any of it: as before. */
+    apply_event(&m, "mesh.message", CH_OUT(1, ""));
+    x = rift_model_message(&m, 1);
+    rift_fmt_msg_caption(x, out, sizeof(out));
+    text_is("a service that reports nothing more: accepted, and no ACK on channels", out,
+            "SENT \xC2\xB7 FLOOD \xC2\xB7 NO ACK ON CHANNELS");
+    check("nothing is taken as known", x && !x->have_transmitted && !x->have_heard_back);
+
+    /* Watched, not on the air yet. */
+    apply_event(&m, "mesh.message", CH_OUT(2, ",\"heard_back\":0"));
+    x = rift_model_message(&m, 2);
+    rift_fmt_msg_caption(x, out, sizeof(out));
+    text_is("before the radio has said: still only accepted", out,
+            "SENT \xC2\xB7 FLOOD \xC2\xB7 NO ACK ON CHANNELS");
+
+    /* The radio sent it; nobody relayed it back (yet). */
+    apply_event(&m, "mesh.message", CH_OUT(2, ",\"transmitted\":true,\"heard_back\":0"));
+    x = rift_model_message(&m, 2);
+    rift_fmt_msg_caption(x, out, sizeof(out));
+    text_is("the radio sent it, and no copy has come back", out,
+            "TRANSMITTED \xC2\xB7 NOT HEARD BACK");
+    check("which is not a warning: silence proves nothing", !rift_msg_is_warn(x));
+
+    /* Relayed back by a repeater. */
+    apply_event(&m, "mesh.message",
+                CH_OUT(2, ",\"transmitted\":true,\"heard_back\":2,\"heard_back_hops\":1,"
+                          "\"heard_back_mono_ms\":1400"));
+    x = rift_model_message(&m, 2);
+    rift_fmt_msg_caption(x, out, sizeof(out));
+    text_is("copies heard back: how many, and the fewest relays", out,
+            "HEARD BACK \xC3\x97" "2 \xC2\xB7 1 HOP");
+    check("with when the first came", x && x->have_heard_back_mono && x->heard_back_mono_ms == 1400);
+    check("and the state stays the service's: sent_flood, never acked",
+          x && x->state == RIFT_MSG_SENT_FLOOD && !x->ack_expected);
+    rift_fmt_msg_state(x, out, sizeof(out));
+    check("nothing about it says DELIVERED", strstr(out, "DELIVERED") == NULL);
+    rift_fmt_msg_caption(x, out, sizeof(out));
+    check("nor does its caption", strstr(out, "DELIVERED") == NULL && strstr(out, "\xC2\xB7 ACK") == NULL);
+    apply_event(&m, "mesh.message",
+                CH_OUT(2, ",\"transmitted\":true,\"heard_back\":3,\"heard_back_hops\":2"));
+    rift_fmt_msg_caption(rift_model_message(&m, 2), out, sizeof(out));
+    text_is("plural hops", out, "HEARD BACK \xC3\x97" "3 \xC2\xB7 2 HOPS");
+
+    /* Not transmitted. */
+    apply_event(&m, "mesh.message", CH_OUT(3, ",\"transmitted\":false,\"heard_back\":0"));
+    x = rift_model_message(&m, 3);
+    rift_fmt_msg_caption(x, out, sizeof(out));
+    text_is("the radio did not send it", out, "NOT TRANSMITTED");
+    check("which is a warning", rift_msg_is_warn(x));
+    check("and still not resent: a channel message never is", !rift_model_can_resend(x));
+
+    /* Nonsense from the service is not taken. */
+    apply_event(&m, "mesh.message", CH_OUT(4, ",\"transmitted\":\"yes\",\"heard_back\":-1"));
+    x = rift_model_message(&m, 4);
+    check("a transmitted that is not a boolean, and a negative count, are not taken",
+          x && !x->have_transmitted && !x->have_heard_back);
+
+    n = rift_model_conversations(&m, conv, 4);
+    check("the conversation's tally counts the sends heard back",
+          n == 1 && conv[0].outgoing == 4 && conv[0].unacknowledgeable == 4 && conv[0].heard_back == 1 &&
+              conv[0].acked == 0 && conv[0].no_ack == 0);
+#undef CH_OUT
+}
+
 /* ---- a reply, as text ---------------------------------------------------------- */
 
 static void channel_msg(struct rift_message *msg, const char *sender, const char *text)
@@ -468,6 +551,7 @@ int main(void)
 {
     test_states();
     test_resend_and_orphans();
+    test_channel_evidence();
     test_reply();
     test_contacts();
     printf("rift_reliability_test: %d checks, %d failure(s)\n", checks, failed);

@@ -310,6 +310,30 @@ struct mcd_message {
      * it into the payload's flags byte, so each attempt has an expected_ack
      * of its own. Only meaningful for an outgoing direct message. */
     uint8_t attempt;
+    /* ---- an outgoing CHANNEL message: what can be known instead of an ACK
+     *
+     * A group frame has no ACK (BaseChatMesh::sendGroupMessage); what the
+     * sender can learn is that the radio sent it and that the mesh carried
+     * it. Both are observations of this node's own packet, matched by
+     * MeshCore's packet hash, which covers the payload and not the path
+     * (Packet::calculatePacketHash) - so a copy a repeater relays back is the
+     * same packet. Neither says any channel member read it.
+     *
+     * tx_known / transmitted: the radio's outcome for the frame (the
+     * dispatcher's logTx / logTxFail). heard_back: how many copies of it
+     * this node has heard relayed back - each one a repeater that received
+     * it and sent it on (it appended its hash to the path:
+     * Mesh::routeRecvPacket), without needing the channel key -
+     * heard_back_hops the fewest relays any copy came through, and
+     * heard_back_mono_ms when the first was heard. echo_tracked says the
+     * service is watching for them; nothing is watched for a message of an
+     * earlier run, or past the last CHAN_ECHO_SLOTS sends. */
+    bool echo_tracked;
+    bool tx_known;
+    bool transmitted;
+    uint16_t heard_back;
+    uint8_t heard_back_hops;
+    uint64_t heard_back_mono_ms;
     bool snr_known;
     double snr_db;
     bool rssi_known;

@@ -199,6 +199,19 @@ static cJSON *message_json(const struct mcd_message *m)
     if (m->outgoing && m->ack_expected) {
         cJSON_AddNumberToObject(o, "attempts", (double)m->attempt + 1);
     }
+    /* An outgoing channel message, in place of an ACK there is none of: the
+     * radio's outcome once known, and the copies heard relayed back. Not one
+     * of them says a channel member read it (docs/api/mesh.md). */
+    if (m->outgoing && m->is_channel && m->echo_tracked) {
+        if (m->tx_known) {
+            cJSON_AddBoolToObject(o, "transmitted", m->transmitted);
+        }
+        cJSON_AddNumberToObject(o, "heard_back", (double)m->heard_back);
+        if (m->heard_back > 0) {
+            cJSON_AddNumberToObject(o, "heard_back_hops", (double)m->heard_back_hops);
+            cJSON_AddNumberToObject(o, "heard_back_mono_ms", (double)m->heard_back_mono_ms);
+        }
+    }
     if (m->snr_known) {
         cJSON_AddNumberToObject(o, "snr_db", m->snr_db);
     }

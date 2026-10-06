@@ -5074,7 +5074,17 @@ quoted name's identity accent (§37.3) - and the body is the answer. The "?"
 marks a claimed name as it does everywhere on a channel. Nothing else of the
 message changes.
 
-### 55.3 CONTACTS
+### 55.3 A channel message's caption
+
+An outgoing channel message is never DELIVERED and never NO ACK: there is no
+ACK to have or miss. Its caption says what is known instead, in the caption
+type, in this order of precedence: `NOT TRANSMITTED` (warn colour),
+`HEARD BACK ×N · M HOP(S)`, `TRANSMITTED · NOT HEARD BACK` (not a warning:
+silence proves nothing), and before the radio has said
+`SENT · FLOOD · NO ACK ON CHANNELS`. The landscape route pane's tally for a
+channel adds `N HEARD BACK`.
+
+### 55.4 CONTACTS
 
 A screen under COMMS, as NET is under NODES: its header row is `‹ COMMS`
 (accent, tappable), `CONTACTS`, and the count shown of the count stored; then

@@ -365,6 +365,16 @@ int rift_model_file_message(struct rift_model *m, const cJSON *o, struct rift_me
     msg->ack_expected = bool_of(o, "ack_expected",
                                 !is_channel && msg->dir == RIFT_MSG_OUT);
     msg->attempts = (num_of(o, "attempts", &d) && d >= 1 && d <= 256) ? (int)d : 0;
+    /* A channel send's evidence: the radio's word, and copies heard back.
+     * Each absent unless the service said, and a count it could not have
+     * reached is not taken. */
+    msg->have_transmitted = cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(o, "transmitted"));
+    msg->transmitted = msg->have_transmitted && bool_of(o, "transmitted", 0);
+    msg->have_heard_back = num_of(o, "heard_back", &d) && d >= 0 && d <= 65535;
+    msg->heard_back = msg->have_heard_back ? (int)d : 0;
+    msg->heard_back_hops = (num_of(o, "heard_back_hops", &d) && d >= 1 && d <= 64) ? (int)d : 0;
+    msg->have_heard_back_mono = num_of(o, "heard_back_mono_ms", &d);
+    msg->heard_back_mono_ms = msg->have_heard_back_mono ? (int64_t)d : 0;
     /* The body is remote text: meshcored has already made it well-formed
      * UTF-8 with no control characters but newline and tab (docs/api/mesh.md,
      * "Remote text"). This keeps that true when it is longer than the field
@@ -678,6 +688,7 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
                  * message in no_ack would be reporting a failure the
                  * protocol never promised to avoid. */
                 c->unacknowledgeable++;
+                c->heard_back += msg->heard_back > 0;
             } else if (msg->state == RIFT_MSG_ACKED) {
                 c->acked++;
             } else if (msg->state == RIFT_MSG_NO_ACK || msg->orphan) {

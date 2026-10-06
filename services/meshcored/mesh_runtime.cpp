@@ -145,6 +145,21 @@ const int OUTBOX_SLOTS = 8;
  * for a message of an earlier run matches nothing and is ignored. */
 const int LATE_ACK_SLOTS = 16;
 
+/* How many of this node's own channel sends are watched: for the radio's
+ * outcome and for copies relayed back to it (mcd_message, echo_tracked).
+ * Upstream gives a group frame no ACK and no tag (BaseChatMesh.cpp:487-506,
+ * companion CMD_SEND_CHANNEL_TXT_MSG answers only OK), but it does mark its
+ * own flood as seen "in case it is rebroadcast back to us" (Mesh.cpp:651):
+ * a copy coming back is expected, and its packet hash is the one sent. The
+ * newest sends are watched; an older one simply stops counting. */
+const int CHAN_ECHO_SLOTS = 16;
+
+struct ChanEchoSlot {
+    bool used;
+    uint8_t hash[MAX_HASH_SIZE];
+    uint64_t msg_id;
+};
+
 /* ---- the radio --------------------------------------------------------- */
 
 struct RxFrame {
@@ -459,6 +474,10 @@ public:
         memset(_outbox, 0, sizeof(_outbox));
         memset(_late, 0, sizeof(_late));
         _late_next = 0;
+        memset(_echo, 0, sizeof(_echo));
+        _echo_next = 0;
+        _chan_sent = false;
+        memset(_chan_sent_hash, 0, sizeof(_chan_sent_hash));
         memset(_messages, 0, sizeof(_messages));
         memset(_chan_messages, 0, sizeof(_chan_messages));
         memset(_occupied, 0, sizeof(_occupied));
@@ -500,6 +519,12 @@ public:
     void sendFloodScoped(const mesh::GroupChannel&, mesh::Packet* pkt,
                          uint32_t delay_millis) override
     {
+        /* The packet's hash, for the channel message sendChannelText() is
+         * about to record (CHAN_ECHO_SLOTS). The path is not in it. */
+        if (pkt) {
+            pkt->calculatePacketHash(_chan_sent_hash);
+            _chan_sent = true;
+        }
         sendFlood(pkt, delay_millis, _path_hash_bytes);
     }
 
@@ -959,6 +984,7 @@ public:
             return MCD_SEND_NO_CHANNEL;
         }
         timestamp = getRTCClock()->getCurrentTimeUnique();
+        _chan_sent = false;
         if (!sendGroupMessage(timestamp, ch.channel, _name, text, (int)strlen(text))) {
             return MCD_SEND_FAILED;
         }
@@ -984,6 +1010,16 @@ public:
          * changes. */
         m.state = MCD_MSG_SENT_FLOOD;
         m.ack_expected = false;
+        if (_chan_sent) {
+            ChanEchoSlot& e = _echo[_echo_next];
+
+            e.used = true;
+            memcpy(e.hash, _chan_sent_hash, sizeof(e.hash));
+            e.msg_id = m.id;
+            _echo_next = (_echo_next + 1) % CHAN_ECHO_SLOTS;
+            m.echo_tracked = true;
+            _chan_sent = false;
+        }
         pushChannel(m);
         emitMessage(m.id);
         if (msg_id) {
@@ -1509,6 +1545,7 @@ protected:
     void logTx(mesh::Packet* packet, int len) override
     {
         mcport::logWrite(mcport::LOG_DEBUG, "meshcore: tx %d bytes", len);
+        noteChannelTx(packet, true);
         if (_hooks.on_rx_obs && packet) {
             _rxlog.noteOwn(packet);
         }
@@ -1546,6 +1583,10 @@ protected:
     {
         mcd_rx_obs obs;
 
+        /* Before MeshCore's seen-table, which drops a copy of this node's
+         * own flood without a word (Mesh.cpp:651, :233). */
+        noteChannelEcho(pkt);
+
         if (!_hooks.on_rx_obs || !_rxlog.take(pkt, obs)) {
             return BaseChatMesh::onRecvPacket(pkt);
         }
@@ -1559,9 +1600,68 @@ protected:
         _hooks.on_rx_obs(_hooks.user, &obs);
         return action;
     }
-    void logTxFail(mesh::Packet*, int len) override
+    void logTxFail(mesh::Packet* packet, int len) override
     {
         mcport::logWrite(mcport::LOG_WARN, "meshcore: transmit of %d bytes did not complete", len);
+        noteChannelTx(packet, false);
+    }
+
+    /* The watched channel message this packet is, or NULL: a GRP_TXT whose
+     * hash is one of this node's own recent sends, still in the ring. */
+    mcd_message* ownChannelMessage(const mesh::Packet* pkt)
+    {
+        uint8_t hash[MAX_HASH_SIZE];
+
+        if (pkt == NULL || pkt->getPayloadType() != PAYLOAD_TYPE_GRP_TXT) {
+            return NULL;
+        }
+        pkt->calculatePacketHash(hash);
+        for (int i = 0; i < CHAN_ECHO_SLOTS; i++) {
+            if (_echo[i].used && memcmp(_echo[i].hash, hash, sizeof(hash)) == 0) {
+                return find(_echo[i].msg_id);
+            }
+        }
+        return NULL;
+    }
+
+    /* The radio's word on this node's own channel frame: sent, or not. */
+    void noteChannelTx(const mesh::Packet* pkt, bool sent)
+    {
+        mcd_message* m = ownChannelMessage(pkt);
+
+        if (m == NULL || !m->outgoing || (m->tx_known && m->transmitted == sent)) {
+            return;
+        }
+        m->tx_known = true;
+        m->transmitted = sent;
+        emitMessage(m->id);
+    }
+
+    /* A copy of this node's own channel frame, relayed back: counted, with
+     * the fewest relays any copy came through. A copy with no relay in its
+     * path is not one a repeater sent on, and is not counted. */
+    void noteChannelEcho(const mesh::Packet* pkt)
+    {
+        mcd_message* m;
+        uint8_t hops;
+
+        if (pkt == NULL || !pkt->isRouteFlood()) {
+            return;
+        }
+        hops = (uint8_t)pkt->getPathHashCount();
+        if (hops == 0 || (m = ownChannelMessage(pkt)) == NULL || !m->outgoing) {
+            return;
+        }
+        if (m->heard_back == 0 || hops < m->heard_back_hops) {
+            m->heard_back_hops = hops;
+        }
+        if (m->heard_back == 0) {
+            m->heard_back_mono_ms = mcport::monotonicMillis();
+        }
+        if (m->heard_back < UINT16_MAX) {
+            m->heard_back++;
+        }
+        emitMessage(m->id);
     }
 
 private:
@@ -2007,6 +2107,14 @@ private:
      * mean anything here. */
     OutboxSlot _late[LATE_ACK_SLOTS];
     int _late_next;
+    /* This node's own channel packets, by hash (CHAN_ECHO_SLOTS). The hash of
+     * the one being sent is caught in sendFloodScoped(GroupChannel) - which
+     * sendGroupMessage() calls with the packet it built - and filed against
+     * the message once the message has an id. */
+    ChanEchoSlot _echo[CHAN_ECHO_SLOTS];
+    int _echo_next;
+    bool _chan_sent;
+    uint8_t _chan_sent_hash[MAX_HASH_SIZE];
     Telemetry _telemetry[MAX_CONTACTS];
 
     uint64_t _path_refused;

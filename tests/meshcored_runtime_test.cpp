@@ -2203,6 +2203,8 @@ static int channelMessagesFor(Node& n, int slot)
     return found;
 }
 
+static void test_channel_heard_back(Node& a, Node& b, Air& air, int a_slot, int b_slot);
+
 static void test_channels(Node& a, Node& b, Air& air)
 {
     struct mcd_channel ca;
@@ -2333,6 +2335,8 @@ static void test_channels(Node& a, Node& b, Air& air)
     }
     check("node A did not receive its own message back",
           channelMessagesFor(a, ca.slot) == 1);
+
+    test_channel_heard_back(a, b, air, ca.slot, cb.slot);
 
     /* ---- a channel nobody holds ---- */
     check("sending on an empty slot is refused",
@@ -2907,6 +2911,125 @@ static void arrive(Node& to, Held& held)
  * MeshCore's attempt one higher, which the recipient hashes into a new ACK;
  * an ACK for any attempt delivers the message, once. a holds a direct route
  * to c when this runs, and nothing is waiting. */
+static void test_late_ack_and_resend(Node& a, Node& c, Air& air, const uint8_t* c_key);
+
+/* A channel message has no ACK; what the sender can know is the radio's
+ * outcome and copies of its own packet relayed back (mcd_message,
+ * echo_tracked). A relayed copy is built here the way a repeater makes one
+ * (Mesh::routeRecvPacket): the same header and payload, its hash appended to
+ * the path - so the same packet hash. Both nodes are companions, which
+ * forward nothing, so the test is the repeater. */
+static Frame relayed(const Frame& f, int hops)
+{
+    Frame r = f;
+    int i = 0;
+
+    r.len = 0;
+    r.bytes[r.len++] = f.bytes[i++];         /* header: route flood, GRP_TXT */
+    i++;                                      /* the original path_len, 0 */
+    r.bytes[r.len++] = (uint8_t)hops;         /* path hash size 1, count hops */
+    for (int h = 0; h < hops; h++) {
+        r.bytes[r.len++] = (uint8_t)(0x70 + h);
+    }
+    memcpy(&r.bytes[r.len], &f.bytes[i], (size_t)(f.len - i));
+    r.len += f.len - i;
+    return r;
+}
+
+static void test_channel_heard_back(Node& a, Node& b, Air& air, int a_slot, int b_slot)
+{
+    Held mine;
+    uint64_t id = 0;
+    struct mcd_message m;
+    struct mcd_rx_meta meta;
+    int events;
+
+    mine.n = 0;
+    check("A sends on the channel, its frame held back from the air",
+          mcd_runtime_send_channel_text(a.rt, a_slot, "heard?", &id) == MCD_SEND_ACCEPTED_FLOOD);
+    check("as an outgoing channel message being watched",
+          messageOf(a.rt, id, m) && m.echo_tracked && !m.tx_known && m.heard_back == 0);
+    carryHolding(air, a.index, mine, 40);
+    check("its frame went to the radio", mine.n == 1 && (mine.f[0].bytes[0] >> PH_TYPE_SHIFT &
+                                                           PH_TYPE_MASK) == PAYLOAD_TYPE_GRP_TXT);
+    check("and the radio said it was sent: transmitted, nothing more",
+          messageOf(a.rt, id, m) && m.tx_known && m.transmitted && m.heard_back == 0 &&
+              m.state == MCD_MSG_SENT_FLOOD && !m.ack_expected);
+
+    /* ---- a copy relayed back ---- */
+    events = a.message_events;
+    {
+        Frame back = relayed(mine.f[0], 2);
+
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(a.rt, back.bytes, back.len, &meta);
+        pump(air, 5);
+    }
+    check("a copy relayed through two repeaters is heard back",
+          messageOf(a.rt, id, m) && m.heard_back == 1 && m.heard_back_hops == 2 &&
+              m.heard_back_mono_ms > 0);
+    check("and subscribers are told", a.message_events > events);
+    check("it is still not called acknowledged",
+          m.state == MCD_MSG_SENT_FLOOD && !m.ack_known && !m.ack_expected);
+    check("nor filed as a message received", channelMessagesFor(a, a_slot) == 2);
+    {
+        uint64_t first = m.heard_back_mono_ms;
+        Frame back = relayed(mine.f[0], 1);
+
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(a.rt, back.bytes, back.len, &meta);
+        pump(air, 5);
+        check("a second copy, one relay away, counts and lowers the fewest relays",
+              messageOf(a.rt, id, m) && m.heard_back == 2 && m.heard_back_hops == 1 &&
+                  m.heard_back_mono_ms == first);
+    }
+    {
+        Frame same = mine.f[0];
+
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(a.rt, same.bytes, same.len, &meta);
+        pump(air, 5);
+        check("a copy no repeater sent on (no relay in its path) is not counted",
+              messageOf(a.rt, id, m) && m.heard_back == 2);
+    }
+
+    /* ---- somebody else's message on the same channel is not ours ---- */
+    {
+        uint64_t bid = 0;
+
+        check("B sends on the channel", mcd_runtime_send_channel_text(b.rt, b_slot, "mine, not yours",
+                                                                       &bid) == MCD_SEND_ACCEPTED_FLOOD);
+        Held theirs;
+
+        theirs.n = 0;
+        carryHolding(air, b.index, theirs, 40);
+        if (theirs.n > 0) {
+            Frame back = relayed(theirs.f[0], 1);
+
+            defaultMeta(meta);
+            mcd_runtime_deliver_rx(a.rt, back.bytes, back.len, &meta);
+            pump(air, 5);
+        }
+        check("B's message reaching A relayed is B's: A's message is unchanged",
+              theirs.n == 1 && messageOf(a.rt, id, m) && m.heard_back == 2);
+    }
+
+    /* ---- not transmitted ---- */
+    {
+        uint64_t fid = 0;
+
+        air.outcome = MCD_TX_FAILED;
+        check("A sends again, and the radio fails the transmit",
+              mcd_runtime_send_channel_text(a.rt, a_slot, "lost", &fid) == MCD_SEND_ACCEPTED_FLOOD);
+        check("the failure is said once the dispatcher gives up on the frame",
+              pumpUntil(air, [&] { return messageOf(a.rt, fid, m) && m.tx_known; }, 1500));
+        air.outcome = MCD_TX_OK;
+        check("as not transmitted, and nothing heard back",
+              messageOf(a.rt, fid, m) && !m.transmitted && m.heard_back == 0);
+        pump(air, 20);
+    }
+}
+
 static void test_late_ack_and_resend(Node& a, Node& c, Air& air, const uint8_t* c_key)
 {
     uint64_t id = 0;
