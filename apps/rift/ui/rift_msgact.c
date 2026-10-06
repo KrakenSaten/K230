@@ -5,7 +5,6 @@
  */
 #include "rift_msgact.h"
 
-#include "app.h"
 #include "pos_styles.h"
 #include "rift_comms.h"
 #include "rift_emoji.h"
@@ -64,11 +63,10 @@ static void into_composer(struct rift_app *a, const char *text, int in_front)
         lv_textarea_add_text(field, text);
     }
     a->focus_composer_pending = 1;
-    /* Portrait has no keyboard but the touch one, which a tap on the field
-     * brings up; the words were put there without one, so it comes up here. */
-    if (!a->wide && !pocketos_shell_keyboard_visible()) {
-        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, a);
-    }
+    /* The words were put there without a tap on the field, so the composer's
+     * own touch keyboard comes up here: portrait, a finger, Done puts it away
+     * (rift_comms_keyboard). */
+    rift_comms_keyboard(a);
 }
 
 static void paint_keys(struct rift_msgact *b)
