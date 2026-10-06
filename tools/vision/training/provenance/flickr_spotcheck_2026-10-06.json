@@ -1,0 +1,1923 @@
+{
+ "checked": "2026-10-06",
+ "n_per_source": 100,
+ "note": "Licence Flickr's oEmbed endpoint reported on the date for a deterministic sample of selected images (flickr_licence_spotcheck.py). build_traffic_dataset.py --licence-spotcheck rejects an image whose current licence is outside the policy (reason flickr_licence_now_restrictive). Author names are not stored here.",
+ "results": [
+  {
+   "dataset_licence": "No known copyright restrictions (Flickr Commons)",
+   "flickr_licence": "No known copyright restrictions",
+   "flickr_licence_id": 7,
+   "match": true,
+   "photo_id": "2898502265",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000558318"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7160667672",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000198277"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2320729948",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000464831"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8483921185",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000046385"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7696031448",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000064534"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "4225015522",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000059934"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6027782694",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000518416"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9112299286",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000521142"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8624339839",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000340903"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3926044987",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000134849"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7258143356",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000303413"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY-NC-ND 2.0",
+   "flickr_licence_id": 3,
+   "match": false,
+   "photo_id": "2668004769",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000154329"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "10027991673",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000482237"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "7913453968",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000158515"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4150504250",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000048759"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "All Rights Reserved",
+   "flickr_licence_id": 0,
+   "match": false,
+   "photo_id": "5396358619",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000099119"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3270603328",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000457492"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4620917797",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000498492"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY-NC-ND 2.0",
+   "flickr_licence_id": 3,
+   "match": false,
+   "photo_id": "6090810348",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000488500"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8664778398",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000151781"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY-NC-ND 2.0",
+   "flickr_licence_id": 3,
+   "match": false,
+   "photo_id": "3846978699",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000305267"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9349524943",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000084694"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "2927584170",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000278096"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4195128834",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000168624"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "3229165839",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000120655"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2851509696",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:val2017:000000053994"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9160853218",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000245377"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2680744675",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000360658"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7161049442",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000098510"
+  },
+  {
+   "dataset_licence": "No known copyright restrictions (Flickr Commons)",
+   "flickr_licence": "No known copyright restrictions",
+   "flickr_licence_id": 7,
+   "match": true,
+   "photo_id": "6198382885",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000314135"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "4136764108",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000471382"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6239676830",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000034570"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7358944960",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000518981"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3692033616",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000111760"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6821052159",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000201501"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "All Rights Reserved",
+   "flickr_licence_id": 0,
+   "match": false,
+   "photo_id": "4973796168",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000199865"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "8467236529",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000529956"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "8253870319",
+   "source": "coco2017",
+   "status": "unexpected_response",
+   "uid": "coco:train2017:000000363940"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5703893696",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000151141"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "8061982122",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000440291"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6202198704",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000413533"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7304882540",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000007653"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4425958748",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000397959"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5417442153",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000101467"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3499429624",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000552304"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8228152859",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000278238"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "10010544293",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000285550"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4012165948",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000087207"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "All Rights Reserved",
+   "flickr_licence_id": 0,
+   "match": false,
+   "photo_id": "6962499602",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000377084"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7300020498",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000402233"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "285874783",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000559865"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "9577886071",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000431986"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "6720467157",
+   "source": "coco2017",
+   "status": "unexpected_response",
+   "uid": "coco:train2017:000000229008"
+  },
+  {
+   "dataset_licence": "No known copyright restrictions (Flickr Commons)",
+   "flickr_licence": "No known copyright restrictions",
+   "flickr_licence_id": 7,
+   "match": true,
+   "photo_id": "7158678538",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000560007"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "4256251570",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000545351"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9614363656",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000479412"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8136384247",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000374010"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4318297859",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000063796"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9134862407",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000225566"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3758124930",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000392083"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4180789825",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000030139"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8138368981",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000419747"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2364188930",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000173300"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2835475814",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000319115"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "290762542",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000382789"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9480452662",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000126204"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "6754205289",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:val2017:000000479912"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4640747859",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000086358"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3304892811",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000560594"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8398087653",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000160967"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6587875825",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000026286"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8813870853",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000105402"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "79599597",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000297770"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6272582213",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000246755"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "2417942363",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000042312"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3009126734",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000094770"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3665756775",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000190829"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7194587734",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000365353"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3510528701",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000562485"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2612834251",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000027907"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8110119451",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000163897"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "1337028298",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000068167"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5978874762",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000050290"
+  },
+  {
+   "dataset_licence": "No known copyright restrictions (Flickr Commons)",
+   "flickr_licence": "No known copyright restrictions",
+   "flickr_licence_id": 7,
+   "match": true,
+   "photo_id": "5621323917",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000068290"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2546823925",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000418812"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "All Rights Reserved",
+   "flickr_licence_id": 0,
+   "match": false,
+   "photo_id": "7198871910",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000051829"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "All Rights Reserved",
+   "flickr_licence_id": 0,
+   "match": false,
+   "photo_id": "4465032348",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000353000"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "5536684793",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000084403"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "7807917400",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000251856"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "3477592298",
+   "source": "coco2017",
+   "status": "unexpected_response",
+   "uid": "coco:train2017:000000053082"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "5326924837",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000550019"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9475266271",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000274341"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9511507430",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000320770"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4529039984",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000372353"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9431997608",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000462530"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "2250272604",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000316477"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8459265911",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:val2017:000000410735"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "9261784943",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000234600"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "3992186970",
+   "source": "coco2017",
+   "status": "photo_unavailable",
+   "uid": "coco:train2017:000000465963"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5881301076",
+   "source": "coco2017",
+   "status": "ok",
+   "uid": "coco:train2017:000000320026"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7735647252",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:fdb1e55028e87b28"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "14085603898",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:6db610aea8cc83ac"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8691550003",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:27be0333b06cd523"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6490096009",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:98b8d120f448367f"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "78142277",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:7f118af11dfeb936"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "15510440403",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:56357c74050c36c0"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6962544876",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:13d88ebd31d0f1a8"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "14639705830",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:0fb39f93832ded28"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8137651680",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:514b0a1ddea9a6de"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "14105376957",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:534228d25631b4b0"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "829727101",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:185b20b11f032b6a"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8328615460",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:2459a6a28b06538c"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7397464530",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:2556c1316e7c187b"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "5005106417",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:test:5abea138d966fa40"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7516513358",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:6eb7173e5383005c"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC0 1.0",
+   "flickr_licence_id": 9,
+   "match": false,
+   "photo_id": "87582573",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:408b3fc610904727"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8527249370",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:d99c15c543f0c695"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3784940668",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:test:363fc13cbbaa23fa"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "5142755635",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:630cbb333d4b41fd"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8232870386",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:125217287e48b266"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "18063364685",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:60ff40b3cd44abc6"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "20178483526",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:871b0765fb19fa35"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5206389828",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:validation:efec755800aeed4c"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "4226597757",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:14d0e125fa806886"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5663537679",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:46df2d38a701fb22"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "18766520386",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:eb42bcc5a9af4779"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "4452938763",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:f9211b5e157ebe44"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7941758430",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:436a07298a12a329"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7166113758",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:a547c1b23a62765c"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5178685846",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:3c80f1a5fa91103a"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "All Rights Reserved",
+   "flickr_licence_id": 0,
+   "match": false,
+   "photo_id": "6240169867",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:1b276d9acf549ed2"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "21390747414",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:8a583ee1fe67dc04"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3454547503",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:15a3be368befc6f7"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "14324123415",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:402d3f1561ab9661"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "15177149724",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:bea0fa50ea706c71"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "5125560736",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:909fc6d98aa4b9a4"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "9051360925",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:d757143f943da3b5"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2972267364",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:f559623445be8bc3"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "18470994209",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:edc4d4387213db38"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "16251985980",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:92fe991b1e35a31a"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3553345869",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:2253d68c8e148e5e"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "14209593401",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:521e950c46cca022"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6033167482",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:402adf570335816d"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4292213082",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:f171a6e6aea34e76"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY-NC-SA 2.0",
+   "flickr_licence_id": 1,
+   "match": false,
+   "photo_id": "14331270370",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:32f6a2a3945dc9db"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9091020073",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:test:d90d33fbcbf3d8e1"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3770001246",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:5f6265f7d21607ee"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3730005070",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:8b3fce74304e5178"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7613743364",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:test:188a1e00ea626d49"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3768134454",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:f2443a3ae8b98863"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "19492656711",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:0852a15031965766"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5009067622",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:f649929b1397b34b"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7804346008",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:a2fc31bca2f12a77"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4870916936",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:b0e9793a8504f1ba"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9409422505",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:595f1b29d60310df"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "2276811082",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:aa085bbdcee4cb2a"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6960218256",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:cdcd74e1b8f45ffe"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7549692480",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:47a476817f2a5e51"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "7763445482",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:6e2f5b4cfd9ed538"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "13983114037",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:e43cb530a2d08e0f"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5895464954",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:f7d3ab6271a2083f"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "16812494979",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:9fceef0cc5e5ac91"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "16625316372",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:aa0798144c0d8cd4"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "20117803354",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:e25704ac26688c10"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4958973210",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:76f0de1d4a6916cb"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3921439600",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:3c9d7ad775b2ffcf"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5408982482",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:89773df5deb77337"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4594467035",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:7a8212f0eb231ab8"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "15046294547",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:a03717171128cdbc"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "1430167915",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:1d3c0507e127f1ea"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9470093291",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:test:16505a4af4fb08ca"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4848434033",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:25c308a4a0f8443c"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9170211860",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:2dbd3e8fe2722a18"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "514426160",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:3fd7a4bb657e204f"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "120878404",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:d9c794b83ee42c2f"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6773651600",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:a560a4b926432fd7"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "9015673891",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:validation:506b1b6af8c05ed1"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "5781717007",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:5a1f2ffc03fc88f6"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7182189752",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:69b1500cfad73818"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7776883622",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:be3654bdd7b19035"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4557313330",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:fb3718cbf74f7c4f"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "40807228",
+   "source": "openimages_v7",
+   "status": "unexpected_response",
+   "uid": "oi:test:c6941ea62dfea2a0"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5853561813",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:646a24cf7ab571e1"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "15168232927",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:7c886efa2ef88d4c"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6252413555",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:validation:64d1756e012a7fe5"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY-SA 2.0",
+   "flickr_licence_id": 5,
+   "match": false,
+   "photo_id": "5812060706",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:08c046da49de5914"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4737542954",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:b55133e5d500ff14"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "5937125682",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:4e8ed80c5b954340"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7381249330",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:b08242206a508e33"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "3537336206",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:a898f86d37899b10"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7169579342",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:e0488722895f2a2b"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "6826226029",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:af45956fc0b50f98"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "17210498136",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:d7e91eadd123cca3"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "16664460643",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:ff16a32610272369"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "7876774234",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:84f16e95c3894b26"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "photo_id": "14230182410",
+   "source": "openimages_v7",
+   "status": "photo_unavailable",
+   "uid": "oi:train:e5401b86ea608dc1"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8371848922",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:47bd175b23d6824d"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "3354737070",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:b2936a66ef1b81c4"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "4715505842",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:c1156597b758b936"
+  },
+  {
+   "dataset_licence": "CC BY 2.0",
+   "flickr_licence": "CC BY 2.0",
+   "flickr_licence_id": 4,
+   "match": true,
+   "photo_id": "8977179894",
+   "source": "openimages_v7",
+   "status": "ok",
+   "uid": "oi:train:247e5f759d066be6"
+  }
+ ],
+ "seed": 20261004,
+ "summary": {
+  "coco2017": {
+   "different_licence_today": 8,
+   "other": 3,
+   "photo_unavailable": 19,
+   "same_licence_today": 70,
+   "sampled": 100,
+   "today_licences": [
+    "All Rights Reserved",
+    "CC BY 2.0",
+    "CC BY-NC-ND 2.0",
+    "No known copyright restrictions"
+   ]
+  },
+  "openimages_v7": {
+   "different_licence_today": 4,
+   "other": 1,
+   "photo_unavailable": 15,
+   "same_licence_today": 80,
+   "sampled": 100,
+   "today_licences": [
+    "All Rights Reserved",
+    "CC BY 2.0",
+    "CC BY-NC-SA 2.0",
+    "CC BY-SA 2.0",
+    "CC0 1.0"
+   ]
+  }
+ }
+}

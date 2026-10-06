@@ -1,6 +1,6 @@
 # Dataset provenance: DOORS Traffic detector (YOLOX-Tiny 416)
 
-Status: **research, 2026-10-04**. This is an engineering record, not legal
+Status: **research, 2026-10-04; Open Images and the R0 dataset added 2026-10-06**. This is an engineering record, not legal
 advice. Nothing here changes production Vision; `yolov8n.kmodel` stays the
 shipped model.
 
@@ -34,7 +34,7 @@ input with unclear terms is excluded or held for an owner decision.
 | COCO 2017 images, CC BY 2.0 / no known restrictions | per image, Flickr (VERIFIED field) | yes (conservative tier) | **used** |
 | COCO 2017 images, CC BY-SA 2.0 | per image | only after an owner decision | **held** |
 | COCO 2017 images, NC / ND licences | per image | no | **excluded** |
-| Open Images V7 | annotations CC BY 4.0; images "listed as" CC BY 2.0 (VERIFIED) | yes, after metadata filter | **planned** |
+| Open Images V7 | annotations CC BY 4.0; images "listed as" CC BY 2.0 (VERIFIED) | yes, per-image filter (section 4) | **used** (from 2026-10-06, R0 dataset) |
 | DOORS camera captures | owner's own; GDPR applies | test set first | **planned** |
 | 2026-10-04 evaluation frames | vendor pictures + DOORS frames | **never** (hash-excluded) | evaluation only |
 | BDD100K | commercial use needs a UC Berkeley licence (DOCUMENTED) | no | **excluded** |
@@ -135,24 +135,120 @@ is therefore part of the plan, not an option.
   (open item U3).
 - **Images are never redistributed.** Only the weights are.
 
-## 4. Open Images V7 (planned, main volume source)
+## 4. Open Images V7 (audited 2026-10-06; used for the R0 dataset)
 
-- **Terms (VERIFIED, factsfigures_v7 page).** "The annotations are licensed
-  by Google LLC under CC BY 4.0 license. The images are listed as having a
-  CC BY 2.0 license." Google adds that it makes no representations about
-  each image's licence status and that users should verify it.
-- **Per-image metadata (DOCUMENTED).** The image list carries `License`,
-  `Author`, `AuthorProfileURL` and `OriginalURL`. That is better than COCO
-  for attribution.
-- **Relevant boxable classes.** Car, Truck, Bus, Motorcycle, Van, Taxi,
-  Ambulance and Vehicle (parent class). The folding into the DOORS classes
-  must be decided: Van and Taxi fold into car, Ambulance into truck or car,
-  and the generic "Vehicle" boxes are ignored. Box counts were not measured
-  (the metadata is several GB and was not downloaded).
-- **To do before use:** a `prepare_openimages_traffic.py` with the same
-  manifest format. It keeps only rows whose licence URL is CC BY 2.0 and
-  records the author and URL per image. Not written yet; it needs a download
-  approval.
+The full numbers and the readiness gates are in
+[DATASET_TRAFFIC6_R0.md](DATASET_TRAFFIC6_R0.md). This section records the
+terms, the evidence per image and the decision.
+
+### 4.1 Terms (VERIFIED, factsfigures_v7.html, read 2026-10-06)
+
+- **Annotations.** Licensed by Google LLC under CC BY 4.0.
+- **Images.** "listed as having a CC BY 2.0 license".
+- **Google's disclaimer.** Google tried to identify CC BY images but makes
+  no representations or warranties about each image's licence status. The
+  user should verify the licence of each image.
+
+### 4.2 Evidence per image (VERIFIED, read from the metadata files)
+
+The image CSVs (`train-images-boxable-with-rotation.csv` etc.) carry, per
+image: `ImageID`, `OriginalURL` (Flickr file), `OriginalLandingURL` (Flickr
+photo page), `License` (URL), `Author`, `AuthorProfileURL`, `Title`,
+`OriginalSize`, `OriginalMD5`, `Rotation`.
+
+| Evidence | COCO allow tier (used since 2026-10-04) | Open Images V7 |
+|---|---|---|
+| Licence per image | `license` id into the file's table (Flickr label) | `License` URL (Flickr label) |
+| Who asserted the licence | the Flickr uploader | the Flickr uploader |
+| Provider's warranty | none: users "accept full responsibility" | none: "no representations or warranties" |
+| Author name | no | yes (`Author`, `AuthorProfileURL`) |
+| Flickr photo page | no (only the static file URL) | yes (`OriginalLandingURL`) |
+| Candidates in the Traffic selection with a CC BY 2.0 label | 19,470 of 118,287 train2017 images | 149,522 of 149,522 (100 %) |
+| Candidates without author or source URL | n/a (never recorded) | 0 |
+
+- **The stored file is not the Flickr original.** The CVDF mirror's files
+  are re-encoded: for 2 of 2 checked images the MD5 differs from
+  `OriginalMD5` and the file is smaller. The link from a stored file to its
+  Flickr photo is the `ImageID` record, not byte identity. The pipeline
+  records its own sha256 per file. (COCO's files are COCO's own copies
+  too.)
+
+### 4.3 Spot check of today's Flickr licence (VERIFIED 2026-10-06)
+
+`provenance/flickr_licence_spotcheck.py` asked Flickr's public oEmbed
+endpoint for the current licence of a fixed sample: 100 selected images per
+source, chosen by sha256 of the seed and the image uid. The result is
+committed as `provenance/flickr_spotcheck_2026-10-06.json`.
+
+| | COCO allow tier | Open Images V7 |
+|---|---|---|
+| Same licence today | 70 | 80 |
+| More restrictive today | 8 (5 All Rights Reserved, 3 BY-NC-ND) | 3 (All Rights Reserved, BY-NC-SA, BY-SA) |
+| More permissive today | 0 | 1 (CC0) |
+| Photo deleted or not public | 19 | 15 |
+| No usable answer | 3 | 1 |
+
+- A first attempt read the photo page HTML. Flickr sends anonymous clients
+  to Explore, so that HTML held other photos' licences. Those results were
+  discarded.
+- CC licences cannot be revoked for copies already obtained under them. A
+  stricter licence today therefore does not show that the label was wrong
+  at collection time, but it does not show that it was right either.
+- **Handling.** The 11 sampled images with a stricter licence today
+  (8 COCO, 3 Open Images) are rejected: `flickr_licence_now_restrictive`.
+  Deleted photos keep their dataset record as the only evidence, as do the
+  unsampled images.
+- **What it shows.** Open Images' labels hold up at least as well as the
+  COCO tier this policy already accepts. In both sources about 5-10 % of
+  the still-visible photos carry a stricter licence today (new
+  uncertainty U10).
+
+### 4.4 Decision
+
+Under the rule in section 1 and the accepted residual risk U2, an Open
+Images image meets the same evidence standard as a COCO allow-tier image. It
+also carries more attribution data. Open Images is therefore **used**, per
+image and only under these rules (`data/openimages_traffic.py`). The images
+are not called licence-safe: U2, U6 and U10 apply to them as to COCO.
+
+| Rule | Rejection reason |
+|---|---|
+| `License` is exactly `https://creativecommons.org/licenses/by/2.0/` | `licence_not_cc_by_2.0` |
+| `Author` and `AuthorProfileURL` present | `missing_author` |
+| `OriginalURL` and `OriginalLandingURL` present | `missing_original_url` |
+| Spot check shows no stricter licence today | `flickr_licence_now_restrictive` |
+
+Annotation rules (not licence; they keep wrong or missing boxes out):
+
+| Rule | Rejection reason |
+|---|---|
+| `Rotation` is 0 (nan or 90/180/270 means the boxes may not match the stored pixels) | `rotation_not_zero` |
+| No Vehicle, Land vehicle or Ambulance box (a target that maps to no single class) | `ambiguous_vehicle_box` |
+| No target box that is a depiction (drawing, toy, poster) | `depiction` |
+| No target box taken from inside the object | `inside_view` |
+| Person (or Man/Woman/Boy/Girl) human-verified, present or absent: Open Images boxes only verified classes, so an unverified person may be unboxed | `person_unverified` |
+| Group-of boxes are kept as `iscrowd=1`; YOLOX ignores them, like COCO crowd boxes | - |
+
+**Class folding** follows Open Images' own hierarchy
+(`bbox_labels_600_hierarchy.json`): Car, Limousine, Van (children of Car)
+and Taxi go to car. Man, Woman, Boy and Girl (children of Person) go to
+person. Truck, Bus, Motorcycle and Bicycle map one to one.
+
+**Selection rule.** An image is a candidate when it has a box of car, truck,
+bus, motorcycle or bicycle. Person-only images are outside the rule:
+809,637 of them, not downloaded. COCO already supplies persons.
+
+**Splits.** These are Open Images' own: train to train, validation to val,
+test to test.
+
+| Subset | Candidates | Selected | Main rejection reasons |
+|---|---|---|---|
+| train | 126,504 | 32,640 | person_unverified 70,417; rotation 15,896; depiction 6,324; inside 2,326 |
+| validation | 5,768 | 716 | person_unverified 2,602; ambiguous 1,791; rotation 620 |
+| test | 17,250 | 2,340 | person_unverified 7,426; ambiguous 5,593; rotation 1,748 |
+
+The counts overlap: one image can fail several rules. The exact counts per
+reason are in the dataset's `stats.json`.
 
 ## 5. DOORS camera captures (planned)
 
@@ -173,16 +269,32 @@ is therefore part of the plan, not an option.
 
 ## 6. Splits and leakage guard
 
+The R0 dataset (`build_traffic_dataset.py`, 2026-10-06):
+
 | Split | Source | Used for |
 |---|---|---|
-| train | COCO train2017 (filtered) + later Open Images train | training, calibration images |
-| val | COCO val2017 (filtered) (+ Open Images validation) | epoch selection (best_ckpt) |
-| test | DOORS captures + the 2026-10-04 evaluation set | the final comparison only |
+| train | COCO train2017 (allow tier) + Open Images train | training, calibration images |
+| val | half of COCO val2017 (allow tier) + Open Images validation | epoch selection (best_ckpt) |
+| test (held out) | the other half of COCO val2017 + Open Images test | the final comparison only; the exp never reads it |
+| DOORS test (later) | DOORS captures + the 2026-10-04 evaluation set | the real use case; not built yet |
 
-`prepare_coco_traffic.py --exclude-sha256` drops any file whose sha256 is on
-the test list. The smoke run used the 170 frames of the 2026-10-04
-evaluation. Kmodel calibration uses training images only (the 2026-10-04
-evaluation calibrated on COCO val2017, which is not done here).
+- **COCO val2017 split.** The first 8 hex digits of
+  sha256("doors-split:SEED:coco-val2017:ID"), taken mod 2: 0 goes to val,
+  1 to test.
+- **Leakage guard.** These are removed:
+  - the same sha256 in two places
+  - the same Flickr photo id in COCO and Open Images
+  - a near duplicate across splits (64-bit dHash, Hamming distance 4 or less)
+
+  The copy kept is chosen by split (test, then val, then train), then by
+  source (COCO first), then by uid. `dataset_checks.py` fails the build if
+  any sha256, uid, source id or Flickr id is in two splits.
+- **Exclusion list.** `--exclude-sha256` still drops listed files. The
+  2026-10-04 evaluation frames are not on the office PC, so the R0 build
+  ran without that list (DATASET_TRAFFIC6_R0.md, limitations). Those
+  frames are vendor pictures and DOORS camera frames, not COCO or Open
+  Images files, but this was not checked by hash.
+- **Calibration.** Kmodel calibration uses training images only.
 
 ## 7. Remaining licence uncertainties
 
@@ -197,3 +309,5 @@ evaluation calibrated on COCO val2017, which is not done here).
 | U7 | The EU text-and-data-mining exception (DSM Directive art. 4) and its opt-out, and Norway's implementation | could permit or limit training on lawfully accessed images | not relied on; noted only |
 | U8 | Privacy in DOORS captures | GDPR obligations | section 5 |
 | U9 | YOLOX upstream checkpoint terms | not used, so no effect | none |
+| U10 | Licence label drift, measured 2026-10-06: of the still-visible sampled photos, 8/78 (COCO allow tier) and 3/84 (Open Images) carry a stricter Flickr licence today | the label at collection time cannot be confirmed; about 5-10 % of images may have been, or become, mislabelled | sampled ones with contrary evidence rejected; residual risk as U2; a full per-image check would take about 48,500 oEmbed calls (not done) |
+| U11 | The CVDF mirror's Open Images files are re-encoded (MD5 differs from `OriginalMD5`) | a stored file cannot be shown byte-identical to the Flickr original | the ImageID record links them; own sha256 recorded |

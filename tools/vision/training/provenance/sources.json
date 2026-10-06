@@ -1,6 +1,6 @@
 {
   "format": "doors-training-provenance-v1",
-  "updated": "2026-10-04",
+  "updated": "2026-10-06",
   "note": "Machine-readable companion of docs/vision/DATASET_PROVENANCE.md. 'status': approved = used by the pipeline today; planned = needs an owner decision or download approval first; excluded = not to be used. Evidence: VERIFIED = read from the primary source on the date; DOCUMENTED = secondary source; ASSUMED = not verified. This is an engineering record, not legal advice.",
   "sources": [
     {
@@ -62,6 +62,7 @@
       "attribution": "CC BY 2.0 asks for attribution when the work or an adaptation is shared; COCO stores no author names, only the Flickr URL. ATTRIBUTION.tsv lists every training image with licence and Flickr URL",
       "redistribution": "images are never redistributed; whether weights are an adaptation of training images is legally unsettled",
       "counts_traffic4": {"train_positive": 3077, "train_negative_pool": 9223, "train_boxes": 11918, "val_positive": 143, "val_boxes": 551},
+      "counts_traffic6_r0": {"candidates_any_licence": 73624, "included": 12822, "rejected_licence": 60776, "rejected_spotcheck": 8, "quarantined": 18, "included_train": 10408, "included_val": 913, "included_test": 1501},
       "uncertainty": "Flickr licence labels are uploader-asserted; COCO's licence field is not independently verified; no author names; weights-as-adaptation unsettled",
       "status": "approved"
     },
@@ -88,13 +89,32 @@
     {
       "id": "open-images-v7",
       "kind": "images + boxes",
-      "source": "https://storage.googleapis.com/openimages/web/factsfigures_v7.html",
-      "licence": "annotations CC BY 4.0 (Google LLC); images 'listed as having a CC BY 2.0 license', per-image License, Author and OriginalURL columns",
-      "evidence": "VERIFIED 2026-10-04 (licence paragraph read); per-image columns DOCUMENTED",
-      "training_use": "yes once fetched and filtered to images whose listed licence is CC BY 2.0",
-      "attribution": "author name + original URL per image are available, better than COCO",
-      "uncertainty": "Google states it makes no representations on each image's licence status; vehicle box counts not yet measured; download of metadata (several GB) not yet approved",
-      "status": "planned"
+      "source": "https://storage.googleapis.com/openimages/web/factsfigures_v7.html; metadata files of download_v7.html (sha256 in docs/vision/data/traffic6_r0/manifest.json 'inputs'); images from the CVDF mirror https://open-images-dataset.s3.amazonaws.com/",
+      "licence": "annotations CC BY 4.0 (Google LLC); images 'listed as having a CC BY 2.0 license', per-image License, Author, AuthorProfileURL, OriginalURL, OriginalLandingURL columns",
+      "terms_note": "Google makes no representations or warranties regarding the license status of each image; users should verify each image's licence",
+      "evidence": "VERIFIED 2026-10-06 (licence paragraph re-read; per-image columns read from the CSVs; 100 % of the 149,522 Traffic candidates list CC BY 2.0 with author and URLs; Flickr oEmbed spot check of 100 selected images: 80 same licence today, 3 stricter, 1 CC0, 15 gone, 1 unresolved)",
+      "training_use": "yes, per image under the rules of DATASET_PROVENANCE.md 4.4 (exact CC BY 2.0 URL, author and source URL present, Rotation 0, no ambiguous/depiction/inside-view target box, person human-verified, no stricter licence in the spot check)",
+      "attribution": "author name, author profile and Flickr page per image; ATTRIBUTION.tsv lists every training image",
+      "redistribution": "images are never redistributed; the CVDF files are re-encoded copies (MD5 differs from OriginalMD5)",
+      "counts_traffic6_r0": {"candidates": 149522, "included": 35455, "rejected": 113826, "quarantined": 241, "included_train": 32480, "included_val": 702, "included_test": 2273, "person_only_outside_rule": 809637},
+      "uncertainty": "as COCO: uploader-asserted labels (U2/U6), 5-10 % of sampled still-visible photos stricter today (U10), re-encoded files (U11); not exhaustively labelled for classes other than the verified ones",
+      "status": "approved"
+    },
+    {
+      "id": "flickr-licence-spotcheck-2026-10-06",
+      "kind": "evidence",
+      "source": "provenance/flickr_licence_spotcheck.py via https://www.flickr.com/services/oembed/",
+      "result": "provenance/flickr_spotcheck_2026-10-06.json: COCO allow tier 70 same / 8 stricter / 19 gone / 3 unresolved; Open Images 80 same / 3 stricter / 1 more permissive / 15 gone / 1 unresolved (100 each)",
+      "training_use": "the 11 stricter ones are rejected by build_traffic_dataset.py --licence-spotcheck",
+      "status": "approved (evidence)"
+    },
+    {
+      "id": "dataset-traffic6-r0",
+      "kind": "built dataset",
+      "source": "data/build_traffic_dataset.py, 2026-10-06; record docs/vision/DATASET_TRAFFIC6_R0.md",
+      "counts": {"train": 42888, "val": 1615, "test": 3774, "coco_included": 12822, "openimages_included": 35455},
+      "manifest_json_sha256": "27b45431e6aaf2276bc34dc1aed3d77644112712b86713425f782cf9ac16274b",
+      "status": "approved (R0 training input; not trained yet)"
     },
     {
       "id": "doors-camera-captures",

@@ -1,0 +1,218 @@
+{
+ "class_mapping": [
+  {
+   "category_id": 1,
+   "class_id": 0,
+   "coco_category_id": 3,
+   "doors_index": 2,
+   "name": "car",
+   "openimages_labels": [
+    "Car",
+    "Limousine",
+    "Taxi",
+    "Van"
+   ]
+  },
+  {
+   "category_id": 2,
+   "class_id": 1,
+   "coco_category_id": 8,
+   "doors_index": 7,
+   "name": "truck",
+   "openimages_labels": [
+    "Truck"
+   ]
+  },
+  {
+   "category_id": 3,
+   "class_id": 2,
+   "coco_category_id": 6,
+   "doors_index": 5,
+   "name": "bus",
+   "openimages_labels": [
+    "Bus"
+   ]
+  },
+  {
+   "category_id": 4,
+   "class_id": 3,
+   "coco_category_id": 4,
+   "doors_index": 3,
+   "name": "motorcycle",
+   "openimages_labels": [
+    "Motorcycle"
+   ]
+  },
+  {
+   "category_id": 5,
+   "class_id": 4,
+   "coco_category_id": 2,
+   "doors_index": 1,
+   "name": "bicycle",
+   "openimages_labels": [
+    "Bicycle"
+   ]
+  },
+  {
+   "category_id": 6,
+   "class_id": 5,
+   "coco_category_id": 1,
+   "doors_index": 0,
+   "name": "person",
+   "openimages_labels": [
+    "Boy",
+    "Girl",
+    "Man",
+    "Person",
+    "Woman"
+   ]
+  }
+ ],
+ "class_set": "traffic6",
+ "classes": [
+  "car",
+  "truck",
+  "bus",
+  "motorcycle",
+  "bicycle",
+  "person"
+ ],
+ "command": "build_traffic_dataset.py --coco-ann <annotations> --oi-meta <meta> --raw <raw> --out <traffic6_r0> --licence-spotcheck provenance/flickr_spotcheck_2026-10-06.json --workers 16",
+ "counts": {
+  "box_problems": {
+   "box_under_1px": 7,
+   "duplicate_annotation": 443
+  },
+  "near_duplicates_within_split": 177,
+  "openimages_outside_rule": {
+   "test": 30251,
+   "train": 769398,
+   "validation": 9988
+  },
+  "quarantined": {
+   "near_duplicate_cross_split": 25,
+   "no_valid_target_box": 161,
+   "same_flickr_photo": 73
+  },
+  "selected": {
+   "coco2017/test": 1501,
+   "coco2017/train": 10424,
+   "coco2017/val": 915,
+   "openimages_v7/test": 2340,
+   "openimages_v7/train": 32640,
+   "openimages_v7/val": 716
+  }
+ },
+ "doors_index": [
+  2,
+  7,
+  5,
+  3,
+  1,
+  0
+ ],
+ "files": {
+  "ATTRIBUTION.tsv": "2bc99bc8b2098a4f628fa8f3d0c08af5252a0d4cbdfb1eddaad9f9062e594c3e",
+  "near_duplicates_within_split.jsonl": "6f95c57b5111558a2ebc82f8846d5218bddec79246f33b2b9ae7e4974ced6e64",
+  "provenance.jsonl": "199d7a060eb1ab59bfdc83ceba81c798a1ab56cfcecad437987d47a3f12643b3",
+  "quarantine.jsonl": "63e5164805cb7f559157b505379112eca3fa1984262c5f105b4a0b48367c87d6",
+  "test_set.sha256": "789367c68a5df6edaf21d3bb4fd11e1f38669c9f2d3fe2336a0d3ba1fd4633c1"
+ },
+ "format": "doors-traffic-dataset-v2",
+ "inputs": {
+  "coco/instances_train2017.json": "610fce4944abdeb15354cc765333805529359d12d88f2f711393ca586901d01d",
+  "coco/instances_val2017.json": "e8c7f7908f1d7278341fae127d0da654f102f11bd7b21d8aeefa635b8c810b6f",
+  "openimages/bbox_labels_600_hierarchy.json": "a28f06e83c8378c4285d92d768ceda7568a48cac3c02994b6c346df804e7d612",
+  "openimages/oidv6-train-annotations-bbox.csv": "dfc9637907a6b105f87e435bac91a5ee9b29af3ff8391168f86c1d63879786b6",
+  "openimages/oidv7-class-descriptions-boxable.csv": "1839e0e7e84130ae281f7f67413768601b031581c0c42e7fc17527b8e2a99aa9",
+  "openimages/test-annotations-bbox.csv": "fe22e579b9453875601576859d14ef3304058165de139c66b725e599202bd7b1",
+  "openimages/test-annotations-human-imagelabels-boxable.csv": "f293c5f7cf5ec61b9ff2eb3e986b8bafac135c930b87d80c8f3a081a7ec5b6d2",
+  "openimages/test-images-with-rotation.csv": "de55c6b8cbda32a79f4a20f28572d54e9c49d527a4006725675764074a51a36d",
+  "openimages/train-annotations-human-imagelabels-boxable.csv": "f9bec2d40b4e12d67c9f726292b5db88285713267fc3dc6496ae72839b2fd9de",
+  "openimages/train-images-boxable-with-rotation.csv": "05f3d68dbbb03728d1a37e51479f4f35c062b871e1a6cae8c4cefbe0e0c80ed0",
+  "openimages/validation-annotations-bbox.csv": "d8bbd59410af14835d7733165a7bb8a3f0213981b22dd5077b0b9f7878991ff2",
+  "openimages/validation-annotations-human-imagelabels-boxable.csv": "d5ff236d3cdbba36dac1ee6f7fdf9a26934205cbec5b933b0872722e2b6d3417",
+  "openimages/validation-images-with-rotation.csv": "ed93a0e121fe345effdfc7359b848dbc64a1ff6778c8c73563157cb500b33a17"
+ },
+ "rules": {
+  "box_checks": "class id 0..5, inside the image (+-1 px, then clipped), >= 1 px, same-class IoU >= 0.95 duplicate dropped",
+  "coco_licence_policy": {
+   "file": "provenance/coco_licence_policy.json",
+   "sha256_lf": "e02bc4f3d1cc86f58ada90c0d1ec274a791eedd6acef79e4a9df6689b818d1c5",
+   "tiers": [
+    "allow"
+   ]
+  },
+  "coco_negatives": "street-context images without a target, ratio 0.15 of positives, seeded",
+  "coco_split": "h = first 8 hex of sha256('doors-split:SEED:coco-SRC:ID'); val2017: h mod 2 = 0 val, 1 test; train2017: h mod 20 = 0-1 test, 2 val, else train",
+  "exact_duplicates": "same sha256 or same Flickr photo id: one kept, by split test>val>train, then COCO>OI, then uid",
+  "exclusion_list": {
+   "entries": 0,
+   "file": null,
+   "sha256": null
+  },
+  "file_checks": "full decode (Pillow), EXIF orientation must be absent or 1, COCO size must match",
+  "licence_spotcheck": {
+   "file": "flickr_spotcheck_2026-10-06.json",
+   "rejected": 11,
+   "sha256_lf": "e2f3fa247837af2d9e8fde6091ff465f53e78b49a781acdddb7e3dd3006c47d5"
+  },
+  "limit": 0,
+  "near_duplicates": "64-bit dHash (9x8 grey, Pillow BILINEAR), Hamming <= 4; across splits the lower-priority copy is removed, inside a split reported only",
+  "openimages": {
+   "group_of": "IsGroupOf boxes kept as iscrowd=1 (YOLOX ignores crowd boxes)",
+   "licence": "https://creativecommons.org/licenses/by/2.0/",
+   "person_unverified": "Person (or Man/Woman/Boy/Girl) never human-verified in the image",
+   "reject_reasons": {
+    "ambiguous_vehicle_box": "has a Vehicle, Land vehicle or Ambulance box",
+    "depiction": "a target box is a depiction (drawing, toy, poster)",
+    "inside_view": "a target box is a view from inside the object",
+    "invalid_box": "a target box is outside [0,1] or has no area",
+    "licence_not_cc_by_2.0": "License column is not exactly https://creativecommons.org/licenses/by/2.0/",
+    "missing_author": "Author or AuthorProfileURL empty: CC BY attribution impossible",
+    "missing_original_url": "OriginalURL or OriginalLandingURL empty: source not traceable",
+    "not_in_image_list": "ImageID has boxes but no row in the images CSV",
+    "rotation_not_zero": "Rotation is not 0 (or unknown): boxes may not match the stored pixels"
+   },
+   "selection": "a box of ['bicycle', 'bus', 'car', 'motorcycle', 'truck']",
+   "split": "official subsets: train->train, validation->val, test->test"
+  }
+ },
+ "seed": 20261004,
+ "splits": {
+  "test": {
+   "annotation_file": "annotations/traffic_test.json",
+   "annotation_sha256": "67d3b1cc00fb21ef69c127129d957cab4feb8e4e54e1fef4176bd8705a844656",
+   "boxes": 16294,
+   "boxes_non_crowd": 15384,
+   "image_list_sha256": "16281877e27250aba19796c86fc4c37dbd960efea80868ea0e0e7e9aee9ca8e8",
+   "images": 3774,
+   "manifest_file": "manifest_test.jsonl",
+   "manifest_sha256": "0599a4d14a20827be0b1769fd1f162823132c9de17f9f0c1eb04ee407efe3e74"
+  },
+  "train": {
+   "annotation_file": "annotations/traffic_train.json",
+   "annotation_sha256": "f68474b0c34593f24934830a882a995ad8ba2e8233b6b1d94857d3ef1fba50fa",
+   "boxes": 270957,
+   "boxes_non_crowd": 262050,
+   "image_list_sha256": "b1ceef867e664e6c4c7df105b44204a93cd09c51638e738a4c7739f7380c637c",
+   "images": 42888,
+   "manifest_file": "manifest_train.jsonl",
+   "manifest_sha256": "5d48a30890a16fdd60625a0a9b0edee649810bd32ef6398ab52b31f37406f22d"
+  },
+  "val": {
+   "annotation_file": "annotations/traffic_val.json",
+   "annotation_sha256": "384c6abecb0d6470102d985e6c3c6909f6f553d0a8193baec868f48e34d538ad",
+   "boxes": 7052,
+   "boxes_non_crowd": 6762,
+   "image_list_sha256": "de4bfdf720f8823c598c6fbb1a7f94f1745a75813661158921b9fc891cd7d0c1",
+   "images": 1615,
+   "manifest_file": "manifest_val.jsonl",
+   "manifest_sha256": "63b1ec5308fc77db860f85d1d189d9c4f7af3632d1cd136dc635ac8e2ec21562"
+  }
+ },
+ "tools": {
+  "pillow": "12.3.0",
+  "python": "3.10.20"
+ }
+}

@@ -78,6 +78,13 @@ three: `DOORS_CLASS_SET`.
 
 ## 4. Dataset plan
 
+**Update 2026-10-06.** The R0 dataset is built: `traffic6_r0`, COCO allow
+tier + Open Images V7, train 42,888 / val 1,615 / held-out test 3,774. The
+counts, gates and gaps are in
+[DATASET_TRAFFIC6_R0.md](DATASET_TRAFFIC6_R0.md). R0 therefore uses
+`traffic6` and Open Images. The table and plan below are the 2026-10-04
+state.
+
 | Need from the brief | Source | Coverage today |
 |---|---|---|
 | Ordinary vehicles | COCO (allowed tier) | 3,077 train images, 11,918 boxes (VERIFIED) |
@@ -323,9 +330,9 @@ person-presence detection for DeskBuddy and is kept separate from Traffic.
 
 ## 11. Decisions needed from the owner before R1
 
-1. **Class set:** `traffic4` (brief) or `traffic6` (keeps Traffic's bike and person counters), section 3.
+1. **Class set:** `traffic4` (brief) or `traffic6` (keeps Traffic's bike and person counters), section 3. *Decided 2026-10-06: `traffic6`.*
 2. **CC BY-SA COCO images:** in or out (+58 % COCO vehicle boxes), DATASET_PROVENANCE U5.
-3. **Open Images V7:** approve the metadata download (several GB) and the prepare script.
+3. **Open Images V7:** approve the metadata download (several GB) and the prepare script. *Done 2026-10-06. It is accepted under the existing policy (DATASET_PROVENANCE 4.4) and is in `traffic6_r0`. `--no-openimages` reverts it.*
 4. **GPU host:** where R0/R1 run (cloud single 24 GB GPU suggested; laptop cannot).
 5. **DOORS test capture:** when and where, with the privacy handling of DATASET_PROVENANCE section 5.
 
@@ -333,7 +340,7 @@ person-presence detection for DeskBuddy and is kept separate from Traffic.
 
 - No real training run, no real candidate, no comparison numbers for a DOORS model. The only GPU runs are the Arc B580 smoke runs (sections 13 and 14).
 - No unit B run: KPU latency and the CPU-fallback proof wait for a candidate.
-- Open Images: prepare script not written; no download.
+- Open Images: audited, downloaded (35,699 images) and built into `traffic6_r0` (DATASET_TRAFFIC6_R0.md). No training on it yet.
 - The CUDA path (`train.sh` through YOLOX's Trainer, tensorboard, val AP)
   is not exercised. The CPU and XPU smoke runs use YOLOX's model, loader,
   loss, optimiser, scheduler and EMA, but their own loop.

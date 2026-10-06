@@ -23,7 +23,13 @@ Background:
 | `requirements-*.txt` | pinned Python packages |
 | `provenance/` | `sources.json` (every input and its terms), `coco_licence_policy.json` |
 | `data/class_sets.py` | class sets and their DOORS (COCO-80) indices |
-| `data/prepare_coco_traffic.py` | licence-filtered COCO subset, fetched, hashed, with manifest and attribution |
+| `data/prepare_coco_traffic.py` | licence-filtered COCO subset, fetched, hashed, with manifest and attribution (smoke sets) |
+| `data/build_traffic_dataset.py` | the R0 dataset: `traffic6` from COCO + Open Images V7, train/val/test, provenance, dedup and leakage checks |
+| `data/openimages_traffic.py` | Open Images V7 metadata: class folding, per-image licence/attribution/annotation checks |
+| `data/dataset_checks.py` | consistency, provenance and leakage checks of a built dataset (run by the build and the audit) |
+| `data/audit_traffic_dataset.py` | `stats.json` + `DATASET_REPORT.md`: classes, sizes, negatives, duplicates, provenance, disk |
+| `provenance/flickr_licence_spotcheck.py` | licence Flickr shows today for a fixed sample; result in `flickr_spotcheck_2026-10-06.json` |
+| `tests/test_dataset_pipeline.py` | focused tests of the dataset build with planted bad cases (no network) |
 | `exps/yolox_tiny_traffic_416.py` | the YOLOX experiment (upstream tiny settings, our data, fixed seed) |
 | `train.sh` | GPU training through YOLOX's `tools/train.py`, with `run.json` |
 | `smoke_train.py` | smoke run of the same model, loader, loss and EMA on cpu, xpu or cuda (was `smoke_train_cpu.py`) |
@@ -84,6 +90,32 @@ python data/prepare_coco_traffic.py --coco-ann $W/coco/annotations --out $W/data
 - Read `stats.json` and `manifest.json` before training.
 - `--no-download` only selects and reports.
 - `--allow-review` adds CC BY-SA images, and only after an owner decision.
+
+### 4b. The R0 dataset (`traffic6`, COCO + Open Images V7)
+
+The real dataset. Rules, numbers and readiness gates are in
+[docs/vision/DATASET_TRAFFIC6_R0.md](../../../docs/vision/DATASET_TRAFFIC6_R0.md).
+Open Images metadata (3.5 GB, 11 CSV/JSON files; their sha256 are in `inputs` of [docs/vision/data/traffic6_r0/manifest.json](../../../docs/vision/data/traffic6_r0/manifest.json)):
+
+```bash
+mkdir -p $W/openimages/meta && cd $W/openimages/meta && for f in v7/oidv7-class-descriptions-boxable.csv 2018_04/bbox_labels_600_hierarchy.json 2018_04/train/train-images-boxable-with-rotation.csv 2018_04/validation/validation-images-with-rotation.csv 2018_04/test/test-images-with-rotation.csv v6/oidv6-train-annotations-bbox.csv v5/validation-annotations-bbox.csv v5/test-annotations-bbox.csv v5/train-annotations-human-imagelabels-boxable.csv v5/validation-annotations-human-imagelabels-boxable.csv v5/test-annotations-human-imagelabels-boxable.csv; do curl -sSfLO https://storage.googleapis.com/openimages/$f; done
+```
+
+Build (downloads only the selected images into `$W/raw`, about 48,500), then audit:
+
+```bash
+python data/build_traffic_dataset.py --coco-ann $W/coco/annotations --oi-meta $W/openimages/meta --raw $W/raw --out $W/data/traffic6_r0 --licence-spotcheck provenance/flickr_spotcheck_2026-10-06.json --workers 16
+```
+
+```bash
+python data/audit_traffic_dataset.py $W/data/traffic6_r0 --verify-files --raw $W/raw --meta $W/openimages/meta
+```
+
+- `--no-download` selects and writes the candidate provenance only.
+- Train with `DOORS_CLASS_SET=traffic6`; the exp refuses a dataset made for another class set.
+- `test/` and `traffic_test.json` are the held-out test split. The exp never
+  reads them; use them only for the final comparison.
+- Tests: `python -m unittest tests.test_dataset_pipeline -v` (seconds, no network).
 
 ### 5. Training (GPU)
 
