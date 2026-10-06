@@ -698,6 +698,46 @@ ok("a repeated advert raises no further node event",
    len([e for e in cb.events if e.get("event") == "mesh.node"]) == before)
 ok("and does not duplicate the node", cb.result("mesh.nodes")["count"] == 1)
 
+# The receive log (docs/api/mesh.md): asked for by name, one mesh.rx per
+# reception, the repeats included. The plain subscriber above never sees one.
+crx = Conn(svc_b.sock)
+sub = crx.result("mesh.subscribe", {"rx_log": True})
+ok("the receive log is asked for on mesh.subscribe", sub.get("rx_log") is True, sub)
+ok("and a plain subscribe says it is off", cb.result("mesh.subscribe").get("rx_log") is False)
+for _ in range(2):
+    air.carry(radio_a, last_hex)
+seen = []
+for _ in range(2):
+    ev = crx.wait_event("mesh.rx", seconds=10)
+    if ev:
+        seen.append(ev["data"])
+ok("each reception is its own mesh.rx", len(seen) == 2, seen)
+if len(seen) == 2:
+    r0, r1 = seen
+    ok("the version is said", r0.get("v") == 1, r0)
+    ok("both are the one advert, by hash", r0.get("hash") == r1.get("hash") and
+       len(r0.get("hash", "")) == 16 and r0.get("type") == "advert", seen)
+    ok("counted as receptions of it", r1["dup"] == r0["dup"] + 1, seen)
+    ok("and MeshCore's verdict on each", r0["verdict"] == "duplicate" and
+       r1["verdict"] == "duplicate", seen)
+    ok("with the frame's size and the signal it came in at",
+       r0["bytes"] == len(last_hex) // 2 and r0.get("rssi_dbm") == -70.5 and
+       r0.get("snr_db") == 8.0, r0)
+    ok("on a flood with no relay", r0.get("route") == "flood" and r0.get("path_hops") == 0 and
+       "path_hex" not in r0, r0)
+    ok("named from the node table", r0.get("decoded") == "advert" and
+       r0.get("sender") == "MESHCORED-A" and
+       r0.get("sender_public_key") == ident_a["public_key"], r0)
+cb.drain(0.5)
+ok("the plain subscriber was sent none of them",
+   not [e for e in cb.events if e.get("event") == "mesh.rx"])
+air.carry(radio_a, "15c0010203")
+ev = crx.wait_event("mesh.rx", seconds=10)
+ok("an unparseable frame is reported too", ev is not None and
+   ev["data"].get("verdict") == "rejected" and ev["data"].get("reject") == "unparsed" and
+   ev["data"].get("bytes") == 5 and "hash" not in ev["data"], ev)
+crx.close()
+
 # ---------------------------------------------------------------------------
 # 3. B adverts back, then A sends B a message and gets an ACK
 # ---------------------------------------------------------------------------

@@ -43,8 +43,8 @@ refuse() { # <label> <regex> [files...]
 }
 
 SRC=services/meshcored
-C_HALF="$SRC/main.c $SRC/api.c $SRC/radio_link.c $SRC/tx_map.c $SRC/mcd_util.c $SRC/mcd.h $SRC/tx_map.h $SRC/mcd_util.h $SRC/radio_link.h"
-CXX_HALF="$SRC/mesh_runtime.cpp $SRC/mesh_store.cpp $SRC/mesh_store.h"
+C_HALF="$SRC/main.c $SRC/api.c $SRC/api_remote.c $SRC/radio_link.c $SRC/tx_map.c $SRC/mcd_util.c $SRC/mcd.h $SRC/tx_map.h $SRC/mcd_util.h $SRC/radio_link.h"
+CXX_HALF="$SRC/mesh_runtime.cpp $SRC/mesh_store.cpp $SRC/mesh_store.h $SRC/mesh_remote.cpp $SRC/mesh_remote.h $SRC/mesh_rxlog.cpp $SRC/mesh_rxlog.h"
 
 check "the service directory exists" "$([ -d "$SRC" ] && echo 1 || echo 0)"
 
@@ -301,6 +301,21 @@ for m in mesh.info mesh.status mesh.identity mesh.nodes mesh.node mesh.messages 
     check "and $m is implemented" \
         "$(grep -q "\"$m\"" "$SRC/api.c" && echo 1 || echo 0)"
 done
+# Repeater control lives in its own file (api_remote.c), the same rule.
+for m in mesh.discover mesh.discovered mesh.remote_login mesh.remote_request mesh.remote_cli \
+         mesh.remote_logout mesh.remote_session; do
+    check "docs/api/mesh.md describes $m" \
+        "$(grep -q "$m" docs/api/mesh.md 2>/dev/null && echo 1 || echo 0)"
+    check "and $m is implemented" \
+        "$(grep -q "\"$m\"" "$SRC/api_remote.c" && echo 1 || echo 0)"
+done
+# A password is wiped where it was used and never written to a log.
+check "a login password is wiped in the runtime and in the request" \
+    "$(grep -q 'wipe(pw, sizeof(pw))' "$SRC/mesh_runtime.cpp" &&
+       grep -q 'wipe_string(jpw)' "$SRC/api_remote.c" && echo 1 || echo 0)"
+refuse "and no log line names it" \
+    'LOG_[A-Z]+\(.*(password|pw)' \
+    "$SRC"
 for s in starting waiting_for_radiod waiting_for_lease configuring online degraded error; do
     check "the state '$s' is documented" \
         "$(grep -q "$s" docs/api/mesh.md 2>/dev/null && echo 1 || echo 0)"

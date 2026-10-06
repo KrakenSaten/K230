@@ -21,6 +21,7 @@ struct pocketipc_client {
     uint64_t id;
     struct pocketipc_reader rd;
     bool subscribed;
+    uint32_t topics;         /* pocketipc_client_set_topics */
     /* Its disconnect callback is owed but has not been delivered yet, and
      * the id to deliver it with - the slot's own id is cleared on close so
      * a reused slot cannot be mistaken for the connection that left. */
@@ -57,6 +58,7 @@ static void client_close(struct pocketipc_server *s, struct pocketipc_client *c)
     }
     pocketipc_reader_free(&c->rd);
     c->subscribed = false;
+    c->topics = 0;
     c->id = 0;
     if (!was_open || !s || !s->on_disconnect || s->quiet || id == 0) {
         return;
@@ -176,6 +178,7 @@ static void accept_client(struct pocketipc_server *s)
             s->clients[i].id = s->next_client_id++;
             pocketipc_reader_init(&s->clients[i].rd);
             s->clients[i].subscribed = false;
+            s->clients[i].topics = 0;
             return;
         }
     }
@@ -287,6 +290,45 @@ void pocketipc_server_broadcast(struct pocketipc_server *s, cJSON *msg)
         }
     }
     cJSON_Delete(msg);
+}
+
+void pocketipc_server_broadcast_topic(struct pocketipc_server *s, cJSON *msg, uint32_t topic)
+{
+    int i;
+
+    for (i = 0; i < SERVER_MAX_CLIENTS; i++) {
+        struct pocketipc_client *c = &s->clients[i];
+
+        if (c->fd >= 0 && c->subscribed && (c->topics & topic) == topic &&
+            pocketipc_send(c->fd, msg) < 0) {
+            client_close(s, c);
+        }
+    }
+    cJSON_Delete(msg);
+}
+
+bool pocketipc_server_topic_wanted(const struct pocketipc_server *s, uint32_t topic)
+{
+    int i;
+
+    for (i = 0; s && i < SERVER_MAX_CLIENTS; i++) {
+        const struct pocketipc_client *c = &s->clients[i];
+
+        if (c->fd >= 0 && c->subscribed && (c->topics & topic) == topic) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void pocketipc_client_set_topics(struct pocketipc_client *c, uint32_t topics)
+{
+    c->topics = topics;
+}
+
+uint32_t pocketipc_client_topics(const struct pocketipc_client *c)
+{
+    return c->topics;
 }
 
 void pocketipc_client_set_subscribed(struct pocketipc_client *c, bool on)

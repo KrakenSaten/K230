@@ -64,6 +64,108 @@ struct mcd_rx_meta {
     double freq_error_hz;
 };
 
+/* ---- one reception, as the receive log sees it --------------------------
+ *
+ * The receive log (docs/api/mesh.md, "The receive log") reports every frame
+ * this node took off the air, once per reception, duplicates included. It is
+ * observational: it is filled from the dispatcher's own logging hooks and a
+ * wrapper round MeshCore's packet handler, and nothing in it changes what
+ * MeshCore does with the frame - the deduplication, the routing and the
+ * decoding are exactly what they were.
+ *
+ * The packet is read when the dispatcher logs it, which is before MeshCore
+ * has looked at it at all: before its seen-table, before a flood waits out
+ * its receive delay, and before a relay rewrites its path. What MeshCore then
+ * made of it - the verdict, the relay, what it could read - is filled in when
+ * the handler returns, and the observation is reported then. A flood frame
+ * MeshCore holds back for its receive delay is therefore reported up to that
+ * delay late; seq and the receive time are the reception's own.
+ */
+#define MCD_RX_HASH_LEN 8   /* MeshCore's MAX_HASH_SIZE: the packet hash */
+
+enum mcd_rx_verdict {
+    MCD_RX_NEW = 0,       /* MeshCore handled it: it was not in its seen-table */
+    MCD_RX_DUPLICATE,     /* MeshCore's seen-table matched it and it went no further */
+    MCD_RX_REJECTED,      /* it never reached MeshCore's handler (mcd_rx_reject says why) */
+    MCD_RX_UNRESOLVED,    /* parsed, but the log lost track of it before MeshCore was done */
+};
+
+enum mcd_rx_reject {
+    MCD_RX_REJECT_NONE = 0,
+    MCD_RX_REJECT_QUEUE_FULL,  /* the receive queue was full; dropped before MeshCore */
+    MCD_RX_REJECT_UNPARSED,    /* the dispatcher's own parse refused the bytes */
+    MCD_RX_REJECT_NO_BUFFER,   /* the packet pool was empty when it arrived */
+};
+
+/* What MeshCore could read of it. Only what it decoded for its own use is
+ * reported: nothing is decrypted for the log. */
+enum mcd_rx_decode {
+    MCD_RX_DECODE_NONE = 0,    /* nothing read: not for us, no key, a duplicate, or no content */
+    MCD_RX_DECODE_DIRECT,      /* a direct text message to this node */
+    MCD_RX_DECODE_CHANNEL,     /* a text message on a channel this node holds */
+    MCD_RX_DECODE_ADVERT,      /* an advert from a node the table holds */
+};
+
+struct mcd_rx_obs {
+    uint64_t seq;                 /* 1 upwards, per run, in the order frames were received */
+    struct mcd_rx_meta meta;      /* the reception's own time and signal */
+    int bytes;                    /* the frame's length on the air */
+    bool parsed;                  /* false: only bytes, meta, verdict and reject are meaningful */
+    uint8_t header;               /* the raw header byte (also set for an unparsed frame of 1+ byte) */
+    bool header_known;
+    uint8_t payload_type;         /* MeshCore's PAYLOAD_TYPE_*, 0..15 */
+    uint8_t route_type;           /* MeshCore's ROUTE_TYPE_*, 0..3 */
+    uint8_t payload_ver;
+    /* The path as received. For every type but TRACE it is hops of
+     * path_hash_size bytes each: on a flood the relays it came through, first
+     * one first; on a direct packet the hops it still has to take. A TRACE
+     * carries the SNR each hop measured instead (path_is_snr), one byte each,
+     * a quarter dB. */
+    bool path_is_snr;
+    uint8_t path_hash_size;       /* 1..3; 1 for TRACE */
+    uint8_t path_hops;
+    uint8_t path_bytes;
+    uint8_t path[MCD_MAX_PATH];
+    bool hash_known;
+    uint8_t hash[MCD_RX_HASH_LEN];
+    /* The one-byte hashes the payload is addressed with, where its type has
+     * them: a group frame's channel, a peer packet's destination and source,
+     * an advert's sender (the first byte of its key). */
+    bool has_channel_hash;
+    uint8_t channel_hash;
+    bool channel_known;           /* this node holds a channel with that hash */
+    bool has_dest_hash;
+    uint8_t dest_hash;
+    bool for_us;                  /* the destination hash is this node's */
+    bool has_src_hash;
+    uint8_t src_hash;
+    /* A CONTROL payload's first byte: its control type in the high nibble
+     * (0x80 a node-discovery request, 0x90 its response, upstream's
+     * CTL_TYPE_NODE_DISCOVER_*) and its flags in the low one. */
+    bool has_control_flags;
+    uint8_t control_flags;
+    /* This node transmitted this very packet - sent it, or relayed it - and
+     * is hearing it again from somebody who repeated it. */
+    bool own;
+    /* How many times this receive log has seen this packet hash, this one
+     * included, among the last MCD_RX_SEEN_HASHES different hashes: 1 for
+     * the first reception. Counted by the log, not by MeshCore. */
+    uint32_t dup;
+    enum mcd_rx_verdict verdict;
+    enum mcd_rx_reject reject;
+    bool relayed;                 /* MeshCore queued it to be transmitted again */
+    enum mcd_rx_decode decode;
+    char sender[MCD_NODE_NAME_LEN];       /* DIRECT: the contact; CHANNEL: the claimed name; ADVERT: the node */
+    bool has_sender_key;                  /* DIRECT and ADVERT: who, by key (a channel names nobody) */
+    uint8_t sender_key[MCD_PUB_KEY_LEN];
+    char recipient[MCD_NODE_NAME_LEN];    /* DIRECT: this node's name */
+    char channel_name[MCD_CHANNEL_NAME_LEN]; /* CHANNEL: our local name for it */
+    char text[MCD_MAX_TEXT + 1];          /* DIRECT/CHANNEL: the body, without the sender prefix */
+};
+/* The distinct packet hashes the receive log remembers for counting
+ * repeats. MeshCore's own seen-table holds 160. */
+#define MCD_RX_SEEN_HASHES 256
+
 /* ---- how a transmit ended ---------------------------------------------
  *
  * The four outcomes radiod distinguishes, kept apart on purpose. A daemon
@@ -250,6 +352,213 @@ struct mcd_app_datagram {
     double rssi_dbm;
 };
 
+/* ---- repeaters heard directly (docs/api/mesh.md, "Repeater control") ----
+ *
+ * Which repeaters can hear THIS node, right now, with nothing in between.
+ * Upstream's own question, asked its own way: a CONTROL packet
+ * CTL_TYPE_NODE_DISCOVER_REQ (0x80) with a repeater-only type filter and a
+ * random tag, sent zero-hop, which every repeater in direct range answers
+ * with a zero-hop CTL_TYPE_NODE_DISCOVER_RESP (0x90 | ADV_TYPE_REPEATER)
+ * carrying the tag, its whole public key and the SNR it heard the request at
+ * (vendor/RIFT examples/simple_repeater/MyMesh.cpp onControlDataRecv; the
+ * T-Deck RIFT firmware's DISCOVER 0-HOP sends the same bytes).
+ *
+ * The proof that an answer came straight from the repeater is upstream's:
+ * mesh::Mesh hands a control packet to onControlDataRecv only when it is
+ * direct-routed with a path of zero hashes (Mesh.cpp:70-75), so an answer
+ * nobody relayed is the only kind that can arrive here. Nothing is inferred
+ * from a name, a cached route or a hop guess.
+ *
+ * Answers trickle in: repeaters answer after a random delay widened four
+ * times, because many answer at once, so a round stays open for
+ * MCD_DISCOVER_WINDOW_MS (upstream RIFT's RIFT_DISCOVER_WINDOW_MS). One round
+ * at a time: a second request while one is open is refused, never re-armed,
+ * because re-arming would change the tag and drop the answers already in. A
+ * repeater answers at most four requests in two minutes (its
+ * discover_limiter), which one round per 30 s respects.
+ *
+ * Kept for this run only, newest answer first, at most MCD_DISCOVER_MAX
+ * repeaters; one that answered an earlier round keeps that round's number,
+ * so a client can show it as older rather than as heard now. */
+#define MCD_DISCOVER_WINDOW_MS 30000
+#define MCD_DISCOVER_MAX 16
+
+struct mcd_discovered {
+    uint8_t public_key[MCD_PUB_KEY_LEN];
+    uint32_t round;           /* the round it last answered */
+    uint64_t mono_ms;         /* when that answer was heard, by ours */
+    double their_snr_db;      /* how IT heard our request: its own reading */
+    bool snr_known;           /* how WE heard its answer, when radiod said */
+    double snr_db;
+    bool rssi_known;
+    double rssi_dbm;
+};
+
+struct mcd_discover_state {
+    uint32_t round;           /* the latest round started this run; 0 none */
+    bool open;                /* that round is still collecting answers */
+    uint64_t started_mono_ms;
+    uint64_t until_mono_ms;
+};
+
+enum mcd_discover_result {
+    MCD_DISCOVER_STARTED = 0,
+    MCD_DISCOVER_BUSY,        /* a round is open; nothing was sent */
+    MCD_DISCOVER_NO_RADIO,
+    MCD_DISCOVER_FAILED       /* no packet free */
+};
+
+/* ---- one repeater session (docs/api/mesh.md, "Repeater control") --------
+ *
+ * Logging in to a repeater and reading it back, with upstream's own calls
+ * and upstream's own matching:
+ *
+ *   login       BaseChatMesh::sendLogin - an ANON_REQ carrying our clock and
+ *               the password; answered RESP_SERVER_LOGIN_OK (13 bytes: the
+ *               repeater's clock, 0, is-admin, permissions, firmware level)
+ *               or the legacy "OK". A WRONG PASSWORD IS NOT ANSWERED AT ALL
+ *               (simple_repeater handleLoginReq returns 0), so it ends as a
+ *               timeout, and nothing here can tell it from a request the
+ *               repeater never heard.
+ *   status      sendRequest(REQ_TYPE_GET_STATUS); the reply reflects our tag
+ *               and carries RepeaterStats.
+ *   neighbours  sendRequest(REQ_TYPE_GET_NEIGHBOURS, version 0); the
+ *               repeater's own list of repeaters it heard zero-hop.
+ *   owner       sendRequest(REQ_TYPE_GET_OWNER_INFO): firmware version,
+ *               name, owner text.
+ *   cli         sendCommandData (TXT_TYPE_CLI_DATA); answered by command
+ *               data from the same node, with no tag. Admin only, on the
+ *               repeater's side.
+ *
+ * ONE TARGET AND ONE REQUEST AT A TIME, as upstream's panel has: a request
+ * while one is outstanding is refused, so rapid presses cannot stack
+ * packets. A reply is matched by sender and, where upstream reflects one, by
+ * tag; anything else is counted as stale or malformed and ignored. A wait
+ * ends at max(20 s, 2 x MeshCore's estimate + 8 s), upstream RIFT's rule. A
+ * login OK that arrives within MCD_REMOTE_LATE_LOGIN_MS of the login while
+ * nothing else is waiting is still taken, as upstream RIFT does.
+ *
+ * There is NO LOGOUT ON THE AIR in MeshCore: upstream's CMD_LOGOUT is
+ * BaseChatMesh::stopConnection, which drops local keep-alive state and
+ * transmits nothing. Logout here does the same and forgets the session; the
+ * repeater keeps its ACL entry for us. The session is memory only - never
+ * written - and ends with the service, with a logout, and when the target's
+ * contact is forgotten. The password is copied, handed to sendLogin and
+ * wiped; it is never stored or logged. */
+#define MCD_REMOTE_PASSWORD_MAX 15   /* upstream sendLogin's cut; longer is refused */
+#define MCD_REMOTE_MIN_WAIT_MS 20000
+#define MCD_REMOTE_LATE_LOGIN_MS 300000
+#define MCD_REMOTE_NEIGHBOUR_PREFIX 6
+#define MCD_REMOTE_NEIGHBOURS_MAX 11 /* what fits upstream's 130-byte result buffer at a 6-byte prefix */
+
+enum mcd_remote_kind {
+    MCD_REMOTE_NONE = 0,
+    MCD_REMOTE_LOGIN,
+    MCD_REMOTE_STATUS,
+    MCD_REMOTE_NEIGHBOURS,
+    MCD_REMOTE_OWNER,
+    MCD_REMOTE_CLI
+};
+const char *mcd_remote_kind_name(enum mcd_remote_kind k);
+
+enum mcd_login_state {
+    MCD_LOGIN_NONE = 0,
+    MCD_LOGIN_WAITING,
+    MCD_LOGIN_OK,
+    MCD_LOGIN_REFUSED,        /* the repeater answered, and not with an OK */
+    MCD_LOGIN_TIMEOUT         /* no answer: a wrong password looks exactly like this */
+};
+const char *mcd_login_state_name(enum mcd_login_state s);
+
+enum mcd_remote_outcome {
+    MCD_REMOTE_REPLIED = 0,
+    MCD_REMOTE_REFUSED,
+    MCD_REMOTE_TIMED_OUT,
+    MCD_REMOTE_CANCELLED      /* logout, the contact forgotten, a new target */
+};
+const char *mcd_remote_outcome_name(enum mcd_remote_outcome o);
+
+/* RepeaterStats, decoded field by field against the length received: the
+ * struct has grown across firmware versions (44, 48, 56 bytes), and a struct
+ * copy would read an older repeater's short reply past its end. */
+struct mcd_repeater_stats {
+    uint16_t batt_milli_volts;
+    uint16_t tx_queue_len;
+    int16_t noise_floor;
+    int16_t last_rssi;
+    uint32_t packets_recv;
+    uint32_t packets_sent;
+    uint32_t air_time_secs;
+    uint32_t up_time_secs;
+    uint32_t sent_flood;
+    uint32_t sent_direct;
+    uint32_t recv_flood;
+    uint32_t recv_direct;
+    uint16_t err_events;
+    int16_t last_snr_x4;
+    bool have_dups;
+    uint16_t direct_dups;
+    uint16_t flood_dups;
+    bool have_rx_air;
+    uint32_t rx_air_time_secs;
+    uint32_t recv_errors;
+};
+
+struct mcd_neighbour {
+    uint8_t prefix[MCD_REMOTE_NEIGHBOUR_PREFIX];
+    uint32_t heard_secs_ago;
+    int8_t snr_x4;
+};
+
+struct mcd_remote_session {
+    bool active;              /* a target is set */
+    uint8_t key[MCD_PUB_KEY_LEN];
+    enum mcd_login_state login;
+    bool legacy;              /* answered with the legacy "OK": no permissions sent */
+    bool admin;
+    uint8_t permissions;
+    uint8_t acl;
+    uint8_t fw_level;
+    bool server_clock_known;  /* the repeater's clock, from its login answer */
+    uint32_t server_clock;
+    uint64_t login_mono_ms;   /* when the login was sent, or answered */
+    enum mcd_remote_kind pending;
+    uint64_t pending_id;
+    uint64_t deadline_mono_ms;
+    uint64_t stale_replies;     /* for no request outstanding, or another one */
+    uint64_t malformed_replies; /* matched, and too short or inconsistent to read */
+};
+
+struct mcd_remote_reply {
+    uint64_t request_id;
+    enum mcd_remote_kind kind;
+    enum mcd_remote_outcome outcome;
+    uint8_t key[MCD_PUB_KEY_LEN];
+    uint64_t mono_ms;
+    bool late;                /* a login OK taken after its wait had ended */
+    struct mcd_repeater_stats stats;          /* STATUS */
+    int neighbours_total;                     /* NEIGHBOURS: how many it holds */
+    int neighbour_count;                      /* and how many came back */
+    struct mcd_neighbour neighbours[MCD_REMOTE_NEIGHBOURS_MAX];
+    char text[MCD_MAX_TEXT + 1];              /* OWNER, CLI: as sent, unsanitised */
+    bool snr_known;
+    double snr_db;
+    bool rssi_known;
+    double rssi_dbm;
+};
+
+enum mcd_remote_result {
+    MCD_REMOTE_ACCEPTED_FLOOD = 0,
+    MCD_REMOTE_ACCEPTED_DIRECT,
+    MCD_REMOTE_BUSY,          /* a request is outstanding */
+    MCD_REMOTE_NO_RADIO,
+    MCD_REMOTE_NO_CONTACT,    /* no contact with that whole key */
+    MCD_REMOTE_NOT_LOGGED_IN, /* no login OK for that node in this session */
+    MCD_REMOTE_NOT_ADMIN,     /* the login said guest; the repeater ignores its commands */
+    MCD_REMOTE_BAD_TEXT,      /* password or command empty, too long, or not one line */
+    MCD_REMOTE_FAILED         /* MeshCore could not build it */
+};
+
 /* ---- what the runtime asks of the daemon -------------------------------
  *
  * One outbound call and three notifications. tx_submit is the whole of the
@@ -282,6 +591,20 @@ struct mcd_runtime_hooks {
     /* An app datagram arrived. Appended, so a hooks table that does not set
      * it is unchanged; may be NULL. */
     void (*on_app)(void *user, const struct mcd_app_datagram *d);
+    /* A repeater answered the open discovery round (d set), or the round's
+     * window closed (d NULL). May be NULL. */
+    void (*on_discover)(void *user, const struct mcd_discovered *d,
+                        const struct mcd_discover_state *s);
+    /* A repeater request ended: answered, refused, timed out or cancelled.
+     * s is the session afterwards. May be NULL. */
+    void (*on_remote)(void *user, const struct mcd_remote_reply *r,
+                      const struct mcd_remote_session *s);
+    /* One reception for the receive log (struct mcd_rx_obs). Appended like
+     * on_app; may be NULL, and when it is the runtime does no receive-log
+     * work at all. Called whether or not anyone is listening, so the repeat
+     * count stays true across a client coming and going; skipping the
+     * report is the daemon's business. */
+    void (*on_rx_obs)(void *user, const struct mcd_rx_obs *o);
 };
 
 struct mcd_runtime_config {
@@ -573,6 +896,43 @@ bool mcd_runtime_send_advert(struct mcd_runtime *rt);
 /* The same advert, sent zero-hop: heard by the nodes in direct range and
  * repeated by none of them. */
 bool mcd_runtime_send_advert_zero_hop(struct mcd_runtime *rt);
+
+/* ---- repeater discovery and control (the structs above) ------------------ */
+
+/* Start a zero-hop discovery round. *state (when given) is the round after
+ * the call: the one just started, or the one still open when BUSY. */
+enum mcd_discover_result mcd_runtime_discover(struct mcd_runtime *rt,
+                                              struct mcd_discover_state *state);
+void mcd_runtime_discover_state(const struct mcd_runtime *rt, struct mcd_discover_state *out);
+/* The repeaters that answered this run, newest answer first. Returns how many. */
+int mcd_runtime_discovered(const struct mcd_runtime *rt, struct mcd_discovered *out, int max);
+/* Close the open round if its window ended at or before now_ms; returns
+ * whether it did. mcd_runtime_tick calls it with the clock. */
+bool mcd_runtime_discover_expire(struct mcd_runtime *rt, uint64_t now_ms);
+
+/* Log in to the node with this WHOLE key. Copies the password, sends it, and
+ * wipes the copy. Another target's session is ended first (CANCELLED). */
+enum mcd_remote_result mcd_runtime_remote_login(struct mcd_runtime *rt,
+                                                const uint8_t key[MCD_PUB_KEY_LEN],
+                                                const char *password, uint64_t *request_id,
+                                                uint32_t *wait_ms);
+/* STATUS, NEIGHBOURS or OWNER of the node logged in to. */
+enum mcd_remote_result mcd_runtime_remote_ask(struct mcd_runtime *rt,
+                                              const uint8_t key[MCD_PUB_KEY_LEN],
+                                              enum mcd_remote_kind kind, uint64_t *request_id,
+                                              uint32_t *wait_ms);
+/* One CLI command line to the node logged in to. */
+enum mcd_remote_result mcd_runtime_remote_cli(struct mcd_runtime *rt,
+                                              const uint8_t key[MCD_PUB_KEY_LEN],
+                                              const char *command, uint64_t *request_id,
+                                              uint32_t *wait_ms);
+/* End the session with this node, or with whichever node when key is NULL:
+ * local only, as upstream's logout is. False when there was none. */
+bool mcd_runtime_remote_logout(struct mcd_runtime *rt, const uint8_t *key);
+void mcd_runtime_remote_session(const struct mcd_runtime *rt, struct mcd_remote_session *out);
+/* End the outstanding request if its wait ended at or before now_ms. Called
+ * by mcd_runtime_tick; exposed for tests. Returns whether one ended. */
+bool mcd_runtime_remote_expire(struct mcd_runtime *rt, uint64_t now_ms);
 
 /* ---- the contact table ---------------------------------------------------
  *

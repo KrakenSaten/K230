@@ -206,6 +206,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/video/video_session.c
     ${REPO_DIR}/apps/video/video_files.c
     ${REPO_DIR}/apps/rift/rift_app.c
+    ${REPO_DIR}/apps/rift/rift_section.c
     ${REPO_DIR}/apps/rift/rift_focus.c
     ${REPO_DIR}/apps/rift/rift_background.c
     ${REPO_DIR}/apps/rift/rift_model.c
@@ -225,6 +226,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_format_msg.c
     ${REPO_DIR}/apps/rift/rift_ipc.c
     ${REPO_DIR}/apps/rift/rift_ipc_manage.c
+    ${REPO_DIR}/apps/rift/rift_ipc_resend.c
+    ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
+    ${REPO_DIR}/apps/rift/rift_repeater.c
     ${REPO_DIR}/apps/rift/rift_notify.c
     ${REPO_DIR}/apps/rift/rift_sound.c
     ${REPO_DIR}/apps/rift/rift_sound_helper.c
@@ -232,11 +236,15 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_dm_sound.c
     ${REPO_DIR}/apps/rift/rift_arrivals.c
     ${REPO_DIR}/apps/rift/rift_traffic.c
+    ${REPO_DIR}/apps/rift/rift_rxlog.c
+    ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
     ${REPO_DIR}/apps/rift/rift_strip.c
     ${REPO_DIR}/apps/rift/ui/rift_widgets.c
     ${REPO_DIR}/apps/rift/ui/rift_fit.c
     ${REPO_DIR}/apps/rift/ui/rift_graph.c
     ${REPO_DIR}/apps/rift/ui/rift_activity.c
+    ${REPO_DIR}/apps/rift/ui/rift_rxlog_view.c
+    ${REPO_DIR}/apps/rift/ui/rift_rxlog_input.c
     ${REPO_DIR}/apps/rift/ui/rift_nodes.c
     ${REPO_DIR}/apps/rift/ui/rift_find.c
     ${REPO_DIR}/apps/rift/ui/rift_netview.c
@@ -244,6 +252,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_manage.c
     ${REPO_DIR}/apps/rift/ui/rift_device.c
     ${REPO_DIR}/apps/rift/ui/rift_session.c
+    ${REPO_DIR}/apps/rift/ui/rift_scan.c
+    ${REPO_DIR}/apps/rift/ui/rift_repeater_view.c
+    ${REPO_DIR}/apps/rift/ui/rift_repeater_cmd.c
     ${REPO_DIR}/apps/rift/ui/rift_system.c
     ${REPO_DIR}/apps/rift/ui/rift_form.c
     ${REPO_DIR}/apps/rift/ui/rift_node_row.c
@@ -1363,6 +1374,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/rift_test_clock.c
         chrome.c
         ${REPO_DIR}/apps/rift/rift_app.c
+        ${REPO_DIR}/apps/rift/rift_section.c
         ${REPO_DIR}/apps/rift/rift_focus.c
         ${REPO_DIR}/apps/rift/rift_background.c
         ${REPO_DIR}/apps/rift/rift_model.c
@@ -1381,6 +1393,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_format_msg.c
         ${REPO_DIR}/apps/rift/rift_ipc.c
         ${REPO_DIR}/apps/rift/rift_ipc_manage.c
+        ${REPO_DIR}/apps/rift/rift_ipc_resend.c
+        ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
+        ${REPO_DIR}/apps/rift/rift_repeater.c
         ${REPO_DIR}/apps/rift/rift_notify.c
         ${REPO_DIR}/apps/rift/rift_sound.c
         ${REPO_DIR}/apps/rift/rift_sound_helper.c
@@ -1388,11 +1403,15 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_dm_sound.c
         ${REPO_DIR}/apps/rift/rift_arrivals.c
         ${REPO_DIR}/apps/rift/rift_traffic.c
+        ${REPO_DIR}/apps/rift/rift_rxlog.c
+        ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
         ${REPO_DIR}/apps/rift/rift_strip.c
         ${REPO_DIR}/apps/rift/ui/rift_widgets.c
         ${REPO_DIR}/apps/rift/ui/rift_fit.c
         ${REPO_DIR}/apps/rift/ui/rift_graph.c
         ${REPO_DIR}/apps/rift/ui/rift_activity.c
+        ${REPO_DIR}/apps/rift/ui/rift_rxlog_view.c
+        ${REPO_DIR}/apps/rift/ui/rift_rxlog_input.c
         ${REPO_DIR}/apps/rift/ui/rift_nodes.c
         ${REPO_DIR}/apps/rift/ui/rift_find.c
         ${REPO_DIR}/apps/rift/ui/rift_netview.c
@@ -1400,6 +1419,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_manage.c
         ${REPO_DIR}/apps/rift/ui/rift_device.c
         ${REPO_DIR}/apps/rift/ui/rift_session.c
+        ${REPO_DIR}/apps/rift/ui/rift_scan.c
+        ${REPO_DIR}/apps/rift/ui/rift_repeater_view.c
+        ${REPO_DIR}/apps/rift/ui/rift_repeater_cmd.c
         ${REPO_DIR}/apps/rift/ui/rift_system.c
         ${REPO_DIR}/apps/rift/ui/rift_form.c
         ${REPO_DIR}/apps/rift/ui/rift_node_row.c

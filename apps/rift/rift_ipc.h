@@ -129,6 +129,14 @@ enum rift_req {
     RIFT_REQ_SET_NAME,
     RIFT_REQ_PATH_HASH,
     RIFT_REQ_SET_PATH_HASH,
+    /* Repeater control (rift_ipc_repeater.c). */
+    RIFT_REQ_DISCOVER,
+    RIFT_REQ_DISCOVERED,
+    RIFT_REQ_REMOTE_LOGIN,
+    RIFT_REQ_REMOTE_REQUEST,
+    RIFT_REQ_REMOTE_CLI,
+    RIFT_REQ_REMOTE_LOGOUT,
+    RIFT_REQ_REMOTE_SESSION,
 };
 
 struct rift_pending {
@@ -136,8 +144,13 @@ struct rift_pending {
     enum rift_req what;
 };
 
+struct rift_rxlog;
+
 struct rift_ipc {
     struct rift_model *model;
+    /* RX LOG's ring (rift_rxlog.h), or NULL: then the subscription does not
+     * ask for the receive log and a mesh.rx is never expected. */
+    struct rift_rxlog *rxlog;
     char service[32];
 
     int fd;                       /* -1 when down */
@@ -216,6 +229,12 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
  * the same one call as rift_ipc_send_message, and reached only from a
  * message's RESEND, which a reader pressed. Returns as rift_ipc_send_message. */
 int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id);
+/* The one writer of mesh.send, for rift_ipc_send_message and
+ * rift_ipc_resend_message (rift_ipc_resend.c): resend_id > 0 writes
+ * {"resend": id} alone, otherwise the destination and text. The submission is
+ * already recorded in the model. */
+int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *text,
+                        int64_t resend_id, int64_t now);
 
 /* Advert this node (mesh.advert): zero-hop when zero_hop is set - heard in
  * direct range and repeated by nobody - flooded otherwise.
@@ -257,6 +276,35 @@ int rift_ipc_request_path_hash(struct rift_ipc *c);
  * consumed. Returns 0, or -1 with the connection already dropped when the
  * write failed. */
 int rift_ipc_write(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_t now_ms);
+
+/* Repeater control (rift_ipc_repeater.c, rift_repeater.h). Each records
+ * the request in the model's repeater block before writing it and returns 0
+ * when it went out, -1 otherwise with the reason there.
+ *
+ * Four transmit, each reached only from a button a reader pressed:
+ * rift_ipc_scan_repeaters (one zero-hop request; not written while a round
+ * is open), rift_ipc_repeater_login, rift_ipc_repeater_ask (STATUS,
+ * NEIGHBOURS or OWNER) and rift_ipc_repeater_cli (only a command the rule in
+ * rift_repeater.h does not refuse). Logout transmits nothing.
+ *
+ * rift_ipc_repeater_login takes the field's password buffer and its size,
+ * puts it in the one request by reference and WIPES it before returning,
+ * sent or not. */
+int rift_ipc_scan_repeaters(struct rift_ipc *c);
+int rift_ipc_request_discovered(struct rift_ipc *c);
+int rift_ipc_repeater_login(struct rift_ipc *c, const char *key, char *password, size_t cap);
+int rift_ipc_repeater_ask(struct rift_ipc *c, const char *key, enum rift_rep_kind kind);
+int rift_ipc_repeater_cli(struct rift_ipc *c, const char *key, const char *command);
+/* End whichever session meshcored holds, and forget it here. */
+int rift_ipc_repeater_logout(struct rift_ipc *c);
+/* rift_ipc.c's dispatch, for a reply to one of the above. Returns 1 when
+ * the reply was one of them. */
+int rift_ipc_repeater_reply(struct rift_ipc *c, enum rift_req what, const cJSON *msg);
+/* Each poll: a request the service never ended is let go, and a session
+ * whose repeater left the node list is ended. */
+void rift_ipc_repeater_poll(struct rift_ipc *c, int64_t now_ms);
+/* Leaving RIFT: end the repeater session, if there is one. */
+void rift_ipc_repeater_leave(struct rift_ipc *c);
 
 int rift_ipc_connected(const struct rift_ipc *c);
 

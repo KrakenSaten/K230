@@ -136,6 +136,32 @@ radio.rx  ->  validate  ->  a bounded queue  ->  mesh::Radio::recvRaw()
   waiting, so a burst drains one frame per turn without the service going deaf
   to its own clients in between.
 
+### The receive log
+
+`mesh.rx` (docs/api/mesh.md, "The receive log") reports every frame taken off
+the air, once per reception, to a client that asked for it. It is
+observational, and the points it reads are chosen so it can stay that way:
+
+- `logRxRaw` and `logRx`, the dispatcher's own logging hooks inside
+  `Dispatcher::checkRecv()`, which see the frame before
+  `Mesh::onRecvPacket()` does - before the seen-table, the flood receive
+  delay and any path rewrite. The packet is copied there (path, hash,
+  addressing) by `mesh_rxlog.cpp`.
+- `onRecvPacket()`, overridden in `Node` only to call MeshCore's own and read
+  what changed around the call: `SimpleMeshTables`' duplicate counters (the
+  seen-table's verdict, read, never written), the action it returned (a
+  relay), a message it filed, the node table's name for an advert key.
+- the receive queue turning a frame away (`mcd_runtime_deliver_rx`), and a
+  raw frame the dispatcher never parsed (checked after each loop turn).
+
+The repeat count (`dup`) is the log's own table of 256 hashes, not
+MeshCore's; MeshCore's seen-table is never consulted by the log in a way that
+changes it (`wasSeen` counts duplicates, so the log reads the counters
+instead of calling it). Bounded: 40 observations in flight against a packet
+pool of 32, no allocation. The event is built only while a connection holds
+the `rx_log` topic (`MCD_TOPIC_RX_LOG`); tests/meshcored_rxlog_test.cpp holds
+the runtime to all of it, and tests/meshcored_harness_test.sh the daemon.
+
 ### Transmit
 
 ```
@@ -300,7 +326,9 @@ nothing, and raises `mesh.node` with the reason `path`.
 ### What it transmits unasked
 
 Nothing on a timer. There is no periodic advert, and `mesh.advert`,
-`mesh.send` and `mesh.app_send` are the only ways a client makes it transmit. `mesh.advert` takes
+`mesh.send`, `mesh.app_send`, `mesh.discover` and `mesh.remote_login` /
+`_request` / `_cli` (docs/api/mesh.md, "Repeater control") are the only ways a
+client makes it transmit; none of them is ever resent. `mesh.advert` takes
 `zero_hop: true` for an advert sent zero-hop - heard in direct range and
 repeated by nobody, at the airtime of one packet - and floods otherwise.
 

@@ -37,6 +37,8 @@ struct rift_app *rift_bg_new(void)
     }
     rift_model_init(&a->model);
     rift_ipc_init(&a->ipc, &a->model, RIFT_SERVICE);
+    rift_rxlog_init(&a->rxlog);
+    a->ipc.rxlog = &a->rxlog;
     /* The reader's choices, or the defaults when there are none (or none
      * that could be read): opening the app writes nothing. */
     if (rift_store_load(&a->prefs) < 0) {
@@ -73,7 +75,9 @@ void rift_bg_end(void)
         a->pump = NULL;
     }
     /* No sound to stop: the screen's destroy stopped it, and nothing sounds
-     * with no screen (rift_app.c pump). */
+     * with no screen (rift_app.c pump). A repeater session goes with RIFT -
+     * the shell stopping included - before the connection does. */
+    rift_ipc_repeater_leave(&a->ipc);
     rift_ipc_close(&a->ipc);
     session = NULL;
     pocketos_shell_set_background(RIFT_APP_ID, NULL, NULL);

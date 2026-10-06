@@ -88,7 +88,7 @@ check "every send carries text a reader typed${badsubmit:+ (}${badsubmit:+)}" \
 # they put words in the composer, where SEND is still the reader's.
 recallers=$(grep -rln 'rift_ipc_resend_message(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
 check "a resend is written only by the client, for COMMS (${recallers:-nowhere})" \
-    "$([ "$recallers" = "$SRC/rift_ipc.c $SRC/ui/rift_comms.c " ] && echo 1 || echo 0)"
+    "$([ "$recallers" = "$SRC/rift_ipc_resend.c $SRC/ui/rift_comms.c " ] && echo 1 || echo 0)"
 rcallers=$(grep -rln 'rift_comms_resend(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
 check "and asked for only from a message's actions (${rcallers:-nowhere})" \
     "$([ "$rcallers" = "$SRC/ui/rift_comms.c $SRC/ui/rift_msgact.c " ] &&
@@ -103,6 +103,75 @@ check "the resend param is named only in the client" \
 check "CONTACTS asks the service for nothing and writes no node" \
     "$(grep -qE 'rift_ipc_|rift_model_(apply|drop)' "$SRC/ui/rift_contacts_view.c" "$SRC/rift_contacts.c" &&
        echo 0 || echo 1)"
+
+# ---- repeater control: four more ways to transmit, held to the same rule -------
+# SCAN 0-HOP (mesh.discover), LOGIN (mesh.remote_login), STATUS / NEIGHBOURS /
+# VERSION (mesh.remote_request) and a repeater command (mesh.remote_cli) each
+# put a packet on the air. Each is named once in the client, written by one
+# call, and reached only from the handler of a button a reader pressed; a
+# command that changes the repeater only from its confirmation; and nothing
+# automatic reaches any of them. Logout transmits nothing.
+for m in mesh.remote_login mesh.remote_request mesh.remote_cli; do
+    hits=$(grep -rln "\"$m\"" "$SRC" | sort | tr '\n' ' ')
+    check "$m is named only in the meshcored client (${hits:-nowhere})" \
+        "$([ "$hits" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+done
+# mesh.discover is also the name of the EVENT a round raises, which the
+# repeater block reads (rift_repeater.c) - and that file writes nothing.
+hits=$(grep -rln '"mesh.discover"' "$SRC" | sort | tr '\n' ' ')
+check "mesh.discover is named only by the client and, as an event, the repeater block (${hits:-nowhere})" \
+    "$([ "$hits" = "$SRC/rift_ipc.c $SRC/rift_repeater.c " ] &&
+       ! grep -q 'rift_ipc_' "$SRC/rift_repeater.c" && echo 1 || echo 0)"
+RIPC="$SRC/rift_ipc_repeater.c"
+check "and each is written by one call" \
+    "$([ "$(grep -c 'RIFT_REQ_DISCOVER, NULL' "$RIPC")" = 1 ] &&
+       [ "$(grep -c 'RIFT_REQ_REMOTE_LOGIN, RIFT_REP_LOGIN' "$RIPC")" = 1 ] &&
+       [ "$(grep -c 'RIFT_REQ_REMOTE_REQUEST, kind' "$RIPC")" = 1 ] &&
+       [ "$(grep -c 'RIFT_REQ_REMOTE_CLI, RIFT_REP_CLI' "$RIPC")" = 1 ] && echo 1 || echo 0)"
+caller_ok() { # <function> <screen file> <handler...>: called there, only from those handlers
+    local fn=$1 file=$2; shift 2
+    local callers
+    callers=$(grep -rln "$fn(" "$SRC" --include='*.c' | sort | tr '\n' ' ')
+    [ "$callers" = "$RIPC $SRC/$file " ] || return 1
+    local n_calls n_ok=0 h
+    n_calls=$(grep -c "$fn(" "$SRC/$file")
+    for h in "$@"; do
+        n_ok=$((n_ok + $(sed -n "/^static void $h(/,/^}/p" "$SRC/$file" | grep -c "$fn(")))
+    done
+    [ "$n_calls" -ge 1 ] && [ "$n_ok" = "$n_calls" ]
+}
+check "SCAN 0-HOP is asked only from its button" \
+    "$(caller_ok rift_ipc_scan_repeaters ui/rift_scan.c on_scan && echo 1 || echo 0)"
+check "a login only from LOGIN (or Enter in its field)" \
+    "$(caller_ok rift_ipc_repeater_login ui/rift_repeater_view.c on_login && echo 1 || echo 0)"
+check "STATUS, NEIGHBOURS and VERSION only from their buttons" \
+    "$(caller_ok rift_ipc_repeater_ask ui/rift_repeater_view.c on_ask && echo 1 || echo 0)"
+check "a command only from the console, read-only at once and the rest from its confirmation" \
+    "$(caller_ok rift_ipc_repeater_cli ui/rift_repeater_cmd.c submit on_confirm_send &&
+       sed -n '/^static void submit(/,/^}/p' "$SRC/ui/rift_repeater_cmd.c" |
+       grep -B3 'rift_ipc_repeater_cli(' | grep -q 'case RIFT_CLI_READ' && echo 1 || echo 0)"
+check "and the client refuses a command the rule refuses, whoever asks" \
+    "$(sed -n '/^int rift_ipc_repeater_cli(/,/^}/p' "$RIPC" | grep -q 'RIFT_CLI_REFUSED' &&
+       echo 1 || echo 0)"
+check "no timer, poll or create path scans, logs in, asks or commands" \
+    "$(grep -nE 'rift_ipc_(scan_repeaters|repeater_(login|ask|cli))' "$SRC/rift_app.c" \
+        "$SRC/rift_background.c" "$SRC/rift_ipc.c" >/dev/null 2>&1 && echo 0 || echo 1)"
+check "a repeater password is held by no model, store or client field" \
+    "$(grep -qiE 'password\[|passwd|pw\[' "$SRC/rift_repeater.h" "$SRC/rift_model.h" \
+        "$SRC/rift_ipc.h" "$SRC/rift_store.h" && echo 0 || echo 1)"
+check "and the login field is wiped when it is used and when the page goes" \
+    "$(sed -n '/^static void on_login(/,/^}/p' "$SRC/ui/rift_repeater_view.c" |
+       grep -q 'scrub_field' &&
+       sed -n '/^void rift_repeater_view_cancel(/,/^}/p' "$SRC/ui/rift_repeater_view.c" |
+       grep -q 'scrub_field' && echo 1 || echo 0)"
+check "leaving RIFT ends a repeater session" \
+    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" | grep -q 'rift_ipc_repeater_leave' &&
+       sed -n '/^void rift_bg_end/,/^}/p' "$SRC/rift_background.c" | grep -q 'rift_ipc_repeater_leave' &&
+       echo 1 || echo 0)"
+for part in rift_repeater.c rift_ipc_repeater.c; do
+    check "$part knows nothing about LVGL" \
+        "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
+done
 
 # ---- MAP: positions as the nodes claim them, and nothing fetched ---------------
 check "MAP fetches nothing: no tile, map service, URL or API key" \
@@ -179,14 +248,15 @@ for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_ac
             ui/rift_widgets.c ui/rift_fit.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
             ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c \
-            ui/rift_system.c rift_map.c ui/rift_mapview.c; do
+            ui/rift_system.c rift_map.c ui/rift_mapview.c \
+            rift_rxlog.c rift_rxlog_fmt.c ui/rift_rxlog_view.c ui/rift_rxlog_input.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
             rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c rift_map.c \
-            rift_emoji_pick.c; do
+            rift_emoji_pick.c rift_rxlog.c rift_rxlog_fmt.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
@@ -309,7 +379,8 @@ check "and NET asks the service for nothing" \
     "$(grep -q 'rift_ipc_' "$SRC/ui/rift_netview.c" && echo 0 || echo 1)"
 # The find bar narrows the node list and changes nothing. The one request it
 # makes is a fresh node list when the zero-hop view is turned on - a question,
-# not a packet: discovering repeaters by transmitting is not in the API.
+# not a packet: discovering repeaters by transmitting is SCAN 0-HOP on ACTIVITY
+# (ui/rift_scan.c), never the find bar.
 findipc=$(grep -o 'rift_ipc_[a-z_]*' "$SRC/ui/rift_find.c" | sort -u | tr '\n' ' ')
 check "the find bar only ever asks for the node list (${findipc:-nothing})" \
     "$([ "$findipc" = "rift_ipc_request_nodes " ] && echo 1 || echo 0)"

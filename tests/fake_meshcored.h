@@ -121,6 +121,32 @@ struct fake_meshcored_script {
     int no_path_hash;
     /* Take management requests and never answer them. */
     int manage_silent;
+
+    /* Repeater control (docs/api/mesh.md, "Repeater control"). By default
+     * the service knows the methods: mesh.discover opens a round and, when
+     * repeater_json is set, raises one mesh.discover "reply" event for it;
+     * a login with the password "hunter2" is answered OK (admin), any other
+     * is answered as the 20 s wait running out (outcome "timeout") at once;
+     * status, neighbours, owner and a command are answered at once. */
+    /* One repeater, as a mesh.discovered entry (JSON object text). */
+    const char *repeater_json;
+    /* Every repeater-control request, one to a line: "<method>|<params>". */
+    const char *remote_log;
+    /* Accept repeater requests and raise nothing about them. */
+    int remote_silent;
+    /* Answer every repeater method as a service too old to know it. */
+    int no_remote;
+    /* The first command (mesh.remote_cli) ends as meshcored ends one whose
+     * answer was lost on the air: outcome "timeout". Later ones answer. */
+    int cli_timeout_first;
+
+    /* The receive log (docs/api/mesh.md, "The receive log"). A service that
+     * keeps one answers mesh.subscribe {"rx_log": true} with "rx_log": true;
+     * without this it answers as a meshcored older than the log, with no
+     * rx_log at all. The mesh.rx events themselves are scripted in events. */
+    int rx_log;
+    /* Every mesh.subscribe's params, one to a line, as JSON ("{}" for none). */
+    const char *subscribe_log;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

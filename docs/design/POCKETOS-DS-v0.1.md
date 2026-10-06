@@ -4985,11 +4985,72 @@ Each turn is the dark moment of §21.2 (the display opened again), so opening
 Timber from landscape and leaving it costs two. In Portrait, or in Automatic
 with no keyboard, it costs nothing: there is nothing to turn.
 
+## 54. Amendment AL — RIFT RX LOG: a dense diagnostic list [ACCEPTED]
+
+**ACCEPTED 2026-10-05** by the owner, after the unit B smoke (real duplicates as
+separate rows, full paths, both ACTIVITY entries) and the merge to master
+(`3c1ff76`, PR #59).
+**Proposed 2026-10-05** on branch `feat/rift-rx-log`, at the owner's request:
+a packet inspector behind RIFT's ACTIVITY that lists every reception,
+duplicates included (docs/apps/RIFT.md, "RX LOG"). It amends §37 (identity
+accents are for who somebody is) and §46 (text follows the reader's size) for
+this one screen, and adds nothing to the shared styles. Nothing in §1-§53 is
+renumbered.
+
+### 54.1 Small and fixed type
+
+RX LOG is read for its fields, like a terminal, and a reception's first line
+- time to the millisecond, state, type, channel hash, packet hash, size,
+RSSI, SNR - only fits a portrait row at Mono 14. So the whole list is drawn in
+the caption role's **Small** font at every text size, through the existing
+fixed-size style (§46.4, `pos_style_fixed_size`), with the caption's 1 px
+tracking taken off its fixed-width columns. The controls above it (PAUSE,
+CLEAR, FILTER) are ordinary 56 px actions and follow the text size like any
+other.
+
+### 54.2 Class colours from the identity palette
+
+The list needs more distinct, legible hues than the theme's status tokens
+give, on the dark theme, without filling rows. It borrows the eight identity
+hues (§37) - already checked at 4.5:1 or better on every theme's bg, surface
+and raised surface - as a fixed class palette, on text and on a 3 px bar only:
+
+| Class | Hue |
+| --- | --- |
+| first reception (`RX`) | teal |
+| repeat (`DUP #n`) | violet |
+| own packet repeated back (`ECHO`) | pink |
+| advert (`ADV`, its name) | gold |
+| the mesh at work (`ACK`, `REQ`, `RESP`, `PATH`, `TRACE`, `CTRL`, `DISC`, `ANON`, `MULTI`) | sky |
+| route with no hop between | green |
+| route through one hop or more | orange |
+| rejected frame (bar) | coral |
+
+Rejected and lost frames and weak signal use `status_error`, fair signal
+`status_warn`, good signal `status_ok`; message types and decoded text
+`text_primary`; metadata `text_secondary` and `text_muted`. A **sender** keeps
+its identity accent exactly as §37.3 gives it in a thread. Every class is
+also a word in the row (§2): the colour only agrees with it.
+
+### 54.3 A window, not a scroll
+
+The list is a fixed pool of rows filled from a position in a bounded ring
+(1000 entries), not a scrolling container of every entry: a drag moves the
+position a row per 36 px, and PAUSE holds the top row while the ring goes on
+filling. The rows are 2-3 lines; the path is never shortened and wraps.
+
+### 54.4 Validation on the host
+
+`tests/rift_app_test.c` (RX LOG session): the rows, their words and colours,
+a 30-hop path wrapping whole, the fixed face at Large, PAUSE, CLEAR, the
+filters, the detail, keys, drag, landscape, a refused event, the bound, and
+no heap left behind across opening and closing. Screenshots
+`portrait-rxlog`, `portrait-rxlog-detail`, `landscape-rxlog`.
+
 ## 55. Amendment AM — RIFT: message actions, replies and CONTACTS [PROPOSED]
 
-**Proposed 2026-10-05** on branch `feat/rift-comms-reliability`. §54 is left
-to the open RX LOG branch (PR #59), which proposes one under that number.
-Nothing in §1-§53 is renumbered. Behaviour: docs/apps/RIFT.md, "Delivery,
+**Proposed 2026-10-05** on branch `feat/rift-comms-reliability`, after §54
+(RX LOG). Nothing in §1-§54 is renumbered. Behaviour: docs/apps/RIFT.md, "Delivery,
 RESEND and REPLY" and "CONTACTS".
 
 ### 55.1 The actions on one message

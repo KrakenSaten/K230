@@ -6,6 +6,7 @@
 #include "rift_ipc.h"
 
 #include "rift_format.h"
+#include "rift_rxlog.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -51,6 +52,20 @@ static const char *method_of(enum rift_req what)
         return "mesh.path_hash";
     case RIFT_REQ_SET_PATH_HASH:
         return "mesh.set_path_hash";
+    case RIFT_REQ_DISCOVER:
+        return "mesh.discover";
+    case RIFT_REQ_DISCOVERED:
+        return "mesh.discovered";
+    case RIFT_REQ_REMOTE_LOGIN:
+        return "mesh.remote_login";
+    case RIFT_REQ_REMOTE_REQUEST:
+        return "mesh.remote_request";
+    case RIFT_REQ_REMOTE_CLI:
+        return "mesh.remote_cli";
+    case RIFT_REQ_REMOTE_LOGOUT:
+        return "mesh.remote_logout";
+    case RIFT_REQ_REMOTE_SESSION:
+        return "mesh.remote_session";
     case RIFT_REQ_NONE:
     default:
         return NULL;
@@ -90,12 +105,16 @@ static void drop(struct rift_ipc *c, const char *reason, int64_t now_ms)
         c->fd = -1;
         c->disconnects++;
     }
+    if (c->subscribed) {
+        rift_rxlog_service_lost(c->rxlog, now_ms);
+    }
     c->subscribed = 0;
     forget_pending(c);
     pocketipc_reader_free(&c->reader);
     pocketipc_reader_init(&c->reader);
     snprintf(c->last_error, sizeof(c->last_error), "%s", reason ? reason : "");
     rift_model_service_lost(c->model, reason);
+    rift_rep_service_lost(&c->model->repeater);
     c->next_attempt_ms = now_ms + c->backoff_ms;
     if (c->backoff_ms < RIFT_BACKOFF_MAX_MS) {
         c->backoff_ms *= 2;
@@ -253,9 +272,6 @@ int rift_ipc_request_channels(struct rift_ipc *c)
     return request(c, RIFT_REQ_CHANNELS, NULL, c->last_channels_ms);
 }
 
-static int write_send(struct rift_ipc *c, const char *conv_key, const char *text,
-                      int64_t resend_id, int64_t now);
-
 int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *text)
 {
     char why[RIFT_TEXT_MAX];
@@ -309,44 +325,12 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
         c->revision++;
         return -1;
     }
-    return write_send(c, conv_key, text, 0, now);
-}
-
-int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id)
-{
-    char why[RIFT_TEXT_MAX];
-    int64_t now;
-
-    if (!c || !c->model) {
-        return -1;
-    }
-    if (c->fd < 0) {
-        rift_model_send_failed(c->model, "meshcored is not answering; nothing was sent");
-        c->revision++;
-        return -1;
-    }
-    now = rift_mono_ms();
-    if (rift_model_resend_begin(c->model, message_id, now) != 0) {
-        rift_model_send_failed(c->model, rift_model_sending(c->model)
-                                             ? "one message is already on its way"
-                                             : "that message cannot be sent again");
-        c->revision++;
-        return -1;
-    }
-    /* An orphan goes as a new message, so its text is checked as one. */
-    if (!c->model->outbox.resend_id &&
-        rift_send_text_check(c->model->outbox.text, why, sizeof(why)) != 0) {
-        rift_model_send_failed(c->model, why);
-        c->revision++;
-        return -1;
-    }
-    return write_send(c, c->model->outbox.conv_key, c->model->outbox.text,
-                      c->model->outbox.resend_id, now);
+    return rift_ipc_write_send(c, conv_key, text, 0, now);
 }
 
 /* The one place this app transmits a message: a first send, or a RESEND. */
-static int write_send(struct rift_ipc *c, const char *conv_key, const char *text,
-                      int64_t resend_id, int64_t now)
+int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *text,
+                        int64_t resend_id, int64_t now)
 {
     cJSON *params = cJSON_CreateObject();
 
@@ -514,7 +498,7 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     /* Subscribe first, so nothing that happens while the snapshot is being
      * answered is missed: the node list and the events that change it then
      * both come from the same connection, in order. */
-    if (request(c, RIFT_REQ_SUBSCRIBE, NULL, now_ms) != 0) {
+    if (request(c, RIFT_REQ_SUBSCRIBE, rift_rxlog_subscribe_params(c->rxlog), now_ms) != 0) {
         return;
     }
     c->subscribed = 1;
@@ -545,6 +529,14 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     if (request(c, RIFT_REQ_PATH_HASH, NULL, now_ms) != 0) {
         return;
     }
+    /* Repeater control: a session left in the service by an earlier RIFT is
+     * one this app cannot show, so it is ended (a logout transmits nothing);
+     * and the repeaters it discovered this run are read, as earlier ones. */
+    rift_rep_service_lost(&c->model->repeater);
+    if (request(c, RIFT_REQ_REMOTE_LOGOUT, NULL, now_ms) != 0 ||
+        request(c, RIFT_REQ_DISCOVERED, NULL, now_ms) != 0) {
+        return;
+    }
     c->revision++;
 }
 
@@ -561,6 +553,21 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         const cJSON *data = cJSON_GetObjectItemCaseSensitive(msg, "data");
 
         c->events_in++;
+        /* Repeater control's two events first (rift_repeater.h). */
+        if (rift_rep_apply_event(&c->model->repeater, event->valuestring, data,
+                                 rift_mono_ms())) {
+            c->revision++;
+            return 0;
+        }
+        /* The receive log's, never the model's: a mesh.rx is a reception,
+         * and the model counts an event it does not know as malformed. */
+        if (strcmp(event->valuestring, "mesh.rx") == 0) {
+            if (c->rxlog) {
+                rift_rxlog_apply(c->rxlog, data, rift_mono_ms(), rift_rxlog_wall_now());
+                c->revision++;
+            }
+            return 0;
+        }
         /* A malformed event is refused by the model and counted there. It
          * is not a reason to drop a connection: one bad event costs one
          * event, and a peer on the air must not be able to disconnect this
@@ -578,6 +585,10 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     }
     c->replies_in++;
     what = take_pending(c, (int)id->valuedouble);
+    if (rift_ipc_repeater_reply(c, what, msg)) {
+        c->revision++;
+        return 0;
+    }
     error = cJSON_GetObjectItemCaseSensitive(msg, "error");
     if (cJSON_IsObject(error)) {
         const cJSON *message = cJSON_GetObjectItemCaseSensitive(error, "message");
@@ -750,6 +761,8 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         break;
     }
     case RIFT_REQ_SUBSCRIBE:
+        rift_rxlog_service_answered(c->rxlog, result, rift_mono_ms());
+        break;
     case RIFT_REQ_UNSUBSCRIBE:
     case RIFT_REQ_NONE:
     default:
@@ -829,6 +842,7 @@ void rift_ipc_poll(struct rift_ipc *c, int64_t now_ms)
     if (c->fd < 0) {
         return;
     }
+    rift_ipc_repeater_poll(c, now_ms);
     /* What events do not carry. The service state does arrive as an event,
      * but only on a transition, so a client that never asked would show
      * nothing until something changed. */

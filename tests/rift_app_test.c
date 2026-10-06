@@ -40,6 +40,9 @@
 #include "rift_mapview.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
+#include "rift_repeater_view.h"
+#include "rift_scan.h"
+#include "rift_rxlog_view.h"
 #include "rift_session.h"
 #include "rift_sound.h"
 #include "rift_store.h"
@@ -3549,6 +3552,412 @@ static void net_session(void)
     app_stop();
 }
 
+/* ---- RX LOG (DS §54) ---------------------------------------------------- */
+
+static size_t heap_in_use(void);
+
+/* One mesh.rx as the client hands it to the ring, `ago` ms before now. */
+static void give_rx(long ago, const char *fields)
+{
+    char json[2048];
+    cJSON *d;
+
+    snprintf(json, sizeof(json), "{\"v\":1,\"mono_ms\":%lld,%s}", (long long)(rift_mono_ms() - ago),
+             fields);
+    d = cJSON_Parse(json);
+    if (!d) {
+        printf("FAIL an RX LOG fixture parses: %s\n", json);
+        failed++;
+        return;
+    }
+    rift_rxlog_apply(&app->rxlog, d, rift_mono_ms(), rift_rxlog_wall_now());
+    cJSON_Delete(d);
+}
+
+#define RX_GT "\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\",\"path_kind\":\"hops\"," \
+              "\"path_hash_size\":1,\"relayed\":false,\"own\":false,\"channel_hash\":\"a7\"," \
+              "\"channel_known\":true,\"hash\":\"3c9a00000000aa01\""
+
+/* What a busy minute sounds like: one channel message heard three times,
+ * a DM, an advert, someone else's request, a rejected frame and a packet
+ * that came a long way. */
+static void give_rx_traffic(void)
+{
+    char hops[200];
+    char json[600];
+    int i;
+
+    give_rx(9000, "\"seq\":1,\"bytes\":42,\"rssi_dbm\":-71,\"snr_db\":9,\"verdict\":\"new\",\"dup\":1,"
+                  RX_GT ",\"path_hops\":4,\"path_hex\":\"6e677473\",\"decoded\":\"channel\","
+                  "\"channel_name\":\"Public\",\"sender\":\"Anna\","
+                  "\"text\":\"Kommer opp om 10 min \xF0\x9F\x91\x8D\"");
+    give_rx(8885, "\"seq\":2,\"bytes\":42,\"rssi_dbm\":-76,\"snr_db\":7,\"verdict\":\"duplicate\","
+                  "\"dup\":2," RX_GT ",\"path_hops\":4,\"path_hex\":\"6e677473\"");
+    give_rx(8700, "\"seq\":3,\"bytes\":42,\"rssi_dbm\":-109,\"snr_db\":-8.5,\"verdict\":\"duplicate\","
+                  "\"dup\":3," RX_GT ",\"path_hops\":0");
+    give_rx(7000, "\"seq\":4,\"bytes\":60,\"rssi_dbm\":-64,\"snr_db\":11,\"verdict\":\"new\",\"dup\":1,"
+                  "\"type\":\"text\",\"type_code\":2,\"route\":\"direct\",\"path_kind\":\"hops\","
+                  "\"path_hash_size\":1,\"path_hops\":0,\"hash\":\"77aa000000000004\","
+                  "\"dest_hash\":\"5f\",\"for_us\":true,\"src_hash\":\"b2\",\"decoded\":\"direct\","
+                  "\"sender\":\"HYTTA\",\"recipient\":\"K230-A\",\"text\":\"Er du der?\","
+                  "\"sender_public_key\":\"" KEY_B "\"");
+    give_rx(6000, "\"seq\":5,\"bytes\":110,\"rssi_dbm\":-92,\"snr_db\":1.5,\"verdict\":\"new\","
+                  "\"dup\":1,\"type\":\"advert\",\"type_code\":4,\"route\":\"flood\","
+                  "\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":1,\"path_hex\":\"4d\","
+                  "\"hash\":\"adad000000000005\",\"src_hash\":\"a1\",\"decoded\":\"advert\","
+                  "\"sender\":\"OSLO-01\",\"sender_public_key\":\"" KEY_A "\"");
+    give_rx(5000, "\"seq\":6,\"bytes\":28,\"rssi_dbm\":-88,\"snr_db\":2,\"verdict\":\"new\",\"dup\":1,"
+                  "\"type\":\"req\",\"type_code\":0,\"route\":\"flood\",\"path_kind\":\"hops\","
+                  "\"path_hash_size\":1,\"path_hops\":2,\"path_hex\":\"4d73\","
+                  "\"hash\":\"b2b2000000000006\",\"dest_hash\":\"c3\",\"for_us\":false,"
+                  "\"src_hash\":\"d4\"");
+    give_rx(4000, "\"seq\":7,\"bytes\":5,\"rssi_dbm\":-118,\"snr_db\":-14,\"verdict\":\"rejected\","
+                  "\"reject\":\"unparsed\",\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\"");
+    hops[0] = '\0';
+    for (i = 0; i < 30; i++) {
+        snprintf(hops + 4 * i, sizeof(hops) - (size_t)(4 * i), "%02x%02x", 0x10 + i, 0x80 + i);
+    }
+    snprintf(json, sizeof(json),
+             "\"seq\":8,\"bytes\":180,\"rssi_dbm\":-99,\"snr_db\":-3,\"verdict\":\"new\",\"dup\":1,"
+             "\"type\":\"advert\",\"type_code\":4,\"route\":\"flood\",\"path_kind\":\"hops\","
+             "\"path_hash_size\":2,\"path_hops\":30,\"path_hex\":\"%s\","
+             "\"hash\":\"fafa000000000008\",\"src_hash\":\"e5\"",
+             hops);
+    give_rx(3000, json);
+    rift_app_refresh(app);
+    pump(300);
+}
+
+/* The row whose first line says `word` in its state or type, or -1. */
+static int rx_row_with(const char *word)
+{
+    char text[400];
+    int i;
+
+    for (i = 0; i < rift_rxlog_view_rows_shown(app); i++) {
+        if (rift_rxlog_view_row_text(app, i, 0, text, sizeof(text)) == 0 && strstr(text, word)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static lv_obj_t *rx_field(int row, int line, int i)
+{
+    lv_obj_t *r = rift_rxlog_view_row(app, row);
+
+    if (!r) {
+        return NULL;
+    }
+    /* A row is line one (the bar, then the eight fields), the path, and the
+     * third line (who, what). */
+    if (line == 0) {
+        return kid(kid(r, 0), (uint32_t)i + 1);
+    }
+    if (line == 1) {
+        return kid(r, 1);
+    }
+    return kid(kid(r, 2), (uint32_t)i);
+}
+
+static int same_colour(lv_obj_t *label, lv_color_t want)
+{
+    return label && lv_color_eq(lv_obj_get_style_text_color(label, LV_PART_MAIN), want);
+}
+
+static void rxlog_session(void)
+{
+    char text[600];
+    lv_obj_t *b;
+    int dup2;
+    int dup3;
+    int nodes;
+    size_t heap_first = 0;
+    size_t heap_last = 0;
+    int i;
+
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    nodes = app->model.node_count;
+
+    /* ---- the way in ---- */
+    b = rift_activity_rxlog_button(app);
+    check("ACTIVITY has an RX LOG action", b && find_exact(b, "RX LOG") != NULL);
+    tap(b);
+    pump(60);
+    check("which opens RX LOG", app->section == RIFT_SEC_RXLOG);
+    check("under the ACTIVITY tab, as NET is under NODES",
+          rift_tab_of(app->section) == RIFT_SEC_ACTIVITY && visible(app->tab_rule[RIFT_SEC_ACTIVITY]));
+    check("an empty log with no service says it is waiting",
+          find_text(content(), "Waiting for meshcored") != NULL);
+    check("with PAUSE, CLEAR and the filter", visible(rift_rxlog_view_button(app, 0)) &&
+                                                   visible(rift_rxlog_view_button(app, 1)) &&
+                                                   find_exact(content(), "FILTER ALL") != NULL);
+
+    /* ---- rows ---- */
+    give_rx_traffic();
+    check("every reception is a row, repeats included", rift_rxlog_view_rows_shown(app) == 8);
+    rift_rxlog_view_row_text(app, 0, 0, text, sizeof(text));
+    check("newest first", strstr(text, "ADV") != NULL && strstr(text, "180B") != NULL);
+    dup2 = rx_row_with("DUP #2");
+    dup3 = rx_row_with("DUP #3");
+    check("DUP #2 and DUP #3 are rows of their own", dup2 >= 0 && dup3 >= 0 && dup2 != dup3);
+    rift_rxlog_view_row_text(app, dup2, 0, text, sizeof(text));
+    check("with the channel hash, packet hash, size and signal",
+          strstr(text, "CH:A7") && strstr(text, "H:3C9A") && strstr(text, "42B") &&
+              strstr(text, "RSSI:" RIFT_MINUS "76") && strstr(text, "SNR:7"));
+    rift_rxlog_view_row_text(app, dup2, 1, text, sizeof(text));
+    check("the whole path", strcmp(text, "PATH  6E > 67 > 74 > 73") == 0);
+    rift_rxlog_view_row_text(app, dup2, 2, text, sizeof(text));
+    check("and the text the first copy decoded, with the claimed sender",
+          strstr(text, "#Public Anna?:") && strstr(text, "Kommer opp om 10 min"));
+    {
+        int first = rx_row_with("RX ");
+
+        rift_rxlog_view_row_text(app, 7, 2, text, sizeof(text));
+        check("the first reception reads the same", first >= 0 && strstr(text, "Kommer opp"));
+    }
+    {
+        int dm = rx_row_with("RX MSG CH:--");
+
+        rift_rxlog_view_row_text(app, dm < 0 ? 0 : dm, 2, text, sizeof(text));
+        check("a direct message says who to whom", dm >= 0 && strstr(text, "DM HYTTA") &&
+                                                       strstr(text, "K230-A") && strstr(text, "Er du der?"));
+        check("its sender in the accent of its conversation",
+              dm >= 0 && same_colour(rx_field(dm, 2, 0), pos_identity_hue(rift_ident_hash(KEY_B))));
+    }
+    {
+        int req = rx_row_with("REQ");
+
+        rift_rxlog_view_row_text(app, req < 0 ? 0 : req, 2, text, sizeof(text));
+        check("someone else's request is encrypted, between whom it says",
+              req >= 0 && strstr(text, "[ENCRYPTED") && strstr(text, "D4"));
+        check("in a muted colour",
+              req >= 0 && same_colour(rx_field(req, 2, 1), lv_color_hex(pos_theme_rgb(POS_COLOR_TEXT_MUTED))));
+        check("REQ in the colour of the mesh at work", req >= 0 && same_colour(rx_field(req, 0, 2), pos_identity_hue(5)));
+    }
+    {
+        int rej = rx_row_with("REJ");
+
+        rift_rxlog_view_row_text(app, rej < 0 ? 0 : rej, 2, text, sizeof(text));
+        check("a rejected frame says so", rej >= 0 && strstr(text, "[REJECTED"));
+        check("in red, and its weak signal too",
+              rej >= 0 && same_colour(rx_field(rej, 0, 1), lv_color_hex(pos_theme_rgb(POS_COLOR_STATUS_ERROR))) &&
+                  same_colour(rx_field(rej, 0, 6), lv_color_hex(pos_theme_rgb(POS_COLOR_STATUS_ERROR))));
+    }
+    check("RX in its colour, DUP in another",
+          same_colour(rx_field(7, 0, 1), pos_identity_hue(4)) &&
+              same_colour(rx_field(dup2, 0, 1), pos_identity_hue(6)));
+    check("a good signal is green", same_colour(rx_field(dup2, 0, 6), lv_color_hex(pos_theme_rgb(POS_COLOR_STATUS_OK))));
+    check("a relayed path is orange, a direct one green",
+          same_colour(rx_field(dup2, 1, 0), pos_identity_hue(1)) &&
+              same_colour(rx_field(dup3, 1, 0), pos_identity_hue(3)));
+    {
+        lv_obj_t *path = rx_field(0, 1, 0);
+        char want[300];
+        size_t at = 0;
+
+        for (i = 0; i < 30; i++) {
+            at += (size_t)snprintf(want + at, sizeof(want) - at, "%s%02X%02X", i ? " > " : "PATH  ",
+                                   0x10 + i, 0x80 + i);
+        }
+        text[0] = '\0';
+        rift_rxlog_view_row_text(app, 0, 1, text, sizeof(text));
+        check("a 30-hop path is printed whole", strcmp(text, want) == 0);
+        if (path) {
+            lv_obj_update_layout(path);
+        }
+        check("and wraps onto further lines rather than being cut",
+              path && lv_obj_get_height(path) > rift_caption_h() && inside_body(path));
+    }
+    rift_rxlog_view_row_text(app, 0, 2, text, sizeof(text));
+    check("an advert from a node nobody holds says its name is not known",
+          strcmp(text, "[NAME NOT KNOWN]") == 0);
+    check("every row's first line fits the portrait width",
+          rift_rxlog_view_row(app, dup2) &&
+              lv_obj_get_height(kid(rift_rxlog_view_row(app, dup2), 0)) <= rift_caption_h() + 2 &&
+              inside_body(kid(rift_rxlog_view_row(app, dup2), 0)));
+    shot("portrait-rxlog");
+
+    /* ---- small and fixed, whatever the text size ---- */
+    if (rx_field(0, 0, 0)) {
+        const lv_font_t *small = lv_obj_get_style_text_font(rx_field(0, 0, 0), LV_PART_MAIN);
+
+        pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+        pump(120);
+        check("at Large the log keeps its compact face",
+              lv_obj_get_style_text_font(rx_field(0, 0, 0), LV_PART_MAIN) == small);
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(120);
+    }
+
+    /* ---- PAUSE ---- */
+    rift_rxlog_view_row_text(app, 0, 0, text, sizeof(text));
+    {
+        char before[600];
+
+        snprintf(before, sizeof(before), "%s", text);
+        tap(rift_rxlog_view_button(app, 0));
+        check("PAUSE pauses", app->rxlog.paused && find_exact(content(), "RESUME") != NULL);
+        give_rx(10, "\"seq\":9,\"bytes\":20,\"verdict\":\"new\",\"type\":\"ack\",\"type_code\":3,"
+                    "\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":0,"
+                    "\"hash\":\"ac00000000000009\",\"dup\":1");
+        give_rx(5, "\"seq\":10,\"bytes\":20,\"verdict\":\"new\",\"type\":\"ack\",\"type_code\":3,"
+                   "\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":0,"
+                   "\"hash\":\"ac0000000000000a\",\"dup\":1");
+        rift_app_refresh(app);
+        pump(300);
+        rift_rxlog_view_row_text(app, 0, 0, text, sizeof(text));
+        check("and the view stays where it was", strcmp(text, before) == 0);
+        check("while capture goes on, and says how much", app->rxlog.count == 10 &&
+                                                              find_text(content(), "2 NEWER ABOVE") != NULL &&
+                                                              find_text(content(), "PAUSED") != NULL);
+        tap(rift_rxlog_view_button(app, 0));
+        rift_rxlog_view_row_text(app, 0, 0, text, sizeof(text));
+        check("RESUME is back to the newest, live",
+              !app->rxlog.paused && strstr(text, "ACK") != NULL && find_text(content(), "LIVE") != NULL);
+        rift_rxlog_view_row_text(app, 0, 2, text, sizeof(text));
+        check("an ACK has nothing to read, and no third line", strcmp(text, "") == 0);
+    }
+
+    /* ---- the filter ---- */
+    tap(rift_rxlog_view_button(app, 2));
+    check("FILTER DUP shows only the repeats", find_exact(content(), "FILTER DUP") != NULL &&
+                                                   rift_rxlog_view_rows_shown(app) == 2);
+    tap(rift_rxlog_view_button(app, 2));
+    check("MSG the messages", find_exact(content(), "FILTER MSG") != NULL &&
+                                  rift_rxlog_view_rows_shown(app) == 5);
+    tap(rift_rxlog_view_button(app, 2));
+    check("ADV the adverts", rift_rxlog_view_rows_shown(app) == 2);
+    tap(rift_rxlog_view_button(app, 2));
+    check("CTRL the rest", rift_rxlog_view_rows_shown(app) == 3);
+    tap(rift_rxlog_view_button(app, 2));
+    check("and round to ALL", find_exact(content(), "FILTER ALL") != NULL &&
+                                  rift_rxlog_view_rows_shown(app) == 10);
+
+    /* ---- the detail ---- */
+    tap(rift_rxlog_view_row(app, rx_row_with("DUP #2")));
+    pump(60);
+    check("a tap on a row opens its detail", rift_rxlog_view_detail(app) != NULL);
+    check("with every field: the whole hash, MeshCore's verdict",
+          rift_rxlog_view_detail(app) && strstr(lv_label_get_text(rift_rxlog_view_detail(app)), "3C9A00000000AA01") &&
+              strstr(lv_label_get_text(rift_rxlog_view_detail(app)), "MESHCORE DUPLICATE") &&
+              strstr(lv_label_get_text(rift_rxlog_view_detail(app)), "earlier copy"));
+    shot("portrait-rxlog-detail");
+    pos_input_push_key(LV_KEY_ESC);
+    pump(60);
+    check("Esc closes it and stays in RX LOG", rift_rxlog_view_detail(app) == NULL &&
+                                                   app->section == RIFT_SEC_RXLOG);
+    pos_input_push_key(LV_KEY_ESC);
+    pump(60);
+    check("Esc again is ACTIVITY", app->section == RIFT_SEC_ACTIVITY);
+    pos_input_push_key('r');
+    pump(60);
+    check("R on ACTIVITY opens RX LOG", app->section == RIFT_SEC_RXLOG);
+
+    /* ---- keys and scrolling ---- */
+    pos_input_push_key(LV_KEY_HOME);
+    pump(60);
+    check("Home is the newest, live, with nothing selected",
+          app->rxlog.top_uid == 0 && app->rxlog.selected_uid == 0 && !app->rxlog.paused);
+    pos_input_push_key(LV_KEY_DOWN);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    check("Down selects, and moves the selection",
+          app->rxlog.selected_uid == rift_rxlog_at(&app->rxlog, 1)->uid);
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(60);
+    check("Enter opens the selected one", rift_rxlog_view_detail(app) != NULL);
+    check("and Back closes it first", app_rift.back(app) == 1 && rift_rxlog_view_detail(app) == NULL &&
+                                          app->section == RIFT_SEC_RXLOG);
+    rift_rxlog_view_scroll(app, 3);
+    pump(60);
+    rift_rxlog_view_row_text(app, 0, 0, text, sizeof(text));
+    check("a drag of three rows shows the fourth newest at the top",
+          rift_rxlog_at(&app->rxlog, 3) && app->rxlog.top_uid == rift_rxlog_at(&app->rxlog, 3)->uid &&
+              find_text(content(), "HELD") != NULL);
+    if (rift_rxlog_view_row(app, 0)) {
+        lv_area_t a;
+        lv_obj_t *list = lv_obj_get_parent(rift_rxlog_view_row(app, 0));
+
+        lv_obj_get_coords(list, &a);
+        finger_point.x = (a.x1 + a.x2) / 2;
+        finger_point.y = a.y1 + 40;
+        finger_state = LV_INDEV_STATE_PRESSED;
+        pump(30);
+        for (i = 0; i < 6; i++) {
+            finger_point.y += 30;
+            pump(20);
+        }
+        finger_state = LV_INDEV_STATE_RELEASED;
+        pump(80);
+        check("a finger dragging down goes back to the newest",
+              app->rxlog.top_uid == 0 && find_text(content(), "LIVE") != NULL);
+        check("and the drag opened nothing", rift_rxlog_view_detail(app) == NULL);
+    }
+    pos_input_push_key(LV_KEY_HOME);
+    pump(60);
+
+    /* ---- landscape ---- */
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(200);
+    rift_app_refresh(app);
+    pump(300);
+    check("turned, RX LOG is still there", app->section == RIFT_SEC_RXLOG &&
+                                               rift_rxlog_view_rows_shown(app) == 10);
+    check("each first line on one line",
+          rift_rxlog_view_row(app, 0) &&
+              lv_obj_get_height(kid(rift_rxlog_view_row(app, 0), 0)) <= rift_caption_h() + 2);
+    check("inside the body", inside_body(rift_rxlog_view_button(app, 2)) && rift_rxlog_view_row(app, 0) &&
+                                 inside_body(kid(rift_rxlog_view_row(app, 0), 0)));
+    shot("landscape-rxlog");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pump(200);
+
+    /* ---- what the service sends that it should not ---- */
+    give_rx(1, "\"seq\":\"eleven\",\"bytes\":-1,\"verdict\":\"perhaps\"");
+    give_rx(1, "\"seq\":11,\"bytes\":10,\"verdict\":\"new\",\"path_kind\":\"hops\","
+               "\"path_hash_size\":1,\"path_hops\":9,\"path_hex\":\"00\"");
+    rift_app_refresh(app);
+    pump(300);
+    check("a malformed event draws nothing and is counted",
+          app->rxlog.count == 10 && find_text(content(), "2 REFUSED") != NULL);
+
+    /* ---- the bound, CLEAR, and nothing left behind ---- */
+    for (i = 0; i < RIFT_RXLOG_MAX + 100; i++) {
+        char f[200];
+
+        snprintf(f, sizeof(f), "\"seq\":%d,\"bytes\":12,\"verdict\":\"new\",\"hash\":\"%016x\","
+                               "\"dup\":1", 100 + i, 0x5000 + i);
+        give_rx(0, f);
+    }
+    rift_app_refresh(app);
+    pump(300);
+    check("the log keeps its bound", app->rxlog.count == RIFT_RXLOG_MAX && app->rxlog.evicted >= 110);
+    for (i = 0; i < 6; i++) {
+        app_leave();
+        app_start();
+        quiet_client();
+        rift_app_show_section(app, RIFT_SEC_RXLOG);
+        pump(300);
+        if (i == 0) {
+            heap_first = heap_in_use();
+        }
+        heap_last = heap_in_use();
+    }
+    check("left and opened again, the log is still there", app->rxlog.count == RIFT_RXLOG_MAX &&
+                                                                rift_rxlog_view_rows_shown(app) > 0);
+    check("and opening and closing it costs nothing that stays",
+          heap_last <= heap_first + 16384);
+    tap(rift_rxlog_view_button(app, 1));
+    check("CLEAR empties the log", app->rxlog.count == 0 && rift_rxlog_view_rows_shown(app) == 0 &&
+                                       find_text(content(), "Waiting for meshcored") != NULL);
+    check("and nothing else", app->model.node_count == nodes);
+    app_stop();
+}
+
 /* ---- RIFT behind other screens (DS §51) -------------------------------- */
 
 static int timer_count(void)
@@ -4110,10 +4519,10 @@ static void repeater_session(void)
         }
         snprintf(what, sizeof(what), "%s: the detail has no MESSAGE", tag);
         check(what, find_exact(content(), "MESSAGE") == NULL);
-        snprintf(what, sizeof(what), "%s: and says it is a repeater, and that control is not "
-                                     "available", tag);
+        snprintf(what, sizeof(what), "%s: and says it is a repeater, and where it is controlled",
+                 tag);
         check(what, find_text(content(), "TAKES NO DIRECT MESSAGES") != NULL &&
-                        find_text(content(), "CONTROL NOT AVAILABLE") != NULL);
+                        find_text(content(), "CONTROL FROM ACTIVITY") != NULL);
         snprintf(what, sizeof(what), "%s: it keeps its telemetry, path and node actions", tag);
         check(what, find_text(content(), "RPT") != NULL && find_exact(content(), "RE-ROUTE") &&
                         find_exact(content(), "FORGET") && find_text(content(), "7.5") != NULL);
@@ -4642,6 +5051,411 @@ static void emoji_picker_session(void)
         check(what, !rift_emoji_picker_is_open());
     }
     pos_theme_select_text_size(was);
+}
+
+/* ---- feat/rift-repeater-control ---------------------------------------------
+ *
+ * ACTIVITY's REPEATERS 0-HOP panel and a repeater's page, from fixtures (the
+ * screens, in both shapes and at Large, and the keys), then against the
+ * scripted service (what each press asks for, and what leaving RIFT does). */
+
+#define KEY_RPT1 "f7a00000000000000000000000000000000000000000000000000000000000f7"
+#define KEY_RPT2 "a7b10000000000000000000000000000000000000000000000000000000000a7"
+
+static void rep_apply(const char *name, const char *json)
+{
+    cJSON *o = cJSON_Parse(json);
+
+    check("the repeater fixture is valid JSON", o != NULL);
+    rift_rep_apply_event(&app->model.repeater, name, o, rift_mono_ms());
+    cJSON_Delete(o);
+}
+
+/* Three repeaters: the node-list repeater KEY_D and one whose advert was never
+ * heard, both answering the latest round; and one from an earlier round. */
+static void give_repeaters(int open)
+{
+    char json[1024];
+    int64_t now = rift_mono_ms();
+
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"reply\",\"round\":1,\"open\":false,\"repeater\":{"
+             "\"public_key\":\"" KEY_RPT2 "\",\"node_hash\":\"a7\",\"name\":\"BERG-RPT\","
+             "\"known\":true,\"round\":1,\"current\":true,\"mono_ms\":%lld,"
+             "\"their_snr_db\":-2.5,\"snr_db\":-4.0,\"rssi_dbm\":-109}}",
+             (long long)(now - 1800000));
+    rep_apply("mesh.discover", json);
+    {
+        cJSON *o;
+
+        snprintf(json, sizeof(json),
+                 "{\"started\":true,\"round\":2,\"open\":%s,\"started_mono_ms\":%lld,"
+                 "\"until_mono_ms\":%lld}",
+                 open ? "true" : "false", (long long)(now - 12000),
+                 (long long)(now + (open ? 18000 : -1000)));
+        o = cJSON_Parse(json);
+        rift_rep_apply_discover(&app->model.repeater, o);
+        cJSON_Delete(o);
+    }
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"reply\",\"round\":2,\"open\":%s,\"repeater\":{"
+             "\"public_key\":\"" KEY_D "\",\"node_hash\":\"d4\","
+             "\"name\":\"S\xC3\xB8rlandet fjellstasjon \xC3\xA6\xC3\xB8\xC3\xA5 relay\","
+             "\"known\":true,\"type\":2,\"round\":2,\"current\":true,\"mono_ms\":%lld,"
+             "\"their_snr_db\":5.5,\"snr_db\":8.25,\"rssi_dbm\":-71}}",
+             open ? "true" : "false", (long long)(now - 9000));
+    rep_apply("mesh.discover", json);
+    snprintf(json, sizeof(json),
+             "{\"reason\":\"reply\",\"round\":2,\"open\":%s,\"repeater\":{"
+             "\"public_key\":\"" KEY_RPT1 "\",\"node_hash\":\"f7\",\"known\":false,"
+             "\"round\":2,\"current\":true,\"mono_ms\":%lld,\"their_snr_db\":1.0,"
+             "\"snr_db\":-1.5,\"rssi_dbm\":-98}}",
+             open ? "true" : "false", (long long)(now - 7000));
+    rep_apply("mesh.discover", json);
+    rift_app_refresh(app);
+    pump(120);
+}
+
+#define REP_FIX_SESSION                                                                       \
+    "\"session\":{\"active\":true,\"node\":\"" KEY_D "\",\"known\":true,\"type\":2,"           \
+    "\"login\":\"ok\",\"legacy\":false,\"admin\":true,\"permissions\":1,\"acl\":3,"           \
+    "\"firmware_level\":2,\"repeater_clock\":1790000000,\"stale_replies\":0,"                 \
+    "\"malformed_replies\":0}"
+
+/* Logged in to KEY_D, and what it answered: status, neighbours, version and
+ * two commands. */
+static void give_repeater_session(void)
+{
+    rep_apply("mesh.remote", "{\"reply\":{\"request_id\":1,\"kind\":\"login\",\"outcome\":"
+                             "\"replied\",\"node\":\"" KEY_D "\"}," REP_FIX_SESSION "}");
+    rep_apply("mesh.remote",
+              "{\"reply\":{\"request_id\":2,\"kind\":\"status\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_D "\",\"status\":{\"battery_mv\":4012,\"tx_queue\":0,"
+              "\"noise_floor_dbm\":-118,\"last_rssi_dbm\":-81,\"last_snr_db\":6.5,"
+              "\"packets_recv\":15532,\"packets_sent\":4410,\"air_time_s\":3605,"
+              "\"uptime_s\":360500,\"sent_flood\":4000,\"sent_direct\":410,"
+              "\"recv_flood\":15000,\"recv_direct\":532,\"err_events\":0,"
+              "\"direct_dups\":3,\"flood_dups\":211}}," REP_FIX_SESSION "}");
+    rep_apply("mesh.remote",
+              "{\"reply\":{\"request_id\":3,\"kind\":\"neighbours\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_D "\",\"neighbours\":{\"total\":2,\"entries\":["
+              "{\"prefix\":\"a19ac21e7d04\",\"name\":\"OSLO-01\",\"heard_s_ago\":95,"
+              "\"snr_db\":9.5},{\"prefix\":\"77aa00bb11cc\",\"heard_s_ago\":3700,"
+              "\"snr_db\":-4.25}]}}," REP_FIX_SESSION "}");
+    rep_apply("mesh.remote",
+              "{\"reply\":{\"request_id\":4,\"kind\":\"owner\",\"outcome\":\"replied\","
+              "\"node\":\"" KEY_D "\",\"owner\":{\"firmware\":\"v1.9.0 (Build: 12-Sep-2026)\","
+              "\"name\":\"Sorlandet\",\"owner\":\"bench\"}}," REP_FIX_SESSION "}");
+    rift_rep_note_command(&app->model.repeater, "ver");
+    rep_apply("mesh.remote", "{\"reply\":{\"request_id\":5,\"kind\":\"cli\",\"outcome\":"
+                             "\"replied\",\"node\":\"" KEY_D "\",\"text\":\"v1.9.0 (Build: "
+                             "12-Sep-2026)\"}," REP_FIX_SESSION "}");
+    rift_app_refresh(app);
+    pump(150);
+}
+
+static int rep_live_listed(void)
+{
+    return app && app->model.repeater.scan.count >= 1 && !app->model.repeater.scan.asking;
+}
+
+static int rep_live_logged(void)
+{
+    return app && rift_rep_logged_in(&app->model.repeater, KEY_D);
+}
+
+static int rep_live_idle(void)
+{
+    return app && !rift_rep_busy(&app->model.repeater);
+}
+
+static int rep_live_status(void)
+{
+    return app && app->model.repeater.status.have && !rift_rep_busy(&app->model.repeater);
+}
+
+static int rep_live_lines(void)
+{
+    return app && app->model.repeater.line_count >= 3 && !rift_rep_busy(&app->model.repeater);
+}
+
+static int rep_log_count(const char *path, const char *prefix)
+{
+    FILE *f = fopen(path, "r");
+    char line[512];
+    int n = 0;
+
+    if (!f) {
+        return 0;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        n += strncmp(line, prefix, strlen(prefix)) == 0;
+    }
+    fclose(f);
+    return n;
+}
+
+static void repeater_screens(enum pos_rotation shape, enum pos_text_size size)
+{
+    const char *tag = shape == POS_ROTATION_0 ? "portrait" : "landscape";
+    int large = size == POS_TEXT_SIZE_LARGE;
+    char what[200];
+    char name[96];
+    int rows = 0;
+    int i;
+
+    pos_theme_select_text_size(size);
+    use_display(shape, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_repeaters(0);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(200);
+    for (i = 0; i < RIFT_SCAN_ROWS; i++) {
+        rows += rift_scan_row(app, i) && visible(rift_scan_row(app, i));
+    }
+    snprintf(what, sizeof(what), "%s%s: ACTIVITY lists the three repeaters, the earlier apart",
+             tag, large ? ", Large" : "");
+    check(what, find_exact(content(), "REPEATERS 0-HOP") && rows == 3 &&
+                    visible(find_exact(content(), "EARLIER SCANS")));
+    snprintf(what, sizeof(what), "%s%s: a repeater whose advert was never heard says so", tag,
+             large ? ", Large" : "");
+    check(what, find_text(content(), large ? "f7a00000" : "NO ADVERT") != NULL);
+    snprintf(what, sizeof(what), "%s%s: each row is a 56 px target", tag, large ? ", Large" : "");
+    check(what, lv_obj_get_height(rift_scan_row(app, 0)) >= RIFT_TOUCH_H);
+    snprintf(what, sizeof(what), "%s%s: ACTIVITY's captions are whole, buttons unclipped", tag,
+             large ? ", Large" : "");
+    check(what, captions_clipped(frame()) == 0 && labels_overflowing(frame()) == 0);
+    snprintf(name, sizeof(name), "rift-activity-repeaters-%s%s", tag, large ? "-large" : "");
+    shot(name);
+
+    /* Newest answer first: the unnamed repeater (7 s), then KEY_D (9 s). */
+    tap(rift_scan_row(app, 1));
+    pump(150);
+    snprintf(what, sizeof(what), "%s%s: a row opens its repeater's page, under ACTIVITY", tag,
+             large ? ", Large" : "");
+    check(what, app->section == RIFT_SEC_REPEATER && rift_tab_of(app->section) == RIFT_SEC_ACTIVITY &&
+                    app->model.repeater.have_target &&
+                    strcmp(app->model.repeater.target, KEY_D) == 0);
+    snprintf(what, sizeof(what), "%s%s: not logged in, nothing can be read or sent", tag,
+             large ? ", Large" : "");
+    check(what, find_text(content(), "Not logged in") != NULL &&
+                    lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_STATUS),
+                                     LV_STATE_DISABLED) &&
+                    lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_SEND),
+                                     LV_STATE_DISABLED));
+    snprintf(name, sizeof(name), "rift-repeater-login-%s%s", tag, large ? "-large" : "");
+    shot(name);
+
+    give_repeater_session();
+    snprintf(what, sizeof(what), "%s%s: logged in as admin, in words", tag, large ? ", Large" : "");
+    check(what, find_text(content(), "Logged in as admin") != NULL &&
+                    !visible(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)));
+    snprintf(what, sizeof(what), "%s%s: what the repeater answered is shown, and only that", tag,
+             large ? ", Large" : "");
+    check(what, find_text(content(), "4.01 V") != NULL);
+    check("  and its neighbours, named where the node list names them",
+          find_text(content(), "OSLO-01") != NULL && find_text(content(), "77aa00bb11cc") != NULL);
+    check("  and its firmware", find_text(content(), "v1.9.0 (Build: 12-Sep-2026)") != NULL);
+    {
+        lv_obj_t *rx_time = find_exact(content(), "Receive time");
+
+        /* visible(NULL) is 1: a row nobody can find is a hidden one. */
+        check("  and not a tier it did not send", rx_time == NULL || !visible(rx_time));
+    }
+    snprintf(what, sizeof(what), "%s%s: the page fits its body, buttons unclipped", tag,
+             large ? ", Large" : "");
+    check(what, inside_body(content()) && labels_overflowing(app->repeater_root) == 0);
+    lv_obj_scroll_to_y(app->repeater_root, 0, LV_ANIM_OFF);
+    snprintf(name, sizeof(name), "rift-repeater-%s%s", tag, large ? "-large" : "");
+    shot(name);
+
+    /* The keys: Down walks the page's controls with the focus outline, Enter
+     * presses; the first is the way back. */
+    pos_input_focus(app->keysink);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    snprintf(what, sizeof(what), "%s%s: Down puts the outline on the way back", tag,
+             large ? ", Large" : "");
+    check(what, lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_BACK), LV_STATE_USER_1));
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    snprintf(what, sizeof(what), "%s%s: and Enter takes it, to ACTIVITY", tag, large ? ", Large" : "");
+    check(what, app->section == RIFT_SEC_ACTIVITY);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(60);
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    snprintf(what, sizeof(what), "%s%s: on ACTIVITY Down and Enter open a repeater too", tag,
+             large ? ", Large" : "");
+    check(what, app->section == RIFT_SEC_REPEATER);
+    app_stop();
+}
+
+static void repeater_control_session(void)
+{
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    enum pos_text_size was = pos_theme_current_text_size();
+    char sock[512];
+    char rlog[512];
+    struct stat st;
+    int waited;
+    pid_t pid;
+
+    repeater_screens(POS_ROTATION_0, POS_TEXT_SIZE_SMALL);
+    repeater_screens(POS_ROTATION_270, POS_TEXT_SIZE_SMALL);
+    repeater_screens(POS_ROTATION_0, POS_TEXT_SIZE_LARGE);
+    repeater_screens(POS_ROTATION_270, POS_TEXT_SIZE_LARGE);
+    pos_theme_select_text_size(was);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+
+    /* A round still open: SCAN says so and takes no press. */
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_repeaters(1);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(150);
+    check("while a round is open SCAN says so and is not pressable",
+          find_exact(content(), "SCANNING") != NULL &&
+              lv_obj_has_state(rift_scan_button(app), LV_STATE_DISABLED));
+    shot("rift-activity-repeaters-scanning");
+    app_stop();
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the live repeater session needs RIFT_FAKE_MESHCORED; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(rlog, sizeof(rlog), "%s/rift-remote-log", g_state_dir);
+    unlink(rlog);
+    pid = fork();
+    if (pid == 0) {
+        char nodes[1024];
+
+        snprintf(nodes, sizeof(nodes),
+                 "[{\"public_key\":\"" KEY_D "\",\"node_hash\":\"d4\",\"name\":\"RPT-D\","
+                 "\"type\":2,\"path_known\":false,\"last_heard_mono_ms\":-5000}]");
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", nodes, 1);
+        setenv("FAKE_MESHCORED_REPEATER",
+               "{\"public_key\":\"" KEY_D "\",\"node_hash\":\"d4\",\"name\":\"RPT-D\","
+               "\"known\":true,\"type\":2,\"their_snr_db\":5.5,\"snr_db\":8.25,"
+               "\"rssi_dbm\":-71}",
+               1);
+        setenv("FAKE_MESHCORED_REMOTE_LOG", rlog, 1);
+        setenv("FAKE_MESHCORED_CLI_TIMEOUT_FIRST", "1", 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+
+    app_start();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    check("RIFT reads the service", live_until(live_ready, 8000));
+    check("opening RIFT asked no repeater anything that transmits",
+          rep_log_count(rlog, "mesh.discover|") == 0 &&
+              rep_log_count(rlog, "mesh.remote_login|") == 0);
+    tap(rift_scan_button(app));
+    check("SCAN 0-HOP asks the service once, and the repeater that answered is listed",
+          live_until(rep_live_listed, 8000) && rep_log_count(rlog, "mesh.discover|") == 1 &&
+              visible(rift_scan_row(app, 0)));
+    tap(rift_scan_row(app, 0));
+    pump(150);
+    check("its page opens", app->section == RIFT_SEC_REPEATER);
+
+    /* A wrong password: the service reports the wait running out. */
+    type_into(rift_repeater_view_part(app, RIFT_REPV_PASSWORD), "nope");
+    tap(rift_repeater_view_part(app, RIFT_REPV_LOGIN));
+    check("a wrong password ends as no answer, and the field is empty",
+          live_until(rep_live_idle, 8000) && app->model.repeater.login == RIFT_REP_LOGIN_TIMEOUT &&
+              strcmp(lv_textarea_get_text(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)), "") ==
+                  0 &&
+              find_text(content(), "wrong password") != NULL);
+    /* The keys reach the field: Down to the way back, Down to the field,
+     * Enter puts the keys in it (on LVGL's next pass). */
+    pos_input_focus(app->keysink);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(40);
+    pos_input_push_key(LV_KEY_DOWN);
+    pump(40);
+    pos_input_push_key(LV_KEY_ENTER);
+    pump(120);
+    check("Down, Down, Enter puts the keys in the password field",
+          pos_input_focused() == rift_repeater_view_part(app, RIFT_REPV_PASSWORD));
+    type_into(rift_repeater_view_part(app, RIFT_REPV_PASSWORD), "hunter2");
+    pos_input_push_key(LV_KEY_ENTER); /* Enter in the field is LOGIN */
+    check("Enter in the field logs in, and the password is kept nowhere in RIFT",
+          live_until(rep_live_logged, 8000) && !mem_holds(app, sizeof(*app), "hunter2") &&
+              strcmp(lv_textarea_get_text(rift_repeater_view_part(app, RIFT_REPV_PASSWORD)), "") ==
+                  0);
+    pump(150);
+    tap(rift_repeater_view_part(app, RIFT_REPV_STATUS));
+    check("STATUS is answered", live_until(rep_live_status, 8000) &&
+                                     find_text(content(), "4.01 V") != NULL);
+    /* CLOCK first, and its answer lost: the service ends it as a timeout.
+     * (Unit B, 2026-10-05: every button stayed grey after CLOCK.) */
+    tap(rift_repeater_view_part(app, RIFT_REPV_QUICK_CLOCK));
+    check("CLOCK with no answer ends as no answer in time, in the transcript too",
+          live_until(rep_live_idle, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 1 &&
+              find_text(content(), "NO ANSWER IN TIME") != NULL &&
+              find_text(content(), "(no answer)") != NULL);
+    pump(150);
+    check("and every repeater button is usable again",
+          !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_QUICK_CLOCK),
+                            LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_QUICK_VER),
+                                LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_STATUS),
+                                LV_STATE_DISABLED) &&
+              !lv_obj_has_state(rift_repeater_view_part(app, RIFT_REPV_SEND), LV_STATE_DISABLED));
+    tap(rift_repeater_view_part(app, RIFT_REPV_QUICK_VER));
+    check("VER is a read-only command, sent at once, and its answer shown",
+          live_until(rep_live_lines, 8000) && rep_log_count(rlog, "mesh.remote_cli|") == 2 &&
+              find_text(content(), "-> ver") != NULL);
+
+    type_into(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "reboot");
+    tap(rift_repeater_view_part(app, RIFT_REPV_SEND));
+    pump(150);
+    check("reboot asks first, and nothing has been sent",
+          visible(rift_repeater_view_part(app, RIFT_REPV_CONFIRM)) &&
+              rep_log_count(rlog, "mesh.remote_cli|") == 2);
+    tap(rift_repeater_view_part(app, RIFT_REPV_CANCEL));
+    pump(150);
+    check("CANCEL sends nothing", !visible(rift_repeater_view_part(app, RIFT_REPV_CONFIRM)) &&
+                                      rep_log_count(rlog, "mesh.remote_cli|") == 2);
+    lv_textarea_set_text(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "");
+    type_into(rift_repeater_view_part(app, RIFT_REPV_COMMAND), "erase");
+    tap(rift_repeater_view_part(app, RIFT_REPV_SEND));
+    pump(150);
+    check("erase is refused and never sent", find_text(content(), "Not sent") != NULL &&
+                                                  rep_log_count(rlog, "mesh.remote_cli|") == 2);
+    shot("rift-repeater-live");
+
+    app_leave();
+    pump(300);
+    check("leaving RIFT ends the repeater session",
+          rep_log_count(rlog, "mesh.remote_logout|") >= 2 &&
+              !rift_rep_logged_in(&rift_app_session()->model.repeater, KEY_D));
+    app_start();
+    app_stop();
+    kill(pid, SIGTERM);
+    waitpid(pid, NULL, 0);
+    unlink(sock);
+    unlink(rlog);
 }
 
 /* ---- feat/rift-comms-reliability ---------------------------------------------
@@ -6257,7 +7071,10 @@ int main(void)
     reliability_session();
     find_session();
     net_session();
+    /* feat/rift-rx-log: the receive log behind ACTIVITY (DS §54). */
+    rxlog_session();
     repeater_session();
+    repeater_control_session();
     map_session();
     manage_session();
     manage_live_session();

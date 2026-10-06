@@ -459,30 +459,66 @@ repeater is still listed, with its telemetry, path, history, RE-ROUTE and
 FORGET. Upstream's companion firmware does not refuse text to a repeater; the
 restriction is the client's, as the T-Deck RIFT's (`ENTER: control`).
 
-**Repeater control is not in this build.** What upstream MeshCore offers a
-client (vendor/RIFT at the pin, everything server-side upstream as is):
+### Repeater control
 
-| operation | upstream | needs | meshcored today |
-|---|---|---|---|
-| login | `ANON_REQ` with timestamp + password; repeater answers `RESPONSE` with admin flag and ACL permissions; a wrong password gets no reply (`simple_repeater` `handleLoginReq`, client `BaseChatMesh::sendLogin`) | admin or guest password | not implemented (`onContactResponse` is empty) |
-| status | `REQ_TYPE_GET_STATUS` → `RepeaterStats` (battery, queue, noise floor, RSSI/SNR, packet and air-time counters, uptime) | logged in (guest is enough) | no |
-| telemetry | `REQ_TYPE_GET_TELEMETRY_DATA` → CayenneLPP | logged in | no |
-| neighbours | `REQ_TYPE_GET_NEIGHBOURS` → key prefix, heard-ago, SNR per neighbour | logged in | no |
-| access list | `REQ_TYPE_GET_ACCESS_LIST` | admin | no |
-| owner info | `REQ_TYPE_GET_OWNER_INFO` | logged in | no |
-| CLI | `TXT_TYPE_CLI_DATA` text (`advert`, `reboot`, `clock sync`, `get`/`set` ...) | admin | no |
-| anonymous regions / owner / clock | `ANON_REQ` types 1-3, answered only when the request came direct | none | no |
-| trace | `PAYLOAD_TYPE_TRACE` along a given path | none | no (mesh.md "Not in v0") |
+Branch `feat/rift-repeater-control`. **VERIFIED host** (tests/rift_model_test.c,
+tests/rift_ipc_test.c against the scripted service, tests/rift_app_test.c, and
+on the service side tests/meshcored_repeater_test.cpp against a test repeater
+built from upstream's `simple_repeater` handlers). **Not yet run against a real
+repeater** - docs/hardware/RIFT_REPEATER_CONTROL_GATE.md.
 
-There is no logout on the wire, and the repeater refuses any request whose
-timestamp is not later than the last one it saw from that client - which on
-a board with no RTC needs the clock set first (mesh.md, the 1970 problem).
-Adding control is a service change (`mesh.login`, `mesh.request`, a response
-event, a pending-request table, password handling that is never logged or
-stored), its tests, and an on-air gate against a real repeater; RIFT's side is
-a login form and a status panel under the repeater's detail. Until then the
-detail says `CONTROL NOT AVAILABLE` and why, rather than offering buttons that
-could only fail.
+**SCAN 0-HOP** (ACTIVITY, panel REPEATERS 0-HOP, `ui/rift_scan.c`) asks
+meshcored for one zero-hop discovery round (`mesh.discover`: upstream's
+`CTL_TYPE_NODE_DISCOVER_REQ`, the request upstream RIFT's DISCOVER 0-HOP
+sends). Every repeater that can hear this node answers, zero-hop; MeshCore
+itself refuses a control answer that came through a relay, so **every row is
+a repeater heard directly**, with no inference from a name, a route or the
+repeater's own neighbour list. A row shows the name (or the key prefix and
+NO ADVERT YET when its advert was never heard), RSSI and SNR of its answer,
+and its age. The round collects answers for 30 s; SCAN reads SCANNING and
+takes no press meanwhile, and the client refuses a second request before the
+first is answered. Answers from earlier rounds stay listed under EARLIER
+SCANS with the stale glyph and their age, never as heard now.
+
+**A repeater's page** (`RIFT_SEC_REPEATER`, under ACTIVITY; Back or Esc
+returns; `ui/rift_repeater_view.c`, `ui/rift_repeater_cmd.c`):
+
+| panel | |
+|---|---|
+| REPEATER | key prefix, when it answered (latest or earlier scan), both halves of the link (how we heard it, how it heard us), and whether it is in the node list - a login needs its contact |
+| LOGIN | password field (masked, not even the last character shown) and LOGIN; LOGOUT while a session exists; the repeater's clock from its login answer |
+| READ | STATUS, NEIGHBOURS (the **repeater's** own zero-hop neighbours, named only where the six-byte prefix names one held node) and VERSION (firmware, name, owner); only what the repeater answered, a field it did not send is not shown |
+| COMMAND | one CLI line and SEND, VER / CLOCK / NEIGHBORS shortcuts, and the transcript |
+
+**Which commands are sent** is one rule (`rift_rep_cli_class`, applied by the
+console and again by the client): read-only commands (`ver`, `clock`,
+`board`, `neighbors`, `stats-*`, `get <key>`, `region`, `gps`,
+`powersaving`, `sensor list|get`) go at once; anything else upstream accepts
+- `reboot`, `set ...` (a radio setting says so), `tempradio`, `clock sync`,
+`advert`, `neighbor.remove` ... - only from its confirmation's SEND; and
+`erase`, `start ota`, `poweroff`/`shutdown`, `log erase` and any line naming
+a password or key (`password`, `*.password`, `*.key`, `*.secret`) are never
+sent from RIFT. A guest login gets no console: the repeater answers commands
+only for admin.
+
+**Login.** Upstream's repeater does not answer a wrong password at all, so
+a wrong password shows as "No answer to the login" after the wait (20 s at
+least), with the words "wrong password, or the repeater did not hear this
+node". A login OK that arrives late is still taken (upstream RIFT's rule).
+The password goes from the field into one request by reference and is wiped
+there; the field's own buffer is overwritten and emptied; nothing in RIFT or
+meshcored stores or logs it.
+
+**The session ends** on LOGOUT (local, as upstream's logout is: nothing is
+transmitted), when RIFT is left (Back/Home) or closed or the shell stops,
+when meshcored goes away or restarts (its session is memory only, and RIFT
+ends any session it finds on connecting), and when the repeater leaves the
+node list. One request at a time: every button is disabled while one waits.
+
+**Keys.** On ACTIVITY Up/Down walk SCAN 0-HOP and the rows and Enter presses
+or opens; on the page they walk its controls and Enter presses one or puts
+the keys in a field (Enter there sends, Esc comes back). The control the keys
+are on carries the DS §9 focus outline.
 
 ## Delivery, RESEND and REPLY
 
@@ -752,6 +788,129 @@ session's - there is no history before RIFT opened - and a frame the feed
 delivers stamped before the window is dropped rather than drawn where it did
 not happen. The T-Deck's RIFT keeps the same twenty bins; this is the same
 idea in the model with the screen only drawing.
+
+## RX LOG
+
+MESH ACTIVITY ends with an **RX LOG** action (and R on ACTIVITY's keys). It
+opens a packet inspector under the ACTIVITY tab, the way NET is a view under
+NODES: every frame the radio took off the air, one row per reception,
+**duplicates included**, newest first. It is not the feed above it. The feed
+is a status summary; the log is what the radio heard (DS §54).
+
+Its source is meshcored's `mesh.rx` (docs/api/mesh.md, "The receive log"),
+which RIFT asks for on `mesh.subscribe` and nothing else does. meshcored reads
+each frame at the MeshCore dispatcher's own logging hooks - before the
+seen-table, before a flood's receive delay, before a relay rewrites the path -
+so a copy MeshCore then drops as a duplicate is still a row, with MeshCore's
+verdict on it. The log does not reconstruct anything from the deduplicated
+message and node events.
+
+### A row
+
+Two or three lines of Mono 14, fixed at that size whatever the text size: the
+log is read for its fields, and at Large the first line would not fit a
+portrait row.
+
+```
+12:43:08.412  RX     MSG   CH:A7 H:3C9A 42B  RSSI:−71 SNR:9
+  PATH  6E > 67 > 74 > 73
+  #Public Anna?: "Kommer opp om 10 min 👍"
+12:43:08.527  DUP #2 MSG   CH:A7 H:3C9A 42B  RSSI:−76 SNR:7
+  PATH  6E > 67 > 74 > 73
+  #Public Anna?: "Kommer opp om 10 min 👍"
+12:43:10.104  RX     REQ   CH:-- H:B2B2 28B  RSSI:−88 SNR:2
+  PATH  4D > 73
+  [ENCRYPTED · D4 → C3]
+```
+
+| Field | Shows | Placeholder |
+| --- | --- | --- |
+| time | the reception, to the millisecond, as a time of day; the time since boot when the board's clock was never set (the caption then says `TIMES SINCE BOOT`) | |
+| state | `RX` a first reception, `DUP #n` the n'th, `DUP` a copy MeshCore's seen-table matched before the log's own count began, `ECHO` this node's own packet repeated back, `REJ` never reached MeshCore, `LOST` the service lost track of it | |
+| type | MeshCore's payload type, one to one: `REQ` `RESP` `MSG` (direct and group text) `ACK` `ADV` `DATA` (group datagram) `ANON` `PATH` `TRACE` `MULTI` `CTRL` (`DISC` for node discovery) `RAW`, and `UNK` for reserved types and frames whose header was never read | `UNK` |
+| CH | a group frame's channel hash | `CH:--` |
+| H | the first two bytes of MeshCore's packet hash, which every copy of one packet shares; the detail has all eight | `H:--` |
+| size | the frame on the air, in bytes | |
+| RSSI, SNR | as radiod measured them | `RSSI:--`, `SNR:--` |
+| path | **whole**, wrapping onto further lines and never shortened: `PATH` on a flood (the relays it came through, first first), `ROUTE` on a direct packet (the hops still to go), `0 HOP` with none, `SNRS` with a TRACE's per-hop SNRs | `PATH  --` |
+| third line | what could be read: `#channel sender?:` and the text (the `?` because nothing signs a group frame), `DM sender → recipient:` and the text, `ADV name`; or `[ENCRYPTED · NO KEY FOR THIS CHANNEL]`, `[ENCRYPTED · 6E → 73]` for somebody else's packet, `[REPEAT · NOT DECODED AGAIN]`, `[UNREADABLE]`, `[REJECTED · NOT A VALID FRAME]`, `[DROPPED · RX QUEUE FULL]`. No third line for an ACK, a TRACE or a control packet: there is nothing in them to read. | |
+
+Text is shown only where meshcored decoded it for its own use - a message to
+this node, a message on a channel it holds, the node table's name for an
+advert key. Nothing is decrypted for the log. A repeat MeshCore did not read
+again shows the text of the copy it did read, matched by packet hash (the
+same hash is the same bytes), and the detail says so. Emoji are drawn in
+colour, folded as a thread folds them; the stored text is untouched.
+
+### Colours
+
+The words carry everything; the colours only agree with them, and only on
+the text and a 3 px bar - no row is filled. RX LOG borrows the eight identity
+hues as its class colours (DS §54); the theme's status colours grade the
+signal.
+
+| What | Colour |
+| --- | --- |
+| `RX` | teal |
+| `DUP #n` | violet |
+| `ECHO` | pink |
+| `REJ`, `LOST`, rejected text | `status_error` |
+| `MSG`, `DATA`, decoded text | `text_primary` |
+| `ADV`, an advert's name | gold |
+| `ACK` `REQ` `RESP` `PATH` `TRACE` `CTRL` `DISC` `ANON` `MULTI` | sky |
+| bar and path: no hop between | green |
+| bar and path: one hop or more | orange |
+| bar: rejected | coral |
+| RSSI from −85 dBm, SNR from +5 dB | `status_ok` |
+| RSSI from −105 dBm, SNR from −5 dB | `status_warn` |
+| weaker | `status_error` |
+| a sender | their identity accent, as in a thread: a channel sender by the name it claims, a contact by its key |
+| time, CH, H, size, brackets | `text_secondary` / `text_muted` |
+
+### Controls
+
+- **PAUSE / RESUME.** Pause freezes what is shown: the row at the top stays at
+  the top. Capture goes on into the ring underneath - a paused log that
+  missed traffic would be the opposite of a packet monitor - and the caption
+  counts it (`PAUSED · 12 NEWER ABOVE`). RESUME goes back to the newest.
+- **CLEAR** empties the log and nothing else: no node, message, channel or
+  mesh state is touched, and meshcored is not asked anything.
+- **FILTER** steps through `ALL`, `DUP` (repeats and echoes), `MSG`, `ADV` and
+  `CTRL` (everything else, rejected frames by their header).
+- A drag moves the window a row per 36 px; scrolled away from the top the log
+  holds its place (`HELD`), and dragging back to the top is live again.
+- A tap on a row opens its detail: every field, the whole packet hash,
+  MeshCore's own verdict beside the log's count, the addressing, the sequence
+  number. CLOSE, Esc, Enter or Back closes it.
+- Keys: Up/Down select, Left/Right a page, Enter the detail, Esc closes it or
+  goes back to ACTIVITY, P (or Space) pause, F filter, C clear, Home back to
+  the newest, live.
+
+Landscape shows the same rows, each first line on one line; portrait wraps a
+first line only if the fields do not fit, which at Mono 14 they do.
+
+### What it holds, and what it costs
+
+A ring of 1000 entries of about 360 bytes - some 360 KB allocated once with
+the session, structured fields rather than strings, nothing allocated per
+event - so the oldest goes first and the bound is fixed. It is the session's
+(DS §51): it goes on filling while RX LOG is closed and while RIFT runs in the
+background, and it is gone when RIFT is closed. The screen is a fixed pool of
+24 rows filled from wherever the reader is in the ring, so a full log costs
+the screen what twenty-four rows cost; live traffic repaints it at most every
+250 ms. A late report (a flood MeshCore held for its receive delay) is put
+back where it was received, up to 64 entries back.
+
+A `mesh.rx` that breaks the API - a version other than 1, a length out of
+range, a path whose hop count and bytes disagree, a hash that is not 16 hex -
+is refused whole and counted (`3 REFUSED` in the caption); it never reaches
+the model, which would count an event it does not know as malformed.
+
+When meshcored goes away the log says so in a row of its own (`MESHCORED NOT
+ANSWERING · NOTHING HEARD IS LOGGED`), and again when it answers
+(`MESHCORED ANSWERING AGAIN`); the subscription asks for the receive log
+again on every connection. A meshcored older than the receive log answers
+without it, and RX LOG says that this meshcored keeps no receive log.
 
 ## Who is who: identity accents
 
@@ -1031,6 +1190,8 @@ the air must not be able to disconnect this app from its own service.
 | `rift_dm_sound.c` | the app's side of the DM sound: the setting, whether anything could be heard, the pass after every socket read |
 | `rift_order.c` | read-only questions over the node cache: list order (a merge sort, n log n at a thousand nodes), how many are fresh, which name a hop gets. No LVGL |
 | `rift_traffic.c/.h` | what was heard on the air by the minute, for the last twenty: a ring of counts by class (message, advert, other), fed from the activity feed. No LVGL |
+| `rift_rxlog.c/.h` | RX LOG's ring of 1000 receptions and the mesh.rx reader that fills it: validated, put back in received order, a repeat lent the text of the copy MeshCore decoded. No LVGL |
+| `rift_rxlog_fmt.c` | every string an RX LOG row and its detail print, the type labels and the signal grades. No LVGL |
 | `rift_net.c/.h` | NET's placement: the ring each node is on and what placed it there, and the nodes a route runs through. No LVGL |
 | `rift_identity.c` | this node: its identity and where its name came from, and the path hash size. No LVGL |
 | `rift_keys.c/.h` | channel keys made or checked and kept nowhere: SHA-256, base64, the hashtag key, a random key from `getrandom`. No LVGL |
@@ -1040,11 +1201,14 @@ the air must not be able to disconnect this app from its own service.
 | `rift_format_msg.c` | the same for messages and requests: states, the one-line caption, the preview, the channel body, what became of an advert or a node change |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
 | `rift_app.c/.h` | the frame, the command line and composer, sections, layout and lifecycle: a screen built over the session on every open, let go of on every leave |
+| `rift_section.c` | which section is showing, the tab it is reached from, and what leaving one cancels (split from `rift_app.c` for the 900-line guard) |
 | `rift_background.c` | the session that outlives the screen (DS §51): the one block, its start, its end, and the screen's half cleared on a leave |
 | `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab; a 64 px row of five visible 56 px faces in both orientations (DS §51.3) |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar, the vertical rule in a tone or an identity accent |
 | `ui/rift_graph.c/.h` | the traffic graph: a bar per minute from `rift_traffic`, stacked by class on a fixed ladder, and the legend's swatches. One draw callback from the tokens |
 | `ui/rift_activity.c` | ACTIVITY |
+| `ui/rift_rxlog_view.c/.h` | RX LOG: a pool of 24 rows over the ring, filled and coloured; the detail (DS §54) |
+| `ui/rift_rxlog_input.c` | RX LOG's PAUSE, CLEAR and FILTER, a tap, the drag, the keys |
 | `ui/rift_nodes.c` | the node list - virtual: the layout of every line, and a pool of rows bound to the part on screen - the selection and the landscape split |
 | `ui/rift_node_row.c` | one node row: built once, filled from a node, given the selection's look and, in portrait, its expansion |
 | `ui/rift_detail.c` | the selected node in full: one builder for the landscape pane and the portrait DETAIL screen, so the two cannot drift |

@@ -196,5 +196,21 @@ cJSON *mcd_event_channel(const struct mcd_channel *c, const char *reason);
 cJSON *mcd_event_activity_rx(const struct mcd_rx_meta *meta, int bytes, const char *outcome);
 cJSON *mcd_event_activity_tx(uint64_t submit_id, int bytes, const char *result, uint64_t mono_ms);
 cJSON *mcd_event_app(const struct mcd_app_datagram *dg);
+cJSON *mcd_event_rx(const struct mcd_rx_obs *o);
+
+/* pocketipc topics (server.h): events a subscriber asks for by name.
+ * mesh.subscribe {"rx_log": true} takes the receive log's mesh.rx. */
+#define MCD_TOPIC_RX_LOG (1u << 0)
+
+/* api_remote.c: repeater discovery and the repeater session
+ * (docs/api/mesh.md, "Repeater control"). Answers a method it owns and sets
+ * *handled; leaves *handled false for any other name. params is not const:
+ * a password in it is overwritten once it has been used. */
+cJSON *mcd_remote_method(struct mcd *d, const char *name, cJSON *params, int *code, char *err,
+                         size_t errlen, bool *handled);
+cJSON *mcd_event_discover(struct mcd *d, const struct mcd_discovered *r,
+                          const struct mcd_discover_state *s);
+cJSON *mcd_event_remote(struct mcd *d, const struct mcd_remote_reply *r,
+                        const struct mcd_remote_session *s);
 
 #endif /* MCD_H */

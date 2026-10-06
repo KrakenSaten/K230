@@ -231,6 +231,22 @@ static void hook_on_app(void *user, const struct mcd_app_datagram *dg)
     mcd_broadcast(d, mcd_event_app(dg));
 }
 
+static void hook_on_discover(void *user, const struct mcd_discovered *r,
+                             const struct mcd_discover_state *s)
+{
+    struct mcd *d = user;
+
+    mcd_broadcast(d, mcd_event_discover(d, r, s));
+}
+
+static void hook_on_remote(void *user, const struct mcd_remote_reply *r,
+                           const struct mcd_remote_session *s)
+{
+    struct mcd *d = user;
+
+    mcd_broadcast(d, mcd_event_remote(d, r, s));
+}
+
 static void hook_on_channel(void *user, const struct mcd_channel *c, const char *reason)
 {
     struct mcd *d = user;
@@ -244,6 +260,19 @@ static void hook_on_frame(void *user, const struct mcd_rx_meta *meta, int bytes,
     struct mcd *d = user;
 
     mcd_broadcast(d, mcd_event_activity_rx(meta, bytes, outcome));
+}
+
+/* The receive log: one mesh.rx per reception, built only when a client
+ * asked for it (mesh.subscribe rx_log), so a node nobody is inspecting
+ * pays for a hash and a copy per frame and nothing more. */
+static void hook_on_rx_obs(void *user, const struct mcd_rx_obs *o)
+{
+    struct mcd *d = user;
+
+    if (!d->server || !pocketipc_server_topic_wanted(d->server, MCD_TOPIC_RX_LOG)) {
+        return;
+    }
+    pocketipc_server_broadcast_topic(d->server, mcd_event_rx(o), MCD_TOPIC_RX_LOG);
 }
 
 static void runtime_log(int level, const char *line)
@@ -561,6 +590,9 @@ int main(int argc, char **argv)
     hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
     hooks.on_app = hook_on_app;
+    hooks.on_discover = hook_on_discover;
+    hooks.on_remote = hook_on_remote;
+    hooks.on_rx_obs = hook_on_rx_obs;
     hooks.user = &d;
 
     memset(&rcfg, 0, sizeof(rcfg));

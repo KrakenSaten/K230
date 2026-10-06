@@ -32,6 +32,7 @@
 
 #include <stdint.h>
 
+#include "rift_repeater.h"
 #include "rift_traffic.h"
 
 /* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity).
@@ -703,6 +704,9 @@ struct rift_model {
     /* The third: managing this node - a channel joined or left, a rename, a
      * path hash size. ACTIVITY reports it. */
     struct rift_action_state manage_op;
+
+    /* ---- repeater control (rift_repeater.h) ---------------------------- */
+    struct rift_repeater repeater;
 };
 
 #define RIFT_NAME_SOURCE_UNKNOWN 0

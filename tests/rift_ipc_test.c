@@ -17,6 +17,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "rift_ipc.h"
+#include "rift_rxlog.h"
 
 #include "fake_meshcored.h"
 #include "rift_format.h"
@@ -321,6 +322,199 @@ static int holds_bytes(const void *block, size_t len, const char *what)
     return 0;
 }
 
+/* ---- repeater control (rift_ipc_repeater.c) ---------------------------- */
+
+#define REPEATER_B                                                                         \
+    "{\"public_key\":\"" KEY_B "\",\"node_hash\":\"b2\",\"name\":\"HYTTA\",\"known\":true," \
+    "\"type\":2,\"their_snr_db\":5.5,\"snr_db\":8.25,\"rssi_dbm\":-71}"
+
+static int rep_idle(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return !rift_rep_busy(&m->repeater);
+}
+
+static int rep_listed(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return m->repeater.scan.count >= 1 && !m->repeater.scan.asking;
+}
+
+static int rep_logged(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return rift_rep_logged_in(&m->repeater, KEY_B);
+}
+
+static int rep_status(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return m->repeater.status.have;
+}
+
+static int rep_transcript(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return m->repeater.line_count >= 3;
+}
+
+/* How many lines of the log start with this. */
+static int log_count(const char *path, const char *prefix)
+{
+    FILE *f = fopen(path, "r");
+    char line[512];
+    int n = 0;
+
+    if (!f) {
+        return 0;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        n += strncmp(line, prefix, strlen(prefix)) == 0;
+    }
+    fclose(f);
+    return n;
+}
+
+static int log_has(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "r");
+    char line[512];
+    int found = 0;
+
+    if (!f) {
+        return 0;
+    }
+    while (!found && fgets(line, sizeof(line), f)) {
+        found = strstr(line, text) != NULL;
+    }
+    fclose(f);
+    return found;
+}
+
+static void test_repeater_control(const char *runtime)
+{
+    static struct rift_model m;
+    static struct rift_ipc c;
+    struct fake_meshcored_script script;
+    char rlog[600];
+    char pw[RIFT_REP_PASSWORD_MAX + 1];
+    pid_t pid;
+    size_t i;
+    int zero;
+
+    snprintf(rlog, sizeof(rlog), "%s/remote", runtime);
+    unlink(rlog);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.repeater_json = REPEATER_B;
+    script.remote_log = rlog;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service with repeater control is running",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("the service answered a later request too", round_trip(&c, &m));
+    check("connecting ends a session an earlier RIFT left, and reads the scan list",
+          log_count(rlog, "mesh.remote_logout|") == 1 && log_count(rlog, "mesh.discovered|") == 1);
+    check("and asks nothing that transmits", log_count(rlog, "mesh.discover|") == 0 &&
+                                                 log_count(rlog, "mesh.remote_login|") == 0);
+
+    /* SCAN 0-HOP, pressed three times. */
+    check("a scan is asked for", rift_ipc_scan_repeaters(&c) == 0);
+    check("pressed again while it is asked, nothing is written", rift_ipc_scan_repeaters(&c) == -1);
+    spin(&c, WAIT_MS, rep_listed, &m);
+    check("the repeater that answered is listed, heard directly in this round",
+          m.repeater.scan.count == 1 && m.repeater.scan.found[0].current &&
+              strcmp(m.repeater.scan.found[0].key, KEY_B) == 0);
+    check("pressed while the round is open, nothing is written either",
+          rift_ipc_scan_repeaters(&c) == -1);
+    round_trip(&c, &m);
+    check("three presses were one request", log_count(rlog, "mesh.discover|") == 1);
+
+    /* A wrong password: the service reports the wait running out. */
+    snprintf(pw, sizeof(pw), "%s", "wrong-one");
+    check("a login is asked for", rift_ipc_repeater_login(&c, KEY_B, pw, sizeof(pw)) == 0);
+    zero = 1;
+    for (i = 0; i < sizeof(pw); i++) {
+        zero &= pw[i] == '\0';
+    }
+    check("and the caller's password buffer is wiped at once", zero);
+    spin(&c, WAIT_MS, rep_idle, &m);
+    check("no answer is a timeout, not a login", m.repeater.login == RIFT_REP_LOGIN_TIMEOUT &&
+                                                     !rift_rep_logged_in(&m.repeater, KEY_B));
+    check("and the password reached the service in the request",
+          log_has(rlog, "\"password\":\"wrong-one\""));
+    check("but is held nowhere in the model or the client",
+          !holds_bytes(&m, sizeof(m), "wrong-one") && !holds_bytes(&c, sizeof(c), "wrong-one"));
+
+    snprintf(pw, sizeof(pw), "%s", "hunter2");
+    rift_ipc_repeater_login(&c, KEY_B, pw, sizeof(pw));
+    spin(&c, WAIT_MS, rep_logged, &m);
+    check("the right password is a login, as admin", rift_rep_logged_in(&m.repeater, KEY_B) &&
+                                                       m.repeater.admin);
+    check("with no copy of it kept", !holds_bytes(&m, sizeof(m), "hunter2") &&
+                                         !holds_bytes(&c, sizeof(c), "hunter2"));
+
+    check("status is asked for", rift_ipc_repeater_ask(&c, KEY_B, RIFT_REP_STATUS) == 0);
+    check("a second request before it is answered is refused and not written",
+          rift_ipc_repeater_ask(&c, KEY_B, RIFT_REP_NEIGHBOURS) == -1);
+    spin(&c, WAIT_MS, rep_status, &m);
+    check("status is what the repeater answered", m.repeater.status.have &&
+                                                      m.repeater.status.battery_mv == 4012 &&
+                                                      m.repeater.status.have_dups &&
+                                                      !m.repeater.status.have_rx_air);
+    check("exactly one request was written", log_count(rlog, "mesh.remote_request|") == 1);
+
+    check("a read-only command is sent", rift_ipc_repeater_cli(&c, KEY_B, "ver") == 0);
+    spin(&c, WAIT_MS, rep_transcript, &m);
+    check("and its answer is the transcript", m.repeater.line_count == 3 &&
+                                                  strcmp(rift_rep_line(&m.repeater, 0), "> ver") == 0);
+    check("a command naming a password is never written",
+          rift_ipc_repeater_cli(&c, KEY_B, "password hunter3") == -1 &&
+              !log_has(rlog, "hunter3"));
+    check("nor is erase", rift_ipc_repeater_cli(&c, KEY_B, "erase") == -1 &&
+                              !log_has(rlog, "\"command\":\"erase\""));
+
+    check("logout is asked for", rift_ipc_repeater_logout(&c) == 0 && !m.repeater.active);
+    round_trip(&c, &m);
+    check("and the service was told", log_count(rlog, "mesh.remote_logout|") == 2);
+
+    /* Logged in again, and then the service goes away. */
+    snprintf(pw, sizeof(pw), "%s", "hunter2");
+    rift_ipc_repeater_login(&c, KEY_B, pw, sizeof(pw));
+    spin(&c, WAIT_MS, rep_logged, &m);
+    fake_meshcored_stop(pid);
+    spin(&c, WAIT_MS, is_down, &m);
+    check("a service that went away took the session with it",
+          !m.repeater.active && !rift_rep_logged_in(&m.repeater, KEY_B) &&
+              !rift_rep_busy(&m.repeater));
+    check("the scan list stays, no longer current",
+          m.repeater.scan.count == 1 && !m.repeater.scan.found[0].current);
+    rift_ipc_close(&c);
+    unlink(rlog);
+
+    /* A meshcored from before repeater control. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.no_remote = 1;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("an older service is running", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    round_trip(&c, &m);
+    check("its unknown methods say the feature is not there, not that it failed",
+          m.repeater.scan.unsupported && m.repeater.unsupported);
+    check("and SCAN is then not written at all", rift_ipc_scan_repeaters(&c) == -1);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+}
+
 #define SITE_CHANNEL \
     "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":128," \
     "\"text_limit\":147,\"ack_expected\":false}]"
@@ -547,6 +741,158 @@ static int64_t now_ms(void)
 
 /* Poll the client the way the app's timer does, until `done` or the budget
  * runs out. Returns the milliseconds spent. */
+/* ---- the receive log --------------------------------------------------- */
+
+static struct rift_rxlog *g_rxlog;
+
+static int rx_two(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->fd >= 0 && g_rxlog->count >= 2 && g_rxlog->supported >= 0;
+}
+
+static int rx_answered(const struct rift_ipc *c, const struct rift_model *m)
+{
+    return opening_answered(c, m) && c->events_in >= 3;
+}
+
+/* How many entries of a kind the log holds, and how many marks say note. */
+static int rx_kinds(const struct rift_rxlog *log, int kind, const char *note)
+{
+    int n = 0;
+    int i;
+
+    for (i = 0; i < log->count; i++) {
+        const struct rift_rx_entry *e = rift_rxlog_at(log, i);
+
+        if (e->kind == kind && (!note || strstr(e->text, note) != NULL)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static int rx_back(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->connects >= 2 && c->fd >= 0 && rx_kinds(g_rxlog, RIFT_RX_FRAME, NULL) >= 4 &&
+           rx_kinds(g_rxlog, RIFT_RX_MARK, "AGAIN") >= 1;
+}
+
+/* mesh.rx reaches RX LOG's ring and nothing else; it is asked for by name
+ * and only by a client that has a ring; an older service is told apart; and
+ * a service that goes away and comes back leaves a gap the log shows. */
+static void test_rx_log(const char *runtime)
+{
+    static struct rift_rxlog log;
+    static const char *const events[] = { "mesh.rx|{\"v\":1,\"seq\":1,\"mono_ms\":-200,\"bytes\":42,\"rssi_dbm\":-71,\"snr_db\":9,\"verdict\":\"new\",\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":2,\"path_hex\":\"6e67\",\"hash\":\"3c9a000000000001\",\"dup\":1,\"relayed\":false,\"own\":false,\"channel_hash\":\"a7\",\"channel_known\":true,\"decoded\":\"channel\",\"channel_name\":\"Public\",\"sender\":\"Anna\",\"text\":\"hei\"}", "mesh.rx|{\"v\":1,\"seq\":2,\"mono_ms\":-85,\"bytes\":42,\"rssi_dbm\":-76,\"snr_db\":7,\"verdict\":\"duplicate\",\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":0,\"hash\":\"3c9a000000000001\",\"dup\":2,\"relayed\":false,\"own\":false,\"channel_hash\":\"a7\",\"channel_known\":true}", "mesh.rx|{\"v\":1,\"seq\":3,\"mono_ms\":-1,\"bytes\":999,\"verdict\":\"new\"}", NULL };
+    struct fake_meshcored_script script;
+    struct rift_model m;
+    struct rift_ipc c;
+    char subs[600];
+    pid_t pid;
+    int matched = 0;
+
+    snprintf(subs, sizeof(subs), "%s/subscribes", runtime);
+    unlink(subs);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.events = events;
+    script.rx_log = 1;
+    script.subscribe_log = subs;
+    script.serve_clients = 1;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("a service with a receive log is up", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+
+    rift_rxlog_init(&log);
+    g_rxlog = &log;
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    c.rxlog = &log;
+    spin(&c, WAIT_MS, rx_two, &m);
+    spin(&c, 300, NULL, &m);
+    {
+        const char *want[] = { "{\"rx_log\":true}" };
+
+        check("the subscription asked for the receive log",
+              log_lines(subs, want, 1, &matched) == 1 && matched);
+    }
+    check("and the service said it keeps one", log.supported == 1);
+    check("both receptions are in the log", log.count == 2);
+    check("the repeat as its own entry, with the first copy's text",
+          rift_rxlog_at(&log, 0) && rift_rxlog_at(&log, 0)->dup == 2 &&
+              strcmp(rift_rxlog_at(&log, 0)->text, "hei") == 0);
+    check("the malformed one refused and counted by the log", log.malformed == 1);
+    check("and none of it reached the model as an event it does not know",
+          m.events_malformed == 0);
+
+    fake_meshcored_stop(pid);
+    spin(&c, WAIT_MS, is_down, &m);
+    check("when the service goes, the log says so",
+          rift_rxlog_at(&log, 0) && rift_rxlog_at(&log, 0)->kind == RIFT_RX_MARK &&
+              strstr(rift_rxlog_at(&log, 0)->text, "NOT ANSWERING") != NULL);
+    {
+        struct fake_meshcored_script again = script;
+
+        again.serve_clients = 0;
+        pid = fake_meshcored_spawn(&again);
+        check("the service comes back", fake_meshcored_wait_ready(WAIT_MS));
+        spin(&c, 2 * WAIT_MS, rx_back, &m);
+        spin(&c, 300, NULL, &m);
+        check("the log says that too, once",
+              rx_kinds(&log, RIFT_RX_MARK, "ANSWERING AGAIN") == 1 &&
+                  rx_kinds(&log, RIFT_RX_MARK, "NOT ANSWERING") == 1);
+        check("and receptions flow again", rx_kinds(&log, RIFT_RX_FRAME, NULL) == 4);
+        check("the receive log was asked for again on the new connection",
+              log_lines(subs, NULL, 0, &matched) == 2);
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+    }
+
+    /* An older meshcored: subscribed, and no rx_log in the answer. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("an older service is up", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_rxlog_init(&log);
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    c.rxlog = &log;
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("it is told apart: no receive log there", log.supported == 0);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* A client with no ring: it does not ask, and a mesh.rx is ignored. */
+    unlink(subs);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.events = events;
+    script.rx_log = 1;
+    script.subscribe_log = subs;
+    script.life_ms = FAKE_LIFE_MS;
+    pid = fake_meshcored_spawn(&script);
+    check("the service is up for a client with no ring",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    spin(&c, WAIT_MS, rx_answered, &m);
+    {
+        const char *want[] = { "{}" };
+
+        check("it subscribes plainly", log_lines(subs, want, 1, &matched) == 1 && matched);
+    }
+    check("and the receptions are not the model's malformed events", m.events_malformed == 0);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+    unlink(subs);
+}
+
 static int spin(struct rift_ipc *c, int budget_ms, int (*done)(const struct rift_ipc *,
                                                                const struct rift_model *),
                 const struct rift_model *m)
@@ -1183,6 +1529,7 @@ int main(void)
         char line[128];
         int saw_send = 0;
         int saw_advert = 0;
+        int saw_repeater_tx = 0;
         int saw_unexpected = 0;
         int saw_subscribe = 0;
         int saw_unsubscribe = 0;
@@ -1201,10 +1548,20 @@ int main(void)
                 saw_subscribe = 1;
             } else if (strcmp(line, "mesh.unsubscribe") == 0) {
                 saw_unsubscribe = 1;
+            } else if (strcmp(line, "mesh.discover") == 0 ||
+                       strcmp(line, "mesh.remote_login") == 0 ||
+                       strcmp(line, "mesh.remote_request") == 0 ||
+                       strcmp(line, "mesh.remote_cli") == 0) {
+                saw_repeater_tx = 1;
             } else if (strcmp(line, "mesh.info") != 0 && strcmp(line, "mesh.status") != 0 &&
                        strcmp(line, "mesh.identity") != 0 && strcmp(line, "mesh.nodes") != 0 &&
                        strcmp(line, "mesh.node") != 0 && strcmp(line, "mesh.messages") != 0 &&
-                       strcmp(line, "mesh.channels") != 0 && strcmp(line, "mesh.path_hash") != 0) {
+                       strcmp(line, "mesh.channels") != 0 && strcmp(line, "mesh.path_hash") != 0 &&
+                       /* Repeater control's two connect-time requests: ending a
+                        * session an earlier RIFT left, and reading the scan
+                        * list. Neither transmits. */
+                       strcmp(line, "mesh.remote_logout") != 0 &&
+                       strcmp(line, "mesh.discovered") != 0) {
                 saw_unexpected = 1;
                 printf("     unexpected method: %s\n", line);
             }
@@ -1219,6 +1576,7 @@ int main(void)
          * asks it to, which is the section after this one. */
         check("nothing the app does on its own asks the service to send", !saw_send);
         check("or to advert", !saw_advert);
+        check("or to scan for repeaters, log in to one, or ask or command one", !saw_repeater_tx);
         check("only the methods this phase consumes were used", !saw_unexpected);
         check("the subscription was taken", saw_subscribe);
         check("and given back rather than merely dropped", saw_unsubscribe);
@@ -1719,6 +2077,8 @@ int main(void)
     test_adverts(runtime);
     test_node_changes(runtime);
     test_management(runtime);
+    test_repeater_control(runtime);
+    test_rx_log(runtime);
     {
         char path[700];
 
