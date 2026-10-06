@@ -9,6 +9,7 @@
  */
 #include "rift_comms.h"
 
+#include "app.h"
 #include "pos_styles.h"
 #include "rift_conv_list.h"
 #include "rift_thread.h"
@@ -177,6 +178,32 @@ void rift_comms_target_label(const struct rift_app *app, char *out, size_t out_l
     /* No name anywhere: the node hash is what MeshCore routes on, and is the
      * only other thing that identifies this peer to a reader. */
     snprintf(out, out_len, "%.2s", peer);
+}
+
+/* The keyboard's Done. Its Enter has gone to whatever holds the focus - the
+ * composer, which sends, or the key sink after a section change, which does
+ * nothing - so putting the sheet away is this callback's alone. */
+static void on_keyboard_done(void *user)
+{
+    (void)user;
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+}
+
+void rift_comms_keyboard(struct rift_app *app)
+{
+    /* Portrait only: there is no physical keyboard, so the Doors touch
+     * keyboard comes up on focus (handoff §10). In landscape the base is
+     * attached and no software keyboard is ever shown. And only for a
+     * finger: Done's Enter reaches the field as READY and then as a CLICKED,
+     * and the sheet Done put away must not come straight back (rift_find.c). */
+    if (!app || app->wide || lv_indev_get_type(lv_indev_active()) != LV_INDEV_TYPE_POINTER) {
+        return;
+    }
+    if (!pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, on_keyboard_done, app);
+    }
 }
 
 void rift_comms_submit(struct rift_app *app, const char *text)

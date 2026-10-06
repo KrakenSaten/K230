@@ -4886,6 +4886,8 @@ Three things, never one, and the page says which is which in words:
   screen goes black over everything (the shell's system layer); the first
   touch or key only wakes it and does nothing else. Everything keeps running.
   The backlight level is not touched (its level 0 is UNKNOWN on this panel).
+  The black is its own role, `POS_STYLE_SCREEN_OFF`: opaque black in every
+  theme and mode, not a token, since it stands for the panel being off.
 - **Lock after** 1, 2, 5, 10, 30 min or Never (default Never): the §31.4 lock
   comes down. **Lock when Doors starts** is the existing `lock_screen` key.
 - **Sleep is not offered.** The kernel has `freeze` and `mem`, but the wake

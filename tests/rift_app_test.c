@@ -166,19 +166,30 @@ int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
     (void)mode;
     return 0;
 }
+/* The touch keyboard as the shell keeps it: up or not, and the Done the app
+ * that asked for it gave (shell.c). */
 static int kb_shows;
+static int kb_up;
+static void (*kb_done)(void *user);
+static void *kb_done_user;
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user),
                                  void *user)
 {
     (void)ret;
-    (void)on_done;
-    (void)user;
     kb_shows++;
+    kb_up = 1;
+    kb_done = on_done;
+    kb_done_user = user;
 }
-void pocketos_shell_keyboard_hide(void) {}
+void pocketos_shell_keyboard_hide(void)
+{
+    kb_up = 0;
+    kb_done = NULL;
+    kb_done_user = NULL;
+}
 int pocketos_shell_keyboard_visible(void)
 {
-    return 0;
+    return kb_up;
 }
 
 /* The system volume, as the shell would report it: settable, so the DM
@@ -4893,6 +4904,76 @@ static int stored_recent_first(const char *emoji)
            (p.emoji_recent[n] == '\0' || p.emoji_recent[n] == ' ');
 }
 
+/* The sheet's Done as pos_keyboard.c presses it: Enter to whatever has the
+ * focus, then the asking app's callback. */
+static void kb_press_done(void)
+{
+    pos_input_push_key(LV_KEY_ENTER);
+    if (kb_up && kb_done) {
+        kb_done(kb_done_user);
+    }
+    pump(120);
+}
+
+/* fix/rift-composer-keyboard: the portrait touch keyboard goes with the
+ * screen whose field asked for it, and its Done always puts it away - also
+ * when the keys have moved off the composer since. */
+static void touch_keyboard_session(void)
+{
+    lv_obj_t *field;
+    lv_obj_t *find;
+
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    give_public_channels();
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(200);
+    tap(ancestor(find_exact(content(), "HYTTA"), 1));
+    pump(200);
+    field = rift_comms_field(app);
+    check("keyboard: a portrait conversation has a composer", app->have_conv && field != NULL);
+
+    tap(field);
+    pump(120);
+    check("keyboard: a tap on the composer brings the touch keyboard up", kb_up);
+    kb_press_done();
+    check("keyboard: its Done puts it away", !kb_up);
+
+    tap(field);
+    pump(120);
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(120);
+    check("keyboard: COMMS shown again keeps it up", kb_up);
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(200);
+    check("keyboard: leaving COMMS takes it away", !kb_up);
+    check("keyboard: and the keys are the list's again", pos_input_focused() == app->keysink);
+
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(200);
+    tap(field);
+    pump(120);
+    pos_input_focus(app->keysink);
+    pump(80);
+    kb_press_done();
+    check("keyboard: Done puts it away with the keys off the composer", !kb_up);
+
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(200);
+    find = rift_find_field(app);
+    tap(find);
+    pump(120);
+    check("keyboard: the find bar brings it up too", find != NULL && kb_up);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(200);
+    check("keyboard: and leaving NODES takes that one away", !kb_up);
+    app_stop();
+}
+
 /* An emoji button at the right of the composer, in both shapes, at Large:
  * its picker inserts at the caret and sends nothing, keeps the field's
  * focus, and closes on Esc, on a tap outside and on a key it does not use;
@@ -7081,6 +7162,7 @@ int main(void)
     comms_usability_session();
     public_mute_session();
     text_size_session();
+    touch_keyboard_session();
     /* feat/rift-emoji-picker: the composer's emoji button and picker. */
     emoji_picker_session();
     /* feat/rift-background-lifecycle: RIFT kept behind other screens, its

@@ -5,7 +5,6 @@
  */
 #include "rift_thread.h"
 
-#include "app.h"
 #include "pocketui.h"
 #include "pos_input.h"
 #include "pos_styles.h"
@@ -215,15 +214,7 @@ static void on_field_clicked(lv_event_t *e)
 {
     struct rift_thread *t = lv_event_get_user_data(e);
 
-    /* Portrait only: there is no physical keyboard, so the Doors touch
-     * keyboard comes up on focus (handoff §10). In landscape the base is
-     * attached and no software keyboard is ever shown. */
-    if (t->app->wide) {
-        return;
-    }
-    if (!pocketos_shell_keyboard_visible()) {
-        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, t->app);
-    }
+    rift_comms_keyboard(t->app); /* the touch keyboard, if it is wanted */
 }
 
 /* The keyboard's Done, and Enter on a physical one: a single-line field
