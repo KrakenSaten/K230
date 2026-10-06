@@ -7,6 +7,7 @@
  */
 #include "rift_app.h"
 
+#include "app.h"
 #include "rift_nodes.h"
 #include "rift_repeater_view.h"
 #include "rift_strip.h"
@@ -41,6 +42,13 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
 {
     if (!a || section < 0 || section >= RIFT_SEC_COUNT) {
         return;
+    }
+    /* The touch keyboard was asked for by a field on the screen being left
+     * (the composer, the find bar) and does not outlive it: the sheet is the
+     * shell's and would stay up over the next screen, its Done going to a
+     * field nobody can see. The same section shown again (a rebuild) keeps it. */
+    if (section != a->section && pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
     }
     a->section = section;
     if (section != RIFT_SEC_COMMS) {
