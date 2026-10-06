@@ -331,7 +331,7 @@ person-presence detection for DeskBuddy and is kept separate from Traffic.
 
 ## 12. What was not done or tested
 
-- No real training run, no real candidate, no comparison numbers for a DOORS model. The only GPU run is the Arc B580 smoke run (section 13).
+- No real training run, no real candidate, no comparison numbers for a DOORS model. The only GPU runs are the Arc B580 smoke runs (sections 13 and 14).
 - No unit B run: KPU latency and the CPU-fallback proof wait for a candidate.
 - Open Images: prepare script not written; no download.
 - The CUDA path (`train.sh` through YOLOX's Trainer, tensorboard, val AP)
@@ -506,3 +506,198 @@ this tree with the Trainer's features:
 - val AP, using a device-neutral evaluation
 - `best_ckpt.pth` and `latest_ckpt.pth`
 - `run.json` with the XPU device and driver (`run_record.py` records CUDA only)
+
+Section 14 closes this gap with `train_loop.py`.
+
+## 14. Epoch training loop on the Arc B580 (2026-10-06, VERIFIED)
+
+The question: does `train_loop.py` give the Arc B580 the Trainer's full
+recipe, so a real run can start once the dataset exists? No real training
+was started. Both runs use the smoke set from section 13 and a compressed
+schedule; the real run keeps the exp's 300 / 5 / 15 / 10.
+
+### What `train_loop.py` keeps from upstream (YOLOX @ 6ddff48)
+
+| Feature | Upstream Trainer | `train_loop.py` |
+|---|---|---|
+| Model, loss, loader, optimizer, scheduler | the exp's own | the same calls, YOLOX unpatched |
+| lr | set after each step from `progress+1`; the first step at `warmup_lr` 0 | the same |
+| Mosaic → no mosaic | closes when `epoch+1 == max_epoch - no_aug_epochs`; L1 on, `eval_interval` 1 | the same rule, so 16 epochs without mosaic at 300/15 (upstream's off-by-one, kept) |
+| EMA | `ModelEMA(0.9998)`, every iteration | the same |
+| Multiscale | new size every 10 iterations in `random_size` | the same, without the CUDA tensor |
+| Best | AP50:95 of the EMA weights | the same metric |
+
+### Where it differs, and why
+
+| Upstream | `train_loop.py` | Why |
+|---|---|---|
+| Resume loads the EMA weights into the raw model; no scaler, RNG, sampler position or input size | all of them restored | an exact continuation: on the CPU a stopped and resumed run equals a straight run bit for bit (tests) |
+| `latest` saved before the epoch's eval | after it | a resumed run knows the best AP so far |
+| `best_ap` starts at 0 with a strict `>` | the first validation always becomes best | a model at AP 0 still gets a `best_ckpt.pth` |
+| `last_mosaic_epoch` stores `epoch+1` before training it | stores the epochs completed | resuming from it does not skip an epoch |
+| Up to `workers × 2` mosaic batches already queued at the switch | the loader iterator is rebuilt from the next unseen sample | no mosaic sample after the switch |
+| `COCOEvaluator` (CUDA tensors) | own loop: device forward, YOLOX `postprocess` and COCO conversion, pycocotools | runs on xpu, cuda and cpu |
+| `last_epoch_ckpt.pth` | `final_ckpt.pth` after the last epoch | the deliverable has a fixed name |
+
+Checkpoints keep upstream's layout where `export_onnx.py` reads it:
+`"model"` is the EMA state_dict, all tensors on the CPU. They add
+`train_model`, `optimizer`, `ema_updates`, `scaler`, `rng`, `samples_seen`,
+`input_size`, `config`, `metrics`, `best_ap`/`best_epoch` (about 61 MB).
+
+**Best checkpoint:** val mAP50:95 (COCO AP@[.50:.95], all areas,
+maxDets 100) of the EMA weights on the validation split only. The first
+validation always becomes best; later ones only when strictly greater.
+
+**Precision/recall:** at score ≥ 0.35 (decoder_check's 350 ‰) and IoU 0.50,
+counted from pycocotools' own matching, over all classes. Per-class AP50:95,
+AP50, P and R are in each record.
+
+With more than 0 loader workers, augmentation is not bit-reproducible:
+YOLOX reseeds each worker from `uuid4`. With `--workers 0` a run is
+fully seeded.
+
+### Runs
+
+Both: Arc B580, torch 2.13.0+xpu, fp16 + GradScaler, batch 16, multiscale
+320-640, 4 workers, 12 iterations per epoch (184 images), DOORS tree
+`804a55a` (clean), YOLOX pinned and clean.
+
+| | `xpu_loop1` | `xpu_loop2` |
+|---|---|---|
+| Purpose | the short full loop (3-5 epochs preferred) | enough steps for real detections, so validation and best selection see non-zero values |
+| Epochs (warmup / no-mosaic) | 5 (1 / epochs 4-5) | 30 (2 / epochs 27-30) |
+| Eval | every epoch | every 5, then every epoch from 27 |
+| Stop / resume | stopped after epoch 2, resumed at 3 | stopped after epoch 15, resumed at 16 |
+| Wall time (2 sessions) | 49 + 85 s | 132 + 172 s |
+| Median iteration | 0.112 s = 142 images/s | 0.122 s = 132 images/s |
+| Peak reserved (PyTorch) | 1,752 MiB | 2,716 MiB |
+| total_loss, first → last 10 iterations | 17.0 → 15.4 (L1 added at epoch 4) | 17.5 → 11.7 (min 9.3; L1 adds about 1.5 from epoch 27) |
+| Warnings / non-finite / loss off the device | none / 0 / never | none / 0 / never |
+
+Most wall time is not training: the first use of each input size compiles
+kernels (5-9 s), and each validation spawns its loader workers on Windows
+(about 12 s for 28 images). The validation overhead stays small in a real
+run, where an epoch is much longer.
+
+### Evidence (from `epochs.jsonl`, `iters.jsonl`, `run.json`)
+
+**Warmup and cosine (`xpu_loop2`).**
+- lr starts at 0.
+- Warmup rises quadratically to 0.0025 at step 24.
+- The cosine then falls: 0.00246 (epoch 5), 0.00207 (10), 0.00068 (20), 0.00021 (25), as the first step of each epoch.
+- From step 324, lr stays at the minimum, 0.000125.
+
+**Mosaic and L1.**
+- Per-sample count from `img_info`: a mosaic sample reports `(416, 3)`, and no image of the set is 3 px wide (checked at start).
+- Mosaic samples per epoch: 192 of 192 in epochs 1-26, then 0 from epoch 27.
+- `use_l1` and `l1_loss` are 0 before the switch and on from epoch 27 (mean 1.56).
+- `xpu_loop1` shows the same at epoch 4.
+
+**EMA.** `ema_updates` is 12 × epoch (360 at the end) and continues across the resume.
+
+**Resume (`xpu_loop2`).**
+
+| Item | Value |
+|---|---|
+| Stopped after | epoch 15 (`latest_ckpt.pth` `854eb666…`) |
+| Resumed at | epoch 16 |
+| lr, epoch 16 first step | 0.0012379, the value epoch 15 set next |
+| total_loss | 9.51 at the last step before → 10.84 at the first step after; a fresh model starts at 17.8 |
+| `ema_updates`, `samples_seen` | continue: 192, 3,072 |
+
+The same holds for `xpu_loop1` (stop 2 → resume 3).
+
+**Validation (`xpu_loop2`).**
+
+| Epoch | Detections | mAP50:95 | mAP50 | Best |
+|---|---|---|---|---|
+| 5 | 0 | 0 | 0 | yes (first) |
+| 10 | 208 | 0 | 0 | no |
+| 15 | 408 | 0.00011 | 0.00021 | yes |
+| 20 | 2,528 | 0.00143 | 0.01045 | yes |
+| 25 | 1,348 | 0.00062 | 0.00321 | no |
+| 27-30 | 635-1,048 | 0.00057-0.00140 | 0.0029-0.0066 | no |
+
+Precision and recall at 0.35 are 0: no detection scores that high this
+early.
+
+`--eval-only` on `best_ckpt.pth` gives identical results on xpu and cpu:
+- mAP50:95 0.0014259 and mAP50 0.0104467, both equal to the value recorded during training
+- at 0.05: P 0.0079, R 0.011 (1 TP, 125 FP, 91 GT)
+- per class AP50: car 0.0026, truck 0, bus 0, motorcycle 0.039
+- the weights hash is unchanged after every validation
+
+**Checkpoints (`xpu_loop2`).**
+
+| File | sha256 | Epoch |
+|---|---|---|
+| `best_ckpt.pth` | `e95b690f2ed1ca21ee928a3d3d52909eb4b2433c4aad8554bdb2ca8ac9e47d9f` | 20 |
+| `final_ckpt.pth` | `2fd0346872aa3202…` | 30 |
+| `latest_ckpt.pth` | `62430c49517f3fd2…` | 30 |
+| `last_mosaic_epoch_ckpt.pth` | `7b6fd3a0dd42dfe5…` | 26 |
+
+`run.json` parses and records the commits, Python, torch, XPU runtime,
+device and driver, seed, sizes, batch, epochs, optimizer groups, lr, AMP,
+dataset manifest sha256, class mapping, schedule (and its overrides),
+checkpoint hashes, every validation, the best rule and value, and each
+session. It holds no user name or home path.
+
+### Conversion of `best_ckpt.pth` (unchanged `convert.sh`, WSL, torch 2.1.2 + nncase 2.11.0)
+
+| Item | Value |
+|---|---|
+| ONNX | `ddb4dc62fbd0a70f32c03e77030cc61122a1ef21c38ca7dff3756dfc1b9d4dc4` |
+| ONNX shape and ops | `[1, 84, 3549]`; op set equal to upstream's (`ops_beyond_upstream` empty) |
+| ONNX accuracy | max diff to PyTorch 2.7e-4; untrained classes 0.0 |
+| kmodel | `61bf327d21b7779aa8cfc9b950dfd323875d218471a31d17b4c2a76faaec923c` |
+| kmodel size | 5,894,096 B (upstream a16: 5,894,104) |
+| PTQ | int16 activations, uint8 weights |
+| Determinism | compiled twice, the same sha256 |
+| Unsupported operators | none |
+| Simulator vs float | box cosine ≥ 0.998; score cosine 0.93-0.97 (max score 0.11) |
+| Non-finite values | 0 |
+| DOORS decoder at 350 ‰ (the pipeline's check) | 5/5 accepted, 3549 rows, 0 bad rows, 0 detections |
+| DOORS decoder at 50 ‰ | 5/5 accepted, 0 bad rows |
+| Labels at 1 ‰ | only car, truck, bus and motorcycle (class mapping intact) |
+
+Below 50 ‰ the decoder skips some rows as bad (31 at 1 ‰ on one picture).
+They are low-score rows whose predicted size exceeds the decoder's sanity
+limit of 4 × 416 px, up to 3,530 px. Before training converges the size
+logits are still wild. Those rows have no non-finite values, no
+out-of-range scores and no off-frame boxes. This is the decoder's guard
+working, not a conversion fault.
+
+### Guard
+
+`xpu_check.py`:
+- 2.13.0+xpu passes: 0 of 200 wrong.
+- 2.14.0+xpu and 2.14.1+xpu are rejected: 119 of 200 wrong, exit 1.
+
+The 2.14 venv was made from the uv cache for this check and then deleted.
+
+### Tests (`tests/test_train_loop.py`, 15 tests, about 65 s on the CPU)
+
+- The switch rule against upstream's literal before_train/before_epoch, for fresh and every resumed start.
+- The real recipe switches at epoch 285.
+- lr shape from `schedule_of`.
+- The best rule.
+- Precision/recall on a hand-made COCO case.
+- Sampler skip, RNG round trip, the mosaic counter.
+- On the smoke data:
+  - straight 4 epochs vs stop + resume at the switch epoch and inside the no-mosaic phase: model, EMA, optimizer, lr, sizes and per-epoch logs bit-identical
+  - phase evidence
+  - checkpoints and `run.json`
+  - `--eval-only` reproduces the stored metrics
+
+Each of these mutations made the tests fail:
+- no optimizer restore
+- the resume epoch off by one
+- the switch off by one
+- no L1 at the switch
+- `>=` in the best rule
+
+### Not done
+
+- No real training, no dataset build, nothing on unit A/B.
+- The CUDA path of `train_loop.py` is written but has not run: there is no NVIDIA GPU here.
+- Bit-exact resume is proven on the CPU only. On XPU with 4 workers the evidence is continuity: lr, EMA count, samples and loss level.

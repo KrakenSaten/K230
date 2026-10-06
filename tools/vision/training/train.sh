@@ -24,7 +24,7 @@ EXP="$HERE/exps/yolox_tiny_traffic_416.py"
 
 [ -f "$DATA/manifest.json" ] || { echo "no dataset manifest in $DATA" >&2; exit 2; }
 [ ! -e "$RUN/run.json" ] || { echo "$RUN already holds a run" >&2; exit 2; }
-command -v nvidia-smi >/dev/null || { echo "no GPU (nvidia-smi); use smoke_train.py for a CPU or XPU smoke run" >&2; exit 2; }
+command -v nvidia-smi >/dev/null || { echo "no GPU (nvidia-smi); use train_loop.py on XPU or CPU" >&2; exit 2; }
 
 export DOORS_TRAIN_DATA="$DATA" DOORS_OUTPUT_DIR="$RUN" YOLOX_DIR
 export DOORS_SEED=${DOORS_SEED}
