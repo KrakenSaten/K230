@@ -81,6 +81,9 @@ add_executable(pocketos-shell
     hw_activity.c
     power_policy.c
     shell_power.c
+    power_key.c
+    shell_power_key.c
+    shell_power_menu.c
     tz_zones.c
     overlay_model.c
     shell_overlay.c

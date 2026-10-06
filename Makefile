@@ -629,6 +629,15 @@ tests/power_policy_test.o: tests/power_policy_test.c ui/shell/power_policy.h
 tests/power_policy_test: tests/power_policy_test.o ui/shell/power_policy.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+ui/shell/power_key.o: ui/shell/power_key.c ui/shell/power_key.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/power_key_test.o: tests/power_key_test.c ui/shell/power_key.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/power_key_test: tests/power_key_test.o ui/shell/power_key.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 tests/tz_zones_test.o: tests/tz_zones_test.c ui/shell/tz_zones.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
@@ -2206,7 +2215,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/wifi_store_test tests/airtime_test tests/radiod_tx_test \
              tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
-             tests/power_policy_test tests/tz_zones_test tests/overlay_model_test \
+             tests/power_policy_test tests/power_key_test tests/tz_zones_test tests/overlay_model_test \
              tests/theme_test tests/text_size_test \
              tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test \
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
@@ -2234,6 +2243,7 @@ test: all $(TEST_BINS)
 	./tests/diag_view_test
 	./tests/settings_view_test
 	./tests/power_policy_test
+	./tests/power_key_test
 	./tests/tz_zones_test
 	./tests/overlay_model_test
 	./tests/theme_test docs/design/themes.json

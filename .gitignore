@@ -99,6 +99,7 @@ BUILD_ID
 /tests/wifi_store_test
 /tests/settings_view_test
 /tests/power_policy_test
+/tests/power_key_test
 /tests/tz_zones_test
 /tests/overlay_model_test
 /tools/wave/pos-wave

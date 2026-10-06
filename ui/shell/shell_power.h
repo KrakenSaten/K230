@@ -32,6 +32,9 @@ struct shell_power_hooks {
     bool (*hold)(void);
     bool (*locked)(void);
     void (*lock)(const char *why);
+    /* Something that must be seen now (an alarm ringing): it wakes the
+     * screen even when the screen was put out by hand. May be NULL. */
+    bool (*urgent)(void);
 };
 
 /* Read the stored timeouts (invalid values are logged and read as never)
@@ -48,6 +51,13 @@ void shell_power_activity(void);
 bool shell_power_gate(void);
 /* Wake now, if off. */
 void shell_power_wake(const char *why);
+/* Put the screen out now, by hand (the power key): the same cover, under
+ * the same rules for waking. Not activity, and the lock is left to its own
+ * timer (Lock after), which keeps counting under the cover. A hold already
+ * in force when the screen went out by hand does not bring it straight
+ * back - the owner turned it off over the video - but a hold that starts
+ * afterwards does, and so does anything urgent. */
+void shell_power_off_now(const char *why);
 bool shell_power_screen_off(void);
 
 /* The stored timeouts, seconds (0 never). set: one of the options

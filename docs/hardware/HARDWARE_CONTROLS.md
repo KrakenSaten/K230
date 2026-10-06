@@ -72,7 +72,7 @@ the first 20), so a control wired there would identify itself.
 
 | Control | Source | Level | Doors today | Class |
 | --- | --- | --- | --- | --- |
-| Power key | PMU INT0, kernel `k230-pmu-pwrkey`, `/dev/input/event0`, `KEY_POWER` (116) | idle low, pressed high | not read; the kernel's own 5 s hold powers off (`0064-input-k230-pmu-pwrkey.patch`) | DOCUMENTED; device VERIFIED present |
+| Power key | PMU INT0, kernel `k230-pmu-pwrkey`, `/dev/input/event0`, `KEY_POWER` (116) | idle low, pressed high | read by the shell since `feat/k230-power-key` (DS §56): short press screen off/wake, ~1 s hold the power menu; the kernel's own 5 s hold still powers off (`0064-input-k230-pmu-pwrkey.patch`) | DOCUMENTED; device VERIFIED present |
 | BOOT0 button | GPIO0 (gpiochip0 line 0) | idle high, pressed low | not read. Its pad is not a GPIO on this image: iomux word `0x00000AC4` (function 1) on both units; the vendor forces `0x344` (GPIO input, pull-up) to read it | DOCUMENTED; pad word VERIFIED; with the pad switched for a 4 s test on unit A the line read high (idle), and the word was restored exactly |
 | RESET | hardware reset, no software path | - | - | DOCUMENTED |
 
@@ -99,8 +99,9 @@ What stays, and why it is not a claim about that control:
 - `tests/hw/hw_buttons_watch.sh`, the bench watcher (power key, BOOT0 with
   its pad restored, the keyboard matrix including unnamed positions), stays
   as a tool. It is what the owner's test used.
-- The power key is not read and not remapped; the kernel's own 5 s
-  hold-to-power-off is untouched.
+- The power key was not read by this branch. Since `feat/k230-power-key`
+  the shell reads it (DS §56, ui/shell/shell_power_key.h), without grabbing
+  it; the kernel's own 5 s hold-to-power-off is untouched.
 
 ## 4. Indicator LEDs
 

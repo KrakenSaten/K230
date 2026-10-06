@@ -19,6 +19,7 @@ static struct {
     struct power_policy policy;
     lv_obj_t *cover;  /* the black screen, on the system layer; hidden while on */
     bool off;
+    bool by_hand;     /* off because somebody put it out, not idle */
     bool held;        /* the hold as the last tick saw it, for the log */
     unsigned offs;    /* times the screen went off, for shell.info and the tests */
 } pw;
@@ -75,16 +76,32 @@ void shell_power_init(const struct shell_power_hooks *hooks)
     LOG_INFO("power: screen off after %s, lock after %s", a, b);
 }
 
-static void screen_off(void)
+static bool cover(void)
 {
     if (pw.off || !pw.cover) {
-        return;
+        return false;
     }
     pw.off = true;
     pw.offs++;
     lv_obj_remove_flag(pw.cover, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(pw.cover);
-    LOG_INFO("power: screen off after %u s idle", (unsigned)(shell_power_idle_ms() / 1000u));
+    return true;
+}
+
+static void screen_off(void)
+{
+    if (cover()) {
+        pw.by_hand = false;
+        LOG_INFO("power: screen off after %u s idle", (unsigned)(shell_power_idle_ms() / 1000u));
+    }
+}
+
+void shell_power_off_now(const char *why)
+{
+    if (cover()) {
+        pw.by_hand = true;
+        LOG_INFO("power: screen off (%s)", why ? why : "by hand");
+    }
 }
 
 void shell_power_wake(const char *why)
@@ -93,6 +110,7 @@ void shell_power_wake(const char *why)
         return;
     }
     pw.off = false;
+    pw.by_hand = false;
     lv_obj_add_flag(pw.cover, LV_OBJ_FLAG_HIDDEN);
     lv_display_trigger_activity(NULL);
     LOG_INFO("power: screen on (%s)", why ? why : "wake");
@@ -132,8 +150,12 @@ void shell_power_tick(void)
 {
     bool hold = pw.hooks.hold && pw.hooks.hold();
     bool locked = pw.hooks.locked && pw.hooks.locked();
+    bool rose = hold && !pw.held;
     unsigned due;
 
+    if (pw.off && pw.hooks.urgent && pw.hooks.urgent()) {
+        shell_power_wake("urgent");
+    }
     if (hold != pw.held) {
         pw.held = hold;
         LOG_INFO("power: %s", hold ? "held awake" : "no longer held awake");
@@ -141,8 +163,12 @@ void shell_power_tick(void)
     if (hold) {
         /* What holds the device awake also brings the screen back - an alarm
          * that starts ringing under a dark screen - and the time it held
-         * counts as time in use. */
-        shell_power_wake("held awake");
+         * counts as time in use. A screen put out by hand stays out under a
+         * hold that was already there; one that starts after it still wakes
+         * it. */
+        if (!pw.by_hand || rose) {
+            shell_power_wake("held awake");
+        }
         lv_display_trigger_activity(NULL);
         return;
     }
