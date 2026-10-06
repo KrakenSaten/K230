@@ -18,13 +18,15 @@ Background:
 |---|---|
 | `PINS.env` | YOLOX commit, torch/nncase versions, seed |
 | `setup_env.sh` | creates the training (GPU or CPU) and conversion environments |
+| `setup_env_xpu.ps1` | creates the Intel GPU (XPU) training environment on Windows |
+| `xpu_check.py` | proves PyTorch computes correctly on the Intel GPU before any training |
 | `requirements-*.txt` | pinned Python packages |
 | `provenance/` | `sources.json` (every input and its terms), `coco_licence_policy.json` |
 | `data/class_sets.py` | class sets and their DOORS (COCO-80) indices |
 | `data/prepare_coco_traffic.py` | licence-filtered COCO subset, fetched, hashed, with manifest and attribution |
 | `exps/yolox_tiny_traffic_416.py` | the YOLOX experiment (upstream tiny settings, our data, fixed seed) |
 | `train.sh` | GPU training through YOLOX's `tools/train.py`, with `run.json` |
-| `smoke_train_cpu.py` | CPU smoke run of the same model, loader, loss and EMA |
+| `smoke_train.py` | smoke run of the same model, loader, loss and EMA on cpu, xpu or cuda (was `smoke_train_cpu.py`) |
 | `run_record.py` | writes and finishes `run.json` (versions, commits, settings, dataset and checkpoint hashes) |
 | `export_onnx.py` | checkpoint to ONNX `[1, 84, rows]`; the class convs are widened to 80 so trained classes sit at their COCO indices |
 | `compile_kmodel.py` | nncase 2.11.0: int16 activations, uint8 weights, pinned calibration, determinism and simulator checks |
@@ -142,8 +144,48 @@ python data/prepare_coco_traffic.py --coco-ann $W/coco/annotations --out $W/data
 ```
 
 ```bash
-DOORS_TRAIN_DATA=$W/data/smoke_traffic4 PYTHONPATH=$YOLOX_DIR python smoke_train_cpu.py --exp exps/yolox_tiny_traffic_416.py --out $W/runs/smoke1 --iters 60 --batch 4
+DOORS_TRAIN_DATA=$W/data/smoke_traffic4 PYTHONPATH=$YOLOX_DIR python smoke_train.py --device cpu --exp exps/yolox_tiny_traffic_416.py --out $W/runs/smoke1 --iters 60 --batch 4
 ```
+
+## Intel Arc (XPU) smoke run (2026-10-06, Arc B580, Windows 11)
+
+Training runs natively on Windows with upstream PyTorch XPU (no IPEX).
+Export and conversion stay on the pinned Linux path in WSL2. Numbers are
+in the training plan, section 13.
+
+**Limits today.**
+- YOLOX's `Trainer` (so `train.sh`) is CUDA-only and YOLOX stays
+  unpatched. On XPU, only `smoke_train.py` runs: no epochs, no no-aug
+  phase, no val AP, no `run.json`.
+- Use torch `TORCH_XPU_VERSION` (2.13.0) from `PINS.env`. 2.14.x computes
+  `torch.nonzero` wrongly on the B580 (driver 32.0.101.8531).
+  `xpu_check.py` stops on it.
+
+**1. Environment** (PowerShell, ASCII-only work path; needs git and uv):
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File setup_env_xpu.ps1 -Work C:\K230-work\yolox-train
+```
+
+It ends with `xpu_check.py`, which must print `"ok": true`.
+
+**2. Smoke dataset.** Build it as above, into `C:\K230-work\yolox-train\data\smoke_traffic4`.
+
+**3. Smoke training.** CPU parity first, then fp16 with multiscale:
+
+```powershell
+$env:DOORS_TRAIN_DATA='C:\K230-work\yolox-train\data\smoke_traffic4'; $env:PYTHONPATH='C:\K230-work\yolox-train\src\YOLOX'; C:\K230-work\yolox-train\venv-xpu\Scripts\python.exe smoke_train.py --device xpu --exp exps\yolox_tiny_traffic_416.py --out C:\K230-work\yolox-train\runs\xpu_smoke1 --iters 300 --batch 16 --fixed-lr 0.002 --workers 4 --amp fp16 --multiscale --parity
+```
+
+**4. Conversion** in WSL2. Use `setup_env.sh train-cpu` and `convert`.
+If `python3.10-venv` is missing, create the two venvs with uv instead.
+Then run:
+
+```bash
+TRAIN_ENV=$W/train.env CONVERT_ENV=$W/convert.env bash convert.sh /mnt/c/K230-work/yolox-train/runs/xpu_smoke1 /mnt/c/K230-work/yolox-train/runs/xpu_smoke1/smoke_ckpt.pth /mnt/c/K230-work/yolox-train/data/smoke_traffic4
+```
+
+The checkpoint holds CPU tensors. The pinned torch 2.1.2 loads it.
 
 ```bash
 bash convert.sh $W/runs/smoke1 $W/runs/smoke1/smoke_ckpt.pth $W/data/smoke_traffic4 /path/to/upstream/yolox_tiny_416_a16.kmodel

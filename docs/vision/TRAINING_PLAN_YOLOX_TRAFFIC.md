@@ -185,7 +185,7 @@ YOLOX almost nothing.
 - 38 MB fetched. Manifest, `images.tsv` and `ATTRIBUTION.tsv` were written.
 - The selection is seeded and deterministic.
 
-**Training** (`smoke_train_cpu.py`, YOLOX model/loader/loss/optimiser/EMA,
+**Training** (`smoke_train_cpu.py`, now `smoke_train.py --device cpu`; YOLOX model/loader/loss/optimiser/EMA,
 fresh init):
 
 | Run | Iterations x batch | LR | Time | total_loss first → last | Checkpoint sha256 |
@@ -331,10 +331,178 @@ person-presence detection for DeskBuddy and is kept separate from Traffic.
 
 ## 12. What was not done or tested
 
-- No GPU training, no real candidate, no comparison numbers for a DOORS model.
+- No real training run, no real candidate, no comparison numbers for a DOORS model. The only GPU run is the Arc B580 smoke run (section 13).
 - No unit B run: KPU latency and the CPU-fallback proof wait for a candidate.
 - Open Images: prepare script not written; no download.
-- The GPU path (`train.sh` through YOLOX's Trainer, tensorboard, fp16,
-  multiscale, val AP) is not exercised. The CPU smoke run uses YOLOX's
-  model, loader, loss, optimiser, scheduler and EMA, but its own loop.
+- The CUDA path (`train.sh` through YOLOX's Trainer, tensorboard, val AP)
+  is not exercised. The CPU and XPU smoke runs use YOLOX's model, loader,
+  loss, optimiser, scheduler and EMA, but their own loop.
 - No DOORS test-set capture.
+
+## 13. Intel Arc B580 (XPU) smoke run (2026-10-06, VERIFIED)
+
+The question: can the office PC's Arc B580 run this pipeline through
+upstream PyTorch XPU? No real training was started.
+
+**Machine.**
+- Windows 11 Pro 10.0.26300
+- Ryzen 7 9700X (8 cores), 31 GB RAM
+- Arc B580, 12 GB, driver 32.0.101.8531 (Level Zero 1.14.36605)
+- WSL 2.7.13.0 with Ubuntu 22.04.5. WSL sees `/dev/dxg`, but has no
+  Intel compute runtime, so training runs natively on Windows.
+
+**Stack.**
+- Python 3.10.20 (uv)
+- torch 2.13.0+xpu, torchvision 0.28.0+xpu
+- Intel SYCL runtime / dpcpp-cpp-rt / MKL 2026.0.0, intel-pti 0.17.0
+- `requirements-train.txt` unchanged
+- YOLOX @ 6ddff48, unmodified (clean tree)
+- No IPEX
+
+### Finding: torch 2.14.x+xpu computes wrongly on this machine
+
+With torch 2.14.0 and 2.14.1+xpu (SYCL runtime 2026.1):
+- `torch.nonzero` and boolean-mask indexing return wrong indices, for
+  example `[1, 1, 6]` instead of `[1, 3, 6]`.
+- 277 of 450 random cases were wrong.
+- YOLOX's label assignment then raised a device assert and
+  `UR_RESULT_ERROR_DEVICE_LOST`, or crashed the process.
+- It happens with the Level Zero V2 adapter and with the legacy one.
+
+The same test passes, 0 wrong, on 2.8.0, 2.10.0, 2.12.1 and 2.13.0+xpu.
+The cause is ASSUMED to be the 2026.1 runtime against this driver. A newer
+Arc driver may fix it; that is not tested, because drivers were not changed.
+
+The fixes:
+- `PINS.env` pins `TORCH_XPU_VERSION=2.13.0`.
+- `xpu_check.py` tests nonzero and masks against the CPU and stops on any
+  mismatch. It trips on 2.14.0 (119 of 200 wrong).
+
+### CUDA assumptions in YOLOX (audit)
+
+| Where | Assumption | Effect on XPU |
+|---|---|---|
+| `core/trainer.py` | `cuda:{rank}` device, `torch.cuda.set_device`, `torch.cuda.amp.GradScaler`/`autocast`, CUDA `DataPrefetcher` | Trainer unusable |
+| `core/launch.py` | asserts `torch.cuda.is_available()`, NCCL | unusable |
+| `data/data_prefetcher.py` | CUDA streams, `.cuda()` | unusable |
+| `exp/yolox_base.py` `random_resize` | `torch.LongTensor(2).cuda()` | reimplemented in the loop |
+| `exp/yolox_base.py` loader | `pin_memory=True` | works (pins for XPU) |
+| `evaluators/coco_evaluator.py` | `torch.cuda.FloatTensor`, `.cuda()` | val AP needs its own eval on XPU |
+| `models/yolo_head.py` assignment | `torch.cuda.amp.autocast(enabled=False)` around BCE | under XPU autocast BCE refuses to run; shimmed in the loop |
+| `models/yolo_head.py` OOM fallback | matches the "CUDA out of memory" string, then `.cuda()` | an XPU OOM is fatal, with no silent CPU fallback (acceptable) |
+| `models/yolo_head.py` | `torch.cuda.empty_cache()` per image | no-op |
+| `utils/dist.py`, `utils/metric.py` | CUDA sync and memory helpers | not used by the loop |
+| `train.sh` | requires `nvidia-smi` | refuses XPU |
+
+The model, loss, EMA, optimiser, scheduler and mosaic loader are
+device-neutral. YOLOX is not patched: `run_record.py` refuses a dirty tree.
+
+### Changes in this pipeline
+
+- **`smoke_train.py`** (was `smoke_train_cpu.py`):
+  - `--device auto|cpu|xpu|cuda`
+  - `--amp off|bf16|fp16`, where fp16 uses `torch.amp.GradScaler`
+  - `--multiscale`: the Trainer's resize every 10 iterations
+  - `--workers`
+  - `--parity`: one training step on the device against the CPU, from the same weights
+  - The checkpoint is saved with CPU tensors.
+  - Under XPU AMP it maps YOLOX's `torch.cuda.amp.autocast(enabled=False)`
+    to the device, so the assignment cost stays fp32 as upstream intends.
+- **`xpu_check.py`**: device, memory, matmul vs CPU, nonzero/mask vs CPU,
+  timing and a training step.
+- **`setup_env_xpu.ps1`**: the Windows XPU environment, tested on a fresh
+  directory.
+- **`PINS.env`**: `TORCH_XPU_VERSION`, `TORCHVISION_XPU_VERSION`.
+
+Not changed: the architecture, head, class mapping, dataset, augmentation,
+export, nncase settings and decoder.
+
+### Basic XPU check (`xpu_check.py`)
+
+| Check | Result |
+|---|---|
+| Device | Arc B580, 11,874 MB |
+| fp32 matmul 4096² | 13.3 TFLOPS; CPU 20x slower |
+| Max relative error vs CPU | 3e-6 |
+| Allocator | 192 MB allocated, as expected |
+| nonzero / masks | 0 of 200 wrong |
+| Training step | ran, loss fell |
+
+### Data
+
+The smoke set was rebuilt with the documented recipe; it was not on this PC.
+- `prepare_coco_traffic.py --limit-train 160 --limit-val 24`
+- train 184 images / 663 boxes, val 28 / 91, 37 MB (as on 2026-10-04)
+- COCO annotation sha256 equal to `sources.json`
+- No exclusion list: the 2026-10-04 one is not on this PC, and it dropped 0 files then.
+- Image list sha256: train `6215f81e…6b1ca8`, val `60390a0c…347ff8`
+
+### Training (`xpu_smoke1`)
+
+Settings:
+- from scratch
+- 300 iterations x batch 16
+- fp16 autocast + GradScaler
+- multiscale 320-640 (all 11 sizes seen)
+- fixed lr 0.002, 4 loader workers
+
+| Item | Value |
+|---|---|
+| CPU parity, first step | loss rel. diff 1e-7; gradient cosine 1.0000000, rel. norm diff 1e-4 |
+| total_loss | 18.5 → 10.2 (mean of first/last 10: 16.4 → 9.9); iou 4.79 → 3.51 |
+| Runtime | 119.5 s |
+| Steady iteration | median 0.126 s, so 127 images/s; 0.118 s at 320, 0.16 s at 640 |
+| One-off compile | about 5-9 s the first time each input size appears; 81 s of the 119 s |
+| Peak memory (PyTorch) | 2,429 MiB allocated, 2,638 MiB reserved |
+| Device total in use | 7.8 GB, including the desktop and other processes |
+| CPU fallback / unsupported ops | none; the loss stays on xpu every iteration |
+| Warnings | none in the fp16 run; fp32 runs show YOLOX's `torch.cuda.amp.autocast` FutureWarning |
+| Checkpoint sha256 | `20a27671d4143bdaaaec35a6541a5bfd76923f04fdc201cbabc6a19b35c5f7e7` |
+
+Shorter probes at batch 16, 40 iterations, 416:
+
+| Precision | Images/s | Reserved |
+|---|---|---|
+| fp32 | 59 | 2.2 GB |
+| bf16 | 131 | 1.1 GB |
+| fp16 | 129 | 1.1 GB |
+
+Iteration time barely changes with input size. The CPU mosaic loader is
+probably the limit (ASSUMED); try more workers on the 8-core CPU.
+
+### Conversion
+
+The existing `convert.sh` ran unchanged in WSL, with the pinned torch
+2.1.2+cpu and nncase 2.11.0:
+
+| Item | Value |
+|---|---|
+| Checkpoint | the torch 2.13 XPU checkpoint loads in torch 2.1.2 |
+| ONNX | `dc08d58d7ae369b339d3b471156ba0e54b104a9ad92de6d06efaf4360ae1d6a6`, `[1, 84, 3549]`, op set equal to upstream's, max diff to PyTorch 4e-4, trained columns vs native head 5e-8, untrained 0.0 |
+| kmodel | `5a3a38a4976cc4bb0f9ebe4dffaeeb3d42677ab11136a71426fafa82d5cd2615`, 5,907,096 B (1.002 of upstream a16's 5,894,104 B) |
+| Determinism | compiled twice, the same sha256 |
+| Compile time | 41 s |
+| Unsupported operators | none |
+| Simulator vs float | box cosine ≥ 0.9988; score cosine 0.93-0.97 (all scores ≤ 0.09, untrained) |
+| Non-finite values | 1 kmodel value on 1 of 5 pictures (the section 7 finding) |
+| DOORS decoder | accepted 5/5 outputs: 3549 rows, 0 bad rows, 0 detections ≥ 0.35 (expected) |
+| Label path | at 0.1 % only car, truck, bus and motorcycle appear |
+
+The `--reference` kmodel is not on this PC, so `cpu_fallback_suspect` was
+not computed. The size ratio above is the same heuristic by hand.
+
+### Verdict and the gap before real training
+
+The Arc B580 trains this model correctly and fast enough:
+- R0 needs about 1.06 M image passes, so about 2.5 h at about 125
+  images/s (ESTIMATE, smoke data).
+- The trained checkpoint goes through the proven conversion unchanged.
+
+What blocks a real run is the pipeline, not the GPU. `train.sh` and
+YOLOX's Trainer cannot use XPU. A real XPU run needs a training loop in
+this tree with the Trainer's features:
+- epochs and the warm-cosine schedule
+- the last 15 epochs without mosaic, with L1 loss
+- val AP, using a device-neutral evaluation
+- `best_ckpt.pth` and `latest_ckpt.pth`
+- `run.json` with the XPU device and driver (`run_record.py` records CUDA only)

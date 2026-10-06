@@ -1,2 +1,4 @@
 __pycache__/
 # Datasets, runs and environments live in a work directory outside git.
+# nncase writes its KPU dump into the current directory while compiling.
+gmodel_dump_dir/
