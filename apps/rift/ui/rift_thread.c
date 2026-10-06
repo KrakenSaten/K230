@@ -373,6 +373,7 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
         lv_obj_set_style_text_align(r->body, align, 0);
         lv_obj_set_style_text_align(r->sender, align, 0);
         lv_obj_set_style_text_align(r->caption, align, 0);
+        lv_obj_set_style_text_align(r->quote, align, 0); /* a reply's quotation, with its answer */
         lv_obj_move_to_index(r->rule, out ? 1 : 0);
         r->out = out;
     }

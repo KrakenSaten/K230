@@ -9,6 +9,7 @@
 #include "pos_styles.h"
 #include "rift_comms.h"
 #include "rift_emoji.h"
+#include "rift_emoji_style.h"
 #include "rift_reply.h"
 
 #include <stdio.h>
@@ -164,6 +165,9 @@ struct rift_msgact *rift_msgact_create(struct rift_app *app, lv_obj_t *parent)
     b->what = lv_label_create(b->bar);
     lv_obj_remove_style_all(b->what);
     pos_style_add(b->what, POS_STYLE_CAPTION, 0);
+    /* The preview is folded for the colour emoji font (rift_fmt_preview):
+     * drawn with it, as the thread's lines are, not as a box. */
+    rift_emoji_style_add(b->what, POS_STYLE_CAPTION);
     lv_obj_set_width(b->what, LV_PCT(100));
     lv_label_set_long_mode(b->what, LV_LABEL_LONG_MODE_DOTS);
     lv_label_set_text(b->what, "");
