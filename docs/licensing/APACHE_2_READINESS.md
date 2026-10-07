@@ -395,11 +395,62 @@ asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
 | # | Path / component | Issue | Evidence | Required action |
 | --- | --- | --- | --- | --- |
 | B4 | `/usr/share/doors/vision/yolov8n.kmodel` (`pocketos.mk`) | AGPL-3.0 weights (Ultralytics) without published weights or conversion; owner decision limits it to internal images | docs/LICENSING.md item 10; MODEL_LICENSES.md | **Resolved for 0.3.5 (2026-10-07):** not installed; the package refuses the SDK's YOLO kmodels by name and hash, and the vendor `yolo` package. Vision runs its model-free modes and says why the detector's are off. |
-| B5 | nncase 2.11.0 K230 runtime, static in `/usr/bin/pos-vision` | prebuilt archive carries no licence file; the K230 modules' source is not shown | archive listing; `kendryte/nncase` LICENSE at `v2.11.0` (Apache-2.0) | Confirm with Kendryte/Canaan that the runtime archive is under the repository's Apache-2.0, then add a notices entry with its licence; otherwise do not ship pos-vision. |
-| B6 | vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz`; their kmodels in `/root/app/` | no licence in the package files; models without terms | docs/LICENSING.md item 5; image target tree | Add manual manifest entries with established licences, or drop the packages not needed by Doors (`face_detect`, `ai2d_kpu` demos) from the defconfig. |
-| B7 | LILYGO launcher `k230_phone_ui` and the LILYGO overlay files | no licence; the launcher ships enabled-in-image, disabled at boot | docs/LICENSING.md item 2; `.config` `BR2_PACKAGE_K230_PHONE_UI=y` | Get LILYGO's terms, or remove the launcher from the image (Doors' shell already owns the panel). |
-| B8 | `rtl8723ds-bt` (PROPRIETARY), `rtl8723ds`, `aic8800` and their firmware | proprietary blob for absent hardware; firmware terms not collected | docs/legal/manifest.csv; item 4 | Drop them from the defconfig (hardware absent), as item 4 proposes. |
-| B9 | glibc, libstdc++, libgcc_s from the Xuantie toolchain; legal-info archive | runtimes not in legal-info; no per-release archive of sources and licences | items 3 and 8 | Collect the toolchain runtime licences; run and archive `make legal-info` per release, and set `POCKETOS_REDISTRIBUTE = YES` once the source repository is cleared. |
+| B5 | nncase 2.11.0 K230 runtime, static in `/usr/bin/pos-vision`; and the nncase Python wheel `.so` in `/usr/lib/python3.13/site-packages/nncaseruntime/` | prebuilt archive carries no licence file | §14.2 | **Partly resolved (0.3.5):** the generic runtime is Apache-2.0 at tag `v2.11.0` and its notices ship, with itlib-small-vector and gsl-lite (MIT). **Still blocking:** the K230 modules (`libnncase.rt_modules.k230`, `libfunctional_k230`), built from a tree upstream says is not open source, and the wheel: no terms stated anywhere. Needs Canaan's terms, or the owner's decision (§14.2). |
+| B6 | vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz`, `display`, and the vendor local packages legal-info never lists (`vg_lite`, `mvx_player`, `camera_rtsp_demo`, `librtsp_server`, `audio_demo`, `audio_rec_play`); their kmodels in `/root/app/` | no licence in the package files; models without terms | §14.2 | **Code: resolved by evidence** (gsl-lite MIT; libmmz, display, face_detect code: the SDK's BSD-2-Clause; nonai2d and vvcam's kernel modules GPL-2.0 with source in the SDK). **Still blocking:** `face_detection_320.kmodel`, `test.kmodel` and test data, vvcam's binary-only `isp_media_server`, and the demo packages' unverified files: vendor terms, or the owner drops them (§14.2). |
+| B7 | LILYGO launcher `k230_phone_ui` and the LILYGO overlay files | no licence | docs/LICENSING.md item 2 | Launcher **resolved** (removed from the image, PR #47). **Still open:** LILYGO's BSP overlay (boot scripts such as `S40k230_pocketos_defconfig`, the board defconfig the image is composed from); LILYGO's terms are needed for those. |
+| B8 | `rtl8723ds-bt` (PROPRIETARY, also ships the GPL-2.0+ `rtk_hciattach`), `rtl8723ds`, `aic8800` (70 firmware blobs, no terms) | firmware for chips the board does not have (RTL8189FTV only) | §14.2 | **Owner decision** (not done here: it changes the image and the boot script's module loads): unset `BR2_PACKAGE_RTL8723DS`, `_RTL8723DS_BT` and `_AIC8800` in the fragment. Nothing on the board uses them. Kept, they need Realtek's and AICSemi's terms. |
+| B9 | glibc 2.33 and the GCC 14.1.1 runtime libraries from the Xuantie-900 toolchain V3.0.2; legal-info archive | runtimes not in legal-info; no per-release archive of sources and licences | §14.2 | **Texts resolved (0.3.5):** LGPL-2.1, GPL-2.0, glibc's LICENSES, GPL-3.0 and the GCC Runtime Library Exception 3.1 ship in the notices, copied from the fork at named commits. legal-info re-run for 0.3.5 (§14.2). **Still open:** the source offer: an owner decision whether the fork's branch heads count as corresponding source (no V3.0.2 tag), or XuanTie's exact source; and `POCKETOS_REDISTRIBUTE = YES` once the source repository is cleared. |
+
+### 14.2 Image blockers researched for 0.3.5 (2026-10-07)
+
+From the 0.3.5 build tree (SDK `22d02c6`, BSP `bb831ab`) and the original
+sources at exact versions. Evidence class in brackets.
+
+**Resolved by evidence (done in 0.3.5):**
+
+- nncase generic runtime 2.11.0: Apache-2.0, `kendryte/nncase` tag `v2.11.0`
+  (tag object `2be57e3`) [VERIFIED]; the archive's objects match
+  `src/Native/src/runtime` at the tag [VERIFIED by name; that the binary was
+  built from the tag ASSUMED]. Notices `nncase-runtime`,
+  `itlib-small-vector` (MIT, from the archive's header), `gsl-lite` (MIT,
+  v0.41.0 archive LICENSE) [VERIFIED].
+- Toolchain runtime texts: glibc 2.33 `COPYING.LIB`, `COPYING`, `LICENSES`
+  from `XUANTIE-RV/glibc@29dd660` (branch `riscv-glibc-2.33-thead`; its
+  `version.h` says 2.33), GCC `COPYING3` and `COPYING.RUNTIME` from
+  `XUANTIE-RV/gcc@c2e0bcc` (branch `xuantie-gcc-14.1.1`; `BASE-VER` 14.1.1)
+  [VERIFIED]. The toolchain itself ships no licence text [VERIFIED].
+  Provenance and hashes: notices entries `glibc*`, `gcc-runtime*`.
+- Vendor package code with established terms (manifest entries in
+  docs/legal/LOCAL_PACKAGES.md): `gsl-lite` MIT; `libmmz` and `display`
+  (no headers; the SDK root BSD-2-Clause by location [ASSUMED coverage]);
+  `face_detect` sources Canaan BSD-2-Clause; `nonai2d` GPL-2.0-only and
+  `vvcam`'s kernel modules VeriSilicon/Vivante MIT and GPL-2.0, source in
+  the SDK [VERIFIED].
+- `make legal-info` re-run on the 0.3.5 build (docs/legal/manifest.csv).
+
+**Needs the owner's decision (documented, not done):**
+
+1. B5: ship the nncase K230 modules and the wheel on the reading that a
+   release asset of an Apache-2.0 repository is Apache-2.0 (with a recorded
+   risk), or build public images without the KPU (pos-vision without
+   `POCKETVISION_KPU`, no `libnncase`; COLOR, EDGE and LINE TRACE would need
+   the helper to work without the KPU at all), or ask Canaan.
+2. B6: drop `face_detect` and `ai2d_kpu` (vendor demos; nothing of Doors
+   uses them, VERIFIED by `readelf`; FACE would need a model installed by
+   hand anyway), and decide on `camera_rtsp_demo`, `librtsp_server`,
+   `mvx_player`, `audio_demo`, `audio_rec_play`, `vg_lite`. Whether Camera
+   needs `isp_media_server` at run time is not established; it is
+   binary-only with no terms.
+3. B8: unset `RTL8723DS`, `RTL8723DS_BT` and `AIC8800` (absent hardware).
+4. B9: whether the XuanTie branch heads count as corresponding source, and
+   who makes the written source offer.
+5. B3b: when to read the keys on a unit. The KEYBOARD_BRINGUP §6 procedure
+   used the vendor launcher's keyboard test page, which PR #47 removed, so it
+   needs a card that still has the launcher or a small raw-key view in Doors.
+
+**Needs the vendor:** Canaan (nncase K230 modules, the wheel, the two
+kmodels, `isp_media_server`), Realtek and AICSemi (firmware, only if kept),
+LILYGO (BSP overlay and keymap).
 
 ### Non-blocking cleanup
 
@@ -434,7 +485,7 @@ asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
 | | Result |
 | --- | --- |
 | **SOURCE REPOSITORY** | **NOT READY** - only B3b remains (keymap tables; deferred until the owner is at a unit). B1, B2 and B3a are resolved. Publication must use an exported tree (R1). |
-| **FLASHABLE IMAGE** | **NOT READY** - B3b, B5, B6, B8, B9 (B4 resolved in 0.3.5 by not shipping the model; B7 by the launcher's removal, PR #47) |
+| **FLASHABLE IMAGE** | **NOT READY** - B3b, B5 (K230 modules, wheel), B6 (vendor models and binaries), B7 (LILYGO overlay), B8 (owner decision), B9 (source offer). B4 resolved in 0.3.5; B5, B6 and B9 partly (§14.2) |
 
 Scale used: READY / READY AFTER CLEANUP / NOT READY. "Ready after
 cleanup" would mean only the C items remained; for the source that

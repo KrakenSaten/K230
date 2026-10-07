@@ -182,7 +182,10 @@ Findings:
    (first run done 2026-09-04, see above).
 4. Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
    defconfig, k230_pocketos_defconfig (hardware absent; one proprietary blob less).
-5. Add manual manifest entries for vendor local packages.
+5. Add manual manifest entries for vendor local packages. **Done for 0.3.5**
+   (docs/legal/LOCAL_PACKAGES.md, 2026-10-07): code licences established for
+   most; the vendor models, `isp_media_server` and the nncase K230 modules
+   state no terms (APACHE_2_READINESS.md §14.2).
 6. ~~Confirm the licence terms of Ooura's FFT (ggwave `src/fft.h`), which the
    file itself does not state, before a release ships pos-wave.~~ Resolved
    2026-09-13 from the author's page (see "Audio milestone"; verbatim terms in
@@ -195,7 +198,10 @@ Findings:
    LVGL and LVGL's bundled components (see "Third-party notices").
 8. **Distribution blocker:** collect the licences of the C and C++ runtime
    libraries the external toolchain puts in the image (glibc, libstdc++,
-   libgcc_s); they are not in legal-info's manifest.
+   libgcc_s); they are not in legal-info's manifest. **Texts collected for
+   0.3.5**: glibc 2.33 and GCC 14.1.1 runtime licences from the XuanTie
+   fork at named commits, in THIRD_PARTY_NOTICES.txt. The source offer is
+   still the owner's decision (APACHE_2_READINESS.md §14.2, B9).
 9. ~~**Before meshcored ships in an image:** add notices entries for the three
    trees it compiles — MeshCore (`vendor/RIFT` `src/` and its
    `lib/ed25519`, orlp's ref10 Ed25519) and rweather's `arduinolibs` Crypto.~~
