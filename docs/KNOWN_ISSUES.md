@@ -5,10 +5,10 @@ v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.
 
-- **RIFT's first use from Controls is not yet run on hardware** (v0.3.5
-  notes, "RIFT on a fresh card"): the LoRa radio tile's setup (sysd's
-  `radio_setup`) and radiod's per-backend choice are host-tested only. A
-  unit on the SX1262 with meshcored deliberately disabled is offered the
+- **RIFT's first use from Controls** (v0.3.5 notes, "RIFT on a fresh
+  card") passed on unit B from a fresh card (2026-10-07), the success path
+  only: no failure path (radiod or meshcored not coming back) was exercised
+  on hardware. A unit on the SX1262 with meshcored deliberately disabled is offered the
   setup on a tap; `doors radio on|off` switches its radio alone.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
