@@ -25,12 +25,15 @@ int rf_state_path(const char *state_dir, char *out, size_t len)
     return (n < 0 || (size_t)n >= len) ? -1 : 0;
 }
 
-enum rf_state_load rf_state_load(const char *path)
+enum rf_state_load rf_state_load(const char *path, char *backend, size_t blen)
 {
     FILE *f = fopen(path, "r");
     char line[128];
     enum rf_state_load found = RF_STATE_INVALID;
 
+    if (backend && blen > 0) {
+        backend[0] = '\0';
+    }
     if (!f) {
         return errno == ENOENT ? RF_STATE_ABSENT : RF_STATE_INVALID;
     }
@@ -49,23 +52,46 @@ enum rf_state_load rf_state_load(const char *path)
             found = RF_STATE_OFF;
         } else if (strcmp(line, "enabled=1") == 0) {
             found = RF_STATE_ON;
+        } else if (strncmp(line, "backend=", 8) == 0 && backend && blen > 0) {
+            snprintf(backend, blen, "%s", line + 8);
         }
     }
     fclose(f);
     return found;
 }
 
-int rf_state_store(const char *path, bool enabled, char *err, size_t errlen)
+bool rf_state_applies(enum rf_state_load stored, const char *stored_backend, const char *backend)
+{
+    if (stored != RF_STATE_ON && stored != RF_STATE_OFF) {
+        return false;
+    }
+    if (stored_backend && stored_backend[0]) {
+        return backend && strcmp(stored_backend, backend) == 0;
+    }
+    /* Untagged (before 0.3.5): off is always safe to keep; on only for the
+     * mock, which transmits nothing. */
+    return stored == RF_STATE_OFF || (backend && strcmp(backend, "mock") == 0);
+}
+
+int rf_state_store(const char *path, bool enabled, const char *backend, char *err, size_t errlen)
 {
     char dir[512];
     char tmp[576];
+    char body[192];
     char *slash;
     int fd;
     int n;
-    const char *body = enabled
-        ? "# radiod: the owner's radio on/off choice (radio.set_enabled)\nenabled=1\n"
-        : "# radiod: the owner's radio on/off choice (radio.set_enabled)\nenabled=0\n";
-    size_t blen = strlen(body);
+    size_t blen;
+
+    n = snprintf(body, sizeof(body),
+                 "# radiod: the owner's radio on/off choice (radio.set_enabled), on this backend\n"
+                 "enabled=%d\nbackend=%s\n",
+                 enabled ? 1 : 0, backend ? backend : "");
+    if (n < 0 || (size_t)n >= sizeof(body) || !backend || !backend[0] || strchr(backend, '\n')) {
+        snprintf(err, errlen, "no usable backend name");
+        return -EINVAL;
+    }
+    blen = (size_t)n;
 
     if (snprintf(dir, sizeof(dir), "%s", path) >= (int)sizeof(dir) ||
         snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {

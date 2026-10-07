@@ -177,6 +177,69 @@ int main(void)
               strcmp(CONTROLS_ANTENNA_ENABLE, "Enable radio") == 0 &&
               strcmp(CONTROLS_ANTENNA_CANCEL, "Cancel") == 0);
 
+    /* ---- the setup question (radio_setup, 0.3.5) ---- */
+    {
+        struct controls_setup su;
+        char body[400];
+
+        st = cJSON_Parse("{\"state\":\"idle\",\"needed\":true,\"backend\":\"mock\",\"meshcored_enabled\":false}");
+        controls_setup_parse(st, &su);
+        cJSON_Delete(st);
+        check("a fresh card's status: known, needed, idle", su.known && su.needed && !su.running && !su.failed);
+        check("a tap on the mock's 'Receiving' asks the setup question, not switch the mock",
+              controls_radio_tapped_setup(&flow, "rx", &su) == CONTROLS_TAP_ASK_SETUP &&
+                  flow.confirm == CONTROLS_CONFIRM_SETUP);
+        check("a second tap while it is open does nothing", controls_radio_tapped_setup(&flow, "rx", &su) == CONTROLS_TAP_NOTHING);
+        check("the antenna answer does not answer the setup question",
+              !controls_radio_answer(&flow, true) && flow.confirm == CONTROLS_CONFIRM_SETUP);
+        check("Cancel starts nothing and closes it", !controls_radio_setup_answer(&flow, false) &&
+                                                          flow.confirm == CONTROLS_CONFIRM_NONE);
+        controls_radio_tapped_setup(&flow, "off", &su);
+        check("an off mock is asked the setup question too", flow.confirm == CONTROLS_CONFIRM_SETUP);
+        check("Set up starts it", controls_radio_setup_answer(&flow, true) && flow.confirm == CONTROLS_CONFIRM_NONE);
+        check("Set up without an open question does nothing", !controls_radio_setup_answer(&flow, true));
+        controls_radio_tapped_setup(&flow, "off", &su);
+        controls_radio_dismiss(&flow);
+        check("hiding Controls cancels the setup question", !controls_radio_setup_answer(&flow, true));
+        check("the setup question carries the antenna warning",
+              strstr(CONTROLS_SETUP_BODY, "antenna") && strstr(CONTROLS_SETUP_BODY, "damage") &&
+                  strstr(CONTROLS_SETUP_BODY, "SX1262"));
+        controls_setup_body(&su, body, sizeof(body));
+        check("with no failure the body is the question alone", strcmp(body, CONTROLS_SETUP_BODY) == 0);
+
+        st = cJSON_Parse("{\"state\":\"running\",\"needed\":true}");
+        controls_setup_parse(st, &su);
+        cJSON_Delete(st);
+        check("while a setup runs a tap does nothing",
+              su.running && controls_radio_tapped_setup(&flow, "rx", &su) == CONTROLS_TAP_NOTHING &&
+                  flow.confirm == CONTROLS_CONFIRM_NONE);
+
+        st = cJSON_Parse("{\"state\":\"failed\",\"needed\":true,\"error\":\"radiod did not come back on the SX1262\"}");
+        controls_setup_parse(st, &su);
+        cJSON_Delete(st);
+        controls_setup_body(&su, body, sizeof(body));
+        check("after a failure the question says what went wrong last time",
+              su.failed && strstr(body, "Last attempt: radiod did not come back on the SX1262.") != NULL);
+
+        st = cJSON_Parse("{\"state\":\"done\",\"needed\":false}");
+        controls_setup_parse(st, &su);
+        cJSON_Delete(st);
+        check("once set up, an off radio gets the antenna question as before",
+              su.done && controls_radio_tapped_setup(&flow, "off", &su) == CONTROLS_TAP_ASK_ANTENNA);
+        controls_radio_dismiss(&flow);
+        check("and an on radio is switched off as before",
+              controls_radio_tapped_setup(&flow, "rx", &su) == CONTROLS_TAP_SWITCH_OFF);
+
+        controls_setup_parse(NULL, &su);
+        check("sysd not answering: unknown, and the tile works as before",
+              !su.known && controls_radio_tapped_setup(&flow, "off", &su) == CONTROLS_TAP_ASK_ANTENNA);
+        controls_radio_dismiss(&flow);
+        st = cJSON_Parse("{\"needed\":true}");
+        controls_setup_parse(st, &su);
+        cJSON_Delete(st);
+        check("a status without a state is unknown", !su.known);
+    }
+
     /* ---- Bluetooth ---- */
     controls_bluetooth_text(NULL, out, sizeof(out));
     check("Bluetooth: sysd not answering", strcmp(out, "Not answering") == 0);

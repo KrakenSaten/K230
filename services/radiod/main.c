@@ -1099,7 +1099,7 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
             update_rx_state(rd);
             return NULL;
         }
-        if (rf_state_store(rd->rf_path, true, err, sizeof(err)) < 0) {
+        if (rf_state_store(rd->rf_path, true, rd->be.ops->name, err, sizeof(err)) < 0) {
             radio_hw_down(rd);
             update_rx_state(rd);
             LOG_ERROR("radio on not stored (%s); switched back off", err);
@@ -1126,7 +1126,7 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
     rd->enabled = false;
     update_rx_state(rd);
     LOG_INFO("radio switched off by the owner");
-    if (rf_state_store(rd->rf_path, false, err, sizeof(err)) < 0) {
+    if (rf_state_store(rd->rf_path, false, rd->be.ops->name, err, sizeof(err)) < 0) {
         LOG_ERROR("radio off not stored: %s", err);
         *code = POCKETIPC_ERR_BACKEND;
         snprintf(msg, n, "the radio is off, but the choice could not be stored (%.60s): "
@@ -1397,6 +1397,7 @@ int main(int argc, char **argv)
     int tx_power_dbm = RADIOD_DEFAULT_TX_POWER_DBM;
     const char *radio_default = NULL;
     enum rf_state_load stored;
+    char stored_backend[RF_STATE_BACKEND_MAX];
     char err[160] = "";
     int i;
     int rc;
@@ -1482,10 +1483,17 @@ int main(int argc, char **argv)
         LOG_ERROR("state directory path too long");
         return 2;
     }
-    stored = rf_state_load(rd.rf_path);
-    if (stored == RF_STATE_ON || stored == RF_STATE_OFF) {
+    stored = rf_state_load(rd.rf_path, stored_backend, sizeof(stored_backend));
+    if (rf_state_applies(stored, stored_backend, rd.be.ops->name)) {
         rd.enabled = stored == RF_STATE_ON;
         LOG_INFO("radio %s (stored choice, %s)", rd.enabled ? "on" : "off", rd.rf_path);
+    } else if (stored == RF_STATE_ON || stored == RF_STATE_OFF) {
+        /* A choice made on another backend (the mock's "on" on a fresh card,
+         * or an untagged "on" from before 0.3.5): the real transmitter is not
+         * switched on by it. Controls asks about the antenna first. */
+        LOG_INFO("radio %s (the stored %s was made on %s, not %s: the default applies)",
+                 rd.enabled ? "on" : "off", stored == RF_STATE_ON ? "on" : "off",
+                 stored_backend[0] ? stored_backend : "an earlier release", rd.be.ops->name);
     } else {
         if (stored == RF_STATE_INVALID) {
             LOG_WARN("%s says neither on nor off; ignored", rd.rf_path);

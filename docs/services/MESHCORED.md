@@ -688,7 +688,11 @@ radiod's lease, applies the MeshCore profile and listens on 869.618 MHz for as
 long as it runs — and on a unit where nobody asked for that, the right number
 of radios to take is none.
 
-To switch it on, per unit:
+To switch it on, per unit: from 0.3.5, tap **LoRa radio** in Controls on a
+unit that is not set up yet and answer the setup question (which is also the
+antenna question). sysd puts radiod on the SX1262, switches the radio on and
+enables and starts meshcored, or puts everything back if a step fails
+(docs/api/system.md, "Radio setup"). By hand, from a shell:
 
 ```sh
 echo MESHCORED_ENABLE=1 > /etc/default/meshcored
@@ -716,8 +720,8 @@ Before doing that on a real radio, know what it means:
 4. **The radio must be switched on** on the sx1262 backend: with nothing
    stored it starts off (docs/api/radio.md), and meshcored waits, degraded,
    "the radio is switched off". Controls' LoRa radio tile (after the antenna
-   prompt) or `doors radio on` does it. A fresh card needs a shell for the
-   two `/etc/default` files; the on-device Terminal is enough.
+   prompt) or `doors radio on` does it. Controls' setup does steps 1 and 4
+   and enables meshcored in one go.
 
 Stopping it releases the lease and writes the node table.
 

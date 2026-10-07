@@ -8,7 +8,8 @@
  * Sources, each a provider that already exists (nothing here reads a device):
  *
  *   Radio      radiod's state as the status bar last polled it ("off" is the
- *              owner's switch, radio.set_enabled)
+ *              owner's switch, radio.set_enabled), and on a unit not yet set
+ *              up for RIFT sysd's radio_setup.status (docs/api/system.md)
  *   Bluetooth  system.status.bluetooth.controllers (sysd)
  *   Battery    system.status.power (sysd)
  *   Volume     the shell's own setting (volume.h)
@@ -30,7 +31,8 @@
 enum controls_radio_tap {
     CONTROLS_TAP_NOTHING = 0, /* radiod is not answering: nothing to switch */
     CONTROLS_TAP_ASK_ANTENNA, /* off: ask about the antenna first */
-    CONTROLS_TAP_SWITCH_OFF   /* on in any way (rx, tx, idle, error): off at once */
+    CONTROLS_TAP_SWITCH_OFF,  /* on in any way (rx, tx, idle, error): off at once */
+    CONTROLS_TAP_ASK_SETUP    /* not set up for RIFT: the setup question first */
 };
 
 /* radiod's state word as the status bar has it (NULL: not answering) to the
@@ -46,7 +48,8 @@ bool controls_radio_on(const char *state);
  * explicit user action's alone, so no restart or recovery can raise it. */
 enum controls_confirm {
     CONTROLS_CONFIRM_NONE = 0,
-    CONTROLS_CONFIRM_ANTENNA
+    CONTROLS_CONFIRM_ANTENNA,
+    CONTROLS_CONFIRM_SETUP    /* the setup question, which is also the antenna's */
 };
 
 struct controls_radio_flow {
@@ -63,6 +66,45 @@ bool controls_radio_answer(struct controls_radio_flow *flow, bool enable);
 /* Controls hidden, or the shell leaving it: an open question is cancelled,
  * which leaves the radio off. */
 void controls_radio_dismiss(struct controls_radio_flow *flow);
+
+/* ---- setting a unit up for RIFT (sysd's radio_setup) ------------------------ */
+
+/* A fresh card runs radiod on the mock and meshcored disabled; the tile then
+ * offers the setup instead of switching the mock: the SX1262, switched on,
+ * and MeshCore started, all after one question that is also the antenna
+ * question. sysd does the work and either finishes it or puts the unit back
+ * as it was. */
+struct controls_setup {
+    bool known;   /* sysd answered radio_setup.status */
+    bool needed;  /* not on the SX1262, or meshcored not enabled */
+    bool running;
+    bool done;    /* the last setup finished */
+    bool failed;  /* the last setup failed; error says why */
+    char error[200];
+};
+
+/* radio_setup.status's result (NULL: sysd did not answer) into out. */
+void controls_setup_parse(const cJSON *status, struct controls_setup *out);
+/* A tap on the radio tile, knowing the setup (NULL: unknown). A unit that
+ * needs the setup is asked the setup question (flow->confirm SETUP); while
+ * one runs a tap does nothing; otherwise as controls_radio_tapped. */
+enum controls_radio_tap controls_radio_tapped_setup(struct controls_radio_flow *flow, const char *state,
+                                                    const struct controls_setup *setup);
+/* The answer to the setup question. Returns true when the setup is to start
+ * now: only for Set up on an open setup question. Both close it. */
+bool controls_radio_setup_answer(struct controls_radio_flow *flow, bool start);
+/* The setup question's body, with the last failure when there was one. */
+void controls_setup_body(const struct controls_setup *setup, char *out, int len);
+
+#define CONTROLS_SETUP_TITLE "Set up the LoRa radio for RIFT?"
+#define CONTROLS_SETUP_BODY "This switches to the SX1262 radio, turns it on and starts MeshCore. Connect an " \
+                            "antenna first: transmitting without one may damage the RF output stage."
+#define CONTROLS_SETUP_START "Set up radio"
+#define CONTROLS_SETUP_RUNNING "Setting up"
+#define CONTROLS_SETUP_DONE_TITLE "The LoRa radio is set up."
+#define CONTROLS_SETUP_DONE_BODY "RIFT can reach the mesh now."
+#define CONTROLS_SETUP_FAILED_TITLE "The radio could not be set up."
+#define CONTROLS_NOTICE_OK "OK"
 
 #define CONTROLS_ANTENNA_TITLE "Connect an antenna before enabling the radio."
 #define CONTROLS_ANTENNA_BODY "Transmitting without an antenna may damage the RF output stage."

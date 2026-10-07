@@ -465,6 +465,44 @@ code 3 when there is nothing to expand (`not_needed`, `reboot_required`,
 `unsupported`, with the reason), code 5 while a job runs, code 4 when the job
 could not be started.
 
+### Radio setup (0.3.5)
+
+A freshly flashed card runs radiod on the mock backend and meshcored
+disabled; both are per-unit choices in `/etc/default` (S60radiod,
+S65meshcored). `radio_setup.*` makes them for RIFT from the UI: Controls'
+LoRa radio tile asks one question, which is also the antenna question, and
+sysd does the work (`services/sysd/sysd_radio.h`). The work runs in a child;
+the init scripts' output goes to `radio-setup.log` in the log directory.
+
+In order: `RADIOD_BACKEND=sx1262` into `/etc/default/radiod` (other lines
+kept), `S60radiod restart`, radiod must answer `radio.info` on `sx1262`
+within 15 s, `radio.set_enabled` on (the answer to the antenna question),
+`MESHCORED_ENABLE=1` into `/etc/default/meshcored`, `S65meshcored restart`,
+meshcored must answer `mesh.status` within 15 s. Files are replaced
+atomically. **Any failure puts both files back as they were and restarts both
+services on them**: the unit is either set up or unchanged.
+
+#### radio_setup.status
+
+No parameters. Returns:
+
+```json
+{"state": "idle", "needed": true, "backend": "mock", "meshcored_enabled": false}
+```
+
+`state`: `idle`, `running`, `done` (the last setup finished) or `failed`,
+with `error` saying which step failed and that the previous settings are
+back (or that nothing was changed). `needed`: the files do not say `sx1262`
+and `MESHCORED_ENABLE=1`. `backend` is what `/etc/default/radiod` says
+(`mock` when it says nothing), not what radiod runs.
+
+#### radio_setup.start
+
+Params `{"antenna_confirmed": true}`, the owner's answer to the antenna
+question; without it the call is refused (code 3). Replies at once with
+`{"state": "running"}`. Refused with code 3 when the unit is already set up,
+code 5 while a setup runs, code 4 when it could not start.
+
 ### Trust model
 
 There is no authorization layer in v0, and the socket permissions are the
@@ -486,7 +524,7 @@ the methods that change the machine will need a real answer.
 | --- | --- |
 | 1 | `POCKETIPC_ERR_UNKNOWN_METHOD`: no such method |
 | 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes` / `storage.eject`, which take none, or a bad `system.logs` parameter |
-| 3 | `POCKETIPC_ERR_POLICY`: `storage.eject` with no USB drive mounted |
+| 3 | `POCKETIPC_ERR_POLICY`: `storage.eject` with no USB drive mounted; `radio_setup.start` without `antenna_confirmed`, or on a unit already set up |
 | 4 | `POCKETIPC_ERR_BACKEND`: the eject could not be started |
 | 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending, or an eject is running |
 

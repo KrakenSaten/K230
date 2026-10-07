@@ -31,6 +31,19 @@
 /* After a switch the reply's state is shown until the status bar's own poll
  * has caught up with it, so the tile does not flick back for a second. */
 #define RADIO_HOLD_TICKS 2
+/* sysd's radio_setup.status, asked on a tap and on every tick while a setup
+ * this screen started runs; radio_setup.start answers at once (the work is
+ * sysd's child), with the 2 s bound of a switch all the same. */
+#define SETUP_STATUS_TIMEOUT_MS 500
+#define SETUP_START_TIMEOUT_MS 2000
+
+/* What the one dialog is showing: a question with two answers, or a notice
+ * with one (the setup's outcome). */
+enum dialog_mode {
+    DIALOG_ANTENNA = 0,
+    DIALOG_SETUP,
+    DIALOG_NOTICE
+};
 
 static struct {
     lv_obj_t *root;
@@ -45,6 +58,13 @@ static struct {
     lv_obj_t *volume_value;
     lv_obj_t *volume_mute;
     lv_obj_t *dialog;
+    lv_obj_t *dialog_title;
+    lv_obj_t *dialog_body;
+    lv_obj_t *dialog_cancel;
+    lv_obj_t *dialog_ok;
+    enum dialog_mode dialog_mode;
+    bool setup_running;  /* a radio setup this screen started, until sysd says how it ended */
+    char setup_body[400];
     struct controls_radio_flow radio_flow;
     char radio_hold[16];
     int radio_hold_ticks;
@@ -130,6 +150,11 @@ static void refresh_radio(void)
 {
     const char *s = radio_state();
 
+    if (ct.setup_running) {
+        set_text(ct.value[CONTROLS_TILE_RADIO], CONTROLS_SETUP_RUNNING);
+        set_dot(CONTROLS_TILE_RADIO, false);
+        return;
+    }
     if (ct.radio_failed_ticks > 0) {
         set_text(ct.value[CONTROLS_TILE_RADIO], "Could not switch");
         set_dot(CONTROLS_TILE_RADIO, false);
@@ -261,6 +286,87 @@ static void dialog_show(bool show)
     }
 }
 
+/* The dialog as a question (antenna or setup) or as a notice with one OK. */
+static void dialog_set(enum dialog_mode mode, const char *title, const char *body)
+{
+    ct.dialog_mode = mode;
+    if (!ct.dialog) {
+        return;
+    }
+    lv_label_set_text(ct.dialog_title, title);
+    lv_label_set_text(ct.dialog_body, body);
+    if (mode == DIALOG_NOTICE) {
+        lv_obj_add_flag(ct.dialog_cancel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(ct.dialog_cancel, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_label_set_text(ct.dialog_ok, mode == DIALOG_NOTICE  ? CONTROLS_NOTICE_OK
+                                     : mode == DIALOG_SETUP ? CONTROLS_SETUP_START
+                                                            : CONTROLS_ANTENNA_ENABLE);
+}
+
+static void notice(const char *title, const char *body)
+{
+    dialog_set(DIALOG_NOTICE, title, body);
+    dialog_show(true);
+}
+
+/* sysd's radio_setup.status into su (unknown when sysd does not answer). */
+static void setup_query(struct controls_setup *su)
+{
+    char err[160] = "";
+    cJSON *r = shell_ipc_call_timeout("sysd", "radio_setup.status", NULL, SETUP_STATUS_TIMEOUT_MS, err,
+                                      sizeof(err));
+
+    controls_setup_parse(r, su);
+    cJSON_Delete(r);
+}
+
+/* The owner answered the setup question with Set up: sysd does the rest. */
+static void setup_start(void)
+{
+    char err[200] = "";
+    cJSON *params = cJSON_CreateObject();
+    cJSON *r;
+
+    cJSON_AddBoolToObject(params, "antenna_confirmed", 1);
+    r = shell_ipc_call_timeout("sysd", "radio_setup.start", params, SETUP_START_TIMEOUT_MS, err, sizeof(err));
+    if (r) {
+        ct.setup_running = true;
+        LOG_INFO("controls: radio setup started (antenna confirmed)");
+    } else {
+        LOG_WARN("controls: radio setup not started: %s", err[0] ? err : "sysd did not answer");
+        snprintf(ct.setup_body, sizeof(ct.setup_body), "%s.", err[0] ? err : "sysd did not answer");
+        notice(CONTROLS_SETUP_FAILED_TITLE, ct.setup_body);
+    }
+    cJSON_Delete(r);
+    refresh_radio();
+}
+
+/* While a setup this screen started runs: how it ended, said once. */
+static void setup_poll(void)
+{
+    struct controls_setup su;
+
+    if (!ct.setup_running) {
+        return;
+    }
+    setup_query(&su);
+    if (!su.known || su.running) {
+        return;
+    }
+    ct.setup_running = false;
+    if (su.done) {
+        LOG_INFO("controls: radio setup done");
+        notice(CONTROLS_SETUP_DONE_TITLE, CONTROLS_SETUP_DONE_BODY);
+    } else {
+        LOG_WARN("controls: radio setup failed: %s", su.error);
+        snprintf(ct.setup_body, sizeof(ct.setup_body), "%s.", su.error[0] ? su.error : "sysd did not say why");
+        notice(CONTROLS_SETUP_FAILED_TITLE, ct.setup_body);
+    }
+    refresh_radio();
+}
+
 /* radio.set_enabled, and whatever radiod answered shown at once. */
 static void radio_switch(bool on)
 {
@@ -288,9 +394,21 @@ static void radio_switch(bool on)
 
 static void on_radio(lv_event_t *e)
 {
+    struct controls_setup su;
+
     (void)e;
-    switch (controls_radio_tapped(&ct.radio_flow, radio_state())) {
+    if (ct.setup_running) {
+        return;
+    }
+    setup_query(&su);
+    switch (controls_radio_tapped_setup(&ct.radio_flow, radio_state(), &su)) {
+    case CONTROLS_TAP_ASK_SETUP:
+        controls_setup_body(&su, ct.setup_body, sizeof(ct.setup_body));
+        dialog_set(DIALOG_SETUP, CONTROLS_SETUP_TITLE, ct.setup_body);
+        dialog_show(true);
+        break;
     case CONTROLS_TAP_ASK_ANTENNA:
+        dialog_set(DIALOG_ANTENNA, CONTROLS_ANTENNA_TITLE, CONTROLS_ANTENNA_BODY);
         dialog_show(true);
         break;
     case CONTROLS_TAP_SWITCH_OFF:
@@ -307,6 +425,17 @@ static void on_antenna_answer(lv_event_t *e)
     bool enable = lv_event_get_user_data(e) != NULL;
 
     dialog_show(false);
+    if (ct.dialog_mode == DIALOG_NOTICE) {
+        return;
+    }
+    if (ct.dialog_mode == DIALOG_SETUP) {
+        if (controls_radio_setup_answer(&ct.radio_flow, enable)) {
+            setup_start();
+        } else {
+            LOG_INFO("controls: radio not set up (setup question cancelled)");
+        }
+        return;
+    }
     if (controls_radio_answer(&ct.radio_flow, enable)) {
         radio_switch(true);
     } else {
@@ -341,10 +470,12 @@ static void build_dialog(void)
     lv_label_set_long_mode(o, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(o, d->w - 48);
     lv_obj_set_pos(o, 24, 24);
+    ct.dialog_title = o;
     o = text(panel, POS_STYLE_ENV_TEXT_SECONDARY, CONTROLS_ANTENNA_BODY);
     lv_label_set_long_mode(o, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(o, d->w - 48);
     lv_obj_set_pos(o, 24, 104);
+    ct.dialog_body = o;
 
     btn.x = 24;
     btn.y = d->h - 24 - 64;
@@ -354,11 +485,13 @@ static void build_dialog(void)
     lv_obj_add_event_cb(b, on_antenna_answer, LV_EVENT_CLICKED, NULL);
     o = text(b, POS_STYLE_ENV_TEXT, CONTROLS_ANTENNA_CANCEL);
     lv_obj_center(o);
+    ct.dialog_cancel = b;
     btn.x = 24 + bw + 24;
     b = glass(panel, &btn, true);
     lv_obj_add_event_cb(b, on_antenna_answer, LV_EVENT_CLICKED, (void *)1);
     o = text(b, POS_STYLE_ENV_TEXT, CONTROLS_ANTENNA_ENABLE);
     lv_obj_center(o);
+    ct.dialog_ok = o;
     lv_obj_add_flag(ct.dialog, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -655,6 +788,7 @@ void controls_tick(void)
     if (ct.radio_failed_ticks > 0) {
         ct.radio_failed_ticks--;
     }
+    setup_poll();
     refresh_radio();
     refresh_rotation();
     refresh_mode();

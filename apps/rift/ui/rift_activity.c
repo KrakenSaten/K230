@@ -328,8 +328,15 @@ static void refresh_service(struct rift_activity_view *v)
     }
     upper(rift_model_state_label(m), text, sizeof(text));
     lv_label_set_text(v->svc_state, text);
-    lv_label_set_text(v->svc_reason, m->reason[0] ? m->reason
-                                                  : "meshcored has not said why yet.");
+    if (m->state == RIFT_SVC_ABSENT) {
+        /* A fresh card runs no meshcored at all: the way to one is Controls'
+         * LoRa radio tile, which sets the unit up (sysd's radio_setup). */
+        lv_label_set_text_fmt(v->svc_reason, "%s. To set up the LoRa radio for RIFT, tap LoRa radio in Controls.",
+                              m->reason[0] ? m->reason : "meshcored is not answering");
+    } else {
+        lv_label_set_text(v->svc_reason, m->reason[0] ? m->reason
+                                                      : "meshcored has not said why yet.");
+    }
     if (!m->have_status) {
         lv_label_set_text(v->svc_radio, "RADIOD " RIFT_UNKNOWN RIFT_SEP "LEASE " RIFT_UNKNOWN
                                         RIFT_SEP "TRANSMIT " RIFT_UNKNOWN);

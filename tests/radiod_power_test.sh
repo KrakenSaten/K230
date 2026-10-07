@@ -111,6 +111,7 @@ check "on: state rx" '"state":[[:space:]]*"rx"' "$out"
 check "on: enabled true" '"enabled":[[:space:]]*true' "$out"
 check "on: the profile configured while off is on the radio" '"frequency_mhz":[[:space:]]*869.618' "$out"
 check "on: stored" 'enabled=1' "$(cat "$CONF" 2>/dev/null)"
+check "on: stored with the backend it was made on" 'backend=mock' "$(cat "$CONF" 2>/dev/null)"
 out=$("$POS" radio on)
 check "on again: idempotent" '"state":[[:space:]]*"rx"' "$out"
 out=$("$POS" radio send 0102)
@@ -194,6 +195,22 @@ stop
 start --radio-default on
 out=$("$POS" radio status)
 check "empty choice file: the default applies" '"state":[[:space:]]*"rx"' "$out"
+stop
+
+# ---- a choice belongs to its backend (0.3.5) ------------------------------------
+# A choice made on another backend is not applied: here the mock is started
+# over an sx1262 choice; the converse (the mock's "on" not switching the
+# SX1262 on) is tests/rf_state_test.c's, as no SX1262 runs on the host.
+printf 'enabled=0\nbackend=sx1262\n' > "$CONF"
+start --radio-default on
+out=$("$POS" radio status)
+check "another backend's choice: the default applies" '"state":[[:space:]]*"rx"' "$out"
+check "and the log says why" "was made on sx1262, not mock" "$(cat "$POCKETOS_LOG_DIR/radiod.log")"
+stop
+printf 'enabled=0\n' > "$CONF"
+start --radio-default on
+out=$("$POS" radio status)
+check "an untagged off from before 0.3.5 is kept" '"state":[[:space:]]*"off"' "$out"
 stop
 
 # ---- storing fails -------------------------------------------------------------
