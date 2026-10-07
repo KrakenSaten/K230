@@ -30,8 +30,8 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
 | RAM | LPDDR4 on-package, 1 GiB: U-Boot prints `DRAM: 1 GiB`, Linux MemTotal 990544 kB; the DTS 0x20000000 node is a placeholder that U-Boot fixes up. 512 MB of it is CMA reserved by the vendor DTS for the media blocks (still counted in MemTotal). | VERIFIED |
 | Boot/storage | microSD on SDIO (mmc_sd1 in DTS, GPIO54..59). No eMMC. Runtime: mmcblk1, p1 80 MB `/boot`, p2 600 MB `/` (not grown to the card: the LILYGO BSP removes the SDK's first-boot resize); no RTC; `/dev/watchdog0` present and unfed | VERIFIED |
 | Console | UART0 via CH342K USB-UART, 115200n8; on the bench PC it is COM9 (`USB-Enhanced-SERIAL-A CH342`), the second port COM10 is UART3 (untested). Windows supplied WCH's CH343 driver on first connection | VERIFIED (UART0/COM9), DOCUMENTED (COM10 = UART3) |
-| Power key | PMU INT0 (not a GPIO), driver `k230-pmu-pwrkey` | DOCUMENTED |
-| BOOT0 button | GPIO0, idle high | DOCUMENTED |
+| Power key | SW2, silkscreen "0": PMU INT0 (ball C10, not a GPIO), switch to `VDD_1V8_RTC`, active high; driver `k230-pmu-pwrkey`, `/dev/input/event0`, `KEY_POWER`; kernel powers off after a 5 s hold. Details: K230_BUTTONS.md | DOCUMENTED; VERIFIED (unit B, 2026-10-06) |
+| BOOT0 button | SW3, silkscreen "boot": pad IO0 / GPIO0 (gpiochip0 line 0), R8 10k pull-up, switch to GND, active low; boot strap (held at reset selects eMMC); pad is `0xAC4` (BOOT0 function, input disabled) as booted, so Linux cannot see it. Details: K230_BUTTONS.md | DOCUMENTED; VERIFIED (unit B, 2026-10-06) |
 | Thermal | K230 on-chip tsensor, `CONFIG_CANAAN_THERMAL`; `thermal_zone0` = `canaan_thermal_zone`, 48 to 54 C on the bench | VERIFIED |
 
 ## Display and touch
