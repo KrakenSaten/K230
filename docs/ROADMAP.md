@@ -240,7 +240,8 @@ DeskBuddy, three games, launcher favourites and folders (DS §47), the system
 text size (DS §46), the keyboard base's keys, Fleet chat and status, RIFT
 management. 26 apps.
 
-**v0.3.5** (release candidate, branch `release/v0.3.5`; release notes:
+**v0.3.5** (released 2026-10-07, tag `v0.3.5` on the image commit
+`3d4ea6e`, published on GitHub; release notes and the fresh-card test:
 `docs/releases/v0.3.5.md`): everything merged up to PR #65, Doors' own code
 under Apache-2.0 (ADR-013), no Vision detector model in the image (Vision
 runs its model-free modes; a DOORS-trained detector is separate work), and

@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-10-07 for the v0.3.5 candidate (docs/releases/v0.3.5.md; the
+Updated 2026-10-07 for v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
 v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.

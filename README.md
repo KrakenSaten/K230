@@ -90,8 +90,10 @@ Apache-2.0: they may be redistributed unmodified as part of Doors
 A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
 the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
 keep their own licences. Not everything in this repository is Apache-2.0
-either, and neither the repository nor the images are yet cleared for
-publication: docs/licensing/APACHE_2_READINESS.md says what remains.
+either. Doors 0.3.5 is published on the product owner's decision with some
+third-party questions still open (the vendor's KPU runtime modules and ISP
+server, the toolchain's source, LILYGO's files);
+docs/licensing/APACHE_2_READINESS.md §14 lists them.
 
 ## Repository
 
@@ -158,8 +160,9 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.3.5** (release candidate, branch `release/v0.3.5`, not yet
-tagged): everything merged up to PR #65 - a fresh card boots straight into
+**Doors 0.3.5** (tag `v0.3.5`, 2026-10-07) is the current release:
+**download it from https://github.com/KrakenSaten/K230/releases/tag/v0.3.5**; the release notes are
+docs/releases/v0.3.5.md. It is everything merged up to PR #65 - a fresh card boots straight into
 Doors and the vendor launcher is gone, RIFT set up from Controls without a
 shell, RIFT colour emoji, repeater control, RX LOG and reliability work, USB
 storage and card expansion, Settings in categories, the physical power key
@@ -167,7 +170,7 @@ and the BOOT button. Doors' own code is Apache-2.0; the Vision detector
 model is no longer in the image (DETECT, TRACK and TRAFFIC are off, the rest
 of Vision works). Release notes: docs/releases/v0.3.5.md.
 
-**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) is the latest release: the
+**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) was the previous release: the
 Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
 Video, MP3, DeskBuddy, Solitaire, Blackjack and 2048; launcher favourites
 and folders; the system text size; the keyboard base's own keys; Fleet chat;

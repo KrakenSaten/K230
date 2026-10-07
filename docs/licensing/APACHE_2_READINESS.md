@@ -473,6 +473,33 @@ used by nothing) and libgfortran (no user; Fortran off) are gone; the vendor
 developer script `root/script/sensor.sh` is no longer in the image; the
 notices no longer label `ldd` GPL (it is LGPL-2.1-or-later).
 
+### 14.3 Owner decision: publish v0.3.5 (2026-10-07)
+
+The product owner decided to publish Doors 0.3.5 publicly - the source in
+this public repository and the image as a GitHub release - **with the
+items below still open**, and to stop the vendor investigation for this
+release. This records that decision; it does not resolve any of them, and
+no permission or source material was obtained that §14.2 does not list:
+
+- the nncase K230 modules linked into pos-vision
+  (`libnncase.rt_modules.k230`, `libfunctional_k230`): no terms found for
+  these binaries; Canaan's Apache-2.0 compiler plug-in on PyPI is
+  supporting evidence only;
+- vvcam's binary-only `isp_media_server` V6.5.0, which Camera needs: no
+  terms found;
+- the toolchain runtime (glibc 2.33, the GCC 14.1.1 runtime): its licence
+  texts ship, but XuanTie publishes no source for build B-20250410, so the
+  corresponding source is not in hand and no written offer is made;
+- LILYGO's BSP overlay (boot scripts, the board defconfig the image is
+  composed from) and the two keymap tables in the shell: no licence
+  stated.
+
+What the release does carry: Doors' own code under Apache-2.0 (LICENSE,
+NOTICE), the third-party notices, and the source material Buildroot's
+legal-info collects (docs/releases/v0.3.5.md, "Download and source
+material"), described there as not complete corresponding source for the
+whole image.
+
 ### Non-blocking cleanup
 
 | # | Item | Action |

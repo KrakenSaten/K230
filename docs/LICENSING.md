@@ -22,9 +22,13 @@ sheets from that time say so and are kept as written.
   compound expression; the policy and its exceptions are in
   docs/licensing/APACHE_2_READINESS.md §2 and docs/licensing/spdx-exempt.txt.
 - The Buildroot package says `POCKETOS_LICENSE = Apache-2.0 (Doors), ...`.
-  `POCKETOS_REDISTRIBUTE` stays `NO` until the readiness audit clears the
-  source repository for publication: **choosing the licence did not publish
-  anything**, and nothing is published until the owner decides to.
+- **Published (owner, 2026-10-07):** Doors 0.3.5 is public - the source in
+  this repository, the image as a GitHub release - with the third-party
+  questions in docs/licensing/APACHE_2_READINESS.md §14.2 still open
+  (§14.3 records the decision; nothing there is resolved by it). The 0.3.5
+  build keeps `POCKETOS_REDISTRIBUTE = NO`, which only stops legal-info
+  archiving the Doors package source (that source is this repository at
+  tag `v0.3.5`); it changes in the next build.
 - The artwork in `docs/design/brand/` is the owner's, made with ChatGPT,
   and Apache-2.0; the Doors mark, lockups and boot splash are reserved, with
   permission to redistribute them unmodified as part of Doors
