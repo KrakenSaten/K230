@@ -157,9 +157,12 @@ scripts and the bench are not tied to a screen.
   on with the mock, which has no transmitter and which the simulator and the
   host suites expect receiving. `--radio-default on|off` overrides that
   default only; a stored choice always wins. radiod does not store anything
-  until the owner chooses, so a fresh card and a card upgraded from v0.0.12
-  or earlier (which had no such choice) both start with the radio off until
-  somebody switches it on.
+  until the owner chooses, so a unit put on the sx1262 backend, and a card
+  upgraded from v0.0.12 or earlier (which had no such choice), start with the
+  radio off until somebody switches it on. A freshly flashed card runs the
+  **mock** backend (S60radiod); switching the radio in Controls never changes
+  the backend, and a choice stored on the mock (`enabled=1` after an off/on)
+  carries over to the sx1262 backend.
 - **On** is applied first and stored second: the backend is initialised and
   configured with the current profile (the same path as every start), then
   `enabled=1` is written. A store that fails switches the radio straight back

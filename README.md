@@ -31,9 +31,10 @@ communication, local AI, everyday tools, games and further development.
 - **Fleet** — naval battle, solo against the device or multiplayer between two
   DOORS devices over LoRa, with chat between shots.
 - **Wave** — short text messages sent and received as sound.
-- **Vision** — camera and KPU: DETECT, TRACK, TRAFFIC (vehicles counted across a
-  line), COLOR, EDGE and LINE TRACE; FACE, READ and RECOGNIZE when their models
-  are installed (docs/apps/VISION.md).
+- **Vision** — camera and KPU: COLOR, EDGE and LINE TRACE; DETECT, TRACK and
+  TRAFFIC (vehicles counted across a line) with a detector model, which 0.3.5
+  does not ship; FACE, READ and RECOGNIZE when their models are installed
+  (docs/apps/VISION.md).
 - **DeskBuddy** — a desk companion with BUDDY, GUARD and NIGHT modes.
 - **Terminal** — a real Linux shell with a kept session.
 - **Files** — the card and USB drives.
@@ -78,9 +79,19 @@ docs/BUILD_ENVIRONMENT.md.
 
 ## Licence
 
-DOORS' own licence is not decided yet: no licence is granted for its code,
-and redistribution is not authorised until it is (docs/LICENSING.md).
-Third-party components keep their own licences (THIRD_PARTY_NOTICES.txt).
+DOORS' own code is licensed under the Apache License, Version 2.0: see
+LICENSE and NOTICE (ADR-013). Third-party components keep their own licences
+(THIRD_PARTY_LICENSES.md; the texts the image ships are in
+THIRD_PARTY_NOTICES.txt), and the Vision models are documented separately in
+MODEL_LICENSES.md. The Doors mark, lockups and boot splash are not
+Apache-2.0: they may be redistributed unmodified as part of Doors
+(docs/licensing/BRAND.md).
+
+A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
+the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
+keep their own licences. Not everything in this repository is Apache-2.0
+either, and neither the repository nor the images are yet cleared for
+publication: docs/licensing/APACHE_2_READINESS.md says what remains.
 
 ## Repository
 
@@ -147,18 +158,21 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) is the current release: the
+**Doors 0.3.5** (release candidate, branch `release/v0.3.5`, not yet
+tagged): everything merged up to PR #64 - a fresh card boots straight into
+Doors and the vendor launcher is gone, RIFT colour emoji, repeater control,
+RX LOG and reliability work, USB storage and card expansion, Settings in
+categories, the physical power key. Doors' own code is Apache-2.0; the
+Vision detector model is no longer in the image (DETECT, TRACK and TRAFFIC
+are off, the rest of Vision works). Release notes: docs/releases/v0.3.5.md.
+
+**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) is the latest release: the
 Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
 Video, MP3, DeskBuddy, Solitaire, Blackjack and 2048; launcher favourites
 and folders; the system text size; the keyboard base's own keys; Fleet chat;
 RIFT channel and node management. The image is for internal use only
 (docs/LICENSING.md items 1 and 10). The release notes, with its fresh-flash
 smoke, are docs/releases/v0.3.0.md.
-
-**On master since v0.3.0** (not yet released): RIFT colour emoji, the Public
-channel as a standard channel, RIFT MAP and SYSTEM, room for 1000 nodes in
-RIFT and meshcored, USB storage in Files, expanding the root filesystem over
-the microSD card from System, and the vendor launcher removed from the image.
 
 **Doors 0.2.1** (tag `v0.2.1`, 2026-09-28): v0.2.0
 with Vision's model in the image, so Vision works right after a fresh flash.
@@ -270,15 +284,3 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).
-
-## Licence
-
-Doors is licensed under the Apache License, Version 2.0: see LICENSE and
-NOTICE. Third-party components keep their own licences
-(THIRD_PARTY_LICENSES.md; the texts the image ships are in
-THIRD_PARTY_NOTICES.txt), and the Vision models are documented separately in
-MODEL_LICENSES.md. The Doors mark, lockups and boot splash are not
-Apache-2.0: they may be redistributed unmodified as part of Doors
-(docs/licensing/BRAND.md). Not everything in this repository is Apache-2.0,
-and the repository is not yet cleared for publication:
-docs/licensing/APACHE_2_READINESS.md says what remains.

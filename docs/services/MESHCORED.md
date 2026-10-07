@@ -713,6 +713,11 @@ Before doing that on a real radio, know what it means:
 3. **The node will answer.** A message addressed to it produces an ACK and a
    return path, without a client and without being asked. That is correct
    MeshCore behaviour and it is airtime.
+4. **The radio must be switched on** on the sx1262 backend: with nothing
+   stored it starts off (docs/api/radio.md), and meshcored waits, degraded,
+   "the radio is switched off". Controls' LoRa radio tile (after the antenna
+   prompt) or `doors radio on` does it. A fresh card needs a shell for the
+   two `/etc/default` files; the on-device Terminal is enough.
 
 Stopping it releases the lease and writes the node table.
 
