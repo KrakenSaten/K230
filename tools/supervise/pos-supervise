@@ -56,9 +56,20 @@
 # crash-loop marker is still named by the bring-up checklist; both are
 # compatibility, and the state file is authoritative.
 #
+# The init scripts keep a third file, the supervisor's own pid, which they
+# write from $! when they start this script. They name it in
+# POS_SUPERVISE_PIDFILE, and this script removes it on every way out - the
+# crash loop above all, which no init script is there to see. Left behind, it
+# names a pid the kernel may hand to something else: the next start would
+# take that process for this supervisor and refuse to start, and the next stop
+# would signal it. It is removed only while it still holds this script's pid,
+# so a file some later start has rewritten is never taken away.
+#
 # Environment: POCKETOS_RUNTIME_DIR (default /run/pocketos),
 #              POCKETOS_LOG_DIR (default /var/lib/pocketos/log, persistent;
-#              /var/log is a tmpfs on the K230 image).
+#              /var/log is a tmpfs on the K230 image),
+#              POS_SUPERVISE_PIDFILE (optional; see above - not passed on to
+#              the supervised command).
 # These two defaults are the ones core/pocketpaths.h defines for the C side.
 # This is POSIX sh and cannot link against it, so they are repeated here and
 # tests/supervise_test.sh checks the two against each other.
@@ -74,6 +85,8 @@ mkdir -p "$RUN_DIR" "$LOG_DIR"
 LOG="$LOG_DIR/supervise-$NAME.log"
 CRASHLOOP="$RUN_DIR/$NAME.crashloop"
 STATE="$RUN_DIR/$NAME.state"
+SUP_PIDFILE=${POS_SUPERVISE_PIDFILE:-}
+unset POS_SUPERVISE_PIDFILE
 rm -f "$CRASHLOOP"
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) supervise $NAME $*" | tee -a "$LOG" >&2; }
@@ -100,6 +113,12 @@ write_state() { # <running 0|1> <crashloop 0|1>
         echo "started_uptime_s=$STARTED_AT"
         echo "updated_uptime_s=$(now_s)"
     } > "$_tmp" 2>/dev/null && mv -f "$_tmp" "$STATE" 2>/dev/null || rm -f "$_tmp"
+}
+
+# The init script's record of this supervisor goes with it (see the header).
+drop_sup_pidfile() {
+    [ -n "$SUP_PIDFILE" ] && [ "$(cat "$SUP_PIDFILE" 2>/dev/null)" = "$$" ] && rm -f "$SUP_PIDFILE"
+    return 0
 }
 
 CHILD=""
@@ -167,6 +186,7 @@ while [ "$STOPPING" -eq 0 ]; do
         echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$rc restarts=$restarts" > "$CRASHLOOP"
         rm -f "$RUN_DIR/$NAME.pid"
         write_state 0 1
+        drop_sup_pidfile
         exit 1
     fi
     BACKOFF_NOW=$backoff
@@ -199,5 +219,6 @@ rm -f "$RUN_DIR/$NAME.pid"
 STARTED_AT=""
 BACKOFF_NOW=""
 write_state 0 0
+drop_sup_pidfile
 log "stopped"
 exit 0

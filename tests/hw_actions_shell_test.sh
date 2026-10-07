@@ -135,6 +135,26 @@ for _ in $(seq 1 12); do key 67 >/dev/null; done
 check "F5 x12 stops at 10" "$(grep -qx 'audio_volume=10' "$POCKETOS_CONFIG_DIR/settings.conf" && echo 1 || echo 0)"
 "$POS" shell volume 70 >/dev/null 2>&1
 
+# A level the store refuses is not applied either (v0.3.0 cold review item 4):
+# the running level must stay the one the next start restores. The store is
+# made unwritable by taking write permission off its directory, which root
+# would ignore - so this part needs an ordinary user, and says so otherwise.
+vol() { field "$("$POS" call shell shell.volume 2>&1)" "$1"; }
+if [ "$(id -u)" -ne 0 ]; then
+    chmod 0555 "$POCKETOS_CONFIG_DIR"
+    out=$("$POS" call shell shell.volume percent=30 2>&1)
+    check "a volume that cannot be stored is refused" "$(printf '%s' "$out" | grep -q 'could not be stored' && echo 1 || echo 0)"
+    check "and the running level stays where it was" "$(is "$(vol percent)" 70)"
+    "$POS" call shell shell.volume muted=true >/dev/null 2>&1
+    check "a mute that cannot be stored leaves the sound on" "$(is "$(vol muted)/$(vol effective)" false/70)"
+    key 67 >/dev/null
+    check "a volume key whose level cannot be stored changes nothing" "$(is "$(vol percent)" 70)"
+    chmod 0755 "$POCKETOS_CONFIG_DIR"
+    check "the stored level was never touched" "$(grep -qx 'audio_volume=70' "$POCKETOS_CONFIG_DIR/settings.conf" && echo 1 || echo 0)"
+else
+    echo "skip unstorable volume checks: running as root, which ignores directory permissions"
+fi
+
 bright() { field "$("$POS" call shell shell.brightness 2>&1)" percent; }
 key 62 >/dev/null
 check "F10 (code 62) dims the panel to 90 %" "$(is "$(bright)" 90)"

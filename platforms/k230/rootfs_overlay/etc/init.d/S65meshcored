@@ -124,7 +124,7 @@ start() {
 	set -- --tx-power-dbm "$MESHCORED_TX_POWER_DBM"
 	[ -n "$MESHCORED_NAME" ] && set -- "$@" --name "$MESHCORED_NAME"
 	# shellcheck disable=SC2086  # deliberately word-split: extra options
-	nohup "$SUPERVISE" meshcored "$DAEMON" "$@" $MESHCORED_ARGS >"$LOGFILE" 2>&1 &
+	POS_SUPERVISE_PIDFILE="$PIDFILE" nohup "$SUPERVISE" meshcored "$DAEMON" "$@" $MESHCORED_ARGS >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }

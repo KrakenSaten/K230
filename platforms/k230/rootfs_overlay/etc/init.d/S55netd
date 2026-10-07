@@ -46,7 +46,7 @@ start() {
 		echo "already running"; return 0
 	fi
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
-	nohup "$SUPERVISE" netd "$DAEMON" --interface "$NETD_INTERFACE" >"$LOGFILE" 2>&1 &
+	POS_SUPERVISE_PIDFILE="$PIDFILE" nohup "$SUPERVISE" netd "$DAEMON" --interface "$NETD_INTERFACE" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }
@@ -75,7 +75,7 @@ stop() {
 	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
 	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
 	if ! running "$sup" && ! running "$child"; then
-		rm -f "$PIDFILE"
+		rm -f "$PIDFILE" "$CHILD_PIDFILE"
 		echo "not running"
 		return 0
 	fi
@@ -95,9 +95,16 @@ stop() {
 		fi
 	fi
 	if running "$child"; then
-		kill -KILL "$child" 2>/dev/null
-		wait_gone "$child"
-		forced=" (forced)"
+		# The supervisor is gone and its daemon is not - an orphan, whose
+		# supervisor was killed or gave up. Asked to leave first: netd stops
+		# its wpa_supplicant and DHCP client on SIGTERM, and a SIGKILL would
+		# leave them holding the interface. Forced only if it will not go.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$child"; then
+			kill -KILL "$child" 2>/dev/null
+			wait_gone "$child"
+			forced=" (forced)"
+		fi
 	fi
 	# The pid file is tracking, not decoration: removed only once nothing is
 	# left for the next stop to find.
@@ -105,7 +112,7 @@ stop() {
 		echo "FAILED, still running"
 		return 1
 	fi
-	rm -f "$PIDFILE"
+	rm -f "$PIDFILE" "$CHILD_PIDFILE"
 	echo "OK$forced"
 }
 

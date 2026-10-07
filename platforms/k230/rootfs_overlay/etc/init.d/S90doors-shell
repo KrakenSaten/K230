@@ -163,7 +163,7 @@ start() {
 	fi
 	for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e /dev/dri/card0 ] && break; sleep 1; done
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
-	HOME=/root nohup "$SUPERVISE" "$NAME" "$DAEMON" >"$LOGFILE" 2>&1 &
+	HOME=/root POS_SUPERVISE_PIDFILE="$PIDFILE" nohup "$SUPERVISE" "$NAME" "$DAEMON" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }
@@ -189,7 +189,7 @@ stop() {
 	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
 	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
 	if ! running "$sup" && ! running "$child"; then
-		rm -f "$PIDFILE"
+		rm -f "$PIDFILE" "$CHILD_PIDFILE"
 		echo "not running"
 		return 0
 	fi
@@ -205,9 +205,16 @@ stop() {
 		fi
 	fi
 	if running "$child"; then
-		kill -KILL "$child" 2>/dev/null
-		wait_gone "$child"
-		forced=" (forced)"
+		# The supervisor is gone and its shell is not - an orphan, whose
+		# supervisor was killed or gave up. Asked to leave first: the shell
+		# closes its app, persists what it holds and releases the panel on
+		# SIGTERM. Forced only if it will not go.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$child"; then
+			kill -KILL "$child" 2>/dev/null
+			wait_gone "$child"
+			forced=" (forced)"
+		fi
 	fi
 	# The pid file is tracking, not decoration. Removing it before the
 	# processes are gone throws away the only handle the next stop has, and
@@ -217,7 +224,7 @@ stop() {
 		echo "FAILED, still running"
 		return 1
 	fi
-	rm -f "$PIDFILE"
+	rm -f "$PIDFILE" "$CHILD_PIDFILE"
 	echo "OK$forced"
 }
 

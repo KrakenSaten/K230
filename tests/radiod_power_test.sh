@@ -228,6 +228,19 @@ out=$("$POS" radio off 2>&1)
 check "off that cannot be stored is reported (code 4)" 'code 4' "$out"
 out=$("$POS" radio status)
 check "but the radio is off all the same" '"state":[[:space:]]*"off"' "$out"
+# Asking again must try the store again, not answer from the radio's state:
+# the radio is off, but the choice that would keep it off is still unstored.
+out=$("$POS" radio off 2>&1)
+check "a second unstorable off is still reported (code 4)" 'code 4' "$out"
+check "the second off says the choice is unstored" 'could not be stored' "$out"
+rm -f "$POCKETOS_STATE_DIR/radiod"
+out=$("$POS" radio off 2>&1)
+check "off once storing works again succeeds" '"state":[[:space:]]*"off"' "$out"
+check "and stores the off it could not store before" 'enabled=0' "$(cat "$CONF" 2>/dev/null)"
+stop
+start --radio-default on
+out=$("$POS" radio status)
+check "the off stored on retry survives a restart" '"state":[[:space:]]*"off"' "$out"
 stop
 
 # ---- the switch is not a lease-only operation and --radio-default is checked --

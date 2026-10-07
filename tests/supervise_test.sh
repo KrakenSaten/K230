@@ -52,9 +52,37 @@ check "state records the last exit code" $([ "$(state flaky last_exit_code)" = "
 check "state counts the restarts" $([ "$(state flaky restarts)" = "2" ] && echo 1 || echo 0)
 check "no temp state file left behind" $(no_temp_files)
 
+# 1b. The init script's supervisor pid file (POS_SUPERVISE_PIDFILE) goes with
+# a crash loop. Nothing else is there to remove it, and left behind it names
+# a pid that may be reused: the next start would refuse and the next stop
+# would signal a stranger (v0.3.0 cold review item 2). The init scripts write
+# it from $!, as here. The supervised command must not inherit the variable.
+SUPFILE=$POCKETOS_RUNTIME_DIR/flaky2-supervise.pid
+POS_SUPERVISE_PIDFILE=$SUPFILE POS_SUPERVISE_MAX_RESTARTS=1 \
+    sh "$SUP" flaky2 sh -c "env > '$POCKETOS_RUNTIME_DIR/flaky2.env'; exit 3" >/dev/null 2>&1 &
+p=$!
+echo "$p" > "$SUPFILE"
+wait "$p"
+rc=$?
+check "crash loop with a supervisor pid file still exits 1" $([ $rc -eq 1 ] && echo 1 || echo 0)
+check "crash loop removes the supervisor pid file" $([ ! -e "$SUPFILE" ] && echo 1 || echo 0)
+check "the supervised command does not inherit POS_SUPERVISE_PIDFILE" \
+      $([ -s "$POCKETOS_RUNTIME_DIR/flaky2.env" ] &&
+        ! grep -q '^POS_SUPERVISE_PIDFILE=' "$POCKETOS_RUNTIME_DIR/flaky2.env" && echo 1 || echo 0)
+# A file that no longer names this supervisor - rewritten by a later start -
+# is somebody else's and stays.
+POS_SUPERVISE_PIDFILE=$SUPFILE POS_SUPERVISE_MAX_RESTARTS=1 sh "$SUP" flaky3 sh -c 'exit 3' >/dev/null 2>&1 &
+p=$!
+echo "999999" > "$SUPFILE"
+wait "$p"
+check "a supervisor pid file naming another pid is left alone" \
+      $([ "$(cat "$SUPFILE" 2>/dev/null)" = "999999" ] && echo 1 || echo 0)
+rm -f "$SUPFILE"
+
 # 2. A long-running service: SIGTERM to the supervisor stops the child too.
-sh "$SUP" steady sleep 100 >/dev/null 2>&1 &
+POS_SUPERVISE_PIDFILE=$POCKETOS_RUNTIME_DIR/steady-supervise.pid sh "$SUP" steady sleep 100 >/dev/null 2>&1 &
 SUPPID=$!
+echo "$SUPPID" > "$POCKETOS_RUNTIME_DIR/steady-supervise.pid"
 sleep 1
 child=$(cat "$POCKETOS_RUNTIME_DIR/steady.pid" 2>/dev/null)
 check "child pid recorded" $([ -n "$child" ] && kill -0 "$child" 2>/dev/null && echo 1 || echo 0)
@@ -74,6 +102,8 @@ wait $SUPPID 2>/dev/null
 sleep 0.5
 check "child stopped on SIGTERM" $(kill -0 "$child" 2>/dev/null && echo 0 || echo 1)
 check "steady pid file removed" $([ ! -f "$POCKETOS_RUNTIME_DIR/steady.pid" ] && echo 1 || echo 0)
+check "steady supervisor pid file removed on a clean stop" \
+      $([ ! -f "$POCKETOS_RUNTIME_DIR/steady-supervise.pid" ] && echo 1 || echo 0)
 check "no crash loop marker for steady" $([ ! -f "$POCKETOS_RUNTIME_DIR/steady.crashloop" ] && echo 1 || echo 0)
 # The state file outlives the supervisor: a service that was stopped is a fact
 # worth reporting, and /run is a tmpfs so it goes at the next boot anyway.

@@ -883,6 +883,11 @@ int pocketos_shell_volume_available(void)
     return volume_output_present("/proc");
 }
 
+/* Stored first, applied second, like settings_set() itself: a level the store
+ * refused is not the level the shell plays at either. -1 tells every caller
+ * that nothing changed, and that has to be true of the runtime value too -
+ * otherwise sound would play at a level the next start does not restore, and
+ * Controls would redraw a slider at a level the store never took. */
 int pocketos_shell_volume_set(int percent)
 {
     char value[12];
@@ -890,13 +895,13 @@ int pocketos_shell_volume_set(int percent)
     if (percent < VOLUME_MIN_PCT || percent > VOLUME_MAX_PCT || percent % VOLUME_STEP_PCT != 0) {
         return -1;
     }
-    sh.volume.percent = percent;
     snprintf(value, sizeof(value), "%d", percent);
     if (settings_set(VOLUME_SETTING, value) < 0) {
-        LOG_WARN("volume %d%% set but not persisted to %s: %s", percent, settings_path(),
-                 strerror(errno));
+        LOG_WARN("volume %d%% not stored to %s (%s); staying at %d%%", percent, settings_path(),
+                 strerror(errno), sh.volume.percent);
         return -1;
     }
+    sh.volume.percent = percent;
     LOG_INFO("volume %d%%", percent);
     return 0;
 }
@@ -906,12 +911,12 @@ int pocketos_shell_volume_set_muted(int muted)
     if (muted != 0 && muted != 1) {
         return -1;
     }
-    sh.volume.muted = muted;
     if (settings_set(VOLUME_MUTED_SETTING, muted ? "1" : "0") < 0) {
-        LOG_WARN("volume %s but not persisted to %s: %s", muted ? "muted" : "unmuted",
+        LOG_WARN("volume not %s: not stored to %s (%s)", muted ? "muted" : "unmuted",
                  settings_path(), strerror(errno));
         return -1;
     }
+    sh.volume.muted = muted;
     LOG_INFO("volume %s", muted ? "muted" : "unmuted");
     return 0;
 }
@@ -2392,6 +2397,23 @@ static int shot_path(char *out, size_t len)
 
 static void osd_show(const char *text);
 
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+/* Whether F7 captures through the ffmpeg child even though LVGL can snapshot
+ * the screen itself. Only the simulator's tests ask, so that the child the
+ * card's build depends on - reaped from the tick, settled on the way out - is
+ * exercised on the host too, with a stand-in ffmpeg first on PATH. */
+static bool shot_use_child(void)
+{
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    const char *v = getenv("POCKETOS_TEST_SHOT_CHILD");
+
+    return v && strcmp(v, "1") == 0;
+#else
+    return false;
+#endif
+}
+#endif
+
 static int host_screenshot(void *ctx)
 {
     (void)ctx;
@@ -2403,14 +2425,16 @@ static int host_screenshot(void *ctx)
         return -1;
     }
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
-    lv_refr_now(NULL);
-    if (screenshot_save(sh.shot_path) < 0) {
-        return -1;
+    if (!shot_use_child()) {
+        lv_refr_now(NULL);
+        if (screenshot_save(sh.shot_path) < 0) {
+            return -1;
+        }
+        sh.shots++;
+        osd_show("SCREENSHOT SAVED");
+        return 0;
     }
-    sh.shots++;
-    osd_show("SCREENSHOT SAVED");
-    return 0;
-#else
+#endif
     {
         pid_t pid = fork();
 
@@ -2441,7 +2465,6 @@ static int host_screenshot(void *ctx)
         LOG_INFO("screenshot: capturing to %s", sh.shot_path);
         return 0;
     }
-#endif
 }
 
 /* From the tick: whether the capture child is done. */
@@ -2475,6 +2498,47 @@ static void shot_reap(void)
         unlink(sh.shot_path);
         osd_show("SCREENSHOT FAILED");
     }
+}
+
+/* On the way out - an exit, or a rotation re-executing the shell in place.
+ * shot_reap() runs from the tick, and there is no tick after this: an exec
+ * keeps the pid, so the capture stays this process's child, but the image
+ * that follows starts with shot_pid 0 and would never reap it, time it out
+ * or remove what it left half-written. So the capture is settled here. It
+ * gets a moment to finish, since a one-frame grab normally does, and is
+ * stopped after that, the way the tick's own timeout stops it. */
+#define SHOT_FINISH_MS 1000
+
+static void shot_finish(void)
+{
+    int status = 0;
+    pid_t r = 0;
+    int waited;
+
+    if (sh.shot_pid <= 0) {
+        return;
+    }
+    for (waited = 0; waited < SHOT_FINISH_MS; waited += 20) {
+        r = waitpid(sh.shot_pid, &status, WNOHANG);
+        if (r > 0 || (r < 0 && errno != EINTR)) {
+            break;
+        }
+        pocketos_platform_sleep_ms(20);
+    }
+    if (r == 0 || (r < 0 && errno == EINTR)) {
+        LOG_WARN("screenshot: still being written as the shell leaves, stopped");
+        kill(sh.shot_pid, SIGKILL);
+        while (waitpid(sh.shot_pid, &status, 0) < 0 && errno == EINTR) {
+        }
+        unlink(sh.shot_path);
+    } else if (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0 && access(sh.shot_path, F_OK) == 0) {
+        LOG_INFO("screenshot written to %s", sh.shot_path);
+        sh.shots++;
+    } else {
+        LOG_WARN("screenshot: capture failed as the shell left");
+        unlink(sh.shot_path);
+    }
+    sh.shot_pid = 0;
 }
 
 /* ---- the confirmation flash ------------------------------------------------ *
@@ -4091,6 +4155,8 @@ int main(int argc, char **argv)
             apps[i]->shutdown();
         }
     }
+    /* The shell's own child, an F7 capture, for the same reason. */
+    shot_finish();
     /* And then the one thing the app cannot persist, because it is not the
      * app's: a running stopwatch, a running countdown, a snooze. They are
      * elapsed time on the monotonic clock, which an exec does not disturb -
