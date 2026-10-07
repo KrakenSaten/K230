@@ -396,8 +396,10 @@ DEVICE VERIFIED unless it says so.
   screenshot support is a post-bring-up improvement.
 - UART3 is wired both to the CH342K USB-UART (channel 1) and, per BSP, to the
   optional nRF9151 base board. Potential conflict if both are used.
-- `aic8800` modules are modprobed by the vendor boot script although the board
-  has RTL8189FTV; harmless warnings expected in dmesg.
+- The vendor boot script (`S40k230_pocketos_defconfig`) modprobes `8723ds`,
+  `aic_load_fw`, `aic8800_fdrv` and `aic_btusb`. From 0.3.5 those packages
+  are not in the image (the board has the RTL8189FTV), so the four lines
+  print "not found" at boot; boot continues.
 - **The boot splash is intermittently black, on cold boots and warm reboots:
   a known vendor U-Boot / display-init limitation** (product owner,
   2026-09-16; v0.0.10 ships with it, docs/hardware/V0.0.10_RELEASE_SMOKE.md).

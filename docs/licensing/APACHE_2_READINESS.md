@@ -398,7 +398,7 @@ asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
 | B5 | nncase 2.11.0 K230 runtime, static in `/usr/bin/pos-vision`; and the nncase Python wheel `.so` in `/usr/lib/python3.13/site-packages/nncaseruntime/` | prebuilt archive carries no licence file | §14.2 | **Partly resolved (0.3.5):** the generic runtime is Apache-2.0 at tag `v2.11.0` and its notices ship, with itlib-small-vector and gsl-lite (MIT). **Still blocking:** the K230 modules (`libnncase.rt_modules.k230`, `libfunctional_k230`), built from a tree upstream says is not open source, and the wheel: no terms stated anywhere. Needs Canaan's terms, or the owner's decision (§14.2). |
 | B6 | vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz`, `display`, and the vendor local packages legal-info never lists (`vg_lite`, `mvx_player`, `camera_rtsp_demo`, `librtsp_server`, `audio_demo`, `audio_rec_play`); their kmodels in `/root/app/` | no licence in the package files; models without terms | §14.2 | **Code: resolved by evidence** (gsl-lite MIT; libmmz, display, face_detect code: the SDK's BSD-2-Clause; nonai2d and vvcam's kernel modules GPL-2.0 with source in the SDK). **Still blocking:** `face_detection_320.kmodel`, `test.kmodel` and test data, vvcam's binary-only `isp_media_server`, and the demo packages' unverified files: vendor terms, or the owner drops them (§14.2). |
 | B7 | LILYGO launcher `k230_phone_ui` and the LILYGO overlay files | no licence | docs/LICENSING.md item 2 | Launcher **resolved** (removed from the image, PR #47). **Still open:** LILYGO's BSP overlay (boot scripts such as `S40k230_pocketos_defconfig`, the board defconfig the image is composed from); LILYGO's terms are needed for those. |
-| B8 | `rtl8723ds-bt` (PROPRIETARY, also ships the GPL-2.0+ `rtk_hciattach`), `rtl8723ds`, `aic8800` (70 firmware blobs, no terms) | firmware for chips the board does not have (RTL8189FTV only) | §14.2 | **Owner decision** (not done here: it changes the image and the boot script's module loads): unset `BR2_PACKAGE_RTL8723DS`, `_RTL8723DS_BT` and `_AIC8800` in the fragment. Nothing on the board uses them. Kept, they need Realtek's and AICSemi's terms. |
+| B8 | `rtl8723ds-bt` (PROPRIETARY, also ships the GPL-2.0+ `rtk_hciattach`), `rtl8723ds`, `aic8800` (70 firmware blobs, no terms) | firmware for chips the board does not have (RTL8189FTV only) | §14.2 | **Resolved (0.3.5, owner 2026-10-07):** the Doors fragment turns off `BR2_PACKAGE_RTL8723DS`, `_RTL8723DS_BT` and `_AIC8800` (absent hardware; `rtl8189fs`, the board's Wi-Fi, kept), and the package removes what they left in an existing target tree. The vendor boot script's modprobe lines for them now print "not found". |
 | B9 | glibc 2.33 and the GCC 14.1.1 runtime libraries from the Xuantie-900 toolchain V3.0.2; legal-info archive | runtimes not in legal-info; no per-release archive of sources and licences | §14.2 | **Texts resolved (0.3.5):** LGPL-2.1, GPL-2.0, glibc's LICENSES, GPL-3.0 and the GCC Runtime Library Exception 3.1 ship in the notices, copied from the fork at named commits. legal-info re-run for 0.3.5 (§14.2). **Still open:** the source offer: an owner decision whether the fork's branch heads count as corresponding source (no V3.0.2 tag), or XuanTie's exact source; and `POCKETOS_REDISTRIBUTE = YES` once the source repository is cleared. |
 
 ### 14.2 Image blockers researched for 0.3.5 (2026-10-07)
@@ -441,7 +441,7 @@ sources at exact versions. Evidence class in brackets.
    `mvx_player`, `audio_demo`, `audio_rec_play`, `vg_lite`. Whether Camera
    needs `isp_media_server` at run time is not established; it is
    binary-only with no terms.
-3. B8: unset `RTL8723DS`, `RTL8723DS_BT` and `AIC8800` (absent hardware).
+3. B8: ~~unset `RTL8723DS`, `RTL8723DS_BT` and `AIC8800`~~ **decided and done** (owner, 2026-10-07).
 4. B9: whether the XuanTie branch heads count as corresponding source, and
    who makes the written source offer.
 5. B3b: when to read the keys on a unit. The KEYBOARD_BRINGUP §6 procedure
@@ -485,7 +485,7 @@ LILYGO (BSP overlay and keymap).
 | | Result |
 | --- | --- |
 | **SOURCE REPOSITORY** | **NOT READY** - only B3b remains (keymap tables; deferred until the owner is at a unit). B1, B2 and B3a are resolved. Publication must use an exported tree (R1). |
-| **FLASHABLE IMAGE** | **NOT READY** - B3b, B5 (K230 modules, wheel), B6 (vendor models and binaries), B7 (LILYGO overlay), B8 (owner decision), B9 (source offer). B4 resolved in 0.3.5; B5, B6 and B9 partly (§14.2) |
+| **FLASHABLE IMAGE** | **NOT READY** - B3b, B5 (K230 modules, wheel), B6 (vendor models and binaries), B7 (LILYGO overlay), B9 (source offer). B4 and B8 resolved in 0.3.5; B5, B6 and B9 partly (§14.2) |
 
 Scale used: READY / READY AFTER CLEANUP / NOT READY. "Ready after
 cleanup" would mean only the C items remained; for the source that

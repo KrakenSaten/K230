@@ -190,8 +190,10 @@ Findings:
    all-rights-reserved documentation.
 3. Add `make legal-info` to the image build and archive the result per release
    (first run done 2026-09-04, see above).
-4. Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
-   defconfig, k230_pocketos_defconfig (hardware absent; one proprietary blob less).
+4. ~~Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
+   defconfig, k230_pocketos_defconfig (hardware absent; one proprietary blob less).~~
+   **Dropped** (owner, 2026-10-07; Doors 0.3.5): the Doors fragment turns the
+   three off, `rtl8189fs` stays.
 5. Add manual manifest entries for vendor local packages. **Done for 0.3.5**
    (docs/legal/LOCAL_PACKAGES.md, 2026-10-07): code licences established for
    most; the vendor models, `isp_media_server` and the nncase K230 modules
