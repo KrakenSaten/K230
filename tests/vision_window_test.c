@@ -3,7 +3,8 @@
  * by direction and class, speeds and their mean, the window's edge to the
  * millisecond, a ring that fills and says so, and nothing that grows.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_labels.h"
 #include "pocketvision/vision_window.h"

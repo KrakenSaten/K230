@@ -11,7 +11,8 @@
  *
  * Usage: mp3_session_test <fake_pos_mp3.sh> <pos-mp3-testhooks>
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_protocol.h"
 #include "mp3_session.h"

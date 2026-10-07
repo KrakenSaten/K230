@@ -33,6 +33,9 @@
 # archived, because it is an ignored checkout rather than part of our history,
 # so its uncommitted changes WOULD be compiled in - which is why a dirty
 # RadioLib is refused outright below rather than merely reported.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,6 +44,12 @@ PLATFORM_DIR="${REPO_DIR}/platforms/k230"
 VENDOR_DIR="${1:-${POCKETOS_VENDOR_DIR:-${REPO_DIR}/vendor/T-Display-K230}}"
 SDK_DIR="${VENDOR_DIR}/k230_linux_sdk"
 CONF="k230_pocketos_defconfig"
+# The Doors defconfig is composed here, not kept in this repository: the
+# vendor BSP's own board defconfig, read from its pinned commit, followed by
+# the Doors fragment (docs/licensing/APACHE_2_READINESS.md, B3). The LILYGO
+# file carries no licence, so Doors holds no copy of it.
+VENDOR_DEFCONFIG="k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig"
+DOORS_FRAGMENT="platforms/k230/configs/k230_pocketos.fragment"
 
 EXPECTED_BSP_COMMIT="$(cat "${PLATFORM_DIR}/vendor_bsp_commit.txt")"
 EXPECTED_SDK_COMMIT="$(cat "${PLATFORM_DIR}/vendor_sdk_commit.txt")"
@@ -281,10 +290,11 @@ SNAPSHOT_DIR="$(mktemp -d)"
 cleanup_snapshot() { rm -rf "${SNAPSHOT_DIR}"; }
 trap cleanup_snapshot EXIT
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" \
-    -- "platforms/k230/configs/${CONF}" platforms/k230/package/pocketos \
+    -- "${DOORS_FRAGMENT}" platforms/k230/vendor_lvgl_commit.txt platforms/k230/package/pocketos \
        platforms/k230/patches/linux \
     | tar -xp -C "${SNAPSHOT_DIR}"
-for f in "platforms/k230/configs/${CONF}" \
+for f in "${DOORS_FRAGMENT}" \
+         platforms/k230/vendor_lvgl_commit.txt \
          platforms/k230/package/pocketos/Config.in \
          platforms/k230/package/pocketos/pocketos.mk \
          platforms/k230/package/pocketos/pocketos.hash; do
@@ -294,6 +304,26 @@ for f in "platforms/k230/configs/${CONF}" \
         exit 1
     }
 done
+
+# The defconfig: the vendor board defconfig exactly as the pinned BSP commit
+# holds it (line ends made LF), then the Doors fragment's settings, comments
+# dropped. A fragment setting may not restate one the vendor file already
+# makes, so the composition can only add.
+compose_defconfig() { # <output file>
+    local out="$1" line key
+    git -C "${VENDOR_DIR}" show "${BSP_COMMIT}:${VENDOR_DEFCONFIG}" | tr -d '\r' > "${out}"
+    [ -s "${out}" ] || { echo "ERROR: no ${VENDOR_DEFCONFIG} at the vendor BSP commit ${BSP_COMMIT}." >&2; return 1; }
+    grep -v -E '^[[:space:]]*(#|$)' "${SNAPSHOT_DIR}/${DOORS_FRAGMENT}" > "${out}.doors" || true
+    while IFS= read -r line; do
+        key="${line%%=*}"
+        if grep -q -E "^(# )?${key}([= ]|\$)" "${out}"; then
+            echo "ERROR: ${DOORS_FRAGMENT} sets ${key}, which the vendor defconfig already sets." >&2
+            return 1
+        fi
+    done < "${out}.doors"
+    cat "${out}.doors" >> "${out}"
+    rm -f "${out}.doors"
+}
 
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
@@ -318,8 +348,20 @@ install_kernel_patches() { # <snapshot dir> <sdk dir> -> sets KERNEL_PATCHES
 install_kernel_patches "${SNAPSHOT_DIR}" "${SDK_DIR}"
 echo "      Doors kernel patches: ${KERNEL_PATCHES:-none}"
 
-echo "[2/5] Doors defconfig (${CONF})"
-install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
+echo "[2/5] Doors defconfig (${CONF}): vendor board defconfig + ${DOORS_FRAGMENT}"
+COMPOSED_DEFCONFIG="${SNAPSHOT_DIR}/composed/${CONF}"
+mkdir -p "${SNAPSHOT_DIR}/composed"
+compose_defconfig "${COMPOSED_DEFCONFIG}"
+# The notices name the LVGL that vendor_lvgl_commit.txt pins; the defconfig
+# must build that one.
+LVGL_PIN="$(tr -d '\r\n' < "${SNAPSHOT_DIR}/platforms/k230/vendor_lvgl_commit.txt")"
+grep -qx "BR2_PACKAGE_LVGL_CUSTOM_VERSION=\"${LVGL_PIN}\"" "${COMPOSED_DEFCONFIG}" || {
+    echo "ERROR: the composed defconfig does not build LVGL ${LVGL_PIN} (platforms/k230/vendor_lvgl_commit.txt)," >&2
+    echo "       which the third-party notices name. Update the pin and the notices together." >&2
+    exit 1
+}
+install -m 0644 "${COMPOSED_DEFCONFIG}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
+echo "      sha256 $(sha256sum < "${COMPOSED_DEFCONFIG}" | cut -d' ' -f1)"
 
 echo "[3/5] Vendor launcher: not in the image"
 # Up to v0.3.x the LILYGO launcher (k230_phone_ui) was installed here with the
@@ -443,11 +485,11 @@ echo "[5/5] Doors package (pocketos)"
 # notices do not name. Checked from the snapshot, like everything packaged.
 NOTICES_DIR="$(mktemp -d)"
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- \
-    THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
+    LICENSE NOTICE THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
     platforms/k230/vendor_radiolib_commit.txt platforms/k230/vendor_ggwave_commit.txt \
     protocols/meshcore/vendor_rift_commit.txt protocols/meshcore/vendor_crypto_commit.txt \
     platforms/k230/package/pocketos/pocketos.hash \
-    "platforms/k230/configs/${CONF}" | tar -x -C "${NOTICES_DIR}"
+    platforms/k230/vendor_lvgl_commit.txt | tar -x -C "${NOTICES_DIR}"
 ln -s "${REPO_DIR}/vendor" "${NOTICES_DIR}/vendor"
 NOTICES_OK=1
 bash "${NOTICES_DIR}/tools/legal/gen_notices.sh" --check || NOTICES_OK=0

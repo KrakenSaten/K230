@@ -23,7 +23,8 @@
  *                            protocol core - identity, nodes, paths,
  *                            duplicate table - is never torn down.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "mcd.h"

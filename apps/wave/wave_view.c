@@ -5,7 +5,8 @@
  * beyond it, so an ellipsis or a dash from general punctuation would be a
  * missing glyph on the panel.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_view.h"
 

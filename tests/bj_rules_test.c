@@ -8,7 +8,8 @@
  * Hands are dealt from a stacked shoe, so every outcome here is written out
  * from the ruleset in bj_rules.h, never computed by the code under test.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "bj_rules.h"
 

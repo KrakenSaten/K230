@@ -16,7 +16,8 @@
  *
  * Every call returns at once. A link never blocks the LVGL thread.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_LINK_H
 #define POCKETFLEET_LINK_H

@@ -3,7 +3,8 @@
  * helper: well-formed UTF-8 (shortest form, no surrogates, nothing above
  * U+10FFFF) with no control character (C0, DEL, C1).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_TEXT_H
 #define POCKETWAVE_TEXT_H

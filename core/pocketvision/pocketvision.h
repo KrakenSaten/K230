@@ -22,7 +22,8 @@
  *
  * Coordinates are integer pixels. Confidences are per-mille (0..1000).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETVISION_H
 #define POCKETOS_POCKETVISION_H

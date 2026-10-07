@@ -4,7 +4,8 @@
  * errors are told apart, and every result parser refuses a wrong shape
  * rather than inventing zeroes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "zabbix/zbx_api.h"
 

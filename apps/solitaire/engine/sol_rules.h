@@ -33,7 +33,8 @@
  *
  * Pure C: no LVGL, no I/O, no floating point, no clock (tests/sol_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGSOL_RULES_H
 #define PGSOL_RULES_H

@@ -10,7 +10,8 @@
  * already exists is never overwritten, and a key pair that does not agree
  * with itself is refused before it signs anything.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include <errno.h>
 #include <stdio.h>

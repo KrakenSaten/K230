@@ -11,7 +11,8 @@
  * the top (sleepy, wary) and a disc from below that leaves an arch (^,
  * happy).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DB_FACE_H
 #define DB_FACE_H

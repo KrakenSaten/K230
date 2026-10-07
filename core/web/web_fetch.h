@@ -24,7 +24,8 @@
  *   - abort() is asked between blocks of the transfer, so STOP ends a load
  *     within a fraction of a second, name resolution aside.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WEB_FETCH_H
 #define POCKETOS_WEB_FETCH_H

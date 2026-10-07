@@ -10,7 +10,8 @@
  * list beside a context pane holding the same detail - a recomposition,
  * not a second design (docs/design/rift/HANDOFF.md §9).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_NODES_H
 #define RIFT_NODES_H

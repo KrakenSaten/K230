@@ -12,7 +12,8 @@
  * sanctioned way for custom drawing to reach the tokens, and the object
  * registers with pos_theme_watch() so it repaints when the theme changes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_TABLE_H
 #define POCKETTIMBER_TABLE_H

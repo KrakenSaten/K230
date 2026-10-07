@@ -34,7 +34,8 @@
  * No LVGL and no sockets: host-tested by tests/rift_model_test.c and
  * tests/rift_comms_test.c with no display and no service.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_model.h"
 

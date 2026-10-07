@@ -6,7 +6,8 @@
  * picture budget, bookmarks and recent pages saved, and the helper dying
  * mid-load.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "browser_view.h"

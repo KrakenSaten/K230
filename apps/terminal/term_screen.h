@@ -23,7 +23,8 @@
  * Memory is fixed at init: TERM_MAX_COLS x (TERM_SCROLLBACK + TERM_MAX_ROWS)
  * cells of four bytes, about 700 KB, however much output arrives.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef TERM_SCREEN_H
 #define TERM_SCREEN_H

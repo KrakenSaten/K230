@@ -30,7 +30,8 @@
  * tests/rift_lint.sh checks each link, and tests/rift_ipc_test.c proves it
  * from the service's side.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_APP_H
 #define RIFT_APP_H

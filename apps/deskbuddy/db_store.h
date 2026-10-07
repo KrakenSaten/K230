@@ -11,7 +11,8 @@
  * file or the new one. Persistence never blocks the app: a failure is
  * reported to the caller and DeskBuddy carries on with what it has.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DB_STORE_H
 #define DB_STORE_H

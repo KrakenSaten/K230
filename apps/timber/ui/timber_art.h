@@ -20,7 +20,8 @@
  * widget draws its placeholder blocks. Setting POCKETTIMBER_PLACEHOLDER in
  * the environment forces the placeholder for comparison.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_ART_H
 #define POCKETTIMBER_ART_H

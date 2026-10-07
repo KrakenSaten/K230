@@ -16,7 +16,8 @@
  * above says otherwise, --open names an app, the settings say lock_screen=0,
  * or this start is the shell restarting itself to apply a rotation.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "app.h"

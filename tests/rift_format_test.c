@@ -8,7 +8,8 @@
  * RSSI attributed to a node nine relays away, a compressed path that hides
  * how many hops there were, a remote name cut in the middle of a character.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_emoji.h"
 #include "rift_format.h"

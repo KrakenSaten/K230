@@ -16,7 +16,8 @@
  * the card's partition table and the root superblock to decide, and runs
  * parted, partprobe and resize2fs to do it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"

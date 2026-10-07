@@ -1,0 +1,14 @@
+# Doors settings on top of the vendor board defconfig.
+#
+# platforms/k230/scripts/apply_to_sdk.sh composes k230_pocketos_defconfig in
+# the SDK from the LILYGO BSP's own
+# k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig,
+# read from the pinned BSP commit (../vendor_bsp_commit.txt), followed by the
+# settings below. Doors keeps no copy of the vendor file, which carries no
+# licence (docs/licensing/APACHE_2_READINESS.md, B3). Comment and blank lines
+# are dropped when composing, and a setting here may not restate one the
+# vendor file already makes: the composition only adds.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
+BR2_PACKAGE_POCKETOS=y

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Generate ui/pocketui/pos_app_icons.c, the Doors app icons as A8 masks.
 
     gen_app_icons.py [-o pos_app_icons.c] [SOURCE ...]

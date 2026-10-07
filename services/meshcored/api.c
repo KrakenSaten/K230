@@ -17,7 +17,8 @@
  *    reported as 0, a hop count that was never learned is not reported as 0
  *    hops, and a radio state nobody has told us is not reported at all.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "mcd.h"

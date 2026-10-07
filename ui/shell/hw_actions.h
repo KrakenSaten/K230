@@ -21,8 +21,8 @@
  * (docs/hardware/HARDWARE_CONTROLS.md §2), with Doors' apps where the
  * vendor had its own: F9 opens RIFT where the vendor opened Meshtastic.
  *
- * Pure C, no LVGL. Copyright (c) 2026 PocketOS authors. License: see
- * LICENSE (TBD).
+ * Pure C, no LVGL. Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_HW_ACTIONS_H
 #define POCKETOS_HW_ACTIONS_H

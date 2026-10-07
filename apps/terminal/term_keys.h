@@ -11,7 +11,8 @@
  *
  * Pure: no LVGL. The app maps the logical keys it receives onto these kinds.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef TERM_KEYS_H
 #define TERM_KEYS_H

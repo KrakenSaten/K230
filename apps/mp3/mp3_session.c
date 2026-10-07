@@ -1,7 +1,8 @@
 /*
  * The MP3 app's helper process client. See mp3_session.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "mp3_session.h"

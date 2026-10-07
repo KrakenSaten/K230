@@ -13,7 +13,8 @@
  * Nothing here knows about JSON, clients or protocols. It is handed bytes
  * and a backend, and it says what happened.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RADIOD_TX_H
 #define RADIOD_TX_H

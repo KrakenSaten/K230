@@ -1,7 +1,8 @@
 /*
  * Terminal: the shell on its PTY. See term_pty.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "term_pty.h"

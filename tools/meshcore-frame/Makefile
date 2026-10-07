@@ -16,7 +16,8 @@
 # (the convention vendor/RadioLib and vendor/ggwave already follow) - see
 # README.md for the two clone commands.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 
 CC       ?= cc
 CXX      ?= c++

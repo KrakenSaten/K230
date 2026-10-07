@@ -6,7 +6,8 @@
  * gpiochip<pin/32> line <pin%32> (DOCUMENTED: BSP pinmap and DTS use the
  * same numbering); the chip name pattern is configurable for other boards.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RADIOD_HAL_LINUX_H
 #define RADIOD_HAL_LINUX_H

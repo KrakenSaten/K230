@@ -16,7 +16,8 @@
  *   ERROR      the camera or its helper failed; Try again starts over
  *   NO_DEVICE  there is no camera (or no camera support in this build)
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef CAMERA_STATE_H
 #define CAMERA_STATE_H

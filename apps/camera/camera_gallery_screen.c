@@ -2,7 +2,8 @@
  * Camera's gallery screen. See camera_gallery_screen.h; what it does is
  * camera_gallery.c, where it goes is camera_layout.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "camera_gallery.h"

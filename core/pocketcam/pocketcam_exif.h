@@ -25,7 +25,8 @@
  *
  * Pure C: no libjpeg, no I/O. Tested in tests/pocketcam_gallery_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_EXIF_H
 #define POCKETOS_POCKETCAM_EXIF_H

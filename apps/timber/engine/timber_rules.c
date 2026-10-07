@@ -1,7 +1,8 @@
 /*
  * PocketTimber run state and rules. See timber_rules.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_rules.h"
 

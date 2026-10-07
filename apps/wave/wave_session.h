@@ -37,7 +37,8 @@
  * init reaps it, and nothing here waits for it. A helper that exits normally,
  * with any exit code, has cleaned up itself.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_SESSION_H
 #define POCKETWAVE_SESSION_H

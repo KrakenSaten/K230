@@ -5,7 +5,8 @@
  * (docs/design/rift/HANDOFF.md §9), so the two cannot be allowed to drift
  * into saying different things about the same node.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_DETAIL_H
 #define RIFT_DETAIL_H

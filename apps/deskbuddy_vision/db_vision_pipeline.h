@@ -21,7 +21,8 @@
  * close). No picture, face or number but the conclusion crosses into
  * DeskBuddy.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DB_VISION_PIPELINE_H
 #define DB_VISION_PIPELINE_H

@@ -26,7 +26,8 @@
  *
  * Needs ggwave (links wave_modem.o), like tests/wave_modem_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_channel.h"
 #include "wave_modem.h"

@@ -16,7 +16,8 @@
  * counter, and an Arduino-shaped 32-bit millis() next to it would be an
  * invitation to use the wrong one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

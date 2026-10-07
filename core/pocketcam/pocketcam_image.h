@@ -26,7 +26,8 @@
  * told; a file whose header cannot be read is -EBADMSG; one that is gone is
  * -ENOENT. No input makes this read outside its buffers or abort.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_IMAGE_H
 #define POCKETOS_POCKETCAM_IMAGE_H

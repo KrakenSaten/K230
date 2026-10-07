@@ -38,7 +38,8 @@
  * Every control is inside the box the unsafe area leaves (the insets
  * pocketui_layout_begin() reports), at least POCKETUI_TOUCH_MIN on both sides.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef CAMERA_LAYOUT_H
 #define CAMERA_LAYOUT_H

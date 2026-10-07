@@ -11,7 +11,8 @@
  * keys are 52 wide against the 64 px minimum, and 64 tall, so the minimum is
  * met in height and missed in width only.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_KEYBOARD_H
 #define POS_KEYBOARD_H

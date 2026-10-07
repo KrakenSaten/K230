@@ -16,7 +16,8 @@
  * start-up rather than a constant, because the board reads back 0x800019D1
  * where the vendor writes 0x000019D1 (VERIFIED) and bit 31 looks read-only.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_bus_k230.h"
 

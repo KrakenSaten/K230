@@ -2,7 +2,8 @@
  * Tiny pocketipc convenience for the shell and in-process apps: one lazily
  * connected socket per service with automatic reconnect.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SHELL_IPC_H
 #define POCKETOS_SHELL_IPC_H

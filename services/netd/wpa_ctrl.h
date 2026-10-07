@@ -14,7 +14,8 @@
  * Commands can carry a passphrase (SET_NETWORK <id> psk "..."). This module
  * never logs anything, and wipes its own copies of what it sent.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WPA_CTRL_H
 #define POCKETOS_WPA_CTRL_H

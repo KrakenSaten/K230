@@ -3,7 +3,8 @@
  * text, every button's state, the progress, the rows. No LVGL, so it is
  * tested on its own (tests/mp3_view_test.c); mp3_app.c only paints it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETMP3_VIEW_H
 #define POCKETMP3_VIEW_H

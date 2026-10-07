@@ -18,7 +18,8 @@
  * selection is not worth a file. Opening the app lands on today, which is
  * the right answer every time (tests/calendar_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCALENDAR_VIEW_H
 #define POCKETCALENDAR_VIEW_H

@@ -32,7 +32,8 @@
  * LVGL-free, no threads. Used by pos-camera only: every write to the photo
  * folder happens in the helper, never on the LVGL thread.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_STORE_H
 #define POCKETOS_POCKETCAM_STORE_H

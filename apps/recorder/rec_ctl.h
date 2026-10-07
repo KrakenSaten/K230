@@ -12,7 +12,8 @@
  * Tested against the real pos-record over the file-backed fake sound card
  * and against a scripted fake helper (tests/rec_ctl_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_CTL_H
 #define POCKETREC_CTL_H

@@ -21,7 +21,8 @@
  * it. An alarm that trusted the wall clock blindly would fire fifty-five
  * years late on the first tick after boot.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCLOCK_ENGINE_H
 #define POCKETCLOCK_ENGINE_H

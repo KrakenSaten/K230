@@ -32,7 +32,8 @@
  * Pure C with cJSON; no network. Used by the helper and its tests only - the
  * shell never links this file (tests/zabbix_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ZBX_API_H
 #define POCKETOS_ZBX_API_H

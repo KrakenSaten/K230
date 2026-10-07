@@ -5,7 +5,8 @@
  *   Npayload = 8 + max(ceil((8PL - 4SF + 28 + 16CRC - 20IH) / (4(SF - 2DE))) * (CR + 4), 0)
  * with DE = 1 when low-data-rate optimisation applies (Tsym > 16 ms).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "airtime.h"
 

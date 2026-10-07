@@ -1,7 +1,8 @@
 /*
  * DOORS Controls. See controls.h; the decisions are controls_model.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "controls.h"
 

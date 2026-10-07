@@ -4,7 +4,8 @@
  * linearly to 48 kHz. See mp3_decoder.h. The image builds
  * mp3_decoder_ffmpeg.c instead, which also plays WAV.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_decoder.h"
 

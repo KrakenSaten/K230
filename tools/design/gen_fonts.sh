@@ -10,6 +10,9 @@
 # Symbols are named pos_font_<family>_<size>[_<weight>]; user-facing text
 # must not call them "IBM Plex" (OFL Reserved Font Name "Plex", see
 # docs/LICENSING.md).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -eu
 SRC=${1:?font source dir}
 CONV=${2:-lv_font_conv}

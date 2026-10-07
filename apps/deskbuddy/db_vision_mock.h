@@ -17,7 +17,8 @@
  * and demo controls"); with the variable unset the app uses
  * db_vision_none_ops and this file does nothing.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DB_VISION_MOCK_H
 #define DB_VISION_MOCK_H

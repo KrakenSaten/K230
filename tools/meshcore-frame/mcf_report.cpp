@@ -4,7 +4,11 @@
  * meant to be read by a person over a bench log and grepped by a script; the
  * frame_hex line is the one that goes to `pos radio send`.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * Portions (the ACK hash as BaseChatMesh computes it) are adapted from MeshCore,
+ * Copyright (c) 2025 Scott Powell / rippleradios.com, MIT licence
+ * (third_party/notices/texts/meshcore.txt).
+ * SPDX-License-Identifier: Apache-2.0 AND MIT
  */
 #include "mcf.h"
 

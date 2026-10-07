@@ -10,7 +10,8 @@
  *
  * Night is deliberately below AA (DS §13), so it has its own lower floors.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_theme.h"
 

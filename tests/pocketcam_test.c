@@ -6,7 +6,8 @@
  * the encoder this build has, and the photo store - names, atomic writes, the
  * limits, a full disk and a disk that fills up mid-photo.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketcam/pocketcam.h"
 #include "pocketcam/pocketcam_codec.h"

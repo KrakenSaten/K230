@@ -12,7 +12,7 @@
 #                     ggwave (vendor/ggwave at vendor_ggwave_commit.txt),
 #                     meshcore (vendor/RIFT at protocols/meshcore/vendor_rift_commit.txt),
 #                     arduinolibs (vendor/Crypto at protocols/meshcore/vendor_crypto_commit.txt),
-#                     lvgl (the LVGL commit in the defconfig),
+#                     lvgl (platforms/k230/vendor_lvgl_commit.txt),
 #                     lv_port_linux (the commit named in version)
 #   repo:<path>       a notice kept in this repository
 #   text:<file>       a statement written here, kept as texts/<file>
@@ -23,6 +23,7 @@ ooura-fft | FFT routines (Takuya Ooura), bundled in ggwave | as in ggwave v0.4.3
 meshcore | MeshCore (Scott Powell / rippleradios.com), from the RIFT tree | commit 3ca7e3f003bd270587b1d92e33ce999542dcb5b4 | MIT | compiled into /usr/sbin/meshcored | meshcore:license.txt
 ed25519 | Ed25519 (Orson Peters), bundled in MeshCore | as in MeshCore 3ca7e3f | Zlib | compiled into /usr/sbin/meshcored | meshcore:lib/ed25519/license.txt
 arduinolibs-crypto | Arduino Cryptography Library (Rhys Weatherley, Southern Storm Software) | commit 37a76b8f7516568e1c575b6dc9268da1ccaac6b6 | MIT | compiled into /usr/sbin/meshcored | arduinolibs:libraries/LICENSE.txt
+canaan-k230-sdk | K230 Linux SDK code (Canaan Bright Sight): libmmz, and the AI2D preprocessing set-up adapted from the SDK's yolo and ai_demo samples | SDK commit 22d02c6b6783a57a3aca7eb3160e313e772cb710 | BSD-2-Clause | compiled into /usr/bin/pos-vision | repo:docs/legal/third-party/canaan-k230-linux-sdk-LICENSE.txt
 ibm-plex | IBM Plex Sans and IBM Plex Mono | converted to bitmap fonts named pos_font_* | OFL-1.1, Reserved Font Name "Plex" | compiled into /usr/bin/doors-shell | repo:docs/legal/fonts/IBMPlex-OFL-1.1.txt
 noto-color-emoji | Noto Color Emoji artwork (Google), googlefonts/noto-emoji 2D/png/72 | commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e; 1683 images converted to RGB565A8 for RIFT (apps/rift/ui/rift_emoji_px.bin), skin-tone variants left out | Apache-2.0 | compiled into /usr/bin/doors-shell (RIFT's colour emoji) | repo:docs/legal/third-party/noto-color-emoji.txt
 region-flags | Region flags (googlei18n/region-flags at 743e1f4a92b7d2dac49d7e6af509af63a71f0b45), as bundled in googlefonts/noto-emoji third_party/region-flags | commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e; 262 flags converted to RGB565A8 for RIFT | public domain or otherwise exempt from copyright (see text) | compiled into /usr/bin/doors-shell (RIFT's colour emoji) | repo:docs/legal/third-party/region-flags.txt

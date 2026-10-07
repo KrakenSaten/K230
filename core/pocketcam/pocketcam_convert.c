@@ -1,7 +1,8 @@
 /*
  * pocketcam's pixel conversion. See pocketcam_convert.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketcam_convert.h"
 

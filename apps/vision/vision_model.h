@@ -21,7 +21,8 @@
  * The choices live in a struct vision_settings, per mode; a tap that
  * changes one asks the screen to store them (VISION_ACT_SAVE).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef VISION_MODEL_H
 #define VISION_MODEL_H

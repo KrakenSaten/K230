@@ -16,7 +16,8 @@
  * A negative last_heard_mono_ms or mono_ms means "this long ago", so a
  * fixture's ages do not depend on how long the host has been up.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fake_meshcored.h"
 

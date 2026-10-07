@@ -24,7 +24,8 @@
  * log line however many events it produces (DB_VISIT_MERGE_MS joins a
  * visitor who flickers out and back).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DB_BRAIN_H
 #define DB_BRAIN_H

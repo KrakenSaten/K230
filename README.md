@@ -96,6 +96,10 @@ as its permanent alias.
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    Doors version
+LICENSE                    Apache License 2.0, the licence of Doors' own code (ADR-013); NOTICE beside it
+THIRD_PARTY_LICENSES.md    Inventory of third-party material and how each licence sits with Apache-2.0
+MODEL_LICENSES.md          Licence status of every Vision model
+CONTRIBUTING.md            Contributions: Apache-2.0, DCO sign-off, source headers
 THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries and LVGL (generated; installed in /usr/share/doors/, linked from /usr/share/pocketos/)
 third_party/notices/       Sources of those notices: the component list and verbatim licence texts
 apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer), solitaire, blackjack and 2048 (Pocket Games, docs/apps/PG*.md), deskbuddy (DeskBuddy, docs/apps/DESKBUDDY.md), terminal, vision, browser, camera, photo, video, mp3, recorder, wave, zabbix (docs/apps/)
@@ -118,8 +122,9 @@ docs/
   services/MESHCORED.md    The MeshCore service: ownership, persistence, safety and how to enable it on a unit
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
-  LICENSING.md             Licence register for vendor and third-party code; Doors' own licence is not decided, and redistribution is not authorised until it is
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-006 to ADR-012 and their status: docs/decisions/README.md)
+  LICENSING.md             Licence register for vendor and third-party code (Doors itself: Apache-2.0)
+  licensing/                Apache-2.0 readiness audit and its blockers, B1 artwork questions, asset inventory, public-source exclusions
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-006 to ADR-013 and their status: docs/decisions/README.md; ADR-013 licence, Apache-2.0: Accepted)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
@@ -265,3 +270,15 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).
+
+## Licence
+
+Doors is licensed under the Apache License, Version 2.0: see LICENSE and
+NOTICE. Third-party components keep their own licences
+(THIRD_PARTY_LICENSES.md; the texts the image ships are in
+THIRD_PARTY_NOTICES.txt), and the Vision models are documented separately in
+MODEL_LICENSES.md. The Doors mark, lockups and boot splash are not
+Apache-2.0: they may be redistributed unmodified as part of Doors
+(docs/licensing/BRAND.md). Not everything in this repository is Apache-2.0,
+and the repository is not yet cleared for publication:
+docs/licensing/APACHE_2_READINESS.md says what remains.

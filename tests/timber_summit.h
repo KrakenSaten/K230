@@ -9,7 +9,8 @@
  * before it starts the next, and because with the approved shift lean no
  * modelled player reaches the summit from a seed, which is the point.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_TEST_SUMMIT_H
 #define POCKETTIMBER_TEST_SUMMIT_H

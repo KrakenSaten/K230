@@ -34,7 +34,8 @@
  *
  * Nothing in it is secret: numbers about a game.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PG2048_STORE_H
 #define PG2048_STORE_H

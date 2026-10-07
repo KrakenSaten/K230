@@ -7,7 +7,8 @@
  * service through one link, and only once the player has chosen it; the app
  * never opens a device either way.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_app.h"
 

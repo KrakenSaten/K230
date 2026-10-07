@@ -14,7 +14,8 @@
  * the only door between this JSON-speaking daemon and the C++ protocol core -
  * no MeshCore header is included on this side, and no cJSON on that one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_H
 #define MCD_H

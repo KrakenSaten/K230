@@ -6,7 +6,8 @@
  * test suite sleeping (tests/clock_lint.sh checks that the engine contains no
  * clock call of its own).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCLOCK_TIME_H
 #define POCKETCLOCK_TIME_H

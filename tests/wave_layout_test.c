@@ -4,7 +4,8 @@
  * it, and the edges - a landscape body too narrow for two columns, a very
  * short portrait body, an unsized body.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_layout.h"
 

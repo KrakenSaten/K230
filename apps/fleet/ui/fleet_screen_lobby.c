@@ -10,7 +10,8 @@
  * button a player pressed (INVITE, CANCEL, ACCEPT, DECLINE, MAKE VISIBLE,
  * RESUME, FORFEIT) or the protocol answering for a match the player is in.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "../fleet_app.h"
 

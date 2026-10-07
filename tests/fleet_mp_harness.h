@@ -10,7 +10,8 @@
  * change when a match happens, never what happens in it. That is the oracle
  * the simulator holds every faulty run to.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef FLEET_MP_HARNESS_H
 #define FLEET_MP_HARNESS_H

@@ -9,7 +9,8 @@
  *
  * Pure C, no LVGL, so the whole engine is unit-tested natively.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_TYPES_H
 #define POCKETFLEET_TYPES_H

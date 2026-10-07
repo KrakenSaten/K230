@@ -28,7 +28,8 @@
  * KEYBOARD (not implemented, documented in docs/apps/CAMERA.md): Space or
  * Enter for the shutter, K and D in review.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "camera_gallery_screen.h"

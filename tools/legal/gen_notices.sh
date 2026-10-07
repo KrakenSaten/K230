@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # THIRD_PARTY_NOTICES.txt from third_party/notices/SOURCES.
 #
-#   gen_notices.sh                 write THIRD_PARTY_NOTICES.txt and its hash in
-#                                  platforms/k230/package/pocketos/pocketos.hash
+#   gen_notices.sh                 write THIRD_PARTY_NOTICES.txt, and the hashes
+#                                  of every licence file the package hands to
+#                                  legal-info (LICENSE, NOTICE and the notices)
+#                                  in platforms/k230/package/pocketos/pocketos.hash
 #   gen_notices.sh --check         fail if THIRD_PARTY_NOTICES.txt is not what
 #                                  SOURCES and the texts produce, or if
-#                                  pocketos.hash does not match it
+#                                  pocketos.hash does not match those files
 #   gen_notices.sh --verify-upstream [--sdk DIR] [--strict]
 #                                  compare every copied text with the pinned
 #                                  upstream file, byte for byte; with --strict
@@ -22,13 +24,17 @@
 # the source archives in the SDK's download directory (--sdk), which are what
 # the image is actually built from.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NOTICES="${REPO}/third_party/notices"
 OUT="${REPO}/THIRD_PARTY_NOTICES.txt"
 HASH="${REPO}/platforms/k230/package/pocketos/pocketos.hash"
+# Doors' own licence and NOTICE (Apache-2.0, ADR-013): not generated, but
+# collected by legal-info with the notices, so pocketos.hash covers them too.
+OWN_FILES="LICENSE NOTICE"
 SDK=""
 MODE="generate"
 STRICT=0
@@ -71,8 +77,10 @@ pin_ggwave() { tr -d '\r\n' < "${REPO}/platforms/k230/vendor_ggwave_commit.txt";
 # builds them into meshcored; the notices name the same commits.
 pin_meshcore() { tr -d '\r\n' < "${REPO}/protocols/meshcore/vendor_rift_commit.txt"; }
 pin_arduinolibs() { tr -d '\r\n' < "${REPO}/protocols/meshcore/vendor_crypto_commit.txt"; }
-pin_lvgl() { tr -d '\r' < "${REPO}/platforms/k230/configs/k230_pocketos_defconfig" |
-    sed -n 's/^BR2_PACKAGE_LVGL_CUSTOM_VERSION="\([0-9a-f]*\)"$/\1/p'; }
+# LVGL: the commit the vendor board defconfig builds, pinned here, since Doors
+# keeps no copy of that defconfig; apply_to_sdk.sh refuses a composed
+# defconfig that builds another.
+pin_lvgl() { tr -d '\r\n' < "${REPO}/platforms/k230/vendor_lvgl_commit.txt"; }
 commit_in() { printf '%s\n' "$1" | grep -o -E 'commit [0-9a-f]{40}' | head -1 | cut -d' ' -f2; }
 
 # The upstream bytes of an entry on stdout; returns 3 when nothing here can
@@ -102,7 +110,7 @@ upstream() { # <text spec> <version field>
             git -C "${REPO}/vendor/Crypto" show "${commit}:${path}" ;;
         lvgl)
             commit="$(pin_lvgl)"
-            [ -n "${commit}" ] || { echo "gen_notices.sh: no LVGL commit in the defconfig" >&2; return 2; }
+            [ -n "${commit}" ] || { echo "gen_notices.sh: no LVGL pin (platforms/k230/vendor_lvgl_commit.txt)" >&2; return 2; }
             tarball="${SDK:+${SDK}/dl/lvgl/lvgl-${commit}.tar.gz}"
             if [ -n "${tarball}" ] && [ -f "${tarball}" ]; then
                 top="$(tar -tzf "${tarball}" | head -1 | cut -d/ -f1)"
@@ -129,21 +137,23 @@ generate() { # <output file>
 Doors third-party notices
 =========================
 
-Doors itself: no licence has been chosen for the code of Doors (called
-PocketOS through v0.0.9; its source files still name "PocketOS authors").
-No licence to it is granted, and redistributing Doors, as source or as
-binaries, outside the project is not authorised until one is chosen.
+Doors itself (called PocketOS through v0.0.9; its source files name
+"PocketOS authors") is licensed under the Apache License, Version 2.0. The
+licence is in LICENSE and Doors' notices in NOTICE, installed beside this
+file in /usr/share/doors.
 
-The components below are other people's work. Doors binaries contain them,
-or load libraries that contain them, and each is used under its own terms,
-reproduced in full below.
+The components below are other people's work and are not covered by Doors'
+licence. Doors binaries contain them, or load libraries that contain them,
+and each is used under its own terms, reproduced in full below.
 
 Not reproduced here: the other libraries Doors and LVGL load - cJSON,
-libgpiod, alsa-lib, libdrm, libevdev, FreeType and FFmpeg - are separate
-Buildroot packages whose licences and sources Buildroot's `make legal-info`
-collects. The C and C++ runtime libraries (glibc, libstdc++, libgcc) come with
-the external toolchain and are not yet collected by it; see docs/LICENSING.md
-in the project repository.
+libgpiod, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libjpeg, libpng,
+FreeType and FFmpeg - are separate Buildroot packages whose licences and
+sources Buildroot's `make legal-info` collects. The C and C++ runtime
+libraries (glibc, libstdc++, libgcc) come with the external toolchain and are
+not yet collected by it, and the vendor's nncase runtime and libmmz, linked
+into pos-vision, carry no licence metadata; see docs/LICENSING.md and
+docs/licensing/APACHE_2_READINESS.md in the project repository.
 
 Generated by tools/legal/gen_notices.sh from third_party/notices/SOURCES.
 Do not edit by hand.
@@ -175,12 +185,18 @@ EOF
     } > "$1"
 }
 
-# The Buildroot hash file for the package's licence file (Buildroot manual,
-# "The .hash file"). legal-info refuses a THIRD_PARTY_NOTICES.txt that does not
-# match it; without one it collects the file unchecked and warns.
+# The Buildroot hash file for the package's licence files (Buildroot manual,
+# "The .hash file"). legal-info refuses a LICENSE, NOTICE or
+# THIRD_PARTY_NOTICES.txt that does not match it; without a line it collects
+# the file unchecked and warns.
 hash_file() { # <notices file>
+    local f
     printf '# Locally computed by tools/legal/gen_notices.sh, which writes it together\n'
     printf '# with THIRD_PARTY_NOTICES.txt. Do not edit by hand.\n'
+    for f in ${OWN_FILES}; do
+        [ -f "${REPO}/${f}" ] || { echo "gen_notices.sh: no ${f} at the repository root" >&2; return 1; }
+        printf 'sha256  %s  %s\n' "$(sha256sum < "${REPO}/${f}" | cut -d' ' -f1)" "${f}"
+    done
     printf 'sha256  %s  THIRD_PARTY_NOTICES.txt\n' "$(sha256sum < "$1" | cut -d' ' -f1)"
 }
 
@@ -188,7 +204,7 @@ case "${MODE}" in
     generate)
         generate "${OUT}"
         hash_file "${OUT}" > "${HASH}"
-        echo "wrote ${OUT#"${REPO}"/} and ${HASH#"${REPO}"/}"
+        echo "wrote ${OUT#"${REPO}"/} and ${HASH#"${REPO}"/} (with ${OWN_FILES})"
         ;;
     check)
         tmp="$(mktemp)"; trap 'rm -f "${tmp}"' EXIT
@@ -201,9 +217,9 @@ case "${MODE}" in
             bad=1
         fi
         if [ -f "${HASH}" ] && cmp -s "${HASH}" <(hash_file "${OUT}"); then
-            echo "ok   pocketos.hash holds the sha256 of THIRD_PARTY_NOTICES.txt"
+            echo "ok   pocketos.hash holds the sha256 of ${OWN_FILES} and THIRD_PARTY_NOTICES.txt"
         else
-            echo "FAIL ${HASH#"${REPO}"/} is missing or does not match THIRD_PARTY_NOTICES.txt; run tools/legal/gen_notices.sh"
+            echo "FAIL ${HASH#"${REPO}"/} is missing or does not match ${OWN_FILES} and THIRD_PARTY_NOTICES.txt; run tools/legal/gen_notices.sh"
             bad=1
         fi
         exit "${bad}"

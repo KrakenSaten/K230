@@ -39,7 +39,8 @@
  * on the LVGL thread is ending the session, bounded by TERM_PTY_HUP_GRACE_MS
  * + TERM_PTY_KILL_REAP_MS and normally a few ms (docs/apps/TERMINAL.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "terminal_app.h"
 

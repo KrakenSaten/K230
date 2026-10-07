@@ -17,7 +17,8 @@
  * touch calibration are both derived from it, so display and touch cannot
  * disagree about which way is up.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_DISPLAY_H
 #define POS_DISPLAY_H

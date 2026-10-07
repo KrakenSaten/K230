@@ -15,7 +15,8 @@
  * tests/meshcored_lint.sh checks it by inspection: no cJSON or pocketipc
  * include below this line, no MeshCore include above it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_MESH_RUNTIME_H
 #define MCD_MESH_RUNTIME_H

@@ -4,7 +4,8 @@
  * ticked every second while visible, and destroyed when the user leaves.
  * Apps never touch hardware; they talk to services over pocketipc.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_APP_H
 #define POCKETOS_APP_H

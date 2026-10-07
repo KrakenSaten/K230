@@ -1,3 +1,5 @@
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Strict PNG reader for the Doors brand tools in tools/design.
 
 Standard library only, like the rest of tools/design, so the build host needs

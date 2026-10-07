@@ -22,7 +22,8 @@
  * Anything else in the file, or an unknown key, is a damaged file ("corrupt"),
  * so an invalid file is tested through the same path as a real one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "video_backend.h"

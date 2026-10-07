@@ -15,7 +15,8 @@
  * Pure C, no IPC and no backend; tested on the host through the daemon
  * (tests/radiod_power_test.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_RADIOD_RF_STATE_H
 #define POCKETOS_RADIOD_RF_STATE_H

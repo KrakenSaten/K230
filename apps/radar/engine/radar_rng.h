@@ -18,7 +18,8 @@
  * random source; tests/radar_lint.sh keeps it that way, by a text search
  * over the engine, so prose in these files avoids the names it looks for.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETRADAR_RNG_H
 #define POCKETRADAR_RNG_H

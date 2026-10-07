@@ -1,7 +1,8 @@
 /*
  * The parts of fetching that do not depend on the transport. See web_fetch.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "web/web_fetch.h"
 #include "web/web_url.h"

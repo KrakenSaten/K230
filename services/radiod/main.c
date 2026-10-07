@@ -3,7 +3,8 @@
  * region guard, keeps airtime statistics and serves radio.* over pocketipc.
  * See docs/api/radio.md.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "airtime.h"

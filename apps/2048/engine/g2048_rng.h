@@ -17,7 +17,8 @@
  * library random source; tests/g2048_lint.sh keeps it that way by a text
  * search, so prose in these files avoids the names it looks for.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PG2048_RNG_H
 #define PG2048_RNG_H

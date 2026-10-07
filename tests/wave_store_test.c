@@ -6,7 +6,8 @@
  * trusted; files are private; a write leaves no temporary behind; and the
  * capture lives only in the runtime directory and is removed.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_store.h"
 

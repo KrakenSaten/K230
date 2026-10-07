@@ -9,7 +9,8 @@
  * cannot be taken - is "unknown". Whatever consumes this, automatic rotation
  * above all, must treat unknown as safely as absent: it resolves to portrait.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_KBD_PRESENCE_H
 #define POCKETOS_KBD_PRESENCE_H

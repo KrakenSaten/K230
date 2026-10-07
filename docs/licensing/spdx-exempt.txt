@@ -1,0 +1,126 @@
+# First-party source files that do not carry the plain Apache-2.0 SPDX line,
+# each with the reason (docs/licensing/APACHE_2_READINESS.md §2, "Source
+# headers"). tests/license_audit_test.sh fails on a first-party source file
+# that has neither the line nor an entry here, on an entry for a file that is
+# no longer tracked, and on an entry without a reason.
+#
+# Format: <path> <reason>. Reasons:
+#   MIXED        the file says "Apache-2.0 AND <licence>": it adapts code under
+#                that licence, named in its header
+#   NOT-CLEARED  holds material whose licence is not established; not offered
+#                under Apache-2.0 until it is
+#   GENERATED    generated; its licence follows its inputs (the generator is
+#                tagged)
+#   PENDING      first-party, covered by LICENSE, written before the header
+#                rule; the header is a follow-up (no behaviour change here)
+
+core/pocketvision/vision_kpu_nncase.cpp     MIXED Apache-2.0 AND BSD-2-Clause (Canaan K230 SDK samples)
+services/meshcored/mesh_runtime.cpp         MIXED Apache-2.0 AND MIT (MeshCore packetScore)
+tools/meshcore-frame/mcf_frame.cpp          MIXED Apache-2.0 AND MIT (MeshCore payload layouts)
+tools/meshcore-frame/mcf_report.cpp         MIXED Apache-2.0 AND MIT (MeshCore ACK hash)
+tests/meshcore_core_test.cpp                MIXED Apache-2.0 AND MIT (MeshCore test cases, key pair and vectors)
+tests/meshcore_frame_test.cpp               MIXED Apache-2.0 AND MIT (MeshCore test key pair)
+tests/display_geometry_test.c               MIXED Apache-2.0 AND MIT (LVGL lv_evdev calibration arithmetic)
+
+ui/pocketui/pos_keymap.c                    NOT-CLEARED key tables from the LILYGO launcher, which states no licence
+
+ui/pocketui/pos_app_icons.c                 GENERATED Apache-2.0 by its inputs: the owner's and first-party icon PNGs (gen_app_icons.py)
+ui/pocketui/pos_brand_mark.c                GENERATED from the Doors mark; reserved brand asset, not Apache-2.0 (docs/licensing/BRAND.md)
+ui/pocketui/pos_glyphs.c                    GENERATED Apache-2.0 by its inputs: the owner's B package glyphs and doors-glyphs (gen_doors_ui.py)
+ui/pocketui/pos_glyphs.h                    GENERATED with pos_glyphs.c (gen_doors_ui.py)
+ui/pocketui/pos_theme_table.h               GENERATED from docs/design/themes.json (gen_theme_table.py)
+
+platforms/k230/rootfs_overlay/etc/init.d/S50sysd PENDING init script installed in the image
+platforms/k230/rootfs_overlay/etc/init.d/S55netd PENDING init script installed in the image
+platforms/k230/rootfs_overlay/etc/init.d/S60radiod PENDING init script installed in the image
+platforms/k230/rootfs_overlay/etc/init.d/S65meshcored PENDING init script installed in the image
+platforms/k230/rootfs_overlay/etc/init.d/S90doors-shell PENDING init script installed in the image
+
+tests/alert_shell_test.sh                   PENDING test script
+tests/app_icons_test.sh                     PENDING test script
+tests/auto_rotation_shell_test.sh           PENDING test script
+tests/bj_lint.sh                            PENDING test script
+tests/bj_shell_test.sh                      PENDING test script
+tests/boot_splash_test.sh                   PENDING test script
+tests/brand_mark_test.sh                    PENDING test script
+tests/brightness_shell_test.sh              PENDING test script
+tests/browser_http_test.py                  PENDING test script
+tests/browser_http_test.sh                  PENDING test script
+tests/browser_lint.sh                       PENDING test script
+tests/browser_shell_test.sh                 PENDING test script
+tests/build_deps_test.sh                    PENDING test script
+tests/build_outputs_test.sh                 PENDING test script
+tests/calculator_lint.sh                    PENDING test script
+tests/calculator_shell_test.sh              PENDING test script
+tests/calendar_lint.sh                      PENDING test script
+tests/calendar_shell_test.sh                PENDING test script
+tests/camera_lint.sh                        PENDING test script
+tests/camera_shell_test.sh                  PENDING test script
+tests/chrome_shell_test.sh                  PENDING test script
+tests/clock_lint.sh                         PENDING test script
+tests/clock_shell_test.sh                   PENDING test script
+tests/deskbuddy_lint.sh                     PENDING test script
+tests/deskbuddy_shell_test.sh               PENDING test script
+tests/display_geometry_shell_test.sh        PENDING test script
+tests/doors_shell_test.sh                   PENDING test script
+tests/doors_ui_assets_test.sh               PENDING test script
+tests/files_lint.sh                         PENDING test script
+tests/files_shell_test.sh                   PENDING test script
+tests/fleet_lint.sh                         PENDING test script
+tests/fleet_mp_e2e_test.sh                  PENDING test script
+tests/fleet_shell_test.sh                   PENDING test script
+tests/g2048_lint.sh                         PENDING test script
+tests/g2048_shell_test.sh                   PENDING test script
+tests/hw/hw_buttons_watch.sh                PENDING test script
+tests/hw/lora_pair_test.sh                  PENDING test script
+tests/hw/touch_slot0_tap.py                 PENDING test script
+tests/hw/touch_slots.py                     PENDING test script
+tests/hw_actions_shell_test.sh              PENDING test script
+tests/hwcheck_test.sh                       PENDING test script
+tests/image_contents_test.sh                PENDING test script
+tests/kbd_lint.sh                           PENDING test script
+tests/kbd_shell_test.sh                     PENDING test script
+tests/launcher_favorites_shell_test.sh      PENDING test script
+tests/launcher_folder_shell_test.sh         PENDING test script
+tests/meshcore_build_deps_test.sh           PENDING test script
+tests/meshcore_lint.sh                      PENDING test script
+tests/meshcored_harness_test.sh             PENDING test script
+tests/meshcored_service_test.sh             PENDING test script
+tests/mkbootimg.sh                          PENDING test script
+tests/netd_test.sh                          PENDING test script
+tests/notes_lint.sh                         PENDING test script
+tests/notes_shell_test.sh                   PENDING test script
+tests/photo_lint.sh                         PENDING test script
+tests/photo_shell_test.sh                   PENDING test script
+tests/pos_input_test.sh                     PENDING test script
+tests/pos_keyboard_test.sh                  PENDING test script
+tests/pos_keymap_test.sh                    PENDING test script
+tests/radar_lint.sh                         PENDING test script
+tests/radar_shell_test.sh                   PENDING test script
+tests/radiod_async_test.sh                  PENDING test script
+tests/radiod_mock_test.sh                   PENDING test script
+tests/radiod_power_test.sh                  PENDING test script
+tests/rift_lint.sh                          PENDING test script
+tests/rift_shell_test.sh                    PENDING test script
+tests/settings_lint.sh                      PENDING test script
+tests/settings_shell_test.sh                PENDING test script
+tests/shell_ipc_test.sh                     PENDING test script
+tests/sol_lint.sh                           PENDING test script
+tests/sol_shell_test.sh                     PENDING test script
+tests/splash_image_test.sh                  PENDING test script
+tests/style_lint.sh                         PENDING test script
+tests/supervise_test.sh                     PENDING test script
+tests/sysd_test.sh                          PENDING test script
+tests/system_brand_shell_test.sh            PENDING test script
+tests/system_lint.sh                        PENDING test script
+tests/system_shell_test.sh                  PENDING test script
+tests/text_size_layout_shell_test.sh        PENDING test script
+tests/text_size_shell_test.sh               PENDING test script
+tests/timber_lint.sh                        PENDING test script
+tests/timber_shell_test.sh                  PENDING test script
+tests/vision_lint.sh                        PENDING test script
+tests/vision_shell_test.sh                  PENDING test script
+tests/zabbix_hang.sh                        PENDING test script
+tests/zabbix_http_test.sh                   PENDING test script
+tests/zabbix_lint.sh                        PENDING test script
+tests/zabbix_shell_test.sh                  PENDING test script

@@ -51,7 +51,8 @@
  * different key that still "works", and two nodes then sit on channels they
  * both believe are the same one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

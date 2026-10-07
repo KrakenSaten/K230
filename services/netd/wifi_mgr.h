@@ -15,7 +15,8 @@
  * joined) with what is (the interface exists, the supplicant runs, what its
  * STATUS says), so a missed event costs at most one step.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WIFI_MGR_H
 #define POCKETOS_WIFI_MGR_H

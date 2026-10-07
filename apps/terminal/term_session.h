@@ -17,7 +17,8 @@
  * When the shell ends, the screen says how, and Enter starts a new one on
  * the same screen.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef TERM_SESSION_H
 #define TERM_SESSION_H

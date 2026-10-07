@@ -1,7 +1,8 @@
 /*
  * PG Blackjack deterministic pseudo-random source. See bj_rng.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "bj_rng.h"
 

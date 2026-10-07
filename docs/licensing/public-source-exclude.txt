@@ -1,0 +1,23 @@
+# Paths kept in this private repository but left out of the public-source
+# candidate (docs/licensing/APACHE_2_READINESS.md §14). Nothing here is
+# deleted: tools/legal/public_source_tree.sh exports the candidate from a
+# commit without these paths, and tests/license_audit_test.sh checks that
+# every entry still names tracked files and that no build or test input is
+# excluded.
+#
+# Format: <path or directory/> <reason>. A trailing / excludes the directory.
+# Reasons:
+#   B2   design-tool export or supplied design package with no stated terms;
+#        design reference only, nothing builds from it
+#   B1R  reference-only part of the owner's artwork packages (mockups,
+#        supplier references, byte copies of the original archives);
+#        nothing builds from it, and it is not needed to understand the code
+
+docs/design/rift/support.js                                    B2 the design tool's runtime ("GENERATED from dc-runtime/src/*.ts", sources not here); tool code, not the owner's output, terms not stated
+docs/design/PocketOS Design System.html                        B2 bundled design page: embedded design-tool runtime, React, IBM Plex WOFF2
+docs/design/Repository connection and design directions.zip    B2 design-canvas export: dc-runtime, React, AI-generated (OpenAI) reference images
+docs/design/brand/doors-threshold/mockups/                     B1R supplier mockups
+docs/design/brand/doors-threshold/reference/                   B1R supplier style sheet and font licence copy
+docs/design/brand/doors-icon-extension/Doors-Icon-Extension.png    B1R supplier overview sheet
+docs/design/brand/doors-icon-extension/Doors-Icon-Extension.svg    B1R supplier overview sheet
+docs/design/brand/doors-visual-pack-v1/originals/              B1R byte copies of the two supplied archives (supplier scripts, prompts, Nimbus Sans AGPL fonts)

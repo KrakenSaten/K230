@@ -4,7 +4,8 @@
  * of the pull track and the sides of the slots. Headless: the view model
  * is free of LVGL.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "../apps/timber/ui/timber_view.h"
 

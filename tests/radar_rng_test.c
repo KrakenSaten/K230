@@ -9,7 +9,8 @@
  * implement the same xorshift32; that agreement is itself a check that the
  * copy is faithful.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "radar_rng.h"
 

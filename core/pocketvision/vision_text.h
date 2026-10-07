@@ -23,7 +23,8 @@
  * work stack, no allocation. Reads the tensors' floats; integer otherwise
  * (tests/vision_text_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_TEXT_H
 #define POCKETOS_VISION_TEXT_H

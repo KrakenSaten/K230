@@ -11,7 +11,8 @@
  * described in docs/hardware/KEYBOARD_DRIVER_DESIGN_2026-09-12.md, and
  * kbd_bus_absent.c, which reports no device and is what the simulator gets.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_KBD_BUS_H
 #define POCKETOS_KBD_BUS_H

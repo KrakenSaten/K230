@@ -11,7 +11,8 @@
  * any byte that is not valid UTF-8, or a control character, is replaced with
  * '?'. The exact bytes stay available as hex (docs/api/network.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WIFI_PARSE_H
 #define POCKETOS_WIFI_PARSE_H

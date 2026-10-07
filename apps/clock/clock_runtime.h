@@ -30,7 +30,8 @@
  * always did across an app being closed. The file they travel in is
  * boot-scoped, and why that is the whole of the argument is clock_store.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCLOCK_RUNTIME_H
 #define POCKETCLOCK_RUNTIME_H

@@ -1,0 +1,132 @@
+# Every tracked artwork, image and design asset, with its provenance and
+# licence (docs/licensing/B1_ARTWORK.md; APACHE_2_READINESS.md §6).
+# tests/license_audit_test.sh fails when a tracked asset matches no rule,
+# when a rule matches nothing, or when a class is not one of those below.
+#
+# Format: <pattern> <CLASS> <note>. Patterns are shell globs over the
+# repository path (* also crosses /); the FIRST rule that matches decides.
+#
+# Classes, and the licence each carries:
+#   ORIGINAL          made in this repository (drawn, or generated from
+#                     original inputs), or a capture that predates the owner's
+#                     ChatGPT art. Apache-2.0
+#   OWNER-VECTOR      vector art the owner made with ChatGPT (owner,
+#                     2026-10-02). Apache-2.0
+#   OWNER-AI-RASTER   images the owner made with an AI tool: ChatGPT's image
+#                     generation (OpenAI content credentials) or Claude
+#                     (Anthropic content credentials). Apache-2.0, to the
+#                     extent rights subsist in them
+#   OWNER-DESIGN      design source document the owner made with an AI tool
+#                     (Claude). Apache-2.0
+#   BRAND             the Doors mark, lockups and boot art, made by the owner
+#                     with ChatGPT. Reserved: docs/licensing/BRAND.md
+#   DERIVED-ART       generated in this repository from ORIGINAL and OWNER-*
+#                     art. Apache-2.0
+#   DERIVED-BRAND     generated here from BRAND art. Reserved: BRAND.md
+#   CAPTURE           capture of Doors changed on or after 2026-09-15 09:09
+#                     (+02:00); Apache-2.0, and any Doors mark it shows keeps
+#                     the BRAND.md terms
+#   OWNER-REF         reference-only parts of the owner's packages (mockups,
+#                     style sheet, overviews, archive copies); excluded from
+#                     the public source
+#   DESIGN-EXPORT     design-tool export with no stated terms; excluded (B2)
+#   THIRD-PARTY       someone else's material under its own licence; excluded
+
+docs/design/brand/doors-visual-pack-v1/originals/*/fonts/*                                   THIRD-PARTY     Nimbus Sans (URW), AGPL-3.0 with font exception, preview only; excluded
+docs/design/brand/doors-visual-pack-v1/originals/DOORS_Visual_Package_v1/masters/*           OWNER-AI-RASTER the eight photographic masters, OpenAI content credentials; excluded
+docs/design/brand/doors-visual-pack-v1/originals/DOORS_B_Production_Package_v2/references/*  OWNER-AI-RASTER approved_B.png, OpenAI content credentials; excluded
+docs/design/brand/doors-visual-pack-v1/originals/*                                           OWNER-REF       byte copies of the two supplied archives (resized AI backgrounds, previews, overlays, icons, scripts); excluded
+docs/design/rift/shots/*                                                                     OWNER-AI-RASTER RIFT design exports, made by the owner with Claude (Anthropic content credentials)
+docs/design/rift/RIFT for Doors.dc.html                                                      OWNER-DESIGN    RIFT design source, made by the owner with Claude; renders only with the excluded support.js
+docs/design/PocketOS Design System.html                                                      DESIGN-EXPORT   bundled design page; excluded
+docs/design/Repository connection and design directions.zip                                  DESIGN-EXPORT   design-canvas export with AI-generated reference images; excluded
+docs/design/brand/doors-threshold/mockups/*                                                  OWNER-REF       Threshold mockups; excluded
+docs/design/brand/doors-threshold/reference/*                                                OWNER-REF       Threshold style sheet; excluded
+docs/design/brand/doors-icon-extension/Doors-Icon-Extension.*                                OWNER-REF       extension overview sheet; excluded
+docs/design/brand/doors-threshold/brand/*                                                    BRAND           Threshold mark and lockups (wordmark is outlined IBM Plex Sans)
+docs/design/brand/doors-threshold/boot/*                                                     BRAND           Threshold boot art
+docs/design/brand/doors-threshold/icons/*                                                    OWNER-VECTOR    Threshold app icons (10)
+docs/design/brand/doors-icon-extension/*                                                     OWNER-VECTOR    icon extension (13 icons; PNGs rendered with Inkscape)
+docs/design/brand/doors-visual-pack-v1/source/backgrounds/*                                  OWNER-AI-RASTER eight backgrounds, OpenAI content credentials
+docs/design/brand/doors-visual-pack-v1/device/backgrounds/*                                  OWNER-AI-RASTER the same backgrounds resized for the panel (per PROVENANCE.md: ImageMagick)
+docs/design/brand/doors-visual-pack-v1/*                                                     OWNER-VECTOR    B package app icons, portal frame, system glyphs and UI layers (SVG made by the package's script build_b.py) and their PNGs
+platforms/k230/rootfs_overlay/logo.xrgb                                                      DERIVED-BRAND   boot splash from the Threshold boot art (png2xrgb.py)
+ui/assets/doors/bg-*                                                                         DERIVED-ART     backgrounds from the AI-generated device backgrounds (gen_doors_ui.py)
+ui/assets/doors/icon-*                                                                       DERIVED-ART     portal icons: B frame and glyphs, Threshold/extension icons and first-party icons (gen_doors_ui.py)
+ui/pocketui/pos_brand_mark.c                                                                 DERIVED-BRAND   compact mark from the Threshold mark (gen_brand_mark.py)
+ui/pocketui/pos_app_icons.c                                                                  DERIVED-ART     icon masks: 15 owner-made (10 Threshold, 5 extension) and 10 first-party icons (gen_app_icons.py)
+ui/pocketui/pos_glyphs.[ch]                                                                  DERIVED-ART     system glyphs from the B package plus the first-party mode glyph (gen_doors_ui.py)
+docs/design/doors-app-icons/*                                                                ORIGINAL        first-party app icons drawn in this repository (render_app_icon.py)
+docs/design/doors-glyphs/*                                                                   ORIGINAL        first-party glyph
+docs/design/timber-art/*                                                                     ORIGINAL        PocketTimber sprites, Blender scene built by tools/timber_blender.py, procedural materials
+docs/design/shot-*.png                                                                       ORIGINAL        simulator captures, 2026-09-04/05, before any B1 art
+docs/design/shots/fleet-battle-brass.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-carbon.png                                                    ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-ice-night.png                                                 ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-ice-outdoor.png                                               ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-ice.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-olive.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-reduced-motion.png                                            ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-battle-slate.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-brass.png                                                    ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-carbon.png                                                   ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-ice-night.png                                                ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-ice-outdoor.png                                              ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-ice.png                                                      ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-olive.png                                                    ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-command-slate.png                                                    ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-brass.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-carbon.png                                                    ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-ice-night.png                                                 ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-ice-outdoor.png                                               ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-ice.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-olive.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-deploy-slate.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-brass.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-carbon.png                                                    ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-ice-night.png                                                 ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-ice-outdoor.png                                               ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-ice.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-olive.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/fleet-result-slate.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/home-ice.png                                                               ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-acquired-ice.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-acquired.png                                                         ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-decoy.png                                                            ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-idle.png                                                             ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-result.png                                                           ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-scan-ice.png                                                         ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-scan-reduced-motion.png                                              ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-scan.png                                                             ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radar-selected.png                                                         ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-brass.png                                                            ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-carbon.png                                                           ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-ice-night.png                                                        ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-ice-normal.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-ice-outdoor.png                                                      ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-ice.png                                                              ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-olive.png                                                            ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/radio-slate.png                                                            ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-collapse.png                                                        ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-idle-stored.png                                                     ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-idle.png                                                            ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-placing.png                                                         ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-pulling-reduced-motion.png                                          ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-pulling.png                                                         ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-result-stored.png                                                   ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-result-unwritable.png                                               ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-result.png                                                          ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run-brass.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run-carbon.png                                                      ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run-ice.png                                                         ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run-olive.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run-placeholder.png                                                 ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run-slate.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/timber-run.png                                                             ORIGINAL        simulator capture changed before 2026-09-15 09:09
+docs/design/shots/*                                                                          CAPTURE         simulator or unit capture changed on or after 2026-09-15 09:09
+docs/apps/*                                                                                  CAPTURE         app documentation captures
+docs/design/astra-handoff/*                                                                  CAPTURE         simulator renders for the design hand-off
+docs/design/brand/shots/*                                                                    CAPTURE         brand integration contact sheets
+docs/design/doors-app-theme/*                                                                CAPTURE         theme contact sheets; show the AI backgrounds
+docs/design/doors-visual-refresh/*                                                           CAPTURE         visual refresh sheets; show the AI backgrounds
+docs/hardware/shots/*                                                                        CAPTURE         unit panel captures; also show other people's mesh node names (C2)

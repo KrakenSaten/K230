@@ -23,7 +23,8 @@ artwork: the extension adds to the Threshold package and replaces none of it.
 | Contents | 60 files, dated 2026-09-13 inside the archive | 43 files under `Doors-Icon-Extension/`, dated 2026-09-14 |
 | Kept as | `doors-threshold/` | `doors-icon-extension/` |
 | Notes by the supplier | `doors-threshold/ASSET-NOTES.md` | `doors-icon-extension/LES-MEG.md` (Norwegian) |
-| Author, copyright, licence | not stated | not stated |
+| Author | the owner, with ChatGPT; "Astra" (docs/design/astra-handoff) is that GPT (owner, 2026-10-02) | the owner, with ChatGPT |
+| Licence | Apache-2.0, except the brand assets in `brand/` and `boot/`, which are reserved (docs/licensing/BRAND.md) | Apache-2.0 |
 
 Both are kept byte-for-byte as supplied. `.gitattributes` exempts both folders
 from end-of-line conversion, so every hash below is the hash of the committed
@@ -168,9 +169,12 @@ would need an id such as `wifi_scanner` and the file mapped to it explicitly.
 - **The extension.** Its overview sheet has lettering as outlined IBM Plex,
   the same case as the Threshold style sheet, and nothing from it ships. The
   Wave icon, like the other app icons, has no lettering.
-- **The packages' own licence.** None is stated. They are treated like the
-  rest of Doors: the owner's material, no licence granted, not for external
-  redistribution until the owner decides (docs/LICENSING.md).
+- **The packages' own licence.** Decided by the owner on 2026-10-02
+  (docs/licensing/B1_ARTWORK.md): both packages were made by the owner with
+  ChatGPT from the owner's own material, and are Apache-2.0, except the Doors
+  mark, the lockups and the boot art (`doors-threshold/brand/`, `boot/`) and
+  what is generated from them, which are reserved: they may be redistributed
+  unmodified as part of Doors, nothing more (docs/licensing/BRAND.md).
 
 ## Where the assets go
 

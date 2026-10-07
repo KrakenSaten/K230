@@ -1,7 +1,8 @@
 /*
  * What the Recorder screen shows. See rec_view.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rec_view.h"
 

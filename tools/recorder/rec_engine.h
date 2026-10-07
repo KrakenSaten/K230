@@ -13,7 +13,8 @@
  * tests drive these steps against pocketaudio over a scripted backend (short
  * reads, timeouts, overruns, failures) and a real temporary folder.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_ENGINE_H
 #define POCKETREC_ENGINE_H

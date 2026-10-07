@@ -12,7 +12,8 @@
  * It never reads /proc, /sys or /run. Everything comes in as cJSON that the
  * app fetched over pocketipc.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SYSTEM_VIEW_H
 #define POCKETOS_SYSTEM_VIEW_H

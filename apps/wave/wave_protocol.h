@@ -4,7 +4,8 @@
  * the helper uses to say what went wrong. Both sides include this file and
  * nothing else of each other.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_PROTOCOL_H
 #define POCKETWAVE_PROTOCOL_H

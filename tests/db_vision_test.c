@@ -4,7 +4,8 @@
  * bounded queue, what counts as a malformed event or script, and a script
  * played against a clock.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "db_vision.h"
 #include "db_vision_mock.h"

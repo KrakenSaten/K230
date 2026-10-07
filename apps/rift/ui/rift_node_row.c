@@ -1,7 +1,8 @@
 /*
  * One row of the NODES list. See rift_node_row.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_node_row.h"
 

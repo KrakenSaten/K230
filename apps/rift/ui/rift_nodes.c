@@ -10,7 +10,8 @@
  * What it costs is set by the height of the pane, not by the size of the
  * mesh (rift_nodes_rows_built).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_nodes.h"
 

@@ -9,7 +9,8 @@
  * later the physical keyboard's driver - and reaches this queue as repeated
  * pushes, so the stream stays a sequence of discrete keys.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_input.h"
 

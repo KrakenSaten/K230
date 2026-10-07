@@ -21,7 +21,8 @@
  * makes the header tell the truth about what is present, and cuts a trailing
  * partial frame, which is how an interrupted recording is repaired.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETWAV_H
 #define POCKETOS_POCKETWAV_H

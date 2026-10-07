@@ -1,7 +1,8 @@
 /*
  * The DOORS launcher. See home.h; the geometry is home_layout.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "home.h"
 

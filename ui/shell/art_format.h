@@ -10,7 +10,8 @@
  * match to the byte: a truncated or padded file is refused rather than drawn
  * with garbage in its last rows.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_ART_FORMAT_H
 #define DOORS_ART_FORMAT_H

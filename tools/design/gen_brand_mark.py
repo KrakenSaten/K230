@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Generate ui/pocketui/pos_brand_mark.c, the Doors compact mark as an A8 mask.
 
     gen_brand_mark.py [doors-mark.png] [pos_brand_mark.c]

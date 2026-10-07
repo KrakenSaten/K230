@@ -1,7 +1,8 @@
 /*
  * pos logs: read pocketlog files and crash reports.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketlog/pocketlog.h"

@@ -9,7 +9,11 @@
  * rotation, a swapped controller and mirrored ranges. A touch that lands
  * anywhere but the logical pixel the display shows there fails.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * Portions (evdev_calibrate, LVGL 9.5 lv_evdev.c's calibration arithmetic)
+ * are from LVGL, Copyright (c) 2025 LVGL Kft, MIT licence
+ * (third_party/notices/texts/lvgl.txt).
+ * SPDX-License-Identifier: Apache-2.0 AND MIT
  */
 #include "pos_display.h"
 

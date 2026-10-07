@@ -26,7 +26,8 @@
  * FULLSCREEN (DS §30.8): the app declares NONE; the shell's header carries
  * the back button and the hint (SIMULATED under the fake backend).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "pocketlog/pocketlog.h"

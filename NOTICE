@@ -1,0 +1,21 @@
+Doors
+Copyright (c) 2026 PocketOS authors
+
+Doors is a handheld operating environment for the LILYGO T-Display K230. It
+was called PocketOS through version 0.0.9; its source files still name
+"PocketOS authors" as the copyright holder.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Doors binaries contain, or load, third-party components that are not
+covered by that licence and remain under their own terms. They are listed,
+with their licence texts, in THIRD_PARTY_NOTICES.txt (installed in
+/usr/share/doors/), and in the source repository in THIRD_PARTY_LICENSES.md
+and MODEL_LICENSES.md.
+
+The Doors brand assets - the mark, the wordmark lockups and the boot splash -
+are not licensed under the Apache License 2.0. They may be redistributed
+unmodified as part of Doors or of a work based on it; any other use is
+reserved. The files and the full terms are listed in docs/licensing/BRAND.md
+in the source repository. The licence grants no permission to use the names
+"Doors" or "PocketOS" except as its section 6 allows.

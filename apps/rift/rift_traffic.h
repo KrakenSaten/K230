@@ -15,7 +15,8 @@
  *
  * No LVGL: host-tested by tests/rift_model_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_TRAFFIC_H
 #define RIFT_TRAFFIC_H

@@ -2,7 +2,8 @@
  * Settings store test: absent file, round trip, malformed lines, removal,
  * atomic write, limits.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "settings.h"

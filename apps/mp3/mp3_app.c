@@ -20,7 +20,8 @@
  * audio ownership rule of ADR-010, which pos-mp3 follows). No text is typed
  * anywhere in the app, so the touch keyboard never comes up.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_ctl.h"
 #include "mp3_view.h"

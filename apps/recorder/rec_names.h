@@ -13,7 +13,8 @@
  * interruption. A recording is written as <name>.part and renamed to <name>
  * only once it is complete.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_NAMES_H
 #define POCKETREC_NAMES_H

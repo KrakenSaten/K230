@@ -8,7 +8,8 @@
  * whole keyboard map unit-testable (tests/calc_view_test.c) without a
  * display.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCALCULATOR_VIEW_H
 #define POCKETCALCULATOR_VIEW_H

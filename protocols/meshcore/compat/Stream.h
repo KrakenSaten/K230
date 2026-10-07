@@ -10,7 +10,8 @@
  * hashes, the cipher and the signatures all come from the vendored MeshCore
  * and Crypto sources - see README.md.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

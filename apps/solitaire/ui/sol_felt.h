@@ -11,7 +11,8 @@
  * time, or a test binary): the table then fills with the felt's base tone
  * from the card palette.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGSOL_FELT_H
 #define PGSOL_FELT_H

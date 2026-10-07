@@ -68,7 +68,8 @@
  * other does not know yet. A line longer than VIDEO_LINE_MAX is a protocol
  * error, and so is a picture event that does not add up.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VIDEO_PROTO_H
 #define POCKETOS_VIDEO_PROTO_H

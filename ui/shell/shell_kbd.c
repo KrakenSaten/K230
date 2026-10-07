@@ -5,7 +5,8 @@
  * queue has no lock and the repository has no threads; a driver thread
  * would have to introduce both (design doc §3).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "shell_kbd.h"
 

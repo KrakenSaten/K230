@@ -34,7 +34,8 @@
  * SIGTERM and a closed stdin are stops as well, so a helper whose app is
  * gone finalizes and exits.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_PROTOCOL_H
 #define POCKETREC_PROTOCOL_H

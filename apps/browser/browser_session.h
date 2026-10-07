@@ -29,7 +29,8 @@
  * Pure C, no LVGL, clock passed in: tests/browser_session_test.c runs it
  * against the real helper on the fake network.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef BROWSER_SESSION_H
 #define BROWSER_SESSION_H

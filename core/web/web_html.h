@@ -29,7 +29,8 @@
  * Pure C: the helper (pos-browser) is the only program that runs it, so a
  * fault in it never reaches the shell.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WEB_HTML_H
 #define POCKETOS_WEB_HTML_H

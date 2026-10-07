@@ -29,7 +29,8 @@
  * MOTION. A move slides for 100 ms and settles for 90 (g2048_view.h); a key
  * or swipe during that finishes it first. Reduced motion draws none of it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "g2048_app.h"
 #include "g2048_board.h"

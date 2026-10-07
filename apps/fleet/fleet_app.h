@@ -6,7 +6,8 @@
  * nothing about LVGL, and the screens never reach into the engine's rules:
  * they call the referee and read the state.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_APP_H
 #define POCKETFLEET_APP_H

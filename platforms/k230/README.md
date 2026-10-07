@@ -12,7 +12,8 @@ alias that prints what it always printed, and the release file is
 written with `pos` keep working.
 
 ```text
-configs/k230_pocketos_defconfig   Vendor board defconfig + BR2_PACKAGE_POCKETOS
+configs/k230_pocketos.fragment    Doors settings; apply_to_sdk.sh composes k230_pocketos_defconfig from the vendor board defconfig (pinned BSP commit) + this
+vendor_lvgl_commit.txt            The LVGL commit that defconfig builds, which the notices name
 package/pocketos/                 Buildroot package building the repository root Makefile
 scripts/apply_to_sdk.sh           BSP overlay + Doors package into the SDK (removes the vendor launcher)
 scripts/build_image.sh            Build and export sysimage-sdcard.img and doors-*.img.gz (+ .sha256) to out/k230/

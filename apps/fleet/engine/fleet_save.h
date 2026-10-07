@@ -28,7 +28,8 @@
  * bytes keep the codec and its validation obvious, and 898 bytes in a file on
  * a 600 MB rootfs costs nothing. Do not pack it without a real reason.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_SAVE_H
 #define POCKETFLEET_SAVE_H

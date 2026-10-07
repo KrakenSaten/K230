@@ -15,7 +15,8 @@
 # vendor/Crypto inside it, each made clean or dirty on purpose so the three
 # answers cannot be mistaken for one another.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 APPLY=${APPLY:-platforms/k230/scripts/apply_to_sdk.sh}

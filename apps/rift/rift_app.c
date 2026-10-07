@@ -2,7 +2,8 @@
  * RIFT for Doors: the chrome, the sections and the lifecycle.
  * See rift_app.h for what lives where and why.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_app.h"
 

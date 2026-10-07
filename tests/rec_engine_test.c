@@ -12,7 +12,8 @@
  * be put in front of it. Playback records what was written, accepts less
  * than offered when told to, and times out on request.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketwav/pocketwav.h"
 #include "rec_engine.h"

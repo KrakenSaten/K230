@@ -7,6 +7,9 @@
 #   build's sysimage-sdcard.img, and the same image as the release artefact
 #   doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz with a .sha256 beside it.
 #   POCKETOS_RELEASE_RC=N (a positive whole number) adds -rcN to that name.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -105,18 +108,29 @@ if [ -f "${PKG_SRC}/tools/legal/gen_notices.sh" ]; then
         echo "ERROR: ${OLD_NOTICES#"${SDK_DIR}"/} is not the link to ${TARGET_NOTICES#"${SDK_DIR}"/}." >&2
         exit 1
     fi
-    # Buildroot reads pocketos.hash only during legal-info, and accepts a hash
-    # file with no line for the notices, so the build holds them to it here, in
-    # both copies: the one applied and the one Buildroot synced and will read.
-    for PKG_HASH in "${SDK_DIR}/buildroot-overlay/package/pocketos/pocketos.hash" \
-                    "${SDK_DIR}/output/buildroot-2025.02.1/package/pocketos/pocketos.hash"; do
-        WANT="$(awk '$1 == "sha256" && $3 == "THIRD_PARTY_NOTICES.txt" { print $2 }' "${PKG_HASH}" 2>/dev/null || true)"
-        if [ -z "${WANT}" ] || [ "${WANT}" != "$(sha256sum < "${TARGET_NOTICES}" | cut -d' ' -f1)" ]; then
-            echo "ERROR: ${PKG_HASH#"${SDK_DIR}"/} is missing or does not hold the sha256 of" >&2
-            echo "       the installed THIRD_PARTY_NOTICES.txt, so legal-info would refuse it." >&2
-            echo "       Run tools/legal/gen_notices.sh, commit, and apply again." >&2
+    # Doors' own LICENSE and NOTICE (Apache-2.0, ADR-013) are installed beside
+    # the notices and must be the packaged ones too.
+    for OWN in LICENSE NOTICE; do
+        if ! cmp -s "${SDK_DIR}/output/${CONF}/target/usr/share/doors/${OWN}" "${PKG_SRC}/${OWN}"; then
+            echo "ERROR: output/${CONF}/target/usr/share/doors/${OWN} is missing or is not the packaged ${OWN}." >&2
             exit 1
         fi
+    done
+    # Buildroot reads pocketos.hash only during legal-info, and accepts a hash
+    # file with no line for a licence file, so the build holds every one it
+    # collects to it here, in both copies: the one applied and the one
+    # Buildroot synced and will read.
+    for PKG_HASH in "${SDK_DIR}/buildroot-overlay/package/pocketos/pocketos.hash" \
+                    "${SDK_DIR}/output/buildroot-2025.02.1/package/pocketos/pocketos.hash"; do
+        for LIC in THIRD_PARTY_NOTICES.txt LICENSE NOTICE; do
+            WANT="$(awk -v f="${LIC}" '$1 == "sha256" && $3 == f { print $2 }' "${PKG_HASH}" 2>/dev/null || true)"
+            if [ -z "${WANT}" ] || [ "${WANT}" != "$(sha256sum < "${SDK_DIR}/output/${CONF}/target/usr/share/doors/${LIC}" | cut -d' ' -f1)" ]; then
+                echo "ERROR: ${PKG_HASH#"${SDK_DIR}"/} is missing or does not hold the sha256 of" >&2
+                echo "       the installed ${LIC}, so legal-info would refuse it." >&2
+                echo "       Run tools/legal/gen_notices.sh, commit, and apply again." >&2
+                exit 1
+            fi
+        done
     done
     LV_CONF="${SDK_DIR}/output/${CONF}/staging/usr/include/lvgl/lv_conf.h"
     if [ -f "${LV_CONF}" ]; then

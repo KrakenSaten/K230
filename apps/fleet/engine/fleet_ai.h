@@ -33,7 +33,8 @@
  * None of this needs the layout: parity, hull inference and the density map
  * are all derived from the AI's own shots and the announced results.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_AI_H
 #define POCKETFLEET_AI_H

@@ -13,7 +13,8 @@
 # The payloads are extracted rather than copied here, so this cannot pass
 # against a script that no longer contains them.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
