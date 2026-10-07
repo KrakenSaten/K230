@@ -29,8 +29,9 @@ BR2_PACKAGE_POCKETOS=y
 # photo) and ai2d_kpu (test.kmodel and test vectors). Nothing starts them and
 # no Doors program uses their files; their models state no terms
 # (MODEL_LICENSES.md). Dropped on the owner's decision, 2026-10-07. What
-# face_detect used to select for others stays: libnncase, libmmz and
-# gsl-lite are selected by the pocketos package, display by vvcam, and
+# face_detect used to select for others stays: libnncase and libmmz are
+# selected by the pocketos package (gsl-lite is its build dependency),
+# display by vvcam, and
 # OpenCV 4 is kept here as it was (Python's cv2, and FFmpeg, which pos-mp3
 # and pos-video link, come with it).
 # BR2_PACKAGE_FACE_DETECT is not set

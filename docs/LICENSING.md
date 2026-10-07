@@ -144,11 +144,12 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)
 
 **Refreshed for Doors 0.3.5 (2026-10-07)** from `make legal-info` on the
-0.3.5 candidate build `9ec60ea`: docs/legal/manifest.csv (102 target
+0.3.5 candidate build `3d4ea6e`: docs/legal/manifest.csv (102 target
 packages, Doors as `pocketos 0.3.5`, Apache-2.0; `rtl8723ds` and
-`rtl8723ds-bt` no longer in it), host-manifest.csv and licenses/. Buildroot
-could not save licence files for `lvgl`, `rtl8189fs`, `opensbi` and `uboot`
-(their packages declare none), and lists no row at all for the SDK's
+`rtl8723ds-bt` no longer in it; `face_detect` and `ai2d_kpu` never had rows),
+host-manifest.csv and licenses/. Buildroot could not save licence files for
+`gsl-lite`, `rtl8189fs`, `opensbi` and `uboot` (their packages declare none;
+gsl-lite is MIT by its LICENSE and in the notices), and lists no row at all for the SDK's
 local packages or the external toolchain: docs/legal/LOCAL_PACKAGES.md has
 those. The source archives (`legal-info/sources/`, about 770 MB with the
 licences) stay in the SDK output and are not committed. The findings below

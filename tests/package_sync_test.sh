@@ -653,9 +653,9 @@ fi
 # overlay and the post-build script would put back are removed at apply time.
 CFG_IN=platforms/k230/package/pocketos/Config.in
 MK=platforms/k230/package/pocketos/pocketos.mk
-check "the pocketos package selects libnncase, libmmz and gsl-lite (pos-vision)" \
-      $(for s in LIBNNCASE LIBMMZ GSL_LITE; do grep -qx "	select BR2_PACKAGE_$s" "$CFG_IN" || exit 1; done; echo 1)
-check "and builds after gsl-lite" \
+check "the pocketos package selects libnncase and libmmz (pos-vision)" \
+      $(for s in LIBNNCASE LIBMMZ; do grep -qx "	select BR2_PACKAGE_$s" "$CFG_IN" || exit 1; done; echo 1)
+check "and builds after gsl-lite, which has no menu entry to select (header-only, for the nncase headers)" \
       $(sed -n 's/^POCKETOS_DEPENDENCIES = //p' "$MK" | tr ' ' '\n' | grep -qx gsl-lite && echo 1 || echo 0)
 check "the nncase Python wheel is removed after every build" \
       $(grep -q '^POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_NNCASE_WHEEL' "$MK" &&

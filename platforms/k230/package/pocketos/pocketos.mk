@@ -55,8 +55,9 @@ POCKETOS_INSTALL_TARGET = YES
 # libnncase, libmmz: pos-vision, the Vision app's helper (docs/apps/VISION.md),
 # runs its detector on the KPU through the nncase 2.11 runtime and the AI2D
 # engine (POCKETVISION_KPU=1), and the runtime's shared pool through libmmz.
-# The pocketos package selects them (Config.in), with gsl-lite, which the
-# nncase headers include; up to 0.3.0 the vendor face_detect demo did. The
+# The pocketos package selects them (Config.in); up to 0.3.0 the vendor
+# face_detect demo did. gsl-lite, which the nncase headers include, has no
+# menu entry in the SDK and is built through the dependency list below. The
 # runtime's Python wheel, which libnncase also unpacks into the target, is
 # not used by anything and is removed (below). The detector model is not
 # installed (below).
