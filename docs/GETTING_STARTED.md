@@ -32,8 +32,12 @@ what an image contains; read them for the image you download.
 
 ## 2. Download the image
 
-Open the release page,
-<https://github.com/KrakenSaten/K230/releases/tag/v0.3.5>, and download:
+**Download the image directly:
+[doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz](https://github.com/KrakenSaten/K230/releases/download/v0.3.5/doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz)**
+(116 MB). This is the ready-to-flash microSD card image, compressed.
+
+The same file is on the release page,
+<https://github.com/KrakenSaten/K230/releases/tag/v0.3.5>, together with:
 
 | File | What it is |
 |---|---|
@@ -43,8 +47,11 @@ Open the release page,
 The release also carries `SHA256SUMS.txt` (the checksums of every file),
 `BUILD_INFO.txt` (how the image was built), the licence and notices files,
 and `doors-0.3.5-3d4ea6e-legal-info.tar` (about 880 MB of third-party
-source material). None of these is needed to install. "Source code (zip)"
-and "Source code (tar.gz)" are DOORS' own source, not an image.
+source material). None of these is needed to install.
+
+> **Image, not source code.** GitHub adds "Source code (zip)" and "Source
+> code (tar.gz)" to every release. Those are DOORS' source code and cannot
+> be written to a card. The file to flash is the `.img.gz` above.
 
 Keep the `.img.gz` file as it is; both tools below unpack it while writing.
 

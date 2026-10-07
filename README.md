@@ -8,10 +8,13 @@ DOORS turns the K230 into a small Linux platform for communication, local AI,
 tools, games and experimentation — built around its touchscreen, keyboard,
 LoRa radio, camera and hardware AI acceleration.
 
-**[Get started](docs/GETTING_STARTED.md)**: download an image, write a
-microSD card and boot DOORS, no development tools needed.
-**[Download DOORS 0.3.5](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**
-(the latest release).
+- **[Download DOORS v0.3.5 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.3.5/doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz)**: the ready-to-flash
+  microSD card image (116 MB). Write it to a card as it is; GitHub's
+  "Source code" archives on the release page are source, not an image.
+- **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
+  write the card, first boot, Wi-Fi and RIFT. No development tools needed.
+- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**: what v0.3.5 contains, the
+  SHA-256 checksums and the licence and notices files.
 
 ![DOORS for the LILYGO T-Display K230](docs/images/doors-poster.jpg)
 
