@@ -55,9 +55,11 @@ POCKETOS_INSTALL_TARGET = YES
 # libnncase, libmmz: pos-vision, the Vision app's helper (docs/apps/VISION.md),
 # runs its detector on the KPU through the nncase 2.11 runtime and the AI2D
 # engine (POCKETVISION_KPU=1), and the runtime's shared pool through libmmz.
-# Both were already in the image and its sysroot (BR2_PACKAGE_AI2D_KPU and
-# BR2_PACKAGE_FACE_DETECT select them), so this adds a build dependency, not
-# a package. The detector model is not installed (below).
+# The pocketos package selects them (Config.in), with gsl-lite, which the
+# nncase headers include; up to 0.3.0 the vendor face_detect demo did. The
+# runtime's Python wheel, which libnncase also unpacks into the target, is
+# not used by anything and is removed (below). The detector model is not
+# installed (below).
 # ffmpeg: pos-mp3, the MP3 app's helper (docs/apps/MP3.md), decodes with
 # libavformat, libavcodec, libswresample and libavutil (MP3_FFMPEG=1), and
 # pos-video, the Video app's helper (docs/apps/VIDEO.md, ADR-012
@@ -69,7 +71,7 @@ POCKETOS_INSTALL_TARGET = YES
 # (BR2_PACKAGE_OPENCV4_WITH_FFMPEG selects it; LGPL-2.1+, the build has
 # --disable-gpl), so this adds a build
 # dependency, not a package.
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz ffmpeg host-cmake host-python3
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz gsl-lite ffmpeg host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 
@@ -136,7 +138,8 @@ POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REFUSE_DETECTOR_MODELS
 # (modules.*) are left alone, and the kernel's depmod hook, which runs after
 # this one (linux/linux.mk is included after the packages), rebuilds them
 # without the removed modules. A fresh build has nothing to remove.
-POCKETOS_DROPPED_PACKAGES = rtl8723ds:$(BR2_PACKAGE_RTL8723DS) rtl8723ds-bt:$(BR2_PACKAGE_RTL8723DS_BT) aic8800:$(BR2_PACKAGE_AIC8800)
+POCKETOS_DROPPED_PACKAGES = rtl8723ds:$(BR2_PACKAGE_RTL8723DS) rtl8723ds-bt:$(BR2_PACKAGE_RTL8723DS_BT) aic8800:$(BR2_PACKAGE_AIC8800) \
+	face_detect:$(BR2_PACKAGE_FACE_DETECT) ai2d_kpu:$(BR2_PACKAGE_AI2D_KPU)
 define POCKETOS_REMOVE_DROPPED_PACKAGES
 	for e in $(POCKETOS_DROPPED_PACKAGES); do \
 		p=$${e%%:*}; [ "$${e#*:}" = y ] && continue; \
@@ -145,9 +148,21 @@ define POCKETOS_REMOVE_DROPPED_PACKAGES
 			while IFS= read -r f; do rm -f "$(TARGET_DIR)/$$f"; done; \
 	done; \
 	for d in lib/firmware/aic8800 lib/firmware/aic8800D80 lib/firmware/aic8800D80X2 lib/firmware/aic8800DC \
-		lib/firmware/rtlbt lib/firmware/rtl_bt; do rmdir "$(TARGET_DIR)/$$d" 2>/dev/null || true; done; \
+		lib/firmware/rtlbt lib/firmware/rtl_bt root/app/face_detect root/app/ai2d_kpu; do \
+		rmdir "$(TARGET_DIR)/$$d" 2>/dev/null || true; done; \
 	find $(TARGET_DIR)/lib/modules -type d -empty -delete 2>/dev/null || true
 endef
 POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_DROPPED_PACKAGES
+
+# libnncase (kept: pos-vision links its runtime statically) also unpacks the
+# runtime's Python wheel, nncaseruntime_k230, into site-packages whenever
+# Python is in the image. Nothing in the image imports it, and its K230
+# modules state no licence (docs/licensing/APACHE_2_READINESS.md B5), so it
+# is removed after every build; nothing installs it again later.
+define POCKETOS_REMOVE_NNCASE_WHEEL
+	rm -rf $(TARGET_DIR)/usr/lib/python$(PYTHON3_VERSION_MAJOR)/site-packages/nncaseruntime \
+		$(TARGET_DIR)/usr/lib/python$(PYTHON3_VERSION_MAJOR)/site-packages/nncaseruntime_k230-*.dist-info
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_NNCASE_WHEEL
 
 $(eval $(generic-package))

@@ -245,6 +245,9 @@ for d in $deps; do
         # with libswscale as well.
         cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
+        # gsl-lite: header-only, included by the nncase headers pos-vision
+        # compiles against; selected by the package since 0.3.5.
+        gsl-lite) [ "$(has_id gsl-lite)" = 1 ] || unknown="$unknown gsl-lite" ;;
         *) unknown="$unknown $d" ;;
     esac
 done

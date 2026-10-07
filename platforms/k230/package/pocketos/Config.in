@@ -10,6 +10,12 @@ config BR2_PACKAGE_POCKETOS
 	select BR2_PACKAGE_LIBDRM
 	select BR2_PACKAGE_LIBEVDEV
 	select BR2_PACKAGE_JPEG
+	# pos-vision's KPU runtime (linked statically), its shared-memory pool
+	# and the header-only gsl-lite the nncase headers include. They came in
+	# with the vendor face_detect demo, which left the image in 0.3.5.
+	select BR2_PACKAGE_LIBNNCASE
+	select BR2_PACKAGE_LIBMMZ
+	select BR2_PACKAGE_GSL_LITE
 	help
 	  Doors tools, services and shell for the LILYGO T-Display K230:
 	  the doors CLI (with pos as its alias), pos-hwcheck, radiod, sysd,

@@ -437,6 +437,47 @@ if [ "${_gone}" -eq 0 ]; then
     echo "      no vendor launcher in the SDK"
 fi
 
+echo "[3b2/5] Vendor leftovers: not in the image"
+# Three things the vendor tree puts into the image that nothing on it uses
+# (owner's decision, 2026-10-07; docs/licensing/APACHE_2_READINESS.md §14.2):
+#  - root/script/sensor.sh, a vendor developer's helper from the SDK's board
+#    overlay that fetches files from one engineer's build host for another
+#    board, with credentials in it;
+#  - /lib/libasan.so.8, which the vendor's post-build.sh copies from the
+#    toolchain's sysroot (no package owns it, so legal-info never sees it);
+#  - the toolchain's libgfortran, which the fragment stops (Fortran off).
+# Overlays and post-build scripts run after every package hook, so they are
+# removed at their source - the overlay, the post-build line - in the SDK
+# overlay this script writes and in Buildroot's synced copy, and stale copies
+# from the persistent target tree.
+_left=0
+for root in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay" \
+            "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/rootfs_overlay \
+            "${SDK_DIR}/output/${CONF}/target"; do
+    [ -d "${root}" ] || continue
+    for f in root/script/sensor.sh lib/libasan.so.8 lib/libgfortran.so.5 lib/libgfortran.so.5.0.0 lib/libgfortran.so; do
+        if [ -e "${root}/${f}" ] || [ -L "${root}/${f}" ]; then
+            rm -f "${root}/${f}" || { echo "cannot remove ${root#"${SDK_DIR}"/}/${f}" >&2; exit 1; }
+            echo "      removed ${root#"${SDK_DIR}"/}/${f}"
+            _left=$((_left + 1))
+        fi
+    done
+done
+for pb in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/post-build.sh" \
+          "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/post-build.sh; do
+    [ -f "${pb}" ] || continue
+    if grep -q 'libasan\.so' "${pb}"; then
+        sed -i '/libasan\.so/d' "${pb}"
+        echo "      removed the libasan copy from ${pb#"${SDK_DIR}"/}"
+        _left=$((_left + 1))
+    fi
+    if grep -q 'libasan' "${pb}"; then
+        echo "${pb} still copies libasan" >&2
+        exit 1
+    fi
+done
+[ "${_left}" -gt 0 ] || echo "      none in the SDK"
+
 echo "[3c/5] sshd: no empty-password logins"
 # Vendor sshd_config allows root with an empty password over the network
 # (PermitRootLogin yes, PasswordAuthentication yes, PermitEmptyPasswords yes)

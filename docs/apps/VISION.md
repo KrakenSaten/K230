@@ -299,8 +299,9 @@ class 0; the app labels FACE's boxes "face". A model that does not load
 or has the wrong outputs: `facefail`, and the screen says "Cannot find
 faces:" with the reason. Nothing runs on the LVGL thread.
 
-**Model: in the image, not packaged by Doors.** The vendor's `ai_demo`
-package installs `/root/app/face_detect/face_detection_320.kmodel`
+**Model: not packaged by Doors, and from 0.3.5 not in the image.** Up to
+0.3.0 the vendor's `face_detect` package installed
+`/root/app/face_detect/face_detection_320.kmodel`
 (584,576 bytes, md5 `3dc05ac1…04bb`; the demo's README: RetinaFace on a
 0.25 MobileNet). FACE reads `/usr/share/doors/vision/face_det.kmodel`
 (override `POCKETOS_VISION_FACE_DET`) and is offered only when it is

@@ -24,3 +24,20 @@ BR2_PACKAGE_POCKETOS=y
 # BR2_PACKAGE_RTL8723DS is not set
 # BR2_PACKAGE_RTL8723DS_BT is not set
 # BR2_PACKAGE_AIC8800 is not set
+
+# The vendor's KPU demos: face_detect (face_detection_320.kmodel, a test
+# photo) and ai2d_kpu (test.kmodel and test vectors). Nothing starts them and
+# no Doors program uses their files; their models state no terms
+# (MODEL_LICENSES.md). Dropped on the owner's decision, 2026-10-07. What
+# face_detect used to select for others stays: libnncase, libmmz and
+# gsl-lite are selected by the pocketos package, display by vvcam, and
+# OpenCV 4 is kept here as it was (Python's cv2, and FFmpeg, which pos-mp3
+# and pos-video link, come with it).
+# BR2_PACKAGE_FACE_DETECT is not set
+# BR2_PACKAGE_AI2D_KPU is not set
+BR2_PACKAGE_OPENCV4=y
+
+# The toolchain's Fortran runtime (libgfortran) is copied into the image
+# only because the vendor declares Fortran support; no program or library in
+# the image links it. Owner's decision, 2026-10-07.
+# BR2_TOOLCHAIN_EXTERNAL_FORTRAN is not set

@@ -274,8 +274,8 @@ Findings:
     READ's text detector, recogniser and dictionary and RECOGNIZE's face
     embedding model (`face_recognition.kmodel`) come from the canmv SDK's
     `src/rtsmart/libs/kmodel/` trees, and FACE's detector is the vendor
-    `ai_demo` package's `face_detection_320.kmodel` the image already
-    carries; none has a licence statement, and the SDK publishes neither
+    `face_detection_320.kmodel`, which images up to 0.3.0 carried in the
+    vendor's `face_detect` demo (off from 0.3.5); none has a licence statement, and the SDK publishes neither
     their source weights nor their conversion. They are
     **neither committed nor packaged**: the helper reads them from
     `/usr/share/doors/vision/` when they are there and offers the mode only

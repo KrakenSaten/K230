@@ -136,10 +136,10 @@ Full matrix: MODEL_LICENSES.md. Summary:
 | Model | Feature | Licence | Committed | In the Doors image | Status |
 | --- | --- | --- | --- | --- | --- |
 | `yolov8n.kmodel` | DETECT, TRACK, COUNT, TRAFFIC, DeskBuddy | Ultralytics weights AGPL-3.0; the SDK states nothing for the file | no | **yes** (internal, owner 2026-09-28) | UNKNOWN - DO NOT REDISTRIBUTE outside the project |
-| `face_det.kmodel` (vendor `face_detection_320.kmodel`) | FACE, RECOGNIZE, DeskBuddy | none stated | no | not by Doors; **the vendor's copy is in the image** | UNKNOWN; EXTERNAL ONLY for Doors |
+| `face_det.kmodel` (vendor `face_detection_320.kmodel`) | FACE, RECOGNIZE, DeskBuddy | none stated | no | not by Doors; the vendor's copy left the image in 0.3.5 | UNKNOWN; EXTERNAL ONLY for Doors |
 | `text_det.kmodel`, `text_rec.kmodel`, `text_dict.txt` (canmv `ai_poc`) | READ | none stated | no | no | UNKNOWN; EXTERNAL ONLY |
 | `face_embed.kmodel` (canmv `face_recognition.kmodel`) | RECOGNIZE, DeskBuddy | none stated | no | no | UNKNOWN; EXTERNAL ONLY |
-| `xiaozhi_kws.kmodel`, `test.kmodel` | none (vendor demos) | none stated | no | yes, via vendor packages | NOT USED by Doors |
+| `xiaozhi_kws.kmodel`, `test.kmodel` | none (vendor demos) | none stated | no | no (launcher removed, PR #47; `ai2d_kpu` off, 0.3.5) | NOT USED by Doors |
 
 Vision's code is Apache-2.0 regardless (with the BSD-2-Clause portions of
 `vision_kpu_nncase.cpp`); it contains no model data. The audit test refuses
@@ -395,7 +395,7 @@ asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
 | # | Path / component | Issue | Evidence | Required action |
 | --- | --- | --- | --- | --- |
 | B4 | `/usr/share/doors/vision/yolov8n.kmodel` (`pocketos.mk`) | AGPL-3.0 weights (Ultralytics) without published weights or conversion; owner decision limits it to internal images | docs/LICENSING.md item 10; MODEL_LICENSES.md | **Resolved for 0.3.5 (2026-10-07):** not installed; the package refuses the SDK's YOLO kmodels by name and hash, and the vendor `yolo` package. Vision runs its model-free modes and says why the detector's are off. |
-| B5 | nncase 2.11.0 K230 runtime, static in `/usr/bin/pos-vision`; and the nncase Python wheel `.so` in `/usr/lib/python3.13/site-packages/nncaseruntime/` | prebuilt archive carries no licence file | §14.2 | **Partly resolved (0.3.5):** the generic runtime is Apache-2.0 at tag `v2.11.0` and its notices ship, with itlib-small-vector and gsl-lite (MIT). **Still blocking:** the K230 modules (`libnncase.rt_modules.k230`, `libfunctional_k230`), built from a tree upstream says is not open source, and the wheel: no terms stated anywhere. Needs Canaan's terms, or the owner's decision (§14.2). |
+| B5 | nncase 2.11.0 runtime, static in `/usr/bin/pos-vision` (generic runtime and the K230 modules `libnncase.rt_modules.k230`, `libfunctional_k230`) | the prebuilt archive `nncase_k230_v2.11.0_runtime_linux.tgz` carries no licence file | §14.2 | **Partly resolved (0.3.5):** the generic runtime is Apache-2.0 at tag `v2.11.0` and its notices ship, with itlib-small-vector and gsl-lite (MIT); the runtime's Python wheel (unused) is removed from the image. **Still blocking:** the K230 modules, built from a tree upstream says is not open source: no terms found for these binaries. Supporting evidence only: Canaan's `nncase-kpu` 2.11.0 compiler plug-in on PyPI, from the same closed tree, is Apache-2.0. Needs Canaan's statement (draft inquiry in docs/licensing/inquiries/). |
 | B6 | vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz`, `display`, and the vendor local packages legal-info never lists (`vg_lite`, `mvx_player`, `camera_rtsp_demo`, `librtsp_server`, `audio_demo`, `audio_rec_play`); their kmodels in `/root/app/` | no licence in the package files; models without terms | §14.2 | **Code: resolved by evidence** (gsl-lite MIT; libmmz, display, face_detect code: the SDK's BSD-2-Clause; nonai2d and vvcam's kernel modules GPL-2.0 with source in the SDK). **Still blocking:** `face_detection_320.kmodel`, `test.kmodel` and test data, vvcam's binary-only `isp_media_server`, and the demo packages' unverified files: vendor terms, or the owner drops them (§14.2). |
 | B7 | LILYGO launcher `k230_phone_ui` and the LILYGO overlay files | no licence | docs/LICENSING.md item 2 | Launcher **resolved** (removed from the image, PR #47). **Still open:** LILYGO's BSP overlay (boot scripts such as `S40k230_pocketos_defconfig`, the board defconfig the image is composed from); LILYGO's terms are needed for those. |
 | B8 | `rtl8723ds-bt` (PROPRIETARY, also ships the GPL-2.0+ `rtk_hciattach`), `rtl8723ds`, `aic8800` (70 firmware blobs, no terms) | firmware for chips the board does not have (RTL8189FTV only) | §14.2 | **Resolved (0.3.5, owner 2026-10-07):** the Doors fragment turns off `BR2_PACKAGE_RTL8723DS`, `_RTL8723DS_BT` and `_AIC8800` (absent hardware; `rtl8189fs`, the board's Wi-Fi, kept), and the package removes what they left in an existing target tree. The vendor post-build script writes the boot script's module loads from the selected packages, so it now loads only `8189fs`. |
@@ -414,11 +414,13 @@ sources at exact versions. Evidence class in brackets.
   built from the tag ASSUMED]. Notices `nncase-runtime`,
   `itlib-small-vector` (MIT, from the archive's header), `gsl-lite` (MIT,
   v0.41.0 archive LICENSE) [VERIFIED].
-- Toolchain runtime texts: glibc 2.33 `COPYING.LIB`, `COPYING`, `LICENSES`
-  from `XUANTIE-RV/glibc@29dd660` (branch `riscv-glibc-2.33-thead`; its
-  `version.h` says 2.33), GCC `COPYING3` and `COPYING.RUNTIME` from
+- Toolchain runtime licence texts: glibc 2.33 `COPYING.LIB` and
+  `LICENSES` from `XUANTIE-RV/glibc@29dd660` (branch `riscv-glibc-2.33-thead`;
+  its `version.h` says 2.33), GCC `COPYING3` and `COPYING.RUNTIME` from
   `XUANTIE-RV/gcc@c2e0bcc` (branch `xuantie-gcc-14.1.1`; `BASE-VER` 14.1.1)
-  [VERIFIED]. The toolchain itself ships no licence text [VERIFIED].
+  [VERIFIED]. These are the licences' texts only; the commits are not
+  established as the build's source (B9). The toolchain itself ships no
+  licence text [VERIFIED].
   Provenance and hashes: notices entries `glibc*`, `gcc-runtime*`.
 - Vendor package code with established terms (manifest entries in
   docs/legal/LOCAL_PACKAGES.md): `gsl-lite` MIT; `libmmz` and `display`
@@ -435,22 +437,41 @@ sources at exact versions. Evidence class in brackets.
    risk), or build public images without the KPU (pos-vision without
    `POCKETVISION_KPU`, no `libnncase`; COLOR, EDGE and LINE TRACE would need
    the helper to work without the KPU at all), or ask Canaan.
-2. B6: drop `face_detect` and `ai2d_kpu` (vendor demos; nothing of Doors
-   uses them, VERIFIED by `readelf`; FACE would need a model installed by
-   hand anyway), and decide on `camera_rtsp_demo`, `librtsp_server`,
-   `mvx_player`, `audio_demo`, `audio_rec_play`, `vg_lite`. Whether Camera
-   needs `isp_media_server` at run time is not established; it is
-   binary-only with no terms.
+2. B6: ~~drop `face_detect` and `ai2d_kpu`~~ **done** (owner, 2026-10-07:
+   unused vendor demos; nothing starts them and no Doors binary references
+   their files [VERIFIED]). Still to decide: `camera_rtsp_demo`,
+   `librtsp_server`, `mvx_player`, `audio_demo`, `audio_rec_play`,
+   `vg_lite`. **Camera needs `isp_media_server` at run time** [VERIFIED]:
+   the vendor boot script `S31canaan_isp` starts it, and Doors' camera reads
+   the vvcam ISP it drives (`core/pocketcam/pocketcam_v4l2.c` lines 7-8;
+   ADR-006; CAMERA_PLATFORM_RESEARCH.md lines 39 and 53). It cannot be
+   dropped without losing Camera and Vision; it is binary-only (V6.5.0) and
+   no terms were found.
 3. B8: ~~unset `RTL8723DS`, `RTL8723DS_BT` and `AIC8800`~~ **decided and done** (owner, 2026-10-07).
-4. B9: whether the XuanTie branch heads count as corresponding source, and
-   who makes the written source offer.
+4. B9: the corresponding source. XuanTie's V3.0.2 page offers binaries,
+   manuals and a ReleaseNote.pdf that needs a sign-in to download (not
+   read); no source archive or revision for build B-20250410 is published,
+   and GitHub's newest XuanTie toolchain tag is V3.0.1. The public fork
+   commits the notices' texts come from (glibc `29dd660`, gcc `c2e0bcc`)
+   are **not** established as this build's source (glibc `29dd660` is dated
+   after the build). No written offer can be made until the corresponding
+   source is in hand.
 5. B3b: when to read the keys on a unit. The KEYBOARD_BRINGUP §6 procedure
    used the vendor launcher's keyboard test page, which PR #47 removed, so it
    needs a card that still has the launcher or a small raw-key view in Doors.
 
-**Needs the vendor:** Canaan (nncase K230 modules, the wheel, the two
-kmodels, `isp_media_server`), Realtek and AICSemi (firmware, only if kept),
-LILYGO (BSP overlay and keymap).
+**Needs the vendor:** Canaan (the nncase K230 modules in the runtime
+archive, `isp_media_server`), XuanTie (the corresponding source of the
+toolchain build), LILYGO (BSP overlay and keymap). Draft inquiries for the
+owner: docs/licensing/inquiries/.
+
+**Also done in 0.3.5 (owner, 2026-10-07):** the nncase Python wheel
+(unused; it carried the K230 modules) is removed from the image after the
+build; `face_detect` and `ai2d_kpu` with both vendor models are off;
+`/lib/libasan.so.8` (copied by the vendor post-build outside any package,
+used by nothing) and libgfortran (no user; Fortran off) are gone; the vendor
+developer script `root/script/sensor.sh` is no longer in the image; the
+notices no longer label `ldd` GPL (it is LGPL-2.1-or-later).
 
 ### Non-blocking cleanup
 

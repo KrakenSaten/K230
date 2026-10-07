@@ -647,6 +647,25 @@ else
     echo "note: no RadioLib checkout here; the pin's value was not compared"
 fi
 
+# ---- vendor leftovers (0.3.5) ------------------------------------------------
+# What pos-vision builds against is selected by the package itself, now that
+# the vendor demo that used to select it is off; and the vendor leftovers the
+# overlay and the post-build script would put back are removed at apply time.
+CFG_IN=platforms/k230/package/pocketos/Config.in
+MK=platforms/k230/package/pocketos/pocketos.mk
+check "the pocketos package selects libnncase, libmmz and gsl-lite (pos-vision)" \
+      $(for s in LIBNNCASE LIBMMZ GSL_LITE; do grep -qx "	select BR2_PACKAGE_$s" "$CFG_IN" || exit 1; done; echo 1)
+check "and builds after gsl-lite" \
+      $(sed -n 's/^POCKETOS_DEPENDENCIES = //p' "$MK" | tr ' ' '\n' | grep -qx gsl-lite && echo 1 || echo 0)
+check "the nncase Python wheel is removed after every build" \
+      $(grep -q '^POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_NNCASE_WHEEL' "$MK" &&
+        grep -q 'site-packages/nncaseruntime_k230-\*.dist-info' "$MK" && echo 1 || echo 0)
+check "the dropped demos' files are removed from an existing target" \
+      $(grep -q 'face_detect:$(BR2_PACKAGE_FACE_DETECT) ai2d_kpu:$(BR2_PACKAGE_AI2D_KPU)' "$MK" && echo 1 || echo 0)
+check "apply_to_sdk removes sensor.sh, libasan and libgfortran, and the post-build libasan copy" \
+      $(grep -q 'for f in root/script/sensor.sh lib/libasan.so.8 lib/libgfortran.so.5' "$APPLY" &&
+        grep -qF "sed -i '/libasan\.so/d'" "$APPLY" && echo 1 || echo 0)
+
 # ---- the composed defconfig, executed --------------------------------------
 # compose_defconfig() taken out of apply_to_sdk.sh and run against the real
 # vendor checkout: the result is the vendor file at the pinned BSP commit, LF,
@@ -679,6 +698,12 @@ if git -C "$VBSP" cat-file -e "$PIN_BSP:$VDEF" 2>/dev/null; then
                 grep -qx "BR2_PACKAGE_$k=y" "$CMP/out" && exit 1
                 grep -qx "# BR2_PACKAGE_$k is not set" "$CMP/out" || exit 1
             done; grep -qx 'BR2_PACKAGE_RTL8189FS=y' "$CMP/out" && echo 1 || echo 0)
+    check "the vendor KPU demos and the toolchain's Fortran are off; OpenCV 4 stays" \
+          $(for k in PACKAGE_FACE_DETECT PACKAGE_AI2D_KPU TOOLCHAIN_EXTERNAL_FORTRAN; do
+                grep -qx "BR2_$k=y" "$CMP/out" && exit 1
+                grep -qx "# BR2_$k is not set" "$CMP/out" || exit 1
+            done; grep -qx 'BR2_PACKAGE_OPENCV4=y' "$CMP/out" && grep -qx 'BR2_PACKAGE_LIBNNCASE=y' "$CMP/out" &&
+            echo 1 || echo 0)
     printf '# BR2_PACKAGE_DOORS_NO_SUCH_THING is not set\n' > "$CMP/off.fragment"
     run_compose "$CMP/off.fragment" "$CMP/out3"
     check "turning off a package the vendor file does not switch on is refused (control)" \
