@@ -9,7 +9,8 @@
  * No pin, bus, timer or radio API is declared here on purpose: this tool
  * never touches hardware.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

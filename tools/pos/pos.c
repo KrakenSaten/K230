@@ -4,7 +4,8 @@
  * Read-only system, hardware and network inspection for developers, and the
  * clients for the services. One binary under two names; see pos_cli.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>

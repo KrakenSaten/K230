@@ -24,7 +24,8 @@
  * deadlines (20 s at least) are driven with mcd_runtime_remote_expire rather
  * than waited out.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdio.h>
 #include <stdlib.h>

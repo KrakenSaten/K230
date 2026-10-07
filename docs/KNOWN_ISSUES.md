@@ -1,8 +1,15 @@
 # Known issues and open questions
 
-Updated 2026-10-02 for v0.3.0 (tag `v0.3.0`; its summary of current
-limitations is in docs/releases/v0.3.0.md, the per-app details in
-docs/apps/ and the gate sheets). Move items to git history when resolved.
+Updated 2026-10-07 for v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
+v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
+per-app details are in docs/apps/ and the gate sheets). Move items to git
+history when resolved.
+
+- **RIFT's first use from Controls** (v0.3.5 notes, "RIFT on a fresh
+  card") passed on unit B from a fresh card (2026-10-07), the success path
+  only: no failure path (radiod or meshcored not coming back) was exercised
+  on hardware. A unit on the SX1262 with meshcored deliberately disabled is offered the
+  setup on a tap; `doors radio on|off` switches its radio alone.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -162,13 +169,12 @@ Unit A was not available.
   2 times in 24. Blocking signals in the helper (`543dc0e`) did not cure it.
   Finding the cause needs kernel-side debugging or the vendor.
 
-- **The kmodel is AGPL-3.0 and cleared for internal images only**
-  (docs/LICENSING.md item 10): the SDK ships `yolov8n.kmodel` without terms,
-  and it is compiled from Ultralytics weights (AGPL-3.0). v0.2.0 does not
-  carry it (install it with `tools/vision/install-model.sh`); from v0.2.1 the
-  package installs it at `/usr/share/doors/vision/`, with its notice. An
-  image carrying it must not be distributed outside the project until item
-  10 is decided for that.
+- **No detector model from 0.3.5**: the SDK's `yolov8n.kmodel` is
+  compiled from Ultralytics weights (AGPL-3.0) and was in the images 0.2.1
+  to 0.3.0 for internal use only (docs/LICENSING.md item 10). 0.3.5 does not
+  ship it; DETECT, TRACK and TRAFFIC are off (the app says so) and DeskBuddy
+  cannot see unless a face model is installed by hand. A DOORS-trained
+  replacement is in preparation.
 - **Weak detection in warm, dim light, and counts above the real
   crossings** (v0.2.1 fresh-flash smoke on unit B, docs/releases/v0.2.1.md):
   a person standing in full view was boxed in some frames only, at 35-59 %,
@@ -390,8 +396,6 @@ DEVICE VERIFIED unless it says so.
   screenshot support is a post-bring-up improvement.
 - UART3 is wired both to the CH342K USB-UART (channel 1) and, per BSP, to the
   optional nRF9151 base board. Potential conflict if both are used.
-- `aic8800` modules are modprobed by the vendor boot script although the board
-  has RTL8189FTV; harmless warnings expected in dmesg.
 - **The boot splash is intermittently black, on cold boots and warm reboots:
   a known vendor U-Boot / display-init limitation** (product owner,
   2026-09-16; v0.0.10 ships with it, docs/hardware/V0.0.10_RELEASE_SMOKE.md).
@@ -442,7 +446,13 @@ DEVICE VERIFIED unless it says so.
 
 - Xinyuan-LilyGO/T-Display-K230 (BSP scripts and launcher) has no licence.
   Treated as documentation only. Ask LILYGO.
-- PocketOS first-party licence undecided.
+- ~~PocketOS first-party licence undecided.~~ Doors is Apache-2.0 since
+  2026-10-01 (ADR-013). Publishing the source or an image is still blocked
+  by the keyboard tables copied from LILYGO's launcher (deferred until the
+  owner is at a unit), and for the image by the model, vendor packages,
+  launcher and firmware (docs/licensing/APACHE_2_READINESS.md §14). The
+  artwork is resolved: Apache-2.0, with the Doors brand reserved
+  (docs/licensing/BRAND.md).
 
 ## Build environment
 
@@ -967,10 +977,9 @@ Wave and ggwave:
   LVGL now ship in the image as /usr/share/doors/THIRD_PARTY_NOTICES.txt,
   linked from the old /usr/share/pocketos path (docs/LICENSING.md,
   "Third-party notices"). **Still blocking distribution, not merging:**
-  Doors' own licence (PocketOS through v0.0.9) is undecided and external
-  redistribution is not authorised; the toolchain's C/C++ runtime licences
-  and some vendor packages are not in legal-info (LICENSING.md open items 1,
-  5, 8).
+  the toolchain's C/C++ runtime licences and some vendor packages are not in
+  legal-info (LICENSING.md open items 5, 8). Doors' own licence (item 1) is
+  decided: Apache-2.0 (ADR-013).
 - Messages over 64 bytes from other ggwave programs are heard but not shown
   (reported as "could not decode").
 - The launcher grid now has six rows and is full: a twelfth app needs a

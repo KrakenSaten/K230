@@ -5,7 +5,8 @@
  * coordinates already, so there is no touch transform to derive here; the
  * DRM backend's is tested on its own (tests/display_touch_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "platform.h"
 

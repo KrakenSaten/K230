@@ -6,7 +6,8 @@
  * changed through the shell, which applies it and stores it; nothing here
  * keeps a value of its own between ticks.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "brightness.h"

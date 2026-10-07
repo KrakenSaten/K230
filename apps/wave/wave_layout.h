@@ -41,7 +41,8 @@
  *   Everywhere: Enter sends; after a send the touch keyboard goes away so
  *   the answer can be seen.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_LAYOUT_H
 #define POCKETWAVE_LAYOUT_H

@@ -4,7 +4,8 @@
  * ui/shell/CMakeLists.txt turns them into `bj_palette` in the build tree.
  * Interface colours never come from here: they are tokens.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGBJ_PALETTE_H
 #define PGBJ_PALETTE_H

@@ -24,7 +24,8 @@
  * Nothing here is ASSUMED to exist on the K230: the embedding model, its
  * input size and its dimension are open (docs/apps/DESKBUDDY.md, "Deferred").
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DB_IDENTITY_H
 #define DB_IDENTITY_H

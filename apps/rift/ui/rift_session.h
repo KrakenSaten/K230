@@ -11,7 +11,8 @@
  *                only what is RIFT's - its connection and what it gathered -
  *                and never meshcored or the radio, which RIFT does not own.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_SESSION_H
 #define RIFT_SESSION_H

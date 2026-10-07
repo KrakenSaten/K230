@@ -1,9 +1,11 @@
 /*
  * The power key's press timing (ui/shell/power_key.h): short and long
  * presses, the threshold on both sides, the release after a long press,
- * repeats and duplicate events, and a press ended by lost input.
+ * repeats and duplicate events, a press ended by lost input, and a press
+ * swallowed on purpose. The BOOT key uses the same timing.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "power_key.h"
 
@@ -146,6 +148,24 @@ int main(void)
     power_key_resync(&k, true);
     check("still down after a drop: the same press", k.state == POWER_KEY_DOWN &&
                                                          power_key_poll(&k, 100 + POWER_KEY_LONG_MS) == POWER_KEY_LONG);
+
+    /* ---- swallowed on purpose (a press that only woke the screen) ---- */
+    power_key_init(&k);
+    power_key_input(&k, 1, 100);
+    power_key_swallow(&k);
+    check("swallowed at its press: held, counted once", power_key_is_down(&k) && k.swallowed == 1);
+    check("a swallowed press never turns long", polls(&k, 100, 100 + 3 * POWER_KEY_LONG_MS) == 0 && k.longs == 0);
+    check("its release is nothing", power_key_input(&k, 0, 200) == POWER_KEY_NONE && k.shorts == 0 &&
+                                        !power_key_is_down(&k) && k.ignored == 0);
+    check("the next press is a press again", power_key_input(&k, 1, 300) == POWER_KEY_NONE &&
+                                                 power_key_input(&k, 0, 400) == POWER_KEY_SHORT);
+    power_key_init(&k);
+    power_key_swallow(&k);
+    check("nothing down: swallowing does nothing", k.state == POWER_KEY_UP && k.swallowed == 0);
+    power_key_input(&k, 1, 100);
+    power_key_poll(&k, 100 + POWER_KEY_LONG_MS);
+    power_key_swallow(&k);
+    check("after the long press: nothing to swallow, still long", k.state == POWER_KEY_LONG_FIRED && k.swallowed == 0);
 
     /* ---- the clock wrapping ---- */
     power_key_init(&k);

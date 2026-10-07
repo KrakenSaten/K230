@@ -19,6 +19,9 @@
 #        (gpioset, gpioinfo, pos-spixfer), 5 when the chip did not answer
 #        (BUSY never low, or wrong registers).
 #        POCKETOS_SX1262_SPI overrides the spidev node (default /dev/spidev0.0).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 
 set -u
 

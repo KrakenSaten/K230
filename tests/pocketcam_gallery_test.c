@@ -8,7 +8,8 @@
  * The JPEG half runs when the build has libjpeg (POCKETCAM_JPEG=1); the rest
  * runs in both builds.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketcam/pocketcam.h"
 #include "pocketcam/pocketcam_codec.h"

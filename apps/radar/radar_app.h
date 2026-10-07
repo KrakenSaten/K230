@@ -15,7 +15,8 @@
  * The engine below apps/radar/engine knows nothing about LVGL and does no
  * I/O; the screens read run state and call the referee.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETRADAR_APP_H
 #define POCKETRADAR_APP_H

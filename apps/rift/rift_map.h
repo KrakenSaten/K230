@@ -14,7 +14,8 @@
  * Only nodes whose adverts carried a valid location (rift_node.have_location)
  * are placed; nothing is ever given a position it did not claim.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_MAP_H
 #define RIFT_MAP_H

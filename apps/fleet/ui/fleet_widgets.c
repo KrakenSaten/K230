@@ -1,7 +1,8 @@
 /*
  * PocketFleet local widgets. See fleet_widgets.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_widgets.h"
 

@@ -2,7 +2,8 @@
  * RIFT colour emoji: an LVGL font that draws Noto Color Emoji images
  * (rift_emoji_font.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_emoji_font.h"
 

@@ -1,7 +1,8 @@
 /*
  * The parts of SYSTEM's management panels. See rift_form.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_form.h"
 

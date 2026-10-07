@@ -7,7 +7,8 @@
  * mated, unmated, or flickering between the two changes the orientation is
  * here, where it can be run a thousand times without a screwdriver.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_presence.h"
 

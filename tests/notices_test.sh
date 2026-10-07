@@ -14,11 +14,13 @@
 #   - The notices are installed into the image, handed to legal-info, and sent
 #     by the bench deploy; pocketos.hash holds their sha256 for legal-info, and
 #     a notices file that no longer matches it is refused.
-#   - Doors' own licence (PocketOS through v0.0.9) stays undecided: no licence
-#     file, the package says so and is not redistributable, and the notices
-#     say so first.
+#   - Doors' own licence is Apache-2.0 (ADR-013): LICENSE is the unmodified
+#     Apache License 2.0 text and the only licence file at the root, NOTICE
+#     exists, both are installed, collected and hashed like the notices, the
+#     package names Apache-2.0 for Doors, and the notices say so first.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0
@@ -75,8 +77,18 @@ check "RadioLib's entry names the pinned commit" \
     "$([ "$(commit_of radiolib)" = "$(cat platforms/k230/vendor_radiolib_commit.txt)" ] && echo 1 || echo 0)"
 check "ggwave's entry names the pinned commit" \
     "$([ "$(commit_of ggwave)" = "$(cat platforms/k230/vendor_ggwave_commit.txt)" ] && echo 1 || echo 0)"
-check "LVGL's entry names the commit the defconfig builds" \
-    "$([ "$(commit_of lvgl)" = "$(tr -d '\r' < platforms/k230/configs/k230_pocketos_defconfig | sed -n 's/^BR2_PACKAGE_LVGL_CUSTOM_VERSION="\(.*\)"$/\1/p')" ] && echo 1 || echo 0)"
+check "LVGL's entry names the pinned commit" \
+    "$([ "$(commit_of lvgl)" = "$(tr -d '\r\n' < platforms/k230/vendor_lvgl_commit.txt)" ] && echo 1 || echo 0)"
+# The pin is what the vendor board defconfig builds, at the pinned BSP commit
+# (Doors keeps no copy of that defconfig; apply_to_sdk.sh composes it).
+VDEF=k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig
+if git -C vendor/T-Display-K230 cat-file -e "$(cat platforms/k230/vendor_bsp_commit.txt):$VDEF" 2>/dev/null; then
+    check "and that is the LVGL the vendor board defconfig builds at the pinned BSP commit" \
+        "$(git -C vendor/T-Display-K230 show "$(cat platforms/k230/vendor_bsp_commit.txt):$VDEF" | tr -d '\r' |
+           grep -qx "BR2_PACKAGE_LVGL_CUSTOM_VERSION=\"$(tr -d '\r\n' < platforms/k230/vendor_lvgl_commit.txt)\"" && echo 1 || echo 0)"
+fi
+check "apply_to_sdk.sh refuses a composed defconfig that builds another LVGL" \
+    "$(grep -q 'the composed defconfig does not build LVGL' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
 
 # ---- nothing third-party reaches a binary without an entry --------------
 # Vendored source the GNU make tree compiles.
@@ -233,6 +245,9 @@ for d in $deps; do
         # with libswscale as well.
         cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
+        # gsl-lite: header-only, included by the nncase headers pos-vision
+        # compiles against; selected by the package since 0.3.5.
+        gsl-lite) [ "$(has_id gsl-lite)" = 1 ] || unknown="$unknown gsl-lite" ;;
         *) unknown="$unknown $d" ;;
     esac
 done
@@ -252,7 +267,9 @@ mkdir -p "$TMPD/pkg"
 git archive --format=tar HEAD -- $PATHSPEC 2>/dev/null | tar -x -C "$TMPD/pkg" 2>/dev/null
 check "the committed package source carries the notices, their sources and the tool" \
     "$([ -f "$TMPD/pkg/THIRD_PARTY_NOTICES.txt" ] && [ -f "$TMPD/pkg/$SOURCES" ] && [ -f "$TMPD/pkg/$GEN" ] && echo 1 || echo 0)"
-check "legal-info collects the notices" "$(grep -q '^POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt$' "$MK" && echo 1 || echo 0)"
+check "legal-info collects the notices, and Doors' LICENSE and NOTICE with them" \
+    "$(set -- $(sed -n 's/^POCKETOS_LICENSE_FILES = //p' "$MK")
+       for f in LICENSE NOTICE THIRD_PARTY_NOTICES.txt; do printf '%s\n' "$@" | grep -qx "$f" || exit 1; done; echo 1)"
 check "the bench deploy sends them like the image carries them, link included" \
     "$([ "$(grep -c 'usr/share/doors/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/deploy.sh)" -ge 2 ] &&
        [ "$(grep -c 'usr/share/pocketos/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/deploy.sh)" -ge 2 ] && echo 1 || echo 0)"
@@ -278,9 +295,11 @@ done
 check "every licence file legal-info collects has a sha256 there${missing:+ (missing:$missing)}" \
     "$([ -z "$missing" ] && echo 1 || echo 0)"
 git show "HEAD:$HASHF" > "$TMPD/head.hash" 2>/dev/null
-check "the committed pocketos.hash holds the sha256 of the committed notices" \
-    "$(want=$(hash_of "$TMPD/head.hash" THIRD_PARTY_NOTICES.txt)
-       [ -n "$want" ] && [ "$want" = "$(git show "HEAD:$NOTICES" | sha256sum | cut -d' ' -f1)" ] && echo 1 || echo 0)"
+for f in "$NOTICES" LICENSE NOTICE; do
+    check "the committed pocketos.hash holds the sha256 of the committed $f" \
+        "$(want=$(hash_of "$TMPD/head.hash" "$f")
+           [ -n "$want" ] && [ "$want" = "$(git show "HEAD:$f" | sha256sum | cut -d' ' -f1)" ] && echo 1 || echo 0)"
+done
 check "apply_to_sdk.sh requires it, checks it with the notices, and installs it from the snapshot" \
     "$(grep -q '^         platforms/k230/package/pocketos/pocketos.hash; do$' platforms/k230/scripts/apply_to_sdk.sh &&
        awk '/^NOTICES_DIR="\$\(mktemp -d\)"$/{a=NR} /^    platforms\/k230\/package\/pocketos\/pocketos\.hash \\$/{h=NR}
@@ -296,8 +315,8 @@ G="$TMPD/hashguard"
 mkdir -p "$G/tools" "$G/third_party" "$G/docs/legal" "$G/$(dirname "$HASHF")"
 cp -r tools/legal "$G/tools/"; cp -r third_party/notices "$G/third_party/"
 cp -r docs/legal/fonts docs/legal/third-party "$G/docs/legal/"
-cp "$NOTICES" "$G/"; cp "$HASHF" "$G/$HASHF"
-reset_guard() { cp "$NOTICES" "$G/"; cp "$HASHF" "$G/$HASHF"; cp third_party/notices/texts/unscii-8.txt "$G/third_party/notices/texts/"; }
+cp "$NOTICES" LICENSE NOTICE "$G/"; cp "$HASHF" "$G/$HASHF"
+reset_guard() { cp "$NOTICES" LICENSE NOTICE "$G/"; cp "$HASHF" "$G/$HASHF"; cp third_party/notices/texts/unscii-8.txt "$G/third_party/notices/texts/"; }
 guard() { bash "$G/$GEN" --check 2>&1; }
 check "a scratch copy passes the check" "$(guard > /dev/null && echo 1 || echo 0)"
 printf 'edited by hand\n' >> "$G/$NOTICES"
@@ -319,42 +338,45 @@ check "a wrong hash is refused" \
        ! guard > /dev/null && echo 1 || echo 0)"
 reset_guard; rm -f "$G/$HASHF"
 check "a missing hash file is refused" "$(guard > /dev/null && echo 0 || echo 1)"
+reset_guard; printf 'edited by hand\n' >> "$G/NOTICE"
+out=$(guard); rc=$?
+check "an edit to Doors' NOTICE without a new hash is refused, and the stale hash named" \
+    "$([ $rc -ne 0 ] && printf '%s\n' "$out" | grep -q '^FAIL .*pocketos.hash' && echo 1 || echo 0)"
+reset_guard; rm -f "$G/LICENSE"
+check "and so is a tree without LICENSE" "$(guard > /dev/null 2>&1 && echo 0 || echo 1)"
+reset_guard
 
 # ---- the Vision model (docs/LICENSING.md item 10) ----------------------------
-# The package installs the SDK's yolov8n.kmodel, AGPL-3.0, for internal images.
-# Its notice is a statement written here followed by the FSF's licence text,
-# which must stay unchanged, and the package must refuse the model without its
-# notice or without the pinned hash.
-MODEL_SHA=tools/vision/yolov8n.kmodel.sha256
-MODEL_TEXT=third_party/notices/texts/yolov8n-kmodel.txt
-pinned=$(cut -c1-64 "$MODEL_SHA" 2>/dev/null)
-check "the Vision model's notice ends with the FSF's AGPL-3.0 text, unchanged" \
-    "$([ "$(sed -n '/^-----BEGIN AGPL-3.0-----$/,$p' "$MODEL_TEXT" | tail -n +2 | sha256sum | cut -d' ' -f1)" = \
-        0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0 ] && echo 1 || echo 0)"
-check "its entry and its text name the model the package pins" \
-    "$([ -n "$pinned" ] && grep -q "^yolov8n-kmodel [|] .*sha256 $pinned" "$SOURCES" &&
-       grep -q "$pinned" "$MODEL_TEXT" && echo 1 || echo 0)"
-check "the package installs the model only with its notice and its pinned hash" \
-    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | tr '\n' ' ' |
-       grep -q "grep -q '^yolov8n-kmodel \*|' .*SOURCES .*exit 1; } .*sha256sum -c \$(@D)/$MODEL_SHA .*\$(INSTALL) -D -m 0644 .*yolov8n.kmodel \$(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel" &&
-       echo 1 || echo 0)"
-VMODEL=vendor/T-Display-K230/k230_linux_sdk/buildroot-overlay/package/yolo/utils/yolov8n.kmodel
-if [ -f "$VMODEL" ]; then
-    check "the pinned hash is the vendor SDK's yolov8n.kmodel" \
-        "$([ "$(sha256sum < "$VMODEL" | cut -d' ' -f1)" = "$pinned" ] && echo 1 || echo 0)"
-fi
+# Up to 0.3.0 the package installed the SDK's yolov8n.kmodel (AGPL-3.0) for
+# internal images, with a notice. From 0.3.5 no detector model ships, so the
+# notices name none: a notice for material the image does not carry would
+# say it does. The package-side refusal is tests/license_audit_test.sh's.
+check "the notices carry no entry for a Vision model the image does not ship" \
+    "$(grep -q -i -E '^[a-z0-9-]*(yolo|kmodel)[a-z0-9-]* *[|]' "$SOURCES" && echo 0 || echo 1)"
+check "and no notices text for one either" \
+    "$(ls third_party/notices/texts/ 2>/dev/null | grep -q -i -E 'yolo|kmodel' && echo 0 || echo 1)"
+check "the package installs no model file" \
+    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -E '\$\(INSTALL\)' | grep -q -i 'kmodel' && echo 0 || echo 1)"
 
-# ---- Doors' own licence (PocketOS through v0.0.9): undecided -----------------
-check "no licence file claims a licence for Doors" \
-    "$(for f in LICENSE LICENSE.txt LICENSE.md LICENCE COPYING; do [ -e "$f" ] && exit 1; done; echo 1)"
-check "the package declares the licence not yet decided, with no licence granted" \
-    "$(grep -q '^POCKETOS_LICENSE = Not yet decided (Doors; no licence granted)' "$MK" && echo 1 || echo 0)"
-check "and not redistributable, so legal-info does not publish Doors' source" \
+# ---- Doors' own licence: Apache-2.0 (ADR-013) ------------------------------
+# The sha256 of the licence text exactly as the ASF publishes it
+# (https://www.apache.org/licenses/LICENSE-2.0.txt, 11,358 bytes). OpenCV's
+# copy in docs/legal/licenses/opencv4-4.10.0/LICENSE is the same bytes, so the
+# value can be re-checked without a network.
+APACHE_SHA=cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+check "LICENSE is the Apache License 2.0 text, unmodified" \
+    "$([ -f LICENSE ] && [ "$(sha256sum < LICENSE | cut -d' ' -f1)" = "$APACHE_SHA" ] && echo 1 || echo 0)"
+check "and the only licence file at the root" \
+    "$(for f in LICENSE.txt LICENSE.md LICENCE LICENCE.txt LICENCE.md COPYING COPYING.txt; do [ -e "$f" ] && exit 1; done; echo 1)"
+check "NOTICE carries Doors' copyright line and points to the third-party notices" \
+    "$([ -s NOTICE ] && grep -qx 'Copyright (c) 2026 PocketOS authors' NOTICE &&
+       grep -q 'THIRD_PARTY_NOTICES.txt' NOTICE && echo 1 || echo 0)"
+check "the package names Apache-2.0 for Doors, before the licences of what it contains" \
+    "$(grep -q '^POCKETOS_LICENSE = Apache-2.0 (Doors), ' "$MK" && echo 1 || echo 0)"
+check "and still keeps its source out of legal-info until the readiness audit clears it" \
     "$(grep -q '^POCKETOS_REDISTRIBUTE = NO$' "$MK" && echo 1 || echo 0)"
-check "the notices say so before anything else" \
-    "$(head -8 "$NOTICES" | tr '\n' ' ' | grep -q 'no licence has been chosen for the code of Doors .*No licence to it is granted.*not authorised' && echo 1 || echo 0)"
-check "and tie the statement to the PocketOS name the copyright lines still carry" \
-    "$(head -8 "$NOTICES" | tr '\n' ' ' | grep -q 'called PocketOS through v0.0.9; its source files still name "PocketOS authors"' && echo 1 || echo 0)"
+check "the notices say first that Doors is Apache-2.0 and what follows is not" \
+    "$(head -12 "$NOTICES" | tr '\n' ' ' | grep -q 'is licensed under the Apache License, Version 2.0\..*not covered by Doors. licence' && echo 1 || echo 0)"
 
 echo "notices_test: $failed failure(s)"
 exit $((failed > 0))

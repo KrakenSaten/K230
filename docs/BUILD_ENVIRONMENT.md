@@ -62,7 +62,10 @@ stack on top of the pinned SDK commit and will break on a different SDK.
 ## Build Doors (inside WSL2 Ubuntu)
 
 The Doors scripts wrap the vendor flow below and add the Doors package (the
-Buildroot package `pocketos`) and defconfig (`k230_pocketos_defconfig`). The
+Buildroot package `pocketos`) and defconfig (`k230_pocketos_defconfig`, composed at
+apply time from the vendor board defconfig at the pinned BSP commit plus
+`platforms/k230/configs/k230_pocketos.fragment`; the repository keeps no copy of
+the vendor file). The
 vendor checkout lives in the Linux filesystem, the Doors repository on /mnt/c
 is only read and rsynced from.
 

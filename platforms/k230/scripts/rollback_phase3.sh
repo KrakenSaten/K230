@@ -21,6 +21,9 @@
 #   not this phase's, and the pre-Phase-3 deploy carries them too.
 #
 # Usage: rollback_phase3.sh <ip> [--dry-run]
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 TARGET_HOST="${1:?usage: rollback_phase3.sh <ip> [--dry-run]}"

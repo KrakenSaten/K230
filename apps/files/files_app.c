@@ -45,7 +45,8 @@
  * layout, so nothing selected, typed or carried is lost when the shape
  * changes; the list's rows are the only thing rebuilt, from the directory.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "files_fs.h"

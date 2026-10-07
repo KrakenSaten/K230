@@ -6,7 +6,8 @@
  * scoring model is small enough to state exactly, and a change to it is a
  * change to the game, so it should have to be written down twice.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "radar_score.h"
 

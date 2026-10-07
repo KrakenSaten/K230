@@ -15,7 +15,8 @@
  * local date, and this module only arranges it. tests/cal_date_test.c pins
  * the arithmetic to PocketClock's own weekday so the two cannot disagree.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCALENDAR_DATE_H
 #define POCKETCALENDAR_DATE_H

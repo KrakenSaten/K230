@@ -2,7 +2,8 @@
  * radiod mock backend: no hardware, real airtime maths, injectable packets.
  * Behaviour is deterministic so tests can pin values.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "airtime.h"
 #include "radio_backend.h"

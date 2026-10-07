@@ -8,7 +8,8 @@
  * retired with its track; last, max and mean; reset; the distance; many
  * tracks at once. The clock is fed, never read.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_traffic.h"
 

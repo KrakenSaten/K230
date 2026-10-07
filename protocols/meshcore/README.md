@@ -426,4 +426,4 @@ should be rewritten to assert the fixed behaviour.
    decide — noted so that whoever writes the service does not build on the
    flag. `meshcore_smoke_test.cpp` deliberately does not depend on it.
 
-Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+Copyright (c) 2026 PocketOS authors. Licensed under the Apache License, Version 2.0 (see LICENSE at the repository root).

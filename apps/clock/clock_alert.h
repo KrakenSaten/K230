@@ -33,7 +33,8 @@
  * backend registered here, and nothing in the engine, the store or the views
  * changes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCLOCK_ALERT_H
 #define POCKETCLOCK_ALERT_H

@@ -7,7 +7,8 @@
  * holds at the wide shape's 34 px cells too: a ship put a square out is put
  * right by tapping again, and nothing is committed until CONFIRM.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "../fleet_app.h"
 

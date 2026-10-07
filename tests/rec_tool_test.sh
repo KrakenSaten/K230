@@ -9,7 +9,8 @@
 # tests/pos-record-testhooks). No sound card is used: the test-hooks helper's
 # is files (tests/fake_audio_backend.c).
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

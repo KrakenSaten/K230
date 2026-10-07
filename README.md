@@ -10,6 +10,8 @@ LoRa radio, camera and hardware AI acceleration.
 
 **[Get started](docs/GETTING_STARTED.md)**: download an image, write a
 microSD card and boot DOORS, no development tools needed.
+**[Download DOORS 0.3.5](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**
+(the latest release).
 
 ![DOORS for the LILYGO T-Display K230](docs/images/doors-poster.jpg)
 
@@ -34,9 +36,10 @@ communication, local AI, everyday tools, games and further development.
 - **Fleet** — naval battle, solo against the device or multiplayer between two
   DOORS devices over LoRa, with chat between shots.
 - **Wave** — short text messages sent and received as sound.
-- **Vision** — camera and KPU: DETECT, TRACK, TRAFFIC (vehicles counted across a
-  line), COLOR, EDGE and LINE TRACE; FACE, READ and RECOGNIZE when their models
-  are installed (docs/apps/VISION.md).
+- **Vision** — camera and KPU: COLOR, EDGE and LINE TRACE; DETECT, TRACK and
+  TRAFFIC (vehicles counted across a line) with a detector model, which 0.3.5
+  does not ship; FACE, READ and RECOGNIZE when their models are installed
+  (docs/apps/VISION.md).
 - **DeskBuddy** — a desk companion with BUDDY, GUARD and NIGHT modes.
 - **Terminal** — a real Linux shell with a kept session.
 - **Files** — the card and USB drives.
@@ -81,9 +84,21 @@ docs/BUILD_ENVIRONMENT.md.
 
 ## Licence
 
-DOORS' own licence is not decided yet: no licence is granted for its code,
-and redistribution is not authorised until it is (docs/LICENSING.md).
-Third-party components keep their own licences (THIRD_PARTY_NOTICES.txt).
+DOORS' own code is licensed under the Apache License, Version 2.0: see
+LICENSE and NOTICE (ADR-013). Third-party components keep their own licences
+(THIRD_PARTY_LICENSES.md; the texts the image ships are in
+THIRD_PARTY_NOTICES.txt), and the Vision models are documented separately in
+MODEL_LICENSES.md. The Doors mark, lockups and boot splash are not
+Apache-2.0: they may be redistributed unmodified as part of Doors
+(docs/licensing/BRAND.md).
+
+A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
+the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
+keep their own licences. Not everything in this repository is Apache-2.0
+either. Doors 0.3.5 is published on the product owner's decision with some
+third-party questions still open (the vendor's KPU runtime modules and ISP
+server, the toolchain's source, LILYGO's files);
+docs/licensing/APACHE_2_READINESS.md §14 lists them.
 
 ## Repository
 
@@ -99,6 +114,10 @@ as its permanent alias.
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    Doors version
+LICENSE                    Apache License 2.0, the licence of Doors' own code (ADR-013); NOTICE beside it
+THIRD_PARTY_LICENSES.md    Inventory of third-party material and how each licence sits with Apache-2.0
+MODEL_LICENSES.md          Licence status of every Vision model
+CONTRIBUTING.md            Contributions: Apache-2.0, DCO sign-off, source headers
 THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries and LVGL (generated; installed in /usr/share/doors/, linked from /usr/share/pocketos/)
 third_party/notices/       Sources of those notices: the component list and verbatim licence texts
 apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer), solitaire, blackjack and 2048 (Pocket Games, docs/apps/PG*.md), deskbuddy (DeskBuddy, docs/apps/DESKBUDDY.md), terminal, vision, browser, camera, photo, video, mp3, recorder, wave, zabbix (docs/apps/)
@@ -123,8 +142,9 @@ docs/
   services/MESHCORED.md    The MeshCore service: ownership, persistence, safety and how to enable it on a unit
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
-  LICENSING.md             Licence register for vendor and third-party code; Doors' own licence is not decided, and redistribution is not authorised until it is
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-006 to ADR-012 and their status: docs/decisions/README.md)
+  LICENSING.md             Licence register for vendor and third-party code (Doors itself: Apache-2.0)
+  licensing/                Apache-2.0 readiness audit and its blockers, B1 artwork questions, asset inventory, public-source exclusions
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-006 to ADR-013 and their status: docs/decisions/README.md; ADR-013 licence, Apache-2.0: Accepted)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
@@ -147,19 +167,25 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) is the current release: the
+**Doors 0.3.5** (tag `v0.3.5`, 2026-10-07) is the current release:
+**[download it](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**,
+then follow [Get started](docs/GETTING_STARTED.md). It is everything merged
+up to PR #65 - a fresh card boots straight into
+Doors and the vendor launcher is gone, RIFT set up from Controls without a
+shell, RIFT colour emoji, repeater control, RX LOG and reliability work, USB
+storage and card expansion, Settings in categories, the physical power key
+and the BOOT button. Doors' own code is Apache-2.0; the Vision detector
+model is no longer in the image (DETECT, TRACK and TRAFFIC are off, the rest
+of Vision works). Release notes, with its fresh-card test:
+[docs/releases/v0.3.5.md](docs/releases/v0.3.5.md).
+
+**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) was the previous release: the
 Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
 Video, MP3, DeskBuddy, Solitaire, Blackjack and 2048; launcher favourites
 and folders; the system text size; the keyboard base's own keys; Fleet chat;
 RIFT channel and node management. The image is for internal use only
 (docs/LICENSING.md items 1 and 10). Release notes, with its fresh-flash
 smoke: [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md).
-
-**On master since v0.3.0** (not yet released): RIFT colour emoji, the Public
-channel as a standard channel, RIFT MAP and SYSTEM, room for 1000 nodes in
-RIFT and meshcored, USB storage in Files, expanding the root filesystem over
-the microSD card from System, a freshly flashed card booting straight into
-Doors, and the vendor launcher removed from the image.
 
 Earlier releases, from v0.2.1 back to the first PocketOS images:
 [docs/releases/HISTORY.md](docs/releases/HISTORY.md).

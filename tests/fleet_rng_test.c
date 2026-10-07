@@ -6,7 +6,8 @@
  * external reference: it exists so a future change to fleet_rng.c that would
  * silently invalidate every saved game fails here first.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_rng.h"
 

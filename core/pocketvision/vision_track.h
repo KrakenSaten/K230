@@ -54,7 +54,8 @@
  * was last clearly on of each virtual line, with the settling that keeps a
  * jitter from counting.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_TRACK_H
 #define POCKETOS_VISION_TRACK_H

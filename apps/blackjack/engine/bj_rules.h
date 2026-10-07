@@ -34,7 +34,8 @@
  * Pure C: no LVGL, no I/O, no floating point, no clock (tests/bj_lint.sh).
  * Nothing here knows where a card is drawn.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGBJ_RULES_H
 #define PGBJ_RULES_H

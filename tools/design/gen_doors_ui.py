@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Generate the DOORS shell's runtime art from the approved visual package.
 
     gen_doors_ui.py [--check] [--only backgrounds|icons|glyphs] [--compare]

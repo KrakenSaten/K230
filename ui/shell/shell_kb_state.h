@@ -14,7 +14,8 @@
  *
  * Deliberately not in app.h: an app must never learn that an alert exists.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SHELL_KB_STATE_H
 #define POCKETOS_SHELL_KB_STATE_H

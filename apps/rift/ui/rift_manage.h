@@ -18,7 +18,8 @@
  * reaches peers in this node's next advert (the ADVERT buttons are right
  * above), and a path hash size applies to the next flood.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_MANAGE_H
 #define RIFT_MANAGE_H

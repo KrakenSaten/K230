@@ -24,7 +24,8 @@
  * If the Doors shell dies instead, the kernel closes the master: the program
  * gets SIGKILL (PR_SET_PDEATHSIG) and its foreground job SIGHUP.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef TERM_PTY_H
 #define TERM_PTY_H

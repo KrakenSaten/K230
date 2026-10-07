@@ -3,7 +3,8 @@
  * clock quantisation against the pinned kernel's rule, EDID decoding, the
  * choice of a safe test mode, and the test pattern.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "drmtest_logic.h"
 

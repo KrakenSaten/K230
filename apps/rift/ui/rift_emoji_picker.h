@@ -23,7 +23,8 @@
  * hidden, disabled or deleted, it lost the keys (Tab, a dialog), the screen
  * was laid out again (a turn, the touch keyboard), or RIFT's screen left.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_EMOJI_PICKER_H
 #define RIFT_EMOJI_PICKER_H

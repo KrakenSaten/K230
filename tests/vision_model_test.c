@@ -6,7 +6,8 @@
  * the helper's caps, and both shapes on the reference panel in every mode
  * with every control a usable, safe, non-overlapping target - the sheet too.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_layout.h"
 #include "vision_model.h"
@@ -993,9 +994,60 @@ static void test_trails(void)
                                               vision_trails_points(&tr, VISION_TRAIL_TRACKS, xs, ys, 8) == 0);
 }
 
+/* A unit without the detector model: the helper offers the pixel modes
+ * only. The app runs the first of them, says why the detector's modes are
+ * gone under it, keeps the owner's DETECT setting for when the model comes
+ * back, and refuses the detector's modes. */
+static void test_no_detector(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_event e;
+    char buf[384];
+    unsigned acts;
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    e = ev(VISION_EV_READY);
+    snprintf(e.text, sizeof(e.text), "fake");
+    snprintf(e.name, sizeof(e.name), "none");
+    e.w = 640;
+    e.h = 360;
+    e.value = 0;
+    vision_model_event(&m, &e, NULL, 1000);
+    check("ready without a detector is LIVE", m.state == VISION_LIVE && m.classes == 0);
+    e = ev(VISION_EV_CAPS);
+    e.value = (1 << VISION_MODE_COLOR) | (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE);
+    acts = vision_model_event(&m, &e, NULL, 1010);
+    check("caps without the detector moves to the first mode offered, COLOR, and tells the helper",
+          m.mode == VISION_MODE_COLOR && (acts & VISION_ACT_MODE));
+    check("the owner's setting stays DETECT", m.set.mode == VISION_MODE_DETECT);
+    check("the detector's modes are not offered",
+          !vision_model_detector(&m) && !vision_model_offered(&m, VISION_MODE_DETECT) &&
+              !vision_model_offered(&m, VISION_MODE_TRACK) && !vision_model_offered(&m, VISION_MODE_TRAFFIC));
+    check("and cannot be chosen", vision_model_set_mode(&m, VISION_MODE_TRAFFIC) == 0 && m.mode == VISION_MODE_COLOR);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_FRAME }, NULL, 1100);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the status keeps the mode's line and says why under it",
+          t.show_picture && strncmp(t.status, "Tap the picture", 15) == 0 &&
+              strstr(t.status, "\n" VISION_NO_DETECTOR_TEXT) != NULL);
+    check("with a status line more for it", vision_model_status_lines(&m) == 2);
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    e = ev(VISION_EV_CAPS);
+    e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) | (1 << VISION_MODE_COLOR) |
+              (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE);
+    vision_model_event(&m, &e, NULL, 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("with the detector nothing of this is said",
+          vision_model_detector(&m) && strstr(t.status, VISION_NO_DETECTOR_TEXT) == NULL && vision_model_status_lines(&m) == 1);
+}
+
 int main(void)
 {
     test_states();
+    test_no_detector();
     test_picker();
     test_track_and_traffic();
     test_tools();

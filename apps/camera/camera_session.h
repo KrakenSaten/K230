@@ -39,7 +39,8 @@
  * Pure C, no LVGL, clock passed in: tested on a host against the real helper
  * with the fake backend (tests/camera_session_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef CAMERA_SESSION_H
 #define CAMERA_SESSION_H

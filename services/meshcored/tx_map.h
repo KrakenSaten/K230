@@ -26,7 +26,8 @@
  * completion from the previous transmit cannot be mistaken for the current
  * one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_TX_MAP_H
 #define MCD_TX_MAP_H

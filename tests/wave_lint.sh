@@ -19,7 +19,8 @@
 #     modem's volume cap and Wave's default volume stay where they are.
 #   - The tests are part of make test.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

@@ -18,7 +18,8 @@
  * The fake network's images ("DOORS-FAKE-IMAGE <w> <h>") are drawn here too,
  * in any build, so the tests and the simulator's demo need no decoder.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WEB_IMAGE_H
 #define POCKETOS_WEB_IMAGE_H

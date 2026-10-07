@@ -17,7 +17,8 @@
  * location - is said to have none. There is no basemap: no tiles, no
  * download, no service (docs/apps/RIFT.md, "MAP").
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_MAPVIEW_H
 #define RIFT_MAPVIEW_H

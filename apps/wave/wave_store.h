@@ -27,7 +27,8 @@
  * (tests/wave_lint.sh). Tested against a temporary state directory in
  * tests/wave_store_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_STORE_H
 #define POCKETWAVE_STORE_H

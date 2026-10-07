@@ -1,16 +1,18 @@
 # Get started with DOORS
 
 This guide takes you from a downloaded DOORS image to a working device:
-write the microSD card, boot, join Wi-Fi and find your way around. You do
-not need a compiler or a development environment.
+write the microSD card, boot, join Wi-Fi, set up RIFT and find your way
+around. You do not need a compiler or a development environment.
 
-> **Availability.** DOORS has no public release yet. The images published
-> so far, up to and including v0.3.0, are for internal development and
-> testing only: DOORS' own licence is still being finalised and those
-> images carry an AGPL-3.0 AI model (docs/LICENSING.md, items 1 and 10).
-> This guide is written for the first public release and describes v0.3.0,
-> the current image. Read the release notes of the image you download; they
-> are the authority on what that image contains.
+It describes **DOORS 0.3.5**, the current release
+(<https://github.com/KrakenSaten/K230/releases/tag/v0.3.5>). The release
+notes ([docs/releases/v0.3.5.md](releases/v0.3.5.md)) are the authority on
+what an image contains; read them for the image you download.
+
+> **Licences.** DOORS' own code is Apache-2.0. The image is a whole Linux
+> system and is not Apache-2.0 as a whole: its parts keep their own
+> licences (THIRD_PARTY_NOTICES.txt, in the image and on the release). The
+> release notes list the third-party questions that are still open.
 
 ## 1. What you need
 
@@ -19,8 +21,7 @@ not need a compiler or a development environment.
   F-key shortcuts.
 - A **microSD card**. Everything DOORS uses lives on it (bootloader,
   kernel and system), so it replaces whatever the card held before. The
-  v0.3.0 image is 763 MB once unpacked, so the card must be larger than
-  that.
+  image is 763 MB once unpacked, so the card must be larger than that.
 - A **microSD card reader** for your computer: a built-in slot or a USB
   reader.
 - A **USB-C cable** and power for the K230.
@@ -29,36 +30,32 @@ not need a compiler or a development environment.
 - For RIFT (LoRa messaging, section 6): a **LoRa antenna** connected to the
   radio before the radio is switched on.
 
-For v0.3.0 only, you also need a one-time serial connection; see section 4.
-
 ## 2. Download the image
 
-Images are attached to the releases on the project's GitHub page:
-<https://github.com/KrakenSaten/K230/releases>.
-
-Each release has three files. You need the first; the second lets you
-check it:
+Open the release page,
+<https://github.com/KrakenSaten/K230/releases/tag/v0.3.5>, and download:
 
 | File | What it is |
 |---|---|
-| `doors-<version>-tdisplay-k230-<build>.img.gz` | The card image, compressed. For v0.3.0: `doors-0.3.0-tdisplay-k230-2956eff.img.gz` |
-| `doors-<version>-tdisplay-k230-<build>.img.gz.sha256` | Its SHA-256 checksum |
-| `BUILD_INFO.txt` | How the image was built; not needed to install |
+| `doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz` | **The card image, compressed. This is the one you need.** |
+| `doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz.sha256` | Its SHA-256 checksum |
 
-Do not download "Source code (zip)" or "Source code (tar.gz)": those are
-the source, not an image. Keep the `.img.gz` file as it is; both tools
-below unpack it while writing.
+The release also carries `SHA256SUMS.txt` (the checksums of every file),
+`BUILD_INFO.txt` (how the image was built), the licence and notices files,
+and `doors-0.3.5-3d4ea6e-legal-info.tar` (about 880 MB of third-party
+source material). None of these is needed to install. "Source code (zip)"
+and "Source code (tar.gz)" are DOORS' own source, not an image.
 
-**Check the download** (recommended). Compare the file's SHA-256 with the
-value in the `.sha256` file, or with the one in the release notes:
+Keep the `.img.gz` file as it is; both tools below unpack it while writing.
 
-- Windows (PowerShell): `Get-FileHash .\doors-0.3.0-tdisplay-k230-2956eff.img.gz -Algorithm SHA256`
-- macOS: `shasum -a 256 doors-0.3.0-tdisplay-k230-2956eff.img.gz`
-- Linux: `sha256sum doors-0.3.0-tdisplay-k230-2956eff.img.gz`
+**Check the download** (recommended). Its SHA-256 must be
+`b011bb28feb3fa19a2f84c35bd281a87ededa0e4712be22648e65adf24c973c0`:
 
-The v0.3.0 value is
-`0360f4bc2ec8b01d24e41dfd2021eef0b1aadf262fbc894148de5ecc418c6337`
-(docs/releases/v0.3.0.md). If it differs, download again.
+- Windows (PowerShell): `Get-FileHash .\doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz -Algorithm SHA256`
+- macOS: `shasum -a 256 doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz`
+- Linux: `sha256sum doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz`
+
+If it differs, download it again.
 
 ## 3. Write the microSD card
 
@@ -98,32 +95,12 @@ If the card does not appear in Rufus's Device list, use balenaEtcher.
 
 ## 4. First boot
 
-Eject the card safely, put it into the K230, and connect USB-C power.
+Eject the card safely, put it into the K230 while it is powered off, and
+connect USB-C power. A freshly written card boots **straight into DOORS**;
+there is no setup step and nothing to switch over.
 
-**v0.3.0: one-time switch to DOORS.** On a freshly written v0.3.0 card the
-device first shows the LILYGO launcher, not DOORS. The switch is made once,
-from the serial console, and is kept from then on:
-
-1. Connect the K230's USB-C port that carries the serial console to your
-   computer (the board's USB-to-serial chip is a WCH CH342; two serial
-   ports appear, and the console is the lower-numbered one). If no port
-   appears on Windows, install WCH's CH343SER driver.
-2. Open the console with a serial terminal (for example PuTTY, from
-   <https://www.chiark.greenend.org.uk/~sgtatham/putty/>) at **115200
-   baud, 8N1**. Press Enter and log in as `root` (no password on a fresh
-   card).
-3. Type:
-
-   ```sh
-   echo ENABLE=0 > /etc/default/k230_phone_ui
-   echo ENABLE=1 > /etc/default/doors-shell
-   reboot
-   ```
-
-After the reboot DOORS starts on its own every time. This step has already
-been removed on the development branch, so a fresh card boots straight into
-DOORS there; it will go away for users when a release containing that change
-is published, and that release's notes will say so.
+To check the version: **Settings**, then the System page. DOORS 0.3.5 shows
+version `0.3.5` and build `3d4ea6e`.
 
 ## 5. Find your way around
 
@@ -134,72 +111,75 @@ is published, and that release's notes will say so.
   to choose an app), then Terminal, RIFT, Browser and Settings, and the
   folders **Apps**, **Utilities** and **Games**.
 - **Back.** The top-left corner of an app's header takes you back.
+- **Buttons on the board.** The **BOOT** button: a short press goes back,
+  a hold of about a second goes Home. The **power** button: a short press
+  turns the screen off and on, a hold of about a second opens the power
+  menu (restart, power off).
 - **Controls.** The Controls button on the launcher opens quick settings:
   Wi-Fi, LoRa radio, rotation, display mode, brightness, volume, Lock and
   Power.
 - **Keyboard base shortcuts.** F1 Home, F2 Settings, F3/F4 keyboard light,
   F5/F6 volume, F7 screenshot, F8 Terminal, F9 RIFT, F10/F11 brightness.
-- **Text size and theme.** Settings > Appearance.
+- **Text size and theme.** Settings, Appearance.
 - **Rotation.** The device follows its orientation (Automatic); Controls
   cycles through the rotation modes. Timber is portrait-only.
-- **Power off or restart.** Controls > Power opens System, where both ask
-  for confirmation first.
 
 ### Connect to Wi-Fi
 
-1. Open **Settings**. Wi-Fi is the first panel.
-2. Turn Wi-Fi on if it is off, and wait for the list of networks (or tap
-   **Scan**).
+1. Open **Settings** and its Wi-Fi page.
+2. Turn Wi-Fi on if it is off, and wait for the list of networks.
 3. Tap your network, type the password with the on-screen keyboard or the
-   keyboard base, and tap **JOIN**.
+   keyboard base, and join.
 
-Networks you have joined are remembered and shown as SAVED. WPA3-only,
-WEP, enterprise and hidden networks cannot be joined from Settings in
-v0.3.0.
+Networks you have joined are remembered and reconnect after a restart.
+WPA3-only, WEP and enterprise networks cannot be joined from Settings, and
+hidden networks are not listed (docs/apps/SETTINGS.md).
+
+### Vision
+
+The camera apps work as soon as the card boots. **Vision** in 0.3.5 has no
+object-detection model: COLOR, EDGE and LINE TRACE work, and DETECT, TRACK
+and TRAFFIC are switched off, which Vision says under the picture.
+DeskBuddy shows "NO VISION YET" for the same reason.
 
 ## 6. Set up RIFT (LoRa messaging)
 
-RIFT is DOORS' MeshCore messenger. It is **off on a fresh card** and needs
-three deliberate steps, because it transmits on the LoRa radio.
+RIFT is DOORS' MeshCore messenger. On a fresh card the LoRa radio and the
+MeshCore service are both off; one question in Controls sets them up.
 
-> **Before you start:** connect a LoRa antenna. Transmitting without one
-> may damage the radio. DOORS uses the MeshCore EU profile (869.618 MHz,
-> 2 dBm by default; docs/services/MESHCORED.md). Use it only where that
-> frequency and power are permitted for you.
+> **Before you start:** connect a LoRa antenna to the radio's antenna
+> socket (MMCX1). Transmitting without one may damage the radio. DOORS uses
+> the MeshCore EU profile (869.618 MHz, 2 dBm by default;
+> [MESHCORED.md](services/MESHCORED.md)). Use it only where that frequency
+> and power are permitted for you. Once set up, your node can answer other
+> nodes on the air.
 
-1. Open **Terminal** from the launcher (it is a root shell on the device)
-   and type:
+1. Open **Controls** and tap the **LoRa radio** tile.
+2. DOORS asks **"Set up the LoRa radio for RIFT?"** and reminds you about
+   the antenna. With the antenna connected, choose **Set up radio**.
+3. The tile shows "Setting up" for a few seconds, then DOORS says **"The
+   LoRa radio is set up."**
+4. Open **RIFT**. It goes online, and other MeshCore nodes appear under
+   NODES as they are heard. ACTIVITY > CHANNELS lists, adds and leaves
+   channels, and THIS DEVICE gives your node a name.
 
-   ```sh
-   echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
-   echo MESHCORED_ENABLE=1 > /etc/default/meshcored
-   reboot
-   ```
-
-   The first line uses the real LoRa chip instead of the simulated one;
-   the second starts the MeshCore service at boot.
-2. After the reboot, open **Controls** and tap the **LoRa radio** tile.
-   DOORS asks you to confirm that an antenna is connected; choose
-   **Enable radio**. The choice is kept across reboots.
-3. Open **RIFT**. Other MeshCore nodes appear under NODES as they are
-   heard. ACTIVITY > CHANNELS lists, adds and leaves channels, and THIS
-   DEVICE gives your node a name.
-
-To switch the radio off again, tap the LoRa radio tile in Controls.
+The setup is kept across restarts. Afterwards the LoRa radio tile switches
+the radio off with one tap; switching it on again asks about the antenna
+once more.
 
 ## 7. Troubleshooting
 
 | Problem | Try this |
 |---|---|
 | Nothing on the screen, or the device does not start | Write the card again and let the tool validate it; check the download's checksum; try another card. Everything the device boots is on the card, so a fresh write is always a clean start. |
-| The LILYGO launcher appears instead of DOORS | You are on v0.3.0 and the one-time switch in section 4 has not been made yet. |
-| Wi-Fi does not connect | Read the message under the Wi-Fi switch in Settings (for example a wrong passphrase); check the password, then turn Wi-Fi off and on. |
-| RIFT stays empty or offline | Check the three steps in section 6: both settings files, the reboot, and the radio switched on in Controls. Other nodes appear only once they are heard. |
+| Wi-Fi does not connect | Read the message on the Wi-Fi page in Settings (for example a wrong passphrase); check the password, then turn Wi-Fi off and on. |
+| "The radio could not be set up." | The message says which step failed; your previous settings were put back. Check the antenna and try the LoRa radio tile again. |
+| RIFT stays offline or empty | Check that the LoRa radio tile reads "Receiving". Other nodes appear only once they are heard. |
 | The device freezes after opening and closing Camera or Vision repeatedly | A known issue; disconnect power and start it again. |
-| A rotation closed the Terminal session | Expected in v0.3.0; the Terminal starts a new shell. |
+| A rotation closed the Terminal session | Expected; the Terminal starts a new shell. |
 
 More: the known limitations in the release notes
-([v0.3.0](releases/v0.3.0.md#known-limitations)), the full list in
+([v0.3.5](releases/v0.3.5.md#known-limitations)), the full list in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md), and recovery over the serial console
 in [FIRST_BOOT.md, "Recovery"](hardware/FIRST_BOOT.md#recovery).
 
@@ -208,7 +188,7 @@ in [FIRST_BOOT.md, "Recovery"](hardware/FIRST_BOOT.md#recovery).
 A new image is written the same way, and it replaces the whole card:
 messages, settings, saved Wi-Fi networks and the RIFT identity included.
 To keep them, the release notes describe which directories to save first
-(for v0.3.0: [Upgrading from v0.2.1](releases/v0.3.0.md#upgrading-from-v021)).
+(for 0.3.5: [Upgrading from v0.3.0](releases/v0.3.5.md#upgrading-from-v030)).
 Copying them off the device needs SSH, which requires setting a root
 password first ([platforms/k230/README.md](../platforms/k230/README.md),
 "First login and remote access").

@@ -1,7 +1,8 @@
 /*
  * netd's view of the machine. See netd_sys.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "netd_sys.h"

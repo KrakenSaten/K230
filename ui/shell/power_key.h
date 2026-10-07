@@ -24,10 +24,19 @@
  * unknown until it is read back (power_key_resync); a key found already down
  * then is swallowed until it comes up, since when it went down is not known.
  *
+ * A press can also be swallowed on purpose (power_key_swallow): one that
+ * only woke the screen means nothing more, at its release or its hold.
+ *
+ * The same timing serves the BOOT key (SW3, gpio-keys KEY_BACK, Back and
+ * Home): one press and one release per push, no repeats, the same 1 s hold
+ * (docs/hardware/K230_BUTTONS.md §4). That key has no kernel policy of its
+ * own; the 5 s power-off belongs to the power key alone.
+ *
  * Times are milliseconds on a monotonic clock, compared wrap-safe. Pure C,
  * no LVGL, no devices (tests/power_key_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_POWER_KEY_H
 #define DOORS_POWER_KEY_H
@@ -60,6 +69,7 @@ struct power_key {
     unsigned longs;
     unsigned ignored; /* repeats, duplicate presses, releases with no press */
     unsigned lost;    /* presses ended by lost input */
+    unsigned swallowed; /* presses swallowed on purpose (power_key_swallow) */
 };
 
 void power_key_init(struct power_key *k);
@@ -80,6 +90,11 @@ void power_key_lost(struct power_key *k);
  * still held is kept; a release missed ends it with no action; a key found
  * down that was not known to be is swallowed until it is released. */
 void power_key_resync(struct power_key *k, bool down_now);
+
+/* The press in progress means nothing more: no long press while it is
+ * held, nothing at its release. No effect unless a press is down and not
+ * yet reported long. */
+void power_key_swallow(struct power_key *k);
 
 bool power_key_is_down(const struct power_key *k);
 const char *power_key_state_name(enum power_key_state s);

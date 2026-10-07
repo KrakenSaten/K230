@@ -4,7 +4,8 @@
  * page, and that nothing but http(s) and the Browser's own about: pages is
  * ever let through.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "web/web_url.h"
 

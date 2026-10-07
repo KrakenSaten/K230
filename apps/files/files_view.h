@@ -2,7 +2,8 @@
  * Files: what an entry says on screen - its type, size and time, a path
  * shortened to fit, a name made safe to draw. LVGL-free (tests/files_view_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef FILES_VIEW_H
 #define FILES_VIEW_H

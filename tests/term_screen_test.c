@@ -10,7 +10,8 @@
  * the parser ready for the next text; random bytes never put the cursor off
  * the grid; and no amount of output allocates anything.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "term_screen.h"
 

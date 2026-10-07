@@ -13,7 +13,8 @@
  * slots the "session" still holds, its first pixel read (the fake writes the
  * picture number there), and released after the step, as the app would.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "fake_audio_backend.h"

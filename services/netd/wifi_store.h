@@ -22,7 +22,8 @@
  * Nothing here logs. Passphrases never leave this module except to the
  * caller that asked, and wifi_store_wipe() clears them from memory.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WIFI_STORE_H
 #define POCKETOS_WIFI_STORE_H

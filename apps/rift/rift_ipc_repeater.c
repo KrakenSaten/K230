@@ -16,7 +16,8 @@
  * questions mesh.discovered and mesh.remote_session. The method names are the
  * connection's (rift_ipc.c, method_of); this file names none.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_ipc.h"
 

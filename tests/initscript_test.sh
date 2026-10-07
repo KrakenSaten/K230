@@ -22,7 +22,8 @@
 # filesystem: on a DrvFs (WSL /mnt/c) checkout every file reports as
 # executable, so `test -x` there would pass no matter what git records.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)

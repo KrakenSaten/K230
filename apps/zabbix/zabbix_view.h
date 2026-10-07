@@ -22,7 +22,8 @@
  * problem's start. The board's own wall clock is never used: it reads 1970
  * until NTP answers (docs/hardware/T-DISPLAY-K230.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef ZABBIX_VIEW_H
 #define ZABBIX_VIEW_H

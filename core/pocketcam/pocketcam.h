@@ -38,7 +38,8 @@
  *
  * No threads, no LVGL. Every call is bounded by the timeout it is given.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_H
 #define POCKETOS_POCKETCAM_H

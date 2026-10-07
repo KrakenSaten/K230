@@ -157,9 +157,19 @@ scripts and the bench are not tied to a screen.
   on with the mock, which has no transmitter and which the simulator and the
   host suites expect receiving. `--radio-default on|off` overrides that
   default only; a stored choice always wins. radiod does not store anything
-  until the owner chooses, so a fresh card and a card upgraded from v0.0.12
-  or earlier (which had no such choice) both start with the radio off until
-  somebody switches it on.
+  until the owner chooses, so a unit put on the sx1262 backend, and a card
+  upgraded from v0.0.12 or earlier (which had no such choice), start with the
+  radio off until somebody switches it on. A freshly flashed card runs the
+  **mock** backend (S60radiod); switching the radio in Controls never changes
+  the backend. Controls' LoRa radio tile sets the unit up for RIFT instead
+  (sysd's `radio_setup`, docs/api/system.md).
+- **The choice belongs to its backend** (0.3.5): `radio.conf` records
+  `backend=<name>` with `enabled=`, and radiod applies a stored choice only
+  on the backend that stored it. An "on" made on the mock therefore never
+  switches the SX1262 on without the antenna question. A file from before
+  0.3.5 (no backend line) is honoured for "off" and on the mock; its "on" is
+  not trusted for the SX1262, which then starts off once
+  (`services/radiod/rf_state.h`).
 - **On** is applied first and stored second: the backend is initialised and
   configured with the current profile (the same path as every start), then
   `enabled=1` is written. A store that fails switches the radio straight back

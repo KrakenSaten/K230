@@ -13,7 +13,8 @@
  * inf, no -0, never wider than the display" is shown to hold for sequences
  * nobody thought to write down.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "calc_engine.h"
 #include "calc_view.h"

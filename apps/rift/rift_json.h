@@ -16,7 +16,8 @@
  * readers over cJSON, and giving them a .c of their own would spread the
  * model over more files than it has parts.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_JSON_H
 #define RIFT_JSON_H

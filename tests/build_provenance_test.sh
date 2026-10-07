@@ -21,7 +21,8 @@
 # doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz and its .sha256,
 # beside the vendor-named image; cases 1b, 10, 11 and 12 are about that.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)

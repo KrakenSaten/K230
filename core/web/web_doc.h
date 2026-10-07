@@ -15,7 +15,8 @@
  *
  * Pure C: tests/web_doc_test.c (and every web_html and web_proto test).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WEB_DOC_H
 #define POCKETOS_WEB_DOC_H

@@ -2,7 +2,8 @@
  * The touch pointer starts where the kernel says the finger last was. See
  * touch_seed.h for why.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE /* pipe2, dup3 */
 #include "touch_seed.h"

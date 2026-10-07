@@ -1,7 +1,8 @@
 /*
  * Vision's helper client. See vision_session.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "vision_session.h"
@@ -309,7 +310,10 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
                    &c) != 8 ||
             !word_ok(w1, VISION_NAME_MAX - 1) || !word_ok(w2, VISION_NAME_MAX - 1) ||
             (sim != 0 && sim != 1) || a == 0 || b == 0 || a > VISION_MAX_COORD ||
-            b > VISION_MAX_COORD || c == 0 || c > VISION_MAX_CLASSES) {
+            b > VISION_MAX_COORD || c > VISION_MAX_CLASSES ||
+            /* No classes only from a helper without a detector, which
+             * names its model "none". */
+            (c == 0 && strcmp(w2, "none") != 0)) {
             return 0;
         }
         ev->kind = VISION_EV_READY;

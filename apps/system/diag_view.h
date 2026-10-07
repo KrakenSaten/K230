@@ -19,7 +19,8 @@
  * most DIAG_LOG_MAX entries, newest first, each already bounded by sysd
  * (docs/api/system.md, system.logs); nothing here grows with the log files.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_DIAG_VIEW_H
 #define POCKETOS_DIAG_VIEW_H

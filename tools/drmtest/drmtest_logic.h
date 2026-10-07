@@ -9,7 +9,8 @@
  * reproduced exactly. docs/hardware/HDMI_OUTPUT.md explains why that matters
  * for an HDMI monitor.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_DRMTEST_LOGIC_H
 #define POCKETOS_DRMTEST_LOGIC_H

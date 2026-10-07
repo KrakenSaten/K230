@@ -24,7 +24,8 @@
  * taken by mp3_player_take_end(): PLAYED (the file's end), STOPPED (asked
  * for), or FAILED (err_code and err_text say why).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETMP3_PLAYER_H
 #define POCKETMP3_PLAYER_H

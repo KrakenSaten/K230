@@ -1,7 +1,8 @@
 /*
  * The power key's press timing. See power_key.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "power_key.h"
 
@@ -84,6 +85,14 @@ void power_key_resync(struct power_key *k, bool down_now)
         return;
     }
     power_key_lost(k);
+}
+
+void power_key_swallow(struct power_key *k)
+{
+    if (k->state == POWER_KEY_DOWN) {
+        k->state = POWER_KEY_SWALLOW;
+        k->swallowed++;
+    }
 }
 
 bool power_key_is_down(const struct power_key *k)

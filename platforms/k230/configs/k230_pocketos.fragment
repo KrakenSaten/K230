@@ -1,0 +1,44 @@
+# Doors settings on top of the vendor board defconfig.
+#
+# platforms/k230/scripts/apply_to_sdk.sh composes k230_pocketos_defconfig in
+# the SDK from the LILYGO BSP's own
+# k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig,
+# read from the pinned BSP commit (../vendor_bsp_commit.txt), followed by the
+# settings below. Doors keeps no copy of the vendor file, which carries no
+# licence (docs/licensing/APACHE_2_READINESS.md, B3). Comment and blank lines
+# are dropped when composing, and a setting here may not restate one the
+# vendor file already makes. A line that is exactly "# BR2_<X> is not set"
+# turns off a package the vendor file switches on (and only such a package):
+# the vendor's line is dropped and this one takes its place.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
+BR2_PACKAGE_POCKETOS=y
+
+# Wi-Fi and Bluetooth for chips the T-Display K230 does not have: its Wi-Fi
+# is the RTL8189FTV (rtl8189fs, kept), and no RTL8723DS or AIC8800 is on the
+# board (docs/hardware/T-DISPLAY-K230.md). Their firmware states no terms,
+# and rtl8723ds-bt is PROPRIETARY in Buildroot and ships the GPL-2.0+
+# rtk_hciattach without its licence (APACHE_2_READINESS.md B8). Dropped on
+# the owner's decision, 2026-10-07; nothing on the board used them.
+# BR2_PACKAGE_RTL8723DS is not set
+# BR2_PACKAGE_RTL8723DS_BT is not set
+# BR2_PACKAGE_AIC8800 is not set
+
+# The vendor's KPU demos: face_detect (face_detection_320.kmodel, a test
+# photo) and ai2d_kpu (test.kmodel and test vectors). Nothing starts them and
+# no Doors program uses their files; their models state no terms
+# (MODEL_LICENSES.md). Dropped on the owner's decision, 2026-10-07. What
+# face_detect used to select for others stays: libnncase and libmmz are
+# selected by the pocketos package (gsl-lite is its build dependency),
+# display by vvcam, and
+# OpenCV 4 is kept here as it was (Python's cv2, and FFmpeg, which pos-mp3
+# and pos-video link, come with it).
+# BR2_PACKAGE_FACE_DETECT is not set
+# BR2_PACKAGE_AI2D_KPU is not set
+BR2_PACKAGE_OPENCV4=y
+
+# The toolchain's Fortran runtime (libgfortran) is copied into the image
+# only because the vendor declares Fortran support; no program or library in
+# the image links it. Owner's decision, 2026-10-07.
+# BR2_TOOLCHAIN_EXTERNAL_FORTRAN is not set

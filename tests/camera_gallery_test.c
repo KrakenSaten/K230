@@ -10,7 +10,8 @@
  * No helper, no LVGL: events are made here, as the session would deliver
  * them, and the clock is passed in.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "camera_gallery.h"
 

@@ -3,7 +3,8 @@
  * secret - refused when others could read it, written atomically with the
  * right modes, never accepted in the world-readable file.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "zabbix/zbx_config.h"

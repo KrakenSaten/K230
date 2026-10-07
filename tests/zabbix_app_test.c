@@ -20,7 +20,8 @@
  * Needs: ZABBIX_HELPER, the path of tools/zabbix/pos-zabbix (built by make).
  * Built by ui/shell/CMakeLists.txt, run by tests/zabbix_shell_test.sh.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "chrome.h"

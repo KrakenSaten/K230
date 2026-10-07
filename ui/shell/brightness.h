@@ -22,7 +22,8 @@
  * is unit-tested against a fake tree (tests/brightness_test.c). The shell
  * owns the one instance, because the shell owns the panel (ADR-002).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_BRIGHTNESS_H
 #define POCKETOS_BRIGHTNESS_H

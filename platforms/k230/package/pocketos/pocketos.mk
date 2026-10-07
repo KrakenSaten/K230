@@ -18,15 +18,16 @@
 POCKETOS_VERSION = $(shell cat $(realpath $(TOPDIR))/package/pocketos/src/VERSION 2>/dev/null || echo unknown)
 POCKETOS_SITE = $(realpath $(TOPDIR))/package/pocketos/src
 POCKETOS_SITE_METHOD = local
-# No licence is chosen yet for Doors' own code (PocketOS through v0.0.9): none
-# is granted and the package is not redistributable (docs/LICENSING.md). What
-# it contains from others is listed, and reproduced in full, in
-# THIRD_PARTY_NOTICES.txt, which legal-info collects (checked against
-# pocketos.hash) and the image installs as
-# /usr/share/doors/THIRD_PARTY_NOTICES.txt, with a link at the old
-# /usr/share/pocketos path.
-POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps), AGPL-3.0 (YOLOv8n model data, Ultralytics; internal images only)
-POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
+# Doors' own code (PocketOS through v0.0.9) is Apache-2.0 (ADR-013): LICENSE
+# and NOTICE. What the package contains from others is listed, and reproduced
+# in full, in THIRD_PARTY_NOTICES.txt. legal-info collects all three (checked
+# against pocketos.hash) and the image installs them in /usr/share/doors, with
+# a link to the notices at the old /usr/share/pocketos path.
+# REDISTRIBUTE stays NO, so legal-info does not export this package's source,
+# until docs/licensing/APACHE_2_READINESS.md clears the source repository for
+# publication: the owner has chosen the licence, not yet published anything.
+POCKETOS_LICENSE = Apache-2.0 (Doors), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), BSD-2-Clause (Canaan K230 SDK code in pos-vision), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+POCKETOS_LICENSE_FILES = LICENSE NOTICE THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES
 # host-python3: the shell's CMake converts the PocketTimber sprites to LVGL
@@ -54,9 +55,12 @@ POCKETOS_INSTALL_TARGET = YES
 # libnncase, libmmz: pos-vision, the Vision app's helper (docs/apps/VISION.md),
 # runs its detector on the KPU through the nncase 2.11 runtime and the AI2D
 # engine (POCKETVISION_KPU=1), and the runtime's shared pool through libmmz.
-# Both were already in the image and its sysroot (BR2_PACKAGE_AI2D_KPU and
-# BR2_PACKAGE_FACE_DETECT select them), so this adds a build dependency, not
-# a package. The model the helper runs is installed below.
+# The pocketos package selects them (Config.in); up to 0.3.0 the vendor
+# face_detect demo did. gsl-lite, which the nncase headers include, has no
+# menu entry in the SDK and is built through the dependency list below. The
+# runtime's Python wheel, which libnncase also unpacks into the target, is
+# not used by anything and is removed (below). The detector model is not
+# installed (below).
 # ffmpeg: pos-mp3, the MP3 app's helper (docs/apps/MP3.md), decodes with
 # libavformat, libavcodec, libswresample and libavutil (MP3_FFMPEG=1), and
 # pos-video, the Video app's helper (docs/apps/VIDEO.md, ADR-012
@@ -68,7 +72,7 @@ POCKETOS_INSTALL_TARGET = YES
 # (BR2_PACKAGE_OPENCV4_WITH_FFMPEG selects it; LGPL-2.1+, the build has
 # --disable-gpl), so this adds a build
 # dependency, not a package.
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz ffmpeg host-cmake host-python3
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz gsl-lite ffmpeg host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 
@@ -90,25 +94,76 @@ endef
 # PocketOS-era shell would otherwise still hold it, and the rootfs gate in
 # build_image.sh would refuse the image (correctly, but late).
 #
-# The Vision model (docs/apps/VISION.md, "The model") is the pinned SDK's
-# yolov8n.kmodel, installed where pos-vision reads it. It is taken from the
-# SDK's own copy in package/yolo/utils, which Buildroot's package tree carries
-# whether or not the vendor yolo demo is selected (it is not). That way the
-# image holds exactly one copy and the Doors repository holds none. The model
-# is AGPL-3.0 and is in the image for internal use only (docs/LICENSING.md
-# item 10), so the install refuses it without its notice. It also refuses any
-# file other than the one tools/vision/yolov8n.kmodel.sha256 pins.
-POCKETOS_VISION_MODEL_DIR = $(realpath $(TOPDIR))/package/yolo/utils
+# No Vision detector model ships (Doors 0.3.5 on; docs/apps/VISION.md "The
+# model", MODEL_LICENSES.md). The pinned SDK's yolov8n.kmodel, which images
+# up to 0.3.0 carried for internal use, is a compiled Ultralytics YOLOv8n
+# (AGPL-3.0); a DOORS-trained replacement is not ready. pos-vision runs
+# without it: COLOR, EDGE and LINE TRACE, and the modes whose own models are
+# installed by hand; DETECT, TRACK and TRAFFIC are not offered, and the app
+# says why. Buildroot never deletes from $(TARGET_DIR), so the install
+# removes the copy an earlier build put there, and a final check over the
+# whole target refuses any of the SDK's Ultralytics YOLO kmodels - by name,
+# and by the hashes in tools/vision/refused-models.sha256 whatever the file
+# is called - and the vendor yolo demo package, which would install them.
+ifeq ($(BR2_PACKAGE_YOLO),y)
+$(error pocketos: BR2_PACKAGE_YOLO installs Ultralytics YOLO models (AGPL-3.0), which no Doors image ships (docs/apps/VISION.md, "The model"))
+endif
 
 define POCKETOS_INSTALL_TARGET_CMDS
 	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell
-	grep -q '^yolov8n-kmodel *|' $(@D)/third_party/notices/SOURCES || \
-		{ echo "pocketos: the Vision model has no entry in third_party/notices/SOURCES (docs/LICENSING.md item 10)" >&2; exit 1; }
-	cd $(POCKETOS_VISION_MODEL_DIR) && sha256sum -c $(@D)/tools/vision/yolov8n.kmodel.sha256
-	$(INSTALL) -D -m 0644 $(POCKETOS_VISION_MODEL_DIR)/yolov8n.kmodel $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel
+	rm -f $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel
+	rmdir $(TARGET_DIR)/usr/share/doors/vision 2>/dev/null || true
 endef
+
+# After every package has installed: no refused model anywhere in the target.
+define POCKETOS_REFUSE_DETECTOR_MODELS
+	refused=$$(find $(TARGET_DIR) -type f -iname 'yolo*.kmodel' 2>/dev/null); \
+	for f in $$(find $(TARGET_DIR) -type f -iname '*.kmodel' 2>/dev/null); do \
+		h=$$(sha256sum "$$f" | cut -c1-64); \
+		grep -q "^$$h " $(POCKETOS_DIR)/tools/vision/refused-models.sha256 && refused="$$refused $$f"; \
+	done; \
+	if [ -n "$$refused" ]; then \
+		echo "pocketos: refused Vision model(s) in the target:$$refused (docs/apps/VISION.md, The model)" >&2; \
+		exit 1; \
+	fi
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REFUSE_DETECTOR_MODELS
+
+# Packages the Doors fragment turns off (configs/k230_pocketos.fragment): a
+# target tree that once had them keeps their files, as Buildroot never
+# deletes from $(TARGET_DIR). Buildroot's own record of what each package
+# installed (packages-file-list.txt) names them; the shared module indexes
+# (modules.*) are left alone, and the kernel's depmod hook, which runs after
+# this one (linux/linux.mk is included after the packages), rebuilds them
+# without the removed modules. A fresh build has nothing to remove.
+POCKETOS_DROPPED_PACKAGES = rtl8723ds:$(BR2_PACKAGE_RTL8723DS) rtl8723ds-bt:$(BR2_PACKAGE_RTL8723DS_BT) aic8800:$(BR2_PACKAGE_AIC8800) \
+	face_detect:$(BR2_PACKAGE_FACE_DETECT) ai2d_kpu:$(BR2_PACKAGE_AI2D_KPU)
+define POCKETOS_REMOVE_DROPPED_PACKAGES
+	for e in $(POCKETOS_DROPPED_PACKAGES); do \
+		p=$${e%%:*}; [ "$${e#*:}" = y ] && continue; \
+		grep "^$$p,\./" $(BUILD_DIR)/packages-file-list.txt 2>/dev/null | cut -d, -f2- | \
+			grep -v -E '/lib/modules/[^/]+/modules\.[a-z.]+$$' | \
+			while IFS= read -r f; do rm -f "$(TARGET_DIR)/$$f"; done; \
+	done; \
+	for d in lib/firmware/aic8800 lib/firmware/aic8800D80 lib/firmware/aic8800D80X2 lib/firmware/aic8800DC \
+		lib/firmware/rtlbt lib/firmware/rtl_bt root/app/face_detect root/app/ai2d_kpu; do \
+		rmdir "$(TARGET_DIR)/$$d" 2>/dev/null || true; done; \
+	find $(TARGET_DIR)/lib/modules -type d -empty -delete 2>/dev/null || true
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_DROPPED_PACKAGES
+
+# libnncase (kept: pos-vision links its runtime statically) also unpacks the
+# runtime's Python wheel, nncaseruntime_k230, into site-packages whenever
+# Python is in the image. Nothing in the image imports it, and its K230
+# modules state no licence (docs/licensing/APACHE_2_READINESS.md B5), so it
+# is removed after every build; nothing installs it again later.
+define POCKETOS_REMOVE_NNCASE_WHEEL
+	rm -rf $(TARGET_DIR)/usr/lib/python$(PYTHON3_VERSION_MAJOR)/site-packages/nncaseruntime \
+		$(TARGET_DIR)/usr/lib/python$(PYTHON3_VERSION_MAJOR)/site-packages/nncaseruntime_k230-*.dist-info
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_NNCASE_WHEEL
 
 $(eval $(generic-package))

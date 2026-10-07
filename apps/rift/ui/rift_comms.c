@@ -5,7 +5,8 @@
  * conversation is rift_thread.c, the way NODES keeps its detail in
  * rift_detail.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_comms.h"
 

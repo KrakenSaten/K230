@@ -13,7 +13,8 @@
  * Every page has exactly one box that scrolls - the page itself - and
  * nothing inside it scrolls (DS §52.2).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SETTINGS_INTERNAL_H
 #define POCKETOS_SETTINGS_INTERNAL_H

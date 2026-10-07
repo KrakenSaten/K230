@@ -21,6 +21,9 @@
 # (5 failures by default): stop and check it rather than re-running in a loop.
 #
 # Requires: tools/zabbix/pos-zabbix built with libcurl (make ZABBIX_CURL=1 ...).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 H=$(pwd)/tools/zabbix/pos-zabbix

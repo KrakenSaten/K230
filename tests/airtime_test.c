@@ -2,7 +2,8 @@
  * Pins LoRa time-on-air values against widely published calculator results
  * (Semtech formula, explicit header, CRC on, preamble 8).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "airtime.h"
 

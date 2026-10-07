@@ -5,7 +5,8 @@
  * never 0 and never a guess, and a path is printed whole - a long one wraps
  * on the screen, it is never shortened here.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_rxlog.h"
 

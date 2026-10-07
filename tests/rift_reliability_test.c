@@ -5,7 +5,8 @@
  * RESEND takes, how a reply is written and read back, and how the stored
  * contacts are listed and searched.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_contacts.h"
 #include "rift_format.h"

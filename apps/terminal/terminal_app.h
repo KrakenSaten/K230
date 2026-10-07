@@ -6,7 +6,8 @@
  * outlives the screen: leaving the app keeps it, CLOSE SESSION ends it), and
  * how far the view is scrolled back. Nothing in the shell calls them.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef TERMINAL_APP_H
 #define TERMINAL_APP_H

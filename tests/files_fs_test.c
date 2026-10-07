@@ -7,7 +7,8 @@
  * result behind, that nothing is ever replaced, and that the places the
  * policy protects cannot be changed however they are reached.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "files_fs.h"

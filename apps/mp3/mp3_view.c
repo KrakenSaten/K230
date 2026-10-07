@@ -1,7 +1,8 @@
 /*
  * The MP3 screen's view model. See mp3_view.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_view.h"
 

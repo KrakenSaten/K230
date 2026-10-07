@@ -16,7 +16,8 @@
  * the card's partition table and the root superblock to decide, and runs
  * parted, partprobe and resize2fs to do it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"
@@ -27,6 +28,7 @@
 #include "sysd_expand.h"
 #include "sysd_logs.h"
 #include "sysd_power.h"
+#include "sysd_radio.h"
 #include "sysd_services.h"
 #include "sysd_storage.h"
 
@@ -62,6 +64,7 @@ struct sysd {
     uint64_t pending_at;
     struct sysd_storage storage;
     struct sysd_expand expand;
+    struct sysd_radio radio; /* radio_setup.*: RIFT without a shell */
 };
 
 /* storage.* take no parameters; like the power actions, eject does not act on
@@ -206,6 +209,34 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         /* Accepted, not finished: storage.status says when it is. */
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "state", sysd_expand_state_name(SYSD_EXPAND_RUNNING));
+    } else if (strcmp(method, "radio_setup.status") == 0) {
+        if (!no_params(params)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "radio_setup.status takes no parameters"));
+            return;
+        }
+        result = sysd_radio_status(&sd->radio);
+    } else if (strcmp(method, "radio_setup.start") == 0) {
+        const cJSON *ok = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "antenna_confirmed")
+                                                 : NULL;
+        int r;
+
+        if (params && !cJSON_IsNull(params) && !cJSON_IsObject(params)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "radio_setup.start takes {\"antenna_confirmed\": true}"));
+            return;
+        }
+        r = sysd_radio_start(&sd->radio, cJSON_IsTrue(ok), msg, sizeof(msg));
+        if (r < 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, r == -2   ? POCKETIPC_ERR_BUSY
+                                                                      : r == -1 ? POCKETIPC_ERR_POLICY
+                                                                                : POCKETIPC_ERR_BACKEND,
+                                                                  msg));
+            return;
+        }
+        /* Accepted, not finished: radio_setup.status says when it is. */
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "state", "running");
     } else if (strcmp(method, "storage.eject") == 0) {
         int r;
 
@@ -241,7 +272,9 @@ static int run(struct sysd *sd)
         uint64_t now;
         int uevent = 0;
         int timeout = sd->pending != SYSD_POWER_NONE ? SYSD_POWER_POLL_MS
-                      : sysd_storage_busy(&sd->storage) || sysd_expand_busy(&sd->expand) ? SYSD_EJECT_POLL_MS
+                      : sysd_storage_busy(&sd->storage) || sysd_expand_busy(&sd->expand) ||
+                                sysd_radio_busy(&sd->radio)
+                          ? SYSD_EJECT_POLL_MS
                                                                                           : SYSD_CPU_SAMPLE_MS / 4;
 
         if (pocketipc_server_poll_fd(sd->server, timeout, sd->storage.uevent_fd, &uevent) < 0) {
@@ -255,6 +288,7 @@ static int run(struct sysd *sd)
             sysd_storage_scan(&sd->storage); /* collects a finished eject */
         }
         sysd_expand_reap(&sd->expand);
+        sysd_radio_reap(&sd->radio);
         now = mono_ms();
         /* The pending action is consumed before it is run, so it runs at most
          * once whatever the command does or how long it takes.
@@ -292,7 +326,8 @@ static void usage(FILE *out)
     fprintf(out,
             "usage: sysd [--socket-name NAME] [--verbose]\n"
             "Serves system.info, system.status, system.logs, system.crashes,\n"
-            "system.reboot, system.poweroff, storage.status, storage.eject and storage.expand\n"
+            "system.reboot, system.poweroff, storage.status, storage.eject, storage.expand,\n"
+            "radio_setup.status and radio_setup.start\n"
             "(docs/api/system.md).\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
             POCKETIPC_DEFAULT_DIR);
@@ -349,6 +384,14 @@ int main(int argc, char **argv)
         snprintf(log, sizeof(log), "%s/storage-expand.log", pocketos_log_dir());
         sysd_expand_init(&sd.expand, &xp, &sysd_expand_real_ops);
         sysd_expand_startup(&sd.expand);
+    }
+    {
+        static char log[512];
+        struct sysd_radio_paths rp = { "/etc/default/radiod", "/etc/default/meshcored", "/etc/init.d/S60radiod",
+                                       "/etc/init.d/S65meshcored", log };
+
+        snprintf(log, sizeof(log), "%s/radio-setup.log", pocketos_log_dir());
+        sysd_radio_init(&sd.radio, &rp, &sysd_radio_real_ops);
     }
 
     rc = run(&sd);

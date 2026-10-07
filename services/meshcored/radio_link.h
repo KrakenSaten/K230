@@ -22,7 +22,8 @@
  * restarting and the whole sequence runs again from the top. Nothing here
  * ever takes the radio from another owner.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_RADIO_LINK_H
 #define MCD_RADIO_LINK_H

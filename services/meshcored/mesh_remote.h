@@ -12,7 +12,8 @@
  * so the file that owns the MeshCore node does not grow without bound. It
  * includes no MeshCore header: the types are the seam's (mesh_runtime.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_MESH_REMOTE_H
 #define MCD_MESH_REMOTE_H

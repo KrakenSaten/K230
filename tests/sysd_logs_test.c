@@ -3,7 +3,8 @@
  * directory holding the files pocketlog, pos-supervise and the crash handler
  * write (services/sysd/sysd_logs.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "sysd_logs.h"

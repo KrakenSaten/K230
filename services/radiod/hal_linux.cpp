@@ -1,7 +1,8 @@
 /*
  * PocketOS RadioLib HAL for Linux. See hal_linux.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "hal_linux.h"
 

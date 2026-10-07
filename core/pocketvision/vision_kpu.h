@@ -20,7 +20,8 @@
  * its model refuses to open. The pointer a run hands back is valid until
  * the next run or close.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_KPU_H
 #define POCKETOS_VISION_KPU_H

@@ -17,7 +17,8 @@
 # that replaced it: the unit's deploy runs to its end without the connection
 # that started it - through polls that fail, and with the host gone entirely.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
@@ -108,6 +109,8 @@ make_tree() { # <vendor dir>
     ln -sfn doors-release "$t/etc/pocketos-release"
     printf 'notices\n' > "$t/usr/share/doors/THIRD_PARTY_NOTICES.txt"
     ln -sfn ../doors/THIRD_PARTY_NOTICES.txt "$t/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    printf 'licence\n' > "$t/usr/share/doors/LICENSE"
+    printf 'notice\n' > "$t/usr/share/doors/NOTICE"
     # The shell's art directory (DS §31.6), sent whole.
     mkdir -p "$t/usr/share/doors/ui"
     printf 'art\n' > "$t/usr/share/doors/ui/bg-home-portrait.bin"
@@ -138,7 +141,7 @@ check "after the installation check passed" "$(grep -q 'INSTALLATION CHECK: PASS
 tar -tvf "$TMP/archive.tar" > "$TMP/list.txt" 2>/dev/null
 for f in usr/sbin/meshcored etc/init.d/S65meshcored usr/sbin/radiod etc/init.d/S60radiod \
          usr/bin/doors-shell etc/init.d/S90doors-shell usr/bin/pos-supervise etc/doors-release \
-         usr/share/doors/ui/bg-home-portrait.bin; do
+         usr/share/doors/ui/bg-home-portrait.bin usr/share/doors/LICENSE usr/share/doors/NOTICE; do
     check "the archive carries $f" "$(grep -q " $f\$" "$TMP/list.txt" && echo 1 || echo 0)"
 done
 check "meshcored travels executable" \

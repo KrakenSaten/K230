@@ -38,7 +38,8 @@
  * Every wait is a poll() bounded by the caller's timeout. A frame is only
  * read between DQBUF and its QBUF (release), never after.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketcam.h"

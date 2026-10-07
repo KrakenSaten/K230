@@ -17,7 +17,8 @@
  * WHAT IS NOT HERE. No percent, no memory keys, no parentheses, no functions
  * and no history. A simple calculator, not a scientific one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCALCULATOR_ENGINE_H
 #define POCKETCALCULATOR_ENGINE_H

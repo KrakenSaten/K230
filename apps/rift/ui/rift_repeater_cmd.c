@@ -8,7 +8,8 @@
  * applies the rule again, whatever reaches it). This is not a terminal: no
  * history, no completion, no scripting.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_repeater_view.h"
 

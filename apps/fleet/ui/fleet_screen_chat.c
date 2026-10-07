@@ -23,7 +23,8 @@
  * Every object is made once; refreshing only relabels, hides and shows them.
  * The lines are a fixed pool of labels, as many as the history can hold.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "../fleet_app.h"
 

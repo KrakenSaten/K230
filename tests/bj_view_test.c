@@ -3,7 +3,8 @@
  * across the table and squeezed when long, the hole card, the key map and the
  * buttons for every phase, and every label and caption the table can show.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "bj_view.h"
 

@@ -3,7 +3,8 @@
  * the vendor's coco_labels.txt lists them (which is the order the kmodel's
  * scores come in). Compiled in, so a missing file is never a missing name.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_LABELS_H
 #define POCKETOS_VISION_LABELS_H

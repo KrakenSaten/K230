@@ -13,7 +13,8 @@
  * the previous files exactly as they were; an empty secret keeps the stored
  * one; no answer and no log line holds the secret.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketlog/pocketlog.h"

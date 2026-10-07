@@ -12,7 +12,8 @@
  * echo, the speaker's or the microphone's frequency response, or clock drift
  * between two boards; those stay hardware tests (docs/apps/WAVE.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef WAVE_CHANNEL_H
 #define WAVE_CHANNEL_H

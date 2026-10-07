@@ -5,7 +5,8 @@
  * passphrase never is, and neither is any control-interface command that
  * can carry one (only its verb and field name are).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "wifi_mgr.h"

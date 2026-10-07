@@ -4,7 +4,8 @@
  * inside the body and the safe box, at least the touch minimum, and nothing
  * overlapping - then the corners, and bodies too small to use.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "camera_layout.h"
 

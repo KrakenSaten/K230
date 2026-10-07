@@ -11,7 +11,8 @@
  *
  * Pure C, no LVGL and no I/O.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_LINK_LOOP_H
 #define POCKETFLEET_LINK_LOOP_H

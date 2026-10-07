@@ -12,7 +12,8 @@
  *
  * Pure C, no LVGL (tests/vision_model_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef VISION_TRAILS_H
 #define VISION_TRAILS_H

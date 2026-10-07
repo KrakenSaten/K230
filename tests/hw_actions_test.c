@@ -4,7 +4,8 @@
  * wrap, one instance per app, a missing app, the lock, Back - against a fake
  * host that records what the shell was asked to do.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "hw_actions.h"
 

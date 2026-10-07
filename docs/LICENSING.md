@@ -6,25 +6,36 @@ before it is redistributed.
 
 ## First-party
 
-Doors licence: **not yet decided** (product owner). The rename changes no
-term below, and the owner's decisions recorded under the PocketOS name apply
-to Doors unchanged. Until the owner chooses a licence:
+Doors licence: **Apache License 2.0** (product owner, 2026-10-01;
+docs/decisions/ADR-013-licence-apache-2.md). It covers Doors' own material;
+everything third-party keeps its own licence. Until then (2026-09-13 to
+2026-10-01) no licence was chosen and none was granted; release notes and
+sheets from that time say so and are kept as written.
 
-- no licence is granted for Doors' own code, and there is no LICENSE file;
-- **redistributing Doors outside the project, as source or as binaries, is
-  not authorised** (owner, 2026-09-13);
-- source files carry "Copyright (c) 2026 PocketOS authors. License: see
-  LICENSE (TBD)" and nothing is published. The copyright line keeps the
-  PocketOS name: who holds it is part of the licence decision, not of the
-  rename (ADR-005, decision 7);
-- the Buildroot package says the same: `POCKETOS_LICENSE = Not yet decided
-  (Doors; no licence granted), ...` and `POCKETOS_REDISTRIBUTE = NO`, so
-  `make legal-info` does not export Doors' source, and
-  THIRD_PARTY_NOTICES.txt opens with the statement, naming the former name
-  and the copyright lines.
-
-This does not block internal development, bench deployment or merging; it is
-the owner's release and public-distribution decision (open item 1).
+- `LICENSE` is the ASF's text, unmodified; `NOTICE` carries the copyright
+  line and points to the third-party notices. Both are installed in the
+  image in `/usr/share/doors/`, collected by legal-info and hashed in
+  `pocketos.hash`.
+- First-party source files carry "Copyright (c) 2026 PocketOS authors." and
+  `SPDX-License-Identifier: Apache-2.0`; the copyright line keeps the
+  PocketOS name (ADR-005 decision 7). Files that adapt other code carry a
+  compound expression; the policy and its exceptions are in
+  docs/licensing/APACHE_2_READINESS.md §2 and docs/licensing/spdx-exempt.txt.
+- The Buildroot package says `POCKETOS_LICENSE = Apache-2.0 (Doors), ...`.
+- **Published (owner, 2026-10-07):** Doors 0.3.5 is public - the source in
+  this repository, the image as a GitHub release - with the third-party
+  questions in docs/licensing/APACHE_2_READINESS.md §14.2 still open
+  (§14.3 records the decision; nothing there is resolved by it). The 0.3.5
+  build keeps `POCKETOS_REDISTRIBUTE = NO`, which only stops legal-info
+  archiving the Doors package source (that source is this repository at
+  tag `v0.3.5`); it changes in the next build.
+- The artwork in `docs/design/brand/` is the owner's, made with ChatGPT,
+  and Apache-2.0; the Doors mark, lockups and boot splash are reserved, with
+  permission to redistribute them unmodified as part of Doors
+  (docs/licensing/B1_ARTWORK.md, BRAND.md).
+- Inventory: THIRD_PARTY_LICENSES.md; models: MODEL_LICENSES.md; what still
+  blocks a public source release or a public image:
+  docs/licensing/APACHE_2_READINESS.md §14.
 
 ## Vendor and reference material
 
@@ -69,7 +80,7 @@ distribution, (c) unresolved:
 | FFT (Takuya Ooura, in ggwave `src/fft.h`) | Provenance: added to ggwave in upstream commit f5e08d9 (2022-06-04), header names the author's FFT package page; the code is that package's radix-4,2 `rdft`, reduced to float arrays. Terms: stated on the author's page, not in the file - permissive, including commercial use and redistribution of modified code, with a request to refer to the package when modifying, which the ggwave header does. Recorded verbatim with the retrieval date in docs/legal/third-party/ooura-fft.txt | **(a) resolved** |
 | alsa-lib 1.2.13 | LGPL-2.1-or-later, dynamic linking, already a Buildroot package in the image with its source in legal-info | **(a) resolved** |
 | B. Notices in a distributed image | Was: the `pocketos` package declared no licence files, so neither legal-info nor the image carried these notices. **Fixed** by the third-party notices work (next section) | **(a) resolved** |
-| PocketOS's own licence | Not decided (open item 1) | **(c) unresolved**; a release blocker independent of audio |
+| PocketOS's own licence | Was not decided (open item 1); Apache-2.0 since 2026-10-01 (ADR-013) | **(a) resolved** for the licence; publication is gated by docs/licensing/APACHE_2_READINESS.md |
 
 ## Third-party notices (2026-09-13)
 
@@ -79,7 +90,8 @@ under share/doc, which Buildroot strips) with a symlink to it at
 `/usr/share/pocketos/THIRD_PARTY_NOTICES.txt`, the path it had through
 v0.0.9 (ADR-005 Phase 2), collected by `make legal-info` as the `pocketos`
 package's licence file, and sent by the bench `deploy.sh`, link included. It
-opens with Doors' own undecided status, then lists and reproduces in full:
+opens with Doors' own licence (Apache-2.0 since 2026-10-01; until then it
+said none was chosen), then lists and reproduces in full:
 
 | Material | Reaches the image as | Licence |
 | --- | --- | --- |
@@ -131,9 +143,21 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 | Libraries Doors and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libjpeg, libpng, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
 | C and C++ runtime libraries from the external Xuantie toolchain (glibc, libstdc++, libgcc) | **(b) blocks distribution**: not in legal-info's manifest (open item 8) |
 | Other vendor SDK packages without licence metadata: libnncase and gsl-lite ("unknown" in the manifest), and the vendor local packages absent from it (`vvcam`, `face_detect`, `ai_demo`) | **(b) blocks distribution**: unchanged (open item 5). The LILYGO launcher `k230_phone_ui`, which carries no licence at all, is no longer in the image (chore/remove-vendor-launcher) |
-| Doors' own licence (PocketOS through v0.0.9) | **(c) undecided**; external redistribution not authorised (open item 1) |
+| Doors' own licence (PocketOS through v0.0.9) | **(a) decided**: Apache-2.0 (ADR-013); public release gated by docs/licensing/APACHE_2_READINESS.md |
 
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)
+
+**Refreshed for Doors 0.3.5 (2026-10-07)** from `make legal-info` on the
+0.3.5 candidate build `3d4ea6e`: docs/legal/manifest.csv (102 target
+packages, Doors as `pocketos 0.3.5`, Apache-2.0; `rtl8723ds` and
+`rtl8723ds-bt` no longer in it; `face_detect` and `ai2d_kpu` never had rows),
+host-manifest.csv and licenses/. Buildroot could not save licence files for
+`gsl-lite`, `rtl8189fs`, `opensbi` and `uboot` (their packages declare none;
+gsl-lite is MIT by its LICENSE and in the notices), and lists no row at all for the SDK's
+local packages or the external toolchain: docs/legal/LOCAL_PACKAGES.md has
+those. The source archives (`legal-info/sources/`, about 770 MB with the
+licences) stay in the SDK output and are not committed. The findings below
+are the 0.0.1 run's, kept as written.
 
 Generated with Buildroot `make legal-info` for `k230_pocketos_defconfig`;
 `docs/legal/manifest.csv` lists 96 target packages with licence and source
@@ -163,16 +187,23 @@ Findings:
 
 ## Open items
 
-1. Decide the Doors licence (owner), and with it who the copyright lines name
-   (they say "PocketOS authors"). Until then no licence is granted and
-   external redistribution of Doors, source or binaries, is not authorised.
+1. ~~Decide the Doors licence (owner), and with it who the copyright lines name
+   (they say "PocketOS authors").~~ Decided 2026-10-01: Apache-2.0
+   (ADR-013). The copyright lines keep "PocketOS authors"; renaming the
+   holder is a separate owner choice. What still blocks publishing the
+   source or an image is in docs/licensing/APACHE_2_READINESS.md §14.
 2. Ask LILYGO to add a LICENSE to the T-Display-K230 repository, or treat it as
    all-rights-reserved documentation.
 3. Add `make legal-info` to the image build and archive the result per release
    (first run done 2026-09-04, see above).
-4. Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
-   defconfig, k230_pocketos_defconfig (hardware absent; one proprietary blob less).
-5. Add manual manifest entries for vendor local packages.
+4. ~~Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
+   defconfig, k230_pocketos_defconfig (hardware absent; one proprietary blob less).~~
+   **Dropped** (owner, 2026-10-07; Doors 0.3.5): the Doors fragment turns the
+   three off, `rtl8189fs` stays.
+5. Add manual manifest entries for vendor local packages. **Done for 0.3.5**
+   (docs/legal/LOCAL_PACKAGES.md, 2026-10-07): code licences established for
+   most; the vendor models, `isp_media_server` and the nncase K230 modules
+   state no terms (APACHE_2_READINESS.md §14.2).
 6. ~~Confirm the licence terms of Ooura's FFT (ggwave `src/fft.h`), which the
    file itself does not state, before a release ships pos-wave.~~ Resolved
    2026-09-13 from the author's page (see "Audio milestone"; verbatim terms in
@@ -185,7 +216,10 @@ Findings:
    LVGL and LVGL's bundled components (see "Third-party notices").
 8. **Distribution blocker:** collect the licences of the C and C++ runtime
    libraries the external toolchain puts in the image (glibc, libstdc++,
-   libgcc_s); they are not in legal-info's manifest.
+   libgcc_s); they are not in legal-info's manifest. **Texts collected for
+   0.3.5**: glibc 2.33 and GCC 14.1.1 runtime licences from the XuanTie
+   fork at named commits, in THIRD_PARTY_NOTICES.txt. The source offer is
+   still the owner's decision (APACHE_2_READINESS.md §14.2, B9).
 9. ~~**Before meshcored ships in an image:** add notices entries for the three
    trees it compiles — MeshCore (`vendor/RIFT` `src/` and its
    `lib/ed25519`, orlp's ref10 Ed25519) and rweather's `arduinolibs` Crypto.~~
@@ -230,13 +264,23 @@ Findings:
     outside the project.** Deciding it for that means settling the AGPL's
     source obligation for a model whose exact weights and conversion are
     unpublished, and Ultralytics' broader reading of what its licence covers.
-    Doors' own licence (item 1) blocks such distribution anyway.
+    Doors' own licence (item 1) is decided since 2026-10-01; this item still
+    blocked a public image until 0.3.5 (docs/licensing/APACHE_2_READINESS.md, B4).
+    **Not shipped from Doors 0.3.5 (owner, 2026-10-07).** The package no
+    longer installs the model, removes a copy an earlier build left in the
+    target, and refuses, after every package, any of the SDK's Ultralytics
+    YOLO kmodels by name or hash (`tools/vision/refused-models.sha256`) and
+    the vendor `yolo` package. The notices entry left with the model. Vision
+    runs without it (COLOR, EDGE, LINE TRACE; docs/apps/VISION.md "The
+    model"). The item no longer blocks an image; it applies again only if a
+    YOLO-derived model is proposed for one. Training a DOORS-owned detector
+    is separate work (research/yolox-traffic-training).
 11. **Vision's optional models (feat/vision-next, docs/apps/VISION.md):**
     READ's text detector, recogniser and dictionary and RECOGNIZE's face
     embedding model (`face_recognition.kmodel`) come from the canmv SDK's
     `src/rtsmart/libs/kmodel/` trees, and FACE's detector is the vendor
-    `ai_demo` package's `face_detection_320.kmodel` the image already
-    carries; none has a licence statement, and the SDK publishes neither
+    `face_detection_320.kmodel`, which images up to 0.3.0 carried in the
+    vendor's `face_detect` demo (off from 0.3.5); none has a licence statement, and the SDK publishes neither
     their source weights nor their conversion. They are
     **neither committed nor packaged**: the helper reads them from
     `/usr/share/doors/vision/` when they are there and offers the mode only

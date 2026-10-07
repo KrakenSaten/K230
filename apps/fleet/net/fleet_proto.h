@@ -22,7 +22,8 @@
  *
  * Pure C, no I/O.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_PROTO_H
 #define POCKETFLEET_PROTO_H

@@ -30,7 +30,8 @@
  *
  * Integers throughout, Q8.8 widths, 64-bit sums. Pure C, no LVGL, no I/O.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_STABILITY_H
 #define POCKETTIMBER_STABILITY_H

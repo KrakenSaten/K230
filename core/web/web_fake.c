@@ -31,7 +31,8 @@
  *   https://offline.doors.test/    no network at all
  *   anything else                  no such host
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "web/web_fetch.h"

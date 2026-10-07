@@ -31,7 +31,8 @@
  * it keeps answering until SIGTERM, so a peer still waiting for its last
  * answer gets it. Exit 0 when the match finished, 2 on a timeout.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_link_mesh.h"
 #include "fleet_session.h"

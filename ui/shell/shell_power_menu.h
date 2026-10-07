@@ -1,6 +1,6 @@
 /*
  * The power menu: what a one-second hold of the power key brings up
- * (shell_power_key.h). Restart and Power off, the same two machine actions
+ * (shell_evkey.h). Restart and Power off, the same two machine actions
  * System's OVERVIEW offers, through the same sysd methods (system.reboot,
  * system.poweroff; docs/api/system.md), and Cancel.
  *
@@ -16,7 +16,8 @@
  * was. The body says that holding on powers off; the menu cannot stop it
  * and does not pretend to.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_SHELL_POWER_MENU_H
 #define DOORS_SHELL_POWER_MENU_H

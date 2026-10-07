@@ -1,7 +1,8 @@
 /*
  * PG Blackjack card rendering. See bj_card_draw.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "bj_card_draw.h"
 

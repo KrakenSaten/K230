@@ -10,7 +10,8 @@
  *
  * Usage: rec_session_test <fake_pos_record.sh> <pos-record-testhooks>
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketwav/pocketwav.h"
 #include "rec_protocol.h"

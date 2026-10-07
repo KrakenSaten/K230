@@ -4,7 +4,8 @@
  * list rows, and what the chip, the timer, the status line and each button
  * say - and whether they can be pressed - in every state.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rec_protocol.h"
 #include "rec_view.h"

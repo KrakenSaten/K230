@@ -1,7 +1,8 @@
 /*
  * PocketOS theme engine core. See pos_theme.h and POCKETOS-DS-v0.1 §4, §6, §8.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_theme.h"
 

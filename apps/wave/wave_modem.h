@@ -38,7 +38,8 @@
  * Not thread-safe: ggwave's protocol tables are process-global. pos-wave is
  * single-threaded and creates one encoder or one decoder.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_MODEM_H
 #define POCKETWAVE_MODEM_H

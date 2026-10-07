@@ -21,7 +21,8 @@
  * the only thing that stores it (channels.v1, mode 0600). Nothing here is
  * written to the reader's preferences, the model or a log.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_KEYS_H
 #define RIFT_KEYS_H

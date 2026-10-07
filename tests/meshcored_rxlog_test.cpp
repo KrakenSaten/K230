@@ -10,7 +10,8 @@
  * The crypto is real; the frames that are replayed or rewritten were built by
  * a real runtime and captured off the air.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdio.h>
 #include <stdlib.h>

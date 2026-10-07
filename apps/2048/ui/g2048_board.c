@@ -1,7 +1,8 @@
 /*
  * PG 2048 board widget. See g2048_board.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "g2048_board.h"
 

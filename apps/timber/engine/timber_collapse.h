@@ -26,7 +26,8 @@
  * layer j starts at z = j * TIMBER_BLOCK_HEIGHT and rests at z = 0 on the
  * felt. Pure C, no LVGL, no I/O.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_COLLAPSE_H
 #define POCKETTIMBER_COLLAPSE_H

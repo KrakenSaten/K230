@@ -7,7 +7,8 @@
  * shared styles follows without being touched. Nothing outside this module
  * may set a colour or font on an object directly (tests/style_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_STYLES_H
 #define POS_STYLES_H

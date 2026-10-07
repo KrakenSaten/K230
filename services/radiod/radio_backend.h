@@ -2,7 +2,8 @@
  * radiod backend interface. Backends own the transceiver; radiod owns policy,
  * statistics and IPC. See docs/api/radio.md.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RADIOD_RADIO_BACKEND_H
 #define RADIOD_RADIO_BACKEND_H

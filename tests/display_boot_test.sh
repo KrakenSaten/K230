@@ -3,7 +3,8 @@
 # partition: the pointer files post-image.sh writes, real-looking device-tree
 # blobs, and every refusal that must leave the partition untouched.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 TOOL=tools/display/pos-display-boot.sh

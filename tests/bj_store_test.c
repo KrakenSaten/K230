@@ -6,7 +6,8 @@
  * on exactly as the original; refusals of damaged, truncated, padded,
  * other-version and impossible files; and the file itself.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "bj_store.h"

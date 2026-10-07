@@ -11,7 +11,8 @@
  * PocketClock has no ringing screen of its own. There is one alert, and this
  * is it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SHELL_ALARM_H
 #define POCKETOS_SHELL_ALARM_H

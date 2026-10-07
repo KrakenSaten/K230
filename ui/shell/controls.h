@@ -21,7 +21,8 @@
  * What each says, the antenna question and the layout are decided in
  * controls_model.c, which is tested on the host; this file draws them.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_CONTROLS_H
 #define DOORS_CONTROLS_H

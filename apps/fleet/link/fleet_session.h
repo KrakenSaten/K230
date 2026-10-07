@@ -18,7 +18,8 @@
  * Pure C, no LVGL: the app drives it from a timer, and tests/fleet_session_test
  * drives it with the loop link and an in-memory store.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_SESSION_H
 #define POCKETFLEET_SESSION_H

@@ -2,7 +2,8 @@
  * Tag text for the screen: valid UTF-8, one line, bounded. See
  * mp3_decoder.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_decoder.h"
 

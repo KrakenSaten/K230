@@ -27,7 +27,8 @@
  * After an eject the same device is not mounted again until it is removed:
  * "Safe to remove" stays true until the drive is gone.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef SYSD_STORAGE_H
 #define SYSD_STORAGE_H

@@ -21,7 +21,8 @@
  * photograph behind the status cluster and the launcher alike (shell.c), so
  * the two read as one surface.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_HOME_H
 #define DOORS_HOME_H

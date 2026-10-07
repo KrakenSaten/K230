@@ -8,7 +8,8 @@
  * app gives it; the cells follow from that size, so a different layout
  * tomorrow needs no change here.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PG2048_BOARD_H
 #define PG2048_BOARD_H

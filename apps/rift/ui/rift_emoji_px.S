@@ -3,7 +3,8 @@
  * tools/design/gen_rift_emoji.js) embedded as read-only data. The build puts
  * this file's directory on the assembler's include path (-Wa,-I...).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
     .section .rodata.rift_emoji_px, "a"
     .balign 4

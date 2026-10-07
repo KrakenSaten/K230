@@ -32,7 +32,8 @@
  * timer and then this app's root - so no callback can arrive after the app
  * is freed, whatever the shell deletes later.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "deskbuddy_app.h"
 
