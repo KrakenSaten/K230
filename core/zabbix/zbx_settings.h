@@ -42,7 +42,8 @@
  * Pure C, no LVGL; the transport and the clock are passed in, so the tests
  * run it against the fake server in temporary directories.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ZBX_SETTINGS_H
 #define POCKETOS_ZBX_SETTINGS_H

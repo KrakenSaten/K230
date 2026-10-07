@@ -26,7 +26,8 @@
  * FULLSCREEN (DS §30.8): the app declares NONE; the shell's header carries
  * the back button and the hint (SIMULATED under the fake backend).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "pocketlog/pocketlog.h"
@@ -117,7 +118,7 @@ struct vision_app {
     struct vision_picture preview;
     bool shown;           /* img shows the preview */
     const char *hint_shown;
-    char status_buf[256];
+    char status_buf[384];
 };
 
 static int64_t now_ms(void)

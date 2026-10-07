@@ -13,7 +13,8 @@
  *        Exit 0 on success; 1 when the device cannot be opened, locked,
  *        configured or transferred (message on stderr); 2 on a usage error.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include <errno.h>
 #include <fcntl.h>

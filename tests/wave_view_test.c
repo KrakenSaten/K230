@@ -6,7 +6,8 @@
  * folded, stops and failures recorded); CLEAR's two taps; the preset lock;
  * the words for every helper error and exit, and how entries are shown.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_view.h"
 

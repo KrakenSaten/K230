@@ -11,7 +11,8 @@
  * packets in a row end the file with MP3_DEC_E_DECODE. A read error from
  * the storage ends it with MP3_DEC_E_IO.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_decoder.h"
 

@@ -13,7 +13,8 @@
  * Runs against a temporary POCKETOS_RUNTIME_DIR, so it never touches the
  * real one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "clock_store.h"
 

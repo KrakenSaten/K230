@@ -7,7 +7,8 @@
  * It decides nothing. Its geometry is sol_view_table() of its own size, so a
  * different layout tomorrow changes the size it is given and nothing here.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGSOL_TABLE_WIDGET_H
 #define PGSOL_TABLE_WIDGET_H

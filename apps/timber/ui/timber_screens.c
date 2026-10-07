@@ -14,7 +14,8 @@
  * Placement is aim-then-confirm too: a side button moves the ghost, PLACE
  * commits, so a mis-tap can never be what fells the tower.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "../timber_app.h"
 

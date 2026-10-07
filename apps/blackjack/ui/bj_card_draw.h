@@ -19,7 +19,8 @@
  * where that pip is covered, so the pip goes below the rank. A shared
  * renderer needs both (docs/apps/PGBLACKJACK.md, "Pocket Cards").
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGBJ_CARD_DRAW_H
 #define PGBJ_CARD_DRAW_H

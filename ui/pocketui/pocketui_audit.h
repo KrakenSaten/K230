@@ -24,7 +24,8 @@
  *              visible areas share more than a sliver.
  *   zero       a meaningful object with no visible width or height.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETUI_AUDIT_H
 #define POCKETUI_AUDIT_H

@@ -31,7 +31,8 @@
  * the last is kept until the next; the maximum and the mean (over a
  * saturating count) are there because they cost nothing.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_TRAFFIC_H
 #define POCKETOS_VISION_TRAFFIC_H

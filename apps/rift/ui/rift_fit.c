@@ -9,7 +9,8 @@
  * for a right-aligned number. Split from rift_widgets.c, which is near the
  * size tests/rift_lint.sh allows a file.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_widgets.h"
 

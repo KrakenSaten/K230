@@ -30,7 +30,8 @@
  *
  * Pure C: tests/web_store_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WEB_STORE_H
 #define POCKETOS_WEB_STORE_H

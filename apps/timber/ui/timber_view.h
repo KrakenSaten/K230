@@ -22,7 +22,8 @@
  * real ones wait on the sprite-storm redraw budget and the sway readability
  * gate (HARDWARE VALIDATION REQUIRED).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_VIEW_H
 #define POCKETTIMBER_VIEW_H

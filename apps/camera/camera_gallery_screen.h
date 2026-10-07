@@ -15,7 +15,8 @@
  * the slideshow runs - its shown and prepared pictures. All of it is freed
  * when the gallery is left.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef CAMERA_GALLERY_SCREEN_H
 #define CAMERA_GALLERY_SCREEN_H

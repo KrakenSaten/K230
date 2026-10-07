@@ -59,4 +59,4 @@ the real radiod on its mock backend) and `tests/meshcored_harness_test.sh`
 Nothing here touches hardware, and the service is disabled in every image
 until an operator switches it on per unit.
 
-Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+Copyright (c) 2026 PocketOS authors. Licensed under the Apache License, Version 2.0 (see LICENSE at the repository root).

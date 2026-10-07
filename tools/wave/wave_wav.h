@@ -10,7 +10,8 @@
  * header claims (a recording that was cut off) is read up to the last whole
  * frame, and reported as truncated.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_WAV_H
 #define POCKETWAVE_WAV_H

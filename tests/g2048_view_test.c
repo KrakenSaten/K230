@@ -6,7 +6,8 @@
  * The colour contract - which fills and texts the tiles resolve to in every
  * theme and mode - is tests/g2048_theme_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "g2048_view.h"
 

@@ -7,7 +7,8 @@
 # beside it, and make's tests/pos-video-testhooks. VIDEO_SHOTS=<dir> keeps
 # screenshots (the app test's screens, and the real shell's).
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 cd "$(dirname "$0")/.." || exit 1

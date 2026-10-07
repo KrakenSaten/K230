@@ -24,6 +24,9 @@
 #
 # Requires SHELL_BIN (the CMake-built pocketos-shell, SDL, with its test
 # hooks) and pos (make all). SHOTS_DIR=<dir> keeps the screenshots.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 POS=${POS:-tools/pos/pos}

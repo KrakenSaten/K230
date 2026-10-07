@@ -2,7 +2,8 @@
  * PocketFleet multiplayer match state machine. See fleet_match.h and
  * docs/apps/FLEET_MULTIPLAYER.md, which this follows rule for rule.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_match.h"
 

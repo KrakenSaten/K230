@@ -2,7 +2,8 @@
  * PG Solitaire app, the parts a test may look at: the game and interaction
  * state it holds, and its objects. Nothing here changes anything.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGSOL_APP_H
 #define PGSOL_APP_H

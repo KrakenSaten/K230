@@ -3,7 +3,8 @@
 # the helper's event protocol (tools/wave/pos_wave.c, EVENTS) and misbehaves
 # on request. WAVE_FAKE picks the scenario. Never installed.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 
 hex() { od -An -tx1 -v | tr -d ' \n'; }
 

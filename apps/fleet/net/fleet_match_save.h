@@ -13,7 +13,8 @@
  * idle: pre-start state is deliberately not persisted (ADR-008, point 10).
  * The tombstones are saved in every phase.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_MATCH_SAVE_H
 #define POCKETFLEET_MATCH_SAVE_H

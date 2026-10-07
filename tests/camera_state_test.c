@@ -3,7 +3,8 @@
  * it matters in, what the screen shows, and the actions asked for. No
  * processes and no clock but the one passed in.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "camera_state.h"
 

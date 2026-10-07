@@ -9,7 +9,8 @@
  * comparison. Selection and the ghost are drawn the same way on both: the
  * view model's quads, in the accent token, so they follow the theme.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_table.h"
 

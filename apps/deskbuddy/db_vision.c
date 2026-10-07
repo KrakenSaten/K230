@@ -2,7 +2,8 @@
  * DeskBuddy's vision boundary: the event, the queue and the "none"
  * provider. See db_vision.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "db_vision.h"
 

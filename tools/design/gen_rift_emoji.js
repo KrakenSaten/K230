@@ -17,6 +17,9 @@
 // Writes apps/rift/rift_emoji_seq.c (sequence table, plain C, for folding),
 // apps/rift/ui/rift_emoji_img.c (image index) and apps/rift/ui/rift_emoji_px.bin
 // (the pixels, embedded by rift_emoji_px.S). Prints a summary.
+//
+// Copyright (c) 2026 PocketOS authors.
+// SPDX-License-Identifier: Apache-2.0
 'use strict';
 const fs = require('fs');
 const path = require('path');

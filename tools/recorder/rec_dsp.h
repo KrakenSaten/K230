@@ -21,7 +21,8 @@
  *                recording plays at its own level; a loud one is turned down
  *                instead of being clipped. No pumping, no look-ahead.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_DSP_H
 #define POCKETREC_DSP_H

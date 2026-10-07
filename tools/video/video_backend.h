@@ -25,7 +25,8 @@
  * shown. A backend therefore keeps the other stream's packets aside, within a
  * bound, and says VIDEO_ITEM_AGAIN when that bound is reached.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VIDEO_BACKEND_H
 #define POCKETOS_VIDEO_BACKEND_H

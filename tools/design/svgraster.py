@@ -1,3 +1,5 @@
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """A small SVG subset rasterizer for the Doors icon tools. Standard library only.
 
 It draws what the Doors and DOORS B icon sources are made of, and nothing

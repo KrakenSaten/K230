@@ -8,7 +8,8 @@
  * than a rejected event. These cases are what keeps that from happening
  * here.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mcd_util.h"
 

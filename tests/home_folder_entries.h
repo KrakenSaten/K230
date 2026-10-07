@@ -2,7 +2,8 @@
  * Thirty more games for tests/home_folder_test.c: rows of the launcher's table
  * (ui/shell/home_layout.c, HOME_LAYOUT_TEST_ENTRIES_FILE), all in GAMES.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 { "g01", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
 { "g02", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },

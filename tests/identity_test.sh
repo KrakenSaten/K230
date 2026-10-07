@@ -9,8 +9,9 @@
 #     /usr/bin/pos a symlink to it. Invoked as doors it says Doors; invoked as
 #     pos it prints what pos printed through v0.0.9, byte for byte where this
 #     test pins it. The pos-* helpers keep their names.
-#   - The third-party notices, the only shared data, live in /usr/share/doors;
-#     /usr/share/pocketos stays a directory with a link to them in it.
+#   - The third-party notices and Doors' own LICENSE and NOTICE, the only
+#     shared data, live in /usr/share/doors; /usr/share/pocketos stays a
+#     directory with a link to the notices in it.
 #   - Installing over a PocketOS-era tree, where the old names are regular
 #     files, ends in the same layout, and installing twice changes nothing.
 #   - No installed directory is a symlink and every link resolves inside the
@@ -22,7 +23,8 @@
 # unit-tested in tests/paths_test.c and, through system.info, in
 # tests/pocketsys_test.c.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0
@@ -79,9 +81,13 @@ check "/usr/share/pocketos stays a directory, not a link" \
     "$(yes_if eval '[ -d "$F/usr/share/pocketos" ] && [ ! -L "$F/usr/share/pocketos" ]')"
 check "holding THIRD_PARTY_NOTICES.txt as a link to ../doors/THIRD_PARTY_NOTICES.txt" \
     "$(yes_if link_is "$F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt" ../doors/THIRD_PARTY_NOTICES.txt)"
+for l in LICENSE NOTICE; do
+    check "/usr/share/doors/$l is Doors' own $l file, mode 0644" \
+        "$(yes_if eval 'regular "$F/usr/share/doors/$l" && mode_is "$F/usr/share/doors/$l" 644 && cmp -s "$F/usr/share/doors/$l" "$l"')"
+done
 check "and nothing else lives in either shared directory but the shell's art" \
     "$(yes_if [ "$(find "$F/usr/share" -mindepth 2 ! -path "$F/usr/share/doors/ui*" | LC_ALL=C sort | tr '\n' ' ')" = \
-        "$F/usr/share/doors/THIRD_PARTY_NOTICES.txt $F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt " ])"
+        "$F/usr/share/doors/LICENSE $F/usr/share/doors/NOTICE $F/usr/share/doors/THIRD_PARTY_NOTICES.txt $F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt " ])"
 art_ok=1
 for a in ui/assets/doors/*.bin; do
     t="$F/usr/share/doors/ui/$(basename "$a")"

@@ -6,7 +6,8 @@
  * exactly: Enter is CR, Backspace the tty's erase character DEL, Ctrl+C the
  * interrupt character, the cursor keys in both modes, Alt as an ESC prefix.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "term_keys.h"
 

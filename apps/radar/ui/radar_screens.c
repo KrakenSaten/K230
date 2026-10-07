@@ -14,7 +14,8 @@
  * which put a number the player only glances at between the thing they are
  * looking at and the thing they are about to press.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "../radar_app.h"
 

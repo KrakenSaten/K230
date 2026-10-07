@@ -1,7 +1,8 @@
 /*
  * Files: listing, the write policy and the operations (files_fs.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "files_fs.h"

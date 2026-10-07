@@ -3,7 +3,8 @@
  * became of the last send, and what an empty thread means. Split out of
  * rift_thread.c, which draws the messages, so neither file is everything.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_thread.h"
 

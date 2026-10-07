@@ -27,7 +27,8 @@
  * Tested against a scripted fake helper and the real pos-mp3 over the
  * file-backed fake sound card (tests/mp3_ctl_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETMP3_CTL_H
 #define POCKETMP3_CTL_H

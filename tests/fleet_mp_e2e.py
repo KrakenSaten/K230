@@ -21,7 +21,8 @@ the same radio.* shapes and the same order of radio.state, reply and
 radio.tx_done, without its fault knobs, and with an air that can drop and
 repeat. Nothing here touches a radio.
 
-Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+Copyright (c) 2026 PocketOS authors.
+SPDX-License-Identifier: Apache-2.0
 """
 import json
 import os

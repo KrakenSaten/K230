@@ -2,7 +2,8 @@
  * NET's placement: which ring each node is on, and which nodes a route runs
  * through. See rift_net.h. Read-only over the node cache, like rift_order.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_net.h"
 

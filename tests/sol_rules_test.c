@@ -7,7 +7,8 @@
  * Positions are built card by card from the ruleset in sol_rules.h; the
  * expected answers are written out, never computed by the code under test.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "sol_rules.h"
 

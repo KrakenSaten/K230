@@ -20,7 +20,8 @@
  * The worst ratio seen for each rule is printed, so a theme change that
  * erodes a margin shows before it breaks one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "g2048_view.h"
 

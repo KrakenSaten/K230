@@ -3,7 +3,8 @@
  * the slider rounding, mute, whether there is a sound card to play to, and
  * the round trip through the real settings store the shell persists them in.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "settings.h"

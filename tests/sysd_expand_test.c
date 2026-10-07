@@ -11,7 +11,8 @@
  * in the job's child process, so they record what they were asked in a file.
  * The numbers are unit B's card (VERIFIED 2026-10-03).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "sysd_expand.h"

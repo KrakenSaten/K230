@@ -6,7 +6,8 @@
  * before anyone confirmed it - and they are testable because those decisions
  * live in apps/system/system_view.c rather than in the LVGL callbacks.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "system_view.h"

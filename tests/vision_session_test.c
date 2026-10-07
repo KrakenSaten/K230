@@ -13,7 +13,8 @@
  *
  * Usage: vision_session_test <path to pos-vision>
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_session.h"
 #include "vision_settings.h"
@@ -216,6 +217,11 @@ static void test_parse(void)
                               s.stats.bad == 1);
     check("nodevice carries its text", vision_session_parse_line(&s, "nodevice no camera", &ev) &&
                                            ev.kind == VISION_EV_NODEVICE && strcmp(ev.text, "no camera") == 0);
+    check("ready without a detector parses: model none, no classes",
+          vision_session_parse_line(&s, "ready fake 640 360 1 none 0 0 0", &ev) && ev.kind == VISION_EV_READY &&
+              strcmp(ev.name, "none") == 0 && ev.value == 0);
+    check("but no classes from a named detector is refused",
+          !vision_session_parse_line(&s, "ready fake 640 360 1 yolov8n.kmodel 320 320 0", &ev));
     check("nomodel too", vision_session_parse_line(&s, "nomodel model file not found", &ev) &&
                              ev.kind == VISION_EV_NOMODEL && strcmp(ev.text, "model file not found") == 0);
     check("an unknown word is not an event", !vision_session_parse_line(&s, "weather sunny", &ev));
@@ -546,6 +552,41 @@ static void test_range(void)
     vision_session_range(&s, "far");
     settle(&s, &w);
     check("FAR keeps it once, not twice (the two passes merged)", confirmed_of(&s, &w, 2, 12) == 1);
+    vision_session_abandon(&s, 1000);
+}
+
+/* No detector model on the unit (an image that does not ship it): the
+ * helper still opens the camera and says ready with no detector, offers
+ * only the modes that need none, refuses the detector's modes, starts in a
+ * pixel mode and keeps the pictures coming. A named model is a test's: the
+ * fake detector reads no file otherwise. */
+static void test_no_detector(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    int i;
+
+    vision_session_init(&s);
+    check("the helper starts without its detector file",
+          start(&s, "period=20", "box=0:900:100:100:60:120", "/nonexistent/vision/yolov8n.kmodel") == 0);
+    check("ready names no detector and no classes",
+          wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w) && strcmp(ev.name, "none") == 0 && ev.value == 0 &&
+              ev.w == 640 && ev.h == 360);
+    check("caps offers the pixel modes and nothing of the detector's",
+          wait_for(&s, VISION_EV_CAPS, 1000, &ev, seen, &w) &&
+              ev.value == ((1 << VISION_MODE_COLOR) | (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE)));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode_word(&s, "detect");
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    for (i = 0; i < 10; i++) {
+        wait_for(&s, VISION_EV_FRAME, 1000, &ev, seen, &w);
+    }
+    check("DETECT is refused: pictures come and no box is ever said", w.frames >= 5 && s.shown_count == 0);
+    vision_session_mode_word(&s, "edge");
+    check("a pixel mode still runs", wait_for(&s, VISION_EV_EDGE, 2000, &ev, seen, &w));
+    check("and the helper is still there", vision_session_active(&s));
     vision_session_abandon(&s, 1000);
 }
 
@@ -1498,6 +1539,7 @@ int main(int argc, char **argv)
     test_traffic();
     test_range();
     test_read();
+    test_no_detector();
     test_replay();
     test_face();
     test_recognize();

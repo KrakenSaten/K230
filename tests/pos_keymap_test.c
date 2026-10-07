@@ -8,7 +8,8 @@
  * yet. Everything here is fed raw FIFO bytes exactly as the controller
  * produces them - bit 7 press or release, bits 0 to 6 the matrix code.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_keymap.h"
 

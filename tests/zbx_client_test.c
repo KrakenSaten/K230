@@ -4,7 +4,8 @@
  * rules, the password session, and what the app is sent - read back through
  * the app's own protocol reader.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketlog/pocketlog.h"

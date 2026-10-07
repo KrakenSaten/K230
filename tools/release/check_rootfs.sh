@@ -33,6 +33,9 @@
 # check_rootfs.sh --list prints every path it reads, one per line, relative to
 # the root, so verify_image.sh extracts exactly those rather than keeping a
 # list of its own that could fall behind this one.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -uo pipefail
 
 failed=0

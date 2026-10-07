@@ -8,7 +8,8 @@
  * 0, or -1 when the arguments are unusable (buf then holds "" when it can).
  * `peer` is the opponent's name as the player knows it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_VIEW_MP_H
 #define POCKETFLEET_VIEW_MP_H

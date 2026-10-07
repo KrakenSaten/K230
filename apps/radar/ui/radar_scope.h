@@ -24,7 +24,8 @@
  * Integer arithmetic only, through lv_trigo_sin/cos, lv_atan2 and lv_sqrt32:
  * no libm in PocketRadar at any layer.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETRADAR_SCOPE_H
 #define POCKETRADAR_SCOPE_H

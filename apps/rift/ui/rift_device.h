@@ -15,7 +15,8 @@
  *               2 or 3 asks first, because repeaters whose firmware does not
  *               read multi-byte paths drop such floods.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_DEVICE_H
 #define RIFT_DEVICE_H

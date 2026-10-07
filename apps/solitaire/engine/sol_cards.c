@@ -1,7 +1,8 @@
 /*
  * PG Solitaire card primitives. See sol_cards.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "sol_cards.h"
 

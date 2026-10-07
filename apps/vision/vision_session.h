@@ -14,7 +14,8 @@
  * helper with the fake camera and the fake detector
  * (tests/vision_session_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef VISION_SESSION_H
 #define VISION_SESSION_H

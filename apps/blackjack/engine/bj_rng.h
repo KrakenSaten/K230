@@ -12,7 +12,8 @@
  * tests/bj_lint.sh keeps it that way by a text search, so prose here avoids
  * the names it looks for.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGBJ_RNG_H
 #define PGBJ_RNG_H

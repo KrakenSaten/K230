@@ -32,7 +32,8 @@
  * says is diag_view.c's; it refreshes one bounded call per tick
  * (diag_view.h), and holds at most DIAG_LOG_MAX log lines.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "app.h"

@@ -1,7 +1,8 @@
 /*
  * MAP. See rift_mapview.h, and rift_map.h for the geometry.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_mapview.h"
 

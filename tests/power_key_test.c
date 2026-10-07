@@ -4,7 +4,8 @@
  * repeats and duplicate events, a press ended by lost input, and a press
  * swallowed on purpose. The BOOT key uses the same timing.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "power_key.h"
 

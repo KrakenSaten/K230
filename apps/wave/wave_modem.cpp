@@ -5,7 +5,8 @@
  * Built with -fno-exceptions -fno-rtti: allocation uses nothrow new, and
  * nothing here can throw across the C boundary.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_modem.h"
 

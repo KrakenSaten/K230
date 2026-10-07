@@ -3,7 +3,8 @@
  * draws, rift_rxlog_input.c takes the presses, the drag and the keys. Nothing
  * outside these two includes this.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_RXLOG_VIEW_INT_H
 #define RIFT_RXLOG_VIEW_INT_H

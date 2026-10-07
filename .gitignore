@@ -15,10 +15,12 @@
 /tests/sysd_logs_test
 /tests/sysd_storage_test
 /tests/sysd_expand_test
+/tests/sysd_radio_test
 /tests/sysd-testhooks
 /tests/system_view_test
 /tests/diag_view_test
 /tests/airtime_test
+/tests/rf_state_test
 /tests/radiod_tx_test
 /tests/pocketlog_test
 /tests/theme_test

@@ -15,7 +15,8 @@
  * into one request (rift_ipc_repeater_login) and is wiped there; this block
  * records only that a login was asked for.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_REPEATER_H
 #define RIFT_REPEATER_H

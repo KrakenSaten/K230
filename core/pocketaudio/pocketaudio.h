@@ -63,7 +63,8 @@
  * against a fake (tests/pocketaudio_test.c); pocketaudio_alsa.c is the real
  * backend.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETAUDIO_H
 #define POCKETOS_POCKETAUDIO_H

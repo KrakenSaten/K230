@@ -1,7 +1,8 @@
 /*
  * RX LOG. See rift_rxlog_view.h; the ring and its words are rift_rxlog.[ch].
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_rxlog_view_int.h"
 

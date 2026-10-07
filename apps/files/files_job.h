@@ -9,7 +9,8 @@
  * One job at a time. The job struct is owned by the app and must outlive
  * the thread: files_job_abandon() is the last thing the app does with it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef FILES_JOB_H
 #define FILES_JOB_H

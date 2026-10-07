@@ -3,7 +3,8 @@
  * its bound, folding of repeats, and the text form the store writes - round
  * trips, damaged lines, a foreign file, and the bound on the way in.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_history.h"
 #include "wave_preset.h"

@@ -3,7 +3,8 @@
  * restrictive permissions, atomic replacement, damaged files left alone,
  * ordering and limits, and that passphrases survive exactly.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "wifi_store.h"

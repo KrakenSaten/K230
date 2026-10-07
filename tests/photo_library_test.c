@@ -12,7 +12,8 @@
  *
  * No LVGL. Needs the helper's path as argv[1] (tests/pos-camera-testhooks).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "camera_gallery.h"

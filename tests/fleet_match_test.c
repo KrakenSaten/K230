@@ -8,7 +8,8 @@
  * The wire here is a queue the test controls packet by packet: deliver,
  * drop, duplicate, hold back and deliver late.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_mp_harness.h"
 

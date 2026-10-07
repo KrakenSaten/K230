@@ -32,7 +32,8 @@
  * shows the same gallery on its own: standalone, there is no CAMERA action,
  * and the shell's back slab is the only way out.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef CAMERA_GALLERY_H
 #define CAMERA_GALLERY_H

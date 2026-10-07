@@ -31,7 +31,8 @@
  * else `fake` (tools/video/video_backend_fake.c). Nothing is logged: no file
  * names, no pictures.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketaudio/pocketaudio.h"

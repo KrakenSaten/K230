@@ -1,7 +1,8 @@
 /*
  * Terminal: the screen and its VT parser. See term_screen.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "term_screen.h"
 

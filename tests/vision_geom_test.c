@@ -5,7 +5,8 @@
  * every rotation, mirrored and not, and for pictures the cover fit cuts on
  * either axis. Then boxes: clamped to the picture, or reported outside it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketcam/pocketcam_convert.h"
 #include "pocketvision/vision_geom.h"

@@ -17,7 +17,8 @@
 #     ENABLE=1 for a launcher that is not installed, and still yields to one
 #     that is (a unit on an older image).
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)

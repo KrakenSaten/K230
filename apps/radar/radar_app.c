@@ -5,7 +5,8 @@
  * It is a game. It talks to no service, opens no device and senses nothing;
  * it needs the shell's app API and PocketUI, and nothing else.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "radar_app.h"
 

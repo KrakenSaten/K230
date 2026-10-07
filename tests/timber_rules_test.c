@@ -4,7 +4,8 @@
  * and slip, the event queue, and the digest that says a seed and a list of
  * actions reproduce a run exactly.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_rules.h"
 #include "timber_summit.h"

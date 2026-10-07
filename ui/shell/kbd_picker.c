@@ -1,7 +1,8 @@
 /*
  * The long-press letter picker. See kbd_picker.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_picker.h"
 

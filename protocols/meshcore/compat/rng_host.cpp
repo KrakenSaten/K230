@@ -13,7 +13,8 @@
  * those two entry points were called they would get real entropy rather than
  * a stub.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include <RNG.h>
 

@@ -17,6 +17,9 @@
 # costs the host its view of the deploy, never the unit its services.
 #
 # Usage: deploy_unit.sh <archive.tar>
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -e
 PAYLOAD="${1:?usage: deploy_unit.sh <archive.tar>}"
 # Checked before anything is stopped: an archive that is not there now will

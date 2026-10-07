@@ -14,7 +14,8 @@
  *
  * Built by ui/shell (CMake, simulator only); run by tests/doors_shell_test.sh.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "art.h"
 #include "pocketui.h"

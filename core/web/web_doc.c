@@ -1,7 +1,8 @@
 /*
  * The page document. See web_doc.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "web/web_doc.h"
 

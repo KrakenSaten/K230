@@ -4,7 +4,8 @@
  * rests, the same state falls the same way twice, another seed falls
  * differently, and the ceiling puts down whatever is still moving.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_collapse.h"
 

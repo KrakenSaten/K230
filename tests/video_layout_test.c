@@ -5,7 +5,8 @@
  * nothing overlapping, a picture box a slot can fill - then fullscreen, the
  * corners, and bodies too small to use.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "video_layout.h"
 #include "video_proto.h"

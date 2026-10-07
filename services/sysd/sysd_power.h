@@ -9,7 +9,8 @@
  * the panel, nothing would be flushed, and the SD card would be cut off
  * mid-write.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef SYSD_POWER_H
 #define SYSD_POWER_H

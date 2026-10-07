@@ -34,7 +34,8 @@
  * returns -EFBIG before it would). A full or failing filesystem is an errno
  * from append; nothing is retried behind the caller's back.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_FILE_H
 #define POCKETREC_FILE_H

@@ -10,7 +10,8 @@
  * vendor/libgpiod/include/gpiod.h wherever that is present, and says so
  * loudly when it is not, rather than letting the fake drift unnoticed.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_FAKE_GPIOD_H
 #define POCKETOS_FAKE_GPIOD_H

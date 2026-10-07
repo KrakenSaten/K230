@@ -2,7 +2,8 @@
  * Radio app: live view of radiod (status, profile, statistics) with a test
  * transmit. Uses only the radio.* API over pocketipc.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "pocketui.h"

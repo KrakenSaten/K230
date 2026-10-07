@@ -4,7 +4,8 @@
  * two answers, the cases where it must say nothing rather than a guess, and
  * that nothing but numbers ever reaches it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "overlay_model.h"
 

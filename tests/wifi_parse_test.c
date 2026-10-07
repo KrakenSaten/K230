@@ -3,7 +3,8 @@
  * scan-result parsing, duplicate and hidden SSIDs, security classification,
  * STATUS/SIGNAL_POLL values, events and passphrase validation.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "wifi_parse.h"

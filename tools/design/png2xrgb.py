@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Convert the Doors boot artwork into the U-Boot splash, or check a splash.
 
     png2xrgb.py SOURCE.png OUTPUT.xrgb

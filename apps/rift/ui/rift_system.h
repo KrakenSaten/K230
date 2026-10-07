@@ -15,7 +15,8 @@
  * Nothing here is new behaviour except the channel sound and the mute: every
  * control is the one ACTIVITY had, moved, with the same rules.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_SYSTEM_H
 #define RIFT_SYSTEM_H

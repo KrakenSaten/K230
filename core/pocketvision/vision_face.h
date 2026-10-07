@@ -22,7 +22,8 @@
  * allocation. Reads the tensors' floats; NaN and infinities are skipped and
  * counted (tests/vision_face_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_FACE_H
 #define POCKETOS_VISION_FACE_H

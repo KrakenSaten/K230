@@ -11,7 +11,8 @@
  * This and sol_cards.h are the Pocket Cards candidates: PG Blackjack carries
  * a copy under its own prefix until a shared module is extracted.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGSOL_CARD_DRAW_H
 #define PGSOL_CARD_DRAW_H

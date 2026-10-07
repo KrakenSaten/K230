@@ -29,7 +29,8 @@
  * No motion: every change is immediate, so reduced motion has nothing to
  * switch off.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "sol_app.h"
 #include "sol_store.h"

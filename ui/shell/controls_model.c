@@ -1,7 +1,8 @@
 /*
  * DOORS Controls, the decisions. See controls_model.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "controls_model.h"
 
@@ -61,13 +62,73 @@ bool controls_radio_answer(struct controls_radio_flow *flow, bool enable)
 {
     bool was_open = flow->confirm == CONTROLS_CONFIRM_ANTENNA;
 
-    flow->confirm = CONTROLS_CONFIRM_NONE;
+    /* Only the antenna question's answer is closed here: the setup
+     * question has its own (controls_radio_setup_answer). */
+    if (flow->confirm == CONTROLS_CONFIRM_ANTENNA) {
+        flow->confirm = CONTROLS_CONFIRM_NONE;
+    }
     return was_open && enable;
 }
 
 void controls_radio_dismiss(struct controls_radio_flow *flow)
 {
     flow->confirm = CONTROLS_CONFIRM_NONE;
+}
+
+/* ---- the setup -------------------------------------------------------------- */
+
+void controls_setup_parse(const cJSON *status, struct controls_setup *out)
+{
+    const cJSON *st = cJSON_IsObject(status) ? cJSON_GetObjectItemCaseSensitive(status, "state") : NULL;
+    const cJSON *need = cJSON_IsObject(status) ? cJSON_GetObjectItemCaseSensitive(status, "needed") : NULL;
+    const cJSON *err = cJSON_IsObject(status) ? cJSON_GetObjectItemCaseSensitive(status, "error") : NULL;
+
+    memset(out, 0, sizeof(*out));
+    if (!cJSON_IsString(st) || !cJSON_IsBool(need)) {
+        return;
+    }
+    out->known = true;
+    out->needed = cJSON_IsTrue(need);
+    out->running = is(st->valuestring, "running");
+    out->done = is(st->valuestring, "done");
+    out->failed = is(st->valuestring, "failed");
+    if (out->failed) {
+        snprintf(out->error, sizeof(out->error), "%s",
+                 cJSON_IsString(err) ? err->valuestring : "sysd did not say why");
+    }
+}
+
+enum controls_radio_tap controls_radio_tapped_setup(struct controls_radio_flow *flow, const char *state,
+                                                    const struct controls_setup *setup)
+{
+    if (flow->confirm != CONTROLS_CONFIRM_NONE) {
+        return CONTROLS_TAP_NOTHING;
+    }
+    if (setup && setup->known && setup->running) {
+        return CONTROLS_TAP_NOTHING;
+    }
+    if (setup && setup->known && setup->needed) {
+        flow->confirm = CONTROLS_CONFIRM_SETUP;
+        return CONTROLS_TAP_ASK_SETUP;
+    }
+    return controls_radio_tapped(flow, state);
+}
+
+bool controls_radio_setup_answer(struct controls_radio_flow *flow, bool start)
+{
+    bool was_open = flow->confirm == CONTROLS_CONFIRM_SETUP;
+
+    flow->confirm = CONTROLS_CONFIRM_NONE;
+    return was_open && start;
+}
+
+void controls_setup_body(const struct controls_setup *setup, char *out, int len)
+{
+    if (setup && setup->failed && setup->error[0]) {
+        snprintf(out, (size_t)len, "%s\n\nLast attempt: %s.", CONTROLS_SETUP_BODY, setup->error);
+    } else {
+        snprintf(out, (size_t)len, "%s", CONTROLS_SETUP_BODY);
+    }
 }
 
 /* ---- sysd's answers --------------------------------------------------------- */
@@ -291,7 +352,7 @@ int controls_layout(const struct controls_frame *f, struct controls_layout *out)
     }
     {
         int32_t dw = width - 2 * m < 520 ? width - 2 * m : 520;
-        int32_t dh = 300;
+        int32_t dh = 360; /* the setup question's body is four lines */
 
         out->dialog = rect((width - dw) / 2, (height - dh) / 2, dw, dh);
     }

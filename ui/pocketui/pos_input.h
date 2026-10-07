@@ -11,7 +11,8 @@
  * A key is LVGL's: a printable character is its Unicode code point, anything
  * else is an LV_KEY_* constant. No parallel vocabulary (§17.4).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_INPUT_H
 #define POS_INPUT_H

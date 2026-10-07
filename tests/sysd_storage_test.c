@@ -10,7 +10,8 @@
  * umount runs in a child process. A flag file makes umount answer EBUSY,
  * another makes it slow, and the mount can be told to fail.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "sysd_storage.h"

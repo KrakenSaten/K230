@@ -36,7 +36,8 @@
  * Built by ui/shell/CMakeLists.txt (host only), run by
  * tests/launcher_folder_shell_test.sh.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "art.h"
 #include "home.h"

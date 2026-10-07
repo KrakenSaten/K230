@@ -2,7 +2,8 @@
  * The fake backend's pattern, exposed so tests can compute the pixels they
  * expect instead of hard-coding them (pocketcam_fake.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_FAKE_H
 #define POCKETOS_POCKETCAM_FAKE_H

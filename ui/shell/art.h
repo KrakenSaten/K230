@@ -11,7 +11,8 @@
  * mask on an empty frame), so a bench unit without the art still boots to
  * a working launcher.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_ART_H
 #define DOORS_ART_H

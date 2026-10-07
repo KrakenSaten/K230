@@ -34,7 +34,8 @@
  * Pure C, no LVGL: tested against real temporary folders
  * (tests/mp3_library_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETMP3_LIBRARY_H
 #define POCKETMP3_LIBRARY_H

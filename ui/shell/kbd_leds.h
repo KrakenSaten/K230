@@ -24,7 +24,8 @@
  * (tests/kbd_leds_test.c). Called on the LVGL thread, outside the key
  * controller's drain; every call claims and releases the bus itself.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_KBD_LEDS_H
 #define POCKETOS_KBD_LEDS_H

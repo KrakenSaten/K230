@@ -8,7 +8,8 @@
  * temporary directory. They are POSIX and are run natively; nothing here
  * has been exercised on the K230.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "radar_store.h"

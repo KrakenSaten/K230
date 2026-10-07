@@ -3,7 +3,8 @@
  * game, so a test can stack the shoe and set the bankroll before it acts
  * through keys and buttons exactly as a player would.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGBJ_APP_H
 #define PGBJ_APP_H

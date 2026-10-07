@@ -10,7 +10,8 @@
  * than doing something undefined with it, and that the difficulty ramp ends
  * a run by arithmetic rather than by taking anything away from the player.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "radar_rules.h"
 

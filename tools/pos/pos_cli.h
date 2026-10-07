@@ -9,7 +9,8 @@
  * reads pos output keeps working. pos stays a permanent alias (ADR-005,
  * decision 5).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_CLI_H
 #define POS_CLI_H

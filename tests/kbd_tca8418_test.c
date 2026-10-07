@@ -4,7 +4,8 @@
  * without the keyboard attached, which is why the chip layer was kept free
  * of everything else (design doc §11).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_tca8418.h"
 

@@ -1,7 +1,8 @@
 /*
  * Vision's state. See vision_model.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_model.h"
 
@@ -105,13 +106,33 @@ bool vision_model_offered(const struct vision_model *m, enum vision_mode mode)
     return (int)mode >= 0 && mode < VISION_MODES && (m->avail & (1u << mode)) != 0;
 }
 
+bool vision_model_detector(const struct vision_model *m)
+{
+    return vision_model_offered(m, VISION_MODE_DETECT);
+}
+
 /* The mode in force follows the setting when the helper offers it, and
- * falls back to DETECT when it does not (a unit without the text model):
- * the setting itself stays, so the owner's choice comes back with the
- * model. */
+ * falls back to DETECT when it does not (a unit without the text model),
+ * or to the first mode offered when the detector is missing too: the
+ * setting itself stays, so the owner's choice comes back with the model. */
 static void resolve_mode(struct vision_model *m)
 {
-    m->mode = vision_model_offered(m, m->set.mode) ? m->set.mode : VISION_MODE_DETECT;
+    int i;
+
+    if (vision_model_offered(m, m->set.mode)) {
+        m->mode = m->set.mode;
+        return;
+    }
+    m->mode = VISION_MODE_DETECT;
+    if (vision_model_offered(m, VISION_MODE_DETECT)) {
+        return;
+    }
+    for (i = 0; i < VISION_MODES; i++) {
+        if (vision_model_offered(m, (enum vision_mode)i)) {
+            m->mode = (enum vision_mode)i;
+            return;
+        }
+    }
 }
 
 /* Everything a new mode leaves behind. */
@@ -916,10 +937,15 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
 
 int vision_model_status_lines(const struct vision_model *m)
 {
+    int n;
+
     if (m->mode == VISION_MODE_RECOGNIZE) {
-        return 2;
+        n = 2;
+    } else {
+        n = m->mode == VISION_MODE_TRAFFIC || m->mode == VISION_MODE_READ ? 3 : 1;
     }
-    return m->mode == VISION_MODE_TRAFFIC || m->mode == VISION_MODE_READ ? 3 : 1;
+    /* A unit without the detector says so under every mode it still has. */
+    return vision_model_detector(m) ? n : n + 1;
 }
 
 /* RECOGNIZE's words: what it can do, what enrolment asks for, or why it
@@ -1251,6 +1277,15 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             out->status_warn = m->stats.bad > 0;
         } else {
             out->status = m->live ? "Detecting" : "Starting the stream";
+        }
+        if (!vision_model_detector(m)) {
+            /* The modes that need the detector are left out of the picker;
+             * this says why, under whatever runs instead. */
+            char said[384];
+
+            snprintf(said, sizeof(said), "%s", out->status);
+            snprintf(status_buf, status_len, "%s%s%s", said, said[0] ? "\n" : "", VISION_NO_DETECTOR_TEXT);
+            out->status = status_buf;
         }
         break;
     case VISION_ERROR:

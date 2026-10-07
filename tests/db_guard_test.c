@@ -4,7 +4,8 @@
  * exactly, a damaged file costs only its damaged lines, and the files are
  * private and written atomically under $POCKETOS_STATE_DIR.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "db_guard.h"
 #include "db_prefs.h"

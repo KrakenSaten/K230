@@ -4,7 +4,8 @@
  * the zoom pass's boxes (cut by the window, the same object twice, groups,
  * capacity), and the range's own filter at its boundaries.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_range.h"
 #include "pocketvision/vision_track.h"

@@ -33,7 +33,8 @@
  *  - Making the 2048 tile (G2048_GOAL_EXP) wins; the player may keep going.
  *  - The game is over when no move in any direction would change the board.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PG2048_RULES_H
 #define PG2048_RULES_H

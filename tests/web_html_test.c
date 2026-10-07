@@ -5,7 +5,8 @@
  * pages past every limit - is read in one bounded pass into a document whose
  * every index is in range. Run under ASan/UBSan by `make web-san-test`.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "web/web_html.h"
 

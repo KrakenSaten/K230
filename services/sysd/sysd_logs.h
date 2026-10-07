@@ -24,7 +24,8 @@
  * Pure C with cJSON; tested against a temporary directory
  * (tests/sysd_logs_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SYSD_LOGS_H
 #define POCKETOS_SYSD_LOGS_H

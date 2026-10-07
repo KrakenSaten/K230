@@ -22,7 +22,8 @@
  * often it is pressed; a second RECORD while starting does nothing; a pause
  * or resume already sent is not sent again until the helper answers.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETREC_STATE_H
 #define POCKETREC_STATE_H

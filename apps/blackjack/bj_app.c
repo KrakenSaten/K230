@@ -27,7 +27,8 @@
  * No motion: the dealer's cards appear at once, so reduced motion has nothing
  * to switch off.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "bj_app.h"
 #include "bj_store.h"

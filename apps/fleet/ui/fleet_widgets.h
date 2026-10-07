@@ -7,7 +7,8 @@
  * a colour or a font, so the app follows the current PocketOS theme and mode
  * exactly like the shell does, and tests/style_lint.sh stays green.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_WIDGETS_H
 #define POCKETFLEET_WIDGETS_H

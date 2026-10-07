@@ -3,7 +3,8 @@
  * back by the other, sets handed over only when complete, and every kind of
  * damage refused rather than half-applied.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "zabbix/zbx_proto.h"

@@ -22,7 +22,8 @@
  * text form is here so it is tested without a filesystem; wave_store.c only
  * moves it to and from disk.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_HISTORY_H
 #define POCKETWAVE_HISTORY_H

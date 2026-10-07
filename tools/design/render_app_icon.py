@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Render a first-party Doors app icon to the PNGs the icon tools read.
 
     render_app_icon.py SVG OUTDIR

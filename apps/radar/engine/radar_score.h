@@ -32,7 +32,8 @@
  *
  * Integer arithmetic throughout, so a replay scores identically.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETRADAR_SCORE_H
 #define POCKETRADAR_SCORE_H

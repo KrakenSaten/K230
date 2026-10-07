@@ -40,7 +40,8 @@
  * (tests/clock_lint.sh), and like the engine it reads no clock: every
  * reading it needs is handed in.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETCLOCK_STORE_H
 #define POCKETCLOCK_STORE_H

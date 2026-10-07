@@ -13,7 +13,8 @@
  * Nothing here talks to a service, reads a file or holds a passphrase longer
  * than the call that is given one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SETTINGS_VIEW_H
 #define POCKETOS_SETTINGS_VIEW_H

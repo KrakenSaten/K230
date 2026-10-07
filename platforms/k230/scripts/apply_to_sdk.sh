@@ -33,6 +33,9 @@
 # archived, because it is an ignored checkout rather than part of our history,
 # so its uncommitted changes WOULD be compiled in - which is why a dirty
 # RadioLib is refused outright below rather than merely reported.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,6 +44,12 @@ PLATFORM_DIR="${REPO_DIR}/platforms/k230"
 VENDOR_DIR="${1:-${POCKETOS_VENDOR_DIR:-${REPO_DIR}/vendor/T-Display-K230}}"
 SDK_DIR="${VENDOR_DIR}/k230_linux_sdk"
 CONF="k230_pocketos_defconfig"
+# The Doors defconfig is composed here, not kept in this repository: the
+# vendor BSP's own board defconfig, read from its pinned commit, followed by
+# the Doors fragment (docs/licensing/APACHE_2_READINESS.md, B3). The LILYGO
+# file carries no licence, so Doors holds no copy of it.
+VENDOR_DEFCONFIG="k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig"
+DOORS_FRAGMENT="platforms/k230/configs/k230_pocketos.fragment"
 
 EXPECTED_BSP_COMMIT="$(cat "${PLATFORM_DIR}/vendor_bsp_commit.txt")"
 EXPECTED_SDK_COMMIT="$(cat "${PLATFORM_DIR}/vendor_sdk_commit.txt")"
@@ -281,10 +290,11 @@ SNAPSHOT_DIR="$(mktemp -d)"
 cleanup_snapshot() { rm -rf "${SNAPSHOT_DIR}"; }
 trap cleanup_snapshot EXIT
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" \
-    -- "platforms/k230/configs/${CONF}" platforms/k230/package/pocketos \
+    -- "${DOORS_FRAGMENT}" platforms/k230/vendor_lvgl_commit.txt platforms/k230/package/pocketos \
        platforms/k230/patches/linux \
     | tar -xp -C "${SNAPSHOT_DIR}"
-for f in "platforms/k230/configs/${CONF}" \
+for f in "${DOORS_FRAGMENT}" \
+         platforms/k230/vendor_lvgl_commit.txt \
          platforms/k230/package/pocketos/Config.in \
          platforms/k230/package/pocketos/pocketos.mk \
          platforms/k230/package/pocketos/pocketos.hash; do
@@ -294,6 +304,40 @@ for f in "platforms/k230/configs/${CONF}" \
         exit 1
     }
 done
+
+# The defconfig: the vendor board defconfig exactly as the pinned BSP commit
+# holds it (line ends made LF), then the Doors fragment's settings, comments
+# dropped. A fragment setting may not restate one the vendor file already
+# makes. The one other thing the fragment can do is turn off a package the
+# vendor file switches on: a line that is exactly "# BR2_<X> is not set"
+# drops the vendor's "BR2_<X>=y" and takes its place, and is refused for a
+# package the vendor file does not set to y. Any other comment is dropped.
+compose_defconfig() { # <output file>
+    local out="$1" line key
+    git -C "${VENDOR_DIR}" show "${BSP_COMMIT}:${VENDOR_DEFCONFIG}" | tr -d '\r' > "${out}"
+    [ -s "${out}" ] || { echo "ERROR: no ${VENDOR_DEFCONFIG} at the vendor BSP commit ${BSP_COMMIT}." >&2; return 1; }
+    grep -v -E '^[[:space:]]*(#|$)' "${SNAPSHOT_DIR}/${DOORS_FRAGMENT}" > "${out}.doors" || true
+    grep -E '^# BR2_[A-Z0-9_]+ is not set$' "${SNAPSHOT_DIR}/${DOORS_FRAGMENT}" > "${out}.off" || true
+    while IFS= read -r line; do
+        key="${line%%=*}"
+        if grep -q -E "^(# )?${key}([= ]|\$)" "${out}"; then
+            echo "ERROR: ${DOORS_FRAGMENT} sets ${key}, which the vendor defconfig already sets." >&2
+            return 1
+        fi
+    done < "${out}.doors"
+    while IFS= read -r line; do
+        key="${line#\# }"
+        key="${key% is not set}"
+        if ! grep -q -x "${key}=y" "${out}"; then
+            echo "ERROR: ${DOORS_FRAGMENT} turns off ${key}, which the vendor defconfig does not switch on." >&2
+            return 1
+        fi
+        grep -v -x "${key}=y" "${out}" > "${out}.tmp"
+        mv "${out}.tmp" "${out}"
+    done < "${out}.off"
+    cat "${out}.off" "${out}.doors" >> "${out}"
+    rm -f "${out}.doors" "${out}.off"
+}
 
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
@@ -318,8 +362,20 @@ install_kernel_patches() { # <snapshot dir> <sdk dir> -> sets KERNEL_PATCHES
 install_kernel_patches "${SNAPSHOT_DIR}" "${SDK_DIR}"
 echo "      Doors kernel patches: ${KERNEL_PATCHES:-none}"
 
-echo "[2/5] Doors defconfig (${CONF})"
-install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
+echo "[2/5] Doors defconfig (${CONF}): vendor board defconfig + ${DOORS_FRAGMENT}"
+COMPOSED_DEFCONFIG="${SNAPSHOT_DIR}/composed/${CONF}"
+mkdir -p "${SNAPSHOT_DIR}/composed"
+compose_defconfig "${COMPOSED_DEFCONFIG}"
+# The notices name the LVGL that vendor_lvgl_commit.txt pins; the defconfig
+# must build that one.
+LVGL_PIN="$(tr -d '\r\n' < "${SNAPSHOT_DIR}/platforms/k230/vendor_lvgl_commit.txt")"
+grep -qx "BR2_PACKAGE_LVGL_CUSTOM_VERSION=\"${LVGL_PIN}\"" "${COMPOSED_DEFCONFIG}" || {
+    echo "ERROR: the composed defconfig does not build LVGL ${LVGL_PIN} (platforms/k230/vendor_lvgl_commit.txt)," >&2
+    echo "       which the third-party notices name. Update the pin and the notices together." >&2
+    exit 1
+}
+install -m 0644 "${COMPOSED_DEFCONFIG}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
+echo "      sha256 $(sha256sum < "${COMPOSED_DEFCONFIG}" | cut -d' ' -f1)"
 
 echo "[3/5] Vendor launcher: not in the image"
 # Up to v0.3.x the LILYGO launcher (k230_phone_ui) was installed here with the
@@ -380,6 +436,47 @@ fi
 if [ "${_gone}" -eq 0 ]; then
     echo "      no vendor launcher in the SDK"
 fi
+
+echo "[3b2/5] Vendor leftovers: not in the image"
+# Three things the vendor tree puts into the image that nothing on it uses
+# (owner's decision, 2026-10-07; docs/licensing/APACHE_2_READINESS.md §14.2):
+#  - root/script/sensor.sh, a vendor developer's helper from the SDK's board
+#    overlay that fetches files from one engineer's build host for another
+#    board, with credentials in it;
+#  - /lib/libasan.so.8, which the vendor's post-build.sh copies from the
+#    toolchain's sysroot (no package owns it, so legal-info never sees it);
+#  - the toolchain's libgfortran, which the fragment stops (Fortran off).
+# Overlays and post-build scripts run after every package hook, so they are
+# removed at their source - the overlay, the post-build line - in the SDK
+# overlay this script writes and in Buildroot's synced copy, and stale copies
+# from the persistent target tree.
+_left=0
+for root in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay" \
+            "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/rootfs_overlay \
+            "${SDK_DIR}/output/${CONF}/target"; do
+    [ -d "${root}" ] || continue
+    for f in root/script/sensor.sh lib/libasan.so.8 lib/libgfortran.so.5 lib/libgfortran.so.5.0.0 lib/libgfortran.so; do
+        if [ -e "${root}/${f}" ] || [ -L "${root}/${f}" ]; then
+            rm -f "${root}/${f}" || { echo "cannot remove ${root#"${SDK_DIR}"/}/${f}" >&2; exit 1; }
+            echo "      removed ${root#"${SDK_DIR}"/}/${f}"
+            _left=$((_left + 1))
+        fi
+    done
+done
+for pb in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/post-build.sh" \
+          "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/post-build.sh; do
+    [ -f "${pb}" ] || continue
+    if grep -q 'libasan\.so' "${pb}"; then
+        sed -i '/libasan\.so/d' "${pb}"
+        echo "      removed the libasan copy from ${pb#"${SDK_DIR}"/}"
+        _left=$((_left + 1))
+    fi
+    if grep -q 'libasan' "${pb}"; then
+        echo "${pb} still copies libasan" >&2
+        exit 1
+    fi
+done
+[ "${_left}" -gt 0 ] || echo "      none in the SDK"
 
 echo "[3c/5] sshd: no empty-password logins"
 # Vendor sshd_config allows root with an empty password over the network
@@ -443,11 +540,11 @@ echo "[5/5] Doors package (pocketos)"
 # notices do not name. Checked from the snapshot, like everything packaged.
 NOTICES_DIR="$(mktemp -d)"
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- \
-    THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
+    LICENSE NOTICE THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
     platforms/k230/vendor_radiolib_commit.txt platforms/k230/vendor_ggwave_commit.txt \
     protocols/meshcore/vendor_rift_commit.txt protocols/meshcore/vendor_crypto_commit.txt \
     platforms/k230/package/pocketos/pocketos.hash \
-    "platforms/k230/configs/${CONF}" | tar -x -C "${NOTICES_DIR}"
+    platforms/k230/vendor_lvgl_commit.txt | tar -x -C "${NOTICES_DIR}"
 ln -s "${REPO_DIR}/vendor" "${NOTICES_DIR}/vendor"
 NOTICES_OK=1
 bash "${NOTICES_DIR}/tools/legal/gen_notices.sh" --check || NOTICES_OK=0

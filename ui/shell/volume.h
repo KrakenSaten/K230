@@ -22,7 +22,8 @@
  *
  * Pure C, no LVGL, no ALSA: unit-tested natively (tests/volume_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VOLUME_H
 #define POCKETOS_VOLUME_H

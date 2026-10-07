@@ -3,7 +3,8 @@
  * a clock, that every name made parses back to the same parts, and that
  * nothing that could leave the folder or pose as a recording is accepted.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rec_names.h"
 

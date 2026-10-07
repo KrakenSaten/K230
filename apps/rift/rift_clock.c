@@ -8,7 +8,8 @@
  * the same ages. Nothing here knows about that, and nothing the shell links
  * can reach it - the shell and every host test link this file.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_model.h"
 #include "rift_rxlog.h"

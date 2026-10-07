@@ -4,6 +4,9 @@
 # ENABLE_SX1262=1 compiles the real radio backend (C++, RadioLib, libgpiod v2).
 # RADIOLIB_DIR points at RadioLib's src/ (vendor/RadioLib/src by default, or
 # third_party/RadioLib/src when synced into the Buildroot package).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 PREFIX  ?= /usr
 DESTDIR ?=
 CC      ?= cc
@@ -55,7 +58,7 @@ RADIOD_CORE_OBJS := services/radiod/tx.o services/radiod/lease.o \
 RADIOD_OBJS := services/radiod/main.o services/radiod/rf_state.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 # Everything sysd is except the power actions, which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
-SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o services/sysd/sysd_logs.o services/sysd/sysd_storage.o services/sysd/sysd_expand.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o services/sysd/sysd_logs.o services/sysd/sysd_storage.o services/sysd/sysd_expand.o services/sysd/sysd_radio.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o
 # netd: wifi.* (docs/api/network.md). As with sysd, the one object that touches
 # the machine (netd_sys) exists twice: as shipped, and with the test hooks
@@ -301,6 +304,14 @@ tests/sysd_expand_test.o: tests/sysd_expand_test.c services/sysd/sysd_expand.h
 tests/sysd_expand_test: tests/sysd_expand_test.o services/sysd/sysd_expand.o $(LOG_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
+# radio_setup: the files, the order, the antenna answer and the restore on
+# every failure, with the init scripts and the services faked (0.3.5).
+tests/sysd_radio_test.o: tests/sysd_radio_test.c services/sysd/sysd_radio.h
+	$(CC) $(ALL_CFLAGS) -Iservices/sysd -c -o $@ $<
+
+tests/sysd_radio_test: tests/sysd_radio_test.o services/sysd/sysd_radio.o $(IPC_OBJS) $(LOG_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
 # A sysd whose power actions can be pointed at a recorder instead of
 # /sbin/reboot, so tests/sysd_test.sh can watch an action run without
 # restarting the build host. Only this object is compiled with the hook; the
@@ -344,6 +355,10 @@ tests/airtime_test: tests/airtime_test.o services/radiod/airtime.o
 
 tests/airtime_test.o: tests/airtime_test.c
 	$(CC) $(ALL_CFLAGS) -Iservices/radiod -c -o $@ $<
+
+# The stored radio choice and the backend it belongs to (radiod, 0.3.5).
+tests/rf_state_test: tests/rf_state_test.c services/radiod/rf_state.c services/radiod/rf_state.h
+	$(CC) $(ALL_CFLAGS) -o $@ tests/rf_state_test.c services/radiod/rf_state.c $(LDFLAGS)
 
 # radiod's transmit state machine and lease against the mock backend, with no
 # socket, no daemon and no poll loop around them.
@@ -2212,9 +2227,9 @@ browser-san-test:
 # claim changes it does not contain. tests/build_outputs_test.sh checks this
 # list against .gitignore, so a test added here without an entry there fails.
 TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant tests/wifi_parse_test \
-             tests/wifi_store_test tests/airtime_test tests/radiod_tx_test \
+             tests/wifi_store_test tests/airtime_test tests/rf_state_test tests/radiod_tx_test \
              tests/pocketlog_test tests/pocketipc_test \
-             tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
+             tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/sysd_radio_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
              tests/power_policy_test tests/power_key_test tests/tz_zones_test tests/overlay_model_test \
              tests/theme_test tests/text_size_test \
              tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test \
@@ -2228,6 +2243,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
 	./tests/airtime_test
+	./tests/rf_state_test
 	./tests/radiod_tx_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
@@ -2237,6 +2253,7 @@ test: all $(TEST_BINS)
 	./tests/sysd_logs_test
 	./tests/sysd_storage_test 2>/dev/null
 	./tests/sysd_expand_test 2>/dev/null
+	./tests/sysd_radio_test 2>/dev/null
 	./tests/wifi_parse_test
 	./tests/wifi_store_test
 	./tests/system_view_test
@@ -2373,6 +2390,7 @@ test: all $(TEST_BINS)
 	bash tests/phase3_migration_test.sh
 	bash tests/package_sync_test.sh
 	bash tests/notices_test.sh
+	bash tests/license_audit_test.sh
 	bash tests/boot_splash_test.sh
 	bash tests/brand_mark_test.sh
 	bash tests/app_icons_test.sh
@@ -2456,6 +2474,11 @@ endif
 	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/doors/THIRD_PARTY_NOTICES.txt
 	install -d -m 0755 $(DESTDIR)$(PREFIX)/share/pocketos
 	ln -sfn ../doors/THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
+# Doors' own licence, Apache-2.0 (ADR-013), and its NOTICE file go beside them:
+# Apache-2.0 section 4 asks a redistribution to carry both. Only under the new
+# directory: nothing ever read them under share/pocketos.
+	install -D -m 0644 LICENSE $(DESTDIR)$(PREFIX)/share/doors/LICENSE
+	install -D -m 0644 NOTICE $(DESTDIR)$(PREFIX)/share/doors/NOTICE
 # The DOORS shell's runtime art (ui/shell/art.h): backgrounds and launcher
 # icons, read by the shell from files so only the screen in front is in
 # memory. The design sources stay in docs/ and never reach the image.

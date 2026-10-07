@@ -3,7 +3,8 @@
  * frame parsing and dispatch. Non-blocking; integrate by calling
  * pocketipc_server_poll() from the owner's loop.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETIPC_SERVER_H
 #define POCKETIPC_SERVER_H

@@ -31,7 +31,8 @@
  *
  * Pure C, no I/O (tests/vision_settings_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef VISION_SETTINGS_H
 #define VISION_SETTINGS_H

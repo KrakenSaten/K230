@@ -7,7 +7,8 @@
 # Run by tools/meshcore-frame/Makefile:  make meshcore-frame-test
 # Takes the binary to exercise as its argument.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 # The binary may be named relative to wherever this was invoked from (the tool
 # Makefile runs it from its own directory), so resolve it before moving to the

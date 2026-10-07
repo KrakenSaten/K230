@@ -28,7 +28,8 @@
  *
  * Tested on the host against tests/fake_pos_wave.sh (tests/wave_ctl_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_CTL_H
 #define POCKETWAVE_CTL_H

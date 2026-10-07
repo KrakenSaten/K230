@@ -2,7 +2,8 @@
  * Rotation policy, its persistence and the keyboard-presence state
  * (ui/shell/orientation.c, ui/shell/kbd_presence.c, the settings store).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "kbd_presence.h"

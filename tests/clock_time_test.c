@@ -5,7 +5,8 @@
  * Run under TZ=UTC (the Makefile sets it), so the local-time arithmetic has
  * one known answer.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "clock_time.h"
 

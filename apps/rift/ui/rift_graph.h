@@ -15,7 +15,8 @@
  * changed. RIFT owns no colour: the words beside it name the classes, and
  * the swatches only agree with the words.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_GRAPH_H
 #define RIFT_GRAPH_H

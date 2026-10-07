@@ -4,7 +4,8 @@
  * standing, the modes' words and groups, and the store on a scratch state
  * directory (atomic write, private files, a missing and an unreadable file).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "vision_settings.h"

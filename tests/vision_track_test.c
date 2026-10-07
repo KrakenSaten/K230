@@ -11,7 +11,8 @@
  * back; a track that expired and an object that returns are two ids and
  * at most one count each.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_line.h"
 #include "pocketvision/vision_track.h"

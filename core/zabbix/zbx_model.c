@@ -1,7 +1,8 @@
 /*
  * The Zabbix viewer's data model. See zbx_model.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "zabbix/zbx_model.h"
 

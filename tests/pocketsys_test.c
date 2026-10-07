@@ -5,7 +5,8 @@
  * system.status.services is not here: it comes from the supervisor's state
  * file, which sysd reads (tests/sysd_services_test.c), not core.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketsys.h"

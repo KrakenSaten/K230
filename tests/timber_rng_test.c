@@ -9,7 +9,8 @@
  * since all three files implement the same xorshift32; that agreement is
  * itself the check that the copy is faithful.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_rng.h"
 

@@ -25,7 +25,8 @@
  * The kernel's own 5 s hold of the power key still powers the device off;
  * the shell neither sees nor stops that (power_key.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_SHELL_EVKEY_H
 #define DOORS_SHELL_EVKEY_H

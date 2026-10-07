@@ -23,7 +23,8 @@
  * Fullscreen: the frame is the whole body and nothing else is placed; a tap
  * on the picture leaves fullscreen.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VIDEO_LAYOUT_H
 #define POCKETOS_VIDEO_LAYOUT_H

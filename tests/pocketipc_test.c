@@ -2,7 +2,8 @@
  * pocketipc frame writer test: bounded backpressure on non-blocking sockets
  * (Finding 5), oversized frames refused, slow-but-draining peers kept.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"

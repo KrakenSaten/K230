@@ -12,7 +12,8 @@
  * adapter over radiod's IPC, and that service does not exist yet; tests use
  * the in-memory one in test_support/mc_fake_radio.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MC_PORT_H
 #define MC_PORT_H

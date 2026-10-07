@@ -17,7 +17,8 @@
  * (zbx_api.c), the line protocol carries it to the app (zbx_proto.c), and
  * the app draws it. The same header on both sides of the socket.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ZBX_MODEL_H
 #define POCKETOS_ZBX_MODEL_H

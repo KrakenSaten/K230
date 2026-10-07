@@ -1,7 +1,8 @@
 /*
  * Trails. See vision_trails.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_trails.h"
 

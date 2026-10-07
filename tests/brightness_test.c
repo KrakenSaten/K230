@@ -3,7 +3,8 @@
  * tree: absence, discovery, the percent/raw mapping, the floor, a failing
  * write, and the rules for a stored value.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "brightness.h"

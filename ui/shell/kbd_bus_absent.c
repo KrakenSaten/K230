@@ -6,7 +6,8 @@
  * answer, so the shell takes exactly the same path on a PC as it does on a
  * board with the base detached (design §9).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_bus_k230.h"
 

@@ -4,7 +4,8 @@
  * Pure arithmetic on the body's size; it never asks which way the display
  * is turned (DS §21.2).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef VISION_LAYOUT_H
 #define VISION_LAYOUT_H

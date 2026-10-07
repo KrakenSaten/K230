@@ -19,7 +19,8 @@
  *
  * Pure C, no allocation, bounded by WEB_URL_MAX: tests/web_url_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_WEB_URL_H
 #define POCKETOS_WEB_URL_H

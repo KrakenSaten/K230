@@ -43,7 +43,8 @@
  * ("limit length"). A full disk or a failing write finalizes what was
  * written. Nothing is logged: no names, no audio.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketaudio/pocketaudio.h"

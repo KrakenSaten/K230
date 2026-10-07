@@ -2,7 +2,8 @@
  * The Zabbix viewer's bounded model on its own: the words, the text cutting,
  * the orders, the counts and the ages. No JSON, no processes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "zabbix/zbx_model.h"
 

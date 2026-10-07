@@ -17,6 +17,9 @@
 #     exactly one descriptor; POCKETOS_POWER_KEY_DEVICE=none turns it off.
 #
 # Requires: SHELL_BIN (the CMake-built pocketos-shell, with test hooks).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 cd "$(dirname "$0")/.." || exit 1

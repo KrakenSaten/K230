@@ -40,7 +40,8 @@
  * shell (host builds only) and run by tests/timber_shell_test.sh. A display
  * with a no-op flush is enough: nothing is rendered.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "chrome.h"

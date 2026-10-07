@@ -7,7 +7,8 @@
  * results. If the AI ever consulted the layout, the replay (which has no
  * board at all) would diverge.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_ai.h"
 #include "fleet_rules.h"

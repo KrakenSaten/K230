@@ -6,7 +6,8 @@
  * around collisions, what a delete may and may not remove, and the preset
  * surviving a restart.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketwav/pocketwav.h"
 #include "rec_store.h"

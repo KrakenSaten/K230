@@ -39,12 +39,10 @@ following list details.
 
 WARNING: the Buildroot source code has not been saved
 WARNING: libnncase: cannot save license (LIBNNCASE_LICENSE_FILES not defined)
-WARNING: linux-7d4e1f444f461dbe3833bd99a4640e7b6c2cd529: cannot save license (LINUX_LICENSE_FILES not defined)
-WARNING: gsl-lite-v0.41.0: cannot save license (GSL_LITE_LICENSE_FILES not defined)
-WARNING: lvgl-59dc7e436ae97a25e32656739ea6a943f9f11b6a: cannot save license (LVGL_LICENSE_FILES not defined)
 WARNING: libubox-75a3b870cace1171faf57bd55e5a9a2f1564f757: cannot save license (LIBUBOX_LICENSE_FILES not defined)
-WARNING: pocketos-0.0.1: cannot save license (POCKETOS_LICENSE_FILES not defined)
+WARNING: linux-7d4e1f444f461dbe3833bd99a4640e7b6c2cd529: cannot save license (LINUX_LICENSE_FILES not defined)
+WARNING: lvgl-59dc7e436ae97a25e32656739ea6a943f9f11b6a: cannot save license (LVGL_LICENSE_FILES not defined)
+WARNING: gsl-lite-v0.41.0: cannot save license (GSL_LITE_LICENSE_FILES not defined)
 WARNING: rtl8189fs-94cc959d56c1425fbca4f6e49e949cf58ec5dc8d: cannot save license (RTL8189FS_LICENSE_FILES not defined)
-WARNING: rtl8723ds-bt-14cedf3a9fec1aa8c500fa52f3e3acc433cbcf08: cannot save license (RTL8723DS_BT_LICENSE_FILES not defined)
 WARNING: opensbi-1.4: cannot save license (OPENSBI_LICENSE_FILES not defined)
 WARNING: uboot-2022.10: cannot save license (UBOOT_LICENSE_FILES not defined)

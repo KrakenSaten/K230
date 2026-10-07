@@ -20,7 +20,8 @@
  * that asks for it (bearer != NULL) and is never logged, copied into an
  * error text, or kept by the transport after the call.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ZBX_HTTP_H
 #define POCKETOS_ZBX_HTTP_H

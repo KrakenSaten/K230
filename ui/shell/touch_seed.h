@@ -16,7 +16,8 @@
  * descriptor number with dup3(). The driver's state is private, so this is how
  * it is set without reaching into it; vendor/lvgl is untouched.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_TOUCH_SEED_H
 #define POCKETOS_TOUCH_SEED_H

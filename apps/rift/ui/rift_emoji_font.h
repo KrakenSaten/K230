@@ -16,7 +16,8 @@
  * An image sits centred in the line of the font it falls back from, with a
  * pixel of space on each side.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_EMOJI_FONT_H
 #define RIFT_EMOJI_FONT_H

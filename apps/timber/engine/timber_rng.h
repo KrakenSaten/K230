@@ -20,7 +20,8 @@
  * text search over the engine, so prose in these files avoids the names it
  * looks for.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_RNG_H
 #define POCKETTIMBER_RNG_H

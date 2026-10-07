@@ -2,7 +2,8 @@
  * PG 2048 save file: the byte layout, refusals, the file itself, and the
  * property that matters most - a resumed game is the same game.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "g2048_store.h"

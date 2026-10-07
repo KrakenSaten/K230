@@ -5,7 +5,8 @@
  * The numbers are stated twice, once in timber_pull.h and once here, so a
  * tuning change is a deliberate edit in two places.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_pull.h"
 

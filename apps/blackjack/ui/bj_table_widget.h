@@ -3,7 +3,8 @@
  * with a label over each, drawn in one draw callback from the game and the
  * view model's geometry. It decides nothing and takes no input.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef PGBJ_TABLE_WIDGET_H
 #define PGBJ_TABLE_WIDGET_H

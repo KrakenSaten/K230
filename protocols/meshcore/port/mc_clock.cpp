@@ -1,7 +1,8 @@
 /* The protocol clock and the wall clock. See port/mc_port.h for why the
  * monotonic one must be 64-bit.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mc_port.h"
 

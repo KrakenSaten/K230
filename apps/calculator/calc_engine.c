@@ -20,7 +20,8 @@
  * display can show and above the error a double carries. What is removed is
  * precisely the digits a double never had.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "calc_engine.h"
 

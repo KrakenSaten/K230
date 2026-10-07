@@ -7,7 +7,8 @@
  * the answer (docs/api/system.md, "Storage"). This file turns that answer
  * into a struct and into the words on screen.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef FILES_STORAGE_H
 #define FILES_STORAGE_H

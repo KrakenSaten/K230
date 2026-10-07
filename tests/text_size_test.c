@@ -14,7 +14,8 @@
  *   - selecting a size notifies the listeners once, a repeat is silent, and
  *     a value out of range is refused and leaves Small.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_theme.h"
 

@@ -8,7 +8,8 @@
  * sorted by key: the code point of a single emoji, or RIFT_EMOJI_PUA + i for
  * sequence i of rift_emoji_seqs[] (rift_emoji.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_EMOJI_IMG_H
 #define RIFT_EMOJI_IMG_H

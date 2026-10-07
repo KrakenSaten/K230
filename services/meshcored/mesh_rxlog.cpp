@@ -1,7 +1,8 @@
 /*
  * The receive log's bookkeeping. See mesh_rxlog.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mesh_rxlog.h"
 

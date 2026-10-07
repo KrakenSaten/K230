@@ -1,7 +1,8 @@
 /*
  * DeskBuddy's provider on the Vision pipeline. See db_vision_pipeline.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "db_vision_pipeline.h"
 
@@ -113,6 +114,7 @@ struct pipeline {
     bool running;
     bool unavailable_said;
     bool have_owner;
+    uint32_t caps;   /* the helper's modes, from its caps line */
     int rotation;
     uint16_t px[PIPELINE_VIEW_W * PIPELINE_VIEW_H];
 };
@@ -162,10 +164,15 @@ static int pipeline_start(void *ctx, int64_t now_ms, struct db_vision_queue *q)
     return 0;
 }
 
-static void choose_mode(struct pipeline *p, uint32_t caps, int64_t now)
+/* The best way of seeing people that caps offers; false when there is none
+ * (no face model and no detector, docs/apps/VISION.md "The model"). */
+static bool choose_mode(struct pipeline *p, uint32_t caps, int64_t now)
 {
     const char *word = "detect";
 
+    if (!(caps & ((1u << VISION_MODE_RECOGNIZE) | (1u << VISION_MODE_FACE) | (1u << VISION_MODE_DETECT)))) {
+        return false;
+    }
     if (caps & (1u << VISION_MODE_RECOGNIZE)) {
         p->mode = PIPE_RECOGNIZE;
         word = "recognize";
@@ -179,6 +186,17 @@ static void choose_mode(struct pipeline *p, uint32_t caps, int64_t now)
     vision_session_mode_word(&p->s, word);
     vision_session_view_whole(&p->s, PIPELINE_VIEW_W, PIPELINE_VIEW_H, p->rotation);
     vision_session_stream(&p->s, true, now);
+    return true;
+}
+
+/* Nothing in this helper can see a person: DeskBuddy is blind, and says so
+ * once, as for a missing camera. */
+static int64_t blind(struct pipeline *p, int64_t now, struct db_vision_queue *q)
+{
+    unavailable(p, now, q);
+    vision_session_abandon(&p->s, PIPELINE_GRACE_MS);
+    p->running = false;
+    return -1;
 }
 
 static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *q)
@@ -197,7 +215,10 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
         memset(&r, 0, sizeof(r));
         switch (ev.kind) {
         case VISION_EV_CAPS:
-            choose_mode(p, (uint32_t)ev.value, now_ms);
+            p->caps = (uint32_t)ev.value;
+            if (!choose_mode(p, p->caps, now_ms)) {
+                return blind(p, now_ms, q);
+            }
             break;
         case VISION_EV_FRAME:
             /* Taken so the helper's slot is free again; never shown. */
@@ -244,14 +265,14 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
             break;
         case VISION_EV_RECOGFAIL:
             /* The embedding model cannot run: faces without names. */
-            if (p->mode == PIPE_RECOGNIZE) {
-                choose_mode(p, 1u << VISION_MODE_FACE, now_ms);
+            if (p->mode == PIPE_RECOGNIZE && !choose_mode(p, p->caps & (1u << VISION_MODE_FACE | 1u << VISION_MODE_DETECT), now_ms)) {
+                return blind(p, now_ms, q);
             }
             break;
         case VISION_EV_FACEFAIL:
             /* Nor the face model: people, as the detector sees them. */
-            if (p->mode >= PIPE_FACE) {
-                choose_mode(p, 1u << VISION_MODE_DETECT, now_ms);
+            if (p->mode >= PIPE_FACE && !choose_mode(p, p->caps & (1u << VISION_MODE_DETECT), now_ms)) {
+                return blind(p, now_ms, q);
             }
             break;
         case VISION_EV_NODEVICE:

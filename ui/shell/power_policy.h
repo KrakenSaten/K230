@@ -25,7 +25,8 @@
  *
  * Pure C, no LVGL: tests/power_policy_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_POWER_POLICY_H
 #define DOORS_POWER_POLICY_H

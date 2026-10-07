@@ -12,7 +12,8 @@
  * the session, no child and no descriptor left behind - including a job
  * that ignores SIGHUP, and a command still flooding the screen.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "term_session.h"

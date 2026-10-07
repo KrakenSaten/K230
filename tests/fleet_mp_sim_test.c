@@ -49,7 +49,8 @@
  *
  * FLEET_SIM_MATCHES sets matches per honest profile (default 300).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_mp_harness.h"
 
