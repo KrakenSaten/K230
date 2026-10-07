@@ -159,12 +159,13 @@ vendor/                    Read-only reference clones (git-ignored)
 ## Status
 
 **Doors 0.3.5** (release candidate, branch `release/v0.3.5`, not yet
-tagged): everything merged up to PR #64 - a fresh card boots straight into
-Doors and the vendor launcher is gone, RIFT colour emoji, repeater control,
-RX LOG and reliability work, USB storage and card expansion, Settings in
-categories, the physical power key. Doors' own code is Apache-2.0; the
-Vision detector model is no longer in the image (DETECT, TRACK and TRAFFIC
-are off, the rest of Vision works). Release notes: docs/releases/v0.3.5.md.
+tagged): everything merged up to PR #65 - a fresh card boots straight into
+Doors and the vendor launcher is gone, RIFT set up from Controls without a
+shell, RIFT colour emoji, repeater control, RX LOG and reliability work, USB
+storage and card expansion, Settings in categories, the physical power key
+and the BOOT button. Doors' own code is Apache-2.0; the Vision detector
+model is no longer in the image (DETECT, TRACK and TRAFFIC are off, the rest
+of Vision works). Release notes: docs/releases/v0.3.5.md.
 
 **Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) is the latest release: the
 Terminal with a kept session, three text sizes and a CLI toolbox; Photo,

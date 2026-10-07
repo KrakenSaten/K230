@@ -5,11 +5,11 @@ v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.
 
-- **RIFT on a fresh card needs one shell session** (v0.3.5 notes, "RIFT on a
-  fresh card"): radiod ships on the mock backend and meshcored disabled, and
-  nothing in the UI changes either; Controls' radio tile switches the radio
-  on the current backend only. Toggling it while on the mock stores "on",
-  so the SX1262 later starts on without the antenna prompt.
+- **RIFT's first use from Controls is not yet run on hardware** (v0.3.5
+  notes, "RIFT on a fresh card"): the LoRa radio tile's setup (sysd's
+  `radio_setup`) and radiod's per-backend choice are host-tested only. A
+  unit on the SX1262 with meshcored deliberately disabled is offered the
+  setup on a tap; `doors radio on|off` switches its radio alone.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
