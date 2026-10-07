@@ -11,10 +11,13 @@ is known about its terms. The full audit is
 docs/licensing/APACHE_2_READINESS.md §4. Audited 2026-10-01 at origin/master
 `426b1d8`.
 
-No model file is committed to this repository. A model reaches a unit in one
-of two ways: the `pocketos` Buildroot package installs it (only
-`yolov8n.kmodel`), or a vendor package of the K230 SDK installs it into the
-image for the vendor's own demos.
+No model file is committed to this repository. From Doors 0.3.5 the
+`pocketos` Buildroot package installs **no** model: `yolov8n.kmodel`, which
+images up to 0.3.0 carried for internal use, is no longer in the image, and
+the package refuses any of the SDK's Ultralytics YOLO kmodels anywhere in the
+target, by name and by hash (`pocketos.mk`, `tools/vision/refused-models.sha256`).
+The models still in the image come from vendor packages of the K230 SDK, for
+the vendor's own demos (below).
 
 ## Status values
 
@@ -29,13 +32,13 @@ image for the vendor's own demos.
 
 | Model file (on the unit) | Feature | Origin | Author / provider | Licence | Redistribution / commercial use / modification | Attribution | Committed | In the Doors image | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `/usr/share/doors/vision/yolov8n.kmodel` (3,495,296 B, sha256 `0b4bcdd3…2004a09`, pinned in `tools/vision/yolov8n.kmodel.sha256`) | DETECT, TRACK, COUNT, TRAFFIC; DeskBuddy's provider (DETECT) | K230 Linux SDK `buildroot-overlay/package/yolo/utils/yolov8n.kmodel` at `22d02c6` | Ultralytics (YOLOv8n weights); compiled for nncase 2.11 by Canaan (conversion not published) | The SDK states **no licence for the file**. Ultralytics publishes YOLOv8 and its weights under **AGPL-3.0**, with a commercial licence as the alternative | Under AGPL-3.0: allowed, with AGPL source obligations that cannot be fully met here (the exact weights and conversion settings are unpublished) | AGPL-3.0 text and notice (shipped: THIRD_PARTY_NOTICES.txt, `yolov8n-kmodel`) | No | **Yes**: `pocketos.mk` copies the SDK's file, hash-pinned. Owner decision 2026-09-28: **internal images only** | **UNKNOWN - DO NOT REDISTRIBUTE** outside the project (docs/LICENSING.md item 10) |
+| `/usr/share/doors/vision/yolov8n.kmodel` (3,495,296 B, sha256 `0b4bcdd3…2004a09`, pinned in `tools/vision/yolov8n.kmodel.sha256` for the bench tool `install-model.sh`) | DETECT, TRACK, TRAFFIC (with TRACK's count line); DeskBuddy's provider (DETECT) | K230 Linux SDK `buildroot-overlay/package/yolo/utils/yolov8n.kmodel` at `22d02c6` | Ultralytics (YOLOv8n weights); compiled for nncase 2.11 by Canaan (conversion not published) | The SDK states **no licence for the file**. Ultralytics publishes YOLOv8 and its weights under **AGPL-3.0**, with a commercial licence as the alternative | Under AGPL-3.0: allowed, with AGPL source obligations that cannot be fully met here (the exact weights and conversion settings are unpublished) | none shipped (its notice left the image with it) | No | **No, from 0.3.5** (images up to 0.3.0 carried it, internal images only, owner 2026-09-28); refused by `pocketos.mk`. Without it Vision offers COLOR, EDGE and LINE TRACE and says why the rest is off | **UNKNOWN - DO NOT REDISTRIBUTE** (docs/LICENSING.md item 10); a DOORS-trained replacement is in preparation |
 | `/usr/share/doors/vision/face_det.kmodel` | FACE; RECOGNIZE's detector; DeskBuddy's provider (FACE, RECOGNIZE) | The vendor's `face_detection_320.kmodel` (584,576 B): SDK `face_detect` / `ai_demo`; also in the canmv_rt tree and the launcher's `models/` | Canaan demo; the demo's README names RetinaFace on a 0.25 MobileNet | **None stated** | Unknown | Unknown | No | Not by Doors. **The vendor's copy is in the image** at `/root/app/face_detect/` (`BR2_PACKAGE_FACE_DETECT=y`), and the launcher's copy under `/root/app/k230_phone_ui/models/` | **UNKNOWN - DO NOT REDISTRIBUTE**; for Doors: EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_det.kmodel` | READ (text detector) | canmv_k230 `src/rtsmart/libs/kmodel/ai_poc/kmodel/ocr_det.kmodel` (2,958,504 B, sha256 `b8a71660…7b79fc`) | Canaan (canmv examples) | **None stated** for the file. The LILYGO canmv_rt README's header comment says "@License: GPL 3.0" for that repository; nothing ties it to the model | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_rec.kmodel` | READ (text recogniser) | same tree, `ocr_rec_int16.kmodel` (13,008,216 B, sha256 `7a307f86…aa8648c`) | Canaan | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_dict.txt` | READ (recogniser alphabet, 6,549 entries) | same tree, `ai_poc/utils/dict_ocr.txt` (32,521 B, sha256 `8288453b…a74c8fb`) | Canaan; upstream origin not stated | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/face_embed.kmodel` | RECOGNIZE (face embedding); DeskBuddy's provider (owner recognised) | same tree, `face_recognition.kmodel` (46,333,280 B, sha256 `2409a30f…78218472`) | Canaan; source weights not stated | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
-| `xiaozhi_kws.kmodel` (369,560 B) | none (the vendor launcher's keyword spotter) | LILYGO `k230_phone_ui` package | LILYGO / unknown | **None stated** (the LILYGO repository has no licence) | Unknown | Unknown | No | Not by Doors; **in the image** through the vendor launcher | NOT USED by Doors; as image content **UNKNOWN - DO NOT REDISTRIBUTE** (vendor material, B6/B7) |
+| `xiaozhi_kws.kmodel` (369,560 B) | none (the vendor launcher's keyword spotter) | LILYGO `k230_phone_ui` package | LILYGO / unknown | **None stated** (the LILYGO repository has no licence) | Unknown | Unknown | No | No: the launcher package is purged from the image (chore/remove-vendor-launcher, PR #47) | NOT USED by Doors |
 | `test.kmodel` (2,286,808 B) | none (the vendor `ai2d_kpu` test) | SDK `ai2d_kpu` package | Canaan | **None stated** | Unknown | Unknown | No | Not by Doors; **in the image** through `BR2_PACKAGE_AI2D_KPU=y` | NOT USED by Doors; as image content **UNKNOWN - DO NOT REDISTRIBUTE** (vendor material, B6/B7) |
 | `ocr_rec.kmodel`, `ocr_det_int16.kmodel`, `door_lock/mbface.kmodel`, `yolov5n`, `yolo11n`, `yolo26n`, the self-learning `recognition.kmodel` / `embedding.kmodel` | none | SDK and canmv trees | various | not established | - | - | No | No | NOT USED / REFERENCE ONLY |
 
@@ -45,14 +48,13 @@ image for the vendor's own demos.
   publishing the source repository. The source does name where the
   models came from and their hashes; that is description, not
   redistribution.
-- **A public image.** Not possible while the image installs
-  `yolov8n.kmodel` or carries the vendor models listed above. Before a
-  public image: either settle item 10 for distribution (Ultralytics'
-  commercial licence, or an AGPL-compliant model with published weights and
-  conversion), or make DETECT's model EXTERNAL ONLY like READ's and
-  RECOGNIZE's (stop installing it in `pocketos.mk`; the helper already offers
-  a mode only when its file is present). The vendor models go with their
-  packages (docs/LICENSING.md item 5).
+- **A public image.** `yolov8n.kmodel` no longer blocks it (not installed
+  from 0.3.5; the helper offers DETECT, TRACK and TRAFFIC only when a
+  detector file is present). The vendor models still in the image
+  (`face_detection_320.kmodel` through `face_detect`, `test.kmodel` through
+  `ai2d_kpu`) have no stated terms and go with their packages
+  (docs/LICENSING.md item 5); so do the other blockers in
+  docs/licensing/APACHE_2_READINESS.md.
 - **Replacing a model** with one whose terms are known (for example a
   detector trained on a permissively licensed dataset and published with its
   weights) is a separate piece of work and is not done here.
@@ -67,7 +69,8 @@ image for the vendor's own demos.
   in the canmv `ai_poc` model tree, or in the LILYGO repository (VERIFIED
   locally, docs/LICENSING.md items 2, 10, 11).
 - Ultralytics' licence for YOLOv8: AGPL-3.0, https://github.com/ultralytics/ultralytics
-  (LICENSE) and https://www.ultralytics.com/license (DOCUMENTED, recorded in
-  third_party/notices/texts/yolov8n-kmodel.txt).
+  (LICENSE) and https://www.ultralytics.com/license (DOCUMENTED; the notice
+  text that recorded it, third_party/notices/texts/yolov8n-kmodel.txt, left
+  the tree with the model in 0.3.5 and is in the git history).
 - The canmv_rt README header comment "@License: GPL 3.0"
   (vendor/T-Display-K230_canmv_rt/README.md line 9, VERIFIED locally).

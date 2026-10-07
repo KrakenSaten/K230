@@ -26,7 +26,7 @@ POCKETOS_SITE_METHOD = local
 # REDISTRIBUTE stays NO, so legal-info does not export this package's source,
 # until docs/licensing/APACHE_2_READINESS.md clears the source repository for
 # publication: the owner has chosen the licence, not yet published anything.
-POCKETOS_LICENSE = Apache-2.0 (Doors), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), BSD-2-Clause (Canaan K230 SDK code in pos-vision), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps), AGPL-3.0 (YOLOv8n model data, Ultralytics; internal images only)
+POCKETOS_LICENSE = Apache-2.0 (Doors), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), BSD-2-Clause (Canaan K230 SDK code in pos-vision), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
 POCKETOS_LICENSE_FILES = LICENSE NOTICE THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES
@@ -57,7 +57,7 @@ POCKETOS_INSTALL_TARGET = YES
 # engine (POCKETVISION_KPU=1), and the runtime's shared pool through libmmz.
 # Both were already in the image and its sysroot (BR2_PACKAGE_AI2D_KPU and
 # BR2_PACKAGE_FACE_DETECT select them), so this adds a build dependency, not
-# a package. The model the helper runs is installed below.
+# a package. The detector model is not installed (below).
 # ffmpeg: pos-mp3, the MP3 app's helper (docs/apps/MP3.md), decodes with
 # libavformat, libavcodec, libswresample and libavutil (MP3_FFMPEG=1), and
 # pos-video, the Video app's helper (docs/apps/VIDEO.md, ADR-012
@@ -91,25 +91,42 @@ endef
 # PocketOS-era shell would otherwise still hold it, and the rootfs gate in
 # build_image.sh would refuse the image (correctly, but late).
 #
-# The Vision model (docs/apps/VISION.md, "The model") is the pinned SDK's
-# yolov8n.kmodel, installed where pos-vision reads it. It is taken from the
-# SDK's own copy in package/yolo/utils, which Buildroot's package tree carries
-# whether or not the vendor yolo demo is selected (it is not). That way the
-# image holds exactly one copy and the Doors repository holds none. The model
-# is AGPL-3.0 and is in the image for internal use only (docs/LICENSING.md
-# item 10), so the install refuses it without its notice. It also refuses any
-# file other than the one tools/vision/yolov8n.kmodel.sha256 pins.
-POCKETOS_VISION_MODEL_DIR = $(realpath $(TOPDIR))/package/yolo/utils
+# No Vision detector model ships (Doors 0.3.5 on; docs/apps/VISION.md "The
+# model", MODEL_LICENSES.md). The pinned SDK's yolov8n.kmodel, which images
+# up to 0.3.0 carried for internal use, is a compiled Ultralytics YOLOv8n
+# (AGPL-3.0); a DOORS-trained replacement is not ready. pos-vision runs
+# without it: COLOR, EDGE and LINE TRACE, and the modes whose own models are
+# installed by hand; DETECT, TRACK and TRAFFIC are not offered, and the app
+# says why. Buildroot never deletes from $(TARGET_DIR), so the install
+# removes the copy an earlier build put there, and a final check over the
+# whole target refuses any of the SDK's Ultralytics YOLO kmodels - by name,
+# and by the hashes in tools/vision/refused-models.sha256 whatever the file
+# is called - and the vendor yolo demo package, which would install them.
+ifeq ($(BR2_PACKAGE_YOLO),y)
+$(error pocketos: BR2_PACKAGE_YOLO installs Ultralytics YOLO models (AGPL-3.0), which no Doors image ships (docs/apps/VISION.md, "The model"))
+endif
 
 define POCKETOS_INSTALL_TARGET_CMDS
 	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell
-	grep -q '^yolov8n-kmodel *|' $(@D)/third_party/notices/SOURCES || \
-		{ echo "pocketos: the Vision model has no entry in third_party/notices/SOURCES (docs/LICENSING.md item 10)" >&2; exit 1; }
-	cd $(POCKETOS_VISION_MODEL_DIR) && sha256sum -c $(@D)/tools/vision/yolov8n.kmodel.sha256
-	$(INSTALL) -D -m 0644 $(POCKETOS_VISION_MODEL_DIR)/yolov8n.kmodel $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel
+	rm -f $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel
+	rmdir $(TARGET_DIR)/usr/share/doors/vision 2>/dev/null || true
 endef
+
+# After every package has installed: no refused model anywhere in the target.
+define POCKETOS_REFUSE_DETECTOR_MODELS
+	refused=$$(find $(TARGET_DIR) -type f -iname 'yolo*.kmodel' 2>/dev/null); \
+	for f in $$(find $(TARGET_DIR) -type f -iname '*.kmodel' 2>/dev/null); do \
+		h=$$(sha256sum "$$f" | cut -c1-64); \
+		grep -q "^$$h " $(POCKETOS_DIR)/tools/vision/refused-models.sha256 && refused="$$refused $$f"; \
+	done; \
+	if [ -n "$$refused" ]; then \
+		echo "pocketos: refused Vision model(s) in the target:$$refused (docs/apps/VISION.md, The model)" >&2; \
+		exit 1; \
+	fi
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REFUSE_DETECTOR_MODELS
 
 $(eval $(generic-package))

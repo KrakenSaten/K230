@@ -394,7 +394,7 @@ asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
 
 | # | Path / component | Issue | Evidence | Required action |
 | --- | --- | --- | --- | --- |
-| B4 | `/usr/share/doors/vision/yolov8n.kmodel` (`pocketos.mk`) | AGPL-3.0 weights (Ultralytics) without published weights or conversion; owner decision limits it to internal images | docs/LICENSING.md item 10; MODEL_LICENSES.md | Before a public image: stop installing it (Vision's DETECT becomes EXTERNAL ONLY like READ) or obtain terms that allow distribution (Ultralytics' commercial licence, or a model with published weights). |
+| B4 | `/usr/share/doors/vision/yolov8n.kmodel` (`pocketos.mk`) | AGPL-3.0 weights (Ultralytics) without published weights or conversion; owner decision limits it to internal images | docs/LICENSING.md item 10; MODEL_LICENSES.md | **Resolved for 0.3.5 (2026-10-07):** not installed; the package refuses the SDK's YOLO kmodels by name and hash, and the vendor `yolo` package. Vision runs its model-free modes and says why the detector's are off. |
 | B5 | nncase 2.11.0 K230 runtime, static in `/usr/bin/pos-vision` | prebuilt archive carries no licence file; the K230 modules' source is not shown | archive listing; `kendryte/nncase` LICENSE at `v2.11.0` (Apache-2.0) | Confirm with Kendryte/Canaan that the runtime archive is under the repository's Apache-2.0, then add a notices entry with its licence; otherwise do not ship pos-vision. |
 | B6 | vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz`; their kmodels in `/root/app/` | no licence in the package files; models without terms | docs/LICENSING.md item 5; image target tree | Add manual manifest entries with established licences, or drop the packages not needed by Doors (`face_detect`, `ai2d_kpu` demos) from the defconfig. |
 | B7 | LILYGO launcher `k230_phone_ui` and the LILYGO overlay files | no licence; the launcher ships enabled-in-image, disabled at boot | docs/LICENSING.md item 2; `.config` `BR2_PACKAGE_K230_PHONE_UI=y` | Get LILYGO's terms, or remove the launcher from the image (Doors' shell already owns the panel). |
@@ -434,7 +434,7 @@ asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
 | | Result |
 | --- | --- |
 | **SOURCE REPOSITORY** | **NOT READY** - only B3b remains (keymap tables; deferred until the owner is at a unit). B1, B2 and B3a are resolved. Publication must use an exported tree (R1). |
-| **FLASHABLE IMAGE** | **NOT READY** - B3b, B4-B9 |
+| **FLASHABLE IMAGE** | **NOT READY** - B3b, B5, B6, B8, B9 (B4 resolved in 0.3.5 by not shipping the model; B7 by the launcher's removal, PR #47) |
 
 Scale used: READY / READY AFTER CLEANUP / NOT READY. "Ready after
 cleanup" would mean only the C items remained; for the source that

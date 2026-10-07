@@ -63,14 +63,17 @@
  *                                 detector backend ("nncase" or "fake")
  *   ready <name> <pw> <ph> <simulated 0|1> <model> <in_w> <in_h> <classes>
  *                                 the camera (its preview size) and the
- *                                 model are open
+ *                                 model are open; with no detector file on
+ *                                 the unit the model is `none` with 0 0 0
  *   caps <mode>...                right after ready: the modes this helper
  *                                 can run, by their `mode` words (a mode
  *                                 whose model is not on the unit is not
- *                                 listed, and the screen never offers it)
+ *                                 listed, and the screen never offers it;
+ *                                 without the detector: no detect, track
+ *                                 or traffic, and `mode` refuses them)
  *   nodevice <text>               there is no camera; the helper leaves
- *   nomodel <text>                the model could not be opened; the
- *                                 helper leaves
+ *   nomodel <text>                a model file there could not be opened;
+ *                                 the helper leaves
  *   error <what> <text>           it cannot go on; the helper leaves
  *   frame <slot> <seq> <w> <h>    a preview picture is in slot
  *   det <seq> <n> [<id>:<cls>:<conf>:<x>:<y>:<w>:<h>:<dir>:<kmh10>]...

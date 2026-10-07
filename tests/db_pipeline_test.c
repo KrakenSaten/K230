@@ -293,6 +293,21 @@ static void test_provider(void)
     check("and nobody once the person has gone", run_until(DB_VISION_NO_PERSON, 8000));
     db_vision_pipeline_ops.stop(NULL);
 
+    /* A unit without the detector model either (an image that does not ship
+     * it): nothing can see a person, so DeskBuddy says it cannot see, once,
+     * and leaves the helper - never a desk that looks empty. */
+    reset_counts();
+    setenv("POCKETOS_VISION_MODEL", "/nonexistent/vision/yolov8n.kmodel", 1);
+    db_vision_pipeline_ops.start(&cfg, now_ms(), &queue);
+    check("no detector and no face model: unavailable", run_until(DB_VISION_UNAVAILABLE, 8000) &&
+                                                            kinds[DB_VISION_UNAVAILABLE] == 1 &&
+                                                            kinds[DB_VISION_NO_PERSON] == 0 &&
+                                                            kinds[DB_VISION_PERSON_DETECTED] == 0);
+    check("and the provider stops polling", db_vision_pipeline_ops.poll(NULL, now_ms(), &queue) == -1);
+    db_vision_pipeline_ops.stop(NULL);
+    check("no helper left behind", helpers_alive(NULL) == 0);
+    unsetenv("POCKETOS_VISION_MODEL");
+
     /* Wherever the person sits in the camera's frame, DeskBuddy sees them:
      * at the left edge, in the middle, at the right edge of the 640 x 360
      * sensor, with the camera mounted turned (90, the picture tall) and not

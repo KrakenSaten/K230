@@ -180,7 +180,7 @@ check "the repository keeps no copy of a vendor defconfig (B3)" \
 # asset a class; the first rule that matches decides. Paths may hold spaces,
 # so a rule's pattern is everything before its class word.
 INV=docs/licensing/asset-inventory.txt
-CLASSES="ORIGINAL OWNER-VECTOR OWNER-AI-RASTER OWNER-DESIGN BRAND DERIVED-ART DERIVED-BRAND CAPTURE OWNER-REF DESIGN-EXPORT THIRD-PARTY"
+CLASSES="ORIGINAL OWNER-VECTOR OWNER-AI-RASTER OWNER-DESIGN BRAND DERIVED-ART DERIVED-BRAND CAPTURE OWNER-REF DESIGN-EXPORT THIRD-PARTY THIRD-PARTY-NOTICED"
 tr -d '\r' < "$INV" | awk -v cl="$CLASSES" '
     BEGIN { n = split(cl, c, " "); for (i = 1; i <= n; i++) ok[c[i]] = 1 }
     /^[[:space:]]*(#|$)/ { next }
@@ -253,9 +253,10 @@ installed_models() { # <package .mk> <Makefile>
     cat "$@" | grep -E '\$\((INSTALL|TARGET_DIR)\)|^\s+install ' |
         grep -o -E 'usr/share/doors/vision/[A-Za-z0-9_.-]+' | sed 's#.*/##' | sort -u
 }
-# The only UNKNOWN-status model allowed into an image: decided by the owner for
-# internal images (docs/LICENSING.md item 10), with its notice.
-INTERNAL_OK="yolov8n.kmodel:yolov8n-kmodel"
+# UNKNOWN-status models allowed into an image, as <file>:<notices id>. None
+# since 0.3.5: the internal-only yolov8n.kmodel (docs/LICENSING.md item 10)
+# no longer ships.
+INTERNAL_OK=""
 model_rules() { # <package .mk> <Makefile> <MODEL_LICENSES.md> <SOURCES>; prints each violation
     local m row allowed note
     for m in $(installed_models "$1" "$2"); do
@@ -276,10 +277,10 @@ model_rules() { # <package .mk> <Makefile> <MODEL_LICENSES.md> <SOURCES>; prints
     done
 }
 v=$(model_rules "$MK" Makefile "$MODELS" "$SOURCES")
-check "every installed model is listed, and none of unknown terms is installed but the internal-only one${v:+ ($v)}" \
+check "every installed model is listed, and none of unknown terms is installed${v:+ ($v)}" \
     "$([ -z "$v" ] && echo 1 || echo 0)"
-check "the package does install that one (the rule above is not vacuous)" \
-    "$(installed_models "$MK" Makefile | grep -qx yolov8n.kmodel && echo 1 || echo 0)"
+inst=$(installed_models "$MK" Makefile | tr '\n' ' ')
+check "the package installs no model at all (0.3.5)${inst:+ (installs: $inst)}" "$([ -z "$inst" ] && echo 1 || echo 0)"
 ext=$(grep -F 'EXTERNAL ONLY' "$MODELS" | grep -o -E '`/usr/share/doors/vision/[A-Za-z0-9_.-]+`' | tr -d '`' | sed 's#.*/##' | sort -u)
 check "MODEL_LICENSES.md names the EXTERNAL ONLY models (face_det, text_det, text_rec, text_dict, face_embed)" \
     "$([ "$(printf '%s\n' $ext | tr '\n' ' ')" = 'face_det.kmodel face_embed.kmodel text_det.kmodel text_dict.txt text_rec.kmodel ' ] && echo 1 || echo 0)"
@@ -292,9 +293,45 @@ cp "$MK" "$TMP/new.mk"
 printf '\t$(INSTALL) -D -m 0644 x/mystery.kmodel $(TARGET_DIR)/usr/share/doors/vision/mystery.kmodel\n' >> "$TMP/new.mk"
 check "and so is one that installs a model MODEL_LICENSES.md does not list (control)" \
     "$(model_rules "$TMP/new.mk" Makefile "$MODELS" "$SOURCES" | grep -q 'mystery.kmodel installed but not in' && echo 1 || echo 0)"
-grep -v '^yolov8n-kmodel ' "$SOURCES" > "$TMP/SOURCES"
-check "and the internal-only model without its notices entry (control)" \
-    "$(model_rules "$MK" Makefile "$MODELS" "$TMP/SOURCES" | grep -q 'no notices entry' && echo 1 || echo 0)"
+cp "$MK" "$TMP/yolo.mk"
+printf '\t$(INSTALL) -D -m 0644 x/yolov8n.kmodel $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel\n' >> "$TMP/yolo.mk"
+check "and so is one that installs the AGPL-labelled yolov8n.kmodel again (control)" \
+    "$(model_rules "$TMP/yolo.mk" Makefile "$MODELS" "$SOURCES" | grep -q 'yolov8n.kmodel has status UNKNOWN' && echo 1 || echo 0)"
+
+# The target-wide refusal (pocketos.mk, POCKETOS_REFUSE_DETECTOR_MODELS): a
+# vendor package, a stale build tree or a rename must not bring an
+# Ultralytics YOLO kmodel back. The hook is registered, its list holds the
+# SDK's four, and its body is executed against fake target trees.
+REFUSED=tools/vision/refused-models.sha256
+check "the package refuses the vendor yolo demo package" \
+    "$(grep -q '^ifeq ($(BR2_PACKAGE_YOLO),y)' "$MK" && grep -q 'BR2_PACKAGE_YOLO installs' "$MK" && echo 1 || echo 0)"
+check "the install removes a copy an earlier build left in the target" \
+    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -q 'rm -f $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel' && echo 1 || echo 0)"
+check "the refusal runs after every package (target-finalize hook)" \
+    "$(grep -q '^POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REFUSE_DETECTOR_MODELS' "$MK" && echo 1 || echo 0)"
+check "its list names the SDK's yolov8n, yolov5n, yolo11n and yolo26n by hash" \
+    "$([ "$(grep -c -E '^[0-9a-f]{64}  yolo[a-z0-9]*\.kmodel$' "$REFUSED")" = 4 ] &&
+       grep -q '^0b4bcdd3eef7ad05d827127ec630d2354659f6db1b0c627ecb4af32cb2004a09 ' "$REFUSED" && echo 1 || echo 0)"
+VYOLO=vendor/T-Display-K230/k230_linux_sdk/buildroot-overlay/package/yolo/utils
+if [ -d "$VYOLO" ]; then
+    miss=""
+    for f in "$VYOLO"/*.kmodel; do grep -q "^$(sha256sum < "$f" | cut -c1-64) " "$REFUSED" || miss="$miss $(basename "$f")"; done
+    check "every kmodel of the vendor yolo package is on the list${miss:+ (missing:$miss)}" "$([ -z "$miss" ] && echo 1 || echo 0)"
+fi
+# The hook's shell, as make would run it: $$ is $, the two variables set.
+refuse() { # <target dir> <refused list>
+    sed -n '/^define POCKETOS_REFUSE_DETECTOR_MODELS/,/^endef/p' "$MK" | sed '1d;$d' |
+        sed -e 's/\$\$/$/g' -e "s#\$(TARGET_DIR)#$1#g" -e "s#\$(POCKETOS_DIR)/tools/vision/refused-models.sha256#$2#g" > "$TMP/refuse.sh"
+    bash "$TMP/refuse.sh" > /dev/null 2>&1
+}
+mkdir -p "$TMP/t1/root/app/face_detect" "$TMP/t2/usr/share/demo" "$TMP/t3/usr/share/x"
+printf 'face' > "$TMP/t1/root/app/face_detect/face_detection_320.kmodel"
+check "a target with only other models passes (control)" "$(refuse "$TMP/t1" "$REFUSED" && echo 1 || echo 0)"
+printf 'x' > "$TMP/t2/usr/share/demo/YOLO11N.kmodel"
+check "a YOLO kmodel by name is refused (control)" "$(refuse "$TMP/t2" "$REFUSED" && echo 0 || echo 1)"
+printf 'renamed' > "$TMP/t3/usr/share/x/detector.kmodel"
+printf '%s  renamed.kmodel\n' "$(sha256sum < "$TMP/t3/usr/share/x/detector.kmodel" | cut -c1-64)" > "$TMP/refused"
+check "and a listed one under another name, by its hash (control)" "$(refuse "$TMP/t3" "$TMP/refused" && echo 0 || echo 1)"
 
 echo "license_audit_test: $failed failure(s)"
 exit $((failed > 0))

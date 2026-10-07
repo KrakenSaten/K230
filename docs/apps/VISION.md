@@ -560,24 +560,39 @@ not another:
 - the SDK also carries `yolov5n`, `yolo11n` and `yolo26n`; YOLOv8n is the
   one asked for, and the one whose head the decoder is written for.
 
-**The image carries the model; this repository does not.** The helper
-reads it from `/usr/share/doors/vision/yolov8n.kmodel` (override with
-`$POCKETOS_VISION_MODEL` or `--model`). The `pocketos` package installs it
-there, copying the pinned SDK's own file at build time, so a freshly
-flashed unit runs Vision with nothing added. The install refuses any file
-whose sha256 differs from `tools/vision/yolov8n.kmodel.sha256`
-(`0b4bcdd3…2004a09`). The model is licensed differently from Doors: the
-vendor's `package/yolo` sources carry Canaan's BSD-style header, but the
-kmodel is compiled from Ultralytics' YOLOv8n weights, whose licence is
-AGPL-3.0, and the SDK names no terms for the file. The owner decided on
-2026-09-28 to use it under the AGPL-3.0 **in internal images only**
-(docs/LICENSING.md, item 10, which stays open for distribution outside the
-project). Its notice and the licence text are in THIRD_PARTY_NOTICES.txt.
+**From Doors 0.3.5 neither the image nor this repository carries the
+model.** Images 0.2.1 to 0.3.0 did, for internal use; a DOORS-trained
+replacement detector is in preparation. The helper reads it from
+`/usr/share/doors/vision/yolov8n.kmodel` (override with
+`$POCKETOS_VISION_MODEL` or `--model`). **When that file does not exist**
+the helper still opens the camera, says `ready` with the model `none` and no
+classes, and offers only the modes that need no detector in its `caps`:
+COLOR, EDGE and LINE TRACE, plus READ, FACE and RECOGNIZE when their own
+models are there. It refuses `mode detect|track|traffic`. The app starts in
+the first mode offered (the owner's DETECT setting is kept for when the
+model returns), leaves DETECT, TRACK and TRAFFIC out of the picker, and says
+under the picture: "No detector model on this unit: DETECT, TRACK and
+TRAFFIC are off". DeskBuddy, with neither the detector nor a face model,
+reports that it cannot see ("NO VISION YET") instead of an empty desk. A
+file that exists and does not open is still an error ("No camera or
+detector", with the reason). `pos-vision probe` and `bench` still need the
+file and exit 5 without it.
+
+The `pocketos` package installs no model and refuses, after every package
+has installed, any of the SDK's Ultralytics YOLO kmodels in the target, by
+name or by the hashes in `tools/vision/refused-models.sha256`; it also
+refuses the vendor `yolo` demo package. Up to 0.3.0 it copied the pinned
+SDK's own file into the image. The pinned file's sha256 is in
+`tools/vision/yolov8n.kmodel.sha256` (`0b4bcdd3…2004a09`). The model is
+licensed differently from Doors: the vendor's `package/yolo` sources carry
+Canaan's BSD-style header, but the kmodel is compiled from Ultralytics'
+YOLOv8n weights, whose licence is AGPL-3.0, and the SDK names no terms for
+the file (docs/LICENSING.md, item 10; MODEL_LICENSES.md).
 Doors' own code (the decoder, tracker, counter, helper and app) contains
-nothing of the model. `tools/vision/install-model.sh <unit ip>` is still
-there for a unit that lacks the file: userspace deployed by hand onto an
-older image, a damaged file, or another model to try
-(`POCKETOS_VISION_MODEL_FILE`).
+nothing of the model. `tools/vision/install-model.sh <unit ip>` copies a
+model onto one bench unit by hand (`POCKETOS_VISION_MODEL_FILE` for another
+one to try); it never touches an image, and a unit given the AGPL-labelled
+file that way is an internal test unit (item 10).
 
 The COCO class names are compiled in (`core/pocketvision/vision_labels.c`),
 in the order the vendor's `coco_labels.txt` lists them.

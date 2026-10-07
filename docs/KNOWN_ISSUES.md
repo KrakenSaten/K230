@@ -162,13 +162,12 @@ Unit A was not available.
   2 times in 24. Blocking signals in the helper (`543dc0e`) did not cure it.
   Finding the cause needs kernel-side debugging or the vendor.
 
-- **The kmodel is AGPL-3.0 and cleared for internal images only**
-  (docs/LICENSING.md item 10): the SDK ships `yolov8n.kmodel` without terms,
-  and it is compiled from Ultralytics weights (AGPL-3.0). v0.2.0 does not
-  carry it (install it with `tools/vision/install-model.sh`); from v0.2.1 the
-  package installs it at `/usr/share/doors/vision/`, with its notice. An
-  image carrying it must not be distributed outside the project until item
-  10 is decided for that.
+- **No detector model from 0.3.5**: the SDK's `yolov8n.kmodel` is
+  compiled from Ultralytics weights (AGPL-3.0) and was in the images 0.2.1
+  to 0.3.0 for internal use only (docs/LICENSING.md item 10). 0.3.5 does not
+  ship it; DETECT, TRACK and TRAFFIC are off (the app says so) and DeskBuddy
+  cannot see unless a face model is installed by hand. A DOORS-trained
+  replacement is in preparation.
 - **Weak detection in warm, dim light, and counts above the real
   crossings** (v0.2.1 fresh-flash smoke on unit B, docs/releases/v0.2.1.md):
   a person standing in full view was boxed in some frames only, at 35-59 %,

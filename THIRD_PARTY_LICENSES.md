@@ -112,12 +112,12 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | K230 Linux SDK (`kendryte/k230_linux_sdk` `22d02c6`) | BSD-2-Clause (Canaan, root LICENSE) | build system and vendor packages | OK WITH ATTRIBUTION |
 | SDK vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz` | not in their package files (`gsl-lite` is MIT upstream) | yes | **UNKNOWN - DO NOT REDISTRIBUTE** (B6; docs/LICENSING.md item 5) |
 | LILYGO T-Display-K230 (`bb831ab`): BSP overlay, boot scripts, rootfs overlay | **no licence** in the repository (files that modify GPL code are GPL by derivation) | yes | **UNKNOWN - DO NOT REDISTRIBUTE** (B7; item 2) |
-| LILYGO launcher `k230_phone_ui` (with bundled nofrendo GPL-2.0, RadioLib MIT, quirc ISC, libtmt and qrcodegen MIT, and two kmodels) | **no licence** for LILYGO's own code | **yes** (`BR2_PACKAGE_K230_PHONE_UI=y`; disabled at boot by `/etc/default/k230_phone_ui`) | **UNKNOWN - DO NOT REDISTRIBUTE** (B7) - get LILYGO's terms or drop the package |
+| LILYGO launcher `k230_phone_ui` (with bundled nofrendo GPL-2.0, RadioLib MIT, quirc ISC, libtmt and qrcodegen MIT, and two kmodels) | **no licence** for LILYGO's own code | **no**: purged from the image by apply_to_sdk.sh (PR #47) | was B7; resolved by removal |
 | Realtek `rtl8723ds-bt` firmware | PROPRIETARY (Buildroot metadata) | yes | **DO NOT REDISTRIBUTE** (B8: proprietary, terms not collected, hardware absent) |
 | `rtl8723ds`, `rtl8189fs`, `aic8800` drivers and `aic8800*` firmware | GPL-2.0 drivers; firmware terms not collected | yes | drivers: SEPARATE LICENSE (GPL-2.0); firmware: **UNKNOWN - DO NOT REDISTRIBUTE** (B8) |
 | Xuantie toolchain runtime (glibc, libstdc++, libgcc_s) | LGPL-2.1+ / GPL-3.0 with runtime exception | yes | REVIEW REQUIRED (B9: licences known, texts and source offer not collected) |
-| YOLOv8n model `yolov8n.kmodel` (`yolov8n-kmodel`), installed by the Doors package for Vision | Ultralytics weights AGPL-3.0; the SDK states no terms for the file | yes, internal images only (owner, 2026-09-28) | **DO NOT REDISTRIBUTE** outside the project (MODEL_LICENSES.md; docs/LICENSING.md item 10) |
-| Vendor models in the image (`face_detection_320.kmodel`, `xiaozhi_kws.kmodel`, `test.kmodel`) | none stated | yes, via vendor packages | see MODEL_LICENSES.md |
+| YOLOv8n model `yolov8n.kmodel`, installed by the Doors package for Vision up to 0.3.0 | Ultralytics weights AGPL-3.0; the SDK states no terms for the file | **no**, from 0.3.5 (refused by `pocketos.mk`, with the SDK's other YOLO kmodels) | **DO NOT REDISTRIBUTE** (MODEL_LICENSES.md; docs/LICENSING.md item 10) |
+| Vendor models in the image (`face_detection_320.kmodel`, `test.kmodel`) | none stated | yes, via vendor packages (`face_detect`, `ai2d_kpu`) | see MODEL_LICENSES.md |
 
 ## 6. Build and host-only tools (not distributed)
 

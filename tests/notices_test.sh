@@ -344,28 +344,16 @@ check "and so is a tree without LICENSE" "$(guard > /dev/null 2>&1 && echo 0 || 
 reset_guard
 
 # ---- the Vision model (docs/LICENSING.md item 10) ----------------------------
-# The package installs the SDK's yolov8n.kmodel, AGPL-3.0, for internal images.
-# Its notice is a statement written here followed by the FSF's licence text,
-# which must stay unchanged, and the package must refuse the model without its
-# notice or without the pinned hash.
-MODEL_SHA=tools/vision/yolov8n.kmodel.sha256
-MODEL_TEXT=third_party/notices/texts/yolov8n-kmodel.txt
-pinned=$(cut -c1-64 "$MODEL_SHA" 2>/dev/null)
-check "the Vision model's notice ends with the FSF's AGPL-3.0 text, unchanged" \
-    "$([ "$(sed -n '/^-----BEGIN AGPL-3.0-----$/,$p' "$MODEL_TEXT" | tail -n +2 | sha256sum | cut -d' ' -f1)" = \
-        0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0 ] && echo 1 || echo 0)"
-check "its entry and its text name the model the package pins" \
-    "$([ -n "$pinned" ] && grep -q "^yolov8n-kmodel [|] .*sha256 $pinned" "$SOURCES" &&
-       grep -q "$pinned" "$MODEL_TEXT" && echo 1 || echo 0)"
-check "the package installs the model only with its notice and its pinned hash" \
-    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | tr '\n' ' ' |
-       grep -q "grep -q '^yolov8n-kmodel \*|' .*SOURCES .*exit 1; } .*sha256sum -c \$(@D)/$MODEL_SHA .*\$(INSTALL) -D -m 0644 .*yolov8n.kmodel \$(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel" &&
-       echo 1 || echo 0)"
-VMODEL=vendor/T-Display-K230/k230_linux_sdk/buildroot-overlay/package/yolo/utils/yolov8n.kmodel
-if [ -f "$VMODEL" ]; then
-    check "the pinned hash is the vendor SDK's yolov8n.kmodel" \
-        "$([ "$(sha256sum < "$VMODEL" | cut -d' ' -f1)" = "$pinned" ] && echo 1 || echo 0)"
-fi
+# Up to 0.3.0 the package installed the SDK's yolov8n.kmodel (AGPL-3.0) for
+# internal images, with a notice. From 0.3.5 no detector model ships, so the
+# notices name none: a notice for material the image does not carry would
+# say it does. The package-side refusal is tests/license_audit_test.sh's.
+check "the notices carry no entry for a Vision model the image does not ship" \
+    "$(grep -q -i -E '^[a-z0-9-]*(yolo|kmodel)[a-z0-9-]* *[|]' "$SOURCES" && echo 0 || echo 1)"
+check "and no notices text for one either" \
+    "$(ls third_party/notices/texts/ 2>/dev/null | grep -q -i -E 'yolo|kmodel' && echo 0 || echo 1)"
+check "the package installs no model file" \
+    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -E '\$\(INSTALL\)' | grep -q -i 'kmodel' && echo 0 || echo 1)"
 
 # ---- Doors' own licence: Apache-2.0 (ADR-013) ------------------------------
 # The sha256 of the licence text exactly as the ASF publishes it

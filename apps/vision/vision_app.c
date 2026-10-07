@@ -118,7 +118,7 @@ struct vision_app {
     struct vision_picture preview;
     bool shown;           /* img shows the preview */
     const char *hint_shown;
-    char status_buf[256];
+    char status_buf[384];
 };
 
 static int64_t now_ms(void)

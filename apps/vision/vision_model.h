@@ -283,6 +283,10 @@ bool vision_model_pixel_mode(const struct vision_model *m);
 void vision_model_count_names(const struct vision_model *m, const char **a, const char **b);
 /* The buttons shown in this mode, in order; returns how many. */
 int vision_model_buttons(const struct vision_model *m, enum vision_button out[VISION_BUTTONS]);
+/* The detector's modes (DETECT, TRACK, TRAFFIC) are offered: false when the
+ * unit has no detector model (docs/apps/VISION.md "The model"). */
+bool vision_model_detector(const struct vision_model *m);
+#define VISION_NO_DETECTOR_TEXT "No detector model on this unit: DETECT, TRACK and TRAFFIC are off"
 /* How many lines the status takes in this mode. */
 int vision_model_status_lines(const struct vision_model *m);
 /* A short name for traffic class i (car truck bus moto bike person). */

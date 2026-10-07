@@ -241,7 +241,16 @@ Findings:
     source obligation for a model whose exact weights and conversion are
     unpublished, and Ultralytics' broader reading of what its licence covers.
     Doors' own licence (item 1) is decided since 2026-10-01; this item still
-    blocks a public image (docs/licensing/APACHE_2_READINESS.md, B4).
+    blocked a public image until 0.3.5 (docs/licensing/APACHE_2_READINESS.md, B4).
+    **Not shipped from Doors 0.3.5 (owner, 2026-10-07).** The package no
+    longer installs the model, removes a copy an earlier build left in the
+    target, and refuses, after every package, any of the SDK's Ultralytics
+    YOLO kmodels by name or hash (`tools/vision/refused-models.sha256`) and
+    the vendor `yolo` package. The notices entry left with the model. Vision
+    runs without it (COLOR, EDGE, LINE TRACE; docs/apps/VISION.md "The
+    model"). The item no longer blocks an image; it applies again only if a
+    YOLO-derived model is proposed for one. Training a DOORS-owned detector
+    is separate work (research/yolox-traffic-training).
 11. **Vision's optional models (feat/vision-next, docs/apps/VISION.md):**
     READ's text detector, recogniser and dictionary and RECOGNIZE's face
     embedding model (`face_recognition.kmodel`) come from the canmv SDK's

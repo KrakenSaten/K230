@@ -393,6 +393,10 @@ struct session {
     const char *text_rec_path;
     const char *text_dict_path;
     const char *net_script;       /* the fake nets' script (host builds) */
+    /* The detector is optional: a unit without its model file (an image
+     * that does not ship it, docs/apps/VISION.md "The model") still runs
+     * the pixel modes and the modes with models of their own. */
+    bool detect_offered;
     bool text_offered;
     bool text_tried;
     struct vision_net *tdet;
@@ -1950,11 +1954,11 @@ static void command(struct session *s, char *line)
     } else if (strcmp(w, "mode") == 0) {
         char *a = strtok_r(NULL, " ", &save);
 
-        if (a && strcmp(a, "traffic") == 0) {
+        if (a && strcmp(a, "traffic") == 0 && s->detect_offered) {
             set_mode(s, MODE_TRAFFIC);
-        } else if (a && strcmp(a, "detect") == 0) {
+        } else if (a && strcmp(a, "detect") == 0 && s->detect_offered) {
             set_mode(s, MODE_DETECT);
-        } else if (a && strcmp(a, "track") == 0) {
+        } else if (a && strcmp(a, "track") == 0 && s->detect_offered) {
             set_mode(s, MODE_TRACK);
         } else if (a && strcmp(a, "color") == 0) {
             set_mode(s, MODE_COLOR);
@@ -2443,7 +2447,19 @@ static int run_session(const char *backend, const char *config, const char *mode
         free(s);
         return EXIT_NOCAMERA;
     }
-    if (open_model(&s->kpu, &s->model, model, kpu_script, true) != 0) {
+    /* No detector file at all is not a failure: the modes that need it are
+     * not offered (caps below), and the others run. A file that is there
+     * and does not open is one, as before. The host's fake detector reads
+     * no file, so it is only asked when a model was named (a test). */
+    if ((strcmp(vision_kpu_backend(), "fake") != 0 || strcmp(model, VISION_MODEL_DEFAULT) != 0) &&
+        access(model, F_OK) != 0 && errno == ENOENT) {
+        fprintf(stderr, "pos-vision: %s: model file not found; DETECT, TRACK and TRAFFIC are not offered
+",
+                model);
+        s->detect_offered = false;
+        snprintf(s->model.model, sizeof(s->model.model), "none");
+        s->mode = MODE_COLOR;
+    } else if (open_model(&s->kpu, &s->model, model, kpu_script, true) != 0) {
         if (s->replay) {
             replay_close(s);
         } else {
@@ -2452,10 +2468,12 @@ static int run_session(const char *backend, const char *config, const char *mode
         munmap(s->shm, POCKETCAM_SHM_BYTES);
         free(s);
         return EXIT_NOMODEL;
+    } else {
+        s->detect_offered = true;
+        /* The model's classes onto the traffic classes, by name: the
+         * traffic logic never learns which detector this is. */
+        vision_traffic_map_names(&s->tf, s->model.classes, vision_label);
     }
-    /* The model's classes onto the traffic classes, by name: the traffic
-     * logic never learns which detector this is. */
-    vision_traffic_map_names(&s->tf, s->model.classes, vision_label);
     say("ready %s %u %u %d %s %u %u %u", s->info.name, s->info.preview_w, s->info.preview_h,
         s->info.simulated ? 1 : 0, s->model.model, s->model.in_w, s->model.in_h, s->model.classes);
     /* What this helper can run: the detector's modes and the pixel modes,
@@ -2464,8 +2482,8 @@ static int run_session(const char *backend, const char *config, const char *mode
                       access(s->text_dict_path, R_OK) == 0;
     s->face_offered = access(s->face_det_path, R_OK) == 0;
     s->recog_offered = s->face_offered && access(s->face_embed_path, R_OK) == 0;
-    say("caps detect track traffic color edge trace%s%s%s", s->text_offered ? " read" : "",
-        s->face_offered ? " face" : "", s->recog_offered ? " recognize" : "");
+    say("caps%s color edge trace%s%s%s", s->detect_offered ? " detect track traffic" : "",
+        s->text_offered ? " read" : "", s->face_offered ? " face" : "", s->recog_offered ? " recognize" : "");
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {
