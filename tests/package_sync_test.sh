@@ -667,10 +667,22 @@ if git -C "$VBSP" cat-file -e "$PIN_BSP:$VDEF" 2>/dev/null; then
     }
     run_compose platforms/k230/configs/k230_pocketos.fragment "$CMP/out"
     check "the composition runs against the pinned vendor defconfig" $([ $? -eq 0 ] && echo 1 || echo 0)
-    check "and is that file followed by exactly the fragment's settings" \
-          $(cmp -s "$CMP/out" <( git -C "$VBSP" show "$PIN_BSP:$VDEF" | tr -d '\r'
-                                 grep -v -E '^[[:space:]]*(#|$)' platforms/k230/configs/k230_pocketos.fragment ) &&
+    FRAG=platforms/k230/configs/k230_pocketos.fragment
+    check "and is that file without the lines the fragment turns off, then its removals and settings" \
+          $(cmp -s "$CMP/out" <( git -C "$VBSP" show "$PIN_BSP:$VDEF" | tr -d '\r' |
+                                     grep -v -x -F -f <(sed -n 's/^# \(BR2_[A-Z0-9_]*\) is not set$/\1=y/p' "$FRAG")
+                                 grep -E '^# BR2_[A-Z0-9_]+ is not set$' "$FRAG"
+                                 grep -v -E '^[[:space:]]*(#|$)' "$FRAG" ) &&
             echo 1 || echo 0)
+    check "the chips the board does not have are off, its own Wi-Fi is kept (B8)" \
+          $(for k in RTL8723DS RTL8723DS_BT AIC8800; do
+                grep -qx "BR2_PACKAGE_$k=y" "$CMP/out" && exit 1
+                grep -qx "# BR2_PACKAGE_$k is not set" "$CMP/out" || exit 1
+            done; grep -qx 'BR2_PACKAGE_RTL8189FS=y' "$CMP/out" && echo 1 || echo 0)
+    printf '# BR2_PACKAGE_DOORS_NO_SUCH_THING is not set\n' > "$CMP/off.fragment"
+    run_compose "$CMP/off.fragment" "$CMP/out3"
+    check "turning off a package the vendor file does not switch on is refused (control)" \
+          $([ $? -ne 0 ] && grep -q 'turns off BR2_PACKAGE_DOORS_NO_SUCH_THING' "$CMP/out3.err" && echo 1 || echo 0)
     check "and builds the pinned LVGL" \
           $(grep -qx "BR2_PACKAGE_LVGL_CUSTOM_VERSION=\"$(tr -d '\r\n' < platforms/k230/vendor_lvgl_commit.txt)\"" "$CMP/out" &&
             echo 1 || echo 0)

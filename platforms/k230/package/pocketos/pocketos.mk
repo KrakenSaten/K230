@@ -129,4 +129,25 @@ define POCKETOS_REFUSE_DETECTOR_MODELS
 endef
 POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REFUSE_DETECTOR_MODELS
 
+# Packages the Doors fragment turns off (configs/k230_pocketos.fragment): a
+# target tree that once had them keeps their files, as Buildroot never
+# deletes from $(TARGET_DIR). Buildroot's own record of what each package
+# installed (packages-file-list.txt) names them; the shared module indexes
+# (modules.*) are left alone, and the kernel's depmod hook, which runs after
+# this one (linux/linux.mk is included after the packages), rebuilds them
+# without the removed modules. A fresh build has nothing to remove.
+POCKETOS_DROPPED_PACKAGES = rtl8723ds:$(BR2_PACKAGE_RTL8723DS) rtl8723ds-bt:$(BR2_PACKAGE_RTL8723DS_BT) aic8800:$(BR2_PACKAGE_AIC8800)
+define POCKETOS_REMOVE_DROPPED_PACKAGES
+	for e in $(POCKETOS_DROPPED_PACKAGES); do \
+		p=$${e%%:*}; [ "$${e#*:}" = y ] && continue; \
+		grep "^$$p,\./" $(BUILD_DIR)/packages-file-list.txt 2>/dev/null | cut -d, -f2- | \
+			grep -v -E '/lib/modules/[^/]+/modules\.[a-z.]+$$' | \
+			while IFS= read -r f; do rm -f "$(TARGET_DIR)/$$f"; done; \
+	done; \
+	for d in lib/firmware/aic8800 lib/firmware/aic8800D80 lib/firmware/aic8800D80X2 lib/firmware/aic8800DC \
+		lib/firmware/rtlbt lib/firmware/rtl_bt; do rmdir "$(TARGET_DIR)/$$d" 2>/dev/null || true; done; \
+	find $(TARGET_DIR)/lib/modules -type d -empty -delete 2>/dev/null || true
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_DROPPED_PACKAGES
+
 $(eval $(generic-package))

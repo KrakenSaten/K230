@@ -7,8 +7,20 @@
 # settings below. Doors keeps no copy of the vendor file, which carries no
 # licence (docs/licensing/APACHE_2_READINESS.md, B3). Comment and blank lines
 # are dropped when composing, and a setting here may not restate one the
-# vendor file already makes: the composition only adds.
+# vendor file already makes. A line that is exactly "# BR2_<X> is not set"
+# turns off a package the vendor file switches on (and only such a package):
+# the vendor's line is dropped and this one takes its place.
 #
 # Copyright (c) 2026 PocketOS authors.
 # SPDX-License-Identifier: Apache-2.0
 BR2_PACKAGE_POCKETOS=y
+
+# Wi-Fi and Bluetooth for chips the T-Display K230 does not have: its Wi-Fi
+# is the RTL8189FTV (rtl8189fs, kept), and no RTL8723DS or AIC8800 is on the
+# board (docs/hardware/T-DISPLAY-K230.md). Their firmware states no terms,
+# and rtl8723ds-bt is PROPRIETARY in Buildroot and ships the GPL-2.0+
+# rtk_hciattach without its licence (APACHE_2_READINESS.md B8). Dropped on
+# the owner's decision, 2026-10-07; nothing on the board used them.
+# BR2_PACKAGE_RTL8723DS is not set
+# BR2_PACKAGE_RTL8723DS_BT is not set
+# BR2_PACKAGE_AIC8800 is not set

@@ -308,12 +308,16 @@ done
 # The defconfig: the vendor board defconfig exactly as the pinned BSP commit
 # holds it (line ends made LF), then the Doors fragment's settings, comments
 # dropped. A fragment setting may not restate one the vendor file already
-# makes, so the composition can only add.
+# makes. The one other thing the fragment can do is turn off a package the
+# vendor file switches on: a line that is exactly "# BR2_<X> is not set"
+# drops the vendor's "BR2_<X>=y" and takes its place, and is refused for a
+# package the vendor file does not set to y. Any other comment is dropped.
 compose_defconfig() { # <output file>
     local out="$1" line key
     git -C "${VENDOR_DIR}" show "${BSP_COMMIT}:${VENDOR_DEFCONFIG}" | tr -d '\r' > "${out}"
     [ -s "${out}" ] || { echo "ERROR: no ${VENDOR_DEFCONFIG} at the vendor BSP commit ${BSP_COMMIT}." >&2; return 1; }
     grep -v -E '^[[:space:]]*(#|$)' "${SNAPSHOT_DIR}/${DOORS_FRAGMENT}" > "${out}.doors" || true
+    grep -E '^# BR2_[A-Z0-9_]+ is not set$' "${SNAPSHOT_DIR}/${DOORS_FRAGMENT}" > "${out}.off" || true
     while IFS= read -r line; do
         key="${line%%=*}"
         if grep -q -E "^(# )?${key}([= ]|\$)" "${out}"; then
@@ -321,8 +325,18 @@ compose_defconfig() { # <output file>
             return 1
         fi
     done < "${out}.doors"
-    cat "${out}.doors" >> "${out}"
-    rm -f "${out}.doors"
+    while IFS= read -r line; do
+        key="${line#\# }"
+        key="${key% is not set}"
+        if ! grep -q -x "${key}=y" "${out}"; then
+            echo "ERROR: ${DOORS_FRAGMENT} turns off ${key}, which the vendor defconfig does not switch on." >&2
+            return 1
+        fi
+        grep -v -x "${key}=y" "${out}" > "${out}.tmp"
+        mv "${out}.tmp" "${out}"
+    done < "${out}.off"
+    cat "${out}.off" "${out}.doors" >> "${out}"
+    rm -f "${out}.doors" "${out}.off"
 }
 
 echo "[1/5] Vendor BSP overlay"
