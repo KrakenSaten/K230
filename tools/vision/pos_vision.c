@@ -2453,8 +2453,7 @@ static int run_session(const char *backend, const char *config, const char *mode
      * no file, so it is only asked when a model was named (a test). */
     if ((strcmp(vision_kpu_backend(), "fake") != 0 || strcmp(model, VISION_MODEL_DEFAULT) != 0) &&
         access(model, F_OK) != 0 && errno == ENOENT) {
-        fprintf(stderr, "pos-vision: %s: model file not found; DETECT, TRACK and TRAFFIC are not offered
-",
+        fprintf(stderr, "pos-vision: %s: model file not found; DETECT, TRACK and TRAFFIC are not offered\n",
                 model);
         s->detect_offered = false;
         snprintf(s->model.model, sizeof(s->model.model), "none");

@@ -1284,8 +1284,7 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             char said[384];
 
             snprintf(said, sizeof(said), "%s", out->status);
-            snprintf(status_buf, status_len, "%s%s%s", said, said[0] ? "
-" : "", VISION_NO_DETECTOR_TEXT);
+            snprintf(status_buf, status_len, "%s%s%s", said, said[0] ? "\n" : "", VISION_NO_DETECTOR_TEXT);
             out->status = status_buf;
         }
         break;

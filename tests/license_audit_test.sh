@@ -248,9 +248,10 @@ check "no model file is committed${committed:+ (found: $committed)}" "$([ -z "$c
 # The rows of MODEL_LICENSES.md's matrix that name a Doors model path.
 model_row() { grep -F "\`/usr/share/doors/vision/$1\`" "$2" | head -1; }
 # Model files a package file installs into the image: names under
-# usr/share/doors/vision/ on its install lines.
+# usr/share/doors/vision/ on its install lines (a line that removes one is
+# not an install).
 installed_models() { # <package .mk> <Makefile>
-    cat "$@" | grep -E '\$\((INSTALL|TARGET_DIR)\)|^\s+install ' |
+    cat "$@" | grep -E '\$\((INSTALL|TARGET_DIR)\)|^\s+install ' | grep -v -E '^\s*rm( |$)' |
         grep -o -E 'usr/share/doors/vision/[A-Za-z0-9_.-]+' | sed 's#.*/##' | sort -u
 }
 # UNKNOWN-status models allowed into an image, as <file>:<notices id>. None
