@@ -82,7 +82,7 @@ add_executable(pocketos-shell
     power_policy.c
     shell_power.c
     power_key.c
-    shell_power_key.c
+    shell_evkey.c
     shell_power_menu.c
     tz_zones.c
     overlay_model.c

@@ -1,5 +1,5 @@
 #!/bin/bash
-# The power key in the running shell (ui/shell/shell_power_key.c,
+# The power key in the running shell (ui/shell/shell_evkey.c,
 # shell_power_menu.c, shell.c's two hooks), fed through a FIFO named by
 # POCKETOS_POWER_KEY_DEVICE with the kernel's own struct input_event:
 #
@@ -86,7 +86,7 @@ class Shell:
             os.makedirs(d)
         env = dict(os.environ, SDL_VIDEODRIVER='dummy', POCKETOS_RUNTIME_DIR=self.run, POCKETOS_LOG_DIR=self.logd,
                    POCKETOS_CONFIG_DIR=cfg, POCKETOS_STATE_DIR=state, HOME=os.path.join(state, 'home'),
-                   POCKETOS_POWER_KEY_DEVICE=key_dev)
+                   POCKETOS_POWER_KEY_DEVICE=key_dev, POCKETOS_BACK_KEY_DEVICE='none')
         self.p = subprocess.Popen([shell, '--no-lock'] + list(args), env=env,
                                   stdout=open(os.path.join(self.logd, 'out'), 'w'), stderr=subprocess.STDOUT)
         self.sock = os.path.join(self.run, 'shell.sock')

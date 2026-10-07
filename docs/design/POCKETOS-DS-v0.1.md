@@ -5135,5 +5135,43 @@ the lock is no security (§31.4), and the kernel powers off from under it.
 ### 56.3 What the shell does not do
 
 The kernel's own 5 s hold (`orderly_poweroff`) is untouched. The shell does
-not see it coming, cannot cancel it and does not say it can. RESET and the
-BOOT0 button are not read.
+not see it coming, cannot cancel it and does not say it can. RESET is not
+read; the BOOT0 button is §57's.
+
+## 57. Amendment AO — the BOOT key: Back and Home [PROPOSED]
+
+**Proposed 2026-10-07** on branch `feat/k230-boot-navigation`. Nothing in
+§1-§56 is renumbered. Hardware: docs/hardware/K230_BUTTONS.md (SW3 "boot",
+the BOOT0 strap on IO0, exposed by Doors kernel patch 0074 as a gpio-keys
+`KEY_BACK`; one press and one release per push, no repeat).
+
+### 57.1 Short press: Back
+
+The same Back as the header's back slab and `shell.action back` (§48,
+`HW_ACTION_BACK`): an app's own sub-page first (Settings' page to its list),
+then the app is left; at the launcher it closes Controls, a folder or the
+picker, and on the launcher's page it does nothing.
+
+### 57.2 Hold (about one second): Home
+
+The launcher's page, as `shell.home` and `HW_ACTION_HOME`, while the key is
+still held, once per hold. Letting go afterwards does nothing - in
+particular it is not Back as well. A release just under the second is still
+a short press. The threshold is the power key's (§56.2).
+
+### 57.3 The screen, the lock, the menu
+
+- Screen off: the press wakes it, at the press, and that press is spent -
+  neither its release nor its hold navigates. Nothing under it changes.
+- The lock screen up, or an alarm ringing: neither press navigates; the lock
+  stays as it was (the rule every hardware action keeps, §18.8, §31.4).
+- The power menu open: either press closes it, as Cancel, and does nothing
+  else.
+
+### 57.4 What the shell does not do
+
+The button is still the BOOT0 strap. **Holding it while pressing RESET or
+while powering on selects the eMMC boot medium, which this board does not
+have;** the boot ROM samples it before any software runs, so no setting can
+change that. User-facing text that teaches the hold must say to let go
+before a reset or power-on. RESET and the power key are unchanged.
