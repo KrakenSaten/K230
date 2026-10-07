@@ -196,3 +196,84 @@ No driver, no device-tree change, no shell change, no role, no change to
 RESET, the bootloader, recovery or flashing. Nothing was held during boot.
 Only unit B was pressed; unit A was read only (same kernel and the same input
 devices, IO0 `0xAC4`).
+
+## 9. Implementation: the BOOT button as Back and Home
+
+Branch `feat/k230-boot-navigation`. Roles as recommended in §6: SW3 "boot"
+short press = Back, a hold of about one second = Home (DS §57). The power key
+(SW2) keeps its roles (DS §56). RESET, the PMU driver, U-Boot and boot-source
+selection are unchanged.
+
+### 9.1 Kernel: device tree only (Doors patch 0074, ADR-011)
+
+`platforms/k230/patches/linux/0074-riscv-dts-rm69a10-boot-key-gpio-keys.patch`
+changes only the panel tree's board file
+`arch/riscv/boot/dts/canaan/k230-canmv-rm69a10.dts` (the tree U-Boot boots,
+named by `/boot/lcd_dtb`):
+
+- `boot_key_pins` under `&iomux`: `pins = K230_IO0`, `function =
+  K230_IO0_GPIO0` (`"alt0"` in `dt-bindings/pinctrl/canaan,k230-iomux.h`),
+  `input-enable`, `output-disable`, `bias-pull-up`. The vendor iomux driver
+  (`drivers/pinctrl/canaan/pinctrl-k230-iomux.c`) changes only the fields
+  named and keeps drive strength (bits 4:1) and voltage (MSC, bit 9), so
+  `0xAC4` becomes `0x344`, the value the §4 test used (DOCUMENTED by the
+  driver's bit layout; VERIFIED on the unit only after deployment, §9.4).
+- A `gpio-keys` node, label `K230 BOOT Key`, owning that pin group, with one
+  key on `<&gpio0_ports 0 GPIO_ACTIVE_LOW>`, `linux,code = <KEY_BACK>`,
+  `debounce-interval = <20>`. gpio0 port A supports the hardware debounce
+  bit (`k230_gpio_set_debounce`), so gpio-keys uses it rather than a timer;
+  §4 saw no bounce without any debounce. `CONFIG_KEYBOARD_GPIO=y` is already
+  built in. No driver, no register write from userspace.
+
+Build evidence (2026-10-07, WSL, the SDK's built kernel tree
+`linux-7d4e1f44`, patches up to 0073 applied): Kbuild's own DTB command run
+on the unpatched source reproduces the SDK's
+`k230-canmv-rm69a10.dtb` byte for byte (sha256 `3ac313c4…ed448`, 60191 B);
+with 0074 applied it gives `7420e8e7…fc58` (60557 B), and the decompiled
+trees differ by exactly the two new nodes (no phandle renumbered; the new
+pin group takes the next free phandle, `gpio0_ports` is `0x33` in both).
+dtc warnings are unchanged (one, pre-existing). The patch applies with
+`patch -p1` on the post-BSP tree; `tests/kernel_patches_test.sh` checks its
+form. The kernel `Image` does not change: no driver or config is touched.
+The HDMI tree (`k230-canmv-rm69a10-hdmi.dts`) is not changed, so booted
+with `force_dtb` = HDMI the BOOT key is not exposed.
+
+A full image build picks the patch up through `apply_to_sdk.sh` like
+0070-0073; Buildroot re-patches only after `make linux-dirclean`
+(BUILD_ENVIRONMENT.md).
+
+### 9.2 Shell
+
+`ui/shell/shell_evkey.[ch]` is the power key's evdev reader
+(`shell_power_key.c` of PR #63) made into an instance per key: the power key
+(`KEY_POWER`, `POCKETOS_POWER_KEY_DEVICE`) and the BOOT key (`KEY_BACK`,
+`POCKETOS_BACK_KEY_DEVICE`, found as the `KEY_BACK` node with the fewest
+keys). Both use the same press timer (`power_key.[ch]`, 1000 ms) and the same
+loss handling. The BOOT key runs the existing hardware actions
+(`hw_actions.h`): short press `HW_ACTION_BACK`, hold `HW_ACTION_HOME`, so the
+lock and an alarm refuse both as they refuse every hardware navigation. A
+press while the screen is dark wakes it at the press and is swallowed
+(`power_key_swallow`); with the power menu open a press only closes the menu.
+`shell.info.back_key` reports it.
+
+Tests: `tests/power_key_test.c` (timer, including swallow),
+`tests/back_key_shell_test.sh` (49 checks: Back through Settings' own page,
+Home while held and once, no Back at the release, the 0.85 s edge, wake and
+consume when dark, the lock kept, the power menu, repeats, device loss,
+dropped events, `none`), `tests/power_key_shell_test.sh` (unchanged
+behaviour, 48 checks). Four mutations of the BOOT key path (no swallow, no
+menu rule, the hold as Back, the release after a hold acting) each fail the
+shell test.
+
+### 9.3 Do not hold BOOT during reset or power-on
+
+The button is still the BOOT0 strap; nothing above changes that. Holding it
+while pressing RESET, while powering on, or across a reboot selects eMMC
+boot (§2), which this board does not have; the outcome is undocumented and
+untested. Release the button before any reset or power-on. A normal reboot
+with the button released boots as before.
+
+### 9.4 Unit B check
+
+Not yet run. Nothing in §9.1-§9.2 has been observed on a unit; the results
+are recorded here once they exist.

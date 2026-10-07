@@ -1,0 +1,94 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doors <doors@localhost>
+Date: Wed, 7 Oct 2026 00:00:00 +0000
+Subject: [PATCH] riscv: dts: rm69a10: expose the BOOT button as a gpio-keys
+ KEY_BACK
+
+Applies on top of the LILYGO BSP stack (after 0064) and Doors 0070-0073.
+Doors-owned; see docs/decisions/ADR-011-kernel-patches.md and
+docs/hardware/K230_BUTTONS.md in the Doors repository.
+
+SW3 "boot" is the BOOT0 strap: pad IO0 (GPIO0), R8 10k pull-up to VDD_1V8,
+the switch to GND, so active low (schematic sheet 2/6, DOCUMENTED; levels
+VERIFIED on unit B). The boot firmware leaves the pad as function BOOT0
+with its input disabled (iomux word 0xAC4 on both units), so no GPIO
+consumer can see the button, and the tree has no pin group for IO0. Only
+the device tree can hand the pad to a driver; the alternative is a
+userspace /dev/mem write, which Doors does not do.
+
+Added: a pin group putting IO0 into its GPIO0 function with the input on,
+the output off and the pull-up on (the driver keeps the pad's drive
+strength and voltage bits, giving 0x344, the value the vendor launcher
+wrote and the one the unit B press test used), and a gpio-keys node on
+gpio0 line 0, active low, reporting KEY_BACK. gpio-keys is built in
+(CONFIG_KEYBOARD_GPIO=y). Nothing else in the tree changes: the decompiled
+DTB gains exactly these two nodes.
+
+The strap itself is unchanged and cannot be changed here: the boot ROM
+samples BOOT0 at reset, so holding the button during reset or power-on
+still selects eMMC boot. RESET, the PMU power key and U-Boot are not
+touched. The HDMI tree (k230-canmv-rm69a10-hdmi.dts) is not changed.
+
+Signed-off-by: Doors <doors@localhost>
+---
+ arch/riscv/boot/dts/canaan/k230-canmv-rm69a10.dts | 35 +++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+--- a/arch/riscv/boot/dts/canaan/k230-canmv-rm69a10.dts
++++ b/arch/riscv/boot/dts/canaan/k230-canmv-rm69a10.dts
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0 OR MIT
+ #include "k230.dtsi"
+ #include "display-rm69a10-568x1232.dtsi"
++#include <dt-bindings/input/input.h>
+ / {
+ 	model = "Canaan CanMV-K230 with RM69A10 OLED";
+ 	compatible = "canaan,canmv-k230", "canaan,kendryte-k230";
+@@ -38,6 +39,26 @@
+ 		canaan,k230-audio-codec     = <&inno_codec>;
+ 		canaan,external-i2s-output-default;
+ 	};
++
++	/*
++	 * SW3 "boot": the BOOT0 strap on pad IO0, R8 10k pull-up, the switch
++	 * to GND (active low). After the boot ROM has sampled the strap it is
++	 * an ordinary input; Doors reads it as a navigation key. Holding it
++	 * during reset or power-on still selects the wrong boot medium.
++	 */
++	gpio-keys {
++		compatible = "gpio-keys";
++		label = "K230 BOOT Key";
++		pinctrl-names = "default";
++		pinctrl-0 = <&boot_key_pins>;
++
++		key-boot {
++			label = "BOOT";
++			gpios = <&gpio0_ports 0 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_BACK>;
++			debounce-interval = <20>;
++		};
++	};
+ };
+ &uart0 { status = "okay"; };
+ &uart3 {
+@@ -204,6 +225,20 @@
+ 		output-enable;
+ 		drive-strength = <8>;
+ 	};
++
++	/*
++	 * IO0 is left by the boot firmware as BOOT0 with its input off
++	 * (0xAC4), where no GPIO can see it. GPIO0 function, input on,
++	 * output off, pull-up: 0x344 with the pad's existing drive strength
++	 * and voltage bits kept.
++	 */
++	boot_key_pins: boot_key_pins {
++		pins = K230_IO0;
++		function = K230_IO0_GPIO0;
++		input-enable;
++		output-disable;
++		bias-pull-up;
++	};
+ };
+ 
+ &uart1 {
