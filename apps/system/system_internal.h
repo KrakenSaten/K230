@@ -6,7 +6,8 @@
  *   system_net.c  the Network tab: interfaces and their traffic, Wi-Fi, the
  *                 LoRa radio and the mesh (DS §52.5)
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SYSTEM_INTERNAL_H
 #define POCKETOS_SYSTEM_INTERNAL_H

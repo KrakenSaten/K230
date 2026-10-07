@@ -13,7 +13,8 @@
  * repeater, a sensor (rift_node_can_message) - says why instead. Nothing
  * here asks the service for anything or changes a contact.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_CONTACTS_VIEW_H
 #define RIFT_CONTACTS_VIEW_H

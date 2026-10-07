@@ -56,6 +56,8 @@ text.
 | DejaVu Sans subset (LVGL) | `dejavu-sans` | Persian/Hebrew font | via LVGL | Bitstream Vera / Arev; DejaVu changes public domain | no | liblvgl | ship licence text | OK WITH ATTRIBUTION |
 | Source Han Sans SC subset (LVGL) | `source-han-sans-sc` | CJK font | via LVGL | OFL-1.1 | no | liblvgl | ship OFL text | SEPARATE LICENSE |
 | unscii-8 (LVGL) | `unscii-8` | bitmap font | via LVGL | public domain | no | liblvgl | none | OK |
+| Noto Color Emoji artwork (Google), 2D/png/72 at `e20cbc2`, 1683 images converted to RGB565A8 (`apps/rift/ui/rift_emoji_px.bin`, with the generated index `rift_emoji_img.c` and `rift_emoji_seq.c`) | `noto-color-emoji` | RIFT's colour emoji | github.com/googlefonts/noto-emoji | Apache-2.0 (docs/legal/third-party/noto-color-emoji.txt) | converted images | compiled into `/usr/bin/doors-shell` | keep notice; the converted images stay under Google's Apache-2.0 grant, not Doors' | OK WITH ATTRIBUTION |
+| Region flags (googlei18n/region-flags `743e1f4`, bundled in noto-emoji), 262 flags converted with the emoji | `region-flags` | RIFT's flag emoji | github.com/googlefonts/region-flags | public domain or otherwise exempt (docs/legal/third-party/region-flags.txt) | converted images | compiled into `/usr/bin/doors-shell` | none; the text ships anyway | OK |
 
 ## 3. Third-party code adapted inside first-party files
 

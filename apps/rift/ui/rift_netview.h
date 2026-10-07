@@ -13,7 +13,8 @@
  * drawn at all, because the service reports none - only how far each one is
  * from here, and the one route a node's chain spells out.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_NET_VIEW_H
 #define RIFT_NET_VIEW_H

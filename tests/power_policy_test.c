@@ -3,7 +3,8 @@
  * walks, what is stored and what is refused, and when the screen goes off
  * and the lock comes down.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "power_policy.h"
 

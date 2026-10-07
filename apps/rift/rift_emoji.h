@@ -12,7 +12,8 @@
  *
  * Plain C, no LVGL: the folding is tested on its own (tests/rift_format_test).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_EMOJI_H
 #define RIFT_EMOJI_H

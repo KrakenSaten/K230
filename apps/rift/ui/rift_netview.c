@@ -1,7 +1,8 @@
 /*
  * NET. See rift_netview.h, and rift_net.h for what a ring is.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_netview.h"
 

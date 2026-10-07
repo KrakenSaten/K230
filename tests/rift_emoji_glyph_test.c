@@ -18,7 +18,8 @@
  * ui/shell/CMakeLists.txt (host builds), and once against the device's own
  * lv_conf.h for the proof (docs/apps/RIFT.md, "Colour emoji").
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "lvgl.h"
 #include "rift_emoji_font.h"

@@ -22,7 +22,8 @@
  *
  * Plain C, no LVGL, no I/O: tested by tests/rift_format_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_REPLY_H
 #define RIFT_REPLY_H

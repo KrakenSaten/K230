@@ -27,7 +27,8 @@
  * Times are milliseconds on a monotonic clock, compared wrap-safe. Pure C,
  * no LVGL, no devices (tests/power_key_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_POWER_KEY_H
 #define DOORS_POWER_KEY_H

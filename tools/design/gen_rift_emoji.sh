@@ -10,6 +10,9 @@
 #   The font dir holds IBMPlexSans-Regular.ttf, so what Plex draws is left to
 #   Plex. Node and lv_font_conv are the ones gen_fonts.sh uses: its pngjs and
 #   opentype.js read the PNGs and the font.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -eu
 NOTO=${1:?noto-emoji checkout}
 SRC=${2:?font source dir}

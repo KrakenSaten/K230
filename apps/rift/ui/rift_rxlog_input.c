@@ -2,7 +2,8 @@
  * RX LOG: what a reader does - PAUSE, CLEAR, FILTER, a tap, a drag, the keys
  * and the detail. See rift_rxlog_view.h; the drawing is rift_rxlog_view.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_rxlog_view_int.h"
 

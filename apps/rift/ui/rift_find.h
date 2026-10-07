@@ -16,7 +16,8 @@
  * for a fresh node list (mesh.nodes), which is a question to the service and
  * not a packet on the air.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_FIND_H
 #define RIFT_FIND_H

@@ -8,7 +8,8 @@
  * rift_emoji_style_refresh() follows them; the RIFT app calls it on the
  * theme-changed event, which comes after the shared styles are refilled.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_EMOJI_STYLE_H
 #define RIFT_EMOJI_STYLE_H

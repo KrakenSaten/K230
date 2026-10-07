@@ -3,7 +3,8 @@
  * that answered it - the ones THIS node hears directly (rift_repeater.h,
  * docs/api/mesh.md "Repeater control"). A row opens that repeater's page.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_SCAN_H
 #define RIFT_SCAN_H

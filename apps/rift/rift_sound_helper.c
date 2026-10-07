@@ -17,7 +17,8 @@
  * SIGKILL after STOP_GRACE_MS), and a helper that had to be killed leaves
  * its route to `pos-record recover`, started detached, as the Recorder does.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_sound.h"
 

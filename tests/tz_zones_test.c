@@ -5,7 +5,8 @@
  * of the equator. No zone database is needed or used: the rules are POSIX
  * TZ strings, which is the point.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "tz_zones.h"

@@ -18,7 +18,8 @@
  * or goes back to ACTIVITY, P pause, F filter, C clear, Home back to the
  * newest. From ACTIVITY, R opens the log.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_RXLOG_VIEW_H
 #define RIFT_RXLOG_VIEW_H

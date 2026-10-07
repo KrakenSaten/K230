@@ -19,7 +19,8 @@
  * when that is up - clear of the panel's rounded corners, and nowhere near
  * the status cluster or an app header, which are at the top.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_SHELL_OVERLAY_H
 #define DOORS_SHELL_OVERLAY_H

@@ -124,3 +124,5 @@ tests/zabbix_hang.sh                        PENDING test script
 tests/zabbix_http_test.sh                   PENDING test script
 tests/zabbix_lint.sh                        PENDING test script
 tests/zabbix_shell_test.sh                  PENDING test script
+apps/rift/rift_emoji_seq.c                  GENERATED from Noto Color Emoji (Apache-2.0, Google) and region-flags (public domain) by tools/design/gen_rift_emoji.js; not Doors' Apache-2.0 grant
+apps/rift/ui/rift_emoji_img.c               GENERATED with rift_emoji_seq.c (gen_rift_emoji.js); the index of the Noto/region-flags images

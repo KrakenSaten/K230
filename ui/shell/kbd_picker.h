@@ -18,7 +18,8 @@
  * It closes on its own when what it was opened for has gone: the field lost
  * the focus or was deleted, or an alert took the keys.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_KBD_PICKER_H
 #define DOORS_KBD_PICKER_H

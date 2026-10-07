@@ -10,7 +10,8 @@
  * own poll says radiod answers, netd's wifi.status, meshcored's mesh.status.
  * Each call carries the UI deadline.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "shell_ipc.h"

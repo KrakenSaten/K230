@@ -4,7 +4,8 @@
  * keyboard - so ui/rift_manage.c (channels) and ui/rift_device.c (this
  * node's name and path hash size) are built the same way.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_FORM_H
 #define RIFT_FORM_H

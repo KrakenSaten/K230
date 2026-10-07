@@ -3,7 +3,8 @@
  * presses, the threshold on both sides, the release after a long press,
  * repeats and duplicate events, and a press ended by lost input.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "power_key.h"
 

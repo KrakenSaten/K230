@@ -19,7 +19,8 @@
  *
  * Pure C, no LVGL: tests/tz_zones_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_TZ_ZONES_H
 #define DOORS_TZ_ZONES_H

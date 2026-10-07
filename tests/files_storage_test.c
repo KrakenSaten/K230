@@ -2,7 +2,8 @@
  * Files' Storage screen text: sysd's storage.status read into a struct, and
  * the words each state puts on screen (apps/files/files_storage.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "files_storage.h"
 

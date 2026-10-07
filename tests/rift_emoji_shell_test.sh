@@ -7,7 +7,8 @@
 # Requires: SHELL_BIN (the CMake-built pocketos-shell) with rift_emoji_glyph_test
 # and rift_emoji_ui_test beside it. EMOJI_SHOTS=<dir> keeps the PNGs.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 cd "$(dirname "$0")/.." || exit 1

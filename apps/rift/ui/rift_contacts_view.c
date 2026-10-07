@@ -5,7 +5,8 @@
  * every row would be and a small pool of rows placed over what is on
  * screen, so a thousand contacts cost the objects a screenful does.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_contacts_view.h"
 

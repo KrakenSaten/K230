@@ -16,7 +16,8 @@
  * The shell evaluates once a second (shell_power_tick). Nothing is due while
  * the shell's hold says something on screen keeps the device awake.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_SHELL_POWER_H
 #define DOORS_SHELL_POWER_H

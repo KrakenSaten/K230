@@ -5,7 +5,8 @@
  * (rift_scan.c); the ACTIVITY tab stays lit on it, and Back or Esc returns
  * there. Everything shown is what meshcored reported (rift_repeater.h).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_REPEATER_VIEW_H
 #define RIFT_REPEATER_VIEW_H

@@ -23,7 +23,8 @@
  * 32, so it cannot fill), MCD_RX_SEEN_HASHES hashes remembered. No
  * allocation.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_MESH_RXLOG_H
 #define MCD_MESH_RXLOG_H

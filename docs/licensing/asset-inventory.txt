@@ -31,6 +31,8 @@
 #                     the public source
 #   DESIGN-EXPORT     design-tool export with no stated terms; excluded (B2)
 #   THIRD-PARTY       someone else's material under its own licence; excluded
+#                     from the public source unless that licence allows
+#                     redistribution and its notice ships
 
 docs/design/brand/doors-visual-pack-v1/originals/*/fonts/*                                   THIRD-PARTY     Nimbus Sans (URW), AGPL-3.0 with font exception, preview only; excluded
 docs/design/brand/doors-visual-pack-v1/originals/DOORS_Visual_Package_v1/masters/*           OWNER-AI-RASTER the eight photographic masters, OpenAI content credentials; excluded
@@ -130,3 +132,5 @@ docs/design/brand/shots/*                                                       
 docs/design/doors-app-theme/*                                                                CAPTURE         theme contact sheets; show the AI backgrounds
 docs/design/doors-visual-refresh/*                                                           CAPTURE         visual refresh sheets; show the AI backgrounds
 docs/hardware/shots/*                                                                        CAPTURE         unit panel captures; also show other people's mesh node names (C2)
+apps/rift/ui/rift_emoji_px.bin                                                               THIRD-PARTY     Noto Color Emoji (Apache-2.0) and region flags (public domain), converted by gen_rift_emoji.sh; kept, notices noto-color-emoji and region-flags
+docs/images/doors-poster.jpg                                                                 THIRD-PARTY     README poster: Doors screens composited with LILYGO product photos and logo the owner supplied; LILYGO permission not stated; excluded

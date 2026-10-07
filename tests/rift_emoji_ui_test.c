@@ -20,7 +20,8 @@
  * Built by ui/shell/CMakeLists.txt (host builds), run by
  * tests/rift_emoji_shell_test.sh.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_styles.h"
 #include "pos_theme.h"

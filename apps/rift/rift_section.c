@@ -3,7 +3,8 @@
  * what leaving one cancels. Split from rift_app.c, which builds the screens,
  * so neither is a monolith (tests/rift_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_app.h"
 
