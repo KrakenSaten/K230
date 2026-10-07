@@ -87,6 +87,14 @@ void power_key_resync(struct power_key *k, bool down_now)
     power_key_lost(k);
 }
 
+void power_key_swallow(struct power_key *k)
+{
+    if (k->state == POWER_KEY_DOWN) {
+        k->state = POWER_KEY_SWALLOW;
+        k->swallowed++;
+    }
+}
+
 bool power_key_is_down(const struct power_key *k)
 {
     return k->state != POWER_KEY_UP;

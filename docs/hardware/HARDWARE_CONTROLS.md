@@ -92,15 +92,17 @@ work, not to this branch.
 
 What stays, and why it is not a claim about that control:
 
-- `HW_ACTION_BACK` and `HW_ACTION_VISION` remain as semantic actions. They
-  are reachable only through `shell.action back|vision` (the bench and the
-  tests) and are exercised there (§8, §9). **No physical control carries
-  either of them.**
+- `HW_ACTION_BACK` and `HW_ACTION_VISION` remain as semantic actions,
+  reachable through `shell.action back|vision` (the bench and the tests) and
+  exercised there (§8, §9). Since `feat/k230-boot-navigation` the board's
+  BOOT button (SW3) carries Back on a short press and `HW_ACTION_HOME` on a
+  one-second hold (DS §57, docs/hardware/K230_BUTTONS.md §9). No keyboard
+  key carries Back or Vision.
 - `tests/hw/hw_buttons_watch.sh`, the bench watcher (power key, BOOT0 with
   its pad restored, the keyboard matrix including unnamed positions), stays
   as a tool. It is what the owner's test used.
 - The power key was not read by this branch. Since `feat/k230-power-key`
-  the shell reads it (DS §56, ui/shell/shell_power_key.h), without grabbing
+  the shell reads it (DS §56, ui/shell/shell_evkey.h), without grabbing
   it; the kernel's own 5 s hold-to-power-off is untouched.
 
 ## 4. Indicator LEDs

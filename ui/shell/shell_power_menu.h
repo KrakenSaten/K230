@@ -1,6 +1,6 @@
 /*
  * The power menu: what a one-second hold of the power key brings up
- * (shell_power_key.h). Restart and Power off, the same two machine actions
+ * (shell_evkey.h). Restart and Power off, the same two machine actions
  * System's OVERVIEW offers, through the same sysd methods (system.reboot,
  * system.poweroff; docs/api/system.md), and Cancel.
  *

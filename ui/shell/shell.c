@@ -44,8 +44,8 @@
 #include "shell_kb_state.h"
 #include "shell_kbd.h"
 #include "shell_overlay.h"
+#include "shell_evkey.h"
 #include "shell_power.h"
-#include "shell_power_key.h"
 #include "shell_power_menu.h"
 #include "tz_zones.h"
 #include "hw_actions.h"
@@ -57,6 +57,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <linux/input-event-codes.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -753,7 +754,12 @@ static bool power_urgent(void)
     return shell_alarm_visible() != 0;
 }
 
-/* ---- the power key (shell_power_key.h, shell_power_menu.h) -------------- *
+/* The board's two keys (shell_evkey.h): the power key here, the BOOT key
+ * with the hardware actions further down. */
+static struct shell_evkey power_key_dev = SHELL_EVKEY_INIT;
+static struct shell_evkey back_key_dev = SHELL_EVKEY_INIT;
+
+/* ---- the power key (shell_evkey.h, shell_power_menu.h) ------------------ *
  *
  * A short press: the open power menu closes; a dark screen wakes; a lit one
  * goes dark - the same cover as Screen off after, and the lock left to Lock
@@ -2585,6 +2591,47 @@ static void on_hw_action(enum hw_action a, void *user)
     (void)hw_dispatch(a, "keyboard", NULL);
 }
 
+/* ---- the BOOT key (shell_evkey.h, docs/hardware/K230_BUTTONS.md) -------- *
+ *
+ * SW3 "boot", gpio-keys KEY_BACK. A short press is Back and a hold of about
+ * a second is Home, once, while still held; the release after the hold does
+ * nothing. Both are the hardware actions the keyboard base and shell.action
+ * already run, so they keep those rules: nothing navigates under the lock or
+ * a ringing alarm (hw_actions.h), and Back is the screen's own Back.
+ *
+ * A press while the screen is dark wakes it and is swallowed there, at the
+ * press: neither its release nor its hold navigates. With the power menu
+ * open either press only closes the menu.
+ */
+static bool on_back_press(void)
+{
+    /* Activity when lit; when dark it wakes, and this press is spent. */
+    return shell_power_gate();
+}
+
+static void back_key_action(enum hw_action a)
+{
+    if (shell_power_menu_visible()) {
+        shell_power_menu_close("boot key");
+        return;
+    }
+    if (!shell_power_gate()) {
+        LOG_INFO("action %s from boot key: woke the screen only", hw_action_name(a));
+        return;
+    }
+    (void)hw_dispatch(a, "boot key", NULL);
+}
+
+static void on_back_short(void)
+{
+    back_key_action(HW_ACTION_BACK);
+}
+
+static void on_back_long(void)
+{
+    back_key_action(HW_ACTION_HOME);
+}
+
 /* ---- the privacy LEDs (kbd_leds.h, hw_activity.h) ---------------------- *
  *
  * Twice a second: is a capture stream open; once a second: is a camera node
@@ -2764,6 +2811,28 @@ static int test_tap_start(int32_t x, int32_t y, uint32_t hold_ms)
 }
 #endif
 
+/* A board key as shell.info shows it (shell_evkey.h). */
+static cJSON *evkey_json(const struct shell_evkey *dev)
+{
+    struct shell_evkey_status ks;
+    cJSON *k = cJSON_CreateObject();
+
+    shell_evkey_status(dev, &ks);
+    cJSON_AddBoolToObject(k, "enabled", ks.enabled);
+    cJSON_AddBoolToObject(k, "connected", ks.connected);
+    cJSON_AddStringToObject(k, "device", ks.device);
+    cJSON_AddStringToObject(k, "state", power_key_state_name(ks.key.state));
+    cJSON_AddNumberToObject(k, "long_ms", POWER_KEY_LONG_MS);
+    cJSON_AddNumberToObject(k, "shorts", ks.key.shorts);
+    cJSON_AddNumberToObject(k, "longs", ks.key.longs);
+    cJSON_AddNumberToObject(k, "ignored", ks.key.ignored);
+    cJSON_AddNumberToObject(k, "lost", ks.key.lost);
+    cJSON_AddNumberToObject(k, "swallowed", ks.key.swallowed);
+    cJSON_AddNumberToObject(k, "opens", ks.opens);
+    cJSON_AddNumberToObject(k, "losses", ks.losses);
+    return k;
+}
+
 /* shell.info's and shell.power's view of Power & Sleep. */
 static cJSON *power_json(void)
 {
@@ -2777,21 +2846,8 @@ static cJSON *power_json(void)
     cJSON_AddNumberToObject(o, "idle_ms", shell_power_idle_ms());
     cJSON_AddNumberToObject(o, "screen_offs", shell_power_off_count());
     {
-        struct shell_power_key_status ks;
-        cJSON *k = cJSON_CreateObject();
+        cJSON *k = evkey_json(&power_key_dev);
 
-        shell_power_key_status(&ks);
-        cJSON_AddBoolToObject(k, "enabled", ks.enabled);
-        cJSON_AddBoolToObject(k, "connected", ks.connected);
-        cJSON_AddStringToObject(k, "device", ks.device);
-        cJSON_AddStringToObject(k, "state", power_key_state_name(ks.key.state));
-        cJSON_AddNumberToObject(k, "long_ms", POWER_KEY_LONG_MS);
-        cJSON_AddNumberToObject(k, "shorts", ks.key.shorts);
-        cJSON_AddNumberToObject(k, "longs", ks.key.longs);
-        cJSON_AddNumberToObject(k, "ignored", ks.key.ignored);
-        cJSON_AddNumberToObject(k, "lost", ks.key.lost);
-        cJSON_AddNumberToObject(k, "opens", ks.opens);
-        cJSON_AddNumberToObject(k, "losses", ks.losses);
         cJSON_AddBoolToObject(k, "menu", shell_power_menu_visible());
         cJSON_AddNumberToObject(k, "menu_opens", shell_power_menu_open_count());
         cJSON_AddStringToObject(k, "menu_note", shell_power_menu_note());
@@ -2896,6 +2952,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddStringToObject(result, "text_size", pos_text_size_name(pos_theme_current_text_size()));
         cJSON_AddItemToObject(result, "power", power_json());
+        cJSON_AddItemToObject(result, "back_key", evkey_json(&back_key_dev));
         cJSON_AddItemToObject(result, "timezone", timezone_json());
         cJSON_AddItemToObject(result, "debug_overlay", overlay_json());
         if (sh.header_title) {
@@ -3950,11 +4007,17 @@ int main(int argc, char **argv)
     {
         static const struct shell_power_hooks power_hooks = { power_hold, power_locked, power_lock,
                                                               power_urgent };
-        static const struct shell_power_key_hooks key_hooks = { on_power_short, on_power_long };
+        static const struct shell_evkey_config power_cfg = { "power key", SHELL_POWER_KEY_ENV, KEY_POWER,
+                                                             "KEY_POWER", "for the menu" };
+        static const struct shell_evkey_hooks power_key_hooks = { NULL, on_power_short, on_power_long };
+        static const struct shell_evkey_config back_cfg = { "boot key", SHELL_BACK_KEY_ENV, KEY_BACK, "KEY_BACK",
+                                                            "for Home" };
+        static const struct shell_evkey_hooks back_key_hooks = { on_back_press, on_back_short, on_back_long };
 
         shell_power_init(&power_hooks);
         shell_overlay_init(sh.content);
-        shell_power_key_init(&key_hooks);
+        shell_evkey_init(&power_key_dev, &power_cfg, &power_key_hooks);
+        shell_evkey_init(&back_key_dev, &back_cfg, &back_key_hooks);
     }
     environment_apply();
     sh.server = pocketipc_server_new("shell", on_shell_request, NULL);
@@ -4013,10 +4076,12 @@ int main(int argc, char **argv)
     /* The open app is closed the ordinary way, so it persists what it holds
      * exactly as it would on any other exit. */
     app_close();
-    /* No overlay refresh may run into a shell on its way out, and no power
-     * key press: its descriptor is closed here, not left to the exec. */
+    /* No overlay refresh may run into a shell on its way out, and no press
+     * of a board key: their descriptors are closed here, not left to the
+     * exec. */
     shell_overlay_shutdown();
-    shell_power_key_shutdown();
+    shell_evkey_shutdown(&power_key_dev);
+    shell_evkey_shutdown(&back_key_dev);
     shell_power_menu_close("exit");
     /* Then what an app keeps running without its screen (the Terminal's
      * session): ended here, the ordinary way, because an exec would only

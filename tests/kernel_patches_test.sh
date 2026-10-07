@@ -32,11 +32,21 @@ for p in "$PATCHES"/*.patch; do
     check "$b has LF line endings only" "$([ "$(tr -cd '\r' < "$p" | wc -c | tr -d ' ')" = 0 ] && echo 1 || echo 0)"
     check "$b is a -p1 patch (a/ and b/ prefixes)" \
         "$(grep -q '^--- a/' "$p" && grep -q '^+++ b/' "$p" && ! grep -q '^--- [^a]' "$p" && echo 1 || echo 0)"
-    check "$b names ADR-011 and the fix sheet" \
-        "$(grep -q 'ADR-011' "$p" && grep -q 'HDMI_KERNEL_FIX.md' "$p" && echo 1 || echo 0)"
-    check "$b touches only the display stack" \
-        "$(grep '^+++ b/' "$p" | grep -vq '^+++ b/drivers/gpu/drm/' && echo 0 || echo 1)"
+    # The evidence a patch rests on, by what it touches: the display stack
+    # cites HDMI_KERNEL_FIX.md, the board device tree K230_BUTTONS.md.
+    # Nothing else may be touched - never the vendor's shared k230.dtsi.
+    check "$b names ADR-011" "$(grep -q 'ADR-011' "$p" && echo 1 || echo 0)"
+    check "$b touches only the display stack or the board device tree" \
+        "$(grep '^+++ b/' "$p" | grep -vqE '^\+\+\+ b/(drivers/gpu/drm/|arch/riscv/boot/dts/canaan/k230-canmv-rm69a10\.dts$)' && echo 0 || echo 1)"
+    if grep -q '^+++ b/drivers/gpu/drm/' "$p"; then
+        check "$b names the display fix sheet" "$(grep -q 'HDMI_KERNEL_FIX.md' "$p" && echo 1 || echo 0)"
+    fi
+    if grep -q '^+++ b/arch/riscv/boot/dts/' "$p"; then
+        check "$b names the button sheet" "$(grep -q 'K230_BUTTONS.md' "$p" && echo 1 || echo 0)"
+    fi
 done
+check "the sheets the patches name exist" \
+    "$([ -f docs/hardware/HDMI_KERNEL_FIX.md ] && [ -f docs/hardware/K230_BUTTONS.md ] && echo 1 || echo 0)"
 check "there is at least one Doors kernel patch" "$([ "$n" -ge 1 ] && echo 1 || echo 0)"
 
 # ---- the apply step, out of the script --------------------------------------
