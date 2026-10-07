@@ -143,6 +143,16 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)
 
+**Refreshed for Doors 0.3.5 (2026-10-07)** from `make legal-info` on the
+0.3.5 candidate build: docs/legal/manifest.csv (104 target packages, Doors
+as `pocketos 0.3.5`, Apache-2.0), host-manifest.csv and licenses/. Buildroot
+could not save licence files for `rtl8189fs`, `rtl8723ds-bt`, `opensbi` and
+`uboot` (their packages declare none), and lists no row at all for the SDK's
+local packages or the external toolchain: docs/legal/LOCAL_PACKAGES.md has
+those. The source archives (`legal-info/sources/`, about 770 MB with the
+licences) stay in the SDK output and are not committed. The findings below
+are the 0.0.1 run's, kept as written.
+
 Generated with Buildroot `make legal-info` for `k230_pocketos_defconfig`;
 `docs/legal/manifest.csv` lists 96 target packages with licence and source
 archive, `docs/legal/licenses/` holds the licence texts, and the SDK output
