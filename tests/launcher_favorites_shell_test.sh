@@ -122,8 +122,8 @@ check "the picker for slot 3 opens at home" \
     "$(printf '%s' "$reply" | grep -q '"picker":[[:space:]]*3' && [ "$(field '["launcher"]["picker"]')" = 3 ] &&
        [ "$(field '["launcher"]["folder"]')" = null ] && echo 1 || echo 0)"
 picked=$(cells)
-check "offering the twenty-three apps slots 1 and 2 do not hold, never System (Settings' page, DS §47)" \
-    "$([ "$(echo "$picked" | wc -w)" = 23 ] &&
+check "offering the twenty-four apps slots 1 and 2 do not hold, never System (Settings' page, DS §47)" \
+    "$([ "$(echo "$picked" | wc -w)" = 24 ] &&
        case " $picked " in *" vision "*|*" zabbix "*|*" system "*) false ;; *) true ;; esac &&
        case " $picked " in *" calculator "*) true ;; *) false ;; esac && echo 1 || echo 0)"
 shot "$OUT/p-picker.png"
