@@ -13,6 +13,8 @@ LoRa radio, camera and hardware AI acceleration.
   "Source code" archives on the release page are source, not an image.
 - **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
   write the card, first boot, Wi-Fi and RIFT. No development tools needed.
+- **[3D-print a desk stand](hardware/stand/)**: a printable stand for the
+  K230; [download the STL](hardware/stand/k230-desk-stand.stl?raw=true).
 - **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**: what v0.3.5 contains, the
   SHA-256 checksums and the licence and notices files.
 
@@ -134,6 +136,7 @@ services/sysd/             System service: system.info and system.status over po
 services/netd/             Network service: wifi.* over pocketipc (wpa_supplicant and udhcpc owned by netd, root-only credential store)
 services/meshcored/        MeshCore protocol service: mesh.* over pocketipc, on top of radiod's radio.*; owns no radio (`make ENABLE_MESHCORED=1 meshcored`, disabled in the image)
 protocols/meshcore/        The portable MeshCore protocol core, `libmeshcore.a` (`make meshcore-core`)
+hardware/stand/            3D-printable desk stand (k230-desk-stand.stl)
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   GETTING_STARTED.md       Install a released image: download, write the card, first boot, Wi-Fi, RIFT

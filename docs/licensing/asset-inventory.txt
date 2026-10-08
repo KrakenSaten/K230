@@ -60,6 +60,7 @@ ui/pocketui/pos_brand_mark.c                                                    
 ui/pocketui/pos_app_icons.c                                                                  DERIVED-ART     icon masks: 15 owner-made (10 Threshold, 5 extension) and 10 first-party icons (gen_app_icons.py)
 ui/pocketui/pos_glyphs.[ch]                                                                  DERIVED-ART     system glyphs from the B package plus the first-party mode glyph (gen_doors_ui.py)
 docs/design/doors-app-icons/*                                                                ORIGINAL        first-party app icons drawn in this repository (render_app_icon.py)
+hardware/stand/k230-desk-stand.stl                                                           ORIGINAL        desk stand model, the owner's own design for DOORS; Apache-2.0 (owner, 2026-10-08)
 docs/design/doors-glyphs/*                                                                   ORIGINAL        first-party glyph
 docs/design/timber-art/*                                                                     ORIGINAL        PocketTimber sprites, Blender scene built by tools/timber_blender.py, procedural materials
 docs/design/shot-*.png                                                                       ORIGINAL        simulator captures, 2026-09-04/05, before any B1 art

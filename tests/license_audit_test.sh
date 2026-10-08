@@ -188,7 +188,7 @@ tr -d '\r' < "$INV" | awk -v cl="$CLASSES" '
       print "BAD\t" $0 }' > "$TMP/rules"
 badrule=$(grep -c '^BAD	' "$TMP/rules")
 check "every asset-inventory rule names a known class" "$([ "$badrule" = 0 ] && echo 1 || echo 0)"
-grep -i -E '\.(png|jpe?g|webp|gif|svg|bmp|xrgb|bin|zip|otf|ttf|woff2?|blend|html)$' "$TMP/files" > "$TMP/assets"
+grep -i -E '\.(png|jpe?g|webp|gif|svg|bmp|xrgb|bin|zip|otf|ttf|woff2?|blend|html|stl)$' "$TMP/files" > "$TMP/assets"
 : > "$TMP/classified"; : > "$TMP/used_rules"
 while IFS= read -r f; do
     cls=""
