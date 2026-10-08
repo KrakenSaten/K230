@@ -71,9 +71,11 @@ from the first model integration and starts from its measured results.
 ### 5. New and improved games (Ongoing)
 
 - **Poker**: an offline Texas Hold'em game against three computer players,
-  for play chips only, is in development as a draft pull request
-  ([#71](https://github.com/KrakenSaten/K230/pull/71)). It has been tested
-  on a PC only and is not yet reviewed, merged or run on a K230.
+  for play chips only, is in the Games folder
+  ([#71](https://github.com/KrakenSaten/K230/pull/71); tested on unit B,
+  docs/apps/poker/VALIDATION.md). Next: keep the table across a rotation
+  and across attaching or detaching the keyboard. Today a rotation
+  restarts the shell and Poker deals a fresh table. Planned.
 - **Existing games**: improvements to Fleet, Radar, Timber, Solitaire,
   Blackjack and 2048. Planned.
 

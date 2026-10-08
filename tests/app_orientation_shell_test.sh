@@ -62,8 +62,8 @@ alive() { kill -0 "$SP" 2>/dev/null; }
 no_fault() { ! grep -qE ' ERROR |assert' "$POCKETOS_LOG_DIR/run.log" "$POCKETOS_LOG_DIR/shell.log" 2>/dev/null; }
 
 # ---- 1. the declaration ------------------------------------------------------
-check "Timber declares portrait only, and it is the only app that does" \
-    "$([ "$(grep -rl 'POCKETOS_APP_ORIENTATION_PORTRAIT' apps | sort | tr '\n' ' ')" = "apps/timber/timber_app.c " ] &&
+check "Timber and Poker declare portrait only, and they are the only apps that do" \
+    "$([ "$(grep -rl 'POCKETOS_APP_ORIENTATION_PORTRAIT' apps | sort | tr '\n' ' ')" = "apps/poker/poker_app.c apps/timber/timber_app.c " ] &&
        echo 1 || echo 0)"
 check "no app writes the rotation mode or rotates the display itself" \
     "$(grep -rqE 'pocketos_shell_set_rotation_mode|lv_display_set_rotation|orientation_hold' apps/timber && echo 0 || echo 1)"

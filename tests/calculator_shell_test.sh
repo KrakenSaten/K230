@@ -67,7 +67,7 @@ check "and closed" \
 # The DOORS launcher groups the apps (DS §31, tests/home_layout_test.c); this
 # reads what the portrait launcher was built with.
 check "the launcher holds every app in its groups" \
-    "$(grep -q 'launcher: 2 group(s), 26 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+    "$(grep -q 'launcher: 2 group(s), 27 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "the shell did not call it unknown" \
     "$(grep -q 'unknown app calculator' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 0 || echo 1)"
 # A calculation is not kept, so opening and leaving must write nothing at all.
@@ -125,11 +125,11 @@ for o in portrait landscape; do
     [ -n "$hits" ] && echo "$hits" | head -3
     if [ $o = portrait ]; then
         check "$o: on the portrait launcher" \
-            "$(grep -q 'launcher: 2 group(s), 26 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+            "$(grep -q 'launcher: 2 group(s), 27 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
         set -- $(look "$LOGD/calc.png" default normal 422 1074 547 1201)
     else
         check "$o: on the landscape launcher" \
-            "$(grep -q 'launcher: 2 group(s), 26 app(s), landscape' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+            "$(grep -q 'launcher: 2 group(s), 27 app(s), landscape' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
         # The keypad reaches the foot: 442 px tall since the bar went (DS
         # section 36; 410 under the 32 px COMPACT bar of section 30, 386
         # under the 56 px one). The probe sits inside its bottom row's lower

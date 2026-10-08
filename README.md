@@ -55,7 +55,7 @@ communication, local AI, everyday tools, games and further development.
   **Calculator** and **Notes**.
 - **Settings** — Wi-Fi, display, six themes, three text sizes and rotation;
   **System** status lives there too.
-- **Games** — Fleet, Radar, Timber, Solitaire, Blackjack and 2048.
+- **Games** — Fleet, Radar, Timber, Solitaire, Blackjack, [Poker](docs/apps/POKER.md) and 2048.
 - Landscape and portrait (Timber is portrait-only).
 
 Feature status per release is under [Status](#status) below.

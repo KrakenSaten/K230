@@ -73,7 +73,7 @@ static void check(const char *what, int ok)
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
                                         "files", "camera", "browser", "recorder", "vision", "video",
-                                        "solitaire", "blackjack", "2048", "mp3", "deskbuddy", "terminal",
+                                        "solitaire", "blackjack", "poker", "2048", "mp3", "deskbuddy", "terminal",
                                         "photo", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
@@ -83,7 +83,7 @@ static const char *const launcher_order[] = { "terminal", "rift", "browser", "se
                                               "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave",
                                               "zabbix", "clock", "calendar", "calculator", "notes", "files",
                                               "recorder", "camera", "fleet", "radar", "timber", "solitaire",
-                                              "blackjack", "2048" };
+                                              "blackjack", "poker", "2048" };
 #define NPLACED ((int)(sizeof(launcher_order) / sizeof(launcher_order[0])))
 
 /* DS §47. */
@@ -91,7 +91,7 @@ static const char *const essentials[] = { "terminal", "rift", "browser", "settin
 static const char *const apps_folder[] = { "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave", "zabbix" };
 static const char *const utilities_folder[] = { "clock", "calendar", "calculator", "notes", "files", "recorder",
                                                 "camera" };
-static const char *const games_folder[] = { "fleet", "radar", "timber", "solitaire", "blackjack", "2048" };
+static const char *const games_folder[] = { "fleet", "radar", "timber", "solitaire", "blackjack", "poker", "2048" };
 #define LEN(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
@@ -120,7 +120,7 @@ static void test_groups(void)
         check("System is placed nowhere", strcmp(registry[order[k]], "system") != 0);
     }
     check("ESSENTIALS holds Terminal, RIFT, Browser and Settings", count[HOME_GROUP_ESSENTIALS] == 4);
-    check("FOLDERS holds the other twenty-one", count[HOME_GROUP_FOLDERS] == 21);
+    check("FOLDERS holds the other twenty-two", count[HOME_GROUP_FOLDERS] == 22);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
           strcmp(home_group_name(HOME_GROUP_ESSENTIALS), "ESSENTIALS") == 0 &&

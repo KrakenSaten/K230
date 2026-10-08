@@ -97,7 +97,7 @@ clean() { # <what>: nothing clipped, overlapping or sizeless on the screen now
 
 APPS_FOLDER="deskbuddy mp3 photo radio video vision wave zabbix"
 UTILITIES_FOLDER="calculator calendar camera clock files notes recorder"
-GAMES_FOLDER="2048 blackjack fleet radar solitaire timber"
+GAMES_FOLDER="2048 blackjack fleet poker radar solitaire timber"
 ESSENTIALS="browser rift settings terminal"
 
 # ---- 1. the launcher -----------------------------------------------------------------

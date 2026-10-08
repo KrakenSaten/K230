@@ -10,6 +10,13 @@ history when resolved.
   only: no failure path (radiod or meshcored not coming back) was exercised
   on hardware. A unit on the SX1262 with meshcored deliberately disabled is offered the
   setup on a tap; `doors radio on|off` switches its radio alone.
+- **Poker loses the hand on a rotation** (docs/apps/POKER.md). Its session
+  is kept in memory only, and a rotation re-executes the shell: attaching
+  or detaching the keyboard, or opening Poker from landscape, deals a fresh
+  table (observed on unit B, 2026-10-08). Back and reopen within the same
+  shell resumes the hand. The wanted behaviour, keeping the table across
+  rotation and keyboard attach/detach, is a separate follow-up
+  (docs/ROADMAP.md, games).
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
