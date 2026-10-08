@@ -17,6 +17,8 @@ LoRa radio, camera and hardware AI acceleration.
   K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
 - **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**: what v0.3.5 contains, the
   SHA-256 checksums and the licence and notices files.
+- **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
+  priority order.
 
 ![DOORS for the LILYGO T-Display K230](docs/images/doors-poster.jpg)
 
@@ -141,7 +143,7 @@ tests/                     Native unit tests (`make test`), shell tests (tests/*
 docs/
   GETTING_STARTED.md       Install a released image: download, write the card, first boot, Wi-Fi, RIFT
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
-  ROADMAP.md               Phase 1 status table and later phases
+  ROADMAP.md               Current priorities, ongoing and planned work; ROADMAP_HISTORY.md for earlier phases
   releases/                Release notes per version (v0.0.10 on) and HISTORY.md for the earlier releases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
   api/                     Public API contracts: pocketipc v0, radio.* v0, mesh.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
