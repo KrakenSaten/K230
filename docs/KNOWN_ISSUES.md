@@ -1056,7 +1056,7 @@ Wave and ggwave:
   `path_payloads_refused`, and does not touch the vendored tree. The upstream
   defect is unchanged.
 - **Contacts are added automatically, as upstream does.** Any node that
-  adverts within range becomes a contact, up to 256 on this port (upstream's
+  adverts within range becomes a contact, up to 1000 on this port (upstream's
   default is 32); the table then refuses new ones rather than evicting -
   `mesh.node_remove` makes room. There is no allow-list and no "known nodes
   only" mode.
@@ -1176,16 +1176,22 @@ so that pass stayed the size it was scoped to be.
   names, the NET view and details still draw an emoji as Plex's box, as does
   every other app. Seen on unit B (docs/hardware/RIFT_COLOUR_EMOJI_GATE.md). Stored and sent text is
   unchanged.
-- **RIFT caches a thousand nodes; meshcored holds 256.** `RIFT_MAX_NODES`
-  is 1000 (DS §37.5), in a virtual NODES list that builds rows only for the
-  screen, and the thousand is host-tested only (`tests/rift_app_test.c`:
-  0.5 ms a repaint, 1132 KB model, +0.4 MB resident on the host). The
-  service's table is still 256 (`MAX_CONTACTS`), VERIFIED on unit A
-  (MESH_NODE_CAPACITY_256_GATE.md), so on a board the list stops there and
-  the footer says the table is full; the list is VERIFIED with a real mesh
-  of 241 nodes on unit A, scrolled end to end in both orientations at up to
-  ~31 % shell CPU (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested,
-  and nothing above it can be until the service's table grows.
+- **A thousand nodes are proven with synthetic ones, not a real mesh.**
+  RIFT (`RIFT_MAX_NODES`, DS §37.5) and meshcored (`MAX_CONTACTS`,
+  `MCD_MAX_NODES`, PR #43) both hold 1000; at 1000 meshcored refuses new
+  nodes rather than evicting, and RIFT's ACTIVITY says the node table is
+  full. On unit B a table of 1000 - 259
+  real nodes and 741 synthetic ones written into `state.v1` - loaded, its
+  368 KB `mesh.nodes` reply reached readers draining every 50 to 150 ms,
+  and RIFT showed `1000 KNOWN` with the session connected
+  (MESH_NODE_CAPACITY_1000_GATE.md); the real table grew past 256 and
+  survived a reboot. Not covered on hardware: 1000 real nodes, a shell
+  stalled for more than 200 ms during a reply above about 215 KB (pocketipc
+  would drop and reconnect it), and flash wear from rewriting a `state.v1`
+  of up to 148 KB, which had no soak. Scrolling is VERIFIED with a real mesh
+  of 241 nodes on unit A, end to end in both orientations at up to ~31 %
+  shell CPU (RIFT_UI_NEXT_GATE.md); a full list of 1000 was not scrolled on
+  a board.
 - **The message sounds play through pos-record** (ADR-010 Amendment 1,
   ACCEPTED): only while RIFT's screen is open, and not at all while another
   app holds the audio lock. Whether the 150 / 222 ms tones are audible and
