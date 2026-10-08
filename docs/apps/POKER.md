@@ -58,11 +58,23 @@ renderer/palette and Timber felt. Their existing licensing and notices are
 unchanged. The app is portrait-only. It starts no threads, timers, services
 or background work. Closing pauses the fixed-size session; reopening within
 the same shell resumes it. **Session state is not saved to disk** and resets
-when the shell/device restarts. No hardware validation is claimed.
+when the shell/device restarts.
+
+A rotation is such a restart: the shell re-executes itself in place to open
+the display at a new rotation (DS §21). Attaching or detaching the keyboard
+in the automatic mode, and opening Poker from landscape (the shell turns the
+display to portrait first), therefore start a fresh table; closing Poker
+turns the display back. Blackjack, Solitaire and 2048 save their games and
+Clock hands its state over across this restart (`/run`); keeping a Poker
+hand across a rotation is an owner decision, not part of this app yet.
+
+The launcher icon is first-party, two hole cards with a spade
+(`docs/design/doors-app-icons/svg/poker.svg`), in the games colour, for the
+owner to confirm.
 
 ## Validation
 
-See [the recorded cloud results and limitations](poker/VALIDATION.md).
+See [the recorded cloud and unit B hardware results and limitations](poker/VALIDATION.md).
 
 Activate the published cloud host environment first:
 
