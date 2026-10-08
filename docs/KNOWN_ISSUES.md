@@ -385,7 +385,7 @@ DEVICE VERIFIED unless it says so.
   keyboard stays 568 px wide at the bottom centre. Timber stays portrait on
   purpose (the vertical tower is the game);
   Radio is not planned, because the app is expected to be replaced
-  (docs/ROADMAP.md, "Landscape app adaptation").
+  (docs/ROADMAP_HISTORY.md, "Landscape app adaptation").
 - The target lv_conf.h is the vendor package's, not ui/shell/lv_conf.defaults:
   LV_USE_FLOAT 1, LV_USE_SNAPSHOT 0, ThorVG/FreeType/FFmpeg compiled in,
   LVGL asserts abort the process (which pocketlog turns into a crash report).
@@ -414,7 +414,7 @@ DEVICE VERIFIED unless it says so.
   (`236a142`, branch `experiment/v0.0.10-splash-bootcmd-retry`) passed every
   software and image gate, showed the splash on three warm reboots, but left
   two cold boots black and added about 1 s to every boot. Investigating the
-  vendor bring-up is post-v0.0.10 work (ROADMAP).
+  vendor bring-up is post-v0.0.10 work (ROADMAP_HISTORY.md).
   The original finding, 2026-09-15: no boot splash after a warm `reboot`
   (VERIFIED on unit A, docs/hardware/DOORS_GRAPHICS_GATE.md), while from
   power-on the splash showed and handed over cleanly to the shell. After `reboot` U-Boot still loads
@@ -659,7 +659,7 @@ Documented for v0.0.8:
   loading as a damaged file, and the next save replaces the data. A Notes
   save that fails (an unwritable store) closes the editor and drops the
   edit, silently when leaving by Back. The proper fix belongs to the common
-  state facility (ROADMAP, step 5).
+  state facility (ROADMAP_HISTORY.md, step 5).
 - ~~An orientation change ends a running stopwatch, countdown and snooze.~~
   Fixed on `fix/clock-rotation-state`: the outgoing shell hands its clock
   runtime to the incoming one through a boot-scoped file on the `/run` tmpfs
