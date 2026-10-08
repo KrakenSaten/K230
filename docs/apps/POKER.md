@@ -65,8 +65,9 @@ the display at a new rotation (DS §21). Attaching or detaching the keyboard
 in the automatic mode, and opening Poker from landscape (the shell turns the
 display to portrait first), therefore start a fresh table; closing Poker
 turns the display back. Blackjack, Solitaire and 2048 save their games and
-Clock hands its state over across this restart (`/run`); keeping a Poker
-hand across a rotation is an owner decision, not part of this app yet.
+Clock hands its state over across this restart (`/run`). Keeping the Poker
+table across a rotation and keyboard attach/detach is wanted and is a
+separate follow-up (docs/ROADMAP.md, docs/KNOWN_ISSUES.md).
 
 The launcher icon is first-party, two hole cards with a spade
 (`docs/design/doors-app-icons/svg/poker.svg`), in the games colour, for the
