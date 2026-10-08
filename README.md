@@ -13,8 +13,8 @@ LoRa radio, camera and hardware AI acceleration.
   "Source code" archives on the release page are source, not an image.
 - **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
   write the card, first boot, Wi-Fi and RIFT. No development tools needed.
-- **[3D-print a desk stand](hardware/stand/)**: a printable stand for the
-  K230; [download the STL](hardware/stand/k230-desk-stand.stl?raw=true).
+- **[3D-print a desk stand](https://github.com/KrakenSaten/K230/tree/master/hardware/stand)**: a printable stand for the
+  K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
 - **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**: what v0.3.5 contains, the
   SHA-256 checksums and the licence and notices files.
 
