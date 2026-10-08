@@ -66,10 +66,10 @@ fresh
 start_shell --rotation portrait --no-lock
 check "the launcher has one Games cell" \
     "$([ "$(field '["launcher"]["folders"][0]["id"]')" = '"games"' ] &&
-       [ "$(field '["launcher"]["folders"][0]["apps"]')" = 6 ] &&
+       [ "$(field '["launcher"]["folders"][0]["apps"]')" = 7 ] &&
        [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] && echo 1 || echo 0)"
-check "seven cells for twenty-six apps, three of them folders, after three favorites (DS §47)" \
-    "$([ "$(field '["launcher"]["apps"]')" = 26 ] && [ "$(field '["launcher"]["home_cells"]')" = 7 ] &&
+check "seven cells for twenty-seven apps, three of them folders, after three favorites (DS §47)" \
+    "$([ "$(field '["launcher"]["apps"]')" = 27 ] && [ "$(field '["launcher"]["home_cells"]')" = 7 ] &&
        [ "$(field '["launcher"]["folder_cells"]')" = 3 ] && [ "$(field '["launcher"]["favorite_cells"]')" = 3 ] &&
        echo 1 || echo 0)"
 root_cells=$(cells)
@@ -92,7 +92,7 @@ held_root=$(field '["art"]["bytes_held"]')
 shot "$OUT/p-root.png"
 reply=$(call_out shell.folder id=games)
 check "shell.folder opens Games and says so" "$(printf '%s' "$reply" | grep -q '"folder":[[:space:]]*"games"' && echo 1 || echo 0)"
-check "whose page holds the six games" "$([ "$(cells)" = "2048 blackjack fleet radar solitaire timber" ] && echo 1 || echo 0)"
+check "whose page holds the seven games" "$([ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] && echo 1 || echo 0)"
 check "and shell.info says it is open" "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && echo 1 || echo 0)"
 shot "$OUT/p-games.png"
 "$POS" app start radar >/dev/null 2>&1; sleep 0.4
@@ -101,7 +101,7 @@ check "and has the keys, not the launcher" "$([ "$(field '["launcher"]["keys"]')
 "$POS" app home >/dev/null 2>&1; sleep 0.3
 check "coming home comes back to the folder" \
     "$([ "$(field '["current"]')" = '"home"' ] && [ "$(field '["launcher"]["folder"]')" = '"games"' ] &&
-       [ "$(cells)" = "2048 blackjack fleet radar solitaire timber" ] && echo 1 || echo 0)"
+       [ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] && echo 1 || echo 0)"
 check "with the keys the launcher's again" "$([ "$(field '["launcher"]["keys"]')" = true ] && echo 1 || echo 0)"
 "$POS" app start fleet >/dev/null 2>&1; sleep 0.4
 "$POS" app home >/dev/null 2>&1; sleep 0.3
@@ -145,7 +145,7 @@ check "whose page holds DeskBuddy, MP3, Photo, Radio, Video, Vision, Wave and Za
 check "an app opened from it comes home to it" "$([ "$(field '["launcher"]["folder"]')" = '"apps"' ] && echo 1 || echo 0)"
 call shell.folder id=games
 check "opening Games from Apps swaps the folder" \
-    "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(cells)" = "2048 blackjack fleet radar solitaire timber" ] &&
+    "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] &&
        echo 1 || echo 0)"
 call shell.folder id=
 check "and back, holding the art it held before" "$([ "$(field '["art"]["bytes_held"]')" = "$held_root" ] && echo 1 || echo 0)"
@@ -156,7 +156,7 @@ check "the lock over an open folder leaves it open, the keys back with the launc
     "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(field '["launcher"]["keys"]')" = true ] &&
        echo 1 || echo 0)"
 check "the log says what opened and closed" \
-    "$(grep -q 'launcher: folder games open, 6 app(s)' "$POCKETOS_LOG_DIR/shell.log" &&
+    "$(grep -q 'launcher: folder games open, 7 app(s)' "$POCKETOS_LOG_DIR/shell.log" &&
        grep -q 'launcher: folder games closed' "$POCKETOS_LOG_DIR/shell.log" && echo 1 || echo 0)"
 check "no fault logged" "$(no_fault && echo 1 || echo 0)"
 stop_shell
@@ -167,7 +167,7 @@ for o in portrait landscape; do
     DOORS_SHELL_RESUMED=open DOORS_LAUNCHER_FOLDER=games start_shell --rotation "$o"
     check "$o: a restart with Games open comes back in it, unlocked" \
         "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(field '["lock"]["locked"]')" = false ] &&
-           [ "$(cells)" = "2048 blackjack fleet radar solitaire timber" ] && echo 1 || echo 0)"
+           [ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] && echo 1 || echo 0)"
     check "$o: and says so" "$(grep -q 'folder games open again after the restart' "$POCKETOS_LOG_DIR/shell.log" &&
                                echo 1 || echo 0)"
     info > "$OUT/$o-info.json"

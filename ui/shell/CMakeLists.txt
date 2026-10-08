@@ -49,7 +49,18 @@ message(STATUS "Doors ${POCKETOS_VERSION} build ${POCKETOS_BUILD_ID}")
 
 find_package(PkgConfig REQUIRED)
 
+set(POKER_ENGINE_SOURCES
+    ${REPO_DIR}/apps/poker/engine/poker.c
+    ${REPO_DIR}/apps/poker/engine/poker_eval.c
+    ${REPO_DIR}/apps/poker/engine/poker_ai.c)
+set(POKER_APP_SOURCES
+    ${REPO_DIR}/apps/poker/poker_app.c
+    ${REPO_DIR}/apps/poker/ui/poker_view.c
+    ${REPO_DIR}/apps/poker/ui/poker_table.c)
+
 add_executable(pocketos-shell
+    ${POKER_ENGINE_SOURCES}
+    ${POKER_APP_SOURCES}
     shell.c
     shell_ipc.c
     shell_kb_state.c
@@ -433,6 +444,9 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/solitaire"
                                                   "${REPO_DIR}/apps/solitaire/engine"
                                                   "${REPO_DIR}/apps/solitaire/ui"
+                                                  "${REPO_DIR}/apps/poker"
+                                                  "${REPO_DIR}/apps/poker/engine"
+                                                  "${REPO_DIR}/apps/poker/ui"
                                                   "${REPO_DIR}/apps/blackjack"
                                                   "${REPO_DIR}/apps/blackjack/engine"
                                                   "${REPO_DIR}/apps/blackjack/ui"
@@ -1624,6 +1638,18 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     target_include_directories(bj_app_test PRIVATE
         "${REPO_DIR}/apps/blackjack" "${REPO_DIR}/apps/blackjack/engine"
         "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
+    add_executable(poker_app_test
+        ${REPO_DIR}/tests/poker_app_test.c
+        ${POKER_ENGINE_SOURCES} ${POKER_APP_SOURCES}
+        ${REPO_DIR}/apps/blackjack/engine/bj_rng.c
+        ${REPO_DIR}/apps/blackjack/engine/bj_cards.c
+        ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
+        ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
+        ${REPO_DIR}/apps/timber/ui/timber_art.c
+        "${BJ_PALETTE_C}" ${GAMES_APP_TEST_UI})
+    target_include_directories(poker_app_test PRIVATE
+        "${REPO_DIR}/apps/poker" "${REPO_DIR}/apps/poker/engine" "${REPO_DIR}/apps/poker/ui"
+        "${REPO_DIR}/apps/blackjack/engine" "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
     # DeskBuddy in the running app (run by tests/deskbuddy_shell_test.sh):
     # vision events into the real screen, taps on the real buttons, the
     # preferences and the guard log against a real store in a temporary
@@ -1645,7 +1671,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${GAMES_APP_TEST_UI})
     target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"
                                "${REPO_DIR}/apps/deskbuddy_vision" "${REPO_DIR}/apps/vision")
-    foreach(game_test g2048_app_test sol_app_test bj_app_test deskbuddy_app_test)
+    foreach(game_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)
         target_include_directories(${game_test} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
         target_compile_options(${game_test} PRIVATE -Wall -Wextra)

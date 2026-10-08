@@ -104,6 +104,7 @@ extern const struct pocketos_app app_vision;
 extern const struct pocketos_app app_video;
 extern const struct pocketos_app app_solitaire;
 extern const struct pocketos_app app_blackjack;
+extern const struct pocketos_app app_poker;
 extern const struct pocketos_app app_2048;
 extern const struct pocketos_app app_deskbuddy;
 extern const struct pocketos_app app_mp3;
@@ -127,7 +128,7 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
                                             &app_clock, &app_calendar, &app_calculator,
                                             &app_settings, &app_wave, &app_rift, &app_files,
                                             &app_camera, &app_browser, &app_recorder, &app_vision,
-                                            &app_video, &app_solitaire, &app_blackjack, &app_2048, &app_mp3,
+                                            &app_video, &app_solitaire, &app_blackjack, &app_poker, &app_2048, &app_mp3,
                                             &app_deskbuddy, &app_terminal, &app_photo OPTIONAL_APPS };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
