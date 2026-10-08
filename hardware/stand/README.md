@@ -2,7 +2,7 @@
 
 A 3D-printable desk stand for the LILYGO T-Display K230, designed for DOORS.
 
-**[Download the STL](k230-desk-stand.stl?raw=true)** (`k230-desk-stand.stl`)
+**[Download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl)** (`k230-desk-stand.stl`)
 
 ## Compatibility
 
