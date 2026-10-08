@@ -142,9 +142,9 @@ static void test_committed(const char *dir)
     check("every committed art file is one the shell accepts, at its size", bad == 0);
     check("six backgrounds: lock, open, home in both orientations", bg == 6);
     /* Terminal made twenty-five apps (its icon came without this count, so
-     * master read 28 here), Photo twenty-six; the Apps folder (DS §47) is a
-     * third folder cell. */
-    check("thirty icons: twenty-six apps, the Games, Utilities and Apps folders and the empty frame", icons == 30);
+     * master read 28 here), Photo twenty-six, Poker twenty-seven; the Apps
+     * folder (DS §47) is a third folder cell. */
+    check("thirty-one icons: twenty-seven apps, the Games, Utilities and Apps folders and the empty frame", icons == 31);
     check("nothing else is in the directory as art", files == bg + icons);
 }
 

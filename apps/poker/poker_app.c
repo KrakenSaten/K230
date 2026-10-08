@@ -327,7 +327,9 @@ void poker_app_refresh(void *priv)
         refresh(priv);
 }
 
-LV_IMAGE_DECLARE(pos_app_icon_blackjack); /* shared card glyph, no new asset */
+/* The first-party launcher mask (docs/design/doors-app-icons): two hole
+ * cards with a spade. */
+LV_IMAGE_DECLARE(pos_app_icon_poker);
 const struct pocketos_app app_poker = {
     .id = "poker",
     .name = "Poker",
@@ -337,7 +339,7 @@ const struct pocketos_app app_poker = {
     .destroy = destroy,
     .back = back,
     .back_slab_in_app = true,
-    .icon_mask = &pos_app_icon_blackjack,
+    .icon_mask = &pos_app_icon_poker,
     .chrome = POCKETOS_CHROME_NONE,
     .orientation = POCKETOS_APP_ORIENTATION_PORTRAIT,
 };
