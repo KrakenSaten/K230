@@ -166,12 +166,12 @@ check "shell.home while locked opens the device at home" \
     "$([ "$(field '["lock"]["locked"]')" = false ] && [ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 opened=0
 for id in rift radio wave zabbix browser notes calendar clock calculator deskbuddy fleet radar timber solitaire \
-          blackjack 2048 settings system terminal files camera recorder vision mp3 video photo; do
+          blackjack poker 2048 settings system terminal files camera recorder vision mp3 video photo; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
         [ "$(field '["current"]')" = "\"$id\"" ] && opened=$((opened + 1))
     "$POS" app home >/dev/null 2>&1; sleep 0.2
 done
-check "every one of the twenty-six apps opens and comes home ($opened)" "$([ "$opened" = 26 ] && echo 1 || echo 0)"
+check "every one of the twenty-seven apps opens and comes home ($opened)" "$([ "$opened" = 27 ] && echo 1 || echo 0)"
 check "and the shell is home again" "$([ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 call shell.controls
 sleep 0.3
