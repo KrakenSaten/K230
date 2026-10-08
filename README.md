@@ -13,8 +13,12 @@ LoRa radio, camera and hardware AI acceleration.
   "Source code" archives on the release page are source, not an image.
 - **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
   write the card, first boot, Wi-Fi and RIFT. No development tools needed.
+- **[3D-print a desk stand](https://github.com/KrakenSaten/K230/tree/master/hardware/stand)**: a printable stand for the
+  K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
 - **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**: what v0.3.5 contains, the
   SHA-256 checksums and the licence and notices files.
+- **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
+  priority order.
 
 ![DOORS for the LILYGO T-Display K230](docs/images/doors-poster.jpg)
 
@@ -134,11 +138,12 @@ services/sysd/             System service: system.info and system.status over po
 services/netd/             Network service: wifi.* over pocketipc (wpa_supplicant and udhcpc owned by netd, root-only credential store)
 services/meshcored/        MeshCore protocol service: mesh.* over pocketipc, on top of radiod's radio.*; owns no radio (`make ENABLE_MESHCORED=1 meshcored`, disabled in the image)
 protocols/meshcore/        The portable MeshCore protocol core, `libmeshcore.a` (`make meshcore-core`)
+hardware/stand/            3D-printable desk stand (k230-desk-stand.stl)
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   GETTING_STARTED.md       Install a released image: download, write the card, first boot, Wi-Fi, RIFT
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
-  ROADMAP.md               Phase 1 status table and later phases
+  ROADMAP.md               Current priorities, ongoing and planned work; ROADMAP_HISTORY.md for earlier phases
   releases/                Release notes per version (v0.0.10 on) and HISTORY.md for the earlier releases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
   api/                     Public API contracts: pocketipc v0, radio.* v0, mesh.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
