@@ -779,9 +779,10 @@ static void on_poll(lv_timer_t *t)
             if (ev.kind == VISION_EV_STATS && a->model.det_active >= 0 &&
                 (a->det_stats_ms == 0 || now - a->det_stats_ms >= VISION_DET_STATS_LOG_MS)) {
                 a->det_stats_ms = now;
-                LOG_INFO("vision: detector %s: %u.%u fps, KPU %d ms, pre %d ms, post %d ms, CPU %d%%, RSS %ld KB, "
-                         "bad %u",
-                         vision_detector_name((enum vision_detector)a->model.det_active),
+                /* The numbers are the mode's: KPU 0 ms in a mode without the detector. */
+                LOG_INFO("vision: %s, detector %s loaded: %u.%u fps, KPU %d ms, pre %d ms, post %d ms, CPU %d%%, "
+                         "RSS %ld KB, bad %u",
+                         vision_mode_name(a->model.mode), vision_detector_name((enum vision_detector)a->model.det_active),
                          a->model.stats.fps_x10 / 10, a->model.stats.fps_x10 % 10, a->model.stats.infer_ms,
                          a->model.stats.pre_ms, a->model.stats.post_ms, a->model.stats.cpu_pct,
                          a->model.stats.rss_kb, a->model.stats.bad);

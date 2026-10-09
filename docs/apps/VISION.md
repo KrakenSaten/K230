@@ -633,6 +633,8 @@ sit at COCO rows 2, 7, 5, 3, 1, 0 (car, truck, bus, motorcycle, bicycle,
 person) and the other 74 rows score about 1e-13, so TRAFFIC's by-name class
 map is the same for both.
 
+Unit A gate, 2026-10-09: PASS (docs/hardware/VISION_MODEL_AB_GATE.md).
+
 ## The camera and KPU pipeline
 
 Everything below runs in the helper process, `pos-vision`, once per frame,
