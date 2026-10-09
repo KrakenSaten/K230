@@ -269,6 +269,11 @@ cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/poc
 # before "[1/5]" and every "gets past the guard" case below fails.
 mkdir -p "$GUARD/repo/platforms/k230/patches"
 cp -R platforms/k230/patches/linux "$GUARD/repo/platforms/k230/patches/"
+# Vision's R0 detector is checked against its pin before "[1/5]" too, so the
+# scratch repo carries the pin; the guard cases run with R0 left out
+# (POCKETOS_VISION_R0_KMODEL=none), and R0's own refusals are cases below.
+mkdir -p "$GUARD/repo/tools/vision"
+cp tools/vision/r0-model.sha256 "$GUARD/repo/tools/vision/"
 # RadioLib is pinned now, so the scratch repo needs a checkout and a pin that
 # names it - the same two things a real build needs.
 mkdir -p "$GUARD/repo/vendor/RadioLib"
@@ -317,12 +322,29 @@ done
 # the pin is not what these cases are about.
 run_guard() { # [env assignment]; leaves combined output in $GUARD/out
     # shellcheck disable=SC2086  # an empty $1 must expand to no argument
-    ( cd "$GUARD/repo" && env ${1:+"$1"} POCKETOS_ALLOW_PIN_DRIFT=1 \
+    ( cd "$GUARD/repo" && env POCKETOS_VISION_R0_KMODEL=none ${1:+"$1"} POCKETOS_ALLOW_PIN_DRIFT=1 \
         bash platforms/k230/scripts/apply_to_sdk.sh "$GUARD/vendor" ) \
         > "$GUARD/out" 2>&1
     echo $?
 }
 said() { grep -q "$1" "$GUARD/out" && echo 1 || echo 0; }
+
+# Vision's R0 detector: a build input outside git, accepted only with its
+# pinned sha256, and checked before the SDK is touched ("[1/5]").
+rc=$(run_guard "POCKETOS_VISION_R0_KMODEL=")
+check "an apply without the R0 file is refused before the SDK is touched" \
+      $([ "$rc" != 0 ] && [ "$(said 'Set POCKETOS_VISION_R0_KMODEL to the file det-r0-traffic6-yolox-tiny-416.kmodel')" = 1 ] &&
+        [ "$(said '\[1/5\]')" = 0 ] && echo 1 || echo 0)
+printf 'not R0\n' > "$GUARD/not-r0.kmodel"
+rc=$(run_guard "POCKETOS_VISION_R0_KMODEL=$GUARD/not-r0.kmodel")
+check "and so is a file that is not the pinned R0, naming both hashes" \
+      $([ "$rc" != 0 ] && [ "$(said 'is not the pinned R0 detector')" = 1 ] &&
+        [ "$(said "$(sha256sum < "$GUARD/not-r0.kmodel" | cut -d' ' -f1)")" = 1 ] &&
+        [ "$(said '\[1/5\]')" = 0 ] && echo 1 || echo 0)
+rc=$(run_guard "")
+check "'none' leaves R0 out on purpose and says so, and the apply goes on" \
+      $([ "$(said 'POCKETOS_VISION_R0_KMODEL=none: the package carries no R0 detector')" = 1 ] &&
+        [ "$(said '\[1/5\]')" = 1 ] && echo 1 || echo 0)
 
 rc=$(run_guard "")
 check "a clean worktree is not refused" \
@@ -375,7 +397,7 @@ guard_commit() { git -C "$GUARD/repo" add -A >/dev/null 2>&1
 # BSP pin and which would wave the RadioLib pin through with it.
 run_strict() {
     # shellcheck disable=SC2086
-    ( cd "$GUARD/repo" && env ${1:+"$1"} \
+    ( cd "$GUARD/repo" && env POCKETOS_VISION_R0_KMODEL=none ${1:+"$1"} \
         bash platforms/k230/scripts/apply_to_sdk.sh "$GUARD/vendor" ) \
         > "$GUARD/out" 2>&1
     echo $?
