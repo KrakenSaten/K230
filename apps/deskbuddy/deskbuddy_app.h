@@ -36,4 +36,16 @@ unsigned deskbuddy_app_face_paints(void *priv);
 /* How many times the timer has run: the wake-up budget. */
 unsigned deskbuddy_app_steps(void *priv);
 
+/* Personality (Companion): FEED / GIVE, REST / WAKE, the snack, the mouth
+ * and the group that holds the eyes and the mouth. */
+lv_obj_t *deskbuddy_app_feed_button(void *priv);
+lv_obj_t *deskbuddy_app_rest_button(void *priv);
+lv_obj_t *deskbuddy_app_snack(void *priv);
+lv_obj_t *deskbuddy_app_mouth(void *priv);
+lv_obj_t *deskbuddy_app_character(void *priv);
+/* The vision provider in use ("none", "pipeline", "mock"...), and how many
+ * times one was started: touch and play must never start one. */
+const char *deskbuddy_app_provider(void *priv);
+unsigned deskbuddy_app_provider_starts(void *priv);
+
 #endif

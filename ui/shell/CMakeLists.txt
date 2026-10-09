@@ -302,6 +302,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/deskbuddy/deskbuddy_app.c
     ${REPO_DIR}/apps/deskbuddy/db_brain.c
     ${REPO_DIR}/apps/deskbuddy/db_face.c
+    ${REPO_DIR}/apps/deskbuddy/db_gesture.c
     ${REPO_DIR}/apps/deskbuddy/db_guard.c
     ${REPO_DIR}/apps/deskbuddy/db_prefs.c
     ${REPO_DIR}/apps/deskbuddy/db_store.c
@@ -1659,6 +1660,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/deskbuddy/deskbuddy_app.c
         ${REPO_DIR}/apps/deskbuddy/db_brain.c
         ${REPO_DIR}/apps/deskbuddy/db_face.c
+        ${REPO_DIR}/apps/deskbuddy/db_gesture.c
         ${REPO_DIR}/apps/deskbuddy/db_guard.c
         ${REPO_DIR}/apps/deskbuddy/db_prefs.c
         ${REPO_DIR}/apps/deskbuddy/db_store.c
