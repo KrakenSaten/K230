@@ -346,17 +346,27 @@ reset_guard; rm -f "$G/LICENSE"
 check "and so is a tree without LICENSE" "$(guard > /dev/null 2>&1 && echo 0 || echo 1)"
 reset_guard
 
-# ---- the Vision model (docs/LICENSING.md item 10) ----------------------------
+# ---- the Vision model (docs/LICENSING.md item 10, MODEL_LICENSES.md) ----------
 # Up to 0.3.0 the package installed the SDK's yolov8n.kmodel (AGPL-3.0) for
-# internal images, with a notice. From 0.3.5 no detector model ships, so the
-# notices name none: a notice for material the image does not carry would
-# say it does. The package-side refusal is tests/license_audit_test.sh's.
-check "the notices carry no entry for a Vision model the image does not ship" \
-    "$(grep -q -i -E '^[a-z0-9-]*(yolo|kmodel)[a-z0-9-]* *[|]' "$SOURCES" && echo 0 || echo 1)"
+# internal images, with a notice; 0.3.5 shipped no detector. From 0.3.6 the
+# package installs the project's own R0 detector, and the notices credit what
+# it was made from - YOLOX's code and the training data - and nothing more: no
+# entry for a YOLO model the image does not carry, which would say it does.
+# The package-side rules are tests/license_audit_test.sh's.
+R0_FILE=det-r0-traffic6-yolox-tiny-416.kmodel
+check "the notices carry no entry for a YOLO model (only YOLOX's code, which R0 was trained with)" \
+    "$(grep -i -E '^[a-z0-9-]*(yolo|kmodel)[a-z0-9-]* *[|]' "$SOURCES" | grep -v -q '^yolox |' && echo 0 || echo 1)"
 check "and no notices text for one either" \
     "$(ls third_party/notices/texts/ 2>/dev/null | grep -q -i -E 'yolo|kmodel' && echo 0 || echo 1)"
-check "the package installs no model file" \
-    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -E '\$\(INSTALL\)' | grep -q -i 'kmodel' && echo 0 || echo 1)"
+check "the YOLOX entry is its code at the training pin, Apache-2.0, and says no code is in the image" \
+    "$(grep -q '^yolox | .*no YOLOX code is in the image | commit 6ddff4824372906469a7fae2dc3206c7aa4bbaee | Apache-2.0 | ' "$SOURCES" && echo 1 || echo 0)"
+check "the training-data entry names R0 and the dataset manifest" \
+    "$(grep -q "^r0-training-data | .*27b45431e6aaf2276bc34dc1aed3d77644112712b86713425f782cf9ac16274b.*${R0_FILE}" "$SOURCES" && echo 1 || echo 0)"
+check "and its text credits both annotation licensors and points to the per-image list" \
+    "$(t=third_party/notices/texts/r0-training-data.txt; grep -q 'COCO Consortium' "$t" && grep -q 'Google LLC' "$t" &&
+       grep -q 'creativecommons.org/licenses/by/4.0/' "$t" && grep -q '2bc99bc8b2098a4f628fa8f3d0c08af5252a0d4cbdfb1eddaad9f9062e594c3e' "$t" && echo 1 || echo 0)"
+check "the package installs one model file, R0" \
+    "$([ "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -E '\$\(INSTALL\)' | grep -i -o -E '[a-z0-9_.-]+\.kmodel' | sort -u)" = "${R0_FILE}" ] && echo 1 || echo 0)"
 
 # ---- Doors' own licence: Apache-2.0 (ADR-013) ------------------------------
 # The sha256 of the licence text exactly as the ASF publishes it

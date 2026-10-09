@@ -30,14 +30,17 @@ static const char *const speed_words[VISION_SPEED_MODES] = { "off", "narrow", "w
 /* The ranges' words: the helper's own (vision_range.c), kept here so the shell
  * links none of the pipeline. */
 static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" };
-static const char *const detector_names[VISION_DETECTORS] = { "R0", "UPSTREAM" };
+/* R0 ships in the image from Doors 0.3.6 as an experimental beta, and says
+ * so wherever it is named. "·" is U+00B7, inside the Latin-1 range the
+ * product fonts carry. */
+static const char *const detector_names[VISION_DETECTORS] = { "R0 · Beta", "UPSTREAM" };
 static const char *const detector_words[VISION_DETECTORS] = { "r0", "upstream" };
 
 void vision_settings_defaults(struct vision_settings *s)
 {
     memset(s, 0, sizeof(*s));
     s->mode = VISION_MODE_DETECT;
-    s->detector = VISION_DET_UPSTREAM;
+    s->detector = VISION_DET_R0;
     s->track.line = VISION_LINE_ACROSS;
     s->track.trails = true;
     s->traffic.range = VISION_RANGE_NORMAL;
@@ -115,7 +118,7 @@ const char *vision_detector_name(enum vision_detector d)
 
 const char *vision_detector_word(enum vision_detector d)
 {
-    return (int)d >= 0 && d < VISION_DETECTORS ? detector_words[d] : "upstream";
+    return (int)d >= 0 && d < VISION_DETECTORS ? detector_words[d] : "r0";
 }
 
 const char *vision_mode_word(enum vision_mode mode)

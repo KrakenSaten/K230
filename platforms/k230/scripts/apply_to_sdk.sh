@@ -339,6 +339,42 @@ compose_defconfig() { # <output file>
     rm -f "${out}.doors" "${out}.off"
 }
 
+# Vision's R0 detector (from 0.3.6, an experimental beta; docs/apps/VISION.md
+# "The model", MODEL_LICENSES.md). The kmodel is a build input kept outside
+# git, like every model (no model file is committed), so it is named by path
+# and accepted only with the sha256 the snapshot pins in
+# tools/vision/r0-model.sha256. Checked here, before the SDK is touched; it is
+# copied into the package with the rest of the source below, and the package
+# checks it again when it installs it. POCKETOS_VISION_R0_KMODEL=none leaves
+# it out on purpose, for a userspace-only rebuild to deploy; the image gate
+# (verify_image.sh) refuses an image without it.
+R0_PIN="$(git -C "${REPO_DIR}" show "${SNAPSHOT_COMMIT}:tools/vision/r0-model.sha256")"
+R0_NAME="$(printf '%s\n' "${R0_PIN}" | awk 'NR == 1 { print $2 }')"
+R0_SHA="$(printf '%s\n' "${R0_PIN}" | awk 'NR == 1 { print $1 }')"
+R0_SRC="${POCKETOS_VISION_R0_KMODEL:-}"
+if [ "${R0_SRC}" = "none" ]; then
+    VISION_R0_STATE="none"
+    echo "NOTE: POCKETOS_VISION_R0_KMODEL=none: the package carries no R0 detector,"
+    echo "      and an image built from this apply will fail the image gate."
+elif [ -z "${R0_SRC}" ] || [ ! -f "${R0_SRC}" ]; then
+    echo "ERROR: Vision's R0 detector is a build input kept outside git." >&2
+    echo "       Set POCKETOS_VISION_R0_KMODEL to the file ${R0_NAME}" >&2
+    echo "       (sha256 ${R0_SHA}, tools/vision/r0-model.sha256)," >&2
+    echo "       or to 'none' for a userspace-only rebuild without it.${R0_SRC:+ Not a file: ${R0_SRC}}" >&2
+    echo "       Nothing has been applied." >&2
+    exit 1
+else
+    R0_GOT="$(sha256sum < "${R0_SRC}" | cut -d' ' -f1)"
+    if [ "${R0_GOT}" != "${R0_SHA}" ]; then
+        echo "ERROR: ${R0_SRC} is not the pinned R0 detector:" >&2
+        echo "       sha256 ${R0_GOT}, tools/vision/r0-model.sha256 says ${R0_SHA}." >&2
+        echo "       There is no override: the image carries that model or none. Nothing has been applied." >&2
+        exit 1
+    fi
+    VISION_R0_STATE="${R0_SHA}"
+    echo "Vision R0 detector: ${R0_SRC} (sha256 ${R0_SHA}, as pinned)"
+fi
+
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
 
@@ -644,6 +680,16 @@ rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
 install -m 0644 "${CRYPTO_DIR_SRC}/libraries/LICENSE.txt" \
     "${PKG_DIR}/src/third_party/Crypto/libraries/LICENSE.txt"
 pin_record "${CRYPTO_COMMIT}" "${CRYPTO_STATE}" > "${PKG_DIR}/src/third_party/Crypto/.doors-pinned-commit"
+# Vision's R0 detector, checked against its pin before anything was applied
+# (above), copied beside the source and checked again as copied.
+mkdir -p "${PKG_DIR}/src/models/vision"
+if [ "${VISION_R0_STATE}" != "none" ]; then
+    install -m 0644 "${R0_SRC}" "${PKG_DIR}/src/models/vision/${R0_NAME}"
+    if [ "$(sha256sum < "${PKG_DIR}/src/models/vision/${R0_NAME}" | cut -d' ' -f1)" != "${R0_SHA}" ]; then
+        echo "ERROR: ${R0_SRC} changed while it was being packaged; apply again." >&2
+        exit 1
+    fi
+fi
 CONFIG_IN="${SDK_DIR}/buildroot-overlay/package/Config_canaan.in"
 if ! grep -q 'source "package/pocketos/Config.in"' "${CONFIG_IN}"; then
     printf '\nsource "package/pocketos/Config.in"\n' >> "${CONFIG_IN}"
@@ -686,6 +732,7 @@ meshcore_commit=${RIFT_COMMIT}
 meshcore_state=${RIFT_STATE}
 crypto_commit=${CRYPTO_COMMIT}
 crypto_state=${CRYPTO_STATE}
+vision_r0_kmodel=${VISION_R0_STATE}
 defconfig=${CONF}
 applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 applied_epoch=$(date +%s)
@@ -709,6 +756,7 @@ echo "  RadioLib        : ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
 echo "  ggwave          : ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
 echo "  MeshCore        : ${RIFT_COMMIT} (${RIFT_STATE})"
 echo "  Crypto          : ${CRYPTO_COMMIT} (${CRYPTO_STATE})"
+echo "  Vision R0       : ${VISION_R0_STATE} (sha256 of the packaged kmodel, or none)"
 echo "  Kernel patches  : ${KERNEL_PATCHES:-none}"
 echo "  BUILD_ID        : ${BUILD_ID}"
 echo "  The working tree is never packaged, with or without the override."

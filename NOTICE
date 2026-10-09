@@ -13,6 +13,15 @@ with their licence texts, in THIRD_PARTY_NOTICES.txt (installed in
 /usr/share/doors/), and in the source repository in THIRD_PARTY_LICENSES.md
 and MODEL_LICENSES.md.
 
+Vision's R0 detector model (/usr/share/doors/vision/
+det-r0-traffic6-yolox-tiny-416.kmodel) is a work of the Doors project and is
+also licensed under the Apache License, Version 2.0. It was trained on
+third-party data that keeps its own terms: COCO 2017 and Open Images V7
+annotations (CC BY 4.0) and photographs from Flickr (CC BY 2.0 or "No known
+copyright restrictions"), credited in THIRD_PARTY_NOTICES.txt, with the
+per-image list (ATTRIBUTION.tsv) published beside the Doors release that
+carries the model. This licence grants no rights in that data.
+
 The Doors brand assets - the mark, the wordmark lockups and the boot splash -
 are not licensed under the Apache License 2.0. They may be redistributed
 unmodified as part of Doors or of a work based on it; any other use is

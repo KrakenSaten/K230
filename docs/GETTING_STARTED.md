@@ -147,6 +147,12 @@ hidden networks are not listed (docs/apps/SETTINGS.md).
 The camera apps work as soon as the card boots. **Vision** in 0.3.5 has no
 object-detection model: COLOR, EDGE and LINE TRACE work, and DETECT, TRACK
 and TRAFFIC are switched off, which Vision says under the picture.
+
+From 0.3.6 (in preparation, not yet published) the card carries Vision's
+own detector, **R0 · Beta**, and DETECT, TRACK and TRAFFIC work from the
+first boot. It knows six classes - car, truck, bus, motorcycle, bicycle and
+person - and, as a beta, it can miss vehicles, including cars in street
+scenes.
 DeskBuddy shows "NO VISION YET" for the same reason.
 
 ## 6. Set up RIFT (LoRa messaging)

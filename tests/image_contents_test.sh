@@ -42,8 +42,11 @@ LBA="${MKBOOTIMG_LBA}"
 make_img() { mkbootimg_make "$1" "$2"; }
 populate_complete() { mkbootimg_populate "$1"; }
 
+# The fake rootfs carries a stand-in R0, which no real pin matches; the gate
+# is pointed at the stand-in's pin (the real one is checked below too).
+mkbootimg_r0_pin "${TMP}/r0.sha256"
 run_gate() {  # prints the exit code of the gate over image $1
-    bash "${VERIFY}" "$1" >"${TMP}/out.txt" 2>&1
+    POCKETOS_R0_PIN="${R0_PIN_FOR_GATE:-${TMP}/r0.sha256}" bash "${VERIFY}" "$1" >"${TMP}/out.txt" 2>&1
     echo "$?"
 }
 
@@ -171,6 +174,29 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         "$(grep -q 'S99zz_k230_phone_ui absent (no vendor launcher' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and the shell on by default" \
         "$(grep -q 'S90doors-shell on by default' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "the pass names the R0 detector, with the pinned hash" \
+        "$(grep -q "det-r0-traffic6-yolox-tiny-416.kmodel (Vision's R0 detector), sha256 $(cut -c1-64 "${TMP}/r0.sha256"), as pinned" "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "and the detectors it must not carry absent" \
+        "$(grep -q 'yolov8n.kmodel absent (not shipped)' "${TMP}/out.txt" && grep -q 'det-upstream-yolox-tiny-416.kmodel absent (not shipped)' "${TMP}/out.txt" && echo 1 || echo 0)"
+    R0_PIN_FOR_GATE=tools/vision/r0-model.sha256
+    rc="$(run_gate "${TMP}/doors.img")"
+    unset R0_PIN_FOR_GATE
+    check "NEGATIVE CONTROL: against the real pin the stand-in is not R0, and is refused" \
+        "$([ "${rc}" != "0" ] && grep -q 'is not the pinned R0 detector' "${TMP}/out.txt" && echo 1 || echo 0)"
+    no_r0() { mkbootimg_rootfs_doors "$1"; rm -f "$1/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel"; }
+    if rootfs_img "${TMP}/no-r0.img" no_r0; then
+        rc="$(run_gate "${TMP}/no-r0.img")"
+        check "NEGATIVE CONTROL: an image without R0 is refused" \
+            "$([ "${rc}" != "0" ] && grep -q "(Vision's R0 detector) is not in the root partition" "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
+    for refused in yolov8n.kmodel det-upstream-yolox-tiny-416.kmodel; do
+        with_refused() { mkbootimg_rootfs_doors "$1"; printf 'x' > "$1/usr/share/doors/vision/${refused}"; }
+        if rootfs_img "${TMP}/refused.img" with_refused; then
+            rc="$(run_gate "${TMP}/refused.img")"
+            check "NEGATIVE CONTROL: an image with ${refused} is refused" \
+                "$([ "${rc}" != "0" ] && grep -q "${refused}: a detector the image must not carry" "${TMP}/out.txt" && echo 1 || echo 0)"
+        fi
+    done
 
     # Even switched off, as it shipped up to v0.3.x, the launcher is refused.
     launcher_off() {

@@ -144,7 +144,11 @@ file in /usr/share/doors.
 
 The components below are other people's work and are not covered by Doors'
 licence. Doors binaries contain them, or load libraries that contain them,
-and each is used under its own terms, reproduced in full below.
+and each is used under its own terms, reproduced in full below. The last
+entries are the code and data Vision's R0 detector model was trained with:
+none of them is in the image, and they are credited as their terms ask. The
+model itself is the Doors project's, licensed under the Apache License 2.0
+(NOTICE); MODEL_LICENSES.md in the project repository says more.
 
 Not reproduced here: the other libraries Doors and LVGL load - cJSON,
 libgpiod, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libjpeg, libpng,

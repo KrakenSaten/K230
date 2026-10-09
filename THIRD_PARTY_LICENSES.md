@@ -62,6 +62,19 @@ text.
 | Noto Color Emoji artwork (Google), 2D/png/72 at `e20cbc2`, 1683 images converted to RGB565A8 (`apps/rift/ui/rift_emoji_px.bin`, with the generated index `rift_emoji_img.c` and `rift_emoji_seq.c`) | `noto-color-emoji` | RIFT's colour emoji | github.com/googlefonts/noto-emoji | Apache-2.0 (docs/legal/third-party/noto-color-emoji.txt) | converted images | compiled into `/usr/bin/doors-shell` | keep notice; the converted images stay under Google's Apache-2.0 grant, not Doors' | OK WITH ATTRIBUTION |
 | Region flags (googlei18n/region-flags `743e1f4`, bundled in noto-emoji), 262 flags converted with the emoji | `region-flags` | RIFT's flag emoji | github.com/googlefonts/region-flags | public domain or otherwise exempt (docs/legal/third-party/region-flags.txt) | converted images | compiled into `/usr/bin/doors-shell` | none; the text ships anyway | OK |
 
+## 2a. Code and data a shipped model was trained with (from 0.3.6)
+
+Vision's R0 detector is the Doors project's own training (MODEL_LICENSES.md,
+which also records what is still open about distributing it). Nothing below is
+in the image or in this repository; it is credited in THIRD_PARTY_NOTICES.txt
+as its terms ask. Provenance: docs/vision/DATASET_PROVENANCE.md and
+docs/vision/DATASET_TRAFFIC6_R0.md on `research/yolox-traffic-training`.
+
+| Component | `id` | Purpose | Upstream | Licence | In repo | In image | Obligations | Class |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| YOLOX at `6ddff48` (Megvii Inc.) | `yolox` | R0's architecture, training loop and ONNX export; no pretrained YOLOX weights were used | github.com/Megvii-BaseDetection/YOLOX | Apache-2.0 (docs/legal/third-party/yolox-LICENSE.txt) | licence text only | no code; R0 was trained and exported with it | keep notice | OK WITH ATTRIBUTION |
+| COCO 2017 annotations, Open Images V7 annotations, and the Flickr images they list (traffic6_r0: CC BY 2.0 or "No known copyright restrictions" only) | `r0-training-data` | R0's training, validation and test data | cocodataset.org; storage.googleapis.com/openimages | annotations CC BY 4.0; images CC BY 2.0 or no known copyright restrictions, per image, uploader-asserted | no | no (the model was trained on it) | credit the annotations' licensors; publish the per-image attribution list (ATTRIBUTION.tsv, sha256 `2bc99bc8…4c3e`) beside each release that carries R0 | OK WITH ATTRIBUTION, with open questions (MODEL_LICENSES.md, "R0: the licence decision": U1, and no photographer names for the COCO rows) |
+
 ## 3. Third-party code adapted inside first-party files
 
 Each of these files says so in its header with a compound SPDX expression

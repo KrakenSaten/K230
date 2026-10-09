@@ -115,31 +115,35 @@ static void test_round_trip(void)
                                                                   b.traffic.orient == VISION_LINE_ACROSS);
 }
 
-/* The detector A/B's choice: kept by its word, and a file from before it
- * has none, which is UPSTREAM. */
+/* The detector choice: kept by its word. A fresh installation, and a file
+ * from before the choice existed, has none, which is R0 (0.3.6 on). */
 static void test_detector(void)
 {
     struct vision_settings s;
     char text[VISION_SETTINGS_TEXT_MAX];
 
     vision_settings_defaults(&s);
-    check("the detector defaults to UPSTREAM", s.detector == VISION_DET_UPSTREAM);
-    s.detector = VISION_DET_R0;
+    check("the detector defaults to R0", s.detector == VISION_DET_R0);
     check("R0 is written as its word",
           vision_settings_format(&s, text, sizeof(text)) > 0 && strstr(text, "\ndetector=r0\n") != NULL);
+    s.detector = VISION_DET_UPSTREAM;
+    check("UPSTREAM is written as its word",
+          vision_settings_format(&s, text, sizeof(text)) > 0 && strstr(text, "\ndetector=upstream\n") != NULL);
     vision_settings_defaults(&s);
-    check("and read back", vision_settings_parse(&s, text) == 0 && s.detector == VISION_DET_R0);
+    check("and read back", vision_settings_parse(&s, text) == 0 && s.detector == VISION_DET_UPSTREAM);
     vision_settings_defaults(&s);
-    check("a file without it keeps UPSTREAM",
-          vision_settings_parse(&s, "mode=track\n") == 0 && s.detector == VISION_DET_UPSTREAM);
-    s.detector = VISION_DET_R0;
+    check("a file without it keeps R0",
+          vision_settings_parse(&s, "mode=track\n") == 0 && s.detector == VISION_DET_R0);
+    s.detector = VISION_DET_UPSTREAM;
     check("an unknown detector is refused and changes nothing",
-          vision_settings_parse(&s, "detector=yolov8n\n") == 1 && s.detector == VISION_DET_R0);
+          vision_settings_parse(&s, "detector=yolov8n\n") == 1 && s.detector == VISION_DET_UPSTREAM);
     s.detector = (enum vision_detector)7;
-    check("an out-of-range one is put back", vision_settings_sanitize(&s) == 1 && s.detector == VISION_DET_UPSTREAM);
-    check("the names and words", strcmp(vision_detector_name(VISION_DET_R0), "R0") == 0 &&
+    check("an out-of-range one is put back to R0", vision_settings_sanitize(&s) == 1 && s.detector == VISION_DET_R0);
+    check("the names and words", strcmp(vision_detector_name(VISION_DET_R0), "R0 · Beta") == 0 &&
                                      strcmp(vision_detector_name(VISION_DET_UPSTREAM), "UPSTREAM") == 0 &&
+                                     strcmp(vision_detector_word(VISION_DET_R0), "r0") == 0 &&
                                      strcmp(vision_detector_word(VISION_DET_UPSTREAM), "upstream") == 0 &&
+                                     strcmp(vision_detector_word((enum vision_detector)-1), "r0") == 0 &&
                                      strcmp(vision_detector_name((enum vision_detector)-1), "?") == 0);
 }
 

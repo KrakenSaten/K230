@@ -45,8 +45,8 @@ communication, local AI, everyday tools, games and further development.
 - **Wave** — short text messages sent and received as sound.
 - **Vision** — camera and KPU: COLOR, EDGE and LINE TRACE; DETECT, TRACK and
   TRAFFIC (vehicles counted across a line) with a detector model, which 0.3.5
-  does not ship; FACE, READ and RECOGNIZE when their models are installed
-  (docs/apps/VISION.md).
+  does not ship and 0.3.6 (in preparation) adds as the R0 beta; FACE, READ
+  and RECOGNIZE when their models are installed (docs/apps/VISION.md).
 - **DeskBuddy** — a desk companion with BUDDY, GUARD and NIGHT modes.
 - **Terminal** — a real Linux shell with a kept session.
 - **Files** — the card and USB drives.
@@ -186,6 +186,11 @@ and the BOOT button. Doors' own code is Apache-2.0; the Vision detector
 model is no longer in the image (DETECT, TRACK and TRAFFIC are off, the rest
 of Vision works). Release notes, with its fresh-card test:
 [docs/releases/v0.3.5.md](docs/releases/v0.3.5.md).
+
+**Doors 0.3.6** is in preparation and not published: what has been merged
+since 0.3.5, and Vision's own detector, R0, in the image as an experimental
+beta that can miss vehicles. Release notes so far:
+[docs/releases/v0.3.6.md](docs/releases/v0.3.6.md).
 
 **Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) was the previous release: the
 Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
