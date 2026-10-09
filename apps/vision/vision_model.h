@@ -21,6 +21,16 @@
  * The choices live in a struct vision_settings, per mode; a tap that
  * changes one asks the screen to store them (VISION_ACT_SAVE).
  *
+ * THE DETECTOR A/B: a bench unit may hold two detector files, R0 and
+ * UPSTREAM (vision_settings.h). When either is there, the detector's modes
+ * get a MODEL button that names the detector in force; a tap asks for the
+ * other one, which is loaded by ending the helper and starting it again on
+ * that file (VISION_ACT_OPEN). Only one detector is ever open. The new one
+ * is in force - and stored - only once the helper says `ready` with it; a
+ * file that is missing or does not load brings the previous one back and
+ * says why. Without either file nothing here changes: the helper opens its
+ * own default as before.
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -74,6 +84,7 @@ enum vision_button {
     VISION_BTN_HOLD,
     VISION_BTN_ENROL,
     VISION_BTN_FORGET,
+    VISION_BTN_MODEL,
     VISION_BUTTONS
 };
 
@@ -162,6 +173,13 @@ struct vision_model {
     bool stats_valid;
     int64_t last_frame_ms;
     uint32_t bad_tensors;
+    /* THE DETECTOR A/B (none of it used when det_files is 0) */
+    uint32_t det_files;   /* bit per enum vision_detector whose file is on the unit */
+    int det_active;       /* the detector the running helper said ready with; -1 none */
+    int det_loading;      /* the detector the helper was started on; -1 its default */
+    int det_fallback;     /* where to go back when det_loading fails; -1 nowhere */
+    char det_fail[VISION_EVENT_TEXT_MAX + 32]; /* why the last one asked for is not in force */
+    int64_t det_fail_ms;  /* when det_fail was shown first; 0 not yet */
 };
 
 struct vision_view_text {
@@ -178,6 +196,8 @@ struct vision_view_text {
     bool recog;             /* RECOGNIZE: the boxes say owner or unknown */
     const char *enrol_btn;  /* ENROL / STOP */
     const char *forget_btn; /* FORGET / SURE? */
+    const char *model_btn;  /* MODEL: R0 / MODEL: UPSTREAM / LOADING R0 */
+    bool model_enabled;     /* MODEL takes taps: live, and a detector to go to */
     bool forget_enabled;    /* there is an owner to forget */
     bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
@@ -203,6 +223,18 @@ struct vision_view_text {
 void vision_model_init(struct vision_model *m);
 /* The stored settings, before the screen opens. */
 void vision_model_load(struct vision_model *m, const struct vision_settings *s);
+
+/* The A/B detector files on the unit (bit per enum vision_detector), before
+ * vision_model_open. 0: no A/B, the helper's own default detector. */
+void vision_model_set_detector_files(struct vision_model *m, uint32_t present);
+/* The detector the helper is to be started on (VISION_ACT_OPEN), or -1 for
+ * the helper's own default. */
+int vision_model_detector_to_load(const struct vision_model *m);
+/* MODEL: ask for the other detector. The files are looked at again first
+ * (present, as for vision_model_set_detector_files). */
+unsigned vision_model_model_button(struct vision_model *m, uint32_t present);
+/* How long a detector that could not be loaded is said under the picture. */
+#define VISION_DET_FAIL_SHOW_MS 10000
 
 /* Opening the screen, or Try again: what to do. */
 unsigned vision_model_open(struct vision_model *m);

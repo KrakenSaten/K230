@@ -30,11 +30,14 @@ static const char *const speed_words[VISION_SPEED_MODES] = { "off", "narrow", "w
 /* The ranges' words: the helper's own (vision_range.c), kept here so the shell
  * links none of the pipeline. */
 static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" };
+static const char *const detector_names[VISION_DETECTORS] = { "R0", "UPSTREAM" };
+static const char *const detector_words[VISION_DETECTORS] = { "r0", "upstream" };
 
 void vision_settings_defaults(struct vision_settings *s)
 {
     memset(s, 0, sizeof(*s));
     s->mode = VISION_MODE_DETECT;
+    s->detector = VISION_DET_UPSTREAM;
     s->track.line = VISION_LINE_ACROSS;
     s->track.trails = true;
     s->traffic.range = VISION_RANGE_NORMAL;
@@ -58,6 +61,10 @@ int vision_settings_sanitize(struct vision_settings *s)
     vision_settings_defaults(&d);
     if ((int)s->mode < 0 || s->mode >= VISION_MODES) {
         s->mode = d.mode;
+        fixed++;
+    }
+    if ((int)s->detector < 0 || s->detector >= VISION_DETECTORS) {
+        s->detector = d.detector;
         fixed++;
     }
     if ((int)s->track.line < 0 || s->track.line >= VISION_LINE_MODES) {
@@ -99,6 +106,16 @@ enum vision_group vision_mode_group(enum vision_mode mode)
 const char *vision_mode_name(enum vision_mode mode)
 {
     return (int)mode >= 0 && mode < VISION_MODES ? mode_names[mode] : "?";
+}
+
+const char *vision_detector_name(enum vision_detector d)
+{
+    return (int)d >= 0 && d < VISION_DETECTORS ? detector_names[d] : "?";
+}
+
+const char *vision_detector_word(enum vision_detector d)
+{
+    return (int)d >= 0 && d < VISION_DETECTORS ? detector_words[d] : "upstream";
 }
 
 const char *vision_mode_word(enum vision_mode mode)
@@ -204,6 +221,13 @@ static int parse_line(struct vision_settings *s, char *line)
         }
         s->mode = (enum vision_mode)v;
         return 0;
+    }
+    if (strcmp(key, "detector") == 0) {
+        bad = parse_word(value, detector_words, VISION_DETECTORS, &v);
+        if (!bad) {
+            s->detector = (enum vision_detector)v;
+        }
+        return bad;
     }
     if (strcmp(key, "track.line") == 0) {
         bad = parse_word(value, line_words, VISION_LINE_MODES, &v);
@@ -328,6 +352,7 @@ int vision_settings_format(const struct vision_settings *s, char *out, size_t ou
     n = snprintf(out, out_len,
                  "# Vision settings. Written by Vision; see docs/apps/VISION.md.\n"
                  "mode=%s\n"
+                 "detector=%s\n"
                  "track.line=%s\n"
                  "track.trails=%d\n"
                  "traffic.range=%s\n"
@@ -341,7 +366,7 @@ int vision_settings_format(const struct vision_settings *s, char *out, size_t ou
                  "color.tol=%s\n"
                  "edge.hard=%d\n"
                  "trace.dark=%d\n",
-                 vision_mode_word(c.mode), line_words[c.track.line], c.track.trails ? 1 : 0,
+                 vision_mode_word(c.mode), detector_words[c.detector], line_words[c.track.line], c.track.trails ? 1 : 0,
                  range_words[c.traffic.range], c.traffic.labels ? 1 : 0, c.traffic.speeds ? 1 : 0,
                  c.traffic.trails ? 1 : 0, line_words[c.traffic.line], line_words[c.traffic.orient],
                  speed_words[c.traffic.speed], vision_distance_cm(c.traffic.distance_idx), tol_words[c.color.tol_idx],

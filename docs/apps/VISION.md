@@ -598,6 +598,43 @@ file that way is an internal test unit (item 10).
 The COCO class names are compiled in (`core/pocketvision/vision_labels.c`),
 in the order the vendor's `coco_labels.txt` lists them.
 
+### Detector A/B on a bench unit (feat/vision-model-switch)
+
+A practical comparison on hardware, not a release feature: no image carries
+either file, and neither is in this repository. When a unit has either of
+
+| File in `/usr/share/doors/vision/` | Override | What it is | sha256 (VERIFIED) |
+|---|---|---|---|
+| `det-r0-traffic6-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_R0` | DOORS' R0 YOLOX-Tiny 416 (traffic6), research branch `research/yolox-traffic-training`, docs/vision/R0_TRAFFIC6_RESULTS.md section 9 | `94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268` |
+| `det-upstream-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_UPSTREAM` | upstream YOLOX-Tiny 416, the 2026-10-04 detector evaluation's `yolox_tiny_416_a16` | `8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354` |
+
+DETECT, TRACK and TRAFFIC get a last button, **MODEL**, naming the detector
+in force (`MODEL: R0`, `MODEL: UPSTREAM`; `LOADING ...` while one opens), and
+DETECT's numbers start with its name. A tap asks for the other one: Vision
+ends the helper (the old detector and the KPU pool go with it) and starts it
+again with `--model` on the other file, so only one detector is ever loaded
+and the tracks and counts start again. The new detector is in force, and
+stored (`detector=r0|upstream` in `settings.v1`; a file without the key is
+UPSTREAM), only once the helper says `ready` with it. A file that is missing,
+or that the helper cannot open (`nomodel`), or a helper that dies opening it,
+brings the previous detector back and says under the picture why, for ten
+seconds; with no other file to go back to, Vision stops with the reason and
+TRY AGAIN. Without either file nothing changes: no MODEL button, and the
+helper opens its own default as before. The helper itself is unchanged.
+
+Both files are drop-ins for the decoder, checked against their export
+records rather than assumed from the family name: the same YOLOX-to-YOLOv8
+export wrapper (decoded `cx, cy, w, h` in input pixels, then `obj * cls`
+scores, `[1, 84, 3549]` = 52² + 26² + 13² rows), the same compile options
+(nncase 2.11.0, u8 NCHW RGB 416 x 416 letterboxed top-left with 114, swapRB,
+mean 0, std 1, int16 activations, uint8 weights), and the 80 COCO rows in
+`vision_labels.c`'s order. Upstream scores all 80; R0's six trained classes
+sit at COCO rows 2, 7, 5, 3, 1, 0 (car, truck, bus, motorcycle, bicycle,
+person) and the other 74 rows score about 1e-13, so TRAFFIC's by-name class
+map is the same for both.
+
+Unit A gate, 2026-10-09: PASS (docs/hardware/VISION_MODEL_AB_GATE.md).
+
 ## The camera and KPU pipeline
 
 Everything below runs in the helper process, `pos-vision`, once per frame,

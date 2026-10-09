@@ -689,6 +689,13 @@ static void test_layout(void)
     shape("landscape TRACK", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 1);
     shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 3);
     shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 3);
+    /* With the detector A/B's MODEL: DETECT 2, TRACK 5, TRAFFIC 4. */
+    shape("portrait DETECT A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
+    shape("landscape DETECT A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
+    shape("portrait TRACK A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 5, 1);
+    shape("landscape TRACK A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 5, 1);
+    shape("portrait TRAFFIC A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 4, 3);
+    shape("landscape TRAFFIC A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 3);
     shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
     shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
     check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, 1) == -1);
@@ -1044,9 +1051,192 @@ static void test_no_detector(void)
           vision_model_detector(&m) && strstr(t.status, VISION_NO_DETECTOR_TEXT) == NULL && vision_model_status_lines(&m) == 1);
 }
 
+/* THE DETECTOR A/B (vision_model.h). */
+#define DET_BOTH ((1u << VISION_DET_R0) | (1u << VISION_DET_UPSTREAM))
+
+/* The helper said ready with `name` and the detector's caps. */
+static unsigned det_ready(struct vision_model *m, const char *name, int64_t now)
+{
+    struct vision_event e = ev(VISION_EV_READY);
+    unsigned acts;
+
+    snprintf(e.text, sizeof(e.text), "fake");
+    snprintf(e.name, sizeof(e.name), "%s", name);
+    e.w = 640;
+    e.h = 360;
+    e.value = strcmp(name, "none") == 0 ? 0 : 80;
+    acts = vision_model_event(m, &e, NULL, now);
+    e = ev(VISION_EV_CAPS);
+    e.value = strcmp(name, "none") == 0
+                  ? (1 << VISION_MODE_COLOR) | (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE)
+                  : (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) |
+                        (1 << VISION_MODE_COLOR) | (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE);
+    acts |= vision_model_event(m, &e, NULL, now);
+    vision_model_event(m, &(struct vision_event) { .kind = VISION_EV_FRAME }, NULL, now + 10);
+    return acts;
+}
+
+static void test_detector_ab(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_event e;
+    enum vision_button order[VISION_BUTTONS];
+    char buf[384];
+    unsigned acts;
+    int n;
+
+    /* Without either file: nothing changes. */
+    vision_model_init(&m);
+    vision_model_set_detector_files(&m, 0);
+    vision_model_open(&m);
+    check("A/B: without the files the helper opens its own default", vision_model_detector_to_load(&m) == -1);
+    det_ready(&m, "yolov8n.kmodel", 1000);
+    n = vision_model_buttons(&m, order);
+    check("A/B: without the files DETECT has MODE only, as before", n == 1 && order[0] == VISION_BTN_MODE);
+    check("A/B: without the files MODEL does nothing", vision_model_model_button(&m, DET_BOTH) == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: without the files the status is as before", strncmp(t.status, "Detecting", 9) == 0);
+
+    /* Both files, UPSTREAM last confirmed. */
+    vision_model_init(&m);
+    vision_model_set_detector_files(&m, DET_BOTH);
+    check("A/B: opens to start the helper", vision_model_open(&m) == VISION_ACT_OPEN);
+    check("A/B: on the detector last confirmed", vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM &&
+                                                     m.det_active == -1);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: while it loads MODEL says so and takes no taps",
+          strcmp(t.model_btn, "LOADING UPSTREAM") == 0 && !t.model_enabled &&
+              strstr(t.detail, "UPSTREAM detector") != NULL);
+    check("A/B: no tap before it is in force", vision_model_model_button(&m, DET_BOTH) == 0);
+    acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: in force once ready names it", m.det_active == VISION_DET_UPSTREAM && m.state == VISION_LIVE &&
+                                                   strcmp(t.model_btn, "MODEL: UPSTREAM") == 0 && t.model_enabled);
+    check("A/B: the same detector is not stored again", (acts & VISION_ACT_SAVE) == 0);
+    n = vision_model_buttons(&m, order);
+    check("A/B: DETECT ends with MODEL", n == 2 && order[1] == VISION_BTN_MODEL);
+    vision_model_set_mode(&m, VISION_MODE_TRACK);
+    n = vision_model_buttons(&m, order);
+    check("A/B: TRACK ends with MODEL (five buttons)", n == 5 && order[4] == VISION_BTN_MODEL);
+    vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
+    n = vision_model_buttons(&m, order);
+    check("A/B: TRAFFIC ends with MODEL", n == 4 && order[3] == VISION_BTN_MODEL);
+    vision_model_set_mode(&m, VISION_MODE_EDGE);
+    n = vision_model_buttons(&m, order);
+    check("A/B: the pixel modes keep their buttons", n == 2 && order[1] == VISION_BTN_EDGE);
+    vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
+    m.stats = (struct vision_stats) { .fps_x10 = 150, .infer_ms = 53 };
+    m.stats_valid = true;
+    vision_model_set_mode(&m, VISION_MODE_DETECT);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: DETECT's numbers say whose they are", strncmp(t.status, "UPSTREAM  15.0 fps  KPU 53 ms", 29) == 0);
+
+    /* To R0: a new helper, nothing counted kept, nothing stored yet. */
+    vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
+    m.count_a = 4;
+    m.traffic.total_ab = 4;
+    m.recent_valid = true;
+    m.active_tracks = 2;
+    acts = vision_model_model_button(&m, DET_BOTH);
+    check("A/B: MODEL starts the helper again on R0", acts == VISION_ACT_OPEN && m.state == VISION_INIT &&
+                                                          vision_model_detector_to_load(&m) == VISION_DET_R0);
+    check("A/B: nothing is in force while R0 loads", m.det_active == -1 && m.det_fallback == VISION_DET_UPSTREAM);
+    check("A/B: the counts and the tracks are gone", m.count_a == 0 && m.traffic.total_ab == 0 && !m.recent_valid &&
+                                                         m.active_tracks == 0 && !m.stats_valid);
+    check("A/B: the mode stays", m.mode == VISION_MODE_TRAFFIC && m.set.mode == VISION_MODE_TRAFFIC);
+    check("A/B: R0 is not stored before it loads", m.set.detector == VISION_DET_UPSTREAM);
+    acts = det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 2000);
+    check("A/B: R0 in force and stored once ready", m.det_active == VISION_DET_R0 &&
+                                                        m.set.detector == VISION_DET_R0 && (acts & VISION_ACT_SAVE));
+    check("A/B: and the helper is told the mode again", (acts & VISION_ACT_MODE) && m.mode == VISION_MODE_TRAFFIC);
+
+    /* And back to UPSTREAM. */
+    acts = vision_model_model_button(&m, DET_BOTH);
+    check("A/B: MODEL again asks for UPSTREAM", acts == VISION_ACT_OPEN &&
+                                                    vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM);
+    det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 3000);
+    check("A/B: back on UPSTREAM, stored", m.det_active == VISION_DET_UPSTREAM && m.set.detector == VISION_DET_UPSTREAM);
+
+    /* R0 gone from the unit: the tap says so and changes nothing. */
+    acts = vision_model_model_button(&m, 1u << VISION_DET_UPSTREAM);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: a missing file is refused before the helper is touched",
+          acts == 0 && m.state == VISION_LIVE && m.det_active == VISION_DET_UPSTREAM &&
+              strcmp(m.det_fail, "R0 is not on this unit") == 0);
+    check("A/B: and said under the picture", t.status_warn && strstr(t.status, "R0 is not on this unit") != NULL);
+    vision_model_tick(&m, 4000);
+    check("A/B: for a while", vision_model_tick(&m, 4000 + VISION_DET_FAIL_SHOW_MS) && m.det_fail[0] == '\0');
+
+    /* R0 that does not load: back on UPSTREAM, and why. */
+    vision_model_model_button(&m, DET_BOTH);
+    e = ev(VISION_EV_NOMODEL);
+    snprintf(e.text, sizeof(e.text), "not a kmodel this runtime can load");
+    acts = vision_model_event(&m, &e, NULL, 5000);
+    check("A/B: a model that does not load starts the helper on the one before",
+          acts == VISION_ACT_OPEN && m.state == VISION_INIT &&
+              vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM && m.det_fallback == -1);
+    check("A/B: saying what failed and why",
+          strcmp(m.det_fail, "R0 could not be loaded: not a kmodel this runtime can load. Back on UPSTREAM.") == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: while going back too", strcmp(t.detail, m.det_fail) == 0);
+    acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 5500);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: UPSTREAM in force again, R0 never stored",
+          m.det_active == VISION_DET_UPSTREAM && m.set.detector == VISION_DET_UPSTREAM && (acts & VISION_ACT_SAVE) == 0);
+    check("A/B: the failure stays under the picture", t.status_warn && strstr(t.status, "R0 could not be loaded") != NULL);
+
+    /* R0's file gone between the tap and the helper (ready with none). */
+    vision_model_model_button(&m, DET_BOTH);
+    acts = det_ready(&m, "none", 6000);
+    check("A/B: ready without the detector asked for goes back",
+          (acts & VISION_ACT_OPEN) && vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM &&
+              strstr(m.det_fail, "R0 could not be loaded: its file is not there") != NULL);
+    det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 6500);
+    check("A/B: and lands on UPSTREAM", m.det_active == VISION_DET_UPSTREAM && m.state == VISION_LIVE);
+
+    /* The helper dies opening R0. */
+    vision_model_model_button(&m, DET_BOTH);
+    e = ev(VISION_EV_EXITED);
+    e.reason = VISION_EXIT_CRASHED;
+    acts = vision_model_event(&m, &e, NULL, 7000);
+    check("A/B: a helper that crashes opening R0 goes back too",
+          acts == VISION_ACT_OPEN && vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM &&
+              strstr(m.det_fail, "crashed") != NULL);
+    det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 7500);
+
+    /* Only R0 on the unit, and it does not load: nowhere to go back to. */
+    vision_model_init(&m);
+    m.set.detector = VISION_DET_R0;
+    vision_model_set_detector_files(&m, 1u << VISION_DET_R0);
+    vision_model_open(&m);
+    check("A/B: R0 alone, no fallback", vision_model_detector_to_load(&m) == VISION_DET_R0 && m.det_fallback == -1);
+    e = ev(VISION_EV_NOMODEL);
+    snprintf(e.text, sizeof(e.text), "not a kmodel this runtime can load");
+    acts = vision_model_event(&m, &e, NULL, 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("A/B: with no fallback Vision stops and says which and why",
+          acts == 0 && m.state == VISION_NO_DEVICE && t.show_retry &&
+              strncmp(t.detail, "R0 could not be loaded: not a kmodel", 36) == 0);
+    check("A/B: TRY AGAIN loads it again", vision_model_open(&m) == VISION_ACT_OPEN &&
+                                               vision_model_detector_to_load(&m) == VISION_DET_R0);
+
+    /* The stored one's file gone at opening: the other, said. */
+    vision_model_init(&m);
+    m.set.detector = VISION_DET_R0;
+    vision_model_set_detector_files(&m, 1u << VISION_DET_UPSTREAM);
+    vision_model_open(&m);
+    check("A/B: a stored detector whose file has gone opens the other",
+          vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM && m.det_fallback == -1 &&
+              strcmp(m.det_fail, "R0 is not on this unit. Using UPSTREAM.") == 0);
+    acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
+    check("A/B: and keeps that once it is in force", m.set.detector == VISION_DET_UPSTREAM && (acts & VISION_ACT_SAVE));
+}
+
 int main(void)
 {
     test_states();
+    test_detector_ab();
     test_no_detector();
     test_picker();
     test_track_and_traffic();
