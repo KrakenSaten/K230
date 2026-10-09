@@ -1,7 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-10-09 for the v0.3.6 release candidate (docs/releases/v0.3.6.md;
-not published) on top of v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
+Updated 2026-10-09 for v0.3.6 (tag `v0.3.6`; docs/releases/v0.3.6.md),
+following v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
 v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.
@@ -17,6 +17,10 @@ history when resolved.
 - **DeskBuddy does not use R0** (v0.3.6): its provider opens the helper's
   default model, `yolov8n.kmodel`, which no image ships, so without face
   models it reports NO VISION YET as on 0.3.5 (docs/apps/DESKBUDDY.md).
+- **Stopping a camera stream can freeze the whole unit** until it is
+  power-cycled (the camera lock-up under "Hardware and BSP" and "Vision"
+  below; summary in docs/releases/v0.3.6.md). No number of open/close
+  cycles is known to be safe. With R0, DETECT is Vision's default again.
 
 - **RIFT's first use from Controls** (v0.3.5 notes, "RIFT on a fresh
   card") passed on unit B from a fresh card (2026-10-07), the success path

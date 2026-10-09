@@ -56,6 +56,11 @@ weights (`det-r0-traffic6-yolox-tiny-416.kmodel`) under the **Apache License
 the attribution stay as they are: THIRD_PARTY_NOTICES.txt (`yolox`,
 `r0-training-data`) in the image, and the per-image list beside the release.
 
+**Publication (owner, 2026-10-09):** the owner decided to publish Doors
+0.3.6 with R0 under Apache-2.0, accepting the residual uncertainties below,
+including the COCO attribution gap. That is a publication decision, not
+proof that third-party rights are resolved.
+
 **Attribution list.** `ATTRIBUTION.tsv` of the `traffic6_r0` dataset, sha256
 `2bc99bc8b2098a4f628fa8f3d0c08af5252a0d4cbdfb1eddaad9f9062e594c3e`, 7,742,997
 bytes, 42,888 rows (10,408 COCO, 32,480 Open Images) under a three-line
