@@ -9,6 +9,7 @@
 #define DESKBUDDY_APP_H
 
 #include "db_brain.h"
+#include "db_personality.h"
 #include "lvgl.h"
 
 const struct db_brain *deskbuddy_app_brain(void *priv);
@@ -25,6 +26,11 @@ lv_obj_t *deskbuddy_app_settings_button(void *priv);
 lv_obj_t *deskbuddy_app_settings_panel(void *priv);
 lv_obj_t *deskbuddy_app_toggle(void *priv, enum db_pref pref);
 lv_obj_t *deskbuddy_app_settings_done(void *priv);
+const struct db_personality *deskbuddy_app_personality(void *priv);
+lv_obj_t *deskbuddy_app_feed(void *priv);
+lv_obj_t *deskbuddy_app_rest(void *priv);
+lv_obj_t *deskbuddy_app_snack(void *priv);
+const char *deskbuddy_app_provider(void *priv);
 lv_obj_t *deskbuddy_app_face(void *priv);
 lv_obj_t *deskbuddy_app_caption(void *priv);
 lv_obj_t *deskbuddy_app_clock(void *priv);

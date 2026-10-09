@@ -26,6 +26,9 @@
 #include "db_store.h"
 #include "deskbuddy_app.h"
 #include "pocketui.h"
+#if LV_USE_LODEPNG
+#include "src/libs/lodepng/lodepng.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,6 +98,8 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     data->point = finger_point;
 }
 
+static void capture_frame(void);
+static bool capturing;
 static void pump(int ms)
 {
     int t;
@@ -102,6 +107,7 @@ static void pump(int ms)
     for (t = 0; t < ms; t += 5) {
         lv_tick_inc(5);
         lv_timer_handler();
+        if (capturing && lv_tick_get() % 100 == 0) capture_frame();
     }
 }
 
@@ -565,6 +571,7 @@ static void test_landscape(void)
     lv_area_t action;
 
     forget();
+    finger_point = (lv_point_t){0};
     games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
     pump(60);
     app_start();
@@ -581,6 +588,7 @@ static void test_landscape(void)
     check("landscape: DONE is inside the body",
           games_inside((lv_obj_get_coords(deskbuddy_app_settings_done(app), &action), &action), &body));
     tap_obj(deskbuddy_app_settings_done(app));
+    finger_point = (lv_point_t){0};
     games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
     pump(100);
     check("turned back to portrait with the app open, the screen fits again",
@@ -589,6 +597,169 @@ static void test_landscape(void)
     lv_obj_get_coords(deskbuddy_app_action_button(app), &action);
     check("portrait: the face is above the controls", face.y2 < action.y1);
     app_stop();
+}
+
+/* Optional real LVGL application snapshots, using the shell's RGB888/PNG
+ * capture path. This test hosts the actual app; it draws no mock character. */
+static unsigned capture_number;
+static void capture_named(const char *name)
+{
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+    const char *dir = getenv("DESKBUDDY_CAPTURE_DIR");
+    if (!dir) return;
+    lv_obj_update_layout(lv_screen_active());
+    lv_draw_buf_t *snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB888);
+    check("application snapshot exists", snap != NULL);
+    if (!snap) return;
+    unsigned char *rgb = malloc((size_t)snap->header.w * snap->header.h * 3);
+    if (!rgb) { lv_draw_buf_destroy(snap); check("snapshot allocation", false); return; }
+    for (unsigned y = 0; y < snap->header.h; y++) {
+        const unsigned char *src = snap->data + (size_t)y * snap->header.stride;
+        unsigned char *dst = rgb + (size_t)y * snap->header.w * 3;
+        for (unsigned x = 0; x < snap->header.w; x++) {
+            dst[x * 3] = src[x * 3 + 2]; dst[x * 3 + 1] = src[x * 3 + 1]; dst[x * 3 + 2] = src[x * 3];
+        }
+    }
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s.png", dir, name);
+    unsigned rc = lodepng_encode24_file(path, rgb, snap->header.w, snap->header.h);
+    check("PNG capture succeeds", rc == 0);
+    free(rgb); lv_draw_buf_destroy(snap);
+#else
+    (void)name;
+#endif
+}
+static void capture_frame(void)
+{
+    char name[40];
+    snprintf(name, sizeof(name), "frame-%04u", capture_number++);
+    capture_named(name);
+}
+static void stroke_obj(lv_obj_t *obj, int distance, int duration)
+{
+    lv_point_t start = centre_of(obj);
+    start.x -= distance / 2;
+    finger_point = start;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    for (int n = 1; n <= 10; n++) { finger_point.x = start.x + distance * n / 10; pump(duration / 10); }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+}
+static void drag_snack_to(lv_point_t target)
+{
+    lv_point_t start = centre_of(deskbuddy_app_snack(app));
+    finger_point = start;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    for (int n = 1; n <= 12; n++) {
+        finger_point.x = start.x + (target.x - start.x) * n / 12;
+        finger_point.y = start.y + (target.y - start.y) * n / 12;
+        pump(50);
+    }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+}
+static void test_personality(void)
+{
+    int timers = timer_count();
+    forget();
+    unsetenv("DESKBUDDY_VISION");
+    app_start();
+    check("Buddy defaults to the none provider without a camera override", strcmp(deskbuddy_app_provider(app), "none") == 0);
+    setenv("DESKBUDDY_VISION", "none", 1);
+    capturing = getenv("DESKBUDDY_CAPTURE_DIR") != NULL;
+    capture_named("portrait-idle");
+    pump(400);
+    tap_obj(deskbuddy_app_face(app));
+    check("real pointer tap causes a personality poke", deskbuddy_app_personality(app)->reaction == DB_REACT_POKE);
+    capture_named("portrait-poke");
+    pump(220);
+    check("poke connects to curious eyes", deskbuddy_app_personality(app)->reaction == DB_REACT_CURIOUS);
+    tap_obj(deskbuddy_app_face(app));
+    tap_obj(deskbuddy_app_face(app));
+    check("rapid taps briefly annoy", deskbuddy_app_personality(app)->reaction == DB_REACT_ANNOYED);
+    pump(1000);
+    check("annoyance naturally settles", deskbuddy_app_personality(app)->reaction == DB_REACT_CALM);
+    stroke_obj(deskbuddy_app_face(app), 100, 700);
+    check("one gentle stroke gives one happy reaction", deskbuddy_app_personality(app)->reaction == DB_REACT_HAPPY && deskbuddy_app_personality(app)->variation == 4);
+    pump(220);
+    capture_named("portrait-petting");
+    pump(1700);
+    stroke_obj(deskbuddy_app_face(app), 100, 100);
+    check("a fast swipe does not pet or poke", deskbuddy_app_personality(app)->reaction == DB_REACT_CALM);
+    tap_obj(deskbuddy_app_feed(app));
+    check("Feed reveals a snack without poking", deskbuddy_app_personality(app)->snack && deskbuddy_app_personality(app)->pokes == 0);
+    pump(250);
+    capture_named("portrait-snack");
+    drag_snack_to(centre_of(deskbuddy_app_face(app)));
+    check("a real drag feeds the character", deskbuddy_app_personality(app)->reaction == DB_REACT_EATING && hidden(deskbuddy_app_snack(app)));
+    pump(240);
+    capture_named("portrait-eating");
+    pump(2400);
+    push_key('f');
+    check("keyboard F reveals the same snack", deskbuddy_app_personality(app)->snack);
+    push_key(LV_KEY_ENTER);
+    check("keyboard Enter feeds it", deskbuddy_app_personality(app)->reaction == DB_REACT_EATING);
+    pump(2400);
+    tap_obj(deskbuddy_app_feed(app));
+    tap_obj(deskbuddy_app_snack(app));
+    check("tapping the snack is the accessible feeding alternative", deskbuddy_app_personality(app)->reaction == DB_REACT_EATING);
+    pump(2400);
+    tap_obj(deskbuddy_app_feed(app));
+    lv_point_t outside = centre_of(deskbuddy_app_face(app));
+    outside.x = 40; outside.y = 200;
+    drag_snack_to(outside);
+    check("dropping away cancels cleanly", !deskbuddy_app_personality(app)->snack && deskbuddy_app_personality(app)->reaction == DB_REACT_CALM);
+    tap_obj(deskbuddy_app_feed(app));
+    check("Back consumes only the open snack", app_deskbuddy.back(app) == 1 && !deskbuddy_app_personality(app)->snack);
+    pump(60);
+    tap_obj(deskbuddy_app_rest(app));
+    check("Rest starts with heavy eyelids", deskbuddy_app_personality(app)->reaction == DB_REACT_DROWSY);
+    pump(1100);
+    check("then the character rests", deskbuddy_app_personality(app)->reaction == DB_REACT_ASLEEP);
+    capture_named("portrait-sleeping");
+    tap_obj(deskbuddy_app_face(app));
+    check("touch wakes the resting character", deskbuddy_app_personality(app)->reaction == DB_REACT_WAKE);
+    pump(1000);
+    capturing = false;
+    pump(DB_DROWSY_MS);
+    check("inactivity first makes Buddy drowsy", deskbuddy_app_personality(app)->reaction == DB_REACT_DROWSY);
+    pump(31000);
+    check("continued inactivity lets Buddy sleep", deskbuddy_app_personality(app)->reaction == DB_REACT_ASLEEP);
+    tap_obj(deskbuddy_app_rest(app));
+    check("the explicit Wake button works", deskbuddy_app_personality(app)->reaction == DB_REACT_WAKE);
+    pump(1000);
+    tap_obj(deskbuddy_app_feed(app));
+    finger_point = (lv_point_t){0};
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pump(100);
+    check("rotation cancels a pending snack", !deskbuddy_app_personality(app)->snack);
+    check("Buddy controls fit in landscape", games_screen_fits(app_body, app_body, "buddy landscape") == 0);
+    capture_named("landscape-idle");
+    stroke_obj(deskbuddy_app_face(app), 100, 700);
+    pump(220);
+    capture_named("landscape-petting");
+    tap_obj(deskbuddy_app_feed(app));
+    pump(250);
+    capture_named("landscape-snack");
+    drag_snack_to(centre_of(deskbuddy_app_face(app)));
+    check("landscape feeding works", deskbuddy_app_personality(app)->reaction == DB_REACT_EATING);
+    tap_obj(deskbuddy_app_feed(app));
+    finger_point = centre_of(deskbuddy_app_snack(app));
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    app_stop();
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(100);
+    check("close during a drag leaves no timer or focus", timer_count() == timers && pos_input_focused() == NULL);
+    app_start();
+    check("reopen starts calm without a stale snack", deskbuddy_app_personality(app)->reaction == DB_REACT_CALM && hidden(deskbuddy_app_snack(app)));
+    app_stop();
+    check("touch reactions persist no animation state", !stored(DB_STORE_PREFS) && !stored(DB_STORE_GUARD));
+    finger_point = (lv_point_t){0};
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(100);
 }
 
 int main(void)
@@ -621,6 +792,8 @@ int main(void)
     lv_obj_set_pos(g_content, 0, STATUS_H);
     pump(60);
 
+    setenv("DESKBUDDY_VISION", "none", 1);
+    test_personality();
     test_open();
     test_companion();
     test_guard();

@@ -16,7 +16,7 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 APP=apps/deskbuddy
-CORE="$APP/db_brain.c $APP/db_brain.h $APP/db_face.c $APP/db_face.h $APP/db_guard.c $APP/db_guard.h
+CORE="$APP/db_personality.c $APP/db_personality.h $APP/db_brain.c $APP/db_brain.h $APP/db_face.c $APP/db_face.h $APP/db_guard.c $APP/db_guard.h
       $APP/db_prefs.c $APP/db_prefs.h $APP/db_vision.c $APP/db_vision.h $APP/db_vision_mock.c $APP/db_vision_mock.h"
 STORE="$APP/db_store.c $APP/db_store.h"
 SCREEN="$APP/deskbuddy_app.c $APP/deskbuddy_app.h"
@@ -97,7 +97,7 @@ check "the bridge touches no file (the owner stays in Vision's helper)" "$([ -z 
 [ -n "$hits" ] && echo "$hits" | head -3
 check "the shell builds the bridge" \
     "$(n=0; for f in $BRIDGE/*.c; do grep -q "\${REPO_DIR}/$f" ui/shell/CMakeLists.txt || n=1; done; [ $n = 0 ] && echo 1 || echo 0)"
-check "DeskBuddy picks it unless simulated or \$DESKBUDDY_VISION is none" \
+check "DeskBuddy retains explicit pipeline selection unless simulated or \$DESKBUDDY_VISION is none" \
     "$(awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
 check "stop() is called in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'provider.ops->stop' && echo 1 || echo 0)"

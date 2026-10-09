@@ -1,5 +1,10 @@
 # DeskBuddy
 
+The camera-free personality slice is documented in
+[DeskBuddy personality — opus](DESKBUDDY_PERSONALITY_OPUS.md). Buddy now defaults
+to no vision; explicit `DESKBUDDY_VISION=pipeline` retains its camera feature.
+The original Guard/Night behavior described below is retained.
+
 A small companion for the desk: a pair of eyes that wake when somebody
 arrives, are glad to see the owner and wary of a stranger; a desk guard that
 notes who came by while the owner was away; a calm night clock that still

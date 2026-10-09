@@ -7,9 +7,8 @@
  * This file is the screen and nothing else. What DeskBuddy does is the
  * brain's (db_brain.c), what the eyes look like is db_face.c's, what vision
  * says arrives through a provider (db_vision.h), and the files are
- * db_store.c's. There is no vision in v0.1: without $DESKBUDDY_SIM the
- * provider is db_vision_none_ops and DeskBuddy runs blind - Night mode and
- * the idle face work exactly the same.
+ * db_store.c's. Companion defaults to db_vision_none_ops; Guard/Night and explicit
+ * DESKBUDDY_VISION=pipeline retain the existing Vision provider.
  *
  * TIME. One lv_timer, owned here and deleted in destroy(). Its period is not
  * fixed: after every run it is set to when the brain or the provider next
@@ -20,8 +19,8 @@
  * DRAWING. The eyes are plain filled objects in role styles (DS §4) - a
  * rounded white in the accent, a pupil, a lid and an arch cut-out in the
  * background colour - restyled only when db_face_eyes() gives a different
- * shape. Night dims them by opacity, not by a colour of their own. There is
- * no tweening: an expression is a step, a blink is two.
+ * shape. Night dims them by opacity, not by a colour of their own. Companion reactions interpolate eye geometry for 160 ms; camera
+ * expressions and idle blinks retain their original steps.
  * Reduced motion stops the idle behaviour altogether (DS §12).
  *
  * LAYOUT. Portrait stacks the face over the text and the controls;
@@ -39,6 +38,7 @@
 
 #include "db_brain.h"
 #include "db_face.h"
+#include "db_personality.h"
 #include "db_guard.h"
 #include "db_prefs.h"
 #include "db_store.h"
@@ -74,12 +74,20 @@ struct deskbuddy_eye {
 
 struct deskbuddy_app {
     struct db_brain brain;
+    struct db_personality personality;
+    struct db_gesture gesture, snack_gesture;
+    struct db_eye_shape tween_from[2], tween_target[2];
+    int64_t tween_since;
+    bool tweening, buddy_was, reaction_drawn;
+    int mouth_drawn;
+    lv_obj_t *mouth, *mouth_cut, *buddy_controls, *feed, *rest, *snack;
     struct db_guard_log log;
     struct db_vision_queue queue;
     struct db_vision_provider provider;
     struct db_vision_pipeline_cfg pipeline_cfg;
     struct db_vision_mock mock;
     int64_t provider_next;       /* -1: nothing scheduled */
+    const char *simulation;
     bool sim;                    /* $DESKBUDDY_SIM: scripted vision, dev keys, nothing saved */
     int64_t mono;                /* the app's monotonic ms, from lv_tick */
     uint32_t last_tick;
@@ -119,6 +127,13 @@ struct deskbuddy_app {
 };
 
 enum action_cmd { ACT_NONE = 0, ACT_ARM, ACT_DISARM, ACT_ACK };
+
+static bool buddy(const struct deskbuddy_app *a)
+{
+    return db_state_mode(a->brain.state) == DB_MODE_COMPANION && a->brain.prefs.on[DB_PREF_COMPANION];
+}
+static void cancel_interaction(struct deskbuddy_app *a);
+static void sync_provider(struct deskbuddy_app *a, int64_t now);
 
 /* ---- time ---------------------------------------------------------------------- */
 
@@ -225,7 +240,7 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, lv_event_cb_t cb, vo
     lv_label_set_text(label, text);
     lv_obj_center(label);
     style_button(btn, false);
-    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, user);
+    if (cb) lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, user);
     return btn;
 }
 
@@ -284,28 +299,71 @@ static void paint_eye(struct deskbuddy_eye *e, const struct db_eye_shape *s, boo
     }
 }
 
+/* A 160 ms bounded interpolation uses the app's existing timer, then stops.
+ * Guard and Night retain their original rendering; reduced motion snaps. */
+static struct db_eye_shape blend_eye(struct db_eye_shape a, struct db_eye_shape b, int t)
+{
+#define BLEND(member) a.member += (b.member - a.member) * t / 160
+    BLEND(w); BLEND(h); BLEND(radius); BLEND(dy); BLEND(pupil_d);
+    BLEND(pupil_dx); BLEND(pupil_dy); BLEND(lid); BLEND(arch_d); BLEND(arch_y);
+#undef BLEND
+    return a;
+}
 static void apply_face(struct deskbuddy_app *a, bool force)
 {
     struct db_face f;
+    struct db_pose pose = {0};
     struct db_eye_shape s[2];
     int k;
-
-    if (a->eye_box <= 0) {
-        return;
-    }
+    if (a->eye_box <= 0) return;
     db_brain_face(&a->brain, &f);
+    if (buddy(a)) {
+        db_personality_pose(&a->personality, a->mono, a->brain.reduced_motion, &pose);
+        if (pose.override) { f.expr = pose.expr; f.glance = 0; }
+    }
     db_face_eyes(&f, a->eye_box, a->eye_box, &s[0], &s[1]);
-    if (!force && a->face_valid && f.dim == a->face_drawn.dim && db_eye_shape_equal(&s[0], &a->eye[0].drawn) &&
-        db_eye_shape_equal(&s[1], &a->eye[1].drawn)) {
-        return;
-    }
     for (k = 0; k < 2; k++) {
-        paint_eye(&a->eye[k], &s[k], f.dim);
-        a->eye[k].drawn = s[k];
+        if (pose.override && s[k].pupil_d) {
+            s[k].pupil_dx = pose.x * (s[k].w - s[k].pupil_d) / 3000;
+            s[k].pupil_dy = pose.y * (s[k].h - s[k].pupil_d) / 3000;
+        }
+        s[k].dy += pose.lift * a->eye_box / 1000;
     }
+    bool changed = !db_eye_shape_equal(&s[0], &a->tween_target[0]) ||
+                   !db_eye_shape_equal(&s[1], &a->tween_target[1]);
+    if (changed) {
+        for (k = 0; k < 2; k++) {
+            a->tween_from[k] = a->eye[k].drawn;
+            a->tween_target[k] = s[k];
+        }
+        a->tween_since = a->mono;
+        /* Keep existing vision captures and blinks as their original steps. */
+        a->tweening = buddy(a) && (pose.override || a->reaction_drawn) && a->face_valid && !force &&
+                       !a->brain.reduced_motion;
+    }
+    if (force || !buddy(a) || a->brain.reduced_motion) a->tweening = false;
+    int elapsed = (int)(a->mono - a->tween_since);
+    if (elapsed >= 160) a->tweening = false;
+    if (a->tweening) {
+        for (k = 0; k < 2; k++) s[k] = blend_eye(a->tween_from[k], a->tween_target[k], elapsed);
+    }
+    if (force || !a->face_valid || f.dim != a->face_drawn.dim ||
+        !db_eye_shape_equal(&s[0], &a->eye[0].drawn) || !db_eye_shape_equal(&s[1], &a->eye[1].drawn)) {
+        for (k = 0; k < 2; k++) { paint_eye(&a->eye[k], &s[k], f.dim); a->eye[k].drawn = s[k]; }
+        a->face_paints++;
+    }
+    if (force || a->mouth_drawn != pose.mouth) {
+        a->mouth_drawn = pose.mouth;
+        set_hidden(a->mouth, pose.mouth == 0);
+        lv_obj_set_size(a->mouth, a->eye_box / (pose.mouth == 2 ? 7 : 3), a->eye_box / 7);
+        lv_obj_align(a->mouth, LV_ALIGN_CENTER, 0, a->eye_box / 3);
+        set_hidden(a->mouth_cut, pose.mouth != 1);
+        lv_obj_set_size(a->mouth_cut, a->eye_box / 3, a->eye_box / 7);
+        lv_obj_set_pos(a->mouth_cut, 0, -6);
+    }
+    a->reaction_drawn = pose.override;
     a->face_drawn = f;
     a->face_valid = true;
-    a->face_paints++;
 }
 
 /* ---- text and controls ----------------------------------------------------------- */
@@ -358,6 +416,9 @@ static const char *note_for(const struct deskbuddy_app *a)
     if (a->sim) {
         return "SIMULATED VISION";
     }
+    if (mode == DB_MODE_COMPANION) {
+        return a->personality.snack ? "DRAG SNACK TO ME, OR TAP IT" : "TAP OR GENTLY STROKE";
+    }
     if (b->seen == DB_SEEN_UNAVAILABLE && mode != DB_MODE_NIGHT) {
         return "NO VISION YET";
     }
@@ -391,6 +452,11 @@ static void refresh_controls(struct deskbuddy_app *a)
 {
     const struct db_brain *b = &a->brain;
     enum db_mode mode = db_state_mode(b->state);
+    set_hidden(a->buddy_controls, !buddy(a));
+    set_hidden(a->snack, !buddy(a) || !a->personality.snack);
+    set_text(lv_obj_get_child(a->feed, 0), a->personality.snack ? "CANCEL" : "FEED");
+    bool sleeping = a->personality.reaction == DB_REACT_DROWSY || a->personality.reaction == DB_REACT_ASLEEP;
+    set_text(lv_obj_get_child(a->rest, 0), sleeping ? "WAKE" : "REST");
     enum action_cmd cmd = ACT_NONE;
     const char *text = "";
     int m;
@@ -432,7 +498,7 @@ static void refresh_ui(struct deskbuddy_app *a, bool force)
     const struct db_brain *b = &a->brain;
     enum db_mode mode = db_state_mode(b->state);
 
-    if (!force && a->shown_valid && a->shown_state == b->state && a->shown_seen == b->seen &&
+    if (!buddy(a) && !force && a->shown_valid && a->shown_state == b->state && a->shown_seen == b->seen &&
         a->shown_log_rev == b->log_rev && a->shown_prefs_rev == b->prefs_rev) {
         return;
     }
@@ -504,6 +570,7 @@ static void apply_layout(struct deskbuddy_app *a)
     if (w == a->face_w && h == a->face_h && a->eye_box > 0) {
         return;
     }
+    if (a->face_w) cancel_interaction(a);
     a->face_w = w;
     a->face_h = h;
     /* Two eyes side by side with a gap of a third of one: 2 boxes + gap in
@@ -523,6 +590,10 @@ static void apply_layout(struct deskbuddy_app *a)
         lv_obj_set_size(a->eye[k].box, box, box);
         lv_obj_set_pos(a->eye[k].box, w / 2 + (k == 0 ? -box - box / 6 : box / 6), (h - box) / 2);
     }
+    lv_area_t face, root;
+    lv_obj_get_coords(a->face, &face);
+    lv_obj_get_coords(a->root, &root);
+    lv_obj_set_pos(a->snack, face.x1 - root.x1 + w / 2 - 60, face.y2 - root.y1 - BUTTON_H - 12);
     apply_face(a, true);
 }
 
@@ -562,11 +633,25 @@ static void step(struct deskbuddy_app *a)
     if (a->layout_pending) {
         apply_layout(a);
     }
+    if (buddy(a) != a->buddy_was) {
+        cancel_interaction(a);
+        db_personality_init(&a->personality, now);
+        a->buddy_was = buddy(a);
+        sync_provider(a, now);
+        a->layout_pending = true;
+    }
     pump_vision(a, now);
     db_brain_tick(&a->brain, now);
+    if (buddy(a)) db_personality_tick(&a->personality, now);
     apply_face(a, false);
     refresh_ui(a, false);
     next = db_brain_next_ms(&a->brain);
+    if (buddy(a)) {
+        int64_t pnext = db_personality_next_ms(&a->personality);
+        if (pnext < next) next = pnext;
+        if (a->tweening) next = now + 20;
+        else if (a->personality.reaction == DB_REACT_EATING && !a->brain.reduced_motion) next = now + 100;
+    }
     if (a->provider_next >= 0 && a->provider_next < next) {
         next = a->provider_next;
     }
@@ -621,17 +706,126 @@ static void on_action(lv_event_t *e)
     lv_timer_ready(a->timer);
 }
 
+static bool character_hit(struct deskbuddy_app *a, lv_point_t p)
+{
+    lv_area_t face;
+    lv_obj_get_coords(a->face, &face);
+    int dx = p.x - (face.x1 + a->face_w / 2);
+    int dy = p.y - (face.y1 + a->face_h / 2);
+    return abs(dx) <= a->eye_box * 7 / 6 && abs(dy) <= a->eye_box * 2 / 3;
+}
+static void interact(struct deskbuddy_app *a, enum db_interaction event, lv_point_t p)
+{
+    lv_area_t face;
+    lv_obj_get_coords(a->face, &face);
+    int x = (p.x - (face.x1 + a->face_w / 2)) * 1000 / a->eye_box;
+    int y = (p.y - (face.y1 + a->face_h / 2)) * 1000 / a->eye_box;
+    if (p.x == 0 && p.y == 0) x = y = 0; /* keyboard actions look ahead */
+    int64_t now = app_now(a);
+    if (event == DB_INTERACT_POKE || event == DB_INTERACT_PET || event == DB_INTERACT_WAKE ||
+        event == DB_INTERACT_SNACK) db_brain_poke(&a->brain, now);
+    db_personality_event(&a->personality, event, x, y, now);
+    lv_timer_ready(a->timer);
+}
+static void cancel_interaction(struct deskbuddy_app *a)
+{
+    db_gesture_cancel(&a->gesture);
+    db_gesture_cancel(&a->snack_gesture);
+    db_personality_event(&a->personality, DB_INTERACT_CANCEL, 0, 0, app_now(a));
+    set_hidden(a->snack, true);
+    if (a->timer) lv_timer_ready(a->timer);
+}
 static void on_face(lv_event_t *e)
 {
     struct deskbuddy_app *a = lv_event_get_user_data(e);
-
-    db_brain_poke(&a->brain, app_now(a));
-    lv_timer_ready(a->timer);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (!buddy(a)) {
+        if (code == LV_EVENT_CLICKED) { db_brain_poke(&a->brain, app_now(a)); lv_timer_ready(a->timer); }
+        return;
+    }
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_RELEASED &&
+        code != LV_EVENT_PRESS_LOST) return;
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) return;
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    if (code == LV_EVENT_PRESSED && character_hit(a, point))
+        db_gesture_begin(&a->gesture, point.x, point.y, app_now(a));
+    if (code == LV_EVENT_PRESSING || code == LV_EVENT_RELEASED)
+        db_gesture_move(&a->gesture, point.x, point.y, character_hit(a, point));
+    if (code == LV_EVENT_PRESS_LOST) db_gesture_cancel(&a->gesture);
+    if (code == LV_EVENT_RELEASED) {
+        enum db_gesture_kind kind = db_gesture_end(&a->gesture, app_now(a));
+        if (kind == DB_GESTURE_TAP) interact(a, DB_INTERACT_POKE, point);
+        if (kind == DB_GESTURE_STROKE) interact(a, DB_INTERACT_PET, point);
+    }
+}
+static void on_feed(lv_event_t *e)
+{
+    struct deskbuddy_app *a = lv_event_get_user_data(e);
+    if (!buddy(a)) return;
+    if (a->personality.snack) cancel_interaction(a);
+    else {
+        /* Put the snack back on its tray after every cancelled drag. */
+        a->layout_pending = true;
+        lv_timer_ready(a->timer);
+        step(a);
+        lv_point_t point = {0};
+        lv_area_t face;
+        lv_obj_get_coords(a->face, &face);
+        point.x = face.x1 + a->face_w / 2;
+        point.y = face.y2 - 44;
+        lv_area_t root;
+        lv_obj_get_coords(a->root, &root);
+        lv_obj_set_pos(a->snack, point.x - root.x1 - 60, point.y - root.y1 - 32);
+        interact(a, DB_INTERACT_SNACK, point);
+    }
+}
+static void on_rest(lv_event_t *e)
+{
+    struct deskbuddy_app *a = lv_event_get_user_data(e);
+    if (!buddy(a)) return;
+    bool sleeping = a->personality.reaction == DB_REACT_DROWSY || a->personality.reaction == DB_REACT_ASLEEP;
+    cancel_interaction(a);
+    interact(a, sleeping ? DB_INTERACT_WAKE : DB_INTERACT_REST, (lv_point_t){0});
+}
+static void on_snack(lv_event_t *e)
+{
+    struct deskbuddy_app *a = lv_event_get_user_data(e);
+    if (!buddy(a) || !a->personality.snack) return;
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING && code != LV_EVENT_RELEASED &&
+        code != LV_EVENT_PRESS_LOST) return;
+    lv_indev_t *indev = lv_event_get_indev(e);
+    /* Key activation is delivered through the root's F/Enter action. */
+    if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) return;
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    if (code == LV_EVENT_PRESSED) db_gesture_begin(&a->snack_gesture, point.x, point.y, app_now(a));
+    if (code == LV_EVENT_PRESS_LOST) { cancel_interaction(a); return; }
+    if (code == LV_EVENT_PRESSING || code == LV_EVENT_RELEASED) {
+        lv_area_t root;
+        lv_obj_get_coords(a->root, &root);
+        bool inside = point.x >= root.x1 && point.x <= root.x2 && point.y >= root.y1 && point.y <= root.y2;
+        db_gesture_move(&a->snack_gesture, point.x, point.y, inside);
+        if (!a->snack_gesture.active) { cancel_interaction(a); return; }
+        if (a->snack_gesture.extent > 16) {
+            lv_obj_set_pos(a->snack, point.x - root.x1 - 60, point.y - root.y1 - 32);
+            interact(a, DB_INTERACT_FOLLOW, point);
+        }
+    }
+    if (code == LV_EVENT_RELEASED) {
+        bool drop = character_hit(a, point);
+        enum db_gesture_kind kind = db_gesture_end(&a->snack_gesture, app_now(a));
+        if (drop || kind == DB_GESTURE_TAP) interact(a, DB_INTERACT_FEED, point);
+        else cancel_interaction(a);
+    }
 }
 
 static void show_settings(struct deskbuddy_app *a, bool show)
 {
     if (show) {
+        cancel_interaction(a);
         refresh_toggles(a);
     }
     set_hidden(a->panel, !show);
@@ -676,7 +870,18 @@ static void on_key(lv_event_t *e)
         show_settings(a, false);
         return;
     }
-    if (a->sim && key >= '0' && key < '0' + DB_VISION_KIND_COUNT) {
+    if (!lv_obj_has_flag(a->panel, LV_OBJ_FLAG_HIDDEN)) return;
+    if (buddy(a)) {
+        if (key == LV_KEY_ESC && a->personality.snack) { cancel_interaction(a); return; }
+        if (key == 'f' || key == 'F' || key == LV_KEY_ENTER) {
+            if (a->personality.snack) interact(a, DB_INTERACT_FEED, (lv_point_t){0});
+            else { lv_obj_send_event(a->feed, LV_EVENT_CLICKED, NULL); }
+            return;
+        }
+        if (key == 'r' || key == 'R') { lv_obj_send_event(a->rest, LV_EVENT_CLICKED, NULL); return; }
+        if (key == ' ' || key == 'p' || key == 'P') { interact(a, DB_INTERACT_PET, (lv_point_t){0}); return; }
+    }
+    if (a->sim && key >= '0'  && key < '0' + DB_VISION_KIND_COUNT) {
         db_vision_mock_inject(&a->mock, (enum db_vision_kind)(key - '0'), app_now(a), &a->queue);
         lv_timer_ready(a->timer);
     }
@@ -777,6 +982,14 @@ static void build(struct deskbuddy_app *a, lv_obj_t *body)
         build_eye(&a->eye[k], a->face);
     }
 
+    a->mouth = plain(a->face);
+    pos_style_add(a->mouth, POS_STYLE_CHIP_ACTIVE, 0);
+    lv_obj_set_style_bg_opa(a->mouth, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(a->mouth, LV_RADIUS_CIRCLE, 0);
+    a->mouth_cut = plain(a->mouth);
+    pos_style_add(a->mouth_cut, POS_STYLE_SCREEN, 0);
+    lv_obj_set_style_radius(a->mouth_cut, LV_RADIUS_CIRCLE, 0);
+    set_hidden(a->mouth, true);
     a->side = plain(a->root);
     lv_obj_set_flex_flow(a->side, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(a->side, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -788,6 +1001,14 @@ static void build(struct deskbuddy_app *a, lv_obj_t *body)
     for (k = 0; k < LOG_LINES; k++) {
         a->log_line[k] = centred_label(a->side, POS_STYLE_CAPTION);
     }
+    a->buddy_controls = plain(a->side);
+    lv_obj_set_size(a->buddy_controls, LV_PCT(100), BUTTON_H);
+    lv_obj_set_flex_flow(a->buddy_controls, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(a->buddy_controls, GAP, 0);
+    a->feed = button(a->buddy_controls, "FEED", on_feed, a);
+    a->rest = button(a->buddy_controls, "REST", on_rest, a);
+    lv_obj_set_flex_grow(a->feed, 1);
+    lv_obj_set_flex_grow(a->rest, 1);
     a->action = button(a->side, "ARM", on_action, a);
     lv_obj_set_width(a->action, LV_PCT(100));
     row = plain(a->side);
@@ -803,10 +1024,36 @@ static void build(struct deskbuddy_app *a, lv_obj_t *body)
     a->settings_btn = button(row, "SET", on_settings, a);
     lv_obj_set_width(a->settings_btn, 80);
 
+    a->snack = button(a->root, "SNACK", NULL, a);
+    lv_obj_add_flag(a->snack, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    /* Retain capture while dragged outside its initial rectangle. */
+    lv_obj_add_flag(a->snack, LV_OBJ_FLAG_PRESS_LOCK);
+    lv_obj_set_width(a->snack, 120);
+    /* A small cookie in the existing accent, with background-coloured chips.
+     * The transparent 120x64 button keeps the full DS touch target. */
+    lv_obj_remove_style_all(a->snack);
+    set_hidden(lv_obj_get_child(a->snack, 0), true);
+    lv_obj_t *cookie = plain(a->snack);
+    pos_style_add(cookie, POS_STYLE_CHIP_ACTIVE, 0);
+    lv_obj_set_style_bg_opa(cookie, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(cookie, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_size(cookie, 52, 52);
+    lv_obj_center(cookie);
+    static const int chips[4][2] = { {13, 14}, {32, 11}, {21, 32}, {36, 31} };
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *chip = plain(cookie);
+        pos_style_add(chip, POS_STYLE_SCREEN, 0);
+        lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_size(chip, 7, 7);
+        lv_obj_set_pos(chip, chips[i][0], chips[i][1]);
+    }
+    set_hidden(a->snack, true);
+    lv_obj_add_event_cb(a->snack, on_snack, LV_EVENT_ALL, a);
     build_settings(a);
 
-    lv_obj_add_event_cb(a->face, on_face, LV_EVENT_CLICKED, a);
+    lv_obj_add_event_cb(a->face, on_face, LV_EVENT_ALL, a);
     lv_obj_add_event_cb(a->root, on_size, LV_EVENT_SIZE_CHANGED, a);
+    lv_obj_add_event_cb(a->face, on_size, LV_EVENT_SIZE_CHANGED, a);
     lv_obj_add_event_cb(a->root, on_key, LV_EVENT_KEY, a);
     pos_input_add_obj(a->root);
     pos_input_focus(a->root);
@@ -817,12 +1064,13 @@ static void build(struct deskbuddy_app *a, lv_obj_t *body)
  * and the KPU in Vision's helper - unless $DESKBUDDY_VISION is "none". */
 static void start_provider(struct deskbuddy_app *a, int64_t now)
 {
-    const char *sim = getenv("DESKBUDDY_SIM");
+    const char *sim = a->simulation;
     const char *vision = getenv("DESKBUDDY_VISION");
 
     a->provider.ops = &db_vision_none_ops;
     a->provider.ctx = NULL;
-    if (!(sim && *sim) && !(vision && strcmp(vision, "none") == 0)) {
+    bool camera = db_state_mode(a->brain.state) != DB_MODE_COMPANION || (vision && strcmp(vision, "pipeline") == 0);
+    if (!(sim && *sim) && camera && !(vision && strcmp(vision, "none") == 0)) {
         a->pipeline_cfg.display_rotation = pos_rotation_degrees(pocketui_display_geometry()->rotation);
         a->provider.ops = &db_vision_pipeline_ops;
         a->provider.ctx = &a->pipeline_cfg;
@@ -835,6 +1083,17 @@ static void start_provider(struct deskbuddy_app *a, int64_t now)
         }
     }
     a->provider_next = a->provider.ops->start(a->provider.ctx, now, &a->queue) == 0 ? now : -1;
+}
+
+/* Switching to/from the old camera modes keeps their original provider.
+ * Buddy defaults to none; explicit DESKBUDDY_VISION=pipeline retains the
+ * camera-dependent companion feature without coupling it to touch. */
+static void sync_provider(struct deskbuddy_app *a, int64_t now)
+{
+    if (a->sim) return;
+    if (a->provider.ops) a->provider.ops->stop(a->provider.ctx);
+    db_vision_queue_init(&a->queue);
+    start_provider(a, now);
 }
 
 /* $DESKBUDDY_MODE (simulation only): start in companion, guard, night or
@@ -871,7 +1130,8 @@ static void *deskbuddy_create(lv_obj_t *body)
     a->last_tick = lv_tick_get();
     now = app_now(a);
     db_vision_queue_init(&a->queue);
-    start_provider(a, now);
+    a->simulation = getenv("DESKBUDDY_SIM");
+    a->sim = a->simulation && *a->simulation;
     if (a->sim) {
         db_prefs_defaults(&prefs);
         db_guard_init(&a->log);
@@ -883,12 +1143,15 @@ static void *deskbuddy_create(lv_obj_t *body)
     db_brain_set_wall(&a->brain, wall_now());
     db_brain_set_reduced_motion(&a->brain, pocketos_shell_reduced_motion() != 0, now);
     sim_mode(a, now);
+    db_personality_init(&a->personality, now);
+    a->buddy_was = buddy(a);
+    start_provider(a, now);
 
     build(a, body);
     a->layout_pending = true;
     a->timer = lv_timer_create(on_timer, TIMER_MIN_MS, a);
-    step(a);
     refresh_ui(a, true);
+    step(a);
     return a;
 }
 
@@ -921,6 +1184,8 @@ static void deskbuddy_destroy(void *priv)
     if (!a) {
         return;
     }
+    db_gesture_cancel(&a->gesture);
+    db_gesture_cancel(&a->snack_gesture);
     if (a->provider.ops) {
         a->provider.ops->stop(a->provider.ctx);
     }
@@ -998,6 +1263,18 @@ lv_obj_t *deskbuddy_app_settings_done(void *priv)
     return priv ? ((struct deskbuddy_app *)priv)->done : NULL;
 }
 
+const struct db_personality *deskbuddy_app_personality(void *priv)
+{
+    return priv ? &((struct deskbuddy_app *)priv)->personality : NULL;
+}
+lv_obj_t *deskbuddy_app_feed(void *priv) { return priv ? ((struct deskbuddy_app *)priv)->feed : NULL; }
+lv_obj_t *deskbuddy_app_rest(void *priv) { return priv ? ((struct deskbuddy_app *)priv)->rest : NULL; }
+lv_obj_t *deskbuddy_app_snack(void *priv) { return priv ? ((struct deskbuddy_app *)priv)->snack : NULL; }
+const char *deskbuddy_app_provider(void *priv)
+{
+    return priv ? ((struct deskbuddy_app *)priv)->provider.ops->name : NULL;
+}
+
 lv_obj_t *deskbuddy_app_face(void *priv)
 {
     return priv ? ((struct deskbuddy_app *)priv)->face : NULL;
@@ -1038,6 +1315,7 @@ static int deskbuddy_back(void *priv)
 {
     struct deskbuddy_app *a = priv;
 
+    if (a && a->personality.snack) { cancel_interaction(a); return 1; }
     if (!a || !a->panel || lv_obj_has_flag(a->panel, LV_OBJ_FLAG_HIDDEN)) {
         return 0;
     }
