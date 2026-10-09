@@ -57,9 +57,11 @@
  * (vision_session.h); longer while it is still opening a model. */
 #define VISION_DESTROY_GRACE_MS VISION_LEAVE_GRACE_MS
 #define VISION_LABEL_MAX 48
-/* The detector A/B's files on a bench unit (docs/apps/VISION.md, "Detector
- * A/B on a bench unit"), each overridable for the simulator. Not "yolo*":
- * the image's refusal of the SDK's Ultralytics models goes by that name. */
+/* The detector files Vision knows by name (docs/apps/VISION.md, "The
+ * model"): R0, which the image carries from 0.3.6, and UPSTREAM, which only a
+ * bench unit is given by hand. Each is overridable for the simulator. Not
+ * "yolo*": the image's refusal of the SDK's Ultralytics models goes by that
+ * name. */
 #define VISION_DET_DIR "/usr/share/doors/vision/"
 #define VISION_DET_STATS_LOG_MS 10000
 static const char *const det_files[VISION_DETECTORS] = {
@@ -1177,13 +1179,13 @@ static void *vision_create(lv_obj_t *root)
         LOG_INFO("vision: opening in %s", vision_mode_name(a->model.set.mode));
     }
     {
-        /* The detector A/B, on a unit that has either file. */
+        /* The detector files: R0 on every 0.3.6 card, UPSTREAM by hand. */
         uint32_t present = det_present();
 
         a->det_logged = -1;
         vision_model_set_detector_files(&a->model, present);
         if (present) {
-            LOG_INFO("vision: detector A/B: R0 %s, UPSTREAM %s; last confirmed %s",
+            LOG_INFO("vision: detector files: R0 %s, UPSTREAM %s; last confirmed %s",
                      (present & (1u << VISION_DET_R0)) ? "present" : "missing",
                      (present & (1u << VISION_DET_UPSTREAM)) ? "present" : "missing",
                      vision_detector_name(a->model.set.detector));

@@ -84,10 +84,11 @@ enum vision_speed_mode {
 };
 
 /* The ground distances offered, in centimetres. */
-/* The two detectors a bench unit can be given for an A/B comparison
- * (docs/apps/VISION.md, "Detector A/B on a bench unit"): DOORS' own R0
- * training and the upstream YOLOX-Tiny it was trained to replace, both
- * YOLOX-Tiny 416 with the same input and output. */
+/* The detector files Vision knows by name (docs/apps/VISION.md, "The
+ * model"): DOORS' own R0 training, which the image carries from 0.3.6 and a
+ * fresh installation selects, and the upstream YOLOX-Tiny it was trained to
+ * replace, which a bench unit may be given by hand for an A/B comparison.
+ * Both are YOLOX-Tiny 416 with the same input and output. */
 enum vision_detector {
     VISION_DET_R0 = 0,
     VISION_DET_UPSTREAM,
@@ -140,7 +141,8 @@ int vision_settings_sanitize(struct vision_settings *s);
 enum vision_group vision_mode_group(enum vision_mode mode);
 const char *vision_mode_name(enum vision_mode mode);
 const char *vision_mode_word(enum vision_mode mode);
-/* The detector's name on the screen (R0, UPSTREAM) and its word in the file. */
+/* The detector's name on the screen (R0 · Beta, UPSTREAM) and its word in
+ * the file. */
 const char *vision_detector_name(enum vision_detector d);
 const char *vision_detector_word(enum vision_detector d);
 /* A group's caption. */

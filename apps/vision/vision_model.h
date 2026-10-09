@@ -21,15 +21,18 @@
  * The choices live in a struct vision_settings, per mode; a tap that
  * changes one asks the screen to store them (VISION_ACT_SAVE).
  *
- * THE DETECTOR A/B: a bench unit may hold two detector files, R0 and
- * UPSTREAM (vision_settings.h). When either is there, the detector's modes
- * get a MODEL button that names the detector in force; a tap asks for the
- * other one, which is loaded by ending the helper and starting it again on
- * that file (VISION_ACT_OPEN). Only one detector is ever open. The new one
- * is in force - and stored - only once the helper says `ready` with it; a
- * file that is missing or does not load brings the previous one back and
- * says why. Without either file nothing here changes: the helper opens its
- * own default as before.
+ * THE DETECTOR FILES: the image carries R0 (from 0.3.6, an experimental
+ * beta), and a bench unit may be given UPSTREAM by hand for an A/B
+ * comparison (vision_settings.h). When either is there, the detector's modes
+ * get a MODEL button that names the detector in force. It takes a tap only
+ * when the other file is there too: a tap asks for the other one, which is
+ * loaded by ending the helper and starting it again on that file
+ * (VISION_ACT_OPEN). Only one detector is ever open. The new one is in force
+ * - and stored - only once the helper says `ready` with it; a file that is
+ * missing or does not load brings the previous one back and says why, and a
+ * stored choice whose file has gone opens the one that is there. Without
+ * either file nothing here changes: the helper opens its own default as
+ * before.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0

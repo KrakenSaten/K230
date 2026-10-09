@@ -1100,6 +1100,7 @@ static void test_detector_ab(void)
 
     /* Both files, UPSTREAM last confirmed. */
     vision_model_init(&m);
+    m.set.detector = VISION_DET_UPSTREAM;
     vision_model_set_detector_files(&m, DET_BOTH);
     check("A/B: opens to start the helper", vision_model_open(&m) == VISION_ACT_OPEN);
     check("A/B: on the detector last confirmed", vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM &&
@@ -1163,8 +1164,8 @@ static void test_detector_ab(void)
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: a missing file is refused before the helper is touched",
           acts == 0 && m.state == VISION_LIVE && m.det_active == VISION_DET_UPSTREAM &&
-              strcmp(m.det_fail, "R0 is not on this unit") == 0);
-    check("A/B: and said under the picture", t.status_warn && strstr(t.status, "R0 is not on this unit") != NULL);
+              strcmp(m.det_fail, "R0 · Beta is not on this unit") == 0);
+    check("A/B: and said under the picture", t.status_warn && strstr(t.status, "R0 · Beta is not on this unit") != NULL);
     vision_model_tick(&m, 4000);
     check("A/B: for a while", vision_model_tick(&m, 4000 + VISION_DET_FAIL_SHOW_MS) && m.det_fail[0] == '\0');
 
@@ -1177,21 +1178,21 @@ static void test_detector_ab(void)
           acts == VISION_ACT_OPEN && m.state == VISION_INIT &&
               vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM && m.det_fallback == -1);
     check("A/B: saying what failed and why",
-          strcmp(m.det_fail, "R0 could not be loaded: not a kmodel this runtime can load. Back on UPSTREAM.") == 0);
+          strcmp(m.det_fail, "R0 · Beta could not be loaded: not a kmodel this runtime can load. Back on UPSTREAM.") == 0);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: while going back too", strcmp(t.detail, m.det_fail) == 0);
     acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 5500);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: UPSTREAM in force again, R0 never stored",
           m.det_active == VISION_DET_UPSTREAM && m.set.detector == VISION_DET_UPSTREAM && (acts & VISION_ACT_SAVE) == 0);
-    check("A/B: the failure stays under the picture", t.status_warn && strstr(t.status, "R0 could not be loaded") != NULL);
+    check("A/B: the failure stays under the picture", t.status_warn && strstr(t.status, "R0 · Beta could not be loaded") != NULL);
 
     /* R0's file gone between the tap and the helper (ready with none). */
     vision_model_model_button(&m, DET_BOTH);
     acts = det_ready(&m, "none", 6000);
     check("A/B: ready without the detector asked for goes back",
           (acts & VISION_ACT_OPEN) && vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM &&
-              strstr(m.det_fail, "R0 could not be loaded: its file is not there") != NULL);
+              strstr(m.det_fail, "R0 · Beta could not be loaded: its file is not there") != NULL);
     det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 6500);
     check("A/B: and lands on UPSTREAM", m.det_active == VISION_DET_UPSTREAM && m.state == VISION_LIVE);
 
@@ -1217,7 +1218,7 @@ static void test_detector_ab(void)
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: with no fallback Vision stops and says which and why",
           acts == 0 && m.state == VISION_NO_DEVICE && t.show_retry &&
-              strncmp(t.detail, "R0 could not be loaded: not a kmodel", 36) == 0);
+              strncmp(t.detail, "R0 · Beta could not be loaded: not a kmodel", strlen("R0 · Beta could not be loaded: not a kmodel")) == 0);
     check("A/B: TRY AGAIN loads it again", vision_model_open(&m) == VISION_ACT_OPEN &&
                                                vision_model_detector_to_load(&m) == VISION_DET_R0);
 
@@ -1228,9 +1229,55 @@ static void test_detector_ab(void)
     vision_model_open(&m);
     check("A/B: a stored detector whose file has gone opens the other",
           vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM && m.det_fallback == -1 &&
-              strcmp(m.det_fail, "R0 is not on this unit. Using UPSTREAM.") == 0);
+              strcmp(m.det_fail, "R0 · Beta is not on this unit. Using UPSTREAM.") == 0);
     acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
     check("A/B: and keeps that once it is in force", m.set.detector == VISION_DET_UPSTREAM && (acts & VISION_ACT_SAVE));
+
+    /* A fresh card (0.3.6): R0 is the image's only detector file and nothing
+     * is stored. R0 is selected, named as the beta it is, and MODEL offers
+     * no detector that is not there. */
+    vision_model_init(&m);
+    check("fresh: the default detector is R0", m.set.detector == VISION_DET_R0);
+    vision_model_set_detector_files(&m, 1u << VISION_DET_R0);
+    check("fresh: opens on R0", vision_model_open(&m) == VISION_ACT_OPEN &&
+                                    vision_model_detector_to_load(&m) == VISION_DET_R0 && m.det_fallback == -1 &&
+                                    m.det_fail[0] == '\0');
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("fresh: while it loads it is named R0 · Beta",
+          strcmp(t.model_btn, "LOADING R0 · Beta") == 0 && strcmp(t.detail, "Opening the camera and the R0 · Beta detector") == 0);
+    acts = det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("fresh: R0 · Beta in force, nothing new to store",
+          m.det_active == VISION_DET_R0 && m.state == VISION_LIVE && strcmp(t.model_btn, "MODEL: R0 · Beta") == 0 &&
+              (acts & VISION_ACT_SAVE) == 0);
+    check("fresh: MODEL names it but is no choice: there is no other detector", !t.model_enabled);
+    n = vision_model_buttons(&m, order);
+    check("fresh: DETECT still shows which detector runs", n == 2 && order[1] == VISION_BTN_MODEL);
+    check("fresh: a tap anyway loads nothing", vision_model_model_button(&m, 1u << VISION_DET_R0) == 0 &&
+                                                   m.state == VISION_LIVE && m.det_active == VISION_DET_R0);
+    m.det_fail[0] = '\0';
+    m.stats = (struct vision_stats) { .fps_x10 = 125, .infer_ms = 60 };
+    m.stats_valid = true;
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("fresh: DETECT's numbers are R0 · Beta's", strncmp(t.status, "R0 · Beta  12.5 fps  KPU 60 ms",
+                                                              strlen("R0 · Beta  12.5 fps  KPU 60 ms")) == 0);
+    /* The same unit given UPSTREAM by hand: MODEL becomes a choice. */
+    vision_model_set_detector_files(&m, DET_BOTH);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("fresh + UPSTREAM installed: MODEL is a choice", t.model_enabled);
+
+    /* A stale choice: UPSTREAM stored on a unit that has only R0 now. */
+    vision_model_init(&m);
+    m.set.detector = VISION_DET_UPSTREAM;
+    vision_model_set_detector_files(&m, 1u << VISION_DET_R0);
+    vision_model_open(&m);
+    check("stale: UPSTREAM stored, only R0 here: R0, said",
+          vision_model_detector_to_load(&m) == VISION_DET_R0 && m.det_fallback == -1 &&
+              strcmp(m.det_fail, "UPSTREAM is not on this unit. Using R0 · Beta.") == 0);
+    acts = det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("stale: R0 stored once in force, UPSTREAM not offered",
+          m.set.detector == VISION_DET_R0 && (acts & VISION_ACT_SAVE) && !t.model_enabled);
 }
 
 int main(void)
