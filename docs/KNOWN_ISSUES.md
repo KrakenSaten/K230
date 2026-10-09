@@ -12,7 +12,8 @@ history when resolved.
   small cars and about one in six small ones, and confused cars and trucks
   (docs/vision/R0_TRAFFIC6_RESULTS.md on `research/yolox-traffic-training`).
   It detects only car, truck, bus, motorcycle, bicycle and person. Its
-  distribution terms are still the owner's to decide (MODEL_LICENSES.md).
+  weights are Apache-2.0 (owner decision 2026-10-09); the third-party
+  questions that decision does not settle are in MODEL_LICENSES.md.
 - **DeskBuddy does not use R0** (v0.3.6): its provider opens the helper's
   default model, `yolov8n.kmodel`, which no image ships, so without face
   models it reports NO VISION YET as on 0.3.5 (docs/apps/DESKBUDDY.md).

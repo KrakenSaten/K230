@@ -36,9 +36,8 @@ export to the K230's KPU format. R0 ran on unit A in a bench A/B
 comparison. It misses many small and distant vehicles.
 
 Now: R0 is in the 0.3.6 release candidate as an experimental beta
-("R0 · Beta"), not yet published. Its distribution terms are an open owner
-decision, and a fresh-card hardware check of the candidate is still to be
-done. A second training round (R1-A), aimed at the cars R0 misses in
+("R0 · Beta"), not yet published. Its weights are licensed under
+Apache-2.0, and the candidate passed a fresh-card smoke test on hardware. A second training round (R1-A), aimed at the cars R0 misses in
 street scenes, is running; no result from it is claimed here.
 
 ### 2. DeskBuddy development (Planned)
