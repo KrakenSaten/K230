@@ -545,6 +545,60 @@ like the others; nothing is stored.
 
 ## The model
 
+### R0 · Beta: the detector in the image (0.3.6)
+
+From Doors 0.3.6 the image carries **R0**, the Doors project's own detector,
+as an **experimental beta**:
+`/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel` (5,894,104
+bytes, sha256 `94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268`,
+pinned in `tools/vision/r0-model.sha256`). It is a YOLOX-Tiny 416 trained by
+the project from no pretrained weights on licence-filtered COCO 2017 and Open
+Images V7 pictures (research branch `research/yolox-traffic-training`,
+docs/vision/R0_TRAFFIC6_RESULTS.md there), and exported to the same
+`[1, 84, 3549]` layout as the upstream YOLOX-Tiny below, so the decoder,
+tracker and TRAFFIC's class map are unchanged.
+
+- **Six classes:** car, truck, bus, motorcycle, bicycle and person. The
+  other 74 COCO rows score about zero, so DETECT and TRACK box only these
+  six, and TRAFFIC counts them (as car, truck, bus, moto, bike, person).
+- **It is a beta, and it misses things.** R0 can miss vehicles, including
+  cars in ordinary street scenes; small and distant vehicles are mostly not
+  found, and cars and trucks are confused. It is not claimed to do better
+  than the detectors Vision used before. Counts from TRACK and TRAFFIC are
+  indications, not measurements.
+- **Selected on a fresh installation.** With no settings file, or one
+  without a `detector=` line, Vision starts the helper on R0. The MODEL
+  button names it: **R0 · Beta** (U+00B7, in the product fonts), and
+  DETECT's numbers start with the same name. With R0 the only detector on
+  the unit, the button takes no tap: there is nothing else to choose.
+- **On unit A** (bench A/B, docs/hardware/VISION_MODEL_AB_GATE.md, VERIFIED):
+  KPU 55-68 ms per frame, about 12.5 fps, helper RSS about 7.3 MB.
+- **Licence.** R0 is not covered by Doors' Apache-2.0 licence. Its status is
+  in MODEL_LICENSES.md (CANDIDATE - OWNER DECISION PENDING), and what it was
+  trained with is credited in THIRD_PARTY_NOTICES.txt (`yolox`,
+  `r0-training-data`).
+- **How it gets into the image.** The kmodel is not in git.
+  `apply_to_sdk.sh` takes it from `$POCKETOS_VISION_R0_KMODEL` and refuses
+  any file whose sha256 is not the pinned one; the package checks the pin
+  again when it installs it, and the image gate (`verify_image.sh`) refuses
+  an image without exactly that file. `POCKETOS_VISION_R0_KMODEL=none` is
+  for a userspace-only rebuild to deploy, never for an image.
+
+**Models installed by hand are still used** as before: the upstream
+YOLOX-Tiny file of the bench A/B (below) makes MODEL a choice again; READ,
+FACE and RECOGNIZE appear when their files are there; and `yolov8n.kmodel`
+stays the helper's own default. A stored choice whose file has gone opens the
+one that is there and says so under the picture ("UPSTREAM is not on this
+unit. Using R0 · Beta.").
+
+**DeskBuddy does not use R0.** Its provider (`apps/deskbuddy_vision`) starts
+`pos-vision` without `--model`, so it opens the helper's default,
+`yolov8n.kmodel`, which no image ships. On a 0.3.6 card DeskBuddy therefore
+behaves as on 0.3.5: with no face model installed it reports that it cannot
+see. `pos-vision probe` and `bench` likewise need `--model` to run R0.
+
+### YOLOv8n, the helper's default (not shipped since 0.3.5)
+
 **YOLOv8n, 320 x 320, quantized, as `yolov8n.kmodel` from the pinned
 vendor SDK** (`vendor/T-Display-K230/k230_linux_sdk/buildroot-overlay/package/yolo/utils/yolov8n.kmodel`,
 3,495,296 bytes, sha256 in the gate sheet once measured). Why this one and
@@ -561,15 +615,16 @@ not another:
 - the SDK also carries `yolov5n`, `yolo11n` and `yolo26n`; YOLOv8n is the
   one asked for, and the one whose head the decoder is written for.
 
-**From Doors 0.3.5 neither the image nor this repository carries the
-model.** Images 0.2.1 to 0.3.0 did, for internal use; a DOORS-trained
-replacement detector is in preparation. The helper reads it from
+**From Doors 0.3.5 neither the image nor this repository carries this
+model.** Images 0.2.1 to 0.3.0 did, for internal use; from 0.3.6 Vision runs
+R0 (above) instead. The helper reads it from
 `/usr/share/doors/vision/yolov8n.kmodel` (override with
 `$POCKETOS_VISION_MODEL` or `--model`). **When that file does not exist**
-the helper still opens the camera, says `ready` with the model `none` and no
+(and nothing names another with `--model`, as Vision does for R0) the
+helper still opens the camera, says `ready` with the model `none` and no
 classes, and offers only the modes that need no detector in its `caps`:
 COLOR, EDGE and LINE TRACE, plus READ, FACE and RECOGNIZE when their own
-models are there. It refuses `mode detect|track|traffic`. The app starts in
+models are there. It refuses `mode detect|track|traffic`. On a unit without R0 or the A/B file, the app starts in
 the first mode offered (the owner's DETECT setting is kept for when the
 model returns), leaves DETECT, TRACK and TRAFFIC out of the picker, and says
 under the picture: "No detector model on this unit: DETECT, TRACK and
@@ -579,10 +634,11 @@ file that exists and does not open is still an error ("No camera or
 detector", with the reason). `pos-vision probe` and `bench` still need the
 file and exit 5 without it.
 
-The `pocketos` package installs no model and refuses, after every package
-has installed, any of the SDK's Ultralytics YOLO kmodels in the target, by
-name or by the hashes in `tools/vision/refused-models.sha256`; it also
-refuses the vendor `yolo` demo package. Up to 0.3.0 it copied the pinned
+The `pocketos` package installs R0 and no other model, and refuses, after
+every package has installed, any of the SDK's Ultralytics YOLO kmodels in the
+target, by name or by the hashes in `tools/vision/refused-models.sha256`
+(which also lists the bench A/B's upstream YOLOX-Tiny); it also refuses the
+vendor `yolo` demo package. Up to 0.3.0 it copied the pinned
 SDK's own file into the image. The pinned file's sha256 is in
 `tools/vision/yolov8n.kmodel.sha256` (`0b4bcdd3…2004a09`). The model is
 licensed differently from Doors: the vendor's `package/yolo` sources carry
@@ -600,27 +656,32 @@ in the order the vendor's `coco_labels.txt` lists them.
 
 ### Detector A/B on a bench unit (feat/vision-model-switch)
 
-A practical comparison on hardware, not a release feature: no image carries
-either file, and neither is in this repository. When a unit has either of
+A practical comparison on hardware. From 0.3.6 the image carries the R0 file
+(above); the upstream file is never in an image (it is on the refused-hash
+list) and is given to a bench unit by hand. Neither is in this repository.
+When a unit has either of
 
 | File in `/usr/share/doors/vision/` | Override | What it is | sha256 (VERIFIED) |
 |---|---|---|---|
 | `det-r0-traffic6-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_R0` | DOORS' R0 YOLOX-Tiny 416 (traffic6), research branch `research/yolox-traffic-training`, docs/vision/R0_TRAFFIC6_RESULTS.md section 9 | `94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268` |
 | `det-upstream-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_UPSTREAM` | upstream YOLOX-Tiny 416, the 2026-10-04 detector evaluation's `yolox_tiny_416_a16` | `8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354` |
 
-DETECT, TRACK and TRAFFIC get a last button, **MODEL**, naming the detector
-in force (`MODEL: R0`, `MODEL: UPSTREAM`; `LOADING ...` while one opens), and
-DETECT's numbers start with its name. A tap asks for the other one: Vision
+DETECT, TRACK and TRAFFIC get a last button, MODEL, naming the detector in
+force (`R0 · Beta`, `UPSTREAM`; `LOADING R0` or `LOADING UPSTREAM` while one
+opens; up to the 0.3.6 work it read `MODEL: R0`, which did not fit a
+landscape button once R0 was named a beta), and DETECT's numbers start with
+its name. The button takes a tap only when the other file is on the unit
+too. A tap asks for the other one: Vision
 ends the helper (the old detector and the KPU pool go with it) and starts it
 again with `--model` on the other file, so only one detector is ever loaded
 and the tracks and counts start again. The new detector is in force, and
 stored (`detector=r0|upstream` in `settings.v1`; a file without the key is
-UPSTREAM), only once the helper says `ready` with it. A file that is missing,
+R0 from 0.3.6, UPSTREAM before), only once the helper says `ready` with it. A file that is missing,
 or that the helper cannot open (`nomodel`), or a helper that dies opening it,
 brings the previous detector back and says under the picture why, for ten
 seconds; with no other file to go back to, Vision stops with the reason and
-TRY AGAIN. Without either file nothing changes: no MODEL button, and the
-helper opens its own default as before. The helper itself is unchanged.
+TRY AGAIN. Without either file (a 0.3.5 card, or an image built without R0)
+there is no MODEL button, and the helper opens its own default as before. The helper itself is unchanged.
 
 Both files are drop-ins for the decoder, checked against their export
 records rather than assumed from the family name: the same YOLOX-to-YOLOv8

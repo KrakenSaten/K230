@@ -28,21 +28,18 @@ TRAFFIC modes are off in the published image ([VISION.md](apps/VISION.md),
 [MODEL_LICENSES.md](../MODEL_LICENSES.md)). The aim is a detector trained by
 the DOORS project, on data whose licences allow it to be shipped.
 
-Done so far, on a research branch: a reproducible training pipeline and the
-first training dataset (R0), built from licence-checked COCO and Open Images
-images with a held-out test split. The R0 training run is in progress.
+Done so far, on a research branch: a reproducible training pipeline, the
+first training dataset (R0) from licence-checked COCO and Open Images
+images with a held-out test split, the R0 training run (completed
+2026-10-09), its evaluation, including small and distant objects, and its
+export to the K230's KPU format. R0 ran on unit A in a bench A/B
+comparison. It misses many small and distant vehicles.
 
-Remaining steps, in order:
-
-1. Complete the R0 training run.
-2. Evaluate the results, including how well small and distant objects are
-   detected.
-3. Export the model to the K230's KPU format.
-4. Validate it on K230 hardware.
-5. Only then integrate it into Vision and the image.
-
-No training result or hardware validation has been reported yet, and this
-page will not claim one before it exists.
+Now: R0 is in the 0.3.6 release candidate as an experimental beta
+("R0 · Beta"), not yet published. Its distribution terms are an open owner
+decision, and a fresh-card hardware check of the candidate is still to be
+done. A second training round (R1-A), aimed at the cars R0 misses in
+street scenes, is running; no result from it is claimed here.
 
 ### 2. DeskBuddy development (Planned)
 

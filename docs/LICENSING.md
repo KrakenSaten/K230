@@ -274,7 +274,10 @@ Findings:
     runs without it (COLOR, EDGE, LINE TRACE; docs/apps/VISION.md "The
     model"). The item no longer blocks an image; it applies again only if a
     YOLO-derived model is proposed for one. Training a DOORS-owned detector
-    is separate work (research/yolox-traffic-training).
+    is separate work (research/yolox-traffic-training); its first result,
+    R0, is in the 0.3.6 release candidate as a beta, with its own row and
+    open points in MODEL_LICENSES.md (not this item: R0 contains nothing of
+    YOLOv8n).
 11. **Vision's optional models (feat/vision-next, docs/apps/VISION.md):**
     READ's text detector, recogniser and dictionary and RECOGNIZE's face
     embedding model (`face_recognition.kmodel`) come from the canmv SDK's

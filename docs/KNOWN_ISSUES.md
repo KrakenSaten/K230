@@ -1,9 +1,21 @@
 # Known issues and open questions
 
-Updated 2026-10-07 for v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
+Updated 2026-10-09 for the v0.3.6 release candidate (docs/releases/v0.3.6.md;
+not published) on top of v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
 v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.
+
+- **Vision's R0 detector is a beta and misses things** (v0.3.6,
+  docs/apps/VISION.md "The model"). It can miss vehicles, including cars in
+  ordinary street scenes; on its held-out test set it found none of the very
+  small cars and about one in six small ones, and confused cars and trucks
+  (docs/vision/R0_TRAFFIC6_RESULTS.md on `research/yolox-traffic-training`).
+  It detects only car, truck, bus, motorcycle, bicycle and person. Its
+  distribution terms are still the owner's to decide (MODEL_LICENSES.md).
+- **DeskBuddy does not use R0** (v0.3.6): its provider opens the helper's
+  default model, `yolov8n.kmodel`, which no image ships, so without face
+  models it reports NO VISION YET as on 0.3.5 (docs/apps/DESKBUDDY.md).
 
 - **RIFT's first use from Controls** (v0.3.5 notes, "RIFT on a fresh
   card") passed on unit B from a fresh card (2026-10-07), the success path

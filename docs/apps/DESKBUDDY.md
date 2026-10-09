@@ -284,3 +284,11 @@ NO VISION YET); after closing no helper was left and Camera opened. The
 helper took 5-18 % CPU (live camera, RECOGNIZE); DeskBuddy's shell RSS was
 unchanged. Not tested: a live person at the desk, and Guard mode's log with
 real vision.
+
+**Doors 0.3.6 and the R0 detector** (checked in the code, not on hardware):
+the provider starts `pos-vision` without `--model`, so its DETECT fallback
+opens the helper's default, `yolov8n.kmodel`, which no image ships since
+0.3.5. The R0 detector that 0.3.6 carries (docs/apps/VISION.md, "The model")
+is opened only by the Vision app, by name, so it changes nothing here: a
+fresh 0.3.6 card without face models reports NO VISION YET, as 0.3.5 does.
+A unit given `yolov8n.kmodel` or the face models by hand behaves as before.
