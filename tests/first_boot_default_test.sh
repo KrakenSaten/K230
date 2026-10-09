@@ -13,6 +13,9 @@
 #     Buildroot's synced copy, the target tree, the package and its menu
 #     line - leaves the vendor's own files alone, and finds nothing the
 #     second time;
+#   - the [3b2/5] step that the same lifted block carries since v0.3.5 takes
+#     the vendor leftovers (root/script/sensor.sh, libasan, libgfortran) out
+#     of all three trees;
 #   - S90doors-shell starts with no settings file at all, ignores a leftover
 #     ENABLE=1 for a launcher that is not installed, and still yields to one
 #     that is (a unit on an older image).
@@ -46,12 +49,15 @@ CONF=k230_pocketos_defconfig
 BR="$SDK/output/buildroot-2025.02.1"
 OVL=board/canaan/k230-soc/rootfs_overlay
 # An SDK tree as the vendor's install_to_sdk.sh leaves it, with the vendor's
-# own files beside it that must survive.
+# own files beside it that must survive, and the vendor leftovers that
+# [3b2/5] takes out (owner's decision, 2026-10-07).
 for root in "$SDK/buildroot-overlay/$OVL" "$BR/$OVL" "$SDK/output/$CONF/target"; do
-    mkdir -p "$root/etc/init.d" "$root/root/script" "$root/root/app/face_detect"
+    mkdir -p "$root/etc/init.d" "$root/root/script" "$root/root/app/face_detect" "$root/lib"
     printf '#!/bin/sh\n' > "$root/etc/init.d/S99zz_k230_phone_ui"
     printf '#!/bin/sh\n' > "$root/etc/init.d/S40bluetoothd"
     printf 'x' > "$root/root/script/sensor.sh"
+    printf 'x' > "$root/lib/libasan.so.8"
+    printf 'x' > "$root/lib/libgfortran.so.5"
     printf 'x' > "$root/root/app/face_detect/face_detect"
     for d in music nes videos photos screenshots recordings lorawan meshtastic notification nrf52840 picoclaw; do
         mkdir -p "$root/root/$d"
@@ -86,13 +92,21 @@ check "and keep the vendor's other packages" \
        && grep -q 'package/vvcam/Config.in' "$BR/package/Config_canaan.in" && echo 1 || echo 0)"
 kept=0
 for root in "$SDK/buildroot-overlay/$OVL" "$BR/$OVL" "$SDK/output/$CONF/target"; do
-    [ -f "$root/etc/init.d/S40bluetoothd" ] && [ -f "$root/root/script/sensor.sh" ] \
+    [ -f "$root/etc/init.d/S40bluetoothd" ] \
         && [ -f "$root/root/app/face_detect/face_detect" ] && kept=$((kept + 1))
 done
 check "the vendor's own files beside it are kept" "$([ "$kept" = 3 ] && echo 1 || echo 0)"
+# sensor.sh used to be counted above; since v0.3.5 the [3b2/5] step in the
+# same block removes it on purpose, together with libasan and libgfortran.
+leftovers=$(find "$SDK" \( -path '*/root/script/sensor.sh' -o -name 'libasan.so*' \
+        -o -name 'libgfortran.so*' \) | sed "s#$SDK/##")
+check "the vendor leftovers are taken out by [3b2/5]${leftovers:+ (left: $(echo $leftovers))}" \
+    "$([ -z "$leftovers" ] && echo 1 || echo 0)"
+check "and it says so" "$(contains "$(cat "$TMP/apply.log")" "removed buildroot-overlay/$OVL/root/script/sensor.sh")"
 run_block
 check "a second apply finds nothing to remove" \
     "$(contains "$(cat "$TMP/apply.log")" "no vendor launcher in the SDK")"
+check "and no vendor leftovers either" "$(contains "$(cat "$TMP/apply.log")" "none in the SDK")"
 printf 'BR2_PACKAGE_K230_PHONE_UI=y\n' >> "$SDK/buildroot-overlay/configs/$CONF"
 check "NEGATIVE CONTROL: a Doors defconfig that names the launcher is refused" \
     "$(run_block && echo 0 || echo 1)"
