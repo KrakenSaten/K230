@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define VISION_POLL_MS 33
 /* destroy() and Try again: time for the helper to close the camera and the
@@ -56,6 +57,19 @@
  * (vision_session.h); longer while it is still opening a model. */
 #define VISION_DESTROY_GRACE_MS VISION_LEAVE_GRACE_MS
 #define VISION_LABEL_MAX 48
+/* The detector A/B's files on a bench unit (docs/apps/VISION.md, "Detector
+ * A/B on a bench unit"), each overridable for the simulator. Not "yolo*":
+ * the image's refusal of the SDK's Ultralytics models goes by that name. */
+#define VISION_DET_DIR "/usr/share/doors/vision/"
+#define VISION_DET_STATS_LOG_MS 10000
+static const char *const det_files[VISION_DETECTORS] = {
+    VISION_DET_DIR "det-r0-traffic6-yolox-tiny-416.kmodel",
+    VISION_DET_DIR "det-upstream-yolox-tiny-416.kmodel",
+};
+static const char *const det_envs[VISION_DETECTORS] = {
+    "POCKETOS_VISION_MODEL_R0",
+    "POCKETOS_VISION_MODEL_UPSTREAM",
+};
 
 struct vision_picture {
     lv_image_dsc_t dsc;
@@ -77,6 +91,8 @@ struct vision_cell_ref {
 };
 
 struct vision_app {
+    int det_logged;           /* the A/B detector last said in force in the log; -1 none */
+    int64_t det_stats_ms;     /* when its numbers were last logged */
     lv_obj_t *frame;
     lv_obj_t *box;        /* the picture's place: a slab */
     lv_obj_t *img;
@@ -524,6 +540,8 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_TRACE], s.trace_btn);
     button_text(a->btn[VISION_BTN_ENROL], s.enrol_btn);
     button_text(a->btn[VISION_BTN_FORGET], s.forget_btn);
+    button_text(a->btn[VISION_BTN_MODEL], s.model_btn);
+    button_style(a->btn[VISION_BTN_MODEL], false, s.model_enabled);
     button_style(a->btn[VISION_BTN_ENROL], a->model.enrolling, s.line_enabled);
     button_style(a->btn[VISION_BTN_FORGET], a->model.forget_armed, s.line_enabled && s.forget_enabled);
     /* The button whose sheet is open is the primary one: it closes it. */
@@ -581,12 +599,44 @@ static void repaint(struct vision_app *a)
 static void do_actions(struct vision_app *a, unsigned acts);
 static void layout(struct vision_app *a);
 
+static const char *det_path(int d)
+{
+    const char *env = getenv(det_envs[d]);
+
+    return env && *env ? env : det_files[d];
+}
+
+/* The A/B detector files on the unit now: a bit per enum vision_detector. */
+static uint32_t det_present(void)
+{
+    uint32_t bits = 0;
+    int d;
+
+    for (d = 0; d < VISION_DETECTORS; d++) {
+        if (access(det_path(d), R_OK) == 0) {
+            bits |= 1u << d;
+        }
+    }
+    return bits;
+}
+
 static void start_session(struct vision_app *a)
 {
     struct vision_session_config cfg = { 0 };
     char err[VISION_EVENT_TEXT_MAX - 8];
+    int d = vision_model_detector_to_load(&a->model);
+    int64_t t0 = now_ms();
+    enum vision_leave left = vision_session_abandon(&a->session, VISION_DESTROY_GRACE_MS);
 
-    vision_session_abandon(&a->session, VISION_DESTROY_GRACE_MS);
+    if (d >= 0) {
+        /* The old helper, and the detector it held, are gone before the
+         * next one opens: only one detector is ever loaded. */
+        cfg.model = det_path(d);
+        LOG_INFO("vision: detector %s: starting the helper on %s (the last one left: %d, %lld ms)",
+                 vision_detector_name((enum vision_detector)d), cfg.model, (int)left, (long long)(now_ms() - t0));
+        a->det_logged = -1;
+        a->det_stats_ms = 0;
+    }
     if (strcmp(vision_session_backend(), "fake") == 0) {
         cfg.fake = getenv("POCKETOS_CAMERA_FAKE");
         cfg.kpu = getenv("POCKETOS_VISION_KPU_SCRIPT");
@@ -712,7 +762,30 @@ static void on_poll(lv_timer_t *t)
             LOG_WARN("vision: helper ended (%d), reason %d", ev.value, ev.reason);
         }
         {
-            unsigned acts = vision_model_event(&a->model, &ev, &a->session, now);
+            char det_fail_was[sizeof(a->model.det_fail)];
+            unsigned acts;
+
+            memcpy(det_fail_was, a->model.det_fail, sizeof(det_fail_was));
+            acts = vision_model_event(&a->model, &ev, &a->session, now);
+            if (a->model.det_fail[0] && strcmp(a->model.det_fail, det_fail_was) != 0) {
+                LOG_WARN("vision: detector: %s", a->model.det_fail);
+            }
+            if (a->model.det_active >= 0 && a->model.det_active != a->det_logged) {
+                a->det_logged = a->model.det_active;
+                LOG_INFO("vision: detector %s in force: %s, %u classes",
+                         vision_detector_name((enum vision_detector)a->model.det_active), a->model.model_name,
+                         a->model.classes);
+            }
+            if (ev.kind == VISION_EV_STATS && a->model.det_active >= 0 &&
+                (a->det_stats_ms == 0 || now - a->det_stats_ms >= VISION_DET_STATS_LOG_MS)) {
+                a->det_stats_ms = now;
+                LOG_INFO("vision: detector %s: %u.%u fps, KPU %d ms, pre %d ms, post %d ms, CPU %d%%, RSS %ld KB, "
+                         "bad %u",
+                         vision_detector_name((enum vision_detector)a->model.det_active),
+                         a->model.stats.fps_x10 / 10, a->model.stats.fps_x10 % 10, a->model.stats.infer_ms,
+                         a->model.stats.pre_ms, a->model.stats.post_ms, a->model.stats.cpu_pct,
+                         a->model.stats.rss_kb, a->model.stats.bad);
+            }
 
             /* A preview of another shape than the one laid out for: the
              * picture box takes the camera's shape before the stream starts. */
@@ -771,6 +844,22 @@ static void on_forget(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_forget_button(&a->model));
+}
+
+static void on_model(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+    int was = a->model.det_active;
+    unsigned acts = vision_model_model_button(&a->model, det_present());
+
+    if (acts) {
+        LOG_INFO("vision: detector %s asked for (was %s)",
+                 vision_detector_name((enum vision_detector)a->model.det_loading),
+                 vision_detector_name((enum vision_detector)was));
+    } else if (a->model.det_fail[0]) {
+        LOG_WARN("vision: detector: %s", a->model.det_fail);
+    }
+    act(a, acts);
 }
 
 static void on_setup(lv_event_t *e)
@@ -1056,6 +1145,7 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
     a->btn[VISION_BTN_ENROL] = button(a->frame, "ENROL", on_enrol, a);
     a->btn[VISION_BTN_FORGET] = button(a->frame, "FORGET", on_forget, a);
+    a->btn[VISION_BTN_MODEL] = button(a->frame, "MODEL: UPSTREAM", on_model, a);
     for (i = 0; i < VISION_BUTTONS; i++) {
         lv_obj_add_flag(a->btn[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -1084,6 +1174,19 @@ static void *vision_create(lv_obj_t *root)
         }
         vision_model_load(&a->model, &set);
         LOG_INFO("vision: opening in %s", vision_mode_name(a->model.set.mode));
+    }
+    {
+        /* The detector A/B, on a unit that has either file. */
+        uint32_t present = det_present();
+
+        a->det_logged = -1;
+        vision_model_set_detector_files(&a->model, present);
+        if (present) {
+            LOG_INFO("vision: detector A/B: R0 %s, UPSTREAM %s; last confirmed %s",
+                     (present & (1u << VISION_DET_R0)) ? "present" : "missing",
+                     (present & (1u << VISION_DET_UPSTREAM)) ? "present" : "missing",
+                     vision_detector_name(a->model.set.detector));
+        }
     }
     {
         /* For screenshots and the shell suite: open with a sheet showing,

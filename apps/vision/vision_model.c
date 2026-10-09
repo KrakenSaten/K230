@@ -33,6 +33,12 @@ static const char *const traffic_names[VISION_PROTO_TRAFFIC_CLASSES] = {
 };
 static const char *const line_names[VISION_LINE_MODES] = { "OFF", "ACROSS", "DOWN" };
 static const char *const speed_names[VISION_SPEED_MODES] = { "OFF", "NARROW", "WIDE" };
+static const char *const model_names[VISION_DETECTORS] = { "MODEL: R0", "MODEL: UPSTREAM" };
+static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0", "LOADING UPSTREAM" };
+static const char *const opening_names[VISION_DETECTORS] = {
+    "Opening the camera and the R0 detector",
+    "Opening the camera and the UPSTREAM detector",
+};
 
 /* What a helper with a detector runs, when it has not said otherwise. */
 #define AVAIL_DETECTOR ((1u << VISION_MODE_DETECT) | (1u << VISION_MODE_TRACK) | (1u << VISION_MODE_TRAFFIC) | \
@@ -47,6 +53,9 @@ void vision_model_init(struct vision_model *m)
     m->avail = AVAIL_DETECTOR;
     m->sample_x = -1;
     m->sample_y = -1;
+    m->det_active = -1;
+    m->det_loading = -1;
+    m->det_fallback = -1;
 }
 
 void vision_model_load(struct vision_model *m, const struct vision_settings *s)
@@ -54,6 +63,85 @@ void vision_model_load(struct vision_model *m, const struct vision_settings *s)
     m->set = *s;
     vision_settings_sanitize(&m->set);
     m->mode = m->set.mode;
+}
+
+/* ---- the detector A/B ---------------------------------------------------------------- */
+
+static bool det_present(const struct vision_model *m, int d)
+{
+    return d >= 0 && d < VISION_DETECTORS && (m->det_files & (1u << d)) != 0;
+}
+
+static int det_other(int d)
+{
+    return d == VISION_DET_R0 ? VISION_DET_UPSTREAM : VISION_DET_R0;
+}
+
+void vision_model_set_detector_files(struct vision_model *m, uint32_t present)
+{
+    m->det_files = present & ((1u << VISION_DETECTORS) - 1u);
+}
+
+int vision_model_detector_to_load(const struct vision_model *m)
+{
+    return m->det_files ? m->det_loading : -1;
+}
+
+/* A helper started again on detector d, going back to `fallback` should d
+ * not load: everything the old one showed and counted is gone with it. */
+static unsigned load_detector(struct vision_model *m, int d, int fallback)
+{
+    struct vision_model keep = *m;
+
+    vision_model_init(m);
+    m->set = keep.set;
+    m->mode = keep.set.mode;
+    m->det_files = keep.det_files;
+    m->det_loading = d;
+    m->det_fallback = fallback;
+    memcpy(m->det_fail, keep.det_fail, sizeof(m->det_fail));
+    m->det_fail_ms = keep.det_fail_ms;
+    return VISION_ACT_OPEN;
+}
+
+/* The detector being loaded did not: say so, and go back to the fallback
+ * when there is one (only once: the fallback has none). 0 when there is
+ * nowhere to go, and the caller fails as it would have. */
+static unsigned det_failed(struct vision_model *m, const char *why)
+{
+    int back = m->det_fallback;
+    int was = m->det_loading;
+
+    m->det_fail_ms = 0;
+    if (back < 0 || back == was || !det_present(m, back)) {
+        snprintf(m->det_fail, sizeof(m->det_fail), "%s could not be loaded: %s",
+                 vision_detector_name((enum vision_detector)was), why);
+        return 0;
+    }
+    snprintf(m->det_fail, sizeof(m->det_fail), "%s could not be loaded: %s. Back on %s.",
+             vision_detector_name((enum vision_detector)was), why, vision_detector_name((enum vision_detector)back));
+    return load_detector(m, back, -1);
+}
+
+unsigned vision_model_model_button(struct vision_model *m, uint32_t present)
+{
+    int to;
+    unsigned acts;
+
+    if (!m->det_files || m->state != VISION_LIVE || m->det_active < 0) {
+        return 0;
+    }
+    to = det_other(m->det_active);
+    if ((present & (1u << to)) == 0) {
+        snprintf(m->det_fail, sizeof(m->det_fail), "%s is not on this unit",
+                 vision_detector_name((enum vision_detector)to));
+        m->det_fail_ms = 0;
+        return 0;
+    }
+    acts = load_detector(m, to, m->det_active);
+    m->det_fail[0] = '\0';
+    m->det_fail_ms = 0;
+    return acts;
 }
 
 unsigned vision_model_open(struct vision_model *m)
@@ -66,6 +154,20 @@ unsigned vision_model_open(struct vision_model *m)
     /* A sheet the owner opened stays open while Vision starts (an error
      * closes it). */
     m->sheet = keep.sheet;
+    m->det_files = keep.det_files;
+    if (m->det_files) {
+        /* The detector last confirmed, or the other one when its file has
+         * gone; either way the other one is where a failure goes back to. */
+        int d = m->set.detector;
+
+        if (!det_present(m, d)) {
+            d = det_other(d);
+            snprintf(m->det_fail, sizeof(m->det_fail), "%s is not on this unit. Using %s.",
+                     vision_detector_name(m->set.detector), vision_detector_name((enum vision_detector)d));
+        }
+        m->det_loading = d;
+        m->det_fallback = det_present(m, det_other(d)) ? det_other(d) : -1;
+    }
     return VISION_ACT_OPEN;
 }
 
@@ -75,7 +177,7 @@ static void fail(struct vision_model *m, enum vision_state st, const char *text)
     m->live = false;
     m->stalled = false;
     m->sheet = VISION_SHEET_NONE;
-    snprintf(m->error, sizeof(m->error), "%s", text ? text : "");
+    snprintf(m->error, sizeof(m->error), "%.*s", (int)sizeof(m->error) - 1, text ? text : "");
 }
 
 static void clear_counts(struct vision_model *m)
@@ -182,6 +284,14 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
 
     switch (ev->kind) {
     case VISION_EV_READY:
+        /* The A/B detector asked for is not there after all (the helper
+         * names its model "none"): go back to the one before it. */
+        if (m->state == VISION_INIT && m->det_files && m->det_loading >= 0 && strcmp(ev->name, "none") == 0) {
+            acts = det_failed(m, "its file is not there");
+            if (acts) {
+                break;
+            }
+        }
         if (m->state == VISION_INIT) {
             m->state = VISION_LIVE;
             m->simulated = ev->simulated;
@@ -194,6 +304,15 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->last_frame_ms = now_ms;
             /* A new helper numbers its tracks from the start. */
             m->face_top_id = 0;
+            /* The A/B detector is in force only now, and only now kept. */
+            if (m->det_files && m->det_loading >= 0 && strcmp(ev->name, "none") != 0) {
+                m->det_active = m->det_loading;
+                m->det_fallback = -1;
+                if (m->set.detector != (enum vision_detector)m->det_active) {
+                    m->set.detector = (enum vision_detector)m->det_active;
+                    acts |= VISION_ACT_SAVE;
+                }
+            }
             /* Everything the helper has to know, whatever it defaults to. */
             acts |= VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED |
                     VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_RANGE;
@@ -349,6 +468,14 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         fail(m, VISION_NO_DEVICE, ev->text[0] ? ev->text : "No camera was found");
         break;
     case VISION_EV_NOMODEL:
+        if (m->det_files && m->det_loading >= 0) {
+            acts = det_failed(m, ev->text[0] ? ev->text : "it does not open");
+            if (acts) {
+                break;
+            }
+            fail(m, VISION_NO_DEVICE, m->det_fail);
+            break;
+        }
         fail(m, VISION_NO_DEVICE, ev->text[0] ? ev->text : "The detector could not be opened");
         break;
     case VISION_EV_ERROR:
@@ -368,6 +495,16 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         fail(m, VISION_ERROR, "The camera went away");
         break;
     case VISION_EV_EXITED:
+        /* A helper that went away while it was opening an A/B detector
+         * (the runtime crashed on it, or it took too long) is that detector
+         * failing to load. */
+        if (m->state == VISION_INIT && m->det_files && m->det_loading >= 0 && m->det_fallback >= 0) {
+            acts = det_failed(m, ev->reason == VISION_EXIT_CRASHED ? "the helper crashed opening it"
+                                                                   : "the helper ended opening it");
+            if (acts) {
+                break;
+            }
+        }
         if (m->state == VISION_INIT || m->state == VISION_LIVE) {
             switch (ev->reason) {
             case VISION_EXIT_HUNG: fail(m, VISION_ERROR, "The camera is not responding"); break;
@@ -385,6 +522,15 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
 
 bool vision_model_tick(struct vision_model *m, int64_t now_ms)
 {
+    /* A detector that could not be loaded: said from its first tick, for
+     * VISION_DET_FAIL_SHOW_MS once Vision is live again. */
+    if (m->det_fail[0] && m->det_fail_ms == 0) {
+        m->det_fail_ms = now_ms;
+    } else if (m->det_fail[0] && m->state == VISION_LIVE && now_ms - m->det_fail_ms >= VISION_DET_FAIL_SHOW_MS) {
+        m->det_fail[0] = '\0';
+        m->det_fail_ms = 0;
+        return true;
+    }
     /* An armed FORGET: from its first tick, for VISION_FORGET_ARM_MS. */
     if (m->forget_armed && m->forget_armed_ms == 0) {
         m->forget_armed_ms = now_ms;
@@ -899,17 +1045,25 @@ void vision_model_count_names(const struct vision_model *m, const char **a, cons
 
 int vision_model_buttons(const struct vision_model *m, enum vision_button out[VISION_BUTTONS])
 {
+    /* The detector's modes end with MODEL on a unit with the A/B. */
+    int ab = m->det_files ? 1 : 0;
+
     out[0] = VISION_BTN_MODE;
     switch (m->mode) {
+    case VISION_MODE_DETECT:
+        out[1] = VISION_BTN_MODEL;
+        return 1 + ab;
     case VISION_MODE_TRACK:
         out[1] = VISION_BTN_LINE;
         out[2] = VISION_BTN_TRAILS;
         out[3] = VISION_BTN_RESET;
-        return 4;
+        out[4] = VISION_BTN_MODEL;
+        return 4 + ab;
     case VISION_MODE_TRAFFIC:
         out[1] = VISION_BTN_SETUP;
         out[2] = VISION_BTN_RESET;
-        return 3;
+        out[3] = VISION_BTN_MODEL;
+        return 3 + ab;
     case VISION_MODE_COLOR:
         out[1] = VISION_BTN_SAMPLE;
         out[2] = VISION_BTN_TOL;
@@ -1211,6 +1365,14 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->enrol_btn = m->enrolling ? "STOP" : "ENROL";
     out->forget_btn = m->forget_armed ? "SURE?" : "FORGET";
     out->forget_enabled = m->have_owner;
+    if (m->state == VISION_INIT && m->det_loading >= 0 && m->det_loading < VISION_DETECTORS) {
+        out->model_btn = loading_names[m->det_loading];
+    } else if (m->det_active >= 0 && m->det_active < VISION_DETECTORS) {
+        out->model_btn = model_names[m->det_active];
+    } else {
+        out->model_btn = "MODEL: NONE";
+    }
+    out->model_enabled = m->state == VISION_LIVE && m->det_active >= 0;
     out->speeds = m->mode == VISION_MODE_TRAFFIC && m->set.traffic.speeds;
     out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
                   (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);
@@ -1239,6 +1401,9 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     case VISION_INIT:
         out->title = "Starting";
         out->detail = "Opening the camera and the detector";
+        if (m->det_files && m->det_loading >= 0 && m->det_loading < VISION_DETECTORS) {
+            out->detail = m->det_fail[0] ? m->det_fail : opening_names[m->det_loading];
+        }
         break;
     case VISION_LIVE:
         out->show_picture = m->live;
@@ -1269,14 +1434,22 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             out->status = status_buf;
             out->status_warn = true;
         } else if (m->stats_valid) {
-            snprintf(status_buf, status_len, "%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
-                     m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,
+            /* With the A/B, the detector these numbers are from leads. */
+            snprintf(status_buf, status_len, "%s%s%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
+                     m->det_active >= 0 ? vision_detector_name((enum vision_detector)m->det_active) : "",
+                     m->det_active >= 0 ? "  " : "", m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,
                      m->stats.pre_ms, m->stats.post_ms, m->stats.cpu_pct,
                      (m->stats.rss_kb + 512) / 1024);
             out->status = status_buf;
             out->status_warn = m->stats.bad > 0;
         } else {
             out->status = m->live ? "Detecting" : "Starting the stream";
+        }
+        if (m->det_fail[0]) {
+            /* An A/B detector that could not be loaded, for a while. */
+            snprintf(status_buf, status_len, "%s", m->det_fail);
+            out->status = status_buf;
+            out->status_warn = true;
         }
         if (!vision_model_detector(m)) {
             /* The modes that need the detector are left out of the picker;
