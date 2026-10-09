@@ -136,7 +136,8 @@ character rises 1.4 % of an eye box every 2 s, every 3.2 s asleep), a hop
 and a shake are single steps. Reduced motion (DS §12) keeps the reactions as
 end states: no tween, lean, hop, shake, breath or chewing. The idle
 animation switch also stops breathing and the spontaneous yawn. Measured on
-the host: 20 s idle with motion, 26-33 repaints and 43-53 timer runs.
+the host: 20 s idle with motion, 26-34 repaints and 43-53 timer runs over
+several runs.
 
 **Saved.** Nothing new: a reaction, the snack and drowsiness are moments,
 not preferences. Closing mid-drag or mid-reaction leaves nothing behind;

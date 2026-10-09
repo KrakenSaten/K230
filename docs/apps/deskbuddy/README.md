@@ -7,7 +7,8 @@ The personality slice is described in [../DESKBUDDY.md](../DESKBUDDY.md)
 ## What these pictures are
 
 **Every picture here is a capture of the real application on the host. There
-are no mockups.** None was taken on a K230.
+are no mockups.** None was taken on a K230. All were made from a build of
+commit `55ec6d8` (a clean clone, CMake reporting "Doors 0.3.6 build 55ec6d8").
 
 | File | How it was made |
 | --- | --- |
