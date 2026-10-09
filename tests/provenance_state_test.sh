@@ -48,7 +48,7 @@ check "and nothing in the script still writes the shared TREE_STATE" \
     cat "$TMP/pin_check.sh" "$TMP/doors_tree_state.sh" "$TMP/meshcore_tree_check.sh" "$TMP/write_manifest.sh"
     # What the manifest also names, which is not under test here.
     echo 'SNAPSHOT_COMMIT=snap REPO_COMMIT=snap BUILD_ID=snap DIRTY_OVERRIDE=no BSP_COMMIT=bsp'
-    echo 'SDK_COMMIT=sdk RADIOLIB_COMMIT=rl RADIOLIB_STATE=clean GGWAVE_COMMIT=gg GGWAVE_STATE=clean CONF=conf'
+    echo 'SDK_COMMIT=sdk RADIOLIB_COMMIT=rl RADIOLIB_STATE=clean GGWAVE_COMMIT=gg GGWAVE_STATE=clean CONF=conf VISION_R0_STATE=none'
     cat "$TMP/doors.sh" "$TMP/deps.sh"
     echo 'write_manifest "$OUT"'
 } > "$TMP/run.sh"
