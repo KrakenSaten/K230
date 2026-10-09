@@ -1148,7 +1148,7 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
     a->btn[VISION_BTN_ENROL] = button(a->frame, "ENROL", on_enrol, a);
     a->btn[VISION_BTN_FORGET] = button(a->frame, "FORGET", on_forget, a);
-    a->btn[VISION_BTN_MODEL] = button(a->frame, "MODEL: UPSTREAM", on_model, a);
+    a->btn[VISION_BTN_MODEL] = button(a->frame, "UPSTREAM", on_model, a);
     for (i = 0; i < VISION_BUTTONS; i++) {
         lv_obj_add_flag(a->btn[i], LV_OBJ_FLAG_HIDDEN);
     }

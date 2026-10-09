@@ -199,7 +199,7 @@ struct vision_view_text {
     bool recog;             /* RECOGNIZE: the boxes say owner or unknown */
     const char *enrol_btn;  /* ENROL / STOP */
     const char *forget_btn; /* FORGET / SURE? */
-    const char *model_btn;  /* MODEL: R0 / MODEL: UPSTREAM / LOADING R0 */
+    const char *model_btn;  /* R0 · Beta / UPSTREAM / LOADING R0 */
     bool model_enabled;     /* MODEL takes taps: live, and a detector to go to */
     bool forget_enabled;    /* there is an owner to forget */
     bool hold;              /* READ held: HOLD is the primary button */

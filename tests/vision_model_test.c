@@ -1113,7 +1113,7 @@ static void test_detector_ab(void)
     acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: in force once ready names it", m.det_active == VISION_DET_UPSTREAM && m.state == VISION_LIVE &&
-                                                   strcmp(t.model_btn, "MODEL: UPSTREAM") == 0 && t.model_enabled);
+                                                   strcmp(t.model_btn, "UPSTREAM") == 0 && t.model_enabled);
     check("A/B: the same detector is not stored again", (acts & VISION_ACT_SAVE) == 0);
     n = vision_model_buttons(&m, order);
     check("A/B: DETECT ends with MODEL", n == 2 && order[1] == VISION_BTN_MODEL);
@@ -1244,11 +1244,11 @@ static void test_detector_ab(void)
                                     m.det_fail[0] == '\0');
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("fresh: while it loads it is named R0 · Beta",
-          strcmp(t.model_btn, "LOADING R0 · Beta") == 0 && strcmp(t.detail, "Opening the camera and the R0 · Beta detector") == 0);
+          strcmp(t.model_btn, "LOADING R0") == 0 && strcmp(t.detail, "Opening the camera and the R0 · Beta detector") == 0);
     acts = det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("fresh: R0 · Beta in force, nothing new to store",
-          m.det_active == VISION_DET_R0 && m.state == VISION_LIVE && strcmp(t.model_btn, "MODEL: R0 · Beta") == 0 &&
+          m.det_active == VISION_DET_R0 && m.state == VISION_LIVE && strcmp(t.model_btn, "R0 · Beta") == 0 &&
               (acts & VISION_ACT_SAVE) == 0);
     check("fresh: MODEL names it but is no choice: there is no other detector", !t.model_enabled);
     n = vision_model_buttons(&m, order);

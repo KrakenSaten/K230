@@ -33,8 +33,10 @@ static const char *const traffic_names[VISION_PROTO_TRAFFIC_CLASSES] = {
 };
 static const char *const line_names[VISION_LINE_MODES] = { "OFF", "ACROSS", "DOWN" };
 static const char *const speed_names[VISION_SPEED_MODES] = { "OFF", "NARROW", "WIDE" };
-static const char *const model_names[VISION_DETECTORS] = { "MODEL: R0 · Beta", "MODEL: UPSTREAM" };
-static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0 · Beta", "LOADING UPSTREAM" };
+/* The button names the detector itself: "MODEL: R0 · Beta" does not fit a
+ * landscape button. */
+static const char *const model_names[VISION_DETECTORS] = { "R0 · Beta", "UPSTREAM" };
+static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0", "LOADING UPSTREAM" };
 static const char *const opening_names[VISION_DETECTORS] = {
     "Opening the camera and the R0 · Beta detector",
     "Opening the camera and the UPSTREAM detector",
@@ -1370,7 +1372,7 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     } else if (m->det_active >= 0 && m->det_active < VISION_DETECTORS) {
         out->model_btn = model_names[m->det_active];
     } else {
-        out->model_btn = "MODEL: NONE";
+        out->model_btn = "NO MODEL";
     }
     /* MODEL is a choice only when there is another detector to choose: with
      * R0 alone (a fresh card) it names the detector and takes no tap. */
