@@ -4,15 +4,17 @@ This guide takes you from a downloaded DOORS image to a working device:
 write the microSD card, boot, join Wi-Fi, set up RIFT and find your way
 around. You do not need a compiler or a development environment.
 
-It describes **DOORS 0.3.5**, the current release
-(<https://github.com/KrakenSaten/K230/releases/tag/v0.3.5>). The release
-notes ([docs/releases/v0.3.5.md](releases/v0.3.5.md)) are the authority on
+It describes **DOORS 0.3.6**, the current release
+(<https://github.com/KrakenSaten/K230/releases/tag/v0.3.6>). The release
+notes ([docs/releases/v0.3.6.md](releases/v0.3.6.md)) are the authority on
 what an image contains; read them for the image you download.
 
-> **Licences.** DOORS' own code is Apache-2.0. The image is a whole Linux
-> system and is not Apache-2.0 as a whole: its parts keep their own
-> licences (THIRD_PARTY_NOTICES.txt, in the image and on the release). The
-> release notes list the third-party questions that are still open.
+> **Licences.** DOORS' own code is Apache-2.0, and so is Vision's R0
+> detector model. The image is a whole Linux system and is not Apache-2.0
+> as a whole: its parts keep their own licences (THIRD_PARTY_NOTICES.txt,
+> in the image and on the release), and R0's training data keeps its own
+> terms (ATTRIBUTION.tsv, on the release). The release notes list the
+> third-party questions that are still open.
 
 ## 1. What you need
 
@@ -33,21 +35,22 @@ what an image contains; read them for the image you download.
 ## 2. Download the image
 
 **Download the image directly:
-[doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz](https://github.com/KrakenSaten/K230/releases/download/v0.3.5/doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz)**
-(116 MB). This is the ready-to-flash microSD card image, compressed.
+[doors-0.3.6-tdisplay-k230-967fe82.img.gz](https://github.com/KrakenSaten/K230/releases/download/v0.3.6/doors-0.3.6-tdisplay-k230-967fe82.img.gz)**
+(121 MB). This is the ready-to-flash microSD card image, compressed.
 
 The same file is on the release page,
-<https://github.com/KrakenSaten/K230/releases/tag/v0.3.5>, together with:
+<https://github.com/KrakenSaten/K230/releases/tag/v0.3.6>, together with:
 
 | File | What it is |
 |---|---|
-| `doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz` | **The card image, compressed. This is the one you need.** |
-| `doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz.sha256` | Its SHA-256 checksum |
+| `doors-0.3.6-tdisplay-k230-967fe82.img.gz` | **The card image, compressed. This is the one you need.** |
+| `doors-0.3.6-tdisplay-k230-967fe82.img.gz.sha256` | Its SHA-256 checksum |
 
 The release also carries `SHA256SUMS.txt` (the checksums of every file),
 `BUILD_INFO.txt` (how the image was built), the licence and notices files,
-and `doors-0.3.5-3d4ea6e-legal-info.tar` (about 880 MB of third-party
-source material). None of these is needed to install.
+`ATTRIBUTION.tsv` (the credits for the pictures Vision's R0 detector was
+trained on) and `doors-0.3.6-967fe82-legal-info.tar` (about 880 MB of
+third-party source material). None of these is needed to install.
 
 > **Image, not source code.** GitHub adds "Source code (zip)" and "Source
 > code (tar.gz)" to every release. Those are DOORS' source code and cannot
@@ -56,11 +59,11 @@ source material). None of these is needed to install.
 Keep the `.img.gz` file as it is; both tools below unpack it while writing.
 
 **Check the download** (recommended). Its SHA-256 must be
-`b011bb28feb3fa19a2f84c35bd281a87ededa0e4712be22648e65adf24c973c0`:
+`f2d2680bc5c049c91be5b36797205b2adb97d749946894447c812eab7bcac5fd`:
 
-- Windows (PowerShell): `Get-FileHash .\doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz -Algorithm SHA256`
-- macOS: `shasum -a 256 doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz`
-- Linux: `sha256sum doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz`
+- Windows (PowerShell): `Get-FileHash .\doors-0.3.6-tdisplay-k230-967fe82.img.gz -Algorithm SHA256`
+- macOS: `shasum -a 256 doors-0.3.6-tdisplay-k230-967fe82.img.gz`
+- Linux: `sha256sum doors-0.3.6-tdisplay-k230-967fe82.img.gz`
 
 If it differs, download it again.
 
@@ -106,8 +109,8 @@ Eject the card safely, put it into the K230 while it is powered off, and
 connect USB-C power. A freshly written card boots **straight into DOORS**;
 there is no setup step and nothing to switch over.
 
-To check the version: **Settings**, then the System page. DOORS 0.3.5 shows
-version `0.3.5` and build `3d4ea6e`.
+To check the version: **Settings**, then the System page. DOORS 0.3.6 shows
+version `0.3.6` and build `967fe82`.
 
 ## 5. Find your way around
 
@@ -144,16 +147,18 @@ hidden networks are not listed (docs/apps/SETTINGS.md).
 
 ### Vision
 
-The camera apps work as soon as the card boots. **Vision** in 0.3.5 has no
-object-detection model: COLOR, EDGE and LINE TRACE work, and DETECT, TRACK
-and TRAFFIC are switched off, which Vision says under the picture.
+The camera apps work as soon as the card boots. **Vision** carries its own
+detector, **R0 · Beta**, an experimental beta: DETECT, TRACK and TRAFFIC
+work from the first boot, and COLOR, EDGE and LINE TRACE need no model. R0
+knows six classes - car, truck, bus, motorcycle, bicycle and person - and
+it can miss vehicles, including cars in street scenes.
 
-From 0.3.6 (in preparation, not yet published) the card carries Vision's
-own detector, **R0 · Beta**, and DETECT, TRACK and TRAFFIC work from the
-first boot. It knows six classes - car, truck, bus, motorcycle, bicycle and
-person - and, as a beta, it can miss vehicles, including cars in street
-scenes.
-DeskBuddy shows "NO VISION YET" for the same reason.
+DeskBuddy does not use R0. It needs a model the image does not include, so
+it shows "NO VISION YET".
+
+Leaving Camera or Vision stops the camera, and that can freeze the whole
+device (a known issue, section 7). Avoid opening and closing them over and
+over.
 
 ## 6. Set up RIFT (LoRa messaging)
 
@@ -188,11 +193,11 @@ once more.
 | Wi-Fi does not connect | Read the message on the Wi-Fi page in Settings (for example a wrong passphrase); check the password, then turn Wi-Fi off and on. |
 | "The radio could not be set up." | The message says which step failed; your previous settings were put back. Check the antenna and try the LoRa radio tile again. |
 | RIFT stays offline or empty | Check that the LoRa radio tile reads "Receiving". Other nodes appear only once they are heard. |
-| The device freezes after opening and closing Camera or Vision repeatedly | A known issue; disconnect power and start it again. |
+| The device freezes after leaving Camera or Vision | A known issue: stopping the camera can freeze the whole device. Disconnect power and start it again. |
 | A rotation closed the Terminal session | Expected; the Terminal starts a new shell. |
 
 More: the known limitations in the release notes
-([v0.3.5](releases/v0.3.5.md#known-limitations)), the full list in
+([v0.3.6](releases/v0.3.6.md#known-limitations)), the full list in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md), and recovery over the serial console
 in [FIRST_BOOT.md, "Recovery"](hardware/FIRST_BOOT.md#recovery).
 
@@ -201,7 +206,7 @@ in [FIRST_BOOT.md, "Recovery"](hardware/FIRST_BOOT.md#recovery).
 A new image is written the same way, and it replaces the whole card:
 messages, settings, saved Wi-Fi networks and the RIFT identity included.
 To keep them, the release notes describe which directories to save first
-(for 0.3.5: [Upgrading from v0.3.0](releases/v0.3.5.md#upgrading-from-v030)).
+(for 0.3.6: [Upgrading from v0.3.5](releases/v0.3.6.md#upgrading-from-v035)).
 Copying them off the device needs SSH, which requires setting a root
 password first ([platforms/k230/README.md](../platforms/k230/README.md),
 "First login and remote access").

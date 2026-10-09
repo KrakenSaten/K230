@@ -8,15 +8,17 @@ DOORS turns the K230 into a small Linux platform for communication, local AI,
 tools, games and experimentation — built around its touchscreen, keyboard,
 LoRa radio, camera and hardware AI acceleration.
 
-- **[Download DOORS v0.3.5 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.3.5/doors-0.3.5-tdisplay-k230-3d4ea6e.img.gz)**: the ready-to-flash
-  microSD card image (116 MB). Write it to a card as it is; GitHub's
+- **[Download DOORS v0.3.6 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.3.6/doors-0.3.6-tdisplay-k230-967fe82.img.gz)**: the ready-to-flash
+  microSD card image (121 MB). Write it to a card as it is; GitHub's
   "Source code" archives on the release page are source, not an image.
 - **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
   write the card, first boot, Wi-Fi and RIFT. No development tools needed.
 - **[3D-print a desk stand](https://github.com/KrakenSaten/K230/tree/master/hardware/stand)**: a printable stand for the
   K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
-- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**: what v0.3.5 contains, the
-  SHA-256 checksums and the licence and notices files.
+- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.6)**: what v0.3.6 contains, the
+  SHA-256 checksums
+  ([SHA256SUMS.txt](https://github.com/KrakenSaten/K230/releases/download/v0.3.6/SHA256SUMS.txt)),
+  and the licence, notices and attribution files.
 - **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
   priority order.
 
@@ -44,9 +46,10 @@ communication, local AI, everyday tools, games and further development.
   DOORS devices over LoRa, with chat between shots.
 - **Wave** — short text messages sent and received as sound.
 - **Vision** — camera and KPU: COLOR, EDGE and LINE TRACE; DETECT, TRACK and
-  TRAFFIC (vehicles counted across a line) with a detector model, which 0.3.5
-  does not ship and 0.3.6 (in preparation) adds as the R0 beta; FACE, READ
-  and RECOGNIZE when their models are installed (docs/apps/VISION.md).
+  TRAFFIC (vehicles counted across a line) with DOORS' own detector,
+  R0 · Beta, an experimental beta for car, truck, bus, motorcycle, bicycle
+  and person that can miss vehicles; FACE, READ and RECOGNIZE when their
+  models are installed (docs/apps/VISION.md).
 - **DeskBuddy** — a desk companion with BUDDY, GUARD and NIGHT modes.
 - **Terminal** — a real Linux shell with a kept session.
 - **Files** — the card and USB drives.
@@ -102,10 +105,13 @@ Apache-2.0: they may be redistributed unmodified as part of Doors
 A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
 the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
 keep their own licences. Not everything in this repository is Apache-2.0
-either. Doors 0.3.5 is published on the product owner's decision with some
-third-party questions still open (the vendor's KPU runtime modules and ISP
-server, the toolchain's source, LILYGO's files);
-docs/licensing/APACHE_2_READINESS.md §14 lists them.
+either. Vision's R0 detector model is Apache-2.0 too, while the data it was
+trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.3.6, like 0.3.5,
+is published on the product owner's decision with some third-party
+questions still open (the vendor's KPU runtime modules and ISP server, the
+toolchain's source, LILYGO's files, and the points about R0's training data
+in MODEL_LICENSES.md); docs/licensing/APACHE_2_READINESS.md §14 lists the
+platform ones.
 
 ## Repository
 
@@ -175,32 +181,25 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.3.5** (tag `v0.3.5`, 2026-10-07) is the current release:
-**[download it](https://github.com/KrakenSaten/K230/releases/tag/v0.3.5)**,
+**Doors 0.3.6** (tag `v0.3.6`, 2026-10-09) is the current release:
+**[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.3.6/doors-0.3.6-tdisplay-k230-967fe82.img.gz)**
+([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.3.6)),
 then follow [Get started](docs/GETTING_STARTED.md). It is everything merged
-up to PR #65 - a fresh card boots straight into
-Doors and the vendor launcher is gone, RIFT set up from Controls without a
-shell, RIFT colour emoji, repeater control, RX LOG and reliability work, USB
-storage and card expansion, Settings in categories, the physical power key
-and the BOOT button. Doors' own code is Apache-2.0; the Vision detector
-model is no longer in the image (DETECT, TRACK and TRAFFIC are off, the rest
-of Vision works). Release notes, with its fresh-card test:
-[docs/releases/v0.3.5.md](docs/releases/v0.3.5.md).
-
-**Doors 0.3.6** is in preparation and not published: what has been merged
-since 0.3.5, and Vision's own detector, R0, in the image as an experimental
-beta that can miss vehicles. Release notes so far:
+since 0.3.5 - Poker, core reliability fixes and the Vision detector A/B for
+bench units - and Vision's own detector, **R0 · Beta**, in the image as an
+experimental beta (car, truck, bus, motorcycle, bicycle and person; it can
+miss vehicles). Release notes, with its fresh-card smoke test:
 [docs/releases/v0.3.6.md](docs/releases/v0.3.6.md).
 
-**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) was the previous release: the
-Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
-Video, MP3, DeskBuddy, Solitaire, Blackjack and 2048; launcher favourites
-and folders; the system text size; the keyboard base's own keys; Fleet chat;
-RIFT channel and node management. The image is for internal use only
-(docs/LICENSING.md items 1 and 10). Release notes, with its fresh-flash
-smoke: [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md).
+**Doors 0.3.5** (tag `v0.3.5`, 2026-10-07) was the previous release: a
+fresh card boots straight into Doors and the vendor launcher is gone, RIFT
+set up from Controls without a shell, RIFT colour emoji, repeater control,
+RX LOG and reliability work, USB storage and card expansion, Settings in
+categories, the physical power key and the BOOT button; Doors' own code
+became Apache-2.0, and the image shipped no Vision detector. Release notes:
+[docs/releases/v0.3.5.md](docs/releases/v0.3.5.md).
 
-Earlier releases, from v0.2.1 back to the first PocketOS images:
+Earlier releases, from v0.3.0 back to the first PocketOS images:
 [docs/releases/HISTORY.md](docs/releases/HISTORY.md).
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
