@@ -14,8 +14,8 @@
 #   - Everything third_party/notices/SOURCES ships from others has a row in
 #     THIRD_PARTY_LICENSES.md.
 #   - No model file is committed. A model the package installs has a row in
-#     MODEL_LICENSES.md; its status there is REDISTRIBUTABLE, or CANDIDATE -
-#     OWNER DECISION PENDING with the notices its row names (R0, 0.3.6), and
+#     MODEL_LICENSES.md; its status there is REDISTRIBUTABLE, or OWNER-LICENSED
+#     with the notices its row names (R0, 0.3.6, Apache-2.0), and
 #     one whose status is UNKNOWN is installed only if it is the one the owner
 #     allowed for internal images; an EXTERNAL ONLY model is never installed.
 #     These rules are executed against scratch packages that break them, not
@@ -268,7 +268,7 @@ model_rules() { # <package .mk> <Makefile> <MODEL_LICENSES.md> <SOURCES>; prints
         case "$row" in *"EXTERNAL ONLY"*) case "$row" in *UNKNOWN*"internal images only"*|*"internal images only"*UNKNOWN*) ;; *)
             echo "$m is EXTERNAL ONLY but installed"; continue ;; esac ;; esac
         case "$row" in
-            *"CANDIDATE - OWNER DECISION PENDING"*)
+            *"OWNER-LICENSED - THIRD-PARTY QUESTIONS OPEN"*)
                 printf '%s\n' "$row" | grep -q 'THIRD_PARTY_NOTICES.txt `' || echo "$m: its row names no notices entry"
                 for n in $(printf '%s\n' "$row" | grep -o -E 'THIRD_PARTY_NOTICES.txt( `[a-z0-9-]+`( and)?)+' |
                            grep -o -E '`[a-z0-9-]+`' | tr -d '`'); do
@@ -293,8 +293,8 @@ check "every installed model is listed, and none of unknown terms is installed${
 inst=$(installed_models "$MK" Makefile | tr '\n' ' ')
 check "the package installs one model, R0 (0.3.6)${inst:+ (installs: $inst)}" \
     "$([ "$inst" = 'det-r0-traffic6-yolox-tiny-416.kmodel ' ] && echo 1 || echo 0)"
-check "R0's row is CANDIDATE - OWNER DECISION PENDING, not REDISTRIBUTABLE" \
-    "$(model_row det-r0-traffic6-yolox-tiny-416.kmodel "$MODELS" | grep -q 'CANDIDATE - OWNER DECISION PENDING' && echo 1 || echo 0)"
+check "R0's row is OWNER-LICENSED (Apache-2.0) with its third-party questions open, not REDISTRIBUTABLE" \
+    "$(model_row det-r0-traffic6-yolox-tiny-416.kmodel "$MODELS" | grep -q "OWNER-LICENSED - THIRD-PARTY QUESTIONS OPEN" && model_row det-r0-traffic6-yolox-tiny-416.kmodel "$MODELS" | grep -q 'The weights: Apache-2.0' && echo 1 || echo 0)"
 R0SUM=tools/vision/r0-model.sha256
 check "R0 is pinned by its sha256, on one line, under the name it is installed as" \
     "$([ "$(cat "$R0SUM")" = '94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268  det-r0-traffic6-yolox-tiny-416.kmodel' ] && echo 1 || echo 0)"
@@ -328,7 +328,7 @@ check "and so is one that installs the bench A/B's upstream YOLOX-Tiny (control)
 grep -v '^r0-training-data ' "$SOURCES" > "$TMP/sources-no-r0"
 check "and R0 without its training-data notice (control)" \
     "$(model_rules "$MK" Makefile "$MODELS" "$TMP/sources-no-r0" | grep -q 'no notices entry r0-training-data' && echo 1 || echo 0)"
-sed 's/CANDIDATE - OWNER DECISION PENDING/PENDING/' "$MODELS" > "$TMP/models-nostatus"
+sed 's/OWNER-LICENSED - THIRD-PARTY QUESTIONS OPEN/PENDING/' "$MODELS" > "$TMP/models-nostatus"
 check "and R0 whose row loses its status (control)" \
     "$(model_rules "$MK" Makefile "$TMP/models-nostatus" "$SOURCES" | grep -q 'det-r0-traffic6-yolox-tiny-416.kmodel: its row has no status' && echo 1 || echo 0)"
 

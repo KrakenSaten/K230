@@ -1,9 +1,10 @@
 Training data of Vision's R0 detector
 
 The R0 detector (/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel,
-an experimental beta) was trained by the Doors project, from no pretrained
-weights, on the traffic6_r0 dataset: images and annotations selected from the
-two sources below and filtered to six classes (car, truck, bus, motorcycle,
+an experimental beta, licensed by the Doors project under the Apache License
+2.0) was trained by the Doors project, from no pretrained weights, on the
+traffic6_r0 dataset: images and annotations selected from the two sources
+below and filtered to six classes (car, truck, bus, motorcycle,
 bicycle, person). No image or annotation from them is in the Doors image.
 None of their authors or publishers endorses Doors or this model, and they
 give no warranty for it.
@@ -33,4 +34,6 @@ Images
     where the source records one, its author - is the file ATTRIBUTION.tsv of
     the traffic6_r0 dataset (sha256
     2bc99bc8b2098a4f628fa8f3d0c08af5252a0d4cbdfb1eddaad9f9062e594c3e),
-    published with the Doors release that carries the model.
+    published as ATTRIBUTION.tsv beside the Doors release that carries the
+    model. COCO records no photographer names; its rows name the photo's
+    Flickr file instead.

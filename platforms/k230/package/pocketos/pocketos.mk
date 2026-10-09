@@ -26,7 +26,7 @@ POCKETOS_SITE_METHOD = local
 # REDISTRIBUTE stays NO, so legal-info does not export this package's source,
 # until docs/licensing/APACHE_2_READINESS.md clears the source repository for
 # publication: the owner has chosen the licence, not yet published anything.
-POCKETOS_LICENSE = Apache-2.0 (Doors), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), BSD-2-Clause (Canaan K230 SDK code in pos-vision), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+POCKETOS_LICENSE = Apache-2.0 (Doors), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), BSD-2-Clause (Canaan K230 SDK code in pos-vision), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps), Apache-2.0 (Vision R0 model weights)
 POCKETOS_LICENSE_FILES = LICENSE NOTICE THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES

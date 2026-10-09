@@ -574,7 +574,7 @@ tracker and TRAFFIC's class map are unchanged.
 - **On unit A** (bench A/B, docs/hardware/VISION_MODEL_AB_GATE.md, VERIFIED):
   KPU 55-68 ms per frame, about 12.5 fps, helper RSS about 7.3 MB.
 - **Licence.** R0 is not covered by Doors' Apache-2.0 licence. Its status is
-  in MODEL_LICENSES.md (CANDIDATE - OWNER DECISION PENDING), and what it was
+  in MODEL_LICENSES.md (OWNER-LICENSED - THIRD-PARTY QUESTIONS OPEN), and what it was
   trained with is credited in THIRD_PARTY_NOTICES.txt (`yolox`,
   `r0-training-data`).
 - **How it gets into the image.** The kmodel is not in git.
