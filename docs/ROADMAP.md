@@ -23,8 +23,8 @@ priorities.
 
 ### 1. Vision: our own trained AI model (Ongoing)
 
-Doors 0.3.5 ships without a detector model, so Vision's DETECT, TRACK and
-TRAFFIC modes are off in the published image ([VISION.md](apps/VISION.md),
+Doors 0.3.5 shipped without a detector model; 0.3.6 ships the project's own
+first one, R0, as a beta ([VISION.md](apps/VISION.md),
 [MODEL_LICENSES.md](../MODEL_LICENSES.md)). The aim is a detector trained by
 the DOORS project, on data whose licences allow it to be shipped.
 
@@ -35,9 +35,9 @@ images with a held-out test split, the R0 training run (completed
 export to the K230's KPU format. R0 ran on unit A in a bench A/B
 comparison. It misses many small and distant vehicles.
 
-Now: R0 is in the 0.3.6 release candidate as an experimental beta
-("R0 · Beta"), not yet published. Its weights are licensed under
-Apache-2.0, and the candidate passed a fresh-card smoke test on hardware. A second training round (R1-A), aimed at the cars R0 misses in
+Now: R0 ships in Doors 0.3.6 (2026-10-09) as an experimental beta
+("R0 · Beta"), under Apache-2.0. It passed a fresh-card smoke test on
+hardware. A second training round (R1-A), aimed at the cars R0 misses in
 street scenes, is running; no result from it is claimed here.
 
 ### 2. DeskBuddy development (Planned)
