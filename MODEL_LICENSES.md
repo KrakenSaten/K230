@@ -11,13 +11,16 @@ is known about its terms. The full audit is
 docs/licensing/APACHE_2_READINESS.md §4. Audited 2026-10-01 at origin/master
 `426b1d8`.
 
-No model file is committed to this repository. From Doors 0.3.5 the
-`pocketos` Buildroot package installs **no** model: `yolov8n.kmodel`, which
-images up to 0.3.0 carried for internal use, is no longer in the image, and
-the package refuses any of the SDK's Ultralytics YOLO kmodels anywhere in the
-target, by name and by hash (`pocketos.mk`, `tools/vision/refused-models.sha256`).
-The models still in the image come from vendor packages of the K230 SDK, for
-the vendor's own demos (below).
+No model file is committed to this repository. From Doors 0.3.6 the
+`pocketos` Buildroot package installs **one** model, the project's own R0
+detector (an experimental beta, below), from a build input kept outside git
+and checked against `tools/vision/r0-model.sha256`. From 0.3.5 on it installs
+no other: `yolov8n.kmodel`, which images up to 0.3.0 carried for internal
+use, is not in the image, and the package refuses any of the SDK's
+Ultralytics YOLO kmodels, and the upstream YOLOX-Tiny file of the bench A/B,
+anywhere in the target, by name and by hash (`pocketos.mk`,
+`tools/vision/refused-models.sha256`). No vendor model is in the image either
+(0.3.5 turned their packages off).
 
 ## Status values
 
@@ -27,17 +30,20 @@ the vendor's own demos (below).
 | EXTERNAL ONLY | Doors can use it if the user supplies it; it is neither committed nor installed by Doors. |
 | UNKNOWN - DO NOT REDISTRIBUTE | No licence statement from the publisher, or terms that are not settled for public redistribution. |
 | NOT USED / REFERENCE ONLY | Looked at, not used by any Doors feature. |
+| CANDIDATE - OWNER DECISION PENDING | The project's own model. The terms of everything it was made from are established from primary sources, and it may be built into a release candidate; it is not published until the owner has set the terms the weights are distributed under and decided on the open points its row names. |
 
 ## Matrix
 
 | Model file (on the unit) | Feature | Origin | Author / provider | Licence | Redistribution / commercial use / modification | Attribution | Committed | In the Doors image | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `/usr/share/doors/vision/yolov8n.kmodel` (3,495,296 B, sha256 `0b4bcdd3…2004a09`, pinned in `tools/vision/yolov8n.kmodel.sha256` for the bench tool `install-model.sh`) | DETECT, TRACK, TRAFFIC (with TRACK's count line); DeskBuddy's provider (DETECT) | K230 Linux SDK `buildroot-overlay/package/yolo/utils/yolov8n.kmodel` at `22d02c6` | Ultralytics (YOLOv8n weights); compiled for nncase 2.11 by Canaan (conversion not published) | The SDK states **no licence for the file**. Ultralytics publishes YOLOv8 and its weights under **AGPL-3.0**, with a commercial licence as the alternative | Under AGPL-3.0: allowed, with AGPL source obligations that cannot be fully met here (the exact weights and conversion settings are unpublished) | none shipped (its notice left the image with it) | No | **No, from 0.3.5** (images up to 0.3.0 carried it, internal images only, owner 2026-09-28); refused by `pocketos.mk`. Without it Vision offers COLOR, EDGE and LINE TRACE and says why the rest is off | **UNKNOWN - DO NOT REDISTRIBUTE** (docs/LICENSING.md item 10); a DOORS-trained replacement is in preparation |
+| `/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel` (5,894,104 B, sha256 `94a20ac0…d268`, pinned in `tools/vision/r0-model.sha256`) | DETECT, TRACK, TRAFFIC: Vision's detector from 0.3.6, selected on a fresh installation and named "R0 · Beta". Not DeskBuddy: its provider runs `pos-vision`'s default, `yolov8n.kmodel` (docs/apps/VISION.md) | R0: YOLOX-Tiny 416 trained by the Doors project on the `traffic6_r0` dataset, 300 epochs (2026-10-06 to 10-09) **from no pretrained weights** (`run.json`: `"pretrained_weights": null`; YOLOX's released checkpoints and ImageNet backbones excluded), checkpoint `best_ckpt.pth` epoch 299 (`a501b84c…5d6f`), ONNX `48722fb6…ab9c`, compiled with nncase 2.11.0 and Canaan's `nncase-kpu` 2.11.0 compiler plug-in (Apache-2.0 on PyPI). Records: docs/vision/R0_TRAFFIC6_RESULTS.md, DATASET_TRAFFIC6_R0.md, DATASET_PROVENANCE.md on `research/yolox-traffic-training` (`c710dee`) | the Doors project | **The weights: no licence chosen yet** (owner decision; Doors' Apache-2.0 covers its code, not this model). What it was made from: YOLOX code Apache-2.0 (`yolox` notice); COCO 2017 and Open Images V7 annotations CC BY 4.0; 48,277 Flickr images under CC BY 2.0 (47,876) or "No known copyright restrictions" (401), per image, uploader-asserted; NC, ND and BY-SA images excluded | Open, for the owner: (1) the terms the weights are distributed under; (2) the documented residual risks of the training data - whether trained weights are an adaptation of the images (U1), uploader-asserted labels the datasets disclaim (U2, U6), 5-10 % of sampled labels stricter today (U10), re-encoded Open Images files (U11) - for which no record was found of a decision accepting them for public distribution of the weights; (3) the per-image attribution list ATTRIBUTION.tsv (sha256 `2bc99bc8…4c3e`) is on the training PC only, neither published nor in this repository | THIRD_PARTY_NOTICES.txt `yolox` and `r0-training-data` (in the image); the per-image list to be published with the release | No (a build input outside git; `apply_to_sdk.sh` takes it from `POCKETOS_VISION_R0_KMODEL`) | **Yes, from 0.3.6** (release candidate) | **CANDIDATE - OWNER DECISION PENDING** |
+| `/usr/share/doors/vision/yolov8n.kmodel` (3,495,296 B, sha256 `0b4bcdd3…2004a09`, pinned in `tools/vision/yolov8n.kmodel.sha256` for the bench tool `install-model.sh`) | DETECT, TRACK, TRAFFIC (with TRACK's count line); DeskBuddy's provider (DETECT) | K230 Linux SDK `buildroot-overlay/package/yolo/utils/yolov8n.kmodel` at `22d02c6` | Ultralytics (YOLOv8n weights); compiled for nncase 2.11 by Canaan (conversion not published) | The SDK states **no licence for the file**. Ultralytics publishes YOLOv8 and its weights under **AGPL-3.0**, with a commercial licence as the alternative | Under AGPL-3.0: allowed, with AGPL source obligations that cannot be fully met here (the exact weights and conversion settings are unpublished) | none shipped (its notice left the image with it) | No | **No, from 0.3.5** (images up to 0.3.0 carried it, internal images only, owner 2026-09-28); refused by `pocketos.mk`. Without it Vision offers COLOR, EDGE and LINE TRACE and says why the rest is off | **UNKNOWN - DO NOT REDISTRIBUTE** (docs/LICENSING.md item 10); replaced in Vision by the Doors-trained R0 (0.3.6) |
 | `/usr/share/doors/vision/face_det.kmodel` | FACE; RECOGNIZE's detector; DeskBuddy's provider (FACE, RECOGNIZE) | The vendor's `face_detection_320.kmodel` (584,576 B): SDK `face_detect` / `ai_demo`; also in the canmv_rt tree and the launcher's `models/` | Canaan demo; the demo's README names RetinaFace on a 0.25 MobileNet | **None stated** | Unknown | Unknown | No | Not by Doors. The vendor's copy was in the image at `/root/app/face_detect/` up to 0.3.0; **not from 0.3.5** (`face_detect` off) | **UNKNOWN - DO NOT REDISTRIBUTE**; for Doors: EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_det.kmodel` | READ (text detector) | canmv_k230 `src/rtsmart/libs/kmodel/ai_poc/kmodel/ocr_det.kmodel` (2,958,504 B, sha256 `b8a71660…7b79fc`) | Canaan (canmv examples) | **None stated** for the file. The LILYGO canmv_rt README's header comment says "@License: GPL 3.0" for that repository; nothing ties it to the model | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_rec.kmodel` | READ (text recogniser) | same tree, `ocr_rec_int16.kmodel` (13,008,216 B, sha256 `7a307f86…aa8648c`) | Canaan | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_dict.txt` | READ (recogniser alphabet, 6,549 entries) | same tree, `ai_poc/utils/dict_ocr.txt` (32,521 B, sha256 `8288453b…a74c8fb`) | Canaan; upstream origin not stated | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/face_embed.kmodel` | RECOGNIZE (face embedding); DeskBuddy's provider (owner recognised) | same tree, `face_recognition.kmodel` (46,333,280 B, sha256 `2409a30f…78218472`) | Canaan; source weights not stated | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
+| `/usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel` (sha256 `8c304651…e354`) | the bench A/B only: a second choice under MODEL when a unit has it (docs/apps/VISION.md) | upstream YOLOX-Tiny 416 (`yolox_tiny.pth`, 0.1.1rc0) compiled for the 2026-10-04 detector evaluation | Megvii (weights) | **None stated** for the released checkpoints (YOLOX issue #1865 unanswered) | Unknown | Unknown | No | **No**: refused by hash in the target (`tools/vision/refused-models.sha256`) | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY (bench units, by hand) |
 | `xiaozhi_kws.kmodel` (369,560 B) | none (the vendor launcher's keyword spotter) | LILYGO `k230_phone_ui` package | LILYGO / unknown | **None stated** (the LILYGO repository has no licence) | Unknown | Unknown | No | No: the launcher package is purged from the image (chore/remove-vendor-launcher, PR #47) | NOT USED by Doors |
 | `test.kmodel` (2,286,808 B) | none (the vendor `ai2d_kpu` test) | SDK `ai2d_kpu` package | Canaan | **None stated** | Unknown | Unknown | No | No, from 0.3.5 (`ai2d_kpu` off); up to 0.3.0 through `BR2_PACKAGE_AI2D_KPU=y` | NOT USED by Doors; as image content **UNKNOWN - DO NOT REDISTRIBUTE** (vendor material, B6/B7) |
 | `ocr_rec.kmodel`, `ocr_det_int16.kmodel`, `door_lock/mbface.kmodel`, `yolov5n`, `yolo11n`, `yolo26n`, the self-learning `recognition.kmodel` / `embedding.kmodel` | none | SDK and canmv trees | various | not established | - | - | No | No | NOT USED / REFERENCE ONLY |
@@ -50,15 +56,17 @@ the vendor's own demos (below).
   redistribution.
 - **A public image.** `yolov8n.kmodel` no longer blocks it (not installed
   from 0.3.5; the helper offers DETECT, TRACK and TRAFFIC only when a
-  detector file is present). The vendor models still in the image
+  detector file is present). From 0.3.6 the image carries R0, whose open
+  points (its row) are the owner's to decide before an image with it is
+  published. The vendor models still in the image
   were `face_detection_320.kmodel` (`face_detect`) and `test.kmodel`
   (`ai2d_kpu`); both packages are off from 0.3.5, so no model of unknown
   terms is left in the image
   (docs/LICENSING.md item 5); so do the other blockers in
   docs/licensing/APACHE_2_READINESS.md.
-- **Replacing a model** with one whose terms are known (for example a
-  detector trained on a permissively licensed dataset and published with its
-  weights) is a separate piece of work and is not done here.
+- **Replacing a model** with one whose terms are known is what R0 is: a
+  detector trained by the project on licence-filtered data
+  (research/yolox-traffic-training). Its row says what is still open.
 
 ## Evidence
 

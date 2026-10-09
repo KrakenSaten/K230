@@ -333,6 +333,7 @@ if [ "${TARGET}" = "all" ]; then
         echo "ggwave    : $(m ggwave_commit)$([ "$(m ggwave_state)" != "clean" ] && echo " ($(m ggwave_state))")"
         echo "MeshCore  : $(m meshcore_commit)$([ "$(m meshcore_state)" != "clean" ] && echo " ($(m meshcore_state))")"
         echo "Crypto    : $(m crypto_commit)$([ "$(m crypto_state)" != "clean" ] && echo " ($(m crypto_state))")"
+        echo "Vision R0 : $(m vision_r0_kmodel) (det-r0-traffic6-yolox-tiny-416.kmodel sha256, experimental beta)"
         echo "Doors     : $(m pocketos_commit_short)$([ "$(m source_tree_state)" = "dirty" ] && echo " (applied from a dirty tree)")"
         echo "BUILD_ID  : $(m pocketos_build_id)"
         echo "Applied   : $(m applied_utc) (source of the above; this build did not re-apply)"

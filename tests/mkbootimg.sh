@@ -105,6 +105,16 @@ mkbootimg_rootfs_doors() {
     mkbootimg_stamped "${d}/usr/bin/doors" "${id}"
     printf '#!/bin/sh\n' > "${d}/usr/bin/pos-supervise"
     chmod 0755 "${d}/usr/bin/pos-supervise"
+    # Vision's R0 detector (0.3.6): a stand-in, which the gate accepts only
+    # through the pin mkbootimg_r0_pin writes.
+    mkdir -p "${d}/usr/share/doors/vision"
+    printf 'R0 stand-in\n' > "${d}/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel"
+}
+
+# mkbootimg_r0_pin <file> - a pin (tools/vision/r0-model.sha256's shape) for
+# the stand-in R0 above, for POCKETOS_R0_PIN.
+mkbootimg_r0_pin() {
+    printf '%s  det-r0-traffic6-yolox-tiny-416.kmodel\n' "$(printf 'R0 stand-in\n' | sha256sum | cut -d' ' -f1)" > "$1"
 }
 
 # mkbootimg_stamped <file> <build> - a stand-in binary carrying a build stamp.

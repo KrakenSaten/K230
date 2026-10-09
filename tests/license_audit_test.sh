@@ -14,10 +14,12 @@
 #   - Everything third_party/notices/SOURCES ships from others has a row in
 #     THIRD_PARTY_LICENSES.md.
 #   - No model file is committed. A model the package installs has a row in
-#     MODEL_LICENSES.md and a notices entry, and one whose status there is
-#     UNKNOWN is installed only if it is the one the owner allowed for
-#     internal images; an EXTERNAL ONLY model is never installed. These rules
-#     are executed against scratch packages that break them, not only read.
+#     MODEL_LICENSES.md; its status there is REDISTRIBUTABLE, or CANDIDATE -
+#     OWNER DECISION PENDING with the notices its row names (R0, 0.3.6), and
+#     one whose status is UNKNOWN is installed only if it is the one the owner
+#     allowed for internal images; an EXTERNAL ONLY model is never installed.
+#     These rules are executed against scratch packages that break them, not
+#     only read.
 #
 # Copyright (c) 2026 PocketOS authors.
 # SPDX-License-Identifier: Apache-2.0
@@ -266,6 +268,13 @@ model_rules() { # <package .mk> <Makefile> <MODEL_LICENSES.md> <SOURCES>; prints
         case "$row" in *"EXTERNAL ONLY"*) case "$row" in *UNKNOWN*"internal images only"*|*"internal images only"*UNKNOWN*) ;; *)
             echo "$m is EXTERNAL ONLY but installed"; continue ;; esac ;; esac
         case "$row" in
+            *"CANDIDATE - OWNER DECISION PENDING"*)
+                printf '%s\n' "$row" | grep -q 'THIRD_PARTY_NOTICES.txt `' || echo "$m: its row names no notices entry"
+                for n in $(printf '%s\n' "$row" | grep -o -E 'THIRD_PARTY_NOTICES.txt( `[a-z0-9-]+`( and)?)+' |
+                           grep -o -E '`[a-z0-9-]+`' | tr -d '`'); do
+                    grep -q "^${n} *|" "$4" || echo "$m: no notices entry ${n}"
+                done ;;
+            *REDISTRIBUTABLE*) ;;
             *UNKNOWN*)
                 allowed=""
                 for a in $INTERNAL_OK; do [ "${a%%:*}" = "$m" ] && allowed="${a#*:}"; done
@@ -274,6 +283,7 @@ model_rules() { # <package .mk> <Makefile> <MODEL_LICENSES.md> <SOURCES>; prints
                     printf '%s\n' "$row" | grep -q 'internal images only' || echo "$m: its row does not say internal images only"
                     grep -q "^${allowed} *|" "$4" || echo "$m: no notices entry ${allowed}"
                 fi ;;
+            *) echo "$m: its row has no status an image may carry" ;;
         esac
     done
 }
@@ -281,10 +291,23 @@ v=$(model_rules "$MK" Makefile "$MODELS" "$SOURCES")
 check "every installed model is listed, and none of unknown terms is installed${v:+ ($v)}" \
     "$([ -z "$v" ] && echo 1 || echo 0)"
 inst=$(installed_models "$MK" Makefile | tr '\n' ' ')
-check "the package installs no model at all (0.3.5)${inst:+ (installs: $inst)}" "$([ -z "$inst" ] && echo 1 || echo 0)"
+check "the package installs one model, R0 (0.3.6)${inst:+ (installs: $inst)}" \
+    "$([ "$inst" = 'det-r0-traffic6-yolox-tiny-416.kmodel ' ] && echo 1 || echo 0)"
+check "R0's row is CANDIDATE - OWNER DECISION PENDING, not REDISTRIBUTABLE" \
+    "$(model_row det-r0-traffic6-yolox-tiny-416.kmodel "$MODELS" | grep -q 'CANDIDATE - OWNER DECISION PENDING' && echo 1 || echo 0)"
+R0SUM=tools/vision/r0-model.sha256
+check "R0 is pinned by its sha256, on one line, under the name it is installed as" \
+    "$([ "$(cat "$R0SUM")" = '94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268  det-r0-traffic6-yolox-tiny-416.kmodel' ] && echo 1 || echo 0)"
+check "the install checks R0 against that pin before installing it" \
+    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -q -F 'sha256sum -c --strict --quiet $(@D)/tools/vision/r0-model.sha256) &&' && echo 1 || echo 0)"
+check "and removes an earlier build's copy first" \
+    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | grep -q -F 'rm -f $(TARGET_DIR)/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel' && echo 1 || echo 0)"
+check "apply_to_sdk.sh stages R0 only with the pinned hash" \
+    "$(grep -q -F 'tools/vision/r0-model.sha256' platforms/k230/scripts/apply_to_sdk.sh &&
+       grep -q -F '"${R0_GOT}" != "${R0_SHA}"' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
 ext=$(grep -F 'EXTERNAL ONLY' "$MODELS" | grep -o -E '`/usr/share/doors/vision/[A-Za-z0-9_.-]+`' | tr -d '`' | sed 's#.*/##' | sort -u)
-check "MODEL_LICENSES.md names the EXTERNAL ONLY models (face_det, text_det, text_rec, text_dict, face_embed)" \
-    "$([ "$(printf '%s\n' $ext | tr '\n' ' ')" = 'face_det.kmodel face_embed.kmodel text_det.kmodel text_dict.txt text_rec.kmodel ' ] && echo 1 || echo 0)"
+check "MODEL_LICENSES.md names the EXTERNAL ONLY models (upstream YOLOX, face_det, text_det, text_rec, text_dict, face_embed)" \
+    "$([ "$(printf '%s\n' $ext | tr '\n' ' ')" = 'det-upstream-yolox-tiny-416.kmodel face_det.kmodel face_embed.kmodel text_det.kmodel text_dict.txt text_rec.kmodel ' ] && echo 1 || echo 0)"
 # Executed against packages that break the rules.
 cp "$MK" "$TMP/ext.mk"
 printf '\t$(INSTALL) -D -m 0644 x/face_det.kmodel $(TARGET_DIR)/usr/share/doors/vision/face_det.kmodel\n' >> "$TMP/ext.mk"
@@ -298,6 +321,16 @@ cp "$MK" "$TMP/yolo.mk"
 printf '\t$(INSTALL) -D -m 0644 x/yolov8n.kmodel $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel\n' >> "$TMP/yolo.mk"
 check "and so is one that installs the AGPL-labelled yolov8n.kmodel again (control)" \
     "$(model_rules "$TMP/yolo.mk" Makefile "$MODELS" "$SOURCES" | grep -q 'yolov8n.kmodel has status UNKNOWN' && echo 1 || echo 0)"
+cp "$MK" "$TMP/up.mk"
+printf '\t$(INSTALL) -D -m 0644 x/det-upstream-yolox-tiny-416.kmodel $(TARGET_DIR)/usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel\n' >> "$TMP/up.mk"
+check "and so is one that installs the bench A/B's upstream YOLOX-Tiny (control)" \
+    "$(model_rules "$TMP/up.mk" Makefile "$MODELS" "$SOURCES" | grep -q 'det-upstream-yolox-tiny-416.kmodel is EXTERNAL ONLY' && echo 1 || echo 0)"
+grep -v '^r0-training-data ' "$SOURCES" > "$TMP/sources-no-r0"
+check "and R0 without its training-data notice (control)" \
+    "$(model_rules "$MK" Makefile "$MODELS" "$TMP/sources-no-r0" | grep -q 'no notices entry r0-training-data' && echo 1 || echo 0)"
+sed 's/CANDIDATE - OWNER DECISION PENDING/PENDING/' "$MODELS" > "$TMP/models-nostatus"
+check "and R0 whose row loses its status (control)" \
+    "$(model_rules "$MK" Makefile "$TMP/models-nostatus" "$SOURCES" | grep -q 'det-r0-traffic6-yolox-tiny-416.kmodel: its row has no status' && echo 1 || echo 0)"
 
 # The target-wide refusal (pocketos.mk, POCKETOS_REFUSE_DETECTOR_MODELS): a
 # vendor package, a stale build tree or a rename must not bring an
@@ -313,6 +346,9 @@ check "the refusal runs after every package (target-finalize hook)" \
 check "its list names the SDK's yolov8n, yolov5n, yolo11n and yolo26n by hash" \
     "$([ "$(grep -c -E '^[0-9a-f]{64}  yolo[a-z0-9]*\.kmodel$' "$REFUSED")" = 4 ] &&
        grep -q '^0b4bcdd3eef7ad05d827127ec630d2354659f6db1b0c627ecb4af32cb2004a09 ' "$REFUSED" && echo 1 || echo 0)"
+check "and the bench A/B's upstream YOLOX-Tiny, and never R0" \
+    "$(grep -q '^8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354  det-upstream-yolox-tiny-416.kmodel$' "$REFUSED" &&
+       ! grep -q "^$(cut -c1-64 tools/vision/r0-model.sha256) " "$REFUSED" && echo 1 || echo 0)"
 VYOLO=vendor/T-Display-K230/k230_linux_sdk/buildroot-overlay/package/yolo/utils
 if [ -d "$VYOLO" ]; then
     miss=""

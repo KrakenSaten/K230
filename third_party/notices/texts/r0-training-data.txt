@@ -1,0 +1,36 @@
+Training data of Vision's R0 detector
+
+The R0 detector (/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel,
+an experimental beta) was trained by the Doors project, from no pretrained
+weights, on the traffic6_r0 dataset: images and annotations selected from the
+two sources below and filtered to six classes (car, truck, bus, motorcycle,
+bicycle, person). No image or annotation from them is in the Doors image.
+None of their authors or publishers endorses Doors or this model, and they
+give no warranty for it.
+
+COCO 2017 annotations
+    Copyright the COCO Consortium, https://cocodataset.org/
+    Licensed under the Creative Commons Attribution 4.0 International
+    licence, https://creativecommons.org/licenses/by/4.0/
+    Changes: filtered to the six classes above and relabelled 1-6.
+
+Open Images Dataset V7 annotations
+    Copyright Google LLC, https://storage.googleapis.com/openimages/web/index.html
+    Licensed under the Creative Commons Attribution 4.0 International
+    licence, https://creativecommons.org/licenses/by/4.0/
+    Changes: filtered to the six classes above; Car, Limousine, Van and Taxi
+    folded into car, and Man, Woman, Boy and Girl into person, following
+    Open Images' own class hierarchy; relabelled 1-6.
+
+Images
+    Photographs from Flickr, as listed by COCO 2017 and Open Images V7, each
+    used under the licence its listing gives: Creative Commons Attribution
+    2.0 Generic (https://creativecommons.org/licenses/by/2.0/), or "No known
+    copyright restrictions" (Flickr Commons). Images under any other
+    licence were left out. The licence labels are those the uploaders gave;
+    neither dataset verifies them.
+    The per-image list - each training image's licence, source URL and,
+    where the source records one, its author - is the file ATTRIBUTION.tsv of
+    the traffic6_r0 dataset (sha256
+    2bc99bc8b2098a4f628fa8f3d0c08af5252a0d4cbdfb1eddaad9f9062e594c3e),
+    published with the Doors release that carries the model.

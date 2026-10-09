@@ -94,17 +94,22 @@ endef
 # PocketOS-era shell would otherwise still hold it, and the rootfs gate in
 # build_image.sh would refuse the image (correctly, but late).
 #
-# No Vision detector model ships (Doors 0.3.5 on; docs/apps/VISION.md "The
-# model", MODEL_LICENSES.md). The pinned SDK's yolov8n.kmodel, which images
-# up to 0.3.0 carried for internal use, is a compiled Ultralytics YOLOv8n
-# (AGPL-3.0); a DOORS-trained replacement is not ready. pos-vision runs
-# without it: COLOR, EDGE and LINE TRACE, and the modes whose own models are
-# installed by hand; DETECT, TRACK and TRAFFIC are not offered, and the app
-# says why. Buildroot never deletes from $(TARGET_DIR), so the install
-# removes the copy an earlier build put there, and a final check over the
-# whole target refuses any of the SDK's Ultralytics YOLO kmodels - by name,
-# and by the hashes in tools/vision/refused-models.sha256 whatever the file
-# is called - and the vendor yolo demo package, which would install them.
+# Vision's detector (docs/apps/VISION.md "The model", MODEL_LICENSES.md).
+# From 0.3.6 the image carries DOORS' own R0 detector, an experimental beta
+# trained by the project (YOLOX-Tiny 416, six classes), as
+# /usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel. The file is
+# not in git: apply_to_sdk.sh stages it into models/vision/ after checking it
+# against tools/vision/r0-model.sha256, and the install checks it again.
+# Vision selects it on a fresh installation. pos-vision's own default,
+# yolov8n.kmodel, is still not shipped: images up to 0.3.0 carried the pinned
+# SDK's copy, a compiled Ultralytics YOLOv8n (AGPL-3.0), for internal use, so
+# DeskBuddy and `pos-vision` without --model find no detector unless one is
+# installed by hand. Buildroot never deletes from $(TARGET_DIR), so the
+# install removes the copies an earlier build put there, and a final check
+# over the whole target refuses any of the SDK's Ultralytics YOLO kmodels - by
+# name, and by the hashes in tools/vision/refused-models.sha256 whatever the
+# file is called, which also name the upstream YOLOX-Tiny the bench A/B used -
+# and the vendor yolo demo package, which would install them.
 ifeq ($(BR2_PACKAGE_YOLO),y)
 $(error pocketos: BR2_PACKAGE_YOLO installs Ultralytics YOLO models (AGPL-3.0), which no Doors image ships (docs/apps/VISION.md, "The model"))
 endif
@@ -115,6 +120,12 @@ define POCKETOS_INSTALL_TARGET_CMDS
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell
 	rm -f $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel
+	rm -f $(TARGET_DIR)/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel
+	if [ -f $(@D)/models/vision/det-r0-traffic6-yolox-tiny-416.kmodel ]; then \
+		(cd $(@D)/models/vision && sha256sum -c --strict --quiet $(@D)/tools/vision/r0-model.sha256) && \
+		$(INSTALL) -D -m 0644 $(@D)/models/vision/det-r0-traffic6-yolox-tiny-416.kmodel \
+			$(TARGET_DIR)/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel; \
+	fi
 	rmdir $(TARGET_DIR)/usr/share/doors/vision 2>/dev/null || true
 endef
 
