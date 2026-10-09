@@ -110,7 +110,9 @@ struct deskbuddy_app {
     struct db_vision_pipeline_cfg pipeline_cfg;
     struct db_vision_mock mock;
     int64_t provider_next;       /* -1: nothing scheduled */
-    unsigned provider_starts;    /* once per open: play never starts one */
+    unsigned provider_starts;    /* starts this open: play never starts one */
+    bool provider_on;            /* started and not stopped */
+    bool camera;                 /* the provider is the Vision pipeline */
     bool sim;                    /* $DESKBUDDY_SIM: scripted vision, dev keys, nothing saved */
     int64_t mono;                /* the app's monotonic ms, from lv_tick */
     uint32_t last_tick;
@@ -531,7 +533,9 @@ static const char *note_for(const struct deskbuddy_app *a)
     if (a->sim) {
         return "SIMULATED VISION";
     }
-    if (b->seen == DB_SEEN_UNAVAILABLE && mode != DB_MODE_NIGHT) {
+    /* Companion plays by touch and leaves the camera off, so not seeing is
+     * no news there; Night never said it. */
+    if (b->seen == DB_SEEN_UNAVAILABLE && mode == DB_MODE_GUARD) {
         return "NO VISION YET";
     }
     return "";
@@ -990,6 +994,8 @@ static void pump_vision(struct deskbuddy_app *a, int64_t now)
     }
 }
 
+static void sync_provider(struct deskbuddy_app *a, int64_t now);
+
 static void step(struct deskbuddy_app *a)
 {
     int64_t now = app_now(a);
@@ -1000,6 +1006,7 @@ static void step(struct deskbuddy_app *a)
     if (a->layout_pending) {
         apply_layout(a);
     }
+    sync_provider(a, now);
     pump_vision(a, now);
     db_brain_tick(&a->brain, now);
     snack_step(a, now);
@@ -1411,18 +1418,21 @@ static void build(struct deskbuddy_app *a, lv_obj_t *body)
 
 /* The provider: the script in $DESKBUDDY_SIM ("keys" gives the developer
  * keys with nothing scripted); otherwise the Vision pipeline - the camera
- * and the KPU in Vision's helper - unless $DESKBUDDY_VISION is "none". */
-static void start_provider(struct deskbuddy_app *a, int64_t now)
+ * and the KPU in Vision's helper - unless $DESKBUDDY_VISION is "none".
+ * Chosen here, started by sync_provider() when the mode needs it. */
+static void choose_provider(struct deskbuddy_app *a)
 {
     const char *sim = getenv("DESKBUDDY_SIM");
     const char *vision = getenv("DESKBUDDY_VISION");
 
     a->provider.ops = &db_vision_none_ops;
     a->provider.ctx = NULL;
+    a->camera = false;
     if (!(sim && *sim) && !(vision && strcmp(vision, "none") == 0)) {
         a->pipeline_cfg.display_rotation = pos_rotation_degrees(pocketui_display_geometry()->rotation);
         a->provider.ops = &db_vision_pipeline_ops;
         a->provider.ctx = &a->pipeline_cfg;
+        a->camera = true;
     }
     if (sim && *sim) {
         a->sim = true;
@@ -1431,8 +1441,37 @@ static void start_provider(struct deskbuddy_app *a, int64_t now)
             a->provider.ctx = &a->mock;
         }
     }
-    a->provider_starts++;
-    a->provider_next = a->provider.ops->start(a->provider.ctx, now, &a->queue) == 0 ? now : -1;
+}
+
+/* The camera runs only where a mode is built on it: Guard and Night. In
+ * Companion - which plays by touch - the Vision helper is never started,
+ * and entering Companion stops a helper Guard or Night started, telling
+ * the brain it cannot see. A provider that opens no camera (none, the
+ * script) runs in every mode, as it always did. Called from create and
+ * from every timer step, so a mode change by button, key or setting is
+ * followed within one step. */
+static void sync_provider(struct deskbuddy_app *a, int64_t now)
+{
+    bool want = !a->camera || db_state_mode(a->brain.state) != DB_MODE_COMPANION;
+    struct db_vision_event blind = { .kind = DB_VISION_UNAVAILABLE, .confidence_pm = DB_CONF_NONE };
+
+    if (want == a->provider_on || !a->provider.ops) {
+        return;
+    }
+    a->provider_on = want;
+    if (want) {
+        a->provider_starts++;
+        /* Until it reports, nobody is known to be gone: an ARM now waits
+         * for "nobody" rather than assuming it (db_brain_set_vision_pending). */
+        db_brain_set_vision_pending(&a->brain, true);
+        a->provider_next = a->provider.ops->start(a->provider.ctx, now, &a->queue) == 0 ? now : -1;
+        return;
+    }
+    a->provider.ops->stop(a->provider.ctx);
+    a->provider_next = -1;
+    db_brain_set_vision_pending(&a->brain, false);
+    blind.mono_ms = now;
+    db_vision_queue_push(&a->queue, &blind);
 }
 
 /* $DESKBUDDY_MODE (simulation only): start in companion, guard, night or
@@ -1469,7 +1508,7 @@ static void *deskbuddy_create(lv_obj_t *body)
     a->last_tick = lv_tick_get();
     now = app_now(a);
     db_vision_queue_init(&a->queue);
-    start_provider(a, now);
+    choose_provider(a);
     if (a->sim) {
         db_prefs_defaults(&prefs);
         db_guard_init(&a->log);
@@ -1481,6 +1520,7 @@ static void *deskbuddy_create(lv_obj_t *body)
     db_brain_set_wall(&a->brain, wall_now());
     db_brain_set_reduced_motion(&a->brain, pocketos_shell_reduced_motion() != 0, now);
     sim_mode(a, now);
+    sync_provider(a, now);
 
     build(a, body);
     a->layout_pending = true;
@@ -1519,8 +1559,9 @@ static void deskbuddy_destroy(void *priv)
     if (!a) {
         return;
     }
-    if (a->provider.ops) {
+    if (a->provider.ops && a->provider_on) {
         a->provider.ops->stop(a->provider.ctx);
+        a->provider_on = false;
     }
     save_changes(a);
     if (a->timer) {
@@ -1661,6 +1702,16 @@ const char *deskbuddy_app_provider(void *priv)
 unsigned deskbuddy_app_provider_starts(void *priv)
 {
     return priv ? ((struct deskbuddy_app *)priv)->provider_starts : 0;
+}
+
+bool deskbuddy_app_provider_running(void *priv)
+{
+    return priv && ((struct deskbuddy_app *)priv)->provider_on;
+}
+
+lv_obj_t *deskbuddy_app_note(void *priv)
+{
+    return priv ? ((struct deskbuddy_app *)priv)->note : NULL;
 }
 
 /* The first-party launcher mask (docs/design/doors-app-icons); .icon stays

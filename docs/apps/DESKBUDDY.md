@@ -324,8 +324,21 @@ The plan that stood here is built, as `db_vision_pipeline_ops` in
 place DeskBuddy's boundary (`db_vision.h`) and Vision's helper client
 (`apps/vision/vision_session.h`) meet, so DeskBuddy still includes nothing of
 Vision and Vision knows nothing of DeskBuddy (`tests/deskbuddy_lint.sh`,
-section 7). `start_provider()` picks it unless `$DESKBUDDY_SIM` is set (the
+section 7). `choose_provider()` picks it unless `$DESKBUDDY_SIM` is set (the
 mock) or `$DESKBUDDY_VISION` is `none` (blind, as v0.1 was).
+
+**Only Guard and Night start it** (`sync_provider()`, since the
+personality slice). Companion plays by touch and never starts the helper:
+opening DeskBuddy in Companion opens no camera, switching to GUARD or NIGHT
+starts the helper, and switching back to BUDDY stops it (within Vision's
+grace, as closing the app does) and tells the brain it cannot see, so
+Companion runs blind and its NO VISION YET note is not shown. While a
+freshly started helper has not reported, ARM waits for "nobody"
+(`GUARD_ARMING`) rather than taking the silence for an empty desk. The
+scripted mock and `none` open no camera and run in every mode. So the
+owner greeting and the stranger's wary look in Companion need a source
+other than the camera from now on; an explicit opt-in for them is left to
+a later slice.
 
 - `start()` starts Vision's helper (`pos-vision`, ADR-006) with no picture
   on screen - a 64 x 64 preview it takes and drops - non-blocking; a helper

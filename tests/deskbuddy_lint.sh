@@ -98,9 +98,16 @@ check "the bridge touches no file (the owner stays in Vision's helper)" "$([ -z 
 check "the shell builds the bridge" \
     "$(n=0; for f in $BRIDGE/*.c; do grep -q "\${REPO_DIR}/$f" ui/shell/CMakeLists.txt || n=1; done; [ $n = 0 ] && echo 1 || echo 0)"
 check "DeskBuddy picks it unless simulated or \$DESKBUDDY_VISION is none" \
-    "$(awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
+    "$(awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
 check "stop() is called in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'provider.ops->stop' && echo 1 || echo 0)"
+# Companion plays by touch: the camera is started only for Guard and Night,
+# in one place, and stopped again on the way back to Companion.
+SYNC=$(awk '/^static void sync_provider\(struct deskbuddy_app \*a, int64_t now\)$/,/^}/' $APP/deskbuddy_app.c | strip_prose)
+check "the provider is started and stopped only by the mode (sync_provider)" \
+    "$(printf '%s\n' "$SYNC" | grep -q 'DB_MODE_COMPANION' && printf '%s\n' "$SYNC" | grep -q 'ops->start' &&
+       printf '%s\n' "$SYNC" | grep -q 'ops->stop' &&
+       [ "$(code $APP/deskbuddy_app.c | grep -c 'ops->start')" = 1 ] && echo 1 || echo 0)"
 
 # ---- 8. personality needs no camera ---------------------------------------------------
 # Touch, the snack and rest reach the brain as a db_stimulus. None of that

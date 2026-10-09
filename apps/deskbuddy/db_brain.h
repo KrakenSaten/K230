@@ -259,6 +259,7 @@ struct db_brain {
     unsigned prefs_rev;         /* bumped when prefs (mode, armed) change: save them */
     unsigned log_rev;           /* bumped when the log changes: save it */
     unsigned events;            /* vision events taken, for the screen's debug line */
+    bool vision_pending;        /* a source started, nothing heard from it yet */
     /* Personality: the reaction playing, its beats and where it looks. */
     enum db_react react;
     const struct db_beat *beats;
@@ -325,6 +326,10 @@ void db_brain_tick(struct db_brain *b, int64_t now_ms);
 int64_t db_brain_next_ms(const struct db_brain *b);
 
 void db_brain_set_reduced_motion(struct db_brain *b, bool on, int64_t now_ms);
+/* A vision source has just been started and has not reported yet. Until
+ * its first event, ARM waits for "nobody" (GUARD_ARMING) instead of taking
+ * the silence for an empty desk. Any vision event clears it. */
+void db_brain_set_vision_pending(struct db_brain *b, bool pending);
 void db_brain_set_wall(struct db_brain *b, int64_t wall_s);
 
 void db_brain_face(const struct db_brain *b, struct db_face *out);

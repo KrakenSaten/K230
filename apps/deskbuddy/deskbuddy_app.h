@@ -47,5 +47,8 @@ lv_obj_t *deskbuddy_app_character(void *priv);
  * times one was started: touch and play must never start one. */
 const char *deskbuddy_app_provider(void *priv);
 unsigned deskbuddy_app_provider_starts(void *priv);
+/* The provider is started now (only Guard and Night start the camera). */
+bool deskbuddy_app_provider_running(void *priv);
+lv_obj_t *deskbuddy_app_note(void *priv);
 
 #endif

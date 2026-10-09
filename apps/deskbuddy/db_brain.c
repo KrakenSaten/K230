@@ -586,8 +586,9 @@ bool db_brain_arm(struct db_brain *b, int64_t now_ms)
     b->visit_id = 0;
     b->visit_end_ms = 0;
     /* The owner is usually still in front of it: wait until they have gone,
-     * or they would be "back" at once. Blind, there is nobody to wait for. */
-    enter(b, db_seen_present(b->seen) ? DB_ST_GUARD_ARMING : DB_ST_GUARD_ARMED, now_ms);
+     * or they would be "back" at once. Blind, there is nobody to wait for -
+     * unless the camera is only starting and simply has not said yet. */
+    enter(b, db_seen_present(b->seen) || b->vision_pending ? DB_ST_GUARD_ARMING : DB_ST_GUARD_ARMED, now_ms);
     return true;
 }
 
@@ -739,6 +740,7 @@ void db_brain_vision(struct db_brain *b, const struct db_vision_event *in, int64
     }
     ev = *in;
     b->events++;
+    b->vision_pending = false;
     /* Recognition off: an identity is only "somebody". */
     if (!recognition(b) && (ev.kind == DB_VISION_OWNER_RECOGNIZED || ev.kind == DB_VISION_UNKNOWN_PERSON)) {
         ev.kind = DB_VISION_PERSON_DETECTED;
@@ -1143,6 +1145,11 @@ void db_brain_set_reduced_motion(struct db_brain *b, bool on, int64_t now_ms)
         schedule_act(b, now_ms);
         schedule_breath(b, now_ms);
     }
+}
+
+void db_brain_set_vision_pending(struct db_brain *b, bool pending)
+{
+    b->vision_pending = pending;
 }
 
 void db_brain_set_wall(struct db_brain *b, int64_t wall_s)

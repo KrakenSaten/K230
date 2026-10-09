@@ -464,6 +464,16 @@ static void test_with_vision(void)
         check("from any source alike", db_brain_stimulus(&b, &s, t) && b.react == DB_REACT_GREET);
         check("and it never makes up a sighting", b.seen == DB_SEEN_UNAVAILABLE && b.events == 0);
     }
+    fresh(&b, NULL, t = 0);
+    db_brain_set_mode(&b, DB_MODE_GUARD, t);
+    db_brain_arm(&b, t);
+    check("blind, with no camera starting: ARM arms at once, as before", b.state == DB_ST_GUARD_ARMED);
+    db_brain_disarm(&b, t += 10);
+    db_brain_set_vision_pending(&b, true);
+    db_brain_arm(&b, t += 10);
+    check("a camera just started and silent: ARM waits for nobody", b.state == DB_ST_GUARD_ARMING);
+    see(&b, DB_VISION_NO_PERSON, t += 500);
+    check("and arms when it says nobody is there", b.state == DB_ST_GUARD_ARMED && !b.vision_pending);
     {
         struct db_stimulus bad = { (enum db_stim_kind)99, DB_SRC_TOUCH, 0, 0 };
 

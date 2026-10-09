@@ -30,6 +30,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -731,7 +733,8 @@ static void test_touch(void)
     check("poked again and again: briefly annoyed", brain()->react == DB_REACT_ANNOYED);
     pump(3500);
     check("and calm again", brain()->react == DB_REACT_NONE);
-    check("nothing of it started a vision provider", deskbuddy_app_provider_starts(app) == 1);
+    check("nothing of it started the camera: Companion never does", deskbuddy_app_provider_starts(app) == 0 &&
+                                                                         !deskbuddy_app_provider_running(app));
     app_stop();
     check("play wrote nothing", !stored(DB_STORE_PREFS) && !stored(DB_STORE_GUARD));
 }
@@ -822,7 +825,8 @@ static void test_feed(void)
     check("R rests", brain()->state == DB_ST_SLEEP);
     push_key('r');
     check("R wakes", brain()->react == DB_REACT_STIR);
-    check("no feeding started a vision provider", deskbuddy_app_provider_starts(app) == 1);
+    check("only the visit to NIGHT started the camera, and BUDDY stopped it; feeding started none",
+          deskbuddy_app_provider_starts(app) == 1 && !deskbuddy_app_provider_running(app));
     app_stop();
     check("feeding kept no log (only the mode it was left in is saved)", !stored(DB_STORE_GUARD) &&
                                                                               file_has(DB_STORE_PREFS, "mode=companion"));
@@ -864,7 +868,7 @@ static void test_no_vision(void)
     tap_obj(deskbuddy_app_snack(app));
     pump(GLIDE_WAIT);
     check("poke, pet and feed all work blind", brain()->poked >= 1 && brain()->petted == 1 && brain()->fed == 1);
-    check("and only the one provider start of opening", deskbuddy_app_provider_starts(app) == 1);
+    check("none opens no camera: its one start at opening, as before", deskbuddy_app_provider_starts(app) == 1);
     app_stop();
     unsetenv("DESKBUDDY_VISION");
 }
@@ -895,6 +899,158 @@ static void test_rotate_snack(void)
     pump(100);
     check("portrait again: the screen fits", games_screen_fits(app_body, app_body, "portrait, after feeding") == 0);
     app_stop();
+}
+
+/* ---- the camera follows the mode ------------------------------------------------------ *
+ *
+ * Companion plays by touch and never starts the Vision helper; Guard and
+ * Night start it, and the way back to Companion stops it. First with the
+ * default provider and no helper installed (the counts and the flag), then -
+ * when $DESKBUDDY_TEST_HELPER names a built pos-vision - against the real
+ * helper on the fake camera, counting helper processes. */
+
+static const char *live_helper;
+
+/* Helpers still running: processes whose argv is "<helper> session ...". */
+static int helpers_alive(void)
+{
+    DIR *d = opendir("/proc");
+    struct dirent *e;
+    int n = 0;
+
+    if (!d || !live_helper) {
+        if (d) {
+            closedir(d);
+        }
+        return -1;
+    }
+    while ((e = readdir(d)) != NULL) {
+        char path[300];
+        char buf[4096];
+        size_t got;
+        FILE *f;
+
+        if (e->d_name[0] < '1' || e->d_name[0] > '9') {
+            continue;
+        }
+        snprintf(path, sizeof(path), "/proc/%s/cmdline", e->d_name);
+        f = fopen(path, "r");
+        if (!f) {
+            continue;
+        }
+        got = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[got] = '\0';
+        if (strcmp(buf, live_helper) == 0 && strlen(buf) + 8 < got && strcmp(buf + strlen(buf) + 1, "session") == 0) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
+}
+
+/* The helper runs in real time, the app on the test's clock: pump both. */
+static int wait_real(int (*done)(void), int max_ms)
+{
+    int t;
+
+    for (t = 0; t < max_ms; t += 50) {
+        if (done()) {
+            return 1;
+        }
+        pump(50);
+        usleep(50000);
+    }
+    return done();
+}
+
+static int helper_up(void)
+{
+    return helpers_alive() == 1;
+}
+
+static int helper_seen_somebody(void)
+{
+    return brain()->seen == DB_SEEN_PERSON;
+}
+
+static void test_camera_modes(void)
+{
+    const char *helper = getenv("DESKBUDDY_TEST_HELPER");
+    static char abs_helper[PATH_MAX];
+
+    forget();
+    app_start();
+    check("opened in Companion: the Vision pipeline is the provider, but not started",
+          strcmp(deskbuddy_app_provider(app), "vision") == 0 && !deskbuddy_app_provider_running(app) &&
+              deskbuddy_app_provider_starts(app) == 0);
+    check("so Companion is blind, and does not complain about it",
+          brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(lv_label_get_text(deskbuddy_app_note(app)), "") == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    check("GUARD starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 1);
+    check("and Guard still says when it cannot see",
+          strcmp(lv_label_get_text(deskbuddy_app_note(app)), "NO VISION YET") == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    check("BUDDY stops it, and Companion is told it cannot see",
+          !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    check("NIGHT starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 2);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    check("Night to Guard keeps the one helper", deskbuddy_app_provider_running(app) &&
+                                                     deskbuddy_app_provider_starts(app) == 2);
+    app_stop();
+    app_start();
+    check("reopened in Guard: started at once, as before", brain()->state == DB_ST_GUARD_DISARMED &&
+                                                               deskbuddy_app_provider_running(app) &&
+                                                               deskbuddy_app_provider_starts(app) == 1);
+    app_stop();
+
+    if (!helper || !*helper || !realpath(helper, abs_helper) || access(abs_helper, X_OK) != 0) {
+        printf("note: no DESKBUDDY_TEST_HELPER: the live helper checks did not run\n");
+        return;
+    }
+    live_helper = abs_helper;
+    setenv("POCKETOS_VISION_HELPER", abs_helper, 1);
+    setenv("POCKETOS_CAMERA_BACKEND", "fake", 1);
+    setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
+    setenv("POCKETOS_VISION_FACE_DET", "/nonexistent/face_det.kmodel", 1);
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1); /* somebody, always */
+    forget();
+    app_start();
+    pump(500);
+    usleep(500000);
+    pump(500);
+    check("live: Companion opened, no helper running", helpers_alive() == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    tap_obj(deskbuddy_app_action_button(app));
+    check("live: ARM before the new helper has said anything waits for nobody",
+          brain()->state == DB_ST_GUARD_ARMING);
+    check("live: GUARD started the helper", wait_real(helper_up, 5000));
+    check("live: it sees the person at the desk", wait_real(helper_seen_somebody, 10000));
+    check("live: still waiting for them to leave, nobody logged",
+          brain()->state == DB_ST_GUARD_ARMING && db_guard_count(brain()->log) == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    check("live: BUDDY stopped the helper", helpers_alive() == 0);
+    check("live: disarmed, blind, nothing logged", !brain()->prefs.guard_armed &&
+                                                      brain()->seen == DB_SEEN_UNAVAILABLE &&
+                                                      db_guard_count(brain()->log) == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    check("live: NIGHT started it again", wait_real(helper_up, 5000));
+    app_stop();
+    check("live: closing in Night leaves no helper", helpers_alive() == 0);
+    app_start();
+    pump(500);
+    usleep(300000);
+    check("live: reopened (in Night) it starts one helper, not two", wait_real(helper_up, 5000));
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    check("live: and BUDDY stops it", helpers_alive() == 0);
+    app_stop();
+    unsetenv("POCKETOS_VISION_HELPER");
+    unsetenv("POCKETOS_CAMERA_BACKEND");
+    unsetenv("POCKETOS_CAMERA_FAKE");
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unsetenv("POCKETOS_VISION_KPU_SCRIPT");
+    live_helper = NULL;
 }
 
 /* ---- the demonstration capture ------------------------------------------------------ *
@@ -1094,6 +1250,7 @@ static void run_tests(void)
     test_feed();
     test_sleepy();
     test_no_vision();
+    test_camera_modes();
     test_rotate_snack();
     test_landscape();
 
