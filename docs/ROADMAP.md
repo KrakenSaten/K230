@@ -23,8 +23,8 @@ priorities.
 
 ### 1. Vision: our own trained AI model (Ongoing)
 
-Doors 0.3.5 ships without a detector model, so Vision's DETECT, TRACK and
-TRAFFIC modes are off in the published image ([VISION.md](apps/VISION.md),
+Doors 0.3.5 shipped without a detector model; 0.3.6 ships the project's own
+first one, R0, as a beta ([VISION.md](apps/VISION.md),
 [MODEL_LICENSES.md](../MODEL_LICENSES.md)). The aim is a detector trained by
 the DOORS project, on data whose licences allow it to be shipped.
 
