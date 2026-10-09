@@ -71,7 +71,8 @@ BEST_RULE = ("val mAP50:95 (COCO AP@[.50:.95], all areas, maxDets 100) of the EM
 SCHEDULE_KEYS = ("max_epoch", "warmup_epochs", "no_aug_epochs", "eval_interval")
 # Settings a resume must share with the run it continues.
 RESUME_KEYS = ("batch", "iters_per_epoch", "max_epoch", "warmup_epochs", "no_aug_epochs", "basic_lr_per_img",
-               "warmup_lr", "min_lr_ratio", "scheduler", "amp", "multiscale", "seed", "class_set", "input_size")
+               "warmup_lr", "min_lr_ratio", "scheduler", "amp", "multiscale", "seed", "class_set", "input_size",
+               "neg_obj_ignore")
 
 
 # ---- schedule rules (pure; tests/test_train_loop.py)
@@ -342,6 +343,13 @@ def train(args):
     narrow = [i for i in loader.dataset._dataset.coco.dataset["images"] if i["width"] == 3]
     if narrow:
         raise SystemExit("training images 3 px wide break the mosaic counter: %s" % narrow[:3])
+    neg_info, bce = None, None
+    if args.neg_obj_ignore != "off":  # R1-A experiment (neg_obj_mask.py); off = R0 behaviour, nothing swapped
+        import neg_obj_mask
+
+        flagged, neg_info = neg_obj_mask.flagged_ids(exp.data_dir, args.neg_obj_ignore)
+        neg_obj_mask.enable_dataset(loader.dataset, flagged)
+        bce = neg_obj_mask.enable_head(model.head)
     ipe = args.iters_per_epoch or len(loader)
     lr_sched = exp.get_lr_scheduler(exp.basic_lr_per_img * args.batch, ipe)
     ema = ModelEMA(model, EMA_DECAY) if exp.ema else None
@@ -353,9 +361,11 @@ def train(args):
     val_loader = exp.get_eval_loader(batch_size=args.batch, is_distributed=False)
 
     config = config_of(args, exp, ipe)
+    if neg_info:
+        config["neg_obj_ignore"] = neg_info
     best, best_epoch, samples_seen, tsize = None, None, 0, tuple(exp.input_size)
     if ck:
-        bad = {k: (ck["config"].get(k), config[k]) for k in RESUME_KEYS if ck["config"].get(k) != config[k]}
+        bad = {k: (ck["config"].get(k), config.get(k)) for k in RESUME_KEYS if ck["config"].get(k) != config.get(k)}
         if bad:
             raise SystemExit("the resume differs from the run it continues (checkpoint, now): %s" % bad)
         if ema:
@@ -400,6 +410,9 @@ def train(args):
             "best_checkpoint": {"file": "best_ckpt.pth", "metric": BEST_METRIC, "rule": BEST_RULE,
                                 "value": None, "epoch": None},
             "validation": [], "sessions": []})
+        if neg_info:
+            rec["neg_obj_ignore"] = dict(neg_info, module="neg_obj_mask.py", ignored=(
+                "negative objectness terms of anchors whose centre lies in pixels from a flagged image"))
     rec["sessions"].append(session)
     write_json(runj, rec)
 
@@ -435,12 +448,15 @@ def train(args):
             lr_first = optimizer.param_groups[0]["lr"]
             for i in range(ipe):
                 ti = time.time()
-                inps, targets, info, _ = next(it)
+                batch = next(it)
+                inps, targets, info = batch[0], batch[1], batch[2]
                 mosaic_n += int(is_mosaic(info, exp.input_size).sum())
                 inps = inps.to(dev, non_blocking=True).float()
                 targets = targets.to(dev, non_blocking=True).float()
                 targets.requires_grad = False
                 inps, targets = exp.preprocess(inps, targets, tsize)
+                if bce:
+                    bce.ignore = neg_obj_mask.anchor_ignore(batch[4].to(dev), tsize, model.head, exp.input_size)
                 with autocast():
                     outputs = model(inps, targets)
                 loss = outputs["total_loss"]
@@ -465,6 +481,8 @@ def train(args):
                 sync(dev)
                 iter_s.append(time.time() - ti)
                 sizes.add(tsize[0])
+                if bce:
+                    rec_i.update(neg_obj_ignored=bce.last["ignored"], neg_obj_negatives=bce.last["negatives"])
                 rec_i.update(epoch=epoch + 1, iter=i + 1, step=progress + 1, step_lr=step_lr, next_lr=lr,
                              size=tsize[0], mosaic=int(is_mosaic(info, exp.input_size).sum()),
                              it_s=round(iter_s[-1], 4))
@@ -506,6 +524,9 @@ def train(args):
                     "seconds": round(epoch_s, 1), "images_per_s": round(ipe * args.batch / epoch_s, 1),
                     "steady_images_per_s": round(args.batch / float(np.median(steady)), 1),
                     "memory": memory(dev), "eval_interval": exp.eval_interval, "metrics": metrics,
+                    **({"neg_obj_ignored_frac": float(np.sum([r["neg_obj_ignored"] for r in losses])
+                                                      / max(1, np.sum([r["neg_obj_negatives"] for r in losses])))}
+                       if bce else {}),
                     "best": new_best, "best_ap": best, "best_epoch": best_epoch, "written": written}
             append_jsonl(out / "epochs.jsonl", erec)
             epochs_done.append(erec)
@@ -568,6 +589,9 @@ def main():
     ap.add_argument("--pr-conf", type=float, default=0.35,
                     help="score threshold for precision/recall (0.35: decoder_check's 350 per-mille)")
     ap.add_argument("--eval-only", metavar="CKPT", help="validate CKPT and exit")
+    ap.add_argument("--neg-obj-ignore", default="off", choices=("off", "oi-car-unverified"),
+                    help="experiment R1-A (neg_obj_mask.py): no background-objectness loss in pixels from "
+                         "Open Images images without a verified Car; off (default) is R0's training")
     args = ap.parse_args()
     if args.eval_only:
         return eval_only(args)
