@@ -397,10 +397,16 @@ def errors(gt, rows, cg, cd, ev_by_img, classes, fp_ids, fn_ids, size, conf):
         out["examples"]["missed_small_" + c] = miss_ex[:8]
     out["confusion_pred_to_gt"] = dict(out["confusion_pred_to_gt"].most_common())
     # The Taxi assumption: car false positives on Open Images images where Car
-    # is verified absent but Taxi (not a child of Car) was never verified.
+    # is verified absent but Taxi (not a child of Car) was never verified, and
+    # that no box of another class explains (IoU < 0.5 with every non-car
+    # box): only those could be an unlabelled taxi. A car detection on a
+    # pickup boxed as Truck is a class confusion, not a taxi.
+    def explained(d):
+        return any(cat_name[g["category_id"]] != "car" and not g["iscrowd"] and iou_xywh(d["bbox"], g["bbox"]) >= 0.5
+                   for g in gts_by_img[d["image_id"]])
     taxi = [d for d in cd.loadAnns(fp_ids.get("car", []))
             if (rows[d["image_id"]].get("human_labels") or {}).get("Car") == 0
-            and "Taxi" not in (rows[d["image_id"]].get("human_labels") or {})]
+            and "Taxi" not in (rows[d["image_id"]].get("human_labels") or {}) and not explained(d)]
     out["car_fp_on_car_absent_taxi_unverified"] = {
         "count": len(taxi), "of_car_fp": len(fp_ids.get("car", [])),
         "examples": sorted(((round(d["score"], 3), rows[d["image_id"]]["uid"], [round(x, 1) for x in d["bbox"]])

@@ -11,6 +11,7 @@ to a K230 kmodel. The first target is YOLOX-Tiny 416 for Traffic.
 Background:
 - [docs/vision/TRAINING_PLAN_YOLOX_TRAFFIC.md](../../../docs/vision/TRAINING_PLAN_YOLOX_TRAFFIC.md): the plan, estimates and gates
 - [docs/vision/DATASET_PROVENANCE.md](../../../docs/vision/DATASET_PROVENANCE.md): what data may be used, and why
+- [docs/vision/R0_TRAFFIC6_RESULTS.md](../../../docs/vision/R0_TRAFFIC6_RESULTS.md): the R0 baseline run, its custom mixed-dataset evaluation and K230 export
 
 ## Layout
 

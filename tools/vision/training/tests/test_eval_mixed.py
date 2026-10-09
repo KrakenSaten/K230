@@ -131,10 +131,13 @@ class Scoring(unittest.TestCase):
         self.assertEqual(r["errors"]["openimages_left_out_detections"], {"car": 1, "person": 1})
 
     def test_car_absent_taxi_unverified_is_counted(self):
-        gt, rows = split([(1, OI, {"Car": 0, "Person": 1}, [("person", [10, 10, 40, 120])]),
+        gt, rows = split([(1, OI, {"Car": 0, "Truck": 1, "Person": 1},
+                           [("person", [10, 10, 40, 120]), ("truck", [300, 100, 90, 60])]),
                           (2, OI, {"Car": 0, "Taxi": 0, "Person": 1}, [("person", [10, 10, 40, 120])])])
-        r = em.score(gt, rows, [det(1, "car", [200, 200, 60, 40]), det(2, "car", [200, 200, 60, 40])], 0.35)
-        self.assertEqual(r["per_class"]["car"]["fp"], 2)
+        r = em.score(gt, rows, [det(1, "car", [200, 200, 60, 40]),   # unexplained: could be a taxi
+                                det(1, "car", [300, 100, 90, 60]),   # on the truck box: a confusion
+                                det(2, "car", [200, 200, 60, 40])], 0.35)  # Taxi verified
+        self.assertEqual(r["per_class"]["car"]["fp"], 3)
         self.assertEqual(r["errors"]["car_fp_on_car_absent_taxi_unverified"]["count"], 1)
 
     def test_confusion_and_misses(self):
