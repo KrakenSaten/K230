@@ -66,6 +66,19 @@ for o in portrait landscape; do
     check "$o detect: merely opening stores nothing" "$([ ! -e "$STATE/vision/settings.v1" ] && echo 1 || echo 0)"
     rm -rf "$RUN" "$LOGD" "$CFG"
 
+    # A fresh 0.3.6 card: R0 is the only detector file (the fake KPU ignores
+    # what is in it). Vision starts the helper on it and names it R0 · Beta.
+    R0F=$(mktemp); printf 'R0 stand-in' >"$R0F"
+    run r0 "$o" POCKETOS_VISION_MODEL_R0="$R0F" POCKETOS_VISION_MODEL_UPSTREAM=/nonexistent/det-upstream.kmodel
+    check "$o r0: the helper is started on R0" \
+        "$(grep -qh "vision: detector R0 · Beta: starting the helper on $R0F" "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+    check "$o r0: R0 · Beta is in force" \
+        "$(grep -qh 'vision: detector R0 · Beta in force' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+    y=$(yellow_px "$LOGD/r0.png")
+    check "$o r0: the live picture is on screen ($y yellow px)" "$([ "$y" -gt 5000 ] && echo 1 || echo 0)"
+    check "$o r0: the default choice is not stored again" "$([ ! -e "$STATE/vision/settings.v1" ] && echo 1 || echo 0)"
+    rm -rf "$RUN" "$LOGD" "$CFG" "$R0F"
+
     run picker "$o" POCKETOS_VISION_SHEET=modes
     y=$(yellow_px "$LOGD/picker.png")
     check "$o picker: the mode picker covers the picture ($y yellow px)" "$([ "$y" -lt 500 ] && echo 1 || echo 0)"
