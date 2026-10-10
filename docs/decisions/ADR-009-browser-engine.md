@@ -186,13 +186,14 @@ Risks:
 - ASSUMED: vendor `lv_conf.h` has LV_USE_SPAN 1; performance on the C908.
 - Not verified: anything on unit A.
 
-## Amendment 1 (PROPOSED 2026-10-10): RIFT's basemap through pos-browser
+## Amendment 1 (ACCEPTED 2026-10-10): RIFT's basemap through pos-browser
 
-Status: Proposed on branch `feat/rift-basemap`. The product owner approved
-the direction on 2026-10-10 (replacing RIFT MAP's "fetches nothing" rule with
-isolated, user-enabled basemap fetching, OpenStreetMap's standard tiles under
-its usage policy, off by default); acceptance waits for review and a unit B
-check.
+Status: Accepted (product owner, 2026-10-10) for the implemented,
+user-enabled OpenStreetMap basemap, after the unit B check below. Proposed the
+same day on branch `feat/rift-basemap` (PR #82), with the direction approved
+beforehand: RIFT MAP's "fetches nothing" rule replaced by isolated,
+user-enabled basemap fetching, OpenStreetMap's standard tiles under its usage
+policy, off by default.
 
 Context: RIFT's MAP placed the nodes on a bare graticule and fetched nothing
 (docs/apps/RIFT.md, "MAP"; `tests/rift_lint.sh` held it). The owner asked for
@@ -262,4 +263,11 @@ Evidence:
   helper, directory or picture file; a Browser page with pictures loads.
   One defect was found and fixed (e9469ab): the shell's watchdog counted an
   idle helper as silent and killed it at the first pan after more than
-  45 s idle.
+  45 s idle; the fix was rechecked on unit B (a pan after about 3 min idle,
+  tiles at once, no kill) and has a regression check in
+  tests/rift_tiles_test.c (a request after an idle spell is answered by the
+  same helper; fails without the fix).
+- Not tested on hardware: Wi-Fi fully off (the "offline" check blackholed
+  only the tile server's addresses, so the helper saw timeouts, not "no
+  route"); an unset clock ("CLOCK NOT SET", no request made). Both are
+  covered on the host only (tests/web_tiles_test.c, tests/rift_tiles_test.c).

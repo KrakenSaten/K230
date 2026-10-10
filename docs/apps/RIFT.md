@@ -473,6 +473,15 @@ names - given a rim and a backdrop on a map - stay legible.
 - **Not here:** other providers (Kartverket's terms for caching are not
   stated), offline packs and vector maps; each needs the owner's decision
   and an amendment to ADR-009.
+- **Hardware (unit B, 2026-10-10, shell e9469ab + pos-browser 3f7e3f2):**
+  off fetches nothing; on, real OpenStreetMap tiles under the nodes, the
+  attribution, node positions, pan, zoom and FIT confirmed by the owner;
+  leaving MAP stops the helper and returning reuses the cache; with the
+  tile server blackholed, OFFLINE · SAVED TILES ONLY over the seen tiles and
+  the graticule; CLOSE RIFT leaves nothing behind; Browser unaffected. The
+  first pan after an idle spell used to kill the helper (watchdog), fixed in
+  e9469ab. **Not tested on hardware:** Wi-Fi fully off, and an unset clock
+  (host tests only).
 
 ## Repeaters
 
