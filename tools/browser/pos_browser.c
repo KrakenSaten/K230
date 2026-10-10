@@ -14,6 +14,10 @@
  *       Exit 0 when a page came, 1 when it did not, 2 for usage.
  *   pos-browser features
  *       What this build can do: "net" (libcurl), "img" (decoders), "fake".
+ *   pos-browser tiles --cache DIR --out DIR --url TEMPLATE [--fake] [--ca-file FILE]
+ *       RIFT's basemap helper (pos_browser_tiles.c, core/web/web_tiles.h):
+ *       the map tiles RIFT names, from its cache or the tile server,
+ *       decoded to RGB565 for the shell (ADR-009 Amendment 1).
  *
  * EVERYTHING UNTRUSTED HAPPENS HERE: the network, TLS, HTTP, the HTML
  * reader and the image decoders. The shell gets a bounded document and
@@ -61,6 +65,8 @@
 #define ACCEPT_IMAGE "image/png,image/jpeg;q=0.9,*/*;q=0.1"
 
 static volatile sig_atomic_t term;
+
+int pos_browser_tiles(int argc, char **argv);
 
 static void on_signal(int sig)
 {
@@ -685,7 +691,8 @@ static int usage(void)
 {
     fprintf(stderr, "usage: pos-browser session [--fake] [--images DIR] [--ca-file FILE]\n"
                     "       pos-browser dump [--fake] [--ca-file FILE] URL\n"
-                    "       pos-browser features\n");
+                    "       pos-browser features\n"
+                    "       pos-browser tiles --cache DIR --out DIR --url TEMPLATE [--fake] [--ca-file FILE]\n");
     return 2;
 }
 
@@ -702,6 +709,9 @@ int main(int argc, char **argv)
         return usage();
     }
     mode = argv[1];
+    if (strcmp(mode, "tiles") == 0) {
+        return pos_browser_tiles(argc, argv);
+    }
     for (i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--fake") == 0) {
             h.fake = true;

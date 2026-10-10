@@ -29,6 +29,18 @@
  *   https://timeout.doors.test/    times out
  *   https://refused.doors.test/    connection refused
  *   https://offline.doors.test/    no network at all
+ *
+ * and map tiles, /<z>/<x>/<y>.png, for RIFT's basemap (web_tiles.h), each
+ * a fake picture of 256 x 256 sent as image/png:
+ *
+ *   https://tiles.doors.test/          max-age one day, an ETag and a
+ *                                      Last-Modified; 304 when either matches
+ *   https://tiles-plain.doors.test/    no cache header and no validator
+ *   https://tiles-stale.doors.test/    max-age=0: revalidated every time
+ *   https://tiles-slow.doors.test/     as tiles., 400 ms a tile, stoppable
+ *   https://tiles-busy.doors.test/     503 for every tile
+ *   https://tiles-junk.doors.test/     200, but not a picture
+ *
  *   anything else                  no such host
  *
  * Copyright (c) 2026 PocketOS authors.
@@ -200,6 +212,52 @@ static void page(struct web_hop *h, const struct web_fetch_req *req, const char 
     }
 }
 
+/* A map tile of the fake tile servers (see the top of this file). */
+static void tile(struct web_hop *h, const struct web_fetch_req *req, const char *host, const char *path)
+{
+    static const char modified[] = "Wed, 01 Oct 2026 12:00:00 GMT";
+    const char *kind = host + strlen("tiles");
+    char etag[64];
+    char b[64];
+    int z;
+    int x;
+    int y;
+    int n;
+    char end;
+
+    if (sscanf(path, "/%d/%d/%d.pn%c", &z, &x, &y, &end) != 4 || end != 'g' || z < 0 || z > 30 || x < 0 ||
+        y < 0) {
+        body(h, 404, "text/plain", "no", 2);
+        return;
+    }
+    if (strcmp(kind, "-busy.doors.test") == 0) {
+        body(h, 503, "text/plain", "busy", 4);
+        return;
+    }
+    if (strcmp(kind, "-junk.doors.test") == 0) {
+        body(h, 200, "image/png", "not a picture at all", 20);
+        return;
+    }
+    if (strcmp(kind, "-slow.doors.test") == 0 && wait_stoppable(req, 400)) {
+        failure(h, WEB_FAIL_STOPPED, "stopped");
+        return;
+    }
+    snprintf(etag, sizeof(etag), "\"t-%d-%d-%d\"", z, x, y);
+    if (strcmp(kind, "-plain.doors.test") != 0) {
+        web_copy(h->cache.etag, sizeof(h->cache.etag), etag);
+        web_copy(h->cache.last_modified, sizeof(h->cache.last_modified), modified);
+        web_copy(h->cache.cache_control, sizeof(h->cache.cache_control),
+                 strcmp(kind, "-stale.doors.test") == 0 ? "max-age=0" : "max-age=86400");
+        if ((req->if_none_match && strcmp(req->if_none_match, etag) == 0) ||
+            (req->if_modified_since && strcmp(req->if_modified_since, modified) == 0)) {
+            h->status = 304;
+            return;
+        }
+    }
+    n = snprintf(b, sizeof(b), "DOORS-FAKE-IMAGE 256 256\n");
+    body(h, 200, "image/png", b, (size_t)n);
+}
+
 static int fake_hop(struct web_fetcher *f, const struct web_fetch_req *req, const char *url, struct web_hop *h)
 {
     struct web_url u;
@@ -210,7 +268,12 @@ static int fake_hop(struct web_fetcher *f, const struct web_fetch_req *req, cons
         failure(h, WEB_FAIL_URL, "not an address");
         return -1;
     }
-    if (strcmp(u.host, "tls.doors.test") == 0) {
+    if (strncmp(u.host, "tiles", 5) == 0 && strstr(u.host, ".doors.test") && u.scheme == WEB_SCHEME_HTTPS) {
+        if (req->progress_cb) {
+            req->progress_cb(req->ctx, 0);
+        }
+        tile(h, req, u.host, u.path);
+    } else if (strcmp(u.host, "tls.doors.test") == 0) {
         failure(h, WEB_FAIL_TLS, "SSL certificate problem: self-signed certificate");
     } else if (strcmp(u.host, "clock.doors.test") == 0) {
         failure(h, WEB_FAIL_CLOCK, "the device clock is not set, so no certificate can be checked");

@@ -169,6 +169,7 @@ BUILD_ID
 /tests/rift_reliability_test
 /tests/rift_ipc_test
 /tests/rift_notify_test
+/tests/rift_tiles_test
 /tests/rift_rxlog_test
 /tests/fake-meshcored
 # Camera (docs/apps/CAMERA.md)
@@ -200,6 +201,7 @@ BUILD_ID
 /tests/web_store_test
 /tests/web_fetch_test
 /tests/web_image_test
+/tests/web_tiles_test
 /tests/browser_view_test
 /tests/browser_session_test
 # Recorder (docs/apps/RECORDER.md)

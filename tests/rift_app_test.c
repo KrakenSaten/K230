@@ -37,8 +37,10 @@
 #include "rift_manage.h"
 #include "rift_msgact.h"
 #include "rift_net.h"
+#include "rift_basemap.h"
 #include "rift_map.h"
 #include "rift_mapview.h"
+#include "rift_tiles.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
 #include "rift_repeater_view.h"
@@ -4309,12 +4311,11 @@ static void map_session(void)
                                       metres == 5000 || metres == 200));
         m.node_count = 1;
         rift_map_fit(&v, &m, 500, 400);
-        check("one node alone is not an infinite zoom",
-              v.ppd <= 400.0 / (RIFT_MAP_MIN_SPAN_M / RIFT_MAP_M_PER_DEG) + 1e-6);
-        rift_map_zoom(&v, 1e9);
-        check("nor is zooming in for ever", v.ppd <= 400.0 / (RIFT_MAP_MIN_SPAN_M / RIFT_MAP_M_PER_DEG) + 1e-6);
-        rift_map_zoom(&v, 1e-9);
-        check("and zooming out stops at the world", v.ppd >= 400.0 / RIFT_MAP_MAX_SPAN_DEG - 1e-6);
+        check("one node alone is not an infinite zoom", v.zoom == RIFT_MAP_ZOOM_MAX);
+        rift_map_zoom(&v, 100);
+        check("nor is zooming in for ever", v.zoom == RIFT_MAP_ZOOM_MAX);
+        rift_map_zoom(&v, -100);
+        check("and zooming out stops at the world", v.zoom == RIFT_MAP_ZOOM_MIN);
     }
 
     for (k = 0; k < 2; k++) {
@@ -4389,16 +4390,16 @@ static void map_session(void)
         tap(tab(RIFT_SEC_MAP));
         pump(80);
         {
-            double before = rift_map_view_geometry(app)->ppd;
+            int before = rift_map_view_geometry(app)->zoom;
 
             tap(action_of(find_exact(content(), "+")));
             pump(60);
             snprintf(what, sizeof(what), "%s: + zooms in", tag);
-            check(what, rift_map_view_geometry(app)->ppd > before);
+            check(what, rift_map_view_geometry(app)->zoom == before + 1);
             tap(action_of(find_exact(content(), "FIT")));
             pump(120);
             snprintf(what, sizeof(what), "%s: FIT puts every located node back in view", tag);
-            check(what, fabs(rift_map_view_geometry(app)->ppd - before) < 1e-6 * before);
+            check(what, rift_map_view_geometry(app)->zoom == before);
         }
         app_stop();
     }
@@ -4456,6 +4457,193 @@ static void map_session(void)
         app->model.node_count = 0;
     }
     app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+}
+
+/* ---- MAP's basemap ---------------------------------------------------------- */
+
+static const struct rift_tiles *bm_tiles(void)
+{
+    return rift_basemap_tiles(rift_map_view_basemap(app));
+}
+
+static int bm_running(void)
+{
+    return app && bm_tiles() && rift_tiles_running(bm_tiles());
+}
+
+static int bm_settled(void)
+{
+    return bm_tiles() && rift_tiles_status(bm_tiles(), NULL) != RIFT_TILES_LOADING;
+}
+
+static int bm_shown(void)
+{
+    lv_refr_now(NULL);
+    return bm_tiles() && rift_tiles_status(bm_tiles(), NULL) == RIFT_TILES_SHOWN &&
+           rift_map_view_tiles_drawn(app) > 0;
+}
+
+/* The helper is a real process on real time: the app's timer is pumped,
+ * and the test waits for it in step. */
+static int pump_until(int (*cond)(void), int ms)
+{
+    struct timespec d = { 0, 10 * 1000000L };
+    int i;
+
+    for (i = 0; i < ms / 10; i++) {
+        if (cond()) {
+            return 1;
+        }
+        pump(10);
+        nanosleep(&d, NULL);
+    }
+    return cond();
+}
+
+static int helper_dirs_left(void)
+{
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    char cmd[600];
+    FILE *p;
+    int n = -1;
+
+    snprintf(cmd, sizeof(cmd), "ls -d '%s'/rift-tiles.* 2>/dev/null | wc -l", run ? run : "/tmp");
+    p = popen(cmd, "r");
+    if (p) {
+        if (fscanf(p, "%d", &n) != 1) {
+            n = -1;
+        }
+        pclose(p);
+    }
+    return n;
+}
+
+static void drag_by(int32_t x, int32_t y, int32_t dx, int32_t dy)
+{
+    int i;
+
+    finger_point.x = x;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    for (i = 1; i <= 10; i++) {
+        finger_point.x = x + dx * i / 10;
+        finger_point.y = y + dy * i / 10;
+        pump(20);
+    }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+}
+
+static void basemap_session(void)
+{
+    static const enum pos_rotation shapes[2] = { POS_ROTATION_0, POS_ROTATION_270 };
+    const char *helper = getenv("RIFT_TILE_HELPER");
+    int k;
+
+    if (!helper || access(helper, X_OK) != 0) {
+        printf("note: the basemap session needs RIFT_TILE_HELPER (pos-browser); not run\n");
+        return;
+    }
+    setenv("POCKETOS_BROWSER_HELPER", helper, 1);
+    setenv("POCKETOS_RIFT_TILES", "fake", 1);
+    unsetenv("POCKETOS_RIFT_TILE_URL");
+    for (k = 0; k < 2; k++) {
+        const char *tag = k ? "landscape" : "portrait";
+        char what[200];
+        lv_area_t canvas;
+        lv_area_t at;
+        pid_t pid;
+        int gen;
+
+        use_display(shapes[k], PANEL_CORNER);
+        app_start();
+        quiet_client();
+        give_service();
+        give_located(KEY_M1, "RPT-HOLMEN", 2, "\"lat\":59.9672,\"lon\":10.6650");
+        give_located(KEY_M2, "Kari-T", 1, "\"lat\":59.9139,\"lon\":10.7522");
+        tap(tab(RIFT_SEC_MAP));
+        pump(200);
+        snprintf(what, sizeof(what), "%s: BASEMAP is there, off by default, and nothing runs or is fetched",
+                 tag);
+        check(what, find_exact(content(), "BASEMAP") != NULL && !app->prefs.basemap && !bm_running() &&
+                        !rift_map_view_attribution(app, NULL) &&
+                        find_text(content(), "BASEMAP OFF: NOTHING IS FETCHED") != NULL);
+        snprintf(what, sizeof(what), "%s: and the bar still fits beside it", tag);
+        check(what, inside_body(content()) && labels_overflowing(content()) == 0);
+
+        tap(action_of(find_exact(content(), "BASEMAP")));
+        snprintf(what, sizeof(what), "%s: on, the tiles in view arrive and are drawn under the markers", tag);
+        check(what, pump_until(bm_shown, 6000) && app->prefs.basemap && bm_running() &&
+                        rift_map_view_markers(app) == 2);
+        lv_obj_get_coords(rift_map_view_canvas(app), &canvas);
+        snprintf(what, sizeof(what), "%s: the OpenStreetMap attribution is on the map, at its bottom right, whole",
+                 tag);
+        check(what, rift_map_view_attribution(app, &at) && at.x1 >= canvas.x1 && at.x2 <= canvas.x2 &&
+                        at.y1 >= canvas.y1 && at.y2 <= canvas.y2 && canvas.x2 - at.x2 < 40 &&
+                        canvas.y2 - at.y2 < 40);
+        snprintf(what, sizeof(what), "%s: the panel names the map", tag);
+        check(what, find_text(content(), "BASEMAP: OPENSTREETMAP") != NULL);
+        tap_marker(KEY_M1);
+        snprintf(what, sizeof(what), "%s: a marker on the basemap is still where a tap finds it", tag);
+        check(what, app->have_selected && strcmp(app->selected, KEY_M1) == 0);
+        shot(k ? "landscape-map-basemap" : "portrait-map-basemap");
+
+        gen = bm_tiles()->gen;
+        drag_by((canvas.x1 + canvas.x2) / 2, (canvas.y1 + canvas.y2) / 2, -300, 120);
+        snprintf(what, sizeof(what), "%s: a drag asks for the tiles that came into view, and they come", tag);
+        check(what, pump_until(bm_shown, 6000) && bm_tiles()->gen > gen);
+        tap(action_of(find_exact(content(), "FIT")));
+        pump(120);
+
+        tap(tab(RIFT_SEC_NODES));
+        pump(80);
+        snprintf(what, sizeof(what), "%s: leaving MAP stops the helper and lets go of its tiles", tag);
+        check(what, !bm_running() && rift_tiles_held(bm_tiles()) == 0 && helper_dirs_left() == 0);
+        tap(tab(RIFT_SEC_MAP));
+        snprintf(what, sizeof(what), "%s: back on MAP the tiles come again, from the cache", tag);
+        check(what, pump_until(bm_shown, 6000));
+
+        tap(action_of(find_exact(content(), "BASEMAP")));
+        pump(60);
+        lv_refr_now(NULL);
+        snprintf(what, sizeof(what), "%s: off again stops the helper, and the map is the graticule", tag);
+        check(what, !app->prefs.basemap && !bm_running() && rift_map_view_tiles_drawn(app) == 0 &&
+                        !rift_map_view_attribution(app, NULL) && helper_dirs_left() == 0);
+
+        /* No network: kept tiles only; at a zoom never seen, none. */
+        setenv("POCKETOS_RIFT_TILE_URL", "https://offline.doors.test/{z}/{x}/{y}.png", 1);
+        tap(action_of(find_exact(content(), "BASEMAP")));
+        tap(action_of(find_exact(content(), "\xE2\x88\x92")));
+        tap(action_of(find_exact(content(), "\xE2\x88\x92")));
+        pump_until(bm_settled, 6000);
+        lv_refr_now(NULL);
+        snprintf(what, sizeof(what), "%s: with no network it says so over the map, and the graticule shows", tag);
+        check(what, rift_tiles_status(bm_tiles(), NULL) == RIFT_TILES_OFFLINE &&
+                        strstr(rift_map_view_basemap_line(app), "OFFLINE") != NULL &&
+                        rift_map_view_attribution(app, NULL) &&
+                        find_text(content(), "BASEMAP: NO NETWORK") != NULL);
+        shot(k ? "landscape-map-offline" : "portrait-map-offline");
+        unsetenv("POCKETOS_RIFT_TILE_URL");
+
+        pid = bm_tiles()->pid;
+        app_stop();
+        snprintf(what, sizeof(what), "%s: closing RIFT with the basemap on ends the helper", tag);
+        check(what, pid > 0 && kill(pid, 0) != 0 && helper_dirs_left() == 0);
+        if (k == 0) {
+            app_start();
+            quiet_client();
+            tap(tab(RIFT_SEC_MAP));
+            snprintf(what, sizeof(what), "%s: the choice is kept, and the basemap comes back with RIFT", tag);
+            check(what, app->prefs.basemap && pump_until(bm_running, 3000));
+            tap(action_of(find_exact(content(), "BASEMAP")));
+            pump(60);
+            app_stop();
+        }
+        unlink(rift_store_path()); /* the next orientation starts as a reader who never chose */
+    }
+    unsetenv("POCKETOS_RIFT_TILES");
     use_display(POS_ROTATION_0, PANEL_CORNER);
 }
 
@@ -7158,6 +7346,7 @@ int main(void)
     repeater_session();
     repeater_control_session();
     map_session();
+    basemap_session();
     manage_session();
     manage_live_session();
     comms_usability_session();

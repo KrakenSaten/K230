@@ -27,6 +27,8 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 export SDL_VIDEODRIVER=dummy
 OUT=$(mktemp -d)
 FAKE=${FAKE_MESHCORED:-tests/fake-meshcored}
+# MAP's basemap is drawn by the real tile helper on the fake network (make all).
+export RIFT_TILE_HELPER=${RIFT_TILE_HELPER:-$(realpath tools/browser/pos-browser 2>/dev/null)}
 
 # The mesh these screens are drawn from. Every last_heard_mono_ms is
 # negative, which the fake reads as "this long ago": a fixed monotonic stamp

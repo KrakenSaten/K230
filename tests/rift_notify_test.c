@@ -679,6 +679,14 @@ static void test_store(void)
                   8 &&
               strcmp(p.emoji_recent, "\xF0\x9F\x91\x8D \xE2\x9D\xA4\xEF\xB8\x8F") == 0);
     rift_prefs_defaults(&p);
+    check("the basemap is off by default, and a file of a reader who never turned it on says nothing of it",
+          p.basemap == 0 && rift_prefs_format(&p, text, sizeof(text)) > 0 &&
+              strstr(text, RIFT_PREF_BASEMAP) == NULL);
+    check("on is read as on", rift_prefs_parse(&p, "basemap=1\n") == 0 && p.basemap == 1);
+    check("and written as on", rift_prefs_format(&p, text, sizeof(text)) > 0 && strstr(text, "basemap=1\n"));
+    check("a basemap value this build could not have written is refused",
+          rift_prefs_parse(&p, "basemap=yes\n") == 16 && p.basemap == 1);
+    rift_prefs_defaults(&p);
     check("a file saying off is read as off",
           rift_prefs_parse(&p, "# c\ndm_sound=0\n") == 0 && p.dm_sound == 0);
     check("spaces around it are allowed", rift_prefs_parse(&p, " dm_sound = 1 \r\n") == 0 &&

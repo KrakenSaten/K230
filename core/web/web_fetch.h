@@ -42,6 +42,20 @@
 #define WEB_CONNECT_TIMEOUT_MS 15000
 #define WEB_TIMEOUT_MS 45000
 
+/* The cache headers of an answer, as the server sent them (trimmed), for a
+ * client that keeps what it fetched: RIFT's map tiles (web_tiles.h). The
+ * Browser keeps nothing and never looks at them. */
+#define WEB_HDR_SHORT 64
+#define WEB_HDR_LONG 192
+
+struct web_cache_hdrs {
+    char etag[WEB_HDR_LONG];
+    char last_modified[WEB_HDR_SHORT];
+    char cache_control[WEB_HDR_LONG];
+    char expires[WEB_HDR_SHORT];
+    char date[WEB_HDR_SHORT];
+};
+
 struct web_fetch_req {
     const char *url;                /* absolute, already checked by web_url_parse */
     size_t max_bytes;
@@ -50,6 +64,14 @@ struct web_fetch_req {
     const char *ca_file;            /* NULL: the system store */
     int connect_timeout_ms;
     int timeout_ms;
+    /* NULL: the Browser's own. A client that is not the Browser names
+     * itself (a tile server's policy asks for exactly that). */
+    const char *user_agent;
+    /* A conditional request: the validators of the copy already held. NULL
+     * or "" sends none. A 304 answer then comes back as status 304 with an
+     * empty body, never as a failure. */
+    const char *if_none_match;
+    const char *if_modified_since;
     /* Asked while the transfer runs: nonzero stops it (WEB_FAIL_STOPPED). */
     int (*abort_cb)(void *ctx);
     /* Told how many body bytes have arrived. */
@@ -68,6 +90,7 @@ struct web_fetch_resp {
     enum web_fail fail;
     bool failed;
     char text[WEB_FAIL_TEXT_MAX];   /* what went wrong, for the screen; never holds the query */
+    struct web_cache_hdrs cache;    /* of the final answer */
 };
 
 /* One request, no redirect followed: what a fetcher does. */
@@ -81,6 +104,7 @@ struct web_hop {
     bool failed;
     enum web_fail fail;
     char text[WEB_FAIL_TEXT_MAX];
+    struct web_cache_hdrs cache;
 };
 
 struct web_fetcher {
@@ -105,6 +129,10 @@ int web_fetcher_fake(struct web_fetcher *f);
 
 /* Split "text/html; charset=UTF-8" into type and charset. */
 void web_fetch_parse_type(const char *ct, char *type, size_t tlen, char *charset, size_t clen);
+
+/* One raw header line ("Name: value\r\n", any case) into h when it is one of
+ * the cache headers; anything else is ignored. For the fetchers. */
+void web_cache_hdr_line(struct web_cache_hdrs *h, const char *line, size_t n);
 
 /* Whether this unit has a default route at all (/proc/net/route and
  * ipv6_route), to tell "no network" from "that server". */

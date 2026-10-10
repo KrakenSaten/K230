@@ -74,6 +74,81 @@ void web_fetch_parse_type(const char *ct, char *type, size_t tlen, char *charset
     }
 }
 
+/* Whether line starts with name and a colon, any case; *value then points
+ * past the colon and its spaces. */
+static bool header_is(const char *line, size_t n, const char *name, const char **value, size_t *vlen)
+{
+    size_t k = strlen(name);
+    size_t i;
+
+    if (n <= k || line[k] != ':') {
+        return false;
+    }
+    for (i = 0; i < k; i++) {
+        if (lower((unsigned char)line[i]) != name[i]) {
+            return false;
+        }
+    }
+    i = k + 1;
+    while (i < n && (line[i] == ' ' || line[i] == '\t')) {
+        i++;
+    }
+    while (n > i && (line[n - 1] == '\r' || line[n - 1] == '\n' || line[n - 1] == ' ' || line[n - 1] == '\t')) {
+        n--;
+    }
+    *value = line + i;
+    *vlen = n - i;
+    return true;
+}
+
+static void keep(char *dst, size_t cap, const char *v, size_t n)
+{
+    size_t i;
+    size_t o = 0;
+
+    /* Printable ASCII only, and only what fits: a validator that would not
+     * fit is not kept at all (a cut one would never match). */
+    if (n >= cap) {
+        dst[0] = '\0';
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)v[i];
+
+        if (c < 0x20 || c > 0x7e) {
+            dst[0] = '\0';
+            return;
+        }
+        dst[o++] = (char)c;
+    }
+    dst[o] = '\0';
+}
+
+void web_cache_hdr_line(struct web_cache_hdrs *h, const char *line, size_t n)
+{
+    const char *v;
+    size_t vlen;
+
+    if (!h || !line) {
+        return;
+    }
+    if (n >= 5 && strncmp(line, "HTTP/", 5) == 0) {
+        /* A new answer begins (a 100 Continue, or the next hop): forget the
+         * headers of the one before. */
+        memset(h, 0, sizeof(*h));
+    } else if (header_is(line, n, "etag", &v, &vlen)) {
+        keep(h->etag, sizeof(h->etag), v, vlen);
+    } else if (header_is(line, n, "last-modified", &v, &vlen)) {
+        keep(h->last_modified, sizeof(h->last_modified), v, vlen);
+    } else if (header_is(line, n, "cache-control", &v, &vlen)) {
+        keep(h->cache_control, sizeof(h->cache_control), v, vlen);
+    } else if (header_is(line, n, "expires", &v, &vlen)) {
+        keep(h->expires, sizeof(h->expires), v, vlen);
+    } else if (header_is(line, n, "date", &v, &vlen)) {
+        keep(h->date, sizeof(h->date), v, vlen);
+    }
+}
+
 static bool default_in(const char *path, bool v6)
 {
     FILE *f = fopen(path, "r");
@@ -178,6 +253,7 @@ int web_fetch(struct web_fetcher *f, const struct web_fetch_req *req, struct web
         }
         web_fetch_parse_type(h.content_type, resp->type, sizeof(resp->type), resp->charset,
                              sizeof(resp->charset));
+        resp->cache = h.cache;
         resp->body = h.body ? h.body : calloc(1, 1);
         resp->len = h.body ? h.len : 0;
         resp->cut = h.cut;
