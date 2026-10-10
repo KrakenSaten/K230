@@ -185,3 +185,71 @@ Risks:
 - DOCUMENTED: libraries in the image (ZABBIX.md §1, CAMERA_PLATFORM_RESEARCH.md).
 - ASSUMED: vendor `lv_conf.h` has LV_USE_SPAN 1; performance on the C908.
 - Not verified: anything on unit A.
+
+## Amendment 1 (PROPOSED 2026-10-10): RIFT's basemap through pos-browser
+
+Status: Proposed on branch `feat/rift-basemap`. The product owner approved
+the direction on 2026-10-10 (replacing RIFT MAP's "fetches nothing" rule with
+isolated, user-enabled basemap fetching, OpenStreetMap's standard tiles under
+its usage policy, off by default); acceptance waits for review and a unit B
+check.
+
+Context: RIFT's MAP placed the nodes on a bare graticule and fetched nothing
+(docs/apps/RIFT.md, "MAP"; `tests/rift_lint.sh` held it). The owner asked for
+a real geographic basemap behind the nodes, with online tiles, a bounded
+cache, offline use of tiles already seen and visible attribution - and
+nothing untrusted in the shell.
+
+Decision: the tiles come through **this ADR's helper, in a mode of its own**:
+
+- `pos-browser tiles --cache DIR --out DIR --url TEMPLATE`
+  (tools/browser/pos_browser_tiles.c, core/web/web_tiles.h): the same binary,
+  the same fetcher (libcurl, https only, TLS always verified, the same
+  timeouts and byte caps) and the same PNG/JPEG decoder; the shell gets only
+  256 x 256 RGB565 pixels in files of names it checks, and links none of the
+  fetching, caching or decoding (`tests/browser_lint.sh`).
+- **OpenStreetMap's standard tile layer** (`tile.openstreetmap.org`), under
+  the OSMF tile usage policy as read on 2026-10-10: a User-Agent of the app's
+  own (`DOORS-RIFT/<version> (...; +repository URL)`), never a browser's;
+  the server's Cache-Control / Expires honoured, expired tiles revalidated
+  with If-None-Match / If-Modified-Since, seven days kept when an answer says
+  nothing; **no bulk download, prefetch or offline pack**: only the tiles
+  that intersect the map area on screen, nearest the centre first, one at a
+  time, and none at all while the basemap is off or MAP is not shown;
+  "(c) OpenStreetMap contributors" on the map whenever the basemap is on.
+- **Bounded**: a 32 MB / 2048-tile disk cache under
+  `/var/lib/pocketos/rift/tiles` (0700, least recently shown pruned first,
+  nothing written with less than 64 MB free), at most 32 decoded tiles (4 MB)
+  in the shell, 256 KB a tile fetched; after a network failure nothing is
+  asked for 30 s, after a refusal by the server (403, 429, 5xx) or a TLS
+  failure for 60 s.
+- **Lifetime**: the helper runs only while MAP is shown with BASEMAP on; off,
+  another section, leaving RIFT and CLOSE RIFT stop it (quit, SIGTERM,
+  SIGKILL, bounded) and remove its directory; it leaves with the shell
+  (`PR_SET_PDEATHSIG`) and on an exec. A view left before its tiles came
+  cancels them; an answer is taken only under the generation in force.
+- **Offline**: tiles seen before are shown from the cache with no network
+  (marked stale once expired), the graticule where there is no tile, and the
+  map says which: off, loading, offline, clock not set, a server error,
+  unavailable.
+
+Why this and not another helper: everything the tiles need - a hardened
+fetcher, a bounded decoder, the pixel hand-over and its checks - is already
+here and already reviewed; a second binary would duplicate it. Why not in the
+shell: this ADR's reasons, unchanged.
+
+Not decided here: another tile provider (Kartverket was examined; its terms
+for caching are not stated and need its confirmation), offline packs, vector
+maps. Each would be a new amendment.
+
+Evidence:
+
+- VERIFIED (host, 2026-10-10): the helper's cache and freshness rules
+  (tests/web_tiles_test.c), the shell-side client against the real helper on
+  the fake network (tests/rift_tiles_test.c), the Browser suites unchanged,
+  all with `-Werror` and under ASan/UBSan; MAP in both orientations in the
+  simulator with fake tiles (tests/rift_app_test.c).
+- VERIFIED (cross, 2026-10-10): pos-browser and the DRM shell with the pinned
+  Xuantie toolchain and SDK sysroot (see the PR).
+- Not verified: real OpenStreetMap tiles on unit B (the host has no libcurl
+  or libpng headers, so the simulator shows the fake network's tiles).

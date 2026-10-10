@@ -62,7 +62,7 @@ to ACT and SYS (portrait at a larger text size).
   **SOUND**: the DM and channel sound switches; **CHANNELS**: join, leave and
   mute; **SESSION**: CLOSE RIFT ("Managing the node", "The message sounds").
 - **MAP** — the nodes whose adverts carry a location, on a dark graticule
-  ("MAP").
+  or, with BASEMAP on, over OpenStreetMap's map ("MAP").
 - **NODES** — every node the service holds (all 1000 its table can), as
   36 px rows: link glyph, name, role, hop strip, hop count, RSSI, SNR
   (landscape), last heard and the activity pulse (below). Grouped into
@@ -392,8 +392,9 @@ and an on-air gate.
 ## MAP
 
 A tab of its own: the nodes that **said where they are**, placed on a dark
-latitude/longitude graticule (`rift_map.c` for the geometry,
-`ui/rift_mapview.c` for the drawing).
+latitude/longitude graticule and, with **BASEMAP** on, over OpenStreetMap's
+map (`rift_map.c` for the geometry, `ui/rift_mapview.c` for the drawing,
+`rift_tiles.c` and `ui/rift_basemap.c` for the basemap).
 
 - **Where the positions come from.** A MeshCore advert may carry the node's
   latitude and longitude (`ADV_LATLON_MASK`, degrees x 1e6); upstream
@@ -416,25 +417,62 @@ latitude/longitude graticule (`rift_map.c` for the geometry,
   shapes in words and how many were placed; the panel says how many of the
   known nodes have a location.
 - **Touch.** A tap selects the nearest marker within 28 px (the selection
-  NODES and NET share); drag pans; `+` / `−` zoom about the centre (400 m
-  across at the closest, the world at the furthest); **FIT** puts every
-  located node back in view. The panel - under the map in portrait, beside it
-  in landscape - names the node, its type, hash, link state and age, its
-  coordinates "as its adverts say", **DETAIL ›** (the node in NODES) and,
-  for a node that takes direct messages, **MESSAGE**.
-- **Projection.** Equirectangular about the view's centre, longitude scaled
-  by the cosine of the centre latitude: over the tens of kilometres a LoRa
-  mesh spans it is indistinguishable from Web Mercator and needs no library.
-- **No basemap.** There are no coastlines, roads or tiles: nothing is
-  downloaded, no map service or key is used (`tests/rift_lint.sh` checks
-  this). Options for one, none implemented: (1) a small offline vector
-  coastline/border set (Natural Earth 1:10m clipped to a region, a few
-  hundred KB in the image, drawn as polylines); (2) an offline raster tile
-  pack for one region (MBTiles or a directory of PNG tiles on the SD card,
-  tens to hundreds of MB, a tile decoder and cache in the shell); (3) online
-  OpenStreetMap tiles over Wi-Fi (needs netd, a TLS client, a cache and the
-  tile servers' usage policy - and a network dependency in a mesh client).
-  Each needs the owner's decision.
+  NODES and NET share); drag pans (longitude wraps; north and south stop at
+  the Mercator limit, 85.05°); `+` / `−` zoom by one whole level about the
+  centre (zoom 17, a few hundred metres across, at the closest; zoom 1, the
+  world, at the furthest); **FIT** puts every located node back in view at
+  the closest level that holds them. The panel - under the map in portrait,
+  beside it in landscape - names the node, its type, hash, link state and
+  age, its coordinates "as its adverts say", **DETAIL ›** (the node in NODES)
+  and, for a node that takes direct messages, **MESSAGE**. In portrait the
+  bar beside BASEMAP has no room for the shapes in words, and the panel says
+  them instead.
+- **Projection.** Web Mercator (EPSG:3857) at whole zoom levels, the
+  slippy-map tiles' own, so a marker sits on the tile pixel of its position
+  (`tests/rift_tiles_test.c` checks it to a pixel) whether or not the
+  basemap is on. The scale bar is true at the centre's latitude.
+
+### BASEMAP
+
+**Off unless the reader turns it on**, and kept as their choice
+(`basemap=1` in prefs.v1). Off, MAP is the graticule and nothing is fetched.
+On, MAP draws **OpenStreetMap's standard tiles** (`tile.openstreetmap.org`,
+under the OSMF tile usage policy) under the graticule's place and the
+markers, with a scrim of the theme's surface over them so the markers and
+names - given a rim and a backdrop on a map - stay legible.
+
+- **Who fetches.** The Browser's helper, in a mode of its own:
+  `pos-browser tiles` (ADR-009 Amendment 1, core/web/web_tiles.h). The
+  network, TLS (always verified) and the PNG decoder are the helper's; the
+  shell reads 256 x 256 RGB565 pixels from files it checks
+  (`apps/rift/rift_tiles.c`). The helper names itself
+  `DOORS-RIFT/<version> (...; +https://github.com/KrakenSaten/K230)`.
+- **What is fetched.** Only the tiles that intersect the map area on screen
+  - no margin, no prefetch, no bulk download, no offline pack - nearest the
+  centre first, one at a time. A view left before its tiles came cancels
+  them, and an answer for it is dropped, never drawn. Leaving MAP for another
+  section, turning BASEMAP off, leaving RIFT and CLOSE RIFT stop the helper
+  and let go of its tiles.
+- **The cache.** The server's own Cache-Control / Expires decide how long a
+  tile is fresh; an expired one is asked for again with If-None-Match /
+  If-Modified-Since, and a 304 renews it; an answer that says nothing is
+  kept seven days. 32 MB / 2048 tiles under
+  `/var/lib/pocketos/rift/tiles` (0700), the least recently shown removed
+  first, nothing written with less than 64 MB free on the disk; 32 decoded
+  tiles (4 MB) in the shell, the oldest out of view replaced first.
+- **Offline.** Tiles seen before are shown with no network (stale once
+  expired) and the graticule where there is none. The map says, at its top
+  left: LOADING MAP TILES, OFFLINE · SAVED TILES ONLY, CLOCK NOT SET · SAVED
+  TILES ONLY (no RTC: before NTP no certificate can be checked, and nothing
+  is asked), TILE ERROR: HTTP 503 (and the like), or BASEMAP UNAVAILABLE
+  (no helper, or one that kept stopping); the panel says the same in full.
+  After a network failure nothing is asked for 30 s, after a refusal by the
+  server or a TLS failure for 60 s.
+- **Attribution.** "© OpenStreetMap contributors" at the map's bottom right,
+  over everything, whenever BASEMAP is on - tiles drawn yet or not.
+- **Not here:** other providers (Kartverket's terms for caching are not
+  stated), offline packs and vector maps; each needs the owner's decision
+  and an amendment to ADR-009.
 
 ## Repeaters
 

@@ -107,6 +107,17 @@ last.
   `<seq>-<id>.rgb565` in the session's 0700 directory; the shell opens it
   without following links, checks its size, reads it and deletes it. The
   shell never sees image file formats.
+- **The same helper draws RIFT's basemap** (ADR-009 Amendment 1):
+  `pos-browser tiles --cache DIR --out DIR --url TEMPLATE`
+  (tools/browser/pos_browser_tiles.c, core/web/web_tiles.h) fetches the
+  OpenStreetMap tiles RIFT's MAP names, keeps them in its own bounded cache by
+  the server's cache headers, and hands them over as 256×256 RGB565 files the
+  same way. It is a separate process from the Browser's, started by RIFT
+  (docs/apps/RIFT.md, "BASEMAP"), and shares only the code: the fetcher's
+  rules (with an optional User-Agent and conditional request, which the
+  Browser never sets: its requests are byte for byte as before), the
+  decoders and the file hand-over. The fake network has tile servers too
+  (`tiles.doors.test` and its variants, web_fake.c).
 - **Drawing is incremental**: one LVGL object per block (a label, a span
   group when there are links, an image), made at most 8 ms per tick and
   grouped 24 to a chunk, so a long page never holds a frame and each new
