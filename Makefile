@@ -1593,12 +1593,13 @@ VISION_LIBS :=
 endif
 VISION_APP_DIR := apps/vision
 VISION_APP_OBJS := $(VISION_APP_DIR)/vision_session.o $(VISION_APP_DIR)/vision_model.o \
-                   $(VISION_APP_DIR)/vision_layout.o $(VISION_APP_DIR)/vision_settings.o $(VISION_APP_DIR)/vision_trails.o
+                   $(VISION_APP_DIR)/vision_layout.o $(VISION_APP_DIR)/vision_settings.o $(VISION_APP_DIR)/vision_trails.o \
+                   $(VISION_APP_DIR)/vision_keys.o
 POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_traffic_test tests/vision_pixels_test \
                 tests/vision_geom_test tests/vision_model_test tests/vision_session_test tests/vision_settings_test \
                 tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test \
-                tests/vision_embed_test
+                tests/vision_embed_test tests/vision_keys_test
 
 # The one C++ file: -Wno-multichar as the vendor builds against these headers
 # (a four-character constant in the runtime's own header).
@@ -1651,6 +1652,10 @@ tests/vision_pixels_test: tests/vision_pixels_test.o $(VISION_CORE_OBJS)
 tests/vision_geom_test: tests/vision_geom_test.o $(VISION_CORE_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lm
 
+# The keyboard's moves over the buttons as laid out.
+tests/vision_keys_test: tests/vision_keys_test.o $(VISION_APP_DIR)/vision_keys.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 tests/vision_model_test: tests/vision_model_test.o $(VISION_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -1670,7 +1675,7 @@ VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./t
                   ./tests/vision_pixels_test && ./tests/vision_geom_test && ./tests/vision_model_test && \
                   ./tests/vision_settings_test && ./tests/vision_range_test && ./tests/vision_window_test && \
                   ./tests/vision_text_test && ./tests/vision_face_test && ./tests/vision_embed_test && \
-                  ./tests/vision_session_test tools/vision/pos-vision
+                  ./tests/vision_keys_test && ./tests/vision_session_test tools/vision/pos-vision
 
 vision-test: $(VISION_TESTS) tools/vision/pos-vision
 	$(VISION_TEST_RUN)

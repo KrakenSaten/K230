@@ -26,6 +26,14 @@
  * FULLSCREEN (DS §30.8): the app declares NONE; the shell's header carries
  * the back button and the hint (SIMULATED under the fake backend).
  *
+ * KEYS (DS §38.10): every control is a button, so the keyboard needs no
+ * other way in. The arrows move a focus ring over the buttons on show - the
+ * sheet's choices while a sheet is open, else the mode's row - Enter presses
+ * the one with the ring, and Esc or Back closes an open sheet. The ring
+ * appears with the first key and stays out of a touch-only screen; the moves
+ * are vision_keys.c's. What it is for: an external display, where the board
+ * has no touch (docs/hardware/HDMI_OUTPUT.md).
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -33,6 +41,8 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pocketvision/vision_labels.h"
+#include "pos_input.h"
+#include "vision_keys.h"
 #include "vision_layout.h"
 #include "vision_model.h"
 #include "vision_session.h"
@@ -122,6 +132,18 @@ struct vision_app {
     lv_obj_t *sheet_cell[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
     struct vision_cell_ref sheet_ref[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
     int sheet_code[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
+    struct vision_sheet_layout sheet_lay; /* where the open sheet's choices are */
+    bool sheet_on;
+
+    /* The keyboard's targets (KEYS above): the buttons on show, in their
+     * order, with their places as laid out - never measured, so a key in
+     * the same tick as a repaint sees what the repaint placed. */
+#define VISION_KEY_TARGETS (VISION_SHEET_ROWS * VISION_SHEET_CELLS + VISION_BUTTONS + 1)
+    lv_obj_t *key_obj[VISION_KEY_TARGETS];
+    struct vision_rect key_rect[VISION_KEY_TARGETS];
+    int key_n;
+    int key_focus;        /* index into key_obj; -1 before the first key */
+    lv_obj_t *key_ringed; /* the button that carries the ring now */
 
     struct pocketui_layout_guard guard;
     struct vision_layout lay;
@@ -144,17 +166,26 @@ static int64_t now_ms(void)
     return (int64_t)lv_tick_get();
 }
 
-static int display_rotation(void)
-{
-    return pos_rotation_degrees(pocketui_display_geometry()->rotation);
-}
-
-static bool portrait_now(void)
+/* How the unit is held: the camera is fixed to the unit, so its picture is
+ * turned upright by the hold, which is the display's rotation on the panel
+ * and the mode's and keyboard's on an external display (app.h). */
+static struct pocketos_orientation hold_now(void)
 {
     struct pocketos_orientation o;
 
     pocketos_shell_orientation(&o);
-    return !o.landscape;
+    return o;
+}
+
+static int display_rotation(void)
+{
+    return hold_now().hold_rotation;
+}
+
+/* Whether the upright picture is tall: the unit held in portrait. */
+static bool portrait_now(void)
+{
+    return !hold_now().hold_landscape;
 }
 
 static void set_hidden(lv_obj_t *obj, bool hidden)
@@ -469,8 +500,11 @@ static void draw_sheet(struct vision_app *a)
     if (v.kind == VISION_SHEET_NONE || v.rows == 0 ||
         vision_layout_sheet(&sl, a->lay.picture.w, a->lay.picture.h, v.rows, cells) != 0) {
         set_hidden(a->sheet, true);
+        a->sheet_on = false;
         return;
     }
+    a->sheet_lay = sl;
+    a->sheet_on = true;
     lv_obj_set_pos(a->sheet, 0, 0);
     lv_obj_set_size(a->sheet, a->lay.picture.w, a->lay.picture.h);
     place(a->sheet_title, &sl.title);
@@ -506,6 +540,88 @@ static void draw_sheet(struct vision_app *a)
         }
     }
     set_hidden(a->sheet, false);
+}
+
+/* ---- the keyboard (KEYS above) ------------------------------------------------------- */
+
+static void key_target(struct vision_app *a, lv_obj_t *obj, const struct vision_rect *r)
+{
+    if (a->key_n < VISION_KEY_TARGETS) {
+        a->key_obj[a->key_n] = obj;
+        a->key_rect[a->key_n] = *r;
+        a->key_n++;
+    }
+}
+
+/* The ring on the focused target, and on nothing else; none before the
+ * first key. Kept on the same button when the targets change under it,
+ * else on the nearest index that is still there. */
+static void key_ring(struct vision_app *a)
+{
+    lv_obj_t *now = NULL;
+
+    if (a->key_focus >= a->key_n) {
+        a->key_focus = a->key_n - 1;
+    }
+    if (a->key_focus >= 0) {
+        now = a->key_obj[a->key_focus];
+    }
+    if (now == a->key_ringed) {
+        return;
+    }
+    if (a->key_ringed) {
+        lv_obj_remove_style(a->key_ringed, pos_style(POS_STYLE_SELECTED), 0);
+    }
+    if (now) {
+        pos_style_add(now, POS_STYLE_SELECTED, 0);
+    }
+    a->key_ringed = now;
+}
+
+/* What the keyboard can reach now: an open sheet's choices (the sheet sits
+ * over the picture, so its places are the picture's plus the box's corner),
+ * else the mode's buttons on show, or TRY AGAIN alone. */
+static void key_targets(struct vision_app *a, const enum vision_button *order, int shown, bool retry)
+{
+    lv_obj_t *was = a->key_focus >= 0 && a->key_focus < a->key_n ? a->key_obj[a->key_focus] : NULL;
+    int r;
+    int c;
+    int i;
+
+    a->key_n = 0;
+    if (a->sheet_on) {
+        for (r = 0; r < VISION_SHEET_ROWS; r++) {
+            for (c = 0; c < VISION_SHEET_CELLS; c++) {
+                struct vision_rect cell = a->sheet_lay.cell[r][c];
+
+                if (a->sheet_code[r][c] < 0) {
+                    continue;
+                }
+                cell.x += a->lay.picture.x;
+                cell.y += a->lay.picture.y;
+                key_target(a, a->sheet_cell[r][c], &cell);
+            }
+        }
+    } else if (retry) {
+        key_target(a, a->retry_btn, &a->lay.btn[0]);
+    } else {
+        for (i = 0; i < shown && i < a->lay.buttons; i++) {
+            key_target(a, a->btn[order[i]], &a->lay.btn[i]);
+        }
+    }
+    if (was && a->key_focus >= 0) {
+        for (i = 0; i < a->key_n; i++) {
+            if (a->key_obj[i] == was) {
+                a->key_focus = i;
+                break;
+            }
+        }
+        if (i == a->key_n) {
+            /* The sheet opened or closed: start again at its first choice. */
+            a->key_focus = 0;
+        }
+    }
+    key_ring(a);
 }
 
 static void repaint(struct vision_app *a)
@@ -590,6 +706,7 @@ static void repaint(struct vision_app *a)
     draw_boxes(a, &s);
     draw_lines(a);
     draw_sheet(a);
+    key_targets(a, order, shown_btns, s.show_retry);
     if (a->hint_shown != s.hint && (!a->hint_shown || strcmp(a->hint_shown, s.hint) != 0)) {
         pocketos_shell_set_status_hint(s.hint);
     }
@@ -950,6 +1067,49 @@ static void on_retry(lv_event_t *e)
     act(a, vision_model_open(&a->model));
 }
 
+/* The keyboard (KEYS above). The first key only shows the ring; after that
+ * the arrows move it and Enter presses what it is on, exactly as a tap
+ * would - a button that takes no tap takes no Enter either. */
+static void on_key(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+    uint32_t key = lv_event_get_key(e);
+    enum vision_key_move m = VISION_KEY_NONE;
+    lv_obj_t *target;
+
+    switch (key) {
+    case LV_KEY_LEFT: m = VISION_KEY_LEFT; break;
+    case LV_KEY_RIGHT: m = VISION_KEY_RIGHT; break;
+    case LV_KEY_UP: m = VISION_KEY_UP; break;
+    case LV_KEY_DOWN: m = VISION_KEY_DOWN; break;
+    case LV_KEY_NEXT: m = VISION_KEY_NEXT; break;
+    case LV_KEY_PREV: m = VISION_KEY_PREV; break;
+    case LV_KEY_ESC:
+        if (a->model.sheet != VISION_SHEET_NONE) {
+            act(a, vision_model_sheet_close(&a->model));
+        }
+        return;
+    case LV_KEY_ENTER:
+        break;
+    default:
+        return;
+    }
+    if (a->key_focus < 0 || a->key_focus >= a->key_n) {
+        a->key_focus = a->key_n > 0 ? 0 : -1;
+        key_ring(a);
+        return;
+    }
+    if (key != LV_KEY_ENTER) {
+        a->key_focus = vision_keys_move(a->key_rect, a->key_n, a->key_focus, m);
+        key_ring(a);
+        return;
+    }
+    target = a->key_obj[a->key_focus];
+    if (lv_obj_has_flag(target, LV_OBJ_FLAG_CLICKABLE) && !lv_obj_has_flag(target, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_send_event(target, LV_EVENT_CLICKED, NULL);
+    }
+}
+
 /* ---- layout ---------------------------------------------------------------------- */
 
 static void layout(struct vision_app *a)
@@ -1202,11 +1362,16 @@ static void *vision_create(lv_obj_t *root)
             vision_model_setup_button(&a->model);
         }
     }
+    a->key_focus = -1;
     build(a, root);
     pocketos_shell_set_status_hint("");
     a->hint_shown = "";
     a->timer = lv_timer_create(on_poll, VISION_POLL_MS, a);
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
+    /* The screen takes the keys (KEYS above), as 2048's and DeskBuddy's do. */
+    lv_obj_add_event_cb(a->frame, on_key, LV_EVENT_KEY, a);
+    pos_input_add_obj(a->frame);
+    pos_input_focus(a->frame);
     lv_obj_update_layout(a->frame);
     layout(a);
     /* The camera and the detector start with the screen and never outlive
@@ -1224,6 +1389,7 @@ static void vision_destroy(void *priv)
         return;
     }
     lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
+    lv_obj_remove_event_cb_with_user_data(a->frame, on_key, a);
     lv_obj_remove_event_cb_with_user_data(a->box, on_picture, a);
     if (a->timer) {
         lv_timer_delete(a->timer);
@@ -1234,6 +1400,19 @@ static void vision_destroy(void *priv)
     lv_image_set_src(a->img, NULL);
     picture_free(&a->preview);
     free(a);
+}
+
+/* Back (the BOOT key, shell.action back): an open sheet closes, as its own
+ * button would close it; at the top Back is the shell's (app.h). */
+static int vision_back(void *priv)
+{
+    struct vision_app *a = priv;
+
+    if (!a || a->model.sheet == VISION_SHEET_NONE) {
+        return 0;
+    }
+    act(a, vision_model_sheet_close(&a->model));
+    return 1;
 }
 
 LV_IMAGE_DECLARE(pos_app_icon_vision);
@@ -1247,4 +1426,5 @@ const struct pocketos_app app_vision = {
     .tick = NULL,
     .destroy = vision_destroy,
     .chrome = POCKETOS_CHROME_NONE,
+    .back = vision_back,
 };
