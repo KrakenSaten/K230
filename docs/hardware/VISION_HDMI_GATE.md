@@ -36,7 +36,11 @@ read-only checks of 2026-10-10 are under "Unit B before the gate".
 | File on the unit | Source | Identity |
 | --- | --- | --- |
 | `/boot/k230-canmv-rm69a10-hdmi.dtb` (replaced) | the SDK kernel tree's own `cpp` + `dtc` on `k230-canmv-rm69a10-hdmi.dts` after 0075. The same recipe rebuilds unit B's panel tree byte for byte (sha256 `7420e8e7…`), so it is the DTB a kernel build makes | sha256 `bb346f9e…`, 59,754 B |
-| `/usr/bin/doors-shell` (replaced) | branch head, cross-built with the pinned Xuantie toolchain against the SDK sysroot | filled in at the hardware session (md5, sha256, build id) |
+| `/usr/bin/doors-shell` (replaced) | `9d22211` from a clean clone, cross-built with the pinned Xuantie toolchain against the SDK sysroot (`Doors 0.3.6 build 9d22211`, 0 first-party warnings) | md5 `9fb87816…`, sha256 `a70e7eaa…`, 4,464,568 B |
+
+The DTB's md5 is `58925544…`. Bench copies and the session scripts (`h0_state.sh`,
+`h2_backup_shell.sh`, `h3_dtb.sh`, `stage/RESTORE.sh`) are in
+`out/vision-hdmi-gate/` on the bench PC; none has been run.
 
 Not changed: `/boot/Image`, the panel tree, `k.dtb`, the pointer files,
 U-Boot, `pos-vision`, `pos-camera`, `pos-display-boot`, every setting.
