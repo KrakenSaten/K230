@@ -22,6 +22,7 @@ void rift_prefs_defaults(struct rift_prefs *p)
         memset(p, 0, sizeof(*p));
         p->dm_sound = RIFT_PREF_DM_SOUND_DEFAULT;
         p->ch_sound = RIFT_PREF_CH_SOUND_DEFAULT;
+        p->basemap = RIFT_PREF_BASEMAP_DEFAULT;
     }
 }
 
@@ -129,6 +130,13 @@ static int parse_line(struct rift_prefs *p, char *line)
          * has, and a repeat is one entry. */
         return rift_prefs_set_channel_muted(p, value, 1) == 0 ? 0 : 4;
     }
+    if (strcmp(key, RIFT_PREF_BASEMAP) == 0) {
+        if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0) {
+            p->basemap = value[0] == '1';
+            return 0;
+        }
+        return 16;
+    }
     if (strcmp(key, RIFT_PREF_EMOJI_RECENT) == 0) {
         size_t i;
 
@@ -199,6 +207,15 @@ int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len)
     }
     if (p->emoji_recent[0]) {
         n = snprintf(out + at, out_len - at, "%s=%s\n", RIFT_PREF_EMOJI_RECENT, p->emoji_recent);
+        if (n < 0 || (size_t)n >= out_len - at) {
+            return -1;
+        }
+        at += (size_t)n;
+    }
+    /* Written only when on: the file of a reader who never turned it on
+     * is the file it always was. */
+    if (p->basemap) {
+        n = snprintf(out + at, out_len - at, "%s=1\n", RIFT_PREF_BASEMAP);
         if (n < 0 || (size_t)n >= out_len - at) {
             return -1;
         }

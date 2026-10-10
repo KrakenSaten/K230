@@ -6,7 +6,9 @@
  */
 #include "rift_mapview.h"
 
+#include "pocketlog/pocketlog.h"
 #include "pos_styles.h"
+#include "rift_basemap.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -15,6 +17,11 @@
 
 #define BTN_W 72
 #define FIT_W 96
+#define BASEMAP_W 132
+/* Over a basemap: markers get a rim of the surface colour, and words a
+ * backdrop of it, so they read on any tile. */
+#define RIM_PX 2
+#define BACKDROP_OPA LV_OPA_80
 /* The pane beside the map in landscape. */
 #define INFO_W_WIDE 400
 /* Markers: a repeater's square and any other node's dot, and the ring
@@ -60,7 +67,21 @@ struct rift_map_ui {
     char drawn_sel[RIFT_KEY_HEX];
     int markers;
     unsigned draws;
+
+    /* The basemap (rift_basemap.h): its button, and what the last draw put
+     * on the map, for the tests. */
+    struct rift_basemap *bm;
+    lv_obj_t *bm_button;
+    int bm_painted;
+    int tiles_drawn;
+    int attribution_drawn;
+    lv_area_t attribution_at;
+    char bm_line[64];
+    char bm_detail[96];
+    int legend_in_note;
 };
+
+static void refresh_info(struct rift_map_ui *u, int located);
 
 static struct rift_map_ui *of(const struct rift_app *app)
 {
@@ -90,17 +111,23 @@ static void show(lv_obj_t *o, int on)
 
 /* ---- drawing ------------------------------------------------------------------ */
 
-static void rect(lv_layer_t *layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
-                 lv_color_t color, int32_t radius)
+static void rect_opa(lv_layer_t *layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
+                     lv_color_t color, int32_t radius, lv_opa_t opa)
 {
     lv_draw_rect_dsc_t dsc;
     lv_area_t a = { x1, y1, x2, y2 };
 
     lv_draw_rect_dsc_init(&dsc);
     dsc.radius = radius;
-    dsc.bg_opa = LV_OPA_COVER;
+    dsc.bg_opa = opa;
     dsc.bg_color = color;
     lv_draw_rect(layer, &dsc, &a);
+}
+
+static void rect(lv_layer_t *layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
+                 lv_color_t color, int32_t radius)
+{
+    rect_opa(layer, x1, y1, x2, y2, color, radius, LV_OPA_COVER);
 }
 
 static void ring(lv_layer_t *layer, int32_t cx, int32_t cy, int32_t d, lv_color_t color)
@@ -119,9 +146,11 @@ static void ring(lv_layer_t *layer, int32_t cx, int32_t cy, int32_t d, lv_color_
 
 /* A line of text at x, y; one that would run past the map's right edge is
  * drawn ending at left_of instead (a marker's name goes to its other side,
- * never over it). */
-static void text(lv_layer_t *layer, lv_obj_t *obj, int32_t x, int32_t y, const char *s,
-                 lv_color_t color, const lv_area_t *clip, int32_t left_of)
+ * never over it). With a backdrop, on the surface colour; the area it took
+ * goes to *took when asked. */
+static void text_on(lv_layer_t *layer, lv_obj_t *obj, int32_t x, int32_t y, const char *s,
+                    lv_color_t color, const lv_area_t *clip, int32_t left_of, int backdrop,
+                    lv_area_t *took)
 {
     lv_draw_label_dsc_t dsc;
     lv_area_t a;
@@ -141,7 +170,14 @@ static void text(lv_layer_t *layer, lv_obj_t *obj, int32_t x, int32_t y, const c
     a.y1 = y;
     a.x2 = x + w;
     a.y2 = y + h;
+    if (backdrop) {
+        rect_opa(layer, a.x1 - 4, a.y1 - 1, a.x2 + 3, a.y2, pos_theme_color(POS_COLOR_SURFACE), 3,
+                 BACKDROP_OPA);
+    }
     lv_draw_label(layer, &dsc, &a);
+    if (took) {
+        *took = a;
+    }
 }
 
 static void draw_grid(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t *ar)
@@ -153,9 +189,12 @@ static void draw_grid(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t 
     double lat_bot;
     double lon_l;
     double lon_r;
+    double c_lat;
+    double c_lon;
     double g;
     int n;
 
+    rift_map_centre(v, &c_lat, &c_lon);
     rift_map_unproject(v, 0, 0, &lat_top, &lon_l);
     rift_map_unproject(v, (double)v->w, (double)v->h, &lat_bot, &lon_r);
     for (g = ceil(lat_bot / step) * step, n = 0; g <= lat_top && n < GRID_LINES_MAX;
@@ -163,7 +202,7 @@ static void draw_grid(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t 
         double x;
         double y;
 
-        rift_map_project(v, g, v->c_lon, &x, &y);
+        rift_map_project(v, g, c_lon, &x, &y);
         rect(layer, ar->x1, ar->y1 + (int32_t)y, ar->x2, ar->y1 + (int32_t)y, line, 0);
     }
     for (g = ceil(lon_l / step) * step, n = 0; g <= lon_r && n < GRID_LINES_MAX;
@@ -171,14 +210,14 @@ static void draw_grid(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t 
         double x;
         double y;
 
-        rift_map_project(v, v->c_lat, g, &x, &y);
+        rift_map_project(v, c_lat, g, &x, &y);
         rect(layer, ar->x1 + (int32_t)x, ar->y1, ar->x1 + (int32_t)x, ar->y2, line, 0);
     }
 }
 
-static void draw_scale(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t *ar)
+static void draw_scale(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t *ar, int on_tiles)
 {
-    lv_color_t ink = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+    lv_color_t ink = pos_theme_color(on_tiles ? POS_COLOR_TEXT_PRIMARY : POS_COLOR_TEXT_SECONDARY);
     int32_t px = 0;
     double metres = rift_map_scale(&u->view, SCALE_PX, &px);
     int32_t x = ar->x1 + 12;
@@ -190,12 +229,39 @@ static void draw_scale(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t
     } else {
         snprintf(words, sizeof(words), "%g m", metres);
     }
+    if (on_tiles) {
+        rect_opa(layer, x - 4, y - 7, x + px + 4, y + 4, pos_theme_color(POS_COLOR_SURFACE), 2,
+                 BACKDROP_OPA);
+    }
     rect(layer, x, y, x + px, y + 1, ink, 0);
     rect(layer, x, y - 5, x + 1, y + 1, ink, 0);
     rect(layer, x + px - 1, y - 5, x + px, y + 1, ink, 0);
-    text(layer, u->canvas, x, y - 6 - lv_font_get_line_height(
-                                  lv_obj_get_style_text_font(u->canvas, LV_PART_MAIN)),
-         words, ink, ar, ar->x2);
+    text_on(layer, u->canvas, x, y - 6 - lv_font_get_line_height(
+                                     lv_obj_get_style_text_font(u->canvas, LV_PART_MAIN)),
+            words, ink, ar, ar->x2, on_tiles, NULL);
+}
+
+/* The basemap's words over the map: what it is doing at the top left, and
+ * - whenever it is on, tiles drawn yet or not - whose map it is, at the
+ * bottom right, where the tile policy asks for it, over everything else. */
+static void draw_basemap_words(struct rift_map_ui *u, lv_layer_t *layer, const lv_area_t *ar)
+{
+    const lv_font_t *font = lv_obj_get_style_text_font(u->canvas, LV_PART_MAIN);
+    int32_t lh = font ? lv_font_get_line_height(font) : 16;
+    int32_t w;
+
+    u->attribution_drawn = 0;
+    if (!rift_basemap_on(u->bm)) {
+        return;
+    }
+    if (u->bm_line[0]) {
+        text_on(layer, u->canvas, ar->x1 + 12, ar->y1 + 8, u->bm_line,
+                pos_theme_color(POS_COLOR_TEXT_PRIMARY), ar, ar->x2, 1, NULL);
+    }
+    w = rift_cell_text_width(u->canvas, RIFT_TILE_ATTRIBUTION) + 2;
+    text_on(layer, u->canvas, ar->x2 - 8 - w, ar->y2 - 6 - lh, RIFT_TILE_ATTRIBUTION,
+            pos_theme_color(POS_COLOR_TEXT_PRIMARY), ar, ar->x2, 1, &u->attribution_at);
+    u->attribution_drawn = 1;
 }
 
 static void canvas_draw(lv_event_t *e)
@@ -219,7 +285,9 @@ static void canvas_draw(lv_event_t *e)
     lv_obj_get_coords(u->canvas, &ar);
     u->draws++;
     rect(layer, ar.x1, ar.y1, ar.x2, ar.y2, pos_theme_color(POS_COLOR_SURFACE), 0);
+    /* The graticule first: a tile not (yet) had leaves it showing. */
     draw_grid(u, layer, &ar);
+    u->tiles_drawn = rift_basemap_draw(u->bm, layer, &ar, &u->view);
     /* Count first: names for all only when there are few. */
     for (i = 0; i < m->node_count; i++) {
         double x;
@@ -265,6 +333,11 @@ static void canvas_draw(lv_event_t *e)
             } else {
                 color = pos_theme_color(POS_COLOR_ACCENT_SECONDARY);
             }
+            if (u->tiles_drawn) {
+                rect(layer, cx - MARK_PX / 2 - RIM_PX, cy - MARK_PX / 2 - RIM_PX,
+                     cx + MARK_PX / 2 + RIM_PX, cy + MARK_PX / 2 + RIM_PX,
+                     pos_theme_color(POS_COLOR_SURFACE), repeater ? 2 : LV_RADIUS_CIRCLE);
+            }
             rect(layer, cx - MARK_PX / 2, cy - MARK_PX / 2, cx + MARK_PX / 2, cy + MARK_PX / 2,
                  color, repeater ? 1 : LV_RADIUS_CIRCLE);
             if (is_sel) {
@@ -274,13 +347,15 @@ static void canvas_draw(lv_event_t *e)
                 char label[RIFT_LABEL_MAX];
 
                 rift_fmt_label(n, label, sizeof(label));
-                text(layer, u->canvas, cx + RING_PX / 2 + 2, cy - 8, label,
-                     pos_theme_color(is_sel ? POS_COLOR_TEXT_PRIMARY : POS_COLOR_TEXT_SECONDARY),
-                     &ar, cx - RING_PX / 2 - 2);
+                text_on(layer, u->canvas, cx + RING_PX / 2 + 2, cy - 8, label,
+                        pos_theme_color(is_sel || u->tiles_drawn ? POS_COLOR_TEXT_PRIMARY
+                                                                 : POS_COLOR_TEXT_SECONDARY),
+                        &ar, cx - RING_PX / 2 - 2, u->tiles_drawn > 0, NULL);
             }
         }
     }
-    draw_scale(u, layer, &ar);
+    draw_scale(u, layer, &ar, u->tiles_drawn > 0);
+    draw_basemap_words(u, layer, &ar);
 }
 
 /* ---- touch: tap selects, drag pans ---------------------------------------------- */
@@ -337,7 +412,7 @@ static void on_zoom_in(lv_event_t *e)
     struct rift_map_ui *u = lv_event_get_user_data(e);
 
     if (u->have_view) {
-        rift_map_zoom(&u->view, 2.0);
+        rift_map_zoom(&u->view, 1);
         u->moved = 1;
         lv_obj_invalidate(u->canvas);
     }
@@ -348,10 +423,51 @@ static void on_zoom_out(lv_event_t *e)
     struct rift_map_ui *u = lv_event_get_user_data(e);
 
     if (u->have_view) {
-        rift_map_zoom(&u->view, 0.5);
+        rift_map_zoom(&u->view, -1);
         u->moved = 1;
         lv_obj_invalidate(u->canvas);
     }
+}
+
+/* BASEMAP in the look of what it is: primary while on, as NODES'
+ * ZERO-HOP is. The words on the map and in the panel say it too. */
+static void paint_basemap(struct rift_map_ui *u)
+{
+    int on = rift_basemap_on(u->bm);
+
+    if (on == u->bm_painted) {
+        return;
+    }
+    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
+    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+    if (on) {
+        pos_style_add(u->bm_button, POS_STYLE_BUTTON_PRIMARY, 0);
+        pos_style_add(u->bm_button, POS_STYLE_BUTTON_PRIMARY_PRESSED, LV_STATE_PRESSED);
+    } else {
+        pos_style_add(u->bm_button, POS_STYLE_BUTTON_SECONDARY, 0);
+        pos_style_add(u->bm_button, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    }
+    u->bm_painted = on;
+}
+
+static void on_basemap(lv_event_t *e)
+{
+    struct rift_map_ui *u = lv_event_get_user_data(e);
+    struct rift_app *a = u->app;
+
+    /* The reader's choice, kept like the sound settings. Off stops the
+     * helper now; on starts it from the timer, never from this event. */
+    a->prefs.basemap = !rift_basemap_on(u->bm);
+    rift_basemap_set(u->bm, a->prefs.basemap);
+    a->prefs_saved = rift_store_save(&a->prefs) == 0;
+    if (!a->prefs_saved) {
+        LOG_WARN("rift: the basemap setting could not be stored at %s", rift_store_path());
+    }
+    LOG_INFO("rift: basemap %s", a->prefs.basemap ? "on" : "off");
+    lv_obj_invalidate(u->canvas);
+    a->refresh_pending = 1;
 }
 
 static void on_fit(lv_event_t *e)
@@ -425,6 +541,13 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
     u->caption = rift_cell(bar, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(u->caption, 1);
     lv_obj_set_width(u->caption, 1);
+    u->bm = rift_basemap_new();
+    rift_basemap_set(u->bm, app->prefs.basemap);
+    u->bm_painted = -1;
+    u->bm_button = rift_action(bar, "BASEMAP", 0, 1, on_basemap, u);
+    lv_obj_set_flex_grow(u->bm_button, 0);
+    lv_obj_set_width(u->bm_button, BASEMAP_W);
+    paint_basemap(u);
     b = rift_action(bar, "\xE2\x88\x92", 0, 1, on_zoom_out, u);
     lv_obj_set_flex_grow(b, 0);
     lv_obj_set_width(b, BTN_W);
@@ -477,9 +600,41 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
 
 void rift_map_view_destroy(struct rift_app *app)
 {
-    if (of(app)) {
+    struct rift_map_ui *u = of(app);
+
+    if (u) {
+        /* Leaving RIFT, or CLOSE RIFT: the tile helper goes with the screen,
+         * and the tiles it held with it. */
+        rift_basemap_free(u->bm);
+        u->bm = NULL;
         free(app->map);
         app->map = NULL;
+    }
+}
+
+void rift_map_view_pump(struct rift_app *app, int64_t now_ms)
+{
+    struct rift_map_ui *u = of(app);
+    char line[sizeof(u->bm_line)];
+    char detail[sizeof(u->bm_detail)];
+    int shown;
+
+    if (!u) {
+        return;
+    }
+    shown = app->section == RIFT_SEC_MAP && u->have_view;
+    if (rift_basemap_pump(u->bm, shown ? &u->view : NULL, shown, now_ms)) {
+        lv_obj_invalidate(u->canvas);
+    }
+    rift_basemap_words(u->bm, line, sizeof(line), detail, sizeof(detail));
+    if (strcmp(line, u->bm_line) != 0 || strcmp(detail, u->bm_detail) != 0) {
+        snprintf(u->bm_line, sizeof(u->bm_line), "%s", line);
+        snprintf(u->bm_detail, sizeof(u->bm_detail), "%s", detail);
+        lv_obj_invalidate(u->canvas);
+        if (shown) {
+            /* The panel's note, now: this is the timer, not an event. */
+            refresh_info(u, rift_map_located(&app->model));
+        }
     }
 }
 
@@ -521,7 +676,7 @@ static void refresh_info(struct rift_map_ui *u, int located)
     const struct rift_model *m = &u->app->model;
     const struct rift_node *n = rift_app_selected(u->app);
     int64_t now = rift_app_now(u->app);
-    char text[RIFT_STATE_MAX + 64];
+    char text[RIFT_STATE_MAX + 64 + sizeof(u->bm_detail) + 160];
     char label[RIFT_LABEL_MAX];
 
     if (!n) {
@@ -556,9 +711,10 @@ static void refresh_info(struct rift_map_ui *u, int located)
         show(u->info_message, rift_node_can_message(n));
     }
     snprintf(text, sizeof(text),
-             "%d OF %d KNOWN NODES HAVE A LOCATION" RIFT_SEP
-             "THIS DEVICE HAS NONE: ITS ADVERTS CARRY NO LOCATION" RIFT_SEP "NO BASEMAP",
-             located, m->node_count);
+             "%s%d OF %d KNOWN NODES HAVE A LOCATION" RIFT_SEP
+             "THIS DEVICE HAS NONE: ITS ADVERTS CARRY NO LOCATION" RIFT_SEP "%s",
+             u->legend_in_note ? "SQUARE REPEATER" RIFT_SEP "DOT NODE" RIFT_SEP : "", located, m->node_count,
+             u->bm_detail[0] ? u->bm_detail : "BASEMAP OFF: NOTHING IS FETCHED");
     rift_label_set(u->info_note, text);
 }
 
@@ -605,7 +761,37 @@ void rift_map_view_refresh(struct rift_app *app)
     legend[1] = "SQUARE RPT" RIFT_SEP "DOT NODE";
     legend[2] = "";
     rift_cell_set_text_first_fit(u->caption, legend, 3);
+    /* Beside BASEMAP in portrait the bar has no room for the shapes in
+     * words: the panel says them instead. */
+    u->legend_in_note = lv_label_get_text(u->caption)[0] == '\0';
+    paint_basemap(u);
     refresh_info(u, located);
+}
+
+struct rift_basemap *rift_map_view_basemap(const struct rift_app *app)
+{
+    return of(app) ? of(app)->bm : NULL;
+}
+
+int rift_map_view_tiles_drawn(const struct rift_app *app)
+{
+    return of(app) ? of(app)->tiles_drawn : 0;
+}
+
+int rift_map_view_attribution(const struct rift_app *app, lv_area_t *at)
+{
+    if (!of(app) || !of(app)->attribution_drawn) {
+        return 0;
+    }
+    if (at) {
+        *at = of(app)->attribution_at;
+    }
+    return 1;
+}
+
+const char *rift_map_view_basemap_line(const struct rift_app *app)
+{
+    return of(app) ? of(app)->bm_line : "";
 }
 
 lv_obj_t *rift_map_view_canvas(const struct rift_app *app)

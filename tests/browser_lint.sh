@@ -87,6 +87,23 @@ check "leaving the app abandons the helper and frees the page's pictures before 
 check "the timer only polls: no blocking read on the LVGL thread" \
     "$(code $A/browser_session.c | grep -E '\brecv\(' | grep -qv MSG_DONTWAIT && echo 0 || echo 1)"
 
+# ---- the tiles mode, for RIFT's basemap (ADR-009 Amendment 1) -------------------------------
+T=tools/browser/pos_browser_tiles.c
+check "the tile helper names itself as DOORS RIFT, never as a browser" \
+    "$(grep -q '#define USER_AGENT "DOORS-RIFT/' $T && ! grep -q 'Mozilla' $T && echo 1 || echo 0)"
+check "and the Browser keeps its own User-Agent when none is asked for" \
+    "$(grep -q 'req->user_agent && \*req->user_agent ? req->user_agent : USER_AGENT' $C/web_fetch_curl.c &&
+       echo 1 || echo 0)"
+check "a tile is fetched over https only" \
+    "$(grep -q 'strncmp(tmpl, "https://", 8) != 0' $C/web_tiles.c && echo 1 || echo 0)"
+check "the tile helper refuses directories others can reach, and writes its pictures 0600" \
+    "$(grep -q '(st.st_mode & 077) == 0' $T && grep -q '(st.st_mode & 077) != 0' $C/web_tiles.c &&
+       grep -q 'O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600' $T && echo 1 || echo 0)"
+hits=$(code $T | grep -nE 'LOG_[A-Z]+\(.*\b(url|probe|w->z|w->x|w->y)\b')
+check "no tile helper log line carries a tile's address or coordinates" "$([ -z "$hits" ] && echo 1 || echo 0)"
+check "nothing is fetched that was not asked for: the queue is only ever the shell's want" \
+    "$(grep -c 't->want\[t->nwant++\]' $T | awk '{print ($1 == 1) ? 1 : 0}')"
+
 # ---- the image -----------------------------------------------------------------------------
 check "the package builds the real fetcher and the decoders" \
     "$(grep -q 'BROWSER_CURL=1 BROWSER_IMAGES=1' platforms/k230/package/pocketos/pocketos.mk && echo 1 || echo 0)"

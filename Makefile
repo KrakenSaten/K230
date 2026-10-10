@@ -1205,7 +1205,8 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
                    $(RIFT_DIR)/rift_repeater.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
-              tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/fake-meshcored
+              tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/rift_tiles_test \
+              tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1242,6 +1243,12 @@ tests/rift_notify_test: tests/rift_notify_test.o $(RIFT_MODEL_OBJS) $(RIFT_DIR)/
                         $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
                         $(RIFT_DIR)/rift_store.o core/pocketwav/pocketwav.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# MAP's geometry (Web Mercator, the tiles a view covers) and the basemap's
+# client against the real tile helper on the fake network.
+tests/rift_tiles_test: tests/rift_tiles_test.o $(RIFT_DIR)/rift_tiles.o $(RIFT_DIR)/rift_map.o \
+                       core/web/web_url.o core/web/web_doc.o core/web/web_proto.o $(PATHS_OBJS) $(LOG_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS) -lm
 
 tests/rift_ipc_test: tests/rift_ipc_test.o tests/fake_meshcored.o $(RIFT_OBJS) $(IPC_OBJS) \
                      core/pocketipc/server.o $(PATHS_OBJS)
@@ -2175,8 +2182,10 @@ WEB_LIBS += $(BROWSER_IMAGE_LIBS)
 else
 WEB_IMAGE_OBJ := $(WEB_DIR)/web_image_none.o
 endif
+# web_tiles is RIFT's basemap cache (ADR-009 Amendment 1): the helper's,
+# like the fetcher and the decoders, and never linked by the shell.
 WEB_HELPER_OBJS := $(WEB_APP_OBJS) $(WEB_DIR)/web_html.o $(WEB_DIR)/web_fetch.o $(WEB_DIR)/web_fake.o \
-                   $(WEB_FETCH_OBJ) $(WEB_IMAGE_OBJ)
+                   $(WEB_DIR)/web_tiles.o $(WEB_FETCH_OBJ) $(WEB_IMAGE_OBJ)
 
 $(WEB_DIR)/web_fetch_none.o: $(WEB_DIR)/web_fetch_curl.c
 	$(CC) $(ALL_CFLAGS) -c -o $@ $<
@@ -2187,9 +2196,11 @@ $(WEB_DIR)/web_image_dec.o: $(WEB_DIR)/web_image.c
 
 BROWSER_DIR := apps/browser
 BROWSER_OBJS := $(BROWSER_DIR)/browser_session.o $(BROWSER_DIR)/browser_view.o
-POS_BROWSER_OBJS := tools/browser/pos_browser.o $(WEB_HELPER_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+POS_BROWSER_OBJS := tools/browser/pos_browser.o tools/browser/pos_browser_tiles.o $(WEB_HELPER_OBJS) $(PATHS_OBJS) \
+                    $(LOG_OBJS)
 BROWSER_TESTS := tests/web_url_test tests/web_html_test tests/web_proto_test tests/web_history_test \
-                 tests/web_store_test tests/web_fetch_test tests/web_image_test tests/browser_view_test \
+                 tests/web_store_test tests/web_fetch_test tests/web_image_test tests/web_tiles_test \
+                 tests/browser_view_test \
                  tests/browser_session_test
 
 $(BROWSER_DIR)/%.o: $(BROWSER_DIR)/%.c
@@ -2223,6 +2234,11 @@ tests/web_store_test: tests/web_store_test.o $(WEB_DIR)/web_store.o $(WEB_DIR)/w
 tests/web_fetch_test: tests/web_fetch_test.o $(WEB_HELPER_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(WEB_LIBS)
 
+# RIFT's basemap cache and its rules for one tile (web_tiles.h), on the fake
+# network's tile servers.
+tests/web_tiles_test: tests/web_tiles_test.o $(WEB_HELPER_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(WEB_LIBS)
+
 tests/web_image_test.o: tests/web_image_test.c
 	$(CC) $(ALL_CFLAGS) $(if $(filter 1,$(BROWSER_IMAGES)),-DBROWSER_HAVE_JPEG -DBROWSER_HAVE_PNG $(BROWSER_IMAGE_CFLAGS)) -c -o $@ $<
 
@@ -2251,6 +2267,7 @@ browser-san-test:
 	    LDFLAGS="-fsanitize=address,undefined" $(BROWSER_TESTS) tools/browser/pos-browser
 	cd $(BROWSER_SAN_DIR) && ./tests/web_url_test && ./tests/web_html_test && ./tests/web_proto_test && \
 	    ./tests/web_history_test && ./tests/web_store_test && ./tests/web_fetch_test && ./tests/web_image_test && \
+	    ./tests/web_tiles_test && \
 	    ./tests/browser_view_test && ./tests/browser_session_test tools/browser/pos-browser
 
 # Every binary `make test` builds on top of $(BINS). Each of them, and each of
@@ -2374,6 +2391,7 @@ test: all $(TEST_BINS)
 	./tests/rift_reliability_test
 	./tests/rift_rxlog_test
 	./tests/rift_notify_test
+	./tests/rift_tiles_test tools/browser/pos-browser
 	./tests/rift_ipc_test
 	./tests/pocketcam_test
 	./tests/pocketcam_gallery_test
@@ -2399,6 +2417,7 @@ test: all $(TEST_BINS)
 	./tests/web_store_test
 	./tests/web_fetch_test
 	./tests/web_image_test
+	./tests/web_tiles_test
 	./tests/browser_view_test
 	./tests/browser_session_test tools/browser/pos-browser
 	bash tests/browser_http_test.sh

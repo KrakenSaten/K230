@@ -173,13 +173,41 @@ for part in rift_repeater.c rift_ipc_repeater.c; do
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
 
-# ---- MAP: positions as the nodes claim them, and nothing fetched ---------------
-check "MAP fetches nothing: no tile, map service, URL or API key" \
-    "$(grep -niE 'https?://|tile|mapbox|google|openstreetmap|api[_-]?key|curl_|socket\(' \
-        "$SRC/rift_map.c" "$SRC/rift_map.h" "$SRC/ui/rift_mapview.c" "$SRC/ui/rift_mapview.h" |
-       grep -viE 'no tile|no basemap|tiles, no|no tiles' >/dev/null && echo 0 || echo 1)"
+# ---- MAP: positions as the nodes claim them; the basemap only as asked ---------
+# The basemap (docs/apps/RIFT.md "MAP", ADR-009 Amendment 1) is OpenStreetMap
+# tiles, fetched and decoded by the tile helper (pos-browser tiles) and never
+# by the shell; off unless the reader turns it on; attributed on the map.
+check "the map's geometry and drawing fetch nothing: no URL, socket, HTTP client or API key" \
+    "$(grep -niE 'https?://|mapbox|google|api[_-]?key|curl|socket\(|getaddrinfo' \
+        "$SRC/rift_map.c" "$SRC/rift_map.h" "$SRC/ui/rift_mapview.c" "$SRC/ui/rift_mapview.h" \
+        "$SRC/ui/rift_basemap.c" >/dev/null && echo 0 || echo 1)"
 check "and places only nodes that claimed a location" \
     "$(grep -c 'have_location' "$SRC/rift_map.c" | awk '{print ($1 >= 3) ? 1 : 0}')"
+check "the basemap's client opens no network socket and decodes nothing (only the helper's socketpair)" \
+    "$(grep -nE '\b(connect|getaddrinfo|gethostbyname|bind)\(|curl|png\.h|jpeglib|web_fetch\.h|web_image\.h|web_tiles\.c' \
+        "$SRC/rift_tiles.c" "$SRC/rift_tiles.h" "$SRC/ui/rift_basemap.c" "$SRC/ui/rift_basemap.h" \
+        >/dev/null && echo 0 || echo 1)"
+tileurls=$(grep -rlE 'tile\.openstreetmap\.org' --include='*.[ch]' "$SRC" | sort | tr '\n' ' ')
+check "one tile server, OpenStreetMap's, over https, named in one place (${tileurls:-nowhere})" \
+    "$([ "$tileurls" = "$SRC/rift_tiles.h " ] &&
+       grep -q '#define RIFT_TILE_URL_OSM "https://tile.openstreetmap.org/{z}/{x}/{y}.png"' "$SRC/rift_tiles.h" &&
+       echo 1 || echo 0)"
+check "and the environment can point only the fake network elsewhere, never the real one" \
+    "$(grep -q 'c->fake ? (url' "$SRC/ui/rift_basemap.c" && grep -q ': RIFT_TILE_URL_OSM;' "$SRC/ui/rift_basemap.c" &&
+       echo 1 || echo 0)"
+check "the basemap is off unless the reader turned it on" \
+    "$(grep -q '#define RIFT_PREF_BASEMAP_DEFAULT 0' "$SRC/rift_store.h" && echo 1 || echo 0)"
+check "the attribution is OpenStreetMap's, drawn whenever the basemap is on" \
+    "$(grep -q 'RIFT_TILE_ATTRIBUTION "\\xC2\\xA9 OpenStreetMap contributors"' "$SRC/rift_tiles.h" &&
+       sed -n '/^static void draw_basemap_words/,/^}/p' "$SRC/ui/rift_mapview.c" | grep -q 'RIFT_TILE_ATTRIBUTION' &&
+       echo 1 || echo 0)"
+check "the tile helper goes with MAP: off, another section, leaving RIFT" \
+    "$(sed -n '/^void rift_map_view_destroy/,/^}/p' "$SRC/ui/rift_mapview.c" | grep -q 'rift_basemap_free' &&
+       sed -n '/^int rift_basemap_pump/,/^}/p' "$SRC/ui/rift_basemap.c" | grep -q 'rift_tiles_stop' &&
+       sed -n '/^void rift_basemap_set/,/^}/p' "$SRC/ui/rift_basemap.c" | grep -q 'rift_tiles_stop' &&
+       echo 1 || echo 0)"
+check "an answer is taken only under the generation in force" \
+    "$(grep -q 'e = gen == t->gen ? owed(t, z, x, y) : -1;' "$SRC/rift_tiles.c" && echo 1 || echo 0)"
 
 # ---- RIFT owns no colour, no font and no hardware ------------------------------
 # tests/style_lint.sh covers ui/ and apps/ for colour literals; these are the
@@ -208,10 +236,16 @@ check "the app stores only the reader's preferences (${stores:-nothing})" \
     "$([ "$stores" = "$SRC/rift_store.c $SRC/rift_store.h " ] && echo 1 || echo 0)"
 # The other file RIFT writes is not a store: the two short WAV files its
 # sounds are played from, made from code into the runtime directory (a
-# tmpfs) by the sound backend, and nothing about the mesh in them.
+# tmpfs) by the sound backend, and nothing about the mesh in them. The
+# basemap's client writes nothing: it reads and removes the pictures its
+# helper left in the session's runtime directory, and makes the helper's
+# two directories (the tile cache is the helper's own, web_tiles.h).
 fileio=$(grep -rlE '\bfopen\(|\brename\(|\bunlink\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
-check "and the only files it writes are that one and its two sounds (${fileio:-none})" \
-    "$([ "$fileio" = "$SRC/rift_sound_helper.c $SRC/rift_store.c " ] && echo 1 || echo 0)"
+check "and the only files it touches are that one, its two sounds and the basemap's pictures (${fileio:-none})" \
+    "$([ "$fileio" = "$SRC/rift_sound_helper.c $SRC/rift_store.c $SRC/rift_tiles.c " ] && echo 1 || echo 0)"
+check "the basemap's pictures are read from the runtime directory, its cache made only for the helper" \
+    "$(grep -q 'pocketos_runtime_dir()' "$SRC/rift_tiles.c" && ! grep -qE '\bfopen\(|O_CREAT' "$SRC/rift_tiles.c" &&
+       grep -q 'mkdir(cache, 0700)' "$SRC/rift_tiles.c" && echo 1 || echo 0)"
 check "the sounds are written to the runtime directory, never the state directory" \
     "$(grep -q 'pocketos_runtime_dir()' "$SRC/rift_sound_helper.c" &&
        ! grep -q 'pocketos_state_dir' "$SRC/rift_sound_helper.c" && echo 1 || echo 0)"
@@ -302,11 +336,18 @@ check "RIFT opens no sound device of its own" \
         --include='*.c' --include='*.h' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
 # The sound is played by Doors's existing audio helper, pos-record (ADR-010
 # Amendment 1), started from one file and for nothing else: no shell, no
-# other program, and only its play and recover commands.
+# other program, and only its play and recover commands. The basemap's tiles
+# come from the Browser's helper, pos-browser, in its tiles mode (ADR-009
+# Amendment 1), started from one other file.
 spawners=$(grep -rlE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' \
     --include='*.c' "$SRC" | sort | tr '\n' ' ')
-check "and starts a helper only from the sound backend (${spawners:-nowhere})" \
-    "$([ "$spawners" = "$SRC/rift_sound_helper.c " ] && echo 1 || echo 0)"
+check "and starts a helper only from the sound backend and the basemap's client (${spawners:-nowhere})" \
+    "$([ "$spawners" = "$SRC/rift_sound_helper.c $SRC/rift_tiles.c " ] && echo 1 || echo 0)"
+check "the basemap's helper is pos-browser tiles, by execv, never a shell" \
+    "$(grep -q '#define HELPER_DEFAULT "/usr/bin/pos-browser"' "$SRC/rift_tiles.c" &&
+       grep -q 'argv\[argc++\] = "tiles";' "$SRC/rift_tiles.c" &&
+       ! grep -nE '\b(popen|system|execl[pe]?|execvp)\(|"/bin/sh"' "$SRC/rift_tiles.c" >/dev/null &&
+       grep -q 'PR_SET_PDEATHSIG' "$SRC/rift_tiles.c" && echo 1 || echo 0)"
 check "that helper is pos-record, by execv, never a shell" \
     "$(grep -q '#define HELPER_DEFAULT "/usr/bin/pos-record"' "$SRC/rift_sound_helper.c" &&
        ! grep -nE '\b(popen|system|execl[pe]?|execvp)\(|"/bin/sh"' "$SRC/rift_sound_helper.c" \

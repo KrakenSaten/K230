@@ -93,6 +93,12 @@ static size_t on_body(char *data, size_t size, size_t n, void *user)
     return s->cut ? 0 : size * n;
 }
 
+static size_t on_header(char *data, size_t size, size_t n, void *user)
+{
+    web_cache_hdr_line(user, data, size * n);
+    return size * n;
+}
+
 static int on_progress(void *user, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal,
                        curl_off_t ulnow)
 {
@@ -155,7 +161,7 @@ static enum web_fail classify(CURLcode rc)
 
 /* One request, no redirects followed. Returns the curl result. */
 static CURLcode one(struct curl_ctx *c, const struct web_fetch_req *req, const char *url, struct sink *s,
-                    char *errbuf, struct curl_slist *hdr)
+                    char *errbuf, struct curl_slist *hdr, struct web_cache_hdrs *cache)
 {
     curl_easy_reset(c->h); /* keeps connections, TLS sessions and cookies */
     curl_easy_setopt(c->h, CURLOPT_URL, url);
@@ -168,7 +174,8 @@ static CURLcode one(struct curl_ctx *c, const struct web_fetch_req *req, const c
     curl_easy_setopt(c->h, CURLOPT_REDIR_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
 #endif
     curl_easy_setopt(c->h, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(c->h, CURLOPT_USERAGENT, USER_AGENT);
+    curl_easy_setopt(c->h, CURLOPT_USERAGENT,
+                     req->user_agent && *req->user_agent ? req->user_agent : USER_AGENT);
     curl_easy_setopt(c->h, CURLOPT_HTTPHEADER, hdr);
     curl_easy_setopt(c->h, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(c->h, CURLOPT_CONNECTTIMEOUT_MS,
@@ -185,6 +192,8 @@ static CURLcode one(struct curl_ctx *c, const struct web_fetch_req *req, const c
     curl_easy_setopt(c->h, CURLOPT_COOKIEFILE, ""); /* in memory only */
     curl_easy_setopt(c->h, CURLOPT_WRITEFUNCTION, on_body);
     curl_easy_setopt(c->h, CURLOPT_WRITEDATA, s);
+    curl_easy_setopt(c->h, CURLOPT_HEADERFUNCTION, on_header);
+    curl_easy_setopt(c->h, CURLOPT_HEADERDATA, cache);
     curl_easy_setopt(c->h, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(c->h, CURLOPT_XFERINFOFUNCTION, on_progress);
     curl_easy_setopt(c->h, CURLOPT_XFERINFODATA, (void *)req);
@@ -213,6 +222,30 @@ static int curl_hop(struct web_fetcher *f, const struct web_fetch_req *req, cons
 
         hdr = more ? more : hdr;
     }
+    /* The validators of a copy already held. Both are values a server sent
+     * and web_cache_hdr_line kept: printable, no line break. */
+    if (hdr && req->if_none_match && *req->if_none_match) {
+        char line[WEB_HDR_LONG + 32];
+        struct curl_slist *more;
+
+        snprintf(line, sizeof(line), "If-None-Match: %s", req->if_none_match);
+        more = curl_slist_append(hdr, line);
+        if (!more) {
+            curl_slist_free_all(hdr);
+        }
+        hdr = more;
+    }
+    if (hdr && req->if_modified_since && *req->if_modified_since) {
+        char line[WEB_HDR_SHORT + 32];
+        struct curl_slist *more;
+
+        snprintf(line, sizeof(line), "If-Modified-Since: %s", req->if_modified_since);
+        more = curl_slist_append(hdr, line);
+        if (!more) {
+            curl_slist_free_all(hdr);
+        }
+        hdr = more;
+    }
     if (!hdr) {
         h->failed = true;
         h->fail = WEB_FAIL_INTERNAL;
@@ -222,7 +255,7 @@ static int curl_hop(struct web_fetcher *f, const struct web_fetch_req *req, cons
     memset(&s, 0, sizeof(s));
     s.max = req->max_bytes ? req->max_bytes : WEB_PAGE_BYTES_MAX;
     s.req = req;
-    rc = one(c, req, url, &s, errbuf, hdr);
+    rc = one(c, req, url, &s, errbuf, hdr, &h->cache);
     curl_easy_setopt(c->h, CURLOPT_HTTPHEADER, NULL);
     curl_slist_free_all(hdr);
     curl_easy_getinfo(c->h, CURLINFO_RESPONSE_CODE, &status);
