@@ -55,13 +55,6 @@ struct kbd_bus {
      * so both halves come from one packet (kbd_battery.h). Inside a claim.
      * NULL on a bus that has no such read; the battery probe is then off. */
     int (*read_block_at)(void *ctx, uint8_t addr, uint8_t reg, uint8_t *buf, unsigned len);
-
-    /* The matching incremental write: reg, then len bytes, in one
-     * transaction, with the same clock-stretch handling. Only the owner-
-     * triggered gauge configuration uses it (kbd_gauge_cfg.h). Inside a
-     * claim. NULL on a bus without it; that operation is then refused. */
-    int (*write_block_at)(void *ctx, uint8_t addr, uint8_t reg, const uint8_t *buf,
-                          unsigned len);
 };
 
 #endif

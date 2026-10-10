@@ -85,7 +85,6 @@ BUILD_ID
 /tests/hw_actions_test
 /tests/kbd_leds_test
 /tests/kbd_battery_test
-/tests/kbd_gauge_cfg_test
 /tests/hw_activity_test
 /tests/kbd_light_test
 /.build-identity
