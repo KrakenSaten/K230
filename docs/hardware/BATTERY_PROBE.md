@@ -613,3 +613,32 @@ or `battery: the gauge does not answer`. No line per sample unless the
 - It does not reset, configure, calibrate or seal the gauge, or change
   charging.
 - The capacity operation (§8) is not in this build.
+
+### 9.4 Hardware result, unit A, 2026-10-10
+
+Deployed shell-only plus sysd at 16:04 UTC from the kit
+`out/unitA-battery-telemetry`.
+- **Build:** integration build `3aedf25` (v0.3.5 + vision A/B `36dc5b9` +
+  this branch's code).
+- **Hashes:** `/usr/bin/doors-shell` `f4b9c643…`, `/usr/sbin/sysd`
+  `065fbbac…`.
+- **Untouched:** netd, radiod and meshcored kept their pids, and the Vision
+  models are unchanged.
+
+Through sysd, the first reading was 14 s old, then 1 s. The figures:
+- status `discharging`, 3.652 → 3.645 V, current_a -0.591;
+- `capacity_percent` null, gauge SOC 8 % (validated: false), FCC 3512,
+  design 3000;
+- source `battery`, external_online false.
+
+Over the first five minutes: 0 keyboard-controller drops, 0 ERROR lines,
+and one battery log line. The owner confirmed on the unit:
+- the Controls tile shows status and voltage, with no percentage;
+- Settings › Power & Sleep shows the five battery lines, level "Unknown",
+  updating;
+- Diagnostics shows the battery row and the Gauge row marked
+  "Unvalidated";
+- normal typing works (11 keys delivered).
+
+Rollback: `/root/rollback-battery-telemetry/RESTORE.sh` (back to `00aa3e3`
+and the release sysd), then optionally `/root/rollback-battery-probe/RESTORE.sh`.

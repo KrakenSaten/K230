@@ -162,8 +162,9 @@ including the owner's listening check of the volume steps; DS §31.5 accepted.
   TI's default 3000 mAh design capacity, its learned full-charge capacity
   (3512 mAh) is not this pack's, and whether both 3000 mAh cells are
   connected is unconfirmed (BATTERY_PROBE.md §7). Its SOC appears only in
-  System › Diagnostics, marked "Unvalidated". Readings from the base path
-  have not yet been run through sysd on hardware.
+  System › Diagnostics, marked "Unvalidated". Verified on unit A through
+  sysd and the UI on 2026-10-10 (BATTERY_PROBE.md §9.4). Doors has no
+  low-battery shutdown.
 - **Volume is a digital gain.** The speaker route has no mixer volume
   (AUDIO_HARDWARE_MAP §7), so 100 % is the validated -12 dBFS level and the
   control only attenuates (to -27 dB at 10 %). It applies to what Wave plays;
