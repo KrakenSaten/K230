@@ -515,3 +515,100 @@ void sv_power_summary(int screen_off_s, int lock_s, char *out, size_t n)
         snprintf(out, n, "Screen off after %s" SEP "lock after %s", a, b);
     }
 }
+
+/* ---- Power & Sleep: the battery ------------------------------------------- */
+
+enum { BAT_STATUS, BAT_VOLTAGE, BAT_CURRENT, BAT_LEVEL, BAT_UPDATED };
+
+static const char *battery_status_word(const char *st)
+{
+    if (st && strcmp(st, "charging") == 0) {
+        return "Charging";
+    }
+    if (st && strcmp(st, "discharging") == 0) {
+        return "On battery";
+    }
+    if (st && strcmp(st, "full") == 0) {
+        return "Full";
+    }
+    if (st && strcmp(st, "not_charging") == 0) {
+        return "Not charging";
+    }
+    return NULL;
+}
+
+void sv_battery_apply(struct sv_battery *b, const cJSON *status)
+{
+    static const char *const labels[SV_BATTERY_ROWS] = {"Status", "Voltage", "Current", "Level",
+                                                         "Updated"};
+    const cJSON *power;
+    const cJSON *bat;
+    const cJSON *v;
+    const char *reading;
+    const char *w;
+    int i;
+
+    for (i = 0; i < SV_BATTERY_ROWS; i++) {
+        b->label[i] = labels[i];
+        copy(b->value[i], sizeof(b->value[i]), "-");
+    }
+    if (!status) {
+        copy(b->value[BAT_STATUS], sizeof(b->value[0]), "System service not answering");
+        return;
+    }
+    power = cJSON_GetObjectItemCaseSensitive(status, "power");
+    bat = cJSON_GetObjectItemCaseSensitive(power, "battery");
+    if (!cJSON_IsObject(power)) {
+        copy(b->value[BAT_STATUS], sizeof(b->value[0]), "Unknown");
+        return;
+    }
+    if (!cJSON_IsObject(bat)) {
+        copy(b->value[BAT_STATUS], sizeof(b->value[0]),
+             str(power, "source") && strcmp(str(power, "source"), "external") == 0
+                 ? "No battery, external power"
+                 : "No battery found");
+        return;
+    }
+    reading = str(bat, "reading");
+    if (reading && strcmp(reading, "ok") != 0) {
+        copy(b->value[BAT_STATUS], sizeof(b->value[0]),
+             strcmp(reading, "stale") == 0       ? "No recent reading"
+             : strcmp(reading, "stopped") == 0   ? "Not reading (keyboard protection)"
+             : strcmp(reading, "no-answer") == 0 ? "Gauge not answering"
+                                                 : "Unknown");
+        v = cJSON_GetObjectItemCaseSensitive(bat, "age_s");
+        if (strcmp(reading, "stale") == 0 && cJSON_IsNumber(v)) {
+            snprintf(b->value[BAT_UPDATED], sizeof(b->value[0]), "%d s ago (too old to show)",
+                     (int)v->valuedouble);
+        }
+        return;
+    }
+    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(bat, "present"))) {
+        copy(b->value[BAT_STATUS], sizeof(b->value[0]), "No battery");
+        return;
+    }
+    w = battery_status_word(str(bat, "status"));
+    copy(b->value[BAT_STATUS], sizeof(b->value[0]), w ? w : "Unknown");
+    v = cJSON_GetObjectItemCaseSensitive(bat, "voltage_v");
+    if (cJSON_IsNumber(v) && v->valuedouble > 0) {
+        snprintf(b->value[BAT_VOLTAGE], sizeof(b->value[0]), "%.2f V", v->valuedouble);
+    }
+    v = cJSON_GetObjectItemCaseSensitive(bat, "current_a");
+    if (cJSON_IsNumber(v)) {
+        /* The sign as the gauge gives it: plus into the battery. */
+        snprintf(b->value[BAT_CURRENT], sizeof(b->value[0]), "%+.2f A%s", v->valuedouble,
+                 v->valuedouble < 0 ? " (out of the battery)"
+                 : v->valuedouble > 0 ? " (into the battery)"
+                                      : "");
+    }
+    v = cJSON_GetObjectItemCaseSensitive(bat, "capacity_percent");
+    if (cJSON_IsNumber(v) && v->valuedouble >= 0 && v->valuedouble <= 100) {
+        snprintf(b->value[BAT_LEVEL], sizeof(b->value[0]), "%d %%", (int)v->valuedouble);
+    } else {
+        copy(b->value[BAT_LEVEL], sizeof(b->value[0]), "Unknown");
+    }
+    v = cJSON_GetObjectItemCaseSensitive(bat, "age_s");
+    if (cJSON_IsNumber(v)) {
+        snprintf(b->value[BAT_UPDATED], sizeof(b->value[0]), "%d s ago", (int)v->valuedouble);
+    }
+}

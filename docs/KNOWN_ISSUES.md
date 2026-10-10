@@ -153,17 +153,17 @@ including the owner's listening check of the volume steps; DS §31.5 accepted.
   "No controller" from sysd's `bluetooth.controllers`. A real toggle needs a
   controller and an owner (ADR-002 names netd): a product decision, not
   in this branch.
-- **No battery reading on unit A.** The BQ27220 gauge and BQ25896 charger on
-  the keyboard base have no kernel driver bound and the power_supply class is
-  empty (VERIFIED); the keyboard driver bit-bangs that bus, and adding charger
-  or gauge support needs the bus ownership decided first
-  (KEYBOARD_DRIVER_DESIGN_2026-09-12.md). Battery shows "External power";
-  the percentage path (the driver's own `capacity`, never computed from a
-  voltage) is host-tested only. An opt-in, read-only diagnostic probe in the
-  shell now reads the gauge and charger status into `shell.log`
-  (BATTERY_PROBE.md): on unit A the gauge answers, but it still carries TI's
-  default 3000 mAh design capacity for a 2 x 3000 mAh pack, so its
-  percentage is not yet a usable battery level.
+- **No battery level.** The BQ27220 gauge and BQ25896 charger on the
+  keyboard base have no kernel driver bound and the power_supply class is
+  empty (VERIFIED). The shell, which owns that bus, reads them read-only
+  and sysd publishes the reading as `power.battery`
+  (BATTERY_PROBE.md §9). Doors therefore shows the battery's status,
+  voltage and current, but the level as "Unknown". The gauge still carries
+  TI's default 3000 mAh design capacity, its learned full-charge capacity
+  (3512 mAh) is not this pack's, and whether both 3000 mAh cells are
+  connected is unconfirmed (BATTERY_PROBE.md §7). Its SOC appears only in
+  System › Diagnostics, marked "Unvalidated". Readings from the base path
+  have not yet been run through sysd on hardware.
 - **Volume is a digital gain.** The speaker route has no mixer volume
   (AUDIO_HARDWARE_MAP §7), so 100 % is the validated -12 dBFS level and the
   control only attenuates (to -27 dB at 10 %). It applies to what Wave plays;

@@ -180,4 +180,21 @@ void sv_timer_apply(struct sv_timer *t, int which, int seconds);
 /* "Screen off after 1 min, lock after 5 min", "Screen stays on, no auto lock". */
 void sv_power_summary(int screen_off_s, int lock_s, char *out, size_t n);
 
+/* ---- Power & Sleep: the battery, read-only (system.status.power) ---------- */
+
+#define SV_BATTERY_ROWS 5
+
+struct sv_battery {
+    /* "Status", "Voltage", "Current", "Level", "Updated" and their values.
+     * Every value is "-" unless a current reading vouches for it. */
+    const char *label[SV_BATTERY_ROWS];
+    char value[SV_BATTERY_ROWS][48];
+};
+
+/* status: sysd's system.status result, or NULL when sysd did not answer.
+ * The level is a percentage only when sysd gives one (capacity_percent); the
+ * keyboard base's gauge gives none, so it reads "Unknown". Nothing from a
+ * reading that is not current is shown. */
+void sv_battery_apply(struct sv_battery *b, const cJSON *status);
+
 #endif

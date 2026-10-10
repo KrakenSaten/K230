@@ -7,6 +7,7 @@
 #define _GNU_SOURCE
 #include "pocketsys.h"
 
+#include "battery_report.h"
 #include "pocketpaths.h"
 
 #include <arpa/inet.h>
@@ -600,6 +601,129 @@ static cJSON *battery_json(const char *name)
     } else {
         cJSON_AddNullToObject(b, "voltage_v");
     }
+    /* The fields the keyboard-base report adds (below), for one shape. A
+     * driver's current_now sign is not settled across drivers, so it is not
+     * passed on. */
+    cJSON_AddNullToObject(b, "current_a");
+    cJSON_AddStringToObject(b, "reading", "ok");
+    cJSON_AddNullToObject(b, "age_s");
+    cJSON_AddNullToObject(b, "gauge");
+    return b;
+}
+
+/* ---- the keyboard base's gauge, as the shell reports it ------------------
+ *
+ * No kernel driver binds the base's BQ27220 and BQ25896 (VERIFIED unit A);
+ * the shell reads them on the bus it owns and leaves the reading in the
+ * runtime directory (core/battery_report.h). It is used only when the
+ * power_supply class has no battery of its own.
+ */
+
+static uint64_t monotonic_ms(void)
+{
+    struct timespec ts;
+
+#ifdef POCKETSYS_TEST_HOOKS
+    const char *fake = getenv("POCKETSYS_MONOTONIC_MS");
+
+    if (fake && *fake) {
+        return strtoull(fake, NULL, 10);
+    }
+#endif
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+/* The report, or -1 when there is none or it does not parse. */
+static int read_report(struct battery_report *r)
+{
+    char path[POCKETOS_PATH_MAX];
+    char text[1024];
+    size_t n;
+    FILE *f;
+
+    snprintf(path, sizeof(path), "%s/%s", pocketos_runtime_dir(), BATTERY_REPORT_FILE);
+    f = open_at(path, "r");
+    if (!f) {
+        return -1;
+    }
+    n = fread(text, 1, sizeof(text) - 1, f);
+    fclose(f);
+    text[n] = '\0';
+    return battery_report_parse(text, r);
+}
+
+/* A number or null. */
+static void add_num(cJSON *o, const char *key, bool have, double v)
+{
+    if (have) {
+        cJSON_AddNumberToObject(o, key, v);
+    } else {
+        cJSON_AddNullToObject(o, key);
+    }
+}
+
+/* The battery object for a report, or NULL when the report says there is no
+ * battery (no keyboard base). *external is 1/0 from the charger, -1 unknown.
+ *
+ * capacity_percent stays null: the gauge's percentage rests on a gauge
+ * configuration nobody has validated for the fitted pack (BATTERY_PROBE.md
+ * §7), so it goes under `gauge`, marked unvalidated, and nowhere a normal
+ * screen would take it for the battery level. A reading older than
+ * BATTERY_REPORT_STALE_MS, or stamped in the future, carries no values at
+ * all: an old reading is never passed on as the current one. */
+static cJSON *battery_from_report(const struct battery_report *r, int *external)
+{
+    uint64_t now = monotonic_ms();
+    bool fresh = r->monotonic_ms <= now && now - r->monotonic_ms <= BATTERY_REPORT_STALE_MS;
+    bool ok = fresh && r->state == BATTERY_REPORT_OK;
+    const char *word = ok ? battery_report_status_word(r) : NULL;
+    const char *reading;
+    cJSON *b;
+    cJSON *g;
+
+    *external = ok ? battery_report_external(r) : -1;
+    if (fresh && r->state == BATTERY_REPORT_BASE_ABSENT) {
+        return NULL;
+    }
+    if (!fresh) {
+        reading = "stale";
+    } else if (r->state == BATTERY_REPORT_OK) {
+        reading = "ok";
+    } else if (r->state == BATTERY_REPORT_STOPPED) {
+        reading = "stopped";
+    } else {
+        reading = "no-answer";
+    }
+    b = cJSON_CreateObject();
+    cJSON_AddStringToObject(b, "name", "bq27220");
+    if (ok && r->has_battery_status) {
+        cJSON_AddBoolToObject(b, "present", (r->battery_status & BATTERY_REPORT_BS_BATTPRES) != 0);
+    } else {
+        cJSON_AddNullToObject(b, "present");
+    }
+    cJSON_AddNullToObject(b, "capacity_percent");
+    if (word) {
+        cJSON_AddStringToObject(b, "status", word);
+    } else {
+        cJSON_AddNullToObject(b, "status");
+    }
+    add_num(b, "voltage_v", ok && r->has_voltage && r->voltage_mv > 0, r->voltage_mv / 1000.0);
+    add_num(b, "current_a", ok && r->has_current, r->current_ma / 1000.0);
+    cJSON_AddStringToObject(b, "reading", reading);
+    add_num(b, "age_s", r->monotonic_ms <= now, (double)((now - r->monotonic_ms) / 1000u));
+    if (ok && (r->has_soc || r->has_fcc || r->has_design)) {
+        g = cJSON_CreateObject();
+        cJSON_AddBoolToObject(g, "validated", false);
+        add_num(g, "soc_percent", r->has_soc, r->soc_percent);
+        add_num(g, "full_charge_capacity_mah", r->has_fcc, r->fcc_mah);
+        add_num(g, "design_capacity_mah", r->has_design, r->design_mah);
+        cJSON_AddItemToObject(b, "gauge", g);
+    } else {
+        cJSON_AddNullToObject(b, "gauge");
+    }
     return b;
 }
 
@@ -659,6 +783,23 @@ static void add_power(cJSON *o)
     }
     if (n > 0) {
         free_names(names, n);
+    }
+    if (!battery) {
+        struct battery_report r;
+        int external = -1;
+
+        if (read_report(&r) == 0) {
+            battery = battery_from_report(&r, &external);
+        }
+        /* The base's charger, when it was read, is the external supply. */
+        if (external >= 0) {
+            externals++;
+            if (external) {
+                online++;
+            } else {
+                offline++;
+            }
+        }
     }
     if (!battery) {
         source = "external";

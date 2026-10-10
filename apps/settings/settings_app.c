@@ -259,6 +259,19 @@ void settings_poll_rotation(struct settings_app *a)
                       o.keyboard == POCKETOS_KEYBOARD_PRESENT);
 }
 
+/* The battery is sysd's (system.status.power, docs/api/system.md): asked
+ * when Power & Sleep opens and every few seconds while it shows. A sysd
+ * that does not answer clears the lines rather than leaving the last ones. */
+void settings_poll_battery(struct settings_app *a)
+{
+    char err[96];
+    cJSON *st = shell_ipc_call_timeout("sysd", "system.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err,
+                                       sizeof(err));
+
+    sv_battery_apply(&a->battery, st);
+    cJSON_Delete(st);
+}
+
 /* ---- the list of categories ------------------------------------------------------ */
 
 /* System (DS §47) is Settings' page: the System app, which the shell shows
@@ -598,6 +611,14 @@ static void settings_tick(void *priv)
     case PAGE_DISPLAY:
         settings_poll_brightness(a);
         settings_poll_rotation(a);
+        break;
+    case PAGE_POWER:
+        /* The shell samples the gauge every 30 s; every few seconds here is
+         * plenty to show a new reading and its age. */
+        if (++a->battery_tick >= SETTINGS_BATTERY_POLL_TICKS) {
+            a->battery_tick = 0;
+            settings_poll_battery(a);
+        }
         break;
     default:
         break;

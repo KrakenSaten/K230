@@ -110,7 +110,7 @@
 
 /* Pacing. One transaction per step; a sample is every register once. */
 #define KBD_BATTERY_STEP_GAP_US 600000ULL        /* <= 2 commands per second */
-#define KBD_BATTERY_PERIOD_US 60000000ULL        /* a sample a minute */
+#define KBD_BATTERY_PERIOD_US 30000000ULL        /* a sample every 30 s */
 #define KBD_BATTERY_PERIOD_MAX_US 600000000ULL   /* nothing answers: back off */
 
 /* The registers of one sample, in the order they are read. */
@@ -193,5 +193,13 @@ const char *kbd_battery_chrg_name(unsigned chrg);
 /* One log line for a sample, raw values beside decoded ones. Always
  * terminated; truncated to len. */
 void kbd_battery_format(const struct kbd_battery_sample *s, char *buf, size_t len);
+
+struct battery_report;
+
+/* A sample as the report sysd reads (core/battery_report.h): state OK when
+ * the gauge answered, NO_ANSWER when it did not; each value only when it was
+ * read and is not suspect. */
+void kbd_battery_report(const struct kbd_battery_sample *s, uint64_t monotonic_ms,
+                        struct battery_report *r);
 
 #endif

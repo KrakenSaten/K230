@@ -451,6 +451,126 @@ int main(void)
           cJSON_GetArraySize(get(get(st, "bluetooth"), "controllers")) == 0);
     cJSON_Delete(st);
 
+    /* ---- the keyboard base's gauge, as the shell reports it ---------------
+     * (core/battery_report.h). The time is sysd's monotonic clock, faked. */
+    setenv("POCKETOS_RUNTIME_DIR", "/run/pocketos", 1);
+    setenv("POCKETSYS_MONOTONIC_MS", "1000000", 1);
+    mkdirs("run/pocketos");
+    put("run/pocketos/battery-report",
+        "doors-battery-report 1\nmonotonic_ms 990000\nstate ok\nvoltage_mv 3785\n"
+        "current_ma -570\nbattery_status 0x4029\nsoc_percent 29\nfull_charge_mah 3512\n"
+        "design_mah 3000\noperation_status 0x00b4\ncharger_status 0x02\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    {
+        const cJSON *b = get(e, "battery");
+        const cJSON *g = get(b, "gauge");
+
+        check("report: a battery object from the base gauge", str_is(b, "name", "bq27220"));
+        check("report: present from BatteryStatus()[BATTPRES]", cJSON_IsTrue(get(b, "present")));
+        check("report: no capacity_percent, ever (unvalidated gauge)",
+              cJSON_IsNull(get(b, "capacity_percent")));
+        check("report: DSG is discharging", str_is(b, "status", "discharging"));
+        check("report: volts", num_is(b, "voltage_v", 3.785));
+        check("report: signed amps", num_is(b, "current_a", -0.57));
+        check("report: current, 10 s old", str_is(b, "reading", "ok") && num_is(b, "age_s", 10));
+        check("report: the gauge's figures, unvalidated",
+              cJSON_IsFalse(get(g, "validated")) && num_is(g, "soc_percent", 29) &&
+                  num_is(g, "full_charge_capacity_mah", 3512) &&
+                  num_is(g, "design_capacity_mah", 3000));
+        check("report: no input at the charger is on battery",
+              str_is(e, "source", "battery") && cJSON_IsFalse(get(e, "external_online")));
+    }
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report",
+        "doors-battery-report 1\nmonotonic_ms 999000\nstate ok\nvoltage_mv 4100\ncurrent_ma 800\n"
+        "battery_status 0x0008\ncharger_status 0x36\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("report: fast charging from USB",
+          str_is(get(e, "battery"), "status", "charging") && str_is(e, "source", "external") &&
+              cJSON_IsTrue(get(e, "external_online")));
+    check("report: no gauge figures read, no gauge object",
+          cJSON_IsNull(get(get(e, "battery"), "gauge")));
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report",
+        "doors-battery-report 1\nmonotonic_ms 800000\nstate ok\nvoltage_mv 3785\n"
+        "current_ma -570\nbattery_status 0x4029\nsoc_percent 29\ncharger_status 0x02\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    {
+        const cJSON *b = get(e, "battery");
+
+        check("stale: said, with its age", str_is(b, "reading", "stale") && num_is(b, "age_s", 200));
+        check("stale: no value passed on as current",
+              cJSON_IsNull(get(b, "voltage_v")) && cJSON_IsNull(get(b, "current_a")) &&
+                  cJSON_IsNull(get(b, "status")) && cJSON_IsNull(get(b, "present")) &&
+                  cJSON_IsNull(get(b, "gauge")));
+        check("stale: the source is not guessed",
+              str_is(e, "source", "unknown") && cJSON_IsNull(get(e, "external_online")));
+    }
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report",
+        "doors-battery-report 1\nmonotonic_ms 5000000\nstate ok\nvoltage_mv 3785\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("a reading from the future (another boot) is stale, no age",
+          str_is(get(e, "battery"), "reading", "stale") && cJSON_IsNull(get(get(e, "battery"), "age_s")) &&
+              cJSON_IsNull(get(get(e, "battery"), "voltage_v")));
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report", "doors-battery-report 1\nmonotonic_ms 999000\nstate no-answer\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("the gauge not answering",
+          str_is(get(e, "battery"), "reading", "no-answer") && cJSON_IsNull(get(get(e, "battery"), "status")));
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report", "doors-battery-report 1\nmonotonic_ms 999000\nstate stopped\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("reading stopped", str_is(get(e, "battery"), "reading", "stopped"));
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report", "doors-battery-report 1\nmonotonic_ms 999000\nstate base-absent\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("no keyboard base: no battery, external",
+          cJSON_IsNull(get(e, "battery")) && str_is(e, "source", "external"));
+    cJSON_Delete(st);
+
+    put("run/pocketos/battery-report", "doors-battery-report 1\nstate ok\nvoltage_mv 3785\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("a report without a time is no report", cJSON_IsNull(get(e, "battery")));
+    cJSON_Delete(st);
+
+    mkdirs("sys/class/power_supply/kgauge");
+    put("sys/class/power_supply/kgauge/type", "Battery\n", 0);
+    put("run/pocketos/battery-report",
+        "doors-battery-report 1\nmonotonic_ms 999000\nstate ok\nvoltage_mv 3785\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("a kernel battery comes first, in the same shape",
+          str_is(get(e, "battery"), "name", "kgauge") && str_is(get(e, "battery"), "reading", "ok") &&
+              cJSON_IsNull(get(get(e, "battery"), "current_a")) &&
+              cJSON_IsNull(get(get(e, "battery"), "gauge")));
+    cJSON_Delete(st);
+    {
+        char cmd[700];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s/sys/class/power_supply/kgauge' '%s/run/pocketos/battery-report'",
+                 root, root);
+        if (system(cmd) != 0) {
+            fprintf(stderr, "rm failed\n");
+            return 1;
+        }
+    }
+    unsetenv("POCKETSYS_MONOTONIC_MS");
+
     /* ---- Bluetooth controllers ---- */
     mkdirs("sys/class/bluetooth/hci0");
     mkdirs("sys/class/bluetooth/hci0:3");

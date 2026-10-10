@@ -1,10 +1,11 @@
 # Battery probe on the keyboard base
 
-**Status: DIAGNOSTIC ONLY.** An opt-in, read-only probe of the keyboard
-base's BQ27220 fuel gauge and BQ25896 charger, logging to `shell.log`. No UI,
-nothing published to sysd, no configuration written. It exists to find out
-whether the gauge on unit A answers and what it says, before any battery
-status is shown in Doors.
+**Status: READ-ONLY TELEMETRY.** A read-only probe of the keyboard base's
+BQ27220 fuel gauge and BQ25896 charger. It began as an opt-in diagnostic
+(§1-§6) and now runs whenever the base answers, feeding sysd's
+`power.battery` (§9). No configuration is ever written. The gauge's
+percentage is not shown as the battery level, because its configuration is
+not validated for the fitted pack (§7).
 
 Evidence classes follow AGENTS.md: **VERIFIED** (measured on a unit),
 **DOCUMENTED** (read from TI or vendor documents), **ASSUMED**.
@@ -71,15 +72,18 @@ configuration write and out of scope.
 
 ## 4. Turning it on and off
 
-On the unit, no restart needed:
+Since §9 the probe always runs while the keyboard base answers, and this
+flag only makes it log every sample in full. Without the flag it logs one
+line per change of state. On the unit, no restart needed:
 
 ```sh
-touch /run/pocketos/battery-probe     # on
-rm /run/pocketos/battery-probe        # off
-grep 'battery probe' /var/lib/pocketos/log/shell.log
+touch /run/pocketos/battery-probe     # full log line per sample
+rm /run/pocketos/battery-probe        # changes of state only
+grep 'battery' /var/lib/pocketos/log/shell.log
 ```
 
-The flag lives in tmpfs and is gone after a reboot. Log lines:
+The flag lives in tmpfs and is gone after a reboot. Log lines as the first
+two hardware runs wrote them (§6), before §9:
 
 ```
 battery probe: on (read-only; gauge 0x55, charger 0x6b; one register per 600 ms, a sample every 60 s)
@@ -324,7 +328,12 @@ Rollback
 - Nothing here touches the charger, seals the gauge or uses OTP. OTP is
   one-time and is not proposed.
 
-## 8. Capacity operation (prepared 2026-10-10, not run)
+## 8. Capacity operation (prepared 2026-10-10, not run; off this branch)
+
+**Moved:** the operation is no longer in this branch's runtime. The code,
+its 57-check test and this section's procedures are kept unchanged on
+`experiment/battery-gauge-capacity-op` (`e4e80f7`). The text below
+describes that branch.
 
 `ui/shell/kbd_gauge_cfg.[ch]` implements §7.5 as an owner-triggered
 operation in the shell's bus owner. Nothing in the shell starts it by
@@ -551,4 +560,56 @@ the cells disconnected, which is physical work and not part of this plan.
 The owner will not do the physical holder check (§8.4). The batteries and
 the gauge configuration stay as they are. Nothing has been deployed and
 nothing has been written to the gauge. The capacity operation stays
-prepared on this branch, unused.
+prepared, unused, on `experiment/battery-gauge-capacity-op`.
+
+## 9. Read-only telemetry in Doors
+
+### 9.1 Path
+
+1. **Shell** (`ui/shell/shell_kbd.c`): the probe runs from the keyboard's
+   one-second watch whenever the bus can do block reads. Pacing (§3),
+   clock-stretch handling and the breaker are unchanged. A sample is the
+   same eight register reads and now repeats every 30 s; with nothing
+   answering the period still backs off to 10 minutes.
+2. **Report** (`core/battery_report.[ch]`): each completed sample is written
+   as `/run/pocketos/battery-report`, written whole then renamed into place.
+   It holds the CLOCK_MONOTONIC time of the reading, a state (`ok`,
+   `no-answer`, `stopped`, `base-absent`), and only the values that were read
+   and passed their checks.
+   - A report without values (no answer, no base, stopped) is rewritten at
+     least once a minute.
+   - A report with values is only ever stamped by a new sample.
+3. **sysd** (`core/pocketsys.c`): when `/sys/class/power_supply` has no
+   battery of its own, `system.status.power.battery` comes from the report
+   (docs/api/system.md).
+   - A report older than 150 s, or stamped in the future, is `stale` and
+     carries no values.
+   - `capacity_percent` is always null for this gauge. Its SOC, full-charge
+     and design capacities go under `battery.gauge` with
+     `validated: false`.
+4. **UI:**
+   - **Controls (battery tile):** status and voltage, for example
+     "On battery · 3.79 V". Otherwise "No recent reading", "Gauge not
+     answering" or "Not reading".
+   - **Settings › Power & Sleep, BATTERY panel:** Status, Voltage, Current
+     (signed, with "into"/"out of the battery"), Level "Unknown", and
+     Updated "N s ago". It is asked of sysd on opening and every 5 s while
+     shown. With no current reading every value is "-".
+   - **System › Diagnostics:** the Battery row ("On battery · 3.79 V ·
+     -0.57 A · level unknown") and a new Gauge row ("Unvalidated · SOC 29 % ·
+     full 3512 mAh · design 3000 mAh"). Both are cleared when sysd stops
+     answering.
+
+### 9.2 Logging
+
+One line per change of state, for example `battery: reading the gauge ...`
+or `battery: the gauge does not answer`. No line per sample unless the
+§4 flag is set.
+
+### 9.3 What it never does
+
+- It writes nothing to either device: the bus traffic is register-address
+  selection and reads.
+- It does not reset, configure, calibrate or seal the gauge, or change
+  charging.
+- The capacity operation (§8) is not in this build.

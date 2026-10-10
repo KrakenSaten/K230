@@ -8,6 +8,8 @@
  */
 #include "kbd_battery.h"
 
+#include "battery_report.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -362,5 +364,50 @@ void kbd_battery_format(const struct kbd_battery_sample *s, char *buf, size_t le
     }
     if (s->suspect) {
         put(buf, len, &at, "; suspect=0x%02x", s->suspect);
+    }
+}
+
+/* A value is reported only when it was read and passed its checks. */
+static bool usable(const struct kbd_battery_sample *s, enum kbd_battery_reg reg)
+{
+    return (s->have & (1u << reg)) && !(s->suspect & (1u << reg));
+}
+
+void kbd_battery_report(const struct kbd_battery_sample *s, uint64_t monotonic_ms,
+                        struct battery_report *r)
+{
+    if (!r) {
+        return;
+    }
+    memset(r, 0, sizeof(*r));
+    r->monotonic_ms = monotonic_ms;
+    if (!s || !kbd_battery_gauge_answered(s)) {
+        r->state = BATTERY_REPORT_NO_ANSWER;
+        return;
+    }
+    r->state = BATTERY_REPORT_OK;
+    if ((r->has_voltage = usable(s, KBD_BATTERY_VOLTAGE))) {
+        r->voltage_mv = s->raw[KBD_BATTERY_VOLTAGE];
+    }
+    if ((r->has_current = usable(s, KBD_BATTERY_CURRENT))) {
+        r->current_ma = kbd_battery_current_ma(s->raw[KBD_BATTERY_CURRENT]);
+    }
+    if ((r->has_battery_status = usable(s, KBD_BATTERY_STATUS))) {
+        r->battery_status = s->raw[KBD_BATTERY_STATUS];
+    }
+    if ((r->has_soc = usable(s, KBD_BATTERY_SOC))) {
+        r->soc_percent = s->raw[KBD_BATTERY_SOC];
+    }
+    if ((r->has_fcc = usable(s, KBD_BATTERY_FCC))) {
+        r->fcc_mah = s->raw[KBD_BATTERY_FCC];
+    }
+    if ((r->has_design = usable(s, KBD_BATTERY_DESIGN))) {
+        r->design_mah = s->raw[KBD_BATTERY_DESIGN];
+    }
+    if ((r->has_opstatus = usable(s, KBD_BATTERY_OPSTATUS))) {
+        r->opstatus = s->raw[KBD_BATTERY_OPSTATUS];
+    }
+    if ((r->has_charger = usable(s, KBD_BATTERY_CHARGER))) {
+        r->charger_status = (uint8_t)s->raw[KBD_BATTERY_CHARGER];
     }
 }

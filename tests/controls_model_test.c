@@ -288,6 +288,35 @@ int main(void)
     check("battery: the gauge says none is fitted",
           battery_is("{\"power\":{\"source\":\"external\",\"battery\":{\"present\":false}}}",
                      "No battery"));
+    /* The keyboard base's gauge (docs/api/system.md): no percentage, so the
+     * status and the voltage, and never an old reading as a current one. */
+    check("battery: base gauge on battery, level withheld",
+          battery_is("{\"power\":{\"source\":\"battery\",\"battery\":{\"present\":true,"
+                     "\"capacity_percent\":null,\"status\":\"discharging\",\"voltage_v\":3.787,"
+                     "\"current_a\":-0.57,\"reading\":\"ok\",\"age_s\":12,"
+                     "\"gauge\":{\"validated\":false,\"soc_percent\":29}}}}",
+                     "On battery \xc2\xb7 3.79 V"));
+    check("battery: base gauge charging",
+          battery_is("{\"power\":{\"source\":\"external\",\"battery\":{\"present\":true,"
+                     "\"capacity_percent\":null,\"status\":\"charging\",\"voltage_v\":4.1,"
+                     "\"reading\":\"ok\"}}}", "Charging \xc2\xb7 4.10 V"));
+    check("battery: a voltage and no status word",
+          battery_is("{\"power\":{\"battery\":{\"present\":null,\"capacity_percent\":null,"
+                     "\"status\":null,\"voltage_v\":3.9,\"reading\":\"ok\"}}}", "3.90 V"));
+    check("battery: the unvalidated SOC is never shown here",
+          battery_is("{\"power\":{\"battery\":{\"capacity_percent\":null,\"status\":null,"
+                     "\"reading\":\"ok\",\"gauge\":{\"soc_percent\":29}}}}", "Battery"));
+    check("battery: a stale reading shows no values",
+          battery_is("{\"power\":{\"battery\":{\"present\":null,\"capacity_percent\":null,"
+                     "\"status\":null,\"voltage_v\":null,\"reading\":\"stale\",\"age_s\":400}}}",
+                     "No recent reading"));
+    check("battery: the gauge not answering",
+          battery_is("{\"power\":{\"battery\":{\"reading\":\"no-answer\"}}}", "Gauge not answering"));
+    check("battery: reading stopped (keyboard protection)",
+          battery_is("{\"power\":{\"battery\":{\"reading\":\"stopped\"}}}", "Not reading"));
+    check("battery: a stale reading has no charging dot",
+          !battery_dot("{\"power\":{\"source\":\"unknown\",\"battery\":{\"status\":null,"
+                       "\"reading\":\"stale\"}}}"));
     check("battery dot: charging", battery_dot("{\"power\":{\"source\":\"unknown\",\"battery\":"
                                                "{\"present\":true,\"status\":\"charging\"}}}"));
     check("battery dot: none without a battery",

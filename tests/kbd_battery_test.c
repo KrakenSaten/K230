@@ -9,6 +9,8 @@
  */
 #include "kbd_battery.h"
 
+#include "battery_report.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -237,8 +239,8 @@ int main(void)
     bus = model_bus();
     kbd_battery_init(&b, &bus, 0);
     done = run(&b, 0, 300 * SEC, SEC / 10);
-    check("a sample a minute: five in five minutes", done == 5);
-    check("eight reads each", m.reads == 5u * KBD_BATTERY_NREGS);
+    check("a sample every 30 s: ten in five minutes", done == 10);
+    check("eight reads each", m.reads == 10u * KBD_BATTERY_NREGS);
     {
         bool gap_ok = true;
         bool two_per_second = true;
@@ -254,8 +256,8 @@ int main(void)
         check("never two reads within the step gap", gap_ok);
         check("never three reads within one second", two_per_second);
     }
-    check("samples start a period apart", m.read_at[KBD_BATTERY_NREGS] == 60 * SEC &&
-                                             m.read_at[2 * KBD_BATTERY_NREGS] == 120 * SEC);
+    check("samples start a period apart", m.read_at[KBD_BATTERY_NREGS] == 30 * SEC &&
+                                             m.read_at[2 * KBD_BATTERY_NREGS] == 60 * SEC);
     check("still nothing written", m.writes == 0);
 
     /* ---- 4. a gauge that does not answer -------------------------------- */
@@ -287,9 +289,9 @@ int main(void)
     done = run(&b, 0, 3600 * SEC, SEC);
     check("two reads per empty sample", m.reads == 2u * done);
     /* Each empty sample doubles the period before the next is due: samples
-     * start at 0, 120, 360, 840, then every 600 s - eight in the hour. */
+     * start at 0, 60, 180, 420, 900, then every 600 s - nine in the hour. */
     check("the period doubles to its ceiling", b.period_us == KBD_BATTERY_PERIOD_MAX_US);
-    check("eight samples in an hour, not sixty", done == 8);
+    check("nine samples in an hour, not 120", done == 9);
     kbd_battery_format(&b.last, line, sizeof(line));
     check("an empty sample reads as two absences",
           strcmp(line, "gauge 0x55: no answer; charger 0x6b: no answer") == 0);
@@ -354,6 +356,41 @@ int main(void)
     }
     check("a second failure does not trip it twice",
           !kbd_battery_keys_failed(&b, 3 * SEC + 400000));
+
+    /* ---- 8b. a sample as sysd's report (core/battery_report.h) ------------ */
+    {
+        struct battery_report r;
+
+        model_reset();
+        bus = model_bus();
+        kbd_battery_init(&b, &bus, 0);
+        run(&b, 0, 20 * SEC, SEC);
+        kbd_battery_report(&b.last, 4242, &r);
+        check("report: OK, stamped as given", r.state == BATTERY_REPORT_OK && r.monotonic_ms == 4242);
+        check("report: every register carried",
+              r.has_voltage && r.voltage_mv == 4012 && r.has_current && r.current_ma == -312 &&
+                  r.has_soc && r.soc_percent == 87 && r.has_fcc && r.fcc_mah == 5800 &&
+                  r.has_design && r.design_mah == 6000 && r.has_battery_status &&
+                  r.has_opstatus && r.has_charger && r.charger_status == 0x02);
+
+        model_reset();
+        m.word[BQ27220_CMD_STATE_OF_CHARGE] = 0x00FF; /* impossible: suspect */
+        bus = model_bus();
+        kbd_battery_init(&b, &bus, 0);
+        run(&b, 0, 20 * SEC, SEC);
+        kbd_battery_report(&b.last, 1, &r);
+        check("report: a suspect value is left out, the rest kept",
+              !r.has_soc && r.has_voltage && r.state == BATTERY_REPORT_OK);
+
+        model_reset();
+        m.gauge = false;
+        bus = model_bus();
+        kbd_battery_init(&b, &bus, 0);
+        run(&b, 0, 20 * SEC, SEC);
+        kbd_battery_report(&b.last, 1, &r);
+        check("report: a silent gauge is NO_ANSWER with nothing in it",
+              r.state == BATTERY_REPORT_NO_ANSWER && !r.has_voltage && !r.has_charger);
+    }
 
     /* ---- 9. the line is always terminated --------------------------------- */
 
