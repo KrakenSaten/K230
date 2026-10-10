@@ -251,5 +251,15 @@ Evidence:
   simulator with fake tiles (tests/rift_app_test.c).
 - VERIFIED (cross, 2026-10-10): pos-browser and the DRM shell with the pinned
   Xuantie toolchain and SDK sysroot (see the PR).
-- Not verified: real OpenStreetMap tiles on unit B (the host has no libcurl
-  or libpng headers, so the simulator shows the fake network's tiles).
+- VERIFIED (unit B, 2026-10-10, shell e9469ab + pos-browser 3f7e3f2 over the
+  v0.3.6 card with the af80d7b DeskBuddy shell's tree): BASEMAP off starts no
+  helper and fetches nothing; on, real OpenStreetMap tiles load under the 102
+  located nodes, the attribution shows, and the owner confirmed node
+  positions, pan, zoom and FIT; leaving MAP stops the helper and coming back
+  serves seen tiles from the cache (logged "12 shown, 0 asked of the
+  server"); with the tile server blackholed the map says OFFLINE · SAVED
+  TILES ONLY and shows seen tiles and the graticule; CLOSE RIFT leaves no
+  helper, directory or picture file; a Browser page with pictures loads.
+  One defect was found and fixed (e9469ab): the shell's watchdog counted an
+  idle helper as silent and killed it at the first pan after more than
+  45 s idle.
