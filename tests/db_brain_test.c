@@ -101,7 +101,7 @@ static void test_companion(void)
 
     see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 1000);
     run_until(&b, t + DB_IDLE_SLEEP_MS - 1);
-    check("not asleep a moment before the quiet is long enough", b.state == DB_ST_IDLE);
+    check("drowsy, not asleep, a moment before the quiet is long enough", b.state == DB_ST_DROWSY);
     run_until(&b, t += DB_IDLE_SLEEP_MS);
     check("asleep after DB_IDLE_SLEEP_MS with nobody there", b.state == DB_ST_SLEEP && expr_of(&b) == DB_EXPR_CLOSED);
     check("asleep and blind to animation: no tick needed", db_brain_next_ms(&b) == DB_NEVER);
@@ -533,7 +533,7 @@ static void test_face(void)
     struct db_eye_shape l;
     struct db_eye_shape r;
     struct db_eye_shape open;
-    struct db_face f = { DB_EXPR_OPEN, 0, false };
+    struct db_face f = { .expr = DB_EXPR_OPEN };
     int all = 1;
     int x;
     int s;

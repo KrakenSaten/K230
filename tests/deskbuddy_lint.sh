@@ -16,7 +16,7 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 APP=apps/deskbuddy
-CORE="$APP/db_brain.c $APP/db_brain.h $APP/db_face.c $APP/db_face.h $APP/db_guard.c $APP/db_guard.h
+CORE="$APP/db_brain.c $APP/db_brain.h $APP/db_face.c $APP/db_face.h $APP/db_gesture.c $APP/db_gesture.h $APP/db_guard.c $APP/db_guard.h
       $APP/db_prefs.c $APP/db_prefs.h $APP/db_vision.c $APP/db_vision.h $APP/db_vision_mock.c $APP/db_vision_mock.h"
 STORE="$APP/db_store.c $APP/db_store.h"
 SCREEN="$APP/deskbuddy_app.c $APP/deskbuddy_app.h"
@@ -98,9 +98,34 @@ check "the bridge touches no file (the owner stays in Vision's helper)" "$([ -z 
 check "the shell builds the bridge" \
     "$(n=0; for f in $BRIDGE/*.c; do grep -q "\${REPO_DIR}/$f" ui/shell/CMakeLists.txt || n=1; done; [ $n = 0 ] && echo 1 || echo 0)"
 check "DeskBuddy picks it unless simulated or \$DESKBUDDY_VISION is none" \
-    "$(awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
+    "$(awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
 check "stop() is called in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'provider.ops->stop' && echo 1 || echo 0)"
+# Companion plays by touch: the camera is started only for Guard and Night,
+# in one place, and stopped again on the way back to Companion.
+SYNC=$(awk '/^static void sync_provider\(struct deskbuddy_app \*a, int64_t now\)$/,/^}/' $APP/deskbuddy_app.c | strip_prose)
+check "the provider is started and stopped only by the mode (sync_provider)" \
+    "$(printf '%s\n' "$SYNC" | grep -q 'DB_MODE_COMPANION' && printf '%s\n' "$SYNC" | grep -q 'ops->start' &&
+       printf '%s\n' "$SYNC" | grep -q 'ops->stop' &&
+       [ "$(code $APP/deskbuddy_app.c | grep -c 'ops->start')" = 1 ] && echo 1 || echo 0)"
+
+# ---- 8. personality needs no camera ---------------------------------------------------
+# Touch, the snack and rest reach the brain as a db_stimulus. None of that
+# path may start, poll or name a vision provider: DeskBuddy plays the same
+# with no camera and no model.
+PLAY=$(awk '/^\/\* ---- stimuli and the snack/,/^\/\* ---- layout/' $APP/deskbuddy_app.c
+       for f in on_face_press on_face_pressing on_face_release on_face_lost feed_or_give rest_or_wake on_feed on_rest refresh_care; do
+           awk "/^static void $f\\(/,/^}/" $APP/deskbuddy_app.c
+       done)
+check "the play path is in place" "$(printf '%s\n' "$PLAY" | grep -q 'db_brain_stimulus' && echo 1 || echo 0)"
+hits=$(printf '%s\n' "$PLAY" | strip_prose | grep -nE 'provider|db_vision_|pipeline')
+check "and starts, polls or names no vision provider" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -3
+hits=$(code $APP/db_gesture.c $APP/db_gesture.h | grep -nE '#include[[:space:]]*"db_(vision|brain)')
+check "the gesture classifier knows nothing of vision or the brain" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(awk '/^bool db_brain_stimulus\(/,/^}/' $APP/db_brain.c | strip_prose | grep -nE 'db_vision|seen')
+check "a stimulus never stands in for what vision saw" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -3
 
 echo "deskbuddy_lint: $failed failure(s)"
 exit $((failed > 0))

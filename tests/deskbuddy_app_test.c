@@ -30,6 +30,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -95,6 +97,8 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     data->point = finger_point;
 }
 
+static void demo_frame(void);
+
 static void pump(int ms)
 {
     int t;
@@ -102,6 +106,7 @@ static void pump(int ms)
     for (t = 0; t < ms; t += 5) {
         lv_tick_inc(5);
         lv_timer_handler();
+        demo_frame();
     }
 }
 
@@ -290,6 +295,10 @@ static void test_open(void)
               shows(deskbuddy_app_mode_button(app, DB_MODE_NIGHT), "NIGHT") &&
               shows(deskbuddy_app_settings_button(app), "SET"));
     check("Companion has no guard button", hidden(deskbuddy_app_action_button(app)));
+    check("but FEED and REST", shows(deskbuddy_app_feed_button(app), "FEED") &&
+                                   shows(deskbuddy_app_rest_button(app), "REST"));
+    check("no snack until FEED, no mouth on a calm face",
+          hidden(deskbuddy_app_snack(app)) && hidden(deskbuddy_app_mouth(app)));
     check("both eyes are drawn", !hidden(deskbuddy_app_eye(app, 0)) && !hidden(deskbuddy_app_eye(app, 1)) &&
                                      eye_h() > 40);
     check("the night clock is not shown by day", hidden(deskbuddy_app_clock(app)));
@@ -312,11 +321,13 @@ static void test_companion(void)
     open_h = eye_h();
     deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
     check("somebody arrives: it wakes", brain()->state == DB_ST_WAKE);
+    pump(250); /* the eyes grow into the new look over a few frames */
     check("the eyes open wide", eye_h() > open_h);
     pump(DB_WAKE_MS + 100);
     check("then it tries to recognise them", brain()->state == DB_ST_RECOGNIZING);
     deskbuddy_app_inject(app, DB_VISION_OWNER_RECOGNIZED);
     check("the owner: HELLO", brain()->state == DB_ST_OWNER_GREETING && strcmp(caption(), "HELLO") == 0);
+    pump(250);
     check("with happy eyes, shorter than open ones", eye_h() < open_h);
     pump(DB_GREETING_MS + 100);
     check("the greeting ends by itself", brain()->state == DB_ST_IDLE && strcmp(caption(), "") == 0);
@@ -329,7 +340,7 @@ static void test_companion(void)
     check("alone for DB_IDLE_SLEEP_MS: asleep, eyes shut", brain()->state == DB_ST_SLEEP &&
                                                             eye_h() < open_h / 4);
     tap_obj(deskbuddy_app_face(app));
-    check("a tap on the face wakes it", brain()->state == DB_ST_WAKE);
+    check("a tap on the face wakes it, gently", brain()->state == DB_ST_IDLE && brain()->react == DB_REACT_STIR);
     app_deskbuddy.tick(app);
     app_stop();
     check("Companion keeps no log", !stored(DB_STORE_GUARD));
@@ -347,6 +358,8 @@ static void test_guard(void)
     action = deskbuddy_app_action_button(app);
     check("GUARD: disarmed, with an ARM button", brain()->state == DB_ST_GUARD_DISARMED && shows(action, "ARM") &&
                                                      strcmp(caption(), "GUARD OFF") == 0);
+    check("and no FEED or REST: the guard is not a pet", hidden(lv_obj_get_parent(deskbuddy_app_feed_button(app))) &&
+                                                             hidden(lv_obj_get_parent(deskbuddy_app_rest_button(app))));
     {
         lv_area_t face;
         lv_area_t btn;
@@ -493,9 +506,16 @@ static void test_quiet(void)
     reduced_motion = 0;
     app_deskbuddy.tick(app);
     paints = deskbuddy_app_face_paints(app);
+    steps = deskbuddy_app_steps(app);
     pump(20000);
     check("with motion it blinks now and then", deskbuddy_app_face_paints(app) > paints);
-    check("but not every frame", deskbuddy_app_face_paints(app) - paints < 40);
+    /* A new look grows over a few frames (TWEEN_MS at FRAME_MS), a breath
+     * is one step every 2 s: well under a quarter of the 600 frames that
+     * 20 s at 30 fps would be. */
+    printf("note: 20 s idle with motion: %u repaints, %u timer runs\n", deskbuddy_app_face_paints(app) - paints,
+           deskbuddy_app_steps(app) - steps);
+    check("but not every frame", deskbuddy_app_face_paints(app) - paints < 150);
+    check("and the timer rests between them", deskbuddy_app_steps(app) - steps < 200);
     app_stop();
 }
 
@@ -591,6 +611,578 @@ static void test_landscape(void)
     app_stop();
 }
 
+/* ---- personality, through the real pointer ------------------------------------------- */
+
+#define GLIDE_WAIT 600 /* a snack's float to the mouth, and a frame or two */
+
+static void finger_at(lv_point_t p, lv_indev_state_t state, int ms)
+{
+    finger_point = p;
+    finger_state = state;
+    pump(ms);
+}
+
+static lv_area_t area_of(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    return a;
+}
+
+/* The middle of the eye line and the eye box, in screen coordinates. */
+static lv_point_t eye_line(int32_t *box)
+{
+    lv_area_t c = area_of(deskbuddy_app_character(app));
+    lv_area_t e = area_of(lv_obj_get_parent(deskbuddy_app_eye(app, 0)));
+    lv_point_t p;
+
+    *box = lv_area_get_width(&e);
+    p.x = c.x1 + lv_area_get_width(&c) / 2;
+    p.y = e.y1 + *box / 2;
+    return p;
+}
+
+static lv_point_t mouth_point(void)
+{
+    int32_t box;
+    lv_point_t p = eye_line(&box);
+
+    p.y += box * DB_MOUTH_Y_PM / 1000;
+    return p;
+}
+
+/* A gentle stroke across the character below the eyes: 20 px every 40 ms. */
+static void stroke(int steps)
+{
+    int32_t box;
+    lv_point_t p = eye_line(&box);
+    int i;
+
+    p.x -= box / 2;
+    p.y += box / 3;
+    finger_at(p, LV_INDEV_STATE_PRESSED, 40);
+    for (i = 0; i < steps; i++) {
+        p.x += (i / 10) % 2 ? -20 : 20;
+        finger_at(p, LV_INDEV_STATE_PRESSED, 40);
+    }
+    finger_at(p, LV_INDEV_STATE_RELEASED, 60);
+}
+
+/* Drag the snack by its middle to `to`, in `steps` moves of 40 ms; let go
+ * or not. */
+static void drag_snack(lv_point_t to, int steps, bool release)
+{
+    lv_area_t s = area_of(deskbuddy_app_snack(app));
+    lv_point_t p = { s.x1 + lv_area_get_width(&s) / 2, s.y1 + lv_area_get_height(&s) / 2 };
+    lv_point_t from = p;
+    int i;
+
+    finger_at(p, LV_INDEV_STATE_PRESSED, 40);
+    for (i = 1; i <= steps; i++) {
+        p.x = from.x + (to.x - from.x) * i / steps;
+        p.y = from.y + (to.y - from.y) * i / steps;
+        finger_at(p, LV_INDEV_STATE_PRESSED, 40);
+    }
+    if (release) {
+        finger_at(p, LV_INDEV_STATE_RELEASED, 60);
+    }
+}
+
+static void test_touch(void)
+{
+    lv_area_t eye;
+    lv_point_t p;
+    int i;
+
+    forget();
+    app_start();
+    check("it plays with no camera and no model: the provider is blind", brain()->seen == DB_SEEN_UNAVAILABLE);
+    eye = area_of(deskbuddy_app_eye(app, 1));
+    p.x = eye.x2 - 4;
+    p.y = eye.y1 + lv_area_get_height(&eye) / 2;
+    finger_at(p, LV_INDEV_STATE_PRESSED, 60);
+    finger_at(p, LV_INDEV_STATE_RELEASED, 60);
+    check("a tap on an eye pokes it", brain()->poked == 1 && brain()->react != DB_REACT_NONE);
+    check("and it looks the way it was touched (right)", brain()->look_x > 0);
+    pump(3000);
+    check("then settles, by itself", brain()->react == DB_REACT_NONE && brain()->state == DB_ST_IDLE);
+
+    tap_obj(deskbuddy_app_rest_button(app));
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    tap_obj(deskbuddy_app_settings_button(app));
+    tap_obj(deskbuddy_app_settings_done(app));
+    check("taps on the controls never poke it", brain()->poked == 1);
+    pump(3000);
+    check("REST: asleep", brain()->state == DB_ST_SLEEP && shows(deskbuddy_app_rest_button(app), "WAKE"));
+    tap_obj(deskbuddy_app_rest_button(app));
+    check("WAKE: it stirs", brain()->react == DB_REACT_STIR && shows(deskbuddy_app_rest_button(app), "REST"));
+    pump(2000);
+
+    stroke(24);
+    check("a stroke pets it, once", brain()->petted == 1 && brain()->poked == 1 && brain()->react == DB_REACT_PET);
+    stroke(60);
+    check("one long stroke is one more, however long", brain()->petted == 2 && brain()->poked == 1);
+    pump(4000);
+
+    for (i = 0; i < DB_POKES_TO_ANNOY; i++) {
+        tap_obj(deskbuddy_app_face(app));
+        pump(200);
+    }
+    check("poked again and again: briefly annoyed", brain()->react == DB_REACT_ANNOYED);
+    pump(3500);
+    check("and calm again", brain()->react == DB_REACT_NONE);
+    check("nothing of it started the camera: Companion never does", deskbuddy_app_provider_starts(app) == 0 &&
+                                                                         !deskbuddy_app_provider_running(app));
+    app_stop();
+    check("play wrote nothing", !stored(DB_STORE_PREFS) && !stored(DB_STORE_GUARD));
+}
+
+static void test_feed(void)
+{
+    lv_obj_t *snack;
+    lv_area_t face;
+    lv_area_t s;
+    lv_area_t home;
+    lv_point_t half;
+    int timers;
+
+    forget();
+    app_start();
+    snack = deskbuddy_app_snack(app);
+    tap_obj(deskbuddy_app_feed_button(app));
+    check("FEED: a snack appears, and the button says GIVE", !hidden(snack) && brain()->snack &&
+                                                                   shows(deskbuddy_app_feed_button(app), "GIVE"));
+    check("FEED is not a poke", brain()->poked == 0);
+    face = area_of(deskbuddy_app_face(app));
+    home = area_of(snack);
+    check("the snack sits inside the face, clear of the character", games_inside(&home, &face));
+    check("it is watched", brain()->state == DB_ST_IDLE && brain()->snack && !brain()->snack_near);
+
+    drag_snack(mouth_point(), 12, false);
+    check("dragged to the mouth: it opens wide", brain()->snack_near);
+    finger_at(finger_point, LV_INDEV_STATE_RELEASED, 60);
+    check("let go there: eaten", brain()->fed == 1 && hidden(snack) && brain()->react == DB_REACT_EAT &&
+                                     shows(deskbuddy_app_feed_button(app), "FEED"));
+    pump(200);
+    check("with its mouth", !hidden(deskbuddy_app_mouth(app)));
+    pump(4000);
+
+    tap_obj(deskbuddy_app_feed_button(app));
+    home = area_of(snack);
+    half.x = (home.x1 + mouth_point().x) / 2 + lv_area_get_width(&home);
+    half.y = home.y1 - 120;
+    drag_snack(half, 6, true);
+    check("let go away from the mouth: not eaten", brain()->fed == 1 && !hidden(snack));
+    pump(600);
+    s = area_of(snack);
+    check("and back to its place", s.x1 == home.x1 && s.y1 == home.y1 && brain()->snack);
+
+    drag_snack(half, 6, false);
+    app_stop();
+    check("closed mid-drag: nothing left behind", lv_obj_get_child_count(g_content) == 0u);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+    timers = timer_count();
+    app_start();
+    snack = deskbuddy_app_snack(app);
+    check("reopened: no snack out, nothing eaten", hidden(snack) && !brain()->snack && brain()->fed == 0);
+
+    tap_obj(deskbuddy_app_feed_button(app));
+    tap_obj(snack);
+    pump(GLIDE_WAIT);
+    check("a tap on the snack: it floats to the mouth and is eaten", brain()->fed == 1 && hidden(snack));
+    pump(4000);
+    tap_obj(deskbuddy_app_feed_button(app));
+    tap_obj(deskbuddy_app_feed_button(app));
+    pump(GLIDE_WAIT);
+    check("FEED then GIVE does the same", brain()->fed == 2);
+    pump(4000);
+
+    push_key('f');
+    check("F offers a snack", !hidden(snack));
+    push_key(LV_KEY_ENTER);
+    pump(GLIDE_WAIT);
+    check("Enter gives it", brain()->fed == 3 && hidden(snack));
+    pump(4000);
+    push_key('F');
+    push_key(LV_KEY_ESC);
+    check("Esc puts it away", hidden(snack) && !brain()->snack && brain()->fed == 3);
+    push_key('f');
+    check("Back puts it away too", app_deskbuddy.back(app) == 1 && hidden(snack) && app_deskbuddy.back(app) == 0);
+    push_key('f');
+    pump(DB_SNACK_IDLE_MS + 1000);
+    check("left alone, it is put away by itself", hidden(snack) && !brain()->snack);
+    push_key('f');
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    check("another mode puts it away", hidden(snack) && hidden(lv_obj_get_parent(deskbuddy_app_feed_button(app))));
+    push_key('f');
+    check("and Night offers no snack", hidden(snack));
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    push_key('r');
+    pump(3000);
+    check("R rests", brain()->state == DB_ST_SLEEP);
+    push_key('r');
+    check("R wakes", brain()->react == DB_REACT_STIR);
+    check("only the visit to NIGHT started the camera, and BUDDY stopped it; feeding started none",
+          deskbuddy_app_provider_starts(app) == 1 && !deskbuddy_app_provider_running(app));
+    app_stop();
+    check("feeding kept no log (only the mode it was left in is saved)", !stored(DB_STORE_GUARD) &&
+                                                                              file_has(DB_STORE_PREFS, "mode=companion"));
+    check("no timer left by any of it", timer_count() == timers);
+}
+
+static void test_sleepy(void)
+{
+    int32_t open_h;
+
+    forget();
+    app_start();
+    open_h = eye_h();
+    pump(DB_DROWSY_MS + 2000);
+    check("a minute alone: drowsy, heavy lids", brain()->state == DB_ST_DROWSY && eye_h() < open_h);
+    pump(DB_IDLE_SLEEP_MS - DB_DROWSY_MS);
+    check("two: asleep, and REST says WAKE", brain()->state == DB_ST_SLEEP && eye_h() < open_h / 4 &&
+                                                shows(deskbuddy_app_rest_button(app), "WAKE"));
+    stroke(24);
+    check("a stroke wakes it gently", brain()->state == DB_ST_IDLE && brain()->react == DB_REACT_STIR);
+    pump(2000);
+    check("eyes open again", eye_h() >= open_h * 9 / 10);
+    app_stop();
+}
+
+/* No camera and no model: the provider says so, and everything plays. */
+static void test_no_vision(void)
+{
+    forget();
+    setenv("DESKBUDDY_VISION", "none", 1);
+    app_start();
+    check("$DESKBUDDY_VISION=none: the blind provider", strcmp(deskbuddy_app_provider(app), "none") == 0 &&
+                                                           brain()->seen == DB_SEEN_UNAVAILABLE);
+    tap_obj(deskbuddy_app_face(app));
+    pump(2000);
+    stroke(24);
+    pump(3000);
+    tap_obj(deskbuddy_app_feed_button(app));
+    tap_obj(deskbuddy_app_snack(app));
+    pump(GLIDE_WAIT);
+    check("poke, pet and feed all work blind", brain()->poked >= 1 && brain()->petted == 1 && brain()->fed == 1);
+    check("none opens no camera: its one start at opening, as before", deskbuddy_app_provider_starts(app) == 1);
+    app_stop();
+    unsetenv("DESKBUDDY_VISION");
+}
+
+/* A snack out when the display turns: it goes back to its place in the
+ * new layout, inside the face, and can still be fed. */
+static void test_rotate_snack(void)
+{
+    lv_area_t face;
+    lv_area_t s;
+    lv_area_t body;
+
+    forget();
+    app_start();
+    tap_obj(deskbuddy_app_feed_button(app));
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pump(100);
+    face = area_of(deskbuddy_app_face(app));
+    s = area_of(deskbuddy_app_snack(app));
+    lv_obj_get_coords(app_body, &body);
+    check("landscape with a snack out: the snack is inside the face", !hidden(deskbuddy_app_snack(app)) &&
+                                                                         games_inside(&s, &face));
+    check("landscape: FEED and REST fit, every button whole",
+          games_screen_fits(app_body, app_body, "landscape, snack out") == 0);
+    drag_snack(mouth_point(), 10, true);
+    check("landscape: dragged to the mouth, eaten", brain()->fed == 1);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(100);
+    check("portrait again: the screen fits", games_screen_fits(app_body, app_body, "portrait, after feeding") == 0);
+    app_stop();
+}
+
+/* ---- the camera follows the mode ------------------------------------------------------ *
+ *
+ * Companion plays by touch and never starts the Vision helper; Guard and
+ * Night start it, and the way back to Companion stops it. First with the
+ * default provider and no helper installed (the counts and the flag), then -
+ * when $DESKBUDDY_TEST_HELPER names a built pos-vision - against the real
+ * helper on the fake camera, counting helper processes. */
+
+static const char *live_helper;
+
+/* Helpers still running: processes whose argv is "<helper> session ...". */
+static int helpers_alive(void)
+{
+    DIR *d = opendir("/proc");
+    struct dirent *e;
+    int n = 0;
+
+    if (!d || !live_helper) {
+        if (d) {
+            closedir(d);
+        }
+        return -1;
+    }
+    while ((e = readdir(d)) != NULL) {
+        char path[300];
+        char buf[4096];
+        size_t got;
+        FILE *f;
+
+        if (e->d_name[0] < '1' || e->d_name[0] > '9') {
+            continue;
+        }
+        snprintf(path, sizeof(path), "/proc/%s/cmdline", e->d_name);
+        f = fopen(path, "r");
+        if (!f) {
+            continue;
+        }
+        got = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[got] = '\0';
+        if (strcmp(buf, live_helper) == 0 && strlen(buf) + 8 < got && strcmp(buf + strlen(buf) + 1, "session") == 0) {
+            n++;
+        }
+    }
+    closedir(d);
+    return n;
+}
+
+/* The helper runs in real time, the app on the test's clock: pump both. */
+static int wait_real(int (*done)(void), int max_ms)
+{
+    int t;
+
+    for (t = 0; t < max_ms; t += 50) {
+        if (done()) {
+            return 1;
+        }
+        pump(50);
+        usleep(50000);
+    }
+    return done();
+}
+
+static int helper_up(void)
+{
+    return helpers_alive() == 1;
+}
+
+static int helper_seen_somebody(void)
+{
+    return brain()->seen == DB_SEEN_PERSON;
+}
+
+static void test_camera_modes(void)
+{
+    const char *helper = getenv("DESKBUDDY_TEST_HELPER");
+    static char abs_helper[PATH_MAX];
+
+    forget();
+    app_start();
+    check("opened in Companion: the Vision pipeline is the provider, but not started",
+          strcmp(deskbuddy_app_provider(app), "vision") == 0 && !deskbuddy_app_provider_running(app) &&
+              deskbuddy_app_provider_starts(app) == 0);
+    check("so Companion is blind, and does not complain about it",
+          brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(lv_label_get_text(deskbuddy_app_note(app)), "") == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    check("GUARD starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 1);
+    check("and Guard still says when it cannot see",
+          strcmp(lv_label_get_text(deskbuddy_app_note(app)), "NO VISION YET") == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    check("BUDDY stops it, and Companion is told it cannot see",
+          !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    check("NIGHT starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 2);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    check("Night to Guard keeps the one helper", deskbuddy_app_provider_running(app) &&
+                                                     deskbuddy_app_provider_starts(app) == 2);
+    app_stop();
+    app_start();
+    check("reopened in Guard: started at once, as before", brain()->state == DB_ST_GUARD_DISARMED &&
+                                                               deskbuddy_app_provider_running(app) &&
+                                                               deskbuddy_app_provider_starts(app) == 1);
+    app_stop();
+
+    if (!helper || !*helper || !realpath(helper, abs_helper) || access(abs_helper, X_OK) != 0) {
+        printf("note: no DESKBUDDY_TEST_HELPER: the live helper checks did not run\n");
+        return;
+    }
+    live_helper = abs_helper;
+    setenv("POCKETOS_VISION_HELPER", abs_helper, 1);
+    setenv("POCKETOS_CAMERA_BACKEND", "fake", 1);
+    setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
+    setenv("POCKETOS_VISION_FACE_DET", "/nonexistent/face_det.kmodel", 1);
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1); /* somebody, always */
+    forget();
+    app_start();
+    pump(500);
+    usleep(500000);
+    pump(500);
+    check("live: Companion opened, no helper running", helpers_alive() == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    tap_obj(deskbuddy_app_action_button(app));
+    check("live: ARM before the new helper has said anything waits for nobody",
+          brain()->state == DB_ST_GUARD_ARMING);
+    check("live: GUARD started the helper", wait_real(helper_up, 5000));
+    check("live: it sees the person at the desk", wait_real(helper_seen_somebody, 10000));
+    check("live: still waiting for them to leave, nobody logged",
+          brain()->state == DB_ST_GUARD_ARMING && db_guard_count(brain()->log) == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    check("live: BUDDY stopped the helper", helpers_alive() == 0);
+    check("live: disarmed, blind, nothing logged", !brain()->prefs.guard_armed &&
+                                                      brain()->seen == DB_SEEN_UNAVAILABLE &&
+                                                      db_guard_count(brain()->log) == 0);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    check("live: NIGHT started it again", wait_real(helper_up, 5000));
+    app_stop();
+    check("live: closing in Night leaves no helper", helpers_alive() == 0);
+    app_start();
+    pump(500);
+    usleep(300000);
+    check("live: reopened (in Night) it starts one helper, not two", wait_real(helper_up, 5000));
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    check("live: and BUDDY stops it", helpers_alive() == 0);
+    app_stop();
+    unsetenv("POCKETOS_VISION_HELPER");
+    unsetenv("POCKETOS_CAMERA_BACKEND");
+    unsetenv("POCKETOS_CAMERA_FAKE");
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unsetenv("POCKETOS_VISION_KPU_SCRIPT");
+    live_helper = NULL;
+}
+
+/* ---- the demonstration capture ------------------------------------------------------ *
+ *
+ * With $DESKBUDDY_DEMO_DIR set this binary runs no checks: it plays one
+ * scripted session - poke, a huff, petting, feeding, rest, drowsy, asleep,
+ * awake, then a snack in landscape - through the same real app and real
+ * pointer, and writes the app's body every DEMO_FRAME_MS as a PPM, with
+ * frames.txt saying where the finger was. tools/design/deskbuddy_demo.py
+ * turns them into an animation. Long quiet spells are skipped, not
+ * filmed. */
+
+#define DEMO_FRAME_MS 70
+static const char *demo_dir;
+static bool demo_paused;
+static unsigned demo_ms;
+static unsigned demo_count;
+
+static void demo_frame(void)
+{
+#if LV_USE_SNAPSHOT
+    lv_draw_buf_t *snap;
+    lv_area_t body;
+    char path[600];
+    FILE *f;
+    int32_t x;
+    int32_t y;
+
+    if (!demo_dir || demo_paused || !app_body || (demo_ms += 5) % DEMO_FRAME_MS != 0) {
+        return;
+    }
+    snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB888);
+    if (!snap) {
+        return;
+    }
+    lv_obj_get_coords(app_body, &body);
+    snprintf(path, sizeof(path), "%s/f%05u.ppm", demo_dir, demo_count);
+    f = fopen(path, "wb");
+    if (f) {
+        fprintf(f, "P6\n%d %d\n255\n", (int)lv_area_get_width(&body), (int)lv_area_get_height(&body));
+        for (y = body.y1; y <= body.y2; y++) {
+            const uint8_t *row = (const uint8_t *)snap->data + (size_t)y * snap->header.stride;
+
+            for (x = body.x1; x <= body.x2; x++) {
+                uint8_t rgb[3] = { row[x * 3 + 2], row[x * 3 + 1], row[x * 3] }; /* stored B, G, R */
+
+                fwrite(rgb, 1, 3, f);
+            }
+        }
+        fclose(f);
+    }
+    snprintf(path, sizeof(path), "%s/frames.txt", demo_dir);
+    f = fopen(path, "a");
+    if (f) {
+        fprintf(f, "f%05u.ppm %d %d %d\n", demo_count, finger_state == LV_INDEV_STATE_PRESSED,
+                (int)(finger_point.x - body.x1), (int)(finger_point.y - body.y1));
+        fclose(f);
+    }
+    demo_count++;
+    lv_draw_buf_destroy(snap);
+#endif
+}
+
+/* Time passing off camera. */
+static void demo_skip(int ms)
+{
+    demo_paused = true;
+    pump(ms);
+    demo_paused = false;
+}
+
+static void run_tests(void);
+
+static void run_demo(void)
+{
+    lv_area_t c;
+    lv_point_t p;
+    int i;
+
+    forget();
+    setenv("DESKBUDDY_VISION", "none", 1);
+    app_start();
+    pump(1500);
+    /* A poke beside the right eye: a look that way. */
+    c = area_of(deskbuddy_app_eye(app, 1));
+    p.x = c.x2 + 30;
+    p.y = c.y1 + lv_area_get_height(&c) / 2;
+    finger_at(p, LV_INDEV_STATE_PRESSED, 90);
+    finger_at(p, LV_INDEV_STATE_RELEASED, 1800);
+    /* Poked again and again: a huff, then calm. */
+    for (i = 0; i < DB_POKES_TO_ANNOY; i++) {
+        tap_obj(deskbuddy_app_face(app));
+        pump(250);
+    }
+    pump(3200);
+    /* A stroke: pleased. */
+    stroke(30);
+    pump(2200);
+    /* FEED, drag the snack to the mouth, let go: eaten. */
+    tap_obj(deskbuddy_app_feed_button(app));
+    pump(900);
+    drag_snack(mouth_point(), 18, false);
+    pump(500);
+    finger_at(finger_point, LV_INDEV_STATE_RELEASED, 3200);
+    /* REST: a yawn, then asleep, breathing. */
+    tap_obj(deskbuddy_app_rest_button(app));
+    pump(4500);
+    /* WAKE with a touch. */
+    tap_obj(deskbuddy_app_face(app));
+    pump(2200);
+    /* A minute alone: drowsy; two: asleep. */
+    demo_skip(DB_DROWSY_MS - 600);
+    pump(4500);
+    demo_skip(DB_IDLE_SLEEP_MS - DB_DROWSY_MS - 3000);
+    pump(3500);
+    stroke(20);
+    pump(2500);
+    /* Landscape: FEED, a tap on the snack, and it floats to the mouth. */
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    demo_skip(100);
+    pump(800);
+    tap_obj(deskbuddy_app_feed_button(app));
+    pump(1000);
+    tap_obj(deskbuddy_app_snack(app));
+    pump(3600);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    demo_skip(100);
+    app_stop();
+    unsetenv("DESKBUDDY_VISION");
+    printf("deskbuddy demo: %u frames in %s\n", demo_count, demo_dir);
+}
+
 int main(void)
 {
     lv_display_t *disp;
@@ -621,6 +1213,30 @@ int main(void)
     lv_obj_set_pos(g_content, 0, STATUS_H);
     pump(60);
 
+    demo_dir = getenv("DESKBUDDY_DEMO_DIR");
+    if (demo_dir && *demo_dir) {
+        run_demo();
+    } else {
+        demo_dir = NULL;
+        run_tests();
+    }
+    {
+        char cmd[128];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s'", state_dir);
+        if (system(cmd) != 0) {
+            printf("note: could not remove %s\n", state_dir);
+        }
+    }
+    if (demo_count > 0) {
+        return 0;
+    }
+    printf("deskbuddy_app_test: %d checks, %d failure(s)\n", checks, failed);
+    return failed ? 1 : 0;
+}
+
+static void run_tests(void)
+{
     test_open();
     test_companion();
     test_guard();
@@ -630,17 +1246,13 @@ int main(void)
     test_quiet();
     test_rapid();
     test_sim();
+    test_touch();
+    test_feed();
+    test_sleepy();
+    test_no_vision();
+    test_camera_modes();
+    test_rotate_snack();
     test_landscape();
 
     check("no keyboard was asked for", keyboard_requests == 0);
-    {
-        char cmd[128];
-
-        snprintf(cmd, sizeof(cmd), "rm -rf '%s'", state_dir);
-        if (system(cmd) != 0) {
-            printf("note: could not remove %s\n", state_dir);
-        }
-    }
-    printf("deskbuddy_app_test: %d checks, %d failure(s)\n", checks, failed);
-    return failed ? 1 : 0;
 }

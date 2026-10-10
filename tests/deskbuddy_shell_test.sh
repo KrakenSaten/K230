@@ -10,7 +10,11 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 
 BIN=${DESKBUDDY_APP_TEST:-$(dirname "$SHELL_BIN")/deskbuddy_app_test}
 if [ -x "$BIN" ]; then
-    log=$(SDL_VIDEODRIVER=dummy timeout 600 "$BIN" 2>&1); rc=$?
+    # The live camera checks use the real helper on the fake camera when
+    # `make` has built it; without it they say so in a note.
+    HELPER=tools/vision/pos-vision
+    [ -x "$HELPER" ] || HELPER=
+    log=$(SDL_VIDEODRIVER=dummy DESKBUDDY_TEST_HELPER="$HELPER" timeout 600 "$BIN" 2>&1); rc=$?
     printf '%s\n' "$log" | grep -E '^FAIL|^note|deskbuddy_app_test:'
     check "DeskBuddy end to end: events, buttons, saves, reopen, timers, both orientations" \
         "$([ "$rc" = "0" ] && echo 1 || echo 0)"

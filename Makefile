@@ -1127,10 +1127,11 @@ games-test: $(GAMES_TESTS)
 # (tests/deskbuddy_shell_test.sh). tests/deskbuddy_lint.sh holds the
 # boundary: nothing in DeskBuddy includes the Vision app or the camera.
 DB_DIR := apps/deskbuddy
-DB_CORE_OBJS := $(DB_DIR)/db_brain.o $(DB_DIR)/db_face.o $(DB_DIR)/db_guard.o $(DB_DIR)/db_prefs.o \
-                $(DB_DIR)/db_vision.o $(DB_DIR)/db_vision_mock.o
+DB_CORE_OBJS := $(DB_DIR)/db_brain.o $(DB_DIR)/db_face.o $(DB_DIR)/db_gesture.o $(DB_DIR)/db_guard.o \
+                $(DB_DIR)/db_prefs.o $(DB_DIR)/db_vision.o $(DB_DIR)/db_vision_mock.o
 DB_STORE_OBJS := $(DB_DIR)/db_store.o $(PATHS_OBJS)
-DESKBUDDY_TESTS := tests/db_brain_test tests/db_vision_test tests/db_guard_test tests/db_pipeline_test
+DESKBUDDY_TESTS := tests/db_brain_test tests/db_personality_test tests/db_vision_test tests/db_guard_test \
+                   tests/db_pipeline_test
 # The bridge to Vision (apps/deskbuddy_vision): the one place DeskBuddy's
 # boundary and Vision's helper client meet.
 DBV_DIR := apps/deskbuddy_vision
@@ -1152,14 +1153,17 @@ tests/db_pipeline_test: tests/db_pipeline_test.o $(DBV_DIR)/db_vision_pipeline.o
 tests/db_brain_test: tests/db_brain_test.o $(DB_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+tests/db_personality_test: tests/db_personality_test.o $(DB_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 tests/db_vision_test: tests/db_vision_test.o $(DB_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/db_guard_test: tests/db_guard_test.o $(DB_CORE_OBJS) $(DB_STORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
-DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_vision_test && ./tests/db_guard_test && \
-                     ./tests/db_pipeline_test tools/vision/pos-vision
+DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_personality_test && ./tests/db_vision_test && \
+                     ./tests/db_guard_test && ./tests/db_pipeline_test tools/vision/pos-vision
 
 # DeskBuddy on its own, for a focused run.
 deskbuddy-test: $(DESKBUDDY_TESTS) tools/vision/pos-vision

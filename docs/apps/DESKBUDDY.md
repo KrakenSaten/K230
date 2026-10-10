@@ -25,8 +25,9 @@ is one enum too, `db_seen`: UNAVAILABLE, NOBODY, PERSON, OWNER, UNKNOWN.
 
 | Mode | State | Face | Leaves on |
 | --- | --- | --- | --- |
-| Companion | `SLEEP` | closed | a person, a touch |
-| | `IDLE` | open, blinks and glances, dozes when alone | nobody for 2 min: `SLEEP` |
+| Companion | `SLEEP` | closed, a slow breath | a person, a touch, WAKE |
+| | `IDLE` | open, blinks and glances, dozes when alone; plays (Personality, below) | nobody and no touch for 1 min: `DROWSY` |
+| | `DROWSY` | heavy lids, slow blinks, a nod, now and then a yawn | a person or a touch: awake; 2 min of quiet in all: `SLEEP` |
 | | `WAKE` | wide | 0.8 s: `RECOGNIZING` (someone there, recognition on) or `IDLE` |
 | | `RECOGNIZING` | curious, "..." | owner, stranger, 4 s, or they leave |
 | | `OWNER_GREETING` | happy ^ ^, "HELLO" | 3.5 s |
@@ -63,6 +64,84 @@ Rules that keep repeated or rapid events cheap and calm:
   desk). There is no authentication in v0.1: anyone at the desk can disarm.
 - Invalid events (kind out of range, confidence outside 0..1000) are
   ignored.
+
+## Personality (Companion)
+
+**Branch `feat/deskbuddy-personality-opus` (from `origin/master` `8c5235b`,
+2026-10-09). Host-tested only; not run on a K230.** Captures, the manual
+check sequence and what is real: [deskbuddy/README.md](deskbuddy/README.md).
+What could come next for Guard, Night, sound and focus:
+[deskbuddy/PERSONALITY_NEXT.md](deskbuddy/PERSONALITY_NEXT.md).
+
+DeskBuddy plays by touch alone: calm, curious, a little mischievous. Nothing
+here needs a camera or a model, and nothing here starts, polls or names a
+vision provider (`tests/deskbuddy_lint.sh`, section 8).
+
+**One door in.** Whatever happens to it reaches the brain as a
+`db_stimulus` (`db_brain_stimulus`, `db_brain.h`): `POKE`, `PET`, `SNACK`,
+`SNACK_GONE`, `FEED`, `GREET`, `REST`, `WAKE`, with a source (touch, key,
+vision) and, for the ones with a place, where it happened from the middle
+of the eye line in per-mille of an eye box. The kind is what it means, not
+how it was sensed: a provider that one day sees a wave would send `GREET`
+and get the same reaction a tap gets today. Nothing sends `GREET` yet, and
+a stimulus never changes what vision last said (`seen`).
+
+**Reactions** play over Companion's calm states (`IDLE`, `DROWSY`) as a few
+beats - an expression, a mouth, where the eyes look, a lean, a shake or a
+hop - each held a few hundred ms, every length varied by a few per cent:
+
+| Reaction | Beats | Variants |
+| --- | --- | --- |
+| poke | startled "o" leaning away, then a curious look at where it was touched | a blink-and-look; rarely a wink and a smirk |
+| hey | poked again within 3 s: a squint and a flat mouth | |
+| annoyed | 4 pokes within 3 s: a glare, a quick shake, then a squint and a slow blink back to calm (~2.4 s) | for 6 s after, pokes are only a blink, never another huff |
+| pet | ^ ^ and a smile, a small hop toward the stroke, then soft lids | a happy wiggle |
+| eat | three or four chews with ^ ^, a smile and a hop, soft lids | a wink to finish |
+| stir | woken: lids lift, a blink, eyes open with a hop toward the touch | |
+| yawn / rest | a big "o" under heavy lids; REST then closes the eyes into `SLEEP` | |
+| greet | ^ ^ and a smile with a hop (for a future seen wave) | |
+
+A vision state (a greeting, a stranger, `WAKE`) ends a reaction and is not
+interrupted by one: vision's faces win. The face is eyes alone when nothing
+is happening, as before; the mouth appears only in a reaction or when a
+snack is at its mouth.
+
+**Gestures** on the face area (`db_gesture.h`, pure): a tap is down and up
+within 350 ms and 16 px; a stroke is 110 px of path, 50 px from the start,
+over at least 220 ms and no faster than 1.5 px/ms on average. A stroke is
+reported once, while the finger still moves, and never again in the same
+gesture; a flick, a long press or a lost press is nothing. The buttons are
+siblings of the face, so a tap on one never pokes.
+
+**The snack.** FEED puts a biscuit in a lower corner of the face, clear of
+the character, and the button becomes GIVE. The eyes follow it; near the
+mouth they open wide with the mouth. Let go there and it is eaten; let go
+anywhere else, or lose the press, and it floats back to its place. A tap on
+it, GIVE or Enter float it to the mouth. Esc, Back, another mode, REST or
+20 s untouched put it away quietly. There is no hunger, no counter that
+matters, no reminder: it is optional fun.
+
+**Rest and wake.** A minute alone: `DROWSY`; two: `SLEEP` (both counted from
+the last presence or touch, as before). Any touch wakes it with a stir. REST
+yawns it to sleep at once, WAKE (the same button, relabelled) wakes it. The
+shell's screen-off, lock and alarms are not touched.
+
+**Keys** (Companion): F is FEED / GIVE, Enter gives a snack that is out, R is
+REST / WAKE, Esc closes the settings or puts the snack away.
+
+**Motion.** In Companion a new face is tweened from the one drawn (160 ms,
+a blink 70 ms; Guard and Night step from face to face as before) on a
+33 ms timer that runs only while something moves; a breath (the
+character rises 1.4 % of an eye box every 2 s, every 3.2 s asleep), a hop
+and a shake are single steps. Reduced motion (DS §12) keeps the reactions as
+end states: no tween, lean, hop, shake, breath or chewing. The idle
+animation switch also stops breathing and the spontaneous yawn. Measured on
+the host: 20 s idle with motion, 26-43 repaints and 43-62 timer runs over
+several runs.
+
+**Saved.** Nothing new: a reaction, the snack and drowsiness are moments,
+not preferences. Closing mid-drag or mid-reaction leaves nothing behind;
+reopening starts calm, with no snack out.
 
 ## The vision boundary
 
@@ -208,16 +287,23 @@ SDL_VIDEODRIVER=... DESKBUDDY_SIM="..." DESKBUDDY_MODE=armed pocketos-shell --op
 | Suite | Proves |
 | --- | --- |
 | `tests/db_brain_test.c` | every transition above; owner greeting and its repeat rule; strangers in guard mode, visits merged and upgraded; bounded log under 500 visits; the owner coming back with and without visitors, and by DISARM; night presence and sleep, blind too; 10 000 mixed and 2 000 flickering events; malformed events; vision lost mid-visit; preferences and modes; idle behaviour and when a tick is (not) needed; every face shape fits its box |
+| `tests/db_personality_test.c` | tap, stroke, flick, long press and a lost press told apart, a stroke reported once; a poke looks toward the touch, its variants and varied lengths; hey, the huff, no restart, back to calm, the cool-down; petting and its extension; the snack followed, near, eaten with 3-4 chews, put away, timed out, no hunger after hours; drowsy, asleep, stir, REST, WAKE, WAKE mid-rest; Guard and Night unchanged; vision wins over a reaction; GREET from any source invents no sighting; reduced motion; 20 000 random stimuli never leave a broken face or a stuck reaction; every expression and mouth fits; tweens |
 | `tests/db_vision_test.c` | event validity, the bounded queue, the none provider, script parsing (every malformed form), playback, looping, a clock jump |
 | `tests/db_guard_test.c` | the ring, text round trip, damaged and oversize files, preferences, the store's files, modes and atomic writes |
 | `tests/deskbuddy_lint.sh` | the vision boundary, the pure core, only the store does I/O, identity is declarations only, no colour or font, registration, timer deleted in destroy, dev path behind the variable |
-| `tests/deskbuddy_app_test.c` | the screen follows the brain; ARM / DISARM / SEEN IT and the SET panel through a real pointer; what is saved and when; 25 open/close rounds mid-animation leave no timer, object or focus; a sleeping face does not repaint and wakes about once a second; the simulation path writes nothing; portrait and landscape fit |
+| `tests/deskbuddy_app_test.c` | the screen follows the brain; ARM / DISARM / SEEN IT and the SET panel through a real pointer; what is saved and when; 25 open/close rounds mid-animation leave no timer, object or focus; a sleeping face does not repaint and wakes about once a second; the simulation path writes nothing; portrait and landscape fit; through the real pointer: a tap on an eye pokes toward it, taps on controls never poke, a stroke pets once however long, rapid taps huff and calm; FEED, drag to the mouth, a drag let go elsewhere goes home, closing mid-drag, a tap on the snack, GIVE, F / Enter / Esc / R, Back, timeout, mode change; drowsy and asleep by inactivity, a stroke wakes; `$DESKBUDDY_VISION=none` plays the same; a snack out across a rotation; no play starts a provider |
 | `tests/deskbuddy_shell_test.sh` | runs the app test; the launcher holds 24 apps; the real shell opens and closes DeskBuddy, every mode on simulated vision in both orientations, nothing written, damaged files open |
 
 ```
 make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror" deskbuddy-test
 SHELL_BIN=~/work/.../pocketos-shell bash tests/deskbuddy_shell_test.sh
 ```
+
+The app test doubles as the demonstration capture: with
+`$DESKBUDDY_DEMO_DIR` set it runs no checks, plays one scripted session
+through the real app and pointer and writes a frame every 70 ms;
+`tools/design/deskbuddy_demo.py` makes animated PNGs of them
+([deskbuddy/README.md](deskbuddy/README.md)).
 
 ## Deferred
 
@@ -238,8 +324,21 @@ The plan that stood here is built, as `db_vision_pipeline_ops` in
 place DeskBuddy's boundary (`db_vision.h`) and Vision's helper client
 (`apps/vision/vision_session.h`) meet, so DeskBuddy still includes nothing of
 Vision and Vision knows nothing of DeskBuddy (`tests/deskbuddy_lint.sh`,
-section 7). `start_provider()` picks it unless `$DESKBUDDY_SIM` is set (the
+section 7). `choose_provider()` picks it unless `$DESKBUDDY_SIM` is set (the
 mock) or `$DESKBUDDY_VISION` is `none` (blind, as v0.1 was).
+
+**Only Guard and Night start it** (`sync_provider()`, since the
+personality slice). Companion plays by touch and never starts the helper:
+opening DeskBuddy in Companion opens no camera, switching to GUARD or NIGHT
+starts the helper, and switching back to BUDDY stops it (within Vision's
+grace, as closing the app does) and tells the brain it cannot see, so
+Companion runs blind and its NO VISION YET note is not shown. While a
+freshly started helper has not reported, ARM waits for "nobody"
+(`GUARD_ARMING`) rather than taking the silence for an empty desk. The
+scripted mock and `none` open no camera and run in every mode. So the
+owner greeting and the stranger's wary look in Companion need a source
+other than the camera from now on; an explicit opt-in for them is left to
+a later slice.
 
 - `start()` starts Vision's helper (`pos-vision`, ADR-006) with no picture
   on screen - a 64 x 64 preview it takes and drops - non-blocking; a helper
