@@ -135,8 +135,8 @@ int kbd_battery_tick(struct kbd_battery *b, uint64_t now_us)
 {
     uint16_t raw;
 
-    if (!b || !b->bus || !b->bus->read_block_at || !b->bus->claim || !b->bus->release ||
-        now_us < b->next_us) {
+    if (!b || b->tripped || !b->bus || !b->bus->read_block_at || !b->bus->claim ||
+        !b->bus->release || now_us < b->next_us) {
         return 0;
     }
     /* A device that did not answer this sample is not asked again in it:
@@ -151,6 +151,7 @@ int kbd_battery_tick(struct kbd_battery *b, uint64_t now_us)
         b->sample_start_us = now_us;
     }
     b->transactions++;
+    b->last_read_us = now_us;
     if (read_one(b, &raw) == 0) {
         b->cur.raw[b->step] = raw;
         b->cur.have |= 1u << b->step;
@@ -174,6 +175,16 @@ int kbd_battery_tick(struct kbd_battery *b, uint64_t now_us)
         return finish_sample(b, now_us);
     }
     return 0;
+}
+
+bool kbd_battery_keys_failed(struct kbd_battery *b, uint64_t now_us)
+{
+    if (!b || b->tripped || b->transactions == 0 || now_us < b->last_read_us ||
+        now_us - b->last_read_us >= KBD_BATTERY_TRIP_US) {
+        return false;
+    }
+    b->tripped = true;
+    return true;
 }
 
 int16_t kbd_battery_current_ma(uint16_t raw)

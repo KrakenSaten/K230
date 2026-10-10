@@ -82,7 +82,7 @@ static struct {
     unsigned held_mods;
     uint64_t held_since_us;
     struct kbd_battery battery; /* the opt-in diagnostic probe */
-    bool battery_on;
+    bool battery_on;       /* the switch was there at the last watch */
 } kbd;
 
 /* The battery probe's switch: a file in the runtime directory (tmpfs), so
@@ -345,6 +345,14 @@ static void on_poll(lv_timer_t *timer)
     ready = kbd_tca8418_ready(&kbd.chip);
     if (kbd.ready && !ready) {
         LOG_WARN("keyboard: the controller stopped answering; retrying");
+        /* The keys come first: a failure right after a battery probe read
+         * ends the probe for this process (kbd_battery_keys_failed). */
+        if (kbd.battery_on && kbd_battery_keys_failed(&kbd.battery, now_us())) {
+            LOG_WARN("battery probe: stopped: the keyboard controller failed %llu ms after "
+                     "a probe read (%u reads, %u failed); off until the shell restarts",
+                     (unsigned long long)((now_us() - kbd.battery.last_read_us) / 1000u),
+                     kbd.battery.transactions, kbd.battery.failures);
+        }
     } else if (!kbd.ready && ready) {
         pos_keymap_reset(&kbd.map);
         flush_held(); /* its release went with the controller */
@@ -485,6 +493,14 @@ static int start_polling(void)
  * the keys is not one to add traffic to. The watch's one-second period is
  * already within the gauge's two-commands-a-second limit, and kbd_battery
  * enforces its own gap on top.
+ *
+ * The switch alone turns it on and off. A keyboard that drops out pauses it
+ * without resetting it, so its pacing and back-off survive the drop - a probe
+ * that started over on every recovery would read the gauge every couple of
+ * seconds through a flapping keyboard, which is what the first hardware run
+ * did (BATTERY_PROBE.md §6). And the breaker (KBD_BATTERY_TRIP_US, called
+ * from on_poll) ends it for good if the keys fail right after one of its
+ * reads.
  */
 
 static bool battery_wanted(void)
@@ -497,24 +513,29 @@ static bool battery_wanted(void)
 
 static void battery_watch(void)
 {
-    bool on = kbd.present && kbd_tca8418_ready(&kbd.chip) && kbd.bus.read_block_at &&
-              battery_wanted();
+    bool on = kbd.bus.read_block_at && battery_wanted();
+    uint64_t now = now_us();
     char line[512];
 
     if (on != kbd.battery_on) {
         kbd.battery_on = on;
-        if (on) {
-            kbd_battery_init(&kbd.battery, &kbd.bus, now_us());
+        if (on && kbd.battery.tripped) {
+            LOG_INFO("battery probe: stays off until the shell restarts (tripped)");
+        } else if (on) {
+            kbd_battery_init(&kbd.battery, &kbd.bus, now);
             LOG_INFO("battery probe: on (read-only; gauge 0x%02x, charger 0x%02x; "
                      "one register per %llu ms, a sample every %llu s)",
                      KBD_BATTERY_GAUGE_ADDR, KBD_BATTERY_CHARGER_ADDR,
                      KBD_BATTERY_STEP_GAP_US / 1000ULL, KBD_BATTERY_PERIOD_US / 1000000ULL);
-        } else {
+        } else if (!kbd.battery.tripped) {
             LOG_INFO("battery probe: off after %u samples (%u reads, %u failed)",
                      kbd.battery.samples, kbd.battery.transactions, kbd.battery.failures);
         }
     }
-    if (on && kbd_battery_tick(&kbd.battery, now_us()) == 1) {
+    if (!on || !kbd.present || !kbd_tca8418_ready(&kbd.chip)) {
+        return; /* off, or paused - not reset - while the keys are away */
+    }
+    if (kbd_battery_tick(&kbd.battery, now) == 1) {
         kbd_battery_format(&kbd.battery.last, line, sizeof(line));
         LOG_INFO("battery probe: %s", line);
     }

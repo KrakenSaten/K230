@@ -91,7 +91,16 @@ struct k230_bus {
      * the next one starts. A bus that cannot be driven or read has no levels
      * to report, and must not be allowed to look like a talkative chip. */
     bool io_error;
+    /* Honour clock stretching: after releasing SCL, wait for it to read high.
+     * Only the battery gauge's block reads set this (read_block); the
+     * keyboard's own transactions run exactly as they always did. */
+    bool stretch;
 };
+
+/* SLUSCB7A §7.3.1.4: the BQ27220 may hold SCL low for up to about 4 ms
+ * within a packet. Twice that, then the transaction is failed rather than
+ * clocked on blind. */
+#define STRETCH_MAX_NS 8000000L
 
 /* The shell owns exactly one keyboard, so one instance avoids an allocation
  * failure path in code that already has enough of them. */
@@ -172,9 +181,41 @@ static void line_set(struct k230_bus *b, unsigned offset, bool high)
     bus_delay();
 }
 
+/* A slave may still be holding SCL low after the master released it. Read
+ * it back until it is high, within STRETCH_MAX_NS. The K230 GPIO driver
+ * reads the pin's level for a line in either direction (gpio-k230.c hands
+ * bgpio_init the EXT_PORT register as its data register, no flags), the same
+ * read SDA already relies on. A transaction that has already failed does not
+ * wait again: every later clock would only spend the bound once more. */
+static void scl_wait_high(struct k230_bus *b)
+{
+    struct timespec start;
+    struct timespec now;
+    enum gpiod_line_value v;
+
+    if (b->io_error || clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
+        return;
+    }
+    for (;;) {
+        v = gpiod_line_request_get_value(b->i2c, OFF_SCL);
+        if (v == GPIOD_LINE_VALUE_ACTIVE) {
+            return;
+        }
+        if (v != GPIOD_LINE_VALUE_INACTIVE || clock_gettime(CLOCK_MONOTONIC, &now) != 0 ||
+            (long)(now.tv_sec - start.tv_sec) * 1000000000L + (now.tv_nsec - start.tv_nsec) >=
+                STRETCH_MAX_NS) {
+            io_failed(b);
+            return;
+        }
+    }
+}
+
 static void scl(struct k230_bus *b, bool high)
 {
     line_set(b, OFF_SCL, high);
+    if (high && b->stretch) {
+        scl_wait_high(b);
+    }
 }
 
 static void sda(struct k230_bus *b, bool high)
@@ -275,6 +316,26 @@ static int i2c_read_byte(struct k230_bus *b, bool ack, uint8_t *out)
 /* The same read as read_at below, for len bytes: every byte but the last is
  * acknowledged and the last NACK ends it. Kept apart from read_at so the
  * keyboard's own reads go through exactly the code they always did. */
+/* After a failed transaction a slave may be left part way through a byte,
+ * holding SDA low, which would make the next transaction - the keyboard's -
+ * fail too. The usual remedy: release SDA and clock SCL up to nine times
+ * until SDA reads high, then a stop. Best effort; the transaction it follows
+ * has failed whatever happens here. */
+static void bus_recover(struct k230_bus *b)
+{
+    bool failed = b->io_error;
+    int i;
+
+    b->io_error = false; /* its own reads must be able to see the line */
+    sda(b, true);
+    for (i = 0; i < 9 && sda_read(b) == 0; i++) {
+        scl(b, true);
+        scl(b, false);
+    }
+    i2c_stop(b);
+    b->io_error = failed || b->io_error;
+}
+
 static int read_block(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *buf,
                       unsigned len)
 {
@@ -285,6 +346,7 @@ static int read_block(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *bu
         return -1;
     }
     b->io_error = false;
+    b->stretch = true;
     i2c_start(b);
     if (i2c_write_byte(b, (uint8_t)(addr << 1)) != 0) {
         goto out;
@@ -303,7 +365,12 @@ static int read_block(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *bu
     }
     rc = 0;
 out:
-    i2c_stop(b); /* the bus is released whatever happened */
+    if (rc != 0 || b->io_error) {
+        bus_recover(b); /* ends with a stop */
+    } else {
+        i2c_stop(b);
+    }
+    b->stretch = false;
     return b->io_error ? -1 : rc;
 }
 

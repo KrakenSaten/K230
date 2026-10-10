@@ -333,7 +333,29 @@ int main(void)
     check("a bus that cannot be claimed is never read", m.reads == 0 && m.outside_claim == 0);
     check("and counts as two absences", done == 1 && b.last.have == 0 && b.failures == 2);
 
-    /* ---- 8. the line is always terminated --------------------------------- */
+    /* ---- 8. the breaker: the keys come first ----------------------------- */
+
+    model_reset();
+    bus = model_bus();
+    kbd_battery_init(&b, &bus, 0);
+    check("no reads yet, so a keyboard failure is not the probe's",
+          !kbd_battery_keys_failed(&b, 5 * SEC) && !b.tripped);
+    run(&b, 0, 1 * SEC, SEC); /* one read, at 0 */
+    check("a keyboard failure three seconds after a read is not the probe's",
+          !kbd_battery_keys_failed(&b, 3 * SEC) && !b.tripped);
+    m.now = 3 * SEC;
+    kbd_battery_tick(&b, m.now); /* a read at 3 s */
+    check("one 300 ms after a read trips it", kbd_battery_keys_failed(&b, 3 * SEC + 300000));
+    {
+        unsigned reads = m.reads;
+
+        done = run(&b, 4 * SEC, 600 * SEC, SEC);
+        check("and once tripped it never reads again", done == 0 && m.reads == reads);
+    }
+    check("a second failure does not trip it twice",
+          !kbd_battery_keys_failed(&b, 3 * SEC + 400000));
+
+    /* ---- 9. the line is always terminated --------------------------------- */
 
     model_reset();
     bus = model_bus();

@@ -149,7 +149,15 @@ struct kbd_battery {
     unsigned samples;
     unsigned transactions;  /* bus transactions, for tests and the log */
     unsigned failures;      /* transactions that failed */
+    uint64_t last_read_us;  /* when the last transaction ran; 0 none yet */
+    bool tripped;           /* kbd_battery_keys_failed(): off for good */
 };
+
+/* The breaker. The keys come first: when the keyboard controller stops
+ * answering within this long after a probe transaction, the probe is taken
+ * to have caused it and never touches the bus again (until re-initialised by
+ * a new process). The watch period plus the controller's own detection. */
+#define KBD_BATTERY_TRIP_US 2000000ULL
 
 /* Start from nothing; the first transaction may run at now_us. */
 void kbd_battery_init(struct kbd_battery *b, const struct kbd_bus *bus, uint64_t now_us);
@@ -160,6 +168,11 @@ void kbd_battery_init(struct kbd_battery *b, const struct kbd_bus *bus, uint64_t
  * rest of that sample, and a sample in which neither answers doubles the
  * period up to KBD_BATTERY_PERIOD_MAX_US; any answer restores it. */
 int kbd_battery_tick(struct kbd_battery *b, uint64_t now_us);
+
+/* The keyboard controller just stopped answering. Returns true when that is
+ * within KBD_BATTERY_TRIP_US of a probe transaction, and trips the probe:
+ * every later tick does nothing. False, and no change, otherwise. */
+bool kbd_battery_keys_failed(struct kbd_battery *b, uint64_t now_us);
 
 /* Whether a device answered in a sample: at least one of its registers. */
 bool kbd_battery_gauge_answered(const struct kbd_battery_sample *s);
