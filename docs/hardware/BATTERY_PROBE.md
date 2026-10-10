@@ -466,7 +466,89 @@ the probe will show that after step 5.
    SOC at 100 % when the charge terminates means the percentage is usable. If
    FC never sets, the 100 mA taper vs 256 mA charger termination mismatch
    (§7.3) gets its own proposal. Nothing about charging is changed here.
-6. **Rollback** at any point:
-   - gauge: `echo "restore <backup path>" > /run/pocketos/battery-gauge-request`;
-   - shell: the deploy's RESTORE script;
-   - a gauge reset (cells out) also brings back the ROM defaults.
+6. **Rollback:** the gauge and the shell are rolled back separately (§8.7).
+
+### 8.6 The exact fields and profile
+
+| Field (TRM Table 3-2 name) | Data-memory address | Type, unit | ROM default | Unit A now |
+|---|---|---|---|---|
+| Gas Gauging > CEDV Profile 1 > **Full Charge Capacity** | 0x929D-0x929E | I2, mAh, big-endian | 3000 | not read directly; FullChargeCapacity() reads 3512 |
+| Gas Gauging > CEDV Profile 1 > **Design Capacity** | 0x929F-0x92A0 | I2, mAh, big-endian | 3000 | DesignCapacity() reads 3000 |
+
+- **The profile (DOCUMENTED):** "CEDV Profile 1" in Table 3-2 is the RAM
+  section the gauge runs from. TI's OTP procedure fills "the CEDV Profile 1
+  section in RAM" for every profile it programs (§8.3.2), and SET_PROFILE_1..6
+  (0x0015-0x001A, §2.2.13) switch the gauge between its pre-programmed
+  profiles. Writing 0x929D/0x929F therefore changes the working values,
+  whichever profile was loaded.
+- **Which profile is loaded on unit A (not read):** CONTROL_STATUS()
+  [BATT_ID2:0] reports it (§2.2.1), and nothing has read it. Profile 1 is
+  ASSUMED. A gauge reset, or a SET_PROFILE command, reloads the section
+  from ROM/OTP and discards whatever was written.
+- **The field name (ASSUMED mapping):** TRM §4.9.36 and §1.1.10 call the
+  value FullChargeCapacity() is initialised from "Learned Full Charge
+  Capacity". Table 3-2 lists it as "Full Charge Capacity" at 0x929D. That
+  this entry is the learned value is supported by LILYGO's code: the Linux
+  launcher writes it as `BQ27220_ROM_FULL_CHARGE_CAPACITY 0x929D`, and the
+  RT-Smart sample's `...CEDVProfile1FullChargeCapacity` names the same
+  address. The operation's last check (FullChargeCapacity() equal to the
+  written value after EXIT_CFG_UPDATE_REINIT) would expose a wrong mapping
+  as `failed-after-commit`.
+- **Nothing else:** no other field is written. The other 28 bytes of the
+  32-byte block starting at 0x929D are written back as read.
+
+### 8.7 Rollback procedures
+
+Shell and gauge are independent. Rolling back the shell does not change the
+gauge, because the gauge keeps its RAM until it resets. Rolling back the
+gauge does not change the shell. If both are needed, restore the gauge
+first: only the new shell can do a gauge restore.
+
+**Shell (unit A as it is now).** The running shell `00aa3e3` replaced the
+Vision A/B shell `bddb56e`. To put that back:
+
+```sh
+ssh root@192.168.10.171 /root/rollback-battery-probe/RESTORE.sh
+```
+
+- The script first checks the stored copy (sha256 `bb012ede…f05a`) and
+  refuses if it does not match.
+- It removes the probe flag, stops only `doors-shell`, installs the copy,
+  starts it again, and checks the installed file against the recorded hash.
+- Verify with `doors shell info` (build `bddb56e`) and that sysd, netd,
+  radiod and meshcored kept their pids.
+- The script's header names the first probe build, `379a249`; the restore
+  works by hash and is unaffected.
+- It does not touch the gauge, the Vision models or any setting.
+
+A future deploy of the capacity operation gets its own rollback directory
+and script made the same way: verified copy of the shell it replaces, stop
+and start of `doors-shell` only.
+
+**Gauge configuration.** Nothing has been written to the gauge, so there is
+nothing to roll back today. After a capacity write:
+
+1. Find the backup the write stored. Its path is in
+   `/run/pocketos/battery-gauge-result` (`backup=`) and in `shell.log`; the
+   file is `/var/lib/pocketos/battery/gauge-dm-<UTC>.txt`.
+2. Put it back:
+   `echo "restore /var/lib/pocketos/battery/gauge-dm-<UTC>.txt" > /run/pocketos/battery-gauge-request`.
+   The keyboard base must be answering, and the shell must be the one with
+   the operation.
+3. Wait for `ok` in `/run/pocketos/battery-gauge-result`. It shows
+   `after-design` and `after-fcc` equal to the backup's
+   `design-capacity-mah` and `full-charge-capacity-mah`. The restore stores
+   its own backup first, so it can be undone the same way.
+4. If the result is `failed-unchanged`, nothing changed and the restore can
+   be retried. If it is `failed-after-commit` or `failed-unknown`, read the
+   values with the probe before doing anything else.
+
+The ROM defaults (3000/3000) also come back on any gauge reset. That needs
+the cells disconnected, which is physical work and not part of this plan.
+
+### 8.8 Status (2026-10-10)
+
+The owner will not do the physical holder check (§8.4). The batteries and
+the gauge configuration stay as they are. Nothing has been deployed and
+nothing has been written to the gauge. The capacity operation stays
+prepared on this branch, unused.
