@@ -275,10 +275,8 @@ reference for this pack.
 ### 7.5 Proposed change (not done; needs the owner's go)
 
 Preconditions
-- P1 (physical, owner): with the base switch OFF and no USB, take out one
-  cell and measure across the empty holder's contacts. A reading equal to the
-  remaining cell means the holders are in parallel. Put the cell back. Do the
-  same with the other cell, or confirm both holders by the board's traces.
+- P1 (physical, owner): superseded by §8.4, which needs no measurement on
+  live battery-holder contacts.
 - P2: the write runs in the shell's bus owner, as the probe does: the same
   claim and release, clock-stretch handling, at most two gauge commands per
   second (the CONFIG UPDATE waits are longer anyway), and the keyboard
@@ -325,3 +323,150 @@ Rollback
   but that needs the cells disconnected and loses the learned 3512.
 - Nothing here touches the charger, seals the gauge or uses OTP. OTP is
   one-time and is not proposed.
+
+## 8. Capacity operation (prepared 2026-10-10, not run)
+
+`ui/shell/kbd_gauge_cfg.[ch]` implements §7.5 as an owner-triggered
+operation in the shell's bus owner. Nothing in the shell starts it by
+itself: it is never started because DesignCapacity() reads 3000, and there
+is no default capacity.
+
+### 8.1 Interface (on the unit)
+
+```sh
+echo "capacity 6000" > /run/pocketos/battery-gauge-request    # explicit mAh, 1..32767
+echo "restore /var/lib/pocketos/battery/gauge-dm-<UTC>.txt" > /run/pocketos/battery-gauge-request
+cat /run/pocketos/battery-gauge-result                          # running / ok / refused / failed-...
+grep 'battery gauge' /var/lib/pocketos/log/shell.log
+```
+
+- The shell renames the request to `.taken` before reading it, so a request
+  runs at most once, even across a restart.
+- A request is refused unless the keyboard base answers.
+- The probe stands aside while an operation runs.
+- Each run first stores a backup, `/var/lib/pocketos/battery/gauge-dm-<UTC>.txt`.
+  The file is written, fsync'd and renamed, then read back and compared. It
+  holds the raw 36-byte block read (address echo, 32 data bytes, sum, length)
+  plus the standard-command values before the change.
+- A restore parses that file and checks the block's address, length and sum,
+  and that the summary lines agree with the bytes. It then writes the two
+  recorded values back with the same operation, backing up the current block
+  first.
+
+### 8.2 Sequence and sources
+
+| Step | Bytes | Source | Class |
+|---|---|---|---|
+| Refuse if SEALED or already in CONFIG UPDATE | read 0x3A | TRM Table 2-7 (SEC bits 2:1, CFGUPDATE bit 10) | DOCUMENTED |
+| FULL ACCESS | Control() 0x00 <- FF FF, twice | TRM §6.1 step 2 (the gauge "boots up in UNSEAL, but not in FULL ACCESS") | DOCUMENTED |
+| ENTER_CFG_UPDATE | 0x00 <- 90 00, then poll 0x3A for CFGUPDATE, at most 3 s | TRM §6.1 steps 3-4 ("may take up to 1 second") | DOCUMENTED |
+| Select block | 0x3E <- 9D 92 (address low byte first) | TRM §6.1 steps 5-6 | DOCUMENTED |
+| Backup read | 0x3E..0x61 (36 bytes) in one read | TRM §2.29-2.31 | DOCUMENTED |
+| Backup check | echo 9D 92; length 0x24; sum = 255 - (8-bit sum of address and 32 data bytes) | §2.30 (complement of the sum of ManufacturerAccessControl() and MACData()); §6.1 shows length 0x24 for this block; LILYGO's launcher uses the same sum | DOCUMENTED. §6.1's prose names only 0x40-0x5F for the sum, but its delta method gives the same result either way. If the gauge disagrees, this check fails before any write. |
+| Write values | 0x40 <- FCC hi, lo, Design hi, lo | TRM §6.1 step 10 (big-endian: 0x04 0xB0 = 1200) | DOCUMENTED |
+| Commit | 0x60 <- sum, 0x24, as one word | §2.31 ("written together as a word"); §6.1 step 13 (data reaches RAM only with correct sum and length) | DOCUMENTED |
+| Verify | select again, read 36 bytes; all 32 data bytes must equal the intended block | - | design choice |
+| EXIT_CFG_UPDATE_REINIT | 0x00 <- 91 00, poll CFGUPDATE clear, at most 3 s, up to 3 tries | TRM §6.1 steps 14-15 | DOCUMENTED |
+| Check | DesignCapacity() 0x3C and FullChargeCapacity() 0x12 equal the values written | TRM §1.1.2 (FCC set from the learned value at initialisation), §2.28 | DOCUMENTED. That 0x929D is the active profile's learned FCC is ASSUMED (CEDV Profile 1 is the default; the table names it "Full Charge Capacity"); this check catches a wrong mapping. |
+
+Addresses: Full Charge Capacity 0x929D and Design Capacity 0x929F, both
+I2 mAh (TRM Table 3-2, CEDV Profile 1). Only these two words change. The
+other 28 bytes of the block are written back exactly as read.
+
+Reset effects (DOCUMENTED; TRM §3.1, §4.6, §1.1.10):
+- Data memory is volatile RAM, so a gauge power-on reset (for example cells
+  removed) returns both words, and any learned FCC, to the ROM defaults.
+- EXIT_CFG_UPDATE_REINIT re-initialises: FCC is taken from the learned value,
+  and the initial RM/SOC is estimated from OCV, here under the unit's own
+  load.
+- The gauge leaves CONFIG UPDATE by itself after about 240 s if it is not
+  told to.
+- After the operation the gauge stays in FULL ACCESS until its next reset.
+  §6.1 re-seals only a gauge that was sealed, and this operation never seals.
+
+### 8.3 Bounds and failures
+
+- **Pacing:** one bus transaction per tick, at least 600 ms apart (the shell
+  ticks once a second). Each transaction claims and releases the bus itself,
+  so the keyboard keeps its turns.
+- **Time limits:** waits are bounded (enter 3 s, exit 3 s with up to 3 tries,
+  backup storage 10 s) and the whole operation has 45 s. A run is about
+  20 transactions.
+- **Failure before the commit:** leave with EXIT_CFG_UPDATE (0x0092, no
+  re-initialisation). Result `failed-unchanged`, because RAM changes only on
+  a correct commit.
+- **Failure from the commit on:** leave with 0x0091 and read the standard
+  commands. Result `failed-after-commit` with the values found, or
+  `failed-unknown` if leaving or reading cannot be confirmed (the gauge then
+  leaves CONFIG UPDATE by itself after about 240 s).
+- **Keyboard failure:** any keyboard-controller failure during the operation
+  stops it at once, with no further transaction.
+- **Bus:** the bus primitives already wait for clock stretching (at most 8 ms
+  per wait) and clock SDA free after a failed transaction.
+- **Shell killed mid-way:** the gauge leaves CONFIG UPDATE by itself after
+  about 240 s, and a new request is refused while it still reports CFGUPDATE.
+- **Never touched:** charger registers, OTP, sealing.
+
+Tests: `tests/kbd_gauge_cfg_test`, 57 checks, run against a model of the MAC
+interface. They cover:
+- success, with the rest of the block preserved byte for byte, the backup
+  taken before any write, the sub-command order and the pacing;
+- restoring that backup, byte for byte;
+- refusals: range, sealed, already in CONFIG UPDATE, absent gauge, a bus that
+  cannot be claimed;
+- CONFIG UPDATE never entered, exit never confirmed, a backup never stored or
+  not storable;
+- a bad sum on the backup read, the data write failing, the sum write
+  failing, and a commit that lands wrong;
+- a keyboard failure part way;
+- tampered backup files, and request parsing.
+
+`tests/kbd_bus_k230_test` adds the block write: acknowledged, refused part
+way, and against a held clock.
+
+### 8.4 Physical confirmation (owner), before any write
+
+No measurement on live battery-holder contacts. Each step starts from a
+normal Doors shutdown:
+
+1. Shut Doors down normally: hold the power button for about a second and
+   choose **Power off** (or System > Power off). Wait until the panel is dark
+   and the unit has stopped. Then unplug every USB cable and set the base
+   battery switch OFF.
+2. Take both cells out. Note whether the base has two holders, and their
+   polarity markings.
+3. Fit one cell in holder 1 only. Switch ON, start the unit, and let Doors
+   boot: did it start from that cell alone? Then shut down normally again
+   (step 1).
+4. The same with one cell in holder 2 only.
+5. Fit both cells, switch ON, and start normally.
+
+If the unit starts from each holder alone, both holders feed the pack. The
+pack voltage (3.78-3.79 V, VERIFIED) already rules out series, so the
+holders are in parallel and 2 x 3000 mAh applies.
+
+Consequence (DOCUMENTED): taking the cells out resets the gauge. The learned
+3512 mAh is lost and the gauge restarts from its ROM defaults (3000/3000);
+the probe will show that after step 5.
+
+### 8.5 Execution plan (each step on the owner's go)
+
+1. **Physical check** (§8.4), with a normal shutdown before each cell change.
+2. **Deploy:** shell-only deploy of this branch onto unit A's integration
+   build (v0.3.5 + vision A/B `36dc5b9` + this branch), with a verified
+   backup of the running shell and a RESTORE script, as before. Restart only
+   the shell.
+3. **Probe on**, two samples. Expect DesignCapacity() 3000 (ROM default after
+   the cell change) and no keyboard drops. Probe off.
+4. **Write:** `echo "capacity 6000" > /run/pocketos/battery-gauge-request`,
+   then wait for `ok` in the result file (about 20-30 s). Record the backup
+   path. Check with the probe that DesignCapacity() = FullChargeCapacity() =
+   6000, and that the keys still work.
+5. **Observe one ordinary full charge** with the probe on. [FC]/[TCA] set and
+   SOC at 100 % when the charge terminates means the percentage is usable. If
+   FC never sets, the 100 mA taper vs 256 mA charger termination mismatch
+   (§7.3) gets its own proposal. Nothing about charging is changed here.
+6. **Rollback** at any point:
+   - gauge: `echo "restore <backup path>" > /run/pocketos/battery-gauge-request`;
+   - shell: the deploy's RESTORE script;
+   - a gauge reset (cells out) also brings back the ROM defaults.

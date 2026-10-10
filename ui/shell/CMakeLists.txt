@@ -91,6 +91,7 @@ add_executable(pocketos-shell
     kbd_picker.c
     kbd_leds.c
     kbd_battery.c
+    kbd_gauge_cfg.c
     kbd_light.c
     hw_actions.c
     hw_activity.c
@@ -1791,6 +1792,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         kbd_bus_absent.c
         kbd_leds.c
         kbd_battery.c
+        kbd_gauge_cfg.c
         hw_actions.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c

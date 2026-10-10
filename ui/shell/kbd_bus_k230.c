@@ -374,6 +374,43 @@ out:
     return b->io_error ? -1 : rc;
 }
 
+/* The gauge configuration's writes (kbd_gauge_cfg.h): reg, then len bytes,
+ * every one acknowledged, with the read's clock-stretch handling and its
+ * recovery on failure. */
+static int write_block(struct k230_bus *b, uint8_t addr, uint8_t reg, const uint8_t *buf,
+                       unsigned len)
+{
+    int rc = -1;
+    unsigned i;
+
+    if (!b->claimed || !buf || len == 0) {
+        return -1;
+    }
+    b->io_error = false;
+    b->stretch = true;
+    i2c_start(b);
+    if (i2c_write_byte(b, (uint8_t)(addr << 1)) != 0) {
+        goto out;
+    }
+    if (i2c_write_byte(b, reg) != 0) {
+        goto out;
+    }
+    for (i = 0; i < len; i++) {
+        if (i2c_write_byte(b, buf[i]) != 0) {
+            goto out;
+        }
+    }
+    rc = 0;
+out:
+    if (rc != 0 || b->io_error) {
+        bus_recover(b); /* ends with a stop */
+    } else {
+        i2c_stop(b);
+    }
+    b->stretch = false;
+    return b->io_error ? -1 : rc;
+}
+
 static int read_at(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *value)
 {
     int rc = -1;
@@ -455,6 +492,12 @@ static int k230_write_reg_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t value
 static int k230_read_block_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t *buf, unsigned len)
 {
     return read_block(ctx, addr, reg, buf, len);
+}
+
+static int k230_write_block_at(void *ctx, uint8_t addr, uint8_t reg, const uint8_t *buf,
+                               unsigned len)
+{
+    return write_block(ctx, addr, reg, buf, len);
 }
 
 /* ---- claim, release, reset, INT ---------------------------------------- */
@@ -772,6 +815,7 @@ int kbd_bus_k230_create(struct kbd_bus *bus, char *why, size_t why_len)
     bus->read_reg_at = k230_read_reg_at;
     bus->write_reg_at = k230_write_reg_at;
     bus->read_block_at = k230_read_block_at;
+    bus->write_block_at = k230_write_block_at;
     return 0;
 }
 

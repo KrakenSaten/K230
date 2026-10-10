@@ -12,6 +12,7 @@
 
 #include "kbd_battery.h"
 #include "kbd_bus_k230.h"
+#include "kbd_gauge_cfg.h"
 #include "kbd_leds.h"
 #include "kbd_picker.h"
 #include "kbd_presence.h"
@@ -21,9 +22,12 @@
 #include "pos_input.h"
 #include "pos_keymap.h"
 
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -83,12 +87,23 @@ static struct {
     uint64_t held_since_us;
     struct kbd_battery battery; /* the opt-in diagnostic probe */
     bool battery_on;       /* the switch was there at the last watch */
+    struct kbd_gauge_cfg gauge; /* the owner-triggered capacity operation */
+    char gauge_backup[256];     /* where its backup went */
 } kbd;
 
 /* The battery probe's switch: a file in the runtime directory (tmpfs), so
  * turning it on takes no restart, writes nothing persistent and is gone
  * after a reboot. `touch /run/pocketos/battery-probe` on the unit. */
 #define BATTERY_PROBE_FLAG "battery-probe"
+
+/* The gauge capacity operation's request and result, in the runtime
+ * directory, and where its backups go (state directory). See
+ * kbd_gauge_cfg.h and BATTERY_PROBE.md §8. */
+#define GAUGE_REQUEST "battery-gauge-request"
+#define GAUGE_RESULT "battery-gauge-result"
+#define GAUGE_BACKUP_DIR "battery"
+
+static void gauge_report(void);
 
 /* How often the watch retries an expander that did not answer, per keyboard
  * brought up: a base without one costs five probes and then nothing. */
@@ -353,6 +368,10 @@ static void on_poll(lv_timer_t *timer)
                      (unsigned long long)((now_us() - kbd.battery.last_read_us) / 1000u),
                      kbd.battery.transactions, kbd.battery.failures);
         }
+        /* And a gauge configuration in progress stops at once. */
+        if (kbd_gauge_cfg_keys_failed(&kbd.gauge)) {
+            gauge_report();
+        }
     } else if (!kbd.ready && ready) {
         pos_keymap_reset(&kbd.map);
         flush_held(); /* its release went with the controller */
@@ -511,6 +530,200 @@ static bool battery_wanted(void)
     return access(path, F_OK) == 0;
 }
 
+/* ---- the gauge capacity operation ---------------------------------------- *
+ *
+ * Owner-triggered only: a request file names the capacity explicitly
+ * ("capacity <mAh>") or a backup to restore ("restore <file>"). The file is
+ * renamed before anything happens, so a request runs at most once, even
+ * across a shell restart. There is no default capacity and nothing runs on
+ * its own.
+ */
+
+static void gauge_result_write(const char *text)
+{
+    char path[256];
+    char tmp[272];
+    FILE *f;
+
+    snprintf(path, sizeof(path), "%s/%s", pocketos_runtime_dir(), GAUGE_RESULT);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    f = fopen(tmp, "w");
+    if (!f) {
+        return;
+    }
+    fputs(text, f);
+    if (fclose(f) == 0) {
+        (void)rename(tmp, path);
+    }
+}
+
+static void gauge_report(void)
+{
+    const struct kbd_gauge_cfg *g = &kbd.gauge;
+    char text[768];
+
+    snprintf(text, sizeof(text),
+             "%s requested-fcc=%u requested-design=%u before-design=%u before-fcc=%u "
+             "after-design=%u after-fcc=%u backup=%s reads+writes=%u failed=%u%s%s\n",
+             kbd_gauge_result_name(g->result), g->want_fcc, g->want_design, g->before_design,
+             g->before_fcc, g->after_design, g->after_fcc,
+             kbd.gauge_backup[0] ? kbd.gauge_backup : "-", g->transactions, g->failures,
+             g->why ? " why=" : "", g->why ? g->why : "");
+    gauge_result_write(text);
+    if (g->result == KBD_GAUGE_OK) {
+        LOG_INFO("battery gauge: %s", text);
+    } else {
+        LOG_WARN("battery gauge: %s", text);
+    }
+}
+
+/* Store the backup and read it back; 0 only when the file holds exactly
+ * what was meant. */
+static int gauge_store_backup(void)
+{
+    char dir[200];
+    char tmp[280];
+    char utc[32];
+    char text[1024];
+    char back[1024];
+    time_t t = time(NULL);
+    struct tm tm;
+    size_t n;
+    FILE *f;
+    int fd;
+
+    kbd.gauge_backup[0] = '\0';
+    if (!gmtime_r(&t, &tm) || strftime(utc, sizeof(utc), "%Y%m%dT%H%M%SZ", &tm) == 0) {
+        return -1;
+    }
+    snprintf(dir, sizeof(dir), "%s/%s", pocketos_state_dir(), GAUGE_BACKUP_DIR);
+    if (mkdir(dir, 0700) != 0 && access(dir, W_OK) != 0) {
+        return -1;
+    }
+    if (kbd_gauge_backup_format(&kbd.gauge, utc, text, sizeof(text)) != 0) {
+        return -1;
+    }
+    snprintf(kbd.gauge_backup, sizeof(kbd.gauge_backup), "%s/gauge-dm-%s.txt", dir, utc);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", kbd.gauge_backup);
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        kbd.gauge_backup[0] = '\0';
+        return -1;
+    }
+    n = strlen(text);
+    if (write(fd, text, n) != (ssize_t)n || fsync(fd) != 0) {
+        close(fd);
+        unlink(tmp);
+        kbd.gauge_backup[0] = '\0';
+        return -1;
+    }
+    close(fd);
+    if (rename(tmp, kbd.gauge_backup) != 0) {
+        unlink(tmp);
+        kbd.gauge_backup[0] = '\0';
+        return -1;
+    }
+    f = fopen(kbd.gauge_backup, "r");
+    n = f ? fread(back, 1, sizeof(back) - 1, f) : 0;
+    if (f) {
+        fclose(f);
+    }
+    back[n] = '\0';
+    if (strcmp(back, text) != 0) {
+        return -1;
+    }
+    LOG_INFO("battery gauge: backup stored in %s", kbd.gauge_backup);
+    return 0;
+}
+
+static void gauge_refuse(const char *why)
+{
+    char text[384];
+
+    snprintf(text, sizeof(text), "refused why=%s\n", why);
+    gauge_result_write(text);
+    LOG_WARN("battery gauge: refused: %s", why);
+}
+
+/* A waiting request, taken and started; or the running operation ticked.
+ * True while an operation runs (the probe then stands aside). */
+static bool gauge_watch(void)
+{
+    char req[256];
+    char taken[272];
+    char line[256];
+    char path[200];
+    char text[1024];
+    unsigned mah = 0;
+    unsigned fcc = 0;
+    unsigned design = 0;
+    enum kbd_gauge_request_kind kind;
+    enum kbd_gauge_tick t;
+    FILE *f;
+    size_t n;
+
+    if (kbd_gauge_cfg_running(&kbd.gauge)) {
+        t = kbd_gauge_cfg_tick(&kbd.gauge, now_us());
+        if (t == KBD_GAUGE_TICK_NEED_BACKUP) {
+            kbd_gauge_cfg_backup_stored(&kbd.gauge, gauge_store_backup() == 0);
+        } else if (t == KBD_GAUGE_TICK_DONE) {
+            gauge_report();
+        }
+        return kbd_gauge_cfg_running(&kbd.gauge);
+    }
+    snprintf(req, sizeof(req), "%s/%s", pocketos_runtime_dir(), GAUGE_REQUEST);
+    if (access(req, F_OK) != 0) {
+        return false;
+    }
+    /* Taken before it is read: a request runs once. */
+    snprintf(taken, sizeof(taken), "%s.taken", req);
+    if (rename(req, taken) != 0) {
+        return false;
+    }
+    f = fopen(taken, "r");
+    if (!f || !fgets(line, sizeof(line), f)) {
+        if (f) {
+            fclose(f);
+        }
+        gauge_refuse("the request could not be read");
+        return false;
+    }
+    fclose(f);
+    kind = kbd_gauge_request_parse(line, &mah, path, sizeof(path));
+    if (kind == KBD_GAUGE_REQ_INVALID) {
+        gauge_refuse("not 'capacity <1-32767>' or 'restore </absolute/backup/file>'");
+        return false;
+    }
+    if (kind == KBD_GAUGE_REQ_CAPACITY) {
+        fcc = mah;
+        design = mah;
+    } else {
+        f = fopen(path, "r");
+        n = f ? fread(text, 1, sizeof(text) - 1, f) : 0;
+        if (f) {
+            fclose(f);
+        }
+        text[n] = '\0';
+        if (kbd_gauge_backup_parse(text, &fcc, &design) != 0) {
+            gauge_refuse("the backup file is missing or does not check");
+            return false;
+        }
+    }
+    if (!kbd.present || !kbd_tca8418_ready(&kbd.chip)) {
+        gauge_refuse("the keyboard base is not answering");
+        return false;
+    }
+    kbd.gauge_backup[0] = '\0';
+    if (kbd_gauge_cfg_start(&kbd.gauge, &kbd.bus, fcc, design, now_us()) != 0) {
+        gauge_report();
+        return false;
+    }
+    gauge_result_write("running\n");
+    LOG_INFO("battery gauge: %s requested: full charge capacity %u mAh, design capacity %u mAh",
+             kind == KBD_GAUGE_REQ_RESTORE ? "restore" : "capacity", fcc, design);
+    return true;
+}
+
 static void battery_watch(void)
 {
     bool on = kbd.bus.read_block_at && battery_wanted();
@@ -567,7 +780,10 @@ static void on_watch(lv_timer_t *timer)
                      KBD_LEDS_XL9555_ADDR);
         }
     }
-    battery_watch();
+    /* A gauge operation and the probe never interleave on the gauge. */
+    if (!gauge_watch()) {
+        battery_watch();
+    }
     kbd_presence_observe(observed());
 }
 

@@ -374,6 +374,30 @@ int main(void)
         push_byte(0x3F);              /* recovery: SDA low, low, then high */
         check("a failed block read fails", k230_read_block_at(b, 0x55, 0x08, buf, 2) != 0);
         check("and clocks SDA free before its stop", g.next == 5);
+
+        /* The gauge configuration's block write (kbd_gauge_cfg.h). */
+        {
+            const uint8_t data[4] = {0x17, 0x70, 0x17, 0x70};
+
+            b = test_bus();
+            fake_reset();
+            push_ack(); push_ack(); push_ack(); push_ack(); push_ack(); push_ack();
+            g.scl_low = 10;
+            check("a block write acknowledged throughout succeeds",
+                  k230_write_block_at(b, 0x55, 0x40, data, 4) == 0 && g.scl_reads > 10);
+
+            b = test_bus();
+            fake_reset();
+            push_ack(); push_ack(); push_ack(); push_nack();
+            check("a block write refused part way fails",
+                  k230_write_block_at(b, 0x55, 0x40, data, 4) != 0 && !b->stretch);
+
+            b = test_bus();
+            fake_reset();
+            g.scl_stuck = true;
+            check("a block write against a held clock fails",
+                  k230_write_block_at(b, 0x55, 0x40, data, 4) != 0);
+        }
     }
 
     printf("kbd_bus_k230_test: %d checks, %d failure(s)\n", checks, failed);
