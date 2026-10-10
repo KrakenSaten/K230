@@ -159,7 +159,11 @@ including the owner's listening check of the volume steps; DS §31.5 accepted.
   or gauge support needs the bus ownership decided first
   (KEYBOARD_DRIVER_DESIGN_2026-09-12.md). Battery shows "External power";
   the percentage path (the driver's own `capacity`, never computed from a
-  voltage) is host-tested only.
+  voltage) is host-tested only. An opt-in, read-only diagnostic probe in the
+  shell now reads the gauge and charger status into `shell.log`
+  (BATTERY_PROBE.md): on unit A the gauge answers, but it still carries TI's
+  default 3000 mAh design capacity for a 2 x 3000 mAh pack, so its
+  percentage is not yet a usable battery level.
 - **Volume is a digital gain.** The speaker route has no mixer volume
   (AUDIO_HARDWARE_MAP §7), so 100 % is the validated -12 dBFS level and the
   control only attenuates (to -27 dB at 10 %). It applies to what Wave plays;

@@ -53,12 +53,21 @@ configuration write and out of scope.
   answer restores 60 s. A missing device therefore costs one failed address
   byte per sample and one log line per sample.
 - SLUSCB7A §7.3.1.4: the gauge may stretch SCL (about 100 us out of SLEEP, up
-  to 4 ms otherwise). This bus never reads SCL back - neither did the vendor
-  launcher's - so a stretched read can return wrong bits rather than fail.
-  Values are therefore range- and reserved-bit-checked and marked `?` with a
+  to 4 ms otherwise). The gauge's block reads therefore read SCL back after
+  releasing it and wait for it to go high, bounded at 8 ms; a read that fails
+  clocks SDA free (up to nine pulses) before its stop. The K230 GPIO driver
+  reads the pin level for an output line too (`gpio-k230.c` gives
+  `bgpio_init` the EXT_PORT register as its data register, no flags;
+  DOCUMENTED from the pinned SDK kernel), which is what SDA reads already rely
+  on. The keyboard's own transactions do not read SCL and are unchanged.
+  Ignoring the stretch wedged the bus on hardware (§6.1).
+- Values are also range- and reserved-bit-checked and marked `?` with a
   `suspect=` mask in the log; a plausible value is not proof of a correct one.
 - It runs only while the keyboard controller is answering, from the watch
-  timer, never inside a key drain.
+  timer, never inside a key drain. A keyboard drop pauses it without
+  resetting its pacing.
+- Breaker: if the keyboard controller stops answering within 2 s of a probe
+  read, the probe is off until the shell restarts (one WARN line).
 
 ## 4. Turning it on and off
 
@@ -89,6 +98,73 @@ matches the pack's rating does not by itself make the percentage accurate:
 the EDV profile, a learned FullChargeCapacity() (OperationStatus()[VDQ], a
 qualified discharge) and INITCOMP all matter.
 
-## 6. Hardware results
+## 6. Hardware results, unit A, 2026-10-10
 
-Not yet measured.
+Unit A before: Doors 0.3.5 userspace (`BUILD_ID=3d4ea6e`), shell `bddb56e`
+= v0.3.5 + vision A/B `36dc5b9` (VISION_MODEL_AB_GATE.md; running binary
+sha256 `bb012ede…f05a`, matching that record). Kernel still the 27 Sep build
+(v0.3.5 boot files staged, not booted). Shell-only deploys, each built from
+v0.3.5 + `36dc5b9` + this branch on local branch
+`integration/unitA-v035-vision-ab-battery`, cross-built with the pinned
+toolchain, 0 warnings, stripped. Vision's two A/B kmodels and `yolov8n.kmodel`
+were not touched. Rollback: `/root/rollback-battery-probe/RESTORE.sh` puts the
+`bddb56e` shell back (backup sha256-checked before the first swap).
+
+Physical setup (owner): nothing plugged in, neither the K230's USB-C nor the
+base's; base battery switch ON; two cells labelled "Biltema 3000 mAh 3,7 V
+11,1 Wh".
+
+### 6.1 First run: the bus ignored clock stretching (build `379a249`)
+
+14:30:32-14:33:09 UTC. Every gauge read failed, and each time the keyboard
+controller stopped answering 30-250 ms later and recovered about a second
+later; the probe re-initialised on every recovery, so the cycle repeated every
+two seconds for about 2.5 minutes (79 controller drops) until the flag was
+removed. The keyboard recovered by itself once the probe was off. Consistent
+with the gauge stretching SCL mid-packet while the master clocked on, leaving
+the gauge part way through a byte and the next keyboard transaction failing.
+Fixed in the next build (§3: SCL read-back, bus recovery, breaker, no reset
+on keyboard drops).
+
+### 6.2 Second run (build `00aa3e3`)
+
+14:39:35-14:45:23 UTC: 6 samples, 48 reads, 0 failed, nothing marked
+suspect; 0 keyboard controller drops; the owner typed on the keyboard during
+the run and it worked normally (10 keys delivered). sysd, netd, radiod and
+meshcored kept their pids throughout.
+
+| Reading | Values (6 samples) | Class |
+|---|---|---|
+| StateOfCharge() | 30, 30, 29, 29, 29, 29 % | VERIFIED as read; accuracy NOT verified (§6.3) |
+| Voltage() | 3782-3791 mV | VERIFIED |
+| Current() | -568 to -697 mA, negative while BatteryStatus()[DSG] is set and no input is present: negative is discharge | VERIFIED |
+| BatteryStatus() | 0x4029: DSG, BATTPRES, OCVGD, OCVCOMP | VERIFIED |
+| FullChargeCapacity() | 3512 mAh | VERIFIED as read |
+| DesignCapacity() | 3000 mAh, TI's data-flash default | VERIFIED as read |
+| OperationStatus() | 0x00B4: SEC = unsealed, VDQ, INITCOMP, BTPINT | VERIFIED |
+| BQ25896 REG0B | 0x02: VBUS no input, not charging, not power good, reserved bit reads 1 as documented, not in VSYSMIN regulation | VERIFIED |
+
+Derived: about 2.2-2.6 W drawn from the pack (V x I); SOC falling 1 % in
+about 5 minutes at about 0.6 A is consistent with coulomb counting against a
+3512 mAh full charge (0.05 Ah is 1.4 % of it).
+
+### 6.3 What the percentage is worth
+
+- The pack voltage is single-cell (3.79 V), and the BQ25896 is a single-cell
+  charger, so two cells must be in parallel (1S2P) if both are in circuit;
+  that both are is ASSUMED. Their labels give 2 x 3000 mAh, about 6000 mAh
+  nominal.
+- The gauge still holds TI's default Design Capacity (3000 mAh): the vendor
+  launcher's 6000 mAh write is not in effect on this gauge. Its EDV
+  thresholds and other CEDV parameters are unread and presumably defaults
+  too (ASSUMED).
+- FullChargeCapacity() has been learned at 3512 mAh (VDQ set), well short of
+  the ~6000 mAh nominal. StateOfCharge() is a percentage of that figure, so
+  30 % here may not be 30 % of the pack.
+- The gauge is unsealed, so its data flash is writable by anything on the bus.
+
+So: the gauge answers and its voltage, current, flags and charger status are
+usable as read. The percentage is self-consistent but rests on an
+unconfigured gauge and is **not usable as an accurate battery level** until
+the gauge's configuration matches the pack. A matching DesignCapacity() alone
+would not settle that (§5).
