@@ -7,6 +7,13 @@ BQ27220 fuel gauge and BQ25896 charger. It began as an opt-in diagnostic
 percentage is not shown as the battery level, because its configuration is
 not validated for the fitted pack (§7).
 
+| Part | State | Where |
+|---|---|---|
+| Voltage, current, charging/discharging status | **Working.** VERIFIED on unit A through sysd and the UI, 2026-10-10 (§9.4) | Controls battery tile; Settings › Power & Sleep › BATTERY; System › Diagnostics |
+| Battery level (percentage) | **Not shown**: "Unknown" in normal UI. sysd's `capacity_percent` is null for this gauge | - |
+| Gauge's raw SOC, full-charge and design capacity | **Unvalidated.** Read as the gauge reports them, against a configuration never checked for this pack (§7) | System › Diagnostics only, labelled "Unvalidated" (and `power.battery.gauge` with `validated: false`) |
+| Capacity configuration (Design Capacity / learned FCC write) | **Experimental, not in this build.** Prepared and model-tested, never run on hardware | branch `experiment/battery-gauge-capacity-op` (`e4e80f7`), §8 |
+
 Evidence classes follow AGENTS.md: **VERIFIED** (measured on a unit),
 **DOCUMENTED** (read from TI or vendor documents), **ASSUMED**.
 
