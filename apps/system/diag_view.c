@@ -51,7 +51,7 @@ static void row_set(struct diag_view *v, enum diag_row r, const char *value, int
 void diag_view_init(struct diag_view *v)
 {
     static const char *const labels[DIAG_ROW_COUNT] = {
-        "Doors", "Uptime", "Memory", "Storage", "Battery",
+        "Doors", "Uptime", "Memory", "Storage", "Battery", "Gauge",
         "Services", "LoRa radio", "Mesh", "Bluetooth", "Crashes"
     };
     int i;
@@ -169,6 +169,8 @@ static void battery_row(struct diag_view *v, const cJSON *status)
     const char *w = battery_word(str(bat, "status"));
     char line[DIAG_TEXT];
 
+    const char *reading = str(bat, "reading");
+
     if (!cJSON_IsObject(power)) {
         row_set(v, DIAG_ROW_BATTERY, NULL, 0);
     } else if (!cJSON_IsObject(bat)) {
@@ -176,6 +178,20 @@ static void battery_row(struct diag_view *v, const cJSON *status)
 
         row_set(v, DIAG_ROW_BATTERY,
                 src && strcmp(src, "external") == 0 ? "No battery, external power" : NULL, 0);
+    } else if (reading && strcmp(reading, "ok") != 0) {
+        /* Not current: say which way, and show no values (system.md). */
+        const cJSON *age = get(bat, "age_s");
+
+        if (strcmp(reading, "stale") == 0 && cJSON_IsNumber(age)) {
+            snprintf(line, sizeof(line), "No reading for %d s", (int)age->valuedouble);
+        } else {
+            snprintf(line, sizeof(line), "%s",
+                     strcmp(reading, "stale") == 0       ? "No recent reading"
+                     : strcmp(reading, "stopped") == 0   ? "Reading stopped (keyboard protection)"
+                     : strcmp(reading, "no-answer") == 0 ? "Gauge not answering"
+                                                         : "Unknown");
+        }
+        row_set(v, DIAG_ROW_BATTERY, line, 1);
     } else if (cJSON_IsFalse(get(bat, "present"))) {
         row_set(v, DIAG_ROW_BATTERY, "No battery", 0);
     } else if (cJSON_IsNumber(cap) && cap->valuedouble >= 0 && cap->valuedouble <= 100) {
@@ -192,8 +208,59 @@ static void battery_row(struct diag_view *v, const cJSON *status)
         row_set(v, DIAG_ROW_BATTERY, line,
                 cap->valuedouble <= 15 && !(w && strcmp(w, "Charging") == 0));
     } else {
-        row_set(v, DIAG_ROW_BATTERY, w ? w : "Battery, level unknown", 0);
+        const cJSON *volt = get(bat, "voltage_v");
+        const cJSON *amps = get(bat, "current_a");
+        size_t n;
+
+        if (!w && !cJSON_IsNumber(volt) && !cJSON_IsNumber(amps)) {
+            row_set(v, DIAG_ROW_BATTERY, "Battery, level unknown", 0);
+            return;
+        }
+        snprintf(line, sizeof(line), "%s", w ? w : "Battery");
+        if (cJSON_IsNumber(volt)) {
+            n = strlen(line);
+            snprintf(line + n, sizeof(line) - n, " \xC2\xB7 %.2f V", volt->valuedouble);
+        }
+        if (cJSON_IsNumber(amps)) {
+            n = strlen(line);
+            snprintf(line + n, sizeof(line) - n, " \xC2\xB7 %+.2f A", amps->valuedouble);
+        }
+        n = strlen(line);
+        snprintf(line + n, sizeof(line) - n, " \xC2\xB7 level unknown");
+        row_set(v, DIAG_ROW_BATTERY, line, 0);
     }
+}
+
+/* The base gauge's own figures (power.battery.gauge), shown only here and
+ * only as "Unvalidated": its configuration has not been checked against the
+ * fitted pack (BATTERY_PROBE.md §7), so they are evidence, not a level. */
+static void gauge_row(struct diag_view *v, const cJSON *status)
+{
+    const cJSON *g = get(get(get(status, "power"), "battery"), "gauge");
+    const cJSON *soc = get(g, "soc_percent");
+    const cJSON *fcc = get(g, "full_charge_capacity_mah");
+    const cJSON *design = get(g, "design_capacity_mah");
+    char line[DIAG_TEXT];
+    size_t n;
+
+    if (!cJSON_IsObject(g)) {
+        row_set(v, DIAG_ROW_GAUGE, NULL, 0);
+        return;
+    }
+    snprintf(line, sizeof(line), "Unvalidated");
+    if (cJSON_IsNumber(soc)) {
+        n = strlen(line);
+        snprintf(line + n, sizeof(line) - n, " \xC2\xB7 SOC %d %%", (int)soc->valuedouble);
+    }
+    if (cJSON_IsNumber(fcc)) {
+        n = strlen(line);
+        snprintf(line + n, sizeof(line) - n, " \xC2\xB7 full %d mAh", (int)fcc->valuedouble);
+    }
+    if (cJSON_IsNumber(design)) {
+        n = strlen(line);
+        snprintf(line + n, sizeof(line) - n, " \xC2\xB7 design %d mAh", (int)design->valuedouble);
+    }
+    row_set(v, DIAG_ROW_GAUGE, line, 0);
 }
 
 /* Services: the supervisor's view, reduced to what is wrong, if anything. */
@@ -262,8 +329,12 @@ void diag_view_apply_system(struct diag_view *v, const struct system_view *sv, c
         row_set(v, DIAG_ROW_VERSION, sv->os_version, 0);
     }
     if (!status) {
-        /* The rest is sysd's; saying "not answering" once is enough. */
+        /* The rest is sysd's; saying "not answering" once is enough. The
+         * battery's figures are cleared rather than kept: a reading is
+         * never shown once nothing vouches that it is current. */
         row_set(v, DIAG_ROW_SERVICES, "sysd not answering", 1);
+        row_set(v, DIAG_ROW_BATTERY, NULL, 0);
+        row_set(v, DIAG_ROW_GAUGE, NULL, 0);
         return;
     }
     if (sv) {
@@ -278,6 +349,7 @@ void diag_view_apply_system(struct diag_view *v, const struct system_view *sv, c
         }
     }
     battery_row(v, status);
+    gauge_row(v, status);
     services_row(v, status);
     ctl = get(get(status, "bluetooth"), "controllers");
     if (!cJSON_IsArray(ctl) || cJSON_GetArraySize(ctl) == 0) {

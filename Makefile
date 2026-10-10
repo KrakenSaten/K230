@@ -47,7 +47,7 @@ ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -Iservices/radiod -I$(R
 PATHS_OBJS  := core/pocketpaths.o
 IPC_OBJS    := core/pocketipc/pocketipc.o
 LOG_OBJS    := core/pocketlog/pocketlog.o
-SYS_OBJS    := core/pocketsys.o
+SYS_OBJS    := core/pocketsys.o core/battery_report.o
 POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o \
                tools/pos/pos_wifi.o $(IPC_OBJS) $(PATHS_OBJS)
 # The transmit state machine, the lease and the two clocks are their own
@@ -267,7 +267,7 @@ tests/wifi_store_test: tests/wifi_store_test.o services/netd/wifi_store.o servic
 tests/pocketsys_hooks.o: core/pocketsys.c
 	$(CC) $(ALL_CFLAGS) -DPOCKETSYS_TEST_HOOKS=1 -c -o $@ $<
 
-tests/pocketsys_test: tests/pocketsys_test.o tests/pocketsys_hooks.o $(PATHS_OBJS)
+tests/pocketsys_test: tests/pocketsys_test.o tests/pocketsys_hooks.o core/battery_report.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # The supervised-service table lives in sysd, not in core: it reads
@@ -534,9 +534,10 @@ tests/kbd_tca8418_test: tests/kbd_tca8418_test.o ui/shell/kbd_tca8418.o
 # all pure C: the action mapping and its rules against a fake host, the
 # XL9555 indicator LEDs against a register model, the microphone and camera
 # activity against a fake /proc and /sys, and the keyboard light's PWM
-# against a fake sysfs tree. The shell links the same sources (CMake).
-HWCTL_OBJS := ui/shell/hw_actions.o ui/shell/kbd_leds.o ui/shell/hw_activity.o ui/shell/kbd_light.o
-HWCTL_TESTS := tests/hw_actions_test tests/kbd_leds_test tests/hw_activity_test tests/kbd_light_test
+# against a fake sysfs tree, and the read-only battery probe against a
+# BQ27220/BQ25896 register model. The shell links the same sources (CMake).
+HWCTL_OBJS := ui/shell/hw_actions.o ui/shell/kbd_leds.o ui/shell/kbd_battery.o core/battery_report.o ui/shell/hw_activity.o ui/shell/kbd_light.o
+HWCTL_TESTS := tests/hw_actions_test tests/kbd_leds_test tests/kbd_battery_test tests/battery_report_test tests/hw_activity_test tests/kbd_light_test
 
 ui/shell/hw_actions.o: ui/shell/hw_actions.c ui/shell/hw_actions.h ui/shell/brightness.h ui/shell/volume.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
@@ -560,6 +561,18 @@ tests/kbd_leds_test.o: tests/kbd_leds_test.c ui/shell/kbd_leds.h ui/shell/kbd_bu
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
 tests/kbd_leds_test: tests/kbd_leds_test.o ui/shell/kbd_leds.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+ui/shell/kbd_battery.o: ui/shell/kbd_battery.c ui/shell/kbd_battery.h ui/shell/kbd_bus.h core/battery_report.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_battery_test.o: tests/kbd_battery_test.c ui/shell/kbd_battery.h ui/shell/kbd_bus.h core/battery_report.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_battery_test: tests/kbd_battery_test.o ui/shell/kbd_battery.o core/battery_report.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/battery_report_test: tests/battery_report_test.o core/battery_report.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/hw_activity_test.o: tests/hw_activity_test.c ui/shell/hw_activity.h
@@ -2374,6 +2387,8 @@ test: all $(TEST_BINS)
 	./tests/kbd_bus_k230_test
 	./tests/hw_actions_test
 	./tests/kbd_leds_test
+	./tests/kbd_battery_test
+	./tests/battery_report_test
 	./tests/hw_activity_test
 	./tests/kbd_light_test
 	./tests/pocketaudio_test

@@ -62,6 +62,15 @@ these lines. The layout in §1 keeps the bus module free of both LVGL and
 keyboard specifics precisely so it can move behind a service later without
 touching the key map or the shell glue.
 
+**Decided 2026-10-10 (product owner):** the read-only battery probe runs
+inside this same owner - the shell, on the LVGL thread, behind the same
+claim and release - so the lines still have one owner. It reads the BQ27220
+and the BQ25896 status register and writes nothing. It began as a
+diagnostic. It now hands each sample to sysd as a report file in the
+runtime directory, and sysd publishes it as `system.status.power.battery`
+(BATTERY_PROBE.md §9). Any gauge configuration write is not part of this
+decision and lives on a separate experimental branch (BATTERY_PROBE.md §8).
+
 ### 0.3 DS §18.8 is a shipping gate, not an implementation blocker
 
 The driver prototype and its hardware validation proceed now. **The physical

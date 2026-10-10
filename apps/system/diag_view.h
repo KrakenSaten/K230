@@ -40,6 +40,7 @@ enum diag_row {
     DIAG_ROW_MEMORY,
     DIAG_ROW_STORAGE,
     DIAG_ROW_BATTERY,
+    DIAG_ROW_GAUGE,  /* the base gauge's own figures, unvalidated */
     DIAG_ROW_SERVICES,
     DIAG_ROW_RADIO,
     DIAG_ROW_MESH,

@@ -34,6 +34,8 @@
 /* wifi.networks every this many ticks while nothing is changing; every tick
  * while a scan runs. */
 #define SETTINGS_LIST_POLL_TICKS 3
+/* Power & Sleep asks sysd for the battery every this many ticks (seconds). */
+#define SETTINGS_BATTERY_POLL_TICKS 5
 /* The Design System has six themes; room for a few more. */
 #define SETTINGS_THEMES_MAX 8
 #define SETTINGS_ZONES_MAX 48
@@ -122,6 +124,7 @@ struct settings_widgets {
     lv_obj_t *timer_down[2];
     lv_obj_t *timer_up[2];
     lv_obj_t *lock_start_btn;
+    lv_obj_t *battery_line[SV_BATTERY_ROWS]; /* read-only battery lines */
     /* Time & Region */
     lv_obj_t *zone_place;
     lv_obj_t *zone_detail;
@@ -150,6 +153,8 @@ struct settings_app {
     struct sv_wifi wifi;
     struct sv_brightness bright;
     struct sv_rotation rot;
+    struct sv_battery battery; /* Power & Sleep, read-only */
+    int battery_tick;
     struct sv_network sel;
     enum sv_join_kind sel_kind;
     struct settings_widgets w;
@@ -187,6 +192,8 @@ void settings_poll_status(struct settings_app *a);
 void settings_poll_networks(struct settings_app *a);
 void settings_poll_brightness(struct settings_app *a);
 void settings_poll_rotation(struct settings_app *a);
+/* sysd's system.status, for the battery on Power & Sleep. */
+void settings_poll_battery(struct settings_app *a);
 void settings_rebuild(struct settings_app *a);
 void settings_repaint(struct settings_app *a);
 void settings_shape(struct settings_app *a);

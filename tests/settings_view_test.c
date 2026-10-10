@@ -444,6 +444,71 @@ int main(void)
         check_str("summary: both", line, "Screen off after 30 s \xc2\xb7 lock after 5 min");
     }
 
+    /* ---- Power & Sleep: the battery, read-only ---------------------------- */
+    {
+        struct sv_battery b;
+        cJSON *st;
+
+        sv_battery_apply(&b, NULL);
+        check_str("battery: sysd not answering", b.value[0], "System service not answering");
+        check_str("and nothing else shown", b.value[1], "-");
+        check_str("battery rows are labelled", b.label[3], "Level");
+
+        st = cJSON_Parse("{\"power\":{\"source\":\"external\",\"battery\":null}}");
+        sv_battery_apply(&b, st);
+        check_str("battery: none, external power (unit A without the base)", b.value[0],
+                  "No battery, external power");
+        check_str("no level without a battery", b.value[3], "-");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"source\":\"battery\",\"battery\":{\"present\":true,"
+                         "\"capacity_percent\":null,\"status\":\"discharging\",\"voltage_v\":3.787,"
+                         "\"current_a\":-0.57,\"reading\":\"ok\",\"age_s\":12,"
+                         "\"gauge\":{\"validated\":false,\"soc_percent\":29}}}}");
+        sv_battery_apply(&b, st);
+        check_str("base gauge: status", b.value[0], "On battery");
+        check_str("base gauge: voltage", b.value[1], "3.79 V");
+        check_str("base gauge: signed current, said in words", b.value[2],
+                  "-0.57 A (out of the battery)");
+        check_str("base gauge: level unknown, the unvalidated SOC not used", b.value[3], "Unknown");
+        check_str("base gauge: how old", b.value[4], "12 s ago");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"source\":\"external\",\"battery\":{\"present\":true,"
+                         "\"capacity_percent\":null,\"status\":\"charging\",\"voltage_v\":4.1,"
+                         "\"current_a\":0.8,\"reading\":\"ok\",\"age_s\":3}}}");
+        sv_battery_apply(&b, st);
+        check_str("charging", b.value[0], "Charging");
+        check_str("charging current", b.value[2], "+0.80 A (into the battery)");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"battery\":{\"present\":null,\"capacity_percent\":null,"
+                         "\"status\":null,\"voltage_v\":null,\"current_a\":null,"
+                         "\"reading\":\"stale\",\"age_s\":400}}}");
+        sv_battery_apply(&b, st);
+        check_str("stale: said", b.value[0], "No recent reading");
+        check_str("stale: no voltage", b.value[1], "-");
+        check_str("stale: no current", b.value[2], "-");
+        check_str("stale: no level", b.value[3], "-");
+        check_str("stale: its age, and why it is not shown", b.value[4], "400 s ago (too old to show)");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"battery\":{\"reading\":\"no-answer\"}}}");
+        sv_battery_apply(&b, st);
+        check_str("no answer from the gauge", b.value[0], "Gauge not answering");
+        cJSON_Delete(st);
+        st = cJSON_Parse("{\"power\":{\"battery\":{\"reading\":\"stopped\"}}}");
+        sv_battery_apply(&b, st);
+        check_str("reading stopped", b.value[0], "Not reading (keyboard protection)");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"battery\":{\"present\":true,\"capacity_percent\":76,"
+                         "\"status\":\"charging\",\"reading\":\"ok\"}}}");
+        sv_battery_apply(&b, st);
+        check_str("a kernel gauge's own percentage is the level", b.value[3], "76 %");
+        cJSON_Delete(st);
+    }
+
     printf("settings_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

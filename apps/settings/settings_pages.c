@@ -496,6 +496,16 @@ static void build_power(struct settings_app *a)
     }
     a->w.lock_start_btn = settings_switch_row(p, "Lock when Doors starts", on_lock_start, a);
 
+    /* The battery, read-only: what sysd last had from the keyboard base's
+     * gauge. No level: the gauge's percentage is not validated for the
+     * fitted pack (docs/hardware/BATTERY_PROBE.md §7). */
+    p = settings_panel(a, "BATTERY", COL_LEFT);
+    for (i = 0; i < SV_BATTERY_ROWS; i++) {
+        a->w.battery_line[i] = settings_wrap_label(p, "", POS_STYLE_TEXT_SECONDARY);
+    }
+    a->battery_tick = 0;
+    settings_poll_battery(a);
+
     /* Three things, never one (power_policy.h): said here in as many words. */
     p = settings_panel(a, "WHAT EACH ONE DOES", COL_RIGHT);
     settings_wrap_label(p, "Screen off: the screen goes dark and Doors keeps running. A touch or a key turns it "
@@ -522,6 +532,14 @@ static void repaint_power(struct settings_app *a)
         settings_set_enabled(a->w.timer_up[i], t.can_up);
     }
     settings_switch_paint(a->w.lock_start_btn, pocketos_shell_lock_at_start());
+    for (i = 0; i < SV_BATTERY_ROWS; i++) {
+        char line[80];
+
+        if (a->w.battery_line[i]) {
+            snprintf(line, sizeof(line), "%s: %s", a->battery.label[i], a->battery.value[i]);
+            lv_label_set_text(a->w.battery_line[i], line);
+        }
+    }
 }
 
 /* ---- Time & Region, and the time zone list ------------------------------------------------- */

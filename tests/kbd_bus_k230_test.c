@@ -56,6 +56,11 @@ static struct fake_gpio {
     int level[FAKE_MAX_SAMPLES];
     unsigned levels;
     unsigned next;
+    /* SCL read back (clock stretching, gauge reads only). Kept out of the
+     * SDA script: a slave stretching the clock is a separate line. */
+    unsigned scl_reads;
+    unsigned scl_low;  /* the next reads of SCL that find it held low */
+    bool scl_stuck;    /* SCL held low for good */
 } g;
 
 static void fake_reset(void)
@@ -104,7 +109,17 @@ enum gpiod_line_value gpiod_line_request_get_value(struct gpiod_line_request *re
                                                    unsigned int offset)
 {
     (void)request;
-    (void)offset;
+    if (offset == OFF_SCL) {
+        g.scl_reads++;
+        if (g.scl_stuck) {
+            return GPIOD_LINE_VALUE_INACTIVE;
+        }
+        if (g.scl_low > 0) {
+            g.scl_low--;
+            return GPIOD_LINE_VALUE_INACTIVE;
+        }
+        return GPIOD_LINE_VALUE_ACTIVE;
+    }
     g.reads++;
     if (g.fail_reads_after >= 0 && g.reads > (unsigned)g.fail_reads_after) {
         return GPIOD_LINE_VALUE_ERROR;
@@ -281,6 +296,85 @@ int main(void)
     fake_reset();
     check("a read on an unclaimed bus fails", k230_read_reg(b, 0x04, &value) != 0);
     check("a write on an unclaimed bus fails", k230_write_reg(b, 0x02, 0x09) != 0);
+
+    /* ---- 7. the battery gauge's block read ------------------------------- */
+    {
+        uint8_t buf[2] = {0x11, 0x22};
+
+        b = test_bus();
+        fake_reset();
+        push_ack(); push_ack(); push_ack();
+        push_byte(0xAC); push_byte(0x0F);
+        check("a two-byte read succeeds when the bus answers",
+              k230_read_block_at(b, 0x55, 0x08, buf, 2) == 0);
+        check("and returns both bytes in bus order", buf[0] == 0xAC && buf[1] == 0x0F);
+
+        b = test_bus();
+        fake_reset();
+        push_nack();
+        check("a block read fails when nothing acknowledges",
+              k230_read_block_at(b, 0x55, 0x08, buf, 2) != 0);
+
+        b = test_bus();
+        fake_reset();
+        push_ack(); push_ack(); push_ack();
+        push_byte(0xAC);
+        g.fail_reads_after = 3 + 8 + 2; /* the line dies in the second byte */
+        check("a block read that dies in its last byte fails",
+              k230_read_block_at(b, 0x55, 0x08, buf, 2) != 0);
+
+        b = test_bus();
+        b->claimed = false;
+        fake_reset();
+        check("a block read on an unclaimed bus fails",
+              k230_read_block_at(b, 0x55, 0x08, buf, 2) != 0);
+        b = test_bus();
+        fake_reset();
+        check("and so does an empty one", k230_read_block_at(b, 0x55, 0x08, buf, 0) != 0);
+
+        /* The gauge stretches the clock (SLUSCB7A §7.3.1.4): the read waits
+         * for SCL rather than clocking on blind. */
+        b = test_bus();
+        fake_reset();
+        push_ack(); push_ack(); push_ack();
+        push_byte(0x34); push_byte(0x12);
+        g.scl_low = 40;
+        check("a block read through a stretched clock succeeds",
+              k230_read_block_at(b, 0x55, 0x08, buf, 2) == 0 && buf[0] == 0x34 && buf[1] == 0x12);
+        check("and waited on SCL to do it", g.scl_reads > 40);
+
+        b = test_bus();
+        fake_reset();
+        push_ack(); push_ack(); push_ack();
+        push_byte(0xA5);
+        check("the keyboard's own read still works", k230_read_reg(b, 0x04, &value) == 0);
+        check("and never reads SCL back", g.scl_reads == 0);
+
+        {
+            struct timespec t0;
+            struct timespec t1;
+            long ms;
+
+            b = test_bus();
+            fake_reset();
+            g.scl_stuck = true;
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+            check("a clock held low for good fails the read",
+                  k230_read_block_at(b, 0x55, 0x08, buf, 2) != 0);
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            ms = (t1.tv_sec - t0.tv_sec) * 1000L + (t1.tv_nsec - t0.tv_nsec) / 1000000L;
+            check("within one stretch bound, not one per clock", ms < 100);
+            check("and leaves the next transaction its own clock", !b->stretch);
+        }
+
+        /* A slave left holding SDA after a failure is clocked free. */
+        b = test_bus();
+        fake_reset();
+        push_ack(); push_nack();      /* address acknowledged, register not */
+        push_byte(0x3F);              /* recovery: SDA low, low, then high */
+        check("a failed block read fails", k230_read_block_at(b, 0x55, 0x08, buf, 2) != 0);
+        check("and clocks SDA free before its stop", g.next == 5);
+    }
 
     printf("kbd_bus_k230_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

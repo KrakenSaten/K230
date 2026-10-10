@@ -10,18 +10,24 @@
  */
 #include "shell_kbd.h"
 
+#include "battery_report.h"
+#include "kbd_battery.h"
 #include "kbd_bus_k230.h"
 #include "kbd_leds.h"
 #include "kbd_picker.h"
 #include "kbd_presence.h"
 #include "kbd_tca8418.h"
 #include "pocketlog/pocketlog.h"
+#include "pocketpaths.h"
 #include "pos_input.h"
 #include "pos_keymap.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 /* The INT line is read on this period and the bus is touched only when it
  * says something is waiting, so an idle keyboard costs microseconds rather
@@ -77,7 +83,22 @@ static struct {
     pos_key_t held_key;
     unsigned held_mods;
     uint64_t held_since_us;
+    struct kbd_battery battery; /* the read-only battery telemetry */
+    bool battery_started;
+    struct battery_report report; /* what sysd was last told */
+    bool report_written;
+    uint64_t report_written_us;
 } kbd;
+
+/* The probe's verbose switch: with this file in the runtime directory every
+ * sample is logged in full (BATTERY_PROBE.md §4). Without it only changes of
+ * state are. `touch /run/pocketos/battery-probe` on the unit. */
+#define BATTERY_PROBE_FLAG "battery-probe"
+
+/* A report without readings (no answer, no base, stopped) is rewritten at
+ * least this often, so sysd can tell "still so" from a shell that went
+ * away. A report with readings is only ever stamped by a new sample. */
+#define BATTERY_REPORT_HEARTBEAT_US 60000000ULL
 
 /* How often the watch retries an expander that did not answer, per keyboard
  * brought up: a base without one costs five probes and then nothing. */
@@ -334,6 +355,14 @@ static void on_poll(lv_timer_t *timer)
     ready = kbd_tca8418_ready(&kbd.chip);
     if (kbd.ready && !ready) {
         LOG_WARN("keyboard: the controller stopped answering; retrying");
+        /* The keys come first: a failure right after a battery probe read
+         * ends the probe for this process (kbd_battery_keys_failed). */
+        if (kbd.battery_started && kbd_battery_keys_failed(&kbd.battery, now_us())) {
+            LOG_WARN("battery probe: stopped: the keyboard controller failed %llu ms after "
+                     "a probe read (%u reads, %u failed); off until the shell restarts",
+                     (unsigned long long)((now_us() - kbd.battery.last_read_us) / 1000u),
+                     kbd.battery.transactions, kbd.battery.failures);
+        }
     } else if (!kbd.ready && ready) {
         pos_keymap_reset(&kbd.map);
         flush_held(); /* its release went with the controller */
@@ -465,6 +494,152 @@ static int start_polling(void)
     return 1;
 }
 
+/* ---- battery telemetry --------------------------------------------------- *
+ *
+ * Read-only: the gauge's and charger's status registers, never their
+ * configuration (kbd_battery.h). Each sample goes to sysd as the battery
+ * report (core/battery_report.h), which system.status turns into
+ * power.battery (docs/api/system.md). It runs from the watch, so on the LVGL
+ * thread, between drains rather than inside one, and only while the keyboard
+ * answers: the gauge and charger are on the base, and a bus that has just
+ * failed for the keys is not one to add traffic to. The watch's one-second
+ * period is already within the gauge's two-commands-a-second limit, and
+ * kbd_battery enforces its own gap on top.
+ *
+ * A keyboard that drops out pauses it without resetting it, so its pacing
+ * and back-off survive the drop - a probe that started over on every
+ * recovery would read the gauge every couple of seconds through a flapping
+ * keyboard, which is what the first hardware run did (BATTERY_PROBE.md §6).
+ * The breaker (KBD_BATTERY_TRIP_US, called from on_poll) ends it for good if
+ * the keys fail right after one of its reads; the report then says so.
+ */
+
+static bool battery_verbose(void)
+{
+    char path[256];
+
+    snprintf(path, sizeof(path), "%s/%s", pocketos_runtime_dir(), BATTERY_PROBE_FLAG);
+    return access(path, F_OK) == 0;
+}
+
+/* Whole or not at all: written beside the report and renamed over it. */
+static void battery_report_write(const struct battery_report *r, uint64_t now)
+{
+    char path[256];
+    char tmp[272];
+    char text[512];
+    FILE *f;
+
+    if (battery_report_format(r, text, sizeof(text)) != 0) {
+        return;
+    }
+    snprintf(path, sizeof(path), "%s/%s", pocketos_runtime_dir(), BATTERY_REPORT_FILE);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    f = fopen(tmp, "w");
+    if (!f) {
+        return;
+    }
+    if (fputs(text, f) < 0) {
+        fclose(f);
+        unlink(tmp);
+        return;
+    }
+    if (fclose(f) != 0 || rename(tmp, path) != 0) {
+        unlink(tmp);
+        return;
+    }
+    kbd.report_written = true;
+    kbd.report_written_us = now;
+}
+
+/* One line when the state changes, never one per sample unless asked. */
+static void battery_state_log(const struct battery_report *r)
+{
+    switch (r->state) {
+    case BATTERY_REPORT_OK:
+        LOG_INFO("battery: reading the gauge (gauge 0x%02x, charger 0x%02x; read-only, "
+                 "a sample every %llu s)",
+                 KBD_BATTERY_GAUGE_ADDR, KBD_BATTERY_CHARGER_ADDR,
+                 KBD_BATTERY_PERIOD_US / 1000000ULL);
+        break;
+    case BATTERY_REPORT_NO_ANSWER:
+        LOG_INFO("battery: the gauge does not answer (0x%02x)", KBD_BATTERY_GAUGE_ADDR);
+        break;
+    case BATTERY_REPORT_STOPPED:
+        LOG_WARN("battery: reading stopped for this shell (keyboard protection)");
+        break;
+    case BATTERY_REPORT_BASE_ABSENT:
+        LOG_INFO("battery: no keyboard base, nothing to read");
+        break;
+    }
+}
+
+static void battery_report_set(const struct battery_report *r, uint64_t now)
+{
+    bool changed = !kbd.report_written || r->state != kbd.report.state;
+
+    kbd.report = *r;
+    battery_report_write(r, now);
+    if (changed) {
+        battery_state_log(r);
+    }
+}
+
+/* A report with no readings in it, stamped now. */
+static void battery_report_bare(enum battery_report_state state, uint64_t now)
+{
+    struct battery_report r;
+
+    memset(&r, 0, sizeof(r));
+    r.monotonic_ms = now / 1000u;
+    r.state = state;
+    battery_report_set(&r, now);
+}
+
+static void battery_watch(void)
+{
+    uint64_t now = now_us();
+    struct battery_report r;
+    char line[512];
+
+    if (!kbd.bus.read_block_at) {
+        return; /* no bus that can read the gauge: no telemetry, no report */
+    }
+    if (!kbd.battery_started) {
+        kbd.battery_started = true;
+        kbd_battery_init(&kbd.battery, &kbd.bus, now);
+    }
+    if (kbd.battery.tripped) {
+        if (!kbd.report_written || kbd.report.state != BATTERY_REPORT_STOPPED ||
+            now - kbd.report_written_us >= BATTERY_REPORT_HEARTBEAT_US) {
+            battery_report_bare(BATTERY_REPORT_STOPPED, now);
+        }
+        return;
+    }
+    if (!kbd.present) {
+        if (!kbd.report_written || kbd.report.state != BATTERY_REPORT_BASE_ABSENT ||
+            now - kbd.report_written_us >= BATTERY_REPORT_HEARTBEAT_US) {
+            battery_report_bare(BATTERY_REPORT_BASE_ABSENT, now);
+        }
+        return;
+    }
+    if (!kbd_tca8418_ready(&kbd.chip)) {
+        return; /* paused, not reset; the last report ages as it should */
+    }
+    if (kbd_battery_tick(&kbd.battery, now) == 1) {
+        kbd_battery_report(&kbd.battery.last, now / 1000u, &r);
+        battery_report_set(&r, now);
+        if (battery_verbose()) {
+            kbd_battery_format(&kbd.battery.last, line, sizeof(line));
+            LOG_INFO("battery probe: %s", line);
+        }
+    } else if (kbd.report_written && kbd.report.state != BATTERY_REPORT_OK &&
+               now - kbd.report_written_us >= BATTERY_REPORT_HEARTBEAT_US) {
+        /* Still no answer between backed-off samples: say so again. */
+        battery_report_bare(kbd.report.state, now);
+    }
+}
+
 static void on_watch(lv_timer_t *timer)
 {
     (void)timer;
@@ -491,6 +666,7 @@ static void on_watch(lv_timer_t *timer)
                      KBD_LEDS_XL9555_ADDR);
         }
     }
+    battery_watch();
     kbd_presence_observe(observed());
 }
 

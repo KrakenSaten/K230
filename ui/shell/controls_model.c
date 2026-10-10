@@ -206,6 +206,18 @@ void controls_battery_text(const cJSON *status, char *out, int len)
                  is(word(power, "source"), "external") ? "External power" : "Unknown");
         return;
     }
+    /* A reading that is not current says so and shows nothing old as new
+     * (docs/api/system.md, battery.reading). */
+    if (word(bat, "reading") && !is(word(bat, "reading"), "ok")) {
+        const char *r = word(bat, "reading");
+
+        snprintf(out, (size_t)len, "%s",
+                 is(r, "stale") ? "No recent reading"
+                 : is(r, "stopped") ? "Not reading"
+                 : is(r, "no-answer") ? "Gauge not answering"
+                                      : "Unknown");
+        return;
+    }
     present = obj(bat, "present");
     if (cJSON_IsFalse(present)) {
         snprintf(out, (size_t)len, "No battery");
@@ -214,7 +226,8 @@ void controls_battery_text(const cJSON *status, char *out, int len)
     cap = obj(bat, "capacity_percent");
     w = battery_word(word(bat, "status"));
     /* The gauge's own figure, whole, or nothing: sysd has already refused
-     * anything outside 0..100. */
+     * anything outside 0..100, and gives none for a gauge it has not
+     * validated - the level is then simply not shown. */
     if (cJSON_IsNumber(cap) && cap->valuedouble >= 0 && cap->valuedouble <= 100) {
         if (w) {
             snprintf(out, (size_t)len, "%d %% \xc2\xb7 %s", (int)cap->valuedouble, w);
@@ -222,7 +235,17 @@ void controls_battery_text(const cJSON *status, char *out, int len)
             snprintf(out, (size_t)len, "%d %%", (int)cap->valuedouble);
         }
     } else {
-        snprintf(out, (size_t)len, "%s", w ? w : "Battery");
+        const cJSON *v = obj(bat, "voltage_v");
+
+        if (cJSON_IsNumber(v) && v->valuedouble > 0) {
+            if (w) {
+                snprintf(out, (size_t)len, "%s \xc2\xb7 %.2f V", w, v->valuedouble);
+            } else {
+                snprintf(out, (size_t)len, "%.2f V", v->valuedouble);
+            }
+        } else {
+            snprintf(out, (size_t)len, "%s", w ? w : "Battery");
+        }
     }
 }
 

@@ -164,6 +164,39 @@ int main(void)
     check("a battery that says nothing", row_is(&d, DIAG_ROW_BATTERY, "Battery, level unknown"));
     apply_system(&d, &sv, "{\"power\":{\"battery\":{\"present\":false}}}");
     check("a gauge with no cell", row_is(&d, DIAG_ROW_BATTERY, "No battery"));
+    check("and no gauge figures", row_is(&d, DIAG_ROW_GAUGE, SYSTEM_VIEW_UNKNOWN));
+
+    /* ---- the keyboard base's gauge (docs/api/system.md) ----------------- */
+    apply_system(&d, &sv, "{\"power\":{\"source\":\"battery\",\"battery\":{\"present\":true,"
+                          "\"capacity_percent\":null,\"status\":\"discharging\","
+                          "\"voltage_v\":3.787,\"current_a\":-0.57,\"reading\":\"ok\",\"age_s\":12,"
+                          "\"gauge\":{\"validated\":false,\"soc_percent\":29,"
+                          "\"full_charge_capacity_mah\":3512,\"design_capacity_mah\":3000}}}}");
+    check("base gauge: status, voltage, signed current, level unknown",
+          row_is(&d, DIAG_ROW_BATTERY,
+                 "On battery \xC2\xB7 3.79 V \xC2\xB7 -0.57 A \xC2\xB7 level unknown") &&
+              !d.rows[DIAG_ROW_BATTERY].warn);
+    check("the gauge's own figures, labelled unvalidated",
+          row_is(&d, DIAG_ROW_GAUGE,
+                 "Unvalidated \xC2\xB7 SOC 29 % \xC2\xB7 full 3512 mAh \xC2\xB7 design 3000 mAh"));
+    apply_system(&d, &sv, "{\"power\":{\"source\":\"external\",\"battery\":{\"present\":true,"
+                          "\"capacity_percent\":null,\"status\":\"charging\",\"voltage_v\":4.1,"
+                          "\"current_a\":0.8,\"reading\":\"ok\",\"gauge\":null}}}");
+    check("charging current is signed plus",
+          row_is(&d, DIAG_ROW_BATTERY,
+                 "Charging \xC2\xB7 4.10 V \xC2\xB7 +0.80 A \xC2\xB7 level unknown"));
+    check("no gauge object, no gauge figures", row_is(&d, DIAG_ROW_GAUGE, SYSTEM_VIEW_UNKNOWN));
+    apply_system(&d, &sv, "{\"power\":{\"source\":\"unknown\",\"battery\":{\"present\":null,"
+                          "\"capacity_percent\":null,\"status\":null,\"voltage_v\":null,"
+                          "\"current_a\":null,\"reading\":\"stale\",\"age_s\":400,\"gauge\":null}}}");
+    check("a stale reading: how old, no values, flagged",
+          row_is(&d, DIAG_ROW_BATTERY, "No reading for 400 s") && d.rows[DIAG_ROW_BATTERY].warn);
+    check("and the old gauge figures are gone", row_is(&d, DIAG_ROW_GAUGE, SYSTEM_VIEW_UNKNOWN));
+    apply_system(&d, &sv, "{\"power\":{\"battery\":{\"reading\":\"no-answer\",\"gauge\":null}}}");
+    check("the gauge not answering", row_is(&d, DIAG_ROW_BATTERY, "Gauge not answering"));
+    apply_system(&d, &sv, "{\"power\":{\"battery\":{\"reading\":\"stopped\",\"gauge\":null}}}");
+    check("reading stopped",
+          row_is(&d, DIAG_ROW_BATTERY, "Reading stopped (keyboard protection)"));
     apply_system(&d, &sv, "{\"bluetooth\":{\"controllers\":[\"hci0\",\"hci1\"]}}");
     check("controllers named", row_is(&d, DIAG_ROW_BLUETOOTH, "hci0, hci1"));
 
@@ -172,6 +205,9 @@ int main(void)
     check("sysd not answering is said, with a warning",
           row_is(&d, DIAG_ROW_SERVICES, "sysd not answering") && d.rows[DIAG_ROW_SERVICES].warn);
     check("and the values already shown are kept", row_is(&d, DIAG_ROW_BLUETOOTH, "hci0, hci1"));
+    check("except the battery's: no old reading stays up as current",
+          row_is(&d, DIAG_ROW_BATTERY, SYSTEM_VIEW_UNKNOWN) &&
+              row_is(&d, DIAG_ROW_GAUGE, SYSTEM_VIEW_UNKNOWN));
 
     /* ---- the radio ---- */
     apply(diag_view_apply_radio, &d, NULL);
