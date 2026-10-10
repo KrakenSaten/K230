@@ -373,3 +373,43 @@ tree change and needs a proposal under ADR-001. A second, optional kernel patch
 would restore the LT9611 hotplug event and set `connector->polled =
 DRM_CONNECTOR_POLL_HPD`. Neither is worth doing before the gate has shown the
 vendor tree driving a monitor on unit A.
+
+## 10. The Doors HDMI tree and the shell on a monitor (branch `feat/vision-hdmi`, 2026-10-10)
+
+The step above, taken for Vision on a monitor. Read-only checks on unit B
+(2026-10-10, `VISION_HDMI_GATE.md`): the v0.3.6 image's HDMI tree is still the
+vendor one (sha256 `2a6b49ad…`), and the decompiled tree has a `v4l2-isp`
+naming the `gc2093` but no `gc2093@37` node, no I2C4 pins and no MCLK1 set-up
+on `mipi.0` - so the camera cannot start in an HDMI boot. VERIFIED (decompiled
+DTB from unit B); the effect on the running camera is ASSUMED, never tried.
+
+- **Kernel patch 0075** (ADR-011) makes `k230-canmv-rm69a10-hdmi.dts` the
+  board's panel tree with three changes: the panel deleted and the DSI port
+  wired to the LT9611; the GT9895 deleted and the LT9611 added on `i2c3`
+  @0x3b (reset GPIO24, IRQ GPIO23 falling, nodes as the SDK's
+  `k230-canmv-v3.dts`); `canaan,skip-fbdev-setup` deleted, as the vendor tree
+  the gate proved runs fbdev. No `hdmi_i2c3_pins` group is added: the panel
+  tree has none either, and its GT9895 and the LT9611 at 0x3b both answer on
+  that bus (VERIFIED on unit A, 2026-09-07 and 2026-09-27). The file name,
+  the pointer files and the build's boot artefacts stay as they are; the
+  vendor tree is still on every card as `k230-canmv-v3.dtb`. Built on the
+  host with the SDK kernel tree's own `cpp` and `dtc`: sha256 `bb346f9e…`,
+  59,754 B; the same recipe rebuilds the panel tree byte for byte. Its
+  decompiled form differs from the panel tree's in the model string, the
+  bridge for the touch node, the panel and its endpoint, the fbdev property
+  and the connector - nothing else but phandle numbers. Not yet booted.
+- **The shell on an external display** (`ui/shell/shell_display.h`): when the
+  DRM device has an `HDMI-A` connector (sysfs, read before the display is
+  opened), the shell runs at rotation 0 in the monitor's mode with no corner
+  insets, and the orientation mode and the keyboard no longer turn the
+  display. The unit's own hold (`hold_rotation`, app.h) is still the mode's
+  and the keyboard's, and Camera and Vision turn their pictures by it.
+  `POCKETOS_EXTERNAL_DISPLAY` overrides the detection (0, 1, WxH), which is
+  how the simulator tests it.
+- **Vision with keys** (DS §38.10): arrows, Enter, Esc and Back reach every
+  control, because touch has no driver in this tree.
+
+Unchanged and still open: HDMI is chosen at boot only (`pos-display-boot`),
+there is no hotplug event and no automatic return to the panel on unplug, a
+boot with no monitor leaves the shell in its crash-loop state (§8), and 720p
+from the shell is untested.

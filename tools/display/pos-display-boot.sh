@@ -105,8 +105,8 @@ cmd_hdmi() {
     mv -f "${FORCE}.tmp" "${FORCE}" || { rm -f "${FORCE}.tmp"; fail "cannot write ${FORCE}"; }
     sync
     say "next boot: hdmi (${hdmi_name})"
-    say "  The AMOLED is not driven in this mode. The HDMI tree is the vendor's CanMV-K230 v3"
-    say "  description: no LoRa (spi0), no touch, no uart1, no camera sensor node."
+    say "  The AMOLED is not driven in this mode, and there is no touch: the touch controller"
+    say "  shares its reset and interrupt lines with the HDMI bridge. Use the keyboard base."
     say "  Back to the panel: pos-display-boot lcd && reboot"
     return 0
 }
