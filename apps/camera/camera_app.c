@@ -95,19 +95,27 @@ static int64_t now_ms(void)
     return (int64_t)lv_tick_get();
 }
 
-/* The display's rotation in degrees: the sensor is fixed to the unit, so how
- * its picture is turned follows the panel, not the body's shape. */
-static int display_rotation(void)
-{
-    return pos_rotation_degrees(pocketui_display_geometry()->rotation);
-}
-
-static bool portrait_now(void)
+/* How the unit is held: the sensor is fixed to the unit, so how its
+ * picture is turned follows the hold, not the body's shape - the panel's
+ * rotation, or on an external display the mode's and the keyboard's
+ * (app.h). */
+static struct pocketos_orientation hold_now(void)
 {
     struct pocketos_orientation o;
 
     pocketos_shell_orientation(&o);
-    return !o.landscape;
+    return o;
+}
+
+static int display_rotation(void)
+{
+    return hold_now().hold_rotation;
+}
+
+/* Whether the upright picture is tall: the unit held in portrait. */
+static bool portrait_now(void)
+{
+    return !hold_now().hold_landscape;
 }
 
 static void set_hidden(lv_obj_t *obj, bool hidden)

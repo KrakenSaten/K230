@@ -1058,6 +1058,9 @@ void pocketos_shell_orientation(struct pocketos_orientation *out)
     out->next_landscape = is_landscape(next);
     out->applying = next != sh.display.geometry.rotation;
     out->keyboard = (enum pocketos_keyboard)kbd_presence_get();
+    out->external = sh.display.external;
+    out->hold_rotation = pos_rotation_degrees(shell_display_hold_rotation(&sh.display));
+    out->hold_landscape = shell_display_hold_landscape(&sh.display);
 }
 
 static void rotation_to_json(cJSON *o)
@@ -1075,6 +1078,8 @@ static void rotation_to_json(cJSON *o)
     cJSON_AddBoolToObject(o, "applying", now.applying);
     cJSON_AddStringToObject(o, "keyboard", kbd_presence_name(kbd_presence_get()));
     cJSON_AddBoolToObject(o, "bench_override", sh.display.bench_override);
+    cJSON_AddBoolToObject(o, "external", now.external);
+    cJSON_AddNumberToObject(o, "hold_rotation", now.hold_rotation);
     if (sh.display.portrait_app) {
         cJSON_AddStringToObject(o, "portrait_app", sh.display.portrait_app);
     } else {
@@ -3875,7 +3880,9 @@ int main(int argc, char **argv)
         return 1;
     }
     /* From here on the display, the touch transform and every layout use this
-     * one geometry, as the backend confirmed it. */
+     * one geometry, as the backend confirmed it - an external display's
+     * shape included. */
+    shell_display_opened(&sh.display);
     pocketui_set_display_geometry(&sh.display.geometry);
     {
         const struct pos_display_geometry *g = &sh.display.geometry;

@@ -79,6 +79,9 @@ void pocketos_shell_orientation(struct pocketos_orientation *out)
     memset(out, 0, sizeof(*out));
     out->landscape = pocketui_display_geometry()->width > pocketui_display_geometry()->height;
     out->next_landscape = out->landscape;
+    /* The panel: the unit is held as the display is turned (app.h). */
+    out->hold_rotation = pos_rotation_degrees(pocketui_display_geometry()->rotation);
+    out->hold_landscape = out->landscape;
 }
 
 void pocketlog_write(enum pocketlog_level level, const char *fmt, ...)
