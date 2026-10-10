@@ -474,6 +474,10 @@ void rift_tiles_want(struct rift_tiles *t, const struct rift_map_tile *tiles, in
     t->nwant = nk;
     t->pending = nk;
     t->why[0] = '\0';
+    /* The silence that counts is since this was asked: a helper idle for
+     * minutes before it is not silent (unit B, 2026-10-10: the first pan
+     * after an idle spell killed a healthy helper). */
+    t->last_line_ms = now_ms;
 }
 
 /* ---- answers ------------------------------------------------------------------------ */

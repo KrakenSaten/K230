@@ -367,6 +367,25 @@ static void client(void)
     gen = t.gen;
     rift_tiles_want(&t, a, 4, now_ms());
     check("the same view again asks for nothing", t.gen == gen);
+    {
+        /* An idle spell longer than the silence deadline, then a pan: the
+         * helper is not silent, it was not asked anything. */
+        int64_t later = now_ms() + 2 * RIFT_TILES_SILENCE_MS;
+        int64_t end = now_ms() + 3000;
+
+        pid = t.pid;
+        row(b, 2, 12, 2180, 1190);
+        rift_tiles_want(&t, b, 2, later);
+        rift_tiles_poll(&t, later + 100);
+        check("after an idle spell the next request does not count as silence",
+              rift_tiles_running(&t) && !t.killed && t.pid == pid);
+        while (now_ms() < end && t.pending > 0) {
+            rift_tiles_poll(&t, later + 200);
+            nap_ms(5);
+        }
+        check("and it is answered by the same helper", t.pending == 0 && t.pid == pid &&
+                                                         rift_tiles_pixels(&t, 12, 2181, 1190, NULL, NULL));
+    }
 
     /* A view left before its tiles came: on the slow server, ask for one
      * row, then at once for another. */
