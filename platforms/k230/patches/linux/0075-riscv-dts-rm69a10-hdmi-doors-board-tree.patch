@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doors <doors@localhost>
+Date: Sat, 10 Oct 2026 00:00:00 +0000
+Subject: [PATCH] riscv: dts: rm69a10-hdmi: the board's own tree with the
+ LT9611 in place of the panel
+
+Applies on top of the LILYGO BSP stack (after 0062 and 0064) and Doors
+0070-0074. Doors-owned; see docs/decisions/ADR-011-kernel-patches.md and
+docs/hardware/HDMI_OUTPUT.md in the Doors repository.
+
+BSP patch 0062 made k230-canmv-rm69a10-hdmi.dts an include of the SDK's
+k230-canmv-v3.dts, a CanMV-K230 board description. On the T-Display K230
+that tree drives the LT9611 (HDMI_GATE.md rounds 1-6) but it has no
+camera sensor node, no I2C4 or MCLK1 pin set-up for the sensor, spi0 (LoRa)
+and uart1 (nRF52840) disabled, no BOOT key and an 8-bit eMMC description of
+the SDIO Wi-Fi slot (DOCUMENTED: decompiled DTB, sha256 2a6b49ad..., the
+same on every Doors image and VERIFIED on unit B 2026-10-10). So an HDMI
+boot loses the camera and the radio, which no userspace change can bring
+back.
+
+This makes the HDMI tree the board's own panel tree with exactly three
+changes, so the camera, LoRa, the nRF52840 link, the keyboard base's pin
+set-up, the BOOT key, Wi-Fi and the memory map are those of a panel boot:
+
+- the RM69A10 panel node is deleted and the DSI host's port 1 endpoint is
+  wired to the LT9611 (the panel and the bridge share the DSI lanes on this
+  board; canaan_dsi takes whichever device is on port 1);
+- the GT9895 touch node is deleted and the LT9611 added on i2c3 @0x3b,
+  reset GPIO24, interrupt GPIO23 falling, with the hdmi-connector node. The
+  touch controller and the bridge share GPIO23 and GPIO24 on the board
+  (schematic sheet 7), so only one can have a driver. Bridge and connector
+  nodes as in the SDK's k230-canmv-v3.dts;
+- canaan,skip-fbdev-setup is deleted, so fbdev emulation runs as it did
+  with the vendor HDMI tree the gate proved.
+
+The decompiled DTB differs from the panel tree's in exactly those nodes,
+the model string and the phandle numbering. The panel tree
+(k230-canmv-rm69a10.dts) is not changed. The vendor's #if 0 reference block
+in this file is kept as it was.
+
+Signed-off-by: Doors <doors@localhost>
+---
+ arch/riscv/boot/dts/canaan/k230-canmv-rm69a10-hdmi.dts | 90 ++++++++++++++++++++--
+ 1 file changed, 85 insertions(+), 5 deletions(-)
+
+--- a/arch/riscv/boot/dts/canaan/k230-canmv-rm69a10-hdmi.dts
++++ b/arch/riscv/boot/dts/canaan/k230-canmv-rm69a10-hdmi.dts
+@@ -221,10 +221,90 @@
+ #endif
+ 
+ /*
+- * The board-specific HDMI attempt above is kept for reference but is not used.
+- * The SDK CanMV v3 HDMI DTB was verified on T-Display K230: LT9611 probes,
+- * EDID is read, and HDMI-A-1 exposes 800x480@60. Reuse that known-good HDMI
+- * graph until a reduced board-specific DTS is proven.
++ * Doors: the LILYGO T-Display K230 with its display output on the LT9611
++ * DSI-to-HDMI bridge instead of the RM69A10 AMOLED.
++ *
++ * This is the board's own panel tree (k230-canmv-rm69a10.dts, with every
++ * BSP and Doors change to it) with exactly three things changed, so an HDMI
++ * boot keeps the camera, LoRa, the nRF52840 link, the keyboard base, the
++ * BOOT key, the SDIO Wi-Fi and the memory map of a panel boot:
++ *
++ *  - the RM69A10 panel is removed and the DSI host's output port is wired
++ *    to the bridge (the panel and the bridge share the DSI lanes; the DSI
++ *    driver takes whichever device is on port 1);
++ *  - the GT9895 touch controller is removed and the LT9611 is added on the
++ *    same bus (i2c3 @0x3b). They share reset GPIO24 and interrupt GPIO23 on
++ *    the board, so only one of them can have a driver;
++ *  - fbdev emulation is enabled again, as in the vendor HDMI tree that the
++ *    Doors HDMI gate proved (the panel tree skips it to keep the U-Boot
++ *    splash on the AMOLED).
++ *
++ * The bridge and connector nodes are the SDK's k230-canmv-v3.dts ones.
++ * Doors-owned; see docs/hardware/HDMI_OUTPUT.md in the Doors repository.
+  */
++#include "k230-canmv-rm69a10.dts"
+ 
+-#include "k230-canmv-v3.dts"
++/ {
++	model = "Canaan CanMV-K230 with LT9611 HDMI";
++
++	hdmi: connector {
++		compatible = "hdmi-connector";
++		label = "hdmi";
++		type = "a";
++
++		port {
++			hdmi_connector_in: endpoint {
++				remote-endpoint = <&lt9611_out>;
++			};
++		};
++	};
++};
++
++&display {
++	/delete-property/ canaan,skip-fbdev-setup;
++};
++
++&dsi {
++	/delete-node/ panel@0;
++
++	ports {
++		port@1 {
++			/delete-node/ endpoint;
++
++			dsi_out_lt9611: endpoint {
++				remote-endpoint = <&lt9611_in>;
++			};
++		};
++	};
++};
++
++&i2c3 {
++	/delete-node/ gt9895@5d;
++
++	lt9611: hdmi-bridge@3b {
++		compatible = "lontium,lt9611";
++		reg = <0x3b>;
++		reset-gpios = <&gpio0_ports 24 GPIO_ACTIVE_HIGH>;
++		interrupt-parent = <&gpio0_ports>;
++		interrupts = <23 IRQ_TYPE_EDGE_FALLING>;
++
++		ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			port@1 {
++				reg = <1>;
++				lt9611_in: endpoint {
++					remote-endpoint = <&dsi_out_lt9611>;
++				};
++			};
++
++			port@2 {
++				reg = <2>;
++				lt9611_out: endpoint {
++					remote-endpoint = <&hdmi_connector_in>;
++				};
++			};
++		};
++	};
++};
