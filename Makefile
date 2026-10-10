@@ -534,9 +534,10 @@ tests/kbd_tca8418_test: tests/kbd_tca8418_test.o ui/shell/kbd_tca8418.o
 # all pure C: the action mapping and its rules against a fake host, the
 # XL9555 indicator LEDs against a register model, the microphone and camera
 # activity against a fake /proc and /sys, and the keyboard light's PWM
-# against a fake sysfs tree. The shell links the same sources (CMake).
-HWCTL_OBJS := ui/shell/hw_actions.o ui/shell/kbd_leds.o ui/shell/hw_activity.o ui/shell/kbd_light.o
-HWCTL_TESTS := tests/hw_actions_test tests/kbd_leds_test tests/hw_activity_test tests/kbd_light_test
+# against a fake sysfs tree, and the read-only battery probe against a
+# BQ27220/BQ25896 register model. The shell links the same sources (CMake).
+HWCTL_OBJS := ui/shell/hw_actions.o ui/shell/kbd_leds.o ui/shell/kbd_battery.o ui/shell/hw_activity.o ui/shell/kbd_light.o
+HWCTL_TESTS := tests/hw_actions_test tests/kbd_leds_test tests/kbd_battery_test tests/hw_activity_test tests/kbd_light_test
 
 ui/shell/hw_actions.o: ui/shell/hw_actions.c ui/shell/hw_actions.h ui/shell/brightness.h ui/shell/volume.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
@@ -560,6 +561,15 @@ tests/kbd_leds_test.o: tests/kbd_leds_test.c ui/shell/kbd_leds.h ui/shell/kbd_bu
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
 tests/kbd_leds_test: tests/kbd_leds_test.o ui/shell/kbd_leds.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+ui/shell/kbd_battery.o: ui/shell/kbd_battery.c ui/shell/kbd_battery.h ui/shell/kbd_bus.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_battery_test.o: tests/kbd_battery_test.c ui/shell/kbd_battery.h ui/shell/kbd_bus.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_battery_test: tests/kbd_battery_test.o ui/shell/kbd_battery.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/hw_activity_test.o: tests/hw_activity_test.c ui/shell/hw_activity.h
@@ -2374,6 +2384,7 @@ test: all $(TEST_BINS)
 	./tests/kbd_bus_k230_test
 	./tests/hw_actions_test
 	./tests/kbd_leds_test
+	./tests/kbd_battery_test
 	./tests/hw_activity_test
 	./tests/kbd_light_test
 	./tests/pocketaudio_test

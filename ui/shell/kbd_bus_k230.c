@@ -272,6 +272,41 @@ static int i2c_read_byte(struct k230_bus *b, bool ack, uint8_t *out)
     return 0;
 }
 
+/* The same read as read_at below, for len bytes: every byte but the last is
+ * acknowledged and the last NACK ends it. Kept apart from read_at so the
+ * keyboard's own reads go through exactly the code they always did. */
+static int read_block(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *buf,
+                      unsigned len)
+{
+    int rc = -1;
+    unsigned i;
+
+    if (!b->claimed || !buf || len == 0) {
+        return -1;
+    }
+    b->io_error = false;
+    i2c_start(b);
+    if (i2c_write_byte(b, (uint8_t)(addr << 1)) != 0) {
+        goto out;
+    }
+    if (i2c_write_byte(b, reg) != 0) {
+        goto out;
+    }
+    i2c_start(b); /* repeated start */
+    if (i2c_write_byte(b, (uint8_t)((addr << 1) | 1u)) != 0) {
+        goto out;
+    }
+    for (i = 0; i < len; i++) {
+        if (i2c_read_byte(b, i + 1u < len, &buf[i]) != 0) {
+            goto out;
+        }
+    }
+    rc = 0;
+out:
+    i2c_stop(b); /* the bus is released whatever happened */
+    return b->io_error ? -1 : rc;
+}
+
 static int read_at(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *value)
 {
     int rc = -1;
@@ -346,6 +381,13 @@ static int k230_read_reg_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t *value
 static int k230_write_reg_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t value)
 {
     return write_at(ctx, addr, reg, value);
+}
+
+/* The battery gauge's words (kbd_battery.h): the same bus, the same claim,
+ * the same timing, more than one byte read. */
+static int k230_read_block_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t *buf, unsigned len)
+{
+    return read_block(ctx, addr, reg, buf, len);
 }
 
 /* ---- claim, release, reset, INT ---------------------------------------- */
@@ -662,6 +704,7 @@ int kbd_bus_k230_create(struct kbd_bus *bus, char *why, size_t why_len)
     bus->ctx = b;
     bus->read_reg_at = k230_read_reg_at;
     bus->write_reg_at = k230_write_reg_at;
+    bus->read_block_at = k230_read_block_at;
     return 0;
 }
 

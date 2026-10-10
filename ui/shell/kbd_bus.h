@@ -48,6 +48,13 @@ struct kbd_bus {
      * Appended, so a bus that says nothing about them still initialises. */
     int (*read_reg_at)(void *ctx, uint8_t addr, uint8_t reg, uint8_t *value);
     int (*write_reg_at)(void *ctx, uint8_t addr, uint8_t reg, uint8_t value);
+
+    /* A read of len consecutive bytes from reg at addr in one transaction
+     * (one register-address write, a repeated start, then len bytes, all but
+     * the last acknowledged): what the battery gauge's two-byte words need
+     * so both halves come from one packet (kbd_battery.h). Inside a claim.
+     * NULL on a bus that has no such read; the battery probe is then off. */
+    int (*read_block_at)(void *ctx, uint8_t addr, uint8_t reg, uint8_t *buf, unsigned len);
 };
 
 #endif

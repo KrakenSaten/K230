@@ -10,18 +10,22 @@
  */
 #include "shell_kbd.h"
 
+#include "kbd_battery.h"
 #include "kbd_bus_k230.h"
 #include "kbd_leds.h"
 #include "kbd_picker.h"
 #include "kbd_presence.h"
 #include "kbd_tca8418.h"
 #include "pocketlog/pocketlog.h"
+#include "pocketpaths.h"
 #include "pos_input.h"
 #include "pos_keymap.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
 
 /* The INT line is read on this period and the bus is touched only when it
  * says something is waiting, so an idle keyboard costs microseconds rather
@@ -77,7 +81,14 @@ static struct {
     pos_key_t held_key;
     unsigned held_mods;
     uint64_t held_since_us;
+    struct kbd_battery battery; /* the opt-in diagnostic probe */
+    bool battery_on;
 } kbd;
+
+/* The battery probe's switch: a file in the runtime directory (tmpfs), so
+ * turning it on takes no restart, writes nothing persistent and is gone
+ * after a reboot. `touch /run/pocketos/battery-probe` on the unit. */
+#define BATTERY_PROBE_FLAG "battery-probe"
 
 /* How often the watch retries an expander that did not answer, per keyboard
  * brought up: a base without one costs five probes and then nothing. */
@@ -465,6 +476,50 @@ static int start_polling(void)
     return 1;
 }
 
+/* ---- the battery probe -------------------------------------------------- *
+ *
+ * Diagnostic only: a log line per sample and nothing else - no UI, nothing
+ * published (kbd_battery.h). It runs from the watch, so on the LVGL thread,
+ * between drains rather than inside one, and only while the keyboard answers:
+ * the gauge and charger are on the base, and a bus that has just failed for
+ * the keys is not one to add traffic to. The watch's one-second period is
+ * already within the gauge's two-commands-a-second limit, and kbd_battery
+ * enforces its own gap on top.
+ */
+
+static bool battery_wanted(void)
+{
+    char path[256];
+
+    snprintf(path, sizeof(path), "%s/%s", pocketos_runtime_dir(), BATTERY_PROBE_FLAG);
+    return access(path, F_OK) == 0;
+}
+
+static void battery_watch(void)
+{
+    bool on = kbd.present && kbd_tca8418_ready(&kbd.chip) && kbd.bus.read_block_at &&
+              battery_wanted();
+    char line[512];
+
+    if (on != kbd.battery_on) {
+        kbd.battery_on = on;
+        if (on) {
+            kbd_battery_init(&kbd.battery, &kbd.bus, now_us());
+            LOG_INFO("battery probe: on (read-only; gauge 0x%02x, charger 0x%02x; "
+                     "one register per %llu ms, a sample every %llu s)",
+                     KBD_BATTERY_GAUGE_ADDR, KBD_BATTERY_CHARGER_ADDR,
+                     KBD_BATTERY_STEP_GAP_US / 1000ULL, KBD_BATTERY_PERIOD_US / 1000000ULL);
+        } else {
+            LOG_INFO("battery probe: off after %u samples (%u reads, %u failed)",
+                     kbd.battery.samples, kbd.battery.transactions, kbd.battery.failures);
+        }
+    }
+    if (on && kbd_battery_tick(&kbd.battery, now_us()) == 1) {
+        kbd_battery_format(&kbd.battery.last, line, sizeof(line));
+        LOG_INFO("battery probe: %s", line);
+    }
+}
+
 static void on_watch(lv_timer_t *timer)
 {
     (void)timer;
@@ -491,6 +546,7 @@ static void on_watch(lv_timer_t *timer)
                      KBD_LEDS_XL9555_ADDR);
         }
     }
+    battery_watch();
     kbd_presence_observe(observed());
 }
 
