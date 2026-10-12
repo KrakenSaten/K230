@@ -19,7 +19,7 @@ Records:
 | Failure | `RuntimeError: level_zero backend failed with error: 20 (UR_RESULT_ERROR_DEVICE_LOST)` in YOLOX's SimOTA assignment (`yolo_head.py:454`, boolean-mask indexing) |
 | Diagnosis | Windows System log: no event 08:20-08:30, no display-driver reset since start. XPU healthy afterwards: `xpu_check.py` ok, torch 2.13.0+xpu, driver 32.0.101.8531 unchanged. Cause unknown. R0 and R1-A ran the same assignment code about 61 h each without it. |
 | Session 2 | One resume attempt at 08:27:12 from `latest_ckpt.pth` (epoch 5, sha256 `d519c7fd…`), configuration unchanged. Stopped normally after epoch 20 at 11:53:31. |
-| Runtime | 4 h 48 min wall clock. Completed epochs 1-20: 16,253 s training + 88 s validation. About 13 min lost to the crash and restart. |
+| Runtime (from timestamps) | Wall clock 4.78 h (`run.json` session 1 start 07:06:37 to session 2 end 11:53:31). Completed epochs 1-20, abandoned iterations excluded: 16,253 s training + 88 s validation = 4.54 h. Lost: **14.4 min**. That is 11.2 min of abandoned epoch-6 work (2,010 iterations, epoch-5 checkpoint 08:13:40 to the crash 08:24:49) plus a 3.2 min restart gap (to session 2 start 08:28:03). Corrected 2026-10-12: an in-progress message said "1.2 hours lost", which confused the time into the run with the time lost, and this record first said "about 13 min". |
 | Logs | `iters.jsonl` holds the crashed session's partial epoch 6 (iterations 1-2,010) before the resumed epoch 6. `epochs.jsonl` holds epochs 1-20 once. |
 | Peak VRAM | 2,894 MiB reserved (R0 2,726) |
 
