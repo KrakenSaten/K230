@@ -95,6 +95,7 @@ APP_ICONS = {
     "camera": (EXTENSION + "camera.svg", "tools"),
     "recorder": (EXTENSION + "recorder.svg", "tools"),
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
+    "ninjaone": (FIRST_PARTY + "ninjaone.svg", "tools"),
     "browser": (FIRST_PARTY + "browser.svg", "network"),
     "vision": (FIRST_PARTY + "vision.svg", "ai"),
     "mp3": (FIRST_PARTY + "mp3.svg", "apps"),

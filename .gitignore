@@ -274,3 +274,8 @@ BUILD_ID
 /tests/db_vision_test
 /tests/db_guard_test
 /tests/db_pipeline_test
+
+# NinjaOne host helper and scratch work
+tools/ninjaone/pos-ninjaone
+work/
+tools/ninjaone/__pycache__/
