@@ -198,12 +198,15 @@ else
 NINJAONE_TRANSPORT := tools/ninjaone/pos_ninjaone_none.o
 endif
 NINJAONE_OBJS := core/ninjaone/ninja_model.o core/ninjaone/ninja_api.o core/ninjaone/ninja_token.o
-$(NINJAONE_TRANSPORT): tools/ninjaone/pos_ninjaone.c
+$(NINJAONE_TRANSPORT): tools/ninjaone/pos_ninjaone.c tools/ninjaone/ninja_oauth.h core/ninjaone/ninja_auth.h
 	$(CC) $(ALL_CFLAGS) $(if $(filter 1,$(NINJAONE_CURL)),-DNINJA_CURL) -c -o $@ $<
 .PHONY: ninjaone-link
 ninjaone-link:
 tools/ninjaone/pos-ninjaone: ninjaone-link $(NINJAONE_TRANSPORT) $(NINJAONE_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $(filter %.o,$^) $(LDFLAGS) $(LDLIBS) $(NINJAONE_LIBS)
+.PHONY: ninjaone-auth-test
+ninjaone-auth-test: tools/ninjaone/pos-ninjaone
+	bash tests/ninjaone_auth_test.sh
 .PHONY: ninjaone-test
 ninjaone-test: tools/ninjaone/pos-ninjaone
 	bash tests/ninjaone_test.sh

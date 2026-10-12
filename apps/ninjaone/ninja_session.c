@@ -33,7 +33,7 @@ void ninja_session_close(struct ninja_session *s)
     }
     free(s->incoming); ninja_session_init(s);
 }
-int ninja_session_start(struct ninja_session *s, int64_t now, const char *fake)
+int ninja_session_start_action(struct ninja_session *s, int64_t now, const char *fake, const char *operation)
 {
     int p[2];
     const char *helper = getenv("POCKETOS_NINJAONE_HELPER");
@@ -64,8 +64,8 @@ int ninja_session_start(struct ninja_session *s, int64_t now, const char *fake)
             for (rlim_t fd = 3; fd < limit.rlim_cur; fd++) close((int)fd);
         }
         if (!helper || !*helper) helper = "/usr/bin/pos-ninjaone";
-        if (fake) execl(helper, helper, "snapshot", "--fake", fake, (char *)NULL);
-        else execl(helper, helper, "snapshot", (char *)NULL);
+        if (fake) execl(helper, helper, operation, "--fake", fake, (char *)NULL);
+        else execl(helper, helper, operation, (char *)NULL);
         _exit(127);
     }
     close(p[1]); s->fd = p[0];
@@ -90,5 +90,11 @@ int ninja_session_poll(struct ninja_session *s, int64_t now, struct ninja_snapsh
     if (s->used != sizeof(*out)) return 0;
     if (!ninja_snapshot_valid(s->incoming)) { ninja_session_close(s); return -1; }
     memcpy(out, s->incoming, sizeof(*out));
+    if (out->error == NINJA_RENEWING) { s->used = 0; memset(s->incoming, 0, sizeof(*out)); return 2; }
     ninja_session_close(s); return 1;
+}
+
+int ninja_session_start(struct ninja_session *s, int64_t now, const char *fake)
+{
+    return ninja_session_start_action(s, now, fake, "snapshot");
 }

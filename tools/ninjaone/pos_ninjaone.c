@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 #ifdef NINJA_CURL
@@ -172,6 +173,7 @@ static int load_base(struct transport *t)
     if (strncmp(buf, "base=", 5) || !ninja_base_valid(buf + 5)) return -1;
     snprintf(t->base, sizeof(t->base), "%s", buf + 5); return 0;
 }
+#include "ninja_oauth.h"
 int main(int argc, char **argv)
 {
     struct rlimit no_core = {0, 0};
@@ -182,6 +184,7 @@ int main(int argc, char **argv)
     setrlimit(RLIMIT_AS, &memory);
     setrlimit(RLIMIT_CORE, &no_core); /* Tokens must not appear in core dumps. */
     prctl(PR_SET_DUMPABLE, 0);
+    if (argc == 2 && !strcmp(argv[1], "set-credentials")) return import_credentials();
     if (argc == 2 && !strcmp(argv[1], "set-token")) {
         char token[4097] = {0};
         size_t n;
@@ -194,27 +197,63 @@ int main(int argc, char **argv)
             if (token[n - 1] == '\n') n--;
             if (n && token[n - 1] == '\r') n--;
             token[n] = 0;
-            rc = ninja_token_write(token);
+            int dir = ninja_credentials_lock();
+            if (dir >= 0) {
+                if (!ninja_credentials_forget(dir)) rc = ninja_token_write(token);
+                close(dir);
+            }
         }
         explicit_bzero(token, sizeof(token));
         if (rc) fputs("Token provisioning failed: check input and runtime directory permissions\n", stderr);
         return rc ? 1 : 0;
     }
-    if (argc == 4 && !strcmp(argv[1], "snapshot") && !strcmp(argv[2], "--fake")) t.fake = argv[3];
-    else if (argc != 2 || strcmp(argv[1], "snapshot")) {
-        fputs("Usage: pos-ninjaone snapshot [--fake demo|large|empty|missing|expired|denied|rate|network|malformed|hang]\n       pos-ninjaone set-token < local-secure-pipe\n", stderr); return 2;
+    int forgetting = argc >= 2 && !strcmp(argv[1], "forget");
+    if (argc == 4 && (!strcmp(argv[1], "snapshot") || forgetting) && !strcmp(argv[2], "--fake")) t.fake = argv[3];
+    else if (argc != 2 || (strcmp(argv[1], "snapshot") && !forgetting)) {
+        fputs("Usage: pos-ninjaone snapshot|forget [--fake demo|large|empty|missing|expired|denied|rate|network|malformed|hang|renewing|tenant2]\n       pos-ninjaone set-credentials < local-secure-pipe\n       pos-ninjaone set-token < legacy-access-token-pipe\n", stderr); return 2;
     }
     if (t.fake && strcmp(t.fake, "demo") && strcmp(t.fake, "empty") && strcmp(t.fake, "missing") &&
         strcmp(t.fake, "expired") && strcmp(t.fake, "denied") && strcmp(t.fake, "rate") &&
-        strcmp(t.fake, "network") && strcmp(t.fake, "malformed") && strcmp(t.fake, "hang") && strcmp(t.fake, "large")) return 2;
+        strcmp(t.fake, "network") && strcmp(t.fake, "malformed") && strcmp(t.fake, "hang") && strcmp(t.fake, "large") && strcmp(t.fake, "renewing") && strcmp(t.fake, "tenant2")) return 2;
     s = calloc(1, sizeof(*s));
     if (!s) return 1;
 #ifdef NINJA_CURL
     if (curl_global_init(CURL_GLOBAL_DEFAULT)) { free(s); return 1; }
 #endif
-    if (!t.fake && (load_base(&t) || ninja_token_read(t.token, sizeof(t.token)))) {
-        s->magic = NINJA_MAGIC; s->error = NINJA_SETUP;
-    } else ninja_collect(s, t.fake ? fake_get : live_get, &t, t.fake && strcmp(t.fake, "large") ? 2 : 100);
+    struct ninja_credentials c = {0};
+    int dir = -1;
+    s->magic = NINJA_MAGIC;
+    if (forgetting) {
+        if (t.fake) s->error = NINJA_DISCONNECTED;
+        else {
+            dir = ninja_credentials_lock();
+            s->error = dir >= 0 && !ninja_credentials_forget(dir) ? NINJA_DISCONNECTED : NINJA_HELPER;
+        }
+    } else if (t.fake) {
+        if (!strcmp(t.fake, "renewing")) {
+            strcpy(c.profile, "000000000000000000000001");
+            if (renew_notice(&c)) { free(s); return 1; }
+            struct timespec delay = {0, 300000000}; nanosleep(&delay, NULL);
+        }
+        ninja_collect(s, fake_get, &t, strcmp(t.fake, "large") ? 2 : 100);
+    } else if (load_base(&t)) s->error = NINJA_SETUP;
+    else {
+        dir = ninja_credentials_lock();
+        if (dir < 0) s->error = NINJA_RENEW_FAILED;
+        else if (!ninja_credentials_read(dir, &c)) {
+            if (strcmp(t.base, c.base)) s->error = NINJA_SETUP;
+            else authorized_snapshot(&t, &c, dir, s);
+            memcpy(s->profile, c.profile, sizeof(s->profile)); s->expires = c.expires;
+        } else if (!ninja_token_read(t.token, sizeof(t.token))) {
+            ninja_collect(s, live_get, &t, 100); /* Legacy: no renewal or favorites. */
+        } else {
+            struct stat st;
+            s->error = !fstatat(dir, "forgotten", &st, AT_SYMLINK_NOFOLLOW) ? NINJA_DISCONNECTED : NINJA_SETUP;
+        }
+    }
+    if (dir >= 0) close(dir);
+    if (t.fake) strcpy(s->profile, !strcmp(t.fake, "tenant2") ? "000000000000000000000002" : "000000000000000000000001");
+    explicit_bzero(&c, sizeof(c));
     explicit_bzero(t.token, sizeof(t.token));
     s->demo = t.fake != NULL;
     /* Error frames never carry incomplete data, nor tenant data in errors. */

@@ -12,10 +12,11 @@ static bool text_ok(const char *s, size_t n)
 }
 bool ninja_snapshot_valid(const struct ninja_snapshot *s)
 {
-    if (s->magic != NINJA_MAGIC || s->error < NINJA_OK || s->error > NINJA_HELPER ||
+    if (s->magic != NINJA_MAGIC || s->error < NINJA_OK || s->error > NINJA_RENEW_FAILED ||
         s->retry_s < 0 || s->retry_s > 86400 || s->demo < 0 || s->demo > 1 ||
         s->partial < 0 || s->partial > 1 || s->norgs > NINJA_ORGS ||
-        s->ndevices > NINJA_DEVICES || s->nalerts > NINJA_ALERTS || s->updated < 0) return false;
+        s->ndevices > NINJA_DEVICES || s->nalerts > NINJA_ALERTS || s->updated < 0 || s->expires < 0 || s->profile[24] ||
+        (s->profile[0] && (strlen(s->profile) != 24 || strspn(s->profile, "0123456789abcdef") != 24))) return false;
     for (unsigned i = 0; i < s->norgs; i++)
         if (s->orgs[i].id <= 0 || !text_ok(s->orgs[i].name, NINJA_TEXT)) return false;
     for (unsigned i = 0; i < s->ndevices; i++) {
@@ -31,11 +32,13 @@ bool ninja_snapshot_valid(const struct ninja_snapshot *s)
 }
 const char *ninja_error_text(int error)
 {
-    static const char *const text[] = { "Updated", "Setup needed: provision a monitoring token locally",
-        "Authentication expired: sign in locally, then refresh", "Access denied: check monitoring scope and permissions",
+    static const char *const text[] = { "Connected / monitoring data updated", "Setup needed: sign in on your trusted workstation",
+        "Sign in again: authorization expired, revoked or interrupted", "Access denied: check monitoring scope and permissions",
         "Rate limited: waiting before another request", "Network or TLS failure: check connection and system clock",
-        "Malformed API response", "Response exceeds the monitoring limit", "Monitoring helper failed or timed out: check local installation" };
-    return error >= NINJA_OK && error <= NINJA_HELPER ? text[error] : "Helper failed";
+        "Malformed API response", "Response exceeds the monitoring limit", "Monitoring helper failed or timed out: check local installation",
+        "Renewing sign-in...", "Disconnected / credentials forgotten",
+        "Sign-in renewal failed: retry later; monitoring data is stale" };
+    return error >= NINJA_OK && error <= NINJA_RENEW_FAILED ? text[error] : "Helper failed";
 }
 const struct ninja_device *ninja_device_find(const struct ninja_snapshot *s, int id)
 {

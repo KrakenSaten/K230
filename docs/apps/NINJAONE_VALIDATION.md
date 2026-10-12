@@ -51,3 +51,42 @@ live smoke checklist on your chosen test unit. Record only outcomes. Confirm the
 global alert contract, loopback/PKCE behavior and lastContact units before treating
 those as live-verified. Refresh-token behavior remains deliberately unresolved;
 tokens require another local login after expiry/reboot.
+
+## Authentication continuation — 2026-10-12
+
+The initial results above are preserved evidence for commit 9db8bc6. Their
+runtime-token-only statements are superseded by this continuation and the updated
+setup guide; the earlier six-layout/lifecycle sweeps were not repeated.
+
+Official refresh documentation now establishes a secret-free public refresh
+grant: client_secret is optional, required only for confidential clients. Native
+redirect registration is fixed, not configurable. The guide now requires the
+actual locally displayed callback instead of assuming 127.0.0.1:8765/callback.
+The official regional guide confirms app/eu/oc/ca/us2/jp/fed.ninjarmm.com.
+
+New changes: runtime access/refresh/expiry bundle, helper-only renewal at expiry
+(the official guide says not before), atomic rotation, exclusive lock, pending
+marker preventing ambiguous replay, bounded 429/503 retries and cooldowns,
+Disconnect/Forget, explicit renewal progress, stale/disconnected state and
+operator-bound tenant favorite namespaces. Global-alert coverage is explicitly
+limited even below caps. lastContact units remain unknown and raw.
+
+Reboot persistence is **not implemented**: the binding policy permits only
+Wi-Fi and Zabbix exceptions. Proposed ADR-014 supplies the exact narrow amendment,
+opt-in storage design and root/physical-card risk for approval. No accepted ADR or
+storage policy was rewritten.
+
+| Focused continuation check | Actual result |
+| --- | --- |
+| `make CC=gcc CFLAGS='-O2 -Wall -Wextra -Werror' NINJAONE_CURL=1 ninjaone-auth-test` | PASS: real libcurl against synthetic TLS OAuth/API; unexpired token skips renewal, expiry renews, mid-snapshot 401 renews once, rotated pair read back, revoked/missing/ambiguous replies fail closed, 429 cooldown and three-attempt bound, cancellation refuses replay, lock excludes competing Forget, interrupted staged write keeps old record, Forget deletes runtime state and reopen remains disconnected; fixed callback parsing, tenant keys and jp/fed origins |
+| Changed UI/session strict compilation and simulator shell target | PASS: `-Wall -Wextra -Werror` for changed UI/session; native shell links against existing pinned LVGL |
+| `python3 tests/ninjaone_shell_test.py --focused` | PASS: one portrait/Medium case for new tenant favorite separation using identical organization IDs, renewal progress, expired authorization retaining stale snapshot, Disconnect retaining stale data and stopping calls; layout audits for renewed/expired/disconnected reported zero overlap/truncation/clipping |
+| Read-only boundary lint / `git diff --check` | PASS |
+| Pinned K230 cross-build | NOT RUN: same pinned Xuantie toolchain and SDK sysroot absent; no substituted toolchain or pin changes |
+| Live OAuth/API and reboot storage | NOT RUN: no tenant/device access; runtime-only credentials intentionally disappear at reboot; proposed persistent design is not implemented |
+
+New synthetic screenshots/fixture certificates/logs stay under ignored `work/`.
+No broad suites or the earlier six-layout matrix were repeated. The earlier
+ASan/UBSan result applies to the original implementation, not this continuation.
+No live credentials or device access were used. Official global getAlerts/OpenAPI and
+Postman sources still did not expose schema/pagination or timestamp units here.

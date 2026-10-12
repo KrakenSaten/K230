@@ -10,6 +10,7 @@ import socket
 import subprocess
 import time
 import tempfile
+import sys
 
 root = Path.cwd()
 output = root/'work/ninjaone-ui'
@@ -26,7 +27,7 @@ def run(orientation, size):
     scenario = case/'scenario'; scenario.write_text('demo')
     calls = case/'calls'; calls.write_text('')
     wrapper = case/'helper.sh'
-    wrapper.write_text(f'#!/bin/sh\nprintf x >> "{calls}"\nexec "{helper}" snapshot --fake "$(cat "{scenario}")"\n')
+    wrapper.write_text(f'#!/bin/sh\nprintf x >> "{calls}"\nexec "{helper}" "$1" --fake "$(cat "{scenario}")"\n')
     wrapper.chmod(0o755)
     env = {**os.environ, 'SDL_VIDEODRIVER': 'dummy', 'POCKETOS_NINJAONE_HELPER': str(wrapper),
            'POCKETOS_NINJAONE_BACKEND': 'fake', **{f'POCKETOS_{k.upper()}_DIR': str(case/k)
@@ -78,29 +79,48 @@ def run(orientation, size):
             time.sleep(.05)
         time.sleep(.6)
         assert call('shell.info')['result']['current'] == 'ninjaone'
+        if '--focused' in sys.argv:
+            tap('Organizations'); tap('Demo North'); tap('Save local favorite')
+            settings = case/'config/settings.conf'
+            assert 'n1_d_000000000000000000000001=1' in settings.read_text()
+            scenario.write_text('tenant2'); tap('Refresh data'); time.sleep(.5)
+            tap('Organizations'); tap('Demo North')
+            assert contains('Save local favorite')  # Same numeric ID, independent tenant.
+            time.sleep(.25)
+            assert 'n1_d_000000000000000000000002=1' in settings.read_text()
+            scenario.write_text('renewing'); tap('Refresh data'); time.sleep(.7)
+            tap('Overview'); audit('renewed')
+            scenario.write_text('expired'); tap('Refresh data'); time.sleep(.5)
+            audit('sign-in-again'); assert contains('Demo server / Demo North'); time.sleep(.25)
+            tap('Back to list'); tap('Disconnect / Forget credentials'); time.sleep(.5)
+            audit('disconnected'); assert contains('Demo server / Demo North'); time.sleep(.25)
+            calls_before = calls.read_text(); time.sleep(.4); assert calls.read_text() == calls_before
+            call('shell.home'); time.sleep(.2)
+            checks += 1
+            return
         audit('overview')
         tap('Organizations'); audit('organizations')
-        # From the tapped Organizations control, Tab visits Alerts, Refresh,
+        # From the tapped Organizations control, Tab visits Alerts, Refresh data, Disconnect,
         # then the search textarea through the shared keyboard stream.
-        for _ in range(3): key(6)
+        for _ in range(4): key(6)
         for code in (24, 43, 37, 47, 35): key(code)  # north (pos_keymap.c)
         assert not contains('Demo South')
         tap('Demo North'); audit('organization')
         tap('Save local favorite')
-        assert 'ninjaone_demo_favorites=1' in (case/'config/settings.conf').read_text()
+        assert 'n1_d_000000000000000000000001=1' in (case/'config/settings.conf').read_text()
         tap('Demo server'); audit('detail')
         # API values are checked in ninjaone_test; detail/stale text is reviewed
         # from screenshots, avoiding taps on noninteractive labels.
         tap('Back to list'); tap('All organizations')
         tap('Alerts')
-        for _ in range(2): key(6)
+        for _ in range(3): key(6)
         for code in (45, 24, 33, 24, 43, 39, 24): key(code)  # unknown
         assert not contains('Demo server / MAJOR / Demo: agent disconnected')
         tap('Demo laptop / Unknown / Demo: disk space condition triggered')
         audit('unknown-detail')
         tap('Back to list')
         tap('Overview')
-        scenario.write_text('network'); tap('Refresh'); time.sleep(.5)
+        scenario.write_text('network'); tap('Refresh data'); time.sleep(.5)
         audit('stale')
         tap('Demo server / Demo North')
         audit('stale-detail')
@@ -116,7 +136,7 @@ def run(orientation, size):
         process.terminate(); process.wait(timeout=5); log.close()
 
 
-for orientation in ('portrait', 'landscape'):
-    for size in ('small', 'medium', 'large'):
+for orientation in (('portrait',) if '--focused' in sys.argv else ('portrait', 'landscape')):
+    for size in (('medium',) if '--focused' in sys.argv else ('small', 'medium', 'large')):
         run(orientation, size)
-print(f'ninjaone_shell_test: {checks} orientation/text-size cases, search via keys, touch navigation, favorites, details, stale retention, launcher membership and close cleanup passed')
+print(f'ninjaone_shell_test: {checks} focused auth/tenant/disconnect cases passed' if '--focused' in sys.argv else f'ninjaone_shell_test: {checks} orientation/text-size cases passed')

@@ -117,6 +117,7 @@ int ninja_collect(struct ninja_snapshot *s, ninja_get_fn get, void *ctx, unsigne
             }
         }
     }
+    s->partial = 1; /* Global alert pagination/completeness is unverified. */
     s->updated = (int64_t)time(NULL); return NINJA_OK;
 }
 int ninja_base_valid(const char *base)
@@ -124,7 +125,7 @@ int ninja_base_valid(const char *base)
     /* Tenant region selection only: never send a token to an arbitrary URL. */
     static const char *const hosts[] = { "https://app.ninjarmm.com", "https://eu.ninjarmm.com",
         "https://oc.ninjarmm.com", "https://ca.ninjarmm.com", "https://us2.ninjarmm.com",
-        "https://app.ninjaone.com" };
+        "https://jp.ninjarmm.com", "https://fed.ninjarmm.com" };
     for (unsigned i = 0; i < sizeof(hosts)/sizeof(hosts[0]); i++) if (!strcmp(base, hosts[i])) return 1;
     return 0;
 }

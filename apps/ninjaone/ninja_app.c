@@ -23,7 +23,9 @@ struct ninja_app {
     int tab, org, device, page, favorites[FAVORITES], nfavorites;
     int error, failures;
     int64_t next, last_ms;
-    bool loading, dirty, refresh, only_favorites, stale;
+    bool loading, renewing, forgetting, dirty, refresh, only_favorites, stale;
+    int64_t expires;
+    char profile[25], favorite_key[32];
     const char *fake;
     char query[80], severity_filter[64], notice[80];
 };
@@ -40,6 +42,7 @@ static bool favorite(struct ninja_app *a, int id)
 }
 static void save_favorites(struct ninja_app *a, int id)
 {
+    if (!a->favorite_key[0]) { snprintf(a->notice, sizeof(a->notice), "Sign in with a tenant identifier to save favorites"); return; }
     int items[FAVORITES], count = 0;
     bool removing = favorite(a, id);
     char text[128] = "";
@@ -54,11 +57,28 @@ static void save_favorites(struct ninja_app *a, int id)
         if (n < 0 || (size_t)n >= sizeof(text) - used) return;
         used += (size_t)n;
     }
-    if (settings_set(a->fake ? "ninjaone_demo_favorites" : "ninjaone_favorites", text)) {
+    if (settings_set(a->favorite_key, text)) {
         snprintf(a->notice, sizeof(a->notice), "Favorites could not be saved"); return;
     }
     memcpy(a->favorites, items, (size_t)count * sizeof(int)); a->nfavorites = count;
     a->notice[0] = 0;
+}
+static void select_profile(struct ninja_app *a, const char *profile)
+{
+    if (!strcmp(a->profile, profile)) return;
+    /* A tenant switch discards old data and selection, even on failure. */
+    memset(&a->data, 0, sizeof(a->data)); a->last_ms = 0;
+    a->org = a->device = a->page = a->nfavorites = 0; a->only_favorites = false;
+    strcpy(a->profile, profile); a->favorite_key[0] = 0;
+    if (a->profile[0]) {
+        snprintf(a->favorite_key, sizeof(a->favorite_key), "n1_%c_%s", a->fake ? 'd' : 'l', a->profile);
+        const char *f = settings_get(a->favorite_key, "");
+        while (*f && a->nfavorites < FAVORITES) {
+            char *end; long id = strtol(f, &end, 10);
+            if (end == f || id <= 0 || id > INT32_MAX || (*end && *end != ',')) break;
+            a->favorites[a->nfavorites++] = (int)id; f = *end ? end + 1 : end;
+        }
+    }
 }
 static void action(lv_event_t *e)
 {
@@ -75,6 +95,13 @@ static void action(lv_event_t *e)
     case 7: a->only_favorites = !a->only_favorites; a->page = 0; break;
     case 8: if (a->page) a->page--; break;
     case 9: a->page++; break;
+    case 10:
+        a->refresh = false; a->renewing = false; a->stale = a->data.updated != 0;
+        a->forgetting = true; a->loading = true; a->error = NINJA_DISCONNECTED;
+        if (ninja_session_start_action(&a->session, now_ms(), a->fake, "forget")) {
+            a->loading = false; a->renewing = false; a->error = NINJA_HELPER;
+        }
+        break;
     }
     a->dirty = true;
 }
@@ -128,7 +155,10 @@ static void freshness(struct ninja_app *a)
     }
     lv_label_set_text(a->freshness, text);
     snprintf(text, sizeof(text), "%s%s%s%s", a->fake ? "DEMO / synthetic / " : "",
-             a->loading ? "Loading monitoring data..." : ninja_error_text(a->error),
+             a->forgetting && a->loading ? "Forgetting credentials..." :
+             a->forgetting && a->error != NINJA_DISCONNECTED ? "Credentials could not be forgotten: try Disconnect again" :
+             a->renewing ? "Renewing sign-in... / monitoring data is stale" :
+             a->loading ? "Refreshing monitoring data..." : ninja_error_text(a->error),
              a->notice[0] ? " / " : "", a->notice);
     lv_label_set_text(a->status, text);
 }
@@ -171,7 +201,7 @@ static void draw(struct ninja_app *a)
         return;
     }
     if (a->tab == 0) {
-        snprintf(text, sizeof(text), "%u active alerts / %u affected devices", a->data.nalerts, ninja_affected(&a->data, 0));
+        snprintf(text, sizeof(text), "%u active alerts / %u affected devices in snapshot", a->data.nalerts, ninja_affected(&a->data, 0));
         label(a->body, text, POS_STYLE_TITLE);
         snprintf(text, sizeof(text), "%u organizations / %u devices in snapshot", a->data.norgs, a->data.ndevices);
         label(a->body, text, POS_STYLE_TEXT_SECONDARY);
@@ -246,28 +276,39 @@ static void poll_timer(lv_timer_t *timer)
             lv_obj_set_width(lv_obj_get_child(a->nav, i), LV_PCT(wide ? 23 : 48));
     }
     if (a->refresh && now >= a->next) {
-        a->refresh = false; a->loading = true;
-        if (ninja_session_start(&a->session, now, a->fake)) { a->loading = false; a->error = NINJA_HELPER; }
+        a->refresh = false; a->loading = true; a->renewing = false; a->forgetting = false;
+        if (ninja_session_start(&a->session, now, a->fake)) { a->loading = false; a->error = NINJA_HELPER; a->stale = a->data.updated != 0; }
         a->dirty = true;
     }
     if (a->loading) {
         struct ninja_snapshot *reply = malloc(sizeof(*reply));
         int rc = reply ? ninja_session_poll(&a->session, now, reply) : -1;
         if (!reply) ninja_session_close(&a->session);
-        if (rc) {
+        if (rc == 2) {
+            if (reply->profile[0]) select_profile(a, reply->profile);
+            a->renewing = true; a->stale = a->data.updated != 0; a->dirty = true;
+        } else if (rc) {
             a->loading = false;
+            a->renewing = false;
             a->error = rc > 0 ? reply->error : NINJA_HELPER;
+            if (rc > 0 && !a->forgetting && (reply->profile[0] || !reply->error))
+                select_profile(a, reply->profile);
+            if (rc > 0) a->expires = reply->expires;
             if (!a->error) { memcpy(&a->data, reply, sizeof(*reply)); a->last_ms = now; a->failures = 0; a->stale = false; }
             else { a->stale = a->data.updated != 0; if (a->failures < 7) a->failures++; }
             int retry = a->error ? 30 * (1 << a->failures) : NINJA_REFRESH_S;
             if (retry > 3600) retry = 3600;
             if (rc > 0 && reply->retry_s > retry) retry = reply->retry_s;
+            if (!a->error && a->expires > 0) {
+                int64_t remaining = a->expires - (int64_t)time(NULL);
+                if (remaining < retry) retry = remaining > 0 ? (int)remaining : 1;
+            }
             a->next = now + (int64_t)retry * 1000;
             a->dirty = true;
         }
         free(reply);
     }
-    if (!a->loading && now >= a->next && a->error != NINJA_SETUP && a->error != NINJA_AUTH && a->error != NINJA_DENIED)
+    if (!a->loading && now >= a->next && a->error != NINJA_SETUP && a->error != NINJA_AUTH && a->error != NINJA_DENIED && a->error != NINJA_DISCONNECTED && !a->forgetting)
         a->refresh = true;
     if (a->last_ms && now - a->last_ms > 2 * NINJA_REFRESH_S * 1000 && !a->stale) { a->stale = true; a->dirty = true; }
     /* Manual refresh can retry auth/setup immediately; rate backoff is always
@@ -277,7 +318,7 @@ static void poll_timer(lv_timer_t *timer)
 static void manual_refresh(lv_event_t *e)
 {
     struct ninja_app *a = lv_event_get_user_data(e);
-    if (a->error != NINJA_RATE) a->next = 0;
+    if (a->error != NINJA_RATE && a->error != NINJA_RENEW_FAILED) a->next = 0;
 }
 static void *create(lv_obj_t *root)
 {
@@ -289,12 +330,6 @@ static void *create(lv_obj_t *root)
         a->fake = getenv("POCKETOS_NINJAONE_FAKE");
         if (!a->fake || !*a->fake) a->fake = "demo";
     }
-    const char *f = settings_get(a->fake ? "ninjaone_demo_favorites" : "ninjaone_favorites", "");
-    while (*f && a->nfavorites < FAVORITES) {
-        char *end; long id = strtol(f, &end, 10);
-        if (end == f || id <= 0 || id > INT32_MAX || (*end && *end != ',')) break;
-        a->favorites[a->nfavorites++] = (int)id; f = *end ? end + 1 : end;
-    }
     a->frame = pocketui_card(root); lv_obj_set_size(a->frame, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(a->frame, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(a->frame, LV_OBJ_FLAG_SCROLLABLE);
@@ -304,8 +339,9 @@ static void *create(lv_obj_t *root)
     lv_obj_set_size(a->nav, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(a->nav, LV_FLEX_FLOW_ROW_WRAP); lv_obj_set_style_pad_gap(a->nav, 8, 0);
     button(a, a->nav, "Overview", 0); button(a, a->nav, "Organizations", 1); button(a, a->nav, "Alerts", 2);
-    lv_obj_t *refresh = button(a, a->nav, "Refresh", 3);
+    lv_obj_t *refresh = button(a, a->nav, "Refresh data", 3);
     lv_obj_add_event_cb(refresh, manual_refresh, LV_EVENT_CLICKED, a);
+    button(a, a->frame, "Disconnect / Forget credentials", 10);
     a->status = label(a->frame, "Loading...", POS_STYLE_TEXT_SECONDARY);
     a->freshness = label(a->frame, "No successful update", POS_STYLE_CAPTION);
     a->search = lv_textarea_create(a->frame);
