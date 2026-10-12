@@ -1,0 +1,163 @@
+{
+ "P_medium_car_recall": {
+  "r0": [
+   212,
+   408,
+   0.5196
+  ],
+  "r1a": [
+   216,
+   408,
+   0.5294
+  ],
+  "gain": 0.0098,
+  "r1a_only": 30,
+  "r0_only": 26,
+  "mcnemar_exact_p": 0.6888797607233396,
+  "threshold": ">= 233/408 and p < 0.05",
+  "met": false
+ },
+ "G1_coco_vehicle_background_fp": {
+  "r0": 28,
+  "r1a": 18,
+  "limit": 35,
+  "met": true
+ },
+ "G2_all_fp": {
+  "r0": 679,
+  "r1a": 2281,
+  "limit": 747,
+  "met": false
+ },
+ "G3_class_ap50_95": {
+  "car": {
+   "r0": 0.5197,
+   "r1a": 0.5166,
+   "drop": 0.0031
+  },
+  "truck": {
+   "r0": 0.3694,
+   "r1a": 0.355,
+   "drop": 0.0144
+  },
+  "bus": {
+   "r0": 0.5695,
+   "r1a": 0.5766,
+   "drop": -0.0071
+  },
+  "motorcycle": {
+   "r0": 0.4453,
+   "r1a": 0.427,
+   "drop": 0.0183
+  },
+  "bicycle": {
+   "r0": 0.5647,
+   "r1a": 0.4706,
+   "drop": 0.0941
+  },
+  "person": {
+   "r0": 0.4256,
+   "r1a": 0.3848,
+   "drop": 0.0408
+  },
+  "met": false
+ },
+ "G4_map50_95": {
+  "r0": 0.4824,
+  "r1a": 0.4551,
+  "limit": 0.4774,
+  "met": false
+ },
+ "reported_small_car_recall": {
+  "r0": 0.20454545454545456,
+  "r1a": 0.1534090909090909,
+  "gt": 176
+ },
+ "reported_oi_vehicle_background_fp": {
+  "r0": 13,
+  "r1a": 14
+ },
+ "precision_recall": {
+  "r0": [
+   0.8505063848524879,
+   0.5857467778620167
+  ],
+  "r1a": [
+   0.6292865268974484,
+   0.5871114480667172
+  ]
+ },
+ "verdict": "FAIL",
+ "fp_by_class_r0_r1a": {
+  "car": [
+   142,
+   136
+  ],
+  "truck": [
+   24,
+   18
+  ],
+  "bus": [
+   14,
+   13
+  ],
+  "motorcycle": [
+   9,
+   25
+  ],
+  "bicycle": [
+   23,
+   904
+  ],
+  "person": [
+   467,
+   1185
+  ]
+ },
+ "fp_kind_r1a": {
+  "car": {
+   "confused_with_truck": 38,
+   "localisation_or_duplicate": 67,
+   "background": 27,
+   "confused_with_motorcycle": 3,
+   "confused_with_bus": 1,
+   "total": 136
+  },
+  "truck": {
+   "confused_with_car": 5,
+   "localisation_or_duplicate": 9,
+   "confused_with_bus": 4,
+   "total": 18
+  },
+  "bus": {
+   "confused_with_car": 6,
+   "confused_with_truck": 2,
+   "localisation_or_duplicate": 3,
+   "background": 2,
+   "total": 13
+  },
+  "motorcycle": {
+   "localisation_or_duplicate": 17,
+   "confused_with_person": 4,
+   "background": 3,
+   "confused_with_bicycle": 1,
+   "total": 25
+  },
+  "bicycle": {
+   "background": 143,
+   "localisation_or_duplicate": 674,
+   "confused_with_motorcycle": 16,
+   "confused_with_person": 68,
+   "confused_with_car": 3,
+   "total": 904
+  },
+  "person": {
+   "localisation_or_duplicate": 727,
+   "background": 411,
+   "confused_with_bicycle": 34,
+   "confused_with_motorcycle": 7,
+   "confused_with_car": 6,
+   "total": 1185
+  }
+ }
+}

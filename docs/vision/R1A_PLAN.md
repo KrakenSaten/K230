@@ -1,6 +1,7 @@
 # R1-A plan: no background objectness where Car is unknown (prepared 2026-10-09, not run)
 
-Status: **prepared, not trained.**
+Status: **trained 2026-10-09 to 2026-10-12, verdict FAIL**: see [R1A_RESULTS.md](R1A_RESULTS.md).
+The plan below is unchanged from commit `c710dee`.
 - R0, `traffic6_r0` and the 2026-10-04 set are unchanged.
 - Production Vision is unchanged.
 
