@@ -1,0 +1,50 @@
+{
+ "gate_epoch_10": {
+  "epoch": 10,
+  "values": {
+   "val_fp": 612,
+   "precision": 0.8082706766917294,
+   "map50_95": 0.24288155998288827,
+   "bicycle_ap50_95": 0.29305244018802934,
+   "person_ap50_95": 0.21807596831834727,
+   "car_ap50_95": 0.29630384847406344,
+   "mask_share_mosaic_epochs": [
+    0.0807,
+    0.0825
+   ]
+  },
+  "checks": {
+   "1_finite_no_crash": true,
+   "2_mask_share_in_0.05-0.11": true,
+   "3_val_fp_le_716": true,
+   "4_bicycle_ap_ge_0.269": true,
+   "5_person_ap_ge_0.195": true
+  },
+  "rejected": false
+ },
+ "gate_epoch_20": {
+  "epoch": 20,
+  "values": {
+   "val_fp": 780,
+   "precision": 0.8031297324583544,
+   "map50_95": 0.30096624848248366,
+   "bicycle_ap50_95": 0.35282246885227936,
+   "person_ap50_95": 0.2819645388511364,
+   "car_ap50_95": 0.34984661581430465,
+   "mask_share_mosaic_epochs": [
+    0.0807,
+    0.0825
+   ]
+  },
+  "checks": {
+   "1_finite_no_crash": true,
+   "2_mask_share_in_0.05-0.11": true,
+   "3_val_fp_le_816": true,
+   "4_bicycle_ap_ge_0.339": true,
+   "5_person_ap_ge_0.262": true
+  },
+  "rejected": false
+ },
+ "note": "check '1_finite_no_crash' tested finite losses only; session 1 crashed (UR_RESULT_ERROR_DEVICE_LOST) in epoch 6 and was resumed once from epoch 5; owner verdict 2026-10-12: INCONCLUSIVE",
+ "verdict": "INCONCLUSIVE"
+}
