@@ -239,5 +239,88 @@ class Data(unittest.TestCase):
             self.assertTrue(torch.equal(ign[0], x < size[1] / 2), size)
 
 
+# ---------------------------------------------------------------- R1-B: keep negatives inside labelled boxes
+
+def scaled(targets, tsize, base=(416, 416)):
+    """exp.preprocess's target scaling (yolox_base.py: cx, w by x; cy, h by y)."""
+    t = targets.clone()
+    t[..., 1::2] *= tsize[1] / base[1]
+    t[..., 2::2] *= tsize[0] / base[0]
+    return t
+
+
+class OutsideBoxes(unittest.TestCase):
+    def setUp(self):
+        self.head = YOLOXHead(6, 0.25)
+        self.mask = torch.ones(2, 416, 416, dtype=torch.uint8)  # everything from a flagged picture
+        self.mask[1, :, 208:] = 0  # image 1: right half from an unflagged picture
+        t = torch.zeros(2, 120, 5)
+        t[0, 0] = torch.tensor([5, 104.0, 104.0, 100.0, 80.0])  # box x 54-154, y 64-144
+        t[1, 0] = torch.tensor([4, 300.0, 300.0, 60.0, 60.0])   # box in the unflagged half
+        self.t = t  # rows 1.. are padding (w = h = 0)
+
+    def test_inside_box_never_ignored_outside_follows_mask(self):
+        for size in ((320, 320), (416, 416), (640, 640)):
+            t = scaled(self.t, size)
+            a = nom.anchor_ignore(self.mask, size, self.head, (416, 416))          # R1-A
+            b = nom.anchor_ignore(self.mask, size, self.head, (416, 416), t)       # R1-B
+            x, y = nom.anchor_centres(self.head, size, "cpu")
+            s = size[0] / 416
+            inbox0 = (x >= 54 * s) & (x <= 154 * s) & (y >= 64 * s) & (y <= 144 * s)
+            self.assertTrue(torch.equal(b[0], a[0] & ~inbox0), size)
+            self.assertTrue(bool(inbox0.any()) and bool((a[0] & inbox0).any()), "box must cover flagged anchors")
+            self.assertTrue(torch.equal(b[1], a[1]), size)  # its box lies in unflagged pixels: nothing changes
+            self.assertTrue(bool((b <= a).all()), "R1-B ignores a subset of R1-A")
+
+    def test_padding_rows_retain_nothing(self):
+        empty = torch.zeros(2, 120, 5)
+        a = nom.anchor_ignore(self.mask, (416, 416), self.head, (416, 416))
+        self.assertTrue(torch.equal(nom.anchor_ignore(self.mask, (416, 416), self.head, (416, 416), empty), a))
+
+    def test_with_real_augmented_labels(self):
+        """Retention uses the dataset's own augmented labels: compare with an
+        independent rasterisation of those labels on the mosaic samples."""
+        ds = make(MosaicDetection, True)
+        nom.enable_dataset(ds, {i for i in range(12) if i % 2 == 0})
+        head = YOLOXHead(6, 0.25)
+        for seed in range(10):
+            img, lab, _, _, mask = sample(ds, seed % 12, seed)
+            m, t = torch.from_numpy(mask)[None], torch.from_numpy(lab)[None]
+            for size in ((96, 96), (128, 128), (160, 160)):
+                got = nom.anchor_ignore(m, size, head, (128, 128), scaled(t, size, (128, 128)))
+                x, y = nom.anchor_centres(head, size, "cpu")
+                r = np.zeros(size, bool)
+                k = size[0] / 128
+                for c, cx, cy, w, h in lab:
+                    if w > 0 and h > 0:
+                        x1, x2 = (cx - w / 2) * k, (cx + w / 2) * k
+                        y1, y2 = (cy - h / 2) * k, (cy + h / 2) * k
+                        xs, ys = x.numpy(), y.numpy()
+                        r_hit = (xs >= x1) & (xs <= x2) & (ys >= y1) & (ys <= y2)
+                        r[ys[r_hit], xs[r_hit]] = True
+                flag = nom.anchor_ignore(m, size, head, (128, 128))[0].numpy()
+                want = flag & ~r[y.numpy(), x.numpy()]
+                self.assertTrue(np.array_equal(got[0].numpy(), want), (seed, size))
+
+    def test_loss_only_drops_r1b_terms(self):
+        """The loss path is the R1-A one; with an R1-B mask only its (smaller) set drops."""
+        m = tiny_model(False)
+        x_, t = fixed_batch()
+        rec = Recorder(m.head.bcewithlog_loss); m.head.bcewithlog_loss = rec
+        ref = losses(m, x_, t)
+        m.head.bcewithlog_loss = rec.inner
+        inp, tgt = rec.obj
+        mask = torch.ones(2, 128, 128, dtype=torch.uint8)
+        ign = nom.anchor_ignore(mask, (128, 128), m.head, (128, 128), t)
+        bce = nom.enable_head(m.head); bce.ignore = ign
+        got = losses(m, x_, t)
+        per = torch.nn.functional.binary_cross_entropy_with_logits(inp, tgt, reduction="none")
+        drop = ign.reshape(-1, 1) & (tgt == 0)
+        self.assertAlmostEqual(got["conf_loss"], ref["conf_loss"] - float(per[drop].sum()) / float(tgt.sum()), places=4)
+        for k in ("iou_loss", "cls_loss", "l1_loss"):
+            self.assertEqual(got[k], ref[k], k)
+        self.assertLess(int(ign.sum()), ign.numel(), "boxes must retain some anchors")
+
+
 if __name__ == "__main__":
     unittest.main()

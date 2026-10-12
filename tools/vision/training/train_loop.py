@@ -412,7 +412,9 @@ def train(args):
             "validation": [], "sessions": []})
         if neg_info:
             rec["neg_obj_ignore"] = dict(neg_info, module="neg_obj_mask.py", ignored=(
-                "negative objectness terms of anchors whose centre lies in pixels from a flagged image"))
+                "negative objectness terms of anchors whose centre lies in pixels from a flagged image"
+                + (" and outside every labelled (non-crowd) training box"
+                   if args.neg_obj_ignore in neg_obj_mask.OUTSIDE_BOXES else "")))
     rec["sessions"].append(session)
     write_json(runj, rec)
 
@@ -456,7 +458,9 @@ def train(args):
                 targets.requires_grad = False
                 inps, targets = exp.preprocess(inps, targets, tsize)
                 if bce:
-                    bce.ignore = neg_obj_mask.anchor_ignore(batch[4].to(dev), tsize, model.head, exp.input_size)
+                    bce.ignore = neg_obj_mask.anchor_ignore(
+                        batch[4].to(dev), tsize, model.head, exp.input_size,
+                        targets if args.neg_obj_ignore in neg_obj_mask.OUTSIDE_BOXES else None)
                 with autocast():
                     outputs = model(inps, targets)
                 loss = outputs["total_loss"]
@@ -589,9 +593,11 @@ def main():
     ap.add_argument("--pr-conf", type=float, default=0.35,
                     help="score threshold for precision/recall (0.35: decoder_check's 350 per-mille)")
     ap.add_argument("--eval-only", metavar="CKPT", help="validate CKPT and exit")
-    ap.add_argument("--neg-obj-ignore", default="off", choices=("off", "oi-car-unverified"),
-                    help="experiment R1-A (neg_obj_mask.py): no background-objectness loss in pixels from "
-                         "Open Images images without a verified Car; off (default) is R0's training")
+    ap.add_argument("--neg-obj-ignore", default="off",
+                    choices=("off", "oi-car-unverified", "oi-car-unverified-outside-boxes"),
+                    help="experiments (neg_obj_mask.py): no background-objectness loss in pixels from Open Images "
+                         "images without a verified Car; R1-A: all such pixels; R1-B (-outside-boxes): only "
+                         "outside every labelled box; off (default) is R0's training")
     args = ap.parse_args()
     if args.eval_only:
         return eval_only(args)

@@ -41,14 +41,19 @@ from yolox.data.datasets.mosaicdetection import MosaicDetection, get_mosaic_coor
 from yolox.utils import xyxy2cxcywh
 
 RULES = {
-    "oi-car-unverified": "Open Images training images whose human-verified labels do not hold Car "
-                         "(present or absent): unboxed cars can be in them",
+    "oi-car-unverified": "R1-A: Open Images training images whose human-verified labels do not hold Car "
+                         "(present or absent): unboxed cars can be in them; every pixel from them is eligible",
+    "oi-car-unverified-outside-boxes": "R1-B: the same images; only their pixels outside every labelled "
+                                       "(non-crowd) training box are eligible; inside a box negatives are kept",
 }
+# Rules that keep the negative objectness terms inside labelled boxes.
+OUTSIDE_BOXES = {"oi-car-unverified-outside-boxes"}
 
 
 def flagged_ids(data_dir, rule):
-    """Training image ids (json ids) the rule flags, read from manifest_train.jsonl."""
-    if rule != "oi-car-unverified":
+    """Training image ids (json ids) the rule flags, read from manifest_train.jsonl.
+    R1-A and R1-B flag the same images; they differ in which pixels are eligible."""
+    if rule not in RULES:
         raise ValueError("unknown rule %s" % rule)
     ids = []
     with open(Path(data_dir) / "manifest_train.jsonl", encoding="utf-8") as f:
@@ -244,13 +249,33 @@ def anchor_centres(head, tsize, device):
     return torch.cat(xs), torch.cat(ys)
 
 
-def anchor_ignore(mask, tsize, head, base_size):
+def anchor_ignore(mask, tsize, head, base_size, targets=None):
     """mask: uint8 [B, H, W] at base_size (the dataset's input_dim). Resize it like
     exp.preprocess resizes the batch (to tsize; nearest for a mask), sample at
-    each anchor centre. Returns bool [B, anchors]."""
+    each anchor centre. Returns bool [B, anchors].
+
+    targets (R1-B): the batch's training targets after exp.preprocess, [B, N, 5]
+    = class, cx, cy, w, h in tsize pixels, zero rows as padding. An anchor whose
+    centre lies inside any of its image's boxes (edges included) is never
+    ignored. These are exactly the boxes the loss sees: YOLOX's augmentation
+    moved them, and YOLOX's loader already left out crowd (group-of) boxes
+    (COCODataset, iscrowd=False), so a crowd box keeps nothing by itself."""
     m = mask.float().unsqueeze(1)
     if tuple(tsize) != tuple(base_size):
         m = nn.functional.interpolate(m, size=tuple(tsize), mode="nearest")
     m = m[:, 0] > 0.5
     x, y = anchor_centres(head, tsize, m.device)
-    return m[:, y.clamp(max=tsize[0] - 1), x.clamp(max=tsize[1] - 1)]
+    ign = m[:, y.clamp(max=tsize[0] - 1), x.clamp(max=tsize[1] - 1)]
+    if targets is not None:
+        ign = ign & ~inside_boxes(targets, x, y)
+    return ign
+
+
+def inside_boxes(targets, x, y):
+    """bool [B, anchors]: anchor centre (x, y) inside any real box of its image."""
+    t = targets.float()
+    cx, cy, w, h = t[..., 1:2], t[..., 2:3], t[..., 3:4], t[..., 4:5]  # [B, N, 1]
+    real = (w > 0) & (h > 0)
+    xf, yf = x.float().view(1, 1, -1), y.float().view(1, 1, -1)
+    hit = (xf >= cx - w / 2) & (xf <= cx + w / 2) & (yf >= cy - h / 2) & (yf <= cy + h / 2) & real
+    return hit.any(dim=1)

@@ -1,0 +1,55 @@
+{
+ "flagged": {
+  "rule": "oi-car-unverified-outside-boxes",
+  "meaning": "R1-B: the same images; only their pixels outside every labelled (non-crowd) training box are eligible; inside a box negatives are kept",
+  "images": 9997,
+  "ids_sha256": "9bb31b6100db0b6fa6b59d5b0556b6e4670c2749e5c313a9017ce507fe2eba41"
+ },
+ "phases": {
+  "mosaic": {
+   "samples": 1200,
+   "anchors": 5940543,
+   "r1a": 767686,
+   "r1b": 483631,
+   "restored": 284055,
+   "r1b_in_candidate_region": 6306,
+   "samples_with_flag": 516,
+   "r1a_s8": 584807,
+   "r1b_s8": 368460,
+   "r1a_s16": 146259,
+   "r1b_s16": 92147,
+   "r1a_s32": 36620,
+   "r1b_s32": 23024,
+   "r1a_share_of_anchors": 0.1292282540501769,
+   "r1b_share_of_anchors": 0.08141191806876913,
+   "restored_share_of_r1a": 0.3700145632459104,
+   "r1b_in_candidate_region_share": 0.013038866408480846
+  },
+  "no_mosaic": {
+   "samples": 600,
+   "anchors": 3007956,
+   "r1a": 538461,
+   "r1b": 339174,
+   "restored": 199287,
+   "r1b_in_candidate_region": 2595,
+   "samples_with_flag": 151,
+   "r1a_s8": 410516,
+   "r1b_s8": 258586,
+   "r1a_s16": 102382,
+   "r1b_s16": 64567,
+   "r1a_s32": 25563,
+   "r1b_s32": 16021,
+   "r1a_share_of_anchors": 0.17901225948783825,
+   "r1b_share_of_anchors": 0.11275896322951533,
+   "restored_share_of_r1a": 0.37010479867622725,
+   "r1b_in_candidate_region_share": 0.007650940225371048
+  }
+ },
+ "crowd": {
+  "flagged_images_with_crowd_boxes": 1724,
+  "crowd_boxes_in_flagged": 2493,
+  "noncrowd_boxes_in_flagged": 65019,
+  "yolox_labels_exclude_crowd_checked_images": 300,
+  "mismatches": 0
+ }
+}

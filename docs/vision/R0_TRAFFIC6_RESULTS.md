@@ -1,10 +1,20 @@
 # R0 baseline: YOLOX-Tiny 416 on `traffic6_r0` (trained 2026-10-06 to 2026-10-09)
 
 Status: **research, measurement baseline.**
-- Production Vision, `yolov8n.kmodel` and the nncase configuration are
+
+Update (release records on `master`, read 2026-10-12): after this report,
+R0's kmodel (`94a20ac0…d268`) was run on unit A in a bench A/B
+(`docs/hardware/VISION_MODEL_AB_GATE.md`, PASS). It then shipped as
+"R0 · Beta" in Doors 0.3.6 (`docs/releases/v0.3.6.md`), the only kmodel in
+the image. Unit B passed the 0.3.6 fresh-card test
+(`docs/hardware/V0.3.6_FRESH_CARD_TEST.md`): KPU about 60 ms; vehicles not
+tested on hardware.
+
+When this report was written:
+- Production Vision, `yolov8n.kmodel` and the nncase configuration were
   unchanged.
-- Nothing was deployed to unit A or unit B.
-- Nothing is merged.
+- Nothing had been deployed to unit A or unit B by this work.
+- Nothing was merged from this branch.
 
 R0 trains the frozen model and dataset configuration once and measures it.
 Nothing was tuned before, during or after the run. The dataset, the class

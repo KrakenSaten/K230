@@ -35,7 +35,7 @@ Background:
 | `train.sh` | GPU training through YOLOX's `tools/train.py`, with `run.json` |
 | `smoke_train.py` | smoke run of the same model, loader, loss and EMA on cpu, xpu or cuda (was `smoke_train_cpu.py`) |
 | `train_loop.py` | epoch training on xpu, cuda or cpu: the Trainer's recipe, device-neutral val, latest/best/final checkpoints, exact resume, `run.json` |
-| `neg_obj_mask.py` | opt-in experiment R1-A (`train_loop.py --neg-obj-ignore`): no background-objectness loss in pixels from Open Images images without a verified Car; off by default ([R1A_PLAN.md](../../../docs/vision/R1A_PLAN.md)) |
+| `neg_obj_mask.py` | opt-in experiments (`train_loop.py --neg-obj-ignore`): no background-objectness loss in pixels from Open Images images without a verified Car; R1-A everywhere there (FAIL), R1-B only outside labelled boxes; off by default ([R1A_PLAN.md](../../../docs/vision/R1A_PLAN.md), [R1B_PLAN.md](../../../docs/vision/R1B_PLAN.md)) |
 | `tests/test_neg_obj_mask.py` | focused tests of `neg_obj_mask.py`: loss terms, mask through every augmentation, off = YOLOX |
 | `tests/test_train_loop.py` | focused tests of `train_loop.py` (schedule switch, best rule, metrics, bit-exact resume on the smoke set) |
 | `run_record.py` | writes and finishes `run.json` (versions, commits, settings, dataset and checkpoint hashes) |
