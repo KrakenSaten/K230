@@ -313,6 +313,48 @@ static const char *dir_mark(unsigned dir)
     }
 }
 
+/* Preview pixels to picture pixels, and back. The picture is shown at the
+ * preview's own size on the panel; on an external display it may be larger
+ * than a preview can be, and the preview is then drawn scaled up to it
+ * (vision_layout.h), so everything placed on it scales by the same factor. */
+static bool scaled(const struct vision_app *a)
+{
+    return a->preview.w && a->preview.h &&
+           ((uint32_t)a->lay.picture.w != a->preview.w || (uint32_t)a->lay.picture.h != a->preview.h);
+}
+
+static int32_t to_x(const struct vision_app *a, int32_t v)
+{
+    return scaled(a) ? (int32_t)(((int64_t)v * a->lay.picture.w) / (int64_t)a->preview.w) : v;
+}
+
+static int32_t to_y(const struct vision_app *a, int32_t v)
+{
+    return scaled(a) ? (int32_t)(((int64_t)v * a->lay.picture.h) / (int64_t)a->preview.h) : v;
+}
+
+static int32_t from_x(const struct vision_app *a, int32_t v)
+{
+    return scaled(a) ? (int32_t)(((int64_t)v * a->preview.w) / (int64_t)a->lay.picture.w) : v;
+}
+
+static int32_t from_y(const struct vision_app *a, int32_t v)
+{
+    return scaled(a) ? (int32_t)(((int64_t)v * a->preview.h) / (int64_t)a->lay.picture.h) : v;
+}
+
+/* A box and its tag on the picture, from preview pixels. The tag sits on
+ * the box's top edge, inside the picture. */
+static void place_box(struct vision_app *a, int i, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    int32_t sx = to_x(a, x);
+    int32_t sy = to_y(a, y);
+
+    lv_obj_set_pos(a->outline[i], sx, sy);
+    lv_obj_set_size(a->outline[i], to_x(a, x + w) - sx, to_y(a, y + h) - sy);
+    lv_obj_set_pos(a->tag[i], sx, sy > 22 ? sy - 22 : sy);
+}
+
 /* READ: a box on every line read, its text as the tag (the model's copy:
  * it stays while HOLD is on). */
 static void draw_text_boxes(struct vision_app *a)
@@ -329,15 +371,13 @@ static void draw_text_boxes(struct vision_app *a)
         if (!on) {
             continue;
         }
-        lv_obj_set_pos(a->outline[i], r->line[i].x, r->line[i].y);
-        lv_obj_set_size(a->outline[i], r->line[i].w, r->line[i].h);
+        place_box(a, i, r->line[i].x, r->line[i].y, r->line[i].w, r->line[i].h);
         {
             char text[VISION_LABEL_MAX];
 
             vision_model_text_ascii(r->line[i].text, text, sizeof(text));
             label_text(a->tag[i], text);
         }
-        lv_obj_set_pos(a->tag[i], r->line[i].x, r->line[i].y > 22 ? r->line[i].y - 22 : r->line[i].y);
     }
 }
 
@@ -361,8 +401,7 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
         if (!on) {
             continue;
         }
-        lv_obj_set_pos(a->outline[i], t[i].x, t[i].y);
-        lv_obj_set_size(a->outline[i], t[i].w, t[i].h);
+        place_box(a, i, t[i].x, t[i].y, t[i].w, t[i].h);
         {
             char text[VISION_LABEL_MAX];
             char who[24];
@@ -375,7 +414,6 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
                 snprintf(text, sizeof(text), "#%u %s", t[i].id, who);
                 label_text(a->tag[i], text);
                 set_hidden(a->tag[i], false);
-                lv_obj_set_pos(a->tag[i], t[i].x, t[i].y > 22 ? t[i].y - 22 : t[i].y);
                 continue;
             }
 
@@ -404,8 +442,6 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
             label_text(a->tag[i], text);
             set_hidden(a->tag[i], text[0] == '\0');
         }
-        /* The tag sits on the box's top edge, inside the picture. */
-        lv_obj_set_pos(a->tag[i], t[i].x, t[i].y > 22 ? t[i].y - 22 : t[i].y);
     }
 }
 
@@ -436,7 +472,7 @@ static void draw_trails(struct vision_app *a, const struct vision_view_text *s)
 
             set_hidden(a->dot[i][k], !show);
             if (show) {
-                lv_obj_set_pos(a->dot[i][k], xs[k] - 2, ys[k] - 2);
+                lv_obj_set_pos(a->dot[i][k], to_x(a, xs[k]) - 2, to_y(a, ys[k]) - 2);
             }
         }
     }
@@ -448,15 +484,15 @@ static void place_line(struct vision_app *a, lv_obj_t *obj, const int32_t pm[4])
 {
     if (pm[1] == pm[3]) {
         /* across */
-        int32_t y = (int32_t)(((int64_t)pm[1] * (a->preview.h - 1)) / 1000);
+        int32_t y = to_y(a, (int32_t)(((int64_t)pm[1] * (a->preview.h - 1)) / 1000));
 
         lv_obj_set_pos(obj, 0, y - 1);
-        lv_obj_set_size(obj, (int32_t)a->preview.w, 2);
+        lv_obj_set_size(obj, to_x(a, (int32_t)a->preview.w), 2);
     } else {
-        int32_t x = (int32_t)(((int64_t)pm[0] * (a->preview.w - 1)) / 1000);
+        int32_t x = to_x(a, (int32_t)(((int64_t)pm[0] * (a->preview.w - 1)) / 1000));
 
         lv_obj_set_pos(obj, x - 1, 0);
-        lv_obj_set_size(obj, 2, (int32_t)a->preview.h);
+        lv_obj_set_size(obj, 2, to_y(a, (int32_t)a->preview.h));
     }
 }
 
@@ -682,7 +718,7 @@ static void repaint(struct vision_app *a)
     }
     set_hidden(a->mark, !(s.show_mark && s.show_picture));
     if (s.show_mark) {
-        lv_obj_set_pos(a->mark, s.mark_x - 6, s.mark_y - 6);
+        lv_obj_set_pos(a->mark, to_x(a, s.mark_x) - 6, to_y(a, s.mark_y) - 6);
         lv_obj_set_size(a->mark, 12, 12);
     }
     /* The mode's buttons, in its order, on the layout's places; the rest
@@ -1057,7 +1093,7 @@ static void on_picture(lv_event_t *e)
     }
     lv_indev_get_point(indev, &p);
     lv_obj_get_coords(a->box, &box);
-    act(a, vision_model_sample_at(&a->model, p.x - box.x1, p.y - box.y1));
+    act(a, vision_model_sample_at(&a->model, from_x(a, p.x - box.x1), from_y(a, p.y - box.y1)));
 }
 
 static void on_retry(lv_event_t *e)
@@ -1150,9 +1186,9 @@ static void layout(struct vision_app *a)
     place(a->count_a, &a->lay.count_a);
     place(a->count_b, &a->lay.count_b);
     lv_obj_set_width(a->detail, a->lay.picture.w - 2 * POCKETUI_PAD);
-    if ((uint32_t)a->lay.picture.w != a->preview.w || (uint32_t)a->lay.picture.h != a->preview.h) {
-        uint32_t w = (uint32_t)a->lay.picture.w;
-        uint32_t h = (uint32_t)a->lay.picture.h;
+    if ((uint32_t)a->lay.preview_w != a->preview.w || (uint32_t)a->lay.preview_h != a->preview.h) {
+        uint32_t w = (uint32_t)a->lay.preview_w;
+        uint32_t h = (uint32_t)a->lay.preview_h;
 
         show(a, false);
         if (!picture_alloc(&a->preview, w, h)) {
@@ -1163,6 +1199,15 @@ static void layout(struct vision_app *a)
         if (vision_session_active(&a->session) && a->model.state == VISION_LIVE) {
             vision_session_view(&a->session, w, h, display_rotation());
         }
+    }
+    /* A preview smaller than the picture (an external display) is drawn
+     * scaled up to it, in the same shape; otherwise at its own size. */
+    if (scaled(a)) {
+        lv_image_set_inner_align(a->img, LV_IMAGE_ALIGN_STRETCH);
+        lv_obj_set_size(a->img, a->lay.picture.w, a->lay.picture.h);
+    } else {
+        lv_image_set_inner_align(a->img, LV_IMAGE_ALIGN_DEFAULT);
+        lv_obj_set_size(a->img, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     }
     repaint(a);
 }

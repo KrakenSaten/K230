@@ -658,8 +658,22 @@ static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it
     err = (int64_t)l.picture.w * fh - (int64_t)l.picture.h * fw;
     snprintf(name, sizeof(name), "%s: the picture has the frame's shape (%dx%d)", what, (int)l.picture.w,
              (int)l.picture.h);
-    check(name, (err < 0 ? -err : err) <= (int64_t)(fw > fh ? fw : fh) && l.picture.w <= VISION_PICTURE_MAX &&
-                    l.picture.h <= VISION_PICTURE_MAX);
+    check(name, (err < 0 ? -err : err) <= (int64_t)(fw > fh ? fw : fh));
+    /* The preview the helper renders: within a slot, in the frame's shape,
+     * and the picture itself whenever the picture fits a slot. */
+    err = (int64_t)l.preview_w * fh - (int64_t)l.preview_h * fw;
+    snprintf(name, sizeof(name), "%s: the preview fits a slot in the frame's shape (%dx%d)", what,
+             (int)l.preview_w, (int)l.preview_h);
+    check(name, (err < 0 ? -err : err) <= (int64_t)(fw > fh ? fw : fh) && l.preview_w <= VISION_PICTURE_MAX &&
+                    l.preview_h <= VISION_PICTURE_MAX);
+    if (l.picture.w <= VISION_PICTURE_MAX && l.picture.h <= VISION_PICTURE_MAX) {
+        snprintf(name, sizeof(name), "%s: a picture that fits a slot is the preview itself", what);
+        check(name, l.preview_w == l.picture.w && l.preview_h == l.picture.h);
+    } else {
+        snprintf(name, sizeof(name), "%s: a scaled picture keeps the column %d px wide (%d)", what,
+                 VISION_SIDE_SCALED, (int)l.status.w);
+        check(name, l.wide && l.status.w >= VISION_SIDE_SCALED);
+    }
     snprintf(name, sizeof(name), "%s: the picture takes most of the body", what);
     check(name, (int64_t)l.picture.w * l.picture.h * 2 > (int64_t)w * h);
     {
@@ -696,6 +710,20 @@ static void test_layout(void)
     shape("landscape TRACK A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 5, 1);
     shape("portrait TRAFFIC A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 4, 3);
     shape("landscape TRAFFIC A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 3);
+    /* An external display (DS §38.10): the unit held in landscape on a
+     * 1920 x 1080 monitor, the body under the shell's header. The picture
+     * is larger than a slot and shown scaled up. */
+    shape("external DETECT A/B", 1920, 1008, 0, 0, 0, 0, 640, 360, true, 2, 1);
+    shape("external TRACK A/B", 1920, 1008, 0, 0, 0, 0, 640, 360, true, 5, 1);
+    shape("external TRAFFIC A/B", 1920, 1008, 0, 0, 0, 0, 640, 360, true, 4, 3);
+    {
+        /* Held in portrait on the same monitor: the picture is as tall as
+         * the body allows and fits a slot, so it is not scaled. */
+        check("external, held in portrait: computed", vision_layout_compute(&l, 1920, 1008, 0, 0, 0, 0, 360, 640, 2,
+                                                                           1) == 0);
+        check("external, held in portrait: the full height, unscaled",
+              l.picture.h >= 1008 - 2 && l.preview_w == l.picture.w && l.preview_h == l.picture.h);
+    }
     shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
     shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
     check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, 1) == -1);
