@@ -442,6 +442,19 @@ void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int land
     }
 }
 
+void sv_rotation_external(struct sv_rotation *r, int keyboard_present)
+{
+    const char *held = r->selected == 2   ? "in landscape."
+                       : r->selected == 1 ? "in portrait."
+                       : keyboard_present ? "in landscape (keyboard attached)."
+                                          : "in portrait (no keyboard).";
+
+    /* The monitor is never turned (shell_display.h); the mode says how the
+     * unit stands, which is how the camera's picture is turned upright. */
+    snprintf(r->note, sizeof(r->note), "HDMI: the screen does not turn. Camera picture turned for the unit held %s",
+             held);
+}
+
 /* ---- sound ---------------------------------------------------------------- */
 
 void sv_volume_apply(struct sv_volume *v, int percent, int muted, int available, int min, int max)

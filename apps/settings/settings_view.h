@@ -141,6 +141,11 @@ struct sv_rotation {
 void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int landscape, int next_landscape,
                        int applying, int keyboard_present);
 
+/* After sv_rotation_apply, on an external display (HDMI): the mode no longer
+ * turns the screen, it says how the unit itself is held - which way up the
+ * camera's picture is turned (app.h hold_rotation). The note says so. */
+void sv_rotation_external(struct sv_rotation *r, int keyboard_present);
+
 /* The security word as shown: "Open", "WPA2", "WPA2/3", ... */
 const char *sv_security_label(const char *api_word);
 
