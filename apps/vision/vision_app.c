@@ -1203,9 +1203,13 @@ static void layout(struct vision_app *a)
     /* A preview smaller than the picture (an external display) is drawn
      * scaled up to it, in the same shape; otherwise at its own size. */
     if (scaled(a)) {
+        /* Nearest pixel, not smoothed: smoothing every preview frame took
+         * the panel's CPU from the detector (unit B, 2026-10-13). */
+        lv_image_set_antialias(a->img, false);
         lv_image_set_inner_align(a->img, LV_IMAGE_ALIGN_STRETCH);
         lv_obj_set_size(a->img, a->lay.picture.w, a->lay.picture.h);
     } else {
+        lv_image_set_antialias(a->img, true);
         lv_image_set_inner_align(a->img, LV_IMAGE_ALIGN_DEFAULT);
         lv_obj_set_size(a->img, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     }
