@@ -3653,7 +3653,17 @@ and the keyboard base is the way in. No new role, token or colour.
   is held, not by the monitor - the rotation the panel would be given by
   the orientation mode and the keyboard (`hold_rotation`, app.h) - so a
   unit standing on its keyboard base shows the scene as it does on its own
-  panel in landscape. Camera follows the same rule.
+  panel in landscape. Camera follows the same rule. The monitor is never
+  turned, so a change of hold (the keyboard attached or removed, the mode
+  changed) is followed by the open Vision or Camera screen itself: the
+  picture takes the new shape and the helper the new turn, with no
+  restart. Settings says what the mode does there: it sets the hold, not
+  the screen.
+- **Portrait-only apps on the monitor** (Timber, Poker): a column the
+  panel's width (568 px), centred, the body's height - the shape they are
+  laid out for. The body is shorter than the panel's (1008 against 1160 at
+  1080p): Poker's table, laid out for the panel's height, then draws the
+  hand over the board (its own geometry; open).
 - **Validation:** `tests/vision_keys_test.c` (the moves over both shapes'
   buttons and a sheet's rows), the shell suites with an external display
   stood in by `POCKETOS_EXTERNAL_DISPLAY=1920x1080`, then the unit B gate

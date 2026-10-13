@@ -228,12 +228,36 @@ vendor HDMI tree (verified after the last boot), `RESTORE.sh`,
   detector ran on, the preview refreshes at up to 10 Hz.
 - "Some stripes" on the monitor were seen once, with the vendor tree;
   not seen in the captures (the DRM frame is clean). Not investigated.
-- The focus ring is hard to see on a primary-filled button (panel and
-  simulator).
-- The unit's `pos-display-boot` still describes the vendor tree when
-  selecting HDMI; the branch's version has the corrected text.
 - Not tested, by scope: unplugging the cable, a boot without a monitor, 720p,
-  automatic switching (none exists), bridge register access.
+  automatic switching (none exists), bridge register access. A boot without
+  a monitor fails the shell's display init whichever way the display is
+  identified (LVGL needs a connected connector); the HDMI-A connector's
+  existence only selects the external-display policy.
 - Every reboot ends a NinjaOne login (by NinjaOne's design); none was held.
-- Nothing is merged or pushed: `feat/vision-hdmi` and
-  `integration/vision-hdmi-ninjaone` are local branches.
+- `feat/vision-hdmi` is PR #85 (draft); `integration/vision-hdmi-ninjaone`
+  is local.
+
+### After the PR #85 review (host only, not yet on unit B)
+
+Fixed on the branch after the gate, each with a host regression check;
+the shell they were gated with (`ac24832`) does not have them:
+
+- A change of hold while Vision or Camera is open (keyboard attached or
+  removed, mode changed) now re-lays out the screen and re-sends `view`
+  with the new turn; before, the picture and the detector's input kept the
+  old turn until the app was reopened (reproduced in the simulator).
+  `external_display_shell_test.sh` section 5.
+- Portrait-only apps (Timber, Poker) open in a centred column of the
+  panel's width instead of the wide monitor body. Section 6. Poker's table
+  still draws the hand over the board at the monitor's shorter body height
+  (its own geometry, open).
+- Settings' rotation note on an external display says the mode sets the
+  hold, not the screen (`settings_view_test`).
+- The focus ring sits 3 px clear of the button, visible on primary buttons.
+- `pos-display-boot hdmi` says what the installed HDMI tree keeps: it looks
+  for the camera sensor's node (`gc2093@37`, in the Doors tree only)
+  (`display_boot_test.sh`).
+
+Hardware recheck needed: the hold change with Vision and Camera open, the
+portrait-only column, the Settings note and the ring on the monitor, and
+`pos-display-boot hdmi`'s note under BusyBox on the unit.
