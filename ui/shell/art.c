@@ -136,6 +136,14 @@ lv_image_dsc_t *art_load_background(const char *screen, bool landscape)
     return art_load(name);
 }
 
+bool art_covers_display(const lv_image_dsc_t *img)
+{
+    lv_display_t *d = lv_display_get_default();
+
+    return img && d && (int32_t)img->header.w >= lv_display_get_horizontal_resolution(d) &&
+           (int32_t)img->header.h >= lv_display_get_vertical_resolution(d);
+}
+
 unsigned art_loads(void)
 {
     return loads;

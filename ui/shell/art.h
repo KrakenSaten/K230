@@ -36,6 +36,12 @@ void art_free(lv_image_dsc_t *img);
  * bg-home-landscape. */
 lv_image_dsc_t *art_load_background(const char *screen, bool landscape);
 
+/* Whether a background covers the whole display. The art is made at the
+ * panel's size; on an external display (HDMI) it is smaller than the screen
+ * and is shown centred, unscaled, so whatever is drawn under it must fill
+ * the rest. False for NULL. */
+bool art_covers_display(const lv_image_dsc_t *img);
+
 /* Totals since start, for shell.info and the log: files read, bytes held now. */
 unsigned art_loads(void);
 size_t art_bytes_held(void);

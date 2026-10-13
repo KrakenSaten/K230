@@ -3951,7 +3951,9 @@ int main(int argc, char **argv)
     sh.home_bg = art_load_background("home", sh.landscape);
     sh.backdrop = lv_image_create(screen);
     pos_style_add(sh.backdrop, POS_STYLE_ENV_BG, 0);
-    lv_obj_set_pos(sh.backdrop, 0, 0);
+    /* Centred: the panel's own size there (0,0), in the middle of an
+     * external display, over the screen's plain ground (art.h). */
+    lv_obj_align(sh.backdrop, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(sh.backdrop, LV_OBJ_FLAG_CLICKABLE);
     if (sh.home_bg) {
         lv_image_set_src(sh.backdrop, sh.home_bg);
