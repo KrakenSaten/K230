@@ -10,8 +10,12 @@ switches outputs on its own, reboots on unplug, or writes to the bridge.
 
 Evidence classes as in `T-DISPLAY-K230.md`.
 
-**Status: NOT RUN.** Nothing on unit B has been changed for this gate. The
-read-only checks of 2026-10-10 are under "Unit B before the gate"; those of
+**Status: RUN on unit B 2026-10-13 - PASS** for explicit HDMI selection,
+the Doors HDMI tree (camera, LoRa, Wi-Fi), an upright shell and camera
+picture, Vision with aligned boxes, the return to the panel and touch
+(owner confirmed visually). Physical keyboard navigation is **UNTESTED**
+(no keyboard base). Details and limitations under "Results". The read-only
+checks of 2026-10-10 are under "Unit B before the gate"; those of
 2026-10-13, which supersede them where they differ, directly below.
 
 ## Unit B on 2026-10-13 (read-only, over COM12) and the kit that matches it
@@ -173,6 +177,63 @@ return), a monitor that is off, 720p.
 owner decides whether unit B keeps the Doors HDMI tree and the new shell or
 runs `RESTORE.sh`.
 
-## Results
+## Results (unit B, 2026-10-13, owner at the bench)
 
-Not run.
+Unit B: v0.3.6 `9ad64a1`, kernel `f73df255…`, shell from
+`integration/vision-hdmi-ninjaone` (local, not pushed), monitor on HDMI, no
+keyboard base. Commands over SSH (Wi-Fi 172.16.5.198) and COM12; screen
+captures from the DRM plane (`shell.action action=screenshot`), bench copies
+in `out/vision-hdmi-gate/caps/`, logs in `out/vision-hdmi-gate/logs/`.
+
+| Step | What | Result |
+| --- | --- | --- |
+| Console | COM12 | Buildroot login, `root` without a password: root shell. VERIFIED |
+| R2 | vendor HDMI tree selected with `pos-display-boot hdmi`, reboot, then `lcd`, reboot | PASS: SSH at ~30 s; launcher on the monitor in landscape with "some stripes" (owner), AMOLED dark, no spidev/touch/BOOT key; back on the panel at ~22 s, AMOLED and touch OK (owner) |
+| R3 | U-Boot manual panel boot from COM12 | PASS: autoboot waits 1 s, so keys are sent from the banner on; `blinux` read back (`k=Image`, `mmc_boot_dev_num=1`); the command in "Recovery" step 3 booted the panel tree. Nothing saved to the U-Boot environment |
+| H2 | md5 check against the record, backups, integration shell `eabc97f` on the panel | PASS: all nine files matched; `ORIG.md5` OK (`f71aafaf…`, `cedfe712…`); panel, touch, NinjaOne OK (owner); Vision live, `shell.key` Up/Enter/Esc opened and closed the picker (3 keys delivered) |
+| H3 | Doors HDMI tree installed (sha256 checked on the unit), `pos-display-boot hdmi`, reboot | PASS: model `Canaan CanMV-K230 with LT9611 HDMI`, `HDMI-A-1` 1920x1080, `external:true`, rotation 0, gc2093 probed, `spidev0.0` + radio `rx`, BOOT key, Wi-Fi, no oops; SSH at ~25 s |
+| Defect found | the lock screen covered only 1232x568 of the monitor; the launcher showed through outside it | the DRM capture showed the same frame, so a shell layout defect: panel-sized art drawn unscaled at 0,0 and a lock root with no ground. Fixed in `5a9a511` (art centred, the lock keeps the screen's ground when its art is smaller than the display); panel captures unchanged; on the unit the lock covers the monitor (shell `ac24832`, md5 `cc3b9c1a…`) |
+| Vision, portrait hold | `automatic`, no keyboard: hold 0 | picture 542x963 (9:16, the largest that fits); boxes on the cars of a car video, OK (owner) |
+| Orientation | same unit position (landscape), same video; only the hold changed | hold 0: the detector's input sideways, 0 real cars (one false full-frame box); `shell.rotation mode=landscape` (hold 270, display still 0): upright, 4-6 cars per capture. The input to the detector and the preview are turned by the same rotation, so an upright preview is an upright input (code). Model and thresholds unchanged |
+| Preview size | landscape hold | 1024x576 (the slot cap), ~28 % of the monitor |
+| Display-side scaling (tried, reverted) | preview drawn scaled to 1464x823, overlays scaled | worked and stayed aligned, but shell CPU 13 % -> 63 % (bilinear) / 55 % (nearest), idle 43 % -> 0-5 %, detector ~11 -> 6-9 fps. Not suitable; owner chose to keep 1024x576. Commits `422a180`, `9e90178` reverted by `55a3263`, `ac82284` |
+| Camera app | opened once on the monitor | live, upright, 1024x576; helper closed on leaving |
+| Existing functions in HDMI mode | Wi-Fi, LoRa, NinjaOne, launcher | Wi-Fi up, radio `rx`, NinjaOne opens (no login held), 0 ERROR lines, no oops |
+| Back to the panel | `shell.rotation mode=automatic`, `pos-display-boot lcd`, reboot | PASS: `settings.conf` byte-identical to before (`1dff6098…`), no `force_dtb`, `DSI-1` 568x1232, touch, BOOT key, `spidev0.0` + radio `rx`, gc2093, shell `ac24832`; AMOLED and touch OK (owner) |
+
+**Unit B is left** on the panel tree, shell `ac24832` (md5 `cc3b9c1a…`,
+the NinjaOne build + this branch), every other file as before the gate;
+the Doors HDMI tree (`bb346f9e…`) is installed as
+`k230-canmv-rm69a10-hdmi.dtb`, the vendor tree as `k230-canmv-v3.dtb`.
+`/root/rollback-vision-hdmi/` holds the original NinjaOne shell and the
+vendor HDMI tree (verified after the last boot), `RESTORE.sh`,
+`settings.conf.before-landscape` and the gate's shells (`eabc97f`,
+`ac24832`, `7d76f92`, `abc4e37`).
+
+### Limitations and open items
+
+- Physical keyboard navigation in Vision on HDMI: **UNTESTED** (no keyboard
+  base on the bench). The key path was exercised with `shell.key` on the
+  panel and in the simulator only. Without touch or a keyboard, an HDMI boot
+  is driven over SSH.
+- The hold comes from the rotation mode and the keyboard. Without the base,
+  `automatic` means portrait: a unit placed in landscape on a monitor needs
+  the mode set to Landscape, which also turns the panel on the next panel
+  boot.
+- The preview stays at most 1024 px a side (about 28 % of a 1920x1080 monitor
+  in landscape). A larger picture needs bigger shared-memory slots in the
+  shell, `pos-vision` and `pos-camera` (estimated 16.6 MB instead of 8.4 MB
+  while open, roughly twice the conversion and copy work); not built.
+- Boxes trail fast-moving objects slightly: they come from the frame the
+  detector ran on, the preview refreshes at up to 10 Hz.
+- "Some stripes" on the monitor were seen once, with the vendor tree;
+  not seen in the captures (the DRM frame is clean). Not investigated.
+- The focus ring is hard to see on a primary-filled button (panel and
+  simulator).
+- The unit's `pos-display-boot` still describes the vendor tree when
+  selecting HDMI; the branch's version has the corrected text.
+- Not tested, by scope: unplugging the cable, a boot without a monitor, 720p,
+  automatic switching (none exists), bridge register access.
+- Every reboot ends a NinjaOne login (by NinjaOne's design); none was held.
+- Nothing is merged or pushed: `feat/vision-hdmi` and
+  `integration/vision-hdmi-ninjaone` are local branches.

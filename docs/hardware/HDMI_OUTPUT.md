@@ -397,7 +397,9 @@ DTB from unit B); the effect on the running camera is ASSUMED, never tried.
   59,754 B; the same recipe rebuilds the panel tree byte for byte. Its
   decompiled form differs from the panel tree's in the model string, the
   bridge for the touch node, the panel and its endpoint, the fbdev property
-  and the connector - nothing else but phandle numbers. Not yet booted.
+  and the connector - nothing else but phandle numbers. Booted on unit B
+  2026-10-13: 1920x1080, camera, LoRa, BOOT key and Wi-Fi as on the panel,
+  no touch (VERIFIED, `VISION_HDMI_GATE.md` "Results").
 - **The shell on an external display** (`ui/shell/shell_display.h`): when the
   DRM device has an `HDMI-A` connector (sysfs, read before the display is
   opened), the shell runs at rotation 0 in the monitor's mode with no corner
