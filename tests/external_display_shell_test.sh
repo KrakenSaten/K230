@@ -142,5 +142,63 @@ else
     failed=$((failed + 1))
 fi
 
+# ---- 5. The hold changes while Vision or Camera is open ------------------------
+# The shell does not restart on an external display, so the open screen must
+# follow the hold itself: the picture changes shape and the helper is told the
+# new turn (the detector's input). Measured on the screen: the picture's width
+# along row 540, tall (held in portrait) then wide (held on the keyboard).
+pic_w() { # <png>: the picture's width on row 540, left of the controls
+    python3 - "$1" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+W, H, rows = read_png(sys.argv[1])
+r = rows[540]
+print(sum(1 for x in range(0, 1100) if max(r[x][:3]) > 60))
+PY
+}
+for app in vision camera; do
+    fresh; say absent
+    POCKETOS_EXTERNAL_DISPLAY=1920x1080 POCKETOS_VISION_HELPER="$HELPER" POCKETOS_CAMERA_HELPER="$(pwd)/tools/camera/pos-camera" \
+        POCKETOS_CAMERA_BACKEND=fake POCKETOS_CAMERA_FAKE=period=20 start_shell --open "$app"
+    sleep 2.5
+    "$POS" call shell shell.screenshot path="$OUT/$app-tall.png" >/dev/null 2>&1
+    say present
+    sleep 5
+    "$POS" call shell shell.screenshot path="$OUT/$app-wide.png" >/dev/null 2>&1
+    tall=$(pic_w "$OUT/$app-tall.png"); wide=$(pic_w "$OUT/$app-wide.png")
+    check "$app: held in portrait, a tall picture ($tall px wide)" "$([ "${tall:-0}" -gt 400 ] && [ "${tall:-0}" -lt 700 ] && echo 1 || echo 0)"
+    check "$app: the keyboard attached while open turns it wide ($wide px), without a restart ($(restarts))" \
+        "$([ "${wide:-0}" -gt 800 ] && [ "$(restarts)" = 0 ] && echo 1 || echo 0)"
+    check "$app: and says so" \
+        "$(grep -q "$app: the unit is now held at 270, was 0" "$POCKETOS_LOG_DIR/shell.log" && echo 1 || echo 0)"
+    stop_shell
+done
+
+# ---- 6. A portrait-only app on the monitor -------------------------------------
+# Poker and Timber are laid out for portrait only; the monitor is not turned
+# for them, so they get a column the panel's width in the middle.
+fresh; say absent
+POCKETOS_EXTERNAL_DISPLAY=1920x1080 start_shell --open poker
+"$POS" call shell shell.screenshot path="$OUT/poker.png" >/dev/null 2>&1
+outside=$(python3 - "$OUT/poker.png" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+W, H, rows = read_png(sys.argv[1])
+# Anything drawn in the body outside the centred 568 px column?
+lo, hi = (W - 568) // 2, (W + 568) // 2
+print(sum(1 for y in range(120, H, 8) for x in list(range(0, lo - 2, 4)) + list(range(hi + 2, W, 4))
+          if max(rows[y][x][:3]) > 60))
+PY
+)
+check "poker: nothing drawn outside a centred 568 px column ($outside px)" "$([ "${outside:-1}" = 0 ] && echo 1 || echo 0)"
+check "poker: and opened without a turn or a restart ($(restarts))" \
+    "$([ "$(field current)" = poker ] && [ "$(restarts)" = 0 ] && [ "$(field rotation)" = 0 ] && echo 1 || echo 0)"
+[ -n "${SHOTS_DIR:-}" ] && cp "$OUT"/*.png "$SHOTS_DIR"/
+stop_shell
+
 echo "external_display_shell_test: $failed failure(s)"
 [ "$failed" = 0 ]

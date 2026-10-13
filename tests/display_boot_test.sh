@@ -63,6 +63,20 @@ out=$(run "${B}" lcd)
 check "lcd when already lcd: nothing to change, success" \
     "$([ $? -eq 0 ] && printf '%s' "${out}" | grep -q 'nothing to change' && echo 1 || echo 0)"
 
+# What the HDMI note claims follows the tree that is there: the vendor's has
+# no camera sensor node, the Doors one (kernel patch 0075) has.
+populate "${B}"
+out=$(run "${B}" hdmi)
+check "vendor HDMI tree: the note says LoRa and the camera are missing" \
+    "$(printf '%s' "${out}" | grep -q 'no LoRa (spi0), no uart1, no camera sensor' &&
+       ! printf '%s' "${out}" | grep -q 'work as on the panel' && echo 1 || echo 0)"
+populate "${B}"
+printf 'gc2093@37\0' >> "${B}/${HDMI}"
+out=$(run "${B}" hdmi)
+check "Doors HDMI tree: the note says the camera and LoRa work" \
+    "$(printf '%s' "${out}" | grep -q 'The camera, LoRa and the keyboard base work as on the panel' &&
+       ! printf '%s' "${out}" | grep -q 'no camera sensor' && echo 1 || echo 0)"
+
 # Refusals: each must exit 1 and write nothing.
 refuse() { # <label> <setup command>
     populate "${B}"
