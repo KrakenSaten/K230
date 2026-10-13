@@ -78,6 +78,8 @@ struct camera_app {
     struct camera_layout lay;
     uint32_t lay_still_w;  /* the still the layout was chosen for */
     uint32_t lay_still_h;
+    int lay_hold;          /* the hold (degrees) the layout was made for */
+    int view_rot;          /* the rotation the helper was last told; -1 none */
     bool laid_out;
     lv_timer_t *timer;
 
@@ -375,7 +377,8 @@ static void do_actions(struct camera_app *a, unsigned acts)
         }
     }
     if (acts & CAMERA_DO_START_PREVIEW) {
-        camera_session_view(&a->session, a->preview.w, a->preview.h, display_rotation());
+        a->view_rot = display_rotation();
+        camera_session_view(&a->session, a->preview.w, a->preview.h, a->view_rot);
         camera_session_preview(&a->session, true, now);
     }
     if (acts & CAMERA_DO_STOP_PREVIEW) {
@@ -412,6 +415,14 @@ static void on_poll(lv_timer_t *t)
     }
     changed = camera_model_tick(&a->model, now);
 
+    /* The unit turned while the screen is open: on an external display the
+     * shell does not restart for it (app.h hold_rotation), so the picture
+     * takes the new shape and the helper the new turn here. */
+    if (a->laid_out && display_rotation() != a->lay_hold) {
+        LOG_INFO("camera: the unit is now held at %d, was %d", display_rotation(), a->lay_hold);
+        pocketui_layout_guard_reset(&a->guard);
+        layout(a);
+    }
     while (camera_session_poll(&a->session, &ev, now)) {
         if (ev.kind == CAMERA_EV_FRAME) {
             /* A picture only counts once it is on screen. */
@@ -546,6 +557,7 @@ static void layout(struct camera_app *a)
     area = &a->guard.area;
     a->lay_still_w = a->model.still_w;
     a->lay_still_h = a->model.still_h;
+    a->lay_hold = display_rotation();
     /* The photo as the owner holds the unit: the still turned upright. */
     if (portrait_now()) {
         pw = a->model.still_h;
@@ -585,8 +597,14 @@ static void layout(struct camera_app *a)
         /* The review picture was of the old size: it is gone. */
         a->model.review_picture = false;
         if (camera_session_active(&a->session) && a->model.state == CAMERA_PREVIEW) {
-            camera_session_view(&a->session, w, h, display_rotation());
+            camera_session_view(&a->session, w, h, a->lay_hold);
+            a->view_rot = a->lay_hold;
         }
+    } else if (a->view_rot >= 0 && a->view_rot != a->lay_hold && camera_session_active(&a->session) &&
+               a->model.state == CAMERA_PREVIEW) {
+        /* The same size, turned the other way. */
+        camera_session_view(&a->session, a->preview.w, a->preview.h, a->lay_hold);
+        a->view_rot = a->lay_hold;
     }
     repaint(a);
 }
@@ -670,6 +688,7 @@ static void *camera_create(lv_obj_t *root)
     if (!a) {
         return NULL;
     }
+    a->view_rot = -1;
     camera_session_init(&a->session);
     camera_model_init(&a->model);
     build(a, root);

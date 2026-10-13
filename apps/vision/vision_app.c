@@ -139,6 +139,7 @@ struct vision_app {
      * order, with their places as laid out - never measured, so a key in
      * the same tick as a repaint sees what the repaint placed. */
 #define VISION_KEY_TARGETS (VISION_SHEET_ROWS * VISION_SHEET_CELLS + VISION_BUTTONS + 1)
+#define VISION_KEY_RING_PAD 3 /* px between a button and its focus ring */
     lv_obj_t *key_obj[VISION_KEY_TARGETS];
     struct vision_rect key_rect[VISION_KEY_TARGETS];
     int key_n;
@@ -150,6 +151,8 @@ struct vision_app {
     uint32_t lay_frame_w; /* the preview the layout was chosen for */
     uint32_t lay_frame_h;
     enum vision_mode lay_mode;
+    int lay_hold;         /* the hold (degrees) the layout was made for */
+    int view_rot;         /* the rotation the helper was last told; -1 none */
     bool laid_out;
     lv_timer_t *timer;
 
@@ -571,9 +574,13 @@ static void key_ring(struct vision_app *a)
     }
     if (a->key_ringed) {
         lv_obj_remove_style(a->key_ringed, pos_style(POS_STYLE_SELECTED), 0);
+        lv_obj_remove_local_style_prop(a->key_ringed, LV_STYLE_OUTLINE_PAD, 0);
     }
     if (now) {
         pos_style_add(now, POS_STYLE_SELECTED, 0);
+        /* Clear of the button: on a primary (filled) button an outline on its
+         * edge is lost against the fill. */
+        lv_obj_set_style_outline_pad(now, VISION_KEY_RING_PAD, 0);
     }
     a->key_ringed = now;
 }
@@ -801,7 +808,8 @@ static void do_actions(struct vision_app *a, unsigned acts)
         start_session(a);
     }
     if (acts & VISION_ACT_STREAM) {
-        vision_session_view(&a->session, a->preview.w, a->preview.h, display_rotation());
+        a->view_rot = display_rotation();
+        vision_session_view(&a->session, a->preview.w, a->preview.h, a->view_rot);
         vision_session_stream(&a->session, true, now);
     }
     if (acts & VISION_ACT_MODE) {
@@ -862,6 +870,14 @@ static void on_poll(lv_timer_t *t)
     int64_t now = now_ms();
     bool changed = vision_model_tick(&a->model, now);
 
+    /* The unit turned while the screen is open: on an external display the
+     * shell does not restart for it (app.h hold_rotation), so the picture
+     * takes the new shape and the helper the new turn here. */
+    if (a->laid_out && display_rotation() != a->lay_hold) {
+        LOG_INFO("vision: the unit is now held at %d, was %d", display_rotation(), a->lay_hold);
+        pocketui_layout_guard_reset(&a->guard);
+        layout(a);
+    }
     while (vision_session_poll(&a->session, &ev, now)) {
         if (ev.kind == VISION_EV_FRAME) {
             if (a->model.state != VISION_LIVE ||
@@ -1129,6 +1145,7 @@ static void layout(struct vision_app *a)
     a->lay_frame_w = a->model.preview_w;
     a->lay_frame_h = a->model.preview_h;
     a->lay_mode = a->model.mode;
+    a->lay_hold = display_rotation();
     /* The picture as the owner holds the unit: the preview turned upright. */
     if (portrait_now()) {
         pw = fh;
@@ -1161,8 +1178,15 @@ static void layout(struct vision_app *a)
         }
         a->model.live = false;
         if (vision_session_active(&a->session) && a->model.state == VISION_LIVE) {
-            vision_session_view(&a->session, w, h, display_rotation());
+            vision_session_view(&a->session, w, h, a->lay_hold);
+            a->view_rot = a->lay_hold;
         }
+    } else if (a->view_rot >= 0 && a->view_rot != a->lay_hold && vision_session_active(&a->session) &&
+               a->model.state == VISION_LIVE) {
+        /* The same size, turned the other way: the helper turns the frame
+         * the detector sees, so it is told even when nothing is resized. */
+        vision_session_view(&a->session, a->preview.w, a->preview.h, a->lay_hold);
+        a->view_rot = a->lay_hold;
     }
     repaint(a);
 }
@@ -1363,6 +1387,7 @@ static void *vision_create(lv_obj_t *root)
         }
     }
     a->key_focus = -1;
+    a->view_rot = -1;
     build(a, root);
     pocketos_shell_set_status_hint("");
     a->hint_shown = "";
