@@ -1660,6 +1660,14 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_remove_style_all(sh.app_root);
     lv_obj_set_size(sh.app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(sh.app_root, LV_FLEX_FLOW_COLUMN);
+    /* A portrait-only app on an external display (shell_display.h): the
+     * monitor is not turned for it, so it gets a column the panel's width,
+     * centred, the body's height - the shape it was laid out for. */
+    if (sh.display.external && app->orientation == POCKETOS_APP_ORIENTATION_PORTRAIT &&
+        sh.display.geometry.width > POCKETOS_PANEL_W) {
+        lv_obj_set_width(sh.app_root, POCKETOS_PANEL_W);
+        lv_obj_align(sh.app_root, LV_ALIGN_TOP_MID, 0, 0);
+    }
 
     /* An app that draws its own top row in landscape (app.h `header`, DS
      * §37.2) gets no header there: the body starts at the top edge, and
