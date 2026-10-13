@@ -11,7 +11,36 @@ switches outputs on its own, reboots on unplug, or writes to the bridge.
 Evidence classes as in `T-DISPLAY-K230.md`.
 
 **Status: NOT RUN.** Nothing on unit B has been changed for this gate. The
-read-only checks of 2026-10-10 are under "Unit B before the gate".
+read-only checks of 2026-10-10 are under "Unit B before the gate"; those of
+2026-10-13, which supersede them where they differ, directly below.
+
+## Unit B on 2026-10-13 (read-only, over COM12) and the kit that matches it
+
+Unit B was given the NinjaOne build after the first kit was made, so that kit's
+shell (9d22211) would have removed NinjaOne. Read over the serial console (root
+shell, no password; Wi-Fi had no carrier, none of its saved networks in range):
+
+| Item | Value |
+| --- | --- |
+| Image, kernel, all `/boot` files | as on 2026-10-10 below: v0.3.6 `9ad64a1`, `Image` `f73df255…`, panel tree `7420e8e7…`, HDMI tree the vendor `2a6b49ad…`, no `force_dtb` |
+| Shell | `doors-shell` md5 `f71aafaf…`, build `66f9bf0` (`feat/ninjaone-app`); the earlier shell is in `/root/rollback-ninjaone` |
+| NinjaOne | `/usr/bin/pos-ninjaone` `6e702ff1…`; `/etc/pocketos/ninjaone.conf` (29 B, nonsecret); no `/run/pocketos/ninjaone` - no login held. Logins live in `/run` only (NINJAONE.md): **every reboot of this gate ends one**, by design |
+| Other binaries | `pos-vision` `5ac7992c…`, `pos-camera` `a83641cd…`, `pos-display-boot` `8821097b…`, `pos-browser` `9dcea31e…` |
+| Keyboard base | not answering at this boot (`the controller did not answer`) |
+| Rollback dirs | `rollback-deskbuddy-opus`, `rollback-rift-basemap`, `rollback-ninjaone` |
+
+Kit (`out/vision-hdmi-gate/stage2/`):
+
+| File on the unit | Source | Identity |
+| --- | --- | --- |
+| `/usr/bin/doors-shell` | `integration/vision-hdmi-ninjaone` `eabc97f` = `feat/ninjaone-app` 66f9bf0 + `feat/vision-hdmi` (no conflicts), same cross recipe. The recipe rebuilds the installed 66f9bf0 shell byte for byte (md5 `f71aafaf…`) | md5 `158fe80c…`, sha256 `abd68a2e…`, 4,478,216 B, 0 first-party warnings |
+| `/boot/k230-canmv-rm69a10-hdmi.dtb` | as below | sha256 `bb346f9e…` |
+
+Focused host checks on `eabc97f`: `make all` and the SDL shell at
+`-Werror`, `vision_keys_test`, `kernel_patches_test`, `vision_lint`,
+`external_display_shell_test`, `vision_shell_test`, `ninjaone_shell_test.py
+--focused`, `launcher_folder_shell_test` - all pass. The backups below take
+`f71aafaf…`, not the 2026-10-10 shell.
 
 ## Unit B before the gate (read-only, 2026-10-10)
 
@@ -57,7 +86,7 @@ Wi-Fi) are the panel tree's.
 
 `/root/rollback-vision-hdmi/` gets:
 
-- `doors-shell` (md5 `21202a56…`), the shell now installed;
+- `doors-shell`, the shell installed at the time (md5 `f71aafaf…` on 2026-10-13);
 - `k230-canmv-rm69a10-hdmi.dtb` (sha256 `2a6b49ad…`), the vendor HDMI tree
   (a second copy stays on `/boot` as `k230-canmv-v3.dtb`);
 - `boot.md5`: `md5sum /boot/*` before the change;
