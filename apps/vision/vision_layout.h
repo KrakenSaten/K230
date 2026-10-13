@@ -17,13 +17,8 @@
 #define VISION_BTN_H 64
 #define VISION_STATUS_H 28
 #define VISION_COUNT_H 48
-/* The largest preview the helper renders (POCKETCAM_VIEW_MAX_W/H). */
 #define VISION_PICTURE_MAX 1024
 #define VISION_SIDE_MIN 240
-/* The control column's least width when the picture is shown larger than
- * the preview (an external display): the panel's own column is about this
- * wide, so the buttons keep their labels. */
-#define VISION_SIDE_SCALED 400
 #define VISION_LAYOUT_BUTTONS 5
 #define VISION_LAYOUT_STATUS_LINES_MAX 4
 /* Buttons per row: three across the width when tall, two in the column
@@ -40,14 +35,7 @@ struct vision_rect {
 
 struct vision_layout {
     bool wide;
-    /* Where the picture is shown, and the preview the helper renders for
-     * it: the same size, unless the picture is larger than
-     * VISION_PICTURE_MAX a side (only on an external display), when the
-     * preview is the largest of the frame's shape within that and the
-     * screen draws it scaled up to the picture (DS §38.10). */
     struct vision_rect picture;
-    int32_t preview_w;
-    int32_t preview_h;
     struct vision_rect status;
     struct vision_rect count_a;
     struct vision_rect count_b;

@@ -15,21 +15,7 @@ static struct vision_rect rect(int32_t x, int32_t y, int32_t w, int32_t h)
     return r;
 }
 
-/* The largest picture of shape fw:fh inside box_w x box_h. */
-static void fit_box(uint32_t fw, uint32_t fh, int32_t box_w, int32_t box_h, int32_t *pw, int32_t *ph)
-{
-    int64_t w = box_w;
-    int64_t h = (w * fh) / fw;
-
-    if (h > box_h) {
-        h = box_h;
-        w = (h * fw) / fh;
-    }
-    *pw = (int32_t)(w < 2 ? 2 : w);
-    *ph = (int32_t)(h < 2 ? 2 : h);
-}
-
-/* The same, capped at VISION_PICTURE_MAX a side: the preview for it. */
+/* The largest picture of shape fw:fh inside box_w x box_h, capped. */
 static void fit(uint32_t fw, uint32_t fh, int32_t box_w, int32_t box_h, int32_t *pw, int32_t *ph)
 {
     int64_t w = box_w;
@@ -159,8 +145,7 @@ int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t
         if (ih < controls + 100) {
             return -1;
         }
-        fit_box(frame_w, frame_h, iw, ih - controls, &pw, &ph);
-        fit(frame_w, frame_h, iw, ih - controls, &l->preview_w, &l->preview_h);
+        fit(frame_w, frame_h, iw, ih - controls, &pw, &ph);
         l->picture = rect(x0 + (iw - pw) / 2, y0, pw, ph);
         y = y0 + ph + VISION_GAP;
         l->status = rect(x0, y, iw, status_h);
@@ -185,18 +170,7 @@ int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t
         rows = (buttons + VISION_COLS_WIDE - 1) / VISION_COLS_WIDE;
         controls = status_h + VISION_GAP + VISION_COUNT_H + VISION_GAP + rows * VISION_BTN_H +
                    (rows - 1) * VISION_GAP;
-        {
-            /* Larger than a preview (only an external display is): shown
-             * scaled up, with the column kept as wide as the panel's. */
-            int32_t bw = iw - VISION_SIDE_MIN - VISION_GAP;
-
-            fit_box(frame_w, frame_h, bw, ih, &pw, &ph);
-            if (pw > VISION_PICTURE_MAX || ph > VISION_PICTURE_MAX) {
-                bw = iw - VISION_SIDE_SCALED - VISION_GAP;
-                fit_box(frame_w, frame_h, bw, ih, &pw, &ph);
-            }
-            fit(frame_w, frame_h, bw, ih, &l->preview_w, &l->preview_h);
-        }
+        fit(frame_w, frame_h, iw - VISION_SIDE_MIN - VISION_GAP, ih, &pw, &ph);
         side = iw - pw - VISION_GAP;
         if (side < VISION_SIDE_MIN || ih < controls) {
             return -1;
