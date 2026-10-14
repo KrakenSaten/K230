@@ -11,6 +11,16 @@ struct poker_layout {
     struct poker_rect table, caption, stepper, actions, secondary;
 };
 void poker_view_layout(int width, int height, struct poker_layout *out);
+/* The table's card widths (heights are 7/5 of them) - the side seats', the
+ * board's and the player's - and where they go. Bounded by the table's
+ * width, as ever; on a table too short for those (an external display's
+ * portrait column is shorter than the panel's) all three shrink together
+ * until the player's seat is clear of the board. */
+struct poker_cards {
+    int mini, board, hero;
+    int side_y, board_y, hero_y; /* the side seats', the board's and the player's tops */
+};
+void poker_view_cards(int width, int height, struct poker_cards *out);
 const char *poker_seat_name(int seat);
 /* Shared map for physical keyboard and touchscreen buttons. */
 enum poker_control {
