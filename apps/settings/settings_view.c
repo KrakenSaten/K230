@@ -442,7 +442,7 @@ void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int land
     }
 }
 
-void sv_rotation_external(struct sv_rotation *r, int keyboard_present)
+void sv_rotation_external(struct sv_rotation *r, int mode_valid, int keyboard_present)
 {
     const char *held = r->selected == 2   ? "in landscape."
                        : r->selected == 1 ? "in portrait."
@@ -450,7 +450,15 @@ void sv_rotation_external(struct sv_rotation *r, int keyboard_present)
                                           : "in portrait (no keyboard).";
 
     /* The monitor is never turned (shell_display.h); the mode says how the
-     * unit stands, which is how the camera's picture is turned upright. */
+     * unit stands, which is how the camera's picture is turned upright. A
+     * stored value that was not a mode is still said first, as on the panel,
+     * in fewer words so that the note fits. */
+    if (!mode_valid) {
+        snprintf(r->note, sizeof(r->note),
+                 "Stored rotation not recognised: Automatic. HDMI: camera picture turned for the unit held %s",
+                 keyboard_present ? "in landscape." : "in portrait.");
+        return;
+    }
     snprintf(r->note, sizeof(r->note), "HDMI: the screen does not turn. Camera picture turned for the unit held %s",
              held);
 }

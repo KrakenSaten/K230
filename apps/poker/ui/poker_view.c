@@ -37,10 +37,12 @@ void poker_view_cards(int width, int height, struct poker_cards *out)
     c.board = (width - 56) / 5 > 82 ? 82 : (width - 56) / 5;
     c.hero = width / 6 > 86 ? 86 : width / 6;
     cards_place(height, &c);
-    if (cards_gap(&c) < 0) {
+    /* The height the cards take; not positive on a table too narrow for a
+     * board at all, which has nothing to shrink. */
+    int need = (2 * c.mini + c.board + c.hero) * 7 / 5;
+    if (cards_gap(&c) < 0 && need > 0) {
         /* Every card by the same share of the height the cards take, then
          * a pixel at a time for the rounding. */
-        int need = (2 * c.mini + c.board + c.hero) * 7 / 5;
         int room = need + cards_gap(&c);
         if (room < need / 4)
             room = need / 4;

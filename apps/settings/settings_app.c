@@ -258,7 +258,7 @@ void settings_poll_rotation(struct settings_app *a)
     sv_rotation_apply(&a->rot, (int)o.mode, o.mode_valid, o.landscape, o.next_landscape, o.applying,
                       o.keyboard == POCKETOS_KEYBOARD_PRESENT);
     if (o.external) {
-        sv_rotation_external(&a->rot, o.keyboard == POCKETOS_KEYBOARD_PRESENT);
+        sv_rotation_external(&a->rot, o.mode_valid, o.keyboard == POCKETOS_KEYBOARD_PRESENT);
     }
 }
 

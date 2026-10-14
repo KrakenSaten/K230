@@ -152,6 +152,7 @@ struct vision_app {
     uint32_t lay_frame_h;
     enum vision_mode lay_mode;
     int lay_hold;         /* the hold (degrees) the layout was made for */
+    int hold_tried;       /* the last hold the poll laid out for; -1 none */
     int view_rot;         /* the rotation the helper was last told; -1 none */
     bool laid_out;
     lv_timer_t *timer;
@@ -873,10 +874,20 @@ static void on_poll(lv_timer_t *t)
     /* The unit turned while the screen is open: on an external display the
      * shell does not restart for it (app.h hold_rotation), so the picture
      * takes the new shape and the helper the new turn here. */
-    if (a->laid_out && display_rotation() != a->lay_hold) {
-        LOG_INFO("vision: the unit is now held at %d, was %d", display_rotation(), a->lay_hold);
-        pocketui_layout_guard_reset(&a->guard);
-        layout(a);
+    if (a->laid_out) {
+        int hold = display_rotation();
+
+        /* Tried once per new hold: a pass that cannot run yet (the frame has
+         * no area) is not retried every tick; the size change that gives the
+         * frame its area lays it out with the hold as it is then. */
+        if (hold == a->lay_hold) {
+            a->hold_tried = -1;
+        } else if (hold != a->hold_tried) {
+            LOG_INFO("vision: the unit is now held at %d, was %d", hold, a->lay_hold);
+            a->hold_tried = hold;
+            pocketui_layout_guard_reset(&a->guard);
+            layout(a);
+        }
     }
     while (vision_session_poll(&a->session, &ev, now)) {
         if (ev.kind == VISION_EV_FRAME) {
@@ -1388,6 +1399,7 @@ static void *vision_create(lv_obj_t *root)
     }
     a->key_focus = -1;
     a->view_rot = -1;
+    a->hold_tried = -1;
     build(a, root);
     pocketos_shell_set_status_hint("");
     a->hint_shown = "";
