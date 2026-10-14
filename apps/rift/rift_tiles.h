@@ -13,11 +13,16 @@
  *
  * WHAT IS ASKED FOR is what MAP draws: rift_tiles_want() takes the tiles
  * that intersect the map area now (rift_map_tiles) and sends the ones not
- * already held, under a new generation, when that set changed. A tile that
- * could not be had, or was shown stale, is not asked for again within
- * RIFT_TILES_RETRY_MS. An answer is taken only under the generation in force
- * and only for a tile still wanted: anything a view the reader has left
- * asked for is dropped, so it can never replace what is on screen now.
+ * already held, under a new generation, when that set changed. A held tile
+ * lives by the disk cache's expiry, which the helper sends with it: once that
+ * is over it is asked for again - the helper answers from its cache,
+ * revalidates, or says it is stale - and meanwhile the copy held is drawn.
+ * A tile that could not be had, or was shown stale, or was just answered, is
+ * not asked for again within RIFT_TILES_RETRY_MS: not on every redraw. A held
+ * copy whose renewal failed stays, stale. An answer is taken only under the
+ * generation in force and only for a tile still wanted: anything a view the
+ * reader has left asked for is dropped, so it can never replace what is on
+ * screen now.
  *
  * MEMORY: at most RIFT_TILES_MEM_MAX tiles of 128 KB, the least recently
  * drawn of those out of view going first. The map is told before a tile's
@@ -96,6 +101,7 @@ struct rift_tile_slot {
     bool in_view;
     unsigned used;
     int64_t got_ms;
+    int64_t fresh_until;    /* when the copy expires (the helper's <fresh>) */
 };
 
 struct rift_tile_key {

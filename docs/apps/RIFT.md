@@ -459,7 +459,11 @@ names - given a rim and a backdrop on a map - stay legible.
   kept seven days. 32 MB / 2048 tiles under
   `/var/lib/pocketos/rift/tiles` (0700), the least recently shown removed
   first, nothing written with less than 64 MB free on the disk; 32 decoded
-  tiles (4 MB) in the shell, the oldest out of view replaced first.
+  tiles (4 MB) in the shell, the oldest out of view replaced first. A
+  decoded tile lives by the same expiry, which the helper sends with it:
+  once it is over, a tile in view is asked for again (from the cache, or
+  revalidated) - at most every 30 s, never on every redraw - and drawn
+  meanwhile; if that fails it stays on the map, stale.
 - **Offline.** Tiles seen before are shown with no network (stale once
   expired) and the graticule where there is none. The map says, at its top
   left: LOADING MAP TILES, OFFLINE · SAVED TILES ONLY, CLOCK NOT SET · SAVED

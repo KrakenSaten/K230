@@ -19,11 +19,14 @@
  *   Helper to shell:
  *
  *     hello  <proto> <features>         "net" or "fake", ",img:png" when it decodes
- *     tile   <gen> <z> <x> <y> <w> <h> <file> <source> <why>
+ *     tile   <gen> <z> <x> <y> <w> <h> <file> <source> <why> <fresh>
  *            a picture of w x h RGB565 pixels in <file> (web_rx_file_name_ok)
  *            in the session's directory. source: cache (fresh, nothing was
  *            asked), valid (asked, 304), net (fetched), stale (an expired
- *            copy, because asking failed: why says how; "-" otherwise)
+ *            copy, because asking failed: why says how; "-" otherwise).
+ *            fresh: the seconds this copy has left before it expires, by
+ *            the rules below; 0 for a stale one. The shell holds a decoded
+ *            tile no longer than that before asking for it again.
  *     notile <gen> <z> <x> <y> <why>    no picture for it: offline, dns,
  *            connect, timeout, tls, clock, http-<status>, broken, ...
  *     idle   <gen>                      every tile of gen is answered
@@ -66,7 +69,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define WEB_TILE_PROTO_VERSION 1
+/* 2: the tile line carries <fresh>. A shell and a helper of different versions
+ * do not talk: the shell stops the helper and says "protocol". */
+#define WEB_TILE_PROTO_VERSION 2
 #define WEB_TILE_SIZE 256
 #define WEB_TILE_ZOOM_MAX 19
 /* The most tiles one want names: more than any map area on this panel
@@ -172,6 +177,7 @@ struct web_tile_result {
     long http;              /* the final status, when one came */
     enum web_fail fail;     /* when asking failed */
     char why[24];           /* for the line: "-" or what went wrong */
+    int64_t expires;        /* wall clock: when the copy given expires (cache, valid, net) */
 };
 
 /* The template filled in, or -1 when it is not an https template with all

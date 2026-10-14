@@ -549,6 +549,143 @@ static void client(void)
     check("off clears it", rift_tiles_status(&t, NULL) == RIFT_TILES_OFF && dirs_left() == 0);
 }
 
+/* ---- freshness of the tiles held in memory ----------------------------------------- */
+
+/* The shell's clock is a parameter (rift_tiles.h), so a test can move it on
+ * by a day; the helper's waits are real. Poll at base + the real time spent,
+ * until nothing is owed or ms pass. */
+static void vsettle(struct rift_tiles *t, const struct rift_map_tile *tiles, int n, int64_t base, int ms)
+{
+    int64_t start = now_ms();
+
+    do {
+        int64_t v = base + (now_ms() - start);
+
+        rift_tiles_poll(t, v);
+        rift_tiles_want(t, tiles, n, v);
+        nap_ms(5);
+    } while (now_ms() - start < ms && rift_tiles_status(t, NULL) == RIFT_TILES_LOADING);
+}
+
+/* The inode of a tile's file in the disk cache, or 0. Every write is a new
+ * file renamed into place, so a changed inode is a file written again. */
+static ino_t cache_inode(int z, int x, int y, const char *ext)
+{
+    char path[800];
+    struct stat st;
+
+    snprintf(path, sizeof(path), "%s/rift/tiles/%d-%d-%d.%s", state, z, x, y, ext);
+    return stat(path, &st) == 0 ? st.st_ino : 0;
+}
+
+/* A tile decoded and held is a copy of the disk cache's, and lives by the
+ * same expiry (web_tiles.h): asked for again once it expires - the helper
+ * answers from the cache, or revalidates it, and never on every redraw -
+ * and, when that fails, kept and shown stale. */
+static void freshness(void)
+{
+    struct rift_tiles t;
+    struct rift_tiles_config c = config("https://tiles-stale.doors.test/{z}/{x}/{y}.png");
+    struct rift_map_tile a[2];
+    int64_t base;
+    ino_t png;
+    ino_t meta;
+    bool stale;
+    int gen;
+    int i;
+    int ok;
+
+    rift_tiles_init(&t);
+
+    /* max-age=0: expired as soon as it is had. */
+    rift_tiles_start(&t, &c, now_ms());
+    row(a, 2, 17, 3000, 3000);
+    settle(&t, a, 2, 3000);
+    check("freshness: two tiles held", rift_tiles_pixels(&t, 17, 3000, 3000, NULL, &stale) && !stale &&
+                                           rift_tiles_held(&t) == 2);
+    png = cache_inode(17, 3000, 3000, "png");
+    meta = cache_inode(17, 3000, 3000, "meta");
+    base = now_ms();
+    gen = t.gen;
+    ok = 1;
+    for (i = 0; i < 100; i++) {
+        rift_tiles_want(&t, a, 2, base + i * (RIFT_TILES_RETRY_MS / 100));
+        ok = ok && t.gen == gen;
+    }
+    check("freshness: an expired tile is not asked for on every redraw", ok);
+    base += RIFT_TILES_RETRY_MS + 1;
+    rift_tiles_want(&t, a, 2, base);
+    check("freshness: but is asked for again, now and then", t.gen != gen && t.pending == 2);
+    vsettle(&t, a, 2, base, 3000);
+    check("freshness: and revalidated: its validators renewed, its picture not fetched again",
+          t.pending == 0 && png && cache_inode(17, 3000, 3000, "png") == png &&
+              cache_inode(17, 3000, 3000, "meta") != meta);
+    check("freshness: still held, and not stale",
+          rift_tiles_pixels(&t, 17, 3000, 3000, NULL, &stale) && !stale);
+
+    /* Offline, the held copies expired again: one still on the disk, one
+     * not. Both stay on the map, marked stale; neither is asked for on
+     * every redraw. The helper is restarted under the same client - the
+     * held tiles stay - with no network. */
+    {
+        char path[800];
+        pid_t pid = t.pid;
+        int64_t end = now_ms() + 2000;
+
+        snprintf(t.cfg_url, sizeof(t.cfg_url), "%s", "https://offline.doors.test/{z}/{x}/{y}.png");
+        kill(pid, SIGKILL);
+        while (now_ms() < end && rift_tiles_running(&t)) {
+            rift_tiles_poll(&t, base);
+            nap_ms(5);
+        }
+        base += RIFT_TILES_RESTART_MS + 10;
+        rift_tiles_poll(&t, base);
+        vsettle(&t, a, 0, base, 2000); /* hello */
+        check("freshness: the helper is back, with the tiles still held",
+              rift_tiles_running(&t) && t.hello && t.pid != pid && rift_tiles_held(&t) == 2);
+        snprintf(path, sizeof(path), "%s/rift/tiles/17-3001-3000.png", state);
+        unlink(path);
+        snprintf(path, sizeof(path), "%s/rift/tiles/17-3001-3000.meta", state);
+        unlink(path);
+        base += RIFT_TILES_RETRY_MS + 1000;
+        vsettle(&t, a, 2, base, 3000);
+        base += 3000;
+    }
+    check("freshness: offline, an expired tile kept on disk is shown stale",
+          rift_tiles_pixels(&t, 17, 3000, 3000, NULL, &stale) && stale);
+    check("freshness: and one the disk no longer has is kept in memory, stale",
+          rift_tiles_pixels(&t, 17, 3001, 3000, NULL, &stale) && stale);
+    gen = t.gen;
+    rift_tiles_want(&t, a, 2, base);
+    check("freshness: neither is asked for again at once", t.gen == gen);
+    rift_tiles_want(&t, a, 2, base + RIFT_TILES_RETRY_MS + 1);
+    check("freshness: both are, now and then: the network may be back", t.gen != gen && t.pending == 2);
+    rift_tiles_stop(&t);
+
+    /* max-age one day: not asked for until the day is over, and then
+     * answered from the cache, with nothing asked of the server. The
+     * helper's clock is the real one, so its copy is still fresh. */
+    c = config(RIFT_TILE_URL_FAKE);
+    rift_tiles_start(&t, &c, now_ms());
+    row(a, 2, 17, 3010, 3000);
+    settle(&t, a, 2, 3000);
+    png = cache_inode(17, 3010, 3000, "png");
+    meta = cache_inode(17, 3010, 3000, "meta");
+    base = now_ms();
+    gen = t.gen;
+    rift_tiles_want(&t, a, 2, base + 3600 * 1000);
+    check("freshness: a tile still fresh is not asked for again", t.gen == gen);
+    base += 24 * 3600 * 1000 + 1000;
+    rift_tiles_want(&t, a, 2, base);
+    check("freshness: once its max-age is over it is", t.gen != gen);
+    vsettle(&t, a, 2, base, 3000);
+    check("freshness: and answered by the helper from its cache, as fresh",
+          t.pending == 0 && cache_inode(17, 3010, 3000, "png") == png &&
+              cache_inode(17, 3010, 3000, "meta") == meta &&
+              rift_tiles_pixels(&t, 17, 3010, 3000, NULL, &stale) && !stale);
+    rift_tiles_stop(&t);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -576,6 +713,7 @@ int main(int argc, char **argv)
     setenv("POCKETOS_LOG_STDERR", "0", 1);
     geometry();
     client();
+    freshness();
     {
         char cmd[700];
 

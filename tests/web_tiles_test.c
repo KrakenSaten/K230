@@ -333,6 +333,7 @@ static void test_one_tile(const char *root)
 
     web_tile_get(&c, &net, 10, 543, 297, now, &r);
     check("a tile not held is fetched", r.source == WEB_TILE_NET && r.asked && r.len > 0 && spy.hops == 1);
+    check("and says when the copy it gives expires, for the shell to hold it as long", r.expires == now + 86400);
     check("under the client's own User-Agent", strcmp(spy.ua, "DOORS-RIFT/test") == 0);
     check("unconditionally", spy.inm[0] == '\0' && spy.ims[0] == '\0');
     web_tile_result_free(&r);
@@ -343,6 +344,7 @@ static void test_one_tile(const char *root)
 
     web_tile_get(&c, &net, 10, 543, 297, now + 60, &r);
     check("held and fresh: shown, and nothing is asked", r.source == WEB_TILE_CACHE && !r.asked && spy.hops == 1);
+    check("with the expiry it was kept under", r.expires == now + 86400);
     web_tile_result_free(&r);
 
     expire(&c, 10, 543, 297, now);
@@ -350,6 +352,7 @@ static void test_one_tile(const char *root)
     check("held and expired: asked again, conditionally",
           r.asked && spy.hops == 2 && strcmp(spy.inm, "\"t-10-543-297\"") == 0 && spy.ims[0]);
     check("and a 304 renews it without a body", r.source == WEB_TILE_VALID && r.http == 304 && r.len > 0);
+    check("and says the renewed expiry", r.expires == now + 120 + 86400);
     web_tile_result_free(&r);
     check("for as long as the 304 says",
           web_tile_cache_read(&c, 10, 543, 297, &m, &body, &len) == 0 && m.expires == now + 120 + 86400);
@@ -374,6 +377,7 @@ static void test_one_tile(const char *root)
     web_tile_get(&c, &net, 11, 1, 1, now + 2, &r);
     check("no network: the kept copy is shown, stale, and says why",
           r.source == WEB_TILE_STALE && r.len > 0 && strcmp(r.why, "offline") == 0);
+    check("with no expiry: it has none left", r.expires == 0);
     web_tile_result_free(&r);
     web_tile_get(&c, &net, 11, 2, 2, now + 2, &r);
     check("and a tile never seen is not there", r.source == WEB_TILE_NONE && !r.body && strcmp(r.why, "offline") == 0);
