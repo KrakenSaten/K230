@@ -99,6 +99,20 @@ static void give_status(struct rift_model *m, int uptime_s, int64_t now_ms)
     cJSON_Delete(o);
 }
 
+/* The same, from a service that names its run (mesh.status run_id). */
+static void give_status_run(struct rift_model *m, const char *run_id, int uptime_s,
+                            int64_t now_ms)
+{
+    char json[160];
+    cJSON *o;
+
+    snprintf(json, sizeof(json), "{\"state\":\"online\",\"reason\":\"receiving\","
+                                 "\"run_id\":\"%s\",\"uptime_s\":%d}", run_id, uptime_s);
+    o = cJSON_Parse(json);
+    rift_model_apply_status(m, o, now_ms);
+    cJSON_Delete(o);
+}
+
 /* Is there a message holding this text? Used to ask whether something the
  * service has forgotten is still on this side. */
 static int holds_text(const struct rift_model *m, const char *want)
@@ -516,6 +530,98 @@ static void test_multibyte_limits(void)
         check("and refuses a character more, which would be 148 bytes",
               rift_model_send_begin(&s, key, text, 1000) == -1);
     }
+}
+
+/* A history of one run: one message read, then a status at uptime_s read
+ * at now_ms - or, with run_id, from a service that names its run. */
+static void one_run(struct rift_model *s, const char *run_id, int uptime_s, int64_t now_ms)
+{
+    rift_model_init(s);
+    if (run_id) {
+        give_status_run(s, run_id, uptime_s, now_ms);
+    } else {
+        give_status(s, uptime_s, now_ms);
+    }
+    apply_messages(s, "{\"messages\":["
+                      "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                      "\"text\":\"history\",\"state\":\"received\",\"mono_ms\":1000}"
+                      "],\"count\":1,\"total\":1,\"persistent\":false}");
+    apply_event(s, "mesh.message",
+                "{\"message\":{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"read since\",\"state\":\"received\",\"mono_ms\":2000}}");
+    rift_model_mark_read(s, KEY_B);
+}
+
+/* After the statuses a test gave: a new message of the same run arrives,
+ * which is when a cache the model thinks belongs to an old run is emptied.
+ * Both earlier messages must still be there, still read, and the new one
+ * the only unread. */
+static int run_kept(struct rift_model *s)
+{
+    apply_event(s, "mesh.message",
+                "{\"message\":{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"new\",\"state\":\"received\",\"mono_ms\":3000}}");
+    return s->svc_restarts == 0 && s->msgs_forgotten == 0 && s->msg_count == 3 &&
+           holds_text(s, "history") && holds_text(s, "read since") &&
+           rift_model_unread(s, KEY_B) == 1;
+}
+
+#define RUN_A "0123456789abcdef"
+#define RUN_B "fedcba9876543210"
+
+/* A status that is late, or overtaken by a later one, is not a restart.
+ * Each test below would have counted one and emptied the history and its
+ * read marks; a restart is established only by the run's name changing or,
+ * from a service too old to name it, across a reconnect - a restart closes
+ * every connection, so the run cannot change under an open one. */
+static void test_late_status(void)
+{
+    struct rift_model s;
+
+    /* No run_id, one connection. A reply read 3 s after it was stamped makes
+     * the start look 3 s later than it is. */
+    one_run(&s, NULL, 600, 600000);
+    give_status(&s, 602, 605000);
+    check("late status: a delayed reply is not a restart", run_kept(&s));
+
+    /* No run_id, one connection, two replies read in the wrong order: the
+     * uptime appears to go backwards. */
+    one_run(&s, NULL, 610, 610000);
+    give_status(&s, 608, 610200);
+    check("late status: an overtaken reply is not a restart", run_kept(&s));
+
+    /* run_id, across a reconnect to the same run, the first reply late. */
+    one_run(&s, RUN_A, 600, 600000);
+    rift_model_service_lost(&s, "meshcored stopped reading");
+    rift_model_service_found(&s);
+    give_status_run(&s, RUN_A, 602, 606000);
+    check("late status: the same run_id after a reconnect is the same run", run_kept(&s));
+
+    /* run_id, one connection, replies out of order. */
+    one_run(&s, RUN_A, 610, 610000);
+    give_status_run(&s, RUN_A, 605, 610100);
+    check("late status: the same run_id out of order is the same run", run_kept(&s));
+
+    /* A genuine restart the clocks cannot see: the new run started within
+     * the slack of the old one. Its name says so. */
+    one_run(&s, RUN_A, 3, 3000);
+    rift_model_service_lost(&s, "meshcored closed the connection");
+    rift_model_service_found(&s);
+    give_status_run(&s, RUN_B, 4, 4500);
+    check("late status: a new run_id is a restart", s.svc_restarts == 1);
+    apply_event(&s, "mesh.message",
+                "{\"message\":{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"new run\",\"state\":\"received\",\"mono_ms\":5000}}");
+    check("late status: and the old run's history and read marks go",
+          s.msg_count == 1 && holds_text(&s, "new run") && rift_model_unread(&s, KEY_B) == 1);
+
+    /* No run_id, a genuine restart: seen across the reconnect. */
+    one_run(&s, NULL, 600, 600000);
+    rift_model_service_lost(&s, "meshcored closed the connection");
+    rift_model_service_found(&s);
+    give_status(&s, 2, 640000);
+    check("late status: without a run_id a restart is still seen across a reconnect",
+          s.svc_restarts == 1);
 }
 
 int main(void)
@@ -1060,12 +1166,14 @@ int main(void)
      * one yet, and that is the difference COMMS draws between "Waiting for
      * meshcored." and "No messages yet." Nothing drops the connection here,
      * because this is the cache's own rule and not the socket's: the model
-     * is asked for a status and then for a message, which is all it takes. */
+     * is asked for a status and then for a message, which is all it takes.
+     * The status names a new run, which is what may say so without a
+     * reconnect. */
     {
         struct rift_model s;
 
         rift_model_init(&s);
-        give_status(&s, 600, 600000);
+        give_status_run(&s, RUN_A, 600, 600000);
         apply_messages(&s,
                        "{\"messages\":["
                        "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
@@ -1073,7 +1181,7 @@ int main(void)
                        "\"mono_ms\":1000}"
                        "],\"count\":1,\"total\":1,\"persistent\":false}");
         check("a history has been read", s.messages_valid && s.msg_count == 1);
-        give_status(&s, 1, 602000);
+        give_status_run(&s, RUN_B, 1, 602000);
         check("the run changed", s.svc_restarts == 1);
         apply_event(&s, "mesh.message",
                     "{\"message\":{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A
@@ -1485,6 +1593,7 @@ int main(void)
     test_slot_reuse();
 
     test_multibyte_limits();
+    test_late_status();
     printf("rift_comms_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

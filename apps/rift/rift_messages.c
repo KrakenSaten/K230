@@ -87,42 +87,59 @@ static enum rift_msg_state msg_state_from_word(const char *w)
  * parsing because the cache below is the only thing that needs the answer:
  * rift_model_apply_status reads the field, this decides what it means.
  *
- * A status that says nothing about the run - no uptime, or one no clock
- * could have reached - concludes nothing, in either direction: what is
- * already held about the run stays held. */
+ * A status that says nothing about the run - no run_id, and no uptime or one
+ * no clock could have reached - concludes nothing, in either direction: what
+ * is already held about the run stays held. */
 void rift_model_note_service_run(struct rift_model *m, const cJSON *result, int64_t now_ms)
 {
-    int64_t uptime;
-    int64_t start;
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(result, "run_id");
+    int have_id = cJSON_IsString(id) && hex_only(id->valuestring, RIFT_RUN_ID_LEN);
+    int64_t uptime = 0;
+    int64_t start = 0;
+    int restart = 0;
     double d;
+    int have_up = num_of(result, "uptime_s", &d) && d >= 0 && d <= (double)RIFT_UPTIME_MAX_S;
 
-    if (!num_of(result, "uptime_s", &d) || d < 0 || d > (double)RIFT_UPTIME_MAX_S) {
+    if (!have_id && !have_up) {
         return;
     }
-    uptime = (int64_t)d;
-    start = now_ms - uptime * 1000;
-    if (!m->have_svc_start) {
-        m->have_svc_start = 1;
-        m->have_uptime = 1;
-        m->svc_start_ms = start;
-        m->uptime_s = uptime;
-        return;
+    if (have_up) {
+        uptime = (int64_t)d;
+        start = now_ms - uptime * 1000;
     }
-    if (uptime < m->uptime_s || start > m->svc_start_ms + RIFT_SVC_RESTART_SLACK_MS) {
+    if (have_id && m->have_run_id) {
+        /* Named by the service, new on every start: the one answer a late or
+         * overtaken reply cannot get wrong. */
+        restart = strcmp(id->valuestring, m->run_id) != 0;
+    } else if (!m->run_known && have_up && m->have_svc_start) {
+        /* Unnamed: judged only on a connection's first status. A restart
+         * closes every connection, so within one the run cannot change, and
+         * a reply read late or out of order there is not a new process. */
+        restart = uptime < m->uptime_s || start > m->svc_start_ms + RIFT_SVC_RESTART_SLACK_MS;
+    }
+    if (restart) {
         /* A different process, with a message id space that has started
          * again. Counted rather than acted on here: forget_old_run below
          * empties the cache, the next time a message is applied to it, so
          * that a status and the messages that follow it cannot disagree. */
         m->svc_restarts++;
-        m->svc_start_ms = start;
-    } else if (start < m->svc_start_ms) {
-        /* Still the same run. The uptime is truncated to whole seconds, so
-         * a derived start can only be too late; the lowest seen is the
-         * least wrong, and holding it keeps the comparison above honest. */
-        m->svc_start_ms = start;
+        m->have_svc_start = 0;
+        m->have_uptime = 0;
     }
-    m->uptime_s = uptime;
-    m->have_uptime = 1;
+    if (have_up) {
+        /* A start derived from a truncated uptime, read late, can only be
+         * too late: the lowest seen is the least wrong. The highest uptime
+         * is the run's, whatever order the replies were read in. */
+        m->svc_start_ms = m->have_svc_start && m->svc_start_ms < start ? m->svc_start_ms : start;
+        m->uptime_s = m->have_uptime && m->uptime_s > uptime ? m->uptime_s : uptime;
+        m->have_svc_start = 1;
+        m->have_uptime = 1;
+    }
+    if (have_id) {
+        snprintf(m->run_id, sizeof(m->run_id), "%s", id->valuestring);
+        m->have_run_id = 1;
+    }
+    m->run_known = 1;
 }
 
 /* The ids in this cache belong to one run of the service, and to no other.

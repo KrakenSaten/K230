@@ -172,6 +172,7 @@ void rift_model_service_found(struct rift_model *m)
     m->stale = 0;
     m->snapshot_valid = 0;
     m->channels_valid = 0;
+    m->run_known = 0; /* a new connection: which run answers it is read again */
     if (m->state == RIFT_SVC_ABSENT) {
         m->state = RIFT_SVC_UNKNOWN;
         m->reason[0] = '\0';

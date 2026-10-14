@@ -135,6 +135,8 @@
  * the message ids that restarted with it are still only a handful. See
  * "which run of the service this is" below. */
 #define RIFT_SVC_RESTART_SLACK_MS 2000
+/* mesh.status run_id: 16 hex characters naming one run of meshcored. */
+#define RIFT_RUN_ID_LEN 16
 
 /* The seven service states of docs/api/mesh.md, plus the two answers that
  * are about this app's connection rather than about the service:
@@ -548,27 +550,34 @@ struct rift_model {
      * identifies a message only within a single run of the service. This
      * is how a new run is told from the one before it.
      *
-     * What is held is the run's start on the shared monotonic clock - the
-     * moment a status was read, less the uptime it reported - which is one
-     * value per run rather than a number that keeps moving. The lowest seen
-     * is kept, because the truncation to whole seconds can only make it
-     * look later than it is.
+     * A restart is counted only when it is established, because counting
+     * one empties the history and its read marks:
      *
-     * Two things say the run has changed, and both are needed:
+     *   - mesh.status run_id, new on every start (docs/api/mesh.md). When
+     *     the service names its run, a changed name is a restart and the
+     *     same name is not, however late or out of order the reply was.
      *
-     *   - uptime_s going backwards. Within one run it cannot, so this is
-     *     certain, but it misses the case below.
-     *   - the start moving forward by more than RIFT_SVC_RESTART_SLACK_MS.
-     *     This catches the restart the first test misses: a service that
-     *     had been up 3 s when it died, replaced ten seconds later by one
-     *     whose uptime is already larger than the 3 s last seen.
+     *   - From a service that does not name it, the clocks - and only on
+     *     the first status of a connection. A restart closes every
+     *     connection, so the run cannot change under an open one; within a
+     *     connection, a reply read late (its start looks later) or overtaken
+     *     (its uptime looks smaller) is the same run. Across a reconnect,
+     *     uptime_s going backwards, or the run's start moving forward by
+     *     more than RIFT_SVC_RESTART_SLACK_MS, says the run changed. The
+     *     second catches a service that had been up 3 s when it died,
+     *     replaced ten seconds later by one whose uptime is already larger.
      *
-     * The residual gap is a run that lived, and was replaced, inside the
-     * slack - a couple of seconds. Nothing else this app holds is affected:
-     * nodes are keyed by public key and replaced by every snapshot, and the
-     * activity ring is stamped on the board's clock, not the service's. */
+     * The start is the moment a status was read less the uptime it reported:
+     * one value per run. The lowest seen is kept, and the highest uptime,
+     * because truncation and a late read can only make the start look later.
+     * Nothing else this app holds is affected: nodes are keyed by public key
+     * and replaced by every snapshot, and the activity ring is stamped on the
+     * board's clock, not the service's. */
+    int have_run_id;
+    char run_id[RIFT_RUN_ID_LEN + 1];    /* mesh.status run_id, as last read */
+    int run_known;                       /* this connection's run has been read */
     int have_uptime;
-    int64_t uptime_s;                    /* the service's own, as last read */
+    int64_t uptime_s;                    /* the service's own, the highest read */
     int have_svc_start;
     int64_t svc_start_ms;                /* this run's start, ours */
     unsigned svc_restarts;               /* runs of it this app has seen end */

@@ -259,6 +259,8 @@ static void test_resend_and_orphans(void)
         check("and the new message is the one shown, once", x && !x->orphan && x->id == 2);
     }
     /* ---- a second restart keeps the orphan that is left, and adds no copy ---- */
+    rift_model_service_lost(&m, "meshcored closed the connection");
+    rift_model_service_found(&m);
     give_status(&m, 1, 640000);
     apply_messages(&m, "{\"messages\":[],\"count\":0,\"total\":0,\"persistent\":false}");
     check("the orphan from before is kept again, and the new unanswered one joins it",
@@ -277,6 +279,8 @@ static void test_resend_and_orphans(void)
                      i + 1, i, 650000 + i);
             apply_event(&m, "mesh.message", json);
         }
+        rift_model_service_lost(&m, "meshcored closed the connection");
+        rift_model_service_found(&m);
         give_status(&m, 1, 700000);
         apply_messages(&m, "{\"messages\":[],\"count\":0,\"total\":0,\"persistent\":false}");
         check("at most RIFT_MAX_ORPHANS are kept, the newest",
