@@ -3662,8 +3662,9 @@ and the keyboard base is the way in. No new role, token or colour.
 - **Portrait-only apps on the monitor** (Timber, Poker): a column the
   panel's width (568 px), centred, the body's height - the shape they are
   laid out for. The body is shorter than the panel's (1008 against 1160 at
-  1080p): Poker's table, laid out for the panel's height, then draws the
-  hand over the board (its own geometry; open).
+  1080p): Poker's cards shrink together until the hand clears the board
+  (the panel's sizes unchanged); Timber keeps its 672 px viewport and
+  scrolls, its rule for a short body, and has no key control.
 - **Validation:** `tests/vision_keys_test.c` (the moves over both shapes'
   buttons and a sheet's rows), the shell suites with an external display
   stood in by `POCKETOS_EXTERNAL_DISPLAY=1920x1080`, then the unit B gate

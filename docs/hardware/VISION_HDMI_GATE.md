@@ -237,7 +237,7 @@ vendor HDMI tree (verified after the last boot), `RESTORE.sh`,
 - `feat/vision-hdmi` is PR #85 (draft); `integration/vision-hdmi-ninjaone`
   is local.
 
-### After the PR #85 review (host only, not yet on unit B)
+### After the PR #85 review (host; rechecked on unit B 2026-10-14, below)
 
 Fixed on the branch after the gate, each with a host regression check;
 the shell they were gated with (`ac24832`) does not have them:
@@ -248,9 +248,10 @@ the shell they were gated with (`ac24832`) does not have them:
   old turn until the app was reopened (reproduced in the simulator).
   `external_display_shell_test.sh` section 5.
 - Portrait-only apps (Timber, Poker) open in a centred column of the
-  panel's width instead of the wide monitor body. Section 6. Poker's table
-  still draws the hand over the board at the monitor's shorter body height
-  (its own geometry, open).
+  panel's width instead of the wide monitor body. Section 6. Poker's table,
+  laid out for the panel's height, drew the hand over the board in the
+  shorter column; its cards now shrink together on a short table
+  (`poker_view_cards`, `poker_view_test`), the panel's sizes unchanged.
 - Settings' rotation note on an external display says the mode sets the
   hold, not the screen (`settings_view_test`).
 - The focus ring sits 3 px clear of the button, visible on primary buttons.
@@ -258,6 +259,40 @@ the shell they were gated with (`ac24832`) does not have them:
   for the camera sensor's node (`gc2093@37`, in the Doors tree only)
   (`display_boot_test.sh`).
 
-Hardware recheck needed: the hold change with Vision and Camera open, the
-portrait-only column, the Settings note and the ring on the monitor, and
-`pos-display-boot hdmi`'s note under BusyBox on the unit.
+## Recheck on unit B, 2026-10-14 (owner at the bench)
+
+Unit B before: v0.3.6 `9ad64a1`, kernel `f73df255…`, the Doors HDMI tree
+`bb346f9e…` installed (not selected), shell `45a8fb9` (md5 `542e31a9…`,
+the Settings power-fit gate's), `pos-display-boot` `8821097b…`,
+`settings.conf` `1dff6098…` (`automatic`), no keyboard base, no NinjaOne
+login held. Installed: shell `e12a17d` (md5 `8a43f0c3…`) from the local
+`integration/vision-hdmi-ninjaone` = origin/master `11b635e` (Settings
+fixes #86, #87) + `feat/ninjaone-app` `66f9bf0` + this branch `2a2758f`,
+and `pos-display-boot` `e383d7b6…` (this branch). Backups in
+`/root/rollback-vision-hdmi-2/` (`45a8fb9` shell, old `pos-display-boot`,
+`settings.conf`, md5-verified, `RESTORE.sh`). Host checks on `e12a17d`:
+`settings_app_test` 1558/0, `settings_shell_test`, `settings_view_test`,
+`poker_view_test`, external-display, Vision and launcher-folder shell
+suites, NinjaOne focused test - all pass; cross build 0 warnings.
+
+| Step | Result |
+| --- | --- |
+| Install on the panel | PASS: seven files matched the record, backups verified; AMOLED and touch OK (owner), NinjaOne opens, 0 ERROR lines |
+| `pos-display-boot hdmi` | PASS: under BusyBox it found `gc2093@37` in the installed tree and said "The camera, LoRa and the keyboard base work as on the panel"; the vendor copy has no such node |
+| HDMI boot | PASS: SSH at ~42 s, `external:true`, 1920x1080, rotation 0, gc2093, LoRa `rx`, BOOT key; lock screen and launcher correct (owner) |
+| Hold change, Vision open | PASS: `automatic` -> Landscape over IPC: hold 0 -> 270, picture 542x963 -> 1024x576, the scene in it turned 90 degrees (the helper's turn), `vision: the unit is now held at 270, was 0`; shell PID, helper PID and the open count unchanged, no restart |
+| Hold change, Camera open | PASS: Landscape -> `automatic`: hold 270 -> 0, wide -> tall, turned, `camera: the unit is now held at 0, was 270`; same PIDs, no reopen. Mode back to `automatic`, `settings.conf` `1dff6098…` |
+| Poker on the monitor | PASS: centred 568 px column; at Large text the hand sits below the board, nothing overlaps |
+| Timber on the monitor | Column PASS. At Large text its READY button scrolls below the body's foot: Timber keeps its 672 px viewport on a body shorter than its 1060 px reference and scrolls (its own rule, as in panel landscape; audit 0 clipped/overlap). Not changed: shrinking the viewport would cut a tall tower. Timber has no key control at all, so it cannot be played on HDMI without touch in any case |
+| Settings note | Simulator only (same build, 1920x1080, Large): "HDMI: the screen does not turn. Camera picture turned for the unit held in portrait (no keyboard)." On the unit Settings cannot be navigated on HDMI (no touch, no key navigation in Settings); the shell's `external:true`, which selects the note, was VERIFIED |
+| Keyboard navigation, focus ring | UNTESTED on hardware (no keyboard base); ring visibility checked in the simulator |
+| Back to the panel | PASS: `pos-display-boot lcd`, reboot, SSH at ~29 s, `DSI-1` 568x1232, touch, BOOT key, LoRa `rx`, gc2093, shell `e12a17d`, `settings.conf` identical to before, both rollback dirs verify; AMOLED and touch OK (owner) |
+
+Unit B is left on the panel tree with shell `e12a17d` and the new
+`pos-display-boot`; the Doors HDMI tree stays installed. Each reboot ended
+any NinjaOne login (none was held).
+
+Still untested or open: physical keyboard navigation and the ring on the
+monitor; Settings' note on the monitor itself; Timber on HDMI (no key
+control; short-body scrolling at Large); unplugging the cable, a boot
+without a monitor, 720p.
