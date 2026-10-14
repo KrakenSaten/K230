@@ -318,6 +318,7 @@ static void test_slot_reuse(void)
           rift_model_send_begin(&s, a, "reply", 1000) == -1 && !rift_model_sending(&s));
     rift_model_send_clear(&s);
     check("slot reuse: writing to B is not", rift_model_send_begin(&s, b, "hello", 1000) == 0);
+    rift_model_send_failed(&s, "x");
     rift_model_send_clear(&s);
     check("slot reuse: B's limit is B's", rift_model_text_limit(&s, b) == 140);
     check("slot reuse: A's is no longer known", rift_model_text_limit(&s, a) == 0);
@@ -336,6 +337,7 @@ static void test_slot_reuse(void)
               name_is(rift_model_conv_name(&s, KEY_A), "HYTTA"));
     check("slot reuse: and still a destination",
           rift_model_send_begin(&s, KEY_A, "direct", 1000) == 0);
+    rift_model_send_failed(&s, "x");
     rift_model_send_clear(&s);
 
     /* 9. The same hash under another name is another channel too. */
@@ -370,6 +372,7 @@ static void test_slot_reuse(void)
     check("slot reuse: fresh run, only C can be written to",
           rift_model_send_begin(&r, a, "x", 1000) == -1 && rift_model_send_begin(&r, b, "x", 1000) == -1 &&
               rift_model_send_begin(&r, c, "x", 1000) == 0);
+    rift_model_send_failed(&r, "x");
     rift_model_send_clear(&r);
     check("slot reuse: fresh run, the direct conversation is there", thread_len(&r, KEY_A) == 1);
 
@@ -770,6 +773,12 @@ int main(void)
         check("and is in flight", rift_model_sending(&s));
         check("a second one is refused while the first is out",
               rift_model_send_begin(&s, KEY_A, "again", 1100) == -1);
+        /* Neither clearing the caption nor refusing another submission ends
+         * the one in flight: its reply must find it as it was written. */
+        rift_model_send_clear(&s);
+        rift_model_send_refused(&s, "one message is already on its way");
+        check("clearing or refusing another leaves the one in flight alone",
+              rift_model_sending(&s) && !s.outbox.failed && strcmp(s.outbox.text, "hei") == 0);
         /* Accepting ends the submission and creates nothing: the message
          * arrives as mesh.message, keyed by the id, so one message is one
          * row however the reply and the event race. */
@@ -1342,6 +1351,7 @@ int main(void)
         /* Sending. */
         check("a joined channel is a destination this app will send to",
               rift_model_send_begin(&s, site, "hello", 1000) == 0);
+        rift_model_send_failed(&s, "x");
         rift_model_send_clear(&s);
         /* mesh.send addresses a slot. A key that does not name the channel
          * now in its slot must never reach it: that is how a reply to one
@@ -1368,6 +1378,7 @@ int main(void)
             too_long[147] = '\0';
             check("a body of exactly the channel's limit is taken",
                   rift_model_send_begin(&s, site, too_long, 1000) == 0);
+            rift_model_send_failed(&s, "x");
             rift_model_send_clear(&s);
             too_long[147] = 'x';
             too_long[148] = '\0';

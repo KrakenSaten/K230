@@ -4,6 +4,7 @@
  * mesh.send (rift_ipc_write_send), so neither file is everything.
  *
  * Reached only from a message's RESEND action in COMMS (tests/rift_lint.sh).
+ * The answer to a mesh.send, first send or RESEND, is read here too.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -21,15 +22,14 @@ int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id)
         return -1;
     }
     if (c->fd < 0) {
-        rift_model_send_failed(c->model, "meshcored is not answering; nothing was sent");
+        rift_model_send_refused(c->model, "meshcored is not answering; nothing was sent");
         c->revision++;
         return -1;
     }
     now = rift_mono_ms();
     if (rift_model_resend_begin(c->model, message_id, now) != 0) {
-        rift_model_send_failed(c->model, rift_model_sending(c->model)
-                                             ? "one message is already on its way"
-                                             : "that message cannot be sent again");
+        /* One already in flight is left as it is (rift_model_send_refused). */
+        rift_model_send_refused(c->model, "that message cannot be sent again");
         c->revision++;
         return -1;
     }
@@ -42,4 +42,23 @@ int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id)
     }
     return rift_ipc_write_send(c, c->model->outbox.conv_key, c->model->outbox.text,
                                c->model->outbox.resend_id, now);
+}
+
+void rift_ipc_send_answered(struct rift_ipc *c, const cJSON *result)
+{
+    /* "accepted" is always true when there is a result at all
+     * (docs/api/mesh.md); what matters here is the id, because that is
+     * what the message itself will arrive under. The message is not
+     * created from this reply: mesh.message carries it, and keying both
+     * on the id is what keeps one message one row however they race. */
+    const cJSON *id_of = cJSON_IsObject(result)
+                             ? cJSON_GetObjectItemCaseSensitive(result, "message_id")
+                             : NULL;
+    const cJSON *route = cJSON_IsObject(result)
+                             ? cJSON_GetObjectItemCaseSensitive(result, "route")
+                             : NULL;
+
+    rift_model_send_accepted(c->model, cJSON_IsNumber(id_of) ? (int64_t)id_of->valuedouble : 0,
+                             (cJSON_IsString(route) && route->valuestring) ? route->valuestring
+                                                                          : NULL);
 }

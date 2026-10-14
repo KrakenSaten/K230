@@ -200,6 +200,9 @@ static int request(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_
         return -1;
     }
     c->requests_out++;
+    if (what == RIFT_REQ_SEND) {
+        c->send_request = id; /* only its reply may end the submission */
+    }
     return 0;
 }
 
@@ -285,19 +288,17 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
      * show: a composer that cleared itself and then said nothing would look
      * like a message that went. */
     if (rift_send_text_check(text, why, sizeof(why)) != 0) {
-        rift_model_send_failed(c->model, why);
+        rift_model_send_refused(c->model, why);
         c->revision++;
         return -1;
     }
     if (c->fd < 0) {
-        rift_model_send_failed(c->model, "meshcored is not answering; nothing was sent");
+        rift_model_send_refused(c->model, "meshcored is not answering; nothing was sent");
         c->revision++;
         return -1;
     }
     if (rift_model_sending(c->model)) {
-        rift_model_send_failed(c->model, "one message is already on its way");
-        c->revision++;
-        return -1;
+        return -1; /* the one in flight keeps its caption, and its reply */
     }
     now = rift_mono_ms();
     if (rift_model_send_begin(c->model, conv_key, text, now) != 0) {
@@ -309,19 +310,19 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
          * channel payload, and a reader told only "too long" would not know
          * that their 150-character message was fine yesterday to a node. */
         if (slot >= 0 && !rift_model_key_channel(c->model, conv_key)) {
-            rift_model_send_failed(c->model,
-                                   c->model->channels_valid
-                                       ? "that channel is not joined any more; nothing was sent"
-                                       : "the channel list has not been read yet; nothing was sent");
+            rift_model_send_refused(c->model,
+                                    c->model->channels_valid
+                                        ? "that channel is not joined any more; nothing was sent"
+                                        : "the channel list has not been read yet; nothing was sent");
         } else if (slot >= 0 && limit > 0 && (int)strlen(text) > limit) {
             char why_long[RIFT_TEXT_MAX];
 
             snprintf(why_long, sizeof(why_long),
                      "too long: %d bytes fit here, this node's name goes inside it", limit);
-            rift_model_send_failed(c->model, why_long);
+            rift_model_send_refused(c->model, why_long);
         } else {
-            rift_model_send_failed(c->model,
-                                   "that is not a node or channel this app can address");
+            rift_model_send_refused(c->model,
+                                    "that is not a node or channel this app can address");
         }
         c->revision++;
         return -1;
@@ -586,6 +587,12 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     }
     c->replies_in++;
     what = take_pending(c, (int)id->valuedouble);
+    /* A mesh.send reply ends only the submission it was written for: any
+     * other would accept or refuse a later one, and take its orphan away. */
+    if (what == RIFT_REQ_SEND &&
+        (!rift_model_sending(c->model) || (int)id->valuedouble != c->send_request)) {
+        what = RIFT_REQ_NONE;
+    }
     if (rift_ipc_repeater_reply(c, what, msg)) {
         c->revision++;
         return 0;
@@ -741,26 +748,9 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     case RIFT_REQ_MESSAGES:
         rift_model_apply_messages(c->model, result);
         break;
-    case RIFT_REQ_SEND: {
-        /* "accepted" is always true when there is a result at all
-         * (docs/api/mesh.md); what matters here is the id, because that is
-         * what the message itself will arrive under. The message is not
-         * created from this reply: mesh.message carries it, and keying both
-         * on the id is what keeps one message one row however they race. */
-        const cJSON *id_of = cJSON_IsObject(result)
-                                 ? cJSON_GetObjectItemCaseSensitive(result, "message_id")
-                                 : NULL;
-        const cJSON *route = cJSON_IsObject(result)
-                                 ? cJSON_GetObjectItemCaseSensitive(result, "route")
-                                 : NULL;
-
-        rift_model_send_accepted(c->model,
-                                 cJSON_IsNumber(id_of) ? (int64_t)id_of->valuedouble : 0,
-                                 (cJSON_IsString(route) && route->valuestring)
-                                     ? route->valuestring
-                                     : NULL);
+    case RIFT_REQ_SEND:
+        rift_ipc_send_answered(c, result);
         break;
-    }
     case RIFT_REQ_SUBSCRIBE:
         rift_rxlog_service_answered(c->rxlog, result, rift_mono_ms());
         break;

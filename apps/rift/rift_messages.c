@@ -864,7 +864,10 @@ void rift_model_send_failed(struct rift_model *m, const char *error)
 
 void rift_model_send_clear(struct rift_model *m)
 {
-    if (!m) {
+    /* Only a caption is forgotten. A submission in flight is still waiting
+     * for its reply, and the reply must find it as it was written - cleared,
+     * a second submission could take its place and be answered by it. */
+    if (!m || m->outbox.active) {
         return;
     }
     memset(&m->outbox, 0, sizeof(m->outbox));

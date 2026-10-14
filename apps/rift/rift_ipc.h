@@ -160,6 +160,9 @@ struct rift_ipc {
 
     int next_id;
     struct rift_pending pending[RIFT_MAX_PENDING];
+    /* The id of the mesh.send that carries the model's submission in flight
+     * (m->outbox). Only the reply to that request may end it. */
+    int send_request;
 
     int64_t next_attempt_ms;
     int backoff_ms;
@@ -236,6 +239,9 @@ int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id);
  * already recorded in the model. */
 int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *text,
                         int64_t resend_id, int64_t now);
+/* rift_ipc.c's dispatch, for the result of the mesh.send that carries the
+ * submission in flight - and only that one (rift_ipc.send_request). */
+void rift_ipc_send_answered(struct rift_ipc *c, const cJSON *result);
 
 /* Advert this node (mesh.advert): zero-hop when zero_hop is set - heard in
  * direct range and repeated by nobody - flooded otherwise.

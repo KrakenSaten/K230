@@ -996,8 +996,13 @@ int rift_model_text_limit(const struct rift_model *m, const char *conv_key);
 void rift_model_send_accepted(struct rift_model *m, int64_t message_id, const char *route);
 /* meshcored refused it, or the connection went away under it. */
 void rift_model_send_failed(struct rift_model *m, const char *error);
+/* A submission refused before anything was written (one already in flight,
+ * text that will not go, no service). Reported like a failure, except while
+ * another submission is in flight: that one is left exactly as it is. */
+void rift_model_send_refused(struct rift_model *m, const char *error);
 /* Forget the last failure, so the caption goes when the composer is used
- * again. */
+ * again. A submission in flight is not a failure and is never forgotten
+ * here: only its reply, or the service going, ends it. */
 void rift_model_send_clear(struct rift_model *m);
 /* ---- sending again (RESEND) ------------------------------------------------
  *
