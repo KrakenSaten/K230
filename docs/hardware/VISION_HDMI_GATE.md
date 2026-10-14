@@ -296,3 +296,16 @@ Still untested or open: physical keyboard navigation and the ring on the
 monitor; Settings' note on the monitor itself; Timber on HDMI (no key
 control; short-body scrolling at Large); unplugging the cable, a boot
 without a monitor, 720p.
+
+## After the recheck: host validation only (2026-10-14)
+
+Changes made after the unit B recheck, each validated on the host only - not
+on hardware. Unit B runs `b3d88d4` (integration, contains `4ddbb49` below,
+not `cda0fb2`); the recheck results above are for `e12a17d`.
+
+| Commit | Change | Host check |
+| --- | --- | --- |
+| `4ddbb49` | Vision/Camera try each new hold once (no per-tick retry when a pass cannot run); Poker no division when the cards take no height; Settings keeps "Stored rotation not recognised" on HDMI | `settings_view_test`, `poker_view_test`, `camera_app_test`, Vision/Camera lints and shell suites, external-display suite; Settings suites on the integration merge |
+| `cda0fb2` | the hold decision moved to `ui/shell/hold_follow.h` with `hold_follow_test` (a pass that cannot run is tried once in 100 ticks); HDMI detection only on the DRM device the shell opens; Poker cards at least 1 px; `.gitignore` gains `vision_keys_test` and `hold_follow_test` | `hold_follow_test`, `poker_view_test`, `poker_app_test`, `camera_app_test`, lints, external-display, Vision and Camera shell suites, `build_outputs_test`, riscv64 cross build (0 warnings) |
+
+Physical keyboard navigation on HDMI remains untested on hardware.
