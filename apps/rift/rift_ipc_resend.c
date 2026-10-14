@@ -12,6 +12,7 @@
 #include "rift_ipc.h"
 
 #include "rift_format.h"
+#include "rift_json.h"
 
 int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id)
 {
@@ -50,15 +51,17 @@ void rift_ipc_send_answered(struct rift_ipc *c, const cJSON *result)
      * (docs/api/mesh.md); what matters here is the id, because that is
      * what the message itself will arrive under. The message is not
      * created from this reply: mesh.message carries it, and keying both
-     * on the id is what keeps one message one row however they race. */
-    const cJSON *id_of = cJSON_IsObject(result)
-                             ? cJSON_GetObjectItemCaseSensitive(result, "message_id")
-                             : NULL;
+     * on the id is what keeps one message one row however they race. An id
+     * that is not a whole one is not known (0), never cut to another. */
+    int64_t id = 0;
     const cJSON *route = cJSON_IsObject(result)
                              ? cJSON_GetObjectItemCaseSensitive(result, "route")
                              : NULL;
 
-    rift_model_send_accepted(c->model, cJSON_IsNumber(id_of) ? (int64_t)id_of->valuedouble : 0,
+    if (!cJSON_IsObject(result) || !msg_id_of(result, "message_id", &id)) {
+        id = 0;
+    }
+    rift_model_send_accepted(c->model, id,
                              (cJSON_IsString(route) && route->valuestring) ? route->valuestring
                                                                           : NULL);
 }

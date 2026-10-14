@@ -624,6 +624,81 @@ static void test_late_status(void)
           s.svc_restarts == 1);
 }
 
+/* A message id is a whole number from 1 up to the largest a JSON number
+ * holds exactly. Anything else is refused before it can change anything:
+ * truncated, 1.5 would be filed over message 1 - its text, its
+ * conversation and its unread state - by a message that is not it. */
+static void test_message_ids(void)
+{
+    static const char *const bad[] = { "1.5", "0.5", "2.000001", "1e30", "1e400",
+                                       "-1e400", "9007199254740993", "\"1\"" };
+    struct rift_model s;
+    char json[512];
+    const struct rift_message *x;
+    size_t i;
+
+    rift_model_init(&s);
+    apply_messages(&s, "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"peer_name\":\"OSLO-01\",\"text\":\"first\",\"state\":\"received\","
+                       "\"mono_ms\":1000},"
+                       "{\"id\":2,\"direction\":\"out\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"second\",\"state\":\"sent_direct\",\"ack_expected\":true,"
+                       "\"mono_ms\":2000}"
+                       "],\"count\":2,\"total\":2,\"persistent\":false}");
+    apply_event(&s, "mesh.message",
+                "{\"message\":{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"unread\",\"state\":\"received\",\"mono_ms\":3000}}");
+    check("ids: three messages, one unread", s.msg_count == 3 && rift_model_unread(&s, KEY_B) == 1);
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        unsigned arrivals = s.dm_arrivals;
+        char what[96];
+
+        snprintf(json, sizeof(json),
+                 "{\"message\":{\"id\":%s,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A
+                 "\",\"peer_name\":\"HYTTA\",\"text\":\"impostor\",\"state\":\"received\","
+                 "\"mono_ms\":4000}}",
+                 bad[i]);
+        snprintf(what, sizeof(what), "ids: an id of %s is refused", bad[i]);
+        check(what, apply_event(&s, "mesh.message", json) != 0);
+        x = rift_model_message(&s, 1);
+        snprintf(what, sizeof(what), "ids: and after %s nothing changed", bad[i]);
+        check(what, s.msg_count == 3 && !holds_text(&s, "impostor") && x &&
+                        strcmp(x->text, "first") == 0 && strcmp(x->conv_key, KEY_B) == 0 &&
+                        rift_model_unread(&s, KEY_B) == 1 && rift_model_unread(&s, KEY_A) == 0 &&
+                        s.dm_arrivals == arrivals && s.dm_high_id == 3);
+    }
+    /* The same in a snapshot: the bad entry goes, the good ones are kept. */
+    apply_messages(&s, "{\"messages\":["
+                       "{\"id\":1.5,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"impostor\",\"state\":\"received\",\"mono_ms\":4000},"
+                       "{\"id\":4,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"fourth\",\"state\":\"received\",\"mono_ms\":5000}"
+                       "],\"count\":2,\"total\":4,\"persistent\":false}");
+    x = rift_model_message(&s, 1);
+    check("ids: a snapshot keeps its good entries and refuses the bad one",
+          s.msg_count == 4 && holds_text(&s, "fourth") && !holds_text(&s, "impostor") && x &&
+              strcmp(x->text, "first") == 0 && strcmp(x->conv_key, KEY_B) == 0);
+
+    /* Legitimate updates still land: the same id, written as a whole number
+     * in another form, is the same message changing state. */
+    apply_event(&s, "mesh.message",
+                "{\"message\":{\"id\":2.0,\"direction\":\"out\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"second\",\"state\":\"acked\",\"ack_expected\":true,"
+                "\"mono_ms\":2000}}");
+    x = rift_model_message(&s, 2);
+    check("ids: an update to a held id lands on it, once",
+          s.msg_count == 4 && x && x->state == RIFT_MSG_ACKED);
+    /* The largest id a JSON number holds exactly is still an id. */
+    check("ids: the largest exact id is taken",
+          apply_event(&s, "mesh.message",
+                      "{\"message\":{\"id\":9007199254740991,\"direction\":\"in\","
+                      "\"peer_public_key\":\"" KEY_B "\",\"text\":\"far\",\"state\":\"received\","
+                      "\"mono_ms\":6000}}") == 0 &&
+              rift_model_message(&s, 9007199254740991LL) != NULL);
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -1594,6 +1669,7 @@ int main(void)
 
     test_multibyte_limits();
     test_late_status();
+    test_message_ids();
     printf("rift_comms_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -293,13 +293,14 @@ int rift_model_file_message(struct rift_model *m, const cJSON *o, struct rift_me
     if (!cJSON_IsObject(o)) {
         return -1;
     }
-    if (!num_of(o, "id", &d) || d < 1) {
+    if (!msg_id_of(o, "id", &id)) {
         /* The id is the identity a duplicate is matched on. Without one
          * there is no way to tell an update from a second copy, so the
-         * message is refused rather than held as an unmatchable row. */
+         * message is refused rather than held as an unmatchable row - and
+         * one that is not a whole id (1.5) is refused before it is cut to
+         * one that names another message. */
         return -1;
     }
-    id = (int64_t)d;
     dir = str_of(o, "direction");
     text = str_of(o, "text");
     if (!dir || !text) {

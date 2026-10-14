@@ -25,6 +25,7 @@
 #include <cjson/cJSON.h>
 
 #include <stddef.h>
+#include <stdint.h>
 
 static inline const char *str_of(const cJSON *o, const char *key)
 {
@@ -42,6 +43,25 @@ static inline int num_of(const cJSON *o, const char *key, double *out)
         return 0;
     }
     *out = v->valuedouble;
+    return 1;
+}
+
+/* The largest whole number a JSON number carries exactly (2^53 - 1). */
+#define RIFT_MSG_ID_MAX 9007199254740991.0
+
+/* A message id of meshcored's: a whole number from 1 up to RIFT_MSG_ID_MAX.
+ * Checked before it is converted: a fraction truncated, or a value past
+ * what a double holds exactly rounded, would name another message - and the
+ * message filed under it would overwrite that one. Returns whether there
+ * was such an id. */
+static inline int msg_id_of(const cJSON *o, const char *key, int64_t *out)
+{
+    double d;
+
+    if (!num_of(o, key, &d) || !(d >= 1 && d <= RIFT_MSG_ID_MAX) || d != (double)(int64_t)d) {
+        return 0;
+    }
+    *out = (int64_t)d;
     return 1;
 }
 
