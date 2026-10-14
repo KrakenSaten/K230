@@ -46,10 +46,13 @@ int main(void)
         CHECK(c.hero_y - 6 >= c.board_y + c.board * 7 / 5);
         CHECK(c.mini < mini && c.board < board && c.hero < hero && c.mini >= 24);
         CHECK(c.board_y - 46 >= c.side_y + c.mini * 7 / 5 + 60); /* the pot line below the side seats */
-        for (int w = 1; w <= 120; ++w) /* narrower than any board: no shrink, no division by zero */
-            for (int h = 1; h <= 400; h += 13)
+        int all_positive = 1;
+        for (int w = 1; w <= 120; ++w) /* narrower than any board: no division by zero, no negative card */
+            for (int h = 1; h <= 400; h += 13) {
                 poker_view_cards(w, h, &c);
-        CHECK(1);
+                all_positive &= c.mini >= 1 && c.board >= 1 && c.hero >= 1;
+            }
+        CHECK(all_positive);
         for (int h = 300; h <= 900; h += 10) { /* every height: clear, or at the smallest cards */
             poker_view_cards(488, h, &c);
             CHECK(c.hero_y - 6 >= c.board_y + c.board * 7 / 5 || c.mini <= 12 || c.board <= 12 || c.hero <= 12);

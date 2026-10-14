@@ -274,20 +274,27 @@ static void on_evdev_found(lv_indev_t *indev, lv_evdev_type_t type, void *user_d
  * in the panel tree the DSI host's only connector is DSI-1, in the HDMI tree
  * the LT9611 driver creates HDMI-A-1 (docs/hardware/HDMI_OUTPUT.md §2).
  * Read from sysfs, so the device is not opened and no probe is forced;
- * POCKETOS_DRM_SYSFS names another directory for a test. */
+ * POCKETOS_DRM_SYSFS names another directory for a test. Only the device the
+ * shell opens counts (POCKETOS_DRM_DEVICE, as pocketos_platform_init). */
 int pocketos_platform_external_display(void)
 {
     const char *dir = getenv("POCKETOS_DRM_SYSFS");
+    const char *dev = getenv("POCKETOS_DRM_DEVICE");
+    const char *card;
+    char prefix[64];
     struct dirent *e;
     DIR *d;
     int found = 0;
 
+    card = strrchr(dev && *dev ? dev : "/dev/dri/card0", '/');
+    card = card ? card + 1 : dev;
+    snprintf(prefix, sizeof(prefix), "%s-HDMI-A-", card);
     d = opendir(dir && *dir ? dir : "/sys/class/drm");
     if (!d) {
         return 0;
     }
     while ((e = readdir(d)) != NULL) {
-        if (strncmp(e->d_name, "card", 4) == 0 && strstr(e->d_name, "-HDMI-A-") != NULL) {
+        if (strncmp(e->d_name, prefix, strlen(prefix)) == 0) {
             found = 1;
             break;
         }

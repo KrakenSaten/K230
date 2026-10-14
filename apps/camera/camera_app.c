@@ -32,6 +32,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
+#include "hold_follow.h"
 #include "camera_gallery_screen.h"
 #include "camera_layout.h"
 #include "camera_session.h"
@@ -422,14 +423,10 @@ static void on_poll(lv_timer_t *t)
     if (a->laid_out) {
         int hold = display_rotation();
 
-        /* Tried once per new hold: a pass that cannot run yet (the frame has
-         * no area) is not retried every tick; the size change that gives the
-         * frame its area lays it out with the hold as it is then. */
-        if (hold == a->lay_hold) {
-            a->hold_tried = -1;
-        } else if (hold != a->hold_tried) {
+        /* Tried once per new hold (hold_follow.h); the size change that gives
+         * a frame with no area its area lays it out with the hold as it is. */
+        if (hold_follow(hold, a->lay_hold, &a->hold_tried)) {
             LOG_INFO("camera: the unit is now held at %d, was %d", hold, a->lay_hold);
-            a->hold_tried = hold;
             pocketui_layout_guard_reset(&a->guard);
             layout(a);
         }

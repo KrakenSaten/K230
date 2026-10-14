@@ -30,15 +30,26 @@ static int cards_gap(const struct poker_cards *c)
 {
     return (c->hero_y - 6) - (c->board_y + c->board * 7 / 5);
 }
+/* A table narrower than any board still gets cards a pixel wide, never an
+ * area of no or negative size. */
+static void cards_at_least_one(struct poker_cards *c)
+{
+    if (c->mini < 1)
+        c->mini = 1;
+    if (c->board < 1)
+        c->board = 1;
+    if (c->hero < 1)
+        c->hero = 1;
+}
 void poker_view_cards(int width, int height, struct poker_cards *out)
 {
     struct poker_cards c;
     c.mini = width / 9 > 58 ? 58 : width / 9;
     c.board = (width - 56) / 5 > 82 ? 82 : (width - 56) / 5;
     c.hero = width / 6 > 86 ? 86 : width / 6;
+    cards_at_least_one(&c);
     cards_place(height, &c);
-    /* The height the cards take; not positive on a table too narrow for a
-     * board at all, which has nothing to shrink. */
+    /* The height the cards take: positive, every card being at least 1. */
     int need = (2 * c.mini + c.board + c.hero) * 7 / 5;
     if (cards_gap(&c) < 0 && need > 0) {
         /* Every card by the same share of the height the cards take, then
@@ -49,6 +60,7 @@ void poker_view_cards(int width, int height, struct poker_cards *out)
         c.mini = c.mini * room / need;
         c.board = c.board * room / need;
         c.hero = c.hero * room / need;
+        cards_at_least_one(&c);
         cards_place(height, &c);
         while (cards_gap(&c) < 0 && c.mini > 12 && c.board > 12 && c.hero > 12) {
             c.mini--;

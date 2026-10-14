@@ -470,6 +470,10 @@ tests/orientation_test.o: tests/orientation_test.c ui/shell/orientation.h ui/she
 tests/orientation_test: tests/orientation_test.o $(ORIENTATION_OBJS) ui/shell/settings.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# Camera and Vision following the hold while open (header-only, pure C).
+tests/hold_follow_test: tests/hold_follow_test.c ui/shell/hold_follow.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -o $@ $< $(LDFLAGS)
+
 # The status chrome policy (pure C, DS §30): what an app's declaration
 # resolves to in each orientation and on the launcher, the bar's height under
 # it, and the content box below it with and without the keyboard. The shell
@@ -2300,7 +2304,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/sysd_radio_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
              tests/power_policy_test tests/power_key_test tests/tz_zones_test tests/overlay_model_test \
              tests/theme_test tests/text_size_test \
-             tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test \
+             tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test tests/hold_follow_test \
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
@@ -2339,6 +2343,7 @@ test: all $(TEST_BINS)
 	./tests/controls_model_test
 	./tests/display_geometry_test
 	./tests/orientation_test
+	./tests/hold_follow_test
 	./tests/kbd_presence_test
 	./tests/chrome_test
 	./tests/home_layout_test

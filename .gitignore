@@ -95,6 +95,7 @@ BUILD_ID
 /tests/controls_model_test
 /tests/display_geometry_test
 /tests/orientation_test
+/tests/hold_follow_test
 /tests/kbd_presence_test
 /tests/chrome_test
 /tests/home_layout_test
@@ -245,6 +246,7 @@ BUILD_ID
 /tests/vision_text_test
 /tests/vision_face_test
 /tests/vision_embed_test
+/tests/vision_keys_test
 # Video (docs/apps/VIDEO.md)
 /tools/video/pos-video
 /tests/video_files_test
