@@ -172,10 +172,15 @@ lv_obj_t *settings_panel(struct settings_app *a, const char *caption, enum setti
 void settings_stepper(lv_obj_t *panel, const char *title, lv_event_cb_t down, lv_event_cb_t up, void *user,
                       lv_obj_t **dn, lv_obj_t **value, lv_obj_t **upb)
 {
-    lv_obj_t *r = settings_hrow(panel, SETTINGS_BTN_H);
+    lv_obj_t *r = settings_hrow(panel, LV_SIZE_CONTENT);
     lv_obj_t *t;
 
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    /* The buttons' height, and taller where the title needs it: two lines of
+     * Large are 70 px, which a 64 px row cut at its top and foot (unit B's
+     * audit, portrait). Where the title is one line the row is 64 px as it
+     * always was. */
+    lv_obj_set_style_min_height(r, SETTINGS_BTN_H, 0);
     t = pocketui_label(r, title, POS_STYLE_ROW_TITLE);
     lv_obj_set_flex_grow(t, 1);
     /* Two lines at most where the text size needs them, never under the
