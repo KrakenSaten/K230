@@ -509,6 +509,43 @@ int main(void)
         cJSON_Delete(st);
     }
 
+    /* ---- the battery in two lines, for the wide shape ---------------------- */
+    {
+        struct sv_battery b;
+        char first[160];
+        char second[160];
+        cJSON *st;
+
+        st = cJSON_Parse("{\"power\":{\"source\":\"battery\",\"battery\":{\"present\":true,"
+                         "\"capacity_percent\":null,\"status\":\"discharging\",\"voltage_v\":3.787,"
+                         "\"current_a\":-0.57,\"reading\":\"ok\",\"age_s\":12}}}");
+        sv_battery_apply(&b, st);
+        sv_battery_compact(&b, first, sizeof(first), second, sizeof(second));
+        check_str("compact: status, volts, signed amps", first, "On battery \xc2\xb7 3.79 V \xc2\xb7 -0.57 A");
+        check_str("compact: level and age", second, "Level unknown \xc2\xb7 updated 12 s ago");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"battery\":{\"present\":true,\"capacity_percent\":76,"
+                         "\"status\":\"charging\",\"reading\":\"ok\"}}}");
+        sv_battery_apply(&b, st);
+        sv_battery_compact(&b, first, sizeof(first), second, sizeof(second));
+        check_str("compact: nothing measured left out", first, "Charging");
+        check_str("compact: a level, no age", second, "Level 76 %");
+        cJSON_Delete(st);
+
+        st = cJSON_Parse("{\"power\":{\"battery\":{\"reading\":\"stale\",\"age_s\":400}}}");
+        sv_battery_apply(&b, st);
+        sv_battery_compact(&b, first, sizeof(first), second, sizeof(second));
+        check_str("compact: stale said", first, "No recent reading");
+        check_str("compact: stale age, capitalised", second, "Updated 400 s ago (too old to show)");
+        cJSON_Delete(st);
+
+        sv_battery_apply(&b, NULL);
+        sv_battery_compact(&b, first, sizeof(first), second, sizeof(second));
+        check_str("compact: sysd not answering", first, "System service not answering");
+        check_str("compact: second line empty", second, "");
+    }
+
     printf("settings_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

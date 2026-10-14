@@ -88,6 +88,11 @@ Three different things, and the page says which is which:
   unverified, and there is no RTC to wake it on a timer. Doors does not
   suspend; nothing here pretends to.
 
+A read-only **BATTERY** panel shows sysd's last battery reading
+(`docs/hardware/BATTERY_PROBE.md` §9.1): five lines (Status, Voltage, Current,
+Level, Updated) in portrait, and the same values in two lines in landscape,
+where five would make the page scroll (DS §52.2).
+
 Neither timer runs while an alarm rings or while Video, Camera, Vision or
 DeskBuddy is in front (a table in `ui/shell/shell.c`). Stored as
 `screen_off_s` and `auto_lock_s` in `settings.conf`, whole seconds, one of the
@@ -333,3 +338,24 @@ the product owner's physical check PASS: portrait and landscape look correct
 and intentional, the two columns balanced and scrolling on their own under a
 finger, taps land, and the passphrase error is readable above the landscape
 keyboard.
+
+## Power & Sleep battery in landscape on unit B (2026-10-14)
+
+Shell `45a8fb9` (PR #86) on unit B, which was running a v0.3.6 card. Only the
+shell service was restarted. The test was remote: taps injected into the touch
+device and captures from the DRM plane, with nobody at the unit. PASS:
+
+- **Portrait, Large:** BATTERY shows its five lines, and the page fits.
+- **Landscape (1232x568), Small, Medium and Large:** BATTERY shows the
+  two-line form, and Power & Sleep fits without scrolling. `shell.audit` found
+  nothing clipped, truncated or overlapping, and no object with no size.
+- **Afterwards:** rotation and text size were restored, `settings.conf` was
+  identical to its backup, the shell logged no ERROR, and the kernel logged
+  no oops.
+
+**Not covered on hardware:**
+- **A live reading.** Unit B has no keyboard base, so the panel showed only
+  "No battery, external power", with an empty second line. The two-line text
+  for a live reading ("On battery · 3.79 V · -0.57 A" / "Level unknown ·
+  updated 12 s ago") is checked only on the host, by `settings_view_test`, and
+  by `settings_app_test`, which uses a scripted sysd reading.

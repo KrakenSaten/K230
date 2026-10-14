@@ -601,7 +601,10 @@ prepared, unused, on `experiment/battery-gauge-capacity-op`.
    - **Settings › Power & Sleep, BATTERY panel:** Status, Voltage, Current
      (signed, with "into"/"out of the battery"), Level "Unknown", and
      Updated "N s ago". It is asked of sysd on opening and every 5 s while
-     shown. With no current reading every value is "-".
+     shown. With no current reading every value is "-". In landscape the
+     same values take two lines ("On battery · 3.79 V · -0.57 A", "Level
+     unknown · updated 12 s ago"), since five would make the page scroll
+     (DS §52.2); a value that is "-" is left out there.
    - **System › Diagnostics:** the Battery row ("On battery · 3.79 V ·
      -0.57 A · level unknown") and a new Gauge row ("Unvalidated · SOC 29 % ·
      full 3512 mAh · design 3000 mAh"). Both are cleared when sysd stops
