@@ -29,6 +29,7 @@
 #include "pocketlog/pocketlog.h"
 #include "touch_seed.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
@@ -267,6 +268,39 @@ static void on_evdev_found(lv_indev_t *indev, lv_evdev_type_t type, void *user_d
     } else {
         LOG_WARN("discovered touch device: its ranges cannot be read; left uncalibrated");
     }
+}
+
+/* An HDMI connector on the DRM device means the board booted its HDMI tree:
+ * in the panel tree the DSI host's only connector is DSI-1, in the HDMI tree
+ * the LT9611 driver creates HDMI-A-1 (docs/hardware/HDMI_OUTPUT.md §2).
+ * Read from sysfs, so the device is not opened and no probe is forced;
+ * POCKETOS_DRM_SYSFS names another directory for a test. Only the device the
+ * shell opens counts (POCKETOS_DRM_DEVICE, as pocketos_platform_init). */
+int pocketos_platform_external_display(void)
+{
+    const char *dir = getenv("POCKETOS_DRM_SYSFS");
+    const char *dev = getenv("POCKETOS_DRM_DEVICE");
+    const char *card;
+    char prefix[64];
+    struct dirent *e;
+    DIR *d;
+    int found = 0;
+
+    card = strrchr(dev && *dev ? dev : "/dev/dri/card0", '/');
+    card = card ? card + 1 : dev;
+    snprintf(prefix, sizeof(prefix), "%s-HDMI-A-", card);
+    d = opendir(dir && *dir ? dir : "/sys/class/drm");
+    if (!d) {
+        return 0;
+    }
+    while ((e = readdir(d)) != NULL) {
+        if (strncmp(e->d_name, prefix, strlen(prefix)) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return found;
 }
 
 lv_display_t *pocketos_platform_init(const struct pos_panel *panel, struct pos_display_geometry *geometry)

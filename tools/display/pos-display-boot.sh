@@ -105,8 +105,16 @@ cmd_hdmi() {
     mv -f "${FORCE}.tmp" "${FORCE}" || { rm -f "${FORCE}.tmp"; fail "cannot write ${FORCE}"; }
     sync
     say "next boot: hdmi (${hdmi_name})"
-    say "  The AMOLED is not driven in this mode. The HDMI tree is the vendor's CanMV-K230 v3"
-    say "  description: no LoRa (spi0), no touch, no uart1, no camera sensor node."
+    say "  The AMOLED is not driven in this mode, and there is no touch: the touch controller"
+    say "  shares its reset and interrupt lines with the HDMI bridge."
+    # Which HDMI tree it is: the Doors one (kernel patch 0075) is the panel
+    # tree with the bridge, so it carries the camera sensor's node; the
+    # vendor's CanMV-K230 v3 tree has none of the board's peripherals.
+    if grep -q 'gc2093@37' "${BOOT_DIR}/${hdmi_name}" 2>/dev/null; then
+        say "  The camera, LoRa and the keyboard base work as on the panel."
+    else
+        say "  This is the vendor's CanMV-K230 v3 tree: no LoRa (spi0), no uart1, no camera sensor."
+    fi
     say "  Back to the panel: pos-display-boot lcd && reboot"
     return 0
 }

@@ -236,6 +236,17 @@ struct pocketos_orientation {
     bool next_landscape;              /* what the mode and the keyboard now ask for */
     bool applying;                    /* the two differ: the shell is restarting itself to apply it */
     enum pocketos_keyboard keyboard;
+    /* The display is an external monitor (HDMI) rather than the panel: it
+     * runs at rotation 0 and landscape is the monitor's shape, while the
+     * unit itself may be held either way (below). */
+    bool external;
+    /* How the unit is held, in the panel's terms (0, 90, 180, 270 degrees,
+     * and whether that is landscape): which way up the camera sees the
+     * world. On the panel it is the display's own rotation and `landscape`;
+     * on an external display, what the mode and the keyboard ask for. A
+     * camera app turns its picture by this, not by the display. */
+    int hold_rotation;
+    bool hold_landscape;
 };
 
 void pocketos_shell_orientation(struct pocketos_orientation *out);

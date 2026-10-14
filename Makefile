@@ -470,6 +470,10 @@ tests/orientation_test.o: tests/orientation_test.c ui/shell/orientation.h ui/she
 tests/orientation_test: tests/orientation_test.o $(ORIENTATION_OBJS) ui/shell/settings.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# Camera and Vision following the hold while open (header-only, pure C).
+tests/hold_follow_test: tests/hold_follow_test.c ui/shell/hold_follow.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -o $@ $< $(LDFLAGS)
+
 # The status chrome policy (pure C, DS §30): what an app's declaration
 # resolves to in each orientation and on the launcher, the bar's height under
 # it, and the content box below it with and without the keyboard. The shell
@@ -1593,12 +1597,13 @@ VISION_LIBS :=
 endif
 VISION_APP_DIR := apps/vision
 VISION_APP_OBJS := $(VISION_APP_DIR)/vision_session.o $(VISION_APP_DIR)/vision_model.o \
-                   $(VISION_APP_DIR)/vision_layout.o $(VISION_APP_DIR)/vision_settings.o $(VISION_APP_DIR)/vision_trails.o
+                   $(VISION_APP_DIR)/vision_layout.o $(VISION_APP_DIR)/vision_settings.o $(VISION_APP_DIR)/vision_trails.o \
+                   $(VISION_APP_DIR)/vision_keys.o
 POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_traffic_test tests/vision_pixels_test \
                 tests/vision_geom_test tests/vision_model_test tests/vision_session_test tests/vision_settings_test \
                 tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test \
-                tests/vision_embed_test
+                tests/vision_embed_test tests/vision_keys_test
 
 # The one C++ file: -Wno-multichar as the vendor builds against these headers
 # (a four-character constant in the runtime's own header).
@@ -1651,6 +1656,10 @@ tests/vision_pixels_test: tests/vision_pixels_test.o $(VISION_CORE_OBJS)
 tests/vision_geom_test: tests/vision_geom_test.o $(VISION_CORE_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lm
 
+# The keyboard's moves over the buttons as laid out.
+tests/vision_keys_test: tests/vision_keys_test.o $(VISION_APP_DIR)/vision_keys.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 tests/vision_model_test: tests/vision_model_test.o $(VISION_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -1670,7 +1679,7 @@ VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./t
                   ./tests/vision_pixels_test && ./tests/vision_geom_test && ./tests/vision_model_test && \
                   ./tests/vision_settings_test && ./tests/vision_range_test && ./tests/vision_window_test && \
                   ./tests/vision_text_test && ./tests/vision_face_test && ./tests/vision_embed_test && \
-                  ./tests/vision_session_test tools/vision/pos-vision
+                  ./tests/vision_keys_test && ./tests/vision_session_test tools/vision/pos-vision
 
 vision-test: $(VISION_TESTS) tools/vision/pos-vision
 	$(VISION_TEST_RUN)
@@ -2295,7 +2304,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/sysd_radio_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
              tests/power_policy_test tests/power_key_test tests/tz_zones_test tests/overlay_model_test \
              tests/theme_test tests/text_size_test \
-             tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test \
+             tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test tests/hold_follow_test \
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
@@ -2334,6 +2343,7 @@ test: all $(TEST_BINS)
 	./tests/controls_model_test
 	./tests/display_geometry_test
 	./tests/orientation_test
+	./tests/hold_follow_test
 	./tests/kbd_presence_test
 	./tests/chrome_test
 	./tests/home_layout_test

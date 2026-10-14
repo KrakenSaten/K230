@@ -3629,6 +3629,47 @@ existing parts, **the sheet**; no new role, token or colour.
   `tests/vision_shell_test.sh` (the real shell, both orientations: the
   picture, the picker and the setup covering it, a stored mode obeyed).
 
+### 38.10 Keys and the external display [PROPOSED]
+
+**PROPOSED 2026-10-10** on branch `feat/vision-hdmi`. Vision on an HDMI
+monitor (docs/hardware/HDMI_OUTPUT.md §10), where the board has no touch
+and the keyboard base is the way in. No new role, token or colour.
+
+- **Keys.** Every control is already a button, so the keyboard reaches
+  all of Vision through them. The arrows move a **focus ring** - the 2 px
+  `focus` outline of §9 (`POS_STYLE_SELECTED`) on the button - to the
+  nearest button that way: over the open sheet's choices while a sheet is
+  open, else over the mode's buttons (or TRY AGAIN alone). Enter presses
+  the button with the ring as a tap would; a button that takes no tap
+  takes no Enter. Esc, or Back (the BOOT key), closes an open sheet; at
+  the top, Back is the shell's. The ring appears with the first key and
+  not before, so a touch-only screen never shows it; it stays on its
+  button while the screen repaints, and goes to the first choice when a
+  sheet opens or closes.
+- **The external display.** The monitor shows the shell at rotation 0 in
+  its own mode (1920 x 1080 proven), landscape, with no corner insets: the
+  wide shape of §38.3 on a larger body. The picture keeps the preview's
+  bound of 1024 px a side. The picture is turned upright by how the **unit**
+  is held, not by the monitor - the rotation the panel would be given by
+  the orientation mode and the keyboard (`hold_rotation`, app.h) - so a
+  unit standing on its keyboard base shows the scene as it does on its own
+  panel in landscape. Camera follows the same rule. The monitor is never
+  turned, so a change of hold (the keyboard attached or removed, the mode
+  changed) is followed by the open Vision or Camera screen itself: the
+  picture takes the new shape and the helper the new turn, with no
+  restart. Settings says what the mode does there: it sets the hold, not
+  the screen.
+- **Portrait-only apps on the monitor** (Timber, Poker): a column the
+  panel's width (568 px), centred, the body's height - the shape they are
+  laid out for. The body is shorter than the panel's (1008 against 1160 at
+  1080p): Poker's cards shrink together until the hand clears the board
+  (the panel's sizes unchanged); Timber keeps its 672 px viewport and
+  scrolls, its rule for a short body, and has no key control.
+- **Validation:** `tests/vision_keys_test.c` (the moves over both shapes'
+  buttons and a sheet's rows), the shell suites with an external display
+  stood in by `POCKETOS_EXTERNAL_DISPLAY=1920x1080`, then the unit B gate
+  (docs/hardware/VISION_HDMI_GATE.md).
+
 ## 39. Amendment W — Launcher folders (app groups) [PROPOSED]
 
 **PROPOSED 2026-09-28** on branch `feat/launcher-app-groups`, validated on

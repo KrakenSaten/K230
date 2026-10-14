@@ -95,15 +95,60 @@ static int bench_rotation(enum pos_rotation *out)
     return 1;
 }
 
+/* "WxH", each side 64..4096; -1 with the outputs untouched otherwise. */
+static int parse_size(const char *s, int32_t *w, int32_t *h)
+{
+    char *end;
+    long a;
+    long b;
+
+    errno = 0;
+    a = strtol(s, &end, 10);
+    if (end == s || errno != 0 || (*end != 'x' && *end != 'X')) {
+        return -1;
+    }
+    s = end + 1;
+    b = strtol(s, &end, 10);
+    if (end == s || errno != 0 || *end != '\0' || a < 64 || a > 4096 || b < 64 || b > 4096) {
+        return -1;
+    }
+    *w = (int32_t)a;
+    *h = (int32_t)b;
+    return 0;
+}
+
+/* Whether the display is external (shell_display.h), and its size until the
+ * backend says otherwise. */
+static bool external_display(int32_t *w, int32_t *h)
+{
+    const char *v = getenv(SHELL_EXTERNAL_DISPLAY_ENV);
+
+    *w = SHELL_EXTERNAL_W;
+    *h = SHELL_EXTERNAL_H;
+    if (v && *v) {
+        if (strcmp(v, "0") == 0) {
+            return false;
+        }
+        if (strcmp(v, "1") == 0 || parse_size(v, w, h) == 0) {
+            return true;
+        }
+        LOG_WARN("%s=%s is not 0, 1 or WxH; ignored", SHELL_EXTERNAL_DISPLAY_ENV, v);
+    }
+    return pocketos_platform_external_display() != 0;
+}
+
 void shell_display_resolve(const char *mode_arg, const char *portrait_app, struct shell_display *d)
 {
     const char *stored = settings_get(ORIENTATION_SETTING, NULL);
     const char *source = mode_arg ? "--rotation" : stored ? "stored" : "default";
 
     int corners_given;
+    int32_t ext_w;
+    int32_t ext_h;
 
     memset(d, 0, sizeof(*d));
     corners_given = shell_display_panel(&d->panel);
+    d->external = external_display(&ext_w, &ext_h);
     /* The keyboard was probed before this (shell_kbd_probe), because the
      * display is rotated when it is opened: a keyboard noticed afterwards
      * would cost a restart on every boot with the base attached. */
@@ -114,6 +159,29 @@ void shell_display_resolve(const char *mode_arg, const char *portrait_app, struc
                  source, mode_arg ? mode_arg : stored);
     }
     d->keyboard = kbd_presence_get();
+    if (d->external) {
+        /* A monitor: upright at rotation 0, no rounded corners unless the
+         * bench gives some, nothing to hold for a portrait-only app. */
+        d->panel.width = ext_w;
+        d->panel.height = ext_h;
+        if (!corners_given) {
+            memset(&d->panel.corners, 0, sizeof(d->panel.corners));
+        }
+        d->portrait_app = portrait_app;
+        d->requested = POS_ROTATION_0;
+        if (bench_rotation(&d->requested)) {
+            d->bench_override = true;
+            LOG_WARN("display: rotation %d from POCKETOS_DRM_ROTATION turns the external display",
+                     pos_rotation_degrees(d->requested));
+        }
+        pos_display_geometry_init(&d->geometry, &d->panel, d->requested);
+        LOG_INFO("display: external display (HDMI), rotation %d, %dx%d until the display reports its mode; "
+                 "rotation mode %s (%s), keyboard %s: the unit is held at rotation %d",
+                 pos_rotation_degrees(d->requested), (int)d->geometry.width, (int)d->geometry.height,
+                 orientation_mode_name(d->mode), source, kbd_presence_name(d->keyboard),
+                 pos_rotation_degrees(shell_display_hold_rotation(d)));
+        return;
+    }
     d->requested = orientation_resolve(d->mode, d->keyboard);
     if (portrait_app && d->requested != orientation_hold(d->requested, true)) {
         LOG_INFO("display: %s runs in portrait only; the %s mode's rotation %d waits until it closes",
@@ -146,7 +214,7 @@ enum pos_rotation shell_display_next_rotation(const struct shell_display *d)
     enum pos_rotation r;
     bool valid;
 
-    if (d->bench_override) {
+    if (d->bench_override || d->external) {
         return d->requested;
     }
     r = orientation_resolve(d->mode_from_arg
@@ -154,4 +222,31 @@ enum pos_rotation shell_display_next_rotation(const struct shell_display *d)
                                 : orientation_mode_from_setting(settings_get(ORIENTATION_SETTING, NULL), &valid),
                             kbd_presence_get());
     return orientation_hold(r, d->portrait_app != NULL);
+}
+
+enum pos_rotation shell_display_hold_rotation(const struct shell_display *d)
+{
+    bool valid;
+
+    if (!d->external) {
+        return d->geometry.rotation;
+    }
+    return orientation_resolve(d->mode_from_arg
+                                   ? d->mode
+                                   : orientation_mode_from_setting(settings_get(ORIENTATION_SETTING, NULL), &valid),
+                               kbd_presence_get());
+}
+
+bool shell_display_hold_landscape(const struct shell_display *d)
+{
+    return pos_rotation_is_landscape_of(shell_display_hold_rotation(d), POCKETOS_PANEL_W, POCKETOS_PANEL_H);
+}
+
+void shell_display_opened(struct shell_display *d)
+{
+    if (!d->external) {
+        return;
+    }
+    d->panel.width = d->geometry.native_width;
+    d->panel.height = d->geometry.native_height;
 }

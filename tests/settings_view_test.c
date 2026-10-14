@@ -361,6 +361,32 @@ int main(void)
               strncmp(r.note, "The stored rotation was not recognised, so Automatic is used. Portrait", 70) == 0);
         sv_rotation_apply(&r, 7, 1, 0, 0, 0, 0);
         check("an out-of-range mode selects Automatic", r.selected == 0);
+        /* An external display: the screen never turns, the mode sets how the
+         * unit is held, and the note says that instead of a turn. */
+        sv_rotation_apply(&r, 2, 1, 1, 1, 0, 0);
+        sv_rotation_external(&r, 1, 0);
+        check_str("external, Landscape: the hold, not the screen", r.note,
+                  "HDMI: the screen does not turn. Camera picture turned for the unit held in landscape.");
+        sv_rotation_apply(&r, 0, 1, 1, 1, 0, 0);
+        sv_rotation_external(&r, 1, 0);
+        check_str("external, Automatic without a keyboard", r.note,
+                  "HDMI: the screen does not turn. Camera picture turned for the unit held in portrait (no keyboard).");
+        sv_rotation_apply(&r, 0, 1, 1, 1, 0, 1);
+        sv_rotation_external(&r, 1, 1);
+        check("external, Automatic with a keyboard: whole, and the selection kept", r.selected == 0 &&
+              strcmp(r.note, "HDMI: the screen does not turn. Camera picture turned for the unit held in landscape "
+                             "(keyboard attached).") == 0);
+        /* A stored value that was not a mode is still said on HDMI, whole. */
+        sv_rotation_apply(&r, 0, 0, 1, 1, 0, 0);
+        sv_rotation_external(&r, 0, 0);
+        check_str("external, unrecognised stored value: said first, and whole", r.note,
+                  "Stored rotation not recognised: Automatic. HDMI: camera picture turned for the unit held in "
+                  "portrait.");
+        sv_rotation_apply(&r, 0, 0, 1, 1, 0, 1);
+        sv_rotation_external(&r, 0, 1);
+        check_str("external, unrecognised stored value with a keyboard", r.note,
+                  "Stored rotation not recognised: Automatic. HDMI: camera picture turned for the unit held in "
+                  "landscape.");
     }
     {
         int pct;

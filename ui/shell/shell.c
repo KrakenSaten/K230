@@ -1058,6 +1058,9 @@ void pocketos_shell_orientation(struct pocketos_orientation *out)
     out->next_landscape = is_landscape(next);
     out->applying = next != sh.display.geometry.rotation;
     out->keyboard = (enum pocketos_keyboard)kbd_presence_get();
+    out->external = sh.display.external;
+    out->hold_rotation = pos_rotation_degrees(shell_display_hold_rotation(&sh.display));
+    out->hold_landscape = shell_display_hold_landscape(&sh.display);
 }
 
 static void rotation_to_json(cJSON *o)
@@ -1075,6 +1078,8 @@ static void rotation_to_json(cJSON *o)
     cJSON_AddBoolToObject(o, "applying", now.applying);
     cJSON_AddStringToObject(o, "keyboard", kbd_presence_name(kbd_presence_get()));
     cJSON_AddBoolToObject(o, "bench_override", sh.display.bench_override);
+    cJSON_AddBoolToObject(o, "external", now.external);
+    cJSON_AddNumberToObject(o, "hold_rotation", now.hold_rotation);
     if (sh.display.portrait_app) {
         cJSON_AddStringToObject(o, "portrait_app", sh.display.portrait_app);
     } else {
@@ -1655,6 +1660,14 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_remove_style_all(sh.app_root);
     lv_obj_set_size(sh.app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(sh.app_root, LV_FLEX_FLOW_COLUMN);
+    /* A portrait-only app on an external display (shell_display.h): the
+     * monitor is not turned for it, so it gets a column the panel's width,
+     * centred, the body's height - the shape it was laid out for. */
+    if (sh.display.external && app->orientation == POCKETOS_APP_ORIENTATION_PORTRAIT &&
+        sh.display.geometry.width > POCKETOS_PANEL_W) {
+        lv_obj_set_width(sh.app_root, POCKETOS_PANEL_W);
+        lv_obj_align(sh.app_root, LV_ALIGN_TOP_MID, 0, 0);
+    }
 
     /* An app that draws its own top row in landscape (app.h `header`, DS
      * §37.2) gets no header there: the body starts at the top edge, and
@@ -3875,7 +3888,9 @@ int main(int argc, char **argv)
         return 1;
     }
     /* From here on the display, the touch transform and every layout use this
-     * one geometry, as the backend confirmed it. */
+     * one geometry, as the backend confirmed it - an external display's
+     * shape included. */
+    shell_display_opened(&sh.display);
     pocketui_set_display_geometry(&sh.display.geometry);
     {
         const struct pos_display_geometry *g = &sh.display.geometry;
@@ -3944,7 +3959,9 @@ int main(int argc, char **argv)
     sh.home_bg = art_load_background("home", sh.landscape);
     sh.backdrop = lv_image_create(screen);
     pos_style_add(sh.backdrop, POS_STYLE_ENV_BG, 0);
-    lv_obj_set_pos(sh.backdrop, 0, 0);
+    /* Centred: the panel's own size there (0,0), in the middle of an
+     * external display, over the screen's plain ground (art.h). */
+    lv_obj_align(sh.backdrop, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(sh.backdrop, LV_OBJ_FLAG_CLICKABLE);
     if (sh.home_bg) {
         lv_image_set_src(sh.backdrop, sh.home_bg);

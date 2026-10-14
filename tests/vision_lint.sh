@@ -18,7 +18,7 @@ CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/v
 
 # ---- layering ------------------------------------------------------------------
 hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer|lv_image' $C/*.[ch] $C/*.cpp $H $A/vision_model.[ch] \
-       $A/vision_layout.[ch] $A/vision_session.[ch] $A/vision_settings.[ch] $A/vision_store.[ch] $A/vision_trails.[ch] 2>/dev/null)
+       $A/vision_layout.[ch] $A/vision_session.[ch] $A/vision_settings.[ch] $A/vision_store.[ch] $A/vision_trails.[ch] $A/vision_keys.[ch] 2>/dev/null)
 check "the pipeline, the helper, the model, the layout, the session, the settings and the store are free of LVGL" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits"
@@ -136,7 +136,7 @@ check "every wait on the helper has a deadline" \
 # ---- layout (DS 21.2) -------------------------------------------------------------
 check "the layout arithmetic never asks which way the display is turned" \
     "$(code $A/vision_layout.c | grep -qE 'orientation|rotation|portrait|landscape' && echo 0 || echo 1)"
-check "the screen asks only once, for the picture's shape" \
+check "the screen asks only once, for the picture's shape and the camera's turn" \
     "$([ "$(code $APP | grep -c 'pocketos_shell_orientation(')" = 1 ] && echo 1 || echo 0)"
 check "the corner clearance comes from PocketUI's one rule" \
     "$(code $APP | grep -q 'pocketui_layout_begin(&a->guard, a->frame, &in)' && echo 1 || echo 0)"
@@ -154,7 +154,7 @@ check "the shell knows Vision, after Recorder" \
 check "the launcher places it in the Apps folder, in the ai hue (DS §47)" \
     "$(grep -q '{ "vision", HOME_GROUP_FOLDERS, HOME_HUE_AI, HOME_FOLDER_APPS }' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "pos-vision is installed" "$(grep -q 'install -D -m 0755 tools/vision/pos-vision' Makefile && echo 1 || echo 0)"
-for src in vision_app.c vision_model.c vision_layout.c vision_session.c vision_settings.c vision_store.c vision_trails.c; do
+for src in vision_app.c vision_model.c vision_layout.c vision_session.c vision_settings.c vision_store.c vision_trails.c vision_keys.c; do
     check "the shell builds $src" "$(grep -q "apps/vision/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done
 

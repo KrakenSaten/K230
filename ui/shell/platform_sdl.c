@@ -16,6 +16,11 @@
 
 static lv_indev_t *keyboard;
 
+int pocketos_platform_external_display(void)
+{
+    return 0;
+}
+
 lv_display_t *pocketos_platform_init(const struct pos_panel *panel, struct pos_display_geometry *geometry)
 {
     const char *zoom_env = getenv("POCKETOS_SDL_ZOOM");

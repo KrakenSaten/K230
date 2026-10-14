@@ -291,9 +291,10 @@ void shell_lock_engage(const char *why)
     }
     lv_obj_set_style_image_opa(lk.lock_img, LV_OPA_COVER, 0);
     lv_obj_set_style_image_opa(lk.open_img, LV_OPA_COVER, 0);
-    /* Without its photograph the lock still covers what is below it. */
+    /* Without its photograph, or with one smaller than the display (an
+     * external display, art.h), the lock still covers what is below it. */
     lv_obj_remove_style(lk.root, pos_style(POS_STYLE_SCREEN), 0);
-    if (!lk.lock_bg) {
+    if (!art_covers_display(lk.lock_bg)) {
         pos_style_add(lk.root, POS_STYLE_SCREEN, 0);
     }
     lv_obj_set_y(lk.content, 0);
@@ -419,7 +420,9 @@ static lv_obj_t *picture(lv_obj_t *parent)
 {
     lv_obj_t *img = lv_image_create(parent);
 
-    lv_obj_set_pos(img, 0, 0);
+    /* Centred: on the panel the art is the screen, so this is 0,0; on an
+     * external display it is smaller and sits in the middle (art.h). */
+    lv_obj_align(img, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
     return img;
 }

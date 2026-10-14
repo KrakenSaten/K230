@@ -41,6 +41,12 @@
  * geometry from what it got; the caller lays out in *geometry afterwards.
  * Returns the display or NULL. */
 lv_display_t *pocketos_platform_init(const struct pos_panel *panel, struct pos_display_geometry *geometry);
+/* Whether this backend drives an external display rather than the panel:
+ * on the K230, the board booted its HDMI device tree, so the DSI output is
+ * the LT9611 bridge and a monitor (docs/hardware/HDMI_OUTPUT.md). Asked
+ * before the display is opened and never opens it; 0 for the simulator,
+ * where POCKETOS_EXTERNAL_DISPLAY stands one in (shell_display.h). */
+int pocketos_platform_external_display(void);
 /* Milliseconds to sleep between lv_timer_handler calls. */
 void pocketos_platform_sleep_ms(unsigned ms);
 

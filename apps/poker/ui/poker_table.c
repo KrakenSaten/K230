@@ -113,21 +113,21 @@ static void draw(lv_event_t *event)
     char line[80];
     snprintf(line, sizeof(line), "HAND %u | BLINDS 10 / 20", g->hand_number);
     text(layer, &origin, 0, 12, w, line, POS_STYLE_CAPTION, POS_COLOR_TEXT_SECONDARY);
-    int mini = w / 9;
-    if (mini > 58)
-        mini = 58;
+    /* The card sizes and places, shrunk together on a table shorter than
+     * the panel's (poker_view.h). */
+    struct poker_cards c;
+    poker_view_cards(w, h, &c);
+    int mini = c.mini;
     int sw = w / 2 - 16;
     seat(layer, &origin, g, 2, (w - sw) / 2, 48, sw, mini);
-    int sy = 48 + mini * 7 / 5 + 100;
+    int sy = c.side_y;
     seat(layer, &origin, g, 1, 8, sy, sw, mini);
     seat(layer, &origin, g, 3, w - sw - 8, sy, sw, mini);
-    int board_y = sy + mini * 7 / 5 + 125;
+    int board_y = c.board_y;
     snprintf(line, sizeof(line), "%s | POT %u", poker_phase_name(g->phase),
              poker_playing(g) ? poker_pot_total(g) : g->settled_pot);
     text(layer, &origin, 0, board_y - 46, w, line, POS_STYLE_ROW_TITLE, POS_COLOR_TEXT_PRIMARY);
-    int cw = (w - 56) / 5;
-    if (cw > 82)
-        cw = 82;
+    int cw = c.board;
     int start = (w - 5 * cw - 4 * 8) / 2;
     for (int i = 0; i < 5; ++i) {
         lv_area_t r = area(&origin, start + i * (cw + 8), board_y, cw, cw * 7 / 5);
@@ -136,10 +136,7 @@ static void draw(lv_event_t *event)
         else
             bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, BJ_SPADES);
     }
-    int human_cw = w / 6;
-    if (human_cw > 86)
-        human_cw = 86;
-    seat(layer, &origin, g, 0, (w - sw) / 2, h - human_cw * 7 / 5 - 92, sw, human_cw);
+    seat(layer, &origin, g, 0, (w - sw) / 2, c.hero_y, sw, c.hero);
 }
 lv_obj_t *poker_table_create(lv_obj_t *parent, const struct poker_game *game)
 {

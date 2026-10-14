@@ -32,8 +32,29 @@
  * orientation is known (platform.h). Returns 1 when the override was used. */
 int shell_display_panel(struct pos_panel *out);
 
+/* An external display (HDMI, docs/hardware/HDMI_OUTPUT.md): the board booted
+ * its HDMI tree, so the shell draws on a monitor and the panel is dark. A
+ * monitor is upright and square-cornered whichever way the unit itself is
+ * held, so the display runs at rotation 0 with no corner insets, the
+ * orientation mode and the keyboard do not turn it, and a portrait-only app
+ * is not held (there is no portrait to turn the monitor to). The unit's own
+ * hold - which way up the camera sees the world - is still the mode's and
+ * the keyboard's (shell_display_hold_rotation).
+ *
+ * Detected by the backend (pocketos_platform_external_display) before the
+ * display is opened. POCKETOS_EXTERNAL_DISPLAY overrides that: "0" never,
+ * "1" always, or WxH always with that size - which is also the size the
+ * simulator's window takes, since it has no monitor to ask. Until the
+ * backend reports the monitor's own mode, the size is SHELL_EXTERNAL_W x
+ * SHELL_EXTERNAL_H. POCKETOS_DRM_ROTATION still turns an external display
+ * (a monitor stood on its side). */
+#define SHELL_EXTERNAL_DISPLAY_ENV "POCKETOS_EXTERNAL_DISPLAY"
+#define SHELL_EXTERNAL_W 1920
+#define SHELL_EXTERNAL_H 1080
+
 struct shell_display {
-    struct pos_panel panel;
+    struct pos_panel panel;         /* the panel, or the external display's size */
+    bool external;                  /* an external display, not the panel (above) */
     enum orientation_mode mode;     /* as stored, or as given on the command line */
     bool mode_valid;                /* false: the stored value was not a mode */
     bool mode_from_arg;             /* mode is --rotation's, which every restart keeps */
@@ -61,7 +82,26 @@ void shell_display_resolve(const char *mode_arg, const char *portrait_app, struc
  * in place keeps its arguments - with the keyboard as it is now and the
  * portrait-only app as it is now. Differs from geometry.rotation when the
  * stored mode, the keyboard or the open app changed since start, or while a
- * bench override is in force. */
+ * bench override is in force. On an external display it is always the
+ * rotation this run opened with: nothing turns a monitor. */
 enum pos_rotation shell_display_next_rotation(const struct shell_display *d);
+
+/* The rotation of the unit as it is held, in the panel's terms: which way
+ * up its camera and its keyboard are. On the panel it is the display's own
+ * rotation, as it always was. On an external display it is the rotation the
+ * panel would be given now by the mode and the keyboard, so a unit on its
+ * keyboard base still counts as landscape while the monitor shows the
+ * picture at rotation 0. */
+enum pos_rotation shell_display_hold_rotation(const struct shell_display *d);
+
+/* Whether the unit is held in landscape: the hold rotation against the
+ * panel's own native shape (portrait), not the monitor's. */
+bool shell_display_hold_landscape(const struct shell_display *d);
+
+/* After the backend has opened the display: the external display's size is
+ * the mode it actually came up in, so landscape and portrait are judged
+ * against the monitor rather than against the size guessed beforehand. No
+ * change on the panel. */
+void shell_display_opened(struct shell_display *d);
 
 #endif
