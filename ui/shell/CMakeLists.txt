@@ -1365,6 +1365,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pocketui_audit.c
         ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c

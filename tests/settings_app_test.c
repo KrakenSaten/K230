@@ -32,6 +32,7 @@
 #include "tz_zones.h"
 #include "volume.h"
 #include "pocketui.h"
+#include "pocketui_audit.h"
 #include "pos_keyboard.h"
 #include "shell_ipc.h"
 
@@ -836,7 +837,8 @@ static int count_objects(lv_obj_t *obj)
 }
 
 /* Every visible label drawn whole across: inside its parent's width, so no
- * text runs past the box that holds it. */
+ * text runs past the box that holds it. Across only: the height is the
+ * audit's (audit_issue below). */
 static int labels_fit(lv_obj_t *obj)
 {
     uint32_t i;
@@ -866,6 +868,24 @@ static int labels_fit(lv_obj_t *obj)
         bad += labels_fit(lv_obj_get_child(obj, i));
     }
     return bad;
+}
+
+/* The layout audit the device runs (shell.audit, DS §46.6), here over the
+ * same layout: a two-line title in a row too short for it is cut at its top
+ * and foot, which labels_fit never measured - unit B found "Screen off
+ * after" so at Large in portrait while this test passed. Truncation with
+ * "..." is an app's own rule for a one-line label and is only listed. */
+static void audit_issue(const struct pocketui_audit_issue *is, void *user)
+{
+    int *bad = user;
+
+    printf("     audit: %s %s \"%s\" (%d,%d-%d,%d) other %s \"%s\" (%d,%d-%d,%d)\n",
+           pocketui_audit_kind_name(is->kind), is->path, is->text, (int)is->area.x1, (int)is->area.y1,
+           (int)is->area.x2, (int)is->area.y2, is->other_path, is->other_text, (int)is->other.x1,
+           (int)is->other.y1, (int)is->other.x2, (int)is->other.y2);
+    if (is->kind != POCKETUI_AUDIT_TRUNCATED) {
+        (*bad)++;
+    }
 }
 
 /* The screen on show, checked whole: every box that scrolls lies in the body
@@ -949,6 +969,14 @@ static void check_screen(const char *what)
     check(msg, unreachable == 0);
     snprintf(msg, sizeof(msg), "%s: every label fits its box", what);
     check(msg, labels_fit(screen_obj()) == 0);
+    {
+        int bad = 0;
+
+        lv_obj_update_layout(app_body);
+        pocketui_audit(app_body, audit_issue, &bad, NULL);
+        snprintf(msg, sizeof(msg), "%s: the audit finds nothing clipped, overlapping or without a size", what);
+        check(msg, bad == 0);
+    }
     snprintf(msg, sizeof(msg), "%s: the body itself does not scroll", what);
     check(msg, lv_obj_get_scroll_top(app_body) <= 0 && lv_obj_get_scroll_bottom(app_body) <= 0);
 }
