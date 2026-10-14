@@ -5,7 +5,8 @@
  *
  * The shell and netd are not here, so this file plays both. shell_ipc's
  * shell_ipc_call_timeout() is implemented below over a scripted netd that
- * records every call and its parameters; the shell's entry points (app.h:
+ * records every call and its parameters (and a sysd that, when asked to,
+ * answers system.status with a battery reading); the shell's entry points (app.h:
  * brightness, rotation, appearance, text size, volume, the keyboard light,
  * Power & Sleep, the time zone, the overlay, the header's title) are
  * implemented over variables that keep what was set, as the shell's store
@@ -83,6 +84,8 @@ static int netd_down;
 static const char *g_status;
 static const char *g_networks;
 static const char *g_connect_error;
+/* sysd's system.status, for Power & Sleep's battery; NULL: sysd does not answer. */
+static const char *g_sysd_status;
 
 static void calls_reset(void)
 {
@@ -109,6 +112,10 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
     (void)timeout_ms;
     if (err && errlen) {
         err[0] = '\0';
+    }
+    if (strcmp(service, "sysd") == 0 && strcmp(method, "system.status") == 0 && g_sysd_status) {
+        cJSON_Delete(params);
+        return cJSON_Parse(g_sysd_status);
     }
     if (strcmp(service, "netd") != 0) {
         cJSON_Delete(params);
@@ -1201,6 +1208,11 @@ static void check_pages(enum pos_rotation rotation, enum pos_text_size size)
 
     pos_theme_select_text_size(size);
     use_display(rotation, PANEL_CORNER);
+    /* A current reading, so Power & Sleep is measured with every battery
+     * value filled in: the longest status word, volts, signed amps. */
+    g_sysd_status = "{\"power\":{\"source\":\"battery\",\"battery\":{\"present\":true,"
+                    "\"capacity_percent\":null,\"status\":\"not_charging\",\"voltage_v\":3.787,"
+                    "\"current_a\":-0.57,\"reading\":\"ok\",\"age_s\":12}}}";
     app_start();
     tick();
     for (k = 0; k < PAGE_CASES; k++) {
@@ -1228,8 +1240,22 @@ static void check_pages(enum pos_rotation rotation, enum pos_text_size size)
             snprintf(msg, sizeof(msg), "%s: fits without scrolling", what);
             check(msg, over == 0);
         }
+        if (pages[k].category && strcmp(pages[k].category, "Power & Sleep") == 0) {
+            char msg[200];
+            int wide = rotation == POS_ROTATION_270;
+            int five = shows("Status: Not charging") && shows("Voltage: 3.79 V") &&
+                       shows("Current: -0.57 A (out of the battery)") && shows("Level: Unknown") &&
+                       shows("Updated: 12 s ago");
+            int two = shows("Not charging \xc2\xb7 3.79 V \xc2\xb7 -0.57 A") &&
+                      shows("Level unknown \xc2\xb7 updated 12 s ago");
+
+            snprintf(msg, sizeof(msg), "%s: the battery in %s", what,
+                     wide ? "two lines, not five" : "five lines, not two");
+            check(msg, wide ? two && !five : five && !two);
+        }
     }
     app_stop();
+    g_sysd_status = NULL;
     pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
 }
 

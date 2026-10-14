@@ -125,6 +125,7 @@ struct settings_widgets {
     lv_obj_t *timer_up[2];
     lv_obj_t *lock_start_btn;
     lv_obj_t *battery_line[SV_BATTERY_ROWS]; /* read-only battery lines */
+    lv_obj_t *battery_compact[2];            /* the same in two, when wide */
     /* Time & Region */
     lv_obj_t *zone_place;
     lv_obj_t *zone_detail;

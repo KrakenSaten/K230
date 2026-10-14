@@ -503,6 +503,11 @@ static void build_power(struct settings_app *a)
     for (i = 0; i < SV_BATTERY_ROWS; i++) {
         a->w.battery_line[i] = settings_wrap_label(p, "", POS_STYLE_TEXT_SECONDARY);
     }
+    /* Wide, the column under SCREEN AND LOCK has room for two lines, not
+     * five: the same values, two lines (settings_page_shape picks). */
+    for (i = 0; i < 2; i++) {
+        a->w.battery_compact[i] = settings_wrap_label(p, "", POS_STYLE_TEXT_SECONDARY);
+    }
     a->battery_tick = 0;
     settings_poll_battery(a);
 
@@ -539,6 +544,14 @@ static void repaint_power(struct settings_app *a)
             snprintf(line, sizeof(line), "%s: %s", a->battery.label[i], a->battery.value[i]);
             lv_label_set_text(a->w.battery_line[i], line);
         }
+    }
+    if (a->w.battery_compact[0]) {
+        char first[160];
+        char second[160];
+
+        sv_battery_compact(&a->battery, first, sizeof(first), second, sizeof(second));
+        lv_label_set_text(a->w.battery_compact[0], first);
+        lv_label_set_text(a->w.battery_compact[1], second);
     }
 }
 
@@ -726,6 +739,16 @@ void settings_page_shape(struct settings_app *a)
     int32_t w = LV_PCT(100);
     uint32_t i;
 
+    /* Power & Sleep's battery: five lines when tall, two when wide, where
+     * five would make the page scroll (DS §52.2). */
+    if (a->page == PAGE_POWER && a->w.battery_compact[0]) {
+        for (i = 0; i < SV_BATTERY_ROWS; i++) {
+            settings_set_hidden(a->w.battery_line[i], a->wide);
+        }
+        for (i = 0; i < 2; i++) {
+            settings_set_hidden(a->w.battery_compact[i], !a->wide);
+        }
+    }
     if (!list) {
         return;
     }

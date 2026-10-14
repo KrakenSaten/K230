@@ -197,4 +197,10 @@ struct sv_battery {
  * reading that is not current is shown. */
 void sv_battery_apply(struct sv_battery *b, const cJSON *status);
 
+/* The same values in two lines, for the wide shape, where Power & Sleep has
+ * room for only two (DS §52.2): "On battery · 3.79 V · -0.57 A" and "Level
+ * unknown · updated 12 s ago". A value that is "-" is left out; the second
+ * line is empty when both of its values are. */
+void sv_battery_compact(const struct sv_battery *b, char *first, size_t first_n, char *second, size_t second_n);
+
 #endif

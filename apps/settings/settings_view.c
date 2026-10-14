@@ -612,3 +612,44 @@ void sv_battery_apply(struct sv_battery *b, const cJSON *status)
         snprintf(b->value[BAT_UPDATED], sizeof(b->value[0]), "%d s ago", (int)v->valuedouble);
     }
 }
+
+/* One part of a compact line, after SEP when the line has one already. */
+static void battery_part(char *out, size_t n, const char *prefix, const char *value)
+{
+    size_t len = strlen(out);
+
+    if (len + 1 < n) {
+        snprintf(out + len, n - len, "%s%s%s", len ? SEP : "", prefix, value);
+    }
+}
+
+void sv_battery_compact(const struct sv_battery *b, char *first, size_t first_n, char *second, size_t second_n)
+{
+    char current[sizeof(b->value[0])];
+    char *paren;
+
+    copy(first, first_n, b->value[BAT_STATUS]);
+    copy(second, second_n, "");
+    if (strcmp(b->value[BAT_VOLTAGE], "-") != 0) {
+        battery_part(first, first_n, "", b->value[BAT_VOLTAGE]);
+    }
+    if (strcmp(b->value[BAT_CURRENT], "-") != 0) {
+        /* The signed amps alone: the status beside them says which way. */
+        copy(current, sizeof(current), b->value[BAT_CURRENT]);
+        paren = strstr(current, " (");
+        if (paren) {
+            *paren = '\0';
+        }
+        battery_part(first, first_n, "", current);
+    }
+    if (strcmp(b->value[BAT_LEVEL], "-") != 0) {
+        battery_part(second, second_n, "level ",
+                     strcmp(b->value[BAT_LEVEL], "Unknown") == 0 ? "unknown" : b->value[BAT_LEVEL]);
+    }
+    if (strcmp(b->value[BAT_UPDATED], "-") != 0) {
+        battery_part(second, second_n, "updated ", b->value[BAT_UPDATED]);
+    }
+    if (second[0] >= 'a' && second[0] <= 'z') {
+        second[0] = (char)(second[0] - 'a' + 'A');
+    }
+}
