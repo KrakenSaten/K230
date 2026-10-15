@@ -223,6 +223,10 @@ static void review(struct poker_app *a, const char *screen)
             break;
         if (strcmp(screen, "flop") == 0 && a->game.phase == POKER_FLOP && a->game.actor == 0)
             break;
+        if (strcmp(screen, "turn") == 0 && a->game.phase == POKER_TURN && a->game.actor == 0)
+            break;
+        if (strcmp(screen, "river") == 0 && a->game.phase == POKER_RIVER && a->game.actor == 0)
+            break;
         struct poker_options o = poker_options(&a->game);
         poker_act(&a->game, o.can_check ? POKER_CHECK : POKER_CALL, 0);
     }

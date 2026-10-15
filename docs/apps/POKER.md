@@ -105,8 +105,19 @@ Review captures from the headless SDL simulator (568 × 1232):
 | ![Preflop](poker/preflop.png) | ![Flop](poker/flop.png) | ![Split pot](poker/split.png) |
 
 Generated screenshots are in `out/poker/screenshots/`. Review fixtures are
-available through `DOORS_POKER_SCREEN=preflop|flop|showdown|split|gameover`; they are
-deterministic and never replace the session or advance AI automatically.
+available through `DOORS_POKER_SCREEN=preflop|flop|turn|river|showdown|split|gameover`;
+they are deterministic and never replace the session or advance AI automatically.
+
+On an external display the shell gives Poker a portrait column the panel's
+width; at 1280 × 720 its table is 488 × 280, too short for the tall layout
+above. There the table uses a short layout (`poker_view_short`,
+`poker_view_table`): two seats a row - each its line above its cards with
+its caption beside them, the player at the lower left so the seats still run
+clockwise - and between the rows the pot line and the board with the hand
+number and the blinds at its sides; the margins above and below the table
+tighten, the controls keep their place and 64 px. Every card stays wide
+enough for its "10" at Large (40 px). The 1080p column and the panel keep
+the tall layout exactly.
 
 Existing cloud baseline limitations remain separate from Poker: the full
 native suite stopped on two Terminal process-cleanup assertions; its

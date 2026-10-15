@@ -24,18 +24,19 @@ export POCKETOS_CONFIG_DIR="$work/config" POCKETOS_STATE_DIR="$work/state"
 mkdir -p "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR" "$POCKETOS_CONFIG_DIR" "$POCKETOS_STATE_DIR"
 "$(dirname "$SHELL_BIN")/poker_app_test"
 checks=0
-run_case() {
-    local screen=$1 size=$2 mode=$3 theme=$4
-    DOORS_POKER_SCREEN="$screen" "$SHELL_BIN" --no-lock --open poker --text-size "$size" --mode "$mode" --theme "$theme" > "$work/run.log" 2>&1 &
+run_case() { # screen size mode theme [WxH external display; the panel when absent]
+    local screen=$1 size=$2 mode=$3 theme=$4 display=${5:-} shot="$1-$2-$3-$4"
+    [ -z "$display" ] || shot="hdmi$display-$shot"
+    POCKETOS_EXTERNAL_DISPLAY="${display:-0}" DOORS_POKER_SCREEN="$screen" "$SHELL_BIN" --no-lock --open poker --text-size "$size" --mode "$mode" --theme "$theme" > "$work/run.log" 2>&1 &
     shell_pid=$!
     for _ in $(seq 1 60); do [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ] && break; sleep 0.1; done
     "$POS" shell info > "$work/info.json"
-    python3 - "$work/info.json" <<'PY'
+    python3 - "$work/info.json" "${display:-568x1232}" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d['current']=='poker'
 assert any(a['id']=='poker' for a in d['apps'])
-assert d['display']['width']==568 and d['display']['height']==1232
+assert '%dx%d' % (d['display']['width'], d['display']['height']) == sys.argv[2], d['display']
 PY
     "$POS" call shell shell.audit > "$work/audit.json"
     python3 - "$work/audit.json" <<'PY'
@@ -44,7 +45,7 @@ d=json.load(open(sys.argv[1]))
 bad=[i for i in d['issues'] if i['kind'] in ('clipped','overlap','sizeless','truncated')]
 assert not bad,bad
 PY
-    "$POS" shell screenshot "$SHOTS_DIR/$screen-$size-$mode-$theme.png" > /dev/null
+    "$POS" shell screenshot "$SHOTS_DIR/$shot.png" > /dev/null
     if [ "$screen" = preflop ]; then
         "$POS" call shell shell.tap text=RESTART > /dev/null
         sleep 0.1
@@ -68,11 +69,17 @@ for screen in preflop flop showdown split gameover; do
 done
 for theme in ice slate brass olive carbon; do run_case flop medium normal "$theme"; done
 for mode in outdoor night; do run_case flop medium "$mode" doors; done
+# A 1280 x 720 external display: the short table in the shell's portrait
+# column, every street and text size (poker_view_test, poker_app_test).
+for screen in flop turn river showdown; do
+    for size in small medium large; do run_case "$screen" "$size" normal doors 1280x720; done
+done
 python3 - "$SHOTS_DIR" <<'PY'
 from pathlib import Path
 import struct,sys
 for p in Path(sys.argv[1]).glob('*.png'):
     b=p.read_bytes()
-    assert b[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack('>II',b[16:24])==(568,1232),p
+    size=(1280,720) if p.name.startswith('hdmi1280x720-') else (568,1232)
+    assert b[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack('>II',b[16:24])==size,p
 PY
 echo "poker_shell_test: $checks simulator cases passed; screenshots in $SHOTS_DIR"

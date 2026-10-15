@@ -86,6 +86,11 @@ static void tap(void *priv, enum poker_control control)
     finger = LV_INDEV_STATE_RELEASED;
     pump(50);
 }
+static const lv_font_t *style_font(enum pos_style_role role)
+{
+    lv_style_value_t v;
+    return lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND ? v.ptr : NULL;
+}
 static int timers(void)
 {
     int n = 0;
@@ -224,6 +229,101 @@ int main(void)
         pump(10);
         CHECK(timers() == baseline);
         CHECK(lv_obj_get_child_count(body) == 0);
+    }
+    {
+        /* The short table (a 1280 x 720 external display's portrait column,
+         * 528 x 604 of content) with the real fonts at every text size:
+         * the line heights poker_view_test assumes, every seat line, caption
+         * and pot line the table can write inside its place, a "10" on one
+         * line on every card (there and on every taller short table), and
+         * the app's own table that size with the
+         * controls below it - drawn on the flop, turn and river. */
+        static const char *const names[] = {">GRACE D/SB 4000", ">LINUS D/SB 4000", ">ADA D/SB 4000",
+                                            ">YOU D/SB 4000"};
+        static const char *const captions[] = {
+            "Straight flush | +4000", "Three of a kind | +4000", "Four of a kind | +4000", "Full house | +4000",
+            "High card | +4000",      "ALL IN | 4000",           "Hand complete",          "+4000 chips",
+            "FOLDED",                 "BET 4000"};
+        static const char *const pots[] = {"Hand complete | POT 4000", "Game over | POT 4000",
+                                           "New table | POT 4000", "Preflop | POT 4000"};
+        static const int lines[3][3] = {{21, 18, 26}, {24, 21, 30}, {28, 24, 35}};
+        static const char *const screens[] = {"flop", "turn", "river"};
+        enum pos_text_size was = pos_theme_current_text_size();
+        lv_obj_t *column = lv_obj_create(lv_screen_active());
+        lv_obj_remove_style_all(column);
+        lv_obj_set_pos(column, 20, 96);
+        lv_obj_set_size(column, 528, 604);
+        lv_obj_set_flex_flow(column, LV_FLEX_FLOW_COLUMN);
+        for (int size = 0; size < 3; ++size) {
+            pos_theme_select_text_size((enum pos_text_size)size);
+            const lv_font_t *name = style_font(POS_STYLE_BUTTON_LABEL), *caption = style_font(POS_STYLE_CAPTION);
+            const lv_font_t *pot = style_font(POS_STYLE_ROW_TITLE); /* also the cards' corner */
+            const struct poker_type type = {lv_font_get_line_height(name), lv_font_get_line_height(caption),
+                                            lv_font_get_line_height(pot)};
+            CHECK(type.name == lines[size][0] && type.caption == lines[size][1] && type.pot == lines[size][2]);
+            struct poker_layout l;
+            poker_view_layout(528, 604, &l);
+            CHECK(poker_view_short(l.table.w, l.table.h));
+            lv_point_t sz, ten;
+            lv_text_get_size(&ten, "10", pot, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            /* 720p's table, and every taller one still short. */
+            for (int h = l.table.h; h <= 900; ++h) {
+                if (!poker_view_short(l.table.w, h))
+                    continue;
+                struct poker_table_place p;
+                poker_view_table(l.table.w, h, &type, &p);
+                CHECK(p.compact);
+                struct poker_rect cards[POKER_SEATS + 1];
+                for (int s = 0; s < POKER_SEATS; ++s) {
+                    const struct poker_seat_place *q = &p.seat[s];
+                    for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+                        lv_text_get_size(&sz, names[i], name, 0, 0, q->name.w, LV_TEXT_FLAG_NONE);
+                        CHECK(sz.y <= q->name.h);
+                    }
+                    for (unsigned i = 0; i < sizeof(captions) / sizeof(captions[0]); ++i) {
+                        lv_text_get_size(&sz, captions[i], caption, 0, 0, q->status.w, LV_TEXT_FLAG_NONE);
+                        CHECK(sz.x <= q->status.w && sz.y <= q->status.h);
+                    }
+                    cards[s] = q->card[0];
+                }
+                cards[POKER_SEATS] = p.board[0];
+                for (int s = 0; s <= POKER_SEATS; ++s) { /* bj_draw_face's corner, inset max(3, w / 14) */
+                    int pad = cards[s].w / 14 < 3 ? 3 : cards[s].w / 14;
+                    CHECK(ten.x <= cards[s].w - 2 * pad);
+                }
+                for (unsigned i = 0; i < sizeof(pots) / sizeof(pots[0]); ++i) {
+                    lv_text_get_size(&sz, pots[i], pot, 0, 0, p.pot.w, LV_TEXT_FLAG_NONE);
+                    CHECK(sz.y <= p.pot.h);
+                }
+                lv_text_get_size(&sz, "HAND 999", caption, 0, 0, p.hand.w, LV_TEXT_FLAG_NONE);
+                CHECK(sz.x <= p.hand.w && sz.y <= p.hand.h);
+                lv_text_get_size(&sz, "BLINDS\n10 / 20", caption, 0, 0, p.blinds.w, LV_TEXT_FLAG_NONE);
+                CHECK(sz.x <= p.blinds.w && sz.y <= p.blinds.h);
+            }
+            for (int k = 0; k < 3; ++k) {
+                setenv("DOORS_POKER_SCREEN", screens[k], 1);
+                void *shown = app_poker.create(column);
+                pump(40);
+                struct poker_game *sg = poker_app_game(shown);
+                CHECK(sg->board_count == 3 + k && sg->actor == 0 && poker_playing(sg));
+                lv_obj_t *table = lv_obj_get_child(poker_app_root(shown), 0);
+                lv_area_t t, b;
+                lv_obj_get_coords(table, &t);
+                CHECK(lv_obj_get_width(table) == l.table.w && lv_obj_get_height(table) == l.table.h);
+                for (int i = 0; i < POKER_UI_COUNT; ++i) {
+                    lv_obj_get_coords(poker_app_button(shown, (enum poker_control)i), &b);
+                    CHECK(lv_area_get_width(&b) >= 64 && lv_area_get_height(&b) >= 64 && b.y1 > t.y2);
+                }
+                lv_obj_invalidate(table);
+                pump(20);
+                app_poker.destroy(shown);
+                lv_obj_clean(column);
+                pump(10);
+            }
+        }
+        unsetenv("DOORS_POKER_SCREEN");
+        pos_theme_select_text_size(was);
+        lv_obj_delete(column);
     }
     CHECK(poker_app_game(NULL) == NULL);
     CHECK(poker_app_button(NULL, POKER_UI_CALL) == NULL);
