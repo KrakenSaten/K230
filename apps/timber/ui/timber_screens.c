@@ -207,13 +207,20 @@ static void table_tap_cb(void *user, int id)
 
 void timber_screen_table_tap(struct timber_app *app, int id)
 {
+    int before;
+
     if (!app || app->run.state != TIMBER_RUN_ACTIVE) {
         return;
     }
+    before = timber_run_selected(&app->run);
     if (id < 0) {
         timber_run_deselect(&app->run);
     } else {
         timber_run_select(&app->run, id);
+    }
+    /* Travel the track still holds for the last block is not this one's. */
+    if (timber_run_selected(&app->run) != before) {
+        memset(app->pending_px, 0, sizeof(app->pending_px));
     }
     timber_screen_table_refresh(app);
     if (app->table && app->table->table) {
@@ -315,94 +322,245 @@ static int timber_trace(void)
     return on;
 }
 
-/* The pull track. The finger's horizontal travel is banked here and paid
- * into the engine once a tick by timber_screen_table_tick(), so the engine
- * sees exactly one travel per tick whatever the panel's event rate is. */
+/* ---- the pull track ------------------------------------------------------
+ *
+ * The engine is a fixed step: timber_run_pull() is one tick of finger
+ * travel and timber_run_tick() one TIMBER_TICK_MS step, and the speed limit
+ * is judged on the travel of the last TIMBER_TRAVEL_WINDOW ticks. So the
+ * track hands the engine, for each tick, the travel the finger made in that
+ * tick's 40 ms, whenever the clock's callback happens to come:
+ *
+ * - each reading's travel since the last one is spread evenly over the time
+ *   between the two readings and binned by the tick that time falls in, so a
+ *   late callback finds the travel already sorted into the ticks it owes;
+ *   travel that arrives a little after its tick has run goes into the next
+ *   one, so nothing is lost to the order of the timers in one handler pass;
+ * - a lifted finger's last travel stays in its bins and is paid by the next
+ *   ticks like any other (RELEASED); a press LVGL takes away (PRESS_LOST)
+ *   drops what was not paid yet;
+ * - every tick with a block selected pulls, with no travel if the finger
+ *   did nothing or is up, so idle time ages the speed window as it does for
+ *   a finger held still;
+ * - travel belongs to the block selected when the finger went down, in that
+ *   turn of that run: a new selection, a placement or a new run drops it;
+ * - a callback runs at most TIMBER_CATCHUP_TICKS ticks. Time beyond that is
+ *   a pause: its ticks are skipped and the travel binned in them dropped,
+ *   and of a reading that spans a stall only the share of the last tick
+ *   before the engine's time is kept, so a stall becomes neither a burst nor
+ *   a fabricated slow pull. The track is relative, so dropped travel is the
+ *   same as the finger lifting and regripping. */
+
+static int32_t ms_since(uint32_t now, uint32_t then)
+{
+    return (int32_t)(now - then);
+}
+
+static void drag_drop(struct timber_app *app)
+{
+    memset(app->pending_px, 0, sizeof(app->pending_px));
+}
+
+static int32_t drag_pending(const struct timber_app *app)
+{
+    int32_t sum = 0;
+    int i;
+
+    for (i = 0; i < TIMBER_DRAG_BINS; i++) {
+        sum += app->pending_px[i];
+    }
+    return sum;
+}
+
+/* The travel still belongs to the selected block, in this turn. */
+static int drag_owned(const struct timber_app *app)
+{
+    return app->run.state == TIMBER_RUN_ACTIVE && app->run.turn != TIMBER_TURN_PLACING &&
+           app->drag_block >= 0 && timber_run_selected(&app->run) == app->drag_block &&
+           app->run.turns == app->drag_turn;
+}
+
+void timber_screen_table_drag_reset(struct timber_app *app, uint32_t now)
+{
+    if (!app) {
+        return;
+    }
+    drag_drop(app);
+    app->drag_block = -1;
+    app->clock_ms = now;
+}
+
+/* Skip the ticks past the catch-up bound, with their travel. */
+static void drag_skip_stale(struct timber_app *app, uint32_t now)
+{
+    int32_t skip = ms_since(now, app->clock_ms) / TIMBER_TICK_MS - TIMBER_CATCHUP_TICKS;
+
+    if (skip <= 0) {
+        return;
+    }
+    if (skip >= TIMBER_DRAG_BINS) {
+        drag_drop(app);
+    } else {
+        memmove(app->pending_px, app->pending_px + skip, (size_t)(TIMBER_DRAG_BINS - skip) * sizeof(int32_t));
+        memset(app->pending_px + (TIMBER_DRAG_BINS - skip), 0, (size_t)skip * sizeof(int32_t));
+    }
+    app->clock_ms += (uint32_t)skip * TIMBER_TICK_MS;
+}
+
+/* The finger is at x at time `now`: bin its travel since the last reading. */
+static void drag_bank(struct timber_app *app, uint32_t now, int32_t x)
+{
+    int32_t dx = x - app->last_x;
+    int32_t from;
+    int32_t to;
+    int32_t start;
+    int32_t kept;
+    int32_t done = 0;
+    int last;
+    int i;
+
+    if (dx != 0 && drag_owned(app)) {
+        drag_skip_stale(app, now);
+        /* Times relative to the engine's: bin i is the tick (i T, (i+1) T]. */
+        from = ms_since(app->last_ms, app->clock_ms);
+        to = ms_since(now, app->clock_ms);
+        if (to <= from) {
+            app->pending_px[to <= TIMBER_TICK_MS ? 0 : (to - 1) / TIMBER_TICK_MS] += dx;
+        } else if (to > -TIMBER_TICK_MS) {
+            start = from < -TIMBER_TICK_MS ? -TIMBER_TICK_MS : from;
+            kept = (int32_t)((int64_t)dx * (to - start) / (to - from));
+            last = to <= TIMBER_TICK_MS ? 0 : (to - 1) / TIMBER_TICK_MS;
+            for (i = 0; i <= last; i++) {
+                int32_t end = (i + 1) * TIMBER_TICK_MS < to ? (i + 1) * TIMBER_TICK_MS : to;
+                int32_t share = end > start ? (int32_t)((int64_t)kept * (end - start) / (to - start)) : 0;
+
+                app->pending_px[i] += share - done;
+                done = share;
+            }
+        }
+    }
+    app->last_x = x;
+    app->last_ms = now;
+}
+
 static void track_cb(lv_event_t *e)
 {
     struct timber_app *app = lv_event_get_user_data(e);
     lv_indev_t *indev = lv_indev_active();
     lv_event_code_t code = lv_event_get_code(e);
     lv_point_t point = { -1, -1 };
+    uint32_t now = lv_tick_get();
     const char *name = NULL;
 
-    if (!app || !indev) {
-        if (app && timber_trace()) {
-            LOG_INFO("timber trace: track event %d with no active indev", (int)code);
-        }
+    if (!app) {
         return;
     }
-    lv_indev_get_point(indev, &point);
+    if (indev) {
+        lv_indev_get_point(indev, &point);
+    }
     switch (code) {
     case LV_EVENT_PRESSED:
+        if (!indev) {
+            break;
+        }
+        /* A regrip on the same block in the same turn keeps what the last
+         * press left for the next tick; anything else starts afresh. */
+        if (app->drag_block != timber_run_selected(&app->run) || app->drag_turn != app->run.turns) {
+            drag_drop(app);
+        }
+        app->drag_block = (int8_t)timber_run_selected(&app->run);
+        app->drag_turn = app->run.turns;
         app->pressing = 1;
         app->last_x = point.x;
-        app->pending_px = 0;
+        app->last_ms = now;
         name = "PRESSED";
         break;
     case LV_EVENT_PRESSING:
-        app->pending_px += point.x - app->last_x;
-        app->last_x = point.x;
-        name = "PRESSING";
+        if (indev && app->pressing) {
+            drag_bank(app, now, point.x);
+            name = "PRESSING";
+        }
         break;
     case LV_EVENT_RELEASED:
-        app->pressing = 0;
-        app->pending_px = 0;
-        name = "RELEASED";
+        /* The release's own reading is the last segment of the drag. */
+        if (app->pressing) {
+            if (indev) {
+                drag_bank(app, now, point.x);
+            }
+            app->pressing = 0;
+            name = "RELEASED";
+        }
         break;
     case LV_EVENT_PRESS_LOST:
-        app->pressing = 0;
-        app->pending_px = 0;
-        name = "PRESS_LOST";
+        if (app->pressing) {
+            drag_drop(app);
+            app->pressing = 0;
+            name = "PRESS_LOST";
+        }
         break;
     default:
         break;
     }
     if (name && timber_trace()) {
         LOG_INFO("timber trace: track %s x=%d y=%d last_x=%d pending_px=%d pressing=%d t=%u",
-                 name, (int)point.x, (int)point.y, (int)app->last_x, (int)app->pending_px,
-                 (int)app->pressing, (unsigned)lv_tick_get());
+                 name, (int)point.x, (int)point.y, (int)app->last_x, (int)drag_pending(app),
+                 (int)app->pressing, (unsigned)now);
     }
 }
 
-void timber_screen_table_tick(struct timber_app *app)
+/* One engine step: the oldest bin's travel, then the tick. */
+static void table_step(struct timber_app *app)
 {
     struct timber_event ev;
-    int moving;
+    int32_t px = app->pending_px[0];
+    int id = timber_run_selected(&app->run);
 
-    if (!app || !app->table) {
-        return;
-    }
-    if (app->run.state == TIMBER_RUN_ACTIVE && app->pressing && app->run.turn != TIMBER_TURN_PLACING &&
-        timber_run_selected(&app->run) >= 0) {
-        int id = app->run.selected;
+    memmove(app->pending_px, app->pending_px + 1, (TIMBER_DRAG_BINS - 1) * sizeof(int32_t));
+    app->pending_px[TIMBER_DRAG_BINS - 1] = 0;
+    app->clock_ms += TIMBER_TICK_MS;
+    if (app->run.state == TIMBER_RUN_ACTIVE && app->run.turn != TIMBER_TURN_PLACING && id >= 0) {
         int layer = app->run.tower.blocks[id].layer;
-        int32_t travel = timber_view_travel(&app->view, layer, app->pending_px);
+        int owned = drag_owned(app);
+        int32_t travel = owned ? timber_view_travel(&app->view, layer, px) : 0;
         int before = app->run.tower.blocks[id].extraction;
         int pulled = timber_run_pull(&app->run, travel);
 
-        if (timber_trace()) {
-            LOG_INFO("timber trace: tick pending_px=%d block=%d layer=%d axis=%c sign=%d scale=%d travel=%d "
-                     "pull=%d extraction %d -> %d turn=%d t=%u",
-                     (int)app->pending_px, id, layer,
-                     timber_layer_axis(layer) == TIMBER_AXIS_X ? 'x' : 'y',
+        if (timber_trace() && (px != 0 || app->pressing)) {
+            LOG_INFO("timber trace: tick pending_px=%d owned=%d block=%d layer=%d axis=%c sign=%d scale=%d "
+                     "travel=%d pull=%d extraction %d -> %d turn=%d t=%u",
+                     (int)px, owned, id, layer, timber_layer_axis(layer) == TIMBER_AXIS_X ? 'x' : 'y',
                      timber_view_track_sign(layer), app->view.scale, (int)travel, pulled, before,
-                     (int)app->run.tower.blocks[id].extraction, (int)app->run.turn, (unsigned)lv_tick_get());
+                     (int)app->run.tower.blocks[id].extraction, (int)app->run.turn, (unsigned)app->clock_ms);
         }
-        app->pending_px = 0;
-    } else if (app->pressing && timber_trace()) {
-        LOG_INFO("timber trace: tick pressing but not paying: state=%d turn=%d selected=%d pending_px=%d",
-                 (int)app->run.state, (int)app->run.turn, timber_run_selected(&app->run),
-                 (int)app->pending_px);
+    } else if (timber_trace() && (px != 0 || app->pressing)) {
+        LOG_INFO("timber trace: tick not paying: state=%d turn=%d selected=%d pending_px=%d",
+                 (int)app->run.state, (int)app->run.turn, id, (int)px);
     }
     timber_run_tick(&app->run);
     while (timber_run_take_event(&app->run, &ev)) {
         /* P7 shows nothing for an event that the state does not already
          * show; the shake and the sounds attach here later. */
     }
+}
+
+void timber_screen_table_clock(struct timber_app *app, uint32_t now)
+{
+    int32_t due;
+    int moving;
+
+    if (!app || !app->table) {
+        return;
+    }
+    drag_skip_stale(app, now);
+    due = ms_since(now, app->clock_ms) / TIMBER_TICK_MS;
+    if (due <= 0) {
+        return;
+    }
+    while (due-- > 0 && (app->run.state == TIMBER_RUN_ACTIVE || app->run.state == TIMBER_RUN_COLLAPSING)) {
+        table_step(app);
+    }
     timber_screen_table_refresh(app);
-    moving = app->run.state == TIMBER_RUN_COLLAPSING || app->pressing || app->run.disturb > 0 ||
-             app->run.turn == TIMBER_TURN_PULLING;
+    moving = app->run.state == TIMBER_RUN_COLLAPSING || app->pressing || drag_pending(app) != 0 ||
+             app->run.disturb > 0 || app->run.turn == TIMBER_TURN_PULLING;
     if (moving && app->table->table) {
         lv_obj_invalidate(app->table->table);
     }

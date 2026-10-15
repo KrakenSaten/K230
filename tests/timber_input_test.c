@@ -447,6 +447,18 @@ static void test_answers(struct timber_app *app, lv_obj_t *test, int id, int tes
     check(what, app->run.tower.blocks[id].tested && app->run.tests_left == tests_after);
 }
 
+/* The track travel waiting for the engine, over all its tick bins. */
+static int pending_sum(const struct timber_app *app)
+{
+    int sum = 0;
+    int i;
+
+    for (i = 0; i < TIMBER_DRAG_BINS; i++) {
+        sum += app->pending_px[i];
+    }
+    return sum;
+}
+
 /* A fresh instance: nothing of the last run, and nothing of the last finger. */
 static void fresh_instance(struct timber_app *app, const char *when)
 {
@@ -463,7 +475,7 @@ static void fresh_instance(struct timber_app *app, const char *when)
     snprintf(what, sizeof(what), "%s, no block is part way out", when);
     check(what, out == 0);
     snprintf(what, sizeof(what), "%s, the track holds no press and no travel", when);
-    check(what, app->pressing == 0 && app->pending_px == 0);
+    check(what, app->pressing == 0 && pending_sum(app) == 0);
     snprintf(what, sizeof(what), "%s, the pointer is released and scrolls nothing", when);
     check(what, lv_indev_get_state(finger) == LV_INDEV_STATE_RELEASED && lv_indev_get_scroll_obj(finger) == NULL);
     snprintf(what, sizeof(what), "%s, TEST is not clickable with nothing selected", when);
@@ -509,8 +521,8 @@ static void track_probe(lv_event_t *e)
         if (pt.x > seen.max_x) {
             seen.max_x = pt.x;
         }
-        if (abs(app->pending_px) > seen.max_pending) {
-            seen.max_pending = abs(app->pending_px);
+        if (abs(pending_sum(app)) > seen.max_pending) {
+            seen.max_pending = abs(pending_sum(app));
         }
         break;
     case LV_EVENT_RELEASED:
@@ -946,6 +958,613 @@ static void k230_grammar(void)
 }
 #endif
 
+/* 5. Drag timing (cold review of b24e0d7). The pointer's read timer is
+ *    paused and the pointer is read by hand at exact milliseconds, and the
+ *    app's own clock timer is called back at the intervals a case sets, so
+ *    the same finger can be replayed under a regular, a delayed and an
+ *    irregular clock. Three defects this caught:
+ *    - movement was paid into one engine tick per clock callback, so a
+ *      callback late by 120 ms turned a safe 125 px/s drag into a jolt and
+ *      the engine ran at a quarter of its speed;
+ *    - a released finger stopped feeding the engine, so the three-tick speed
+ *      window kept the last drag's samples through any idle time and the
+ *      next small drag jolted;
+ *    - a finger lifted before the next tick lost the movement it had made. */
+static uint32_t timing_ms;
+static int clock_pattern[8];
+static int clock_pattern_n;
+static int clock_pattern_i;
+static uint32_t clock_seen_ticks;
+
+/* One millisecond of LVGL. The pointer is read before the timers run, or
+ * after them, when asked; with a clock pattern set, every callback that ran
+ * the engine sets the period of the next one. */
+static void ms_step(struct timber_app *app, int read_before, int read_after)
+{
+    lv_tick_inc(1);
+    timing_ms++;
+    if (read_before) {
+        lv_indev_read(finger);
+    }
+    lv_timer_handler();
+    if (read_after) {
+        lv_indev_read(finger);
+    }
+    if (clock_pattern_n > 0 && app->run.ticks != clock_seen_ticks) {
+        clock_seen_ticks = app->run.ticks;
+        lv_timer_set_period(app->clock, (uint32_t)clock_pattern[clock_pattern_i++ % clock_pattern_n]);
+    }
+}
+
+/* Run for ms, reading the pointer every `every` ms (never when 0). */
+static void advance(struct timber_app *app, int ms, int every)
+{
+    int i;
+
+    for (i = 0; i < ms; i++) {
+        ms_step(app, every > 0 && (timing_ms + 1) % (uint32_t)every == 0, 0);
+    }
+}
+
+/* Run until the clock has just stepped the engine. */
+static void sync_to_tick(struct timber_app *app)
+{
+    uint32_t before = app->run.ticks;
+    int i;
+
+    for (i = 0; i < 400 && app->run.ticks == before; i++) {
+        ms_step(app, 0, 0);
+    }
+}
+
+static void clock_pattern_set(struct timber_app *app, const int *periods, int n)
+{
+    int i;
+
+    clock_pattern_n = n > 1 ? n : 0;
+    for (i = 0; i < n && i < 8; i++) {
+        clock_pattern[i] = periods[i];
+    }
+    clock_pattern_i = 1;
+    clock_seen_ticks = app->run.ticks;
+    lv_timer_set_period(app->clock, (uint32_t)periods[0]);
+}
+
+static int jolted(const struct timber_app *app)
+{
+    return app->run.last_jolt_tick != TIMBER_NEVER;
+}
+
+/* What `px` pixels of track travel are in engine units for this block. */
+static int travel_of(const struct timber_app *app, int id, int px)
+{
+    int32_t t = timber_view_travel(&app->view, app->run.tower.blocks[id].layer, px);
+
+    return t < 0 ? -t : t;
+}
+
+/* A fresh app, a run from `seed` with block `id` selected (-1: the first
+ * pullable block without stiction), and the pointer under manual reads. */
+static struct timber_app *timing_open(uint32_t seed, int id, lv_obj_t **track, lv_obj_t **table)
+{
+    struct timber_app *app = open_app();
+    lv_obj_t *begin = app ? find_button(body, "BEGIN") : NULL;
+
+    if (!begin) {
+        check("the timing cases can open the app", 0);
+        if (app) {
+            close_app(app);
+        }
+        return NULL;
+    }
+    tap(begin);
+    timber_run_new(&app->run, seed);
+    timber_run_start(&app->run);
+    app->ghost = -1;
+    timber_screen_table_refresh(app);
+    *track = find_track(body);
+    *table = find_table(body);
+    if (id < 0) {
+        id = choose_block(app, -1);
+    }
+    if (*track && *table && id >= 0) {
+        tap_block_end(app, *table, id);
+    }
+    if (!*track || !*table || id < 0 || timber_run_selected(&app->run) != id) {
+        check("the timing cases can select their block", 0);
+        close_app(app);
+        return NULL;
+    }
+    lv_timer_pause(lv_indev_get_read_timer(finger));
+    return app;
+}
+
+static void timing_close(struct timber_app *app)
+{
+    clock_pattern_n = 0;
+    finger_state = LV_INDEV_STATE_RELEASED;
+    lv_indev_read(finger);
+    lv_timer_resume(lv_indev_get_read_timer(finger));
+    close_app(app);
+}
+
+static void finger_down(lv_obj_t *track, int dx)
+{
+    int x;
+    int y;
+
+    centre_of(track, &x, &y);
+    finger_point.x = x + dx;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+}
+
+struct timed_result {
+    uint32_t ticks;
+    int elapsed;
+    int extraction;
+    int jolted;
+};
+
+/* Seed 7, FIRM block 2: press, draw `px` over `ms` in a straight line read
+ * every 10 ms, then hold still for 400 ms, under a clock whose callbacks
+ * come at the periods given. */
+static int firm_drag(const int *periods, int n, int px, int ms, struct timed_result *r)
+{
+    lv_obj_t *track;
+    lv_obj_t *table;
+    struct timber_app *app = timing_open(7, 2, &track, &table);
+    uint32_t t0;
+    int sign;
+    int x0;
+    int y;
+    int t;
+
+    memset(r, 0, sizeof(*r));
+    if (!app) {
+        return -1;
+    }
+    check("seed 7's block 2 is FIRM", timber_run_class(&app->run, 2) == TIMBER_CLASS_FIRM);
+    sign = timber_view_track_sign(app->run.tower.blocks[2].layer);
+    clock_pattern_set(app, periods, n);
+    t0 = app->run.ticks;
+    finger_down(track, 0);
+    centre_of(track, &x0, &y);
+    advance(app, 10, 10);
+    for (t = 1; t <= ms; t++) {
+        finger_point.x = x0 + sign * px * t / ms;
+        ms_step(app, t % 10 == 0, 0);
+    }
+    advance(app, 400, 10);
+    r->ticks = app->run.ticks - t0;
+    r->elapsed = 10 + ms + 400;
+    r->extraction = extraction_of(app, 2);
+    r->jolted = jolted(app);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    timing_close(app);
+    return 0;
+}
+
+static void delayed_callbacks(void)
+{
+    static const int regular[1] = { 40 };
+    static const int delayed[1] = { 160 };
+    static const int irregular[6] = { 40, 120, 70, 160, 30, 90 };
+    struct timed_result reg;
+    struct timed_result del;
+    struct timed_result irr;
+    struct timed_result fast_reg;
+    struct timed_result fast_del;
+    char what[160];
+
+    if (firm_drag(regular, 1, 80, 640, &reg) || firm_drag(delayed, 1, 80, 640, &del) ||
+        firm_drag(irregular, 6, 80, 640, &irr) || firm_drag(regular, 1, 80, 160, &fast_reg) ||
+        firm_drag(delayed, 1, 80, 160, &fast_del)) {
+        return;
+    }
+    printf("note: seed 7 FIRM block 2, 80 px over 640 ms: clock 40 ms: %u ticks in %d ms, extraction %d, jolt %d; "
+           "clock 160 ms: %u ticks, extraction %d, jolt %d; irregular: %u ticks, extraction %d, jolt %d\n",
+           (unsigned)reg.ticks, reg.elapsed, reg.extraction, reg.jolted, (unsigned)del.ticks, del.extraction,
+           del.jolted, (unsigned)irr.ticks, irr.extraction, irr.jolted);
+    printf("note: 80 px over 160 ms: clock 40 ms: extraction %d, jolt %d; clock 160 ms: extraction %d, jolt %d\n",
+           fast_reg.extraction, fast_reg.jolted, fast_del.extraction, fast_del.jolted);
+    check("a 125 px/s drag on a FIRM block under a regular clock is safe", !reg.jolted && reg.extraction > 0);
+    snprintf(what, sizeof(what), "under a 160 ms clock the engine still keeps time (%u ticks in %d ms)",
+             (unsigned)del.ticks, del.elapsed);
+    check(what, (int)del.ticks * TIMBER_TICK_MS >= del.elapsed - 160 - TIMBER_TICK_MS &&
+                    (int)del.ticks * TIMBER_TICK_MS <= del.elapsed);
+    check("the same drag under a 160 ms clock is still safe", !del.jolted);
+    check("the same drag under a 160 ms clock moves the block as far (within 10%)",
+          abs(del.extraction - reg.extraction) * 10 <= reg.extraction);
+    snprintf(what, sizeof(what), "under an irregular clock the engine still keeps time (%u ticks in %d ms)",
+             (unsigned)irr.ticks, irr.elapsed);
+    check(what, (int)irr.ticks * TIMBER_TICK_MS >= irr.elapsed - 160 - TIMBER_TICK_MS &&
+                    (int)irr.ticks * TIMBER_TICK_MS <= irr.elapsed);
+    check("the same drag under an irregular clock is still safe", !irr.jolted);
+    check("the same drag under an irregular clock moves the block as far (within 10%)",
+          abs(irr.extraction - reg.extraction) * 10 <= reg.extraction);
+    check("a genuinely fast pull (500 px/s) jolts under a regular clock", fast_reg.jolted);
+    check("a genuinely fast pull jolts under a 160 ms clock too", fast_del.jolted);
+}
+
+/* Move 12 px, let a tick take it, then either lift the finger or keep it
+ * still for 25 ticks, then move 12 px again. */
+static int regrip(int lift, int *first_jolt, int *second_jolt)
+{
+    lv_obj_t *track;
+    lv_obj_t *table;
+    struct timber_app *app = timing_open(7, 2, &track, &table);
+    int sign;
+
+    if (!app) {
+        return -1;
+    }
+    sign = timber_view_track_sign(app->run.tower.blocks[2].layer);
+    /* Down and 12 px within one tick; lifted as soon as a tick took it. */
+    sync_to_tick(app);
+    finger_down(track, 0);
+    ms_step(app, 1, 0);
+    finger_down(track, sign * 12);
+    ms_step(app, 1, 0);
+    sync_to_tick(app);
+    if (lift) {
+        finger_state = LV_INDEV_STATE_RELEASED;
+    }
+    ms_step(app, 1, 0);
+    advance(app, 25 * TIMBER_TICK_MS, 10);
+    *first_jolt = jolted(app);
+    sync_to_tick(app);
+    if (lift) {
+        finger_down(track, 0);
+        ms_step(app, 1, 0);
+        finger_down(track, sign * 12);
+    } else {
+        finger_down(track, sign * 24);
+    }
+    ms_step(app, 1, 0);
+    advance(app, 80, 10);
+    *second_jolt = jolted(app);
+    timing_close(app);
+    return 0;
+}
+
+static void released_idle(void)
+{
+    int held_first;
+    int held_second;
+    int lifted_first;
+    int lifted_second;
+
+    if (regrip(0, &held_first, &held_second) || regrip(1, &lifted_first, &lifted_second)) {
+        return;
+    }
+    printf("note: 12 px, 25 idle ticks, 12 px: held still: jolt %d/%d; lifted and regripped: jolt %d/%d\n",
+           held_first, held_second, lifted_first, lifted_second);
+    check("a 12 px move on a FIRM block is safe", !held_first && !lifted_first);
+    check("12 px again after 25 ticks held still is safe", !held_second);
+    check("12 px again after 25 ticks lifted is safe: idle time ages the speed window", !lifted_second);
+}
+
+/* The six cases of a short movement on a block without stiction. */
+enum lift_case {
+    LIFT_HELD,              /* held through the tick (the reference) */
+    LIFT_BEFORE_TICK,       /* moved, then lifted, all before the next tick */
+    LIFT_WITH_MOVE,         /* the movement arrives with the release */
+    LIFT_AT_TICK_READ_FIRST,    /* lifted on the tick's millisecond, read first */
+    LIFT_AT_TICK_CLOCK_FIRST,   /* the same, the clock first */
+    LIFT_TWICE,             /* lifted, then told of a release twice more */
+    LIFT_CASES
+};
+
+static int short_move(enum lift_case c, int *expected)
+{
+    lv_obj_t *track;
+    lv_obj_t *table;
+    struct timber_app *app = timing_open(7, -1, &track, &table);
+    int id;
+    int sign;
+    int e;
+
+    if (!app) {
+        return -1;
+    }
+    id = timber_run_selected(&app->run);
+    sign = timber_view_track_sign(app->run.tower.blocks[id].layer);
+    *expected = travel_of(app, id, 6);
+    sync_to_tick(app);
+    finger_down(track, 0);
+    ms_step(app, 1, 0);
+    finger_down(track, sign * 6);
+    switch (c) {
+    case LIFT_HELD:
+        ms_step(app, 1, 0);
+        advance(app, 80, 10);
+        finger_state = LV_INDEV_STATE_RELEASED;
+        ms_step(app, 1, 0);
+        break;
+    case LIFT_BEFORE_TICK:
+    case LIFT_TWICE:
+        ms_step(app, 1, 0);
+        finger_state = LV_INDEV_STATE_RELEASED;
+        ms_step(app, 1, 0);
+        if (c == LIFT_TWICE) {
+            lv_obj_send_event(track, LV_EVENT_RELEASED, NULL);
+            lv_obj_send_event(track, LV_EVENT_RELEASED, NULL);
+            ms_step(app, 1, 0);
+            ms_step(app, 1, 0);
+        }
+        break;
+    case LIFT_WITH_MOVE:
+        finger_state = LV_INDEV_STATE_RELEASED;
+        ms_step(app, 1, 0);
+        break;
+    case LIFT_AT_TICK_READ_FIRST:
+    case LIFT_AT_TICK_CLOCK_FIRST:
+        ms_step(app, 1, 0);
+        advance(app, TIMBER_TICK_MS - 3, 0);
+        finger_state = LV_INDEV_STATE_RELEASED;
+        ms_step(app, c == LIFT_AT_TICK_READ_FIRST, c == LIFT_AT_TICK_CLOCK_FIRST);
+        break;
+    default:
+        break;
+    }
+    advance(app, 200, 10);
+    e = extraction_of(app, id);
+    timing_close(app);
+    return e;
+}
+
+static void lift_before_tick(void)
+{
+    static const char *const names[LIFT_CASES] = {
+        "held through the tick", "lifted before the tick", "the movement arrives with the release",
+        "lifted on the tick, read first", "lifted on the tick, clock first", "release reported three times"
+    };
+    int c;
+
+    for (c = 0; c < LIFT_CASES; c++) {
+        int expected = 0;
+        int e = short_move((enum lift_case)c, &expected);
+        char what[128];
+
+        if (e < 0) {
+            return;
+        }
+        printf("note: 6 px on a free block, %s: extraction %d (6 px is %d)\n", names[c], e, expected);
+        snprintf(what, sizeof(what), "6 px on a free block, %s: moved exactly once", names[c]);
+        check(what, e == expected && expected > 0);
+    }
+}
+
+static void long_stall(void)
+{
+    lv_obj_t *track;
+    lv_obj_t *table;
+    struct timber_app *app = timing_open(7, -1, &track, &table);
+    uint32_t before;
+    int id;
+    int sign;
+    int e;
+    char what[128];
+
+    if (!app) {
+        return;
+    }
+    id = timber_run_selected(&app->run);
+    sign = timber_view_track_sign(app->run.tower.blocks[id].layer);
+    finger_down(track, 0);
+    advance(app, 60, 10);
+    /* Three seconds without a timer: the finger went 100 px meanwhile. */
+    finger_down(track, sign * 100);
+    before = app->run.ticks;
+    lv_tick_inc(3000);
+    timing_ms += 3000;
+    lv_indev_read(finger);
+    lv_timer_handler();
+    snprintf(what, sizeof(what), "after a 3 s stall one callback runs a bounded number of ticks (%u)",
+             (unsigned)(app->run.ticks - before));
+    check(what, app->run.ticks - before <= 10);
+    advance(app, 200, 10);
+    e = extraction_of(app, id);
+    printf("note: 100 px across a 3 s stall: extraction %d (100 px is %d), jolt %d\n", e, travel_of(app, id, 100),
+           jolted(app));
+    check("100 px across a 3 s stall is no burst: no jolt", !jolted(app));
+    check("100 px across a 3 s stall is no burst: at most a few ticks' worth moves", e < travel_of(app, id, 30));
+    /* Released, the same stall: bounded, and the run goes on. */
+    finger_state = LV_INDEV_STATE_RELEASED;
+    advance(app, 60, 10);
+    before = app->run.ticks;
+    lv_tick_inc(5000);
+    timing_ms += 5000;
+    lv_timer_handler();
+    check("a 5 s stall with the finger up is bounded too", app->run.ticks - before <= 10 &&
+                                                              app->run.state == TIMBER_RUN_ACTIVE);
+    /* And the finger is anchored where it is: the next drag pulls normally. */
+    e = extraction_of(app, id);
+    finger_down(track, 0);
+    advance(app, 20, 10);
+    finger_down(track, sign * 6);
+    advance(app, 120, 10);
+    check("after the stalls a 6 px drag moves the block 6 px", extraction_of(app, id) - e == travel_of(app, id, 6));
+    timing_close(app);
+}
+
+/* Movement left over at a release never reaches another block, run or turn. */
+static void no_leaks(void)
+{
+    lv_obj_t *track;
+    lv_obj_t *table;
+    struct timber_app *app = timing_open(7, -1, &track, &table);
+    struct timber_shape s;
+    lv_area_t a;
+    int id;
+    int other;
+    int sign;
+    int i;
+    int out;
+
+    if (!app) {
+        return;
+    }
+    /* A move lifted before the tick, then another block chosen at once. */
+    id = timber_run_selected(&app->run);
+    other = choose_block(app, id);
+    sign = timber_view_track_sign(app->run.tower.blocks[id].layer);
+    sync_to_tick(app);
+    finger_down(track, 0);
+    ms_step(app, 1, 0);
+    finger_down(track, sign * 6);
+    ms_step(app, 1, 0);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    ms_step(app, 1, 0);
+    if (other >= 0 && timber_view_block(&app->view, &app->run, other, &s) == 0) {
+        lv_obj_update_layout(lv_screen_active());
+        lv_obj_get_coords(table, &a);
+        finger_point.x = a.x1 + s.end_x;
+        finger_point.y = a.y1 + s.end_y;
+        finger_state = LV_INDEV_STATE_PRESSED;
+        ms_step(app, 1, 0);
+        finger_state = LV_INDEV_STATE_RELEASED;
+        ms_step(app, 1, 0);
+    }
+    advance(app, 200, 10);
+    check("a block chosen before the tick is selected", other >= 0 && timber_run_selected(&app->run) == other);
+    check("the last block's movement reaches neither block once another is chosen",
+          extraction_of(app, id) == 0 && (other < 0 || extraction_of(app, other) == 0));
+
+    /* A move lifted before the tick, then a new run. */
+    id = timber_run_selected(&app->run);
+    if (id < 0) {
+        timing_close(app);
+        return;
+    }
+    sync_to_tick(app);
+    finger_down(track, 0);
+    ms_step(app, 1, 0);
+    finger_down(track, timber_view_track_sign(app->run.tower.blocks[id].layer) * 6);
+    ms_step(app, 1, 0);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    ms_step(app, 1, 0);
+    timber_app_begin(app);
+    timber_run_select(&app->run, choose_block(app, -1));
+    advance(app, 200, 10);
+    for (i = 0, out = 0; i < TIMBER_BLOCKS; i++) {
+        out += extraction_of(app, i) != 0;
+    }
+    check("a move left over from the last run moves nothing in the new one", out == 0);
+
+    /* A cancelled press: once something calls lv_indev_wait_release() LVGL
+     * delivers no more motion and ends the press with PRESS_LOST instead of
+     * RELEASED. What a tick paid before stays paid; what was still waiting
+     * for a tick, and the finger's position at the end, are not paid. */
+    id = timber_run_selected(&app->run);
+    if (id < 0) {
+        check("the new run has a block selected", 0);
+        timing_close(app);
+        return;
+    }
+    sign = timber_view_track_sign(app->run.tower.blocks[id].layer);
+    sync_to_tick(app);
+    finger_down(track, 0);
+    ms_step(app, 1, 0);
+    finger_down(track, sign * 6);
+    ms_step(app, 1, 0);
+    lv_indev_wait_release(finger);
+    finger_down(track, sign * 12);
+    ms_step(app, 1, 0);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    ms_step(app, 1, 0);
+    advance(app, 200, 10);
+    check("a press cancelled before the tick pays nothing", extraction_of(app, id) == 0);
+    sync_to_tick(app);
+    finger_down(track, 0);
+    ms_step(app, 1, 0);
+    finger_down(track, sign * 6);
+    ms_step(app, 1, 0);
+    sync_to_tick(app);
+    lv_indev_wait_release(finger);
+    finger_down(track, sign * 18);
+    advance(app, 100, 10);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    advance(app, 200, 10);
+    check("a press cancelled after a tick keeps what was paid and pays nothing more",
+          extraction_of(app, id) == travel_of(app, id, 6));
+
+    /* The block slips into the hand mid-drag; the finger keeps going, is
+     * lifted, the block is placed, and the next block chosen stays put. */
+    finger_down(track, 0);
+    advance(app, 20, 10);
+    for (i = 1; i <= 60 && app->run.turn != TIMBER_TURN_PLACING; i++) {
+        finger_down(track, timber_view_track_sign(app->run.tower.blocks[id].layer) * 6 * i);
+        advance(app, TIMBER_TICK_MS, 10);
+    }
+    check("a steady drag draws the block into the hand", app->run.turn == TIMBER_TURN_PLACING);
+    finger_down(track, timber_view_track_sign(app->run.tower.blocks[id].layer) * 6 * (i + 3));
+    ms_step(app, 1, 0);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    ms_step(app, 1, 0);
+    timber_screen_table_place(app);
+    other = choose_block(app, -1);
+    if (other >= 0) {
+        timber_screen_table_tap(app, other);
+    }
+    advance(app, 200, 10);
+    check("movement after the slip reaches nothing in the next turn",
+          app->run.turn == TIMBER_TURN_SELECT && (other < 0 || extraction_of(app, other) == 0));
+    timing_close(app);
+}
+
+/* Over a long irregular drag every pixel is paid once: the block moves what
+ * the finger did, less at most one engine unit per tick of rounding. */
+static void paid_once(void)
+{
+    static const int irregular[6] = { 40, 120, 70, 160, 30, 90 };
+    lv_obj_t *track;
+    lv_obj_t *table;
+    struct timber_app *app = timing_open(7, -1, &track, &table);
+    uint32_t t0;
+    int id;
+    int sign;
+    int t;
+    int e;
+    int want;
+    int ticks;
+
+    if (!app) {
+        return;
+    }
+    id = timber_run_selected(&app->run);
+    sign = timber_view_track_sign(app->run.tower.blocks[id].layer);
+    clock_pattern_set(app, irregular, 6);
+    t0 = app->run.ticks;
+    finger_down(track, 0);
+    advance(app, 10, 10);
+    for (t = 1; t <= 600; t++) {
+        finger_down(track, sign * 60 * t / 600);
+        ms_step(app, t % 7 == 0, 0);
+    }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    ms_step(app, 1, 0);
+    advance(app, 400, 10);
+    e = extraction_of(app, id);
+    want = travel_of(app, id, 60);
+    ticks = (int)(app->run.ticks - t0);
+    printf("note: 60 px under an irregular clock, released at the end: extraction %d of %d over %d ticks\n", e,
+           want, ticks);
+    check("every pixel of an irregular drag is paid exactly once", e <= want && e >= want - ticks && !jolted(app));
+    timing_close(app);
+}
+
+static void drag_timing(void)
+{
+    delayed_callbacks();
+    released_idle();
+    lift_before_tick();
+    long_stall();
+    no_leaks();
+    paid_once();
+}
+
 int main(void)
 {
     static uint8_t draw_buf[PANEL_W * 40 * 2];
@@ -972,6 +1591,7 @@ int main(void)
     wander_wobble_and_mid_press();
     gesture_stealing();
     k230_grammar();
+    drag_timing();
 
     printf("timber_input_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;

@@ -81,7 +81,7 @@ void timber_app_begin(struct timber_app *app)
     app->new_best = 0;
     app->ghost = -1;
     app->pressing = 0;
-    app->pending_px = 0;
+    timber_screen_table_drag_reset(app, lv_tick_get());
     if (app->clock) {
         lv_timer_resume(app->clock);
     }
@@ -96,6 +96,7 @@ void timber_app_finish(struct timber_app *app)
     if (app->clock) {
         lv_timer_pause(app->clock);
     }
+    timber_screen_table_drag_reset(app, lv_tick_get());
     app->new_best = (uint8_t)timber_records_note_run(&app->records, &app->run.score,
                                                      timber_run_cause(&app->run));
     if (app->store_ok && timber_store_save(&app->records) != 0) {
@@ -117,7 +118,7 @@ static void timber_clock(lv_timer_t *timer)
     if (app->run.state != TIMBER_RUN_ACTIVE && app->run.state != TIMBER_RUN_COLLAPSING) {
         return;
     }
-    timber_screen_table_tick(app);
+    timber_screen_table_clock(app, lv_tick_get());
     if (timber_run_is_over(&app->run)) {
         timber_app_finish(app);
     }
@@ -268,6 +269,7 @@ static void *timber_create(lv_obj_t *root)
     }
     app->body = root;
     app->ghost = -1;
+    app->drag_block = -1;
     app->reduced_motion = (uint8_t)(pocketos_shell_reduced_motion() != 0);
     /* A run exists from the start so the table has a tower to paint; it is
      * READY, so nothing moves until the player says so. */
