@@ -112,24 +112,69 @@ void bj_view_table(int w, int h, struct bj_table *out)
     out->label_y[BJ_ROW_PLAYER] = out->cards_y[BJ_ROW_PLAYER] - BJ_LABEL_H;
 }
 
+/* How far apart the cards of a line of `per` cards are. */
+static int card_step(const struct bj_table *t, int per)
+{
+    int room = t->w - 2 * BJ_TABLE_PAD - t->card_w;
+    int step = t->card_w * 56 / 100;
+
+    if (per > 1 && step * (per - 1) > room) {
+        step = max_i(room / (per - 1), 1);
+    }
+    return step;
+}
+
+int bj_view_hand_lines(const struct bj_table *t, int n)
+{
+    int most;
+    int lines;
+
+    if (!t || n <= 1 || t->index_w <= 0 || t->index_h <= 0) {
+        return 1;
+    }
+    /* Each hand may take half the open felt a one-line deal leaves. */
+    most = 1 + max_i(t->label_y[BJ_ROW_PLAYER] - t->cards_y[BJ_ROW_DEALER] - t->card_h, 0) / 2 / t->index_h;
+    for (lines = 1; lines < most; lines++) {
+        int per = (n + lines - 1) / lines;
+
+        if (per <= 1 || card_step(t, per) >= t->index_w) {
+            break;
+        }
+    }
+    return lines;
+}
+
 struct bj_rect bj_view_card(const struct bj_table *t, enum bj_row row, int n, int index)
 {
-    int room;
+    int lines;
+    int per;
     int step;
     int span;
     int x0;
+    int line;
 
     if (!t || n <= 0 || index < 0 || index >= n || (row != BJ_ROW_DEALER && row != BJ_ROW_PLAYER)) {
         return rect(0, 0, 0, 0);
     }
-    room = t->w - 2 * BJ_TABLE_PAD - t->card_w;
-    step = t->card_w * 56 / 100;
-    if (n > 1 && step * (n - 1) > room) {
-        step = max_i(room / (n - 1), 1);
-    }
-    span = t->card_w + step * (n - 1);
+    lines = bj_view_hand_lines(t, n);
+    per = (n + lines - 1) / lines;
+    step = card_step(t, per);
+    span = t->card_w + step * (per - 1);
     x0 = max_i((t->w - span) / 2, BJ_TABLE_PAD);
-    return rect(x0 + step * index, t->cards_y[row], t->card_w, t->card_h);
+    line = index / per;
+    /* Later lines are drawn over earlier ones, so each sits below the one
+     * before: the player's hand grows upwards from its one-line place. */
+    return rect(x0 + step * (index % per),
+                t->cards_y[row] + (row == BJ_ROW_DEALER ? line : line - (lines - 1)) * t->index_h, t->card_w,
+                t->card_h);
+}
+
+int bj_view_label_y(const struct bj_table *t, enum bj_row row, int n)
+{
+    if (!t || (row != BJ_ROW_DEALER && row != BJ_ROW_PLAYER)) {
+        return 0;
+    }
+    return t->label_y[row] - (row == BJ_ROW_PLAYER ? (bj_view_hand_lines(t, n) - 1) * t->index_h : 0);
 }
 
 int bj_view_face_down(const struct bj_game *g, int index)
@@ -137,15 +182,16 @@ int bj_view_face_down(const struct bj_game *g, int index)
     return g && g->phase == BJ_PLAYER && index == 1;
 }
 
-struct bj_rect bj_view_result_area(const struct bj_table *t)
+struct bj_rect bj_view_result_area(const struct bj_table *t, int dealer_n, int player_n)
 {
     int top;
 
     if (!t) {
         return rect(0, 0, 0, 0);
     }
-    top = t->cards_y[BJ_ROW_DEALER] + t->card_h;
-    return rect(BJ_TABLE_PAD, top, max_i(t->w - 2 * BJ_TABLE_PAD, 0), max_i(t->label_y[BJ_ROW_PLAYER] - top, 0));
+    top = t->cards_y[BJ_ROW_DEALER] + t->card_h + (bj_view_hand_lines(t, dealer_n) - 1) * t->index_h;
+    return rect(BJ_TABLE_PAD, top, max_i(t->w - 2 * BJ_TABLE_PAD, 0),
+                max_i(bj_view_label_y(t, BJ_ROW_PLAYER, player_n) - top, 0));
 }
 
 /* ---- phases, buttons, keys -------------------------------------------------------------- */

@@ -377,6 +377,37 @@ static void debug_state(struct bj_app *a, const char *want)
         a->game.phase = BJ_SETTLED;
         return;
     }
+    if (strcmp(want, "long") == 0 || strcmp(want, "longbust") == 0) {
+        /* The longest kind of hand: 10♠ 2♠ and eight aces make a hard 20 in
+         * ten cards against the dealer's 10♥ 7♥; one more 2♥ busts it in
+         * eleven. The shoe is stacked by swapping, so it still holds two
+         * decks exactly. */
+        static const int order[][2] = { { 10, BJ_SPADES }, { 10, BJ_HEARTS }, { 2, BJ_SPADES }, { 7, BJ_HEARTS },
+                                        { 1, BJ_SPADES },  { 1, BJ_SPADES },  { 1, BJ_HEARTS }, { 1, BJ_HEARTS },
+                                        { 1, BJ_CLUBS },   { 1, BJ_CLUBS },   { 1, BJ_DIAMONDS }, { 1, BJ_DIAMONDS },
+                                        { 2, BJ_HEARTS } };
+        int hits = strcmp(want, "long") == 0 ? 8 : 9;
+        size_t k;
+
+        for (k = 0; k < sizeof(order) / sizeof(order[0]); k++) {
+            bj_card_t c = bj_card(order[k][0], (enum bj_suit)order[k][1]);
+            int top = a->game.shoe.n - 1 - (int)k;
+            int at;
+
+            for (at = top; at >= 0 && a->game.shoe.card[at] != c; at--) {
+            }
+            if (at >= 0) {
+                a->game.shoe.card[at] = a->game.shoe.card[top];
+                a->game.shoe.card[top] = c;
+            }
+        }
+        a->game.bet = 50;
+        bj_deal(&a->game);
+        while (hits-- > 0 && a->game.phase == BJ_PLAYER) {
+            bj_hit(&a->game);
+        }
+        return;
+    }
     /* Deal until the wanted kind of hand turns up; the seed is fixed, so
      * this is the same hand every time. */
     for (tries = 0; tries < 400; tries++) {

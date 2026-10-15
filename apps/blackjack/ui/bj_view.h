@@ -8,7 +8,9 @@
  *
  * ORIENTATION. The screen blocks stack in a tall area and sit side by side in
  * a wide one; the table sizes its cards from both its width and its height,
- * and a hand's overlap tightens so a long hand still fits across. The shell
+ * and a hand's overlap tightens so a long hand still fits across - down to
+ * the width of a card's corner index, past which the hand takes a second
+ * line rather than cover a rank or a suit (bj_view_hand_lines). The shell
  * gives a portrait or a landscape body (DS §21); both are covered by the
  * view test and the app test.
  *
@@ -86,23 +88,43 @@ struct bj_table {
     int h;
     int card_w;
     int card_h;
-    int label_y[2]; /* per row */
+    int label_y[2]; /* per row, for a hand on one line (bj_view_label_y) */
     int cards_y[2];
+    /* The corner index a card of card_w shows, from its left and top edges:
+     * how much of a card the next one must leave in view across and, when
+     * a hand takes a second line, down. Measured from the fonts by the
+     * table widget (bj_card_index_size); 0 until then, and a hand then
+     * stays on one line however tight. */
+    int index_w;
+    int index_h;
 };
 
 /* Cards as large as a quarter of the table's width and half its height (less
  * labels) allow, 5 wide by 7 tall. The dealer's row at the top, the player's
  * at the foot, nearest the controls. */
 void bj_view_table(int w, int h, struct bj_table *out);
+/* How many lines a hand of `n` cards takes: one while each card can step at
+ * least index_w along it, else as few more as bring the step back to
+ * index_w - each line index_h below the one before, so the line drawn over
+ * it leaves every corner of the line above in view. Never more than half the
+ * open felt between the dealer's cards and the player's label holds. */
+int bj_view_hand_lines(const struct bj_table *t, int n);
 /* Card `index` of a hand of `n` cards in a row: centred, each card offset by
- * a little over half a card, tighter when the hand would not fit. */
+ * a little over half a card, tighter when the hand would not fit, and in
+ * bj_view_hand_lines() lines of equal length, the first one first. The
+ * dealer's extra lines go down into the open felt, the player's go up into
+ * it, so the last line stays where a one-line hand is. */
 struct bj_rect bj_view_card(const struct bj_table *t, enum bj_row row, int n, int index);
+/* The top of the label above a hand of `n` cards: label_y, raised over the
+ * player's extra lines. */
+int bj_view_label_y(const struct bj_table *t, enum bj_row row, int n);
 /* Whether the dealer's card `index` is drawn face down right now. */
 int bj_view_face_down(const struct bj_game *g, int index);
-/* The open felt between the dealer's cards and the player's label, where a
- * settled round's result is shown. Its height is what there is; the table
- * leaves the result out when its text is taller (a short, wide table). */
-struct bj_rect bj_view_result_area(const struct bj_table *t);
+/* The open felt between the dealer's cards and the player's label, with
+ * hands of these lengths, where a settled round's result is shown. Its
+ * height is what there is; the table leaves the result out when its text is
+ * taller (a short, wide table). */
+struct bj_rect bj_view_result_area(const struct bj_table *t, int dealer_n, int player_n);
 
 /* ---- phases, buttons and keys ---------------------------------------------------- */
 

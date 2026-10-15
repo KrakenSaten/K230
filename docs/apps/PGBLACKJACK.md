@@ -108,7 +108,15 @@ cards drawn as shapes in the card world palette (warm paper, deep red, near
 black, timber backs with a Timber-wood frame), Night dimming the world by
 half `bg`, and every interface element (HUD, labels, the result, caption,
 buttons) in tokens. Cards are 128 x 179 px in portrait; hands overlap by 56 % of a card
-and tighten when long, so even a 16-card hand fits. Before the first round
+and tighten when long, but never closer than a card's corner index - the
+widest rank, "10", and the suit below it, measured in the current text size
+(`bj_card_index_size`). A hand that would step closer takes a second line,
+one index height below the first, drawn over it, so every rank and suit
+stays in view: the dealer's grows down into the open felt, the player's up
+over its label. In portrait that is from 11 cards at Small, 10 at Medium and
+9 at Large, and both rows at 16 cards (`BJ_HAND_MAX`) still fit with room for
+the result; the landscape and HDMI tables keep even 16 cards on one line.
+Shorter hands are where they always were. Before the first round
 the felt shows outline slots for both hands.
 
 ### Deviations pending the owner
@@ -252,18 +260,19 @@ one small file.
 - Launcher: 21 apps with the three games, so the portrait launcher scrolls
   further (PLAY and DEVICE each take a second row). A Games folder is
   proposed separately on `feat/launcher-app-groups`.
-- Review states: `PGBLACKJACK_SCREEN=bet|play|win|blackjack|bust|broke` (fixed
-  seeds). Host renders: `docs/design/shots/pgblackjack-*.png`.
+- Review states: `PGBLACKJACK_SCREEN=bet|play|win|blackjack|bust|broke|long|longbust`
+  (fixed seeds; `long` is the ten-card hard 20 - 10♠ 2♠ and eight aces against
+  10♥ 7♥ - and `longbust` the eleven-card bust one 2♥ later). Host renders: `docs/design/shots/pgblackjack-*.png`.
 
 ## Tests
 
 | Test | What |
 | --- | --- |
 | `tests/bj_rules_test.c` (119) | totals: soft/hard aces, multiple aces, busts; naturals both ways and pushes; dealer 16/17 boundary including soft 17 and multi-card draws; hit, bust, auto-stand on 21, soft-to-hard; double (win, bust, refused late, refused unfunded); bet limits and bankroll clamping; broke and new bankroll; shoe composition, reshuffle mark, a shoe emptied mid-round refilled without duplication; 400 rounds never over-dealing a card; new-round cleanup; determinism; 20 000 random rounds conserving chips and cards with every outcome seen; `bj_game_valid`: every position of 60 000 random commands (dry shoes included) valid, and each kind of position broken one way at a time refused |
-| `tests/bj_view_test.c` (91) | layout tall/wide (HUD stacked beside a wide table), hand geometry for 1-16 cards, hole card, the result area, key map per phase, buttons with their words and enabled states, commands, BANK/BET values in every phase, every label, result and caption, the save notes |
+| `tests/bj_view_test.c` (106) | layout tall/wide (HUD stacked beside a wide table), hand geometry for 1-16 cards, long hands on a second line (one line kept card for card while the corner fits, no card over an earlier corner, both rows at 16 apart), hole card, the result area, key map per phase, buttons with their words and enabled states, commands, BANK/BET values in every phase, every label, result and caption, the save notes |
 | `tests/bj_store_test.c` (132) | byte layout; exact round trip - same session, same chips, same cards, same bytes again - of a new session, a raised bet, a hand just dealt, a five-card hand in play, all seven outcomes, a doubled win and a doubled loss to nothing, a new bankroll, 300 rounds in, a shoe refilled mid-round; payout state and a negative result in the file; a resumed hand settles as the original and sixty rounds later is still the same session; every one of the 1448 single-bit corruptions refused with nothing restored; truncated, padded, and resealed files of another version, bad phase or outcome, bad flags, stuck generator, bet off step, stake not the bet, a result mid-hand, settled without outcome, counts past their slots, a card past a count, a card that does not exist, a card three times, a busted hand still live; never writing an invalid game; the file: missing, nested directories, no temp left, resume, new session and new bankroll replace, truncated/padded/empty refused and left, unwritable directory, default path |
 | `tests/bj_lint.sh` | layering, no colour in C, felt door, copy provenance, input rules, scope; the store as the only file I/O, atomic and validated, saved from the tick |
-| `tests/bj_app_test.c` (129) | a stacked shoe played by keys and by taps, each step compared with the rules; bet keys ignored mid-hand; disabled DOUBLE; out of chips; the HUD's BANK and BET words and large numbers; layout and a 16-card hand in three modes; five themes; 3000 random inputs with chips conserved and every position saved; persistence (see the file's header: untouched session writes nothing, tick and settle saves, mid-hand leave and exact resume with the same caption, buttons and focus, playing on per the rules, doubled win, out of chips, new bankroll, damaged save, failed save with play continuing); review states never touching the save; five open/close rounds |
+| `tests/bj_app_test.c` (201) | a stacked shoe played by keys and by taps, each step compared with the rules; bet keys ignored mid-hand; disabled DOUBLE; out of chips; the HUD's BANK and BET words and large numbers; layout and a 16-card hand in three modes; every corner index of the ten-card hard 20, the eleven-card bust and two 16-card hands read from the drawn pixels against the card drawn alone, at Small/Medium/Large on the panel in both orientations and at 1280x720 and 1920x1080; five themes; 3000 random inputs with chips conserved and every position saved; persistence (see the file's header: untouched session writes nothing, tick and settle saves, mid-hand leave and exact resume with the same caption, buttons and focus, playing on per the rules, doubled win, out of chips, new bankroll, damaged save, failed save with play continuing); review states never touching the save; five open/close rounds |
 | `tests/bj_shell_test.sh` | runs the app test; launcher rows; generated palette; the real shell opens and closes every review state with no fault, and neither they nor an untouched session write; a damaged save opens cleanly and is left in place |
 
 Writing the rules test found a real defect before it shipped:

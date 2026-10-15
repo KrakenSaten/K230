@@ -149,6 +149,49 @@ static void panel(lv_layer_t *layer, const lv_area_t *area, int radius, lv_color
 
 /* ---- a card ------------------------------------------------------------------ */
 
+/* The corner: rank in app-title type on a card wide enough for it, row title
+ * on a smaller one, and the pip. Beside the rank, both sit in the top strip a
+ * vertically fanned card shows; below it, both sit in the left strip a card
+ * overlapped from the right shows. */
+struct corner {
+    enum pos_style_role role;
+    int pad;  /* the inset from the card's left edge, and twice its top one */
+    int line; /* the rank's line height */
+    int pip;
+};
+
+static struct corner corner_of(int w, enum bj_index index)
+{
+    struct corner c;
+    const lv_font_t *font;
+
+    c.pad = w / 14 < 3 ? 3 : w / 14;
+    c.role = w >= 56 ? POS_STYLE_TITLE : POS_STYLE_ROW_TITLE;
+    font = role_font(c.role, NULL);
+    c.line = font ? lv_font_get_line_height(font) : 20;
+    c.pip = index == BJ_INDEX_BELOW ? w / 5 : w / 4;
+    return c;
+}
+
+void bj_card_index_size(int card_w, int *index_w, int *index_h)
+{
+    struct corner c = corner_of(card_w, BJ_INDEX_BELOW);
+    int32_t ls;
+    const lv_font_t *font = role_font(c.role, &ls);
+    lv_point_t ten = { 0, 0 };
+
+    if (font) {
+        lv_text_get_size(&ten, "10", font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    }
+    /* Two pixels more each way: the next card's edge, and paper between. */
+    if (index_w) {
+        *index_w = c.pad + (ten.x > c.pip ? (int)ten.x : c.pip) + 2;
+    }
+    if (index_h) {
+        *index_h = c.pad / 2 + c.line + c.pip + 2;
+    }
+}
+
 void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum bj_index index)
 {
     int w = lv_area_get_width(area);
@@ -156,21 +199,16 @@ void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum
     int rank = bj_card_rank(card);
     enum bj_suit suit = bj_card_suit(card);
     lv_color_t ink = bj_palette[bj_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
-    int pad = w / 14 < 3 ? 3 : w / 14;
-    /* The corner: rank in app-title type on a card wide enough for it, row
-     * title on a smaller one, and the pip. Beside the rank, both sit in the
-     * top strip a vertically fanned card shows; below it, both sit in the
-     * left strip a card overlapped from the right shows. */
-    enum pos_style_role corner = w >= 56 ? POS_STYLE_TITLE : POS_STYLE_ROW_TITLE;
-    const lv_font_t *font = role_font(corner, NULL);
-    int line = font ? lv_font_get_line_height(font) : 20;
-    int pip = index == BJ_INDEX_BELOW ? w / 5 : w / 4;
+    struct corner c = corner_of(w, index);
+    int pad = c.pad;
+    int line = c.line;
+    int pip = c.pip;
 
     if (!bj_card_valid(card)) {
         return;
     }
     panel(layer, area, bj_card_radius(w), bj_palette[BJ_INK_PAPER], LV_OPA_COVER, bj_palette[BJ_INK_EDGE], 1);
-    text(layer, bj_rank_text(rank), corner, ink, area->x1 + pad, area->y1 + pad / 2 - line / 12,
+    text(layer, bj_rank_text(rank), c.role, ink, area->x1 + pad, area->y1 + pad / 2 - line / 12,
          area->x2 - pad, LV_TEXT_ALIGN_LEFT);
     if (index == BJ_INDEX_BELOW) {
         bj_draw_suit(layer, area->x1 + pad + pip / 2, area->y1 + pad / 2 + line + pip / 2, pip, suit, ink);

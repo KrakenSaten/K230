@@ -27,6 +27,7 @@
 #include "app.h"
 #include "chrome.h"
 #include "bj_app.h"
+#include "bj_palette.h"
 #include "bj_store.h"
 #include "bj_table_widget.h"
 #include "pocketui.h"
@@ -119,10 +120,29 @@ static uint8_t draw_buf[PANEL_W * 40 * 4];
 static lv_indev_state_t finger_state = LV_INDEV_STATE_RELEASED;
 static lv_point_t finger_point;
 
+/* A copy of every pixel flushed, for the checks that read what was drawn
+ * (test_long_hands): rows at the display's width in its own colour format
+ * (RGB565 in this build), as large as the largest display those checks open. */
+#define FRAME_MAX_W 1920
+#define FRAME_MAX_H 1080
+static uint8_t frame[FRAME_MAX_W * FRAME_MAX_H * 4];
+
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
 {
-    (void)a;
-    (void)px;
+    int32_t w = lv_area_get_width(a);
+    uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(d));
+    uint32_t stride = lv_draw_buf_width_to_stride((uint32_t)w, lv_display_get_color_format(d));
+    int32_t hor = lv_display_get_horizontal_resolution(d);
+    int32_t y;
+
+    if ((bpp == 2 || bpp == 4) && hor <= FRAME_MAX_W) {
+        for (y = a->y1; y <= a->y2 && y < FRAME_MAX_H; y++) {
+            if (y >= 0 && a->x1 >= 0 && a->x2 < hor) {
+                memcpy(&frame[((size_t)y * (size_t)hor + (size_t)a->x1) * bpp], px + (size_t)(y - a->y1) * stride,
+                       (size_t)w * bpp);
+            }
+        }
+    }
     lv_display_flush_ready(d);
 }
 
@@ -404,6 +424,237 @@ static void test_landscape(void)
     check("and the screen fits", games_screen_fits(app_body, app_body, "blackjack portrait again") == 0);
     app_stop();
     check("landscape: nothing left behind", lv_obj_get_child_count(g_content) == 0u && pos_input_focused() == NULL);
+}
+
+/* ---- long hands: every card's corner index stays readable ------------------------------ */
+
+/* An external display as the shell runs one (shell_display.h): upright at
+ * rotation 0, square corners, the content area under the app's chrome. */
+static void use_external(int32_t w, int32_t h)
+{
+    struct pos_panel panel = { .width = w, .height = h, .corners = { 0, 0, 0, 0 } };
+    struct pos_display_geometry geo;
+
+    pos_display_geometry_init(&geo, &panel, POS_ROTATION_0);
+    pocketui_set_display_geometry(&geo);
+    lv_display_set_resolution(g_disp, geo.width, geo.height);
+    lv_obj_set_size(g_content, geo.width, geo.height - status_h());
+    lv_obj_set_pos(g_content, 0, status_h());
+}
+
+static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
+{
+    lv_style_value_t v;
+
+    *letter_space = 0;
+    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
+        *letter_space = v.num;
+    }
+    return lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND ? v.ptr : NULL;
+}
+
+/* The corner index bj_draw_face paints on a card `r` (screen coordinates):
+ * the rank in its corner font, inset max(3, w / 14), with the w / 5 pip
+ * below it - as wide as the wider of the two, from the card's top edge to
+ * the pip's foot. */
+static lv_area_t corner_of(lv_area_t r, bj_card_t card)
+{
+    int w = lv_area_get_width(&r);
+    int pad = w / 14 < 3 ? 3 : w / 14;
+    int pip = w / 5;
+    int32_t ls;
+    const lv_font_t *font = role_font(w >= 56 ? POS_STYLE_TITLE : POS_STYLE_ROW_TITLE, &ls);
+    int line = font ? lv_font_get_line_height(font) : 20;
+    lv_point_t size = { 0, 0 };
+    lv_area_t c;
+
+    if (font) {
+        lv_text_get_size(&size, bj_rank_text(bj_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    }
+    c.x1 = r.x1 + pad;
+    c.x2 = c.x1 + (size.x > pip ? size.x : pip) - 1;
+    c.y1 = r.y1;
+    c.y2 = r.y1 + pad / 2 + line + pip - 1;
+    return c;
+}
+
+/* Pixels of exactly the card's ink inside `a` of the last frame: the fully
+ * covered part of the rank glyphs and the pip, which a card painted over
+ * the corner replaces with its paper or its edge. */
+static int ink_in(const lv_area_t *a, bj_card_t card)
+{
+    lv_color_t ink = bj_palette[bj_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
+    uint16_t ink16 = lv_color_to_u16(ink);
+    uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(g_disp));
+    int32_t hor = lv_display_get_horizontal_resolution(g_disp);
+    int n = 0;
+    int32_t x;
+    int32_t y;
+
+    for (y = a->y1; y <= a->y2; y++) {
+        for (x = a->x1; x <= a->x2; x++) {
+            const uint8_t *p = &frame[((size_t)y * (size_t)hor + (size_t)x) * bpp];
+
+            if (bpp == 2) {
+                uint16_t v;
+
+                memcpy(&v, p, sizeof(v));
+                n += v == ink16;
+            } else {
+                n += p[0] == ink.blue && p[1] == ink.green && p[2] == ink.red;
+            }
+        }
+    }
+    return n;
+}
+
+static void redraw(void)
+{
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(g_disp);
+}
+
+/* Each face-up card of both hands as the table draws them now, against the
+ * same card drawn alone in the same row: the corner must hold the same ink,
+ * pixel for pixel - nothing painted later (a card to its right or below,
+ * a hand's label) may cover any of its rank or its suit. Returns problems. */
+static int corners_readable(const char *mode)
+{
+    lv_obj_t *table = bj_app_table(app_priv);
+    struct bj_game *g = game();
+    struct bj_table t;
+    lv_area_t ta;
+    int bad = 0;
+    int row;
+
+    redraw();
+    lv_obj_get_coords(table, &ta);
+    bj_table_geometry(table, &t);
+    for (row = BJ_ROW_DEALER; row <= BJ_ROW_PLAYER; row++) {
+        struct bj_hand *h = row == BJ_ROW_DEALER ? &g->dealer : &g->player;
+        struct bj_hand whole = *h;
+        int got[BJ_HAND_MAX];
+        lv_area_t corner[BJ_HAND_MAX];
+        int i;
+
+        for (i = 0; i < whole.n; i++) {
+            struct bj_rect r = bj_view_card(&t, (enum bj_row)row, whole.n, i);
+            lv_area_t a = { ta.x1 + r.x, ta.y1 + r.y, ta.x1 + r.x + r.w - 1, ta.y1 + r.y + r.h - 1 };
+
+            corner[i] = corner_of(a, whole.card[i]);
+            got[i] = ink_in(&corner[i], whole.card[i]);
+            if (!games_inside(&a, &ta)) {
+                printf("note %s: %s card %d of %d outside the table\n", mode, row ? "player" : "dealer", i + 1,
+                       whole.n);
+                bad++;
+            }
+        }
+        for (i = 0; i < whole.n; i++) {
+            struct bj_rect r;
+            lv_area_t a;
+            int want;
+
+            if (row == BJ_ROW_DEALER && bj_view_face_down(g, i)) {
+                continue;
+            }
+            h->n = 1;
+            h->card[0] = whole.card[i];
+            redraw();
+            r = bj_view_card(&t, (enum bj_row)row, 1, 0);
+            a = (lv_area_t){ ta.x1 + r.x, ta.y1 + r.y, ta.x1 + r.x + r.w - 1, ta.y1 + r.y + r.h - 1 };
+            a = corner_of(a, whole.card[i]);
+            want = ink_in(&a, whole.card[i]);
+            if (want == 0 || got[i] != want) {
+                printf("note %s: %s card %d of %d (%s%s) shows %d of its %d index pixels (corner %d,%d..%d,%d)\n",
+                       mode, row ? "player" : "dealer", i + 1, whole.n, bj_rank_text(bj_card_rank(whole.card[i])),
+                       bj_suit_name(bj_card_suit(whole.card[i])), got[i], want, (int)corner[i].x1,
+                       (int)corner[i].y1, (int)corner[i].x2, (int)corner[i].y2);
+                bad++;
+            }
+        }
+        *h = whole;
+    }
+    redraw();
+    return bad;
+}
+
+/* The longest hands the rules can deal, at every text size, on the panel in
+ * both orientations and on the HDMI sizes: the reproduced ten-card hard 20
+ * (10♠ 2♠ and eight aces against 10♥ 7♥) and, one hit later, the eleven-card
+ * bust; then sixteen cards - BJ_HAND_MAX - in both rows at once. Every card's
+ * rank and suit stay in view, read from the pixels the real fonts drew. */
+static void test_long_hands(void)
+{
+    static const char *const sizes[] = { "small", "medium", "large" };
+    static const char *const places[] = { "panel portrait", "panel landscape", "HDMI 1280x720", "HDMI 1920x1080" };
+    enum pos_text_size was = pos_theme_current_text_size();
+    char what[160];
+    char why[96];
+    int p;
+    int s;
+
+    pos_theme_apply(NULL, "normal", why, sizeof(why));
+    for (p = 0; p < 4; p++) {
+        switch (p) {
+        case 0:
+            games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+            break;
+        case 1:
+            games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+            break;
+        case 2:
+            use_external(1280, 720);
+            break;
+        default:
+            use_external(1920, 1080);
+            break;
+        }
+        pump(60);
+        for (s = 0; s < 3; s++) {
+            struct bj_game *g;
+            int i;
+
+            pos_theme_select_text_size((enum pos_text_size)s);
+            setenv("PGBLACKJACK_SCREEN", "long", 1);
+            app_start();
+            unsetenv("PGBLACKJACK_SCREEN");
+            g = game();
+            {
+                struct bj_table t;
+
+                bj_table_geometry(bj_app_table(app_priv), &t);
+                printf("note %s, %s: table %dx%d, cards %d wide, corner %dx%d; 10, 11 and 16 cards on %d, %d and %d "
+                       "line(s)\n",
+                       places[p], sizes[s], t.w, t.h, t.card_w, t.index_w, t.index_h, bj_view_hand_lines(&t, 10),
+                       bj_view_hand_lines(&t, 11), bj_view_hand_lines(&t, BJ_HAND_MAX));
+            }
+            snprintf(what, sizeof(what), "%s, %s: the ten-card hand is a live hard 20 against 10 7", places[p], sizes[s]);
+            check(what, g->phase == BJ_PLAYER && g->player.n == 10 && bj_hand_total(&g->player, NULL) == 20 &&
+                            g->dealer.n == 2 && bj_card_rank(g->dealer.card[0]) == 10 &&
+                            bj_card_rank(g->dealer.card[1]) == 7);
+            snprintf(what, sizeof(what), "%s, %s: every index of the ten-card hard 20 is whole", places[p], sizes[s]);
+            check(what, corners_readable(what) == 0);
+            key('h');
+            snprintf(what, sizeof(what), "%s, %s: one more 2 busts it in eleven cards", places[p], sizes[s]);
+            check(what, g->phase == BJ_SETTLED && g->outcome == BJ_PLAYER_BUSTS && g->player.n == 11 &&
+                            bj_card_rank(g->player.card[10]) == 2);
+            snprintf(what, sizeof(what), "%s, %s: every index of the eleven-card bust is whole", places[p], sizes[s]);
+            check(what, corners_readable(what) == 0);
+            /* Drawn, not dealt: the table shows whatever the game holds. */
+            for (i = 0; i < BJ_HAND_MAX; i++) {
+                g->player.card[i] = bj_card(i < 8 ? BJ_ACE : 2, (enum bj_suit)(i % BJ_SUITS));
+                g->dealer.card[i] = bj_card(i < 8 ? 10 : 3, (enum bj_suit)((i + 1) % BJ_SUITS));
+            }
+            g->player.n = BJ_HAND_MAX;
+            g->dealer.n = BJ_HAND_MAX;
+            snprintf(what, sizeof(what), "%s, %s: two 16-card hands, every index whole", places[p], sizes[s]);
+            check(what, corners_readable(what) == 0);
+            app_stop();
+        }
+    }
+    pos_theme_select_text_size(was);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(60);
 }
 
 static void test_open(void)
@@ -843,6 +1094,7 @@ int main(void)
     test_persistence();
     test_review_and_rounds();
     test_landscape();
+    test_long_hands();
 
     check("the app asked the shell for nothing", shell_calls == 0);
     check("and wrote only its own file, no temporary left", entries(state_dir) == 1 && entries(bj_store_dir()) == 1 &&

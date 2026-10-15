@@ -17,7 +17,9 @@
  * fans cards vertically, so its corner puts the pip beside the rank, in the
  * top strip that stays visible; a Blackjack hand overlaps cards sideways,
  * where that pip is covered, so the pip goes below the rank. A shared
- * renderer needs both (docs/apps/PGBLACKJACK.md, "Pocket Cards").
+ * renderer needs both (docs/apps/PGBLACKJACK.md, "Pocket Cards"). With it
+ * comes bj_card_index_size(), the size of that corner, which the hand layout
+ * keeps in view; it reads the same corner metrics bj_draw_face() draws with.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -38,6 +40,11 @@ enum bj_index {
     BJ_INDEX_BELOW
 };
 void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum bj_index index);
+/* What a BJ_INDEX_BELOW corner of a card `card_w` wide takes in the current
+ * fonts, from the card's left and top edges, with two pixels to spare: across,
+ * the inset and the wider of the widest rank ("10") and the pip; down, to the
+ * pip's foot. A card laid over it must leave this much in view. */
+void bj_card_index_size(int card_w, int *index_w, int *index_h);
 void bj_draw_back(lv_layer_t *layer, const lv_area_t *area);
 
 enum bj_slot_mark {
