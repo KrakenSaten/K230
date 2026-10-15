@@ -115,11 +115,19 @@ static void draw_text(lv_layer_t *layer, const lv_area_t *origin, struct bj_rect
 }
 
 static void draw_label(lv_layer_t *layer, const lv_area_t *origin, const struct bj_table *t, enum bj_row row,
-                       const char *text, enum pos_color_token color)
+                       int n, const char *text, enum pos_color_token color)
 {
-    struct bj_rect r = { BJ_TABLE_PAD, t->label_y[row], t->w - 2 * BJ_TABLE_PAD, BJ_LABEL_H };
+    struct bj_rect r = { BJ_TABLE_PAD, bj_view_label_y(t, row, n), t->w - 2 * BJ_TABLE_PAD, BJ_LABEL_H };
 
     draw_text(layer, origin, r, POS_STYLE_BUTTON_LABEL, text, color);
+}
+
+/* The view's table for the object's size, with the corner index the cards
+ * show in the fonts of the moment: a text size change redraws with it. */
+static void geometry(lv_obj_t *obj, struct bj_table *t)
+{
+    bj_view_table(lv_obj_get_width(obj), lv_obj_get_height(obj), t);
+    bj_card_index_size(t->card_w, &t->index_w, &t->index_h);
 }
 
 static void table_draw(lv_event_t *e)
@@ -136,7 +144,7 @@ static void table_draw(lv_event_t *e)
         return;
     }
     lv_obj_get_coords(obj, &coords);
-    bj_view_table(lv_obj_get_width(obj), lv_obj_get_height(obj), &t);
+    geometry(obj, &t);
     draw_felt(layer, &coords);
     draw_hand(layer, &coords, &t, st->game, BJ_ROW_DEALER);
     draw_hand(layer, &coords, &t, st->game, BJ_ROW_PLAYER);
@@ -151,18 +159,18 @@ static void table_draw(lv_event_t *e)
         lv_draw_rect(layer, &dim, &coords);
     }
     bj_view_dealer_label(st->game, text, sizeof(text));
-    draw_label(layer, &coords, &t, BJ_ROW_DEALER, text, POS_COLOR_TEXT_PRIMARY);
+    draw_label(layer, &coords, &t, BJ_ROW_DEALER, st->game->dealer.n, text, POS_COLOR_TEXT_PRIMARY);
     bj_view_player_label(st->game, text, sizeof(text));
     /* A won hand's label in the success colour; the caption says it in words
      * too, so colour is never the only carrier (DS 2). */
     result = bj_view_player_result(st->game);
-    draw_label(layer, &coords, &t, BJ_ROW_PLAYER, text,
+    draw_label(layer, &coords, &t, BJ_ROW_PLAYER, st->game->player.n, text,
                result > 0 ? POS_COLOR_STATUS_OK : result < 0 ? POS_COLOR_TEXT_SECONDARY : POS_COLOR_TEXT_PRIMARY);
     /* What the round won or lost, large, in the open felt between the hands:
      * the sign says it, the colour only repeats it. */
     bj_view_result(st->game, text, sizeof(text));
-    draw_text(layer, &coords, bj_view_result_area(&t), POS_STYLE_HERO_40, text,
-              result > 0 ? POS_COLOR_STATUS_OK : result < 0 ? POS_COLOR_TEXT_SECONDARY : POS_COLOR_TEXT_PRIMARY);
+    draw_text(layer, &coords, bj_view_result_area(&t, st->game->dealer.n, st->game->player.n), POS_STYLE_HERO_40,
+              text, result > 0 ? POS_COLOR_STATUS_OK : result < 0 ? POS_COLOR_TEXT_SECONDARY : POS_COLOR_TEXT_PRIMARY);
 }
 
 static void table_delete(lv_event_t *e)
@@ -216,6 +224,6 @@ void bj_table_bind(lv_obj_t *table, const struct bj_game *g)
 void bj_table_geometry(lv_obj_t *table, struct bj_table *out)
 {
     if (table && out) {
-        bj_view_table(lv_obj_get_width(table), lv_obj_get_height(table), out);
+        geometry(table, out);
     }
 }

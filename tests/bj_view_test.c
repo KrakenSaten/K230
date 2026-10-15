@@ -98,7 +98,7 @@ static void test_layout(void)
           t.cards_y[BJ_ROW_DEALER] + t.card_h < t.label_y[BJ_ROW_PLAYER]);
     check("cards meet the touch minimum, though nothing on them is tapped", t.card_w >= 64);
 
-    a = bj_view_result_area(&t);
+    a = bj_view_result_area(&t, 2, 2);
     check("the result goes in the open felt between the dealer's cards and the player's label",
           a.y == t.cards_y[BJ_ROW_DEALER] + t.card_h && a.y + a.h == t.label_y[BJ_ROW_PLAYER] && a.x == BJ_TABLE_PAD &&
               a.x + a.w == t.w - BJ_TABLE_PAD);
@@ -115,8 +115,8 @@ static void test_layout(void)
     bj_view_table(s.table.w, s.table.h, &t);
     check("a short table binds the cards by height", t.card_h <= (470 - 32 - 72 - 16) / 2);
     check("and the rows still do not meet", t.cards_y[BJ_ROW_DEALER] + t.card_h <= t.label_y[BJ_ROW_PLAYER]);
-    check("the result area there is what is left, never negative", bj_view_result_area(&t).h >= 0 &&
-                                                                         bj_view_result_area(NULL).w == 0);
+    check("the result area there is what is left, never negative", bj_view_result_area(&t, 2, 2).h >= 0 &&
+                                                                         bj_view_result_area(NULL, 2, 2).w == 0);
 
     bj_view_table(528, 820, &t);
     a = bj_view_card(&t, BJ_ROW_PLAYER, 2, 0);
@@ -144,6 +144,108 @@ static void test_layout(void)
     check("so does the longest hand on a wide table", bad == 0);
     check("an index outside the hand is an empty rect", bj_view_card(&t, BJ_ROW_PLAYER, 3, 3).w == 0 &&
                                                             bj_view_card(&t, BJ_ROW_PLAYER, 0, 0).w == 0);
+}
+
+/* Long hands against the corner index (bj_table.index_w/_h): a hand stays on
+ * one line, exactly where it always was, while every card can step at least
+ * index_w; past that it takes as few more lines as it needs, and no card
+ * drawn later covers any earlier card's corner. Every corner size from the
+ * Small fonts' to a little past the Large ones', on the portrait table. */
+static void test_long_hands(void)
+{
+    struct bj_table plain;
+    struct bj_table t;
+    int bad_same = 0;
+    int bad_corner = 0;
+    int bad_inside = 0;
+    int bad_rows = 0;
+    int bad_fewest = 0;
+    int iw;
+    int ih;
+    int n;
+
+    bj_view_table(528, 820, &plain);
+    for (iw = 28; iw <= 52; iw++) {
+        for (ih = 50; ih <= 82; ih += 4) {
+            t = plain;
+            t.index_w = iw;
+            t.index_h = ih;
+            for (n = 1; n <= BJ_HAND_MAX; n++) {
+                int lines = bj_view_hand_lines(&t, n);
+                int row;
+
+                for (row = BJ_ROW_DEALER; row <= BJ_ROW_PLAYER; row++) {
+                    int i;
+                    int j;
+
+                    for (i = 0; i < n; i++) {
+                        struct bj_rect r = bj_view_card(&t, (enum bj_row)row, n, i);
+                        struct bj_rect corner = { r.x, r.y, iw, ih };
+
+                        if (lines == 1) {
+                            struct bj_rect was = bj_view_card(&plain, (enum bj_row)row, n, i);
+
+                            bad_same += r.x != was.x || r.y != was.y;
+                        }
+                        bad_inside += !inside(r, t.w, t.h) || r.x < BJ_TABLE_PAD || r.x + r.w > t.w - BJ_TABLE_PAD;
+                        for (j = i + 1; j < n; j++) {
+                            bad_corner += overlap(corner, bj_view_card(&t, (enum bj_row)row, n, j));
+                        }
+                    }
+                }
+                {
+                    struct bj_rect top = bj_view_card(&t, BJ_ROW_PLAYER, n, 0);
+                    struct bj_rect low = bj_view_card(&t, BJ_ROW_DEALER, n, n - 1);
+                    struct bj_rect felt = bj_view_result_area(&t, n, n);
+
+                    /* Both hands this long at once: the dealer's lines end
+                     * above the player's label, which sits above its cards. */
+                    bad_rows += bj_view_label_y(&t, BJ_ROW_PLAYER, n) + BJ_LABEL_H > top.y ||
+                                low.y + low.h > bj_view_label_y(&t, BJ_ROW_PLAYER, n) || felt.h < 0 ||
+                                felt.y != low.y + low.h || bj_view_label_y(&t, BJ_ROW_DEALER, n) != t.label_y[0];
+                }
+                if (lines > 1) {
+                    /* One line fewer would step closer than the corner. */
+                    struct bj_rect a = bj_view_card(&t, BJ_ROW_DEALER, n, 0);
+                    struct bj_rect b = bj_view_card(&t, BJ_ROW_DEALER, n, 1);
+
+                    bad_fewest += b.x - a.x < iw;
+                    t.index_w = 0;
+                    bad_fewest += bj_view_hand_lines(&t, n) != 1;
+                    t.index_w = iw;
+                }
+            }
+        }
+    }
+    check("a hand that leaves every corner in view stays on its one line, card for card", bad_same == 0);
+    check("no card covers any earlier card's corner, in any hand from 1 to 16 cards", bad_corner == 0);
+    check("every card of every long hand stays inside the table's padding", bad_inside == 0);
+    check("two long hands at once keep apart, the player's label above its lines", bad_rows == 0);
+    check("a hand on more lines steps at least the corner, and only when told the corner", bad_fewest == 0);
+
+    t = plain;
+    /* The Large fonts' corner on the portrait table, as the app measures it
+     * (bj_card_index_size): "10" 38 px past a 9 px inset, 2 to spare. */
+    t.index_w = 49;
+    t.index_h = 70;
+    check("portrait at Large: eight cards still fit on one line", bj_view_hand_lines(&t, 8) == 1);
+    check("the reproduced ten- and eleven-card hands take two", bj_view_hand_lines(&t, 10) == 2 &&
+                                                                    bj_view_hand_lines(&t, 11) == 2);
+    check("and so does the longest", bj_view_hand_lines(&t, BJ_HAND_MAX) == 2);
+    check("the player's grows up over its label; the dealer's label stays",
+          bj_view_label_y(&t, BJ_ROW_PLAYER, 11) == t.label_y[BJ_ROW_PLAYER] - 70 &&
+              bj_view_label_y(&t, BJ_ROW_DEALER, 11) == t.label_y[BJ_ROW_DEALER]);
+    check("the second line of eleven starts under the first card",
+          bj_view_card(&t, BJ_ROW_PLAYER, 11, 6).x == bj_view_card(&t, BJ_ROW_PLAYER, 11, 0).x &&
+              bj_view_card(&t, BJ_ROW_PLAYER, 11, 6).y == bj_view_card(&t, BJ_ROW_PLAYER, 11, 0).y + 70 &&
+              bj_view_card(&t, BJ_ROW_PLAYER, 11, 10).y == t.cards_y[BJ_ROW_PLAYER]);
+    check("with both hands long, the result still has room for a 40 px number",
+          bj_view_result_area(&t, BJ_HAND_MAX, BJ_HAND_MAX).h >= 56);
+    bj_view_table(890, 470, &t);
+    t.index_w = 49;
+    t.index_h = 70;
+    check("a wide table keeps even the longest hand on one line",
+          bj_view_hand_lines(&t, BJ_HAND_MAX) == 1);
 }
 
 static void test_panels_and_keys(void)
@@ -378,6 +480,7 @@ static void test_words(void)
 int main(void)
 {
     test_layout();
+    test_long_hands();
     test_panels_and_keys();
     test_words();
     printf("bj_view_test: %d checks, %d failure(s)\n", checks, failed);
