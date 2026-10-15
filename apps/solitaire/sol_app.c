@@ -14,7 +14,10 @@
  * INPUT. Keyboard first: the root is the one object in the shell's focus
  * group and every key goes through sol_view_key() (DS 17.4). Touch beside it:
  * a tap on the table becomes a hit and goes through sol_view_tap(); there is
- * no drag. Neither the table nor the buttons take the focus when tapped.
+ * no dragging cards. A column too long for the table at the corner index's
+ * fan scrolls the tableau (sol_table_widget.h): a drag on the table scrolls
+ * it, and every key brings the cursor's card into view. Neither the table
+ * nor the buttons take the focus when tapped.
  *
  * PERSISTENCE. The deal is kept in sol_store.c's file and resumed when the
  * app opens again, with the cursor and any selection starting fresh. It is
@@ -179,7 +182,7 @@ static void refresh(struct sol_app *a)
                                     ? 0
                                     : BUTTON_GAP,
                                 0);
-    lv_obj_invalidate(a->table);
+    sol_table_refresh(a->table);
 }
 
 /* ---- commands ----------------------------------------------------------------------- */
@@ -219,6 +222,7 @@ static void on_key(lv_event_t *e)
     uint8_t won = a->game.won;
 
     apply(a, sol_view_key(&a->ui, &a->game, lv_event_get_key(e)), moves, won);
+    sol_table_follow_cursor(a->table);
 }
 
 static void on_tap(void *user, struct sol_hit hit)
@@ -380,10 +384,92 @@ static void start(struct sol_app *a)
     a->dirty = rc == 0;
 }
 
+/* The cold review's reachable game (2026-10-15): seed 1 and 49 actions, the
+ * last leaving eleven face-up cards in column 1. Each row moves the cards
+ * from `index` of pile `from` to pile `to`, or draws `index` times. */
+#define REVIEW_DRAW (-1)
+#define T(n) (SOL_T0 + (n) - 1)
+static const int8_t review_long_play[][3] = {
+    { T(3), 2, T(2) }, { T(3), 1, T(5) }, { T(3), 0, T(7) }, { REVIEW_DRAW, 6, 0 }, { SOL_WASTE, 5, T(1) },
+    { T(4), 3, T(1) }, { T(4), 2, SOL_F0 }, { REVIEW_DRAW, 1, 0 }, { SOL_WASTE, 5, T(1) }, { T(7), 6, T(1) },
+    { REVIEW_DRAW, 1, 0 }, { SOL_WASTE, 5, T(4) }, { T(4), 2, T(2) }, { REVIEW_DRAW, 1, 0 }, { SOL_WASTE, 5, T(4) },
+    { REVIEW_DRAW, 4, 0 }, { SOL_WASTE, 8, T(6) }, { REVIEW_DRAW, 1, 0 }, { SOL_WASTE, 8, T(7) }, { T(5), 4, T(7) },
+    { T(5), 3, T(3) }, { T(7), 5, T(5) }, { T(7), 4, T(5) }, { T(6), 6, T(7) }, { REVIEW_DRAW, 1, 0 },
+    { T(7), 4, T(6) }, { REVIEW_DRAW, 1, 0 }, { T(6), 6, T(7) }, { REVIEW_DRAW, 1, 0 }, { T(7), 4, T(6) },
+    { SOL_WASTE, 10, T(1) }, { T(7), 3, T(1) }, { T(2), 1, T(7) }, { T(1), 2, T(2) }, { T(6), 6, T(2) },
+    { T(2), 1, T(1) }, { REVIEW_DRAW, 1, 0 }, { T(1), 2, T(2) }, { SOL_WASTE, 10, T(2) }, { T(2), 1, T(1) },
+    { SOL_WASTE, 9, T(1) },
+};
+#undef T
+
+/* Long columns, for review: "long" and "longtop" are the game above with the
+ * keyboard cursor on column 1's last card or its first; "longest" is the
+ * longest column the rules allow - six face down, king to ace face up - in
+ * column 7, the cursor on its ace. Returns 0 for any other name. */
+static int debug_long(struct sol_app *a, const char *want)
+{
+    size_t i;
+
+    if (strcmp(want, "long") == 0 || strcmp(want, "longtop") == 0) {
+        deal(a, 1);
+        for (i = 0; i < sizeof(review_long_play) / sizeof(review_long_play[0]); i++) {
+            const int8_t *m = review_long_play[i];
+            int n;
+
+            if (m[0] == REVIEW_DRAW) {
+                for (n = 0; n < m[1]; n++) {
+                    sol_draw(&a->game);
+                }
+            } else {
+                sol_move(&a->game, m[0], m[1], m[2], NULL);
+            }
+        }
+        sol_view_reset(&a->ui, &a->game);
+        sol_view_key(&a->ui, &a->game, '1');
+        if (strcmp(want, "longtop") == 0) {
+            a->ui.cursor_index = (int8_t)a->game.pile[SOL_T0].down;
+        }
+        return 1;
+    }
+    if (strcmp(want, "longest") == 0) {
+        struct sol_stack *col = &a->game.pile[SOL_T0 + 6];
+        uint8_t used[SOL_DECK] = { 0 };
+        int r;
+        int c;
+
+        memset(&a->game, 0, sizeof(a->game));
+        a->game.seed = SOL_DEBUG_SEED;
+        a->game.moves = 1;
+        for (r = 1; r <= 6; r++) {
+            col->card[col->n++] = sol_card(r, SOL_CLUBS);
+        }
+        col->down = 6;
+        for (r = SOL_KING; r >= 1; r--) {
+            col->card[col->n++] = sol_card(r, (r % 2) ? SOL_SPADES : SOL_HEARTS);
+        }
+        for (c = 0; c < col->n; c++) {
+            used[col->card[c]] = 1;
+        }
+        for (c = 0; c < SOL_DECK; c++) {
+            if (sol_card_valid((sol_card_t)c) && !used[c]) {
+                a->game.pile[SOL_STOCK].card[a->game.pile[SOL_STOCK].n++] = (sol_card_t)c;
+            }
+        }
+        a->game.pile[SOL_STOCK].down = a->game.pile[SOL_STOCK].n;
+        sol_view_reset(&a->ui, &a->game);
+        sol_view_key(&a->ui, &a->game, '7');
+        return 1;
+    }
+    return 0;
+}
+
 /* Review states from a fixed deal. */
 static void debug_state(struct sol_app *a, const char *want)
 {
     a->session_only = 1;
+    if (debug_long(a, want)) {
+        return;
+    }
     deal(a, SOL_DEBUG_SEED);
     if (strcmp(want, "deal") == 0) {
         return;
@@ -471,6 +557,12 @@ static void *solitaire_create(lv_obj_t *body)
     lv_obj_update_layout(a->root);
     layout(a);
     refresh(a);
+    if (debug && *debug) {
+        /* A review state's cursor may be on a card the tableau has to
+         * scroll to. */
+        lv_obj_update_layout(a->root);
+        sol_table_follow_cursor(a->table);
+    }
     return a;
 }
 

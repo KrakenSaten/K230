@@ -116,7 +116,7 @@ struct sol_rect sol_view_slot(const struct sol_table *t, int pile)
     if (!t || col < 0) {
         return rect(0, 0, 0, 0);
     }
-    return rect(column_x(t, col), sol_is_column(pile) ? t->tableau_y : t->top_y, t->card_w, t->card_h);
+    return rect(column_x(t, col), sol_is_column(pile) ? t->tableau_y - t->scroll : t->top_y, t->card_w, t->card_h);
 }
 
 void sol_view_fan(const struct sol_table *t, const struct sol_stack *column, int *down_px, int *up_px)
@@ -131,13 +131,15 @@ void sol_view_fan(const struct sol_table *t, const struct sol_stack *column, int
         return;
     }
     fd = t->fan_down;
-    fu = t->fan_up;
+    fu = max_i(t->fan_up, t->index_h);
     d = column->down;
     u = column->n - column->down;
     avail = t->h - SOL_TABLE_PAD - t->tableau_y - t->card_h;
     if (d * fd + max_i(u - 1, 0) * fu > avail) {
         int min_fd = max_i(fd / 3, 2);
-        int min_fu = max_i(fu / 3, 4);
+        /* A face-up card shows its corner index whole, or the tableau
+         * scrolls (sol_view_scroll_max): never one over another's rank. */
+        int min_fu = t->index_h > 0 ? t->index_h : max_i(fu / 3, 4);
 
         /* Face-down edges give way first: they carry no information. */
         if (d > 0) {
@@ -169,6 +171,59 @@ struct sol_rect sol_view_card(const struct sol_table *t, const struct sol_game *
         r.y += min_i(index, s->down) * fd + max_i(index - s->down, 0) * fu;
     }
     return r;
+}
+
+int sol_view_scroll_max(const struct sol_table *t, const struct sol_game *g)
+{
+    struct sol_table flat;
+    int foot = 0;
+    int c;
+
+    if (!t || !g) {
+        return 0;
+    }
+    flat = *t;
+    flat.scroll = 0;
+    for (c = 0; c < SOL_COLUMNS; c++) {
+        int n = g->pile[SOL_T0 + c].n;
+
+        if (n > 0) {
+            struct sol_rect r = sol_view_card(&flat, g, SOL_T0 + c, n - 1);
+
+            foot = max_i(foot, r.y + r.h);
+        }
+    }
+    return max_i(foot + SOL_TABLE_PAD - t->h, 0);
+}
+
+int sol_view_scroll_to(const struct sol_table *t, const struct sol_game *g, int pile, int index)
+{
+    int max;
+    int s;
+
+    if (!t || !g) {
+        return 0;
+    }
+    max = sol_view_scroll_max(t, g);
+    s = min_i(max_i(t->scroll, 0), max);
+    if (sol_is_column(pile) && index < g->pile[pile].n) {
+        struct sol_table flat = *t;
+        struct sol_rect r;
+        int shown;
+
+        /* An empty column's slot, or the card. */
+        flat.scroll = 0;
+        r = index < 0 ? sol_view_slot(&flat, pile) : sol_view_card(&flat, g, pile, index);
+        shown = index < 0 || index == g->pile[pile].n - 1 ? r.h : sol_view_card(&flat, g, pile, index + 1).y - r.y;
+        if (r.y + shown - s > t->h - SOL_TABLE_PAD) {
+            s = r.y + shown - (t->h - SOL_TABLE_PAD);
+        }
+        if (r.y - s < t->tableau_y) {
+            s = r.y - t->tableau_y;
+        }
+        s = min_i(max_i(s, 0), max);
+    }
+    return s;
 }
 
 struct sol_hit sol_view_hit(const struct sol_table *t, const struct sol_game *g, int x, int y)

@@ -23,9 +23,22 @@ static struct sol_table_state *state_of(lv_obj_t *obj)
     return obj ? lv_obj_get_user_data(obj) : NULL;
 }
 
+/* The view's table for the object's size, with the corner index the cards
+ * show in the fonts of the moment (a text size change redraws with it) and
+ * the object's own scroll as the tableau's, held to the range the game
+ * gives now. */
 static void geometry(lv_obj_t *obj, struct sol_table *t)
 {
+    struct sol_table_state *st = state_of(obj);
+
     sol_view_table(lv_obj_get_width(obj), lv_obj_get_height(obj), t);
+    t->index_h = sol_card_index_h(t->card_w);
+    if (st && st->game) {
+        int max = sol_view_scroll_max(t, st->game);
+        int y = lv_obj_get_scroll_y(obj);
+
+        t->scroll = y < 0 ? 0 : y > max ? max : y;
+    }
 }
 
 static lv_area_t area_of(const lv_area_t *origin, struct sol_rect r)
@@ -155,6 +168,61 @@ static void draw_cursor(lv_layer_t *layer, const lv_area_t *target, int card_w)
     }
 }
 
+/* Where the tableau's piles, selection and cursor are seen: from half the
+ * row gap above the tableau to the table's foot, so a scrolled column goes
+ * under the top row's edge and a mark around the first card still shows. */
+static lv_area_t tableau_clip(const lv_area_t *coords, const struct sol_table *t)
+{
+    lv_area_t a = *coords;
+
+    a.y1 = coords->y1 + t->tableau_y - SOL_ROW_GAP / 2;
+    return a;
+}
+
+/* Clip what is drawn next to `area` as well, keeping the layer's clip in
+ * `was` for the caller to put back. Returns 0, changing nothing, when the
+ * two do not meet. */
+static int clip_to(lv_layer_t *layer, const lv_area_t *area, lv_area_t *was)
+{
+    lv_area_t clip;
+
+    *was = layer->_clip_area;
+    clip.x1 = LV_MAX(was->x1, area->x1);
+    clip.y1 = LV_MAX(was->y1, area->y1);
+    clip.x2 = LV_MIN(was->x2, area->x2);
+    clip.y2 = LV_MIN(was->y2, area->y2);
+    if (clip.x1 > clip.x2 || clip.y1 > clip.y2) {
+        return 0;
+    }
+    layer->_clip_area = clip;
+    return 1;
+}
+
+/* A thin bar at the table's right edge beside a tableau that scrolls: where
+ * the seen part sits in the whole, as a scrollbar shows it. */
+static void draw_scroll_mark(lv_layer_t *layer, const lv_area_t *coords, const struct sol_table *t, int max)
+{
+    lv_draw_rect_dsc_t dsc;
+    int view = t->h - SOL_TABLE_PAD - t->tableau_y;
+    int len;
+    lv_area_t bar;
+
+    if (max <= 0 || view <= 0) {
+        return;
+    }
+    len = view * view / (view + max);
+    len = len < 24 ? 24 : len;
+    bar.x2 = coords->x2 - 3;
+    bar.x1 = bar.x2 - 3;
+    bar.y1 = coords->y1 + t->tableau_y + (view - len) * t->scroll / max;
+    bar.y2 = bar.y1 + len - 1;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.radius = 2;
+    dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+    dsc.bg_opa = LV_OPA_COVER;
+    lv_draw_rect(layer, &dsc, &bar);
+}
+
 static void table_draw(lv_event_t *e)
 {
     lv_obj_t *obj = lv_event_get_target_obj(e);
@@ -162,6 +230,8 @@ static void table_draw(lv_event_t *e)
     lv_layer_t *layer = lv_event_get_layer(e);
     struct sol_table t;
     lv_area_t coords;
+    lv_area_t tableau;
+    lv_area_t was;
     int p;
 
     if (!st || !layer || !st->game) {
@@ -169,9 +239,15 @@ static void table_draw(lv_event_t *e)
     }
     lv_obj_get_coords(obj, &coords);
     geometry(obj, &t);
+    tableau = tableau_clip(&coords, &t);
     draw_felt(layer, &coords);
     for (p = 0; p < SOL_PILES; p++) {
-        draw_pile(layer, &coords, &t, st->game, p);
+        if (!sol_is_column(p)) {
+            draw_pile(layer, &coords, &t, st->game, p);
+        } else if (clip_to(layer, &tableau, &was)) {
+            draw_pile(layer, &coords, &t, st->game, p);
+            layer->_clip_area = was;
+        }
     }
     /* Night mode dims the world, as PocketTimber's art review designed it
      * (docs/apps/POCKETTIMBER_ART.md 11): half of bg over the scene. The
@@ -184,19 +260,32 @@ static void table_draw(lv_event_t *e)
         dim.bg_opa = LV_OPA_50;
         lv_draw_rect(layer, &dim, &coords);
     }
+    draw_scroll_mark(layer, &coords, &t, sol_view_scroll_max(&t, st->game));
     if (st->ui && st->ui->sel_pile >= 0) {
         lv_area_t a = run_area(&coords, &t, st->game, st->ui->sel_pile, st->ui->sel_index);
+        int clipped = sol_is_column(st->ui->sel_pile);
 
-        draw_selection(layer, &a, sol_card_radius(t.card_w));
+        if (!clipped || clip_to(layer, &tableau, &was)) {
+            draw_selection(layer, &a, sol_card_radius(t.card_w));
+            if (clipped) {
+                layer->_clip_area = was;
+            }
+        }
     }
     if (st->ui && st->ui->keyboard && !st->ui->confirming && !st->game->won && st->ui->cursor_pile >= 0) {
         int index = sol_is_column(st->ui->cursor_pile) ? st->ui->cursor_index : st->game->pile[st->ui->cursor_pile].n - 1;
         lv_area_t a = run_area(&coords, &t, st->game, st->ui->cursor_pile, index);
+        int clipped = sol_is_column(st->ui->cursor_pile);
 
         if (!sol_is_column(st->ui->cursor_pile) || st->game->pile[st->ui->cursor_pile].n == 0) {
             a = area_of(&coords, sol_view_slot(&t, st->ui->cursor_pile));
         }
-        draw_cursor(layer, &a, t.card_w);
+        if (!clipped || clip_to(layer, &tableau, &was)) {
+            draw_cursor(layer, &a, t.card_w);
+            if (clipped) {
+                layer->_clip_area = was;
+            }
+        }
     }
 }
 
@@ -228,9 +317,35 @@ static void table_delete(lv_event_t *e)
     lv_obj_set_user_data(obj, NULL);
 }
 
+/* The tableau's scroll range as LVGL's: an object scrolls as far as its self
+ * size passes its content area, so report the content area plus the range. */
+static void table_self_size(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+    struct sol_table_state *st = state_of(obj);
+    lv_point_t *p = lv_event_get_param(e);
+    struct sol_table t;
+
+    if (!st || !st->game || !p) {
+        return;
+    }
+    geometry(obj, &t);
+    p->y = LV_MAX(p->y, sol_view_scroll_max(&t, st->game) + lv_obj_get_content_height(obj));
+}
+
+/* The range changed under the scroll (a new size or text size): keep the
+ * scroll inside it. */
+static void table_resized(lv_event_t *e)
+{
+    lv_obj_readjust_scroll(lv_event_get_target_obj(e), LV_ANIM_OFF);
+}
+
 static void table_theme_changed(lv_event_t *e)
 {
-    lv_obj_invalidate(lv_event_get_target_obj(e));
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+
+    lv_obj_readjust_scroll(obj, LV_ANIM_OFF);
+    lv_obj_invalidate(obj);
 }
 
 lv_obj_t *sol_table_create(lv_obj_t *parent)
@@ -249,12 +364,21 @@ lv_obj_t *sol_table_create(lv_obj_t *parent)
     lv_obj_set_style_pad_all(obj, 0, 0);
     lv_obj_set_style_clip_corner(obj, 1, 0);
     lv_obj_set_user_data(obj, st);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    /* Only a column too long for the table scrolls, and only the tableau
+     * moves (table_draw); LVGL's own drag does it, so a drag is never a tap.
+     * Inside its range, unshared with the body, with no bar of its own. */
+    lv_obj_set_scroll_dir(obj, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     /* A tap on the table must not take the focus from the app's key sink. */
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_obj_add_event_cb(obj, table_draw, LV_EVENT_DRAW_MAIN, NULL);
     lv_obj_add_event_cb(obj, table_click, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(obj, table_self_size, LV_EVENT_GET_SELF_SIZE, NULL);
+    lv_obj_add_event_cb(obj, table_resized, LV_EVENT_SIZE_CHANGED, NULL);
     lv_obj_add_event_cb(obj, table_delete, LV_EVENT_DELETE, NULL);
     if (pos_theme_watch(obj) != 0) {
         lv_obj_add_event_cb(obj, table_theme_changed, (lv_event_code_t)pos_event_theme_changed(), NULL);
@@ -280,6 +404,30 @@ void sol_table_on_tap(lv_obj_t *table, void (*cb)(void *user, struct sol_hit hit
     if (st) {
         st->tap = cb;
         st->user = user;
+    }
+}
+
+void sol_table_refresh(lv_obj_t *table)
+{
+    if (table) {
+        lv_obj_readjust_scroll(table, LV_ANIM_OFF);
+        lv_obj_invalidate(table);
+    }
+}
+
+void sol_table_follow_cursor(lv_obj_t *table)
+{
+    struct sol_table_state *st = state_of(table);
+    struct sol_table t;
+    int to;
+
+    if (!st || !st->game || !st->ui || !sol_is_column(st->ui->cursor_pile)) {
+        return;
+    }
+    geometry(table, &t);
+    to = sol_view_scroll_to(&t, st->game, st->ui->cursor_pile, st->ui->cursor_index);
+    if (to != lv_obj_get_scroll_y(table)) {
+        lv_obj_scroll_to_y(table, to, LV_ANIM_OFF);
     }
 }
 

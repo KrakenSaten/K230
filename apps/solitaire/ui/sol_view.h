@@ -12,7 +12,8 @@
  * sizes cards from both the width (seven columns) and the height (a top row
  * and a tableau with room to fan), so a wide area gets cards bound by its
  * height and a tall one cards bound by its width; tableau fans compress when
- * a column is longer than the table. The chrome around the table is stacked
+ * a column is longer than the table, never past the corner index, and a
+ * column longer still scrolls the tableau. The chrome around the table is stacked
  * in a tall area and side by side in a wide one. The shell gives a portrait
  * or a landscape body (DS §21); both are covered by the view test and the
  * app test.
@@ -86,6 +87,11 @@ struct sol_table {
     int tableau_y;     /* y of the first tableau card */
     int fan_down;      /* uncompressed offset below a face-down card */
     int fan_up;        /* uncompressed offset below a face-up card */
+    /* Set by the caller after sol_view_table(); both 0 from it. */
+    int index_h;       /* how much of a face-up card's top its corner index
+                        * needs in the fonts of the moment, 0 for unknown */
+    int scroll;        /* how far the tableau is scrolled up, 0 to
+                        * sol_view_scroll_max() */
 };
 
 /* Size the cards for a table of w x h. Cards are as large as seven columns
@@ -96,14 +102,28 @@ void sol_view_table(int w, int h, struct sol_table *out);
 /* The column (0..6) a pile is drawn in, or -1. The stock is column 0, the
  * waste column 1, the foundations columns 3..6, the tableau 0..6. */
 int sol_view_pile_column(int pile);
-/* Where an empty pile's slot is. */
+/* Where an empty pile's slot is; a column's scrolls with the tableau. */
 struct sol_rect sol_view_slot(const struct sol_table *t, int pile);
 /* Offsets for one tableau column as drawn: the uncompressed fans shrink,
- * face-down first, until the column's last card ends inside the table. */
+ * face-down first, until the column's last card ends inside the table. A
+ * face-up offset never goes below index_h (with index_h 0, a third of the
+ * uncompressed one), and is at least index_h uncompressed, so every face-up
+ * card keeps its rank and suit in view; a column that is still too long
+ * ends below the table, and the tableau scrolls. */
 void sol_view_fan(const struct sol_table *t, const struct sol_stack *column, int *down_px, int *up_px);
 /* Where card `index` of `pile` is drawn. Stock, waste and foundations draw
- * every card in the slot, the top one last. */
+ * every card in the slot, the top one last. Tableau cards are `scroll`
+ * higher; the table shows them from tableau_y down, under the top row. */
 struct sol_rect sol_view_card(const struct sol_table *t, const struct sol_game *g, int pile, int index);
+/* How far the tableau scrolls: as far as brings the longest column's last
+ * card to the table's padding, 0 when every column fits. */
+int sol_view_scroll_max(const struct sol_table *t, const struct sol_game *g);
+/* The scroll, from t->scroll and moving as little as it can, at which card
+ * `index` of tableau `pile` is seen between tableau_y and the table's foot:
+ * the strip it shows, the whole card on top, or with `index` -1 an empty
+ * column's slot. Anything else keeps
+ * t->scroll, within 0..sol_view_scroll_max(). */
+int sol_view_scroll_to(const struct sol_table *t, const struct sol_game *g, int pile, int index);
 
 struct sol_hit {
     int pile;  /* SOL_NO_PILE for the felt */
@@ -113,7 +133,7 @@ struct sol_hit {
 /* What a point in the table is on. A tableau column's target is its whole
  * width from the tableau row down, so a finger placing a card never has to
  * hit a strip of card; the card under the point, if any, is the topmost one
- * drawn there. */
+ * drawn there, scrolled as it is drawn. */
 struct sol_hit sol_view_hit(const struct sol_table *t, const struct sol_game *g, int x, int y);
 
 /* ---- cursor and selection --------------------------------------------------- */

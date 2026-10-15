@@ -21,6 +21,7 @@
 #include "chrome.h"
 #include "pocketui.h"
 #include "sol_app.h"
+#include "sol_palette.h"
 #include "sol_store.h"
 #include "sol_table_widget.h"
 
@@ -96,10 +97,29 @@ static uint8_t draw_buf[PANEL_W * 40 * 4];
 static lv_indev_state_t finger_state = LV_INDEV_STATE_RELEASED;
 static lv_point_t finger_point;
 
+/* A copy of every pixel flushed, for the checks that read what was drawn
+ * (test_long_columns): rows at the display's width in its own colour format
+ * (RGB565 in this build), as large as the largest display those checks open. */
+#define FRAME_MAX_W 1920
+#define FRAME_MAX_H 1080
+static uint8_t frame[FRAME_MAX_W * FRAME_MAX_H * 4];
+
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
 {
-    (void)a;
-    (void)px;
+    int32_t w = lv_area_get_width(a);
+    uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(d));
+    uint32_t stride = lv_draw_buf_width_to_stride((uint32_t)w, lv_display_get_color_format(d));
+    int32_t hor = lv_display_get_horizontal_resolution(d);
+    int32_t y;
+
+    if ((bpp == 2 || bpp == 4) && hor <= FRAME_MAX_W) {
+        for (y = a->y1; y <= a->y2 && y < FRAME_MAX_H; y++) {
+            if (y >= 0 && a->x1 >= 0 && a->x2 < hor) {
+                memcpy(&frame[((size_t)y * (size_t)hor + (size_t)a->x1) * bpp], px + (size_t)(y - a->y1) * stride,
+                       (size_t)w * bpp);
+            }
+        }
+    }
     lv_display_flush_ready(d);
 }
 
@@ -403,6 +423,562 @@ static void test_landscape(void)
                                                      sol_app_caption(app_priv), 0)));
     app_stop();
     check("landscape: nothing left behind", lv_obj_get_child_count(g_content) == 0u && pos_input_focused() == NULL);
+}
+
+/* ---- long columns: every card's corner index stays readable ---------------------------- */
+
+/* An external display as the shell runs one (shell_display.h): upright at
+ * rotation 0, square corners, the content area under the app's chrome. */
+static void use_external(int32_t w, int32_t h)
+{
+    struct pos_panel panel = { .width = w, .height = h, .corners = { 0, 0, 0, 0 } };
+    struct pos_display_geometry geo;
+
+    pos_display_geometry_init(&geo, &panel, POS_ROTATION_0);
+    pocketui_set_display_geometry(&geo);
+    lv_display_set_resolution(g_disp, geo.width, geo.height);
+    lv_obj_set_size(g_content, geo.width, geo.height - status_h());
+    lv_obj_set_pos(g_content, 0, status_h());
+}
+
+static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
+{
+    lv_style_value_t v;
+
+    *letter_space = 0;
+    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
+        *letter_space = v.num;
+    }
+    return lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND ? v.ptr : NULL;
+}
+
+static struct sol_game *game_rw(void) { return (struct sol_game *)sol_app_game(app_priv); }
+static struct sol_ui *ui_rw(void) { return (struct sol_ui *)sol_app_ui(app_priv); }
+
+/* The corner index sol_draw_face paints on a card `r` (screen coordinates):
+ * the rank's line in the corner font, inset max(3, w / 14), as wide as the
+ * rank; and the w / 4 pip beside it at the right inset, centred half a line
+ * down, with a pixel around it for its edges. */
+static void corner_boxes(lv_area_t r, sol_card_t card, lv_area_t box[2])
+{
+    int w = lv_area_get_width(&r);
+    int pad = w / 14 < 3 ? 3 : w / 14;
+    int pip = w / 4;
+    int32_t ls;
+    const lv_font_t *font = role_font(w >= 56 ? POS_STYLE_TITLE : POS_STYLE_ROW_TITLE, &ls);
+    int line = font ? lv_font_get_line_height(font) : 20;
+    lv_point_t size = { 0, 0 };
+    int cx = r.x2 - pad - pip / 2;
+    int cy = r.y1 + pad / 2 + line / 2;
+
+    if (font) {
+        lv_text_get_size(&size, sol_rank_text(sol_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    }
+    box[0].x1 = r.x1 + pad;
+    box[0].x2 = box[0].x1 + size.x - 1;
+    box[0].y1 = r.y1 + pad / 2 - line / 12;
+    box[0].y2 = box[0].y1 + line - 1;
+    box[1].x1 = cx - pip / 2 - 1;
+    box[1].x2 = cx + pip / 2 + 1;
+    box[1].y1 = cy - pip / 2 - 1;
+    box[1].y2 = cy + pip / 2 + 1;
+    /* Only the card's own pixels: a pip that reaches past the top edge by an
+     * antialiased pixel or two is shaded against whatever is behind it -
+     * felt for the card alone, paper in a column. */
+    box[0].y1 = LV_MAX(box[0].y1, r.y1);
+    box[1].y1 = LV_MAX(box[1].y1, r.y1);
+}
+
+static int is_ink(int32_t x, int32_t y, lv_color_t ink)
+{
+    uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(g_disp));
+    int32_t hor = lv_display_get_horizontal_resolution(g_disp);
+    int32_t ver = lv_display_get_vertical_resolution(g_disp);
+    const uint8_t *p;
+
+    if (x < 0 || y < 0 || x >= hor || y >= ver) {
+        return 0;
+    }
+    p = &frame[((size_t)y * (size_t)hor + (size_t)x) * bpp];
+    if (bpp == 2) {
+        uint16_t v;
+
+        memcpy(&v, p, sizeof(v));
+        return v == lv_color_to_u16(ink);
+    }
+    return p[0] == ink.blue && p[1] == ink.green && p[2] == ink.red;
+}
+
+/* The ink of `card`'s corner on `r` in the last frame, box by box and row by
+ * row into `mask`. Returns the number of ink pixels. */
+#define MASK_MAX (2 * 160 * 160)
+static int corner_ink(lv_area_t r, sol_card_t card, uint8_t *mask, int *len)
+{
+    lv_color_t ink = sol_palette[sol_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
+    lv_area_t box[2];
+    int n = 0;
+    int k = 0;
+    int b;
+
+    corner_boxes(r, card, box);
+    for (b = 0; b < 2; b++) {
+        int32_t x;
+        int32_t y;
+
+        for (y = box[b].y1; y <= box[b].y2; y++) {
+            for (x = box[b].x1; x <= box[b].x2 && k < MASK_MAX; x++) {
+                mask[k] = (uint8_t)is_ink(x, y, ink);
+                n += mask[k++];
+            }
+        }
+    }
+    *len = k;
+    return n;
+}
+
+static void redraw(void)
+{
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(g_disp);
+}
+
+/* Where a card is drawn on the screen now, as the table's geometry has it. */
+static lv_area_t card_area(int pile, int index)
+{
+    lv_obj_t *table = sol_app_table(app_priv);
+    struct sol_table t;
+    struct sol_rect r;
+    lv_area_t ta;
+    lv_area_t a;
+
+    lv_obj_get_coords(table, &ta);
+    sol_table_geometry(table, &t);
+    r = sol_view_card(&t, game(), pile, index);
+    a.x1 = ta.x1 + r.x;
+    a.y1 = ta.y1 + r.y;
+    a.x2 = a.x1 + r.w - 1;
+    a.y2 = a.y1 + r.h - 1;
+    return a;
+}
+
+/* Face-up card `index` of column `pile`, reached with the keyboard as a
+ * person reaches it and the cursor then hidden, shows its whole corner:
+ * every ink pixel of its rank and its pip that the same card shows drawn
+ * alone at the head of the column, below the top row and inside the table.
+ * Returns problems, each printed with `mode`. */
+static int column_card_readable(const char *mode, int pile, int index)
+{
+    static uint8_t got[MASK_MAX];
+    static uint8_t want[MASK_MAX];
+    lv_obj_t *table = sol_app_table(app_priv);
+    struct sol_game whole = *game();
+    struct sol_ui ui_was;
+    sol_card_t card = whole.pile[pile].card[index];
+    struct sol_table t;
+    lv_area_t ta;
+    lv_area_t a;
+    lv_area_t box[2];
+    int got_len;
+    int want_len;
+    int n_want;
+    int missing = 0;
+    int outside;
+    int k;
+
+    cursor_to(pile, index);
+    if (ui()->cursor_pile != pile || ui()->cursor_index != index) {
+        printf("note %s: the keyboard does not reach column %d card %d\n", mode, pile - SOL_T0 + 1, index);
+        return 1;
+    }
+    ui_was = *ui();
+    ui_rw()->keyboard = 0;
+    redraw();
+    lv_obj_get_coords(table, &ta);
+    sol_table_geometry(table, &t);
+    a = card_area(pile, index);
+    corner_boxes(a, card, box);
+    outside = box[0].y1 < ta.y1 + t.top_y + t.card_h || box[1].y1 < ta.y1 + t.top_y + t.card_h ||
+              box[0].y2 > ta.y2 || box[1].y2 > ta.y2;
+    corner_ink(a, card, got, &got_len);
+
+    game_rw()->pile[pile].n = 1;
+    game_rw()->pile[pile].down = 0;
+    game_rw()->pile[pile].card[0] = card;
+    redraw();
+    n_want = corner_ink(card_area(pile, 0), card, want, &want_len);
+    *game_rw() = whole;
+    *ui_rw() = ui_was;
+    for (k = 0; k < want_len && k < got_len; k++) {
+        missing += want[k] && !got[k];
+    }
+    if (n_want == 0 || missing || outside || got_len != want_len) {
+        printf("note %s: column %d card %d of %d (%s of %s, %d down) shows %d of its %d index pixels%s "
+               "(card at y %d, %d px below the one before)\n",
+               mode, pile - SOL_T0 + 1, index + 1, whole.pile[pile].n, sol_rank_text(sol_card_rank(card)),
+               sol_suit_name(sol_card_suit(card)), whole.pile[pile].down, n_want - missing, n_want, outside ? ", outside the tableau" : "",
+               (int)(a.y1 - ta.y1), index > 0 ? (int)(a.y1 - card_area(pile, index - 1).y1) : 0);
+        return 1;
+    }
+    return 0;
+}
+
+/* Every face-up card in every column. Returns problems. */
+static int tableau_readable(const char *mode)
+{
+    int bad = 0;
+    int c;
+
+    for (c = 0; c < SOL_COLUMNS; c++) {
+        const struct sol_stack *s = &game()->pile[SOL_T0 + c];
+        int i;
+
+        for (i = s->down; i < s->n; i++) {
+            bad += column_card_readable(mode, SOL_T0 + c, i);
+        }
+    }
+    key(LV_KEY_ESC);
+    return bad;
+}
+
+/* The cold review's reachable game from seed 1 (2026-10-15), in its
+ * notation: Tn a tableau column, W the waste, F1 the spades foundation, a
+ * bracketed source index zero-based, D a draw and Dn n draws. It ends with
+ * eleven face-up cards in column 1. */
+static const char long_column_play[] =
+    "T3[2]>T2 T3[1]>T5 T3[0]>T7 D6 W[5]>T1 "
+    "T4[3]>T1 T4[2]>F1 D W[5]>T1 T7[6]>T1 "
+    "D W[5]>T4 T4[2]>T2 D W[5]>T4 "
+    "D4 W[8]>T6 D W[8]>T7 T5[4]>T7 "
+    "T5[3]>T3 T7[5]>T5 T7[4]>T5 T6[6]>T7 D "
+    "T7[4]>T6 D T6[6]>T7 D T7[4]>T6 "
+    "W[10]>T1 T7[3]>T1 T2[1]>T7 T1[2]>T2 T6[6]>T2 "
+    "T2[1]>T1 D T1[2]>T2 W[10]>T2 T2[1]>T1 "
+    "W[9]>T1";
+
+/* Play long_column_play through the app's key stream, checking every action
+ * against the rules on a copy. Returns the number of actions played, or -1. */
+static int play_long_column(void)
+{
+    char buf[sizeof(long_column_play)];
+    char *save = NULL;
+    char *tok;
+    int actions = 0;
+
+    memcpy(buf, long_column_play, sizeof(buf));
+    for (tok = strtok_r(buf, " ", &save); tok; tok = strtok_r(NULL, " ", &save)) {
+        struct sol_game expect = *game();
+        int from;
+        int index;
+        int to;
+        int a;
+        int b;
+        char kind;
+
+        if (tok[0] == 'D') {
+            int n = tok[1] ? atoi(tok + 1) : 1;
+
+            while (n-- > 0) {
+                sol_draw(&expect);
+                key('d');
+                actions++;
+            }
+            if (!same_game(game(), &expect)) {
+                printf("note: %s did not draw as the rules do\n", tok);
+                return -1;
+            }
+            continue;
+        }
+        if (sscanf(tok, "T%d[%d]>%c%d", &a, &index, &kind, &b) == 4) {
+            from = SOL_T0 + a - 1;
+        } else if (sscanf(tok, "W[%d]>%c%d", &index, &kind, &b) == 3) {
+            from = SOL_WASTE;
+            if (index != game()->pile[SOL_WASTE].n - 1) {
+                printf("note: %s is not the waste's top card\n", tok);
+                return -1;
+            }
+        } else {
+            printf("note: cannot read %s\n", tok);
+            return -1;
+        }
+        to = kind == 'F' ? SOL_F0 + b - 1 : SOL_T0 + b - 1;
+        cursor_to(from, index);
+        key(LV_KEY_ENTER);
+        cursor_to(to, game()->pile[to].n ? game()->pile[to].n - 1 : -1);
+        key(LV_KEY_ENTER);
+        if (sol_move(&expect, from, index, to, NULL) != SOL_OK || !same_game(game(), &expect)) {
+            printf("note: %s did not move as the rules do\n", tok);
+            return -1;
+        }
+        actions++;
+    }
+    return actions;
+}
+
+/* Open the app on a deal through its own save file. */
+static void open_deal(const struct sol_game *g)
+{
+    check("the deal can be stored", sol_store_save(g) == 0);
+    app_start();
+}
+
+/* The longest column the rules allow, in column 7: six face down, then king
+ * to ace face up; the other cards in the stock. A valid game. */
+static void longest_column(struct sol_game *g)
+{
+    struct sol_stack *col = &g->pile[SOL_T0 + 6];
+    uint8_t used[SOL_DECK];
+    int r;
+    int c;
+
+    memset(g, 0, sizeof(*g));
+    memset(used, 0, sizeof(used));
+    g->seed = 20260913u; /* sol_app.c's review deal, so its "longest" state is this game */
+    g->moves = 1;
+    for (r = 1; r <= 6; r++) {
+        col->card[col->n++] = sol_card(r, SOL_CLUBS);
+    }
+    col->down = 6;
+    for (r = SOL_KING; r >= 1; r--) {
+        col->card[col->n++] = sol_card(r, (r % 2) ? SOL_SPADES : SOL_HEARTS);
+    }
+    for (c = 0; c < col->n; c++) {
+        used[col->card[c]] = 1;
+    }
+    for (c = 0; c < SOL_DECK; c++) {
+        if (sol_card_valid((sol_card_t)c) && !used[c]) {
+            g->pile[SOL_STOCK].card[g->pile[SOL_STOCK].n++] = (sol_card_t)c;
+        }
+    }
+    g->pile[SOL_STOCK].down = g->pile[SOL_STOCK].n;
+}
+
+/* The first move of a run of two or more cards between columns, or 0. */
+static int find_run_move(const struct sol_game *g, int *from, int *index, int *to)
+{
+    int f;
+
+    for (f = SOL_T0; f < SOL_PILES; f++) {
+        int i;
+
+        for (i = g->pile[f].down; i < g->pile[f].n - 1; i++) {
+            int t;
+
+            for (t = SOL_T0; t < SOL_PILES; t++) {
+                if (sol_can_move(g, f, i, t) == SOL_OK) {
+                    *from = f;
+                    *index = i;
+                    *to = t;
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/* The table's tableau as it is seen: below the top row, inside the table. */
+static int strip_visible(lv_point_t p)
+{
+    lv_obj_t *table = sol_app_table(app_priv);
+    struct sol_table t;
+    lv_area_t ta;
+
+    lv_obj_get_coords(table, &ta);
+    sol_table_geometry(table, &t);
+    return p.y >= ta.y1 + t.tableau_y && p.y <= ta.y2 && p.x >= ta.x1 && p.x <= ta.x2;
+}
+
+/* A finger drag down the table's left margin by dy, in steps, then lifted:
+ * up from near its foot, or down from its middle. */
+static void drag_table(int dy)
+{
+    lv_area_t ta;
+    int x;
+    int y;
+    int s;
+
+    lv_obj_get_coords(sol_app_table(app_priv), &ta);
+    x = ta.x1 + 4;
+    y = dy < 0 ? ta.y2 - 10 : ta.y1 + lv_area_get_height(&ta) / 2;
+    finger_point.x = x;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(30);
+    for (s = 1; s <= 10; s++) {
+        finger_point.y = y + dy * s / 10;
+        pump(20);
+    }
+    pump(100);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(600);
+}
+
+/* The reproduced position at every text size on the panel in both
+ * orientations and on the HDMI sizes, and the longest legal column: every
+ * face-up card's rank and suit can be brought into view and read, from the
+ * pixels the real fonts drew. Then a run is picked up and moved there by
+ * keys, and again by touch. */
+static void test_long_columns(void)
+{
+    static const char *const sizes[] = { "small", "medium", "large" };
+    static const char *const places[] = { "panel portrait", "panel landscape", "HDMI 1280x720", "HDMI 1920x1080" };
+    enum pos_text_size was = pos_theme_current_text_size();
+    struct sol_game seed1;
+    struct sol_game played;
+    struct sol_game longest;
+    char what[160];
+    char why[96];
+    int p;
+    int s;
+
+    pos_theme_apply(NULL, "normal", why, sizeof(why));
+    sol_deal(&seed1, 1);
+    longest_column(&longest);
+    check("the longest column is a valid game", sol_game_valid(&longest));
+    for (p = 0; p < 4; p++) {
+        switch (p) {
+        case 0:
+            games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+            break;
+        case 1:
+            games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+            break;
+        case 2:
+            use_external(1280, 720);
+            break;
+        default:
+            use_external(1920, 1080);
+            break;
+        }
+        pump(60);
+        for (s = 0; s < 3; s++) {
+            int actions;
+
+            pos_theme_select_text_size((enum pos_text_size)s);
+            open_deal(&seed1);
+            actions = play_long_column();
+            snprintf(what, sizeof(what), "%s, %s: the 49 actions play through the keys as the rules say", places[p],
+                     sizes[s]);
+            check(what, actions == 49 && sol_game_valid(game()));
+            snprintf(what, sizeof(what), "%s, %s: column 1 ends with eleven face-up cards", places[p], sizes[s]);
+            check(what, game()->pile[SOL_T0].n - game()->pile[SOL_T0].down == 11);
+            played = *game();
+            {
+                struct sol_table t;
+                struct sol_rect last;
+                int fd;
+                int fu;
+
+                sol_table_geometry(sol_app_table(app_priv), &t);
+                sol_view_fan(&t, &game()->pile[SOL_T0], &fd, &fu);
+                last = sol_view_card(&t, game(), SOL_T0, game()->pile[SOL_T0].n - 1);
+                printf("note %s, %s: table %dx%d, cards %dx%d, fans %d/%d, tableau from %d; column 1 steps %d px, "
+                       "its last card ends at %d\n",
+                       places[p], sizes[s], t.w, t.h, t.card_w, t.card_h, t.fan_down, t.fan_up, t.tableau_y, fu,
+                       last.y + last.h);
+            }
+            snprintf(what, sizeof(what), "%s, %s: every face-up index of the reproduced game reads whole", places[p],
+                     sizes[s]);
+            check(what, tableau_readable(what) == 0);
+            check("reading it changed nothing", same_game(game(), &played));
+            app_stop();
+
+            open_deal(&longest);
+            snprintf(what, sizeof(what), "%s, %s: every index of six down and king to ace reads whole", places[p],
+                     sizes[s]);
+            check(what, tableau_readable(what) == 0);
+            app_stop();
+        }
+    }
+
+    /* A run moved in the reproduced position, by keys and by touch, on the
+     * table where the column is longest: panel landscape at Large. */
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    pump(60);
+
+    /* The review states the captures use are this game, scrolled to the
+     * cursor: on column 1's last card, then its first. */
+    setenv("PGSOLITAIRE_SCREEN", "long", 1);
+    app_start();
+    check("review state long: the game the keys played", same_game(game(), &played));
+    check("with the keyboard cursor on column 1's last card, in view",
+          ui()->keyboard && ui()->cursor_pile == SOL_T0 && ui()->cursor_index == game()->pile[SOL_T0].n - 1 &&
+              strip_visible(card_point(SOL_T0, game()->pile[SOL_T0].n - 1)));
+    app_stop();
+    setenv("PGSOLITAIRE_SCREEN", "longtop", 1);
+    app_start();
+    check("review state longtop: the cursor on column 1's first card, in view",
+          ui()->cursor_pile == SOL_T0 && ui()->cursor_index == game()->pile[SOL_T0].down &&
+              strip_visible(card_point(SOL_T0, game()->pile[SOL_T0].down)));
+    app_stop();
+    setenv("PGSOLITAIRE_SCREEN", "longest", 1);
+    app_start();
+    unsetenv("PGSOLITAIRE_SCREEN");
+    check("review state longest: the longest column, the cursor on its ace in view",
+          same_game(game(), &longest) && ui()->cursor_pile == SOL_T0 + 6 &&
+              strip_visible(card_point(SOL_T0 + 6, 18)));
+    app_stop();
+    for (s = 0; s < 2; s++) {
+        struct sol_game expect;
+        int from;
+        int index;
+        int to;
+
+        open_deal(&seed1);
+        play_long_column();
+        played = *game();
+        expect = *game();
+        if (!find_run_move(&expect, &from, &index, &to)) {
+            check("the reproduced game has a run to move", 0);
+            app_stop();
+            break;
+        }
+        sol_move(&expect, from, index, to, NULL);
+        if (s == 0) {
+            cursor_to(from, index);
+            key(LV_KEY_ENTER);
+            check("keys: Enter picks up the run", ui()->sel_pile == from && ui()->sel_index == index);
+            check("keys: the picked card is in view", strip_visible(card_point(from, index)));
+            cursor_to(to, game()->pile[to].n - 1);
+            check("keys: the destination's top card is in view", strip_visible(card_point(to, game()->pile[to].n - 1)));
+            key(LV_KEY_ENTER);
+            check("keys: Enter puts the run down exactly as the rules move it", same_game(game(), &expect));
+        } else {
+            lv_point_t at = card_point(from, index);
+            int guard;
+
+            for (guard = 0; guard < 8 && !strip_visible(at); guard++) {
+                lv_area_t ta;
+
+                lv_obj_get_coords(sol_app_table(app_priv), &ta);
+                drag_table(at.y > ta.y2 ? -120 : 120);
+                check("touch: a drag on the table neither picks nor moves", ui()->sel_pile == -1 &&
+                                                                               same_game(game(), &played));
+                at = card_point(from, index);
+            }
+            check("touch: the run's first card can be brought into view", strip_visible(at));
+            tap_at(at.x, at.y);
+            check("touch: a tap on its strip picks up the run", ui()->sel_pile == from && ui()->sel_index == index);
+            {
+                lv_area_t ta;
+                struct sol_table t;
+                struct sol_rect slot;
+
+                lv_obj_get_coords(sol_app_table(app_priv), &ta);
+                sol_table_geometry(sol_app_table(app_priv), &t);
+                slot = sol_view_slot(&t, to);
+                tap_at(ta.x1 + slot.x + slot.w / 2, ta.y1 + t.tableau_y + 6);
+            }
+            check("touch: a tap on the destination column moves it exactly as the rules do",
+                  same_game(game(), &expect));
+        }
+        app_stop();
+    }
+    unlink(sol_store_path());
+    pos_theme_select_text_size(was);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(60);
 }
 
 static void test_open(void)
@@ -833,6 +1409,7 @@ int main(void)
     test_persistence();
     test_won_and_rounds();
     test_landscape();
+    test_long_columns();
 
     check("the app asked the shell for nothing", shell_calls == 0);
     {

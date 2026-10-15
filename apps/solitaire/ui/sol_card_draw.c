@@ -149,6 +149,64 @@ static void panel(lv_layer_t *layer, const lv_area_t *area, int radius, lv_color
 
 /* ---- a card ------------------------------------------------------------------ */
 
+/* The corner: rank in app-title type on a card wide enough for it, row title
+ * on a smaller one; the pip beside it, the same height as the digits. Both
+ * sit in the top strip, which is what a fanned card shows. */
+struct corner {
+    enum pos_style_role role;
+    const lv_font_t *font;
+    int pad;    /* the inset from the card's sides, and twice its top one */
+    int line;   /* the rank's line height */
+    int text_y; /* the top of the rank's line, from the card's top edge */
+    int pip;
+    int pip_y;  /* the pip's centre, from the card's top edge */
+};
+
+static struct corner corner_of(int w)
+{
+    struct corner c;
+
+    c.pad = w / 14 < 3 ? 3 : w / 14;
+    c.role = w >= 56 ? POS_STYLE_TITLE : POS_STYLE_ROW_TITLE;
+    c.font = role_font(c.role, NULL);
+    c.line = c.font ? lv_font_get_line_height(c.font) : 20;
+    c.text_y = c.pad / 2 - c.line / 12;
+    c.pip = w / 4;
+    c.pip_y = c.pad / 2 + c.line / 2;
+    return c;
+}
+
+int sol_card_index_h(int card_w)
+{
+    struct corner c = corner_of(card_w);
+    /* The lowest ink of any rank, from the glyphs the label draws: LVGL puts
+     * a glyph's foot ofs_y above the baseline, base_line above the line's
+     * foot. Without a font, the whole line. */
+    int text_foot = c.line;
+    int pip_foot = c.pip_y + (c.pip * 50 + 50) / 100;
+    int foot;
+
+    if (c.font) {
+        static const char ranks[] = "A0123456789JQK";
+        int i;
+
+        text_foot = 0;
+        for (i = 0; ranks[i]; i++) {
+            lv_font_glyph_dsc_t g;
+
+            if (lv_font_get_glyph_dsc(c.font, &g, (uint32_t)ranks[i], 0)) {
+                int f = c.line - (int)c.font->base_line - (int)g.ofs_y;
+
+                text_foot = f > text_foot ? f : text_foot;
+            }
+        }
+        text_foot = text_foot > c.line ? c.line : text_foot;
+    }
+    foot = c.text_y + text_foot > pip_foot ? c.text_y + text_foot : pip_foot;
+    /* Two pixels more: the next card's edge, and paper between. */
+    return foot + 2;
+}
+
 void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, sol_card_t card)
 {
     int w = lv_area_get_width(area);
@@ -156,22 +214,15 @@ void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, sol_card_t card)
     int rank = sol_card_rank(card);
     enum sol_suit suit = sol_card_suit(card);
     lv_color_t ink = sol_palette[sol_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
-    int pad = w / 14 < 3 ? 3 : w / 14;
-    /* The corner: rank in app-title type on a card wide enough for it, row
-     * title on a smaller one; the pip beside it, the same height as the
-     * digits. Both sit in the top third, which is what a fanned card shows. */
-    enum pos_style_role corner = w >= 56 ? POS_STYLE_TITLE : POS_STYLE_ROW_TITLE;
-    const lv_font_t *font = role_font(corner, NULL);
-    int line = font ? lv_font_get_line_height(font) : 20;
-    int pip = w / 4;
+    struct corner c = corner_of(w);
 
     if (!sol_card_valid(card)) {
         return;
     }
     panel(layer, area, sol_card_radius(w), sol_palette[SOL_INK_PAPER], LV_OPA_COVER, sol_palette[SOL_INK_EDGE], 1);
-    text(layer, sol_rank_text(rank), corner, ink, area->x1 + pad, area->y1 + pad / 2 - line / 12,
-         area->x2 - pad, LV_TEXT_ALIGN_LEFT);
-    sol_draw_suit(layer, area->x2 - pad - pip / 2, area->y1 + pad / 2 + line / 2, pip, suit, ink);
+    text(layer, sol_rank_text(rank), c.role, ink, area->x1 + c.pad, area->y1 + c.text_y, area->x2 - c.pad,
+         LV_TEXT_ALIGN_LEFT);
+    sol_draw_suit(layer, area->x2 - c.pad - c.pip / 2, area->y1 + c.pip_y, c.pip, suit, ink);
 
     /* The face below the corner: a large pip, or the court card's letter. */
     {

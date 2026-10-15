@@ -37,9 +37,10 @@ draw-3, timer.
 
 ## Controls
 
-Keyboard first, one logical key stream (DS 17.4); touch beside it. There is
-no drag: a card is picked up and put down, which the keyboard and a finger do
-the same way.
+Keyboard first, one logical key stream (DS 17.4); touch beside it. Cards are
+never dragged: a card is picked up and put down, which the keyboard and a
+finger do the same way. A drag on the table only scrolls the tableau, when a
+column is too long for it (see "Long columns" below).
 
 | Key | Touch | Does |
 | --- | --- | --- |
@@ -54,6 +55,7 @@ the same way.
 | Esc, Backspace | tap the felt | drop the selection |
 | n | NEW GAME | new deal; asks first once the deal has a move (n again deals, Enter/Esc keeps playing) |
 | Enter, n after a win | NEW GAME | new deal |
+| any key | drag on the table | when a column is longer than the table: every key scrolls the tableau, as little as it takes, to the cursor's card; a drag scrolls it by hand and is never a tap |
 
 The keyboard cursor (four corner brackets in the focus token) appears when a
 key is used and hides on the next tap. The selection is a 3 px focus-token
@@ -109,8 +111,10 @@ unpickable. `tests/sol_lint.sh` enforces the layering.
   PocketTimber's art review recorded; interface marks draw after it in the
   night tokens.
 - 68 x 95 px cards in portrait (seven columns across 528 px); face-down fans
-  11 px, face-up fans 31 px (rank and pip always visible). The longest legal
-  column (6 down + 13 up) fits without compression.
+  11 px, face-up fans 31 px, or the corner index's height where that is
+  taller (35 px at Medium and 40 px at Large, for the tail of a Q). The
+  longest legal column (6 down + 13 up) fits portrait at every text size
+  without compression or scrolling.
 
 ### Deviations pending the owner
 
@@ -191,11 +195,54 @@ HUD, bottom-aligned, and the caption wraps there; under a tall table it stays
 one line with an ellipsis (a dotted LVGL label only cuts at a fixed height).
 
 Landscape cards are about 85 x 119 px (portrait's are 68 x 95), bound by the table's
-height; long columns compress their fan to stay on the felt, so a column of
-thirteen face-up cards shows about 22 px of each. Keyboard navigation is by
-logical rows and columns and does not change. A landscape arrangement with
-the stock, waste and foundations in a column beside the tableau would give
-the fans more room; that is a view change only, left as future work.
+height; long columns compress their fan towards the corner index and then
+scroll (below). Keyboard navigation is by logical rows and columns and does
+not change. A landscape arrangement with the stock, waste and foundations in
+a column beside the tableau would give the fans more room, but not enough
+for the longest columns at Large; that is a view change only, left as future
+work.
+
+### Long columns (2026-10-15)
+
+A cold review of c12cc51 reproduced a reachable game (seed 1, 49 actions,
+`PGSOLITAIRE_SCREEN=long`) where column 1 holds eleven face-up cards. On the
+panel in landscape the fan compressed to 18 px per card while the corner
+index needs 32-41 px (Small to Large), so each card covered the rank and suit
+of the one before; the longest legal column (6 down + 13 up) compressed to
+13 px. Read from the drawn pixels, every place but portrait at Small lost
+index ink, including portrait's uncompressed 31 px fan at Medium and Large
+(the tail of a Q). The bounds tests passed because they only checked that
+the column ended on the table.
+
+- **The index's real footprint.** `sol_card_index_h()` (`sol_card_draw.c`)
+  measures the corner a face draws, in the fonts of the moment: the lowest
+  ink of any rank glyph (from the font's glyph metrics) or the pip's foot,
+  whichever is lower, plus 2 px. `sol_draw_face()` reads the same corner
+  metrics, so its pixels are unchanged.
+- **Fans.** The table widget passes it to the view as `index_h`. A face-up
+  card steps at least `index_h` - uncompressed (the fan is raised where the
+  index is taller than a third of the card) and compressed. Face-down edges
+  still give way first. Text never shrinks and nothing is hidden.
+- **Overflow scrolls the tableau, locally.** A column still too long ends
+  below the table, and the table object scrolls vertically by
+  `sol_view_scroll_max()`. Only the tableau moves; the stock, waste and
+  foundations stay put, and the tableau is clipped half a row gap under them.
+  The view places, hits, outlines and brackets cards at the same scroll, so
+  drawing, touch, the selection and the cursor agree. Every key brings the
+  cursor's card into view (`sol_view_scroll_to`: its exposed strip, the
+  whole card on top, an empty column's slot), and a drag on the table scrolls
+  it by LVGL's own scrolling, which never reports a drag as a tap. A 4 px bar
+  at the table's right edge shows where the seen part sits. The body does not
+  scroll and nothing outside Solitaire changed.
+- **Where it scrolls.** Reached only by long columns: on the panel in
+  landscape, 720p and 1080p HDMI (the reproduced game and the longest column
+  at every text size); never in portrait. In the simulator, a fresh deal is
+  byte-identical to before in all twelve places and sizes; a table changes
+  only where a column was compressed past its index (the lived-in review
+  states in landscape and on HDMI) or where the index is taller than a
+  third of the card (portrait at Medium and Large).
+- Rules, moves, the save format and the game state are untouched; the scroll
+  is view state, not saved, and starts at the top when the app opens.
 
 ## Doors integration (2026-09-28)
 
@@ -240,17 +287,20 @@ one small file.
   further (PLAY and DEVICE each take a second row). A Games folder is
   proposed separately on `feat/launcher-app-groups`.
 - Review states: `PGSOLITAIRE_SCREEN=deal|selected|keyboard|confirm|won` (a
-  fixed deal). Host renders: `docs/design/shots/pgsolitaire-*.png`.
+  fixed deal), and `long|longtop|longest` (the long columns above).
+  Host renders: `docs/design/shots/pgsolitaire-*.png`.
+- Scrolling the tableau by drag is untested on glass; so is reading a
+  41 px strip at arm's length.
 
 ## Tests
 
 | Test | What |
 | --- | --- |
 | `tests/sol_rules_test.c` (96) | cards, 52 unique after shuffle, shuffle uniformity, deal, legal/illegal tableau moves incl. same colour and rank, runs, flips, kings to empty columns, foundations (suit, order, one card, back down), stock/waste incl. identical second pass and unlimited passes, win, 400 random games with no card lost or duplicated, invalid positions |
-| `tests/sol_view_test.c` (101) | screen and table layout tall/wide, fan compression, hit testing, cursor navigation, pick/place/refuse/cancel by key, draw/turn/home/new game/confirm/won by key, the same by tap, captions, a 200 000-step random key/tap session |
+| `tests/sol_view_test.c` (117) | screen and table layout tall/wide, fan compression, the corner index as the fan's floor, the scroll range, scrolling a card into view and hitting it there, the top row fixed, hit testing, cursor navigation, pick/place/refuse/cancel by key, draw/turn/home/new game/confirm/won by key, the same by tap, captions, a 200 000-step random key/tap session |
 | `tests/sol_store_test.c` (66) | byte layout; exact round trip of positions across a whole game (passes, a win); stock, waste, face-down counts and all 52 cards once; every single-bit corruption refused with nothing restored; truncated, padded, version 2, duplicate card, face-down top, bad counts and false win refused even when resealed; the file: missing, nested directories, no temp left, replace in place, damaged left in place, unwritable directory; a loaded game plays on exactly as the original; a new deal replaces the old |
 | `tests/sol_lint.sh` | the structural rules above, and the store as the only file I/O, atomic and validated |
-| `tests/sol_app_test.c` (118) | the app under the real key stream and a real pointer: keys and taps move cards exactly as the rules do, cancel, draw, the question and the win via buttons and keys, focus kept, 1500 random inputs, layout and the longest column in three modes, five themes; persistence: untouched deal writes nothing, tick saves, leaving mid-selection saves, reopening resumes card for card with the interaction reset and plays on per the rules, a new deal replaces the save, a won game is not resumed, a damaged save deals anew and is replaced after play, review states never write; five open/close rounds |
+| `tests/sol_app_test.c` (228) | the app under the real key stream and a real pointer: keys and taps move cards exactly as the rules do, cancel, draw, the question and the win via buttons and keys, focus kept, 1500 random inputs, layout and the longest column in three modes, five themes; long columns: the reviewed 49-action game played through the keys, and the longest legal column, at Small/Medium/Large on the panel in both orientations, 720p and 1080p, each face-up card's rank and pip read from the drawn pixels against the card drawn alone; a run moved there by keys and by touch with a drag to scroll; the long review states; persistence: untouched deal writes nothing, tick saves, leaving mid-selection saves, reopening resumes card for card with the interaction reset and plays on per the rules, a new deal replaces the save, a won game is not resumed, a damaged save deals anew and is replaced after play, review states never write; five open/close rounds |
 | `tests/sol_shell_test.sh` | runs the app test; launcher rows; generated palette; the real shell opens and closes every review state with no fault and writes nothing; a damaged save opens cleanly and is left in place |
 
 ## Pocket Cards: what to extract later
