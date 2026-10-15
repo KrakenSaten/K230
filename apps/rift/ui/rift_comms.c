@@ -218,7 +218,7 @@ void rift_comms_submit(struct rift_app *app, const char *text)
     peer = rift_comms_open_peer(app);
     refusal = rift_thread_refusal(app);
     if (refusal) {
-        rift_model_send_failed(&app->model, refusal);
+        rift_model_send_refused(&app->model, refusal);
         rift_app_refresh(app);
         return;
     }

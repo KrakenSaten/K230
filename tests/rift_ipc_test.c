@@ -24,9 +24,11 @@
 #include "rift_format.h"
 #include "rift_keys.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -1045,6 +1047,183 @@ static int holds_text(const struct rift_model *m, const char *want)
         }
     }
     return 0;
+}
+
+/* ---- a socket standing in for meshcored ------------------------------------
+ *
+ * The scripted service answers every request at once and in order. A reply
+ * that is late, or overtaken by a later one, needs the other end of the
+ * socket in the test's own hands: requests are read off it and answered
+ * when, and in the order, the test says. */
+struct peer {
+    int fd;
+    struct pocketipc_reader reader;
+};
+
+static int peer_open(struct peer *p, struct rift_ipc *c)
+{
+    int sv[2];
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
+        return -1;
+    }
+    /* Non-blocking, as the client's own connection is
+     * (pocketipc_connect_timeout): its reader polls it. */
+    fcntl(sv[0], F_SETFL, fcntl(sv[0], F_GETFL) | O_NONBLOCK);
+    c->fd = sv[0];
+    p->fd = sv[1];
+    pocketipc_reader_init(&p->reader);
+    return 0;
+}
+
+static void peer_close(struct peer *p, struct rift_ipc *c)
+{
+    rift_ipc_close(c);
+    close(p->fd);
+    pocketipc_reader_free(&p->reader);
+}
+
+/* The id of the next request for this method the client has written, or 0
+ * when there is none. Requests for other methods are read past. */
+static int peer_take(struct peer *p, const char *method)
+{
+    for (;;) {
+        uint8_t buf[4096];
+        int bad = 0;
+        cJSON *msg;
+        ssize_t n;
+
+        while ((msg = pocketipc_reader_next(&p->reader, &bad)) != NULL) {
+            const cJSON *m = cJSON_GetObjectItemCaseSensitive(msg, "method");
+            const cJSON *id = cJSON_GetObjectItemCaseSensitive(msg, "id");
+            int got = (cJSON_IsString(m) && strcmp(m->valuestring, method) == 0 &&
+                       cJSON_IsNumber(id))
+                          ? (int)id->valuedouble
+                          : 0;
+
+            cJSON_Delete(msg);
+            if (got) {
+                return got;
+            }
+        }
+        n = recv(p->fd, buf, sizeof(buf), MSG_DONTWAIT);
+        if (n <= 0 || pocketipc_reader_feed(&p->reader, buf, (size_t)n) != 0) {
+            return 0;
+        }
+    }
+}
+
+/* Answer request id with this result, or refuse it with this message. */
+static void peer_answer(struct peer *p, int id, const char *result_json, const char *refusal)
+{
+    cJSON *msg = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(msg, "id", id);
+    if (refusal) {
+        cJSON *error = cJSON_AddObjectToObject(msg, "error");
+
+        cJSON_AddStringToObject(error, "code", "refused");
+        cJSON_AddStringToObject(error, "message", refusal);
+    } else {
+        cJSON_AddItemToObject(msg, "result", cJSON_Parse(result_json));
+    }
+    (void)pocketipc_send(p->fd, msg);
+    cJSON_Delete(msg);
+}
+
+/* Poll the client until it has read `replies` more replies. */
+static int peer_read(struct rift_ipc *c, unsigned replies)
+{
+    unsigned want = c->replies_in + replies;
+    int64_t until = now_ms() + WAIT_MS;
+
+    while (c->replies_in < want && c->fd >= 0 && now_ms() < until) {
+        rift_ipc_poll(c, rift_mono_ms());
+    }
+    return c->replies_in >= want;
+}
+
+/* Two orphans resent one after the other, the replies late: A's taken, B's
+ * refused. A reply belongs to the submission it answers and to no other -
+ * A's acceptance must not take B's row away, and B's refusal must not be
+ * reported against A. The composer's RESEND first clears the last caption
+ * (rift_comms_resend), so that is done here too. */
+static void test_resend_overlap(void)
+{
+    static struct rift_model m;
+    static struct rift_ipc c;
+    struct peer p;
+    const struct rift_message *x;
+    int id_a;
+    int id_b;
+    int count;
+
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored");
+    check("a socket stands in for meshcored", peer_open(&p, &c) == 0);
+    {
+        cJSON *snap = cJSON_Parse(
+            "{\"messages\":["
+            "{\"id\":1,\"direction\":\"out\",\"kind\":\"direct\",\"peer_public_key\":\"" KEY_B "\","
+            "\"text\":\"orphan A\",\"state\":\"no_ack\",\"ack_expected\":true,\"attempts\":1,"
+            "\"mono_ms\":-5000},"
+            "{\"id\":2,\"direction\":\"out\",\"kind\":\"direct\",\"peer_public_key\":\"" KEY_B "\","
+            "\"text\":\"orphan B\",\"state\":\"no_ack\",\"ack_expected\":true,\"attempts\":1,"
+            "\"mono_ms\":-4000}]}");
+
+        rift_model_apply_messages(&m, snap);
+        cJSON_Delete(snap);
+    }
+    check("two unanswered messages are held", m.msg_count == 2);
+    /* Orphans, made by hand: what the model makes of them when the service
+     * restarts under them. */
+    m.msg[0].orphan = 1;
+    m.msg[0].id = -101;
+    m.msg[1].orphan = 1;
+    m.msg[1].id = -102;
+
+    rift_model_send_clear(&m);
+    check("RESEND A is written", rift_ipc_resend_message(&c, -101) == 0);
+    id_a = peer_take(&p, "mesh.send");
+    check("and is on the wire", id_a > 0);
+    rift_model_send_clear(&m);
+    (void)rift_ipc_resend_message(&c, -102);
+    id_b = peer_take(&p, "mesh.send");
+    check("RESEND B is not written while A is in flight", id_b == 0);
+    check("and A is still the submission in flight",
+          rift_model_sending(&m) && m.outbox.replaces_id == -101);
+
+    /* The replies, late: A taken, then B refused (if B went at all). */
+    peer_answer(&p, id_a, "{\"accepted\":true,\"message_id\":50,\"route\":\"direct\"}", NULL);
+    if (id_b) {
+        peer_answer(&p, id_b, NULL, "radio busy");
+    }
+    check("the client reads the replies", peer_read(&c, id_b ? 2 : 1));
+    check("A's orphan is replaced", !rift_model_message(&m, -101));
+    x = rift_model_message(&m, -102);
+    check("B's orphan and its words stay where they were",
+          x && x->orphan && strcmp(x->text, "orphan B") == 0);
+    check("A's acceptance is what the composer reports",
+          !rift_model_sending(&m) && !m.outbox.failed);
+
+    /* B on its own now, and refused: its row stays, and the refusal is B's. */
+    rift_model_send_clear(&m);
+    check("RESEND B is written once A is answered", rift_ipc_resend_message(&c, -102) == 0);
+    id_b = peer_take(&p, "mesh.send");
+    peer_answer(&p, id_b, NULL, "radio busy");
+    check("the client reads the refusal", peer_read(&c, 1));
+    x = rift_model_message(&m, -102);
+    check("refused, B's orphan stays", x && x->orphan && strcmp(x->text, "orphan B") == 0);
+    check("and the refusal is reported",
+          m.outbox.failed && strcmp(m.outbox.error, "radio busy") == 0);
+
+    /* A reply to a request already answered changes nothing. */
+    count = m.msg_count;
+    peer_answer(&p, id_a, "{\"accepted\":true,\"message_id\":51,\"route\":\"direct\"}", NULL);
+    check("a repeated reply is read", peer_read(&c, 1));
+    check("and touches no message and no caption",
+          m.msg_count == count && rift_model_message(&m, -102) && m.outbox.failed);
+    peer_close(&p, &c);
 }
 
 int main(void)
@@ -2080,6 +2259,7 @@ int main(void)
     test_management(runtime);
     test_repeater_control(runtime);
     test_rx_log(runtime);
+    test_resend_overlap();
     {
         char path[700];
 

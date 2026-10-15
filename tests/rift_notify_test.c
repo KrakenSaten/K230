@@ -205,6 +205,8 @@ static void test_arrivals(void)
         give_status(&r, 100, 200000);
         dm(&r, 40, "in", KEY_A, 500, "before", "received");
         check("the old run's message arrived", r.dm_arrivals == 1);
+        rift_model_service_lost(&r, "meshcored closed the connection");
+        rift_model_service_found(&r);
         give_status(&r, 3, 300000);
         dm(&r, 1, "in", KEY_A, 600, "after", "received");
         check("the new run's id 1 is an arrival", r.dm_arrivals == 2);

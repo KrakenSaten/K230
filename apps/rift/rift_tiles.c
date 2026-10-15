@@ -398,6 +398,18 @@ static void note_failed(struct rift_tiles *t, int z, int x, int y, int64_t now)
     t->failed_ms[i] = now;
 }
 
+/* A held tile asked for again and not had (no picture, or none stored):
+ * the copy held stays on the map, stale, and waits RIFT_TILES_RETRY_MS. */
+static void renewal_failed(struct rift_tiles *t, int z, int x, int y, int64_t now)
+{
+    int s = find_slot(t, z, x, y);
+
+    if (s >= 0) {
+        t->slot[s].stale = true;
+        t->slot[s].got_ms = now;
+    }
+}
+
 void rift_tiles_want(struct rift_tiles *t, const struct rift_map_tile *tiles, int n, int64_t now_ms)
 {
     struct rift_tile_key k[RIFT_MAP_TILES_MAX];
@@ -417,9 +429,12 @@ void rift_tiles_want(struct rift_tiles *t, const struct rift_map_tile *tiles, in
 
         if (s >= 0) {
             t->slot[s].in_view = true;
-            /* A stale copy is asked for again now and then: the network
-             * may be back. */
-            if (!t->slot[s].stale || now_ms - t->slot[s].got_ms < RIFT_TILES_RETRY_MS) {
+            /* A copy past its expiry is asked for again, as the disk cache's
+             * is (web_tiles.h), and a stale one now and then: the network may
+             * be back. Never within RIFT_TILES_RETRY_MS of its last answer -
+             * not on every redraw - and the copy held is drawn meanwhile. */
+            if ((!t->slot[s].stale && now_ms < t->slot[s].fresh_until) ||
+                now_ms - t->slot[s].got_ms < RIFT_TILES_RETRY_MS) {
                 continue;
             }
         } else if (failed_lately(t, tiles[i].z, tiles[i].x, tiles[i].y, now_ms)) {
@@ -639,16 +654,17 @@ static bool line_in(struct rift_tiles *t, char *line, int64_t now)
         }
         return true;
     }
-    if (strcmp(f[0], "tile") == 0 && n == 10) {
+    if (strcmp(f[0], "tile") == 0 && n == 11) {
         int w;
         int h;
         int e;
+        int fresh;
         uint16_t *px;
         int s;
 
         t->answers++;
         if (to_int(f[1], &gen) || to_int(f[2], &z) || to_int(f[3], &x) || to_int(f[4], &y) || to_int(f[5], &w) ||
-            to_int(f[6], &h)) {
+            to_int(f[6], &h) || to_int(f[10], &fresh) || fresh < 0) {
             drop_file(t, f[7]);
             return false;
         }
@@ -664,6 +680,7 @@ static bool line_in(struct rift_tiles *t, char *line, int64_t now)
         px = take_pixels(t, f[7]);
         if (!px) {
             note_failed(t, z, x, y, now);
+            renewal_failed(t, z, x, y, now);
             keep_why(t, "store");
             return true;
         }
@@ -688,6 +705,7 @@ static bool line_in(struct rift_tiles *t, char *line, int64_t now)
         t->slot[s].in_view = true;
         t->slot[s].used = ++t->use_clock;
         t->slot[s].got_ms = now;
+        t->slot[s].fresh_until = t->slot[s].stale ? now : now + (int64_t)fresh * 1000;
         if (t->slot[s].stale) {
             keep_why(t, f[9]);
         }
@@ -709,6 +727,7 @@ static bool line_in(struct rift_tiles *t, char *line, int64_t now)
             answered(t, e);
         }
         note_failed(t, z, x, y, now);
+        renewal_failed(t, z, x, y, now);
         keep_why(t, f[5]);
         return true;
     }

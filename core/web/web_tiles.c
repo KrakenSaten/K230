@@ -739,6 +739,7 @@ void web_tile_get(struct web_tile_cache *c, struct web_tile_net *net, int z, int
     if (have && clock_ok && m.expires > now) {
         web_tile_cache_touch(c, z, x, y);
         r->source = WEB_TILE_CACHE;
+        r->expires = m.expires;
         r->body = body;
         r->len = len;
         return;
@@ -818,6 +819,7 @@ void web_tile_get(struct web_tile_cache *c, struct web_tile_net *net, int z, int
             web_tile_cache_remove(c, z, x, y);
         }
         r->source = WEB_TILE_VALID;
+        r->expires = nm.expires;
         r->body = body;
         r->len = len;
         return;
@@ -838,6 +840,7 @@ void web_tile_get(struct web_tile_cache *c, struct web_tile_net *net, int z, int
             web_tile_cache_remove(c, z, x, y);
         }
         r->source = WEB_TILE_NET;
+        r->expires = nm.expires;
         r->body = resp.body; /* handed over */
         r->len = resp.len;
         return;

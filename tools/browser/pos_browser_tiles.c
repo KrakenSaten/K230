@@ -365,8 +365,13 @@ static void answer(struct tiles *t, const struct want *w, struct web_tile_result
     if (write_pixels(t, name, &px) != 0) {
         say("notile\t%d\t%d\t%d\t%d\tstore", t->gen, w->z, w->x, w->y);
     } else {
-        say("tile\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s", t->gen, w->z, w->x, w->y, px.w, px.h, name,
-            source_name(r->source), r->source == WEB_TILE_STALE ? r->why : "-");
+        /* How long the shell may hold this copy: its expiry, the disk
+         * cache's (web_tiles.h), as seconds from now; a stale one none. */
+        int64_t fresh = r->source == WEB_TILE_STALE ? 0 : r->expires - (int64_t)time(NULL);
+
+        fresh = fresh < 0 ? 0 : fresh > WEB_TILE_MAX_AGE_S ? WEB_TILE_MAX_AGE_S : fresh;
+        say("tile\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%lld", t->gen, w->z, w->x, w->y, px.w, px.h, name,
+            source_name(r->source), r->source == WEB_TILE_STALE ? r->why : "-", (long long)fresh);
         t->served++;
     }
     free(px.px);

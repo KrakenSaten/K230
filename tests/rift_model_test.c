@@ -86,6 +86,15 @@ static int apply_status(struct rift_model *m, const char *json)
     return apply_status_at(m, json, rift_mono_ms());
 }
 
+/* What a restart of the service always does to this app's connection: it
+ * goes, and the client connects again. A service that does not name its run
+ * is only judged to have restarted across one (rift_model.h). */
+static void reconnect(struct rift_model *m)
+{
+    rift_model_service_lost(m, "meshcored closed the connection");
+    rift_model_service_found(m);
+}
+
 static int apply_identity(struct rift_model *m, const char *json)
 {
     cJSON *o = cJSON_Parse(json);
@@ -1264,8 +1273,10 @@ int main(void)
 
     /* ---- which run of the service answered -------------------------------- */
     /* meshcored hands out message ids from 1 on every run, so the message
-     * cache has to know when the run changed. The signal is mesh.status's
-     * uptime, read against the clock the reply was read on. Nothing here
+     * cache has to know when the run changed. The signal here is a service
+     * that does not name its run (no run_id): mesh.status's uptime, read
+     * against the clock the reply was read on, on the first status after a
+     * reconnect. run_id is rift_comms_test's (test_late_status). Nothing here
      * empties anything - that is rift_comms_test's half - this is only
      * whether a restart is seen, and whether one is seen that did not
      * happen. */
@@ -1293,6 +1304,7 @@ int main(void)
 
         /* A new process: the uptime it reports is smaller than the one
          * before it, which within one run cannot happen. */
+        reconnect(&s);
         check("a smaller uptime is a restart",
               apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":1}", 3602000) == 0 &&
                   s.svc_restarts == 1);
@@ -1311,6 +1323,7 @@ int main(void)
         rift_model_init(&s);
         apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":3}", 3000);
         check("a short-lived run is a run", s.svc_restarts == 0 && s.svc_start_ms == 0);
+        reconnect(&s);
         check("its replacement is caught by the start moving, not by the uptime",
               apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":10}", 23000) == 0 &&
                   s.svc_restarts == 1);
@@ -1336,6 +1349,7 @@ int main(void)
          * the one it replaced: nothing went backwards, and the whole jump is
          * 2.3 s - visible from where the run really started, and not from
          * where the first status put it. */
+        reconnect(&s);
         check("and the replacement is seen from there",
               apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":2}", 4300) == 0 &&
                   s.svc_restarts == 1);
@@ -1350,6 +1364,7 @@ int main(void)
         rift_model_init(&s);
         apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":1}", 1900);
         check("a run barely a second old", s.svc_restarts == 0);
+        reconnect(&s);
         check("replaced inside the slack is still a restart",
               apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":0}", 2100) == 0 &&
                   s.svc_restarts == 1);

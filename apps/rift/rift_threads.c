@@ -155,3 +155,14 @@ int rift_model_resend_begin(struct rift_model *m, int64_t id, int64_t now_ms)
     }
     return 0;
 }
+
+/* Here beside RESEND, the press most likely to come while another is out. */
+void rift_model_send_refused(struct rift_model *m, const char *error)
+{
+    /* The submission in flight keeps its caption and its reply: refusing
+     * another one is no news about it. */
+    if (!m || m->outbox.active) {
+        return;
+    }
+    rift_model_send_failed(m, error);
+}

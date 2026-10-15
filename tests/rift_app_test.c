@@ -5824,6 +5824,9 @@ static void reliability_session(void)
         quiet_client();
         close(sv[1]);
         pump(60);
+        /* Its reply will never come: the client was closed under it. Clearing
+         * a caption does not end a submission in flight, so it is ended. */
+        rift_model_send_failed(&app->model, "closed");
         rift_model_send_clear(&app->model);
     }
     hold(find_exact(thread_pane(), "Fint, ser deg"));

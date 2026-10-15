@@ -99,6 +99,20 @@ static void give_status(struct rift_model *m, int uptime_s, int64_t now_ms)
     cJSON_Delete(o);
 }
 
+/* The same, from a service that names its run (mesh.status run_id). */
+static void give_status_run(struct rift_model *m, const char *run_id, int uptime_s,
+                            int64_t now_ms)
+{
+    char json[160];
+    cJSON *o;
+
+    snprintf(json, sizeof(json), "{\"state\":\"online\",\"reason\":\"receiving\","
+                                 "\"run_id\":\"%s\",\"uptime_s\":%d}", run_id, uptime_s);
+    o = cJSON_Parse(json);
+    rift_model_apply_status(m, o, now_ms);
+    cJSON_Delete(o);
+}
+
 /* Is there a message holding this text? Used to ask whether something the
  * service has forgotten is still on this side. */
 static int holds_text(const struct rift_model *m, const char *want)
@@ -318,6 +332,7 @@ static void test_slot_reuse(void)
           rift_model_send_begin(&s, a, "reply", 1000) == -1 && !rift_model_sending(&s));
     rift_model_send_clear(&s);
     check("slot reuse: writing to B is not", rift_model_send_begin(&s, b, "hello", 1000) == 0);
+    rift_model_send_failed(&s, "x");
     rift_model_send_clear(&s);
     check("slot reuse: B's limit is B's", rift_model_text_limit(&s, b) == 140);
     check("slot reuse: A's is no longer known", rift_model_text_limit(&s, a) == 0);
@@ -336,6 +351,7 @@ static void test_slot_reuse(void)
               name_is(rift_model_conv_name(&s, KEY_A), "HYTTA"));
     check("slot reuse: and still a destination",
           rift_model_send_begin(&s, KEY_A, "direct", 1000) == 0);
+    rift_model_send_failed(&s, "x");
     rift_model_send_clear(&s);
 
     /* 9. The same hash under another name is another channel too. */
@@ -370,6 +386,7 @@ static void test_slot_reuse(void)
     check("slot reuse: fresh run, only C can be written to",
           rift_model_send_begin(&r, a, "x", 1000) == -1 && rift_model_send_begin(&r, b, "x", 1000) == -1 &&
               rift_model_send_begin(&r, c, "x", 1000) == 0);
+    rift_model_send_failed(&r, "x");
     rift_model_send_clear(&r);
     check("slot reuse: fresh run, the direct conversation is there", thread_len(&r, KEY_A) == 1);
 
@@ -513,6 +530,173 @@ static void test_multibyte_limits(void)
         check("and refuses a character more, which would be 148 bytes",
               rift_model_send_begin(&s, key, text, 1000) == -1);
     }
+}
+
+/* A history of one run: one message read, then a status at uptime_s read
+ * at now_ms - or, with run_id, from a service that names its run. */
+static void one_run(struct rift_model *s, const char *run_id, int uptime_s, int64_t now_ms)
+{
+    rift_model_init(s);
+    if (run_id) {
+        give_status_run(s, run_id, uptime_s, now_ms);
+    } else {
+        give_status(s, uptime_s, now_ms);
+    }
+    apply_messages(s, "{\"messages\":["
+                      "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                      "\"text\":\"history\",\"state\":\"received\",\"mono_ms\":1000}"
+                      "],\"count\":1,\"total\":1,\"persistent\":false}");
+    apply_event(s, "mesh.message",
+                "{\"message\":{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"read since\",\"state\":\"received\",\"mono_ms\":2000}}");
+    rift_model_mark_read(s, KEY_B);
+}
+
+/* After the statuses a test gave: a new message of the same run arrives,
+ * which is when a cache the model thinks belongs to an old run is emptied.
+ * Both earlier messages must still be there, still read, and the new one
+ * the only unread. */
+static int run_kept(struct rift_model *s)
+{
+    apply_event(s, "mesh.message",
+                "{\"message\":{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"new\",\"state\":\"received\",\"mono_ms\":3000}}");
+    return s->svc_restarts == 0 && s->msgs_forgotten == 0 && s->msg_count == 3 &&
+           holds_text(s, "history") && holds_text(s, "read since") &&
+           rift_model_unread(s, KEY_B) == 1;
+}
+
+#define RUN_A "0123456789abcdef"
+#define RUN_B "fedcba9876543210"
+
+/* A status that is late, or overtaken by a later one, is not a restart.
+ * Each test below would have counted one and emptied the history and its
+ * read marks; a restart is established only by the run's name changing or,
+ * from a service too old to name it, across a reconnect - a restart closes
+ * every connection, so the run cannot change under an open one. */
+static void test_late_status(void)
+{
+    struct rift_model s;
+
+    /* No run_id, one connection. A reply read 3 s after it was stamped makes
+     * the start look 3 s later than it is. */
+    one_run(&s, NULL, 600, 600000);
+    give_status(&s, 602, 605000);
+    check("late status: a delayed reply is not a restart", run_kept(&s));
+
+    /* No run_id, one connection, two replies read in the wrong order: the
+     * uptime appears to go backwards. */
+    one_run(&s, NULL, 610, 610000);
+    give_status(&s, 608, 610200);
+    check("late status: an overtaken reply is not a restart", run_kept(&s));
+
+    /* run_id, across a reconnect to the same run, the first reply late. */
+    one_run(&s, RUN_A, 600, 600000);
+    rift_model_service_lost(&s, "meshcored stopped reading");
+    rift_model_service_found(&s);
+    give_status_run(&s, RUN_A, 602, 606000);
+    check("late status: the same run_id after a reconnect is the same run", run_kept(&s));
+
+    /* run_id, one connection, replies out of order. */
+    one_run(&s, RUN_A, 610, 610000);
+    give_status_run(&s, RUN_A, 605, 610100);
+    check("late status: the same run_id out of order is the same run", run_kept(&s));
+
+    /* A genuine restart the clocks cannot see: the new run started within
+     * the slack of the old one. Its name says so. */
+    one_run(&s, RUN_A, 3, 3000);
+    rift_model_service_lost(&s, "meshcored closed the connection");
+    rift_model_service_found(&s);
+    give_status_run(&s, RUN_B, 4, 4500);
+    check("late status: a new run_id is a restart", s.svc_restarts == 1);
+    apply_event(&s, "mesh.message",
+                "{\"message\":{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"new run\",\"state\":\"received\",\"mono_ms\":5000}}");
+    check("late status: and the old run's history and read marks go",
+          s.msg_count == 1 && holds_text(&s, "new run") && rift_model_unread(&s, KEY_B) == 1);
+
+    /* No run_id, a genuine restart: seen across the reconnect. */
+    one_run(&s, NULL, 600, 600000);
+    rift_model_service_lost(&s, "meshcored closed the connection");
+    rift_model_service_found(&s);
+    give_status(&s, 2, 640000);
+    check("late status: without a run_id a restart is still seen across a reconnect",
+          s.svc_restarts == 1);
+}
+
+/* A message id is a whole number from 1 up to the largest a JSON number
+ * holds exactly. Anything else is refused before it can change anything:
+ * truncated, 1.5 would be filed over message 1 - its text, its
+ * conversation and its unread state - by a message that is not it. */
+static void test_message_ids(void)
+{
+    static const char *const bad[] = { "1.5", "0.5", "2.000001", "1e30", "1e400",
+                                       "-1e400", "9007199254740993", "\"1\"" };
+    struct rift_model s;
+    char json[512];
+    const struct rift_message *x;
+    size_t i;
+
+    rift_model_init(&s);
+    apply_messages(&s, "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"peer_name\":\"OSLO-01\",\"text\":\"first\",\"state\":\"received\","
+                       "\"mono_ms\":1000},"
+                       "{\"id\":2,\"direction\":\"out\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"second\",\"state\":\"sent_direct\",\"ack_expected\":true,"
+                       "\"mono_ms\":2000}"
+                       "],\"count\":2,\"total\":2,\"persistent\":false}");
+    apply_event(&s, "mesh.message",
+                "{\"message\":{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"unread\",\"state\":\"received\",\"mono_ms\":3000}}");
+    check("ids: three messages, one unread", s.msg_count == 3 && rift_model_unread(&s, KEY_B) == 1);
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        unsigned arrivals = s.dm_arrivals;
+        char what[96];
+
+        snprintf(json, sizeof(json),
+                 "{\"message\":{\"id\":%s,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A
+                 "\",\"peer_name\":\"HYTTA\",\"text\":\"impostor\",\"state\":\"received\","
+                 "\"mono_ms\":4000}}",
+                 bad[i]);
+        snprintf(what, sizeof(what), "ids: an id of %s is refused", bad[i]);
+        check(what, apply_event(&s, "mesh.message", json) != 0);
+        x = rift_model_message(&s, 1);
+        snprintf(what, sizeof(what), "ids: and after %s nothing changed", bad[i]);
+        check(what, s.msg_count == 3 && !holds_text(&s, "impostor") && x &&
+                        strcmp(x->text, "first") == 0 && strcmp(x->conv_key, KEY_B) == 0 &&
+                        rift_model_unread(&s, KEY_B) == 1 && rift_model_unread(&s, KEY_A) == 0 &&
+                        s.dm_arrivals == arrivals && s.dm_high_id == 3);
+    }
+    /* The same in a snapshot: the bad entry goes, the good ones are kept. */
+    apply_messages(&s, "{\"messages\":["
+                       "{\"id\":1.5,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"impostor\",\"state\":\"received\",\"mono_ms\":4000},"
+                       "{\"id\":4,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"fourth\",\"state\":\"received\",\"mono_ms\":5000}"
+                       "],\"count\":2,\"total\":4,\"persistent\":false}");
+    x = rift_model_message(&s, 1);
+    check("ids: a snapshot keeps its good entries and refuses the bad one",
+          s.msg_count == 4 && holds_text(&s, "fourth") && !holds_text(&s, "impostor") && x &&
+              strcmp(x->text, "first") == 0 && strcmp(x->conv_key, KEY_B) == 0);
+
+    /* Legitimate updates still land: the same id, written as a whole number
+     * in another form, is the same message changing state. */
+    apply_event(&s, "mesh.message",
+                "{\"message\":{\"id\":2.0,\"direction\":\"out\",\"peer_public_key\":\"" KEY_B
+                "\",\"text\":\"second\",\"state\":\"acked\",\"ack_expected\":true,"
+                "\"mono_ms\":2000}}");
+    x = rift_model_message(&s, 2);
+    check("ids: an update to a held id lands on it, once",
+          s.msg_count == 4 && x && x->state == RIFT_MSG_ACKED);
+    /* The largest id a JSON number holds exactly is still an id. */
+    check("ids: the largest exact id is taken",
+          apply_event(&s, "mesh.message",
+                      "{\"message\":{\"id\":9007199254740991,\"direction\":\"in\","
+                      "\"peer_public_key\":\"" KEY_B "\",\"text\":\"far\",\"state\":\"received\","
+                      "\"mono_ms\":6000}}") == 0 &&
+              rift_model_message(&s, 9007199254740991LL) != NULL);
 }
 
 int main(void)
@@ -770,6 +954,12 @@ int main(void)
         check("and is in flight", rift_model_sending(&s));
         check("a second one is refused while the first is out",
               rift_model_send_begin(&s, KEY_A, "again", 1100) == -1);
+        /* Neither clearing the caption nor refusing another submission ends
+         * the one in flight: its reply must find it as it was written. */
+        rift_model_send_clear(&s);
+        rift_model_send_refused(&s, "one message is already on its way");
+        check("clearing or refusing another leaves the one in flight alone",
+              rift_model_sending(&s) && !s.outbox.failed && strcmp(s.outbox.text, "hei") == 0);
         /* Accepting ends the submission and creates nothing: the message
          * arrives as mesh.message, keyed by the id, so one message is one
          * row however the reply and the event race. */
@@ -1051,12 +1241,14 @@ int main(void)
      * one yet, and that is the difference COMMS draws between "Waiting for
      * meshcored." and "No messages yet." Nothing drops the connection here,
      * because this is the cache's own rule and not the socket's: the model
-     * is asked for a status and then for a message, which is all it takes. */
+     * is asked for a status and then for a message, which is all it takes.
+     * The status names a new run, which is what may say so without a
+     * reconnect. */
     {
         struct rift_model s;
 
         rift_model_init(&s);
-        give_status(&s, 600, 600000);
+        give_status_run(&s, RUN_A, 600, 600000);
         apply_messages(&s,
                        "{\"messages\":["
                        "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
@@ -1064,7 +1256,7 @@ int main(void)
                        "\"mono_ms\":1000}"
                        "],\"count\":1,\"total\":1,\"persistent\":false}");
         check("a history has been read", s.messages_valid && s.msg_count == 1);
-        give_status(&s, 1, 602000);
+        give_status_run(&s, RUN_B, 1, 602000);
         check("the run changed", s.svc_restarts == 1);
         apply_event(&s, "mesh.message",
                     "{\"message\":{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A
@@ -1342,6 +1534,7 @@ int main(void)
         /* Sending. */
         check("a joined channel is a destination this app will send to",
               rift_model_send_begin(&s, site, "hello", 1000) == 0);
+        rift_model_send_failed(&s, "x");
         rift_model_send_clear(&s);
         /* mesh.send addresses a slot. A key that does not name the channel
          * now in its slot must never reach it: that is how a reply to one
@@ -1368,6 +1561,7 @@ int main(void)
             too_long[147] = '\0';
             check("a body of exactly the channel's limit is taken",
                   rift_model_send_begin(&s, site, too_long, 1000) == 0);
+            rift_model_send_failed(&s, "x");
             rift_model_send_clear(&s);
             too_long[147] = 'x';
             too_long[148] = '\0';
@@ -1474,6 +1668,8 @@ int main(void)
     test_slot_reuse();
 
     test_multibyte_limits();
+    test_late_status();
+    test_message_ids();
     printf("rift_comms_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }
