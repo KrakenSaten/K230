@@ -13,25 +13,30 @@ static lv_area_t area(const lv_area_t *origin, int x, int y, int w, int h)
 {
     return (lv_area_t){origin->x1 + x, origin->y1 + y, origin->x1 + x + w - 1, origin->y1 + y + h - 1};
 }
-static void text(lv_layer_t *layer, const lv_area_t *origin, int x, int y, int w, const char *value,
+static const lv_font_t *font(enum pos_style_role role)
+{
+    lv_style_value_t v;
+    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND)
+        return v.ptr;
+    return LV_FONT_DEFAULT;
+}
+/* Text in its place (poker_view_table), which leaves room for the lines it
+ * may wrap to: two for hand names and payouts. */
+static void text(lv_layer_t *layer, const lv_area_t *origin, struct poker_rect place, const char *value,
                  enum pos_style_role role, enum pos_color_token color)
 {
     lv_draw_label_dsc_t d;
-    lv_style_value_t v;
     lv_draw_label_dsc_init(&d);
-    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND)
-        d.font = v.ptr;
+    d.font = font(role);
     d.text = value;
     d.text_local = 1;
     d.align = LV_TEXT_ALIGN_CENTER;
     d.color = pos_theme_color(color);
-    /* Hand names and payouts may wrap; reserve two caption lines. */
-    int lines = role == POS_STYLE_CAPTION ? 2 : 1;
-    lv_area_t r = area(origin, x, y, w, lines * lv_font_get_line_height(d.font) + 6);
+    lv_area_t r = area(origin, place.x, place.y, place.w, place.h);
     lv_draw_label(layer, &d, &r);
 }
-static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_game *g, int i, int x, int y,
-                 int width, int card_width)
+static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_game *g, int i,
+                 const struct poker_seat_place *place)
 {
     const struct poker_player *p = &g->player[i];
     char line[80];
@@ -47,14 +52,14 @@ static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_
         d.border_color = pos_theme_color(POS_COLOR_ACCENT_PRIMARY);
         d.border_width = 2;
         d.radius = 8;
-        lv_area_t r = area(origin, x, y - 6, width, card_width * 7 / 5 + 66);
+        lv_area_t r = area(origin, place->ring.x, place->ring.y, place->ring.w, place->ring.h);
         lv_draw_rect(layer, &d, &r);
     }
     snprintf(line, sizeof(line), "%s%s%s %u", g->actor == i ? ">" : "", poker_seat_name(i), badge, p->stack);
-    text(layer, origin, x, y, width, line, POS_STYLE_BUTTON_LABEL, color);
-    int cw = card_width, ch = cw * 7 / 5, left = x + (width - 2 * cw - 8) / 2;
+    text(layer, origin, place->name, line, POS_STYLE_BUTTON_LABEL, color);
     for (int k = 0; k < 2; ++k) {
-        lv_area_t r = area(origin, left + k * (cw + 8), y + 30, cw, ch);
+        const struct poker_rect *c = &place->card[k];
+        lv_area_t r = area(origin, c->x, c->y, c->w, c->h);
         if (!p->in_hand || p->folded)
             bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, BJ_SPADES);
         else if (i == 0 || (g->showdown && !poker_playing(g)))
@@ -76,7 +81,7 @@ static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_
         snprintf(line, sizeof(line), "BET %u", p->bet);
     else
         snprintf(line, sizeof(line), p->acted ? "CHECK" : "In hand");
-    text(layer, origin, x - 4, y + ch + 34, width + 8, line, POS_STYLE_CAPTION,
+    text(layer, origin, place->status, line, POS_STYLE_CAPTION,
          !poker_playing(g) && (g->winners & (1u << i)) ? POS_COLOR_STATUS_OK : POS_COLOR_TEXT_SECONDARY);
 }
 static void draw(lv_event_t *event)
@@ -110,33 +115,39 @@ static void draw(lv_event_t *event)
         d.bg_opa = LV_OPA_50;
         lv_draw_rect(layer, &d, &origin);
     }
+    /* Where everything goes: the tall layout, or the short one on a table
+     * shorter than the panel's (poker_view.h). */
+    const struct poker_type type = {
+        lv_font_get_line_height(font(POS_STYLE_BUTTON_LABEL)),
+        lv_font_get_line_height(font(POS_STYLE_CAPTION)),
+        lv_font_get_line_height(font(POS_STYLE_ROW_TITLE)),
+    };
+    struct poker_table_place place;
+    poker_view_table(w, h, &type, &place);
     char line[80];
-    snprintf(line, sizeof(line), "HAND %u | BLINDS 10 / 20", g->hand_number);
-    text(layer, &origin, 0, 12, w, line, POS_STYLE_CAPTION, POS_COLOR_TEXT_SECONDARY);
-    /* The card sizes and places, shrunk together on a table shorter than
-     * the panel's (poker_view.h). */
-    struct poker_cards c;
-    poker_view_cards(w, h, &c);
-    int mini = c.mini;
-    int sw = w / 2 - 16;
-    seat(layer, &origin, g, 2, (w - sw) / 2, 48, sw, mini);
-    int sy = c.side_y;
-    seat(layer, &origin, g, 1, 8, sy, sw, mini);
-    seat(layer, &origin, g, 3, w - sw - 8, sy, sw, mini);
-    int board_y = c.board_y;
+    if (place.compact) {
+        snprintf(line, sizeof(line), "HAND %u", g->hand_number);
+        text(layer, &origin, place.hand, line, POS_STYLE_CAPTION, POS_COLOR_TEXT_SECONDARY);
+        text(layer, &origin, place.blinds, "BLINDS\n10 / 20", POS_STYLE_CAPTION, POS_COLOR_TEXT_SECONDARY);
+    } else {
+        snprintf(line, sizeof(line), "HAND %u | BLINDS 10 / 20", g->hand_number);
+        text(layer, &origin, place.hand, line, POS_STYLE_CAPTION, POS_COLOR_TEXT_SECONDARY);
+    }
+    seat(layer, &origin, g, 2, &place.seat[2]);
+    seat(layer, &origin, g, 1, &place.seat[1]);
+    seat(layer, &origin, g, 3, &place.seat[3]);
     snprintf(line, sizeof(line), "%s | POT %u", poker_phase_name(g->phase),
              poker_playing(g) ? poker_pot_total(g) : g->settled_pot);
-    text(layer, &origin, 0, board_y - 46, w, line, POS_STYLE_ROW_TITLE, POS_COLOR_TEXT_PRIMARY);
-    int cw = c.board;
-    int start = (w - 5 * cw - 4 * 8) / 2;
+    text(layer, &origin, place.pot, line, POS_STYLE_ROW_TITLE, POS_COLOR_TEXT_PRIMARY);
     for (int i = 0; i < 5; ++i) {
-        lv_area_t r = area(&origin, start + i * (cw + 8), board_y, cw, cw * 7 / 5);
+        const struct poker_rect *c = &place.board[i];
+        lv_area_t r = area(&origin, c->x, c->y, c->w, c->h);
         if (i < g->board_count)
             bj_draw_face(layer, &r, g->board[i], BJ_INDEX_BELOW);
         else
             bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, BJ_SPADES);
     }
-    seat(layer, &origin, g, 0, (w - sw) / 2, c.hero_y, sw, c.hero);
+    seat(layer, &origin, g, 0, &place.seat[0]);
 }
 lv_obj_t *poker_table_create(lv_obj_t *parent, const struct poker_game *game)
 {
