@@ -1,6 +1,6 @@
 # R1-B plan: keep background objectness inside labelled boxes (prepared 2026-10-12, not run)
 
-Status: **pilot run 2026-10-12, verdict INCONCLUSIVE**: see [R1B_PILOT.md](R1B_PILOT.md). The plan below is unchanged from commit `daf1d61`.
+Status: **pilot run 2026-10-12, verdict INCONCLUSIVE**: see [R1B_PILOT.md](R1B_PILOT.md). Continued to 300 epochs by owner decision; final verdict **FAIL**: see [R1B_RESULTS.md](R1B_RESULTS.md). The plan below is unchanged from commit `daf1d61`.
 - R0 (shipped as "R0 · Beta" in Doors 0.3.6) and R1-A (FAIL,
   [R1A_RESULTS.md](R1A_RESULTS.md)) are the references. Their artifacts are
   unchanged.
