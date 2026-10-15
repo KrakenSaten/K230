@@ -11,11 +11,17 @@
 #include "sol_felt.h"
 #include "sol_palette.h"
 
+/* How far a finger may travel and still tap: LVGL's own scroll threshold
+ * (LV_INDEV_DEF_SCROLL_LIMIT, private to lv_indev.c in 9.5). */
+#define TAP_SLOP 10
+
 struct sol_table_state {
     const struct sol_game *game;
     const struct sol_ui *ui;
     void (*tap)(void *user, struct sol_hit hit);
     void *user;
+    lv_point_t pressed_at; /* where the finger went down */
+    int listening;         /* registered with pos_theme_add_listener */
 };
 
 static struct sol_table_state *state_of(lv_obj_t *obj)
@@ -304,16 +310,51 @@ static void table_click(lv_event_t *e)
         return;
     }
     lv_indev_get_point(indev, &p);
+    /* A finger that travelled is a drag, not a tap, even where there was
+     * nothing to scroll (LVGL then still reports a click where it let go):
+     * it must not draw, pick or put down. */
+    if (LV_ABS(p.x - st->pressed_at.x) > TAP_SLOP || LV_ABS(p.y - st->pressed_at.y) > TAP_SLOP) {
+        return;
+    }
     lv_obj_get_coords(obj, &coords);
     geometry(obj, &t);
     st->tap(st->user, sol_view_hit(&t, st->game, p.x - coords.x1, p.y - coords.y1));
 }
 
+static void table_pressed(lv_event_t *e)
+{
+    struct sol_table_state *st = state_of(lv_event_get_target_obj(e));
+    lv_indev_t *indev = lv_indev_active();
+
+    if (st && indev) {
+        lv_indev_get_point(indev, &st->pressed_at);
+    }
+}
+
+/* After a theme or text size change, once every listener has run (the
+ * shared styles, and so the corner fonts, refill in one of them): keep the
+ * scroll inside the range the new index height gives. */
+static void readjust_later(void *obj)
+{
+    lv_obj_readjust_scroll(obj, LV_ANIM_OFF);
+}
+
+static void on_theme(void *obj)
+{
+    lv_async_call_cancel(readjust_later, obj);
+    lv_async_call(readjust_later, obj);
+}
+
 static void table_delete(lv_event_t *e)
 {
     lv_obj_t *obj = lv_event_get_target_obj(e);
+    struct sol_table_state *st = state_of(obj);
 
-    lv_free(state_of(obj));
+    if (st && st->listening) {
+        pos_theme_remove_listener(on_theme, obj);
+    }
+    lv_async_call_cancel(readjust_later, obj);
+    lv_free(st);
     lv_obj_set_user_data(obj, NULL);
 }
 
@@ -376,6 +417,7 @@ lv_obj_t *sol_table_create(lv_obj_t *parent)
     /* A tap on the table must not take the focus from the app's key sink. */
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_obj_add_event_cb(obj, table_draw, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_add_event_cb(obj, table_pressed, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(obj, table_click, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(obj, table_self_size, LV_EVENT_GET_SELF_SIZE, NULL);
     lv_obj_add_event_cb(obj, table_resized, LV_EVENT_SIZE_CHANGED, NULL);
@@ -383,6 +425,7 @@ lv_obj_t *sol_table_create(lv_obj_t *parent)
     if (pos_theme_watch(obj) != 0) {
         lv_obj_add_event_cb(obj, table_theme_changed, (lv_event_code_t)pos_event_theme_changed(), NULL);
     }
+    st->listening = pos_theme_add_listener(on_theme, obj) == 0;
     return obj;
 }
 

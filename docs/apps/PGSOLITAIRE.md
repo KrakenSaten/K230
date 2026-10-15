@@ -231,7 +231,10 @@ the column ended on the table.
   drawing, touch, the selection and the cursor agree. Every key brings the
   cursor's card into view (`sol_view_scroll_to`: its exposed strip, the
   whole card on top, an empty column's slot), and a drag on the table scrolls
-  it by LVGL's own scrolling, which never reports a drag as a tap. A 4 px bar
+  it by LVGL's own scrolling, which never reports a drag as a tap; and the
+  table takes no tap from a finger that travelled past LVGL's scroll
+  threshold (10 px), so a drag on a table with nothing to scroll does not
+  draw, pick or put down where it ends either. A 4 px bar
   at the table's right edge shows where the seen part sits. The body does not
   scroll and nothing outside Solitaire changed.
 - **Where it scrolls.** Reached only by long columns: on the panel in
@@ -242,7 +245,12 @@ the column ended on the table.
   states in landscape and on HDMI) or where the index is taller than a
   third of the card (portrait at Medium and Large).
 - Rules, moves, the save format and the game state are untouched; the scroll
-  is view state, not saved, and starts at the top when the app opens.
+  is view state, not saved, and starts at the top when the app opens. It is
+  held to the range after a move, a new game, a rotation and a text size
+  change.
+- **Trade-off.** All columns scroll together, so with a long column scrolled
+  to its foot the upper cards of the other columns are out of view until the
+  tableau is scrolled back (a key on that column, or a drag).
 
 ## Doors integration (2026-09-28)
 
@@ -271,7 +279,7 @@ What changed from the 2026-09-13 branch, and nothing else:
 
 Lifecycle, checked for this integration: every LVGL object is under the body
 the shell deletes; the root is the only object added to the focus group and
-goes with it; there is no timer or animation; the table widget's state is freed on its delete event; the app state is one `lv_malloc` freed in `destroy`. The
+goes with it; there is no timer or animation; the table widget's state is freed on its delete event, which also removes its theme listener and cancels the one-shot `lv_async_call` that keeps the tableau's scroll in range after a text size change; the app state is one `lv_malloc` freed in `destroy`. The
 save is a few hundred bytes, written with `fsync` from the once-a-second tick
 only when something changed, at the end of a game and on close - the same
 pattern as Notes, Clock and Radar - so the UI thread never waits on more than

@@ -981,6 +981,286 @@ static void test_long_columns(void)
     pump(60);
 }
 
+/* ---- the scrolling tableau under review ---------------------------------------------- */
+
+static lv_area_t table_area(void)
+{
+    lv_area_t ta;
+
+    lv_obj_update_layout(sol_app_table(app_priv));
+    lv_obj_get_coords(sol_app_table(app_priv), &ta);
+    return ta;
+}
+
+/* A finger pressed at (x0, y0), moved in steps to (x1, y1), and lifted. */
+static void drag_line(int x0, int y0, int x1, int y1)
+{
+    int s;
+
+    finger_point.x = x0;
+    finger_point.y = y0;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(30);
+    for (s = 1; s <= 12; s++) {
+        finger_point.x = x0 + (x1 - x0) * s / 12;
+        finger_point.y = y0 + (y1 - y0) * s / 12;
+        pump(20);
+    }
+    pump(60);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(800);
+}
+
+/* The LVGL scroll and the one the table draws with agree, inside the range
+ * the game gives now. */
+static int scroll_clamped(void)
+{
+    lv_obj_t *table = sol_app_table(app_priv);
+    struct sol_table t;
+    int y = (int)lv_obj_get_scroll_y(table);
+
+    sol_table_geometry(table, &t);
+    return y >= 0 && y <= sol_view_scroll_max(&t, game()) && y == t.scroll;
+}
+
+static int scroll_now(void)
+{
+    struct sol_table t;
+
+    sol_table_geometry(sol_app_table(app_priv), &t);
+    return t.scroll;
+}
+
+static int scroll_max_now(void)
+{
+    struct sol_table t;
+
+    sol_table_geometry(sol_app_table(app_priv), &t);
+    return sol_view_scroll_max(&t, game());
+}
+
+/* Every face-up card of column `pile` whose strip is in view now, tapped
+ * there, is the card picked; the felt drops it again. Returns problems. */
+static int visible_strips_pick(const char *where, int pile)
+{
+    int bad = 0;
+    int i;
+
+    for (i = game()->pile[pile].down; i < game()->pile[pile].n; i++) {
+        lv_point_t p = card_point(pile, i);
+
+        if (!strip_visible(p)) {
+            continue;
+        }
+        tap_at(p.x, p.y);
+        if (ui()->sel_pile != pile || ui()->sel_index != i) {
+            printf("note %s: a tap on column %d card %d picked %d/%d\n", where, pile - SOL_T0 + 1, i + 1,
+                   ui()->sel_pile, ui()->sel_index);
+            bad++;
+        }
+        key(LV_KEY_ESC);
+    }
+    return bad;
+}
+
+/* The five risks of the final review, on the panel in landscape at Large in
+ * the reproduced game, where the tableau scrolls most. */
+static void test_scroll_review(void)
+{
+    enum pos_text_size was = pos_theme_current_text_size();
+    struct sol_game seed1;
+    struct sol_game before;
+    struct sol_table t;
+    lv_area_t ta;
+    lv_point_t p;
+    int max;
+
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    pump(60);
+    sol_deal(&seed1, 1);
+    open_deal(&seed1);
+    play_long_column();
+    key(LV_KEY_ESC);
+    tap_at(table_area().x1 + 3, table_area().y2 - 3);
+    max = scroll_max_now();
+    check("review: the reproduced game scrolls in landscape at Large", max > 0);
+    sol_table_geometry(sol_app_table(app_priv), &t);
+    ta = table_area();
+
+    /* 1. Drags neither draw, pick nor move - from the top row, across it,
+     * at either limit, and across the table. */
+    before = *game();
+    lv_obj_scroll_to_y(sol_app_table(app_priv), 0, LV_ANIM_OFF);
+    p = card_point(SOL_STOCK, -1);
+    drag_line(p.x, p.y, p.x, ta.y2 - 10);
+    check("drag: down from the stock at the top limit does nothing to the game",
+          same_game(game(), &before) && ui()->sel_pile == -1);
+    drag_line(p.x + t.card_w + SOL_COL_GAP, ta.y2 - 10, p.x, p.y);
+    check("drag: up from the tableau onto the stock scrolls and does nothing else",
+          same_game(game(), &before) && ui()->sel_pile == -1 && scroll_now() > 0);
+    lv_obj_scroll_to_y(sol_app_table(app_priv), max, LV_ANIM_OFF);
+    drag_line(p.x, ta.y2 - 10, p.x, p.y);
+    check("drag: up at the bottom limit, ending on the stock, does nothing",
+          same_game(game(), &before) && ui()->sel_pile == -1 && scroll_now() == max);
+    p = card_point(SOL_T0, game()->pile[SOL_T0].n - 1);
+    drag_line(p.x, p.y, p.x + 3 * (t.card_w + SOL_COL_GAP), p.y);
+    check("drag: across the columns does not pick or move", same_game(game(), &before) && ui()->sel_pile == -1);
+    app_stop();
+    {
+        struct sol_game fresh;
+
+        sol_deal(&fresh, 3);
+        open_deal(&fresh);
+        before = *game();
+        p = card_point(SOL_T0 + 6, 6);
+        drag_line(p.x, p.y + 40, card_point(SOL_STOCK, -1).x, card_point(SOL_STOCK, -1).y);
+        check("drag: on a table that does not scroll, ending on the stock, does not draw",
+              scroll_max_now() == 0 && same_game(game(), &before) && ui()->sel_pile == -1);
+        app_stop();
+    }
+    open_deal(&seed1);
+    play_long_column();
+    key(LV_KEY_ESC);
+    tap_at(table_area().x1 + 3, table_area().y2 - 3);
+    before = *game();
+
+    /* 2. Hits at both limits, the top row while scrolled, the gap. */
+    lv_obj_scroll_to_y(sol_app_table(app_priv), 0, LV_ANIM_OFF);
+    check("hits at the top limit: every strip in view picks its card", visible_strips_pick("top", SOL_T0) == 0);
+    lv_obj_scroll_to_y(sol_app_table(app_priv), max, LV_ANIM_OFF);
+    check("hits at the bottom limit: every strip in view picks its card", visible_strips_pick("bottom", SOL_T0) == 0);
+    tap_at(ta.x1 + t.left + t.card_w / 2, ta.y1 + t.tableau_y - 3);
+    check("scrolled: the gap above the tableau is felt", ui()->sel_pile == -1 && same_game(game(), &before));
+    p = card_point(SOL_WASTE, game()->pile[SOL_WASTE].n - 1);
+    tap_at(p.x, p.y);
+    check("scrolled: the waste in the fixed top row is still hit", ui()->sel_pile == SOL_WASTE);
+    key(LV_KEY_ESC);
+    cursor_to(SOL_T0, game()->pile[SOL_T0].down);
+    check("keys at the top: the first face-up card in view", scroll_now() == 0 &&
+                                                               strip_visible(card_point(SOL_T0, ui()->cursor_index)));
+    key(LV_KEY_UP);
+    check("Up from it reaches the stock, the scroll unchanged", ui()->cursor_pile == SOL_STOCK && scroll_now() == 0);
+    key(LV_KEY_DOWN);
+    key('1');
+    check("keys at the bottom: the last card in view", scroll_now() == max &&
+                                                        strip_visible(card_point(SOL_T0, game()->pile[SOL_T0].n - 1)));
+
+    /* 5. The tableau's clip is put back: the top row, the HUD and the
+     * controls are the same pixels at either limit. */
+    {
+        static uint8_t at_top[sizeof(frame)];
+        uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(g_disp));
+        int32_t hor = lv_display_get_horizontal_resolution(g_disp);
+        int32_t ver = lv_display_get_vertical_resolution(g_disp);
+        int32_t rows = ta.y1 + t.tableau_y - SOL_ROW_GAP / 2;
+        size_t row_bytes = (size_t)hor * bpp;
+        int same_side = 1;
+        int32_t y;
+
+        ui_rw()->keyboard = 0;
+        lv_obj_scroll_to_y(sol_app_table(app_priv), 0, LV_ANIM_OFF);
+        redraw();
+        memcpy(at_top, frame, (size_t)ver * row_bytes);
+        lv_obj_scroll_to_y(sol_app_table(app_priv), max, LV_ANIM_OFF);
+        redraw();
+        for (y = 0; y < ver; y++) {
+            size_t row = (size_t)y * row_bytes;
+            size_t right = (size_t)(ta.x2 + 1) * bpp;
+
+            same_side &= memcmp(&at_top[row], &frame[row], (size_t)ta.x1 * bpp) == 0 &&
+                         memcmp(&at_top[row + right], &frame[row + right], row_bytes - right) == 0;
+        }
+        check("clip: the header and the fixed top row are the same pixels at either scroll",
+              memcmp(at_top, frame, (size_t)rows * row_bytes) == 0);
+        check("clip: the HUD and controls beside the table are the same pixels at either scroll", same_side);
+        check("clip: the tableau itself did move", memcmp(at_top, frame, (size_t)ver * row_bytes) != 0);
+    }
+
+    /* 4. A selection and its destination by keys. */
+    {
+        int from;
+        int index;
+        int to;
+
+        if (find_run_move(game(), &from, &index, &to)) {
+            cursor_to(from, index);
+            key(LV_KEY_ENTER);
+            check("keys: the source is in view as it is picked", strip_visible(card_point(from, index)));
+            key((pos_key_t)('1' + to - SOL_T0));
+            check("keys: the destination's top card is in view", strip_visible(card_point(to, game()->pile[to].n - 1)));
+            printf("note review: picking column %d card %d and aiming at column %d leaves the source %s\n",
+                   from - SOL_T0 + 1, index + 1, to - SOL_T0 + 1,
+                   strip_visible(card_point(from, index)) ? "in view" : "scrolled out of view");
+            key((pos_key_t)('1' + from - SOL_T0));
+            check("keys: back to the source column shows its top card again",
+                  strip_visible(card_point(from, game()->pile[from].n - 1)) && ui()->sel_pile == from);
+            key(LV_KEY_ESC);
+        }
+        /* Every column's top card - a destination - is reachable by its key
+         * and in view, from either limit. */
+        {
+            int c;
+            int bad = 0;
+
+            for (c = 0; c < SOL_COLUMNS; c++) {
+                lv_obj_scroll_to_y(sol_app_table(app_priv), c % 2 ? max : 0, LV_ANIM_OFF);
+                key((pos_key_t)('1' + c));
+                bad += game()->pile[SOL_T0 + c].n > 0 &&
+                       !strip_visible(card_point(SOL_T0 + c, game()->pile[SOL_T0 + c].n - 1));
+            }
+            check("keys: every column's top card comes into view on its key", bad == 0);
+        }
+    }
+
+    /* 3. The scroll is held to the range: after a move, text size, a
+     * rotation, a new game, reopening. */
+    {
+        int from;
+        int index;
+        int to;
+
+        key('1');
+        if (find_run_move(game(), &from, &index, &to)) {
+            cursor_to(from, index);
+            key(LV_KEY_ENTER);
+            key((pos_key_t)('1' + to - SOL_T0));
+            key(LV_KEY_ENTER);
+        }
+        check("clamp: after a move", scroll_clamped());
+        lv_obj_scroll_to_y(sol_app_table(app_priv), scroll_max_now(), LV_ANIM_OFF);
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(60);
+        check("clamp: after the text size goes down", scroll_clamped());
+        pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+        pump(60);
+        lv_obj_scroll_to_y(sol_app_table(app_priv), scroll_max_now(), LV_ANIM_OFF);
+        games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+        pump(60);
+        check("clamp: turned to portrait, nothing scrolls", scroll_clamped() && scroll_now() == 0);
+        games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+        pump(60);
+        check("clamp: turned back", scroll_clamped());
+        key('1');
+        lv_obj_scroll_to_y(sol_app_table(app_priv), scroll_max_now(), LV_ANIM_OFF);
+        key('n');
+        key('n');
+        check("clamp: a new game starts at the top", game()->moves == 0 && scroll_clamped() && scroll_now() == 0);
+    }
+    app_stop();
+    open_deal(&seed1);
+    play_long_column();
+    app_stop();
+    app_start();
+    check("reopening resumes the long game at the top", game()->pile[SOL_T0].n == 11 && scroll_clamped() &&
+                                                          scroll_now() == 0);
+    app_stop();
+    unlink(sol_store_path());
+    pos_theme_select_text_size(was);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(60);
+}
+
 static void test_open(void)
 {
     int c;
@@ -1410,6 +1690,7 @@ int main(void)
     test_won_and_rounds();
     test_landscape();
     test_long_columns();
+    test_scroll_review();
 
     check("the app asked the shell for nothing", shell_calls == 0);
     {
