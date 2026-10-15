@@ -24,6 +24,12 @@
 int sol_card_radius(int card_w);
 
 void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, sol_card_t card);
+/* How far down from its top edge a face drawn `card_w` wide carries ink in
+ * its corner, in the current fonts, with two pixels to spare: the lower of
+ * the lowest rank glyph and the pip's foot. A card laid over it must leave
+ * this much in view. It reads the same corner metrics sol_draw_face() draws
+ * with. */
+int sol_card_index_h(int card_w);
 void sol_draw_back(lv_layer_t *layer, const lv_area_t *area);
 
 enum sol_slot_mark {

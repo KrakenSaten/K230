@@ -200,6 +200,86 @@ static void test_hits(void)
     check("above it is felt", sol_view_hit(&t, &g, t.left + 5, t.top_y - 1).pile == SOL_NO_PILE);
 }
 
+/* ---- the corner index and the scrolling tableau ------------------------------------ */
+
+/* With the corner index known, a face-up card never steps less than it; a
+ * column that cannot fit then scrolls the tableau, and every card can be
+ * brought between tableau_y and the table's foot, where a hit finds it. The
+ * panel landscape table at Large (930 x 452, a 41 px index) and portrait. */
+static void test_index_and_scroll(void)
+{
+    struct sol_table t;
+    struct sol_game g;
+    int fd;
+    int fu;
+    int i;
+    int bad = 0;
+    int max;
+
+    memset(&g, 0, sizeof(g));
+    set_pile(&g, SOL_T0 + 6, 6, 1, C, 2, C, 3, C, 4, C, 5, C, 6, C, 13, S, 12, H, 11, S, 10, H, 9, S, 8, H, 7, S,
+             6, H, 5, S, 4, H, 3, S, 2, H, 1, S, 0);
+    set_pile(&g, SOL_T0 + 1, 0, 9, D, 0);
+
+    sol_view_table(930, 452, &t);
+    check("unknown index: the old compression, and nothing scrolls", t.index_h == 0 && t.scroll == 0 &&
+                                                                         sol_view_scroll_max(&t, &g) == 0);
+    t.index_h = 41;
+    sol_view_fan(&t, &g.pile[SOL_T0 + 6], &fd, &fu);
+    check("a face-up card steps at least the index", fu == 41 && fd < t.fan_down);
+    max = sol_view_scroll_max(&t, &g);
+    {
+        struct sol_rect last = sol_view_card(&t, &g, SOL_T0 + 6, 18);
+
+        check("the column ends below the table, by the scroll range", max > 0 &&
+                                                                          last.y + last.h + SOL_TABLE_PAD == t.h + max);
+    }
+    for (i = g.pile[SOL_T0 + 6].down; i < g.pile[SOL_T0 + 6].n; i++) {
+        struct sol_table at = t;
+        struct sol_rect r;
+        struct sol_hit h;
+        int shown;
+
+        at.scroll = sol_view_scroll_to(&t, &g, SOL_T0 + 6, i);
+        r = sol_view_card(&at, &g, SOL_T0 + 6, i);
+        shown = i == 18 ? r.h : sol_view_card(&at, &g, SOL_T0 + 6, i + 1).y - r.y;
+        bad += at.scroll < 0 || at.scroll > max || r.y < t.tableau_y || r.y + shown > t.h - SOL_TABLE_PAD ||
+               shown < t.index_h;
+        h = sol_view_hit(&at, &g, r.x + r.w / 2, r.y + 4);
+        bad += h.pile != SOL_T0 + 6 || h.index != i;
+    }
+    check("every face-up card scrolls into view whole to its index, and is hit there", bad == 0);
+    t.scroll = 0;
+    check("from the top, the last card scrolls to the foot", sol_view_scroll_to(&t, &g, SOL_T0 + 6, 18) == max);
+    t.scroll = max;
+    check("from the foot, the king scrolls back to the tableau's top edge",
+          sol_view_card(&t, &g, SOL_T0 + 6, 6).y + (max - sol_view_scroll_to(&t, &g, SOL_T0 + 6, 6)) == t.tableau_y);
+    check("a card already in view keeps the scroll", sol_view_scroll_to(&t, &g, SOL_T0 + 6, 17) == max);
+    t.scroll = max + 50;
+    check("a scroll past the range comes back into it", sol_view_scroll_to(&t, &g, SOL_STOCK, 0) == max);
+    t.scroll = max;
+    check("an empty column's slot scrolls with the tableau",
+          sol_view_slot(&t, SOL_T0 + 3).y == t.tableau_y - max && sol_view_scroll_to(&t, &g, SOL_T0 + 3, -1) == 0);
+    check("a short column scrolls with it too",
+          sol_view_card(&t, &g, SOL_T0 + 1, 0).y == t.tableau_y - max);
+    check("the top row does not", sol_view_slot(&t, SOL_STOCK).y == t.top_y &&
+                                      sol_view_hit(&t, &g, sol_view_slot(&t, SOL_F0).x + 5, t.top_y + 5).pile == SOL_F0);
+    check("the gap above the tableau stays felt, scrolled",
+          sol_view_hit(&t, &g, sol_view_slot(&t, SOL_T0 + 6).x + 5, t.tableau_y - 2).pile == SOL_NO_PILE);
+
+    /* Portrait (528 x 876) fits the longest column at the Large index, with
+     * the fan raised to it: nothing scrolls there. */
+    sol_view_table(528, 876, &t);
+    t.index_h = 40;
+    sol_view_fan(&t, &g.pile[SOL_T0 + 6], &fd, &fu);
+    check("an index taller than a third of the card raises the uncompressed fan", t.fan_up == 31 && fu == 40 &&
+                                                                                        fd == t.fan_down);
+    check("and portrait still fits the longest column", sol_view_scroll_max(&t, &g) == 0);
+    t.index_h = 20;
+    sol_view_fan(&t, &g.pile[SOL_T0 + 6], &fd, &fu);
+    check("a shorter index leaves the ordinary fan alone", fu == t.fan_up && fd == t.fan_down);
+}
+
 /* ---- keys -------------------------------------------------------------------------- */
 
 /* A small position with known moves:
@@ -588,6 +668,7 @@ int main(void)
 {
     test_layout();
     test_hits();
+    test_index_and_scroll();
     test_cursor();
     test_pick_and_place();
     test_draw_home_new();
