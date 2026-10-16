@@ -418,10 +418,18 @@ controls     the pull track, 64 px, the thumb's zone; while placing, three
 The tower is looked at, not dragged. A tap picks the nearest pullable
 block end within 44 px, which is PocketFleet's approved aim-then-confirm
 pattern (D1 there) applied to rows 22 px tall. The pull happens on the
-track: the finger's horizontal travel is banked as it arrives and paid into
-the engine once a tick, so the engine sees exactly one travel per tick
-whatever the panel's event rate is, and the block moves in the viewport,
-never under the finger. The track keeps the press once it has it (LVGL
+track: the finger's horizontal travel is banked as it arrives, binned by
+the 40 ms tick it happened in, and paid into the engine one tick at a time,
+so the engine sees the travel of each tick whatever the panel's event rate
+is or when the clock's callback comes, and the block moves in the viewport,
+never under the finger. The engine's time follows the LVGL tick: a late
+callback runs every tick it owes, up to `TIMBER_CATCHUP_TICKS` (320 ms);
+a longer stall is a pause whose ticks, and the travel in them, are dropped.
+A lifted finger's last travel is still paid; a press LVGL takes away
+(PRESS_LOST) drops what is unpaid; travel never outlives its block's
+selection, turn or run. Every tick with a block selected is a pull, with no
+travel when the finger is still or up, so the speed is judged over idle
+time too. The track keeps the press once it has it (LVGL
 locks a press to its object by default), so a thumb's contact, taller than
 the 64 px band and drifting as it drags, keeps pulling wherever it goes. Track-right always moves the block right on
 screen, so a block whose end faces the right face pulls on a right drag
@@ -570,7 +578,7 @@ is HARDWARE VALIDATION REQUIRED. The gates, all unmeasured as of P1:
 | Gate | Placeholder | Where it bites |
 | --- | --- | --- |
 | Sprite-storm redraw budget | the P7 table draws every block as six triangles and five lines a frame, host only, unmeasured on the K230 | the table widget's frame cost; the real art's blits |
-| GT9895 drag event rate | pull travel banked per event, paid per 40 ms tick, judged over a 3-tick average | the speed limits and stiction in `timber_tuning.h` |
+| GT9895 drag event rate | pull travel banked per event, binned by and paid per 40 ms tick of LVGL time, judged over a 3-tick average | the speed limits and stiction in `timber_tuning.h` |
 | Drag latency | none assumed | the feel of the pull track |
 | 1 to 3 px sway readability | `TIMBER_SWAY_AMP` 0.10 widths per unit; `TIMBER_VIEW_SCALE` 40 px per width, so one unit of disturbance sways the top 4 px | whether the sway is visible on the panel |
 | 20/25 Hz target choice | `TIMBER_TICK_MS` 40 | every per-tick rate, and the clock the table repaints on |
