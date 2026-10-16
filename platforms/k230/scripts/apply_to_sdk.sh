@@ -378,6 +378,13 @@ fi
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
 
+# Enable the pinned LVGL's bundled QR facility for offline Help & Feedback.
+# An already extracted LVGL must be rebuilt with lvgl-dirclean (see docs).
+LVGL_DEFAULTS="${SDK_DIR}/buildroot-overlay/package/lvgl/59dc7e436ae97a25e32656739ea6a943f9f11b6a/lv_conf.defaults"
+[ -f "${LVGL_DEFAULTS}" ] || { echo "ERROR: pinned LVGL defaults missing" >&2; exit 1; }
+sed -i '/^[[:space:]]*LV_USE_QRCODE[[:space:]]/d' "${LVGL_DEFAULTS}"
+printf '\nLV_USE_QRCODE 1\n' >> "${LVGL_DEFAULTS}"
+
 # Doors-owned kernel patches (ADR-011). They sit in the same Buildroot package
 # directory as the vendor stack and apply after it: the vendor numbers its
 # patches up to 0064, Doors uses 0070-0099. Like the vendor's own patches

@@ -1544,11 +1544,13 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/system")
     target_compile_options(system_app_test PRIVATE -Wall -Wextra)
-    target_compile_definitions(system_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    target_compile_definitions(system_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE
+        POCKETOS_VERSION="${POCKETOS_VERSION}" POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}")
     if(POCKETOS_LVGL_MODE STREQUAL "source")
         target_include_directories(system_app_test PRIVATE "${LVGL_DIR}")
         target_compile_definitions(system_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
+    target_link_options(system_app_test PRIVATE "-Wl,--wrap=lv_qrcode_update")
     target_link_libraries(system_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # Wave in the running app, tapped and typed into, driving a scripted fake

@@ -180,6 +180,11 @@ Components
     Licence: CC BY 4.0 (annotations); CC BY 2.0 or no known copyright restrictions (images)
     In the image: /usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel was trained on it; none of it is in the image
 
+31. QR Code generator (Project Nayuki), bundled in LVGL
+    Version: as in LVGL 59dc7e4
+    Licence: MIT
+    In the image: compiled into /usr/lib/liblvgl.so for offline feedback QR
+
 
 ================================================================================
  1. RadioLib
@@ -3569,3 +3574,17 @@ Images
     published as ATTRIBUTION.tsv beside the Doors release that carries the
     model. COCO records no photographer names; its rows name the photo's
     Flickr file instead.
+
+
+================================================================================
+31. QR Code generator (Project Nayuki), bundled in LVGL
+================================================================================
+
+Copyright © 2025 Project Nayuki. (MIT License)
+https://www.nayuki.io/page/qr-code-generator-library
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+The Software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the Software or the use or other dealings in the Software.

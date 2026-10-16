@@ -38,6 +38,8 @@
 #define _GNU_SOURCE
 #include "app.h"
 #include "diag_view.h"
+#include "feedback.h"
+#include "src/libs/qrcode/qrcodegen.h"
 #include "pocketui.h"
 #include "shell_ipc.h"
 #include "system_internal.h"
@@ -891,6 +893,100 @@ static void build_services(struct system_app *a)
     restrain(row_button(buttons, "Diagnostics", on_diagnostics, a));
 }
 
+/* Feedback is a local QR only: no network request or submission path. */
+static void on_feedback(lv_event_t *e)
+{
+    struct system_app *a = lv_event_get_user_data(e);
+
+    a->feedback = true;
+    pocketos_shell_set_title("Help & Feedback");
+    rebuild(a);
+}
+
+static void on_feedback_size(lv_event_t *e)
+{
+    struct system_app *a = lv_event_get_user_data(e);
+
+    a->feedback_large = !a->feedback_large;
+    rebuild(a);
+}
+
+static void feedback_arrange(struct system_app *a)
+{
+    int version = qrcodegen_getMinFitVersion(qrcodegen_Ecc_MEDIUM, strlen(DOORS_FEEDBACK_FORM_URL));
+    int modules = qrcodegen_version2size(version);
+    int width = a->feedback_large ? a->full_w : (a->wide ? a->half_w : a->full_w) - 48;
+    int height = lv_obj_get_content_height(a->frame) - (a->feedback_large ? 80 : 140);
+    int limit = LV_MIN(width, height);
+    int scale = LV_MIN(limit, a->feedback_large ? 900 : 360) / (modules + 8);
+    lv_draw_buf_t *buf;
+    bool ok = false;
+
+    if (a->full_w <= 0 || !a->feedback_qr || scale == a->feedback_scale) {
+        return;
+    }
+    a->feedback_scale = scale;
+    if (version > 0 && scale >= 1) {
+        /* The widget renders integer modules. Supply the quiet zone ourselves:
+         * exactly four modules on every side, independent of widget heuristics. */
+        lv_obj_set_size(a->feedback_border, (modules + 8) * scale, (modules + 8) * scale);
+        lv_obj_set_style_pad_all(a->feedback_border, 4 * scale, 0);
+        lv_qrcode_set_size(a->feedback_qr, modules * scale);
+        buf = lv_canvas_get_draw_buf(a->feedback_qr);
+        /* set_size has no result; verify allocation before trusting update. */
+        ok = buf && buf->header.w == (unsigned)(modules * scale) &&
+             buf->header.h == (unsigned)(modules * scale) &&
+             lv_qrcode_update(a->feedback_qr, DOORS_FEEDBACK_FORM_URL,
+                              strlen(DOORS_FEEDBACK_FORM_URL)) == LV_RESULT_OK;
+    }
+    if (ok) {
+        lv_obj_remove_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(a->feedback_error, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(a->feedback_error, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void build_feedback(struct system_app *a)
+{
+    lv_obj_t *p;
+    lv_obj_t *b;
+    char identity[160];
+
+    if (!a->feedback_large) {
+        p = system_panel(a, SYSTEM_COL_LEFT);
+        lv_obj_set_style_pad_row(p, 12, 0);
+        system_wrap_label(p, "Help & Feedback", POS_STYLE_ROW_TITLE);
+        system_wrap_label(p, "Report a bug, suggest a feature, or share your thoughts about DOORS.", POS_STYLE_TEXT_PRIMARY);
+        system_wrap_label(p, "Scan with your phone to open the feedback form.", POS_STYLE_TEXT_PRIMARY);
+        system_wrap_label(p, "No sign-in required. Contact details are optional.", POS_STYLE_TEXT_SECONDARY);
+        snprintf(identity, sizeof(identity), "DOORS %s\nBuild %s", POCKETOS_VERSION, POCKETOS_BUILD_ID);
+        system_wrap_label(p, identity, POS_STYLE_VALUE);
+        system_wrap_label(p, "Include this version and build when reporting a bug.", POS_STYLE_TEXT_SECONDARY);
+        system_wrap_label(p, "Feedback is submitted to Microsoft Forms from your phone. DOORS sends nothing itself.", POS_STYLE_CAPTION);
+    }
+    p = a->feedback_large ? a->body : system_panel(a, SYSTEM_COL_RIGHT);
+    lv_obj_set_style_pad_row(p, 12, 0);
+    lv_obj_set_flex_align(p, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    a->feedback_border = lv_obj_create(p);
+    lv_obj_remove_style_all(a->feedback_border);
+    lv_obj_set_style_bg_color(a->feedback_border, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(a->feedback_border, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(a->feedback_border, LV_OBJ_FLAG_SCROLLABLE);
+    a->feedback_qr = lv_qrcode_create(a->feedback_border);
+    lv_obj_remove_style_all(a->feedback_qr);
+    lv_qrcode_set_quiet_zone(a->feedback_qr, false);
+    lv_qrcode_set_dark_color(a->feedback_qr, lv_color_black());
+    lv_qrcode_set_light_color(a->feedback_qr, lv_color_white());
+    lv_image_set_antialias(a->feedback_qr, false);
+    a->feedback_error = system_wrap_label(p, "QR code unavailable. Go back and reopen Help & Feedback to retry.", POS_STYLE_STATUS_ERROR_TEXT);
+    lv_obj_add_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN);
+    b = pocketui_button(p, a->feedback_large ? "Back" : "Enlarge QR code", on_feedback_size, a);
+    lv_obj_set_height(b, SYSTEM_ACTION_BTN_H);
+    pos_input_add_obj(b);
+}
+
 /* ABOUT: what this device and this build are, from system.info, asked for
  * once. Nothing on this page changes while it is up. Doors and the device
  * first; what they are built on beside them when wide. */
@@ -898,6 +994,7 @@ static void build_about(struct system_app *a)
 {
     const struct system_view *v = &a->view;
     lv_obj_t *p = system_panel(a, SYSTEM_COL_LEFT);
+    lv_obj_t *b;
 
     identity_row(p, "Doors", v->os_version);
     if (v->show_card) {
@@ -909,6 +1006,9 @@ static void build_about(struct system_app *a)
     pocketui_kv_row(p, "Platform", v->platform);
     pocketui_kv_row(p, "Vendor SDK", v->sdk);
     pocketui_kv_row(p, "CPUs", v->cpus);
+    b = pocketui_button(p, "Help & Feedback", on_feedback, a);
+    lv_obj_set_height(b, SYSTEM_ACTION_BTN_H);
+    pos_input_add_obj(b);
 }
 
 /* ---- the layout -------------------------------------------------------- *
@@ -1034,6 +1134,13 @@ static void arrange(struct system_app *a)
     if (!a->body) {
         return;
     }
+    if (a->feedback) {
+        if (!a->feedback_large) {
+            arrange_live(a);
+        }
+        feedback_arrange(a);
+        return;
+    }
     if (a->diag) {
         /* One column in either shape: log lines are better read across the
          * whole width than squeezed into half of it. */
@@ -1105,6 +1212,10 @@ static void rebuild(struct system_app *a)
     if (a->body) {
         lv_obj_delete(a->body);
     }
+    a->feedback_qr = NULL;
+    a->feedback_border = NULL;
+    a->feedback_error = NULL;
+    a->feedback_scale = 0;
     a->tabs = NULL;
     memset(a->tab_btn, 0, sizeof(a->tab_btn));
     a->cols = NULL;
@@ -1137,7 +1248,14 @@ static void rebuild(struct system_app *a)
     lv_obj_set_scroll_dir(a->body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(a->body, LV_SCROLLBAR_MODE_AUTO);
 
-    if (a->diag && v->phase == SYSTEM_VIEW_LIVE) {
+    if (a->feedback) {
+        if (!a->feedback_large) {
+            a->cols = stack(a->body);
+            a->col[0] = stack(a->cols);
+            a->col[1] = stack(a->cols);
+        }
+        build_feedback(a);
+    } else if (a->diag && v->phase == SYSTEM_VIEW_LIVE) {
         build_diag(a);
     } else if (v->phase == SYSTEM_VIEW_TERMINAL_REBOOT || v->phase == SYSTEM_VIEW_TERMINAL_POWEROFF) {
         /* Nothing is being polled any more, so there is no freshness to
@@ -1185,6 +1303,13 @@ static void rebuild(struct system_app *a)
     arrange(a);
     repaint(a);
     diag_repaint(a);
+    if (a->feedback) {
+        /* The new key target can take focus while its columns are still
+         * being built. Start the completed page at the top, after layout,
+         * so that early focus scrolling cannot clip the quiet zone. */
+        lv_obj_update_layout(a->body);
+        lv_obj_scroll_to_y(a->body, 0, LV_ANIM_OFF);
+    }
 }
 
 static int shape_changed(const struct system_app *a)
@@ -1309,7 +1434,7 @@ static void system_tick(void *priv)
         diag_repaint(a);
         return;
     }
-    if (a->tab == SYSTEM_TAB_ABOUT) {
+    if (a->feedback || a->tab == SYSTEM_TAB_ABOUT) {
         /* Nothing on it is live. */
         return;
     }
@@ -1352,6 +1477,16 @@ static int system_back(void *priv)
 {
     struct system_app *a = priv;
 
+    if (a && a->feedback) {
+        if (a->feedback_large) {
+            a->feedback_large = false;
+        } else {
+            a->feedback = false;
+            pocketos_shell_set_title(NULL);
+        }
+        rebuild(a);
+        return 1;
+    }
     if (!a || !a->diag) {
         return 0;
     }
