@@ -113,8 +113,13 @@ Alternative explanations, none isolated by this measurement:
   lowers objectness on similar cars.
 - **Label assignment for small objects** (SimOTA candidate radius and
   dynamic k).
-- **Training-time vs evaluation conditions:** training saw these images
-  only under mosaic, affine and multiscale, never at clean 416.
+- **Training-time vs evaluation conditions:** most epochs showed these
+  images only inside mosaics.
+  - The last 16 epochs (285-300) showed them un-mosaicked: letterboxed,
+    flipped with probability 0.5, colour-jittered with probability 7/8, at
+    multiscale 320-640.
+  - So they were rarely seen as an exact clean 416 frame.
+  - Corrected 2026-10-16; this first said "never at clean 416".
 - **The train-to-val gap:** generalisation, val composition (COCO val
   images include val2017), annotation-style differences, and the small
   val strata.
