@@ -1,0 +1,265 @@
+{
+ "basis": {
+  "checkpoint": "runs/traffic6_r0/best_ckpt.pth (sha256 a501b84c...)",
+  "saved_dets": "eval/traffic6_r0_best/val_dets.json",
+  "metric": "eval_mixed custom mixed metric, car",
+  "medium": "side416 in [16, 64)",
+  "score_threshold": 0.35,
+  "iou": 0.5,
+  "useful_candidate": 0.1,
+  "matching": "pycocotools greedy by score, area all, maxDets 100",
+  "test_conf": 0.01,
+  "nmsthre": 0.65,
+  "test_size": [
+   416,
+   416
+  ],
+  "medium_cars": 408,
+  "detected": 212,
+  "missed": 196,
+  "medium_by_source": {
+   "coco2017": 262,
+   "openimages_v7": 146
+  },
+  "missed_by_source": {
+   "coco2017": 131,
+   "openimages_v7": 65
+  }
+ },
+ "parity_rerun_vs_saved": {
+  "saved": 33102,
+  "rerun": 33102,
+  "image_class_groups_with_count_mismatch": 0,
+  "max_abs_score_diff": 0.0,
+  "max_abs_box_diff_px": 0.0
+ },
+ "categories": {
+  "no_useful_candidate": 87,
+  "below_threshold": 62,
+  "poor_localisation": 43,
+  "nms_suppressed": 2,
+  "wrong_class": 1,
+  "matching_conflict": 1
+ },
+ "categories_by_source": {
+  "below_threshold|coco2017": 34,
+  "below_threshold|openimages_v7": 28,
+  "matching_conflict|coco2017": 1,
+  "nms_suppressed|coco2017": 2,
+  "no_useful_candidate|coco2017": 58,
+  "no_useful_candidate|openimages_v7": 29,
+  "poor_localisation|coco2017": 35,
+  "poor_localisation|openimages_v7": 8,
+  "wrong_class|coco2017": 1
+ },
+ "below_or_none_by_factor": {
+  "below_threshold|low_car_confidence": 1,
+  "below_threshold|low_objectness": 61,
+  "no_useful_candidate|low_car_confidence": 3,
+  "no_useful_candidate|low_objectness": 70,
+  "no_useful_candidate|no_row_at_iou_0.5": 14
+ },
+ "wrong_class_classes": {
+  "truck": 1
+ },
+ "missed_flags": {
+  "n": 196,
+  "side416_median": 26.65,
+  "with_overlapping_car_iou_0.1": 0.22959183673469388,
+  "covered_by_other_class_>=0.3": 0.3877551020408163,
+  "touches_border": 0.22448979591836735,
+  "oi_occluded": 0.22959183673469388,
+  "oi_truncated": 0.12755102040816327,
+  "cars_in_image_median": 4.0
+ },
+ "detected_flags": {
+  "n": 212,
+  "side416_median": 37.3,
+  "with_overlapping_car_iou_0.1": 0.2688679245283019,
+  "covered_by_other_class_>=0.3": 0.2830188679245283,
+  "touches_border": 0.35377358490566035,
+  "oi_occluded": 0.2169811320754717,
+  "oi_truncated": 0.16981132075471697,
+  "cars_in_image_median": 4.0
+ },
+ "comparison": {
+  "both_detect": 182,
+  "only_base": 30,
+  "only_r1b": 28,
+  "both_miss": 168,
+  "recovered_by_base_category": {
+   "poor_localisation": 5,
+   "below_threshold": 17,
+   "wrong_class": 1,
+   "no_useful_candidate": 5
+  },
+  "both_miss_by_base_category": {
+   "poor_localisation": 38,
+   "below_threshold": 45,
+   "no_useful_candidate": 82,
+   "matching_conflict": 1,
+   "nms_suppressed": 2
+  },
+  "lost_by_compare_final_dets": {
+   "compare_car_det_below_thr": 27,
+   "no_compare_car_det_at_iou_0.5": 3
+  },
+  "lost_flags": {
+   "n": 30,
+   "side416_median": 33.6,
+   "with_overlapping_car_iou_0.1": 0.4,
+   "covered_by_other_class_>=0.3": 0.3333333333333333,
+   "touches_border": 0.2,
+   "oi_occluded": 0.3333333333333333,
+   "oi_truncated": 0.1,
+   "cars_in_image_median": 5.0
+  },
+  "recovered_flags": {
+   "n": 28,
+   "side416_median": 32.6,
+   "with_overlapping_car_iou_0.1": 0.17857142857142858,
+   "covered_by_other_class_>=0.3": 0.39285714285714285,
+   "touches_border": 0.25,
+   "oi_occluded": 0.17857142857142858,
+   "oi_truncated": 0.10714285714285714,
+   "cars_in_image_median": 4.0
+  }
+ },
+ "sample": [
+  {
+   "gt_id": 271384,
+   "uid": "coco:train2017:000000087207",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 277265,
+   "uid": "oi:validation:cb4eb9b7cb0651ee",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 275761,
+   "uid": "oi:validation:33c82eb81dcaa202",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 275006,
+   "uid": "coco:val2017:000000521141",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 276507,
+   "uid": "oi:validation:816590ce944e6f85",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 276765,
+   "uid": "oi:validation:9a54fedf74dbf0d0",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 273916,
+   "uid": "coco:val2017:000000053994",
+   "category": "below_threshold"
+  },
+  {
+   "gt_id": 273105,
+   "uid": "coco:train2017:000000420594",
+   "category": "matching_conflict"
+  },
+  {
+   "gt_id": 273774,
+   "uid": "coco:train2017:000000571821",
+   "category": "nms_suppressed"
+  },
+  {
+   "gt_id": 273145,
+   "uid": "coco:train2017:000000428116",
+   "category": "nms_suppressed"
+  },
+  {
+   "gt_id": 271926,
+   "uid": "coco:train2017:000000198604",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 277090,
+   "uid": "oi:validation:b9b195b3ca9af9a7",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 276472,
+   "uid": "oi:validation:7cd81ab642e8c21e",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 273490,
+   "uid": "coco:train2017:000000519852",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 273625,
+   "uid": "coco:train2017:000000540027",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 271351,
+   "uid": "coco:train2017:000000087100",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 272925,
+   "uid": "coco:train2017:000000384857",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 277461,
+   "uid": "oi:validation:dacda452c0ec2525",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 277726,
+   "uid": "oi:validation:ed3c4d467ffab88f",
+   "category": "no_useful_candidate"
+  },
+  {
+   "gt_id": 277352,
+   "uid": "oi:validation:d32dd202ccf68892",
+   "category": "poor_localisation"
+  },
+  {
+   "gt_id": 277975,
+   "uid": "oi:validation:feeffd1414537c2d",
+   "category": "poor_localisation"
+  },
+  {
+   "gt_id": 271071,
+   "uid": "coco:train2017:000000027777",
+   "category": "poor_localisation"
+  },
+  {
+   "gt_id": 271009,
+   "uid": "coco:train2017:000000015554",
+   "category": "poor_localisation"
+  },
+  {
+   "gt_id": 276800,
+   "uid": "oi:validation:9efd7baee1919169",
+   "category": "poor_localisation"
+  },
+  {
+   "gt_id": 274515,
+   "uid": "coco:val2017:000000309391",
+   "category": "poor_localisation"
+  },
+  {
+   "gt_id": 271492,
+   "uid": "coco:train2017:000000109338",
+   "category": "wrong_class"
+  }
+ ],
+ "sample_sheets": [
+  "sample_sheet_1.jpg",
+  "sample_sheet_2.jpg",
+  "sample_sheet_3.jpg"
+ ]
+}
