@@ -1,9 +1,14 @@
 # Training plan: DOORS-owned YOLOX-Tiny 416 for Traffic
 
-Status: **research, 2026-10-04.**
-- Production Vision is unchanged.
-- `yolov8n.kmodel` is not replaced.
-- No migration branch exists and nothing is merged.
+Status: **round closed 2026-10-16** (see section 15).
+- R0 is the production model: "R0 · Beta" in Doors 0.3.6.
+- R1-A and R1-B failed their fixed criteria.
+- No further training is authorised.
+
+Status when this plan was written (2026-10-04):
+- Production Vision was unchanged.
+- `yolov8n.kmodel` was not replaced.
+- No migration branch existed and nothing was merged.
 
 This work lives on the local branch `research/yolox-traffic-training`.
 - Pipeline: [`tools/vision/training/`](../../tools/vision/training/README.md)
@@ -708,3 +713,110 @@ Each of these mutations made the tests fail:
 - No real training, no dataset build, nothing on unit A/B.
 - The CUDA path of `train_loop.py` is written but has not run: there is no NVIDIA GPU here.
 - Bit-exact resume is proven on the CPU only. On XPU with 4 workers the evidence is continuity: lr, EMA count, samples and loss level.
+
+## 15. Closeout of the R0 / R1 round (2026-10-16)
+
+### Decision (owner, 2026-10-16)
+
+- **R0 stays the production model.**
+  - Shipped as "R0 · Beta" in Doors 0.3.6.
+  - kmodel sha256 `94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268`.
+  - Release and hardware records on master: `docs/releases/v0.3.6.md`,
+    `docs/hardware/VISION_MODEL_AB_GATE.md`,
+    `docs/hardware/V0.3.6_FRESH_CARD_TEST.md`.
+- **R1-A and R1-B failed** the criteria fixed before training
+  (R1A_PLAN.md section 3).
+- **The upstream YOLOX-Tiny 416 comparison** did not establish a better
+  replacement.
+- **The round is finished.** No R1-C and no further training is authorised.
+
+### Supporting results
+
+| Run | Val medium-car recall (P, needs ≥ 233/408) | mAP50:95 (mixed, val) | False positives (val) | Verdict | Record |
+|---|---|---|---|---|---|
+| R0 (baseline) | 212/408 | 0.4824 | 679 | baseline | [R0_TRAFFIC6_RESULTS.md](R0_TRAFFIC6_RESULTS.md) |
+| R1-A (no background objectness in unverified-Car Open Images pixels) | 216/408 (p 0.69) | 0.4551 | 2,281 | **FAIL** | [R1A_RESULTS.md](R1A_RESULTS.md) |
+| R1-B (the same, negatives kept inside labelled boxes) | 210/408 (p 0.90) | 0.4733 | 711 | **FAIL** | [R1B_RESULTS.md](R1B_RESULTS.md); pilot [R1B_PILOT.md](R1B_PILOT.md) |
+
+**Diagnostics** (exploratory, inference only):
+- [R0_MEDIUM_MISS_DIAG.md](R0_MEDIUM_MISS_DIAG.md) (val): of R0's 196 missed
+  medium cars, most are absent or weak objectness responses or
+  localisation; class, NMS and matching errors are rare.
+- [R0_MEDIUM_MISS_TRAIN_DIAG.md](R0_MEDIUM_MISS_TRAIN_DIAG.md): the same
+  pattern on a seeded training sample. Recall is 0.635 there, 0.644 at val's
+  mix, against 0.520 on val. Val is worse in some size and source strata.
+- [R0_UPSTREAM_OI_COMPARISON.md](R0_UPSTREAM_OI_COMPARISON.md): on the
+  Open Images half of that sample, upstream YOLOX-Tiny 416 found fewer
+  medium cars than R0 (0.573 against 0.618) with more false positives (398
+  against 162). R0 had an in-sample advantage there; upstream faced a domain
+  shift.
+
+### Remaining uncertainty (not established)
+
+- **Why R0 gives low objectness to many medium cars,** on training and val
+  images alike. Candidates, none isolated:
+  - model capacity or resolution at 416
+  - inconsistent or ambiguous labels, and unlabelled cars
+  - YOLOX's label assignment for small objects
+  - training-time augmentation
+- **Run-to-run spread:** one run per configuration, XPU training is not
+  bit-reproducible, and YOLOX loader workers reseed from `uuid4`.
+- **Performance on independent street scenes**, including DOORS-camera
+  frames. No independent, exhaustively labelled set exists. The 2026-10-04
+  frames have consensus ground truth partly built from upstream's outputs.
+
+### Retained artifacts (outside git, `C:\K230-work\yolox-train`; nothing deleted or moved)
+
+**Checkpoints and exports:**
+
+| Artifact | sha256 |
+|---|---|
+| `runs/traffic6_r0/best_ckpt.pth` | `a501b84c4c89a2f1…` |
+| `runs/traffic6_r0/final_ckpt.pth` | `f1a1575935c39ddf…` |
+| `runs/traffic6_r0/export/model.onnx` | `48722fb6ca7d38c4…` |
+| `runs/traffic6_r0/export/model.kmodel` | `94a20ac01692d9a7…` |
+| `runs/traffic6_r1a/best_ckpt.pth` | `16153983a1ec3859…` |
+| `runs/traffic6_r1a/final_ckpt.pth` | `3f18f5b272e6ba1d…` |
+| `runs/traffic6_r1b/best_ckpt.pth` | `a3675f01a431ca7a…` |
+| `runs/traffic6_r1b/final_ckpt.pth` | `3c163ebc2bc905c9…` |
+
+The hashes were re-checked on 2026-10-16. Each run directory also keeps
+`run.json`, `epochs.jsonl` and `iters.jsonl`.
+
+**Operations records:**
+- Session logs: `runs/traffic6_r*.log`, `runs/traffic6_r1b.session1-5.*.log`.
+- R1-B: `runs/r1b_supervisor.log`, `runs/r1b_interruptions.md`,
+  `runs/r1b_memory.csv`.
+
+**Evaluations:**
+- `eval/traffic6_r{0,1a,1b}_best/`: val and test detections and metrics.
+- `r0cmp/`: 2026-10-04 comparison. Its WSL roots are `~/work/r0cmp`, and the
+  original archive is `~/work/detector-eval`, from
+  `C:\K230\out\detector-eval-data.tar.gz`.
+- `r0miss/`, `r1a_eval/`, `r1b_eval/`, `r1b_prep/`.
+
+**Diagnostics:** `diag/r0_medium_val/`, `diag/r0_medium_train/`,
+`diag/upstream_vs_r0_oi/`. The image sheets stay outside git: they contain
+dataset imagery.
+
+**Frozen inputs:**
+- Dataset: `data/traffic6_r0` (manifest sha256 `27b45431…`).
+- Upstream checkpoint: WSL `~/work/detector-eval/dl/yolox_tiny.pth`
+  (`9de513de…`).
+
+**In git (this branch):**
+- Code: `tools/vision/training/` (`train_loop.py`, `neg_obj_mask.py`,
+  `eval/eval_mixed.py`, `eval/diag_missed_medium.py`,
+  `eval/compare_upstream_oi.py`).
+- Compact JSON records in `docs/vision/data/traffic6_r0/`.
+
+### No further experiment planned
+
+One possible future task is recorded, not authorised:
+- **What:** collect a small, independently labelled sample from the actual
+  DOORS camera. Include cars around 35 m away and scenes without cars.
+- **Use:** a bounded comparison of R0 with full-frame input against the
+  existing ROI/crop mode, measuring detection, false positives and runtime.
+- **Rule:** keep development and evaluation captures separate.
+- **Not now:** no data is collected, no comparison runs and the device is
+  not changed.
