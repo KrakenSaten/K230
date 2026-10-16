@@ -287,7 +287,7 @@ case "${MODE}" in
                     LV_FONT_DEJAVU_16_PERSIAN_HEBREW:dejavu-sans \
                     'LV_FONT_SOURCE_HAN_SANS_SC_1[46]_CJK:source-han-sans-sc' LV_FONT_UNSCII_8:unscii-8 \
                     LV_FONT_UNSCII_16:none \
-                    LV_USE_GIF:none LV_USE_QRCODE:none LV_USE_BARCODE:none LV_USE_LZ4_INTERNAL:none \
+                    LV_USE_GIF:none LV_USE_QRCODE:qrcodegen LV_USE_BARCODE:none LV_USE_LZ4_INTERNAL:none \
                     LV_USE_TINY_TTF:none LV_USE_XML:none LV_USE_FROGFS:none LV_USE_FT81X:none \
                     LV_USE_STDLIB_MALLOC:none LV_USE_STDLIB_SPRINTF:none LV_USE_DRAW_VG_LITE:none; do
             flag="${pair%%:*}"; entry="${pair##*:}"

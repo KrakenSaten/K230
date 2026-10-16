@@ -34,6 +34,9 @@
 #include "app.h"
 #include "pocketui.h"
 #include "shell_ipc.h"
+#include "system_internal.h"
+#include "feedback.h"
+#include "src/libs/lodepng/lodepng.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -343,6 +346,14 @@ void pocketos_shell_set_status_hint(const char *text)
     (void)text;
     shell_calls++;
 }
+static int fail_feedback_qr;
+lv_result_t __real_lv_qrcode_update(lv_obj_t *obj, const void *data, uint32_t len);
+lv_result_t __wrap_lv_qrcode_update(lv_obj_t *obj, const void *data, uint32_t len)
+{
+    return fail_feedback_qr ? LV_RESULT_INVALID : __real_lv_qrcode_update(obj, data, len);
+}
+static char shell_title[64];
+void pocketos_shell_set_title(const char *text) { snprintf(shell_title, sizeof(shell_title), "%s", text ? text : ""); }
 void pocketos_shell_go_home(void) { shell_calls++; }
 int pocketos_shell_reduced_motion(void) { return 0; }
 int64_t pocketos_shell_system_day(void) { return -1; }
@@ -1298,6 +1309,112 @@ static void check_sizes(enum pos_rotation rotation, enum pos_text_size size)
     pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
 }
 
+/* Focused feedback matrix. Set FEEDBACK_CAPTURE_DIR to retain simulator PNGs. */
+static void feedback_capture(const char *name)
+{
+    const char *dir = getenv("FEEDBACK_CAPTURE_DIR");
+    lv_draw_buf_t *snap;
+    unsigned char *rgb;
+    char path[512];
+    if (!dir) return;
+    snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB888);
+    check("feedback snapshot allocated", snap != NULL);
+    if (!snap) return;
+    rgb = malloc(snap->header.w * snap->header.h * 3);
+    if (!rgb) { lv_draw_buf_destroy(snap); check("capture memory", 0); return; }
+    for (unsigned y = 0; y < snap->header.h; y++) {
+        for (unsigned x = 0; x < snap->header.w; x++) {
+            const unsigned char *src = snap->data + y * snap->header.stride + x * 3;
+            unsigned char *dst = rgb + (y * snap->header.w + x) * 3;
+            dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0];
+        }
+    }
+    snprintf(path, sizeof(path), "%s/%s.png", dir, name);
+    check("feedback PNG saved", lodepng_encode24_file(path, rgb, snap->header.w, snap->header.h) == 0);
+    free(rgb);
+    lv_draw_buf_destroy(snap);
+}
+
+static int feedback_checks(void)
+{
+    const char *expected = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=vs8BABdVnkWHpewtoKeA6lgv2Sex3hFLvOE0xvUNR19UOTdaVDhCMU5MTVg4T1dBSzFXRzBTN0pYNi4u&lang=en-US";
+    check("exact owner URL, including language", strcmp(DOORS_FEEDBACK_FORM_URL, expected) == 0);
+    for (int shape = 0; shape < 3; shape++) {
+        for (int size = 0; size < POS_TEXT_SIZE_COUNT; size++) {
+            char name[80];
+            struct system_app *a;
+            lv_area_t box;
+            pos_theme_select_text_size(size);
+            use_display(shape == 1 ? POS_ROTATION_270 : POS_ROTATION_0, PANEL_CORNER);
+            if (shape == 2) {
+                struct pos_panel panel = { .width = 1280, .height = 720 };
+                struct pos_display_geometry g;
+                pos_display_geometry_init(&g, &panel, POS_ROTATION_0);
+                pocketui_set_display_geometry(&g);
+                lv_display_set_resolution(disp, 1280, 720);
+                lv_obj_set_size(g_content, 1280, 720 - STATUS_H);
+                pump(60);
+            }
+            app_start();
+            open_tab("ABOUT");
+            /* The new entry joins the normal key group; Enter opens it. */
+            check("About entry participates in keyboard navigation", lv_obj_get_group(target_of("Help & Feedback")) == pos_input_group());
+            pos_input_focus(target_of("Help & Feedback"));
+            pos_input_push_key(LV_KEY_ENTER); pump(100);
+            a = app_priv;
+            check("Enter opens Help & Feedback", a->feedback && strcmp(shell_title, "Help & Feedback") == 0);
+            check("required English instructions", shows("Report a bug, suggest a feature, or share your thoughts about DOORS.") &&
+                shows("Scan with your phone to open the feedback form.") && shows("No sign-in required. Contact details are optional."));
+            check("running shell identity shown without sysd", shows("DOORS " POCKETOS_VERSION "\nBuild " POCKETOS_BUILD_ID));
+            calls_reset(); tick(); tick();
+            check("feedback polls and submits nothing", call_count == 0);
+            body_box(&box);
+            check("feedback content stays in horizontal bounds", x_outside(app_body, &box) == 0);
+            check("QR generated successfully", a->feedback_scale > 0 && !has_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN));
+            check("initial QR and quiet zone visible without scrolling", in_view(a->feedback_border));
+            lv_obj_scroll_to_view_recursive(a->feedback_border, LV_ANIM_OFF); pump(60);
+            if (!in_view(a->feedback_border)) {
+                lv_area_t qrbox, scrollbox; area_of(a->feedback_border, &qrbox); area_of(scroller_of(a->feedback_border), &scrollbox);
+                printf("QR bounds %d,%d..%d,%d; scroll %d,%d..%d,%d; body %d,%d..%d,%d\n", qrbox.x1, qrbox.y1, qrbox.x2, qrbox.y2, scrollbox.x1, scrollbox.y1, scrollbox.x2, scrollbox.y2, box.x1, box.y1, box.x2, box.y2);
+            }
+            check("whole QR and quiet zone visible together", in_view(a->feedback_border));
+            check("quiet zone is four modules", lv_obj_get_style_pad_left(a->feedback_border, 0) == 4 * a->feedback_scale);
+            snprintf(name, sizeof(name), "%s-%s", shape == 0 ? "portrait" : shape == 1 ? "landscape" : "external-1280x720", pos_text_size_name(size));
+            feedback_capture(name);
+            pos_input_focus(target_of("Enlarge QR code"));
+            pos_input_push_key(LV_KEY_ENTER); pump(100);
+            check("Enter opens enlarged QR", a->feedback_large);
+            check("enlarged QR fits body", in_view(a->feedback_border));
+            snprintf(name, sizeof(name), "%s-%s-large-qr", shape == 0 ? "portrait" : shape == 1 ? "landscape" : "external-1280x720", pos_text_size_name(size));
+            feedback_capture(name);
+            check("Back closes enlarged view", app_system.back(app_priv) == 1 && !a->feedback_large && a->feedback);
+            pump(60);
+            int objects = count_objects(app_body);
+            for (int i = 0; i < 5; i++) {
+                tap("Enlarge QR code");
+                tap("Back");
+            }
+            check("repeated enlargement leaves stable object count", count_objects(app_body) == objects);
+            check("Back returns to About", app_system.back(app_priv) == 1 && !a->feedback && tab_on("ABOUT") && !shell_title[0]);
+            if (shape == 0 && size == 0) {
+                fail_feedback_qr = 1;
+                tap("Help & Feedback");
+                check("generation failure hides QR and explains retry", has_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN) &&
+                    shows("QR code unavailable. Go back and reopen Help & Feedback to retry."));
+                fail_feedback_qr = 0;
+                app_system.back(app_priv);
+                tap("Help & Feedback");
+                check("reopening retries generation successfully", !has_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN));
+            }
+            app_stop();
+            check("feedback key targets removed on close", pos_input_focused() == NULL);
+        }
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    printf("feedback_app_test: %d checks, %d failures\n", checks, failed);
+    return failed > 0;
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -1317,6 +1434,8 @@ int main(void)
     g_content = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(g_content);
     use_display(POS_ROTATION_0, PANEL_CORNER);
+
+    if (getenv("FEEDBACK_ONLY")) return feedback_checks();
 
     /* ---- 1. it opens on OVERVIEW, and shows what sysd says ------------------------------ */
     calls_reset();

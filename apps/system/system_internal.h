@@ -100,6 +100,13 @@ struct system_app {
     lv_obj_t *svc_detail[SYSTEM_VIEW_MAX_SERVICES];
     struct system_net_widgets net;
     lv_obj_t *toast;
+    /* About > Help & Feedback, and its enlarged QR view. */
+    bool feedback;
+    bool feedback_large;
+    lv_obj_t *feedback_qr;
+    lv_obj_t *feedback_border;
+    lv_obj_t *feedback_error;
+    int feedback_scale;
     /* Diagnostics: the page, when it is the one shown */
     bool diag;
     struct diag_view dv;

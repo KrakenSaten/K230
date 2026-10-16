@@ -41,3 +41,6 @@ LV_BUILD_DEMOS 0
 LV_USE_SDL 0
 LV_USE_LINUX_DRM 0
 LV_USE_EVDEV 0
+
+# Offline Help & Feedback QR (bundled Nayuki encoder).
+LV_USE_QRCODE 1
