@@ -54,13 +54,23 @@ confidence counts as low objectness):
 | no useful candidate (87) | 70 | 3 | 14 |
 
 **What the rows show (measured).**
-- **Below threshold:** the best row is well placed and called car, but
-  objectness is low.
+
+A *geometrically matching row* is not the same as a *meaningful detection*.
+- YOLOX trains the class loss only on positive (assigned) anchors
+  (`yolo_head.py:391-395`). Every grid cell still regresses some box.
+- So a row whose objectness is near zero can overlap a car by chance of
+  geometry. Its "car confidence" is then unconstrained by training.
+- Car confidence is informative only where objectness is non-trivial.
+
+- **Below threshold** (car score 0.10-0.35): a weak but meaningful candidate.
+  The row is placed on the car, objectness is the smaller factor.
   - median IoU 0.72, all 62 with argmax car
   - car confidence p25/50/75 = 0.62 / 0.68 / 0.71
   - objectness 0.21 / 0.34 / 0.41
-- **No useful candidate, with a located row (73):** also placed and mostly
-  called car, but objectness is near zero.
+- **No meaningful candidate, geometric match only (73):** a row overlaps
+  the car at IoU ≥ 0.5, but objectness is near zero. This is **not** evidence
+  that the model recognised the car. The car-confidence values below are
+  reported, not interpreted.
   - median IoU 0.66, 61 with argmax car
   - car confidence 0.37 / 0.53 / 0.63
   - objectness 0.01 / 0.03 / 0.08
@@ -71,10 +81,15 @@ confidence counts as low objectness):
   - 27 of 43 overlap another labelled car (IoU ≥ 0.1)
   - 35 of 43 are COCO
 
-**Dominant mechanism (measured).** In **135 of 196 misses (69 %)** a
-well-placed box exists and its class is car or near-car, but **objectness
-is too low**. This is the failure seen on the 2026-10-04 street frames,
-reused here only as context. It also holds broadly on val.
+**Dominant pattern (measured; corrected 2026-10-16).**
+- **No meaningful candidate (87, 44 %):** the model effectively outputs
+  nothing for the car. Objectness is near zero, or no row matches.
+- **Weak candidate (62, 32 %):** objectness is the smaller factor.
+- **Localisation (43, 22 %).**
+
+The earlier wording ("a well-placed box exists and its class is car") read
+recognition into the 73 near-zero rows; that reading is withdrawn. The
+2026-10-04 street frames are context only.
 
 ## 3. Overlapping descriptors (measured, missed vs detected medium cars)
 
@@ -98,7 +113,8 @@ reused here only as context. It also holds broadly on val.
 
 Size is the strongest measured factor.
 
-**Not associated (measured, size-stratified where noted).**
+**No association detected by this analysis** (size-stratified where noted).
+This does not show that these factors have no effect:
 - An image with a car group-of box: recall 0.56 (19/34) against 0.52.
 - A labelled object ≥ 10× the car's area in the image: 16-32 px 0.37 vs
   0.39; 32-64 px 0.66 vs 0.68.
@@ -129,16 +145,18 @@ Size is the strongest measured factor.
 - **Crowding.** Poor-localisation cases are crowded rows (a marina car
   park, a car-show row, stacked traffic). The confident box covers a
   neighbour or a fragment.
-- **Possible annotation ambiguity, about 6 of 26** (Wilson 95 % about
-  11-42 %):
+- **Possible annotation ambiguity in 6 of the 26 reviewed cases.** The 26
+  were sampled by category, not at random from all misses. The count is
+  therefore not an estimate of the ambiguity rate among all 196 misses, and
+  carries no confidence interval. The cases:
   - 3 cars seen as reflections or through glass: a side mirror, a
     windscreen, a car window
   - an airport tug labelled car
   - a bus-like vehicle labelled car
   - a pickup labelled car, predicted truck
 
-**Not supported by the measurable proxy.** The "background behind a
-foreground subject" impression shows no recall difference against a large
+**No association detected by the measurable proxy.** The "background behind
+a foreground subject" impression shows no recall difference against a large
 labelled object (§3). Fences, poles and foliage are unlabelled, so that
 proxy cannot test occlusion by them.
 
@@ -169,12 +187,12 @@ proxy cannot test occlusion by them.
 - the category counts and score factors above
 - parity with the saved detections
 - the size dependence
-- the absent associations in §3
+- the subgroup comparisons in §3 (no association detected)
 - the R0/R1-B 2×2 table
 
 **Inferred:**
-- Low objectness on correctly placed car boxes is the dominant proximate
-  failure on val medium cars.
+- Most val medium-car misses are absent or weak objectness responses (149 of
+  196), not class or NMS errors.
 - Ignoring background objectness in unverified Open Images pixels (R1-A,
   R1-B) did not address it.
 
@@ -184,24 +202,15 @@ proxy cannot test occlusion by them.
   - YOLOX's label assignment for small and medium objects
   - occlusion by unlabelled objects
   - a train/val difference
-- Whether R0 shows the same suppression on **training** medium cars. That
-  separates a training-signal problem from a generalisation problem.
+- Measured since on training images (R0_MEDIUM_MISS_TRAIN_DIAG.md).
 - The true share of annotation-ambiguous misses: an estimate from 26 cases
   only.
 
-## 7. Recommended next action (one, no training)
+## 7. Next action
 
-**Measure R0 on training data with the same diagnostic.**
-- Run `diag_missed_medium.py`'s rules (same checkpoint, metric, thresholds,
-  categories) on a seeded sample of training images containing medium cars,
-  for example 1,000 images, split by source.
-- **If** training medium cars show the same low-objectness misses, the
-  model never learns to rate such cars as objects. Look at the training
-  signal next (labels or assignment).
-- **If** training medium cars are found and val ones are not, it is a
-  generalisation gap. Training-signal changes such as R1-A/B are then the
-  wrong lever.
-
-Cost: inference only, minutes on the B580, no new data, no use of val or
-test. Proposing another training experiment before this measurement is not
-justified by the evidence.
+Done on 2026-10-16: the same measurement on training images. See
+[R0_MEDIUM_MISS_TRAIN_DIAG.md](R0_MEDIUM_MISS_TRAIN_DIAG.md).
+- The pattern also occurs there: about 36 % of training medium cars are
+  missed.
+- Val is worse in some strata.
+- The follow-up recommendation is in that report.

@@ -139,6 +139,109 @@ def rerun(exp_path, ckpt, device, keep_ids):
     return raw, dets, {"test_conf": exp.test_conf, "nmsthre": exp.nmsthre, "test_size": list(exp.test_size)}
 
 
+BANDS = ((16, 24), (24, 32), (32, 48), (48, 64))
+
+
+def eval_dataset(data_dir, json_file, folder, test_size):
+    """exp.get_eval_dataset's construction (COCODataset + ValTransform(legacy=False)) on
+    any annotation file: no training augmentation."""
+    from yolox.data import COCODataset, ValTransform
+
+    return COCODataset(data_dir=data_dir, json_file=json_file, name=folder, img_size=test_size,
+                       preproc=ValTransform(legacy=False))
+
+
+def same_preprocessing(exp, n=8):
+    """Data-path check without running the model: eval_dataset() on traffic_val.json
+    must give byte-identical tensors to exp.get_eval_loader's dataset."""
+    ref = exp.get_eval_loader(batch_size=16, is_distributed=False).dataset
+    ours = eval_dataset(exp.data_dir, exp.val_ann, "val2017", exp.test_size)
+    same = all(np.array_equal(ref[i][0], ours[i][0]) and tuple(ref[i][2]) == tuple(ours[i][2]) for i in range(n))
+    return {"items_compared": n, "identical": bool(same)}
+
+
+def select_train_sample(data_dir, n, seed):
+    """Seeded sample of training images with >= 1 scored medium car, half COCO and half
+    Open Images. Eligibility uses annotations only, never model output."""
+    data_dir = Path(data_dir)
+    gt = json.loads((data_dir / "annotations" / "traffic_train.json").read_text(encoding="utf-8"))
+    rows = {}
+    with open(data_dir / "manifest_train.jsonl", encoding="utf-8") as f:
+        for line in f:
+            r = json.loads(line)
+            rows[r["image_id"]] = r
+    ev_by_img, _, _ = em.evaluability(gt, rows)
+    size = {i["id"]: (i["width"], i["height"]) for i in gt["images"]}
+    car = {c["name"]: c["id"] for c in gt["categories"]}["car"]
+    has_medium = {a["image_id"] for a in gt["annotations"]
+                  if a["category_id"] == car and not a["iscrowd"] and "car" in ev_by_img[a["image_id"]]
+                  and em.bucket(em.side416(a["bbox"][2], a["bbox"][3], *size[a["image_id"]])) == "medium"}
+    rnd = random.Random(seed)
+    picked, info = [], {"method": "per source: sorted eligible image ids, random.Random(seed).sample, equal halves",
+                        "seed": seed, "eligibility": "car scored (eval_mixed.evaluability) and >= 1 non-crowd medium car",
+                        "eligible_images": {}, "sampled_images": {}}
+    for src in ("coco2017", "openimages_v7"):
+        elig = sorted(i for i in has_medium if rows[i]["source"] == src)
+        take = sorted(rnd.sample(elig, min(n // 2, len(elig))))
+        picked += take
+        info["eligible_images"][src], info["sampled_images"][src] = len(elig), len(take)
+    keep = set(picked)
+    sub = {"images": [i for i in gt["images"] if i["id"] in keep],
+           "annotations": [a for a in gt["annotations"] if a["image_id"] in keep], "categories": gt["categories"]}
+    info["image_ids_sha256"] = __import__("hashlib").sha256(",".join(map(str, sorted(keep))).encode()).hexdigest()
+    return sub, {i: rows[i] for i in keep}, info
+
+
+def rerun_ids(exp, ckpt, device, json_file, folder, ids):
+    """rerun() on the images `ids` of one annotation file, through eval_dataset()."""
+    import torch
+    from yolox.evaluators import COCOEvaluator
+    from yolox.utils import postprocess
+    from smoke_train import resolve_device, sync
+
+    dev = resolve_device(device)
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+    model = exp.get_model().to(dev)
+    model.load_state_dict(ck["model"])
+    model.eval()
+    ds = eval_dataset(exp.data_dir, json_file, folder, exp.test_size)
+    pos = {iid: k for k, iid in enumerate(ds.ids)}
+    sub = torch.utils.data.Subset(ds, [pos[i] for i in sorted(ids)])
+    sub.class_ids = ds.class_ids  # convert_to_coco_format reads dataloader.dataset.class_ids
+    loader = torch.utils.data.DataLoader(sub, batch_size=16, sampler=torch.utils.data.SequentialSampler(sub),
+                                         num_workers=exp.data_num_workers, pin_memory=True)
+    conv = COCOEvaluator(loader, exp.test_size, exp.test_conf, exp.nmsthre, exp.num_classes)
+    raw, dets = {}, []
+    with torch.no_grad():
+        for imgs, _, info_imgs, iids in loader:
+            out = model(imgs.to(dev).float())
+            for k, iid in enumerate(iids):
+                h, w = float(info_imgs[0][k]), float(info_imgs[1][k])
+                raw[int(iid)] = (out[k].float().cpu().numpy().copy(), min(exp.test_size[0] / h, exp.test_size[1] / w))
+            dets.extend(conv.convert_to_coco_format(postprocess(out.clone(), exp.num_classes, exp.test_conf, exp.nmsthre),
+                                                    info_imgs, iids))
+    sync(dev)
+    for d in dets:
+        d.pop("segmentation", None)
+    return raw, dets
+
+
+def strata(base, recs, rows):
+    """Recall and category counts per (source, side416 band) of the medium cars."""
+    out = {}
+    for src in ("coco2017", "openimages_v7"):
+        for lo, hi in BANDS:
+            s = [g for g in base["medium"] if rows[g["image_id"]]["source"] == src
+                 and lo <= em.side416(g["bbox"][2], g["bbox"][3], *base["size"][g["image_id"]]) < hi]
+            miss = [g for g in s if g["id"] in base["missed"]]
+            cats = Counter("%s%s" % (recs[g["id"]]["category"], "|" + recs[g["id"]]["factor"] if recs[g["id"]].get("factor") else "")
+                           for g in miss)
+            out["%s|%d-%d" % (src, lo, hi)] = {"gt": len(s), "detected": len(s) - len(miss),
+                                               "recall": round((len(s) - len(miss)) / len(s), 3) if s else None,
+                                               "missed_categories": dict(cats.most_common())}
+    return out
+
+
 def parity(saved, rerun_dets):
     key = lambda d: (d["image_id"], d["category_id"])  # noqa: E731
     a, b = defaultdict(list), defaultdict(list)
@@ -330,7 +433,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--exp", required=True)
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--saved-dets", required=True)
+    ap.add_argument("--split", default="val", choices=("val", "train"),
+                    help="val: the saved detections' split; train: a seeded training sample (--train-images, --seed)")
+    ap.add_argument("--saved-dets", help="val: saved detections of --ckpt (required for val)")
+    ap.add_argument("--train-images", type=int, default=1000)
+    ap.add_argument("--seed", type=int, default=20261017)
+    ap.add_argument("--val-dets", help="train: saved val detections of --ckpt, for the stratum comparison")
+    ap.add_argument("--val-records", help="train: missed_medium_cars.json of the val diagnostic")
     ap.add_argument("--compare-dets")
     ap.add_argument("--compare-name", default="other")
     ap.add_argument("--out", required=True)
@@ -344,13 +453,28 @@ def main():
     exp._check_dataset()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    gt, rows, _ = em.load_split(exp.data_dir, "val")
-    saved = json.loads(Path(a.saved_dets).read_text())
-    base = medium_car_outcomes(gt, rows, saved)
-    missed = [x for x in base["medium"] if x["id"] in base["missed"]]
-    keep = {g["image_id"] for g in missed}
-    raw, rerun_dets, settings = rerun(a.exp, a.ckpt, a.device, keep)
-    par = parity(saved, rerun_dets)
+    exp.data_num_workers = 4
+    if a.split == "val":
+        if not a.saved_dets:
+            ap.error("--saved-dets is required for --split val")
+        gt, rows, _ = em.load_split(exp.data_dir, "val")
+        saved = json.loads(Path(a.saved_dets).read_text())
+        base = medium_car_outcomes(gt, rows, saved)
+        missed = [x for x in base["medium"] if x["id"] in base["missed"]]
+        keep = {g["image_id"] for g in missed}
+        raw, rerun_dets, settings = rerun(a.exp, a.ckpt, a.device, keep)
+        par = parity(saved, rerun_dets)
+        selection = None
+    else:
+        # training sample: no saved detections exist; the data path is checked instead
+        gt, rows, selection = select_train_sample(exp.data_dir, a.train_images, a.seed)
+        par = {"same_preprocessing_as_get_eval_loader": same_preprocessing(exp)}
+        raw, dets = rerun_ids(exp, a.ckpt, a.device, exp.train_ann, "train2017", rows.keys())
+        settings = {"test_conf": exp.test_conf, "nmsthre": exp.nmsthre, "test_size": list(exp.test_size)}
+        (out / "train_sample_dets.json").write_text(json.dumps(dets))
+        base = medium_car_outcomes(gt, rows, dets)
+        missed = [x for x in base["medium"] if x["id"] in base["missed"]]
+        selection["medium_cars_in_sample"] = dict(Counter(rows[g["image_id"]]["source"] for g in base["medium"]))
 
     gt_by_img = defaultdict(list)
     for x in gt["annotations"]:
@@ -392,6 +516,7 @@ def main():
                   "matching": "pycocotools greedy by score, area all, maxDets 100", **settings,
                   "medium_cars": len(base["medium"]), "detected": len(hit), "missed": len(missed),
                   "medium_by_source": dict(medium_src), "missed_by_source": dict(missed_src)},
+        "split": a.split, "train_selection": selection,
         "parity_rerun_vs_saved": par,
         "categories": dict(cats.most_common()),
         "categories_by_source": {"%s|%s" % k: v for k, v in sorted(by_source.items())},
@@ -444,10 +569,21 @@ def main():
     report["sample"] = [{"gt_id": g["id"], "uid": rows[g["image_id"]]["uid"], "category": recs[g["id"]]["category"]}
                         for g in sample]
     report["sample_sheets"] = sheets(sample, recs, rows, exp.data_dir, base["final_car"], raw, out)
+    report["strata"] = strata(base, recs, rows)
+    if a.split == "train" and a.val_dets and a.val_records:
+        # the saved val results, re-scored from saved files only (no inference on val)
+        vgt, vrows, _ = em.load_split(exp.data_dir, "val")
+        vbase = medium_car_outcomes(vgt, vrows, json.loads(Path(a.val_dets).read_text()))
+        vrecs = {int(k): v for k, v in json.loads(Path(a.val_records).read_text()).items()}
+        if set(vrecs) != vbase["missed"]:
+            raise SystemExit("val records do not match the saved val detections")
+        report["val_strata"] = strata(vbase, vrecs, vrows)
+        report["val_categories"] = dict(Counter(r["category"] for r in vrecs.values()).most_common())
     (out / "missed_medium_cars.json").write_text(json.dumps(recs, indent=1, default=str))
     (out / "report.json").write_text(json.dumps(report, indent=1, default=str))
-    print(json.dumps({k: report[k] for k in ("basis", "parity_rerun_vs_saved", "categories", "below_or_none_by_factor",
-                                             "wrong_class_classes", "missed_flags", "detected_flags")} |
+    print(json.dumps({k: report[k] for k in ("basis", "train_selection", "parity_rerun_vs_saved", "categories",
+                                             "below_or_none_by_factor", "wrong_class_classes", "missed_flags",
+                                             "detected_flags", "strata") + (("val_strata",) if "val_strata" in report else ())} |
                      ({"comparison": {k: v for k, v in report["comparison"].items() if not k.endswith("flags")}}
                       if a.compare_dets else {}), indent=1, default=str))
 
