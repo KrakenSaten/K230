@@ -14,6 +14,7 @@ cd7f752b9d2867f6064dda599135197ad63d33bd5565fd4f908e282bac8d235d  ui/assets/door
 779cad5c1fd77cb5470ba06438d310e235706cb41c769134c262db923151284f  ui/assets/doors/icon-fleet.bin  faf7d496011d9d7573bfe307a3fb7adb2f310961e30ae8eafa1148e2807caaad  docs/design/brand/doors-threshold/icons/svg/fleet.svg
 60f413454bb0023d3bff5d8bf535a70d8c7dd85f1513535d677ef7079794564f  ui/assets/doors/icon-games.bin  3b0e5dfa11296f8ed47ab41961a4c35a09a032c3325cf616f58db87da7c8aa91  docs/design/doors-app-icons/svg/games.svg
 d37b7cae8d9c39be0ad9c4bc54bca2008f302bffc17913dd07e13a48f100c76a  ui/assets/doors/icon-mp3.bin  775d986093afd076e00fe044581781127b4824d5e24fccba9b9b2727968a881a  docs/design/doors-app-icons/svg/mp3.svg
+9bfce155ee881c6b2b542a88703096b1921765bfe8289f12249f325555c7b96b  ui/assets/doors/icon-ninjaone.bin  d2622d1857532be6ed30b86541930e5eded9451c32b82fb2325c74dd42a1ddd4  docs/design/doors-app-icons/svg/ninjaone.svg
 d91fd4d8d44c11f82e16257189a9d3fc990eb938ed05333096c62e52f95fe485  ui/assets/doors/icon-notes.bin  1f15abe11c3ce599fb99ce2ae05d9546d91d2e70208bae579dcb92d6a13ef040  docs/design/brand/doors-threshold/icons/svg/notes.svg
 578fa5929f46ca710789c59d1ecbfbbb32c8ade47fc5f79f8e675b4cd82bc0b4  ui/assets/doors/icon-photo.bin  c02f367a4f1881b567992cf14e307f650c6898deb19e02b4e4fff3eb8c785407  docs/design/brand/doors-icon-extension/svg/gallery.svg
 ac53cf7017a93bffeb31a8cbaeae581b02bc9d921c91d4550ffdf63e2d15f339  ui/assets/doors/icon-poker.bin  468db04479b0a198e621cc92dee438901ff4d5fbce922c57ddc5c826e9fce3f8  docs/design/doors-app-icons/svg/poker.svg

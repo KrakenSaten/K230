@@ -398,6 +398,13 @@ if(POCKETOS_WITH_ZABBIX)
     message(STATUS "Zabbix viewer: built into the shell (experiment)")
 endif()
 
+# NinjaOne: UI and bounded helper IPC only. No curl/cJSON on this path.
+target_sources(pocketos-shell PRIVATE
+    ${REPO_DIR}/apps/ninjaone/ninja_app.c
+    ${REPO_DIR}/apps/ninjaone/ninja_session.c
+    ${REPO_DIR}/core/ninjaone/ninja_model.c)
+target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/ninjaone")
+
 # PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
 # rendered into docs/design/timber-art/rendered are converted to LVGL image
 # arrays here, at configure time, into the build tree; nothing generated is

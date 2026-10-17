@@ -170,7 +170,7 @@ for n in names:
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
     # Photo's mask is the extension's Gallery (gen_app_icons.py APP_IDS).
     W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder", "photo") else
-                                         first if n in ("zabbix", "browser", "vision", "mp3", "video", "solitaire", "blackjack", "2048", "deskbuddy", "terminal", "poker") else art,
+                                         first if n in ("zabbix", "ninjaone", "browser", "vision", "mp3", "video", "solitaire", "blackjack", "2048", "deskbuddy", "terminal", "poker") else art,
                                          "gallery" if n == "photo" else n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
@@ -184,9 +184,9 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes photo poker radar radio recorder settings solitaire system terminal timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 26,624 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "26624" ] && echo 1 || echo 0)"
+    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 ninjaone notes photo poker radar radio recorder settings solitaire system terminal timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 27,648 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "27648" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
 check "of the extension's thirteen icons only Wave, Files, Camera, Recorder and Gallery (Photo's) are compiled in (${extra} sources)" \
     "$([ "${extra}" = "5" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
@@ -195,8 +195,13 @@ check "of the extension's thirteen icons only Wave, Files, Camera, Recorder and 
        grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/gallery.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
-check "and eleven first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games', DeskBuddy's, the Terminal's and Poker's (${first} sources)" \
-    "$([ "${first}" = "11" ] && echo 1 || echo 0)"
+check "and twelve first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games', DeskBuddy's, the Terminal's Poker's and NinjaOne's (${first} sources)" \
+    "$([ "${first}" = "12" ] && echo 1 || echo 0)"
+
+python3 tools/design/render_app_icon.py docs/design/doors-app-icons/svg/ninjaone.svg "${TMP}/ninjaone" >/dev/null 2>&1
+check "NinjaOne's original SVG reproduces both committed PNG sizes" \
+    "$(cmp -s "${TMP}/ninjaone/png-32/ninjaone.png" "${FIRST}/ninjaone.png" &&
+       cmp -s "${TMP}/ninjaone/png-24/ninjaone.png" docs/design/doors-app-icons/png-24/ninjaone.png && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
 refused() { # <label> <message fragment> <source>...
@@ -301,8 +306,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the twenty-six app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "26" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the twenty-seven app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "27" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime

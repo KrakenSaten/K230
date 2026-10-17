@@ -1,0 +1,8 @@
+<!-- Original Doors artwork: three monitored nodes and an alert marker.
+     Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+  <path d="M3 4H9V9H3Z"/>
+  <path d="M3 15H9V20H3Z"/>
+  <path d="M15 15H21V20H15Z"/>
+  <path d="M6 9v6M6 12h12v3M18 3v6M18 11v1"/>
+</svg>

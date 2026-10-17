@@ -74,13 +74,13 @@ static const char *const registry[] = { "radio", "system", "fleet", "radar", "ti
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
                                         "files", "camera", "browser", "recorder", "vision", "video",
                                         "solitaire", "blackjack", "poker", "2048", "mp3", "deskbuddy", "terminal",
-                                        "photo", "zabbix" };
+                                        "photo", "ninjaone", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
 /* Every app the launcher places, as the table orders them (groups, then the
  * table's rows); System, a page of Settings, is not among them. */
 static const char *const launcher_order[] = { "terminal", "rift", "browser", "settings",
-                                              "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave",
+                                              "deskbuddy", "mp3", "ninjaone", "photo", "radio", "video", "vision", "wave",
                                               "zabbix", "clock", "calendar", "calculator", "notes", "files",
                                               "recorder", "camera", "fleet", "radar", "timber", "solitaire",
                                               "blackjack", "poker", "2048" };
@@ -88,7 +88,7 @@ static const char *const launcher_order[] = { "terminal", "rift", "browser", "se
 
 /* DS §47. */
 static const char *const essentials[] = { "terminal", "rift", "browser", "settings" };
-static const char *const apps_folder[] = { "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave", "zabbix" };
+static const char *const apps_folder[] = { "deskbuddy", "mp3", "ninjaone", "photo", "radio", "video", "vision", "wave", "zabbix" };
 static const char *const utilities_folder[] = { "clock", "calendar", "calculator", "notes", "files", "recorder",
                                                 "camera" };
 static const char *const games_folder[] = { "fleet", "radar", "timber", "solitaire", "blackjack", "poker", "2048" };
@@ -120,7 +120,7 @@ static void test_groups(void)
         check("System is placed nowhere", strcmp(registry[order[k]], "system") != 0);
     }
     check("ESSENTIALS holds Terminal, RIFT, Browser and Settings", count[HOME_GROUP_ESSENTIALS] == 4);
-    check("FOLDERS holds the other twenty-two", count[HOME_GROUP_FOLDERS] == 22);
+    check("FOLDERS holds the other twenty-three", count[HOME_GROUP_FOLDERS] == 23);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
           strcmp(home_group_name(HOME_GROUP_ESSENTIALS), "ESSENTIALS") == 0 &&

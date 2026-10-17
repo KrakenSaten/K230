@@ -95,7 +95,7 @@ clean() { # <what>: nothing clipped, overlapping or sizeless on the screen now
     [ -n "$a" ] && [ "$1" = 0 ] && [ "$2" = 0 ] && [ "$3" = 0 ]
 }
 
-APPS_FOLDER="deskbuddy mp3 photo radio video vision wave zabbix"
+APPS_FOLDER="deskbuddy mp3 ninjaone photo radio video vision wave zabbix"
 UTILITIES_FOLDER="calculator calendar camera clock files notes recorder"
 GAMES_FOLDER="2048 blackjack fleet poker radar solitaire timber"
 ESSENTIALS="browser rift settings terminal"
