@@ -1,10 +1,22 @@
 # Known issues and open questions
 
-Updated 2026-10-09 for v0.3.6 (tag `v0.3.6`; docs/releases/v0.3.6.md),
-following v0.3.5 (tag `v0.3.5`; docs/releases/v0.3.5.md; the
+Updated 2026-10-17 for the 0.3.7 candidate (docs/releases/v0.3.7.md),
+following v0.3.6 (tag `v0.3.6`; docs/releases/v0.3.6.md) and v0.3.5 (tag
+`v0.3.5`; docs/releases/v0.3.5.md; the
 v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.
+
+- **HDMI is chosen at boot only** (0.3.7, docs/hardware/HDMI_OUTPUT.md):
+  `pos-display-boot hdmi|lcd && reboot`. There is no touch on HDMI, so
+  Settings cannot be navigated there; Vision's keyboard navigation is
+  untested on the device.
+- **No battery level** (0.3.7, docs/hardware/BATTERY_PROBE.md): the gauge's
+  configuration does not match the pack, so its state of charge is shown as
+  unvalidated and the level as unknown. Doors has no low-battery shutdown.
+- **RIFT's BASEMAP** (0.3.7, off by default) fetches OpenStreetMap tiles
+  when on; Wi-Fi off and a unit without a set clock are untested on
+  hardware.
 
 - **Vision's R0 detector is a beta and misses things** (v0.3.6,
   docs/apps/VISION.md "The model"). It can miss vehicles, including cars in
