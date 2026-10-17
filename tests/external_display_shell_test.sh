@@ -15,6 +15,9 @@
 #
 # Requires: SHELL_BIN (the CMake-built simulator with the test hooks), pos
 # and tools/vision/pos-vision (make all). Run from the repository root.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 POS=${POS:-tools/pos/pos}

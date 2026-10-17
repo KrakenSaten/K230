@@ -129,6 +129,7 @@ docs/design/shots/timber-run-slate.png                                          
 docs/design/shots/timber-run.png                                                             ORIGINAL        simulator capture changed before 2026-09-15 09:09
 docs/design/shots/*                                                                          CAPTURE         simulator or unit capture changed on or after 2026-09-15 09:09
 docs/apps/*                                                                                  CAPTURE         app documentation captures
+docs/validation/*.png                                                                        CAPTURE         simulator captures recorded with a validation report
 docs/design/astra-handoff/*                                                                  CAPTURE         simulator renders for the design hand-off
 docs/design/brand/shots/*                                                                    CAPTURE         brand integration contact sheets
 docs/design/doors-app-theme/*                                                                CAPTURE         theme contact sheets; show the AI backgrounds
