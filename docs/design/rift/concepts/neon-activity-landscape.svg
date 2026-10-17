@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1232" height="568" viewBox="0 0 1232 568" role="img" aria-label="RIFT Neon landscape Activity concept with service status, nodes, repeaters, mesh traffic and event list"><title>RIFT Neon — Activity landscape design concept</title><desc>Exploratory mockup with sample values. This is not a product screenshot or implementation specification.</desc><rect width="1232" height="568" fill="#050B13"/><rect x="1" y="1" width="1230" height="566" rx="13" fill="none" stroke="#234C61" stroke-width="2"/>
+<text x="23" y="34" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="28" font-weight="800" fill="#27E3EF" text-anchor="start">RIFT</text>
+<text x="118" y="31" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="18" font-weight="700" fill="#EAF7FF" text-anchor="start">ACTIVITY</text>
+<circle cx="898" cy="26" r="5" fill="#38F2A3"/>
+<text x="912" y="32" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#38F2A3" text-anchor="start">RADIO ONLINE</text>
+<text x="1075" y="31" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="500" fill="#8CA3B5" text-anchor="start">EU868</text>
+<text x="1140" y="31" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="14" font-weight="500" fill="#EAF7FF" text-anchor="start">14:27</text>
+<path d="M 20 45 L 1212 45" stroke="#264356" stroke-width="1" fill="none"/>
+<rect x="20" y="54" width="100" height="33" rx="5" fill="#0A2631" stroke="#27E3EF" stroke-width="1"/>
+<text x="70" y="76" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" fill="#27E3EF" text-anchor="middle">ACTIVITY</text>
+<text x="169" y="76" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="600" fill="#8CA3B5" text-anchor="middle">NODES</text>
+<text x="264" y="76" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="600" fill="#8CA3B5" text-anchor="middle">COMMS</text>
+<text x="351" y="76" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="600" fill="#8CA3B5" text-anchor="middle">NET</text>
+<text x="1155" y="75" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="end">LANDSCAPE</text>
+<circle cx="1199" cy="70" r="4" fill="#38F2A3"/>
+<rect x="20" y="98" width="258" height="105" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<circle cx="40" cy="117" r="5" fill="#38F2A3"/>
+<text x="54" y="122" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="650" fill="#8CA3B5" text-anchor="start">RADIO SERVICE</text>
+<text x="36" y="159" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="32" font-weight="800" fill="#38F2A3" text-anchor="start">ONLINE</text>
+<text x="37" y="181" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="500" fill="#EAF7FF" text-anchor="start">radiod connected</text>
+<text x="37" y="196" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">lease held · TX ready</text>
+<rect x="286" y="98" width="168" height="105" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<text x="303" y="121" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="600" fill="#8CA3B5" text-anchor="start">NODES HELD</text>
+<text x="303" y="168" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="41" font-weight="750" fill="#EAF7FF" text-anchor="start">24</text>
+<text x="305" y="188" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">mesh node table</text>
+<rect x="462" y="98" width="168" height="105" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<text x="478" y="121" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="600" fill="#8CA3B5" text-anchor="start">REPEATERS</text>
+<text x="479" y="168" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="41" font-weight="750" fill="#27E3EF" text-anchor="start">5</text>
+<text x="480" y="188" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">last 0-hop scan</text>
+<rect x="638" y="98" width="282" height="105" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<text x="657" y="121" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="600" fill="#8CA3B5" text-anchor="start">RX EVENTS · SERVICE</text>
+<text x="658" y="168" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="40" font-weight="750" fill="#39B8FF" text-anchor="start">2,627</text>
+<text x="890" y="189" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="500" fill="#8CA3B5" text-anchor="end">received</text>
+<rect x="661" y="187.35" width="7" height="2.6500000000000004" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="672.5" y="185.76" width="7" height="4.24" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="684" y="184.17" width="7" height="5.83" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="695.5" y="186.29" width="7" height="3.71" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="707" y="182.05" width="7" height="7.95" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="718.5" y="178.87" width="7" height="11.13" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="730" y="183.64" width="7" height="6.36" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="741.5" y="180.46" width="7" height="9.540000000000001" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="753" y="186.82" width="7" height="3.18" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="764.5" y="183.64" width="7" height="6.36" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="776" y="177.28" width="7" height="12.72" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="787.5" y="182.58" width="7" height="7.42" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="799" y="185.23" width="7" height="4.7700000000000005" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="810.5" y="183.64" width="7" height="6.36" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="822" y="181.52" width="7" height="8.48" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="833.5" y="185.76" width="7" height="4.24" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="845" y="180.46" width="7" height="9.540000000000001" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="856.5" y="184.17" width="7" height="5.83" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="868" y="179.93" width="7" height="10.07" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="879.5" y="185.23" width="7" height="4.7700000000000005" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="891" y="183.64" width="7" height="6.36" rx="1" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="928" y="98" width="284" height="105" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<text x="947" y="121" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="600" fill="#8CA3B5" text-anchor="start">TX OK · SERVICE</text>
+<text x="948" y="168" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="40" font-weight="750" fill="#FF9C39" text-anchor="start">6</text>
+<text x="1190" y="188" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="500" fill="#8CA3B5" text-anchor="end">successful submissions</text>
+<rect x="954" y="191.08" width="8" height="1.92" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="968" y="185.32" width="8" height="7.68" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="982" y="187.88" width="8" height="5.12" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="996" y="180.84" width="8" height="12.16" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1010" y="189.16" width="8" height="3.84" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1024" y="178.92" width="8" height="14.08" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1038" y="187.24" width="8" height="5.76" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1052" y="184.68" width="8" height="8.32" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1066" y="189.8" width="8" height="3.2" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1080" y="182.76" width="8" height="10.24" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1094" y="189.16" width="8" height="3.84" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1108" y="185.96" width="8" height="7.04" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1122" y="177.64" width="8" height="15.36" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1136" y="187.88" width="8" height="5.12" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1150" y="181.48" width="8" height="11.52" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="1164" y="185.32" width="8" height="7.68" rx="1" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<rect x="20" y="210" width="1192" height="132" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<circle cx="39" cy="227" r="4" fill="#38F2A3"/>
+<text x="53" y="231" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#EAF7FF" text-anchor="start">HEARD ON AIR</text>
+<text x="186" y="231" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">LAST 20 MIN</text>
+<text x="945" y="231" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#38F2A3" text-anchor="start">● MSG</text>
+<text x="1030" y="231" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#39B8FF" text-anchor="start">● ADV</text>
+<text x="1115" y="231" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#8CA3B5" text-anchor="start">● OTHER</text>
+<path d="M 46 263 L 1180 263" stroke="#1C3547" stroke-width="1" fill="none"/>
+<path d="M 46 291 L 1180 291" stroke="#1C3547" stroke-width="1" fill="none"/>
+<path d="M 46 319 L 1180 319" stroke="#1C3547" stroke-width="1" fill="none"/>
+<text x="47" y="335" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="10" font-weight="400" fill="#8CA3B5" text-anchor="start">20 MIN AGO</text>
+<text x="1181" y="335" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="10" font-weight="500" fill="#8CA3B5" text-anchor="end">NOW</text>
+<rect x="56" y="310.4" width="29" height="4.6" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="56" y="307.09999999999997" width="29" height="2.3" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="112.1" y="305.8" width="29" height="9.2" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="112.1" y="300.2" width="29" height="4.6" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="112.1" y="296.9" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="168.2" y="312.7" width="29" height="2.3" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="168.2" y="307.09999999999997" width="29" height="4.6" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="224.3" y="296.6" width="29" height="18.4" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="224.3" y="288.70000000000005" width="29" height="6.8999999999999995" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="224.3" y="285.40000000000003" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="280.4" y="310.4" width="29" height="4.6" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="280.4" y="307.09999999999997" width="29" height="2.3" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="280.4" y="301.49999999999994" width="29" height="4.6" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="336.5" y="303.5" width="29" height="11.5" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="336.5" y="297.9" width="29" height="4.6" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="392.6" y="312.7" width="29" height="2.3" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="392.6" y="297.9" width="29" height="13.799999999999999" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="448.7" y="296.6" width="29" height="18.4" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="448.7" y="284.1" width="29" height="11.5" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="448.7" y="278.5" width="29" height="4.6" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="504.8" y="287.4" width="29" height="27.599999999999998" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="504.8" y="279.5" width="29" height="6.8999999999999995" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="504.8" y="271.6" width="29" height="6.8999999999999995" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="560.9000000000001" y="298.9" width="29" height="16.099999999999998" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="560.9000000000001" y="295.59999999999997" width="29" height="2.3" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="560.9000000000001" y="287.7" width="29" height="6.8999999999999995" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="617" y="310.4" width="29" height="4.6" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="617" y="300.2" width="29" height="9.2" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="617" y="296.9" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="673.1" y="305.8" width="29" height="9.2" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="673.1" y="291" width="29" height="13.799999999999999" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="673.1" y="287.7" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="729.2" y="310.4" width="29" height="4.6" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="729.2" y="304.79999999999995" width="29" height="4.6" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="785.3000000000001" y="294.3" width="29" height="20.7" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="785.3000000000001" y="274.90000000000003" width="29" height="18.4" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="785.3000000000001" y="271.6" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="841.4" y="287.4" width="29" height="27.599999999999998" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="841.4" y="270.29999999999995" width="29" height="16.099999999999998" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="841.4" y="260.09999999999997" width="29" height="9.2" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="897.5" y="296.6" width="29" height="18.4" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="897.5" y="284.1" width="29" height="11.5" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="897.5" y="278.5" width="29" height="4.6" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="953.6" y="308.1" width="29" height="6.8999999999999995" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="953.6" y="304.8" width="29" height="2.3" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="953.6" y="301.5" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="1009.7" y="301.2" width="29" height="13.799999999999999" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="1009.7" y="291" width="29" height="9.2" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="1009.7" y="287.7" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="1065.8000000000002" y="310.4" width="29" height="4.6" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="1065.8000000000002" y="307.09999999999997" width="29" height="2.3" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="1065.8000000000002" y="303.79999999999995" width="29" height="2.3" rx="0" fill="#718296" stroke="none" stroke-width="0"/>
+<rect x="1121.9" y="312.7" width="29" height="2.3" rx="0" fill="#38F2A3" stroke="none" stroke-width="0"/>
+<rect x="1121.9" y="309.4" width="29" height="2.3" rx="0" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<rect x="20" y="350" width="421" height="157" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<circle cx="39" cy="370" r="4" fill="#38F2A3"/>
+<text x="53" y="374" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#EAF7FF" text-anchor="start">RECENTLY HEARD</text>
+<text x="419" y="374" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="650" fill="#27E3EF" text-anchor="end">NODES ›</text>
+<path d="M 35 385 L 426 385" stroke="#264356" stroke-width="1" fill="none"/>
+<text x="39" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">NODE</text>
+<text x="249" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">RSSI</text>
+<text x="356" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">AGE</text>
+<circle cx="40" cy="422" r="4" fill="#38F2A3"/>
+<text x="52" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="550" fill="#EAF7FF" text-anchor="start">Ridge</text>
+<text x="164" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="10" font-weight="550" fill="#38F2A3" text-anchor="start">DIRECT</text>
+<text x="251" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="500" fill="#EAF7FF" text-anchor="start">−67 dBm</text>
+<text x="356" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">12s</text>
+<path d="M 37 433 L 424 433" stroke="#142B3D" stroke-width="1" fill="none"/>
+<circle cx="40" cy="449" r="4" fill="#39B8FF"/>
+<text x="52" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="550" fill="#EAF7FF" text-anchor="start">North-1</text>
+<text x="164" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="10" font-weight="550" fill="#8CA3B5" text-anchor="start">RELAYED</text>
+<text x="251" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="500" fill="#EAF7FF" text-anchor="start">−81 dBm</text>
+<text x="356" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">28s</text>
+<path d="M 37 460 L 424 460" stroke="#142B3D" stroke-width="1" fill="none"/>
+<circle cx="40" cy="476" r="4" fill="#39B8FF"/>
+<text x="52" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="550" fill="#EAF7FF" text-anchor="start">Valley</text>
+<text x="164" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="10" font-weight="550" fill="#8CA3B5" text-anchor="start">RELAYED</text>
+<text x="251" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="500" fill="#EAF7FF" text-anchor="start">−92 dBm</text>
+<text x="356" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">1m</text>
+<rect x="449" y="350" width="544" height="157" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<circle cx="468" cy="370" r="4" fill="#38F2A3"/>
+<text x="482" y="374" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#EAF7FF" text-anchor="start">MESH ACTIVITY</text>
+<text x="971" y="374" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="650" fill="#27E3EF" text-anchor="end">RX LOG ›</text>
+<path d="M 464 385 L 977 385" stroke="#264356" stroke-width="1" fill="none"/>
+<text x="464" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">AGE</text>
+<text x="547" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">DIR</text>
+<text x="643" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">EVENT</text>
+<text x="895" y="401" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="600" fill="#8CA3B5" text-anchor="start">SIGNAL</text>
+<text x="465" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#EAF7FF" text-anchor="start">12s</text>
+<rect x="540" y="409" width="54" height="23" rx="5" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<text x="567" y="425" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#050B13" text-anchor="middle">RX</text>
+<text x="644" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#EAF7FF" text-anchor="start">MSG · Ridge</text>
+<text x="900" y="426" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">−67 dBm</text>
+<path d="M 465 433 L 974 433" stroke="#142B3D" stroke-width="1" fill="none"/>
+<text x="465" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#EAF7FF" text-anchor="start">22s</text>
+<rect x="540" y="436" width="54" height="23" rx="5" fill="#FF9C39" stroke="none" stroke-width="0"/>
+<text x="567" y="452" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#050B13" text-anchor="middle">TX</text>
+<text x="644" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#EAF7FF" text-anchor="start">OK · 42 B</text>
+<text x="900" y="453" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">—</text>
+<path d="M 465 460 L 974 460" stroke="#142B3D" stroke-width="1" fill="none"/>
+<text x="465" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#EAF7FF" text-anchor="start">28s</text>
+<rect x="540" y="463" width="54" height="23" rx="5" fill="#39B8FF" stroke="none" stroke-width="0"/>
+<text x="567" y="479" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#050B13" text-anchor="middle">RX</text>
+<text x="644" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="13" font-weight="400" fill="#EAF7FF" text-anchor="start">ADV · North-1</text>
+<text x="900" y="480" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">−81 dBm</text>
+<rect x="1001" y="350" width="211" height="157" rx="8" fill="#081521" stroke="#264356" stroke-width="1"/>
+<circle cx="1020" cy="370" r="4" fill="#38F2A3"/>
+<text x="1034" y="374" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#EAF7FF" text-anchor="start">SERVICE</text>
+<path d="M 1018 385 L 1195 385" stroke="#264356" stroke-width="1" fill="none"/>
+<text x="1018" y="411" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">radiod</text>
+<circle cx="1110" cy="407" r="3" fill="#38F2A3"/>
+<text x="1120" y="411" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="700" fill="#38F2A3" text-anchor="start">CONNECTED</text>
+<text x="1018" y="438" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">lease</text>
+<circle cx="1110" cy="434" r="3" fill="#38F2A3"/>
+<text x="1120" y="438" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="700" fill="#38F2A3" text-anchor="start">HELD</text>
+<text x="1018" y="465" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="400" fill="#8CA3B5" text-anchor="start">transmit</text>
+<circle cx="1110" cy="461" r="3" fill="#38F2A3"/>
+<text x="1120" y="465" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="700" fill="#38F2A3" text-anchor="start">READY</text>
+<rect x="1018" y="478" width="177" height="24" rx="4" fill="#092430" stroke="#27E3EF" stroke-width="1"/>
+<text x="1106" y="495" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" fill="#27E3EF" text-anchor="middle">OPEN RX LOG ›</text>
+<path d="M 20 513 L 1212 513" stroke="#264356" stroke-width="1" fill="none"/>
+<text x="32" y="545" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="26" font-weight="550" fill="#27E3EF" text-anchor="start">›</text>
+<text x="61" y="542" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="15" font-weight="400" fill="#8CA3B5" text-anchor="start">Search nodes or /msg /path /advert</text>
+<text x="1199" y="540" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="11" font-weight="500" fill="#8CA3B5" text-anchor="end">TAB PANE · ↑↓ SELECT · ENTER OPEN · ESC BACK</text>
+<text x="1199" y="557" font-family="IBM Plex Sans,Segoe UI,Arial,sans-serif" font-size="9" font-weight="500" fill="#5A7586" text-anchor="end">CONCEPT ONLY · SAMPLE DATA</text>
+</svg>
