@@ -15,6 +15,12 @@ the instructions, then to About; Home leaves System as usual. The new controls
 join the standard keyboard focus group: Tab/Shift+Tab and Enter work normally.
 A failed QR generation hides the code and gives a retry instruction.
 
+The code is pure black modules on a pure white quiet zone in every theme and
+display mode, drawn at whole-pixel module sizes without antialiasing. The two
+colours come from the design system's fixed scan colours (`pos_scan_dark()`,
+`pos_scan_light()` and `POS_STYLE_SCAN_SURFACE` in `ui/pocketui/pos_styles.h`),
+not from theme tokens, so the System app names no colour itself.
+
 The owner-maintained form URL is `DOORS_FEEDBACK_FORM_URL` in
 `apps/system/feedback.h`. Preserve the entire URL, including `&lang=en-US`;
 there is no short URL, browser action, prefill, or submission helper. Version

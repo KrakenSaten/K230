@@ -207,6 +207,21 @@ static void fill_identity_styles(void)
     }
 }
 
+/* ---- scan colours ------------------------------------------------------- *
+ *
+ * Fixed, like the screen-off black: what a code reader needs, not a theme
+ * colour, so no token and no display-mode adjustment applies to them.
+ */
+lv_color_t pos_scan_dark(void)
+{
+    return lv_color_hex(0x000000);
+}
+
+lv_color_t pos_scan_light(void)
+{
+    return lv_color_hex(0xffffff);
+}
+
 /* ---- fixed sizes (DS §46.4) --------------------------------------------- */
 
 /* The type role each style role draws in; -1 for a style with no font. The
@@ -798,6 +813,13 @@ static void fill_styles(void)
     s = &styles[POS_STYLE_SCREEN_OFF];
     reset(s);
     lv_style_set_bg_color(s, lv_color_hex(0x000000));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+
+    /* Scan surface: the quiet zone behind a code a camera reads, white in
+     * every theme and mode (pos_scan_light()). */
+    s = &styles[POS_STYLE_SCAN_SURFACE];
+    reset(s);
+    lv_style_set_bg_color(s, pos_scan_light());
     lv_style_set_bg_opa(s, LV_OPA_COVER);
 
     fill_env_styles();
