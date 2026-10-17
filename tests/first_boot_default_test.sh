@@ -23,6 +23,25 @@
 # Copyright (c) 2026 PocketOS authors.
 # SPDX-License-Identifier: Apache-2.0
 set -u
+# S90 starts its supervisor in the background and exits, so the stand-in is
+# adopted by whatever reaps orphans here. On the unit that is init, which
+# reaps it. Under a harness whose PID 1 never waits for strangers (timeout as
+# the first process of a PID namespace, a container's sleep) a stopped
+# stand-in stays a zombie, kill -0 still finds it, stop says "FAILED, still
+# running" and the next start "already running". This test is about S90's
+# choices, not the host's init, so it makes itself the reaper of its own
+# orphans (PR_SET_CHILD_SUBREAPER, 36; kept across exec) and bash reaps them.
+# Without python3 or prctl it runs as before.
+if [ -z "${FIRST_BOOT_TEST_REAPER:-}" ] && command -v python3 >/dev/null 2>&1; then
+    FIRST_BOOT_TEST_REAPER=1 exec python3 -c '
+import ctypes, os, sys
+try:
+    ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)
+except Exception:
+    pass
+os.execvp(sys.argv[1], sys.argv[1:])
+' bash "$0" "$@"
+fi
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
 APPLY=platforms/k230/scripts/apply_to_sdk.sh
