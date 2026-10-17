@@ -6,6 +6,13 @@ first, as they were described at the time. The full notes of every release
 from v0.0.10 on are next to this file; the earlier bench and gate records are
 in [docs/hardware/](../hardware/).
 
+**Doors 0.3.5** (tag `v0.3.5`, 2026-10-07): a fresh card boots straight
+into Doors and the vendor launcher is gone, RIFT set up from Controls
+without a shell, RIFT colour emoji, repeater control, RX LOG and reliability
+work, USB storage and card expansion, Settings in categories, the physical
+power key and the BOOT button; Doors' own code became Apache-2.0, and the
+image shipped no Vision detector. Release notes: [v0.3.5.md](v0.3.5.md).
+
 **Doors 0.3.0** (tag `v0.3.0`, 2026-10-02): the
 Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
 Video, MP3, DeskBuddy, Solitaire, Blackjack and 2048; launcher favourites
