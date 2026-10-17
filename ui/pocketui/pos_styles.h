@@ -102,6 +102,7 @@ enum pos_style_role {
     POS_STYLE_ENV_DOT,             /* a small "on" dot: env text fill, round */
     POS_STYLE_ENV_ICON,            /* full-colour portal icons: dimmed with the photograph in Night */
     POS_STYLE_SCREEN_OFF,          /* the screen-off cover (DS §52.4): opaque black in every theme and mode */
+    POS_STYLE_SCAN_SURFACE,        /* behind a code a camera reads: opaque pure white in every theme and mode */
     POS_STYLE_COUNT
 };
 
@@ -136,6 +137,14 @@ lv_color_t pos_identity_hue(unsigned index);
 /* A colour-only text style in that hue, to add over a role that brings the
  * font (a caption, a row title). */
 lv_style_t *pos_style_identity(unsigned index);
+
+/* Scan colours: a QR code (or any code a phone camera reads) is pure black
+ * modules on pure white, whatever the theme or display mode - a dark theme's
+ * light-on-dark code is one many readers refuse. Not tokens: they stand for
+ * what the reader needs, not for the look. The white also fills
+ * POS_STYLE_SCAN_SURFACE, the quiet zone around the code. */
+lv_color_t pos_scan_dark(void);
+lv_color_t pos_scan_light(void);
 
 /* ---- type (DS §3, §46) ---------------------------------------------------- *
  *

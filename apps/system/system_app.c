@@ -971,14 +971,13 @@ static void build_feedback(struct system_app *a)
     lv_obj_set_flex_align(p, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     a->feedback_border = lv_obj_create(p);
     lv_obj_remove_style_all(a->feedback_border);
-    lv_obj_set_style_bg_color(a->feedback_border, lv_color_white(), 0);
-    lv_obj_set_style_bg_opa(a->feedback_border, LV_OPA_COVER, 0);
+    pos_style_add(a->feedback_border, POS_STYLE_SCAN_SURFACE, 0);
     lv_obj_clear_flag(a->feedback_border, LV_OBJ_FLAG_SCROLLABLE);
     a->feedback_qr = lv_qrcode_create(a->feedback_border);
     lv_obj_remove_style_all(a->feedback_qr);
     lv_qrcode_set_quiet_zone(a->feedback_qr, false);
-    lv_qrcode_set_dark_color(a->feedback_qr, lv_color_black());
-    lv_qrcode_set_light_color(a->feedback_qr, lv_color_white());
+    lv_qrcode_set_dark_color(a->feedback_qr, pos_scan_dark());
+    lv_qrcode_set_light_color(a->feedback_qr, pos_scan_light());
     lv_image_set_antialias(a->feedback_qr, false);
     a->feedback_error = system_wrap_label(p, "QR code unavailable. Go back and reopen Help & Feedback to retry.", POS_STYLE_STATUS_ERROR_TEXT);
     lv_obj_add_flag(a->feedback_border, LV_OBJ_FLAG_HIDDEN);
