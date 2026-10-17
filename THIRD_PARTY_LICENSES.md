@@ -54,6 +54,7 @@ text.
 | LodePNG, in LVGL | `lodepng` | PNG decoding | via LVGL | Zlib | no | liblvgl | keep notice | OK WITH ATTRIBUTION |
 | TJpgDec, in LVGL | `tjpgd` | JPEG decoding | via LVGL | TJpgDec licence (BSD-style) | no | liblvgl | keep notice | OK WITH ATTRIBUTION |
 | ThorVG, in LVGL | `thorvg` | vector graphics | via LVGL | MIT | no | liblvgl_thorvg | keep notice | OK WITH ATTRIBUTION |
+| QR Code generator (Project Nayuki), in LVGL | `qrcodegen` | Help & Feedback QR code (`LV_USE_QRCODE`) | via LVGL | MIT | no | liblvgl | keep notice | OK WITH ATTRIBUTION |
 | Montserrat (LVGL built-in font) | `montserrat` | LVGL default font | via LVGL | OFL-1.1 | no | liblvgl | ship OFL text | SEPARATE LICENSE |
 | Font Awesome 5 glyphs (`LV_SYMBOL_*`) | `font-awesome-5` | symbols | via LVGL | OFL-1.1 for the font glyphs | no | liblvgl | ship licence text | SEPARATE LICENSE |
 | DejaVu Sans subset (LVGL) | `dejavu-sans` | Persian/Hebrew font | via LVGL | Bitstream Vera / Arev; DejaVu changes public domain | no | liblvgl | ship licence text | OK WITH ATTRIBUTION |
