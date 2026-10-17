@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-10-17 for the 0.3.7 candidate (docs/releases/v0.3.7.md),
+Updated 2026-10-17 for v0.3.7 (tag `v0.3.7`; docs/releases/v0.3.7.md),
 following v0.3.6 (tag `v0.3.6`; docs/releases/v0.3.6.md) and v0.3.5 (tag
 `v0.3.5`; docs/releases/v0.3.5.md; the
 v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
