@@ -3757,7 +3757,7 @@ static void test_manual_path_preview(Node& a, Node& b, Air& air,
     check("manual preview accepts two-byte hash mode",
           mcd_runtime_set_path_hash_bytes(a.rt, 2, &persisted) &&
               mcd_runtime_preview_path(a.rt, b_id.pub_key, relay.pub_key, 1, &out) ==
-                  MCD_PATH_OK && out.hash_bytes == 2 && out.path_len == 0x40 | 1 &&
+                  MCD_PATH_OK && out.hash_bytes == 2 && out.path_len == (0x40 | 1) &&
               out.path_bytes == 2 &&
               memcmp(out.path, relay.pub_key, 2) == 0);
     check("manual preview accepts three-byte hash mode",
