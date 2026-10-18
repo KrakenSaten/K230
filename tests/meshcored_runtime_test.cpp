@@ -3690,6 +3690,86 @@ static void test_app_datagrams(Node& a, Node& b, Air& air, const mesh::LocalIden
     check("every one was counted", st.app_rx == (uint64_t)(3 + MCD_APP_INBOX + 8));
 }
 
+/* Explicit route preview is read-only and intentionally does not send.
+ * The recipient and each relay are bound by their complete public keys.
+ * This test runs after A and B have exchanged adverts. */
+static void test_manual_path_preview(Node& a, Node& b, Air& air,
+                                     const mesh::LocalIdentity& a_id,
+                                     const mesh::LocalIdentity& b_id)
+{
+    mesh::LocalIdentity relay;
+    char err[mcdstore::ERR_SIZE] = "";
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_path_preview out;
+    int len;
+    int before = a.tx_submits;
+    int message_count = mcd_runtime_message_count(a.rt);
+    bool persisted = false;
+
+    check("manual preview refuses missing output",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, NULL, 0, NULL) ==
+              MCD_PATH_INVALID_ARGUMENT);
+    check("manual preview refuses an unknown recipient",
+          mcd_runtime_preview_path(a.rt, (const uint8_t*)"unknown-not-a-valid-public-key", NULL,
+                                   0, &out) == MCD_PATH_NO_RECIPIENT);
+    check("manual preview refuses self as recipient",
+          mcd_runtime_preview_path(a.rt, a_id.pub_key, NULL, 0, &out) ==
+              MCD_PATH_NO_RECIPIENT);
+    check("manual preview accepts known recipient with zero relay",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, NULL, 0, &out) == MCD_PATH_OK &&
+              out.hash_bytes == 1 && out.relays == 0 && out.path_bytes == 0 &&
+              out.path_len == 0);
+    check("a path cannot contain local node as relay",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, a_id.pub_key, 1, &out) ==
+              MCD_PATH_INVALID_RELAY);
+    check("a path cannot contain its recipient as relay",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, b_id.pub_key, 1, &out) ==
+              MCD_PATH_INVALID_RELAY);
+    check("a missing repeater is refused",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, (const uint8_t*)"unknown-repeater-key-not-present!",
+                                   1, &out) == MCD_PATH_INVALID_RELAY);
+    check("overflow is refused before dereferencing the input",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, b_id.pub_key, 65, &out) ==
+              MCD_PATH_TOO_LONG);
+
+    check("manual preview fixture identity created", mcdstore::identityCreate(relay, err));
+    len = craftAdvert(frame, relay, "RPT-VIA", 1790000000u, NULL, NULL,
+                      ADV_TYPE_REPEATER);
+    defaultMeta(meta);
+    check("manual preview fixture advert queued",
+          mcd_runtime_deliver_rx(a.rt, frame, len, &meta));
+    check("manual preview fixture repeater discovered",
+          pumpUntil(air, [&] {
+              return mcd_runtime_node_by_prefix(a.rt, relay.pub_key,
+                                                 MCD_PUB_KEY_LEN, NULL) == 1;
+          }));
+    check("manual preview encodes one relay with first-byte hash",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, relay.pub_key, 1, &out) ==
+              MCD_PATH_OK && out.path_len == 1 && out.path_bytes == 1 &&
+              out.path[0] == relay.pub_key[0]);
+    uint8_t repeated[MCD_PUB_KEY_LEN * 2];
+    memcpy(repeated, relay.pub_key, MCD_PUB_KEY_LEN);
+    memcpy(repeated + MCD_PUB_KEY_LEN, relay.pub_key, MCD_PUB_KEY_LEN);
+    check("repeating a relay is refused",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, repeated, 2, &out) ==
+              MCD_PATH_DUPLICATE_RELAY);
+    check("manual preview accepts two-byte hash mode",
+          mcd_runtime_set_path_hash_bytes(a.rt, 2, &persisted) &&
+              mcd_runtime_preview_path(a.rt, b_id.pub_key, relay.pub_key, 1, &out) ==
+                  MCD_PATH_OK && out.hash_bytes == 2 && out.path_len == 0x40 | 1 &&
+              out.path_bytes == 2 &&
+              memcmp(out.path, relay.pub_key, 2) == 0);
+    check("manual preview accepts three-byte hash mode",
+          mcd_runtime_set_path_hash_bytes(a.rt, 3, &persisted) &&
+              mcd_runtime_preview_path(a.rt, b_id.pub_key, relay.pub_key, 1, &out) ==
+                  MCD_PATH_OK && out.hash_bytes == 3 && out.path_len == (0x80 | 1) &&
+              out.path_bytes == 3);
+    (void)mcd_runtime_set_path_hash_bytes(a.rt, 1, &persisted);
+    check("manual preview emits no message or radio frame",
+          a.tx_submits == before && mcd_runtime_message_count(a.rt) == message_count);
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-runtime-XXXXXX";
@@ -3721,6 +3801,7 @@ int main(void)
     test_telemetry_stays_unknown(a, b);
     test_tx_outcomes(a, air);
     test_two_nodes(a, b, air);
+    test_manual_path_preview(a, b, air, a_id, b_id);
     test_duplicate_suppression(a, b, air);
     test_advert_hops(a, b, air);
     test_path_guard(a, b, air, a_id, b_id);
