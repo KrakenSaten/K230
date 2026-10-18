@@ -617,7 +617,8 @@ public:
     }
 
     uint64_t recordOutgoing(const ContactInfo& to, const char* text, uint32_t timestamp,
-                            mcd_msg_state state, uint32_t expected_ack, uint32_t timeout_ms)
+                            mcd_msg_state state, uint32_t expected_ack, uint32_t timeout_ms,
+                            const mcd_path_preview* explicit_path = NULL)
     {
         mcd_message m;
 
@@ -634,6 +635,12 @@ public:
         /* A directed message is acknowledged: MeshCore produced an
          * expected_ack for it and will time it out if none arrives. */
         m.ack_expected = true;
+        if (explicit_path) {
+            m.explicit_path = true;
+            m.explicit_path_len = explicit_path->path_len;
+            m.explicit_path_bytes = explicit_path->path_bytes;
+            memcpy(m.explicit_path_data, explicit_path->path, explicit_path->path_bytes);
+        }
         push(m);
         addToOutbox(expected_ack, m.id, to.id.pub_key, m.mono_ms, m.mono_ms + timeout_ms);
         emitMessage(m.id);
@@ -710,6 +717,10 @@ public:
             (m->state != MCD_MSG_NO_ACK && m->state != MCD_MSG_FAILED) || m->attempt == 255) {
             return -1;
         }
+        /* Never retry an explicit message over a different learned path. */
+        if (m->explicit_path) {
+            return -4;
+        }
         ContactInfo* c = lookupContactByPubKey(m->peer_key, PUB_KEY_SIZE);
 
         if (c == NULL || c->type == ADV_TYPE_NONE) {
@@ -730,6 +741,18 @@ public:
         }
         emitMessage(id);
         return rc;
+    }
+
+    /* A transient copy carries the path for this one packet only. BaseChatMesh
+     * composes the message from this contact and Mesh::sendDirect copies its
+     * route bytes into the packet. It never touches the learned contact. */
+    int sendExplicitMessage(const ContactInfo& recipient, const mcd_path_preview& path,
+                            uint32_t timestamp, const char* text, uint32_t& ack, uint32_t& est)
+    {
+        ContactInfo transient = recipient;
+        transient.out_path_len = path.path_len;
+        memcpy(transient.out_path, path.path, path.path_bytes);
+        return sendMessage(transient, timestamp, 0, text, ack, est);
     }
 
     /* ---- contacts --------------------------------------------------------
@@ -3077,6 +3100,46 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime* rt, const uint8_t
     return (rc == MSG_SEND_SENT_DIRECT) ? MCD_SEND_ACCEPTED_DIRECT : MCD_SEND_ACCEPTED_FLOOD;
 }
 
+enum mcd_send_result mcd_runtime_send_explicit_text(struct mcd_runtime* rt,
+                                           const uint8_t recipient[MCD_PUB_KEY_LEN],
+                                           const uint8_t* via_keys, size_t via_count,
+                                           const char* text, uint64_t* msg_id,
+                                           uint32_t* est_timeout_ms, enum mcd_path_result* why)
+{
+    mcd_path_preview path;
+    mcd_path_result valid;
+    ContactInfo* contact;
+    uint32_t expected_ack = 0;
+    uint32_t est = 0;
+    uint32_t timestamp;
+    int sent;
+    if (why) *why = MCD_PATH_OK;
+    valid = mcd_runtime_preview_path(rt, recipient, via_keys, via_count, &path);
+    if (valid != MCD_PATH_OK) {
+        if (why) *why = valid;
+        return MCD_SEND_INVALID_PATH;
+    }
+    if (!rt->radio.online()) return MCD_SEND_NO_RADIO;
+    if (!text || !text[0] || strlen(text) > MAX_TEXT_LEN) return MCD_SEND_TOO_LONG;
+    if (!rt->radio.pending()) {
+        mcd_runtime_expire_acks(rt, mcport::monotonicMillis());
+    }
+    if (rt->node.outboxFull()) return MCD_SEND_BUSY;
+    contact = rt->node.lookupContactByPubKey(recipient, PUB_KEY_SIZE);
+    if (!contact || contact->type != ADV_TYPE_CHAT) {
+        if (why) *why = MCD_PATH_NO_RECIPIENT;
+        return MCD_SEND_INVALID_PATH;
+    }
+    timestamp = rt->rtc.getCurrentTimeUnique();
+    sent = rt->node.sendExplicitMessage(*contact, path, timestamp, text, expected_ack, est);
+    if (sent != MSG_SEND_SENT_DIRECT) return MCD_SEND_FAILED;
+    uint64_t id = rt->node.recordOutgoing(*contact, text, timestamp,
+                                          MCD_MSG_SENT_DIRECT, expected_ack, est, &path);
+    if (msg_id) *msg_id = id;
+    if (est_timeout_ms) *est_timeout_ms = est;
+    return MCD_SEND_ACCEPTED_EXPLICIT;
+}
+
 enum mcd_send_result mcd_runtime_resend(struct mcd_runtime* rt, uint64_t msg_id,
                                         uint32_t* est_timeout_ms)
 {
@@ -3100,6 +3163,9 @@ enum mcd_send_result mcd_runtime_resend(struct mcd_runtime* rt, uint64_t msg_id,
     }
     if (rc == -2) {
         return MCD_SEND_NO_CONTACT;
+    }
+    if (rc == -4) {
+        return MCD_SEND_EXPLICIT_RESEND_DISABLED;
     }
     if (rc < 0) {
         return MCD_SEND_FAILED;
