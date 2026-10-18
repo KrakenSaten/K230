@@ -78,3 +78,26 @@ Pinned MeshCore RIFT commit: `3ca7e3f003bd270587b1d92e33ce999542dcb5b4`.
 
 This checkpoint is intentionally safer than enabling an unverified TX
 path on production hardware.
+
+
+## Follow-up implementation in the same draft PR (2026-10-18)
+
+A first per-message explicit-send implementation has now been added to this
+branch, **not built or RF-validated**. The earlier status description above
+refers to the original read-only checkpoint.
+
+- `mesh.send` accepts `{"to":"<full key>","text":"...","via":["<full repeater key>"]}`
+  in addition to unchanged automatic sends without `via`.
+- The service revalidates the route on SEND, uses a transient
+  `ContactInfo` copy and passes it to MeshCore's existing
+  `BaseChatMesh::sendMessage` to construct a DIRECT packet.
+- Accepted messages record their explicit packet path and reply with
+  `route:"explicit"`. A retry through `mesh.send(resend)` is rejected for
+  these messages rather than using a different learned route.
+- Runtime source tests cover a selected-repeater send, unchanged learned
+  contact path, per-message metadata and refusal of RESEND.
+
+**Unverified:** native compile, tests, on-air route, retransmit/ACK behaviour
+and actual RF delivery. Leave PR as Draft until these pass. In particular,
+a successfully encoded route does not prove that physical repeater links
+exist. Full source/test quality gate required before enabling the RIFT UI.
