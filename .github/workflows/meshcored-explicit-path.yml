@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Checkout DOORS
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Install host dependencies
@@ -33,5 +33,7 @@ jobs:
           git -C vendor/Crypto status --short
       - name: Build MeshCore frame tool
         run: make -j2 meshcore-frame
+      - name: Build mock-capable radiod for service integration tests
+        run: make -j2 services/radiod/radiod
       - name: Build and exercise meshcored host tests
         run: make -j2 meshcored-test
