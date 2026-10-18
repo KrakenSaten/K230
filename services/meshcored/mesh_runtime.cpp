@@ -2905,6 +2905,96 @@ int mcd_runtime_node_by_prefix(const struct mcd_runtime* rt, const uint8_t* pref
     return 1;
 }
 
+
+/* A first-stage, non-transmitting manual-route validator. MeshCore accepts
+ * 1..3 byte relay hashes packed into its path_len byte; every requested
+ * full-key identity is looked up again on each call, never a cached index.
+ * Nothing below updates ContactInfo::out_path or calls sendDirect. */
+const char *mcd_path_result_name(enum mcd_path_result result)
+{
+    switch (result) {
+    case MCD_PATH_OK: return "ok";
+    case MCD_PATH_NO_RECIPIENT: return "recipient is not a known direct-message node";
+    case MCD_PATH_INVALID_RELAY: return "relay is missing, local, recipient or not a repeater";
+    case MCD_PATH_DUPLICATE_RELAY: return "the same relay occurs more than once";
+    case MCD_PATH_HASH_COLLISION: return "a relay hash matches another known repeater";
+    case MCD_PATH_TOO_LONG: return "explicit path exceeds the MeshCore path limit";
+    case MCD_PATH_INVALID_ARGUMENT:
+    default: return "invalid explicit path arguments";
+    }
+}
+
+enum mcd_path_result mcd_runtime_preview_path(struct mcd_runtime *rt,
+                                               const uint8_t recipient[MCD_PUB_KEY_LEN],
+                                               const uint8_t *via_keys, size_t via_count,
+                                               struct mcd_path_preview *out)
+{
+    struct mcd_node n;
+    uint8_t self[MCD_PUB_KEY_LEN];
+    uint8_t width;
+    char self_name[MCD_NODE_NAME_LEN];
+    size_t i;
+
+    if (!rt || !recipient || !out || (via_count && !via_keys)) {
+        return MCD_PATH_INVALID_ARGUMENT;
+    }
+    memset(out, 0, sizeof(*out));
+    width = (uint8_t)mcd_runtime_path_hash_bytes(rt);
+    if (width < MCD_PATH_HASH_MIN || width > MCD_PATH_HASH_MAX) {
+        return MCD_PATH_INVALID_ARGUMENT;
+    }
+    if (via_count > 63 || via_count > MCD_MAX_PATH / width) {
+        return MCD_PATH_TOO_LONG;
+    }
+    mcd_runtime_identity(rt, self, self_name, sizeof(self_name));
+    if (memcmp(recipient, self, MCD_PUB_KEY_LEN) == 0 ||
+        mcd_runtime_node_by_prefix(rt, recipient, MCD_PUB_KEY_LEN, &n) != 1 ||
+        n.type != ADV_TYPE_CHAT) {
+        return MCD_PATH_NO_RECIPIENT;
+    }
+    for (i = 0; i < via_count; i++) {
+        const uint8_t *key = via_keys + i * MCD_PUB_KEY_LEN;
+        int j;
+        int known;
+
+        if (memcmp(key, self, MCD_PUB_KEY_LEN) == 0 ||
+            memcmp(key, recipient, MCD_PUB_KEY_LEN) == 0 ||
+            mcd_runtime_node_by_prefix(rt, key, MCD_PUB_KEY_LEN, &n) != 1 ||
+            n.type != ADV_TYPE_REPEATER) {
+            return MCD_PATH_INVALID_RELAY;
+        }
+        for (j = 0; j < (int)i; j++) {
+            const uint8_t *previous = via_keys + (size_t)j * MCD_PUB_KEY_LEN;
+
+            if (memcmp(previous, key, MCD_PUB_KEY_LEN) == 0) {
+                return MCD_PATH_DUPLICATE_RELAY;
+            }
+        }
+        /* MeshCore routes by a prefix of the public key, NOT by the full
+         * identity. Two known repeaters with the same chosen prefix make
+         * this hop ambiguous even when they are not both in the path. */
+        known = mcd_runtime_node_count(rt);
+        for (j = 0; j < known; j++) {
+            struct mcd_node candidate;
+
+            if (!mcd_runtime_node_at(rt, j, &candidate) ||
+                candidate.type != ADV_TYPE_REPEATER) {
+                continue;
+            }
+            if (memcmp(candidate.public_key, key, MCD_PUB_KEY_LEN) != 0 &&
+                memcmp(candidate.public_key, key, width) == 0) {
+                return MCD_PATH_HASH_COLLISION;
+            }
+        }
+        memcpy(out->path + i * width, key, width);
+    }
+    out->hash_bytes = width;
+    out->relays = (uint8_t)via_count;
+    out->path_bytes = (uint8_t)(via_count * width);
+    out->path_len = (uint8_t)(((width - 1) << 6) | via_count);
+    return MCD_PATH_OK;
+}
+
 int mcd_runtime_message_count(const struct mcd_runtime* rt)
 {
     return rt->node.messageCount();
