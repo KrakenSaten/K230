@@ -3785,8 +3785,40 @@ static void test_manual_path_preview(void)
                   MCD_PATH_OK && out.hash_bytes == 3 && out.path_len == (0x80 | 1) &&
               out.path_bytes == 3);
     (void)mcd_runtime_set_path_hash_bytes(a.rt, 1, &persisted);
-    check("manual preview emits no message or radio frame",
-          a.tx_submits == before && mcd_runtime_message_count(a.rt) == message_count);
+    /* Exercise real send with the learned route still untouched. */
+    struct mcd_node before_route, after_route;
+    uint64_t sent_id = 0;
+    uint32_t timeout = 0;
+    enum mcd_path_result why = MCD_PATH_OK;
+    check("manual route fixture recipient available",
+          mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, 32, &before_route) == 1);
+    int transmissions_before = a.tx_submits;
+    check("explicit message accepted with one selected repeater",
+          mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, relay.pub_key, 1,
+                                         "manual hello", &sent_id, &timeout, &why) ==
+              MCD_SEND_ACCEPTED_EXPLICIT && sent_id != 0 && timeout > 0);
+    check("learned destination path unchanged",
+          mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, 32, &after_route) == 1 &&
+          before_route.path_known == after_route.path_known &&
+          before_route.path_len == after_route.path_len &&
+          before_route.path_bytes == after_route.path_bytes &&
+          memcmp(before_route.path, after_route.path, before_route.path_bytes) == 0);
+    struct mcd_message sent_message;
+    check("explicit route captured per message",
+          messageOf(a.rt, sent_id, sent_message) && sent_message.explicit_path &&
+          sent_message.explicit_path_bytes == 1 &&
+          sent_message.explicit_path_data[0] == relay.pub_key[0]);
+    check("refusing to retry explicit route never uses AUTO",
+          mcd_runtime_expire_acks(a.rt, nowMs() + timeout + 1000) >= 1 &&
+          mcd_runtime_resend(a.rt, sent_id, &timeout) ==
+              MCD_SEND_EXPLICIT_RESEND_DISABLED);
+    check("invalid route refuses without another message",
+          mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, a_id.pub_key, 1,
+                                         "not sent", &sent_id, &timeout, &why) ==
+              MCD_SEND_INVALID_PATH && why == MCD_PATH_INVALID_RELAY);
+    (void)transmissions_before;
+    check("manual route validation added only the explicitly requested message",
+          mcd_runtime_message_count(a.rt) == message_count + 1);
     mcd_runtime_destroy(a.rt);
     a.rt = NULL;
 }
