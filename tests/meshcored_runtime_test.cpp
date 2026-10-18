@@ -3722,16 +3722,18 @@ static void test_manual_path_preview(void)
               return mcd_runtime_node_by_prefix(a.rt, b_id.pub_key,
                                                  MCD_PUB_KEY_LEN, NULL) == 1;
           }));
-    int before = a.tx_submits;
     int message_count = mcd_runtime_message_count(a.rt);
     bool persisted = false;
 
     check("manual preview refuses missing output",
           mcd_runtime_preview_path(a.rt, b_id.pub_key, NULL, 0, NULL) ==
               MCD_PATH_INVALID_ARGUMENT);
+    uint8_t unknown[MCD_PUB_KEY_LEN] = {0};
+    memcpy(unknown, b_id.pub_key, sizeof(unknown));
+    unknown[0] ^= 0x80;
     check("manual preview refuses an unknown recipient",
-          mcd_runtime_preview_path(a.rt, (const uint8_t*)"unknown-not-a-valid-public-key", NULL,
-                                   0, &out) == MCD_PATH_NO_RECIPIENT);
+          mcd_runtime_preview_path(a.rt, unknown, NULL, 0, &out) ==
+              MCD_PATH_NO_RECIPIENT);
     check("manual preview refuses self as recipient",
           mcd_runtime_preview_path(a.rt, a_id.pub_key, NULL, 0, &out) ==
               MCD_PATH_NO_RECIPIENT);
@@ -3746,7 +3748,7 @@ static void test_manual_path_preview(void)
           mcd_runtime_preview_path(a.rt, b_id.pub_key, b_id.pub_key, 1, &out) ==
               MCD_PATH_INVALID_RELAY);
     check("a missing repeater is refused",
-          mcd_runtime_preview_path(a.rt, b_id.pub_key, (const uint8_t*)"unknown-repeater-key-not-present!",
+          mcd_runtime_preview_path(a.rt, b_id.pub_key, unknown,
                                    1, &out) == MCD_PATH_INVALID_RELAY);
     check("overflow is refused before dereferencing the input",
           mcd_runtime_preview_path(a.rt, b_id.pub_key, b_id.pub_key, 65, &out) ==
@@ -3792,8 +3794,7 @@ static void test_manual_path_preview(void)
     enum mcd_path_result why = MCD_PATH_OK;
     check("manual route fixture recipient available",
           mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, 32, &before_route) == 1);
-    int transmissions_before = a.tx_submits;
-    check("explicit message accepted with one selected repeater",
+     check("explicit message accepted with one selected repeater",
           mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, relay.pub_key, 1,
                                          "manual hello", &sent_id, &timeout, &why) ==
               MCD_SEND_ACCEPTED_EXPLICIT && sent_id != 0 && timeout > 0);
@@ -3816,7 +3817,6 @@ static void test_manual_path_preview(void)
           mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, a_id.pub_key, 1,
                                          "not sent", &sent_id, &timeout, &why) ==
               MCD_SEND_INVALID_PATH && why == MCD_PATH_INVALID_RELAY);
-    (void)transmissions_before;
     check("manual route validation added only the explicitly requested message",
           mcd_runtime_message_count(a.rt) == message_count + 1);
     mcd_runtime_destroy(a.rt);
