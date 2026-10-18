@@ -518,6 +518,13 @@ static cJSON *m_info(struct mcd *d)
     cJSON_AddItemToObject(o, "source", proto);
     cJSON_AddStringToObject(o, "radiod_socket", d->cfg.radiod_socket);
     cJSON_AddItemToObject(o, "requested_profile", profile_json(&d->cfg.profile));
+    {
+        cJSON *cap = cJSON_CreateObject();
+
+        cJSON_AddBoolToObject(cap, "manual_path_preview", true);
+        cJSON_AddBoolToObject(cap, "explicit_direct_send", false);
+        cJSON_AddItemToObject(o, "capabilities", cap);
+    }
     return o;
 }
 
@@ -1070,6 +1077,78 @@ static cJSON *m_messages(struct mcd *d, const cJSON *params)
     return o;
 }
 
+
+/* A non-transmitting path planner. Every relay is a full public key. The
+ * result is a *candidate* only; MeshCore still cannot send it through
+ * mesh.send at this stage. An old client sending via= to mesh.send is
+ * explicitly refused, not silently sent over AUTO. */
+static cJSON *m_path_preview(struct mcd *d, const cJSON *params, int *code,
+                            char *err, size_t errlen)
+{
+    const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
+    const cJSON *jvia = cJSON_GetObjectItemCaseSensitive(params, "via");
+    uint8_t to[MCD_PUB_KEY_LEN];
+    uint8_t relays[MCD_MAX_PATH][MCD_PUB_KEY_LEN];
+    struct mcd_path_preview preview;
+    enum mcd_path_result rc;
+    int count;
+    int i;
+    char path_hex[MCD_MAX_PATH * 2 + 1];
+    cJSON *o;
+
+    if (!cJSON_IsString(jto) || jto->valuestring == NULL ||
+        strlen(jto->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+        mcd_key_prefix_parse(jto->valuestring, to, sizeof(to)) != MCD_PUB_KEY_LEN) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "to must be a whole public key (64 hex characters)");
+        return NULL;
+    }
+    if (!cJSON_IsArray(jvia)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "via must be an array of full repeater public keys");
+        return NULL;
+    }
+    count = cJSON_GetArraySize(jvia);
+    if (count < 0 || count > MCD_MAX_PATH) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "too many repeaters in the explicit path");
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        const cJSON *jkey = cJSON_GetArrayItem(jvia, i);
+
+        if (!cJSON_IsString(jkey) || jkey->valuestring == NULL ||
+            strlen(jkey->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+            mcd_key_prefix_parse(jkey->valuestring, relays[i], MCD_PUB_KEY_LEN) !=
+                MCD_PUB_KEY_LEN) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "via[%d] must be a full public key (64 hex characters)", i);
+            return NULL;
+        }
+    }
+    rc = mcd_runtime_preview_path(d->rt, to, &relays[0][0], (size_t)count, &preview);
+    if (rc != MCD_PATH_OK) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "manual path rejected: %s", mcd_path_result_name(rc));
+        return NULL;
+    }
+    if (!mcd_hex_encode(preview.path, preview.path_bytes, path_hex, sizeof(path_hex))) {
+        *code = POCKETIPC_ERR_BACKEND;
+        snprintf(err, errlen, "cannot format the validated route");
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "valid", true);
+    cJSON_AddStringToObject(o, "route", "explicit");
+    cJSON_AddNumberToObject(o, "relays", preview.relays);
+    cJSON_AddNumberToObject(o, "hash_bytes", preview.hash_bytes);
+    cJSON_AddNumberToObject(o, "path_bytes", preview.path_bytes);
+    cJSON_AddStringToObject(o, "path_hex", path_hex);
+    cJSON_AddBoolToObject(o, "transmitted", false);
+    cJSON_AddBoolToObject(o, "link_evidence_verified", false);
+    return o;
+}
+
 /* mesh.send: to a node, or to a channel.
  *
  * Exactly one of `to` and `channel` is given, and giving both is a refusal
@@ -1088,11 +1167,22 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
     const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
     const cJSON *jchan = cJSON_GetObjectItemCaseSensitive(params, "channel");
     const cJSON *jresend = cJSON_GetObjectItemCaseSensitive(params, "resend");
+    const cJSON *jvia = cJSON_GetObjectItemCaseSensitive(params, "via");
     uint64_t msg_id = 0;
     uint32_t est = 0;
     enum mcd_send_result rc;
     int slot = -1;
     int n = 0;
+
+    /* Fail closed until the protocol runtime's per-message override has
+     * been implemented and tested. Never interpret a requested route as
+     * permission to use AUTO forwarding. */
+    if (jvia != NULL) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen,
+                 "manual path send is not enabled; mesh.path_preview is read-only");
+        return NULL;
+    }
 
     /* A resend names the message and nothing else: its peer and its text are
      * the message's own, and a caller that also gave either would be asking
@@ -1467,6 +1557,8 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = m_channel_add(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.channel_remove") == 0) {
         result = m_channel_remove(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.path_preview") == 0) {
+        result = m_path_preview(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.messages") == 0) {
         result = m_messages(d, params);
     } else if (strcmp(name, "mesh.send") == 0) {
