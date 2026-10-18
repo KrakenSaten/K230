@@ -311,6 +311,13 @@ struct mcd_message {
      * it into the payload's flags byte, so each attempt has an expected_ack
      * of its own. Only meaningful for an outgoing direct message. */
     uint8_t attempt;
+    /* Explicit per-message DIRECT route: never changes the learned path of
+     * the peer. Preserved for diagnostics; this phase intentionally refuses
+     * RESEND of such a message instead of silently selecting AUTO. */
+    bool explicit_path;
+    uint8_t explicit_path_len;    /* packed hash size + hop count */
+    uint8_t explicit_path_bytes;
+    uint8_t explicit_path_data[MCD_MAX_PATH];
     /* ---- an outgoing CHANNEL message: what can be known instead of an ACK
      *
      * A group frame has no ACK (BaseChatMesh::sendGroupMessage); what the
@@ -817,6 +824,7 @@ bool mcd_runtime_message_at(const struct mcd_runtime *rt, int idx, struct mcd_me
 enum mcd_send_result {
     MCD_SEND_ACCEPTED_FLOOD = 0,
     MCD_SEND_ACCEPTED_DIRECT,
+    MCD_SEND_ACCEPTED_EXPLICIT,  /* one message with a caller-selected path */
     MCD_SEND_NO_RADIO,       /* the radio is not online */
     MCD_SEND_NO_CONTACT,     /* no such node */
     MCD_SEND_TOO_LONG,       /* the text does not fit a MeshCore message */
@@ -828,7 +836,9 @@ enum mcd_send_result {
     MCD_SEND_BUSY,
     /* mcd_runtime_resend only: no outgoing direct message has that id in
      * this run, or it was delivered, or it is still waiting for its ACK. */
-    MCD_SEND_NOT_RESENDABLE
+    MCD_SEND_NOT_RESENDABLE,
+    MCD_SEND_INVALID_PATH,       /* explicit route was rejected before TX */
+    MCD_SEND_EXPLICIT_RESEND_DISABLED /* no fallback to learned path */
 };
 
 /* ---- channels -----------------------------------------------------------
@@ -906,6 +916,18 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime *rt, const uint8_t
                                            size_t prefix_len, const char *text,
                                            uint64_t *msg_id, uint32_t *est_timeout_ms);
 
+/* Send one direct text message using the exact sender-selected route.
+ * Revalidates the same full keys used in mcd_runtime_preview_path at SEND
+ * time. No caller-selected path is ever written into the learned contacts.
+ * Returns MCD_SEND_INVALID_PATH with *why on validation refusal and never
+ * falls back to flood or a cached direct route. */
+enum mcd_send_result mcd_runtime_send_explicit_text(struct mcd_runtime *rt,
+                                        const uint8_t recipient[MCD_PUB_KEY_LEN],
+                                        const uint8_t *via_keys, size_t via_count,
+                                        const char *text, uint64_t *msg_id,
+                                        uint32_t *est_timeout_ms,
+                                        enum mcd_path_result *why);
+
 /* Send an outgoing direct message of this run again, as upstream's
  * companion clients retry one (examples/companion_radio/MyMesh.cpp,
  * CMD_SEND_TXT_MSG): the SAME text and the SAME sender timestamp, with
@@ -919,7 +941,9 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime *rt, const uint8_t
  * attempts in flight. The message keeps its id - there is still one message,
  * sent more than once - and goes back to sent_flood or sent_direct.
  * MCD_SEND_NOT_RESENDABLE for anything else; NO_CONTACT when the peer has been
- * forgotten since; BUSY and NO_RADIO as mcd_runtime_send_text. */
+ * forgotten since; BUSY and NO_RADIO as mcd_runtime_send_text.
+ * Explicit-path messages deliberately refuse RESEND with
+ * MCD_SEND_EXPLICIT_RESEND_DISABLED: no automatic path substitution. */
 enum mcd_send_result mcd_runtime_resend(struct mcd_runtime *rt, uint64_t msg_id,
                                         uint32_t *est_timeout_ms);
 
