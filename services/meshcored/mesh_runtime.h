@@ -777,6 +777,40 @@ int mcd_runtime_nodes_recent(const struct mcd_runtime *rt, struct mcd_node *out,
 int mcd_runtime_node_by_prefix(const struct mcd_runtime *rt, const uint8_t *prefix,
                                size_t prefix_len, struct mcd_node *n);
 
+
+/* A preview of one explicit DIRECT path. This is a pure planning read:
+ * it does not transmit, create packets, or change a learned contact route.
+ * Relay identities are full public keys, in forwarding order, not indices.
+ * Each selected relay must be present and of repeater type. */
+enum mcd_path_result {
+    MCD_PATH_OK = 0,
+    MCD_PATH_NO_RECIPIENT,
+    MCD_PATH_INVALID_RELAY,
+    MCD_PATH_DUPLICATE_RELAY,
+    MCD_PATH_HASH_COLLISION,
+    MCD_PATH_TOO_LONG,
+    MCD_PATH_INVALID_ARGUMENT
+};
+
+struct mcd_path_preview {
+    uint8_t hash_bytes;      /* 1..3, from this node's path hash setting */
+    uint8_t relays;          /* count of intermediate repeaters */
+    uint8_t path_len;        /* MeshCore packed hash-size and hop-count byte */
+    uint8_t path_bytes;
+    uint8_t path[MCD_MAX_PATH];
+};
+
+/* via_keys is a contiguous array of via_count 32-byte public keys, never
+ * 1-byte hashes. NULL is permitted only with via_count == 0, which is an
+ * explicit zero-relay direct route (NOT a flood). Refuses known prefix
+ * collisions with other repeaters, missing or non-repeater waypoints and
+ * path overflows. A preview does NOT prove physical RF connectivity. */
+enum mcd_path_result mcd_runtime_preview_path(struct mcd_runtime *rt,
+                                               const uint8_t recipient[MCD_PUB_KEY_LEN],
+                                               const uint8_t *via_keys, size_t via_count,
+                                               struct mcd_path_preview *out);
+const char *mcd_path_result_name(enum mcd_path_result result);
+
 int mcd_runtime_message_count(const struct mcd_runtime *rt);
 bool mcd_runtime_message_at(const struct mcd_runtime *rt, int idx, struct mcd_message *m);
 
