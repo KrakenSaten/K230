@@ -3693,16 +3693,35 @@ static void test_app_datagrams(Node& a, Node& b, Air& air, const mesh::LocalIden
 /* Explicit route preview is read-only and intentionally does not send.
  * The recipient and each relay are bound by their complete public keys.
  * This test runs after A and B have exchanged adverts. */
-static void test_manual_path_preview(Node& a, Node& b, Air& air,
-                                     const mesh::LocalIdentity& a_id,
-                                     const mesh::LocalIdentity& b_id)
+static void test_manual_path_preview(void)
 {
+    Air air;
+    Node a;
+    mesh::LocalIdentity a_id;
+    mesh::LocalIdentity b_id;
     mesh::LocalIdentity relay;
     char err[mcdstore::ERR_SIZE] = "";
     uint8_t frame[MCD_MAX_FRAME];
     struct mcd_rx_meta meta;
     struct mcd_path_preview out;
     int len;
+    check("manual preview creates test identities",
+          mcdstore::identityCreate(a_id, err) &&
+          mcdstore::identityCreate(b_id, err));
+    check("manual preview creates isolated sender", makeNode(a, air, "MANUAL-PREVIEW", &a_id));
+    if (!a.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(a.rt, true);
+    len = craftAdvert(frame, b_id, "MANUAL-TARGET", 1790000010u);
+    defaultMeta(meta);
+    check("manual preview recipient advert queued",
+          mcd_runtime_deliver_rx(a.rt, frame, len, &meta));
+    check("manual preview recipient discovered",
+          pumpUntil(air, [&] {
+              return mcd_runtime_node_by_prefix(a.rt, b_id.pub_key,
+                                                 MCD_PUB_KEY_LEN, NULL) == 1;
+          }));
     int before = a.tx_submits;
     int message_count = mcd_runtime_message_count(a.rt);
     bool persisted = false;
@@ -3768,6 +3787,8 @@ static void test_manual_path_preview(Node& a, Node& b, Air& air,
     (void)mcd_runtime_set_path_hash_bytes(a.rt, 1, &persisted);
     check("manual preview emits no message or radio frame",
           a.tx_submits == before && mcd_runtime_message_count(a.rt) == message_count);
+    mcd_runtime_destroy(a.rt);
+    a.rt = NULL;
 }
 
 int main(void)
@@ -3801,7 +3822,7 @@ int main(void)
     test_telemetry_stays_unknown(a, b);
     test_tx_outcomes(a, air);
     test_two_nodes(a, b, air);
-    test_manual_path_preview(a, b, air, a_id, b_id);
+    test_manual_path_preview();
     test_duplicate_suppression(a, b, air);
     test_advert_hops(a, b, air);
     test_path_guard(a, b, air, a_id, b_id);
