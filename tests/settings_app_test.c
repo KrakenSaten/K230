@@ -1951,6 +1951,14 @@ int main(void)
     check("the list says it is on", shows("Debug overlay on"));
     app_stop();
 
+    /* Exercise the same layout suite under a selected theme without
+     * changing its normal default-theme coverage. */
+    if (getenv("SETTINGS_THEME")) {
+        char why[128];
+        check("requested Settings validation theme selected",
+              pos_theme_apply(getenv("SETTINGS_THEME"), "normal", why, sizeof(why)) == 0);
+    }
+
     /* ---- 18. every page, both ways up, every text size (DS §46, §52) ---------------------------- */
     g_status = STATUS_CONN;
     g_networks = NETS_MANY;

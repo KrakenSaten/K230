@@ -6007,6 +6007,62 @@ static void reliability_session(void)
     kb_shows = kb_before;
 }
 
+/* Shared-style state fixture: native simulator pixels, no service or app
+ * layout changes. The same geometry is used for both sides of a revision. */
+static void theme_state_proof(void)
+{
+    const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM, POS_TEXT_SIZE_LARGE };
+    char name[96];
+    for (int size = 0; size < 3; size++) {
+        for (int wide = 0; wide < 2; wide++) {
+            pos_theme_select_text_size(sizes[size]);
+            use_display(wide ? POS_ROTATION_90 : POS_ROTATION_0, PANEL_CORNER);
+            lv_obj_t *root = lv_obj_create(lv_screen_active());
+            lv_obj_remove_style_all(root);
+            lv_obj_set_pos(root, 24, 40);
+            lv_obj_set_size(root, wide ? 1184 : 520, wide ? 488 : 1152);
+            lv_obj_set_flex_flow(root, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_gap(root, 24, 0);
+            for (int col = 0; col < 2; col++) {
+                lv_obj_t *panel = pocketui_card(root);
+                lv_obj_set_width(panel, wide ? 580 : 520);
+                lv_obj_set_style_pad_row(panel, 16, 0);
+                pocketui_label(panel, col ? "SERVICE STATES" : "CONTROLS & FOCUS", POS_STYLE_TITLE);
+                if (!col) {
+                    lv_obj_t *b = pocketui_button(panel, "PRIMARY ACTION", NULL, NULL);
+                    lv_obj_set_width(b, LV_PCT(100));
+                    pos_style_add(b, POS_STYLE_SELECTED, 0);
+                    pocketui_label(panel, "Selected action / keyboard focus", POS_STYLE_TEXT_SECONDARY);
+                    b = pocketui_button(panel, "SECONDARY ACTION", NULL, NULL);
+                    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+                    pos_style_add(b, POS_STYLE_BUTTON_SECONDARY, 0);
+                    lv_obj_set_width(b, LV_PCT(100));
+                    pos_style_add(b, POS_STYLE_FIELD_FOCUSED, 0);
+                    b = pocketui_button(panel, "DISABLED ACTION", NULL, NULL);
+                    pos_style_add(b, POS_STYLE_BUTTON_DISABLED, LV_STATE_DISABLED);
+                    lv_obj_add_state(b, LV_STATE_DISABLED);
+                    lv_obj_set_width(b, LV_PCT(100));
+                } else {
+                    pocketui_label(panel, "Reading text stays near-white.", POS_STYLE_TEXT_PRIMARY);
+                    pocketui_label(panel, "Secondary content is readable.", POS_STYLE_TEXT_SECONDARY);
+                    pocketui_label(panel, "OK: Message received", POS_STYLE_STATUS_OK_TEXT);
+                    pocketui_label(panel, "WARN: Service unavailable", POS_STYLE_STATUS_WARN_TEXT);
+                    pocketui_label(panel, "ERROR: Connection failed", POS_STYLE_STATUS_ERROR_TEXT);
+                    lv_obj_t *b = pocketui_button(panel, "RETRY", NULL, NULL);
+                    lv_obj_set_width(b, LV_PCT(100));
+                }
+            }
+            pump(100);
+            check("state fixture button text fits", labels_overflowing(root) == 0);
+            snprintf(name, sizeof(name), "states-%s%s-%s", pos_theme_current_mode() == POS_MODE_NORMAL ? "" :
+                         pos_theme_current_mode() == POS_MODE_OUTDOOR ? "outdoor-" : "night-",
+                     wide ? "landscape" : "portrait", pos_text_size_name(sizes[size]));
+            shot(name);
+            lv_obj_delete(root);
+        }
+    }
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -6231,6 +6287,21 @@ int main(void)
         pos_theme_select("doors", "normal", why, sizeof(why));
         pos_theme_select("neon", "normal", why, sizeof(why));
         check("destroyed RIFT has no stale theme callback", app == NULL);
+        theme_state_proof();
+        if (getenv("RIFT_STATE_MODES")) {
+            const char *modes[] = { "outdoor", "night" };
+            for (int i = 0; i < 2; i++) {
+                pos_theme_select("neon", modes[i], why, sizeof(why));
+                theme_state_proof();
+            }
+            pos_theme_select("neon", "normal", why, sizeof(why));
+        }
+        lv_obj_t *scan = lv_obj_create(lv_screen_active());
+        pos_style_add(scan, POS_STYLE_SCAN_SURFACE, 0);
+        check("QR quiet zone stays opaque white",
+              lv_color_eq(lv_obj_get_style_bg_color(scan, LV_PART_MAIN), pos_scan_light()) &&
+              lv_obj_get_style_bg_opa(scan, LV_PART_MAIN) == LV_OPA_COVER);
+        lv_obj_delete(scan);
         printf("rift_theme_proof: %d checks, %d failure(s)\n", checks, failed);
         return failed ? 1 : 0;
     }

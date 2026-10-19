@@ -5244,3 +5244,21 @@ No glow on body text, blur, flashing, animation or rendering dependency is
 introduced. The original RIFT concept is historical inspiration, not a RIFT
 layout or routing contract. Owner visual review of actual simulator renders
 is still required before merge; target rendering remains a hardware check.
+
+### 58.1 Visual revision after owner feedback — approval pending
+
+The system-wide theme direction is approved. The initial implementation
+`ddf9791` is **not visually approved**: the owner found it too subdued,
+thin and difficult to read. The revised proposal uses opaque teal panels,
+3 px inset structural/control edges, plum secondary surfaces, cyan primary
+fills and heading badges, brighter neutral reading text, and 4 px light focus
+rings separated from filled controls by a dark gap. Existing font faces and
+Small/Medium/Large sizes are retained; environment headings use Mono Medium
+at the same pixel size. Geometry and interaction are unchanged. Normal is
+the strong Neon proposal; Night and Outdoor retain the existing transforms.
+
+These are proposed implementation refinements for owner visual review,
+not a claim of approval. Matched simulator evidence and focused checks are
+in [neon/revision/README.md](neon/revision/README.md). Existing themes and
+content colours remain unchanged; code/quiet-zone scan colours stay black
+and white. Inset outlines add thickness without consuming content space.

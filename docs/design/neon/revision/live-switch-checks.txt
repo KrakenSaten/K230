@@ -1,0 +1,8 @@
+doors/portrait/home: exact pixels restored after live Neon round trip
+doors/portrait/settings: exact pixels restored after live Neon round trip
+doors/landscape/home: exact pixels restored after live Neon round trip
+doors/landscape/settings: exact pixels restored after live Neon round trip
+ice/portrait/home: exact pixels restored after live Neon round trip
+ice/portrait/settings: exact pixels restored after live Neon round trip
+ice/landscape/home: exact pixels restored after live Neon round trip
+ice/landscape/settings: exact pixels restored after live Neon round trip

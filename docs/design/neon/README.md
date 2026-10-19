@@ -1,7 +1,11 @@
 # Optional system-wide Neon theme
 
-Owner-approved direction, implemented in PR #98. Select **Settings →
-Appearance → Neon**; tapping any other theme switches back immediately.
+System-wide direction approved by the owner; implementation visual approval
+is still pending. The reviewed implementation `ddf9791` was rejected as too
+subdued. See the [visual revision after owner feedback](revision/README.md)
+for the current proposal, matched before/after images and new validation.
+
+Select **Settings → Appearance → Neon**; tapping any other theme switches back immediately.
 Doors is still the default and fallback. The seventh row uses the existing
 scrollable Appearance page, including its two-column landscape list.
 
@@ -9,10 +13,10 @@ scrollable Appearance page, including its two-column landscape list.
 
 | Semantic role | Normal colour | Purpose |
 | --- | --- | --- |
-| `bg` | `#050810` | Very dark canvas |
-| `surface` / `surface_raised` | `#0d1420` / `#192336` | Controls and pressed/selected surfaces |
-| `line` | `#4c627d` | Quiet structure without losing boundaries |
-| `text_primary` / `text_secondary` | `#f1f5fa` / `#b0bfd0` | Neutral readable text |
+| `bg` | `#03070d` | Very dark canvas |
+| `surface` / `surface_raised` | `#071b24` / `#102b36` | Controls and pressed/selected surfaces |
+| `line` | `#317287` | Quiet structure without losing boundaries |
+| `text_primary` / `text_secondary` | `#f6f8ff` / `#d1e1ef` | Neutral readable text |
 | `accent_primary`, `focus`, `radio_rx` | `#00e5ff` | Cyan actions, selection, focus, RX |
 | `accent_secondary`, `radio_tx` | `#ff59df` | Magenta secondary controls and TX |
 | `status_ok` | `#b6ff36` | Lime positive states |
@@ -24,12 +28,14 @@ disabled colours and connected state. Outdoor and Night use the existing
 transforms, including Night's deliberately reduced luminance/contrast. There
 is no new animation, blur, glow or dependency.
 
-Normal-mode contrast: body/background **18.3:1**, secondary/background
-**10.7:1**, muted/background **7.0:1**, cyan fill text **13.0:1**, magenta fill
-text **7.4:1**, focus/raised surface **10.2:1**, warning/raised surface
-**11.9:1**, error/raised surface **5.4:1**, disabled text/background **3.1:1**.
-Disabled controls remain quiet and noninteractive; labels, icons, selection
-words, underlines and focus brackets continue to carry meaning alongside colour.
+The current proposal paints opaque teal panels, 3 px cyan structural edges,
+plum secondary surfaces with 3 px magenta edges, and 4 px light focus rings
+with a dark separation gap. Most thicker paint is an inset outline: the
+existing border, padding, text boxes and touch geometry stay unchanged.
+Secondary reading text is brighter; body text remains neutral. Environment
+heading badges use an existing Mono Medium face at the selected size. See
+[rendered composited-state checks](revision/composited-state-checks.json) for
+actual pixel samples, including disabled, warning and error states.
 
 ## Integration
 
@@ -40,8 +46,9 @@ words, underlines and focus brackets continue to carry meaning alongside colour.
   store and emits the normal `shell.theme` notification. Startup reads that
   selection before the first frame. No extra preference or framework exists.
 - Shared styles cover app chrome, buttons, fields, focus/selection, dialogs,
-  notifications and keyboard states. Neon secondary controls use magenta
-  text/borders while keeping shared state precedence and geometry.
+  notifications and keyboard states. Neon secondary controls use plum surfaces
+  and magenta boundaries with near-white labels while keeping shared state
+  precedence and geometry.
 - The environment's previously fixed package palette has a Neon-only semantic
   mapping for Launcher, lock, Controls and status capsules: opaque dark panels,
   cyan borders/glyphs/sliders and a darker backdrop. Portal illustrations keep
@@ -61,7 +68,7 @@ remain historical inspiration. This implementation changes neither RIFT's
 Activity geometry nor routing. The [design-system amendment](../POCKETOS-DS-v0.1.md#58-optional-system-wide-neon-theme-accepted)
 records the owner-approved exception to the fixed environment palette.
 
-## Rendered evidence
+## Initial implementation evidence (historical, visually rejected)
 
 All images here are actual LVGL/SDL simulator snapshots. Contact sheets only
 resize and label those renders. Full-resolution source captures are in
@@ -83,7 +90,7 @@ The seventh Appearance row makes the landscape page scroll; mode controls
 remain reachable through normal page scrolling (tested). No layout, touch
 size, navigation or text-size rule was changed to fit the palette.
 
-## Validation — 2026-10-19, cloud host
+## Initial implementation validation — 2026-10-19 (historical)
 
 - Host simulator built successfully with pinned LVGL
   `59dc7e436ae97a25e32656739ea6a943f9f11b6a`.

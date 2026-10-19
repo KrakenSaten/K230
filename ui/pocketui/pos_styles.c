@@ -502,6 +502,78 @@ static void fill_env_styles(void)
     lv_style_set_border_width(s, 0);
 }
 
+/* The Neon variant keeps the shared role geometry. Borders are drawn as
+ * zero-blur inset outlines where possible, so thicker paint consumes no
+ * extra content space. Focus remains outside with a dark gap on bright fills. */
+static void fill_neon_styles(void)
+{
+    lv_style_t *s;
+    const struct pos_theme_tokens *t = pos_theme_current();
+    const int border = 3;
+    const int focus = 4;
+    const enum pos_style_role panels[] = { POS_STYLE_PANEL, POS_STYLE_STATUS_CLUSTER,
+                                          POS_STYLE_ENV_PANEL, POS_STYLE_ENV_CLUSTER };
+    for (size_t i = 0; i < sizeof(panels) / sizeof(panels[0]); i++) {
+        s = &styles[panels[i]];
+        lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
+        lv_style_set_bg_opa(s, LV_OPA_COVER);
+        /* Inset outline supplements the existing border without changing
+         * LVGL's content box, padding, wrapping or the target size. */
+        lv_style_set_outline_width(s, border);
+        lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+        lv_style_set_outline_opa(s, LV_OPA_COVER);
+        lv_style_set_outline_pad(s, -border);
+    }
+    s = &styles[POS_STYLE_BUTTON_SECONDARY];
+    lv_style_set_bg_color(s, lv_color_hex(pos_mix(t->color[POS_COLOR_ACCENT_SECONDARY],
+                                               t->color[POS_COLOR_BG], .82)));
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+    lv_style_set_outline_width(s, border);
+    lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
+    lv_style_set_outline_opa(s, LV_OPA_COVER);
+    lv_style_set_outline_pad(s, -border);
+
+    /* Reading copy is neutral. Captions provide accent hierarchy; values
+     * keep the near-white high-contrast role. */
+    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], tok(POS_COLOR_ACCENT_PRIMARY));
+    s = &styles[POS_STYLE_ENV_CAPTION];
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
+    struct pos_type_spec caption = pos_type_current(POS_TYPE_ENV_CAPTION);
+    caption.face = POS_FACE_MONO_MEDIUM;
+    lv_style_set_text_font(s, pos_type_font(caption));
+    lv_style_set_text_letter_space(s, 1);
+
+    const enum pos_style_role focused[] = { POS_STYLE_SELECTED, POS_STYLE_FIELD_FOCUSED,
+        POS_STYLE_SLAB_PRESSED, POS_STYLE_BUTTON_PRIMARY_PRESSED };
+    for (size_t i = 0; i < sizeof(focused) / sizeof(focused[0]); i++) {
+        s = &styles[focused[i]];
+        lv_style_set_outline_width(s, focus);
+        lv_style_set_outline_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+        lv_style_set_outline_opa(s, LV_OPA_COVER);
+        lv_style_set_outline_pad(s, 2);
+    }
+    /* Error and field boundaries are inset too, leaving the field's text
+     * and touch geometry as they were. Disabled controls keep no outline. */
+    s = &styles[POS_STYLE_FIELD];
+    lv_style_set_outline_width(s, border);
+    lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
+    lv_style_set_outline_pad(s, -border);
+    s = &styles[POS_STYLE_FIELD_ERROR];
+    lv_style_set_outline_width(s, border);
+    lv_style_set_outline_color(s, tok(POS_COLOR_STATUS_ERROR));
+    lv_style_set_outline_pad(s, -border);
+    lv_style_set_outline_width(&styles[POS_STYLE_FIELD_DISABLED], 0);
+
+    /* The RGB portal artwork stays intact. A substantial inset frame makes
+     * its control boundary explicit without recolouring its pixels. */
+    s = &styles[POS_STYLE_ENV_ICON];
+    lv_style_set_outline_width(s, border);
+    lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
+    lv_style_set_outline_pad(s, -border);
+}
+
 /* Fill every style from the current tokens. Called at init and on change. */
 static void fill_styles(void)
 {
@@ -859,6 +931,9 @@ static void fill_styles(void)
         lv_style_set_bg_color(&styles[POS_STYLE_ENV_DOT], tok(POS_COLOR_ACCENT_PRIMARY));
         /* Portal images are RGB artwork, not masks: recolouring them at
          * full opacity would erase their symbols. Keep the package art. */
+    }
+    if (neon_environment()) {
+        fill_neon_styles();
     }
     fill_identity_styles();
     fill_size_samples();
