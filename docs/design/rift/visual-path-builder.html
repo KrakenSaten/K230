@@ -87,6 +87,7 @@ function select(id){
  route.push(id);applied=false;notice=byId[id].name+" added. This line is a planned hop, not verified RF connectivity.";render();
 }
 function render(){
+ const focusedNode=$("nodes").contains(document.activeElement)?document.activeElement.id:null;
  $("geo").classList.toggle("active",view==="geo");$("topology").classList.toggle("active",view==="topology");
  $("mapModeLabel").textContent=view==="geo"?"DEMO MAP — FICTIONAL POSITIONS":"TOPOLOGY — POSITIONS NOT GEOGRAPHIC";
  $("mapInstruction").textContent=finished?"Route complete — edit or stage the demo draft":"Tap repeaters in forwarding order; tap HYTTA to finish";
@@ -101,7 +102,7 @@ function render(){
   const [x,y]=at(n.id),isIncluded=route.includes(n.id),seq=route.indexOf(n.id)+1;
   const selected=isIncluded||n.id==="self"||(n.id==="dest"&&finished);
   const color=n.type==="destination"?"#ffbf70":n.type==="self"?"#61edcb":n.type==="repeater"?"#52bed8":"#698292";
-  const g=svg("g",{class:"node"+(n.type==="peer"?" unavailable":""),tabindex:"0",role:"button","aria-label":n.name+", "+n.note+(isIncluded?", waypoint "+seq:"")});
+  const g=svg("g",{id:"node-"+n.id,class:"node"+(n.type==="peer"?" unavailable":""),tabindex:"0",role:"button","aria-label":n.name+", "+n.note+(isIncluded?", waypoint "+seq:"")});
   const radius=selected?21:17;g.append(svg("circle",{cx:x,cy:y,r:30,class:"hit"}));
   g.append(svg("circle",{cx:x,cy:y,r:radius,fill:selected?"#174743":"#101f2c",stroke:selected?"#61edcb":color,"stroke-width":selected?3:2}));
   g.append(svg("circle",{cx:x,cy:y,r:5,fill:color}));
@@ -122,7 +123,12 @@ function render(){
   const title=document.createElement("strong");title.textContent=n.name;t.append(title);
   const sub=document.createElement("span");sub.textContent=id==="self"?"SENDER":id==="dest"?(finished?"TARGET · FINISHED":"TARGET · PREVIEW"):"RELAY "+i+" · PROPOSED";t.append(sub);row.append(t);
   if(id!=="self"&&id!=="dest"){
-   const btn=document.createElement("button");btn.className="remove";btn.type="button";btn.textContent="REMOVE ›";btn.title="Remove this and later hops";btn.addEventListener("click",()=>{route=route.slice(0,i-1);finished=false;applied=false;notice="Draft trimmed from "+n.name+". Later waypoints removed.";render();});row.append(btn);
+   const btn=document.createElement("button");btn.className="remove";btn.type="button";btn.textContent="REMOVE ›";btn.title="Remove this and later hops";
+   btn.addEventListener("click",()=>{
+    const removed=route.slice(i-1).map(hop=>byId[hop].name).join(" > ");
+    if(!window.confirm("Remove these waypoints from the draft?\n"+removed))return;
+    route=route.slice(0,i-1);finished=false;applied=false;notice="Draft trimmed from "+n.name+". Later waypoints removed.";render();
+   });row.append(btn);
   }
   rail.append(row);
  });
@@ -134,6 +140,7 @@ function render(){
  const status=$("flash");status.replaceChildren();
  const s=document.createElement("strong");s.textContent=applied?"DRAFT STAGED (DEMO ONLY)":finished?"READY FOR BACKEND VALIDATION":"ROUTE DRAFT — NOT SENT";status.append(s);
  const body=document.createElement("span");body.textContent=notice||"Tap repeaters to draw an ordered planned route. Nothing is sent.";status.append(body);
+ if(focusedNode)$(focusedNode)?.focus({preventScroll:true});
 }
 $("geo").addEventListener("click",()=>{view="geo";render();});
 $("topology").addEventListener("click",()=>{view="topology";render();});
