@@ -1,7 +1,8 @@
 # Explicit MeshCore path P0 — read-only backend checkpoint
 
 Date: 2026-10-18, updated 2026-10-19
-Status: **HOST-TESTED AND K230 CROSS-BUILT; NOT RF-VALIDATED.** Explicit
+Status: **HOST-TESTED, K230 CROSS-BUILT, RUNS ON UNIT B (no-TX checks
+pass); NOT RF-VALIDATED.** Explicit
 DIRECT send is implemented (see the follow-up section). The original
 read-only checkpoint below is kept as written. Build evidence and the
 physical acceptance procedure are at the end of this file.
@@ -287,3 +288,78 @@ fewer remaining hops than A sent it with, or when A hears its own packet
 repeated (`own: true`). Units in range of each other can also hear the
 original transmission directly. The ACK may return by B's learned route or
 by flood and need not retrace the selected hops.
+
+## On-device run, unit B only (2026-10-19)
+
+Only unit B was available; unit A was offline. This run covers installation
+and the checks that cannot transmit. It does not cover delivery, ACK over
+the air or forwarding.
+
+Unit B's identity and address differ from the older gate documents. The
+owner confirmed which unit this is (VERIFIED, 2026-10-19):
+
+- LAN `172.16.5.198`, serial console on the CH342's first channel (COM3 on
+  the build PC).
+- Doors 0.3.6, `BUILD_ID=9ad64a1`, glibc 2.33, cJSON 1.7.18.
+- Mesh identity `Doors-aa90`, key `aa907fc8…`.
+- Path hash 1 byte. 163 stored nodes: 140 repeaters, 13 chat, 10 room.
+- BREVDUE (`5997dbcb`) and unit A (`19f7b327`) are not in its node list.
+
+Pre-flight and staging, read-only (VERIFIED):
+
+- Before installation the counter `rx_events` stayed 0 for about 45 minutes.
+  The old meshcored's `tx_submitted` rose from 0 to 2 in that time, with
+  `sent_direct` 1 and no message. The cause was not identified, and it did
+  not come from these tests, which made only read calls at that point.
+- The candidate and the helper resolve all their libraries on the unit
+  (`ld.so --list`).
+- Between `9ad64a1` and `14039ac`, only this PR's changes touch meshcored,
+  radiod's API, pocketipc or protocols/meshcore. The stored state format is
+  unchanged.
+- Side effect: `meshcored --help` writes a `start version=… build=…` line to
+  `/var/lib/pocketos/log/meshcored.log` before it prints its usage. It does
+  not start a service.
+
+Installation (owner-approved):
+
+- `/usr/sbin/meshcored` `7b1ad94f…` was copied to
+  `/root/rollback-explicit-path/`, together with `RESTORE.sh`, a copy of
+  `/var/lib/pocketos/meshcored` taken while meshcored was stopped, and
+  `SHA256SUMS`.
+- The candidate `c0af8f32…` (`14039ac`) was then installed and started with
+  `S65meshcored`.
+- It came up `online` with the same identity and all 163 nodes. `mesh.info`
+  reports build `14039ac` with both capabilities `true`, and `tx_submitted`
+  was 0 after start.
+
+No-TX checks with `pos-ipc-json` on the unit: 27 checks, 0 failures. Keys
+are taken from B's own node list.
+
+- Previews:
+  - `[]` gives zero relays and an empty path.
+  - One repeater gives `4a`.
+  - Three repeaters in order give `4a03bb` (3 bytes).
+- Refusals, each with error 2:
+  - In `preview`: a repeater whose 1-byte hash collides with another known
+    repeater, a duplicate relay, self, the recipient as relay, a chat node
+    as relay, `via` given as `null` or as a string, a key prefix as
+    recipient, an unknown recipient, and a repeater as recipient.
+  - In `send`: `via` given as `null` or as a string, `via` with a prefix,
+    `via` with a channel, and `[]` and one repeater to an unknown recipient.
+    These sends all used a non-existent recipient, so no defect could reach
+    a third-party node.
+  - In `resend`: `resend` combined with `via` given as `[]`, `null`, a
+    string, or a repeater.
+- Across all checks `tx_submitted` stayed 0, no message was created, and
+  the recipient's learned route did not change.
+- One check failed on its first run. The fault was in the check script: it
+  expected the word "collision", but the service's correct error text is
+  "a relay hash matches another known repeater". The script was fixed and
+  re-run.
+
+State left on unit B: the candidate stays installed and running. To undo,
+run `/root/rollback-explicit-path/RESTORE.sh`. The helper and the check
+script are in `/tmp/doors-rf` and disappear at reboot.
+
+Still open: a second node for `send`/`auto`, a repeater both units hear,
+and an explanation of B's 0 `rx_events`.
