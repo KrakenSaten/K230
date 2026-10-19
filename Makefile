@@ -2809,11 +2809,17 @@ meshcored-test: meshcored $(MESHCORED_TESTS) $(MESHCORED_TESTS_ASAN)
 	bash tests/meshcored_service_test.sh
 	bash tests/meshcored_harness_test.sh
 
+# The hardware test's IPC helper: one request with raw JSON params (arrays and
+# null, which `pos call` cannot express). Built by name, cross-built the same
+# way as meshcored, copied to a unit only for tests/hw/mesh_explicit_path_rf.sh.
+tests/hw/pos-ipc-json: tests/hw/pos_ipc_json.o $(IPC_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
 meshcored-clean:
 	rm -f $(MESHCORED_C_OBJS) $(MESHCORED_CXX_OBJS) services/meshcored/meshcored \
 	      $(MESHCORED_TESTS) $(MESHCORED_TESTS_ASAN) $(MESHCORED_TESTS:=.o) \
 	      tests/meshcored_airtime_asan.o tests/meshcored_util_asan.o \
-	      tests/meshcored_store_hooks.o \
+	      tests/meshcored_store_hooks.o tests/hw/pos-ipc-json tests/hw/pos_ipc_json.o \
 	      services/meshcored/*.d tests/meshcored_*.d
 
 .PHONY: all test install clean poker-test poker-san-test sx1262-objs print-build-outputs browser-san-test \
