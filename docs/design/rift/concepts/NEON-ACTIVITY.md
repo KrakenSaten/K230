@@ -1,3 +1,25 @@
+# Neon — optional system-wide DOORS theme
+
+**Implemented in PR #98 following the owner decision of 2026-10-19.**
+Select **Settings → Appearance → Neon**. Select Doors or any other listed
+theme to switch back. The default remains Doors.
+
+The implementation uses the existing theme registry, semantic tokens,
+settings persistence and live change notifications across DOORS. It introduces
+no Activity layout, navigation or routing changes. See the [palette,
+implementation notes and rendered simulator evidence](../../neon/README.md)
+and [design-system amendment §58](../../POCKETOS-DS-v0.1.md#58-optional-system-wide-neon-theme-accepted).
+
+## Historical inspiration — 2026-10-17
+
+The original proposal below records the exploration **as it stood on
+2026-10-17**. Its RIFT-only preference and requests for future approval were
+superseded by the owner's system-wide theme decision above. The original
+[SVG artwork](neon-activity-landscape.svg) is preserved byte-for-byte. It is a
+concept with fictional telemetry, **not simulator implementation evidence**.
+
+---
+
 # RIFT Neon Activity — landscape inspiration
 
 **Status: EXPLORATION ONLY — NOT APPROVED / NOT IMPLEMENTED.**  

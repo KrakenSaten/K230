@@ -285,11 +285,11 @@ static void pump(int ms)
     }
 }
 
-static void use_display(enum pos_rotation rotation, int32_t corner)
+static void use_display_size(enum pos_rotation rotation, int32_t corner, int32_t width, int32_t height)
 {
     struct pos_panel panel = {
-        .width = PANEL_W,
-        .height = PANEL_H,
+        .width = width,
+        .height = height,
         .corners = { corner, corner, corner, corner },
     };
     struct pos_display_geometry g;
@@ -308,6 +308,11 @@ static void use_display(enum pos_rotation rotation, int32_t corner)
         lv_obj_set_height(app_header, header_h_for(g.width > g.height));
     }
     pump(80);
+}
+
+static void use_display(enum pos_rotation rotation, int32_t corner)
+{
+    use_display_size(rotation, corner, PANEL_W, PANEL_H);
 }
 
 /* ---- the app, hosted the way the shell hosts it --------------------------- */
@@ -6182,6 +6187,53 @@ int main(void)
     }
     check("everything on ACTIVITY is inside the body", inside_body(content()));
     shot("portrait-activity");
+
+    /* Bounded theme proof using the existing synthetic service fixtures.
+     * No helper, radio or network is started. Stop before unrelated suites. */
+    if (getenv("RIFT_THEME_PROOF")) {
+        char why[128];
+        char name[96];
+        for (int size = 0; size < POS_TEXT_SIZE_COUNT; size++) {
+            for (int landscape = 0; landscape < 2; landscape++) {
+                app_stop();
+                pos_theme_select_text_size((enum pos_text_size)size);
+                use_display(landscape ? POS_ROTATION_90 : POS_ROTATION_0, PANEL_CORNER);
+                app_start();
+                quiet_client();
+                give_nodes();
+                give_service();
+                pump(80);
+                check("Activity controls do not clip at selected text size", labels_overflowing(content()) == 0);
+                snprintf(name, sizeof(name), "activity-%s-%s", landscape ? "landscape" : "portrait",
+                         pos_text_size_name((enum pos_text_size)size));
+                shot(name);
+                pos_theme_select("doors", "normal", why, sizeof(why));
+                pump(40);
+                check("live Activity status repaints in Doors",
+                      lv_color_eq(lv_obj_get_style_text_color(find_text(content(), "ONLINE"), LV_PART_MAIN),
+                                  pos_theme_color(POS_COLOR_STATUS_OK)));
+                pos_theme_select(getenv("RIFT_THEME") ? getenv("RIFT_THEME") : "neon", "normal", why, sizeof(why));
+                pump(40);
+                check("Activity survives a live theme round trip", find_text(content(), "ONLINE") != NULL);
+                check("live Activity status repaints in Neon",
+                      lv_color_eq(lv_obj_get_style_text_color(find_text(content(), "ONLINE"), LV_PART_MAIN),
+                                  pos_theme_color(POS_COLOR_STATUS_OK)));
+            }
+        }
+        app_stop();
+        use_display_size(POS_ROTATION_0, 0, 1920, 1080);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        shot("activity-hdmi-large");
+        app_stop();
+        pos_theme_select("doors", "normal", why, sizeof(why));
+        pos_theme_select("neon", "normal", why, sizeof(why));
+        check("destroyed RIFT has no stale theme callback", app == NULL);
+        printf("rift_theme_proof: %d checks, %d failure(s)\n", checks, failed);
+        return failed ? 1 : 0;
+    }
 
     /* A panel's caption is centred on its top rule, so half of it lies
      * above the panel's own box. LVGL clips a child to its parent, and every

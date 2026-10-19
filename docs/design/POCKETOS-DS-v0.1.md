@@ -5216,3 +5216,31 @@ while powering on selects the eMMC boot medium, which this board does not
 have;** the boot ROM samples it before any software runs, so no setting can
 change that. User-facing text that teaches the hold must say to let go
 before a reset or power-on. RESET and the power key are unchanged.
+
+## 58. Optional system-wide Neon theme [ACCEPTED]
+
+**Accepted by the product owner, 2026-10-19 (PR #98 implementation request).**
+Neon is a selectable theme for all of DOORS, through Settings → Appearance →
+Neon. `doors` remains the default and fallback. The existing themes, layouts,
+text-size scale, touch targets, navigation and mode transforms stay unchanged.
+
+The seventh registry entry, `neon`, uses the existing §4 tokens and §8
+selection, persistence and notification path. Its palette and simulator
+validation are in [neon/README.md](neon/README.md); `themes.json` is the
+machine-readable table, including all derived colours and contrast ratios.
+Cyan marks actions, focus and selection; magenta distinguishes secondary
+controls; lime, yellow and red retain success, warning and error semantics.
+Words, symbols and selection marks continue to communicate state.
+
+For Neon only, §31's fixed environment palette maps to the shared semantic
+roles: neutral text, opaque dark surfaces, cyan borders, glyphs, focus marks
+and slider fills, with a darker photographic backdrop. Portal illustrations
+retain their symbols and colours because they are RGB artwork, not masks.
+The existing environment palette is exact for every other theme. Content
+colours (suits, map tiles, photographs, preview pixels, detection overlays,
+identity colours and diagnostics) keep their existing meanings.
+
+No glow on body text, blur, flashing, animation or rendering dependency is
+introduced. The original RIFT concept is historical inspiration, not a RIFT
+layout or routing contract. Owner visual review of actual simulator renders
+is still required before merge; target rendering remains a hardware check.

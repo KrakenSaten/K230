@@ -1208,7 +1208,7 @@ static const struct {
 } pages[] = {
     { NULL, NULL, "Developer", 0 },
     { "Display", NULL, "BRIGHTNESS", 0 },
-    { "Appearance", NULL, "DISPLAY MODE", 0 },
+    { "Appearance", NULL, "DISPLAY MODE", 1 }, /* seventh theme: scroll in landscape */
     { "Sound", NULL, "VOLUME", 0 },
     { "Keyboard", NULL, "KEYBOARD BASE", 0 },
     { "Power & Sleep", NULL, "WHAT EACH ONE DOES", 0 },
@@ -1783,6 +1783,16 @@ int main(void)
         check("and it is live", pos_theme_current_def() == second);
         mark = find_visible(app_body, "SELECTED");
         check("and the mark moved", mark && lv_obj_get_parent(mark) == target_of(second->name));
+        tap("Neon");
+        check("Neon is selected through Settings", strcmp(g_theme_set, "neon") == 0 &&
+              strcmp(pos_theme_current_def()->id, "neon") == 0);
+        mark = find_visible(app_body, "SELECTED");
+        check("Neon selection has a word label", mark && lv_obj_get_parent(mark) == target_of("Neon"));
+        app_stop();
+        app_start();
+        open_category("Appearance");
+        mark = find_visible(app_body, "SELECTED");
+        check("reopened Appearance retains Neon", mark && lv_obj_get_parent(mark) == target_of("Neon"));
         tap("NIGHT");
         check("NIGHT asks the shell for the mode only", strcmp(g_mode_set, "night") == 0 && g_theme_set[0] == '\0');
         check("and it is live", pos_theme_current_mode() == POS_MODE_NIGHT);
