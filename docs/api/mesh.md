@@ -132,7 +132,13 @@ says the radio is here and not working, the other says it is not here.
 
 Result: `service`, `api_version`, `version`, `build`, `protocol`
 (`"meshcore"`), `source` (`rift_commit`, `crypto_commit`), `radiod_socket`,
-`requested_profile`.
+`requested_profile`, `capabilities`.
+
+`capabilities.manual_path_preview` and `capabilities.explicit_direct_send`
+are `true` when the methods below are implemented. A client must require the
+relevant flag to be explicitly `true` before offering that operation. An
+absent flag means unsupported; an older service may ignore unknown request
+members, so sending `via` speculatively could send on its automatic route.
 
 `source` is which revision of the MeshCore protocol sources this build speaks.
 A service whose whole purpose is another project's wire format has to be able
@@ -488,6 +494,7 @@ A message:
 | `ack_expected` | whether an acknowledgement can **ever** arrive for this message |
 | `ack_mono_ms` | when the ACK matched; absent until it does |
 | `attempts` | **outgoing direct only**: how many times it has been sent - 1, and one more for each `resend` (below) |
+| `route`, `path_hex`, `path_hops` | **outgoing explicit direct only**: `route` is `explicit`; the encoded relay prefixes and relay count belong to this message, including an empty path for zero relays. They are not a report of the route actually traversed. |
 | `transmitted` | **outgoing channel only**, absent until the radio has said: `true` when the frame went on the air, `false` when the transmit failed. See "What a channel send can show" |
 | `heard_back` | **outgoing channel only**, when the service is watching for copies: how many copies of this packet it has heard relayed back by repeaters (0 when none) |
 | `heard_back_hops`, `heard_back_mono_ms` | with `heard_back` above 0: the fewest relays a copy came through, and when the first copy was heard (ours) |
@@ -512,6 +519,30 @@ forever. A client that draws "delivered" or "no ack" where `ack_expected` is
 a permanent `sent_flood` the way it shows a direct message waiting for an ACK
 teaches a reader to read it as a failure.
 
+### mesh.path_preview
+
+Params: `to`, a known chat node's **full public key** (64 hexadecimal
+characters), and `via`, an array of full repeater public keys in forwarding
+order. The local node and destination are not included in `via`. An empty
+array selects a zero-relay DIRECT route; it does not select automatic
+routing or flood.
+
+The service resolves every key against its current node list. It refuses a
+missing/non-chat destination; missing/non-repeater, local or destination
+waypoints; repeated keys; and relay prefixes that collide with another known
+repeater. The node's current `path_hash_bytes` setting selects 1, 2 or 3 bytes
+per relay. Limits are 63 relays and 64 total path bytes: at widths 1/2/3 that
+permits 63/32/21 relays respectively. Invalid parameters or routes return
+error 2. Collision checks cover known repeaters only.
+
+Result: `valid: true`, `route: "explicit"`, `relays`, `hash_bytes`,
+`path_bytes`, `path_hex`, `transmitted: false` and
+`link_evidence_verified: false`. Preview creates no packet or message,
+changes no learned contact route and sends nothing. It verifies the current
+identities and encoding bounds; it does not prove that neighbouring
+waypoints can hear each other, that repeaters are reachable or that their
+firmware supports the chosen hash width.
+
 ### mesh.send
 
 Params: exactly **one** of `to` (a public key or prefix, as `mesh.node`) or
@@ -523,6 +554,16 @@ destinations with different delivery semantics, and silently preferring one
 would send a message somewhere the caller did not mean. Giving neither is an
 error too.
 
+For an explicit direct route, give `to` as a full public key and add `via`
+with the same meaning as `mesh.path_preview`. The service revalidates all
+keys at send time, then copies the selected route into this message's
+MeshCore DIRECT packet through a temporary contact copy. The destination's
+learned route is not overwritten. A refused explicit route never falls back
+to flood or a learned route. `via` with `channel`, a missing `to`, a prefix
+instead of a full key, or a value other than an array is error 2; `via: null`
+is not an alias for automatic routing. Omitting `via` retains the existing
+automatic flood/learned-direct behaviour.
+
 Or, instead of all of those, `resend`: the `id` of an outgoing direct message
 of **this run** that is `no_ack` (or `failed`). It is sent again the way
 upstream's companion clients retry one (`examples/companion_radio/MyMesh.cpp`,
@@ -533,12 +574,17 @@ attempt is watched under a fresh expected ACK and its own deadline. The
 message keeps its id - there is still one message, sent more than once - goes
 back to `sent_flood` or `sent_direct`, and its `attempts` goes up; the answer
 is the one below, with `message_id` that id and `resent: true`. `resend` with
-`to`, `channel` or `text` beside it is refused (error 2), and so is an id that
-is not an unacknowledged direct message of this run - a received message, a
+`to`, `channel`, `text` or `via` beside it is refused (error 2), including an
+empty or null `via`. So is an id that is not an unacknowledged direct message
+of this run - a received message, a
 channel message (nothing acknowledges one, so nothing says it failed), one
 delivered, one still waiting for its ACK, or one from a run before this one,
 which the service no longer holds. A message whose node has been forgotten
 since is refused too (error 2): there is no contact to encrypt to.
+
+Resending a message originally sent with an explicit route is disabled in
+this phase, even when its ACK wait has expired. Select and submit a new route
+as a new message; the service never retries it with automatic routing.
 
 The recipient sees a resend as a second copy of the message (a new packet:
 the attempt changes its hash), with the same timestamp and text. Upstream's
@@ -551,6 +597,7 @@ then one of:
 | | |
 | --- | --- |
 | to a node | `route` is `flood` or `direct`, `ack_timeout_ms` is how long MeshCore will wait, `ack_expected` is `true` |
+| to a node with `via` | `route` is `explicit`, `ack_timeout_ms` is the direct-route estimate, and `ack_expected` is `true`. The message starts at `sent_direct` and follows the same ACK/deadline states. |
 | to a channel | `route` is `flood`, `channel` is the slot, `ack_expected` is `false`, and **there is no `ack_timeout_ms`** - there is no ACK to time out, and a timeout of 0 would read as "answered instantly" |
 
 **Accepted is not transmitted, and a message's `state` does not say whether

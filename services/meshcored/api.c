@@ -1086,9 +1086,8 @@ static cJSON *m_messages(struct mcd *d, const cJSON *params)
 
 
 /* A non-transmitting path planner. Every relay is a full public key. The
- * result is a *candidate* only; MeshCore still cannot send it through
- * mesh.send at this stage. An old client sending via= to mesh.send is
- * explicitly refused, not silently sent over AUTO. */
+ * result is a candidate only: mesh.send revalidates the full keys at send
+ * time and never falls back to AUTO when an explicit route is refused. */
 static cJSON *m_path_preview(struct mcd *d, const cJSON *params, int *code,
                             char *err, size_t errlen)
 {
@@ -1185,11 +1184,11 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
     enum mcd_path_result path_error = MCD_PATH_OK;
 
 
-    /* A resend names the message and nothing else: its peer and its text are
-     * the message's own, and a caller that also gave either would be asking
-     * for two different things at once. */
+    /* A resend names the message and nothing else. In particular, accepting
+     * via here would silently ignore a requested route: the resend path
+     * below uses the original message's ordinary routing policy. */
     if (jresend != NULL) {
-        if (jto != NULL || jchan != NULL || jtext != NULL) {
+        if (jto != NULL || jchan != NULL || jtext != NULL || jvia != NULL) {
             *code = POCKETIPC_ERR_INVALID_PARAMS;
             snprintf(err, errlen, "resend takes a message id and nothing else");
             return NULL;

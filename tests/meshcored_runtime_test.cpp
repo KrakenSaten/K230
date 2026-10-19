@@ -3690,9 +3690,9 @@ static void test_app_datagrams(Node& a, Node& b, Air& air, const mesh::LocalIden
     check("every one was counted", st.app_rx == (uint64_t)(3 + MCD_APP_INBOX + 8));
 }
 
-/* Explicit route preview is read-only and intentionally does not send.
+/* Explicit route validation and refusal to retry an explicit message.
  * The recipient and each relay are bound by their complete public keys.
- * This test runs after A and B have exchanged adverts. */
+ * This fixture has only a sender; packet delivery is exercised separately. */
 static void test_manual_path_preview(void)
 {
     Air air;
@@ -3823,6 +3823,218 @@ static void test_manual_path_preview(void)
     a.rt = NULL;
 }
 
+static bool sameLearnedPath(const struct mcd_node& before, const struct mcd_node& after)
+{
+    return before.path_known == after.path_known && before.path_len == after.path_len &&
+           before.path_bytes == after.path_bytes &&
+           memcmp(before.path, after.path, before.path_bytes) == 0;
+}
+
+static void checkExplicitWire(int width, int hops, const char* assertion, bool ok)
+{
+    char label[160];
+
+    snprintf(label, sizeof(label), "explicit %d-byte %d-relay %s", width, hops, assertion);
+    check(label, ok);
+}
+
+/* Inspect the bytes actually submitted to radiod, then use real encrypted
+ * A/B traffic to exercise delivery and independent ACKs. The two repeater
+ * identities below are inventory entries only: this is not an RF or relay
+ * forwarding test. All real A/B delivery here uses an empty DIRECT path. */
+static void test_explicit_packets_and_acks(void)
+{
+    Air air;
+    Node a;
+    Node b;
+    mesh::LocalIdentity a_id;
+    mesh::LocalIdentity b_id;
+    mesh::LocalIdentity relays[2];
+    char err[mcdstore::ERR_SIZE] = "";
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_node learned = {};
+    struct mcd_node after = {};
+    struct mcd_message message;
+    uint64_t id = 0;
+    uint32_t timeout = 0;
+    enum mcd_path_result why = MCD_PATH_OK;
+    bool persisted = false;
+    bool identities = mcdstore::identityCreate(a_id, err) &&
+                      mcdstore::identityCreate(b_id, err) &&
+                      mcdstore::identityCreate(relays[0], err) &&
+                      mcdstore::identityCreate(relays[1], err);
+
+    /* Both relays must be unambiguous even in one-byte mode. Generate real
+     * key pairs rather than modifying signed identity fixtures. */
+    for (int i = 0; identities && relays[0].pub_key[0] == relays[1].pub_key[0] && i < 32; i++) {
+        identities = mcdstore::identityCreate(relays[1], err);
+    }
+    check("explicit wire fixtures have valid identities and distinct relay prefixes",
+          identities && relays[0].pub_key[0] != relays[1].pub_key[0]);
+    if (!identities || relays[0].pub_key[0] == relays[1].pub_key[0]) {
+        return;
+    }
+    check("explicit wire sender starts", makeNode(a, air, "EXPLICIT-SEND-A", &a_id));
+    check("explicit wire recipient starts", makeNode(b, air, "EXPLICIT-SEND-B", &b_id));
+    if (!a.rt || !b.rt) {
+        if (a.rt) mcd_runtime_destroy(a.rt);
+        if (b.rt) mcd_runtime_destroy(b.rt);
+        return;
+    }
+    mcd_runtime_set_radio_online(a.rt, true);
+    mcd_runtime_set_radio_online(b.rt, true);
+    check("explicit sender advert is accepted", mcd_runtime_send_advert(a.rt));
+    check("explicit recipient advert is accepted", mcd_runtime_send_advert(b.rt));
+    check("explicit endpoints discover one another", pumpUntil(air, [&] {
+              return mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, NULL) == 1 &&
+                     mcd_runtime_node_by_prefix(b.rt, a_id.pub_key, MCD_PUB_KEY_LEN, NULL) == 1;
+          }));
+
+    /* An unknown learned route must not make via=[] flood. Capture this
+     * first frame before giving the exact bytes to the recipient. */
+    check("explicit zero-relay fixture begins without a learned route",
+          mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, &learned) == 1 &&
+              !learned.path_known);
+    check("explicit zero-relay send is accepted without a learned route",
+          mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, NULL, 0, "explicit zero relay",
+                                         &id, &timeout, &why) == MCD_SEND_ACCEPTED_EXPLICIT);
+    int len = captureNext(a, air, frame);
+    check("explicit zero-relay send emits an actual DIRECT text packet",
+          len > 2 && frame[0] == ((PAYLOAD_TYPE_TXT_MSG << PH_TYPE_SHIFT) | ROUTE_TYPE_DIRECT) &&
+              frame[1] == 0);
+    defaultMeta(meta);
+    check("the captured explicit packet enters the real recipient",
+          len > 2 && mcd_runtime_deliver_rx(b.rt, frame, len, &meta));
+    check("the real recipient decrypts the explicit message", pumpUntil(air, [&] {
+              return b.message_events == 1 && strcmp(b.last_message, "explicit zero relay") == 0;
+          }));
+    check("the real recipient's ACK delivers the original explicit message",
+          pumpUntil(air, [&] { return stateOf(a.rt, id) == MCD_MSG_ACKED; }) &&
+              messageOf(a.rt, id, message) && message.explicit_path && message.ack_known &&
+              message.explicit_path_len == 0 && message.explicit_path_bytes == 0);
+    check("explicit send and ACK preserve the previously unknown learned route",
+          mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, &after) == 1 &&
+              sameLearnedPath(learned, after));
+
+    /* Learn the ordinary route through a real flood/PATH exchange. Later
+     * two-relay explicit sends must leave this known, different route alone.
+     * Waiting for B's reciprocal path also drains that scheduled packet. */
+    check("ordinary AUTO still floods to learn a route after an explicit send",
+          mcd_runtime_send_text(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, "learn normal route",
+                                &id, &timeout) == MCD_SEND_ACCEPTED_FLOOD);
+    check("the ordinary exchange learns routes in both directions", pumpUntil(air, [&] {
+              return stateOf(a.rt, id) == MCD_MSG_ACKED &&
+                     mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, &learned) == 1 &&
+                     learned.path_known && learned.path_bytes == 0 &&
+                     mcd_runtime_node_by_prefix(b.rt, a_id.pub_key, MCD_PUB_KEY_LEN, &after) == 1 &&
+                     after.path_known;
+          }));
+
+    for (int i = 0; i < 2; i++) {
+        len = craftAdvert(frame, relays[i], i == 0 ? "EXPLICIT-VIA-1" : "EXPLICIT-VIA-2",
+                          1790000030u + (uint32_t)i, NULL, NULL, ADV_TYPE_REPEATER);
+        defaultMeta(meta);
+        check("explicit wire repeater advert enters the sender",
+              mcd_runtime_deliver_rx(a.rt, frame, len, &meta));
+    }
+    check("both explicit wire repeaters are discovered", pumpUntil(air, [&] {
+              return mcd_runtime_node_by_prefix(a.rt, relays[0].pub_key, MCD_PUB_KEY_LEN, NULL) == 1 &&
+                     mcd_runtime_node_by_prefix(a.rt, relays[1].pub_key, MCD_PUB_KEY_LEN, NULL) == 1;
+          }));
+
+    uint8_t via[MCD_PUB_KEY_LEN * 2];
+    /* Reverse discovery order: the wire must preserve the caller's order. */
+    memcpy(via, relays[1].pub_key, MCD_PUB_KEY_LEN);
+    memcpy(via + MCD_PUB_KEY_LEN, relays[0].pub_key, MCD_PUB_KEY_LEN);
+    const uint8_t packed[3][2] = { { 0x00, 0x02 }, { 0x40, 0x42 }, { 0x80, 0x82 } };
+    for (int width = 1; width <= 3; width++) {
+        check("explicit wire hash width can be configured",
+              mcd_runtime_set_path_hash_bytes(a.rt, width, &persisted));
+        for (int route = 0; route < 2; route++) {
+            int hops = route == 0 ? 0 : 2;
+            int bytes = width * hops;
+            uint8_t expected[6] = { 0 };
+            char text[MCD_MAX_TEXT + 1];
+
+            memcpy(expected, relays[1].pub_key, (size_t)width);
+            memcpy(expected + width, relays[0].pub_key, (size_t)width);
+            snprintf(text, sizeof(text), "wire width %d, %d relays", width, hops);
+            checkExplicitWire(width, hops, "send is accepted",
+                mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, hops ? via : NULL,
+                    (size_t)hops, text, &id, &timeout, &why) == MCD_SEND_ACCEPTED_EXPLICIT);
+            len = captureNext(a, air, frame);
+            checkExplicitWire(width, hops, "packet has DIRECT text header and exact path length",
+                len > 2 + bytes &&
+                frame[0] == ((PAYLOAD_TYPE_TXT_MSG << PH_TYPE_SHIFT) | ROUTE_TYPE_DIRECT) &&
+                frame[1] == packed[width - 1][route]);
+            checkExplicitWire(width, hops, "packet keeps the requested ordered prefix bytes",
+                len > 2 + bytes && memcmp(frame + 2, expected, (size_t)bytes) == 0);
+            checkExplicitWire(width, hops, "message retains its own exact route",
+                messageOf(a.rt, id, message) && message.explicit_path &&
+                message.state == MCD_MSG_SENT_DIRECT &&
+                message.explicit_path_len == packed[width - 1][route] &&
+                message.explicit_path_bytes == bytes &&
+                memcmp(message.explicit_path_data, expected, (size_t)bytes) == 0);
+            checkExplicitWire(width, hops, "send preserves the different learned route",
+                mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, &after) == 1 &&
+                sameLearnedPath(learned, after));
+            /* These captures are deliberately not delivered. End their own
+             * ACK waits before the next case, without a wall-clock delay. */
+            checkExplicitWire(width, hops, "undelivered packet expires its own ACK wait",
+                mcd_runtime_expire_acks(a.rt, nowMs() + timeout + 1) == 1 &&
+                stateOf(a.rt, id) == MCD_MSG_NO_ACK);
+        }
+    }
+
+    /* Two explicit messages remain outstanding together. Hold real ACKs and
+     * deliver the second first; each message must keep its own route and
+     * state despite BaseChatMesh having only one upstream timeout field. */
+    uint64_t first = 0;
+    uint64_t second = 0;
+    Held first_ack;
+    Held second_ack;
+    first_ack.n = 0;
+    second_ack.n = 0;
+    check("first overlapping explicit send uses two-byte mode",
+          mcd_runtime_set_path_hash_bytes(a.rt, 2, &persisted) &&
+          mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, NULL, 0, "explicit first",
+                                         &first, &timeout, &why) == MCD_SEND_ACCEPTED_EXPLICIT);
+    for (int i = 0; i < 600 && first_ack.n == 0; i++) {
+        carryHolding(air, b.index, first_ack, 1);
+    }
+    check("the real recipient receives the first message and its ACK is held",
+          first_ack.n > 0 && strcmp(b.last_message, "explicit first") == 0);
+    check("second overlapping explicit send uses three-byte mode",
+          mcd_runtime_set_path_hash_bytes(a.rt, 3, &persisted) &&
+          mcd_runtime_send_explicit_text(a.rt, b_id.pub_key, NULL, 0, "explicit second",
+                                         &second, &timeout, &why) == MCD_SEND_ACCEPTED_EXPLICIT);
+    for (int i = 0; i < 600 && second_ack.n == 0; i++) {
+        carryHolding(air, b.index, second_ack, 1);
+    }
+    check("the real recipient receives the second message and its ACK is held",
+          second_ack.n > 0 && strcmp(b.last_message, "explicit second") == 0);
+    check("both explicit messages wait independently with separate ids and route metadata",
+          first != second && mcd_runtime_acks_waiting(a.rt) == 2 &&
+          messageOf(a.rt, first, message) && message.state == MCD_MSG_SENT_DIRECT &&
+          message.explicit_path && message.explicit_path_len == 0x40 &&
+          messageOf(a.rt, second, message) && message.state == MCD_MSG_SENT_DIRECT &&
+          message.explicit_path && message.explicit_path_len == 0x80);
+    arrive(a, second_ack);
+    check("the second explicit ACK delivers only the second message",
+          stateOf(a.rt, second) == MCD_MSG_ACKED &&
+          stateOf(a.rt, first) == MCD_MSG_SENT_DIRECT && mcd_runtime_acks_waiting(a.rt) == 1);
+    arrive(a, first_ack);
+    check("the first explicit ACK then delivers the first message",
+          stateOf(a.rt, first) == MCD_MSG_ACKED && stateOf(a.rt, second) == MCD_MSG_ACKED &&
+          mcd_runtime_acks_waiting(a.rt) == 0);
+    check("overlapping explicit sends and their ACKs leave the learned route intact",
+          mcd_runtime_node_by_prefix(a.rt, b_id.pub_key, MCD_PUB_KEY_LEN, &after) == 1 &&
+              sameLearnedPath(learned, after));
+    mcd_runtime_destroy(a.rt);
+    mcd_runtime_destroy(b.rt);
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-runtime-XXXXXX";
@@ -3855,6 +4067,7 @@ int main(void)
     test_tx_outcomes(a, air);
     test_two_nodes(a, b, air);
     test_manual_path_preview();
+    test_explicit_packets_and_acks();
     test_duplicate_suppression(a, b, air);
     test_advert_hops(a, b, air);
     test_path_guard(a, b, air, a_id, b_id);
