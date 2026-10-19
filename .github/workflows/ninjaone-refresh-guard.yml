@@ -1,0 +1,71 @@
+name: NinjaOne refresh guard
+
+on:
+  push:
+    branches: [feat/ninjaone-app]
+    paths:
+      - 'apps/ninjaone/**'
+      - 'core/ninjaone/**'
+      - 'tools/ninjaone/**'
+      - 'tests/ninjaone_busy_helper.py'
+      - 'tests/ninjaone_shell_test.py'
+      - 'ui/shell/CMakeLists.txt'
+      - 'Makefile'
+      - '.github/workflows/ninjaone-refresh-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-guard:
+    if: github.ref == 'refs/heads/feat/ninjaone-app'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Check out the existing pinned LVGL
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: lvgl/lvgl
+          ref: 59dc7e436ae97a25e32656739ea6a943f9f11b6a
+          path: vendor/lvgl
+          persist-credentials: false
+
+      - name: Install host simulator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config libsdl2-dev libcjson-dev libcurl4-openssl-dev python3-pcpp python3-pil
+
+      - name: Build the real helper and simulator shell
+        run: |
+          make CC=gcc CFLAGS='-O2 -Wall -Wextra -Werror' NINJAONE_CURL=1 tools/ninjaone/pos-ninjaone
+          cmake -S ui/shell -B out/ninjaone-refresh-ci -DPOCKETOS_DISPLAY=sdl -DPOCKETOS_LVGL_MODE=source -DLVGL_DIR="$PWD/vendor/lvgl" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build out/ninjaone-refresh-ci --target pocketos-shell --parallel 2
+          python3 - <<'PY'
+          import json, shlex, subprocess
+          from pathlib import Path
+          entries = json.loads(Path('out/ninjaone-refresh-ci/compile_commands.json').read_text())
+          entry = next(e for e in entries if e['file'].endswith('/apps/ninjaone/ninja_app.c'))
+          subprocess.run(shlex.split(entry['command']) + ['-Werror'], cwd=entry['directory'], check=True)
+          PY
+
+      - name: Run only the Refresh and Forget concurrency regression
+        env:
+          SHELL_BIN: ${{ github.workspace }}/out/ninjaone-refresh-ci/pocketos-shell
+        run: python3 tests/ninjaone_shell_test.py --refresh-guard
+
+      - name: Keep synthetic UI failure evidence
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ninjaone-refresh-guard
+          path: |
+            work/ninjaone-ui/**/run.log
+            work/ninjaone-ui/**/calls
+          if-no-files-found: ignore
+          retention-days: 7

@@ -88,7 +88,12 @@ static void action(lv_event_t *e)
     if (code < 0) { a->device = -code; a->dirty = true; return; }
     switch (code) {
     case 0: case 1: case 2: a->tab = code; a->device = 0; a->page = 0; break;
-    case 3: a->refresh = true; break;
+    case 3:
+        /* A refresh must not cancel renewal or an in-flight credential erase. */
+        if (a->loading) return;
+        if (a->error != NINJA_RATE && a->error != NINJA_RENEW_FAILED) a->next = 0;
+        a->refresh = true;
+        break;
     case 4: a->device = 0; break;
     case 5: a->org = 0; a->page = 0; a->device = 0; break;
     case 6: save_favorites(a, a->org); break;
@@ -275,7 +280,7 @@ static void poll_timer(lv_timer_t *timer)
         for (unsigned i = 0; i < lv_obj_get_child_count(a->nav); i++)
             lv_obj_set_width(lv_obj_get_child(a->nav, i), LV_PCT(wide ? 23 : 48));
     }
-    if (a->refresh && now >= a->next) {
+    if (a->refresh && !a->loading && now >= a->next) {
         a->refresh = false; a->loading = true; a->renewing = false; a->forgetting = false;
         if (ninja_session_start(&a->session, now, a->fake)) { a->loading = false; a->error = NINJA_HELPER; a->stale = a->data.updated != 0; }
         a->dirty = true;
@@ -312,13 +317,8 @@ static void poll_timer(lv_timer_t *timer)
         a->refresh = true;
     if (a->last_ms && now - a->last_ms > 2 * NINJA_REFRESH_S * 1000 && !a->stale) { a->stale = true; a->dirty = true; }
     /* Manual refresh can retry auth/setup immediately; rate backoff is always
-     * respected. Other deadlines are shortened by the click handler below. */
+     * respected. Other deadlines are shortened by the refresh action. */
     if (a->dirty) { a->dirty = false; draw(a); }
-}
-static void manual_refresh(lv_event_t *e)
-{
-    struct ninja_app *a = lv_event_get_user_data(e);
-    if (a->error != NINJA_RATE && a->error != NINJA_RENEW_FAILED) a->next = 0;
 }
 static void *create(lv_obj_t *root)
 {
@@ -339,8 +339,7 @@ static void *create(lv_obj_t *root)
     lv_obj_set_size(a->nav, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(a->nav, LV_FLEX_FLOW_ROW_WRAP); lv_obj_set_style_pad_gap(a->nav, 8, 0);
     button(a, a->nav, "Overview", 0); button(a, a->nav, "Organizations", 1); button(a, a->nav, "Alerts", 2);
-    lv_obj_t *refresh = button(a, a->nav, "Refresh data", 3);
-    lv_obj_add_event_cb(refresh, manual_refresh, LV_EVENT_CLICKED, a);
+    button(a, a->nav, "Refresh data", 3);
     button(a, a->frame, "Disconnect / Forget credentials", 10);
     a->status = label(a->frame, "Loading...", POS_STYLE_TEXT_SECONDARY);
     a->freshness = label(a->frame, "No successful update", POS_STYLE_CAPTION);
@@ -400,3 +399,4 @@ const struct pocketos_app app_ninjaone = {
     .back = back,
     .back_slab_in_app = true,
 };
+

@@ -8,6 +8,7 @@ from pathlib import Path
 import struct
 import socket
 import subprocess
+import shlex
 import time
 import tempfile
 import sys
@@ -18,6 +19,7 @@ output.mkdir(parents=True, exist_ok=True)
 helper = root/'tools/ninjaone/pos-ninjaone'
 shell = Path(os.environ.get('SHELL_BIN', str(root/'out/cloud-shell/pocketos-shell')))
 checks = 0
+refresh_guard = '--refresh-guard' in sys.argv
 
 
 def run(orientation, size):
@@ -28,6 +30,14 @@ def run(orientation, size):
     calls = case/'calls'; calls.write_text('')
     wrapper = case/'helper.sh'
     wrapper.write_text(f'#!/bin/sh\nprintf x >> "{calls}"\nexec "{helper}" "$1" --fake "$(cat "{scenario}")"\n')
+    if refresh_guard:
+        renewed = subprocess.check_output([helper, 'snapshot', '--fake', 'tenant2'])
+        renewing = subprocess.check_output([helper, 'snapshot', '--fake', 'renewing'])
+        assert renewed and len(renewing) == 2 * len(renewed)
+        (case/'renewing.frame').write_bytes(renewing[:len(renewed)])
+        (case/'renewed.frame').write_bytes(renewed)
+        command = [sys.executable, str(root/'tests/ninjaone_busy_helper.py'), str(case), str(helper)]
+        wrapper.write_text('#!/bin/sh\nexec ' + shlex.join(command) + ' "$1"\n')
     wrapper.chmod(0o755)
     env = {**os.environ, 'SDL_VIDEODRIVER': 'dummy', 'POCKETOS_NINJAONE_HELPER': str(wrapper),
            'POCKETOS_NINJAONE_BACKEND': 'fake', **{f'POCKETOS_{k.upper()}_DIR': str(case/k)
@@ -72,6 +82,41 @@ def run(orientation, size):
         call('shell.screenshot', path=str(case/f'{name}.png'))
         time.sleep(.1)
 
+    def wait_for(predicate, message):
+        deadline = time.monotonic() + 5
+        while not predicate():
+            assert process.poll() is None, 'shell exited: ' + message
+            assert time.monotonic() < deadline, message
+            time.sleep(.05)
+
+    def exited(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        return False
+
+    def hold(mode, control):
+        (case/'held-entered').unlink(missing_ok=True)
+        (case/'held-release').unlink(missing_ok=True)
+        before = calls.read_text().splitlines()
+        scenario.write_text(mode)
+        tap(control)
+        wait_for(lambda: (case/'held-entered').exists(), mode + ' did not start')
+        entry = json.loads((case/'held-entered').read_text())
+        assert len(calls.read_text().splitlines()) == len(before) + 1
+        return entry['pid']
+
+    def refresh_while_busy(pid):
+        before = calls.read_text()
+        tap('Refresh data'); tap('Refresh data')
+        assert calls.read_text() == before, 'Refresh restarted an active helper'
+        assert not exited(pid), 'Refresh cancelled the active helper'
+
+    def release(pid):
+        (case/'held-release').touch()
+        wait_for(lambda: exited(pid), 'completed helper was not reaped')
+
     try:
         deadline = time.monotonic()+8
         while not (case/'runtime/shell.sock').exists():
@@ -79,6 +124,37 @@ def run(orientation, size):
             time.sleep(.05)
         time.sleep(.6)
         assert call('shell.info')['result']['current'] == 'ninjaone'
+        if refresh_guard:
+            # Wait for the initial real helper frame to reach the app before
+            # starting a deliberately held renewal through the real UI.
+            wait_for(lambda: bool(calls.read_text()), 'initial snapshot did not start')
+            initial = json.loads(calls.read_text().splitlines()[0])
+            wait_for(lambda: exited(initial['pid']), 'initial snapshot did not finish')
+            pid = hold('held-renewal', 'Refresh data')
+            refresh_while_busy(pid)
+            release(pid)
+            # The completed frame switches to tenant2. Saving this favorite
+            # proves that the UI accepted the reply, rather than keeping stale
+            # data after cancelling the original process.
+            tap('Organizations'); tap('Demo North'); tap('Save local favorite')
+            assert 'n1_d_000000000000000000000002=1' in (case/'config/settings.conf').read_text()
+            tap('Overview')
+            renewing_pid = hold('held-renewal', 'Refresh data')
+            forgetting_pid = hold('held-forget', 'Disconnect / Forget credentials')
+            wait_for(lambda: exited(renewing_pid), 'Disconnect did not cancel renewal')
+            refresh_while_busy(forgetting_pid)
+            release(forgetting_pid)
+            before = calls.read_text(); time.sleep(.4)
+            assert calls.read_text() == before, 'Forget resumed polling'
+            # An explicit refresh after completion remains available.
+            scenario.write_text('demo'); tap('Refresh data')
+            wait_for(lambda: calls.read_text() != before, 'idle Refresh was ignored')
+            entry = json.loads(calls.read_text().splitlines()[-1])
+            assert entry['operation'] == 'snapshot' and entry['scenario'] == 'demo'
+            wait_for(lambda: exited(entry['pid']), 'idle Refresh did not complete')
+            call('shell.home'); time.sleep(.2)
+            checks += 1
+            return
         if '--focused' in sys.argv:
             tap('Organizations'); tap('Demo North'); tap('Save local favorite')
             settings = case/'config/settings.conf'
@@ -136,7 +212,11 @@ def run(orientation, size):
         process.terminate(); process.wait(timeout=5); log.close()
 
 
-for orientation in (('portrait',) if '--focused' in sys.argv else ('portrait', 'landscape')):
-    for size in (('medium',) if '--focused' in sys.argv else ('small', 'medium', 'large')):
+for orientation in (('portrait',) if '--focused' in sys.argv or refresh_guard else ('portrait', 'landscape')):
+    for size in (('medium',) if '--focused' in sys.argv or refresh_guard else ('small', 'medium', 'large')):
         run(orientation, size)
-print(f'ninjaone_shell_test: {checks} focused auth/tenant/disconnect cases passed' if '--focused' in sys.argv else f'ninjaone_shell_test: {checks} orientation/text-size cases passed')
+if refresh_guard:
+    print(f'ninjaone_shell_test: {checks} Refresh/renewal/Forget concurrency regression passed')
+else:
+    print(f'ninjaone_shell_test: {checks} focused auth/tenant/disconnect cases passed' if '--focused' in sys.argv else f'ninjaone_shell_test: {checks} orientation/text-size cases passed')
+
