@@ -123,10 +123,12 @@ void rift_tabs_paint(struct rift_app *a)
             continue;
         }
         if (active) {
-            pos_style_add(a->tab_label[i], POS_STYLE_ACCENT_TEXT, 0);
+            pos_style_add(a->tab_label[i], POS_STYLE_NAV_LABEL_SELECTED, 0);
+            pos_style_add(a->tab[i], POS_STYLE_NAV_SELECTED, 0);
             lv_obj_remove_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_obj_remove_style(a->tab_label[i], pos_style(POS_STYLE_ACCENT_TEXT), 0);
+            lv_obj_remove_style(a->tab_label[i], pos_style(POS_STYLE_NAV_LABEL_SELECTED), 0);
+            lv_obj_remove_style(a->tab[i], pos_style(POS_STYLE_NAV_SELECTED), 0);
             lv_obj_add_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
@@ -206,7 +208,7 @@ void rift_tabs_build(struct rift_app *a)
 
         lv_obj_remove_style_all(glyph);
         pos_style_add(glyph, POS_STYLE_SYMBOL, 0);
-        pos_style_add(glyph, POS_STYLE_ACCENT_TEXT, 0);
+        pos_style_add(glyph, POS_STYLE_BUTTON_GLYPH, 0);
         lv_label_set_text(glyph, LV_SYMBOL_LEFT);
         lv_obj_center(glyph);
     }

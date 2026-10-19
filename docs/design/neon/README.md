@@ -1,9 +1,9 @@
 # Optional system-wide Neon theme
 
-System-wide direction approved by the owner; implementation visual approval
-is still pending. The reviewed implementation `ddf9791` was rejected as too
-subdued. See the [visual revision after owner feedback](revision/README.md)
-for the current proposal, matched before/after images and new validation.
+System-wide direction approved by the owner; **implementation visual approval
+is pending**. Both earlier implementations (`ddf9791` and `98275b0`) are
+superseded. See the [current neon-sign / arcade proposal](arcade/README.md)
+for direct comparison against `98275b0`, native simulator evidence and checks.
 
 Select **Settings → Appearance → Neon**; tapping any other theme switches back immediately.
 Doors is still the default and fallback. The seventh row uses the existing
@@ -13,29 +13,25 @@ scrollable Appearance page, including its two-column landscape list.
 
 | Semantic role | Normal colour | Purpose |
 | --- | --- | --- |
-| `bg` | `#03070d` | Very dark canvas |
-| `surface` / `surface_raised` | `#071b24` / `#102b36` | Controls and pressed/selected surfaces |
-| `line` | `#317287` | Quiet structure without losing boundaries |
-| `text_primary` / `text_secondary` | `#f6f8ff` / `#d1e1ef` | Neutral readable text |
-| `accent_primary`, `focus`, `radio_rx` | `#00e5ff` | Cyan actions, selection, focus, RX |
-| `accent_secondary`, `radio_tx` | `#ff59df` | Magenta secondary controls and TX |
-| `status_ok` | `#b6ff36` | Lime positive states |
+| `bg` | `#03040a` | Very dark canvas |
+| `surface` / `surface_raised` | `#090d17` / `#141a29` | Controls and pressed/selected surfaces |
+| `line` | `#354354` | Quiet structure without losing boundaries |
+| `text_primary` / `text_secondary` | `#f7faff` / `#d3ddec` | Neutral readable text |
+| `accent_primary`, `focus`, `radio_rx` | `#00f5ff` | Cyan actions, selection, focus, RX |
+| `accent_secondary`, `radio_tx` | `#ff00d4` | Magenta secondary controls and TX |
+| `status_ok` | `#b8ff00` | Lime positive states |
 | `status_warn` | `#ffdf38` | Yellow warnings |
 | `status_error` | `#ff626c` | Red errors |
 
 The existing derivations produce muted text, dark text on bright fills,
-disabled colours and connected state. Outdoor and Night use the existing
-transforms, including Night's deliberately reduced luminance/contrast. There
-is no new animation, blur, glow or dependency.
+disabled colours and connected state. Outdoor uses the existing transform;
+Neon has a readability-preserving Night variant.
+There is no animated glow, body-text blur or new rendering dependency.
 
-The current proposal paints opaque teal panels, 3 px cyan structural edges,
-plum secondary surfaces with 3 px magenta edges, and 4 px light focus rings
-with a dark separation gap. Most thicker paint is an inset outline: the
-existing border, padding, text boxes and touch geometry stay unchanged.
-Secondary reading text is brighter; body text remains neutral. Environment
-heading badges use an existing Mono Medium face at the selected size. See
-[rendered composited-state checks](revision/composited-state-checks.json) for
-actual pixel samples, including disabled, warning and error states.
+The current proposal uses illuminated cyan/magenta actions and symbol tiles,
+small static tube-edge bands, lime selection and a separate light keyboard
+focus ring. Reading panels are near-black and text stays sharp. See the
+[arcade implementation record](arcade/README.md) for costs and measured states.
 
 ## Integration
 
@@ -46,16 +42,16 @@ actual pixel samples, including disabled, warning and error states.
   store and emits the normal `shell.theme` notification. Startup reads that
   selection before the first frame. No extra preference or framework exists.
 - Shared styles cover app chrome, buttons, fields, focus/selection, dialogs,
-  notifications and keyboard states. Neon secondary controls use plum surfaces
-  and magenta boundaries with near-white labels while keeping shared state
-  precedence and geometry.
+  notifications and keyboard states. Neon secondary controls use solid magenta
+  surfaces and dark labels while keeping shared state precedence and geometry.
 - The environment's previously fixed package palette has a Neon-only semantic
   mapping for Launcher, lock, Controls and status capsules: opaque dark panels,
-  cyan borders/glyphs/sliders and a darker backdrop. Portal illustrations keep
-  their symbols and original artwork. Every other theme uses the old path.
+  cyan glyphs/sliders and a darker backdrop. Neon symbol tiles replace portal
+  illustrations visually through shared opacity roles; the artwork is preserved
+  and restored in other themes.
 - Audited Settings, RIFT Activity/graph/widgets, Notes, Calculator and Clock:
-  their shared chrome and UI already consume semantic styles/tokens. No app
-  runtime recolouring was needed. Suit palettes, map tiles, photos, camera
+  their shared chrome and UI consume semantic styles/tokens. Narrow role
+  assignments distinguish action glyphs, headings and compound reading rows. Suit palettes, map tiles, photos, camera
   previews, detection overlays, identity hues and diagnostic palettes are
   unchanged. The global style lint passes.
 - No new listener or screen callback is introduced. Existing style refresh,

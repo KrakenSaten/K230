@@ -1,4 +1,8 @@
-# Visual revision after owner feedback
+# Visual revision after owner feedback — SUPERSEDED
+
+This `98275b0` proposal is historical and was not visually approved. See the
+[current neon-sign / arcade proposal](../arcade/README.md) and its direct
+before/after renders. The evidence and commands below describe `98275b0`.
 
 **Simulator evidence. Implementation visual approval is pending.** The owner
 approved an optional system-wide Neon direction, but rejected the appearance

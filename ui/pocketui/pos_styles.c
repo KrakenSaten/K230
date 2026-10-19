@@ -258,6 +258,7 @@ static int style_type(enum pos_style_role role)
     case POS_STYLE_FIELD:
     case POS_STYLE_FIELD_PLACEHOLDER:
         return POS_TYPE_BODY;
+    case POS_STYLE_SECTION_HEADING:
     case POS_STYLE_CAPTION:
     case POS_STYLE_CHIP:
         return POS_TYPE_META;
@@ -502,76 +503,120 @@ static void fill_env_styles(void)
     lv_style_set_border_width(s, 0);
 }
 
-/* The Neon variant keeps the shared role geometry. Borders are drawn as
- * zero-blur inset outlines where possible, so thicker paint consumes no
- * extra content space. Focus remains outside with a dark gap on bright fills. */
+/* A static tube edge: a crisp core and a flat darker outer band. The
+ * one-pixel LVGL shadow kernel is deliberately not a soft/animated glow;
+ * spread is bounded to 3 px. Reading panels and text never use it. */
+static void tube(lv_style_t *s, enum pos_color_token hue)
+{
+    uint32_t rgb = pos_theme_rgb(hue);
+    lv_style_set_outline_color(s, lv_color_hex(pos_mix(rgb, pos_theme_rgb(POS_COLOR_TEXT_PRIMARY), .65)));
+    lv_style_set_outline_width(s, 2);
+    lv_style_set_outline_opa(s, LV_OPA_COVER);
+    lv_style_set_outline_pad(s, -2);
+    lv_style_set_shadow_width(s, 1);
+    lv_style_set_shadow_spread(s, 3);
+    lv_style_set_shadow_opa(s, LV_OPA_COVER);
+    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(rgb, pos_theme_rgb(POS_COLOR_BG), .62)));
+}
+
 static void fill_neon_styles(void)
 {
     lv_style_t *s;
-    const struct pos_theme_tokens *t = pos_theme_current();
-    const int border = 3;
-    const int focus = 4;
     const enum pos_style_role panels[] = { POS_STYLE_PANEL, POS_STYLE_STATUS_CLUSTER,
-                                          POS_STYLE_ENV_PANEL, POS_STYLE_ENV_CLUSTER };
+        POS_STYLE_ENV_PANEL, POS_STYLE_ENV_CLUSTER };
     for (size_t i = 0; i < sizeof(panels) / sizeof(panels[0]); i++) {
         s = &styles[panels[i]];
         lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
         lv_style_set_bg_opa(s, LV_OPA_COVER);
-        /* Inset outline supplements the existing border without changing
-         * LVGL's content box, padding, wrapping or the target size. */
-        lv_style_set_outline_width(s, border);
-        lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
-        lv_style_set_outline_opa(s, LV_OPA_COVER);
-        lv_style_set_outline_pad(s, -border);
+        lv_style_set_outline_width(s, 0);
+        lv_style_set_border_color(s, tok(POS_COLOR_LINE));
+    }
+    const enum pos_style_role cyan[] = { POS_STYLE_BUTTON_PRIMARY, POS_STYLE_CHIP_ACTIVE,
+                                        POS_STYLE_KEY_ENGAGED, POS_STYLE_NAV_SELECTED };
+    for (size_t i = 0; i < sizeof(cyan) / sizeof(cyan[0]); i++) {
+        s = &styles[cyan[i]];
+        lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+        lv_style_set_bg_opa(s, LV_OPA_COVER);
+        lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
+        tube(s, POS_COLOR_ACCENT_PRIMARY);
     }
     s = &styles[POS_STYLE_BUTTON_SECONDARY];
-    lv_style_set_bg_color(s, lv_color_hex(pos_mix(t->color[POS_COLOR_ACCENT_SECONDARY],
-                                               t->color[POS_COLOR_BG], .82)));
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
+    tube(s, POS_COLOR_ACCENT_SECONDARY);
+    lv_style_set_text_color(&styles[POS_STYLE_NAV_LABEL_SELECTED], tok(POS_COLOR_TEXT_ON_ACCENT));
+    lv_style_set_text_color(&styles[POS_STYLE_BUTTON_GLYPH], tok(POS_COLOR_TEXT_ON_ACCENT));
+    s = &styles[POS_STYLE_READING_CONTROL];
+    lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
-    lv_style_set_outline_width(s, border);
-    lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
-    lv_style_set_outline_opa(s, LV_OPA_COVER);
-    lv_style_set_outline_pad(s, -border);
-
-    /* Reading copy is neutral. Captions provide accent hierarchy; values
-     * keep the near-white high-contrast role. */
-    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], tok(POS_COLOR_ACCENT_PRIMARY));
-    s = &styles[POS_STYLE_ENV_CAPTION];
+    lv_style_set_border_color(s, tok(POS_COLOR_LINE));
+    /* Metadata remains reading text. Only actual section headings get a
+     * luminous sign; no halo or blur is attached to a text style. */
+    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], tok(POS_COLOR_TEXT_SECONDARY));
+    s = &styles[POS_STYLE_SECTION_HEADING];
     lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
     lv_style_set_bg_opa(s, LV_OPA_COVER);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
-    struct pos_type_spec caption = pos_type_current(POS_TYPE_ENV_CAPTION);
-    caption.face = POS_FACE_MONO_MEDIUM;
-    lv_style_set_text_font(s, pos_type_font(caption));
-    lv_style_set_text_letter_space(s, 1);
+    lv_style_set_radius(s, 2);
+    lv_style_set_outline_width(s, 2);
+    lv_style_set_outline_pad(s, -2);
+    lv_style_set_outline_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+    /* Flat coloured band, not a blurred text shadow. */
+    lv_style_set_shadow_width(s, 1);
+    lv_style_set_shadow_spread(s, 2);
+    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY),
+                                                   pos_theme_rgb(POS_COLOR_BG), .65)));
+    lv_style_set_shadow_opa(s, LV_OPA_COVER);
+    s = &styles[POS_STYLE_ENV_CAPTION];
+    lv_style_set_text_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_text_font(s, role_font(POS_TYPE_ENV_CAPTION));
+    lv_style_set_bg_opa(s, LV_OPA_TRANSP);
 
-    const enum pos_style_role focused[] = { POS_STYLE_SELECTED, POS_STYLE_FIELD_FOCUSED,
+    /* Selection is lime; actual keyboard focus stays a distinct light ring
+     * with a dark gap, independent of decorative cyan/magenta tube edges. */
+    s = &styles[POS_STYLE_SELECTED];
+    lv_style_set_outline_width(s, 3);
+    lv_style_set_outline_pad(s, 2);
+    lv_style_set_outline_color(s, tok(POS_COLOR_STATUS_OK));
+    const enum pos_style_role focused[] = { POS_STYLE_FIELD_FOCUSED,
         POS_STYLE_SLAB_PRESSED, POS_STYLE_BUTTON_PRIMARY_PRESSED };
     for (size_t i = 0; i < sizeof(focused) / sizeof(focused[0]); i++) {
         s = &styles[focused[i]];
-        lv_style_set_outline_width(s, focus);
+        lv_style_set_outline_width(s, 4);
         lv_style_set_outline_color(s, tok(POS_COLOR_TEXT_PRIMARY));
         lv_style_set_outline_opa(s, LV_OPA_COVER);
         lv_style_set_outline_pad(s, 2);
     }
-    /* Error and field boundaries are inset too, leaving the field's text
-     * and touch geometry as they were. Disabled controls keep no outline. */
-    s = &styles[POS_STYLE_FIELD];
-    lv_style_set_outline_width(s, border);
-    lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
-    lv_style_set_outline_pad(s, -border);
-    s = &styles[POS_STYLE_FIELD_ERROR];
-    lv_style_set_outline_width(s, border);
-    lv_style_set_outline_color(s, tok(POS_COLOR_STATUS_ERROR));
-    lv_style_set_outline_pad(s, -border);
+    /* Keep the underlying action/reading fill during touch press. Replacing
+     * it with a dark slab would leave explicit dark glyphs/selected tab
+     * labels unreadable. The light ring still communicates the press. */
+    lv_style_remove_prop(&styles[POS_STYLE_SLAB_PRESSED], LV_STYLE_BG_COLOR);
     lv_style_set_outline_width(&styles[POS_STYLE_FIELD_DISABLED], 0);
-
-    /* The RGB portal artwork stays intact. A substantial inset frame makes
-     * its control boundary explicit without recolouring its pixels. */
-    s = &styles[POS_STYLE_ENV_ICON];
-    lv_style_set_outline_width(s, border);
-    lv_style_set_outline_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
-    lv_style_set_outline_pad(s, -border);
+    lv_style_set_opa(&styles[POS_STYLE_ENV_LEGACY_ICON], LV_OPA_TRANSP);
+    s = &styles[POS_STYLE_ENV_TILE];
+    lv_style_set_opa(s, LV_OPA_COVER);
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 8);
+    tube(s, POS_COLOR_ACCENT_SECONDARY);
+    s = &styles[POS_STYLE_ENV_TILE_SELECTED];
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_outline_color(s, tok(POS_COLOR_STATUS_OK));
+    lv_style_set_outline_width(s, 3);
+    lv_style_set_outline_pad(s, -3);
+    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_STATUS_OK),
+                                                   pos_theme_rgb(POS_COLOR_BG), .62)));
+    s = &styles[POS_STYLE_ENV_TILE_FOCUS];
+    lv_style_set_outline_width(s, 3);
+    lv_style_set_outline_pad(s, -3);
+    lv_style_set_outline_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+    lv_style_set_radius(s, 10);
+    s = &styles[POS_STYLE_ENV_TILE_SYMBOL];
+    lv_style_set_opa(s, LV_OPA_COVER);
+    lv_style_set_image_recolor(s, tok(POS_COLOR_TEXT_ON_ACCENT));
+    lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
 }
 
 /* Fill every style from the current tokens. Called at init and on change. */
@@ -923,6 +968,23 @@ static void fill_styles(void)
     lv_style_set_bg_color(s, pos_scan_light());
     lv_style_set_bg_opa(s, LV_OPA_COVER);
 
+    /* Variants share all existing role properties unless the theme refills
+     * them below. Always reset, including when switching back live. */
+    lv_style_copy(&styles[POS_STYLE_READING_CONTROL], &styles[POS_STYLE_BUTTON_SECONDARY]);
+    reset(&styles[POS_STYLE_BUTTON_GLYPH]);
+    lv_style_set_text_color(&styles[POS_STYLE_BUTTON_GLYPH], tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_copy(&styles[POS_STYLE_SECTION_HEADING], &styles[POS_STYLE_CAPTION]);
+    reset(&styles[POS_STYLE_NAV_SELECTED]);
+    reset(&styles[POS_STYLE_NAV_LABEL_SELECTED]);
+    lv_style_set_text_color(&styles[POS_STYLE_NAV_LABEL_SELECTED], tok(POS_COLOR_ACCENT_PRIMARY));
+    reset(&styles[POS_STYLE_ENV_LEGACY_ICON]);
+    lv_style_set_opa(&styles[POS_STYLE_ENV_LEGACY_ICON], LV_OPA_COVER);
+    reset(&styles[POS_STYLE_ENV_TILE]);
+    lv_style_set_opa(&styles[POS_STYLE_ENV_TILE], LV_OPA_TRANSP);
+    reset(&styles[POS_STYLE_ENV_TILE_SELECTED]);
+    reset(&styles[POS_STYLE_ENV_TILE_FOCUS]);
+    reset(&styles[POS_STYLE_ENV_TILE_SYMBOL]);
+    lv_style_set_opa(&styles[POS_STYLE_ENV_TILE_SYMBOL], LV_OPA_TRANSP);
     fill_env_styles();
     if (neon_environment()) {
         lv_style_set_image_recolor(&styles[POS_STYLE_ENV_GLYPH], tok(POS_COLOR_ACCENT_PRIMARY));

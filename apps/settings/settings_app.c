@@ -161,7 +161,7 @@ lv_obj_t *settings_panel(struct settings_app *a, const char *caption, enum setti
 
     lv_obj_set_style_pad_row(p, 8, 0);
     if (caption) {
-        pocketui_label(p, caption, POS_STYLE_CAPTION);
+        pocketui_label(p, caption, POS_STYLE_SECTION_HEADING);
     }
     return p;
 }

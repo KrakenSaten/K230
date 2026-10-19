@@ -103,6 +103,17 @@ enum pos_style_role {
     POS_STYLE_ENV_ICON,            /* full-colour portal icons: dimmed with the photograph in Night */
     POS_STYLE_SCREEN_OFF,          /* the screen-off cover (DS §52.4): opaque black in every theme and mode */
     POS_STYLE_SCAN_SURFACE,        /* behind a code a camera reads: opaque pure white in every theme and mode */
+    /* Semantic variants: neutral for existing themes, luminous for Neon. */
+    POS_STYLE_READING_CONTROL,
+    POS_STYLE_BUTTON_GLYPH,
+    POS_STYLE_SECTION_HEADING,
+    POS_STYLE_NAV_SELECTED,
+    POS_STYLE_NAV_LABEL_SELECTED,
+    POS_STYLE_ENV_LEGACY_ICON,
+    POS_STYLE_ENV_TILE,
+    POS_STYLE_ENV_TILE_SELECTED,
+    POS_STYLE_ENV_TILE_FOCUS,
+    POS_STYLE_ENV_TILE_SYMBOL,
     POS_STYLE_COUNT
 };
 

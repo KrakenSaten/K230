@@ -304,6 +304,18 @@ int main(int argc, char **argv)
               pos_contrast(pos_mix(t->color[POS_COLOR_ACCENT_PRIMARY], t->color[POS_COLOR_TEXT_ON_ACCENT], .15),
                            t->color[POS_COLOR_TEXT_ON_ACCENT]) >= 4.5);
     }
+    {
+        struct pos_theme_tokens night;
+        pos_theme_resolve(pos_theme_find("neon"), POS_MODE_NIGHT, &night);
+        const enum pos_color_token reading[] = { POS_COLOR_TEXT_PRIMARY, POS_COLOR_TEXT_SECONDARY,
+                                                POS_COLOR_STATUS_WARN, POS_COLOR_STATUS_ERROR };
+        for (size_t k = 0; k < sizeof(reading) / sizeof(reading[0]); k++) {
+            check("Neon Night keeps information readable on panels",
+                  pos_contrast(night.color[reading[k]], night.color[POS_COLOR_SURFACE]) >= 4.5);
+        }
+        check("Neon Night keeps dark labels readable on magenta actions",
+              pos_contrast(night.color[POS_COLOR_TEXT_ON_ACCENT], night.color[POS_COLOR_ACCENT_SECONDARY]) >= 4.5);
+    }
     check("switch back restores Doors", pos_theme_select("doors", "normal", why, sizeof(why)) == 0 &&
           strcmp(pos_theme_current_def()->id, "doors") == 0 && notified == 3);
     check("unknown theme falls back", pos_theme_select("missing-theme", NULL, why, sizeof(why)) < 0);

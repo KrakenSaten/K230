@@ -5262,3 +5262,27 @@ not a claim of approval. Matched simulator evidence and focused checks are
 in [neon/revision/README.md](neon/revision/README.md). Existing themes and
 content colours remain unchanged; code/quiet-zone scan colours stay black
 and white. Inset outlines add thickness without consuming content space.
+
+### 58.2 Neon-sign / arcade proposal — visual approval pending
+
+The owner's updated direction supersedes the blanket glow prohibition for
+Neon: small static coloured bands on selected decorative edges, controls
+and launcher elements are allowed. The current proposal uses solid cyan and
+magenta action surfaces, lime selection and separate light keyboard focus.
+An existing 1 px LVGL shadow kernel with only 2–3 px spread supplies a flat
+darker outer band around a crisp core; text itself stays unblurred. Reading
+panels stay near-black with neutral text and selective section signs.
+
+Shared semantic variants distinguish section headings, navigation selection,
+button glyphs and compound reading controls. Launcher roles switch between
+preserved legacy artwork and existing symbol masks on illuminated tiles,
+without a theme-specific app framework or new callbacks. Existing themes
+retain the exact original presentation and mode rules.
+
+For Neon only, Night dims normal reading colours 22% and accents/status fills
+12%, retaining readable information and dark labels on solid actions. This
+replaces the earlier Neon Night transform; Outdoor is unchanged. QR colours,
+user imagery and content-specific colours are unchanged. See
+[arcade/README.md](neon/arcade/README.md) for rendered proof and costs.
+Approval of the optional system-wide direction does not constitute visual
+approval of this implementation; PR #98 remains draft.

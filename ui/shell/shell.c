@@ -1704,7 +1704,7 @@ static void app_open(const struct pocketos_app *app)
     name = lv_label_create(back);
     lv_label_set_text(name, LV_SYMBOL_LEFT);
     pos_style_add(name, POS_STYLE_SYMBOL, 0);
-    pos_style_add(name, POS_STYLE_ACCENT_TEXT, 0);
+    pos_style_add(name, POS_STYLE_BUTTON_GLYPH, 0);
     lv_obj_center(name);
     /* Drawn and touched as the screen's top-left corner (DS §48): from the
      * edges to the slab's right edge and the header's foot. The header

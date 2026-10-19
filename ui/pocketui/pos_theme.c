@@ -216,6 +216,12 @@ void pos_theme_resolve(const struct pos_theme_def *def, enum pos_mode mode,
         apply_outdoor(out);
     } else if (mode == POS_MODE_NIGHT) {
         apply_night(out);
+        if (strcmp(def->id, "neon") == 0) {
+            for (i = POS_COLOR_TEXT_PRIMARY; i < POS_THEME_BASE_COUNT; i++) {
+                out->color[i] = pos_mix(def->base[i], 0x000000,
+                    i <= POS_COLOR_TEXT_SECONDARY ? .22 : .12);
+            }
+        }
     }
     derive(out);
 }
