@@ -41,6 +41,7 @@ OUT=${OUT:-./rf-explicit-$(date +%Y%m%dT%H%M%S)}
 # rehearse the script without a unit.
 SSH=${SSH:-ssh -o BatchMode=yes -o ConnectTimeout=8}
 failed=0
+command -v jq > /dev/null || { echo "jq is required on the host running this script"; exit 2; }
 mkdir -p "$OUT"
 
 ok() { if [ "$2" = 1 ]; then echo "ok   $1"; else echo "FAIL $1${3:+: $3}"; failed=$((failed + 1)); fi; }
