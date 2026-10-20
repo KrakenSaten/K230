@@ -134,6 +134,7 @@ docs/design/astra-handoff/*                                                     
 docs/design/brand/shots/*                                                                    CAPTURE         brand integration contact sheets
 docs/design/doors-app-theme/*                                                                CAPTURE         theme contact sheets; show the AI backgrounds
 docs/design/doors-visual-refresh/*                                                           CAPTURE         visual refresh sheets; show the AI backgrounds
+docs/design/neon/*                                                                           CAPTURE         Neon theme simulator captures and the sheets composed from them (PR #98)
 docs/hardware/shots/*                                                                        CAPTURE         unit panel captures; also show other people's mesh node names (C2)
 apps/rift/ui/rift_emoji_px.bin                                                               THIRD-PARTY-NOTICED Noto Color Emoji (Apache-2.0) and region flags (public domain), converted by gen_rift_emoji.sh; kept, notices noto-color-emoji and region-flags
 docs/images/doors-poster.jpg                                                                 THIRD-PARTY     README poster: Doors screens composited with LILYGO product photos and logo the owner supplied; LILYGO permission not stated; excluded

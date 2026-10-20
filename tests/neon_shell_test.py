@@ -3,6 +3,8 @@
 
 Usage: neon_shell_test.py SHELL_BIN [capture-directory]
 Uses only local shell IPC and absent services; does not start radio/network helpers.
+
+SPDX-License-Identifier: Apache-2.0
 """
 import json
 import os
