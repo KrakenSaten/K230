@@ -339,10 +339,14 @@ tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
 # pos-browser's fetcher does the same (BROWSER_CURL).
 # pocketcam_exif writes POCKETOS_VERSION into each photo's EXIF Software tag
 # and PPM comment.
+# pos-browser's tile fetcher names POCKETOS_VERSION in its User-Agent too.
+# apps/system/system_app.c and tests/system_app_test.c name the macros as
+# well, but ui/shell (CMake) builds them, which sets the identity when it
+# configures; they are not make's objects and are not listed.
 POCKETOS_ID_OBJS := core/pocketlog/pocketlog.o tools/pos/pos.o tests/pocketlog_test.o \
                     core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o \
                     core/web/web_fetch_curl.o core/web/web_fetch_none.o \
-                    core/pocketcam/pocketcam_exif.o
+                    core/pocketcam/pocketcam_exif.o tools/browser/pos_browser_tiles.o
 $(POCKETOS_ID_OBJS): $(POCKETOS_BUILD_STAMP)
 
 # Compile-only check of the sx1262 backend on a host without libgpiod v2
