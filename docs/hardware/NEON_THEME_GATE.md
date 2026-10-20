@@ -1,12 +1,13 @@
 # Neon theme (PR #98) on unit B: the gate
 
-**Status: IN PROGRESS (2026-10-20).** `56aefe5` ran on unit B from its own
-kit directory and the owner tested Neon extensively (overall good, too much
-white). After a four-way rendered exploration the owner **chose the Arcade
-direction**, now implemented as `f398ecb` and prepared as a kit, **not yet
-staged**. Visual approval of Arcade on the panel: **not given**. Switch-back
-to the original theme: **not verified** on the unit. HDMI on hardware:
-**untested**.
+**Status: ARCADE ON UNIT B DONE, approval pending (2026-10-20).** The
+owner's chosen Arcade direction (`f398ecb`) ran on unit B from its own kit
+directory. The owner confirmed the reported Arcade visuals on the panel;
+live switch-back to Doors was **verified** on the device; matched automated
+Neon/Doors measurements were taken; the installed shell and the original
+settings were restored (`RESTORE: OK`). Explicit owner visual approval of
+Arcade on the panel: **not yet given**. HDMI and keyboard on hardware:
+**untested**. Licence audit: one open item (the concept SVG, below).
 
 Evidence classes as in `docs/hardware/T-DISPLAY-K230.md`. Software tests,
 device observations, owner observations and performance measurements are kept
@@ -221,6 +222,31 @@ step did not pass. The simulator's live round trips restore Doors and Ice
 exactly (`docs/design/neon/text/checks.txt`), but that is not evidence from
 the panel.
 
+### `f398ecb` session (Arcade), 2026-10-20, UTC (VERIFIED)
+
+| Time | Observation |
+| --- | --- |
+| 10:37 | `f398ecb` kit staged, every hash checked; its LVGL files byte-identical to the staged set |
+| 10:37 | `/root/neon-p98-56aefe5/neon-restore.sh`: `RESTORE: OK` (installed `d7ace73` shell supervised, original settings `34b44ebc…`) |
+| 10:37:45 | `/root/neon-p98-f398ecb/neon-start.sh`: test shell pid 18575, kit LVGL, the only panel owner; `doors shell info` 0.3.7 / `f398ecb`; launcher built in 15 ms; no WARN or ERROR in the session log |
+| 10:39:59 | Neon selected (Normal); 10:40:30 rotation landscape |
+| 11:42:31–34 | Neon Outdoor, Normal, Night, Outdoor; Favorite 3 set to RIFT |
+| 11:45:41 | DeskBuddy opened (still open at 11:54) |
+| 12:03–12:07 | Automated matched measurements, all four windows logged the identical sequence (Performance) |
+| 12:07–12:08 | Live switch-back on the device: DRM-plane captures (`shell.action screenshot`, the image's `ffmpeg kmsgrab`) of Doors on the launcher and in Settings, before and after a live Neon Normal → Outdoor → Night → Doors round trip, are **byte-identical** (launcher `e6fac7e8…`, Settings `8fe0e319…`, same minute). `shell.screenshot` itself is unavailable on the target: the image's LVGL has no snapshot/PNG support (`built without LODEPNG/SNAPSHOT`) |
+| 12:08 | `/root/neon-p98-f398ecb/neon-restore.sh`: `RESTORE: OK`; then one `doors-shell` = `/usr/bin/doors-shell` (`2d96a53a…`, build `d7ace738`), supervised, no `LD_LIBRARY_PATH`; settings `34b44ebc…` (Doors, Normal, Automatic, Large); `/usr/lib/liblvgl.so.9.5.0` `43f3f265…`; screenshots folder back to its 30 files |
+
+The automation was the shell's own IPC methods (`shell.theme`, `shell.home`,
+`shell.folder`, `shell.open`, `shell.action`) driven by the IPC client of
+`tools/design/neon_text_captures.py` with the unit's `python3`, sent over SSH
+and kept in `/tmp` only (removed afterwards). The exact scripts are
+[`neon-gate/neon-drive.py`](neon-gate/neon-drive.py) and
+[`neon-gate/switchback.sh`](neon-gate/switchback.sh); the measurement loop ran
+`neon-drive.py prepare <theme> normal`, `neon-measure.sh` and
+`neon-drive.py sequence` for neon, doors, neon, doors. The device captures stay in
+`/root/neon-p98-f398ecb/log/switchback/` (not committed: they show the unit's
+network name and mesh state).
+
 ## Owner observations
 
 - 2026-10-20 ~08:35: "Tested Neon OK", then, asked for explicit visual
@@ -240,18 +266,35 @@ been on the panel yet.
   owner also found the earlier Neon dull and too dominated by cyan and
   magenta, with too much white or neutral text and framing. Arcade is
   implemented as `f398ecb` ([evidence](../design/neon/arcade-selected/README.md)),
-  superseding `51bcf48`. **Approval of Arcade as seen on the panel: not given
-  yet.**
+  superseding `51bcf48`.
+- 2026-10-20 on unit B with `f398ecb` (owner's words): "Neon selected, clock
+  yellow, tiles coloured per family"; then, in Settings → Display, Outdoor,
+  landscape: "Outdoor set, frames violet, headings magenta, all readable".
+  These confirm the reported Arcade results on the panel. **Explicit visual
+  approval of Arcade on the panel: not given yet.**
 
 ## Performance measurements
 
-One 45 s sample on `56aefe5` (`neon-measure.sh`, 1 s resolution, CPU as
-utime+stime of one core): the run was started as a Doors baseline, but the
-owner had already switched to Neon and landscape, so it is recorded as
-**Neon, landscape, Large text, unplanned sequence** (Settings closed, RIFT
-opened and closed): average 8 %, 1 s peak 29 %, RSS 18.2 MB, high-water
-22.4 MB, load 0.23. **There is no Doors baseline yet**, so no comparison
-can be made; host timings are not target evidence.
+`neon-measure.sh`: CPU of the shell process (utime+stime, one core,
+1 s resolution, whole percent; `USER_HZ` 100 ASSUMED) and RSS, 45 s each.
+
+| Build | Label | Conditions | CPU avg | CPU 1 s peak | RSS / high-water | Valid comparison |
+| --- | --- | --- | --- | --- | --- | --- |
+| `56aefe5` | unplanned | Neon, landscape, owner's own actions | 8 % | 29 % | 18.2 / 22.4 MB | no (no matching Doors run) |
+| `f398ecb` | **idle Neon/Outdoor** | DeskBuddy open, no interaction logged in the window | 1 % | 2 % | 18.6 / 18.6 MB | **no**: an idle sample, not a comparison |
+| `f398ecb` | auto-neon-1 | Neon, Normal, landscape, Large; automated sequence | 3 % | 68 % | 18.5 / 18.6 MB | yes |
+| `f398ecb` | auto-doors-1 | Doors, same | 2 % | 67 % | 18.5 / 18.6 MB | yes |
+| `f398ecb` | auto-neon-2 | Neon, same | 3 % | 67 % | 18.5 / 18.6 MB | yes |
+| `f398ecb` | auto-doors-2 | Doors, same | 2 % | 66 % | 18.5 / 18.6 MB | yes |
+
+Matched runs: same binary, each prepared from the launcher root in Normal
+mode, landscape, settled 5 s; sampling from 2 s before a fixed sequence
+(Utilities open/close twice, Settings open and home, RIFT open 3 s and home,
+about 20 s), then idle. The log shows the identical sequence in all four
+windows. **Result:** average CPU about one percentage point higher in Neon
+(3 % against 2 %, at whole-percent resolution), equal 1 s peaks (66–68 %),
+equal memory. Not covered: scrolling, touch input latency and frame
+timing; the sequence is driven over IPC, not by touch.
 
 ## Superseded kit: `51bcf48` (never staged)
 
@@ -259,7 +302,7 @@ The text-colour refinement `51bcf48` was cross-built (shell sha256
 `4d46665e…`) and assembled as `neon-p98-51bcf48.tar` (`59fe5a29…`), but was
 never staged on unit B; the Arcade decision superseded it.
 
-## Arcade kit: `f398ecb` (prepared, not staged)
+## Arcade kit: `f398ecb` (staged and run 2026-10-20, then restored)
 
 Unit B, read-only, 2026-10-20 10:20 UTC (VERIFIED): still the `56aefe5` test
 shell, pid 14814, from `/root/neon-p98-56aefe5/` with its own LVGL, the only
@@ -290,7 +333,7 @@ byte; only the shell and `kit.env` differ.
 | `kit.env` | `a3d1a2da…b370`: `TEST_COMMIT=f398ecb7…`, the same original hashes |
 | `neon-*.sh` | identical to the staged kit's |
 
-Proposed handoff (needs the owner's approval; nothing done yet):
+Handoff, approved by the owner and done on 2026-10-20 (see Device observations):
 
 1. Copy the tar to `/root/`, unpack, `sha256sum -c SHA256SUMS`.
 2. `/root/neon-p98-56aefe5/neon-restore.sh`, which must end `RESTORE: OK`:
@@ -309,5 +352,33 @@ console COM3 if the panel is dark; a reboot returns the installed shell
 
 ## Not tested
 
-HDMI output on hardware (no HDMI boot in this session without separate
-approval). Keyboard input (no keyboard attached at inspection).
+- Owner's explicit visual approval of Arcade on the panel (the reported
+  results are confirmed; approval is the owner's separate statement).
+- HDMI output on hardware (no HDMI boot without separate approval).
+- Keyboard input (no keyboard attached).
+- Interactive performance beyond the IPC-driven sequence (scrolling, touch
+  latency, frame timing).
+
+## Licence audit: the concept SVG (open)
+
+`tests/license_audit_test.sh` fails on one tracked asset with no class in
+`docs/licensing/asset-inventory.txt`:
+`docs/design/rift/concepts/neon-activity-landscape.svg`. Recorded evidence:
+
+- Added by `6925e25` ("docs: add Neon Activity landscape concept
+  illustration"), 2026-10-17 21:58:29 +0200; its description,
+  `docs/design/rift/concepts/NEON-ACTIVITY.md`, by `cf7ffc8` 19 s later. Both
+  are under the repository's GitHub account, with no commit body, and with
+  the committer name set to the GitHub handle, unlike later commits; that
+  suggests another committing environment but does not identify author or
+  tool.
+- The SVG is hand-written markup without generator or tool metadata; its
+  `<desc>` says "Exploratory mockup with sample values".
+- `NEON-ACTIVITY.md` has no author, credit or tool statement.
+
+**Unresolved question for the owner:** was this SVG drawn in this
+repository (by the owner or in a coding session here; inventory class
+`ORIGINAL`), or made by the owner with an AI tool outside the repository
+(`OWNER-DESIGN` for Claude-made design documents, or another class for
+another tool)? Who made it, and with which tool? The inventory is not changed
+until that is answered.
