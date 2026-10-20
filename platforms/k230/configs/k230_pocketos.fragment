@@ -40,5 +40,9 @@ BR2_PACKAGE_OPENCV4=y
 
 # The toolchain's Fortran runtime (libgfortran) is copied into the image
 # only because the vendor declares Fortran support; no program or library in
-# the image links it. Owner's decision, 2026-10-07.
-# BR2_TOOLCHAIN_EXTERNAL_FORTRAN is not set
+# the image links it (owner's decision, 2026-10-07). Fortran stays declared
+# here: the Xuantie toolchain ships gfortran, and Buildroot refuses an external
+# toolchain with a language the configuration does not select ("Fortran
+# support is not selected but is available"), which stopped every build from
+# a clean SDK output. The library is removed after the build instead, by
+# POCKETOS_REMOVE_TOOLCHAIN_FORTRAN in package/pocketos/pocketos.mk.

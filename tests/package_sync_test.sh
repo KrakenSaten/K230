@@ -720,11 +720,19 @@ if git -C "$VBSP" cat-file -e "$PIN_BSP:$VDEF" 2>/dev/null; then
                 grep -qx "BR2_PACKAGE_$k=y" "$CMP/out" && exit 1
                 grep -qx "# BR2_PACKAGE_$k is not set" "$CMP/out" || exit 1
             done; grep -qx 'BR2_PACKAGE_RTL8189FS=y' "$CMP/out" && echo 1 || echo 0)
-    check "the vendor KPU demos and the toolchain's Fortran are off; OpenCV 4 stays" \
-          $(for k in PACKAGE_FACE_DETECT PACKAGE_AI2D_KPU TOOLCHAIN_EXTERNAL_FORTRAN; do
+    check "the vendor KPU demos are off; OpenCV 4 stays" \
+          $(for k in PACKAGE_FACE_DETECT PACKAGE_AI2D_KPU; do
                 grep -qx "BR2_$k=y" "$CMP/out" && exit 1
                 grep -qx "# BR2_$k is not set" "$CMP/out" || exit 1
             done; grep -qx 'BR2_PACKAGE_OPENCV4=y' "$CMP/out" && grep -qx 'BR2_PACKAGE_LIBNNCASE=y' "$CMP/out" &&
+            echo 1 || echo 0)
+    # Buildroot refuses an external toolchain that ships a language the
+    # configuration does not select, so turning Fortran off stops a build
+    # from a clean output; libgfortran is removed by the package instead.
+    check "the toolchain's Fortran stays selected, and the package removes libgfortran" \
+          $(grep -qx 'BR2_TOOLCHAIN_EXTERNAL_FORTRAN=y' "$CMP/out" &&
+            grep -q 'rm -f $(TARGET_DIR)/lib/libgfortran.so\*' platforms/k230/package/pocketos/pocketos.mk &&
+            grep -qx 'POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_TOOLCHAIN_FORTRAN' platforms/k230/package/pocketos/pocketos.mk &&
             echo 1 || echo 0)
     printf '# BR2_PACKAGE_DOORS_NO_SUCH_THING is not set\n' > "$CMP/off.fragment"
     run_compose "$CMP/off.fragment" "$CMP/out3"

@@ -488,7 +488,8 @@ echo "[3b2/5] Vendor leftovers: not in the image"
 #    board, with credentials in it;
 #  - /lib/libasan.so.8, which the vendor's post-build.sh copies from the
 #    toolchain's sysroot (no package owns it, so legal-info never sees it);
-#  - the toolchain's libgfortran, which the fragment stops (Fortran off).
+#  - the toolchain's libgfortran, which toolchain-external installs because
+#    Fortran must stay selected; pocketos.mk removes it after every build.
 # Overlays and post-build scripts run after every package hook, so they are
 # removed at their source - the overlay, the post-build line - in the SDK
 # overlay this script writes and in Buildroot's synced copy, and stale copies
