@@ -333,7 +333,9 @@ static void category_row(struct settings_app *a, lv_obj_t *panel, enum settings_
     lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     pocketui_label(left, settings_page_title(page), POS_STYLE_ROW_TITLE);
     a->w.summary[k] = settings_wrap_label(left, "", POS_STYLE_CAPTION);
-    lb = pocketui_label(row, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL);
+    /* The chevron is part of the row's label: its colour, the symbol font. */
+    lb = pocketui_label(row, LV_SYMBOL_RIGHT, POS_STYLE_ROW_TITLE);
+    pos_style_add(lb, POS_STYLE_SYMBOL, 0);
     lv_obj_clear_flag(lb, LV_OBJ_FLAG_CLICKABLE);
 }
 

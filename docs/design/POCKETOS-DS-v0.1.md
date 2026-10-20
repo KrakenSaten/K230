@@ -5286,3 +5286,19 @@ user imagery and content-specific colours are unchanged. See
 [arcade/README.md](neon/arcade/README.md) for rendered proof and costs.
 Approval of the optional system-wide direction does not constitute visual
 approval of this implementation; PR #98 remains draft.
+
+### 58.3 Neon text roles after hardware review — approval pending
+
+After extensive testing on unit B (2026-10-20) the owner found the overall
+appearance good but too much of the interface white. Neutral body text does
+not extend to clocks, headings, menu entries or labels. For Neon only:
+clocks and app titles use `accent_primary`; folder, Favorites and Controls
+titles use `accent_secondary`; menu entries, row titles, launcher labels and
+row chevrons use a label cyan (`accent_primary` 30 % toward `text_primary`);
+captions and secondary lines a deeper cyan (`accent_primary` 22 % toward
+`bg`). Values, body text and user content stay neutral; fills keep
+`text_on_accent`; selection, focus and status colours are unchanged. In
+Outdoor, Neon's `line` is its normal line mixed 55 % toward the Outdoor
+`accent_primary` instead of toward grey secondary text, so frames stay
+chromatic (7.2:1 on bg). Other themes and modes are unchanged. Evidence and
+contrast: [neon/text/README.md](neon/text/README.md).

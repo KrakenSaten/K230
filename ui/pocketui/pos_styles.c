@@ -550,9 +550,28 @@ static void fill_neon_styles(void)
     lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
     lv_style_set_border_color(s, tok(POS_COLOR_LINE));
-    /* Metadata remains reading text. Only actual section headings get a
-     * luminous sign; no halo or blur is attached to a text style. */
-    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], tok(POS_COLOR_TEXT_SECONDARY));
+    /* Neon text (owner, unit B, 2026-10-20): clocks and major titles are
+     * electric cyan, folder and Favorites headings hot magenta, menu
+     * entries, labels and navigation one Neon label cyan, and captions and
+     * secondary lines a deeper cyan below them. Values, body text and user
+     * content stay neutral reading text. These roles sit on dark surfaces or
+     * the scrimmed photograph, never on a cyan or magenta fill, whose labels
+     * keep text_on_accent. No halo or blur on any text style. */
+    lv_color_t label = lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY),
+                                            pos_theme_rgb(POS_COLOR_TEXT_PRIMARY), .30));
+    lv_color_t quiet = lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY),
+                                            pos_theme_rgb(POS_COLOR_BG), .22));
+    const enum pos_style_role signs[] = { POS_STYLE_ENV_CLOCK, POS_STYLE_ENV_CLOCK_LARGE, POS_STYLE_TITLE };
+    for (size_t i = 0; i < sizeof(signs) / sizeof(signs[0]); i++) {
+        lv_style_set_text_color(&styles[signs[i]], tok(POS_COLOR_ACCENT_PRIMARY));
+    }
+    lv_style_set_text_color(&styles[POS_STYLE_ENV_TITLE], tok(POS_COLOR_ACCENT_SECONDARY));
+    const enum pos_style_role labels[] = { POS_STYLE_ROW_TITLE, POS_STYLE_ENV_TEXT, POS_STYLE_ENV_TEXT_SMALL };
+    for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); i++) {
+        lv_style_set_text_color(&styles[labels[i]], label);
+    }
+    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], quiet);
+    lv_style_set_text_color(&styles[POS_STYLE_ENV_TEXT_SECONDARY], quiet);
     s = &styles[POS_STYLE_SECTION_HEADING];
     lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
     lv_style_set_bg_opa(s, LV_OPA_COVER);

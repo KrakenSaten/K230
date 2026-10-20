@@ -214,6 +214,12 @@ void pos_theme_resolve(const struct pos_theme_def *def, enum pos_mode mode,
     out->type_default_px = 16;
     if (mode == POS_MODE_OUTDOOR) {
         apply_outdoor(out);
+        /* Neon's frames stay chromatic in sunlight: the outdoor line is
+         * lifted toward its cyan, not toward its grey secondary text. */
+        if (strcmp(def->id, "neon") == 0) {
+            out->color[POS_COLOR_LINE] = pos_mix(def->base[POS_COLOR_LINE],
+                                                 out->color[POS_COLOR_ACCENT_PRIMARY], .55);
+        }
     } else if (mode == POS_MODE_NIGHT) {
         apply_night(out);
         if (strcmp(def->id, "neon") == 0) {
