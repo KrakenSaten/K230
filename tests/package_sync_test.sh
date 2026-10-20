@@ -687,6 +687,21 @@ check "the dropped demos' files are removed from an existing target" \
 check "apply_to_sdk removes sensor.sh, libasan and libgfortran, and the post-build libasan copy" \
       $(grep -q 'for f in root/script/sensor.sh lib/libasan.so.8 lib/libgfortran.so.5' "$APPLY" &&
         grep -qF "sed -i '/libasan\.so/d'" "$APPLY" && echo 1 || echo 0)
+# camera_rtsp_demo installs into /root/app, which only the dropped demos
+# created: apply_to_sdk's sed, run on the vendor file at the pinned SDK commit,
+# has to turn its install into `install -D`.
+RTSP_MK=buildroot-overlay/package/camera_rtsp_demo/camera_rtsp_demo.mk
+PIN_SDK=$(cat platforms/k230/vendor_sdk_commit.txt)
+if git -C vendor/T-Display-K230/k230_linux_sdk cat-file -e "$PIN_SDK:$RTSP_MK" 2>/dev/null; then
+    git -C vendor/T-Display-K230/k230_linux_sdk show "$PIN_SDK:$RTSP_MK" > "$TMP/rtsp.mk"
+    RTSP_SED=$(grep -m1 "sed -i 's#^.t\$(INSTALL) -m 0755 \$(@D)/camera_rtsp_demo" "$APPLY" | sed -e 's/^ *sed -i //' -e 's/ "\${mk}"$//')
+    eval "sed -i $RTSP_SED \"\$TMP/rtsp.mk\""
+    check "apply_to_sdk makes camera_rtsp_demo create /root/app (vendor file at the SDK pin)" \
+          $(grep -qP '^\t\$\(INSTALL\) -D -m 0755 \$\(@D\)/camera_rtsp_demo \$\(TARGET_DIR\)/root/app/camera_rtsp_demo$' "$TMP/rtsp.mk" &&
+            ! grep -qP '^\t\$\(INSTALL\) -m 0755 \$\(@D\)/camera_rtsp_demo' "$TMP/rtsp.mk" && echo 1 || echo 0)
+else
+    echo "skip camera_rtsp_demo install check: no vendor SDK at $PIN_SDK"
+fi
 
 # ---- the composed defconfig, executed --------------------------------------
 # compose_defconfig() taken out of apply_to_sdk.sh and run against the real

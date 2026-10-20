@@ -522,6 +522,22 @@ for pb in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/post-build.sh" \
 done
 [ "${_left}" -gt 0 ] || echo "      none in the SDK"
 
+echo "[3b3/5] camera_rtsp_demo: creates /root/app itself"
+# The vendor package installs into /root/app without creating it. With the
+# vendor defconfig, ai2d_kpu and face_detect build first and create it; with
+# both dropped (3b2), a build from a clean output stopped there ("install:
+# cannot create regular file .../target/root/app/camera_rtsp_demo"), and only
+# a host whose persistent target tree already had /root/app got past it. The
+# vendor file is patched in place to `install -D`, in the SDK overlay and in
+# Buildroot's synced copy, as for the post-build line above.
+for mk in "${SDK_DIR}/buildroot-overlay/package/camera_rtsp_demo/camera_rtsp_demo.mk" \
+          "${SDK_DIR}"/output/buildroot-*/package/camera_rtsp_demo/camera_rtsp_demo.mk; do
+    [ -f "${mk}" ] || continue
+    sed -i 's#^\t$(INSTALL) -m 0755 $(@D)/camera_rtsp_demo $(TARGET_DIR)/root/app/camera_rtsp_demo$#\t$(INSTALL) -D -m 0755 $(@D)/camera_rtsp_demo $(TARGET_DIR)/root/app/camera_rtsp_demo#' "${mk}"
+    grep -q 'INSTALL) -D -m 0755 $(@D)/camera_rtsp_demo' "${mk}" \
+        || { echo "cannot make ${mk#"${SDK_DIR}"/} create /root/app" >&2; exit 1; }
+done
+
 echo "[3c/5] sshd: no empty-password logins"
 # Vendor sshd_config allows root with an empty password over the network
 # (PermitRootLogin yes, PasswordAuthentication yes, PermitEmptyPasswords yes)
