@@ -1,9 +1,11 @@
 # Neon theme (PR #98) on unit B: the gate
 
-**Status: PREPARED, hardware session not started (2026-10-20).** The K230
-cross-build passed and a reversible test kit is ready. Nothing has been staged
-on, or changed on, unit B. Owner visual approval: **not given.** HDMI:
-**untested** (not part of this session; needs separate approval).
+**Status: IN PROGRESS (2026-10-20).** `56aefe5` ran on unit B from its own
+kit directory; the owner tested Neon extensively and found the overall
+appearance good, with one outstanding colour refinement (too much white),
+now built as `51bcf48` and prepared as an updated kit, **not yet staged**.
+Owner visual approval of the final appearance: **not given**. Switch-back to
+the original theme: **not verified** on the unit. HDMI: **untested**.
 
 Evidence classes as in `docs/hardware/T-DISPLAY-K230.md`. Software tests,
 device observations, owner observations and performance measurements are kept
@@ -200,15 +202,85 @@ owner's call; it does not affect the hardware session.
 
 ## Device observations
 
-Not yet recorded.
+All times UTC, from `/root/neon-p98-56aefe5/log/shell.log` and the kit
+scripts (VERIFIED).
+
+| Time | Observation |
+| --- | --- |
+| 08:30 | Kit staged, every hash checked; `neon-start.sh`: settings backed up (`34b44ebc…`), `S90doors-shell` stopped, test shell started as the only `/dev/dri/card0` owner, loading the kit's `liblvgl.so.9.5.0`; `doors shell info`: 0.3.7, build `56aefe5`. Launcher built in 16 ms, 7 icons drawn, no WARN or ERROR |
+| 08:32:50 | Theme switched to Neon (Normal) through Settings |
+| 08:33:12–14 | Rotation portrait, then landscape: the shell restarted itself in place at 270°; still the kit's binary and LVGL afterwards |
+| 08:41:27–32 | Neon Outdoor, Night, Normal, Night, Outdoor |
+| 08:45 | Read-only check: still `56aefe5` from the kit, the only panel owner; settings `theme=neon`, `display_mode=outdoor`, `display_rotation=landscape`, `text_size=large`, `debug_overlay=1`. Installed shell, LVGL and the settings backup unchanged |
+
+**Switch-back: not verified.** When the owner was asked to return to Doors
+(and rotation Automatic), the unit still showed `theme=neon` and
+`display_rotation=landscape`, and no switch to Doors appeared in the log; the
+step did not pass. The simulator's live round trips restore Doors and Ice
+exactly (`docs/design/neon/text/checks.txt`), but that is not evidence from
+the panel.
 
 ## Owner observations
 
-Not yet recorded. Visual approval: not given.
+- 2026-10-20 ~08:35: "Tested Neon OK", then, asked for explicit visual
+  approval of Neon on the panel, "Looks good" (Neon on `56aefe5`).
+- 2026-10-20, after extensive testing on unit B: **the overall appearance
+  looks good, but too much of the interface is still white**: the clock;
+  framing lines and borders in Outdoor; titles of opened folders and
+  Favorites; text in menus, System and Settings. The earlier request for
+  neutral body text does not mean white clocks, headings, menu labels or
+  settings labels.
+
+That refinement is built in `51bcf48`
+([docs/design/neon/text/README.md](../design/neon/text/README.md)) and has not
+been on the panel yet. **Visual approval of the final appearance: not
+given.**
 
 ## Performance measurements
 
-Not yet recorded.
+One 45 s sample on `56aefe5` (`neon-measure.sh`, 1 s resolution, CPU as
+utime+stime of one core): the run was started as a Doors baseline, but the
+owner had already switched to Neon and landscape, so it is recorded as
+**Neon, landscape, Large text, unplanned sequence** (Settings closed, RIFT
+opened and closed): average 8 %, 1 s peak 29 %, RSS 18.2 MB, high-water
+22.4 MB, load 0.23. **There is no Doors baseline yet**, so no comparison
+can be made; host timings are not target evidence.
+
+## Updated kit: `51bcf48` (prepared, not staged)
+
+`51bcf48` = the colour refinement on top of `f5c28c8`; only
+`ui/pocketui/pos_styles.c`, `ui/pocketui/pos_theme.c` and
+`apps/settings/settings_app.c` change what is built (`themes.json` is the
+test table, not compiled in). Cross-built with the same script and pinned toolchain/SDK as above
+(VERIFIED 2026-10-20): source tar sha256 `e3ca77cc…f72e5`; shell rc 0,
+**0 warnings**; strings `0.3.7`, `51bcf48`; no `POCKETOS_TEST_CHROME`;
+same `NEEDED` set; every `lv_*` import resolves against the staged LVGL.
+
+The LVGL rebuilt with it has the same `lv_conf.h`, the same headers and the
+same exported symbols in all four libraries as the staged set, but different
+bytes (it embeds its build path). The kit therefore **reuses the staged LVGL
+files unchanged**; only the shell and `kit.env` differ.
+
+`neon-p98-51bcf48.tar`, sha256
+`59fe5a2945b216a2936c37aef6856e0cf1f65e1e98a7ba7c94866030b5497827`, unpacks
+to `/root/neon-p98-51bcf48/`:
+
+| File | sha256 |
+| --- | --- |
+| `doors-shell` (`51bcf48`) | `4d46665efb1dac61d7e19965bf7b5ff68b24ab31bcb371a3acf5c0628f2f9038` |
+| `lib/liblvgl.so.9.5.0` | `2c4fd81b…9a5a` (identical to the staged kit's) |
+| `lib/liblvgl_thorvg`, `_demos`, `_examples` | identical to the staged kit's |
+| `kit.env` | `9f565269…7a8`: `TEST_COMMIT=51bcf48…`, the same original hashes |
+| `neon-*.sh` | identical to the staged kit's |
+
+Handoff, after approval: `/root/neon-p98-56aefe5/neon-restore.sh` (must say
+`RESTORE: OK`: installed shell supervised again, original settings back),
+then `/root/neon-p98-51bcf48/neon-start.sh`, which checks the original
+hashes again, makes its own hash-checked backup of the original settings and
+starts `51bcf48` as the only panel owner. The test shell then starts in Doors
+with rotation Automatic; the owner selects Neon. The `56aefe5` kit, its
+settings backup and logs stay as evidence. Recovery for either kit is its
+`neon-restore.sh` (both restore the same original settings).
 
 ## Not tested
 
