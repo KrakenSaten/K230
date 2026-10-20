@@ -1,13 +1,12 @@
 # Neon theme (PR #98) on unit B: the gate
 
-**Status: ARCADE ON UNIT B DONE, approval pending (2026-10-20).** The
-owner's chosen Arcade direction (`f398ecb`) ran on unit B from its own kit
-directory. The owner confirmed the reported Arcade visuals on the panel;
-live switch-back to Doors was **verified** on the device; matched automated
+**Status: PASS for the panel (2026-10-20), owner's visual approval given.**
+The owner's chosen Arcade direction (`f398ecb`) ran on unit B from its own
+kit directory; the owner explicitly approved its appearance on the panel;
+live switch-back to Doors was verified on the device; matched automated
 Neon/Doors measurements were taken; the installed shell and the original
-settings were restored (`RESTORE: OK`). Explicit owner visual approval of
-Arcade on the panel: **not yet given**. HDMI and keyboard on hardware:
-**untested**. Licence audit: one open item (the concept SVG, below).
+settings were restored (`RESTORE: OK`). **Unverified on hardware:** HDMI
+output, a physical keyboard, and touch/scroll performance (see Not tested).
 
 Evidence classes as in `docs/hardware/T-DISPLAY-K230.md`. Software tests,
 device observations, owner observations and performance measurements are kept
@@ -270,8 +269,10 @@ been on the panel yet.
 - 2026-10-20 on unit B with `f398ecb` (owner's words): "Neon selected, clock
   yellow, tiles coloured per family"; then, in Settings → Display, Outdoor,
   landscape: "Outdoor set, frames violet, headings magenta, all readable".
-  These confirm the reported Arcade results on the panel. **Explicit visual
-  approval of Arcade on the panel: not given yet.**
+  These confirm the reported Arcade results on the panel.
+- 2026-10-20, after the session (owner's words): **"I explicitly approve the
+  Arcade appearance tested on Unit B's panel."** Visual approval of Neon
+  (Arcade, `f398ecb`) on the panel: **given**.
 
 ## Performance measurements
 
@@ -352,33 +353,31 @@ console COM3 if the panel is dark; a reboot returns the installed shell
 
 ## Not tested
 
-- Owner's explicit visual approval of Arcade on the panel (the reported
-  results are confirmed; approval is the owner's separate statement).
 - HDMI output on hardware (no HDMI boot without separate approval).
 - Keyboard input (no keyboard attached).
 - Interactive performance beyond the IPC-driven sequence (scrolling, touch
   latency, frame timing).
 
-## Licence audit: the concept SVG (open)
+## Licence audit: the concept SVG (resolved)
 
-`tests/license_audit_test.sh` fails on one tracked asset with no class in
+`tests/license_audit_test.sh` failed on one tracked asset with no class in
 `docs/licensing/asset-inventory.txt`:
 `docs/design/rift/concepts/neon-activity-landscape.svg`. Recorded evidence:
 
 - Added by `6925e25` ("docs: add Neon Activity landscape concept
   illustration"), 2026-10-17 21:58:29 +0200; its description,
   `docs/design/rift/concepts/NEON-ACTIVITY.md`, by `cf7ffc8` 19 s later. Both
-  are under the repository's GitHub account, with no commit body, and with
-  the committer name set to the GitHub handle, unlike later commits; that
-  suggests another committing environment but does not identify author or
-  tool.
+  are in the owner's repository under the repository's GitHub account, with
+  no commit body; neither names an author or a tool.
 - The SVG is hand-written markup without generator or tool metadata; its
-  `<desc>` says "Exploratory mockup with sample values".
-- `NEON-ACTIVITY.md` has no author, credit or tool statement.
+  `<desc>` says "Exploratory mockup with sample values", and its document
+  calls it historical inspiration, not an implementation specification.
 
-**Unresolved question for the owner:** was this SVG drawn in this
-repository (by the owner or in a coding session here; inventory class
-`ORIGINAL`), or made by the owner with an AI tool outside the repository
-(`OWNER-DESIGN` for Claude-made design documents, or another class for
-another tool)? Who made it, and with which tool? The inventory is not changed
-until that is answered.
+Resolution under the inventory's own rules: authorship and tool are not
+recorded, so neither `ORIGINAL` nor `OWNER-DESIGN` (both Apache-2.0) can be
+claimed. As a reference-only mockup in the owner's repository it is classed
+`OWNER-REF` and listed in `docs/licensing/public-source-exclude.txt` (`B1R`):
+kept in the private repository, out of the public-source candidate, with no
+open licence claimed. Nothing builds or tests from it. If the owner later
+states who made it and with which tool, it can be reclassified and
+re-admitted.

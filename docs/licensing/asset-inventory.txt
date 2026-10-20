@@ -46,6 +46,7 @@ docs/design/Repository connection and design directions.zip                     
 docs/design/brand/doors-threshold/mockups/*                                                  OWNER-REF       Threshold mockups; excluded
 docs/design/brand/doors-threshold/reference/*                                                OWNER-REF       Threshold style sheet; excluded
 docs/design/brand/doors-icon-extension/Doors-Icon-Extension.*                                OWNER-REF       extension overview sheet; excluded
+docs/design/rift/concepts/neon-activity-landscape.svg                                        OWNER-REF       RIFT Neon concept mockup (6925e25, owner's repository and account); author and tool not recorded, so no open licence is claimed; reference only; excluded
 docs/design/brand/doors-threshold/brand/*                                                    BRAND           Threshold mark and lockups (wordmark is outlined IBM Plex Sans)
 docs/design/brand/doors-threshold/boot/*                                                     BRAND           Threshold boot art
 docs/design/brand/doors-threshold/icons/*                                                    OWNER-VECTOR    Threshold app icons (10)
