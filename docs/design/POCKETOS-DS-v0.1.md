@@ -5318,4 +5318,5 @@ whitening them; Night keeps status at 94 % so warnings and errors stay
 readable. Values, body text and user content stay reading text; fills keep
 `text_on_accent`; focus stays a light ring; warnings and errors keep words
 and symbols. Other themes, layout, sizes and touch targets are unchanged.
-See [neon/arcade-selected/README.md](neon/arcade-selected/README.md).
+See [neon/arcade-selected/README.md](neon/arcade-selected/README.md). The owner approved
+the Arcade appearance on unit B's panel on 2026-10-20.

@@ -4,7 +4,10 @@
 Infrared, Arcade, Signal) the owner chose **C · Arcade**: "This is approval
 of its visual direction." Neon remains the single optional theme
 (Settings → Appearance → Neon); Doors remains the default and fallback.
-Approval of the implementation on the panel is a separate, later step.
+On 2026-10-20 the owner also **approved the Arcade appearance tested on unit
+B's panel** (`f398ecb`; [gate record](../../../hardware/NEON_THEME_GATE.md)).
+HDMI, a physical keyboard and touch/scroll performance remain unverified on
+hardware.
 
 ## Palette and roles
 

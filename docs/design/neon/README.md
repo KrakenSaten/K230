@@ -2,8 +2,9 @@
 
 **Current: Arcade, the owner's selected direction (2026-10-20).** See
 [arcade-selected/README.md](arcade-selected/README.md) for the palette,
-roles, the comparison with the approved reference and the checks. Approval
-of the implementation on the panel is still pending. The palettes below and
+roles, the comparison with the approved reference and the checks. The owner
+approved the Arcade appearance on unit B's panel on 2026-10-20
+([gate record](../../hardware/NEON_THEME_GATE.md)). The palettes below and
 the earlier proposals (`ddf9791`, `98275b0`, the [arcade revision](arcade/README.md),
 the [text roles](text/README.md)) are history, superseded by Arcade.
 
