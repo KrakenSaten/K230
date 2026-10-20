@@ -76,6 +76,11 @@ int main(void)
     check("remove key", settings_set("display_mode", NULL) == 0 && settings_get("display_mode", NULL) == NULL);
     check("removed key not in file", !file_has(file, "display_mode="));
 
+    check("persist Neon", settings_set("theme", "neon") == 0 && file_has(file, "theme=neon"));
+    check("reload Neon", settings_init() == 0 && strcmp(settings_get("theme", "?"), "neon") == 0);
+    check("switch back to Doors", settings_set("theme", "doors") == 0 && settings_init() == 0 &&
+          strcmp(settings_get("theme", "?"), "doors") == 0);
+
     /* malformed content is ignored, valid lines survive */
     f = fopen(file, "w");
     fprintf(f, "# comment\n\n  theme = slate  \nno_equals_here\n=novalue\nbad key=1\ndisplay_mode=night\r\n");

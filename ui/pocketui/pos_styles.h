@@ -103,6 +103,17 @@ enum pos_style_role {
     POS_STYLE_ENV_ICON,            /* full-colour portal icons: dimmed with the photograph in Night */
     POS_STYLE_SCREEN_OFF,          /* the screen-off cover (DS §52.4): opaque black in every theme and mode */
     POS_STYLE_SCAN_SURFACE,        /* behind a code a camera reads: opaque pure white in every theme and mode */
+    /* Semantic variants: neutral for existing themes, luminous for Neon. */
+    POS_STYLE_READING_CONTROL,
+    POS_STYLE_BUTTON_GLYPH,
+    POS_STYLE_SECTION_HEADING,
+    POS_STYLE_NAV_SELECTED,
+    POS_STYLE_NAV_LABEL_SELECTED,
+    POS_STYLE_ENV_LEGACY_ICON,
+    POS_STYLE_ENV_TILE,
+    POS_STYLE_ENV_TILE_SELECTED,
+    POS_STYLE_ENV_TILE_FOCUS,
+    POS_STYLE_ENV_TILE_SYMBOL,
     POS_STYLE_COUNT
 };
 
@@ -137,6 +148,9 @@ lv_color_t pos_identity_hue(unsigned index);
 /* A colour-only text style in that hue, to add over a role that brings the
  * font (a caption, a row title). */
 lv_style_t *pos_style_identity(unsigned index);
+/* A launcher tile's colour by app family (enum pos_env_hue), to add over
+ * POS_STYLE_ENV_TILE. Empty in every theme but Neon. */
+lv_style_t *pos_style_env_tile_family(enum pos_env_hue hue);
 
 /* Scan colours: a QR code (or any code a phone camera reads) is pure black
  * modules on pure white, whatever the theme or display mode - a dark theme's

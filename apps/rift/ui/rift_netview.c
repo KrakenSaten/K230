@@ -135,7 +135,7 @@ static void build_pill(struct rift_net_view *v, struct ring_view *rv)
 
     p->btn = lv_button_create(rv->pills);
     lv_obj_remove_style_all(p->btn);
-    pos_style_add(p->btn, POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(p->btn, POS_STYLE_READING_CONTROL, 0);
     pos_style_add(p->btn, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
     lv_obj_set_height(p->btn, PILL_H);
     lv_obj_set_width(p->btn, LV_SIZE_CONTENT);

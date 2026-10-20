@@ -57,8 +57,8 @@ int main(void)
     int m;
     char what[160];
 
-    /* The five of DS §8 and Doors, the default since DS §32. */
-    check("the theme table has the six DS themes", themes == 6);
+    /* Existing DS themes plus the optional system-wide Neon (§58). */
+    check("the theme table includes Neon", themes == 7);
     for (ti = 0; ti < themes; ti++) {
         const struct pos_theme_def *def = pos_theme_at(ti);
 

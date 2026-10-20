@@ -1208,7 +1208,7 @@ static const struct {
 } pages[] = {
     { NULL, NULL, "Developer", 0 },
     { "Display", NULL, "BRIGHTNESS", 0 },
-    { "Appearance", NULL, "DISPLAY MODE", 0 },
+    { "Appearance", NULL, "DISPLAY MODE", 1 }, /* seventh theme: scroll in landscape */
     { "Sound", NULL, "VOLUME", 0 },
     { "Keyboard", NULL, "KEYBOARD BASE", 0 },
     { "Power & Sleep", NULL, "WHAT EACH ONE DOES", 0 },
@@ -1783,6 +1783,47 @@ int main(void)
         check("and it is live", pos_theme_current_def() == second);
         mark = find_visible(app_body, "SELECTED");
         check("and the mark moved", mark && lv_obj_get_parent(mark) == target_of(second->name));
+        tap("Neon");
+        check("Neon is selected through Settings", strcmp(g_theme_set, "neon") == 0 &&
+              strcmp(pos_theme_current_def()->id, "neon") == 0);
+        mark = find_visible(app_body, "SELECTED");
+        {
+            lv_obj_t *row = lv_obj_create(lv_screen_active());
+            lv_obj_remove_style_all(row);
+            pos_style_add(row, POS_STYLE_READING_CONTROL, 0);
+            lv_obj_t *label = pocketui_label(row, "OSLO-01 / last heard", POS_STYLE_TEXT_PRIMARY);
+            uint32_t fg = lv_color_to_u32(lv_obj_get_style_text_color(label, LV_PART_MAIN)) & 0xffffff;
+            uint32_t bg = lv_color_to_u32(lv_obj_get_style_bg_color(row, LV_PART_MAIN)) & 0xffffff;
+            check("compound reading control keeps explicit text readable", pos_contrast(fg, bg) >= 4.5);
+            lv_obj_delete(row);
+            const char *modes[] = { "normal", "outdoor", "night" };
+            for (int mode = 0; mode < 3; mode++) {
+                pos_theme_select("neon", modes[mode], NULL, 0);
+                lv_obj_t *button = pocketui_button(lv_screen_active(), "PRESSED", NULL, NULL);
+                lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+                lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
+                pos_style_add(button, POS_STYLE_BUTTON_SECONDARY, 0);
+                pos_style_add(button, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+                lv_obj_add_state(button, LV_STATE_PRESSED);
+                lv_obj_update_layout(button);
+                fg = lv_color_to_u32(lv_obj_get_style_text_color(button, LV_PART_MAIN)) & 0xffffff;
+                bg = lv_color_to_u32(lv_obj_get_style_bg_color(button, LV_PART_MAIN)) & 0xffffff;
+                check("pressed secondary action keeps readable dark labels", pos_contrast(fg, bg) >= 4.5);
+                pos_style_add(button, POS_STYLE_NAV_SELECTED, 0);
+                lv_obj_t *tab_label = pocketui_label(button, "ACTIVITY", POS_STYLE_NAV_LABEL_SELECTED);
+                fg = lv_color_to_u32(lv_obj_get_style_text_color(tab_label, LV_PART_MAIN)) & 0xffffff;
+                bg = lv_color_to_u32(lv_obj_get_style_bg_color(button, LV_PART_MAIN)) & 0xffffff;
+                check("pressed selected tab keeps explicit dark labels readable", pos_contrast(fg, bg) >= 4.5);
+                lv_obj_delete(button);
+            }
+            pos_theme_select("neon", "normal", NULL, 0);
+        }
+        check("Neon selection has a word label", mark && lv_obj_get_parent(mark) == target_of("Neon"));
+        app_stop();
+        app_start();
+        open_category("Appearance");
+        mark = find_visible(app_body, "SELECTED");
+        check("reopened Appearance retains Neon", mark && lv_obj_get_parent(mark) == target_of("Neon"));
         tap("NIGHT");
         check("NIGHT asks the shell for the mode only", strcmp(g_mode_set, "night") == 0 && g_theme_set[0] == '\0');
         check("and it is live", pos_theme_current_mode() == POS_MODE_NIGHT);
@@ -1940,6 +1981,14 @@ int main(void)
     back_to_root();
     check("the list says it is on", shows("Debug overlay on"));
     app_stop();
+
+    /* Exercise the same layout suite under a selected theme without
+     * changing its normal default-theme coverage. */
+    if (getenv("SETTINGS_THEME")) {
+        char why[128];
+        check("requested Settings validation theme selected",
+              pos_theme_apply(getenv("SETTINGS_THEME"), "normal", why, sizeof(why)) == 0);
+    }
 
     /* ---- 18. every page, both ways up, every text size (DS §46, §52) ---------------------------- */
     g_status = STATUS_CONN;

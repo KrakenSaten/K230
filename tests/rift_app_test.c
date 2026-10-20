@@ -285,11 +285,11 @@ static void pump(int ms)
     }
 }
 
-static void use_display(enum pos_rotation rotation, int32_t corner)
+static void use_display_size(enum pos_rotation rotation, int32_t corner, int32_t width, int32_t height)
 {
     struct pos_panel panel = {
-        .width = PANEL_W,
-        .height = PANEL_H,
+        .width = width,
+        .height = height,
         .corners = { corner, corner, corner, corner },
     };
     struct pos_display_geometry g;
@@ -308,6 +308,11 @@ static void use_display(enum pos_rotation rotation, int32_t corner)
         lv_obj_set_height(app_header, header_h_for(g.width > g.height));
     }
     pump(80);
+}
+
+static void use_display(enum pos_rotation rotation, int32_t corner)
+{
+    use_display_size(rotation, corner, PANEL_W, PANEL_H);
 }
 
 /* ---- the app, hosted the way the shell hosts it --------------------------- */
@@ -6002,6 +6007,62 @@ static void reliability_session(void)
     kb_shows = kb_before;
 }
 
+/* Shared-style state fixture: native simulator pixels, no service or app
+ * layout changes. The same geometry is used for both sides of a revision. */
+static void theme_state_proof(void)
+{
+    const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM, POS_TEXT_SIZE_LARGE };
+    char name[96];
+    for (int size = 0; size < 3; size++) {
+        for (int wide = 0; wide < 2; wide++) {
+            pos_theme_select_text_size(sizes[size]);
+            use_display(wide ? POS_ROTATION_90 : POS_ROTATION_0, PANEL_CORNER);
+            lv_obj_t *root = lv_obj_create(lv_screen_active());
+            lv_obj_remove_style_all(root);
+            lv_obj_set_pos(root, 24, 40);
+            lv_obj_set_size(root, wide ? 1184 : 520, wide ? 488 : 1152);
+            lv_obj_set_flex_flow(root, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_gap(root, 24, 0);
+            for (int col = 0; col < 2; col++) {
+                lv_obj_t *panel = pocketui_card(root);
+                lv_obj_set_width(panel, wide ? 580 : 520);
+                lv_obj_set_style_pad_row(panel, 16, 0);
+                pocketui_label(panel, col ? "SERVICE STATES" : "CONTROLS & FOCUS", POS_STYLE_TITLE);
+                if (!col) {
+                    lv_obj_t *b = pocketui_button(panel, "PRIMARY ACTION", NULL, NULL);
+                    lv_obj_set_width(b, LV_PCT(100));
+                    pos_style_add(b, POS_STYLE_SELECTED, 0);
+                    pocketui_label(panel, "Selected action / keyboard focus", POS_STYLE_TEXT_SECONDARY);
+                    b = pocketui_button(panel, "SECONDARY ACTION", NULL, NULL);
+                    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+                    pos_style_add(b, POS_STYLE_BUTTON_SECONDARY, 0);
+                    lv_obj_set_width(b, LV_PCT(100));
+                    pos_style_add(b, POS_STYLE_FIELD_FOCUSED, 0);
+                    b = pocketui_button(panel, "DISABLED ACTION", NULL, NULL);
+                    pos_style_add(b, POS_STYLE_BUTTON_DISABLED, LV_STATE_DISABLED);
+                    lv_obj_add_state(b, LV_STATE_DISABLED);
+                    lv_obj_set_width(b, LV_PCT(100));
+                } else {
+                    pocketui_label(panel, "Reading text stays near-white.", POS_STYLE_TEXT_PRIMARY);
+                    pocketui_label(panel, "Secondary content is readable.", POS_STYLE_TEXT_SECONDARY);
+                    pocketui_label(panel, "OK: Message received", POS_STYLE_STATUS_OK_TEXT);
+                    pocketui_label(panel, "WARN: Service unavailable", POS_STYLE_STATUS_WARN_TEXT);
+                    pocketui_label(panel, "ERROR: Connection failed", POS_STYLE_STATUS_ERROR_TEXT);
+                    lv_obj_t *b = pocketui_button(panel, "RETRY", NULL, NULL);
+                    lv_obj_set_width(b, LV_PCT(100));
+                }
+            }
+            pump(100);
+            check("state fixture button text fits", labels_overflowing(root) == 0);
+            snprintf(name, sizeof(name), "states-%s%s-%s", pos_theme_current_mode() == POS_MODE_NORMAL ? "" :
+                         pos_theme_current_mode() == POS_MODE_OUTDOOR ? "outdoor-" : "night-",
+                     wide ? "landscape" : "portrait", pos_text_size_name(sizes[size]));
+            shot(name);
+            lv_obj_delete(root);
+        }
+    }
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -6182,6 +6243,68 @@ int main(void)
     }
     check("everything on ACTIVITY is inside the body", inside_body(content()));
     shot("portrait-activity");
+
+    /* Bounded theme proof using the existing synthetic service fixtures.
+     * No helper, radio or network is started. Stop before unrelated suites. */
+    if (getenv("RIFT_THEME_PROOF")) {
+        char why[128];
+        char name[96];
+        for (int size = 0; size < POS_TEXT_SIZE_COUNT; size++) {
+            for (int landscape = 0; landscape < 2; landscape++) {
+                app_stop();
+                pos_theme_select_text_size((enum pos_text_size)size);
+                use_display(landscape ? POS_ROTATION_90 : POS_ROTATION_0, PANEL_CORNER);
+                app_start();
+                quiet_client();
+                give_nodes();
+                give_service();
+                pump(80);
+                check("Activity controls do not clip at selected text size", labels_overflowing(content()) == 0);
+                snprintf(name, sizeof(name), "activity-%s-%s", landscape ? "landscape" : "portrait",
+                         pos_text_size_name((enum pos_text_size)size));
+                shot(name);
+                pos_theme_select("doors", "normal", why, sizeof(why));
+                pump(40);
+                check("live Activity status repaints in Doors",
+                      lv_color_eq(lv_obj_get_style_text_color(find_text(content(), "ONLINE"), LV_PART_MAIN),
+                                  pos_theme_color(POS_COLOR_STATUS_OK)));
+                pos_theme_select(getenv("RIFT_THEME") ? getenv("RIFT_THEME") : "neon", "normal", why, sizeof(why));
+                pump(40);
+                check("Activity survives a live theme round trip", find_text(content(), "ONLINE") != NULL);
+                check("live Activity status repaints in Neon",
+                      lv_color_eq(lv_obj_get_style_text_color(find_text(content(), "ONLINE"), LV_PART_MAIN),
+                                  pos_theme_color(POS_COLOR_STATUS_OK)));
+            }
+        }
+        app_stop();
+        use_display_size(POS_ROTATION_0, 0, 1920, 1080);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        shot("activity-hdmi-large");
+        app_stop();
+        pos_theme_select("doors", "normal", why, sizeof(why));
+        pos_theme_select("neon", "normal", why, sizeof(why));
+        check("destroyed RIFT has no stale theme callback", app == NULL);
+        theme_state_proof();
+        if (getenv("RIFT_STATE_MODES")) {
+            const char *modes[] = { "outdoor", "night" };
+            for (int i = 0; i < 2; i++) {
+                pos_theme_select("neon", modes[i], why, sizeof(why));
+                theme_state_proof();
+            }
+            pos_theme_select("neon", "normal", why, sizeof(why));
+        }
+        lv_obj_t *scan = lv_obj_create(lv_screen_active());
+        pos_style_add(scan, POS_STYLE_SCAN_SURFACE, 0);
+        check("QR quiet zone stays opaque white",
+              lv_color_eq(lv_obj_get_style_bg_color(scan, LV_PART_MAIN), pos_scan_light()) &&
+              lv_obj_get_style_bg_opa(scan, LV_PART_MAIN) == LV_OPA_COVER);
+        lv_obj_delete(scan);
+        printf("rift_theme_proof: %d checks, %d failure(s)\n", checks, failed);
+        return failed ? 1 : 0;
+    }
 
     /* A panel's caption is centred on its top rule, so half of it lies
      * above the panel's own box. LVGL clips a child to its parent, and every

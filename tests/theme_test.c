@@ -286,7 +286,39 @@ int main(int argc, char **argv)
     check("rgb lookup uses current tokens", pos_theme_rgb(POS_COLOR_BG) == 0x000000 &&
                                             pos_theme_rgb(POS_COLOR_TEXT_PRIMARY) == 0xffffff);
     check("reselect same is silent", pos_theme_select("brass", "outdoor", why, sizeof(why)) == 0 && notified == 1);
-    check("unknown theme falls back", pos_theme_select("neon", NULL, why, sizeof(why)) < 0);
+    check("Neon registered as selectable", pos_theme_find("neon") != NULL);
+    check("Neon uses the normal live path", pos_theme_select("neon", "normal", why, sizeof(why)) == 0 &&
+          strcmp(pos_theme_current_def()->id, "neon") == 0 && notified == 2);
+    check("Neon reselection is silent", pos_theme_select("neon", NULL, why, sizeof(why)) == 0 && notified == 2);
+    {
+        const struct pos_theme_tokens *t = pos_theme_current();
+        const enum pos_color_token ink[] = { POS_COLOR_FOCUS, POS_COLOR_ACCENT_SECONDARY,
+            POS_COLOR_STATUS_OK, POS_COLOR_STATUS_WARN, POS_COLOR_STATUS_ERROR };
+        for (size_t k = 0; k < sizeof(ink) / sizeof(ink[0]); k++) {
+            check("Neon focus/status readable on selected surface",
+                  pos_contrast(t->color[ink[k]], t->color[POS_COLOR_SURFACE_RAISED]) >= 4.5);
+        }
+        check("Neon disabled text remains distinguishable",
+              pos_contrast(t->color[POS_COLOR_DISABLED_FG], t->color[POS_COLOR_DISABLED_BG]) >= 3.0);
+        check("Neon pressed button text readable",
+              pos_contrast(pos_mix(t->color[POS_COLOR_ACCENT_PRIMARY], t->color[POS_COLOR_TEXT_ON_ACCENT], .15),
+                           t->color[POS_COLOR_TEXT_ON_ACCENT]) >= 4.5);
+    }
+    {
+        struct pos_theme_tokens night;
+        pos_theme_resolve(pos_theme_find("neon"), POS_MODE_NIGHT, &night);
+        const enum pos_color_token reading[] = { POS_COLOR_TEXT_PRIMARY, POS_COLOR_TEXT_SECONDARY,
+                                                POS_COLOR_STATUS_WARN, POS_COLOR_STATUS_ERROR };
+        for (size_t k = 0; k < sizeof(reading) / sizeof(reading[0]); k++) {
+            check("Neon Night keeps information readable on panels",
+                  pos_contrast(night.color[reading[k]], night.color[POS_COLOR_SURFACE]) >= 4.5);
+        }
+        check("Neon Night keeps dark labels readable on magenta actions",
+              pos_contrast(night.color[POS_COLOR_TEXT_ON_ACCENT], night.color[POS_COLOR_ACCENT_SECONDARY]) >= 4.5);
+    }
+    check("switch back restores Doors", pos_theme_select("doors", "normal", why, sizeof(why)) == 0 &&
+          strcmp(pos_theme_current_def()->id, "doors") == 0 && notified == 3);
+    check("unknown theme falls back", pos_theme_select("missing-theme", NULL, why, sizeof(why)) < 0);
     check("fallback theme selected", strcmp(pos_theme_current_def()->id, pos_theme_fallback_id()) == 0);
     check("fallback mode normal", pos_theme_current_mode() == POS_MODE_NORMAL);
     check("fallback gives a reason", strstr(why, "unknown theme") != NULL);

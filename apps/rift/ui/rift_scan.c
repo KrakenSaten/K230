@@ -103,7 +103,7 @@ void rift_scan_build(struct rift_app *app, lv_obj_t *parent)
          * only selects (handoff §4). A button, so the keys reach it too. */
         r->row = lv_button_create(panel);
         lv_obj_remove_style_all(r->row);
-        pos_style_add(r->row, POS_STYLE_BUTTON_SECONDARY, 0);
+        pos_style_add(r->row, POS_STYLE_READING_CONTROL, 0);
         pos_style_add(r->row, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
         lv_obj_set_width(r->row, LV_PCT(100));
         lv_obj_set_height(r->row, RIFT_TOUCH_H);

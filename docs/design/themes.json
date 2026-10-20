@@ -10,7 +10,8 @@
   "brass",
   "olive",
   "slate",
-  "carbon"
+  "carbon",
+  "neon"
  ],
  "derivation": {
   "text_muted": "mix(text_secondary,bg,0.20)",
@@ -29,7 +30,12 @@
    "text_secondary": "mix(text_secondary,#ffffff,0.40)",
    "accent_*,status_*,radio_*": "mix(v,#ffffff,0.15)",
    "hairline_px": 2,
-   "type_default_px": 20
+   "type_default_px": 20,
+   "neon_override": {
+    "line,text_secondary,accent_*,status_*,radio_*": "mix(normal v,#ffffff,0.12)",
+    "text_primary": "mix(normal text_primary,#ffffff,0.25)",
+    "surface": "mix(normal surface,#000000,0.40)"
+   }
   },
   "night": {
    "bg": "#000000",
@@ -38,7 +44,13 @@
    "line": "mix(line,#000000,0.35)",
    "text_*,accent_*,status_*,radio_*": "mix(mix(v,#000000,0.50),#ffb060,0.15)",
    "hairline_px": 1,
-   "type_default_px": 16
+   "type_default_px": 16,
+   "neon_override": {
+    "text_primary,text_secondary": "mix(normal v,#000000,0.22)",
+    "accent_*,radio_*": "mix(normal v,#000000,0.12)",
+    "status_*": "mix(normal v,#000000,0.06)",
+    "reason": "Neon solid action labels and reading information retain >=4.5:1 in Night; all other themes keep the standard rule."
+   }
   }
  },
  "themes": {
@@ -801,6 +813,145 @@
      "text_on_accent/radio_rx": 4.2,
      "text_on_accent/radio_tx": 3.3,
      "text_primary/surface": 5.4
+    }
+   }
+  },
+  "neon": {
+   "name": "Neon",
+   "modes": {
+    "normal": {
+     "bg": "#07031a",
+     "surface": "#110a2e",
+     "surface_raised": "#1c1245",
+     "line": "#8a5cff",
+     "text_primary": "#f4f0ff",
+     "text_secondary": "#c9bfff",
+     "accent_primary": "#39ff6a",
+     "accent_secondary": "#ff2bd6",
+     "status_ok": "#39ff6a",
+     "status_warn": "#ffe000",
+     "status_error": "#ff3045",
+     "radio_rx": "#00e5ff",
+     "radio_tx": "#ff2bd6",
+     "text_muted": "#a299d1",
+     "text_on_accent": "#07031a",
+     "net_connected": "#39ff6a",
+     "focus": "#39ff6a",
+     "disabled_fg": "#68618d",
+     "disabled_bg": "#110a2e",
+     "hairline_px": 1,
+     "type_default_px": 16
+    },
+    "outdoor": {
+     "bg": "#000000",
+     "surface": "#0a061c",
+     "surface_raised": "#1c1245",
+     "line": "#9870ff",
+     "text_primary": "#f7f4ff",
+     "text_secondary": "#cfc7ff",
+     "accent_primary": "#51ff7c",
+     "accent_secondary": "#ff44db",
+     "status_ok": "#51ff7c",
+     "status_warn": "#ffe41f",
+     "status_error": "#ff495b",
+     "radio_rx": "#1fe8ff",
+     "radio_tx": "#ff44db",
+     "text_muted": "#a69fcc",
+     "text_on_accent": "#000000",
+     "net_connected": "#51ff7c",
+     "focus": "#51ff7c",
+     "disabled_fg": "#686480",
+     "disabled_bg": "#0a061c",
+     "hairline_px": 2,
+     "type_default_px": 20
+    },
+    "night": {
+     "bg": "#000000",
+     "surface": "#090517",
+     "surface_raised": "#110b29",
+     "line": "#5a3ca6",
+     "text_primary": "#bebbc7",
+     "text_secondary": "#9d95c7",
+     "accent_primary": "#32e05d",
+     "accent_secondary": "#e026bc",
+     "status_ok": "#36f064",
+     "status_warn": "#f0d300",
+     "status_error": "#f02d41",
+     "radio_rx": "#00cae0",
+     "radio_tx": "#e026bc",
+     "text_muted": "#7e779f",
+     "text_on_accent": "#000000",
+     "net_connected": "#36f064",
+     "focus": "#32e05d",
+     "disabled_fg": "#4f4b64",
+     "disabled_bg": "#090517",
+     "hairline_px": 1,
+     "type_default_px": 16
+    }
+   },
+   "contrast": {
+    "normal": {
+     "text_primary/bg": 18.1,
+     "text_secondary/bg": 11.9,
+     "text_muted/bg": 7.7,
+     "accent_primary/bg": 15.1,
+     "accent_secondary/bg": 6.3,
+     "status_ok/bg": 15.1,
+     "status_warn/bg": 15.3,
+     "status_error/bg": 5.6,
+     "radio_rx/bg": 13.2,
+     "radio_tx/bg": 6.3,
+     "line/bg": 4.9,
+     "text_on_accent/accent_primary": 15.1,
+     "text_on_accent/radio_rx": 13.2,
+     "text_on_accent/radio_tx": 6.3,
+     "text_primary/surface": 16.9,
+     "disabled_fg/disabled_bg": 3.3,
+     "focus/surface_raised": 12.8,
+     "status_warn/surface_raised": 13.1,
+     "status_error/surface_raised": 4.7
+    },
+    "outdoor": {
+     "text_primary/bg": 19.3,
+     "text_secondary/bg": 13.3,
+     "text_muted/bg": 8.4,
+     "accent_primary/bg": 15.9,
+     "accent_secondary/bg": 7.1,
+     "status_ok/bg": 15.9,
+     "status_warn/bg": 16.4,
+     "status_error/bg": 6.4,
+     "radio_rx/bg": 14.0,
+     "radio_tx/bg": 7.1,
+     "line/bg": 6.1,
+     "text_on_accent/accent_primary": 15.9,
+     "text_on_accent/radio_rx": 14.0,
+     "text_on_accent/radio_tx": 7.1,
+     "text_primary/surface": 18.3,
+     "disabled_fg/disabled_bg": 3.5,
+     "focus/surface_raised": 13.1,
+     "status_warn/surface_raised": 13.4,
+     "status_error/surface_raised": 5.2
+    },
+    "night": {
+     "text_primary/bg": 11.1,
+     "text_secondary/bg": 7.6,
+     "text_muted/bg": 5.0,
+     "accent_primary/bg": 11.9,
+     "accent_secondary/bg": 5.2,
+     "status_ok/bg": 13.8,
+     "status_warn/bg": 14.0,
+     "status_error/bg": 5.2,
+     "radio_rx/bg": 10.5,
+     "radio_tx/bg": 5.2,
+     "line/bg": 2.6,
+     "text_on_accent/accent_primary": 11.9,
+     "text_on_accent/radio_rx": 10.5,
+     "text_on_accent/radio_tx": 5.2,
+     "text_primary/surface": 10.6,
+     "disabled_fg/disabled_bg": 2.4,
+     "focus/surface_raised": 10.8,
+     "status_warn/surface_raised": 12.7,
+     "status_error/surface_raised": 4.7
     }
    }
   }

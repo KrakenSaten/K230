@@ -214,8 +214,26 @@ void pos_theme_resolve(const struct pos_theme_def *def, enum pos_mode mode,
     out->type_default_px = 16;
     if (mode == POS_MODE_OUTDOOR) {
         apply_outdoor(out);
+        /* Neon (Arcade) stays chromatic in sunlight: frames, text, accents
+         * and status are lifted a little toward white on black, never
+         * replaced by white or grey; the surface darkens less. */
+        if (strcmp(def->id, "neon") == 0) {
+            for (i = POS_COLOR_LINE; i < POS_THEME_BASE_COUNT; i++) {
+                out->color[i] = pos_mix(def->base[i], 0xffffff, i == POS_COLOR_TEXT_PRIMARY ? .25 : .12);
+            }
+            out->color[POS_COLOR_SURFACE] = pos_mix(def->base[POS_COLOR_SURFACE], 0x000000, .40);
+        }
     } else if (mode == POS_MODE_NIGHT) {
         apply_night(out);
+        if (strcmp(def->id, "neon") == 0) {
+            /* Status keeps most of its strength: a warning or an error
+             * must stay readable on a Night panel. */
+            for (i = POS_COLOR_TEXT_PRIMARY; i < POS_THEME_BASE_COUNT; i++) {
+                out->color[i] = pos_mix(def->base[i], 0x000000,
+                    i <= POS_COLOR_TEXT_SECONDARY ? .22
+                    : i >= POS_COLOR_STATUS_OK && i <= POS_COLOR_STATUS_ERROR ? .06 : .12);
+            }
+        }
     }
     derive(out);
 }

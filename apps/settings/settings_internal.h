@@ -36,7 +36,7 @@
 #define SETTINGS_LIST_POLL_TICKS 3
 /* Power & Sleep asks sysd for the battery every this many ticks (seconds). */
 #define SETTINGS_BATTERY_POLL_TICKS 5
-/* The Design System has six themes; room for a few more. */
+/* The registry includes Neon; room for another theme. */
 #define SETTINGS_THEMES_MAX 8
 #define SETTINGS_ZONES_MAX 48
 /* DS section 7: the gap between panels, whichever way they lie. */

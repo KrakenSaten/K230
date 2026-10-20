@@ -510,7 +510,7 @@ lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption)
          * on top supplies the type. */
         lv_obj_remove_style_all(label);
         pos_style_add(label, POS_STYLE_SCREEN, 0);
-        pos_style_add(label, POS_STYLE_CAPTION, 0);
+        pos_style_add(label, POS_STYLE_SECTION_HEADING, 0);
         lv_obj_set_style_pad_hor(label, 6, 0);
         lv_obj_set_height(label, rift_caption_h());
         lv_label_set_text(label, caption);
