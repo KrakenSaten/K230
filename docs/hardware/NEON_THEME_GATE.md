@@ -1,11 +1,12 @@
 # Neon theme (PR #98) on unit B: the gate
 
 **Status: IN PROGRESS (2026-10-20).** `56aefe5` ran on unit B from its own
-kit directory; the owner tested Neon extensively and found the overall
-appearance good, with one outstanding colour refinement (too much white),
-now built as `51bcf48` and prepared as an updated kit, **not yet staged**.
-Owner visual approval of the final appearance: **not given**. Switch-back to
-the original theme: **not verified** on the unit. HDMI: **untested**.
+kit directory and the owner tested Neon extensively (overall good, too much
+white). After a four-way rendered exploration the owner **chose the Arcade
+direction**, now implemented as `f398ecb` and prepared as a kit, **not yet
+staged**. Visual approval of Arcade on the panel: **not given**. Switch-back
+to the original theme: **not verified** on the unit. HDMI on hardware:
+**untested**.
 
 Evidence classes as in `docs/hardware/T-DISPLAY-K230.md`. Software tests,
 device observations, owner observations and performance measurements are kept
@@ -233,8 +234,14 @@ the panel.
 
 That refinement is built in `51bcf48`
 ([docs/design/neon/text/README.md](../design/neon/text/README.md)) and has not
-been on the panel yet. **Visual approval of the final appearance: not
-given.**
+been on the panel yet.
+- 2026-10-20, after the four-way exploration (simulator renders): "I choose
+  proposal C · Arcade. This is approval of its visual direction." The
+  owner also found the earlier Neon dull and too dominated by cyan and
+  magenta, with too much white or neutral text and framing. Arcade is
+  implemented as `f398ecb` ([evidence](../design/neon/arcade-selected/README.md)),
+  superseding `51bcf48`. **Approval of Arcade as seen on the panel: not given
+  yet.**
 
 ## Performance measurements
 
@@ -246,41 +253,59 @@ opened and closed): average 8 %, 1 s peak 29 %, RSS 18.2 MB, high-water
 22.4 MB, load 0.23. **There is no Doors baseline yet**, so no comparison
 can be made; host timings are not target evidence.
 
-## Updated kit: `51bcf48` (prepared, not staged)
+## Superseded kit: `51bcf48` (never staged)
 
-`51bcf48` = the colour refinement on top of `f5c28c8`; only
-`ui/pocketui/pos_styles.c`, `ui/pocketui/pos_theme.c` and
-`apps/settings/settings_app.c` change what is built (`themes.json` is the
-test table, not compiled in). Cross-built with the same script and pinned toolchain/SDK as above
-(VERIFIED 2026-10-20): source tar sha256 `e3ca77cc…f72e5`; shell rc 0,
-**0 warnings**; strings `0.3.7`, `51bcf48`; no `POCKETOS_TEST_CHROME`;
-same `NEEDED` set; every `lv_*` import resolves against the staged LVGL.
+The text-colour refinement `51bcf48` was cross-built (shell sha256
+`4d46665e…`) and assembled as `neon-p98-51bcf48.tar` (`59fe5a29…`), but was
+never staged on unit B; the Arcade decision superseded it.
 
-The LVGL rebuilt with it has the same `lv_conf.h`, the same headers and the
-same exported symbols in all four libraries as the staged set, but different
-bytes (it embeds its build path). The kit therefore **reuses the staged LVGL
-files unchanged**; only the shell and `kit.env` differ.
+## Arcade kit: `f398ecb` (prepared, not staged)
 
-`neon-p98-51bcf48.tar`, sha256
-`59fe5a2945b216a2936c37aef6856e0cf1f65e1e98a7ba7c94866030b5497827`, unpacks
-to `/root/neon-p98-51bcf48/`:
+Unit B, read-only, 2026-10-20 10:20 UTC (VERIFIED): still the `56aefe5` test
+shell, pid 14814, from `/root/neon-p98-56aefe5/` with its own LVGL, the only
+panel owner, no doors-shell supervisor; `doors shell info` 0.3.7 /
+`56aefe5`; settings `theme=neon`, `display_mode=outdoor`,
+`display_rotation=landscape`, `text_size=large`, `debug_overlay=1`; installed
+`/usr/bin/doors-shell` `2d96a53a…` and `/usr/lib/liblvgl.so.9.5.0` `43f3f265…`
+unchanged; original settings backup `34b44ebc…` intact; rootfs 140 MB free.
+
+`f398ecb` changes only Neon (`pos_styles.c`, `pos_theme.c`,
+`pos_theme_table.h`, `pos_styles.h`, `home.c`). Cross-built with the same
+script and pinned toolchain/SDK (VERIFIED 2026-10-20): source tar sha256
+`80bd6299…faa89`; shell rc 0, **0 warnings**; strings `0.3.7`, `f398ecb`; no
+`POCKETOS_TEST_CHROME` and no exploration selector; same `NEEDED` set; all
+290 `lv_*` imports resolve against the staged LVGL, whose `lv_conf.h` is
+identical to this build's. The kit reuses the staged LVGL files byte for
+byte; only the shell and `kit.env` differ.
+
+`neon-p98-f398ecb.tar`, sha256
+`3b243627ba3da558e1c70d1f01c9a8e96d23fcc5a6b9e84bda900abcfbf628c2`, unpacks to
+`/root/neon-p98-f398ecb/` (about 10 MB):
 
 | File | sha256 |
 | --- | --- |
-| `doors-shell` (`51bcf48`) | `4d46665efb1dac61d7e19965bf7b5ff68b24ab31bcb371a3acf5c0628f2f9038` |
-| `lib/liblvgl.so.9.5.0` | `2c4fd81b…9a5a` (identical to the staged kit's) |
+| `doors-shell` (`f398ecb`, 4,263,704 bytes) | `86d7b017a9e1d1909177a3a153b48f43b8448dbcfb05d21176e9276279f60353` |
+| `lib/liblvgl.so.9.5.0` | `2c4fd81b…9a5a`, identical to the staged kit's |
 | `lib/liblvgl_thorvg`, `_demos`, `_examples` | identical to the staged kit's |
-| `kit.env` | `9f565269…7a8`: `TEST_COMMIT=51bcf48…`, the same original hashes |
+| `kit.env` | `a3d1a2da…b370`: `TEST_COMMIT=f398ecb7…`, the same original hashes |
 | `neon-*.sh` | identical to the staged kit's |
 
-Handoff, after approval: `/root/neon-p98-56aefe5/neon-restore.sh` (must say
-`RESTORE: OK`: installed shell supervised again, original settings back),
-then `/root/neon-p98-51bcf48/neon-start.sh`, which checks the original
-hashes again, makes its own hash-checked backup of the original settings and
-starts `51bcf48` as the only panel owner. The test shell then starts in Doors
-with rotation Automatic; the owner selects Neon. The `56aefe5` kit, its
-settings backup and logs stay as evidence. Recovery for either kit is its
-`neon-restore.sh` (both restore the same original settings).
+Proposed handoff (needs the owner's approval; nothing done yet):
+
+1. Copy the tar to `/root/`, unpack, `sha256sum -c SHA256SUMS`.
+2. `/root/neon-p98-56aefe5/neon-restore.sh`, which must end `RESTORE: OK`:
+   the `56aefe5` test shell stopped, the original settings back (`34b44ebc…`),
+   the installed `d7ace73` shell supervised again as the only panel owner.
+3. `/root/neon-p98-f398ecb/neon-start.sh`: checks the original hashes again,
+   makes its own hash-checked settings backup, stops the installed service,
+   starts `f398ecb` as the only panel owner. It starts in Doors, rotation
+   Automatic; the owner selects Neon.
+
+Recovery: `/root/neon-p98-f398ecb/neon-restore.sh` (or the `56aefe5` kit's;
+both restore the same original settings and the installed shell); serial
+console COM3 if the panel is dark; a reboot returns the installed shell
+(an unknown `theme=neon` falls back to Doors in `d7ace73`), then run
+`neon-restore.sh`. The `56aefe5` kit, backup and logs stay as evidence.
 
 ## Not tested
 

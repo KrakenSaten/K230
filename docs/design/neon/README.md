@@ -1,15 +1,17 @@
 # Optional system-wide Neon theme
 
-System-wide direction approved by the owner; **implementation visual approval
-is pending**. Both earlier implementations (`ddf9791` and `98275b0`) are
-superseded. See the [current neon-sign / arcade proposal](arcade/README.md)
-for direct comparison against `98275b0`, native simulator evidence and checks.
+**Current: Arcade, the owner's selected direction (2026-10-20).** See
+[arcade-selected/README.md](arcade-selected/README.md) for the palette,
+roles, the comparison with the approved reference and the checks. Approval
+of the implementation on the panel is still pending. The palettes below and
+the earlier proposals (`ddf9791`, `98275b0`, the [arcade revision](arcade/README.md),
+the [text roles](text/README.md)) are history, superseded by Arcade.
 
 Select **Settings → Appearance → Neon**; tapping any other theme switches back immediately.
 Doors is still the default and fallback. The seventh row uses the existing
 scrollable Appearance page, including its two-column landscape list.
 
-## Palette and behaviour
+## Earlier palette and behaviour (superseded by Arcade)
 
 | Semantic role | Normal colour | Purpose |
 | --- | --- | --- |

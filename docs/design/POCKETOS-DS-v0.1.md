@@ -5302,3 +5302,20 @@ Outdoor, Neon's `line` is its normal line mixed 55 % toward the Outdoor
 `accent_primary` instead of toward grey secondary text, so frames stay
 chromatic (7.2:1 on bg). Other themes and modes are unchanged. Evidence and
 contrast: [neon/text/README.md](neon/text/README.md).
+
+### 58.4 Arcade — the owner's selected direction
+
+On 2026-10-20 the owner chose **Arcade** from four rendered Neon directions,
+approving its visual direction; it supersedes §58.1–58.3 for Neon's colours.
+Neon stays one optional theme. Palette: indigo `bg`/`surface`, violet `line`,
+green `accent_primary` for primary actions, magenta `accent_secondary` for
+secondary actions and headings. Roles: yellow clocks, titles and selection;
+magenta folder, Favorites, Controls and section headings; cyan menu entries,
+row titles, labels and glyphs; orange captions and secondary lines; launcher
+tiles coloured per app family through shared styles that are empty in every
+other theme. Outdoor lifts Neon's colours toward white on black rather than
+whitening them; Night keeps status at 94 % so warnings and errors stay
+readable. Values, body text and user content stay reading text; fills keep
+`text_on_accent`; focus stays a light ring; warnings and errors keep words
+and symbols. Other themes, layout, sizes and touch targets are unchanged.
+See [neon/arcade-selected/README.md](neon/arcade-selected/README.md).

@@ -1,5 +1,8 @@
 # Neon text roles after the unit B review
 
+**Superseded by [Arcade](../arcade-selected/README.md), the owner's selected
+direction (2026-10-20). Kept as history.**
+
 **Owner feedback, 2026-10-20, after extensive testing of `56aefe5` on unit B:**
 the overall appearance looks good, but too much of the interface is still
 white: the clock, framing lines and borders in Outdoor, titles of opened
