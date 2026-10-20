@@ -229,6 +229,70 @@ static void fill_identity_styles(void)
     }
 }
 
+/* ---- Neon (Arcade) role colours ----------------------------------------- *
+ *
+ * The owner's chosen Neon direction (Arcade, 2026-10-20): yellow clocks,
+ * titles and selection, magenta headings (accent_secondary), cyan labels,
+ * orange captions, and launcher tiles coloured by app family. Not tokens:
+ * they live beside the roles that use them and only Neon fills them. Like
+ * the accents, they lift toward white in Outdoor and dim in Night.
+ */
+#define NEON_SIGN 0xffe100    /* clocks, titles, selection */
+#define NEON_LABEL 0x4de8ff   /* menu entries, row titles, launcher labels, glyphs */
+#define NEON_CAPTION 0xff9e1f /* captions and secondary lines */
+static const uint32_t neon_family[POS_HUE_COUNT] = {
+    0xff9e1f, /* radio */
+    0x39ff6a, /* mesh */
+    0x00c8ff, /* network */
+    0xffe100, /* tools */
+    0xb066ff, /* ai */
+    0xff3d6e, /* games */
+    0x00ffc8, /* settings */
+    0xffb000, /* files */
+    0xff2bd6, /* apps */
+};
+static lv_style_t family_styles[POS_HUE_COUNT];
+
+static uint32_t neon_mode_rgb(uint32_t rgb)
+{
+    enum pos_mode m = pos_theme_current_mode();
+
+    return m == POS_MODE_OUTDOOR ? pos_mix(rgb, 0xffffff, .12)
+         : m == POS_MODE_NIGHT   ? pos_mix(rgb, 0x000000, .12)
+                                 : rgb;
+}
+
+static lv_color_t neon_role(uint32_t rgb)
+{
+    return lv_color_hex(neon_mode_rgb(rgb));
+}
+
+/* A launcher tile's colour by app family, added over POS_STYLE_ENV_TILE.
+ * Empty in every theme but Neon; the selected/pressed tile style is
+ * state-specific and so still wins over it. */
+lv_style_t *pos_style_env_tile_family(enum pos_env_hue hue)
+{
+    return &family_styles[(hue >= 0 && hue < POS_HUE_COUNT) ? hue : POS_HUE_APPS];
+}
+
+static void fill_family_styles(void)
+{
+    int i;
+
+    for (i = 0; i < POS_HUE_COUNT; i++) {
+        lv_style_t *s = &family_styles[i];
+        uint32_t rgb = neon_mode_rgb(neon_family[i]);
+
+        reset(s);
+        if (!neon_environment()) {
+            continue;
+        }
+        lv_style_set_bg_color(s, lv_color_hex(rgb));
+        lv_style_set_outline_color(s, lv_color_hex(pos_mix(rgb, 0xffffff, .55)));
+        lv_style_set_shadow_color(s, lv_color_hex(pos_mix(rgb, pos_theme_rgb(POS_COLOR_BG), .55)));
+    }
+}
+
 /* ---- scan colours ------------------------------------------------------- *
  *
  * Fixed, like the screen-off black: what a code reader needs, not a theme
@@ -550,30 +614,26 @@ static void fill_neon_styles(void)
     lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
     lv_style_set_border_color(s, tok(POS_COLOR_LINE));
-    /* Neon text (owner, unit B, 2026-10-20): clocks and major titles are
-     * electric cyan, folder and Favorites headings hot magenta, menu
-     * entries, labels and navigation one Neon label cyan, and captions and
-     * secondary lines a deeper cyan below them. Values, body text and user
-     * content stay neutral reading text. These roles sit on dark surfaces or
-     * the scrimmed photograph, never on a cyan or magenta fill, whose labels
-     * keep text_on_accent. No halo or blur on any text style. */
-    lv_color_t label = lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY),
-                                            pos_theme_rgb(POS_COLOR_TEXT_PRIMARY), .30));
-    lv_color_t quiet = lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY),
-                                            pos_theme_rgb(POS_COLOR_BG), .22));
+    /* Arcade text: yellow clocks and titles, magenta folder, Favorites and
+     * Controls headings, cyan menu entries, labels and glyphs, orange
+     * captions and secondary lines. Values, body text and user content stay
+     * reading text. These roles sit on dark surfaces or the scrimmed
+     * photograph, never on a coloured fill, whose labels keep
+     * text_on_accent. No halo or blur on any text style. */
     const enum pos_style_role signs[] = { POS_STYLE_ENV_CLOCK, POS_STYLE_ENV_CLOCK_LARGE, POS_STYLE_TITLE };
     for (size_t i = 0; i < sizeof(signs) / sizeof(signs[0]); i++) {
-        lv_style_set_text_color(&styles[signs[i]], tok(POS_COLOR_ACCENT_PRIMARY));
+        lv_style_set_text_color(&styles[signs[i]], neon_role(NEON_SIGN));
     }
     lv_style_set_text_color(&styles[POS_STYLE_ENV_TITLE], tok(POS_COLOR_ACCENT_SECONDARY));
     const enum pos_style_role labels[] = { POS_STYLE_ROW_TITLE, POS_STYLE_ENV_TEXT, POS_STYLE_ENV_TEXT_SMALL };
     for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); i++) {
-        lv_style_set_text_color(&styles[labels[i]], label);
+        lv_style_set_text_color(&styles[labels[i]], neon_role(NEON_LABEL));
     }
-    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], quiet);
-    lv_style_set_text_color(&styles[POS_STYLE_ENV_TEXT_SECONDARY], quiet);
+    lv_style_set_image_recolor(&styles[POS_STYLE_ENV_GLYPH], neon_role(NEON_LABEL));
+    lv_style_set_text_color(&styles[POS_STYLE_CAPTION], neon_role(NEON_CAPTION));
+    lv_style_set_text_color(&styles[POS_STYLE_ENV_TEXT_SECONDARY], neon_role(NEON_CAPTION));
     s = &styles[POS_STYLE_SECTION_HEADING];
-    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
     lv_style_set_bg_opa(s, LV_OPA_COVER);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
     lv_style_set_radius(s, 2);
@@ -583,20 +643,20 @@ static void fill_neon_styles(void)
     /* Flat coloured band, not a blurred text shadow. */
     lv_style_set_shadow_width(s, 1);
     lv_style_set_shadow_spread(s, 2);
-    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY),
-                                                   pos_theme_rgb(POS_COLOR_BG), .65)));
+    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_SECONDARY),
+                                                   pos_theme_rgb(POS_COLOR_BG), .60)));
     lv_style_set_shadow_opa(s, LV_OPA_COVER);
     s = &styles[POS_STYLE_ENV_CAPTION];
-    lv_style_set_text_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_text_color(s, tok(POS_COLOR_ACCENT_SECONDARY));
     lv_style_set_text_font(s, role_font(POS_TYPE_ENV_CAPTION));
     lv_style_set_bg_opa(s, LV_OPA_TRANSP);
 
-    /* Selection is lime; actual keyboard focus stays a distinct light ring
-     * with a dark gap, independent of decorative cyan/magenta tube edges. */
+    /* Selection is yellow; actual keyboard focus stays a distinct light ring
+     * with a dark gap, independent of the decorative tube edges. */
     s = &styles[POS_STYLE_SELECTED];
     lv_style_set_outline_width(s, 3);
     lv_style_set_outline_pad(s, 2);
-    lv_style_set_outline_color(s, tok(POS_COLOR_STATUS_OK));
+    lv_style_set_outline_color(s, neon_role(NEON_SIGN));
     const enum pos_style_role focused[] = { POS_STYLE_FIELD_FOCUSED,
         POS_STYLE_SLAB_PRESSED, POS_STYLE_BUTTON_PRIMARY_PRESSED };
     for (size_t i = 0; i < sizeof(focused) / sizeof(focused[0]); i++) {
@@ -618,14 +678,18 @@ static void fill_neon_styles(void)
     lv_style_set_bg_opa(s, LV_OPA_COVER);
     lv_style_set_radius(s, 8);
     tube(s, POS_COLOR_ACCENT_SECONDARY);
+    /* The family styles (fill_family_styles) recolour fill and edges per
+     * app family; a tile with no family keeps this magenta. */
+    lv_style_set_outline_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_SECONDARY), 0xffffff, .55)));
+    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_ACCENT_SECONDARY),
+                                                   pos_theme_rgb(POS_COLOR_BG), .55)));
     s = &styles[POS_STYLE_ENV_TILE_SELECTED];
-    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_bg_color(s, neon_role(NEON_SIGN));
     lv_style_set_bg_opa(s, LV_OPA_COVER);
-    lv_style_set_outline_color(s, tok(POS_COLOR_STATUS_OK));
+    lv_style_set_outline_color(s, neon_role(NEON_SIGN));
     lv_style_set_outline_width(s, 3);
     lv_style_set_outline_pad(s, -3);
-    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(pos_theme_rgb(POS_COLOR_STATUS_OK),
-                                                   pos_theme_rgb(POS_COLOR_BG), .62)));
+    lv_style_set_shadow_color(s, lv_color_hex(pos_mix(neon_mode_rgb(NEON_SIGN), pos_theme_rgb(POS_COLOR_BG), .55)));
     s = &styles[POS_STYLE_ENV_TILE_FOCUS];
     lv_style_set_outline_width(s, 3);
     lv_style_set_outline_pad(s, -3);
@@ -1017,6 +1081,7 @@ static void fill_styles(void)
         fill_neon_styles();
     }
     fill_identity_styles();
+    fill_family_styles();
     fill_size_samples();
     fill_fixed_styles();
     fill_held_styles();
@@ -1052,6 +1117,9 @@ void pos_styles_init(void)
     }
     for (i = 0; i < POS_IDENTITY_COUNT; i++) {
         lv_style_init(&identity_styles[i]);
+    }
+    for (i = 0; i < POS_HUE_COUNT; i++) {
+        lv_style_init(&family_styles[i]);
     }
     for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
         lv_style_init(&size_samples[i]);

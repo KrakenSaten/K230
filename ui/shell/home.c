@@ -443,6 +443,7 @@ static void cell_create(lv_obj_t *parent, struct cell *c, const struct home_rect
     lv_obj_set_size(well, r->w - 16, 88);
     lv_obj_remove_flag(well, LV_OBJ_FLAG_CLICKABLE);
     pos_style_add(well, POS_STYLE_ENV_TILE, 0);
+    lv_obj_add_style(well, pos_style_env_tile_family(c->hue), 0);
     /* Separate selectors: either keyboard focus or a held touch selects it. */
     pos_style_add(well, POS_STYLE_ENV_TILE_SELECTED, LV_STATE_FOCUSED);
     pos_style_add(well, POS_STYLE_ENV_TILE_SELECTED, LV_STATE_PRESSED);
