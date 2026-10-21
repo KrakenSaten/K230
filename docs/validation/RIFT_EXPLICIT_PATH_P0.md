@@ -1,8 +1,9 @@
 # Explicit MeshCore path P0 — read-only backend checkpoint
 
 Date: 2026-10-18, updated 2026-10-21
-Status: **HOST-TESTED, K230 CROSS-BUILT, RUNS ON UNIT B (no-TX checks
-pass); NOT RF-VALIDATED.** Explicit
+Status: **HOST-TESTED, K230 CROSS-BUILT, RUNS ON UNIT B; ZERO-RELAY DIRECT
+TO A STOCK MESHCORE COMPANION PASSED ON AIR (2026-10-21); REPEATER
+FORWARDING NOT RF-VALIDATED.** Explicit
 DIRECT send is implemented (see the follow-up section). The original
 read-only checkpoint below is kept as written. Build evidence and the
 physical acceptance procedure are at the end of this file.
@@ -428,7 +429,7 @@ ACKs a DIRECT text with `sendAckTo`, by its learned path or by flood
 ASSUMED until observed. Unit B's path hash is 1 byte (VERIFIED
 2026-10-19), so a zero-relay path is the plain length byte 0.
 
-### Direct-delivery test (zero relays)
+### Direct-delivery test (zero relays): run 2026-10-21, see result below
 
 On the build host: `H=/tmp/doors-rf/pos-ipc-json`, `KM=<M5 full key>`,
 `TOKEN=rfp0-direct-<date>-<random>`, `ssh root@172.16.5.198 "$H ..."`.
@@ -491,6 +492,64 @@ What it does not prove: forwarding through any selected repeater; routes
 with relays or 2/3-byte hashes on the air; behaviour when a selected route
 cannot be used; interoperability with other companion firmware versions;
 or which path the ACK took.
+
+### Direct-delivery result (2026-10-21, owner-approved, one transmission)
+
+**PASS** for zero-relay explicit DIRECT from unit B to a stock MeshCore
+companion. All observations are VERIFIED on this run.
+
+Read-only state before the send (07:43 UTC):
+
+- Unit B rebooted on its own before this session: meshcored stopped
+  2026-10-20 13:37 UTC and started again about 06:33 UTC. The installed
+  binary is still `c0af8f32…`, and `mesh.info` reports build `14039ac`
+  with both capabilities `true`.
+- Radio profile: 869.618 MHz, 62.5 kHz, SF8, CR 4/5, sync word 18,
+  2 dBm. Path hash 1 byte.
+- Received from the M5's advert, the only node heard in this run:
+  `Mstr_m5`, type 1, key
+  `c00dadc0d5e87ed5bde67a8e150e54e92016a700a2223be8d41beff6fc0a0e7b`
+  (the owner confirmed it in the M5 app), 0 advert hops, RSSI -25 dBm,
+  SNR 11.5 dB, heard 07:33:15 UTC. The advert does not carry the M5's
+  firmware version or radio settings. `rx_events` was 3, so unit B's
+  receive path works in this run.
+- Unit B's route to the M5: `path_known: false`.
+- The reboot had removed the helper. With approval, `pos-ipc-json`
+  (`31e75db0…`, hash checked on the unit) was copied back to
+  `/tmp/doors-rf`. The `via: []` preview was valid, with 0 relays, an empty
+  path and `transmitted: false`. Counters and route did not change.
+
+The send (07:50:22 UTC): `mesh.send` to the M5 with `via: []` and the text
+`rfp0-direct-20261021-0f19a3`. Nothing else was sent: no resend and no
+advert.
+
+- **Recipient observation:** the owner saw the text exactly once in the M5
+  app, from Doors-aa90.
+- **Sender transmission evidence:**
+  - The reply was `accepted`, `route: explicit`, and the stored message
+    has `path_hops: 0`, `path_hex: ""`, `attempts: 1`.
+  - `tx_submitted` went from 3 to 4, `sent_direct` from 1 to 2 and
+    `sent_flood` stayed at 2.
+  - The receive log showed one 38-byte transmission and no `own: true`
+    copy.
+- **ACK state:**
+  - The message became `acked` 1.2 s after the send.
+  - The ACK arrived as a 0-hop flood at RSSI -27 dBm and SNR 12.25 dB.
+    That fits the M5 having no route back to unit B.
+  - The ACK frame used a 2-byte path hash size and was still matched.
+- **Learned route:** `path_known: false` before and after.
+
+What this run shows and what it does not is set out under "What a pass
+proves" above. It is one message at one placement.
+
+**Unexplained transmissions on unit B (separate from the result):**
+
+- At 07:44 all TX counters were 0.
+- By 07:50, before the test send, `tx_submitted` was 3: `sent_flood` 2,
+  `sent_direct` 1, and no message stored.
+- This session made only read calls and the preview in that time. The
+  cause is not identified. It is similar to the 2026-10-19 observation on
+  the old 0.3.6 daemon.
 
 ### Repeater test (pending: no suitable repeater confirmed)
 
