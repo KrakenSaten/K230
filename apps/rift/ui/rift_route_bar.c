@@ -7,6 +7,8 @@
 #include "rift_route_bar.h"
 
 #include "pos_styles.h"
+#include "rift_emoji.h"
+#include "rift_emoji_style.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,6 +86,7 @@ struct rift_route_bar *rift_route_bar_create(struct rift_app *app, lv_obj_t *par
     b->words = lv_label_create(b->row);
     lv_obj_remove_style_all(b->words);
     pos_style_add(b->words, POS_STYLE_CAPTION, 0);
+    rift_emoji_style_add(b->words, POS_STYLE_CAPTION); /* relay names may carry emoji */
     lv_label_set_long_mode(b->words, LV_LABEL_LONG_WRAP);
     if (stacked) {
         /* A line of its own, the buttons under it sharing theirs. */
@@ -197,7 +200,12 @@ void rift_route_bar_refresh(struct rift_route_bar *b, const char *peer)
     } else {
         snprintf(text, sizeof(text), "ROUTE AUTO" RIFT_SEP "FLOOD OR LEARNED DIRECT");
     }
-    rift_label_set(b->words, text);
+    {
+        char folded[sizeof(text)];
+
+        rift_emoji_fold(text, folded, sizeof(folded));
+        rift_label_set(b->words, folded);
+    }
     if (explicit_on != b->explicit_on) {
         if (explicit_on) {
             pos_style_add(b->words, POS_STYLE_ACCENT_TEXT, 0);

@@ -32,6 +32,7 @@
 #include "rift_device.h"
 #include "rift_emoji_pick.h"
 #include "rift_emoji_picker.h"
+#include "rift_emoji_style.h"
 #include "rift_find.h"
 #include "rift_graph.h"
 #include "rift_manage.h"
@@ -6022,6 +6023,7 @@ static void reliability_session(void)
 #define RT_SKOG "e7aa000000000000000000000000000000000000000000000000000000000007"
 #define RT_ANNA "f1000000000000000000000000000000000000000000000000000000000000f1"
 #define RT_DD "dd00000000000000000000000000000000000000000000000000000000000000"
+#define RT_APE "a7a7000000000000000000000000000000000000000000000000000000000000"
 
 static const char RT_NODES[] =
     "[{\"public_key\":\"" RT_TO "\",\"node_hash\":\"b2\",\"name\":\"HYTTA\",\"type\":1,"
@@ -6035,7 +6037,9 @@ static const char RT_NODES[] =
     "{\"public_key\":\"" RT_ANNA "\",\"node_hash\":\"f1\",\"name\":\"ANNA\",\"type\":1,"
     "\"lat\":59.9520,\"lon\":10.6900,\"last_heard_mono_ms\":-300000},"
     "{\"public_key\":\"" RT_DD "\",\"node_hash\":\"dd\",\"name\":\"RPT-DD\",\"type\":2,"
-    "\"lat\":59.9750,\"lon\":10.8200,\"last_heard_mono_ms\":-360000}]";
+    "\"lat\":59.9750,\"lon\":10.8200,\"last_heard_mono_ms\":-360000},"
+    "{\"public_key\":\"" RT_APE "\",\"node_hash\":\"a7\",\"name\":\"RPT-APE \xF0\x9F\x90\xB5\",\"type\":2,"
+    "\"lat\":59.9000,\"lon\":10.6500,\"last_heard_mono_ms\":-420000}]";
 
 static char rt_sends[512];
 static char rt_previews[512];
@@ -6167,6 +6171,41 @@ static void use_external(int32_t w, int32_t h)
         lv_obj_set_height(app_header, header_h_for(g.width > g.height));
     }
     pump(80);
+}
+
+/* Visible labels under obj showing text that are not set in a colour-emoji
+ * font (rift_emoji_style.h): such a label draws an emoji as a box. */
+static int emoji_labels_bad(lv_obj_t *obj, const char *text)
+{
+    static const enum pos_style_role roles[] = { POS_STYLE_CAPTION, POS_STYLE_ROW_TITLE };
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || !visible(obj)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), text)) {
+        const lv_font_t *font = lv_obj_get_style_text_font(obj, LV_PART_MAIN);
+        int ok = 0;
+
+        for (i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
+            lv_style_value_t v;
+
+            if (lv_style_get_prop(rift_emoji_style(roles[i]), LV_STYLE_TEXT_FONT, &v) ==
+                    LV_STYLE_RES_FOUND &&
+                v.ptr == font) {
+                ok = 1;
+            }
+        }
+        if (!ok) {
+            printf("     \"%s\" is not in a colour-emoji font\n", lv_label_get_text(obj));
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += emoji_labels_bad(lv_obj_get_child(obj, (int32_t)i), text);
+    }
+    return n;
 }
 
 /* The builder open for HYTTA with a route of three - two placed, one not. */
@@ -6475,7 +6514,49 @@ static void route_builder_session(void)
             check(what, inside_body(rift_route_view_panel(rv)));
             snprintf(what, sizeof(what), "route-%s-%s", shape, size);
             shot(what);
+            if (sizes[s] == POS_TEXT_SIZE_LARGE) {
+                /* Found on unit B in landscape at Large: the list below the
+                 * fold, and the key cursor not brought into view. By keys,
+                 * as a keyboard-base reader would. */
+                lv_obj_t *row;
+
+                key(LV_KEY_RIGHT);
+                key(LV_KEY_DOWN);
+                pump(200);
+                row = route_row("RPT-DD");
+                snprintf(what, sizeof(what),
+                         "route: %s, %s: RELAYS by key, the cursor's row is in the panel's view",
+                         size, shape);
+                check(what, row && lv_obj_has_state(row, LV_STATE_CHECKED) &&
+                                within(row, lv_obj_get_parent(lv_obj_get_parent(row))));
+                snprintf(what, sizeof(what), "route-%s-%s-relays-key", shape, size);
+                shot(what);
+                key(LV_KEY_LEFT);
+                pump(200);
+                snprintf(what, sizeof(what), "route: %s, %s: back to the route list, its first row in view",
+                         size, shape);
+                row = route_row("RPT-NORD");
+                check(what, row && within(row, lv_obj_get_parent(lv_obj_get_parent(row))));
+            }
             if (sizes[s] == POS_TEXT_SIZE_MEDIUM) {
+                /* A name with an emoji (found on unit B: a box in the chain):
+                 * drawn folded for the colour-emoji font, never as the raw
+                 * code point the caption font has no glyph for. */
+                rift_route_add(r, &app->model, RT_APE);
+                rift_app_refresh(app);
+                live_until(route_checked, 8000);
+                pump(300);
+                snprintf(what, sizeof(what),
+                         "route: %s: an emoji in a relay's name is folded in the chain and the list",
+                         shape);
+                check(what, find_text(content(), "RPT-APE") != NULL &&
+                                emoji_labels_bad(content(), "\xF0\x9F\x90\xB5") == 0);
+                snprintf(what, sizeof(what), "route-%s-emoji-name", shape);
+                shot(what);
+                rift_route_undo(r);
+                rift_app_refresh(app);
+                live_until(route_checked, 8000);
+                pump(200);
                 tap(word_button("USE ROUTE"));
                 pump(300);
                 if (app->wide) {

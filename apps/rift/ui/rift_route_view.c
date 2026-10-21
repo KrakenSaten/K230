@@ -8,6 +8,8 @@
 #include "rift_route_view.h"
 
 #include "pos_styles.h"
+#include "rift_emoji.h"
+#include "rift_emoji_style.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,6 +102,17 @@ static lv_obj_t *wrapping(lv_obj_t *parent, enum pos_style_role role)
     return l;
 }
 
+/* Words that carry node names, drawn as RIFT draws a message: emoji folded
+ * for the colour-emoji font the label has (rift_emoji.h). A name with an
+ * emoji drew a box here before (found on unit B). */
+static void set_folded(lv_obj_t *label, const char *text)
+{
+    char folded[RIFT_CHAIN_MAX + 128];
+
+    rift_emoji_fold(text, folded, sizeof(folded));
+    rift_label_set(label, folded);
+}
+
 static lv_obj_t *bar(lv_obj_t *parent)
 {
     lv_obj_t *b = lv_obj_create(parent);
@@ -174,13 +187,26 @@ static void on_clear(lv_event_t *e)
     edited(v);
 }
 
+/* The other list, from its top, brought into view: at a large text size in
+ * landscape the words above it fill the panel body (found on unit B). */
+static void switch_list(struct rift_route_view *v, int picking)
+{
+    lv_obj_t *first;
+
+    v->picking = picking;
+    edited(v);
+    first = v->rows_built > 0 && !lv_obj_has_flag(v->row[0], LV_OBJ_FLAG_HIDDEN) ? v->row[0]
+                                                                              : v->list_note;
+    lv_obj_scroll_to_y(v->body, 0, LV_ANIM_OFF);
+    lv_obj_update_layout(v->body);
+    lv_obj_scroll_to_view_recursive(first, LV_ANIM_OFF);
+}
+
 static void on_picker(lv_event_t *e)
 {
     struct rift_route_view *v = lv_event_get_user_data(e);
 
-    v->picking = !v->picking;
-    lv_obj_scroll_to_y(v->body, 0, LV_ANIM_OFF); /* the other list, from its top */
-    edited(v);
+    switch_list(v, !v->picking);
 }
 
 static void on_cut(lv_event_t *e)
@@ -290,9 +316,8 @@ int rift_route_view_key(struct rift_app *app, uint32_t key)
         break;
     case LV_KEY_LEFT:
     case LV_KEY_RIGHT:
-        v->picking = key == LV_KEY_RIGHT;
-        v->cursor = -1;
-        break;
+        switch_list(v, key == LV_KEY_RIGHT);
+        return 1;
     case LV_KEY_UP:
     case LV_KEY_DOWN: {
         int n = v->picking ? v->pick_count : r->draft.count;
@@ -309,7 +334,9 @@ int rift_route_view_key(struct rift_app *app, uint32_t key)
         }
         rift_app_refresh(app);
         if (at < v->rows_built) {
-            lv_obj_scroll_to_view(v->row[at], LV_ANIM_OFF); /* the row the key is on, in view */
+            /* The row the key is on, in view: the list does not scroll, the
+             * panel body around it does (found on unit B, landscape Large). */
+            lv_obj_scroll_to_view_recursive(v->row[at], LV_ANIM_OFF);
         }
         return 1;
     }
@@ -367,10 +394,14 @@ static void build(struct rift_route_view *v)
     /* What matters first: who, how, the route in words, what the service
      * said, the route as a list; then the recipient's key and the caveat. */
     v->title = wrapping(v->body, POS_STYLE_ROW_TITLE);
+    rift_emoji_style_add(v->title, POS_STYLE_ROW_TITLE); /* names may carry emoji */
     v->mode = wrapping(v->body, POS_STYLE_CAPTION);
+    rift_emoji_style_add(v->mode, POS_STYLE_CAPTION);
     pos_style_add(v->mode, POS_STYLE_ACCENT_TEXT, 0);
     v->chain = wrapping(v->body, POS_STYLE_CAPTION);
+    rift_emoji_style_add(v->chain, POS_STYLE_CAPTION);
     v->status = wrapping(v->body, POS_STYLE_CAPTION);
+    rift_emoji_style_add(v->status, POS_STYLE_CAPTION);
 
     v->list = lv_obj_create(v->body);
     lv_obj_remove_style_all(v->list);
@@ -470,6 +501,7 @@ static void ensure_rows(struct rift_route_view *v, int n)
         lv_obj_set_width(v->row_num[i], LV_SIZE_CONTENT);
         pos_style_add(v->row_num[i], POS_STYLE_ACCENT_TEXT, 0);
         v->row_name[i] = rift_cell(b, POS_STYLE_ROW_TITLE, 1, LV_TEXT_ALIGN_LEFT);
+        rift_emoji_style_add(v->row_name[i], POS_STYLE_ROW_TITLE);
         lv_obj_set_flex_grow(v->row_name[i], 1);
         v->row_badge[i] = rift_cell(b, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_RIGHT);
         lv_obj_set_width(v->row_badge[i], LV_SIZE_CONTENT);
@@ -483,7 +515,12 @@ static void paint_row(struct rift_route_view *v, int i, const char *num, const c
 {
     rift_label_set(v->row_num[i], num);
     rift_label_set(v->row_badge[i], badge);
-    rift_cell_set_text_fit(v->row_name[i], name);
+    {
+        char folded[RIFT_LABEL_MAX * 2];
+
+        rift_emoji_fold(name, folded, sizeof(folded));
+        rift_cell_set_text_fit(v->row_name[i], folded);
+    }
     if (selected != lv_obj_has_state(v->row[i], LV_STATE_CHECKED)) {
         if (selected) {
             lv_obj_add_state(v->row[i], LV_STATE_CHECKED);
@@ -623,7 +660,7 @@ static void paint_status(struct rift_route_view *v)
         snprintf(text, sizeof(text), "Checking the route with meshcored\xE2\x80\xA6");
         warn = 0;
     }
-    rift_label_set(v->status, text);
+    set_folded(v->status, text);
     set_warn(v, warn);
 }
 
@@ -671,7 +708,7 @@ unsigned rift_route_view_refresh(struct rift_route_view *v)
         snprintf(label, sizeof(label), "%.8s?", d->to);
     }
     snprintf(text, sizeof(text), "TO %s", label);
-    rift_label_set(v->title, text);
+    set_folded(v->title, text);
     snprintf(text, sizeof(text),
              "RECIPIENT, FIXED BY THE CONVERSATION" RIFT_SEP "%.12s\xE2\x80\xA6" RIFT_SEP "%s", d->to,
              !to ? "NOT IN THE NODE LIST" : to->have_location ? "ON MAP" : "NO LOCATION");
@@ -683,9 +720,9 @@ unsigned rift_route_view_refresh(struct rift_route_view *v)
         snprintf(text, sizeof(text), "EXPLICIT DIRECT" RIFT_SEP "%s",
                  rift_route_relays_word(d->count, count, sizeof(count)));
     }
-    rift_label_set(v->mode, text);
+    set_folded(v->mode, text);
     rift_route_chain(m, d->to, (const char(*)[RIFT_ROUTE_KEY])d->via, d->count, text, sizeof(text));
-    rift_label_set(v->chain, text);
+    set_folded(v->chain, text);
     paint_status(v);
     paint_list(v);
 
