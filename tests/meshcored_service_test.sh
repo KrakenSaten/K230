@@ -545,6 +545,31 @@ m.drain(0.3)
 ok("a repeated advert does not raise a second node event",
    len([e for e in m.events if e.get("event") == "mesh.node"]) == events_before)
 
+# Preview is a planning read, including an explicit zero-relay route. Its
+# JSON validation must not allocate a message or queue a radio operation.
+capabilities = m.result("mesh.info").get("capabilities", {})
+ok("the service advertises explicit-route capabilities",
+   capabilities.get("manual_path_preview") is True and
+   capabilities.get("explicit_direct_send") is True, capabilities)
+preview_messages = m.result("mesh.messages")["messages"]
+preview_tx = m.result("mesh.status")["counters"]["tx_submitted"]
+preview = m.result("mesh.path_preview", {"to": peer_key, "via": []})
+ok("an explicit zero-relay preview carries no connectivity claim",
+   preview.get("valid") is True and preview.get("route") == "explicit" and
+   preview.get("relays") == 0 and preview.get("hash_bytes") == 1 and
+   preview.get("path_bytes") == 0 and preview.get("path_hex") == "" and
+   preview.get("transmitted") is False and
+   preview.get("link_evidence_verified") is False, preview)
+for params in [{"to": peer_key[:8], "via": []},
+               {"to": peer_key, "via": None},
+               {"to": peer_key, "via": ["zz" * 32]},
+               {"to": peer_key, "via": [peer_key]}]:
+    error = m.error("mesh.path_preview", params)
+    ok("an invalid path preview is refused", error is not None and error["code"] == 2, error)
+ok("preview changes neither messages nor transmissions",
+   m.result("mesh.messages")["messages"] == preview_messages and
+   m.result("mesh.status")["counters"]["tx_submitted"] == preview_tx)
+
 # Transmit. This is the whole asynchronous path: mesh.advert -> the protocol
 # core -> radio.send_async -> tx_id -> radio.tx_done -> the outcome.
 #
@@ -618,6 +643,7 @@ ok("a message to a known node is accepted", res["accepted"] is True)
 ok("its route is flood, no path being known", res["route"] == "flood", res)
 ok("it has an ACK deadline", res["ack_timeout_ms"] > 0)
 msg_id = res["message_id"]
+ack_timeout_ms = res["ack_timeout_ms"]
 msgs = m.result("mesh.messages")
 ok("it is in the message list", any(x["id"] == msg_id for x in msgs["messages"]))
 ok("the list says plainly that it is not persistent", msgs["persistent"] is False)
@@ -644,6 +670,49 @@ ok("nor one that names no message", e["code"] == 2, e)
 msgs = m.result("mesh.messages")
 ok("and none of them added a message",
    sum(1 for x in msgs["messages"] if x["text"] == "hello over the mock air") == 1)
+
+# The ordinary message must be eligible for retry before checking resend
+# with via. Checking only while it awaits an ACK would hide the old bug:
+# resend ignored via and followed the learned/flood route without validation.
+deadline = time.monotonic() + min(ack_timeout_ms / 1000.0 + 2, 30)
+while time.monotonic() < deadline:
+    one = next(x for x in m.result("mesh.messages")["messages"] if x["id"] == msg_id)
+    if one["state"] == "no_ack":
+        break
+    time.sleep(0.05)
+ok("the ordinary message is eligible for a resend", one["state"] == "no_ack", one)
+attempts_before = one["attempts"]
+submitted_before = m.result("mesh.status")["counters"]["tx_submitted"]
+tx_before = r.result("radio.stats")["tx_packets"]
+for label, via in [("an array", [peer_key]), ("zero relays", []),
+                   ("null", None), ("a malformed value", "auto")]:
+    reply = m.call("mesh.send", {"resend": msg_id, "via": via})
+    error = reply.get("error", {})
+    ok("resend with via as " + label + " is refused before routing",
+       error.get("code") == 2 and
+       error.get("message") == "resend takes a message id and nothing else", reply)
+one = next(x for x in m.result("mesh.messages")["messages"] if x["id"] == msg_id)
+ok("rejected resend routes preserve the message and its attempt",
+   one["state"] == "no_ack" and one["attempts"] == attempts_before, one)
+m.drain(0.2)
+ok("rejected resend routes queue no transmission",
+   m.result("mesh.status")["counters"]["tx_submitted"] == submitted_before and
+   r.result("radio.stats")["tx_packets"] == tx_before)
+res = m.result("mesh.send", {"resend": msg_id})
+ok("the same ordinary message can still be resent without via",
+   res.get("resent") is True and res["message_id"] == msg_id and
+   res["route"] == "flood", res)
+one = next(x for x in m.result("mesh.messages")["messages"] if x["id"] == msg_id)
+ok("the permitted resend increments only its own attempt",
+   one["attempts"] == attempts_before + 1, one)
+# Settle that permitted resend before the next section counts adverts.
+went = False
+for _ in range(100):
+    if r.result("radio.stats")["tx_packets"] == tx_before + 1:
+        went = True
+        break
+    time.sleep(0.05)
+ok("the permitted resend reaches the mock radio exactly once", went)
 
 # A zero-hop advert: the same signed advert, heard in direct range and
 # repeated by nobody. Asked for with a boolean and nothing else.

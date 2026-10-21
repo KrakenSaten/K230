@@ -184,6 +184,13 @@ static cJSON *message_json(const struct mcd_message *m)
         add_remote_text(o, "peer_name", m->peer_name);
     }
     add_remote_text(o, "text", m->text);
+    if (m->explicit_path) {
+        char hex[MCD_MAX_PATH * 2 + 1];
+        cJSON_AddStringToObject(o, "route", "explicit");
+        if (mcd_hex_encode(m->explicit_path_data, m->explicit_path_bytes, hex, sizeof(hex)))
+            cJSON_AddStringToObject(o, "path_hex", hex);
+        cJSON_AddNumberToObject(o, "path_hops", m->explicit_path_len & 63);
+    }
     cJSON_AddNumberToObject(o, "timestamp", (double)m->timestamp);
     cJSON_AddNumberToObject(o, "mono_ms", (double)m->mono_ms);
     cJSON_AddStringToObject(o, "state", mcd_msg_state_name(m->state));
@@ -518,6 +525,13 @@ static cJSON *m_info(struct mcd *d)
     cJSON_AddItemToObject(o, "source", proto);
     cJSON_AddStringToObject(o, "radiod_socket", d->cfg.radiod_socket);
     cJSON_AddItemToObject(o, "requested_profile", profile_json(&d->cfg.profile));
+    {
+        cJSON *cap = cJSON_CreateObject();
+
+        cJSON_AddBoolToObject(cap, "manual_path_preview", true);
+        cJSON_AddBoolToObject(cap, "explicit_direct_send", true);
+        cJSON_AddItemToObject(o, "capabilities", cap);
+    }
     return o;
 }
 
@@ -1070,6 +1084,77 @@ static cJSON *m_messages(struct mcd *d, const cJSON *params)
     return o;
 }
 
+
+/* A non-transmitting path planner. Every relay is a full public key. The
+ * result is a candidate only: mesh.send revalidates the full keys at send
+ * time and never falls back to AUTO when an explicit route is refused. */
+static cJSON *m_path_preview(struct mcd *d, const cJSON *params, int *code,
+                            char *err, size_t errlen)
+{
+    const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
+    const cJSON *jvia = cJSON_GetObjectItemCaseSensitive(params, "via");
+    uint8_t to[MCD_PUB_KEY_LEN];
+    uint8_t relays[MCD_MAX_PATH][MCD_PUB_KEY_LEN];
+    struct mcd_path_preview preview;
+    enum mcd_path_result rc;
+    int count;
+    int i;
+    char path_hex[MCD_MAX_PATH * 2 + 1];
+    cJSON *o;
+
+    if (!cJSON_IsString(jto) || jto->valuestring == NULL ||
+        strlen(jto->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+        mcd_key_prefix_parse(jto->valuestring, to, sizeof(to)) != MCD_PUB_KEY_LEN) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "to must be a whole public key (64 hex characters)");
+        return NULL;
+    }
+    if (!cJSON_IsArray(jvia)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "via must be an array of full repeater public keys");
+        return NULL;
+    }
+    count = cJSON_GetArraySize(jvia);
+    if (count < 0 || count > MCD_MAX_PATH) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "too many repeaters in the explicit path");
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        const cJSON *jkey = cJSON_GetArrayItem(jvia, i);
+
+        if (!cJSON_IsString(jkey) || jkey->valuestring == NULL ||
+            strlen(jkey->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+            mcd_key_prefix_parse(jkey->valuestring, relays[i], MCD_PUB_KEY_LEN) !=
+                MCD_PUB_KEY_LEN) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "via[%d] must be a full public key (64 hex characters)", i);
+            return NULL;
+        }
+    }
+    rc = mcd_runtime_preview_path(d->rt, to, &relays[0][0], (size_t)count, &preview);
+    if (rc != MCD_PATH_OK) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "manual path rejected: %s", mcd_path_result_name(rc));
+        return NULL;
+    }
+    if (!mcd_hex_encode(preview.path, preview.path_bytes, path_hex, sizeof(path_hex))) {
+        *code = POCKETIPC_ERR_BACKEND;
+        snprintf(err, errlen, "cannot format the validated route");
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "valid", true);
+    cJSON_AddStringToObject(o, "route", "explicit");
+    cJSON_AddNumberToObject(o, "relays", preview.relays);
+    cJSON_AddNumberToObject(o, "hash_bytes", preview.hash_bytes);
+    cJSON_AddNumberToObject(o, "path_bytes", preview.path_bytes);
+    cJSON_AddStringToObject(o, "path_hex", path_hex);
+    cJSON_AddBoolToObject(o, "transmitted", false);
+    cJSON_AddBoolToObject(o, "link_evidence_verified", false);
+    return o;
+}
+
 /* mesh.send: to a node, or to a channel.
  *
  * Exactly one of `to` and `channel` is given, and giving both is a refusal
@@ -1088,17 +1173,22 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
     const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
     const cJSON *jchan = cJSON_GetObjectItemCaseSensitive(params, "channel");
     const cJSON *jresend = cJSON_GetObjectItemCaseSensitive(params, "resend");
+    const cJSON *jvia = cJSON_GetObjectItemCaseSensitive(params, "via");
     uint64_t msg_id = 0;
     uint32_t est = 0;
     enum mcd_send_result rc;
     int slot = -1;
     int n = 0;
+    uint8_t relays[MCD_MAX_PATH][MCD_PUB_KEY_LEN];
+    int relay_count = 0;
+    enum mcd_path_result path_error = MCD_PATH_OK;
 
-    /* A resend names the message and nothing else: its peer and its text are
-     * the message's own, and a caller that also gave either would be asking
-     * for two different things at once. */
+
+    /* A resend names the message and nothing else. In particular, accepting
+     * via here would silently ignore a requested route: the resend path
+     * below uses the original message's ordinary routing policy. */
     if (jresend != NULL) {
-        if (jto != NULL || jchan != NULL || jtext != NULL) {
+        if (jto != NULL || jchan != NULL || jtext != NULL || jvia != NULL) {
             *code = POCKETIPC_ERR_INVALID_PARAMS;
             snprintf(err, errlen, "resend takes a message id and nothing else");
             return NULL;
@@ -1125,6 +1215,11 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
             return NULL;
         }
         goto answered;
+    }
+    if (jvia != NULL && (jto == NULL || jchan != NULL)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "via requires a direct-message destination");
+        return NULL;
     }
     if (jto != NULL && jchan != NULL) {
         *code = POCKETIPC_ERR_INVALID_PARAMS;
@@ -1161,7 +1256,33 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
         return NULL;
     }
 
-    if (slot >= 0) {
+    if (jvia != NULL) {
+        if (!cJSON_IsArray(jvia) || n != MCD_PUB_KEY_LEN) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "via must be an array and to a full public key");
+            return NULL;
+        }
+        relay_count = cJSON_GetArraySize(jvia);
+        if (relay_count < 0 || relay_count > MCD_MAX_PATH) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "too many relays");
+            return NULL;
+        }
+        for (int i = 0; i < relay_count; i++) {
+            const cJSON *v = cJSON_GetArrayItem(jvia, i);
+            if (!cJSON_IsString(v) || !v->valuestring ||
+                strlen(v->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+                mcd_key_prefix_parse(v->valuestring, relays[i], MCD_PUB_KEY_LEN) !=
+                    MCD_PUB_KEY_LEN) {
+                *code = POCKETIPC_ERR_INVALID_PARAMS;
+                snprintf(err, errlen, "via[%d] must be a whole repeater public key", i);
+                return NULL;
+            }
+        }
+        rc = mcd_runtime_send_explicit_text(d->rt, prefix, &relays[0][0],
+                                            (size_t)relay_count, jtext->valuestring,
+                                            &msg_id, &est, &path_error);
+    } else if (slot >= 0) {
         rc = mcd_runtime_send_channel_text(d->rt, slot, jtext->valuestring, &msg_id);
     } else {
         rc = mcd_runtime_send_text(d->rt, prefix, (size_t)n, jtext->valuestring, &msg_id, &est);
@@ -1169,12 +1290,14 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
 answered:
     switch (rc) {
     case MCD_SEND_ACCEPTED_FLOOD:
-    case MCD_SEND_ACCEPTED_DIRECT: {
+    case MCD_SEND_ACCEPTED_DIRECT:
+    case MCD_SEND_ACCEPTED_EXPLICIT: {
         cJSON *o = cJSON_CreateObject();
 
         cJSON_AddBoolToObject(o, "accepted", true);
         cJSON_AddNumberToObject(o, "message_id", (double)msg_id);
         cJSON_AddStringToObject(o, "route",
+                                rc == MCD_SEND_ACCEPTED_EXPLICIT ? "explicit" :
                                 rc == MCD_SEND_ACCEPTED_DIRECT ? "direct" : "flood");
         if (slot >= 0) {
             cJSON_AddNumberToObject(o, "channel", (double)slot);
@@ -1197,6 +1320,14 @@ answered:
          * mesh.activity event and in the message's own state. */
         return o;
     }
+    case MCD_SEND_INVALID_PATH:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "manual path rejected: %s", mcd_path_result_name(path_error));
+        return NULL;
+    case MCD_SEND_EXPLICIT_RESEND_DISABLED:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "explicit path RESEND disabled; choose a new route");
+        return NULL;
     case MCD_SEND_NO_RADIO:
         *code = POCKETIPC_ERR_BUSY;
         snprintf(err, errlen, "the radio is not available (service state %s)",
@@ -1467,6 +1598,8 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = m_channel_add(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.channel_remove") == 0) {
         result = m_channel_remove(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.path_preview") == 0) {
+        result = m_path_preview(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.messages") == 0) {
         result = m_messages(d, params);
     } else if (strcmp(name, "mesh.send") == 0) {

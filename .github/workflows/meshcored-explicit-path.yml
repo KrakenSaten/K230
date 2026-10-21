@@ -1,0 +1,39 @@
+# Host-only regression gate for the explicit path work.
+# This does not touch K230 devices, radios or the Buildroot SDK.
+name: meshcored explicit-path host tests
+on:
+  push:
+    branches:
+      - feat/meshcored-explicit-path-p0
+  workflow_dispatch:
+jobs:
+  host-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout DOORS
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git ca-certificates libcjson-dev jq python3
+      - name: Checkout pinned MeshCore and Crypto sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vendor
+          git clone https://github.com/KrakenSaten/RIFT.git vendor/RIFT
+          git -C vendor/RIFT checkout "$(tr -d ' \t\r\n' < protocols/meshcore/vendor_rift_commit.txt)"
+          git clone https://github.com/rweather/arduinolibs.git vendor/Crypto
+          git -C vendor/Crypto checkout "$(tr -d ' \t\r\n' < protocols/meshcore/vendor_crypto_commit.txt)"
+          git -C vendor/RIFT status --short
+          git -C vendor/Crypto status --short
+      - name: Build MeshCore frame tool
+        run: make -j2 meshcore-frame
+      - name: Build mock-capable radiod for service integration tests
+        run: make -j2 services/radiod/radiod
+      - name: Build and exercise meshcored host tests
+        run: make -j2 meshcored-test
