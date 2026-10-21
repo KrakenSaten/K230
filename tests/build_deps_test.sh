@@ -49,13 +49,21 @@ check "an object without the identity is left alone" \
     $(printf '%s' "$out" | grep -q 'core/pocketpaths.c' && echo 0 || echo 1)
 
 # Every source that names the macros has to be in POCKETOS_ID_OBJS, or the
-# next one added silently goes stale the way pocketlog.o did.
+# next one added silently goes stale the way pocketlog.o did. Only sources
+# make builds at all (by `make all test`) are its concern: the shell and its
+# tests are built by ui/shell (CMake), which takes the identity at configure.
 sleep 1
 echo "revision-C" > BUILD_ID
-out=$(make -n CC="$CC" all tests/pocketlog_test 2>&1)
+targets="all $(make -s CC="$CC" print-build-outputs 2>/dev/null | grep -v '^\.build-identity$')"
+out=$(make -n CC="$CC" $targets 2>&1)
+every=$(make -n -B CC="$CC" $targets 2>&1)
 missing=""
 for src in $(grep -rl 'POCKETOS_BUILD_ID\|POCKETOS_VERSION' --include='*.c' \
              apps core services tools tests 2>/dev/null); do
+    if ! printf '%s' "$every" | grep -q -- "$src"; then
+        echo "     (not built by make: $src)"
+        continue
+    fi
     printf '%s' "$out" | grep -q -- "$src" || missing="$missing $src"
 done
 check "every source that embeds the identity is rebuilt with it" \
