@@ -552,7 +552,11 @@ capabilities; `rift_ipc_path.c` asks; `ui/rift_route_bar.c`,
   and send again.
 
 What it does not do: discover or rank routes, measure links, persist a
-route across RIFT closing, route a channel, or redesign MAP. Physical
+route across RIFT closing, route a channel, or redesign MAP. Two parts of
+the PR #99 proposal are not built: its topology view (every node on a
+diagram, `TOPOLOGY - POSITIONS NOT GEOGRAPHIC`; a repeater with no location
+is reached through RELAYS instead) and replacing a waypoint in place (cut
+and add again). Physical
 forwarding through repeaters on a route chosen here is not yet seen on the
 air (see "What needs hardware").
 

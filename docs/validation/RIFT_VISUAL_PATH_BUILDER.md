@@ -11,8 +11,10 @@ their re-check on unit B was stopped before completion: NOT VERIFIED on
 the device. NO RADIO WAS USED. PR #100's physical repeater gate and the
 UI-to-M5 send remain PENDING.**
 
-Design reference: the Visual Path Builder proposal (PR #99,
-`docs/apps/rift/VISUAL_PATH_BUILDER.md` on that branch). Service contract:
+Design reference: the Visual Path Builder proposal (PR #99, closed as
+superseded by this PR; `docs/apps/rift/VISUAL_PATH_BUILDER.md` and the
+prototype `docs/design/rift/visual-path-builder.html` at `341ca48` on
+`feat/rift-visual-path-builder-proposal`, kept). Service contract:
 `docs/api/mesh.md` as changed by PR #100 (`mesh.info` `capabilities`,
 `mesh.path_preview`, `mesh.send` `via`). User-facing description:
 [docs/apps/RIFT.md, "Chosen route"](../apps/RIFT.md#chosen-route-the-route-builder).
@@ -128,6 +130,18 @@ names, keys and coordinates are synthetic fixtures.
 `route-portrait-send-refused`, `route-portrait-disconnected`,
 `route-portrait-unsupported`, `route-{portrait,landscape}-{small,medium,large}`,
 `route-{portrait,landscape}-comms-staged`, `route-hdmi-1280x720`.
+
+### Proposal requirements this record does not cover
+
+PR #99 asked for these; nothing above shows them either way:
+
+- The draft kept when the layout is rebuilt while the builder is open
+  (the unit turned, the text size changed mid-edit). Each size and shape
+  was checked on its own, not a change during an edit.
+- The composer getting its keyboard focus back on return from the builder;
+  only its text is checked.
+- Its physical gate asked for two repeaters; the gate below asks for one
+  (and the UI's own zero-relay send).
 
 ## K230 cross-build (2026-10-21)
 
