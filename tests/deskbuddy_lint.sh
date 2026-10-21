@@ -105,9 +105,13 @@ check "DeskBuddy picks it unless simulated or \$DESKBUDDY_VISION is none" \
     "$(awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
 check "stop() is called in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'provider.ops->stop' && echo 1 || echo 0)"
-# Companion plays by touch: the camera is started only for Guard and Night,
-# in one place, and stopped again on the way back to Companion.
-SYNC=$(awk '/^static void sync_provider\(struct deskbuddy_app \*a, int64_t now\)$/,/^}/' $APP/deskbuddy_app.c | strip_prose)
+# The camera is started for Guard and Night, and for Companion only with
+# Camera presence on (camera_wanted), in one place, and stopped again on the
+# way back to a Companion without it.
+SYNC=$( (awk '/^static bool camera_wanted\(/,/^}/' $APP/deskbuddy_app.c
+         awk '/^static void sync_provider\(struct deskbuddy_app \*a, int64_t now\)$/,/^}/' $APP/deskbuddy_app.c) | strip_prose)
+check "camera_wanted names Companion's switch" \
+    "$(printf '%s\n' "$SYNC" | grep -q 'DB_PREF_CAMERA_PRESENCE' && echo 1 || echo 0)"
 check "the provider is started and stopped only by the mode (sync_provider)" \
     "$(printf '%s\n' "$SYNC" | grep -q 'DB_MODE_COMPANION' && printf '%s\n' "$SYNC" | grep -q 'ops->start' &&
        printf '%s\n' "$SYNC" | grep -q 'ops->stop' &&

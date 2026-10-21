@@ -11,9 +11,12 @@
 
 #define LINE_MAX_LEN 128
 
-static const char *const keys[DB_PREF_TOGGLE_COUNT] = { "companion", "guard", "night", "owner_recognition",
-                                                        "greeting", "idle_animation" };
-static const char *const labels[DB_PREF_TOGGLE_COUNT] = { "Companion mode", "Desk guard", "Night mode",
+static const char *const keys[DB_PREF_TOGGLE_COUNT] = { "companion", "camera_presence", "guard", "night",
+                                                        "owner_recognition", "greeting", "idle_animation" };
+/* Camera presence is Companion's alone: Guard and Night are built on the
+ * camera and run it whatever this says, so the label names its mode. */
+static const char *const labels[DB_PREF_TOGGLE_COUNT] = { "Companion mode", "Camera presence \xC2\xB7 Buddy",
+                                                          "Desk guard",     "Night mode",
                                                           "Owner recognition", "Greeting", "Idle animation" };
 static const char *const modes[DB_MODE_COUNT] = { "companion", "guard", "night" };
 

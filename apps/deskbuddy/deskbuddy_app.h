@@ -47,8 +47,11 @@ lv_obj_t *deskbuddy_app_character(void *priv);
  * times one was started: touch and play must never start one. */
 const char *deskbuddy_app_provider(void *priv);
 unsigned deskbuddy_app_provider_starts(void *priv);
-/* The provider is started now (only Guard and Night start the camera). */
+/* The provider is started now (Guard and Night start the camera; Companion
+ * only with Camera presence on). */
 bool deskbuddy_app_provider_running(void *priv);
 lv_obj_t *deskbuddy_app_note(void *priv);
+/* The hold the Vision pipeline is given (its cfg), in degrees. */
+int deskbuddy_app_camera_hold(void *priv);
 
 #endif

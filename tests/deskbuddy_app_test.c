@@ -76,6 +76,20 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(v
 void pocketos_shell_keyboard_hide(void) { keyboard_requests++; }
 int pocketos_shell_keyboard_visible(void) { return 0; }
 
+/* The hold: the panel's rotation, as on the device; or, set >= 0, an
+ * external display's (the unit held one way while the monitor stays put). */
+static int external_hold = -1;
+
+void pocketos_shell_orientation(struct pocketos_orientation *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->landscape = pocketui_display_geometry()->width > pocketui_display_geometry()->height;
+    out->next_landscape = out->landscape;
+    out->external = external_hold >= 0;
+    out->hold_rotation = external_hold >= 0 ? external_hold : pos_rotation_degrees(pocketui_display_geometry()->rotation);
+    out->hold_landscape = external_hold >= 0 ? external_hold % 180 != 0 : out->landscape;
+}
+
 /* ---- display and finger ------------------------------------------------ */
 
 static uint8_t draw_buf[PANEL_W * 40 * 4];
@@ -733,8 +747,8 @@ static void test_touch(void)
     check("poked again and again: briefly annoyed", brain()->react == DB_REACT_ANNOYED);
     pump(3500);
     check("and calm again", brain()->react == DB_REACT_NONE);
-    check("nothing of it started the camera: Companion never does", deskbuddy_app_provider_starts(app) == 0 &&
-                                                                         !deskbuddy_app_provider_running(app));
+    check("nothing of it started the camera: the one start is opening's (Camera presence)",
+          deskbuddy_app_provider_starts(app) == 1);
     app_stop();
     check("play wrote nothing", !stored(DB_STORE_PREFS) && !stored(DB_STORE_GUARD));
 }
@@ -825,8 +839,8 @@ static void test_feed(void)
     check("R rests", brain()->state == DB_ST_SLEEP);
     push_key('r');
     check("R wakes", brain()->react == DB_REACT_STIR);
-    check("only the visit to NIGHT started the camera, and BUDDY stopped it; feeding started none",
-          deskbuddy_app_provider_starts(app) == 1 && !deskbuddy_app_provider_running(app));
+    check("opening started the camera (Camera presence), NIGHT and back kept it; feeding started none",
+          deskbuddy_app_provider_starts(app) == 1 && deskbuddy_app_provider_running(app));
     app_stop();
     check("feeding kept no log (only the mode it was left in is saved)", !stored(DB_STORE_GUARD) &&
                                                                               file_has(DB_STORE_PREFS, "mode=companion"));
@@ -974,35 +988,117 @@ static int helper_seen_somebody(void)
     return brain()->seen == DB_SEEN_PERSON;
 }
 
+static int helper_seen_nobody(void)
+{
+    return brain()->seen == DB_SEEN_NOBODY;
+}
+
+static const char *note_text(void)
+{
+    return lv_label_get_text(deskbuddy_app_note(app));
+}
+
+/* Camera presence by the SET panel, as the owner turns it. */
+static void set_presence(bool on)
+{
+    tap_obj(deskbuddy_app_settings_button(app));
+    if (brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] != on) {
+        tap_obj(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE));
+    }
+    tap_obj(deskbuddy_app_settings_done(app));
+}
+
+static void write_prefs(const char *text)
+{
+    char path[512];
+    FILE *f;
+
+    snprintf(path, sizeof(path), "%s/deskbuddy", state_dir);
+    mkdir(path, 0700);
+    snprintf(path, sizeof(path), "%s/deskbuddy/%s", state_dir, DB_STORE_PREFS);
+    f = fopen(path, "w");
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
 static void test_camera_modes(void)
 {
     const char *helper = getenv("DESKBUDDY_TEST_HELPER");
     static char abs_helper[PATH_MAX];
+    static char r0[PATH_MAX];
 
     forget();
     app_start();
-    check("opened in Companion: the Vision pipeline is the provider, but not started",
-          strcmp(deskbuddy_app_provider(app), "vision") == 0 && !deskbuddy_app_provider_running(app) &&
-              deskbuddy_app_provider_starts(app) == 0);
-    check("so Companion is blind, and does not complain about it",
-          brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(lv_label_get_text(deskbuddy_app_note(app)), "") == 0);
+    check("opened in Companion, Camera presence on by default: the Vision pipeline is started",
+          strcmp(deskbuddy_app_provider(app), "vision") == 0 && brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] &&
+              deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 1);
+    check("no helper on this host: Companion says the camera is unavailable, never that nobody is there",
+          brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(note_text(), "CAMERA UNAVAILABLE") == 0);
+    tap_obj(deskbuddy_app_face(app));
+    check("and touch still plays", brain()->poked == 1);
+    pump(3000);
+    tap_obj(deskbuddy_app_settings_button(app));
+    check("the switch is labelled, with its mode",
+          strcmp(lv_label_get_text(lv_obj_get_child(lv_obj_get_parent(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE)), 0)),
+                 "Camera presence \xC2\xB7 Buddy") == 0 &&
+              shows(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE), "ON"));
+    tap_obj(deskbuddy_app_settings_done(app));
+    set_presence(false);
+    check("Camera presence off: the helper stops, Companion plays by touch and says nothing of it",
+          !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(note_text(), "") == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
-    check("GUARD starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 1);
-    check("and Guard still says when it cannot see",
-          strcmp(lv_label_get_text(deskbuddy_app_note(app)), "NO VISION YET") == 0);
+    check("GUARD starts it all the same: the switch is Companion's", deskbuddy_app_provider_running(app) &&
+                                                                         deskbuddy_app_provider_starts(app) == 2);
+    check("and Guard still says when it cannot see", strcmp(note_text(), "NO VISION YET") == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
-    check("BUDDY stops it, and Companion is told it cannot see",
+    check("BUDDY without Camera presence stops it, and Companion is told it cannot see",
           !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
-    check("NIGHT starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 2);
+    check("NIGHT starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 3);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
     check("Night to Guard keeps the one helper", deskbuddy_app_provider_running(app) &&
-                                                     deskbuddy_app_provider_starts(app) == 2);
+                                                     deskbuddy_app_provider_starts(app) == 3);
+    set_presence(true);
+    check("Camera presence on in Guard: still the one helper", deskbuddy_app_provider_running(app) &&
+                                                                   deskbuddy_app_provider_starts(app) == 3);
+    set_presence(false);
+    app_deskbuddy.tick(app);
+    check("the switch is saved", file_has(DB_STORE_PREFS, "camera_presence=0"));
     app_stop();
     app_start();
     check("reopened in Guard: started at once, as before", brain()->state == DB_ST_GUARD_DISARMED &&
                                                                deskbuddy_app_provider_running(app) &&
                                                                deskbuddy_app_provider_starts(app) == 1);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    app_stop();
+    app_start();
+    check("reopened in Companion with it off: no camera", !brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] &&
+                                                             !deskbuddy_app_provider_running(app) &&
+                                                             deskbuddy_app_provider_starts(app) == 0);
+    app_stop();
+    forget();
+    write_prefs("companion=1\nguard=1\nnight=1\nowner_recognition=1\ngreeting=1\nidle_animation=1\n"
+                "guard_armed=0\nmode=companion\n");
+    app_start();
+    check("a file from before the switch: Camera presence on", brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] &&
+                                                                  deskbuddy_app_provider_running(app));
+    app_stop();
+
+    /* The hold: on the panel the display's rotation; on an external display
+     * the hold the shell reports, followed while DeskBuddy is open. */
+    forget();
+    app_start();
+    check("the camera is given the panel's rotation as the hold",
+          deskbuddy_app_camera_hold(app) == pos_rotation_degrees(pocketui_display_geometry()->rotation));
+    external_hold = 90;
+    pump(1100);
+    check("an external display, the unit turned: the camera follows the hold", deskbuddy_app_camera_hold(app) == 90);
+    external_hold = 0;
+    pump(1100);
+    check("and back", deskbuddy_app_camera_hold(app) == 0);
+    external_hold = -1;
     app_stop();
 
     if (!helper || !*helper || !realpath(helper, abs_helper) || access(abs_helper, X_OK) != 0) {
@@ -1014,13 +1110,57 @@ static void test_camera_modes(void)
     setenv("POCKETOS_CAMERA_BACKEND", "fake", 1);
     setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
     setenv("POCKETOS_VISION_FACE_DET", "/nonexistent/face_det.kmodel", 1);
+    /* The image's detectors: R0 there, the helper's old default not. */
+    snprintf(r0, sizeof(r0), "%s/det-r0-traffic6-yolox-tiny-416.kmodel", state_dir);
+    {
+        FILE *f = fopen(r0, "w");
+
+        if (f) {
+            fputs("fake", f);
+            fclose(f);
+        }
+    }
+    setenv("POCKETOS_VISION_MODEL_R0", r0, 1);
+    setenv("POCKETOS_VISION_MODEL", "/nonexistent/vision/yolov8n.kmodel", 1);
+
+    /* BUDDY with Camera presence: somebody arrives (the fake detector's
+     * person for its first 120 frames, about 2.4 s), then leaves. */
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260,until=120", 1);
+    forget();
+    app_start();
+    check("live: BUDDY opened with Camera presence: one helper", wait_real(helper_up, 5000));
+    check("live: it sees the person arrive", wait_real(helper_seen_somebody, 10000));
+    check("live: and wakes for them - a person, no owner and no stranger claimed",
+          (brain()->state == DB_ST_WAKE || brain()->state == DB_ST_RECOGNIZING) &&
+              brain()->seen == DB_SEEN_PERSON);
+    tap_obj(deskbuddy_app_face(app));
+    check("live: a touch still pokes it while somebody is there", brain()->poked == 1);
+    check("live: they leave: nobody, not unavailable", wait_real(helper_seen_nobody, 10000) &&
+                                                           strcmp(note_text(), "") == 0);
+    {
+        unsigned events = brain()->events;
+
+        pump(DB_RECOGNIZE_MS + 1000);
+        usleep(1500000);
+        check("live: and it settles, with no repeat greeting or flicker",
+              brain()->state == DB_ST_IDLE && brain()->events == events && brain()->seen == DB_SEEN_NOBODY);
+    }
+    check("live: never a greeting or a stranger's look from a detection",
+          brain()->owner_seen_ms < 0 && brain()->unknown_seen_ms < 0);
+    set_presence(false);
+    check("live: Camera presence off stops the helper", helpers_alive() == 0);
+    app_stop();
+    check("live: and closing leaves none", helpers_alive() == 0);
+
+    /* Guard and Night as before, with Camera presence off. */
     setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1); /* somebody, always */
     forget();
+    write_prefs("camera_presence=0\n");
     app_start();
     pump(500);
     usleep(500000);
     pump(500);
-    check("live: Companion opened, no helper running", helpers_alive() == 0);
+    check("live: Companion opened without Camera presence, no helper running", helpers_alive() == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
     tap_obj(deskbuddy_app_action_button(app));
     check("live: ARM before the new helper has said anything waits for nobody",
@@ -1050,6 +1190,9 @@ static void test_camera_modes(void)
     unsetenv("POCKETOS_CAMERA_FAKE");
     unsetenv("POCKETOS_VISION_FACE_DET");
     unsetenv("POCKETOS_VISION_KPU_SCRIPT");
+    unsetenv("POCKETOS_VISION_MODEL_R0");
+    unsetenv("POCKETOS_VISION_MODEL");
+    unlink(r0);
     live_helper = NULL;
 }
 
