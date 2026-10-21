@@ -24,6 +24,7 @@
 #include "rift_mapview.h"
 #include "rift_nodes.h"
 #include "rift_repeater_view.h"
+#include "rift_route_view.h"
 #include "rift_rxlog_view.h"
 #include "rift_sound.h"
 #include "rift_system.h"
@@ -233,9 +234,12 @@ static void paint_cmdline(struct rift_app *a)
     }
     if (a->cmd_send_hint) {
         if (live) {
-            char to[RIFT_LABEL_MAX];
+            char to[RIFT_LABEL_MAX + 24];
 
-            rift_comms_target_label(a, to, sizeof(to));
+            rift_comms_target_label(a, to, RIFT_LABEL_MAX);
+            if (rift_route_staged(&a->model.route, rift_comms_open_peer(a))) { /* never AUTO */
+                snprintf(to + strlen(to), sizeof(to) - strlen(to), RIFT_SEP "CHOSEN ROUTE");
+            }
             /* What the keys do from where the focus actually is. TAB is how
              * the focus group reaches the field; once it is there, Esc is
              * the way back, because TAB inside a text area types a tab. */
@@ -380,6 +384,9 @@ static void on_key(lv_event_t *e)
         return;
     }
     if (a->section == RIFT_SEC_CONTACTS && rift_contacts_view_key(a, key)) {
+        return;
+    }
+    if (rift_route_view_key(a, key)) { /* MAP as the route builder; Esc is its CANCEL */
         return;
     }
     if (rift_repeater_key(a, key)) { /* ACTIVITY's repeater rows, a repeater's page */

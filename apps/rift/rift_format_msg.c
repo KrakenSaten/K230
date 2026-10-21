@@ -152,6 +152,21 @@ void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_
         }
         return;
     }
+    /* Sent on a route a reader chose (rift_route.h), by the service's word:
+     * said in every state, so that its NO ACK is not read as AUTO's - nor its
+     * missing RESEND as an oversight - and in place of FLOOD or DIRECT while
+     * it waits. */
+    if (msg->dir == RIFT_MSG_OUT && msg->explicit_route) {
+        if (msg->explicit_hops > 0) {
+            at += (size_t)snprintf(out + at, out_len - at, RIFT_SEP "CHOSEN ROUTE, %d RELAY%s",
+                                   msg->explicit_hops, msg->explicit_hops == 1 ? "" : "S");
+        } else {
+            at += (size_t)snprintf(out + at, out_len - at, RIFT_SEP "CHOSEN ROUTE, NO RELAY");
+        }
+        if (at >= out_len) {
+            return;
+        }
+    }
     if (msg->orphan) {
         /* Why it is NO ACK, and that nothing is still waiting for it. */
         snprintf(out + at, out_len - at, RIFT_SEP "SERVICE RESTARTED");
@@ -169,6 +184,9 @@ void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_
         if (ack[0]) {
             snprintf(out + at, out_len - at, RIFT_SEP "ACK %s", ack);
         }
+        return;
+    }
+    if (msg->explicit_route) {
         return;
     }
     if (msg->state == RIFT_MSG_SENT_FLOOD || msg->state == RIFT_MSG_SENT_DIRECT) {

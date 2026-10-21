@@ -76,6 +76,11 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
     if (section != RIFT_SEC_REPEATER) {
         rift_repeater_view_cancel(a); /* a command confirmation, the fields */
     }
+    if (section != RIFT_SEC_MAP) {
+        /* Leaving the route builder any way but USE ROUTE is its CANCEL:
+         * nothing staged, nothing sent (rift_route.h). */
+        rift_route_close(&a->model.route);
+    }
     rift_tabs_paint(a);
     switch (section) {
     case RIFT_SEC_ACTIVITY:

@@ -331,6 +331,10 @@ void rift_tabs_paint_caption(struct rift_app *a)
                    : "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP;
     } else if (a->section == RIFT_SEC_COMMS && !rift_app_composer_live(a)) {
         keys = "\xE2\x86\x91\xE2\x86\x93 CHOOSE" RIFT_SEP;
+    } else if (a->section == RIFT_SEC_MAP && a->model.route.draft.active) {
+        /* The route builder's keys (ui/rift_route_view.c). */
+        keys = "\xE2\x86\x91\xE2\x86\x93\xE2\x86\x90\xE2\x86\x92 CHOOSE" RIFT_SEP
+               "ENTER ADD/USE" RIFT_SEP "ESC CANCEL" RIFT_SEP;
     }
     now = rift_app_now(a);
     for (i = 0; i < m->node_count; i++) {
