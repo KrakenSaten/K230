@@ -4,12 +4,16 @@ Date: 2026-10-21
 Branch: `feat/rift-visual-path-builder`, stacked on PR #100
 (`feat/meshcored-explicit-path-p0`).
 Base: `4baac72ff235f41ee86b7381ed1277e6f3090d8a` (PR #100 head on that date).
+PR #100 was merged as `fbdd380`. Master was merged into this branch as
+`c38544e`; its only conflict, in `tests/rift_app_test.c`, kept both sides.
 Status: **SIMULATOR AND SCRIPTED-SERVICE VALIDATED, K230 CROSS-BUILT.
 NON-TRANSMITTING OWNER UI CHECK ON UNIT B DONE (build `ec38999`). The two
 UI fixes found there (`3c04c2f`) are simulator-verified and cross-built;
 their re-check on unit B was stopped before completion: NOT VERIFIED on
-the device. NO RADIO WAS USED. PR #100's physical repeater gate and the
-UI-to-M5 send remain PENDING.**
+the device. NO RADIO WAS USED BY THIS BRANCH. PR #100's backend passed its
+one-repeater gate on the air, but through `pos-ipc-json`, not this UI. The
+UI's own send and a route chosen in RIFT on the air remain NOT VERIFIED. The
+owner accepted merging with these uncovered.**
 
 Design reference: the Visual Path Builder proposal (PR #99, closed as
 superseded by this PR; `docs/apps/rift/VISUAL_PATH_BUILDER.md` and the
@@ -23,7 +27,7 @@ prototype `docs/design/rift/visual-path-builder.html` at `341ca48` on
 
 | | what | class | where |
 | --- | --- | --- | --- |
-| PR #100 | meshcored host tests, K230 cross-build, no-TX checks on unit B, and a zero-relay explicit DIRECT message to a stock MeshCore companion delivered and ACKed **on the air** | VERIFIED (hardware, 2026-10-21) | [RIFT_EXPLICIT_PATH_P0.md](RIFT_EXPLICIT_PATH_P0.md) |
+| PR #100 | meshcored host tests, K230 cross-build, no-TX checks on unit B, and explicit DIRECT messages to a stock MeshCore companion delivered and ACKed **on the air**: zero relays from unit B, and one relay (Varden RP, forwarding observed) from unit A. Sent with `pos-ipc-json`, not RIFT. The repeater-off negative control was not run | VERIFIED (hardware, 2026-10-21) | [RIFT_EXPLICIT_PATH_P0.md](RIFT_EXPLICIT_PATH_P0.md) |
 | this branch | RIFT's UI and client against the **scripted** `tests/fake-meshcored`, in the LVGL simulator and on the host; K230 cross-build | VERIFIED (simulator / mock only) | below |
 | this branch on unit B | builder opened, relays added and removed, real previews, cancel with the draft kept, counters unchanged - from a temporary kit, nothing installed | VERIFIED (device, non-transmitting, build `ec38999`) | "Hardware checks", below |
 | fixes `3c04c2f` on unit B | list scroll-into-view by key at Large in landscape; emoji in the route chain | **NOT VERIFIED** on the device (simulator only) | "Device re-check of the fixes", below |
@@ -276,12 +280,21 @@ after: `tx_submitted 2`, `tx_ok 2`, `tx_failed 0`, `tx_unknown 0`,
 `sent_flood 1`, `sent_direct 1` - identical to the baseline. Nothing was
 sent; no composer input was made.
 
-### 2. Physical RF acceptance (separate) - PENDING, not waived
+### 2. Physical RF acceptance (separate) - NOT RUN for this UI; merged with the owner's acceptance
 
-The backend evidence is PR #100's on-air pass: an explicit zero-relay
-DIRECT message delivered to and acknowledged by the M5 companion
-([RIFT_EXPLICIT_PATH_P0.md](RIFT_EXPLICIT_PATH_P0.md)). It is reused, not
-repeated. What remains is only what that pass cannot show:
+The backend evidence is PR #100's on-air passes, both sent with
+`pos-ipc-json` rather than from RIFT
+([RIFT_EXPLICIT_PATH_P0.md](RIFT_EXPLICIT_PATH_P0.md)):
+
+- an explicit zero-relay DIRECT message from unit B;
+- an explicit one-relay message from unit A via Varden RP, with forwarding
+  observed.
+
+Both were delivered to and acknowledged by the M5 companion. They are reused,
+not repeated, and they do not show any UI behaviour. What remains is only
+what those passes cannot show. Both items are still uncovered: the owner
+accepted merging without them (2026-10-21), and they are not waived as
+claims.
 
 - **The UI's own send, on the device** (uncovered: the composer path into
   `rift_ipc_send_explicit` against the real service). USE DIRECT to the M5
