@@ -487,6 +487,75 @@ names - given a rim and a backdrop on a map - stay legible.
   e9469ab. **Not tested on hardware:** Wi-Fi fully off, and an unset clock
   (host tests only).
 
+## Chosen route: the route builder
+
+A direct message can go on a route the reader chooses - the repeaters it
+should be forwarded through, in order - instead of the service's own choice
+(the Visual Path Builder proposal, PR #99; the service contract is
+`mesh.path_preview` and `mesh.send` `via` in docs/api/mesh.md, PR #100).
+`rift_route.c` holds the draft, the staged route and the service's
+capabilities; `rift_ipc_path.c` asks; `ui/rift_route_bar.c`,
+`ui/rift_route_view.c` and `ui/rift_route_draw.c` draw.
+
+- **Where.** Every direct conversation says how its next message goes:
+  `ROUTE AUTO · FLOOD OR LEARNED DIRECT` (what every send did before), or
+  `ROUTE EXPLICIT · 2 RELAYS: RPT-NORD › RPT-7` in the accent. Under the
+  thread in portrait, with **SET ROUTE** (EDIT ROUTE once one is set) and
+  **AUTO**; in landscape the console keeps its height for messages, so the
+  thread's header says `CHOSEN ROUTE · 2 RELAYS` and the same line and
+  buttons are in **DETAILS**' route pane. The command line's hint says
+  `CHOSEN ROUTE` too. A channel has no route and shows none.
+- **Only when the service says so.** SET ROUTE is offered only while this
+  run of meshcored has said, in `mesh.info` `capabilities`, both
+  `manual_path_preview: true` and `explicit_direct_send: true`; otherwise the
+  line says it is asking, or that this meshcored cannot take a chosen route.
+  An older service would ignore `via` and send on its automatic route, so it
+  is never given one.
+- **The builder is MAP.** SET ROUTE opens MAP with its node panel replaced
+  by the builder's, `TO HYTTA` at the top: the recipient is the
+  conversation's and cannot change. A tap on a repeater's marker appends it,
+  by its whole public key; a tap on anything else says why it cannot be a
+  relay (not a repeater, the recipient, already in the route, this device).
+  **RELAYS** lists every repeater the route could still take - including
+  the ones that never said where they are, which no map can place and which
+  can only be added there. Relays are numbered on their markers and in the
+  list, in the same order; a line joins two consecutive waypoints only when
+  both are placed, never across an unplaced one, and the leg into the
+  recipient is dashed until the service has checked the route. This device
+  has no location, so the first leg is never drawn. The map says
+  `PLANNED ROUTE, NOT A RADIO LINK`, and the panel that the lines are not
+  radio links anyone has seen and not delivery.
+- **Editing.** UNDO takes the last relay off, CLEAR all of them; a row
+  picked in the list (or its marker tapped) offers `REMOVE 2-3`, which cuts
+  the route there. Every edit is checked at once with `mesh.path_preview`,
+  which transmits nothing; only the answer for the route as it stands is
+  applied. **USE ROUTE** is offered only when the service called the route
+  valid (`CHECKED BY MESHCORED · 1-BYTE HASHES · 2 PATH BYTES · NOTHING
+  SENT`); its refusal is shown in its words. With no relay the button is
+  **USE DIRECT**: explicit DIRECT to the recipient only, never a flood and
+  never AUTO. **CANCEL**, Esc, or leaving MAP stages nothing; a route staged
+  before stays as it was, and the contact's learned route is never touched.
+  Keys: arrows pick and switch list, Enter adds or uses, Backspace undoes.
+- **Sending.** SEND on a staged route previews it again, against the node
+  list the service holds now, and writes `mesh.send` with exactly the keys
+  checked, in order, only when that answer says valid; the service checks
+  them once more itself. A refusal, a relay that left the node list, a
+  service without the capability or one that went away mid-check ends the
+  send with `Not sent: …` and nothing on the air - and the composer keeps
+  the text, emptied only once the service accepted the message. Nothing
+  falls back to AUTO. The route stays chosen for the next message until
+  AUTO.
+- **What a message says.** `SENT · CHOSEN ROUTE, 2 RELAYS`, in every state
+  (`NO ACK · CHOSEN ROUTE, 2 RELAYS`), from the service's `route:
+  "explicit"`. Such a message is never offered RESEND - the service refuses
+  it, and an orphan's new send would go without its route; choose the route
+  and send again.
+
+What it does not do: discover or rank routes, measure links, persist a
+route across RIFT closing, route a channel, or redesign MAP. Physical
+forwarding through repeaters on a route chosen here is not yet seen on the
+air (see "What needs hardware").
+
 ## Repeaters
 
 **Who can be written to** is decided by the node's advertised type
@@ -585,6 +654,7 @@ under it:
 | `NO ACK` | the deadline passed with no ACK - whether or not it was ever transmitted, and it may still have arrived | the companion's "no ack" |
 | `NO ACK · SERVICE RESTARTED` | meshcored restarted under it: nothing can match its ACK any more (an orphan, below) | - |
 | `· TRY 2` | sent twice (RESEND); the state is about the newest attempt | `attempt` |
+| `SENT · CHOSEN ROUTE, 2 RELAYS` | sent on a route the reader chose ("Chosen route", above); said in every state, and never offered RESEND | `route: "explicit"`, `path_hops` |
 | `SENT · FLOOD · NO ACK ON CHANNELS` | a channel message the radio has not reported on yet (or a service that does not report it): accepted, and nothing acknowledges a group frame | `GRP_TXT` has no ACK |
 | `TRANSMITTED · NOT HEARD BACK` | a channel message the radio sent; no copy relayed back so far - which proves nothing, companions relay nothing | `logTx` |
 | `HEARD BACK ×2 · 1 HOP` | copies of our own channel packet heard relayed back, and the fewest relays: at least one repeater received it. **Not** delivered: no channel member is known to have read it | `Mesh.cpp:651` "rebroadcast back to us"; packet hash excludes the path |
@@ -1292,6 +1362,9 @@ the air must not be able to disconnect this app from its own service.
 | `tests/rift_ipc_test.c` | 240 checks against a real socket and a scripted service in a child process: joining a channel (the derived key checked byte for byte in the request, and absent from the model and the client afterwards), a duplicate key refused, leaving, renaming, the path hash size, a pinned name, a service without the setting, a change nobody answered; and connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
 | `tests/rift_app_test.c` | 814 checks under a real LVGL pointer device: RIFT kept behind other screens (DS §51) - left, the session, its timer and its connection stay and the screen's half is empty, a message arriving while left is filed unread and unsounded, reopened in the same place with no second timer, Back and Home, twenty leaves and reopens with one timer and less than one screen's memory kept, CLOSE RIFT through its confirmation and a new session after it, the status cluster's mark set and cleared, the navigation row's five faces (size, look, gaps, targets, fit at S/M/L) in both orientations, and against the scripted service one subscription for six opens, a message taken in while left, the subscription given back on CLOSE RIFT and meshcored still running; a channel's sender before its message in both orientations (long, unnamed, own); the NODES search and ZERO-HOP view; NET from no snapshot to a real mesh, advert-placed nodes, MESSAGE and DETAIL, landscape columns; the CHANNELS and THIS DEVICE controls with no service (every refusal said before asking, every confirmation) and, given `RIFT_FAKE_MESHCORED`, live against the scripted service (a private channel joined and its key shown once, left, a rename, a path hash size); the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a 64 px row of 56 px faces with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 16 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
 | `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |
+| `tests/rift_route_test.c` | 95 checks: the chosen route's draft and stage - what may be a relay and what is refused, whole keys in the order tapped, UNDO / CLEAR / cut, a preview answer applied only for the request and the route it was asked about (stale, edited-since, transmitted, not explicit, wrong count refused), a waypoint leaving the node list counted and never remapped, staging, AUTO, an empty route that is not AUTO, the capabilities taken only when true, and an explicit message never offered RESEND |
+| `tests/rift_ipc_test.c` (explicit route) | against the scripted service: a preview writes no `mesh.send`; a SEND on a staged route carries exactly the chosen keys in order, once, after its check; AUTO has no `via`; `via: []`; the service's refusal at preview and at SEND; an older service never asked for a preview nor given `via`; a restart into one; the service going away mid-check |
+| `tests/rift_app_test.c` (route builder, `RIFT_APP_TEST_ONLY=route`) | 100 checks live against the scripted service: the whole flow on the panel, the SEND log's exact `via`, every text size in both shapes and HDMI 1280x720 with nothing clipped, the service going away and an older one coming back |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, one store holding nothing about the mesh, a DM arrival decided in one place from live events only, the sound asked for in one place and only when the policy says so, no sound device and no helper process, the sound stopped on close, no monolith, and the gaps this build leaves |
 
@@ -1429,6 +1502,13 @@ them, one after the other, are two runs of a service and not one.
     box. See "Colour emoji".
 
 ## What needs hardware
+
+For the route builder (`feat/rift-visual-path-builder`): simulator and
+scripted-service validation only; the one bench session it still needs is
+listed in
+[docs/validation/RIFT_VISUAL_PATH_BUILDER.md](../validation/RIFT_VISUAL_PATH_BUILDER.md).
+The service's zero-relay explicit DIRECT to a stock companion passed on the
+air for PR #100; forwarding through repeaters has not been seen yet.
 
 For `feat/rift-ui-next`: the unit A integration gate **passed on
 2026-09-26** on build `d512ba9` (rebased onto master 140843e, with the
