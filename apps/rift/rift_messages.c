@@ -423,6 +423,10 @@ int rift_model_file_message(struct rift_model *m, const cJSON *o, struct rift_me
     if (msg->have_rssi) {
         msg->rssi_dbm = d;
     }
+    name = str_of(o, "route"); /* a reader's explicit route (rift_route.h) */
+    msg->explicit_route = !is_channel && name && strcmp(name, "explicit") == 0;
+    msg->explicit_hops =
+        (msg->explicit_route && num_of(o, "path_hops", &d) && d >= 0 && d <= 63) ? (int)d : 0;
     m->msgs_applied++;
     if (out) {
         *out = msg;

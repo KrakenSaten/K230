@@ -128,6 +128,12 @@ int rift_model_can_resend(const struct rift_message *msg)
     if (!msg || msg->dir != RIFT_MSG_OUT || msg->is_channel || !msg->ack_expected) {
         return 0;
     }
+    /* Sent on a route a reader chose: the service refuses its RESEND, and an
+     * orphan's new mesh.send would go without the route - AUTO by the back
+     * door. Choose a route and send it again as a new message instead. */
+    if (msg->explicit_route) {
+        return 0;
+    }
     return msg->orphan || msg->state == RIFT_MSG_NO_ACK || msg->state == RIFT_MSG_FAILED;
 }
 

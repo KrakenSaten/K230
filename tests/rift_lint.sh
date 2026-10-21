@@ -98,6 +98,30 @@ check "the message actions send nothing else" \
     "$(grep -qE 'rift_comms_submit|rift_ipc_send_message' "$SRC/ui/rift_msgact.c" && echo 0 || echo 1)"
 check "the resend param is named only in the client" \
     "$([ "$(grep -rln --include='*.c' '"resend"' "$SRC" | sort | tr '\n' ' ')" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+# The explicit route (rift_route.h, rift_ipc_path.c). A preview transmits
+# nothing (tests/rift_ipc_test.c proves it from the service's side); `via` is
+# written only by the client, and mesh.send is still written by its one
+# writer - reached for an explicit route only from the answer to the check of
+# a SEND a reader pressed, and only while that submission is still checking.
+check "mesh.path_preview is named only in the meshcored client" \
+    "$([ "$(grep -rln '"mesh.path_preview"' "$SRC" | sort | tr '\n' ' ')" = "$SRC/rift_ipc.c " ] &&
+       echo 1 || echo 0)"
+check "the via param is named only in the client" \
+    "$([ "$(grep -rln --include='*.c' '"via"' "$SRC" | sort | tr '\n' ' ')" = "$SRC/rift_ipc.c $SRC/rift_ipc_path.c " ] &&
+       echo 1 || echo 0)"
+wscallers=$(grep -rln --include='*.c' 'rift_ipc_write_send(' "$SRC" | sort | tr '\n' ' ')
+check "the mesh.send writer is reached from the send, RESEND and the checked route (${wscallers:-nowhere})" \
+    "$([ "$wscallers" = "$SRC/rift_ipc.c $SRC/rift_ipc_path.c $SRC/rift_ipc_resend.c " ] && echo 1 || echo 0)"
+check "and from the route's side only in the answer to a SEND's check, while it is checking" \
+    "$([ "$(grep -c 'rift_ipc_write_send(' "$SRC/rift_ipc_path.c")" = 1 ] &&
+       sed -n '/^int rift_ipc_path_reply(/,/^}/p' "$SRC/rift_ipc_path.c" | grep -q 'rift_ipc_write_send(' &&
+       sed -n '/^int rift_ipc_path_reply(/,/^}/p' "$SRC/rift_ipc_path.c" |
+       grep -q 'm->outbox.active || !m->outbox.checking' && echo 1 || echo 0)"
+check "an explicit RESEND is never offered" \
+    "$(sed -n '/^int rift_model_can_resend(/,/^}/p' "$SRC/rift_threads.c" | grep -q 'explicit_route' &&
+       echo 1 || echo 0)"
+check "the route model knows nothing about LVGL" \
+    "$(grep -q 'lvgl' "$SRC/rift_route.c" "$SRC/rift_route.h" "$SRC/rift_ipc_path.c" && echo 0 || echo 1)"
 # CONTACTS is a question asked of the node cache: it asks the service for
 # nothing and changes no contact.
 check "CONTACTS asks the service for nothing and writes no node" \

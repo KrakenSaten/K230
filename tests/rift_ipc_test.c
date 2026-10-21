@@ -1226,6 +1226,299 @@ static void test_resend_overlap(void)
     peer_close(&p, &c);
 }
 
+/* ---- the explicit route (rift_route.h, rift_ipc_path.c) ----------------------
+ *
+ * Against the scripted service, which logs every preview and every mesh.send
+ * with the `via` it carried: a preview transmits nothing; a SEND on a staged
+ * route sends exactly the chosen keys in their order, once, and only after
+ * the route was checked again; AUTO stays a send with no `via` at all; an
+ * empty route is `via: []`, never AUTO; a refusal, a service without the
+ * capability, a restart into one and a service that goes away mid-check each
+ * end with nothing sent and nothing silently sent AUTO. */
+
+#define KEY_RT_R2 "c3beef1e7d0411223344556677889900aabbccddeeff001122334455667788b3"
+#define KEY_RT_BAD "dd00000000000000000000000000000000000000000000000000000000000000"
+#define NODES_ROUTE                                                                        \
+    "[{\"public_key\":\"" KEY_A "\",\"node_hash\":\"a1\",\"name\":\"OSLO-01\",\"type\":1}," \
+    "{\"public_key\":\"" KEY_B "\",\"node_hash\":\"b2\",\"name\":\"HYTTA\",\"type\":2},"   \
+    "{\"public_key\":\"" KEY_RT_R2 "\",\"node_hash\":\"c3\",\"name\":\"RPT-7\",\"type\":2}," \
+    "{\"public_key\":\"" KEY_RT_BAD "\",\"node_hash\":\"dd\",\"name\":\"RPT-DD\",\"type\":2}]"
+#define CAPS_READ(m) ((m)->route.caps_known)
+
+static int preview_settled(const struct rift_ipc *c, const struct rift_model *m)
+{
+    return c->fd >= 0 && !outstanding(c, RIFT_REQ_PATH_PREVIEW) && m->route.draft.request == 0;
+}
+
+static int submission_settled(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return !m->outbox.active;
+}
+
+static int explicit_message_in(const struct rift_ipc *c, const struct rift_model *m)
+{
+    int i;
+
+    (void)c;
+    for (i = 0; i < m->msg_count; i++) {
+        if (m->msg[i].explicit_route) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static pid_t spawn_route_service(int explicit_path, int silent, const char *refuse,
+                                 const char *sends, const char *previews, const char *methods)
+{
+    struct fake_meshcored_script script;
+
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_ROUTE;
+    script.explicit_path = explicit_path;
+    script.preview_silent = silent;
+    script.path_refuse_prefix = refuse;
+    script.send_log = sends;
+    script.preview_log = previews;
+    script.method_log = methods;
+    script.life_ms = FAKE_LIFE_MS;
+    return fake_meshcored_spawn(&script);
+}
+
+/* Stage a route directly, as USE ROUTE would have after a valid preview: for
+ * the cases where the route goes bad, or the service changes, afterwards. */
+static void stage(struct rift_model *m, const char *to, const char *r1, const char *r2)
+{
+    memset(&m->route.stage, 0, sizeof(m->route.stage));
+    m->route.stage.active = 1;
+    snprintf(m->route.stage.conv, sizeof(m->route.stage.conv), "%s", to);
+    if (r1) {
+        snprintf(m->route.stage.via[m->route.stage.count++], RIFT_ROUTE_KEY, "%s", r1);
+    }
+    if (r2) {
+        snprintf(m->route.stage.via[m->route.stage.count++], RIFT_ROUTE_KEY, "%s", r2);
+    }
+}
+
+static void test_explicit_route(const char *runtime)
+{
+    static struct rift_model m;
+    static struct rift_ipc c;
+    char sends[600];
+    char previews[600];
+    char methods[600];
+    char want[600];
+    unsigned gen;
+    pid_t pid;
+
+    snprintf(sends, sizeof(sends), "%s/route-sends", runtime);
+    snprintf(previews, sizeof(previews), "%s/route-previews", runtime);
+    snprintf(methods, sizeof(methods), "%s/route-methods", runtime);
+    unlink(sends);
+    unlink(previews);
+    unlink(methods);
+
+    /* ---- a service that takes explicit routes ---- */
+    pid = spawn_route_service(1, 0, NULL, sends, previews, methods);
+    check("a service that takes explicit routes is running",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("mesh.info says it takes them, and nothing else is asked about routes",
+          rift_route_supported(&m.route) && log_count(methods, "mesh.path_preview") == 0);
+
+    check("the builder opens on the recipient", rift_route_open(&m.route, KEY_A) == 0);
+    rift_route_add(&m.route, &m, KEY_B);
+    rift_route_add(&m.route, &m, KEY_RT_R2);
+    check("a preview is written for the draft", rift_ipc_path_preview(&c) == 0 &&
+                                                    m.route.draft.check == RIFT_ROUTE_CHECKING);
+    check("and only one at a time", rift_ipc_path_preview(&c) != 0);
+    spin(&c, WAIT_MS, preview_settled, &m);
+    check("the service's answer makes it valid", m.route.draft.check == RIFT_ROUTE_VALID &&
+                                                     m.route.draft.enc.relays == 2 &&
+                                                     strcmp(m.route.draft.enc.path_hex, "b2c3") == 0);
+    snprintf(want, sizeof(want), "%s|%s,%s", KEY_A, KEY_B, KEY_RT_R2);
+    check("it asked about exactly the keys chosen, in order", log_has(previews, want));
+    check("a preview puts nothing on the air", round_trip(&c, &m) &&
+                                                   log_count(methods, "mesh.send") == 0 &&
+                                                   log_count(sends, "") == 0);
+
+    /* An answer for the route before an edit is not the route now. */
+    rift_route_undo(&m.route);
+    rift_ipc_path_preview(&c);
+    gen = m.route.draft.gen;
+    rift_route_add(&m.route, &m, KEY_RT_R2);
+    spin(&c, WAIT_MS, preview_settled, &m);
+    check("a stale answer, for the route before an edit, is not applied",
+          m.route.draft.gen != gen && m.route.draft.check == RIFT_ROUTE_UNCHECKED);
+    check("the route as it stands is asked about again", rift_ipc_path_preview(&c) == 0);
+    spin(&c, WAIT_MS, preview_settled, &m);
+    check("and is valid", rift_route_usable(&m.route, &m));
+    check("USE ROUTE stages it on the conversation", rift_route_use(&m.route, &m) == 0 &&
+                                                         rift_route_staged(&m.route, KEY_A));
+
+    /* SEND: checked again, then sent with exactly those keys, once. */
+    check("a SEND on the staged route is taken", rift_ipc_send_explicit(&c, KEY_A, "via two") == 0);
+    check("and is being checked before anything is sent",
+          m.outbox.active && m.outbox.checking && m.outbox.explicit_route);
+    check("a second press while it is refused, and not written",
+          rift_ipc_send_explicit(&c, KEY_A, "via two") == -1 &&
+              rift_ipc_send_message(&c, KEY_A, "via two") == -1);
+    events_target = c.events_in + 1;
+    spin(&c, WAIT_MS, submission_settled, &m);
+    check("the service accepted it as explicit", !m.outbox.failed && m.outbox.message_id > 0 &&
+                                                     strcmp(m.outbox.route, "explicit") == 0);
+    snprintf(want, sizeof(want), "%s|via two|via=%s,%s", KEY_A, KEY_B, KEY_RT_R2);
+    check("mesh.send carried exactly the chosen keys, in order", log_has(sends, want));
+    check("once", log_count(sends, KEY_A) == 1);
+    spin(&c, WAIT_MS, explicit_message_in, &m);
+    {
+        const struct rift_message *msg = rift_model_message(&m, m.outbox.message_id);
+
+        check("the message says so, by the service's word",
+              msg && msg->explicit_route && msg->explicit_hops == 2);
+        check("and is never offered RESEND", msg && !rift_model_can_resend(msg));
+    }
+
+    /* AUTO is what it was: no `via` at all. */
+    rift_model_send_clear(&m);
+    check("an AUTO send is taken", rift_ipc_send_message(&c, KEY_A, "auto text") == 0);
+    spin(&c, WAIT_MS, submission_settled, &m);
+    snprintf(want, sizeof(want), "%s|auto text", KEY_A);
+    check("and goes with no via", log_has(sends, want) && !log_has(sends, "auto text|via="));
+    check("as the service's automatic route", strcmp(m.outbox.route, "flood") == 0);
+
+    /* An empty route is DIRECT with no relay: `via: []`, never AUTO. */
+    rift_model_send_clear(&m);
+    rift_route_open(&m.route, KEY_A);
+    rift_route_clear(&m.route);
+    rift_ipc_path_preview(&c);
+    spin(&c, WAIT_MS, preview_settled, &m);
+    check("an empty route is checked valid", rift_route_use(&m.route, &m) == 0 &&
+                                                 rift_route_staged(&m.route, KEY_A)->count == 0);
+    rift_ipc_send_explicit(&c, KEY_A, "no relay");
+    spin(&c, WAIT_MS, submission_settled, &m);
+    snprintf(want, sizeof(want), "%s|no relay|via=", KEY_A);
+    check("and is sent with an empty via", log_has(sends, want) &&
+                                               strcmp(m.outbox.route, "explicit") == 0);
+
+    /* A relay that has left the node list is refused here, not sent. */
+    rift_model_send_clear(&m);
+    stage(&m, KEY_A, "ee00000000000000000000000000000000000000000000000000000000000000", NULL);
+    check("a relay no longer in the node list is refused, nothing written",
+          rift_ipc_send_explicit(&c, KEY_A, "gone") == -1 && m.outbox.failed &&
+              strstr(m.outbox.error, "left the node list") && !log_has(sends, "gone"));
+    rift_route_auto(&m.route, KEY_A);
+    check("with AUTO chosen, no route is staged and an explicit send is refused",
+          rift_route_staged(&m.route, KEY_A) == NULL &&
+              rift_ipc_send_explicit(&c, KEY_A, "none") == -1 && !log_has(sends, "none"));
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* ---- the service refuses the route ---- */
+    unlink(sends);
+    unlink(methods);
+    pid = spawn_route_service(1, 0, "dd", sends, previews, methods);
+    check("a service that refuses a relay is running",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    rift_route_open(&m.route, KEY_A);
+    rift_route_add(&m.route, &m, KEY_RT_BAD);
+    rift_ipc_path_preview(&c);
+    spin(&c, WAIT_MS, preview_settled, &m);
+    check("its refusal is the draft's, in its words",
+          m.route.draft.check == RIFT_ROUTE_REFUSED &&
+              strstr(m.route.draft.why, "not a repeater") &&
+              !strstr(m.route.draft.why, "manual path rejected"));
+    check("and the route cannot be staged", rift_route_use(&m.route, &m) != 0);
+    /* A route that was staged and has gone bad since: the check at SEND. */
+    stage(&m, KEY_A, KEY_B, KEY_RT_BAD);
+    check("a SEND on it is taken for checking", rift_ipc_send_explicit(&c, KEY_A, "bad") == 0);
+    spin(&c, WAIT_MS, submission_settled, &m);
+    check("the check refuses it, and says nothing was sent",
+          m.outbox.failed && !m.outbox.unknown && strstr(m.outbox.error, "route refused") &&
+              strstr(m.outbox.error, "nothing was sent"));
+    check("mesh.send was never written, with or without via",
+          round_trip(&c, &m) && log_count(methods, "mesh.send") == 0 && !log_has(sends, "bad"));
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* ---- an older service, without the capability ---- */
+    unlink(sends);
+    unlink(methods);
+    pid = spawn_route_service(0, 0, NULL, sends, previews, methods);
+    check("an older service is running", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    check("it is read as not taking explicit routes",
+          CAPS_READ(&m) && !rift_route_supported(&m.route));
+    rift_route_open(&m.route, KEY_A);
+    check("no preview is asked of it", rift_ipc_path_preview(&c) != 0);
+    stage(&m, KEY_A, KEY_B, NULL);
+    check("a SEND on a staged route is refused before anything is written",
+          rift_ipc_send_explicit(&c, KEY_A, "old") == -1 && m.outbox.failed &&
+              strstr(m.outbox.error, "does not take a chosen route"));
+    check("it was never given a via it would ignore, nor sent AUTO instead",
+          round_trip(&c, &m) && log_count(methods, "mesh.send") == 0 &&
+              log_count(methods, "mesh.path_preview") == 0 && log_count(sends, "") == 0);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* ---- a restart into an older service ---- */
+    pid = spawn_route_service(1, 0, NULL, sends, previews, methods);
+    fake_meshcored_wait_ready(WAIT_MS);
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    stage(&m, KEY_A, KEY_B, NULL);
+    check("a route staged while the service took them", rift_route_supported(&m.route));
+    fake_meshcored_stop(pid);
+    spin(&c, WAIT_MS, is_down, &m);
+    check("the service going forgets what it offered", !CAPS_READ(&m) &&
+                                                           rift_route_staged(&m.route, KEY_A));
+    pid = spawn_route_service(0, 0, NULL, sends, previews, methods);
+    fake_meshcored_wait_ready(WAIT_MS);
+    spin(&c, WAIT_MS, is_up_again, &m);
+    check("the service that came back is older", CAPS_READ(&m) && !rift_route_supported(&m.route));
+    rift_model_send_clear(&m);
+    check("the staged route is still refused, not sent AUTO",
+          rift_ipc_send_explicit(&c, KEY_A, "after restart") == -1 &&
+              round_trip(&c, &m) && !log_has(sends, "after restart"));
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* ---- the service goes away while a route is checked ---- */
+    unlink(sends);
+    pid = spawn_route_service(1, 1, NULL, sends, previews, methods);
+    check("a service that takes previews and never answers is running",
+          pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, WAIT_MS, opening_answered, &m);
+    rift_route_open(&m.route, KEY_A);
+    rift_route_add(&m.route, &m, KEY_B);
+    rift_ipc_path_preview(&c);
+    stage(&m, KEY_A, KEY_B, NULL);
+    check("a SEND is being checked", rift_ipc_send_explicit(&c, KEY_A, "lost") == 0 &&
+                                         m.outbox.checking);
+    round_trip(&c, &m);
+    fake_meshcored_stop(pid);
+    spin(&c, WAIT_MS, is_down, &m);
+    check("the send ends, said as never sent rather than unknown",
+          !m.outbox.active && m.outbox.failed && !m.outbox.unknown &&
+              strstr(m.outbox.error, "nothing was sent"));
+    check("the draft's preview is unanswered, not valid",
+          m.route.draft.check == RIFT_ROUTE_UNANSWERED);
+    check("and nothing was sent", !log_has(sends, "lost"));
+    rift_ipc_close(&c);
+}
+
 int main(void)
 {
     char runtime[] = "/tmp/rift_ipc_test.XXXXXX";
@@ -2260,6 +2553,7 @@ int main(void)
     test_repeater_control(runtime);
     test_rx_log(runtime);
     test_resend_overlap();
+    test_explicit_route(runtime);
     {
         char path[700];
 

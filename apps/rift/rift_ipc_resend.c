@@ -42,7 +42,7 @@ int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id)
         return -1;
     }
     return rift_ipc_write_send(c, c->model->outbox.conv_key, c->model->outbox.text,
-                               c->model->outbox.resend_id, now);
+                               c->model->outbox.resend_id, now, NULL);
 }
 
 void rift_ipc_send_answered(struct rift_ipc *c, const cJSON *result)

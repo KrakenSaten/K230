@@ -148,6 +148,23 @@ struct fake_meshcored_script {
     int rx_log;
     /* Every mesh.subscribe's params, one to a line, as JSON ("{}" for none). */
     const char *subscribe_log;
+
+    /* The explicit route (docs/api/mesh.md, mesh.path_preview and mesh.send
+     * "via"). With explicit_path, mesh.info says the service takes one
+     * (capabilities.manual_path_preview and explicit_direct_send), previews
+     * are answered and a send with `via` goes as "explicit". Without it this
+     * is the older service: no capabilities, mesh.path_preview unknown - and
+     * a `via` on mesh.send ignored and sent AUTO, the hazard a client must
+     * never walk into. Every send with `via` is logged to send_log as
+     * "<to>|<text>|via=<k1>,<k2>,..." ("via=" for none), in the order given. */
+    int explicit_path;
+    /* Refuse, in the real service's words, any route with a relay whose key
+     * starts with this - at preview and at send, as the real one revalidates. */
+    const char *path_refuse_prefix;
+    /* Take mesh.path_preview requests and never answer them. */
+    int preview_silent;
+    /* Every mesh.path_preview, one to a line: "<to>|<k1>,<k2>,...". */
+    const char *preview_log;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

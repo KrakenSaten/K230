@@ -12,6 +12,11 @@
  *   FAKE_MESHCORED_REFUSE   non-empty: answer mesh.nodes with an error
  *   FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT  non-empty: hold the events until
  *                           the snapshots are answered (events_after_snapshot)
+ *   FAKE_MESHCORED_SENDS    where to record every mesh.send (send_log)
+ *   FAKE_MESHCORED_EXPLICIT non-empty: take explicit routes (explicit_path)
+ *   FAKE_MESHCORED_PATH_REFUSE  refuse a route through a relay whose key
+ *                           starts with this (path_refuse_prefix)
+ *   FAKE_MESHCORED_PREVIEWS where to record every mesh.path_preview
  *
  * A negative last_heard_mono_ms or mono_ms means "this long ago", so a
  * fixture's ages do not depend on how long the host has been up.
@@ -51,6 +56,11 @@ int main(void)
     script.repeater_json = getenv("FAKE_MESHCORED_REPEATER");
     script.remote_log = getenv("FAKE_MESHCORED_REMOTE_LOG");
     script.cli_timeout_first = getenv("FAKE_MESHCORED_CLI_TIMEOUT_FIRST") != NULL;
+    /* The explicit route (tests/rift_app_test.c's route builder session). */
+    script.send_log = getenv("FAKE_MESHCORED_SENDS");
+    script.explicit_path = getenv("FAKE_MESHCORED_EXPLICIT") != NULL;
+    script.path_refuse_prefix = getenv("FAKE_MESHCORED_PATH_REFUSE");
+    script.preview_log = getenv("FAKE_MESHCORED_PREVIEWS");
     script.life_ms = life ? atoi(life) : 10000;
     if (path) {
         FILE *f = fopen(path, "r");

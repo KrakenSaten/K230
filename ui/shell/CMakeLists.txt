@@ -250,6 +250,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_ipc_resend.c
     ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
     ${REPO_DIR}/apps/rift/rift_repeater.c
+    ${REPO_DIR}/apps/rift/rift_route.c
+    ${REPO_DIR}/apps/rift/rift_ipc_path.c
     ${REPO_DIR}/apps/rift/rift_notify.c
     ${REPO_DIR}/apps/rift/rift_sound.c
     ${REPO_DIR}/apps/rift/rift_sound_helper.c
@@ -1424,6 +1426,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_ipc_resend.c
         ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
         ${REPO_DIR}/apps/rift/rift_repeater.c
+        ${REPO_DIR}/apps/rift/rift_route.c
+        ${REPO_DIR}/apps/rift/rift_ipc_path.c
         ${REPO_DIR}/apps/rift/rift_notify.c
         ${REPO_DIR}/apps/rift/rift_sound.c
         ${REPO_DIR}/apps/rift/rift_sound_helper.c
