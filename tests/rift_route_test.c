@@ -407,6 +407,13 @@ static void resend(void)
     check("a message on an explicit route says so, by the service's word",
           msg && msg->explicit_route && msg->explicit_hops == 2);
     check("and is not offered RESEND, even unacknowledged", msg && !rift_model_can_resend(msg));
+    {
+        char caption[RIFT_MSG_CAPTION_MAX];
+
+        rift_fmt_msg_caption(msg, caption, sizeof(caption));
+        check("its caption says the route was chosen, and how many relays",
+              strstr(caption, "NO ACK") && strstr(caption, "CHOSEN ROUTE, 2 RELAYS"));
+    }
     check("a RESEND of it is refused", rift_model_resend_begin(&m, 1, 10) != 0 &&
                                            !rift_model_sending(&m));
     msg = rift_model_message(&m, 3);
@@ -414,6 +421,12 @@ static void resend(void)
     msg = rift_model_message(&m, 2);
     check("an AUTO message keeps its RESEND", msg && !msg->explicit_route &&
                                                   rift_model_can_resend(msg));
+    {
+        char caption[RIFT_MSG_CAPTION_MAX];
+
+        rift_fmt_msg_caption(msg, caption, sizeof(caption));
+        check("and its caption says nothing of a chosen route", !strstr(caption, "CHOSEN"));
+    }
 }
 
 int main(void)

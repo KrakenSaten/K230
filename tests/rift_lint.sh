@@ -120,6 +120,18 @@ check "and from the route's side only in the answer to a SEND's check, while it 
 check "an explicit RESEND is never offered" \
     "$(sed -n '/^int rift_model_can_resend(/,/^}/p' "$SRC/rift_threads.c" | grep -q 'explicit_route' &&
        echo 1 || echo 0)"
+excallers=$(grep -rln --include='*.c' 'rift_ipc_send_explicit(' "$SRC" | sort | tr '\n' ' ')
+check "an explicit send is asked for only by COMMS' submit (${excallers:-nowhere})" \
+    "$([ "$excallers" = "$SRC/rift_ipc_path.c $SRC/ui/rift_comms.c " ] &&
+       [ "$(grep -c 'rift_ipc_send_explicit(' "$SRC/ui/rift_comms.c")" = 1 ] &&
+       sed -n '/^void rift_comms_submit(/,/^}/p' "$SRC/ui/rift_comms.c" | grep -q 'rift_ipc_send_explicit(' &&
+       echo 1 || echo 0)"
+pvcallers=$(grep -rln --include='*.c' 'rift_ipc_path_preview(' "$SRC" | sort | tr '\n' ' ')
+check "a preview is asked for only by the route builder (${pvcallers:-nowhere})" \
+    "$([ "$pvcallers" = "$SRC/rift_ipc_path.c $SRC/ui/rift_route_view.c " ] && echo 1 || echo 0)"
+check "the route builder and its line send nothing" \
+    "$(grep -qE 'rift_ipc_send_|rift_comms_submit|rift_ipc_write' "$SRC/ui/rift_route_view.c" \
+        "$SRC/ui/rift_route_draw.c" "$SRC/ui/rift_route_bar.c" && echo 0 || echo 1)"
 check "the route model knows nothing about LVGL" \
     "$(grep -q 'lvgl' "$SRC/rift_route.c" "$SRC/rift_route.h" "$SRC/rift_ipc_path.c" && echo 0 || echo 1)"
 # CONTACTS is a question asked of the node cache: it asks the service for
