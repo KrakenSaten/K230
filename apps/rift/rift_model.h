@@ -34,6 +34,7 @@
 #include <stdint.h>
 
 #include "rift_repeater.h"
+#include "rift_route.h"
 #include "rift_traffic.h"
 
 /* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity).
@@ -379,6 +380,14 @@ struct rift_message {
     double snr_db;
     int have_rssi;
     double rssi_dbm;
+    /* Outgoing direct only: the service sent it on a route a reader chose
+     * (mesh.messages "route": "explicit", with "path_hops" relays). Such a
+     * message is never sent again by RESEND - not even as an orphan - since
+     * the service will not retry it and a new mesh.send without its route
+     * would be AUTO (docs/api/mesh.md, mesh.send). Set from the service's
+     * word only. */
+    int explicit_route;
+    int explicit_hops;
 
     uint32_t seq; /* arrival order in this cache, newest highest */
 };
@@ -431,7 +440,12 @@ struct rift_outbox {
     int have_submitted;
     int64_t submitted_mono_ms;
     int64_t message_id; /* 0 until the reply names it */
-    char route[8];      /* "flood" or "direct", when the reply said */
+    char route[12];     /* "flood", "direct" or "explicit", when the reply said */
+    /* A send on a route a reader staged (rift_route.h): explicit_route is
+     * set from the start, and checking while the route is previewed again
+     * before mesh.send is written. Nothing has been sent while it is. */
+    int explicit_route;
+    int checking;
     int failed;
     int unknown;        /* of failed: the service went before it answered */
     char error[RIFT_TEXT_MAX];
@@ -720,6 +734,9 @@ struct rift_model {
     int ch_recent_at;
 
     struct rift_outbox outbox;
+    /* The explicit route: the builder's draft, the route staged on a
+     * conversation and what the service offers (rift_route.h). */
+    struct rift_route route;
 
     /* ---- actions (rift_actions.c) ------------------------------------- */
     /* Two slots, so an advert and a change to one node are not each other's

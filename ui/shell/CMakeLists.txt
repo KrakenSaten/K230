@@ -250,6 +250,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_ipc_resend.c
     ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
     ${REPO_DIR}/apps/rift/rift_repeater.c
+    ${REPO_DIR}/apps/rift/rift_route.c
+    ${REPO_DIR}/apps/rift/rift_ipc_path.c
     ${REPO_DIR}/apps/rift/rift_notify.c
     ${REPO_DIR}/apps/rift/rift_sound.c
     ${REPO_DIR}/apps/rift/rift_sound_helper.c
@@ -285,6 +287,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
     ${REPO_DIR}/apps/rift/ui/rift_thread.c
     ${REPO_DIR}/apps/rift/ui/rift_thread_note.c
+    ${REPO_DIR}/apps/rift/ui/rift_route_bar.c
+    ${REPO_DIR}/apps/rift/ui/rift_route_view.c
+    ${REPO_DIR}/apps/rift/ui/rift_route_draw.c
     ${REPO_DIR}/apps/rift/ui/rift_msgact.c
     ${REPO_DIR}/apps/rift/ui/rift_contacts_view.c
     ${REPO_DIR}/apps/rift/ui/rift_emoji_picker.c
@@ -1424,6 +1429,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_ipc_resend.c
         ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
         ${REPO_DIR}/apps/rift/rift_repeater.c
+        ${REPO_DIR}/apps/rift/rift_route.c
+        ${REPO_DIR}/apps/rift/rift_ipc_path.c
         ${REPO_DIR}/apps/rift/rift_notify.c
         ${REPO_DIR}/apps/rift/rift_sound.c
         ${REPO_DIR}/apps/rift/rift_sound_helper.c
@@ -1459,6 +1466,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
         ${REPO_DIR}/apps/rift/ui/rift_thread.c
         ${REPO_DIR}/apps/rift/ui/rift_thread_note.c
+        ${REPO_DIR}/apps/rift/ui/rift_route_bar.c
+        ${REPO_DIR}/apps/rift/ui/rift_route_view.c
+        ${REPO_DIR}/apps/rift/ui/rift_route_draw.c
         ${REPO_DIR}/apps/rift/ui/rift_msgact.c
         ${REPO_DIR}/apps/rift/ui/rift_contacts_view.c
         ${REPO_DIR}/apps/rift/ui/rift_emoji_picker.c

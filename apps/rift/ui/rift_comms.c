@@ -13,6 +13,7 @@
 #include "app.h"
 #include "pos_styles.h"
 #include "rift_conv_list.h"
+#include "rift_route_bar.h"
 #include "rift_thread.h"
 
 #include <stdio.h>
@@ -75,6 +76,9 @@ struct rift_comms {
     lv_obj_t *ctx_stats;
     lv_obj_t *ctx_tally;
     lv_obj_t *ctx_history;
+    /* Landscape: how the next message goes, and SET ROUTE / AUTO, in the
+     * route pane (ui/rift_route_bar.h); portrait has it under the thread. */
+    struct rift_route_bar *ctx_route;
 
     /* which conversation the list last revealed */
     char shape_open[RIFT_KEY_HEX];
@@ -228,6 +232,16 @@ void rift_comms_submit(struct rift_app *app, const char *text)
         return;
     }
     rift_model_send_clear(&app->model);
+    if (rift_route_staged(&app->model.route, peer)) {
+        /* The route chosen for this conversation, and never AUTO in its
+         * place: refused, it is refused (rift_ipc_send_explicit). */
+        if (rift_ipc_send_explicit(&app->ipc, peer, text) == 0) {
+            snprintf(app->route_sent, sizeof(app->route_sent), "%s", text);
+            app->route_sent_pending = 1;
+        }
+        rift_app_refresh(app);
+        return;
+    }
     if (rift_ipc_send_message(&app->ipc, peer, text) == 0) {
         /* The field is emptied only once the request has been written. A
          * composer that cleared itself and then failed would have thrown
@@ -240,6 +254,29 @@ void rift_comms_submit(struct rift_app *app, const char *text)
         }
     }
     rift_app_refresh(app);
+}
+
+/* A send on a chosen route has ended: the composer is emptied only when the
+ * service accepted the message, and only of the words that were sent. A
+ * refusal - at the route's check or by the service at SEND - leaves them. */
+static void settle_route_send(struct rift_app *app)
+{
+    const struct rift_outbox *o = &app->model.outbox;
+
+    if (!app->route_sent_pending || o->active) {
+        return;
+    }
+    app->route_sent_pending = 0;
+    if (o->failed || o->message_id <= 0) {
+        return;
+    }
+    if (app->comms && rift_thread_field(app->comms->thread) &&
+        strcmp(lv_textarea_get_text(rift_thread_field(app->comms->thread)), app->route_sent) == 0) {
+        rift_thread_composer_clear(app->comms->thread);
+    }
+    if (app->composer && strcmp(lv_textarea_get_text(app->composer), app->route_sent) == 0) {
+        lv_textarea_set_text(app->composer, "");
+    }
 }
 
 void rift_comms_resend(struct rift_app *app, int64_t message_id)
@@ -294,6 +331,7 @@ static void build_ctx(struct rift_comms *v)
 
     panel = rift_panel(v->pane_ctx, "ROUTE");
     v->ctx_chain = wrap_label(panel, POS_STYLE_CAPTION);
+    v->ctx_route = rift_route_bar_create(v->app, panel, 1);
     v->ctx_stats = wrap_label(v->pane_ctx, POS_STYLE_CAPTION);
     v->ctx_tally = wrap_label(v->pane_ctx, POS_STYLE_CAPTION);
     v->ctx_history = wrap_label(v->pane_ctx, POS_STYLE_TEXT_MUTED);
@@ -327,6 +365,7 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
     if (!v->pane_ctx) {
         return;
     }
+    rift_route_bar_refresh(v->ctx_route, peer); /* hidden for a channel, or none */
     if (!peer) {
         lv_label_set_text(v->ctx_chain, "No conversation is open.");
         lv_label_set_text(v->ctx_stats, "");
@@ -566,6 +605,7 @@ void rift_comms_destroy(struct rift_app *app)
         return;
     }
     rift_thread_destroy(v->thread);
+    rift_route_bar_destroy(v->ctx_route);
     rift_conv_list_destroy(v->rows);
     /* Every object is a child of the section container and is deleted with
      * it by the shell; the private block is this app's to release. */
@@ -590,6 +630,7 @@ void rift_comms_refresh(struct rift_app *app)
     if (!v) {
         return;
     }
+    settle_route_send(app);
     m = &app->model;
     now = rift_app_now(app);
     peer = rift_comms_open_peer(app);

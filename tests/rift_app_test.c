@@ -32,6 +32,7 @@
 #include "rift_device.h"
 #include "rift_emoji_pick.h"
 #include "rift_emoji_picker.h"
+#include "rift_emoji_style.h"
 #include "rift_find.h"
 #include "rift_graph.h"
 #include "rift_manage.h"
@@ -44,6 +45,8 @@
 #include "rift_netview.h"
 #include "rift_nodes.h"
 #include "rift_repeater_view.h"
+#include "rift_route_bar.h"
+#include "rift_route_view.h"
 #include "rift_scan.h"
 #include "rift_rxlog_view.h"
 #include "rift_session.h"
@@ -6007,6 +6010,635 @@ static void reliability_session(void)
     kb_shows = kb_before;
 }
 
+/* ---- feat/rift-visual-path-builder -----------------------------------------
+ *
+ * The route builder end to end, against the scripted meshcored on a real
+ * socket (docs/apps/rift/VISUAL_PATH_BUILDER.md): SET ROUTE from the
+ * conversation, repeaters tapped on the map and added from the list, the
+ * numbers and lines on the map agreeing with the list, a node that is not a
+ * repeater refused, a relay with no location listed and never drawn, CUT,
+ * UNDO, the service's refusal, CANCEL keeping the draft, USE ROUTE, the SEND
+ * that carries exactly the chosen keys once, AUTO unchanged, the empty
+ * route, a refusal at SEND keeping the text, every text size in both shapes
+ * and on HDMI, the service going away, and an older service. No radio. */
+
+#define RT_TO "b2cafe1e7d0411223344556677889900aabbccddeeff001122334455667788b2"
+#define RT_NORD "a19ac21e7d0411223344556677889900aabbccddeeff001122334455667788b1"
+#define RT_SEVEN "c3beef1e7d0411223344556677889900aabbccddeeff001122334455667788b3"
+#define RT_SKOG "e7aa000000000000000000000000000000000000000000000000000000000007"
+#define RT_ANNA "f1000000000000000000000000000000000000000000000000000000000000f1"
+#define RT_DD "dd00000000000000000000000000000000000000000000000000000000000000"
+#define RT_APE "a7a7000000000000000000000000000000000000000000000000000000000000"
+
+static const char RT_NODES[] =
+    "[{\"public_key\":\"" RT_TO "\",\"node_hash\":\"b2\",\"name\":\"HYTTA\",\"type\":1,"
+    "\"lat\":59.9400,\"lon\":10.7200,\"last_heard_mono_ms\":-60000},"
+    "{\"public_key\":\"" RT_NORD "\",\"node_hash\":\"a1\",\"name\":\"RPT-NORD\",\"type\":2,"
+    "\"lat\":59.9650,\"lon\":10.7600,\"last_heard_mono_ms\":-120000},"
+    "{\"public_key\":\"" RT_SEVEN "\",\"node_hash\":\"c3\",\"name\":\"RPT-7\",\"type\":2,"
+    "\"lat\":59.9250,\"lon\":10.8000,\"last_heard_mono_ms\":-180000},"
+    "{\"public_key\":\"" RT_SKOG "\",\"node_hash\":\"e7\",\"name\":\"RPT-SKOG\",\"type\":2,"
+    "\"last_heard_mono_ms\":-240000},"
+    "{\"public_key\":\"" RT_ANNA "\",\"node_hash\":\"f1\",\"name\":\"ANNA\",\"type\":1,"
+    "\"lat\":59.9520,\"lon\":10.6900,\"last_heard_mono_ms\":-300000},"
+    "{\"public_key\":\"" RT_DD "\",\"node_hash\":\"dd\",\"name\":\"RPT-DD\",\"type\":2,"
+    "\"lat\":59.9750,\"lon\":10.8200,\"last_heard_mono_ms\":-360000},"
+    "{\"public_key\":\"" RT_APE "\",\"node_hash\":\"a7\",\"name\":\"RPT-APE \xF0\x9F\x90\xB5\",\"type\":2,"
+    "\"lat\":59.9000,\"lon\":10.6500,\"last_heard_mono_ms\":-420000}]";
+
+static char rt_sends[512];
+static char rt_previews[512];
+static char rt_methods[512];
+
+static pid_t route_spawn(const char *bin, int explicit_path, const char *methods)
+{
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", RT_NODES, 1);
+        if (explicit_path) {
+            setenv("FAKE_MESHCORED_EXPLICIT", "1", 1);
+        }
+        setenv("FAKE_MESHCORED_PATH_REFUSE", "dd", 1);
+        setenv("FAKE_MESHCORED_SENDS", rt_sends, 1);
+        setenv("FAKE_MESHCORED_PREVIEWS", rt_previews, 1);
+        setenv("FAKE_MESHCORED_METHODS", methods, 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "180000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+
+static void route_kill(pid_t pid)
+{
+    if (pid > 0) {
+        kill(pid, SIGTERM);
+        waitpid(pid, NULL, 0);
+    }
+}
+
+static int route_ready(void)
+{
+    return app && app->model.route.caps_known && app->model.snapshot_valid &&
+           app->model.node_count >= 6 && app->model.have_identity;
+}
+
+static int route_down(void)
+{
+    return app && !rift_ipc_connected(&app->ipc);
+}
+
+static int route_checked(void)
+{
+    const struct rift_route_draft *d = &app->model.route.draft;
+
+    return d->request == 0 && (d->check == RIFT_ROUTE_VALID || d->check == RIFT_ROUTE_REFUSED);
+}
+
+static int route_send_done(void)
+{
+    return app && !app->model.outbox.active;
+}
+
+/* Lines of a log holding text, or being exactly it. */
+static int log_count_of(const char *path, const char *text, int exact)
+{
+    FILE *f = fopen(path, "r");
+    char line[2048];
+    int n = 0;
+
+    if (!f) {
+        return 0;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = '\0';
+        n += exact ? strcmp(line, text) == 0 : strstr(line, text) != NULL;
+    }
+    fclose(f);
+    return n;
+}
+
+/* A finger on a node's marker, where MAP put it; 0 when it has none. */
+static int route_tap_marker(const char *key)
+{
+    const struct rift_node *n = rift_model_find(&app->model, key);
+    const struct rift_map_view *g = rift_map_view_geometry(app);
+    lv_obj_t *canvas = rift_map_view_canvas(app);
+    lv_area_t a;
+    double x;
+    double y;
+
+    if (!n || !n->have_location || !g || !canvas) {
+        return 0;
+    }
+    lv_obj_update_layout(canvas);
+    lv_obj_get_coords(canvas, &a);
+    rift_map_project(g, n->lat, n->lon, &x, &y);
+    tap_point(a.x1 + (int32_t)x, a.y1 + (int32_t)y);
+    pump(120);
+    return 1;
+}
+
+static lv_obj_t *word_button(const char *word)
+{
+    return action_of(find_exact(content(), word));
+}
+
+/* A row of the builder's list, by the name it shows. */
+static lv_obj_t *route_row(const char *name)
+{
+    lv_obj_t *l = find_exact(content(), name);
+
+    return l ? lv_obj_get_parent(l) : NULL;
+}
+
+static int enabled(lv_obj_t *button)
+{
+    return button && !lv_obj_has_state(button, LV_STATE_DISABLED);
+}
+
+static void use_external(int32_t w, int32_t h)
+{
+    struct pos_panel panel = { .width = w, .height = h, .corners = { 0, 0, 0, 0 } };
+    struct pos_display_geometry g;
+
+    pos_display_geometry_init(&g, &panel, POS_ROTATION_0);
+    pocketui_set_display_geometry(&g);
+    finger_point.x = 0;
+    finger_point.y = 0;
+    lv_display_set_resolution(disp, g.width, g.height);
+    lv_obj_set_size(g_content, g.width, g.height - STATUS_H);
+    lv_obj_set_pos(g_content, 0, STATUS_H);
+    if (app_header) {
+        lv_obj_set_height(app_header, header_h_for(g.width > g.height));
+    }
+    pump(80);
+}
+
+/* Visible labels under obj showing text that are not set in a colour-emoji
+ * font (rift_emoji_style.h): such a label draws an emoji as a box. */
+static int emoji_labels_bad(lv_obj_t *obj, const char *text)
+{
+    static const enum pos_style_role roles[] = { POS_STYLE_CAPTION, POS_STYLE_ROW_TITLE };
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || !visible(obj)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), text)) {
+        const lv_font_t *font = lv_obj_get_style_text_font(obj, LV_PART_MAIN);
+        int ok = 0;
+
+        for (i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
+            lv_style_value_t v;
+
+            if (lv_style_get_prop(rift_emoji_style(roles[i]), LV_STYLE_TEXT_FONT, &v) ==
+                    LV_STYLE_RES_FOUND &&
+                v.ptr == font) {
+                ok = 1;
+            }
+        }
+        if (!ok) {
+            printf("     \"%s\" is not in a colour-emoji font\n", lv_label_get_text(obj));
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += emoji_labels_bad(lv_obj_get_child(obj, (int32_t)i), text);
+    }
+    return n;
+}
+
+/* The builder open for HYTTA with a route of three - two placed, one not. */
+static void route_three(void)
+{
+    struct rift_route *r = &app->model.route;
+
+    rift_app_open_conversation(app, RT_TO);
+    pump(120);
+    rift_route_bar_open_builder(app, RT_TO);
+    rift_route_add(r, &app->model, RT_NORD);
+    rift_route_add(r, &app->model, RT_SEVEN);
+    rift_route_add(r, &app->model, RT_SKOG);
+    rift_app_refresh(app);
+    live_until(route_checked, 8000);
+    pump(300);
+}
+
+static void route_builder_session(void)
+{
+    static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
+                                                POS_TEXT_SIZE_LARGE };
+    static const enum pos_rotation turns[] = { POS_ROTATION_0, POS_ROTATION_270 };
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    enum pos_text_size was = pos_theme_current_text_size();
+    struct rift_route *r;
+    struct rift_route_view *rv;
+    char sock[512];
+    char want[1024];
+    char older_methods[512];
+    struct stat st;
+    lv_obj_t *field;
+    int waited;
+    size_t s;
+    size_t t;
+    pid_t pid;
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the route builder session needs RIFT_FAKE_MESHCORED and "
+               "POCKETOS_RUNTIME_DIR; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(rt_sends, sizeof(rt_sends), "%s/route-sends", g_state_dir);
+    snprintf(rt_previews, sizeof(rt_previews), "%s/route-previews", g_state_dir);
+    snprintf(rt_methods, sizeof(rt_methods), "%s/route-methods", g_state_dir);
+    snprintf(older_methods, sizeof(older_methods), "%s/route-methods-older", g_state_dir);
+    unlink(rt_sends);
+    unlink(rt_previews);
+    unlink(rt_methods);
+    unlink(older_methods);
+    pos_theme_select_text_size(POS_TEXT_SIZE_MEDIUM);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pid = route_spawn(bin, 1, rt_methods);
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("route: the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+    app_start();
+    r = &app->model.route;
+    check("route: RIFT reads the nodes and what the service offers", live_until(route_ready, 8000));
+    check("route: this meshcored takes a chosen route", rift_route_supported(r));
+
+    /* ---- the conversation, AUTO ---- */
+    rift_app_open_conversation(app, RT_TO);
+    pump(200);
+    field = rift_comms_field(app);
+    field_set(field, "Hei via ruta");
+    check("route: the conversation says how the next message goes, AUTO",
+          find_text(content(), "ROUTE AUTO") != NULL && rift_route_staged(r, RT_TO) == NULL);
+    check("route: SET ROUTE is offered", enabled(word_button("SET ROUTE")));
+    shot("route-portrait-comms-auto");
+
+    /* ---- the builder ---- */
+    tap(word_button("SET ROUTE"));
+    pump(300);
+    rv = rift_map_view_route(app);
+    check("route: SET ROUTE opens the builder on MAP",
+          app->section == RIFT_SEC_MAP && r->draft.active && rv != NULL);
+    check("route: with the recipient named, and fixed",
+          find_text(content(), "TO HYTTA") != NULL && strcmp(r->draft.to, RT_TO) == 0 &&
+              find_text(content(), "RECIPIENT, FIXED") != NULL);
+    check("route: its panel in place of MAP's node panel",
+          find_exact(content(), "ROUTE BUILDER") != NULL && find_exact(content(), "NODE") == NULL);
+    check("route: an empty route is checked as DIRECT with no relay",
+          live_until(route_checked, 8000) && r->draft.check == RIFT_ROUTE_VALID &&
+              r->draft.count == 0);
+    pump(200);
+    check("route: and says it is not AUTO", find_text(content(), "NO RELAY: STRAIGHT TO HYTTA") &&
+                                                find_text(content(), "NEVER FLOODED"));
+
+    check("route: a repeater tapped on the map joins the route",
+          route_tap_marker(RT_NORD) && r->draft.count == 1 && strcmp(r->draft.via[0], RT_NORD) == 0);
+    check("route: a node that is not a repeater is refused, and says why",
+          route_tap_marker(RT_ANNA) && r->draft.count == 1 &&
+              find_text(content(), "ANNA is not a repeater") != NULL);
+    check("route: the recipient tapped is not a relay either",
+          route_tap_marker(RT_TO) && r->draft.count == 1 &&
+              find_text(content(), "the route ends there") != NULL);
+    check("route: the second repeater after the first",
+          route_tap_marker(RT_SEVEN) && r->draft.count == 2 && strcmp(r->draft.via[1], RT_SEVEN) == 0);
+    check("route: the route as it stands is checked", live_until(route_checked, 8000) &&
+                                                         r->draft.check == RIFT_ROUTE_VALID);
+    pump(300);
+    check("route: the panel says the service checked it and nothing was sent",
+          find_text(content(), "CHECKED BY MESHCORED") && find_text(content(), "NOTHING SENT"));
+    check("route: the map numbers both relays", rift_route_view_drawn_marks(rv) == 2);
+    check("route: and draws RPT-NORD to RPT-7 to HYTTA, nothing from this device, which has no "
+          "location",
+          rift_route_view_drawn_lines(rv) == 2);
+    check("route: the list agrees, in the same order",
+          route_row("RPT-NORD") && route_row("RPT-7") &&
+              top_of(route_row("RPT-NORD")) < top_of(route_row("RPT-7")) &&
+              find_exact(route_row("RPT-NORD"), "1") && find_exact(route_row("RPT-7"), "2"));
+    check("route: the chain reads sender, relays, recipient",
+          find_text(content(), "YOU \xE2\x80\xBA RPT-NORD \xE2\x80\xBA RPT-7 \xE2\x80\xBA HYTTA") !=
+              NULL);
+    check("route: the panel says what the lines are not",
+          find_text(content(), "not radio links") != NULL);
+    check("route: USE ROUTE is offered for the route as checked", enabled(word_button("USE ROUTE")));
+    check("route: nothing in the builder's captions is cut", captions_clipped(frame()) == 0 &&
+                                                                 labels_overflowing(content()) == 0);
+    shot("route-portrait-selected");
+    snprintf(want, sizeof(want), "%s|%s,%s", RT_TO, RT_NORD, RT_SEVEN);
+    check("route: the previews asked about the keys chosen, in order",
+          log_count_of(rt_previews, want, 1) >= 1);
+    check("route: choosing and checking sent nothing", log_count_of(rt_methods, "mesh.send", 1) == 0);
+
+    /* ---- the list: a repeater with no location ---- */
+    tap(word_button("RELAYS"));
+    pump(200);
+    check("route: RELAYS lists the repeaters the route can take, placed or not",
+          route_row("RPT-SKOG") && route_row("RPT-DD") && !route_row("RPT-NORD") &&
+              !route_row("ANNA") && !route_row("HYTTA"));
+    check("route: one with no location says so",
+          find_text(route_row("RPT-SKOG"), "NO LOCATION") != NULL);
+    shot("route-portrait-repeaters");
+    tap(route_row("RPT-SKOG"));
+    check("route: a row adds its repeater after the last",
+          r->draft.count == 3 && strcmp(r->draft.via[2], RT_SKOG) == 0);
+    tap(word_button("ROUTE"));
+    live_until(route_checked, 8000);
+    pump(300);
+    check("route: an unplaced relay is in the list and not on the map, and no line crosses it",
+          route_row("RPT-SKOG") && find_exact(route_row("RPT-SKOG"), "3") &&
+              rift_route_view_drawn_marks(rv) == 2 && rift_route_view_drawn_lines(rv) == 1);
+    shot("route-portrait-unlocated");
+
+    /* ---- cut, undo ---- */
+    tap(route_row("RPT-7"));
+    check("route: a row picked in the list offers to cut there",
+          r->draft.marked == 1 && word_button("REMOVE 2-3") != NULL);
+    tap(word_button("REMOVE 2-3"));
+    check("route: and cuts it and every waypoint after it",
+          r->draft.count == 1 && strcmp(r->draft.via[0], RT_NORD) == 0);
+    tap(word_button("UNDO"));
+    check("route: UNDO takes the last off", r->draft.count == 0);
+    check("route: CLEAR has nothing to clear", !enabled(word_button("CLEAR")));
+
+    /* ---- the service refuses ---- */
+    tap(word_button("RELAYS"));
+    tap(route_row("RPT-DD"));
+    tap(word_button("ROUTE"));
+    live_until(route_checked, 8000);
+    pump(300);
+    check("route: the service's refusal is shown in its words",
+          r->draft.check == RIFT_ROUTE_REFUSED &&
+              find_text(content(), "REFUSED BY MESHCORED") != NULL &&
+              find_text(content(), "not a repeater") != NULL);
+    check("route: and the route cannot be used", !enabled(word_button("USE ROUTE")));
+    shot("route-portrait-refused");
+
+    /* ---- CANCEL ---- */
+    tap(word_button("CANCEL"));
+    pump(300);
+    check("route: CANCEL goes back to the conversation",
+          app->section == RIFT_SEC_COMMS && rift_comms_open_peer(app) &&
+              strcmp(rift_comms_open_peer(app), RT_TO) == 0 && !r->draft.active);
+    check("route: with what was typed still there",
+          strcmp(lv_textarea_get_text(rift_comms_field(app)), "Hei via ruta") == 0);
+    check("route: nothing staged, still AUTO",
+          rift_route_staged(r, RT_TO) == NULL && find_text(content(), "ROUTE AUTO") != NULL);
+    check("route: and nothing was sent", log_count_of(rt_sends, "", 0) == 0);
+
+    /* ---- USE ROUTE ---- */
+    tap(word_button("SET ROUTE"));
+    pump(200);
+    check("route: the builder opens empty again", r->draft.active && r->draft.count == 0);
+    route_tap_marker(RT_NORD);
+    route_tap_marker(RT_SEVEN);
+    live_until(route_checked, 8000);
+    pump(200);
+    tap(word_button("USE ROUTE"));
+    pump(300);
+    check("route: USE ROUTE stages it and goes back to the conversation",
+          app->section == RIFT_SEC_COMMS && rift_route_staged(r, RT_TO) &&
+              rift_route_staged(r, RT_TO)->count == 2);
+    check("route: which says EXPLICIT, and the relays in order",
+          find_text(content(), "ROUTE EXPLICIT") != NULL &&
+              find_text(content(), "RPT-NORD \xE2\x80\xBA RPT-7") != NULL);
+    check("route: with AUTO to go back", enabled(word_button("AUTO")) &&
+                                             word_button("EDIT ROUTE") != NULL);
+    check("route: the text is still there",
+          strcmp(lv_textarea_get_text(rift_comms_field(app)), "Hei via ruta") == 0);
+    shot("route-portrait-staged");
+
+    /* ---- SEND ---- */
+    tap(word_button("SEND"));
+    check("route: SEND goes through the route's check and is answered",
+          live_until(route_send_done, 8000) && !app->model.outbox.failed &&
+              strcmp(app->model.outbox.route, "explicit") == 0);
+    snprintf(want, sizeof(want), "%s|Hei via ruta|via=%s,%s", RT_TO, RT_NORD, RT_SEVEN);
+    check("route: mesh.send carried exactly the chosen keys, in order",
+          log_count_of(rt_sends, want, 1) == 1);
+    check("route: once", log_count_of(rt_sends, "Hei via ruta", 0) == 1);
+    pump(300);
+    check("route: the composer is emptied once the service accepted it",
+          strcmp(lv_textarea_get_text(rift_comms_field(app)), "") == 0);
+    {
+        const struct rift_message *msg = rift_model_message(&app->model, app->model.outbox.message_id);
+
+        check("route: the message is shown, sent on the chosen route",
+              msg && msg->explicit_route && find_text(content(), "Hei via ruta") != NULL);
+        check("route: and is never offered RESEND", msg && !rift_model_can_resend(msg));
+    }
+    check("route: the route stays chosen for the next message", rift_route_staged(r, RT_TO) != NULL);
+    shot("route-portrait-sent");
+
+    /* Two presses in one pass of the panel: one send. */
+    field_set(rift_comms_field(app), "to ganger");
+    rift_comms_submit(app, lv_textarea_get_text(rift_comms_field(app)));
+    rift_comms_submit(app, lv_textarea_get_text(rift_comms_field(app)));
+    live_until(route_send_done, 8000);
+    pump(200);
+    check("route: a double press sends once", log_count_of(rt_sends, "to ganger", 0) == 1);
+
+    /* ---- AUTO, unchanged ---- */
+    tap(word_button("AUTO"));
+    check("route: AUTO forgets the chosen route", rift_route_staged(r, RT_TO) == NULL &&
+                                                      find_text(content(), "ROUTE AUTO") != NULL);
+    field_set(rift_comms_field(app), "auto igjen");
+    tap(word_button("SEND"));
+    live_until(route_send_done, 8000);
+    snprintf(want, sizeof(want), "%s|auto igjen", RT_TO);
+    check("route: an AUTO send is what it always was: no via at all",
+          log_count_of(rt_sends, want, 1) == 1 && log_count_of(rt_sends, "auto igjen|via", 0) == 0);
+
+    /* ---- the empty route: DIRECT with no relay ---- */
+    tap(word_button("SET ROUTE"));
+    live_until(route_checked, 8000);
+    pump(200);
+    check("route: with no relay the button says DIRECT", enabled(word_button("USE DIRECT")));
+    tap(word_button("USE DIRECT"));
+    pump(200);
+    check("route: and the conversation says so", find_text(content(), "DIRECT, NO RELAY") != NULL);
+    field_set(rift_comms_field(app), "direkte");
+    tap(word_button("SEND"));
+    live_until(route_send_done, 8000);
+    snprintf(want, sizeof(want), "%s|direkte|via=", RT_TO);
+    check("route: is sent with an empty via, never AUTO", log_count_of(rt_sends, want, 1) == 1);
+
+    /* ---- refused at SEND: the text stays ---- */
+    {
+        /* A route that has gone bad since it was staged. */
+        static const char bad[1][RIFT_ROUTE_KEY] = { RT_DD };
+
+        rift_route_stage_set(r, RT_TO, bad, 1, NULL);
+    }
+    rift_app_refresh(app);
+    field_set(rift_comms_field(app), "avvist");
+    tap(word_button("SEND"));
+    live_until(route_send_done, 8000);
+    pump(300);
+    check("route: a route refused at SEND is said, and nothing was sent",
+          app->model.outbox.failed && strstr(app->model.outbox.error, "route refused") &&
+              log_count_of(rt_sends, "avvist", 0) == 0 && find_text(content(), "Not sent") != NULL);
+    check("route: and the text is kept", strcmp(lv_textarea_get_text(rift_comms_field(app)),
+                                                "avvist") == 0);
+    shot("route-portrait-send-refused");
+    rift_route_auto(r, RT_TO);
+    field_set(rift_comms_field(app), "");
+
+    /* ---- every text size, both shapes ---- */
+    for (t = 0; t < sizeof(turns) / sizeof(turns[0]); t++) {
+        for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+            const char *shape = turns[t] == POS_ROTATION_0 ? "portrait" : "landscape";
+            const char *size = pos_text_size_name(sizes[s]);
+            char what[160];
+
+            pos_theme_select_text_size(sizes[s]);
+            use_display(turns[t], PANEL_CORNER);
+            app_leave();
+            app_start();
+            live_until(route_ready, 8000);
+            route_three();
+            rv = rift_map_view_route(app);
+            snprintf(what, sizeof(what), "route: %s, %s: the builder is open, checked", size, shape);
+            check(what, app->section == RIFT_SEC_MAP && r->draft.check == RIFT_ROUTE_VALID);
+            snprintf(what, sizeof(what), "route: %s, %s: no caption or button word cut", size, shape);
+            check(what, captions_clipped(frame()) == 0 && labels_overflowing(content()) == 0);
+            snprintf(what, sizeof(what), "route: %s, %s: the map shows the two placed relays", size,
+                     shape);
+            check(what, rift_route_view_drawn_marks(rv) == 2 && rift_route_view_drawn_lines(rv) == 1);
+            snprintf(what, sizeof(what), "route: %s, %s: the panel is inside the body", size, shape);
+            check(what, inside_body(rift_route_view_panel(rv)));
+            snprintf(what, sizeof(what), "route-%s-%s", shape, size);
+            shot(what);
+            if (sizes[s] == POS_TEXT_SIZE_LARGE) {
+                /* Found on unit B in landscape at Large: the list below the
+                 * fold, and the key cursor not brought into view. By keys,
+                 * as a keyboard-base reader would. */
+                lv_obj_t *row;
+
+                key(LV_KEY_RIGHT);
+                key(LV_KEY_DOWN);
+                pump(200);
+                row = route_row("RPT-DD");
+                snprintf(what, sizeof(what),
+                         "route: %s, %s: RELAYS by key, the cursor's row is in the panel's view",
+                         size, shape);
+                check(what, row && lv_obj_has_state(row, LV_STATE_CHECKED) &&
+                                within(row, lv_obj_get_parent(lv_obj_get_parent(row))));
+                snprintf(what, sizeof(what), "route-%s-%s-relays-key", shape, size);
+                shot(what);
+                key(LV_KEY_LEFT);
+                pump(200);
+                snprintf(what, sizeof(what), "route: %s, %s: back to the route list, its first row in view",
+                         size, shape);
+                row = route_row("RPT-NORD");
+                check(what, row && within(row, lv_obj_get_parent(lv_obj_get_parent(row))));
+            }
+            if (sizes[s] == POS_TEXT_SIZE_MEDIUM) {
+                /* A name with an emoji (found on unit B: a box in the chain):
+                 * drawn folded for the colour-emoji font, never as the raw
+                 * code point the caption font has no glyph for. */
+                rift_route_add(r, &app->model, RT_APE);
+                rift_app_refresh(app);
+                live_until(route_checked, 8000);
+                pump(300);
+                snprintf(what, sizeof(what),
+                         "route: %s: an emoji in a relay's name is folded in the chain and the list",
+                         shape);
+                check(what, find_text(content(), "RPT-APE") != NULL &&
+                                emoji_labels_bad(content(), "\xF0\x9F\x90\xB5") == 0);
+                snprintf(what, sizeof(what), "route-%s-emoji-name", shape);
+                shot(what);
+                rift_route_undo(r);
+                rift_app_refresh(app);
+                live_until(route_checked, 8000);
+                pump(200);
+                tap(word_button("USE ROUTE"));
+                pump(300);
+                if (app->wide) {
+                    /* The console keeps its height for messages (DS §37.2):
+                     * its header names the chosen route, DETAILS has it whole. */
+                    check("route: landscape: the thread's header says a route is chosen",
+                          find_text(thread_pane(), "CHOSEN ROUTE") != NULL &&
+                              find_text(thread_pane(), "ROUTE EXPLICIT") == NULL);
+                    rift_app_toggle_details(app);
+                    pump(300);
+                }
+                snprintf(what, sizeof(what), "route: %s: the conversation says the chosen route",
+                         shape);
+                check(what, find_text(content(), "ROUTE EXPLICIT") != NULL &&
+                                enabled(word_button("AUTO")) && labels_overflowing(content()) == 0);
+                snprintf(what, sizeof(what), "route-%s-comms-staged", shape);
+                shot(what);
+                if (app->wide) {
+                    rift_app_toggle_details(app);
+                }
+                rift_route_auto(r, RT_TO);
+            }
+            rift_route_close(r);
+        }
+    }
+
+    /* ---- HDMI ---- */
+    pos_theme_select_text_size(POS_TEXT_SIZE_MEDIUM);
+    use_external(1280, 720);
+    app_leave();
+    app_start();
+    live_until(route_ready, 8000);
+    route_three();
+    check("route: HDMI 1280x720: the builder lays out beside the map",
+          app->wide && captions_clipped(frame()) == 0 &&
+              inside_body(rift_route_view_panel(rift_map_view_route(app))));
+    shot("route-hdmi-1280x720");
+    rift_route_close(r);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_leave();
+    app_start();
+    live_until(route_ready, 8000);
+
+    /* ---- the service goes away with the builder open ---- */
+    route_three();
+    route_kill(pid);
+    check("route: the service went", live_until(route_down, 8000));
+    pump(300);
+    rv = rift_map_view_route(app);
+    check("route: the builder says so and offers nothing to use",
+          find_text(content(), "meshcored is not answering") != NULL &&
+              !enabled(word_button("USE ROUTE")));
+    check("route: and does not forget the route drawn", r->draft.active && r->draft.count == 3);
+    shot("route-portrait-disconnected");
+
+    /* ---- an older service comes back ---- */
+    pid = route_spawn(bin, 0, older_methods);
+    check("route: an older service is read for itself",
+          live_until(route_ready, 12000) && !rift_route_supported(r));
+    pump(300);
+    check("route: the builder says only AUTO is possible",
+          find_text(content(), "does not take a chosen route") != NULL &&
+              !enabled(word_button("USE ROUTE")));
+    tap(word_button("CANCEL"));
+    pump(300);
+    check("route: the conversation says the same, and offers no SET ROUTE",
+          find_text(content(), "CANNOT TAKE A CHOSEN ROUTE") != NULL &&
+              !enabled(word_button("SET ROUTE")));
+    shot("route-portrait-unsupported");
+    check("route: the older service was never asked for a preview, nor a send",
+          log_count_of(older_methods, "mesh.path_preview", 1) == 0 &&
+              log_count_of(older_methods, "mesh.send", 1) == 0);
+    app_stop();
+    route_kill(pid);
+    pos_theme_select_text_size(was);
+}
+
 /* Shared-style state fixture: native simulator pixels, no service or app
  * layout changes. The same geometry is used for both sides of a revision. */
 static void theme_state_proof(void)
@@ -6109,6 +6741,17 @@ int main(void)
     lv_obj_remove_style_all(g_content);
     lv_obj_remove_flag(g_content, LV_OBJ_FLAG_SCROLLABLE);
     use_display(POS_ROTATION_0, PANEL_CORNER);
+
+    /* $RIFT_APP_TEST_ONLY=route: the route builder's session alone, for a
+     * focused run; tests/rift_shell_test.sh runs everything. */
+    if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "route") == 0) {
+        route_builder_session();
+        if (shots_dir) {
+            printf("rift_app_test: %d screenshot(s) in %s\n", shots_taken, shots_dir);
+        }
+        printf("rift_app_test: %d checks, %d failure(s)\n", checks, failed);
+        return failed ? 1 : 0;
+    }
 
     /* ---- portrait, with no service at all ----------------------------- */
     app_start();
@@ -7486,6 +8129,8 @@ int main(void)
     background_session();
     navigation_session();
     background_live_session();
+    /* feat/rift-visual-path-builder: the route builder, live. */
+    route_builder_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */

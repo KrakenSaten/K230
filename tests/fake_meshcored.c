@@ -9,6 +9,7 @@
 #include "pocketipc/server.h"
 
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -386,6 +387,66 @@ static int listed(char (*keys)[65], int count, const char *key)
     return 0;
 }
 
+/* ---- the explicit route -------------------------------------------------- */
+
+#define REFUSED_RELAY "relay is missing, local, recipient or not a repeater"
+
+static void log_line(const char *path, const char *fmt, ...)
+{
+    FILE *f;
+    va_list ap;
+
+    if (!path || !(f = fopen(path, "a"))) {
+        return;
+    }
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
+
+/* `via` as the real service takes it - an array of whole keys - written to
+ * keys as "k1,k2,..." in the order given, and the first byte of each to hex
+ * (a one-byte path hash). -1 for anything else. */
+static int via_keys(const cJSON *via, char *keys, size_t len, char *hex, int *count)
+{
+    const cJSON *k;
+    size_t at = 0;
+    int n = 0;
+
+    keys[0] = '\0';
+    hex[0] = '\0';
+    if (!cJSON_IsArray(via) || cJSON_GetArraySize(via) > 63) {
+        return -1;
+    }
+    cJSON_ArrayForEach (k, via) {
+        if (!cJSON_IsString(k) || strlen(k->valuestring) != 64 || at + 66 > len) {
+            return -1;
+        }
+        at += (size_t)snprintf(keys + at, len - at, "%s%s", n ? "," : "", k->valuestring);
+        memcpy(hex + n * 2, k->valuestring, 2);
+        hex[n * 2 + 2] = '\0';
+        n++;
+    }
+    *count = n;
+    return 0;
+}
+
+static int via_refused(const struct state *st, const cJSON *via)
+{
+    const char *prefix = st->script->path_refuse_prefix;
+    const cJSON *k;
+
+    cJSON_ArrayForEach (k, via) {
+        if (prefix && prefix[0] && cJSON_IsString(k) &&
+            strncmp(k->valuestring, prefix, strlen(prefix)) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void forget_route(cJSON *node)
 {
     cJSON_DeleteItemFromObjectCaseSensitive(node, "hops");
@@ -536,6 +597,47 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddStringToObject(result, "version", "0.0.10");
         cJSON_AddStringToObject(result, "build", "fake");
         cJSON_AddStringToObject(result, "protocol", "meshcore");
+        if (st->script->explicit_path) {
+            cJSON *caps = cJSON_AddObjectToObject(result, "capabilities");
+
+            cJSON_AddBoolToObject(caps, "manual_path_preview", 1);
+            cJSON_AddBoolToObject(caps, "explicit_direct_send", 1);
+        }
+    } else if (strcmp(name, "mesh.path_preview") == 0 && st->script->explicit_path) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *to = cJSON_GetObjectItemCaseSensitive(params, "to");
+        const cJSON *via = cJSON_GetObjectItemCaseSensitive(params, "via");
+        char keys[64 * 66];
+        char hex[64 * 2 + 1];
+        int count;
+
+        if (!cJSON_IsString(to) || strlen(to->valuestring) != 64 ||
+            via_keys(via, keys, sizeof(keys), hex, &count) != 0) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "via must be an array of full "
+                                                            "repeater public keys"));
+            return;
+        }
+        log_line(st->script->preview_log, "%s|%s", to->valuestring, keys);
+        if (st->script->preview_silent) {
+            return;
+        }
+        if (via_refused(st, via)) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "manual path rejected: " REFUSED_RELAY));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "valid", 1);
+        cJSON_AddStringToObject(result, "route", "explicit");
+        cJSON_AddNumberToObject(result, "relays", count);
+        cJSON_AddNumberToObject(result, "hash_bytes", 1);
+        cJSON_AddNumberToObject(result, "path_bytes", count);
+        cJSON_AddStringToObject(result, "path_hex", hex);
+        cJSON_AddBoolToObject(result, "transmitted", 0);
+        cJSON_AddBoolToObject(result, "link_evidence_verified", 0);
     } else if (strcmp(name, "mesh.status") == 0) {
         result = status_json(st);
     } else if (strcmp(name, "mesh.identity") == 0) {
@@ -768,6 +870,9 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         const cJSON *chan = cJSON_GetObjectItemCaseSensitive(params, "channel");
         const cJSON *text = cJSON_GetObjectItemCaseSensitive(params, "text");
         const cJSON *resend = cJSON_GetObjectItemCaseSensitive(params, "resend");
+        const cJSON *via = cJSON_GetObjectItemCaseSensitive(params, "via");
+        int explicit_send = 0;
+        int via_count = 0;
 
         /* A RESEND names a message and nothing else, as the real one wants;
          * the message is the scripted snapshot's, sent again: the same id,
@@ -793,7 +898,8 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                     found = item;
                 }
             }
-            if (to != NULL || chan != NULL || text != NULL || !found || st->script->refuse_send) {
+            if (to != NULL || chan != NULL || text != NULL || via != NULL || !found ||
+                st->script->refuse_send) {
                 pocketipc_server_reply(
                     s, c,
                     pocketipc_error_response(id,
@@ -837,7 +943,38 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                                                             "give either to or channel"));
             return;
         }
-        if (st->script->send_log && cJSON_IsString(text)) {
+        if (via != NULL) {
+            char keys[64 * 66];
+            char hex[64 * 2 + 1];
+
+            /* Logged whether or not this service takes it: an older one
+             * would ignore the member, and the log is how a test proves the
+             * client never put it in front of one. */
+            if (via_keys(via, keys, sizeof(keys), hex, &via_count) != 0) {
+                snprintf(keys, sizeof(keys), "?");
+            }
+            if (cJSON_IsString(to) && cJSON_IsString(text)) {
+                log_line(st->script->send_log, "%s|%s|via=%s", to->valuestring, text->valuestring,
+                         keys);
+            }
+            if (st->script->explicit_path) {
+                if (!cJSON_IsString(to) || chan != NULL || strcmp(keys, "?") == 0) {
+                    pocketipc_server_reply(
+                        s, c,
+                        pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "via must be an array and to a full public key"));
+                    return;
+                }
+                if (via_refused(st, via)) {
+                    pocketipc_server_reply(
+                        s, c,
+                        pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                 "manual path rejected: " REFUSED_RELAY));
+                    return;
+                }
+                explicit_send = 1;
+            }
+        } else if (st->script->send_log && cJSON_IsString(text)) {
             FILE *f = fopen(st->script->send_log, "a");
 
             if (f) {
@@ -859,7 +996,7 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "accepted", 1);
         cJSON_AddNumberToObject(result, "message_id", 1000 + st->sent);
-        cJSON_AddStringToObject(result, "route", "flood");
+        cJSON_AddStringToObject(result, "route", explicit_send ? "explicit" : "flood");
         if (cJSON_IsNumber(chan)) {
             /* No ack_timeout_ms for a channel: there is no ACK to time out. */
             cJSON_AddNumberToObject(result, "channel", chan->valuedouble);
@@ -881,7 +1018,12 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             cJSON_AddStringToObject(msg, "direction", "out");
             cJSON_AddStringToObject(msg, "peer_public_key", to->valuestring);
             cJSON_AddStringToObject(msg, "text", text->valuestring);
-            cJSON_AddStringToObject(msg, "state", "sent_flood");
+            cJSON_AddStringToObject(msg, "state", explicit_send ? "sent_direct" : "sent_flood");
+            if (explicit_send) {
+                cJSON_AddStringToObject(msg, "route", "explicit");
+                cJSON_AddNumberToObject(msg, "path_hops", via_count);
+                cJSON_AddBoolToObject(msg, "ack_expected", 1);
+            }
             cJSON_AddNumberToObject(msg, "mono_ms", (double)now_ms());
             cJSON_AddItemToObject(data, "message", msg);
             pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));

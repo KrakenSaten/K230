@@ -175,6 +175,7 @@ BUILD_ID
 /tests/rift_notify_test
 /tests/rift_tiles_test
 /tests/rift_rxlog_test
+/tests/rift_route_test
 /tests/fake-meshcored
 # Camera (docs/apps/CAMERA.md)
 /tools/camera/pos-camera

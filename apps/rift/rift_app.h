@@ -296,6 +296,12 @@ struct rift_app {
     /* How many times a screen was built over this session (for the tests
      * and the log: 1 is a fresh open). */
     unsigned opens;
+    /* A send on a chosen route (rift_route.h) leaves the composer as it is
+     * until the service has accepted the message: a route refused at SEND
+     * must not cost the reader what they typed. The text that was sent, to
+     * empty the composer of then - and only if it still holds just that. */
+    char route_sent[RIFT_MSG_TEXT_MAX];
+    int route_sent_pending;
 };
 
 /* Chrome, for the screens. */

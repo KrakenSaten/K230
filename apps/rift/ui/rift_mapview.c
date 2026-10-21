@@ -9,6 +9,7 @@
 #include "pocketlog/pocketlog.h"
 #include "pos_styles.h"
 #include "rift_basemap.h"
+#include "rift_route_view.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -79,6 +80,11 @@ struct rift_map_ui {
     char bm_line[64];
     char bm_detail[96];
     int legend_in_note;
+
+    /* The route builder (ui/rift_route_view.h): its panel in place of the
+     * node's while a draft is open, and what the canvas last drew of it. */
+    struct rift_route_view *route;
+    unsigned drawn_route;
 };
 
 static void refresh_info(struct rift_map_ui *u, int located);
@@ -280,7 +286,9 @@ static void canvas_draw(lv_event_t *e)
         return;
     }
     m = &u->app->model;
-    sel = rift_app_selected(u->app);
+    /* The builder's numbers and lines say what is chosen there; the node
+     * selection's ring would be a second, unrelated choice on the same map. */
+    sel = rift_route_view_active(u->app) ? NULL : rift_app_selected(u->app);
     now = rift_app_now(u->app);
     lv_obj_get_coords(u->canvas, &ar);
     u->draws++;
@@ -326,7 +334,7 @@ static void canvas_draw(lv_event_t *e)
             cy = ar.y1 + (int32_t)y;
             /* The shape says the kind; the colour agrees with it and with
              * how lately it was heard, and never carries either alone. */
-            if (rift_node_is_stale(n, now)) {
+            if (rift_node_is_stale(n, now) || rift_route_view_dimmed(u->app, n)) {
                 color = pos_theme_color(POS_COLOR_TEXT_MUTED);
             } else if (repeater) {
                 color = pos_theme_color(POS_COLOR_RADIO_RX);
@@ -354,6 +362,7 @@ static void canvas_draw(lv_event_t *e)
             }
         }
     }
+    rift_route_view_draw(u->route, layer, &ar, &u->view, u->canvas);
     draw_scale(u, layer, &ar, u->tiles_drawn > 0);
     draw_basemap_words(u, layer, &ar);
 }
@@ -397,7 +406,11 @@ static void canvas_press(lv_event_t *e)
         lv_obj_get_coords(u->canvas, &ar);
         at = rift_map_hit(&u->view, &u->app->model, (double)(p.x - ar.x1),
                           (double)(p.y - ar.y1));
-        if (at >= 0) {
+        if (rift_route_view_active(u->app)) {
+            /* The builder's: a repeater joins the route. Sends nothing. */
+            rift_route_view_tap(u->route, at);
+            lv_obj_invalidate(u->canvas);
+        } else if (at >= 0) {
             /* The selection NODES and NET share: it asks the service about
              * this node, and sends nothing. */
             rift_app_select(u->app, u->app->model.nodes[at].key);
@@ -595,6 +608,7 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
     u->info_message = rift_action(u->info_bar, "MESSAGE", 0, 1, on_message, u);
     u->info_detail = rift_action(u->info_bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, u);
     u->info_note = wrapping(u->info, POS_STYLE_CAPTION);
+    u->route = rift_route_view_create(app, u->root);
     return u->root;
 }
 
@@ -607,6 +621,7 @@ void rift_map_view_destroy(struct rift_app *app)
          * and the tiles it held with it. */
         rift_basemap_free(u->bm);
         u->bm = NULL;
+        rift_route_view_destroy(u->route);
         free(app->map);
         app->map = NULL;
     }
@@ -656,6 +671,7 @@ void rift_map_view_shape(struct rift_app *app)
         lv_obj_set_size(u->map_col, LV_PCT(100), 1);
         lv_obj_set_size(u->info, LV_PCT(100), LV_SIZE_CONTENT);
     }
+    rift_route_view_shape(u->route, app->wide);
     /* Fitted again against the new shape (from the refresh, outside the
      * layout pass), unless the reader has moved it - then the centre and
      * scale are kept for the new size. */
@@ -766,6 +782,21 @@ void rift_map_view_refresh(struct rift_app *app)
     u->legend_in_note = lv_label_get_text(u->caption)[0] == '\0';
     paint_basemap(u);
     refresh_info(u, located);
+    /* The builder's panel in place of the node's while a route is drawn. */
+    {
+        unsigned drawn = rift_route_view_refresh(u->route);
+
+        show(u->info, !rift_route_view_active(app));
+        if (drawn != u->drawn_route) {
+            u->drawn_route = drawn;
+            lv_obj_invalidate(u->canvas);
+        }
+    }
+}
+
+struct rift_route_view *rift_map_view_route(const struct rift_app *app)
+{
+    return of(app) ? of(app)->route : NULL;
 }
 
 struct rift_basemap *rift_map_view_basemap(const struct rift_app *app)

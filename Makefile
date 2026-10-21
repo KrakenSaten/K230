@@ -1207,6 +1207,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
              $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
              $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o $(RIFT_DIR)/rift_ipc_resend.o \
              $(RIFT_DIR)/rift_ipc_repeater.o $(RIFT_DIR)/rift_repeater.o \
+             $(RIFT_DIR)/rift_route.o $(RIFT_DIR)/rift_ipc_path.o \
              $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
              $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o core/pocketwav/pocketwav.o \
              $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o
@@ -1224,10 +1225,10 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
                    $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
-                   $(RIFT_DIR)/rift_repeater.o
+                   $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
               tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/rift_tiles_test \
-              tests/fake-meshcored
+              tests/rift_route_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1245,6 +1246,11 @@ tests/rift_model_test: tests/rift_model_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The explicit route: the builder's draft, the staged route, the service's
+# capabilities and which preview answer may change what (rift_route.h).
+tests/rift_route_test: tests/rift_route_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # RX LOG's ring, its mesh.rx reader and its words (rift_rxlog.h).
@@ -2416,6 +2422,7 @@ test: all $(TEST_BINS)
 	./tests/wave_sim_test
 	./tests/rift_format_test
 	./tests/rift_model_test
+	./tests/rift_route_test
 	./tests/rift_comms_test
 	./tests/rift_reliability_test
 	./tests/rift_rxlog_test

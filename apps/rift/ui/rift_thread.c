@@ -14,6 +14,7 @@
 #include "rift_emoji_picker.h"
 #include "rift_emoji_style.h"
 #include "rift_msgact.h"
+#include "rift_route_bar.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,6 +117,8 @@ struct rift_thread {
     int row_count;
     /* The actions on one message (ui/rift_msgact.h), under the messages. */
     struct rift_msgact *act;
+    /* How the next message goes, AUTO or a chosen route (ui/rift_route_bar.h). */
+    struct rift_route_bar *route_bar;
 
     /* What the composer was last told. Enabling a field puts it back in the
      * focus group, and lv_group_add_obj() does that by removing and
@@ -558,6 +561,7 @@ struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
 
     t->act = rift_msgact_create(app, t->root);
     t->note = wrap_label(t->root, POS_STYLE_CAPTION);
+    t->route_bar = rift_route_bar_create(app, t->root, 0);
     /* Not 0 and not 1: nothing has been said to the field yet, so the first
      * refresh sets it whichever way it goes. */
     t->field_enabled = -1;
@@ -572,6 +576,7 @@ void rift_thread_destroy(struct rift_thread *t)
      * block is this app's to release. */
     if (t) {
         rift_msgact_destroy(t->act);
+        rift_route_bar_destroy(t->route_bar);
     }
     free(t);
 }
@@ -645,6 +650,9 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         shown = rift_model_thread(m, peer, thread, RIFT_THREAD_ROWS, &older);
     }
     rift_msgact_refresh(t->act, peer);
+    /* Before the rows: it takes height. Portrait only: the landscape console
+     * spends its height on messages, and has it in DETAILS (rift_comms.c). */
+    rift_route_bar_refresh(t->route_bar, t->wide ? NULL : peer);
 
     /* Where the reader is now, before anything below moves it: at the end,
      * or back in the history. When the pane has changed height since the
@@ -791,7 +799,15 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         const struct rift_node *n = (peer && slot < 0) ? rift_model_find(m, peer) : NULL;
 
         route[0] = '\0';
-        if (n && n->path_known && !n->direct) {
+        if (peer && rift_route_staged(&m->route, peer)) {
+            /* The next message goes the way a reader chose (DETAILS has it,
+             * and AUTO); the learned path would be the wrong answer here. */
+            char count[16];
+
+            snprintf(route, sizeof(route), "CHOSEN ROUTE" RIFT_SEP "%s",
+                     rift_route_relays_word(rift_route_staged(&m->route, peer)->count, count,
+                                            sizeof(count)));
+        } else if (n && n->path_known && !n->direct) {
             struct rift_path p;
             char label[RIFT_LABEL_MAX];
             const char *self =

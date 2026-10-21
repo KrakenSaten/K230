@@ -67,6 +67,8 @@ static const char *method_of(enum rift_req what)
         return "mesh.remote_logout";
     case RIFT_REQ_REMOTE_SESSION:
         return "mesh.remote_session";
+    case RIFT_REQ_PATH_PREVIEW:
+        return "mesh.path_preview";
     case RIFT_REQ_NONE:
     default:
         return NULL;
@@ -114,6 +116,7 @@ static void drop(struct rift_ipc *c, const char *reason, int64_t now_ms)
     pocketipc_reader_free(&c->reader);
     pocketipc_reader_init(&c->reader);
     snprintf(c->last_error, sizeof(c->last_error), "%s", reason ? reason : "");
+    rift_ipc_path_lost(c); /* before the model's: a send still being checked was never written */
     rift_model_service_lost(c->model, reason);
     rift_rep_service_lost(&c->model->repeater);
     c->next_attempt_ms = now_ms + c->backoff_ms;
@@ -327,16 +330,17 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
         c->revision++;
         return -1;
     }
-    return rift_ipc_write_send(c, conv_key, text, 0, now);
+    return rift_ipc_write_send(c, conv_key, text, 0, now, NULL);
 }
 
 /* The one place this app transmits a message: a first send, or a RESEND. */
 int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *text,
-                        int64_t resend_id, int64_t now)
+                        int64_t resend_id, int64_t now, cJSON *via)
 {
     cJSON *params = cJSON_CreateObject();
 
     if (!params) {
+        cJSON_Delete(via);
         rift_model_send_failed(c->model, "out of memory");
         c->revision++;
         return -1;
@@ -358,7 +362,12 @@ int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *te
             cJSON_AddStringToObject(params, "to", conv_key);
         }
         cJSON_AddStringToObject(params, "text", text);
+        if (via && slot < 0) { /* the checked route, exactly; never a resend's or a channel's */
+            cJSON_AddItemToObject(params, "via", via);
+            via = NULL;
+        }
     }
+    cJSON_Delete(via);
     if (request(c, RIFT_REQ_SEND, params, now) != 0) {
         /* request() has already dropped the connection if the write failed,
          * and rift_model_service_lost says what became of the submission. */
@@ -593,9 +602,9 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         (!rift_model_sending(c->model) || (int)id->valuedouble != c->send_request)) {
         what = RIFT_REQ_NONE;
     }
-    if (rift_ipc_repeater_reply(c, what, msg)) {
+    if (rift_ipc_repeater_reply(c, what, msg) || rift_ipc_path_reply(c, what, msg)) {
         c->revision++;
-        return 0;
+        return c->fd < 0; /* a write in the answer may have dropped the connection */
     }
     error = cJSON_GetObjectItemCaseSensitive(msg, "error");
     if (cJSON_IsObject(error)) {
@@ -661,6 +670,7 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     switch (what) {
     case RIFT_REQ_INFO:
         rift_model_apply_info(c->model, result);
+        rift_route_apply_info(&c->model->route, result); /* what this run offers */
         break;
     case RIFT_REQ_STATUS:
         /* Stamped now rather than when the request went out: the model

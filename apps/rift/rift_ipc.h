@@ -35,6 +35,12 @@
  * confirmation), mesh.set_name and mesh.set_path_hash; and mesh.path_hash
  * to read the size, asked on connecting.
  *
+ * And, from the route builder (rift_ipc_path.c, rift_route.h):
+ * mesh.path_preview, which checks a route a reader is drawing against the
+ * service's node list and transmits nothing; and `via` on mesh.send, the
+ * staged route of the conversation, written by the same one mesh.send writer
+ * only after a SEND a reader pressed has had that route previewed again.
+ *
  * Two of those transmit, and each from exactly one function. mesh.send is
  * written only by rift_ipc_send_message, which is reached only from the
  * composer, by a reader pressing SEND on text a reader typed. mesh.advert is
@@ -138,6 +144,8 @@ enum rift_req {
     RIFT_REQ_REMOTE_CLI,
     RIFT_REQ_REMOTE_LOGOUT,
     RIFT_REQ_REMOTE_SESSION,
+    /* The explicit route (rift_ipc_path.c). */
+    RIFT_REQ_PATH_PREVIEW,
 };
 
 struct rift_pending {
@@ -233,12 +241,35 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
  * the same one call as rift_ipc_send_message, and reached only from a
  * message's RESEND, which a reader pressed. Returns as rift_ipc_send_message. */
 int rift_ipc_resend_message(struct rift_ipc *c, int64_t message_id);
-/* The one writer of mesh.send, for rift_ipc_send_message and
- * rift_ipc_resend_message (rift_ipc_resend.c): resend_id > 0 writes
- * {"resend": id} alone, otherwise the destination and text. The submission is
- * already recorded in the model. */
+/* The one writer of mesh.send, for rift_ipc_send_message,
+ * rift_ipc_resend_message (rift_ipc_resend.c) and an explicit send whose
+ * route has just been checked (rift_ipc_path.c): resend_id > 0 writes
+ * {"resend": id} alone, otherwise the destination and text, and `via` when
+ * one is given (an array of whole repeater keys, consumed; NULL is AUTO). The
+ * submission is already recorded in the model. */
 int rift_ipc_write_send(struct rift_ipc *c, const char *conv_key, const char *text,
-                        int64_t resend_id, int64_t now);
+                        int64_t resend_id, int64_t now, cJSON *via);
+
+/* The explicit route (rift_ipc_path.c, rift_route.h).
+ *
+ * rift_ipc_path_preview asks mesh.path_preview about the builder's draft as
+ * it stands, when it wants asking (rift_route_wants_check). It transmits
+ * nothing and changes nothing the service holds. 0 when it went out.
+ *
+ * rift_ipc_send_explicit sends text to conv_key on the route staged on that
+ * conversation - reached only from COMMS' submit, as rift_ipc_send_message
+ * is. It refuses, writing nothing, when no route is staged there, when this
+ * service has not said it takes explicit routes, or when a relay has left
+ * the node list; it never sends on AUTO instead. Otherwise it records the
+ * submission (checking) and previews the staged route again; mesh.send with
+ * exactly those keys is written only when that answer says the route is
+ * valid. Returns as rift_ipc_send_message. */
+int rift_ipc_path_preview(struct rift_ipc *c);
+int rift_ipc_send_explicit(struct rift_ipc *c, const char *conv_key, const char *text);
+/* rift_ipc.c's dispatch, for a mesh.path_preview reply. 1 when it was one. */
+int rift_ipc_path_reply(struct rift_ipc *c, enum rift_req what, const cJSON *msg);
+/* The connection went: a send still being checked was never written. */
+void rift_ipc_path_lost(struct rift_ipc *c);
 /* rift_ipc.c's dispatch, for the result of the mesh.send that carries the
  * submission in flight - and only that one (rift_ipc.send_request). */
 void rift_ipc_send_answered(struct rift_ipc *c, const cJSON *result);
