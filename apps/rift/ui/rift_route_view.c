@@ -452,10 +452,12 @@ static void ensure_rows(struct rift_route_view *v, int n)
         int i = v->rows_built;
         lv_obj_t *b = lv_button_create(v->list);
 
-        /* A 56 px secondary action, laid out as a row rather than a
-         * centred word (rift_action's look, rift_node_row's columns). */
+        /* A 56 px row on a slab, its columns in their own roles' colours:
+         * a button's fill would be a theme's action colour (Neon's is
+         * magenta) under words that are not drawn for it. */
         lv_obj_remove_style_all(b);
-        pos_style_add(b, POS_STYLE_BUTTON_SECONDARY, 0);
+        pos_style_add(b, POS_STYLE_SLAB, 0);
+        pos_style_add(b, POS_STYLE_DIVIDER, 0);
         pos_style_add(b, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
         lv_obj_set_size(b, LV_PCT(100), RIFT_TOUCH_H);
         lv_obj_set_style_pad_hor(b, 12, 0);
