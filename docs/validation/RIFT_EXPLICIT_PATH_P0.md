@@ -542,14 +542,28 @@ advert.
 What this run shows and what it does not is set out under "What a pass
 proves" above. It is one message at one placement.
 
-**Unexplained transmissions on unit B (separate from the result):**
+**Operator-initiated transmissions on unit B (separate from the result):**
 
 - At 07:44 all TX counters were 0.
 - By 07:50, before the test send, `tx_submitted` was 3: `sent_flood` 2,
   `sent_direct` 1, and no message stored.
-- This session made only read calls and the preview in that time. The
-  cause is not identified. It is similar to the 2026-10-19 observation on
-  the old 0.3.6 daemon.
+- The owner confirmed that RIFT buttons on unit B were pressed in that
+  window. These transmissions are operator-initiated, not caused by the
+  candidate or by the test.
+- Read-only evidence, 08:05 UTC:
+  - meshcored has no autonomous transmit path; each one starts from an IPC
+    request.
+  - The only connected client was `doors-shell` (`d7ace738`, RIFT open
+    since 07:00:16).
+  - There was no SSH session from 07:44:46 to 07:50:19.
+  - `app_tx` was 0, no repeater scan had run in this run, and no repeater
+    session was active.
+  - RIFT transmits only from button handlers: ADVERT mesh (flood), ADVERT
+    near (zero-hop, counted as `sent_direct`), repeater scan, and repeater
+    login/ask.
+  - Which buttons were pressed is not logged.
+- The similar 2026-10-19 observation on the old 0.3.6 daemon stays
+  unexplained; there are no logs from that time.
 
 ### Repeater test (pending: no suitable repeater confirmed)
 
