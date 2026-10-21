@@ -4,8 +4,12 @@ Date: 2026-10-21
 Branch: `feat/rift-visual-path-builder`, stacked on PR #100
 (`feat/meshcored-explicit-path-p0`).
 Base: `4baac72ff235f41ee86b7381ed1277e6f3090d8a` (PR #100 head on that date).
-Status: **SIMULATOR AND SCRIPTED-SERVICE VALIDATED, K230 CROSS-BUILT. NOT
-RUN ON A UNIT. NO RADIO WAS USED.**
+Status: **SIMULATOR AND SCRIPTED-SERVICE VALIDATED, K230 CROSS-BUILT.
+NON-TRANSMITTING OWNER UI CHECK ON UNIT B DONE (build `ec38999`). The two
+UI fixes found there (`3c04c2f`) are simulator-verified and cross-built;
+their re-check on unit B was stopped before completion: NOT VERIFIED on
+the device. NO RADIO WAS USED. PR #100's physical repeater gate and the
+UI-to-M5 send remain PENDING.**
 
 Design reference: the Visual Path Builder proposal (PR #99,
 `docs/apps/rift/VISUAL_PATH_BUILDER.md` on that branch). Service contract:
@@ -19,12 +23,15 @@ Design reference: the Visual Path Builder proposal (PR #99,
 | --- | --- | --- | --- |
 | PR #100 | meshcored host tests, K230 cross-build, no-TX checks on unit B, and a zero-relay explicit DIRECT message to a stock MeshCore companion delivered and ACKed **on the air** | VERIFIED (hardware, 2026-10-21) | [RIFT_EXPLICIT_PATH_P0.md](RIFT_EXPLICIT_PATH_P0.md) |
 | this branch | RIFT's UI and client against the **scripted** `tests/fake-meshcored`, in the LVGL simulator and on the host; K230 cross-build | VERIFIED (simulator / mock only) | below |
-| neither | forwarding through one or more physical repeaters on a route chosen in RIFT | **NOT VERIFIED** | "One bench session", below |
+| this branch on unit B | builder opened, relays added and removed, real previews, cancel with the draft kept, counters unchanged - from a temporary kit, nothing installed | VERIFIED (device, non-transmitting, build `ec38999`) | "Hardware checks", below |
+| fixes `3c04c2f` on unit B | list scroll-into-view by key at Large in landscape; emoji in the route chain | **NOT VERIFIED** on the device (simulator only) | "Device re-check of the fixes", below |
+| neither | the UI's own send to the M5; forwarding through physical repeaters on a route chosen in RIFT | **NOT VERIFIED** | "Physical RF acceptance", below |
 
-Nothing in this branch was installed on a unit, and no test here can
-transmit: the scripted service has no radio, and it logs every `mesh.send`
-and `mesh.path_preview` it is asked for so the tests read what would have
-gone on the air from the request itself.
+Nothing in this branch is installed on a unit: the device checks ran a
+test shell from a kit directory and restored the installed one. No test
+here transmits: the scripted service has no radio and logs every
+`mesh.send` and `mesh.path_preview` it is asked for, and on unit B the
+transmit counters were compared before and after.
 
 ## What was validated (host and simulator, 2026-10-21)
 
@@ -215,6 +222,45 @@ cross-built 0 warnings; not re-run on the unit):**
    line now use RIFT's colour-emoji font. MAP's own marker names, drawn on
    its canvas and not changed by this PR, still show such an emoji as a
    box.
+
+### Device re-check of the fixes - STOPPED, NOT VERIFIED (2026-10-21)
+
+Build: local integration commit `2ea807d` (`ec38999` + this branch at
+`d2c5d3d`, which contains `3c04c2f`), cross-built 0 warnings, every LVGL
+symbol it uses exported by the installed `2c4fd81b…`; stripped shell
+`ab1e78b7…`, kit `rift-vpb-2ea807d` (tar `b229eb24…`) with the corrected
+restore script `d6a3cf98…`, every file hash-checked on the unit.
+
+Automated, on the unit:
+
+- Baseline 12:47:57 UTC: `tx_submitted 2`, `tx_ok 2`, `tx_failed 0`,
+  `tx_unknown 0`, `sent_flood 1`, `sent_direct 1`; meshcored pid 388;
+  installed shell `86d7b017…`, LVGL `2c4fd81b…`, settings `b040ab0c…`
+  (changed by the owner since the first session; the kit backs up what is
+  there).
+- `rift-start.sh`: all checks passed; test shell pid 6523 on the panel
+  (Neon, landscape, Large).
+
+Not performed: opening the builder needs a tap on SET ROUTE, which has no
+key path and no tap automation in the device build. The owner stopped the
+check before that step, so **neither fix was observed on the device**:
+
+| fix | unit B |
+| --- | --- |
+| list / cursor row brought into view (landscape, Large) | NOT VERIFIED |
+| emoji drawn in the route chain | NOT VERIFIED |
+
+Both stand on the simulator checks in `rift_app_test` (106 checks, 0
+failures, captures `route-landscape-large-relays-key`,
+`route-*-emoji-name`) and the K230 cross-build.
+
+Restore, 12:58:32 UTC, `rift-restore.sh` from `rift-vpb-2ea807d`:
+**`RESTORE: OK`** - installed Neon shell `86d7b017…` supervised and on the
+panel, LVGL `2c4fd81b…` untouched, settings `b040ab0c…` (this session's
+backup, hash-checked), meshcored the same process (pid 388). Counters
+after: `tx_submitted 2`, `tx_ok 2`, `tx_failed 0`, `tx_unknown 0`,
+`sent_flood 1`, `sent_direct 1` - identical to the baseline. Nothing was
+sent; no composer input was made.
 
 ### 2. Physical RF acceptance (separate) - PENDING, not waived
 

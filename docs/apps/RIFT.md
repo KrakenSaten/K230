@@ -1504,8 +1504,9 @@ them, one after the other, are two runs of a service and not one.
 ## What needs hardware
 
 For the route builder (`feat/rift-visual-path-builder`): simulator and
-scripted-service validation so far. Next: a non-transmitting owner UI check on
-unit B with a temporary kit, then a small, separate RF acceptance - see
+scripted-service validation, and a non-transmitting owner UI check on unit B
+from a temporary kit (done 2026-10-21). The two UI fixes found there are
+simulator-verified only; the UI-to-M5 send and repeater forwarding remain - see
 [docs/validation/RIFT_VISUAL_PATH_BUILDER.md](../validation/RIFT_VISUAL_PATH_BUILDER.md).
 The service's zero-relay explicit DIRECT to a stock companion passed on the
 air for PR #100; forwarding through repeaters has not been seen yet.
