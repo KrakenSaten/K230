@@ -347,6 +347,44 @@ static void staging(void)
     rift_route_auto(r, KEY_CH);
     check("AUTO for another conversation changes nothing here",
           rift_route_staged(r, KEY_TO) != NULL);
+    /* One conversation's route never drops another's (a stage each). */
+    rift_route_open(r, KEY_CH);
+    rift_route_add(r, &m, KEY_R3);
+    rift_route_check_sent(r, 20);
+    answer(r, 20, "{\"valid\":true,\"route\":\"explicit\",\"relays\":1,\"transmitted\":false}");
+    check("a route staged on a second conversation",
+          rift_route_use(r, &m) == 0 && rift_route_staged(r, KEY_CH) != NULL &&
+              rift_route_staged(r, KEY_CH)->count == 1);
+    check("leaves the first conversation's as it was, never AUTO",
+          rift_route_staged(r, KEY_TO) != NULL && rift_route_staged(r, KEY_TO)->count == 0);
+    rift_route_auto(r, KEY_CH);
+    {
+        static const char one[1][RIFT_ROUTE_KEY] = { KEY_R1 };
+        char conv[RIFT_ROUTE_KEY];
+        int i;
+
+        for (i = 0; i < RIFT_ROUTE_STAGES - 1; i++) {
+            snprintf(conv, sizeof(conv), "%062x%02x", 7, i);
+            rift_route_stage_set(r, conv, one, 1, NULL);
+        }
+        check("with every slot taken, a new conversation's route is refused",
+              rift_route_stage_set(r, KEY_CH, one, 1, NULL) != 0 &&
+                  rift_route_staged(r, KEY_TO) != NULL);
+        rift_route_open(r, KEY_CH);
+        rift_route_check_sent(r, 21);
+        answer(r, 21, "{\"valid\":true,\"route\":\"explicit\",\"relays\":0,\"transmitted\":false}");
+        check("and USE ROUTE says why, replacing nothing",
+              rift_route_use(r, &m) != 0 && strstr(r->draft.note, "set one back to AUTO") &&
+                  r->draft.active);
+        rift_route_close(r);
+        check("a conversation that has one may still replace its own",
+              rift_route_stage_set(r, KEY_TO, one, 1, NULL) == 0 &&
+                  rift_route_staged(r, KEY_TO)->count == 1);
+        for (i = 0; i < RIFT_ROUTE_STAGES - 1; i++) {
+            snprintf(conv, sizeof(conv), "%062x%02x", 7, i);
+            rift_route_auto(r, conv);
+        }
+    }
     rift_route_auto(r, KEY_TO);
     check("AUTO puts this one back", rift_route_staged(r, KEY_TO) == NULL);
 

@@ -1291,15 +1291,16 @@ static pid_t spawn_route_service(int explicit_path, int silent, const char *refu
  * the cases where the route goes bad, or the service changes, afterwards. */
 static void stage(struct rift_model *m, const char *to, const char *r1, const char *r2)
 {
-    memset(&m->route.stage, 0, sizeof(m->route.stage));
-    m->route.stage.active = 1;
-    snprintf(m->route.stage.conv, sizeof(m->route.stage.conv), "%s", to);
+    char via[2][RIFT_ROUTE_KEY];
+    int n = 0;
+
     if (r1) {
-        snprintf(m->route.stage.via[m->route.stage.count++], RIFT_ROUTE_KEY, "%s", r1);
+        snprintf(via[n++], RIFT_ROUTE_KEY, "%s", r1);
     }
     if (r2) {
-        snprintf(m->route.stage.via[m->route.stage.count++], RIFT_ROUTE_KEY, "%s", r2);
+        snprintf(via[n++], RIFT_ROUTE_KEY, "%s", r2);
     }
+    rift_route_stage_set(&m->route, to, (const char(*)[RIFT_ROUTE_KEY])via, n, NULL);
 }
 
 static void test_explicit_route(const char *runtime)

@@ -26,9 +26,11 @@
  *   draft  the builder's working copy, bound to one recipient. Every edit
  *          bumps gen; a preview answer is applied only when it answers the
  *          request in flight for the gen it was asked about.
- *   stage  the route a reader chose with USE ROUTE, bound to one
- *          conversation. The composer sends with it until the reader goes
- *          back to AUTO; a send never falls back to AUTO on its own.
+ *   stage  the route a reader chose with USE ROUTE, one per conversation
+ *          (up to RIFT_ROUTE_STAGES at once). The composer sends with it
+ *          until the reader goes back to AUTO; a send never falls back to
+ *          AUTO on its own, and staging one conversation never drops
+ *          another's.
  *
  * No LVGL, no I/O (tests/rift_route_test.c). The requests are written by
  * rift_ipc_path.c.
@@ -56,6 +58,9 @@ struct rift_model;
 #define RIFT_ROUTE_WHY_MAX 120
 /* The encoded path, as hex (64 bytes at most). */
 #define RIFT_ROUTE_HEX_MAX 129
+/* Conversations that may have a chosen route at once. A ninth USE ROUTE is
+ * refused with the reason rather than replacing another's. */
+#define RIFT_ROUTE_STAGES 8
 
 enum rift_route_check {
     RIFT_ROUTE_UNCHECKED = 0, /* not asked about yet, or edited since */
@@ -107,7 +112,7 @@ struct rift_route {
     int can_explicit;
 
     struct rift_route_draft draft;
-    struct rift_route_stage stage;
+    struct rift_route_stage stage[RIFT_ROUTE_STAGES];
 
     /* A SEND on the staged route is checked before mesh.send is written:
      * the route it is checking, copied so a reader editing the stage in the
@@ -185,6 +190,12 @@ int rift_route_use(struct rift_route *r, const struct rift_model *m);
 const struct rift_route_stage *rift_route_staged(const struct rift_route *r, const char *conv);
 /* Back to AUTO for conv. */
 void rift_route_auto(struct rift_route *r, const char *conv);
+/* Stage a checked route on conv (USE ROUTE's own step, and the tests'): its
+ * slot is replaced, or a free one taken - never another conversation's. -1
+ * when every slot is another's, or the arguments are not a route. */
+int rift_route_stage_set(struct rift_route *r, const char *conv,
+                         const char (*via)[RIFT_ROUTE_KEY], int count,
+                         const struct rift_route_encoding *enc);
 
 /* Parse a preview result into enc. 0 when it is the service's word that the
  * route is valid, explicit and was not transmitted, for `relays` relays. */

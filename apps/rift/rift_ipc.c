@@ -604,7 +604,7 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     }
     if (rift_ipc_repeater_reply(c, what, msg) || rift_ipc_path_reply(c, what, msg)) {
         c->revision++;
-        return 0;
+        return c->fd < 0; /* a write in the answer may have dropped the connection */
     }
     error = cJSON_GetObjectItemCaseSensitive(msg, "error");
     if (cJSON_IsObject(error)) {

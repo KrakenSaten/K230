@@ -6430,11 +6430,12 @@ static void route_builder_session(void)
     check("route: is sent with an empty via, never AUTO", log_count_of(rt_sends, want, 1) == 1);
 
     /* ---- refused at SEND: the text stays ---- */
-    memset(&r->stage, 0, sizeof(r->stage));
-    r->stage.active = 1;
-    snprintf(r->stage.conv, sizeof(r->stage.conv), "%s", RT_TO);
-    snprintf(r->stage.via[0], sizeof(r->stage.via[0]), "%s", RT_DD);
-    r->stage.count = 1;
+    {
+        /* A route that has gone bad since it was staged. */
+        static const char bad[1][RIFT_ROUTE_KEY] = { RT_DD };
+
+        rift_route_stage_set(r, RT_TO, bad, 1, NULL);
+    }
     rift_app_refresh(app);
     field_set(rift_comms_field(app), "avvist");
     tap(word_button("SEND"));

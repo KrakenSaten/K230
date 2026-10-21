@@ -237,10 +237,14 @@ int rift_ipc_path_reply(struct rift_ipc *c, enum rift_req what, const cJSON *msg
             check_failed(m, "out of memory; nothing was sent");
             return 1;
         }
-        m->outbox.checking = 0;
         /* The service revalidates the same keys itself and refuses rather
-         * than fall back (docs/api/mesh.md, mesh.send). */
-        rift_ipc_write_send(c, m->outbox.conv_key, m->outbox.text, 0, rift_mono_ms(), via);
+         * than fall back (docs/api/mesh.md, mesh.send). Still checking until
+         * the write has gone: a write that fails drops the connection, and
+         * rift_ipc_path_lost then says nothing was sent - which is true. */
+        if (rift_ipc_write_send(c, m->outbox.conv_key, m->outbox.text, 0, rift_mono_ms(), via) ==
+            0) {
+            m->outbox.checking = 0;
+        }
         return 1;
     }
     if (cJSON_IsObject(error)) {

@@ -339,18 +339,16 @@ int rift_route_usable(const struct rift_route *r, const struct rift_model *m)
 
 int rift_route_use(struct rift_route *r, const struct rift_model *m)
 {
-    struct rift_route_stage *s;
-
     if (!rift_route_usable(r, m)) {
         return -1;
     }
-    s = &r->stage;
-    memset(s, 0, sizeof(*s));
-    s->active = 1;
-    snprintf(s->conv, sizeof(s->conv), "%s", r->draft.to);
-    memcpy(s->via, r->draft.via, sizeof(s->via));
-    s->count = r->draft.count;
-    s->enc = r->draft.enc;
+    if (rift_route_stage_set(r, r->draft.to, (const char(*)[RIFT_ROUTE_KEY])r->draft.via,
+                             r->draft.count, &r->draft.enc) != 0) {
+        snprintf(r->draft.note, sizeof(r->draft.note),
+                 "%d conversations already have a chosen route: set one back to AUTO first.",
+                 RIFT_ROUTE_STAGES);
+        return -1;
+    }
     rift_route_close(r);
     return 0;
 }
@@ -359,16 +357,55 @@ int rift_route_use(struct rift_route *r, const struct rift_model *m)
 
 const struct rift_route_stage *rift_route_staged(const struct rift_route *r, const char *conv)
 {
-    if (!r || !conv || !r->stage.active || strcmp(r->stage.conv, conv) != 0) {
-        return NULL;
+    int i;
+
+    for (i = 0; r && conv && i < RIFT_ROUTE_STAGES; i++) {
+        if (r->stage[i].active && strcmp(r->stage[i].conv, conv) == 0) {
+            return &r->stage[i];
+        }
     }
-    return &r->stage;
+    return NULL;
+}
+
+int rift_route_stage_set(struct rift_route *r, const char *conv,
+                         const char (*via)[RIFT_ROUTE_KEY], int count,
+                         const struct rift_route_encoding *enc)
+{
+    struct rift_route_stage *s = (struct rift_route_stage *)rift_route_staged(r, conv);
+    int i;
+
+    if (!r || !hex_only(conv, 64) || count < 0 || count > RIFT_ROUTE_MAX) {
+        return -1;
+    }
+    /* This conversation's own slot, or a free one. Never another
+     * conversation's: replacing it would send that one AUTO unasked. */
+    for (i = 0; !s && i < RIFT_ROUTE_STAGES; i++) {
+        if (!r->stage[i].active) {
+            s = &r->stage[i];
+        }
+    }
+    if (!s) {
+        return -1;
+    }
+    memset(s, 0, sizeof(*s));
+    s->active = 1;
+    snprintf(s->conv, sizeof(s->conv), "%s", conv);
+    if (count > 0) {
+        memcpy(s->via, via, sizeof(s->via[0]) * (size_t)count);
+    }
+    s->count = count;
+    if (enc) {
+        s->enc = *enc;
+    }
+    return 0;
 }
 
 void rift_route_auto(struct rift_route *r, const char *conv)
 {
-    if (rift_route_staged(r, conv)) {
-        memset(&r->stage, 0, sizeof(r->stage));
+    struct rift_route_stage *s = (struct rift_route_stage *)rift_route_staged(r, conv);
+
+    if (s) {
+        memset(s, 0, sizeof(*s));
     }
 }
 
