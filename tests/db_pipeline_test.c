@@ -10,7 +10,9 @@
  * the similarity as confidence, somebody else unknown, people found by the
  * object detector when the unit has no face model, "nobody" when they
  * leave, UNAVAILABLE when there is no helper or it dies - once - and
- * stop() safe twice, with no helper left behind.
+ * stop() safe twice, with no helper left behind; a person told by the
+ * class name; the helper started on the shipped detector (R0) rather than
+ * the yolov8n.kmodel default no image carries; a turn followed while running.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -219,6 +221,97 @@ static void write_owner(const char *path)
     fclose(f);
 }
 
+static void write_file(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+/* ---- the classes and the detector ------------------------------------------------- *
+ *
+ * A person is the class named "person" (COCO row 0 in R0's and UPSTREAM's
+ * export), never another row; and the helper is started on the detector
+ * the image ships, as Vision would pick it, not on the old yolov8n.kmodel
+ * default that no image carries. */
+
+static void test_person_class(void)
+{
+    check("class 0 is a person (by its name)", db_vision_pipeline_is_person(0));
+    check("R0's other classes are not: bicycle, car, motorcycle, bus, truck",
+          !db_vision_pipeline_is_person(1) && !db_vision_pipeline_is_person(2) && !db_vision_pipeline_is_person(3) &&
+              !db_vision_pipeline_is_person(5) && !db_vision_pipeline_is_person(7));
+    check("nor a class the list does not have", !db_vision_pipeline_is_person(80) &&
+                                                     !db_vision_pipeline_is_person(65535));
+}
+
+static void test_shipped_detector(const char *dir, const struct db_vision_pipeline_cfg *cfg, const char *vdir)
+{
+    char r0[160];
+    char up[160];
+    char set[192];
+
+    snprintf(r0, sizeof(r0), "%s/det-r0-traffic6-yolox-tiny-416.kmodel", dir);
+    snprintf(up, sizeof(up), "%s/det-upstream-yolox-tiny-416.kmodel", dir);
+    snprintf(set, sizeof(set), "%s/settings.v1", vdir);
+    setenv("POCKETOS_VISION_MODEL_R0", r0, 1);
+    setenv("POCKETOS_VISION_MODEL_UPSTREAM", up, 1);
+    check("no detector file: none is named", db_vision_pipeline_detector() == -1);
+    write_file(r0, "fake");
+    check("R0 on the unit, Vision never opened: R0", db_vision_pipeline_detector() == 0);
+    write_file(up, "fake");
+    write_file(set, "detector=upstream\n");
+    check("both, Vision last confirmed UPSTREAM: UPSTREAM, as Vision would", db_vision_pipeline_detector() == 1);
+    unlink(up);
+    check("UPSTREAM gone: back on R0", db_vision_pipeline_detector() == 0);
+    unlink(set);
+
+    /* The image's case: the helper's own default is not there, R0 is. */
+    setenv("POCKETOS_VISION_MODEL", "/nonexistent/vision/yolov8n.kmodel", 1);
+    setenv("POCKETOS_VISION_FACE_DET", "/nonexistent/face_det.kmodel", 1);
+    reset_counts();
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260,until=40", 1);
+    db_vision_pipeline_ops.start((void *)cfg, now_ms(), &queue);
+    check("no yolov8n.kmodel, R0 shipped: a person from R0", run_until(DB_VISION_PERSON_DETECTED, 8000) &&
+                                                                 kinds[DB_VISION_UNAVAILABLE] == 0 &&
+                                                                 !last[DB_VISION_PERSON_DETECTED].face);
+    check("and nobody once they leave, not unavailable", run_until(DB_VISION_NO_PERSON, 8000) &&
+                                                             kinds[DB_VISION_UNAVAILABLE] == 0);
+    db_vision_pipeline_ops.stop(NULL);
+
+    /* Only a car in view (R0's row 2): the desk is empty, and says so. */
+    reset_counts();
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=2:900:200:60:120:260", 1);
+    db_vision_pipeline_ops.start((void *)cfg, now_ms(), &queue);
+    check("a car is nobody", run_until(DB_VISION_NO_PERSON, 8000) && kinds[DB_VISION_PERSON_DETECTED] == 0 &&
+                                 kinds[DB_VISION_UNAVAILABLE] == 0);
+    db_vision_pipeline_ops.stop(NULL);
+
+    /* The unit turned while it runs (an external display: no restart): the
+     * provider tells the helper the new hold and goes on seeing. */
+    {
+        struct db_vision_pipeline_cfg turning = *cfg;
+
+        reset_counts();
+        setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1);
+        db_vision_pipeline_ops.start(&turning, now_ms(), &queue);
+        run_until(DB_VISION_PERSON_DETECTED, 8000);
+        turning.display_rotation = turning.display_rotation == 0 ? 90 : 0;
+        run_until(DB_VISION_KIND_COUNT, DB_JUDGE_ABSENT_MS + 1000);
+        check("turned while running: still somebody, never nobody or unavailable",
+              kinds[DB_VISION_PERSON_DETECTED] == 1 && kinds[DB_VISION_NO_PERSON] == 0 &&
+                  kinds[DB_VISION_UNAVAILABLE] == 0 && helpers_alive(NULL) == 1);
+        db_vision_pipeline_ops.stop(NULL);
+    }
+    check("no helper left behind", helpers_alive(NULL) == 0);
+    unlink(r0);
+    unsetenv("POCKETOS_VISION_MODEL_R0");
+    unsetenv("POCKETOS_VISION_MODEL_UPSTREAM");
+}
+
 static void test_provider(void)
 {
     struct db_vision_pipeline_cfg cfg = { 90 };
@@ -306,6 +399,8 @@ static void test_provider(void)
     check("and the provider stops polling", db_vision_pipeline_ops.poll(NULL, now_ms(), &queue) == -1);
     db_vision_pipeline_ops.stop(NULL);
     check("no helper left behind", helpers_alive(NULL) == 0);
+
+    test_shipped_detector(dir, &cfg, vdir);
     unsetenv("POCKETOS_VISION_MODEL");
 
     /* Wherever the person sits in the camera's frame, DeskBuddy sees them:
@@ -402,6 +497,7 @@ int main(int argc, char **argv)
     }
     signal(SIGPIPE, SIG_IGN);
     test_judge();
+    test_person_class();
     test_provider();
     printf("db_pipeline_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;

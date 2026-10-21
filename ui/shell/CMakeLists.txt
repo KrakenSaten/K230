@@ -1692,6 +1692,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/deskbuddy_vision/db_vision_pipeline.c
         ${REPO_DIR}/apps/vision/vision_session.c
         ${REPO_DIR}/apps/vision/vision_settings.c
+        ${REPO_DIR}/apps/vision/vision_store.c
+        ${REPO_DIR}/core/pocketvision/vision_labels.c
         ${REPO_DIR}/core/pocketpaths.c
         ${GAMES_APP_TEST_UI})
     target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"

@@ -1168,7 +1168,8 @@ tests/db_pipeline_test.o: tests/db_pipeline_test.c
 
 # The provider against the real helper on the fake camera and fake models.
 tests/db_pipeline_test: tests/db_pipeline_test.o $(DBV_DIR)/db_vision_pipeline.o $(DB_DIR)/db_vision.o \
-                        apps/vision/vision_session.o apps/vision/vision_settings.o
+                        apps/vision/vision_session.o apps/vision/vision_settings.o apps/vision/vision_store.o \
+                        core/pocketvision/vision_labels.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/db_brain_test: tests/db_brain_test.o $(DB_CORE_OBJS)

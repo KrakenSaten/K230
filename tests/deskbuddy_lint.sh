@@ -89,7 +89,11 @@ check "the developer keys and the script exist only behind \$DESKBUDDY_SIM" \
 BRIDGE=apps/deskbuddy_vision
 check "the bridge includes DeskBuddy's boundary and Vision's helper client" \
     "$(code $BRIDGE/*.c $BRIDGE/*.h | grep -q '#include "db_vision' && code $BRIDGE/*.c | grep -q '#include "vision_session.h"' && echo 1 || echo 0)"
-hits=$(code $BRIDGE/*.c $BRIDGE/*.h | grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketcam|pocketvision|vision_kpu|vision_app|vision_model|lvgl|lv_|pocketui)')
+# Two more of Vision's are allowed, neither a camera nor a model: its store,
+# for the detector file it would open (vision_store.h), and the detector's
+# compiled class names, so a person is told by name (vision_labels.h).
+hits=$(code $BRIDGE/*.c $BRIDGE/*.h | grep -v '#include "pocketvision/vision_labels.h"' |
+       grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketcam|pocketvision|vision_kpu|vision_app|vision_model|lvgl|lv_|pocketui)')
 check "and nothing else of Vision, the camera, the models or the screen" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
 hits=$(code $BRIDGE/*.c | grep -nE "$IO")
