@@ -147,24 +147,71 @@ names, keys and coordinates are synthetic fixtures.
 - That a route checked by `mesh.path_preview` will be forwarded by the
   chosen repeaters is **ASSUMED** until the bench session below.
 
-## Hardware checks still open
+## Hardware checks
 
-Two separate things, in this order. Neither needs repeater coverage to
-start.
+### 1. Owner UI check on unit B (non-transmitting) - DONE 2026-10-21
 
-### 1. Owner UI check on unit B (non-transmitting)
+**Build and kit.** Local integration commit `ec38999` (master `dc9108a`
+with Neon + this PR at `a045e49` + PR #100 `4baac72`; not pushed),
+cross-built 0 warnings, stripped shell `990cae23…`. Every LVGL symbol it
+uses is exported by the installed Neon LVGL `2c4fd81b…`, so it ran on it.
+Kit `rift-vpb-ec38999` copied to `/root` with the owner's approval, every
+file hash-checked on the unit. `rift-start.sh` checks passed: installed
+shell `86d7b017…` (Neon, f398ecb), LVGL `2c4fd81b…`, running
+`/usr/sbin/meshcored` `c0af8f32…` (PR #100 candidate); settings backed up
+(`538f31ae…`: neon, landscape, Large). The test shell (pid 3337) owned
+the panel; meshcored advertised both capabilities `true`.
 
-The temporary kit `rift-vpb-ec38999` runs a local integration build
-(master `dc9108a` with Neon + this PR + PR #100, commit `ec38999`, not
-pushed) from its own directory, on the installed Neon shell's LVGL, and
-restores the installed shell and settings afterwards; meshcored is only
-read. Its README holds the steps. In short: open the builder from a
-direct conversation, select and remove relays, check the numbers, lines
-and ordered list, see the preview's answer, CANCEL and Esc with the draft
-kept, turn the unit and change text size once - with `tx_ok` unchanged
-from start to end. SEND is not pressed.
+**Owner's observations (on the panel, by hand):**
 
-### 2. Physical RF acceptance (separate)
+- COMMS had no M5 conversation: meshcored keeps no history across a
+  restart and held 0 messages. Opened from NODES → `Mstr_m5` → MESSAGE.
+  DETAILS showed `ROUTE AUTO` with SET ROUTE enabled.
+- SET ROUTE opened MAP as the ROUTE BUILDER: `TO Mstr_m5`,
+  `EXPLICIT DIRECT · NO RELAY`, `CHECKED BY MESHCORED · NOTHING SENT`.
+- Final check: tapped SET ROUTE, then CANCEL (finger on both buttons).
+
+**Automated evidence (keyboard-base keys injected with `shell.key`
+through the shell's own key path; captures by `shell.action screenshot`,
+read from the panel; no `shell.tap` exists in the device build):**
+
+| capture | input | what the panel showed |
+| --- | --- | --- |
+| 00 | - | builder for Mstr_m5, no relay, `0 PATH BYTES · NOTHING SENT`, basemap on |
+| 04 | Right, Enter, Down, Enter, Left | `2 RELAYS`: 1 SE Skalle-Per (numbered on its marker), 2 NO-1263 Prinsdal (no location: in the list only, said on the map); **REFUSED BY MESHCORED: a relay hash matches another known repeater** (1-byte hashes); USE ROUTE disabled |
+| 05 | Backspace | `1 RELAY`, `CHECKED BY MESHCORED · 1 PATH BYTE · NOTHING SENT`, USE ROUTE enabled |
+| 06 | Right, Down ×6, Enter, Left | 1 SE Skalle-Per → 2 Nordpuls Solar: line 1→2 on the map, chain `YOU › SE Skalle-Per › Nordpuls Solar › Mstr_m5`, `2 PATH BYTES · NOTHING SENT` (no line to the M5: it has no location) |
+| 07 | Backspace ×2 | back to no relay; UNDO and CLEAR disabled |
+| 08 | Esc | builder closed, conversation `ROUTE AUTO`, nothing staged; composer kept its 🙂 |
+| 09 | letters | known draft `🙂rute` in the composer (no Enter) |
+| 10 | (owner: SET ROUTE, CANCEL) | conversation `ROUTE AUTO`, composer still `🙂rute` |
+
+Transmit counters (service read, not UI evidence): `tx_submitted 2`,
+`tx_ok 2`, `tx_failed 0`, `tx_unknown 0`, `sent_flood 1`, `sent_direct 1`
+before, during and after - unchanged. No SEND, no Enter in the composer,
+no advert.
+
+**Restore.** `rift-restore.sh` first ended `rc=1`: its settings check ran
+`sha256sum -c` from the wrong directory and skipped the copy (the live
+file was already byte-identical to the backup). Fixed in the kit
+(`d6a3cf98…`), re-run: **`RESTORE: OK`** - installed Neon shell
+`86d7b017…` supervised on the panel, settings `538f31ae…`, meshcored the
+same file and process (pid 388, never restarted).
+
+**Not covered by this check:** map marker taps, CLEAR and cut-from-here
+by finger (no tap automation on the device; covered in the simulator),
+turning the unit and changing text size (simulator only).
+
+**Found on the device, not fixed here:**
+
+1. Landscape, Large text: the list starts below the visible part of the
+   panel body, and the arrow-key cursor does not scroll its row into view
+   (`lv_obj_scroll_to_view` on the row scrolls only its non-scrolling
+   parent, not the body).
+2. An emoji in a node name (`SE Skalle-Per 🐵`) shows as a box in the
+   route chain line (the builder's captions do not use the emoji font).
+
+### 2. Physical RF acceptance (separate) - PENDING, not waived
 
 The backend evidence is PR #100's on-air pass: an explicit zero-relay
 DIRECT message delivered to and acknowledged by the M5 companion
