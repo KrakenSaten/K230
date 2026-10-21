@@ -240,6 +240,7 @@ static void on_cell_pressed(lv_event_t *e)
     /* A finger takes over from the keys: the mark goes, and the focus is
      * where the finger was, so a key after it starts from there. */
     if (home.keys_shown && p->focus >= 0 && p->focus < p->ncells) {
+        lv_obj_clear_state(p->cells[p->focus].obj, LV_STATE_FOCUSED);
         lv_obj_invalidate(p->cells[p->focus].obj);
     }
     home.keys_shown = false;
@@ -342,6 +343,10 @@ static const char *cell_name(const struct cell *c)
 
 static void cell_icon(struct cell *c, int32_t ix, struct home_info *count)
 {
+    lv_obj_t *legacy = plain(c->obj);
+    lv_obj_set_size(legacy, LV_PCT(100), LV_PCT(100));
+    lv_obj_remove_flag(legacy, LV_OBJ_FLAG_CLICKABLE);
+    pos_style_add(legacy, POS_STYLE_ENV_LEGACY_ICON, 0);
     char name[48];
     lv_obj_t *img;
     const char *id = cell_id(c);
@@ -350,7 +355,7 @@ static void cell_icon(struct cell *c, int32_t ix, struct home_info *count)
     lv_snprintf(name, sizeof(name), "icon-%s", id);
     c->icon = (c->folder != HOME_FOLDER_NONE || (c->app && home_entry_find(id))) ? art_load(name) : NULL;
     if (c->icon) {
-        img = lv_image_create(c->obj);
+        img = lv_image_create(legacy);
         pos_style_add(img, POS_STYLE_ENV_ICON, 0);
         lv_image_set_src(img, c->icon);
         lv_obj_set_pos(img, ix, 0);
@@ -370,12 +375,12 @@ static void cell_icon(struct cell *c, int32_t ix, struct home_info *count)
         home.frame = art_load("icon-frame");
     }
     if (home.frame) {
-        img = lv_image_create(c->obj);
+        img = lv_image_create(legacy);
         pos_style_add(img, POS_STYLE_ENV_ICON, 0);
         lv_image_set_src(img, home.frame);
         lv_obj_set_pos(img, ix, 0);
     } else {
-        img = plain(c->obj);
+        img = plain(legacy);
         pos_style_add(img, POS_STYLE_ENV_PANEL, 0);
         lv_obj_set_pos(img, ix + 16, FRAME_TOP);
         lv_obj_set_size(img, 64, 83);
@@ -385,7 +390,7 @@ static void cell_icon(struct cell *c, int32_t ix, struct home_info *count)
         lv_obj_set_style_opa(img, PLACEHOLDER_OPA, 0);
     }
     if (c->app && c->app->icon_mask) {
-        img = lv_image_create(c->obj);
+        img = lv_image_create(legacy);
         lv_obj_remove_style_all(img);
         pos_style_add(img, POS_STYLE_ENV_GLYPH, 0);
         lv_image_set_src(img, c->app->icon_mask);
@@ -396,7 +401,7 @@ static void cell_icon(struct cell *c, int32_t ix, struct home_info *count)
                            : c->pick ? LV_SYMBOL_CLOSE
                                      : LV_SYMBOL_PLUS;
 
-        img = lv_label_create(c->obj);
+        img = lv_label_create(legacy);
         lv_label_set_text(img, text ? text : "");
         /* The colour of the environment, the font of the symbols (an
          * LV_SYMBOL_* is not in the text fonts). */
@@ -429,6 +434,49 @@ static void cell_create(lv_obj_t *parent, struct cell *c, const struct home_rect
     lv_obj_set_style_pad_all(c->obj, 0, 0);
     lv_obj_set_ext_click_area(c->obj, 0);
     cell_icon(c, ix, count);
+    /* A theme-controlled symbol presentation shares the existing hit box.
+     * Both presentations exist so live theme changes need no rebuild or
+     * callback. The shared styles show one and hide the other. */
+    lv_obj_add_flag(c->obj, LV_OBJ_FLAG_STATE_TRICKLE);
+    lv_obj_t *well = plain(c->obj);
+    lv_obj_set_pos(well, 8, 4);
+    lv_obj_set_size(well, r->w - 16, 88);
+    lv_obj_remove_flag(well, LV_OBJ_FLAG_CLICKABLE);
+    pos_style_add(well, POS_STYLE_ENV_TILE, 0);
+    lv_obj_add_style(well, pos_style_env_tile_family(c->hue), 0);
+    /* Separate selectors: either keyboard focus or a held touch selects it. */
+    pos_style_add(well, POS_STYLE_ENV_TILE_SELECTED, LV_STATE_FOCUSED);
+    pos_style_add(well, POS_STYLE_ENV_TILE_SELECTED, LV_STATE_PRESSED);
+    const lv_image_dsc_t *mask = c->app ? c->app->icon_mask : NULL;
+    if (!mask && c->app) {
+        mask = c->hue == POS_HUE_MESH ? &pos_glyph_mesh :
+               c->hue == POS_HUE_NETWORK ? &pos_glyph_network :
+               c->hue == POS_HUE_SETTINGS || c->hue == POS_HUE_TOOLS ? &pos_glyph_settings :
+               &pos_glyph_apps;
+    }
+    if (!mask && c->folder == HOME_FOLDER_APPS) {
+        mask = &pos_glyph_apps;
+    }
+    lv_obj_t *symbol;
+    if (mask) {
+        symbol = lv_image_create(well);
+        lv_image_set_src(symbol, mask);
+        lv_image_set_scale(symbol, 512); /* existing 32 px A8 mask, crisp 64 px symbol */
+    } else {
+        symbol = lv_label_create(well);
+        lv_label_set_text(symbol, def ? folder_symbol[c->folder] :
+                                      c->pick ? LV_SYMBOL_CLOSE : LV_SYMBOL_PLUS);
+        pos_style_add(symbol, POS_STYLE_SYMBOL_LARGE, 0);
+    }
+    pos_style_add(symbol, POS_STYLE_ENV_TILE_SYMBOL, 0);
+    lv_obj_remove_flag(symbol, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(symbol);
+    lv_obj_t *focus = plain(c->obj);
+    lv_obj_set_pos(focus, 4, 0);
+    lv_obj_set_size(focus, r->w - 8, 96);
+    lv_obj_remove_flag(focus, LV_OBJ_FLAG_CLICKABLE);
+    pos_style_add(focus, POS_STYLE_ENV_TILE_FOCUS, LV_STATE_FOCUSED);
+
     c->label = lv_label_create(c->obj);
     pos_style_add(c->label, small ? POS_STYLE_ENV_TEXT_SMALL : POS_STYLE_ENV_TEXT, 0);
     lv_label_set_text(c->label, c->app ? c->app->name
@@ -561,10 +609,12 @@ void home_set_time(const char *hm, const char *date)
 static void show_focus(struct page *p, int k)
 {
     if (p->focus >= 0 && p->focus < p->ncells) {
+        lv_obj_clear_state(p->cells[p->focus].obj, LV_STATE_FOCUSED);
         lv_obj_invalidate(p->cells[p->focus].obj);
     }
     p->focus = k;
     if (k >= 0 && k < p->ncells) {
+        lv_obj_add_state(p->cells[k].obj, LV_STATE_FOCUSED);
         lv_obj_invalidate(p->cells[k].obj);
         /* In the first row, the whole top of the page - the time, or the
          * way back and the name - comes back into view with it. */

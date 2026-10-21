@@ -5216,3 +5216,107 @@ while powering on selects the eMMC boot medium, which this board does not
 have;** the boot ROM samples it before any software runs, so no setting can
 change that. User-facing text that teaches the hold must say to let go
 before a reset or power-on. RESET and the power key are unchanged.
+
+## 58. Optional system-wide Neon theme [ACCEPTED]
+
+**Accepted by the product owner, 2026-10-19 (PR #98 implementation request).**
+Neon is a selectable theme for all of DOORS, through Settings → Appearance →
+Neon. `doors` remains the default and fallback. The existing themes, layouts,
+text-size scale, touch targets, navigation and mode transforms stay unchanged.
+
+The seventh registry entry, `neon`, uses the existing §4 tokens and §8
+selection, persistence and notification path. Its palette and simulator
+validation are in [neon/README.md](neon/README.md); `themes.json` is the
+machine-readable table, including all derived colours and contrast ratios.
+Cyan marks actions, focus and selection; magenta distinguishes secondary
+controls; lime, yellow and red retain success, warning and error semantics.
+Words, symbols and selection marks continue to communicate state.
+
+For Neon only, §31's fixed environment palette maps to the shared semantic
+roles: neutral text, opaque dark surfaces, cyan borders, glyphs, focus marks
+and slider fills, with a darker photographic backdrop. Portal illustrations
+retain their symbols and colours because they are RGB artwork, not masks.
+The existing environment palette is exact for every other theme. Content
+colours (suits, map tiles, photographs, preview pixels, detection overlays,
+identity colours and diagnostics) keep their existing meanings.
+
+No glow on body text, blur, flashing, animation or rendering dependency is
+introduced. The original RIFT concept is historical inspiration, not a RIFT
+layout or routing contract. Owner visual review of actual simulator renders
+is still required before merge; target rendering remains a hardware check.
+
+### 58.1 Visual revision after owner feedback — approval pending
+
+The system-wide theme direction is approved. The initial implementation
+`ddf9791` is **not visually approved**: the owner found it too subdued,
+thin and difficult to read. The revised proposal uses opaque teal panels,
+3 px inset structural/control edges, plum secondary surfaces, cyan primary
+fills and heading badges, brighter neutral reading text, and 4 px light focus
+rings separated from filled controls by a dark gap. Existing font faces and
+Small/Medium/Large sizes are retained; environment headings use Mono Medium
+at the same pixel size. Geometry and interaction are unchanged. Normal is
+the strong Neon proposal; Night and Outdoor retain the existing transforms.
+
+These are proposed implementation refinements for owner visual review,
+not a claim of approval. Matched simulator evidence and focused checks are
+in [neon/revision/README.md](neon/revision/README.md). Existing themes and
+content colours remain unchanged; code/quiet-zone scan colours stay black
+and white. Inset outlines add thickness without consuming content space.
+
+### 58.2 Neon-sign / arcade proposal — visual approval pending
+
+The owner's updated direction supersedes the blanket glow prohibition for
+Neon: small static coloured bands on selected decorative edges, controls
+and launcher elements are allowed. The current proposal uses solid cyan and
+magenta action surfaces, lime selection and separate light keyboard focus.
+An existing 1 px LVGL shadow kernel with only 2–3 px spread supplies a flat
+darker outer band around a crisp core; text itself stays unblurred. Reading
+panels stay near-black with neutral text and selective section signs.
+
+Shared semantic variants distinguish section headings, navigation selection,
+button glyphs and compound reading controls. Launcher roles switch between
+preserved legacy artwork and existing symbol masks on illuminated tiles,
+without a theme-specific app framework or new callbacks. Existing themes
+retain the exact original presentation and mode rules.
+
+For Neon only, Night dims normal reading colours 22% and accents/status fills
+12%, retaining readable information and dark labels on solid actions. This
+replaces the earlier Neon Night transform; Outdoor is unchanged. QR colours,
+user imagery and content-specific colours are unchanged. See
+[arcade/README.md](neon/arcade/README.md) for rendered proof and costs.
+Approval of the optional system-wide direction does not constitute visual
+approval of this implementation; PR #98 remains draft.
+
+### 58.3 Neon text roles after hardware review — approval pending
+
+After extensive testing on unit B (2026-10-20) the owner found the overall
+appearance good but too much of the interface white. Neutral body text does
+not extend to clocks, headings, menu entries or labels. For Neon only:
+clocks and app titles use `accent_primary`; folder, Favorites and Controls
+titles use `accent_secondary`; menu entries, row titles, launcher labels and
+row chevrons use a label cyan (`accent_primary` 30 % toward `text_primary`);
+captions and secondary lines a deeper cyan (`accent_primary` 22 % toward
+`bg`). Values, body text and user content stay neutral; fills keep
+`text_on_accent`; selection, focus and status colours are unchanged. In
+Outdoor, Neon's `line` is its normal line mixed 55 % toward the Outdoor
+`accent_primary` instead of toward grey secondary text, so frames stay
+chromatic (7.2:1 on bg). Other themes and modes are unchanged. Evidence and
+contrast: [neon/text/README.md](neon/text/README.md).
+
+### 58.4 Arcade — the owner's selected direction
+
+On 2026-10-20 the owner chose **Arcade** from four rendered Neon directions,
+approving its visual direction; it supersedes §58.1–58.3 for Neon's colours.
+Neon stays one optional theme. Palette: indigo `bg`/`surface`, violet `line`,
+green `accent_primary` for primary actions, magenta `accent_secondary` for
+secondary actions and headings. Roles: yellow clocks, titles and selection;
+magenta folder, Favorites, Controls and section headings; cyan menu entries,
+row titles, labels and glyphs; orange captions and secondary lines; launcher
+tiles coloured per app family through shared styles that are empty in every
+other theme. Outdoor lifts Neon's colours toward white on black rather than
+whitening them; Night keeps status at 94 % so warnings and errors stay
+readable. Values, body text and user content stay reading text; fills keep
+`text_on_accent`; focus stays a light ring; warnings and errors keep words
+and symbols. Other themes, layout, sizes and touch targets are unchanged.
+See [neon/arcade-selected/README.md](neon/arcade-selected/README.md). The owner approved
+the Arcade appearance on unit B's panel on 2026-10-20.

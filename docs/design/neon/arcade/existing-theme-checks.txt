@@ -1,0 +1,16 @@
+doors-landscape-launcher.png: pixel-identical at full resolution, including clock
+doors-landscape-settings.png: pixel-identical at full resolution, including clock
+doors-portrait-launcher.png: pixel-identical at full resolution, including clock
+doors-portrait-settings.png: pixel-identical at full resolution, including clock
+ice-landscape-launcher.png: pixel-identical at full resolution, including clock
+ice-landscape-settings.png: pixel-identical at full resolution, including clock
+ice-portrait-launcher.png: pixel-identical at full resolution, including clock
+ice-portrait-settings.png: pixel-identical at full resolution, including clock
+
+activity-hdmi-large.png: Doors Activity pixel-identical
+activity-landscape-large.png: Doors Activity pixel-identical
+activity-landscape-medium.png: Doors Activity pixel-identical
+activity-landscape-small.png: Doors Activity pixel-identical
+activity-portrait-large.png: Doors Activity pixel-identical
+activity-portrait-medium.png: Doors Activity pixel-identical
+activity-portrait-small.png: Doors Activity pixel-identical

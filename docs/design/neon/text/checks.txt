@@ -1,0 +1,26 @@
+Neon text roles: focused checks, 2026-10-20, SDL simulator (WSL, host gcc 11)
+before = 56aefe5, after = this change (same source apart from the change)
+
+neon_text_checks.py before after
+ok   126 non-Neon frames pixel-identical
+ok   252 layout audits identical before and after
+ok   126 Neon frames: 1565598 changed pixels, all neutral before
+neon_text_checks: 0 failure(s)
+
+neon_live_switch.py (after): Doors and Ice, Normal and Outdoor, portrait and
+landscape; launcher, folder, Settings, System, lock; live through Neon
+Normal/Outdoor/Night and back
+neon_live_switch: 40 checks, 0 failure(s)
+(also 40/0 on 56aefe5. Finding, not changed here: an already open Settings
+keeps its Appearance summary text from before an IPC theme change - at
+56aefe5 as well - so the tool reopens Settings before its return frame.)
+
+theme_test: 1369 checks, 0 failure(s)
+settings_test: 0 failure(s)
+neon_shell_test.py: 56 checks, 0 failures (selection, persistence, restart,
+  live changes, reopen and switch back; 3 text sizes x 2 rotations + HDMI)
+settings_app_test (SETTINGS_THEME=neon): 1563 checks, 0 failure(s)
+settings_app_test (default theme): 1562 checks, 0 failure(s)
+rift_app_test (RIFT_THEME=neon RIFT_THEME_PROOF=1 RIFT_STATE_MODES=1):
+  rift_theme_proof: 92 checks, 0 failure(s)
+style_lint: 0 failure(s)

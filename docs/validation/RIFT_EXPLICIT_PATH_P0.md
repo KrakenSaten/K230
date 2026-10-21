@@ -1,9 +1,10 @@
 # Explicit MeshCore path P0 — read-only backend checkpoint
 
 Date: 2026-10-18, updated 2026-10-21
-Status: **HOST-TESTED, K230 CROSS-BUILT, RUNS ON UNIT B; ZERO-RELAY DIRECT
-TO A STOCK MESHCORE COMPANION PASSED ON AIR (2026-10-21); REPEATER
-FORWARDING NOT RF-VALIDATED.** Explicit
+Status: **HOST-TESTED, K230 CROSS-BUILT, RUNS ON UNITS A AND B; ZERO-RELAY
+DIRECT (UNIT B) AND ONE-REPEATER DIRECT (UNIT A, VIA VARDEN RP) TO A STOCK
+MESHCORE COMPANION PASSED ON AIR (2026-10-21); THE UNAVAILABLE-REPEATER
+NEGATIVE CONTROL WAS NOT RUN ON HARDWARE.** Explicit
 DIRECT send is implemented (see the follow-up section). The original
 read-only checkpoint below is kept as written. Build evidence and the
 physical acceptance procedure are at the end of this file.
@@ -565,10 +566,10 @@ proves" above. It is one message at one placement.
 - The similar 2026-10-19 observation on the old 0.3.6 daemon stays
   unexplained; there are no logs from that time.
 
-### Repeater test (pending: no suitable repeater confirmed)
+### Repeater test plan
 
-Not run and not accepted. It needs a repeater R that the owner controls and
-can power off, whose full key is read from R itself, which unit B knows as
+It needs a repeater R that the owner controls and
+can power off, whose full key is read from R itself, which the sender knows as
 type 2, and whose `[R]` preview is valid (no known hash match). Steps 1 to
 9 as above with `via` `[R]`, after a fresh learned-route baseline.
 Forwarding evidence on the sender side is unit B hearing its own text
@@ -591,8 +592,132 @@ step's delivery came through R and that an unusable selected route was not
 replaced by AUTO. They do not rule out, in general, an unknown repeater
 that shares R's hash prefix and was quiet or out of range during the run.
 
+### Repeater result (2026-10-21, unit A sender, owner-approved, one transmission)
+
+**PASS** for explicit one-repeater DIRECT delivery, observed forwarding,
+matching ACK and unchanged learned route. **The negative control (R powered
+off) was not run**; see the end of this section. All observations are
+VERIFIED on this run unless marked otherwise.
+
+Unit B was not reachable from the PC used for this run, so unit A was the
+sender (owner's decision).
+
+Candidate on unit A (owner-approved install):
+
+- Unit A before: Doors 0.3.7 (`BUILD_ID=73ceadf5`), meshcored `614f9e2c…`,
+  no explicit-path capabilities. Identity `Mstr_k230`, key
+  `19f7b327a254fe8a2565578a29a5d40b1202536f2cca3243f869972b59043715`.
+- GitHub Actions has no artifacts for this PR (the workflow is host-only), so
+  `meshcored` and `pos-ipc-json` were rebuilt from a `git archive` export of
+  `14039ac` with the recipe above. The vendor trees were clean clones at
+  RIFT `3ca7e3f` and Crypto `37a76b8`, and the pin check stayed on.
+  Same toolchain, SDK `22d02c6` and BSP `bb831ab`. The sysroot was the
+  `k230_pocketos_defconfig` output's (glibc 2.33, cJSON 1.7.18), not the vendor
+  defconfig's. No compiler warning.
+- The result is byte-identical to the recorded artifacts: meshcored
+  `c0af8f32…`, pos-ipc-json `31e75db0…`. Both hashes were checked again on
+  the unit after a serial transfer.
+- Backup in `/root/rollback-explicit-path/`: the release meshcored
+  `614f9e2c…`, its state copied while it was stopped, `SHA256SUMS` and
+  `RESTORE.sh`. Only meshcored was restarted. `doors-shell` and `radiod` kept
+  running.
+- After the start, `mesh.info` reported build `14039ac` with both capabilities
+  `true`, `online`, and all TX counters 0. Node and channel counts were
+  unchanged (451, 7). The message list restarted empty, as documented
+  (`persistent: false`).
+- Radio profile as above. Unit A's path hash is **2 bytes** (unit B's is
+  1). The owner confirmed that the repeater supports 2-byte path hashes.
+
+Identification and route, read-only:
+
+- R is **Varden RP**, type 2, key
+  `300614d1f6755a67035d96ffb6949b05ce625335110e2b057dee78c2f3cc95ad`. The owner
+  confirmed this full key on the repeater itself. It was the only near
+  match for the name the owner gave, and the only known key starting `3006`.
+  It was heard directly: advert 0 hops, RSSI -68 dBm, SNR 12 dB.
+- The M5 is the same node as in the direct test (key `c00dadc0…0e7b`,
+  type 1). The owner confirmed that Mstr_k230 (`19f7b327…`) is a contact in
+  the M5 app.
+- The `[Varden RP]` preview just before the send was `valid`, 1 relay,
+  `hash_bytes` 2, `path_hex` `3006`, `transmitted: false`.
+- Route **before**: `path_known: true`, `hops: 0`, `direct: true`.
+- Counters before: `tx_submitted` 2, `sent_flood` 1, `sent_direct` 1. The
+  owner confirmed these two transmissions were RIFT button presses on unit A
+  after the install, before the send.
+
+The send (16:30:12 UTC): `mesh.send` to the M5 with `via` `[Varden RP]` and the
+text `rfp0-relay-on-20261021-81ec83`. Nothing else was sent by the test: no
+resend, no advert, and no second message.
+
+- **Sender evidence (requested route):**
+  - The reply was `accepted`, `message_id` 1, `route: explicit`.
+  - The stored message has `path_hex: "3006"`, `path_hops: 1` and `attempts: 1`.
+  - The send was a 56-byte transmission (`submit_id` 3, `ok`).
+  - `tx_submitted` went from 2 to 4, `sent_direct` from 1 to 3, and
+    `sent_flood` stayed at 1. There was no flood copy of the text.
+  - The second direct transmission is explained under the operator's M5
+    message below.
+- **Forwarding evidence:**
+  - 1.5 s after the send (1.0 s after its transmission), unit A heard its own text packet repeated:
+    `own: true`, the same `hash` (`61f25a307bcc4b2e`), `route: direct`, 0 hops
+    left at 2-byte hash size.
+  - It was 54 bytes, the 56 sent minus the relay's own 2-byte hop, and
+    carried destination `c0` and source `19`. It arrived at RSSI -64 dBm,
+    SNR 11.75 dB, which fits Varden RP's -68 dBm; the M5's frames arrived
+    at -38 to -42 dBm.
+  - At pinned RIFT only the node matching the first relay hash forwards and
+    removes itself from the path. So a node with hash `3006` forwarded the
+    text. Varden RP is the only such node known.
+- **ACK state:**
+  - A direct, 0-hop ACK arrived 0.8 s after the forwarded copy, at RSSI
+    -38 dBm (the M5's level).
+  - Message 1 became `acked` 2.26 s after the send.
+  - The ACK came straight from the M5, which has a direct route to unit A.
+    It did not retrace the repeater.
+- **Learned route:** `path_known: true`, `hops: 0`, `direct: true` both before
+  and after. The explicit route did not replace it.
+- **Recipient observation (owner, separate from the logs):** the M5 app showed
+  `rfp0-relay-on-20261021-81ec83` exactly once, from Mstr_k230.
+
+Unit A and the M5 are in direct range of each other. That the recipient
+releases a direct packet with relays left, and so accepts only the
+forwarded copy, is VERIFIED for pinned RIFT and ASSUMED for the stock
+companion firmware.
+
+**Operator message during the run (separate from the result):**
+
+- The owner sent a direct message from the M5 at 16:30:32 UTC, 20 s after the
+  test send. Unit A received it and shows the text as `????`, because the
+  sanitiser replaces non-ASCII characters. The owner confirmed sending it.
+- 0.47 s later unit A made an 8-byte transmission (`submit_id` 4,
+  `sent_direct`). That it was unit A's automatic ACK of the M5's message is
+  an **inference** from the size and timing: the transmitted frame type is not
+  logged.
+
+**Not tested on hardware: the negative control.** The send with the selected
+repeater unavailable (Varden RP powered off) was not performed; the owner
+declined that step. No physical observation exists of what happens when the
+selected repeater cannot forward. This is recorded as an unperformed check,
+not as a pass and not as a defect. The evidence that exists for that
+behaviour is:
+
+- The host and mock-air checks above: invalid routes are refused without TX,
+  and RESEND of an explicit message is refused without TX.
+- The source: meshcored has no automatic retry or flood fallback. An
+  unanswered explicit message becomes `no_ack` at its deadline, and RESEND
+  is refused (see "Acceptance readiness").
+
+Also not shown by this run: routes with more than one relay, 1- or 3-byte
+hashes through a repeater, the ACK's return through the repeater, and other
+companion firmware versions. The run also cannot rule out an unknown node
+sharing Varden RP's `3006` prefix.
+
 ### Restore
 
-Nothing in the direct test changes unit B beyond the message it stores.
-The candidate stays installed until the owner decides;
-`/root/rollback-explicit-path/RESTORE.sh` restores the 0.3.6 daemon.
+Nothing in either test changes a unit beyond the messages it stores. The
+candidate stays installed on units A and B until the owner decides:
+
+- **Unit B:** `/root/rollback-explicit-path/RESTORE.sh` restores the 0.3.6 daemon.
+- **Unit A:** the same path restores the 0.3.7 daemon `614f9e2c…`.
+
+On both units `pos-ipc-json` is in `/tmp/doors-rf` and is gone after a reboot.

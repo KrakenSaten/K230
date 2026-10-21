@@ -1,0 +1,254 @@
+[
+  {
+    "capture": "states-portrait-small.png",
+    "contrast": {
+      "body": 16.61,
+      "secondary text": 13.2,
+      "primary label": 13.13,
+      "secondary label": 15.36,
+      "warning": 13.32,
+      "error": 6.06,
+      "disabled": 3.7
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-portrait-medium.png",
+    "contrast": {
+      "body": 16.61,
+      "secondary text": 13.2,
+      "primary label": 13.13,
+      "secondary label": 15.36,
+      "warning": 13.32,
+      "error": 6.06,
+      "disabled": 3.7
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-portrait-large.png",
+    "contrast": {
+      "body": 16.61,
+      "secondary text": 13.2,
+      "primary label": 13.13,
+      "secondary label": 15.36,
+      "warning": 13.32,
+      "error": 6.06,
+      "disabled": 3.7
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-landscape-small.png",
+    "contrast": {
+      "body": 16.61,
+      "secondary text": 13.2,
+      "primary label": 13.13,
+      "secondary label": 15.36,
+      "warning": 13.32,
+      "error": 6.06,
+      "disabled": 3.7
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-landscape-medium.png",
+    "contrast": {
+      "body": 16.61,
+      "secondary text": 13.2,
+      "primary label": 13.13,
+      "secondary label": 15.36,
+      "warning": 13.32,
+      "error": 6.06,
+      "disabled": 3.7
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-landscape-large.png",
+    "contrast": {
+      "body": 16.61,
+      "secondary text": 13.2,
+      "primary label": 13.13,
+      "secondary label": 15.36,
+      "warning": 13.32,
+      "error": 6.06,
+      "disabled": 3.7
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-outdoor-portrait-small.png",
+    "contrast": {
+      "body": 19.5,
+      "secondary text": 16.44,
+      "primary label": 14.18,
+      "secondary label": 16.73,
+      "warning": 15.31,
+      "error": 7.76,
+      "disabled": 4.31
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-outdoor-portrait-medium.png",
+    "contrast": {
+      "body": 19.5,
+      "secondary text": 16.44,
+      "primary label": 14.18,
+      "secondary label": 16.73,
+      "warning": 15.31,
+      "error": 7.76,
+      "disabled": 4.31
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-outdoor-portrait-large.png",
+    "contrast": {
+      "body": 19.5,
+      "secondary text": 16.44,
+      "primary label": 14.18,
+      "secondary label": 16.73,
+      "warning": 15.31,
+      "error": 7.76,
+      "disabled": 4.31
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-outdoor-landscape-small.png",
+    "contrast": {
+      "body": 19.5,
+      "secondary text": 16.44,
+      "primary label": 14.18,
+      "secondary label": 16.73,
+      "warning": 15.31,
+      "error": 7.76,
+      "disabled": 4.31
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-outdoor-landscape-medium.png",
+    "contrast": {
+      "body": 19.5,
+      "secondary text": 16.44,
+      "primary label": 14.18,
+      "secondary label": 16.73,
+      "warning": 15.31,
+      "error": 7.76,
+      "disabled": 4.31
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-outdoor-landscape-large.png",
+    "contrast": {
+      "body": 19.5,
+      "secondary text": 16.44,
+      "primary label": 14.18,
+      "secondary label": 16.73,
+      "warning": 15.31,
+      "error": 7.76,
+      "disabled": 4.31
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-night-portrait-small.png",
+    "contrast": {
+      "body": 5.34,
+      "secondary text": 4.6,
+      "primary label": 4.25,
+      "secondary label": 5.2,
+      "warning": 4.69,
+      "error": 2.91,
+      "disabled": 1.81
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-night-portrait-medium.png",
+    "contrast": {
+      "body": 5.34,
+      "secondary text": 4.6,
+      "primary label": 4.25,
+      "secondary label": 5.2,
+      "warning": 4.69,
+      "error": 2.91,
+      "disabled": 1.81
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-night-portrait-large.png",
+    "contrast": {
+      "body": 5.34,
+      "secondary text": 4.6,
+      "primary label": 4.25,
+      "secondary label": 5.2,
+      "warning": 4.69,
+      "error": 2.91,
+      "disabled": 1.81
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-night-landscape-small.png",
+    "contrast": {
+      "body": 5.34,
+      "secondary text": 4.6,
+      "primary label": 4.25,
+      "secondary label": 5.2,
+      "warning": 4.69,
+      "error": 2.91,
+      "disabled": 1.81
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-night-landscape-medium.png",
+    "contrast": {
+      "body": 5.34,
+      "secondary text": 4.6,
+      "primary label": 4.25,
+      "secondary label": 5.2,
+      "warning": 4.69,
+      "error": 2.91,
+      "disabled": 1.81
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  },
+  {
+    "capture": "states-night-landscape-large.png",
+    "contrast": {
+      "body": 5.34,
+      "secondary text": 4.6,
+      "primary label": 4.25,
+      "secondary label": 5.2,
+      "warning": 4.69,
+      "error": 2.91,
+      "disabled": 1.81
+    },
+    "structural_px": 3,
+    "focus_px": 4
+  }
+]

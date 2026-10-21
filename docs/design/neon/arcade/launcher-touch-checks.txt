@@ -1,0 +1,2 @@
+portrait Large: Games touch, Escape return and Settings touch pass (3 checks)
+landscape Large: Games touch, Escape return and Settings touch pass (3 checks)

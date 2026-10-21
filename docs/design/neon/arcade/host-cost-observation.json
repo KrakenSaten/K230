@@ -1,0 +1,18 @@
+[
+  {
+    "version": "before",
+    "wall_seconds": 3.0499,
+    "user_seconds": 3.0452,
+    "system_seconds": 0.004,
+    "max_rss_kib": 9344,
+    "scope": "one host run of bounded UI proof, PNG snapshots disabled; not isolated frame timing or K230 evidence"
+  },
+  {
+    "version": "after",
+    "wall_seconds": 3.2395,
+    "user_seconds": 3.2322,
+    "system_seconds": 0.0041,
+    "max_rss_kib": 9344,
+    "scope": "one host run of bounded UI proof, PNG snapshots disabled; not isolated frame timing or K230 evidence"
+  }
+]

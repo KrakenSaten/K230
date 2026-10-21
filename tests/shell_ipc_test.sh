@@ -45,13 +45,13 @@ out=$("$POS" shell theme brass outdoor 2>&1); check "theme switch brass/outdoor"
 out=$("$POS" shell info); check "info reports theme" '"theme":[[:space:]]*"brass"' "$out"; check "info reports mode" '"mode":[[:space:]]*"outdoor"' "$out"
 "$POS" shell screenshot "$OUT/radio-brass-outdoor.png" >/dev/null
 check "themed screenshot differs from the default theme" '1' "$(cmp -s "$OUT/radio.png" "$OUT/radio-brass-outdoor.png" && echo 0 || echo 1)"
-out=$("$POS" shell theme neon 2>&1); check "unknown theme falls back" 'fallback' "$out"
+out=$("$POS" shell theme missing-theme 2>&1); check "unknown theme falls back" 'fallback' "$out"
 out=$("$POS" shell info); check "fallback theme is doors (DS §32)" '"theme":[[:space:]]*"doors"' "$out"; check "fallback mode is normal" '"mode":[[:space:]]*"normal"' "$out"
 out=$("$POS" shell theme ice dusk 2>&1); check "unknown mode falls back" 'fallback' "$out"
 out=$("$POS" shell theme slate 2>&1); check "theme only keeps mode" 'theme slate mode normal' "$out"
 check "selection persisted" 'theme=slate' "$(cat "$POCKETOS_CONFIG_DIR/settings.conf")"
 check "mode persisted" 'display_mode=normal' "$(cat "$POCKETOS_CONFIG_DIR/settings.conf")"
-"$POS" shell theme neon >/dev/null 2>&1
+"$POS" shell theme missing-theme >/dev/null 2>&1
 check "fallback leaves stored value untouched" 'theme=slate' "$(cat "$POCKETOS_CONFIG_DIR/settings.conf")"
 out=$("$POS" app start bogus 2>&1); check "unknown app rejected" 'code 2' "$out"
 out=$("$POS" app home 2>&1); check_empty "app home" "$out"

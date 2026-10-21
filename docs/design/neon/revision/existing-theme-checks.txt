@@ -1,0 +1,8 @@
+doors-landscape-launcher.png: identical at full resolution, including fixed clock
+doors-landscape-settings.png: identical at full resolution, including fixed clock
+doors-portrait-launcher.png: identical at full resolution, including fixed clock
+doors-portrait-settings.png: identical at full resolution, including fixed clock
+ice-landscape-launcher.png: identical at full resolution, including fixed clock
+ice-landscape-settings.png: identical at full resolution, including fixed clock
+ice-portrait-launcher.png: identical at full resolution, including fixed clock
+ice-portrait-settings.png: identical at full resolution, including fixed clock
