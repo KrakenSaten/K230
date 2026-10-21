@@ -11,6 +11,9 @@ real person and owner recognition is deferred to the Vision work in progress
 elsewhere, and DeskBuddy runs blind or on simulated vision until then.**
 **Branch `feat/vision-next` (2026-09-30) adds the real provider on Vision's
 helper and a first run on unit B: "The Vision provider" at the end.**
+**Branch `feat/deskbuddy-camera-presence` (2026-10-21) lets BUDDY notice a
+person through the camera, with the shipped R0 detector ("Camera presence"
+under "The Vision provider"). Host-tested on the fake camera only.**
 
 Launcher: the Apps folder, first (DS §47; it was in WORKSPACE after Calculator), in the `ai` hue, a first-party icon (a
 small screen with two eyes). Place and icon are for the owner to confirm.
@@ -213,18 +216,19 @@ framework: one struct (`db_prefs`), one parser, one formatter.
 
 | File | Holds |
 | --- | --- |
-| `$POCKETOS_STATE_DIR/deskbuddy/prefs.v1` | `companion`, `guard`, `night`, `owner_recognition`, `greeting`, `idle_animation` (0/1, default 1), `guard_armed` (0/1), `mode` |
+| `$POCKETOS_STATE_DIR/deskbuddy/prefs.v1` | `companion`, `camera_presence`, `guard`, `night`, `owner_recognition`, `greeting`, `idle_animation` (0/1, default 1; a file without `camera_presence`, written before it, loads it as 1), `guard_armed` (0/1), `mode` |
 | `$POCKETOS_STATE_DIR/deskbuddy/guard.v1` | `next=<id>` and one `e <id> <wall_s> <subject> <conf> <ack> <snapshot>` line per event, oldest first |
 
 The directory is 0700 and the files 0600. Writes are atomic (temp file,
 fsync, rename). A line or value this build could not have written is skipped
 and the rest loads; a damaged file is left in place until there is something
 to save. Changes are written from the shell's once-a-second tick and on
-close. The six switches are on the screen's SET panel.
+close. The seven switches are on the screen's SET panel.
 
 | Switch | Off means |
 | --- | --- |
 | Companion mode | BUDDY is not offered; with every mode off, a resting face that does not react |
+| Camera presence · Buddy | BUDDY plays by touch alone and never starts the camera. On (the default), BUDDY runs the camera to notice somebody arrive and leave ("Camera presence", below). GUARD and NIGHT run the camera whatever it says: the switch cannot turn a guard blind |
 | Desk guard | GUARD is not offered; an armed guard is disarmed |
 | Night mode | NIGHT is not offered |
 | Owner recognition | the owner and strangers are both "a person": no greeting, guard logs `person` |
@@ -327,18 +331,74 @@ Vision and Vision knows nothing of DeskBuddy (`tests/deskbuddy_lint.sh`,
 section 7). `choose_provider()` picks it unless `$DESKBUDDY_SIM` is set (the
 mock) or `$DESKBUDDY_VISION` is `none` (blind, as v0.1 was).
 
-**Only Guard and Night start it** (`sync_provider()`, since the
-personality slice). Companion plays by touch and never starts the helper:
-opening DeskBuddy in Companion opens no camera, switching to GUARD or NIGHT
-starts the helper, and switching back to BUDDY stops it (within Vision's
-grace, as closing the app does) and tells the brain it cannot see, so
-Companion runs blind and its NO VISION YET note is not shown. While a
-freshly started helper has not reported, ARM waits for "nobody"
-(`GUARD_ARMING`) rather than taking the silence for an empty desk. The
-scripted mock and `none` open no camera and run in every mode. So the
-owner greeting and the stranger's wary look in Companion need a source
-other than the camera from now on; an explicit opt-in for them is left to
-a later slice.
+**Where it runs** (`sync_provider()` and `camera_wanted()`): Guard and
+Night always start it; Companion only with **Camera presence** on (the
+default) and Companion mode on. Opening DeskBuddy in BUDDY then starts the
+helper at once; turning the switch off, or going to BUDDY with it off,
+stops it (within Vision's grace, as closing the app does) and tells the
+brain it cannot see, so Companion plays by touch alone, as it did before
+the switch, and says nothing about the camera. While a freshly started
+helper has not reported, ARM waits for "nobody" (`GUARD_ARMING`) rather
+than taking the silence for an empty desk. The scripted mock and `none`
+open no camera and run in every mode.
+
+### Camera presence (BUDDY)
+
+With the switch on, BUDDY reacts through its existing personality and the
+brain's existing rules (`companion_vision()`), nothing new:
+
+- **Somebody arrives** (nobody, or no vision, before): a sleeping, idle or
+  drowsy face wakes (`WAKE`, then `RECOGNIZING` "..." while an identity
+  might still come, then `IDLE`). A person seen does not wake it again
+  while they stay; the judge says a conclusion once, after two reports in
+  a row, so a flicker is no arrival.
+- **Nobody sits there alone with it**: while somebody is in view it does
+  not get drowsy or fall asleep; the quiet starts when they leave.
+- **They leave**: "nobody" after 1.5 s without anybody; a waking face goes
+  back to `IDLE`, and after the usual quiet (1 min drowsy, 2 min asleep) it
+  settles.
+- **Touch** plays as before alongside: poke, pet, feed and REST / WAKE are
+  stimuli, the camera does not change them; a vision state (a greeting,
+  `WAKE`) is not interrupted by one, as before.
+
+**Presence is not identity.** A person found by the object detector is
+`PERSON_DETECTED` - "somebody is there" - and only that: no greeting, no
+stranger's look, no guard entry naming anyone. `OWNER_RECOGNIZED` and
+`UNKNOWN_PERSON` come only from Vision's RECOGNIZE, with the face models on
+the unit **and** an owner enrolled in Vision; without them there is no
+identity evidence, and none is claimed. Owner recognition off turns even
+those into "somebody", as before.
+
+**Models.** Person presence needs only the object detector the image
+carries: R0 (`/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel`,
+docs/apps/VISION.md "The model"). The provider names it to the helper,
+picked as Vision picks it (`vision_store_detector_files()`,
+`vision_detector_pick()`: Vision's last confirmed detector when its file is
+there, else the other, so a bench unit with UPSTREAM chosen in Vision gets
+UPSTREAM). A person is the detector class whose name is `person`
+(`vision_label()`, the names TRAFFIC maps by; COCO row 0 in both R0 and
+UPSTREAM), never an index assumed; a car or a bicycle is nobody. The face
+models (`face_det.kmodel`, `face_embed.kmodel`) are optional: present, the
+helper runs FACE or RECOGNIZE instead, as before.
+
+**When it cannot see.** No helper, no camera (or Camera holding it), no
+detector and no face model, or a helper that died: the provider says
+`UNAVAILABLE` once and BUDDY shows **CAMERA UNAVAILABLE** under the face
+(only once the source has answered, not while it is starting) and plays by
+touch. That is never taken for "nobody here": the brain's `seen` is
+UNAVAILABLE, not NOBODY. GUARD keeps its own NO VISION YET.
+
+**The hold.** The helper is told how the unit is held - the shell's
+`hold_rotation` (app.h), as Camera and Vision use it: the display's
+rotation on the panel, the mode's and keyboard's on an external display -
+and the app passes a new hold on while DeskBuddy is open (on HDMI the
+shell does not restart when it changes). Before this the provider took the
+display's rotation, which on an external display is always 0.
+
+**Lifetime.** Inference is in the helper process (ADR-006); the UI thread
+only polls, every 100 ms. Closing DeskBuddy stops the helper (Vision's
+grace: it gives back the camera and the KPU), so Camera and Vision open
+normally afterwards. Nothing watches after DeskBuddy closes.
 
 - `start()` starts Vision's helper (`pos-vision`, ADR-006) with no picture
   on screen - a 64 x 64 preview it takes and drops - non-blocking; a helper
@@ -373,7 +433,15 @@ helper and the unit, no enrolment image is kept, one FORGET deletes it.
 **Tests:** `tests/db_pipeline_test.c` (the judge, and the provider end to end
 against the real helper on the fake camera and fake face models: owner,
 stranger, people without face models, nobody, a killed helper, no helper,
-stop twice, no helper left behind; also under ASan/UBSan).
+stop twice, no helper left behind; also under ASan/UBSan; and the person
+class by name, the detector pick, a person from R0 with no
+`yolov8n.kmodel` on the unit, a car that is nobody, a turn while running).
+`tests/deskbuddy_app_test.c` covers Camera presence on and off, the
+switch's scope over GUARD and NIGHT, a file from before it, CAMERA
+UNAVAILABLE, the hold followed on an external display and - with the
+built helper on the fake camera and fake detector - a person arriving and
+leaving in BUDDY with touch alongside and no identity claimed. All of that
+is host evidence on fake frames, not a real camera.
 
 **Unit B, 2026-09-30** (recorded pictures through the real shell, KPU): the
 owner enrolled in Vision from the vendor's selfie, then DeskBuddy on the ID
@@ -384,10 +452,11 @@ helper took 5-18 % CPU (live camera, RECOGNIZE); DeskBuddy's shell RSS was
 unchanged. Not tested: a live person at the desk, and Guard mode's log with
 real vision.
 
-**Doors 0.3.6 and the R0 detector** (checked in the code, not on hardware):
-the provider starts `pos-vision` without `--model`, so its DETECT fallback
-opens the helper's default, `yolov8n.kmodel`, which no image ships since
-0.3.5. The R0 detector that 0.3.6 carries (docs/apps/VISION.md, "The model")
-is opened only by the Vision app, by name, so it changes nothing here: a
-fresh 0.3.6 card without face models reports NO VISION YET, as 0.3.5 does.
-A unit given `yolov8n.kmodel` or the face models by hand behaves as before.
+**Doors 0.3.6 to 0.3.7 and the R0 detector** (checked in the code, not on
+hardware): the provider started `pos-vision` without `--model`, so its
+DETECT fallback looked for the helper's old default, `yolov8n.kmodel`,
+which no image ships since 0.3.5, and a card without face models reported
+NO VISION YET in GUARD and NIGHT. **Fixed on
+`feat/deskbuddy-camera-presence`:** the provider names the detector Vision
+would open (R0 on every image from 0.3.6), as described under "Camera
+presence" above. Not yet run on a unit.
