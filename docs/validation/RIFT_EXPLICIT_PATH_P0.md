@@ -200,8 +200,9 @@ afterwards). Relay routes cannot be rehearsed without a repeater.
 Only the backup, install and no-TX checks on unit B have been run (see
 "On-device run, unit B only"). No step that transmits has been run. Every
 step that changes a unit or transmits needs the owner's go-ahead first.
-The order to follow at the bench is the "Bench checklist" at the end of
-this file.
+This procedure assumes two Doors units. With the equipment actually
+available (unit B and an M5 companion), follow "Bench plan: unit B sender,
+M5 companion recipient" at the end of this file.
 
 ### Equipment (DOCUMENTED, to be re-checked at the start)
 
@@ -265,8 +266,8 @@ in `/tmp` (tmpfs) and is gone after a reboot.
 
 ### Test sequence
 
-The phases are listed here; the bench order, which runs `auto` first and
-adds a negative control, is in the "Bench checklist" below.
+These phases need two Doors units. For unit B with an M5 companion, see
+the bench plan at the end of this file.
 
 ```sh
 export EXPECT_BUILD=14039ac
@@ -388,78 +389,137 @@ and an explanation of B's 0 `rx_events`.
   in range of each other. A zero-relay DIRECT packet is never forwarded, so
   its delivery shows the direct A to B link.
 - A node with the same hash prefix as the selected repeater but absent from
-  A's node list would also forward. Step 7 below separates the two.
+  the sender's node list would also forward. A powered-off repeater run
+  supports attribution in a controlled test; it cannot rule out every such
+  node.
 - meshcored has no automatic retry or flood fallback: an unanswered message
   becomes `no_ack` at its deadline, and RESEND of an explicit message is
   refused (`mesh_runtime.cpp`, `resend`).
 
-## Bench checklist
+## Bench plan: unit B sender, M5 companion recipient (2026-10-21)
 
-Roles and placement: **A** sender (a second Doors unit), **B** recipient
-(unit B), **R** one repeater the owner can power off. All three may stand
-on one bench in range of each other. Nothing else needs to move.
+Equipment the owner has: **unit B** as the instrumented sender (the
+`14039ac` candidate per the 2026-10-19 record), **M5** running stock
+MeshCore companion firmware as the recipient, observed in its phone app.
+A repeater is not confirmed. No second Doors unit is needed, and nothing
+is installed on the M5.
 
-Identify the nodes:
+### What the existing tooling can do here
 
-- **B**: `Doors-aa90`, `172.16.5.198`, key `aa907fc8…` (VERIFIED
-  2026-10-19). Confirm `sha256sum /usr/sbin/meshcored` is `c0af8f32…` and
-  `/tmp/doors-rf/pos-ipc-json` is present (it is lost at reboot; recopy it,
-  `31e75db0…`).
-- **A**: the owner points out the unit; key prefix `19f7b327` is
-  DOCUMENTED only. `check` prints both full keys; use those, not addresses
-  from older gate documents.
-- **R**: read R's full public key from R itself (its own console or admin
-  interface), not from a node list. A node list entry does not show that R
-  is powered on or in range now.
+`tests/hw/mesh_explicit_path_rf.sh` reads both identities with
+`mesh.identity` over SSH before any phase, so no phase runs with an M5 as
+host B. That is a harness assumption, not a protocol requirement. The table
+separates them.
 
-Set `T=tests/hw/mesh_explicit_path_rf.sh`, `EXPECT_BUILD=14039ac`, and
-`R=<R's full key>`. Each step marked TX needs the owner's go-ahead for that
-step and `RF_TX=yes`.
+| Script assumption | Needed by the protocol? | Here |
+| --- | --- | --- |
+| SSH and `pos-ipc-json` on the recipient | no | M5 app, read by the owner |
+| Recipient key from its `mesh.identity` | the full key is needed | read from the M5 app |
+| "B knows A" via recipient's `mesh.node` | yes: the recipient needs the sender as a contact to decrypt (`searchPeersByHash`, `BaseChatMesh.cpp`) | Doors-aa90 in the M5's contacts, checked in the app |
+| Receipt from recipient's `mesh.messages` | receipt must be observed | the token in the M5 app |
+| Recipient's receive log | no; forwarding evidence only | not available; the sender's log is |
+| Sender calls (`preview`, `send`, `messages`, `node`, `status`, receive log) | yes | the same `pos-ipc-json` calls on unit B by hand |
 
-1. Pre-flight on A and B (read-only commands above). Back up and install the
-   candidate on A as on B, with its own `RESTORE.sh` (changes A; approval).
-2. `$T check A B $R`. All `ok`. R's entry on A is type 2; note its
-   `advert_hops` and `last_rssi_dbm`. If A and B do not know each other, or
-   A does not know R, one advert per unit (`doors call meshcored
-   mesh.advert`, TX) and an advert from R triggered by the owner, then
-   `check` again. Stop if B's `rx_events` (`mesh.status`) does not rise
-   when A adverts: B's receive path, open since 2026-10-19, must work first.
-3. `$T preview A B $R` and `$T refuse A B $R`. All `ok`. If the preview of
-   `[R]` is refused for a hash match, R cannot be selected at this hash
-   width; stop and choose another R.
-4. TX: `RF_TX=yes $T auto A B`. Control: `acked`, B receives once. Note A's
-   learned route to B.
-5. TX: `RF_TX=yes $T send A B`. Zero-relay DIRECT.
-6. TX: `RF_TX=yes $T send A B $R`. One selected repeater.
-7. Owner powers R off. Read `doors call meshcored mesh.status` on A, then
-   TX: `RF_TX=yes $T send A B $R`, then read `mesh.status` on A again.
-   Negative control.
-8. Owner powers R on. Decide whether the candidate stays; otherwise run
-   `/root/rollback-explicit-path/RESTORE.sh` on each unit.
+Protocol needs that remain: the same radio profile on both; unit B knows
+the M5 by its full key as a chat node (type 1); the M5 knows Doors-aa90;
+and the M5 ACKs a direct text it decrypts. At pinned RIFT the recipient
+ACKs a DIRECT text with `sendAckTo`, by its learned path or by flood
+(VERIFIED, source). That stock companion firmware does the same is
+ASSUMED until observed. Unit B's path hash is 1 byte (VERIFIED
+2026-10-19), so a zero-relay path is the plain length byte 0.
 
-Pass:
+### Direct-delivery test (zero relays)
 
-- Steps 2 and 3: 0 failures.
-- Steps 5 and 6: 0 failures (accepted as `explicit`, requested `path_hex`
-  and hops recorded, `acked`, B receives the text exactly once from A,
-  learned route unchanged from step 4, RESEND refused without TX).
-- Step 6 forwarding evidence: B's observed text packet has `path_hops` 0
-  with the same `hash` as the send, and/or A logs its own packet repeated
-  (`own: true`). The message's `route`, `path_hex` and `path_hops` alone are
-  not evidence.
-- Step 7: the script's ACK and receipt checks fail as expected; the message
-  is `explicit` and `no_ack`; B logs no text packet with that `hash` and
-  holds no copy of the text; A's `tx_submitted` rose by one for the send
-  (any other rise is matched to an advert in the logs); the learned route
-  is unchanged; RESEND is refused without TX. This shows that an unusable
-  selected route is not replaced by AUTO, and that step 6's forwarding came
-  from R.
+On the build host: `H=/tmp/doors-rf/pos-ipc-json`, `KM=<M5 full key>`,
+`TOKEN=rfp0-direct-<date>-<random>`, `ssh root@172.16.5.198 "$H ..."`.
+If unit B has rebooted, `/tmp/doors-rf` is gone and copying the helper back
+(`31e75db0…`) is a device change that needs approval.
 
-Fail: any other outcome in steps 2 to 6, delivery or an extra
-transmission in step 7, or a learned route that changes after an explicit
-send. Record a `no_ack` in steps 5 or 6 as a result; do not retry it.
+Read-only, no TX:
 
-Keep each run's `$OUT` directory (`ipc.log`, `A-rx.jsonl`, `B-rx.jsonl`)
-with the record. The 2026-10-19 observations on B before the install (no
-`rx_events`, two unexplained `tx_submitted`) belong to the old 0.3.6
-daemon and are not results of this candidate.
+1. `cat /etc/doors-release; sha256sum /usr/sbin/meshcored` is `c0af8f32…`;
+   `$H mesh.info` reports build `14039ac` and both explicit-path
+   capabilities `true`.
+2. `$H mesh.status`: `online`; `radio.profile` frequency, bandwidth, SF and
+   CR equal the M5's settings in the app. Stop on any difference; this test
+   does not change either profile.
+3. `$H mesh.node '{"node":"<KM>"}'`: `public_key` equals `KM` exactly and
+   `type` is 1. Record `path_known`, `hops`, `path_hex` as the **before**
+   route. If unit B does not know the M5, the owner sends an advert from the
+   M5 app; this also shows unit B's receive path works (`rx_events` rises),
+   which has been open since 2026-10-19. Stop if it does not rise.
+4. In the M5 app, Doors-aa90 is a contact whose key starts `aa907fc8`. If it
+   is not, `$H mesh.advert` on unit B is a transmission and needs approval.
+5. `$H mesh.path_preview '{"to":"<KM>","via":[]}'`: `valid`, 0 relays,
+   `transmitted` false.
+
+Transmit, only with the owner's explicit approval for this one send:
+
+6. Start `$H -l 60 mesh.subscribe '{"rx_log":true}'` on unit B, output
+   saved on the build host. Read `$H mesh.status` counters.
+7. `$H mesh.send '{"to":"<KM>","text":"<TOKEN>","via":[]}'`: `accepted`,
+   `route` `explicit`. Note `message_id`. Send nothing else.
+8. Poll `$H mesh.messages` until that id is `acked`, `no_ack` or `failed`.
+   Do not resend.
+9. Read `$H mesh.status` counters and `$H mesh.node '{"node":"<KM>"}'`
+   (**after** route). `$H mesh.send '{"resend":<id>}'` is refused with
+   `tx_submitted` unchanged.
+
+Record three things separately:
+
+- **Recipient observation:** the M5 app shows `TOKEN` once, from
+  Doors-aa90.
+- **Sender transmission evidence:** the message has `route` `explicit` and
+  no path; `sent_direct` and `tx_submitted` rose by 1 and `sent_flood` did
+  not (any other change explained, e.g. by an advert); no `own: true` flood
+  copy of the text in unit B's receive log.
+- **ACK state:** the message is `acked`; unit B's receive log shows the ACK.
+
+Pass: all three, and `path_known`, `hops`, `path_hex` the same before and
+after. A `no_ack` with the token shown on the M5 is an ACK-path finding,
+not a pass. A `no_ack` without it is recorded and not retried.
+
+What a pass proves: the candidate sends an explicit zero-relay DIRECT text
+that a stock MeshCore companion at the M5's firmware version decrypts as
+from Doors-aa90; the returned ACK is matched to that explicit message; the
+explicit send left unit B's learned route to the M5 unchanged; and unit B
+and the M5 have a direct radio link at that placement (a zero-relay DIRECT
+packet is not forwarded at pinned RIFT; for other repeater firmware this is
+ASSUMED).
+
+What it does not prove: forwarding through any selected repeater; routes
+with relays or 2/3-byte hashes on the air; behaviour when a selected route
+cannot be used; interoperability with other companion firmware versions;
+or which path the ACK took.
+
+### Repeater test (pending: no suitable repeater confirmed)
+
+Not run and not accepted. It needs a repeater R that the owner controls and
+can power off, whose full key is read from R itself, which unit B knows as
+type 2, and whose `[R]` preview is valid (no known hash match). Steps 1 to
+9 as above with `via` `[R]`, after a fresh learned-route baseline.
+Forwarding evidence on the sender side is unit B hearing its own text
+repeated (`own: true`, same `hash`, 0 hops left); the message's requested
+route fields are not evidence. That the M5 decrypts only after forwarding
+is VERIFIED for pinned RIFT and ASSUMED for stock firmware.
+
+Negative control, same send with R powered off. Keep the three records
+separate; none is sufficient alone:
+
+- **Recipient:** the M5 app does not show the token.
+- **Sender:** `route` `explicit`; `sent_direct` +1, `sent_flood` +0; no
+  `own: true` copy of the text in unit B's receive log.
+- **ACK state:** `no_ack`. On its own this does not show that nothing was
+  delivered or that no AUTO fallback happened: an ACK can be lost, and a
+  delivered message can still go unacknowledged.
+
+Together these support the result of this controlled test, namely that
+step's delivery came through R and that an unusable selected route was not
+replaced by AUTO. They do not rule out, in general, an unknown repeater
+that shares R's hash prefix and was quiet or out of range during the run.
+
+### Restore
+
+Nothing in the direct test changes unit B beyond the message it stores.
+The candidate stays installed until the owner decides;
+`/root/rollback-explicit-path/RESTORE.sh` restores the 0.3.6 daemon.
