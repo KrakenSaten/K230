@@ -47,7 +47,7 @@ Simulator (SDL dummy driver, LVGL 59dc7e4, theme carbon):
 
 | test | result |
 | --- | --- |
-| `rift_app_test`, route builder session alone (`RIFT_APP_TEST_ONLY=route`) | 100 checks, 0 failures, 19 screenshots |
+| `rift_app_test`, route builder session alone (`RIFT_APP_TEST_ONLY=route`) | 106 checks, 0 failures, 23 screenshots (after `3c04c2f`) |
 | `rift_app_test`, every session | 1980 checks, 0 failures |
 | `tests/rift_shell_test.sh` (real shell, scripted service, both orientations, no service, kept session, same pixels twice) | 0 failures |
 
@@ -202,14 +202,19 @@ same file and process (pid 388, never restarted).
 by finger (no tap automation on the device; covered in the simulator),
 turning the unit and changing text size (simulator only).
 
-**Found on the device, not fixed here:**
+**Found on the device, fixed in `3c04c2f` (simulator-verified, K230
+cross-built 0 warnings; not re-run on the unit):**
 
-1. Landscape, Large text: the list starts below the visible part of the
-   panel body, and the arrow-key cursor does not scroll its row into view
-   (`lv_obj_scroll_to_view` on the row scrolls only its non-scrolling
-   parent, not the body).
-2. An emoji in a node name (`SE Skalle-Per 🐵`) shows as a box in the
-   route chain line (the builder's captions do not use the emoji font).
+1. Landscape, Large text: the list started below the visible part of the
+   panel body, and the arrow-key cursor did not scroll its row into view
+   (`lv_obj_scroll_to_view` on the row scrolled only its non-scrolling
+   parent). Now scrolled through the body; switching lists brings the
+   list's first row into view. `rift_app_test` checks it by key.
+2. An emoji in a node name (`SE Skalle-Per 🐵`) showed as a box in the
+   route chain line: the builder's labels and the conversation's route
+   line now use RIFT's colour-emoji font. MAP's own marker names, drawn on
+   its canvas and not changed by this PR, still show such an emoji as a
+   box.
 
 ### 2. Physical RF acceptance (separate) - PENDING, not waived
 
