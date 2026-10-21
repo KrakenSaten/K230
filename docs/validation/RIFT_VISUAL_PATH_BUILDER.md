@@ -32,7 +32,7 @@ Host (WSL Ubuntu 22.04, gcc 11.4, `-Wall -Wextra -Werror`):
 
 | test | result |
 | --- | --- |
-| `tests/rift_route_test` (new) | 95 checks, 0 failures |
+| `tests/rift_route_test` (new) | 100 checks, 0 failures |
 | `tests/rift_ipc_test` (47 new explicit-route checks) | 373 checks, 0 failures |
 | `tests/rift_model_test` | 370, 0 |
 | `tests/rift_comms_test` | 345, 0 |
@@ -86,9 +86,29 @@ Covered by those, against the scripted service:
 - Small, Medium and Large in portrait and landscape, and HDMI 1280x720: no
   caption or button word clipped, the panel inside the body, actions in
   reach.
+- A route chosen for one conversation is kept when another conversation
+  gets one (a stage per conversation, eight at once; a ninth USE ROUTE is
+  refused with the reason, never replacing another's).
 - Existing behaviour: the landscape console still shows 14 whole messages
   (DS §37.2 check), MAP with 1000 nodes still 25 objects, every earlier
   `rift_app_test` session unchanged.
+
+Also run, and not part of this branch:
+
+- **Sanitizers:** `rift_route_test`, `rift_ipc_test`, `rift_reliability_test`
+  and `rift_format_test` under ASan + UBSan: 0 failures, no report.
+- **Neon (PR #98, on master, not in PR #100's base):** this branch merged
+  with master `dc9108a` in a throwaway worktree (one conflict in
+  `tests/rift_app_test.c`, both sides adding a function before `main`;
+  resolved by keeping both) and the route session run with
+  `RIFT_THEME=neon`: 100 checks, 0 failures. The list rows were moved from
+  the button fill to a slab because of what that showed. When this PR is
+  retargeted to master, expect that same one-hunk conflict.
+- **Bounded review:** one review pass of the diff found two defects, both
+  fixed in `45153ce`: a route staged on one conversation was dropped when
+  another conversation staged one (its next SEND would have gone AUTO), and
+  a failed `mesh.send` write after the check was reported as "may have been
+  sent" and dropped the connection twice.
 
 ### Screenshots
 
@@ -104,7 +124,7 @@ names, keys and coordinates are synthetic fixtures.
 
 ## K230 cross-build (2026-10-21)
 
-- Source: `git archive 6f9d555` (no `.git`, `BUILD_ID` written).
+- Source: `git archive 29cff06` (no `.git`, `BUILD_ID` written); the same build of `6f9d555` and `45153ce` also passed.
 - Toolchain: Xuantie-900 gcc 14.1.1 (V3.0.2 B-20250410) through the SDK's
   Buildroot `toolchainfile.cmake`; BSP `bb831ab`, SDK `22d02c6` (the pins
   in docs/BUILD_ENVIRONMENT.md).
@@ -113,8 +133,8 @@ names, keys and coordinates are synthetic fixtures.
   `LV_USE_QRCODE 1`). The SDK's own sysroot LVGL is built without the QR
   widget, which `apps/system` needs on this base; that is not this
   branch's change.
-- Result: `pocketos-shell` RISC-V PIE, **0 warnings**, rc 0, 45 route
-  symbols linked; sha256 `b2e00950f608bfa8de812abbe53ed068abe65ba9c1336b94133f65aa9e94e23e`.
+- Result: `pocketos-shell` RISC-V PIE, **0 warnings**, rc 0, 46 route
+  symbols linked; sha256 `d668bd2b7d986721225591ea1004109e7bd204867e0ad0d2860f6dd01e55e944`.
 - Not packaged, not installed, not run on a unit.
 
 ## Hardware claims
