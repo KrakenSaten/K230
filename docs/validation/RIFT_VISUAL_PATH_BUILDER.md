@@ -147,40 +147,40 @@ names, keys and coordinates are synthetic fixtures.
 - That a route checked by `mesh.path_preview` will be forwarded by the
   chosen repeaters is **ASSUMED** until the bench session below.
 
-## One bench session (the remaining hardware checks)
+## Hardware checks still open
 
-One sitting, one shell build of this branch on unit B (the PR #100
-meshcored already installed there), the M5 companion as recipient, and two
-MeshCore repeaters (R1, R2) placed so that the companion is **not** in
-direct range of unit B but R1 → R2 → companion is. Record each with
-`mesh.messages`, the service log, the repeaters' own logs or a third
-receiver, and a DRM capture of the panel. Restore the installed shell
-afterwards.
+Two separate things, in this order. Neither needs repeater coverage to
+start.
 
-1. **Install and open** the shell build; RIFT shows `ROUTE AUTO` and SET
-   ROUTE enabled (capabilities read from the real meshcored). Opening the
-   builder, tapping, CLEAR/UNDO and previews transmit nothing: `tx_ok`
-   unchanged, no `mesh.activity` `tx`.
-2. **Two-relay route:** select R1 then R2 on the map (or RELAYS), USE
-   ROUTE, SEND. The service log shows one explicit DIRECT with the two
-   relay hashes in that order; R1 and R2 each forward once; the companion
-   receives the text and its ACK returns: the message turns `DELIVERED`
-   with `CHOSEN ROUTE, 2 RELAYS`.
-3. **Order matters:** the same route reversed (R2, R1): sent as asked; the
-   result (likely no ACK) is recorded, not interpreted as a fault of the UI.
-4. **Zero relays from the UI:** USE DIRECT to the companion in direct range:
-   delivered and ACKed (repeats PR #100's on-air result through the new UI).
-5. **Refusal on the device:** a route through a node the service will
-   refuse (forget R2 in NODES, then SEND on a staged route through it):
-   `Not sent: route refused …`, `tx_ok` unchanged, the text kept.
-6. **AUTO unchanged:** AUTO, SEND: behaves exactly as before this branch
-   (flood or learned direct, ACK as usual).
-7. **No RESEND:** on an explicit message that ended NO ACK, the actions
-   offer no RESEND.
-8. **Screens on the glass:** portrait and landscape at Small / Medium /
-   Large on the panel, and the HDMI output at 1280x720, with a finger:
-   marker taps land on the intended repeater; nothing clipped.
-9. **Service restart mid-send:** restart meshcored with the unit's service
-   manager between SEND and its answer: the note says nothing was sent (the
-   route was still being checked) or that it may or may not have been (the
-   send was written), and nothing is sent again on AUTO.
+### 1. Owner UI check on unit B (non-transmitting)
+
+The temporary kit `rift-vpb-ec38999` runs a local integration build
+(master `dc9108a` with Neon + this PR + PR #100, commit `ec38999`, not
+pushed) from its own directory, on the installed Neon shell's LVGL, and
+restores the installed shell and settings afterwards; meshcored is only
+read. Its README holds the steps. In short: open the builder from a
+direct conversation, select and remove relays, check the numbers, lines
+and ordered list, see the preview's answer, CANCEL and Esc with the draft
+kept, turn the unit and change text size once - with `tx_ok` unchanged
+from start to end. SEND is not pressed.
+
+### 2. Physical RF acceptance (separate)
+
+The backend evidence is PR #100's on-air pass: an explicit zero-relay
+DIRECT message delivered to and acknowledged by the M5 companion
+([RIFT_EXPLICIT_PATH_P0.md](RIFT_EXPLICIT_PATH_P0.md)). It is reused, not
+repeated. What remains is only what that pass cannot show:
+
+- **The UI's own send, on the device** (uncovered: the composer path into
+  `rift_ipc_send_explicit` against the real service). USE DIRECT to the M5
+  in direct range, SEND once: delivered and ACKed, the message reading
+  `CHOSEN ROUTE, NO RELAY`, no RESEND offered. One transmission.
+- **Forwarding with a non-empty `via`** (uncovered: no relay has carried a
+  route chosen here). Only when one MeshCore repeater is available: a
+  one-relay route to the M5, SEND once, the repeater forwarding it once.
+  The M5 does not need to be out of direct range for this; the record
+  says whether the delivered copy came through the relay. Not a
+  prerequisite for the UI or for merging the UI.
+
+Two repeaters, reversed routes and an out-of-range placement are not
+required.
