@@ -145,6 +145,14 @@ static void test_detector(void)
                                      strcmp(vision_detector_word(VISION_DET_UPSTREAM), "upstream") == 0 &&
                                      strcmp(vision_detector_word((enum vision_detector)-1), "r0") == 0 &&
                                      strcmp(vision_detector_name((enum vision_detector)-1), "?") == 0);
+    check("the pick: the confirmed one when it is there",
+          vision_detector_pick(VISION_DET_UPSTREAM, 3u) == VISION_DET_UPSTREAM &&
+              vision_detector_pick(VISION_DET_R0, 3u) == VISION_DET_R0);
+    check("else the other one, else none",
+          vision_detector_pick(VISION_DET_UPSTREAM, 1u) == VISION_DET_R0 &&
+              vision_detector_pick(VISION_DET_R0, 2u) == VISION_DET_UPSTREAM &&
+              vision_detector_pick(VISION_DET_R0, 0u) == -1 &&
+              vision_detector_pick((enum vision_detector)7, 1u) == VISION_DET_R0);
 }
 
 static void test_refusals(void)

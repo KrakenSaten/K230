@@ -145,6 +145,10 @@ const char *vision_mode_word(enum vision_mode mode);
  * the file. */
 const char *vision_detector_name(enum vision_detector d);
 const char *vision_detector_word(enum vision_detector d);
+/* The detector to open: the one last confirmed when its file is present
+ * (a bit per enum vision_detector), else the other one, else -1 (none on
+ * the unit: the helper's own default). */
+int vision_detector_pick(enum vision_detector confirmed, uint32_t present);
 /* A group's caption. */
 const char *vision_group_name(enum vision_group g);
 /* The mode for a word, or -1. */
