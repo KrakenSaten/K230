@@ -65,13 +65,24 @@ bool rn_render(const struct rn_game *g,struct rn_frame *f)
             double t,u;int index=rn_boundary(g,s,g->x,g->y,dx,dy,after,&t,&u);
             if(index<0||t>90){t=90;index=-1;}
             int light=(int)(sec->light/(1+t*.035));
-            for(int y=low;y<=high;y++){
-                double screen=y+.5-RN_H/2;if(fabs(screen)<.001)continue;
-                double z=screen>0?sec->floor:sec->ceiling,plane=(eye-z)*focal/screen;
-                if(plane>fmax(.02,after)&&plane<=t+.00001){
-                    int tx=(int)floor((g->x+dx*plane)*32),ty=(int)floor((g->y+dy*plane)*32);
-                    int material=screen>0?(sec->floor>0?4:3):5;
-                    int shade=(int)(sec->light/(1+plane*.04));put(f,x,y,plane,lit(rn_texture(material,tx,ty,shade),sec->room));
+            /* Plane distance is |eye-z|*focal/|screen|, monotonic per half, so
+             * only rows that can land in (after,t] are walked (two spare rows
+             * each side); the per-row test and its output are unchanged. */
+            double near=fmax(.02,after);
+            for(int half=0;half<2;half++){
+                double a=half?eye-sec->floor:sec->ceiling-eye;if(a<=0||near>=t+.00001)continue;
+                double s0=fmin(4*RN_H,a*focal/(t+.00001)),s1=fmin(4*RN_H,a*focal/near);
+                int y0=half?(int)floor(RN_H/2-.5+s0)-2:(int)floor(RN_H/2-.5-s1)-2,y1=half?(int)ceil(RN_H/2-.5+s1)+2:(int)ceil(RN_H/2-.5-s0)+2;
+                if(half){if(y0<RN_H/2)y0=RN_H/2;}else if(y1>RN_H/2-1)y1=RN_H/2-1;
+                y0=y0<low?low:y0;y1=y1>high?high:y1;
+                for(int y=y0;y<=y1;y++){
+                    double screen=y+.5-RN_H/2;if(fabs(screen)<.001)continue;
+                    double z=screen>0?sec->floor:sec->ceiling,plane=(eye-z)*focal/screen;
+                    if(plane>near&&plane<=t+.00001){
+                        int tx=(int)floor((g->x+dx*plane)*32),ty=(int)floor((g->y+dy*plane)*32);
+                        int material=screen>0?(sec->floor>0?4:3):5;
+                        int shade=(int)(sec->light/(1+plane*.04));put(f,x,y,plane,lit(rn_texture(material,tx,ty,shade),sec->room));
+                    }
                 }
             }
             if(index<0)break;
