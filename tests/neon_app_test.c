@@ -95,7 +95,7 @@ int main(void)
             }
             CHECK(g->state==RN_WON&&g->kills==9&&g->relay&&g->shotgun&&g->secret&&shotgun&&optional);shot(a,names[mode],"victory");bounds(a,body);
             /* Real touch and keyboard switching, independent of fire/move. */
-            touch(a,6,60,.5,.5);
+            pump(60);touch(a,6,60,.5,.5);CHECK(g->state==RN_PLAY&&!g->shotgun);
             g->x=-2;g->y=10.4;g->sector=rn_locate(g,g->x,g->y);rn_advance(g,(struct rn_input){0},10);CHECK(g->shotgun);
             touch(a,8,60,.5,.5);CHECK(g->weapon==RN_CARBINE);touch(a,8,60,.5,.5);CHECK(g->weapon==RN_SHOTGUN);
             CHECK(pos_input_game_event(0,22,'q',true));pump(60);CHECK(g->weapon==RN_CARBINE);pump(60);CHECK(g->weapon==RN_CARBINE);pos_input_game_event(0,22,0,false);
