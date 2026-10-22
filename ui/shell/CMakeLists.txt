@@ -228,6 +228,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_section.c
     ${REPO_DIR}/apps/rift/rift_focus.c
+    ${REPO_DIR}/apps/rift/rift_autocap.c
     ${REPO_DIR}/apps/rift/rift_background.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -1408,6 +1409,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_app.c
         ${REPO_DIR}/apps/rift/rift_section.c
         ${REPO_DIR}/apps/rift/rift_focus.c
+        ${REPO_DIR}/apps/rift/rift_autocap.c
         ${REPO_DIR}/apps/rift/rift_background.c
         ${REPO_DIR}/apps/rift/rift_model.c
         ${REPO_DIR}/apps/rift/rift_messages.c

@@ -24,10 +24,11 @@
 #include <stddef.h>
 
 #define RIFT_EMOJI_GROUPS 3
-/* A group fills the picker's grid: five across, three down. */
+/* Fifteen emoji a group (three rows at five across); the picker lays them
+ * out in as many columns as fit its panel (ui/rift_emoji_picker.c). */
 #define RIFT_EMOJI_COLS 5
 #define RIFT_EMOJI_CELLS 15
-/* Recently picked emoji kept, newest first: one row of the grid. */
+/* Recently picked emoji kept, newest first. */
 #define RIFT_EMOJI_RECENT_MAX RIFT_EMOJI_COLS
 /* The longest entry in bytes, its NUL included. */
 #define RIFT_EMOJI_PICK_LEN 8
