@@ -263,7 +263,7 @@ when it logs a **new** visit. What counts is the guard log, nothing new:
   `VISIT SOUND MUTED` (the system volume is muted or 0) or `NO SOUND ON
   THIS UNIT` (no `pos-record`). The note never hides `NO VISION YET`.
 
-**How it sounds (ADR-010 Amendment 2, proposed).** The way RIFT plays its
+**How it sounds (ADR-010 Amendment 2, accepted 2026-10-22).** The way RIFT plays its
 message sounds: DeskBuddy writes `visit.wav` (48 kHz mono 16-bit, peak
 under pos-record's 8192 ceiling) into its runtime directory and starts
 `/usr/bin/pos-record play --volume-percent <effective system volume>

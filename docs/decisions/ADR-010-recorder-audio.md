@@ -158,11 +158,11 @@ the refusal while sounding and the stop: VERIFIED on the host by
 `tests/rift_notify_test.c` against a stand-in helper. On the K230 speaker:
 see the RIFT gate notes; audibility is for the owner to judge.
 
-## Amendment 2 (PROPOSED 2026-10-22): DeskBuddy's visit sound through pos-record
+## Amendment 2 (ACCEPTED 2026-10-22): DeskBuddy's visit sound through pos-record
 
-Status: Proposed on branch `feat/deskbuddy-guard-sound`, for the product
-owner to accept or refuse with that PR. Until accepted, the PR stays a
-draft.
+Status: Accepted (product owner, 2026-10-22) as proposed in PR #106 on
+branch `feat/deskbuddy-guard-sound`, before that PR was merged. Proposed
+the same day.
 
 Context: the owner asked for an optional sound when an armed DeskBuddy
 Guard logs a new visit, "reusing existing supported DOORS audio
@@ -171,7 +171,7 @@ without "a general audio redesign". Amendment 1 named "a second app
 wanting notification sounds" as the point to revisit, with a platform
 sound API or `audiod` as the options.
 
-Decision (proposed): DeskBuddy becomes a fourth client of the same narrow
+Decision: DeskBuddy becomes a fourth client of the same narrow
 exception, exactly as RIFT is, and the revisit is recorded rather than
 built:
 
