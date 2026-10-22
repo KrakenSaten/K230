@@ -17,7 +17,7 @@ struct neon_app {
     lv_obj_t *root,*image,*hud,*message_box,*message,*button[14];
     lv_image_dsc_t image_data;lv_timer_t *timer;uint32_t last;
     struct rn_input touch;int pad;bool help,sound,started;int volume;
-    struct rn_stats *stats;uint64_t tick;
+    struct rn_stats *stats;uint64_t tick;bool title_shown;
 };
 static const char *const labels[]={"MOVE + TURN","FIRE + MOVE\n+ TURN","USE","RELOAD","PAUSE","CONTROLS","RESTART","PLAY","WEAPON","SOUND","VOL -","VOL +","MUTE","BACK"};
 static bool panel(struct neon_app *a){return a->help||a->game.paused||a->game.state!=RN_PLAY;}
@@ -70,8 +70,9 @@ static void refresh(struct neon_app *a)
         else show=i<6||i==8;
         if(show)lv_obj_remove_flag(a->button[i],LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(a->button[i],LV_OBJ_FLAG_HIDDEN);
     }
-    if(title||!menu){uint64_t t=rn_stats_now();if(title)rn_title(&a->rendered);else rn_render(g,&a->rendered);rn_stats_add(a->stats,RS_SCENE,t);lv_image_cache_drop(&a->image_data);lv_obj_invalidate(a->image);}
-    layout(a);
+    /* The title is static: drawn once, not re-rendered and re-flushed every frame. */
+    if((title&&!a->title_shown)||!menu){uint64_t t=rn_stats_now();if(title)rn_title(&a->rendered);else rn_render(g,&a->rendered);rn_stats_add(a->stats,RS_SCENE,t);lv_image_cache_drop(&a->image_data);lv_obj_invalidate(a->image);}
+    a->title_shown=title;layout(a);
 }
 static void clear(struct neon_app *a){memset(&a->touch,0,sizeof(a->touch));a->pad=-1;pos_input_game_reset(2);}
 static void pause_game(struct neon_app *a){rn_pause(&a->game,true);clear(a);rn_audio_stop(&a->audio);a->last=lv_tick_get();}
