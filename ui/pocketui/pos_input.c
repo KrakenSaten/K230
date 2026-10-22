@@ -444,6 +444,7 @@ static unsigned game_bit(pos_key_t key)
     case ' ':return POS_GAME_FIRE;
     case 'f':return POS_GAME_USE;
     case 'r':return POS_GAME_RELOAD;
+    case 'q':return POS_GAME_WEAPON;
     case 'p':case LV_KEY_ESC:return POS_GAME_PAUSE;
     default:return 0;
     }

@@ -10,13 +10,14 @@ The owner responds once with `READY\n`, `MUTED\n` (volume zero, no PCM opened) o
 `UNAVAILABLE <pocketaudio-error>\n`. The app gives startup 1500 ms; silence is a
 failed session. No audio operation executes on the LVGL thread.
 
-Each play event is eight bytes: kind (0..7), three zero reserved bytes, uint32
+Each play event is eight bytes: kind (0..9), three zero reserved bytes, uint32
 little-endian CLOCK_MONOTONIC milliseconds. Kinds: shot, impact, empty, reload,
-wind-up, attack, door, pickup. At most 32 commands are read per iteration; the
-UI coalesces counters to at most eight events per frame and never retries an old
+wind-up, attack, door, pickup, shotgun shot, shotgun reload. IDs 0..7 retain
+their original meaning; 8..9 are an appended compatible extension. At most 32 commands are read per iteration; the
+UI coalesces counters to at most ten events per frame and never retries an old
 shot. Commands older than 200 ms or over 20 ms in the future, malformed kinds
 or nonzero reserved bytes are discarded. Partial stream frames use an eight-byte
-carry buffer; no unbounded queue. Four voices, with shot/empty priority when
+carry buffer; no unbounded queue. Four voices, with carbine/shotgun/empty priority when
 full, mix at 48 kHz mono S16 and clamp to ±8192 before the existing audio policy's
 volume/ceiling. Samples are generated once from original recipes.
 

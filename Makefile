@@ -2851,7 +2851,7 @@ neon-outpost-san-test:
 
 # Foreground audio.effects service; hardware stays behind pocketaudio.
 tools/audio-effects/pos-audio-effects: tools/audio-effects/pos_audio_effects.c core/audio_effects/effects.c $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
-	$(CC) $(ALL_CFLAGS) -Icore -o $@ $^ $(LDFLAGS) -lasound -lm
+	$(CC) $(ALL_CFLAGS) -Icore -o $@ $(filter %.c %.o,$^) $(LDFLAGS) -lasound -lm
 audio-effects: tools/audio-effects/pos-audio-effects
 .PHONY: audio-effects
 

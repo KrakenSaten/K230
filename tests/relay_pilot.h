@@ -27,10 +27,15 @@ static struct rn_input relay_pilot(const struct rn_game *g,double gx,double gy)
     }
     double diff=remainder(atan2(ty-g->y,tx-g->x)-g->angle,2*RN_PI);
     in.turn=fabs(diff)>.015?fmax(-1,fmin(1,diff/.024)):0;
-    if(fight)in.fire=fabs(diff)<.07;
+    bool want_shotgun=g->shotgun&&(g->loaded||g->shells)&&fight&&best<6.5;
+    in.switch_weapon=(g->weapon==RN_SHOTGUN)!=want_shotgun;
+    if(fight)in.fire=fabs(diff)<.07&&!in.switch_weapon;
     else in.forward=fabs(diff)<.12?1:0;
-    in.reload=g->mag==0;in.use=g->steps%20==0;
+    in.reload=g->weapon==RN_SHOTGUN?g->loaded==0:g->mag==0;in.use=g->steps%20==0;
     return in;
 }
-static const double relay_tour[][2]={{6.5,13.3},{1.5,9.5},{-4,7.8},{-4,1.2},{-4,-5.5},{9.5,-5.7},{9.5,3.9},{13.5,10.5},{13,15.5}};
+static const double relay_tour[][2]={{6.5,13.3},{1.5,9.5},{-2,10.4},{-4.7,10.25},{-7,11},{-4,7.8},{-4,1.2},{-4,-5.5},{9.5,-5.7},{9.5,3.9},{13.5,10.5},{13,15.5}};
+#define RELAY_GOALS (sizeof(relay_tour)/sizeof(relay_tour[0]))
+static bool relay_goal_done(const struct rn_game *g,unsigned goal)
+{return hypot(g->x-relay_tour[goal][0],g->y-relay_tour[goal][1])<.35&&(goal!=8||g->relay);}
 #endif

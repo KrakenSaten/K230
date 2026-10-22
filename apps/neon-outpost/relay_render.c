@@ -29,7 +29,7 @@ static void wall(struct rn_frame *f,int x,int clip0,int clip1,double z0,double z
     if(z1<=z0||t<=.001)return;
     double y0=RN_H/2+(eye-z1)*focal/t,y1=RN_H/2+(eye-z0)*focal/t;
     int start=(int)fmax(clip0,ceil(y0)),end=(int)fmin(clip1,floor(y1));
-    for(int y=start;y<=end;y++){double z=eye-(y-RN_H/2)*t/focal;put(f,x,y,t,lit(rn_texture(material,(int)floor(u*48),(int)floor(z*48),light),room));}
+    for(int y=start;y<=end;y++){double z=eye-(y-RN_H/2)*t/focal;put(f,x,y,t,lit(rn_texture(material,(int)floor(u*32),(int)floor(z*32),light),room));}
 }
 static void sprite(const struct rn_game *g,struct rn_frame *f,double sx,double sy,double sz,double height,int kind,int phase,int facing,int state)
 {
@@ -78,7 +78,7 @@ bool rn_render(const struct rn_game *g,struct rn_frame *f)
             const struct rn_edge *e=&g->edges[index];double lo,hi;rn_opening(g,s,e,&lo,&hi);
             double texu=u*hypot(e->bx-e->ax,e->by-e->ay);
             if(hi<=lo||e->neighbor<0){wall(f,x,low,high,sec->floor,sec->ceiling,eye,t,texu,e->material,light,sec->room);break;}
-            wall(f,x,low,high,hi,sec->ceiling,eye,t,texu,e->door>=0?2:e->material,light,sec->room);
+            wall(f,x,low,high,hi,sec->ceiling,eye,t,texu,e->door==4?0:e->door>=0?2:e->material,light,sec->room);
             wall(f,x,low,high,sec->floor,lo,eye,t,texu,g->sectors[e->neighbor].prop?0:4,light,sec->room);
             /* A camera exactly on a portal edge has t=0. Clip projection
              * distance before integer conversion, while retaining true t
@@ -95,17 +95,22 @@ bool rn_render(const struct rn_game *g,struct rn_frame *f)
     for(int i=0;i<g->enemy_count&&i<RN_ENEMIES;i++){
         const struct rn_actor *e=&g->enemy[i];if(e->hp<=0&&!e->death)continue;
         int facing=((int)floor((atan2(g->y-e->y,g->x-e->x)-e->angle)/(RN_PI/4)+.5)+16)&7;
-        int state=e->hp<=0?3:e->hit>0?4:e->windup>100?1:e->windup>0?2:0;
+        int state=e->hp<=0?3:e->hit>0?4:e->flash>0?2:e->windup>0?1:0;
         double height=e->kind?.65:1.7;
-        sprite(g,f,e->x,e->y,e->z,height,e->kind,(int)(g->steps/12)%4,facing,state);
+        sprite(g,f,e->x,e->y,e->z,height,e->kind,(e->walk/12)%4,facing,state);
     }
-    for(int i=0;i<g->item_count&&i<RN_ITEMS;i++)if(!g->item[i].taken){const struct rn_item *p=&g->item[i];sprite(g,f,p->x,p->y,p->z,.65,2+p->kind,0,0,0);}
-    if(!g->slice){sprite(g,f,9.5,-5.7,1.5,1.2,4,0,0,0);sprite(g,f,13,16,0,2.0,5,0,0,0);}
+    for(int i=0;i<g->item_count&&i<RN_ITEMS;i++)if(!g->item[i].taken){const struct rn_item *p=&g->item[i];sprite(g,f,p->x,p->y,p->z,.9,p->kind==RN_GUN?7:p->kind==RN_SHELLS?8:2+p->kind,0,0,0);}
+    if(!g->slice){
+        sprite(g,f,6.5,12.04,1.9,.5,9,0,0,0);
+        sprite(g,f,.04,5.65,1.6,.65,9,1,0,0);
+        sprite(g,f,-5.36,10.25,1.4,.4,9,2,0,0);
+        sprite(g,f,9.5,-5.7,1.5,1.2,4,0,0,0);sprite(g,f,13,16,0,2.0,5,0,0,0);}
     /* Impact is an opaque five-pixel spark, depth-tested against the wall. */
     if(g->impact_ms){double dx=g->impact_x-g->x,dy=g->impact_y-g->y,t=dx*ca+dy*sa;if(t>.1){double px=RN_W/2+(-dx*sa+dy*ca)*focal/t,py=RN_H/2+(eye-g->impact_z)*focal/t;if(fabs(px)<10000&&fabs(py)<10000)for(int a=-2;a<=2;a++){put(f,(int)px+a,(int)py,t-.01,0xff4c);put(f,(int)px,(int)py+a,t-.01,0xff4c);}}}
-    int recoil=g->reduced_motion?0:g->flash/14;
-    for(int y=0;y<96;y++)for(int x=0;x<128;x++){uint16_t c=rn_weapon(x,y,g->flash,g->reloading);int xx=RN_W/2-35+x,yy=RN_H-96+y+recoil;if(c&&yy<RN_H)f->pixels[yy*RN_W+xx]=c;}
+    int recoil=g->reduced_motion?0:g->flash/(g->weapon==RN_SHOTGUN?10:14);
+    for(int y=0;y<96;y++)for(int x=0;x<128;x++){uint16_t c=rn_weapon(x,y,g->flash,g->reloading,g->weapon,g->reduced_motion);int xx=RN_W/2-35+x,yy=RN_H-96+y+recoil;if(c&&yy<RN_H)f->pixels[yy*RN_W+xx]=c;}
     for(int a=-4;a<=4;a++)if(abs(a)>1){f->pixels[(RN_H/2)*RN_W+RN_W/2+a]=0xce79;f->pixels[(RN_H/2+a)*RN_W+RN_W/2]=0xce79;}
+    if(g->hitmark)for(int a=3;a<=6;a++)for(int sign=-1;sign<=1;sign+=2){f->pixels[(RN_H/2+a)*RN_W+RN_W/2+sign*a]=0xe609;f->pixels[(RN_H/2-a)*RN_W+RN_W/2+sign*a]=0xe609;}
     if(g->hurt)for(int y=0;y<RN_H;y++){f->pixels[y*RN_W]=0xb9e5;f->pixels[y*RN_W+RN_W-1]=0xb9e5;}
     return true;
 }

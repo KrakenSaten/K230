@@ -1,6 +1,8 @@
 <!-- Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0 -->
 # Relay Nine
 
+**Current implementation and handoff:** [industrial polish, BREACH-2 shotgun, title and optional maintenance loop](RELAY_NINE_POLISH.md). Gameplay details, captures and validation below preserve the `4d5a0ed` baseline. Current captures live in `relay-nine/polish/`.
+
 The implemented successor to the preserved Neon Outpost prototype, on draft
 PR #104. Open **Games → Relay Nine**, then **PLAY** or Enter. Restore the relay
 console in the upper control room, descend the return stairs and **USE** the
@@ -34,7 +36,7 @@ The [approved concept](neon-outpost/proposal/relay-nine-concept.png) remains
 labelled **CONCEPT ART — NOT ENGINE OUTPUT**. Its illustrated fidelity is not
 claimed by these deliberately low-resolution original pixel recipes.
 
-## World and complete level
+## Baseline level plan (optional route changes in the current update)
 
 Worn olive-gray steel plates, rivets, pipes, stained concrete, grating and
 hazard-edged steps; restrained amber hall lighting and red robot optics. Solid
@@ -151,7 +153,7 @@ actions and pause. A released/repressed key is required after lost input.
   Busy/unavailable/muted states are visible. See [API](../api/audio-effects.md)
   and [ADR-014](../decisions/ADR-014-foreground-audio-effects.md).
 
-## Focused validation, 2026-10-22
+## Baseline validation at `4d5a0ed`, 2026-10-22
 
 Host build: SDL Doors shell, app harness, physical keyboard adapter and SDL input
 adapter, plus the actual ALSA-backed effects service. The representative stair /

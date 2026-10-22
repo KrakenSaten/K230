@@ -155,7 +155,7 @@ static inline int pos_key_function(pos_key_t key)
 enum pos_game_action {
     POS_GAME_FORWARD=1u, POS_GAME_BACK=2u, POS_GAME_STRAFE_LEFT=4u,
     POS_GAME_STRAFE_RIGHT=8u, POS_GAME_TURN_LEFT=16u, POS_GAME_TURN_RIGHT=32u,
-    POS_GAME_FIRE=64u, POS_GAME_USE=128u, POS_GAME_RELOAD=256u, POS_GAME_PAUSE=512u
+    POS_GAME_FIRE=64u, POS_GAME_USE=128u, POS_GAME_RELOAD=256u, POS_GAME_PAUSE=512u, POS_GAME_WEAPON=1024u
 };
 bool pos_input_game_subscribe(lv_obj_t *owner);
 void pos_input_game_unsubscribe(lv_obj_t *owner);

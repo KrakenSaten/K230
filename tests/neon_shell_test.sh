@@ -31,7 +31,17 @@ assert s['current']=='neon-outpost'
 assert any(a['id']=='neon-outpost' for a in s['apps'])
 PY
     sleep .2
-    "$POS" shell screenshot "$SHOTS_DIR/shell-$mode-help.png" > /dev/null
+    "$POS" shell screenshot "$SHOTS_DIR/shell-$mode-title.png" > /dev/null
+    "$POS" call shell shell.tap text=SOUND > /dev/null
+    sleep .2
+    "$POS" shell screenshot "$SHOTS_DIR/shell-$mode-sound.png" > /dev/null
+    "$POS" call shell shell.tap text=BACK > /dev/null
+    sleep .2
+    "$POS" call shell shell.tap text=CONTROLS > /dev/null
+    sleep .2
+    "$POS" shell screenshot "$SHOTS_DIR/shell-$mode-controls.png" > /dev/null
+    "$POS" call shell shell.tap text=BACK > /dev/null
+    sleep .2
     "$POS" call shell shell.tap text=PLAY > /dev/null
     sleep .2
     python3 - <<'PY_KEYS'

@@ -26,7 +26,7 @@ pcm.relayfile {{ type file slave.pcm "null" file "{raw}" format "raw" }}
  muted=subprocess.Popen([helper,'0'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
  check(ready(muted)==b'MUTED');muted.stdin.close();check(muted.wait(timeout=2)==0)
  begin=time.monotonic()
- for k in [0,1,2,4,5,3,6,7]:
+ for k in [0,8,3,9,1,2,4,5,6,7]:
   stamp=int(time.monotonic()*1000)&0xffffffff
   p.stdin.write(struct.pack('<B3xI',k,stamp));p.stdin.flush();time.sleep(.08)
  p.stdin.close();check(p.wait(timeout=2)==0);check(time.monotonic()-begin<2)

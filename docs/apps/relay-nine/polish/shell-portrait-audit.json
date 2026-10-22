@@ -1,0 +1,14 @@
+{
+	"current":	"neon-outpost",
+	"text_size":	"large",
+	"landscape":	false,
+	"objects":	32,
+	"labels":	13,
+	"count":	{
+		"clipped":	0,
+		"truncated":	0,
+		"overlap":	0,
+		"zero":	0
+	},
+	"issues":	[]
+}

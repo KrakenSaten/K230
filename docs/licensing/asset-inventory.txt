@@ -130,6 +130,7 @@ docs/design/shots/timber-run-slate.png                                          
 docs/design/shots/timber-run.png                                                             ORIGINAL        simulator capture changed before 2026-09-15 09:09
 docs/design/shots/*                                                                          CAPTURE         simulator or unit capture changed on or after 2026-09-15 09:09
 docs/apps/neon-outpost/proposal/relay-nine-concept.png                                        OWNER-AI-RASTER ChatGPT-generated concept, 2026-10-22; not engine output; provenance in docs/apps/NEON_OUTPOST_NEXT_PROPOSAL.md
+docs/apps/relay-nine/polish/effects.wav                                                      ORIGINAL        first-party revised synthesized effects; production host PCM, provenance in docs/apps/RELAY_NINE_POLISH.md
 docs/apps/relay-nine/effects.wav                                                             ORIGINAL        first-party synthesized effects, production service host capture; Apache-2.0, recipe and SHA-256 in docs/apps/RELAY_NINE.md
 docs/apps/*                                                                                  CAPTURE         app documentation captures
 docs/validation/*.png                                                                        CAPTURE         simulator captures recorded with a validation report
