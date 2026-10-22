@@ -303,6 +303,7 @@ static const struct home_entry entries[] = {
     { "solitaire", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "blackjack", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "poker", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "neon-outpost", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "2048", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "system", HOME_GROUP_NONE, HOME_HUE_APPS, HOME_FOLDER_NONE },
 /* A test seam: tests/home_folder_test.c builds this file with more rows

@@ -991,6 +991,24 @@ int main(void)
     pos_input_focus(field);
     settle();
 
+    /* Opted-in held game actions still use the physical translator. */
+    {
+        lv_obj_t *game=lv_obj_create(screen);pos_input_add_obj(game);pos_input_focus(game);
+        check("game action subscription",pos_input_game_subscribe(game));
+        const uint8_t down[]={0x80|39,0x80|1,0x80|5,0x80|14};
+        shell_kbd_inject(down,sizeof(down));unsigned held=0;bool lost=false;
+        pos_input_game_take(&held,NULL,&lost);
+        check("physical move turn fire together",(held&(POS_GAME_FORWARD|POS_GAME_TURN_RIGHT|POS_GAME_FIRE))==(POS_GAME_FORWARD|POS_GAME_TURN_RIGHT|POS_GAME_FIRE));
+        const uint8_t release_left_space[]={5};shell_kbd_inject(release_left_space,1);pos_input_game_take(&held,NULL,NULL);
+        check("other space contact still holds trigger",(held&POS_GAME_FIRE)!=0);
+        const uint8_t up[]={39,1,14};shell_kbd_inject(up,sizeof(up));pos_input_game_take(&held,NULL,NULL);check("physical releases clear all actions",held==0);
+        const uint8_t again[]={0x80|39};shell_kbd_inject(again,1);pos_input_game_reset(0);pos_input_game_take(&held,NULL,&lost);
+        check("provider loss clears and reports",held==0&&lost);
+        const uint8_t keyup[]={39};shell_kbd_inject(keyup,1);
+        pos_input_game_unsubscribe(game);lv_obj_delete(game);pos_input_focus(field);settle();
+        check_str("game keys did not leak into text",lv_textarea_get_text(field),"w_wwwwwwwWw");
+    }
+
     /* ---- 6. destroy stops the keyboard --------------------------------- */
 
     shell_kbd_destroy();

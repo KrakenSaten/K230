@@ -149,4 +149,19 @@ static inline int pos_key_function(pos_key_t key)
     return key > POS_KEY_F_BASE && key <= POS_KEY_F_BASE + 12u ? (int)(key - POS_KEY_F_BASE) : 0;
 }
 
+/* Opt-in foreground game actions. Text clients and reserved shell keys keep
+ * their existing behavior. Source adapters submit physical down/up before
+ * ordinary key-up is discarded; id is stable within source, never a game key. */
+enum pos_game_action {
+    POS_GAME_FORWARD=1u, POS_GAME_BACK=2u, POS_GAME_STRAFE_LEFT=4u,
+    POS_GAME_STRAFE_RIGHT=8u, POS_GAME_TURN_LEFT=16u, POS_GAME_TURN_RIGHT=32u,
+    POS_GAME_FIRE=64u, POS_GAME_USE=128u, POS_GAME_RELOAD=256u, POS_GAME_PAUSE=512u, POS_GAME_WEAPON=1024u
+};
+bool pos_input_game_subscribe(lv_obj_t *owner);
+void pos_input_game_unsubscribe(lv_obj_t *owner);
+bool pos_input_game_event(unsigned source,unsigned id,pos_key_t key,bool down);
+void pos_input_game_reset(unsigned source); /* lost source; 2 resets all */
+void pos_input_game_take(unsigned *held,unsigned *pressed,bool *lost);
+bool pos_input_game_active(void);
+
 #endif

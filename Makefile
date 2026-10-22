@@ -182,7 +182,7 @@ ifeq ($(ENABLE_MESHCORED),1)
 	@echo "meshcored: the notices cover what it contains; installing it is allowed"
 endif
 
-BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
+BINS := tools/audio-effects/pos-audio-effects tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
         tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix tools/browser/pos-browser \
         tools/recorder/pos-record tools/drmtest/pos-drmtest tools/vision/pos-vision tools/mp3/pos-mp3 tools/video/pos-video
 ifeq ($(ENABLE_MESHCORED),1)
@@ -2550,6 +2550,7 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/camera/pos-camera $(DESTDIR)$(PREFIX)/bin/pos-camera
 	install -D -m 0755 tools/zabbix/pos-zabbix $(DESTDIR)$(PREFIX)/bin/pos-zabbix
 	install -D -m 0755 tools/browser/pos-browser $(DESTDIR)$(PREFIX)/bin/pos-browser
+	install -D -m 0755 tools/audio-effects/pos-audio-effects $(DESTDIR)$(PREFIX)/bin/pos-audio-effects
 	install -D -m 0755 tools/recorder/pos-record $(DESTDIR)$(PREFIX)/bin/pos-record
 	install -D -m 0755 tools/mp3/pos-mp3 $(DESTDIR)$(PREFIX)/bin/pos-mp3
 	install -D -m 0755 tools/vision/pos-vision $(DESTDIR)$(PREFIX)/bin/pos-vision
@@ -2852,3 +2853,28 @@ meshcored-clean:
         meshcored meshcored-test meshcored-clean meshcored-shipping-check \
         recorder-test recorder-san-test vision-test vision-san-test games-test deskbuddy-test mp3-test mp3-san-test \
         terminal-test terminal-san-test photo-test photo-san-test
+
+# Neon Outpost has no engine dependency beyond the C library and libm.
+.PHONY: neon-outpost-test neon-outpost-san-test
+neon-outpost-test:
+	CC=$(CC) bash tests/neon_outpost_test.sh
+	bash tests/neon_outpost_lint.sh
+neon-outpost-san-test:
+	CC=$(CC) NEON_BUILD_DIR=out/neon-outpost-san NEON_SANITIZE=1 bash tests/neon_outpost_test.sh
+
+# Foreground audio.effects service; hardware stays behind pocketaudio.
+tools/audio-effects/pos-audio-effects: tools/audio-effects/pos_audio_effects.c core/audio_effects/effects.c $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -Icore -o $@ $(filter %.c %.o,$^) $(LDFLAGS) -lasound -lm
+audio-effects: tools/audio-effects/pos-audio-effects
+.PHONY: audio-effects
+
+.PHONY: relay-nine-test relay-nine-san-test
+relay-nine-test: audio-effects
+	mkdir -p out/relay-nine
+	$(CC) -std=c11 -O2 -g -Wall -Wextra -Werror -Iapps/neon-outpost -Itests -Icore tests/relay_engine_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c core/audio_effects/effects.c -lm -o out/relay-nine/engine-test
+	out/relay-nine/engine-test
+	python3 tests/relay_audio_test.py tools/audio-effects/pos-audio-effects
+relay-nine-san-test:
+	mkdir -p out/relay-nine
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iapps/neon-outpost -Itests -Icore tests/relay_engine_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c core/audio_effects/effects.c -lm -o out/relay-nine/engine-test-san
+	out/relay-nine/engine-test-san

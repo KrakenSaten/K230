@@ -119,6 +119,8 @@ static pos_key_t last_key;
 #define RAW_MODS_MASK 0x7u
 
 static lv_obj_t *raw_target;
+static lv_obj_t *game_owner;
+static unsigned game_bit(pos_key_t key);
 
 static void raw_target_deleted(lv_event_t *e)
 {
@@ -232,6 +234,8 @@ void pos_input_init(void)
 
 void pos_input_deinit(void)
 {
+    pos_input_game_unsubscribe(game_owner);
+    pos_input_game_reset(2);
     if (indev) {
         lv_indev_delete(indev);
         indev = NULL;
@@ -267,6 +271,7 @@ void pos_input_deinit(void)
 
 bool pos_input_push_key_mods(pos_key_t key, unsigned mods)
 {
+    if (pos_input_game_active() && game_bit(key)) return true;
     if (!group) {
         return false;
     }
@@ -385,6 +390,7 @@ bool pos_input_push_group(lv_group_t *g)
     if (!indev || !group || !g || redirected) {
         return false; /* one deep: a second push is refused, not stacked */
     }
+    pos_input_game_reset(2);
     saved_group = group;
     saved_focus = lv_group_get_focused(group);
     if (saved_focus) {
@@ -419,4 +425,76 @@ void pos_input_pop_group(void)
 bool pos_input_group_redirected(void)
 {
     return redirected;
+}
+
+/* The optional game action path never changes the character queue. */
+static struct { unsigned bit; bool down, blocked; } game_keys[2][512];
+static unsigned game_pressed;
+static bool game_lost;
+static unsigned game_bit(pos_key_t key)
+{
+    if(key>='A'&&key<='Z')key+='a'-'A';
+    switch(key){
+    case 'w': case LV_KEY_UP:return POS_GAME_FORWARD;
+    case 's': case LV_KEY_DOWN:return POS_GAME_BACK;
+    case 'a':return POS_GAME_STRAFE_LEFT;
+    case 'd':return POS_GAME_STRAFE_RIGHT;
+    case LV_KEY_LEFT:return POS_GAME_TURN_LEFT;
+    case LV_KEY_RIGHT:return POS_GAME_TURN_RIGHT;
+    case ' ':return POS_GAME_FIRE;
+    case 'f':return POS_GAME_USE;
+    case 'r':return POS_GAME_RELOAD;
+    case 'q':return POS_GAME_WEAPON;
+    case 'p':case LV_KEY_ESC:return POS_GAME_PAUSE;
+    default:return 0;
+    }
+}
+bool pos_input_game_active(void)
+{ return game_owner && pos_input_focused()==game_owner && !pos_input_group_redirected(); }
+void pos_input_game_reset(unsigned source)
+{
+    for(unsigned s=0;s<2;s++)if(source==s||source>=2)for(unsigned i=0;i<512;i++){
+        game_keys[s][i].blocked=game_keys[s][i].down;game_keys[s][i].bit=0;
+    }
+    game_pressed=0;if(game_owner)game_lost=true;
+}
+static void game_owner_event(lv_event_t *e)
+{
+    pos_input_game_reset(2);
+    if(lv_event_get_code(e)==LV_EVENT_DELETE)game_owner=NULL;
+}
+bool pos_input_game_subscribe(lv_obj_t *owner)
+{
+    if(!owner || (game_owner&&game_owner!=owner))return false;
+    if(game_owner==owner)return true;
+    game_owner=owner;pos_input_game_reset(2);game_lost=false;
+    lv_obj_add_event_cb(owner,game_owner_event,LV_EVENT_DEFOCUSED,NULL);
+    lv_obj_add_event_cb(owner,game_owner_event,LV_EVENT_DELETE,NULL);return true;
+}
+void pos_input_game_unsubscribe(lv_obj_t *owner)
+{
+    if(!game_owner||game_owner!=owner)return;
+    pos_input_game_reset(2);lv_obj_remove_event_cb(game_owner,game_owner_event);game_owner=NULL;game_lost=false;
+}
+bool pos_input_game_event(unsigned source,unsigned id,pos_key_t key,bool down)
+{
+    if(source>=2||id>=512)return false;
+    unsigned bit=game_bit(key);
+    bool active=pos_input_game_active();
+    if(!down){unsigned old=game_keys[source][id].bit;game_keys[source][id].down=false;game_keys[source][id].blocked=false;game_keys[source][id].bit=0;return active&&(bit||old);}
+    if(game_keys[source][id].down)return active&&bit;
+    game_keys[source][id].down=true;
+    if(!active){game_keys[source][id].blocked=true;return false;}
+    if(game_keys[source][id].blocked)return bit!=0;
+    game_keys[source][id].bit=bit;game_pressed|=bit;return bit!=0;
+}
+void pos_input_game_take(unsigned *held,unsigned *pressed,bool *lost)
+{
+    unsigned h=0;
+    if(!pos_input_game_active())pos_input_game_reset(2);
+    if(pos_input_game_active())for(unsigned s=0;s<2;s++)for(unsigned i=0;i<512;i++)h|=game_keys[s][i].bit;
+    if(held)*held=h;
+    if(pressed)*pressed=game_pressed;
+    if(lost)*lost=game_lost;
+    game_pressed=0;game_lost=false;
 }
