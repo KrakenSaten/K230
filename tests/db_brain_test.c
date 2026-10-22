@@ -471,6 +471,92 @@ static void test_prefs(void)
     check("every mode off: a resting face that does not react", b.state == DB_ST_IDLE);
 }
 
+/* ---- the visit alert ------------------------------------------------------------------------ */
+
+static void test_visit_alert(void)
+{
+    struct db_brain b;
+    struct db_prefs p;
+    int64_t t = 0;
+    int i;
+    int ok = 1;
+
+    db_prefs_defaults(&p);
+    check("the visit sound is off by default, every other switch on",
+          !p.on[DB_PREF_GUARD_SOUND] && p.on[DB_PREF_GUARD] && p.on[DB_PREF_NIGHT]);
+    fresh(&b, NULL, t);
+    db_brain_set_mode(&b, DB_MODE_GUARD, t);
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t);
+    db_brain_arm(&b, t);
+    see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += 1000);
+    check("switch off: a visit is logged, never announced",
+          db_guard_count(&glog) == 1 && !db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 1000);
+
+    p = b.prefs;
+    p.on[DB_PREF_GUARD_SOUND] = true;
+    db_brain_set_prefs(&b, &p, t);
+    check("turning it on keeps the guard armed and announces nothing old",
+          db_state_armed(b.state) && !db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += DB_VISIT_MERGE_MS + 10);
+    check("a new visit: one alert", db_brain_take_visit_alert(&b));
+    check("taken: not again", !db_brain_take_visit_alert(&b));
+    for (i = 0; i < 100; i++) {
+        see(&b, i & 1 ? DB_VISION_PERSON_DETECTED : DB_VISION_UNKNOWN_PERSON, 900, t += 50);
+        ok &= !db_brain_take_visit_alert(&b);
+    }
+    check("the same visitor staying: no alert, whatever arrives", ok && db_guard_count(&glog) == 2);
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += DB_VISIT_MERGE_MS - 100);
+    check("back within the merge window: the same visit, no alert",
+          db_guard_count(&glog) == 2 && !db_brain_take_visit_alert(&b));
+
+    /* The detector alone: a person, waited on, then logged. */
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += DB_VISIT_MERGE_MS + 10);
+    check("a person seen: no alert before the visit is logged",
+          b.state == DB_ST_GUARD_PERSON_DETECTED && !db_brain_take_visit_alert(&b));
+    run_until(&b, t += DB_GUARD_IDENTIFY_MS + 10);
+    check("logged as a person after the wait: one alert",
+          db_guard_at(&glog, 0)->subject == DB_SUBJECT_PERSON && db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += 100);
+    check("upgraded to unknown later in the same visit: no second alert",
+          db_guard_at(&glog, 0)->subject == DB_SUBJECT_UNKNOWN && !db_brain_take_visit_alert(&b));
+
+    for (i = 0; i < 3; i++) {
+        see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 100);
+        see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += DB_VISIT_MERGE_MS + 10);
+    }
+    check("three visits between two looks: one alert, not a queue",
+          db_brain_take_visit_alert(&b) && !db_brain_take_visit_alert(&b));
+
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += DB_VISIT_MERGE_MS + 10);
+    db_brain_disarm(&b, t += 100);
+    check("a visit logged as the guard stands down is not announced",
+          !db_state_armed(b.state) && !db_brain_take_visit_alert(&b));
+
+    p = b.prefs;
+    p.guard_armed = true;
+    p.mode = DB_MODE_GUARD;
+    db_brain_init(&b, &p, &glog, 99, t = 0);
+    check("reopened armed with a log: nothing in it is announced",
+          db_guard_count(&glog) > 0 && !db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += 100);
+    check("but somebody at the desk on reopening is a visit, and it is announced",
+          b.state == DB_ST_GUARD_UNKNOWN && db_brain_take_visit_alert(&b));
+
+    fresh(&b, &p, t = 0);
+    db_brain_set_mode(&b, DB_MODE_COMPANION, t);
+    see(&b, DB_VISION_UNKNOWN_PERSON, 800, t += 100);
+    db_brain_set_mode(&b, DB_MODE_NIGHT, t += 100);
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += 100);
+    check("Companion and Night log nothing and announce nothing",
+          db_guard_count(&glog) == 0 && !db_brain_take_visit_alert(&b));
+    check("a NULL brain is no alert", !db_brain_take_visit_alert(NULL));
+}
+
 /* ---- idle behaviour and ticks -------------------------------------------------------------- */
 
 static void test_idle(void)
@@ -593,6 +679,7 @@ int main(void)
     test_rapid();
     test_unavailable();
     test_prefs();
+    test_visit_alert();
     test_idle();
     test_face();
     printf("db_brain_test: %d checks, %d failure(s)\n", checks, failed);

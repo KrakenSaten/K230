@@ -11,13 +11,16 @@
 
 #define LINE_MAX_LEN 128
 
-static const char *const keys[DB_PREF_TOGGLE_COUNT] = { "companion", "camera_presence", "guard", "night",
-                                                        "owner_recognition", "greeting", "idle_animation" };
+static const char *const keys[DB_PREF_TOGGLE_COUNT] = { "companion",   "camera_presence",   "guard",
+                                                        "guard_sound", "night",             "owner_recognition",
+                                                        "greeting",    "idle_animation" };
 /* Camera presence is Companion's alone: Guard and Night are built on the
- * camera and run it whatever this says, so the label names its mode. */
-static const char *const labels[DB_PREF_TOGGLE_COUNT] = { "Companion mode", "Camera presence \xC2\xB7 Buddy",
-                                                          "Desk guard",     "Night mode",
-                                                          "Owner recognition", "Greeting", "Idle animation" };
+ * camera and run it whatever this says, so the label names its mode. The
+ * visit sound is Guard's alone, and says so the same way. */
+static const char *const labels[DB_PREF_TOGGLE_COUNT] = { "Companion mode",    "Camera presence \xC2\xB7 Buddy",
+                                                          "Desk guard",        "Visit sound \xC2\xB7 Guard",
+                                                          "Night mode",        "Owner recognition",
+                                                          "Greeting",          "Idle animation" };
 static const char *const modes[DB_MODE_COUNT] = { "companion", "guard", "night" };
 
 #define KEY_ARMED "guard_armed"
@@ -34,6 +37,9 @@ void db_prefs_defaults(struct db_prefs *p)
     for (k = 0; k < DB_PREF_TOGGLE_COUNT; k++) {
         p->on[k] = true;
     }
+    /* The one switch that starts off: a device that makes a noise nobody
+     * asked for is a surprise, not a guard. */
+    p->on[DB_PREF_GUARD_SOUND] = false;
     p->guard_armed = false;
     p->mode = DB_MODE_COMPANION;
 }

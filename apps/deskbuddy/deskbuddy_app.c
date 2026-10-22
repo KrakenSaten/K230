@@ -57,11 +57,13 @@
 #include "db_gesture.h"
 #include "db_guard.h"
 #include "db_prefs.h"
+#include "db_sound.h"
 #include "db_store.h"
 #include "db_vision.h"
 #include "db_vision_mock.h"
 
 #include "app.h"
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 
 #include <stdint.h>
@@ -102,6 +104,9 @@ struct deskbuddy_look {
     int off_x;
     int off_y;
 };
+
+/* What stands between an armed guard's visit sound and the owner's ear. */
+enum sound_note { SOUND_OK = 0, SOUND_MUTED, SOUND_NONE };
 
 struct deskbuddy_app {
     struct db_brain brain;
@@ -159,7 +164,12 @@ struct deskbuddy_app {
     unsigned shown_prefs_rev;
     bool shown_looking;          /* provider_on, and vision_pending, when the note was made */
     bool shown_pending;
+    enum sound_note shown_sound;
     bool shown_valid;
+    /* The visit sound: why it cannot be heard now, if it cannot, and the
+     * sounds started this open (tests/deskbuddy_app_test.c). */
+    enum sound_note sound;
+    unsigned sound_starts;
     lv_timer_t *timer;
     lv_obj_t *root;
     lv_obj_t *face;
@@ -552,6 +562,14 @@ static const char *note_for(const struct deskbuddy_app *a)
     if (b->seen == DB_SEEN_UNAVAILABLE && mode == DB_MODE_GUARD) {
         return "NO VISION YET";
     }
+    /* The owner asked for a sound and would not get one: said while armed,
+     * so nobody leaves the desk counting on a chime that cannot come. */
+    if (a->sound == SOUND_MUTED) {
+        return "VISIT SOUND MUTED";
+    }
+    if (a->sound == SOUND_NONE) {
+        return "NO SOUND ON THIS UNIT";
+    }
     /* Companion with Camera presence asked the camera, and the camera could
      * not answer (no camera, no model, no helper): said, so nobody takes the
      * calm face for an empty desk. Without it, Companion plays by touch and
@@ -633,7 +651,7 @@ static void refresh_ui(struct deskbuddy_app *a, bool force)
 
     if (!force && a->shown_valid && a->shown_state == b->state && a->shown_seen == b->seen &&
         a->shown_log_rev == b->log_rev && a->shown_prefs_rev == b->prefs_rev && a->shown_looking == a->provider_on &&
-        a->shown_pending == b->vision_pending) {
+        a->shown_pending == b->vision_pending && a->shown_sound == a->sound) {
         return;
     }
     set_text(a->caption, caption_for(a));
@@ -650,6 +668,7 @@ static void refresh_ui(struct deskbuddy_app *a, bool force)
     a->shown_prefs_rev = b->prefs_rev;
     a->shown_looking = a->provider_on;
     a->shown_pending = b->vision_pending;
+    a->shown_sound = a->sound;
     a->shown_valid = true;
 }
 
@@ -1021,6 +1040,34 @@ static void pump_vision(struct deskbuddy_app *a, int64_t now)
 
 static void sync_provider(struct deskbuddy_app *a, int64_t now);
 
+/* The visit sound (db_sound.h): once for each new visit an armed guard
+ * logs, at the system volume, started and left to play - nothing here waits
+ * for audio, and a sound that will not start costs a log line, not the
+ * guard. What would keep it from being heard is kept for the note. */
+static void sound_step(struct deskbuddy_app *a)
+{
+    const struct db_brain *b = &a->brain;
+    bool wanted = db_state_armed(b->state) && b->prefs.on[DB_PREF_GUARD_SOUND];
+    int volume = wanted ? pocketos_shell_volume_effective() : 0;
+
+    if (!wanted) {
+        a->sound = SOUND_OK;
+    } else if (!db_sound_available()) {
+        a->sound = SOUND_NONE;
+    } else {
+        a->sound = volume > 0 ? SOUND_OK : SOUND_MUTED;
+    }
+    /* Taken every step, heard or not: what was new now is old next time. */
+    if (!db_brain_take_visit_alert(&a->brain) || a->sound != SOUND_OK) {
+        return;
+    }
+    if (db_sound_play(volume) == 0) {
+        a->sound_starts++;
+    } else {
+        LOG_WARN("deskbuddy: the visit sound did not start (%s)", db_sound_backend_name());
+    }
+}
+
 static void step(struct deskbuddy_app *a)
 {
     int64_t now = app_now(a);
@@ -1034,6 +1081,7 @@ static void step(struct deskbuddy_app *a)
     sync_provider(a, now);
     pump_vision(a, now);
     db_brain_tick(&a->brain, now);
+    sound_step(a);
     snack_step(a, now);
     apply_face(a, false);
     refresh_ui(a, false);
@@ -1361,6 +1409,12 @@ static void build_settings(struct deskbuddy_app *a)
         a->toggle[k] = button(row, "ON", on_toggle, a);
         lv_obj_set_width(a->toggle[k], 112);
     }
+    /* What a guard can and cannot tell, in the owner's words: the camera
+     * finds people, and only Vision's face models with an enrolled owner
+     * can say who. */
+    lv_label_set_text(centred_label(list, POS_STYLE_CAPTION),
+                      "Guard notices people, not who they are. Without Vision's face models and an "
+                      "enrolled owner, every visit is SOMEONE - you too.");
     a->done = button(a->panel, "DONE", on_done, a);
     lv_obj_set_width(a->done, LV_PCT(100));
     style_button(a->done, true);
@@ -1605,6 +1659,8 @@ static void deskbuddy_destroy(void *priv)
         a->provider.ops->stop(a->provider.ctx);
         a->provider_on = false;
     }
+    /* A chime still sounding stops with the app: nothing is left playing. */
+    db_sound_stop();
     save_changes(a);
     if (a->timer) {
         lv_timer_delete(a->timer);
@@ -1744,6 +1800,11 @@ const char *deskbuddy_app_provider(void *priv)
 unsigned deskbuddy_app_provider_starts(void *priv)
 {
     return priv ? ((struct deskbuddy_app *)priv)->provider_starts : 0;
+}
+
+unsigned deskbuddy_app_sound_starts(void *priv)
+{
+    return priv ? ((struct deskbuddy_app *)priv)->sound_starts : 0;
 }
 
 bool deskbuddy_app_provider_running(void *priv)

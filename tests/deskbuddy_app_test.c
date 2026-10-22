@@ -23,6 +23,7 @@
 #include "chrome.h"
 #include "db_brain.h"
 #include "db_guard.h"
+#include "db_sound.h"
 #include "db_store.h"
 #include "deskbuddy_app.h"
 #include "pocketui.h"
@@ -60,10 +61,12 @@ static void check(const char *what, int ok)
 
 static int reduced_motion;
 static int keyboard_requests;
+static int system_volume = 60; /* 0 while muted, as volume_effective() */
 
 void pocketos_shell_set_status_hint(const char *text) { (void)text; }
 void pocketos_shell_go_home(void) {}
 int pocketos_shell_reduced_motion(void) { return reduced_motion; }
+int pocketos_shell_volume_effective(void) { return system_volume; }
 int64_t pocketos_shell_system_day(void) { return -1; } /* the board's clock is not set */
 const char *pocketos_shell_radio_state(void) { return NULL; }
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user), void *user)
@@ -445,6 +448,210 @@ static void test_reopen(void)
     check("25 open/close rounds mid-animation: no timer, object or focus left behind", ok);
     pump(5000);
     check("and nothing calls back into a closed app", timer_count() == timers);
+}
+
+/* ---- the visit sound ------------------------------------------------------------------ */
+
+/* A backend that counts instead of sounding; busy refuses as pos-record does
+ * while the last sound still plays. */
+static int fake_ok = 1;
+static int fake_busy;
+static int fake_plays;
+static int fake_volume;
+static int fake_stops;
+
+static int fake_available(void) { return fake_ok; }
+static int fake_play(int volume_percent)
+{
+    if (fake_busy) {
+        return -1;
+    }
+    fake_plays++;
+    fake_volume = volume_percent;
+    return 0;
+}
+static void fake_stop(void) { fake_stops++; }
+
+static const struct db_sound_backend fake_sound = {
+    .name = "fake", .available = fake_available, .play = fake_play, .stop = fake_stop, .why = "counts",
+};
+
+static const char *note_text(void);
+
+/* Some label under obj holds this text. */
+static int tree_has(lv_obj_t *obj, const char *text)
+{
+    uint32_t i;
+
+    if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), text)) {
+        return 1;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        if (tree_has(lv_obj_get_child(obj, (int32_t)i), text)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void set_guard_sound(bool on)
+{
+    tap_obj(deskbuddy_app_settings_button(app));
+    if (brain()->prefs.on[DB_PREF_GUARD_SOUND] != on) {
+        tap_obj(deskbuddy_app_toggle(app, DB_PREF_GUARD_SOUND));
+    }
+    tap_obj(deskbuddy_app_settings_done(app));
+}
+
+/* A visit that is over: gone for longer than the merge window. */
+static void visit_over(void)
+{
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    pump(DB_VISIT_MERGE_MS + 50);
+}
+
+static void test_guard_sound(void)
+{
+    int i;
+    int ok = 1;
+
+    db_sound_set_backend(&fake_sound);
+    setenv("DESKBUDDY_VISION", "none", 1);
+    fake_plays = fake_stops = fake_busy = 0;
+    fake_ok = 1;
+    system_volume = 60;
+    forget();
+    app_start();
+    tap_obj(deskbuddy_app_settings_button(app));
+    check("Visit sound is a switch of its own, labelled for Guard, and starts OFF",
+          shows(deskbuddy_app_toggle(app, DB_PREF_GUARD_SOUND), "OFF") &&
+              !brain()->prefs.on[DB_PREF_GUARD_SOUND] &&
+              tree_has(deskbuddy_app_settings_panel(app), "Visit sound \xC2\xB7 Guard"));
+    check("the settings say a guard sees people, not who they are",
+          tree_has(deskbuddy_app_settings_panel(app), "not who they are") &&
+              tree_has(deskbuddy_app_settings_panel(app), "every visit is SOMEONE"));
+    tap_obj(deskbuddy_app_settings_done(app));
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    tap_obj(deskbuddy_app_action_button(app));
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("off: a visit is logged and shown, and nothing sounds",
+          db_guard_count(brain()->log) == 1 && strcmp(caption(), "VISITOR NOTED") == 0 && fake_plays == 0);
+    visit_over();
+
+    set_guard_sound(true);
+    app_deskbuddy.tick(app);
+    check("turned on, it is saved", file_has(DB_STORE_PREFS, "guard_sound=1"));
+    check("turning it on plays nothing for the visit already logged", fake_plays == 0);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("on: a new visit sounds once, at the system volume",
+          fake_plays == 1 && fake_volume == 60 && db_guard_count(brain()->log) == 2 &&
+              strcmp(caption(), "VISITOR NOTED") == 0);
+    for (i = 0; i < 200; i++) {
+        deskbuddy_app_inject(app, i & 1 ? DB_VISION_PERSON_DETECTED : DB_VISION_UNKNOWN_PERSON);
+        pump(5);
+    }
+    check("a visitor who stays: no second sound", fake_plays == 1 && db_guard_count(brain()->log) == 2);
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    pump(DB_VISIT_MERGE_MS / 2);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("back within the merge window: the same visit, no sound", fake_plays == 1 &&
+                                                                       db_guard_count(brain()->log) == 2);
+    visit_over();
+
+    /* The detector alone: somebody, waited on for an identity, then logged
+     * as a person - and that is the visit that sounds. */
+    deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
+    check("a person seen: SOMEONE'S HERE, nothing logged or heard yet",
+          strcmp(caption(), "SOMEONE'S HERE") == 0 && db_guard_count(brain()->log) == 2 && fake_plays == 1);
+    pump(DB_GUARD_IDENTIFY_MS + 200);
+    check("logged as a person after the wait, and that sounds once",
+          fake_plays == 2 && db_guard_at(brain()->log, 0)->subject == DB_SUBJECT_PERSON &&
+              strcmp(caption(), "VISITOR NOTED") == 0);
+    visit_over();
+
+    fake_busy = 1;
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("a sound that will not start costs nothing: the visit is logged and the guard watches on",
+          fake_plays == 2 && db_guard_count(brain()->log) == 4 && strcmp(caption(), "VISITOR NOTED") == 0);
+    fake_busy = 0;
+    pump(2000);
+    check("and it is not queued for later", fake_plays == 2);
+    visit_over();
+
+    system_volume = 0;
+    pump(1100);
+    check("muted: the armed guard says the sound will not be heard",
+          strcmp(note_text(), "VISIT SOUND MUTED") == 0);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("and a visit while muted plays nothing", fake_plays == 2 && db_guard_count(brain()->log) == 5);
+    visit_over();
+    system_volume = 60;
+    pump(1100);
+    check("unmuted: the note goes", strcmp(note_text(), "") == 0);
+    fake_ok = 0;
+    pump(1100);
+    check("no sound on the unit: said too", strcmp(note_text(), "NO SOUND ON THIS UNIT") == 0);
+    fake_ok = 1;
+    pump(1100);
+
+    deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
+    tap_obj(deskbuddy_app_action_button(app)); /* DISARM, the person still unidentified */
+    check("a visit logged by disarming is not announced", fake_plays == 2 && !db_state_armed(brain()->state));
+    tap_obj(deskbuddy_app_action_button(app)); /* SEEN IT */
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("disarmed: nothing sounds", fake_plays == 2);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    for (i = 0; i < 3; i++) {
+        deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+        pump(DB_VISIT_MERGE_MS + 50);
+        deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+        pump(5000);
+    }
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    for (i = 0; i < 3; i++) {
+        deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+        pump(DB_VISIT_MERGE_MS + 50);
+        deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
+        pump(5000);
+    }
+    check("BUDDY and NIGHT never sound, with the switch on", fake_plays == 2);
+
+    /* Armed, closed and opened again with somebody at the desk. */
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    tap_obj(deskbuddy_app_action_button(app));
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    pump(100);
+    i = fake_stops;
+    app_stop();
+    check("closing stops any sound still playing", fake_stops == i + 1);
+    app_start();
+    pump(1100);
+    check("reopened armed: the visits already in the log are not played again",
+          db_state_armed(brain()->state) && deskbuddy_app_sound_starts(app) == 0 && fake_plays == 2);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("somebody already at the desk is still a visit, and it sounds",
+          deskbuddy_app_sound_starts(app) == 1 && fake_plays == 3);
+    app_stop();
+
+    /* A burst of separate visits faster than any sound: the log takes each,
+     * the speaker no more than one per step. */
+    app_start();
+    for (i = 0; i < 6; i++) {
+        deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+        pump(DB_VISIT_MERGE_MS + 50);
+        fake_busy = i > 0; /* the first chime still sounding */
+        deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+        ok &= deskbuddy_app_sound_starts(app) == 1;
+    }
+    fake_busy = 0;
+    pump(3000);
+    check("visits while a chime still sounds are logged, never stacked or replayed", ok && fake_plays == 4);
+    app_stop();
+    unsetenv("DESKBUDDY_VISION");
+    system_volume = 60;
+    db_sound_set_backend(&db_sound_pos_record);
 }
 
 /* ---- settings ------------------------------------------------------------------------- */
@@ -1384,6 +1591,7 @@ static void run_tests(void)
     test_companion();
     test_guard();
     test_reopen();
+    test_guard_sound();
     test_settings();
     test_night();
     test_quiet();

@@ -258,6 +258,8 @@ struct db_brain {
     uint32_t rng;
     unsigned prefs_rev;         /* bumped when prefs (mode, armed) change: save them */
     unsigned log_rev;           /* bumped when the log changes: save it */
+    unsigned visits;            /* new visitor lines added since init (not merges, not the owner) */
+    unsigned visits_taken;      /* visits already seen by db_brain_take_visit_alert() */
     unsigned events;            /* vision events taken, for the screen's debug line */
     bool vision_pending;        /* a source started, nothing heard from it yet */
     /* Personality: the reaction playing, its beats and where it looks. */
@@ -304,6 +306,13 @@ bool db_brain_arm(struct db_brain *b, int64_t now_ms);
 bool db_brain_disarm(struct db_brain *b, int64_t now_ms);
 /* Acknowledge the visitors shown in ALERT_PENDING. false when none pending. */
 bool db_brain_acknowledge(struct db_brain *b, int64_t now_ms);
+/* Whether to sound the visit alert now: true once when one or more new
+ * visits were logged since the last call, the guard is still armed and the
+ * visit sound is on. Every call takes what was new, whatever it answers, so
+ * a burst is one alert, a visit merged into the last one is none, the log
+ * loaded at start is none, and a visit logged while disarming (the guard
+ * standing down) is none. */
+bool db_brain_take_visit_alert(struct db_brain *b);
 
 void db_brain_vision(struct db_brain *b, const struct db_vision_event *ev, int64_t now_ms);
 /* A touch on the face: somebody is certainly here. The plain touch, with no
