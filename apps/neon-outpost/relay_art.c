@@ -7,6 +7,8 @@
 #include <string.h>
 static uint16_t textures[6][64*64];
 static bool ready;
+/* Exact integer channel shading, bounded to the authored light range. */
+static uint8_t shade5[201][32],shade6[201][64];
 static uint16_t color(int r,int g,int b)
 {r=r<0?0:r>255?255:r;g=g<0?0:g>255?255:g;b=b<0?0:b>255?255:b;return (uint16_t)(((r>>3)<<11)|((g>>2)<<5)|(b>>3));}
 static unsigned hash(unsigned x,unsigned y){unsigned v=x*374761393u+y*668265263u;v=(v^(v>>13))*1274126177u;return v^(v>>16);}
@@ -49,15 +51,20 @@ static void init(void)
             if(y>57){bool stripe=(x/8)%2;r=stripe?202:32;g=stripe?160:39;b=stripe?65:35;}
         }else{r=61+n;g=71+n;b=68+n;if(x%32<2||y%32<2){r=26;g=35;b=34;}if(y==6&&x>10&&x<22){r=178;g=150;b=94;}}
         textures[m][y*64+x]=color(r,g,b);
-    }ready=true;
+    }
+    for(int l=55;l<=255;l++){
+        for(int v=0;v<32;v++)shade5[l-55][v]=(uint8_t)((v*8*l/255)>>3);
+        for(int v=0;v<64;v++)shade6[l-55][v]=(uint8_t)((v*4*l/255)>>2);
+    }
+    ready=true;
 }
 uint16_t rn_texture(int m,int x,int y,int light)
 {
     if(!ready)init();
     if(m<0||m>5)m=1;
     uint16_t c=textures[m][((y&63)*64)+(x&63)];
-    int r=((c>>11)&31)*8,g=((c>>5)&63)*4,b=(c&31)*8;
-    light=light<55?55:light>255?255:light;return color(r*light/255,g*light/255,b*light/255);
+    light=light<55?0:light>255?200:light-55;
+    return (uint16_t)((shade5[light][c>>11]<<11)|(shade6[light][(c>>5)&63]<<5)|shade5[light][c&31]);
 }
 uint16_t rn_sprite(int kind,int x,int y,int phase,int facing,int state)
 {
