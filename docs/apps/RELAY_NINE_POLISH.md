@@ -218,6 +218,9 @@ pinned WSL checkout, run `platforms/k230/scripts/apply_to_sdk.sh`, then
 and `/usr/bin/pos-audio-effects` in the package. No replacement toolchain,
 installation or deployment is part of this update.
 
+**Update 2026-10-22:** the first K230 build and unit B device pass are recorded in
+[RELAY_NINE_DEVICE.md](RELAY_NINE_DEVICE.md); the paragraph below is the state before it.
+
 The hardware gate remains **UNVERIFIED for this update**: actual K230 renderer +
 LVGL/flush timing tails and memory; keyboard rollover including Q with movement/
 fire; single-pointer release/focus handling; physical speaker playback, both
