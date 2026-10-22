@@ -681,12 +681,13 @@ nothing while staying.
 *What the evidence supports.* The chime at open (a person already at the
 desk, logged as a visit) was played by DeskBuddy through `pos-record` and
 heard. Continued presence for five minutes made no second sound and no
-second line. The departure was **not** seen: at least one other person
-track stayed in view the whole time, so the visit never ended and no new
-visit was logged. The second chime the owner heard was not started by this
-shell (no process, no log line); its source is not established. A new
-visit after a real departure is therefore covered by the host tests only
-(`db_brain_test`, `deskbuddy_app_test`), not on the unit.
+second line. The detector reported at least one person in every report
+of the captured interval, so no absence, no end of the visit and no new
+visit were registered; what it kept detecting is not established. The
+second chime the owner heard was not started by this shell (no process, no
+log line); its source is not established. A new visit after a departure is
+therefore covered by the host tests only (`db_brain_test`,
+`deskbuddy_app_test`), not on the unit.
 
 **Unit B, 2026-10-22, second speaker check** (the same binary `319ec18b`,
 kit and restore; PR head `dbde396`, docs only after it). The owner was asked
@@ -706,16 +707,29 @@ once to leave the view with nobody else in it and to come back.
 *Owner observations.* Nobody else was in view; the owner left and came
 back, heard exactly one chime after coming back and nothing while staying.
 
-*What the evidence supports.* The one chime DeskBuddy played was the visit
-logged at open (09:42:30), and the owner heard a single chime. The camera
-never reported the desk empty: a track that did not move by more than a
-pixel for 40 s stayed at the desk, which R0 took for a person (an object at
-the desk, or the owner not yet out of view - the evidence cannot tell
-which). The owner's reply came about 25 s after the request, shorter than
-the 30 s away and 20 s back asked for. So the alert for a **new visit after
-a departure** is still not shown on the unit; it rests on the host tests,
-and the chime path itself (pos-record, real speaker, owner-heard, no
-repeat while present) is shown on the unit twice.
+*What the evidence supports.*
+
+- Owner-confirmed: one chime heard.
+- Device logs: one visit logged (at open) and one playback (`pos-record`,
+  exit 0, 09:42:30); no repeat while a person was detected.
+- The detector never reported absence during the captured interval, so a
+  second visit was not demonstrated on the unit. A stationary detection box
+  does not establish whether the owner stayed in view or something else was
+  detected; the cause is unresolved.
+- Host tests (`db_brain_test`, `deskbuddy_app_test`) cover the alert for a
+  new visit after a departure. The product owner accepted this coverage gap
+  on 2026-10-22: speaker playback and no repeated alert during continued
+  detected presence are confirmed on the unit, the second visit after a
+  departure is host-tested.
+
+*Follow-up observation (not diagnosed or changed here).* In both visit-sound
+runs on unit B (08:32 and 09:42 UTC) R0 reported a person at the desk
+position in every report, with a box steady to within a pixel at a score
+around 0.9, while the owner reported having left the view. Earlier the same
+day (07:11 and 07:44 UTC) the same detector did report the desk empty when
+the owner left. Whether this is a persistent detection of something at the
+desk or the owner remaining in view is not known; it is for a separate
+look at R0 presence on this unit.
 
 *Restore.* `RESTORE: OK`: installed shell supervised; settings (volume and
 mute), `prefs.v1` and Vision `settings.v1` byte-identical; the test's
