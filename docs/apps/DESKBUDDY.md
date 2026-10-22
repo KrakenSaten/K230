@@ -521,12 +521,81 @@ panel.
 *Host simulation (earlier, not repeated).* The judge, provider and app tests
 on the fake camera and fake detector listed under "Tests" above.
 
-*Not tested on the unit:* GUARD and NIGHT with the real camera, `CAMERA
-UNAVAILABLE` with the camera actually missing (host only), a turn while
-running, more than one person. The "..." after an arrival with only the
-detector is confirmed on the unit: 4 s, as the brain says.
+*Not tested on the unit:* NIGHT with the real camera, `CAMERA UNAVAILABLE`
+with the camera actually missing (host only), a turn while running, more
+than one person. GUARD: the next record. The "..." after an arrival with
+only the detector is confirmed on the unit: 4 s, as the brain says.
 
 Captures: `deskbuddy/unitb-presence-wake.png`,
 `deskbuddy/unitb-presence-recognizing.png` and
 `deskbuddy/unitb-presence-drowsy.png` (the panel through `kmsgrab` at
 07:11:28, 07:11:30 and 07:12:46). No camera picture is kept.
+
+**Unit B, 2026-10-22: GUARD with the real camera** (the same temporary shell,
+`build=1d2df9bb`, SHA-256 `99cfb7c2…`, and the same kit; restored afterwards).
+
+*What GUARD does without face models (code, unchanged by this branch).*
+The detector only says "somebody". With Owner recognition on (the unit's
+setting), an armed guard that sees a person shows `GUARD_PERSON_DETECTED`
+("SOMEONE'S HERE") and waits 4 s (`DB_GUARD_IDENTIFY_MS`) for an identity
+that cannot come, then logs the visit as `person` ("SOMEONE" on screen,
+never "UNKNOWN" or a stranger) and shows `GUARD_UNKNOWN` ("VISITOR
+NOTED"). Leaving goes back to `GUARD_ARMED` ("WATCHING THE DESK"). One
+visit is one line; a return within 15 s is the same visit. The owner
+cannot stand the guard down by being seen: only DISARM, which shows "N
+VISITS WHILE YOU WERE AWAY" until SEEN IT. DeskBuddy has **no sound**: no
+alert tone, no cooldown beyond the visit merge, nothing audible to check.
+
+*How it was driven.* `shell.tap` exists only in shells built with
+`POCKETOS_SHELL_TEST_HOOKS`, so the device shell cannot press ARM over
+IPC. DeskBuddy was closed, its own `prefs.v1` (backed up) was set to
+`mode=guard`, `guard_armed=1`, and DeskBuddy was opened again: the normal
+"re-armed on reopen" path. Nobody touched the unit.
+
+*Device evidence (UTC; helper reports to 0.1 s, panel about every 2 s).*
+The helper announced `caps detect track …` (no face or recognize mode)
+and reported COCO class 0 tracks.
+
+| Time | Helper reports | Panel / `guard.v1` |
+| --- | --- | --- |
+| 07:43:07 | the owner at the desk | reopened armed: `GUARD_ARMED` at once, then "SOMEONE'S HERE" |
+| 07:43:11 | | "VISITOR NOTED", `07:43 SOMEONE NEW`; `guard.v1` written (`e 1 … person -1 0 0`) |
+| 07:43:13-07:44:10 | the owner stays | no further write (file hash unchanged) |
+| 07:44:10.54 | 0 people | 07:44:13 "WATCHING THE DESK" |
+| 07:44:38.00 | a person (the owner back after 27.5 s) | 07:44:40-42 "SOMEONE'S HERE"; 07:44:44 "VISITOR NOTED", second line `07:44 SOMEONE NEW`, one write |
+| 07:44:44-07:44:58 | the owner stays | no write |
+| 07:44:58.34-07:45:08.10 | 0 people for 9.8 s, then a person | "WATCHING THE DESK", then "SOMEONE'S HERE" and "VISITOR NOTED" again, merged into the same visit: no new line, no write |
+| 07:45:59 | DeskBuddy closed | helper gone at the first check (07:46:00) |
+
+The log holds `person` with confidence -1 (none): the detector path
+reports presence, not a score. No identity was claimed anywhere.
+
+*Owner observations.* The owner left the view for about 30 s, came back
+and stayed about 20 s, without touching the unit; the reactions above are
+read from the captures, the helper reports and `guard.v1`.
+
+*Host tests (earlier, not repeated).* `tests/db_brain_test.c` covers every
+Guard transition, merges and the bounded log; `tests/db_guard_test.c` the
+file.
+
+*Restore.* `RESTORE: OK`: installed shell supervised; settings, `prefs.v1`
+and Vision `settings.v1` byte-identical; the test's `guard.v1` removed (it
+was absent before; a copy is kept in the kit's `used/`); no camera helper;
+meshcored the same process throughout.
+
+*Limitations found (existing behaviour, not changed by this branch):*
+
+- **Reopening an armed guard logs whoever opened it.** `enter_mode()`
+  re-arms straight to `GUARD_ARMED`; only the ARM button waits for
+  "nobody" (`GUARD_ARMING`, also while the camera is still starting). The
+  person at the desk is logged as a visit at once (07:43:11 above). On a
+  unit with an enrolled owner it would stand down instead; without one it
+  is a false visit.
+- **DISARM writes no return line.** "Rules" above says the return is
+  logged; `db_brain_disarm()` stands down with `owner_seen = false`, so
+  only a recognised owner adds the acknowledged return line.
+- **A short return re-shows "SOMEONE'S HERE"** for 4 s even when it merges
+  into the visit already logged; the log is right, the status repeats.
+
+Captures: `deskbuddy/unitb-guard-watching.png` (07:44:13) and
+`deskbuddy/unitb-guard-visitor-noted.png` (07:44:44, two visits).

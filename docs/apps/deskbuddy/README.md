@@ -79,6 +79,8 @@ is kept.
 | `unitb-presence-wake.png` | 07:11:28, 0.6 s after the owner walked into view: `WAKE` |
 | `unitb-presence-recognizing.png` | 07:11:30: `RECOGNIZING` ("..."), with only a detector to see with |
 | `unitb-presence-drowsy.png` | 07:12:46, 61.5 s after the last person report: `DROWSY`, the quiet started by the filtered departure |
+| `unitb-guard-watching.png` | GUARD armed, 07:44:13, after the owner left: "WATCHING THE DESK", one visit logged |
+| `unitb-guard-visitor-noted.png` | GUARD, 07:44:44, after the owner came back: "VISITOR NOTED", two `SOMEONE` visits (detector only: never "UNKNOWN") |
 
 ## Manual check (the same for every candidate)
 
