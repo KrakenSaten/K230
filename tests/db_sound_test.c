@@ -83,7 +83,7 @@ static void test_tone(void)
     }
     check("the chime is short: under 400 ms", n > 48000 / 10 && n < 48000 * 4 / 10);
     check("it starts with silence, for the amplifier", lead == 0);
-    check("restrained: well under full scale", peak > 3000 && peak < 12000);
+    check("restrained, and under pos-record's ceiling (8192): never clipped", peak > 3000 && peak < 8192);
     check("and ends at rest, no click", abs(tone[n - 1]) < 200);
     check("not one of RIFT's lengths (150 and 222 ms)", n != 48000 * 150 / 1000 && n != 48000 * 222 / 1000);
     check("a buffer too small is refused", db_sound_tone_render(tone, 100) == 0);

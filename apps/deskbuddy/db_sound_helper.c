@@ -92,13 +92,15 @@ struct note {
 
 /* Short, and not one of RIFT's: three notes falling (E6, C6, A5), a door
  * chime rather than a message ping, in the 1 - 2 kHz band a small speaker
- * carries best. */
+ * carries best. Every sample stays under pos-record's playback ceiling
+ * (POCKETAUDIO_PEAK_CEILING, 8192 = a quarter of full scale), so the
+ * helper's clamp never cuts into it. */
 static const struct note visit_notes[] = {
-    { 1318.5, 80, 0.30, 50.0 },
+    { 1318.5, 80, 0.24, 50.0 },
     { 0.0, 15, 0.0, 1.0 },
-    { 1046.5, 80, 0.30, 50.0 },
+    { 1046.5, 80, 0.24, 50.0 },
     { 0.0, 15, 0.0, 1.0 },
-    { 880.0, 140, 0.28, 60.0 },
+    { 880.0, 140, 0.22, 60.0 },
 };
 /* Silence first: the amplifier is enabled as the stream opens, and the
  * first milliseconds are where a pop or a cut would be. */
