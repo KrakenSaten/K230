@@ -5,8 +5,8 @@ priorities. This page carries no dates, version numbers or promises: an item
 is ready when it has been built and tested, and the release notes say what
 each release actually contains.
 
-The current release is **Doors 0.3.7**
-([release notes](releases/v0.3.7.md)). What works today is in the
+The current release is **Doors 0.3.8**
+([release notes](releases/v0.3.8.md)). What works today is in the
 [README](../README.md#highlights); known limitations are in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
@@ -23,7 +23,7 @@ priorities.
 
 ### 1. Vision: our own trained AI model (Ongoing)
 
-Doors 0.3.5 shipped without a detector model; 0.3.6 and 0.3.7 ship the
+Doors 0.3.5 shipped without a detector model; 0.3.6 to 0.3.8 ship the
 project's own first one, R0, as a beta ([VISION.md](apps/VISION.md),
 [MODEL_LICENSES.md](../MODEL_LICENSES.md)). The aim is a detector trained by
 the DOORS project, on data whose licences allow it to be shipped.
@@ -36,7 +36,7 @@ export to the K230's KPU format. R0 ran on unit A in a bench A/B
 comparison. It misses many small and distant vehicles.
 
 Now: R0 ships in Doors since 0.3.6 (2026-10-09) as an experimental beta
-("R0 · Beta"), under Apache-2.0, unchanged in 0.3.7. It passed a fresh-card smoke test on
+("R0 · Beta"), under Apache-2.0, unchanged in 0.3.7 and 0.3.8. It passed a fresh-card smoke test on
 hardware. A second training round (R1-A), aimed at the cars R0 misses in
 street scenes, is running; no result from it is claimed here.
 

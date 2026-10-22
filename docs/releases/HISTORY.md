@@ -6,6 +6,12 @@ first, as they were described at the time. The full notes of every release
 from v0.0.10 on are next to this file; the earlier bench and gate records are
 in [docs/hardware/](../hardware/).
 
+**Doors 0.3.6** (tag `v0.3.6`, 2026-10-09): everything merged since 0.3.5 -
+Poker, core reliability fixes and the Vision detector A/B for bench units -
+and Vision's own detector, **R0 · Beta**, in the image as an experimental
+beta (car, truck, bus, motorcycle, bicycle and person; it can miss
+vehicles). Release notes: [v0.3.6.md](v0.3.6.md).
+
 **Doors 0.3.5** (tag `v0.3.5`, 2026-10-07): a fresh card boots straight
 into Doors and the vendor launcher is gone, RIFT set up from Controls
 without a shell, RIFT colour emoji, repeater control, RX LOG and reliability
