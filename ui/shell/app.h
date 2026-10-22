@@ -275,6 +275,16 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
 void pocketos_shell_keyboard_hide(void);
 int pocketos_shell_keyboard_visible(void);
 
+/* A one-shot Shift offered as a default, for a field whose next letter
+ * starts a sentence: on engages Shift for the next character when it is
+ * off, off withdraws it while it is still the one offered. The user's Shift
+ * always wins - a tap turns an offered Shift off, and one they engaged or
+ * locked is never withdrawn - and an offer goes when the keyboard is hidden
+ * or shown again. Only the touch keyboard has it: a physical keyboard's own
+ * modifiers decide what it types. Returns 1 while an offered Shift is
+ * engaged, 0 otherwise (also with no keyboard). */
+int pocketos_shell_keyboard_offer_shift(int on);
+
 /* ---- the app header's title --------------------------------------------- *
  *
  * The words in the header beside the back slab: the app's name, or, while

@@ -326,7 +326,7 @@ done
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
             rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c rift_map.c \
-            rift_emoji_pick.c rift_rxlog.c rift_rxlog_fmt.c; do
+            rift_emoji_pick.c rift_autocap.c rift_rxlog.c rift_rxlog_fmt.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done

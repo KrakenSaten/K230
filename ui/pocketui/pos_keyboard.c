@@ -79,6 +79,7 @@ struct kb {
     lv_obj_t *return_key;
     lv_timer_t *repeat;
     uint32_t last_shift_tap;
+    uint8_t offered; /* the ONCE in shift was offered, not tapped (pos_keyboard_offer_shift) */
     void (*done_cb)(void *user);
     void *done_user;
 };
@@ -229,12 +230,14 @@ static void key_event_cb(lv_event_t *e)
     switch (d->role) {
     case K_CHAR:
         pos_input_push_key(shifted(k) ? d->upper : d->lower);
+        k->offered = 0;
         if (k->shift == POS_KB_SHIFT_ONCE) {
             k->shift = POS_KB_SHIFT_OFF;
             refresh(k);
         }
         break;
     case K_SHIFT:
+        k->offered = 0;
         if (k->shift == POS_KB_SHIFT_OFF) {
             k->shift = POS_KB_SHIFT_ONCE;
         } else if (k->shift == POS_KB_SHIFT_ONCE) {
@@ -255,6 +258,7 @@ static void key_event_cb(lv_event_t *e)
         break;
     case K_SPACE:
         pos_input_push_key(' ');
+        k->offered = 0;
         if (k->shift == POS_KB_SHIFT_ONCE) {
             k->shift = POS_KB_SHIFT_OFF;
             refresh(k);
@@ -459,6 +463,28 @@ enum pos_kb_shift pos_keyboard_shift(lv_obj_t *kb)
     struct kb *k = kb_of(kb);
 
     return k ? (enum pos_kb_shift)k->shift : POS_KB_SHIFT_OFF;
+}
+
+bool pos_keyboard_offer_shift(lv_obj_t *kb, bool on)
+{
+    struct kb *k = kb_of(kb);
+
+    if (!k) {
+        return false;
+    }
+    if (on && k->shift == POS_KB_SHIFT_OFF) {
+        k->shift = POS_KB_SHIFT_ONCE;
+        k->offered = 1;
+        /* As if the last tap were long ago: the next tap on Shift is the
+         * user's first, so on an offered Shift it means "off". */
+        k->last_shift_tap = lv_tick_get() - POS_KB_SHIFT_LOCK_MS - 1u;
+        refresh(k);
+    } else if (!on && k->offered && k->shift == POS_KB_SHIFT_ONCE) {
+        k->shift = POS_KB_SHIFT_OFF;
+        k->offered = 0;
+        refresh(k);
+    }
+    return k->offered && k->shift == POS_KB_SHIFT_ONCE;
 }
 
 lv_obj_t *pos_keyboard_key(lv_obj_t *kb, const char *label)

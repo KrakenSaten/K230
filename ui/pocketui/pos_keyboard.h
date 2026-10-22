@@ -83,6 +83,17 @@ bool pos_keyboard_is_shown(lv_obj_t *kb);
 enum pos_kb_layer pos_keyboard_layer(lv_obj_t *kb);
 enum pos_kb_shift pos_keyboard_shift(lv_obj_t *kb);
 
+/* A one-shot Shift offered on the user's behalf (an automatic capital):
+ * on engages ONCE when Shift is off; off disengages it again, but only while
+ * it is still the offered one. The user's Shift always wins: their tap on an
+ * offered Shift turns it off (as a slow second tap does, never a lock), a
+ * Shift they engaged or locked is never touched, and a character typed
+ * uses an offered Shift up as it does their own. True while an offered
+ * Shift is engaged. Nothing offers unless an app asks (app.h
+ * pocketos_shell_keyboard_offer_shift): on its own the keyboard behaves as
+ * it always has. */
+bool pos_keyboard_offer_shift(lv_obj_t *kb, bool on);
+
 /* The key currently drawn with this label, or NULL. Labels change with the
  * layer and with Shift, so "q" and "Q" are different lookups. Lets a test
  * press what a finger presses rather than calling into the implementation. */

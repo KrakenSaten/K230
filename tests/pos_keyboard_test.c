@@ -303,6 +303,39 @@ int main(void)
     check("a slow second tap disarms rather than locking",
           pos_keyboard_shift(kb) == POS_KB_SHIFT_OFF);
 
+    /* ---- 6b. an offered Shift (pos_keyboard_offer_shift) -------------- */
+
+    lv_textarea_set_text(field, "");
+    pump(60);
+    check("an offer engages a one-shot Shift", pos_keyboard_offer_shift(kb, true) &&
+                                                 pos_keyboard_shift(kb) == POS_KB_SHIFT_ONCE &&
+                                                 pos_keyboard_key(kb, "H") != NULL);
+    tap_key(kb, "H");
+    check_str("and the next letter is a capital", lv_textarea_get_text(field), "H");
+    check("used up by it, as the user's own", pos_keyboard_shift(kb) == POS_KB_SHIFT_OFF &&
+                                                  !pos_keyboard_offer_shift(kb, false));
+    (void)pos_keyboard_offer_shift(kb, true);
+    check("an offer can be taken back", !pos_keyboard_offer_shift(kb, false) &&
+                                            pos_keyboard_shift(kb) == POS_KB_SHIFT_OFF);
+    (void)pos_keyboard_offer_shift(kb, true);
+    centre_of(shift, &x, &y);
+    tap_at(x, y);
+    check("the user's tap turns an offer off, at once, and does not lock",
+          pos_keyboard_shift(kb) == POS_KB_SHIFT_OFF);
+    tap_key(kb, "i");
+    check_str("so a lower-case letter can be typed", lv_textarea_get_text(field), "Hi");
+    tap_at(x, y);
+    check("the user's own Shift is never taken back",
+          !pos_keyboard_offer_shift(kb, false) && pos_keyboard_shift(kb) == POS_KB_SHIFT_ONCE);
+    check("nor offered over", !pos_keyboard_offer_shift(kb, true));
+    tap_at(x, y); /* quickly again: locks */
+    check("a lock is the user's: an offer leaves it",
+          pos_keyboard_shift(kb) == POS_KB_SHIFT_LOCK && !pos_keyboard_offer_shift(kb, true) &&
+              !pos_keyboard_offer_shift(kb, false) && pos_keyboard_shift(kb) == POS_KB_SHIFT_LOCK);
+    tap_at(x, y);
+    check("and unlocks as ever", pos_keyboard_shift(kb) == POS_KB_SHIFT_OFF);
+    pump(POS_KB_SHIFT_LOCK_MS + 200);
+
     /* ---- 7. the symbol layer, and C9's letters ------------------------ */
 
     lv_textarea_set_text(field, "");

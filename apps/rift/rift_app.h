@@ -202,6 +202,12 @@ struct rift_app {
      * list's Esc (back to ACTIVITY), as it was before the composer took the
      * focus by itself. */
     int composer_auto;
+    /* The automatic capital (rift_focus_autocap): the field, conversation,
+     * caret and text it was last decided for - so a Shift the reader turned
+     * off stays off until one of them changes - and whether the touch
+     * keyboard's Shift is RIFT's offer. 0: nothing decided. */
+    uint32_t autocap_seen;
+    int autocap_offered;
     int wide; /* the landscape split is on */
     int32_t body_w;
     int32_t body_h;
@@ -322,6 +328,13 @@ int rift_app_composer_live(const struct rift_app *a);
  * never from inside an LVGL event. */
 void rift_focus_attach(struct rift_app *a);
 void rift_focus_composer(struct rift_app *a);
+/* The automatic capital: while a composer has the keys and the touch
+ * keyboard is up, its one-shot Shift is offered exactly when the next letter
+ * starts a sentence (rift_autocap.h), decided again whenever the field, the
+ * conversation, the caret or the text changes - never otherwise, so the
+ * reader's own Shift tap stands. Withdrawn when the composer loses the keys.
+ * Text is never rewritten. From the timer and the composers' events. */
+void rift_focus_autocap(struct rift_app *a);
 /* Everything on screen, from the model as it stands. Cheap enough to call
  * on every repaint: the screens update labels in place and only rebuild
  * when the set of rows itself changed. */

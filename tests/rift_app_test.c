@@ -25,6 +25,7 @@
 #include "app.h"
 #include "pocketui.h"
 #include "pos_input.h"
+#include "pos_keyboard.h"
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
@@ -178,6 +179,10 @@ static int kb_shows;
 static int kb_up;
 static void (*kb_done)(void *user);
 static void *kb_done_user;
+/* The real touch keyboard (pos_keyboard.c), never drawn here: its keys are
+ * pressed through their own events (kb_tap), so its Shift - what an
+ * automatic capital is offered through - is the shell's own. */
+static lv_obj_t *kb_sheet;
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user),
                                  void *user)
 {
@@ -186,16 +191,22 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(v
     kb_up = 1;
     kb_done = on_done;
     kb_done_user = user;
+    (void)pos_keyboard_offer_shift(kb_sheet, false);
 }
 void pocketos_shell_keyboard_hide(void)
 {
     kb_up = 0;
     kb_done = NULL;
     kb_done_user = NULL;
+    (void)pos_keyboard_offer_shift(kb_sheet, false);
 }
 int pocketos_shell_keyboard_visible(void)
 {
     return kb_up;
+}
+int pocketos_shell_keyboard_offer_shift(int on)
+{
+    return kb_up && pos_keyboard_offer_shift(kb_sheet, on != 0) ? 1 : 0;
 }
 
 /* The system volume, as the shell would report it: settable, so the DM
@@ -1063,6 +1074,79 @@ static void shot(const char *name)
     rc = lodepng_encode24_file(path, rgb, snap->header.w, snap->header.h);
     free(rgb);
     lv_draw_buf_destroy(snap);
+    if (rc) {
+        printf("FAIL writing %s\n", path);
+        failed++;
+        return;
+    }
+    shots_taken++;
+#else
+    (void)name;
+#endif
+}
+
+/* shot() with the top layer drawn over the screen: the emoji picker lives
+ * there (rift_emoji_picker.c), and a snapshot of the screen alone leaves it
+ * out. Both snapshots are the display's size, from its origin. */
+static void shot_top(const char *name)
+{
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+    char path[512];
+    lv_draw_buf_t *snap;
+    lv_draw_buf_t *top;
+    unsigned char *rgb;
+    uint32_t y;
+    unsigned rc;
+
+    if (!shots_dir) {
+        return;
+    }
+    pump(120);
+    snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB888);
+    top = lv_snapshot_take(lv_layer_top(), LV_COLOR_FORMAT_ARGB8888);
+    if (!snap || !top) {
+        printf("FAIL snapshot %s\n", name);
+        failed++;
+        if (snap) {
+            lv_draw_buf_destroy(snap);
+        }
+        if (top) {
+            lv_draw_buf_destroy(top);
+        }
+        return;
+    }
+    rgb = malloc((size_t)snap->header.w * snap->header.h * 3);
+    if (!rgb) {
+        lv_draw_buf_destroy(snap);
+        lv_draw_buf_destroy(top);
+        return;
+    }
+    for (y = 0; y < snap->header.h; y++) {
+        const unsigned char *src =
+            (const unsigned char *)snap->data + (size_t)y * snap->header.stride;
+        const unsigned char *over =
+            y < top->header.h ? (const unsigned char *)top->data + (size_t)y * top->header.stride : NULL;
+        unsigned char *dst = rgb + (size_t)y * snap->header.w * 3;
+        uint32_t x;
+
+        for (x = 0; x < snap->header.w; x++) {
+            unsigned a = (over && x < top->header.w) ? over[x * 4 + 3] : 0;
+            int c;
+
+            /* RGB888 is B,G,R in memory and ARGB8888 B,G,R,A; PNG wants R,G,B. */
+            for (c = 0; c < 3; c++) {
+                unsigned under = src[x * 3 + 2 - c];
+                unsigned on = a ? over[x * 4 + 2 - c] : 0;
+
+                dst[x * 3 + c] = (unsigned char)((on * a + under * (255 - a)) / 255);
+            }
+        }
+    }
+    snprintf(path, sizeof(path), "%s/%s.png", shots_dir, name);
+    rc = lodepng_encode24_file(path, rgb, snap->header.w, snap->header.h);
+    free(rgb);
+    lv_draw_buf_destroy(snap);
+    lv_draw_buf_destroy(top);
     if (rc) {
         printf("FAIL writing %s\n", path);
         failed++;
@@ -5192,6 +5276,8 @@ static void emoji_picker_session(void)
         lv_area_t fa;
         lv_area_t ba;
         lv_area_t box;
+        unsigned cols;
+        unsigned k;
 
         use_display(turns[t], PANEL_CORNER);
         app_start();
@@ -5244,14 +5330,16 @@ static void emoji_picker_session(void)
         pos_input_push_key(LV_KEY_RIGHT);
         pos_input_push_key(LV_KEY_DOWN);
         pump(80);
+        cols = rift_emoji_picker_cols();
         snprintf(what, sizeof(what), "%s, Large: the arrows move the selection, not the caret",
                  shape);
-        check(what, rift_emoji_picker_selected() == RIFT_EMOJI_COLS + 1 &&
+        check(what, cols > 1 && rift_emoji_picker_selected() == cols + 1 &&
                         lv_textarea_get_cursor_pos(field) == 1 &&
                         strcmp(lv_textarea_get_text(field), "hi") == 0);
-        pos_input_push_key(LV_KEY_DOWN);
-        pos_input_push_key(LV_KEY_DOWN);
-        pump(80);
+        for (k = 0; k < RIFT_EMOJI_CELLS && rift_emoji_picker_group() == 0; k++) {
+            pos_input_push_key(LV_KEY_DOWN);
+            pump(40);
+        }
         snprintf(what, sizeof(what), "%s, Large: down past the last row is the next group",
                  shape);
         check(what, rift_emoji_picker_group() == 1 && rift_emoji_picker_selected() == 1 &&
@@ -5262,8 +5350,9 @@ static void emoji_picker_session(void)
         pump(80);
         snprintf(what, sizeof(what), "%s, Large: and up past the first row the one before",
                  shape);
-        check(what, rift_emoji_picker_group() == 0 &&
-                        rift_emoji_picker_selected() == 2 * RIFT_EMOJI_COLS + 1);
+        check(what, cols > 1 && rift_emoji_picker_group() == 0 &&
+                        rift_emoji_picker_selected() ==
+                            1 + (RIFT_EMOJI_CELLS - 2) / cols * cols);
         tap(rift_emoji_picker_tab(2));
         snprintf(what, sizeof(what), "%s, Large: a tab shows its group", shape);
         check(what, rift_emoji_picker_is_open() && rift_emoji_picker_group() == 2 &&
@@ -5328,6 +5417,578 @@ static void emoji_picker_session(void)
         snprintf(what, sizeof(what), "%s: leaving RIFT takes the picker with it", shape);
         check(what, !rift_emoji_picker_is_open());
     }
+    pos_theme_select_text_size(was);
+}
+
+/* ---- fix/rift-composer-usability: the automatic capital -------------------- */
+
+/* A key of the touch keyboard pressed as a finger presses it, through the
+ * key's own events (Backspace acts on the press, a letter on the click). */
+static int kb_tap(const char *label)
+{
+    lv_obj_t *k = pos_keyboard_key(kb_sheet, label);
+
+    if (!k) {
+        printf("     no key \"%s\" on the touch keyboard now\n", label);
+        return 0;
+    }
+    lv_obj_send_event(k, LV_EVENT_PRESSED, NULL);
+    lv_obj_send_event(k, LV_EVENT_RELEASED, NULL);
+    lv_obj_send_event(k, LV_EVENT_CLICKED, NULL);
+    /* Delivered on the stream's next read, as a finger's key is. */
+    pump(80);
+    return 1;
+}
+
+/* The other case of one letter as the keys show it ("" for none). */
+static const char *other_case(const char *one, char *buf)
+{
+    static const char *const pairs[][2] = {
+        { "\xC3\xA6", "\xC3\x86" }, { "\xC3\xB8", "\xC3\x98" }, { "\xC3\xA5", "\xC3\x85" },
+    };
+    size_t i;
+
+    buf[0] = '\0';
+    if (one[1] == '\0' && ((one[0] >= 'a' && one[0] <= 'z') || (one[0] >= 'A' && one[0] <= 'Z'))) {
+        buf[0] = (char)(one[0] ^ 0x20);
+        buf[1] = '\0';
+    }
+    for (i = 0; i < sizeof(pairs) / sizeof(pairs[0]); i++) {
+        if (strcmp(one, pairs[i][0]) == 0) {
+            strcpy(buf, pairs[i][1]);
+        } else if (strcmp(one, pairs[i][1]) == 0) {
+            strcpy(buf, pairs[i][0]);
+        }
+    }
+    return buf;
+}
+
+/* Type s on the touch keyboard as a finger would: the key for each letter,
+ * whichever case it shows - the keyboard's Shift decides the case - and the
+ * other layer when the key is on it (". , ? !" and æ ø å are on ?123). */
+static int kb_type(const char *s)
+{
+    int ok = 1;
+
+    while (*s) {
+        unsigned char c = (unsigned char)*s;
+        size_t len = c < 0x80u ? 1 : c >= 0xF0u ? 4 : c >= 0xE0u ? 3 : 2;
+        char one[5];
+        char other[5];
+        int layer;
+
+        memcpy(one, s, len);
+        one[len] = '\0';
+        s += len;
+        if (one[0] == ' ') {
+            ok &= kb_tap("SPACE");
+            continue;
+        }
+        other_case(one, other);
+        for (layer = 0; layer < 2; layer++) {
+            if (pos_keyboard_key(kb_sheet, one)) {
+                ok &= kb_tap(one);
+                break;
+            }
+            if (other[0] && pos_keyboard_key(kb_sheet, other)) {
+                ok &= kb_tap(other);
+                break;
+            }
+            ok &= kb_tap(pos_keyboard_layer(kb_sheet) == POS_KB_LAYER_ALPHA ? "?123" : "ABC");
+        }
+        if (layer == 2) {
+            printf("     \"%s\" is on neither layer\n", one);
+            ok = 0;
+        }
+    }
+    return ok;
+}
+
+static int shift_offered(void)
+{
+    return pos_keyboard_shift(kb_sheet) == POS_KB_SHIFT_ONCE;
+}
+
+static int text_is(lv_obj_t *field, const char *want)
+{
+    const char *got = field ? lv_textarea_get_text(field) : "";
+
+    if (strcmp(got, want) != 0) {
+        printf("     the composer holds \"%s\", not \"%s\"\n", got, want);
+        return 0;
+    }
+    return 1;
+}
+
+/* The composer starts a sentence with a capital the touch keyboard offers -
+ * at the start, after ". ", "! " and "? ", for æ ø å as for a - and the
+ * reader turns it off with SHIFT for a lower-case letter. The caret decides;
+ * nothing typed, pasted or kept is ever rewritten; a physical keyboard's
+ * keys are its own; and no offer outlives its field, its conversation or
+ * the keyboard. */
+static void autocap_session(void)
+{
+    lv_obj_t *field;
+
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(200);
+    tap(ancestor(find_exact(content(), "HYTTA"), 1));
+    pump(200);
+    field = rift_comms_field(app);
+    check("autocap: a portrait conversation has a composer", field != NULL);
+    if (!field) {
+        app_stop();
+        return;
+    }
+    check("autocap: with the touch keyboard down nothing is offered", !kb_up && !shift_offered());
+    tap(field);
+    pump(150);
+    check("autocap: a new, empty message offers a capital", kb_up && shift_offered() &&
+                                                              pos_keyboard_key(kb_sheet, "H") != NULL);
+
+    /* Sentence starts. */
+    kb_type("hei");
+    check("autocap: the first letter is a capital, the next ones are not",
+          text_is(field, "Hei") && !shift_offered());
+    kb_type(". ");
+    check("autocap: after \". \" a capital is offered again", shift_offered());
+    kb_type("du");
+    kb_type("! ");
+    check("autocap: and after \"! \"", text_is(field, "Hei. Du! ") && shift_offered());
+    kb_type("ok? ");
+    check("autocap: and after \"? \"", text_is(field, "Hei. Du! Ok? ") && shift_offered());
+    kb_type("bra, ");
+    check("autocap: not after a comma, nor for every word", text_is(field, "Hei. Du! Ok? Bra, ") &&
+                                                              !shift_offered());
+
+    /* Norwegian letters, upper case through the same Shift. */
+    lv_textarea_set_text(field, "");
+    pump(40);
+    kb_type("\xC3\xB8l. \xC3\xA6rlig. \xC3\xA5 ja");
+    check("autocap: \xC3\xB8, \xC3\xA6 and \xC3\xA5 start a sentence as capitals",
+          text_is(field, "\xC3\x98l. \xC3\x86rlig. \xC3\x85 ja"));
+
+    /* The reader's own Shift wins: one tap turns the offer off, and it
+     * stays off - the timer does not offer it again - until the text or
+     * the caret moves. */
+    lv_textarea_set_text(field, "");
+    pump(40);
+    check("autocap: emptied, the composer offers a capital", shift_offered());
+    kb_tap("SHIFT");
+    pump(400);
+    check("autocap: SHIFT turns the offer off, and it stays off", !shift_offered() &&
+                                                                  pos_keyboard_shift(kb_sheet) ==
+                                                                      POS_KB_SHIFT_OFF);
+    kb_type("iphone");
+    check("autocap: so a lower-case first letter can be typed", text_is(field, "iphone"));
+    kb_type(". ");
+    kb_tap("SHIFT");
+    kb_type("ok");
+    check("autocap: after a sentence end too", text_is(field, "iphone. ok"));
+    /* A locked Shift is the reader's: nothing offered is taken back from it. */
+    kb_type(" ");
+    kb_tap("SHIFT");
+    kb_tap("SHIFT");
+    kb_type("ab");
+    check("autocap: a locked Shift is left locked",
+          pos_keyboard_shift(kb_sheet) == POS_KB_SHIFT_LOCK && text_is(field, "iphone. ok AB"));
+    kb_tap("SHIFT");
+    check("autocap: and unlocks as ever", pos_keyboard_shift(kb_sheet) == POS_KB_SHIFT_OFF);
+
+    /* The caret decides: editing in the middle. */
+    lv_textarea_set_text(field, "Hei du. hallo");
+    lv_textarea_set_cursor_pos(field, 8);
+    pump(150);
+    check("autocap: a caret moved to a sentence start offers a capital", shift_offered());
+    kb_type("x");
+    check("autocap: typed in the middle, the capital goes in at the caret, the rest stays",
+          text_is(field, "Hei du. Xhallo") && lv_textarea_get_cursor_pos(field) == 9);
+    lv_textarea_set_cursor_pos(field, 3);
+    pump(150);
+    check("autocap: inside a sentence nothing is offered", !shift_offered());
+    kb_type("s");
+    check("autocap: and a letter there is lower case", text_is(field, "Heis du. Xhallo"));
+    /* Backspace back to a sentence start offers it again. */
+    lv_textarea_set_text(field, "Hei. D");
+    pump(40);
+    check("autocap: after a letter nothing is offered", !shift_offered());
+    kb_tap("BKSP");
+    check("autocap: Backspace back to the sentence start offers it again",
+          text_is(field, "Hei. ") && shift_offered());
+    kb_tap("BKSP");
+    check("autocap: and deleting the space takes it away", text_is(field, "Hei.") && !shift_offered());
+
+    /* Not sentence ends. */
+    lv_textarea_set_text(field, "");
+    pump(40);
+    kb_type("se vg.no og 3.5 kg... ");
+    check("autocap: a dot in an address or a number, or an ellipsis, ends nothing",
+          text_is(field, "Se vg.no og 3.5 kg... ") && !shift_offered());
+    kb_type("ok");
+    check("autocap: so the next word stays lower case", text_is(field, "Se vg.no og 3.5 kg... ok"));
+    lv_textarea_set_text(field, "");
+    pump(40);
+    kb_type("mail ola@example.no ");
+    check("autocap: nor does one in an e-mail address", text_is(field, "Mail ola@example.no ") &&
+                                                          !shift_offered());
+
+    /* An emoji, a number or a quotation mark before the first letter does
+     * not use the capital up. */
+    lv_textarea_set_text(field, "");
+    pump(40);
+    tap(emoji_button_of(field));
+    tap(rift_emoji_picker_cell(0));
+    pump(80);
+    check("autocap: an emoji first leaves the capital offered",
+          lv_textarea_get_text(field)[0] != '\0' && shift_offered());
+    kb_type(" 12 ");
+    check("autocap: and so do numbers", shift_offered());
+    kb_type("ok");
+    {
+        const char *t = lv_textarea_get_text(field);
+        size_t n = strlen(t);
+
+        check("autocap: until the first letter, which is the capital",
+              n >= 6 && strcmp(t + n - 6, " 12 Ok") == 0);
+    }
+
+    /* Nothing that arrives without the keyboard is rewritten: text put in
+     * whole (a paste, a reply's mention, a kept draft) stays as it is. */
+    lv_textarea_set_text(field, "");
+    pump(40);
+    lv_textarea_add_text(field, "hei. du er her? ja");
+    pump(150);
+    check("autocap: text put in whole is not rewritten", text_is(field, "hei. du er her? ja"));
+    lv_textarea_set_text(field, "ok. ");
+    pump(150);
+    check("autocap: nor text set, and the caret after it decides", text_is(field, "ok. ") && shift_offered());
+
+    /* A physical keyboard's keys are its own: no capital it did not type,
+     * and the offer on the touch keyboard is taken back once it is no
+     * longer the next letter's. */
+    pos_input_push_key('h');
+    pump(80);
+    check("autocap: a physical key types what it says, lower case", text_is(field, "ok. h") &&
+                                                                    !shift_offered());
+
+    /* Conversations: the decision is the open conversation's text and caret,
+     * not something carried over. The draft is not touched. */
+    lv_textarea_set_text(field, "");
+    pump(40);
+    kb_tap("SHIFT");
+    pump(150);
+    check("autocap: turned off in one conversation", !shift_offered());
+    rift_app_open_conversation(app, KEY_A);
+    pump(200);
+    field = rift_comms_field(app);
+    if (field && pos_input_focused() != field) {
+        tap(field);
+        pump(150);
+    }
+    check("autocap: another conversation's empty message offers it again",
+          field && text_is(field, "") && shift_offered());
+    kb_type("hei. d");
+    rift_app_open_conversation(app, KEY_B);
+    pump(200);
+    field = rift_comms_field(app);
+    if (field && pos_input_focused() != field) {
+        tap(field);
+        pump(150);
+    }
+    check("autocap: opening a conversation rewrites nothing in the composer",
+          field && text_is(field, "Hei. D") && !shift_offered());
+
+    /* No offer outlives its field or the keyboard. */
+    lv_textarea_set_text(field, "");
+    pump(150);
+    check("autocap: offered again on an empty message", shift_offered());
+    pos_input_focus(app->keysink);
+    pump(150);
+    check("autocap: the keys leaving the composer take the offer back", !shift_offered());
+    tap(field);
+    pump(150);
+    check("autocap: and coming back offers it again", shift_offered());
+    kb_press_done();
+    check("autocap: the keyboard put away takes it away", !kb_up && !shift_offered());
+    app_stop();
+
+    /* Landscape: the keyboard base, and no touch keyboard - nothing offered,
+     * and the letters are what the keys say. */
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(200);
+    tap(ancestor(find_exact(content(), "HYTTA"), 1));
+    pump(200);
+    field = app->composer;
+    if (field && pos_input_focused() != field) {
+        pos_input_focus(field);
+        pump(150);
+    }
+    lv_textarea_set_text(field, "");
+    pos_input_push_key('h');
+    pos_input_push_key('i');
+    pump(150);
+    check("autocap: landscape types what the keyboard base says, and offers nothing",
+          field && text_is(field, "hi") && !kb_up && !shift_offered());
+    lv_textarea_set_text(field, "");
+    app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+}
+
+/* ---- fix/rift-composer-usability: the larger picker ------------------------ */
+
+/* Every shown cell, tab and CLOSE at least 64 x 64; cells apart from each
+ * other; the panel inside the display and the app's area; the artwork drawn
+ * at least twice its size; no label cut. */
+static void picker_geometry(const char *what_shape, lv_obj_t *field)
+{
+    lv_obj_t *box = rift_emoji_picker_box();
+    lv_area_t b;
+    lv_area_t f;
+    char what[200];
+    unsigned i;
+    int small = 0;
+    int overlap = 0;
+    int art_small = 0;
+    int32_t min_cell = 10000;
+    lv_area_t prev = { 0 };
+
+    (void)field;
+    lv_obj_update_layout(box);
+    lv_obj_get_coords(box, &b);
+    lv_obj_get_coords(app->frame, &f);
+    snprintf(what, sizeof(what), "%s: the panel is inside the display and RIFT's area", what_shape);
+    check(what, b.x1 >= 0 && b.y1 >= 0 && b.x2 < lv_display_get_horizontal_resolution(NULL) &&
+                    b.y2 < lv_display_get_vertical_resolution(NULL) && b.x1 >= f.x1 && b.x2 <= f.x2 &&
+                    b.y1 >= f.y1 && b.y2 <= f.y2);
+    for (i = 0; i < RIFT_EMOJI_CELLS; i++) {
+        lv_obj_t *c = rift_emoji_picker_cell(i);
+        lv_obj_t *img;
+        lv_area_t a;
+
+        if (!c) {
+            continue;
+        }
+        lv_obj_get_coords(c, &a);
+        if (lv_area_get_width(&a) < 64 || lv_area_get_height(&a) < 64) {
+            small++;
+        }
+        if (lv_area_get_width(&a) < min_cell) {
+            min_cell = lv_area_get_width(&a);
+        }
+        if (i > 0 && a.y1 == prev.y1 && a.x1 < prev.x2 + 4 + 1) {
+            overlap++;
+        }
+        img = lv_obj_get_child(c, 0);
+        if (!img || lv_obj_get_width(img) < 36 || lv_image_get_src(img) == NULL) {
+            art_small++;
+        }
+        prev = a;
+    }
+    for (i = 0; i < RIFT_EMOJI_GROUPS; i++) {
+        lv_area_t a;
+
+        lv_obj_get_coords(rift_emoji_picker_tab(i), &a);
+        small += lv_area_get_width(&a) < 64 || lv_area_get_height(&a) < 64;
+    }
+    {
+        lv_area_t a;
+
+        lv_obj_get_coords(rift_emoji_picker_close_button(), &a);
+        small += lv_area_get_width(&a) < 64 || lv_area_get_height(&a) < 64;
+    }
+    snprintf(what, sizeof(what), "%s: every emoji, tab and CLOSE is at least 64 x 64 (smallest cell %d)",
+             what_shape, (int)min_cell);
+    check(what, small == 0);
+    snprintf(what, sizeof(what), "%s: the emoji are apart, and drawn at least 36 px", what_shape);
+    check(what, overlap == 0 && art_small == 0);
+    snprintf(what, sizeof(what), "%s: no word in the panel is cut", what_shape);
+    check(what, labels_overflowing(box) == 0 && captions_clipped(box) == 0);
+}
+
+/* Opened in a COMMS conversation of a fresh app, in the shape and the text
+ * size given. NULL when there is no composer. */
+static lv_obj_t *picker_in(int32_t w, int32_t h, enum pos_rotation r, int corner)
+{
+    lv_obj_t *field;
+
+    use_display_size(r, corner, w, h);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(200);
+    tap(ancestor(find_exact(content(), "HYTTA"), 1));
+    pump(200);
+    field = app->wide ? app->composer : rift_comms_field(app);
+    if (field) {
+        lv_textarea_set_text(field, "");
+        tap(emoji_button_of(field));
+        pump(120);
+    }
+    return field;
+}
+
+static void picker_out(void)
+{
+    rift_emoji_picker_close();
+    pump(60);
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+    app_stop();
+}
+
+/* The picker's panel at every text size in both shapes and on HDMI, in Neon
+ * and in Doors, with its captures; CLOSE, a drag that scrolls rather than
+ * picks, and the keys walking a grid that scrolls. */
+static void emoji_picker_layout_session(void)
+{
+    static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM, POS_TEXT_SIZE_LARGE };
+    static const struct {
+        const char *name;
+        int32_t w, h;
+        enum pos_rotation r;
+        int corner;
+    } shapes[] = {
+        { "portrait", PANEL_W, PANEL_H, POS_ROTATION_0, PANEL_CORNER },
+        { "landscape", PANEL_W, PANEL_H, POS_ROTATION_270, PANEL_CORNER },
+        { "hdmi", 1920, 1080, POS_ROTATION_0, 0 },
+    };
+    static const char *const themes[] = { "neon", "doors" };
+    enum pos_text_size was = pos_theme_current_text_size();
+    char why[128];
+    char what[200];
+    char name[96];
+    size_t s;
+    size_t z;
+    size_t th;
+    lv_obj_t *field;
+
+    for (th = 0; th < sizeof(themes) / sizeof(themes[0]); th++) {
+        pos_theme_select(themes[th], "normal", why, sizeof(why));
+        for (s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++) {
+            for (z = 0; z < sizeof(sizes) / sizeof(sizes[0]); z++) {
+                pos_theme_select_text_size(sizes[z]);
+                field = picker_in(shapes[s].w, shapes[s].h, shapes[s].r, shapes[s].corner);
+                snprintf(what, sizeof(what), "picker %s %s %s", themes[th], shapes[s].name,
+                         pos_text_size_name(sizes[z]));
+                check(what, field && rift_emoji_picker_is_open());
+                if (field && rift_emoji_picker_is_open()) {
+                    picker_geometry(what, field);
+                    if (sizes[z] == POS_TEXT_SIZE_LARGE || shapes[s].w == 1920) {
+                        snprintf(name, sizeof(name), "emoji-picker-%s-%s-%s", themes[th],
+                                 shapes[s].name, pos_text_size_name(sizes[z]));
+                        shot_top(name);
+                    }
+                }
+                picker_out();
+            }
+        }
+    }
+    pos_theme_select(getenv("RIFT_THEME") ? getenv("RIFT_THEME") : "neon", "normal", why, sizeof(why));
+
+    /* CLOSE: the draft and the caret as they were. */
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    field = picker_in(PANEL_W, PANEL_H, POS_ROTATION_0, PANEL_CORNER);
+    if (field) {
+        rift_emoji_picker_close();
+        pump(60);
+        lv_textarea_set_text(field, "Hei. du");
+        lv_textarea_set_cursor_pos(field, 5);
+        tap(emoji_button_of(field));
+        tap(rift_emoji_picker_close_button());
+        check("picker: CLOSE closes it, the draft and the caret as they were",
+              !rift_emoji_picker_is_open() && text_is(field, "Hei. du") &&
+                  lv_textarea_get_cursor_pos(field) == 5 && pos_input_focused() == field);
+        tap(emoji_button_of(field));
+        {
+            const char *picked = rift_emoji_picker_item(2);
+            char want[64];
+
+            tap(rift_emoji_picker_cell(2));
+            pump(80);
+            snprintf(want, sizeof(want), "Hei. %sdu", picked ? picked : "?");
+            check("picker: an emoji goes in once, at the caret, and the caret after it",
+                  picked && text_is(field, want) && lv_textarea_get_cursor_pos(field) == 6);
+        }
+    }
+    picker_out();
+
+    /* A short landscape body (1232 x 420): the rows do not all fit, so the
+     * grid scrolls. A drag scrolls it and picks nothing; the keys walk to the
+     * last emoji and it is scrolled into sight, filled. */
+    field = picker_in(1232, 420, POS_ROTATION_0, 0);
+    if (field && rift_emoji_picker_is_open()) {
+        lv_obj_t *grid = rift_emoji_picker_grid();
+        lv_obj_t *cell = rift_emoji_picker_cell(0);
+        lv_area_t a;
+        int i;
+
+        picker_geometry("picker short landscape", field);
+        lv_obj_update_layout(grid);
+        check("picker: on a short body the grid scrolls", lv_obj_get_scroll_bottom(grid) > 0);
+        shot_top("emoji-picker-neon-short-landscape");
+        lv_obj_get_coords(cell, &a);
+        finger_point.x = (a.x1 + a.x2) / 2;
+        finger_point.y = a.y2 - 4;
+        finger_state = LV_INDEV_STATE_PRESSED;
+        pump(30);
+        for (i = 0; i < 8; i++) {
+            finger_point.y -= 20;
+            pump(20);
+        }
+        finger_state = LV_INDEV_STATE_RELEASED;
+        pump(120);
+        check("picker: a drag over the emoji scrolls the grid", lv_obj_get_scroll_y(grid) > 0);
+        check("picker: and picks nothing", rift_emoji_picker_is_open() && text_is(field, ""));
+        /* A small drag where nothing scrolls sideways is no tap either. */
+        lv_obj_get_coords(rift_emoji_picker_cell(1), &a);
+        finger_point.x = (a.x1 + a.x2) / 2 - 20;
+        finger_point.y = (a.y1 + a.y2) / 2;
+        finger_state = LV_INDEV_STATE_PRESSED;
+        pump(30);
+        finger_point.x += 30;
+        pump(30);
+        finger_state = LV_INDEV_STATE_RELEASED;
+        pump(120);
+        check("picker: a finger that slid along an emoji picks nothing",
+              rift_emoji_picker_is_open() && text_is(field, ""));
+        lv_obj_scroll_to_y(grid, 0, LV_ANIM_OFF);
+        pos_input_push_key(LV_KEY_END);
+        pump(80);
+        cell = rift_emoji_picker_cell(RIFT_EMOJI_CELLS - 1);
+        check("picker: End selects the last emoji and scrolls it into sight",
+              rift_emoji_picker_selected() == RIFT_EMOJI_CELLS - 1 && within(cell, grid));
+        check("picker: drawn in the selected treatment, unlike the others",
+              !lv_color_eq(lv_obj_get_style_bg_color(cell, 0),
+                           lv_obj_get_style_bg_color(rift_emoji_picker_cell(0), 0)));
+        pos_input_push_key(LV_KEY_HOME);
+        pump(80);
+        check("picker: Home goes back to the first, in sight",
+              rift_emoji_picker_selected() == 0 && within(rift_emoji_picker_cell(0), grid));
+        shot_top("emoji-picker-neon-short-landscape-keys");
+        pos_input_push_key(LV_KEY_ENTER);
+        pump(120);
+        check("picker: Enter inserts the selected one, once",
+              !rift_emoji_picker_is_open() && rift_emoji_pick_find(lv_textarea_get_text(field)) != NULL);
+        lv_textarea_set_text(field, "");
+    }
+    picker_out();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
     pos_theme_select_text_size(was);
 }
 
@@ -6740,8 +7401,22 @@ int main(void)
     g_content = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(g_content);
     lv_obj_remove_flag(g_content, LV_OBJ_FLAG_SCROLLABLE);
+    kb_sheet = pos_keyboard_create(lv_layer_sys());
     use_display(POS_ROTATION_0, PANEL_CORNER);
 
+    /* $RIFT_APP_TEST_ONLY=composer: the composer's sessions alone - the
+     * touch keyboard, the automatic capital and the emoji picker. */
+    if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "composer") == 0) {
+        touch_keyboard_session();
+        autocap_session();
+        emoji_picker_session();
+        emoji_picker_layout_session();
+        if (shots_dir) {
+            printf("rift_app_test: %d screenshot(s) in %s\n", shots_taken, shots_dir);
+        }
+        printf("rift_app_test: %d checks, %d failure(s)\n", checks, failed);
+        return failed ? 1 : 0;
+    }
     /* $RIFT_APP_TEST_ONLY=route: the route builder's session alone, for a
      * focused run; tests/rift_shell_test.sh runs everything. */
     if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "route") == 0) {
@@ -8122,8 +8797,12 @@ int main(void)
     public_mute_session();
     text_size_session();
     touch_keyboard_session();
-    /* feat/rift-emoji-picker: the composer's emoji button and picker. */
+    /* fix/rift-composer-usability: the automatic capital. */
+    autocap_session();
+    /* feat/rift-emoji-picker: the composer's emoji button and picker, and
+     * fix/rift-composer-usability's larger panel. */
     emoji_picker_session();
+    emoji_picker_layout_session();
     /* feat/rift-background-lifecycle: RIFT kept behind other screens, its
      * mark, CLOSE RIFT, and the navigation row's targets (DS §51). */
     background_session();

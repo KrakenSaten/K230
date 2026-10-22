@@ -1204,7 +1204,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
              $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
              $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
-             $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
+             $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o $(RIFT_DIR)/rift_autocap.o \
              $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o $(RIFT_DIR)/rift_ipc_resend.o \
              $(RIFT_DIR)/rift_ipc_repeater.o $(RIFT_DIR)/rift_repeater.o \
              $(RIFT_DIR)/rift_route.o $(RIFT_DIR)/rift_ipc_path.o \
@@ -1228,7 +1228,7 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
               tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/rift_tiles_test \
-              tests/rift_route_test tests/fake-meshcored
+              tests/rift_route_test tests/rift_autocap_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1251,6 +1251,10 @@ tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
 # The explicit route: the builder's draft, the staged route, the service's
 # capabilities and which preview answer may change what (rift_route.h).
 tests/rift_route_test: tests/rift_route_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The automatic capital: where a sentence starts (rift_autocap.h).
+tests/rift_autocap_test: tests/rift_autocap_test.o $(RIFT_DIR)/rift_autocap.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # RX LOG's ring, its mesh.rx reader and its words (rift_rxlog.h).
@@ -2423,6 +2427,7 @@ test: all $(TEST_BINS)
 	./tests/rift_format_test
 	./tests/rift_model_test
 	./tests/rift_route_test
+	./tests/rift_autocap_test
 	./tests/rift_comms_test
 	./tests/rift_reliability_test
 	./tests/rift_rxlog_test

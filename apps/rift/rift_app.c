@@ -574,6 +574,7 @@ static void pump(lv_timer_t *t)
     if (a->focus_composer_pending) {
         rift_focus_composer(a);
     }
+    rift_focus_autocap(a);
     rift_emoji_picker_check(a);
     /* MAP's basemap: its helper runs only while MAP is shown with BASEMAP
      * on, and is stopped here as soon as it is not. */
