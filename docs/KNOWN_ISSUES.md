@@ -29,8 +29,9 @@ history when resolved.
 - **DeskBuddy does not use R0** (v0.3.6, v0.3.7): its provider opens the
   helper's default model, `yolov8n.kmodel`, which no image ships, so without
   face models it reports NO VISION YET as on 0.3.5 (docs/apps/DESKBUDDY.md).
-  Fixed on `feat/deskbuddy-camera-presence` (not yet in a release, not yet
-  run on a unit): the provider names R0, and BUDDY can use it for presence.
+  Fixed on `feat/deskbuddy-camera-presence` (not yet in a release): the
+  provider names R0, and BUDDY can use it for presence. Run on unit B with a
+  temporary shell on 2026-10-22 (real camera, R0 person detection).
 - **Stopping a camera stream can freeze the whole unit** until it is
   power-cycled (the camera lock-up under "Hardware and BSP" and "Vision"
   below; summary in docs/releases/v0.3.6.md). No number of open/close

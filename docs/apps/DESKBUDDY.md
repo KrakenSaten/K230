@@ -354,9 +354,12 @@ brain's existing rules (`companion_vision()`), nothing new:
   a row, so a flicker is no arrival.
 - **Nobody sits there alone with it**: while somebody is in view it does
   not get drowsy or fall asleep; the quiet starts when they leave.
-- **They leave**: "nobody" after 1.5 s without anybody; a waking face goes
-  back to `IDLE`, and after the usual quiet (1 min drowsy, 2 min asleep) it
-  settles.
+- **They leave**: the judge says "nobody" after 1.5 s without anybody. That
+  is the presence filter, not a face change: a face still in `WAKE` or
+  `RECOGNIZING` goes back to `IDLE` then, but a face already in `IDLE`
+  (the usual case, `WAKE` + `RECOGNIZING` last 4.8 s) shows nothing new.
+  What the departure starts is the quiet: `DROWSY` 60 s after "nobody"
+  (`DB_DROWSY_MS`), asleep 2 min after that, unless touched.
 - **Touch** plays as before alongside: poke, pet, feed and REST / WAKE are
   stimuli, the camera does not change them; a vision state (a greeting,
   `WAKE`) is not interrupted by one, as before.
@@ -459,4 +462,71 @@ which no image ships since 0.3.5, and a card without face models reported
 NO VISION YET in GUARD and NIGHT. **Fixed on
 `feat/deskbuddy-camera-presence`:** the provider names the detector Vision
 would open (R0 on every image from 0.3.6), as described under "Camera
-presence" above. Not yet run on a unit.
+presence" above. Run on unit B on 2026-10-22, below.
+
+**Unit B, 2026-10-22: Camera presence with the real camera** (temporary
+test shell; nothing installed, restored afterwards).
+
+*Setup (device evidence).* `pocketos-shell` built from `1d2df9b`
+(`Doors 0.3.7 build 1d2df9bb`, SHA-256 `99cfb7c2…ea910`) with the pinned
+toolchain (BSP `bb831ab`, SDK `22d02c6`, Xuantie GCC 14.1.1) against the
+sysroot that built the unit's installed shell (its `liblvgl` `4f761c44…`).
+The unit: Doors 0.3.6 image (`9ad64a1`) with the owner-installed Neon shell
+and QR `liblvgl.so.9.5.0` `2c4fd81b…`; `pos-vision` `b741bffc…` (0.3.6);
+`det-r0-traffic6-yolox-tiny-416.kmodel`; no face models. All the shell's
+undefined symbols resolve against the unit's own libraries. The test shell
+ran on the installed `liblvgl`, with the installed shell stopped through its
+init script; settings, DeskBuddy's `prefs.v1`, Vision's `settings.v1` and the
+absence of `guard.v1` were backed up by hash and restored byte-identical.
+
+*What ran (device evidence).* DeskBuddy in BUDDY, Camera presence on (the
+unit's `prefs.v1` predates the switch and loaded it as on). DeskBuddy
+started `pos-vision session --backend v4l2 --model
+/usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel`, which held
+`/dev/video2`. With no face model on the unit this is DETECT: R0 person
+detection, **not** face recognition; no identity was claimed. The helper's
+reports to the shell (`det` lines, traced read-only on its socket) carried
+COCO class 0 (`person`) tracks at 0.65-0.93. The panel was read with
+`kmsgrab` about every 2 s. No `CAMERA UNAVAILABLE` note at any time: the
+camera was available, and the app did not claim otherwise.
+
+*Timeline (device evidence, UTC; helper reports to 0.1 s, panel to ~2 s).*
+
+| Time | Helper reports | Panel |
+| --- | --- | --- |
+| 07:09:57-07:11:13 | one person (the owner at the desk) | idle with glances; never drowsy although untouched for over 60 s: somebody present holds the quiet off |
+| 07:11:13.85 | 0 people | |
+| 07:11:27.44 | a person; confirmed track 11 at 07:11:27.5 | 07:11:28 `WAKE` (eyes wide); 07:11:30-07:11:31 `RECOGNIZING` ("..."); 07:11:33 `IDLE` - the brain's 0.8 s + 4 s |
+| 07:11:44.58 | last person report, then 0 people | `IDLE`, no change (as designed, above) |
+| 07:12:46 | 0 people | first `DROWSY` frame (heavy lids); last report + 1.5 s filter + 60 s = 07:12:46.1 |
+| 07:13:08.92 | a person (the owner coming back to reply) | 07:13:09 `WAKE`, 07:13:11-07:13:13 "..." |
+
+Both directions reached the brain through the filter: the arrival woke a
+face left alone (an arrival only counts after "nobody", so the first
+departure at 07:11:13 was registered too), and the departure started the
+quiet at the filtered moment, within the capture interval.
+
+*Closing (device evidence).* `shell.home` at 07:14:13; the helper was gone
+at the first check (07:14:14). Camera then opened normally: `pos-camera
+session --backend v4l2` held `/dev/video2` and showed the live picture;
+after leaving Camera no camera helper remained. `/var/lib/pocketos/camera`
+unchanged. meshcored untouched (same process throughout); no radio use.
+
+*Owner observations.* The owner left the view, came back for about 15 s,
+then left and stayed out about 90 s without touching the unit, as asked.
+The owner reported the actions; the reactions above are read from the
+panel captures and the helper reports, not from the owner's view of the
+panel.
+
+*Host simulation (earlier, not repeated).* The judge, provider and app tests
+on the fake camera and fake detector listed under "Tests" above.
+
+*Not tested on the unit:* GUARD and NIGHT with the real camera, `CAMERA
+UNAVAILABLE` with the camera actually missing (host only), a turn while
+running, more than one person. The "..." after an arrival with only the
+detector is confirmed on the unit: 4 s, as the brain says.
+
+Captures: `deskbuddy/unitb-presence-wake.png`,
+`deskbuddy/unitb-presence-recognizing.png` and
+`deskbuddy/unitb-presence-drowsy.png` (the panel through `kmsgrab` at
+07:11:28, 07:11:30 and 07:12:46). No camera picture is kept.

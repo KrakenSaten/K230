@@ -66,6 +66,20 @@ the unavailable note. None was taken on a K230, and none shows a real camera.
 | `presence-portrait-large-buddy-unavailable.png` | BUDDY with Camera presence on and nothing to see with: CAMERA UNAVAILABLE |
 | `presence-landscape-large-buddy-unavailable.png` | the same in landscape |
 
+### Unit B, real camera (2026-10-22)
+
+The K230 panel itself, read with `ffmpeg -f kmsgrab` while a temporary test
+shell built from `1d2df9b` ran DeskBuddy in BUDDY on the real camera and the
+R0 detector (docs/apps/DESKBUDDY.md, "Unit B, 2026-10-22"). Landscape,
+Large text, Neon. The full shell screen, header included. No camera picture
+is kept.
+
+| File | Shows |
+| --- | --- |
+| `unitb-presence-wake.png` | 07:11:28, 0.6 s after the owner walked into view: `WAKE` |
+| `unitb-presence-recognizing.png` | 07:11:30: `RECOGNIZING` ("..."), with only a detector to see with |
+| `unitb-presence-drowsy.png` | 07:12:46, 61.5 s after the last person report: `DROWSY`, the quiet started by the filtered departure |
+
 ## Manual check (the same for every candidate)
 
 Portrait, Companion (BUDDY), a unit or the SDL simulator, no camera needed
