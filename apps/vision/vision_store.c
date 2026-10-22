@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -87,4 +88,39 @@ int vision_store_save(const struct vision_settings *s)
         return -1;
     }
     return 0;
+}
+
+#define VISION_DET_DIR "/usr/share/doors/vision/"
+
+static const char *const det_files[VISION_DETECTORS] = {
+    VISION_DET_DIR "det-r0-traffic6-yolox-tiny-416.kmodel",
+    VISION_DET_DIR "det-upstream-yolox-tiny-416.kmodel",
+};
+static const char *const det_envs[VISION_DETECTORS] = {
+    "POCKETOS_VISION_MODEL_R0",
+    "POCKETOS_VISION_MODEL_UPSTREAM",
+};
+
+const char *vision_store_detector_path(enum vision_detector d)
+{
+    const char *env;
+
+    if ((int)d < 0 || d >= VISION_DETECTORS) {
+        d = VISION_DET_R0;
+    }
+    env = getenv(det_envs[d]);
+    return env && *env ? env : det_files[d];
+}
+
+uint32_t vision_store_detector_files(void)
+{
+    uint32_t bits = 0;
+    int d;
+
+    for (d = 0; d < VISION_DETECTORS; d++) {
+        if (access(vision_store_detector_path((enum vision_detector)d), R_OK) == 0) {
+            bits |= 1u << d;
+        }
+    }
+    return bits;
 }

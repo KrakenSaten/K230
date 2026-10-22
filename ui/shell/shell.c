@@ -1276,6 +1276,9 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
     pos_keyboard_set_return(sh.keyboard, ret == POCKETOS_KB_NEWLINE ? POS_KB_RETURN_NEWLINE
                                                                     : POS_KB_RETURN_DONE);
     content_box(POS_KB_H);
+    /* Shown again, for whichever field: an offer was for the field it was
+     * made for (pocketos_shell_keyboard_offer_shift). */
+    (void)pos_keyboard_offer_shift(sh.keyboard, false);
     pos_keyboard_show(sh.keyboard);
 }
 
@@ -1284,6 +1287,7 @@ void pocketos_shell_keyboard_hide(void)
     if (!sh.keyboard) {
         return;
     }
+    (void)pos_keyboard_offer_shift(sh.keyboard, false);
     pos_keyboard_hide(sh.keyboard);
     content_box(0);
     sh.kb_done_cb = NULL;
@@ -1293,6 +1297,16 @@ void pocketos_shell_keyboard_hide(void)
 int pocketos_shell_keyboard_visible(void)
 {
     return sh.keyboard && pos_keyboard_is_shown(sh.keyboard);
+}
+
+int pocketos_shell_keyboard_offer_shift(int on)
+{
+    /* Only to a keyboard that is up: an offer on a hidden sheet would wait
+     * there for whichever field shows it next. */
+    if (!pocketos_shell_keyboard_visible()) {
+        return 0;
+    }
+    return pos_keyboard_offer_shift(sh.keyboard, on != 0) ? 1 : 0;
 }
 
 /* ---- status chrome (DS §30, §36, chrome.h) ------------------------------ *

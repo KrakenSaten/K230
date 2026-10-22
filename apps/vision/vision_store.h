@@ -30,4 +30,14 @@ const char *vision_store_dir(void);
 int vision_store_load(struct vision_settings *s);
 int vision_store_save(const struct vision_settings *s);
 
+/* The detector files Vision knows by name (docs/apps/VISION.md, "The
+ * model"), in /usr/share/doors/vision/: R0, which the image carries from
+ * 0.3.6, and UPSTREAM, which only a bench unit is given by hand. Each is
+ * overridable for the simulator ($POCKETOS_VISION_MODEL_R0,
+ * $POCKETOS_VISION_MODEL_UPSTREAM). Not "yolo*": the image's refusal of the
+ * SDK's Ultralytics models goes by that name. */
+const char *vision_store_detector_path(enum vision_detector d);
+/* The detector files on the unit now: a bit per enum vision_detector. */
+uint32_t vision_store_detector_files(void);
+
 #endif

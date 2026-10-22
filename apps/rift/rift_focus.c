@@ -13,7 +13,9 @@
  */
 #include "rift_app.h"
 
+#include "app.h"
 #include "pos_input.h"
+#include "rift_autocap.h"
 #include "rift_comms.h"
 #include "rift_msgact.h"
 
@@ -173,6 +175,79 @@ void rift_focus_composer(struct rift_app *a)
     }
 }
 
+/* ---- the automatic capital ------------------------------------------------ *
+ *
+ * Only the touch keyboard is offered one, through its own one-shot Shift:
+ * the reader sees SHIFT engaged and the capitals on the keys, and a tap on
+ * SHIFT turns it off for a lower-case letter, as with any one-shot Shift.
+ * A physical keyboard (landscape, the keyboard base) is not: its Shift and
+ * Caps are the reader's, under their fingers, and a capital they did not
+ * ask for would leave them no way to type a lower-case one. Nothing typed is
+ * ever changed - not a letter, not a pasted or restored text. */
+
+/* FNV-1a over what the decision is made from. Never 0, which means "not
+ * decided". */
+static uint32_t autocap_key(const lv_obj_t *field, const char *peer, uint32_t caret, const char *text)
+{
+    uint32_t h = 2166136261u;
+    uintptr_t f = (uintptr_t)field;
+    size_t i;
+
+    for (i = 0; i < sizeof(f); i++) {
+        h = (h ^ (uint8_t)(f >> (8 * i))) * 16777619u;
+    }
+    for (i = 0; i < 4; i++) {
+        h = (h ^ (uint8_t)(caret >> (8 * i))) * 16777619u;
+    }
+    for (; peer && *peer; peer++) {
+        h = (h ^ (uint8_t)*peer) * 16777619u;
+    }
+    h = (h ^ 0xFFu) * 16777619u; /* between the two strings */
+    for (; text && *text; text++) {
+        h = (h ^ (uint8_t)*text) * 16777619u;
+    }
+    return h ? h : 1u;
+}
+
+void rift_focus_autocap(struct rift_app *a)
+{
+    lv_obj_t *field;
+    const char *text;
+    uint32_t caret;
+    uint32_t key;
+
+    if (!a || !a->frame) {
+        return;
+    }
+    field = pos_input_focused();
+    if (!field || (field != a->composer && field != rift_comms_field(a)) ||
+        !pocketos_shell_keyboard_visible() || lv_obj_has_state(field, LV_STATE_DISABLED)) {
+        if (a->autocap_offered) {
+            (void)pocketos_shell_keyboard_offer_shift(0);
+            a->autocap_offered = 0;
+        }
+        a->autocap_seen = 0;
+        return;
+    }
+    text = lv_textarea_get_text(field);
+    caret = lv_textarea_get_cursor_pos(field);
+    key = autocap_key(field, rift_comms_open_peer(a), caret, text);
+    if (key == a->autocap_seen) {
+        return;
+    }
+    a->autocap_seen = key;
+    a->autocap_offered = pocketos_shell_keyboard_offer_shift(rift_autocap_wanted(text, caret));
+}
+
+/* After the text area's own handling: the text and the caret are already
+ * the new ones (a tap has placed the caret on PRESSED, an arrow on its KEY,
+ * a character before VALUE_CHANGED). The next key may follow before the
+ * timer, so it is decided at once. */
+static void on_composer_edit(lv_event_t *e)
+{
+    rift_focus_autocap(lv_event_get_user_data(e));
+}
+
 void rift_focus_attach(struct rift_app *a)
 {
     lv_obj_t *field[2];
@@ -188,8 +263,12 @@ void rift_focus_attach(struct rift_app *a)
             lv_obj_add_event_cb(field[i], on_composer_key, LV_EVENT_KEY, a);
             lv_obj_add_event_cb(field[i], on_composer_focus, LV_EVENT_FOCUSED, a);
             lv_obj_add_event_cb(field[i], on_composer_focus, LV_EVENT_DEFOCUSED, a);
+            lv_obj_add_event_cb(field[i], on_composer_edit, LV_EVENT_VALUE_CHANGED, a);
+            lv_obj_add_event_cb(field[i], on_composer_edit, LV_EVENT_PRESSED, a);
+            lv_obj_add_event_cb(field[i], on_composer_edit, LV_EVENT_KEY, a);
         }
     }
+    a->autocap_seen = 0;
     /* A screen built over a session that already has a conversation open in
      * COMMS (DS §51) is that conversation opened again. */
     a->composer_focused = 0;

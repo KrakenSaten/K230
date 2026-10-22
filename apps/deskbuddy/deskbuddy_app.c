@@ -7,9 +7,10 @@
  * This file is the screen and nothing else. What DeskBuddy does is the
  * brain's (db_brain.c), what the eyes look like is db_face.c's, what vision
  * says arrives through a provider (db_vision.h), and the files are
- * db_store.c's. There is no vision in v0.1: without $DESKBUDDY_SIM the
- * provider is db_vision_none_ops and DeskBuddy runs blind - Night mode and
- * the idle face work exactly the same.
+ * db_store.c's. Without $DESKBUDDY_SIM the provider is the Vision pipeline
+ * (choose_provider), run where sync_provider() says; with
+ * $DESKBUDDY_VISION=none it is db_vision_none_ops and DeskBuddy runs blind -
+ * Night mode and the idle face work exactly the same.
  *
  * TIME. One lv_timer, owned here and deleted in destroy(). Its period is not
  * fixed: after every run it is set to when the brain or the provider next
@@ -42,9 +43,12 @@
  * landscape puts them side by side. The size handler only sets a flag and
  * the timer lays out, outside LVGL's layout pass.
  *
- * LIFETIME. destroy() stops the provider, saves what changed, deletes the
- * timer and then this app's root - so no callback can arrive after the app
- * is freed, whatever the shell deletes later.
+ * SOUND. An armed guard with Visit sound on asks db_sound for one chime per
+ * new visit the brain logs (sound_step); it never waits for audio.
+ *
+ * LIFETIME. destroy() stops the provider and any chime, saves what changed,
+ * deletes the timer and then this app's root - so no callback can arrive
+ * after the app is freed, whatever the shell deletes later.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -56,11 +60,13 @@
 #include "db_gesture.h"
 #include "db_guard.h"
 #include "db_prefs.h"
+#include "db_sound.h"
 #include "db_store.h"
 #include "db_vision.h"
 #include "db_vision_mock.h"
 
 #include "app.h"
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 
 #include <stdint.h>
@@ -101,6 +107,9 @@ struct deskbuddy_look {
     int off_x;
     int off_y;
 };
+
+/* What stands between an armed guard's visit sound and the owner's ear. */
+enum sound_note { SOUND_OK = 0, SOUND_MUTED, SOUND_NONE };
 
 struct deskbuddy_app {
     struct db_brain brain;
@@ -156,7 +165,14 @@ struct deskbuddy_app {
     enum db_seen shown_seen;
     unsigned shown_log_rev;
     unsigned shown_prefs_rev;
+    bool shown_looking;          /* provider_on, and vision_pending, when the note was made */
+    bool shown_pending;
+    enum sound_note shown_sound;
     bool shown_valid;
+    /* The visit sound: why it cannot be heard now, if it cannot, and the
+     * sounds started this open (tests/deskbuddy_app_test.c). */
+    enum sound_note sound;
+    unsigned sound_starts;
     lv_timer_t *timer;
     lv_obj_t *root;
     lv_obj_t *face;
@@ -200,6 +216,18 @@ static int64_t app_now(struct deskbuddy_app *a)
 static int64_t wall_now(void)
 {
     return pocketos_shell_system_day() < 0 ? 0 : (int64_t)time(NULL);
+}
+
+/* How the unit is held (app.h hold_rotation): the camera is fixed to the
+ * unit, so its picture is turned upright by the hold - the display's
+ * rotation on the panel, the mode's and keyboard's on an external display -
+ * as Camera and Vision turn theirs. */
+static int hold_rotation(void)
+{
+    struct pocketos_orientation o;
+
+    pocketos_shell_orientation(&o);
+    return o.hold_rotation;
 }
 
 static void hhmm(int64_t wall, char *out, size_t len)
@@ -533,10 +561,25 @@ static const char *note_for(const struct deskbuddy_app *a)
     if (a->sim) {
         return "SIMULATED VISION";
     }
-    /* Companion plays by touch and leaves the camera off, so not seeing is
-     * no news there; Night never said it. */
+    /* Night never said it. */
     if (b->seen == DB_SEEN_UNAVAILABLE && mode == DB_MODE_GUARD) {
         return "NO VISION YET";
+    }
+    /* The owner asked for a sound and would not get one: said while armed,
+     * so nobody leaves the desk counting on a chime that cannot come. */
+    if (a->sound == SOUND_MUTED) {
+        return "VISIT SOUND MUTED";
+    }
+    if (a->sound == SOUND_NONE) {
+        return "NO SOUND ON THIS UNIT";
+    }
+    /* Companion with Camera presence asked the camera, and the camera could
+     * not answer (no camera, no model, no helper): said, so nobody takes the
+     * calm face for an empty desk. Without it, Companion plays by touch and
+     * not seeing is no news. */
+    if (mode == DB_MODE_COMPANION && a->camera && a->provider_on && b->seen == DB_SEEN_UNAVAILABLE &&
+        !b->vision_pending) {
+        return "CAMERA UNAVAILABLE";
     }
     return "";
 }
@@ -610,7 +653,8 @@ static void refresh_ui(struct deskbuddy_app *a, bool force)
     enum db_mode mode = db_state_mode(b->state);
 
     if (!force && a->shown_valid && a->shown_state == b->state && a->shown_seen == b->seen &&
-        a->shown_log_rev == b->log_rev && a->shown_prefs_rev == b->prefs_rev) {
+        a->shown_log_rev == b->log_rev && a->shown_prefs_rev == b->prefs_rev && a->shown_looking == a->provider_on &&
+        a->shown_pending == b->vision_pending && a->shown_sound == a->sound) {
         return;
     }
     set_text(a->caption, caption_for(a));
@@ -625,6 +669,9 @@ static void refresh_ui(struct deskbuddy_app *a, bool force)
     a->shown_seen = b->seen;
     a->shown_log_rev = b->log_rev;
     a->shown_prefs_rev = b->prefs_rev;
+    a->shown_looking = a->provider_on;
+    a->shown_pending = b->vision_pending;
+    a->shown_sound = a->sound;
     a->shown_valid = true;
 }
 
@@ -996,6 +1043,34 @@ static void pump_vision(struct deskbuddy_app *a, int64_t now)
 
 static void sync_provider(struct deskbuddy_app *a, int64_t now);
 
+/* The visit sound (db_sound.h): once for each new visit an armed guard
+ * logs, at the system volume, started and left to play - nothing here waits
+ * for audio, and a sound that will not start costs a log line, not the
+ * guard. What would keep it from being heard is kept for the note. */
+static void sound_step(struct deskbuddy_app *a)
+{
+    const struct db_brain *b = &a->brain;
+    bool wanted = db_state_armed(b->state) && b->prefs.on[DB_PREF_GUARD_SOUND];
+    int volume = wanted ? pocketos_shell_volume_effective() : 0;
+
+    if (!wanted) {
+        a->sound = SOUND_OK;
+    } else if (!db_sound_available()) {
+        a->sound = SOUND_NONE;
+    } else {
+        a->sound = volume > 0 ? SOUND_OK : SOUND_MUTED;
+    }
+    /* Taken every step, heard or not: what was new now is old next time. */
+    if (!db_brain_take_visit_alert(&a->brain) || a->sound != SOUND_OK) {
+        return;
+    }
+    if (db_sound_play(volume) == 0) {
+        a->sound_starts++;
+    } else {
+        LOG_WARN("deskbuddy: the visit sound did not start (%s)", db_sound_backend_name());
+    }
+}
+
 static void step(struct deskbuddy_app *a)
 {
     int64_t now = app_now(a);
@@ -1009,6 +1084,7 @@ static void step(struct deskbuddy_app *a)
     sync_provider(a, now);
     pump_vision(a, now);
     db_brain_tick(&a->brain, now);
+    sound_step(a);
     snack_step(a, now);
     apply_face(a, false);
     refresh_ui(a, false);
@@ -1336,6 +1412,12 @@ static void build_settings(struct deskbuddy_app *a)
         a->toggle[k] = button(row, "ON", on_toggle, a);
         lv_obj_set_width(a->toggle[k], 112);
     }
+    /* What a guard can and cannot tell, in the owner's words: the camera
+     * finds people, and only Vision's face models with an enrolled owner
+     * can say who. */
+    lv_label_set_text(centred_label(list, POS_STYLE_CAPTION),
+                      "Guard notices people, not who they are. Without Vision's face models and an "
+                      "enrolled owner, every visit is SOMEONE - you too.");
     a->done = button(a->panel, "DONE", on_done, a);
     lv_obj_set_width(a->done, LV_PCT(100));
     style_button(a->done, true);
@@ -1429,7 +1511,7 @@ static void choose_provider(struct deskbuddy_app *a)
     a->provider.ctx = NULL;
     a->camera = false;
     if (!(sim && *sim) && !(vision && strcmp(vision, "none") == 0)) {
-        a->pipeline_cfg.display_rotation = pos_rotation_degrees(pocketui_display_geometry()->rotation);
+        a->pipeline_cfg.display_rotation = hold_rotation();
         a->provider.ops = &db_vision_pipeline_ops;
         a->provider.ctx = &a->pipeline_cfg;
         a->camera = true;
@@ -1443,18 +1525,35 @@ static void choose_provider(struct deskbuddy_app *a)
     }
 }
 
-/* The camera runs only where a mode is built on it: Guard and Night. In
- * Companion - which plays by touch - the Vision helper is never started,
- * and entering Companion stops a helper Guard or Night started, telling
- * the brain it cannot see. A provider that opens no camera (none, the
- * script) runs in every mode, as it always did. Called from create and
- * from every timer step, so a mode change by button, key or setting is
- * followed within one step. */
+/* Whether the camera is to run: always in Guard and Night, which are built
+ * on it; in Companion only with Camera presence on (and Companion awake to
+ * react - resting, it would see and do nothing). */
+static bool camera_wanted(const struct deskbuddy_app *a)
+{
+    const struct db_prefs *p = &a->brain.prefs;
+
+    if (db_state_mode(a->brain.state) != DB_MODE_COMPANION) {
+        return true;
+    }
+    return p->on[DB_PREF_CAMERA_PRESENCE] && p->on[DB_PREF_COMPANION];
+}
+
+/* The camera runs where camera_wanted() says. Without Camera presence,
+ * Companion plays by touch and the Vision helper is not started, and
+ * entering it stops a helper Guard or Night started, telling the brain it
+ * cannot see; the same when the switch is turned off in Companion. A
+ * provider that opens no camera (none, the script) runs in every mode, as
+ * it always did. Called from create and from every timer step, so a mode
+ * change by button, key or setting is followed within one step - and so is
+ * the hold, which the provider passes on to the helper. */
 static void sync_provider(struct deskbuddy_app *a, int64_t now)
 {
-    bool want = !a->camera || db_state_mode(a->brain.state) != DB_MODE_COMPANION;
+    bool want = !a->camera || camera_wanted(a);
     struct db_vision_event blind = { .kind = DB_VISION_UNAVAILABLE, .confidence_pm = DB_CONF_NONE };
 
+    if (a->camera) {
+        a->pipeline_cfg.display_rotation = hold_rotation();
+    }
     if (want == a->provider_on || !a->provider.ops) {
         return;
     }
@@ -1563,6 +1662,8 @@ static void deskbuddy_destroy(void *priv)
         a->provider.ops->stop(a->provider.ctx);
         a->provider_on = false;
     }
+    /* A chime still sounding stops with the app: nothing is left playing. */
+    db_sound_stop();
     save_changes(a);
     if (a->timer) {
         lv_timer_delete(a->timer);
@@ -1704,6 +1805,11 @@ unsigned deskbuddy_app_provider_starts(void *priv)
     return priv ? ((struct deskbuddy_app *)priv)->provider_starts : 0;
 }
 
+unsigned deskbuddy_app_sound_starts(void *priv)
+{
+    return priv ? ((struct deskbuddy_app *)priv)->sound_starts : 0;
+}
+
 bool deskbuddy_app_provider_running(void *priv)
 {
     return priv && ((struct deskbuddy_app *)priv)->provider_on;
@@ -1712,6 +1818,11 @@ bool deskbuddy_app_provider_running(void *priv)
 lv_obj_t *deskbuddy_app_note(void *priv)
 {
     return priv ? ((struct deskbuddy_app *)priv)->note : NULL;
+}
+
+int deskbuddy_app_camera_hold(void *priv)
+{
+    return priv ? ((struct deskbuddy_app *)priv)->pipeline_cfg.display_rotation : -1;
 }
 
 /* The first-party launcher mask (docs/design/doors-app-icons); .icon stays

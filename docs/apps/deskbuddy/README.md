@@ -48,14 +48,49 @@ and is eaten.
 | `still-landscape-snack.png` | landscape, watching the snack |
 | `still-landscape-eat.png` | landscape, after eating |
 
+## Camera presence captures (`feat/deskbuddy-camera-presence`)
+
+Host captures of the real DeskBuddy code and LVGL in the app test's harness
+(`tests/deskbuddy_app_test.c`: its display, pointer, shell stubs and
+`lv_snapshot` frame writer), from the code of commit `6ec610a`; the app's
+body only, no shell header. The driver that opened the screens was a
+throwaway file that `#include`s the test and is not in the repository. No
+camera, no helper (`POCKETOS_VISION_HELPER` pointed nowhere), so BUDDY shows
+the unavailable note. None was taken on a K230, and none shows a real camera.
+
+| File | Shows |
+| --- | --- |
+| `presence-portrait-small-settings.png` | SET panel, Small text: "Camera presence · Buddy" under Companion mode, ON by default |
+| `presence-portrait-large-settings.png` | the same, Large text: the label fits on one line |
+| `presence-landscape-large-settings.png` | landscape, Large text: the list scrolls above DONE, as it did with six switches |
+| `presence-portrait-large-buddy-unavailable.png` | BUDDY with Camera presence on and nothing to see with: CAMERA UNAVAILABLE |
+| `presence-landscape-large-buddy-unavailable.png` | the same in landscape |
+
+### Unit B, real camera (2026-10-22)
+
+The K230 panel itself, read with `ffmpeg -f kmsgrab` while a temporary test
+shell built from `1d2df9b` ran DeskBuddy in BUDDY on the real camera and the
+R0 detector (docs/apps/DESKBUDDY.md, "Unit B, 2026-10-22"). Landscape,
+Large text, Neon. The full shell screen, header included. No camera picture
+is kept.
+
+| File | Shows |
+| --- | --- |
+| `unitb-presence-wake.png` | 07:11:28, 0.6 s after the owner walked into view: `WAKE` |
+| `unitb-presence-recognizing.png` | 07:11:30: `RECOGNIZING` ("..."), with only a detector to see with |
+| `unitb-presence-drowsy.png` | 07:12:46, 61.5 s after the last person report: `DROWSY`, the quiet started by the filtered departure |
+| `unitb-guard-watching.png` | GUARD armed, 07:44:13, after the owner left: "WATCHING THE DESK", one visit logged |
+| `unitb-guard-visitor-noted.png` | GUARD, 07:44:44, after the owner came back: "VISITOR NOTED", two `SOMEONE` visits (detector only: never "UNKNOWN") |
+
 ## Manual check (the same for every candidate)
 
 Portrait, Companion (BUDDY), a unit or the SDL simulator, no camera needed
 (`DESKBUDDY_VISION=none` on the simulator). Times are approximate.
 
 1. Open DeskBuddy. Watch 10 s: blinks, a glance now and then, a slow breath.
-   Besides the eyes: FEED / REST, the mode row and, on a unit without the
-   vision models, the existing NO VISION YET note.
+   Besides the eyes: FEED / REST, the mode row and, with Camera presence on
+   and no camera, helper or model to see with, the CAMERA UNAVAILABLE note
+   (nothing with `DESKBUDDY_VISION=none`, or with Camera presence off).
 2. Tap once just right of the right eye. It reacts toward that side and is
    calm again within about 2 s. Repeat a few times: the reaction varies.
 3. Tap the face four times within 2 s. A short annoyed look (glare, a

@@ -8,7 +8,13 @@
  * either - one struct, one parser, one formatter (db_store.c does the file).
  *
  *   companion=0|1          Companion mode is offered and reacts to people
- *   guard=0|1              Desk Guard mode is offered and can be armed
+ *   camera_presence=0|1    Companion (BUDDY) runs the camera to notice people;
+ *                          off: it plays by touch alone. Guard and Night run
+ *                          the camera either way. Absent (a file from before
+ *                          it): on.
+ *   guard=0|1             Desk Guard mode is offered and can be armed
+ *   guard_sound=0|1        an armed guard plays one short sound for each new
+ *                          visit it logs. Absent (and by default): off.
  *   night=0|1              Night mode is offered
  *   owner_recognition=0|1  identity events are used; off: everyone is "a person"
  *   greeting=0|1           the owner is greeted when recognised
@@ -40,7 +46,9 @@ enum db_mode {
 
 enum db_pref {
     DB_PREF_COMPANION = 0,
+    DB_PREF_CAMERA_PRESENCE,
     DB_PREF_GUARD,
+    DB_PREF_GUARD_SOUND,
     DB_PREF_NIGHT,
     DB_PREF_RECOGNITION,
     DB_PREF_GREETING,

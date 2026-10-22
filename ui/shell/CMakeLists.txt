@@ -236,6 +236,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_section.c
     ${REPO_DIR}/apps/rift/rift_focus.c
+    ${REPO_DIR}/apps/rift/rift_autocap.c
     ${REPO_DIR}/apps/rift/rift_background.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -323,6 +324,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/deskbuddy/db_gesture.c
     ${REPO_DIR}/apps/deskbuddy/db_guard.c
     ${REPO_DIR}/apps/deskbuddy/db_prefs.c
+    ${REPO_DIR}/apps/deskbuddy/db_sound.c
+    ${REPO_DIR}/apps/deskbuddy/db_sound_helper.c
     ${REPO_DIR}/apps/deskbuddy/db_store.c
     ${REPO_DIR}/apps/deskbuddy/db_vision.c
     ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
@@ -1416,6 +1419,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_app.c
         ${REPO_DIR}/apps/rift/rift_section.c
         ${REPO_DIR}/apps/rift/rift_focus.c
+        ${REPO_DIR}/apps/rift/rift_autocap.c
         ${REPO_DIR}/apps/rift/rift_background.c
         ${REPO_DIR}/apps/rift/rift_model.c
         ${REPO_DIR}/apps/rift/rift_messages.c
@@ -1694,12 +1698,18 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/deskbuddy/db_gesture.c
         ${REPO_DIR}/apps/deskbuddy/db_guard.c
         ${REPO_DIR}/apps/deskbuddy/db_prefs.c
+        ${REPO_DIR}/apps/deskbuddy/db_sound.c
+        ${REPO_DIR}/apps/deskbuddy/db_sound_helper.c
         ${REPO_DIR}/apps/deskbuddy/db_store.c
         ${REPO_DIR}/apps/deskbuddy/db_vision.c
         ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
         ${REPO_DIR}/apps/deskbuddy_vision/db_vision_pipeline.c
         ${REPO_DIR}/apps/vision/vision_session.c
         ${REPO_DIR}/apps/vision/vision_settings.c
+        ${REPO_DIR}/apps/vision/vision_store.c
+        ${REPO_DIR}/core/pocketvision/vision_labels.c
+        ${REPO_DIR}/core/pocketlog/pocketlog.c
+        ${REPO_DIR}/core/pocketwav/pocketwav.c
         ${REPO_DIR}/core/pocketpaths.c
         ${GAMES_APP_TEST_UI})
     target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"

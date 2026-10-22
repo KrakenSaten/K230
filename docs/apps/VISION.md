@@ -591,11 +591,14 @@ stays the helper's own default. A stored choice whose file has gone opens the
 one that is there and says so under the picture ("UPSTREAM is not on this
 unit. Using R0 · Beta.").
 
-**DeskBuddy does not use R0.** Its provider (`apps/deskbuddy_vision`) starts
-`pos-vision` without `--model`, so it opens the helper's default,
-`yolov8n.kmodel`, which no image ships. On a 0.3.6 card DeskBuddy therefore
-behaves as on 0.3.5: with no face model installed it reports that it cannot
-see. `pos-vision probe` and `bench` likewise need `--model` to run R0.
+**DeskBuddy uses the same detector.** Its provider (`apps/deskbuddy_vision`)
+names to `pos-vision` the detector Vision would open, by the same table and
+pick (`vision_store_detector_path()`, `vision_store_detector_files()`,
+`vision_detector_pick()` - R0 on every image from 0.3.6), and counts a box
+as a person by its class name (docs/apps/DESKBUDDY.md, "Camera presence").
+Before `feat/deskbuddy-camera-presence` it started the helper without
+`--model`, which looked for `yolov8n.kmodel`, so a card without face models
+could not see. `pos-vision probe` and `bench` still need `--model` to run R0.
 
 ### YOLOv8n, the helper's default (not shipped since 0.3.5)
 
@@ -629,7 +632,8 @@ the first mode offered (the owner's DETECT setting is kept for when the
 model returns), leaves DETECT, TRACK and TRAFFIC out of the picker, and says
 under the picture: "No detector model on this unit: DETECT, TRACK and
 TRAFFIC are off". DeskBuddy, with neither the detector nor a face model,
-reports that it cannot see ("NO VISION YET") instead of an empty desk. A
+reports that it cannot see ("NO VISION YET" in GUARD, "CAMERA UNAVAILABLE"
+in BUDDY) instead of an empty desk. A
 file that exists and does not open is still an error ("No camera or
 detector", with the reason). `pos-vision probe` and `bench` still need the
 file and exit 5 without it.

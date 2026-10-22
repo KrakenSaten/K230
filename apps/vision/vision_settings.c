@@ -121,6 +121,17 @@ const char *vision_detector_word(enum vision_detector d)
     return (int)d >= 0 && d < VISION_DETECTORS ? detector_words[d] : "r0";
 }
 
+int vision_detector_pick(enum vision_detector confirmed, uint32_t present)
+{
+    int d = (int)confirmed >= 0 && confirmed < VISION_DETECTORS ? (int)confirmed : VISION_DET_R0;
+    int other = d == VISION_DET_R0 ? VISION_DET_UPSTREAM : VISION_DET_R0;
+
+    if (present & (1u << d)) {
+        return d;
+    }
+    return (present & (1u << other)) ? other : -1;
+}
+
 const char *vision_mode_word(enum vision_mode mode)
 {
     return (int)mode >= 0 && mode < VISION_MODES ? mode_words[mode] : "detect";

@@ -1152,7 +1152,7 @@ DB_CORE_OBJS := $(DB_DIR)/db_brain.o $(DB_DIR)/db_face.o $(DB_DIR)/db_gesture.o 
                 $(DB_DIR)/db_prefs.o $(DB_DIR)/db_vision.o $(DB_DIR)/db_vision_mock.o
 DB_STORE_OBJS := $(DB_DIR)/db_store.o $(PATHS_OBJS)
 DESKBUDDY_TESTS := tests/db_brain_test tests/db_personality_test tests/db_vision_test tests/db_guard_test \
-                   tests/db_pipeline_test
+                   tests/db_pipeline_test tests/db_sound_test
 # The bridge to Vision (apps/deskbuddy_vision): the one place DeskBuddy's
 # boundary and Vision's helper client meet.
 DBV_DIR := apps/deskbuddy_vision
@@ -1168,7 +1168,8 @@ tests/db_pipeline_test.o: tests/db_pipeline_test.c
 
 # The provider against the real helper on the fake camera and fake models.
 tests/db_pipeline_test: tests/db_pipeline_test.o $(DBV_DIR)/db_vision_pipeline.o $(DB_DIR)/db_vision.o \
-                        apps/vision/vision_session.o apps/vision/vision_settings.o
+                        apps/vision/vision_session.o apps/vision/vision_settings.o apps/vision/vision_store.o \
+                        core/pocketvision/vision_labels.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/db_brain_test: tests/db_brain_test.o $(DB_CORE_OBJS)
@@ -1183,8 +1184,15 @@ tests/db_vision_test: tests/db_vision_test.o $(DB_CORE_OBJS)
 tests/db_guard_test: tests/db_guard_test.o $(DB_CORE_OBJS) $(DB_STORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# The visit sound: the seam, the chime, and the pos-record backend against a
+# stand-in helper.
+tests/db_sound_test: tests/db_sound_test.o $(DB_DIR)/db_sound.o $(DB_DIR)/db_sound_helper.o \
+                     core/pocketwav/pocketwav.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_personality_test && ./tests/db_vision_test && \
-                     ./tests/db_guard_test && ./tests/db_pipeline_test tools/vision/pos-vision
+                     ./tests/db_guard_test && ./tests/db_pipeline_test tools/vision/pos-vision && \
+                     ./tests/db_sound_test
 
 # DeskBuddy on its own, for a focused run.
 deskbuddy-test: $(DESKBUDDY_TESTS) tools/vision/pos-vision
@@ -1204,7 +1212,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
              $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
              $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
-             $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
+             $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o $(RIFT_DIR)/rift_autocap.o \
              $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o $(RIFT_DIR)/rift_ipc_resend.o \
              $(RIFT_DIR)/rift_ipc_repeater.o $(RIFT_DIR)/rift_repeater.o \
              $(RIFT_DIR)/rift_route.o $(RIFT_DIR)/rift_ipc_path.o \
@@ -1228,7 +1236,7 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
               tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/rift_tiles_test \
-              tests/rift_route_test tests/fake-meshcored
+              tests/rift_route_test tests/rift_autocap_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1251,6 +1259,10 @@ tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
 # The explicit route: the builder's draft, the staged route, the service's
 # capabilities and which preview answer may change what (rift_route.h).
 tests/rift_route_test: tests/rift_route_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The automatic capital: where a sentence starts (rift_autocap.h).
+tests/rift_autocap_test: tests/rift_autocap_test.o $(RIFT_DIR)/rift_autocap.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # RX LOG's ring, its mesh.rx reader and its words (rift_rxlog.h).
@@ -2423,6 +2435,7 @@ test: all $(TEST_BINS)
 	./tests/rift_format_test
 	./tests/rift_model_test
 	./tests/rift_route_test
+	./tests/rift_autocap_test
 	./tests/rift_comms_test
 	./tests/rift_reliability_test
 	./tests/rift_rxlog_test

@@ -828,8 +828,15 @@ arrived. The text smileys RIFT used to write in place of emoji (`:)`, `<3`,
 
 Each composer - the portrait thread's and the landscape command line's - has
 an emoji button at the right of its field (`ui/rift_emoji_picker.h`). It opens
-a small panel above it: the group's name, the three groups' tabs down the
-left, and the group's emoji, five by three, drawn by the colour emoji font.
+a panel over RIFT's area, above the composer where it fits there (portrait and
+landscape; the composer and its caret stay in sight) and over the whole area
+otherwise, no wider than 960 px on HDMI: a header with the group's name and
+CLOSE, the three groups' tabs in a row, and the group's emoji in as many
+columns as cells of about 104 px fit (portrait 4, landscape and HDMI 8),
+scrolling when the rows do not all fit. Every emoji, tab and CLOSE is a touch
+target of at least 64 x 64; the 18 px artwork of the colour emoji font is
+drawn at a whole multiple (3x in a full cell, 54 px), so no source pixel is
+smeared, and no other artwork or dependency is added.
 
 - **What it offers** is a short fixed list (`rift_emoji_pick.h`), not an
   emoji database: RECENT / COMMON (🙂 👍 👋 ❤️ 😂 🔥 ✅ ❌ ⚠️ 📡 📍 🚗 ☕ 🔦 🌲),
@@ -837,18 +844,48 @@ left, and the group's emoji, five by three, drawn by the colour emoji font.
   in the artwork, none toned. Each is inserted fully qualified (with U+FE0F
   where Unicode wants it), so other MeshCore clients draw it as an emoji.
 - **Picking** - a tap, or Enter on the selection - puts the emoji's UTF-8 into
-  the field at the caret and closes the panel. **Nothing is sent**: sending is
-  still SEND, or Enter in the field with the panel closed.
+  the field at the caret, once, and closes the panel. A drag scrolls the grid
+  and picks nothing, as does a finger that slides more than 12 px along an
+  emoji. **Nothing is sent**: sending is still SEND, or Enter in the field
+  with the panel closed.
 - **The keys and the focus**: the panel never takes the focus. The field keeps
   it, with its caret, so the composer's automatic focus and typing work as
   before. While the panel is up the field's keys reach it first: the arrows
   move the selection (down past the last row is the next group, up past the
-  first the one before), Enter picks, Esc closes; any other key closes it and
-  types. A tap outside, the field losing the keys or being disabled, a turn
-  of the panel and leaving RIFT close it.
+  first the one before), Home and End go to the first and the last, and the
+  selection is drawn filled and scrolled into sight; Enter picks, Esc closes;
+  any other key closes it and types. CLOSE, a tap outside, the field losing
+  the keys or being disabled, a turn of the panel and leaving RIFT close it,
+  with the draft and its caret as they were.
 - **Recently picked** emoji, up to five, go first in the first group. They
   are kept in the preferences file as `emoji_recent=` (the emoji, space-
   separated), the only addition to it; an entry not in the list is ignored.
+
+### Automatic capitals
+
+A composer offers a capital where a sentence starts (`rift_autocap.h`,
+`rift_focus.c`): at the start of a message, and after `.`, `!` or `?` (any
+run of them) followed by a space. It is offered through the touch keyboard's
+own one-shot SHIFT - engaged, with the capitals on the keys - so it is a
+default and never a rewrite: one tap on SHIFT turns it off for a lower-case
+letter, and it stays off until the text, the caret, the conversation or the
+field changes. A dot in an address, a URL or a number (`vg.no`,
+`ola@example.no`, `3.5`) and an ellipsis (`...`, `…`) end nothing; an emoji,
+a number or a quotation mark before the first letter does not use the capital
+up; æ, ø and å are letters like any other. The decision is made from the text
+before the caret every time, so editing in the middle, Backspace and moving
+the caret are followed, and nothing is carried between conversations. Text
+that arrives whole - a reply's mention, a kept draft, an emoji - is never
+changed.
+
+Only the touch keyboard (portrait) offers it. A physical keyboard - the
+keyboard base in landscape - types what its own Shift and Caps say: a
+capital it did not ask for would leave no way to type a lower-case letter.
+The touch keyboard gained one call for this (`pos_keyboard_offer_shift`,
+reached by apps through `pocketos_shell_keyboard_offer_shift`); an offer is
+only ever withdrawn while it is still the one offered, never over the user's
+own or locked Shift, and it goes when the keyboard is hidden or shown again.
+Nothing else uses it, so the keyboard behaves as before in every other app.
 
 ## Activity: how lately it was heard from
 

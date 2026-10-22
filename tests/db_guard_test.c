@@ -124,16 +124,25 @@ static void test_prefs(void)
 
     db_prefs_defaults(&p);
     for (k = 0; k < DB_PREF_TOGGLE_COUNT; k++) {
-        all_on &= p.on[k];
+        all_on &= k == DB_PREF_GUARD_SOUND ? !p.on[k] : p.on[k];
     }
-    check("everything on by default, disarmed, in Companion", all_on && !p.guard_armed && p.mode == DB_MODE_COMPANION);
+    check("everything on by default but the visit sound, disarmed, in Companion",
+          all_on && !p.guard_armed && p.mode == DB_MODE_COMPANION);
     p.on[DB_PREF_GREETING] = false;
+    p.on[DB_PREF_GUARD_SOUND] = true;
     p.guard_armed = true;
     p.mode = DB_MODE_NIGHT;
-    check("the preferences format", db_prefs_format(&p, text, sizeof(text)) > 0);
+    check("the preferences format", db_prefs_format(&p, text, sizeof(text)) > 0 && strstr(text, "guard_sound=1\n"));
     db_prefs_defaults(&back);
     check("and read back exactly", db_prefs_parse(&back, text) == 0 && !back.on[DB_PREF_GREETING] && back.guard_armed &&
-                                       back.mode == DB_MODE_NIGHT && back.on[DB_PREF_COMPANION]);
+                                       back.mode == DB_MODE_NIGHT && back.on[DB_PREF_COMPANION] &&
+                                       back.on[DB_PREF_GUARD_SOUND]);
+    db_prefs_defaults(&back);
+    check("a file from before the visit sound loads it off",
+          db_prefs_parse(&back, "companion=1\nguard=1\nnight=1\nguard_armed=1\nmode=guard\n") == 0 &&
+              !back.on[DB_PREF_GUARD_SOUND] && back.guard_armed);
+    check("its label names its mode", strcmp(db_pref_label(DB_PREF_GUARD_SOUND), "Visit sound \xC2\xB7 Guard") == 0 &&
+                                          strcmp(db_pref_key(DB_PREF_GUARD_SOUND), "guard_sound") == 0);
     db_prefs_defaults(&back);
     check("values this build could not have written keep the default",
           db_prefs_parse(&back, "greeting=yes\nmode=party\n  night = 0 \nfuture_key=1\n# x=0\n") == 2 &&

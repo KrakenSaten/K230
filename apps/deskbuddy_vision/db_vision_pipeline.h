@@ -13,7 +13,13 @@
  *              (the helper's owner.v1): OWNER_RECOGNIZED / UNKNOWN_PERSON
  *              with the similarity as confidence;
  *   FACE       faces only: PERSON_DETECTED;
- *   DETECT     the object detector's people (COCO person): PERSON_DETECTED.
+ *   DETECT     the object detector's people (the class named "person"):
+ *              PERSON_DETECTED, never an identity.
+ *
+ * The detector is the one Vision would open (vision_store.h: R0 on every
+ * image from 0.3.6, UPSTREAM only by hand, Vision's last confirmed choice
+ * first), named to the helper; with neither file on the unit the helper
+ * gets no model and offers no DETECT.
  *
  * and turns what the helper says into DeskBuddy's conclusions - changes
  * only - with the judge below. Every call returns at once; the helper is
@@ -66,5 +72,13 @@ bool db_judge_report(struct db_judge *j, const struct db_judge_report *r, int64_
                      struct db_vision_event *out);
 /* No report for a while: "nobody" is due by time alone. */
 bool db_judge_tick(struct db_judge *j, int64_t now_ms, struct db_vision_event *out);
+
+/* ---- what the provider asks of Vision (exposed for the test) ------------ */
+
+/* The detector start() names to the helper (enum vision_detector), or -1
+ * when neither file is on the unit. */
+int db_vision_pipeline_detector(void);
+/* Whether a detector class is a person: by its name, never by its index. */
+bool db_vision_pipeline_is_person(uint32_t cls);
 
 #endif

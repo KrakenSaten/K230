@@ -23,6 +23,7 @@
 #include "chrome.h"
 #include "db_brain.h"
 #include "db_guard.h"
+#include "db_sound.h"
 #include "db_store.h"
 #include "deskbuddy_app.h"
 #include "pocketui.h"
@@ -60,10 +61,12 @@ static void check(const char *what, int ok)
 
 static int reduced_motion;
 static int keyboard_requests;
+static int system_volume = 60; /* 0 while muted, as volume_effective() */
 
 void pocketos_shell_set_status_hint(const char *text) { (void)text; }
 void pocketos_shell_go_home(void) {}
 int pocketos_shell_reduced_motion(void) { return reduced_motion; }
+int pocketos_shell_volume_effective(void) { return system_volume; }
 int64_t pocketos_shell_system_day(void) { return -1; } /* the board's clock is not set */
 const char *pocketos_shell_radio_state(void) { return NULL; }
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user), void *user)
@@ -75,6 +78,20 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(v
 }
 void pocketos_shell_keyboard_hide(void) { keyboard_requests++; }
 int pocketos_shell_keyboard_visible(void) { return 0; }
+
+/* The hold: the panel's rotation, as on the device; or, set >= 0, an
+ * external display's (the unit held one way while the monitor stays put). */
+static int external_hold = -1;
+
+void pocketos_shell_orientation(struct pocketos_orientation *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->landscape = pocketui_display_geometry()->width > pocketui_display_geometry()->height;
+    out->next_landscape = out->landscape;
+    out->external = external_hold >= 0;
+    out->hold_rotation = external_hold >= 0 ? external_hold : pos_rotation_degrees(pocketui_display_geometry()->rotation);
+    out->hold_landscape = external_hold >= 0 ? external_hold % 180 != 0 : out->landscape;
+}
 
 /* ---- display and finger ------------------------------------------------ */
 
@@ -433,6 +450,210 @@ static void test_reopen(void)
     check("and nothing calls back into a closed app", timer_count() == timers);
 }
 
+/* ---- the visit sound ------------------------------------------------------------------ */
+
+/* A backend that counts instead of sounding; busy refuses as pos-record does
+ * while the last sound still plays. */
+static int fake_ok = 1;
+static int fake_busy;
+static int fake_plays;
+static int fake_volume;
+static int fake_stops;
+
+static int fake_available(void) { return fake_ok; }
+static int fake_play(int volume_percent)
+{
+    if (fake_busy) {
+        return -1;
+    }
+    fake_plays++;
+    fake_volume = volume_percent;
+    return 0;
+}
+static void fake_stop(void) { fake_stops++; }
+
+static const struct db_sound_backend fake_sound = {
+    .name = "fake", .available = fake_available, .play = fake_play, .stop = fake_stop, .why = "counts",
+};
+
+static const char *note_text(void);
+
+/* Some label under obj holds this text. */
+static int tree_has(lv_obj_t *obj, const char *text)
+{
+    uint32_t i;
+
+    if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), text)) {
+        return 1;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        if (tree_has(lv_obj_get_child(obj, (int32_t)i), text)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void set_guard_sound(bool on)
+{
+    tap_obj(deskbuddy_app_settings_button(app));
+    if (brain()->prefs.on[DB_PREF_GUARD_SOUND] != on) {
+        tap_obj(deskbuddy_app_toggle(app, DB_PREF_GUARD_SOUND));
+    }
+    tap_obj(deskbuddy_app_settings_done(app));
+}
+
+/* A visit that is over: gone for longer than the merge window. */
+static void visit_over(void)
+{
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    pump(DB_VISIT_MERGE_MS + 50);
+}
+
+static void test_guard_sound(void)
+{
+    int i;
+    int ok = 1;
+
+    db_sound_set_backend(&fake_sound);
+    setenv("DESKBUDDY_VISION", "none", 1);
+    fake_plays = fake_stops = fake_busy = 0;
+    fake_ok = 1;
+    system_volume = 60;
+    forget();
+    app_start();
+    tap_obj(deskbuddy_app_settings_button(app));
+    check("Visit sound is a switch of its own, labelled for Guard, and starts OFF",
+          shows(deskbuddy_app_toggle(app, DB_PREF_GUARD_SOUND), "OFF") &&
+              !brain()->prefs.on[DB_PREF_GUARD_SOUND] &&
+              tree_has(deskbuddy_app_settings_panel(app), "Visit sound \xC2\xB7 Guard"));
+    check("the settings say a guard sees people, not who they are",
+          tree_has(deskbuddy_app_settings_panel(app), "not who they are") &&
+              tree_has(deskbuddy_app_settings_panel(app), "every visit is SOMEONE"));
+    tap_obj(deskbuddy_app_settings_done(app));
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    tap_obj(deskbuddy_app_action_button(app));
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("off: a visit is logged and shown, and nothing sounds",
+          db_guard_count(brain()->log) == 1 && strcmp(caption(), "VISITOR NOTED") == 0 && fake_plays == 0);
+    visit_over();
+
+    set_guard_sound(true);
+    app_deskbuddy.tick(app);
+    check("turned on, it is saved", file_has(DB_STORE_PREFS, "guard_sound=1"));
+    check("turning it on plays nothing for the visit already logged", fake_plays == 0);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("on: a new visit sounds once, at the system volume",
+          fake_plays == 1 && fake_volume == 60 && db_guard_count(brain()->log) == 2 &&
+              strcmp(caption(), "VISITOR NOTED") == 0);
+    for (i = 0; i < 200; i++) {
+        deskbuddy_app_inject(app, i & 1 ? DB_VISION_PERSON_DETECTED : DB_VISION_UNKNOWN_PERSON);
+        pump(5);
+    }
+    check("a visitor who stays: no second sound", fake_plays == 1 && db_guard_count(brain()->log) == 2);
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    pump(DB_VISIT_MERGE_MS / 2);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("back within the merge window: the same visit, no sound", fake_plays == 1 &&
+                                                                       db_guard_count(brain()->log) == 2);
+    visit_over();
+
+    /* The detector alone: somebody, waited on for an identity, then logged
+     * as a person - and that is the visit that sounds. */
+    deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
+    check("a person seen: SOMEONE'S HERE, nothing logged or heard yet",
+          strcmp(caption(), "SOMEONE'S HERE") == 0 && db_guard_count(brain()->log) == 2 && fake_plays == 1);
+    pump(DB_GUARD_IDENTIFY_MS + 200);
+    check("logged as a person after the wait, and that sounds once",
+          fake_plays == 2 && db_guard_at(brain()->log, 0)->subject == DB_SUBJECT_PERSON &&
+              strcmp(caption(), "VISITOR NOTED") == 0);
+    visit_over();
+
+    fake_busy = 1;
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("a sound that will not start costs nothing: the visit is logged and the guard watches on",
+          fake_plays == 2 && db_guard_count(brain()->log) == 4 && strcmp(caption(), "VISITOR NOTED") == 0);
+    fake_busy = 0;
+    pump(2000);
+    check("and it is not queued for later", fake_plays == 2);
+    visit_over();
+
+    system_volume = 0;
+    pump(1100);
+    check("muted: the armed guard says the sound will not be heard",
+          strcmp(note_text(), "VISIT SOUND MUTED") == 0);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("and a visit while muted plays nothing", fake_plays == 2 && db_guard_count(brain()->log) == 5);
+    visit_over();
+    system_volume = 60;
+    pump(1100);
+    check("unmuted: the note goes", strcmp(note_text(), "") == 0);
+    fake_ok = 0;
+    pump(1100);
+    check("no sound on the unit: said too", strcmp(note_text(), "NO SOUND ON THIS UNIT") == 0);
+    fake_ok = 1;
+    pump(1100);
+
+    deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
+    tap_obj(deskbuddy_app_action_button(app)); /* DISARM, the person still unidentified */
+    check("a visit logged by disarming is not announced", fake_plays == 2 && !db_state_armed(brain()->state));
+    tap_obj(deskbuddy_app_action_button(app)); /* SEEN IT */
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("disarmed: nothing sounds", fake_plays == 2);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    for (i = 0; i < 3; i++) {
+        deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+        pump(DB_VISIT_MERGE_MS + 50);
+        deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+        pump(5000);
+    }
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    for (i = 0; i < 3; i++) {
+        deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+        pump(DB_VISIT_MERGE_MS + 50);
+        deskbuddy_app_inject(app, DB_VISION_PERSON_DETECTED);
+        pump(5000);
+    }
+    check("BUDDY and NIGHT never sound, with the switch on", fake_plays == 2);
+
+    /* Armed, closed and opened again with somebody at the desk. */
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
+    tap_obj(deskbuddy_app_action_button(app));
+    deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+    pump(100);
+    i = fake_stops;
+    app_stop();
+    check("closing stops any sound still playing", fake_stops == i + 1);
+    app_start();
+    pump(1100);
+    check("reopened armed: the visits already in the log are not played again",
+          db_state_armed(brain()->state) && deskbuddy_app_sound_starts(app) == 0 && fake_plays == 2);
+    deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+    check("somebody already at the desk is still a visit, and it sounds",
+          deskbuddy_app_sound_starts(app) == 1 && fake_plays == 3);
+    app_stop();
+
+    /* A burst of separate visits faster than any sound: the log takes each,
+     * the speaker no more than one per step. */
+    app_start();
+    for (i = 0; i < 6; i++) {
+        deskbuddy_app_inject(app, DB_VISION_NO_PERSON);
+        pump(DB_VISIT_MERGE_MS + 50);
+        fake_busy = i > 0; /* the first chime still sounding */
+        deskbuddy_app_inject(app, DB_VISION_UNKNOWN_PERSON);
+        ok &= deskbuddy_app_sound_starts(app) == 1;
+    }
+    fake_busy = 0;
+    pump(3000);
+    check("visits while a chime still sounds are logged, never stacked or replayed", ok && fake_plays == 4);
+    app_stop();
+    unsetenv("DESKBUDDY_VISION");
+    system_volume = 60;
+    db_sound_set_backend(&db_sound_pos_record);
+}
+
 /* ---- settings ------------------------------------------------------------------------- */
 
 static void test_settings(void)
@@ -733,8 +954,8 @@ static void test_touch(void)
     check("poked again and again: briefly annoyed", brain()->react == DB_REACT_ANNOYED);
     pump(3500);
     check("and calm again", brain()->react == DB_REACT_NONE);
-    check("nothing of it started the camera: Companion never does", deskbuddy_app_provider_starts(app) == 0 &&
-                                                                         !deskbuddy_app_provider_running(app));
+    check("nothing of it started the camera: the one start is opening's (Camera presence)",
+          deskbuddy_app_provider_starts(app) == 1);
     app_stop();
     check("play wrote nothing", !stored(DB_STORE_PREFS) && !stored(DB_STORE_GUARD));
 }
@@ -825,8 +1046,8 @@ static void test_feed(void)
     check("R rests", brain()->state == DB_ST_SLEEP);
     push_key('r');
     check("R wakes", brain()->react == DB_REACT_STIR);
-    check("only the visit to NIGHT started the camera, and BUDDY stopped it; feeding started none",
-          deskbuddy_app_provider_starts(app) == 1 && !deskbuddy_app_provider_running(app));
+    check("opening started the camera (Camera presence), NIGHT and back kept it; feeding started none",
+          deskbuddy_app_provider_starts(app) == 1 && deskbuddy_app_provider_running(app));
     app_stop();
     check("feeding kept no log (only the mode it was left in is saved)", !stored(DB_STORE_GUARD) &&
                                                                               file_has(DB_STORE_PREFS, "mode=companion"));
@@ -974,35 +1195,117 @@ static int helper_seen_somebody(void)
     return brain()->seen == DB_SEEN_PERSON;
 }
 
+static int helper_seen_nobody(void)
+{
+    return brain()->seen == DB_SEEN_NOBODY;
+}
+
+static const char *note_text(void)
+{
+    return lv_label_get_text(deskbuddy_app_note(app));
+}
+
+/* Camera presence by the SET panel, as the owner turns it. */
+static void set_presence(bool on)
+{
+    tap_obj(deskbuddy_app_settings_button(app));
+    if (brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] != on) {
+        tap_obj(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE));
+    }
+    tap_obj(deskbuddy_app_settings_done(app));
+}
+
+static void write_prefs(const char *text)
+{
+    char path[512];
+    FILE *f;
+
+    snprintf(path, sizeof(path), "%s/deskbuddy", state_dir);
+    mkdir(path, 0700);
+    snprintf(path, sizeof(path), "%s/deskbuddy/%s", state_dir, DB_STORE_PREFS);
+    f = fopen(path, "w");
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
 static void test_camera_modes(void)
 {
     const char *helper = getenv("DESKBUDDY_TEST_HELPER");
     static char abs_helper[PATH_MAX];
+    static char r0[PATH_MAX];
 
     forget();
     app_start();
-    check("opened in Companion: the Vision pipeline is the provider, but not started",
-          strcmp(deskbuddy_app_provider(app), "vision") == 0 && !deskbuddy_app_provider_running(app) &&
-              deskbuddy_app_provider_starts(app) == 0);
-    check("so Companion is blind, and does not complain about it",
-          brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(lv_label_get_text(deskbuddy_app_note(app)), "") == 0);
+    check("opened in Companion, Camera presence on by default: the Vision pipeline is started",
+          strcmp(deskbuddy_app_provider(app), "vision") == 0 && brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] &&
+              deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 1);
+    check("no helper on this host: Companion says the camera is unavailable, never that nobody is there",
+          brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(note_text(), "CAMERA UNAVAILABLE") == 0);
+    tap_obj(deskbuddy_app_face(app));
+    check("and touch still plays", brain()->poked == 1);
+    pump(3000);
+    tap_obj(deskbuddy_app_settings_button(app));
+    check("the switch is labelled, with its mode",
+          strcmp(lv_label_get_text(lv_obj_get_child(lv_obj_get_parent(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE)), 0)),
+                 "Camera presence \xC2\xB7 Buddy") == 0 &&
+              shows(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE), "ON"));
+    tap_obj(deskbuddy_app_settings_done(app));
+    set_presence(false);
+    check("Camera presence off: the helper stops, Companion plays by touch and says nothing of it",
+          !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(note_text(), "") == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
-    check("GUARD starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 1);
-    check("and Guard still says when it cannot see",
-          strcmp(lv_label_get_text(deskbuddy_app_note(app)), "NO VISION YET") == 0);
+    check("GUARD starts it all the same: the switch is Companion's", deskbuddy_app_provider_running(app) &&
+                                                                         deskbuddy_app_provider_starts(app) == 2);
+    check("and Guard still says when it cannot see", strcmp(note_text(), "NO VISION YET") == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
-    check("BUDDY stops it, and Companion is told it cannot see",
+    check("BUDDY without Camera presence stops it, and Companion is told it cannot see",
           !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
-    check("NIGHT starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 2);
+    check("NIGHT starts it", deskbuddy_app_provider_running(app) && deskbuddy_app_provider_starts(app) == 3);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
     check("Night to Guard keeps the one helper", deskbuddy_app_provider_running(app) &&
-                                                     deskbuddy_app_provider_starts(app) == 2);
+                                                     deskbuddy_app_provider_starts(app) == 3);
+    set_presence(true);
+    check("Camera presence on in Guard: still the one helper", deskbuddy_app_provider_running(app) &&
+                                                                   deskbuddy_app_provider_starts(app) == 3);
+    set_presence(false);
+    app_deskbuddy.tick(app);
+    check("the switch is saved", file_has(DB_STORE_PREFS, "camera_presence=0"));
     app_stop();
     app_start();
     check("reopened in Guard: started at once, as before", brain()->state == DB_ST_GUARD_DISARMED &&
                                                                deskbuddy_app_provider_running(app) &&
                                                                deskbuddy_app_provider_starts(app) == 1);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
+    app_stop();
+    app_start();
+    check("reopened in Companion with it off: no camera", !brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] &&
+                                                             !deskbuddy_app_provider_running(app) &&
+                                                             deskbuddy_app_provider_starts(app) == 0);
+    app_stop();
+    forget();
+    write_prefs("companion=1\nguard=1\nnight=1\nowner_recognition=1\ngreeting=1\nidle_animation=1\n"
+                "guard_armed=0\nmode=companion\n");
+    app_start();
+    check("a file from before the switch: Camera presence on", brain()->prefs.on[DB_PREF_CAMERA_PRESENCE] &&
+                                                                  deskbuddy_app_provider_running(app));
+    app_stop();
+
+    /* The hold: on the panel the display's rotation; on an external display
+     * the hold the shell reports, followed while DeskBuddy is open. */
+    forget();
+    app_start();
+    check("the camera is given the panel's rotation as the hold",
+          deskbuddy_app_camera_hold(app) == pos_rotation_degrees(pocketui_display_geometry()->rotation));
+    external_hold = 90;
+    pump(1100);
+    check("an external display, the unit turned: the camera follows the hold", deskbuddy_app_camera_hold(app) == 90);
+    external_hold = 0;
+    pump(1100);
+    check("and back", deskbuddy_app_camera_hold(app) == 0);
+    external_hold = -1;
     app_stop();
 
     if (!helper || !*helper || !realpath(helper, abs_helper) || access(abs_helper, X_OK) != 0) {
@@ -1014,13 +1317,57 @@ static void test_camera_modes(void)
     setenv("POCKETOS_CAMERA_BACKEND", "fake", 1);
     setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
     setenv("POCKETOS_VISION_FACE_DET", "/nonexistent/face_det.kmodel", 1);
+    /* The image's detectors: R0 there, the helper's old default not. */
+    snprintf(r0, sizeof(r0), "%s/det-r0-traffic6-yolox-tiny-416.kmodel", state_dir);
+    {
+        FILE *f = fopen(r0, "w");
+
+        if (f) {
+            fputs("fake", f);
+            fclose(f);
+        }
+    }
+    setenv("POCKETOS_VISION_MODEL_R0", r0, 1);
+    setenv("POCKETOS_VISION_MODEL", "/nonexistent/vision/yolov8n.kmodel", 1);
+
+    /* BUDDY with Camera presence: somebody arrives (the fake detector's
+     * person for its first 120 frames, about 2.4 s), then leaves. */
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260,until=120", 1);
+    forget();
+    app_start();
+    check("live: BUDDY opened with Camera presence: one helper", wait_real(helper_up, 5000));
+    check("live: it sees the person arrive", wait_real(helper_seen_somebody, 10000));
+    check("live: and wakes for them - a person, no owner and no stranger claimed",
+          (brain()->state == DB_ST_WAKE || brain()->state == DB_ST_RECOGNIZING) &&
+              brain()->seen == DB_SEEN_PERSON);
+    tap_obj(deskbuddy_app_face(app));
+    check("live: a touch still pokes it while somebody is there", brain()->poked == 1);
+    check("live: they leave: nobody, not unavailable", wait_real(helper_seen_nobody, 10000) &&
+                                                           strcmp(note_text(), "") == 0);
+    {
+        unsigned events = brain()->events;
+
+        pump(DB_RECOGNIZE_MS + 1000);
+        usleep(1500000);
+        check("live: and it settles, with no repeat greeting or flicker",
+              brain()->state == DB_ST_IDLE && brain()->events == events && brain()->seen == DB_SEEN_NOBODY);
+    }
+    check("live: never a greeting or a stranger's look from a detection",
+          brain()->owner_seen_ms < 0 && brain()->unknown_seen_ms < 0);
+    set_presence(false);
+    check("live: Camera presence off stops the helper", helpers_alive() == 0);
+    app_stop();
+    check("live: and closing leaves none", helpers_alive() == 0);
+
+    /* Guard and Night as before, with Camera presence off. */
     setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1); /* somebody, always */
     forget();
+    write_prefs("camera_presence=0\n");
     app_start();
     pump(500);
     usleep(500000);
     pump(500);
-    check("live: Companion opened, no helper running", helpers_alive() == 0);
+    check("live: Companion opened without Camera presence, no helper running", helpers_alive() == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
     tap_obj(deskbuddy_app_action_button(app));
     check("live: ARM before the new helper has said anything waits for nobody",
@@ -1050,6 +1397,9 @@ static void test_camera_modes(void)
     unsetenv("POCKETOS_CAMERA_FAKE");
     unsetenv("POCKETOS_VISION_FACE_DET");
     unsetenv("POCKETOS_VISION_KPU_SCRIPT");
+    unsetenv("POCKETOS_VISION_MODEL_R0");
+    unsetenv("POCKETOS_VISION_MODEL");
+    unlink(r0);
     live_helper = NULL;
 }
 
@@ -1241,6 +1591,7 @@ static void run_tests(void)
     test_companion();
     test_guard();
     test_reopen();
+    test_guard_sound();
     test_settings();
     test_night();
     test_quiet();
