@@ -43,6 +43,11 @@ PY
     "$POS" call shell shell.tap text=PLAY > /dev/null # present only when pause succeeded
     sleep .2
     "$POS" call shell shell.audit > "$SHOTS_DIR/shell-$mode-audit.json"
+    python3 - "$SHOTS_DIR/shell-$mode-audit.json" <<'PY_AUDIT'
+import json,sys
+s=json.load(open(sys.argv[1]))
+assert not s['issues'],s['issues']
+PY_AUDIT
     "$POS" call shell shell.action action=back > /dev/null
     sleep .2
     "$POS" shell info > "$work/info.json"

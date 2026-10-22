@@ -2,13 +2,13 @@
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0 */
 #include "neon.h"
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 static unsigned checks;
-#define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); assert(x); } } while (0)
+#define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); abort(); } } while (0)
 static struct neon_input none;
 static void quiet(struct neon_game *g)
 {
@@ -86,6 +86,10 @@ int main(void)
     quiet(&a); b = a;
     for (int i = 0; i < 100; ++i) neon_advance(&a,(struct neon_input){.forward=1,.turn=1},10);
     for (int i = 0; i < 10; ++i) neon_advance(&b,(struct neon_input){.forward=1,.turn=1},100);
+    CHECK(!memcmp(&a,&b,sizeof(a)));
+    neon_restart(&a); b = a;
+    for (int i = 0; i < 500; ++i) neon_advance(&a,(struct neon_input){.fire=true},10);
+    for (int i = 0; i < 50; ++i) neon_advance(&b,(struct neon_input){.fire=true},100);
     CHECK(!memcmp(&a,&b,sizeof(a)));
     neon_pause(&a,true); b = a; neon_advance(&a,(struct neon_input){.fire=true},50000); CHECK(!memcmp(&a,&b,sizeof(a)));
     neon_pause(&a,false); CHECK(a.accumulator == 0);

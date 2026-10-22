@@ -6,14 +6,13 @@
 #include "src/libs/lodepng/lodepng.h"
 #include "shell_power.h"
 #include "shell_lock.h"
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "neon_pilot.h"
 static unsigned checks;
-#define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); assert(x); } } while (0)
+#define CHECK(x) do { ++checks; if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); abort(); } } while (0)
 static bool off, locked;
 bool shell_power_screen_off(void) { return off; }
 bool shell_lock_is_locked(void) { return locked; }
