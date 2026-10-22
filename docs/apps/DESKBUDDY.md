@@ -62,7 +62,9 @@ Rules that keep repeated or rapid events cheap and calm:
   visit is upgraded, not added. The log is written only when a line changes.
 - The owner coming back while armed (recognised, or DISARM pressed) stands
   the guard down: `GUARD_ALERT_PENDING` if a visitor is unacknowledged, else
-  a welcome. The return itself is logged, already acknowledged.
+  a welcome. Only a **recognised** owner's return is logged (already
+  acknowledged); DISARM adds no line, because pressing it says nothing about
+  who pressed it (verified on unit B, 2026-10-22).
 - Leaving Guard mode by hand disarms (whoever changes the mode is at the
   desk). There is no authentication in v0.1: anyone at the desk can disarm.
 - Invalid events (kind out of range, confidence outside 0..1000) are
@@ -216,24 +218,65 @@ framework: one struct (`db_prefs`), one parser, one formatter.
 
 | File | Holds |
 | --- | --- |
-| `$POCKETOS_STATE_DIR/deskbuddy/prefs.v1` | `companion`, `camera_presence`, `guard`, `night`, `owner_recognition`, `greeting`, `idle_animation` (0/1, default 1; a file without `camera_presence`, written before it, loads it as 1), `guard_armed` (0/1), `mode` |
+| `$POCKETOS_STATE_DIR/deskbuddy/prefs.v1` | `companion`, `camera_presence`, `guard`, `night`, `owner_recognition`, `greeting`, `idle_animation` (0/1, default 1; a file without `camera_presence`, written before it, loads it as 1), `guard_sound` (0/1, default **0**; a file without it loads it as 0), `guard_armed` (0/1), `mode` |
+| `$POCKETOS_RUNTIME_DIR/deskbuddy/visit.wav` | the visit chime (tmpfs), written from code when first needed ("Visit sound", below) |
 | `$POCKETOS_STATE_DIR/deskbuddy/guard.v1` | `next=<id>` and one `e <id> <wall_s> <subject> <conf> <ack> <snapshot>` line per event, oldest first |
 
 The directory is 0700 and the files 0600. Writes are atomic (temp file,
 fsync, rename). A line or value this build could not have written is skipped
 and the rest loads; a damaged file is left in place until there is something
 to save. Changes are written from the shell's once-a-second tick and on
-close. The seven switches are on the screen's SET panel.
+close. The eight switches are on the screen's SET panel, under them one
+line: "Guard notices people, not who they are. Without Vision's face models
+and an enrolled owner, every visit is SOMEONE - you too."
 
 | Switch | Off means |
 | --- | --- |
 | Companion mode | BUDDY is not offered; with every mode off, a resting face that does not react |
 | Camera presence · Buddy | BUDDY plays by touch alone and never starts the camera. On (the default), BUDDY runs the camera to notice somebody arrive and leave ("Camera presence", below). GUARD and NIGHT run the camera whatever it says: the switch cannot turn a guard blind |
 | Desk guard | GUARD is not offered; an armed guard is disarmed |
+| Visit sound · Guard | **Off by default.** Off: visits are shown and logged, never heard. On: an armed guard plays one short chime for each new visit it logs ("Visit sound", below) |
 | Night mode | NIGHT is not offered |
 | Owner recognition | the owner and strangers are both "a person": no greeting, guard logs `person` |
 | Greeting | the owner still gets a happy face, without HELLO / WELCOME BACK |
 | Idle animation | no blinks, glances or dozes (reduced motion, DS §12, also stops them) |
+
+## Visit sound (Guard)
+
+**Branch `feat/deskbuddy-guard-sound` (2026-10-22).** With "Visit sound ·
+Guard" on, an armed guard plays one short chime (three falling notes, 0.36 s)
+when it logs a **new** visit. What counts is the guard log, nothing new:
+
+- One chime per new visit line (`db_brain_take_visit_alert`). A visitor
+  who stays, a return within 15 s (the same visit), a visit upgraded from
+  "someone" to "unknown" and the owner's acknowledged return are not new
+  lines and make no sound. The log loaded at open is never played.
+- Only while armed: a line written as the guard stands down (DISARM with
+  somebody still unidentified) is not announced. BUDDY and NIGHT log no
+  visits and never sound.
+- No bursts or queue: every step takes what is new, heard or not. Several
+  visits between two steps are one chime; a visit while a chime still plays,
+  while muted or with no sound on the unit is logged and not played later.
+- Reopening an armed guard is unchanged: somebody already at the desk is a
+  visit (see the GUARD record below), and with the switch on it sounds.
+- With the switch on, an armed guard says why a chime would not be heard:
+  `VISIT SOUND MUTED` (the system volume is muted or 0) or `NO SOUND ON
+  THIS UNIT` (no `pos-record`). The note never hides `NO VISION YET`.
+
+**How it sounds (ADR-010 Amendment 2, proposed).** The way RIFT plays its
+message sounds: DeskBuddy writes `visit.wav` (48 kHz mono 16-bit, peak
+under pos-record's 8192 ceiling) into its runtime directory and starts
+`/usr/bin/pos-record play --volume-percent <effective system volume>
+<file>` (`apps/deskbuddy/db_sound_helper.c`). The helper takes the one
+audio lock, route, amplifier and ceiling; a sound while Wave, the Recorder
+or RIFT holds the card is simply not heard. Nothing waits for it on the
+LVGL thread; one at a time, never stacked; it is stopped when DeskBuddy
+closes. A sound that will not start is a log line (`deskbuddy: the visit
+sound did not start`), never a change in the guard. `tests/deskbuddy_lint.sh`
+(section 9) holds the boundary.
+
+**Presence is still not identity.** A chime means "a new visit was logged",
+which with only R0 is "somebody was seen" - never "a stranger".
 
 ## Screen, time and lifetime
 
@@ -290,12 +333,13 @@ SDL_VIDEODRIVER=... DESKBUDDY_SIM="..." DESKBUDDY_MODE=armed pocketos-shell --op
 
 | Suite | Proves |
 | --- | --- |
-| `tests/db_brain_test.c` | every transition above; owner greeting and its repeat rule; strangers in guard mode, visits merged and upgraded; bounded log under 500 visits; the owner coming back with and without visitors, and by DISARM; night presence and sleep, blind too; 10 000 mixed and 2 000 flickering events; malformed events; vision lost mid-visit; preferences and modes; idle behaviour and when a tick is (not) needed; every face shape fits its box |
+| `tests/db_brain_test.c` | every transition above; owner greeting and its repeat rule; strangers in guard mode, visits merged and upgraded; bounded log under 500 visits; the owner coming back with and without visitors, and by DISARM; the visit alert once per new visit line (not for merges, upgrades, history, stand-down, BUDDY or NIGHT; a burst is one); night presence and sleep, blind too; 10 000 mixed and 2 000 flickering events; malformed events; vision lost mid-visit; preferences and modes; idle behaviour and when a tick is (not) needed; every face shape fits its box |
 | `tests/db_personality_test.c` | tap, stroke, flick, long press and a lost press told apart, a stroke reported once; a poke looks toward the touch, its variants and varied lengths; hey, the huff, no restart, back to calm, the cool-down; petting and its extension; the snack followed, near, eaten with 3-4 chews, put away, timed out, no hunger after hours; drowsy, asleep, stir, REST, WAKE, WAKE mid-rest; Guard and Night unchanged; vision wins over a reaction; GREET from any source invents no sighting; reduced motion; 20 000 random stimuli never leave a broken face or a stuck reaction; every expression and mouth fits; tweens |
 | `tests/db_vision_test.c` | event validity, the bounded queue, the none provider, script parsing (every malformed form), playback, looping, a clock jump |
-| `tests/db_guard_test.c` | the ring, text round trip, damaged and oversize files, preferences, the store's files, modes and atomic writes |
-| `tests/deskbuddy_lint.sh` | the vision boundary, the pure core, only the store does I/O, identity is declarations only, no colour or font, registration, timer deleted in destroy, dev path behind the variable |
-| `tests/deskbuddy_app_test.c` | the screen follows the brain; ARM / DISARM / SEEN IT and the SET panel through a real pointer; what is saved and when; 25 open/close rounds mid-animation leave no timer, object or focus; a sleeping face does not repaint and wakes about once a second; the simulation path writes nothing; portrait and landscape fit; through the real pointer: a tap on an eye pokes toward it, taps on controls never poke, a stroke pets once however long, rapid taps huff and calm; FEED, drag to the mouth, a drag let go elsewhere goes home, closing mid-drag, a tap on the snack, GIVE, F / Enter / Esc / R, Back, timeout, mode change; drowsy and asleep by inactivity, a stroke wakes; `$DESKBUDDY_VISION=none` plays the same; a snack out across a rotation; no play starts a provider |
+| `tests/db_guard_test.c` | the ring, text round trip, damaged and oversize files, preferences (the visit sound off by default, its key, a file from before it), the store's files, modes and atomic writes |
+| `tests/db_sound_test.c` | the visit sound's seam (silent backend, volume 0 and above 100), the chime (short, silent lead-in, under pos-record's ceiling, ends at rest), its WAV, and the pos-record backend against a stand-in helper: started at once, refused while sounding, stopped, nothing left running |
+| `tests/deskbuddy_lint.sh` | the vision boundary, the pure core, only the store does I/O, identity is declarations only, no colour or font, registration, timer deleted in destroy, dev path behind the variable; the visit sound only through pos-record from one file, asked for in one place, at the system volume, stopped in destroy, off by default |
+| `tests/deskbuddy_app_test.c` | the screen follows the brain; ARM / DISARM / SEEN IT and the SET panel through a real pointer; the visit sound against a counting backend: off by default and saved, once per new visit at the system volume, none for a stay, a merge, a busy player (not replayed), muted (VISIT SOUND MUTED) or no backend (NO SOUND ON THIS UNIT), disarming, BUDDY or NIGHT, the log at reopen; a person at the desk on reopening sounds; stopped on close; what is saved and when; 25 open/close rounds mid-animation leave no timer, object or focus; a sleeping face does not repaint and wakes about once a second; the simulation path writes nothing; portrait and landscape fit; through the real pointer: a tap on an eye pokes toward it, taps on controls never poke, a stroke pets once however long, rapid taps huff and calm; FEED, drag to the mouth, a drag let go elsewhere goes home, closing mid-drag, a tap on the snack, GIVE, F / Enter / Esc / R, Back, timeout, mode change; drowsy and asleep by inactivity, a stroke wakes; `$DESKBUDDY_VISION=none` plays the same; a snack out across a rotation; no play starts a provider |
 | `tests/deskbuddy_shell_test.sh` | runs the app test; the launcher holds 24 apps; the real shell opens and closes DeskBuddy, every mode on simulated vision in both orientations, nothing written, damaged files open |
 
 ```
@@ -543,8 +587,9 @@ never "UNKNOWN" or a stranger) and shows `GUARD_UNKNOWN` ("VISITOR
 NOTED"). Leaving goes back to `GUARD_ARMED` ("WATCHING THE DESK"). One
 visit is one line; a return within 15 s is the same visit. The owner
 cannot stand the guard down by being seen: only DISARM, which shows "N
-VISITS WHILE YOU WERE AWAY" until SEEN IT. DeskBuddy has **no sound**: no
-alert tone, no cooldown beyond the visit merge, nothing audible to check.
+VISITS WHILE YOU WERE AWAY" until SEEN IT. DeskBuddy had **no sound** then
+(the optional visit sound came later: "Visit sound", above), and no
+cooldown beyond the visit merge.
 
 *How it was driven.* `shell.tap` exists only in shells built with
 `POCKETOS_SHELL_TEST_HOOKS`, so the device shell cannot press ARM over
@@ -591,11 +636,54 @@ meshcored the same process throughout.
   person at the desk is logged as a visit at once (07:43:11 above). On a
   unit with an enrolled owner it would stand down instead; without one it
   is a false visit.
-- **DISARM writes no return line.** "Rules" above says the return is
-  logged; `db_brain_disarm()` stands down with `owner_seen = false`, so
-  only a recognised owner adds the acknowledged return line.
+- **DISARM writes no return line.** `db_brain_disarm()` stands down with
+  `owner_seen = false`, so only a recognised owner adds the acknowledged
+  return line. (The rules above said otherwise; corrected on
+  `feat/deskbuddy-guard-sound`.)
 - **A short return re-shows "SOMEONE'S HERE"** for 4 s even when it merges
   into the visit already logged; the log is right, the status repeats.
 
 Captures: `deskbuddy/unitb-guard-watching.png` (07:44:13) and
 `deskbuddy/unitb-guard-visitor-noted.png` (07:44:44, two visits).
+
+**Unit B, 2026-10-22: the visit sound** (`feat/deskbuddy-guard-sound`
+`319ec18b`; temporary shell, restored afterwards).
+
+*Setup (device evidence).* `pocketos-shell` `Doors 0.3.7 build 319ec18b`,
+SHA-256 `5469c1f2…0fccbe4`, the same pinned toolchain and sysroot as the
+camera checks above; every undefined symbol resolves against unit B's own
+libraries (`liblvgl` `2c4fd81b…`). `pos-record info`: playback validated,
+peak ceiling 8192. Backed up by hash and restored byte-identical:
+settings.conf (it holds the volume and mute; no volume key, so the default
+100 %), DeskBuddy `prefs.v1`, Vision `settings.v1`; `guard.v1` and
+`/run/pocketos/deskbuddy` were absent and were removed again. DeskBuddy's
+`prefs.v1` was set to `mode=guard`, `guard_armed=1`, `guard_sound=1` and
+DeskBuddy opened (no tap hooks on a device build).
+
+*Device evidence (UTC).* The shell's process calls and the helper's reports
+were traced read-only for the whole run (08:32:27-08:37:24); the panel and
+`pidof pos-record` were sampled about every 2 s.
+
+| Time | Evidence |
+| --- | --- |
+| 08:32:28.74 | DeskBuddy opened armed; `pos-vision` started on R0 |
+| 08:32:29.6 onwards | the helper reported 1-3 person tracks in **every** report to the end (never 0) |
+| 08:32:33.73 | `pos-record` started by the shell (4 s identify wait after the first sighting); `visit.wav` written in `/run/pocketos/deskbuddy` |
+| 08:32:34.46 | `pos-record` reaped, exit status 0: the chime played to the end |
+| 08:32:35-08:37:24 | one `guard.v1` line (`person -1 0 0`), "VISITOR NOTED" throughout; no second `pos-record` start in the trace, none in 154 process samples |
+| 08:38:20 | DeskBuddy closed: no `pos-vision` or `pos-record` left at the first check |
+
+*Owner observations.* The owner heard one short chime when DeskBuddy
+opened. The owner then left the view for about 30 s, came back and stayed
+about 20 s, and reported exactly one more chime after coming back and
+nothing while staying.
+
+*What the evidence supports.* The chime at open (a person already at the
+desk, logged as a visit) was played by DeskBuddy through `pos-record` and
+heard. Continued presence for five minutes made no second sound and no
+second line. The departure was **not** seen: at least one other person
+track stayed in view the whole time, so the visit never ended and no new
+visit was logged. The second chime the owner heard was not started by this
+shell (no process, no log line); its source is not established. A new
+visit after a real departure is therefore covered by the host tests only
+(`db_brain_test`, `deskbuddy_app_test`), not on the unit.

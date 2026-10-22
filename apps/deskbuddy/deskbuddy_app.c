@@ -43,9 +43,12 @@
  * landscape puts them side by side. The size handler only sets a flag and
  * the timer lays out, outside LVGL's layout pass.
  *
- * LIFETIME. destroy() stops the provider, saves what changed, deletes the
- * timer and then this app's root - so no callback can arrive after the app
- * is freed, whatever the shell deletes later.
+ * SOUND. An armed guard with Visit sound on asks db_sound for one chime per
+ * new visit the brain logs (sound_step); it never waits for audio.
+ *
+ * LIFETIME. destroy() stops the provider and any chime, saves what changed,
+ * deletes the timer and then this app's root - so no callback can arrive
+ * after the app is freed, whatever the shell deletes later.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0

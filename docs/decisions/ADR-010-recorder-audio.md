@@ -157,3 +157,48 @@ Evidence: both WAVs accepted and played to the end by the real `pos-record`
 the refusal while sounding and the stop: VERIFIED on the host by
 `tests/rift_notify_test.c` against a stand-in helper. On the K230 speaker:
 see the RIFT gate notes; audibility is for the owner to judge.
+
+## Amendment 2 (PROPOSED 2026-10-22): DeskBuddy's visit sound through pos-record
+
+Status: Proposed on branch `feat/deskbuddy-guard-sound`, for the product
+owner to accept or refuse with that PR. Until accepted, the PR stays a
+draft.
+
+Context: the owner asked for an optional sound when an armed DeskBuddy
+Guard logs a new visit, "reusing existing supported DOORS audio
+facilities, respecting volume, mute and audio ownership", explicitly
+without "a general audio redesign". Amendment 1 named "a second app
+wanting notification sounds" as the point to revisit, with a platform
+sound API or `audiod` as the options.
+
+Decision (proposed): DeskBuddy becomes a fourth client of the same narrow
+exception, exactly as RIFT is, and the revisit is recorded rather than
+built:
+
+- DeskBuddy writes one WAV (48 kHz mono 16-bit, 360 ms including a 30 ms
+  silent lead-in, peak under `POCKETAUDIO_PEAK_CEILING`) into
+  `$POCKETOS_RUNTIME_DIR/deskbuddy/` from code (`db_sound_tone_render`), and
+  starts `/usr/bin/pos-record play --volume-percent <effective system
+  volume> <file>` with the Recorder's and RIFT's spawn shape
+  (`apps/deskbuddy/db_sound_helper.c`): socketpair stdin/stdout,
+  PR_SET_PDEATHSIG, inherited descriptors closed, bounded stop,
+  `pos-record recover` detached after a SIGKILL.
+- Off by default (`guard_sound=0`). Only while DeskBuddy's screen is open
+  and the guard is armed; one sound per new visit line; one at a time,
+  never queued, never mixed; nothing while muted.
+- `tests/deskbuddy_lint.sh` (section 9) holds the boundary: only that file
+  forks or execs, only pos-record by execv, only `play` and `recover`, its
+  file only in the runtime directory, nothing in DeskBuddy opens audio.
+
+Why not the platform sound API now: the trigger Amendment 1 named is met,
+but the API would be the general audio redesign the owner excluded for
+this change. Two apps now carry a copy of the same ~150-line spawn helper
+(RIFT, DeskBuddy); a third app wanting a notification sound, or any sound
+outside an app's own screen (a guard that watches with the app closed),
+should come with a shared shell sound API instead of a third copy.
+
+Evidence: the spawn, refusal while sounding, stop and the WAV: VERIFIED on
+the host by `tests/db_sound_test.c` against a stand-in helper. On unit B
+(2026-10-22, temporary shell `319ec18b`): the real `pos-record` played
+the chime for a visit and exited 0, and the owner heard it
+(docs/apps/DESKBUDDY.md, "Unit B, 2026-10-22: the visit sound").
