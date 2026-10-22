@@ -103,6 +103,8 @@ enum pos_style_role {
     POS_STYLE_ENV_ICON,            /* full-colour portal icons: dimmed with the photograph in Night */
     POS_STYLE_SCREEN_OFF,          /* the screen-off cover (DS §52.4): opaque black in every theme and mode */
     POS_STYLE_SCAN_SURFACE,        /* behind a code a camera reads: opaque pure white in every theme and mode */
+    POS_STYLE_GAME_SCENE,          /* behind Relay Nine's scene: its own palette's backdrop in every theme and mode */
+    POS_STYLE_GAME_HUD_TEXT,       /* Relay Nine's HUD and message text colour (no font) in every theme and mode */
     /* Semantic variants: neutral for existing themes, luminous for Neon. */
     POS_STYLE_READING_CONTROL,
     POS_STYLE_BUTTON_GLYPH,

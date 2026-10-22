@@ -28,6 +28,9 @@
 # receive logs printed at the end of `send`: B's copy of the text packet and
 # whatever A heard repeated. An ACK may come back by B's learned route or by
 # flood; it need not retrace the selected hops.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 PHASE=${1:?phase: check|preview|refuse|send|auto}
 A=${2:?host A (sender)}

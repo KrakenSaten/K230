@@ -1,7 +1,8 @@
 # Known issues and open questions
 
-Updated 2026-10-17 for v0.3.7 (tag `v0.3.7`; docs/releases/v0.3.7.md),
-following v0.3.6 (tag `v0.3.6`; docs/releases/v0.3.6.md) and v0.3.5 (tag
+Updated 2026-10-22 for v0.3.8 (docs/releases/v0.3.8.md), following v0.3.7
+(tag `v0.3.7`; docs/releases/v0.3.7.md), v0.3.6 (tag `v0.3.6`;
+docs/releases/v0.3.6.md) and v0.3.5 (tag
 `v0.3.5`; docs/releases/v0.3.5.md; the
 v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
@@ -17,6 +18,25 @@ history when resolved.
 - **RIFT's BASEMAP** (0.3.7, off by default) fetches OpenStreetMap tiles
   when on; Wi-Fi off and a unit without a set clock are untested on
   hardware.
+- **Relay Nine** (0.3.8, docs/apps/RELAY_NINE_DEVICE.md): no physical
+  keyboard has been used with it on hardware (Q and rollover untested), and
+  the BREACH-2 shotgun's pickup, switching, firing and reload were not
+  exercised on the device.
+- **DeskBuddy presence on unit B** (0.3.8, docs/apps/DESKBUDDY.md, "Visit
+  sound"): in both visit-sound runs R0 reported a person at the desk in
+  every report while the owner said they had left; earlier the same day it
+  reported the desk empty. Not diagnosed. A second visit after a departure
+  is host-tested only.
+- **RIFT explicit routes** (0.3.8, docs/validation/RIFT_EXPLICIT_PATH_P0.md,
+  RIFT_VISUAL_PATH_BUILDER.md): a route chosen in RIFT has not been carried
+  by a physical repeater; one zero-relay direct message is the only radio
+  result. The UI's own send is unverified on hardware.
+- **A clean SDK output does not build from master** (found 2026-10-20):
+  Buildroot's toolchain check refuses the Xuantie toolchain's Fortran, then
+  `camera_rtsp_demo` cannot install. Fixed on
+  `fix/fresh-build-fortran-toolchain` (not merged); the 0.3.8 image was
+  built on an SDK output first built from that branch (docs/releases/v0.3.8.md,
+  "Release image").
 
 - **Vision's R0 detector is a beta and misses things** (v0.3.6,
   docs/apps/VISION.md "The model"). It can miss vehicles, including cars in
@@ -26,12 +46,6 @@ history when resolved.
   It detects only car, truck, bus, motorcycle, bicycle and person. Its
   weights are Apache-2.0 (owner decision 2026-10-09); the third-party
   questions that decision does not settle are in MODEL_LICENSES.md.
-- **DeskBuddy does not use R0** (v0.3.6, v0.3.7): its provider opens the
-  helper's default model, `yolov8n.kmodel`, which no image ships, so without
-  face models it reports NO VISION YET as on 0.3.5 (docs/apps/DESKBUDDY.md).
-  Fixed on `feat/deskbuddy-camera-presence` (not yet in a release): the
-  provider names R0, and BUDDY can use it for presence. Run on unit B with a
-  temporary shell on 2026-10-22 (real camera, R0 person detection).
 - **Stopping a camera stream can freeze the whole unit** until it is
   power-cycled (the camera lock-up under "Hardware and BSP" and "Vision"
   below; summary in docs/releases/v0.3.6.md). No number of open/close
