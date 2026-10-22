@@ -29,7 +29,15 @@ static void wall(struct rn_frame *f,int x,int clip0,int clip1,double z0,double z
     if(z1<=z0||t<=.001)return;
     double y0=RN_H/2+(eye-z1)*focal/t,y1=RN_H/2+(eye-z0)*focal/t;
     int start=(int)fmax(clip0,ceil(y0)),end=(int)fmin(clip1,floor(y1));
-    for(int y=start;y<=end;y++){double z=eye-(y-RN_H/2)*t/focal;put(f,x,y,t,lit(rn_texture(material,(int)floor(u*32),(int)floor(z*32),light),room));}
+    /* Constant column depth and texture U; reject hidden pixels before shading. */
+    unsigned depth=(unsigned)fmin(65534,t*512);
+    int tx=(int)floor(u*32);
+    for(int y=start;y<=end;y++){
+        int p=y*RN_W+x;if(depth>=f->depth[p])continue;
+        double z=eye-(y-RN_H/2)*t/focal;
+        f->depth[p]=(uint16_t)depth;
+        f->pixels[p]=lit(rn_texture(material,tx,(int)floor(z*32),light),room);
+    }
 }
 static void sprite(const struct rn_game *g,struct rn_frame *f,double sx,double sy,double sz,double height,int kind,int phase,int facing,int state)
 {
