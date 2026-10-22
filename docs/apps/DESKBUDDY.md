@@ -687,3 +687,37 @@ visit was logged. The second chime the owner heard was not started by this
 shell (no process, no log line); its source is not established. A new
 visit after a real departure is therefore covered by the host tests only
 (`db_brain_test`, `deskbuddy_app_test`), not on the unit.
+
+**Unit B, 2026-10-22, second speaker check** (the same binary `319ec18b`,
+kit and restore; PR head `dbde396`, docs only after it). The owner was asked
+once to leave the view with nobody else in it and to come back.
+
+*Device evidence (UTC).* The trace ran from 09:42:22 to 09:43:05.
+
+| Time | Evidence |
+| --- | --- |
+| 09:42:24-09:42:25 | DeskBuddy opened armed with `guard_sound=1`; `pos-vision` on R0 |
+| 09:42:26 | person track 1 appears at the desk (box 33,29 28x22 in the 64 px view, score about 0.9) |
+| 09:42:30.07 | `pos-record` started for the visit logged at open; exit 0 at 09:42:30.80 |
+| 09:42:26-09:43:05 | track 1 in **every** report, box steady within 1 px (510 reports); two weak extra tracks (0.38-0.48) at the left edge until 09:42:41; never 0 people |
+| to 09:43:05 | one `guard.v1` line, no second `pos-record` start |
+| 09:43:43 | DeskBuddy closed: no `pos-vision` or `pos-record` left |
+
+*Owner observations.* Nobody else was in view; the owner left and came
+back, heard exactly one chime after coming back and nothing while staying.
+
+*What the evidence supports.* The one chime DeskBuddy played was the visit
+logged at open (09:42:30), and the owner heard a single chime. The camera
+never reported the desk empty: a track that did not move by more than a
+pixel for 40 s stayed at the desk, which R0 took for a person (an object at
+the desk, or the owner not yet out of view - the evidence cannot tell
+which). The owner's reply came about 25 s after the request, shorter than
+the 30 s away and 20 s back asked for. So the alert for a **new visit after
+a departure** is still not shown on the unit; it rests on the host tests,
+and the chime path itself (pos-record, real speaker, owner-heard, no
+repeat while present) is shown on the unit twice.
+
+*Restore.* `RESTORE: OK`: installed shell supervised; settings (volume and
+mute), `prefs.v1` and Vision `settings.v1` byte-identical; the test's
+`guard.v1` and `/run/pocketos/deskbuddy` removed (both absent before); no
+camera or audio helper left; meshcored the same process.
