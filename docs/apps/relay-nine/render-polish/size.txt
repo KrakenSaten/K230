@@ -1,0 +1,4 @@
+   text	   data	    bss	    dec	    hex	filename
+  46451	    888	 433152	 480491	  754eb	work/render-polish/before/replay
+  47107	    888	 452448	 500443	  7a2db	work/render-polish/perf-replay
+  48699	    888	 452448	 502035	  7a913	work/render-polish/final-replay
