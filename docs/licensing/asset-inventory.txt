@@ -129,6 +129,7 @@ docs/design/shots/timber-run-placeholder.png                                    
 docs/design/shots/timber-run-slate.png                                                       ORIGINAL        simulator capture changed before 2026-09-15 09:09
 docs/design/shots/timber-run.png                                                             ORIGINAL        simulator capture changed before 2026-09-15 09:09
 docs/design/shots/*                                                                          CAPTURE         simulator or unit capture changed on or after 2026-09-15 09:09
+docs/apps/neon-outpost/proposal/relay-nine-concept.png                                        OWNER-AI-RASTER ChatGPT-generated concept, 2026-10-22; not engine output; provenance in docs/apps/NEON_OUTPOST_NEXT_PROPOSAL.md
 docs/apps/*                                                                                  CAPTURE         app documentation captures
 docs/validation/*.png                                                                        CAPTURE         simulator captures recorded with a validation report
 docs/design/astra-handoff/*                                                                  CAPTURE         simulator renders for the design hand-off
