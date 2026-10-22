@@ -67,6 +67,7 @@ add_executable(pocketos-shell
     ${NEON_SOURCES}
     ${REPO_DIR}/apps/neon-outpost/neon_app.c
     ${REPO_DIR}/apps/neon-outpost/relay_audio.c
+    ${REPO_DIR}/apps/neon-outpost/relay_stats.c
     ${POKER_ENGINE_SOURCES}
     ${POKER_APP_SOURCES}
     shell.c
@@ -1718,6 +1719,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/neon_app_test.c
         ${REPO_DIR}/apps/neon-outpost/neon_app.c
         ${REPO_DIR}/apps/neon-outpost/relay_audio.c
+        ${REPO_DIR}/apps/neon-outpost/relay_stats.c
         ${NEON_SOURCES} ${GAMES_APP_TEST_UI})
     target_include_directories(neon_app_test PRIVATE "${REPO_DIR}/apps/neon-outpost")
     foreach(game_test neon_app_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)

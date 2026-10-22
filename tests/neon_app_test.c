@@ -11,6 +11,7 @@
 #include <math.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <unistd.h>
 static unsigned checks;static bool off,locked;static int motion;
 #define CHECK(x) do{checks++;if(!(x)){fprintf(stderr,"FAIL %d %s\n",__LINE__,#x);abort();}}while(0)
 bool shell_power_screen_off(void){return off;}bool shell_lock_is_locked(void){return locked;}
@@ -110,5 +111,11 @@ int main(void)
     }
     point=(lv_point_t){0,0};
     for(int i=0;i<12;i++){lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_set_pos(body,12,90);lv_obj_set_size(body,512,560);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);int base=timers();void *a=app_neon_outpost.create(body);pump(40);touch(a,7,50,.5,.5);CHECK(!neon_app_game(a)->paused);pos_input_game_event(1,26,'w',true);app_neon_outpost.destroy(a);lv_obj_delete(body);pos_input_game_event(1,26,0,false);pump(30);CHECK(timers()==base);errno=0;CHECK(waitpid(-1,NULL,WNOHANG)==-1&&errno==ECHILD);}
+    /* Opt-in device timing: a summary with every field, and nothing left on the display once closed. */
+    {char path[]="/tmp/relay-stats-XXXXXX";int fd=mkstemp(path);CHECK(fd>=0);close(fd);setenv("DOORS_RELAY_STATS",path,1);uint32_t events=lv_display_get_event_count(d);
+     lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_set_size(body,512,560);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);void *a=app_neon_outpost.create(body);CHECK(lv_display_get_event_count(d)>events);
+     pump(40);touch(a,7,50,.5,.5);pump(400);app_neon_outpost.destroy(a);lv_obj_delete(body);unsetenv("DOORS_RELAY_STATS");pump(40);CHECK(lv_display_get_event_count(d)==events);
+     char text[4096]={0};FILE *f=fopen(path,"r");CHECK(f);CHECK(fread(text,1,sizeof(text)-1,f)>0);fclose(f);unlink(path);
+     CHECK(strstr(text,"interval_ms=")&&strstr(text,"game_ms=")&&strstr(text,"scene_ms=")&&strstr(text,"refresh_ms=")&&strstr(text,"draw_ms=")&&strstr(text,"flush_ms=")&&strstr(text,"# closed"));}
     pos_input_deinit();lv_indev_delete(p);lv_display_delete(d);lv_deinit();printf("relay_app_test: %u checks passed\n",checks);return 0;
 }
