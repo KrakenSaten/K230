@@ -5,11 +5,15 @@
 #      from a provider, and that is the whole contract;
 #   2. the core (brain, face, guard log, preferences, vision queue and mock)
 #      is pure: no LVGL, no I/O, no clock of its own;
-#   3. db_store.c is the only file that touches the filesystem;
+#   3. db_store.c is the only file that touches the state directory, and
+#      db_sound_helper.c (9) the only one that writes anything else: its one
+#      WAV in the runtime directory;
 #   4. the identity interface is declarations only: no recognizer exists in
 #      v0.1, and no embedding reaches the brain or the screen;
 #   5. no colour or font is named (style_lint.sh covers every app);
-#   6. the app is registered, built and tested.
+#   6. the app is registered, built and tested;
+#   9. the visit sound goes through pos-record, the existing audio path
+#      (ADR-010), from one file, and is asked for in one place.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0
@@ -134,6 +138,40 @@ check "the gesture classifier knows nothing of vision or the brain" "$([ -z "$hi
 hits=$(awk '/^bool db_brain_stimulus\(/,/^}/' $APP/db_brain.c | strip_prose | grep -nE 'db_vision|seen')
 check "a stimulus never stands in for what vision saw" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
+
+# ---- 9. the visit sound ---------------------------------------------------------------
+# One short chime for a new visit, through pos-record play, as RIFT's message
+# sounds (ADR-010 Amendment 2). DeskBuddy never opens audio itself.
+SOUND="$APP/db_sound.c $APP/db_sound.h $APP/db_sound_helper.c"
+for f in $SOUND; do
+    check "$f exists" "$([ -f "$f" ] && echo 1 || echo 0)"
+done
+spawners=$(grep -rlE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' $APP | sort | tr '\n' ' ')
+check "db_sound_helper.c is the only DeskBuddy file that starts a process" \
+    "$([ "$spawners" = "$APP/db_sound_helper.c " ] && echo 1 || echo 0)"
+check "that process is pos-record, by execv, never a shell" \
+    "$(grep -q '#define HELPER_DEFAULT "/usr/bin/pos-record"' $APP/db_sound_helper.c &&
+       ! code $APP/db_sound_helper.c | grep -nE '\b(popen|system|execl[pe]?|execvp)\(|"/bin/sh"' >/dev/null &&
+       echo 1 || echo 0)"
+check "and only to play or recover" \
+    "$(code $APP/db_sound_helper.c | grep -oE '"(play|recover|record|stop|status)"' | sort -u | tr '\n' ' ' |
+       grep -qx '"play" "recover" ' && echo 1 || echo 0)"
+check "its one file is in the runtime directory, never the state directory" \
+    "$(grep -q 'pocketos_runtime_dir()' $APP/db_sound_helper.c && ! grep -q 'pocketos_state_dir' $APP/db_sound_helper.c &&
+       echo 1 || echo 0)"
+hits=$(code $ALL $SOUND | grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketaudio|alsa/|asoundlib)')
+check "nothing in DeskBuddy opens audio" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits" | head -3
+SOUNDSTEP=$(awk '/^static void sound_step\(/,/^}/' $APP/deskbuddy_app.c | strip_prose)
+check "the screen asks for it in one place, when the brain says a new visit is to be heard" \
+    "$(printf '%s\n' "$SOUNDSTEP" | grep -q 'db_brain_take_visit_alert' &&
+       [ "$(code $APP/deskbuddy_app.c | grep -c 'db_sound_play(')" = 1 ] &&
+       printf '%s\n' "$SOUNDSTEP" | grep -q 'db_sound_play(' && echo 1 || echo 0)"
+check "at the system volume (0 while muted)" \
+    "$(printf '%s\n' "$SOUNDSTEP" | grep -q 'pocketos_shell_volume_effective()' && echo 1 || echo 0)"
+check "and stops it in destroy" \
+    "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_sound_stop()' && echo 1 || echo 0)"
+check "the switch starts off" \
+    "$(grep -q 'p->on\[DB_PREF_GUARD_SOUND\] = false;' $APP/db_prefs.c && echo 1 || echo 0)"
 
 echo "deskbuddy_lint: $failed failure(s)"
 exit $((failed > 0))

@@ -1152,7 +1152,7 @@ DB_CORE_OBJS := $(DB_DIR)/db_brain.o $(DB_DIR)/db_face.o $(DB_DIR)/db_gesture.o 
                 $(DB_DIR)/db_prefs.o $(DB_DIR)/db_vision.o $(DB_DIR)/db_vision_mock.o
 DB_STORE_OBJS := $(DB_DIR)/db_store.o $(PATHS_OBJS)
 DESKBUDDY_TESTS := tests/db_brain_test tests/db_personality_test tests/db_vision_test tests/db_guard_test \
-                   tests/db_pipeline_test
+                   tests/db_pipeline_test tests/db_sound_test
 # The bridge to Vision (apps/deskbuddy_vision): the one place DeskBuddy's
 # boundary and Vision's helper client meet.
 DBV_DIR := apps/deskbuddy_vision
@@ -1184,8 +1184,15 @@ tests/db_vision_test: tests/db_vision_test.o $(DB_CORE_OBJS)
 tests/db_guard_test: tests/db_guard_test.o $(DB_CORE_OBJS) $(DB_STORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# The visit sound: the seam, the chime, and the pos-record backend against a
+# stand-in helper.
+tests/db_sound_test: tests/db_sound_test.o $(DB_DIR)/db_sound.o $(DB_DIR)/db_sound_helper.o \
+                     core/pocketwav/pocketwav.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_personality_test && ./tests/db_vision_test && \
-                     ./tests/db_guard_test && ./tests/db_pipeline_test tools/vision/pos-vision
+                     ./tests/db_guard_test && ./tests/db_pipeline_test tools/vision/pos-vision && \
+                     ./tests/db_sound_test
 
 # DeskBuddy on its own, for a focused run.
 deskbuddy-test: $(DESKBUDDY_TESTS) tools/vision/pos-vision

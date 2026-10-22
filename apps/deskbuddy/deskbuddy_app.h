@@ -35,6 +35,8 @@ lv_obj_t *deskbuddy_app_eye(void *priv, int index);
 unsigned deskbuddy_app_face_paints(void *priv);
 /* How many times the timer has run: the wake-up budget. */
 unsigned deskbuddy_app_steps(void *priv);
+/* Visit sounds started this open (db_sound.h). */
+unsigned deskbuddy_app_sound_starts(void *priv);
 
 /* Personality (Companion): FEED / GIVE, REST / WAKE, the snack, the mouth
  * and the group that holds the eyes and the mouth. */

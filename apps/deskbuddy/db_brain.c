@@ -451,6 +451,7 @@ static void log_visitor(struct db_brain *b, enum db_subject subject, int16_t con
     e = db_guard_add(b->log, wall, subject, conf, false);
     b->visit_id = e ? e->id : 0;
     b->log_rev++;
+    b->visits++;
 }
 
 static void visit_ended(struct db_brain *b, int64_t now)
@@ -611,6 +612,18 @@ bool db_brain_acknowledge(struct db_brain *b, int64_t now_ms)
     }
     enter(b, DB_ST_GUARD_DISARMED, now_ms);
     return true;
+}
+
+bool db_brain_take_visit_alert(struct db_brain *b)
+{
+    bool fresh;
+
+    if (!b) {
+        return false;
+    }
+    fresh = b->visits != b->visits_taken;
+    b->visits_taken = b->visits;
+    return fresh && db_state_armed(b->state) && b->prefs.on[DB_PREF_GUARD_SOUND];
 }
 
 /* ---- vision ------------------------------------------------------------------------ */
