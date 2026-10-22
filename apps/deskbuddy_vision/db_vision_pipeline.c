@@ -6,8 +6,10 @@
  */
 #include "db_vision_pipeline.h"
 
+#include "pocketvision/vision_labels.h"
 #include "vision_session.h"
 #include "vision_settings.h"
+#include "vision_store.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -115,9 +117,28 @@ struct pipeline {
     bool unavailable_said;
     bool have_owner;
     uint32_t caps;   /* the helper's modes, from its caps line */
-    int rotation;
+    int rotation;    /* the hold the helper was last told */
+    const struct db_vision_pipeline_cfg *cfg;
     uint16_t px[PIPELINE_VIEW_W * PIPELINE_VIEW_H];
 };
+
+int db_vision_pipeline_detector(void)
+{
+    struct vision_settings set;
+
+    /* The detector Vision last confirmed, picked the way Vision opens it;
+     * the defaults (R0) when Vision has no settings yet. */
+    vision_store_load(&set);
+    return vision_detector_pick(set.detector, vision_store_detector_files());
+}
+
+bool db_vision_pipeline_is_person(uint32_t cls)
+{
+    /* By the class's name, as TRAFFIC maps the detector's classes
+     * (vision_traffic_map_names): R0 and UPSTREAM both score COCO's rows
+     * (person is row 0), but the name is what says so. */
+    return strcmp(vision_label(cls), "person") == 0;
+}
 
 static struct pipeline pipe_state;
 
@@ -144,14 +165,23 @@ static int pipeline_start(void *ctx, int64_t now_ms, struct db_vision_queue *q)
     const struct db_vision_pipeline_cfg *cfg = ctx;
     struct vision_session_config vc = { 0 };
     char err[96];
+    int d;
 
     if (p->running) {
         vision_session_abandon(&p->s, PIPELINE_GRACE_MS);
     }
     memset(p, 0, sizeof(*p));
     vision_session_init(&p->s);
+    p->cfg = cfg;
     p->rotation = cfg ? cfg->display_rotation : 0;
     db_judge_init(&p->judge, false);
+    /* The detector the image ships (R0), by Vision's own choice: without a
+     * model named the helper would look for its old default, which no image
+     * carries, and DETECT would never be offered. */
+    d = db_vision_pipeline_detector();
+    if (d >= 0) {
+        vc.model = vision_store_detector_path((enum vision_detector)d);
+    }
     if (strcmp(vision_session_backend(), "fake") == 0) {
         vc.fake = getenv("POCKETOS_CAMERA_FAKE");
         vc.kpu = getenv("POCKETOS_VISION_KPU_SCRIPT");
@@ -209,6 +239,13 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
     if (!p->running) {
         return -1;
     }
+    /* The unit turned while DeskBuddy is open (on an external display the
+     * shell does not restart for it): the helper is told the new hold, as
+     * Vision tells its own. */
+    if (p->cfg && p->mode != PIPE_NONE && p->cfg->display_rotation != p->rotation) {
+        p->rotation = p->cfg->display_rotation;
+        vision_session_view_whole(&p->s, PIPELINE_VIEW_W, PIPELINE_VIEW_H, p->rotation);
+    }
     while (vision_session_poll(&p->s, &ev, now_ms)) {
         struct db_judge_report r;
 
@@ -234,8 +271,9 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
                 const struct vision_shown *t = vision_session_tracks(&p->s, &n, NULL);
 
                 for (i = 0; i < n; i++) {
-                    /* A face is a person; so is COCO's class 0. */
-                    r.present += p->mode == PIPE_FACE || t[i].cls == 0;
+                    /* A face is a person; of the detector's boxes, only a
+                     * person's: a car or a bicycle is nobody. */
+                    r.present += p->mode == PIPE_FACE || db_vision_pipeline_is_person(t[i].cls);
                 }
                 if (db_judge_report(&p->judge, &r, now_ms, &out)) {
                     db_vision_queue_push(q, &out);

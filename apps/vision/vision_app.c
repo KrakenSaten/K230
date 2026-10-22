@@ -68,21 +68,8 @@
  * (vision_session.h); longer while it is still opening a model. */
 #define VISION_DESTROY_GRACE_MS VISION_LEAVE_GRACE_MS
 #define VISION_LABEL_MAX 48
-/* The detector files Vision knows by name (docs/apps/VISION.md, "The
- * model"): R0, which the image carries from 0.3.6, and UPSTREAM, which only a
- * bench unit is given by hand. Each is overridable for the simulator. Not
- * "yolo*": the image's refusal of the SDK's Ultralytics models goes by that
- * name. */
-#define VISION_DET_DIR "/usr/share/doors/vision/"
+/* The detector files are vision_store.h's (vision_store_detector_path). */
 #define VISION_DET_STATS_LOG_MS 10000
-static const char *const det_files[VISION_DETECTORS] = {
-    VISION_DET_DIR "det-r0-traffic6-yolox-tiny-416.kmodel",
-    VISION_DET_DIR "det-upstream-yolox-tiny-416.kmodel",
-};
-static const char *const det_envs[VISION_DETECTORS] = {
-    "POCKETOS_VISION_MODEL_R0",
-    "POCKETOS_VISION_MODEL_UPSTREAM",
-};
 
 struct vision_picture {
     lv_image_dsc_t dsc;
@@ -727,27 +714,6 @@ static void repaint(struct vision_app *a)
 static void do_actions(struct vision_app *a, unsigned acts);
 static void layout(struct vision_app *a);
 
-static const char *det_path(int d)
-{
-    const char *env = getenv(det_envs[d]);
-
-    return env && *env ? env : det_files[d];
-}
-
-/* The A/B detector files on the unit now: a bit per enum vision_detector. */
-static uint32_t det_present(void)
-{
-    uint32_t bits = 0;
-    int d;
-
-    for (d = 0; d < VISION_DETECTORS; d++) {
-        if (access(det_path(d), R_OK) == 0) {
-            bits |= 1u << d;
-        }
-    }
-    return bits;
-}
-
 static void start_session(struct vision_app *a)
 {
     struct vision_session_config cfg = { 0 };
@@ -759,7 +725,7 @@ static void start_session(struct vision_app *a)
     if (d >= 0) {
         /* The old helper, and the detector it held, are gone before the
          * next one opens: only one detector is ever loaded. */
-        cfg.model = det_path(d);
+        cfg.model = vision_store_detector_path((enum vision_detector)d);
         LOG_INFO("vision: detector %s: starting the helper on %s (the last one left: %d, %lld ms)",
                  vision_detector_name((enum vision_detector)d), cfg.model, (int)left, (long long)(now_ms() - t0));
         a->det_logged = -1;
@@ -994,7 +960,7 @@ static void on_model(lv_event_t *e)
 {
     struct vision_app *a = lv_event_get_user_data(e);
     int was = a->model.det_active;
-    unsigned acts = vision_model_model_button(&a->model, det_present());
+    unsigned acts = vision_model_model_button(&a->model, vision_store_detector_files());
 
     if (acts) {
         LOG_INFO("vision: detector %s asked for (was %s)",
@@ -1372,7 +1338,7 @@ static void *vision_create(lv_obj_t *root)
     }
     {
         /* The detector files: R0 on every 0.3.6 card, UPSTREAM by hand. */
-        uint32_t present = det_present();
+        uint32_t present = vision_store_detector_files();
 
         a->det_logged = -1;
         vision_model_set_detector_files(&a->model, present);

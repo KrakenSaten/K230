@@ -160,10 +160,9 @@ unsigned vision_model_open(struct vision_model *m)
     if (m->det_files) {
         /* The detector last confirmed, or the other one when its file has
          * gone; either way the other one is where a failure goes back to. */
-        int d = m->set.detector;
+        int d = vision_detector_pick(m->set.detector, m->det_files);
 
-        if (!det_present(m, d)) {
-            d = det_other(d);
+        if (d != (int)m->set.detector) {
             snprintf(m->det_fail, sizeof(m->det_fail), "%s is not on this unit. Using %s.",
                      vision_detector_name(m->set.detector), vision_detector_name((enum vision_detector)d));
         }

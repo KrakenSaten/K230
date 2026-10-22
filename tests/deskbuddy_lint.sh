@@ -89,7 +89,11 @@ check "the developer keys and the script exist only behind \$DESKBUDDY_SIM" \
 BRIDGE=apps/deskbuddy_vision
 check "the bridge includes DeskBuddy's boundary and Vision's helper client" \
     "$(code $BRIDGE/*.c $BRIDGE/*.h | grep -q '#include "db_vision' && code $BRIDGE/*.c | grep -q '#include "vision_session.h"' && echo 1 || echo 0)"
-hits=$(code $BRIDGE/*.c $BRIDGE/*.h | grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketcam|pocketvision|vision_kpu|vision_app|vision_model|lvgl|lv_|pocketui)')
+# Two more of Vision's are allowed, neither a camera nor a model: its store,
+# for the detector file it would open (vision_store.h), and the detector's
+# compiled class names, so a person is told by name (vision_labels.h).
+hits=$(code $BRIDGE/*.c $BRIDGE/*.h | grep -v '#include "pocketvision/vision_labels.h"' |
+       grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketcam|pocketvision|vision_kpu|vision_app|vision_model|lvgl|lv_|pocketui)')
 check "and nothing else of Vision, the camera, the models or the screen" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
 hits=$(code $BRIDGE/*.c | grep -nE "$IO")
@@ -101,9 +105,13 @@ check "DeskBuddy picks it unless simulated or \$DESKBUDDY_VISION is none" \
     "$(awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void choose_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
 check "stop() is called in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'provider.ops->stop' && echo 1 || echo 0)"
-# Companion plays by touch: the camera is started only for Guard and Night,
-# in one place, and stopped again on the way back to Companion.
-SYNC=$(awk '/^static void sync_provider\(struct deskbuddy_app \*a, int64_t now\)$/,/^}/' $APP/deskbuddy_app.c | strip_prose)
+# The camera is started for Guard and Night, and for Companion only with
+# Camera presence on (camera_wanted), in one place, and stopped again on the
+# way back to a Companion without it.
+SYNC=$( (awk '/^static bool camera_wanted\(/,/^}/' $APP/deskbuddy_app.c
+         awk '/^static void sync_provider\(struct deskbuddy_app \*a, int64_t now\)$/,/^}/' $APP/deskbuddy_app.c) | strip_prose)
+check "camera_wanted names Companion's switch" \
+    "$(printf '%s\n' "$SYNC" | grep -q 'DB_PREF_CAMERA_PRESENCE' && echo 1 || echo 0)"
 check "the provider is started and stopped only by the mode (sync_provider)" \
     "$(printf '%s\n' "$SYNC" | grep -q 'DB_MODE_COMPANION' && printf '%s\n' "$SYNC" | grep -q 'ops->start' &&
        printf '%s\n' "$SYNC" | grep -q 'ops->stop' &&

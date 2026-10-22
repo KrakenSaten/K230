@@ -100,10 +100,12 @@ extern const struct db_vision_provider_ops db_vision_none_ops;
 
 /* The provider on the Vision pipeline (apps/deskbuddy_vision, the bridge;
  * DeskBuddy itself includes nothing of Vision). Its ctx is a
- * db_vision_pipeline_cfg: the display's rotation, so the camera's picture
- * is looked at upright. */
+ * db_vision_pipeline_cfg: how the unit is held (app.h hold_rotation: the
+ * panel's rotation, or on an external display the mode's and keyboard's),
+ * so the camera's picture is looked at upright. The app keeps it current
+ * and the provider follows a change while it runs. */
 struct db_vision_pipeline_cfg {
-    int display_rotation;   /* 0, 90, 180, 270 */
+    int display_rotation;   /* the hold: 0, 90, 180, 270 */
 };
 extern const struct db_vision_provider_ops db_vision_pipeline_ops;
 
