@@ -2839,3 +2839,11 @@ meshcored-clean:
         meshcored meshcored-test meshcored-clean meshcored-shipping-check \
         recorder-test recorder-san-test vision-test vision-san-test games-test deskbuddy-test mp3-test mp3-san-test \
         terminal-test terminal-san-test photo-test photo-san-test
+
+# Neon Outpost has no engine dependency beyond the C library and libm.
+.PHONY: neon-outpost-test neon-outpost-san-test
+neon-outpost-test:
+	CC=$(CC) bash tests/neon_outpost_test.sh
+	bash tests/neon_outpost_lint.sh
+neon-outpost-san-test:
+	CC=$(CC) NEON_BUILD_DIR=out/neon-outpost-san NEON_SANITIZE=1 bash tests/neon_outpost_test.sh

@@ -58,7 +58,13 @@ set(POKER_APP_SOURCES
     ${REPO_DIR}/apps/poker/ui/poker_view.c
     ${REPO_DIR}/apps/poker/ui/poker_table.c)
 
+set(NEON_SOURCES
+    ${REPO_DIR}/apps/neon-outpost/neon.c
+    ${REPO_DIR}/apps/neon-outpost/neon_render.c)
+
 add_executable(pocketos-shell
+    ${NEON_SOURCES}
+    ${REPO_DIR}/apps/neon-outpost/neon_app.c
     ${POKER_ENGINE_SOURCES}
     ${POKER_APP_SOURCES}
     shell.c
@@ -1696,7 +1702,12 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${GAMES_APP_TEST_UI})
     target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"
                                "${REPO_DIR}/apps/deskbuddy_vision" "${REPO_DIR}/apps/vision")
-    foreach(game_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)
+    add_executable(neon_app_test
+        ${REPO_DIR}/tests/neon_app_test.c
+        ${REPO_DIR}/apps/neon-outpost/neon_app.c
+        ${NEON_SOURCES} ${GAMES_APP_TEST_UI})
+    target_include_directories(neon_app_test PRIVATE "${REPO_DIR}/apps/neon-outpost")
+    foreach(game_test neon_app_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)
         target_include_directories(${game_test} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
         target_compile_options(${game_test} PRIVATE -Wall -Wextra)
