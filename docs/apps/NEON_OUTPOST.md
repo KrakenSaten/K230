@@ -1,9 +1,11 @@
 <!-- Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0 -->
 # Neon Outpost
 
-**Implementation paused (2026-10-22).** This page records the preserved prototype.
-The [next implementation proposal](NEON_OUTPOST_NEXT_PROPOSAL.md) replaces its
-product and engine direction; the redesign is not implemented. PR #104 stays draft.
+**Historical prototype, superseded on PR #104 (2026-10-22).** This page and
+`neon.c` / `neon_render.c` record the preserved flat-grid prototype. They are
+not the current game. See [Relay Nine: implemented game and validation](RELAY_NINE.md).
+The launcher now displays Relay Nine; the internal app ID remains `neon-outpost`.
+All behavior and results below describe the earlier prototype only.
 
 An original, short, single-player software-raycast FPS for Doors. Open **Games →
 Neon Outpost**, read the help and press **PLAY** (Enter on a keyboard). Clear a

@@ -59,12 +59,14 @@ set(POKER_APP_SOURCES
     ${REPO_DIR}/apps/poker/ui/poker_table.c)
 
 set(NEON_SOURCES
-    ${REPO_DIR}/apps/neon-outpost/neon.c
-    ${REPO_DIR}/apps/neon-outpost/neon_render.c)
+    ${REPO_DIR}/apps/neon-outpost/relay.c
+    ${REPO_DIR}/apps/neon-outpost/relay_render.c
+    ${REPO_DIR}/apps/neon-outpost/relay_art.c)
 
 add_executable(pocketos-shell
     ${NEON_SOURCES}
     ${REPO_DIR}/apps/neon-outpost/neon_app.c
+    ${REPO_DIR}/apps/neon-outpost/relay_audio.c
     ${POKER_ENGINE_SOURCES}
     ${POKER_APP_SOURCES}
     shell.c
@@ -1705,6 +1707,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(neon_app_test
         ${REPO_DIR}/tests/neon_app_test.c
         ${REPO_DIR}/apps/neon-outpost/neon_app.c
+        ${REPO_DIR}/apps/neon-outpost/relay_audio.c
         ${NEON_SOURCES} ${GAMES_APP_TEST_UI})
     target_include_directories(neon_app_test PRIVATE "${REPO_DIR}/apps/neon-outpost")
     foreach(game_test neon_app_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)
@@ -1718,6 +1721,15 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         endif()
         target_link_libraries(${game_test} PRIVATE lvgl ${SDL2_LIBRARIES} m)
     endforeach()
+
+    add_executable(relay_sdl_input_test ${REPO_DIR}/tests/relay_sdl_input_test.c
+        platform_sdl.c ../pocketui/pos_input.c ../pocketui/pos_display.c)
+    target_include_directories(relay_sdl_input_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${LVGL_DIR}" ${SDL2_INCLUDE_DIRS})
+    target_compile_definitions(relay_sdl_input_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE
+        LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    target_compile_options(relay_sdl_input_test PRIVATE -Wall -Wextra)
+    target_link_libraries(relay_sdl_input_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The Terminal in the running app (run by tests/terminal_shell_test.sh):
     # keys pushed into the real input stream reach a real /bin/sh on a real

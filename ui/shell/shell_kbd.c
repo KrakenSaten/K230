@@ -181,6 +181,14 @@ static void on_event(void *user, uint8_t raw)
 
     (void)user;
     key = pos_keymap_event(&kbd.map, raw, &effect);
+    if ((code==5 || code==14) && (raw & POS_KEYMAP_EVENT_PRESSED) && !key && pos_input_game_active())
+        key=' ';
+    /* The game owns only opted-in action keys; ordinary text and reserved
+     * shortcuts follow the established path below. Space's two contacts use
+     * separate source ids, so releasing one cannot stop the other. */
+    if (!(raw & POS_KEYMAP_EVENT_PRESSED)) {
+        if (pos_input_game_event(0,code,0,false)) return;
+    }
     /* The release of a held long-press key: before the hold it is a tap and
      * types the letter now; after it the picker has the key. */
     if (!(raw & POS_KEYMAP_EVENT_PRESSED) && kbd.held_code && code == kbd.held_code) {
@@ -193,6 +201,9 @@ static void on_event(void *user, uint8_t raw)
         kbd.wake_gate && !kbd.wake_gate()) {
         return;
     }
+    if ((raw & POS_KEYMAP_EVENT_PRESSED) && key &&
+        (effect==POS_KEYMAP_KEY || code==5 || code==14) &&
+        pos_input_game_event(0,code,key,true)) return;
     /* Fast typing overlaps keys: anything pressed while a long-press key is
      * still down comes after it, so the held letter is typed first. */
     if ((raw & POS_KEYMAP_EVENT_PRESSED) && (effect == POS_KEYMAP_KEY || effect == POS_KEYMAP_RESERVED)) {
@@ -301,6 +312,7 @@ static void flush(void)
 static void on_overflow(void *user)
 {
     (void)user;
+    pos_input_game_reset(0);
     pos_keymap_reset(&kbd.map);
     /* The same goes for a held long-press key: its release may be among the
      * events lost. It was pressed, so it is typed rather than timed. */
@@ -354,6 +366,7 @@ static void on_poll(lv_timer_t *timer)
      * controller's state can be lost. */
     ready = kbd_tca8418_ready(&kbd.chip);
     if (kbd.ready && !ready) {
+        pos_input_game_reset(0);
         LOG_WARN("keyboard: the controller stopped answering; retrying");
         /* The keys come first: a failure right after a battery probe read
          * ends the probe for this process (kbd_battery_keys_failed). */
@@ -740,6 +753,7 @@ int shell_kbd_create(void)
 
 void shell_kbd_destroy(void)
 {
+    pos_input_game_reset(0);
     if (kbd.timer) {
         lv_timer_delete(kbd.timer);
         kbd.timer = NULL;

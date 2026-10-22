@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SHELL_BIN=$(realpath "${SHELL_BIN:?set SHELL_BIN to the SDL pocketos-shell}")
 POS=${POS:-tools/pos/pos}
-SHOTS_DIR=${SHOTS_DIR:-out/neon-outpost/screenshots}
+SHOTS_DIR=${SHOTS_DIR:-out/relay-nine/screenshots}
 mkdir -p "$SHOTS_DIR"
 SHOTS_DIR=$(realpath "$SHOTS_DIR")
 work=$(mktemp -d)
@@ -34,7 +34,21 @@ PY
     "$POS" shell screenshot "$SHOTS_DIR/shell-$mode-help.png" > /dev/null
     "$POS" call shell shell.tap text=PLAY > /dev/null
     sleep .2
-    "$POS" call shell shell.key code=39 > /dev/null # keyboard base W: production translation
+    python3 - <<'PY_KEYS'
+import json,os,socket,struct,time
+for raw in ([167,129,133],[39,1,5]):
+ with socket.socket(socket.AF_UNIX) as sock:
+  sock.connect(os.environ['POCKETOS_RUNTIME_DIR']+'/shell.sock')
+  b=json.dumps({'id':1,'method':'shell.key','params':{'raw':raw}}).encode()
+  sock.sendall(struct.pack('!I',len(b))+b)
+  def read(n):
+   b=b''
+   while len(b)<n:
+    part=sock.recv(n-len(b));assert part;b+=part
+   return b
+  result=json.loads(read(struct.unpack('!I',read(4))[0]));assert 'error' not in result,result
+ time.sleep(.3)
+PY_KEYS
     sleep .2
     "$POS" shell screenshot "$SHOTS_DIR/shell-$mode-gameplay.png" > /dev/null
     "$POS" call shell shell.key code=42 > /dev/null # keyboard base P
@@ -64,4 +78,4 @@ PY
     kill "$pid"; wait "$pid"; pid=
     rm -f "$POCKETOS_RUNTIME_DIR/shell.sock"
 done
-echo 'neon_shell_test: three layouts, Large text, pointer, physical key path, Back/Home and reopen passed'
+echo 'relay_shell_test: three layouts, Large text, pointer, physical key path, Back/Home and reopen passed'

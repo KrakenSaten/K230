@@ -278,3 +278,6 @@ BUILD_ID
 /tests/db_vision_test
 /tests/db_guard_test
 /tests/db_pipeline_test
+
+# Relay Nine foreground audio effects owner
+/tools/audio-effects/pos-audio-effects

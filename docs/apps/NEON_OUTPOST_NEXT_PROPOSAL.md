@@ -1,11 +1,11 @@
 <!-- Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0 -->
 # Next FPS implementation: Relay Nine
 
-**Proposal, 2026-10-22. Implementation paused; PR #104 remains draft.**
-This document supersedes the earlier brief's product/architecture direction for
-future work. It does not change the existing Neon Outpost prototype, its name,
-source, captures or behavior. The prototype at `9f65c4f` remains a runnable baseline.
-No redesign is implemented by this documentation update.
+**Approved design baseline, 2026-10-22, commit `0a6e482`.** The owner authorized
+implementation on the existing draft PR #104. See [the actual implementation,
+rendered captures, resolved technical details and validation](RELAY_NINE.md).
+The assessment and proposed budgets below are historical design evidence;
+they are not implementation measurements. The concept remains concept artwork.
 
 **Recommendation:** an original industrial science-fiction FPS using a small
 first-party **sector/portal software renderer with floor and ceiling heights**,
