@@ -95,6 +95,7 @@ extern const struct pocketos_app app_calculator;
 extern const struct pocketos_app app_settings;
 extern const struct pocketos_app app_wave;
 extern const struct pocketos_app app_rift;
+extern const struct pocketos_app app_meshscope;
 extern const struct pocketos_app app_files;
 extern const struct pocketos_app app_camera;
 extern const struct pocketos_app app_photo;
@@ -127,7 +128,7 @@ extern const struct pocketos_app app_zabbix;
 static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
                                             &app_clock, &app_calendar, &app_calculator,
-                                            &app_settings, &app_wave, &app_rift, &app_files,
+                                            &app_settings, &app_wave, &app_rift, &app_meshscope, &app_files,
                                             &app_camera, &app_browser, &app_recorder, &app_vision,
                                             &app_video, &app_solitaire, &app_blackjack, &app_poker, &app_neon_outpost, &app_2048, &app_mp3,
                                             &app_deskbuddy, &app_terminal, &app_photo OPTIONAL_APPS };
