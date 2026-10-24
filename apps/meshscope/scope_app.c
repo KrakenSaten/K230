@@ -345,6 +345,7 @@ static void *create(lv_obj_t *root)
     if(!a) return NULL;
     rift_model_init(&a->model); rift_rxlog_init(&a->log);
     rift_ipc_init(&a->ipc,&a->model,NULL); a->ipc.rxlog=&a->log;
+    a->ipc.read_only=1;
     a->basemap=rift_basemap_new(); a->fit=1; a->root=root;
     lv_obj_set_flex_flow(root,LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(root,LV_OBJ_FLAG_SCROLLABLE);

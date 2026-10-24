@@ -1520,6 +1520,39 @@ static void test_explicit_route(const char *runtime)
     rift_ipc_close(&c);
 }
 
+/* The shared transport must refuse mutations before writing any frame. */
+static void observer_writes(void)
+{
+    struct rift_model m;
+    struct rift_ipc c;
+    struct peer p;
+    const enum rift_req mutations[] = {
+        RIFT_REQ_SEND, RIFT_REQ_ADVERT, RIFT_REQ_NODE_REMOVE,
+        RIFT_REQ_NODE_RESET_PATH, RIFT_REQ_CHANNEL_ADD, RIFT_REQ_CHANNEL_REMOVE,
+        RIFT_REQ_SET_NAME, RIFT_REQ_SET_PATH_HASH, RIFT_REQ_DISCOVER,
+        RIFT_REQ_REMOTE_LOGIN, RIFT_REQ_REMOTE_REQUEST, RIFT_REQ_REMOTE_CLI,
+        RIFT_REQ_REMOTE_LOGOUT
+    };
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    check("RIFT keeps its normal client mode", !c.read_only);
+    if (peer_open(&p, &c) != 0) {
+        check("observer test socket opens", 0);
+        return;
+    }
+    c.read_only = 1;
+    for (size_t i = 0; i < sizeof(mutations) / sizeof(mutations[0]); i++) {
+        check("observer refuses a mutation",
+              rift_ipc_write(&c, mutations[i], cJSON_CreateObject(), now_ms()) == -1);
+    }
+    check("refusal leaves connection open", rift_ipc_connected(&c));
+    check("refusal writes no requests", c.requests_out == 0);
+    check("observer can still read status",
+          rift_ipc_write(&c, RIFT_REQ_STATUS, NULL, now_ms()) == 0);
+    check("status reaches the peer", peer_take(&p, "mesh.status") != 0);
+    peer_close(&p, &c);
+}
+
 int main(void)
 {
     char runtime[] = "/tmp/rift_ipc_test.XXXXXX";
@@ -1534,6 +1567,8 @@ int main(void)
     }
     setenv("POCKETOS_RUNTIME_DIR", runtime, 1);
     snprintf(methods, sizeof(methods), "%s/methods.txt", runtime);
+
+    observer_writes();
 
     /* ---- no service at all ------------------------------------------------ */
     rift_model_init(&m);

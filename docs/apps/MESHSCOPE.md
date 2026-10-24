@@ -94,3 +94,7 @@ blocked by this execution environment (`Operation not permitted`), so no local
 IPC integration pass is claimed. Cross-compilation with the pinned K230 SDK and
 operation on a K230 have not been verified. No release image has been built or
 flashed. Hardware performance remains **ASSUMED**, not VERIFIED.
+
+The shared RIFT transport runs in read-only observer mode for MeshScope. An
+explicit request allowlist rejects mutations, including repeater logout, so
+opening or reconnecting MeshScope does not clear another app's remote session.

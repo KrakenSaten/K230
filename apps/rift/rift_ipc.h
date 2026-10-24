@@ -160,6 +160,9 @@ struct rift_ipc {
     /* RX LOG's ring (rift_rxlog.h), or NULL: then the subscription does not
      * ask for the receive log and a mesh.rx is never expected. */
     struct rift_rxlog *rxlog;
+    /* Set after init, before polling: only local reads/subscriptions may be
+     * written, and connecting does not clear another app's repeater session. */
+    int read_only;
     char service[32];
 
     int fd;                       /* -1 when down */
