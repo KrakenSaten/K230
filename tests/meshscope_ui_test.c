@@ -59,7 +59,22 @@ int main(void)
         assert(a->model.node_count==3 && a->log.count==20);
         assert(lv_obj_get_height(a->map)>100);
         for(int i=0;i<3;++i) inside(a->tabs[i],root);
-        inside(a->map,root); inside(a->note,root);
+        inside(a->map,root); inside(a->rail,root);
+        assert(lv_obj_get_height(a->map) >= (rotated?340:500));
+        lv_area_t before,after;
+        lv_obj_get_coords(a->map,&before);
+        const char *messages[]={"Short", "Long route information that wraps across many lines when packets arrive. Unknown nodes, ambiguous prefixes and missing positions must never resize or move the map.\nA second paragraph.\nA third paragraph."};
+        visible(a->attribution,1);
+        for(int change=0;change<12;++change) {
+            lv_label_set_text(a->note,messages[change%2]);
+            lv_label_set_text(a->signal,messages[(change+1)%2]);
+            lv_label_set_text(a->attribution,messages[change%2]);
+            lv_obj_update_layout(screen);
+            lv_obj_get_coords(a->map,&after);
+            assert(before.x1==after.x1 && before.x2==after.x2 &&
+                   before.y1==after.y1 && before.y2==after.y2);
+        }
+        refresh(a); lv_obj_update_layout(screen);
         shot(rotated?"landscape-map":"portrait-map");
         click(a->tabs[1]); assert(a->tab==1 && !a->detail_open);
         inside(a->pager,root);
@@ -68,17 +83,20 @@ int main(void)
         uint64_t seq=a->packet.seq;
         rift_rxlog_clear(&a->log); refresh(a); assert(a->packet.seq==seq);
         shot(rotated?"landscape-packet-detail":"portrait-packet-detail");
-        assert(back(a)==1 && !a->detail_open);
+        click(a->path_button);
+        assert(a->tab==0 && !a->detail_open && a->packet_selected);
+        click(a->live_button); assert(!a->packet_selected);
+        click(a->tabs[1]);
         click(a->tabs[2]); click(a->rows[0].button);
         assert(a->detail_open && !strcmp(a->selected,a->model.nodes[0].key));
         shot(rotated?"landscape-node":"portrait-node");
         assert(back(a)==1); assert(back(a)==1 && a->tab==0);
         char why[80]; pos_theme_apply("brass","outdoor",why,sizeof(why));
-        refresh(a); lv_obj_update_layout(screen); inside(a->note,root);
+        refresh(a); lv_obj_update_layout(screen); inside(a->rail,root);
         shot(rotated?"landscape-outdoor":"portrait-outdoor");
         destroy(a); lv_obj_delete(root);
     }
     pos_input_deinit(); lv_deinit();
-    puts("meshscope_ui_test: both orientations at Large, controls, details, selection survival and theme passed");
+    puts("meshscope_ui_test: both orientations at Large, controls, details, selection survival, stable map bounds and theme passed");
     return 0;
 }

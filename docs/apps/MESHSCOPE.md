@@ -23,12 +23,21 @@ separate subscriptions and caches.
 - **PACKETS** shows receptions, including duplicates, time, type, size, RSSI,
   SNR and hop count. Tap a row for the full existing RX-log detail. A selection
   is copied, so new traffic or eviction cannot silently replace its detail.
-  Selecting MAP afterwards keeps that packet's path; LIVE returns to live data.
+  SHOW PATH opens that packet directly on the map; LIVE returns to live data.
 - **NODES** lists the current cached nodes, with details for last heard, available
   signal readings, advertised position and public key. Path participation is a
   count within the held packet window, not a lifetime counter.
 - Both orientations, shared theme roles, Large text, scrollable lists/details,
   keyboard-focusable controls and the shell's Back action.
+
+## Map layout and controls
+
+The map owns a stable viewport. Landscape uses a right-hand inspection panel;
+portrait places the same panel below the map. The panel scrolls independently
+when its text does not fit, so incoming packets, connection messages and text
+wrapping cannot move or shrink the map. FIT and LIVE have visible active states.
+The coordinate view includes a geographic grid, a distance scale and highlighted
+route nodes. OpenStreetMap attribution is anchored inside the map when enabled.
 
 ## What the display can establish
 
@@ -82,7 +91,9 @@ bash tests/style_lint.sh
 
 The UI test feeds parsed fixtures to the production UI with its transport timer
 paused. It checks both orientations at Large text, bounds, details, selection
-surviving ring clearing and theme changes. It does not prove IPC integration.
+surviving ring clearing, SHOW PATH/LIVE navigation and theme changes. It also
+checks that alternating short and long information leaves the map bounds
+unchanged, with minimum map heights in both orientations. It does not prove IPC integration.
 The shell test separately drives a real simulated shell and scripted meshcored
 over Unix sockets, then checks the recorded methods against a read-only allowlist.
 The focused GitHub Actions workflow runs both layers and retains screenshots.
@@ -92,8 +103,12 @@ LVGL; model test passed; RX-log regression 71 checks passed; launcher geometry
 369 checks passed; UI fixture test and style lint passed. Unix-socket tests are
 blocked by this execution environment (`Operation not permitted`), so no local
 IPC integration pass is claimed. Cross-compilation with the pinned K230 SDK and
-operation on a K230 have not been verified. No release image has been built or
-flashed. Hardware performance remains **ASSUMED**, not VERIFIED.
+the revised UI on a K230 have not been verified by this session. No release image has been built or
+flashed. The owner tested the first version on a K230 on 2026-10-24 and reported that it
+worked so far (**VERIFIED by owner report**, not a comprehensive hardware gate).
+That test identified the shallow landscape map and text-driven movement addressed
+by this layout revision. Performance of the revised layout on hardware remains
+unmeasured.
 
 The shared RIFT transport runs in read-only observer mode for MeshScope. An
 explicit request allowlist rejects mutations, including repeater logout, so
