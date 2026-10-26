@@ -407,6 +407,36 @@ int vision_pixels_trace(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, b
 
         follow(w, h, best_y, best_x, 0, true, &wsum);
         out->found = true;
+        /* A short fragment at the chain's bottom, cut from the rest by a gap,
+         * is a speck the chain bridged from (unit A: specks at the picture's
+         * lower edge became the line's "bottom"): it goes, while enough of
+         * the line is left. */
+        for (;;) {
+            int32_t frag_max = (int32_t)h / 20 < 4 ? 4 : (int32_t)h / 20;
+            int32_t seg = 0;
+            int32_t last = -1;
+            int32_t gap_at = -1;
+
+            for (y = (int32_t)h - 1; y >= 0; y--) {
+                if (chain[y] < 0) {
+                    continue;
+                }
+                if (last >= 0 && last - y > 2) {
+                    gap_at = y;
+                    break;
+                }
+                seg++;
+                last = y;
+            }
+            if (gap_at < 0 || seg > frag_max || best_n - (uint32_t)seg < need) {
+                break;
+            }
+            for (y = (int32_t)h - 1; y > gap_at; y--) {
+                chain[y] = -1;
+            }
+            best_n -= (uint32_t)seg;
+            out->rows = best_n;
+        }
     }
     /* Mark the candidates' edges in cyan, then the line followed in yellow
      * over them. */

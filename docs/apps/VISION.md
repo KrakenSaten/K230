@@ -1028,7 +1028,7 @@ Host only; none needs unit A. `make vision-test` runs them all,
   and a wide tolerance, a green target painted magenta, no match, the
   tolerance's ceiling; a vertical and a horizontal step edge found on
   their rows and columns alone, grey and thresholded, a flat picture
-  edgeless; pictures too small or too wide refused. LINE TRACE (49 checks
+  edgeless; pictures too small or too wide refused. LINE TRACE (50 checks
   in all, feat/vision-general-colour-line): a leaning dark line followed on
   every row with its lean, its bottom's offset and its fitted ends, the
   line yellow and its edges cyan; a straight light one; a grey line on a

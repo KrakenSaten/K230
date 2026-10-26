@@ -266,6 +266,17 @@ static void test_trace(void)
     check("specks on the lowest rows do not hide the line above them",
           vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 40 && r.x1 <= 46 &&
               r.y1 == (3 * H) / 4 - 1);
+    /* Unit A: a speck at the picture's lower edge, within reach of the line's
+     * end across a gap, became the chain's start and so the line's "bottom".
+     * Here the line ends at row 69 at x 40..45, a 3-row speck sits at x 52
+     * on rows 74..76, within the gap a line may cross. */
+    fill(white);
+    line_at(40, 0, 6, 0, black);
+    box(0, 70, W, H - 70, white);
+    box(52, 74, 3, 3, black);
+    check("a speck bridged below the line's end is not its bottom",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.y1 == 69 && r.x1 >= 40 &&
+              r.x1 <= 45 && r.rows == 70 && pic[77][53] != 0xffe0);
     /* Unit A: an S-shaped line read LEFT 99% from the straight fit while its
      * end was far nearer the middle. Its bottom here runs straight down at
      * x 20..25 for the last third, the upper part leans far right. */
