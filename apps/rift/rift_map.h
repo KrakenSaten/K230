@@ -70,6 +70,11 @@ int rift_map_located(const struct rift_model *m);
  * With no located node the view is the whole world and 0 is returned;
  * otherwise the count placed. */
 int rift_map_fit(struct rift_map_view *v, const struct rift_model *m, int32_t w, int32_t h);
+/* The same for some of them: the located nodes among m->nodes[which[i]],
+ * i < count (an index out of range, or a node with no location, is left
+ * out). TRAFFIC's SHOW PATH fits a packet's located hops this way. */
+int rift_map_fit_nodes(struct rift_map_view *v, const struct rift_model *m, const int *which,
+                       int count, int32_t w, int32_t h);
 /* Keep the centre and zoom for a new area size (a turn of the panel). */
 void rift_map_resize(struct rift_map_view *v, int32_t w, int32_t h);
 

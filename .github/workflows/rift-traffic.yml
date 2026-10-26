@@ -1,0 +1,72 @@
+# Host-only checks for RIFT MAP's TRAFFIC mode; no device, RF or firmware changes.
+name: RIFT TRAFFIC host checks
+on:
+  push:
+    branches: [feat/meshscope]
+  pull_request:
+    paths:
+      - 'apps/rift/rift_scope.*'
+      - 'apps/rift/rift_map.*'
+      - 'apps/rift/ui/rift_scope_view.*'
+      - 'apps/rift/ui/rift_mapview.*'
+      - 'tests/rift_scope_test.c'
+      - 'tests/rift_traffic_shell_test.py'
+      - '.github/workflows/rift-traffic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rift-traffic-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install simulator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config \
+            libsdl2-dev libcjson-dev libpng-dev libjpeg-dev libcurl4-openssl-dev libasound2-dev
+      - name: Fetch the existing pinned LVGL
+        run: |
+          git init vendor/lvgl
+          git -C vendor/lvgl remote add origin https://github.com/lvgl/lvgl.git
+          git -C vendor/lvgl fetch --depth 1 origin 59dc7e436ae97a25e32656739ea6a943f9f11b6a
+          git -C vendor/lvgl checkout --detach FETCH_HEAD
+      - name: Model, RX-log, IPC and map regressions
+        run: |
+          make -j2 CFLAGS='-O2 -Wall -Wextra -Werror' tests/rift_scope_test \
+            tests/rift_rxlog_test tests/rift_ipc_test tests/rift_route_test tests/fake-meshcored
+          ./tests/rift_scope_test
+          ./tests/rift_rxlog_test
+          ./tests/rift_ipc_test
+          ./tests/rift_route_test
+          bash tests/rift_lint.sh
+          bash tests/style_lint.sh
+      - name: Build DOORS simulator and RIFT UI test
+        run: |
+          cmake -S ui/shell -B out/rift-traffic-shell
+          cmake --build out/rift-traffic-shell --target pocketos-shell rift_app_test -j2
+      - name: TRAFFIC and route builder live, real shell integration
+        env:
+          SDL_VIDEODRIVER: dummy
+          SHELL_BIN: ${{ github.workspace }}/out/rift-traffic-shell/pocketos-shell
+          SHOTS_DIR: ${{ github.workspace }}/out/rift-traffic-shots
+        run: |
+          mkdir -p "$SHOTS_DIR" "$RUNNER_TEMP/rift-run"
+          for only in traffic route; do
+            POCKETOS_RUNTIME_DIR="$RUNNER_TEMP/rift-run" RIFT_SHOTS_DIR="$SHOTS_DIR" \
+              RIFT_FAKE_MESHCORED="$PWD/tests/fake-meshcored" RIFT_APP_TEST_ONLY=$only \
+              out/rift-traffic-shell/rift_app_test
+          done
+          python3 tests/rift_traffic_shell_test.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rift-traffic-simulator-screenshots
+          path: out/rift-traffic-shots
+          if-no-files-found: ignore

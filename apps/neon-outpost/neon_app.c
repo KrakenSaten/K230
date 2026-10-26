@@ -147,12 +147,12 @@ static void *create(lv_obj_t *body)
     if(!rn_restart(&a->game,slice)){lv_free(a);return NULL;}a->game.reduced_motion=pocketos_shell_reduced_motion()!=0;
     rn_audio_init(&a->audio);a->help=false;a->pad=-1;rn_pause(&a->game,true);
     a->root=lv_obj_create(body);lv_obj_remove_style_all(a->root);lv_obj_set_width(a->root,LV_PCT(100));lv_obj_set_flex_grow(a->root,1);lv_obj_remove_flag(a->root,LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(a->root,lv_color_hex(0x151914),0);lv_obj_set_style_bg_opa(a->root,LV_OPA_COVER,0);
+    pos_style_add(a->root,POS_STYLE_GAME_SCENE,0);
     a->image_data.header.magic=LV_IMAGE_HEADER_MAGIC;a->image_data.header.cf=LV_COLOR_FORMAT_RGB565;a->image_data.header.w=RN_W;a->image_data.header.h=RN_H;a->image_data.header.stride=RN_W*2;a->image_data.data_size=sizeof(a->rendered.pixels);a->image_data.data=(uint8_t *)a->rendered.pixels;
     a->image=lv_image_create(a->root);lv_image_set_src(a->image,&a->image_data);lv_image_set_antialias(a->image,false);
-    a->hud=pocketui_label(a->root,"",POS_STYLE_TEXT_PRIMARY);lv_obj_set_style_text_color(a->hud,lv_color_hex(0xe3dfbd),0);
+    a->hud=pocketui_label(a->root,"",POS_STYLE_TEXT_PRIMARY);pos_style_add(a->hud,POS_STYLE_GAME_HUD_TEXT,0);
     a->message_box=lv_obj_create(a->root);lv_obj_remove_style_all(a->message_box);lv_obj_set_scroll_dir(a->message_box,LV_DIR_VER);
-    a->message=pocketui_label(a->message_box,"",POS_STYLE_TEXT_PRIMARY);lv_obj_set_style_text_color(a->message,lv_color_hex(0xe3dfbd),0);lv_obj_set_style_text_align(a->message,LV_TEXT_ALIGN_CENTER,0);
+    a->message=pocketui_label(a->message_box,"",POS_STYLE_TEXT_PRIMARY);pos_style_add(a->message,POS_STYLE_GAME_HUD_TEXT,0);lv_obj_set_style_text_align(a->message,LV_TEXT_ALIGN_CENTER,0);
     for(int i=0;i<14;i++){
         a->button[i]=lv_button_create(a->root);lv_obj_remove_style_all(a->button[i]);lv_obj_remove_flag(a->button[i],LV_OBJ_FLAG_CLICK_FOCUSABLE|LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(a->button[i],LV_OBJ_FLAG_PRESS_LOCK);pos_style_add(a->button[i],POS_STYLE_BUTTON_SECONDARY,0);pos_style_add(a->button[i],POS_STYLE_BUTTON_PRIMARY_PRESSED,LV_STATE_PRESSED);

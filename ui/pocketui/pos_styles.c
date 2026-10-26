@@ -1051,6 +1051,18 @@ static void fill_styles(void)
     lv_style_set_bg_color(s, pos_scan_light());
     lv_style_set_bg_opa(s, LV_OPA_COVER);
 
+    /* Relay Nine draws in its own palette, independent of the interface
+     * theme (docs/apps/RELAY_NINE.md), so no token applies: the backdrop
+     * behind its scene, and its HUD and message text. The text style has no
+     * font; the label's own role keeps its type. */
+    s = &styles[POS_STYLE_GAME_SCENE];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x151914));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    s = &styles[POS_STYLE_GAME_HUD_TEXT];
+    reset(s);
+    lv_style_set_text_color(s, lv_color_hex(0xe3dfbd));
+
     /* Variants share all existing role properties unless the theme refills
      * them below. Always reset, including when switching back live. */
     lv_style_copy(&styles[POS_STYLE_READING_CONTROL], &styles[POS_STYLE_BUTTON_SECONDARY]);

@@ -67,6 +67,12 @@ int rift_map_located(const struct rift_model *m)
 
 int rift_map_fit(struct rift_map_view *v, const struct rift_model *m, int32_t w, int32_t h)
 {
+    return rift_map_fit_nodes(v, m, NULL, 0, w, h);
+}
+
+int rift_map_fit_nodes(struct rift_map_view *v, const struct rift_model *m, const int *which,
+                       int count, int32_t w, int32_t h)
+{
     double x_lo = 1.0;
     double x_hi = 0.0;
     double y_lo = 1.0;
@@ -84,14 +90,16 @@ int rift_map_fit(struct rift_map_view *v, const struct rift_model *m, int32_t w,
     v->cy = 0.5;
     v->zoom = RIFT_MAP_ZOOM_MIN;
     v->fitted = 1;
-    for (i = 0; m && i < m->node_count; i++) {
-        const struct rift_node *nd = &m->nodes[i];
+    for (i = 0; m && i < (which ? count : m->node_count); i++) {
+        int at = which ? which[i] : i;
+        const struct rift_node *nd;
         double x;
         double y;
 
-        if (!nd->have_location) {
+        if (at < 0 || at >= m->node_count || !m->nodes[at].have_location) {
             continue;
         }
+        nd = &m->nodes[at];
         x = world_x(nd->lon);
         y = world_y(nd->lat);
         x_lo = x < x_lo ? x : x_lo;

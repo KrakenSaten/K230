@@ -10,6 +10,7 @@
 #include "pos_styles.h"
 #include "rift_basemap.h"
 #include "rift_route_view.h"
+#include "rift_scope_view.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -19,6 +20,11 @@
 #define BTN_W 72
 #define FIT_W 96
 #define BASEMAP_W 132
+#define TRAFFIC_W 132
+/* Portrait, where TRAFFIC and BASEMAP share the bar with the zoom: the
+ * zoom and FIT at the touch minimum, and the legend in the panel. */
+#define BTN_W_NARROW RIFT_TOUCH_H
+#define FIT_W_NARROW 64
 /* Over a basemap: markers get a rim of the surface colour, and words a
  * backdrop of it, so they read on any tile. */
 #define RIM_PX 2
@@ -85,6 +91,15 @@ struct rift_map_ui {
      * node's while a draft is open, and what the canvas last drew of it. */
     struct rift_route_view *route;
     unsigned drawn_route;
+
+    /* TRAFFIC (ui/rift_scope_view.h): its panel in place of the node's
+     * while it is on, and what the canvas last drew of it. The bar's zoom
+     * and FIT, narrowed in portrait to leave its button room. */
+    struct rift_scope_view *scope;
+    unsigned drawn_scope;
+    lv_obj_t *zoom_out;
+    lv_obj_t *zoom_in;
+    lv_obj_t *fit_button;
 };
 
 static void refresh_info(struct rift_map_ui *u, int located);
@@ -363,6 +378,7 @@ static void canvas_draw(lv_event_t *e)
         }
     }
     rift_route_view_draw(u->route, layer, &ar, &u->view, u->canvas);
+    rift_scope_view_draw(u->scope, layer, &ar, &u->view);
     draw_scale(u, layer, &ar, u->tiles_drawn > 0);
     draw_basemap_words(u, layer, &ar);
 }
@@ -442,27 +458,26 @@ static void on_zoom_out(lv_event_t *e)
     }
 }
 
-/* BASEMAP in the look of what it is: primary while on, as NODES'
- * ZERO-HOP is. The words on the map and in the panel say it too. */
-static void paint_basemap(struct rift_map_ui *u)
+/* BASEMAP and TRAFFIC in the look of what they are: primary while on, as
+ * NODES' ZERO-HOP is. The words on the map and in the panel say it too. */
+static void paint_toggle(lv_obj_t *b, int on, int *painted)
 {
-    int on = rift_basemap_on(u->bm);
-
-    if (on == u->bm_painted) {
+    if (on == *painted) {
         return;
     }
-    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
-    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
-    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
-    lv_obj_remove_style(u->bm_button, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
-    if (on) {
-        pos_style_add(u->bm_button, POS_STYLE_BUTTON_PRIMARY, 0);
-        pos_style_add(u->bm_button, POS_STYLE_BUTTON_PRIMARY_PRESSED, LV_STATE_PRESSED);
-    } else {
-        pos_style_add(u->bm_button, POS_STYLE_BUTTON_SECONDARY, 0);
-        pos_style_add(u->bm_button, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    }
-    u->bm_painted = on;
+    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
+    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+    lv_obj_remove_style(b, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+    pos_style_add(b, on ? POS_STYLE_BUTTON_PRIMARY : POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(b, on ? POS_STYLE_BUTTON_PRIMARY_PRESSED : POS_STYLE_SLAB_PRESSED,
+                  LV_STATE_PRESSED);
+    *painted = on;
+}
+
+static void paint_basemap(struct rift_map_ui *u)
+{
+    paint_toggle(u->bm_button, rift_basemap_on(u->bm), &u->bm_painted);
 }
 
 static void on_basemap(lv_event_t *e)
@@ -521,6 +536,7 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
     struct rift_map_ui *u = calloc(1, sizeof(*u));
     lv_obj_t *bar;
     lv_obj_t *b;
+    lv_obj_t *traffic;
 
     if (!u) {
         return NULL;
@@ -554,6 +570,8 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
     u->caption = rift_cell(bar, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(u->caption, 1);
     lv_obj_set_width(u->caption, 1);
+    traffic = rift_scope_view_button(app, bar); /* TRAFFIC, painted by its panel */
+    lv_obj_set_width(traffic, TRAFFIC_W);
     u->bm = rift_basemap_new();
     rift_basemap_set(u->bm, app->prefs.basemap);
     u->bm_painted = -1;
@@ -564,12 +582,15 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
     b = rift_action(bar, "\xE2\x88\x92", 0, 1, on_zoom_out, u);
     lv_obj_set_flex_grow(b, 0);
     lv_obj_set_width(b, BTN_W);
+    u->zoom_out = b;
     b = rift_action(bar, "+", 0, 1, on_zoom_in, u);
     lv_obj_set_flex_grow(b, 0);
     lv_obj_set_width(b, BTN_W);
+    u->zoom_in = b;
     b = rift_action(bar, "FIT", 0, 1, on_fit, u);
     lv_obj_set_flex_grow(b, 0);
     lv_obj_set_width(b, FIT_W);
+    u->fit_button = b;
 
     u->canvas = lv_obj_create(u->map_col);
     lv_obj_remove_style_all(u->canvas);
@@ -609,6 +630,7 @@ lv_obj_t *rift_map_view_create(struct rift_app *app, lv_obj_t *parent)
     u->info_detail = rift_action(u->info_bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, u);
     u->info_note = wrapping(u->info, POS_STYLE_CAPTION);
     u->route = rift_route_view_create(app, u->root);
+    u->scope = rift_scope_view_create(app, u->root, traffic);
     return u->root;
 }
 
@@ -622,6 +644,7 @@ void rift_map_view_destroy(struct rift_app *app)
         rift_basemap_free(u->bm);
         u->bm = NULL;
         rift_route_view_destroy(u->route);
+        rift_scope_view_destroy(u->scope);
         free(app->map);
         app->map = NULL;
     }
@@ -672,6 +695,10 @@ void rift_map_view_shape(struct rift_app *app)
         lv_obj_set_size(u->info, LV_PCT(100), LV_SIZE_CONTENT);
     }
     rift_route_view_shape(u->route, app->wide);
+    rift_scope_view_shape(u->scope, app->wide);
+    lv_obj_set_width(u->zoom_out, app->wide ? BTN_W : BTN_W_NARROW);
+    lv_obj_set_width(u->zoom_in, app->wide ? BTN_W : BTN_W_NARROW);
+    lv_obj_set_width(u->fit_button, app->wide ? FIT_W : FIT_W_NARROW);
     /* Fitted again against the new shape (from the refresh, outside the
      * layout pass), unless the reader has moved it - then the centre and
      * scale are kept for the new size. */
@@ -782,16 +809,37 @@ void rift_map_view_refresh(struct rift_app *app)
     u->legend_in_note = lv_label_get_text(u->caption)[0] == '\0';
     paint_basemap(u);
     refresh_info(u, located);
-    /* The builder's panel in place of the node's while a route is drawn. */
+    /* TRAFFIC's panel in place of the node's while it is on (a route draft
+     * kept under it is neither refreshed nor shown); else the builder's. */
     {
-        unsigned drawn = rift_route_view_refresh(u->route);
+        unsigned scope = rift_scope_view_refresh(u->scope);
+        unsigned drawn = rift_scope_view_on(app) ? u->drawn_route
+                                                 : rift_route_view_refresh(u->route);
 
-        show(u->info, !rift_route_view_active(app));
-        if (drawn != u->drawn_route) {
+        show(u->info, !rift_route_view_active(app) && !rift_scope_view_on(app));
+        if (drawn != u->drawn_route || scope != u->drawn_scope) {
             u->drawn_route = drawn;
+            u->drawn_scope = scope;
             lv_obj_invalidate(u->canvas);
         }
     }
+}
+
+void rift_map_view_place(struct rift_app *app, const struct rift_map_view *view)
+{
+    struct rift_map_ui *u = of(app);
+
+    if (u && view) {
+        u->view = *view;
+        u->have_view = 1;
+        u->moved = 1; /* placed by a reader's press: kept like a pan */
+        lv_obj_invalidate(u->canvas);
+    }
+}
+
+struct rift_scope_view *rift_map_view_scope(const struct rift_app *app)
+{
+    return of(app) ? of(app)->scope : NULL;
 }
 
 struct rift_route_view *rift_map_view_route(const struct rift_app *app)
