@@ -25,6 +25,10 @@
  * unavailable - said over the map and in the panel (docs/apps/RIFT.md,
  * "MAP").
  *
+ * TRAFFIC, beside BASEMAP, makes MAP a view of what this device heard: its
+ * panel in place of the node's and the observed path of one packet over the
+ * markers (ui/rift_scope_view.h). Off, MAP is all of the above, unchanged.
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -41,6 +45,9 @@ void rift_map_view_refresh(struct rift_app *app);
 /* Every pass of the app's timer, from outside any LVGL event: the basemap's
  * helper started or stopped, its tiles asked for and taken. */
 void rift_map_view_pump(struct rift_app *app, int64_t now_ms);
+/* Put the map where a reader's press asked (TRAFFIC's SHOW PATH): kept as a
+ * pan is, until FIT. */
+void rift_map_view_place(struct rift_app *app, const struct rift_map_view *view);
 
 /* For the tests: the drawn area, its view, the markers the last draw placed
  * (located nodes inside the area) and how many draws there have been. */

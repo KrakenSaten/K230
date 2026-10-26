@@ -50,6 +50,7 @@
 #include "rift_route_view.h"
 #include "rift_scan.h"
 #include "rift_rxlog_view.h"
+#include "rift_scope_view.h"
 #include "rift_session.h"
 #include "rift_sound.h"
 #include "rift_store.h"
@@ -7300,6 +7301,488 @@ static void route_builder_session(void)
     pos_theme_select_text_size(was);
 }
 
+/* ---- feat/meshscope: MAP's TRAFFIC ------------------------------------------
+ *
+ * MeshScope's traffic analysis as a mode of MAP (docs/apps/rift/TRAFFIC.md),
+ * against the scripted meshcored on a real socket with its receive log: the
+ * TRAFFIC button, the packets from the session's own ring, a picked packet
+ * surviving arrivals and eviction, SHOW PATH and LIVE, a path drawn only
+ * between adjacent resolved, located hops, the map and its panel holding
+ * still under long and short packets, a route draft and the composer kept,
+ * tabs, both shapes at Large, the service going away and coming back, and a
+ * close and reopen. Every method TRAFFIC led to is read back from the
+ * service's own log: none transmits or changes anything. No radio. */
+
+static char tf_methods[512];
+
+/* The lines of the method log from line `from` on that are not reads: what
+ * TRAFFIC must never have caused. */
+static int tf_writes_since(int from, char *first, size_t first_len)
+{
+    static const char *const reads[] = {
+        "mesh.subscribe", "mesh.unsubscribe", "mesh.info", "mesh.status", "mesh.identity",
+        "mesh.nodes", "mesh.node", "mesh.channels", "mesh.messages", "mesh.path_hash",
+        "mesh.discovered", "mesh.remote_session",
+    };
+    FILE *f = fopen(tf_methods, "r");
+    char line[256];
+    int n = 0;
+    int bad = 0;
+
+    if (first_len) {
+        first[0] = '\0';
+    }
+    while (f && fgets(line, sizeof(line), f)) {
+        size_t i;
+        int ok = 0;
+
+        line[strcspn(line, "\n")] = '\0';
+        if (n++ < from) {
+            continue;
+        }
+        for (i = 0; i < sizeof(reads) / sizeof(reads[0]); i++) {
+            ok |= strcmp(line, reads[i]) == 0;
+        }
+        if (!ok && bad++ == 0 && first_len) {
+            snprintf(first, first_len, "%.100s", line);
+        }
+    }
+    if (f) {
+        fclose(f);
+    }
+    return bad;
+}
+
+static int tf_lines(void)
+{
+    return log_count_of(tf_methods, "", 0);
+}
+
+static pid_t tf_spawn(const char *bin, const char *events)
+{
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", RT_NODES, 1);
+        setenv("FAKE_MESHCORED_EXPLICIT", "1", 1);
+        setenv("FAKE_MESHCORED_RX_LOG", "1", 1);
+        setenv("FAKE_MESHCORED_EVENTS", events, 1);
+        setenv("FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT", "1", 1);
+        setenv("FAKE_MESHCORED_SENDS", rt_sends, 1);
+        setenv("FAKE_MESHCORED_PREVIEWS", rt_previews, 1);
+        setenv("FAKE_MESHCORED_METHODS", tf_methods, 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "180000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+
+static int tf_heard(void)
+{
+    return app && app->rxlog.supported == 1 && app->rxlog.count >= 1;
+}
+
+/* A flood of 1-byte hashes: RPT-NORD, an unknown 99, RPT-7, RPT-DD, and
+ * RPT-SKOG, which has no location. */
+#define TF_PATH "\"path_hash_size\":1,\"path_hops\":5,\"path_hex\":\"a199c3dde7\""
+
+static void tf_flood(int seq, long ago, const char *text)
+{
+    char json[900];
+
+    snprintf(json, sizeof(json),
+             "\"seq\":%d,\"bytes\":%d,\"rssi_dbm\":-81,\"snr_db\":6.5,\"verdict\":\"new\",\"dup\":1,"
+             "\"type\":\"group_text\",\"type_code\":5,\"route\":\"flood\",\"path_kind\":\"hops\","
+             TF_PATH ",\"hash\":\"%016x\",\"channel_hash\":\"a7\",\"channel_known\":true,"
+             "\"decoded\":\"channel\",\"channel_name\":\"Public\",\"sender\":\"Anna\",\"text\":\"%s\"",
+             seq, 40 + (int)strlen(text), 0x7f000000u + (unsigned)seq, text);
+    give_rx(ago, json);
+}
+
+static lv_obj_t *tf_button(const char *word)
+{
+    lv_obj_t *b = word_button(word);
+
+    return b && lv_obj_check_type(b, &lv_button_class) ? b : NULL;
+}
+
+static int same_area(const lv_area_t *a, const lv_area_t *b)
+{
+    return a->x1 == b->x1 && a->y1 == b->y1 && a->x2 == b->x2 && a->y2 == b->y2;
+}
+
+static void traffic_session(void)
+{
+    static const char long_text[] =
+        "Long route information that wraps across many lines as packets arrive: unknown "
+        "nodes, ambiguous prefixes and missing positions must never move the map at all";
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    enum pos_text_size was = pos_theme_current_text_size();
+    char sock[512];
+    char events[512];
+    char bad[128];
+    struct stat st;
+    struct rift_scope_view *sv;
+    struct rift_route *r;
+    struct rift_map_view placed;
+    lv_area_t canvas_at;
+    lv_area_t panel_at;
+    lv_area_t now_at;
+    const struct rift_rx_entry *picked;
+    uint32_t picked_uid;
+    lv_obj_t *field;
+    FILE *f;
+    int from;
+    int timers;
+    int stable;
+    int i;
+    int t;
+    pid_t pid;
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the TRAFFIC session needs RIFT_FAKE_MESHCORED and POCKETOS_RUNTIME_DIR; "
+               "not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(events, sizeof(events), "%s/traffic-events", g_state_dir);
+    snprintf(tf_methods, sizeof(tf_methods), "%s/traffic-methods", g_state_dir);
+    snprintf(rt_sends, sizeof(rt_sends), "%s/traffic-sends", g_state_dir);
+    snprintf(rt_previews, sizeof(rt_previews), "%s/traffic-previews", g_state_dir);
+    unlink(tf_methods);
+    unlink(rt_sends);
+    unlink(rt_previews);
+    f = fopen(events, "w");
+    if (f) {
+        /* One reception through the real subscription, into the session's ring. */
+        fprintf(f, "mesh.rx|{\"v\":1,\"seq\":1,\"mono_ms\":-2000,\"bytes\":42,\"rssi_dbm\":-90,"
+                   "\"snr_db\":3,\"verdict\":\"new\",\"dup\":1,\"type\":\"advert\",\"type_code\":4,"
+                   "\"route\":\"flood\",\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":2,"
+                   "\"path_hex\":\"a1c3\",\"hash\":\"00000000000000aa\"}\n");
+        fclose(f);
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pid = tf_spawn(bin, events);
+    for (i = 0; i < 250 && stat(sock, &st) != 0; i++) {
+        usleep(20000);
+    }
+    check("traffic: the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+    app_start();
+    r = &app->model.route;
+    check("traffic: RIFT reads the nodes", live_until(route_ready, 8000));
+    check("traffic: the reception reaches the session's ring through RIFT's own subscription",
+          live_until(tf_heard, 8000));
+    check("traffic: one subscription, by RIFT, for the whole session",
+          log_count_of(tf_methods, "mesh.subscribe", 1) == 1);
+
+    /* ---- the composer's draft and a route draft, before TRAFFIC ---- */
+    rift_app_open_conversation(app, RT_TO);
+    pump(200);
+    field = rift_comms_field(app);
+    field_set(field, "Utkast som skal bli");
+    rift_route_bar_open_builder(app, RT_TO);
+    rift_route_add(r, &app->model, RT_NORD);
+    rift_app_refresh(app);
+    live_until(route_checked, 8000);
+    pump(300);
+    check("traffic: the builder is open with one relay", rift_route_view_active(app) &&
+                                                             r->draft.count == 1);
+
+    /* ---- TRAFFIC on: the draft kept, not drawn ---- */
+    from = tf_lines();
+    timers = timer_count();
+    tap(tf_button("TRAFFIC"));
+    pump(200);
+    sv = rift_map_view_scope(app);
+    check("traffic: TRAFFIC is a mode of MAP, not a section",
+          app->section == RIFT_SEC_MAP && rift_scope_view_on(app) &&
+              rift_tab_of(app->section) == RIFT_SEC_MAP);
+    check("traffic: the five tabs are unchanged",
+          find_text(strip(), "ACTIVITY") && find_text(strip(), "NODES") &&
+              find_text(strip(), "COMMS") && find_exact(strip(), "MAP") &&
+              find_text(strip(), "SYSTEM") && find_exact(strip(), "TRAFFIC") == NULL);
+    check("traffic: its panel replaces the builder's",
+          visible(rift_scope_view_panel(sv)) &&
+              !visible(rift_route_view_panel(rift_map_view_route(app))));
+    check("traffic: the route draft is kept as it was",
+          r->draft.active && r->draft.count == 1 && strcmp(r->draft.via[0], RT_NORD) == 0);
+    check("traffic: and the panel says it is kept and is not this path",
+          find_text(content(), "ROUTE DRAFT KEPT") && tf_button("BACK TO ROUTE"));
+    check("traffic: no route number or line on the map under it",
+          rift_route_view_drawn_marks(rift_map_view_route(app)) == 0);
+    check("traffic: no timer of its own", timer_count() == timers);
+
+    /* ---- packets, the live path ---- */
+    tf_flood(2, 400, "Hei");
+    rift_app_refresh(app);
+    pump(300);
+    check("traffic: the packet is listed from the ring",
+          visible(rift_scope_view_row(sv, 0)) && find_text(content(), "OBSERVED PATH"));
+    check("traffic: the live path draws one line: RPT-7 to RPT-DD, nothing across the unknown "
+          "hop or to RPT-SKOG, which has no location",
+          rift_scope_view_drawn_segments(sv) == 1);
+    check("traffic: and rings the three located hops", rift_scope_view_drawn_hops(sv) == 3);
+    check("traffic: the counts say so",
+          find_text(content(), "5 HOPS") && find_text(content(), "1 UNKNOWN") &&
+              find_text(content(), "1 NO LOCATION") &&
+              find_text(content(), "1 LINE"));
+    check("traffic: and that RSSI/SNR are this device's",
+          find_text(content(), "AT THIS DEVICE") != NULL);
+    shot("traffic-portrait-large-live");
+
+    /* ---- a moved map stays moved; the map and panel hold still ---- */
+    {
+        lv_obj_t *canvas = rift_map_view_canvas(app);
+        const struct rift_map_view *g;
+        struct rift_map_view before;
+
+        lv_obj_get_coords(canvas, &canvas_at);
+        drag_by(canvas_at.x1 + 120, canvas_at.y1 + 120, 60, 40);
+        g = rift_map_view_geometry(app);
+        before = *g;
+        lv_obj_get_coords(rift_scope_view_panel(sv), &panel_at);
+        stable = 1;
+        for (i = 0; i < 10; i++) {
+            tf_flood(3 + i, 50, i % 2 ? long_text : "Ok");
+            rift_app_refresh(app);
+            pump(120);
+            lv_obj_get_coords(canvas, &now_at);
+            stable &= same_area(&now_at, &canvas_at);
+            lv_obj_get_coords(rift_scope_view_panel(sv), &now_at);
+            stable &= same_area(&now_at, &panel_at);
+        }
+        g = rift_map_view_geometry(app);
+        check("traffic: long and short packets never move or resize the map or its panel", stable);
+        check("traffic: nor move a map the reader panned",
+              g && g->cx == before.cx && g->cy == before.cy && g->zoom == before.zoom);
+        check("traffic: the map keeps a useful height in portrait at Large",
+              lv_area_get_height(&canvas_at) >= 360);
+    }
+
+    /* ---- pick a packet; arrivals and eviction leave it alone ---- */
+    tap(rift_scope_view_row(sv, 2));
+    pump(200);
+    picked = rift_scope_view_picked(sv);
+    picked_uid = picked ? picked->uid : 0;
+    check("traffic: a row opens its detail", picked && rift_scope_view_detail_open(sv) &&
+                                                 find_text(content(), "SHOW PATH"));
+    shot("traffic-portrait-large-detail");
+    for (i = 0; i < 5; i++) {
+        tf_flood(20 + i, 10, "Ny");
+    }
+    rift_app_refresh(app);
+    pump(200);
+    picked = rift_scope_view_picked(sv);
+    check("traffic: new packets steal neither the pick nor the detail",
+          picked && picked->uid == picked_uid && rift_scope_view_detail_open(sv));
+    rift_rxlog_clear(&app->rxlog);
+    rift_app_refresh(app);
+    pump(200);
+    picked = rift_scope_view_picked(sv);
+    check("traffic: the picked packet's copy outlives its entry in the ring",
+          picked && picked->uid == picked_uid && find_text(content(), "SHOW PATH"));
+    {
+        const struct rift_map_view *g = rift_map_view_geometry(app);
+        struct rift_map_view before = *g;
+
+        tap(tf_button("SHOW PATH"));
+        pump(200);
+        g = rift_map_view_geometry(app);
+        placed = *g;
+        check("traffic: SHOW PATH fits the map to the packet's located hops",
+              !rift_scope_view_detail_open(sv) &&
+                  (g->cx != before.cx || g->cy != before.cy || g->zoom != before.zoom));
+        check("traffic: and draws the picked path, not a live one",
+              rift_scope_view_drawn_segments(sv) == 1 && find_text(content(), "PICKED PACKET"));
+    }
+    tf_flood(40, 10, "Etter");
+    rift_app_refresh(app);
+    pump(200);
+    {
+        const struct rift_map_view *g = rift_map_view_geometry(app);
+
+        check("traffic: an arrival after SHOW PATH does not move the map",
+              g->cx == placed.cx && g->cy == placed.cy && g->zoom == placed.zoom);
+    }
+    tap(tf_button("LIVE"));
+    pump(200);
+    check("traffic: LIVE lets the pick go", rift_scope_view_picked(sv) == NULL);
+
+    /* ---- a node tapped: RIFT's own selection, its detail not offered under a draft ---- */
+    check("traffic: a marker tapped selects the node, as MAP does",
+          route_tap_marker(RT_SEVEN) && app->have_selected &&
+              strcmp(app->selected, RT_SEVEN) == 0 && find_text(content(), "NODE RPT-7"));
+    check("traffic: and adds no relay to the kept draft", r->draft.count == 1);
+    check("traffic: NODE DETAIL is not offered while leaving MAP would cancel the draft",
+          tf_button("NODE DETAIL \xE2\x80\xBA") == NULL);
+
+    /* ---- a tab away and back: one panel, still TRAFFIC ---- */
+    {
+        uint32_t objects = count_objects(content());
+
+        rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+        pump(150);
+        rift_app_show_section(app, RIFT_SEC_MAP);
+        pump(150);
+        /* Leaving MAP is the builder's CANCEL, as it always was. */
+        check("traffic: a tab away and back keeps TRAFFIC on", rift_scope_view_on(app));
+        check("traffic: and builds nothing twice", count_objects(content()) == objects);
+        check("traffic: nor a timer", timer_count() == timers);
+    }
+    check("traffic: TRAFFIC led to no transmission or change of state",
+          tf_writes_since(from, bad, sizeof(bad)) == 0);
+    if (bad[0]) {
+        printf("     (first write: %s)\n", bad);
+    }
+
+    /* ---- BACK TO ROUTE: the draft as it was ---- */
+    rift_route_bar_open_builder(app, RT_TO); /* the tab trip cancelled it, as before */
+    rift_route_add(r, &app->model, RT_NORD);
+    rift_route_add(r, &app->model, RT_SEVEN);
+    rift_app_refresh(app);
+    live_until(route_checked, 8000);
+    pump(200);
+    check("traffic: opening the builder shows the builder, not TRAFFIC",
+          rift_route_view_active(app) && !rift_scope_view_on(app));
+    tap(tf_button("TRAFFIC"));
+    pump(200);
+    from = tf_lines();
+    tap(tf_button("BACK TO ROUTE"));
+    pump(300);
+    check("traffic: BACK TO ROUTE shows the builder again, the draft whole",
+          rift_route_view_active(app) && r->draft.count == 2 &&
+              visible(rift_route_view_panel(rift_map_view_route(app))) &&
+              rift_route_view_drawn_marks(rift_map_view_route(app)) == 2);
+    check("traffic: and TRAFFIC on and off asked the service nothing about the route",
+          tf_writes_since(from, bad, sizeof(bad)) == 0);
+    tap(word_button("CANCEL"));
+    pump(300);
+    check("traffic: the composer's draft survived all of it",
+          app->section == RIFT_SEC_COMMS && rift_comms_field(app) &&
+              strcmp(lv_textarea_get_text(rift_comms_field(app)), "Utkast som skal bli") == 0);
+    field_set(rift_comms_field(app), "");
+
+    /* ---- the plain map is as it was ---- */
+    rift_app_show_section(app, RIFT_SEC_MAP);
+    pump(200);
+    check("traffic: off, MAP is the plain map with its node panel",
+          !rift_scope_view_on(app) && !visible(rift_scope_view_panel(sv)) &&
+              find_exact(content(), "NODE") != NULL);
+    shot("traffic-portrait-large-plain-map");
+
+    /* ---- both shapes at Large: the map keeps its room, the panel scrolls ---- */
+    for (t = 0; t < 2; t++) {
+        enum pos_rotation turn = t ? POS_ROTATION_270 : POS_ROTATION_0;
+        const char *shape = t ? "landscape" : "portrait";
+        char what[160];
+        lv_obj_t *canvas;
+
+        use_display(turn, PANEL_CORNER);
+        app_leave();
+        app_start();
+        sv = rift_map_view_scope(app);
+        rift_app_show_section(app, RIFT_SEC_MAP);
+        pump(200);
+        check("traffic: a new screen starts with TRAFFIC off", !rift_scope_view_on(app));
+        tf_flood(60 + t, 300, long_text);
+        tap(tf_button("TRAFFIC"));
+        pump(300);
+        canvas = rift_map_view_canvas(app);
+        lv_obj_get_coords(canvas, &canvas_at);
+        snprintf(what, sizeof(what), "traffic: %s, Large: the map has width and height", shape);
+        check(what, lv_area_get_width(&canvas_at) >= (t ? 600 : 400) &&
+                        lv_area_get_height(&canvas_at) >= (t ? 340 : 360));
+        snprintf(what, sizeof(what), "traffic: %s, Large: the panel is %s the map, inside the body",
+                 shape, t ? "beside" : "under");
+        lv_obj_get_coords(rift_scope_view_panel(sv), &panel_at);
+        check(what, inside_body(rift_scope_view_panel(sv)) &&
+                        (t ? panel_at.x1 > canvas_at.x2 : panel_at.y1 > canvas_at.y2));
+        snprintf(what, sizeof(what), "traffic: %s, Large: the bar's words are whole", shape);
+        check(what, captions_clipped(frame()) == 0 && inside_body(tf_button("TRAFFIC")) &&
+                        inside_body(tf_button("FIT")));
+        snprintf(what, sizeof(what), "traffic: %s, Large: the attribution's corner is the map's",
+                 shape);
+        check(what, !rift_basemap_on(rift_map_view_basemap(app)) ||
+                        rift_map_view_attribution(app, NULL));
+        snprintf(what, sizeof(what), "traffic-%s-large", shape);
+        shot(what);
+        tap(rift_scope_view_row(sv, 0));
+        pump(200);
+        snprintf(what, sizeof(what), "traffic-%s-large-detail", shape);
+        shot(what);
+        lv_obj_get_coords(canvas, &now_at);
+        snprintf(what, sizeof(what), "traffic: %s, Large: the detail does not move the map", shape);
+        check(what, same_area(&now_at, &canvas_at));
+        /* Back steps out: the detail, then TRAFFIC. */
+        check("traffic: Back closes the detail first",
+              app_rift.back(app) == 1 && !rift_scope_view_detail_open(sv) &&
+                  rift_scope_view_on(app));
+        check("traffic: then TRAFFIC, to the plain map",
+              app_rift.back(app) == 1 && !rift_scope_view_on(app) &&
+                  app->section == RIFT_SEC_MAP);
+    }
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_leave();
+    app_start();
+    rift_app_show_section(app, RIFT_SEC_MAP);
+    tap(tf_button("TRAFFIC"));
+    pump(200);
+    sv = rift_map_view_scope(app);
+
+    /* ---- the service goes away and comes back ---- */
+    from = tf_lines();
+    route_kill(pid);
+    check("traffic: the service went", live_until(route_down, 8000));
+    pump(1200);
+    check("traffic: the panel says so and keeps the held packets",
+          find_text(content(), "SERVICE LOST") && app->rxlog.count > 0 &&
+              rift_scope_view_on(app));
+    shot("traffic-portrait-large-service-lost");
+    pid = tf_spawn(bin, events);
+    check("traffic: the service is back, read again by RIFT's own client",
+          live_until(route_ready, 12000));
+    pump(600);
+    check("traffic: and still one subscription per connection",
+          log_count_of(tf_methods, "mesh.subscribe", 1) == 2);
+    check("traffic: the reconnect under TRAFFIC sent nothing: no message, advert or discovery",
+          log_count_of(tf_methods, "mesh.send", 1) == 0 &&
+              log_count_of(tf_methods, "mesh.advert", 1) == 0 &&
+              log_count_of(tf_methods, "mesh.discover", 1) == 0);
+    check("traffic: the panel says it is listening again", app->rxlog.lost == 0 &&
+                                                            find_text(content(), "LISTENING"));
+    {
+        int marks = 0;
+
+        for (i = 0; i < app->rxlog.count; i++) {
+            marks += rift_rxlog_at(&app->rxlog, i)->kind == RIFT_RX_MARK;
+        }
+        /* rift_scope_test.c proves a live path is never taken across one. */
+        check("traffic: and the gap is marked in the ring", marks >= 1);
+    }
+
+    /* ---- close and reopen; then CLOSE RIFT ---- */
+    {
+        int held = app->rxlog.count;
+
+        app_leave();
+        check("traffic: leaving RIFT keeps the ring with the session",
+              rift_app_session() && rift_app_session()->rxlog.count >= held);
+        app_start();
+        check("traffic: reopening builds one TRAFFIC, off", rift_map_view_scope(app) &&
+                                                                !rift_scope_view_on(app));
+    }
+    app_stop();
+    check("traffic: CLOSE RIFT releases it all", rift_app_session() == NULL);
+    check("traffic: nothing sent in the whole session", log_count_of(tf_methods, "mesh.send", 1) == 0);
+    route_kill(pid);
+    pos_theme_select_text_size(was);
+}
+
 /* Shared-style state fixture: native simulator pixels, no service or app
  * layout changes. The same geometry is used for both sides of a revision. */
 static void theme_state_proof(void)
@@ -7419,6 +7902,15 @@ int main(void)
     }
     /* $RIFT_APP_TEST_ONLY=route: the route builder's session alone, for a
      * focused run; tests/rift_shell_test.sh runs everything. */
+    /* $RIFT_APP_TEST_ONLY=traffic: MAP's TRAFFIC alone, likewise. */
+    if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "traffic") == 0) {
+        traffic_session();
+        if (shots_dir) {
+            printf("rift_app_test: %d screenshot(s) in %s\n", shots_taken, shots_dir);
+        }
+        printf("rift_app_test: %d checks, %d failure(s)\n", checks, failed);
+        return failed ? 1 : 0;
+    }
     if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "route") == 0) {
         route_builder_session();
         if (shots_dir) {
@@ -8810,6 +9302,8 @@ int main(void)
     background_live_session();
     /* feat/rift-visual-path-builder: the route builder, live. */
     route_builder_session();
+    /* feat/meshscope: MAP's TRAFFIC, live. */
+    traffic_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */

@@ -61,6 +61,7 @@ int main(void)
     script.explicit_path = getenv("FAKE_MESHCORED_EXPLICIT") != NULL;
     script.path_refuse_prefix = getenv("FAKE_MESHCORED_PATH_REFUSE");
     script.preview_log = getenv("FAKE_MESHCORED_PREVIEWS");
+    script.rx_log = getenv("FAKE_MESHCORED_RX_LOG") != NULL;
     script.life_ms = life ? atoi(life) : 10000;
     if (path) {
         FILE *f = fopen(path, "r");

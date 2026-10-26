@@ -10,6 +10,7 @@
 #include "pos_styles.h"
 #include "rift_emoji.h"
 #include "rift_emoji_style.h"
+#include "rift_scope_view.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,7 +74,10 @@ static struct rift_route *route_of(const struct rift_app *a)
 
 int rift_route_view_active(const struct rift_app *app)
 {
-    return app && app->section == RIFT_SEC_MAP && app->model.route.draft.active;
+    /* Not while MAP shows TRAFFIC: the draft is kept, and not drawn or
+     * edited under an observed path (rift_scope_view.h). */
+    return app && app->section == RIFT_SEC_MAP && app->model.route.draft.active &&
+           !rift_scope_view_on(app);
 }
 
 lv_obj_t *rift_route_view_panel(const struct rift_route_view *v)

@@ -9,6 +9,7 @@
 #include "pos_styles.h"
 #include "rift_emoji.h"
 #include "rift_emoji_style.h"
+#include "rift_scope_view.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +41,9 @@ void rift_route_bar_open_builder(struct rift_app *app, const char *peer)
     }
     /* MAP is where repeaters have a place; its panel becomes the builder's
      * while the draft is open (ui/rift_route_view.c). The composer, and
-     * what is typed in it, stay where they are. */
+     * what is typed in it, stay where they are. MAP shows the builder, not
+     * TRAFFIC, so a route being chosen is never under an observed path. */
+    rift_scope_view_set(app, 0);
     rift_app_show_section(app, RIFT_SEC_MAP);
 }
 
