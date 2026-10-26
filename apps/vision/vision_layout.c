@@ -110,6 +110,7 @@ int vision_layout_sheet(struct vision_sheet_layout *l, int32_t panel_w, int32_t 
         }
         y += row_h + VISION_SHEET_ROW_GAP;
     }
+    l->body = rect(VISION_SHEET_PAD, y, iw, panel_h - VISION_SHEET_PAD - y > 0 ? panel_h - VISION_SHEET_PAD - y : 0);
     return 0;
 }
 

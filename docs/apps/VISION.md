@@ -36,13 +36,25 @@ RECOGNIZE need models that are neither in this repository nor packaged
 (docs/LICENSING.md item 11); without them those modes are simply not
 offered. LOOK (object identification) is not done: see "LOOK" below.
 
+**Branch `feat/vision-general-colour-line` (2026-10-26, from master
+5011fac9):** the 80-class detector made a first-class choice as **GENERAL 80**
+(the bench A/B's upstream YOLOX-Tiny, renamed on screen, with reproducible
+acquisition and a checked install path), DETECT's **CLASSES** list and "In
+view" line, **COLOR** rebuilt around a read square with a named colour, a
+swatch and a bounded temporal filter, and **LINE TRACE** rebuilt to follow one
+line with an adaptive threshold, candidates told apart from the line followed,
+smoothing, and loss said at once. Host-tested only; the camera and K230 checks
+are in docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md. The follow-up for
+body pose and hand landmarks is docs/vision/BODY_HAND_TRACKING_PLAN.md
+(PROPOSED, not built).
+
 ## Modes and settings
 
 MODE opens a picker over the picture (DS §38.9) with the modes in groups:
 
 | Group | Modes |
 | --- | --- |
-| GENERAL | DETECT (every object the detector knows, boxed), TRACK (the same with ids and a counting line) |
+| GENERAL | DETECT (every object the detector knows, boxed; CLASSES lists what that is), TRACK (the same with ids and a counting line) |
 | ROAD | TRAFFIC |
 | PEOPLE | FACE, RECOGNIZE |
 | TEXT | READ |
@@ -418,7 +430,17 @@ is left for the owner to ask for.
   Every object the detector finds gets an outline, its class name and its
   confidence; the status line says the frame rate through the detector,
   the KPU's time per frame, the preprocessing and post-processing times,
-  and the helper's CPU share and resident set.
+  and the helper's CPU share and resident set. A second line says what is
+  in view by class, the most boxes first (`In view: person 2, cup 1, chair
+  1, laptop 1, +1 more`), or `Nothing it knows in view`.
+- **CLASSES** (DETECT's button) opens a sheet over the picture with what the
+  detector in force can name, and nothing else: R0's six on one page (with
+  why there are no more, and whether GENERAL 80 is on the unit), or COCO's
+  80 a supercategory a page (PEOPLE, VEHICLES, OUTDOOR, ANIMALS,
+  ACCESSORIES, SPORTS, KITCHEN, FOOD, FURNITURE, ELECTRONICS, APPLIANCES,
+  INDOOR; `<` `>` page round, DONE or Back closes). A detector with another
+  class count is said as such. Vision never claims to recognise an arbitrary
+  object, product or person: a box is one of these classes or nothing.
 - **TRACK.** An object seen frame after frame keeps one id (`#7 person
   83%`). An id appears once the object has been seen twice, survives up to
   fifteen missed frames (about 0.6 s) coasting on the object's smoothed
@@ -512,30 +534,79 @@ MODE cycles on past TRAFFIC. In these three the detector idles (the model
 stays loaded; the KPU is not run) and the helper works on the preview
 picture it has already drawn for the screen - in place, in the shared
 memory slot, at the preview's own rate (at most ten a second) - before
-saying `frame`. The core is `core/pocketvision/vision_pixels.c`: integer
-only, no allocation (three static luma rows and a centroid per row,
-bounded by the widest picture a slot holds), tested on synthetic pictures
-in `tests/vision_pixels_test.c`.
+saying `frame`. The core is `core/pocketvision/vision_pixels.c` and
+`vision_swatch.c`: integer only, no allocation (static working rows bounded
+by the widest and tallest picture a slot holds), tested on synthetic
+pictures in `tests/vision_pixels_test.c` and `tests/vision_swatch_test.c`.
 
-- **COLOR.** SAMPLE takes the colour at the picture's middle; a tap on the
-  picture takes it under the finger (a 5 x 5 mean). Every pixel within
-  the tolerance (TOL: LOW 48, MED 96, HIGH 160 - the sum of the three
-  8-bit channel differences) is painted green (magenta when the target is
-  greenish, so it stays visible); the status says the target, the share
-  of the picture that matched and the matches' centroid, which the screen
-  marks with a small accent square.
+- **COLOR.** A square on the picture - an outline, its half side a
+  sixteenth of the picture's smaller side (6 to 24 px; 22 px on the 360 px
+  portrait picture) - is read with every preview, before anything is painted
+  (`vision_swatch.c`). Each pixel is put in one category by integer HSV:
+  **dark** (value under 48: black, or too little light to tell - never
+  called black for sure), **grey** and **white** (saturation under 48;
+  white from value 200), or red, orange, brown (a dark orange), yellow,
+  green, cyan, blue, purple, pink. The category most of the square shares is
+  the reading; under 55 % of the square it is **mixed**, and the two
+  largest are named (`mixed: red 48% and white`). The swatch beside the
+  square shows the mean of the winning category's pixels only, so a red
+  patch in a white margin shows red, not pink; the name stands in the first
+  counter (`RED`). A **bounded temporal filter** keeps it steady: a new name
+  is taken only after 3 readings in a row agree (one odd frame never flips
+  it), and the swatch is the mean of at most the last 8 readings of the name
+  shown, started again when the name changes (red to blue never shows
+  purple); `(settling)` says a name has just changed. A tap on the picture
+  moves the square there (the filter starts again); a new picture size or
+  another mode puts it back in the centre. **MATCH** takes the colour read
+  as the target: every pixel within the tolerance (TOL: LOW 48, MED 96, HIGH
+  160 - the sum of the three 8-bit channel differences) is painted green
+  (magenta when the target is greenish), the share of the picture is the
+  second line and counter (`MATCH 12.3%`), and the matches' centroid gets a
+  small accent square; **CLEAR** stops it. The names are the camera's view
+  under the light there is: no calibration, white balance or lighting
+  correction of its own, and no claim of a colour measurement.
 - **EDGE.** Sobel on the luma: the picture becomes its edge magnitude in
   grey (SOFT) or black and white above a threshold of 40 (HARD); the
   status says the share of strong edges. No contours: a picture of edges
   is what the mode is for.
-- **TRACE.** The dominant dark (LINE: DARK) or light line on the picture:
-  per row, the centroid of the dark pixels when there is a plausible run
-  of them (between 2 % and 60 % of the width), a least-squares line
-  through the centroids, the offset of the bottom quarter's centroid from
-  the middle (`line left 12%`), the lean (`leans right 45%`: dx per rows
-  going down) and how many rows carry the line; the centroids are marked
-  in yellow. A line needs an eighth of the rows. Meant for a tape on a
-  floor in front of the unit, as a line follower sees it.
+- **TRACE (LINE TRACE).** One dark (LINE: DARK) or light line, followed up
+  the picture from its bottom, as a line follower sees a tape on the floor
+  in front of the unit. What changed from the first version, each for a
+  weakness it had:
+  - *A threshold that follows the light.* A pixel belongs to a line when it
+    is clearly darker (lighter) than its own row's mean - by a quarter of
+    the mean, at least 28 - instead of below a fixed grey of 64, which a
+    grey tape on a grey floor or a dim room never reached.
+  - *Candidates, not a centroid of everything.* Per row the runs of such
+    pixels of a plausible width (from 1/80 to 60 % of the width, joined
+    across gaps of two pixels) are candidates; a row with more than 8 is
+    texture and holds none. The old centroid of every dark pixel in a row
+    put the "line" between a tape and a shadow.
+  - *One line followed.* A chain starts at a candidate on the three lowest
+    rows of the lower half that hold any, and climbs row by row to the
+    candidate nearest where it was heading, across gaps of up to a
+    sixteenth of the height. The longest chain wins; while a line was seen
+    in the last 20 pictures, a chain starting where it was is kept if at
+    least half as long, so a parallel decoy does not take over. It needs an
+    eighth of the rows, and must be longer than twice its mean width: a
+    squarish shadow or mat is a candidate, never the line (the first
+    simulator captures of this branch showed a shadow taken for the line
+    once the tape left the picture; this rule is the fix).
+  - *Shown apart.* The candidates' edges are marked cyan on the picture, the
+    line followed yellow along its centre, and the screen draws the fitted
+    line over it as a row of accent dots from its top to its bottom row.
+  - *Steady, and honest when gone.* The offset of the line's bottom from
+    the middle (first counter `LEFT 12%` or `CENTRE`) and its lean (second
+    counter `LEAN R 45%` or `STRAIGHT`; the status says `Following a dark
+    line, 300 rows`) are averaged with the previous picture while the line
+    stays (a jump of more than a sixth of the width is another line, taken
+    as it is). A picture without the line says so at once: nothing is drawn
+    as the line, the counters say `LOST` and how long (`1.4 s`), and the
+    status warns `Line lost 1.4 s ago`. Before a line has been seen it says
+    `No dark line found yet`, without a warning. LINE: DARK / LIGHT starts
+    the following again.
+  It reports a line on the picture, nothing more: no steering, no motor
+  output and no claim about distance on the ground.
 - **SHAPE is not implemented.** Circle, rectangle and triangle detection
   needs contours and polygon fitting, which is more than a pass over the
   picture; it is left for its own change.
@@ -588,7 +659,7 @@ tracker and TRAFFIC's class map are unchanged.
 YOLOX-Tiny file of the bench A/B (below) makes MODEL a choice again; READ,
 FACE and RECOGNIZE appear when their files are there; and `yolov8n.kmodel`
 stays the helper's own default. A stored choice whose file has gone opens the
-one that is there and says so under the picture ("UPSTREAM is not on this
+one that is there and says so under the picture ("GENERAL 80 is not on this
 unit. Using R0 · Beta.").
 
 **DeskBuddy uses the same detector.** Its provider (`apps/deskbuddy_vision`)
@@ -656,7 +727,51 @@ one to try); it never touches an image, and a unit given the AGPL-labelled
 file that way is an internal test unit (item 10).
 
 The COCO class names are compiled in (`core/pocketvision/vision_labels.c`),
-in the order the vendor's `coco_labels.txt` lists them.
+in the order the vendor's `coco_labels.txt` lists them, with COCO 2017's
+twelve supercategories (which hold the 80 in runs of consecutive indices)
+for CLASSES, and R0's six by index.
+
+### GENERAL 80: the broad detector (feat/vision-general-colour-line)
+
+R0 boxes six traffic classes. For everyday objects Vision already had a
+better-supported answer than a new model framework: the bench A/B's upstream
+YOLOX-Tiny 416 file (below), the same decoder, export layout and AI2D input
+as R0, gated on unit A (VISION_MODEL_AB_GATE.md, PASS), scoring all 80 COCO
+classes. This branch makes it the named general detector rather than adding
+another: the MODEL button and the logs call it **GENERAL 80** (the settings
+word stays `upstream`, so stored choices carry over), CLASSES lists its 80
+classes, and `install-model.sh --general` puts exactly the gated file on a
+bench unit. Nothing about its licence changed: it is still **not packaged,
+not committed, and refused in an image** (MODEL_LICENSES.md).
+
+| | |
+| --- | --- |
+| Model | YOLOX-Tiny (depth 0.33, width 0.375), Megvii-BaseDetection/YOLOX, release `0.1.1rc0`, `yolox_tiny.pth` (the non-legacy Tiny; `yolox_tiny_32dot8.pth` is the legacy one) |
+| Checkpoint | https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.pth - 40,755,013 bytes, sha256 `9de513de589ac98bb92d3bca53b5af7b9acfa9b0bacb831f7999d0f7afaee8f0` (downloaded and checked 2026-10-26 against the 2026-10-04 record; VERIFIED). GitHub states no digest for the asset |
+| Licences | **code**: Apache-2.0 (the repository's LICENSE, VERIFIED via the GitHub API). **weights**: no statement. Issue #1865 asks; on 2026-10-25 it had two further questions from users and no maintainer answer (VERIFIED). Redistribution status: UNKNOWN - DO NOT REDISTRIBUTE; EXTERNAL ONLY (bench units, by hand) |
+| Conversion | `tools/vision/training/convert.sh` and `export_onnx.py` on `research/yolox-traffic-training` (YOLOX at `6ddff48`, torch 2.1.2+cpu export, opset 11, decode in the graph) and nncase 2.11.0 with the `nncase-kpu` 2.11.0 plug-in: int16 activations, uint8 weights, NoClip calibration on 100 images |
+| kmodel | `det-upstream-yolox-tiny-416.kmodel`, sha256 `8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354` (pinned in `tools/vision/general-80-model.sha256` and listed in `refused-models.sha256`), 5,894,104 bytes as recorded by the evaluation |
+| Input | u8 NCHW RGB `[1, 3, 416, 416]`, letterboxed top-left, pad 114 (AI2D), swapRB, mean 0, std 1 - ValTransform(legacy=False), as R0 |
+| Output | f32 `[1, 84, 3549]` (52² + 26² + 13² rows): decoded `cx, cy, w, h` in input pixels, then `obj x cls` for 80 classes; `vision_decode.c` unchanged, threshold 0.35, class-aware NMS 0.65 |
+| Labels | COCO 2017's 80, in `vision_labels.c`'s order (VERIFIED against R0's export record, which places its six at the same rows) |
+| Compatibility evidence | not the file extension: the unit A A/B gate (2026-10-09, PASS: loaded and ran on the nncase 2.11 runtime, KPU 57-65 ms a frame on unit A, about 12.5 fps, the unchanged decoder, 0 bad tensors), and the evaluation's simulator-vs-float check |
+
+**Reproducing it** (needs the research branch's conversion environment -
+PyTorch, YOLOX at `6ddff48` and nncase 2.11.0 - which is not installed on
+this branch's build host and was not run for it): fetch the checkpoint above
+and check its sha256; export and compile with `convert.sh` as R0's section 9
+describes; compare the kmodel's sha256 with the pin (the compile is
+deterministic for a fixed calibration list; a different list gives a
+different file, which `install-model.sh --general` refuses); then
+`tools/vision/install-model.sh --general <file> <unit ip>`. Without the file
+on the unit, nothing changes: MODEL names R0 and takes no tap, and CLASSES
+says the unit has no 80-class detector.
+
+**Not run here**: no real inference of either kmodel on a picture. The host
+has neither the KPU nor the nncase simulator, and installing it was out of
+scope; every detector check on this branch is the fake detector
+(`vision_kpu_fake.c`) or the decoder on built tensors. The camera and KPU
+checks are in docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md.
 
 ### Detector A/B on a bench unit (feat/vision-model-switch)
 
@@ -671,7 +786,7 @@ When a unit has either of
 | `det-upstream-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_UPSTREAM` | upstream YOLOX-Tiny 416, the 2026-10-04 detector evaluation's `yolox_tiny_416_a16` | `8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354` |
 
 DETECT, TRACK and TRAFFIC get a last button, MODEL, naming the detector in
-force (`R0 · Beta`, `UPSTREAM`; `LOADING R0` or `LOADING UPSTREAM` while one
+force (`R0 · Beta`, `GENERAL 80` - `UPSTREAM` before this branch; `LOADING R0` or `LOADING GENERAL` while one
 opens; up to the 0.3.6 work it read `MODEL: R0`, which did not fit a
 landscape button once R0 was named a beta), and DETECT's numbers start with
 its name. The button takes a tap only when the other file is on the unit
@@ -776,15 +891,18 @@ picture pixels, so the app draws them with no geometry of its own.
 
 ### The protocol
 
-`core/pocketvision/pocketvision_proto.h` is the reference (version 2).
-Commands: `view w h rotation [contain]`, `start`, `stop`, `release slot`,
+`core/pocketvision/pocketvision_proto.h` is the reference (version 3 from
+feat/vision-general-colour-line: `swatch` and `probe` are new, `trace` carries
+six more fields; the app and the helper ship together and the session refuses
+another version). Commands: `view w h rotation [contain]`, `start`, `stop`, `release slot`,
 `mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
 `speed off`, `distance cm`, `range near|normal|far`, `color r g b` or `color off`, `sample x y`,
-`tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
+`probe x y` or `probe centre`, `tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
+`swatch r g b name first second share_pm steady x y half`,
 `color r g b matched_pm cx cy`, `edge strong_pm`,
-`trace found offset_pm slope_pm rows` (the pixel modes, with every
-preview), `hello`,
+`trace found offset_pm slope_pm rows x0 y0 x1 y1 lost_ms candidates` (the
+pixel modes, with every preview), `hello`,
 `ready camera pw ph simulated model in_w in_h classes`, `caps mode...`, `nodevice`,
 `nomodel`, `error what text`, `frame slot seq w h`,
 `det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (dir 0 none, 1 left, 2
@@ -904,9 +1022,28 @@ Host only; none needs unit A. `make vision-test` runs them all,
   and a wide tolerance, a green target painted magenta, no match, the
   tolerance's ceiling; a vertical and a horizontal step edge found on
   their rows and columns alone, grey and thresholded, a flat picture
-  edgeless; a leaning dark line traced with its lean and offset and its
-  centroids marked, a straight light one, a blank, an all-dark picture, a
-  short dash; pictures too small or too wide refused.
+  edgeless; pictures too small or too wide refused. LINE TRACE (47 checks
+  in all, feat/vision-general-colour-line): a leaning dark line followed on
+  every row with its lean, its bottom's offset and its fitted ends, the
+  line yellow and its edges cyan; a straight light one; a grey line on a
+  grey floor found by its contrast; a blank and an all-dark picture, a short
+  dash at the bottom (a candidate, not a line), a line in the upper half
+  only, stripes (texture); a gap crossed; the line chosen over a shorter
+  blob beside it. Over pictures with a state: a small move smoothed and
+  settling, a jump taken as another line, the line gone said at once with
+  nothing painted and the loss counted, reacquired where it was last seen
+  rather than a decoy nearer the centre (which a stateless pass takes), and
+  looked for afresh after a long loss.
+- `tests/vision_swatch_test.c` (38 checks): every colour category from a
+  plain colour, dark whatever the hue, pale as grey or white; a red picture
+  read red; a red patch in a white margin read red with white second and
+  shown red; a square split between blue and yellow mixed, naming both; a
+  square asked for at a corner moved inside; refusals. The filter: the first
+  reading at once, one odd frame never flipping the name or leaking into
+  the colour, a change taken on exactly the third reading in a row, the
+  colour restarting with the name (no red-blue blend), a red-blue flicker
+  keeping the name, the mean bounded to the last eight, mixed carrying its
+  largest and second, reset. Synthetic pictures only.
 - `tests/vision_traffic_test.c` (39 checks): the class names and the
   groups, filtering, per-class and total counts by direction, reset; a
   speed from A then B and from B then A, the current speed retired with
@@ -925,7 +1062,17 @@ Host only; none needs unit A. `make vision-test` runs them all,
   distances, the traffic report's words, every failure's sentence, the
   choices kept across Try again; both layouts in both modes on the
   reference panel with every control inside the safe box, at least the
-  touch minimum, not overlapping, the picture in the frame's shape.
+  touch minimum, not overlapping, the picture in the frame's shape. From
+  feat/vision-general-colour-line (640 checks): COLOR's reading, its words
+  for a colour, mixed, dark and settling, the square and swatch, MATCH from
+  the reading and CLEAR (a late report brings no target back); TRACE's
+  counters, its line drawn only while found, lost said as a warning with
+  its time, never-found without one; CLASSES' pages for GENERAL 80 (all 80
+  once, every page within its buffers), R0's one page with and without the
+  80-class file, the helper's own default, closing by DONE and by another
+  mode; DETECT's "In view" line; the new button rows (DETECT + CLASSES,
+  COLOR, TRACE, COLOR without a detector) laid out on both reference
+  pictures, and the CLASSES page's room under its row.
 - `tests/vision_session_test.c` (78 checks) against the real helper on
   the fake camera and the fake detector: every event line parsed and the
   malformed ones refused (the nine-field box, the traffic report); a
@@ -936,9 +1083,13 @@ Host only; none needs unit A. `make vision-test` runs them all,
   measured against the helper's own clock, the chair never tracked,
   reset, and the chair back in DETECT; the pixel modes on the fake
   camera's picture: EDGE empties the boxes and says its edges, soft and
-  hard, pictures keep coming, COLOR says nothing without a target and a
-  report once the middle is sampled, TRACE answers, DETECT tracks the box
-  again; stats; reset; stop; two
+  hard, pictures keep coming, COLOR matches nothing without a target but
+  reads its square at the centre, a probe at a corner moved inside and its
+  filter restarted, back to the centre, a report once the middle is
+  sampled, TRACE answers found with no loss or not found with one, DETECT
+  tracks the box again; the `swatch` and the ten-field `trace` lines parsed
+  and their impossible forms refused (a name that is not its first, found
+  yet lost, the old four-field trace); stats; reset; stop; two
   malformed tensors said and survived; a detector giving nonsense ended
   with exit 5; a failed run; no camera, a busy camera, a bad detector
   script, a missing helper, a camera that goes away, a hung helper killed
@@ -962,7 +1113,10 @@ Host only; none needs unit A. `make vision-test` runs them all,
 - `tests/vision_shell_test.sh` (needs `SHELL_BIN`): the real shell opening
   Vision in both orientations on the fake camera and detector, the picker
   and the setup covering the picture, a stored mode obeyed, a damaged one
-  falling back, and nothing written by merely opening.
+  falling back, and nothing written by merely opening; GENERAL 80 in force
+  from a stored `detector=upstream` with CLASSES covering the picture
+  (`POCKETOS_VISION_SHEET=classes`), and COLOR and LINE TRACE opened from
+  their stored modes.
 - `tests/pocketcam_test.c` gains the planar BGR format (three checks).
 - `tests/vision_lint.sh` holds the boundaries: no LVGL below the screen,
   no camera or detector in the app, nncase in one file behind a C

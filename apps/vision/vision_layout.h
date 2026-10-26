@@ -70,6 +70,7 @@ struct vision_sheet_layout {
     struct vision_rect title;
     struct vision_rect caption[VISION_SHEET_ROWS_MAX];
     struct vision_rect cell[VISION_SHEET_ROWS_MAX][VISION_SHEET_CELLS_MAX];
+    struct vision_rect body; /* what is left under the rows, for text (h 0 when nothing) */
 };
 
 /* The sheet on a panel of panel_w x panel_h, `rows` rows of cells[i]
