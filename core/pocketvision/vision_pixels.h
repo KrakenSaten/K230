@@ -45,7 +45,6 @@
 #define VISION_TRACE_CONTRAST 28   /* the least a line pixel differs from its row's mean luma */
 #define VISION_TRACE_RUNS 8        /* candidate runs a row may hold; more is texture, not a line */
 #define VISION_TRACE_REACQUIRE 20  /* pictures a lost line is looked for where it was last seen */
-#define VISION_TRACE_START_ROWS 32 /* rows (holding candidates) of the lower half a line may start on */
 
 struct vision_rgb {
     uint8_t r;

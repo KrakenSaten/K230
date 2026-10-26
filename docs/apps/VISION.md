@@ -582,10 +582,13 @@ pictures in `tests/vision_pixels_test.c` and `tests/vision_swatch_test.c`.
     across gaps of two pixels) are candidates; a row with more than 8 is
     texture and holds none. The old centroid of every dark pixel in a row
     put the "line" between a tape and a shadow.
-  - *One line followed.* A chain starts at a candidate on the 32 lowest
-    rows of the lower half that hold any (3 at first: on unit A specks below
-    the paper took them all and a line in plain view was said lost), and
-    climbs row by row to the
+  - *One line followed.* A chain starts at any candidate of the lower half
+    that no chain has passed through yet, from the bottom up (at first only
+    the 3, then 32, lowest rows holding any: on unit A specks in the dark
+    corners below the paper filled 50 such rows and a line in plain view was
+    said lost; a run already on a chain starts none, so a line is followed
+    once). A short fragment at a chain's bottom cut off by a gap - a speck it
+    bridged from - is dropped. It climbs row by row to the
     candidate nearest where it was heading, across gaps of up to a
     sixteenth of the height. The longest chain wins; while a line was seen
     in the last 20 pictures, a chain starting where it was is kept if at
@@ -1028,7 +1031,7 @@ Host only; none needs unit A. `make vision-test` runs them all,
   and a wide tolerance, a green target painted magenta, no match, the
   tolerance's ceiling; a vertical and a horizontal step edge found on
   their rows and columns alone, grey and thresholded, a flat picture
-  edgeless; pictures too small or too wide refused. LINE TRACE (50 checks
+  edgeless; pictures too small or too wide refused. LINE TRACE (51 checks
   in all, feat/vision-general-colour-line): a leaning dark line followed on
   every row with its lean, its bottom's offset and its fitted ends, the
   line yellow and its edges cyan; a straight light one; a grey line on a

@@ -266,6 +266,34 @@ static void test_trace(void)
     check("specks on the lowest rows do not hide the line above them",
           vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 40 && r.x1 <= 46 &&
               r.y1 == (3 * H) / 4 - 1);
+    {
+        /* And when the specks fill more rows than any fixed number of
+         * starts: unit A's vignette darkened 50 rows of both lower corners.
+         * A 200-row picture, the line on rows 0..139, specks in both
+         * corners on rows 140..199. */
+        static uint16_t tall[200][W];
+        int x;
+        int yy;
+
+        for (yy = 0; yy < 200; yy++) {
+            for (x = 0; x < W; x++) {
+                tall[yy][x] = white;
+            }
+            if (yy < 140) {
+                for (x = 60; x < 66; x++) {
+                    tall[yy][x] = black;
+                }
+            } else {
+                tall[yy][3 + (yy % 4)] = black;
+                tall[yy][4 + (yy % 4)] = black;
+                tall[yy][110 + (yy % 3)] = black;
+                tall[yy][111 + (yy % 3)] = black;
+            }
+        }
+        check("60 rows of corner specks under the line do not hide it",
+              vision_pixels_trace(&tall[0][0], W, 200, W, true, NULL, &r) == 0 && r.found && r.y1 == 139 &&
+                  r.x1 >= 60 && r.x1 <= 65 && r.offset_pm > -20 && r.offset_pm < 90);
+    }
     /* Unit A: a speck at the picture's lower edge, within reach of the line's
      * end across a gap, became the chain's start and so the line's "bottom".
      * Here the line ends at row 69 at x 40..45, a 3-row speck sits at x 52

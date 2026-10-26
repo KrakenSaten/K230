@@ -201,6 +201,7 @@ int vision_pixels_edge(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, ui
 static int16_t run_l[TRACE_MAX_H][VISION_TRACE_RUNS];
 static int16_t run_r[TRACE_MAX_H][VISION_TRACE_RUNS];
 static uint8_t run_n[TRACE_MAX_H];
+static uint8_t run_seen[TRACE_MAX_H]; /* per row, a bit per run some chain already passed through */
 static int16_t chain[TRACE_MAX_H];
 
 void vision_trace_reset(struct vision_trace_state *st)
@@ -294,6 +295,7 @@ static uint32_t follow(uint32_t w, uint32_t h, int32_t yb, int32_t xb, int32_t w
         int32_t reach = (int32_t)w / 20 + 2 * dy;
         int32_t best = -1;
         int32_t best_w = 0;
+        int32_t best_k = 0;
         int32_t best_d;
         int k;
 
@@ -308,6 +310,7 @@ static uint32_t follow(uint32_t w, uint32_t h, int32_t yb, int32_t xb, int32_t w
             if (d <= reach && d < best_d) {
                 best = c;
                 best_w = run_r[y][k] - run_l[y][k] + 1;
+                best_k = k;
                 best_d = d;
             }
         }
@@ -326,6 +329,9 @@ static uint32_t follow(uint32_t w, uint32_t h, int32_t yb, int32_t xb, int32_t w
         py = y;
         n++;
         *wsum += (uint32_t)best_w;
+        /* A run a chain has passed through starts no chain of its own: it
+         * would only be the same line again, shorter. */
+        run_seen[y] |= (uint8_t)(1u << best_k);
         if (mark) {
             chain[y] = (int16_t)best;
         }
@@ -346,7 +352,7 @@ int vision_pixels_trace(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, b
     int32_t near_y = -1;
     int32_t near_x = -1;
     uint32_t near_n = 0;
-    int starts = 0;
+
     int32_t y;
 
     if (!picture_ok(px, w, h, stride) || !out || h > TRACE_MAX_H) {
@@ -356,28 +362,33 @@ int vision_pixels_trace(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, b
     for (y = 0; y < (int32_t)h; y++) {
         row_runs(px + (size_t)y * stride, w, (uint32_t)y, dark, min_run, max_run);
         chain[y] = -1;
+        run_seen[y] = 0;
         if (run_n[y]) {
             out->candidates++;
         }
     }
-    /* The starts: every run on the VISION_TRACE_START_ROWS lowest rows of the
-     * lower half that hold any - not just the lowest few: on unit A specks
-     * below the paper held those, and a line in plain view was never tried.
-     * A chain from a speck ends within a gap, so the extra starts cost
-     * little. The longest chain wins; one that starts where the line was
-     * last seen wins if it is at least half as long. */
-    for (y = (int32_t)h - 1; y >= (int32_t)h / 2 && starts < VISION_TRACE_START_ROWS; y--) {
+    /* The starts: every run of the lower half that no chain has passed
+     * through yet, from the bottom up. Not only the lowest rows that hold
+     * any: on unit A specks in the dark corners below the paper filled the
+     * lowest 50 such rows, and a line in plain view was never tried. A chain
+     * from a speck ends within a gap, and a run already on a chain starts
+     * none, so a line is followed once, not once per row. The longest chain
+     * wins; one that starts where the line was last seen wins if it is at
+     * least half as long. */
+    for (y = (int32_t)h - 1; y >= (int32_t)h / 2; y--) {
         int32_t ref = prior ? st->last_x : (int32_t)w / 2;
         int k;
 
-        if (!run_n[y]) {
-            continue;
-        }
-        starts++;
         for (k = 0; k < run_n[y]; k++) {
             int32_t c = (run_l[y][k] + run_r[y][k]) / 2;
             uint32_t wsum;
-            uint32_t n = follow(w, h, y, c, run_r[y][k] - run_l[y][k] + 1, false, &wsum);
+            uint32_t n;
+
+            if (run_seen[y] & (1u << k)) {
+                continue;
+            }
+            run_seen[y] |= (uint8_t)(1u << k);
+            n = follow(w, h, y, c, run_r[y][k] - run_l[y][k] + 1, false, &wsum);
 
             /* A line is longer than it is wide: a chain no longer than twice
              * its mean width is a blob (a shadow, a mat), not a line. */
