@@ -683,7 +683,10 @@ static void guard_vision(struct db_brain *b, enum db_vision_kind kind, const str
         }
         break;
     case DB_ST_GUARD_ARMED:
-        if (kind == DB_VISION_OWNER_RECOGNIZED) {
+        if (kind == DB_VISION_NO_PERSON) {
+            /* A fresh empty report after an outage can now end the visit. */
+            visit_ended(b, now);
+        } else if (kind == DB_VISION_OWNER_RECOGNIZED) {
             guard_stand_down(b, now, true, wall);
         } else if (kind == DB_VISION_UNKNOWN_PERSON) {
             log_visitor(b, DB_SUBJECT_UNKNOWN, conf, wall, now);
@@ -706,9 +709,13 @@ static void guard_vision(struct db_brain *b, enum db_vision_kind kind, const str
             log_visitor(b, DB_SUBJECT_UNKNOWN, conf > b->pending_conf ? conf : b->pending_conf, wall, now);
             enter(b, DB_ST_GUARD_UNKNOWN, now);
         } else if (kind == DB_VISION_NO_PERSON || kind == DB_VISION_UNAVAILABLE) {
-            /* Gone before anyone could say who: still a visit. */
+            /* Left or vision failed before identity: still an observed visit. */
             log_visitor(b, DB_SUBJECT_PERSON, b->pending_conf, wall, now);
-            visit_ended(b, now);
+            /* Losing vision does not prove a departure. Keep this visit
+             * open so recovery cannot chime again for the same presence. */
+            if (kind == DB_VISION_NO_PERSON) {
+                visit_ended(b, now);
+            }
             enter(b, DB_ST_GUARD_ARMED, now);
         }
         break;
@@ -718,7 +725,11 @@ static void guard_vision(struct db_brain *b, enum db_vision_kind kind, const str
         } else if (kind == DB_VISION_UNKNOWN_PERSON) {
             log_visitor(b, DB_SUBJECT_UNKNOWN, conf, wall, now);
         } else if (kind == DB_VISION_NO_PERSON || kind == DB_VISION_UNAVAILABLE) {
-            visit_ended(b, now);
+            /* Losing vision does not prove a departure. Keep this visit
+             * open so recovery cannot chime again for the same presence. */
+            if (kind == DB_VISION_NO_PERSON) {
+                visit_ended(b, now);
+            }
             enter(b, DB_ST_GUARD_ARMED, now);
         }
         break;

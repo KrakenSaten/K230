@@ -427,6 +427,24 @@ static void test_unavailable(void)
     check("vision lost mid-visit: the visit is still logged, armed again",
           b.state == DB_ST_GUARD_ARMED && db_guard_count(&glog) == 1);
 
+    b.prefs.on[DB_PREF_GUARD_SOUND] = true;
+    check("first interrupted visit has one alert", db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += DB_VISIT_MERGE_MS + 5000);
+    run_until(&b, t += 5000);
+    check("recovery after long outage is the same visit, no repeat alert",
+          db_guard_count(&glog) == 1 && !db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_UNAVAILABLE, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += DB_VISIT_MERGE_MS + 5000);
+    run_until(&b, t += 5000);
+    check("outage after logged visit also preserves deduplication",
+          db_guard_count(&glog) == 1 && !db_brain_take_visit_alert(&b));
+    see(&b, DB_VISION_UNAVAILABLE, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_NO_PERSON, DB_CONF_NONE, t += 100);
+    see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += DB_VISIT_MERGE_MS + 100);
+    run_until(&b, t += 5000);
+    check("observed departure then return still creates a new visit",
+          db_guard_count(&glog) == 2 && db_brain_take_visit_alert(&b));
+
     fresh(&b, NULL, t = 0);
     see(&b, DB_VISION_PERSON_DETECTED, DB_CONF_NONE, t += 10);
     see(&b, DB_VISION_UNAVAILABLE, DB_CONF_NONE, t += 10);

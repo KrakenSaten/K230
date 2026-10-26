@@ -44,7 +44,8 @@
  * passed in. A new conclusion is said once it has held for
  * DB_JUDGE_HOLD reports in a row (a face lost for one frame, or a score on
  * the line for one round, says nothing); "nobody" once nobody has been
- * seen for DB_JUDGE_ABSENT_MS. */
+ * seen for DB_JUDGE_ABSENT_MS, confirmed by a new empty report.
+ * Silence uses Vision's existing liveness deadline and means unavailable. */
 #define DB_JUDGE_HOLD 2
 #define DB_JUDGE_ABSENT_MS 1500
 
@@ -63,6 +64,7 @@ struct db_judge {
     enum db_vision_kind cand;
     int cand_n;
     int64_t last_seen_ms;
+    int64_t last_report_ms;
     bool face;          /* the reports are about faces */
 };
 
@@ -70,7 +72,7 @@ void db_judge_init(struct db_judge *j, bool face);
 /* One report. true with *out filled when a conclusion is to be said. */
 bool db_judge_report(struct db_judge *j, const struct db_judge_report *r, int64_t now_ms,
                      struct db_vision_event *out);
-/* No report for a while: "nobody" is due by time alone. */
+/* No report for Vision's silence interval: unavailable, never nobody. */
 bool db_judge_tick(struct db_judge *j, int64_t now_ms, struct db_vision_event *out);
 
 /* ---- what the provider asks of Vision (exposed for the test) ------------ */
