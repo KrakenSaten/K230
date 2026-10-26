@@ -360,10 +360,13 @@ int vision_pixels_trace(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, b
             out->candidates++;
         }
     }
-    /* The starts: every run on the three lowest rows of the lower half that
-     * hold any. The longest chain wins; one that starts where the line was
+    /* The starts: every run on the VISION_TRACE_START_ROWS lowest rows of the
+     * lower half that hold any - not just the lowest few: on unit A specks
+     * below the paper held those, and a line in plain view was never tried.
+     * A chain from a speck ends within a gap, so the extra starts cost
+     * little. The longest chain wins; one that starts where the line was
      * last seen wins if it is at least half as long. */
-    for (y = (int32_t)h - 1; y >= (int32_t)h / 2 && starts < 3; y--) {
+    for (y = (int32_t)h - 1; y >= (int32_t)h / 2 && starts < VISION_TRACE_START_ROWS; y--) {
         int32_t ref = prior ? st->last_x : (int32_t)w / 2;
         int k;
 
@@ -478,7 +481,36 @@ int vision_pixels_trace(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, b
         } else if (b_pm < -100000) {
             b_pm = -100000;
         }
-        x16 = (int32_t)((16 * sx) / n + (b_pm * 16 * (n * bottom - sy)) / (1000 * n));
+        {
+            /* Its bottom is where the line itself is on its lowest rows (an
+             * eighth of them, at least three), not the straight fit carried
+             * down: on unit A an S-shaped line read LEFT 99% from the fit
+             * while its end was at about -74%. The fit gives the lean. */
+            int64_t want = n / 8 < 3 ? 3 : n / 8;
+            int64_t got = 0;
+            int64_t bx = 0;
+            int64_t by = 0;
+            int64_t byy = 0;
+            int64_t bxy = 0;
+            int64_t bden;
+            int64_t lean_pm;
+
+            for (y = bottom; y >= top && got < want; y--) {
+                if (chain[y] >= 0) {
+                    bx += chain[y];
+                    by += y;
+                    byy += (int64_t)y * y;
+                    bxy += (int64_t)y * chain[y];
+                    got++;
+                }
+            }
+            /* Their mean, carried down to the bottom row itself by their own
+             * lean (not the whole line's: a curve's differs). */
+            bden = got * byy - by * by;
+            lean_pm = bden ? ((got * bxy - by * bx) * 1000) / bden : 0;
+            lean_pm = lean_pm > 100000 ? 100000 : lean_pm < -100000 ? -100000 : lean_pm;
+            x16 = (int32_t)((16 * bx) / got + (lean_pm * 16 * (got * bottom - by)) / (1000 * got));
+        }
         s_x16 = x16;
         s_slope = (int32_t)b_pm;
         if (st) {

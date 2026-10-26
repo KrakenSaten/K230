@@ -252,6 +252,30 @@ static void test_trace(void)
           vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 30 && r.x1 <= 36 &&
               r.rows == H && pic[60][80] == 0x07ff && pic[60][86] == black);
     check("a picture too small is refused", vision_pixels_trace(&pic[0][0], 2, H, W, true, NULL, &r) == -EINVAL);
+    /* Unit A, 2026-10-26: specks on the lowest rows (a table edge below the
+     * paper) took every start, and a line in plain view above them was said
+     * lost. Here five rows of specks under a line ending at three quarters
+     * of the height. */
+    fill(white);
+    line_at(40, 0, 6, 0, black);
+    box(0, (3 * H) / 4, W, H - (3 * H) / 4, white);
+    for (y = H - 5; y < H; y++) {
+        box(10 + 7 * (y % 3), y, 2, 1, black);
+        box(100 - 5 * (y % 2), y, 2, 1, black);
+    }
+    check("specks on the lowest rows do not hide the line above them",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 40 && r.x1 <= 46 &&
+              r.y1 == (3 * H) / 4 - 1);
+    /* Unit A: an S-shaped line read LEFT 99% from the straight fit while its
+     * end was far nearer the middle. Its bottom here runs straight down at
+     * x 20..25 for the last third, the upper part leans far right. */
+    fill(white);
+    for (y = 0; y < H; y++) {
+        box(y < (2 * H) / 3 ? 20 + ((2 * H) / 3 - y) * 2 : 20, y, 6, 1, black);
+    }
+    check("the offset is the line's own bottom, not the fit carried down",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 20 && r.x1 <= 25 &&
+              r.offset_pm > -650 && r.offset_pm < -550 && r.slope_pm < 0);
 
     /* ---- over pictures, with a state ---- */
     vision_trace_reset(&st);

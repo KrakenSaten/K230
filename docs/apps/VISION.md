@@ -582,8 +582,10 @@ pictures in `tests/vision_pixels_test.c` and `tests/vision_swatch_test.c`.
     across gaps of two pixels) are candidates; a row with more than 8 is
     texture and holds none. The old centroid of every dark pixel in a row
     put the "line" between a tape and a shadow.
-  - *One line followed.* A chain starts at a candidate on the three lowest
-    rows of the lower half that hold any, and climbs row by row to the
+  - *One line followed.* A chain starts at a candidate on the 32 lowest
+    rows of the lower half that hold any (3 at first: on unit A specks below
+    the paper took them all and a line in plain view was said lost), and
+    climbs row by row to the
     candidate nearest where it was heading, across gaps of up to a
     sixteenth of the height. The longest chain wins; while a line was seen
     in the last 20 pictures, a chain starting where it was is kept if at
@@ -594,9 +596,13 @@ pictures in `tests/vision_pixels_test.c` and `tests/vision_swatch_test.c`.
     once the tape left the picture; this rule is the fix).
   - *Shown apart.* The candidates' edges are marked cyan on the picture, the
     line followed yellow along its centre, and the screen draws the fitted
-    line over it as a row of accent dots from its top to its bottom row.
+    line over it as a row of accent dots from its top to its bottom row. The
+    dots are a straight fit: on a curved line they show its overall lean,
+    not its shape (the yellow marks do).
   - *Steady, and honest when gone.* The offset of the line's bottom from
-    the middle (first counter `LEFT 12%` or `CENTRE`) and its lean (second
+    the middle - where the line itself is on its lowest eighth of rows, not
+    the straight fit carried down (unit A: an S-shaped line read `LEFT 99%`
+    from the fit at first) - (first counter `LEFT 12%` or `CENTRE`) and its lean (second
     counter `LEAN R 45%` or `STRAIGHT`; the status says `Following a dark
     line, 300 rows`) are averaged with the previous picture while the line
     stays (a jump of more than a sixth of the width is another line, taken
@@ -1022,7 +1028,7 @@ Host only; none needs unit A. `make vision-test` runs them all,
   and a wide tolerance, a green target painted magenta, no match, the
   tolerance's ceiling; a vertical and a horizontal step edge found on
   their rows and columns alone, grey and thresholded, a flat picture
-  edgeless; pictures too small or too wide refused. LINE TRACE (47 checks
+  edgeless; pictures too small or too wide refused. LINE TRACE (49 checks
   in all, feat/vision-general-colour-line): a leaning dark line followed on
   every row with its lean, its bottom's offset and its fitted ends, the
   line yellow and its edges cyan; a straight light one; a grey line on a
