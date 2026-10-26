@@ -127,8 +127,10 @@ static void test_states(void)
               vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, NULL, 4000) == 0 && !m.stats_valid);
         vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, &s, 4000);
         vision_model_text(&m, &t, buf, sizeof(buf));
+        /* DETECT's line is the short one (fps, KPU, CPU); the resident
+         * set is in the log, and in TRACK's line. */
         check("stats become the status line", strstr(t.status, "12.3 fps") && strstr(t.status, "KPU 31 ms") &&
-                                                  strstr(t.status, "CPU 40%") && strstr(t.status, "20 MB"));
+                                                  strstr(t.status, "CPU 40%") && !strstr(t.status, "20 MB"));
     }
 
     e = ev(VISION_EV_LOST);
@@ -579,9 +581,23 @@ static void test_tools(void)
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("a match report is the second line, the counter and the mark",
-          m.have_target && strstr(t.status, "MATCH marks #C81E1E: 12.3% of the picture") &&
+          m.have_target && strstr(t.status, "\nMATCH #C81E1E: 12.3% of the picture") &&
               strcmp(t.count_b, "MATCH 12.3%") == 0 && t.show_mark && t.mark_x == 150 && t.mark_y == 80 &&
               strcmp(t.match_btn, "CLEAR") == 0 && t.match_enabled);
+    {
+        /* Unit A, 2026-10-26: with the frame rate in front the line wrapped
+         * on the panel and lost its end. One panel line is about 45
+         * characters at the body size; the stats must not lead it. */
+        const char *l2 = strchr(t.status, '\n');
+
+        m.stats = (struct vision_stats) { .fps_x10 = 99, .post_ms = 6 };
+        m.stats_valid = true;
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        l2 = strchr(t.status, '\n');
+        check("the MATCH line fits one panel line, with no frame rate in front",
+              l2 && strncmp(l2 + 1, "MATCH #", 7) == 0 && strlen(l2 + 1) <= 40);
+        m.stats_valid = false;
+    }
     check("CLEAR stops matching, and a late report brings nothing back",
           vision_model_match_button(&m) == VISION_ACT_TARGET && !m.have_target &&
               (vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6010),
@@ -1478,6 +1494,26 @@ static void test_classes(void)
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 2100);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("nothing in view says so, and where the list is", strstr(t.status, "Nothing it knows in view (see CLASSES)") != NULL);
+    {
+        /* Unit A, 2026-10-26: the full numbers wrapped on the panel and
+         * pushed "In view" off it. DETECT's first line stays within one
+         * panel line (about 45 characters at the body size). */
+        const char *nl;
+
+        m.stats = (struct vision_stats) { .fps_x10 = 117, .infer_ms = 60, .pre_ms = 6, .post_ms = 12, .cpu_pct = 32,
+                                          .rss_kb = 7552 };
+        m.stats_valid = true;
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        nl = strchr(t.status, '\n');
+        check("DETECT's numbers fit one panel line and keep In view under them",
+              nl && (size_t)(nl - t.status) <= 40 && strncmp(t.status, "GENERAL 80  11.7 fps  KPU 60 ms  CPU 32%", 40) == 0 &&
+                  strstr(t.status, " pre ") == NULL && strstr(nl, "Nothing it knows in view") != NULL);
+        vision_model_set_mode(&m, VISION_MODE_TRACK);
+        m.stats_valid = true;
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("TRACK keeps its full numbers on its one line", strstr(t.status, " pre 6  post 12  CPU 32%") != NULL);
+        vision_model_set_mode(&m, VISION_MODE_DETECT);
+    }
 
     /* R0 in force: six classes, said as such; GENERAL 80 named only when
      * its file is here. */

@@ -1519,7 +1519,9 @@ static void pixel_status(const struct vision_model *m, char *buf, size_t len)
             add(buf, len, &off, "  (settling)");
         }
         if (m->have_target && m->color_valid) {
-            add(buf, len, &off, "\n%sMATCH marks #%02X%02X%02X: %u.%u%% of the picture", fps, m->pixels.color.r,
+            /* No frame rate here: on the panel the line would wrap and lose
+             * its end (unit A, 2026-10-26). */
+            add(buf, len, &off, "\nMATCH #%02X%02X%02X: %u.%u%% of the picture", m->pixels.color.r,
                 m->pixels.color.g, m->pixels.color.b, m->pixels.color.matched_pm / 10,
                 m->pixels.color.matched_pm % 10);
         } else {
@@ -1772,6 +1774,17 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             snprintf(status_buf, status_len, "Cannot find faces: %s", m->facefail);
             out->status = status_buf;
             out->status_warn = true;
+        } else if (m->stats_valid && m->mode == VISION_MODE_DETECT) {
+            /* DETECT's first line is short enough for one line on the panel,
+             * so "In view" under it stays on screen (unit A, 2026-10-26: the
+             * full line wrapped and pushed it out). Pre, post and the
+             * resident set are in the log every ten seconds. */
+            snprintf(status_buf, status_len, "%s%s%u.%u fps  KPU %d ms  CPU %d%%",
+                     m->det_active >= 0 ? vision_detector_name((enum vision_detector)m->det_active) : "",
+                     m->det_active >= 0 ? "  " : "", m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,
+                     m->stats.cpu_pct);
+            out->status = status_buf;
+            out->status_warn = m->stats.bad > 0;
         } else if (m->stats_valid) {
             /* With the A/B, the detector these numbers are from leads. */
             snprintf(status_buf, status_len, "%s%s%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
