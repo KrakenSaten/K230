@@ -26,6 +26,7 @@
 #include "rift_repeater_view.h"
 #include "rift_route_view.h"
 #include "rift_rxlog_view.h"
+#include "rift_scope_view.h"
 #include "rift_sound.h"
 #include "rift_system.h"
 
@@ -384,6 +385,9 @@ static void on_key(lv_event_t *e)
         return;
     }
     if (a->section == RIFT_SEC_CONTACTS && rift_contacts_view_key(a, key)) {
+        return;
+    }
+    if (rift_scope_view_key(a, key)) { /* MAP's TRAFFIC: Esc steps back out of it */
         return;
     }
     if (rift_route_view_key(a, key)) { /* MAP as the route builder; Esc is its CANCEL */
@@ -813,6 +817,11 @@ static int rift_back(void *priv)
         return 1;
     }
     if (a->section == RIFT_SEC_RXLOG && rift_rxlog_view_back(a)) {
+        return 1;
+    }
+    /* TRAFFIC: a packet's detail back to the list, the list back to MAP
+     * (and to a route draft kept under it). */
+    if (rift_scope_view_back(a)) {
         return 1;
     }
     if (a->section != RIFT_SEC_ACTIVITY) {

@@ -487,6 +487,21 @@ names - given a rim and a backdrop on a map - stay legible.
   e9469ab. **Not tested on hardware:** Wi-Fi fully off, and an unset clock
   (host tests only).
 
+### TRAFFIC
+
+**TRAFFIC**, beside BASEMAP, turns MAP into a view of the traffic this
+device has heard (MeshScope's analysis, PR #110; rift/TRAFFIC.md). The panel
+becomes the TRAFFIC panel: the receptions from RX LOG's ring, a packet's
+detail, **SHOW PATH** and **LIVE**, and the observed path of the live or
+picked packet drawn over the markers - lines only between adjacent hops that
+each resolved to one located node, unknown and colliding prefixes left
+unresolved, direct routes and TRACE samples never drawn. A tapped marker is
+the ordinary node selection, with **NODE DETAIL ›** into NODES. It reads the
+session's ring and node cache and asks the service for nothing; a route
+draft open in the builder is kept and hidden under it (**BACK TO ROUTE**), and
+an observed path never becomes a route. Off, MAP is unchanged. In portrait
+the zoom buttons and FIT are 56 and 64 px wide so TRAFFIC fits in the bar.
+
 ## Chosen route: the route builder
 
 A direct message can go on a route the reader chooses - the repeaters it
@@ -1357,6 +1372,7 @@ the air must not be able to disconnect this app from its own service.
 | `rift_traffic.c/.h` | what was heard on the air by the minute, for the last twenty: a ring of counts by class (message, advert, other), fed from the activity feed. No LVGL |
 | `rift_rxlog.c/.h` | RX LOG's ring of 1000 receptions and the mesh.rx reader that fills it: validated, put back in received order, a repeat lent the text of the copy MeshCore decoded. No LVGL |
 | `rift_rxlog_fmt.c` | every string an RX LOG row and its detail print, the type labels and the signal grades. No LVGL |
+| `rift_scope.c/.h` | MAP's TRAFFIC analysis: path prefixes resolved at the reported width, what is a travelled path, the live path, hop counts and drawn segments. No LVGL, no connection |
 | `rift_net.c/.h` | NET's placement: the ring each node is on and what placed it there, and the nodes a route runs through. No LVGL |
 | `rift_identity.c` | this node: its identity and where its name came from, and the path hash size. No LVGL |
 | `rift_keys.c/.h` | channel keys made or checked and kept nowhere: SHA-256, base64, the hashtag key, a random key from `getrandom`. No LVGL |
@@ -1385,6 +1401,7 @@ the air must not be able to disconnect this app from its own service.
 | `ui/rift_contacts_view.c/.h` | CONTACTS: the search, ALL and RECENT, the virtual list |
 | `ui/rift_find.c` | NODES' find bar: the search field, CLEAR and ZERO-HOP |
 | `ui/rift_netview.c` | NET: the PATH panel and the rings |
+| `ui/rift_scope_view.c/.h` | MAP's TRAFFIC: its button, its panel (built on first use) and the observed path over MAP's canvas |
 | `ui/rift_manage.c` | ACTIVITY's CHANNELS panel: the list, LEAVE and its confirmation, the ADD CHANNEL form, a key shown once |
 | `ui/rift_device.c` | THIS DEVICE's RENAME and path hash choice with its confirmation |
 | `ui/rift_session.c` | ACTIVITY's SESSION panel: CLOSE RIFT and its confirmation (DS §51.2) |
@@ -1406,6 +1423,9 @@ the air must not be able to disconnect this app from its own service.
 | `tests/rift_route_test.c` | 100 checks: the chosen route's draft and stage - what may be a relay and what is refused, whole keys in the order tapped, UNDO / CLEAR / cut, a preview answer applied only for the request and the route it was asked about (stale, edited-since, transmitted, not explicit, wrong count refused), a waypoint leaving the node list counted and never remapped, staging, AUTO, an empty route that is not AUTO, the capabilities taken only when true, and an explicit message never offered RESEND |
 | `tests/rift_ipc_test.c` (explicit route) | against the scripted service: a preview writes no `mesh.send`; a SEND on a staged route carries exactly the chosen keys in order, once, after its check; AUTO has no `via`; `via: []`; the service's refusal at preview and at SEND; an older service never asked for a preview nor given `via`; a restart into one; the service going away mid-check |
 | `tests/rift_app_test.c` (route builder, `RIFT_APP_TEST_ONLY=route`) | 100 checks live against the scripted service: the whole flow on the panel, the SEND log's exact `via`, every text size in both shapes and HDMI 1280x720 with nothing clipped, the service going away and an older one coming back |
+| `tests/rift_scope_test.c` | TRAFFIC's analysis: prefix resolution and collisions at one, two and three bytes, flood / direct / TRACE, the live path never across a service gap, segments never bridging a gap or an unlocated hop, window counts, fitting the map to a path |
+| `tests/rift_app_test.c` (TRAFFIC, `RIFT_APP_TEST_ONLY=traffic`) | 68 checks live against the scripted service with its receive log: TRAFFIC as a mode of MAP, RIFT's one subscription, the route draft and composer kept, stable map and panel bounds under long and short packets, a pick surviving arrivals and CLEAR, SHOW PATH, LIVE, tabs, both shapes at Large, Back, service loss and return, close and reopen; the service's method log holds only reads |
+| `tests/rift_traffic_shell_test.py` | the real simulator shell and the scripted service, both orientations at Large: MAP, TRAFFIC, a tab trip, the map controls, a theme, service loss and return, reopen; only reads asked for while TRAFFIC was in use |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, one store holding nothing about the mesh, a DM arrival decided in one place from live events only, the sound asked for in one place and only when the policy says so, no sound device and no helper process, the sound stopped on close, no monolith, and the gaps this build leaves |
 

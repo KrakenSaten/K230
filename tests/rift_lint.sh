@@ -134,6 +134,14 @@ check "the route builder and its line send nothing" \
         "$SRC/ui/rift_route_draw.c" "$SRC/ui/rift_route_bar.c" && echo 0 || echo 1)"
 check "the route model knows nothing about LVGL" \
     "$(grep -q 'lvgl' "$SRC/rift_route.c" "$SRC/rift_route.h" "$SRC/rift_ipc_path.c" && echo 0 || echo 1)"
+# MAP's TRAFFIC reads the session's ring and node cache. It asks the service
+# for nothing, sends nothing, and never touches a route: an observed path is
+# not a route to send on (ui/rift_scope_view.h).
+check "TRAFFIC asks the service for nothing and changes no route" \
+    "$(grep -qE 'rift_ipc_(send|write|request|forget|path|repeater|scan|resend|advert)|rift_comms_submit|rift_route_(add|use|open|cut|undo|auto|close|stage)' \
+        "$SRC/ui/rift_scope_view.c" "$SRC/rift_scope.c" && echo 0 || echo 1)"
+check "and its analysis knows nothing about LVGL or the connection" \
+    "$(grep -qE 'lvgl|rift_ipc' "$SRC/rift_scope.c" "$SRC/rift_scope.h" && echo 0 || echo 1)"
 # CONTACTS is a question asked of the node cache: it asks the service for
 # nothing and changes no contact.
 check "CONTACTS asks the service for nothing and writes no node" \

@@ -176,6 +176,7 @@ BUILD_ID
 /tests/rift_tiles_test
 /tests/rift_rxlog_test
 /tests/rift_route_test
+/tests/rift_scope_test
 /tests/rift_autocap_test
 /tests/fake-meshcored
 # Camera (docs/apps/CAMERA.md)
@@ -283,5 +284,3 @@ BUILD_ID
 
 # Relay Nine foreground audio effects owner
 /tools/audio-effects/pos-audio-effects
-
-/tests/meshscope_test

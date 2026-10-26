@@ -1233,10 +1233,11 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
                    $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
-                   $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o
-RIFT_TESTS := tests/meshscope_test tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
+                   $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o \
+                   $(RIFT_DIR)/rift_scope.o
+RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
               tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/rift_tiles_test \
-              tests/rift_route_test tests/rift_autocap_test tests/fake-meshcored
+              tests/rift_route_test tests/rift_scope_test tests/rift_autocap_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1246,15 +1247,6 @@ tests/rift_%_test.o: tests/rift_%_test.c
 
 tests/fake_meshcored.o: tests/fake_meshcored.c tests/fake_meshcored.h
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
-
-tests/meshscope_test: tests/meshscope_test.o apps/meshscope/scope_model.o $(RIFT_MODEL_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
-
-apps/meshscope/%.o: apps/meshscope/%.c
-	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
-
-tests/meshscope_test.o: tests/meshscope_test.c
-	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -Iapps/meshscope -c -o $@ $<
 
 tests/rift_format_test: tests/rift_format_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
@@ -1268,6 +1260,11 @@ tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
 # The explicit route: the builder's draft, the staged route, the service's
 # capabilities and which preview answer may change what (rift_route.h).
 tests/rift_route_test: tests/rift_route_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# MAP's TRAFFIC: path prefixes resolved at the reported width, what is and
+# is not a travelled path, the live path and the counts (rift_scope.h).
+tests/rift_scope_test: tests/rift_scope_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # The automatic capital: where a sentence starts (rift_autocap.h).
@@ -2442,7 +2439,7 @@ test: all $(TEST_BINS)
 	./tests/wave_modem_test
 	./tests/wave_sim_test
 	./tests/rift_format_test
-	./tests/meshscope_test
+	./tests/rift_scope_test
 	./tests/rift_model_test
 	./tests/rift_route_test
 	./tests/rift_autocap_test

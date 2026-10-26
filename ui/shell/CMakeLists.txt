@@ -64,8 +64,6 @@ set(NEON_SOURCES
     ${REPO_DIR}/apps/neon-outpost/relay_art.c)
 
 add_executable(pocketos-shell
-    ${REPO_DIR}/apps/meshscope/scope_app.c
-    ${REPO_DIR}/apps/meshscope/scope_model.c
     ${NEON_SOURCES}
     ${REPO_DIR}/apps/neon-outpost/neon_app.c
     ${REPO_DIR}/apps/neon-outpost/relay_audio.c
@@ -284,6 +282,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_find.c
     ${REPO_DIR}/apps/rift/ui/rift_netview.c
     ${REPO_DIR}/apps/rift/ui/rift_mapview.c
+    ${REPO_DIR}/apps/rift/ui/rift_scope_view.c
+    ${REPO_DIR}/apps/rift/rift_scope.c
     ${REPO_DIR}/apps/rift/ui/rift_basemap.c
     ${REPO_DIR}/apps/rift/ui/rift_manage.c
     ${REPO_DIR}/apps/rift/ui/rift_device.c
@@ -1466,6 +1466,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_find.c
         ${REPO_DIR}/apps/rift/ui/rift_netview.c
         ${REPO_DIR}/apps/rift/ui/rift_mapview.c
+        ${REPO_DIR}/apps/rift/ui/rift_scope_view.c
+        ${REPO_DIR}/apps/rift/rift_scope.c
         ${REPO_DIR}/apps/rift/ui/rift_basemap.c
         ${REPO_DIR}/apps/rift/ui/rift_manage.c
         ${REPO_DIR}/apps/rift/ui/rift_device.c
@@ -1513,63 +1515,6 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(rift_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(rift_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
-
-    # MeshScope uses the production UI with fixtures, without a radio or socket.
-    add_executable(meshscope_ui_test
-        ${REPO_DIR}/tests/meshscope_ui_test.c
-        ${REPO_DIR}/apps/meshscope/scope_model.c
-        ${REPO_DIR}/apps/rift/rift_model.c
-        ${REPO_DIR}/apps/rift/rift_clock.c
-        ${REPO_DIR}/apps/rift/rift_messages.c
-        ${REPO_DIR}/apps/rift/rift_threads.c
-        ${REPO_DIR}/apps/rift/rift_reply.c
-        ${REPO_DIR}/apps/rift/rift_contacts.c
-        ${REPO_DIR}/apps/rift/rift_arrivals.c
-        ${REPO_DIR}/apps/rift/rift_channels.c
-        ${REPO_DIR}/apps/rift/rift_actions.c
-        ${REPO_DIR}/apps/rift/rift_identity.c
-        ${REPO_DIR}/apps/rift/rift_keys.c
-        ${REPO_DIR}/apps/rift/rift_order.c
-        ${REPO_DIR}/apps/rift/rift_net.c
-        ${REPO_DIR}/apps/rift/rift_map.c
-        ${REPO_DIR}/apps/rift/rift_format.c
-        ${REPO_DIR}/apps/rift/rift_format_msg.c
-        ${REPO_DIR}/apps/rift/rift_traffic.c
-        ${REPO_DIR}/apps/rift/rift_rxlog.c
-        ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
-        ${REPO_DIR}/apps/rift/rift_emoji.c
-        ${REPO_DIR}/apps/rift/rift_emoji_seq.c
-        ${REPO_DIR}/apps/rift/rift_repeater.c
-        ${REPO_DIR}/apps/rift/rift_route.c
-        ${REPO_DIR}/apps/rift/rift_ipc.c
-        ${REPO_DIR}/apps/rift/rift_ipc_manage.c
-        ${REPO_DIR}/apps/rift/rift_ipc_resend.c
-        ${REPO_DIR}/apps/rift/rift_ipc_repeater.c
-        ${REPO_DIR}/apps/rift/rift_ipc_path.c
-        ${REPO_DIR}/apps/rift/rift_tiles.c
-        ${REPO_DIR}/apps/rift/ui/rift_basemap.c
-        ${REPO_DIR}/core/pocketipc/pocketipc.c
-        ${REPO_DIR}/core/pocketpaths.c
-        ${REPO_DIR}/core/pocketlog/pocketlog.c
-        ${REPO_DIR}/core/web/web_url.c
-        ${REPO_DIR}/core/web/web_doc.c
-        ${REPO_DIR}/core/web/web_proto.c
-        ../pocketui/pocketui.c
-        ../pocketui/pos_display.c
-        ../pocketui/pos_input.c
-        ../pocketui/pos_theme.c
-        ../pocketui/pos_styles.c
-        ${POCKETUI_FONT_OBJS})
-    target_include_directories(meshscope_ui_test PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
-        "${REPO_DIR}/core" "${REPO_DIR}/apps/rift" "${REPO_DIR}/apps/rift/ui")
-    target_compile_options(meshscope_ui_test PRIVATE -Wall -Wextra -Werror)
-    target_compile_definitions(meshscope_ui_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
-    if(POCKETOS_LVGL_MODE STREQUAL "source")
-        target_include_directories(meshscope_ui_test PRIVATE "${LVGL_DIR}")
-        target_compile_definitions(meshscope_ui_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
-    endif()
-    target_link_libraries(meshscope_ui_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # RIFT's colour emoji: the proof that one RGB565A8 image glyph draws in
     # colour inline in a plain label between Plex letters (no imgfont, no

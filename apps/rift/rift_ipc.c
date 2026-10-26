@@ -159,29 +159,6 @@ static enum rift_req take_pending(struct rift_ipc *c, int id)
     return RIFT_REQ_NONE;
 }
 
-/* An observer must not change service state, even through a shared writer.
- * Keep this allowlist explicit so newly added requests are refused by default. */
-static int observer_request(enum rift_req what)
-{
-    switch (what) {
-    case RIFT_REQ_SUBSCRIBE:
-    case RIFT_REQ_UNSUBSCRIBE:
-    case RIFT_REQ_INFO:
-    case RIFT_REQ_STATUS:
-    case RIFT_REQ_IDENTITY:
-    case RIFT_REQ_NODES:
-    case RIFT_REQ_NODE:
-    case RIFT_REQ_CHANNELS:
-    case RIFT_REQ_MESSAGES:
-    case RIFT_REQ_PATH_HASH:
-    case RIFT_REQ_DISCOVERED:
-    case RIFT_REQ_REMOTE_SESSION:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
 /* Write one request. params is consumed. Returns 0, or -1 with the
  * connection already dropped when the write failed. */
 static int request(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_t now_ms)
@@ -191,11 +168,6 @@ static int request(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_
     int id;
     int rc;
 
-    if (c->read_only && !observer_request(what)) {
-        c->requests_refused++;
-        cJSON_Delete(params);
-        return -1;
-    }
     if (c->fd < 0 || !method) {
         cJSON_Delete(params);
         return -1;
@@ -572,7 +544,7 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
      * one this app cannot show, so it is ended (a logout transmits nothing);
      * and the repeaters it discovered this run are read, as earlier ones. */
     rift_rep_service_lost(&c->model->repeater);
-    if ((!c->read_only && request(c, RIFT_REQ_REMOTE_LOGOUT, NULL, now_ms) != 0) ||
+    if (request(c, RIFT_REQ_REMOTE_LOGOUT, NULL, now_ms) != 0 ||
         request(c, RIFT_REQ_DISCOVERED, NULL, now_ms) != 0) {
         return;
     }

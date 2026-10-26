@@ -39,8 +39,8 @@ communication, local AI, everyday tools, games and further development.
 
 - **RIFT** — MeshCore messaging: direct messages with delivery acknowledgement,
   channels (Public included), nodes, a map and the radio's own status.
-- **MeshScope** — local MeshCore packet, route-map and node analysis;
-  [first implementation under review](docs/apps/MESHSCOPE.md), not in v0.3.8.
+  MAP's TRAFFIC mode, local analysis of the packets heard and their observed
+  paths, is [under review](docs/apps/rift/TRAFFIC.md) and not in v0.3.8.
 - **MeshCore integration** — `meshcored`, the MeshCore protocol service on the
   SX1262 radio; disabled in the image and enabled per unit
   (docs/services/MESHCORED.md).
