@@ -332,14 +332,19 @@ and the ALSA mixer and screenshot list are identical to the pre-session
 baseline. meshcored (same PID since boot) and other services were not
 touched; no radio was used.
 
-Two deliberate differences from the pre-session state:
+Sound during the session and the final settings:
 
-- **`settings.conf` now has `audio_muted=1`** (`ce9d9e37…`). During the
-  session the owner lowered the volume on the device and asked for the sound
-  off. The kit restore had reverted that change, so the installed shell was
-  muted through `shell.volume`. Both kits were re-baselined to the muted
-  settings; their earlier sound-on backups and logs stay beside them as
-  `backup-sound-on/` and `log-sound-on/`. Unmuting restores 100 %.
+- During the session the owner lowered the volume on the device and asked
+  for the sound off. The kit restore had reverted that change, so the
+  installed shell was muted through `shell.volume` (`audio_muted=1`) and
+  both kits were re-baselined to the muted settings for the timed runs. Their
+  earlier sound-on backups and logs stay beside them as `backup-sound-on/`
+  and `log-sound-on/`.
+- Afterwards, at the owner's request, the original `settings.conf` was put
+  back from the hash-checked backup while the installed shell was stopped
+  (`shell.volume` unmute writes `audio_muted=0`, which does not match the
+  original). **`settings.conf` is `b040ab0c…` again**, volume 100 %, unmuted,
+  the installed shell supervised and alone on the panel.
 - `/run/pocketos/audio.lock` (0 bytes, tmpfs), created by the first sound-on
   test session, was removed after confirming that no process held it; it was
   absent before the session.
