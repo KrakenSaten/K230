@@ -563,9 +563,13 @@ static void paint_list(struct rift_scope_view *v)
         v->page = count > 0 ? (count - 1) / ROWS : 0;
     }
     start = v->page * ROWS;
-    snprintf(text, sizeof(text), "PACKETS %d-%d/%d%s", count ? start + 1 : 0,
-             start + ROWS < count ? start + ROWS : count, count,
-             v->anchor ? RIFT_SEP "HELD" : "");
+    if (count == 0) {
+        snprintf(text, sizeof(text), "PACKETS");
+    } else {
+        snprintf(text, sizeof(text), "PACKETS %d-%d/%d%s", start + 1,
+                 start + ROWS < count ? start + ROWS : count, count,
+                 v->anchor ? RIFT_SEP "HELD" : "");
+    }
     rift_label_set(v->list_title, text);
     for (i = 0; i < ROWS; i++) {
         const struct rift_rx_entry *p = start + i < count ? rift_rxlog_at(log, offset + start + i)

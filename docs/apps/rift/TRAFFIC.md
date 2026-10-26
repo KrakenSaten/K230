@@ -163,5 +163,22 @@ See PR #110 for the run record. Host and simulator layers:
 - `tests/rift_lint.sh`: TRAFFIC calls no send, write, route or management
   path, and its analysis has no LVGL or connection.
 
-The first standalone MeshScope was reported working on a K230 by the owner
-(2026-10-24). The RIFT-integrated version is recorded in PR #110.
+### Hardware
+
+- The first standalone MeshScope was reported working on a K230 by the owner
+  (2026-10-24, **VERIFIED by owner report**).
+- **Unit B, 2026-10-26, test shell 17bb30ac** (cross-built with the pinned
+  Xuantie 14.1.1 toolchain against the installed QR-enabled LVGL, run from
+  `/root/rift-traffic-17bb30ac` with the established start/restore kit, not
+  installed): RIFT opened over IPC; the owner tapped MAP, TRAFFIC, dragged the
+  map and selected a marker in landscape at Large (Neon theme, BASEMAP on) and
+  again in portrait after an IPC rotation, and reported both looked right.
+  Device screenshots show the TRAFFIC panel beside and under the map with the
+  OpenStreetMap attribution and scale bar on the map. meshcored's counters
+  stayed at `tx_submitted 0` throughout. `RESTORE: OK`: installed shell,
+  LVGL, meshcored (same process), settings.conf and RIFT prefs as before.
+  **VERIFIED** for layout, touch entry and no transmission.
+- **Not verified on hardware:** behaviour under incoming traffic. The unit
+  heard nothing in the hour before and during the check (`rx_events 0`), and
+  no traffic was manufactured. Packet rows, picking, SHOW PATH and drawn
+  paths are verified in the simulator and against the scripted service only.
