@@ -5,7 +5,9 @@ Host evidence, 2026-10-22. Base: verified `origin/master` `7ee12b3e` (merged
 PR #104). Performance-only source: `6018dbf`; artwork: `9068361`. The existing
 [device baseline](RELAY_NINE_DEVICE.md) and [content handoff](RELAY_NINE_POLISH.md)
 remain the history of their respective runs. No device access, deployment,
-toolchain installation, merge or release was performed here.
+toolchain installation, merge or release was performed in the host pass; the
+later local K230 comparison on unit B is in
+[its own section](#k230-comparison-on-unit-b-2026-10-26).
 
 ## Changes and measured costs
 
@@ -148,8 +150,9 @@ native pairs above. Layout audits are saved alongside the captures.
   three layout audits have zero issues. Native frames and app/shell captures
   were inspected. Focused architecture lint and diff whitespace checks pass.
 
-No unrelated app tests or baseline-failure cleanup were added. The previous
-unrelated SPDX failure remains outside this work.
+No unrelated app tests or baseline-failure cleanup were added. The
+unrelated SPDX failure seen in the host pass has since been fixed on master
+(merged here; `license_audit_test` passes).
 
 ## Reproduce
 
@@ -193,32 +196,168 @@ Use the existing `neon_app_test` / `neon_shell_test.sh` commands with
 and app validation build uses the existing default CMake configuration;
 its timings are not substituted for the optimized CPU comparison.
 
-## Local K230 handoff — not run here
+## K230 comparison on unit B (2026-10-26)
 
-The existing pinned Xuantie toolchain is absent in this executor; no cross
-build was attempted and no replacement was installed. On the prepared local
-WSL host, build only the affected DRM shell with the pinned SDK/sysroot as in
-[RELAY_NINE_DEVICE.md](RELAY_NINE_DEVICE.md#reproduce). The unchanged audio
-helper may be reused only when its identity matches the existing kit record.
-Use `docs/hardware/relay-nine-gate/` and its existing staging/restoration and
-`DOORS_RELAY_STATS` instrumentation for a separately authorized device pass.
+Local follow-up after the cloud pass. Evidence classes follow AGENTS.md;
+**VERIFIED** below means measured or captured on unit B in this session.
 
-Compare base `7ee12b3e` and this branch on the **same device, build flags,
-layout, scene/camera/game state and input route**: full level, stairs/combat,
-both weapons and reload, title idle, held exit/reopen. Retain every 5-second
-window's scene, LVGL draw, flush/wait and interval p50/p95/max, CPU/RSS/HWM,
-stalls, cap counters and helper xrun/cleanup evidence. Do not generalize the
-recorded 30 fps median or 11.2–14.3 ms render median beyond those recorded
-device scenarios. Compare against the matching old kit measurements, not
-only against a best window; preserve its restoration checks.
+### Integration and build
 
-**Expected, not verified on K230:** less repeated integer shading and wall
-depth setup. The extra 19 KiB table may affect target cache behavior, and
-RISC-V compiler/code generation differs. Host speedups cannot establish K230
-frame rate, LVGL/DRM cost, flush time, physical input latency or acoustic
-onset. Target shotgun pickup/switch/reload, physical keyboard rollover,
-portrait/HDMI and individual weapon cues by ear retain the limitations
-listed in the device handoff. No device action was performed.
+The branch was brought up to date with `origin/master` `efc55d43` (#108
+Doors 0.3.8, #110 RIFT TRAFFIC) by merge commit `777d48aa`, not a rebase. No
+textual conflicts: `ui/shell/CMakeLists.txt` auto-merged with master's RIFT
+scope sources and this branch's `relay_image_bench`; master's `neon_app.c`
+style roles (`POS_STYLE_GAME_SCENE` / `POS_STYLE_GAME_HUD_TEXT`) and this
+branch's `relay_art.c` / `relay_render.c` do not overlap. Focused checks on
+the merged tree: engine/renderer **29,813 checks pass** and the ordinary route
+still wins in 4,141 steps; `style_lint`, `neon_outpost_lint` and
+`license_audit_test` pass. `relay_audio_test.py` cannot reach READY on this
+WSL host (no ALSA device); the audio source is unchanged and the target
+helper is byte-identical (below).
+
+Both shells were cross-built with the PR #104 helper exactly as in
+[RELAY_NINE_DEVICE.md](RELAY_NINE_DEVICE.md#reproduce): pinned Xuantie GCC
+14.1.1, BSP `bb831ab3` / SDK `22d02c6b`, Neon `f398ecb` QR-LVGL sysroot,
+CMake Release, DRM. Source by `git archive`; `BUILD_ID` written first and
+found in each binary. 0 warnings each.
+
+| Build | Source / BUILD_ID | `doors-shell` sha256 |
+| --- | --- | --- |
+| Baseline | master `efc55d43` (the master merged here) | `38b8df37ea6b3ef2dad5f329e720f810898f07091989c1d0e9733c4b468dd923` |
+| PR | merge `777d48aa` | `4e7e2d1c3383bf9bc9c951470f61cca4dea8b442d6e38582c01de374f657a69e` |
+
+`pos-audio-effects` from both trees is `53f3f9fb…`, identical to the PR #104
+kit helper. **Runtime compatibility (VERIFIED):** each shell has 524
+undefined dynamic symbols and the helper 87; all resolve, with their symbol
+versions, against libraries copied read-only from unit B (highest required
+GLIBC_2.33, which unit B provides). No device library was staged or replaced.
+
+### Device, kit and method
+
+Unit B was inspected read-only first: Doors 0.3.6 (`BUILD_ID=9ad64a1`),
+installed `doors-shell` `86d7b017…` (Neon f398ecb) under `pos-supervise`,
+`liblvgl.so.9.5.0` `2c4fd81b…`, `settings.conf` `b040ab0c…` (landscape,
+Large text, Neon). The panel was held only by the installed shell; there was
+no audio owner, effect helper or other temporary session. This matches the
+PR #104 kit record, so the existing [kit](../hardware/relay-nine-gate/) was
+reused unchanged in `/root/relay-nine-efc55d43` and `/root/relay-nine-777d48aa`
+(`rn-start.sh` / `rn-restore.sh`, `DOORS_RELAY_STATS`, `rn-measure.sh`,
+`rn-drive.py`). The alternating driver is
+[rn107-compare.sh](relay-nine/render-polish/device/rn107-compare.sh): each run
+starts that kit's shell, opens the game, plays one keyed route through
+`shell.key`, then restores the installed shell.
+
+- **Stairs/combat**: `DOORS_RELAY_SLICE=1` with the PR #104 slice route (up
+  the west stairs, gallery machine killed, reload), 26 s measured.
+- **Heavier full level**: the PR #104 full-route opening (pump hall, USE
+  door, maintenance bay with its ribbed panels and guards), 36 s measured.
+
+The order was base/PR/PR/base, then reversed, then forward again: three runs
+per build per scene, 12 runs. Same device, orientation, Large text, Neon
+theme, build flags and input. Sound was **muted for all 12 timed runs** (the
+owner asked for the sound off during the session; see Restoration), so both
+builds ran the helper at volume 0. Stats windows are 5 s; only windows with at
+least 90% gameplay frames count. In every full-level run the player dies in
+the bay at about 17 s in both builds (same keyed route), so that scene has
+two gameplay windows per run. Captures were taken in separate runs so that
+screenshot cost does not enter the timing.
+
+### Results (VERIFIED, unit B)
+
+Median over windows of each window's p50 / p95, in ms; brackets give the
+range of those window values. See the
+[summary](relay-nine/render-polish/device/summary.txt) and the
+[raw stats and samples](relay-nine/render-polish/device/stats/).
+
+| | Stairs/combat base | Stairs/combat PR | Full level base | Full level PR |
+| --- | --- | --- | --- | --- |
+| Scene render p50 | 12.74 [11.43–13.85] | **10.47** [9.09–11.69] | 12.99 [12.79–13.41] | **10.67** [10.37–10.92] |
+| Scene render p95 | 23.41 [21.55–28.39] | **20.61** [15.55–25.89] | 24.30 [19.31–26.86] | **18.87** [17.32–20.04] |
+| LVGL draw p50 / p95 | 6.27 / 14.23 | 6.30 / 13.67 | 6.29 / 14.38 | 6.30 / 14.65 |
+| Flush p50 / p95 | 2.22 / 5.33 | 2.21 / 4.85 | 2.22 / 5.12 | 2.21 / 5.03 |
+| Frame interval p50 | 33.17 | 33.17 | 33.13 | 33.06 |
+| Frame interval p95 | 47.09 [43.60–50.15] | 44.25 [41.67–46.26] | 45.75 [44.31–47.86] | 43.95 [41.80–47.48] |
+| Mean frames/s | 28.84 | 29.31 | 29.00 | 29.37 |
+| Shell CPU, run average | 67–69 % | 60–64 % | 22 % | 20–21 % |
+| Shell RSS / HWM, MB | 15.2–15.9 / 16.1–16.6 | 15.5–15.9 / 16.4–16.8 | 15.6–15.9 / 16.5–16.6 | 15.5–15.7 / 16.3–16.6 |
+| Stalls > 100 ms | 0 | 0 | 0 | 0 |
+
+- **Scene render is about 18% faster on K230 at p50 in both scenes**, and the
+  per-run values do not overlap (p50 12.37–13.63 → 10.42–11.53 ms stairs,
+  12.97–13.10 → 10.63–10.68 ms full level). p95 is lower too (−12% stairs,
+  −22% full level), with overlapping window ranges on the stairs.
+- **Frame rate did not change at the median.** The frame interval stays at
+  LVGL's 33 ms refresh (about 30 fps). Interval p95 is 2–3 ms lower and mean
+  frames/s rises by about 0.4, but those window ranges overlap; no FPS
+  improvement is claimed. LVGL drawing (the scaled image) and flush are
+  unchanged, as expected: this PR does not touch them.
+- Shell CPU drops by about 6 points during stairs/combat. Memory: RSS/HWM
+  differences are within run-to-run variation; the 19,296-byte table is not
+  visible at page granularity. No stall, auto-pause or crash.
+- **Audio**: the timed runs were muted (no PCM opened, by design). Before the
+  owner's mute, one sound-on stairs/combat run per build completed with
+  `pcm_stream_starts=1` each (one stream start, no underrun restart) and
+  helper CPU ≤ 4 %. The audio code and helper binary are unchanged.
+
+### Device captures (VERIFIED, unretouched kmsgrab, 1232×568)
+
+| Base `efc55d43` | PR `777d48aa` |
+| --- | --- |
+| ![Base slice start](relay-nine/render-polish/device/base-slice-a-start.png) | ![PR slice start](relay-nine/render-polish/device/pr-slice-a-start.png) |
+| ![Base upper gallery](relay-nine/render-polish/device/base-slice-c-gallery.png) | ![PR upper gallery](relay-nine/render-polish/device/pr-slice-c-gallery.png) |
+| ![Base maintenance bay](relay-nine/render-polish/device/base-full-d-reload.png) | ![PR maintenance bay, shotgun reload](relay-nine/render-polish/device/pr-full-d-reload.png) |
+
+The opening slice view is the identical game state (HP 92, guard, camera).
+The gallery after the stairs matches in HP, ammo and kills, with a slightly
+different camera because injected key timing varies. On the panel the PR shows
+the guard's knee plates and bevels, the carbine's distinct receiver and sight,
+warmer stained concrete and quieter floor trim. Native 320×200
+nearest-neighbour scaling, the hazard markings and the industrial palette are
+unchanged, and nothing reads as noise or blur at device scale. The
+maintenance-bay pair is **not** the same state: in that capture run the PR
+route picked up the BREACH-2 and the base route did not, so the PR image shows
+the open shotgun breach during reload on the device and the base shows the
+carbine. Both bay captures carry a "SCREENSHOT FAILED" toast from the previous
+rapid screenshot; it appears equally in the baseline and is not caused by
+this PR.
+
+### Restoration (VERIFIED)
+
+Every run ended with `RESTORE: OK`. Final state: exactly one
+`/usr/bin/doors-shell` (`86d7b017…`), supervised, with no `DOORS_*` or
+`LD_LIBRARY_PATH` in its environment. It alone holds the panel; there is no
+audio owner and the PCM is closed. No kit shell, `pos-audio-effects`,
+`rn-measure`, `rn-drive` or driver process remains. `liblvgl` is `2c4fd81b…`,
+and the ALSA mixer and screenshot list are identical to the pre-session
+baseline. meshcored (same PID since boot) and other services were not
+touched; no radio was used.
+
+Two deliberate differences from the pre-session state:
+
+- **`settings.conf` now has `audio_muted=1`** (`ce9d9e37…`). During the
+  session the owner lowered the volume on the device and asked for the sound
+  off. The kit restore had reverted that change, so the installed shell was
+  muted through `shell.volume`. Both kits were re-baselined to the muted
+  settings; their earlier sound-on backups and logs stay beside them as
+  `backup-sound-on/` and `log-sound-on/`. Unmuting restores 100 %.
+- `/run/pocketos/audio.lock` (0 bytes, tmpfs), created by the first sound-on
+  test session, was removed after confirming that no process held it; it was
+  absent before the session.
+
+Both kit directories remain on unit B, inactive, as evidence (about 9 MB;
+the root filesystem is 90 % used).
+
+### Limitations
+
+- Not run here (out of scope): a full playthrough, shotgun acceptance,
+  physical keyboard, the portrait/HDMI/text-size matrix and acoustic latency.
+  The PR #104 device limitations still apply to those.
+- The timed runs are muted; sound-on evidence is one pre-mute run per build
+  plus the unchanged helper.
+- Input is injected through `shell.key` with wall-clock holds, so routes are
+  repeatable but not frame-exact. Window statistics are compared, not
+  frame-exact pairs.
+- No owner visual or playability confirmation was requested.
 
 ## Provenance
 
