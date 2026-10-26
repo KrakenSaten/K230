@@ -1,7 +1,9 @@
 <!-- Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0 -->
 # Relay Nine
 
-**Current implementation and handoff:** [industrial polish, BREACH-2 shotgun, title and optional maintenance loop](RELAY_NINE_POLISH.md). Gameplay details, captures and validation below preserve the `4d5a0ed` baseline. Current captures live in `relay-nine/polish/`.
+**Rendering update:** [measured optimization and native artwork](RELAY_NINE_RENDER.md).
+
+**Content implementation and handoff:** [industrial polish, BREACH-2 shotgun, title and optional maintenance loop](RELAY_NINE_POLISH.md). Gameplay details, captures and validation below preserve the `4d5a0ed` baseline. Current captures live in `relay-nine/polish/`.
 
 The implemented successor to the preserved Neon Outpost prototype, on draft
 PR #104. Open **Games → Relay Nine**, then **PLAY** or Enter. Restore the relay

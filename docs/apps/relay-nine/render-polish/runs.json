@@ -1,0 +1,56 @@
+[
+  {
+    "run": 1,
+    "label": "before",
+    "peak_rss_kib": 1404,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=68dd5707179119bc game=21312 frame=256016 bytes\nslice,p50=1.259726,p95=1.558849,p99=1.876800\nclosed-door,p50=1.153308,p95=1.427845,p99=2.410080\nshotgun,p50=1.306946,p95=1.611187,p99=2.413405\ngallery,p50=1.240048,p95=1.552009,p99=1.988866\nupper,p50=1.160169,p95=1.753488,p99=4.192431\ncarbine-reload,p50=1.434846,p95=2.237535,p99=4.026015\nshotgun-reload,p50=1.326776,p95=1.689583,p99=2.049326\n"
+  },
+  {
+    "run": 1,
+    "label": "perf",
+    "peak_rss_kib": 1428,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=68dd5707179119bc game=21312 frame=256016 bytes\nslice,p50=1.024047,p95=1.346956,p99=1.595483\nclosed-door,p50=0.874676,p95=1.031478,p99=1.213838\nshotgun,p50=1.074272,p95=1.423289,p99=1.827177\ngallery,p50=1.021394,p95=1.412343,p99=1.882129\nupper,p50=0.904250,p95=1.031698,p99=1.213187\ncarbine-reload,p50=1.069434,p95=1.309490,p99=1.781309\nshotgun-reload,p50=1.063836,p95=1.429848,p99=2.610127\n"
+  },
+  {
+    "run": 1,
+    "label": "final",
+    "peak_rss_kib": 1436,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=ff6687da1a979f58 game=21312 frame=256016 bytes\nslice,p50=0.998559,p95=1.279295,p99=1.664216\nclosed-door,p50=0.898271,p95=1.100591,p99=1.358633\nshotgun,p50=1.078678,p95=1.486903,p99=2.439645\ngallery,p50=1.014493,p95=1.331743,p99=2.078179\nupper,p50=1.046190,p95=1.629934,p99=4.080325\ncarbine-reload,p50=1.160709,p95=1.634872,p99=3.593484\nshotgun-reload,p50=1.150905,p95=1.508435,p99=1.962267\n"
+  },
+  {
+    "run": 2,
+    "label": "final",
+    "peak_rss_kib": 1436,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=ff6687da1a979f58 game=21312 frame=256016 bytes\nslice,p50=0.993522,p95=1.207579,p99=1.395788\nclosed-door,p50=0.907244,p95=1.100690,p99=1.263082\nshotgun,p50=1.070056,p95=1.263772,p99=1.462607\ngallery,p50=1.022856,p95=1.440244,p99=1.862028\nupper,p50=0.980513,p95=1.265225,p99=1.436499\ncarbine-reload,p50=1.064347,p95=1.209552,p99=1.455487\nshotgun-reload,p50=1.086369,p95=1.406454,p99=1.647631\n"
+  },
+  {
+    "run": 2,
+    "label": "perf",
+    "peak_rss_kib": 1428,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=68dd5707179119bc game=21312 frame=256016 bytes\nslice,p50=0.989676,p95=1.496017,p99=2.897933\nclosed-door,p50=0.907935,p95=1.194890,p99=2.265216\nshotgun,p50=1.065328,p95=1.260248,p99=1.443368\ngallery,p50=0.981694,p95=1.162853,p99=1.316461\nupper,p50=0.929828,p95=1.174571,p99=1.466953\ncarbine-reload,p50=1.115803,p95=1.654531,p99=3.140168\nshotgun-reload,p50=1.163854,p95=1.546752,p99=1.807598\n"
+  },
+  {
+    "run": 2,
+    "label": "before",
+    "peak_rss_kib": 1404,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=68dd5707179119bc game=21312 frame=256016 bytes\nslice,p50=1.317933,p95=1.840617,p99=3.208513\nclosed-door,p50=1.291153,p95=1.714550,p99=2.401162\nshotgun,p50=1.298124,p95=1.605608,p99=1.844943\ngallery,p50=1.173559,p95=1.502486,p99=2.068434\nupper,p50=1.135523,p95=1.376249,p99=1.471720\ncarbine-reload,p50=1.324643,p95=1.607862,p99=1.789251\nshotgun-reload,p50=1.278474,p95=1.557127,p99=2.133972\n"
+  },
+  {
+    "run": 3,
+    "label": "before",
+    "peak_rss_kib": 1404,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=68dd5707179119bc game=21312 frame=256016 bytes\nslice,p50=1.210063,p95=1.540802,p99=4.174875\nclosed-door,p50=1.161111,p95=1.555264,p99=2.283413\nshotgun,p50=1.368288,p95=1.800948,p99=4.068733\ngallery,p50=1.234950,p95=1.529126,p99=1.829961\nupper,p50=1.135021,p95=1.361698,p99=1.524258\ncarbine-reload,p50=1.267368,p95=1.520643,p99=2.369480\nshotgun-reload,p50=1.357080,p95=1.719147,p99=2.527445\n"
+  },
+  {
+    "run": 3,
+    "label": "perf",
+    "peak_rss_kib": 1428,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=68dd5707179119bc game=21312 frame=256016 bytes\nslice,p50=1.161230,p95=2.758497,p99=3.707659\nclosed-door,p50=0.996046,p95=1.487924,p99=2.399264\nshotgun,p50=1.157285,p95=1.535215,p99=2.725608\ngallery,p50=1.018239,p95=1.314707,p99=1.706683\nupper,p50=1.028844,p95=1.387396,p99=1.864923\ncarbine-reload,p50=1.181851,p95=1.632779,p99=2.011701\nshotgun-reload,p50=1.170594,p95=1.570096,p99=1.827648\n"
+  },
+  {
+    "run": 3,
+    "label": "final",
+    "peak_rss_kib": 1428,
+    "output": "tour: steps=4621 hp=100 ammo=24/76 kills=9\nframes=2027 frame-fnv1a=ff6687da1a979f58 game=21312 frame=256016 bytes\nslice,p50=1.114882,p95=1.575183,p99=2.219499\nclosed-door,p50=1.006461,p95=1.313676,p99=2.031169\nshotgun,p50=1.209512,p95=1.684916,p99=2.776683\ngallery,p50=1.079769,p95=1.411240,p99=1.780088\nupper,p50=1.054512,p95=1.389299,p99=2.697807\ncarbine-reload,p50=1.121111,p95=1.404992,p99=1.704956\nshotgun-reload,p50=1.053441,p95=1.296220,p99=2.005731\n"
+  }
+]

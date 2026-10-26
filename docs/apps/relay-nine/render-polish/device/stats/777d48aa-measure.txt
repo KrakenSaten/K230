@@ -1,0 +1,6 @@
+2026-10-26T11:56:23+00:00 label=pr-slice-1 secs=26 shell_cpu_avg=62% shell_cpu_peak_0.5s=76% helper_cpu_avg=0% helper_cpu_peak_0.5s=4% pcm_stream_starts=0 rss_kb=15852 hwm_kb=16768 load=1.01 0.63 0.31
+2026-10-26T11:57:30+00:00 label=pr-full-1 secs=36 shell_cpu_avg=20% shell_cpu_peak_0.5s=66% helper_cpu_avg=0% helper_cpu_peak_0.5s=4% pcm_stream_starts=0 rss_kb=15468 hwm_kb=16256 load=0.76 0.67 0.35
+2026-10-26T11:59:36+00:00 label=pr-slice-2 secs=26 shell_cpu_avg=64% shell_cpu_peak_0.5s=76% helper_cpu_avg=0% helper_cpu_peak_0.5s=4% pcm_stream_starts=0 rss_kb=15468 hwm_kb=16384 load=1.00 0.77 0.43
+2026-10-26T12:02:49+00:00 label=pr-full-2 secs=36 shell_cpu_avg=21% shell_cpu_peak_0.5s=72% helper_cpu_avg=0% helper_cpu_peak_0.5s=2% pcm_stream_starts=0 rss_kb=15724 hwm_kb=16384 load=0.49 0.71 0.47
+2026-10-26T12:04:46+00:00 label=pr-slice-3 secs=26 shell_cpu_avg=60% shell_cpu_peak_0.5s=76% helper_cpu_avg=0% helper_cpu_peak_0.5s=2% pcm_stream_starts=0 rss_kb=15596 hwm_kb=16384 load=1.19 0.89 0.57
+2026-10-26T12:05:53+00:00 label=pr-full-3 secs=36 shell_cpu_avg=20% shell_cpu_peak_0.5s=68% helper_cpu_avg=0% helper_cpu_peak_0.5s=4% pcm_stream_starts=0 rss_kb=15596 hwm_kb=16640 load=0.83 0.85 0.57

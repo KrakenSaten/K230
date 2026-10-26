@@ -1719,6 +1719,15 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${GAMES_APP_TEST_UI})
     target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"
                                "${REPO_DIR}/apps/deskbuddy_vision" "${REPO_DIR}/apps/vision")
+    add_executable(relay_image_bench
+        ${REPO_DIR}/tests/relay_image_bench.c ${NEON_SOURCES})
+    target_include_directories(relay_image_bench PRIVATE
+        "${REPO_DIR}/apps/neon-outpost" "${LVGL_DIR}")
+    target_compile_definitions(relay_image_bench PRIVATE LV_LVGL_H_INCLUDE_SIMPLE
+        LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    target_compile_options(relay_image_bench PRIVATE -Wall -Wextra)
+    target_link_libraries(relay_image_bench PRIVATE lvgl m)
+
     add_executable(neon_app_test
         ${REPO_DIR}/tests/neon_app_test.c
         ${REPO_DIR}/apps/neon-outpost/neon_app.c
