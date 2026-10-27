@@ -750,14 +750,16 @@ classes. This branch makes it the named general detector rather than adding
 another: the MODEL button and the logs call it **GENERAL 80** (the settings
 word stays `upstream`, so stored choices carry over), CLASSES lists its 80
 classes, and `install-model.sh --general` puts exactly the gated file on a
-bench unit. Nothing about its licence changed: it is still **not packaged,
-not committed, and refused in an image** (MODEL_LICENSES.md).
+bench unit. Nothing about its licence changed: weight licensing and
+redistribution permission remain unresolved, so it is still **not packaged,
+not committed, and refused in an image** (MODEL_LICENSES.md). The install by
+hand is a test arrangement; it does not resolve the licensing question.
 
 | | |
 | --- | --- |
 | Model | YOLOX-Tiny (depth 0.33, width 0.375), Megvii-BaseDetection/YOLOX, release `0.1.1rc0`, `yolox_tiny.pth` (the non-legacy Tiny; `yolox_tiny_32dot8.pth` is the legacy one) |
 | Checkpoint | https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.pth - 40,755,013 bytes, sha256 `9de513de589ac98bb92d3bca53b5af7b9acfa9b0bacb831f7999d0f7afaee8f0` (downloaded and checked 2026-10-26 against the 2026-10-04 record; VERIFIED). GitHub states no digest for the asset |
-| Licences | **code**: Apache-2.0 (the repository's LICENSE, VERIFIED via the GitHub API). **weights**: no statement in the release notes, the release assets, the README, `docs/model_zoo.md` or `LICENSE`. Issue #1865 asks; on 2026-10-27 it still had only user comments and no maintainer answer (VERIFIED; MODEL_LICENSES.md, "GENERAL 80: the weight terms"). Redistribution status: UNKNOWN - DO NOT REDISTRIBUTE; EXTERNAL ONLY (bench units, by hand) |
+| Licences | **code**: Apache-2.0 (the repository's LICENSE, VERIFIED via the GitHub API). **weights**: no statement in the release notes, the release assets, the README, `docs/model_zoo.md` or `LICENSE`. Issue #1865 asks; on 2026-10-27 it still had only user comments and no maintainer answer (VERIFIED; MODEL_LICENSES.md, "GENERAL 80: the weight terms"). Weight licensing and redistribution permission remain unresolved; a question to the maintainers was posted on #1865 on 2026-10-27 (https://github.com/Megvii-BaseDetection/YOLOX/issues/1865#issuecomment-6433795915). Status meanwhile, as a precaution: UNKNOWN - DO NOT REDISTRIBUTE; EXTERNAL ONLY |
 | Conversion | the 2026-10-04 detector evaluation (DOCUMENTED: its ONNX hash, calibration list and log are in that evaluation's archive, which is not in git and not on the current build host; the checkpoint-to-kmodel step was not re-verified). The same settings are in `tools/vision/training/convert.sh` and `export_onnx.py` on `research/yolox-traffic-training` (YOLOX at `6ddff48`, torch 2.1.2+cpu export, opset 11, decode in the graph) and nncase 2.11.0 with the `nncase-kpu` 2.11.0 plug-in: int16 activations, uint8 weights, NoClip calibration on 100 images |
 | kmodel | `det-upstream-yolox-tiny-416.kmodel`, sha256 `8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354` (pinned in `tools/vision/general-80-model.sha256` and listed in `refused-models.sha256`), 5,894,104 bytes as recorded by the evaluation |
 | Input | u8 NCHW RGB `[1, 3, 416, 416]`, letterboxed top-left, pad 114 (AI2D), swapRB, mean 0, std 1 - ValTransform(legacy=False), as R0 |

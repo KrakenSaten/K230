@@ -19,7 +19,9 @@ detector's behaviour on live scenes with the new screen.
   sysroot. Record both sha256 and the rollback path.
 - For GENERAL 80: `tools/vision/install-model.sh --general <file> <unit ip>`
   with the gated file (sha256 `8c304651…e354`); it refuses any other. Bench
-  unit only (MODEL_LICENSES.md: UNKNOWN - DO NOT REDISTRIBUTE).
+  unit only: weight licensing and redistribution permission remain
+  unresolved (MODEL_LICENSES.md), and this install by hand does not resolve
+  them.
 
 ## Checks
 
