@@ -1,6 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-10-22 for v0.3.8 (docs/releases/v0.3.8.md), following v0.3.7
+Updated 2026-10-28 for the v0.3.9 candidate (docs/releases/v0.3.9.md), following
+v0.3.8 (tag `v0.3.8`; docs/releases/v0.3.8.md), v0.3.7
 (tag `v0.3.7`; docs/releases/v0.3.7.md), v0.3.6 (tag `v0.3.6`;
 docs/releases/v0.3.6.md) and v0.3.5 (tag
 `v0.3.5`; docs/releases/v0.3.5.md; the
@@ -34,9 +35,26 @@ history when resolved.
 - **A clean SDK output does not build from master** (found 2026-10-20):
   Buildroot's toolchain check refuses the Xuantie toolchain's Fortran, then
   `camera_rtsp_demo` cannot install. Fixed on
-  `fix/fresh-build-fortran-toolchain` (not merged); the 0.3.8 image was
-  built on an SDK output first built from that branch (docs/releases/v0.3.8.md,
-  "Release image").
+  `fix/fresh-build-fortran-toolchain` (draft PR #115, the original commits
+  `15b3b4cf` and `0615f2a0`; not merged, and not in 0.3.9 because it changes
+  the image's Buildroot configuration); the 0.3.8 and 0.3.9 images were
+  built on an SDK output first built from that branch (docs/releases/v0.3.9.md,
+  "Reproducing").
+- **Vision COLOR, LINE TRACE and GENERAL 80** (0.3.9, PR #112,
+  docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md): LINE TRACE with the
+  final helper on a real line, moving COLOR's square by touch, a saturated
+  colour other than red, HDMI and the three text sizes are unchecked on
+  hardware. Busy texture can be followed as a line. GENERAL 80's weights are
+  not part of Doors (licence unknown); without the file CLASSES says so.
+- **Relay Nine fullscreen** (0.3.9, PR #113): play is fullscreen on the
+  panel (fresh-card check), but readability at the corners, touch input at
+  the new scale and the LVGL scale/flush cost are unmeasured on K230.
+- **DeskBuddy owner-aware Guard** (0.3.9, PR #111,
+  docs/apps/deskbuddy/PRESENCE_OWNER_HANDOFF.md): not implemented; #109 (a
+  stationary box on unit B) is undiagnosed.
+- **Launcher layout audit** (seen 2026-10-28, present on the v0.3.8 base):
+  `shell.audit` on the home screen reports three overlaps of untexted
+  objects in tile icons, in landscape with fresh settings.
 
 - **Vision's R0 detector is a beta and misses things** (v0.3.6,
   docs/apps/VISION.md "The model"). It can miss vehicles, including cars in
