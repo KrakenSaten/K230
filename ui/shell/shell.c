@@ -182,6 +182,7 @@ struct shell {
     lv_obj_t *app_root;     /* current app container or NULL */
     lv_obj_t *app_header;   /* its header row, or NULL: none open, or the app draws its own (app.h `header`) */
     lv_obj_t *app_body;     /* the body the app was created in, or NULL */
+    bool app_fullscreen;
     const struct pocketos_app *app;
     void *app_priv;
     lv_timer_t *tick;
@@ -1405,6 +1406,29 @@ static enum pocketos_chrome declared_chrome(const struct pocketos_app *app)
     return app->chrome;
 }
 
+/* Reuse the same chrome and body as app_open; keep header objects alive so
+ * returning to a menu restores its back slab without moving keyboard focus. */
+void pocketos_shell_set_fullscreen(bool fullscreen)
+{
+    if (!sh.app || !sh.app_body || sh.app_fullscreen == fullscreen) {
+        return;
+    }
+    sh.app_fullscreen = fullscreen;
+    if (sh.app_header) {
+        if (fullscreen) {
+            lv_obj_add_flag(sh.app_header, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(sh.app_header, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    lv_obj_set_style_pad_all(sh.app_body, fullscreen ? 0 : POCKETUI_PAD, 0);
+    lv_obj_set_style_pad_top(sh.app_body, fullscreen ? 0 : POCKETUI_BODY_PAD_TOP, 0);
+    lv_obj_scroll_to(sh.app_body, 0, 0, LV_ANIM_OFF);
+    chrome_apply(chrome_resolve(fullscreen ? POCKETOS_CHROME_NONE : declared_chrome(sh.app),
+                               is_landscape(sh.display.geometry.rotation), false), sh.app->id);
+    lv_obj_update_layout(sh.app_root);
+}
+
 /* ---- app hosting ------------------------------------------------------ */
 
 static void announce_current(void)
@@ -1431,6 +1455,7 @@ static void app_close(void)
     if (sh.app->destroy) {
         sh.app->destroy(sh.app_priv);
     }
+    sh.app_fullscreen = false;
     sh.app = NULL;
     sh.app_priv = NULL;
     sh.header_hint = NULL; /* it goes with the header */
@@ -3069,6 +3094,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
             lv_obj_update_layout(sh.cluster);
             lv_obj_get_coords(sh.cluster, &a);
             cJSON_AddStringToObject(chrome, "policy", chrome_name(sh.chrome));
+            cJSON_AddBoolToObject(chrome, "fullscreen", sh.app_fullscreen);
             cJSON_AddNumberToObject(chrome, "content_y", lv_obj_get_y(sh.content));
             cJSON_AddNumberToObject(chrome, "content_h", lv_obj_get_height(sh.content));
             /* shown: the chrome's, but for the lock over a fullscreen app,
@@ -3111,7 +3137,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 cJSON *h = cJSON_CreateObject();
 
                 lv_obj_update_layout(sh.app_root);
-                cJSON_AddBoolToObject(h, "present", header != NULL);
+                cJSON_AddBoolToObject(h, "present", header != NULL && !sh.app_fullscreen);
                 if (header) {
                     lv_obj_get_coords(header, &a);
                     cJSON_AddNumberToObject(h, "y", a.y1);
@@ -3132,6 +3158,8 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 }
                 lv_obj_get_coords(body, &a);
                 cJSON_AddNumberToObject(h, "body_y", a.y1);
+                cJSON_AddNumberToObject(h, "body_content_w", lv_obj_get_content_width(body));
+                cJSON_AddNumberToObject(h, "body_content_h", lv_obj_get_content_height(body));
                 cJSON_AddItemToObject(chrome, "header", h);
             }
             cJSON_AddItemToObject(result, "chrome", chrome);

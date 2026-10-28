@@ -13,6 +13,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 static unsigned checks;static bool off,locked;static int motion;
+static lv_obj_t *host_body;static bool fullscreen;
+void pocketos_shell_set_fullscreen(bool value)
+{
+    fullscreen=value;
+    if(!host_body)return;
+    lv_display_t *d=lv_display_get_default();
+    lv_obj_set_pos(host_body,value?0:24,value?0:80);
+    lv_obj_set_size(host_body,lv_display_get_horizontal_resolution(d)-(value?0:48),
+                    lv_display_get_vertical_resolution(d)-(value?0:104));
+    lv_obj_update_layout(host_body);
+}
 #define CHECK(x) do{checks++;if(!(x)){fprintf(stderr,"FAIL %d %s\n",__LINE__,#x);abort();}}while(0)
 bool shell_power_screen_off(void){return off;}bool shell_lock_is_locked(void){return locked;}
 int pocketos_shell_reduced_motion(void){return motion;}static int volume=40,muted;
@@ -46,7 +57,17 @@ static void shot(void *a,const char *mode,const char *state)
 }
 static void bounds(void *a,lv_obj_t *body)
 {
-    lv_obj_update_layout(body);lv_area_t b;lv_obj_get_coords(body,&b);
+    lv_obj_update_layout(body);
+    CHECK(fullscreen==(!neon_app_game(a)->paused&&neon_app_game(a)->state==RN_PLAY));
+    if(fullscreen){
+        lv_obj_t *im=neon_app_image(a);int w=lv_obj_get_content_width(body),h=lv_obj_get_content_height(body);
+        int scale=lv_image_get_scale_x(im);
+        CHECK(scale==(int)lv_image_get_scale_y(im));
+        CHECK(RN_W*scale<=w*256&&RN_H*scale<=h*256);
+        CHECK(RN_W*(scale+1)>w*256||RN_H*(scale+1)>h*256);
+        CHECK(lv_obj_get_x(im)==(w-RN_W)/2&&lv_obj_get_y(im)==(h-RN_H)/2);
+    }
+    lv_area_t b;lv_obj_get_coords(body,&b);
     for(unsigned i=0;i<14;i++){lv_obj_t *v=neon_app_button(a,i);if(lv_obj_has_flag(v,LV_OBJ_FLAG_HIDDEN))continue;lv_area_t r;lv_obj_get_coords(v,&r);CHECK(r.x1>=b.x1&&r.x2<=b.x2&&r.y1>=b.y1&&r.y2<=b.y2);CHECK(lv_obj_get_width(v)>=64&&lv_obj_get_height(v)>=64);}
 }
 int main(void)
@@ -59,11 +80,14 @@ int main(void)
         point=(lv_point_t){0,0};lv_display_set_resolution(d,sizes[mode][0],sizes[mode][1]);
         lv_obj_t *title=pocketui_label(lv_screen_active(),"RELAY NINE / ENGINE CAPTURE",POS_STYLE_TITLE);lv_obj_set_pos(title,28,8);
         lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(body);lv_obj_set_pos(body,24,80);lv_obj_set_size(body,sizes[mode][0]-48,sizes[mode][1]-104);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);pump(40);
-        int base=timers();void *a=app_neon_outpost.create(body);CHECK(a);pump(60);CHECK(timers()==base+1);struct rn_game *g=neon_app_game(a);CHECK(g->paused);bounds(a,body);
+        host_body=body;fullscreen=false;int base=timers();void *a=app_neon_outpost.create(body);CHECK(a);pump(60);CHECK(timers()==base+1);struct rn_game *g=neon_app_game(a);CHECK(g->paused);bounds(a,body);
         if(text==2)shot(a,names[mode],"title");
         touch(a,9,60,.5,.5);bounds(a,body);int v=volume;touch(a,11,60,.5,.5);CHECK(volume==v+5);touch(a,10,60,.5,.5);CHECK(volume==v);touch(a,12,60,.5,.5);CHECK(muted);touch(a,12,60,.5,.5);CHECK(!muted);if(text==2)shot(a,names[mode],"sound");touch(a,13,60,.5,.5);
         touch(a,5,60,.5,.5);bounds(a,body);if(text==2)shot(a,names[mode],"controls");touch(a,13,60,.5,.5);
         touch(a,7,60,.5,.5);CHECK(!g->paused);bounds(a,body);
+        /* Help reached from fullscreen restores the normal menu frame. */
+        touch(a,5,60,.5,.5);CHECK(g->paused);bounds(a,body);
+        touch(a,13,60,.5,.5);touch(a,7,60,.5,.5);CHECK(!g->paused);bounds(a,body);
         /* W + right turn + fire held at once, without reliance on repeat. */
         CHECK(pos_input_game_event(0,39,'w',true));CHECK(pos_input_game_event(0,1,LV_KEY_RIGHT,true));CHECK(pos_input_game_event(0,5,' ',true));
         double x=g->x,y=g->y,angle=g->angle;int ammo=g->mag;pump(180);CHECK(hypot(g->x-x,g->y-y)>.2);CHECK(g->angle>angle+.2&&g->mag<ammo);
@@ -73,6 +97,9 @@ int main(void)
         /* Compound touch applies movement, turn and fire from ONE pointer. */
         ammo=g->mag;angle=g->angle;x=g->x;y=g->y;touch(a,1,320,.75,.15);CHECK(g->mag<ammo&&fabs(g->angle-angle)>.2&&hypot(g->x-x,g->y-y)>.2);
         x=g->x;y=g->y;pump(120);CHECK(g->x==x&&g->y==y);
+        angle=g->angle;touch(a,0,120,.5,.5);CHECK(g->angle==angle&&g->x==x&&g->y==y);
+        angle=g->angle;touch(a,0,120,.1,.5);CHECK(g->angle<angle);
+        angle=g->angle;touch(a,0,120,.9,.5);CHECK(g->angle>angle);
         lv_area_t pad;lv_obj_get_coords(neon_app_button(a,0),&pad);
         point=(lv_point_t){(pad.x1+pad.x2)/2,pad.y1+15};finger=LV_INDEV_STATE_PRESSED;pump(80);
         lv_obj_send_event(neon_app_button(a,0),LV_EVENT_PRESS_LOST,NULL);x=g->x;y=g->y;pump(80);CHECK(g->x==x&&g->y==y);
@@ -83,7 +110,7 @@ int main(void)
         locked=true;pump(60);CHECK(g->paused);locked=false;touch(a,7,60,.5,.5);
         lv_group_t *other=lv_group_create();CHECK(pos_input_push_group(other));pump(60);CHECK(g->paused);pos_input_pop_group();lv_group_delete(other);touch(a,7,60,.5,.5);
         lv_tick_inc(1000);lv_timer_handler();CHECK(g->paused);if(text==2)shot(a,names[mode],"pause");
-        touch(a,6,60,.5,.5);CHECK(!g->paused&&g->health==100);
+        touch(a,6,60,.5,.5);CHECK(!g->paused&&g->health==100);bounds(a,body);
         if(text==2){unsigned goal=0;bool combat=false,stairs=false,upper=false,shotgun=false,optional=false;
             for(int t=0;t<60000&&g->state==RN_PLAY;t++){
                 if(relay_goal_done(g,goal)&&goal+1<RELAY_GOALS)goal++;
@@ -94,19 +121,19 @@ int main(void)
                 if(!optional&&g->secret&&g->sectors[g->sector].room==8){shot(a,names[mode],"secret");optional=true;}
                 if(!upper&&g->sectors[g->sector].room==4){shot(a,names[mode],"upper-control");upper=true;}
             }
-            CHECK(g->state==RN_WON&&g->kills==9&&g->relay&&g->shotgun&&g->secret&&shotgun&&optional);shot(a,names[mode],"victory");bounds(a,body);
+            CHECK(g->state==RN_WON&&g->kills==9&&g->relay&&g->shotgun&&g->secret&&shotgun&&optional);neon_app_refresh(a);shot(a,names[mode],"victory");bounds(a,body);
             /* Real touch and keyboard switching, independent of fire/move. */
             pump(60);touch(a,6,60,.5,.5);CHECK(g->state==RN_PLAY&&!g->shotgun);
             g->x=-2;g->y=10.4;g->sector=rn_locate(g,g->x,g->y);rn_advance(g,(struct rn_input){0},10);CHECK(g->shotgun);
             touch(a,8,60,.5,.5);CHECK(g->weapon==RN_CARBINE);touch(a,8,60,.5,.5);CHECK(g->weapon==RN_SHOTGUN);
             CHECK(pos_input_game_event(0,22,'q',true));pump(60);CHECK(g->weapon==RN_CARBINE);pump(60);CHECK(g->weapon==RN_CARBINE);pos_input_game_event(0,22,0,false);
-            touch(a,6,60,.5,.5);for(int i=0;i<5000&&g->state==RN_PLAY;i++)rn_advance(g,(struct rn_input){0},10);CHECK(g->state==RN_DEAD);shot(a,names[mode],"death");
+            touch(a,4,60,.5,.5);CHECK(g->paused);touch(a,6,60,.5,.5);CHECK(!g->paused&&g->health==100);for(int i=0;i<5000&&g->state==RN_PLAY;i++)rn_advance(g,(struct rn_input){0},10);CHECK(g->state==RN_DEAD);neon_app_refresh(a);shot(a,names[mode],"death");bounds(a,body);
             CHECK(rn_restart(g,true));g->reduced_motion=motion;
             for(int t=0;t<1000&&!g->flash;t++)rn_advance(g,relay_pilot(g,-3.5,6.5),10);
             CHECK(g->flash);shot(a,names[mode],"slice-combat");
 
         }
-        app_neon_outpost.destroy(a);lv_obj_delete(body);lv_obj_delete(title);pump(60);CHECK(timers()==base);CHECK(!pos_input_game_active()&&!pos_input_raw_target());
+        app_neon_outpost.destroy(a);host_body=NULL;fullscreen=false;lv_obj_delete(body);lv_obj_delete(title);pump(60);CHECK(timers()==base);CHECK(!pos_input_game_active()&&!pos_input_raw_target());
       }
     }
     point=(lv_point_t){0,0};

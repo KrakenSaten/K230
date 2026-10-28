@@ -1,0 +1,866 @@
+{
+  "portrait-large": {
+    "display": {
+      "width": 568,
+      "height": 1232,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 0,
+      "orientation": "portrait",
+      "next_rotation": 0,
+      "next_orientation": "portrait",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": false,
+      "hold_rotation": 0,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 1232,
+      "cluster": {
+        "shown": false,
+        "x": 376,
+        "y": 14,
+        "w": 162,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 348,
+        "reserve_w": 190
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 331,
+        "pad_left": 30,
+        "pad_right": 236,
+        "hint_x2": 331,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 568,
+        "body_content_h": 1232
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 1232,
+      "cluster": {
+        "shown": true,
+        "x": 376,
+        "y": 14,
+        "w": 162,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 348,
+        "reserve_w": 190
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 331,
+        "pad_left": 30,
+        "pad_right": 236,
+        "hint_x2": 331,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 528,
+        "body_content_h": 1116
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "landscape-large": {
+    "display": {
+      "width": 1232,
+      "height": 568,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 270,
+      "orientation": "landscape",
+      "next_rotation": 270,
+      "next_orientation": "landscape",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": false,
+      "hold_rotation": 270,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 568,
+      "cluster": {
+        "shown": false,
+        "x": 1020,
+        "y": 14,
+        "w": 162,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 992,
+        "reserve_w": 190
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 975,
+        "pad_left": 50,
+        "pad_right": 256,
+        "hint_x2": 975,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 1232,
+        "body_content_h": 568
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 568,
+      "cluster": {
+        "shown": true,
+        "x": 1020,
+        "y": 14,
+        "w": 162,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 992,
+        "reserve_w": 190
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 975,
+        "pad_left": 50,
+        "pad_right": 256,
+        "hint_x2": 975,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 1192,
+        "body_content_h": 452
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "hdmi720-large": {
+    "display": {
+      "width": 1280,
+      "height": 720,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 0,
+      "orientation": "landscape",
+      "next_rotation": 0,
+      "next_orientation": "landscape",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": true,
+      "hold_rotation": 0,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 720,
+      "cluster": {
+        "shown": false,
+        "x": 1098,
+        "y": 14,
+        "w": 162,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1070,
+        "reserve_w": 190
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 1053,
+        "pad_left": 20,
+        "pad_right": 226,
+        "hint_x2": 1053,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 1280,
+        "body_content_h": 720
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 720,
+      "cluster": {
+        "shown": true,
+        "x": 1098,
+        "y": 14,
+        "w": 162,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1070,
+        "reserve_w": 190
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 1053,
+        "pad_left": 20,
+        "pad_right": 226,
+        "hint_x2": 1053,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 1240,
+        "body_content_h": 604
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "portrait-small": {
+    "display": {
+      "width": 568,
+      "height": 1232,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 0,
+      "orientation": "portrait",
+      "next_rotation": 0,
+      "next_orientation": "portrait",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": false,
+      "hold_rotation": 0,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 1232,
+      "cluster": {
+        "shown": false,
+        "x": 391,
+        "y": 14,
+        "w": 147,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 363,
+        "reserve_w": 175
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 346,
+        "pad_left": 30,
+        "pad_right": 221,
+        "hint_x2": 346,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 568,
+        "body_content_h": 1232
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 1232,
+      "cluster": {
+        "shown": true,
+        "x": 391,
+        "y": 14,
+        "w": 147,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 363,
+        "reserve_w": 175
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 346,
+        "pad_left": 30,
+        "pad_right": 221,
+        "hint_x2": 346,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 528,
+        "body_content_h": 1116
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "landscape-small": {
+    "display": {
+      "width": 1232,
+      "height": 568,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 270,
+      "orientation": "landscape",
+      "next_rotation": 270,
+      "next_orientation": "landscape",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": false,
+      "hold_rotation": 270,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 568,
+      "cluster": {
+        "shown": false,
+        "x": 1035,
+        "y": 14,
+        "w": 147,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1007,
+        "reserve_w": 175
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 990,
+        "pad_left": 50,
+        "pad_right": 241,
+        "hint_x2": 990,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 1232,
+        "body_content_h": 568
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 568,
+      "cluster": {
+        "shown": true,
+        "x": 1035,
+        "y": 14,
+        "w": 147,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1007,
+        "reserve_w": 175
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 990,
+        "pad_left": 50,
+        "pad_right": 241,
+        "hint_x2": 990,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 1192,
+        "body_content_h": 452
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "hdmi720-small": {
+    "display": {
+      "width": 1280,
+      "height": 720,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 0,
+      "orientation": "landscape",
+      "next_rotation": 0,
+      "next_orientation": "landscape",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": true,
+      "hold_rotation": 0,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 720,
+      "cluster": {
+        "shown": false,
+        "x": 1113,
+        "y": 14,
+        "w": 147,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1085,
+        "reserve_w": 175
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 1068,
+        "pad_left": 20,
+        "pad_right": 211,
+        "hint_x2": 1068,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 1280,
+        "body_content_h": 720
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 720,
+      "cluster": {
+        "shown": true,
+        "x": 1113,
+        "y": 14,
+        "w": 147,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1085,
+        "reserve_w": 175
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 1068,
+        "pad_left": 20,
+        "pad_right": 211,
+        "hint_x2": 1068,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 1240,
+        "body_content_h": 604
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "portrait-medium": {
+    "display": {
+      "width": 568,
+      "height": 1232,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 0,
+      "orientation": "portrait",
+      "next_rotation": 0,
+      "next_orientation": "portrait",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": false,
+      "hold_rotation": 0,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 1232,
+      "cluster": {
+        "shown": false,
+        "x": 381,
+        "y": 14,
+        "w": 157,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 353,
+        "reserve_w": 185
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 336,
+        "pad_left": 30,
+        "pad_right": 231,
+        "hint_x2": 336,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 568,
+        "body_content_h": 1232
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 1232,
+      "cluster": {
+        "shown": true,
+        "x": 381,
+        "y": 14,
+        "w": 157,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 353,
+        "reserve_w": 185
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 336,
+        "pad_left": 30,
+        "pad_right": 231,
+        "hint_x2": 336,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 528,
+        "body_content_h": 1116
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "landscape-medium": {
+    "display": {
+      "width": 1232,
+      "height": 568,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 270,
+      "orientation": "landscape",
+      "next_rotation": 270,
+      "next_orientation": "landscape",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": false,
+      "hold_rotation": 270,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 568,
+      "cluster": {
+        "shown": false,
+        "x": 1025,
+        "y": 14,
+        "w": 157,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 997,
+        "reserve_w": 185
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 980,
+        "pad_left": 50,
+        "pad_right": 251,
+        "hint_x2": 980,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 1232,
+        "body_content_h": 568
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 568,
+      "cluster": {
+        "shown": true,
+        "x": 1025,
+        "y": 14,
+        "w": 157,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 997,
+        "reserve_w": 185
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 980,
+        "pad_left": 50,
+        "pad_right": 251,
+        "hint_x2": 980,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 1192,
+        "body_content_h": 452
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  },
+  "hdmi720-medium": {
+    "display": {
+      "width": 1280,
+      "height": 720,
+      "backend": "sdl",
+      "rotation_mode": "automatic",
+      "rotation_mode_valid": true,
+      "rotation": 0,
+      "orientation": "landscape",
+      "next_rotation": 0,
+      "next_orientation": "landscape",
+      "applying": false,
+      "keyboard": "unknown",
+      "bench_override": false,
+      "external": true,
+      "hold_rotation": 0,
+      "portrait_app": null
+    },
+    "gameplay": {
+      "policy": "none",
+      "fullscreen": true,
+      "content_y": 0,
+      "content_h": 720,
+      "cluster": {
+        "shown": false,
+        "x": 1103,
+        "y": 14,
+        "w": 157,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1075,
+        "reserve_w": 185
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": false,
+        "y": 0,
+        "h": 72,
+        "content_x2": 1058,
+        "pad_left": 20,
+        "pad_right": 221,
+        "hint_x2": 1058,
+        "hint": "",
+        "body_y": 0,
+        "body_content_w": 1280,
+        "body_content_h": 720
+      }
+    },
+    "pause": {
+      "policy": "cluster",
+      "fullscreen": false,
+      "content_y": 0,
+      "content_h": 720,
+      "cluster": {
+        "shown": true,
+        "x": 1103,
+        "y": 14,
+        "w": 157,
+        "h": 44,
+        "clock": true,
+        "reserve_x": 1075,
+        "reserve_w": 185
+      },
+      "chip": {
+        "h": 32,
+        "content_h": 22,
+        "line_h": 22,
+        "y": 5,
+        "text": "\uf1eb --"
+      },
+      "header": {
+        "present": true,
+        "y": 0,
+        "h": 72,
+        "content_x2": 1058,
+        "pad_left": 20,
+        "pad_right": 221,
+        "hint_x2": 1058,
+        "hint": "",
+        "body_y": 72,
+        "body_content_w": 1240,
+        "body_content_h": 604
+      }
+    },
+    "audit_issues": {
+      "gameplay": [],
+      "pause": [],
+      "controls": []
+    }
+  }
+}

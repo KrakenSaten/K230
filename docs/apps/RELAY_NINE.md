@@ -267,3 +267,6 @@ The sample timing includes host scheduling and is not a latency benchmark.
 Inventory explicitly classifies this WAV as ORIGINAL; PNGs follow the existing
 `docs/apps/*` CAPTURE rule. The separately inventoried AI concept is excluded
 from engine assets and remains labelled concept.
+
+Fullscreen gameplay geometry, simulator evidence and local check handoff are in
+[RELAY_NINE_FULLSCREEN.md](RELAY_NINE_FULLSCREEN.md).
