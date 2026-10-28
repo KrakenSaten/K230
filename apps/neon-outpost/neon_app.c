@@ -17,14 +17,72 @@ struct neon_app {
     lv_obj_t *root,*image,*hud,*message_box,*message,*button[14];
     lv_image_dsc_t image_data;lv_timer_t *timer;uint32_t last;
     struct rn_input touch;int pad;bool help,sound,started;int volume;
-    struct rn_stats *stats;uint64_t tick;bool title_shown;
+    struct rn_stats *stats;uint64_t tick;bool title_shown,fullscreen;
 };
-static const char *const labels[]={"MOVE + TURN","FIRE + MOVE\n+ TURN","USE","RELOAD","PAUSE","CONTROLS","RESTART","PLAY","WEAPON","SOUND","VOL -","VOL +","MUTE","BACK"};
+static const char *const labels[]={"MOVE\n+ TURN","FIRE + MOVE\n+ TURN","USE","RELOAD","PAUSE","CONTROLS","RESTART","PLAY","WEAPON","SOUND","VOL -","VOL +","MUTE","BACK"};
 static bool panel(struct neon_app *a){return a->help||a->game.paused||a->game.state!=RN_PLAY;}
+/* The scene always uses a single uniform LVGL scale. Letterboxing is
+ * intentional: 8:5 cannot cover portrait or 16:9 without loss or distortion.
+ * UI uses display-safe coordinates; pad input reads these very same objects. */
+static void gameplay_layout(struct neon_app *a, int w, int h)
+{
+    unsigned scale = (unsigned)w * 256 / RN_W;
+    if (scale > (unsigned)h * 256 / RN_H) {
+        scale = (unsigned)h * 256 / RN_H;
+    }
+    lv_image_set_scale(a->image, scale);
+    lv_obj_set_pos(a->image, (w - RN_W) / 2, (h - RN_H) / 2);
+
+    lv_area_t r;
+    lv_obj_get_coords(a->root, &r);
+    struct pos_insets safe = pos_display_rect_insets(pocketui_display_geometry(),
+                                                     r.x1, r.y1, r.x2, r.y2);
+    int x = 8 + safe.left, y = 8 + safe.top;
+    int rw = w - x - 8 - safe.right, bottom = h - 8 - safe.bottom;
+    int line = pocketui_role_line_height(POS_STYLE_TEXT_PRIMARY);
+    bool wide = w > h;
+    int bw = wide ? 160 : (rw - 32) / 5, bh = 80;
+    int padw = wide ? 160 : (rw - 8) / 2, padh = 152;
+
+    lv_obj_set_pos(a->hud, x, y);
+    lv_obj_set_size(a->hud, rw - (wide ? bw + 8 : 0), LV_SIZE_CONTENT);
+    lv_obj_update_layout(a->hud);
+    lv_obj_set_pos(a->message_box, x + (wide ? bw + 8 : 0),
+                    y + lv_obj_get_height(a->hud) + 12);
+    lv_obj_set_size(a->message_box, rw - (wide ? 2 * (bw + 8) : 0), line * 2 + 8);
+    lv_obj_set_width(a->message, LV_PCT(100));
+    lv_obj_set_height(a->message, LV_SIZE_CONTENT);
+
+    /* Landscape keeps the centre/weapon clear. Portrait uses the lower
+     * letterbox band. Every target is at least 80 px tall, including Large. */
+    for (int i = 0; i < 14; i++) {
+        if (lv_obj_has_flag(a->button[i], LV_OBJ_FLAG_HIDDEN)) {
+            continue;
+        }
+        int bx, by, bwidth = bw, bheight = bh;
+        if (i < 2) {
+            bwidth = padw;
+            bheight = padh;
+            bx = i ? x + rw - padw : x;
+            by = bottom - padh - (wide ? 0 : bh + 8);
+        } else if (wide) {
+            bool right = i == 8 || i == 5 || i == 4;
+            bx = right ? x + rw - bw : x;
+            by = i == 4 ? y : bottom - padh - 8 - bh - ((i == 2 || i == 8) ? bh + 8 : 0);
+        } else {
+            int slot = i == 2 ? 0 : i == 3 ? 1 : i == 8 ? 2 : i == 5 ? 3 : 4;
+            bx = x + slot * (bw + 8);
+            by = bottom - bh;
+        }
+        lv_obj_set_pos(a->button[i], bx, by);
+        lv_obj_set_size(a->button[i], bwidth, bheight);
+    }
+}
 static void layout(struct neon_app *a)
 {
     int w=lv_obj_get_content_width(a->root),h=lv_obj_get_content_height(a->root);if(w<64||h<64)return;
-    bool wide=w>h*3/2,menu=panel(a),title=menu&&!a->started&&!a->help&&!a->sound;
+    if(!panel(a)){gameplay_layout(a,w,h);return;}
+    bool wide=w>h*3/2,title=!a->started&&!a->help&&!a->sound;
     int left=wide?w*2/3:w,controls=w-left;
     int hudh=pocketui_role_line_height(POS_STYLE_TEXT_PRIMARY)*2+12;
     int space=wide?h-hudh-70:h-hudh-240-70;if(title&&wide)space-=90;
@@ -32,24 +90,24 @@ static void layout(struct neon_app *a)
     lv_obj_set_pos(a->hud,8,4);lv_obj_set_size(a->hud,left-16,hudh-4);
     lv_obj_set_pos(a->image,(left-RN_W)/2,hudh+(vh-RN_H)/2);
     lv_image_set_scale(a->image,(unsigned)vw*256/RN_W);
-    int msgy=menu&&!title?hudh+4:hudh+vh+8;
+    int msgy=!title?hudh+4:hudh+vh+8;
     lv_obj_set_pos(a->message_box,8,msgy);
-    lv_obj_set_size(a->message_box,left-16,menu?(wide?h-msgy-12:h-msgy-88):60);
+    lv_obj_set_size(a->message_box,left-16,wide?h-msgy-12:h-msgy-88);
     lv_obj_set_width(a->message,LV_PCT(100));lv_obj_set_height(a->message,LV_SIZE_CONTENT);
     int count=0;for(int i=0;i<14;i++)if(!lv_obj_has_flag(a->button[i],LV_OBJ_FLAG_HIDDEN))count++;
-    int at=0;static const int game_slot[14]={0,1,2,3,5,6,0,0,4,0,0,0,0,0};
+    int at=0;
     for(int i=0;i<14;i++){
         if(lv_obj_has_flag(a->button[i],LV_OBJ_FLAG_HIDDEN))continue;
-        int bx,by,bw,bh=68;
-        if(menu){bw=wide?controls-16:(w-8*(count+1))/count;bx=wide?left+8:8+at*(bw+8);by=wide?hudh+at*76:h-76;at++;}
-        else if(i<2){bw=wide?(controls-24)/2:(w-24)/2;bh=wide?128:152;bx=wide?left+8+i*(bw+8):8+i*(bw+8);by=wide?hudh:h-232;}
-        else{int slot=game_slot[i]-2;bw=wide?(controls-24)/2:(w-48)/5;bx=wide?left+8+(slot%2)*(bw+8):8+slot*(bw+8);by=wide?hudh+136+(slot/2)*76:h-72;}
-        lv_obj_set_pos(a->button[i],bx,by);lv_obj_set_size(a->button[i],bw,bh);
+        int bw=wide?controls-16:(w-8*(count+1))/count;
+        int bx=wide?left+8:8+at*(bw+8),by=wide?hudh+at*76:h-76;at++;
+        lv_obj_set_pos(a->button[i],bx,by);lv_obj_set_size(a->button[i],bw,68);
     }
 }
 static void text(lv_obj_t *obj,const char *value){if(strcmp(lv_label_get_text(obj),value))lv_label_set_text(obj,value);}
 static void refresh(struct neon_app *a)
 {
+    bool fullscreen=!panel(a);
+    if(a->fullscreen!=fullscreen){a->fullscreen=fullscreen;pocketos_shell_set_fullscreen(fullscreen);}
     struct rn_game *g=&a->game;char b[180];
     int ammo=g->weapon==RN_SHOTGUN?g->loaded:g->mag,reserve=g->weapon==RN_SHOTGUN?g->shells:g->reserve;
     if(!a->started)lv_snprintf(b,sizeof(b),"STATION 09 // EMERGENCY POWER\nFIELD LINK OFFLINE");
@@ -151,7 +209,9 @@ static void *create(lv_obj_t *body)
     a->image_data.header.magic=LV_IMAGE_HEADER_MAGIC;a->image_data.header.cf=LV_COLOR_FORMAT_RGB565;a->image_data.header.w=RN_W;a->image_data.header.h=RN_H;a->image_data.header.stride=RN_W*2;a->image_data.data_size=sizeof(a->rendered.pixels);a->image_data.data=(uint8_t *)a->rendered.pixels;
     a->image=lv_image_create(a->root);lv_image_set_src(a->image,&a->image_data);lv_image_set_antialias(a->image,false);
     a->hud=pocketui_label(a->root,"",POS_STYLE_TEXT_PRIMARY);pos_style_add(a->hud,POS_STYLE_GAME_HUD_TEXT,0);
+    pos_style_add(a->hud,POS_STYLE_GAME_SCENE,0);lv_obj_set_style_bg_opa(a->hud,LV_OPA_80,0);
     a->message_box=lv_obj_create(a->root);lv_obj_remove_style_all(a->message_box);lv_obj_set_scroll_dir(a->message_box,LV_DIR_VER);
+    pos_style_add(a->message_box,POS_STYLE_GAME_SCENE,0);lv_obj_set_style_bg_opa(a->message_box,LV_OPA_80,0);
     a->message=pocketui_label(a->message_box,"",POS_STYLE_TEXT_PRIMARY);pos_style_add(a->message,POS_STYLE_GAME_HUD_TEXT,0);lv_obj_set_style_text_align(a->message,LV_TEXT_ALIGN_CENTER,0);
     for(int i=0;i<14;i++){
         a->button[i]=lv_button_create(a->root);lv_obj_remove_style_all(a->button[i]);lv_obj_remove_flag(a->button[i],LV_OBJ_FLAG_CLICK_FOCUSABLE|LV_OBJ_FLAG_SCROLLABLE);
@@ -175,3 +235,5 @@ const struct pocketos_app app_neon_outpost={.id="neon-outpost",.name="Relay Nine
 struct rn_game *neon_app_game(void *priv){return priv?&((struct neon_app *)priv)->game:NULL;}
 lv_obj_t *neon_app_button(void *priv,unsigned i){return priv&&i<14?((struct neon_app *)priv)->button[i]:NULL;}
 void neon_app_refresh(void *priv){if(priv)refresh(priv);}
+
+lv_obj_t *neon_app_image(void *priv){return priv?((struct neon_app *)priv)->image:NULL;}
