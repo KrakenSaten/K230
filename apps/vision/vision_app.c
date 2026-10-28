@@ -485,7 +485,7 @@ static void draw_probe(struct vision_app *a, const struct vision_view_text *s)
      * picture, over the square rather than off the picture. */
     lv_obj_set_pos(a->swatch, x < 0 ? 0 : x, y < 0 ? 0 : y);
     lv_obj_set_size(a->swatch, side, side);
-    lv_obj_set_style_bg_color(a->swatch, lv_color_make(s->swatch[0], s->swatch[1], s->swatch[2]), 0);
+    pos_style_set_sample_fill(a->swatch, s->swatch[0], s->swatch[1], s->swatch[2]);
 }
 
 /* TRACE: dots along the line followed, only while it is in the picture. */

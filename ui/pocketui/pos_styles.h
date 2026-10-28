@@ -162,6 +162,11 @@ lv_style_t *pos_style_env_tile_family(enum pos_env_hue hue);
 lv_color_t pos_scan_dark(void);
 lv_color_t pos_scan_light(void);
 
+/* A measured colour shown as itself (Vision COLOR's swatch: the mean of what
+ * the camera read). Not a token either: it stands for the data, not the look,
+ * so no theme or display mode changes it. Sets obj's background colour only. */
+void pos_style_set_sample_fill(lv_obj_t *obj, uint8_t r, uint8_t g, uint8_t b);
+
 /* ---- type (DS §3, §46) ---------------------------------------------------- *
  *
  * The font a semantic type role (pos_theme.h) draws in: exact when the
