@@ -308,6 +308,11 @@ lv_color_t pos_scan_light(void)
     return lv_color_hex(0xffffff);
 }
 
+void pos_style_set_sample_fill(lv_obj_t *obj, uint8_t r, uint8_t g, uint8_t b)
+{
+    lv_obj_set_style_bg_color(obj, lv_color_make(r, g, b), 0);
+}
+
 /* ---- fixed sizes (DS §46.4) --------------------------------------------- */
 
 /* The type role each style role draws in; -1 for a style with no font. The
