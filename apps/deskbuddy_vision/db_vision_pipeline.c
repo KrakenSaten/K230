@@ -21,6 +21,7 @@ void db_judge_init(struct db_judge *j, bool face)
     memset(j, 0, sizeof(*j));
     j->face = face;
     j->last_seen_ms = -1;
+    j->last_report_ms = -1;
 }
 
 static void fill(const struct db_judge *j, enum db_vision_kind kind, int16_t conf, int64_t now,
@@ -39,10 +40,27 @@ bool db_judge_report(struct db_judge *j, const struct db_judge_report *r, int64_
     enum db_vision_kind c;
     int16_t conf = DB_CONF_NONE;
 
-    if (r->present <= 0) {
-        /* Nobody on this report: "nobody" is a matter of time (tick). */
+    if (j->last_report_ms >= 0 && now_ms - j->last_report_ms >= VISION_SILENCE_MS) {
         j->cand_n = 0;
-        return db_judge_tick(j, now_ms, out);
+        j->last_seen_ms = -1;
+        j->said_any = false;
+    }
+    j->last_report_ms = now_ms;
+    if (r->present <= 0) {
+        /* Only an actual empty report can establish absence. Silence is
+         * unavailable input, not an empty room. */
+        j->cand_n = 0;
+        if (j->last_seen_ms < 0) {
+            j->last_seen_ms = now_ms;
+        }
+        if (now_ms - j->last_seen_ms < DB_JUDGE_ABSENT_MS ||
+            (j->said_any && j->said == DB_VISION_NO_PERSON)) {
+            return false;
+        }
+        j->said_any = true;
+        j->said = DB_VISION_NO_PERSON;
+        fill(j, j->said, DB_CONF_NONE, now_ms, out);
+        return true;
     }
     j->last_seen_ms = now_ms;
     if (r->identity && r->owner) {
@@ -76,20 +94,18 @@ bool db_judge_report(struct db_judge *j, const struct db_judge_report *r, int64_
 
 bool db_judge_tick(struct db_judge *j, int64_t now_ms, struct db_vision_event *out)
 {
-    bool nobody_due = j->last_seen_ms < 0 || now_ms - j->last_seen_ms >= DB_JUDGE_ABSENT_MS;
-
-    if (!nobody_due || (j->said_any && j->said == DB_VISION_NO_PERSON)) {
-        return false;
+    if (j->last_report_ms < 0) {
+        j->last_report_ms = now_ms;
     }
-    /* Before anybody was ever seen, "nobody" waits the same time from the
-     * start, so a slow first frame is not mistaken for an empty room. */
-    if (j->last_seen_ms < 0) {
-        j->last_seen_ms = now_ms;
+    if (now_ms - j->last_report_ms < VISION_SILENCE_MS ||
+        (j->said_any && j->said == DB_VISION_UNAVAILABLE)) {
         return false;
     }
     j->said_any = true;
-    j->said = DB_VISION_NO_PERSON;
-    fill(j, DB_VISION_NO_PERSON, DB_CONF_NONE, now_ms, out);
+    j->said = DB_VISION_UNAVAILABLE;
+    j->cand_n = 0;
+    j->last_seen_ms = -1;
+    fill(j, j->said, DB_CONF_NONE, now_ms, out);
     return true;
 }
 
@@ -116,6 +132,8 @@ struct pipeline {
     bool running;
     bool unavailable_said;
     bool have_owner;
+    bool have_seq;
+    uint32_t report_seq;
     uint32_t caps;   /* the helper's modes, from its caps line */
     int rotation;    /* the hold the helper was last told */
     const struct db_vision_pipeline_cfg *cfg;
@@ -213,6 +231,7 @@ static bool choose_mode(struct pipeline *p, uint32_t caps, int64_t now)
         p->mode = PIPE_DETECT;
     }
     db_judge_init(&p->judge, p->mode >= PIPE_FACE);
+    p->have_seq = false;
     vision_session_mode_word(&p->s, word);
     vision_session_view_whole(&p->s, PIPELINE_VIEW_W, PIPELINE_VIEW_H, p->rotation);
     vision_session_stream(&p->s, true, now);
@@ -268,7 +287,17 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
             if (p->mode == PIPE_DETECT || p->mode == PIPE_FACE) {
                 int n = 0;
                 int i;
-                const struct vision_shown *t = vision_session_tracks(&p->s, &n, NULL);
+                uint32_t seq;
+                const struct vision_shown *t = vision_session_tracks(&p->s, &n, &seq);
+
+                /* Events queue, but the session stores only the newest
+                 * snapshot. Never count it again for an older event. */
+                if (seq != (uint32_t)ev.value || (p->have_seq && seq == p->report_seq)) {
+                    break;
+                }
+                p->have_seq = true;
+                p->report_seq = seq;
+                p->unavailable_said = false;
 
                 for (i = 0; i < n; i++) {
                     /* A face is a person; of the detector's boxes, only a
@@ -285,6 +314,12 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
                 const struct vision_who_report *w = vision_session_who(&p->s);
                 int i;
 
+                if (w->seq != (uint32_t)ev.value || (p->have_seq && w->seq == p->report_seq)) {
+                    break;
+                }
+                p->have_seq = true;
+                p->report_seq = w->seq;
+                p->unavailable_said = false;
                 r.present = w->faces;
                 r.identity = p->have_owner;
                 for (i = 0; i < w->n; i++) {
@@ -313,6 +348,9 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
                 return blind(p, now_ms, q);
             }
             break;
+        case VISION_EV_STALL:
+            unavailable(p, now_ms, q);
+            break;
         case VISION_EV_NODEVICE:
         case VISION_EV_NOMODEL:
         case VISION_EV_ERROR:
@@ -339,8 +377,10 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
         p->running = false;
         return -1;
     }
-    if (db_judge_tick(&p->judge, now_ms, &out)) {
-        db_vision_queue_push(q, &out);
+    /* Loading has its own bounded session deadline. A slow model load
+     * must not fabricate an empty-room conclusion. */
+    if (!p->s.loading && db_judge_tick(&p->judge, now_ms, &out)) {
+        unavailable(p, now_ms, q);
     }
     return now_ms + PIPELINE_POLL_MS;
 }

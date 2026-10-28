@@ -1,5 +1,8 @@
 # DeskBuddy
 
+Current bounded follow-up: [presence freshness and owner-aware Guard boundary](deskbuddy/PRESENCE_OWNER_HANDOFF.md)
+(2026-10-26). The dated implementation and hardware records below remain historical evidence.
+
 A small companion for the desk: a pair of eyes that wake when somebody
 arrives, are glad to see the owner and wary of a stranger; a desk guard that
 notes who came by while the owner was away; a calm night clock that still
@@ -459,8 +462,11 @@ normally afterwards. Nothing watches after DeskBuddy closes.
   instead of going blind.
 - `poll()` never waits; a small judge (`db_judge_*`, pure, tested) turns
   the helper's lines into **changes**: a conclusion is said once it has held
-  for two reports, "nobody" after 1.5 s without anybody, the owner over a
-  stranger when both are there, and no identity without an enrolled owner.
+  for two distinct report sequences; "nobody" requires a fresh empty report
+  after the existing 1.5 s absence interval. Silence and camera stalls mean
+  unavailable, never absence. The legacy identity reducer still prioritizes
+  an owner over other faces; see the follow-up above before extending Guard.
+  No identity is claimed without an enrolled owner.
   `OWNER_RECOGNIZED` and `UNKNOWN_PERSON` carry the similarity (per-mille)
   as `confidence_pm`. The helper gone, the camera lost or taken, or no
   model at all: `UNAVAILABLE`, once. Polled every 100 ms while running.
