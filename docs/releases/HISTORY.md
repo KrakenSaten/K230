@@ -6,6 +6,12 @@ first, as they were described at the time. The full notes of every release
 from v0.0.10 on are next to this file; the earlier bench and gate records are
 in [docs/hardware/](../hardware/).
 
+**Doors 0.3.7** (tag `v0.3.7`, 2026-10-17): everything merged since 0.3.6 -
+Vision on an HDMI monitor (chosen at boot), RIFT MAP's OpenStreetMap basemap
+(off by default) and RIFT fixes, read-only battery readings, DeskBuddy's
+camera-free Companion, a Help & Feedback QR code, and game fixes. Release
+notes: [v0.3.7.md](v0.3.7.md).
+
 **Doors 0.3.6** (tag `v0.3.6`, 2026-10-09): everything merged since 0.3.5 -
 Poker, core reliability fixes and the Vision detector A/B for bench units -
 and Vision's own detector, **R0 · Beta**, in the image as an experimental

@@ -4,9 +4,9 @@ This guide takes you from a downloaded DOORS image to a working device:
 write the microSD card, boot, join Wi-Fi, set up RIFT and find your way
 around. You do not need a compiler or a development environment.
 
-It describes **DOORS 0.3.8**, the current release
-(<https://github.com/KrakenSaten/K230/releases/tag/v0.3.8>). The release
-notes ([docs/releases/v0.3.8.md](releases/v0.3.8.md)) are the authority on
+It describes **DOORS 0.3.9**, the current release
+(<https://github.com/KrakenSaten/K230/releases/tag/v0.3.9>). The release
+notes ([docs/releases/v0.3.9.md](releases/v0.3.9.md)) are the authority on
 what an image contains; read them for the image you download.
 
 > **Licences.** DOORS' own code is Apache-2.0, and so is Vision's R0
@@ -35,21 +35,21 @@ what an image contains; read them for the image you download.
 ## 2. Download the image
 
 **Download the image directly:
-[doors-0.3.8-tdisplay-k230-bc889b0d.img.gz](https://github.com/KrakenSaten/K230/releases/download/v0.3.8/doors-0.3.8-tdisplay-k230-bc889b0d.img.gz)**
+[doors-0.3.9-tdisplay-k230-c03795ce.img.gz](https://github.com/KrakenSaten/K230/releases/download/v0.3.9/doors-0.3.9-tdisplay-k230-c03795ce.img.gz)**
 (121 MB). This is the ready-to-flash microSD card image, compressed.
 
 The same file is on the release page,
-<https://github.com/KrakenSaten/K230/releases/tag/v0.3.8>, together with:
+<https://github.com/KrakenSaten/K230/releases/tag/v0.3.9>, together with:
 
 | File | What it is |
 |---|---|
-| `doors-0.3.8-tdisplay-k230-bc889b0d.img.gz` | **The card image, compressed. This is the one you need.** |
-| `doors-0.3.8-tdisplay-k230-bc889b0d.img.gz.sha256` | Its SHA-256 checksum |
+| `doors-0.3.9-tdisplay-k230-c03795ce.img.gz` | **The card image, compressed. This is the one you need.** |
+| `doors-0.3.9-tdisplay-k230-c03795ce.img.gz.sha256` | Its SHA-256 checksum |
 
 The release also carries `SHA256SUMS.txt` (the checksums of every file),
 `BUILD_INFO.txt` (how the image was built), the licence and notices files,
 `ATTRIBUTION.tsv` (the credits for the pictures Vision's R0 detector was
-trained on) and `doors-0.3.8-bc889b0d-legal-info.tar` (about 790 MB of
+trained on) and `doors-0.3.9-c03795ce-legal-info.tar` (about 790 MB of
 third-party source material). None of these is needed to install.
 
 > **Image, not source code.** GitHub adds "Source code (zip)" and "Source
@@ -59,11 +59,11 @@ third-party source material). None of these is needed to install.
 Keep the `.img.gz` file as it is; both tools below unpack it while writing.
 
 **Check the download** (recommended). Its SHA-256 must be
-`f2d2680bc5c049c91be5b36797205b2adb97d749946894447c812eab7bcac5fd`:
+`135e0a04a78e957e3dce4b490146986831dd8bd93045709b94ba2d0089e5390d`:
 
-- Windows (PowerShell): `Get-FileHash .\doors-0.3.8-tdisplay-k230-bc889b0d.img.gz -Algorithm SHA256`
-- macOS: `shasum -a 256 doors-0.3.8-tdisplay-k230-bc889b0d.img.gz`
-- Linux: `sha256sum doors-0.3.8-tdisplay-k230-bc889b0d.img.gz`
+- Windows (PowerShell): `Get-FileHash .\doors-0.3.9-tdisplay-k230-c03795ce.img.gz -Algorithm SHA256`
+- macOS: `shasum -a 256 doors-0.3.9-tdisplay-k230-c03795ce.img.gz`
+- Linux: `sha256sum doors-0.3.9-tdisplay-k230-c03795ce.img.gz`
 
 If it differs, download it again.
 
@@ -109,8 +109,8 @@ Eject the card safely, put it into the K230 while it is powered off, and
 connect USB-C power. A freshly written card boots **straight into DOORS**;
 there is no setup step and nothing to switch over.
 
-To check the version: **Settings**, then the System page. DOORS 0.3.8 shows
-version `0.3.8` and build `bc889b0d`.
+To check the version: **Settings**, then the System page. DOORS 0.3.9 shows
+version `0.3.9` and build `c03795ce`.
 
 ## 5. Find your way around
 
@@ -197,7 +197,7 @@ once more.
 | A rotation closed the Terminal session | Expected; the Terminal starts a new shell. |
 
 More: the known limitations in the release notes
-([v0.3.8](releases/v0.3.8.md#known-limitations)), the full list in
+([v0.3.9](releases/v0.3.9.md#known-limitations)), the full list in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md), and recovery over the serial console
 in [FIRST_BOOT.md, "Recovery"](hardware/FIRST_BOOT.md#recovery).
 
@@ -206,7 +206,7 @@ in [FIRST_BOOT.md, "Recovery"](hardware/FIRST_BOOT.md#recovery).
 A new image is written the same way, and it replaces the whole card:
 messages, settings, saved Wi-Fi networks and the RIFT identity included.
 To keep them, the release notes describe which directories to save first
-(for 0.3.8: [Upgrading from v0.3.7](releases/v0.3.8.md#upgrading-from-v037)).
+(for 0.3.9: [Upgrading from v0.3.8](releases/v0.3.9.md#upgrading-from-v038)).
 Copying them off the device needs SSH, which requires setting a root
 password first ([platforms/k230/README.md](../platforms/k230/README.md),
 "First login and remote access").
