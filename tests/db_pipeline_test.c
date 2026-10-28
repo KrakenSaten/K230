@@ -2,7 +2,7 @@
  * DeskBuddy's provider on the Vision pipeline (apps/deskbuddy_vision).
  *
  * The judge: a conclusion said once it holds, and only when it changes;
- * a flicker says nothing; "nobody" by time, not by one empty frame; the
+ * a flicker says nothing; "nobody" needs fresh empty reports over time; the
  * owner over a stranger when both are there; no identity without an owner.
  *
  * The provider, end to end against the real helper on the fake camera and
@@ -19,6 +19,7 @@
  */
 #define _GNU_SOURCE
 #include "db_vision_pipeline.h"
+#include "vision_session.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -109,9 +110,9 @@ static void test_judge(void)
     check("back within the time: still unknown, nothing said", !db_judge_report(&j, &r, 2600, &ev));
     r = rep(0, true, false, false, 0, 0);
     db_judge_report(&j, &r, 2700, &ev);
-    check("nobody for 1.5 s: nobody", !db_judge_tick(&j, 4000, &ev) && db_judge_tick(&j, 4100, &ev) &&
+    check("nobody for 1.5 s: nobody", !db_judge_report(&j, &r, 4000, &ev) && db_judge_report(&j, &r, 4100, &ev) &&
                                           ev.kind == DB_VISION_NO_PERSON && !ev.face);
-    check("said once", !db_judge_tick(&j, 9000, &ev));
+    check("said once", !db_judge_report(&j, &r, 4200, &ev));
     r = rep(1, false, false, true, 0, 700);
     db_judge_report(&j, &r, 9100, &ev);
     check("no owner enrolled: a face is somebody, never unknown",
@@ -121,10 +122,35 @@ static void test_judge(void)
 
         db_judge_init(&j, false);
         check("from the start, an empty room is said after the same wait",
-              !db_judge_tick(&j, 100, &e2) && !db_judge_tick(&j, 1500, &e2) && db_judge_tick(&j, 1600, &e2) &&
+              !db_judge_report(&j, &(struct db_judge_report){0}, 100, &e2) &&
+                  !db_judge_report(&j, &(struct db_judge_report){0}, 1500, &e2) &&
+                  db_judge_report(&j, &(struct db_judge_report){0}, 1600, &e2) &&
                   e2.kind == DB_VISION_NO_PERSON);
         check("every event it makes is one DeskBuddy takes", db_vision_event_valid(&e2) && db_vision_event_valid(&ev));
     }
+    db_judge_init(&j, false);
+    check("no first result: silence never means nobody", !db_judge_tick(&j, 100, &ev) &&
+          !db_judge_tick(&j, 1700, &ev));
+    check("no first result: unavailable at the existing Vision deadline",
+          db_judge_tick(&j, 100 + VISION_SILENCE_MS, &ev) && ev.kind == DB_VISION_UNAVAILABLE);
+    check("unavailable is emitted once", !db_judge_tick(&j, 9000, &ev));
+    r = rep(1, false, false, false, 0, 0);
+    check("recovery needs two reports", !db_judge_report(&j, &r, 9100, &ev) &&
+          db_judge_report(&j, &r, 9200, &ev) && ev.kind == DB_VISION_PERSON_DETECTED);
+    check("silence after a person is not departure", !db_judge_tick(&j, 10800, &ev));
+    check("stale person becomes unavailable", db_judge_tick(&j, 13200, &ev) &&
+          ev.kind == DB_VISION_UNAVAILABLE);
+    r = rep(0, false, false, false, 0, 0);
+    check("first empty report after outage does not prove sustained absence",
+          !db_judge_report(&j, &r, 13300, &ev));
+    check("new empty reports establish absence", db_judge_report(&j, &r, 14800, &ev) &&
+          ev.kind == DB_VISION_NO_PERSON);
+    db_judge_init(&j, false);
+    r = rep(1, false, false, false, 0, 0);
+    db_judge_report(&j, &r, 100, &ev);
+    check("widely separated reports cannot confirm presence",
+          !db_judge_report(&j, &r, 5100, &ev));
+
 }
 
 /* ---- the provider --------------------------------------------------------------- */
@@ -188,6 +214,26 @@ static int helpers_alive(pid_t *first)
         if (strcmp(buf, helper) == 0 && strlen(buf) + 8 < got && strcmp(buf + strlen(buf) + 1, "session") == 0) {
             if (first && n == 0) {
                 *first = (pid_t)atoi(e->d_name);
+                /* /proc can be mounted from an outer PID namespace on a
+                 * cloud host. kill() needs our namespace's child PID. */
+                snprintf(path, sizeof(path), "/proc/%s/status", e->d_name);
+                f = fopen(path, "r");
+                while (f && fgets(buf, sizeof(buf), f)) {
+                    if (strncmp(buf, "NSpid:", 6) == 0) {
+                        char *p = buf + 6;
+                        char *end;
+                        long id;
+
+                        while ((id = strtol(p, &end, 10)) > 0 && end != p) {
+                            *first = (pid_t)id;
+                            p = end;
+                        }
+                        break;
+                    }
+                }
+                if (f) {
+                    fclose(f);
+                }
             }
             n++;
         }
@@ -442,15 +488,49 @@ static void test_provider(void)
         setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
     }
 
+    /* Camera stops producing frames but helper keeps emitting stall/stats.
+     * These keep the session alive; they are not empty detections. */
+    reset_counts();
+    setenv("POCKETOS_CAMERA_FAKE", "period=20,frames=20", 1);
+    setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1);
+    db_vision_pipeline_ops.start(&cfg, now_ms(), &queue);
+    check("before stall: person", run_until(DB_VISION_PERSON_DETECTED, 8000));
+    check("camera stalls: unavailable, never nobody", run_until(DB_VISION_UNAVAILABLE, 6000) &&
+          kinds[DB_VISION_NO_PERSON] == 0);
+    run_until(DB_VISION_KIND_COUNT, 2000);
+    check("continued stalls: unavailable once, never nobody", kinds[DB_VISION_UNAVAILABLE] == 1 &&
+          kinds[DB_VISION_NO_PERSON] == 0);
+    db_vision_pipeline_ops.stop(NULL);
+    db_vision_pipeline_ops.stop(NULL);
+    check("stalled helper cleaned up", helpers_alive(NULL) == 0);
+
+    reset_counts();
+    setenv("POCKETOS_CAMERA_FAKE", "period=20,delay_at=20:2500", 1);
+    db_vision_pipeline_ops.start(&cfg, now_ms(), &queue);
+    check("before temporary stall: person", run_until(DB_VISION_PERSON_DETECTED, 8000));
+    check("temporary stall: unavailable", run_until(DB_VISION_UNAVAILABLE, 6000));
+    check("fresh reports recover presence", run_until(DB_VISION_PERSON_DETECTED, 6000) &&
+          kinds[DB_VISION_NO_PERSON] == 0);
+    db_vision_pipeline_ops.stop(NULL);
+    setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
+
     /* The helper dies under it. */
     reset_counts();
     setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1);
     db_vision_pipeline_ops.start(&cfg, now_ms(), &queue);
-    run_until(DB_VISION_PERSON_DETECTED, 8000);
+    check("person before helper death", run_until(DB_VISION_PERSON_DETECTED, 8000));
     {
         pid_t pid = 0;
 
-        check("the helper runs", helpers_alive(&pid) == 1 && pid > 0 && kill(pid, SIGKILL) == 0);
+        int alive = helpers_alive(&pid);
+        if (alive != 1) {
+            fprintf(stderr, "helper count before kill: %d, path %s\n", alive, helper);
+        }
+        int killed = alive == 1 && pid > 0 ? kill(pid, SIGKILL) : -1;
+        if (killed != 0) {
+            fprintf(stderr, "kill helper pid %ld: %s\n", (long)pid, strerror(errno));
+        }
+        check("the helper runs", alive == 1 && pid > 0 && killed == 0);
     }
     check("the helper killed: unavailable", run_until(DB_VISION_UNAVAILABLE, 5000));
     run_until(DB_VISION_KIND_COUNT, 500);
@@ -483,8 +563,83 @@ static void test_provider(void)
     rmdir(dir);
 }
 
+/* A protocol fixture only: batches an old empty result and one new positive
+ * snapshot, repeats that snapshot, then supplies independent evidence. */
+static int batch_helper(void)
+{
+    char line[256];
+    bool face = getenv("DB_TEST_BATCH_FACE") != NULL;
+    const char *hello = face ? "hello 2 fake fake\ncaps recognize\nready fake 640 360 1 none 0 0 0\nowner 1 5\n"
+                             : "hello 2 fake fake\ncaps detect\nready fake 640 360 1 none 0 0 0\n";
+
+    if (write(1, hello, strlen(hello)) != (ssize_t)strlen(hello)) {
+        return 1;
+    }
+    while (fgets(line, sizeof(line), stdin)) {
+        if (strncmp(line, "start", 5) == 0) {
+            const char *batch = face ? "who 1 0 0\nwho 2 1 1 1:950:1\n"
+                                     : "det 1 0\ndet 2 1 1:0:900:10:10:20:20:0:0\n";
+            const char *repeat = face ? "who 2 1 1 1:950:1\n" : "det 2 1 1:0:900:10:10:20:20:0:0\n";
+            const char *fresh = face ? "who 3 1 1 1:950:1\n" : "det 3 1 1:0:900:10:10:20:20:0:0\n";
+
+            if (write(1, batch, strlen(batch)) != (ssize_t)strlen(batch)) {
+                return 1;
+            }
+            nap(150);
+            if (write(1, repeat, strlen(repeat)) != (ssize_t)strlen(repeat)) {
+                return 1;
+            }
+            nap(600);
+            if (write(1, fresh, strlen(fresh)) != (ssize_t)strlen(fresh)) {
+                return 1;
+            }
+        } else if (strncmp(line, "quit", 4) == 0) {
+            if (write(1, "bye\n", 4) != 4) {
+                return 1;
+            }
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static void test_batched_reports(void)
+{
+    char self[4096];
+    ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+    const char *real_helper = helper;
+    int face;
+
+    if (n < 0) {
+        check("find protocol fixture", 0);
+        return;
+    }
+    self[n] = '\0';
+    helper = self;
+    setenv("POCKETOS_VISION_HELPER", self, 1);
+    for (face = 0; face < 2; face++) {
+        enum db_vision_kind kind = face ? DB_VISION_OWNER_RECOGNIZED : DB_VISION_PERSON_DETECTED;
+
+        if (face) {
+            setenv("DB_TEST_BATCH_FACE", "1", 1);
+        }
+        reset_counts();
+        db_vision_pipeline_ops.start(NULL, now_ms(), &queue);
+        check("queued events and duplicate seq are not independent evidence", !run_until(kind, 500));
+        check("a second distinct snapshot confirms", run_until(kind, 2000));
+        db_vision_pipeline_ops.stop(NULL);
+        check("protocol fixture reaped", helpers_alive(NULL) == 0);
+    }
+    unsetenv("DB_TEST_BATCH_FACE");
+    helper = real_helper;
+    setenv("POCKETOS_VISION_HELPER", helper, 1);
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && strcmp(argv[1], "session") == 0) {
+        return batch_helper();
+    }
     helper = argc > 1 ? argv[1] : "tools/vision/pos-vision";
     if (helper[0] != '/') {
         static char abs_path[4096];
@@ -499,6 +654,7 @@ int main(int argc, char **argv)
     test_judge();
     test_person_class();
     test_provider();
+    test_batched_reports();
     printf("db_pipeline_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }
