@@ -20,6 +20,9 @@
 #define _GNU_SOURCE
 #include "db_vision_pipeline.h"
 #include "vision_session.h"
+#define HELLO_S(x) #x
+#define HELLO_X(x) HELLO_S(x)
+#define HELLO_V HELLO_X(VISION_PROTO_VERSION)
 
 #include <dirent.h>
 #include <errno.h>
@@ -569,8 +572,8 @@ static int batch_helper(void)
 {
     char line[256];
     bool face = getenv("DB_TEST_BATCH_FACE") != NULL;
-    const char *hello = face ? "hello 2 fake fake\ncaps recognize\nready fake 640 360 1 none 0 0 0\nowner 1 5\n"
-                             : "hello 2 fake fake\ncaps detect\nready fake 640 360 1 none 0 0 0\n";
+    const char *hello = face ? "hello " HELLO_V " fake fake\ncaps recognize\nready fake 640 360 1 none 0 0 0\nowner 1 5\n"
+                             : "hello " HELLO_V " fake fake\ncaps detect\nready fake 640 360 1 none 0 0 0\n";
 
     if (write(1, hello, strlen(hello)) != (ssize_t)strlen(hello)) {
         return 1;
