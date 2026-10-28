@@ -100,6 +100,11 @@ struct pocketos_app {
 /* Shell services available to apps. */
 void pocketos_shell_set_status_hint(const char *text); /* short text at the app header's right end */
 void pocketos_shell_go_home(void);
+/* Temporarily use the whole app body: the existing NONE chrome, hidden
+ * header and no body padding. Restoring uses the app's declarations again.
+ * Does not recreate the app or change input focus. The request ends when
+ * the app closes. Apps must retain a visible pause/navigation control. */
+void pocketos_shell_set_fullscreen(bool fullscreen);
 /* Open another app of the shell's registry in place of this one, as the
  * launcher would: on the next timer pass, never inside the event that asked
  * (the asking app is destroyed by it). For a sub-page that is an app of its
