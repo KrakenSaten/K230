@@ -71,6 +71,8 @@ enum vision_state {
 #define VISION_ACT_RANGE     0x800u /* send TRAFFIC's detection range */
 #define VISION_ACT_ENROL     0x1000u /* send enrol, or enrol off (vision_model.enrolling) */
 #define VISION_ACT_FORGET    0x2000u /* send forget */
+#define VISION_ACT_PROBE     0x4000u /* COLOR: send where the colour is read (vision_model.probe_x) */
+#define VISION_ACT_TARGET    0x8000u /* COLOR: send the target to match (vision_model.target), or none */
 
 /* The buttons, by role; the order on screen is per mode
  * (vision_model_buttons). */
@@ -88,6 +90,7 @@ enum vision_button {
     VISION_BTN_ENROL,
     VISION_BTN_FORGET,
     VISION_BTN_MODEL,
+    VISION_BTN_CLASSES,
     VISION_BUTTONS
 };
 
@@ -95,6 +98,7 @@ enum vision_sheet {
     VISION_SHEET_NONE = 0,
     VISION_SHEET_MODES,   /* the mode picker */
     VISION_SHEET_SETUP,   /* the mode's own settings */
+    VISION_SHEET_CLASSES, /* DETECT: what the detector in force can name, a page at a time */
 };
 
 #define VISION_SHEET_ROWS 5
@@ -114,9 +118,14 @@ struct vision_sheet_row {
     struct vision_sheet_cell cell[VISION_SHEET_CELLS];
 };
 
+#define VISION_SHEET_BODY 256
+
 struct vision_sheet_view {
     enum vision_sheet kind;
     const char *title;
+    char title_buf[VISION_SHEET_TEXT * 2];
+    char caption_buf[VISION_SHEET_TEXT];
+    char body[VISION_SHEET_BODY]; /* text under the rows (CLASSES), or "" */
     int rows;
     struct vision_sheet_row row[VISION_SHEET_ROWS];
 };
@@ -139,6 +148,12 @@ struct vision_model {
     bool have_target;     /* COLOR: a colour has been sampled */
     int32_t sample_x;     /* a sample asked for, in view pixels; -1 none */
     int32_t sample_y;
+    int32_t probe_x;      /* COLOR: where the colour is read, view pixels; -1 the centre */
+    int32_t probe_y;
+    uint8_t target[3];    /* COLOR: the colour MATCH marks (have_target) */
+    bool swatch_valid;    /* COLOR: a reading has come */
+    int class_page;       /* CLASSES: the page on show */
+    char in_view[96];     /* DETECT: the classes on the last det line, most first */
     uint32_t count_a;     /* into side A: DOWN or LEFT... see vision_model_count_names */
     uint32_t count_b;
     struct vision_traffic_report traffic;
@@ -221,6 +236,15 @@ struct vision_view_text {
     bool show_mark;       /* COLOR: the mark at the matches' centroid */
     int32_t mark_x;
     int32_t mark_y;
+    const char *match_btn; /* COLOR: MATCH / CLEAR */
+    bool match_enabled;
+    bool show_probe;      /* COLOR: the square read and its swatch */
+    int32_t probe_x;      /* the square's centre and half side, view pixels */
+    int32_t probe_y;
+    int32_t probe_half;
+    uint8_t swatch[3];    /* the colour read */
+    bool show_trace;      /* TRACE: the line followed, found in this picture */
+    int32_t trace[4];     /* its ends, x0 y0 x1 y1, view pixels */
 };
 
 void vision_model_init(struct vision_model *m);
@@ -295,6 +319,17 @@ unsigned vision_model_sample_middle(struct vision_model *m, uint32_t view_w, uin
 unsigned vision_model_tol_next(struct vision_model *m);
 unsigned vision_model_edge_next(struct vision_model *m);
 unsigned vision_model_trace_next(struct vision_model *m);
+/* COLOR: read the colour at a view point (a tap on the picture), or at the
+ * centre again; MATCH marks the colour read, CLEAR stops marking it. */
+unsigned vision_model_probe_at(struct vision_model *m, int32_t x, int32_t y);
+unsigned vision_model_probe_centre(struct vision_model *m);
+unsigned vision_model_match_button(struct vision_model *m);
+/* DETECT: CLASSES opens the list of what the detector in force can name, or
+ * closes it; the list's pages. */
+unsigned vision_model_classes_button(struct vision_model *m);
+int vision_model_class_pages(const struct vision_model *m);
+/* The detector in force knows only R0's six classes. */
+bool vision_model_r0_only(const struct vision_model *m);
 
 /* The counting line in force: TRACK's or TRAFFIC's own, OFF elsewhere. */
 enum vision_line_mode vision_model_line(const struct vision_model *m);

@@ -69,6 +69,7 @@
 #include "pocketvision/vision_line.h"
 #include "pocketvision/vision_nms.h"
 #include "pocketvision/vision_pixels.h"
+#include "pocketvision/vision_swatch.h"
 #include "pocketvision/vision_range.h"
 #include "pocketvision/vision_text.h"
 #include "pocketvision/vision_track.h"
@@ -451,8 +452,13 @@ struct session {
     uint32_t tol;
     int32_t sample_x;             /* a sample asked for: -1 none */
     int32_t sample_y;
+    int32_t probe_x;              /* COLOR's square, view pixels: -1 the centre */
+    int32_t probe_y;
+    struct vision_swatch_filter swatch;
     uint32_t edge_thr;
     bool trace_dark;
+    struct vision_trace_state trace;
+    int64_t trace_seen_ms;        /* when the line was last found: 0 never since TRACE began */
     /* measurements */
     uint32_t inferred;            /* frames through the detector since the last stats */
     int last_pre_ms;
@@ -686,6 +692,10 @@ static void set_mode(struct session *s, enum helper_mode mode)
     }
     memset(s->who, 0, sizeof(s->who));
     s->enrolling = false;
+    /* COLOR's reading and TRACE's line start again with their mode. */
+    vision_swatch_filter_reset(&s->swatch);
+    vision_trace_reset(&s->trace);
+    s->trace_seen_ms = 0;
 }
 
 /* A pixel mode's pass over the preview just drawn into a slot, and its
@@ -696,7 +706,22 @@ static void process_pixels(struct session *s, uint16_t *px)
 
     if (s->mode == MODE_COLOR) {
         struct vision_color_result r;
+        struct vision_swatch_read sw;
+        int32_t half = vision_swatch_half(s->view_w, s->view_h);
+        int32_t px_ = s->probe_x >= 0 ? s->probe_x : (int32_t)s->view_w / 2;
+        int32_t py_ = s->probe_y >= 0 ? s->probe_y : (int32_t)s->view_h / 2;
 
+        /* The reading first, on the picture as the camera gave it: the
+         * matches are painted over it below. */
+        px_ = px_ < half ? half : px_ > (int32_t)s->view_w - 1 - half ? (int32_t)s->view_w - 1 - half : px_;
+        py_ = py_ < half ? half : py_ > (int32_t)s->view_h - 1 - half ? (int32_t)s->view_h - 1 - half : py_;
+        if (vision_swatch_read(px, s->view_w, s->view_h, s->view_w, px_, py_, half, &sw) == 0) {
+            vision_swatch_filter_add(&s->swatch, &sw);
+            say("swatch %u %u %u %d %d %d %u %u %d %d %d", s->swatch.rgb.r, s->swatch.rgb.g, s->swatch.rgb.b,
+                (int)s->swatch.shown, (int)s->swatch.shown_first, (int)s->swatch.shown_second, s->swatch.shown_pm,
+                s->swatch.steady, px_, py_,
+                half);
+        }
         if (s->sample_x >= 0 &&
             vision_pixels_sample(px, s->view_w, s->view_h, s->view_w, s->sample_x, s->sample_y, &s->target) == 0) {
             s->have_target = true;
@@ -716,8 +741,23 @@ static void process_pixels(struct session *s, uint16_t *px)
     } else if (s->mode == MODE_TRACE) {
         struct vision_trace_result r;
 
-        if (vision_pixels_trace(px, s->view_w, s->view_h, s->view_w, s->trace_dark, &r) == 0) {
-            say("trace %d %d %d %u", r.found ? 1 : 0, r.offset_pm, r.slope_pm, r.rows);
+        if (vision_pixels_trace(px, s->view_w, s->view_h, s->view_w, s->trace_dark, &s->trace, &r) == 0) {
+            int64_t now = mono_ms();
+            long lost;
+
+            if (r.found) {
+                s->trace_seen_ms = now;
+                lost = 0;
+            } else if (!s->trace_seen_ms) {
+                lost = -1;
+            } else {
+                /* At least 1: 0 is "found". */
+                lost = now - s->trace_seen_ms > 0 ? (long)(now - s->trace_seen_ms) : 1;
+                /* Bounded to what the session's int reads (24 days). */
+                lost = lost > 2147483647L ? 2147483647L : lost;
+            }
+            say("trace %d %d %d %u %d %d %d %d %ld %u", r.found ? 1 : 0, r.offset_pm, r.slope_pm, r.rows, r.x0,
+                r.y0, r.x1, r.y1, lost, r.candidates);
         }
     }
     s->last_post_ms = (int)(mono_ms() - t0);
@@ -1846,6 +1886,12 @@ static void command(struct session *s, char *line)
         s->display_rotation = rot;
         s->view_contain = d != NULL;
         place_lines(s);
+        /* COLOR's reading and TRACE's line were in the old picture's
+         * pixels: both start again (the screen moves the square back to the
+         * centre itself, on a new size or turn). */
+        vision_swatch_filter_reset(&s->swatch);
+        vision_trace_reset(&s->trace);
+        s->trace_seen_ms = 0;
         /* A turn or another picture size puts the lines somewhere else
          * among the tracks, which stay where they are in the frame: a side
          * remembered against the old line would count a crossing nobody
@@ -2038,6 +2084,26 @@ static void command(struct session *s, char *line)
         }
         s->sample_x = x;
         s->sample_y = y;
+    } else if (strcmp(w, "probe") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+        char *b = strtok_r(NULL, " ", &save);
+        int x;
+        int y;
+
+        if (a && strcmp(a, "centre") == 0) {
+            x = -1;
+            y = -1;
+        } else if (!a || !b || sscanf(a, "%d", &x) != 1 || sscanf(b, "%d", &y) != 1 || x < 0 || y < 0 ||
+                   x >= (int)POCKETCAM_VIEW_MAX_W || y >= (int)POCKETCAM_VIEW_MAX_H) {
+            return;
+        }
+        /* Another place is another reading: the filter starts again. The
+         * same place said again (with every pixel setting) changes nothing. */
+        if (x != s->probe_x || y != s->probe_y) {
+            s->probe_x = x;
+            s->probe_y = y;
+            vision_swatch_filter_reset(&s->swatch);
+        }
     } else if (strcmp(w, "tol") == 0) {
         char *a = strtok_r(NULL, " ", &save);
         unsigned tol;
@@ -2054,11 +2120,17 @@ static void command(struct session *s, char *line)
         }
     } else if (strcmp(w, "trace") == 0) {
         char *a = strtok_r(NULL, " ", &save);
+        bool was = s->trace_dark;
 
         if (a && strcmp(a, "dark") == 0) {
             s->trace_dark = true;
         } else if (a && strcmp(a, "light") == 0) {
             s->trace_dark = false;
+        }
+        if (s->trace_dark != was) {
+            /* A light line is not the dark one it was following. */
+            vision_trace_reset(&s->trace);
+            s->trace_seen_ms = 0;
         }
     } else if (strcmp(w, "range") == 0) {
         char *a = strtok_r(NULL, " ", &save);
@@ -2416,6 +2488,8 @@ static int run_session(const char *backend, const char *config, const char *mode
     }
     s->sample_x = -1;
     s->sample_y = -1;
+    s->probe_x = -1;
+    s->probe_y = -1;
     s->tol = VISION_COLOR_TOL_DEFAULT;
     s->trace_dark = true;
     vision_tracker_init(&s->tracker);

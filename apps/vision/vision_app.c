@@ -108,6 +108,11 @@ struct vision_app {
     lv_obj_t *line;       /* the counting line, drawn as a 2 px object */
     lv_obj_t *sline[2];   /* the speed lines A and B */
     lv_obj_t *mark;       /* COLOR: a small square at the matches' centroid */
+    lv_obj_t *probe;      /* COLOR: the square the colour is read in, an outline */
+    lv_obj_t *swatch;     /* COLOR: the colour read, beside the square */
+    /* TRACE: the line followed, as dots along it, made once and moved. */
+#define VISION_TRACE_DOTS 24
+    lv_obj_t *trace_dot[VISION_TRACE_DOTS];
     lv_obj_t *status;
     lv_obj_t *count_a;    /* "DOWN 3" */
     lv_obj_t *count_b;
@@ -116,6 +121,7 @@ struct vision_app {
     /* The sheet over the picture: made once, filled from the model. */
     lv_obj_t *sheet;
     lv_obj_t *sheet_title;
+    lv_obj_t *sheet_body;  /* CLASSES: the page's text */
     lv_obj_t *sheet_caption[VISION_SHEET_ROWS];
     lv_obj_t *sheet_cell[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
     struct vision_cell_ref sheet_ref[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
@@ -452,6 +458,53 @@ static void place_line(struct vision_app *a, lv_obj_t *obj, const int32_t pm[4])
     }
 }
 
+/* COLOR: the square read, outlined, and its colour beside it - on the side
+ * with room, inside the picture. */
+static void draw_probe(struct vision_app *a, const struct vision_view_text *s)
+{
+    bool on = s->show_probe && s->show_picture && a->preview.w && a->preview.h;
+    int32_t side;
+    int32_t x;
+    int32_t y;
+
+    set_hidden(a->probe, !on);
+    set_hidden(a->swatch, !on);
+    if (!on) {
+        return;
+    }
+    lv_obj_set_pos(a->probe, s->probe_x - s->probe_half, s->probe_y - s->probe_half);
+    lv_obj_set_size(a->probe, 2 * s->probe_half + 1, 2 * s->probe_half + 1);
+    side = 2 * s->probe_half + 1 < 32 ? 32 : 2 * s->probe_half + 1;
+    x = s->probe_x + s->probe_half + 8;
+    if (x + side > (int32_t)a->preview.w) {
+        x = s->probe_x - s->probe_half - 8 - side;
+    }
+    y = s->probe_y - side / 2;
+    y = y + side > (int32_t)a->preview.h ? (int32_t)a->preview.h - side : y;
+    /* With no room either side (a tiny picture) it stays inside the
+     * picture, over the square rather than off the picture. */
+    lv_obj_set_pos(a->swatch, x < 0 ? 0 : x, y < 0 ? 0 : y);
+    lv_obj_set_size(a->swatch, side, side);
+    lv_obj_set_style_bg_color(a->swatch, lv_color_make(s->swatch[0], s->swatch[1], s->swatch[2]), 0);
+}
+
+/* TRACE: dots along the line followed, only while it is in the picture. */
+static void draw_trace(struct vision_app *a, const struct vision_view_text *s)
+{
+    bool on = s->show_trace && s->show_picture;
+    int i;
+
+    for (i = 0; i < VISION_TRACE_DOTS; i++) {
+        set_hidden(a->trace_dot[i], !on);
+        if (on) {
+            int32_t x = s->trace[0] + ((s->trace[2] - s->trace[0]) * i) / (VISION_TRACE_DOTS - 1);
+            int32_t y = s->trace[1] + ((s->trace[3] - s->trace[1]) * i) / (VISION_TRACE_DOTS - 1);
+
+            lv_obj_set_pos(a->trace_dot[i], x - 4, y - 4);
+        }
+    }
+}
+
 static void draw_lines(struct vision_app *a)
 {
     int32_t pm[8];
@@ -499,8 +552,25 @@ static void draw_sheet(struct vision_app *a)
     a->sheet_on = true;
     lv_obj_set_pos(a->sheet, 0, 0);
     lv_obj_set_size(a->sheet, a->lay.picture.w, a->lay.picture.h);
-    place(a->sheet_title, &sl.title);
+    {
+        /* The title's band is the layout's, in pixels; a larger text size
+         * takes its extra height from the padding above, never the row
+         * under it. */
+        struct vision_rect title = sl.title;
+        int32_t lh = lv_font_get_line_height(lv_obj_get_style_text_font(a->sheet_title, 0));
+
+        if (lh > title.h) {
+            title.y -= lh - title.h < title.y ? lh - title.h : title.y;
+            title.h = lh;
+        }
+        place(a->sheet_title, &title);
+    }
     label_text(a->sheet_title, v.title);
+    set_hidden(a->sheet_body, v.body[0] == '\0' || sl.body.h <= 0);
+    if (v.body[0] && sl.body.h > 0) {
+        place(a->sheet_body, &sl.body);
+        label_text(a->sheet_body, v.body);
+    }
     for (r = 0; r < VISION_SHEET_ROWS; r++) {
         bool row_on = r < v.rows;
 
@@ -655,6 +725,8 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_ENROL], s.enrol_btn);
     button_text(a->btn[VISION_BTN_FORGET], s.forget_btn);
     button_text(a->btn[VISION_BTN_MODEL], s.model_btn);
+    button_text(a->btn[VISION_BTN_SAMPLE], s.match_btn);
+    button_style(a->btn[VISION_BTN_CLASSES], a->model.sheet == VISION_SHEET_CLASSES, s.line_enabled);
     button_style(a->btn[VISION_BTN_MODEL], false, s.model_enabled);
     button_style(a->btn[VISION_BTN_ENROL], a->model.enrolling, s.line_enabled);
     button_style(a->btn[VISION_BTN_FORGET], a->model.forget_armed, s.line_enabled && s.forget_enabled);
@@ -666,7 +738,7 @@ static void repaint(struct vision_app *a)
     button_style(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP, s.line_enabled);
     button_style(a->btn[VISION_BTN_RESET], false,
                  s.line_enabled && (vision_model_line(&a->model) != VISION_LINE_OFF || s.traffic || s.faces));
-    button_style(a->btn[VISION_BTN_SAMPLE], false, s.line_enabled && a->model.live);
+    button_style(a->btn[VISION_BTN_SAMPLE], a->model.have_target, s.line_enabled && s.match_enabled);
     button_style(a->btn[VISION_BTN_TOL], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_EDGE], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_TRACE], false, s.line_enabled);
@@ -701,6 +773,8 @@ static void repaint(struct vision_app *a)
     draw_trails(a, &s);
     draw_boxes(a, &s);
     draw_lines(a);
+    draw_probe(a, &s);
+    draw_trace(a, &s);
     draw_sheet(a);
     key_targets(a, order, shown_btns, s.show_retry);
     if (a->hint_shown != s.hint && (!a->hint_shown || strcmp(a->hint_shown, s.hint) != 0)) {
@@ -803,12 +877,18 @@ static void do_actions(struct vision_app *a, unsigned acts)
         vision_session_range(&a->session, vision_model_range_word(&a->model));
     }
     if (acts & VISION_ACT_PIXELS) {
-        if (!a->model.have_target) {
-            vision_session_color(&a->session, NULL);
-        }
+        /* A new helper (TRY AGAIN, MODEL) has no target of its own: the one
+         * on show is sent again, or none. */
+        vision_session_color(&a->session, a->model.have_target ? a->model.target : NULL);
         vision_session_tol(&a->session, vision_model_tol(&a->model));
         vision_session_edge(&a->session, vision_model_edge_threshold(&a->model));
         vision_session_trace(&a->session, a->model.set.trace.dark);
+        vision_session_probe(&a->session, a->model.probe_x, a->model.probe_y);
+    } else if (acts & VISION_ACT_PROBE) {
+        vision_session_probe(&a->session, a->model.probe_x, a->model.probe_y);
+    }
+    if (acts & VISION_ACT_TARGET) {
+        vision_session_color(&a->session, a->model.have_target ? a->model.target : NULL);
     }
     if ((acts & VISION_ACT_SAMPLE) && a->model.sample_x >= 0) {
         vision_session_sample(&a->session, a->model.sample_x, a->model.sample_y);
@@ -1008,7 +1088,14 @@ static void on_sample(lv_event_t *e)
 {
     struct vision_app *a = lv_event_get_user_data(e);
 
-    act(a, vision_model_sample_middle(&a->model, a->preview.w, a->preview.h));
+    act(a, vision_model_match_button(&a->model));
+}
+
+static void on_classes(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_classes_button(&a->model));
 }
 
 static void on_tol(lv_event_t *e)
@@ -1032,8 +1119,8 @@ static void on_trace(lv_event_t *e)
     act(a, vision_model_trace_next(&a->model));
 }
 
-/* A tap on the picture in COLOR: the colour under the finger. The point
- * comes from the input device, in screen pixels; the box's own corner
+/* A tap on the picture in COLOR: the square moves under the finger. The
+ * point comes from the input device, in screen pixels; the box's own corner
  * makes it a picture pixel. */
 static void on_picture(lv_event_t *e)
 {
@@ -1047,7 +1134,7 @@ static void on_picture(lv_event_t *e)
     }
     lv_indev_get_point(indev, &p);
     lv_obj_get_coords(a->box, &box);
-    act(a, vision_model_sample_at(&a->model, p.x - box.x1, p.y - box.y1));
+    act(a, vision_model_probe_at(&a->model, p.x - box.x1, p.y - box.y1));
 }
 
 static void on_retry(lv_event_t *e)
@@ -1155,12 +1242,17 @@ static void layout(struct vision_app *a)
             vision_session_view(&a->session, w, h, a->lay_hold);
             a->view_rot = a->lay_hold;
         }
+        /* COLOR's square was in the old picture's pixels: back to the
+         * centre of the new one. */
+        do_actions(a, vision_model_probe_centre(&a->model));
     } else if (a->view_rot >= 0 && a->view_rot != a->lay_hold && vision_session_active(&a->session) &&
                a->model.state == VISION_LIVE) {
         /* The same size, turned the other way: the helper turns the frame
          * the detector sees, so it is told even when nothing is resized. */
         vision_session_view(&a->session, a->preview.w, a->preview.h, a->lay_hold);
         a->view_rot = a->lay_hold;
+        /* The square was a point of the picture as it was turned. */
+        do_actions(a, vision_model_probe_centre(&a->model));
     }
     repaint(a);
 }
@@ -1215,6 +1307,26 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->sline[0] = line_object(a->box, POS_STYLE_CHIP_TX);
     a->sline[1] = line_object(a->box, POS_STYLE_CHIP_TX);
     a->mark = line_object(a->box, POS_STYLE_BUTTON_PRIMARY);
+    /* COLOR's square: an outline as the boxes have; its swatch a fill of the
+     * colour read inside the same accent ring, so a dark, a white or the
+     * picture's own colour still stands out. */
+    a->probe = lv_obj_create(a->box);
+    lv_obj_remove_style_all(a->probe);
+    pos_style_add(a->probe, POS_STYLE_SELECTED, 0);
+    lv_obj_clear_flag(a->probe, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(a->probe, LV_OBJ_FLAG_HIDDEN);
+    a->swatch = lv_obj_create(a->box);
+    lv_obj_remove_style_all(a->swatch);
+    pos_style_add(a->swatch, POS_STYLE_SELECTED, 0);
+    lv_obj_set_style_bg_opa(a->swatch, LV_OPA_COVER, 0);
+    lv_obj_set_style_outline_pad(a->swatch, 2, 0);
+    lv_obj_clear_flag(a->swatch, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(a->swatch, LV_OBJ_FLAG_HIDDEN);
+    /* TRACE's line: 8 px squares in the counting line's accent. */
+    for (i = 0; i < VISION_TRACE_DOTS; i++) {
+        a->trace_dot[i] = line_object(a->box, POS_STYLE_BUTTON_PRIMARY);
+        lv_obj_set_size(a->trace_dot[i], 8, 8);
+    }
     /* The picture takes a tap only in COLOR (repaint sets the flag); the
      * image itself never does, so the tap reaches the box. */
     lv_obj_clear_flag(a->img, LV_OBJ_FLAG_CLICKABLE);
@@ -1281,6 +1393,9 @@ static void build(struct vision_app *a, lv_obj_t *root)
     lv_obj_clear_flag(a->sheet, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(a->sheet, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
     a->sheet_title = pocketui_label(a->sheet, "", POS_STYLE_TITLE);
+    a->sheet_body = pocketui_label(a->sheet, "", POS_STYLE_TEXT_SECONDARY);
+    lv_label_set_long_mode(a->sheet_body, LV_LABEL_LONG_WRAP);
+    lv_obj_add_flag(a->sheet_body, LV_OBJ_FLAG_HIDDEN);
     for (r = 0; r < VISION_SHEET_ROWS; r++) {
         a->sheet_caption[r] = pocketui_label(a->sheet, "", POS_STYLE_CAPTION);
         lv_label_set_long_mode(a->sheet_caption[r], LV_LABEL_LONG_CLIP);
@@ -1300,13 +1415,14 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_HOLD] = button(a->frame, "HOLD", on_hold, a);
     a->btn[VISION_BTN_SETUP] = button(a->frame, "SETUP", on_setup, a);
     a->btn[VISION_BTN_RESET] = button(a->frame, "RESET", on_reset, a);
-    a->btn[VISION_BTN_SAMPLE] = button(a->frame, "SAMPLE", on_sample, a);
+    a->btn[VISION_BTN_SAMPLE] = button(a->frame, "MATCH", on_sample, a);
+    a->btn[VISION_BTN_CLASSES] = button(a->frame, "CLASSES", on_classes, a);
     a->btn[VISION_BTN_TOL] = button(a->frame, "TOL: MED", on_tol, a);
     a->btn[VISION_BTN_EDGE] = button(a->frame, "EDGE: SOFT", on_edge, a);
     a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
     a->btn[VISION_BTN_ENROL] = button(a->frame, "ENROL", on_enrol, a);
     a->btn[VISION_BTN_FORGET] = button(a->frame, "FORGET", on_forget, a);
-    a->btn[VISION_BTN_MODEL] = button(a->frame, "UPSTREAM", on_model, a);
+    a->btn[VISION_BTN_MODEL] = button(a->frame, "GENERAL 80", on_model, a);
     for (i = 0; i < VISION_BUTTONS; i++) {
         lv_obj_add_flag(a->btn[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -1337,13 +1453,13 @@ static void *vision_create(lv_obj_t *root)
         LOG_INFO("vision: opening in %s", vision_mode_name(a->model.set.mode));
     }
     {
-        /* The detector files: R0 on every 0.3.6 card, UPSTREAM by hand. */
+        /* The detector files: R0 on every 0.3.6 card, GENERAL 80 by hand. */
         uint32_t present = vision_store_detector_files();
 
         a->det_logged = -1;
         vision_model_set_detector_files(&a->model, present);
         if (present) {
-            LOG_INFO("vision: detector files: R0 %s, UPSTREAM %s; last confirmed %s",
+            LOG_INFO("vision: detector files: R0 %s, GENERAL 80 (upstream) %s; last confirmed %s",
                      (present & (1u << VISION_DET_R0)) ? "present" : "missing",
                      (present & (1u << VISION_DET_UPSTREAM)) ? "present" : "missing",
                      vision_detector_name(a->model.set.detector));
@@ -1358,6 +1474,8 @@ static void *vision_create(lv_obj_t *root)
             vision_model_mode_button(&a->model);
         } else if (sheet && strcmp(sheet, "setup") == 0) {
             vision_model_setup_button(&a->model);
+        } else if (sheet && strcmp(sheet, "classes") == 0) {
+            vision_model_classes_button(&a->model);
         }
     }
     a->key_focus = -1;

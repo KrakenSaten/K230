@@ -2,9 +2,11 @@
  * The pixel modes on synthetic pictures: a colour sampled and its matches
  * painted and located, the tolerance's reach, the highlight that never
  * hides its target; a step edge found where it is and nowhere else, grey
- * and thresholded; a dark line traced with its offset and lean, a light
- * one too, and a blank picture traced to nothing; pictures too small or
- * too wide refused.
+ * and thresholded; LINE TRACE's line followed with its offset, lean and
+ * ends, told apart from the other candidates, found by its contrast on a
+ * grey floor, not found in blanks, dashes, stripes or the upper half alone,
+ * and over pictures smoothed, lost at once and reacquired where it was;
+ * pictures too small or too wide refused.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -150,12 +152,27 @@ static void test_edge(void)
     check("a picture too small is refused", vision_pixels_edge(&pic[0][0], W, 2, W, 0, &r) == -EINVAL);
 }
 
+/* A vertical dark line, `wd` px wide, from row y0 to the bottom, its left
+ * edge at x + lean * (y - y0) / 8. */
+static void line_at(int x, int lean8, int wd, int y0, uint16_t v)
+{
+    int y;
+
+    for (y = y0; y < H; y++) {
+        box(x + (lean8 * (y - y0)) / 8, y, wd, 1, v);
+    }
+}
+
 static void test_trace(void)
 {
     struct vision_trace_result r;
+    struct vision_trace_state st;
     int y;
+    int ok;
     uint16_t white = 0xffff;
     uint16_t black = 0;
+    uint16_t floor_grey = vision_rgb_to_rgb565(rgb(200, 200, 200));
+    uint16_t line_grey = vision_rgb_to_rgb565(rgb(110, 110, 110));
 
     /* A dark line leaning right as it goes down, on a white floor:
      * x = 30 + y / 2, 6 px wide. */
@@ -163,27 +180,197 @@ static void test_trace(void)
     for (y = 0; y < H; y++) {
         box(30 + y / 2, y, 6, 1, black);
     }
-    check("a dark line is found", vision_pixels_trace(&pic[0][0], W, H, W, true, &r) == 0 && r.found && r.rows == H);
+    check("a dark line is found, on every row", vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 &&
+                                                    r.found && r.rows == H && r.candidates == H);
     check("it leans right going down: about 500 per 1000 rows", r.slope_pm > 400 && r.slope_pm < 600);
-    /* The bottom band (rows 60..79) is centred about x = 30 + 70/2 + 3 = 68: 8 px right of 60. */
-    check("the bottom band's offset is a little right of the centre", r.offset_pm > 50 && r.offset_pm < 250);
-    check("the centroids are marked", pic[40][30 + 20 + 3] == 0xffe0);
+    /* At the bottom row the run is x 69..74: 11 px right of the centre. */
+    check("its bottom is a little right of the centre", r.offset_pm > 120 && r.offset_pm < 250);
+    check("the fitted line runs from its top row to its bottom row",
+          r.y0 == 0 && r.y1 == H - 1 && r.x0 >= 30 && r.x0 <= 35 && r.x1 >= 69 && r.x1 <= 74);
+    check("the line followed is marked in yellow, its edges in cyan",
+          pic[40][30 + 20 + 3] == 0xffe0 && pic[40][30 + 20] == 0x07ff && pic[40][30 + 20 + 5] == 0x07ff);
+    check("without a state a picture with no line says lost, never found before",
+          (fill(white), vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r)) == 0 && !r.found && r.lost == 1 &&
+              !r.ever && r.rows == 0 && r.candidates == 0);
     /* A light line on a dark floor, straight, left of centre. */
     fill(black);
     box(20, 0, 8, H, white);
     check("a light line straight down, left of centre",
-          vision_pixels_trace(&pic[0][0], W, H, W, false, &r) == 0 && r.found && r.slope_pm > -30 && r.slope_pm < 30 &&
-              r.offset_pm < -500 && r.offset_pm > -700);
+          vision_pixels_trace(&pic[0][0], W, H, W, false, NULL, &r) == 0 && r.found && r.slope_pm > -30 &&
+              r.slope_pm < 30 && r.offset_pm < -500 && r.offset_pm > -700);
+    /* The threshold follows the light: a mid-grey line on a light-grey floor
+     * (luma 110 on 200), which a fixed "below 64" never saw. */
+    fill(floor_grey);
+    line_at(56, 0, 8, 0, line_grey);
+    check("a grey line on a grey floor is found by its contrast", vision_pixels_trace(&pic[0][0], W, H, W, true, NULL,
+                                                                                      &r) == 0 &&
+                                                                      r.found && r.offset_pm > -50 && r.offset_pm < 50);
     /* Nothing to trace. */
     fill(white);
-    check("a blank picture has no line", vision_pixels_trace(&pic[0][0], W, H, W, true, &r) == 0 && !r.found && r.rows == 0);
+    check("a blank picture has no line", vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && !r.found &&
+                                             r.rows == 0);
     fill(black);
-    check("nor does one that is all dark: the run is too wide", vision_pixels_trace(&pic[0][0], W, H, W, true, &r) == 0 && !r.found);
-    /* Too few rows: a short dash. */
+    check("nor does one that is all dark", vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && !r.found);
     fill(white);
-    box(50, 0, 6, 5, black);
-    check("a short dash is not a line", vision_pixels_trace(&pic[0][0], W, H, W, true, &r) == 0 && !r.found && r.rows == 5);
-    check("a picture too small is refused", vision_pixels_trace(&pic[0][0], 2, H, W, true, &r) == -EINVAL);
+    box(50, H - 5, 6, 5, black);
+    check("a short dash at the bottom is a candidate, not a line",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && !r.found && r.rows == 0 && r.candidates == 5 &&
+              pic[H - 1][50] == 0x07ff && pic[H - 1][52] == black);
+    /* A squarish dark blob (a shadow, a mat) tall enough to pass the row
+     * count: no longer than twice its width, so not a line. */
+    fill(white);
+    box(70, H - 30, 24, 30, black);
+    check("a blob as tall as wide is not a line, however many rows",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && !r.found && r.candidates == 30);
+    fill(white);
+    box(70, H - 30, 10, 30, black);
+    check("the same height but narrow is a line", vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 &&
+                                                       r.found && r.rows == 30);
+    fill(white);
+    box(50, 0, 6, H / 2 - 2, black);
+    check("a line in the upper half alone is not followed: it starts at the bottom",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && !r.found);
+    /* Stripes: more runs on a row than a line has are texture. */
+    fill(white);
+    for (y = 0; y < W; y += 10) {
+        box(y, 0, 4, H, black);
+    }
+    check("stripes are texture, not a line", vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 &&
+                                                 !r.found && r.candidates == 0);
+    /* A gap of a few rows (a worn tape) is crossed. */
+    fill(white);
+    line_at(40, 0, 6, 0, black);
+    box(40, 30, 6, 3, white);
+    check("a short gap is crossed: one line, the gap's rows missing",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.rows == H - 3);
+    /* A distractor beside the line: a dark blob in the lower half. The
+     * longest chain is the line; the blob's edges are candidates. */
+    fill(white);
+    line_at(30, 0, 6, 0, black);
+    box(80, 50, 14, 30, black);
+    check("the line, not a shorter blob beside it, is followed",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 30 && r.x1 <= 36 &&
+              r.rows == H && pic[60][80] == 0x07ff && pic[60][86] == black);
+    check("a picture too small is refused", vision_pixels_trace(&pic[0][0], 2, H, W, true, NULL, &r) == -EINVAL);
+    /* Unit A, 2026-10-26: specks on the lowest rows (a table edge below the
+     * paper) took every start, and a line in plain view above them was said
+     * lost. Here five rows of specks under a line ending at three quarters
+     * of the height. */
+    fill(white);
+    line_at(40, 0, 6, 0, black);
+    box(0, (3 * H) / 4, W, H - (3 * H) / 4, white);
+    for (y = H - 5; y < H; y++) {
+        box(10 + 7 * (y % 3), y, 2, 1, black);
+        box(100 - 5 * (y % 2), y, 2, 1, black);
+    }
+    check("specks on the lowest rows do not hide the line above them",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 40 && r.x1 <= 46 &&
+              r.y1 == (3 * H) / 4 - 1);
+    {
+        /* And when the specks fill more rows than any fixed number of
+         * starts: unit A's vignette darkened 50 rows of both lower corners.
+         * A 200-row picture, the line on rows 0..139, specks in both
+         * corners on rows 140..199. */
+        static uint16_t tall[200][W];
+        int x;
+        int yy;
+
+        for (yy = 0; yy < 200; yy++) {
+            for (x = 0; x < W; x++) {
+                tall[yy][x] = white;
+            }
+            if (yy < 140) {
+                for (x = 60; x < 66; x++) {
+                    tall[yy][x] = black;
+                }
+            } else {
+                tall[yy][3 + (yy % 4)] = black;
+                tall[yy][4 + (yy % 4)] = black;
+                tall[yy][110 + (yy % 3)] = black;
+                tall[yy][111 + (yy % 3)] = black;
+            }
+        }
+        check("60 rows of corner specks under the line do not hide it",
+              vision_pixels_trace(&tall[0][0], W, 200, W, true, NULL, &r) == 0 && r.found && r.y1 == 139 &&
+                  r.x1 >= 60 && r.x1 <= 65 && r.offset_pm > -20 && r.offset_pm < 90);
+    }
+    /* Unit A: a speck at the picture's lower edge, within reach of the line's
+     * end across a gap, became the chain's start and so the line's "bottom".
+     * Here the line ends at row 69 at x 40..45, a 3-row speck sits at x 52
+     * on rows 74..76, within the gap a line may cross. */
+    fill(white);
+    line_at(40, 0, 6, 0, black);
+    box(0, 70, W, H - 70, white);
+    box(52, 74, 3, 3, black);
+    check("a speck bridged below the line's end is not its bottom",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.y1 == 69 && r.x1 >= 40 &&
+              r.x1 <= 45 && r.rows == 70 && pic[77][53] != 0xffe0);
+    /* Unit A: an S-shaped line read LEFT 99% from the straight fit while its
+     * end was far nearer the middle. Its bottom here runs straight down at
+     * x 20..25 for the last third, the upper part leans far right. */
+    fill(white);
+    for (y = 0; y < H; y++) {
+        box(y < (2 * H) / 3 ? 20 + ((2 * H) / 3 - y) * 2 : 20, y, 6, 1, black);
+    }
+    check("the offset is the line's own bottom, not the fit carried down",
+          vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r) == 0 && r.found && r.x1 >= 20 && r.x1 <= 25 &&
+              r.offset_pm > -650 && r.offset_pm < -550 && r.slope_pm < 0);
+
+    /* ---- over pictures, with a state ---- */
+    vision_trace_reset(&st);
+    fill(white);
+    line_at(40, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("state: found, ever, nothing lost", r.found && r.ever && r.lost == 0 && r.x1 == 42);
+    fill(white);
+    line_at(46, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("a line that moves a little is smoothed: between where it was and is", r.found && r.x1 > 42 && r.x1 < 48);
+    fill(white);
+    line_at(46, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("and settles where it is", r.found && r.x1 >= 46 && r.x1 <= 48);
+    fill(white);
+    line_at(100, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("a jump of more than a sixth of the width is another line, taken as it is", r.found && r.x1 == 102);
+    /* Gone: said at once, counted, nothing drawn as the line. */
+    fill(white);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    ok = 1;
+    for (y = 0; y < H; y++) {
+        ok &= pic[y][102] == white;
+    }
+    check("the line gone: not found in the first picture without it, lost 1, nothing painted",
+          !r.found && r.lost == 1 && r.ever && ok && r.x0 == 0 && r.x1 == 0);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("and lost 2 in the next", !r.found && r.lost == 2);
+    /* Back, with a decoy of the same length on the other side: the one
+     * where the line was is taken again. Without the state the decoy, the
+     * nearer the centre, would be. */
+    fill(white);
+    line_at(98, 0, 6, 0, black);
+    line_at(50, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("reacquired where it was last seen, not the decoy", r.found && r.lost == 0 && r.x1 >= 98 && r.x1 <= 102);
+    fill(white);
+    line_at(98, 0, 6, 0, black);
+    line_at(50, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, NULL, &r);
+    check("(without the state the decoy nearer the centre is taken)", r.found && r.x1 >= 50 && r.x1 <= 54);
+    /* Lost for longer than VISION_TRACE_REACQUIRE: the old place no longer
+     * counts. */
+    fill(white);
+    for (y = 0; y <= VISION_TRACE_REACQUIRE; y++) {
+        vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    }
+    fill(white);
+    line_at(98, 0, 6, 0, black);
+    line_at(50, 0, 6, 0, black);
+    vision_pixels_trace(&pic[0][0], W, H, W, true, &st, &r);
+    check("after a long loss the line is looked for afresh", r.found && r.x1 >= 50 && r.x1 <= 54);
+    vision_trace_reset(&st);
+    check("reset: never found", st.ever == false && st.lost == 0);
 }
 
 int main(void)

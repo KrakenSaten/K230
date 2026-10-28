@@ -43,7 +43,7 @@ anywhere in the target, by name and by hash (`pocketos.mk`,
 | `/usr/share/doors/vision/text_rec.kmodel` | READ (text recogniser) | same tree, `ocr_rec_int16.kmodel` (13,008,216 B, sha256 `7a307f86…aa8648c`) | Canaan | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/text_dict.txt` | READ (recogniser alphabet, 6,549 entries) | same tree, `ai_poc/utils/dict_ocr.txt` (32,521 B, sha256 `8288453b…a74c8fb`) | Canaan; upstream origin not stated | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
 | `/usr/share/doors/vision/face_embed.kmodel` | RECOGNIZE (face embedding); DeskBuddy's provider (owner recognised) | same tree, `face_recognition.kmodel` (46,333,280 B, sha256 `2409a30f…78218472`) | Canaan; source weights not stated | **None stated** | Unknown | Unknown | No | No | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY |
-| `/usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel` (sha256 `8c304651…e354`) | the bench A/B only: a second choice under MODEL when a unit has it (docs/apps/VISION.md) | upstream YOLOX-Tiny 416 (`yolox_tiny.pth`, 0.1.1rc0) compiled for the 2026-10-04 detector evaluation | Megvii (weights) | **None stated** for the released checkpoints (YOLOX issue #1865 unanswered) | Unknown | Unknown | No | **No**: refused by hash in the target (`tools/vision/refused-models.sha256`) | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY (bench units, by hand) |
+| `/usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel` (sha256 `8c304651…e354`, pinned for the hand install in `tools/vision/general-80-model.sha256`) | **GENERAL 80** on screen (from feat/vision-general-colour-line; "UPSTREAM" before): Vision's 80-class detector, a choice under MODEL when a unit has it (docs/apps/VISION.md, "GENERAL 80") | upstream YOLOX-Tiny 416 (`yolox_tiny.pth`, release 0.1.1rc0, 40,755,013 B, sha256 `9de513de…aee8f0`, re-downloaded and matched 2026-10-26) compiled for the 2026-10-04 detector evaluation | Megvii (weights) | Code: Apache-2.0. Weights: **none stated** for the released checkpoints (rechecked 2026-10-27: no statement in the release, README, model zoo or `LICENSE`; YOLOX issue #1865 and its two user comments have no maintainer answer). See "GENERAL 80: the weight terms" below | Unknown | Unknown | No | **No**: refused by hash in the target (`tools/vision/refused-models.sha256`) | **UNKNOWN - DO NOT REDISTRIBUTE**; EXTERNAL ONLY. Weight licensing and redistribution permission remain unresolved ("GENERAL 80: the weight terms" below); the status is the project's precaution meanwhile, not a finding that redistribution is prohibited. Bench units get it by hand (`install-model.sh --general`), which does not resolve the question |
 | `xiaozhi_kws.kmodel` (369,560 B) | none (the vendor launcher's keyword spotter) | LILYGO `k230_phone_ui` package | LILYGO / unknown | **None stated** (the LILYGO repository has no licence) | Unknown | Unknown | No | No: the launcher package is purged from the image (chore/remove-vendor-launcher, PR #47) | NOT USED by Doors |
 | `test.kmodel` (2,286,808 B) | none (the vendor `ai2d_kpu` test) | SDK `ai2d_kpu` package | Canaan | **None stated** | Unknown | Unknown | No | No, from 0.3.5 (`ai2d_kpu` off); up to 0.3.0 through `BR2_PACKAGE_AI2D_KPU=y` | NOT USED by Doors; as image content **UNKNOWN - DO NOT REDISTRIBUTE** (vendor material, B6/B7) |
 | `ocr_rec.kmodel`, `ocr_det_int16.kmodel`, `door_lock/mbface.kmodel`, `yolov5n`, `yolo11n`, `yolo26n`, the self-learning `recognition.kmodel` / `embedding.kmodel` | none | SDK and canmv trees | various | not established | - | - | No | No | NOT USED / REFERENCE ONLY |
@@ -101,6 +101,121 @@ Derivative Work of the CC BY 2.0 COCO pictures, section 4(b) asks for the
 photographer's name where supplied, and the list has none for 10,070 COCO
 images. Closing it needs a per-photo Flickr lookup (provenance open item U3),
 not done.
+
+## GENERAL 80: the weight terms (checked 2026-10-27, unresolved)
+
+A bounded evidence check of the upstream YOLOX-Tiny file behind GENERAL 80
+(its row above), from primary sources only. It settles where the file came
+from; it does not settle the terms of the weights. **Weight licensing and
+redistribution permission remain unresolved.** Until the publisher answers,
+the row keeps the status UNKNOWN - DO NOT REDISTRIBUTE; EXTERNAL ONLY as a
+precaution. That status records the open question; it is not a finding that
+redistribution is prohibited.
+
+**Where the checkpoint came from (VERIFIED, GitHub API and download,
+2026-10-27).**
+- Release `0.1.1rc0` ("0.1.1 pre release",
+  https://github.com/Megvii-BaseDetection/YOLOX/releases/tag/0.1.1rc0),
+  published 2021-08-18; the tag points at commit `e1052df7`.
+- Asset `yolox_tiny.pth`, id 42725014, uploaded 2021-08-18 by the release's
+  author account, 40,755,013 bytes:
+  https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.pth
+- Downloaded again: sha256
+  `9de513de589ac98bb92d3bca53b5af7b9acfa9b0bacb831f7999d0f7afaee8f0`, equal
+  to the 2026-10-04 and 2026-10-26 records. GitHub publishes no digest for
+  the asset (`digest: null`), so the match is against our own records, not
+  against a hash from the publisher. The copy was deleted after the check.
+- The README and `docs/model_zoo.md` on `main` link this exact URL in the
+  YOLOX-Tiny row of the standard models table.
+
+**Weights: what the publisher says (VERIFIED, read 2026-10-27).**
+- Release notes for `0.1.1rc0`: training features, ~1 % higher mAP and a
+  breaking preprocessing change. Nothing about a licence, terms or use.
+- Release assets: 21 model files (`.pth`, `.onnx`, OpenVINO and ncnn
+  archives); no licence or notice file among them.
+- README and `docs/model_zoo.md`, at the tag and on `main`: the weights
+  column links the files. Neither file mentions a licence anywhere.
+- The checkpoint itself: a PyTorch archive with the model, optimizer and
+  `start_epoch` keys; no licence, copyright or publisher string in it.
+- `LICENSE` (https://github.com/Megvii-BaseDetection/YOLOX/blob/main/LICENSE):
+  the Apache License 2.0 text, then "Copyright (c) 2021-2022 Megvii Inc. All
+  rights reserved." with the standard Apache-2.0 boilerplate. It names no
+  file and does not mention weights, checkpoints or models. Apache-2.0
+  defines the licensed "Work" as material made available under the License
+  "as indicated by a copyright notice that is included in or attached to the
+  work". No such notice is included in the checkpoint or its release
+  assets. That is not conclusive either way: the release is part of the
+  repository that carries `LICENSE`, and whether that is enough to bring the
+  checkpoints under the grant is exactly what only the publisher can say.
+- Issue #1865 (https://github.com/Megvii-BaseDetection/YOLOX/issues/1865,
+  opened 2026-03-31, open): asks whether the pretrained weights are under
+  the repository's Apache-2.0, and about commercial use and redistribution.
+  Its two comments (2026-10-14, 2026-10-25) ask the same, the second about
+  conversion to ONNX. All three come from users (`author_association:
+  NONE`). The 2026-10-14 comment reports that the publicly listed email
+  address rejected external senders. There is no maintainer reply.
+- Issue #1684 ("Commercial use", 2023, open): its only answer points to
+  `LICENSE` and comes from a user, not a maintainer.
+- A search of the repository's issues for weight, licence and commercial-use
+  questions found no maintainer statement on the weights. The last commit to
+  `main` is `6ddff482` (2025-06-08).
+
+**Kept apart.**
+
+| Layer | Terms | Evidence |
+| --- | --- | --- |
+| YOLOX source code | Apache-2.0, Copyright Megvii Inc. | VERIFIED: `LICENSE` at the tag and on `main` |
+| `yolox_tiny.pth` (the weights) | **none stated**. Neither redistribution, commercial use nor derivatives (ONNX, quantized, kmodel) are addressed | VERIFIED absence in the sources listed above. Not inferred from the code licence, and not inferred from the file being downloadable |
+| `det-upstream-yolox-tiny-416.kmodel` | whatever terms the checkpoint carries, plus the compiler's (nncase 2.11.0 and `nncase-kpu`, Apache-2.0 on PyPI) | the kmodel is a converted and quantized derivative of the checkpoint (below) |
+
+**Kmodel to checkpoint (DOCUMENTED, not re-verified).**
+- Records naming the checkpoint (`9de513de…`) as the input of the 2026-10-04
+  evaluation's `yolox_tiny_416_a16` kmodel:
+  - docs/vision/R0_UPSTREAM_OI_COMPARISON.md section 1;
+  - TRAINING_PLAN_YOLOX_TRAFFIC.md;
+  - R0_MEDIUM_MISS_TRAIN_DIAG.md (all on `research/yolox-traffic-training`).
+- That kmodel is `det-upstream-yolox-tiny-416.kmodel`, `8c304651…e354`
+  (docs/apps/VISION.md; the file on unit A matched the pin on 2026-10-26,
+  VERIFIED).
+- The compile settings are documented: int16 activations, uint8 weights,
+  100-image NoClip calibration.
+- Not available for this check:
+  - the compile's ONNX hash, calibration list and log, which are in the
+    2026-10-04 evaluation archive (WSL `~/work/detector-eval`). The archive
+    is not on this build host and is not in git;
+  - the conversion environment, which is not installed.
+- So the step from checkpoint to kmodel rests on those records; it was not
+  rebuilt or re-hashed here.
+
+**Unresolved:**
+1. Whether Megvii's Apache-2.0 grant covers the released checkpoints.
+2. If not, which terms do, and whether they permit redistribution, commercial
+   use and converted or quantized derivatives such as the kmodel.
+3. Which notices a redistribution would need.
+Only the publisher can answer these. The owner approved one question to
+the maintainers, posted on issue #1865 on 2026-10-27:
+https://github.com/Megvii-BaseDetection/YOLOX/issues/1865#issuecomment-6433795915
+It asks about the exact checkpoint (by sha256) and its nncase-converted
+K230 `.kmodel`: whether the Apache-2.0 grant covers the weights,
+redistribution in public device images including commercial use, the
+notices required, and otherwise the terms. The investigation is paused
+until a reply.
+
+Meanwhile the file stays out of images, release assets and the repository
+(`tools/vision/refused-models.sha256`). Installing it by hand on a bench unit
+(`install-model.sh --general`) is how it is tested; it does not resolve the
+licensing question. COLOR and LINE TRACE do not use the file and do not wait
+on the answer.
+
+**Training data (a separate question).** The publisher's tables report COCO
+mAP, and `exps/default/yolox_tiny.py` trains on COCO 2017, so COCO 2017 is
+the documented training set (DOCUMENTED; the training run is not
+published). COCO's annotations are CC BY 4.0, and its images fall under
+Flickr's terms per COCO's terms of use (VERIFIED in DATASET_PROVENANCE.md
+section 3.1 on `research/yolox-traffic-training`). Whether trained weights
+are an adaptation of their data is R0's U1, unresolved for both models. An
+answer from the publisher on the weights would not settle it, and it is not
+part of the question above.
 
 ## What follows
 

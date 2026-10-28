@@ -6,9 +6,14 @@
  */
 #include "vision_model.h"
 
+#include "pocketvision/vision_labels.h"
+#include "pocketvision/vision_swatch.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+
+static void add(char *buf, size_t len, size_t *off, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
 
 #define VISION_STALL_AFTER_MS 2000
 #define VISION_OWNER_VIEWS 5   /* the views an enrolment takes (the helper's VISION_OWNER_SAMPLES) */
@@ -24,6 +29,9 @@
 #define CODE_SPEEDS 231
 #define CODE_TRAILS 232
 #define CODE_RANGE 240     /* + enum vision_range */
+#define CODE_CLASS_PREV 250
+#define CODE_CLASS_NEXT 251
+#define CODE_CLASS_DONE 252
 
 static const char *const tol_names[VISION_TOLS] = { "TOL: LOW", "TOL: MED", "TOL: HIGH" };
 static const char *const range_names[VISION_RANGES] = { "NEAR", "NORMAL", "FAR" };
@@ -35,11 +43,11 @@ static const char *const line_names[VISION_LINE_MODES] = { "OFF", "ACROSS", "DOW
 static const char *const speed_names[VISION_SPEED_MODES] = { "OFF", "NARROW", "WIDE" };
 /* The button names the detector itself: "MODEL: R0 · Beta" does not fit a
  * landscape button. */
-static const char *const model_names[VISION_DETECTORS] = { "R0 · Beta", "UPSTREAM" };
-static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0", "LOADING UPSTREAM" };
+static const char *const model_names[VISION_DETECTORS] = { "R0 · Beta", "GENERAL 80" };
+static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0", "LOADING GENERAL" };
 static const char *const opening_names[VISION_DETECTORS] = {
     "Opening the camera and the R0 · Beta detector",
-    "Opening the camera and the UPSTREAM detector",
+    "Opening the camera and the GENERAL 80 detector",
 };
 
 /* What a helper with a detector runs, when it has not said otherwise. */
@@ -55,6 +63,8 @@ void vision_model_init(struct vision_model *m)
     m->avail = AVAIL_DETECTOR;
     m->sample_x = -1;
     m->sample_y = -1;
+    m->probe_x = -1;
+    m->probe_y = -1;
     m->det_active = -1;
     m->det_loading = -1;
     m->det_fallback = -1;
@@ -195,6 +205,7 @@ static void clear_pixels(struct vision_model *m)
 {
     memset(&m->pixels, 0, sizeof(m->pixels));
     m->color_valid = false;
+    m->swatch_valid = false;
     m->edge_valid = false;
     m->trace_valid = false;
 }
@@ -264,11 +275,145 @@ static void mode_changed(struct vision_model *m)
     m->have_target = false;
     m->sample_x = -1;
     m->sample_y = -1;
+    m->probe_x = -1;
+    m->probe_y = -1;
+    m->in_view[0] = '\0';
+    if (m->sheet == VISION_SHEET_CLASSES) {
+        m->sheet = VISION_SHEET_NONE;
+    }
 }
 
 static unsigned when_live(const struct vision_model *m, unsigned acts)
 {
     return m->state == VISION_LIVE ? acts : 0;
+}
+
+/* A class name as the screen says it: "cell-phone" is "cell phone". */
+static void label_words(uint32_t cls, char *out, size_t len)
+{
+    size_t i;
+
+    snprintf(out, len, "%s", vision_label(cls));
+    for (i = 0; out[i]; i++) {
+        if (out[i] == '-') {
+            out[i] = ' ';
+        }
+    }
+}
+
+/* DETECT: the classes on the last det line, the most boxes first, at most
+ * four named ("person 2, cup 1, +3 more"). */
+static void in_view(struct vision_model *m, const struct vision_shown *t, int n)
+{
+    uint32_t cls[VISION_MAX_SHOWN];
+    int cnt[VISION_MAX_SHOWN];
+    int k = 0;
+    int i;
+    int j;
+    size_t off = 0;
+
+    for (i = 0; i < n && i < VISION_MAX_SHOWN; i++) {
+        for (j = 0; j < k && cls[j] != t[i].cls; j++) {
+        }
+        if (j == k) {
+            cls[k] = t[i].cls;
+            cnt[k++] = 0;
+        }
+        cnt[j]++;
+    }
+    /* Most first, then by class index: a stable order between frames. */
+    for (i = 1; i < k; i++) {
+        for (j = i; j > 0 && (cnt[j] > cnt[j - 1] || (cnt[j] == cnt[j - 1] && cls[j] < cls[j - 1])); j--) {
+            uint32_t c = cls[j];
+            int v = cnt[j];
+
+            cls[j] = cls[j - 1];
+            cnt[j] = cnt[j - 1];
+            cls[j - 1] = c;
+            cnt[j - 1] = v;
+        }
+    }
+    m->in_view[0] = '\0';
+    for (i = 0; i < k && i < 4; i++) {
+        char name[24];
+        int w;
+
+        label_words(cls[i], name, sizeof(name));
+        w = snprintf(m->in_view + off, sizeof(m->in_view) - off, "%s%s %d", i ? ", " : "", name, cnt[i]);
+        if (w < 0 || (size_t)w >= sizeof(m->in_view) - off) {
+            break;
+        }
+        off += (size_t)w;
+    }
+    if (k > 4) {
+        snprintf(m->in_view + off, sizeof(m->in_view) - off, ", +%d more", k - 4);
+    }
+}
+
+/* ---- what the detector in force can name ------------------------------------------- */
+
+bool vision_model_r0_only(const struct vision_model *m)
+{
+    return m->det_active == VISION_DET_R0;
+}
+
+int vision_model_class_pages(const struct vision_model *m)
+{
+    /* R0's six on one page; COCO's eighty a supercategory a page. */
+    return !vision_model_r0_only(m) && m->classes == VISION_COCO_CLASSES ? VISION_COCO_GROUPS : 1;
+}
+
+unsigned vision_model_classes_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_DETECT) {
+        return 0;
+    }
+    m->sheet = m->sheet == VISION_SHEET_CLASSES ? VISION_SHEET_NONE : VISION_SHEET_CLASSES;
+    m->class_page = 0;
+    return 0;
+}
+
+/* ---- COLOR's square ----------------------------------------------------------------- */
+
+unsigned vision_model_probe_at(struct vision_model *m, int32_t x, int32_t y)
+{
+    if (m->mode != VISION_MODE_COLOR || x < 0 || y < 0) {
+        return 0;
+    }
+    m->probe_x = x;
+    m->probe_y = y;
+    m->swatch_valid = false;
+    return when_live(m, VISION_ACT_PROBE);
+}
+
+unsigned vision_model_probe_centre(struct vision_model *m)
+{
+    m->probe_x = -1;
+    m->probe_y = -1;
+    m->swatch_valid = false;
+    return m->mode == VISION_MODE_COLOR ? when_live(m, VISION_ACT_PROBE) : 0;
+}
+
+unsigned vision_model_match_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_COLOR) {
+        return 0;
+    }
+    if (m->have_target) {
+        m->have_target = false;
+        m->color_valid = false;
+        return when_live(m, VISION_ACT_TARGET);
+    }
+    if (!m->swatch_valid) {
+        return 0;
+    }
+    /* The colour read, as shown on the swatch, is the one to match. */
+    m->target[0] = m->pixels.swatch.r;
+    m->target[1] = m->pixels.swatch.g;
+    m->target[2] = m->pixels.swatch.b;
+    m->have_target = true;
+    m->color_valid = false;
+    return when_live(m, VISION_ACT_TARGET);
 }
 
 /* The mode and everything that goes with it, for the helper. */
@@ -357,6 +502,9 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->active_tracks = active;
             m->shown_objects = n;
             m->shown_classes = classes;
+            if (m->mode == VISION_MODE_DETECT) {
+                in_view(m, t, n);
+            }
             if (m->mode == VISION_MODE_FACE) {
                 /* A face counts once, when it first gets an id. */
                 uint32_t top = m->face_top_id;
@@ -435,10 +583,28 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         snprintf(m->enrolfail, sizeof(m->enrolfail), "%s", ev->text[0] ? ev->text : "enrolment failed");
         break;
     case VISION_EV_COLOR:
-        if (s) {
+        /* A report from before CLEAR, or of an earlier MATCH (still on the
+         * way), brings no target back; a sample asked for
+         * (vision_model_sample_at) sets one. */
+        if (s && (m->sample_x >= 0 ||
+                  (m->have_target && vision_session_pixels(s)->color.r == m->target[0] &&
+                   vision_session_pixels(s)->color.g == m->target[1] &&
+                   vision_session_pixels(s)->color.b == m->target[2]))) {
             m->pixels.color = vision_session_pixels(s)->color;
             m->color_valid = true;
             m->have_target = true;
+            /* The helper's target, also when it sampled it itself. */
+            m->target[0] = m->pixels.color.r;
+            m->target[1] = m->pixels.color.g;
+            m->target[2] = m->pixels.color.b;
+            m->sample_x = -1;
+            m->sample_y = -1;
+        }
+        break;
+    case VISION_EV_SWATCH:
+        if (s) {
+            m->pixels.swatch = vision_session_pixels(s)->swatch;
+            m->swatch_valid = true;
         }
         break;
     case VISION_EV_EDGE:
@@ -893,6 +1059,68 @@ static void sheet_traffic(const struct vision_model *m, struct vision_sheet_view
     cell(r, "TRAILS", m->set.traffic.trails, true, CODE_TRAILS);
 }
 
+/* CLASSES: a page of what the detector in force names, and only that. R0
+ * knows six; a COCO detector eighty, a supercategory a page. */
+static void sheet_classes(const struct vision_model *m, struct vision_sheet_view *v)
+{
+    int pages = vision_model_class_pages(m);
+    int page = m->class_page >= 0 && m->class_page < pages ? m->class_page : 0;
+    const char *det = m->det_active >= 0 ? vision_detector_name((enum vision_detector)m->det_active) : "DETECTOR";
+    char caption[VISION_SHEET_TEXT];
+    struct vision_sheet_row *r;
+    size_t off = 0;
+    uint32_t first;
+    uint32_t last;
+    uint32_t c;
+    int i;
+
+    v->title = v->title_buf;
+    if (vision_model_r0_only(m)) {
+        snprintf(v->title_buf, sizeof(v->title_buf), "%s: %d CLASSES", det, VISION_R0_CLASSES);
+        for (i = 0; i < VISION_R0_CLASSES; i++) {
+            char name[24];
+
+            label_words(vision_label_r0_class(i), name, sizeof(name));
+            add(v->body, sizeof(v->body), &off, "%s%s", i ? ", " : "", name);
+        }
+        add(v->body, sizeof(v->body), &off, ".\nNothing else is boxed: R0 was trained on these only.");
+        if (det_present(m, VISION_DET_UPSTREAM)) {
+            add(v->body, sizeof(v->body), &off, " MODEL switches to GENERAL 80 for 80 classes.");
+        } else {
+            add(v->body, sizeof(v->body), &off, " This unit has no 80-class detector file.");
+        }
+        snprintf(caption, sizeof(caption), "R0 IS A BETA");
+    } else if (m->classes != VISION_COCO_CLASSES) {
+        snprintf(v->title_buf, sizeof(v->title_buf), "%s: %u CLASSES", det, m->classes);
+        add(v->body, sizeof(v->body), &off, "This detector reports %u classes; Vision names only the 80 COCO classes.",
+            m->classes);
+        snprintf(caption, sizeof(caption), "UNKNOWN LIST");
+    } else {
+        first = vision_label_group_first(page);
+        last = vision_label_group_first(page + 1);
+        snprintf(v->title_buf, sizeof(v->title_buf), "%s (%u)", vision_label_group_name(page), last - first);
+        for (c = first; c < last; c++) {
+            char name[24];
+
+            label_words(c, name, sizeof(name));
+            add(v->body, sizeof(v->body), &off, "%s%s", c > first ? ", " : "", name);
+        }
+        add(v->body, sizeof(v->body), &off, ".\n%s boxes these 80 COCO classes and nothing else.", det);
+        snprintf(caption, sizeof(caption), "PAGE %d OF %d", page + 1, pages);
+    }
+    /* The caption is kept in the view, which outlives this. */
+    snprintf(v->caption_buf, sizeof(v->caption_buf), "%s", caption);
+    r = row(v, v->caption_buf);
+    if (!r) {
+        return;
+    }
+    if (pages > 1) {
+        cell(r, "<", false, true, CODE_CLASS_PREV);
+        cell(r, ">", false, true, CODE_CLASS_NEXT);
+    }
+    cell(r, "DONE", true, true, CODE_CLASS_DONE);
+}
+
 void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *out)
 {
     memset(out, 0, sizeof(*out));
@@ -902,6 +1130,8 @@ void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *
         sheet_modes(m, out);
     } else if (out->kind == VISION_SHEET_SETUP && m->mode == VISION_MODE_TRAFFIC) {
         sheet_traffic(m, out);
+    } else if (out->kind == VISION_SHEET_CLASSES && m->mode == VISION_MODE_DETECT) {
+        sheet_classes(m, out);
     } else {
         out->kind = VISION_SHEET_NONE;
     }
@@ -911,6 +1141,18 @@ unsigned vision_model_sheet_tap(struct vision_model *m, int code)
 {
     if (code >= CODE_MODE && code < CODE_MODE + VISION_MODES && m->sheet == VISION_SHEET_MODES) {
         return vision_model_set_mode(m, (enum vision_mode)(code - CODE_MODE));
+    }
+    if (m->sheet == VISION_SHEET_CLASSES) {
+        int pages = vision_model_class_pages(m);
+
+        if (code == CODE_CLASS_PREV) {
+            m->class_page = (m->class_page + pages - 1) % pages;
+        } else if (code == CODE_CLASS_NEXT) {
+            m->class_page = (m->class_page + 1) % pages;
+        } else if (code == CODE_CLASS_DONE) {
+            m->sheet = VISION_SHEET_NONE;
+        }
+        return 0;
     }
     if (m->sheet != VISION_SHEET_SETUP || m->mode != VISION_MODE_TRAFFIC) {
         return 0;
@@ -1052,8 +1294,10 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     out[0] = VISION_BTN_MODE;
     switch (m->mode) {
     case VISION_MODE_DETECT:
-        out[1] = VISION_BTN_MODEL;
-        return 1 + ab;
+        /* CLASSES says what the detector can name; MODEL which one it is. */
+        out[1] = VISION_BTN_CLASSES;
+        out[2] = VISION_BTN_MODEL;
+        return 2 + ab;
     case VISION_MODE_TRACK:
         out[1] = VISION_BTN_LINE;
         out[2] = VISION_BTN_TRAILS;
@@ -1094,7 +1338,10 @@ int vision_model_status_lines(const struct vision_model *m)
 {
     int n;
 
-    if (m->mode == VISION_MODE_RECOGNIZE) {
+    if (m->mode == VISION_MODE_RECOGNIZE || m->mode == VISION_MODE_DETECT || m->mode == VISION_MODE_COLOR ||
+        m->mode == VISION_MODE_TRACE) {
+        /* DETECT: the numbers, then what is in view. COLOR, TRACE: the
+         * reading, then what it means or what to do. */
         n = 2;
     } else {
         n = m->mode == VISION_MODE_TRAFFIC || m->mode == VISION_MODE_READ ? 3 : 1;
@@ -1247,15 +1494,41 @@ static void pixel_status(const struct vision_model *m, char *buf, size_t len)
 
     fps_prefix(m, fps, sizeof(fps));
     switch (m->mode) {
-    case VISION_MODE_COLOR:
-        if (!m->have_target || !m->color_valid) {
-            snprintf(buf, len, "%sTap the picture or SAMPLE to pick a colour", fps);
+    case VISION_MODE_COLOR: {
+        /* The reading, then what MATCH is doing or how to use it. */
+        const struct vision_pixel_report *p = &m->pixels;
+        size_t off = 0;
+
+        buf[0] = '\0';
+        if (!m->swatch_valid) {
+            add(buf, len, &off, "Reading the colour in the square");
+        } else if (p->swatch.name == VISION_SWATCH_MIXED) {
+            /* No colour holds enough of the square to name it: the two
+             * largest, and the share of the first. */
+            add(buf, len, &off, "mixed: %s %u%% and %s", vision_swatch_name(p->swatch.first), p->swatch.share_pm / 10,
+                vision_swatch_name(p->swatch.second));
+        } else if (p->swatch.name == VISION_SWATCH_DARK) {
+            add(buf, len, &off, "dark: black, or too little light to tell");
+        } else if (p->swatch.name == VISION_SWATCH_GREY || p->swatch.name == VISION_SWATCH_WHITE) {
+            add(buf, len, &off, "%s, no clear hue  #%02X%02X%02X", vision_swatch_name(p->swatch.name), p->swatch.r, p->swatch.g, p->swatch.b);
         } else {
-            snprintf(buf, len, "%s#%02X%02X%02X  match %u.%u%%  at %d,%d", fps, m->pixels.color.r, m->pixels.color.g,
-                     m->pixels.color.b, m->pixels.color.matched_pm / 10, m->pixels.color.matched_pm % 10,
-                     m->pixels.color.cx, m->pixels.color.cy);
+            add(buf, len, &off, "%s  #%02X%02X%02X  %u%% of the square", vision_swatch_name(p->swatch.name), p->swatch.r, p->swatch.g,
+                p->swatch.b, p->swatch.share_pm / 10);
+        }
+        if (m->swatch_valid && p->swatch.steady + 1 < VISION_SWATCH_CONFIRM) {
+            add(buf, len, &off, "  (settling)");
+        }
+        if (m->have_target && m->color_valid) {
+            /* No frame rate here: on the panel the line would wrap and lose
+             * its end (unit A, 2026-10-26). */
+            add(buf, len, &off, "\nMATCH #%02X%02X%02X: %u.%u%% of the picture", m->pixels.color.r,
+                m->pixels.color.g, m->pixels.color.b, m->pixels.color.matched_pm / 10,
+                m->pixels.color.matched_pm % 10);
+        } else {
+            add(buf, len, &off, "\nTap moves the square. As the camera sees it.");
         }
         break;
+    }
     case VISION_MODE_EDGE:
         if (m->edge_valid) {
             snprintf(buf, len, "%sedges %u.%u%%  %s", fps, m->pixels.edge_pm / 10, m->pixels.edge_pm % 10,
@@ -1264,21 +1537,27 @@ static void pixel_status(const struct vision_model *m, char *buf, size_t len)
             snprintf(buf, len, "%sFinding edges", fps);
         }
         break;
-    default:
-        if (!m->trace_valid) {
-            snprintf(buf, len, "%sLooking for a %s line", fps, m->set.trace.dark ? "dark" : "light");
-        } else if (!m->pixels.trace.found) {
-            snprintf(buf, len, "%sno %s line  (%u rows)", fps, m->set.trace.dark ? "dark" : "light",
-                     m->pixels.trace.rows);
-        } else {
-            int32_t o = m->pixels.trace.offset_pm;
-            int32_t sl = m->pixels.trace.slope_pm;
+    default: {
+        /* The line in this picture, or that there is none: a line lost is
+         * said as lost, never shown as it was. */
+        const char *kind = m->set.trace.dark ? "dark" : "light";
+        const struct vision_pixel_report *p = &m->pixels;
 
-            snprintf(buf, len, "%sline %s %d%%  leans %s %d%%  %u rows", fps, o < 0 ? "left" : "right",
-                     (o < 0 ? -o : o) / 10, sl < 0 ? "left" : "right", (sl < 0 ? -sl : sl) / 10,
-                     m->pixels.trace.rows);
+        /* Short lines: the wide layout's column is narrow, and where the
+         * line is and how it leans are the counters' already. */
+        if (!m->trace_valid) {
+            snprintf(buf, len, "%sLooking for a %s line\nYellow: the line. Cyan: %s runs.", fps, kind, kind);
+        } else if (p->trace.found) {
+            snprintf(buf, len, "%sFollowing a %s line, %u rows\nYellow: the line. Cyan: %s runs.", fps, kind,
+                     p->trace.rows, kind);
+        } else if (p->trace.lost_ms > 0) {
+            snprintf(buf, len, "Line lost %d.%d s ago\nNo %s line now; looking where it was.",
+                     p->trace.lost_ms / 1000, (p->trace.lost_ms % 1000) / 100, kind);
+        } else {
+            snprintf(buf, len, "%sNo %s line found yet\nIt starts in the lower half.", fps, kind);
         }
         break;
+    }
     }
 }
 
@@ -1307,6 +1586,45 @@ static void counters(const struct vision_model *m, struct vision_view_text *out)
         if (vision_model_line(m) != VISION_LINE_OFF) {
             snprintf(out->count_a, sizeof(out->count_a), "IN (%s) %u", na, m->traffic.total_ab);
             snprintf(out->count_b, sizeof(out->count_b), "OUT (%s) %u", nb, m->traffic.total_ba);
+        }
+        break;
+    case VISION_MODE_COLOR:
+        if (m->swatch_valid) {
+            const char *name = vision_swatch_name(m->pixels.swatch.name);
+            size_t i;
+
+            for (i = 0; name[i] && i + 1 < sizeof(out->count_a); i++) {
+                out->count_a[i] = (char)(name[i] >= 'a' && name[i] <= 'z' ? name[i] - 'a' + 'A' : name[i]);
+            }
+            out->count_a[i] = '\0';
+        }
+        if (m->have_target && m->color_valid) {
+            snprintf(out->count_b, sizeof(out->count_b), "MATCH %u.%u%%", m->pixels.color.matched_pm / 10,
+                     m->pixels.color.matched_pm % 10);
+        }
+        break;
+    case VISION_MODE_TRACE:
+        if (m->trace_valid && m->pixels.trace.found) {
+            int32_t o = m->pixels.trace.offset_pm;
+            int32_t sl = m->pixels.trace.slope_pm;
+
+            if (o > -50 && o < 50) {
+                snprintf(out->count_a, sizeof(out->count_a), "CENTRE");
+            } else {
+                snprintf(out->count_a, sizeof(out->count_a), "%s %d%%", o < 0 ? "LEFT" : "RIGHT", (o < 0 ? -o : o) / 10);
+            }
+            if (sl > -50 && sl < 50) {
+                snprintf(out->count_b, sizeof(out->count_b), "STRAIGHT");
+            } else {
+                snprintf(out->count_b, sizeof(out->count_b), "LEAN %s %d%%", sl < 0 ? "L" : "R",
+                         (sl < 0 ? -sl : sl) / 10);
+            }
+        } else if (m->trace_valid && m->pixels.trace.lost_ms > 0) {
+            snprintf(out->count_a, sizeof(out->count_a), "LOST");
+            snprintf(out->count_b, sizeof(out->count_b), "%d.%d s", m->pixels.trace.lost_ms / 1000,
+                     (m->pixels.trace.lost_ms % 1000) / 100);
+        } else if (m->trace_valid) {
+            snprintf(out->count_a, sizeof(out->count_a), "NO LINE");
         }
         break;
     case VISION_MODE_READ:
@@ -1391,11 +1709,29 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->edge_btn = m->set.edge.hard ? "EDGE: HARD" : "EDGE: SOFT";
     out->trace_btn = m->set.trace.dark ? "LINE: DARK" : "LINE: LIGHT";
     counters(m, out);
-    if (m->mode == VISION_MODE_COLOR && m->color_valid && m->pixels.color.matched_pm > 0 &&
+    if (m->mode == VISION_MODE_COLOR && m->have_target && m->color_valid && m->pixels.color.matched_pm > 0 &&
         m->pixels.color.cx >= 0 && m->pixels.color.cy >= 0) {
         out->show_mark = true;
         out->mark_x = m->pixels.color.cx;
         out->mark_y = m->pixels.color.cy;
+    }
+    out->match_btn = m->have_target ? "CLEAR" : "MATCH";
+    out->match_enabled = m->state == VISION_LIVE && m->live && (m->have_target || m->swatch_valid);
+    if (m->mode == VISION_MODE_COLOR && m->swatch_valid) {
+        out->show_probe = true;
+        out->probe_x = m->pixels.swatch.x;
+        out->probe_y = m->pixels.swatch.y;
+        out->probe_half = m->pixels.swatch.half;
+        out->swatch[0] = m->pixels.swatch.r;
+        out->swatch[1] = m->pixels.swatch.g;
+        out->swatch[2] = m->pixels.swatch.b;
+    }
+    if (m->mode == VISION_MODE_TRACE && m->trace_valid && m->pixels.trace.found) {
+        out->show_trace = true;
+        out->trace[0] = m->pixels.trace.x0;
+        out->trace[1] = m->pixels.trace.y0;
+        out->trace[2] = m->pixels.trace.x1;
+        out->trace[3] = m->pixels.trace.y1;
     }
     out->title = "";
     out->detail = "";
@@ -1424,6 +1760,8 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
         } else if (vision_model_pixel_mode(m)) {
             pixel_status(m, status_buf, status_len);
             out->status = status_buf;
+            out->status_warn = m->mode == VISION_MODE_TRACE && m->trace_valid && !m->pixels.trace.found &&
+                               m->pixels.trace.lost_ms > 0;
         } else if (out->read) {
             read_status(m, status_buf, status_len);
             out->status = status_buf;
@@ -1436,6 +1774,17 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             snprintf(status_buf, status_len, "Cannot find faces: %s", m->facefail);
             out->status = status_buf;
             out->status_warn = true;
+        } else if (m->stats_valid && m->mode == VISION_MODE_DETECT) {
+            /* DETECT's first line is short enough for one line on the panel,
+             * so "In view" under it stays on screen (unit A, 2026-10-26: the
+             * full line wrapped and pushed it out). Pre, post and the
+             * resident set are in the log every ten seconds. */
+            snprintf(status_buf, status_len, "%s%s%u.%u fps  KPU %d ms  CPU %d%%",
+                     m->det_active >= 0 ? vision_detector_name((enum vision_detector)m->det_active) : "",
+                     m->det_active >= 0 ? "  " : "", m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,
+                     m->stats.cpu_pct);
+            out->status = status_buf;
+            out->status_warn = m->stats.bad > 0;
         } else if (m->stats_valid) {
             /* With the A/B, the detector these numbers are from leads. */
             snprintf(status_buf, status_len, "%s%s%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
@@ -1447,6 +1796,20 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             out->status_warn = m->stats.bad > 0;
         } else {
             out->status = m->live ? "Detecting" : "Starting the stream";
+        }
+        if (m->mode == VISION_MODE_DETECT && !m->stalled && m->live) {
+            /* The second line: what is in view, by class, or that nothing
+             * the detector knows is. */
+            char said[384];
+
+            snprintf(said, sizeof(said), "%s", out->status);
+            if (m->in_view[0]) {
+                snprintf(status_buf, status_len, "%s\nIn view: %s", said, m->in_view);
+            } else {
+                snprintf(status_buf, status_len, "%s\nNothing it knows in view (%s)", said,
+                         vision_model_r0_only(m) ? "6 classes" : "see CLASSES");
+            }
+            out->status = status_buf;
         }
         if (m->det_fail[0]) {
             /* An A/B detector that could not be loaded, for a while. */

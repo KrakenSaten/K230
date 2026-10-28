@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_session.h"
+#include "pocketvision/vision_swatch.h"
 #include "vision_settings.h"
 
 #include <dirent.h>
@@ -205,10 +206,34 @@ static void test_parse(void)
     check("an edge line parses", vision_session_parse_line(&s, "edge 81", &ev) && ev.kind == VISION_EV_EDGE &&
                                      s.pixels.edge_pm == 81);
     check("a share over 1000 does not", !vision_session_parse_line(&s, "edge 1001", &ev));
-    check("a trace line parses", vision_session_parse_line(&s, "trace 1 -120 450 300", &ev) &&
+    check("a trace line parses", vision_session_parse_line(&s, "trace 1 -120 450 300 100 20 180 590 0 320", &ev) &&
                                      ev.kind == VISION_EV_TRACE && s.pixels.trace.found && s.pixels.trace.offset_pm == -120 &&
-                                     s.pixels.trace.slope_pm == 450 && s.pixels.trace.rows == 300);
-    check("a trace with an impossible offset does not", !vision_session_parse_line(&s, "trace 1 -2000 0 1", &ev));
+                                     s.pixels.trace.slope_pm == 450 && s.pixels.trace.rows == 300 &&
+                                     s.pixels.trace.x0 == 100 && s.pixels.trace.y1 == 590 && s.pixels.trace.lost_ms == 0 &&
+                                     s.pixels.trace.candidates == 320);
+    check("a line lost, and one never found, parse",
+          vision_session_parse_line(&s, "trace 0 0 0 4 0 0 0 0 1450 12", &ev) && !s.pixels.trace.found &&
+              s.pixels.trace.lost_ms == 1450 && vision_session_parse_line(&s, "trace 0 0 0 0 0 0 0 0 -1 0", &ev) &&
+              s.pixels.trace.lost_ms == -1);
+    check("a trace with an impossible offset does not",
+          !vision_session_parse_line(&s, "trace 1 -2000 0 1 0 0 0 0 0 0", &ev));
+    check("nor one found yet lost, or lost yet found, or of the old short form",
+          !vision_session_parse_line(&s, "trace 1 0 0 40 0 0 0 0 300 0", &ev) &&
+              !vision_session_parse_line(&s, "trace 0 0 0 0 0 0 0 0 0 0", &ev) &&
+              !vision_session_parse_line(&s, "trace 1 -120 450 300", &ev));
+    check("a swatch line parses into the report",
+          vision_session_parse_line(&s, "swatch 200 30 30 3 3 2 820 5 320 180 22", &ev) && ev.kind == VISION_EV_SWATCH &&
+              s.pixels.swatch.r == 200 && s.pixels.swatch.name == 3 && s.pixels.swatch.first == 3 &&
+              s.pixels.swatch.second == 2 && s.pixels.swatch.share_pm == 820 && s.pixels.swatch.steady == 5 &&
+              s.pixels.swatch.x == 320 && s.pixels.swatch.y == 180 && s.pixels.swatch.half == 22);
+    check("a mixed swatch names its first apart",
+          vision_session_parse_line(&s, "swatch 200 30 30 12 3 2 480 0 320 180 22", &ev) && s.pixels.swatch.name == 12 &&
+              s.pixels.swatch.first == 3);
+    check("a swatch whose name is not its first, or out of range, does not",
+          !vision_session_parse_line(&s, "swatch 200 30 30 3 4 2 820 5 320 180 22", &ev) &&
+              !vision_session_parse_line(&s, "swatch 200 30 30 13 3 2 820 5 320 180 22", &ev) &&
+              !vision_session_parse_line(&s, "swatch 200 30 30 3 3 12 820 5 320 180 22", &ev) &&
+              !vision_session_parse_line(&s, "swatch 200 30 30 3 3 2 820 5 320 180 99", &ev));
     check("a traffic line short of a class does not",
           !vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0", &ev));
     check("nor one with junk after", !vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0 1:1 x", &ev));
@@ -1148,7 +1173,26 @@ static void test_pixels(void)
         wait_for(&s, VISION_EV_FRAME, 1000, &ev, seen, &w);
     }
     (void)px;
-    check("without a target COLOR says nothing", !wait_for(&s, VISION_EV_COLOR, 400, &ev, seen, &w));
+    check("without a target COLOR matches nothing", !wait_for(&s, VISION_EV_COLOR, 400, &ev, seen, &w));
+    check("but reads its square, at the centre",
+          wait_for(&s, VISION_EV_SWATCH, 2000, &ev, seen, &w) && s.pixels.swatch.x == 180 &&
+              s.pixels.swatch.y == 320 && s.pixels.swatch.half == 22 && s.pixels.swatch.name >= 0 &&
+              s.pixels.swatch.name < VISION_SWATCH_NAMES);
+    printf("     read %s #%02x%02x%02x (%u.%u%% of the square)\n", vision_swatch_name(s.pixels.swatch.name),
+           s.pixels.swatch.r, s.pixels.swatch.g, s.pixels.swatch.b, s.pixels.swatch.share_pm / 10,
+           s.pixels.swatch.share_pm % 10);
+    vision_session_probe(&s, 0, 0);
+    for (i = 0; i < 10 && (s.pixels.swatch.x != 22 || s.pixels.swatch.y != 22); i++) {
+        wait_for(&s, VISION_EV_SWATCH, 1000, &ev, seen, &w);
+    }
+    check("a probe at a corner reads a square moved inside the picture", s.pixels.swatch.x == 22 &&
+                                                                             s.pixels.swatch.y == 22);
+    check("and starts its filter again", s.pixels.swatch.steady < 10);
+    vision_session_probe(&s, -1, -1);
+    for (i = 0; i < 10 && s.pixels.swatch.x != 180; i++) {
+        wait_for(&s, VISION_EV_SWATCH, 1000, &ev, seen, &w);
+    }
+    check("probe centre goes back", s.pixels.swatch.x == 180 && s.pixels.swatch.y == 320);
     vision_session_sample(&s, 180, 320);
     check("a sample in the middle brings a colour report", wait_for(&s, VISION_EV_COLOR, 2000, &ev, seen, &w));
     /* The fake camera's bars move: a 5 x 5 sample that straddles two of
@@ -1163,6 +1207,10 @@ static void test_pixels(void)
     vision_session_mode_word(&s, "trace");
     vision_session_trace(&s, false);
     check("TRACE answers", wait_for(&s, VISION_EV_TRACE, 2000, &ev, seen, &w));
+    check("with a line that is found now, or said lost or never found",
+          s.pixels.trace.found ? s.pixels.trace.lost_ms == 0 : s.pixels.trace.lost_ms != 0);
+    printf("     trace: found %d, %u rows, %u candidate rows, lost %d ms\n", s.pixels.trace.found, s.pixels.trace.rows,
+           s.pixels.trace.candidates, s.pixels.trace.lost_ms);
     vision_session_mode_word(&s, "detect");
     for (i = 0; i < 6; i++) {
         wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w);

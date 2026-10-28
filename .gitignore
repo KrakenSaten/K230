@@ -241,6 +241,7 @@ BUILD_ID
 /tests/vision_track_test
 /tests/vision_traffic_test
 /tests/vision_pixels_test
+/tests/vision_swatch_test
 /tests/vision_geom_test
 /tests/vision_model_test
 /tests/vision_session_test
