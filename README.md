@@ -8,16 +8,16 @@ DOORS turns the K230 into a small Linux platform for communication, local AI,
 tools, games and experimentation — built around its touchscreen, keyboard,
 LoRa radio, camera and hardware AI acceleration.
 
-- **[Download DOORS v0.3.8 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.3.8/doors-0.3.8-tdisplay-k230-bc889b0d.img.gz)**: the ready-to-flash
+- **[Download DOORS v0.3.9 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.3.9/doors-0.3.9-tdisplay-k230-c03795ce.img.gz)**: the ready-to-flash
   microSD card image (121 MB). Write it to a card as it is; GitHub's
   "Source code" archives on the release page are source, not an image.
 - **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
   write the card, first boot, Wi-Fi and RIFT. No development tools needed.
 - **[3D-print a desk stand](https://github.com/KrakenSaten/K230/tree/master/hardware/stand)**: a printable stand for the
   K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
-- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.8)**: what v0.3.8 contains, the
+- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.3.9)**: what v0.3.9 contains, the
   SHA-256 checksums
-  ([SHA256SUMS.txt](https://github.com/KrakenSaten/K230/releases/download/v0.3.8/SHA256SUMS.txt)),
+  ([SHA256SUMS.txt](https://github.com/KrakenSaten/K230/releases/download/v0.3.9/SHA256SUMS.txt)),
   and the licence, notices and attribution files.
 - **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
   priority order.
@@ -39,8 +39,8 @@ communication, local AI, everyday tools, games and further development.
 
 - **RIFT** — MeshCore messaging: direct messages with delivery acknowledgement,
   channels (Public included), nodes, a map and the radio's own status.
-  MAP's TRAFFIC mode, local analysis of the packets heard and their observed
-  paths, is [under review](docs/apps/rift/TRAFFIC.md) and not in v0.3.8.
+  MAP's [TRAFFIC mode](docs/apps/rift/TRAFFIC.md) (since 0.3.9) is a local,
+  read-only analysis of the packets heard and their observed paths.
 - **MeshCore integration** — `meshcored`, the MeshCore protocol service on the
   SX1262 radio; disabled in the image and enabled per unit
   (docs/services/MESHCORED.md).
@@ -108,8 +108,8 @@ A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
 the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
 keep their own licences. Not everything in this repository is Apache-2.0
 either. Vision's R0 detector model is Apache-2.0 too, while the data it was
-trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.3.8, like 0.3.5
-to 0.3.7, is published on the product owner's decision with some third-party
+trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.3.9, like 0.3.5
+to 0.3.8, is published on the product owner's decision with some third-party
 questions still open (the vendor's KPU runtime modules and ISP server, the
 toolchain's source, LILYGO's files, and the points about R0's training data
 in MODEL_LICENSES.md); docs/licensing/APACHE_2_READINESS.md §14 lists the
@@ -183,25 +183,27 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.3.8** (tag `v0.3.8`, 2026-10-22) is the current release:
-**[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.3.8/doors-0.3.8-tdisplay-k230-bc889b0d.img.gz)**
-([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.3.8)),
+**Doors 0.3.9** (tag `v0.3.9`, 2026-10-28) is the current release:
+**[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.3.9/doors-0.3.9-tdisplay-k230-c03795ce.img.gz)**
+([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.3.9)),
 then follow [Get started](docs/GETTING_STARTED.md). It is everything merged
-since 0.3.7: Relay Nine, a first-person game with its own sound effects;
-explicit routes for a RIFT direct message, chosen on MAP with the Visual
-Path Builder; sentence capitals and a larger emoji picker in RIFT;
-DeskBuddy's camera presence in BUDDY and an optional Guard visit sound (off
-by default); and the optional Neon theme. Release notes, with its
-fresh-card smoke test: [docs/releases/v0.3.8.md](docs/releases/v0.3.8.md).
+since 0.3.8: Vision's CLASSES list, a steadier COLOR and a LINE TRACE that
+follows one line, with the optional 80-class detector named GENERAL 80
+(its weights are not part of Doors); DeskBuddy telling a stalled camera
+from an empty desk and keeping a Guard visit through it; Relay Nine played
+fullscreen with refined artwork; and RIFT MAP's read-only TRAFFIC mode.
+Release notes, with its fresh-card smoke test:
+[docs/releases/v0.3.9.md](docs/releases/v0.3.9.md). A build from a clean
+SDK output is not yet verified (the notes, "Reproducing"; draft PR #115).
 
-**Doors 0.3.7** (tag `v0.3.7`, 2026-10-17) was the previous release:
-everything merged since 0.3.6 - Vision on an HDMI monitor (chosen at boot),
-RIFT MAP's OpenStreetMap basemap (off by default) and RIFT fixes, read-only
-battery readings, DeskBuddy's camera-free Companion, a Help & Feedback QR
-code, and game fixes. Release notes:
-[docs/releases/v0.3.7.md](docs/releases/v0.3.7.md).
+**Doors 0.3.8** (tag `v0.3.8`, 2026-10-22) was the previous release:
+everything merged since 0.3.7 - Relay Nine, explicit routes for a RIFT
+direct message, sentence capitals and a larger emoji picker in RIFT,
+DeskBuddy's camera presence and an optional Guard visit sound, and the
+optional Neon theme. Release notes:
+[docs/releases/v0.3.8.md](docs/releases/v0.3.8.md).
 
-Earlier releases, from v0.3.5 back to the first PocketOS images:
+Earlier releases, from v0.3.7 back to the first PocketOS images:
 [docs/releases/HISTORY.md](docs/releases/HISTORY.md).
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
