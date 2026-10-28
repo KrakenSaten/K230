@@ -38,6 +38,9 @@
  *   color <r> <g> <b> | color off the COLOR target (8-bit), or none
  *   sample <x> <y>                COLOR: take the target from the next
  *                                 preview at this view point
+ *   probe <x> <y> | probe centre  COLOR: where the colour is read (the
+ *                                 square's centre, view pixels); a move
+ *                                 starts the reading's filter again
  *   tol <n>                       COLOR: the tolerance, 0..765
  *   edge <threshold>              EDGE: 0 for grey magnitudes, 1..255 for
  *                                 black and white at the threshold
@@ -106,14 +109,31 @@
  *                                 the share of the picture that matched
  *                                 (per-mille) and the matches' centroid in
  *                                 view pixels (-1 -1 with none)
+ *   swatch <r> <g> <b> <name> <first> <second> <share_pm> <steady> <x> <y> <half>
+ *                                 COLOR, with every preview, read before
+ *                                 the matches are painted: the colour in
+ *                                 the square (vision_swatch.h, filtered),
+ *                                 its name, the largest and next largest
+ *                                 category (enum vision_swatch_cat; name
+ *                                 12 is mixed, else name is first), the
+ *                                 share of the first, the readings
+ *                                 since the name last changed, and the
+ *                                 square (centre and half side, view
+ *                                 pixels)
  *   edge <strong_pm>              EDGE, with every preview: the share of
  *                                 strong edges
- *   trace <found> <offset_pm> <slope_pm> <rows>
- *                                 TRACE, with every preview: whether a
- *                                 line was found, the bottom band's offset
- *                                 from the centre (-1000..1000), the lean
- *                                 (dx per 1000 rows going down), rows with
- *                                 a plausible run
+ *   trace <found> <offset_pm> <slope_pm> <rows> <x0> <y0> <x1> <y1> <lost_ms> <candidates>
+ *                                 TRACE, with every preview: whether the
+ *                                 line is in this picture, its bottom's
+ *                                 offset from the centre (-1000..1000) and
+ *                                 lean (dx per 1000 rows going down), both
+ *                                 smoothed while it stays found; the rows
+ *                                 on it; the fitted line from its top to
+ *                                 its bottom (view pixels, 0 0 0 0 when
+ *                                 not found); how long since it was last
+ *                                 found (0 found, -1 never since the mode
+ *                                 began); and the rows holding any
+ *                                 candidate
  *   stats <fps_x10> <infer_ms> <pre_ms> <post_ms> <cpu_pct> <rss_kb> <bad> <dropped>
  *                                 once a second while streaming: frames
  *                                 inferred per second (previews worked on,
@@ -150,7 +170,7 @@
 
 #include "pocketcam/pocketcam_proto.h"
 
-#define VISION_PROTO_VERSION 2
+#define VISION_PROTO_VERSION 3
 #define VISION_LINE_MAX 2048
 /* Boxes on one det line: 24 of at most 52 characters fit VISION_LINE_MAX
  * with the head to spare. */

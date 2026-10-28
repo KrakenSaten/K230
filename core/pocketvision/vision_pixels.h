@@ -13,11 +13,19 @@
  *   EDGE    Sobel on the luma: the picture becomes its edge magnitude in
  *           grey, or black and white above a threshold; the share of
  *           strong edges comes back.
- *   TRACE   the dominant dark (or light) line: per row the centroid of
- *           the dark pixels when there is a plausible run of them, a
- *           least-squares line through those centroids, the offset of the
- *           bottom band's centroid from the picture's centre, and the
- *           slope; the centroids are marked on the picture.
+ *   TRACE   one dark (or light) line, followed up from the bottom of the
+ *           picture. Per row, the runs of pixels clearly darker (lighter)
+ *           than that row's own mean - a threshold that follows the light,
+ *           not a fixed grey - and of a plausible width are the
+ *           candidates. One is picked in the lower half (the one nearest
+ *           where the line was last seen, else the longest chain) and
+ *           followed upwards, row by row, to the run nearest where it was
+ *           heading, across short gaps. A least-squares line through that
+ *           chain gives the offset of its bottom from the picture's centre
+ *           and its lean. With a state (struct vision_trace_state) both
+ *           are smoothed over consecutive pictures, and a picture without
+ *           the line says so at once: nothing stale is reported as found.
+ *           The candidates are marked in cyan, the line followed in yellow.
  *
  * Nothing here allocates: the working rows are static and bounded by the
  * picture width the helper can ever ask for.
@@ -34,8 +42,9 @@
 #define VISION_PIXELS_MAX_W 1024
 #define VISION_COLOR_TOL_MAX 765
 #define VISION_EDGE_STRONG 64      /* the grey above which an edge counts as one */
-#define VISION_TRACE_DARK 64       /* luma below this is a dark line */
-#define VISION_TRACE_LIGHT 192     /* luma above this is a light line */
+#define VISION_TRACE_CONTRAST 28   /* the least a line pixel differs from its row's mean luma */
+#define VISION_TRACE_RUNS 8        /* candidate runs a row may hold; more is texture, not a line */
+#define VISION_TRACE_REACQUIRE 20  /* pictures a lost line is looked for where it was last seen */
 
 struct vision_rgb {
     uint8_t r;
@@ -56,10 +65,28 @@ struct vision_edge_result {
 };
 
 struct vision_trace_result {
-    bool found;
-    int32_t offset_pm;  /* the bottom band's centroid from the centre: -1000 (left edge) .. 1000 */
-    int32_t slope_pm;   /* the line's dx per 1000 rows going down: positive leans right at the bottom */
-    uint32_t rows;      /* rows with a plausible line run */
+    bool found;          /* the line is in this picture */
+    int32_t offset_pm;   /* its bottom from the centre: -1000 (left edge) .. 1000 */
+    int32_t slope_pm;    /* its dx per 1000 rows going down: positive leans right at the bottom */
+    uint32_t rows;       /* rows on the line followed */
+    uint32_t candidates; /* rows with any candidate run, on the line or not */
+    int32_t x0;          /* the fitted line, from its top row (x0, y0) to its bottom row (x1, y1) */
+    int32_t y0;
+    int32_t x1;
+    int32_t y1;
+    uint32_t lost;       /* pictures since the line was last found; 0 when found */
+    bool ever;           /* a line has been found since the state was reset */
+};
+
+/* What TRACE carries from picture to picture: where the line was, its
+ * smoothed offset and lean, how long it has been gone. */
+struct vision_trace_state {
+    bool ever;
+    uint32_t lost;       /* pictures since it was last found */
+    uint32_t streak;     /* pictures found in a row */
+    int32_t last_x;      /* its bottom when last found */
+    int32_t s_x16;       /* the smoothed bottom x, x16 */
+    int32_t s_slope_pm;  /* the smoothed lean */
 };
 
 /* The 8-bit colour of an RGB565 pixel, and back. */
@@ -83,9 +110,11 @@ int vision_pixels_color(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, s
 int vision_pixels_edge(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, uint32_t threshold,
                        struct vision_edge_result *out);
 
-/* Find the dominant dark (or light) line and mark its centroids. 0 or
- * -EINVAL; `found` says whether there was one. */
+/* Find the dark (or light) line, and mark it and the other candidates. st
+ * carries the line from picture to picture (NULL: this picture alone). 0
+ * or -EINVAL; `found` says whether the line is in this picture. */
+void vision_trace_reset(struct vision_trace_state *st);
 int vision_pixels_trace(uint16_t *px, uint32_t w, uint32_t h, uint32_t stride, bool dark,
-                        struct vision_trace_result *out);
+                        struct vision_trace_state *st, struct vision_trace_result *out);
 
 #endif

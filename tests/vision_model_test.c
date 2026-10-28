@@ -13,6 +13,8 @@
 #include "vision_model.h"
 #include "vision_trails.h"
 
+#include "pocketvision/vision_swatch.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -125,8 +127,10 @@ static void test_states(void)
               vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, NULL, 4000) == 0 && !m.stats_valid);
         vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, &s, 4000);
         vision_model_text(&m, &t, buf, sizeof(buf));
+        /* DETECT's line is the short one (fps, KPU, CPU); the resident
+         * set is in the log, and in TRACK's line. */
         check("stats become the status line", strstr(t.status, "12.3 fps") && strstr(t.status, "KPU 31 ms") &&
-                                                  strstr(t.status, "CPU 40%") && strstr(t.status, "20 MB"));
+                                                  strstr(t.status, "CPU 40%") && !strstr(t.status, "20 MB"));
     }
 
     e = ev(VISION_EV_LOST);
@@ -256,9 +260,9 @@ static void test_picker(void)
         int32_t pm[4];
 
         vision_model_text(&m, &t, buf, sizeof(buf));
-        check("DETECT: MODE alone, no lines, no ids, one status line",
-              vision_model_buttons(&m, order) == 1 && order[0] == VISION_BTN_MODE && !t.lines && !t.ids &&
-                  vision_model_status_lines(&m) == 1 && strcmp(t.mode_btn, "DETECT") == 0);
+        check("DETECT: MODE and CLASSES, no lines, no ids, two status lines",
+              vision_model_buttons(&m, order) == 2 && order[0] == VISION_BTN_MODE && order[1] == VISION_BTN_CLASSES &&
+                  !t.lines && !t.ids && vision_model_status_lines(&m) == 2 && strcmp(t.mode_btn, "DETECT") == 0);
         check("DETECT sends no counting line", !vision_model_line_pm(&m, pm));
         vision_session_init(&s);
         s.shown_count = 3;
@@ -504,18 +508,66 @@ static void test_tools(void)
                    VISION_ACT_RANGE | VISION_ACT_SAVE) &&
               vision_model_pixel_mode(&m) && strcmp(vision_model_mode_word(&m), "color") == 0);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("COLOR: the picture takes taps; no lines; no counts",
+    check("COLOR: the picture takes taps; no lines; no reading yet",
           strcmp(t.mode_btn, "COLOR") == 0 && t.picture_tap && !t.lines && !t.traffic && strcmp(t.count_a, "-") == 0 &&
-              strcmp(t.tol_btn, "TOL: MED") == 0 && vision_model_tol(&m) == 96 && vision_model_status_lines(&m) == 1);
-    check("it asks for a colour", strstr(t.status, "Tap the picture or SAMPLE") != NULL);
+              strcmp(t.tol_btn, "TOL: MED") == 0 && vision_model_tol(&m) == 96 && vision_model_status_lines(&m) == 2 &&
+              !t.show_probe);
+    check("it says it is reading, and how to move the square", strstr(t.status, "Reading the colour in the square") &&
+                                                                    strstr(t.status, "Tap moves the square"));
+    check("MATCH has nothing to match before a reading", strcmp(t.match_btn, "MATCH") == 0 && !t.match_enabled &&
+                                                             vision_model_match_button(&m) == 0 && !m.have_target);
     vision_model_mode_button(&m);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("with the picker open a tap on the picture picks nothing", !t.picture_tap);
     vision_model_sheet_close(&m);
-    check("SAMPLE asks the helper for the middle", vision_model_sample_middle(&m, 400, 600) == VISION_ACT_SAMPLE &&
-                                                       m.sample_x == 200 && m.sample_y == 300);
-    check("a tap asks for that point", vision_model_sample_at(&m, 10, 20) == VISION_ACT_SAMPLE && m.sample_x == 10);
-    check("a point off the picture does not", vision_model_sample_at(&m, -1, 20) == 0);
+    /* The reading: red, 82 % of the square, steady. */
+    s.pixels.swatch.r = 200;
+    s.pixels.swatch.g = 30;
+    s.pixels.swatch.b = 30;
+    s.pixels.swatch.name = VISION_SWATCH_RED;
+    s.pixels.swatch.first = VISION_SWATCH_RED;
+    s.pixels.swatch.second = VISION_SWATCH_WHITE;
+    s.pixels.swatch.share_pm = 820;
+    s.pixels.swatch.steady = 5;
+    s.pixels.swatch.x = 200;
+    s.pixels.swatch.y = 300;
+    s.pixels.swatch.half = 22;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 5900);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a reading: the name in the counter, colour and share in the status",
+          strcmp(t.count_a, "RED") == 0 && strstr(t.status, "red  #C81E1E  82% of the square") &&
+              !strstr(t.status, "settling"));
+    check("the square and its swatch on the picture", t.show_probe && t.probe_x == 200 && t.probe_y == 300 &&
+                                                          t.probe_half == 22 && t.swatch[0] == 200 && t.swatch[1] == 30);
+    s.pixels.swatch.steady = 0;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 5910);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a name just changed says it is settling", strstr(t.status, "(settling)") != NULL);
+    s.pixels.swatch.name = VISION_SWATCH_MIXED;
+    s.pixels.swatch.share_pm = 480;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 5920);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("mixed names its two largest", strcmp(t.count_a, "MIXED") == 0 &&
+                                             strstr(t.status, "mixed: red 48% and white") != NULL);
+    s.pixels.swatch.name = VISION_SWATCH_DARK;
+    s.pixels.swatch.first = VISION_SWATCH_DARK;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 5930);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("dark is not called black for sure", strcmp(t.count_a, "DARK") == 0 &&
+                                                   strstr(t.status, "black, or too little light to tell") != NULL);
+    s.pixels.swatch.name = VISION_SWATCH_RED;
+    s.pixels.swatch.first = VISION_SWATCH_RED;
+    s.pixels.swatch.steady = 5;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 5940);
+    check("a tap moves the square there", vision_model_probe_at(&m, 10, 20) == VISION_ACT_PROBE && m.probe_x == 10 &&
+                                              m.probe_y == 20 && !m.swatch_valid);
+    check("a point off the picture does not", vision_model_probe_at(&m, -1, 20) == 0);
+    check("the centre again", vision_model_probe_centre(&m) == VISION_ACT_PROBE && m.probe_x == -1);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 5950);
+    check("MATCH takes the colour read as the target", vision_model_match_button(&m) == VISION_ACT_TARGET &&
+                                                           m.have_target && m.target[0] == 200 && m.target[1] == 30);
+    check("the old SAMPLE request still works for the helper's own sample",
+          vision_model_sample_middle(&m, 400, 600) == VISION_ACT_SAMPLE && m.sample_x == 200 && m.sample_y == 300);
     check("TOL cycles, sends and stores", vision_model_tol_next(&m) == (VISION_ACT_PIXELS | VISION_ACT_SAVE) &&
                                               vision_model_tol(&m) == 160);
     vision_model_tol_next(&m);
@@ -528,9 +580,37 @@ static void test_tools(void)
     s.pixels.color.cy = 80;
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6000);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("a colour report is the status and the mark", m.have_target && strstr(t.status, "#C81E1E") &&
-                                                            strstr(t.status, "match 12.3%") && strstr(t.status, "at 150,80") &&
-                                                            t.show_mark && t.mark_x == 150 && t.mark_y == 80);
+    check("a match report is the second line, the counter and the mark",
+          m.have_target && strstr(t.status, "\nMATCH #C81E1E: 12.3% of the picture") &&
+              strcmp(t.count_b, "MATCH 12.3%") == 0 && t.show_mark && t.mark_x == 150 && t.mark_y == 80 &&
+              strcmp(t.match_btn, "CLEAR") == 0 && t.match_enabled);
+    {
+        /* Unit A, 2026-10-26: with the frame rate in front the line wrapped
+         * on the panel and lost its end. One panel line is about 45
+         * characters at the body size; the stats must not lead it. */
+        const char *l2 = strchr(t.status, '\n');
+
+        m.stats = (struct vision_stats) { .fps_x10 = 99, .post_ms = 6 };
+        m.stats_valid = true;
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        l2 = strchr(t.status, '\n');
+        check("the MATCH line fits one panel line, with no frame rate in front",
+              l2 && strncmp(l2 + 1, "MATCH #", 7) == 0 && strlen(l2 + 1) <= 40);
+        m.stats_valid = false;
+    }
+    check("CLEAR stops matching, and a late report brings nothing back",
+          vision_model_match_button(&m) == VISION_ACT_TARGET && !m.have_target &&
+              (vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6010),
+               vision_model_text(&m, &t, buf, sizeof(buf)), !m.have_target && !t.show_mark &&
+                                                                strcmp(t.count_b, "-") == 0));
+    s.pixels.swatch.r = 10;
+    s.pixels.swatch.g = 200;
+    s.pixels.swatch.b = 10;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_SWATCH }, &s, 6020);
+    vision_model_match_button(&m);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6030);
+    check("a late report of the earlier target is not taken for the new one",
+          m.have_target && m.target[1] == 200 && !m.color_valid);
     vision_model_set_mode(&m, VISION_MODE_EDGE);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("EDGE: soft; no taps, no mark", strcmp(t.edge_btn, "EDGE: SOFT") == 0 && !t.picture_tap && !t.show_mark &&
@@ -546,21 +626,46 @@ static void test_tools(void)
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("TRACE: LINE: DARK", strcmp(t.trace_btn, "LINE: DARK") == 0 && strcmp(t.mode_btn, "LINE TRACE") == 0 &&
                                    strstr(t.status, "Looking for a dark line") != NULL);
+    check("TRACE: two status lines, nothing drawn yet", vision_model_status_lines(&m) == 2 && !t.show_trace);
     s.pixels.trace.found = true;
     s.pixels.trace.offset_pm = -120;
     s.pixels.trace.slope_pm = 450;
     s.pixels.trace.rows = 300;
+    s.pixels.trace.x0 = 100;
+    s.pixels.trace.y0 = 20;
+    s.pixels.trace.x1 = 180;
+    s.pixels.trace.y1 = 590;
+    s.pixels.trace.lost_ms = 0;
+    s.pixels.trace.candidates = 320;
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6200);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("a line is said with its offset and lean", strstr(t.status, "line left 12%") && strstr(t.status, "leans right 45%") &&
-                                                         strstr(t.status, "300 rows"));
+    check("a line is said as followed, with its rows", strstr(t.status, "Following a dark line, 300 rows") != NULL &&
+                                                           !t.status_warn);
+    check("and in the counters", strcmp(t.count_a, "LEFT 12%") == 0 && strcmp(t.count_b, "LEAN R 45%") == 0);
+    check("and drawn from end to end", t.show_trace && t.trace[0] == 100 && t.trace[1] == 20 && t.trace[2] == 180 &&
+                                           t.trace[3] == 590);
+    s.pixels.trace.offset_pm = 20;
+    s.pixels.trace.slope_pm = -10;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6210);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("near the middle is CENTRE and STRAIGHT", strcmp(t.count_a, "CENTRE") == 0 &&
+                                                        strcmp(t.count_b, "STRAIGHT") == 0);
+    s.pixels.trace.found = false;
+    s.pixels.trace.lost_ms = 1450;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6250);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a line lost is said lost, as a warning, and nothing stale is drawn",
+          !t.show_trace && t.status_warn && strstr(t.status, "Line lost 1.4 s ago") &&
+              strcmp(t.count_a, "LOST") == 0 && strcmp(t.count_b, "1.4 s") == 0);
     check("LINE: LIGHT sends, stores, and forgets the last answer",
           vision_model_trace_next(&m) == (VISION_ACT_PIXELS | VISION_ACT_SAVE) && !m.set.trace.dark && !m.trace_valid);
     s.pixels.trace.found = false;
     s.pixels.trace.rows = 3;
+    s.pixels.trace.lost_ms = -1;
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6300);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("no line is said too", strstr(t.status, "no light line") != NULL);
+    check("no line yet is said too, without a warning", strstr(t.status, "No light line found yet") != NULL &&
+                                                            !t.status_warn && strcmp(t.count_a, "NO LINE") == 0);
     check("the class names", strcmp(vision_model_traffic_name(3), "moto") == 0 && strcmp(vision_model_traffic_name(6), "?") == 0);
 }
 
@@ -671,6 +776,18 @@ static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it
         sheet_on(what, &l.picture, 5, picker);
         sheet_on(what, &l.picture, 5, full);
     }
+    {
+        /* CLASSES: one row of < > DONE, and room under it for a page of
+         * names (four lines of the secondary text at least). */
+        const int nav[1] = { 3 };
+        struct vision_sheet_layout sl;
+
+        sheet_on(what, &l.picture, 1, nav);
+        vision_layout_sheet(&sl, l.picture.w, l.picture.h, 1, nav);
+        snprintf(name, sizeof(name), "%s: the CLASSES page has room under its row (%d px)", what, (int)sl.body.h);
+        check(name, sl.body.h >= 4 * VISION_SHEET_CAPTION_H && sl.body.y >= sl.cell[0][0].y + sl.cell[0][0].h &&
+                        inside(&sl.body, 0, 0, l.picture.w, l.picture.h));
+    }
 }
 
 static void test_layout(void)
@@ -698,6 +815,16 @@ static void test_layout(void)
     shape("landscape TRAFFIC A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 3);
     shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
     shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
+    /* DETECT with CLASSES and its "In view" line (and MODEL); COLOR with its
+     * reading and MATCH; TRACE with its two lines; COLOR with no detector,
+     * which says so on a third. */
+    shape("portrait DETECT+CLASSES", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 2);
+    shape("landscape DETECT+CLASSES", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 2);
+    shape("portrait COLOR", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 2);
+    shape("landscape COLOR", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 2);
+    shape("portrait TRACE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 2);
+    shape("landscape TRACE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 2);
+    shape("landscape COLOR, no detector", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 3);
     check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, 1) == -1);
     check("a frame with no size is refused", vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 0, 360, 3, 1) == -1);
     check("too many buttons or status lines are refused",
@@ -1036,9 +1163,9 @@ static void test_no_detector(void)
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_FRAME }, NULL, 1100);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("the status keeps the mode's line and says why under it",
-          t.show_picture && strncmp(t.status, "Tap the picture", 15) == 0 &&
+          t.show_picture && strncmp(t.status, "Reading the colour", 18) == 0 &&
               strstr(t.status, "\n" VISION_NO_DETECTOR_TEXT) != NULL);
-    check("with a status line more for it", vision_model_status_lines(&m) == 2);
+    check("with a status line more for it", vision_model_status_lines(&m) == 3);
 
     vision_model_init(&m);
     vision_model_open(&m);
@@ -1048,7 +1175,7 @@ static void test_no_detector(void)
     vision_model_event(&m, &e, NULL, 1000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("with the detector nothing of this is said",
-          vision_model_detector(&m) && strstr(t.status, VISION_NO_DETECTOR_TEXT) == NULL && vision_model_status_lines(&m) == 1);
+          vision_model_detector(&m) && strstr(t.status, VISION_NO_DETECTOR_TEXT) == NULL && vision_model_status_lines(&m) == 2);
 }
 
 /* THE DETECTOR A/B (vision_model.h). */
@@ -1093,7 +1220,8 @@ static void test_detector_ab(void)
     check("A/B: without the files the helper opens its own default", vision_model_detector_to_load(&m) == -1);
     det_ready(&m, "yolov8n.kmodel", 1000);
     n = vision_model_buttons(&m, order);
-    check("A/B: without the files DETECT has MODE only, as before", n == 1 && order[0] == VISION_BTN_MODE);
+    check("A/B: without the files DETECT has MODE and CLASSES, no MODEL", n == 2 && order[0] == VISION_BTN_MODE &&
+                                                                         order[1] == VISION_BTN_CLASSES);
     check("A/B: without the files MODEL does nothing", vision_model_model_button(&m, DET_BOTH) == 0);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: without the files the status is as before", strncmp(t.status, "Detecting", 9) == 0);
@@ -1107,16 +1235,17 @@ static void test_detector_ab(void)
                                                      m.det_active == -1);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: while it loads MODEL says so and takes no taps",
-          strcmp(t.model_btn, "LOADING UPSTREAM") == 0 && !t.model_enabled &&
-              strstr(t.detail, "UPSTREAM detector") != NULL);
+          strcmp(t.model_btn, "LOADING GENERAL") == 0 && !t.model_enabled &&
+              strstr(t.detail, "GENERAL 80 detector") != NULL);
     check("A/B: no tap before it is in force", vision_model_model_button(&m, DET_BOTH) == 0);
     acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: in force once ready names it", m.det_active == VISION_DET_UPSTREAM && m.state == VISION_LIVE &&
-                                                   strcmp(t.model_btn, "UPSTREAM") == 0 && t.model_enabled);
+                                                   strcmp(t.model_btn, "GENERAL 80") == 0 && t.model_enabled);
     check("A/B: the same detector is not stored again", (acts & VISION_ACT_SAVE) == 0);
     n = vision_model_buttons(&m, order);
-    check("A/B: DETECT ends with MODEL", n == 2 && order[1] == VISION_BTN_MODEL);
+    check("A/B: DETECT ends with MODEL, after CLASSES", n == 3 && order[1] == VISION_BTN_CLASSES &&
+                                                            order[2] == VISION_BTN_MODEL);
     vision_model_set_mode(&m, VISION_MODE_TRACK);
     n = vision_model_buttons(&m, order);
     check("A/B: TRACK ends with MODEL (five buttons)", n == 5 && order[4] == VISION_BTN_MODEL);
@@ -1131,7 +1260,7 @@ static void test_detector_ab(void)
     m.stats_valid = true;
     vision_model_set_mode(&m, VISION_MODE_DETECT);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("A/B: DETECT's numbers say whose they are", strncmp(t.status, "UPSTREAM  15.0 fps  KPU 53 ms", 29) == 0);
+    check("A/B: DETECT's numbers say whose they are", strncmp(t.status, "GENERAL 80  15.0 fps  KPU 53 ms", 31) == 0);
 
     /* To R0: a new helper, nothing counted kept, nothing stored yet. */
     vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
@@ -1178,7 +1307,7 @@ static void test_detector_ab(void)
           acts == VISION_ACT_OPEN && m.state == VISION_INIT &&
               vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM && m.det_fallback == -1);
     check("A/B: saying what failed and why",
-          strcmp(m.det_fail, "R0 · Beta could not be loaded: not a kmodel this runtime can load. Back on UPSTREAM.") == 0);
+          strcmp(m.det_fail, "R0 · Beta could not be loaded: not a kmodel this runtime can load. Back on GENERAL 80.") == 0);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("A/B: while going back too", strcmp(t.detail, m.det_fail) == 0);
     acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 5500);
@@ -1229,7 +1358,7 @@ static void test_detector_ab(void)
     vision_model_open(&m);
     check("A/B: a stored detector whose file has gone opens the other",
           vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM && m.det_fallback == -1 &&
-              strcmp(m.det_fail, "R0 · Beta is not on this unit. Using UPSTREAM.") == 0);
+              strcmp(m.det_fail, "R0 · Beta is not on this unit. Using GENERAL 80.") == 0);
     acts = det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
     check("A/B: and keeps that once it is in force", m.set.detector == VISION_DET_UPSTREAM && (acts & VISION_ACT_SAVE));
 
@@ -1252,7 +1381,7 @@ static void test_detector_ab(void)
               (acts & VISION_ACT_SAVE) == 0);
     check("fresh: MODEL names it but is no choice: there is no other detector", !t.model_enabled);
     n = vision_model_buttons(&m, order);
-    check("fresh: DETECT still shows which detector runs", n == 2 && order[1] == VISION_BTN_MODEL);
+    check("fresh: DETECT still shows which detector runs", n == 3 && order[2] == VISION_BTN_MODEL);
     check("fresh: a tap anyway loads nothing", vision_model_model_button(&m, 1u << VISION_DET_R0) == 0 &&
                                                    m.state == VISION_LIVE && m.det_active == VISION_DET_R0);
     m.det_fail[0] = '\0';
@@ -1273,16 +1402,156 @@ static void test_detector_ab(void)
     vision_model_open(&m);
     check("stale: UPSTREAM stored, only R0 here: R0, said",
           vision_model_detector_to_load(&m) == VISION_DET_R0 && m.det_fallback == -1 &&
-              strcmp(m.det_fail, "UPSTREAM is not on this unit. Using R0 · Beta.") == 0);
+              strcmp(m.det_fail, "GENERAL 80 is not on this unit. Using R0 · Beta.") == 0);
     acts = det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("stale: R0 stored once in force, UPSTREAM not offered",
           m.set.detector == VISION_DET_R0 && (acts & VISION_ACT_SAVE) && !t.model_enabled);
 }
 
+/* DETECT's CLASSES and its "In view" line: what the detector in force can
+ * name, and only that. */
+static void test_classes(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_sheet_view v;
+    struct vision_session s;
+    char buf[384];
+    int i;
+    int ok;
+    int total;
+
+    /* GENERAL 80 (the upstream file) in force: COCO's 80, a group a page. */
+    vision_model_init(&m);
+    m.set.detector = VISION_DET_UPSTREAM;
+    vision_model_set_detector_files(&m, DET_BOTH);
+    vision_model_open(&m);
+    det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 1000);
+    check("CLASSES: 80 classes in 12 pages", vision_model_class_pages(&m) == 12 && !vision_model_r0_only(&m));
+    check("CLASSES opens the list", vision_model_classes_button(&m) == 0 && m.sheet == VISION_SHEET_CLASSES);
+    vision_model_sheet(&m, &v);
+    check("the first page: PEOPLE, one class, page 1 of 12, < > DONE",
+          v.kind == VISION_SHEET_CLASSES && strcmp(v.title, "PEOPLE (1)") == 0 && strncmp(v.body, "person.", 7) == 0 &&
+              strstr(v.body, "GENERAL 80 boxes these 80 COCO classes and nothing else") &&
+              v.rows == 1 && v.row[0].cells == 3 && strcmp(v.row[0].caption, "PAGE 1 OF 12") == 0 &&
+              strcmp(v.row[0].cell[2].text, "DONE") == 0);
+    vision_model_sheet_tap(&m, v.row[0].cell[1].code);
+    vision_model_sheet(&m, &v);
+    check("> turns to VEHICLES, names spelled out",
+          strcmp(v.title, "VEHICLES (8)") == 0 &&
+              strncmp(v.body, "bicycle, car, motorcycle, airplane, bus, train, truck, boat.", 60) == 0);
+    for (i = 0; i < 4; i++) {
+        vision_model_sheet_tap(&m, v.row[0].cell[1].code);
+    }
+    vision_model_sheet(&m, &v);
+    check("multi-word names lose their hyphens", strcmp(v.title, "SPORTS (10)") == 0 &&
+                                                     strstr(v.body, "sports ball") && strstr(v.body, "tennis racket"));
+    vision_model_classes_button(&m);
+    vision_model_classes_button(&m);
+    vision_model_sheet(&m, &v);
+    vision_model_sheet_tap(&m, v.row[0].cell[0].code);
+    vision_model_sheet(&m, &v);
+    check("CLASSES again starts at the first page; < from it goes round to the last",
+          strcmp(v.title, "INDOOR (7)") == 0 && strstr(v.body, "toothbrush") != NULL);
+    /* Every page fits its buffers and the pages hold the 80 once each. */
+    ok = 1;
+    total = 0;
+    for (i = 0; i < 12; i++) {
+        const char *p;
+
+        m.class_page = i;
+        vision_model_sheet(&m, &v);
+        ok &= strlen(v.body) < sizeof(v.body) - 1 && strlen(v.title) < VISION_SHEET_TEXT;
+        total++;
+        for (p = v.body; *p && *p != '.'; p++) {
+            total += *p == ',';
+        }
+    }
+    check("the twelve pages fit and hold 80 names", ok && total == 80);
+    vision_model_sheet_tap(&m, v.row[0].cell[2].code);
+    check("DONE closes it", m.sheet == VISION_SHEET_NONE);
+    vision_model_classes_button(&m);
+    vision_model_set_mode(&m, VISION_MODE_TRACK);
+    check("another mode closes it", m.sheet == VISION_SHEET_NONE);
+    check("CLASSES is DETECT's only", vision_model_classes_button(&m) == 0 && m.sheet == VISION_SHEET_NONE);
+    vision_model_set_mode(&m, VISION_MODE_DETECT);
+
+    /* In view: the classes on the det line, most first. */
+    vision_session_init(&s);
+    s.shown_count = 6;
+    s.shown[0].cls = 41; /* cup */
+    s.shown[1].cls = 0;
+    s.shown[2].cls = 0;
+    s.shown[3].cls = 67; /* cell-phone */
+    s.shown[4].cls = 56; /* chair */
+    s.shown[5].cls = 63; /* laptop */
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 2000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("In view: the most first, then by class, four named and the rest counted",
+          strstr(t.status, "\nIn view: person 2, cup 1, chair 1, laptop 1, +1 more") != NULL);
+    s.shown_count = 0;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 2100);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("nothing in view says so, and where the list is", strstr(t.status, "Nothing it knows in view (see CLASSES)") != NULL);
+    {
+        /* Unit A, 2026-10-26: the full numbers wrapped on the panel and
+         * pushed "In view" off it. DETECT's first line stays within one
+         * panel line (about 45 characters at the body size). */
+        const char *nl;
+
+        m.stats = (struct vision_stats) { .fps_x10 = 117, .infer_ms = 60, .pre_ms = 6, .post_ms = 12, .cpu_pct = 32,
+                                          .rss_kb = 7552 };
+        m.stats_valid = true;
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        nl = strchr(t.status, '\n');
+        check("DETECT's numbers fit one panel line and keep In view under them",
+              nl && (size_t)(nl - t.status) <= 40 && strncmp(t.status, "GENERAL 80  11.7 fps  KPU 60 ms  CPU 32%", 40) == 0 &&
+                  strstr(t.status, " pre ") == NULL && strstr(nl, "Nothing it knows in view") != NULL);
+        vision_model_set_mode(&m, VISION_MODE_TRACK);
+        m.stats_valid = true;
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("TRACK keeps its full numbers on its one line", strstr(t.status, " pre 6  post 12  CPU 32%") != NULL);
+        vision_model_set_mode(&m, VISION_MODE_DETECT);
+    }
+
+    /* R0 in force: six classes, said as such; GENERAL 80 named only when
+     * its file is here. */
+    vision_model_init(&m);
+    vision_model_set_detector_files(&m, 1u << VISION_DET_R0);
+    vision_model_open(&m);
+    det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
+    vision_model_classes_button(&m);
+    vision_model_sheet(&m, &v);
+    check("R0: one page of six, no paging", vision_model_r0_only(&m) && vision_model_class_pages(&m) == 1 &&
+                                                strcmp(v.title, "R0 · Beta: 6 CLASSES") == 0 &&
+                                                strncmp(v.body, "car, truck, bus, motorcycle, bicycle, person.", 45) == 0 &&
+                                                v.row[0].cells == 1 && strcmp(v.row[0].cell[0].text, "DONE") == 0);
+    check("R0 alone: the unit has no 80-class file, said", strstr(v.body, "no 80-class detector file") != NULL);
+    vision_model_sheet_close(&m);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("R0: nothing in view names its six", strstr(t.status, "Nothing it knows in view (6 classes)") != NULL);
+    vision_model_init(&m);
+    vision_model_set_detector_files(&m, DET_BOTH);
+    vision_model_open(&m);
+    det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
+    vision_model_classes_button(&m);
+    vision_model_sheet(&m, &v);
+    check("R0 with GENERAL 80 here: MODEL is the way to the 80", strstr(v.body, "MODEL switches to GENERAL 80") != NULL);
+    /* The helper's own default (no A/B files): 80 classes, unnamed. */
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    vision_model_classes_button(&m);
+    vision_model_sheet(&m, &v);
+    check("without the A/B the 80 are listed under the helper's own detector",
+          vision_model_class_pages(&m) == 12 && strstr(v.body, "DETECTOR boxes these 80") != NULL);
+}
+
 int main(void)
 {
     test_states();
+    test_classes();
     test_detector_ab();
     test_no_detector();
     test_picker();

@@ -79,6 +79,32 @@ for o in portrait landscape; do
     check "$o r0: the default choice is not stored again" "$([ ! -e "$STATE/vision/settings.v1" ] && echo 1 || echo 0)"
     rm -rf "$RUN" "$LOGD" "$CFG" "$R0F"
 
+    # GENERAL 80 beside R0 (stand-ins: the fake KPU ignores the files), the
+    # last one confirmed: the helper starts on it, and CLASSES covers the
+    # picture with its first page.
+    R0F=$(mktemp); printf 'R0 stand-in' >"$R0F"
+    UPF=$(mktemp); printf 'GENERAL 80 stand-in' >"$UPF"
+    mkdir -p "$STATE/vision"
+    printf 'detector=upstream\n' >"$STATE/vision/settings.v1"
+    chmod 600 "$STATE/vision/settings.v1"
+    run classes "$o" POCKETOS_VISION_MODEL_R0="$R0F" POCKETOS_VISION_MODEL_UPSTREAM="$UPF" POCKETOS_VISION_SHEET=classes
+    check "$o classes: GENERAL 80 is in force" \
+        "$(grep -qh 'vision: detector GENERAL 80 in force' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+    y=$(yellow_px "$LOGD/classes.png")
+    check "$o classes: the CLASSES sheet covers the picture ($y yellow px)" "$([ "$y" -lt 500 ] && echo 1 || echo 0)"
+    rm -rf "$RUN" "$LOGD" "$CFG" "$R0F" "$UPF" "$STATE/vision"
+
+    # COLOR and LINE TRACE open in their mode from the stored setting.
+    for pair in color:COLOR trace:"LINE TRACE"; do
+        mkdir -p "$STATE/vision"
+        printf 'mode=%s\n' "${pair%%:*}" >"$STATE/vision/settings.v1"
+        chmod 600 "$STATE/vision/settings.v1"
+        run "${pair%%:*}" "$o"
+        check "$o ${pair%%:*}: opens in ${pair#*:}" \
+            "$(grep -qh "vision: opening in ${pair#*:}" "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+        rm -rf "$RUN" "$LOGD" "$CFG" "$STATE/vision"
+    done
+
     run picker "$o" POCKETOS_VISION_SHEET=modes
     y=$(yellow_px "$LOGD/picker.png")
     check "$o picker: the mode picker covers the picture ($y yellow px)" "$([ "$y" -lt 500 ] && echo 1 || echo 0)"

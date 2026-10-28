@@ -73,6 +73,7 @@ enum vision_ev_kind {
     VISION_EV_ENROLFAIL, /* enrolment gave up: text says why */
     VISION_EV_RECOGFAIL, /* RECOGNIZE cannot compare faces: text says why */
     VISION_EV_COLOR,     /* a COLOR pass: vision_session_pixels()->color */
+    VISION_EV_SWATCH,    /* COLOR's reading of its square: ->swatch */
     VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
     VISION_EV_TRACE,     /* a TRACE pass: ->trace */
     VISION_EV_STATS,     /* vision_session_stats() */
@@ -175,7 +176,7 @@ struct vision_who_report {
     } t[VISION_WHO_MAX];
 };
 
-/* What the pixel modes' lines said (color, edge, trace). */
+/* What the pixel modes' lines said (color, swatch, edge, trace). */
 struct vision_pixel_report {
     struct {
         uint8_t r;
@@ -185,12 +186,31 @@ struct vision_pixel_report {
         int32_t cx;           /* the matches' centroid in view pixels, -1 none */
         int32_t cy;
     } color;
+    struct {
+        uint8_t r;            /* the colour read, filtered */
+        uint8_t g;
+        uint8_t b;
+        int name;             /* enum vision_swatch_cat; VISION_SWATCH_MIXED for mixed */
+        int first;            /* the largest category (the name unless mixed) */
+        int second;
+        uint32_t share_pm;    /* of the square, the first category's */
+        uint32_t steady;      /* readings since the name last changed */
+        int32_t x;            /* the square: centre and half side, view pixels */
+        int32_t y;
+        int32_t half;
+    } swatch;
     uint32_t edge_pm;         /* strong edges, per-mille of the picture */
     struct {
-        bool found;
+        bool found;           /* in this picture */
         int32_t offset_pm;
         int32_t slope_pm;
         uint32_t rows;
+        int32_t x0;           /* the fitted line, top to bottom, view pixels */
+        int32_t y0;
+        int32_t x1;
+        int32_t y1;
+        int32_t lost_ms;      /* since last found: 0 found, -1 never */
+        uint32_t candidates;
     } trace;
 };
 
@@ -296,6 +316,8 @@ int vision_session_forget(struct vision_session *s);
  * tolerance; EDGE: the threshold (0 grey); TRACE: a dark or a light line. */
 int vision_session_color(struct vision_session *s, const uint8_t rgb[3]);
 int vision_session_sample(struct vision_session *s, int32_t x, int32_t y);
+/* COLOR: where the colour is read, in view pixels; x < 0 for the centre. */
+int vision_session_probe(struct vision_session *s, int32_t x, int32_t y);
 int vision_session_tol(struct vision_session *s, uint32_t tol);
 int vision_session_edge(struct vision_session *s, uint32_t threshold);
 int vision_session_trace(struct vision_session *s, bool dark);

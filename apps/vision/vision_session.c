@@ -7,6 +7,7 @@
 #define _GNU_SOURCE
 #include "vision_session.h"
 #include "vision_settings.h"
+#include "pocketvision/vision_swatch.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -566,14 +567,62 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         }
         return 1;
     }
+    if (strncmp(line, "swatch ", 7) == 0) {
+        unsigned r;
+        unsigned g;
+        unsigned bl;
+        int name;
+        int first;
+        int second;
+        unsigned share;
+        unsigned steady;
+        int x;
+        int y;
+        int half;
+
+        if (sscanf(line, "swatch %u %u %u %d %d %d %u %u %d %d %d", &r, &g, &bl, &name, &first, &second, &share,
+                   &steady, &x, &y, &half) != 11 ||
+            r > 255 || g > 255 || bl > 255 || name < 0 || name >= VISION_SWATCH_NAMES || first < 0 ||
+            first >= VISION_SWATCH_CATS || second < 0 || second >= VISION_SWATCH_CATS ||
+            (name != VISION_SWATCH_MIXED && name != first) || share > 1000 || x < 0 || y < 0 ||
+            x >= (int)POCKETCAM_VIEW_MAX_W ||
+            y >= (int)POCKETCAM_VIEW_MAX_H || half < 1 || half > VISION_SWATCH_HALF_MAX) {
+            return 0;
+        }
+        ev->kind = VISION_EV_SWATCH;
+        if (s) {
+            s->pixels.swatch.r = (uint8_t)r;
+            s->pixels.swatch.g = (uint8_t)g;
+            s->pixels.swatch.b = (uint8_t)bl;
+            s->pixels.swatch.name = name;
+            s->pixels.swatch.first = first;
+            s->pixels.swatch.second = second;
+            s->pixels.swatch.share_pm = share;
+            s->pixels.swatch.steady = steady;
+            s->pixels.swatch.x = x;
+            s->pixels.swatch.y = y;
+            s->pixels.swatch.half = half;
+        }
+        return 1;
+    }
     if (strncmp(line, "trace ", 6) == 0) {
         int found;
         int off;
         int slope;
         unsigned rows;
+        int x0;
+        int y0;
+        int x1;
+        int y1;
+        int lost;
+        unsigned cand;
 
-        if (sscanf(line, "trace %d %d %d %u", &found, &off, &slope, &rows) != 4 || (found != 0 && found != 1) ||
-            off < -1000 || off > 1000 || slope < -100000 || slope > 100000 || rows > 4096) {
+        if (sscanf(line, "trace %d %d %d %u %d %d %d %d %d %u", &found, &off, &slope, &rows, &x0, &y0, &x1, &y1,
+                   &lost, &cand) != 10 ||
+            (found != 0 && found != 1) || off < -1000 || off > 1000 || slope < -100000 || slope > 100000 ||
+            rows > 4096 || cand > 4096 || x0 < 0 || y0 < 0 || x1 < 0 || y1 < 0 ||
+            x0 >= (int)POCKETCAM_VIEW_MAX_W || x1 >= (int)POCKETCAM_VIEW_MAX_W || y0 >= (int)POCKETCAM_VIEW_MAX_H ||
+            y1 >= (int)POCKETCAM_VIEW_MAX_H || lost < -1 || (found == 1) != (lost == 0)) {
             return 0;
         }
         ev->kind = VISION_EV_TRACE;
@@ -582,6 +631,12 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
             s->pixels.trace.offset_pm = off;
             s->pixels.trace.slope_pm = slope;
             s->pixels.trace.rows = rows;
+            s->pixels.trace.x0 = x0;
+            s->pixels.trace.y0 = y0;
+            s->pixels.trace.x1 = x1;
+            s->pixels.trace.y1 = y1;
+            s->pixels.trace.lost_ms = lost;
+            s->pixels.trace.candidates = cand;
         }
         return 1;
     }
@@ -1164,6 +1219,17 @@ int vision_session_sample(struct vision_session *s, int32_t x, int32_t y)
         return -1;
     }
     return send_line(s, "sample %d %d", x, y);
+}
+
+int vision_session_probe(struct vision_session *s, int32_t x, int32_t y)
+{
+    if (x < 0 || y < 0) {
+        return send_line(s, "probe centre");
+    }
+    if (x >= (int32_t)POCKETCAM_VIEW_MAX_W || y >= (int32_t)POCKETCAM_VIEW_MAX_H) {
+        return -1;
+    }
+    return send_line(s, "probe %d %d", x, y);
 }
 
 int vision_session_tol(struct vision_session *s, uint32_t tol)

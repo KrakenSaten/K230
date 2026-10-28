@@ -140,7 +140,7 @@ static void test_detector(void)
     s.detector = (enum vision_detector)7;
     check("an out-of-range one is put back to R0", vision_settings_sanitize(&s) == 1 && s.detector == VISION_DET_R0);
     check("the names and words", strcmp(vision_detector_name(VISION_DET_R0), "R0 · Beta") == 0 &&
-                                     strcmp(vision_detector_name(VISION_DET_UPSTREAM), "UPSTREAM") == 0 &&
+                                     strcmp(vision_detector_name(VISION_DET_UPSTREAM), "GENERAL 80") == 0 &&
                                      strcmp(vision_detector_word(VISION_DET_R0), "r0") == 0 &&
                                      strcmp(vision_detector_word(VISION_DET_UPSTREAM), "upstream") == 0 &&
                                      strcmp(vision_detector_word((enum vision_detector)-1), "r0") == 0 &&
