@@ -6,7 +6,8 @@ bookmarks - with no network, ever.
 
 Status: **prototype on branch `claude/k230-offline-library-0c9f28`, draft PR.
 Host-validated against a real Wikipedia archive; cross-built for the K230
-with the pinned toolchain; never run on a unit.** Out of the shell unless
+with the pinned toolchain; checked on unit B and left installed there at the
+owner's request (2026-10-29, docs/validation/UNIT_B_LIBRARY.md).** Out of the shell unless
 built with `-DPOCKETOS_WITH_LIBRARY=ON`; the helper is not installed and not
 in the image. ADR-015 (proposed) records the decision it asks for.
 
@@ -197,18 +198,16 @@ page in under 1 ms. Peak memory: helper 58.5 MB, simulator shell 16.7 MB.
   libc - all in the vendor target tree); the DRM shell with
   `-DPOCKETOS_WITH_LIBRARY=ON` against the Doors sysroot already on the build
   host (read only).
-- **Not run**: no unit, no qemu-user on the build host. Nothing here is a K230
-  measurement.
-- **Uncertain**: decompression and WebP decoding speed on the C908; first open
-  of a 182 MB archive from the SD card or a FAT32 USB drive (libzim memory-maps
-  it); the shell's page making for 800 blocks (Browser's gate measured it on
-  unit A for web pages); title-only search being enough for people.
+- **Run on unit B** (2026-10-29, docs/validation/UNIT_B_LIBRARY.md): the
+  helper's protocol journey and the shell's reading journey by injected touch,
+  then a reboot. Archive open 142 ms cold, title search 0-6 ms, an article
+  51-77 ms in the helper, its 15-16 WebP pictures 143-382 ms, the shell's
+  page making 649-705 ms over 12-13 ticks; helper peak 18.7 MB, shell 19.2 MB.
+- **Still uncertain**: a FAT32 USB drive instead of the SD card; portrait on
+  the unit; whether title-only search is enough for people.
 
-**Proposed device check** (unit B, about 15 minutes, no flashing): copy
-`pos-library` to `/usr/bin`, the DRM shell built with the app to
-`/usr/bin/doors-shell` (keep the old one), and the archive to `/root/Library/`
-after `df -h /root` shows room; open Library under MORE, search
-`greenhouse effect`, open the article, follow "greenhouse gases", BACK,
-bookmark, close and reopen; note the `library:` lines in shell.log and
-pos-library.log (open, search and page times) and `VmHWM` of pos-library;
-then restore the shell.
+The device check proposed here was run on unit B on 2026-10-29, with an
+internal link that is in view ("Earth's energy budget") in place of "greenhouse
+gases", which needs scrolling. The owner asked for the install to stay; the
+rollback is `/root/rollback-library-7474d752/RESTORE.sh` on the unit
+(docs/validation/UNIT_B_LIBRARY.md).

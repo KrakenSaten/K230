@@ -87,7 +87,8 @@ Needed before acceptance:
   entries, notices and legal-info for libzim and zstd);
 - a Buildroot package for libzim (none exists in Buildroot 2025.02.1; zstd
   does) or a vendored build, i.e. a proposal under ADR-001;
-- the device check in LIBRARY.md "K230".
+- a longer use of the unit-B install by the owner (the focused device check
+  passed, docs/validation/UNIT_B_LIBRARY.md).
 
 ## Evidence
 
@@ -102,8 +103,12 @@ Needed before acceptance:
 - DOCUMENTED: libwebp 1.5.0, libpng, libjpeg and xz are in the image
   (docs/legal/manifest.csv); Buildroot 2025.02.1 has zstd, Xapian 1.4.27 and
   ICU 73 packages and no libzim package; libzim's licence (`COPYING`, headers).
-- ASSUMED: speed and memory on the C908 and on the SD card; nothing ran on
-  a unit.
+- VERIFIED (unit B, 2026-10-29, docs/validation/UNIT_B_LIBRARY.md): the
+  helper's journey and the shell's reading journey by injected touch, a
+  reboot, and the rollback; archive open 142 ms cold, articles 51-77 ms,
+  pictures 143-382 ms per article, helper peak 18.7 MB. Left installed at the
+  owner's request.
+- ASSUMED: behaviour from a FAT32 USB drive; portrait on the unit.
 
 Not decided here: full-text search on the K230 (Xapian 1.4.27 and ICU 73 are
 Buildroot packages, but ICU's data alone is about 30 MB against a 600 MB root
