@@ -116,10 +116,20 @@ extern const struct pocketos_app app_terminal;
  * same as the apps every build has (tests/app_icons_test.sh parses it). */
 #ifdef POCKETOS_WITH_ZABBIX
 extern const struct pocketos_app app_zabbix;
-#define OPTIONAL_APPS , &app_zabbix
+#define OPTIONAL_ZABBIX , &app_zabbix
 #else
-#define OPTIONAL_APPS
+#define OPTIONAL_ZABBIX
 #endif
+/* Library, the offline-collection prototype (docs/apps/LIBRARY.md): out by
+ * default, in with -DPOCKETOS_WITH_LIBRARY=ON. Not on the launcher's table,
+ * so it shows under MORE. */
+#ifdef POCKETOS_WITH_LIBRARY
+extern const struct pocketos_app app_library;
+#define OPTIONAL_LIBRARY , &app_library
+#else
+#define OPTIONAL_LIBRARY
+#endif
+#define OPTIONAL_APPS OPTIONAL_ZABBIX OPTIONAL_LIBRARY
 
 /* The registry. Where each app is shown on the launcher - its group, its
  * place in the group, its colour - is the launcher's table (home_layout.c),

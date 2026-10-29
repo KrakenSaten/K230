@@ -39,6 +39,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
+#include "browser_app.h"
 #include "browser_session.h"
 #include "browser_view.h"
 #include "pocketlog/pocketlog.h"
@@ -83,6 +84,7 @@ enum nav_button {
 };
 
 struct browser_app {
+    const struct browser_profile *p;
     struct browser_view *v;
     struct browser_session *s;
     lv_timer_t *timer;
@@ -132,6 +134,11 @@ struct browser_app {
     lv_obj_t *img_obj[WEB_DOC_IMAGE_MAX];
     lv_image_dsc_t img_dsc[WEB_DOC_IMAGE_MAX];
     lv_obj_t *cut_note;
+#ifdef POCKETOS_SHELL_TEST_HOOKS
+    const char *steps;          /* POCKETOS_LIBRARY_STEPS, still to do */
+    int step;
+    int64_t step_shown;         /* when the last step's result was on screen, or 0 */
+#endif
 };
 
 static int64_t now_ms(void)
@@ -254,23 +261,35 @@ static unsigned start_helper(struct browser_app *a)
     char err[160];
 
     memset(&cfg, 0, sizeof(cfg));
-    cfg.fake = backend && strcmp(backend, "fake") == 0;
+    if (a->p->helper_env) {
+        /* Another app's helper (the Library's): no fake network, no CA file -
+         * it has no network at all. */
+        cfg.helper = getenv(a->p->helper_env);
+        if (!cfg.helper || !*cfg.helper) {
+            cfg.helper = a->p->helper_default;
+        }
+    } else {
+        cfg.fake = backend && strcmp(backend, "fake") == 0;
 #ifdef POCKETOS_SHELL_TEST_HOOKS
-    /* The simulator only: a CA file for a test server or a proxy. The
-     * device always uses the system store. */
-    cfg.ca_file = getenv("POCKETOS_BROWSER_CA_FILE");
+        /* The simulator only: a CA file for a test server or a proxy. The
+         * device always uses the system store. */
+        cfg.ca_file = getenv("POCKETOS_BROWSER_CA_FILE");
 #endif
+    }
     if (!browser_view_may_start_helper(a->v, now_ms())) {
         return browser_view_helper_stopped(a->v, BROWSER_EXIT_CRASHED, now_ms());
     }
     if (browser_session_start(a->s, &cfg, now_ms(), err, sizeof(err)) != 0) {
-        LOG_WARN("browser: could not start the helper: %s", err);
+        LOG_WARN("%s: could not start the helper: %s", a->p->log, err);
         return browser_view_helper_stopped(a->v, BROWSER_EXIT_START, now_ms());
     }
     return 0;
 }
 
 static void repaint(struct browser_app *a, unsigned changed);
+#ifdef POCKETOS_SHELL_TEST_HOOKS
+static void test_steps(struct browser_app *a);
+#endif
 
 /* Carry out what the view asked for, then show what changed. */
 static void act(struct browser_app *a, unsigned changed, const struct browser_cmd *cmd)
@@ -282,7 +301,7 @@ static void act(struct browser_app *a, unsigned changed, const struct browser_cm
         if (browser_session_active(a->s) && browser_session_send(a->s, cmd, now_ms()) != 0) {
             /* The helper went between two polls; the next poll reaps it and
              * the view shows why. */
-            LOG_WARN("browser: the helper did not take a request");
+            LOG_WARN("%s: the helper did not take a request", a->p->log);
         }
     } else if (cmd->kind == BROWSER_CMD_STOP && browser_session_active(a->s)) {
         browser_session_send(a->s, cmd, now_ms());
@@ -592,17 +611,21 @@ static void render_some(struct browser_app *a)
     if (a->rendering && a->rendered >= d->nblocks) {
         a->rendering = false;
         /* For the bench and the hardware gate: how long a page takes to make. */
-        LOG_INFO("browser: page made: %zu blocks, %zu links, %zu pictures, %zu KB text, in %u ms over %u tick(s)",
-                 d->nblocks, d->nlinks, d->nimages, d->text_len / 1024, lv_tick_elaps(a->render_started),
-                 a->render_ticks);
+        LOG_INFO("%s: page made: %zu blocks, %zu links, %zu pictures, %zu KB text, in %u ms over %u tick(s)",
+                 a->p->log, d->nblocks, d->nlinks, d->nimages, d->text_len / 1024,
+                 lv_tick_elaps(a->render_started), a->render_ticks);
         if (d->truncated) {
-            a->cut_note = wrapping(a->page, "This page is longer than Browser shows: it was cut here.",
+            a->cut_note = wrapping(a->page, a->p->library ? "This article is longer than Library shows: it was cut "
+                                                            "here."
+                                                          : "This page is longer than Browser shows: it was cut here.",
                                    POS_STYLE_TEXT_MUTED);
             pos_style_add(a->cut_note, POS_STYLE_SLAB, 0);
             lv_obj_set_style_pad_all(a->cut_note, 12, 0);
         }
         if (d->nblocks == 0 && !d->truncated) {
-            wrapping(a->page, "This page has no text Browser can show.", POS_STYLE_TEXT_MUTED);
+            wrapping(a->page, a->p->library ? "This page has no text Library can show."
+                                            : "This page has no text Browser can show.",
+                     POS_STYLE_TEXT_MUTED);
         }
     }
 }
@@ -659,7 +682,9 @@ static void fill_start(struct browser_app *a)
         place_row(a, a->st_bookmarks, &st->bookmark[i], i + 1);
     }
     if (st->nbookmark == 0) {
-        wrapping(a->st_bookmarks, "No bookmarks yet. Open a page and tap + to keep it here.", POS_STYLE_TEXT_MUTED);
+        wrapping(a->st_bookmarks, a->p->library ? "No bookmarks yet. Open an article and tap + to keep it here."
+                                                : "No bookmarks yet. Open a page and tap + to keep it here.",
+                 POS_STYLE_TEXT_MUTED);
     }
     for (i = 0; i < st->nrecent; i++) {
         place_row(a, a->st_recent, &st->recent[i], -(i + 1));
@@ -673,6 +698,19 @@ static void on_clear_recent(lv_event_t *e)
     struct browser_app *a = lv_event_get_user_data(e);
 
     repaint(a, browser_view_clear_recent(a->v));
+}
+
+/* The Library's start page: its collection's main page, or what it is. */
+static void on_library_page(lv_event_t *e)
+{
+    struct browser_app *a = lv_event_get_user_data(e);
+    const char *url = lv_obj_get_user_data(lv_event_get_current_target(e));
+    struct browser_cmd cmd;
+    unsigned changed;
+
+    hide_keyboard_in_portrait(a);
+    changed = browser_view_open(a->v, url, now_ms(), &cmd);
+    act(a, changed, &cmd);
 }
 
 /* ---- the buttons ------------------------------------------------------------------------- */
@@ -955,18 +993,55 @@ static void on_poll(lv_timer_t *t)
     if (a->v->store_dirty && now_ms() - a->saved_ms >= SAVE_EVERY_MS) {
         a->saved_ms = now_ms();
         if (browser_view_save(a->v) != 0) {
-            LOG_WARN("browser: could not save its state");
+            LOG_WARN("%s: could not save its state", a->p->log);
         }
     }
+#ifdef POCKETOS_SHELL_TEST_HOOKS
+    test_steps(a);
+#endif
 }
 
 /* ---- building ------------------------------------------------------------------------------ */
 
-static void build_start(struct browser_app *a)
+static void build_library_start(struct browser_app *a)
 {
     lv_obj_t *s = column(a->viewport, 10);
+    lv_obj_t *row;
+    lv_obj_t *b;
     lv_obj_t *about;
 
+    a->start = s;
+    pocketui_label(s, "Library", POS_STYLE_TITLE);
+    wrapping(s, "Search the collection above, or open its main page.", POS_STYLE_TEXT_SECONDARY);
+    row = column(s, GAP);
+    b = button(row, "OPEN THE COLLECTION", true, on_library_page, a);
+    lv_obj_set_user_data(b, (void *)WEB_LIBRARY_MAIN);
+    b = button(row, "ABOUT THIS COLLECTION", false, on_library_page, a);
+    lv_obj_set_user_data(b, (void *)WEB_LIBRARY_ABOUT);
+    pocketui_label(s, "BOOKMARKS", POS_STYLE_CAPTION);
+    a->st_bookmarks = column(s, 0);
+    a->st_recent_cap = pocketui_label(s, "RECENT", POS_STYLE_CAPTION);
+    a->st_recent = column(s, 0);
+    a->st_clear = button(s, "CLEAR RECENT", false, on_clear_recent, a);
+    lv_obj_set_width(a->st_clear, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_hor(a->st_clear, 20, 0);
+    about = wrapping(s, "Offline: Library reads a Kiwix .zim archive on this unit and never uses the network. "
+                        "Links that leave the collection are shown, not opened. Articles, and JPEG, PNG and WebP "
+                        "pictures; no video, no interactive pages.",
+                     POS_STYLE_TEXT_MUTED);
+    lv_obj_set_style_margin_top(about, 12, 0);
+}
+
+static void build_start(struct browser_app *a)
+{
+    lv_obj_t *s;
+    lv_obj_t *about;
+
+    if (a->p->library) {
+        build_library_start(a);
+        return;
+    }
+    s = column(a->viewport, 10);
     a->start = s;
     pocketui_label(s, "Browser", POS_STYLE_TITLE);
     wrapping(s, "Type an address above - example.com becomes https://example.com. There is no built-in search.",
@@ -1000,6 +1075,87 @@ static void build_error(struct browser_app *a)
     set_hidden(e, true);
 }
 
+#ifdef POCKETOS_SHELL_TEST_HOOKS
+/* The simulator only (tests/library_shell_test.sh): POCKETOS_LIBRARY_STEPS
+ * plays a reading journey the way a finger would, one step each time the
+ * screen is settled, so a headless run can show and capture each result:
+ *
+ *   find:<words>   type into the field and press FIND
+ *   open:<address> an address, as from the start page
+ *   link:<text>    follow the first link whose words are exactly <text>
+ *   back  mark  home
+ *
+ * separated by '|'. Each result is logged "<log>: step <n> shown" and held for
+ * POCKETOS_LIBRARY_STEP_MS (default 2500) before the next step. */
+static int link_by_text(const struct web_doc *d, const char *text, size_t n)
+{
+    size_t r;
+
+    for (r = 0; r < d->nruns; r++) {
+        if (d->runs[r].link >= 0 && d->runs[r].len == n && memcmp(d->text + d->runs[r].off, text, n) == 0 &&
+            d->links[d->runs[r].link].supported) {
+            return d->runs[r].link;
+        }
+    }
+    return -1;
+}
+
+static void test_steps(struct browser_app *a)
+{
+    const char *hold = getenv("POCKETOS_LIBRARY_STEP_MS");
+    struct browser_cmd cmd;
+    unsigned changed = 0;
+    char step[WEB_URL_MAX];
+    size_t n;
+
+    if (!a->steps || a->v->loading || a->v->images_loading || a->rendering) {
+        return;
+    }
+    if (a->step > 0 && a->step_shown == 0) {
+        a->step_shown = now_ms();
+        LOG_INFO("%s: step %d shown", a->p->log, a->step);
+        return;
+    }
+    if (a->step > 0 && now_ms() - a->step_shown < (hold ? atoi(hold) : 2500)) {
+        return;
+    }
+    if (!*a->steps) {
+        a->steps = NULL;
+        LOG_INFO("%s: steps done", a->p->log);
+        return;
+    }
+    n = strcspn(a->steps, "|");
+    snprintf(step, sizeof(step), "%.*s", (int)n, a->steps);
+    a->steps += n + (a->steps[n] == '|');
+    a->step++;
+    a->step_shown = 0;
+    memset(&cmd, 0, sizeof(cmd));
+    if (strncmp(step, "find:", 5) == 0) {
+        lv_textarea_set_text(a->field, step + 5);
+        changed = browser_view_go(a->v, step + 5, now_ms(), &cmd) | BROWSER_CHANGED_FIELD;
+    } else if (strncmp(step, "open:", 5) == 0) {
+        changed = browser_view_open(a->v, step + 5, now_ms(), &cmd);
+    } else if (strncmp(step, "link:", 5) == 0) {
+        int link = link_by_text(&a->v->doc, step + 5, strlen(step + 5));
+
+        if (link < 0) {
+            LOG_WARN("%s: step %d: no link with those words", a->p->log, a->step);
+        }
+        changed = browser_view_follow(a->v, link, now_ms(), &cmd);
+    } else if (strcmp(step, "back") == 0) {
+        changed = browser_view_back(a->v, now_ms(), &cmd);
+    } else if (strcmp(step, "mark") == 0) {
+        changed = browser_view_toggle_bookmark(a->v);
+        if (browser_view_save(a->v) != 0) {
+            LOG_WARN("%s: could not save its state", a->p->log);
+        }
+    } else if (strcmp(step, "home") == 0) {
+        changed = browser_view_home(a->v, now_ms(), &cmd);
+    }
+    act(a, changed, &cmd);
+}
+#endif
+
 static void build(struct browser_app *a, lv_obj_t *root)
 {
     static const char *const symbols[NAV_COUNT] = { LV_SYMBOL_LEFT, LV_SYMBOL_RIGHT, LV_SYMBOL_REFRESH,
@@ -1016,7 +1172,7 @@ static void build(struct browser_app *a, lv_obj_t *root)
     lv_obj_set_flex_flow(a->bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(a->bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(a->bar, GAP, 0);
-    a->field = pocketui_text_field(a->bar, "Address, e.g. example.com", true);
+    a->field = pocketui_text_field(a->bar, a->p->field_hint ? a->p->field_hint : "Address, e.g. example.com", true);
     a->field_wrap = lv_obj_get_parent(a->field);
     lv_obj_set_width(a->field_wrap, 1);
     lv_obj_set_flex_grow(a->field_wrap, 1);
@@ -1024,7 +1180,7 @@ static void build(struct browser_app *a, lv_obj_t *root)
     lv_obj_add_event_cb(a->field, on_field_clicked, LV_EVENT_CLICKED, a);
     lv_obj_add_event_cb(a->field, on_field_changed, LV_EVENT_VALUE_CHANGED, a);
     lv_obj_add_event_cb(a->field, on_field_ready, LV_EVENT_READY, a);
-    a->go_btn = button(a->bar, "GO", true, on_go, a);
+    a->go_btn = button(a->bar, a->p->library ? "FIND" : "GO", true, on_go, a);
     lv_obj_set_width(a->go_btn, GO_W);
     a->keys_btn = button(a->bar, "KEYS", false, on_keys, a);
     lv_obj_set_width(a->keys_btn, KEYS_W);
@@ -1058,7 +1214,11 @@ static void build(struct browser_app *a, lv_obj_t *root)
 
 /* ---- the app ------------------------------------------------------------------------------ */
 
-static void *browser_create(lv_obj_t *root)
+static const struct browser_profile browser_profile = {
+    .log = "browser",
+};
+
+void *browser_app_create(lv_obj_t *root, const struct browser_profile *p, const char *store_path)
 {
     struct browser_app *a = calloc(1, sizeof(*a));
     uint32_t t0 = lv_tick_get();
@@ -1067,6 +1227,7 @@ static void *browser_create(lv_obj_t *root)
     if (!a) {
         return NULL;
     }
+    a->p = p;
     a->v = malloc(sizeof(*a->v));
     a->s = malloc(sizeof(*a->s));
     if (!a->v || !a->s) {
@@ -1075,9 +1236,12 @@ static void *browser_create(lv_obj_t *root)
         free(a);
         return NULL;
     }
-    browser_view_init(a->v, NULL, why, sizeof(why));
+    browser_view_init(a->v, store_path, why, sizeof(why));
+    if (p->library) {
+        browser_view_set_library(a->v);
+    }
     if (why[0]) {
-        LOG_WARN("browser: remembered state %s (%s)",
+        LOG_WARN("%s: remembered state %s (%s)", p->log,
                  a->v->store_unreadable ? "cannot be read: nothing is saved over it this time"
                  : a->v->store_aside    ? "not used: kept as state.bad at the next save"
                                         : "partly used: bad lines skipped",
@@ -1097,10 +1261,10 @@ static void *browser_create(lv_obj_t *root)
     /* No helper yet: it starts with the first page, so the start page costs
      * nothing but itself. */
     repaint(a, BROWSER_CHANGED_STATE | BROWSER_CHANGED_START | BROWSER_CHANGED_FIELD | BROWSER_CHANGED_STATUS);
-    LOG_INFO("browser: start page in %u ms, %d bookmark(s), %d recent", lv_tick_elaps(t0), a->v->store.nbookmark,
-             a->v->store.nrecent);
+    LOG_INFO("%s: start page in %u ms, %d bookmark(s), %d recent", p->log, lv_tick_elaps(t0),
+             a->v->store.nbookmark, a->v->store.nrecent);
 #ifdef POCKETOS_SHELL_TEST_HOOKS
-    {
+    if (!p->library) {
         /* The simulator only (tests/browser_shell_test.sh): open a page at
          * once, as if typed, so a headless run can show one. */
         const char *first = getenv("POCKETOS_BROWSER_OPEN");
@@ -1111,12 +1275,19 @@ static void *browser_create(lv_obj_t *root)
 
             act(a, changed, &cmd);
         }
+    } else {
+        a->steps = getenv("POCKETOS_LIBRARY_STEPS");
     }
 #endif
     return a;
 }
 
-static void browser_destroy(void *priv)
+static void *browser_create(lv_obj_t *root)
+{
+    return browser_app_create(root, &browser_profile, NULL);
+}
+
+void browser_app_destroy(void *priv)
 {
     struct browser_app *a = priv;
 
@@ -1136,7 +1307,7 @@ static void browser_destroy(void *priv)
     /* Leaving the app ends every connection and the helper with it. */
     browser_session_abandon(a->s, BROWSER_DESTROY_GRACE_MS);
     if (browser_view_save(a->v) != 0) {
-        LOG_WARN("browser: could not save its state");
+        LOG_WARN("%s: could not save its state", a->p->log);
     }
     browser_view_free(a->v);
     pocketos_shell_keyboard_hide();
@@ -1157,7 +1328,7 @@ const struct pocketos_app app_browser = {
     .icon_mask = &pos_app_icon_browser,
     .create = browser_create,
     .tick = NULL,
-    .destroy = browser_destroy,
+    .destroy = browser_app_destroy,
     /* Fullscreen (DS 30.4): the page takes the height. The hint shows in
      * the header. */
     .chrome = POCKETOS_CHROME_NONE,

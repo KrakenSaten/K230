@@ -13,7 +13,7 @@
 static const char *const fail_names[WEB_FAIL_COUNT] = {
     "url",     "offline",  "dns",      "connect", "timeout",  "tls",    "clock",    "redirects",
     "insecure-redirect", "bad-redirect", "type", "response", "stopped", "no-network-build",
-    "internal",
+    "internal", "notfound", "archive",
 };
 
 const char *web_fail_name(enum web_fail f)

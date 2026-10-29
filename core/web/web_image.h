@@ -5,7 +5,10 @@
  *
  * JPEG with libjpeg (BROWSER_HAVE_JPEG) and PNG with libpng's simplified API
  * (BROWSER_HAVE_PNG); both libraries are in the K230 image already
- * (docs/apps/BROWSER.md). GIF, WebP, SVG, AVIF and everything else are
+ * (docs/apps/BROWSER.md). WebP with libwebp (BROWSER_HAVE_WEBP), also in
+ * the image, is built only into the Library's helper (docs/apps/LIBRARY.md),
+ * whose Wikipedia archives carry their pictures as WebP; Browser's helper
+ * does not decode it. GIF, SVG, AVIF and everything else are
  * refused as a format, never guessed at.
  *
  * BOUNDED. A JPEG is decoded at 1/2, 1/4 or 1/8 of its size when it will be
