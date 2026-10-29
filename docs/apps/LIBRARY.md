@@ -150,8 +150,10 @@ branch's tree.
 | `tests/library_helper_test.sh`, full-text build | 42/42 |
 | the same, title-only build (the K230 configuration) | 42/42 |
 | the same under ASan + UBSan (title-only build) | 42/42, no report |
-| `tests/library_shell_test.sh` (simulator, portrait, landscape, reopen, light theme, missing archive, no network) | see the PR |
-| `tests/library_lint.sh` | all pass |
+| `tests/library_shell_test.sh` (simulator: the journey in portrait and landscape, the bookmark after reopening, a light theme, a missing archive, the journey again with no network; helper ended and picture directory gone after each) | 0 failures |
+| `tests/browser_shell_test.sh` (Browser in the simulator, after the screen's change) | 0 failures |
+| `tests/library_lint.sh`, `tests/browser_lint.sh`, `tests/license_audit_test.sh`, `tests/build_outputs_test.sh` | 0 failures |
+| `tests/app_icons_test.sh` | 7 failures, the same 7 on an untouched `origin/master` export in this environment: not this change |
 
 What the helper suite proves with the real archive: a search returns the real
 article; the article has h1/h2 headings, text, followable links into the
@@ -179,8 +181,12 @@ result, decode its pictures. Page cache warm (second run of two):
 | peak resident memory after 4 searches + 4 articles | 89.6 MB (78.7 MB anonymous, 10.9 MB mapped archive) | 20.2 MB (15.2 MB anonymous, 5.1 MB mapped) |
 | helper size, stripped | 35 MB (x86-64, ICU data static; host only) | 1.9 MB x86-64; **783 KB riscv64** |
 
-The shell's side (making the page's LVGL objects) is Browser's code and
-logged as `library: page made: ...`; numbers in the PR.
+In the simulator shell with the full-text helper (one session, cold
+helper): helper started and archive open 14 ms after the app asked; first
+search 156 ms (titles 21 ms, full text 121 ms); articles 4-6 ms in the
+helper; the shell made the LVGL objects for 584-800 blocks with 16 pictures in
+25-29 ms over 2 timer ticks (Browser's 8 ms budget per tick) and the results
+page in under 1 ms. Peak memory: helper 58.5 MB, simulator shell 16.7 MB.
 
 ### K230
 
