@@ -27,6 +27,7 @@
 
 #include "web/web_doc.h"
 #include "web/web_history.h"
+#include "web/web_library.h"
 #include "web/web_proto.h"
 #include "web/web_store.h"
 #include "web/web_url.h"
@@ -115,8 +116,15 @@ struct browser_error {
 };
 
 struct browser_view {
+    /* LIBRARY MODE (docs/apps/LIBRARY.md): the same screen reading an offline
+     * collection through pos-library. The field is a search box, pages are
+     * entries of the collection (core/web/web_library.h), the words say
+     * "offline" where Browser's say "secure", and the default bookmarks are
+     * not Browser's. Set by browser_view_set_library() after init. */
+    bool library;
     struct web_store store;
     char store_path[512];           /* "" : web_store_path() */
+    bool store_fresh;               /* no file yet: the defaults are in the store */
     bool store_dirty;
     bool store_aside;               /* the file was not understood: kept as <file>.bad at the next save */
     bool store_unreadable;          /* the file could not be read: never written over this run */
@@ -161,9 +169,13 @@ struct browser_view {
  * start page. why gets a reason when the file was not usable. */
 void browser_view_init(struct browser_view *v, const char *store_path, char *why, size_t whylen);
 void browser_view_free(struct browser_view *v);
+/* Library mode, right after init: a store that did not exist yet starts
+ * with no bookmarks rather than Browser's two. */
+void browser_view_set_library(struct browser_view *v);
 
 /* The address field's text, from the person. On success cmd says what to
- * do; on a malformed address the view shows an error page and cmd is NONE. */
+ * do; on a malformed address the view shows an error page and cmd is NONE.
+ * In Library mode the text is a search: an empty one does nothing. */
 unsigned browser_view_go(struct browser_view *v, const char *typed, int64_t now, struct browser_cmd *cmd);
 /* A link of the page on screen, by index. */
 unsigned browser_view_follow(struct browser_view *v, int link, int64_t now, struct browser_cmd *cmd);

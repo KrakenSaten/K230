@@ -417,6 +417,17 @@ if(POCKETOS_WITH_ZABBIX)
     message(STATUS "Zabbix viewer: built into the shell (experiment)")
 endif()
 
+# Library, an offline knowledge collection read through pos-library
+# (docs/apps/LIBRARY.md, a feasibility prototype): out of the shell unless
+# -DPOCKETOS_WITH_LIBRARY=ON. The app is Browser's screen in Library mode
+# plus one file; the archive code (libzim) is only ever in the helper.
+option(POCKETOS_WITH_LIBRARY "Build the Library prototype into the shell" OFF)
+if(POCKETOS_WITH_LIBRARY)
+    target_sources(pocketos-shell PRIVATE ${REPO_DIR}/apps/library/library_app.c)
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_WITH_LIBRARY=1)
+    message(STATUS "Library: built into the shell (prototype)")
+endif()
+
 # PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
 # rendered into docs/design/timber-art/rendered are converted to LVGL image
 # arrays here, at configure time, into the build tree; nothing generated is
