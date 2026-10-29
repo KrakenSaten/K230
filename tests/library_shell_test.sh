@@ -11,6 +11,9 @@
 #
 # LIBRARY_SHOTS=<dir> keeps the screenshots. The words fit
 # wikipedia_en_climate-change_maxi_2026-10 (docs/apps/library/CONTENT.md).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 HELPER=$(realpath "${1:?usage: library_shell_test.sh pos-library}")
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary built with POCKETOS_WITH_LIBRARY=ON}

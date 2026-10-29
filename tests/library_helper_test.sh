@@ -13,6 +13,9 @@
 # Needs LIBRARY_ARCHIVE: a real .zim with a full-text index; the words below
 # fit wikipedia_en_climate-change_maxi_2026-10 (docs/apps/library/CONTENT.md)
 # and can be changed with LIBRARY_QUERY / LIBRARY_ARTICLE / LIBRARY_LINK.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 HELPER=${1:?usage: library_helper_test.sh pos-library}
 ARCHIVE=${LIBRARY_ARCHIVE:?set LIBRARY_ARCHIVE to a .zim file}

@@ -1,6 +1,9 @@
 #!/bin/bash
 # The Library's boundaries (docs/apps/LIBRARY.md), held statically. Runs
 # with every `make test`; needs no libzim.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0
