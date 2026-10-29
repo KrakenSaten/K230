@@ -105,16 +105,16 @@ shot "$T/library-reopen-start.png"
 "$POS" app home >/dev/null 2>&1
 stop_shell
 
-# ---- a light theme: the bookmark again, under another palette -------------------------------
+# ---- another theme (brass, outdoor): the bookmark again, under another palette -------------------------------
 STATE_DIR="$T/portrait/state" POCKETOS_LIBRARY_ARCHIVE="$ARCHIVE" \
     POCKETOS_LIBRARY_STEPS='open:https://library.invalid/Greenhouse_effect' start_shell light portrait
 "$POS" shell theme brass outdoor >/dev/null 2>&1
 "$POS" app start library >/dev/null 2>&1
-check "a light theme: the bookmarked article opens and is drawn again" \
+check "another theme: the bookmarked article opens and is drawn again" \
     "$(wait_log light 'library: step 1 shown' 30 && echo 1 || echo 0)"
 shot "$T/library-light-article.png"
 "$POS" app home >/dev/null 2>&1
-check "a light theme: quiet" "$(quiet light)"
+check "another theme: quiet" "$(quiet light)"
 stop_shell
 
 # ---- no collection --------------------------------------------------------------------------

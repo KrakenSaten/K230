@@ -150,7 +150,7 @@ branch's tree.
 | `tests/library_helper_test.sh`, full-text build | 42/42 |
 | the same, title-only build (the K230 configuration) | 42/42 |
 | the same under ASan + UBSan (title-only build) | 42/42, no report |
-| `tests/library_shell_test.sh` (simulator: the journey in portrait and landscape, the bookmark after reopening, a light theme, a missing archive, the journey again with no network; helper ended and picture directory gone after each) | 0 failures |
+| `tests/library_shell_test.sh` (simulator: the journey in portrait and landscape, the bookmark after reopening, another theme (brass, outdoor), a missing archive, the journey again with no network; helper ended and picture directory gone after each) | 0 failures |
 | `tests/browser_shell_test.sh` (Browser in the simulator, after the screen's change) | 0 failures |
 | `tests/library_lint.sh`, `tests/browser_lint.sh`, `tests/license_audit_test.sh`, `tests/build_outputs_test.sh` | 0 failures |
 | `tests/app_icons_test.sh` | 7 failures, the same 7 on an untouched `origin/master` export in this environment: not this change |
