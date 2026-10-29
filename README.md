@@ -22,6 +22,83 @@ LoRa radio, camera and hardware AI acceleration.
 - **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
   priority order.
 
+## What's new
+
+<!-- Keep this section near the download links. On each release, replace the
+latest-release summary, retain a small curated screenshot gallery, and move
+older news to docs/releases/HISTORY.md. Use shipped features and real captures;
+label simulator/fixture data and link to stable image paths or commit SHAs. -->
+
+### v0.3.9 · 28 October 2026
+
+- **Relay Nine fills the screen:** fullscreen gameplay, refined industrial
+  artwork and renderer optimizations.
+- **RIFT MAP gains TRAFFIC:** inspect received MeshCore packets, signal
+  readings and observed paths without sending from the TRAFFIC view.
+- **Vision gets more useful camera tools:** a CLASSES list, steadier COLOR
+  sampling with MATCH/CLEAR, and LINE TRACE that follows one line.
+- **DeskBuddy handles interrupted vision:** a stalled camera is treated as
+  unavailable rather than an empty desk, and Guard keeps the current visit
+  open through the interruption.
+
+The image includes the experimental six-class **R0 · Beta** detector.
+GENERAL 80 selection is supported, but **its model weights are not included**.
+See the [full v0.3.9 release notes](docs/releases/v0.3.9.md) for validation
+and known limitations.
+
+### Neon · give DOORS an Arcade look
+
+An optional system-wide theme with an indigo background, violet frames,
+yellow clocks, magenta headings and colourful app-family tiles. Choose
+**Settings → Appearance → Neon**. The original Doors theme remains the
+default. Neon has been available since **v0.3.8**.
+
+![Neon Arcade theme: landscape launcher with yellow clock and colourful app-family tiles](docs/design/neon/arcade-selected/screens/launcher-landscape-medium.png)
+
+*Actual SDL simulator capture of the shipped Arcade theme.*
+[Portrait view](docs/design/neon/arcade-selected/screens/launcher-portrait-normal.png)
+· [Theme gallery](docs/design/neon/arcade-selected/README.md)
+
+### Relay Nine · a small industrial sci-fi FPS
+
+Explore rooms, stairs and a raised gallery, fight animated enemies with a
+carbine and shotgun, restore the relay and reach the exit. Original artwork
+and sound effects give the game its own identity, independent of the DOORS
+theme. Open **Games → Relay Nine → PLAY**.
+
+Introduced in v0.3.8; **v0.3.9 adds fullscreen gameplay, rendering improvements
+and refined artwork**.
+
+<p align="center">
+  <img src="docs/apps/relay-nine/render-polish/final-slice.png" width="640" alt="Relay Nine engine capture: carbine, robot enemy and industrial stairway leading to a raised gallery">
+</p>
+
+*Actual production-renderer output from a fixed host test scene, not concept
+art or a device photograph.*
+[Fullscreen gameplay and touch controls](docs/apps/relay-nine/fullscreen/after/landscape-gameplay.png)
+· [Game guide](docs/apps/RELAY_NINE.md)
+
+### RIFT · MeshCore messaging and a view of the mesh
+
+Send direct messages and channel messages, browse nodes and choose repeaters
+for an explicit message route with the Visual Path Builder. In **v0.3.9**,
+open **RIFT → MAP → TRAFFIC** to inspect received packets and their observed
+paths, with reception RSSI/SNR and packet details.
+
+![RIFT MAP TRAFFIC in landscape: observed path on the map and received-packet details beside it](https://raw.githubusercontent.com/KrakenSaten/K230/7dae7717ef19c1bff7d056aef3523442744a796b/traffic-landscape-large.png)
+
+*Actual simulator capture with synthetic nodes and packets. Observed paths
+are inferred from received data; they are not verified radio links or planned
+sending routes.*
+
+MeshCore radio operation is **disabled by default** in a fresh image.
+[Set up RIFT](docs/GETTING_STARTED.md)
+· [TRAFFIC guide](docs/apps/rift/TRAFFIC.md)
+· [RIFT guide](docs/apps/RIFT.md)
+
+[Previous releases](docs/releases/HISTORY.md)
+· [What's planned next](docs/ROADMAP.md)
+
 ![DOORS for the LILYGO T-Display K230](docs/images/doors-poster.jpg)
 
 ## What is DOORS?
@@ -60,7 +137,8 @@ communication, local AI, everyday tools, games and further development.
   **Calculator** and **Notes**.
 - **Settings** — Wi-Fi, display, six themes, three text sizes and rotation;
   **System** status lives there too.
-- **Games** — Fleet, Radar, Timber, Solitaire, Blackjack, [Poker](docs/apps/POKER.md) and 2048.
+- **Games** — [Relay Nine](docs/apps/RELAY_NINE.md), Fleet, Radar, Timber,
+  Solitaire, Blackjack, [Poker](docs/apps/POKER.md) and 2048.
 - Landscape and portrait (Timber is portrait-only).
 
 Feature status per release is under [Status](#status) below.
