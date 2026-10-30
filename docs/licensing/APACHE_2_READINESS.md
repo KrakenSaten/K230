@@ -471,7 +471,7 @@ owner: docs/licensing/inquiries/.
 (unused; it carried the K230 modules) is removed from the image after the
 build; `face_detect` and `ai2d_kpu` with both vendor models are off;
 `/lib/libasan.so.8` (copied by the vendor post-build outside any package,
-used by nothing) and libgfortran (no user; Fortran off) are gone; the vendor
+used by nothing) and libgfortran (no user; removed after the build, Fortran stays selected) are gone; the vendor
 developer script `root/script/sensor.sh` is no longer in the image; the
 notices no longer label `ldd` GPL (it is LGPL-2.1-or-later).
 
