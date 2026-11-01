@@ -16,6 +16,36 @@ rotor animation, missile trails and bounded explosion particles.
 
 ![Flight and compound touch controls](rotorterror/combat-landscape.png)
 
+## Visual refinement
+
+The current PR adds a protected cockpit panel, independent shield/hull gauges,
+a rocket reload meter and prioritized shield-down/critical-hull warnings.
+An aiming cross follows the cannon angle. The heavy gunship health meter sits
+next to the enemy instead of competing with the cockpit. Damage lights the
+scene corners without a full-screen flash.
+
+Aircraft have layered engine cowling, cockpit glazing, a nose sensor and missile
+racks. Drones use articulated twin rotor pods; tracked turrets, shield cells,
+rocket cells and salvage each have distinct silhouettes. Violet Ridge has a
+terraced dry canyon, while Ion City has a canal and elevated bridge; scenery
+moves in independent depth layers. The title backdrop fades behind the menu
+with ordered RGB565 rounding to reduce banding.
+
+The gallery is regenerated from the real LVGL test. Additional captures are
+included in the PR workflow artifact;
+`ridge`, `city` and `damage` cover the new scenery and warnings.
+
+[Violet Ridge](rotorterror/ridge-landscape.png) ·
+[Ion City](rotorterror/city-landscape.png)
+Combat uses scripted input and temporary invulnerability. The added sector and
+warning captures use the same combat state with fixture wave/shield/hull values.
+
+**VERIFIED on the host, 2026-11-01:** the updated SDL shell builds; the engine
+and renderer pass 103,159 checks and ASan/UBSan (local LeakSanitizer disabled
+under ptrace); the real audio client passes 14 checks; the LVGL suite passes
+2,173 checks across all three resolutions and text sizes. Shared style checks
+pass. No hardware throughput or device sound claim is made.
+
 ## Controls
 
 | Input | Action |

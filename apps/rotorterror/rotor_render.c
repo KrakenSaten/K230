@@ -118,6 +118,8 @@ static void helicopter(struct ink *d,float x,float y,float scale,float angle,
     static const int body[][2]={{-23,-8},{-12,-14},{11,-12},{29,-2},{30,5},{18,12},{-18,10},{-25,4}};
     static const int armor[][2]={{-23,-3},{-7,-3},{-3,9},{-18,9},{-25,3}};
     static const int cabin[][2]={{1,-11},{12,-10},{25,-2},{23,2},{4,0}};
+    static const int cowling[][2]={{-23,-8},{-17,-16},{-5,-16},{1,-8},{-5,-4},{-22,-4}};
+    static const int nose[][2]={{25,-2},{30,1},{30,5},{20,10},{16,9},{23,4}};
     static const int cabin2[][2]={{-6,-11},{-1,-11},{2,0},{-8,-1}};
     static const int belly[][2]={{-17,8},{20,8},{14,13},{-11,12}};
     static const int engine[][2]={{-21,-12},{-12,-18},{0,-17},{3,-12}};
@@ -133,6 +135,8 @@ static void helicopter(struct ink *d,float x,float y,float scale,float angle,
     part(d,x,y,scale,angle,armor,5,dark);
     part(d,x,y,scale,angle,belly,4,0x163d53);
     part(d,x,y,scale,angle,engine,4,0x274759);
+    part(d,x,y,scale,angle,cowling,6,hostile?0x985969:0x3c91a0);
+    part(d,x,y,scale,angle,nose,6,hostile?0x88364e:0x267b8b);
     part(d,x,y,scale,angle,cabin,5,0x173349);
     part(d,x,y,scale,angle,cabin2,4,0x1c4a5b);
     stroke(d,x,y,scale,angle,3,-10,13,-8,0xbaf9e7);
@@ -159,6 +163,18 @@ static void helicopter(struct ink *d,float x,float y,float scale,float angle,
     stroke(d,x,y,scale,angle,5,-8,18,-3,hostile?0xffc2a5:0x73d5e2);
     stroke(d,x,y,scale,angle,6,-7,17,-4,0x32728a);
     stroke(d,x,y,scale,angle,7,-1,10,5,dark);
+    stroke(d,x,y,scale,angle,-12,-3,-8,7,0x122f43);
+    stroke(d,x,y,scale,angle,-11,-2,-8,5,light);
+    stroke(d,x,y,scale,angle,16,9,19,13,0x0b2135);
+    stroke(d,x,y,scale,angle,18,12,23,12,hostile?0xff9b74:0x9cf2d7);
+    /* Stub-wing rack, three missile noses and a dark underside. */
+    stroke(d,x,y,scale,angle,-8,10,13,12,0x112a3b);
+    for(int rack=0;rack<3;rack++) {
+        int yy=10+rack*2;
+        stroke(d,x,y,scale,angle,-5,yy,8,yy,0x142c40);
+        stroke(d,x,y,scale,angle,-3,yy,6,yy,0xc5c8ac);
+        stroke(d,x,y,scale,angle,7,yy,10,yy,0xefd1a0);
+    }
     for(int i=0;i<4;i++) {
         stroke(d,x,y,scale,angle,-19+i*3,-12,-20+i*3,-8,0x102a3d);
         stroke(d,x,y,scale,angle,-14+i*6,7,-13+i*6,7,light);
@@ -213,7 +229,7 @@ static void background(struct ink *d,const struct rt_game *g,bool title)
         int x=((int)(hash(i+80)%820)-(int)fmodf(g->distance*.12f,820))%820;
         if(x< -130)x+=820;
         int y=28+(int)(hash(i+41)%(unsigned)(horizon-65));
-        unsigned c=mix(sky[zone],0xaab4c4,35);
+        unsigned c=mix(sky[zone],0xaab4c4,20);
         ellipse(d,x,y,56,5,c);ellipse(d,x+31,y-4,34,7,c);
         line(d,x-44,y+5,x+75,y+5,mix(c,glow[zone],40));
     }
@@ -261,21 +277,54 @@ static void background(struct ink *d,const struct rt_game *g,bool title)
         }
     }
     int water=horizon+33;
-    for(int y=water;y<h-19;y++) {
-        rect(d,0,y,RT_W,1,mix(0x284458,0x0c2132,(y-water)*256/(h-water)));
-        if(y%3==0) {
-            unsigned r=hash((unsigned)y);
-            int width=18+(y-water)*2;
-            int x=sx-width/2+(int)(r%19)-9;
-            rect(d,x,y,width,1,mix(0x495667,glow[zone],50+(int)(r%60)));
+    if(zone==1) {
+        /* Violet Ridge is a dry canyon with terraced rock, not a recolored sea. */
+        for(int y=water;y<h-19;y++)
+            rect(d,0,y,RT_W,1,mix(0x4c4057,0x1b2437,(y-water)*256/(h-water)));
+        for(int layer=0;layer<3;layer++) {
+            int offset=(int)(g->distance*(.4f+layer*.2f));
+            int base=water+12+layer*(h-water-20)/3;
+            for(int i=-1;i<10;i++) {
+                int x=i*85-offset%85;
+                unsigned r=hash((unsigned)(i+offset/85+400+layer*70));
+                int peak=base-8-(int)(r%20);
+                struct point rock[]={{x,base+20},{x+12,peak+5},{x+39,peak},
+                    {x+57,peak+9},{x+85,base+20}};
+                unsigned c=layer==0?0x544356:layer==1?0x382f46:0x22283b;
+                polygon(d,rock,5,c);
+                line(d,x+13,peak+6,x+39,peak+1,mix(c,0xc98b91,70));
+                line(d,x+18,peak+12,x+50,peak+12,mix(c,0x876477,55));
+            }
         }
-    }
-    for(int i=0;i<70;i++) {
-        unsigned r=hash((unsigned)i+901);
-        int y=water+(int)(r%(unsigned)(h-water-18));
-        int x=((int)((r>>10)%760)-(int)(g->distance*(.35f+(float)(y-water)/h)))%760;
-        if(x<0)x+=760;
-        rect(d,x,y,3+(int)(r%15),1,0x456274);
+    } else {
+        for(int y=water;y<h-19;y++) {
+            rect(d,0,y,RT_W,1,mix(0x284458,0x0c2132,(y-water)*256/(h-water)));
+            if(y%3==0) {
+                unsigned r=hash((unsigned)y);
+                int width=18+(y-water)*2;
+                int x=sx-width/2+(int)(r%19)-9;
+                rect(d,x,y,width,1,mix(0x495667,glow[zone],50+(int)(r%60)));
+            }
+        }
+        for(int i=0;i<70;i++) {
+            unsigned r=hash((unsigned)i+901);
+            int y=water+(int)(r%(unsigned)(h-water-18));
+            int x=((int)((r>>10)%760)-(int)(g->distance*(.35f+(float)(y-water)/h)))%760;
+            if(x<0)x+=760;
+            rect(d,x,y,3+(int)(r%15),1,0x456274);
+        }
+        if(zone==2) {
+            int bridge=h-37,offset=(int)(g->distance*.6f)%120;
+            rect(d,0,bridge,RT_W,5,0x0b1b2d);
+            line(d,0,bridge,RT_W,bridge,0x477a8a);
+            for(int x=-offset;x<RT_W;x+=120) {
+                rect(d,x,bridge,7,37,0x0b1b2d);
+                line(d,x,bridge-15,x+120,bridge-15,0x294c65);
+                line(d,x,bridge-15,x,bridge,0x477a8a);
+                line(d,x,bridge-15,x+60,bridge,0x294c65);
+                rect(d,x+56,bridge+1,8,1,0x6bb3bd);
+            }
+        }
     }
     /* Near-field seawall: fast parallax provides a tangible sense of speed. */
     rect(d,0,h-19,RT_W,19,0x081722);
@@ -331,9 +380,22 @@ static void enemy(struct ink *d,const struct rt_enemy *e,unsigned tick)
         rect(d,x-66,y+8,24,5,0x0c1c2c);
         line(d,x-66,y+8,x-44,y+8,0xd5a18c);
     } else if(e->kind==RT_TURRET) {
-        rect(d,x-19,y+3,39,18,0x263c50);rect(d,x-15,y-7,29,17,dark);
-        rect(d,x-22,y-5,21,6,coral);rect(d,x-12,y-10,13,4,0xffbf8e);
-        for(int i=-14;i<18;i+=8)rect(d,x+i,y+15,4,3,0xc39685);
+        static const int base[][2]={{-23,14},{-17,3},{16,3},{23,14},{19,23},{-19,23}};
+        static const int turret[][2]={{-15,2},{-9,-11},{10,-11},{17,-3},{13,7},{-14,7}};
+        part(d,x,y,1,0,base,6,0x0c1e2c);
+        part(d,x,y,1,0,turret,6,flash?0xffefd1:0xa56365);
+        line(d,x-9,y-11,x+10,y-11,coral);
+        rect(d,x-18,y+14,36,6,0x425365);
+        for(int i=-16;i<18;i+=7) {
+            ellipse(d,x+i,y+18,3,3,0x101e30);
+            pixel(d,x+i,y+18,0x9d8e8d);
+        }
+        rect(d,x-26,y-6,23,6,0x142332);
+        line(d,x-25,y-6,x-5,y-6,0xd8a390);
+        rect(d,x-27,y-7,5,8,0x313e4c);
+        rect(d,x+4,y-6,7,3,0xffc48b);
+        line(d,x+11,y-11,x+13,y-20,0x8c9bab);
+        pixel(d,x+13,y-20,0xffa187);
     } else if(e->kind==RT_MINE) {
         ring(d,x,y,21,21,0x88546e,1);
         for(int i=0;i<8;i++) {
@@ -343,10 +405,22 @@ static void enemy(struct ink *d,const struct rt_enemy *e,unsigned tick)
         ellipse(d,x,y,10,10,0x332b4d);ellipse(d,x,y,5,5,tick%20<10?0xffb793:0xff5c79);
         pixel(d,x-2,y-2,0xffecbb);
     } else {
-        ellipse(d,x,y,13,6,dark);rect(d,x-7,y-5,14,10,coral);
-        rect(d,x-18,y-5,9,2,0x9c7890);rect(d,x+9,y-5,9,2,0x9c7890);
-        line(d,x-19,y-8,x-6,y-8,0xd0a7ac);line(d,x+6,y-8,x+19,y-8,0xd0a7ac);
-        rect(d,x-3,y-1,6,3,0xffecab);rect(d,x-5,y+6,10,2,0x814a64);
+        static const int drone[][2]={{-16,0},{-8,-9},{6,-9},{16,0},{7,9},{-8,9}};
+        part(d,x,y+2,1.08f,0,drone,6,0x0b1e30);
+        part(d,x,y,1,0,drone,6,dark);
+        line(d,x-8,y-9,x+6,y-9,coral);
+        for(int side=-1;side<=1;side+=2) {
+            int xx=x+side*17;
+            rect(d,xx-4,y-4,8,7,0x263d50);
+            line(d,x+side*7,y,xx,y,0xcc9292);
+            ellipse(d,xx,y-7,tick%2?10:7,2,0x8295a1);
+            line(d,xx-7,y-8,xx+7,y-8,0xd9bdac);
+            rect(d,xx-2,y+4,4,3,0xf6aa78);
+        }
+        ellipse(d,x-1,y,6,5,0x101e30);
+        ellipse(d,x-2,y,3,3,flash?0xffffff:0xffae73);
+        pixel(d,x-3,y-1,0xfff5ce);
+        line(d,x-5,y+8,x+5,y+8,coral);
     }
     if(e->kind!=RT_MINE && e->age<650)ring(d,x,y,24,24,0xf4b782,1);
     if(e->fire_ms<550 && e->x>0 && e->x<RT_W && e->kind!=RT_MINE) {
@@ -365,6 +439,19 @@ void rt_render(const struct rt_game *g,struct rt_frame *frame,bool title)
     struct ink d={.f=frame};
     background(&d,g,title);
     if(title) {
+        if(frame->height<=400) {
+            for(int y=0;y<frame->height;y++)for(int xx=0;xx<270;xx++) {
+                uint16_t c=frame->pixels[y*RT_W+xx];
+                unsigned light=110+(unsigned)xx*146/270;
+                /* Ordered rounding avoids broad RGB565 bands in the fade. */
+                static const unsigned bayer[4][4]={{0,8,2,10},{12,4,14,6},{3,11,1,9},{15,7,13,5}};
+                unsigned threshold=bayer[y&3][xx&3]*16;
+                unsigned r=(((c>>11)&31)*light+threshold)/256;
+                unsigned green=(((c>>5)&63)*light+threshold)/256;
+                unsigned blue=((c&31)*light+threshold)/256;
+                frame->pixels[y*RT_W+xx]=(uint16_t)((r<<11)|(green<<5)|blue);
+            }
+        }
         int x=frame->height>400?RT_W/2+30:RT_W*70/100;
         int y=frame->height>400?frame->height*49/100:frame->height*49/100;
         float scale=frame->height>400?3.4f:2.7f;
@@ -387,10 +474,24 @@ void rt_render(const struct rt_game *g,struct rt_frame *frame,bool title)
         if(!p->active)continue;
         int x=(int)p->x,y=(int)p->y;
         unsigned c=p->kind==0?0xffdc92:p->kind==1?0x8ef7dc:0xf58baf;
-        ring(&d,x,y,10,10,p->kind==0?0x92745f:0x477a86,1);
-        struct point diamond[]={{x,y-6},{x+5,y},{x,y+6},{x-5,y}};
-        polygon(&d,diamond,4,c);line(&d,x,y-4,x,y+3,0xfff1c7);
-        if(p->kind>0)line(&d,x-3,y,x+3,y,0x26384f);
+        if(p->kind==0) {
+            struct point diamond[]={{x,y-7},{x+6,y},{x,y+7},{x-6,y}};
+            struct point facet[]={{x,y-5},{x+4,y},{x,y+5}};
+            polygon(&d,diamond,4,0x543c37);
+            ring(&d,x,y,8,8,0x89694a,1);
+            polygon(&d,facet,3,0xd99c54);
+            line(&d,x,y-5,x-4,y,0xffedb6);line(&d,x-4,y,x,y+5,c);
+        } else {
+            rect(&d,x-7,y-8,15,17,0x122b3b);
+            line(&d,x-7,y-8,x+7,y-8,c);line(&d,x-7,y+8,x+7,y+8,c);
+            if(p->kind==1) {
+                struct point shield[]={{x-4,y-4},{x+4,y-4},{x+4,y+1},{x,y+5},{x-4,y+1}};
+                polygon(&d,shield,5,c);line(&d,x,y-2,x,y+2,0x25495a);
+            } else {
+                line(&d,x,y-5,x,y+4,c);line(&d,x-1,y-3,x-1,y+3,c);
+                line(&d,x-3,y+4,x,y+1,c);line(&d,x+3,y+4,x,y+1,c);
+            }
+        }
     }
     for(int i=0;i<RT_PARTICLES;i++) {
         const struct rt_particle *p=&g->particles[i];
@@ -450,6 +551,13 @@ void rt_render(const struct rt_game *g,struct rt_frame *frame,bool title)
             }
         }
     }
+    if(g->phase==RT_FLIGHT && !g->paused) {
+        struct point aim=transform(g->x,g->y,108,8,1,g->angle);
+        line(&d,aim.x-5,aim.y,aim.x-2,aim.y,0x7db3b3);
+        line(&d,aim.x+2,aim.y,aim.x+5,aim.y,0x7db3b3);
+        line(&d,aim.x,aim.y-5,aim.x,aim.y-2,0x7db3b3);
+        line(&d,aim.x,aim.y+2,aim.x,aim.y+5,0x7db3b3);
+    }
     if(g->gun_ms>75 && g->phase==RT_FLIGHT) {
         struct point muzzle=transform(g->x,g->y,35,8,1,g->angle);
         line(&d,muzzle.x,muzzle.y,muzzle.x+10,muzzle.y,0xfff5cf);
@@ -457,14 +565,32 @@ void rt_render(const struct rt_game *g,struct rt_frame *frame,bool title)
     }
     /* Wave progress is intentionally independent from the score HUD. */
     d.shake_x=d.shake_y=0;
+    if(g->hit_ms>0 && g->phase==RT_FLIGHT) {
+        unsigned impact=g->shield>0?0x9ae9dc:0xff9a80;
+        int bottom=frame->height-8;
+        for(int side=0;side<2;side++) {
+            int x=side?RT_W-5:4,dx=side?-1:1;
+            line(&d,x,65,x+dx*18,65,impact);
+            line(&d,x,65,x,83,impact);
+            line(&d,x,bottom,x+dx*18,bottom,impact);
+            line(&d,x,bottom,x,bottom-18,impact);
+        }
+    }
     int progress=g->wave_ms<RT_WAVE_MS?g->wave_ms:RT_WAVE_MS;
     rect(&d,0,frame->height-2,RT_W,2,0x254354);
     rect(&d,0,frame->height-2,progress*RT_W/RT_WAVE_MS,2,0x86e3cc);
     for(int i=0;i<RT_ENEMIES;i++) {
         const struct rt_enemy *e=&g->enemies[i];
         if(e->active && e->kind==RT_BOSS) {
-            rect(&d,RT_W/2-96,49,192,5,0x472e48);
-            rect(&d,RT_W/2-96,49,192*e->hp/e->max_hp,5,0xff957c);
+            int bx=(int)e->x-66;
+            if(bx>RT_W-136)bx=RT_W-136;
+            if(bx<4)bx=4;
+            int by=(int)e->y+34;
+            if(by>frame->height-12)by=frame->height-12;
+            rect(&d,bx-2,by-2,136,9,0x0a1b2b);
+            rect(&d,bx,by,132,5,0x472e48);
+            rect(&d,bx,by,132*e->hp/e->max_hp,5,0xff957c);
+            for(int j=1;j<12;j++)rect(&d,bx+j*11,by,1,5,0x132738);
             break;
         }
     }

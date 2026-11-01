@@ -117,6 +117,10 @@ enum pos_style_role {
     POS_STYLE_ROTOR_SECONDARY,
     POS_STYLE_ROTOR_PRESSED,
     POS_STYLE_ROTOR_SELECTED,
+    POS_STYLE_ROTOR_HUD,
+    POS_STYLE_ROTOR_METER,
+    POS_STYLE_ROTOR_SHIELD_FILL,
+    POS_STYLE_ROTOR_HULL_FILL,
     /* Semantic variants: neutral for existing themes, luminous for Neon. */
     POS_STYLE_READING_CONTROL,
     POS_STYLE_BUTTON_GLYPH,

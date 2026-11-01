@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -86,6 +87,19 @@ static void shot(void *a,const char *mode,const char *state,int size)
     free(rgb);lv_draw_buf_destroy(snap);
 }
 
+/* Search the actual visible UI, so status regressions are tested without
+ * exposing implementation-only widgets through the app API. */
+static lv_obj_t *visible_text(lv_obj_t *root,const char *text)
+{
+    if(lv_obj_has_flag(root,LV_OBJ_FLAG_HIDDEN))return NULL;
+    if(lv_obj_check_type(root,&lv_label_class) && !strcmp(lv_label_get_text(root),text))return root;
+    for(unsigned i=0;i<lv_obj_get_child_count(root);i++) {
+        lv_obj_t *found=visible_text(lv_obj_get_child(root,i),text);
+        if(found)return found;
+    }
+    return NULL;
+}
+
 static void exercise(lv_display_t *d,int mode,int text_size)
 {
     static const int sizes[][2]={{568,1232},{1232,568},{1280,720}};
@@ -136,6 +150,17 @@ static void exercise(lv_display_t *d,int mode,int text_size)
         rt_advance(g,in,16);
     }
     rotor_app_refresh(a);shot(a,names[mode],"combat",text_size);
+    int saved_hull=g->hull;float saved_shield=g->shield;
+    g->hull=25;g->shield=0;rotor_app_refresh(a);
+    CHECK(visible_text(body,"CRITICAL HULL / EVADE FIRE"));
+    CHECK(visible_text(body,"HULL 025"));
+    shot(a,names[mode],"damage",text_size);
+    g->hull=100;rotor_app_refresh(a);
+    CHECK(visible_text(body,"SHIELD DOWN / EVADE TO RECHARGE"));
+    CHECK(!visible_text(body,"CRITICAL HULL / EVADE FIRE"));
+    g->hull=saved_hull;g->shield=saved_shield;
+    g->wave=4;shot(a,names[mode],"ridge",text_size);
+    g->wave=7;shot(a,names[mode],"city",text_size);
     g->wave=3;g->wave_ms=12496;rt_advance(g,(struct rt_input){0},16);
     for(int i=0;i<100;i++) { g->safe_ms=1000;rt_advance(g,(struct rt_input){.rocket=true},16); }
     rotor_app_refresh(a);shot(a,names[mode],"boss",text_size);

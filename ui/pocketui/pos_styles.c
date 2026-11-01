@@ -1117,6 +1117,29 @@ static void fill_styles(void)
     lv_style_set_border_width(s, 2);
     lv_style_set_bg_color(s, lv_color_hex(0x254950));
 
+    s = &styles[POS_STYLE_ROTOR_HUD];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x0b1a2b));
+    lv_style_set_bg_opa(s, 245);
+    lv_style_set_border_color(s, lv_color_hex(0x365469));
+    lv_style_set_border_width(s, 1);
+    lv_style_set_radius(s, 8);
+    s = &styles[POS_STYLE_ROTOR_METER];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x294051));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+    s = &styles[POS_STYLE_ROTOR_SHIELD_FILL];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x83e8cf));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+    s = &styles[POS_STYLE_ROTOR_HULL_FILL];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0xffa184));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+
     /* Variants share all existing role properties unless the theme refills
      * them below. Always reset, including when switching back live. */
     lv_style_copy(&styles[POS_STYLE_READING_CONTROL], &styles[POS_STYLE_BUTTON_SECONDARY]);

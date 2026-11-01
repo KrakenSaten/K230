@@ -19,6 +19,7 @@ struct rotor_app {
     struct rt_input touch;
     lv_obj_t *root,*image,*shade,*kicker,*title,*title2,*copybox,*copy,*footer;
     lv_obj_t *score,*systems,*sector,*ordnance,*notice,*button[RTB_COUNT];
+    lv_obj_t *cockpit,*shield_bar,*hull_bar,*reload_bar,*warning,*hull_label;
     lv_image_dsc_t image_data;
     lv_timer_t *timer;
     uint32_t last,best[3],recorded;
@@ -113,7 +114,7 @@ static void layout(struct rotor_app *a)
     int left=24+safe.left,top=18+safe.top,right=w-24-safe.right,bottom=h-24-safe.bottom;
     int usable=right-left;
     unsigned scale=(unsigned)w*256/RT_W;
-    int scene_h=wide?h:(flying(a)?h-320:h-360);
+    int scene_h=wide?(a->game.phase==RT_TITLE?h:h-88):(flying(a)?h-320:h-360);
     if(scene_h<240)scene_h=240;
     rt_resize(&a->game,scene_h*256/(int)scale);
     if(a->image_data.header.h!=(unsigned)a->game.height) {
@@ -125,14 +126,21 @@ static void layout(struct rotor_app *a)
     lv_image_set_scale(a->image,scale);
     lv_image_set_pivot(a->image,0,0);
     int drawn_h=a->game.height*(int)scale/256;
-    int image_y=wide?(h-drawn_h)/2:flying(a)?100+(h-320-drawn_h)/2:230;
+    int image_y=wide?(a->game.phase==RT_TITLE?(h-drawn_h)/2:h-drawn_h):flying(a)?100+(h-320-drawn_h)/2:230;
     lv_obj_set_pos(a->image,0,image_y);
     place(a->shade,0,0,w,h);
+    place(a->cockpit,left-12,top-12,wide?usable-120:usable+24,wide?110:164);
     position_text(a->score,left,top,wide?260:usable);
     position_text(a->systems,wide?left+280:left,wide?top:top+44,wide?320:usable);
-    position_text(a->sector,wide?right-420:left,wide?top:top+80,wide?280:usable);
+    position_text(a->sector,wide?right-420:left,wide?top:top+96,wide?280:usable);
+    int meter_x=wide?left+280:left,meter_w=wide?144:(usable-24)/2;
+    position_text(a->hull_label,meter_x+meter_w+24,top+(wide?0:44),meter_w);
+    place(a->shield_bar,meter_x,top+(wide?29:73),meter_w,7);
+    place(a->hull_bar,meter_x+meter_w+24,top+(wide?29:73),meter_w,7);
+    place(a->reload_bar,wide?left+280:left,wide?top+88:bottom-207,wide?312:usable-124,4);
+    position_text(a->warning,wide?left+280:left,wide?top+116:top+174,wide?400:usable);
     position_text(a->ordnance,wide?left+280:left,wide?top+42:bottom-252,wide?400:usable);
-    position_text(a->notice,wide?w/2-220:left,top+(wide?92:130),wide?440:usable);
+    position_text(a->notice,wide?w/2-220:left,top+(wide?116:174),wide?440:usable);
     place(a->button[RTB_PAUSE],right-108,wide?top:bottom-78,108,72);
     place(a->button[RTB_PAD],left,bottom-(wide?130:202),wide?200:usable-124,wide?130:188);
     place(a->button[RTB_ROCKET],right-112,bottom-(wide?104:202),112,wide?104:112);
@@ -198,7 +206,16 @@ static void refresh(struct rotor_app *a)
     bool active=flying(a),title=g->phase==RT_TITLE,hangar=g->phase==RT_HANGAR;
     show(a->shade,!active && !title);
     show(a->score,active);show(a->systems,active);show(a->sector,active);show(a->ordnance,active);
-    show(a->notice,active && (g->banner_ms>0 || g->combo>1));
+    show(a->cockpit,active);show(a->hull_label,active);show(a->shield_bar,active);show(a->hull_bar,active);show(a->reload_bar,active);
+    show(a->warning,active && (g->hull<=30 || g->shield<=0));
+    label(a->warning,g->hull<=30?"CRITICAL HULL / EVADE FIRE":"SHIELD DOWN / EVADE TO RECHARGE");
+    lv_bar_set_range(a->shield_bar,0,g->shield_max);
+    lv_bar_set_value(a->shield_bar,(int)g->shield,LV_ANIM_OFF);
+    lv_bar_set_value(a->hull_bar,g->hull,LV_ANIM_OFF);
+    int reload=3100-(int)g->level[2]*350;
+    lv_bar_set_range(a->reload_bar,0,reload);
+    lv_bar_set_value(a->reload_bar,g->rockets==g->rocket_max?reload:g->reload_ms,LV_ANIM_OFF);
+    show(a->notice,active && g->hull>30 && g->shield>0 && (g->banner_ms>0 || g->combo>1));
     show(a->kicker,!active);show(a->title,!active);show(a->title2,!active && !a->help && !hangar);
     show(a->copybox,!active);show(a->footer,!active && !a->help);
     for(unsigned i=0;i<RTB_COUNT;i++) {
@@ -213,7 +230,8 @@ static void refresh(struct rotor_app *a)
     }
     char text[320];
     snprintf(text,sizeof(text),"SCORE %07u",g->score);label(a->score,text);
-    snprintf(text,sizeof(text),"SHIELD %03d / %d   HULL %03d",(int)ceilf(g->shield),g->shield_max,g->hull);label(a->systems,text);
+    snprintf(text,sizeof(text),"SHIELD %03d",(int)ceilf(g->shield));label(a->systems,text);
+    snprintf(text,sizeof(text),"HULL %03d",g->hull);label(a->hull_label,text);
     snprintf(text,sizeof(text),"%s / %02u\n%s",rt_sector(g->wave),g->wave,rt_difficulty(g->difficulty));label(a->sector,text);
     snprintf(text,sizeof(text),"RKT %d/%d   SALVAGE %u\n%s",g->rockets,g->rocket_max,g->credits,a->sound?a->audio.status:"SOUND OFF");label(a->ordnance,text);
     if(g->banner_ms>0 && g->boss_spawned)snprintf(text,sizeof(text),"HEAVY GUNSHIP INBOUND");
@@ -430,6 +448,9 @@ static void *create(lv_obj_t *body)
     a->image_data.data=(const uint8_t *)a->frame.pixels;
     a->image=lv_image_create(a->root);lv_image_set_src(a->image,&a->image_data);
     lv_image_set_antialias(a->image,false);
+    a->cockpit=lv_obj_create(a->root);lv_obj_remove_style_all(a->cockpit);
+    lv_obj_remove_flag(a->cockpit,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);
+    pos_style_add(a->cockpit,POS_STYLE_ROTOR_HUD,0);
     a->shade=lv_obj_create(a->root);lv_obj_remove_style_all(a->shade);
     lv_obj_remove_flag(a->shade,LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_CLICKABLE);
     pos_style_add(a->shade,POS_STYLE_ROTOR_PANEL,0);
@@ -443,8 +464,18 @@ static void *create(lv_obj_t *body)
     a->footer=text_object(a->root,POS_STYLE_CAPTION,POS_STYLE_ROTOR_MUTED);
     a->score=text_object(a->root,POS_STYLE_VALUE,POS_STYLE_ROTOR_TEXT);
     a->systems=text_object(a->root,POS_STYLE_CAPTION,POS_STYLE_ROTOR_ACCENT);
+    a->hull_label=text_object(a->root,POS_STYLE_CAPTION,POS_STYLE_ROTOR_CORAL);
     a->sector=text_object(a->root,POS_STYLE_CAPTION,POS_STYLE_ROTOR_TEXT);
     a->ordnance=text_object(a->root,POS_STYLE_CAPTION,POS_STYLE_ROTOR_MUTED);
+    lv_obj_t **bars[]={&a->shield_bar,&a->hull_bar,&a->reload_bar};
+    for(int i=0;i<3;i++) {
+        *bars[i]=lv_bar_create(a->root);lv_obj_remove_style_all(*bars[i]);
+        lv_obj_remove_flag(*bars[i],LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
+        pos_style_add(*bars[i],POS_STYLE_ROTOR_METER,LV_PART_MAIN);
+        pos_style_add(*bars[i],i==1?POS_STYLE_ROTOR_HULL_FILL:POS_STYLE_ROTOR_SHIELD_FILL,LV_PART_INDICATOR);
+        lv_bar_set_range(*bars[i],0,100);
+    }
+    a->warning=text_object(a->root,POS_STYLE_CAPTION,POS_STYLE_ROTOR_CORAL);
     a->notice=text_object(a->root,POS_STYLE_TITLE,POS_STYLE_ROTOR_TEXT);
     lv_obj_set_style_text_align(a->notice,LV_TEXT_ALIGN_CENTER,0);
     for(unsigned i=0;i<RTB_COUNT;i++) {
