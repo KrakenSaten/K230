@@ -2874,10 +2874,25 @@ neon-outpost-san-test:
 	CC=$(CC) NEON_BUILD_DIR=out/neon-outpost-san NEON_SANITIZE=1 bash tests/neon_outpost_test.sh
 
 # Foreground audio.effects service; hardware stays behind pocketaudio.
-tools/audio-effects/pos-audio-effects: tools/audio-effects/pos_audio_effects.c core/audio_effects/effects.c $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
+tools/audio-effects/pos-audio-effects: tools/audio-effects/pos_audio_effects.c core/audio_effects/effects.c core/audio_effects/effects.h $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -Icore -o $@ $(filter %.c %.o,$^) $(LDFLAGS) -lasound -lm
 audio-effects: tools/audio-effects/pos-audio-effects
 .PHONY: audio-effects
+
+.PHONY: rotorterror-test rotorterror-san-test
+ROTOR_TEST_SOURCES = tests/rotor_engine_test.c apps/rotorterror/rotor.c \
+    apps/rotorterror/rotor_render.c apps/rotorterror/rotor_store.c \
+    core/pocketpaths.c core/audio_effects/effects.c
+rotorterror-test: audio-effects
+	mkdir -p out/rotorterror
+	$(CC) -std=c11 -O2 -g -Wall -Wextra -Werror -Iapps/rotorterror -Icore $(ROTOR_TEST_SOURCES) -lm -o out/rotorterror/engine-test
+	out/rotorterror/engine-test
+	$(CC) -std=c11 -O2 -g -Wall -Wextra -Werror -Iapps/rotorterror -Icore tests/rotor_audio_client_test.c apps/rotorterror/rotor_audio.c -o out/rotorterror/audio-client-test
+	out/rotorterror/audio-client-test $(CURDIR)/tools/audio-effects/pos-audio-effects
+rotorterror-san-test:
+	mkdir -p out/rotorterror
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iapps/rotorterror -Icore $(ROTOR_TEST_SOURCES) -lm -o out/rotorterror/engine-test-san
+	out/rotorterror/engine-test-san
 
 .PHONY: relay-nine-test relay-nine-san-test
 relay-nine-test: audio-effects

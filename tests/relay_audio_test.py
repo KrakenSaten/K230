@@ -26,10 +26,11 @@ pcm.relayfile {{ type file slave.pcm "null" file "{raw}" format "raw" }}
  muted=subprocess.Popen([helper,'0'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
  check(ready(muted)==b'MUTED');muted.stdin.close();check(muted.wait(timeout=2)==0)
  begin=time.monotonic()
- for k in [0,8,3,9,1,2,4,5,6,7]:
+ # Preserve the original bank and exercise RotorTerror's appended recipes.
+ for k in [0,8,3,9,1,2,4,5,6,7,10,11,12,13,14,15,16]:
   stamp=int(time.monotonic()*1000)&0xffffffff
   p.stdin.write(struct.pack('<B3xI',k,stamp));p.stdin.flush();time.sleep(.08)
- p.stdin.close();check(p.wait(timeout=2)==0);check(time.monotonic()-begin<2)
+ p.stdin.close();check(p.wait(timeout=2)==0);check(time.monotonic()-begin<3)
  data=raw.read_bytes();samples=struct.unpack('<'+'h'*(len(data)//2),data)
  check(len(samples)>10000);check(max(map(abs,samples))>100);check(max(map(abs,samples))<=8192)
  if out:

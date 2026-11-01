@@ -105,6 +105,18 @@ enum pos_style_role {
     POS_STYLE_SCAN_SURFACE,        /* behind a code a camera reads: opaque pure white in every theme and mode */
     POS_STYLE_GAME_SCENE,          /* behind Relay Nine's scene: its own palette's backdrop in every theme and mode */
     POS_STYLE_GAME_HUD_TEXT,       /* Relay Nine's HUD and message text colour (no font) in every theme and mode */
+    /* RotorTerror's original world palette; fonts still use the shared roles. */
+    POS_STYLE_ROTOR_BACKDROP,
+    POS_STYLE_ROTOR_PANEL,
+    POS_STYLE_ROTOR_TEXT,
+    POS_STYLE_ROTOR_INK,
+    POS_STYLE_ROTOR_MUTED,
+    POS_STYLE_ROTOR_ACCENT,
+    POS_STYLE_ROTOR_CORAL,
+    POS_STYLE_ROTOR_BUTTON,
+    POS_STYLE_ROTOR_SECONDARY,
+    POS_STYLE_ROTOR_PRESSED,
+    POS_STYLE_ROTOR_SELECTED,
     /* Semantic variants: neutral for existing themes, luminous for Neon. */
     POS_STYLE_READING_CONTROL,
     POS_STYLE_BUTTON_GLYPH,
