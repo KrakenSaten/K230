@@ -174,6 +174,27 @@ static void renderer(void)
         for(int j=1;j<RT_W*g.height;j++)if(last!=buf->frame.pixels[j]) { changes++;last=buf->frame.pixels[j]; }
         CHECK(changes>3000);
     }
+    /* Exercise clipped geometry, minimum-height scenery, every enemy and
+     * velocity-aligned rockets under ASan/UBSan, not only empty backdrops. */
+    for(int zone=0;zone<3;zone++)for(int h=240;h<=720;h+=240) {
+        rt_resize(&g,h);g.wave=1+zone*3;g.distance=123456.0f;
+        for(int side=0;side<2;side++) {
+            for(int kind=RT_DRONE;kind<=RT_BOSS;kind++) {
+                g.enemies[kind]=(struct rt_enemy){.active=true,.kind=kind,
+                    .x=side?RT_W-2:2,.y=3+kind*40,.hp=1,.max_hp=10};
+            }
+            for(int i=0;i<8;i++) {
+                float angle=i*.785398f;
+                g.shots[i]=(struct rt_shot){.active=true,.rocket=true,
+                    .x=side?RT_W-1:1,.y=1+i*30,
+                    .vx=cosf(angle)*100,.vy=sinf(angle)*100};
+                g.particles[i]=(struct rt_particle){.x=i*85,.y=h-1,
+                    .life=80,.max_life=120,.color=1,.size=5};
+            }
+            rt_render(&g,&buf->frame,false);
+            CHECK(buf->before==0xabcdef12 && buf->after==0x12345678);
+        }
+    }
     free(buf);
 }
 
