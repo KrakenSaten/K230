@@ -124,6 +124,9 @@ static void helicopter(struct ink *d,float x,float y,float scale,float angle,
     unsigned main=hit?0xfff3cf:hostile?0xbc4d64:0x43d7cd;
     unsigned light=hit?0xffffff:hostile?0xff977e:0xa2fff0;
     unsigned dark=hostile?0x652e54:0x1e717c;
+    /* Dark silhouette, lit upper armor and separate cockpit glazing keep the
+     * aircraft readable over both bright water and dark industrial scenery. */
+    part(d,x,y+2*scale,scale*1.04f,angle,body,8,0x091725);
     part(d,x,y,scale,angle,tail,4,dark);
     part(d,x,y,scale,angle,fin,4,main);
     part(d,x,y,scale,angle,body,8,main);
@@ -149,6 +152,22 @@ static void helicopter(struct ink *d,float x,float y,float scale,float angle,
     stroke(d,x,y,scale,angle,18,10,34,10,0xb6c7b7);
     stroke(d,x,y,scale,angle,-22,-11,-28,-11,0xffb65f);
     stroke(d,x,y,scale,angle,-22,-9,-29,-9,phase%2?0xfc705a:0xfdd896);
+    static const int wing[][2]={{-14,3},{8,3},{15,9},{-18,8}};
+    part(d,x,y,scale,angle,wing,4,hostile?0xb36970:0x308e9b);
+    stroke(d,x,y,scale,angle,-19,10,17,11,0x081c2c);
+    stroke(d,x,y,scale,angle,-18,-13,-2,-13,light);
+    stroke(d,x,y,scale,angle,5,-8,18,-3,hostile?0xffc2a5:0x73d5e2);
+    stroke(d,x,y,scale,angle,6,-7,17,-4,0x32728a);
+    stroke(d,x,y,scale,angle,7,-1,10,5,dark);
+    for(int i=0;i<4;i++) {
+        stroke(d,x,y,scale,angle,-19+i*3,-12,-20+i*3,-8,0x102a3d);
+        stroke(d,x,y,scale,angle,-14+i*6,7,-13+i*6,7,light);
+    }
+    stroke(d,x,y,scale,angle,-43,-14,-42,-9,0xffd59a);
+    stroke(d,x,y,scale,angle,-11,-24,-8,-24,0xffffff);
+    stroke(d,x,y,scale,angle,3,8,12,8,0x142638);
+    stroke(d,x,y,scale,angle,4,9,12,9,0xe4bb7b);
+    if(phase%24<12)stroke(d,x,y,scale,angle,-46,-18,-44,-18,0xff7067);
     float spin=phase*.65f;
     int tx=(int)(cosf(spin)*8),ty=(int)(sinf(spin)*8);
     stroke(d,x,y,scale,angle,-45-tx,-7-ty,-45+tx,-7+ty,light);
@@ -188,44 +207,86 @@ static void background(struct ink *d,const struct rt_game *g,bool title)
         int x=(int)(r%RT_W),y=(int)((r>>10)%(unsigned)(horizon-55));
         if(y<horizon/2)pixel(d,x,y,i%5==0?0xc7c7c3:0x626379);
     }
-    /* Long cloud banks move at a fraction of flight speed. */
-    for(int i=0;i<8;i++) {
-        int x=((int)(hash(i+80)%820)-(int)fmodf(g->distance*.14f,820))%820;
+    /* Soft cloud silhouettes and distant ridges move independently of the
+     * foreground. All scenery is deterministic and allocation-free. */
+    for(int i=0;i<7;i++) {
+        int x=((int)(hash(i+80)%820)-(int)fmodf(g->distance*.12f,820))%820;
         if(x< -130)x+=820;
-        int y=38+(int)(hash(i+41)%(unsigned)(horizon-75));
-        unsigned c=mix(sky[zone],0xbf8a96,70);
-        rect(d,x,y,92,2,c);rect(d,x+24,y-3,48,2,c);rect(d,x-26,y+4,136,1,c);
+        int y=28+(int)(hash(i+41)%(unsigned)(horizon-65));
+        unsigned c=mix(sky[zone],0xaab4c4,35);
+        ellipse(d,x,y,56,5,c);ellipse(d,x+31,y-4,34,7,c);
+        line(d,x-44,y+5,x+75,y+5,mix(c,glow[zone],40));
     }
-    /* Three independent silhouette layers, with deterministic architecture. */
     for(int layer=0;layer<3;layer++) {
-        int step=layer==0?70:layer==1?40:29;
+        int step=layer==0?110:layer==1?76:49;
         float speed=layer==0?.10f:layer==1?.25f:.52f;
-        int offset=(int)(g->distance*speed),base=horizon+layer*19;
-        unsigned c=layer==0?0x473c59:layer==1?0x28304b:0x152840;
+        int offset=(int)(g->distance*speed),base=horizon+layer*17;
+        unsigned c=layer==0?mix(sky[zone],0x24334b,135):layer==1?0x29374d:0x142b3c;
         for(int i=-2;i<RT_W/step+3;i++) {
             int index=i+offset/step,x=i*step-offset%step;
             unsigned r=hash((unsigned)(index+100000+layer*900));
-            int bh=20+(int)(r%65)+layer*9,bw=step-5-(int)((r>>8)%9);
-            if(zone==1 && layer==0) {
-                struct point mountain[]={{x-40,base},{x+20,base-bh-35},{x+110,base}};
-                polygon(d,mountain,3,c);
+            int bh=22+(int)(r%57)+layer*9,bw=step-7;
+            if(zone!=2 && (layer<2 || zone==1)) {
+                int peak=x+step/2;
+                struct point ridge[]={{x-30,base},{x+6,base-bh/2},
+                    {peak,base-bh},{x+step-9,base-bh/3},{x+step+35,base}};
+                polygon(d,ridge,5,c);
+                struct point face[]={{peak,base-bh},{peak+9,base-bh/2},
+                    {x+step+35,base},{x+step-9,base-bh/3}};
+                polygon(d,face,4,mix(c,0x101e34,65));
+                line(d,peak,base-bh,peak-12,base-bh+15,mix(c,glow[zone],80));
+                if(zone==1 && layer==0) {
+                    struct point snow[]={{peak,base-bh},{peak-12,base-bh+17},
+                        {peak-3,base-bh+12},{peak+9,base-bh+18}};
+                    polygon(d,snow,4,0xa898b0);
+                }
             } else {
                 rect(d,x,base-bh,bw,bh,c);
-                if((r&3)==0) { rect(d,x+4,base-bh-12,bw-8,12,c);line(d,x+bw/2,base-bh-24,x+bw/2,base-bh,c); }
-                if(layer>0)for(int wy=base-bh+8;wy<base-5;wy+=10)
-                    for(int wx=x+5;wx<x+bw-3;wx+=8)
-                        if(hash((unsigned)(wx+wy*300+index))%4==0)rect(d,wx,wy,2,3,layer==2?0x97746c:0x64526b);
-                if(layer==2 && (r&7)==0) { rect(d,x+2,base-bh+13,bw-4,3,0xc85b83);rect(d,x+4,base-bh+14,bw-8,1,0xf09d9a); }
+                rect(d,x+2,base-bh,bw-4,2,mix(c,glow[zone],60));
+                rect(d,x+bw-6,base-bh+2,6,bh-2,0x112536);
+                if((r&3)==0) {
+                    rect(d,x+7,base-bh-10,bw-14,10,c);
+                    line(d,x+bw/2,base-bh-27,x+bw/2,base-bh,c);
+                    pixel(d,x+bw/2,base-bh-27,0xffa584);
+                }
+                for(int wy=0;wy<bh-10;wy+=9)
+                    for(int wx=5;wx<bw-7;wx+=7)
+                        if(hash((unsigned)(wx+wy*300+index))%3==0)
+                            rect(d,x+wx,base-bh+6+wy,2,3,layer==2?0xc49b76:0x777187);
+                if(layer==2 && (r&3)==0) {
+                    rect(d,x+5,base-bh+12,3,18,0x397681);
+                    rect(d,x+6,base-bh+14,1,14,0x83e5cf);
+                }
             }
         }
     }
-    rect(d,0,h-26,RT_W,26,0x0c1d30);
-    line(d,0,h-27,RT_W-1,h-27,0x3a6c76);
-    for(int y=h-22;y<h;y+=5)for(int i=0;i<14;i++) {
-        unsigned r=hash((unsigned)(i+y*15));
-        int x=((int)(r%700)-(int)(g->distance*.8f))%700;
-        if(x<0)x+=700;
-        rect(d,x,y,3+(r%20),1,i%3==0?0x294d61:0x213b51);
+    int water=horizon+33;
+    for(int y=water;y<h-19;y++) {
+        rect(d,0,y,RT_W,1,mix(0x284458,0x0c2132,(y-water)*256/(h-water)));
+        if(y%3==0) {
+            unsigned r=hash((unsigned)y);
+            int width=18+(y-water)*2;
+            int x=sx-width/2+(int)(r%19)-9;
+            rect(d,x,y,width,1,mix(0x495667,glow[zone],50+(int)(r%60)));
+        }
+    }
+    for(int i=0;i<70;i++) {
+        unsigned r=hash((unsigned)i+901);
+        int y=water+(int)(r%(unsigned)(h-water-18));
+        int x=((int)((r>>10)%760)-(int)(g->distance*(.35f+(float)(y-water)/h)))%760;
+        if(x<0)x+=760;
+        rect(d,x,y,3+(int)(r%15),1,0x456274);
+    }
+    /* Near-field seawall: fast parallax provides a tangible sense of speed. */
+    rect(d,0,h-19,RT_W,19,0x081722);
+    rect(d,0,h-19,RT_W,2,0x517077);
+    rect(d,0,h-15,RT_W,2,0x243e4b);
+    int offset=(int)(g->distance*.9f)%80;
+    for(int x=-offset;x<RT_W;x+=80) {
+        rect(d,x,h-13,2,13,0x31444e);
+        rect(d,x+10,h-10,23,3,0x182d39);
+        rect(d,x+45,h-18,12,2,0xe4b47c);
+        rect(d,x+48,h-16,6,2,0x775947);
     }
 }
 
@@ -237,17 +298,38 @@ static void enemy(struct ink *d,const struct rt_enemy *e,unsigned tick)
     if(e->kind==RT_INTERCEPTOR) {
         helicopter(d,x,y,1.05f,sinf(e->age*.003f)*.1f,tick,true,flash);
     } else if(e->kind==RT_BOSS) {
-        ellipse(d,x+4,y+5,65,20,0x152c43);
-        rect(d,x-48,y-15,88,30,dark);rect(d,x-55,y-9,110,16,coral);
-        rect(d,x-26,y-21,42,10,0x31364e);
-        rect(d,x-47,y-10,24,12,0x1c3449);rect(d,x-44,y-9,17,3,0xffddad);
-        rect(d,x-18,y-3,65,12,0xa65365);rect(d,x-40,y+12,70,9,0x2a3046);
-        rect(d,x-47,y+21,15,4,0xffc888);rect(d,x+20,y+21,15,4,0xffc888);
-        line(d,x-30,y-20,x-30,y-33,0x8b9aa0);line(d,x+28,y-16,x+28,y-31,0x8b9aa0);
-        int r=tick%2?40:30;
-        line(d,x-30-r,y-34,x-30+r,y-34,0xb1b9af);
-        line(d,x+28-r,y-32,x+28+r,y-32,0xb1b9af);
-        for(int i=0;i<5;i++)rect(d,x-20+i*12,y+1,5,3,0xffc488);
+        static const int hull[][2]={{-64,-5},{-47,-20},{29,-19},{58,-9},
+            {66,6},{40,19},{-36,19},{-60,9}};
+        static const int deck[][2]={{-35,-20},{-20,-29},{12,-27},{28,-19}};
+        static const int armor[][2]={{-28,-6},{54,-6},{43,13},{-25,13}};
+        part(d,x+2,y+3,1.03f,0,hull,8,0x091927);
+        part(d,x,y,1,0,hull,8,dark);
+        part(d,x,y,1,0,deck,4,0x3d5061);
+        part(d,x,y,1,0,armor,4,flash?0xfff2c3:0xb15a6b);
+        line(d,x-45,y-19,x+28,y-19,coral);
+        line(d,x-22,y-5,x+50,y-5,0xef9c89);
+        for(int j=0;j<3;j++) {
+            rect(d,x-52+j*10,y-12,8,9,0x102b3e);
+            rect(d,x-51+j*10,y-11,6,2,0xffd49b);
+        }
+        for(int i=0;i<5;i++) {
+            rect(d,x-15+i*12,y+1,7,6,0x412c43);
+            rect(d,x-14+i*12,y+2,3,2,0xffc488);
+            line(d,x-15+i*12,y+11,x-10+i*12,y+11,0xde8891);
+        }
+        for(int side=-1;side<=1;side+=2) {
+            int xx=x+side*32;
+            rect(d,xx-12,y+17,24,8,0x17293b);
+            rect(d,xx-8,y+24,16,3,0xc58070);
+            rect(d,xx-4,y+25,8,2,0xffe0a5);
+            line(d,xx,y-19,xx,y-35,0x9baeba);
+            int r=tick%2?37:28;
+            line(d,xx-r,y-35,xx+r,y-35,0x6f8497);
+            line(d,xx-r+5,y-36,xx+r-5,y-36,0xd1d6ca);
+            rect(d,xx-3,y-37,6,3,0xf4b58e);
+        }
+        rect(d,x-66,y+8,24,5,0x0c1c2c);
+        line(d,x-66,y+8,x-44,y+8,0xd5a18c);
     } else if(e->kind==RT_TURRET) {
         rect(d,x-19,y+3,39,18,0x263c50);rect(d,x-15,y-7,29,17,dark);
         rect(d,x-22,y-5,21,6,coral);rect(d,x-12,y-10,13,4,0xffbf8e);
@@ -316,7 +398,16 @@ void rt_render(const struct rt_game *g,struct rt_frame *frame,bool title)
         static const unsigned colors[]={0xfff4c8,0xffa568,0xffdc92,0xb17b81,0x8cf5df};
         int t=256-p->life*256/p->max_life;
         unsigned color=mix(colors[p->color%5],0x35374f,t);
-        rect(&d,(int)p->x,(int)p->y,(int)p->size,(int)p->size,color);
+        int x=(int)p->x,y=(int)p->y;
+        if(p->color==1 && p->size>=3) {
+            int radius=(int)p->size+(p->max_life-p->life)/85;
+            ellipse(&d,x,y,radius,radius,mix(0x783a4b,0x30364a,t));
+            ellipse(&d,x,y,(int)p->size,(int)p->size,color);
+            if(t<100)ellipse(&d,x-1,y-1,2,2,0xffedb5);
+        } else {
+            line(&d,x-(int)(p->vx*.025f),y-(int)(p->vy*.025f),x,y,color);
+            rect(&d,x,y,(int)p->size,(int)p->size,color);
+        }
     }
     for(int i=0;i<RT_ENEMIES;i++)if(g->enemies[i].active)enemy(&d,&g->enemies[i],g->steps);
     for(int i=0;i<RT_SHOTS;i++) {
@@ -324,9 +415,14 @@ void rt_render(const struct rt_game *g,struct rt_frame *frame,bool title)
         if(!s->active)continue;
         int x=(int)s->x,y=(int)s->y;
         if(s->rocket) {
-            int tail=6+(g->steps%3)*3;
-            line(&d,x-tail,y,x-5,y,0xffa677);line(&d,x-6,y,x+4,y,0xfff2c4);
-            rect(&d,x-3,y-1,7,3,0x8ff2db);pixel(&d,x+5,y,0xffe2b0);
+            float angle=atan2f(s->vy,s->vx);
+            int tail=10+(g->steps%3)*3;
+            stroke(&d,x,y,1,angle,-tail,0,-5,0,0xff875b);
+            stroke(&d,x,y,1,angle,-9,0,-4,0,0xffedb1);
+            stroke(&d,x,y,1,angle,-4,-1,4,-1,0x86d6d7);
+            stroke(&d,x,y,1,angle,-4,0,6,0,0xf3fff1);
+            stroke(&d,x,y,1,angle,-4,1,3,1,0x3d7b91);
+            stroke(&d,x,y,1,angle,-3,-3,-1,3,0xb7cfcc);
         } else if(s->hostile) {
             ellipse(&d,x,y,4,4,0x90435e);ellipse(&d,x,y,2,2,0xffa47f);pixel(&d,x,y,0xffe0ac);
         } else {
