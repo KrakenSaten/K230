@@ -18,6 +18,27 @@ the session's number; the K230's camera sequence stays 0). That fix was on unit
 B's previous shell and is not in master, so a plain PR build would have broken
 DeskBuddy on this unit. The branch is not pushed.
 
+### Which source was tested (clarified 2026-11-02)
+
+- **The Library code tested is this PR's source.** `4e98ac3f` is on the PR
+  branch; its only later commit, `4df21fb2`, changes three documents
+  (LIBRARY.md, ADR-015, this file) and no code. `pos-library`, the Browser
+  Library mode, `apps/library` and `core/web` on unit B were built from that
+  source.
+- **The installed binaries are a local integration build**, `7474d752`. That
+  commit, and the cherry-picked `e892032c`, exist only in the build host's
+  local repository; neither is on GitHub. Their identity on the unit is fixed
+  by the sha256 values in the table above.
+- **The one source uncertainty:** the exact contents of the `e892032c`
+  cherry-pick cannot be read from GitHub. This record describes it as a
+  DeskBuddy change only, which would leave the Library's code paths as the PR's.
+  It is not established here whether master already carries an equivalent fix.
+  This affects only how exactly the installed doors-shell can be rebuilt, not
+  the Library result. No hardware re-test follows from it.
+- The PR as merged with master (`501d4f8b` onwards) has not been on the unit.
+  Its integration differences with master are RotorTerror's, checked on the
+  host (PR description, "Status").
+
 Build: `git archive 7474d752`, BUILD_ID file, pinned Xuantie gcc 14.1.1,
 the Neon QR sysroot used for unit B's earlier shells (read only),
 `-DPOCKETOS_WITH_LIBRARY=ON`; pos-library against libzim 9.8.2 (no Xapian) and
