@@ -1,0 +1,52 @@
+# Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0
+name: RotorTerror host checks
+on:
+  pull_request:
+    paths:
+      - 'apps/rotorterror/**'
+      - 'core/audio_effects/**'
+      - 'tests/rotor*'
+      - 'tests/relay_audio_test.py'
+      - 'ui/pocketui/pos_styles.*'
+      - 'ui/shell/CMakeLists.txt'
+      - '.github/workflows/rotorterror.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rotorterror-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install existing simulator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config \
+            libsdl2-dev libcjson-dev libpng-dev libjpeg-dev libcurl4-openssl-dev libasound2-dev
+      - name: Fetch the repository-pinned LVGL
+        run: |
+          git init vendor/lvgl
+          git -C vendor/lvgl remote add origin https://github.com/lvgl/lvgl.git
+          git -C vendor/lvgl fetch --depth 1 origin "$(cat platforms/k230/vendor_lvgl_commit.txt)"
+          git -C vendor/lvgl checkout --detach FETCH_HEAD
+      - name: Simulation, sanitizer and existing sound regressions
+        run: |
+          make CC=gcc rotorterror-test rotorterror-san-test relay-nine-test
+      - name: Build Doors and exercise real UI controls
+        run: |
+          cmake -S ui/shell -B out/rotor-shell
+          cmake --build out/rotor-shell --target pocketos-shell rotor_app_test -j2
+          mkdir -p out/rotor-shots
+          ROTOR_SHOTS="$PWD/out/rotor-shots" out/rotor-shell/rotor_app_test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rotorterror-engine-captures
+          path: out/rotor-shots
+          if-no-files-found: ignore

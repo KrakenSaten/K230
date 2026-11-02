@@ -63,7 +63,15 @@ set(NEON_SOURCES
     ${REPO_DIR}/apps/neon-outpost/relay_render.c
     ${REPO_DIR}/apps/neon-outpost/relay_art.c)
 
+set(ROTOR_SOURCES
+    ${REPO_DIR}/apps/rotorterror/rotor.c
+    ${REPO_DIR}/apps/rotorterror/rotor_render.c
+    ${REPO_DIR}/apps/rotorterror/rotor_app.c
+    ${REPO_DIR}/apps/rotorterror/rotor_audio.c
+    ${REPO_DIR}/apps/rotorterror/rotor_store.c)
+
 add_executable(pocketos-shell
+    ${ROTOR_SOURCES}
     ${NEON_SOURCES}
     ${REPO_DIR}/apps/neon-outpost/neon_app.c
     ${REPO_DIR}/apps/neon-outpost/relay_audio.c
@@ -1735,7 +1743,13 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/neon-outpost/relay_stats.c
         ${NEON_SOURCES} ${GAMES_APP_TEST_UI})
     target_include_directories(neon_app_test PRIVATE "${REPO_DIR}/apps/neon-outpost")
-    foreach(game_test neon_app_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)
+    add_executable(rotor_app_test
+        ${REPO_DIR}/tests/rotor_app_test.c
+        ${ROTOR_SOURCES}
+        ${REPO_DIR}/core/pocketpaths.c
+        ${GAMES_APP_TEST_UI})
+    target_include_directories(rotor_app_test PRIVATE "${REPO_DIR}/apps/rotorterror")
+    foreach(game_test rotor_app_test neon_app_test g2048_app_test sol_app_test bj_app_test poker_app_test deskbuddy_app_test)
         target_include_directories(${game_test} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
         target_compile_options(${game_test} PRIVATE -Wall -Wextra)

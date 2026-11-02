@@ -106,6 +106,7 @@ extern const struct pocketos_app app_solitaire;
 extern const struct pocketos_app app_blackjack;
 extern const struct pocketos_app app_poker;
 extern const struct pocketos_app app_neon_outpost;
+extern const struct pocketos_app app_rotorterror;
 extern const struct pocketos_app app_2048;
 extern const struct pocketos_app app_deskbuddy;
 extern const struct pocketos_app app_mp3;
@@ -130,7 +131,7 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
                                             &app_settings, &app_wave, &app_rift, &app_files,
                                             &app_camera, &app_browser, &app_recorder, &app_vision,
                                             &app_video, &app_solitaire, &app_blackjack, &app_poker, &app_neon_outpost, &app_2048, &app_mp3,
-                                            &app_deskbuddy, &app_terminal, &app_photo OPTIONAL_APPS };
+                                            &app_deskbuddy, &app_terminal, &app_photo, &app_rotorterror OPTIONAL_APPS };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 /* Apps that are a page of another app (DS §47): System is Settings' System

@@ -6,7 +6,8 @@
 #include <string.h>
 void audio_effects_init(struct audio_effects *m)
 {
-    memset(m,0,sizeof(*m));const unsigned duration[]={10080,4800,2400,14400,14400,8640,19200,7200,19200,19200};
+    memset(m,0,sizeof(*m));const unsigned duration[]={10080,4800,2400,14400,14400,8640,19200,7200,19200,19200,
+        2400,14400,19200,12000,9600,19200,18432};
     for(unsigned k=0;k<AUDIO_EFFECT_KINDS;k++){
         m->length[k]=duration[k];uint32_t seed=0x52454c41u+k*117;
         for(unsigned i=0;i<duration[k];i++){
@@ -22,6 +23,15 @@ void audio_effects_init(struct audio_effects *m)
             if(k==7)v=sin(t*6.283185307*(i<3600?523.25:783.99))*env*.45;
             if(k==8)v=(noise*.68+sin(6.283185307*(65*t-25*t*t))*.55)*exp(-t*14);
             if(k==9){double click=(i%8400)/48000.0;v=(noise*.65+sin(click*6.283185307*430)*.25)*exp(-click*90)*env;}
+            if(k==10)v=(noise*.52+sin(t*6.283185307*125)*.35)*exp(-t*110);
+            if(k==11)v=(noise*.4+sin(6.283185307*(180*t+550*t*t))*.23)*env*env;
+            if(k==12)v=(noise*.6+sin(6.283185307*(68*t-42*t*t))*.55)*exp(-t*12);
+            if(k==13){double f=i<4000?659.25:i<8000?830.61:1318.51;v=sin(t*6.283185307*f)*env*env*.34;}
+            if(k==14)v=(sin(6.283185307*(960*t-900*t*t))*.34+noise*.1)*env*env;
+            /* A soft rotor thrum and an original four-note minor arpeggio.
+             * Their low gain leaves room for the combat transients. */
+            if(k==15)v=(sin(t*6.283185307*62)*.09+noise*.04)*(.35+.65*pow(.5+.5*sin(t*6.283185307*26),4))*sin(3.141592653589793*i/duration[k]);
+            if(k==16){static const double note[]={164.81,196.00,246.94,293.66};double local=(i%4608)/48000.0;v=(sin(t*6.283185307*note[i/4608])*.12+sin(t*6.283185307*note[i/4608]*2)*.03)*exp(-local*28)*env;}
             double attack=i<96?i/96.0:1;m->bank[k][i]=(int16_t)(v*attack*6500);
         }
     }
@@ -30,7 +40,7 @@ void audio_effects_play(struct audio_effects *m,unsigned kind)
 {
     if(!m||kind>=AUDIO_EFFECT_KINDS)return;
     int free=-1;for(int i=0;i<4;i++)if(!m->voice[i].active){free=i;break;}
-    if(free<0){if(kind==0||kind==2||kind==8)free=3;else{m->dropped++;return;}}
+    if(free<0){if(kind==0||kind==2||kind==8||kind==10||kind==11||kind==12||kind==14)free=3;else{m->dropped++;return;}}
     m->voice[free].active=true;m->voice[free].kind=kind;m->voice[free].at=0;m->played++;
 }
 void audio_effects_mix(struct audio_effects *m,int16_t *out,size_t frames)

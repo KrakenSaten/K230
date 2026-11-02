@@ -1068,6 +1068,78 @@ static void fill_styles(void)
     reset(s);
     lv_style_set_text_color(s, lv_color_hex(0xe3dfbd));
 
+    /* The Kestrel's cockpit palette belongs to the game's artwork, as Relay
+     * Nine's does. All interface type retains the shared size preferences. */
+    s = &styles[POS_STYLE_ROTOR_BACKDROP];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x111b35));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    s = &styles[POS_STYLE_ROTOR_PANEL];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x101e33));
+    lv_style_set_bg_opa(s, 238);
+    s = &styles[POS_STYLE_ROTOR_TEXT];
+    reset(s);
+    lv_style_set_text_color(s, lv_color_hex(0xffedce));
+    s = &styles[POS_STYLE_ROTOR_INK];
+    reset(s);
+    lv_style_set_text_color(s, lv_color_hex(0x132f40));
+    s = &styles[POS_STYLE_ROTOR_MUTED];
+    reset(s);
+    lv_style_set_text_color(s, lv_color_hex(0xb9c4c9));
+    s = &styles[POS_STYLE_ROTOR_ACCENT];
+    reset(s);
+    lv_style_set_text_color(s, lv_color_hex(0xa2ffe0));
+    s = &styles[POS_STYLE_ROTOR_CORAL];
+    reset(s);
+    lv_style_set_text_color(s, lv_color_hex(0xffa08c));
+    s = &styles[POS_STYLE_ROTOR_BUTTON];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0xa2f0d3));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_text_color(s, lv_color_hex(0x132f40));
+    lv_style_set_radius(s, 6);
+    s = &styles[POS_STYLE_ROTOR_SECONDARY];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x1b3045));
+    lv_style_set_bg_opa(s, 225);
+    lv_style_set_border_color(s, lv_color_hex(0x486473));
+    lv_style_set_border_width(s, 1);
+    lv_style_set_radius(s, 6);
+    lv_style_set_text_color(s, lv_color_hex(0xffedce));
+    s = &styles[POS_STYLE_ROTOR_PRESSED];
+    reset(s);
+    lv_style_set_outline_color(s, lv_color_hex(0xc9ffe7));
+    lv_style_set_outline_width(s, 2);
+    s = &styles[POS_STYLE_ROTOR_SELECTED];
+    reset(s);
+    lv_style_set_border_color(s, lv_color_hex(0xa2ffe0));
+    lv_style_set_border_width(s, 2);
+    lv_style_set_bg_color(s, lv_color_hex(0x254950));
+
+    s = &styles[POS_STYLE_ROTOR_HUD];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x0b1a2b));
+    lv_style_set_bg_opa(s, 245);
+    lv_style_set_border_color(s, lv_color_hex(0x365469));
+    lv_style_set_border_width(s, 1);
+    lv_style_set_radius(s, 8);
+    s = &styles[POS_STYLE_ROTOR_METER];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x294051));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+    s = &styles[POS_STYLE_ROTOR_SHIELD_FILL];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0x83e8cf));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+    s = &styles[POS_STYLE_ROTOR_HULL_FILL];
+    reset(s);
+    lv_style_set_bg_color(s, lv_color_hex(0xffa184));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+
     /* Variants share all existing role properties unless the theme refills
      * them below. Always reset, including when switching back live. */
     lv_style_copy(&styles[POS_STYLE_READING_CONTROL], &styles[POS_STYLE_BUTTON_SECONDARY]);
