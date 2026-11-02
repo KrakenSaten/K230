@@ -110,6 +110,7 @@ APP_ICONS = {
     "blackjack": (FIRST_PARTY + "blackjack.svg", "games"),
     "2048": (FIRST_PARTY + "2048.svg", "games"),
     "poker": (FIRST_PARTY + "poker.svg", "games"),
+    "rotorterror": (FIRST_PARTY + "rotorterror.svg", "games"),
     "deskbuddy": (FIRST_PARTY + "deskbuddy.svg", "ai"),
     "terminal": (FIRST_PARTY + "terminal.svg", "tools"),
     "photo": (EXTENSION + "gallery.svg", "files"),

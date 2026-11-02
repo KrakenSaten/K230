@@ -6,7 +6,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#define AUDIO_EFFECT_KINDS 10
+#define AUDIO_EFFECT_KINDS 17
+#define AUDIO_EFFECT_ROTOR_GUN 10
+#define AUDIO_EFFECT_ROTOR_LAUNCH 11
+#define AUDIO_EFFECT_ROTOR_BOOM 12
+#define AUDIO_EFFECT_ROTOR_SALVAGE 13
+#define AUDIO_EFFECT_ROTOR_SHIELD 14
+#define AUDIO_EFFECT_ROTOR_MOTOR 15
+#define AUDIO_EFFECT_ROTOR_MUSIC 16
 #define AUDIO_EFFECT_FRAMES 19200
 struct audio_effects { int16_t bank[AUDIO_EFFECT_KINDS][AUDIO_EFFECT_FRAMES]; unsigned length[AUDIO_EFFECT_KINDS]; struct {unsigned kind,at;bool active;} voice[4];unsigned dropped,played; };
 void audio_effects_init(struct audio_effects *m);

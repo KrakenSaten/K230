@@ -177,4 +177,14 @@ define POCKETOS_REMOVE_NNCASE_WHEEL
 endef
 POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_NNCASE_WHEEL
 
+# The toolchain's Fortran runtime. Fortran has to stay selected, because the
+# external toolchain ships it and Buildroot refuses one that has a language
+# the configuration does not select (k230_pocketos.fragment), so
+# toolchain-external copies libgfortran into the target. Nothing in the image
+# links it (owner's decision, 2026-10-07), so it is removed after every build.
+define POCKETOS_REMOVE_TOOLCHAIN_FORTRAN
+	rm -f $(TARGET_DIR)/lib/libgfortran.so* $(TARGET_DIR)/usr/lib/libgfortran.so*
+endef
+POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_TOOLCHAIN_FORTRAN
+
 $(eval $(generic-package))
