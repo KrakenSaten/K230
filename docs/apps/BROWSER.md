@@ -7,6 +7,11 @@ toolchain and run on unit A on 2026-09-27: every check of the focused gate
 passed, the physical keyboard checked by the owner
 (docs/hardware/BROWSER_GATE.md, §11).
 
+The Library prototype (docs/apps/LIBRARY.md, ADR-015 proposed) reuses this
+screen, view and session in a Library mode with a helper of its own
+(`apps/browser/browser_app.h`); Browser's behaviour, words and helper are
+unchanged by it.
+
 Browser reads simple web pages: text, headings, lists, links, JPEG and PNG
 pictures, over HTTP and HTTPS. It follows links, goes back and forward,
 reloads and stops, remembers bookmarks and recent pages, and works in

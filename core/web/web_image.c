@@ -18,12 +18,17 @@
 #ifdef BROWSER_HAVE_PNG
 #include <png.h>
 #endif
+#ifdef BROWSER_HAVE_WEBP
+#include <webp/decode.h>
+#endif
 
 #define FAKE_MAGIC "DOORS-FAKE-IMAGE "
 
 const char *web_image_formats(void)
 {
-#if defined(BROWSER_HAVE_JPEG) && defined(BROWSER_HAVE_PNG)
+#if defined(BROWSER_HAVE_JPEG) && defined(BROWSER_HAVE_PNG) && defined(BROWSER_HAVE_WEBP)
+    return "jpeg,png,webp";
+#elif defined(BROWSER_HAVE_JPEG) && defined(BROWSER_HAVE_PNG)
     return "jpeg,png";
 #elif defined(BROWSER_HAVE_JPEG)
     return "jpeg";
@@ -379,6 +384,59 @@ static enum web_image_err png(const unsigned char *data, size_t len, int want_w,
 }
 #endif
 
+#ifdef BROWSER_HAVE_WEBP
+/* WebP with libwebp, which scales while it decodes: only the shown size is
+ * ever held, whatever the source size. Animated WebP is refused as a format. */
+static enum web_image_err webp(const unsigned char *data, size_t len, int want_w, int max_w, int max_h,
+                               size_t max_pixels, struct web_pixels *out)
+{
+    WebPDecoderConfig cfg;
+    size_t n;
+    size_t i;
+    int w;
+    int h;
+
+    if (!WebPInitDecoderConfig(&cfg) || WebPGetFeatures(data, len, &cfg.input) != VP8_STATUS_OK) {
+        return WEB_IMAGE_BROKEN;
+    }
+    if (cfg.input.has_animation) {
+        return WEB_IMAGE_FORMAT;
+    }
+    if (cfg.input.width < 1 || cfg.input.height < 1 || cfg.input.width > WEB_IMAGE_SOURCE_SIDE_MAX ||
+        cfg.input.height > WEB_IMAGE_SOURCE_SIDE_MAX) {
+        return WEB_IMAGE_TOO_LARGE;
+    }
+    web_image_fit(cfg.input.width, cfg.input.height, want_w, max_w, max_h, max_pixels, &w, &h);
+    cfg.options.use_scaling = w != cfg.input.width || h != cfg.input.height;
+    cfg.options.scaled_width = w;
+    cfg.options.scaled_height = h;
+    cfg.output.colorspace = MODE_RGBA;
+    if (WebPDecode(data, len, &cfg) != VP8_STATUS_OK) {
+        WebPFreeDecBuffer(&cfg.output);
+        return WEB_IMAGE_BROKEN;
+    }
+    n = (size_t)w * (size_t)h;
+    out->px = malloc(n * sizeof(uint16_t));
+    if (!out->px) {
+        WebPFreeDecBuffer(&cfg.output);
+        return WEB_IMAGE_MEMORY;
+    }
+    for (i = 0; i < n; i++) {
+        const uint8_t *p = cfg.output.u.RGBA.rgba + (i / (size_t)w) * (size_t)cfg.output.u.RGBA.stride +
+                           (i % (size_t)w) * 4;
+        unsigned a = p[3];
+
+        /* Over white, like PNG transparency. */
+        out->px[i] = rgb565((p[0] * a + 255 * (255 - a)) / 255, (p[1] * a + 255 * (255 - a)) / 255,
+                            (p[2] * a + 255 * (255 - a)) / 255);
+    }
+    out->w = w;
+    out->h = h;
+    WebPFreeDecBuffer(&cfg.output);
+    return WEB_IMAGE_OK;
+}
+#endif
+
 enum web_image_err web_image_decode(const unsigned char *data, size_t len, int want_w, int max_w,
                                     int max_h, size_t max_pixels, struct web_pixels *out)
 {
@@ -399,6 +457,13 @@ enum web_image_err web_image_decode(const unsigned char *data, size_t len, int w
     if (memcmp(data, "\x89PNG\r\n\x1a\n", 8) == 0) {
 #ifdef BROWSER_HAVE_PNG
         return png(data, len, want_w, max_w, max_h, max_pixels, out);
+#else
+        return WEB_IMAGE_FORMAT;
+#endif
+    }
+    if (len >= 12 && memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WEBP", 4) == 0) {
+#ifdef BROWSER_HAVE_WEBP
+        return webp(data, len, want_w, max_w, max_h, max_pixels, out);
 #else
         return WEB_IMAGE_FORMAT;
 #endif

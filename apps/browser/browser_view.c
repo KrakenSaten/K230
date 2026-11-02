@@ -30,8 +30,43 @@ static void put(char *dst, size_t cap, const char *fmt, ...)
     web_copy(dst, cap, tmp);
 }
 
+static int hex_digit(char c)
+{
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                                                                                      : -1;
+}
+
+/* The Library's search field shows the query of a results page, and nothing
+ * on any other page: an entry's address is not something to edit. */
+static void library_field(struct browser_view *v, const char *url)
+{
+    size_t n = strlen(WEB_LIBRARY_SEARCH);
+    char q[WEB_URL_MAX];
+    size_t o = 0;
+    const char *p;
+
+    v->field[0] = '\0';
+    if (strncmp(url, WEB_LIBRARY_SEARCH, n) != 0) {
+        return;
+    }
+    for (p = url + n; *p && *p != '#' && o + 1 < sizeof(q); p++) {
+        if (*p == '%' && hex_digit(p[1]) >= 0 && hex_digit(p[2]) >= 0) {
+            q[o++] = (char)(hex_digit(p[1]) * 16 + hex_digit(p[2]));
+            p += 2;
+        } else {
+            q[o++] = *p == '+' ? ' ' : *p;
+        }
+    }
+    q[o] = '\0';
+    v->field[web_utf8_sanitize(q, o, v->field, false)] = '\0';
+}
+
 static void set_field(struct browser_view *v, const char *url)
 {
+    if (v->library) {
+        library_field(v, url);
+        return;
+    }
     web_copy(v->field, sizeof(v->field), strcmp(url, HOME_URL) == 0 ? "" : url);
 }
 
@@ -68,10 +103,45 @@ static void drop_page(struct browser_view *v)
     v->doc_http = 0;
 }
 
+/* Library mode: nothing is ever connected to, and every page is offline. */
+static unsigned refresh_library_status(struct browser_view *v)
+{
+    if (v->loading) {
+        put(v->status, sizeof(v->status), "%s",
+            strncmp(v->loading_url, WEB_LIBRARY_SEARCH, strlen(WEB_LIBRARY_SEARCH)) == 0 ? "Searching\xe2\x80\xa6"
+                                                                                           : "Opening\xe2\x80\xa6");
+        v->hint = "LOADING";
+    } else if (v->note[0]) {
+        web_copy(v->status, sizeof(v->status), v->note);
+        v->hint = v->state == BROWSER_ERROR ? "ERROR" : v->state == BROWSER_START ? "" : "OFFLINE";
+    } else if (v->state == BROWSER_START) {
+        put(v->status, sizeof(v->status), "Start page");
+        v->hint = "";
+    } else if (v->state == BROWSER_ERROR) {
+        web_copy(v->status, sizeof(v->status), v->err.title);
+        v->hint = "ERROR";
+    } else {
+        const char *title = v->doc.title[0] ? v->doc.title : "Library";
+
+        if (v->doc.truncated) {
+            put(v->status, sizeof(v->status), "%s (cut: too long to show whole)", title);
+        } else if (v->images_loading) {
+            put(v->status, sizeof(v->status), "%s \xe2\x80\x94 loading pictures", title);
+        } else {
+            web_copy(v->status, sizeof(v->status), title);
+        }
+        v->hint = "OFFLINE";
+    }
+    return BROWSER_CHANGED_STATUS;
+}
+
 static unsigned refresh_status(struct browser_view *v)
 {
     char host[WEB_HOST_MAX];
 
+    if (v->library) {
+        return refresh_library_status(v);
+    }
     if (v->loading) {
         if (v->bytes > 0) {
             put(v->status, sizeof(v->status), "Loading %s \xe2\x80\x94 %ld KB",
@@ -134,6 +204,9 @@ void browser_view_init(struct browser_view *v, const char *store_path, char *why
     case WEB_STORE_UNREADABLE:
         v->store_unreadable = true;
         break;
+    case WEB_STORE_MISSING:
+        v->store_fresh = true;
+        break;
     default:
         break;
     }
@@ -143,6 +216,16 @@ void browser_view_init(struct browser_view *v, const char *store_path, char *why
     web_history_push(&v->hist, HOME_URL, "Start");
     v->state = BROWSER_START;
     set_field(v, HOME_URL);
+    refresh_status(v);
+}
+
+void browser_view_set_library(struct browser_view *v)
+{
+    v->library = true;
+    if (v->store_fresh) {
+        v->store.nbookmark = 0; /* Browser's web bookmarks mean nothing offline */
+    }
+    set_field(v, browser_view_current_url(v));
     refresh_status(v);
 }
 
@@ -241,14 +324,58 @@ static unsigned url_error(struct browser_view *v, const char *typed, enum web_ur
     return BROWSER_CHANGED_STATE | refresh_status(v);
 }
 
+/* Library mode: the typed words become a search of the collection. */
+static unsigned library_go(struct browser_view *v, const char *typed, int64_t now, struct browser_cmd *cmd)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    char url[WEB_URL_MAX];
+    size_t o = strlen(WEB_LIBRARY_SEARCH);
+    size_t n;
+    size_t i;
+
+    typed += strspn(typed, " \t");
+    n = strlen(typed);
+    while (n > 0 && (typed[n - 1] == ' ' || typed[n - 1] == '\t')) {
+        n--;
+    }
+    if (n == 0) {
+        return 0;
+    }
+    if (n > WEB_LIBRARY_QUERY_MAX) {
+        n = WEB_LIBRARY_QUERY_MAX;
+        while (n > 0 && ((unsigned char)typed[n] & 0xc0) == 0x80) {
+            n--; /* not inside a character */
+        }
+    }
+    memcpy(url, WEB_LIBRARY_SEARCH, o);
+    for (i = 0; i < n && o + 4 < sizeof(url); i++) {
+        unsigned char c = (unsigned char)typed[i];
+
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+            c == '_' || c == '~') {
+            url[o++] = (char)c;
+        } else {
+            url[o++] = '%';
+            url[o++] = hex[c >> 4];
+            url[o++] = hex[c & 15];
+        }
+    }
+    url[o] = '\0';
+    return start_load(v, url, BROWSER_NAV_NEW, -1, false, now, cmd);
+}
+
 unsigned browser_view_go(struct browser_view *v, const char *typed, int64_t now, struct browser_cmd *cmd)
 {
     struct web_url u;
-    enum web_url_err e = web_url_from_input(typed, &u);
+    enum web_url_err e;
     char url[WEB_URL_MAX];
     size_t sl;
 
     memset(cmd, 0, sizeof(*cmd));
+    if (v->library) {
+        return library_go(v, typed, now, cmd);
+    }
+    e = web_url_from_input(typed, &u);
     if (e != WEB_URL_OK || web_url_format(&u, url, sizeof(url)) < 0) {
         if (v->loading) {
             cmd->kind = BROWSER_CMD_STOP;
@@ -292,7 +419,12 @@ unsigned browser_view_follow(struct browser_view *v, int link, int64_t now, stru
     if (!v->doc.links[link].supported) {
         char words[BROWSER_STATUS_MAX];
 
-        put(words, sizeof(words), "%s links cannot be opened in Browser", url[0] ? url : "These");
+        if (v->library) {
+            put(words, sizeof(words), "Not opened: %s is outside this collection, and Library works offline",
+                url[0] ? url : "this link");
+        } else {
+            put(words, sizeof(words), "%s links cannot be opened in Browser", url[0] ? url : "These");
+        }
         note(v, words);
         return refresh_status(v);
     }
@@ -489,11 +621,46 @@ static void error_words(struct browser_error *e, const char *host)
         [WEB_FAIL_NO_NETWORK_BUILD] = { "No web access in this build",
                                         "This build of Browser was made without its HTTP client." },
         [WEB_FAIL_INTERNAL] = { "Something went wrong", "Browser could not load this page." },
+        [WEB_FAIL_NOT_FOUND] = { "Not found", "There is nothing at this address." },
+        [WEB_FAIL_ARCHIVE] = { "Something went wrong", "Browser could not load this page." },
     };
     int f = e->fail >= 0 && e->fail < WEB_FAIL_COUNT ? e->fail : WEB_FAIL_INTERNAL;
 
     web_copy(e->title, sizeof(e->title), words[f].title);
     put(e->text, sizeof(e->text), words[f].text, host && *host ? host : "The server");
+}
+
+/* What pos-library can answer (docs/apps/LIBRARY.md); anything else it
+ * could only send by mistake, and gets the generic words. */
+static void library_error_words(struct browser_error *e)
+{
+    const char *title = "Something went wrong";
+    const char *text = "Library could not open this page of the collection.";
+
+    switch (e->fail) {
+    case WEB_FAIL_NOT_FOUND:
+        title = "Not in this collection";
+        text = "The collection has no page at this address. The link may point to an article the collection's "
+               "makers left out.";
+        break;
+    case WEB_FAIL_ARCHIVE:
+        title = "Collection not available";
+        text = "Library could not open its collection. Copy a .zim archive into the Library folder, or check the "
+               "one there: the detail below says what was wrong.";
+        break;
+    case WEB_FAIL_TYPE:
+        title = "Cannot show this";
+        text = "This entry of the collection is not an article or a picture Library can show.";
+        break;
+    case WEB_FAIL_URL:
+        title = "Not an address in the collection";
+        text = "Library opens only pages of its own collection.";
+        break;
+    default:
+        break;
+    }
+    web_copy(e->title, sizeof(e->title), title);
+    web_copy(e->text, sizeof(e->text), text);
 }
 
 static unsigned show_error(struct browser_view *v, enum web_fail f, const char *url, const char *detail,
@@ -507,6 +674,11 @@ static unsigned show_error(struct browser_view *v, enum web_fail f, const char *
     v->err.helper = helper;
     web_copy(v->err.url, sizeof(v->err.url), url);
     web_copy(v->err.detail, sizeof(v->err.detail), detail ? detail : "");
+    if (v->library) {
+        library_error_words(&v->err);
+        v->state = BROWSER_ERROR;
+        return BROWSER_CHANGED_STATE | BROWSER_CHANGED_DOC;
+    }
     error_words(&v->err, host_of(url, host, sizeof(host)));
     /* An address typed without a scheme was made https by Browser, not by the
      * person; when the server is not there on https, offer - never take -
@@ -698,8 +870,22 @@ unsigned browser_view_helper_stopped(struct browser_view *v, enum browser_exit w
         commit(v, keep, "Error");
         changed |= show_error(v, WEB_FAIL_INTERNAL, keep, browser_exit_text(why), true);
         web_copy(v->err.title, sizeof(v->err.title), "The page could not be loaded");
-        put(v->err.text, sizeof(v->err.text), "Browser's page loader stopped while loading this page (%s). "
-                 "Try again; it starts afresh.", browser_exit_text(why));
+        if (v->library) {
+            static const char *const why_text[] = {
+                [BROWSER_EXIT_NORMAL] = "it stopped",
+                [BROWSER_EXIT_START] = "pos-library could not be started: is it installed?",
+                [BROWSER_EXIT_CRASHED] = "it crashed",
+                [BROWSER_EXIT_HUNG] = "it stopped answering and was ended",
+                [BROWSER_EXIT_PROTOCOL] = "it sent something Library does not understand",
+            };
+
+            put(v->err.text, sizeof(v->err.text), "Library's collection reader stopped while opening this page "
+                     "(%s). Try again; it starts afresh.", why_text[why]);
+            web_copy(v->err.detail, sizeof(v->err.detail), why_text[why]);
+        } else {
+            put(v->err.text, sizeof(v->err.text), "Browser's page loader stopped while loading this page (%s). "
+                     "Try again; it starts afresh.", browser_exit_text(why));
+        }
         set_field(v, keep);
         changed |= BROWSER_CHANGED_FIELD;
     }

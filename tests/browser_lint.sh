@@ -81,8 +81,8 @@ check "the helper leaves with the shell (PR_SET_PDEATHSIG) and holds none of its
     "$(grep -q 'PR_SET_PDEATHSIG, SIGTERM' $A/browser_session.c && grep -q 'SOCK_CLOEXEC' $A/browser_session.c &&
        grep -q 'CHILD_FD_SCAN_MAX' $A/browser_session.c && echo 1 || echo 0)"
 check "leaving the app abandons the helper and frees the page's pictures before their objects could draw" \
-    "$(sed -n '/^static void browser_destroy/,/^}/p' $APP | grep -q 'browser_session_abandon' &&
-       sed -n '/^static void browser_destroy/,/^}/p' $APP | grep -n 'clear_page\|browser_view_free' | head -1 | grep -q clear_page &&
+    "$(sed -n '/^void browser_app_destroy/,/^}/p' $APP | grep -q 'browser_session_abandon' &&
+       sed -n '/^void browser_app_destroy/,/^}/p' $APP | grep -n 'clear_page\|browser_view_free' | head -1 | grep -q clear_page &&
        echo 1 || echo 0)"
 check "the timer only polls: no blocking read on the LVGL thread" \
     "$(code $A/browser_session.c | grep -E '\brecv\(' | grep -qv MSG_DONTWAIT && echo 0 || echo 1)"

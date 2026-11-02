@@ -78,6 +78,9 @@ enum web_fail {
     WEB_FAIL_STOPPED,
     WEB_FAIL_NO_NETWORK_BUILD,  /* this helper was built without an HTTP client */
     WEB_FAIL_INTERNAL,
+    /* The Library's helper (pos-library, docs/apps/LIBRARY.md) only: */
+    WEB_FAIL_NOT_FOUND,         /* no such entry in the collection */
+    WEB_FAIL_ARCHIVE,           /* no collection, or one that cannot be read */
     WEB_FAIL_COUNT
 };
 
