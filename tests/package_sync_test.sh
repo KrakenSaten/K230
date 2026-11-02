@@ -687,6 +687,21 @@ check "the dropped demos' files are removed from an existing target" \
 check "apply_to_sdk removes sensor.sh, libasan and libgfortran, and the post-build libasan copy" \
       $(grep -q 'for f in root/script/sensor.sh lib/libasan.so.8 lib/libgfortran.so.5' "$APPLY" &&
         grep -qF "sed -i '/libasan\.so/d'" "$APPLY" && echo 1 || echo 0)
+# camera_rtsp_demo installs into /root/app, which only the dropped demos
+# created: apply_to_sdk's sed, run on the vendor file at the pinned SDK commit,
+# has to turn its install into `install -D`.
+RTSP_MK=buildroot-overlay/package/camera_rtsp_demo/camera_rtsp_demo.mk
+PIN_SDK=$(cat platforms/k230/vendor_sdk_commit.txt)
+if git -C vendor/T-Display-K230/k230_linux_sdk cat-file -e "$PIN_SDK:$RTSP_MK" 2>/dev/null; then
+    git -C vendor/T-Display-K230/k230_linux_sdk show "$PIN_SDK:$RTSP_MK" > "$TMP/rtsp.mk"
+    RTSP_SED=$(grep -m1 "sed -i 's#^.t\$(INSTALL) -m 0755 \$(@D)/camera_rtsp_demo" "$APPLY" | sed -e 's/^ *sed -i //' -e 's/ "\${mk}"$//')
+    eval "sed -i $RTSP_SED \"\$TMP/rtsp.mk\""
+    check "apply_to_sdk makes camera_rtsp_demo create /root/app (vendor file at the SDK pin)" \
+          $(grep -qP '^\t\$\(INSTALL\) -D -m 0755 \$\(@D\)/camera_rtsp_demo \$\(TARGET_DIR\)/root/app/camera_rtsp_demo$' "$TMP/rtsp.mk" &&
+            ! grep -qP '^\t\$\(INSTALL\) -m 0755 \$\(@D\)/camera_rtsp_demo' "$TMP/rtsp.mk" && echo 1 || echo 0)
+else
+    echo "skip camera_rtsp_demo install check: no vendor SDK at $PIN_SDK"
+fi
 
 # ---- the composed defconfig, executed --------------------------------------
 # compose_defconfig() taken out of apply_to_sdk.sh and run against the real
@@ -720,11 +735,19 @@ if git -C "$VBSP" cat-file -e "$PIN_BSP:$VDEF" 2>/dev/null; then
                 grep -qx "BR2_PACKAGE_$k=y" "$CMP/out" && exit 1
                 grep -qx "# BR2_PACKAGE_$k is not set" "$CMP/out" || exit 1
             done; grep -qx 'BR2_PACKAGE_RTL8189FS=y' "$CMP/out" && echo 1 || echo 0)
-    check "the vendor KPU demos and the toolchain's Fortran are off; OpenCV 4 stays" \
-          $(for k in PACKAGE_FACE_DETECT PACKAGE_AI2D_KPU TOOLCHAIN_EXTERNAL_FORTRAN; do
+    check "the vendor KPU demos are off; OpenCV 4 stays" \
+          $(for k in PACKAGE_FACE_DETECT PACKAGE_AI2D_KPU; do
                 grep -qx "BR2_$k=y" "$CMP/out" && exit 1
                 grep -qx "# BR2_$k is not set" "$CMP/out" || exit 1
             done; grep -qx 'BR2_PACKAGE_OPENCV4=y' "$CMP/out" && grep -qx 'BR2_PACKAGE_LIBNNCASE=y' "$CMP/out" &&
+            echo 1 || echo 0)
+    # Buildroot refuses an external toolchain that ships a language the
+    # configuration does not select, so turning Fortran off stops a build
+    # from a clean output; libgfortran is removed by the package instead.
+    check "the toolchain's Fortran stays selected, and the package removes libgfortran" \
+          $(grep -qx 'BR2_TOOLCHAIN_EXTERNAL_FORTRAN=y' "$CMP/out" &&
+            grep -q 'rm -f $(TARGET_DIR)/lib/libgfortran.so\*' platforms/k230/package/pocketos/pocketos.mk &&
+            grep -qx 'POCKETOS_TARGET_FINALIZE_HOOKS += POCKETOS_REMOVE_TOOLCHAIN_FORTRAN' platforms/k230/package/pocketos/pocketos.mk &&
             echo 1 || echo 0)
     printf '# BR2_PACKAGE_DOORS_NO_SUCH_THING is not set\n' > "$CMP/off.fragment"
     run_compose "$CMP/off.fragment" "$CMP/out3"
