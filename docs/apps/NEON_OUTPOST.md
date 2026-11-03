@@ -90,7 +90,7 @@ From a clean checkout:
 
 ```sh
 git fetch origin
-git switch master   # PR #104 (feat/neon-outpost) is merged here
+git switch --detach 9f65c4fc   # the prototype as validated, before PR #104 replaced it
 # Populate vendor/lvgl at the documented 59dc7e4 pin using the existing setup.
 cmake -S ui/shell -B out/neon-shell -DPOCKETOS_DISPLAY=sdl \
   -DLVGL_DIR="$PWD/vendor/lvgl"
