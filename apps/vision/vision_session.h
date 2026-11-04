@@ -98,6 +98,11 @@ struct vision_event {
     bool simulated;
     uint32_t w;
     uint32_t h;
+    /* DET, WHO: the session's own number for the report, 1 for the first
+     * and one more for each det or who line parsed. The seq in the line is
+     * the camera buffer's sequence, which some drivers never advance (the
+     * K230's stays 0), so it cannot tell two reports apart. */
+    uint32_t report;
     char name[VISION_NAME_MAX];
     char text[VISION_EVENT_TEXT_MAX];
 };
@@ -167,6 +172,7 @@ struct vision_text_report {
 #define VISION_WHO_MAX 16
 struct vision_who_report {
     uint32_t seq;
+    uint32_t report;      /* the session's number for it (vision_event) */
     int faces;            /* faces found on that frame */
     int n;
     struct {
@@ -265,6 +271,8 @@ struct vision_session {
     struct vision_shown shown[VISION_MAX_SHOWN];
     int shown_count;
     uint32_t shown_seq;
+    uint32_t shown_report; /* the session's number for that line (vision_event) */
+    uint32_t reports;      /* det and who lines parsed */
     uint32_t count_ab;
     uint32_t count_ba;
     struct vision_traffic_report traffic;
@@ -332,6 +340,8 @@ int vision_session_take_frame(struct vision_session *s, uint16_t *dst, uint32_t 
  * next poll. */
 const struct vision_shown *vision_session_tracks(const struct vision_session *s, int *count,
                                                  uint32_t *seq);
+/* The session's number for the last det line (vision_event's report). */
+uint32_t vision_session_tracks_report(const struct vision_session *s);
 void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_t *ba);
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s);
 const struct vision_recent_report *vision_session_recent(const struct vision_session *s);

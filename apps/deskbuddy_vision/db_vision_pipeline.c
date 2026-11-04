@@ -133,7 +133,7 @@ struct pipeline {
     bool unavailable_said;
     bool have_owner;
     bool have_seq;
-    uint32_t report_seq;
+    uint32_t report_seq; /* the session's report number last counted */
     uint32_t caps;   /* the helper's modes, from its caps line */
     int rotation;    /* the hold the helper was last told */
     const struct db_vision_pipeline_cfg *cfg;
@@ -287,12 +287,14 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
             if (p->mode == PIPE_DETECT || p->mode == PIPE_FACE) {
                 int n = 0;
                 int i;
-                uint32_t seq;
-                const struct vision_shown *t = vision_session_tracks(&p->s, &n, &seq);
+                const struct vision_shown *t = vision_session_tracks(&p->s, &n, NULL);
+                uint32_t seq = vision_session_tracks_report(&p->s);
 
                 /* Events queue, but the session stores only the newest
-                 * snapshot. Never count it again for an older event. */
-                if (seq != (uint32_t)ev.value || (p->have_seq && seq == p->report_seq)) {
+                 * snapshot. Never count it again for an older event. The
+                 * session's report number, not the camera's sequence: the
+                 * K230's buffer sequence stays 0 on every frame. */
+                if (seq != ev.report || (p->have_seq && seq == p->report_seq)) {
                     break;
                 }
                 p->have_seq = true;
@@ -314,11 +316,11 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
                 const struct vision_who_report *w = vision_session_who(&p->s);
                 int i;
 
-                if (w->seq != (uint32_t)ev.value || (p->have_seq && w->seq == p->report_seq)) {
+                if (w->report != ev.report || (p->have_seq && w->report == p->report_seq)) {
                     break;
                 }
                 p->have_seq = true;
-                p->report_seq = w->seq;
+                p->report_seq = w->report;
                 p->unavailable_said = false;
                 r.present = w->faces;
                 r.identity = p->have_owner;

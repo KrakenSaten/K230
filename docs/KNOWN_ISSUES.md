@@ -49,6 +49,13 @@ history when resolved.
 - **Relay Nine fullscreen** (0.3.9, PR #113): play is fullscreen on the
   panel (fresh-card check), but readability at the corners, touch input at
   the new scale and the LVGL scale/flush cost are unmeasured on K230.
+- **DeskBuddy camera presence goes unavailable on the K230** (0.3.9,
+  docs/releases/v0.3.9.md, "DeskBuddy sequence fix"): the bridge counts a
+  report only when its camera sequence changes, and the K230's stays 0, so
+  after the first report BUDDY says CAMERA UNAVAILABLE and GUARD NO VISION
+  YET. Seen on unit B with the same code (2026-10-27); not re-run on the
+  v0.3.9 image. Fixed on `fix/deskbuddy-report-counter` (host-tested, not
+  released, not yet on a unit).
 - **DeskBuddy owner-aware Guard** (0.3.9, PR #111,
   docs/apps/deskbuddy/PRESENCE_OWNER_HANDOFF.md): not implemented; #109 (a
   stationary box on unit B) is undiagnosed.

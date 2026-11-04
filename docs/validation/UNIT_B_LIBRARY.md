@@ -33,6 +33,8 @@ DeskBuddy on this unit. The branch is not pushed.
   cherry-pick cannot be read from GitHub. This record describes it as a
   DeskBuddy change only, which would leave the Library's code paths as the PR's.
   It is not established here whether master already carries an equivalent fix.
+  (Settled 2026-11-04 by source comparison: master and v0.3.9 do not; the
+  fix's three source files are ported unchanged on `fix/deskbuddy-report-counter`.)
   This affects only how exactly the installed doors-shell can be rebuilt, not
   the Library result. No hardware re-test follows from it.
 - The PR as merged with master (`501d4f8b` onwards) has not been on the unit.

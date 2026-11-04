@@ -20,6 +20,12 @@ No other open issue or open PR was returned by the repository queries.
 - The session queues events but retains just the newest DET/WHO snapshot.
   The bridge now consumes only its matching sequence, once: two queued event
   notifications cannot count the same latest snapshot as two observations.
+  *Correction (2026-11-04):* that sequence is the camera buffer's, which stays
+  0 on the K230, so on unit B this counted one report and then nothing
+  (DOCUMENTED, unit B integration install, 2026-10-27). From
+  `fix/deskbuddy-report-counter` the bridge keys on the session's own number
+  for each parsed `det` / `who` line, with the same once-only guarantee
+  (host: `db_pipeline_test`'s camera-sequence-0 fixture).
 - Losing vision preserves an open Guard visit. A fresh empty report ends it;
   recovery after a long outage does not create a second log/chime merely
   because the 15 s visit-merge interval elapsed. Actual departure and later
@@ -55,6 +61,15 @@ frozen/repeated camera pixels with advancing sequences, or other upstream
 behaviour remain possible. A fixed box and score cannot distinguish these.
 The two software defects above are independently reproducible, but neither
 establishes what caused those Unit B reports. Do not close #109 on this PR.
+
+Counting parsed reports (above) shows that the helper ran a new inference; it
+does not show that the camera delivered new pixels. The K230's buffer
+sequence carries no information, and `f.mono_ms` is dequeue time. Separate
+follow-ups, none of them started: an image-content signature per frame so a
+frozen picture reads as unavailable rather than as presence or absence; per
+track "observed this frame" versus coasting in the `det` report (a protocol
+change), so presence is not confirmed by prediction alone; and a raw-versus-
+tracked diagnostic for the #109 capture described below.
 
 PR #103's actual-person arrival/departure evidence and PR #106's speaker and
 no-repeat-while-present evidence in [../DESKBUDDY.md](../DESKBUDDY.md) remain

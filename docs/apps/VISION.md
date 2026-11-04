@@ -916,7 +916,9 @@ the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
 pixel modes, with every preview), `hello`,
 `ready camera pw ph simulated model in_w in_h classes`, `caps mode...`, `nodevice`,
 `nomodel`, `error what text`, `frame slot seq w h`,
-`det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (dir 0 none, 1 left, 2
+`det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (seq is the camera buffer's
+sequence, which stays 0 on the K230: a client tells reports apart by its own
+count of parsed lines, as `vision_session` does; dir 0 none, 1 left, 2
 right, 3 up, 4 down on the picture; kmh10 the speed measured on that
 track or 0), `count ab ba`,
 `traffic ab ba cur last max mean n rejected c0ab:c0ba ... c5ab:c5ba`,

@@ -376,6 +376,10 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->kind = VISION_EV_DET;
         sscanf(line, "det %u", &a);
         ev->value = (int)a;
+        if (s) {
+            s->shown_report = ++s->reports;
+            ev->report = s->shown_report;
+        }
         return 1;
     }
     if (strncmp(line, "count ", 6) == 0) {
@@ -504,6 +508,8 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->kind = VISION_EV_WHO;
         ev->value = (int)t.seq;
         if (s) {
+            t.report = ++s->reports;
+            ev->report = t.report;
             s->who = t;
         }
         return 1;
@@ -1311,6 +1317,11 @@ const struct vision_recent_report *vision_session_recent(const struct vision_ses
 const struct vision_text_report *vision_session_text(const struct vision_session *s)
 {
     return &s->text;
+}
+
+uint32_t vision_session_tracks_report(const struct vision_session *s)
+{
+    return s->shown_report;
 }
 
 const struct vision_who_report *vision_session_who(const struct vision_session *s)

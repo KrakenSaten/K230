@@ -567,11 +567,14 @@ static void test_provider(void)
 }
 
 /* A protocol fixture only: batches an old empty result and one new positive
- * snapshot, repeats that snapshot, then supplies independent evidence. */
+ * snapshot, then supplies independent evidence, then 2 s of empty reports
+ * (somebody left), then silence. With DB_TEST_BATCH_SEQ0 every line carries
+ * camera sequence 0, as the K230's V4L2 buffers do (unit B, 2026-10-27). */
 static int batch_helper(void)
 {
     char line[256];
     bool face = getenv("DB_TEST_BATCH_FACE") != NULL;
+    bool seq0 = getenv("DB_TEST_BATCH_SEQ0") != NULL;
     const char *hello = face ? "hello " HELLO_V " fake fake\ncaps recognize\nready fake 640 360 1 none 0 0 0\nowner 1 5\n"
                              : "hello " HELLO_V " fake fake\ncaps detect\nready fake 640 360 1 none 0 0 0\n";
 
@@ -580,21 +583,28 @@ static int batch_helper(void)
     }
     while (fgets(line, sizeof(line), stdin)) {
         if (strncmp(line, "start", 5) == 0) {
-            const char *batch = face ? "who 1 0 0\nwho 2 1 1 1:950:1\n"
-                                     : "det 1 0\ndet 2 1 1:0:900:10:10:20:20:0:0\n";
-            const char *repeat = face ? "who 2 1 1 1:950:1\n" : "det 2 1 1:0:900:10:10:20:20:0:0\n";
-            const char *fresh = face ? "who 3 1 1 1:950:1\n" : "det 3 1 1:0:900:10:10:20:20:0:0\n";
+            const char *batch = face ? (seq0 ? "who 0 0 0\nwho 0 1 1 1:950:1\n" : "who 1 0 0\nwho 2 1 1 1:950:1\n")
+                                     : (seq0 ? "det 0 0\ndet 0 1 1:0:900:10:10:20:20:0:0\n"
+                                             : "det 1 0\ndet 2 1 1:0:900:10:10:20:20:0:0\n");
+            const char *fresh = face ? (seq0 ? "who 0 1 1 1:950:1\n" : "who 3 1 1 1:950:1\n")
+                                     : (seq0 ? "det 0 1 1:0:900:10:10:20:20:0:0\n" : "det 3 1 1:0:900:10:10:20:20:0:0\n");
+            unsigned i;
 
             if (write(1, batch, strlen(batch)) != (ssize_t)strlen(batch)) {
                 return 1;
             }
-            nap(150);
-            if (write(1, repeat, strlen(repeat)) != (ssize_t)strlen(repeat)) {
-                return 1;
-            }
-            nap(600);
+            nap(750);
             if (write(1, fresh, strlen(fresh)) != (ssize_t)strlen(fresh)) {
                 return 1;
+            }
+            for (i = 0; i < 20; i++) {
+                char empty[32];
+
+                nap(100);
+                snprintf(empty, sizeof(empty), face ? "who %u 0 0\n" : "det %u 0\n", seq0 ? 0u : 4u + i);
+                if (write(1, empty, strlen(empty)) != (ssize_t)strlen(empty)) {
+                    return 1;
+                }
             }
         } else if (strncmp(line, "quit", 4) == 0) {
             if (write(1, "bye\n", 4) != 4) {
@@ -612,6 +622,7 @@ static void test_batched_reports(void)
     ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
     const char *real_helper = helper;
     int face;
+    int seq0;
 
     if (n < 0) {
         check("find protocol fixture", 0);
@@ -620,20 +631,38 @@ static void test_batched_reports(void)
     self[n] = '\0';
     helper = self;
     setenv("POCKETOS_VISION_HELPER", self, 1);
-    for (face = 0; face < 2; face++) {
-        enum db_vision_kind kind = face ? DB_VISION_OWNER_RECOGNIZED : DB_VISION_PERSON_DETECTED;
+    for (seq0 = 0; seq0 < 2; seq0++) {
+        for (face = 0; face < 2; face++) {
+            enum db_vision_kind kind = face ? DB_VISION_OWNER_RECOGNIZED : DB_VISION_PERSON_DETECTED;
+            const char *v = seq0 ? (face ? "camera seq 0, who" : "camera seq 0, det") : (face ? "who" : "det");
+            char name[160];
 
-        if (face) {
-            setenv("DB_TEST_BATCH_FACE", "1", 1);
+            if (face) {
+                setenv("DB_TEST_BATCH_FACE", "1", 1);
+            } else {
+                unsetenv("DB_TEST_BATCH_FACE");
+            }
+            if (seq0) {
+                setenv("DB_TEST_BATCH_SEQ0", "1", 1);
+            } else {
+                unsetenv("DB_TEST_BATCH_SEQ0");
+            }
+            reset_counts();
+            db_vision_pipeline_ops.start(NULL, now_ms(), &queue);
+            snprintf(name, sizeof(name), "%s: queued events of one cached snapshot count once", v);
+            check(name, !run_until(kind, 500));
+            snprintf(name, sizeof(name), "%s: the next separate report confirms", v);
+            check(name, run_until(kind, 2000));
+            snprintf(name, sizeof(name), "%s: fresh empty reports: nobody, after the absence filter", v);
+            check(name, run_until(DB_VISION_NO_PERSON, 3000) && kinds[DB_VISION_UNAVAILABLE] == 0);
+            snprintf(name, sizeof(name), "%s: then silence: unavailable, never a second nobody", v);
+            check(name, run_until(DB_VISION_UNAVAILABLE, 6000) && kinds[DB_VISION_NO_PERSON] == 1);
+            db_vision_pipeline_ops.stop(NULL);
+            check("protocol fixture reaped", helpers_alive(NULL) == 0);
         }
-        reset_counts();
-        db_vision_pipeline_ops.start(NULL, now_ms(), &queue);
-        check("queued events and duplicate seq are not independent evidence", !run_until(kind, 500));
-        check("a second distinct snapshot confirms", run_until(kind, 2000));
-        db_vision_pipeline_ops.stop(NULL);
-        check("protocol fixture reaped", helpers_alive(NULL) == 0);
     }
     unsetenv("DB_TEST_BATCH_FACE");
+    unsetenv("DB_TEST_BATCH_SEQ0");
     helper = real_helper;
     setenv("POCKETOS_VISION_HELPER", helper, 1);
 }

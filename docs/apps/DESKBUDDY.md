@@ -462,9 +462,16 @@ normally afterwards. Nothing watches after DeskBuddy closes.
   instead of going blind.
 - `poll()` never waits; a small judge (`db_judge_*`, pure, tested) turns
   the helper's lines into **changes**: a conclusion is said once it has held
-  for two distinct report sequences; "nobody" requires a fresh empty report
+  for two distinct reports; "nobody" requires a fresh empty report
   after the existing 1.5 s absence interval. Silence and camera stalls mean
-  unavailable, never absence. The legacy identity reducer still prioritizes
+  unavailable, never absence. Reports are told apart by the number the
+  Vision session gives each `det` / `who` line it parses, never by the
+  line's own sequence: that is the camera buffer's, and the K230's stays 0
+  (unit B, 2026-10-27), so v0.3.9, which deduplicated on it, counted one
+  report and then nothing. A queued event for a snapshot already replaced is
+  still not counted, nor one snapshot twice. A new report means a new
+  inference ran; it does not prove the camera delivered new pixels (see
+  deskbuddy/PRESENCE_OWNER_HANDOFF.md). The legacy identity reducer still prioritizes
   an owner over other faces; see the follow-up above before extending Guard.
   No identity is claimed without an enrolled owner.
   `OWNER_RECOGNIZED` and `UNKNOWN_PERSON` carry the similarity (per-mille)
@@ -488,7 +495,10 @@ against the real helper on the fake camera and fake face models: owner,
 stranger, people without face models, nobody, a killed helper, no helper,
 stop twice, no helper left behind; also under ASan/UBSan; and the person
 class by name, the detector pick, a person from R0 with no
-`yolov8n.kmodel` on the unit, a car that is nobody, a turn while running).
+`yolov8n.kmodel` on the unit, a car that is nobody, a turn while running;
+and a protocol fixture, with advancing and with constant camera sequence 0:
+queued events of one snapshot counted once, the next report confirming,
+fresh empty reports ending in nobody, then silence in unavailable).
 `tests/deskbuddy_app_test.c` covers Camera presence on and off, the
 switch's scope over GUARD and NIGHT, a file from before it, CAMERA
 UNAVAILABLE, the hold followed on an external display and - with the
