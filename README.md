@@ -59,6 +59,20 @@ default. Neon has been available since **v0.3.8**.
 [Portrait view](docs/design/neon/arcade-selected/screens/launcher-portrait-normal.png)
 · [Theme gallery](docs/design/neon/arcade-selected/README.md)
 
+### RotorTerror · an original helicopter arcade game
+
+Fly the Kestrel across Ember Coast, Violet Ridge and Ion City. The cannon
+fires automatically and guided rockets steer toward enemies ahead; collect
+salvage, chain kills into combos and face a heavy gunship every third wave.
+Open **Games → RotorTerror → LAUNCH**. New since v0.3.9 and not yet part of a
+released image.
+
+![RotorTerror gameplay in landscape: the Kestrel over Ember Coast with enemy drones, gold salvage and a combo counter](https://raw.githubusercontent.com/KrakenSaten/K230/1c0f302c2388e2e7376a7a02fbaa567d8b409725/docs/apps/rotorterror/combat-landscape.png)
+
+*Actual LVGL host-test capture with scripted input, not concept art or a
+device photograph.*
+[Game guide](docs/apps/ROTORTERROR.md)
+
 ### Relay Nine · a small industrial sci-fi FPS
 
 Explore rooms, stairs and a raised gallery, fight animated enemies with a
