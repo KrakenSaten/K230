@@ -776,7 +776,7 @@ every ~2.5 s (84), all times UTC.
 | Check | Result |
 | --- | --- |
 | Reports past the old 4 s failure point | **PASS.** 2,444 `det` lines from 10:44:59.8 to 10:48:29.9, 11.6 a second, **every one with camera sequence 0**, largest gap 0.14 s. No CAMERA UNAVAILABLE on any capture. The first person report (10:45:01.1) became an arrival: "..." (RECOGNIZING) at 10:45:04. With v0.3.9's bridge only the first report (empty) would have counted. |
-| Departure through the 1.5 s filter, then a return | **Mechanism PASS, owner-driven NOT shown.** Ten person-free stretches of at least 1.5 s in the reports, each ended by a person report; every "..." capture (10:45:42, :52-:54, 10:46:12, :22, :40-:42, :50-:52) lies in the ~4.8 s WAKE + RECOGNIZING window after one of them, and an arrival only counts after "nobody" (CAMERA UNAVAILABLE never shown). But these were dropouts of one detection, not the owner leaving: see below. |
+| Departure through the 1.5 s filter, then a return | **Real-person check PENDING (not failed).** The filter's mechanism worked on the reports: Ten person-free stretches of at least 1.5 s in the reports, each ended by a person report; every "..." capture (10:45:42, :52-:54, 10:46:12, :22, :40-:42, :50-:52) lies in the ~4.8 s WAKE + RECOGNIZING window after one of them, and an arrival only counts after "nobody" (CAMERA UNAVAILABLE never shown). But these were dropouts of a false-positive detection, not a person leaving: see below. |
 | Close releases the camera | **PASS.** `shell.home` at 10:48:29; no `pos-vision` at the first check 1.5 s later, `camera:false`; the screen locked again as after boot. |
 
 *What the detector saw.* Every person box in the run was the same one:
@@ -786,11 +786,21 @@ over R0's 0.35 threshold. It was in 67 % of reports while the owner was asked
 to be in view, 73 % while away and 96 % after the return; no other person box
 appeared. So the owner's own departure and return were **not** reflected in
 the reports, and after 10:46:47.5 there was no person-free stretch of 1.5 s at
-all. Whether the box is a static object at the left of the view or the owner
-is not established (no camera picture was kept, and fresh reports do not prove
-fresh pixels); it is the same kind of observation as #109 (there at ~0.9) and
-belongs to that issue, not to this counter. The counter delivered every
-report; what the reports said is R0's.
+all. The counter delivered every report; what the reports said is R0's.
+
+*What the box was (2026-11-04, a later diagnostic, issue #109).* A **false
+positive**: R0 scored a blue bag lying close in front of the camera as
+`person` at 0.35-0.56. With unit B in this place the owner was not in the
+camera's view at all. The saved detector inputs were fresh, the box mapped
+exactly onto the bag, and lifting the bag out of view stopped the detections
+until it was put back (`pos-vision bench --turn 180 --tracks --save`; the
+frames were kept local and are not in the repository). This finding is about
+this run and this placement only; it is **not** shown to explain the
+2026-10-22 observations of #109 (a box at ~0.9).
+
+*Pending.* A real person's arrival, departure and return through DeskBuddy
+with this build: hardware testing is paused. It needs the unit placed so its
+camera sees the seat with no large object close in front of it.
 
 *State left.* Installed: `/usr/bin/doors-shell` `6dad57e9`, sha256
 `54364a7f34c139a107ff1473b24b376473735a6067f7c4cee8852adfe1403c1b`, one shell

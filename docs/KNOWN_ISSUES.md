@@ -57,9 +57,11 @@ history when resolved.
   v0.3.9 image. Fixed on `fix/deskbuddy-report-counter` (not released):
   on unit B (2026-11-04) every report, all with camera sequence 0, was
   taken for 3.5 minutes with no CAMERA UNAVAILABLE (docs/apps/DESKBUDDY.md).
-  In that run R0 boxed one fixed spot as a person at 0.35-0.53 whether the
-  owner was there or not, so the owner's leaving and return were not
-  reflected (#109).
+  In that run R0's only "person" was a false positive on a bag close in
+  front of the camera (0.35-0.53; diagnosed the same day, #109), and the
+  owner was out of the camera's view, so a real person's arrival, departure
+  and return with the fix is still pending (not failed); hardware testing is
+  paused.
 - **DeskBuddy owner-aware Guard** (0.3.9, PR #111,
   docs/apps/deskbuddy/PRESENCE_OWNER_HANDOFF.md): not implemented; #109 (a
   stationary box on unit B) is undiagnosed.
