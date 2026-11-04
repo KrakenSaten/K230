@@ -751,3 +751,50 @@ look at R0 presence on this unit.
 mute), `prefs.v1` and Vision `settings.v1` byte-identical; the test's
 `guard.v1` and `/run/pocketos/deskbuddy` removed (both absent before); no
 camera or audio helper left; meshcored the same process.
+
+**Unit B, 2026-11-04: the report counter (PR #121, `fix/deskbuddy-report-counter`)**
+(installed and left installed; rollback below).
+
+*Setup (device evidence).* Unit B (wlan0 `88:3b:dc:b7:9e:d3`), freshly
+booted, no other session. `doors-shell` built from `6dad57e9` (BUILD_ID
+`6dad57e9`, sha256 `54364a7f…403c1b`; pinned Xuantie GCC 14.1.1, SDK
+`22d02c6`, the sysroot of the unit's Neon/QR LVGL) replaced `b5936ccd`
+(`2bd0d3d9…`), whose code is the same apart from tests: Library, RotorTerror
+and the counter were already in it. The same 541 dynamic symbols and the same
+libraries as the replaced shell; `pos-vision` `fcb9ebfd…` (protocol 3),
+`pos-library`, `pos-audio-effects`, R0 and the services unchanged. No face
+model, so this is DETECT: R0's `person`, never identity. For the run only,
+`prefs.v1` had `mode=companion` (BUDDY; Camera presence on by default); it was
+put back byte-identical, as were `settings.conf`, `guard.v1` and Vision's
+`settings.v1`. The owner was asked to stay in view about 75 s, leave about
+85 s, then come back.
+
+*Evidence collected.* `pos-vision`'s `write()`s through `strace -tt` (the
+`det` lines it sent the shell), `shell.info` and a `kmsgrab` panel capture
+every ~2.5 s (84), all times UTC.
+
+| Check | Result |
+| --- | --- |
+| Reports past the old 4 s failure point | **PASS.** 2,444 `det` lines from 10:44:59.8 to 10:48:29.9, 11.6 a second, **every one with camera sequence 0**, largest gap 0.14 s. No CAMERA UNAVAILABLE on any capture. The first person report (10:45:01.1) became an arrival: "..." (RECOGNIZING) at 10:45:04. With v0.3.9's bridge only the first report (empty) would have counted. |
+| Departure through the 1.5 s filter, then a return | **Mechanism PASS, owner-driven NOT shown.** Ten person-free stretches of at least 1.5 s in the reports, each ended by a person report; every "..." capture (10:45:42, :52-:54, 10:46:12, :22, :40-:42, :50-:52) lies in the ~4.8 s WAKE + RECOGNIZING window after one of them, and an arrival only counts after "nobody" (CAMERA UNAVAILABLE never shown). But these were dropouts of one detection, not the owner leaving: see below. |
+| Close releases the camera | **PASS.** `shell.home` at 10:48:29; no `pos-vision` at the first check 1.5 s later, `camera:false`; the screen locked again as after boot. |
+
+*What the detector saw.* Every person box in the run was the same one:
+`0:14:23:26` (±1) in the 64 x 64 letterboxed preview - the left third of the
+picture, from its top to about three quarters down - at 0.350-0.532, just
+over R0's 0.35 threshold. It was in 67 % of reports while the owner was asked
+to be in view, 73 % while away and 96 % after the return; no other person box
+appeared. So the owner's own departure and return were **not** reflected in
+the reports, and after 10:46:47.5 there was no person-free stretch of 1.5 s at
+all. Whether the box is a static object at the left of the view or the owner
+is not established (no camera picture was kept, and fresh reports do not prove
+fresh pixels); it is the same kind of observation as #109 (there at ~0.9) and
+belongs to that issue, not to this counter. The counter delivered every
+report; what the reports said is R0's.
+
+*State left.* Installed: `/usr/bin/doors-shell` `6dad57e9`, sha256
+`54364a7f34c139a107ff1473b24b376473735a6067f7c4cee8852adfe1403c1b`, one shell
+under `pos-supervise`; meshcored and radiod the same processes throughout; no
+radio use. Rollback (shell `b5936ccd` and the four state files from their
+backups): `ssh root@172.16.5.198 /root/pr121-6dad57e9/RESTORE.sh`. The run's
+evidence stays in `/root/pr121-6dad57e9/run/` on the unit.

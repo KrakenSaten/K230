@@ -54,8 +54,12 @@ history when resolved.
   report only when its camera sequence changes, and the K230's stays 0, so
   after the first report BUDDY says CAMERA UNAVAILABLE and GUARD NO VISION
   YET. Seen on unit B with the same code (2026-10-27); not re-run on the
-  v0.3.9 image. Fixed on `fix/deskbuddy-report-counter` (host-tested, not
-  released, not yet on a unit).
+  v0.3.9 image. Fixed on `fix/deskbuddy-report-counter` (not released):
+  on unit B (2026-11-04) every report, all with camera sequence 0, was
+  taken for 3.5 minutes with no CAMERA UNAVAILABLE (docs/apps/DESKBUDDY.md).
+  In that run R0 boxed one fixed spot as a person at 0.35-0.53 whether the
+  owner was there or not, so the owner's leaving and return were not
+  reflected (#109).
 - **DeskBuddy owner-aware Guard** (0.3.9, PR #111,
   docs/apps/deskbuddy/PRESENCE_OWNER_HANDOFF.md): not implemented; #109 (a
   stationary box on unit B) is undiagnosed.
