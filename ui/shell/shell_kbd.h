@@ -100,4 +100,21 @@ struct shell_kbd_status {
 };
 void shell_kbd_status(struct shell_kbd_status *out);
 
+/* A capital offered for the next letter typed on this keyboard, for a field
+ * whose next letter starts a sentence (the physical twin of
+ * pos_keyboard_offer_shift). While it is pending:
+ *   - the next printed character ends it, and if that is a letter a-z typed
+ *     with no Shift, Ctrl or Alt held it goes in upper case (a letter the
+ *     user's own Shift or Caps already made upper case is left alone);
+ *   - a tap of Shift on its own - pressed and released with no other key -
+ *     takes it back, so a lower-case first letter is always one key away;
+ *   - keys that print nothing (arrows, Backspace, Enter, Esc, Tab) leave it.
+ * It belongs to the field that had the focus when it was offered: if the
+ * focus has moved, nothing is changed and the offer is dropped. on = 0
+ * withdraws it. Returns 1 while one is pending, 0 otherwise (also with no
+ * keyboard attached). */
+int shell_kbd_offer_capital(int on);
+/* 1 while an offered capital is pending for the field that has the focus. */
+int shell_kbd_capital_pending(void);
+
 #endif

@@ -221,6 +221,46 @@ int pocketos_shell_keyboard_offer_shift(int on)
     return kb_up && pos_keyboard_offer_shift(kb_sheet, on != 0) ? 1 : 0;
 }
 
+/* The keyboard base's offered capital, as the shell keeps it (shell_kbd.c,
+ * tested end to end on raw controller bytes by tests/shell_kbd_test.c):
+ * the field it was offered for, and hw_type/hw_shift_tap below apply the
+ * same rules to keys typed here. hw_attached 0 is a unit with no base. */
+static void pump(int ms);
+static int hw_attached = 1;
+static lv_obj_t *hw_capital_field;
+int pocketos_shell_hw_keyboard_offer_capital(int on)
+{
+    hw_capital_field = (on && hw_attached) ? pos_input_focused() : NULL;
+    return hw_capital_field != NULL;
+}
+int pocketos_shell_hw_keyboard_capital_pending(void)
+{
+    return hw_capital_field && hw_capital_field == pos_input_focused();
+}
+/* A plain key on the base: a pending capital upper-cases a-z for its own
+ * field, and any printed character uses it up. */
+static void hw_type(const char *s)
+{
+    for (; *s; s++) {
+        pos_key_t k = (unsigned char)*s;
+
+        if (hw_capital_field && k >= 0x20) {
+            if (hw_capital_field == pos_input_focused() && k >= 'a' && k <= 'z') {
+                k = k - 'a' + 'A';
+            }
+            hw_capital_field = NULL;
+        }
+        pos_input_push_key(k);
+        pump(40);
+    }
+}
+/* A tap of Shift on its own takes it back. */
+static void hw_shift_tap(void)
+{
+    hw_capital_field = NULL;
+    pump(40);
+}
+
 /* The system volume, as the shell would report it: settable, so the DM
  * sound can be tried muted and not. */
 static int test_volume = 80;
@@ -5782,8 +5822,12 @@ static void autocap_session(void)
     check("autocap: the keyboard put away takes it away", !kb_up && !shift_offered());
     app_stop();
 
-    /* Landscape: the keyboard base, and no touch keyboard - nothing offered,
-     * and the letters are what the keys say. */
+    /* Landscape: the keyboard base, and no touch keyboard. Until
+     * fix/rift-usability-round2 nothing was offered there and a new message
+     * always started in lower case, which is how the owner found it on unit
+     * A. Now the base is offered the capital: the next plain letter, a tap
+     * of Shift on its own to take it back, and the line beside the composer
+     * saying so while it is pending. */
     use_display(POS_ROTATION_270, PANEL_CORNER);
     app_start();
     quiet_client();
@@ -5800,11 +5844,59 @@ static void autocap_session(void)
         pump(150);
     }
     lv_textarea_set_text(field, "");
-    pos_input_push_key('h');
-    pos_input_push_key('i');
     pump(150);
-    check("autocap: landscape types what the keyboard base says, and offers nothing",
-          field && text_is(field, "hi") && !kb_up && !shift_offered());
+    check("autocap: landscape, an empty message offers the keyboard base a capital",
+          field && !kb_up && !shift_offered() && pocketos_shell_hw_keyboard_capital_pending());
+    check("autocap: and the line beside the composer says so",
+          find_text(cmdline(), "CAPITAL NEXT") != NULL &&
+              find_text(cmdline(), "SHIFT: lower") != NULL);
+    hw_type("hei");
+    pump(150);
+    check("autocap: landscape, the first letter typed on the base is a capital",
+          field && text_is(field, "Hei") && !pocketos_shell_hw_keyboard_capital_pending());
+    check("autocap: and the line is back to what Enter and Esc do",
+          find_text(cmdline(), "CAPITAL NEXT") == NULL && find_text(cmdline(), "ENTER SEND"));
+    hw_type(". ");
+    pump(150);
+    check("autocap: landscape, after \". \" it is offered again",
+          pocketos_shell_hw_keyboard_capital_pending());
+    hw_type("du");
+    pump(150);
+    check("autocap: and taken", field && text_is(field, "Hei. Du"));
+    /* The reader's lower case: a tap of Shift on its own takes it back, and
+     * it stays back until the text or the caret changes. */
+    lv_textarea_set_text(field, "");
+    pump(150);
+    hw_shift_tap();
+    pump(250);
+    check("autocap: a tap of Shift takes it back, and it is not offered again",
+          !pocketos_shell_hw_keyboard_capital_pending() &&
+              find_text(cmdline(), "CAPITAL NEXT") == NULL);
+    hw_type("iphone");
+    pump(150);
+    check("autocap: so a lower-case first letter can be typed on the base",
+          field && text_is(field, "iphone"));
+    /* Inside a sentence nothing is offered; a letter typed is what it is. */
+    hw_type(" x");
+    pump(150);
+    check("autocap: inside a sentence the base types what its keys say",
+          field && text_is(field, "iphone x") && !pocketos_shell_hw_keyboard_capital_pending());
+    /* Leaving the composer takes it back. */
+    lv_textarea_set_text(field, "");
+    pump(150);
+    check("autocap: offered again on an empty message", pocketos_shell_hw_keyboard_capital_pending());
+    pos_input_focus(app->keysink);
+    pump(150);
+    check("autocap: the keys leaving the composer take the base's offer back",
+          hw_capital_field == NULL);
+    /* No keyboard base: nothing is pending and nothing is said. */
+    hw_attached = 0;
+    pos_input_focus(field);
+    pump(150);
+    check("autocap: with no keyboard base nothing is pending or said",
+          !pocketos_shell_hw_keyboard_capital_pending() &&
+              find_text(cmdline(), "CAPITAL NEXT") == NULL);
+    hw_attached = 1;
     lv_textarea_set_text(field, "");
     app_stop();
     use_display(POS_ROTATION_0, PANEL_CORNER);

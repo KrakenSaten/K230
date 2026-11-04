@@ -83,6 +83,11 @@ static struct {
     pos_key_t held_key;
     unsigned held_mods;
     uint64_t held_since_us;
+    /* shell_kbd_offer_capital: the field the pending capital was offered
+     * for (NULL: none pending), and whether Shift has been down with no
+     * other key since it was pressed - its release is then a tap. */
+    lv_obj_t *capital_field;
+    bool shift_alone;
     struct kbd_battery battery; /* the read-only battery telemetry */
     bool battery_started;
     struct battery_report report; /* what sysd was last told */
@@ -114,8 +119,45 @@ static uint64_t now_us(void)
     return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000);
 }
 
+/* A pending capital (shell_kbd_offer_capital) meets the next key. Only a
+ * printed character ends it; it is upper-cased only when it is a plain
+ * a-z the user's own modifiers left in lower case, and only in the field
+ * it was offered for. */
+static pos_key_t offered_capital(pos_key_t key, unsigned mods)
+{
+    if (!kbd.capital_field || key < 0x20 || key == 0x7F || key >= POS_KEY_F(1)) {
+        return key;
+    }
+    if (pos_input_focused() == kbd.capital_field && key >= 'a' && key <= 'z' &&
+        !(mods & (POS_INPUT_MOD_SHIFT | POS_INPUT_MOD_CTRL | POS_INPUT_MOD_ALT))) {
+        key = (pos_key_t)(key - 'a' + 'A');
+    }
+    kbd.capital_field = NULL;
+    return key;
+}
+
+int shell_kbd_offer_capital(int on)
+{
+    if (!on || !kbd.present || !kbd.ready || !pos_input_focused()) {
+        kbd.capital_field = NULL;
+        return 0;
+    }
+    if (!kbd.capital_field) {
+        /* A Shift already down when the offer is made is not a tap of it. */
+        kbd.shift_alone = false;
+    }
+    kbd.capital_field = pos_input_focused();
+    return 1;
+}
+
+int shell_kbd_capital_pending(void)
+{
+    return kbd.capital_field && kbd.capital_field == pos_input_focused() ? 1 : 0;
+}
+
 static void deliver(pos_key_t key, unsigned mods)
 {
+    key = offered_capital(key, mods);
     if (pos_input_push_key_mods(key, mods)) {
         kbd.delivered++;
     } else {
@@ -181,6 +223,20 @@ static void on_event(void *user, uint8_t raw)
 
     (void)user;
     key = pos_keymap_event(&kbd.map, raw, &effect);
+    /* A tap of Shift on its own takes back an offered capital
+     * (shell_kbd_offer_capital); Shift held for a letter is not a tap. */
+    if (pos_keymap_name(code) && strcmp(pos_keymap_name(code), "SHIFT") == 0) {
+        if (raw & POS_KEYMAP_EVENT_PRESSED) {
+            kbd.shift_alone = true;
+        } else {
+            if (kbd.shift_alone) {
+                kbd.capital_field = NULL;
+            }
+            kbd.shift_alone = false;
+        }
+    } else if (raw & POS_KEYMAP_EVENT_PRESSED) {
+        kbd.shift_alone = false;
+    }
     if ((code==5 || code==14) && (raw & POS_KEYMAP_EVENT_PRESSED) && !key && pos_input_game_active())
         key=' ';
     /* The game owns only opted-in action keys; ordinary text and reserved
@@ -314,6 +370,8 @@ static void on_overflow(void *user)
     (void)user;
     pos_input_game_reset(0);
     pos_keymap_reset(&kbd.map);
+    kbd.capital_field = NULL;
+    kbd.shift_alone = false;
     /* The same goes for a held long-press key: its release may be among the
      * events lost. It was pressed, so it is typed rather than timed. */
     flush_held();
@@ -378,6 +436,8 @@ static void on_poll(lv_timer_t *timer)
         }
     } else if (!kbd.ready && ready) {
         pos_keymap_reset(&kbd.map);
+        kbd.capital_field = NULL;
+        kbd.shift_alone = false;
         flush_held(); /* its release went with the controller */
         LOG_INFO("keyboard: the controller is answering again");
         /* Whatever took the controller away may have taken the expander
@@ -478,6 +538,8 @@ static int bring_up(void)
      * from the truth rather than from a default. */
     kbd.ready = kbd_tca8418_ready(&kbd.chip);
     pos_keymap_reset(&kbd.map);
+    kbd.capital_field = NULL;
+    kbd.shift_alone = false;
     kbd.held_code = 0;
     kbd.held_key = 0;
     leds_bring_up();

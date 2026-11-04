@@ -902,14 +902,37 @@ the caret are followed, and nothing is carried between conversations. Text
 that arrives whole - a reply's mention, a kept draft, an emoji - is never
 changed.
 
-Only the touch keyboard (portrait) offers it. A physical keyboard - the
-keyboard base in landscape - types what its own Shift and Caps say: a
-capital it did not ask for would leave no way to type a lower-case letter.
+On the touch keyboard (portrait) the offer is its one-shot SHIFT, as above.
 The touch keyboard gained one call for this (`pos_keyboard_offer_shift`,
 reached by apps through `pocketos_shell_keyboard_offer_shift`); an offer is
 only ever withdrawn while it is still the one offered, never over the user's
 own or locked Shift, and it goes when the keyboard is hidden or shown again.
-Nothing else uses it, so the keyboard behaves as before in every other app.
+
+On the keyboard base (fix/rift-usability-round2) the same decision is offered
+to the physical keyboard (`pocketos_shell_hw_keyboard_offer_capital`,
+`ui/shell/shell_kbd.c`). Until then the base was given no capital at all, on
+the reasoning that one it did not ask for would leave no way to type a
+lower-case letter; the owner found that a new message on unit A, used in
+landscape with the base, therefore never started with a capital
+(docs/hardware/RIFT_USABILITY_ROUND2_UNIT_A.md). The base's offer keeps the
+lower case one key away:
+
+- the next letter a-z typed with no Shift, Ctrl or Alt held goes in upper
+  case, and only that one;
+- a tap of Shift on its own takes it back, and it is not offered again until
+  the text, the caret, the conversation or the field changes;
+- the user's own Shift and Caps are never overridden (on this keyboard
+  Shift+H is the comma printed on the keycap, and stays one);
+- keys that print nothing (arrows, Backspace, Enter, Esc, Tab) leave it;
+- it belongs to the field it was offered for: if the focus moves, or the
+  shell closes the app, it is dropped.
+
+The base has no SHIFT to light, so the line beside the landscape composer
+says `CAPITAL NEXT · SHIFT: lower · ENTER SEND` while it is pending
+(`ESC CLEAR` is left out: an empty message has nothing to clear). Nothing else uses either call, so the keyboards
+behave as before in every other app. `tests/shell_kbd_test.c` checks the
+base's rules on raw controller bytes; `tests/rift_app_test.c` checks RIFT's
+offer, its cue and its withdrawal.
 The offer is made in the same event that raises the keyboard
 (fix/rift-usability-round2), not on RIFT's next timer pass, so the sheet never
 first appears in lower case; a new message after SEND, after the keyboard's

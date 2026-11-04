@@ -285,10 +285,22 @@ int pocketos_shell_keyboard_visible(void);
  * off, off withdraws it while it is still the one offered. The user's Shift
  * always wins - a tap turns an offered Shift off, and one they engaged or
  * locked is never withdrawn - and an offer goes when the keyboard is hidden
- * or shown again. Only the touch keyboard has it: a physical keyboard's own
- * modifiers decide what it types. Returns 1 while an offered Shift is
- * engaged, 0 otherwise (also with no keyboard). */
+ * or shown again. This is the touch keyboard's; the physical keyboard's is
+ * the next call. Returns 1 while an offered Shift is engaged, 0 otherwise
+ * (also with no keyboard). */
 int pocketos_shell_keyboard_offer_shift(int on);
+
+/* The same default on the physical keyboard (the keyboard base), for the
+ * focused field: the next letter a-z typed on it with no Shift, Ctrl or Alt
+ * held goes in upper case. A tap of Shift on its own takes it back, so a
+ * lower-case first letter stays one key away; the user's own Shift and Caps
+ * are never overridden. It ends with the next printed character, and is
+ * dropped if the focus moves before that. on = 0 withdraws it. Returns 1
+ * while it is pending, 0 otherwise (also with no keyboard attached). */
+int pocketos_shell_hw_keyboard_offer_capital(int on);
+/* Whether that capital is still pending for the focused field - not taken
+ * back by a tap of Shift, not used by a character. Changes nothing. */
+int pocketos_shell_hw_keyboard_capital_pending(void);
 
 /* ---- the app header's title --------------------------------------------- *
  *
