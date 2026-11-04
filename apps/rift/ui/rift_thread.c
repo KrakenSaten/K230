@@ -257,7 +257,9 @@ static void build_composer(struct rift_thread *t)
     t->send = rift_action(t->composer, "SEND", 1, 1, on_send, t);
     if (t->send) {
         lv_obj_set_flex_grow(t->send, 0);
-        lv_obj_set_width(t->send, SEND_W);
+        /* As tall as the field and the emoji button beside it: one row of
+         * 64 px targets (RIFT_PRIMARY_H). */
+        lv_obj_set_size(t->send, SEND_W, RIFT_PRIMARY_H);
     }
 }
 

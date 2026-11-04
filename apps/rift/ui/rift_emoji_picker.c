@@ -50,6 +50,12 @@
 
 /* The button's face: the first of the common emoji. */
 #define BUTTON_ICON "\xF0\x9F\x99\x82" /* U+1F642 */
+/* The button: as wide as it is tall in the portrait composer, the artwork at
+ * a whole multiple of its size, and more room on SEND's side than the row's
+ * other gaps. */
+#define BUTTON_W RIFT_PRIMARY_H
+#define BUTTON_ART_1X ART_PX
+#define BUTTON_SEND_GAP 8
 
 /* A button per composer: the portrait thread's and the landscape command
  * line's. */
@@ -580,10 +586,26 @@ static void on_button_deleted(lv_event_t *e)
     }
 }
 
+/* The button's face: the same artwork the picker draws, at twice its size
+ * wherever the button is a full touch row tall (the portrait composer),
+ * once where the row is a line of type (landscape's command line). Whole
+ * multiples, as in the picker, so no source pixel is smeared. */
+static void on_button_sized(lv_event_t *e)
+{
+    lv_obj_t *b = lv_event_get_target_obj(e);
+    lv_obj_t *img = lv_obj_get_child(b, -1);
+    int32_t px = lv_obj_get_height(b) >= 2 * BUTTON_ART_1X + 12 ? 2 * BUTTON_ART_1X : BUTTON_ART_1X;
+
+    if (img && lv_obj_check_type(img, &lv_image_class) && lv_obj_get_width(img) != px) {
+        lv_obj_set_size(img, px, px);
+        lv_obj_center(img);
+    }
+}
+
 lv_obj_t *rift_emoji_button(struct rift_app *a, lv_obj_t *parent, lv_obj_t *field)
 {
     lv_obj_t *b;
-    lv_obj_t *label;
+    lv_obj_t *img;
     unsigned i;
 
     if (!field) {
@@ -592,18 +614,22 @@ lv_obj_t *rift_emoji_button(struct rift_app *a, lv_obj_t *parent, lv_obj_t *fiel
     owner = a;
     b = rift_action(parent, "", 0, 1, on_button, field);
     lv_obj_set_flex_grow(b, 0);
-    lv_obj_set_width(b, RIFT_TOUCH_H);
+    /* A 64 x 64 target beside a 64 px field (RIFT_PRIMARY_H), where it was
+     * a 56 px square with the 18 px artwork in it - small enough that a
+     * finger aimed at it could land on SEND. The extra space to SEND's
+     * side keeps the two further apart than the row's other gaps. */
+    lv_obj_set_size(b, BUTTON_W, RIFT_PRIMARY_H);
+    lv_obj_set_style_margin_right(b, BUTTON_SEND_GAP, 0);
     /* A tap on it leaves the focus in the field, as a tap on the picker
      * does: the caret is where the emoji goes. */
     lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    label = lv_obj_get_child(b, 0);
-    rift_emoji_style_add(label, POS_STYLE_BUTTON_LABEL);
-    {
-        char shown[32];
-
-        rift_emoji_fold(BUTTON_ICON, shown, sizeof(shown));
-        lv_label_set_text(label, shown);
-    }
+    /* The artwork as an image rather than a glyph in the label: an image can
+     * be drawn at a whole multiple, a glyph only at the font's size. */
+    lv_obj_add_flag(lv_obj_get_child(b, 0), LV_OBJ_FLAG_HIDDEN);
+    img = art(b, 2 * BUTTON_ART_1X);
+    set_art(img, BUTTON_ICON, 2 * BUTTON_ART_1X);
+    lv_obj_center(img);
+    lv_obj_add_event_cb(b, on_button_sized, LV_EVENT_SIZE_CHANGED, NULL);
     lv_obj_add_event_cb(b, on_button_deleted, LV_EVENT_DELETE, NULL);
     lv_obj_add_event_cb(field, on_field_key, (lv_event_code_t)(LV_EVENT_KEY | LV_EVENT_PREPROCESS),
                         NULL);

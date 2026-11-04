@@ -352,8 +352,8 @@ static void picker_table(void)
             n = rift_emoji_recent_push(recent, n, rift_emoji_groups[2].items[i]);
         }
         check("picker: the recent list keeps one row, the newest first",
-              n == RIFT_EMOJI_RECENT_MAX && recent[0] == rift_emoji_groups[2].items[14] &&
-                  recent[4] == rift_emoji_groups[2].items[10]);
+              n == RIFT_EMOJI_RECENT_MAX && recent[0] == rift_emoji_groups[2].items[RIFT_EMOJI_CELLS - 1] &&
+                  recent[4] == rift_emoji_groups[2].items[RIFT_EMOJI_CELLS - 5]);
         check("picker: the recent list is written as the emoji, space-separated, and fits the file",
               rift_emoji_recent_format(recent, n, text, sizeof(text)) > 0 &&
                   strlen(text) < RIFT_PREF_EMOJI_RECENT_LEN);

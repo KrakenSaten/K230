@@ -19,6 +19,7 @@
 #include "rift_model.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failed;
@@ -441,9 +442,9 @@ static void test_body_and_meta(void)
             "HYTTA: str\xC3\xB8m tilbake");
     rift_fmt_msg_meta(msg, 61000, text, sizeof(text));
     text_is("its caption says how long ago, who it CLAIMS to be, and what was measured", text,
-            "1m \xC2\xB7 HYTTA? \xC2\xB7 RECEIVED \xC2\xB7 \xE2\x88\x92" "88 dBm");
+            "1m \xC2\xB7 HYTTA \xC2\xB7 RECEIVED \xC2\xB7 \xE2\x88\x92" "88 dBm");
     rift_fmt_preview(msg, text, sizeof(text));
-    text_is("and its preview marks the claim too", text, "HYTTA?: str\xC3\xB8m tilbake");
+    text_is("and its preview names the sender as it was typed", text, "HYTTA: str\xC3\xB8m tilbake");
 
     msg = held(&s, 2);
     text_is("this node's own channel line is what the reader typed", rift_msg_body(msg),
@@ -699,6 +700,111 @@ static void test_message_ids(void)
               rift_model_message(&s, 9007199254740991LL) != NULL);
 }
 
+/* meshcored keeps direct and channel messages in separate rings of 64, so a
+ * busy channel cannot push a direct conversation out of its history, and
+ * every mesh.messages snapshot (RIFT_MESSAGES_PERIOD_MS) offers the old
+ * direct messages again. RIFT's window is one cache of RIFT_MAX_MESSAGES:
+ * it used to evict by id alone, so a channel that ran past the window
+ * pushed the direct messages out of it, each snapshot then refused every
+ * one of them again, and each refusal was counted as a malformed event -
+ * the "messages from meshcored could not be read" ACTIVITY showed in the
+ * tens of thousands. Nothing in them was malformed. */
+static void test_channel_flood_keeps_direct(void)
+{
+    struct rift_model s;
+    const struct rift_message *thread[RIFT_MAX_MESSAGES];
+    char json[512];
+    char *snap;
+    size_t at = 0;
+    const size_t snap_len = 160 * 1024;
+    int dm = 10;
+    int last = dm + RIFT_MAX_MESSAGES;
+    int i;
+    int round;
+    int n;
+
+    rift_model_init(&s);
+    for (i = 1; i <= dm; i++) {
+        snprintf(json, sizeof(json),
+                 "{\"message\":{\"id\":%d,\"direction\":\"in\",\"kind\":\"direct\","
+                 "\"peer_public_key\":\"" KEY_A "\",\"text\":\"dm\",\"state\":\"received\","
+                 "\"mono_ms\":%d}}",
+                 i, i * 10);
+        apply_event(&s, "mesh.message", json);
+    }
+    for (i = dm + 1; i <= last; i++) {
+        snprintf(json, sizeof(json),
+                 "{\"message\":{\"id\":%d,\"direction\":\"in\",\"kind\":\"channel\","
+                 "\"channel\":0,\"channel_hash\":\"11\",\"channel_name\":\"Public\","
+                 "\"sender_name\":\"X\",\"text\":\"X: c\",\"state\":\"received\","
+                 "\"mono_ms\":%d}}",
+                 i, i * 10);
+        apply_event(&s, "mesh.message", json);
+    }
+    check("flood: the cache is full", s.msg_count == RIFT_MAX_MESSAGES);
+    check("flood: and nothing so far was malformed", s.events_malformed == 0);
+    n = rift_model_thread(&s, KEY_A, thread, RIFT_MAX_MESSAGES, NULL);
+    check("flood: the channel did not push the direct conversation out", n == dm);
+
+    /* What meshcored answers: the whole direct ring and the newest 64 of the
+     * channel ring, merged by id. */
+    snap = malloc(snap_len);
+    if (!snap) {
+        check("flood: memory for the snapshot", 0);
+        return;
+    }
+    at += (size_t)snprintf(snap + at, snap_len - at, "{\"messages\":[");
+    for (i = 1; i <= dm; i++) {
+        at += (size_t)snprintf(snap + at, snap_len - at,
+                               "%s{\"id\":%d,\"direction\":\"in\",\"kind\":\"direct\","
+                               "\"peer_public_key\":\"" KEY_A "\",\"text\":\"dm\","
+                               "\"state\":\"received\",\"mono_ms\":%d}",
+                               i > 1 ? "," : "", i, i * 10);
+    }
+    for (i = last - 63; i <= last; i++) {
+        at += (size_t)snprintf(snap + at, snap_len - at,
+                               ",{\"id\":%d,\"direction\":\"in\",\"kind\":\"channel\","
+                               "\"channel\":0,\"channel_hash\":\"11\",\"channel_name\":\"Public\","
+                               "\"sender_name\":\"X\",\"text\":\"X: c\",\"state\":\"received\","
+                               "\"mono_ms\":%d}",
+                               i, i * 10);
+    }
+    snprintf(snap + at, snap_len - at, "],\"count\":%d,\"total\":%d,\"persistent\":false}",
+             dm + 64, dm + 64);
+    for (round = 0; round < 3; round++) {
+        apply_messages(&s, snap);
+    }
+    free(snap);
+    check("flood: three snapshots later nothing was counted as malformed",
+          s.events_malformed == 0);
+    n = rift_model_thread(&s, KEY_A, thread, RIFT_MAX_MESSAGES, NULL);
+    check("flood: and the direct conversation is all there", n == dm);
+    check("flood: the cache is still bounded", s.msg_count == RIFT_MAX_MESSAGES);
+
+    /* A message the window has no room for is a full cache, not a malformed
+     * message: counted as dropped, never as malformed. */
+    {
+        unsigned dropped = s.msgs_dropped;
+
+        check("flood: a channel message older than the channel's window is refused",
+              apply_event(&s, "mesh.message",
+                          "{\"message\":{\"id\":12,\"direction\":\"in\",\"kind\":\"channel\","
+                          "\"channel\":0,\"text\":\"late\",\"state\":\"received\"}}") == -1);
+        check("flood: as dropped, not as malformed",
+              s.msgs_dropped == dropped + 1 && s.events_malformed == 0);
+    }
+    /* An event the service raises for another client - an app datagram for
+     * Fleet, say - is not one RIFT reads. It is not malformed either. */
+    check("flood: an app datagram is not RIFT's", apply_event(&s, "mesh.app",
+                                                               "{\"datagram\":{\"id\":1,"
+                                                               "\"port\":3}}") == -1);
+    check("flood: and is counted apart from malformed input",
+          s.events_unsupported == 1 && s.events_malformed == 0);
+    check("flood: while a message with no id still is malformed",
+          apply_event(&s, "mesh.message", "{\"message\":{\"direction\":\"in\"}}") == -1 &&
+              s.events_malformed == 1);
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -709,6 +815,7 @@ int main(void)
     int n;
 
     test_public_first();
+    test_channel_flood_keeps_direct();
 
     /* ---- a snapshot is history, not news -------------------------------- */
     rift_model_init(&m);
@@ -938,9 +1045,9 @@ int main(void)
         check("and the oldest held is not message 1", thread[0]->id == 11);
         /* A late message older than everything held is refused rather than
          * evicting a newer one to make room for it. */
-        check("a message older than the whole window is refused",
+        check("a message older than the whole window is refused, as no room rather than as malformed",
               apply_message(&s, "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A
-                                "\",\"text\":\"late\",\"state\":\"received\"}") == -1);
+                                "\",\"text\":\"late\",\"state\":\"received\"}") == RIFT_MSG_NO_ROOM);
         check("and the window did not move", s.msg_count == RIFT_MAX_MESSAGES);
     }
 

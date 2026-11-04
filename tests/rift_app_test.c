@@ -184,11 +184,19 @@ static void *kb_done_user;
  * pressed through their own events (kb_tap), so its Shift - what an
  * automatic capital is offered through - is the shell's own. */
 static lv_obj_t *kb_sheet;
+/* When set, the sheet takes its height off the app's content as the shell's
+ * does (shell.c content_box), so the app is laid out again under the
+ * keyboard exactly when it comes up and goes. */
+static int kb_shrinks_content;
+static lv_obj_t *g_content;
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user),
                                  void *user)
 {
     (void)ret;
     kb_shows++;
+    if (!kb_up && kb_shrinks_content && g_content) {
+        lv_obj_set_height(g_content, lv_obj_get_height(g_content) - POS_KB_H);
+    }
     kb_up = 1;
     kb_done = on_done;
     kb_done_user = user;
@@ -196,6 +204,9 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(v
 }
 void pocketos_shell_keyboard_hide(void)
 {
+    if (kb_up && kb_shrinks_content && g_content) {
+        lv_obj_set_height(g_content, lv_obj_get_height(g_content) + POS_KB_H);
+    }
     kb_up = 0;
     kb_done = NULL;
     kb_done_user = NULL;
@@ -2273,9 +2284,9 @@ static void sender_session(void)
     for (pass = 0; pass < 2; pass++) {
         const char *where = pass ? "turned: " : "";
         char what[160];
-        lv_obj_t *who = find_exact(thread_pane(), "HYTTA?");
+        lv_obj_t *who = find_exact(thread_pane(), "HYTTA");
         lv_obj_t *body = find_exact(thread_pane(), "kort");
-        lv_obj_t *long_who = find_exact(thread_pane(), LONG_SENDER "?");
+        lv_obj_t *long_who = find_exact(thread_pane(), LONG_SENDER);
         lv_obj_t *long_body = find_exact(thread_pane(), LONG_BODY);
         lv_obj_t *anon = find_exact(thread_pane(), "UNNAMED");
         lv_obj_t *anon_body = find_exact(thread_pane(), "ingen navn her");
@@ -2316,7 +2327,7 @@ static void sender_session(void)
     rift_app_open_conversation(app, KEY_B);
     pump(120);
     check("a direct thread names no sender before its lines",
-          find_exact(thread_pane(), "HYTTA?") == NULL &&
+          count_exact(thread_pane(), "HYTTA") <= 1 &&
               find_text(thread_pane(), "tilbake p\xC3\xA5 hytta") != NULL);
     use_display(POS_ROTATION_0, PANEL_CORNER);
     app_stop();
@@ -3097,7 +3108,7 @@ static void comms_usability_session(void)
             pump(250);
             {
                 lv_obj_t *body = find_text(thread_pane(), "tilbake");
-                lv_obj_t *sender = find_exact(thread_pane(), "HYTTA?");
+                lv_obj_t *sender = find_exact(thread_pane(), "HYTTA");
                 lv_obj_t *column = ancestor(body, 1);
                 lv_obj_t *caption =
                     column ? lv_obj_get_child(column, (int32_t)lv_obj_get_child_count(column) - 1)
@@ -3819,7 +3830,7 @@ static void rxlog_session(void)
     check("the whole path", strcmp(text, "PATH  6E > 67 > 74 > 73") == 0);
     rift_rxlog_view_row_text(app, dup2, 2, text, sizeof(text));
     check("and the text the first copy decoded, with the claimed sender",
-          strstr(text, "#Public Anna?:") && strstr(text, "Kommer opp om 10 min"));
+          strstr(text, "#Public Anna:") && strstr(text, "Kommer opp om 10 min"));
     {
         int first = rx_row_with("RX ");
 
@@ -4901,6 +4912,17 @@ static void navigation_session(void)
                  tag, RIFT_NAV_FACE_H);
         check(what, tall);
         snprintf(what, sizeof(what), "%s: each tab is a visible face, all four alike", tag);
+        if (!faces) {
+            for (i = 0; i < RIFT_TAB_COUNT; i++) {
+                printf("     tab %d: bg %06x opa %d border %d radius %d h %d\n", i,
+                       (unsigned)(lv_color_to_u32(lv_obj_get_style_bg_color(tab(i), LV_PART_MAIN)) &
+                                  0xFFFFFFu),
+                       (int)lv_obj_get_style_bg_opa(tab(i), LV_PART_MAIN),
+                       (int)lv_obj_get_style_border_width(tab(i), LV_PART_MAIN),
+                       (int)lv_obj_get_style_radius(tab(i), LV_PART_MAIN),
+                       (int)lv_obj_get_height(tab(i)));
+            }
+        }
         check(what, faces);
         snprintf(what, sizeof(what), "%s: 8 px between the faces", tag);
         check(what, gaps);
@@ -4941,7 +4963,7 @@ static void navigation_session(void)
             int home_before = home_calls;
 
             lv_obj_get_coords(app->back, &b);
-            check("landscape: the back slab is a 72 x 56 face at the strip's left",
+            check("landscape: the back slab is a 72 x 64 face at the strip's left",
                   visible(app->back) && lv_area_get_width(&b) == 72 &&
                       lv_area_get_height(&b) == RIFT_NAV_FACE_H && b.x1 < t[0].x1 &&
                       within(app->back, strip()));
@@ -4949,7 +4971,7 @@ static void navigation_session(void)
             {
                 /* No band above the row (unit B, 2026-10-02): the strip is the
                  * screen's top row, as the shell's header is in every other
-                 * app, and the slab is where that header's slab is - 8 px
+                 * app, and the slab is centred in that header's 72 px row - 4 px
                  * down, in from the rounded corner by the top bar's inset. */
                 struct pos_insets bar =
                     pos_display_bar_insets(pocketui_display_geometry(), POS_EDGE_TOP);
@@ -4958,7 +4980,7 @@ static void navigation_session(void)
                 lv_obj_get_coords(app->cmd_hint, &h);
                 check("landscape: the strip starts at the screen's top edge, no band above it",
                       s.y1 == 0 && lv_obj_get_style_pad_top(frame(), LV_PART_MAIN) == 0);
-                check("landscape: Back sits where every app's back slab does: 8 px down",
+                check("landscape: Back sits centred in the shell header's row: 4 px down",
                       b.y1 == (POCKETUI_HEADER_H - RIFT_NAV_FACE_H) / 2);
                 check("landscape: and in from the rounded corner by the top bar's inset",
                       b.x1 == LV_MAX(RIFT_PAD, bar.left) &&
@@ -5018,6 +5040,22 @@ static void navigation_session(void)
                 snprintf(what, sizeof(what), "portrait %s: the strip does not scroll sideways",
                          pos_text_size_name(sizes[z]));
                 check(what, lv_obj_get_scroll_right(strip()) <= 0 && lv_obj_get_scroll_x(strip()) == 0);
+                /* fix/rift-usability-round2: the tabs share the whole row, so
+                 * no tab is a sliver beside dead space, and the narrowest is
+                 * still a 64 px target. */
+                {
+                    int32_t narrow = LV_COORD_MAX;
+
+                    for (i = 0; i < RIFT_TAB_COUNT; i++) {
+                        narrow = LV_MIN(narrow, lv_area_get_width(&t[i]));
+                    }
+                    snprintf(what, sizeof(what),
+                             "portrait %s: the tabs fill the row (the last ends %d of %d), "
+                             "the narrowest %d px wide",
+                             pos_text_size_name(sizes[z]), (int)last.x2,
+                             (int)(s.x2 - RIFT_PAD), (int)narrow);
+                    check(what, last.x2 >= s.x2 - RIFT_PAD - 1 && narrow >= 64);
+                }
             }
         }
         pos_theme_select_text_size(was);
@@ -5306,6 +5344,31 @@ static void emoji_picker_session(void)
                  shape);
         check(what, lv_obj_get_group(button) == NULL &&
                         !lv_obj_has_flag(button, LV_OBJ_FLAG_CLICK_FOCUSABLE));
+        /* fix/rift-usability-round2: a 64 px target, its artwork drawn at a
+         * whole multiple, and SEND further from it than the row's 12 px. */
+        {
+            lv_obj_t *next = lv_obj_get_child(lv_obj_get_parent(button),
+                                              (int32_t)lv_obj_get_index(button) + 1);
+            lv_obj_t *img = lv_obj_get_child(button, -1);
+            lv_area_t na;
+            int32_t art = img ? lv_obj_get_width(img) : 0;
+
+            snprintf(what, sizeof(what), "%s, Large: the emoji button is 64 px wide%s", shape,
+                     app->wide ? "" : " and tall");
+            check(what, lv_area_get_width(&ba) >= 64 &&
+                            (app->wide || lv_area_get_height(&ba) >= 64));
+            snprintf(what, sizeof(what), "%s, Large: its emoji drawn at a whole multiple (%d px)",
+                     shape, (int)art);
+            check(what, art > 0 && art % 18 == 0 && (app->wide || art >= 36) &&
+                            art <= lv_area_get_height(&ba));
+            if (!app->wide) {
+                lv_obj_get_coords(next, &na);
+                snprintf(what, sizeof(what), "%s, Large: SEND is %d px from it, more than the "
+                                             "row's other gaps", shape, (int)(na.x1 - ba.x2 - 1));
+                check(what, next && find_exact(next, "SEND") && na.x1 - ba.x2 - 1 >= 20 &&
+                                lv_area_get_height(&na) == 64);
+            }
+        }
 
         pos_input_push_key('h');
         pos_input_push_key('i');
@@ -6541,7 +6604,7 @@ static void reliability_session(void)
     rift_app_open_conversation(app, site_key());
     pump(160);
     check("a reply is drawn with its quotation on a line above",
-          find_text(thread_pane(), "\xE2\x86\xB3 Anna?: Are you coming up?") != NULL);
+          find_text(thread_pane(), "\xE2\x86\xB3 Anna: Are you coming up?") != NULL);
     check("and the answer as the body", find_exact(thread_pane(), "Ja, om ti minutter") != NULL);
     check("the mention itself is not printed", find_text(thread_pane(), "@[Anna]") == NULL);
     check("the stored text is the plain text that came",
@@ -7839,6 +7902,145 @@ static void theme_state_proof(void)
     }
 }
 
+/* ---- fix/rift-usability-round2: the capital after SEND ---------------------- */
+
+static int autocap_sent(void)
+{
+    return app && !app->model.outbox.active && app->model.outbox.message_id > 0;
+}
+
+static int autocap_ready(void)
+{
+    return route_ready() && app->model.channels_valid && app->model.channel_count == 1;
+}
+
+/* A new message is started three ways: in an empty composer, after the last
+ * one was SENT, and in a conversation opened again. Each offers a capital on
+ * the touch keyboard, in a direct conversation and on a channel, against a
+ * real (scripted) meshcored: SEND disables the composer while the message is
+ * on its way, which is what used to take the offer away and leave it away. */
+static void autocap_send_session(void)
+{
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    static const char *const shapes[2] = { "direct", "channel" };
+    char sock[512];
+    char sends[512];
+    char methods[512];
+    char chan[RIFT_KEY_HEX];
+    struct stat st;
+    int waited;
+    int k;
+    pid_t pid;
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the capital-after-SEND session needs RIFT_FAKE_MESHCORED and "
+               "POCKETOS_RUNTIME_DIR; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(sends, sizeof(sends), "%s/autocap-sends", g_state_dir);
+    snprintf(methods, sizeof(methods), "%s/autocap-methods", g_state_dir);
+    unlink(sends);
+    unlink(methods);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pid = fork();
+    if (pid == 0) {
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", RT_NODES, 1);
+        setenv("FAKE_MESHCORED_CHANNELS",
+               "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":128,"
+               "\"text_limit\":147,\"ack_expected\":false}]",
+               1);
+        setenv("FAKE_MESHCORED_SENDS", sends, 1);
+        setenv("FAKE_MESHCORED_METHODS", methods, 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("autocap send: the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+    kb_shrinks_content = 1;
+    app_start();
+    check("autocap send: RIFT reads the nodes and the channel", live_until(autocap_ready, 8000));
+    rift_channel_key(0, "8c", "SITE", chan, sizeof(chan));
+
+    for (k = 0; k < 2; k++) {
+        const char *peer = k == 0 ? RT_TO : chan;
+        const char *first = k == 0 ? "hei" : "ok";
+        const char *want = k == 0 ? "Hei" : "Ok";
+        char what[200];
+        lv_obj_t *field;
+
+        rift_app_open_conversation(app, peer);
+        pump(200);
+        field = rift_comms_field(app);
+        tap(field);
+        pump(150);
+        snprintf(what, sizeof(what), "autocap send (%s): a new message offers a capital",
+                 shapes[k]);
+        check(what, field && kb_up && shift_offered());
+        if (!field) {
+            continue;
+        }
+        kb_type(first);
+        snprintf(what, sizeof(what), "autocap send (%s): and the first letter is one", shapes[k]);
+        check(what, text_is(field, want));
+
+        app->model.outbox.message_id = 0;
+        tap(word_button("SEND"));
+        snprintf(what, sizeof(what), "autocap send (%s): SEND is answered", shapes[k]);
+        check(what, live_until(autocap_sent, 8000) && !app->model.outbox.failed);
+        pump(300);
+        field = rift_comms_field(app);
+        snprintf(what, sizeof(what),
+                 "autocap send (%s): after SEND the empty composer keeps the keys and the "
+                 "keyboard",
+                 shapes[k]);
+        check(what, field && text_is(field, "") && pos_input_focused() == field && kb_up);
+        snprintf(what, sizeof(what),
+                 "autocap send (%s): and offers a capital for the next message", shapes[k]);
+        check(what, shift_offered());
+        kb_type(first);
+        snprintf(what, sizeof(what), "autocap send (%s): which is typed as one", shapes[k]);
+        check(what, text_is(field, want));
+        /* A lower case chosen with SHIFT still holds after a SEND. */
+        lv_textarea_set_text(field, "");
+        pump(150);
+        kb_tap("SHIFT");
+        pump(150);
+        kb_type("iphone");
+        snprintf(what, sizeof(what), "autocap send (%s): SHIFT still gives a lower-case start",
+                 shapes[k]);
+        check(what, text_is(field, "iphone"));
+        lv_textarea_set_text(field, "");
+        pump(150);
+
+        /* Opened again, from another section: a new message, a capital. */
+        kb_press_done();
+        rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+        pump(200);
+        rift_app_open_conversation(app, peer);
+        pump(200);
+        field = rift_comms_field(app);
+        if (field) {
+            tap(field);
+            pump(150);
+        }
+        snprintf(what, sizeof(what), "autocap send (%s): reopened, a capital is offered",
+                 shapes[k]);
+        check(what, field && kb_up && text_is(field, "") && shift_offered());
+        kb_press_done();
+    }
+    app_stop();
+    route_kill(pid);
+    kb_shrinks_content = 0;
+    pump(100);
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -7892,6 +8094,7 @@ int main(void)
     if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "composer") == 0) {
         touch_keyboard_session();
         autocap_session();
+        autocap_send_session();
         emoji_picker_session();
         emoji_picker_layout_session();
         if (shots_dir) {
@@ -7942,9 +8145,9 @@ int main(void)
               find_text(strip(), "SYSTEM"));
     check("and NET is not a tab of its own (it is under NODES)",
           find_exact(strip(), "NET") == NULL);
-    check("each of them is a 56 px target",
-          lv_obj_get_height(tab(0)) == RIFT_TOUCH_H &&
-              lv_obj_get_height(tab(3)) == RIFT_TOUCH_H);
+    check("each of them is a 64 px target",
+          lv_obj_get_height(tab(0)) == RIFT_NAV_FACE_H &&
+              lv_obj_get_height(tab(3)) == RIFT_NAV_FACE_H && RIFT_NAV_FACE_H == 64);
     check("ACTIVITY is the section it opens on", app->section == RIFT_SEC_ACTIVITY);
     /* With no meshcored the app must say so, and must not draw a mesh. */
     check("with no service the state is drawn as absent",
@@ -8691,15 +8894,17 @@ int main(void)
     check("and reading it clears the badge", rift_model_unread(&app->model, site_key()) == 0);
     check("the message is there", find_text(content(), "tilbake") != NULL);
     check("and so is ours", find_text(content(), "mottatt") != NULL);
-    /* The sender's name came out of the payload and nothing signs it, so it
-     * is drawn as a claim rather than the way a peer_name is. */
-    check("the sender's name is marked as a claim",
-          find_text(content(), "HYTTA?") != NULL);
+    /* The sender's name came out of the payload and nothing signs it. It is
+     * drawn as it was typed, and the thread says once, in words, that names
+     * on a channel are not verified - not a "?" glued to every name. */
+    check("the sender's name is drawn as typed, and the channel says names are unverified",
+          find_exact(thread_pane(), "HYTTA") != NULL &&
+              find_text(thread_pane(), "Names on a channel are not verified") != NULL);
     /* And in its identity accent (DS §37.3): the claimed name hashes to a
      * hue of the palette, the label carries that hue, and the rule beside
      * the message is the same one. The words are what say who. */
     {
-        lv_obj_t *who = find_text(content(), "HYTTA?");
+        lv_obj_t *who = find_exact(thread_pane(), "HYTTA");
         lv_color_t want = pos_identity_hue(rift_ident_hash("HYTTA"));
         lv_color_t got = who ? lv_obj_get_style_text_color(who, 0) : lv_color_black();
 
@@ -9291,6 +9496,7 @@ int main(void)
     touch_keyboard_session();
     /* fix/rift-composer-usability: the automatic capital. */
     autocap_session();
+    autocap_send_session();
     /* feat/rift-emoji-picker: the composer's emoji button and picker, and
      * fix/rift-composer-usability's larger panel. */
     emoji_picker_session();

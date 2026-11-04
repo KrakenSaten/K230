@@ -250,12 +250,12 @@ void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len)
         if (msg->dir == RIFT_MSG_OUT) {
             snprintf(whole, sizeof(whole), "you: %s", folded);
         } else if (msg->is_channel && msg->have_sender_name && msg->sender_name[0]) {
-            /* The name a channel sender claimed, marked as a claim with the
-             * same "?" the thread uses: nothing signs a group frame. */
+            /* The name a channel sender claimed. A claim - nothing signs a
+             * group frame - which the thread says in words (rift_thread_note.c). */
             char who[RIFT_NAME_MAX];
 
             rift_emoji_fold(msg->sender_name, who, sizeof(who));
-            snprintf(whole, sizeof(whole), "%s?: %s", who, folded);
+            snprintf(whole, sizeof(whole), "%s: %s", who, folded);
         } else {
             snprintf(whole, sizeof(whole), "%s", folded);
         }
@@ -313,14 +313,14 @@ void rift_fmt_msg_meta_split(const struct rift_message *msg, int64_t now_ms, cha
      * In a direct thread there are two parties: the header names the peer
      * and the side of the rule says which of the two a line is. On a channel
      * anyone holding the key may speak, so an incoming line names the
-     * sender it claims to be - marked as a claim, because nothing signs a
-     * group frame. */
+     * sender it claims to be. That it is a claim - nothing signs a group
+     * frame - the thread says once, in words (rift_thread_note.c). */
     if (msg->is_channel && msg->dir == RIFT_MSG_IN && who && who_len > 0) {
         if (msg->have_sender_name && msg->sender_name[0]) {
             char shown[RIFT_NAME_MAX];
 
             rift_emoji_fold(msg->sender_name, shown, sizeof(shown));
-            snprintf(who, who_len, "%s?", shown);
+            snprintf(who, who_len, "%s", shown);
         } else {
             snprintf(who, who_len, "UNNAMED");
         }

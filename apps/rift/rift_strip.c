@@ -67,11 +67,76 @@ static int32_t word_w(lv_obj_t *label, const char *text)
  * and the body's width alone - no layout is read, so this is safe inside a
  * layout pass. Their padding gives way first, down to TAB_PAD_MIN; then the
  * two long words are shortened (ACT, SYS). The row never scrolls and no
- * word is clipped, at any text size (DS §46). */
+ * word is clipped, at any text size (DS §46).
+ *
+ * In portrait the row holds the tabs and nothing else (the caption is
+ * landscape's), and what they left at its right was dead space. There the
+ * tabs take the whole row: the room beyond each word and its minimum
+ * padding goes to the narrowest tabs first, levelling them up, so MAP and
+ * SYS - the smallest targets - gain the most and no tab is narrower than it
+ * has to be. (Not flex grow: LVGL grows from nothing, which made the five
+ * equal and cut ACTIVITY.) In landscape the caption keeps the room. */
+static void fill_row(struct rift_app *a, const int32_t *content, int32_t room, int32_t edge)
+{
+    int32_t base[RIFT_TAB_COUNT];
+    int32_t level = 0;
+    int32_t used = 0;
+    int fixed[RIFT_TAB_COUNT] = { 0 };
+    int free_n = RIFT_TAB_COUNT;
+    int changed = 1;
+    int last_free = -1;
+    int i;
+
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
+        base[i] = content[i] + 2 * TAB_PAD_MIN;
+    }
+    /* The level the narrow tabs are raised to: the tabs wider than it keep
+     * their own width, and the rest share what is left equally. */
+    while (changed && free_n > 0) {
+        changed = 0;
+        used = 0;
+        for (i = 0; i < RIFT_TAB_COUNT; i++) {
+            used += fixed[i] ? base[i] : 0;
+        }
+        level = (room - used) / free_n;
+        for (i = 0; i < RIFT_TAB_COUNT; i++) {
+            if (!fixed[i] && base[i] > level) {
+                fixed[i] = 1;
+                free_n--;
+                changed = 1;
+            }
+        }
+    }
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
+        if (!fixed[i]) {
+            last_free = i;
+        }
+    }
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
+        int32_t w = fixed[i] ? base[i] : level;
+
+        /* What the equal share does not divide (fewer than five pixels)
+         * goes to the last of the levelled tabs. */
+        if (i == last_free) {
+            w += room - used - level * free_n;
+        }
+        w += 2 * edge;
+        if (lv_obj_get_style_width(a->tab[i], LV_PART_MAIN) != w) {
+            lv_obj_set_width(a->tab[i], w);
+        }
+        if (lv_obj_get_style_pad_left(a->tab[i], LV_PART_MAIN) != TAB_PAD_MIN ||
+            lv_obj_get_style_pad_right(a->tab[i], LV_PART_MAIN) != TAB_PAD_MIN) {
+            lv_obj_set_style_pad_hor(a->tab[i], TAB_PAD_MIN, 0);
+        }
+    }
+}
+
 static void fit_tabs(struct rift_app *a)
 {
     int32_t room;
     int32_t words = 0;
+    int32_t content[RIFT_TAB_COUNT];
+    int32_t edge;
     int32_t pad;
     int short_words = 0;
     int pass;
@@ -80,35 +145,52 @@ static void fit_tabs(struct rift_app *a)
     if (!a->tab_label[0] || a->body_w <= 0) {
         return;
     }
+    /* Each face's edge, either side, is outside its padding. */
+    edge = lv_obj_get_style_border_width(a->tab[0], LV_PART_MAIN);
     room = a->body_w - LV_MAX(RIFT_PAD, a->strip_inset_left) -
            LV_MAX(RIFT_PAD, a->strip_inset_right) - FACE_GAP * (RIFT_TAB_COUNT - 1) -
-           (FACE_GAP + 12); /* the caption after the last tab: its gap and pad */
+           2 * RIFT_TAB_COUNT * edge;
     if (a->wide) {
         room -= BACK_W + FACE_GAP;
+        room -= FACE_GAP + 12; /* the caption after the last tab: its gap and pad */
     }
     for (pass = 0; pass < 2; pass++) {
         words = 0;
         for (i = 0; i < RIFT_TAB_COUNT; i++) {
-            words += word_w(a->tab_label[i], rift_tab_word(i, short_words));
+            content[i] = word_w(a->tab_label[i], rift_tab_word(i, short_words));
             if (a->tab_pill[i] && !lv_obj_has_flag(a->tab_pill[i], LV_OBJ_FLAG_HIDDEN)) {
-                words += lv_obj_get_width(a->tab_pill[i]) + 6;
+                content[i] += lv_obj_get_width(a->tab_pill[i]) + 6;
             }
+            words += content[i];
         }
         if (room - words >= 2 * TAB_PAD_MIN * RIFT_TAB_COUNT) {
             break;
         }
         short_words = 1;
     }
-    pad = (room - words) / (2 * RIFT_TAB_COUNT);
-    pad = LV_CLAMP(TAB_PAD_MIN, pad, TAB_PAD);
-    if (pad != a->tab_pad || short_words != a->tab_short) {
-        a->tab_pad = pad;
+    if (short_words != a->tab_short || a->tab_pad < 0) {
         a->tab_short = short_words;
         for (i = 0; i < RIFT_TAB_COUNT; i++) {
-            lv_obj_set_style_pad_hor(a->tab[i], pad, 0);
             lv_label_set_text(a->tab_label[i], rift_tab_word(i, short_words));
         }
     }
+    if (!a->wide) {
+        fill_row(a, content, room, edge);
+        a->tab_pad = TAB_PAD_MIN;
+        return;
+    }
+    pad = (room - words) / (2 * RIFT_TAB_COUNT);
+    pad = LV_CLAMP(TAB_PAD_MIN, pad, TAB_PAD);
+    for (i = 0; i < RIFT_TAB_COUNT; i++) {
+        if (lv_obj_get_style_width(a->tab[i], LV_PART_MAIN) != LV_SIZE_CONTENT) {
+            lv_obj_set_width(a->tab[i], LV_SIZE_CONTENT);
+        }
+        if (lv_obj_get_style_pad_left(a->tab[i], LV_PART_MAIN) != pad ||
+            lv_obj_get_style_pad_right(a->tab[i], LV_PART_MAIN) != pad) {
+            lv_obj_set_style_pad_hor(a->tab[i], pad, 0);
+        }
+    }
+    a->tab_pad = pad;
 }
 
 void rift_tabs_paint(struct rift_app *a)
@@ -285,13 +367,15 @@ void rift_tabs_shape(struct rift_app *a)
     int top = a->strip_at_top;
 
     /* The same faces in both shapes (DS §51.3). As the screen's top row
-     * (landscape) the strip is the shell header's height, so the faces sit
-     * where every other app's back slab does - 8 px down - and its ends keep
-     * in from the rounded corners as the header's do (rift_app.c layout).
-     * Under the shell's header (portrait) it is the 64 px row, 20 px in. */
+     * (landscape) the strip is the shell header's height, its 64 px faces
+     * 4 px down, and its ends keep in from the rounded corners as the
+     * header's do (rift_app.c layout). Under the shell's header (portrait)
+     * it is the 72 px row, 20 px in. */
     lv_obj_set_height(a->strip, top ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
     lv_obj_set_style_pad_left(a->strip, LV_MAX(RIFT_PAD, a->strip_inset_left), 0);
     lv_obj_set_style_pad_right(a->strip, LV_MAX(RIFT_PAD, a->strip_inset_right), 0);
+    /* In portrait the tabs also take the row's whole width (fit_tabs). */
+    a->tab_pad = -1;
     if (a->back) {
         lv_obj_set_ext_click_area(a->back, top ? BACK_REACH_TOP : FACE_REACH);
         if (a->wide) {

@@ -9,7 +9,11 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The owner's list, in the owner's order. */
+/* The owner's list, in the owner's order. The last five of each group were
+ * added later (fix/rift-usability-round2), each a single code point the
+ * colour artwork already holds (ui/rift_emoji_img.c), so they are drawn as
+ * every other emoji is - in the picker, in a body and in a preview - with no
+ * new glyph or asset. */
 static const char *const common[RIFT_EMOJI_CELLS] = {
     "\xF0\x9F\x99\x82",         /* U+1F642 slightly smiling face */
     "\xF0\x9F\x91\x8D",         /* U+1F44D thumbs up */
@@ -26,6 +30,11 @@ static const char *const common[RIFT_EMOJI_CELLS] = {
     "\xE2\x98\x95",             /* U+2615 hot beverage */
     "\xF0\x9F\x94\xA6",         /* U+1F526 flashlight */
     "\xF0\x9F\x8C\xB2",         /* U+1F332 evergreen tree */
+    "\xF0\x9F\x91\x8E",         /* U+1F44E thumbs down */
+    "\xE2\x9D\x93",             /* U+2753 question mark */
+    "\xE2\x8F\xB3",             /* U+23F3 hourglass, flowing sand */
+    "\xF0\x9F\x8E\x89",         /* U+1F389 party popper */
+    "\xF0\x9F\x98\x85",         /* U+1F605 grinning face with sweat */
 };
 
 static const char *const people[RIFT_EMOJI_CELLS] = {
@@ -44,6 +53,11 @@ static const char *const people[RIFT_EMOJI_CELLS] = {
     "\xF0\x9F\x92\xAA", /* U+1F4AA flexed biceps */
     "\xF0\x9F\xA4\x9D", /* U+1F91D handshake */
     "\xF0\x9F\x91\x80", /* U+1F440 eyes */
+    "\xF0\x9F\x98\x84", /* U+1F604 grinning face with smiling eyes */
+    "\xF0\x9F\xA4\xA3", /* U+1F923 rolling on the floor laughing */
+    "\xF0\x9F\x98\x8D", /* U+1F60D heart eyes */
+    "\xF0\x9F\x98\xAC", /* U+1F62C grimacing face */
+    "\xF0\x9F\x99\x88", /* U+1F648 see-no-evil monkey */
 };
 
 static const char *const field[RIFT_EMOJI_CELLS] = {
@@ -62,6 +76,11 @@ static const char *const field[RIFT_EMOJI_CELLS] = {
     "\xE2\x8F\xB0",                     /* U+23F0 alarm clock */
     "\xF0\x9F\x86\x98",                 /* U+1F198 SOS button */
     "\xF0\x9F\x8F\xA0",                 /* U+1F3E0 house */
+    "\xF0\x9F\x9A\xB6",                 /* U+1F6B6 person walking */
+    "\xF0\x9F\x9A\xB2",                 /* U+1F6B2 bicycle */
+    "\xE2\x9B\xBD",                     /* U+26FD fuel pump */
+    "\xF0\x9F\x8C\x8A",                 /* U+1F30A water wave */
+    "\xF0\x9F\x94\x8C",                 /* U+1F50C electric plug */
 };
 
 const struct rift_emoji_group rift_emoji_groups[RIFT_EMOJI_GROUPS] = {

@@ -208,6 +208,11 @@ void rift_comms_keyboard(struct rift_app *app)
     }
     if (!pocketos_shell_keyboard_visible()) {
         pocketos_shell_keyboard_show(POCKETOS_KB_DONE, on_keyboard_done, app);
+        /* The capital for a new message comes up with the keyboard, not on
+         * the next pass of RIFT's timer: until then the sheet showed lower
+         * case, and a first key tapped in that window - a longer one while
+         * a busy mesh keeps the timer late - went in lower case. */
+        rift_focus_autocap(app);
     }
 }
 

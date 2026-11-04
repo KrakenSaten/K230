@@ -131,8 +131,10 @@ int rift_model_apply_live_message(struct rift_model *m, const cJSON *o)
     int above;
     uint32_t fp = 0;
 
-    if (rift_model_file_message(m, o, &msg, &fresh) != 0) {
-        return -1;
+    int rc = rift_model_file_message(m, o, &msg, &fresh);
+
+    if (rc != 0) {
+        return rc; /* -1, or RIFT_MSG_NO_ROOM */
     }
     /* The five conditions of rift_model.h, in order. This device's own
      * messages are never an arrival, of either kind. */

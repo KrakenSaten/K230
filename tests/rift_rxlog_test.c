@@ -116,7 +116,7 @@ static void test_a_reception(void)
     check("SNR:9", strcmp(line(rift_rxlog_fmt_snr, e), "SNR:9") == 0);
     check("the whole path", strcmp(line(rift_rxlog_fmt_path, e), "PATH  6E > 67 > 74 > 73") == 0);
     check("the channel and the claimed sender",
-          strcmp(line(rift_rxlog_fmt_who, e), "#Public Anna?:") == 0);
+          strcmp(line(rift_rxlog_fmt_who, e), "#Public Anna:") == 0);
     check("and the text, emoji and all",
           strcmp(line(rift_rxlog_fmt_what, e), "\"Kommer opp om 10 min \xF0\x9F\x91\x8D\"") == 0);
     check("graded good", rift_rxlog_rssi_grade(e) == 2 && rift_rxlog_snr_grade(e) == 2);
@@ -151,7 +151,7 @@ static void test_duplicates(void)
     check("the repeat shows the text the first copy decoded",
           strcmp(line(rift_rxlog_fmt_what, e[1]), "\"hei\"") == 0 &&
               (e[1]->flags & RIFT_RXF_TEXT_BORROWED));
-    check("with its sender", strcmp(line(rift_rxlog_fmt_who, e[0]), "#Public Anna?:") == 0);
+    check("with its sender", strcmp(line(rift_rxlog_fmt_who, e[0]), "#Public Anna:") == 0);
     check("one decimal where there is one", strcmp(line(rift_rxlog_fmt_snr, e[0]), "SNR:" RIFT_MINUS "7.2") == 0 ||
                                                 strcmp(line(rift_rxlog_fmt_snr, e[0]), "SNR:" RIFT_MINUS "7.3") == 0);
     check("weak is weak", rift_rxlog_rssi_grade(e[0]) == 0 && rift_rxlog_snr_grade(e[0]) == 0);

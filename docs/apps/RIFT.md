@@ -227,10 +227,14 @@ composer — and the places it is *not* are the places the protocol differs:
   up, and the tally counts channel sends apart from delivered and no-ack
   instead of reporting `0 DELIVERED`, which would read as a failure.
 - **A sender's name on a channel is a claim.** It comes out of the message
-  payload and nothing signs it; anyone holding the key can send any name. It
-  is drawn with a trailing `?` rather than the way a `peer_name` is, because a
-  `peer_name` arrived with a public key behind it - and **before** the body
-  (`HYTTA? strøm tilbake`), the way a conversation is read; a body too long
+  payload and nothing signs it; anyone holding the key can send any name,
+  unlike a `peer_name`, which arrived with a public key behind it. Because
+  that is true of every line on every channel, the thread says it once, in
+  words, above the composer (`Names on a channel are not verified: anyone
+  with its key can use any name.`), and the name is drawn as it was typed,
+  **before** the body (`HYTTA strøm tilbake`), the way a conversation is
+  read. (Until fix/rift-usability-round2 each name carried a trailing `?`,
+  which read as a name that would not decode.) a body too long
   for the line goes under the name whole. A line with no name it could parse
   says `UNNAMED`; this node's own lines name nobody (the rule's side does). The body is printed
   without the `<name>: ` MeshCore writes into the payload - taken off only
@@ -842,7 +846,10 @@ arrived. The text smileys RIFT used to write in place of emoji (`:)`, `<3`,
 ### The emoji picker
 
 Each composer - the portrait thread's and the landscape command line's - has
-an emoji button at the right of its field (`ui/rift_emoji_picker.h`). It opens
+an emoji button at the right of its field (`ui/rift_emoji_picker.h`): 64 px
+wide, and in portrait a 64 x 64 square with the artwork at 2x (36 px), as tall
+as the field and SEND beside it, with 20 px to SEND where the row's other gaps
+are 12. It opens
 a panel over RIFT's area, above the composer where it fits there (portrait and
 landscape; the composer and its caret stay in sight) and over the whole area
 otherwise, no wider than 960 px on HDMI: a header with the group's name and
@@ -855,8 +862,10 @@ smeared, and no other artwork or dependency is added.
 
 - **What it offers** is a short fixed list (`rift_emoji_pick.h`), not an
   emoji database: RECENT / COMMON (🙂 👍 👋 ❤️ 😂 🔥 ✅ ❌ ⚠️ 📡 📍 🚗 ☕ 🔦 🌲),
-  PEOPLE / REACTIONS and RADIO / FIELD, fifteen each, every one a single image
-  in the artwork, none toned. Each is inserted fully qualified (with U+FE0F
+  PEOPLE / REACTIONS and RADIO / FIELD, twenty each, every one a single image
+  in the artwork, none toned. The last five of each (👎 ❓ ⏳ 🎉 😅; 😄 🤣 😍 😬
+  🙈; 🚶 🚲 ⛽ 🌊 🔌) were added by fix/rift-usability-round2 from images the
+  artwork already held. Each is inserted fully qualified (with U+FE0F
   where Unicode wants it), so other MeshCore clients draw it as an emoji.
 - **Picking** - a tap, or Enter on the selection - puts the emoji's UTF-8 into
   the field at the caret, once, and closes the panel. A drag scrolls the grid
@@ -901,6 +910,11 @@ reached by apps through `pocketos_shell_keyboard_offer_shift`); an offer is
 only ever withdrawn while it is still the one offered, never over the user's
 own or locked Shift, and it goes when the keyboard is hidden or shown again.
 Nothing else uses it, so the keyboard behaves as before in every other app.
+The offer is made in the same event that raises the keyboard
+(fix/rift-usability-round2), not on RIFT's next timer pass, so the sheet never
+first appears in lower case; a new message after SEND, after the keyboard's
+DONE, and in a conversation opened again is covered by `tests/rift_app_test.c`
+against the scripted service, on a direct conversation and a channel.
 
 ## Activity: how lately it was heard from
 
@@ -1352,6 +1366,26 @@ A malformed event is refused whole, counted, and never half-applied, and it
 does not drop the connection: one bad event costs one event, and a peer on
 the air must not be able to disconnect this app from its own service.
 
+What ACTIVITY reports as `N messages from meshcored could not be read and
+were ignored` is that count (`events_malformed`) and nothing else, since
+RIFT started. Two things that are not malformed are kept out of it
+(fix/rift-usability-round2):
+
+- **A message the window had no room for.** RIFT's message window
+  (`RIFT_MAX_MESSAGES`) is shared by direct and channel messages; meshcored
+  keeps them in separate rings so that a busy channel cannot push a direct
+  conversation out. The window used to evict by id alone, so on a busy
+  channel the direct messages fell out of it while meshcored still listed
+  them, and every `mesh.messages` snapshot (one each 30 s) refused each of
+  them again - counted as malformed, which is how the count reached tens of
+  thousands. A full window now drops the oldest message of the kind holding
+  more than half of it, and a message refused for room is counted in
+  `msgs_dropped`.
+- **An event RIFT does not read.** meshcored sends every subscriber every
+  event, `mesh.app` (Fleet's datagrams) among them, and a newer service may
+  add more. Those are counted in `events_unsupported`, which no screen shows
+  as a fault.
+
 ## Structure
 
 | File | |
@@ -1384,7 +1418,7 @@ the air must not be able to disconnect this app from its own service.
 | `rift_app.c/.h` | the frame, the command line and composer, sections, layout and lifecycle: a screen built over the session on every open, let go of on every leave |
 | `rift_section.c` | which section is showing, the tab it is reached from, and what leaving one cancels (split from `rift_app.c` for the 900-line guard) |
 | `rift_background.c` | the session that outlives the screen (DS §51): the one block, its start, its end, and the screen's half cleared on a leave |
-| `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab; a 64 px row of five visible 56 px faces in both orientations (DS §51.3) |
+| `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab; a 72 px row of five visible 64 px faces in both orientations (DS §51.3), the tabs sharing the whole row in portrait |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar, the vertical rule in a tone or an identity accent |
 | `ui/rift_graph.c/.h` | the traffic graph: a bar per minute from `rift_traffic`, stacked by class on a fixed ladder, and the legend's swatches. One draw callback from the tokens |
 | `ui/rift_activity.c` | ACTIVITY |
