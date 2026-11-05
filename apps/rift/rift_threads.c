@@ -16,6 +16,31 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Which message gives way when the window is full (rift_messages.c): the
+ * oldest of the kind - direct or channel - holding more than half of it, or
+ * of the newcomer's own kind when each holds exactly half. Each kind so
+ * keeps at least half the window whenever it wants it, as meshcored keeps
+ * the two in separate rings (RIFT_MAX_MESSAGES). */
+int rift_model_msg_victim(const struct rift_model *m, int is_channel)
+{
+    int channels = 0;
+    int kind;
+    int i;
+
+    for (i = 0; i < m->msg_count; i++) {
+        channels += m->msg[i].is_channel ? 1 : 0;
+    }
+    kind = channels * 2 > m->msg_count   ? 1
+           : channels * 2 < m->msg_count ? 0
+                                         : (is_channel ? 1 : 0);
+    for (i = 0; i < m->msg_count; i++) {
+        if ((m->msg[i].is_channel ? 1 : 0) == kind) {
+            return i;
+        }
+    }
+    return 0; /* none of that kind: cannot be, with the window full */
+}
+
 const char *rift_model_conv_name(const struct rift_model *m, const char *conv_key)
 {
     const struct rift_node *n;

@@ -1321,6 +1321,16 @@ int pocketos_shell_keyboard_offer_shift(int on)
     return pos_keyboard_offer_shift(sh.keyboard, on != 0) ? 1 : 0;
 }
 
+int pocketos_shell_hw_keyboard_offer_capital(int on)
+{
+    return shell_kbd_offer_capital(on);
+}
+
+int pocketos_shell_hw_keyboard_capital_pending(void)
+{
+    return shell_kbd_capital_pending();
+}
+
 /* ---- status chrome (DS §30, §36, chrome.h) ------------------------------ *
  *
  * The shell owns the cluster and everything that follows from it: the
@@ -1463,6 +1473,9 @@ static void app_close(void)
     /* Before destroy(), so an app that autosaves on the way out is not
      * looking at a body that is about to change height. */
     pocketos_shell_keyboard_hide();
+    /* And the keyboard base's offered capital: it was for a field of this
+     * app, whose memory the next app's may take. */
+    (void)shell_kbd_offer_capital(0);
     if (sh.app->destroy) {
         sh.app->destroy(sh.app_priv);
     }

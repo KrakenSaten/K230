@@ -326,6 +326,8 @@ static void tap_obj(lv_obj_t *obj)
 #define K_ENTER 21
 #define K_ESC 40
 #define K_SPACE 5
+#define K_SHIFT_CODE 7
+#define K_CAPS_CODE 10
 
 static void key_down(uint8_t code)
 {
@@ -1007,6 +1009,97 @@ int main(void)
         const uint8_t keyup[]={39};shell_kbd_inject(keyup,1);
         pos_input_game_unsubscribe(game);lv_obj_delete(game);pos_input_focus(field);settle();
         check_str("game keys did not leak into text",lv_textarea_get_text(field),"w_wwwwwwwWw");
+    }
+
+    /* ---- 5b. a capital offered for the next letter ---------------------- *
+     *
+     * fix/rift-usability-round2: the keyboard base's twin of the touch
+     * keyboard's offered Shift (shell_kbd_offer_capital). The next plain
+     * letter goes in upper case; a tap of Shift on its own takes it back;
+     * the user's own Shift and Caps are never overridden; keys that print
+     * nothing leave it; it belongs to the field it was offered for. */
+    {
+        lv_obj_t *cap = pocketui_text_field(screen, "Message", false);
+        lv_obj_t *other = pocketui_text_field(screen, "Other", false);
+        uint8_t h = letter_code('h');
+        uint8_t i = letter_code('i');
+
+        pos_input_focus(cap);
+        settle();
+        check("capital: offered to the focused field", shell_kbd_offer_capital(1) == 1 &&
+                                                          shell_kbd_capital_pending() == 1);
+        tap_key(h);
+        tap_key(i);
+        check_str("capital: the next letter goes in upper case, only that one",
+                  lv_textarea_get_text(cap), "Hi");
+        check("capital: and it is used up", shell_kbd_capital_pending() == 0);
+
+        lv_textarea_set_text(cap, "");
+        (void)shell_kbd_offer_capital(1);
+        tap_key(K_SHIFT_CODE);
+        check("capital: a tap of Shift on its own takes it back",
+              shell_kbd_capital_pending() == 0);
+        tap_key(h);
+        check_str("capital: so a lower-case first letter is one key away",
+                  lv_textarea_get_text(cap), "h");
+
+        lv_textarea_set_text(cap, "");
+        (void)shell_kbd_offer_capital(1);
+        key_down(K_SHIFT_CODE);
+        tap_key(h);
+        key_up(K_SHIFT_CODE);
+        /* Shift+H is the comma printed on the keycap: the user's own Shift
+         * gives whatever the key says, and the offer changes none of it. */
+        check_str("capital: Shift held is the user's own: the keycap's symbol, untouched",
+                  lv_textarea_get_text(cap), ",");
+        check("capital: which uses the offer, and the release is no tap",
+              shell_kbd_capital_pending() == 0);
+
+        lv_textarea_set_text(cap, "");
+        (void)shell_kbd_offer_capital(1);
+        tap_key(K_RIGHT);
+        tap_key(K_LEFT);
+        check("capital: keys that print nothing leave it pending",
+              shell_kbd_capital_pending() == 1);
+        tap_key(K_SPACE);
+        tap_key(h);
+        check_str("capital: a printed space uses it, and the letter after is plain",
+                  lv_textarea_get_text(cap), " h");
+
+        lv_textarea_set_text(cap, "");
+        (void)shell_kbd_offer_capital(1);
+        tap_key(K_CAPS_CODE);
+        tap_key(h);
+        tap_key(K_CAPS_CODE);
+        check_str("capital: Caps already gives it; nothing is inverted back",
+                  lv_textarea_get_text(cap), "H");
+
+        lv_textarea_set_text(cap, "");
+        (void)shell_kbd_offer_capital(1);
+        pos_input_focus(other);
+        settle();
+        check("capital: not pending for a field it was not offered for",
+              shell_kbd_capital_pending() == 0);
+        tap_key(h);
+        check_str("capital: the other field types plain", lv_textarea_get_text(other), "h");
+        pos_input_focus(cap);
+        settle();
+        tap_key(h);
+        check_str("capital: and the offer did not wait for the first field to come back",
+                  lv_textarea_get_text(cap), "h");
+
+        (void)shell_kbd_offer_capital(1);
+        check("capital: on = 0 withdraws it",
+              shell_kbd_offer_capital(0) == 0 && shell_kbd_capital_pending() == 0);
+        tap_key(h);
+        check_str("capital: and nothing is changed after", lv_textarea_get_text(cap), "hh");
+
+        lv_obj_delete(other);
+        lv_obj_delete(cap);
+        pos_input_focus(field);
+        settle();
+        check_str("capital: the first field was not touched", lv_textarea_get_text(field),
+                  "w_wwwwwwwWw");
     }
 
     /* ---- 6. destroy stops the keyboard --------------------------------- */

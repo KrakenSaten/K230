@@ -286,11 +286,11 @@ void rift_rxlog_fmt_who(const struct rift_rx_entry *e, char *out, size_t out_len
     rift_text_shown(e->sender, shown, sizeof(shown));
     switch (e->decode) {
     case RIFT_RXD_CHANNEL:
-        /* The channel, and the name its sender claims: nothing signs a group
-         * frame, so the name keeps its "?" here as it does in a thread. */
+        /* The channel, and the name its sender claims. The "#" says it came
+         * on a channel, where nothing signs a name (rift_thread_note.c). */
         rift_text_shown(e->where, to, sizeof(to));
         if (shown[0]) {
-            snprintf(out, out_len, "#%s %s?:", to[0] ? to : NA, shown);
+            snprintf(out, out_len, "#%s %s:", to[0] ? to : NA, shown);
         } else {
             snprintf(out, out_len, "#%s UNNAMED:", to[0] ? to : NA);
         }

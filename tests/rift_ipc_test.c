@@ -1660,7 +1660,9 @@ int main(void)
             "\"node_hash\":\"b2\",\"name\":\"HYTTA\",\"type\":2,\"path_known\":true,"
             "\"hops\":5,\"direct\":false,\"path_hex\":\"a1c2d3e4f5\","
             "\"last_heard_mono_ms\":1400}}",
-            /* Rubbish, in the two shapes a subscriber actually sees. */
+            /* Rubbish, and an event this client does not read: a node with no
+             * key is malformed; an event name it does not know is unsupported,
+             * never "could not be read" (mesh.app, raised for other clients). */
             "mesh.node|{\"reason\":\"discovered\",\"node\":{\"name\":\"no key\"}}",
             "mesh.nonsense|{\"whatever\":1}",
             NULL
@@ -1709,7 +1711,9 @@ int main(void)
 
         /* The two bad events and the junk frame, which come last. */
         spin(&c, WAIT_MS, have_all_events, &m);
-        check("a malformed event is refused", m.events_malformed >= 2);
+        check("a malformed event is refused", m.events_malformed >= 1);
+        check("and an event this client does not read is unsupported, not malformed",
+              m.events_unsupported >= 1 && m.events_malformed == 1);
         check("and refusing it did not drop the connection", rift_ipc_connected(&c));
         check("a frame that is neither event nor reply is counted", c.bad_frames >= 1);
         check("and that did not drop the connection either", rift_ipc_connected(&c));

@@ -538,11 +538,13 @@ check "an answered advert is called accepted, never sent" \
        ! grep -qE 'ADVERT[^"]*SENT' "$SRC/rift_format_msg.c" && echo 1 || echo 0)"
 check "and the delivery tally counts channel sends apart" \
     "$(grep -q 'unacknowledgeable' "$SRC/rift_messages.c" && echo 1 || echo 0)"
-# A sender's name on a channel is a claim: nothing signs a group frame. It
-# must not be drawn the way a peer's name is.
-check "a claimed sender name is marked as a claim" \
+# A sender's name on a channel is a claim: nothing signs a group frame. The
+# thread says so in words (fix/rift-usability-round2), once, rather than with
+# a "?" glued to every name, which read as a name that would not decode.
+check "a claimed sender name is said to be a claim" \
     "$(grep -q 'rift_emoji_fold(msg->sender_name' "$SRC/rift_format_msg.c" &&
-       grep -q '"%s?", shown' "$SRC/rift_format_msg.c" &&
+       grep -q 'Names on a channel are not verified' "$SRC/ui/rift_thread_note.c" &&
+       ! grep -q '"%s?", shown' "$SRC/rift_format_msg.c" &&
        grep -q 'rift_fmt_msg_meta' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
 # And the thread prints the body without the "<sender>: " MeshCore writes
 # into a channel payload - the caption names the sender, once, as a claim.

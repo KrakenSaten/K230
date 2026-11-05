@@ -93,6 +93,15 @@ void rift_thread_note_paint(struct rift_app *app, lv_obj_t *note, const char *pe
         } else {
             lv_label_set_text(note, "Nothing said yet.");
         }
+    } else if (peer && rift_key_is_channel(peer) >= 0) {
+        /* What the "?" after every sender's name used to say, once and in
+         * words: nothing signs a group frame, so a name on a channel is
+         * whatever its sender typed (docs/apps/RIFT.md). It is true of every
+         * line on every channel, so it is said of the channel rather than
+         * glued to each name, where it read as a name that would not
+         * decode. */
+        lv_label_set_text(note, "Names on a channel are not verified: anyone with its key can "
+                                "use any name.");
     } else {
         lv_label_set_text(note, "");
     }

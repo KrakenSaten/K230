@@ -177,13 +177,44 @@ void rift_focus_composer(struct rift_app *a)
 
 /* ---- the automatic capital ------------------------------------------------ *
  *
- * Only the touch keyboard is offered one, through its own one-shot Shift:
- * the reader sees SHIFT engaged and the capitals on the keys, and a tap on
- * SHIFT turns it off for a lower-case letter, as with any one-shot Shift.
- * A physical keyboard (landscape, the keyboard base) is not: its Shift and
- * Caps are the reader's, under their fingers, and a capital they did not
- * ask for would leave them no way to type a lower-case one. Nothing typed is
+ * While the touch keyboard is up it is offered through its own one-shot
+ * Shift: the reader sees SHIFT engaged and the capitals on the keys, and a
+ * tap on SHIFT turns it off for a lower-case letter, as with any one-shot
+ * Shift. Otherwise it is offered to the keyboard base
+ * (pocketos_shell_hw_keyboard_offer_capital): the next letter typed there
+ * without Shift goes in upper case, a tap of Shift on its own takes it back,
+ * and the line beside the landscape composer says so while it is pending
+ * (rift_app.c), since the base has no SHIFT to light. The owner found the
+ * touch-only offer left the keyboard base - how unit A is used - with no
+ * capital at all (docs/hardware/RIFT_USABILITY_ROUND2_UNIT_A.md). Either
+ * way the reader's own Shift and Caps win, and nothing already typed is
  * ever changed - not a letter, not a pasted or restored text. */
+
+static void autocap_withdraw(struct rift_app *a)
+{
+    if (a->autocap_offered) {
+        if (a->autocap_target == RIFT_AUTOCAP_HW) {
+            (void)pocketos_shell_hw_keyboard_offer_capital(0);
+        } else {
+            (void)pocketos_shell_keyboard_offer_shift(0);
+        }
+        a->autocap_offered = 0;
+    }
+}
+
+/* Whether the line beside the composer should say a capital is pending, and
+ * a repaint when that changes (a tap of Shift on the base takes it back with
+ * no edit RIFT would see). */
+static void autocap_hint(struct rift_app *a)
+{
+    int pending = a->autocap_offered && a->autocap_target == RIFT_AUTOCAP_HW &&
+                  pocketos_shell_hw_keyboard_capital_pending();
+
+    if (pending != a->autocap_hint) {
+        a->autocap_hint = pending;
+        a->refresh_pending = 1;
+    }
+}
 
 /* FNV-1a over what the decision is made from. Never 0, which means "not
  * decided". */
@@ -215,28 +246,39 @@ void rift_focus_autocap(struct rift_app *a)
     const char *text;
     uint32_t caret;
     uint32_t key;
+    int target;
 
     if (!a || !a->frame) {
         return;
     }
     field = pos_input_focused();
+    target = pocketos_shell_keyboard_visible() ? RIFT_AUTOCAP_TOUCH : RIFT_AUTOCAP_HW;
     if (!field || (field != a->composer && field != rift_comms_field(a)) ||
-        !pocketos_shell_keyboard_visible() || lv_obj_has_state(field, LV_STATE_DISABLED)) {
-        if (a->autocap_offered) {
-            (void)pocketos_shell_keyboard_offer_shift(0);
-            a->autocap_offered = 0;
-        }
+        lv_obj_has_state(field, LV_STATE_DISABLED)) {
+        autocap_withdraw(a);
         a->autocap_seen = 0;
+        autocap_hint(a);
         return;
+    }
+    /* The touch keyboard came up or went: the offer moves with it, decided
+     * again from the text and the caret. */
+    if (target != a->autocap_target) {
+        autocap_withdraw(a);
+        a->autocap_target = target;
+        a->autocap_seen = 0;
     }
     text = lv_textarea_get_text(field);
     caret = lv_textarea_get_cursor_pos(field);
     key = autocap_key(field, rift_comms_open_peer(a), caret, text);
-    if (key == a->autocap_seen) {
-        return;
+    if (key != a->autocap_seen) {
+        int wanted = rift_autocap_wanted(text, caret);
+
+        a->autocap_seen = key;
+        a->autocap_offered = target == RIFT_AUTOCAP_HW
+                                 ? pocketos_shell_hw_keyboard_offer_capital(wanted)
+                                 : pocketos_shell_keyboard_offer_shift(wanted);
     }
-    a->autocap_seen = key;
-    a->autocap_offered = pocketos_shell_keyboard_offer_shift(rift_autocap_wanted(text, caret));
+    autocap_hint(a);
 }
 
 /* After the text area's own handling: the text and the caret are already

@@ -834,17 +834,20 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
     if (strcmp(name, "mesh.message") == 0) {
         const cJSON *msg = cJSON_GetObjectItemCaseSensitive(data, "message");
 
-        /* The live path: the one place a direct message can be an arrival
-         * rather than history (rift_model_apply_live_message). */
-        if (rift_model_apply_live_message(m, msg) != 0) {
-            m->events_malformed++;
+        /* The live path, the one place a direct message can be an arrival
+         * (rift_model_apply_live_message). No room is not malformed. */
+        int rc = rift_model_apply_live_message(m, msg);
+
+        m->events_malformed += (rc && rc != RIFT_MSG_NO_ROOM) ? 1u : 0u;
+        if (rc) {
             return -1;
         }
         m->stale = 0;
         m->events_applied++;
         return 0;
     }
-    m->events_malformed++;
+    /* Well formed, not read here (mesh.app, for Fleet): see rift_model.h. */
+    m->events_unsupported++;
     return -1;
 }
 

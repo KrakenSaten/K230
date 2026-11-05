@@ -230,10 +230,10 @@ static struct rift_message *find_msg(struct rift_model *m, int64_t id)
     return NULL;
 }
 
-/* The slot for this id: the one already held, or a new one in id order.
- * NULL when the cache is full of newer messages, which is the one case
- * where a message is refused rather than made room for. */
-static struct rift_message *msg_slot(struct rift_model *m, int64_t id, int *is_new)
+/* The slot for this id: the one held, or a new one in id order. NULL only
+ * when the window is full of newer messages of the newcomer's kind. */
+static struct rift_message *msg_slot(struct rift_model *m, int64_t id, int is_channel,
+                                     int *is_new)
 {
     struct rift_message *held = find_msg(m, id);
     int at;
@@ -244,14 +244,16 @@ static struct rift_message *msg_slot(struct rift_model *m, int64_t id, int *is_n
         return held;
     }
     if (m->msg_count >= RIFT_MAX_MESSAGES) {
-        /* Full. The oldest goes, unless the newcomer is older than it: a
-         * cache that evicted a newer message to hold an older one would
-         * show a thread that walks backwards. */
-        if (id <= m->msg[0].id) {
+        /* Full: the oldest of the kind holding more goes (rift_threads.c) -
+         * unless the newcomer is of it and older, or a thread walks back. */
+        int victim = rift_model_msg_victim(m, is_channel);
+
+        if (!m->msg[victim].is_channel == !is_channel && id <= m->msg[victim].id) {
             m->msgs_dropped++;
             return NULL;
         }
-        memmove(&m->msg[0], &m->msg[1], sizeof(m->msg[0]) * (size_t)(RIFT_MAX_MESSAGES - 1));
+        memmove(&m->msg[victim], &m->msg[victim + 1],
+                sizeof(m->msg[0]) * (size_t)(m->msg_count - victim - 1));
         m->msg_count--;
         m->msgs_dropped++;
     }
@@ -332,9 +334,9 @@ int rift_model_file_message(struct rift_model *m, const cJSON *o, struct rift_me
      * a message that is refused must change nothing, and a message that is
      * kept must never be filed beside ids from an older run. */
     forget_old_run(m);
-    msg = msg_slot(m, id, &is_new);
+    msg = msg_slot(m, id, is_channel, &is_new);
     if (!msg) {
-        return -1;
+        return RIFT_MSG_NO_ROOM; /* counted in msgs_dropped */
     }
     if (!is_new) {
         m->msgs_duplicate++;
@@ -527,9 +529,11 @@ int rift_model_apply_messages(struct rift_model *m, const cJSON *result)
     forget_old_run(m);
     seeding = !m->messages_seeded;
     cJSON_ArrayForEach (it, arr) {
-        /* One bad entry inside an otherwise good snapshot is refused on its
-         * own and counted; the rest of the snapshot is still the truth. */
-        if (rift_model_apply_message(m, it) != 0) {
+        /* One bad entry is refused and counted; the rest is still the truth.
+         * One with no room is not bad: msg_slot counted it as dropped. */
+        int rc = rift_model_apply_message(m, it);
+
+        if (rc && rc != RIFT_MSG_NO_ROOM) {
             m->events_malformed++;
         }
     }

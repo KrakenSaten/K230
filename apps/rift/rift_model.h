@@ -98,8 +98,20 @@
  * counted. Everything derived from it - a conversation's unread count, its
  * preview, the delivery tally - is derived from what is still in here and
  * says so rather than implying a complete history. 512 messages of about
- * 610 bytes: a session's worth on a busy channel, for about 310 KB. */
+ * 610 bytes: a session's worth on a busy channel, for about 310 KB.
+ *
+ * Direct and channel messages share it, but neither kind pushes the other
+ * out: a full cache drops the oldest message of whichever kind holds more
+ * than half of it, as meshcored keeps the two in separate rings so that a
+ * busy channel cannot push a direct conversation out of its history
+ * (docs/api/mesh.md, mesh.messages). Evicting by id alone let a channel
+ * drop direct messages the service still lists, and every snapshot then
+ * offered them again. */
 #define RIFT_MAX_MESSAGES 512
+/* What rift_model_apply_message returns for a well-formed message the cache
+ * has no room for (older than everything held of its kind, with that kind
+ * filling the cache): counted in msgs_dropped, never as malformed. */
+#define RIFT_MSG_NO_ROOM (-2)
 /* Distinct conversations tracked: the rows COMMS can list and the read
  * marks kept. Part of the message history's bounds. 256: a read mark each
  * here (about 100 bytes), and on screen a list that builds rows only for
@@ -631,8 +643,15 @@ struct rift_model {
     /* Input this model would not take: a malformed event, and a node inside
      * an otherwise good snapshot that carries no usable key. Refused whole,
      * never half-applied, and counted so a screen can say the feed is
-     * carrying rubbish rather than merely going quiet. */
+     * carrying rubbish rather than merely going quiet. A message refused
+     * because the cache had no room for it is not one of these: that is
+     * msgs_dropped. */
     unsigned events_malformed;
+    /* Well-formed events this model does not read: meshcored raises some for
+     * other clients (mesh.app, for Fleet's datagrams) to every subscriber,
+     * and a newer service may add more (docs/api/mesh.md, "Events"). Not a
+     * fault, and never shown as one. */
+    unsigned events_unsupported;
     unsigned events_applied;
 
     struct rift_activity activity[RIFT_MAX_ACTIVITY]; /* ring */
@@ -816,10 +835,12 @@ const struct rift_channel *rift_model_key_channel(const struct rift_model *m, co
  * Returns the index the row was found at, or -1. */
 int rift_conv_public_first(const struct rift_model *m, struct rift_conv *list, int count);
 
-/* One event: "mesh.state", "mesh.node", "mesh.channel" or "mesh.activity".
- * Anything else -
- * an unknown name, a data that is not an object, a node with no usable key -
- * is ignored and counted in events_malformed. Returns 0 or -1. */
+/* One event: "mesh.state", "mesh.node", "mesh.channel", "mesh.activity" or
+ * "mesh.message". A data that is not an object, a node with no usable key, a
+ * message with no id is ignored and counted in events_malformed; a message
+ * the full cache has no room for in msgs_dropped; an event name this model
+ * does not read (mesh.app, raised for other clients) in events_unsupported.
+ * Returns 0 when applied, -1 otherwise. */
 int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *data);
 
 /* Lookup by public key (full, lowercase). NULL when it is not held. */
@@ -924,8 +945,9 @@ void rift_model_note_service_run(struct rift_model *m, const cJSON *result, int6
 /* One message object, in the shape docs/api/mesh.md gives it. Both the
  * mesh.message event and every entry of a mesh.messages snapshot go through
  * here, so all three kinds of arrival - new, sent, state changed - are one
- * path keyed on the message id. Returns 0, or -1 for a message this model
- * will not hold (no id, no peer key, no direction, no text). */
+ * path keyed on the message id. Returns 0, -1 for a message this model
+ * will not hold (no id, no peer key, no direction, no text), or
+ * RIFT_MSG_NO_ROOM for a good one the full cache keeps no room for. */
 int rift_model_apply_message(struct rift_model *m, const cJSON *message);
 
 /* The filing itself, for the model's own translation units: as
@@ -933,6 +955,9 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *message);
  * *fresh whether its id was new to the window. Either may be NULL. */
 int rift_model_file_message(struct rift_model *m, const cJSON *message,
                             struct rift_message **out, int *fresh);
+/* And for the same units: the index of the message a full window drops to
+ * hold a new one of this kind (rift_threads.c, RIFT_MAX_MESSAGES). */
+int rift_model_msg_victim(const struct rift_model *m, int is_channel);
 
 /* The same, for a message that arrived as a live mesh.message EVENT, which
  * is the only way a new direct message can announce itself. On top of what

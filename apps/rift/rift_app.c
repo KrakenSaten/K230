@@ -244,7 +244,15 @@ static void paint_cmdline(struct rift_app *a)
             /* What the keys do from where the focus actually is. TAB is how
              * the focus group reaches the field; once it is there, Esc is
              * the way back, because TAB inside a text area types a tab. */
-            if (a->composer_focused) {
+            if (a->composer_focused && a->autocap_hint) {
+                /* The keyboard base has no SHIFT to light: the capital the
+                 * next letter will get, and the key that takes it back, are
+                 * said here while it is pending (rift_focus.c). */
+                lv_label_set_text_fmt(a->cmd_send_hint,
+                                      "TO %s" RIFT_SEP "CAPITAL NEXT" RIFT_SEP "SHIFT: lower" RIFT_SEP
+                                      "ENTER SEND",
+                                      to);
+            } else if (a->composer_focused) {
                 lv_label_set_text_fmt(a->cmd_send_hint,
                                       "TO %s" RIFT_SEP "ENTER SEND" RIFT_SEP "ESC CLEAR", to);
             } else {

@@ -25,10 +25,12 @@
 #define RIFT_TOUCH_H 56
 #define RIFT_PRIMARY_H 64
 /* The section strip (rift_strip.c, DS §51.3): a row this tall holding the
- * back slab and the four tabs as visible faces this tall, in both
- * orientations. */
-#define RIFT_NAV_ROW_H 64
-#define RIFT_NAV_FACE_H RIFT_TOUCH_H
+ * back slab and the tabs as visible faces this tall, in both orientations.
+ * The faces are RIFT's primary height, 64 (56 before the owner asked for
+ * easier targets, 2026-11), and in portrait they also share the row's
+ * whole width (rift_strip.c). */
+#define RIFT_NAV_ROW_H 72
+#define RIFT_NAV_FACE_H RIFT_PRIMARY_H
 /* The strip as the screen's top row (landscape): the shell header's height
  * (POCKETUI_HEADER_H), so its faces sit where every app's back slab does. */
 #define RIFT_NAV_ROW_H_TOP 72

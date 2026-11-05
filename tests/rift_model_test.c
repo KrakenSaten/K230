@@ -1060,7 +1060,7 @@ int main(void)
         check("a key of the wrong length is refused",
               apply_event(&m, "mesh.node",
                           "{\"node\":{\"public_key\":\"a1b2\",\"name\":\"nobody\"}}") == -1);
-        check("an unknown event name is refused",
+        check("an unknown event name is not applied",
               apply_event(&m, "mesh.nonsense", "{}") == -1);
         check("a state event with no state is refused",
               apply_event(&m, "mesh.state", "{\"reason\":\"why\"}") == -1);
@@ -1069,7 +1069,12 @@ int main(void)
         check("and an activity of a kind this build does not know is too",
               apply_event(&m, "mesh.activity", "{\"kind\":\"telepathy\"}") == -1);
         check("none of them added a node", m.node_count == nodes_before);
-        check("and every one of them was counted", m.events_malformed == before + 8);
+        check("and every malformed one was counted", m.events_malformed == before + 7);
+        /* An event name this build does not read is not malformed input:
+         * meshcored raises mesh.app (and may raise newer ones) to every
+         * subscriber. Counted on its own, never as something unreadable. */
+        check("an unknown event name is counted as unsupported, not malformed",
+              m.events_unsupported == 1);
         /* Phase 1 ignored mesh.message, because COMMS was not drawn, and
          * this asserted that ignoring it was not a fault. COMMS is drawn
          * now, so the assertion has become untrue and is replaced by the
@@ -1080,13 +1085,13 @@ int main(void)
          * tests/rift_comms_test.c's subject; this is the event path. */
         check("an empty message is refused",
               apply_event(&m, "mesh.message", "{\"message\":{}}") == -1);
-        check("and counted", m.events_malformed == before + 9);
+        check("and counted", m.events_malformed == before + 8);
         check("a message with everything it needs is applied",
               apply_event(&m, "mesh.message",
                           "{\"message\":{\"id\":1,\"direction\":\"in\","
                           "\"peer_public_key\":\"" KEY_A "\",\"text\":\"hei\","
                           "\"state\":\"received\",\"mono_ms\":1000}}") == 0);
-        check("and is not counted as malformed", m.events_malformed == before + 9);
+        check("and is not counted as malformed", m.events_malformed == before + 8);
         check("nor did it become a node", m.node_count == nodes_before);
     }
 

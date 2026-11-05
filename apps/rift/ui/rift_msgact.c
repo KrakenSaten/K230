@@ -356,13 +356,13 @@ const char *rift_msgact_quote(lv_obj_t *quote, const char *body, int *ident_on, 
         return body;
     }
     {
-        /* "↳ Anna?: Are you coming up?" - the name as a claim, as every
-         * channel name is shown, in the quoted person's identity accent. */
+        /* "↳ Anna: Are you coming up?" - the name as every channel name is
+         * shown, in the quoted person's identity accent. */
         char line[RIFT_REPLY_NAME_MAX + sizeof(reply.quote) + 16];
         char folded[sizeof(line)];
         uint32_t want = rift_ident_hash(reply.name);
 
-        snprintf(line, sizeof(line), "\xE2\x86\xB3 %s?%s%s", reply.name,
+        snprintf(line, sizeof(line), "\xE2\x86\xB3 %s%s%s", reply.name,
                  reply.quote[0] ? ": " : "", reply.quote);
         rift_emoji_fold(line, folded, sizeof(folded));
         rift_label_set(quote, folded);

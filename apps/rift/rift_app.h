@@ -81,6 +81,9 @@ enum rift_section rift_tab_of(enum rift_section section);
  * pocketipc disconnects under a burst (docs/api/pocketipc.md, backpressure),
  * and an app that only redraws on the tick shows a mesh a second late. */
 #define RIFT_POLL_MS 100
+/* Which keyboard RIFT's automatic capital is offered on (rift_focus.c). */
+#define RIFT_AUTOCAP_TOUCH 1
+#define RIFT_AUTOCAP_HW 2
 /* Ages move on their own, so the screen is repainted at least this often
  * even when nothing arrived. */
 #define RIFT_REPAINT_MS 1000
@@ -204,10 +207,14 @@ struct rift_app {
     int composer_auto;
     /* The automatic capital (rift_focus_autocap): the field, conversation,
      * caret and text it was last decided for - so a Shift the reader turned
-     * off stays off until one of them changes - and whether the touch
-     * keyboard's Shift is RIFT's offer. 0: nothing decided. */
+     * off stays off until one of them changes - whether an offer of RIFT's
+     * is pending, and on which keyboard (RIFT_AUTOCAP_TOUCH: the touch
+     * keyboard's Shift; RIFT_AUTOCAP_HW: the keyboard base's next letter).
+     * 0: nothing decided. */
     uint32_t autocap_seen;
     int autocap_offered;
+    int autocap_target;
+    int autocap_hint; /* the base's capital is pending: the line says so */
     int wide; /* the landscape split is on */
     int32_t body_w;
     int32_t body_h;
