@@ -88,10 +88,9 @@ own Shift and Caps say (`docs/apps/RIFT.md`, "Automatic capitals"). PR #124
 does not change that. On unit A, which is used in landscape with the keyboard
 base, a new message therefore never starts with an automatic capital.
 
-That is the cause of issue 2 on this unit, and it is not fixed by PR #124. A
-physical-keyboard offer (a pending capital for the first letter, cancelled by a
-tap of Shift, as on the touch keyboard) is a design change to #105, for the
-owner to decide.
+That was the cause of issue 2 on this unit. The owner then decided to have the
+physical keyboard offered the capital too ("Yes, add it"), which is done in
+`f446fd53` (section 4).
 
 ## 3. Host tests (PR head `081530fc`, from the PR)
 
@@ -107,11 +106,57 @@ owner to decide.
 - Other RIFT model, IPC, emoji and keyboard tests, `rift_lint.sh` and
   `style_lint.sh`: pass.
 
+## 4. The keyboard-base capital (`f446fd53`), 2026-11-05
+
+The owner's decision after section 2: the physical keyboard is offered the
+automatic capital too (`docs/apps/RIFT.md`, "Automatic capitals").
+
+**Host tests:**
+- `shell_kbd_test`: 131 checks, 0 failures. Raw controller bytes through the
+  real key map, covering the offered capital:
+  - the next plain letter only;
+  - a lone Shift tap takes it back;
+  - Shift held is the keycap's own symbol (Shift+H is `,`) and is left alone;
+  - Caps is left alone;
+  - arrows leave it, and a space uses it;
+  - another field is unaffected;
+  - `on = 0` withdraws it.
+- `rift_app_test`, carbon theme: 2293 checks, 0 failures. This includes RIFT's
+  offer to the base in landscape, the `CAPITAL NEXT · SHIFT: lower · ENTER SEND`
+  line, the Shift-tap lower case, withdrawal when the keys leave the
+  composer, and no offer with no base.
+- `pos_keyboard_test` 73, `rift_lint.sh`, `style_lint.sh` and `kbd_lint.sh`: pass.
+
+**Device evidence:**
+- Cross-built from source diffed identical to `f446fd53`, shell only;
+  sha256 `ea219fba…`.
+- Transferred to `/tmp` and verified by hash; 0 unresolved symbols with
+  `LD_BIND_NOW`.
+- Installed in place of `081530fc` by a script that first checked the
+  original backup against `OLD.sha256`. The rollback is unchanged:
+  `sh /root/rollback-rift-p124/RESTORE.sh` puts back the pre-PR shell
+  `15842a91…`.
+- After the install:
+  - `shell.info` reports `f446fd53`, with the same app list;
+  - one supervised shell;
+  - meshcored and radiod on the same pids (388, 267);
+  - the keyboard controller ready;
+  - one warning, the pre-existing meshscope favourite.
+- `/tmp` was cleaned afterwards.
+
+**Owner observation:** asked to check the capital in landscape with the
+keyboard base, the owner reported "Works". The check covered:
+- `CAPITAL NEXT` on the line, and a capital first letter, on a channel and in
+  a DM;
+- a lone Shift tap giving lower case;
+- the top tabs, the emoji picker and channel names without "?".
+
 ## Result
 
-- The PR shell is installed on unit A and left there; nothing essential failed.
-- The counter cause on this unit is the window eviction and re-offer that the PR
-  fixes (host-tested). Confirming it on the device needs the window to fill
+- The PR shell (`f446fd53`) is installed on unit A and left there; nothing
+  essential failed. Rollback: `sh /root/rollback-rift-p124/RESTORE.sh`.
+- The counter cause on this unit is the window eviction and re-offer that the
+  PR fixes (host-tested). Confirming it on the device needs the window to fill
   again, which this check did not wait for.
-- Issue 2 on this unit is the physical keyboard, which PR #124 does not
-  address.
+- Issue 2 on this unit (no capital on the keyboard base) is fixed and confirmed
+  by the owner.
