@@ -14,6 +14,11 @@
  *                           the snapshots are answered (events_after_snapshot)
  *   FAKE_MESHCORED_SENDS    where to record every mesh.send (send_log)
  *   FAKE_MESHCORED_EXPLICIT non-empty: take explicit routes (explicit_path)
+ *   FAKE_MESHCORED_SUBSCRIBERS  hold the events until this many subscribes
+ *                           (subscribers_before_events)
+ *   FAKE_MESHCORED_ACK_SENDS    1: acknowledge every direct send; 2: only
+ *                           resends (ack_sends)
+ *   FAKE_MESHCORED_CHANNELS the mesh.channels array, as JSON (channels_json)
  *   FAKE_MESHCORED_PATH_REFUSE  refuse a route through a relay whose key
  *                           starts with this (path_refuse_prefix)
  *   FAKE_MESHCORED_PREVIEWS where to record every mesh.path_preview
@@ -63,6 +68,12 @@ int main(void)
     script.preview_log = getenv("FAKE_MESHCORED_PREVIEWS");
     script.rx_log = getenv("FAKE_MESHCORED_RX_LOG") != NULL;
     script.life_ms = life ? atoi(life) : 10000;
+    if (getenv("FAKE_MESHCORED_SUBSCRIBERS")) {
+        script.subscribers_before_events = atoi(getenv("FAKE_MESHCORED_SUBSCRIBERS"));
+    }
+    if (getenv("FAKE_MESHCORED_ACK_SENDS")) {
+        script.ack_sends = atoi(getenv("FAKE_MESHCORED_ACK_SENDS"));
+    }
     if (path) {
         FILE *f = fopen(path, "r");
         char line[1024];

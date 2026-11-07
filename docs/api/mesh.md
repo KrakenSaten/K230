@@ -1096,6 +1096,10 @@ goes away:
   documented backpressure policy (docs/api/pocketipc.md) and the service
   carries on. Event subscribers must read continuously.
 
+RIFT is one such client. companiond (docs/services/COMPANIOND.md, a
+prototype) is another: it puts this API in front of a MeshCore phone app over
+the companion protocol on TCP, as one more subscriber, changing nothing here.
+
 ## Errors
 
 The pocketipc codes (docs/api/pocketipc.md), used as follows:
