@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -152,16 +153,22 @@ static int write_file(const char *path, const char *text, char *err, size_t errl
     return 0;
 }
 
-/* A file back as it was: its old text, or no file. Best effort. */
-static void put_back(const char *path, const char *old, bool absent)
+/* A file back as it was: its old text, or no file (one that is already gone
+ * is back as it was). 0, or -1 with err set. */
+static int put_back(const char *path, const char *old, bool absent, char *err, size_t errlen)
 {
-    char err[160];
-
     if (absent) {
-        unlink(path);
-    } else if (old) {
-        write_file(path, old, err, sizeof(err));
+        if (unlink(path) < 0 && errno != ENOENT) {
+            snprintf(err, errlen, "%s could not be removed: %s", path, strerror(errno));
+            return -1;
+        }
+        return 0;
     }
+    if (!old) {
+        snprintf(err, errlen, "%s: its previous text was not read", path);
+        return -1;
+    }
+    return write_file(path, old, err, errlen);
 }
 
 void sysd_radio_read(const struct sysd_radio *r, struct sysd_radio_config *c)
@@ -305,18 +312,95 @@ static bool answers(const struct sysd_radio *r, const char *service, const char 
     }
 }
 
-/* Everything back as it was, both services restarted on it. */
-static void restore(const struct sysd_radio *r, int log_fd, const char *old_r, bool abs_r, const char *old_m,
-                    bool abs_m)
-{
-    const char *rr[] = { r->paths.radiod_init, "restart", NULL };
-    const char *mr[] = { r->paths.meshcored_init, "restart", NULL };
+/* What the job found before it changed anything: each file's text, or that
+ * it did not exist. */
+struct saved {
+    char *radiod;
+    bool radiod_absent;
+    char *meshcored;
+    bool meshcored_absent;
+    char *state; /* radiod's radio.conf; unused without paths.radio_state */
+    bool state_absent;
+};
 
+/* One more thing that did not come back, appended to fail ("; " between). */
+static void add_failure(char *fail, size_t n, const char *fmt, ...)
+{
+    size_t len = strlen(fail);
+    va_list ap;
+
+    if (len + 3 >= n) {
+        return;
+    }
+    if (len > 0) {
+        len += (size_t)snprintf(fail + len, n - len, "; ");
+    }
+    va_start(ap, fmt);
+    vsnprintf(fail + len, n - len, fmt, ap);
+    va_end(ap);
+}
+
+/* Everything back as it was, both services restarted on it. True only when
+ * every part of that is known to have happened; otherwise false with fail
+ * saying what did not, so nobody is told the previous settings are back when
+ * they are not.
+ *
+ * radiod is stopped before its files are put back and started after, not
+ * restarted around them: the setup switched the radio on, which radiod
+ * stores in radio.conf, and a radio.set_enabled that timed out here may still
+ * be finishing in radiod. Stopped, it can store nothing more, so the choice
+ * radiod starts with is the owner's from before the setup. A stop that
+ * failed leaves radiod running on the setup's choice; S60radiod's start would
+ * only answer "already running" then, so it is not asked, and the restore
+ * has failed. "Started" is proven the way the setup proves it, by the service
+ * answering; meshcored only when its restored file enables it. */
+static bool restore(const struct sysd_radio *r, int log_fd, const struct saved *s, char *fail, size_t n)
+{
+    const char *rstop[] = { r->paths.radiod_init, "stop", NULL };
+    const char *rstart[] = { r->paths.radiod_init, "start", NULL };
+    const char *mr[] = { r->paths.meshcored_init, "restart", NULL };
+    char err[200];
+    char v[16];
+    bool stopped;
+    int rc;
+
+    fail[0] = '\0';
     note(log_fd, "== restoring the previous settings%s\n", NULL);
-    put_back(r->paths.radiod_default, old_r, abs_r);
-    put_back(r->paths.meshcored_default, old_m, abs_m);
-    r->ops.run(rr, log_fd, r->ops.user);
-    r->ops.run(mr, log_fd, r->ops.user);
+    rc = r->ops.run(rstop, log_fd, r->ops.user);
+    stopped = rc == 0;
+    if (!stopped) {
+        add_failure(fail, n, "radiod did not stop (S60radiod stop: exit %d)", rc);
+    }
+    if (put_back(r->paths.radiod_default, s->radiod, s->radiod_absent, err, sizeof(err)) < 0) {
+        add_failure(fail, n, "%s", err);
+    }
+    if (put_back(r->paths.meshcored_default, s->meshcored, s->meshcored_absent, err, sizeof(err)) < 0) {
+        add_failure(fail, n, "%s", err);
+    }
+    if (r->paths.radio_state &&
+        put_back(r->paths.radio_state, s->state, s->state_absent, err, sizeof(err)) < 0) {
+        add_failure(fail, n, "%s", err);
+    }
+    if (stopped) {
+        rc = r->ops.run(rstart, log_fd, r->ops.user);
+        err[0] = '\0';
+        if (rc != 0) {
+            add_failure(fail, n, "radiod did not start (S60radiod start: exit %d)", rc);
+        } else if (!answers(r, "radiod", "radio.info", NULL, err, sizeof(err))) {
+            add_failure(fail, n, "radiod did not answer after the restore (%s)", err[0] ? err : "no answer");
+        }
+    } else {
+        note(log_fd, "== radiod was not started again: it did not stop%s\n", NULL);
+    }
+    rc = r->ops.run(mr, log_fd, r->ops.user);
+    err[0] = '\0';
+    if (rc != 0) {
+        add_failure(fail, n, "meshcored did not restart (S65meshcored restart: exit %d)", rc);
+    } else if (s->meshcored && sysd_radio_value(s->meshcored, "MESHCORED_ENABLE", v, sizeof(v)) &&
+               strcmp(v, "1") == 0 && !answers(r, "meshcored", "mesh.status", NULL, err, sizeof(err))) {
+        add_failure(fail, n, "meshcored did not answer after the restore (%s)", err[0] ? err : "no answer");
+    }
+    return fail[0] == '\0';
 }
 
 static void job(const struct sysd_radio *r, int report_fd)
@@ -324,25 +408,35 @@ static void job(const struct sysd_radio *r, int report_fd)
     int log_fd = open(r->paths.log, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     const char *rr[] = { r->paths.radiod_init, "restart", NULL };
     const char *mr[] = { r->paths.meshcored_init, "restart", NULL };
-    bool abs_r;
-    bool abs_m;
-    char *old_r = slurp(r->paths.radiod_default, &abs_r);
-    char *old_m = slurp(r->paths.meshcored_default, &abs_m);
+    struct saved s = { NULL, false, NULL, false, NULL, true };
     char *new_text;
     char err[200] = "";
-    char why[260];
+    char why[SYSD_RADIO_ERROR_MAX];
+    char fail[SYSD_RADIO_ERROR_MAX];
     int code = SYSD_RADIO_EXIT_DONE;
     cJSON *params;
     cJSON *res;
 
-    if ((!old_r && !abs_r) || (!old_m && !abs_m)) {
+    s.radiod = slurp(r->paths.radiod_default, &s.radiod_absent);
+    s.meshcored = slurp(r->paths.meshcored_default, &s.meshcored_absent);
+    if ((!s.radiod && !s.radiod_absent) || (!s.meshcored && !s.meshcored_absent)) {
         snprintf(why, sizeof(why), "the files in /etc/default could not be read");
         code = SYSD_RADIO_EXIT_WRITE;
         goto out;
     }
+    /* Read before anything changes, for the same reason: a choice that could
+     * not be read could not be put back. */
+    if (r->paths.radio_state) {
+        s.state = slurp(r->paths.radio_state, &s.state_absent);
+        if (!s.state && !s.state_absent) {
+            snprintf(why, sizeof(why), "%s could not be read", r->paths.radio_state);
+            code = SYSD_RADIO_EXIT_WRITE;
+            goto out;
+        }
+    }
     /* 1-2: radiod on the SX1262. */
     note(log_fd, "== radiod: RADIOD_BACKEND=%s\n", SYSD_RADIO_BACKEND);
-    new_text = sysd_radio_set(old_r ? old_r : "", "RADIOD_BACKEND", SYSD_RADIO_BACKEND);
+    new_text = sysd_radio_set(s.radiod ? s.radiod : "", "RADIOD_BACKEND", SYSD_RADIO_BACKEND);
     if (!new_text || write_file(r->paths.radiod_default, new_text, err, sizeof(err)) < 0) {
         snprintf(why, sizeof(why), "%s", new_text ? err : "out of memory");
         free(new_text);
@@ -370,7 +464,7 @@ static void job(const struct sysd_radio *r, int report_fd)
     cJSON_Delete(res);
     /* 4-5: meshcored. */
     note(log_fd, "== meshcored: MESHCORED_ENABLE=1%s\n", NULL);
-    new_text = sysd_radio_set(old_m ? old_m : "", "MESHCORED_ENABLE", "1");
+    new_text = sysd_radio_set(s.meshcored ? s.meshcored : "", "MESHCORED_ENABLE", "1");
     if (!new_text || write_file(r->paths.meshcored_default, new_text, err, sizeof(err)) < 0) {
         snprintf(why, sizeof(why), "%s", new_text ? err : "out of memory");
         free(new_text);
@@ -387,7 +481,12 @@ static void job(const struct sysd_radio *r, int report_fd)
     note(log_fd, "== done%s\n", NULL);
     goto out;
 restore:
-    restore(r, log_fd, old_r, abs_r, old_m, abs_m);
+    if (!restore(r, log_fd, &s, fail, sizeof(fail))) {
+        size_t len = strlen(why);
+
+        snprintf(why + len, sizeof(why) - len, "; the previous settings could not all be put back: %s", fail);
+        code = SYSD_RADIO_EXIT_RESTORE;
+    }
 out:
     if (code != SYSD_RADIO_EXIT_DONE) {
         ssize_t w;
@@ -396,8 +495,9 @@ out:
         w = write(report_fd, why, strlen(why));
         (void)w;
     }
-    free(old_r);
-    free(old_m);
+    free(s.radiod);
+    free(s.meshcored);
+    free(s.state);
     if (log_fd >= 0) {
         close(log_fd);
     }
@@ -500,8 +600,11 @@ void sysd_radio_reap(struct sysd_radio *r)
     } else if (!why[0]) {
         snprintf(why, sizeof(why), "the setup did not finish (exit %d)", code);
     }
+    /* A failed restore has already said what did not come back. */
     snprintf(r->error, sizeof(r->error), "%s%s", why,
-             code == SYSD_RADIO_EXIT_WRITE ? "; nothing was changed" : "; the previous settings are back");
+             code == SYSD_RADIO_EXIT_WRITE     ? "; nothing was changed"
+             : code == SYSD_RADIO_EXIT_RESTORE ? ""
+                                               : "; the previous settings are back");
     LOG_ERROR("radio setup: %s. See %s.", r->error, r->paths.log);
 }
 

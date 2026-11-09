@@ -20,8 +20,9 @@
  * The init scripts start their daemon in the background and report only
  * whether the old one stopped, so "started" is proven by the service
  * answering, within a bound. Any step that fails puts both files back as
- * they were and restarts both services on them: the unit is either set up
- * or as it was, and the status says which step failed and why. The work
+ * they were, and radiod's stored on/off choice with them (step 3 changes
+ * it), and restarts both services on them: the unit is either set up or as
+ * it was, and the status says which step failed and why. The work
  * runs in a child, as storage.expand's does, so sysd keeps answering; the
  * scripts' output goes to radio-setup.log in the log directory.
  *
@@ -52,6 +53,11 @@ struct sysd_radio_paths {
     const char *radiod_init;       /* /etc/init.d/S60radiod */
     const char *meshcored_init;    /* /etc/init.d/S65meshcored */
     const char *log;               /* <log dir>/radio-setup.log */
+    /* radiod's stored on/off choice, $POCKETOS_STATE_DIR/radiod/radio.conf
+     * (docs/api/radio.md, "Radio on and off"). The setup switches the radio
+     * on, which radiod stores; a failed setup puts this file back too, so the
+     * owner's earlier choice survives. NULL: not tracked (older callers). */
+    const char *radio_state;
 };
 
 struct sysd_radio_ops {
@@ -73,8 +79,15 @@ enum {
     SYSD_RADIO_EXIT_WRITE_MESH = 11, /* /etc/default/meshcored could not be written; restored */
     SYSD_RADIO_EXIT_RADIOD = 20,     /* radiod did not come back on the SX1262 */
     SYSD_RADIO_EXIT_SWITCH = 30,     /* the SX1262 did not switch on */
-    SYSD_RADIO_EXIT_MESHCORED = 40   /* meshcored did not come back */
+    SYSD_RADIO_EXIT_MESHCORED = 40,  /* meshcored did not come back */
+    /* One of the above, and then the previous settings could not all be put
+     * back: a service did not stop, start or answer, or a file could not be
+     * written or removed. The report says what. */
+    SYSD_RADIO_EXIT_RESTORE = 50
 };
+
+/* The failure text: the failed step, and what did not come back after it. */
+#define SYSD_RADIO_ERROR_MAX 400
 
 struct sysd_radio {
     struct sysd_radio_paths paths;
@@ -83,7 +96,7 @@ struct sysd_radio {
     pid_t pid;          /* the running job, 0 when none */
     bool done;          /* the last job set the unit up */
     bool failed;        /* the last job failed; error says why */
-    char error[200];
+    char error[SYSD_RADIO_ERROR_MAX];
 };
 
 /* What the files say now. backend: the last RADIOD_BACKEND (quotes

@@ -269,6 +269,99 @@ wait $POWER_PID 2>/dev/null
 sleep 1
 check "a stop delivered as the delay expires drops the action" '^0$' "$(action_count)"
 
+# 7b. No power action while a radio setup runs (docs/api/system.md, "Radio
+# setup"): stopped part way, the unit would be neither as it was nor set up.
+#
+# The setup rewrites /etc/default/radiod and /etc/default/meshcored and runs
+# /etc/init.d/S60radiod and S65meshcored, paths compiled into sysd. So sysd
+# runs in a private mount namespace (unshare -rm, as tests/identity_test.sh
+# does) with temporary directories bound over /etc/default and /etc/init.d:
+# the host's own files and services are never read, written or run. The fake
+# S60radiod holds the setup open for 3 s on its restart; radiod and meshcored
+# are stand-ins that answer every request, radio.info on the SX1262.
+if unshare -rm true 2>/dev/null; then
+    NS=$(mktemp -d)
+    RT=$(mktemp -d)
+    mkdir -p "$NS/default" "$NS/initd" "$NS/state" "$NS/log"
+    printf '%s\n' '#!/bin/sh' "echo \"S60radiod \$1\" >> \"$NS/init.log\"" \
+        '[ "$1" = restart ] && sleep 3' 'exit 0' > "$NS/initd/S60radiod"
+    printf '%s\n' '#!/bin/sh' "echo \"S65meshcored \$1\" >> \"$NS/init.log\"" 'exit 0' > "$NS/initd/S65meshcored"
+    chmod 0755 "$NS/initd/S60radiod" "$NS/initd/S65meshcored"
+    host_default=$(cat /etc/default/radiod /etc/default/meshcored 2>/dev/null | md5sum)
+    python3 - "$RT/radiod.sock" "$RT/meshcored.sock" <<'PY' &
+import json, select, socket, struct, sys
+listeners = []
+for path in sys.argv[1:]:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(path)
+    s.listen(8)
+    listeners.append(s)
+pending = {}
+while True:
+    ready, _, _ = select.select(listeners + list(pending), [], [])
+    for s in ready:
+        if s in listeners:
+            c, _ = s.accept()
+            pending[c] = b""
+            continue
+        data = s.recv(4096)
+        if not data:
+            s.close()
+            del pending[s]
+            continue
+        buf = pending[s] + data
+        while len(buf) >= 4 and len(buf) >= 4 + struct.unpack(">I", buf[:4])[0]:
+            n = struct.unpack(">I", buf[:4])[0]
+            req = json.loads(buf[4:4 + n])
+            buf = buf[4 + n:]
+            result = {"backend": "sx1262"} if req.get("method") == "radio.info" else {}
+            body = json.dumps({"id": req.get("id"), "result": result}).encode()
+            s.sendall(struct.pack(">I", len(body)) + body)
+        pending[s] = buf
+PY
+    FAKES_PID=$!
+    rm -f "$ACT"
+    rec_reboot="$POCKETOS_RUNTIME_DIR/rec-reboot"
+    rec_poweroff="$POCKETOS_RUNTIME_DIR/rec-poweroff"
+    POCKETOS_RUNTIME_DIR=$RT POCKETOS_STATE_DIR=$NS/state POCKETOS_LOG_DIR=$NS/log \
+    SYSD_REBOOT_COMMAND="$rec_reboot" SYSD_POWEROFF_COMMAND="$rec_poweroff" \
+        unshare -rm sh -c 'mount --bind "$1" /etc/default && mount --bind "$2" /etc/init.d && exec "$3" --socket-name pwr8' \
+        sh "$NS/default" "$NS/initd" "$TESTHOOKS" > "$RT/pwr8.out" 2>&1 &
+    POWER_PID=$!
+    for _ in $(seq 1 50); do [ -S "$RT/pwr8.sock" ] && [ -S "$RT/meshcored.sock" ] && break; sleep 0.1; done
+    call8() { POCKETOS_RUNTIME_DIR=$RT "$POS" call pwr8 "$@" 2>&1; }
+
+    out=$(call8 radio_setup.start antenna_confirmed=true)
+    check "a radio setup starts in the private namespace" '"state":[[:space:]]*"running"' "$out"
+    out=$(call8 system.reboot)
+    check "system.reboot is refused while the radio setup runs" 'code 5' "$out"
+    check "the refusal names the radio setup" 'radio setup is running' "$out"
+    out=$(call8 system.poweroff)
+    check "system.poweroff is refused while the radio setup runs" 'code 5' "$out"
+    sleep 1
+    check "nothing ran while the setup was running" '^0$' "$(action_count)"
+    for _ in $(seq 1 100); do
+        out=$(call8 radio_setup.status)
+        printf '%s' "$out" | grep -q '"running"' || break
+        sleep 0.1
+    done
+    check "the setup then finishes" '"state":[[:space:]]*"done"' "$out"
+    check "it ran the fake init scripts, not the host's" 'S60radiod restart' "$(cat "$NS/init.log" 2>/dev/null)"
+    check "and wrote the bound directory, not the host's /etc/default" 'RADIOD_BACKEND=sx1262' \
+          "$(cat "$NS/default/radiod" 2>/dev/null)"
+    check "the host's /etc/default files are unchanged" "^${host_default}\$" \
+          "$(cat /etc/default/radiod /etc/default/meshcored 2>/dev/null | md5sum)"
+    out=$(call8 system.reboot)
+    check "once it has finished, system.reboot is accepted again" '"action":[[:space:]]*"reboot"' "$out"
+    check "and runs" '^reboot$' "$(wait_action && actions)"
+    power_stop
+    kill $FAKES_PID 2>/dev/null
+    wait $FAKES_PID 2>/dev/null
+    rm -rf "$NS" "$RT"
+else
+    echo "note: no private mount namespace here (unshare -rm); the power refusal during a radio setup was not run"
+fi
+
 # 8. The hook is a build option, not an environment switch. The shipped
 # binary is not asked to reboot this machine to prove it; it is checked for
 # the only thing that could make it redirectable.

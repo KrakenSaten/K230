@@ -126,6 +126,17 @@ static void on_power(struct pocketipc_server *s, struct pocketipc_client *c, con
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
         return;
     }
+    /* Nor half way through the radio setup: it rewrites /etc/default and
+     * radiod's stored choice and restarts two services, and stopping the
+     * machine part way would leave neither the old settings nor the new ones
+     * (docs/api/system.md, "Radio setup"). It ends within about a minute,
+     * restoring included. */
+    sysd_radio_reap(&sd->radio);
+    if (sysd_radio_busy(&sd->radio)) {
+        snprintf(msg, sizeof(msg), "the radio setup is running; %s when it has finished", name);
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
+        return;
+    }
     result = cJSON_CreateObject();
     cJSON_AddStringToObject(result, "action", name);
     pocketipc_server_reply(s, c, pocketipc_response(id, result));
@@ -387,10 +398,14 @@ int main(int argc, char **argv)
     }
     {
         static char log[512];
+        static char radio_state[512];
         struct sysd_radio_paths rp = { "/etc/default/radiod", "/etc/default/meshcored", "/etc/init.d/S60radiod",
-                                       "/etc/init.d/S65meshcored", log };
+                                       "/etc/init.d/S65meshcored", log, radio_state };
 
         snprintf(log, sizeof(log), "%s/radio-setup.log", pocketos_log_dir());
+        /* radiod's file (services/radiod/rf_state.h, RF_STATE_DIR and
+         * RF_STATE_FILE), named in docs/api/radio.md. */
+        snprintf(radio_state, sizeof(radio_state), "%s/radiod/radio.conf", pocketos_state_dir());
         sysd_radio_init(&sd.radio, &rp, &sysd_radio_real_ops);
     }
 

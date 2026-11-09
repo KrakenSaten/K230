@@ -745,6 +745,18 @@ static int tx_accept(struct radiod *rd, const cJSON *params, bool async,
                          "the radio.tx_done event");
         return -1;
     }
+    /* A configure that failed and whose rollback failed too may have stopped
+     * part way through putting a profile on the chip: on the SX1262 the
+     * frequency and output power are set after the module itself, so either
+     * can be whatever the chip held before. Those are the two values the
+     * region guard exists for, and it never saw them. Nothing is transmitted
+     * until a configure succeeds and the settings are known again. */
+    if (rd->be.profile_uncertain) {
+        *code = POCKETIPC_ERR_BACKEND;
+        snprintf(msg, n, "the transceiver's settings are unknown after a failed "
+                         "configure; nothing is transmitted until radio.configure succeeds");
+        return -1;
+    }
     rc = radio_tx_submit(&rd->tx, data, len, client_id, async, tx_id);
     if (rc == -EBUSY) {
         *code = POCKETIPC_ERR_BUSY;
