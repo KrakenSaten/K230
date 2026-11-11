@@ -25,7 +25,7 @@
  *   start                         stream, detect, track, count
  *   stop                          stop; answered by `stopped`
  *   release <slot>                the session is done with a slot
- *   mode detect|track|traffic|color|edge|trace
+ *   mode detect|track|traffic|color|edge|trace|segment|instances
  *                                 what to look for: everything the model
  *                                 knows (detect and track run the same
  *                                 pipeline; track is the screen's ids and
@@ -35,6 +35,10 @@
  *                                 or one of the pixel modes, in which the
  *                                 detector idles and the preview picture
  *                                 is worked on before it is shown
+ *   seg original|overlay|mask     SEGMENT, INSTANCES: the preview as the
+ *                                 camera gives it, with the classes' or
+ *                                 objects' colours mixed in, or the
+ *                                 colours alone (vision_seg.h)
  *   color <r> <g> <b> | color off the COLOR target (8-bit), or none
  *   sample <x> <y>                COLOR: take the target from the next
  *                                 preview at this view point
@@ -134,6 +138,12 @@
  *                                 found (0 found, -1 never since the mode
  *                                 began); and the rows holding any
  *                                 candidate
+ *   seginfo <text>                SEGMENT, with every frame: the classes
+ *                                 most of the picture is and their share;
+ *                                 INSTANCES: how many objects, per class
+ *                                 (and their boxes on a det line)
+ *   segfail <text>                the mode's model could not be opened or
+ *                                 run; the picture goes on without it
  *   stats <fps_x10> <infer_ms> <pre_ms> <post_ms> <cpu_pct> <rss_kb> <bad> <dropped>
  *                                 once a second while streaming: frames
  *                                 inferred per second (previews worked on,

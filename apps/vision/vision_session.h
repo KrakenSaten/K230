@@ -76,6 +76,8 @@ enum vision_ev_kind {
     VISION_EV_SWATCH,    /* COLOR's reading of its square: ->swatch */
     VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
     VISION_EV_TRACE,     /* a TRACE pass: ->trace */
+    VISION_EV_SEGINFO,   /* SEGMENT, INSTANCES: text says what is in the picture */
+    VISION_EV_SEGFAIL,   /* SEGMENT, INSTANCES cannot run: text says why */
     VISION_EV_STATS,     /* vision_session_stats() */
     VISION_EV_MALFORMED, /* value = damaged frames or bad tensors in a row */
     VISION_EV_STALL,     /* value = ms without a frame */
@@ -328,6 +330,8 @@ int vision_session_sample(struct vision_session *s, int32_t x, int32_t y);
 int vision_session_probe(struct vision_session *s, int32_t x, int32_t y);
 int vision_session_tol(struct vision_session *s, uint32_t tol);
 int vision_session_edge(struct vision_session *s, uint32_t threshold);
+/* SEGMENT, INSTANCES: the view, by its word (original, overlay, mask). */
+int vision_session_seg_view(struct vision_session *s, const char *word);
 int vision_session_trace(struct vision_session *s, bool dark);
 int vision_session_reset(struct vision_session *s);
 

@@ -16,17 +16,21 @@ static const uint32_t tols[VISION_TOLS] = { 48, 96, 160 };
 static const char *const tol_words[VISION_TOLS] = { "low", "med", "high" };
 static const char *const mode_names[VISION_MODES] = {
     "DETECT", "TRACK", "TRAFFIC", "FACE", "RECOGNIZE", "READ", "COLOR", "EDGE", "LINE TRACE",
+    "SEGMENT", "INSTANCES",
 };
 static const char *const mode_words[VISION_MODES] = {
     "detect", "track", "traffic", "face", "recognize", "read", "color", "edge", "trace",
+    "segment", "instances",
 };
 static const enum vision_group mode_groups[VISION_MODES] = {
     VISION_GROUP_GENERAL, VISION_GROUP_GENERAL, VISION_GROUP_ROAD,  VISION_GROUP_PEOPLE, VISION_GROUP_PEOPLE,
     VISION_GROUP_TEXT,    VISION_GROUP_TOOLS,   VISION_GROUP_TOOLS, VISION_GROUP_TOOLS,
+    VISION_GROUP_ROAD,    VISION_GROUP_GENERAL,
 };
 static const char *const group_names[VISION_GROUPS] = { "GENERAL", "ROAD", "PEOPLE", "TEXT", "TOOLS" };
 static const char *const line_words[VISION_LINE_MODES] = { "off", "across", "down" };
 static const char *const speed_words[VISION_SPEED_MODES] = { "off", "narrow", "wide" };
+static const char *const seg_words[VISION_SEG_VIEWS] = { "original", "overlay", "mask" };
 /* The ranges' words: the helper's own (vision_range.c), kept here so the shell
  * links none of the pipeline. */
 static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" };
@@ -54,6 +58,7 @@ void vision_settings_defaults(struct vision_settings *s)
     s->color.tol_idx = VISION_TOL_DEFAULT;
     s->edge.hard = false;
     s->trace.dark = true;
+    s->seg.view = VISION_SEG_OVERLAY;
 }
 
 int vision_settings_sanitize(struct vision_settings *s)
@@ -98,6 +103,10 @@ int vision_settings_sanitize(struct vision_settings *s)
         s->color.tol_idx = d.color.tol_idx;
         fixed++;
     }
+    if ((int)s->seg.view < 0 || s->seg.view >= VISION_SEG_VIEWS) {
+        s->seg.view = d.seg.view;
+        fixed++;
+    }
     return fixed;
 }
 
@@ -135,6 +144,11 @@ int vision_detector_pick(enum vision_detector confirmed, uint32_t present)
 const char *vision_mode_word(enum vision_mode mode)
 {
     return (int)mode >= 0 && mode < VISION_MODES ? mode_words[mode] : "detect";
+}
+
+const char *vision_seg_view_word(enum vision_seg_view v)
+{
+    return (int)v >= 0 && v < VISION_SEG_VIEWS ? seg_words[v] : "overlay";
 }
 
 const char *vision_group_name(enum vision_group g)
@@ -324,6 +338,13 @@ static int parse_line(struct vision_settings *s, char *line)
     if (strcmp(key, "trace.dark") == 0) {
         return parse_bool(value, &s->trace.dark);
     }
+    if (strcmp(key, "seg.view") == 0) {
+        bad = parse_word(value, seg_words, VISION_SEG_VIEWS, &v);
+        if (!bad) {
+            s->seg.view = (enum vision_seg_view)v;
+        }
+        return bad;
+    }
     return 0;
 }
 
@@ -379,12 +400,13 @@ int vision_settings_format(const struct vision_settings *s, char *out, size_t ou
                  "traffic.distance_cm=%u\n"
                  "color.tol=%s\n"
                  "edge.hard=%d\n"
-                 "trace.dark=%d\n",
+                 "trace.dark=%d\n"
+                 "seg.view=%s\n",
                  vision_mode_word(c.mode), detector_words[c.detector], line_words[c.track.line], c.track.trails ? 1 : 0,
                  range_words[c.traffic.range], c.traffic.labels ? 1 : 0, c.traffic.speeds ? 1 : 0,
                  c.traffic.trails ? 1 : 0, line_words[c.traffic.line], line_words[c.traffic.orient],
                  speed_words[c.traffic.speed], vision_distance_cm(c.traffic.distance_idx), tol_words[c.color.tol_idx],
-                 c.edge.hard ? 1 : 0, c.trace.dark ? 1 : 0);
+                 c.edge.hard ? 1 : 0, c.trace.dark ? 1 : 0, seg_words[c.seg.view]);
     if (n < 0 || (size_t)n >= out_len) {
         return -1;
     }

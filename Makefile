@@ -1609,7 +1609,7 @@ VISION_CORE_OBJS := $(VISION_DIR)/vision_decode.o $(VISION_DIR)/vision_nms.o $(V
                     $(VISION_DIR)/vision_line.o $(VISION_DIR)/vision_traffic.o $(VISION_DIR)/vision_geom.o \
                     $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_pixels.o $(VISION_DIR)/vision_range.o \
                     $(VISION_DIR)/vision_window.o $(VISION_DIR)/vision_text.o $(VISION_DIR)/vision_face.o \
-                    $(VISION_DIR)/vision_embed.o $(VISION_DIR)/vision_swatch.o
+                    $(VISION_DIR)/vision_embed.o $(VISION_DIR)/vision_swatch.o $(VISION_DIR)/vision_seg.o
 ifeq ($(POCKETVISION_KPU),1)
 VISION_KPU_OBJS := $(VISION_DIR)/vision_kpu_nncase.o
 VISION_LINK := $(CXX)
@@ -1635,6 +1635,17 @@ VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_tr
 
 # The one C++ file: -Wno-multichar as the vendor builds against these headers
 # (a four-character constant in the runtime's own header).
+# SEGMENT's upsampling and argmax are loops for the vectoriser (vision_seg.h):
+# -O3 everywhere, and on the K230 the flags the unit B measurement was made
+# with (150 ms scalar, 9.8 ms vectorised).
+ifeq ($(POCKETVISION_KPU),1)
+VISION_SEG_CFLAGS ?= -O3 -mcpu=c908v -mtune=c908 -mrvv-v0p10-compatible -mrvv-auto-vectorize
+else
+VISION_SEG_CFLAGS ?= -O3
+endif
+$(VISION_DIR)/vision_seg.o: $(VISION_DIR)/vision_seg.c
+	$(CC) $(ALL_CFLAGS) $(VISION_SEG_CFLAGS) -c -o $@ $<
+
 $(VISION_DIR)/vision_kpu_nncase.o: $(VISION_DIR)/vision_kpu_nncase.cpp
 	$(CXX) $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) $(DEPFLAGS) -I$(VISION_DIR) -Wno-multichar -c -o $@ $<
 

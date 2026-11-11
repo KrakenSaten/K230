@@ -71,6 +71,7 @@
 #include "pocketvision/vision_pixels.h"
 #include "pocketvision/vision_swatch.h"
 #include "pocketvision/vision_range.h"
+#include "pocketvision/vision_seg.h"
 #include "pocketvision/vision_text.h"
 #include "pocketvision/vision_track.h"
 #include "pocketvision/vision_traffic.h"
@@ -124,7 +125,9 @@ enum helper_mode {
     MODE_TRACE,
     MODE_READ,       /* the text models instead of the detector */
     MODE_FACE,       /* the face detector instead of the detector */
-    MODE_RECOGNIZE   /* FACE, and each face compared with the owner's */
+    MODE_RECOGNIZE,  /* FACE, and each face compared with the owner's */
+    MODE_SEGMENT,    /* a class for every pixel, painted into the preview */
+    MODE_INSTANCES   /* objects with their masks, painted into the preview */
 };
 
 /* READ's models and dictionary (docs/apps/VISION.md "Read"): not in the
@@ -142,6 +145,24 @@ enum helper_mode {
  * mean (104, 117, 123). */
 #define VISION_FACE_DET_DEFAULT "/usr/share/doors/vision/face_det.kmodel"
 #define VISION_FACE_PAD 117
+
+/* SEGMENT and INSTANCES: a semantic model (PP-LiteSeg-T) and a YOLOv8-seg
+ * one, each put on a unit by hand - no image carries either - and opened
+ * while its mode is in force. */
+#define VISION_SEG_DEFAULT "/usr/share/doors/vision/seg_pp_liteseg_t.kmodel"
+#define VISION_INST_DEFAULT "/usr/share/doors/vision/inst_yolov8n_seg.kmodel"
+#define VISION_INST_PAD 114
+enum { SEG_VIEW_ORIGINAL = 0, SEG_VIEW_OVERLAY, SEG_VIEW_MASK };
+
+/* What the painter's table was made for: it is made again when any of it
+ * changes. */
+struct seg_key {
+    uint32_t vw, vh, fw, fh, mw, mh;
+    int rotation;
+    int mirror;
+    int contain;
+    float wx, wy, ww, wh;
+};
 /* RECOGNIZE's embedding model (docs/apps/VISION.md "RECOGNIZE"), and the
  * owner it compares faces with: a file of the Vision state directory. */
 #define VISION_FACE_EMBED_DEFAULT "/usr/share/doors/vision/face_embed.kmodel"
@@ -411,6 +432,29 @@ struct session {
     bool face_tried;
     struct vision_net *fdet;
     struct vision_net_info fdi;
+    /* SEGMENT and INSTANCES: the one net of the mode in force, the map it
+     * gave last (a class or an object per cell, over the window wx.. of
+     * the upright picture), and the table from view pixels to map cells. */
+    const char *seg_path;
+    const char *inst_path;
+    bool seg_offered;
+    bool inst_offered;
+    bool seg_tried;
+    struct vision_net *segnet;
+    struct vision_net_info segi;
+    int inst_det;                 /* INSTANCES: which output is the head, which the prototypes */
+    int inst_proto;
+    int seg_view;
+    uint8_t *seg_map;
+    uint32_t seg_mw;
+    uint32_t seg_mh;
+    float *seg_up;
+    bool seg_have;
+    struct seg_key seg_now;
+    struct seg_key seg_made;
+    int32_t *seg_lut;
+    uint16_t seg_col[256];
+    struct vision_inst insts[VISION_INST_MAX];
     /* RECOGNIZE: the embedding model, the owner, an enrolment under way,
      * and the last score of each track. */
     const char *face_embed_path;
@@ -657,6 +701,8 @@ static bool pixel_mode(const struct session *s)
     return s->mode == MODE_COLOR || s->mode == MODE_EDGE || s->mode == MODE_TRACE;
 }
 
+static void seg_close(struct session *s);
+
 /* The mode. In TRAFFIC the tracker matches across a class group and the
  * detections are filtered to traffic; in a pixel mode the detector idles
  * and the boxes go. */
@@ -667,6 +713,9 @@ static void set_mode(struct session *s, enum helper_mode mode)
     if (s->mode == mode) {
         return;
     }
+    /* A segmentation model is held only while its mode is in force. */
+    seg_close(s);
+    s->seg_tried = false;
     s->mode = mode;
     s->traffic = traffic;
     if (traffic) {
@@ -687,7 +736,8 @@ static void set_mode(struct session *s, enum helper_mode mode)
         say_traffic(s);
         say_recent(s, mono_ms());
     }
-    if (pixel_mode(s) || mode == MODE_READ || mode == MODE_FACE || mode == MODE_RECOGNIZE) {
+    if (pixel_mode(s) || mode == MODE_READ || mode == MODE_FACE || mode == MODE_RECOGNIZE ||
+        mode == MODE_SEGMENT || mode == MODE_INSTANCES) {
         say("det 0 0");
     }
     memset(s->who, 0, sizeof(s->who));
@@ -1833,6 +1883,383 @@ static void detect_faces(struct session *s, const struct pocketcam_frame *f, int
     say_tracks(s, f->seq);
 }
 
+/* ---- SEGMENT and INSTANCES ---------------------------------------------------- */
+
+static bool seg_mode(const struct session *s)
+{
+    return s->mode == MODE_SEGMENT || s->mode == MODE_INSTANCES;
+}
+
+static void seg_close(struct session *s)
+{
+    vision_net_close(s->segnet);
+    s->segnet = NULL;
+    s->seg_have = false;
+}
+
+static void seg_fail(struct session *s, const char *why)
+{
+    char t[96];
+
+    say("segfail %s", clean(why, t, sizeof(t)));
+    seg_close(s);
+}
+
+/* The mode's model, when the mode is asked for: 0, or -1 having said why
+ * (`segfail`); the picture then goes on as the camera gives it. */
+static int seg_open(struct session *s)
+{
+    bool inst = s->mode == MODE_INSTANCES;
+    struct vision_net_info *ni = &s->segi;
+    char err[96] = "";
+    size_t scratch = 0;
+    uint8_t *map;
+    float *up;
+
+    if (s->segnet) {
+        return 0;
+    }
+    if (s->seg_tried) {
+        return -1;
+    }
+    s->seg_tried = true;
+    if (load_net(s, inst ? "instances" : "segment", &s->segnet, inst ? s->inst_path : s->seg_path, ni, err,
+                 sizeof(err)) != 0) {
+        seg_fail(s, err);
+        return -1;
+    }
+    if (!inst) {
+        const uint32_t *d = ni->dims[0];
+
+        if (ni->outputs != 1 || ni->rank[0] != 4 || d[0] != 1 || d[1] < 2 || d[1] >= VISION_SEG_NONE || !d[2] ||
+            !d[3] || ni->in_h % d[2] || ni->in_w % d[3] || ni->in_h / d[2] != ni->in_w / d[3]) {
+            seg_fail(s, "the model's output is not a class map of its input");
+            return -1;
+        }
+        s->seg_mw = ni->in_w;
+        s->seg_mh = ni->in_h;
+        scratch = ni->in_h / d[2] > 1 ? (size_t)d[1] * ni->in_w * ni->in_h : 0;
+    } else {
+        int det = ni->outputs == 2 && ni->rank[0] == 3 ? 0 : 1;
+        int pro = 1 - det;
+
+        if (ni->outputs != 2 || ni->rank[det] != 3 || ni->rank[pro] != 4 || ni->dims[det][0] != 1 ||
+            ni->dims[det][1] <= 4 + VISION_INST_COEFFS || !ni->dims[det][2] || ni->dims[pro][0] != 1 ||
+            ni->dims[pro][1] != VISION_INST_COEFFS || !ni->dims[pro][2] || !ni->dims[pro][3]) {
+            seg_fail(s, "the model's outputs are not an instance segmenter's");
+            return -1;
+        }
+        s->inst_det = det;
+        s->inst_proto = pro;
+        s->seg_mw = ni->dims[pro][3] * 2;
+        s->seg_mh = ni->dims[pro][2] * 2;
+        scratch = (size_t)ni->dims[pro][2] * ni->dims[pro][3];
+    }
+    map = realloc(s->seg_map, (size_t)s->seg_mw * s->seg_mh);
+    if (map) {
+        s->seg_map = map;
+    }
+    up = scratch ? realloc(s->seg_up, scratch * sizeof(float)) : s->seg_up;
+    if (up) {
+        s->seg_up = up;
+    }
+    if (!map || (scratch && !up)) {
+        seg_fail(s, "out of memory");
+        return -1;
+    }
+    return 0;
+}
+
+/* SEGMENT: the largest centred window of the model's shape, stretched into
+ * it; the logits brought to the input's size and the best class taken per
+ * pixel; what most of the picture is, said. */
+static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int *pre, int *inf)
+{
+    const struct vision_net_info *ni = &s->segi;
+    uint32_t c = ni->dims[0][1];
+    uint32_t oh = ni->dims[0][2];
+    uint32_t ow = ni->dims[0][3];
+    uint32_t scale = ni->in_h / oh;
+    size_t cells = (size_t)s->seg_mw * s->seg_mh;
+    uint32_t hist[VISION_SEG_NONE] = { 0 };
+    struct vision_box win;
+    const float *out;
+    char text[80] = "";
+    size_t off = 0;
+    size_t count;
+    size_t i;
+    int k;
+
+    win.w = (int32_t)in->width;
+    win.h = (int32_t)((uint64_t)in->width * ni->in_h / ni->in_w);
+    if ((uint32_t)win.h > in->height) {
+        win.h = (int32_t)in->height;
+        win.w = (int32_t)((uint64_t)in->height * ni->in_w / ni->in_h);
+    }
+    if (win.w < 1 || win.h < 1) {
+        return -1;
+    }
+    win.x = ((int32_t)in->width - win.w) / 2;
+    win.y = ((int32_t)in->height - win.h) / 2;
+    if (vision_net_run(s->segnet, &win, true, 0, pre, inf) != 0) {
+        return -1;
+    }
+    out = vision_net_output(s->segnet, 0, &count);
+    if (!out || count != (size_t)c * oh * ow) {
+        return -1;
+    }
+    if (scale > 1) {
+        if (vision_seg_upsample(out, (int)c, (int)oh, (int)ow, (int)scale, s->seg_up) != 0) {
+            return -1;
+        }
+        out = s->seg_up;
+    }
+    vision_seg_argmax(out, (int)c, cells, s->seg_map);
+    s->seg_now.wx = (float)win.x;
+    s->seg_now.wy = (float)win.y;
+    s->seg_now.ww = (float)win.w;
+    s->seg_now.wh = (float)win.h;
+    for (i = 0; i < c; i++) {
+        s->seg_col[i] = vision_seg_color((uint32_t)i);
+    }
+    for (i = 0; i < cells; i++) {
+        hist[s->seg_map[i]]++;
+    }
+    for (k = 0; k < 3; k++) {
+        uint32_t best = 0;
+        uint32_t pm;
+
+        for (i = 1; i < c; i++) {
+            best = hist[i] > hist[best] ? (uint32_t)i : best;
+        }
+        pm = (uint32_t)(((uint64_t)hist[best] * 1000) / cells);
+        if (pm < 10 || off + 32 >= sizeof(text)) {
+            break;
+        }
+        off += (size_t)snprintf(text + off, sizeof(text) - off, "%s%s %u%%", k ? "  " : "", vision_seg_label(best),
+                                pm / 10);
+        hist[best] = 0;
+    }
+    say("seginfo %s", text[0] ? text : "-");
+    return 0;
+}
+
+/* INSTANCES: the picture letterboxed in, the head decoded, each object's
+ * mask from the prototypes; the boxes go out as any detector's. */
+static int seg_instances(struct session *s, const struct pocketcam_frame *f, const struct pocketcam_frame *in,
+                         int rotation, int *pre, int *inf)
+{
+    const struct vision_net_info *ni = &s->segi;
+    uint32_t ch = ni->dims[s->inst_det][1];
+    uint32_t rows = ni->dims[s->inst_det][2];
+    uint32_t ph = ni->dims[s->inst_proto][2];
+    uint32_t pw = ni->dims[s->inst_proto][3];
+    float ratio = (float)ni->in_w / (float)in->width < (float)ni->in_h / (float)in->height
+                      ? (float)ni->in_w / (float)in->width
+                      : (float)ni->in_h / (float)in->height;
+    const float *det;
+    const float *proto;
+    char text[80];
+    size_t off;
+    size_t dc;
+    size_t pc;
+    int n;
+    int i;
+    int k;
+
+    if (vision_net_run(s->segnet, NULL, false, VISION_INST_PAD, pre, inf) != 0) {
+        return -1;
+    }
+    det = vision_net_output(s->segnet, s->inst_det, &dc);
+    proto = vision_net_output(s->segnet, s->inst_proto, &pc);
+    if (!det || !proto || dc != (size_t)ch * rows || pc != (size_t)VISION_INST_COEFFS * ph * pw) {
+        return -1;
+    }
+    n = vision_inst_decode(det, ch, rows, ni->in_w, ni->in_h, VISION_CONF_MIN, VISION_NMS_IOU, s->insts,
+                           VISION_INST_MAX);
+    if (n < 0) {
+        n = 0;
+        s->bad_total++;
+    }
+    vision_inst_map(s->insts, n, proto, pw, ph, ni->in_w, ni->in_h, s->seg_up, s->seg_map);
+    /* Letterboxed, padded right and below: the map lies over the upright
+     * picture and beyond its right or lower edge. */
+    s->seg_now.wx = 0;
+    s->seg_now.wy = 0;
+    s->seg_now.ww = (float)ni->in_w / ratio;
+    s->seg_now.wh = (float)ni->in_h / ratio;
+    off = (size_t)snprintf(text, sizeof(text), "%d object%s", n, n == 1 ? "" : "s");
+    for (i = 0; i < n; i++) {
+        struct vision_box b = {
+            (int32_t)((float)s->insts[i].det.box.x / ratio), (int32_t)((float)s->insts[i].det.box.y / ratio),
+            (int32_t)((float)s->insts[i].det.box.w / ratio), (int32_t)((float)s->insts[i].det.box.h / ratio),
+        };
+        int same = 0;
+
+        if ((uint32_t)(b.x + b.w) > in->width) {
+            b.w = (int32_t)in->width - b.x;
+        }
+        if ((uint32_t)(b.y + b.h) > in->height) {
+            b.h = (int32_t)in->height - b.y;
+        }
+        b.w = b.w < 1 ? 1 : b.w;
+        b.h = b.h < 1 ? 1 : b.h;
+        s->dets[i].box = b;
+        s->dets[i].cls = s->insts[i].det.cls;
+        s->dets[i].conf = s->insts[i].det.conf;
+        s->seg_col[i] = vision_inst_color(s->insts[i].det.cls);
+        /* Each class once, with how many of it, the surest first. */
+        for (k = 0; k < i; k++) {
+            if (s->insts[k].det.cls == s->insts[i].det.cls) {
+                break;
+            }
+        }
+        if (k < i) {
+            continue;
+        }
+        for (k = i; k < n; k++) {
+            same += s->insts[k].det.cls == s->insts[i].det.cls;
+        }
+        if (off + 28 < sizeof(text)) {
+            off += (size_t)snprintf(text + off, sizeof(text) - off, "  %s %d", vision_label(s->insts[i].det.cls),
+                                    same);
+        }
+    }
+    say("seginfo %s", text);
+    unturn_dets(s->dets, n, f, rotation);
+    vision_tracker_update(&s->tracker, s->dets, n);
+    if (s->seg_view == SEG_VIEW_ORIGINAL) {
+        say("det %u 0", f->seq);
+    } else {
+        say_tracks(s, f->seq);
+    }
+    return 0;
+}
+
+static void segment(struct session *s, const struct pocketcam_frame *f)
+{
+    struct pocketcam_frame in;
+    struct vision_view v = view_of(s);
+    int64_t t0 = mono_ms();
+    size_t need = (size_t)3 * f->width * f->height;
+    int pre = 0;
+    int inf = 0;
+
+    if (seg_open(s) != 0) {
+        return;
+    }
+    if (v.rotation != 0 && s->upright_size < need) {
+        uint8_t *b = realloc(s->upright, need);
+
+        if (b) {
+            s->upright = b;
+            s->upright_size = need;
+        }
+    }
+    if (upright_input(f, v.rotation, s->upright_size >= need ? s->upright : NULL, &in) != 0 ||
+        vision_net_turn(s->segnet, v.rotation) != 0 || vision_net_frame(s->segnet, &in) != 0 ||
+        (s->mode == MODE_SEGMENT ? seg_semantic(s, &in, &pre, &inf)
+                                 : seg_instances(s, f, &in, v.rotation, &pre, &inf)) != 0) {
+        seg_fail(s, "the segmentation model failed on a frame");
+        return;
+    }
+    s->seg_now.fw = f->width;
+    s->seg_now.fh = f->height;
+    s->seg_now.mw = s->seg_mw;
+    s->seg_now.mh = s->seg_mh;
+    s->seg_have = true;
+    s->last_pre_ms = pre;
+    s->last_infer_ms = inf;
+    s->last_post_ms = (int)(mono_ms() - t0) - pre - inf;
+    if (s->last_post_ms < 0) {
+        s->last_post_ms = 0;
+    }
+    s->inferred++;
+}
+
+/* The last map onto the preview just drawn into a slot: OVERLAY mixes each
+ * cell's colour half and half with the picture, MASK shows the colours
+ * alone on black, ORIGINAL leaves the picture be. A table says which map
+ * cell each view pixel shows: the view pixel back to its frame pixel
+ * (vision_unmap_point), that turned upright as the model saw it, and the
+ * map's window of the upright picture. */
+static void seg_paint(struct session *s, uint16_t *px)
+{
+    struct vision_view v = view_of(s);
+    struct seg_key k = s->seg_now;
+    size_t n = (size_t)s->view_w * s->view_h;
+    bool mask = s->seg_view == SEG_VIEW_MASK;
+    bool edges = s->mode == MODE_INSTANCES;
+    uint32_t x;
+    uint32_t y;
+
+    if (s->seg_view == SEG_VIEW_ORIGINAL || !s->seg_have || !s->seg_map || !n || k.ww <= 0 || k.wh <= 0) {
+        return;
+    }
+    k.vw = s->view_w;
+    k.vh = s->view_h;
+    k.rotation = v.rotation;
+    k.mirror = v.mirror ? 1 : 0;
+    k.contain = v.contain ? 1 : 0;
+    if (!s->seg_lut || memcmp(&k, &s->seg_made, sizeof(k)) != 0) {
+        int32_t *lut = realloc(s->seg_lut, n * sizeof(int32_t));
+
+        if (!lut) {
+            return;
+        }
+        s->seg_lut = lut;
+        for (y = 0; y < k.vh; y++) {
+            for (x = 0; x < k.vw; x++) {
+                struct vision_box b = { 0, 0, 1, 1 };
+                struct vision_box u;
+                int32_t idx = -1;
+
+                if (vision_unmap_point(&v, (int32_t)x, (int32_t)y, &b.x, &b.y) == 0) {
+                    u = b;
+                    if (v.rotation == 0 || vision_box_turn(k.fw, k.fh, v.rotation, &b, &u) == 0) {
+                        float mx = ((float)u.x + 0.5f - k.wx) * (float)k.mw / k.ww;
+                        float my = ((float)u.y + 0.5f - k.wy) * (float)k.mh / k.wh;
+
+                        if (mx >= 0 && my >= 0 && mx < (float)k.mw && my < (float)k.mh) {
+                            idx = (int32_t)my * (int32_t)k.mw + (int32_t)mx;
+                        }
+                    }
+                }
+                lut[(size_t)y * k.vw + x] = idx;
+            }
+        }
+        s->seg_made = k;
+    }
+    for (y = 0; y < k.vh; y++) {
+        const int32_t *l = s->seg_lut + (size_t)y * k.vw;
+        uint16_t *p = px + (size_t)y * k.vw;
+
+        for (x = 0; x < k.vw; x++) {
+            uint8_t id = l[x] >= 0 ? s->seg_map[l[x]] : VISION_SEG_NONE;
+            uint16_t c;
+
+            if (id == VISION_SEG_NONE) {
+                if (mask) {
+                    p[x] = 0;
+                }
+                continue;
+            }
+            c = s->seg_col[id];
+            /* An object's outline, so two of one class side by side are two. */
+            if (edges && x > 0 && y > 0 &&
+                ((l[(int32_t)x - 1] >= 0 ? s->seg_map[l[(int32_t)x - 1]] : VISION_SEG_NONE) != id ||
+                 (l[(int32_t)x - (int32_t)k.vw] >= 0 ? s->seg_map[l[(int32_t)x - (int32_t)k.vw]] : VISION_SEG_NONE) !=
+                     id)) {
+                p[x] = 0xFFFF;
+            } else if (mask) {
+                p[x] = c;
+            } else {
+                p[x] = (uint16_t)(((p[x] & 0xF7DE) >> 1) + ((c & 0xF7DE) >> 1));
+            }
+        }
+    }
+}
+
 /* `n` per-mille words, or the one word `off` (every value -1). 0, or -1
  * for anything else. */
 static int parse_pm(char **save, int *v, int n)
@@ -2026,6 +2453,23 @@ static void command(struct session *s, char *line)
                 owner_load(s);
             }
             say_owner(s);
+        } else if (a && strcmp(a, "segment") == 0 && s->seg_offered) {
+            set_mode(s, MODE_SEGMENT);
+            seg_open(s);
+        } else if (a && strcmp(a, "instances") == 0 && s->inst_offered) {
+            set_mode(s, MODE_INSTANCES);
+            seg_open(s);
+        }
+    } else if (strcmp(w, "seg") == 0) {
+        /* SEGMENT and INSTANCES: what the picture shows. */
+        char *a = strtok_r(NULL, " ", &save);
+
+        if (a && strcmp(a, "original") == 0) {
+            s->seg_view = SEG_VIEW_ORIGINAL;
+        } else if (a && strcmp(a, "overlay") == 0) {
+            s->seg_view = SEG_VIEW_OVERLAY;
+        } else if (a && strcmp(a, "mask") == 0) {
+            s->seg_view = SEG_VIEW_MASK;
         }
     } else if (strcmp(w, "enrol") == 0) {
         /* `enrol`: the next VISION_OWNER_SAMPLES views of the one face in
@@ -2367,6 +2811,8 @@ static void stream_once(struct session *s)
         }
     } else if (s->mode == MODE_FACE || s->mode == MODE_RECOGNIZE) {
         detect_faces(s, &f, now);
+    } else if (seg_mode(s)) {
+        segment(s, &f);
     } else if (!pixel_mode(s)) {
         detect(s, &f, now);
     }
@@ -2379,6 +2825,8 @@ static void stream_once(struct session *s)
                                 slot_pixels(s, slot), s->view_w, s->view_h, s->view_w) == 0) {
             if (pixel_mode(s)) {
                 process_pixels(s, slot_pixels(s, slot));
+            } else if (seg_mode(s)) {
+                seg_paint(s, slot_pixels(s, slot));
             }
             s->held[slot] = true;
             s->last_sent_ms = now;
@@ -2507,6 +2955,11 @@ static int run_session(const char *backend, const char *config, const char *mode
     s->face_det_path = s->face_det_path && *s->face_det_path ? s->face_det_path : VISION_FACE_DET_DEFAULT;
     s->face_embed_path = getenv("POCKETOS_VISION_FACE_EMBED");
     s->face_embed_path = s->face_embed_path && *s->face_embed_path ? s->face_embed_path : VISION_FACE_EMBED_DEFAULT;
+    s->seg_path = getenv("POCKETOS_VISION_SEG");
+    s->seg_path = s->seg_path && *s->seg_path ? s->seg_path : VISION_SEG_DEFAULT;
+    s->inst_path = getenv("POCKETOS_VISION_INST");
+    s->inst_path = s->inst_path && *s->inst_path ? s->inst_path : VISION_INST_DEFAULT;
+    s->seg_view = SEG_VIEW_OVERLAY;
     s->net_script = kpu_script;
     say("hello %d %s %s", VISION_PROTO_VERSION, backend, vision_kpu_backend());
     if (map_shm(s) != 0) {
@@ -2555,8 +3008,11 @@ static int run_session(const char *backend, const char *config, const char *mode
                       access(s->text_dict_path, R_OK) == 0;
     s->face_offered = access(s->face_det_path, R_OK) == 0;
     s->recog_offered = s->face_offered && access(s->face_embed_path, R_OK) == 0;
-    say("caps%s color edge trace%s%s%s", s->detect_offered ? " detect track traffic" : "",
-        s->text_offered ? " read" : "", s->face_offered ? " face" : "", s->recog_offered ? " recognize" : "");
+    s->seg_offered = access(s->seg_path, R_OK) == 0;
+    s->inst_offered = access(s->inst_path, R_OK) == 0;
+    say("caps%s color edge trace%s%s%s%s%s", s->detect_offered ? " detect track traffic" : "",
+        s->text_offered ? " read" : "", s->face_offered ? " face" : "", s->recog_offered ? " recognize" : "",
+        s->seg_offered ? " segment" : "", s->inst_offered ? " instances" : "");
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {
@@ -2574,6 +3030,7 @@ static int run_session(const char *backend, const char *config, const char *mode
     text_close(s);
     face_close(s);
     embed_close(s);
+    seg_close(s);
     vision_kpu_close(s->kpu);
     /* Only now, with the camera closed and the KPU pool given back: `bye`
      * is the session's word that a kill is no longer needed. Said on every
@@ -2585,6 +3042,9 @@ static int run_session(const char *backend, const char *config, const char *mode
     munmap(s->shm, POCKETCAM_SHM_BYTES);
     code = s->exit_code;
     free(s->upright);
+    free(s->seg_map);
+    free(s->seg_up);
+    free(s->seg_lut);
     free(s);
     return code;
 }

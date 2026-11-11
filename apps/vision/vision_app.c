@@ -721,6 +721,7 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP ? "DONE" : "SETUP");
     button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
     button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
+    button_text(a->btn[VISION_BTN_VIEW], s.view_btn);
     button_text(a->btn[VISION_BTN_TRACE], s.trace_btn);
     button_text(a->btn[VISION_BTN_ENROL], s.enrol_btn);
     button_text(a->btn[VISION_BTN_FORGET], s.forget_btn);
@@ -741,6 +742,7 @@ static void repaint(struct vision_app *a)
     button_style(a->btn[VISION_BTN_SAMPLE], a->model.have_target, s.line_enabled && s.match_enabled);
     button_style(a->btn[VISION_BTN_TOL], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_EDGE], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_VIEW], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_TRACE], false, s.line_enabled);
     /* In COLOR a tap on the picture picks the colour there. */
     if (s.picture_tap) {
@@ -882,6 +884,7 @@ static void do_actions(struct vision_app *a, unsigned acts)
         vision_session_color(&a->session, a->model.have_target ? a->model.target : NULL);
         vision_session_tol(&a->session, vision_model_tol(&a->model));
         vision_session_edge(&a->session, vision_model_edge_threshold(&a->model));
+        vision_session_seg_view(&a->session, vision_seg_view_word(a->model.set.seg.view));
         vision_session_trace(&a->session, a->model.set.trace.dark);
         vision_session_probe(&a->session, a->model.probe_x, a->model.probe_y);
     } else if (acts & VISION_ACT_PROBE) {
@@ -1110,6 +1113,13 @@ static void on_edge(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_edge_next(&a->model));
+}
+
+static void on_view(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_view_next(&a->model));
 }
 
 static void on_trace(lv_event_t *e)
@@ -1419,6 +1429,7 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_CLASSES] = button(a->frame, "CLASSES", on_classes, a);
     a->btn[VISION_BTN_TOL] = button(a->frame, "TOL: MED", on_tol, a);
     a->btn[VISION_BTN_EDGE] = button(a->frame, "EDGE: SOFT", on_edge, a);
+    a->btn[VISION_BTN_VIEW] = button(a->frame, "VIEW: OVERLAY", on_view, a);
     a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
     a->btn[VISION_BTN_ENROL] = button(a->frame, "ENROL", on_enrol, a);
     a->btn[VISION_BTN_FORGET] = button(a->frame, "FORGET", on_forget, a);

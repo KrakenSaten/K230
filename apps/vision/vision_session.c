@@ -434,6 +434,16 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->kind = VISION_EV_TEXT;
         return 1;
     }
+    if (strncmp(line, "seginfo", 7) == 0 && (line[7] == ' ' || line[7] == '\0')) {
+        ev->kind = VISION_EV_SEGINFO;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "segfail", 7) == 0 && (line[7] == ' ' || line[7] == '\0')) {
+        ev->kind = VISION_EV_SEGFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
     if (strncmp(line, "facefail", 8) == 0) {
         ev->kind = VISION_EV_FACEFAIL;
         snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
@@ -1244,6 +1254,14 @@ int vision_session_tol(struct vision_session *s, uint32_t tol)
         return -1;
     }
     return send_line(s, "tol %u", tol);
+}
+
+int vision_session_seg_view(struct vision_session *s, const char *word)
+{
+    if (!word || !word_ok(word, 16)) {
+        return -1;
+    }
+    return send_line(s, "seg %s", word);
 }
 
 int vision_session_edge(struct vision_session *s, uint32_t threshold)

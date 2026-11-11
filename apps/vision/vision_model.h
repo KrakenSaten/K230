@@ -91,6 +91,7 @@ enum vision_button {
     VISION_BTN_FORGET,
     VISION_BTN_MODEL,
     VISION_BTN_CLASSES,
+    VISION_BTN_VIEW,
     VISION_BUTTONS
 };
 
@@ -165,6 +166,8 @@ struct vision_model {
     bool hold;                        /* READ: the result stays as it is */
     char readfail[VISION_EVENT_TEXT_MAX]; /* READ cannot read: why; "" when it can */
     char facefail[VISION_EVENT_TEXT_MAX]; /* FACE cannot look: why; "" when it can */
+    char segfail[VISION_EVENT_TEXT_MAX];  /* SEGMENT, INSTANCES cannot run: why; "" when they can */
+    char seginfo[VISION_EVENT_TEXT_MAX];  /* what the helper last said is in the picture */
     uint32_t faces_seen;  /* FACE: faces that got an id since the mode began or RESET */
     uint32_t face_top_id; /* the highest id counted; the helper's ids only grow */
     /* RECOGNIZE */
@@ -220,6 +223,7 @@ struct vision_view_text {
     bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
     const char *edge_btn;
+    const char *view_btn;   /* SEGMENT, INSTANCES: VIEW: ORIGINAL / OVERLAY / MASK */
     const char *trace_btn;
     char count_a[32];     /* "DOWN 3", "IN (DOWN) 3", "OBJECTS 3", or "-" */
     char count_b[32];
@@ -318,6 +322,8 @@ unsigned vision_model_sample_at(struct vision_model *m, int32_t x, int32_t y);
 unsigned vision_model_sample_middle(struct vision_model *m, uint32_t view_w, uint32_t view_h);
 unsigned vision_model_tol_next(struct vision_model *m);
 unsigned vision_model_edge_next(struct vision_model *m);
+/* SEGMENT, INSTANCES: the next view. */
+unsigned vision_model_view_next(struct vision_model *m);
 unsigned vision_model_trace_next(struct vision_model *m);
 /* COLOR: read the colour at a view point (a tap on the picture), or at the
  * centre again; MATCH marks the colour read, CLEAR stops marking it. */
