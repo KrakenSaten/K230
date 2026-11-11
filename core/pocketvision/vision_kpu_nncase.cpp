@@ -79,6 +79,21 @@ struct vision_kpu {
 /* Objects of ours alive in the runtime (release_pool). */
 static int live;
 
+static void release_pool(void);
+
+/* Holds the runtime while a model is loaded and looked at. A load takes
+ * shared memory before anything of ours counts as alive, and the runtime
+ * keeps it in its pool when the interpreter goes; without this a model
+ * that was refused, or only described, left it there, and a process that
+ * then ended lost it until a reboot (release_pool). Declare it BEFORE the
+ * object that loads, so that it goes after it. */
+struct pool_hold {
+    pool_hold() { live++; }
+    ~pool_hold() { release_pool(); }
+    pool_hold(const pool_hold &) = delete;
+    pool_hold &operator=(const pool_hold &) = delete;
+};
+
 static int64_t mono_ms()
 {
     struct timespec t;
@@ -106,6 +121,7 @@ extern "C" int vision_kpu_open(struct vision_kpu **kp, const char *path, const c
         reason(err, errlen, "model file not found");
         return -ENOENT;
     }
+    pool_hold hold;
     std::unique_ptr<vision_kpu> k(new (std::nothrow) vision_kpu);
     if (!k) {
         return -ENOMEM;
@@ -489,6 +505,7 @@ extern "C" int vision_net_open(struct vision_net **np, const char *path, const c
         reason(err, errlen, "model file not found");
         return -ENOENT;
     }
+    pool_hold hold;
     std::unique_ptr<vision_net> n(new (std::nothrow) vision_net);
     if (!n) {
         return -ENOMEM;
@@ -848,6 +865,7 @@ extern "C" int vision_kpu_describe(const char *path, char *out, size_t len)
     if (!ifs) {
         return -ENOENT;
     }
+    pool_hold hold;
     std::unique_ptr<interpreter> in(new (std::nothrow) interpreter);
     if (!in) {
         return -ENOMEM;
