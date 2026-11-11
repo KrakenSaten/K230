@@ -1970,9 +1970,12 @@ static int seg_open(struct session *s)
     return 0;
 }
 
-/* SEGMENT: the largest centred window of the model's shape, stretched into
- * it; the logits brought to the input's size and the best class taken per
- * pixel; what most of the picture is, said. */
+/* SEGMENT: the whole upright picture stretched into the model, whatever its
+ * shape, so the map lies over all of the picture in every orientation (a
+ * centred window of the model's 2:1 shape left bands of a landscape picture
+ * unclassed and covered barely a quarter of a portrait one: unit B,
+ * 2026-11-11); the logits brought to the input's size and the best class
+ * taken per pixel; what most of the picture is, said. */
 static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int *pre, int *inf)
 {
     const struct vision_net_info *ni = &s->segi;
@@ -1982,7 +1985,6 @@ static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int
     uint32_t scale = ni->in_h / oh;
     size_t cells = (size_t)s->seg_mw * s->seg_mh;
     uint32_t hist[VISION_SEG_NONE] = { 0 };
-    struct vision_box win;
     const float *out;
     char text[80] = "";
     size_t off = 0;
@@ -1990,18 +1992,7 @@ static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int
     size_t i;
     int k;
 
-    win.w = (int32_t)in->width;
-    win.h = (int32_t)((uint64_t)in->width * ni->in_h / ni->in_w);
-    if ((uint32_t)win.h > in->height) {
-        win.h = (int32_t)in->height;
-        win.w = (int32_t)((uint64_t)in->height * ni->in_w / ni->in_h);
-    }
-    if (win.w < 1 || win.h < 1) {
-        return -1;
-    }
-    win.x = ((int32_t)in->width - win.w) / 2;
-    win.y = ((int32_t)in->height - win.h) / 2;
-    if (vision_net_run(s->segnet, &win, true, 0, pre, inf) != 0) {
+    if (vision_net_run(s->segnet, NULL, true, 0, pre, inf) != 0) {
         return -1;
     }
     out = vision_net_output(s->segnet, 0, &count);
@@ -2015,10 +2006,10 @@ static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int
         out = s->seg_up;
     }
     vision_seg_argmax(out, (int)c, cells, s->seg_map);
-    s->seg_now.wx = (float)win.x;
-    s->seg_now.wy = (float)win.y;
-    s->seg_now.ww = (float)win.w;
-    s->seg_now.wh = (float)win.h;
+    s->seg_now.wx = 0;
+    s->seg_now.wy = 0;
+    s->seg_now.ww = (float)in->width;
+    s->seg_now.wh = (float)in->height;
     for (i = 0; i < c; i++) {
         s->seg_col[i] = vision_seg_color((uint32_t)i);
     }
