@@ -1639,7 +1639,7 @@ VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_tr
 # -O3 everywhere, and on the K230 the flags the unit B measurement was made
 # with (150 ms scalar, 9.8 ms vectorised).
 ifeq ($(POCKETVISION_KPU),1)
-VISION_SEG_CFLAGS ?= -O3 -mcpu=c908v -mtune=c908 -mrvv-v0p10-compatible -mrvv-auto-vectorize
+VISION_SEG_CFLAGS ?= -O3 -mcpu=c908v -mtune=c908 -mrvv-v0p10-compatible -mrvv-auto-vectorize -Wno-maybe-uninitialized
 else
 VISION_SEG_CFLAGS ?= -O3
 endif
