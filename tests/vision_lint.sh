@@ -73,9 +73,10 @@ check "a det line with every box fits the protocol line" \
     "$([ $((24 * 52 + 32)) -le 2048 ] && grep -q '#define VISION_LINE_MAX 2048' $C/pocketvision_proto.h && echo 1 || echo 0)"
 check "the tracker's per-frame table is the two bounds, not the scene" \
     "$(grep -q 'static uint32_t iou\[VISION_MAX_TRACKS\]\[VISION_MAX_DETECTIONS\];' $C/vision_track.c && echo 1 || echo 0)"
-check "the screen makes its outlines, lines, colour mark, square, swatch and trace dots once, bounded" \
-    "$(grep -q 'lv_obj_t \*outline\[VISION_MAX_SHOWN\];' $APP && [ "$(code $APP | grep -c 'lv_obj_create(a->box)')" = 5 ] &&
+check "the screen makes its outlines, lines, colour mark, square, swatch, trace dots, counters and SEGMENT's key once, bounded" \
+    "$(grep -q 'lv_obj_t \*outline\[VISION_MAX_SHOWN\];' $APP && [ "$(code $APP | grep -c 'lv_obj_create(a->box)')" = 6 ] &&
        [ "$(code $APP | grep -c 'line_object(a->box')" = 6 ] && grep -q 'lv_obj_t \*trace_dot\[VISION_TRACE_DOTS\];' $APP &&
+       grep -q 'lv_obj_t \*legend_sw\[VISION_LEGEND_MAX\];' $APP && [ "$(code $APP | grep -c 'hud_chip(a->box')" = 2 ] &&
        echo 1 || echo 0)"
 check "the pixel modes keep their working rows static and bounded by the widest picture" \
     "$(grep -q 'static uint8_t luma\[3\]\[VISION_PIXELS_MAX_W\];' $C/vision_pixels.c && grep -q '#define VISION_PIXELS_MAX_W 1024' $C/vision_pixels.h &&

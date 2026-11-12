@@ -177,16 +177,32 @@ static void test_picker(void)
     check("no sheet until asked", v.kind == VISION_SHEET_NONE && v.rows == 0);
     check("MODE opens the picker and sends nothing", vision_model_mode_button(&m) == 0 && m.sheet == VISION_SHEET_MODES);
     vision_model_sheet(&m, &v);
-    check("before caps: GENERAL, ROAD and TOOLS - the detector's modes and the pixel modes",
-          v.kind == VISION_SHEET_MODES && v.rows == 3 && strcmp(v.row[0].caption, "GENERAL") == 0 &&
-              strcmp(v.row[1].caption, "ROAD") == 0 && strcmp(v.row[2].caption, "TOOLS") == 0);
-    check("GENERAL: DETECT (in force) and TRACK", v.row[0].cells == 2 && strcmp(v.row[0].cell[0].text, "DETECT") == 0 &&
-                                                      v.row[0].cell[0].selected && strcmp(v.row[0].cell[1].text, "TRACK") == 0 &&
-                                                      !v.row[0].cell[1].selected);
-    check("TOOLS: COLOR, EDGE, LINE TRACE", v.row[2].cells == 3 && strcmp(v.row[2].cell[2].text, "LINE TRACE") == 0);
-    check("no FACE, RECOGNIZE or READ without a helper that says it can", code_of(&m, "FACE", NULL) < 0 &&
-                                                                              code_of(&m, "RECOGNIZE", NULL) < 0 &&
-                                                                              code_of(&m, "READ", NULL) < 0);
+    check("the picker always has the five groups, in order",
+          v.kind == VISION_SHEET_MODES && v.rows == 5 && strcmp(v.row[0].caption, "GENERAL") == 0 &&
+              strcmp(v.row[1].caption, "ROAD") == 0 && strcmp(v.row[2].caption, "PEOPLE") == 0 &&
+              strcmp(v.row[3].caption, "TEXT") == 0 && strcmp(v.row[4].caption, "TOOLS") == 0);
+    check("GENERAL: DETECT (in force), TRACK, and INSTANCES dimmed",
+          v.row[0].cells == 3 && strcmp(v.row[0].cell[0].text, "DETECT") == 0 && v.row[0].cell[0].selected &&
+              v.row[0].cell[0].enabled && strcmp(v.row[0].cell[1].text, "TRACK") == 0 && !v.row[0].cell[1].selected &&
+              v.row[0].cell[1].enabled && strcmp(v.row[0].cell[2].text, "INSTANCES") == 0 &&
+              !v.row[0].cell[2].enabled && !v.row[0].cell[2].selected);
+    check("ROAD: TRAFFIC, and SEGMENT dimmed", v.row[1].cells == 2 && v.row[1].cell[0].enabled &&
+                                                   strcmp(v.row[1].cell[1].text, "SEGMENT") == 0 &&
+                                                   !v.row[1].cell[1].enabled);
+    check("PEOPLE and TEXT are there, all dimmed, before a helper says it can",
+          v.row[2].cells == 2 && !v.row[2].cell[0].enabled && !v.row[2].cell[1].enabled && v.row[3].cells == 1 &&
+              strcmp(v.row[3].cell[0].text, "READ") == 0 && !v.row[3].cell[0].enabled);
+    check("TOOLS: COLOR, EDGE, LINE TRACE", v.row[4].cells == 3 && strcmp(v.row[4].cell[2].text, "LINE TRACE") == 0 &&
+                                                v.row[4].cell[2].enabled);
+    check("a dimmed mode has no code: no tap, no key", code_of(&m, "FACE", NULL) < 0 &&
+                                                           code_of(&m, "RECOGNIZE", NULL) < 0 &&
+                                                           code_of(&m, "READ", NULL) < 0 &&
+                                                           code_of(&m, "SEGMENT", NULL) < 0 &&
+                                                           code_of(&m, "INSTANCES", NULL) < 0);
+    check("and the picker says what dimmed means", strcmp(v.body, VISION_PICKER_DIMMED_TEXT) == 0);
+    check("a tap that names a dimmed mode all the same is refused",
+          vision_model_sheet_tap(&m, 100 + VISION_MODE_FACE) == 0 && m.mode == VISION_MODE_DETECT &&
+              m.sheet == VISION_SHEET_MODES);
     check("MODE again closes it", vision_model_mode_button(&m) == 0 && m.sheet == VISION_SHEET_NONE);
 
     /* The helper's caps decide what is offered. */
@@ -198,11 +214,15 @@ static void test_picker(void)
         check("caps that keep the mode in force ask for nothing", vision_model_event(&m, &e, NULL, 2000) == 0);
         vision_model_mode_button(&m);
         vision_model_sheet(&m, &v);
-        check("with FACE and READ offered: five groups, PEOPLE with FACE alone, TEXT with READ",
-              v.rows == 5 && strcmp(v.row[2].caption, "PEOPLE") == 0 && v.row[2].cells == 1 &&
-                  strcmp(v.row[2].cell[0].text, "FACE") == 0 && strcmp(v.row[3].caption, "TEXT") == 0 &&
-                  strcmp(v.row[3].cell[0].text, "READ") == 0);
-        check("TOOLS only lists what is offered", v.row[4].cells == 1 && strcmp(v.row[4].cell[0].text, "COLOR") == 0);
+        check("with FACE and READ offered: PEOPLE's FACE can be chosen, RECOGNIZE stays dimmed, TEXT's READ can",
+              v.rows == 5 && strcmp(v.row[2].caption, "PEOPLE") == 0 && v.row[2].cells == 2 &&
+                  strcmp(v.row[2].cell[0].text, "FACE") == 0 && v.row[2].cell[0].enabled &&
+                  v.row[2].cell[0].code >= 0 && !v.row[2].cell[1].enabled && v.row[2].cell[1].code < 0 &&
+                  strcmp(v.row[3].caption, "TEXT") == 0 && strcmp(v.row[3].cell[0].text, "READ") == 0 &&
+                  v.row[3].cell[0].enabled);
+        check("TOOLS: only what is offered can be chosen", v.row[4].cells == 3 && v.row[4].cell[0].enabled &&
+                                                               strcmp(v.row[4].cell[0].text, "COLOR") == 0 &&
+                                                               !v.row[4].cell[1].enabled && !v.row[4].cell[2].enabled);
         check("EDGE cannot be chosen when not offered", vision_model_set_mode(&m, VISION_MODE_EDGE) == 0 &&
                                                             m.mode == VISION_MODE_DETECT);
     }
@@ -717,11 +737,11 @@ static void sheet_on(const char *what, const struct vision_rect *pic, int rows, 
 }
 
 static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it, int32_t ir,
-                  int32_t ib, uint32_t fw, uint32_t fh, bool wide, int buttons, int status_lines)
+                  int32_t ib, uint32_t fw, uint32_t fh, bool wide, int buttons, bool one_row, int status_lines)
 {
     struct vision_layout l;
-    const struct vision_rect *all[4 + VISION_LAYOUT_BUTTONS];
-    int count = 4 + buttons;
+    const struct vision_rect *all[3 + VISION_LAYOUT_BUTTONS];
+    int count = 3 + buttons;
     char name[160];
     int ok = 1;
     int i;
@@ -729,26 +749,25 @@ static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it
     int64_t err;
 
     snprintf(name, sizeof(name), "%s: lays out", what);
-    check(name, vision_layout_compute(&l, w, h, il, it, ir, ib, fw, fh, buttons, status_lines) == 0);
+    check(name, vision_layout_compute(&l, w, h, il, it, ir, ib, fw, fh, buttons, one_row, status_lines) == 0);
     snprintf(name, sizeof(name), "%s: the shape is %s", what, wide ? "wide" : "tall");
     check(name, l.wide == wide && l.buttons == buttons);
     all[0] = &l.picture;
     all[1] = &l.status;
-    all[2] = &l.count_a;
-    all[3] = &l.count_b;
+    all[2] = &l.mode;
     for (i = 0; i < buttons; i++) {
-        all[4 + i] = &l.btn[i];
+        all[3 + i] = &l.btn[i];
     }
     for (i = 0; i < count; i++) {
         ok &= inside(all[i], il, it, w - ir, h - ib);
     }
     snprintf(name, sizeof(name), "%s: everything inside the safe box", what);
     check(name, ok);
-    ok = 1;
+    ok = l.mode.h >= TOUCH_MIN && l.mode.w >= VISION_MODE_W;
     for (i = 0; i < buttons; i++) {
         ok &= l.btn[i].h >= TOUCH_MIN && l.btn[i].w >= 100;
     }
-    snprintf(name, sizeof(name), "%s: the buttons are usable targets", what);
+    snprintf(name, sizeof(name), "%s: the mode switcher and the buttons are usable targets", what);
     check(name, ok);
     ok = 1;
     for (i = 0; i < count; i++) {
@@ -760,6 +779,29 @@ static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it
     check(name, ok);
     snprintf(name, sizeof(name), "%s: the status holds its lines", what);
     check(name, l.status.h >= status_lines * VISION_STATUS_H);
+    if (one_row && buttons > 1 && l.btn[buttons - 1].y == l.btn[0].y) {
+        ok = 1;
+        for (i = 1; i < buttons; i++) {
+            ok &= l.btn[i].y == l.btn[0].y && l.btn[i].w == l.btn[0].w && l.btn[i].x > l.btn[i - 1].x;
+        }
+        snprintf(name, sizeof(name), "%s: a selector's parts are one row of equal parts", what);
+        check(name, ok);
+    }
+    if (!wide) {
+        /* The controls are at the foot, under the status, the switcher first. */
+        snprintf(name, sizeof(name), "%s: picture, status, then the switcher and the buttons", what);
+        check(name, l.status.y >= l.picture.y + l.picture.h && l.mode.y >= l.status.y + l.status.h &&
+                        l.btn[0].y >= l.mode.y && l.mode.x <= l.btn[0].x);
+    } else {
+        ok = l.mode.x >= l.picture.x + l.picture.w && l.status.y >= l.mode.y + l.mode.h;
+        for (i = 0; i < buttons; i++) {
+            ok &= l.btn[i].y >= l.status.y + l.status.h && l.btn[i].x >= l.picture.x + l.picture.w;
+        }
+        snprintf(name, sizeof(name), "%s: a column beside the picture: the switcher, the status, the buttons", what);
+        check(name, ok);
+        snprintf(name, sizeof(name), "%s: the buttons stand at the column's foot", what);
+        check(name, l.btn[buttons - 1].y + l.btn[buttons - 1].h == h - ib);
+    }
     err = (int64_t)l.picture.w * fh - (int64_t)l.picture.h * fw;
     snprintf(name, sizeof(name), "%s: the picture has the frame's shape (%dx%d)", what, (int)l.picture.w,
              (int)l.picture.h);
@@ -770,7 +812,7 @@ static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it
     {
         /* The largest sheets there are: the full picker, and five rows of
          * three. */
-        const int picker[5] = { 2, 1, 2, 1, 3 };
+        const int picker[5] = { 3, 2, 2, 1, 3 };
         const int full[5] = { 3, 3, 3, 3, 3 };
 
         sheet_on(what, &l.picture, 5, picker);
@@ -799,42 +841,70 @@ static void test_layout(void)
 
     /* The reference panel's bodies under the NONE chrome (as Camera: 528 x
      * 1116 portrait, 1192 x 452 landscape), with the corner clearance, in
-     * every mode's button count. */
-    shape("portrait DETECT", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, 1);
-    shape("landscape DETECT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, 1);
-    shape("portrait TRACK", 528, 1116, 0, 0, 0, 30, 360, 640, false, 4, 1);
-    shape("landscape TRACK", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 1);
-    shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 3);
-    shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 3);
-    /* With the detector A/B's MODEL: DETECT 2, TRACK 5, TRAFFIC 4. */
-    shape("portrait DETECT A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
-    shape("landscape DETECT A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
-    shape("portrait TRACK A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 5, 1);
-    shape("landscape TRACK A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 5, 1);
-    shape("portrait TRAFFIC A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 4, 3);
-    shape("landscape TRAFFIC A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 3);
-    shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
-    shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
-    /* DETECT with CLASSES and its "In view" line (and MODEL); COLOR with its
-     * reading and MATCH; TRACE with its two lines; COLOR with no detector,
-     * which says so on a third. */
-    shape("portrait DETECT+CLASSES", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 2);
-    shape("landscape DETECT+CLASSES", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 2);
-    shape("portrait COLOR", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 2);
-    shape("landscape COLOR", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 2);
-    shape("portrait TRACE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 2);
-    shape("landscape TRACE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 2);
-    shape("landscape COLOR, no detector", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 3);
-    check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, 1) == -1);
-    check("a frame with no size is refused", vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 0, 360, 3, 1) == -1);
+     * every mode's count of its own buttons (the mode switcher is not one)
+     * and status lines; SEGMENT's are a selector. */
+    shape("portrait DETECT", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, false, 2);
+    shape("landscape DETECT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, false, 2);
+    shape("portrait TRACK", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, false, 1);
+    shape("landscape TRACK", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, false, 1);
+    shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, false, 3);
+    shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, false, 3);
+    shape("portrait DETECT A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, false, 2);
+    shape("landscape DETECT A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, false, 2);
+    shape("portrait TRACK A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 4, false, 1);
+    shape("landscape TRACK A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, false, 1);
+    shape("portrait TRAFFIC A/B", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, false, 3);
+    shape("landscape TRAFFIC A/B", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, false, 3);
+    shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, false, 1);
+    shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, false, 1);
+    shape("portrait COLOR", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, false, 2);
+    shape("landscape COLOR", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, false, 2);
+    shape("portrait TRACE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, false, 2);
+    shape("landscape TRACE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, false, 2);
+    shape("portrait SEGMENT", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, true, 2);
+    shape("landscape SEGMENT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, true, 2);
+    shape("portrait SEGMENT, no detector", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, true, 3);
+    shape("landscape SEGMENT, no detector", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, true, 3);
+    shape("portrait RECOGNIZE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, false, 2);
+    shape("landscape RECOGNIZE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, false, 2);
+    shape("portrait READ", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, false, 3);
+    shape("landscape READ", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, false, 3);
+    shape("portrait COLOR, no detector", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, false, 3);
+    shape("landscape COLOR, no detector", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, false, 3);
+    shape("portrait TRAFFIC A/B, no detector", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, false, 4);
+    shape("landscape TRAFFIC A/B, no detector", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, false, 4);
+    /* The picture got the room the counters' row had: on the panel DETECT's
+     * is at least 520 px wide held upright (it was 500). */
+    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 1, false, 2);
+    check("portrait DETECT: the picture is at least 520 px wide", l.picture.w >= 520);
+    check("one or two buttons stand beside the switcher", l.btn[0].y == l.mode.y && l.mode.w == VISION_MODE_W);
+    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 3, true, 2);
+    check("so do a selector's three parts", l.btn[2].y == l.mode.y && l.mode.w == VISION_MODE_W);
+    /* Wide, the selector keeps one row where the column gives each part
+     * VISION_BTN_MIN_W (the panel's body without the corner clearance, as the
+     * shell lays Vision out), and falls back to the grid where it does not. */
+    vision_layout_compute(&l, 1192, 452, 0, 0, 0, 0, 640, 360, 3, true, 2);
+    check("landscape: a selector's three parts share the column's foot",
+          l.btn[0].y == l.btn[2].y && l.btn[0].w >= VISION_BTN_MIN_W && l.btn[2].x + l.btn[2].w <= 1192);
+    vision_layout_compute(&l, 1192, 452, 30, 0, 30, 0, 640, 360, 3, true, 2);
+    check("in a column too narrow for three they are two and one, never narrower than a button",
+          l.btn[0].y == l.btn[1].y && l.btn[2].y > l.btn[0].y && l.btn[0].w >= VISION_BTN_MIN_W);
+    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 3, false, 1);
+    check("three buttons with names of their own get a row under a full-width switcher",
+          l.btn[0].y > l.mode.y && l.mode.w == 528 && l.btn[2].y == l.btn[0].y);
+    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 4, false, 1);
+    check("four make two rows of two", l.btn[1].y == l.btn[0].y && l.btn[2].y > l.btn[0].y && l.btn[3].y == l.btn[2].y);
+    check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, false, 1) == -1);
+    check("a frame with no size is refused",
+          vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 0, 360, 3, false, 1) == -1);
     check("too many buttons or status lines are refused",
-          vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 6, 1) == -1 &&
-              vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 3, 5) == -1 &&
-              vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 0, 1) == -1);
-    vision_layout_compute(&l, 1192, 452, 30, 0, 30, 0, 640, 360, 3, 3);
+          vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 5, false, 1) == -1 &&
+              vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 3, false, 5) == -1 &&
+              vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 0, false, 1) == -1);
+    vision_layout_compute(&l, 1192, 452, 30, 0, 30, 0, 640, 360, 3, false, 3);
     check("on the landscape picture captions stand beside the choices",
           vision_layout_sheet(&sl, l.picture.w, l.picture.h, 1, one) == 0 && sl.side_by_side);
-    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 3, 3);
+    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 3, false, 3);
     check("on the portrait picture above them", vision_layout_sheet(&sl, l.picture.w, l.picture.h, 1, one) == 0 &&
                                                    !sl.side_by_side && sl.cell[0][0].y > sl.caption[0].y);
     check("a sheet that cannot fit is refused", vision_layout_sheet(&sl, 400, 200, 5, (int[]) { 1, 1, 1, 1, 1 }) == -1);
@@ -1568,32 +1638,44 @@ static void test_segment(void)
           vision_model_set_mode(&m, VISION_MODE_SEGMENT) == 0 && vision_model_set_mode(&m, VISION_MODE_INSTANCES) == 0 &&
               m.mode == VISION_MODE_DETECT);
     vision_model_mode_button(&m);
-    check("nor does the picker list them", code_of(&m, "SEGMENT", NULL) < 0 && code_of(&m, "INSTANCES", NULL) < 0);
+    check("and the picker has them dimmed, with no code", code_of(&m, "SEGMENT", NULL) < 0 &&
+                                                              code_of(&m, "INSTANCES", NULL) < 0);
     vision_model_mode_button(&m);
     e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) |
               (1 << VISION_MODE_SEGMENT) | (1 << VISION_MODE_INSTANCES);
     vision_model_event(&m, &e, NULL, 1200);
     vision_model_mode_button(&m);
-    check("a helper that has them: the picker lists both", code_of(&m, "SEGMENT", NULL) >= 0 &&
+    check("a helper that has them: both can be chosen", code_of(&m, "SEGMENT", NULL) >= 0 &&
                                                                code_of(&m, "INSTANCES", NULL) >= 0);
     acts = vision_model_sheet_tap(&m, code_of(&m, "SEGMENT", NULL));
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("SEGMENT: MODE and VIEW, two status lines, the overlay first, no lines or ids",
-          (acts & VISION_ACT_MODE) && m.mode == VISION_MODE_SEGMENT && vision_model_buttons(&m, order) == 2 &&
-              order[0] == VISION_BTN_MODE && order[1] == VISION_BTN_VIEW && vision_model_status_lines(&m) == 2 &&
-              strcmp(t.mode_btn, "SEGMENT") == 0 && strcmp(t.view_btn, "VIEW: OVERLAY") == 0 && !t.lines && !t.ids);
+    check("SEGMENT: MODE and the view selector's three parts in one row, two status lines, the overlay first, "
+          "no lines or ids",
+          (acts & VISION_ACT_MODE) && m.mode == VISION_MODE_SEGMENT && vision_model_buttons(&m, order) == 4 &&
+              order[0] == VISION_BTN_MODE && order[1] == VISION_BTN_VIEW_ORIGINAL &&
+              order[2] == VISION_BTN_VIEW_OVERLAY && order[3] == VISION_BTN_VIEW_MASK &&
+              vision_model_buttons_one_row(&m) && vision_model_status_lines(&m) == 2 &&
+              strcmp(t.mode_btn, "SEGMENT") == 0 && t.seg && t.seg_view == VISION_SEG_OVERLAY && !t.lines && !t.ids);
+    check("no key to the colours before the helper has named any", t.legend_n == 0);
     check("until the helper has spoken it says the model is opening", strstr(t.status, "Opening") != NULL &&
                                                                           !t.status_warn);
-    acts = vision_model_view_next(&m);
+    check("the view in force again asks for nothing", vision_model_set_view(&m, VISION_SEG_OVERLAY) == 0 &&
+                                                          m.set.seg.view == VISION_SEG_OVERLAY);
+    acts = vision_model_set_view(&m, VISION_SEG_MASK);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("VIEW goes on to MASK, is sent and is stored", m.set.seg.view == VISION_SEG_MASK &&
-                                                             strcmp(t.view_btn, "VIEW: MASK") == 0 &&
-                                                             (acts & VISION_ACT_PIXELS) && (acts & VISION_ACT_SAVE));
-    vision_model_view_next(&m);
+    check("MASK in one tap: in force, sent and stored", m.set.seg.view == VISION_SEG_MASK &&
+                                                            t.seg_view == VISION_SEG_MASK &&
+                                                            (acts & VISION_ACT_PIXELS) && (acts & VISION_ACT_SAVE));
+    acts = vision_model_set_view(&m, VISION_SEG_ORIGINAL);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("then ORIGINAL", m.set.seg.view == VISION_SEG_ORIGINAL && strcmp(t.view_btn, "VIEW: ORIGINAL") == 0);
-    vision_model_view_next(&m);
-    check("and round to OVERLAY", m.set.seg.view == VISION_SEG_OVERLAY);
+    check("ORIGINAL from MASK, without passing OVERLAY", m.set.seg.view == VISION_SEG_ORIGINAL &&
+                                                             t.seg_view == VISION_SEG_ORIGINAL &&
+                                                             (acts & VISION_ACT_PIXELS));
+    check("a view there is not is refused", vision_model_set_view(&m, VISION_SEG_VIEWS) == 0 &&
+                                                vision_model_set_view(&m, (enum vision_seg_view)-1) == 0 &&
+                                                m.set.seg.view == VISION_SEG_ORIGINAL);
+    acts = vision_model_set_view(&m, VISION_SEG_OVERLAY);
+    check("and back to OVERLAY", m.set.seg.view == VISION_SEG_OVERLAY && (acts & VISION_ACT_SAVE));
 
     vision_session_init(&s);
     s.stats.fps_x10 = 74;
@@ -1609,12 +1691,43 @@ static void test_segment(void)
                                                                        strstr(t.status, "KPU 85 ms") != NULL &&
                                                                        strstr(t.status, "\nroad 41%  sky 20%") != NULL &&
                                                                        !t.status_warn);
+    check("and the key to the colours: each class the helper named, with its share",
+          t.legend_n == 2 && strcmp(t.legend[0].name, "road") == 0 && strcmp(t.legend[0].text, "road 41%") == 0 &&
+              strcmp(t.legend[1].name, "sky") == 0 && strcmp(t.legend[1].text, "sky 20%") == 0);
+    vision_model_set_view(&m, VISION_SEG_ORIGINAL);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("ORIGINAL has no colours and so no key", t.legend_n == 0);
+    vision_model_set_view(&m, VISION_SEG_MASK);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("MASK has it again", t.legend_n == 2);
+    vision_model_set_view(&m, VISION_SEG_OVERLAY);
+    e = ev(VISION_EV_SEGINFO);
+    snprintf(e.text, sizeof(e.text), "road 41%%  sky 20%%  building 12%%  car 3%%");
+    vision_model_event(&m, &e, NULL, 2110);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the key holds three at most", t.legend_n == VISION_LEGEND_MAX && strcmp(t.legend[2].text, "building 12%") == 0);
+    e = ev(VISION_EV_SEGINFO);
+    snprintf(e.text, sizeof(e.text), "-");
+    vision_model_event(&m, &e, NULL, 2120);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("nothing named: no key", t.legend_n == 0);
+    e = ev(VISION_EV_SEGINFO);
+    snprintf(e.text, sizeof(e.text), "road 41%%  something else");
+    vision_model_event(&m, &e, NULL, 2130);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("words of another shape end the key where they start", t.legend_n == 1 &&
+                                                                    strcmp(t.legend[0].name, "road") == 0);
+    e = ev(VISION_EV_SEGINFO);
+    snprintf(e.text, sizeof(e.text), "road 41%%  sky 20%%");
+    vision_model_event(&m, &e, NULL, 2140);
     e = ev(VISION_EV_SEGFAIL);
     snprintf(e.text, sizeof(e.text), "model file not found");
     vision_model_event(&m, &e, NULL, 2200);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("a model that cannot run is a warning with why", t.status_warn && strstr(t.status, "Cannot segment") != NULL &&
-                                                               strstr(t.status, "not found") != NULL);
+    check("a model that cannot run is a warning with why, and no key", t.status_warn &&
+                                                                           strstr(t.status, "Cannot segment") != NULL &&
+                                                                           strstr(t.status, "not found") != NULL &&
+                                                                           t.legend_n == 0);
     e = ev(VISION_EV_SEGFAIL);
     vision_model_event(&m, &e, NULL, 2250);
     check("a failure with no reason still has words", m.segfail[0] != '\0');
@@ -1622,14 +1735,20 @@ static void test_segment(void)
     acts = vision_model_set_mode(&m, VISION_MODE_INSTANCES);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("INSTANCES: the same VIEW, the other mode's trouble and words gone",
-          (acts & VISION_ACT_MODE) && vision_model_buttons(&m, order) == 2 && order[1] == VISION_BTN_VIEW &&
+          (acts & VISION_ACT_MODE) && vision_model_buttons(&m, order) == 4 && order[1] == VISION_BTN_VIEW_ORIGINAL &&
+              order[3] == VISION_BTN_VIEW_MASK && vision_model_buttons_one_row(&m) && t.seg &&
               strcmp(t.mode_btn, "INSTANCES") == 0 && m.segfail[0] == '\0' && m.seginfo[0] == '\0' &&
               !t.status_warn && m.set.seg.view == VISION_SEG_OVERLAY);
     e = ev(VISION_EV_SEGINFO);
     snprintf(e.text, sizeof(e.text), "2 objects  person 2");
     vision_model_event(&m, &e, NULL, 2300);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("INSTANCES' words are a count, not a key", t.legend_n == 0);
     vision_model_set_mode(&m, VISION_MODE_DETECT);
-    check("leaving them leaves nothing behind", m.seginfo[0] == '\0' && m.segfail[0] == '\0');
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("leaving them leaves nothing behind", m.seginfo[0] == '\0' && m.segfail[0] == '\0' && !t.seg &&
+                                                    !vision_model_buttons_one_row(&m));
+    check("and the view is theirs alone", vision_model_set_view(&m, VISION_SEG_MASK) == 0);
 
     /* A stored SEGMENT on a helper without the model. */
     {

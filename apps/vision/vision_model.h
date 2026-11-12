@@ -9,12 +9,14 @@
  * adds ids and a counting line; TRAFFIC looks for traffic only, counts it
  * per class and times it between two speed lines; the TOOLS look at the
  * picture's pixels instead of the detector. A mode is offered only when the
- * helper says it can run it (its `caps` line): a mode whose model is not on
- * the unit never appears, and a group with nothing to offer is not shown.
+ * helper says it can run it (its `caps` line). The picker lists every mode
+ * in its group, so the owner sees what Vision can do; a mode whose model is
+ * not on the unit is there dimmed, takes no tap and no key, and is never
+ * the mode in force.
  *
  * THE SHEET is a panel over the picture with up to VISION_SHEET_ROWS rows of
  * up to VISION_SHEET_CELLS choices each. MODE opens it as the mode picker
- * (a row per group); SETUP opens it as a mode's own settings (Traffic's
+ * (a row per group, and a line under them when a mode is dimmed); SETUP opens it as a mode's own settings (Traffic's
  * line, speed lines and distance). The model says what the cells are and
  * takes a tap by the cell's code; the screen only draws them.
  *
@@ -91,7 +93,11 @@ enum vision_button {
     VISION_BTN_FORGET,
     VISION_BTN_MODEL,
     VISION_BTN_CLASSES,
-    VISION_BTN_VIEW,
+    /* SEGMENT, INSTANCES: the view selector's three parts, in enum
+     * vision_seg_view's order. */
+    VISION_BTN_VIEW_ORIGINAL,
+    VISION_BTN_VIEW_OVERLAY,
+    VISION_BTN_VIEW_MASK,
     VISION_BUTTONS
 };
 
@@ -223,7 +229,17 @@ struct vision_view_text {
     bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
     const char *edge_btn;
-    const char *view_btn;   /* SEGMENT, INSTANCES: VIEW: ORIGINAL / OVERLAY / MASK */
+    bool seg;               /* SEGMENT, INSTANCES: the view selector is on show */
+    enum vision_seg_view seg_view; /* the view in force: its part is the primary button */
+    /* SEGMENT: the classes most of the picture is, for a key to the colours
+     * on the picture; none in ORIGINAL, which has no colours. */
+#define VISION_LEGEND_MAX 3
+#define VISION_LEGEND_TEXT 24
+    int legend_n;
+    struct {
+        char name[VISION_LEGEND_TEXT]; /* the class as the helper names it: "road" */
+        char text[VISION_LEGEND_TEXT]; /* as shown: "road 41%" */
+    } legend[VISION_LEGEND_MAX];
     const char *trace_btn;
     char count_a[32];     /* "DOWN 3", "IN (DOWN) 3", "OBJECTS 3", or "-" */
     char count_b[32];
@@ -284,6 +300,8 @@ unsigned vision_model_set_mode(struct vision_model *m, enum vision_mode mode);
 unsigned vision_model_mode_button(struct vision_model *m);
 unsigned vision_model_setup_button(struct vision_model *m);
 unsigned vision_model_sheet_close(struct vision_model *m);
+/* Under the picker's rows when a mode is dimmed. */
+#define VISION_PICKER_DIMMED_TEXT "Dimmed: the mode's model is not on this unit."
 /* The sheet's rows as the screen draws them; kind NONE when closed. */
 void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *out);
 /* A tap on a sheet cell, by its code. */
@@ -322,8 +340,9 @@ unsigned vision_model_sample_at(struct vision_model *m, int32_t x, int32_t y);
 unsigned vision_model_sample_middle(struct vision_model *m, uint32_t view_w, uint32_t view_h);
 unsigned vision_model_tol_next(struct vision_model *m);
 unsigned vision_model_edge_next(struct vision_model *m);
-/* SEGMENT, INSTANCES: the next view. */
-unsigned vision_model_view_next(struct vision_model *m);
+/* SEGMENT, INSTANCES: show this view (the selector's taps). The view in
+ * force again asks for nothing. */
+unsigned vision_model_set_view(struct vision_model *m, enum vision_seg_view v);
 unsigned vision_model_trace_next(struct vision_model *m);
 /* COLOR: read the colour at a view point (a tap on the picture), or at the
  * centre again; MATCH marks the colour read, CLEAR stops marking it. */
@@ -357,8 +376,13 @@ bool vision_model_pixel_mode(const struct vision_model *m);
 /* The names of the two directions counted in this mode ("DOWN"/"UP" or
  * "LEFT"/"RIGHT"), and which count is which. */
 void vision_model_count_names(const struct vision_model *m, const char **a, const char **b);
-/* The buttons shown in this mode, in order; returns how many. */
+/* The buttons shown in this mode, in order; returns how many. The first is
+ * always MODE, the mode switcher, which has its own place on the screen; the
+ * rest are the mode's own. */
 int vision_model_buttons(const struct vision_model *m, enum vision_button out[VISION_BUTTONS]);
+/* The mode's own buttons are the parts of one selector (SEGMENT's and
+ * INSTANCES' view): the layout keeps them in one row. */
+bool vision_model_buttons_one_row(const struct vision_model *m);
 /* The detector's modes (DETECT, TRACK, TRAFFIC) are offered: false when the
  * unit has no detector model (docs/apps/VISION.md "The model"). */
 bool vision_model_detector(const struct vision_model *m);
