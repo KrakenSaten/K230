@@ -2,10 +2,15 @@
  * COCO class names. See vision_labels.h. Multi-word names are joined with a
  * hyphen so a name is always one protocol word.
  *
+ * SEGMENT's class names and colours (vision_seg.h) are here too, at the end:
+ * the screen shows a key to them and links this file, not the pipeline's.
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_labels.h"
+
+#include "vision_seg.h"
 
 static const char *const coco[VISION_COCO_CLASSES] = {
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -46,4 +51,28 @@ const char *vision_label_group_name(int g)
 uint32_t vision_label_r0_class(int i)
 {
     return i >= 0 && i < VISION_R0_CLASSES ? r0_classes[i] : VISION_COCO_CLASSES;
+}
+
+#define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
+
+/* Cityscapes' nineteen training classes and their usual colours. */
+static const char *const seg_names[VISION_SEG_CLASSES] = {
+    "road", "sidewalk", "building", "wall", "fence", "pole", "light", "sign", "vegetation", "terrain",
+    "sky", "person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle",
+};
+static const uint16_t seg_colors[VISION_SEG_CLASSES] = {
+    RGB565(128, 64, 128), RGB565(244, 35, 232), RGB565(70, 70, 70),   RGB565(102, 102, 156), RGB565(190, 153, 153),
+    RGB565(153, 153, 153), RGB565(250, 170, 30), RGB565(220, 220, 0),  RGB565(107, 142, 35),  RGB565(152, 251, 152),
+    RGB565(70, 130, 180), RGB565(220, 20, 60),  RGB565(255, 0, 0),    RGB565(0, 0, 142),     RGB565(0, 0, 70),
+    RGB565(0, 60, 100),   RGB565(0, 80, 100),   RGB565(0, 0, 230),    RGB565(119, 11, 32),
+};
+
+const char *vision_seg_label(uint32_t cls)
+{
+    return cls < VISION_SEG_CLASSES ? seg_names[cls] : "?";
+}
+
+uint16_t vision_seg_color(uint32_t cls)
+{
+    return cls < VISION_SEG_CLASSES ? seg_colors[cls] : 0;
 }

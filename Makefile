@@ -1703,7 +1703,7 @@ tests/vision_geom_test: tests/vision_geom_test.o $(VISION_CORE_OBJS) $(CAM_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lm
 
 # The keyboard's moves over the buttons as laid out.
-tests/vision_keys_test: tests/vision_keys_test.o $(VISION_APP_DIR)/vision_keys.o
+tests/vision_keys_test: tests/vision_keys_test.o $(VISION_APP_DIR)/vision_keys.o $(VISION_APP_DIR)/vision_layout.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/vision_model_test: tests/vision_model_test.o $(VISION_APP_OBJS) $(VISION_DIR)/vision_labels.o

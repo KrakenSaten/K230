@@ -975,9 +975,13 @@ unsigned vision_model_edge_next(struct vision_model *m)
     return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
 }
 
-unsigned vision_model_view_next(struct vision_model *m)
+unsigned vision_model_set_view(struct vision_model *m, enum vision_seg_view v)
 {
-    m->set.seg.view = (enum vision_seg_view)((m->set.seg.view + 1) % VISION_SEG_VIEWS);
+    if ((int)v < 0 || v >= VISION_SEG_VIEWS || v == m->set.seg.view ||
+        (m->mode != VISION_MODE_SEGMENT && m->mode != VISION_MODE_INSTANCES)) {
+        return 0;
+    }
+    m->set.seg.view = v;
     return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
 }
 
@@ -1019,6 +1023,7 @@ static struct vision_sheet_row *row(struct vision_sheet_view *v, const char *cap
 
 static void sheet_modes(const struct vision_model *m, struct vision_sheet_view *v)
 {
+    bool dimmed = false;
     int g;
 
     v->title = "MODE";
@@ -1027,8 +1032,9 @@ static void sheet_modes(const struct vision_model *m, struct vision_sheet_view *
         int i;
 
         for (i = 0; i < VISION_MODES; i++) {
-            if (vision_mode_group((enum vision_mode)i) != (enum vision_group)g ||
-                !vision_model_offered(m, (enum vision_mode)i)) {
+            bool offered = vision_model_offered(m, (enum vision_mode)i);
+
+            if (vision_mode_group((enum vision_mode)i) != (enum vision_group)g) {
                 continue;
             }
             if (!r) {
@@ -1037,8 +1043,15 @@ static void sheet_modes(const struct vision_model *m, struct vision_sheet_view *
                     return;
                 }
             }
-            cell(r, vision_mode_name((enum vision_mode)i), m->mode == (enum vision_mode)i, true, CODE_MODE + i);
+            /* A mode the helper cannot run is listed, dimmed, with no code:
+             * it takes no tap and the keyboard passes it by. */
+            cell(r, vision_mode_name((enum vision_mode)i), offered && m->mode == (enum vision_mode)i, offered,
+                 offered ? CODE_MODE + i : -1);
+            dimmed |= !offered;
         }
+    }
+    if (dimmed) {
+        snprintf(v->body, sizeof(v->body), "%s", VISION_PICKER_DIMMED_TEXT);
     }
 }
 
@@ -1332,8 +1345,11 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
         return 2;
     case VISION_MODE_SEGMENT:
     case VISION_MODE_INSTANCES:
-        out[1] = VISION_BTN_VIEW;
-        return 2;
+        /* The view, as a selector: every choice on show, one tap each. */
+        out[1] = VISION_BTN_VIEW_ORIGINAL;
+        out[2] = VISION_BTN_VIEW_OVERLAY;
+        out[3] = VISION_BTN_VIEW_MASK;
+        return 4;
     case VISION_MODE_TRACE:
         out[1] = VISION_BTN_TRACE;
         return 2;
@@ -1350,6 +1366,11 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     default:
         return 1;
     }
+}
+
+bool vision_model_buttons_one_row(const struct vision_model *m)
+{
+    return m->mode == VISION_MODE_SEGMENT || m->mode == VISION_MODE_INSTANCES;
 }
 
 int vision_model_status_lines(const struct vision_model *m)
@@ -1686,6 +1707,44 @@ static void counters(const struct vision_model *m, struct vision_view_text *out)
     }
 }
 
+/* SEGMENT's key: the helper's "road 41%  sky 20%" as up to three entries,
+ * each a class name and its share. Anything of another shape ends it. */
+static void legend(const char *info, struct vision_view_text *out)
+{
+    const char *p = info;
+
+    while (out->legend_n < VISION_LEGEND_MAX) {
+        const char *name;
+        const char *pct;
+        size_t nlen;
+        size_t plen;
+
+        while (*p == ' ') {
+            p++;
+        }
+        name = p;
+        while (*p && *p != ' ') {
+            p++;
+        }
+        nlen = (size_t)(p - name);
+        while (*p == ' ') {
+            p++;
+        }
+        pct = p;
+        while (*p >= '0' && *p <= '9') {
+            p++;
+        }
+        plen = (size_t)(p - pct);
+        if (nlen == 0 || plen == 0 || plen > 3 || *p != '%' || nlen + plen + 3 > VISION_LEGEND_TEXT) {
+            return;
+        }
+        p++;
+        snprintf(out->legend[out->legend_n].name, VISION_LEGEND_TEXT, "%.*s", (int)nlen, name);
+        snprintf(out->legend[out->legend_n].text, VISION_LEGEND_TEXT, "%.*s %.*s%%", (int)nlen, name, (int)plen, pct);
+        out->legend_n++;
+    }
+}
+
 void vision_model_text(const struct vision_model *m, struct vision_view_text *out, char *status_buf,
                        size_t status_len)
 {
@@ -1725,9 +1784,13 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->tol_btn = tol_names[m->set.color.tol_idx >= 0 && m->set.color.tol_idx < VISION_TOLS ? m->set.color.tol_idx
                                                                                              : VISION_TOL_DEFAULT];
     out->edge_btn = m->set.edge.hard ? "EDGE: HARD" : "EDGE: SOFT";
-    out->view_btn = m->set.seg.view == VISION_SEG_ORIGINAL ? "VIEW: ORIGINAL"
-                    : m->set.seg.view == VISION_SEG_MASK   ? "VIEW: MASK"
-                                                           : "VIEW: OVERLAY";
+    out->seg = m->mode == VISION_MODE_SEGMENT || m->mode == VISION_MODE_INSTANCES;
+    out->seg_view = (int)m->set.seg.view >= 0 && m->set.seg.view < VISION_SEG_VIEWS ? m->set.seg.view
+                                                                                     : VISION_SEG_OVERLAY;
+    if (m->mode == VISION_MODE_SEGMENT && m->state == VISION_LIVE && m->live && !m->stalled && !m->segfail[0] &&
+        out->seg_view != VISION_SEG_ORIGINAL) {
+        legend(m->seginfo, out);
+    }
     out->trace_btn = m->set.trace.dark ? "LINE: DARK" : "LINE: LIGHT";
     counters(m, out);
     if (m->mode == VISION_MODE_COLOR && m->have_target && m->color_valid && m->pixels.color.matched_pm > 0 &&

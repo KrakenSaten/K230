@@ -116,7 +116,7 @@ int vision_layout_sheet(struct vision_sheet_layout *l, int32_t panel_w, int32_t 
 
 int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t inset_left,
                           int32_t inset_top, int32_t inset_right, int32_t inset_bottom,
-                          uint32_t frame_w, uint32_t frame_h, int buttons, int status_lines)
+                          uint32_t frame_w, uint32_t frame_h, int buttons, bool one_row, int status_lines)
 {
     int32_t x0 = inset_left;
     int32_t y0 = inset_top;
@@ -125,8 +125,9 @@ int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t
     int32_t pw;
     int32_t ph;
     int32_t status_h;
-    int32_t controls;
-    int rows;
+    int32_t grid_h;
+    int cols;
+    int rows = 1;
 
     memset(l, 0, sizeof(*l));
     if (frame_w == 0 || frame_h == 0 || iw < 200 || ih < 200 || buttons < 1 ||
@@ -136,14 +137,27 @@ int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t
     l->buttons = buttons;
     l->wide = iw > ih;
     if (!l->wide) {
-        /* Tall: the picture across the width, the controls stacked under. */
+        /* Tall: the picture across the width, the status under it, and at
+         * the foot the mode switcher with the mode's buttons beside it. A
+         * mode with more buttons than fit beside it (TRACK's three, with
+         * their long names) gives the switcher a row of its own. */
+        int32_t avail = iw - VISION_MODE_W - VISION_GAP;
+        bool beside = buttons <= 2 ||
+                      (one_row && (avail - (buttons - 1) * VISION_GAP) / buttons >= VISION_BTN_MIN_W);
+        int32_t controls;
         int32_t y;
-        int32_t half;
 
         status_h = status_lines * VISION_STATUS_H;
-        rows = (buttons + VISION_COLS_TALL - 1) / VISION_COLS_TALL;
-        controls = status_h + VISION_GAP + VISION_COUNT_H + VISION_GAP + rows * (VISION_BTN_H + VISION_GAP);
-        if (ih < controls + 100) {
+        if (beside) {
+            cols = buttons;
+            grid_h = VISION_BTN_H;
+        } else {
+            cols = buttons <= VISION_COLS_TALL ? buttons : 2;
+            rows = (buttons + cols - 1) / cols;
+            grid_h = VISION_MODE_H + VISION_GAP + rows * VISION_BTN_H + (rows - 1) * VISION_GAP;
+        }
+        controls = VISION_GAP + status_h + VISION_GAP + grid_h;
+        if (ih < controls + 100 || avail < 2 * VISION_BTN_MIN_W + VISION_GAP) {
             return -1;
         }
         fit(frame_w, frame_h, iw, ih - controls, &pw, &ph);
@@ -151,44 +165,43 @@ int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t
         y = y0 + ph + VISION_GAP;
         l->status = rect(x0, y, iw, status_h);
         y += status_h + VISION_GAP;
-        half = (iw - VISION_GAP) / 2;
-        l->count_a = rect(x0, y, half, VISION_COUNT_H);
-        l->count_b = rect(x0 + half + VISION_GAP, y, half, VISION_COUNT_H);
-        y += VISION_COUNT_H + VISION_GAP;
-        grid(l, x0, y, iw, VISION_COLS_TALL, buttons);
+        if (beside) {
+            l->mode = rect(x0, y, VISION_MODE_W, VISION_MODE_H);
+            grid(l, x0 + VISION_MODE_W + VISION_GAP, y, avail, cols, buttons);
+        } else {
+            l->mode = rect(x0, y, iw, VISION_MODE_H);
+            grid(l, x0, y + VISION_MODE_H + VISION_GAP, iw, cols, buttons);
+        }
         return 0;
     }
     {
-        /* Wide: the picture at the full height on the left, a column of
-         * controls on the right. The status gets a line more: the column
-         * is narrower than the width. */
+        /* Wide: the picture at the full height on the left; on the right a
+         * column with the mode switcher, the status under it, and the
+         * mode's buttons at the foot, where they stay whatever the status
+         * says. The status gets a line more: the column is narrower than
+         * the width. */
         int32_t side;
         int32_t sx;
-        int32_t y;
-        int32_t half;
 
         status_h = (status_lines + 1) * VISION_STATUS_H;
-        rows = (buttons + VISION_COLS_WIDE - 1) / VISION_COLS_WIDE;
-        controls = status_h + VISION_GAP + VISION_COUNT_H + VISION_GAP + rows * VISION_BTN_H +
-                   (rows - 1) * VISION_GAP;
         fit(frame_w, frame_h, iw - VISION_SIDE_MIN - VISION_GAP, ih, &pw, &ph);
         side = iw - pw - VISION_GAP;
-        if (side < VISION_SIDE_MIN || ih < controls) {
+        if (side < VISION_SIDE_MIN) {
+            return -1;
+        }
+        cols = buttons == 1 ? 1
+               : one_row && (side - (buttons - 1) * VISION_GAP) / buttons >= VISION_BTN_MIN_W ? buttons
+                                                                                              : VISION_COLS_WIDE;
+        rows = (buttons + cols - 1) / cols;
+        grid_h = rows * VISION_BTN_H + (rows - 1) * VISION_GAP;
+        if (ih < VISION_MODE_H + VISION_GAP + status_h + VISION_GAP + grid_h) {
             return -1;
         }
         l->picture = rect(x0, y0 + (ih - ph) / 2, pw, ph);
         sx = x0 + pw + VISION_GAP;
-        y = y0;
-        l->status = rect(sx, y, side, status_h);
-        y += status_h + VISION_GAP;
-        half = (side - VISION_GAP) / 2;
-        l->count_a = rect(sx, y, half, VISION_COUNT_H);
-        l->count_b = rect(sx + half + VISION_GAP, y, half, VISION_COUNT_H);
-        y += VISION_COUNT_H + VISION_GAP;
-        y += grid(l, sx, y, side, VISION_COLS_WIDE, buttons);
-        if (y > y0 + ih) {
-            return -1;
-        }
+        l->mode = rect(sx, y0, side, VISION_MODE_H);
+        l->status = rect(sx, y0 + VISION_MODE_H + VISION_GAP, side, status_h);
+        grid(l, sx, y0 + ih - grid_h, side, cols, buttons);
         return 0;
     }
 }

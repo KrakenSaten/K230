@@ -3,9 +3,9 @@
  *
  * With a keyboard and no touch (an external display, where the board's
  * touch controller has no driver: docs/hardware/HDMI_OUTPUT.md), every one
- * of Vision's controls is a button - the mode's row and the sheet's choices
- * - so moving a focus ring over the buttons on show and pressing Enter is
- * the whole of it. The arrows move to the nearest button that way, Tab and
+ * of Vision's controls is a button - the mode switcher, the mode's own
+ * buttons and the sheet's choices - so moving a focus ring over the buttons
+ * on show and pressing Enter is the whole of it. The arrows move to the nearest button that way, Tab and
  * Shift-Tab to the next and the previous in their own order, both wrapping
  * the way a list does.
  *

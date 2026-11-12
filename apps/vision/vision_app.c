@@ -21,14 +21,24 @@
  * BOXES. The helper says where every tracked object is, in the picture's
  * own pixels (pocketvision_proto.h); the timer moves a fixed set of
  * VISION_MAX_SHOWN outline objects onto them and hides the rest. Nothing is
- * created per frame.
+ * created per frame. A box's tag stays inside the picture, and says less
+ * when there are many (VISION_TAGS_FULL).
+ *
+ * THE PICTURE COMES FIRST. What a mode counts lies on the picture's top
+ * corners as two small chips, there only while there is something to say;
+ * SEGMENT's key to its colours lies along its foot. Under the picture (or
+ * beside it, held wide) are the status, the mode switcher - a button that
+ * says MODE over the mode's name and opens the picker - and the mode's own
+ * buttons. SEGMENT's and INSTANCES' view is a selector: ORIGINAL, OVERLAY
+ * and MASK side by side, the one in force the primary button.
  *
  * FULLSCREEN (DS §30.8): the app declares NONE; the shell's header carries
  * the back button and the hint (SIMULATED under the fake backend).
  *
  * KEYS (DS §38.10): every control is a button, so the keyboard needs no
  * other way in. The arrows move a focus ring over the buttons on show - the
- * sheet's choices while a sheet is open, else the mode's row - Enter presses
+ * sheet's choices while a sheet is open (not the picker's dimmed modes),
+ * else the mode switcher and the mode's buttons - Enter presses
  * the one with the ring, and Esc or Back closes an open sheet. The ring
  * appears with the first key and stays out of a touch-only screen; the moves
  * are vision_keys.c's. What it is for: an external display, where the board
@@ -42,6 +52,7 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pocketvision/vision_labels.h"
+#include "pocketvision/vision_seg.h"
 #include "pos_input.h"
 #include "vision_keys.h"
 #include "vision_layout.h"
@@ -68,6 +79,18 @@
  * (vision_session.h); longer while it is still opening a model. */
 #define VISION_DESTROY_GRACE_MS VISION_LEAVE_GRACE_MS
 #define VISION_LABEL_MAX 48
+/* A tag: its height above its box, and the padding either side of its text. */
+#define VISION_TAG_H 22
+#define VISION_TAG_PAD 4
+/* With more boxes than this a tag says what the box is (and which, by its
+ * id) and no longer how sure: a crowded picture is read by its boxes. */
+#define VISION_TAGS_FULL 6
+/* The chips and the key on the picture: their distance from its edge. */
+#define VISION_HUD_MARGIN 8
+/* The mode switcher's text from its left edge, and the room its chevron
+ * takes at the right. */
+#define VISION_MODE_PAD 14
+#define VISION_MODE_CHEVRON_W 34
 /* The detector files are vision_store.h's (vision_store_detector_path). */
 #define VISION_DET_STATS_LOG_MS 10000
 
@@ -80,6 +103,9 @@ struct vision_picture {
 
 _Static_assert(VISION_SHEET_ROWS == VISION_SHEET_ROWS_MAX && VISION_SHEET_CELLS == VISION_SHEET_CELLS_MAX,
                "the model's sheet and the layout's are the same size");
+_Static_assert(VISION_BTN_VIEW_OVERLAY == VISION_BTN_VIEW_ORIGINAL + VISION_SEG_OVERLAY &&
+                   VISION_BTN_VIEW_MASK == VISION_BTN_VIEW_ORIGINAL + VISION_SEG_MASK,
+               "the view selector's buttons are in the views' order");
 
 struct vision_app;
 
@@ -114,8 +140,14 @@ struct vision_app {
 #define VISION_TRACE_DOTS 24
     lv_obj_t *trace_dot[VISION_TRACE_DOTS];
     lv_obj_t *status;
-    lv_obj_t *count_a;    /* "DOWN 3" */
-    lv_obj_t *count_b;
+    lv_obj_t *count_a;    /* "DOWN 3": a chip on the picture's top left corner */
+    lv_obj_t *count_b;    /* and its top right */
+    /* SEGMENT's key: a strip along the picture's foot, a swatch and a name
+     * per class. */
+    lv_obj_t *legend;
+    lv_obj_t *legend_sw[VISION_LEGEND_MAX];
+    lv_obj_t *legend_lb[VISION_LEGEND_MAX];
+    lv_obj_t *mode_name;  /* the mode switcher's name line */
     lv_obj_t *btn[VISION_BUTTONS]; /* by role (enum vision_button) */
     lv_obj_t *retry_btn;
     /* The sheet over the picture: made once, filled from the model. */
@@ -311,6 +343,27 @@ static const char *dir_mark(unsigned dir)
     }
 }
 
+/* A box's tag: on the box's top edge, above it where there is room, and
+ * moved left where it would run off the picture - the picture clips what
+ * lies outside it, and a tag cut short says the wrong thing. Empty text
+ * hides it. */
+static void place_tag(struct vision_app *a, int i, int32_t x, int32_t y, const char *text)
+{
+    lv_obj_t *tag = a->tag[i];
+    int32_t w;
+
+    label_text(tag, text);
+    set_hidden(tag, text[0] == '\0');
+    if (text[0] == '\0') {
+        return;
+    }
+    w = pocketui_text_width(tag, text) + 2 * VISION_TAG_PAD;
+    if (x + w > (int32_t)a->preview.w) {
+        x = (int32_t)a->preview.w - w;
+    }
+    lv_obj_set_pos(tag, x < 0 ? 0 : x, y > VISION_TAG_H ? y - VISION_TAG_H : y);
+}
+
 /* READ: a box on every line read, its text as the tag (the model's copy:
  * it stays while HOLD is on). */
 static void draw_text_boxes(struct vision_app *a)
@@ -333,9 +386,8 @@ static void draw_text_boxes(struct vision_app *a)
             char text[VISION_LABEL_MAX];
 
             vision_model_text_ascii(r->line[i].text, text, sizeof(text));
-            label_text(a->tag[i], text);
+            place_tag(a, i, r->line[i].x, r->line[i].y, text);
         }
-        lv_obj_set_pos(a->tag[i], r->line[i].x, r->line[i].y > 22 ? r->line[i].y - 22 : r->line[i].y);
     }
 }
 
@@ -345,6 +397,7 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
     uint32_t seq;
     const struct vision_shown *t = vision_session_tracks(&a->session, &n, &seq);
     bool traffic = s->traffic;
+    bool crowded = n > VISION_TAGS_FULL;
     int i;
 
     if (s->read) {
@@ -371,9 +424,7 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
                  * confidence, is the figure worth showing. */
                 vision_model_who_label(&a->model, t[i].id, who, sizeof(who));
                 snprintf(text, sizeof(text), "#%u %s", t[i].id, who);
-                label_text(a->tag[i], text);
-                set_hidden(a->tag[i], false);
-                lv_obj_set_pos(a->tag[i], t[i].x, t[i].y > 22 ? t[i].y - 22 : t[i].y);
+                place_tag(a, i, t[i].x, t[i].y, text);
                 continue;
             }
 
@@ -388,22 +439,26 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
                 if (t[i].kmh10 && s->speeds) {
                     snprintf(text, sizeof(text), "#%u %s%s %u.%u km/h", t[i].id, what,
                              dir_mark(t[i].dir), t[i].kmh10 / 10, t[i].kmh10 % 10);
+                } else if (crowded) {
+                    snprintf(text, sizeof(text), "#%u %s%s", t[i].id, what, dir_mark(t[i].dir));
                 } else {
                     snprintf(text, sizeof(text), "#%u %s%s %u%%", t[i].id, what,
                              dir_mark(t[i].dir), t[i].conf / 10);
                 }
             } else if (t[i].id && s->ids) {
-                snprintf(text, sizeof(text), "#%u %s %u%%", t[i].id, what,
-                         t[i].conf / 10);
+                if (crowded) {
+                    snprintf(text, sizeof(text), "#%u %s", t[i].id, what);
+                } else {
+                    snprintf(text, sizeof(text), "#%u %s %u%%", t[i].id, what, t[i].conf / 10);
+                }
+            } else if (crowded) {
+                snprintf(text, sizeof(text), "%s", what);
             } else {
                 /* DETECT: what it is and how sure, no identity. */
                 snprintf(text, sizeof(text), "%s %u%%", what, t[i].conf / 10);
             }
-            label_text(a->tag[i], text);
-            set_hidden(a->tag[i], text[0] == '\0');
+            place_tag(a, i, t[i].x, t[i].y, text);
         }
-        /* The tag sits on the box's top edge, inside the picture. */
-        lv_obj_set_pos(a->tag[i], t[i].x, t[i].y > 22 ? t[i].y - 22 : t[i].y);
     }
 }
 
@@ -526,6 +581,62 @@ static void draw_lines(struct vision_app *a)
     }
 }
 
+/* A counter on the picture: there while the picture is, and only with
+ * something to say. */
+static void draw_chip(lv_obj_t *chip, const char *text, bool picture)
+{
+    bool on = picture && text[0] != '\0' && strcmp(text, "-") != 0;
+
+    set_hidden(chip, !on);
+    if (on) {
+        label_text(chip, text);
+    }
+}
+
+/* SEGMENT's key: the classes the helper says most of the picture is, each
+ * with the colour it is painted in, as many as the picture's width holds. A
+ * class this build has no colour for ends the key. */
+static void draw_legend(struct vision_app *a, const struct vision_view_text *s)
+{
+    int32_t room = (int32_t)a->preview.w - 2 * VISION_HUD_MARGIN - 2 * VISION_HUD_MARGIN;
+    int shown = 0;
+    int i;
+
+    for (i = 0; i < VISION_LEGEND_MAX; i++) {
+        bool on = s->show_picture && i < s->legend_n && i == shown;
+        uint32_t cls = 0;
+        int32_t w = 0;
+
+        if (on) {
+            while (cls < VISION_SEG_CLASSES && strcmp(vision_seg_label(cls), s->legend[i].name) != 0) {
+                cls++;
+            }
+            w = 14 + 6 + pocketui_text_width(a->legend_lb[i], s->legend[i].text) + (i ? 12 : 0);
+            on = cls < VISION_SEG_CLASSES && w <= room;
+        }
+        set_hidden(a->legend_sw[i], !on);
+        set_hidden(a->legend_lb[i], !on);
+        if (!on) {
+            continue;
+        }
+        room -= w;
+        shown++;
+        if (strcmp(lv_label_get_text(a->legend_lb[i]), s->legend[i].text) != 0) {
+            lv_label_set_text(a->legend_lb[i], s->legend[i].text);
+        }
+        /* The colour is said only when the class changes: the helper speaks
+         * with every frame. */
+        if ((uintptr_t)lv_obj_get_user_data(a->legend_sw[i]) != cls + 1) {
+            uint16_t c = vision_seg_color(cls);
+
+            lv_obj_set_user_data(a->legend_sw[i], (void *)(uintptr_t)(cls + 1));
+            pos_style_set_sample_fill(a->legend_sw[i], (uint8_t)(((c >> 11) & 0x1f) * 255 / 31),
+                                      (uint8_t)(((c >> 5) & 0x3f) * 255 / 63), (uint8_t)((c & 0x1f) * 255 / 31));
+        }
+    }
+    set_hidden(a->legend, shown == 0);
+}
+
 /* The sheet: hidden, or laid out on the picture and filled from the model.
  * A sheet that does not fit the picture stays hidden (and is logged once
  * per shape: it never happens on the reference panel,
@@ -535,6 +646,7 @@ static void draw_sheet(struct vision_app *a)
     struct vision_sheet_view v;
     struct vision_sheet_layout sl;
     int cells[VISION_SHEET_ROWS];
+    bool body_on;
     int r;
     int c;
 
@@ -566,8 +678,11 @@ static void draw_sheet(struct vision_app *a)
         place(a->sheet_title, &title);
     }
     label_text(a->sheet_title, v.title);
-    set_hidden(a->sheet_body, v.body[0] == '\0' || sl.body.h <= 0);
-    if (v.body[0] && sl.body.h > 0) {
+    /* Text under the rows only where a line of it has room (the picker's
+     * note has none on the wide picture: the dimmed buttons say it there). */
+    body_on = v.body[0] != '\0' && sl.body.h >= lv_font_get_line_height(lv_obj_get_style_text_font(a->sheet_body, 0));
+    set_hidden(a->sheet_body, !body_on);
+    if (body_on) {
         place(a->sheet_body, &sl.body);
         label_text(a->sheet_body, v.body);
     }
@@ -645,8 +760,9 @@ static void key_ring(struct vision_app *a)
 }
 
 /* What the keyboard can reach now: an open sheet's choices (the sheet sits
- * over the picture, so its places are the picture's plus the box's corner),
- * else the mode's buttons on show, or TRY AGAIN alone. */
+ * over the picture, so its places are the picture's plus the box's corner;
+ * a cell with no code, a dimmed mode, is passed by), else the mode switcher
+ * and the mode's buttons on show, or TRY AGAIN alone. */
 static void key_targets(struct vision_app *a, const enum vision_button *order, int shown, bool retry)
 {
     lv_obj_t *was = a->key_focus >= 0 && a->key_focus < a->key_n ? a->key_obj[a->key_focus] : NULL;
@@ -671,8 +787,10 @@ static void key_targets(struct vision_app *a, const enum vision_button *order, i
     } else if (retry) {
         key_target(a, a->retry_btn, &a->lay.btn[0]);
     } else {
-        for (i = 0; i < shown && i < a->lay.buttons; i++) {
-            key_target(a, a->btn[order[i]], &a->lay.btn[i]);
+        /* The mode switcher, then the mode's own buttons. */
+        key_target(a, a->btn[VISION_BTN_MODE], &a->lay.mode);
+        for (i = 1; i < shown && i - 1 < a->lay.buttons; i++) {
+            key_target(a, a->btn[order[i]], &a->lay.btn[i - 1]);
         }
     }
     if (was && a->key_focus >= 0) {
@@ -712,8 +830,8 @@ static void repaint(struct vision_app *a)
         lv_obj_remove_style(a->status, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
         pos_style_add(a->status, POS_STYLE_TEXT_SECONDARY, 0);
     }
-    label_text(a->count_a, s.count_a);
-    label_text(a->count_b, s.count_b);
+    draw_chip(a->count_a, s.count_a, s.show_picture);
+    draw_chip(a->count_b, s.count_b, s.show_picture);
     button_text(a->btn[VISION_BTN_MODE], s.mode_btn);
     button_text(a->btn[VISION_BTN_LINE], s.line_btn);
     button_text(a->btn[VISION_BTN_TRAILS], s.trails_btn);
@@ -721,7 +839,6 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP ? "DONE" : "SETUP");
     button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
     button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
-    button_text(a->btn[VISION_BTN_VIEW], s.view_btn);
     button_text(a->btn[VISION_BTN_TRACE], s.trace_btn);
     button_text(a->btn[VISION_BTN_ENROL], s.enrol_btn);
     button_text(a->btn[VISION_BTN_FORGET], s.forget_btn);
@@ -742,7 +859,9 @@ static void repaint(struct vision_app *a)
     button_style(a->btn[VISION_BTN_SAMPLE], a->model.have_target, s.line_enabled && s.match_enabled);
     button_style(a->btn[VISION_BTN_TOL], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_EDGE], false, s.line_enabled);
-    button_style(a->btn[VISION_BTN_VIEW], false, s.line_enabled);
+    for (i = 0; i < VISION_SEG_VIEWS; i++) {
+        button_style(a->btn[VISION_BTN_VIEW_ORIGINAL + i], s.seg_view == (enum vision_seg_view)i, s.line_enabled);
+    }
     button_style(a->btn[VISION_BTN_TRACE], false, s.line_enabled);
     /* In COLOR a tap on the picture picks the colour there. */
     if (s.picture_tap) {
@@ -755,15 +874,17 @@ static void repaint(struct vision_app *a)
         lv_obj_set_pos(a->mark, s.mark_x - 6, s.mark_y - 6);
         lv_obj_set_size(a->mark, 12, 12);
     }
-    /* The mode's buttons, in its order, on the layout's places; the rest
-     * hidden. When Vision has stopped, TRY AGAIN is the one button, in
-     * the first place. */
+    /* The mode switcher in its place and the mode's own buttons, in its
+     * order, on the layout's; the rest hidden. When Vision has stopped,
+     * TRY AGAIN is the one button, in the first place. */
     shown_btns = vision_model_buttons(&a->model, order);
     for (i = 0; i < VISION_BUTTONS; i++) {
         set_hidden(a->btn[i], true);
     }
-    for (i = 0; i < shown_btns && i < a->lay.buttons; i++) {
-        place(a->btn[order[i]], &a->lay.btn[i]);
+    place(a->btn[VISION_BTN_MODE], &a->lay.mode);
+    set_hidden(a->btn[VISION_BTN_MODE], s.show_retry);
+    for (i = 1; i < shown_btns && i - 1 < a->lay.buttons; i++) {
+        place(a->btn[order[i]], &a->lay.btn[i - 1]);
         set_hidden(a->btn[order[i]], s.show_retry);
     }
     place(a->retry_btn, &a->lay.btn[0]);
@@ -777,6 +898,7 @@ static void repaint(struct vision_app *a)
     draw_lines(a);
     draw_probe(a, &s);
     draw_trace(a, &s);
+    draw_legend(a, &s);
     draw_sheet(a);
     key_targets(a, order, shown_btns, s.show_retry);
     if (a->hint_shown != s.hint && (!a->hint_shown || strcmp(a->hint_shown, s.hint) != 0)) {
@@ -1115,11 +1237,19 @@ static void on_edge(lv_event_t *e)
     act(a, vision_model_edge_next(&a->model));
 }
 
+/* The view selector: the part tapped is the view. */
 static void on_view(lv_event_t *e)
 {
     struct vision_app *a = lv_event_get_user_data(e);
+    lv_obj_t *part = lv_event_get_current_target(e);
+    int i;
 
-    act(a, vision_model_view_next(&a->model));
+    for (i = 0; i < VISION_SEG_VIEWS; i++) {
+        if (a->btn[VISION_BTN_VIEW_ORIGINAL + i] == part) {
+            act(a, vision_model_set_view(&a->model, (enum vision_seg_view)i));
+            return;
+        }
+    }
 }
 
 static void on_trace(lv_event_t *e)
@@ -1199,6 +1329,40 @@ static void on_key(lv_event_t *e)
 
 /* ---- layout ---------------------------------------------------------------------- */
 
+/* How wide `text` is in `label`'s own font and letter spacing. */
+static int32_t text_w(lv_obj_t *label, const char *text)
+{
+    lv_point_t size;
+
+    lv_text_get_size(&size, text, lv_obj_get_style_text_font(label, 0),
+                     lv_obj_get_style_text_letter_space(label, 0), 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+/* Whether the mode's name and a selector's parts are readable where the
+ * layout put them. The layout's widths are for the default type; with a
+ * larger text size (Settings) they may not be. */
+static bool labels_fit(struct vision_app *a, const enum vision_button order[], int own)
+{
+    struct vision_view_text s;
+    int i;
+
+    vision_model_text(&a->model, &s, a->status_buf, sizeof(a->status_buf));
+    if (s.mode_btn && text_w(a->mode_name, s.mode_btn) > a->lay.mode.w - VISION_MODE_PAD - VISION_MODE_CHEVRON_W) {
+        return false;
+    }
+    for (i = 1; i <= own && i - 1 < a->lay.buttons; i++) {
+        lv_obj_t *b = a->btn[order[i]];
+        lv_obj_t *lb = lv_obj_get_child(b, 0);
+
+        if (text_w(lb, lv_label_get_text(lb)) >
+            a->lay.btn[i - 1].w - lv_obj_get_style_pad_left(b, 0) - lv_obj_get_style_pad_right(b, 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void layout(struct vision_app *a)
 {
     struct pos_insets in;
@@ -1206,6 +1370,8 @@ static void layout(struct vision_app *a)
     uint32_t fw = a->model.preview_w ? a->model.preview_w : 640;
     uint32_t fh = a->model.preview_h ? a->model.preview_h : 360;
     enum vision_button order[VISION_BUTTONS];
+    int own;
+    bool one_row;
     uint32_t pw;
     uint32_t ph;
 
@@ -1225,18 +1391,34 @@ static void layout(struct vision_app *a)
         pw = fw;
         ph = fh;
     }
+    /* The mode's own buttons: all but the mode switcher (TRY AGAIN's place
+     * is the first of them, so there is always one). */
+    own = vision_model_buttons(&a->model, order) - 1;
+    one_row = vision_model_buttons_one_row(&a->model);
     if (vision_layout_compute(&a->lay, lv_area_get_width(area), lv_area_get_height(area), in.left,
-                              in.top, in.right, in.bottom, pw, ph, vision_model_buttons(&a->model, order),
+                              in.top, in.right, in.bottom, pw, ph, own < 1 ? 1 : own, one_row,
                               vision_model_status_lines(&a->model)) != 0) {
         LOG_WARN("vision: body %dx%d is too small for the vision screen",
                  (int)lv_area_get_width(area), (int)lv_area_get_height(area));
         return;
     }
+    /* A selector whose parts or mode name do not fit beside the switcher
+     * (large text) is laid out as buttons of their own: the switcher gets
+     * its own row upright, and the parts the full width under it. */
+    if (one_row && !labels_fit(a, order, own)) {
+        struct vision_layout alt;
+
+        if (vision_layout_compute(&alt, lv_area_get_width(area), lv_area_get_height(area), in.left, in.top,
+                                  in.right, in.bottom, pw, ph, own < 1 ? 1 : own, false,
+                                  vision_model_status_lines(&a->model)) == 0) {
+            a->lay = alt;
+        }
+    }
     a->laid_out = true;
     place(a->box, &a->lay.picture);
     place(a->status, &a->lay.status);
-    place(a->count_a, &a->lay.count_a);
-    place(a->count_b, &a->lay.count_b);
+    /* The switcher's name stops short of its chevron, however wide it is. */
+    lv_obj_set_width(a->mode_name, a->lay.mode.w - VISION_MODE_PAD - VISION_MODE_CHEVRON_W);
     lv_obj_set_width(a->detail, a->lay.picture.w - 2 * POCKETUI_PAD);
     if ((uint32_t)a->lay.picture.w != a->preview.w || (uint32_t)a->lay.picture.h != a->preview.h) {
         uint32_t w = (uint32_t)a->lay.picture.w;
@@ -1289,6 +1471,20 @@ static lv_obj_t *line_object(lv_obj_t *parent, enum pos_style_role fill)
     lv_obj_clear_flag(l, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
     return l;
+}
+
+/* A counter's chip on the picture: a value on a slab, in a top corner. */
+static lv_obj_t *hud_chip(lv_obj_t *parent, lv_align_t corner, int32_t dx)
+{
+    lv_obj_t *c = pocketui_label(parent, "-", POS_STYLE_VALUE);
+
+    pos_style_add(c, POS_STYLE_SLAB, 0);
+    lv_obj_add_style(c, pos_style_fixed_size(POS_STYLE_VALUE), 0);
+    lv_obj_set_style_pad_hor(c, 10, 0);
+    lv_obj_set_style_pad_ver(c, 6, 0);
+    lv_obj_align(c, corner, dx, VISION_HUD_MARGIN);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_HIDDEN);
+    return c;
 }
 
 static void build(struct vision_app *a, lv_obj_t *root)
@@ -1360,7 +1556,7 @@ static void build(struct vision_app *a, lv_obj_t *root)
         pos_style_add(a->tag[i], POS_STYLE_SLAB, 0);
         /* Compact at every text size: a tag lies on the picture (DS §46.4). */
         lv_obj_add_style(a->tag[i], pos_style_fixed_size(POS_STYLE_CAPTION), 0);
-        lv_obj_set_style_pad_hor(a->tag[i], 4, 0);
+        lv_obj_set_style_pad_hor(a->tag[i], VISION_TAG_PAD, 0);
         lv_obj_set_style_pad_ver(a->tag[i], 2, 0);
         lv_obj_add_flag(a->tag[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -1383,14 +1579,37 @@ static void build(struct vision_app *a, lv_obj_t *root)
     lv_label_set_long_mode(a->status, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(a->status, LV_TEXT_ALIGN_CENTER, 0);
 
-    a->count_a = pocketui_label(a->frame, "-", POS_STYLE_VALUE);
-    pos_style_add(a->count_a, POS_STYLE_SLAB, 0);
-    lv_obj_set_style_text_align(a->count_a, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_top(a->count_a, 12, 0);
-    a->count_b = pocketui_label(a->frame, "-", POS_STYLE_VALUE);
-    pos_style_add(a->count_b, POS_STYLE_SLAB, 0);
-    lv_obj_set_style_text_align(a->count_b, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_top(a->count_b, 12, 0);
+    /* The counters: chips on the picture's top corners, over the boxes and
+     * under the sheet. As the tags, compact at every text size. */
+    a->count_a = hud_chip(a->box, LV_ALIGN_TOP_LEFT, VISION_HUD_MARGIN);
+    a->count_b = hud_chip(a->box, LV_ALIGN_TOP_RIGHT, -VISION_HUD_MARGIN);
+
+    /* SEGMENT's key along the picture's foot: one strip, a swatch and a
+     * name per class. */
+    a->legend = lv_obj_create(a->box);
+    lv_obj_remove_style_all(a->legend);
+    pos_style_add(a->legend, POS_STYLE_SLAB, 0);
+    lv_obj_set_style_bg_opa(a->legend, LV_OPA_COVER, 0);
+    lv_obj_set_size(a->legend, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_hor(a->legend, VISION_HUD_MARGIN, 0);
+    lv_obj_set_style_pad_ver(a->legend, 6, 0);
+    lv_obj_set_style_pad_column(a->legend, 6, 0);
+    lv_obj_set_flex_flow(a->legend, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(a->legend, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(a->legend, LV_ALIGN_BOTTOM_LEFT, VISION_HUD_MARGIN, -VISION_HUD_MARGIN);
+    lv_obj_clear_flag(a->legend, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(a->legend, LV_OBJ_FLAG_HIDDEN);
+    for (i = 0; i < VISION_LEGEND_MAX; i++) {
+        a->legend_sw[i] = lv_obj_create(a->legend);
+        lv_obj_remove_style_all(a->legend_sw[i]);
+        lv_obj_set_size(a->legend_sw[i], 14, 14);
+        lv_obj_set_style_bg_opa(a->legend_sw[i], LV_OPA_COVER, 0);
+        /* Clear of the name before it. */
+        lv_obj_set_style_margin_left(a->legend_sw[i], i ? 6 : 0, 0);
+        lv_obj_clear_flag(a->legend_sw[i], LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        a->legend_lb[i] = pocketui_label(a->legend, "", POS_STYLE_CAPTION);
+        lv_obj_add_style(a->legend_lb[i], pos_style_fixed_size(POS_STYLE_CAPTION), 0);
+    }
 
     /* The sheet, over everything on the picture: a slab that takes the taps
      * it covers, a title, and rows of a caption and choices. */
@@ -1419,7 +1638,25 @@ static void build(struct vision_app *a, lv_obj_t *root)
         }
     }
 
+    /* The mode switcher: MODE, small, over the mode's name, and a chevron -
+     * a button that says what it changes, apart from the mode's own. The
+     * small text takes the button's colour, so it reads on the accent fill
+     * the open picker gives it. */
     a->btn[VISION_BTN_MODE] = button(a->frame, "DETECT", on_mode, a);
+    a->mode_name = lv_obj_get_child(a->btn[VISION_BTN_MODE], 0);
+    lv_obj_align(a->mode_name, LV_ALIGN_LEFT_MID, VISION_MODE_PAD, 10);
+    {
+        lv_obj_t *cap = lv_label_create(a->btn[VISION_BTN_MODE]);
+        lv_obj_t *chev = lv_label_create(a->btn[VISION_BTN_MODE]);
+
+        lv_label_set_text(cap, "MODE");
+        lv_obj_add_style(cap, pos_style_fixed_size(POS_STYLE_CAPTION), 0);
+        lv_obj_set_style_text_opa(cap, LV_OPA_70, 0);
+        lv_obj_align(cap, LV_ALIGN_TOP_LEFT, VISION_MODE_PAD, 9);
+        lv_label_set_text(chev, LV_SYMBOL_DOWN);
+        pos_style_add(chev, POS_STYLE_SYMBOL, 0);
+        lv_obj_align(chev, LV_ALIGN_RIGHT_MID, -VISION_MODE_PAD, 0);
+    }
     a->btn[VISION_BTN_LINE] = button(a->frame, "LINE: ACROSS", on_line, a);
     a->btn[VISION_BTN_TRAILS] = button(a->frame, "TRAILS: ON", on_trails, a);
     a->btn[VISION_BTN_HOLD] = button(a->frame, "HOLD", on_hold, a);
@@ -1429,7 +1666,9 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_CLASSES] = button(a->frame, "CLASSES", on_classes, a);
     a->btn[VISION_BTN_TOL] = button(a->frame, "TOL: MED", on_tol, a);
     a->btn[VISION_BTN_EDGE] = button(a->frame, "EDGE: SOFT", on_edge, a);
-    a->btn[VISION_BTN_VIEW] = button(a->frame, "VIEW: OVERLAY", on_view, a);
+    a->btn[VISION_BTN_VIEW_ORIGINAL] = button(a->frame, "ORIGINAL", on_view, a);
+    a->btn[VISION_BTN_VIEW_OVERLAY] = button(a->frame, "OVERLAY", on_view, a);
+    a->btn[VISION_BTN_VIEW_MASK] = button(a->frame, "MASK", on_view, a);
     a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
     a->btn[VISION_BTN_ENROL] = button(a->frame, "ENROL", on_enrol, a);
     a->btn[VISION_BTN_FORGET] = button(a->frame, "FORGET", on_forget, a);
