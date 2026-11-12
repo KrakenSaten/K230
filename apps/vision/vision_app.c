@@ -1329,6 +1329,40 @@ static void on_key(lv_event_t *e)
 
 /* ---- layout ---------------------------------------------------------------------- */
 
+/* How wide `text` is in `label`'s own font and letter spacing. */
+static int32_t text_w(lv_obj_t *label, const char *text)
+{
+    lv_point_t size;
+
+    lv_text_get_size(&size, text, lv_obj_get_style_text_font(label, 0),
+                     lv_obj_get_style_text_letter_space(label, 0), 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+/* Whether the mode's name and a selector's parts are readable where the
+ * layout put them. The layout's widths are for the default type; with a
+ * larger text size (Settings) they may not be. */
+static bool labels_fit(struct vision_app *a, const enum vision_button order[], int own)
+{
+    struct vision_view_text s;
+    int i;
+
+    vision_model_text(&a->model, &s, a->status_buf, sizeof(a->status_buf));
+    if (s.mode_btn && text_w(a->mode_name, s.mode_btn) > a->lay.mode.w - VISION_MODE_PAD - VISION_MODE_CHEVRON_W) {
+        return false;
+    }
+    for (i = 1; i <= own && i - 1 < a->lay.buttons; i++) {
+        lv_obj_t *b = a->btn[order[i]];
+        lv_obj_t *lb = lv_obj_get_child(b, 0);
+
+        if (text_w(lb, lv_label_get_text(lb)) >
+            a->lay.btn[i - 1].w - lv_obj_get_style_pad_left(b, 0) - lv_obj_get_style_pad_right(b, 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void layout(struct vision_app *a)
 {
     struct pos_insets in;
@@ -1337,6 +1371,7 @@ static void layout(struct vision_app *a)
     uint32_t fh = a->model.preview_h ? a->model.preview_h : 360;
     enum vision_button order[VISION_BUTTONS];
     int own;
+    bool one_row;
     uint32_t pw;
     uint32_t ph;
 
@@ -1359,13 +1394,25 @@ static void layout(struct vision_app *a)
     /* The mode's own buttons: all but the mode switcher (TRY AGAIN's place
      * is the first of them, so there is always one). */
     own = vision_model_buttons(&a->model, order) - 1;
+    one_row = vision_model_buttons_one_row(&a->model);
     if (vision_layout_compute(&a->lay, lv_area_get_width(area), lv_area_get_height(area), in.left,
-                              in.top, in.right, in.bottom, pw, ph, own < 1 ? 1 : own,
-                              vision_model_buttons_one_row(&a->model),
+                              in.top, in.right, in.bottom, pw, ph, own < 1 ? 1 : own, one_row,
                               vision_model_status_lines(&a->model)) != 0) {
         LOG_WARN("vision: body %dx%d is too small for the vision screen",
                  (int)lv_area_get_width(area), (int)lv_area_get_height(area));
         return;
+    }
+    /* A selector whose parts or mode name do not fit beside the switcher
+     * (large text) is laid out as buttons of their own: the switcher gets
+     * its own row upright, and the parts the full width under it. */
+    if (one_row && !labels_fit(a, order, own)) {
+        struct vision_layout alt;
+
+        if (vision_layout_compute(&alt, lv_area_get_width(area), lv_area_get_height(area), in.left, in.top,
+                                  in.right, in.bottom, pw, ph, own < 1 ? 1 : own, false,
+                                  vision_model_status_lines(&a->model)) == 0) {
+            a->lay = alt;
+        }
     }
     a->laid_out = true;
     place(a->box, &a->lay.picture);

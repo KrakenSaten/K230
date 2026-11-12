@@ -99,17 +99,27 @@ Not done, on purpose:
 Cost: nothing new per frame but the two chips and the key, which are
 redrawn with the picture they lie on like the tags; the picture itself is
 about 11 % more pixels upright (528 x 938, was 500 x 890) and unchanged
-held wide. The frame rate with the larger picture has not been measured on
-a unit.
+held wide. On unit B DETECT ran at 10.8-11.5 fps upright (KPU 56-68 ms);
+there is no figure from before the redesign on that unit to set it against.
+
+With a larger text size (Settings) a selector's parts or the mode's name
+may not fit beside the switcher; the shell measures them, and where they
+do not fit the switcher gets its own row upright and the parts the full
+width under it, as for a mode with three buttons of its own.
 
 Screenshots, before and after, from the simulator (fake camera, fake
 detector): `docs/design/vision-ui-redesign/`.
 
 ### To check on a unit
 
-Nothing here has run on a K230. With the shell and the helper built from
-this branch installed on a bench unit by hand (the helper differs only in
-which file two tables are compiled in):
+Checked on unit B (DSI panel, text size large, Neon theme) on 2026-11-12
+by remote screenshots and injected keys: items 1, 3 (by keys), 4 (by the
+stored view) and 5 (the unit's key path, no external display). Not
+checked there: touch (the device build has no `shell.tap`), BOOT, a
+before-and-after frame rate, and the counters with traffic in view. With
+the shell and the helper built from this branch installed on a bench unit
+by hand (the helper differs only in which file two tables are compiled
+in):
 
 1. Upright and wide: the picture, the chips, the status, the switcher and
    the buttons are all on screen, nothing clipped or overlapping, in
