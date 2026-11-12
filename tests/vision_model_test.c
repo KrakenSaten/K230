@@ -1548,6 +1548,110 @@ static void test_classes(void)
           vision_model_class_pages(&m) == 12 && strstr(v.body, "DETECTOR boxes these 80") != NULL);
 }
 
+/* SEGMENT and INSTANCES: offered only by a helper that has their models,
+ * one VIEW button, the helper's own words under the numbers, a model that
+ * cannot run said as a warning, nothing left behind on the way out. */
+static void test_segment(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_session s;
+    struct vision_event e = ev(VISION_EV_CAPS);
+    enum vision_button order[VISION_BUTTONS];
+    char buf[256];
+    unsigned acts;
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    check("without their models neither segmentation mode can be chosen",
+          vision_model_set_mode(&m, VISION_MODE_SEGMENT) == 0 && vision_model_set_mode(&m, VISION_MODE_INSTANCES) == 0 &&
+              m.mode == VISION_MODE_DETECT);
+    vision_model_mode_button(&m);
+    check("nor does the picker list them", code_of(&m, "SEGMENT", NULL) < 0 && code_of(&m, "INSTANCES", NULL) < 0);
+    vision_model_mode_button(&m);
+    e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) |
+              (1 << VISION_MODE_SEGMENT) | (1 << VISION_MODE_INSTANCES);
+    vision_model_event(&m, &e, NULL, 1200);
+    vision_model_mode_button(&m);
+    check("a helper that has them: the picker lists both", code_of(&m, "SEGMENT", NULL) >= 0 &&
+                                                               code_of(&m, "INSTANCES", NULL) >= 0);
+    acts = vision_model_sheet_tap(&m, code_of(&m, "SEGMENT", NULL));
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("SEGMENT: MODE and VIEW, two status lines, the overlay first, no lines or ids",
+          (acts & VISION_ACT_MODE) && m.mode == VISION_MODE_SEGMENT && vision_model_buttons(&m, order) == 2 &&
+              order[0] == VISION_BTN_MODE && order[1] == VISION_BTN_VIEW && vision_model_status_lines(&m) == 2 &&
+              strcmp(t.mode_btn, "SEGMENT") == 0 && strcmp(t.view_btn, "VIEW: OVERLAY") == 0 && !t.lines && !t.ids);
+    check("until the helper has spoken it says the model is opening", strstr(t.status, "Opening") != NULL &&
+                                                                          !t.status_warn);
+    acts = vision_model_view_next(&m);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("VIEW goes on to MASK, is sent and is stored", m.set.seg.view == VISION_SEG_MASK &&
+                                                             strcmp(t.view_btn, "VIEW: MASK") == 0 &&
+                                                             (acts & VISION_ACT_PIXELS) && (acts & VISION_ACT_SAVE));
+    vision_model_view_next(&m);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("then ORIGINAL", m.set.seg.view == VISION_SEG_ORIGINAL && strcmp(t.view_btn, "VIEW: ORIGINAL") == 0);
+    vision_model_view_next(&m);
+    check("and round to OVERLAY", m.set.seg.view == VISION_SEG_OVERLAY);
+
+    vision_session_init(&s);
+    s.stats.fps_x10 = 74;
+    s.stats.infer_ms = 85;
+    s.stats.post_ms = 25;
+    s.stats.cpu_pct = 55;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, &s, 2000);
+    e = ev(VISION_EV_SEGINFO);
+    snprintf(e.text, sizeof(e.text), "road 41%%  sky 20%%");
+    vision_model_event(&m, &e, NULL, 2100);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the numbers, then what the helper says the picture is", strstr(t.status, "7.4 fps") != NULL &&
+                                                                       strstr(t.status, "KPU 85 ms") != NULL &&
+                                                                       strstr(t.status, "\nroad 41%  sky 20%") != NULL &&
+                                                                       !t.status_warn);
+    e = ev(VISION_EV_SEGFAIL);
+    snprintf(e.text, sizeof(e.text), "model file not found");
+    vision_model_event(&m, &e, NULL, 2200);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a model that cannot run is a warning with why", t.status_warn && strstr(t.status, "Cannot segment") != NULL &&
+                                                               strstr(t.status, "not found") != NULL);
+    e = ev(VISION_EV_SEGFAIL);
+    vision_model_event(&m, &e, NULL, 2250);
+    check("a failure with no reason still has words", m.segfail[0] != '\0');
+
+    acts = vision_model_set_mode(&m, VISION_MODE_INSTANCES);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("INSTANCES: the same VIEW, the other mode's trouble and words gone",
+          (acts & VISION_ACT_MODE) && vision_model_buttons(&m, order) == 2 && order[1] == VISION_BTN_VIEW &&
+              strcmp(t.mode_btn, "INSTANCES") == 0 && m.segfail[0] == '\0' && m.seginfo[0] == '\0' &&
+              !t.status_warn && m.set.seg.view == VISION_SEG_OVERLAY);
+    e = ev(VISION_EV_SEGINFO);
+    snprintf(e.text, sizeof(e.text), "2 objects  person 2");
+    vision_model_event(&m, &e, NULL, 2300);
+    vision_model_set_mode(&m, VISION_MODE_DETECT);
+    check("leaving them leaves nothing behind", m.seginfo[0] == '\0' && m.segfail[0] == '\0');
+
+    /* A stored SEGMENT on a helper without the model. */
+    {
+        struct vision_settings set;
+
+        vision_settings_defaults(&set);
+        set.mode = VISION_MODE_SEGMENT;
+        vision_model_init(&m);
+        vision_model_load(&m, &set);
+        vision_model_open(&m);
+        go_live(&m);
+        e = ev(VISION_EV_CAPS);
+        e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK);
+        vision_model_event(&m, &e, NULL, 3000);
+        check("a stored SEGMENT without its model runs DETECT and stays the wish",
+              m.mode == VISION_MODE_DETECT && m.set.mode == VISION_MODE_SEGMENT);
+        e.value |= 1 << VISION_MODE_SEGMENT;
+        vision_model_event(&m, &e, NULL, 3100);
+        check("and comes back with the model", m.mode == VISION_MODE_SEGMENT);
+    }
+}
+
 int main(void)
 {
     test_states();
@@ -1560,6 +1664,7 @@ int main(void)
     test_read();
     test_face();
     test_recognize();
+    test_segment();
     test_trails();
     test_layout();
     printf("vision_model_test: %d checks, %d failure(s)\n", checks, failed);

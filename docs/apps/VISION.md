@@ -54,8 +54,8 @@ MODE opens a picker over the picture (DS §38.9) with the modes in groups:
 
 | Group | Modes |
 | --- | --- |
-| GENERAL | DETECT (every object the detector knows, boxed; CLASSES lists what that is), TRACK (the same with ids and a counting line) |
-| ROAD | TRAFFIC |
+| GENERAL | DETECT (every object the detector knows, boxed; CLASSES lists what that is), TRACK (the same with ids and a counting line), INSTANCES (objects with their masks) |
+| ROAD | TRAFFIC, SEGMENT (a class for every pixel of a street scene) |
 | PEOPLE | FACE, RECOGNIZE |
 | TEXT | READ |
 | TOOLS | COLOR, EDGE, LINE TRACE |
@@ -81,7 +81,7 @@ rename), 0600 in a 0700 directory. Merely opening Vision writes nothing.
 
 | Key | Values |
 | --- | --- |
-| `mode` | `detect` `track` `traffic` `face` `recognize` `read` `color` `edge` `trace` |
+| `mode` | `detect` `track` `traffic` `face` `recognize` `read` `color` `edge` `trace` `segment` `instances` |
 | `track.line` | `off` `across` `down` |
 | `traffic.line` | `off` `across` `down` |
 | `traffic.orient` | `across` `down` - the way the speed lines lie |
@@ -89,6 +89,7 @@ rename), 0600 in a 0700 directory. Merely opening Vision writes nothing.
 | `traffic.distance_cm` | 100 200 500 1000 1500 2000 3000 5000 |
 | `color.tol` | `low` `med` `high` |
 | `edge.hard`, `trace.dark` | `0` `1` |
+| `seg.view` | `original` `overlay` `mask` - what SEGMENT and INSTANCES show |
 
 A value this build could not have written leaves that setting at its
 default (the rest still read); an unknown key is ignored; a file larger
@@ -405,6 +406,88 @@ second. Not measured: enrolment and recognition of a live face through the
 camera (the gate ran at night with nobody at the unit), and how the score
 behaves with light, distance and angle.
 
+## SEGMENT and INSTANCES (claude/k230-vision-segmentation-4ee508)
+
+Two modes that colour the picture instead of boxing it. Both run a model of
+their own in the helper, which paints the result into the preview it
+already draws; the screen gains the two modes and one button.
+
+- **SEGMENT** (ROAD): semantic segmentation, a class for every pixel, with
+  PP-LiteSeg-T (STDC1) trained on Cityscapes - nineteen street classes
+  (road, sidewalk, building, ... car, bus, bicycle). It is a street-scene
+  model: indoors its classes mean little.
+- **INSTANCES** (GENERAL): instance segmentation with YOLOv8n-seg at 320 -
+  the eighty COCO classes, each object with a mask and a box. Objects of
+  one class share a colour and are told apart by a white outline.
+
+**VIEW** cycles ORIGINAL (the camera's picture), OVERLAY (the colours mixed
+half and half into it) and MASK (the colours alone on black); it is stored
+as `seg.view` and is the same setting for both modes. All three use one
+geometry: the mask is laid over the picture through the preview's own
+mapping (`vision_unmap_point`, then the upright turn), so it follows the
+display's rotation, the camera's mount and the cover or contain fit.
+
+Under the picture: the frame rate and timings, then what the helper says is
+there - the three classes that take most of the picture and their share
+(SEGMENT), or how many objects and of which classes (INSTANCES). A model
+that cannot be opened or run is said ("Cannot segment: ..."); the picture
+goes on without it.
+
+**The models.** Neither is in the repository or in an image, and the
+package installs neither: their licences are not settled (weights trained
+on Cityscapes, whose terms are non-commercial; YOLOv8-seg, derived from
+AGPL-3.0 work). A mode is offered only when its file is on the unit, put
+there by hand on a bench unit:
+
+| Mode | File the helper looks for | Override |
+| --- | --- | --- |
+| SEGMENT | `/usr/share/doors/vision/seg_pp_liteseg_t.kmodel` | `POCKETOS_VISION_SEG` |
+| INSTANCES | `/usr/share/doors/vision/inst_yolov8n_seg.kmodel` | `POCKETOS_VISION_INST` |
+
+The model is opened when its mode is chosen (`loading` first, as for the
+other nets) and closed when the mode is left, so the other modes keep the
+memory they had.
+
+**SEGMENT's pipeline.** The upright picture is letterboxed into the
+model's 512 x 256 input (scaled to fit with its shape kept, top-left, padded
+right and below - the net's existing path). The kmodel gives logits at one
+eighth of the input (19 x 32 x 64): nncase 2.11's quantized Resize computes
+`asymmetric` where the graph asks for `half_pixel`, so the model was
+converted without its last upsampling and that step is done on the CPU
+(`vision_seg_upsample`), followed by an argmax per pixel
+(`vision_seg_argmax`). Both loops are written for the vectoriser;
+`core/pocketvision/vision_seg.c` is built `-O3`, on the K230 with the RVV
+auto-vectorising flags (Makefile, `VISION_SEG_CFLAGS`).
+
+**INSTANCES' pipeline.** The picture letterboxed as the detector's; the
+head `[1][4 + 80 + 32][rows]` decoded and suppressed per class
+(`vision_inst_decode`, at most 16 objects); each object's mask is its 32
+coefficients times the prototypes `[1][32][80][80]`, positive inside its
+box, written into one map at twice the prototypes' resolution
+(`vision_inst_map`), the surer object keeping a cell two claim. The boxes
+go out on an ordinary `det` line (not in ORIGINAL).
+
+**Unit B, 2026-11-11 and 12** (VERIFIED, by screenshots of the panel; camera
+mounted at 90 degrees, 640 x 360 frames):
+
+- SEGMENT runs at 7 to 8 frames a second (KPU 83-102 ms, CPU after it
+  23-39 ms).
+- The mask covers the whole picture in landscape and in portrait, and its
+  boundaries follow the picture's.
+- INSTANCES was tried by the owner on the unit and found good.
+
+Limits, as built:
+
+- **Portrait is coarse in SEGMENT.** A 360 x 640 upright picture fills only
+  144 x 256 of the model's input; a landscape one 455 x 256. (A centred 2:1
+  window, tried first, covered 28 % of a portrait picture; stretching the
+  whole picture in squeezed it 3.5 to 1.)
+- Not measured: the accuracy of either mode on real scenes, INSTANCES'
+  frame rate, long runs.
+- On a host the fake KPU emulates neither model, so the tests cover the
+  pure code and the edges (offered or not, a model that fails) and nothing
+  of what a model sees.
+
 ## LOOK (object identification): not done
 
 Asked for last, and only on top of stable earlier work. It was not built,
@@ -472,7 +555,7 @@ is left for the owner to ask for.
 
 ## What it is not
 
-No segmentation, pose, recording, network or cloud. The lines are in a few
+No pose, recording, network or cloud. The lines are in a few
 fixed places and the distance from a short list. The choices are stored
 (above); the counts and speeds are not: they live as long as the screen
 is open. No speed is ever inferred from how fast a box moves on the
@@ -906,7 +989,8 @@ picture pixels, so the app draws them with no geometry of its own.
 feat/vision-general-colour-line: `swatch` and `probe` are new, `trace` carries
 six more fields; the app and the helper ship together and the session refuses
 another version). Commands: `view w h rotation [contain]`, `start`, `stop`, `release slot`,
-`mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
+`mode detect|track|traffic|color|edge|trace|segment|instances`,
+`seg original|overlay|mask`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
 `speed off`, `distance cm`, `range near|normal|far`, `color r g b` or `color off`, `sample x y`,
 `probe x y` or `probe centre`, `tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
@@ -924,7 +1008,10 @@ track or 0), `count ab ba`,
 `traffic ab ba cur last max mean n rejected c0ab:c0ba ... c5ab:c5ba`,
 `recent window_s crossed ab ba c0 .. c5 speeds mean_kmh10 saturated`,
 `stats fps_x10 infer_ms pre_ms post_ms cpu_pct rss_kb bad dropped`,
-`malformed n`, `stall ms`, `stopped`, `lost`, `loading what`, `bye`.
+`seginfo text`, `segfail text` (SEGMENT and INSTANCES: what is in the
+picture, or why the model cannot run), `malformed n`, `stall ms`,
+`stopped`, `lost`, `loading what`, `bye`. The segmentation words came
+without a new version: a peer that does not know them ignores them.
 
 `loading` comes before each model the helper opens while it runs (READ's
 two nets, FACE's, RECOGNIZE's embedding - seconds for a large kmodel,
@@ -1047,6 +1134,17 @@ Host only; none needs unit A. `make vision-test` runs them all,
   nothing painted and the loss counted, reacquired where it was last seen
   rather than a decoy nearer the centre (which a stateless pass takes), and
   looked for afresh after a long loss.
+- `tests/vision_seg_test.c` (20 checks): the upsampling's corners,
+  half-pixel weights and planes kept apart; the argmax across a tile
+  boundary with a tie to the first plane; the class names and colours; a
+  YOLOv8-seg head decoded with its coefficients, a duplicate suppressed,
+  another class kept, a box cut to the input, bad arguments refused; masks
+  cut by their boxes and the surer object keeping a shared cell. The model,
+  settings and session tests hold the rest: the two modes offered only by a
+  helper that names them, VIEW's cycle and its stored key, `seginfo` and
+  `segfail`, and against the real helper that a mode is offered exactly
+  when its file is there and that a file which is no model is said while
+  the pictures go on.
 - `tests/vision_swatch_test.c` (38 checks): every colour category from a
   plain colour, dark whatever the hue, pale as grey or white; a red picture
   read red; a red patch in a white margin read red with white second and
