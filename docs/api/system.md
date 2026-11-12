@@ -282,7 +282,9 @@ client will notice by the machine still being there.
 **One at a time.** A second power request while one is pending is refused with
 code 5 (`POCKETIPC_ERR_BUSY`) and a message naming what is already pending,
 whichever order the two arrive in. The first request wins; the second changes
-nothing.
+nothing. Both are also refused with code 5 while a storage expansion or a
+radio setup runs, with a message naming it: either one stopped part way would
+leave the unit neither as it was nor as asked.
 
 **Nothing acts on a request that was not understood or not delivered.**
 Unlike `system.info` and `system.status`, which ignore extra parameters, these
@@ -479,8 +481,24 @@ kept), `S60radiod restart`, radiod must answer `radio.info` on `sx1262`
 within 15 s, `radio.set_enabled` on (the answer to the antenna question),
 `MESHCORED_ENABLE=1` into `/etc/default/meshcored`, `S65meshcored restart`,
 meshcored must answer `mesh.status` within 15 s. Files are replaced
-atomically. **Any failure puts both files back as they were and restarts both
-services on them**: the unit is either set up or unchanged.
+atomically. **Any failure puts both files back as they were, and radiod's
+stored on/off choice (`radio.conf`, docs/api/radio.md) with them, and restarts
+both services on them**: the unit is either set up or unchanged. The radio
+being switched on is part of what is undone: radiod is stopped, the three
+files are put back (a file that did not exist is removed again), and radiod is
+started on them, so the owner's earlier "off", or no stored choice at all, is
+what it starts with. A `radio.conf` that exists but cannot be read stops the
+setup before anything changes. `system.reboot` and `system.poweroff` are
+refused (code 5) while a setup runs; it ends within about a minute,
+restoring included.
+
+"The previous settings are back" is said only when the restore is known to
+have worked: radiod stopped, every file was written back or removed again,
+radiod started and answered `radio.info`, and meshcored restarted (and
+answered `mesh.status` when its restored file enables it). Anything else ends
+the error with "the previous settings could not all be put back:" and what
+did not. A radiod that did not stop is not started again, because S60radiod
+would only report it as already running, still on the setup's choice.
 
 #### radio_setup.status
 
@@ -492,7 +510,8 @@ No parameters. Returns:
 
 `state`: `idle`, `running`, `done` (the last setup finished) or `failed`,
 with `error` saying which step failed and that the previous settings are
-back (or that nothing was changed). `needed`: the files do not say `sx1262`
+back, that nothing was changed, or that the previous settings could not all
+be put back and what did not. `needed`: the files do not say `sx1262`
 and `MESHCORED_ENABLE=1`. `backend` is what `/etc/default/radiod` says
 (`mock` when it says nothing), not what radiod runs.
 
@@ -526,7 +545,7 @@ the methods that change the machine will need a real answer.
 | 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes` / `storage.eject`, which take none, or a bad `system.logs` parameter |
 | 3 | `POCKETIPC_ERR_POLICY`: `storage.eject` with no USB drive mounted; `radio_setup.start` without `antenna_confirmed`, or on a unit already set up |
 | 4 | `POCKETIPC_ERR_BACKEND`: the eject could not be started |
-| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending, or an eject is running |
+| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending, or an eject, a storage expansion or a radio setup is running |
 
 `system.info` and `system.status` take no parameters and ignore any that are
 sent. `system.reboot` and `system.poweroff` take none and refuse any, because

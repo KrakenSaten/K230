@@ -111,7 +111,18 @@ receive mode. If re-entering RX fails after a transmit, CAD or packet read,
 the state becomes `error`, a `radio.state` event is sent, and radiod retries
 at most once per second until RX is back (then `rx` again). `radio.send`
 still transmits in state `error`; its result reports the transmit, not the
-receive state. On the mock backend `mock.set {key: "rx_failing", value: 1}`
+receive state. The exception is `profile_uncertain`, below.
+
+`profile_uncertain` (bool) is present, and `true`, only after a
+`radio.configure` failed part way and putting the previous profile back
+failed too. The transceiver's settings are then unknown: `profile` is the last
+profile that was applied successfully, not a description of the chip, and the
+state is `error`. On the SX1262 the frequency and output power are set after
+the module itself, so either can be a value the region guard never checked.
+While it is set, `radio.send` and `radio.send_async` are refused with 4 and
+nothing is transmitted. A `radio.configure` that succeeds clears it, and so
+does switching the radio off and on (`radio.set_enabled`), which configures
+the chip from the start. On the mock backend `mock.set {key: "rx_failing", value: 1}`
 simulates this.
 
 On the SX1262 the two halves of this carry different evidence, and they should
@@ -240,7 +251,8 @@ SX1262 port has been confirmed (docs/hardware/BRINGUP_CHECKLIST.md §5).
 
 Params: `payload_hex` (string, 1 to 255 bytes). Result: `airtime_ms`
 (computed time-on-air), `bytes`, `tx_id`. Error 5 if a transmission is in
-progress, error 3 if another client holds the radio lease.
+progress, error 3 if another client holds the radio lease, error 4 while the
+transceiver's settings are unknown (`profile_uncertain` in `radio.status`).
 
 `radio.send` is synchronous: it does not answer until the packet has gone
 out. It is the same state machine as `radio.send_async` with the wait moved
@@ -283,7 +295,8 @@ result says the packet went out; the radio has not been touched yet. The
 outcome arrives later as a `radio.tx_done` event carrying the same `tx_id`.
 
 Errors: 2 for a payload that is not 1 to 255 bytes of hex, 5 when a
-transmission is already in flight, 3 when another client holds the lease. A
+transmission is already in flight, 3 when another client holds the lease, 4
+while the transceiver's settings are unknown (`profile_uncertain`). A
 refused request allocates no `tx_id`, so there is never a completion for a
 transmission that was never accepted.
 

@@ -223,6 +223,19 @@ check "the daemon says the settings are unknown" '"profile_uncertain":[[:space:]
 check "and does not report rx while they are" '"state":[[:space:]]*"error"' "$out"
 check "the daemon logged that it could not restore them"       'could not be restored' "$(cat "$POCKETOS_RUNTIME_DIR/radiod.log")"
 
+# While the settings are unknown nothing is transmitted: the frequency and
+# output power on the chip may be ones the region guard never saw. Both
+# transmit methods are refused with 4, and no packet is counted.
+tx_before=$("$POS" radio stats | grep -o '"tx_packets":[[:space:]]*[0-9]*')
+out=$("$POS" radio send AbCdEf 2>&1)
+check "radio.send is refused while the settings are unknown" 'code 4' "$out"
+check "and says why" 'settings are unknown' "$out"
+out=$("$POS" radio send-async AbCdEf 2>&1)
+check "radio.send_async is refused while the settings are unknown" 'code 4' "$out"
+check "and allocates no tx_id" "0" "$(printf '%s' "$out" | grep -c tx_id)"
+tx_after=$("$POS" radio stats | grep -o '"tx_packets":[[:space:]]*[0-9]*')
+check "and nothing was transmitted" "$tx_before" "$tx_after"
+
 # A configure that succeeds is what clears it.
 "$POS" radio mock configure_fail_stage=0 >/dev/null
 out=$("$POS" radio configure spreading_factor=9 2>&1)
@@ -230,6 +243,8 @@ check "a configure that succeeds is accepted again" '"spreading_factor":[[:space
 out=$("$POS" radio status)
 check "and the uncertainty is gone" "0"       "$(printf '%s' "$out" | grep -c profile_uncertain)"
 check "and the radio is receiving again" '"state":[[:space:]]*"rx"' "$out"
+out=$("$POS" radio send AbCdEf 2>&1)
+check "and transmitting is allowed again" '"airtime_ms"' "$out"
 
 # Protocol robustness: garbage frame must not crash radiod.
 python3 - "$POCKETOS_RUNTIME_DIR/radiod.sock" <<'PY' || true
