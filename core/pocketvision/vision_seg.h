@@ -32,7 +32,8 @@ int vision_seg_upsample(const float *src, int c, int h, int w, int s, float *dst
 /* The plane with the largest value at each of hw pixels, the first on a
  * tie (as numpy's argmax). c <= 255. */
 void vision_seg_argmax(const float *v, int c, size_t hw, uint8_t *m);
-/* A semantic class's name (never NULL, no spaces) and its colour, RGB565. */
+/* A semantic class's name (never NULL, no spaces) and its colour, RGB565.
+ * Defined in vision_labels.c, with the other names the screen shows. */
 const char *vision_seg_label(uint32_t cls);
 uint16_t vision_seg_color(uint32_t cls);
 

@@ -12,33 +12,12 @@
 
 #define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
 
-/* Cityscapes' nineteen training classes and their usual colours. */
-static const char *const seg_names[VISION_SEG_CLASSES] = {
-    "road", "sidewalk", "building", "wall", "fence", "pole", "light", "sign", "vegetation", "terrain",
-    "sky", "person", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle",
-};
-static const uint16_t seg_colors[VISION_SEG_CLASSES] = {
-    RGB565(128, 64, 128), RGB565(244, 35, 232), RGB565(70, 70, 70),   RGB565(102, 102, 156), RGB565(190, 153, 153),
-    RGB565(153, 153, 153), RGB565(250, 170, 30), RGB565(220, 220, 0),  RGB565(107, 142, 35),  RGB565(152, 251, 152),
-    RGB565(70, 130, 180), RGB565(220, 20, 60),  RGB565(255, 0, 0),    RGB565(0, 0, 142),     RGB565(0, 0, 70),
-    RGB565(0, 60, 100),   RGB565(0, 80, 100),   RGB565(0, 0, 230),    RGB565(119, 11, 32),
-};
 static const uint16_t inst_colors[] = {
     RGB565(255, 56, 56),  RGB565(255, 157, 151), RGB565(255, 112, 31), RGB565(255, 178, 29), RGB565(207, 210, 49),
     RGB565(72, 249, 10),  RGB565(146, 204, 23),  RGB565(61, 219, 134), RGB565(26, 147, 52),  RGB565(0, 212, 187),
     RGB565(44, 153, 168), RGB565(0, 194, 255),   RGB565(52, 69, 147),  RGB565(100, 115, 255), RGB565(0, 24, 236),
     RGB565(132, 56, 255), RGB565(82, 0, 133),    RGB565(203, 56, 255), RGB565(255, 149, 200), RGB565(255, 55, 199),
 };
-
-const char *vision_seg_label(uint32_t cls)
-{
-    return cls < VISION_SEG_CLASSES ? seg_names[cls] : "?";
-}
-
-uint16_t vision_seg_color(uint32_t cls)
-{
-    return cls < VISION_SEG_CLASSES ? seg_colors[cls] : 0;
-}
 
 uint16_t vision_inst_color(uint32_t cls)
 {
