@@ -68,6 +68,16 @@ static void test_modes(void)
     check("COLOR, EDGE and LINE TRACE are TOOLS",
           vision_mode_group(VISION_MODE_COLOR) == VISION_GROUP_TOOLS && vision_mode_group(VISION_MODE_EDGE) == VISION_GROUP_TOOLS &&
               vision_mode_group(VISION_MODE_TRACE) == VISION_GROUP_TOOLS && strcmp(vision_mode_name(VISION_MODE_TRACE), "LINE TRACE") == 0);
+    check("SEGMENT is ROAD and INSTANCES GENERAL, by their own words",
+          vision_mode_group(VISION_MODE_SEGMENT) == VISION_GROUP_ROAD &&
+              vision_mode_group(VISION_MODE_INSTANCES) == VISION_GROUP_GENERAL &&
+              vision_mode_parse("segment") == VISION_MODE_SEGMENT &&
+              vision_mode_parse("instances") == VISION_MODE_INSTANCES &&
+              strcmp(vision_mode_name(VISION_MODE_INSTANCES), "INSTANCES") == 0);
+    check("the segmentation views' words", strcmp(vision_seg_view_word(VISION_SEG_ORIGINAL), "original") == 0 &&
+                                               strcmp(vision_seg_view_word(VISION_SEG_OVERLAY), "overlay") == 0 &&
+                                               strcmp(vision_seg_view_word(VISION_SEG_MASK), "mask") == 0 &&
+                                               strcmp(vision_seg_view_word(VISION_SEG_VIEWS), "overlay") == 0);
     check("the group captions", strcmp(vision_group_name(VISION_GROUP_GENERAL), "GENERAL") == 0 &&
                                     strcmp(vision_group_name(VISION_GROUP_TOOLS), "TOOLS") == 0 &&
                                     strcmp(vision_group_name(VISION_GROUPS), "?") == 0);
@@ -182,6 +192,22 @@ static void test_refusals(void)
                                       vision_settings_parse(&s, "traffic.range=normal\n") == 0);
     check("a display toggle that is not 0 or 1", vision_settings_parse(&s, "traffic.trails=on\ntrack.trails=2\n") == 2 &&
                                                      s.traffic.trails && s.track.trails);
+    {
+        struct vision_settings v;
+        char text[VISION_SETTINGS_TEXT_MAX];
+
+        vision_settings_defaults(&v);
+        check("the segmentation view starts as OVERLAY", v.seg.view == VISION_SEG_OVERLAY);
+        check("it reads", vision_settings_parse(&v, "seg.view=mask\nmode=segment\n") == 0 &&
+                              v.seg.view == VISION_SEG_MASK && v.mode == VISION_MODE_SEGMENT);
+        check("and is written and read back", vision_settings_format(&v, text, sizeof(text)) > 0 &&
+                                                  strstr(text, "seg.view=mask\n") != NULL &&
+                                                  strstr(text, "mode=segment\n") != NULL);
+        check("a view it does not know is refused", vision_settings_parse(&v, "seg.view=outline\n") == 1 &&
+                                                        v.seg.view == VISION_SEG_MASK);
+        v.seg.view = (enum vision_seg_view)5;
+        check("one out of range is put back", vision_settings_sanitize(&v) == 1 && v.seg.view == VISION_SEG_OVERLAY);
+    }
     check("unknown keys, comments and blank lines are not errors",
           vision_settings_parse(&s, "# hello\n\nfuture.key=1\n  mode = track  \r\n") == 0 && s.mode == VISION_MODE_TRACK);
     memset(longline, 'x', sizeof(longline) - 1);

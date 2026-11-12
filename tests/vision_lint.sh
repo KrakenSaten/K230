@@ -145,9 +145,18 @@ check "the picture fits a shared-memory slot" \
     "$(grep -q '#define VISION_PICTURE_MAX 1024' $A/vision_layout.h && grep -q '#define POCKETCAM_VIEW_MAX_W 1024' core/pocketcam/pocketcam_proto.h && echo 1 || echo 0)"
 
 # ---- scope of the prototype ----------------------------------------------------------
-hits=$(code $A/*.[ch] $C/*.[ch] $C/*.cpp $H | grep -niE '\b(segment|pose|keypoint|AF_INET|socket\(AF_INET|curl|http|upload|cloud)\b')
-check "no segmentation, pose, network or cloud: everything Vision sees stays on the unit" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $A/*.[ch] $C/*.[ch] $C/*.cpp $H | grep -niE '\b(pose|keypoint|AF_INET|socket\(AF_INET|curl|http|upload|cloud)\b')
+check "no pose, network or cloud: everything Vision sees stays on the unit" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
+# SEGMENT and INSTANCES run models no image carries (their licences are not
+# settled): the helper offers each only when its file is on the unit, and the
+# package installs neither.
+check "the segmentation modes are offered only when their model file is on the unit" \
+    "$(grep -q 's->seg_offered = access(s->seg_path, R_OK) == 0' $H && grep -q 's->inst_offered = access(s->inst_path, R_OK) == 0' $H && echo 1 || echo 0)"
+check "and no segmentation model is packaged" \
+    "$(grep -rqE 'seg_pp_liteseg|inst_yolov8n_seg|yolov8n_seg' platforms/ 2>/dev/null && echo 0 || echo 1)"
+check "a segmentation model is closed when its mode is left" \
+    "$(grep -A3 'A segmentation model is held only while its mode is in force' $H | grep -q 'seg_close(s);' && echo 1 || echo 0)"
 check "Camera's own screen is untouched by Vision (no vision words in apps/camera)" \
     "$(grep -qiE 'vision' apps/camera/*.c apps/camera/*.h tools/camera/*.c && echo 0 || echo 1)"
 check "the shell knows Vision, after Recorder" \

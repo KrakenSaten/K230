@@ -55,13 +55,16 @@ static void fill(uint16_t v)
     }
 }
 
+/* A box, cut at the picture's edges: a leaning line that runs off the right
+ * side ends there (it used to be written past its row's end, onto the start
+ * of the next row - found by UBSan). */
 static void box(int x0, int y0, int w, int h, uint16_t v)
 {
     int y;
     int x;
 
-    for (y = y0; y < y0 + h; y++) {
-        for (x = x0; x < x0 + w; x++) {
+    for (y = y0 < 0 ? 0 : y0; y < y0 + h && y < H; y++) {
+        for (x = x0 < 0 ? 0 : x0; x < x0 + w && x < W; x++) {
             pic[y][x] = v;
         }
     }

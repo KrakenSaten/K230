@@ -259,6 +259,8 @@ static void mode_changed(struct vision_model *m)
     m->hold = false;
     m->readfail[0] = '\0';
     m->facefail[0] = '\0';
+    m->segfail[0] = '\0';
+    m->seginfo[0] = '\0';
     m->faces_seen = 0;
     m->face_top_id = 0;
     memset(&m->who, 0, sizeof(m->who));
@@ -549,6 +551,12 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         break;
     case VISION_EV_FACEFAIL:
         snprintf(m->facefail, sizeof(m->facefail), "%s", ev->text[0] ? ev->text : "the face model failed");
+        break;
+    case VISION_EV_SEGINFO:
+        snprintf(m->seginfo, sizeof(m->seginfo), "%s", ev->text);
+        break;
+    case VISION_EV_SEGFAIL:
+        snprintf(m->segfail, sizeof(m->segfail), "%s", ev->text[0] ? ev->text : "the model failed");
         break;
     case VISION_EV_RECOGFAIL:
         snprintf(m->recogfail, sizeof(m->recogfail), "%s", ev->text[0] ? ev->text : "the face models failed");
@@ -967,6 +975,12 @@ unsigned vision_model_edge_next(struct vision_model *m)
     return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
 }
 
+unsigned vision_model_view_next(struct vision_model *m)
+{
+    m->set.seg.view = (enum vision_seg_view)((m->set.seg.view + 1) % VISION_SEG_VIEWS);
+    return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
+}
+
 unsigned vision_model_trace_next(struct vision_model *m)
 {
     m->set.trace.dark = !m->set.trace.dark;
@@ -1316,6 +1330,10 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     case VISION_MODE_EDGE:
         out[1] = VISION_BTN_EDGE;
         return 2;
+    case VISION_MODE_SEGMENT:
+    case VISION_MODE_INSTANCES:
+        out[1] = VISION_BTN_VIEW;
+        return 2;
     case VISION_MODE_TRACE:
         out[1] = VISION_BTN_TRACE;
         return 2;
@@ -1339,7 +1357,7 @@ int vision_model_status_lines(const struct vision_model *m)
     int n;
 
     if (m->mode == VISION_MODE_RECOGNIZE || m->mode == VISION_MODE_DETECT || m->mode == VISION_MODE_COLOR ||
-        m->mode == VISION_MODE_TRACE) {
+        m->mode == VISION_MODE_TRACE || m->mode == VISION_MODE_SEGMENT || m->mode == VISION_MODE_INSTANCES) {
         /* DETECT: the numbers, then what is in view. COLOR, TRACE: the
          * reading, then what it means or what to do. */
         n = 2;
@@ -1707,6 +1725,9 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->tol_btn = tol_names[m->set.color.tol_idx >= 0 && m->set.color.tol_idx < VISION_TOLS ? m->set.color.tol_idx
                                                                                              : VISION_TOL_DEFAULT];
     out->edge_btn = m->set.edge.hard ? "EDGE: HARD" : "EDGE: SOFT";
+    out->view_btn = m->set.seg.view == VISION_SEG_ORIGINAL ? "VIEW: ORIGINAL"
+                    : m->set.seg.view == VISION_SEG_MASK   ? "VIEW: MASK"
+                                                           : "VIEW: OVERLAY";
     out->trace_btn = m->set.trace.dark ? "LINE: DARK" : "LINE: LIGHT";
     counters(m, out);
     if (m->mode == VISION_MODE_COLOR && m->have_target && m->color_valid && m->pixels.color.matched_pm > 0 &&
@@ -1769,6 +1790,19 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
         } else if (out->recog && (m->recogfail[0] || m->facefail[0] || m->enrolling || m->enrolfail[0] ||
                                   m->owner_known)) {
             recog_status(m, status_buf, status_len, &out->status_warn);
+            out->status = status_buf;
+        } else if ((m->mode == VISION_MODE_SEGMENT || m->mode == VISION_MODE_INSTANCES) && m->segfail[0]) {
+            snprintf(status_buf, status_len, "Cannot segment: %s", m->segfail);
+            out->status = status_buf;
+            out->status_warn = true;
+        } else if (m->mode == VISION_MODE_SEGMENT || m->mode == VISION_MODE_INSTANCES) {
+            /* The numbers, then what the picture is made of. */
+            if (m->stats_valid && m->seginfo[0]) {
+                snprintf(status_buf, status_len, "%u.%u fps  KPU %d ms  post %d  CPU %d%%\n%s", m->stats.fps_x10 / 10,
+                         m->stats.fps_x10 % 10, m->stats.infer_ms, m->stats.post_ms, m->stats.cpu_pct, m->seginfo);
+            } else {
+                snprintf(status_buf, status_len, "Opening the segmentation model");
+            }
             out->status = status_buf;
         } else if (out->faces && m->facefail[0]) {
             snprintf(status_buf, status_len, "Cannot find faces: %s", m->facefail);

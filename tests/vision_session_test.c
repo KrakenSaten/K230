@@ -249,6 +249,17 @@ static void test_parse(void)
           !vision_session_parse_line(&s, "ready fake 640 360 1 yolov8n.kmodel 320 320 0", &ev));
     check("nomodel too", vision_session_parse_line(&s, "nomodel model file not found", &ev) &&
                              ev.kind == VISION_EV_NOMODEL && strcmp(ev.text, "model file not found") == 0);
+    check("caps name the segmentation modes", vision_session_parse_line(&s, "caps color edge trace segment instances", &ev) &&
+                                                  ev.kind == VISION_EV_CAPS &&
+                                                  (ev.value & (1 << VISION_MODE_SEGMENT)) &&
+                                                  (ev.value & (1 << VISION_MODE_INSTANCES)));
+    check("seginfo carries the helper's words as they are",
+          vision_session_parse_line(&s, "seginfo road 41%  sky 20%", &ev) && ev.kind == VISION_EV_SEGINFO &&
+              strcmp(ev.text, "road 41%  sky 20%") == 0);
+    check("segfail carries why", vision_session_parse_line(&s, "segfail model file not found", &ev) &&
+                                     ev.kind == VISION_EV_SEGFAIL && strcmp(ev.text, "model file not found") == 0);
+    check("a word that only begins like them is not one", !vision_session_parse_line(&s, "seginfos x", &ev) &&
+                                                              !vision_session_parse_line(&s, "segfailed x", &ev));
     check("an unknown word is not an event", !vision_session_parse_line(&s, "weather sunny", &ev));
 }
 
@@ -1130,6 +1141,66 @@ static void test_face(void)
     rmdir(dir);
 }
 
+/* SEGMENT and INSTANCES against the real helper. The host's fake KPU emulates
+ * no segmentation model, so what is tested is the edge of it: the modes are
+ * offered exactly when their files are there, a model that cannot be opened
+ * is said with its reason, and the picture goes on without it. */
+static void test_segment(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0 };
+    char dir[] = "/tmp/vision-seg-XXXXXX";
+    char seg[PATH_MAX];
+    char inst[PATH_MAX];
+    FILE *f;
+
+    w.s = &s;
+    if (!mkdtemp(dir)) {
+        check("a directory for the model files", 0);
+        return;
+    }
+    snprintf(seg, sizeof(seg), "%s/seg.kmodel", dir);
+    snprintf(inst, sizeof(inst), "%s/inst.kmodel", dir);
+    setenv("POCKETOS_VISION_SEG", seg, 1);
+    setenv("POCKETOS_VISION_INST", inst, 1);
+
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "box=2:800:200:100:120:90", NULL) == 0);
+    check("with no model files neither mode is offered",
+          wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && !(ev.value & (1 << VISION_MODE_SEGMENT)) &&
+              !(ev.value & (1 << VISION_MODE_INSTANCES)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(seg, "w");
+    if (f) {
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts again", start(&s, "period=20", "box=2:800:200:100:120:90", NULL) == 0);
+    check("with the semantic file SEGMENT is offered, INSTANCES still not",
+          wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_SEGMENT)) &&
+              !(ev.value & (1 << VISION_MODE_INSTANCES)));
+    vision_session_view(&s, 640, 360, 0);
+    check("the view's word is sent", vision_session_seg_view(&s, "mask") == 0 &&
+                                         vision_session_seg_view(&s, "not a word") != 0);
+    vision_session_mode_word(&s, "segment");
+    check("a file that is no model is said, with why", wait_for(&s, VISION_EV_SEGFAIL, 3000, &ev, seen, &w) &&
+                                                           ev.text[0] != '\0');
+    vision_session_stream(&s, true, now_ms());
+    check("and the helper goes on (pictures)", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w));
+    vision_session_mode_word(&s, "instances");
+    vision_session_mode_word(&s, "detect");
+    check("a mode not offered is not entered: DETECT answers as before",
+          wait_for(&s, VISION_EV_DET, 3000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+    unsetenv("POCKETOS_VISION_SEG");
+    unsetenv("POCKETOS_VISION_INST");
+    unlink(seg);
+    rmdir(dir);
+}
+
 /* The pixel modes against the real helper: EDGE finds the fake camera's
  * edges; COLOR samples the picture's middle and paints its matches; TRACE
  * answers; the boxes go while a pixel mode is on and come back after. */
@@ -1592,6 +1663,7 @@ int main(int argc, char **argv)
     test_face();
     test_recognize();
     test_pixels();
+    test_segment();
     test_malformed();
     test_failures();
     test_view_change();

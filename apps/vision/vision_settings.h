@@ -10,7 +10,7 @@
  * settings.conf's key=value format, $POCKETOS_STATE_DIR/vision/settings.v1
  * (vision_store.c does the file):
  *
- *   mode=detect|track|traffic|face|recognize|read|color|edge|trace
+ *   mode=detect|track|traffic|face|recognize|read|color|edge|trace|segment|instances
  *   track.line=off|across|down
  *   track.trails=0|1
  *   traffic.range=near|normal|far      the detection range (vision_range.h)
@@ -54,6 +54,8 @@ enum vision_mode {
     VISION_MODE_COLOR,       /* TOOLS */
     VISION_MODE_EDGE,        /* TOOLS */
     VISION_MODE_TRACE,       /* TOOLS: LINE TRACE */
+    VISION_MODE_SEGMENT,     /* ROAD: a class for every pixel (street scenes) */
+    VISION_MODE_INSTANCES,   /* GENERAL: objects with their masks */
     VISION_MODES
 };
 
@@ -64,6 +66,14 @@ enum vision_group {
     VISION_GROUP_TEXT,
     VISION_GROUP_TOOLS,
     VISION_GROUPS
+};
+
+/* SEGMENT and INSTANCES: what the picture shows (seg.view in the file). */
+enum vision_seg_view {
+    VISION_SEG_ORIGINAL = 0, /* the camera's picture */
+    VISION_SEG_OVERLAY,      /* the colours mixed into it */
+    VISION_SEG_MASK,         /* the colours alone */
+    VISION_SEG_VIEWS
 };
 
 /* The counting line's place. */
@@ -127,6 +137,9 @@ struct vision_settings {
     struct {
         bool dark;
     } trace;
+    struct {
+        enum vision_seg_view view;
+    } seg;
 };
 
 #define VISION_SETTINGS_TEXT_MAX 512
@@ -141,6 +154,8 @@ int vision_settings_sanitize(struct vision_settings *s);
 enum vision_group vision_mode_group(enum vision_mode mode);
 const char *vision_mode_name(enum vision_mode mode);
 const char *vision_mode_word(enum vision_mode mode);
+/* The helper's and the file's word for a segmentation view. */
+const char *vision_seg_view_word(enum vision_seg_view v);
 /* The detector's name on the screen (R0 · Beta, UPSTREAM) and its word in
  * the file. */
 const char *vision_detector_name(enum vision_detector d);
