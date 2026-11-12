@@ -165,6 +165,19 @@ struct fake_meshcored_script {
     int preview_silent;
     /* Every mesh.path_preview, one to a line: "<to>|<k1>,<k2>,...". */
     const char *preview_log;
+
+    /* The companion bridge (tests/companiond_e2e_test.py). */
+    /* Hold the scripted events until this many mesh.subscribe requests have
+     * been answered (0 and 1: the first, as before), so two subscribers - a
+     * bridge and a stand-in for RIFT - both see every one of them. */
+    int subscribers_before_events;
+    /* 1: a direct message accepted by mesh.send is acknowledged straight
+     * away - a second mesh.message with state "acked" and ack_mono_ms
+     * follows the first, as the real service raises one when the
+     * recipient's ACK matches. 2: first attempts go unacknowledged (as if
+     * their ACK never came), and a resend of a message sent in this run is
+     * taken and acknowledged. */
+    int ack_sends;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns
