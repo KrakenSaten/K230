@@ -1970,12 +1970,13 @@ static int seg_open(struct session *s)
     return 0;
 }
 
-/* SEGMENT: the whole upright picture stretched into the model, whatever its
- * shape, so the map lies over all of the picture in every orientation (a
- * centred window of the model's 2:1 shape left bands of a landscape picture
- * unclassed and covered barely a quarter of a portrait one: unit B,
- * 2026-11-11); the logits brought to the input's size and the best class
- * taken per pixel; what most of the picture is, said. */
+/* SEGMENT: the whole upright picture letterboxed into the model - scaled to
+ * fit with its shape kept, in the top-left corner, the rest padded - so the
+ * map lies over all of the picture in every orientation and nothing is
+ * squeezed (a centred window of the model's 2:1 shape covered barely a
+ * quarter of a portrait picture, and stretching one in squeezed it 3.5 to
+ * 1: unit B, 2026-11-11); the logits brought to the input's size and the
+ * best class taken per pixel; what most of the picture is, said. */
 static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int *pre, int *inf)
 {
     const struct vision_net_info *ni = &s->segi;
@@ -1985,6 +1986,13 @@ static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int
     uint32_t scale = ni->in_h / oh;
     size_t cells = (size_t)s->seg_mw * s->seg_mh;
     uint32_t hist[VISION_SEG_NONE] = { 0 };
+    float ratio = (float)ni->in_w / (float)in->width < (float)ni->in_h / (float)in->height
+                      ? (float)ni->in_w / (float)in->width
+                      : (float)ni->in_h / (float)in->height;
+    uint32_t pw;
+    uint32_t ph;
+    uint32_t x;
+    uint32_t y;
     const float *out;
     char text[80] = "";
     size_t off = 0;
@@ -1992,7 +2000,7 @@ static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int
     size_t i;
     int k;
 
-    if (vision_net_run(s->segnet, NULL, true, 0, pre, inf) != 0) {
+    if (vision_net_run(s->segnet, NULL, false, VISION_INST_PAD, pre, inf) != 0) {
         return -1;
     }
     out = vision_net_output(s->segnet, 0, &count);
@@ -2006,15 +2014,26 @@ static int seg_semantic(struct session *s, const struct pocketcam_frame *in, int
         out = s->seg_up;
     }
     vision_seg_argmax(out, (int)c, cells, s->seg_map);
+    /* Padded right and below: the map lies over the upright picture and
+     * beyond its right or lower edge; only the picture's part is counted. */
     s->seg_now.wx = 0;
     s->seg_now.wy = 0;
-    s->seg_now.ww = (float)in->width;
-    s->seg_now.wh = (float)in->height;
+    s->seg_now.ww = (float)ni->in_w / ratio;
+    s->seg_now.wh = (float)ni->in_h / ratio;
     for (i = 0; i < c; i++) {
         s->seg_col[i] = vision_seg_color((uint32_t)i);
     }
-    for (i = 0; i < cells; i++) {
-        hist[s->seg_map[i]]++;
+    pw = (uint32_t)(ratio * (float)in->width);
+    ph = (uint32_t)(ratio * (float)in->height);
+    pw = pw < 1 ? 1 : pw > s->seg_mw ? s->seg_mw : pw;
+    ph = ph < 1 ? 1 : ph > s->seg_mh ? s->seg_mh : ph;
+    cells = (size_t)pw * ph;
+    for (y = 0; y < ph; y++) {
+        const uint8_t *row = s->seg_map + (size_t)y * s->seg_mw;
+
+        for (x = 0; x < pw; x++) {
+            hist[row[x]]++;
+        }
     }
     for (k = 0; k < 3; k++) {
         uint32_t best = 0;
