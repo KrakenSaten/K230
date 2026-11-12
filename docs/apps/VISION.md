@@ -48,6 +48,83 @@ are in docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md. The follow-up for
 body pose and hand landmarks is docs/vision/BODY_HAND_TRACKING_PLAN.md
 (PROPOSED, not built).
 
+**Branch `claude/k230-vision-ui-redesign-ef4926` (2026-11-12, from master
+dd9b1f64):** the screen redesigned around the picture - see "The screen"
+below. No mode, model, protocol word or stored key changed. Host-tested and
+looked at in the simulator in both orientations; not on a unit yet
+("The screen", "To check on a unit").
+
+## The screen
+
+The picture comes first; everything else is small and at the edges.
+
+- **On the picture.** What the mode counts lies on the picture's top
+  corners as two chips (`DOWN 3` / `UP 1`, `OBJECTS 2` / `CLASSES 2`, ...),
+  there only while there is something to say - a mode with no counters has
+  none. They were a row of slabs under the picture; that row is the
+  picture's now (on the panel held upright DETECT's picture went from 500
+  to 528 px wide). SEGMENT's key to its colours lies along the picture's
+  foot.
+- **The mode switcher.** One button that says `MODE` over the mode's name,
+  with a chevron: it opens the picker and is the primary (filled) button
+  while the picker is open. It is apart from the mode's own buttons, so a
+  mode's row no longer starts with a button that happens to carry its name.
+- **The mode's own buttons** beside the switcher at the foot of the screen
+  (upright), or at the foot of the column beside the picture (wide), where
+  they stay whatever the status says.
+- **The picker** lists every mode in its group. A mode whose model is not
+  on the unit is dimmed (DS §9's disabled look), takes no tap and no key,
+  and a line under the groups says what dimmed means. It is never the mode
+  in force: what the helper's `caps` line offers is unchanged.
+- **SEGMENT and INSTANCES.** The view is a selector - `ORIGINAL`, `OVERLAY`,
+  `MASK` side by side, the one in force filled - one tap to any view
+  instead of a button that cycled. SEGMENT's key names the (up to three)
+  classes most of the picture is, each with the colour it is painted in
+  and its share; ORIGINAL has no colours and no key.
+- **Boxes.** A tag is moved left where it would run off the picture's
+  right edge (the picture clips it there). With more than six boxes a tag
+  says what the box is and which (`#7 car`), and no longer how sure: a
+  crowded picture is read by its boxes. A measured speed and RECOGNIZE's
+  score are always shown.
+
+Not done, on purpose:
+
+- **Overlay opacity.** OVERLAY's half-and-half mix is made in the helper
+  with the mask; making it a setting means a new protocol word and a change
+  to the helper's painting, which this branch does not touch. MASK and
+  ORIGINAL are one tap away for the two ends.
+- **A key for INSTANCES.** Its colours follow the class number, not a fixed
+  list, and its boxes already name each object.
+
+Cost: nothing new per frame but the two chips and the key, which are
+redrawn with the picture they lie on like the tags; the picture itself is
+about 11 % more pixels upright (528 x 938, was 500 x 890) and unchanged
+held wide. The frame rate with the larger picture has not been measured on
+a unit.
+
+Screenshots, before and after, from the simulator (fake camera, fake
+detector): `docs/design/vision-ui-redesign/`.
+
+### To check on a unit
+
+Nothing here has run on a K230. With the shell and the helper built from
+this branch installed on a bench unit by hand (the helper differs only in
+which file two tables are compiled in):
+
+1. Upright and wide: the picture, the chips, the status, the switcher and
+   the buttons are all on screen, nothing clipped or overlapping, in
+   DETECT, TRACK, TRAFFIC, COLOR, SEGMENT and INSTANCES.
+2. DETECT's frame rate against the figure before (the picture is larger
+   upright).
+3. The picker: every group, the dimmed modes do nothing when tapped, a
+   mode with its model on the unit switches; BOOT closes the picker.
+4. SEGMENT and INSTANCES: each of ORIGINAL, OVERLAY and MASK in one tap,
+   the view kept after leaving and opening Vision again; SEGMENT's key
+   names what the picture shows, in the colours on the picture.
+5. A keyboard on an external display: the arrows reach the switcher and
+   every button, pass the dimmed modes by, Enter presses, Esc closes.
+6. Counters: TRACK and TRAFFIC count in the chips as they did in the slabs.
+
 ## Modes and settings
 
 MODE opens a picker over the picture (DS §38.9) with the modes in groups:
@@ -60,10 +137,10 @@ MODE opens a picker over the picture (DS §38.9) with the modes in groups:
 | TEXT | READ |
 | TOOLS | COLOR, EDGE, LINE TRACE |
 
-A mode appears only when the helper can run it: right after `ready` it
-says so in a `caps` line (the modes by their protocol words). A mode whose
-model is not on the unit is never offered, and a group with nothing to
-offer is not shown. A stored mode the helper cannot run falls back to
+A mode can be chosen only when the helper can run it: right after `ready`
+it says so in a `caps` line (the modes by their protocol words). A mode
+whose model is not on the unit is listed dimmed and cannot be chosen ("The
+screen"). A stored mode the helper cannot run falls back to
 DETECT for this open and stays the stored wish, so it comes back with the
 model.
 
@@ -420,16 +497,18 @@ already draws; the screen gains the two modes and one button.
   the eighty COCO classes, each object with a mask and a box. Objects of
   one class share a colour and are told apart by a white outline.
 
-**VIEW** cycles ORIGINAL (the camera's picture), OVERLAY (the colours mixed
-half and half into it) and MASK (the colours alone on black); it is stored
-as `seg.view` and is the same setting for both modes. All three use one
+**The view** is a selector of three: ORIGINAL (the camera's picture),
+OVERLAY (the colours mixed half and half into it) and MASK (the colours
+alone on black); it is stored as `seg.view` and is the same setting for
+both modes. All three use one
 geometry: the mask is laid over the picture through the preview's own
 mapping (`vision_unmap_point`, then the upright turn), so it follows the
 display's rotation, the camera's mount and the cover or contain fit.
 
 Under the picture: the frame rate and timings, then what the helper says is
 there - the three classes that take most of the picture and their share
-(SEGMENT), or how many objects and of which classes (INSTANCES). A model
+(SEGMENT, which also shows them on the picture as a key with their
+colours), or how many objects and of which classes (INSTANCES). A model
 that cannot be opened or run is said ("Cannot segment: ..."); the picture
 goes on without it.
 
@@ -1081,15 +1160,27 @@ The camera fake is Camera's (`docs/apps/CAMERA.md`), with one new key,
 
 ## Layout
 
-DS §38 (Amendment V, PROPOSED). Fullscreen (NONE chrome). Tall: the
-picture across the width in the turned preview's shape (9:16), then the
-status line, two counter slabs side by side, LINE and RESET side by side.
-Wide: the picture at the full height (16:9) on the left, a 240 px column
-on the right with the status (two lines), the two counters and the two
-buttons stacked. TRY AGAIN takes LINE's place. Only existing roles: a slab
-behind the picture, the §9 focus ring as the box outline, captions on
-slabs as the box tags, `POS_STYLE_VALUE` on slabs for the counts, §7
-buttons.
+DS §38 (Amendment V, PROPOSED). Fullscreen (NONE chrome).
+`apps/vision/vision_layout.c`, pure arithmetic on the body.
+
+Tall: the picture across the width in the turned preview's shape (9:16),
+then the status, then at the foot the mode switcher (160 px) with the
+mode's buttons beside it. One or two buttons, or SEGMENT's three-part
+selector, share the switcher's row; three or four buttons with names of
+their own (TRACK) get rows under a switcher as wide as the screen.
+
+Wide: the picture at the full height (16:9) on the left; on the right a
+column of at least 240 px with the mode switcher at its head, the status
+under it (a line more than upright: the column is narrow) and the mode's
+buttons at its foot, two across, the selector's three in one row where
+each still gets 100 px.
+
+The counters are chips on the picture's top corners and SEGMENT's key a
+strip along its foot (`vision_app.c`), so they take no room of their own.
+TRY AGAIN takes the first button's place, alone. Only existing roles: a
+slab behind the picture, the §9 focus ring as the box outline, captions on
+slabs as the box tags and the key, `POS_STYLE_VALUE` on slabs for the
+chips, §7 buttons (the disabled one for a mode that cannot be chosen).
 
 ## Tests
 
@@ -1217,8 +1308,13 @@ Host only; none needs unit A. `make vision-test` runs them all,
   the rest read; fields out of range put back; the store on a scratch
   state directory (0600 file, 0700 directory, no temporary left, a damaged
   value, an oversized file).
-- `tests/vision_model_test.c` also holds the picker (groups, what caps
-  offer, choosing, a stored mode the helper cannot run), TRAFFIC's setup
+- `tests/vision_model_test.c` also holds the picker (the five groups
+  always, what caps let be chosen, the dimmed modes with no code, choosing,
+  a stored mode the helper cannot run), the view selector (any view in one
+  tap, a view that is not refused), SEGMENT's key (the classes named, three
+  at most, none in ORIGINAL or with a model that failed), the layout with
+  the mode switcher (beside the buttons, over them, at the column's head)
+  in every mode's button count, TRAFFIC's setup
   (every cell, the distance both ways, the sheet closing on an error), the
   settings each tap stores, and the sheet on both reference pictures.
 - `tests/vision_shell_test.sh` (needs `SHELL_BIN`): the real shell opening
@@ -1229,6 +1325,8 @@ Host only; none needs unit A. `make vision-test` runs them all,
   (`POCKETOS_VISION_SHEET=classes`), and COLOR and LINE TRACE opened from
   their stored modes.
 - `tests/pocketcam_test.c` gains the planar BGR format (three checks).
+- `tests/vision_keys_test.c` moves the focus over the switcher and the
+  buttons at the layout's own places, in a row, in rows and in the column.
 - `tests/vision_lint.sh` holds the boundaries: no LVGL below the screen,
   no camera or detector in the app, nncase in one file behind a C
   interface, the core pure and bounded, the screen blocking on nothing,
