@@ -1002,7 +1002,7 @@ static int decode_window(const float *out, size_t count, const uint32_t dims[3],
 {
     struct vision_decode_params p = {
         .in_w = mi->in_w, .in_h = mi->in_h, .classes = mi->classes,
-        .frame_w = (uint32_t)win->w, .frame_h = (uint32_t)win->h, .conf_min = conf_min,
+        .frame_w = (uint32_t)win->w, .frame_h = (uint32_t)win->h, .conf_min = conf_min, .xyxy = mi->xyxy,
     };
     int n = vision_decode(out, count, dims, &p, cands, VISION_MAX_CANDIDATES, bad);
     int i;
@@ -1068,7 +1068,7 @@ static int pipeline(struct vision_kpu *kpu, const struct vision_kpu_info *mi, ui
     {
         struct vision_decode_params p = {
             .in_w = mi->in_w, .in_h = mi->in_h, .classes = mi->classes,
-            .frame_w = in.width, .frame_h = in.height, .conf_min = floor,
+            .frame_w = in.width, .frame_h = in.height, .conf_min = floor, .xyxy = mi->xyxy,
         };
 
         n = vision_decode(out, count, dims, &p, cands, VISION_MAX_CANDIDATES, &o->bad);
@@ -3008,7 +3008,8 @@ static int run_session(const char *backend, const char *config, const char *mode
         s->detect_offered = true;
         /* The model's classes onto the traffic classes, by name: the
          * traffic logic never learns which detector this is. */
-        vision_traffic_map_names(&s->tf, s->model.classes, vision_label);
+        vision_traffic_map_names(&s->tf, s->model.classes,
+                                 s->model.classes == VISION_O365_CLASSES ? vision_label_o365 : vision_label);
     }
     say("ready %s %u %u %d %s %u %u %u", s->info.name, s->info.preview_w, s->info.preview_h,
         s->info.simulated ? 1 : 0, s->model.model, s->model.in_w, s->model.in_h, s->model.classes);
@@ -3333,7 +3334,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
     printf("vehicles: full-picture candidates shown from %u%%; model px = frame px x %u.%03u\n",
            VISION_BENCH_VEHICLE_FLOOR / 10, ratio_pm / 1000, ratio_pm % 1000);
     vision_traffic_init(&tf);
-    vision_traffic_map_names(&tf, mi.classes, vision_label);
+    vision_traffic_map_names(&tf, mi.classes, mi.classes == VISION_O365_CLASSES ? vision_label_o365 : vision_label);
     vision_tracker_init(&tr);
     /* Tracked as TRAFFIC tracks at this range: vehicles across their group,
      * confirmed and kept as the range says. */
@@ -3453,7 +3454,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
             printf("frame %u: pre %d ms infer %d ms, %d boxes%s, %u rows refused:", f.seq, pre_ms, infer_ms, n,
                    po.zoomed ? " (zoom pass)" : "", bad);
             for (i = 0; i < n && i < 8; i++) {
-                printf(" %s %u%% (%d,%d %dx%d)", vision_label(dets[i].cls), dets[i].conf / 10,
+                printf(" %s %u%% (%d,%d %dx%d)", vision_label_for(mi.classes, dets[i].cls), dets[i].conf / 10,
                        dets[i].box.x, dets[i].box.y, dets[i].box.w, dets[i].box.h);
             }
             printf("; %d tracks, %d confirmed\n", tr.count, live);
@@ -3465,7 +3466,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
                 for (i = 0; i < tr.count; i++) {
                     const struct vision_track *k = &tr.t[i];
 
-                    printf(" %u:%s:%d,%d,%d,%d:%u:%u:%c", k->id, vision_label(k->cls), k->box.x, k->box.y, k->box.w,
+                    printf(" %u:%s:%d,%d,%d,%d:%u:%u:%c", k->id, vision_label_for(mi.classes, k->cls), k->box.x, k->box.y, k->box.w,
                            k->box.h, k->hits, k->misses, k->confirmed ? 'C' : 'n');
                 }
                 printf("\n");
@@ -3494,7 +3495,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
                         veh_below++;
                     }
                     conf_max = d->conf > conf_max ? d->conf : conf_max;
-                    printf(" %s %u%% (%d,%d %dx%d, model %dx%d) %s", vision_label(d->cls), d->conf / 10,
+                    printf(" %s %u%% (%d,%d %dx%d, model %dx%d) %s", vision_label_for(mi.classes, d->cls), d->conf / 10,
                            d->box.x, d->box.y, d->box.w, d->box.h, mw, mh,
                            d->conf >= VISION_CONF_MIN ? "DETECT" : "below");
                 }

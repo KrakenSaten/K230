@@ -17,7 +17,11 @@
  *
  * The output is always a float tensor of rank 3, [1][4 + classes][rows],
  * the layout vision_decode.h reads; a backend that finds anything else in
- * its model refuses to open. The pointer a run hands back is valid until
+ * its model refuses to open. One other model layout is taken and handed on
+ * in that one: PP-YOLOE+ cut before its last Concat (GENERAL 365), two
+ * outputs, boxes [1][rows][4] as corners x1 y1 x2 y2 and scores
+ * [1][classes][rows]. The boxes are transposed into the first four features
+ * and info.xyxy says they are corners. The pointer a run hands back is valid until
  * the next run or close.
  *
  * Copyright (c) 2026 PocketOS authors.
@@ -43,6 +47,7 @@ struct vision_kpu_info {
     uint32_t in_h;
     uint32_t classes;
     uint32_t rows;
+    bool xyxy;             /* boxes as corners (vision_decode_params.xyxy) */
 };
 
 /* Open a model. `path` is the .kmodel file (nncase) or ignored (fake);

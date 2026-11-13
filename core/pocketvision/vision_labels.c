@@ -48,6 +48,68 @@ const char *vision_label_group_name(int g)
     return g >= 0 && g < VISION_COCO_GROUPS ? group_names[g] : "?";
 }
 
+/* Objects365 v2's 365 classes, in the order of PaddleDetection's
+ * objects365_detection_label_list.txt (the order the GENERAL 365 kmodel's
+ * scores come in), made protocol-safe: lower case, words joined with a
+ * hyphen, a slash pair cut to its first word, and the list's misspellings
+ * ("Moniter/TV", "Bakset", "Mushroon"...) put right. The names COCO also
+ * has are spelt as COCO spells them, so TRAFFIC finds car, bus, truck,
+ * motorcycle, bicycle and person by name in either list. */
+static const char *const o365[VISION_O365_CLASSES] = {
+    "person", "sneakers", "chair", "other-shoes", "hat", "car", "lamp", "glasses", "bottle", "desk", "cup",
+    "street-lights", "cabinet", "handbag", "bracelet", "plate", "picture-frame", "helmet", "book", "gloves",
+    "storage-box", "boat", "leather-shoes", "flower", "bench", "potted-plant", "bowl", "flag", "pillow",
+    "boots", "vase", "microphone", "necklace", "ring", "suv", "wine-glass", "belt", "monitor", "backpack",
+    "umbrella", "traffic-light", "speaker", "watch", "tie", "trash-can", "slippers", "bicycle", "stool",
+    "bucket", "van", "couch", "sandals", "basket", "drum", "pen", "bus", "wild-bird", "high-heels",
+    "motorcycle", "guitar", "carpet", "cell-phone", "bread", "camera", "canned", "truck", "traffic-cone",
+    "cymbal", "lifesaver", "towel", "stuffed-toy", "candle", "sailboat", "laptop", "awning", "bed", "faucet",
+    "tent", "horse", "mirror", "power-outlet", "sink", "apple", "air-conditioner", "knife", "hockey-stick",
+    "paddle", "pickup-truck", "fork", "traffic-sign", "balloon", "tripod", "dog", "spoon", "clock", "pot",
+    "cow", "cake", "dining-table", "sheep", "hanger", "whiteboard", "napkin", "other-fish", "orange",
+    "toiletry", "keyboard", "tomato", "lantern", "machinery-vehicle", "fan", "green-vegetables", "banana",
+    "baseball-glove", "airplane", "mouse", "train", "pumpkin", "soccer", "skis", "luggage", "nightstand",
+    "tea-pot", "telephone", "trolley", "headphones", "sports-car", "stop-sign", "dessert", "scooter",
+    "stroller", "crane", "remote", "refrigerator", "oven", "lemon", "duck", "baseball-bat",
+    "surveillance-camera", "cat", "jug", "broccoli", "piano", "pizza", "elephant", "skateboard", "surfboard",
+    "gun", "skates", "gas-stove", "donut", "bow-tie", "carrot", "toilet", "kite", "strawberry", "other-balls",
+    "shovel", "pepper", "computer-box", "toilet-paper", "cleaning-products", "chopsticks", "microwave",
+    "pigeon", "baseball", "cutting-board", "coffee-table", "side-table", "scissors", "marker", "pie",
+    "ladder", "snowboard", "cookies", "radiator", "fire-hydrant", "basketball", "zebra", "grape", "giraffe",
+    "potato", "sausage", "tricycle", "violin", "egg", "fire-extinguisher", "candy", "fire-truck", "billiards",
+    "converter", "bathtub", "wheelchair", "golf-club", "briefcase", "cucumber", "cigarette", "paint-brush",
+    "pear", "heavy-truck", "hamburger", "extractor", "extension-cord", "tong", "tennis-racket", "folder",
+    "american-football", "earphone", "mask", "kettle", "tennis", "ship", "swing", "coffee-machine", "slide",
+    "carriage", "onion", "green-beans", "projector", "frisbee", "washing-machine", "chicken", "printer",
+    "watermelon", "saxophone", "tissue", "toothbrush", "ice-cream", "hot-air-balloon", "cello",
+    "french-fries", "scale", "trophy", "cabbage", "hot-dog", "blender", "peach", "rice", "wallet",
+    "volleyball", "deer", "goose", "tape", "tablet", "cosmetics", "trumpet", "pineapple", "golf-ball",
+    "ambulance", "parking-meter", "mango", "key", "hurdle", "fishing-rod", "medal", "flute", "brush",
+    "penguin", "megaphone", "corn", "lettuce", "garlic", "swan", "helicopter", "green-onion", "sandwich",
+    "nuts", "speed-limit-sign", "induction-cooker", "broom", "trombone", "plum", "rickshaw", "goldfish",
+    "kiwi-fruit", "router", "poker-card", "toaster", "shrimp", "sushi", "cheese", "notepaper", "cherry",
+    "pliers", "cd", "pasta", "hammer", "cue", "avocado", "hami-melon", "flask", "mushroom", "screwdriver",
+    "soap", "recorder", "bear", "eggplant", "board-eraser", "coconut", "tape-measure", "pig", "showerhead",
+    "globe", "chips", "steak", "crosswalk-sign", "stapler", "camel", "formula-1", "pomegranate", "dishwasher",
+    "crab", "hoverboard", "meat-ball", "rice-cooker", "tuba", "calculator", "papaya", "antelope", "parrot",
+    "seal", "butterfly", "dumbbell", "donkey", "lion", "urinal", "dolphin", "electric-drill", "hair-dryer",
+    "egg-tart", "jellyfish", "treadmill", "lighter", "grapefruit", "game-board", "mop", "radish", "baozi",
+    "target", "french", "spring-rolls", "monkey", "rabbit", "pencil-case", "yak", "red-cabbage", "binoculars",
+    "asparagus", "barbell", "scallop", "noodles", "comb", "dumpling", "oyster", "table-tennis-paddle",
+    "makeup-brush", "chainsaw", "eraser", "lobster", "durian", "okra", "lipstick", "cosmetics-mirror",
+    "curling", "table-tennis",
+};
+
+const char *vision_label_o365(uint32_t cls)
+{
+    return cls < VISION_O365_CLASSES ? o365[cls] : "?";
+}
+
+const char *vision_label_for(uint32_t classes, uint32_t cls)
+{
+    return classes == VISION_O365_CLASSES ? vision_label_o365(cls) : vision_label(cls);
+}
+
 uint32_t vision_label_r0_class(int i)
 {
     return i >= 0 && i < VISION_R0_CLASSES ? r0_classes[i] : VISION_COCO_CLASSES;

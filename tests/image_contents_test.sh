@@ -177,7 +177,7 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
     check "the pass names the R0 detector, with the pinned hash" \
         "$(grep -q "det-r0-traffic6-yolox-tiny-416.kmodel (Vision's R0 detector), sha256 $(cut -c1-64 "${TMP}/r0.sha256"), as pinned" "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and the detectors it must not carry absent" \
-        "$(grep -q 'yolov8n.kmodel absent (not shipped)' "${TMP}/out.txt" && grep -q 'det-upstream-yolox-tiny-416.kmodel absent (not shipped)' "${TMP}/out.txt" && echo 1 || echo 0)"
+        "$(grep -q 'yolov8n.kmodel absent (not shipped)' "${TMP}/out.txt" && grep -q 'det-upstream-yolox-tiny-416.kmodel absent (not shipped)' "${TMP}/out.txt" && grep -q 'det-general365-ppyoloe-s-320.kmodel absent (not shipped)' "${TMP}/out.txt" && echo 1 || echo 0)"
     R0_PIN_FOR_GATE=tools/vision/r0-model.sha256
     rc="$(run_gate "${TMP}/doors.img")"
     unset R0_PIN_FOR_GATE
@@ -189,7 +189,7 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         check "NEGATIVE CONTROL: an image without R0 is refused" \
             "$([ "${rc}" != "0" ] && grep -q "(Vision's R0 detector) is not in the root partition" "${TMP}/out.txt" && echo 1 || echo 0)"
     fi
-    for refused in yolov8n.kmodel det-upstream-yolox-tiny-416.kmodel; do
+    for refused in yolov8n.kmodel det-upstream-yolox-tiny-416.kmodel det-general365-ppyoloe-s-320.kmodel; do
         with_refused() { mkbootimg_rootfs_doors "$1"; printf 'x' > "$1/usr/share/doors/vision/${refused}"; }
         if rootfs_img "${TMP}/refused.img" with_refused; then
             rc="$(run_gate "${TMP}/refused.img")"

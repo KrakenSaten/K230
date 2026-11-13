@@ -10,6 +10,9 @@
 #include <math.h>
 #include <string.h>
 
+/* Rows whose best class is found together (vision_decode). */
+#define VISION_DECODE_BLOCK 256
+
 uint32_t vision_iou_permille(const struct vision_box *a, const struct vision_box *b)
 {
     int64_t ax1 = a->x;
@@ -61,7 +64,10 @@ int vision_decode(const float *out, size_t count, const uint32_t dims[3],
 {
     uint32_t rows;
     uint32_t features;
-    uint32_t i;
+    uint32_t i0;
+    float blk_best[VISION_DECODE_BLOCK];
+    uint16_t blk_cls[VISION_DECODE_BLOCK];
+    bool blk_ok[VISION_DECODE_BLOCK];
     int n = 0;
     uint32_t skipped = 0;
     float ratio_w;
@@ -92,104 +98,136 @@ int vision_decode(const float *out, size_t count, const uint32_t dims[3],
     /* A box may reach a little outside the input while still meaning
      * something; four times the input is a tensor that is not a detector's. */
     limit = 4.0f * (float)(p->in_w > p->in_h ? p->in_w : p->in_h);
-    for (i = 0; i < rows; i++) {
-        float cx = out[0 * rows + i];
-        float cy = out[1 * rows + i];
-        float bw = out[2 * rows + i];
-        float bh = out[3 * rows + i];
-        float best = -1.0f;
-        uint32_t best_cls = 0;
+    for (i0 = 0; i0 < rows; i0 += VISION_DECODE_BLOCK) {
+        uint32_t nb = rows - i0 < VISION_DECODE_BLOCK ? rows - i0 : VISION_DECODE_BLOCK;
         uint32_t c;
-        bool ok = true;
-        struct vision_det d;
-        float x;
-        float y;
-        float w;
-        float h;
+        uint32_t k;
 
+        /* Each row's best class, a block of rows at a time and class by
+         * class: a class's scores for the block lie side by side, where a
+         * row's classes are a whole plane apart (2100 x 4 bytes for GENERAL
+         * 365), which cost a cache miss a score on unit B. The same result
+         * as row by row: the first of equal scores, and a row with any
+         * score that is not finite refused. */
+        for (k = 0; k < nb; k++) {
+            blk_best[k] = -1.0f;
+            blk_cls[k] = 0;
+            blk_ok[k] = true;
+        }
         for (c = 0; c < p->classes; c++) {
-            float s = out[(4 + c) * rows + i];
+            const float *s = out + (size_t)(4 + c) * rows + i0;
 
-            if (!isfinite(s)) {
-                ok = false;
-                break;
-            }
-            if (s > best) {
-                best = s;
-                best_cls = c;
-            }
-        }
-        if (!ok || best < -VISION_SCORE_SLACK || best > 1.0f + VISION_SCORE_SLACK) {
-            skipped++;
-            continue;
-        }
-        /* Quantization noise around 0 and 1, not a bad row. */
-        best = best < 0.0f ? 0.0f : best > 1.0f ? 1.0f : best;
-        if ((uint32_t)(best * VISION_CONF_SCALE + 0.5f) < p->conf_min) {
-            continue;
-        }
-        if (!sane(cx, limit) || !sane(cy, limit) || !sane(bw, limit) || !sane(bh, limit) ||
-            bw <= 0.0f || bh <= 0.0f) {
-            skipped++;
-            continue;
-        }
-        /* Model-input pixels back to the frame: the ratio alone, since the
-         * padding sits on the right and bottom. */
-        x = (cx - 0.5f * bw) / ratio;
-        y = (cy - 0.5f * bh) / ratio;
-        w = bw / ratio;
-        h = bh / ratio;
-        if (x < 0.0f) {
-            w += x;
-            x = 0.0f;
-        }
-        if (y < 0.0f) {
-            h += y;
-            y = 0.0f;
-        }
-        if (x >= (float)p->frame_w || y >= (float)p->frame_h) {
-            skipped++;
-            continue;
-        }
-        if (x + w > (float)p->frame_w) {
-            w = (float)p->frame_w - x;
-        }
-        if (y + h > (float)p->frame_h) {
-            h = (float)p->frame_h - y;
-        }
-        if (w < 1.0f || h < 1.0f) {
-            skipped++;
-            continue;
-        }
-        d.box.x = (int32_t)x;
-        d.box.y = (int32_t)y;
-        d.box.w = (int32_t)(w + 0.5f);
-        d.box.h = (int32_t)(h + 0.5f);
-        if (d.box.w < 1) {
-            d.box.w = 1;
-        }
-        if (d.box.h < 1) {
-            d.box.h = 1;
-        }
-        d.cls = (uint16_t)best_cls;
-        d.conf = (uint16_t)(best * VISION_CONF_SCALE + 0.5f);
-        if (d.conf > VISION_CONF_SCALE) {
-            d.conf = VISION_CONF_SCALE;
-        }
-        if (n < max) {
-            dets[n++] = d;
-        } else {
-            /* Full: keep the best. Replace the weakest if this beats it. */
-            int weakest = 0;
-            int k;
+            for (k = 0; k < nb; k++) {
+                float v = s[k];
 
-            for (k = 1; k < n; k++) {
-                if (dets[k].conf < dets[weakest].conf) {
-                    weakest = k;
+                if (!isfinite(v)) {
+                    blk_ok[k] = false;
+                } else if (v > blk_best[k]) {
+                    blk_best[k] = v;
+                    blk_cls[k] = (uint16_t)c;
                 }
             }
-            if (d.conf > dets[weakest].conf) {
-                dets[weakest] = d;
+        }
+        for (k = 0; k < nb; k++) {
+            uint32_t i = i0 + k;
+            float cx = out[0 * rows + i];
+            float cy = out[1 * rows + i];
+            float bw = out[2 * rows + i];
+            float bh = out[3 * rows + i];
+            float best = blk_best[k];
+            uint32_t best_cls = blk_cls[k];
+            bool ok = blk_ok[k];
+            struct vision_det d;
+            float x;
+            float y;
+            float w;
+            float h;
+
+            if (!ok || best < -VISION_SCORE_SLACK || best > 1.0f + VISION_SCORE_SLACK) {
+                skipped++;
+                continue;
+            }
+            /* Quantization noise around 0 and 1, not a bad row. */
+            best = best < 0.0f ? 0.0f : best > 1.0f ? 1.0f : best;
+            if ((uint32_t)(best * VISION_CONF_SCALE + 0.5f) < p->conf_min) {
+                continue;
+            }
+            if (p->xyxy) {
+                /* Corners: the same box as a centre and size. A corner that is
+                 * not finite makes the centre not finite, refused below. */
+                float x1 = cx;
+                float y1 = cy;
+                float x2 = bw;
+                float y2 = bh;
+
+                cx = 0.5f * (x1 + x2);
+                cy = 0.5f * (y1 + y2);
+                bw = x2 - x1;
+                bh = y2 - y1;
+            }
+            if (!sane(cx, limit) || !sane(cy, limit) || !sane(bw, limit) || !sane(bh, limit) ||
+                bw <= 0.0f || bh <= 0.0f) {
+                skipped++;
+                continue;
+            }
+            /* Model-input pixels back to the frame: the ratio alone, since the
+             * padding sits on the right and bottom. */
+            x = (cx - 0.5f * bw) / ratio;
+            y = (cy - 0.5f * bh) / ratio;
+            w = bw / ratio;
+            h = bh / ratio;
+            if (x < 0.0f) {
+                w += x;
+                x = 0.0f;
+            }
+            if (y < 0.0f) {
+                h += y;
+                y = 0.0f;
+            }
+            if (x >= (float)p->frame_w || y >= (float)p->frame_h) {
+                skipped++;
+                continue;
+            }
+            if (x + w > (float)p->frame_w) {
+                w = (float)p->frame_w - x;
+            }
+            if (y + h > (float)p->frame_h) {
+                h = (float)p->frame_h - y;
+            }
+            if (w < 1.0f || h < 1.0f) {
+                skipped++;
+                continue;
+            }
+            d.box.x = (int32_t)x;
+            d.box.y = (int32_t)y;
+            d.box.w = (int32_t)(w + 0.5f);
+            d.box.h = (int32_t)(h + 0.5f);
+            if (d.box.w < 1) {
+                d.box.w = 1;
+            }
+            if (d.box.h < 1) {
+                d.box.h = 1;
+            }
+            d.cls = (uint16_t)best_cls;
+            d.conf = (uint16_t)(best * VISION_CONF_SCALE + 0.5f);
+            if (d.conf > VISION_CONF_SCALE) {
+                d.conf = VISION_CONF_SCALE;
+            }
+            if (n < max) {
+                dets[n++] = d;
+            } else {
+                /* Full: keep the best. Replace the weakest if this beats it. */
+                int weakest = 0;
+                int j;
+
+                for (j = 1; j < n; j++) {
+                    if (dets[j].conf < dets[weakest].conf) {
+                        weakest = j;
+                    }
+                }
+                if (d.conf > dets[weakest].conf) {
+                    dets[weakest] = d;
+                }
             }
         }
     }

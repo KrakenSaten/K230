@@ -306,8 +306,8 @@ check "apply_to_sdk.sh stages R0 only with the pinned hash" \
     "$(grep -q -F 'tools/vision/r0-model.sha256' platforms/k230/scripts/apply_to_sdk.sh &&
        grep -q -F '"${R0_GOT}" != "${R0_SHA}"' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
 ext=$(grep -F 'EXTERNAL ONLY' "$MODELS" | grep -o -E '`/usr/share/doors/vision/[A-Za-z0-9_.-]+`' | tr -d '`' | sed 's#.*/##' | sort -u)
-check "MODEL_LICENSES.md names the EXTERNAL ONLY models (upstream YOLOX, face_det, text_det, text_rec, text_dict, face_embed)" \
-    "$([ "$(printf '%s\n' $ext | tr '\n' ' ')" = 'det-upstream-yolox-tiny-416.kmodel face_det.kmodel face_embed.kmodel text_det.kmodel text_dict.txt text_rec.kmodel ' ] && echo 1 || echo 0)"
+check "MODEL_LICENSES.md names the EXTERNAL ONLY models (upstream YOLOX, GENERAL 365, face_det, text_det, text_rec, text_dict, face_embed)" \
+    "$([ "$(printf '%s\n' $ext | tr '\n' ' ')" = 'det-general365-ppyoloe-s-320.kmodel det-upstream-yolox-tiny-416.kmodel face_det.kmodel face_embed.kmodel text_det.kmodel text_dict.txt text_rec.kmodel ' ] && echo 1 || echo 0)"
 # Executed against packages that break the rules.
 cp "$MK" "$TMP/ext.mk"
 printf '\t$(INSTALL) -D -m 0644 x/face_det.kmodel $(TARGET_DIR)/usr/share/doors/vision/face_det.kmodel\n' >> "$TMP/ext.mk"

@@ -15,7 +15,8 @@
  *      aspect kept, the rest padded with 114 (the vendor's
  *      padding_resize_one_side_set), NCHW in, NCHW out;
  *   3. run the model; map its first output and copy the floats out, so the
- *      caller reads plain memory while the runtime keeps its own buffers.
+ *      caller reads plain memory while the runtime keeps its own buffers
+ *      (a PP-YOLOE+ model's two outputs into that one layout, vision_kpu.h).
  *
  * Errors come back as negative errno, never as an exception: the runtime's
  * result<> is checked at every step, and .expect() - which aborts - is never
@@ -73,6 +74,7 @@ struct vision_kpu {
     uint32_t in_h = 0;
     uint32_t classes = 0;
     uint32_t rows = 0;
+    bool split = false;             /* PP-YOLOE+: boxes and scores apart (vision_kpu.h) */
     std::vector<float> out;
 };
 
@@ -145,13 +147,29 @@ extern "C" int vision_kpu_open(struct vision_kpu **kp, const char *path, const c
     k->rows = vision_decode_rows(k->in_w, k->in_h);
     auto out_shape = k->interp.output_shape(0);
     auto out_desc = k->interp.output_desc(0);
-    if (k->rows == 0 || out_shape.size() != 3 || out_shape[0] != 1 || out_shape[1] < 5 ||
-        out_shape[1] > 4 + VISION_MAX_CLASSES || out_shape[2] != k->rows ||
-        out_desc.datatype != dt_float32) {
+    if (k->interp.outputs_size() == 2) {
+        /* PP-YOLOE+ cut before its last Concat: boxes [1][rows][4] as
+         * corners, scores [1][classes][rows] (vision_kpu.h). */
+        auto sc_shape = k->interp.output_shape(1);
+        auto sc_desc = k->interp.output_desc(1);
+
+        if (k->rows == 0 || out_shape.size() != 3 || out_shape[0] != 1 || out_shape[1] != k->rows ||
+            out_shape[2] != 4 || out_desc.datatype != dt_float32 || sc_shape.size() != 3 || sc_shape[0] != 1 ||
+            sc_shape[1] < 1 || sc_shape[1] > VISION_MAX_CLASSES || sc_shape[2] != k->rows ||
+            sc_desc.datatype != dt_float32) {
+            reason(err, errlen, "the model outputs are not PP-YOLOE+ boxes and scores for its input");
+            return -EPROTO;
+        }
+        k->split = true;
+        k->classes = (uint32_t)sc_shape[1];
+    } else if (k->rows == 0 || out_shape.size() != 3 || out_shape[0] != 1 || out_shape[1] < 5 ||
+               out_shape[1] > 4 + VISION_MAX_CLASSES || out_shape[2] != k->rows ||
+               out_desc.datatype != dt_float32) {
         reason(err, errlen, "the model output is not a YOLOv8 detection head for its input");
         return -EPROTO;
+    } else {
+        k->classes = (uint32_t)out_shape[1] - 4;
     }
-    k->classes = (uint32_t)out_shape[1] - 4;
     auto t = hrt::create(dt_uint8, in_shape, hrt::pool_shared);
     if (!t.is_ok()) {
         reason(err, errlen, "no shared memory for the model input");
@@ -174,6 +192,7 @@ extern "C" int vision_kpu_open(struct vision_kpu **kp, const char *path, const c
     info->in_h = k->in_h;
     info->classes = k->classes;
     info->rows = k->rows;
+    info->xyxy = k->split;
     *kp = k.release();
     live++;
     return 0;
@@ -264,10 +283,12 @@ static int build_window(struct vision_kpu *k, const struct vision_box *w)
     return 0;
 }
 
-/* The model's first output, copied out into k->out. */
-static int copy_output(struct vision_kpu *k)
+/* Output i mapped for reading, `bytes` of it copied to dst; with `boxes`
+ * (a PP-YOLOE+ [rows][4] box tensor) transposed into four planes of `rows`
+ * instead. */
+static int copy_one(struct vision_kpu *k, size_t i, float *dst, size_t bytes, bool boxes)
 {
-    auto ot = k->interp.output_tensor(0);
+    auto ot = k->interp.output_tensor(i);
     if (!ot.is_ok()) {
         return -EIO;
     }
@@ -284,13 +305,39 @@ static int copy_output(struct vision_kpu *k)
         return -EIO;
     }
     auto mapped = std::move(m.unwrap());
-    size_t bytes = k->out.size() * sizeof(float);
 
     if (mapped.buffer().size() < bytes) {
         return -EPROTO;
     }
-    memcpy(k->out.data(), mapped.buffer().data(), bytes);
+    if (boxes) {
+        const float *src = reinterpret_cast<const float *>(mapped.buffer().data());
+
+        for (uint32_t r = 0; r < k->rows; r++) {
+            for (uint32_t c = 0; c < 4; c++) {
+                dst[(size_t)c * k->rows + r] = src[(size_t)r * 4 + c];
+            }
+        }
+    } else {
+        memcpy(dst, mapped.buffer().data(), bytes);
+    }
     return 0;
+}
+
+/* The model's first output, copied out into k->out; a PP-YOLOE+ model's
+ * boxes and scores into the same layout. */
+static int copy_output(struct vision_kpu *k)
+{
+    if (k->split) {
+        size_t box_bytes = (size_t)4 * k->rows * sizeof(float);
+        int r = copy_one(k, 0, k->out.data(), box_bytes, true);
+
+        if (r == 0) {
+            r = copy_one(k, 1, k->out.data() + (size_t)4 * k->rows, (size_t)k->classes * k->rows * sizeof(float),
+                         false);
+        }
+        return r;
+    }
+    return copy_one(k, 0, k->out.data(), k->out.size() * sizeof(float), false);
 }
 
 extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f,

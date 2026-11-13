@@ -417,7 +417,7 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
         {
             char text[VISION_LABEL_MAX];
             char who[24];
-            const char *what = s->faces ? "face" : vision_label(t[i].cls);
+            const char *what = s->faces ? "face" : vision_model_class_label(&a->model, t[i].cls);
 
             if (s->recog && t[i].id) {
                 /* RECOGNIZE: "#3 OWNER 91%" - the score, not the detector's
@@ -1703,15 +1703,16 @@ static void *vision_create(lv_obj_t *root)
         LOG_INFO("vision: opening in %s", vision_mode_name(a->model.set.mode));
     }
     {
-        /* The detector files: R0 on every 0.3.6 card, GENERAL 80 by hand. */
+        /* The detector files: R0 on every 0.3.6 card, GENERAL 80 and 365 by hand. */
         uint32_t present = vision_store_detector_files();
 
         a->det_logged = -1;
         vision_model_set_detector_files(&a->model, present);
         if (present) {
-            LOG_INFO("vision: detector files: R0 %s, GENERAL 80 (upstream) %s; last confirmed %s",
+            LOG_INFO("vision: detector files: R0 %s, GENERAL 80 (upstream) %s, GENERAL 365 %s; last confirmed %s",
                      (present & (1u << VISION_DET_R0)) ? "present" : "missing",
                      (present & (1u << VISION_DET_UPSTREAM)) ? "present" : "missing",
+                     (present & (1u << VISION_DET_GENERAL365)) ? "present" : "missing",
                      vision_detector_name(a->model.set.detector));
         }
     }

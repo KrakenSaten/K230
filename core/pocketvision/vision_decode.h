@@ -43,6 +43,11 @@ struct vision_decode_params {
     uint32_t frame_w;   /* the frame that was letterboxed in */
     uint32_t frame_h;
     uint16_t conf_min;  /* per-mille; a row below it is not a candidate */
+    /* The first four features are corners x1, y1, x2, y2 (PP-YOLOE+,
+     * GENERAL 365) instead of a centre and size; anything else about the
+     * tensor is the same. A box whose corners are the wrong way round is
+     * empty, skipped as any other. */
+    bool xyxy;
 };
 
 /* The rows a YOLOv8 head has for this input, or 0 when the input is not a
