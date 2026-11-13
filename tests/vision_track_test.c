@@ -15,6 +15,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_line.h"
+#include "pocketvision/vision_seg.h"
 #include "pocketvision/vision_track.h"
 
 #include <stdio.h>
@@ -748,6 +749,126 @@ static void test_tracking2(void)
                                                                                           tr.reacquired == 0);
 }
 
+/* INSTANCES: each detection's track, by id, whatever the order the
+ * detections come in, and its colour with it (vision_tracker_update_ids). */
+static void test_instance_ids(void)
+{
+    struct vision_tracker tr;
+    struct vision_det d[VISION_MAX_DETECTIONS + 2];
+    uint32_t ids[VISION_MAX_DETECTIONS + 2];
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint16_t ca;
+    uint16_t cb;
+    int stable = 1;
+    int i;
+
+    vision_tracker_init(&tr);
+    /* Two people side by side: one class, two objects. */
+    d[0] = det(0, 10, 10, 40, 80);
+    d[1] = det(0, 200, 10, 40, 80);
+    vision_tracker_update_ids(&tr, d, 2, ids);
+    a = ids[0];
+    b = ids[1];
+    check("two objects of one class: two ids", a != 0 && b != 0 && a != b);
+    check("a new object has its id before it is confirmed", find(&tr, a) && !find(&tr, a)->confirmed &&
+                                                                find(&tr, b) && !find(&tr, b)->confirmed);
+    ca = vision_inst_track_color(a, 0);
+    cb = vision_inst_track_color(b, 0);
+    check("and two colours", ca != cb);
+
+    /* The detector's order turned round: the ids follow the objects. */
+    d[0] = det(0, 200, 10, 40, 80);
+    d[1] = det(0, 10, 10, 40, 80);
+    vision_tracker_update_ids(&tr, d, 2, ids);
+    check("the order reversed, each keeps its id", ids[0] == b && ids[1] == a);
+    check("the same id when it is confirmed", find(&tr, a)->confirmed && find(&tr, b)->confirmed);
+
+    /* Walking, the order swapping every frame. */
+    for (i = 1; i <= 6; i++) {
+        int s0 = i % 2;
+
+        d[s0] = det(0, 10 + i * 4, 10, 40, 80);
+        d[1 - s0] = det(0, 200 - i * 4, 10, 40, 80);
+        vision_tracker_update_ids(&tr, d, 2, ids);
+        stable &= ids[s0] == a && ids[1 - s0] == b && vision_inst_track_color(ids[s0], 0) == ca &&
+                  vision_inst_track_color(ids[1 - s0], 0) == cb;
+    }
+    check("six frames of motion and swapped order: the same ids and colours", stable);
+
+    /* A missing for three frames: B alone keeps its id, A comes back as A. */
+    d[0] = det(0, 176, 10, 40, 80);
+    d[1] = det(0, 34, 10, 40, 80);
+    vision_tracker_update_ids(&tr, d, 2, ids);
+    stable = ids[0] == b && ids[1] == a;
+    for (i = 0; i < 3; i++) {
+        d[0] = det(0, 176, 10, 40, 80);
+        vision_tracker_update_ids(&tr, d, 1, ids);
+        stable &= ids[0] == b;
+    }
+    check("while one is unseen the other keeps its id", stable && find(&tr, a) && !find(&tr, a)->seen);
+    d[0] = det(0, 176, 10, 40, 80);
+    d[1] = det(0, 34, 10, 40, 80);
+    vision_tracker_update_ids(&tr, d, 2, ids);
+    check("found again after a dropout: the old id, the old colour",
+          ids[0] == b && ids[1] == a && vision_inst_track_color(ids[1], 0) == ca);
+
+    /* A box mostly inside A's: A's second box, A's id. */
+    d[2] = det(0, 36, 12, 36, 60);
+    vision_tracker_update_ids(&tr, d, 3, ids);
+    check("a second box of a tracked object is that object", ids[0] == b && ids[1] == a && ids[2] == a);
+
+    /* A gone longer than a track lives: back, it is a new id. */
+    for (i = 0; i <= VISION_TRACK_MAX_MISSES; i++) {
+        d[0] = det(0, 176, 10, 40, 80);
+        vision_tracker_update_ids(&tr, d, 1, ids);
+    }
+    check("an object gone too long has no track", find(&tr, a) == NULL && find(&tr, b) != NULL);
+    d[0] = det(0, 176, 10, 40, 80);
+    d[1] = det(0, 34, 10, 40, 80);
+    vision_tracker_update_ids(&tr, d, 2, ids);
+    c = ids[1];
+    check("and comes back with a new id, never an old one", ids[0] == b && c != 0 && c != a && c != b &&
+                                                                 c == tr.next_id - 1 && !find(&tr, c)->confirmed);
+    check("its colour is its new id's", vision_inst_track_color(c, 0) == vision_inst_track_color(c, 7));
+
+    /* A full tracker: a newcomer has no track and no id. */
+    vision_tracker_init(&tr);
+    for (i = 0; i < VISION_MAX_DETECTIONS; i++) {
+        d[i] = det(0, i * 60, 0, 40, 40);
+    }
+    vision_tracker_update_ids(&tr, d, VISION_MAX_DETECTIONS, ids);
+    stable = tr.count == VISION_MAX_TRACKS;
+    for (i = 0; i < VISION_MAX_DETECTIONS; i++) {
+        stable &= ids[i] == (uint32_t)i + 1;
+    }
+    check("a full frame: every detection its own id", stable);
+    d[VISION_MAX_DETECTIONS - 1] = det(0, 0, 500, 40, 40);
+    vision_tracker_update_ids(&tr, d, VISION_MAX_DETECTIONS, ids);
+    stable = 1;
+    for (i = 0; i < VISION_MAX_DETECTIONS - 1; i++) {
+        stable &= ids[i] == (uint32_t)i + 1;
+    }
+    check("no room: the newcomer is 0, the others keep theirs",
+          stable && ids[VISION_MAX_DETECTIONS - 1] == 0 && tr.dropped == 1);
+    check("and 0 is drawn in its class's colour",
+          vision_inst_track_color(0, 3) == vision_inst_color(3));
+    d[VISION_MAX_DETECTIONS - 1] = det(0, (VISION_MAX_DETECTIONS - 1) * 60, 0, 40, 40);
+    d[VISION_MAX_DETECTIONS] = det(0, 0, 600, 40, 40);
+    d[VISION_MAX_DETECTIONS + 1] = det(0, 100, 600, 40, 40);
+    ids[VISION_MAX_DETECTIONS] = 99;
+    ids[VISION_MAX_DETECTIONS + 1] = 99;
+    vision_tracker_update_ids(&tr, d, VISION_MAX_DETECTIONS + 2, ids);
+    check("detections beyond the limit are 0, those within it matched",
+          ids[0] == 1 && ids[VISION_MAX_DETECTIONS - 1] == VISION_MAX_DETECTIONS && ids[VISION_MAX_DETECTIONS] == 0 &&
+              ids[VISION_MAX_DETECTIONS + 1] == 0);
+    ids[0] = 99;
+    vision_tracker_update_ids(&tr, d, -1, ids);
+    check("a negative count writes nothing", ids[0] == 99);
+    check("and ids may be NULL", vision_tracker_update_ids(&tr, d, 2, NULL) == VISION_MAX_TRACKS);
+}
+
 int main(void)
 {
     test_identity();
@@ -762,6 +883,7 @@ int main(void)
     test_line();
     test_directions();
     test_tracking2();
+    test_instance_ids();
     printf("vision_track_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }
