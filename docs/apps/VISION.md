@@ -94,7 +94,8 @@ Not done, on purpose:
   to the helper's painting, which this branch does not touch. MASK and
   ORIGINAL are one tap away for the two ends.
 - **A key for INSTANCES.** Its colours follow the class number, not a fixed
-  list, and its boxes already name each object.
+  list, and its boxes already name each object. (Since then they follow the
+  object's track id; see SEGMENT and INSTANCES.)
 
 Cost: nothing new per frame but the two chips and the key, which are
 redrawn with the picture they lie on like the tags; the picture itself is
@@ -141,7 +142,7 @@ MODE opens a picker over the picture (DS §38.9) with the modes in groups:
 
 | Group | Modes |
 | --- | --- |
-| GENERAL | DETECT (every object the detector knows, boxed; CLASSES lists what that is), TRACK (the same with ids and a counting line), INSTANCES (objects with their masks) |
+| GENERAL | DETECT (every object the detector knows, boxed; CLASSES lists what that is), TRACK (the same with ids and a counting line), INSTANCES (objects with their masks, each in its track's colour, with ids) |
 | ROAD | TRAFFIC, SEGMENT (a class for every pixel of a street scene) |
 | PEOPLE | FACE, RECOGNIZE |
 | TEXT | READ |
@@ -504,8 +505,9 @@ already draws; the screen gains the two modes and one button.
   (road, sidewalk, building, ... car, bus, bicycle). It is a street-scene
   model: indoors its classes mean little.
 - **INSTANCES** (GENERAL): instance segmentation with YOLOv8n-seg at 320 -
-  the eighty COCO classes, each object with a mask and a box. Objects of
-  one class share a colour and are told apart by a white outline.
+  the eighty COCO classes, each object with a mask and a box. Each object
+  is coloured by its track id and keeps the colour while it keeps the id
+  (below); a white outline still parts two objects that touch.
 
 **The view** is a selector of three: ORIGINAL (the camera's picture),
 OVERLAY (the colours mixed half and half into it) and MASK (the colours
@@ -555,6 +557,36 @@ coefficients times the prototypes `[1][32][80][80]`, positive inside its
 box, written into one map at twice the prototypes' resolution
 (`vision_inst_map`), the surer object keeping a cell two claim. The boxes
 go out on an ordinary `det` line (not in ORIGINAL).
+
+**INSTANCES' ids and colours** (claude/k230-instances-tracking-e9b8cb). The
+boxes go through the tracker TRACK uses (`vision_track.c`, its matching
+unchanged) by `vision_tracker_update_ids`, which also says for each of the
+frame's detections the id of the track it went to: the one it matched, the
+one it started, or the one it is a second box of; 0 when the tracker had no
+room (or past its 32 detections). The mask map keeps the frame's own
+indices, 0 to 15; beside it each index gets its object's colour,
+`vision_inst_track_color(id, class)`: the class palette's twenty colours
+taken seven apart by id, so ids handed out one after another (two cups) are
+far apart on it and any twenty ids in a row are twenty colours. Id 0 is the
+class's colour, as before. So:
+
+- two objects of one class are two colours, and each keeps its colour while
+  the tracker keeps its id, whatever order the detector lists them in;
+- an object found again after a dropout (within the tracker's 15 frames)
+  has its old id and colour; one gone longer comes back with a new id and
+  its new colour;
+- a new object is coloured from its first frame, by the id it will keep; its
+  box says its id once the tracker confirms it (two sightings), as in TRACK
+  (`#4 person 87%`, `#4 person` when crowded);
+- a mask is drawn only for an object detected in that frame: a track
+  coasting unseen keeps its box on screen for a moment, as in TRACK, but no
+  colour.
+
+Nothing else changed: the model, its decoding, suppression, the letterbox,
+the map, the view's geometry and the outline are as they were; no buffer
+and no allocation is added (a 16-entry id array on the stack). Host-tested
+(`vision_track_test`, `vision_seg_test`, `vision_model_test`); not yet seen
+on unit B.
 
 **Unit B, 2026-11-11 and 12** (VERIFIED, by screenshots of the panel; camera
 mounted at 90 degrees, 640 x 360 frames):

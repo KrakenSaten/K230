@@ -2070,6 +2070,9 @@ static int seg_instances(struct session *s, const struct pocketcam_frame *f, con
     const float *det;
     const float *proto;
     char text[80];
+    /* The track of each object of the map, by its index there: the map's
+     * cells keep the frame's own indices, the colours follow the track. */
+    uint32_t ids[VISION_INST_MAX];
     size_t off;
     size_t dc;
     size_t pc;
@@ -2117,7 +2120,6 @@ static int seg_instances(struct session *s, const struct pocketcam_frame *f, con
         s->dets[i].box = b;
         s->dets[i].cls = s->insts[i].det.cls;
         s->dets[i].conf = s->insts[i].det.conf;
-        s->seg_col[i] = vision_inst_color(s->insts[i].det.cls);
         /* Each class once, with how many of it, the surest first. */
         for (k = 0; k < i; k++) {
             if (s->insts[k].det.cls == s->insts[i].det.cls) {
@@ -2137,7 +2139,14 @@ static int seg_instances(struct session *s, const struct pocketcam_frame *f, con
     }
     say("seginfo %s", text);
     unturn_dets(s->dets, n, f, rotation);
-    vision_tracker_update(&s->tracker, s->dets, n);
+    vision_tracker_update_ids(&s->tracker, s->dets, n, ids);
+    /* Each object in its track's colour, so two of one class are two
+     * colours and one keeps its colour while it keeps its id; one the
+     * tracker had no room for, its class's. Only this frame's objects are
+     * in the map: a track coasting unseen has no mask. */
+    for (i = 0; i < n; i++) {
+        s->seg_col[i] = vision_inst_track_color(ids[i], s->insts[i].det.cls);
+    }
     if (s->seg_view == SEG_VIEW_ORIGINAL) {
         say("det %u 0", f->seq);
     } else {

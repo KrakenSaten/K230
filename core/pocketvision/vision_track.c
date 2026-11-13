@@ -148,11 +148,20 @@ static int size_ratio(const struct vision_track *t)
 
 int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *dets, int n)
 {
+    return vision_tracker_update_ids(tr, dets, n, NULL);
+}
+
+int vision_tracker_update_ids(struct vision_tracker *tr, const struct vision_det *dets, int n, uint32_t *ids)
+{
     /* Overlap of every track's prediction with every detection, computed
      * once. Both dimensions are bounded, so this is a fixed 32 x 32 table. */
     static uint32_t iou[VISION_MAX_TRACKS][VISION_MAX_DETECTIONS];
     static struct vision_box pred[VISION_MAX_TRACKS];
     bool det_used[VISION_MAX_DETECTIONS];
+    /* The track each detection went to, by id: an index would not survive
+     * the expiry below, which shifts the list. */
+    uint32_t det_id[VISION_MAX_DETECTIONS];
+    int asked = n;
     int i;
     int j;
 
@@ -163,6 +172,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         n = VISION_MAX_DETECTIONS;
     }
     memset(det_used, 0, sizeof(det_used));
+    memset(det_id, 0, sizeof(det_id));
     for (i = 0; i < tr->count; i++) {
         tr->t[i].seen = false;
         if (tr->t[i].age < 0xffff) {
@@ -200,6 +210,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         }
         take(tr, &tr->t[bi], &dets[bj]);
         det_used[bj] = true;
+        det_id[bj] = tr->t[bi].id;
     }
     /* Pass 2, greedy by distance: a confirmed track the overlap did not
      * find, and a detection of its size close to where it should be. */
@@ -257,6 +268,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         }
         take(tr, &tr->t[bi], &dets[bj]);
         det_used[bj] = true;
+        det_id[bj] = tr->t[bi].id;
         tr->reacquired++;
     }
     /* Pass 3, greedy: a track still unfound, against where it was last
@@ -296,6 +308,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         }
         take(tr, &tr->t[bi], &dets[bj]);
         det_used[bj] = true;
+        det_id[bj] = tr->t[bi].id;
         tr->revived++;
     }
     /* A box left over that is an object already matched this frame - the
@@ -315,6 +328,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
                 inside_pm(&dets[j].box, &t->box) >= VISION_TRACK_DUP_INSIDE ||
                 inside_pm(&t->box, &dets[j].box) >= VISION_TRACK_DUP_INSIDE) {
                 det_used[j] = true;
+                det_id[j] = t->id;
                 tr->dup_births++;
                 break;
             }
@@ -370,6 +384,10 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         t->seen = true;
         t->confirmed = tr->min_hits <= 1;
         vision_box_centre(&t->box, &t->ox, &t->oy);
+        det_id[j] = t->id;
+    }
+    for (j = 0; ids && j < asked; j++) {
+        ids[j] = j < n ? det_id[j] : 0;
     }
     return tr->count;
 }
