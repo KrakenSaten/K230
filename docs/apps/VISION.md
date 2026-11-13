@@ -976,7 +976,7 @@ Objects365: no licence stated; the backbone was ImageNet-initialised), so it is
 | Output | two f32 tensors, the graph cut before its last Concat: `boxes_xyxy [1, 2100, 4]` (corners in input pixels) and `scores [1, 365, 2100]` (sigmoid). The nncase backend transposes the boxes into the usual `[1, 4 + 365, 2100]` layout and flags them as corners (`vision_kpu_info.xyxy`); `vision_decode.c` turns corners into a box and applies the same checks, threshold, NMS and tracking as for the other detectors |
 | Labels | Objects365's 365 in PaddleDetection's order, `vision_label_o365()` in `vision_labels.c`: lower case, hyphen-joined, slash pairs cut to one word, the list's misspellings corrected. A detector reporting 365 classes is named from this list (`vision_label_for`), anything else from COCO's; INSTANCES keeps COCO's |
 | TRAFFIC | by name as before: car, truck, bus, motorcycle, bicycle and person are found. Objects365's `suv`, `van`, `pickup-truck`, `sports-car` and the like are **not** counted (not mapped on purpose; R0 stays TRAFFIC's default) |
-| Measured on unit B (harness, not Doors) | KPU 30.5 ms, about 24 fps in a loop with decode, ~9 MB CMA at load, pool fully returned at exit, device == simulator on 16 images |
+| Measured on unit B | Harness (research): KPU 30.5 ms, ~24 fps in a loop, device == simulator on 16 images. In Vision (2026-11-13, PR #132, live camera): DETECT 15-18 fps, TRACK 17 fps, TRAFFIC 19 fps, KPU 30-35 ms, post 9-11 ms, 0 bad tensors; CMA back to idle (about 401-410 MB free) after closing and after MODEL switches |
 
 MODEL now goes round the detector files on the unit in the order R0,
 GENERAL 80, GENERAL 365, skipping missing ones; it takes taps when any other

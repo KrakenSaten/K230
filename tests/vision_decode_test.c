@@ -427,6 +427,42 @@ static void test_general365(void)
               vision_traffic_class(&tf, (uint32_t)o365_index("chair")) == -1);
 }
 
+/* The best class is found a block of rows at a time (vision_decode.c):
+ * rows either side of a block's edge and in the last, partial block decode
+ * as any other; equal scores go to the first class; a score that is not
+ * finite in the last class still refuses its row. */
+static void test_blocks(void)
+{
+    struct vision_decode_params p = params();
+    struct vision_det d[VISION_MAX_CANDIDATES];
+    uint32_t dims[3] = { 1, 4 + CLASSES, ROWS };
+    uint32_t bad = 99;
+    int n;
+    int i;
+    bool seen[3] = { false, false, false };
+
+    clear();
+    put(255, 7, 0.6f, 10, 10, 40, 40);
+    put(256, 9, 0.7f, 100, 10, 40, 40);
+    put(ROWS - 1, 11, 0.8f, 200, 10, 40, 40);
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    for (i = 0; i < n; i++) {
+        seen[0] |= d[i].cls == 7 && d[i].box.x == 10;
+        seen[1] |= d[i].cls == 9 && d[i].box.x == 100;
+        seen[2] |= d[i].cls == 11 && d[i].box.x == 200;
+    }
+    check("rows at a block's edge and in the last block all decode", n == 3 && bad == 0 && seen[0] && seen[1] && seen[2]);
+    clear();
+    put(300, 40, 0.9f, 10, 10, 40, 40);
+    tensor[(4 + 12) * ROWS + 300] = 0.9f; /* the same score in an earlier class */
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("equal scores go to the first class", n == 1 && d[0].cls == 12);
+    tensor[(4 + CLASSES - 1) * ROWS + 300] = NAN;
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("a score that is not a number in the last class refuses the row", n == 0 && bad == 1);
+    clear();
+}
+
 int main(void)
 {
     ROWS = vision_decode_rows(IN, IN);
@@ -437,6 +473,7 @@ int main(void)
     test_rows();
     test_decode();
     test_malformed();
+    test_blocks();
     test_corners();
     test_general365();
     test_bounded();
