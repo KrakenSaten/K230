@@ -956,6 +956,35 @@ scope; every detector check on this branch is the fake detector
 (`vision_kpu_fake.c`) or the decoder on built tensors. The camera and KPU
 checks are in docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md.
 
+### GENERAL 365: Objects365 detector (claude/general-365-vision-detector)
+
+A third, optional detector beside R0 and GENERAL 80: PP-YOLOE+ s trained on
+Objects365 (365 classes), compiled at 320 x 320, a8w8. It names much of what
+GENERAL 80 cannot (helmets, hats, bags, street lights, traffic signs) but finds
+fewer small, distant cars, so it is **not a replacement** for GENERAL 80 or for
+R0 in TRAFFIC. Research and unit B validation (2026-11-13, outside git):
+`C:\K230-artifacts\vision-model-research\REPORT.md` and `hw/HW_VALIDATION.md`.
+Its licence is no better settled than GENERAL 80's (weights: no statement;
+Objects365: no licence stated; the backbone was ImageNet-initialised), so it is
+**not packaged, not committed, and refused in an image** by name and by hash.
+
+| | |
+| --- | --- |
+| kmodel | `det-general365-ppyoloe-s-320.kmodel`, the research's `det320_a8w8.kmodel`, sha256 `0346b40c550684745de0e4b4f638af88ee28affdefc19493e6cb39c0ad5396fd`, 10,237,024 bytes (pinned in `tools/vision/general-365-model.sha256`, listed in `refused-models.sha256`) |
+| Install | `tools/vision/install-model.sh --general365 <file> <unit ip>` (refuses any other bytes); override `$POCKETOS_VISION_MODEL_GENERAL365` |
+| Input | u8 NCHW RGB `[1, 3, 320, 320]`, compiled with swapRB off and the 0..1 scaling folded in (REPORT.md); the ISP's BG3P planes are R, G, B (pocketcam.h, VERIFIED), so the frame goes in as for R0 with no swap. Trained on stretched input; Doors' existing letterbox (top-left, pad 114) was compared on unit B and kept: 117 vs 118 of 147 reference boxes, fewer false boxes (HW_VALIDATION.md, MEASURED) |
+| Output | two f32 tensors, the graph cut before its last Concat: `boxes_xyxy [1, 2100, 4]` (corners in input pixels) and `scores [1, 365, 2100]` (sigmoid). The nncase backend transposes the boxes into the usual `[1, 4 + 365, 2100]` layout and flags them as corners (`vision_kpu_info.xyxy`); `vision_decode.c` turns corners into a box and applies the same checks, threshold, NMS and tracking as for the other detectors |
+| Labels | Objects365's 365 in PaddleDetection's order, `vision_label_o365()` in `vision_labels.c`: lower case, hyphen-joined, slash pairs cut to one word, the list's misspellings corrected. A detector reporting 365 classes is named from this list (`vision_label_for`), anything else from COCO's; INSTANCES keeps COCO's |
+| TRAFFIC | by name as before: car, truck, bus, motorcycle, bicycle and person are found. Objects365's `suv`, `van`, `pickup-truck`, `sports-car` and the like are **not** counted (not mapped on purpose; R0 stays TRAFFIC's default) |
+| Measured on unit B (harness, not Doors) | KPU 30.5 ms, about 24 fps in a loop with decode, ~9 MB CMA at load, pool fully returned at exit, device == simulator on 16 images |
+
+MODEL now goes round the detector files on the unit in the order R0,
+GENERAL 80, GENERAL 365, skipping missing ones; it takes taps when any other
+file is there. A failure to load goes back to the first other file present
+(R0 first). The choice is stored as `detector=general365` in `settings.v1`
+(an older shell reading it keeps its default, R0). CLASSES lists the 365 in
+25 pages of 15. `LOADING 365` while it opens.
+
 ### Detector A/B on a bench unit (feat/vision-model-switch)
 
 A practical comparison on hardware. From 0.3.6 the image carries the R0 file
@@ -967,6 +996,7 @@ When a unit has either of
 |---|---|---|---|
 | `det-r0-traffic6-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_R0` | DOORS' R0 YOLOX-Tiny 416 (traffic6), research branch `research/yolox-traffic-training`, docs/vision/R0_TRAFFIC6_RESULTS.md section 9 | `94a20ac01692d9a7b6dfc7f1497c1024141fcef997ff055c219a03e105ded268` |
 | `det-upstream-yolox-tiny-416.kmodel` | `$POCKETOS_VISION_MODEL_UPSTREAM` | upstream YOLOX-Tiny 416, the 2026-10-04 detector evaluation's `yolox_tiny_416_a16` | `8c304651b4c9115f112680f1abb8c604592902f92147368a716a0fb9390ee354` |
+| `det-general365-ppyoloe-s-320.kmodel` | `$POCKETOS_VISION_MODEL_GENERAL365` | PP-YOLOE+ s Objects365 320 a8w8 (GENERAL 365, above) | `0346b40c550684745de0e4b4f638af88ee28affdefc19493e6cb39c0ad5396fd` |
 
 DETECT, TRACK and TRAFFIC get a last button, MODEL, naming the detector in
 force (`R0 · Beta`, `GENERAL 80` - `UPSTREAM` before this branch; `LOADING R0` or `LOADING GENERAL` while one

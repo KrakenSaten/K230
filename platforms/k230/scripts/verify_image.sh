@@ -174,7 +174,7 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
         # Vision's detector (0.3.6 on, MODEL_LICENSES.md): the R0 beta, and
         # exactly the bytes tools/vision/r0-model.sha256 pins; neither the
         # Ultralytics YOLOv8n Vision used to open by default nor the upstream
-        # YOLOX-Tiny of the bench A/B. POCKETOS_R0_PIN names another pin file
+        # YOLOX-Tiny of the bench A/B, nor GENERAL 365. POCKETOS_R0_PIN names another pin file
         # for the gate's own test, which cannot carry the real model.
         R0_PIN="${POCKETOS_R0_PIN:-${SCRIPT_DIR}/../../../tools/vision/r0-model.sha256}"
         R0_SHA="$(awk 'NR == 1 { print $1 }' "${R0_PIN}" 2>/dev/null)"
@@ -191,7 +191,7 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 bad "${R0_PATH} is not the pinned R0 detector: sha256 ${got}, pinned ${R0_SHA}"
             fi
         fi
-        for path in /usr/share/doors/vision/yolov8n.kmodel /usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel; do
+        for path in /usr/share/doors/vision/yolov8n.kmodel /usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel \n                    /usr/share/doors/vision/det-general365-ppyoloe-s-320.kmodel; do
             if rootfs_has "${path}"; then
                 bad "${path}: a detector the image must not carry (MODEL_LICENSES.md)"
             else

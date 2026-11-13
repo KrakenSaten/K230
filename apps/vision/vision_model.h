@@ -391,6 +391,9 @@ bool vision_model_detector(const struct vision_model *m);
 int vision_model_status_lines(const struct vision_model *m);
 /* A short name for traffic class i (car truck bus moto bike person). */
 const char *vision_model_traffic_name(int i);
+/* The name of class `cls` on a box: the loaded detector's list (COCO,
+ * Objects365), COCO's in INSTANCES. */
+const char *vision_model_class_label(const struct vision_model *m, uint32_t cls);
 
 void vision_model_text(const struct vision_model *m, struct vision_view_text *out, char *status_buf,
                        size_t status_len);

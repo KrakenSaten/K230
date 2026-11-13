@@ -1261,7 +1261,7 @@ static unsigned det_ready(struct vision_model *m, const char *name, int64_t now)
     snprintf(e.name, sizeof(e.name), "%s", name);
     e.w = 640;
     e.h = 360;
-    e.value = strcmp(name, "none") == 0 ? 0 : 80;
+    e.value = strcmp(name, "none") == 0 ? 0 : strstr(name, "general365") ? 365 : 80;
     acts = vision_model_event(m, &e, NULL, now);
     e = ev(VISION_EV_CAPS);
     e.value = strcmp(name, "none") == 0
@@ -1477,6 +1477,108 @@ static void test_detector_ab(void)
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("stale: R0 stored once in force, UPSTREAM not offered",
           m.set.detector == VISION_DET_R0 && (acts & VISION_ACT_SAVE) && !t.model_enabled);
+}
+
+#define DET_ALL ((1u << VISION_DET_R0) | (1u << VISION_DET_UPSTREAM) | (1u << VISION_DET_GENERAL365))
+
+/* GENERAL 365: a third choice. MODEL goes round the files on the unit in the
+ * order R0, GENERAL 80, GENERAL 365; the choice is kept; a missing or broken
+ * file goes back as before; the classes and their names are Objects365's. */
+static void test_detector_365(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_sheet_view v;
+    struct vision_event e;
+    char buf[384];
+    unsigned acts;
+
+    vision_model_init(&m);
+    vision_model_set_detector_files(&m, DET_ALL);
+    vision_model_open(&m);
+    det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
+    acts = vision_model_model_button(&m, DET_ALL);
+    check("365: from R0, MODEL goes to GENERAL 80 first", acts == VISION_ACT_OPEN &&
+                                                             vision_model_detector_to_load(&m) == VISION_DET_UPSTREAM);
+    det_ready(&m, "det-upstream-yolox-tiny-416.kmodel", 2000);
+    acts = vision_model_model_button(&m, DET_ALL);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("365: then to GENERAL 365, saying so while it loads",
+          acts == VISION_ACT_OPEN && vision_model_detector_to_load(&m) == VISION_DET_GENERAL365 &&
+              m.det_fallback == VISION_DET_UPSTREAM && strcmp(t.model_btn, "LOADING 365") == 0 &&
+              strstr(t.detail, "GENERAL 365 detector") != NULL);
+    det_ready(&m, "det-general365-ppyoloe-s-320.kmodel", 3000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("365: in force, named, and stored", m.det_active == VISION_DET_GENERAL365 &&
+                                                  m.set.detector == VISION_DET_GENERAL365 &&
+                                                  strcmp(t.model_btn, "GENERAL 365") == 0 && t.model_enabled);
+    check("365: boxes are named from Objects365", strcmp(vision_model_class_label(&m, 2), "chair") == 0 &&
+                                                      strcmp(vision_model_class_label(&m, 364), "table-tennis") == 0);
+    m.mode = VISION_MODE_INSTANCES; /* this helper does not offer it; the naming is what is tested */
+    check("365: but INSTANCES' own model still names COCO's", strcmp(vision_model_class_label(&m, 2), "car") == 0);
+    m.mode = VISION_MODE_DETECT;
+    vision_model_classes_button(&m);
+    vision_model_sheet(&m, &v);
+    check("365: CLASSES pages through all 365, fifteen a page",
+          vision_model_class_pages(&m) == 25 && strcmp(v.title, "CLASSES 1-15 OF 365") == 0 &&
+              strncmp(v.body, "person, sneakers, chair, other shoes,", 37) == 0 &&
+              strstr(v.body, "GENERAL 365 boxes these 365 Objects365 classes.") != NULL);
+    m.class_page = 24;
+    vision_model_sheet(&m, &v);
+    check("365: the last page holds the last five, whole",
+          strcmp(v.title, "CLASSES 361-365 OF 365") == 0 && strstr(v.body, "table tennis.\n") != NULL);
+    vision_model_sheet_close(&m);
+    acts = vision_model_model_button(&m, DET_ALL);
+    check("365: and round again to R0", acts == VISION_ACT_OPEN && vision_model_detector_to_load(&m) == VISION_DET_R0);
+    det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 4000);
+    check("365: R0 back, 80 COCO names again", m.det_active == VISION_DET_R0 && m.set.detector == VISION_DET_R0 &&
+                                                   strcmp(vision_model_class_label(&m, 2), "car") == 0);
+
+    /* R0 and GENERAL 365 only: MODEL goes between the two. */
+    vision_model_init(&m);
+    vision_model_set_detector_files(&m, (1u << VISION_DET_R0) | (1u << VISION_DET_GENERAL365));
+    vision_model_open(&m);
+    check("365: R0 opens with GENERAL 365 to go back to", vision_model_detector_to_load(&m) == VISION_DET_R0 &&
+                                                              m.det_fallback == VISION_DET_GENERAL365);
+    det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("365: MODEL takes taps with GENERAL 365 as the other file", t.model_enabled);
+    vision_model_classes_button(&m);
+    vision_model_sheet(&m, &v);
+    check("365: R0's CLASSES points at GENERAL 365", strstr(v.body, "MODEL switches to GENERAL 365") != NULL);
+    vision_model_sheet_close(&m);
+    acts = vision_model_model_button(&m, (1u << VISION_DET_R0) | (1u << VISION_DET_GENERAL365));
+    check("365: MODEL skips the GENERAL 80 that is not here",
+          acts == VISION_ACT_OPEN && vision_model_detector_to_load(&m) == VISION_DET_GENERAL365);
+
+    /* GENERAL 365 that does not load: back on R0, and why. */
+    e = ev(VISION_EV_NOMODEL);
+    snprintf(e.text, sizeof(e.text), "the model outputs are not PP-YOLOE+ boxes and scores for its input");
+    acts = vision_model_event(&m, &e, NULL, 2000);
+    check("365: a file that does not load goes back to R0",
+          acts == VISION_ACT_OPEN && vision_model_detector_to_load(&m) == VISION_DET_R0 &&
+              strncmp(m.det_fail, "GENERAL 365 could not be loaded: the model outputs", 50) == 0 &&
+              strstr(m.det_fail, "Back on R0 · Beta.") != NULL);
+    det_ready(&m, "det-r0-traffic6-yolox-tiny-416.kmodel", 2500);
+    check("365: R0 in force, GENERAL 365 never stored", m.det_active == VISION_DET_R0 && m.set.detector == VISION_DET_R0);
+
+    /* GENERAL 365 last confirmed but its file gone: R0, said. */
+    vision_model_init(&m);
+    m.set.detector = VISION_DET_GENERAL365;
+    vision_model_set_detector_files(&m, DET_BOTH);
+    vision_model_open(&m);
+    check("365: a confirmed GENERAL 365 whose file has gone opens R0 and says so",
+          vision_model_detector_to_load(&m) == VISION_DET_R0 &&
+              strcmp(m.det_fail, "GENERAL 365 is not on this unit. Using R0 · Beta.") == 0);
+    check("365: and the choice stays stored until another loads", m.set.detector == VISION_DET_GENERAL365);
+    /* Kept when its file is there. */
+    vision_model_init(&m);
+    m.set.detector = VISION_DET_GENERAL365;
+    vision_model_set_detector_files(&m, DET_ALL);
+    vision_model_open(&m);
+    check("365: a confirmed GENERAL 365 is opened again, R0 behind it",
+          vision_model_detector_to_load(&m) == VISION_DET_GENERAL365 && m.det_fallback == VISION_DET_R0 &&
+              m.det_fail[0] == '\0');
 }
 
 /* DETECT's CLASSES and its "In view" line: what the detector in force can
@@ -1776,6 +1878,7 @@ int main(void)
     test_states();
     test_classes();
     test_detector_ab();
+    test_detector_365();
     test_no_detector();
     test_picker();
     test_track_and_traffic();

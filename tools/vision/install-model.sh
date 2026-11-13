@@ -5,6 +5,7 @@
 # Usage: install-model.sh <unit ip> [/path/to/T-Display-K230 checkout]
 #        POCKETOS_VISION_MODEL_FILE=<file> install-model.sh <unit ip>
 #        install-model.sh --general <file> <unit ip>
+#        install-model.sh --general365 <file> <unit ip>
 #
 # Without --general: the helper's own default, yolov8n.kmodel, from the pinned
 # SDK (or another file to try, POCKETOS_VISION_MODEL_FILE), copied to where
@@ -20,6 +21,12 @@
 # (MODEL_LICENSES.md): it is for bench units, by hand, and is refused in an
 # image. How to obtain it is in docs/apps/VISION.md, "GENERAL 80".
 #
+# With --general365: GENERAL 365, PP-YOLOE+ s Objects365 at 320 (a8w8), the
+# third choice of the MODEL button (365 classes). Only the file whose sha256 is
+# in general-365-model.sha256 is copied - the one validated on unit B on
+# 2026-11-13. Its weights and its training data carry no licence settled for
+# Doors (MODEL_LICENSES.md): bench units only, by hand, refused in an image.
+#
 # Copyright (c) 2026 PocketOS authors.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
@@ -28,16 +35,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DEST=/usr/share/doors/vision
 
-if [ "${1:-}" = "--general" ]; then
-    MODEL="${2:?usage: install-model.sh --general <file> <unit ip>}"
-    UNIT="${3:?usage: install-model.sh --general <file> <unit ip>}"
-    NAME=det-upstream-yolox-tiny-416.kmodel
+if [ "${1:-}" = "--general" ] || [ "${1:-}" = "--general365" ]; then
+    MODEL="${2:?usage: install-model.sh --general|--general365 <file> <unit ip>}"
+    UNIT="${3:?usage: install-model.sh --general|--general365 <file> <unit ip>}"
+    if [ "$1" = "--general365" ]; then
+        NAME=det-general365-ppyoloe-s-320.kmodel
+        PIN_FILE="${SCRIPT_DIR}/general-365-model.sha256"
+        WHAT="GENERAL 365 file validated on unit B"
+    else
+        NAME=det-upstream-yolox-tiny-416.kmodel
+        PIN_FILE="${SCRIPT_DIR}/general-80-model.sha256"
+        WHAT="GENERAL 80 file the A/B gate passed with"
+    fi
     [ -f "${MODEL}" ] || { echo "no model at ${MODEL}" >&2; exit 1; }
     sha=$(sha256sum "${MODEL}" | cut -c1-64)
-    pin=$(cut -c1-64 "${SCRIPT_DIR}/general-80-model.sha256")
+    pin=$(cut -c1-64 "${PIN_FILE}")
     echo "model ${MODEL}: $(stat -c %s "${MODEL}") bytes, sha256 ${sha}"
     if [ "${sha}" != "${pin}" ]; then
-        echo "refused: not the GENERAL 80 file the A/B gate passed with (sha256 ${pin})" >&2
+        echo "refused: not the ${WHAT} (sha256 ${pin})" >&2
         exit 2
     fi
 else

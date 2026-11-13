@@ -5,13 +5,17 @@
  * infinities, absurd coordinates and empty boxes are refused or skipped and
  * counted; the candidate list is bounded and keeps the best; suppression
  * keeps the most confident of overlapping boxes of one class and never
- * merges classes.
+ * merges classes. GENERAL 365 (PP-YOLOE+ Objects365): boxes as corners decode
+ * to the same frame boxes, its 365 names are protocol-safe and distinct, and
+ * TRAFFIC finds its road classes by name.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_decode.h"
+#include "pocketvision/vision_labels.h"
 #include "pocketvision/vision_nms.h"
+#include "pocketvision/vision_traffic.h"
 
 #include <errno.h>
 #include <math.h>
@@ -56,7 +60,7 @@ static void put(uint32_t r, int cls, float conf, float x, float y, float w, floa
 
 static struct vision_decode_params params(void)
 {
-    struct vision_decode_params p = { IN, IN, CLASSES, FW, FH, 350 };
+    struct vision_decode_params p = { IN, IN, CLASSES, FW, FH, 350, false };
 
     return p;
 }
@@ -294,6 +298,135 @@ static void test_nms(void)
     check("nothing in, nothing out", vision_nms_nested(c, 0, 850) == 0);
 }
 
+/* GENERAL 365's layout: the first four features are corners x1 y1 x2 y2
+ * in model-input pixels, the rest the same. */
+static void put_corners(float *t, uint32_t r, uint32_t cls, float conf, float x, float y, float w, float h)
+{
+    float ratio = (float)IN / (float)FW;
+
+    t[0 * ROWS + r] = x * ratio;
+    t[1 * ROWS + r] = y * ratio;
+    t[2 * ROWS + r] = (x + w) * ratio;
+    t[3 * ROWS + r] = (y + h) * ratio;
+    t[(4 + cls) * ROWS + r] = conf;
+}
+
+static void test_corners(void)
+{
+    struct vision_decode_params p = params();
+    struct vision_det d[VISION_MAX_CANDIDATES];
+    uint32_t dims[3] = { 1, 4 + CLASSES, ROWS };
+    uint32_t bad = 99;
+    int n;
+
+    p.xyxy = true;
+    clear();
+    put_corners(tensor, 7, 3, 0.9f, 100, 50, 200, 100);
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("corners: one box, in frame pixels", n == 1 && bad == 0 && d[0].cls == 3 && d[0].conf == 900 &&
+                                                   d[0].box.x == 100 && d[0].box.y == 50 && d[0].box.w == 200 &&
+                                                   d[0].box.h == 100);
+    p.xyxy = false;
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("the same row read as a centre and size is another box", n == 1 && d[0].box.x != 100);
+    p.xyxy = true;
+    clear();
+    put_corners(tensor, 7, 3, 0.9f, 100, 50, 200, 100);
+    tensor[0 * ROWS + 7] = 200.0f; /* x1 right of x2 */
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("corners the wrong way round are an empty box, skipped", n == 0 && bad == 1);
+    clear();
+    put_corners(tensor, 7, 3, 0.9f, 100, 50, 200, 100);
+    tensor[3 * ROWS + 7] = NAN;
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("a corner that is not a number is skipped", n == 0 && bad == 1);
+    clear();
+    put_corners(tensor, 7, 3, 0.9f, -40, 300, 200, 200);
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("corners past the frame are clipped to it", n == 1 && d[0].box.x == 0 && d[0].box.w == 160 &&
+                                                          d[0].box.y == 300 && d[0].box.h == 60);
+    clear();
+}
+
+static int o365_index(const char *name)
+{
+    uint32_t i;
+
+    for (i = 0; i < VISION_O365_CLASSES; i++) {
+        if (strcmp(vision_label_o365(i), name) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void test_general365(void)
+{
+    size_t count = (size_t)(4 + VISION_O365_CLASSES) * ROWS;
+    float *t = calloc(count, sizeof(float));
+    uint32_t dims[3] = { 1, 4 + VISION_O365_CLASSES, ROWS };
+    struct vision_decode_params p = { IN, IN, VISION_O365_CLASSES, FW, FH, 300, true };
+    struct vision_det d[VISION_MAX_CANDIDATES];
+    struct vision_traffic tf;
+    uint32_t bad = 99;
+    bool safe = true;
+    bool distinct = true;
+    uint32_t i;
+    uint32_t j;
+    int n;
+
+    if (!t) {
+        check("GENERAL 365: memory for the tensor", 0);
+        return;
+    }
+    check("GENERAL 365 fits the class limit", VISION_O365_CLASSES <= VISION_MAX_CLASSES);
+    put_corners(t, 2099, 364, 0.8f, 320, 100, 64, 40);
+    put_corners(t, 0, 5, 0.25f, 0, 0, 100, 100); /* under the threshold */
+    n = vision_decode(t, count, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("GENERAL 365: the last class of the last row decodes", n == 1 && bad == 0 && d[0].cls == 364 &&
+                                                                      d[0].conf == 800 && d[0].box.x == 320 &&
+                                                                      d[0].box.w == 64 && d[0].box.h == 40);
+    dims[1] = 4 + 80;
+    check("GENERAL 365: a tensor of 80 classes is refused", vision_decode(t, count, dims, &p, d, VISION_MAX_CANDIDATES,
+                                                                         &bad) == -EPROTO);
+    free(t);
+
+    for (i = 0; i < VISION_O365_CLASSES; i++) {
+        const char *s = vision_label_o365(i);
+        size_t len = strlen(s);
+
+        if (len == 0 || len > 20 || strspn(s, "abcdefghijklmnopqrstuvwxyz0123456789-") != len) {
+            printf("     bad name %u: %s\n", i, s);
+            safe = false;
+        }
+        for (j = 0; j < i; j++) {
+            if (strcmp(s, vision_label_o365(j)) == 0) {
+                distinct = false;
+            }
+        }
+    }
+    check("GENERAL 365: every name is one protocol word of at most 20", safe);
+    check("GENERAL 365: no name twice", distinct);
+    check("GENERAL 365: first, last and out of range", strcmp(vision_label_o365(0), "person") == 0 &&
+                                                          strcmp(vision_label_o365(5), "car") == 0 &&
+                                                          strcmp(vision_label_o365(364), "table-tennis") == 0 &&
+                                                          strcmp(vision_label_o365(365), "?") == 0);
+    check("the list follows the class count", strcmp(vision_label_for(80, 2), "car") == 0 &&
+                                                  strcmp(vision_label_for(VISION_O365_CLASSES, 2), "chair") == 0 &&
+                                                  strcmp(vision_label_for(0, 0), "person") == 0);
+    vision_traffic_init(&tf);
+    vision_traffic_map_names(&tf, VISION_O365_CLASSES, vision_label_o365);
+    check("GENERAL 365: TRAFFIC finds its classes by name",
+          tf.classes == VISION_O365_CLASSES &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("car")) == VISION_TRAFFIC_CAR &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("truck")) == VISION_TRAFFIC_TRUCK &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("bus")) == VISION_TRAFFIC_BUS &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("motorcycle")) == VISION_TRAFFIC_MOTORCYCLE &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("bicycle")) == VISION_TRAFFIC_BICYCLE &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("person")) == VISION_TRAFFIC_PERSON &&
+              vision_traffic_class(&tf, (uint32_t)o365_index("chair")) == -1);
+}
+
 int main(void)
 {
     ROWS = vision_decode_rows(IN, IN);
@@ -304,6 +437,8 @@ int main(void)
     test_rows();
     test_decode();
     test_malformed();
+    test_corners();
+    test_general365();
     test_bounded();
     test_nms();
     free(tensor);

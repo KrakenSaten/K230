@@ -128,6 +128,19 @@ int vision_decode(const float *out, size_t count, const uint32_t dims[3],
         if ((uint32_t)(best * VISION_CONF_SCALE + 0.5f) < p->conf_min) {
             continue;
         }
+        if (p->xyxy) {
+            /* Corners: the same box as a centre and size. A corner that is
+             * not finite makes the centre not finite, refused below. */
+            float x1 = cx;
+            float y1 = cy;
+            float x2 = bw;
+            float y2 = bh;
+
+            cx = 0.5f * (x1 + x2);
+            cy = 0.5f * (y1 + y2);
+            bw = x2 - x1;
+            bh = y2 - y1;
+        }
         if (!sane(cx, limit) || !sane(cy, limit) || !sane(bw, limit) || !sane(bh, limit) ||
             bw <= 0.0f || bh <= 0.0f) {
             skipped++;
