@@ -8,13 +8,13 @@ The implementation and measurements below describe the original milestone.
 
 **Content implementation and handoff:** [industrial polish, BREACH-2 shotgun, title and optional maintenance loop](RELAY_NINE_POLISH.md). Gameplay details, captures and validation below preserve the `4d5a0ed` baseline. Current captures live in `relay-nine/polish/`.
 
-The implemented successor to the preserved Neon Outpost prototype, on draft
-PR #104. Open **Games → Relay Nine**, then **PLAY** or Enter. Restore the relay
+The implemented successor to the preserved Neon Outpost prototype, merged in
+PR #104 and shipped in 0.3.8. Open **Games → Relay Nine**, then **PLAY** or Enter. Restore the relay
 console in the upper control room, descend the return stairs and **USE** the
 exit lock. One complete original level, nine enemies, one carbine, ammunition
 and medical pickups, death, pause, help, restart and reachable victory.
 Back/Home or rotation abandons the run; there is no save, jump or campaign.
-The internal ID and existing branch remain `neon-outpost` / `feat/neon-outpost`.
+The internal ID remains `neon-outpost`; the work began on `feat/neon-outpost`.
 
 ## Actual rendering
 

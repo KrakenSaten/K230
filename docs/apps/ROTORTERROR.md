@@ -3,7 +3,7 @@
 
 An original helicopter arcade game for Doors on the LILYGO T-Display K230.
 Open **Games → RotorTerror**, choose **PILOT**, **ACE** or **TERROR**, then
-**LAUNCH**. This is a new implementation for review, not a released device image.
+**LAUNCH**. New in Doors 0.4.0 (PR #119).
 
 ![RotorTerror title screen](rotorterror/title-landscape.png)
 
@@ -18,7 +18,7 @@ rotor animation, missile trails and bounded explosion particles.
 
 ## Visual refinement
 
-The current PR adds a protected cockpit panel, independent shield/hull gauges,
+PR #119 added a protected cockpit panel, independent shield/hull gauges,
 a rocket reload meter and prioritized shield-down/critical-hull warnings.
 An aiming cross follows the cannon angle. The heavy gunship health meter sits
 next to the enemy instead of competing with the cockpit. Damage lights the

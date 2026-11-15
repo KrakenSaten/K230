@@ -101,9 +101,9 @@ art or a device photograph.*
 ### RIFT · MeshCore messaging and a view of the mesh
 
 Send direct messages and channel messages, browse nodes and choose repeaters
-for an explicit message route with the Visual Path Builder. In **v0.3.9**,
-open **RIFT → MAP → TRAFFIC** to inspect received packets and their observed
-paths, with reception RSSI/SNR and packet details.
+for an explicit message route with the Visual Path Builder. Since **v0.3.9**,
+**RIFT → MAP → TRAFFIC** shows received packets and their observed paths,
+with reception RSSI/SNR and packet details.
 
 ![RIFT MAP TRAFFIC in landscape: observed path on the map and received-packet details beside it](https://raw.githubusercontent.com/KrakenSaten/K230/7dae7717ef19c1bff7d056aef3523442744a796b/traffic-landscape-large.png)
 
@@ -140,32 +140,36 @@ communication, local AI, everyday tools, games and further development.
   read-only analysis of the packets heard and their observed paths.
 - **MeshCore integration** — `meshcored`, the MeshCore protocol service on the
   SX1262 radio; disabled in the image and enabled per unit
-  (docs/services/MESHCORED.md).
+  ([docs/services/MESHCORED.md](docs/services/MESHCORED.md)).
 - **Fleet** — naval battle, solo against the device or multiplayer between two
   DOORS devices over LoRa, with chat between shots.
 - **Wave** — short text messages sent and received as sound.
 - **Vision** — camera and KPU: COLOR, EDGE and LINE TRACE; DETECT, TRACK and
   TRAFFIC (vehicles counted across a line) with DOORS' own detector,
-  R0 · Beta, an experimental beta for car, truck, bus, motorcycle, bicycle
-  and person that can miss vehicles; FACE, READ and RECOGNIZE when their
-  models are installed (docs/apps/VISION.md).
+  R0 · Beta, an experimental detector for car, truck, bus, motorcycle,
+  bicycle and person that can miss vehicles. With model files that are not
+  part of the image: the GENERAL 80 and GENERAL 365 detectors, SEGMENT and
+  INSTANCES (since 0.4.0), and FACE, READ and RECOGNIZE
+  ([docs/apps/VISION.md](docs/apps/VISION.md)).
 - **DeskBuddy** — a desk companion with BUDDY, GUARD and NIGHT modes.
 - **Terminal** — a real Linux shell with a kept session.
 - **Files** — the card and USB drives.
 - **Camera and Photo**, **MP3**, **Video** and **Recorder**.
 - **Browser**, a read-only **Zabbix** viewer, **Radio**, **Clock**, **Calendar**,
   **Calculator** and **Notes**.
-- **Settings** — Wi-Fi, display, six themes, three text sizes and rotation;
-  **System** status lives there too.
-- **Games** — [Relay Nine](docs/apps/RELAY_NINE.md), Fleet, Radar, Timber,
-  Solitaire, Blackjack, [Poker](docs/apps/POKER.md) and 2048.
+- **Settings** — Wi-Fi, display, seven themes (Neon among them), three text
+  sizes and rotation; **System** status lives there too.
+- **Games** — [RotorTerror](docs/apps/ROTORTERROR.md),
+  [Relay Nine](docs/apps/RELAY_NINE.md), Fleet, Radar, Timber, Solitaire,
+  Blackjack, [Poker](docs/apps/POKER.md) and 2048.
 - Landscape and portrait (Timber is portrait-only).
 
 Feature status per release is under [Status](#status) below.
 
 ## Hardware
 
-Built for the **LILYGO T-Display K230** (docs/hardware/T-DISPLAY-K230.md):
+Built for the **LILYGO T-Display K230**
+([docs/hardware/T-DISPLAY-K230.md](docs/hardware/T-DISPLAY-K230.md)):
 
 - Kendryte K230, RISC-V, Linux; 1 GB RAM
 - 4.1" AMOLED, 568 × 1232, touchscreen
@@ -185,9 +189,9 @@ Built for the **LILYGO T-Display K230** (docs/hardware/T-DISPLAY-K230.md):
 DOORS is meant to be explored and built on. The Terminal is a real Linux
 shell with root access on the device. Apps are C modules hosted by the shell
 (`apps/`), and services talk over `pocketipc` with documented APIs
-(`docs/api/`). The shell also runs as an SDL simulator on a PC, and
-`make test` runs the native test suite. Host, toolchain and build commands:
-docs/BUILD_ENVIRONMENT.md.
+([docs/api/](docs/api/)). The shell also runs as an SDL simulator on a PC,
+and `make test` runs the native test suite. Host, toolchain and build
+commands: [docs/BUILD_ENVIRONMENT.md](docs/BUILD_ENVIRONMENT.md).
 
 > Root access gives you full control of the system — including the ability to
 > break it. Know what a command does before running it.
@@ -195,12 +199,13 @@ docs/BUILD_ENVIRONMENT.md.
 ## Licence
 
 DOORS' own code is licensed under the Apache License, Version 2.0: see
-LICENSE and NOTICE (ADR-013). Third-party components keep their own licences
-(THIRD_PARTY_LICENSES.md; the texts the image ships are in
-THIRD_PARTY_NOTICES.txt), and the Vision models are documented separately in
-MODEL_LICENSES.md. The Doors mark, lockups and boot splash are not
-Apache-2.0: they may be redistributed unmodified as part of Doors
-(docs/licensing/BRAND.md).
+[LICENSE](LICENSE) and [NOTICE](NOTICE) (ADR-013). Third-party components
+keep their own licences ([THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md);
+the texts the image ships are in
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)), and the Vision models are
+documented separately in [MODEL_LICENSES.md](MODEL_LICENSES.md). The Doors
+mark, lockups and boot splash are not Apache-2.0: they may be redistributed
+unmodified as part of Doors ([docs/licensing/BRAND.md](docs/licensing/BRAND.md)).
 
 A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
 the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
@@ -210,16 +215,18 @@ trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.4.0, like 0.3.5
 to 0.3.9, is published on the product owner's decision with some third-party
 questions still open (the vendor's KPU runtime modules and ISP server, the
 toolchain's source, LILYGO's files, and the points about R0's training data
-in MODEL_LICENSES.md); docs/licensing/APACHE_2_READINESS.md §14 lists the
-platform ones.
+in MODEL_LICENSES.md);
+[docs/licensing/APACHE_2_READINESS.md](docs/licensing/APACHE_2_READINESS.md)
+§14 lists the platform ones.
 
 ## Repository
 
 Doors was previously known as PocketOS through v0.0.9. Release history,
 hardware records and many identifiers (`pos_*`, the `pos-*` helpers,
-`pocketui`, `/var/lib/pocketos`, `POCKETOS_*`) keep the old name on purpose; which ones, and when they may change, is in
-docs/decisions/ADR-005-product-name-doors.md. The CLI is `doors`, with `pos`
-as its permanent alias.
+`pocketui`, `/var/lib/pocketos`, `POCKETOS_*`) keep the old name on
+purpose; which ones, and when they may change, is in
+[ADR-005](docs/decisions/ADR-005-product-name-doors.md). The CLI is `doors`,
+with `pos` as its permanent alias.
 
 ### Layout
 
@@ -233,7 +240,7 @@ MODEL_LICENSES.md          Licence status of every Vision model
 CONTRIBUTING.md            Contributions: Apache-2.0, DCO sign-off, source headers
 THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries and LVGL (generated; installed in /usr/share/doors/, linked from /usr/share/pocketos/)
 third_party/notices/       Sources of those notices: the component list and verbatim licence texts
-apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer), solitaire, blackjack and 2048 (Pocket Games, docs/apps/PG*.md), deskbuddy (DeskBuddy, docs/apps/DESKBUDDY.md), terminal, vision, browser, camera, photo, video, mp3, recorder, wave, zabbix (docs/apps/)
+apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer), solitaire, blackjack and 2048 (Pocket Games, docs/apps/PG*.md), poker, rotorterror (RotorTerror), neon-outpost (Relay Nine; the internal id keeps its first name), deskbuddy (DeskBuddy, docs/apps/DESKBUDDY.md) and deskbuddy_vision (its Vision provider), terminal, vision, browser, camera, photo, video, mp3, recorder, wave, zabbix, library (opt-in prototype, not in the image) (docs/apps/)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
 ui/shell/                  Shell: status cluster, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
@@ -249,6 +256,7 @@ tests/                     Native unit tests (`make test`), shell tests (tests/*
 docs/
   GETTING_STARTED.md       Install a released image: download, write the card, first boot, Wi-Fi, RIFT
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
+  apps/                    One guide per app (Vision, RIFT, Relay Nine, RotorTerror, DeskBuddy, ...) with its captures
   ROADMAP.md               Current priorities, ongoing and planned work; ROADMAP_HISTORY.md for earlier phases
   releases/                Release notes per version (v0.0.10 on) and HISTORY.md for the earlier releases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
@@ -258,7 +266,7 @@ docs/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code (Doors itself: Apache-2.0)
   licensing/                Apache-2.0 readiness audit and its blockers, B1 artwork questions, asset inventory, public-source exclusions
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-006 to ADR-013 and their status: docs/decisions/README.md; ADR-013 licence, Apache-2.0: Accepted)
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-013 licence, Apache-2.0: Accepted; all fifteen and their status: docs/decisions/README.md)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
@@ -285,12 +293,8 @@ vendor/                    Read-only reference clones (git-ignored)
 **[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.4.0/doors-0.4.0-tdisplay-k230-21baeef0.img.gz)**
 ([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.4.0)),
 then follow [Get started](docs/GETTING_STARTED.md). It is everything merged
-since 0.3.9: Vision's redesigned screen, SEGMENT and INSTANCES modes and an
-optional GENERAL 365 detector (none of their model weights are part of
-Doors), and a KPU memory fix; Relay Nine's Arcade Neon graphics; the new
-RotorTerror game; RIFT usability fixes; safer radio setup; and DeskBuddy
-counting every Vision report on the K230. The image is built from a clean
-SDK output (PR #115). Release notes:
+since 0.3.9, summarised under [What's new](#whats-new) above; the image is
+built from a clean SDK output (PR #115). Release notes:
 [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
 
 **Doors 0.3.9** (tag `v0.3.9`, 2026-10-28) was the previous release:
@@ -303,5 +307,6 @@ fullscreen, and RIFT MAP's read-only TRAFFIC mode. Release notes:
 Earlier releases, from v0.3.8 back to the first PocketOS images:
 [docs/releases/HISTORY.md](docs/releases/HISTORY.md).
 
-The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
-and docs/hardware/FIRST_BOOT.md).
+The K230 SD image is built by `platforms/k230` (see
+[docs/BUILD_ENVIRONMENT.md](docs/BUILD_ENVIRONMENT.md) and
+[docs/hardware/FIRST_BOOT.md](docs/hardware/FIRST_BOOT.md)).

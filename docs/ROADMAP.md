@@ -1,7 +1,7 @@
 # Doors roadmap
 
 What DOORS is working on next, in priority order. The product owner sets the
-priorities. This page carries no dates, version numbers or promises: an item
+priorities. This page promises no dates or versions: an item
 is ready when it has been built and tested, and the release notes say what
 each release actually contains.
 

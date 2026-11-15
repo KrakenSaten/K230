@@ -33,14 +33,6 @@ history when resolved.
   RIFT_VISUAL_PATH_BUILDER.md): a route chosen in RIFT has not been carried
   by a physical repeater; one zero-relay direct message is the only radio
   result. The UI's own send is unverified on hardware.
-- **A clean SDK output does not build from master** (found 2026-10-20):
-  Buildroot's toolchain check refuses the Xuantie toolchain's Fortran, then
-  `camera_rtsp_demo` cannot install. Fixed on
-  `fix/fresh-build-fortran-toolchain` (draft PR #115, the original commits
-  `15b3b4cf` and `0615f2a0`; not merged, and not in 0.3.9 because it changes
-  the image's Buildroot configuration); the 0.3.8 and 0.3.9 images were
-  built on an SDK output first built from that branch (docs/releases/v0.3.9.md,
-  "Reproducing").
 - **Vision COLOR, LINE TRACE and GENERAL 80** (0.3.9, PR #112,
   docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md): LINE TRACE with the
   final helper on a real line, moving COLOR's square by touch, a saturated
@@ -209,7 +201,7 @@ function changes. What the image loses, and what is left open:
   hold the screen and the lock off by id (`awake_apps` in `ui/shell/shell.c`);
   a new app that plays or watches has to be added there.
 
-## Open on feat/device-controls-diagnostics (not merged)
+## Device controls and diagnostics (merged, in v0.1.0)
 
 Radio on/off with SX1262 off by default, the antenna question, system volume
 and mute, Bluetooth and battery status, and System > Diagnostics. **Unit A
@@ -273,12 +265,12 @@ Unit A was not available.
   2 times in 24. Blocking signals in the helper (`543dc0e`) did not cure it.
   Finding the cause needs kernel-side debugging or the vendor.
 
-- **No detector model from 0.3.5**: the SDK's `yolov8n.kmodel` is
+- **No detector model in 0.3.5** (0.3.5 only; from 0.3.6 the image ships
+  R0 · Beta, "The model" in docs/apps/VISION.md): the SDK's `yolov8n.kmodel` is
   compiled from Ultralytics weights (AGPL-3.0) and was in the images 0.2.1
   to 0.3.0 for internal use only (docs/LICENSING.md item 10). 0.3.5 does not
   ship it; DETECT, TRACK and TRAFFIC are off (the app says so) and DeskBuddy
-  cannot see unless a face model is installed by hand. A DOORS-trained
-  replacement is in preparation.
+  cannot see unless a face model is installed by hand.
 - **Weak detection in warm, dim light, and counts above the real
   crossings** (v0.2.1 fresh-flash smoke on unit B, docs/releases/v0.2.1.md):
   a person standing in full view was boxed in some frames only, at 35-59 %,

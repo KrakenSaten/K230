@@ -4,7 +4,7 @@ An offline knowledge collection on the unit: search a Kiwix/openZIM archive,
 read its articles with their pictures, follow its links, go back, keep
 bookmarks - with no network, ever.
 
-Status: **prototype on branch `claude/k230-offline-library-0c9f28`, draft PR.
+Status: **prototype, merged to master in PR #118 (in the Doors 0.4.0 source, not in its image).
 Host-validated against a real Wikipedia archive; cross-built for the K230
 with the pinned toolchain; checked on unit B and left installed there at the
 owner's request (2026-10-29, docs/validation/UNIT_B_LIBRARY.md).** Out of the shell unless
