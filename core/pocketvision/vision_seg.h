@@ -58,5 +58,12 @@ void vision_inst_map(const struct vision_inst *inst, int n, const float *proto, 
                      uint32_t in_w, uint32_t in_h, float *tmp, uint8_t *map);
 /* An object's colour by its class, RGB565. */
 uint16_t vision_inst_color(uint32_t cls);
+/* An object's colour by its track id (vision_track.h), RGB565, from the
+ * same palette: the same id always the same colour, and ids handed out one
+ * after another (two objects of one class) colours far apart on it, every
+ * one of VISION_INST_PALETTE ids in a row a colour of its own. Id 0 (no
+ * track) is the class's colour: the caller passes the class. */
+#define VISION_INST_PALETTE 20
+uint16_t vision_inst_track_color(uint32_t id, uint32_t cls);
 
 #endif

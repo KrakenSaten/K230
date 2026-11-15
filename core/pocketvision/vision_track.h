@@ -124,6 +124,14 @@ void vision_tracker_init(struct vision_tracker *tr);
  * alive afterwards. */
 int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *dets, int n);
 
+/* The same, and for each detection j < n the id of the track it went to in
+ * ids[j]: the track it matched, the track it started (unconfirmed until
+ * `min_hits`; its id stays the same when it is confirmed), or the track it
+ * is a second box of (`dup_births`). 0 for a detection that went nowhere: no
+ * room for a new track, or beyond VISION_MAX_DETECTIONS. Ids follow the
+ * object, not the detection's place in the list. ids may be NULL. */
+int vision_tracker_update_ids(struct vision_tracker *tr, const struct vision_det *dets, int n, uint32_t *ids);
+
 /* Forget everything, keeping the id counter. */
 void vision_tracker_clear(struct vision_tracker *tr);
 

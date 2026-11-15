@@ -97,6 +97,23 @@ static void test_names(void)
     check("classes have colours of their own", vision_seg_color(0) != vision_seg_color(13) &&
                                                    vision_inst_color(0) != vision_inst_color(1) &&
                                                    vision_inst_color(0) == vision_inst_color(20));
+    {
+        uint32_t id;
+        uint32_t k;
+        int distinct = 1;
+
+        /* Any VISION_INST_PALETTE ids in a row, each a colour of its own. */
+        for (id = 1; id <= 40; id++) {
+            for (k = 1; k < VISION_INST_PALETTE; k++) {
+                distinct &= vision_inst_track_color(id, 0) != vision_inst_track_color(id + k, 0);
+            }
+        }
+        check("an object's colour follows its track id, every twenty in a row apart",
+              distinct && vision_inst_track_color(5, 0) == vision_inst_track_color(5, 9) &&
+                  vision_inst_track_color(1, 0) == vision_inst_track_color(1 + VISION_INST_PALETTE, 0) &&
+                  vision_inst_track_color(UINT32_MAX, 0) != 0);
+        check("with no track, its class's colour", vision_inst_track_color(0, 2) == vision_inst_color(2));
+    }
 }
 
 #define CLASSES 2

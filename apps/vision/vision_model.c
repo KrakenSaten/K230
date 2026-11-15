@@ -1755,7 +1755,7 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->traffic = m->mode == VISION_MODE_TRAFFIC;
     out->lines = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_TRAFFIC;
     out->ids = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_FACE || m->mode == VISION_MODE_RECOGNIZE ||
-               (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
+               m->mode == VISION_MODE_INSTANCES || (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
     out->faces = m->mode == VISION_MODE_FACE || m->mode == VISION_MODE_RECOGNIZE;
     out->recog = m->mode == VISION_MODE_RECOGNIZE;
     out->enrol_btn = m->enrolling ? "STOP" : "ENROL";

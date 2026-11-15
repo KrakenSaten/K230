@@ -19,9 +19,24 @@ static const uint16_t inst_colors[] = {
     RGB565(132, 56, 255), RGB565(82, 0, 133),    RGB565(203, 56, 255), RGB565(255, 149, 200), RGB565(255, 55, 199),
 };
 
+_Static_assert(sizeof(inst_colors) / sizeof(inst_colors[0]) == VISION_INST_PALETTE, "the palette's size");
+
 uint16_t vision_inst_color(uint32_t cls)
 {
-    return inst_colors[cls % (sizeof(inst_colors) / sizeof(inst_colors[0]))];
+    return inst_colors[cls % VISION_INST_PALETTE];
+}
+
+/* The palette runs round the hues, so neighbours are alike; a step of 7
+ * (prime to 20) puts consecutive ids a third of the way round from each
+ * other and still visits every colour before one repeats. */
+#define VISION_INST_STRIDE 7
+
+uint16_t vision_inst_track_color(uint32_t id, uint32_t cls)
+{
+    if (id == 0) {
+        return vision_inst_color(cls);
+    }
+    return inst_colors[(uint32_t)(((uint64_t)(id - 1) * VISION_INST_STRIDE) % VISION_INST_PALETTE)];
 }
 
 /* Separable: a horizontal pass into a small buffer, then a vertical lerp

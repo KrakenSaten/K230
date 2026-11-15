@@ -1744,6 +1744,7 @@ static void test_segment(void)
     vision_model_event(&m, &e, NULL, 2300);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("INSTANCES' words are a count, not a key", t.legend_n == 0);
+    check("INSTANCES' boxes carry their track ids and class, with no line", t.ids && !t.lines && !t.traffic);
     vision_model_set_mode(&m, VISION_MODE_DETECT);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("leaving them leaves nothing behind", m.seginfo[0] == '\0' && m.segfail[0] == '\0' && !t.seg &&
