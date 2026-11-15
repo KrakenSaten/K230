@@ -2956,8 +2956,12 @@ relay-nine-test: audio-effects
 	mkdir -p out/relay-nine
 	$(CC) -std=c11 -O2 -g -Wall -Wextra -Werror -Iapps/neon-outpost -Itests -Icore tests/relay_engine_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c core/audio_effects/effects.c -lm -o out/relay-nine/engine-test
 	out/relay-nine/engine-test
+	$(CC) -std=c11 -O2 -g -Wall -Wextra -Werror -Iapps/neon-outpost tests/relay_visual_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c -lm -o out/relay-nine/visual-test
+	out/relay-nine/visual-test
 	python3 tests/relay_audio_test.py tools/audio-effects/pos-audio-effects
 relay-nine-san-test:
 	mkdir -p out/relay-nine
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iapps/neon-outpost -Itests -Icore tests/relay_engine_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c core/audio_effects/effects.c -lm -o out/relay-nine/engine-test-san
 	out/relay-nine/engine-test-san
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iapps/neon-outpost tests/relay_visual_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c -lm -o out/relay-nine/visual-test-san
+	out/relay-nine/visual-test-san

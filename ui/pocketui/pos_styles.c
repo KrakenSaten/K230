@@ -118,6 +118,16 @@ static const lv_font_t *role_font(enum pos_type_role role)
 #define POS_FIELD_PAD 16 /* DS §17.1 */
 #define POS_CARET_W 2    /* DS §17.1 */
 
+lv_color_t pos_game_color(enum pos_game_ink ink)
+{
+    static const uint32_t palette[POS_GAME_INK_COUNT]={
+        0x173a50,0x365e78,0x52c8e5,0x8edbf2,0x27899f,0x9d8ff0,
+        0x58e5d0,0x227e94,0xff5579,0x7d294d,0x030810,0xd8f3ff,
+        0x6e9ab3,0x9db7ca,0x0c1a2a,0x244458,0x254b65
+    };
+    return lv_color_hex(palette[ink>=0&&ink<POS_GAME_INK_COUNT?ink:POS_GAME_TEXT]);
+}
+
 static lv_style_t styles[POS_STYLE_COUNT];
 static int initialised;
 static uint32_t theme_event;
@@ -1056,17 +1066,42 @@ static void fill_styles(void)
     lv_style_set_bg_color(s, pos_scan_light());
     lv_style_set_bg_opa(s, LV_OPA_COVER);
 
-    /* Relay Nine draws in its own palette, independent of the interface
-     * theme (docs/apps/RELAY_NINE.md), so no token applies: the backdrop
-     * behind its scene, and its HUD and message text. The text style has no
-     * font; the label's own role keeps its type. */
+    /* Authored optical instruments; menu prose keeps the shared text size.
+     * World art and cockpit inks are independent of the shell's theme. */
     s = &styles[POS_STYLE_GAME_SCENE];
-    reset(s);
-    lv_style_set_bg_color(s, lv_color_hex(0x151914));
-    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    reset(s);lv_style_set_bg_color(s,pos_game_color(POS_GAME_BACKDROP));
+    lv_style_set_bg_opa(s,LV_OPA_COVER);
     s = &styles[POS_STYLE_GAME_HUD_TEXT];
-    reset(s);
-    lv_style_set_text_color(s, lv_color_hex(0xe3dfbd));
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_TEXT));
+    lv_style_set_text_font(s,&pos_font_sans_20);
+    s = &styles[POS_STYLE_GAME_HUD_WARNING];
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_DANGER));
+    s = &styles[POS_STYLE_GAME_BRAND];
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_TEXT));
+    lv_style_set_text_font(s,&pos_font_sans_32_semibold);lv_style_set_text_letter_space(s,3);
+    s = &styles[POS_STYLE_GAME_BRAND_COMPACT];
+    reset(s);lv_style_set_text_font(s,&pos_font_sans_24_semibold);
+    s = &styles[POS_STYLE_GAME_CAPTION];
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_MUTED));
+    lv_style_set_text_font(s,&pos_font_mono_16_medium);lv_style_set_text_letter_space(s,0);
+    s = &styles[POS_STYLE_GAME_SECTOR];
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_CURRENT));
+    lv_style_set_text_font(s,&pos_font_mono_16_medium);lv_style_set_text_letter_space(s,0);
+    s = &styles[POS_STYLE_GAME_MESSAGE];
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_SECONDARY));
+    s = &styles[POS_STYLE_GAME_MESSAGE_COMPACT];
+    reset(s);lv_style_set_text_font(s,&pos_font_sans_20);
+    s = &styles[POS_STYLE_GAME_BUTTON];
+    reset(s);lv_style_set_bg_color(s,pos_game_color(POS_GAME_SURFACE));
+    lv_style_set_bg_opa(s,LV_OPA_COVER);lv_style_set_radius(s,12);
+    lv_style_set_border_width(s,1);lv_style_set_border_color(s,pos_game_color(POS_GAME_OUTLINE));
+    s = &styles[POS_STYLE_GAME_PAD];
+    reset(s);lv_style_set_bg_opa(s,LV_OPA_TRANSP);lv_style_set_radius(s,0);lv_style_set_border_width(s,0);
+    s = &styles[POS_STYLE_GAME_PRESSED];
+    reset(s);lv_style_set_bg_color(s,pos_game_color(POS_GAME_PRESSED));
+    lv_style_set_bg_opa(s,LV_OPA_COVER);lv_style_set_border_color(s,pos_game_color(POS_GAME_CURRENT));
+    s = &styles[POS_STYLE_GAME_BUTTON_LABEL];
+    reset(s);lv_style_set_text_color(s,pos_game_color(POS_GAME_TEXT));
 
     /* The Kestrel's cockpit palette belongs to the game's artwork, as Relay
      * Nine's does. All interface type retains the shared size preferences. */

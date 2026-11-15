@@ -20,7 +20,7 @@ int main(void)
     lv_display_set_flush_cb(d,flush);
     lv_image_dsc_t src={0};src.header.magic=LV_IMAGE_HEADER_MAGIC;src.header.cf=LV_COLOR_FORMAT_RGB565;
     src.header.w=RN_W;src.header.h=RN_H;src.header.stride=RN_W*2;src.data_size=sizeof(frame.pixels);src.data=(uint8_t *)frame.pixels;
-    lv_obj_t *image=lv_image_create(lv_screen_active());lv_image_set_src(image,&src);lv_image_set_antialias(image,false);
+    lv_obj_t *image=lv_image_create(lv_screen_active());lv_image_set_src(image,&src);lv_image_set_antialias(image,true);
     const int scales[]={256,400,640};
     for(unsigned mode=0;mode<sizeof(scales)/sizeof(scales[0]);mode++){
         double times[200];lv_image_set_scale(image,scales[mode]);lv_obj_center(image);lv_obj_update_layout(lv_screen_active());lv_refr_now(d);

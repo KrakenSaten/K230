@@ -64,8 +64,14 @@ static void bounds(void *a,lv_obj_t *body)
         int scale=lv_image_get_scale_x(im);
         CHECK(scale==(int)lv_image_get_scale_y(im));
         CHECK(RN_W*scale<=w*256&&RN_H*scale<=h*256);
-        CHECK(RN_W*(scale+1)>w*256||RN_H*(scale+1)>h*256);
-        CHECK(lv_obj_get_x(im)==(w-RN_W)/2&&lv_obj_get_y(im)==(h-RN_H)/2);
+        CHECK(lv_obj_get_x(im)==(w-RN_W)/2);
+        int top=lv_obj_get_y(im)+(RN_H-RN_H*scale/256)/2;
+        int bottom=top+RN_H*scale/256;
+        CHECK(top>=0&&bottom<=h);
+        if(w<h){
+            lv_area_t pad;lv_obj_get_coords(neon_app_button(a,0),&pad);
+            CHECK(bottom+lv_obj_get_y(body)<pad.y1);
+        }
     }
     lv_area_t b;lv_obj_get_coords(body,&b);
     for(unsigned i=0;i<14;i++){lv_obj_t *v=neon_app_button(a,i);if(lv_obj_has_flag(v,LV_OBJ_FLAG_HIDDEN))continue;lv_area_t r;lv_obj_get_coords(v,&r);CHECK(r.x1>=b.x1&&r.x2<=b.x2&&r.y1>=b.y1&&r.y2<=b.y2);CHECK(lv_obj_get_width(v)>=64&&lv_obj_get_height(v)>=64);}
@@ -78,6 +84,9 @@ int main(void)
     for(int text=0;text<3;text++){CHECK(!pos_theme_select_text_size(text));motion=text==2;
       for(int mode=0;mode<3;mode++){
         point=(lv_point_t){0,0};lv_display_set_resolution(d,sizes[mode][0],sizes[mode][1]);
+        struct pos_panel panel={.width=sizes[mode][0],.height=sizes[mode][1]};
+        struct pos_display_geometry geometry;pos_display_geometry_init(&geometry,&panel,POS_ROTATION_0);
+        pocketui_set_display_geometry(&geometry);
         lv_obj_t *title=pocketui_label(lv_screen_active(),"RELAY NINE / ENGINE CAPTURE",POS_STYLE_TITLE);lv_obj_set_pos(title,28,8);
         lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(body);lv_obj_set_pos(body,24,80);lv_obj_set_size(body,sizes[mode][0]-48,sizes[mode][1]-104);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);pump(40);
         host_body=body;fullscreen=false;int base=timers();void *a=app_neon_outpost.create(body);CHECK(a);pump(60);CHECK(timers()==base+1);struct rn_game *g=neon_app_game(a);CHECK(g->paused);bounds(a,body);
@@ -141,7 +150,11 @@ int main(void)
     /* Opt-in device timing: a summary with every field, and nothing left on the display once closed. */
     {char path[]="/tmp/relay-stats-XXXXXX";int fd=mkstemp(path);CHECK(fd>=0);close(fd);setenv("DOORS_RELAY_STATS",path,1);uint32_t events=lv_display_get_event_count(d);
      lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_set_size(body,512,560);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);void *a=app_neon_outpost.create(body);CHECK(lv_display_get_event_count(d)>events);
-     pump(40);touch(a,7,50,.5,.5);pump(400);app_neon_outpost.destroy(a);lv_obj_delete(body);unsetenv("DOORS_RELAY_STATS");pump(40);CHECK(lv_display_get_event_count(d)==events);
+     pump(40);touch(a,7,50,.5,.5);pump(400);
+     /* Sustained display pressure sheds optional detail without pausing input. */
+     for(int i=0;i<8;i++){lv_tick_inc(60);lv_timer_handler();}
+     CHECK(!neon_app_game(a)->paused);CHECK(!lv_image_get_antialias(neon_app_image(a)));
+     app_neon_outpost.destroy(a);lv_obj_delete(body);unsetenv("DOORS_RELAY_STATS");pump(40);CHECK(lv_display_get_event_count(d)==events);
      char text[4096]={0};FILE *f=fopen(path,"r");CHECK(f);CHECK(fread(text,1,sizeof(text)-1,f)>0);fclose(f);unlink(path);
      CHECK(strstr(text,"interval_ms=")&&strstr(text,"game_ms=")&&strstr(text,"scene_ms=")&&strstr(text,"refresh_ms=")&&strstr(text,"draw_ms=")&&strstr(text,"flush_ms=")&&strstr(text,"# closed"));}
     pos_input_deinit();lv_indev_delete(p);lv_display_delete(d);lv_deinit();printf("relay_app_test: %u checks passed\n",checks);return 0;

@@ -49,8 +49,8 @@ int main(void)
     static struct rn_frame before;CHECK(rn_render(&g,&before));
     g.enemy[0]=(struct rn_actor){.x=5,.y=11.3,.sector=4,.hp=100};CHECK(rn_render(&g,&frame));
     unsigned top_diff=0,leg_diff=0;
-    for(int y=90;y<125;y++)for(int x=145;x<175;x++)top_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
-    for(int y=165;y<185;y++)for(int x=145;x<175;x++)leg_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
+    for(int y=RN_H/2-10;y<RN_H/2+25;y++)for(int x=145;x<175;x++)top_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
+    for(int y=RN_H/2+65;y<RN_H/2+85;y++)for(int x=145;x<175;x++)leg_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
     CHECK(top_diff>10&&leg_diff==0);
     quiet(&g);g.mag=1;g.reserve=3;rn_advance(&g,(struct rn_input){.fire=true},10);
     CHECK(g.mag==0&&g.sounds[RN_SHOT]==1);
@@ -111,7 +111,7 @@ int main(void)
     }
     CHECK(g.state==RN_WON&&g.kills==9&&g.relay&&g.shotgun&&g.secret&&mid&&high&&g.sounds[RN_SCATTER]>0);CHECK(g.health>0&&g.mag>=0&&g.reserve>=0);
     printf("production full run: %u steps, %.2fs simulation, hp %d, ammo %d/%d, kills %d; host loop CPU %.3fs including sampled renders\n",g.steps,g.steps*.01,g.health,g.mag,g.reserve,g.kills,(double)(clock()-begin)/CLOCKS_PER_SEC);
-    qsort(times,timed,sizeof(*times),compare);printf("host renderer: %u frames at 320x200, p50 %.3fms p95 %.3fms p99 %.3fms; max column portal transitions/frame %u; excludes LVGL/flush and does not predict K230\n",timed,times[timed/2],times[timed*95/100],times[timed*99/100],max_portals);
+    qsort(times,timed,sizeof(*times),compare);printf("host renderer: %u frames at %dx%d, p50 %.3fms p95 %.3fms p99 %.3fms; max column portal transitions/frame %u; excludes LVGL/flush and does not predict K230\n",timed,RN_W,RN_H,times[timed/2],times[timed*95/100],times[timed*99/100],max_portals);
     a=g;rn_advance(&g,(struct rn_input){.fire=true},250);CHECK(!memcmp(&a,&g,sizeof(g)));
     /* The optional loop and secret never gate the ordinary route. */
     CHECK(rn_restart(&g,false));static const double main_route[][2]={{6.5,13.3},{1.5,9.5},{-4,7.8},{-4,1.2},{-4,-5.5},{9.5,-5.7},{9.5,3.9},{13.5,10.5},{13,15.5}};unsigned main_goal=0;

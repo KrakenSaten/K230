@@ -1738,6 +1738,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${GAMES_APP_TEST_UI})
     target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"
                                "${REPO_DIR}/apps/deskbuddy_vision" "${REPO_DIR}/apps/vision")
+    add_executable(relay_visual_test ${REPO_DIR}/tests/relay_visual_test.c ${NEON_SOURCES})
+    target_include_directories(relay_visual_test PRIVATE "${REPO_DIR}/apps/neon-outpost")
+    target_compile_options(relay_visual_test PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(relay_visual_test PRIVATE m)
+
     add_executable(relay_image_bench
         ${REPO_DIR}/tests/relay_image_bench.c ${NEON_SOURCES})
     target_include_directories(relay_image_bench PRIVATE

@@ -11,7 +11,8 @@
 #define RN_ENEMIES 16
 #define RN_ITEMS 16
 #define RN_W 320
-#define RN_H 200
+/* Tall optical chamber; projection keeps the original horizontal field. */
+#define RN_H 360
 #define RN_PI 3.14159265358979323846
 #define RN_EYE 1.45
 #define RN_BODY 1.65
@@ -52,9 +53,12 @@ bool rn_los(const struct rn_game *g,int sector,double x,double y,double z,double
 void rn_switch_weapon(struct rn_game *g);
 void rn_pause(struct rn_game *g,bool pause);
 void rn_advance(struct rn_game *g,struct rn_input in,unsigned ms);
+/* Economy mode samples alternate world columns, keeping sprites and depth. */
+bool rn_render_quality(const struct rn_game *g,struct rn_frame *frame,bool economy);
 bool rn_render(const struct rn_game *g,struct rn_frame *frame);
 const char *rn_room_name(int room);
 uint16_t rn_texture(int material,int x,int y,int light);
+uint16_t rn_emission(int material,int x,int y);
 uint16_t rn_sprite(int kind,int x,int y,int phase,int facing,int state);
 uint16_t rn_weapon(int x,int y,int flash,int reload,int weapon,bool reduced_motion);
 void rn_title(struct rn_frame *frame);

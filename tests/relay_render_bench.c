@@ -18,7 +18,7 @@ int main(int argc,char **argv)
         if(i>=20)times[i-20]=1000.0*(clock()-begin)/CLOCKS_PER_SEC;
     }
     qsort(times,400,sizeof(*times),compare);
-    printf("same slice, 400 frames, 320x200, CPU ms p50 %.3f p95 %.3f p99 %.3f; game %zu frame %zu mixer %zu bytes\n",times[200],times[380],times[396],sizeof(g),sizeof(f),sizeof(struct audio_effects));
+    printf("same slice, 400 frames, %dx%d, CPU ms p50 %.3f p95 %.3f p99 %.3f; game %zu frame %zu mixer %zu bytes\n",RN_W,RN_H,times[200],times[380],times[396],sizeof(g),sizeof(f),sizeof(struct audio_effects));
     if(argc==2){
         g.angle=RN_PI;rn_advance(&g,(struct rn_input){.fire=true},10);if(!rn_render(&g,&f))return 1;
         FILE *out=fopen(argv[1],"wb");if(!out)return 1;fprintf(out,"P6\n%d %d\n255\n",RN_W,RN_H);
