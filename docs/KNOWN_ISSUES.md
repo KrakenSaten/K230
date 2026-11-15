@@ -49,9 +49,9 @@ history when resolved.
   not part of Doors (licence unknown); without the file CLASSES says so.
 - **Relay Nine graphics** (0.4.0, PR #133, docs/apps/RELAY_NINE_REMAKE.md):
   the scene is scaled in the app and the frame cost was measured on unit A
-  (interval p95 33-36 ms against 43-44 ms before), but an on-glass visual and
-  touch review in portrait and landscape at the Small and Large text sizes
-  is still pending, and readability at the panel corners is unreviewed. Two
+  (interval p95 33-36 ms against 43-44 ms before), and the owner checked the
+  picture, its corners and the touch controls in portrait and landscape on
+  the v0.4.0 fresh card. Not checked: the Small and Large text sizes. Two
   LOW review items (fixed fonts, a 4 px overlap) are open.
 - **DeskBuddy camera presence** (fixed in 0.4.0, PR #121): v0.3.9 counted
   only the first Vision report on the K230 and then said CAMERA UNAVAILABLE.
