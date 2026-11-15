@@ -256,6 +256,7 @@ BUILD_ID
 /tests/vision_face_test
 /tests/vision_embed_test
 /tests/vision_keys_test
+/tests/vision_seg_test
 # Video (docs/apps/VIDEO.md)
 /tools/video/pos-video
 /tests/video_files_test

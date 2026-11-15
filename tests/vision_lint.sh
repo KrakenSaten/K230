@@ -151,11 +151,16 @@ check "no pose, network or cloud: everything Vision sees stays on the unit" "$([
 [ -n "$hits" ] && echo "$hits" | head -3
 # SEGMENT and INSTANCES run models no image carries (their licences are not
 # settled): the helper offers each only when its file is on the unit, and the
-# package installs neither.
+# package installs neither. The image gate, verify_image.sh, names both to
+# refuse them, so it is the one file under platforms/ allowed to.
 check "the segmentation modes are offered only when their model file is on the unit" \
     "$(grep -q 's->seg_offered = access(s->seg_path, R_OK) == 0' $H && grep -q 's->inst_offered = access(s->inst_path, R_OK) == 0' $H && echo 1 || echo 0)"
 check "and no segmentation model is packaged" \
-    "$(grep -rqE 'seg_pp_liteseg|inst_yolov8n_seg|yolov8n_seg' platforms/ 2>/dev/null && echo 0 || echo 1)"
+    "$(grep -rlE 'seg_pp_liteseg|inst_yolov8n_seg|yolov8n_seg' platforms/ 2>/dev/null |
+       grep -qv '^platforms/k230/scripts/verify_image\.sh$' && echo 0 || echo 1)"
+check "and the image gate refuses both" \
+    "$(grep -q '/usr/share/doors/vision/seg_pp_liteseg_t.kmodel' platforms/k230/scripts/verify_image.sh &&
+       grep -q '/usr/share/doors/vision/inst_yolov8n_seg.kmodel' platforms/k230/scripts/verify_image.sh && echo 1 || echo 0)"
 check "a segmentation model is closed when its mode is left" \
     "$(grep -A3 'A segmentation model is held only while its mode is in force' $H | grep -q 'seg_close(s);' && echo 1 || echo 0)"
 check "Camera's own screen is untouched by Vision (no vision words in apps/camera)" \

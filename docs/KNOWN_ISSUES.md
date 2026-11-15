@@ -1,6 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-10-28 for the v0.3.9 candidate (docs/releases/v0.3.9.md), following
+Updated 2026-11-15 for v0.4.0 (tag `v0.4.0`; docs/releases/v0.4.0.md), following
+v0.3.9 (tag `v0.3.9`; docs/releases/v0.3.9.md),
 v0.3.8 (tag `v0.3.8`; docs/releases/v0.3.8.md), v0.3.7
 (tag `v0.3.7`; docs/releases/v0.3.7.md), v0.3.6 (tag `v0.3.6`;
 docs/releases/v0.3.6.md) and v0.3.5 (tag
@@ -46,22 +47,36 @@ history when resolved.
   colour other than red, HDMI and the three text sizes are unchecked on
   hardware. Busy texture can be followed as a line. GENERAL 80's weights are
   not part of Doors (licence unknown); without the file CLASSES says so.
-- **Relay Nine fullscreen** (0.3.9, PR #113): play is fullscreen on the
-  panel (fresh-card check), but readability at the corners, touch input at
-  the new scale and the LVGL scale/flush cost are unmeasured on K230.
-- **DeskBuddy camera presence goes unavailable on the K230** (0.3.9,
-  docs/releases/v0.3.9.md, "DeskBuddy sequence fix"): the bridge counts a
-  report only when its camera sequence changes, and the K230's stays 0, so
-  after the first report BUDDY says CAMERA UNAVAILABLE and GUARD NO VISION
-  YET. Seen on unit B with the same code (2026-10-27); not re-run on the
-  v0.3.9 image. Fixed on `fix/deskbuddy-report-counter` (not released):
-  on unit B (2026-11-04) every report, all with camera sequence 0, was
-  taken for 3.5 minutes with no CAMERA UNAVAILABLE (docs/apps/DESKBUDDY.md).
-  In that run R0's only "person" was a false positive on a bag close in
-  front of the camera (0.35-0.53; diagnosed the same day, #109), and the
+- **Relay Nine graphics** (0.4.0, PR #133, docs/apps/RELAY_NINE_REMAKE.md):
+  the scene is scaled in the app and the frame cost was measured on unit A
+  (interval p95 33-36 ms against 43-44 ms before), and the owner checked the
+  picture, its corners and the touch controls in portrait and landscape on
+  the v0.4.0 fresh card. Not checked: the Small and Large text sizes. Two
+  LOW review items (fixed fonts, a 4 px overlap) are open.
+- **DeskBuddy camera presence** (fixed in 0.4.0, PR #121): v0.3.9 counted
+  only the first Vision report on the K230 and then said CAMERA UNAVAILABLE.
+  With the fix, unit B (2026-11-04) took every report, all with camera
+  sequence 0, for 3.5 minutes with no CAMERA UNAVAILABLE
+  (docs/apps/DESKBUDDY.md). In that run R0's only "person" was a false
+  positive on a bag close in front of the camera (0.35-0.53; #109), and the
   owner was out of the camera's view, so a real person's arrival, departure
-  and return with the fix is still pending (not failed); hardware testing is
-  paused.
+  and return with the fix is still pending (not failed).
+- **Vision models outside Doors** (0.4.0, MODEL_LICENSES.md): SEGMENT,
+  INSTANCES and GENERAL 365, like GENERAL 80, need a model file that is not
+  part of Doors and is not in the image; without it the mode or MODEL choice
+  is not offered. SEGMENT and INSTANCES have no install helper or pinned
+  hash. Their hardware records are unit B's (docs/apps/VISION.md).
+- **Vision's redesigned screen** (0.4.0, PR #130): checked on unit B by
+  screenshots and injected keys, not by touch; no before-and-after frame
+  rate on a unit.
+- **Terminal job-cleanup test on the WSL build host** (seen 2026-11-15):
+  `term_session_test` fails "no job of its session outlives it" and/or
+  "closing ends a job that ignores SIGHUP and a stopped one" in nearly every
+  run on this PC's WSL2 Ubuntu 22.04 (10 of 10 idle runs at the 0.4.0
+  candidate, 5 of 5 at v0.3.9's `c03795ce`). The Terminal code is unchanged
+  since 2026-10-01, so this is not new in 0.4.0; whether it is the host or a
+  real leftover-job defect is not diagnosed, and it has not been checked on
+  a unit.
 - **DeskBuddy owner-aware Guard** (0.3.9, PR #111,
   docs/apps/deskbuddy/PRESENCE_OWNER_HANDOFF.md): not implemented; #109 (a
   stationary box on unit B) is undiagnosed.
