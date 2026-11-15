@@ -191,7 +191,8 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 bad "${R0_PATH} is not the pinned R0 detector: sha256 ${got}, pinned ${R0_SHA}"
             fi
         fi
-        for path in /usr/share/doors/vision/yolov8n.kmodel /usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel \n                    /usr/share/doors/vision/det-general365-ppyoloe-s-320.kmodel; do
+        for path in /usr/share/doors/vision/yolov8n.kmodel /usr/share/doors/vision/det-upstream-yolox-tiny-416.kmodel \
+                    /usr/share/doors/vision/det-general365-ppyoloe-s-320.kmodel; do
             if rootfs_has "${path}"; then
                 bad "${path}: a detector the image must not carry (MODEL_LICENSES.md)"
             else

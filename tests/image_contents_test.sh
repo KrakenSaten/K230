@@ -178,6 +178,10 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         "$(grep -q "det-r0-traffic6-yolox-tiny-416.kmodel (Vision's R0 detector), sha256 $(cut -c1-64 "${TMP}/r0.sha256"), as pinned" "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and the detectors it must not carry absent" \
         "$(grep -q 'yolov8n.kmodel absent (not shipped)' "${TMP}/out.txt" && grep -q 'det-upstream-yolox-tiny-416.kmodel absent (not shipped)' "${TMP}/out.txt" && grep -q 'det-general365-ppyoloe-s-320.kmodel absent (not shipped)' "${TMP}/out.txt" && echo 1 || echo 0)"
+    # Exactly those three paths, each a full path: a stray word in the list
+    # (a literal \n once made the loop visit "n") would show up here.
+    check "and no other word is checked as a detector path" \
+        "$([ "$(grep -c 'absent (not shipped)' "${TMP}/out.txt")" = "3" ] && ! grep -Eq 'ok  [^/][^ ]* absent \(not shipped\)' "${TMP}/out.txt" && echo 1 || echo 0)"
     R0_PIN_FOR_GATE=tools/vision/r0-model.sha256
     rc="$(run_gate "${TMP}/doors.img")"
     unset R0_PIN_FOR_GATE
