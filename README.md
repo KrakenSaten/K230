@@ -29,7 +29,7 @@ latest-release summary, retain a small curated screenshot gallery, and move
 older news to docs/releases/HISTORY.md. Use shipped features and real captures;
 label simulator/fixture data and link to stable image paths or commit SHAs. -->
 
-### v0.4.0 · release candidate, not yet published
+### v0.4.0 · 15 November 2026
 
 - **Vision, redesigned around the picture:** counters on the picture's
   corners, a wider upright picture and a MODE switcher of its own; new
@@ -281,7 +281,7 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.4.0** (tag `v0.4.0`, release candidate, not yet published) is the current release:
+**Doors 0.4.0** (tag `v0.4.0`, 2026-11-15) is the current release:
 **[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.4.0/doors-0.4.0-tdisplay-k230-21baeef0.img.gz)**
 ([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.4.0)),
 then follow [Get started](docs/GETTING_STARTED.md). It is everything merged

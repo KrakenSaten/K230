@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-11-15 for the v0.4.0 candidate (docs/releases/v0.4.0.md), following
+Updated 2026-11-15 for v0.4.0 (tag `v0.4.0`; docs/releases/v0.4.0.md), following
 v0.3.9 (tag `v0.3.9`; docs/releases/v0.3.9.md),
 v0.3.8 (tag `v0.3.8`; docs/releases/v0.3.8.md), v0.3.7
 (tag `v0.3.7`; docs/releases/v0.3.7.md), v0.3.6 (tag `v0.3.6`;
