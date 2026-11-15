@@ -12,7 +12,7 @@
 static const char *const names[RS_COUNT]={"interval","game","scene","refresh","draw","flush","wait"};
 struct rn_stats {
     FILE *out;lv_display_t *display;uint64_t opened,window,refr,render,flush,wait,mark;bool rendered;
-    uint32_t sample[RS_COUNT][RS_CAP];unsigned n[RS_COUNT],frames,playing,stalls,pauses;
+    uint32_t sample[RS_COUNT][RS_CAP];unsigned n[RS_COUNT],frames,playing,stalls,pauses,economy,entries,entries_window;bool economy_on;
 };
 uint64_t rn_stats_now(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000000+t.tv_nsec/1000;}
 static void put(struct rn_stats *s,enum rn_stat k,uint64_t us){if(s->n[k]<RS_CAP)s->sample[k][s->n[k]++]=us>UINT32_MAX?UINT32_MAX:(uint32_t)us;}
@@ -35,12 +35,14 @@ static int order(const void *a,const void *b){uint32_t x=*(const uint32_t *)a,y=
 static void report(struct rn_stats *s,const struct rn_game *g,uint64_t now)
 {
     fprintf(s->out,"t=%.1f frames=%u playing=%u stalls_100ms=%u auto_pauses=%u",(now-s->opened)/1e6,s->frames,s->playing,s->stalls,s->pauses);
+    /* Frames drawn in economy this window, and economy entries in it. */
+    fprintf(s->out," economy=%u entries=%u",s->economy,s->entries-s->entries_window);
     if(g)fprintf(s->out," state=%d paused=%d room=%d pos=%.2f,%.2f,%.2f yaw=%.2f weapon=%d ammo=%d/%d+%d hp=%d kills=%d",g->state,g->paused,g->sectors[g->sector].room,g->x,g->y,g->z,g->angle,g->weapon,g->mag,g->loaded,g->shells,g->health,g->kills);
     for(int k=0;k<RS_COUNT;k++){unsigned n=s->n[k];if(!n){fprintf(s->out," %s=-",names[k]);continue;}qsort(s->sample[k],n,sizeof(uint32_t),order);
         uint64_t sum=0;for(unsigned i=0;i<n;i++)sum+=s->sample[k][i];
         fprintf(s->out," %s_ms=%.2f/%.2f/%.2f/%.2f",names[k],sum/1000.0/n,s->sample[k][n/2]/1000.0,s->sample[k][(n*95)/100]/1000.0,s->sample[k][n-1]/1000.0);}
     fputc('\n',s->out);fflush(s->out);
-    memset(s->n,0,sizeof(s->n));s->frames=s->playing=s->stalls=s->pauses=0;s->window=now;
+    memset(s->n,0,sizeof(s->n));s->frames=s->playing=s->stalls=s->pauses=s->economy=0;s->entries_window=s->entries;s->window=now;
 }
 struct rn_stats *rn_stats_open(void)
 {
@@ -52,10 +54,11 @@ struct rn_stats *rn_stats_open(void)
     if(s->display)lv_display_add_event_cb(s->display,display_event,LV_EVENT_ALL,s);
     return s;
 }
+void rn_stats_economy(struct rn_stats *s,bool on,unsigned entries){if(s){s->economy_on=on;s->entries=entries;}}
 void rn_stats_frame(struct rn_stats *s,const struct rn_game *g,bool playing,bool auto_pause)
 {
     if(!s)return;
-    s->frames++;if(playing)s->playing++;if(auto_pause)s->pauses++;
+    s->frames++;if(s->economy_on&&playing)s->economy++;if(playing)s->playing++;if(auto_pause)s->pauses++;
     if(s->n[RS_INTERVAL]&&s->sample[RS_INTERVAL][s->n[RS_INTERVAL]-1]>=100000)s->stalls++;
     uint64_t now=rn_stats_now();if(now-s->window>=5000000)report(s,g,now);
 }

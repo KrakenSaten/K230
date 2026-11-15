@@ -68,8 +68,17 @@ hardware access or worker thread is introduced.
   economy mode. It samples alternate world columns, reconstructs their depth,
   omits the optional halo pass and uses nearest image scaling. Sprites, weapon,
   reticle, interaction and simulation retain their resolution and cadence.
-  After 180 renders below 14 ms, full detail is probed again. Thresholds are
-  conservative **ASSUMED device tuning**, not a K230 performance claim.
+  Full detail is probed again after a quiet run of 180 frames: intervals of at
+  most 40 ms **and** renders under 14 ms. Renders in economy are cheap by
+  construction, so a render-only exit (the first version) returned to full
+  detail every 180 frames even when full detail was what made the intervals
+  long. When economy returns within 300 frames of a probe, the next quiet run
+  needed doubles, up to 2,880 frames (~96 s); 900 frames of full detail reset
+  it. `apps/neon-outpost/relay_economy.h` holds the rules and
+  `tests/relay_engine_test.c` drives them, including the load that made the
+  first version cycle. `DOORS_RELAY_STATS` reports `economy=` (frames drawn in
+  economy) and `entries=` per window. Thresholds are conservative **ASSUMED
+  device tuning**, not a K230 performance claim.
 - Static labels, styles, title art and framing are only invalidated when their
   values or geometry change. Animated scene pixels still invalidate their own
   image. Audio and input continue through the existing foreground lifecycle.
@@ -124,6 +133,37 @@ The isolated antialiased LVGL image bench measures 4.05 ms p50 / 4.84 ms p95 at
 400/256 scale with a no-op flush ([raw](relay-nine/remake/image-bench.txt)). It
 excludes the rest of the cockpit, DRM and physical scanout. Larger test scales
 may clip to that bench's 1280×720 display. These numbers cannot predict K230 FPS.
+
+## K230 measurements (Unit A, Doors 0.3.9, 2026-11-15; VERIFIED there)
+
+The renderer was then made cheaper without changing a pixel: no libm
+`floor()` call per texel (on rv64gc it is not inlined), a floor/ceiling row's
+plane distance and shade computed once per sector run instead of per pixel,
+the depth test before shading, texture and emission from one lookup, and a
+haze pass that skips unchanged pixels. The replay hashes are unchanged on the
+host and on the K230 (`frame-fnv1a=53b28074aadd6072`; both-mode hash
+`809124e4961f0715` / `49ece37a076c24f5`).
+
+| `relay_render_replay`, K230, `-O3`, CPU ms p50 | First version | Now |
+| --- | ---: | ---: |
+| Stairs / closed door / shotgun | 28.8 / 30.8 / 31.3 | 19.0 / 18.3 / 19.6 |
+| Gallery / upper control | 33.9 / 33.2 | 20.7 / 19.3 |
+| Tour average, full detail / economy | 29.0 / 15.8 | 18.3 / 11.3 |
+
+In the shell, on the Relay Nine gate's route (`rn-drive.py`, in-play 5 s
+windows, same session as a master control run):
+
+| | master | first version | now |
+| --- | --- | --- | --- |
+| frame interval p95 | 44.0-44.2 ms | 58.4-62.9 ms | 52.9-56.6 ms |
+| scene render p50 | 10.4-10.7 ms | 16.6-18.7 ms | 11.9-12.8 ms (economy) |
+| LVGL draw p50 | 7.2 ms | 13.4 ms | 14.0 ms |
+
+Economy now enters once per session and stays (`entries=0` after the first
+window): no on/off cycling. What still holds the interval above master is
+LVGL drawing the taller scaled image: 568×639 against master's 568×355, the
+1.8× of its draw time. Antialiasing is about 2 ms of it (an experiment build
+with it off throughout: draw p50 12.0 ms, interval p95 50.8-52.5 ms).
 
 | Fixed allocation | Before | After |
 | --- | ---: | ---: |

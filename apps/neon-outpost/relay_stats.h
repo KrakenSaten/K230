@@ -11,6 +11,8 @@ struct rn_stats;
 struct rn_stats *rn_stats_open(void);
 uint64_t rn_stats_now(void);
 void rn_stats_add(struct rn_stats *s,enum rn_stat k,uint64_t start);
+/* Economy state for the frame about to be counted, and economy entries so far. */
+void rn_stats_economy(struct rn_stats *s,bool on,unsigned entries);
 void rn_stats_frame(struct rn_stats *s,const struct rn_game *g,bool playing,bool auto_pause);
 void rn_stats_close(struct rn_stats *s);
 #endif

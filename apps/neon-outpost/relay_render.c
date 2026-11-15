@@ -8,11 +8,21 @@
 #include <float.h>
 #include <stdlib.h>
 static const double focal=RN_W/1.32;
+/* Per frame, per screen row: the floor or ceiling plane of the last sector
+ * cast on that row (sector -1: none yet). */
+struct plane_row { double plane; int sector,shade; };
+/* (int)floor(v) for the per-pixel texture coordinates, which are finite and
+ * far inside int: on rv64gc floor() is a libm call, this is two instructions. */
+static inline int ifloor(double v)
+{
+    int i=(int)v;
+    return i-(i>v);
+}
 /* Current is authored in texture coordinates, so it follows surfaces rather
  * than sliding over the screen. The simulation clock freezes on pause. */
 static uint16_t surface(int m,int x,int y,int light,int room,unsigned phase)
 {
-    uint16_t c=rn_texture(m,x,y,light),e=rn_emission(m,x,y);
+    uint16_t e,c=rn_texel(m,x,y,light,&e);
     int r=c>>11,g=(c>>5)&63,b=c&31;
     if(e){
         int pulse=((x+y+(int)phase)&63),dim=pulse<12?0:3;
@@ -41,7 +51,7 @@ static void wall(struct rn_frame *f,int x,int clip0,int clip1,double z0,double z
         int p=y*RN_W+x;if(depth>=f->depth[p])continue;
         double z=eye-(y-RN_H/2)*t/focal;
         f->depth[p]=(uint16_t)depth;
-        f->pixels[p]=surface(material,tx,(int)floor(z*32),light,room,phase);
+        f->pixels[p]=surface(material,tx,ifloor(z*32),light,room,phase);
     }
 }
 static void sprite(const struct rn_game *g,struct rn_frame *f,double sx,double sy,double sz,double height,int kind,int phase,int facing,int state)
@@ -76,10 +86,15 @@ static void atmosphere(const struct rn_game *g,struct rn_frame *f,bool economy)
         int p=y*RN_W+x;uint16_t c=f->pixels[p];
         int r=c>>11,green=(c>>5)&63,b=c&31;
         if(!economy&&green>38&&b>20){int i=(y/4)*BW+x/4,v=(green-38)/3;if(v>light[i])light[i]=(uint8_t)v;}
-        /* Distance haze: integer arithmetic on the already computed depth. */
-        unsigned fog=f->depth[p]/3000;if(fog>6)fog=6;
-        r=r*(16-(int)fog)/16;green=green*(16-(int)fog)/16+(int)fog/2;b=b*(16-(int)fog)/16+(int)fog;
+        /* Distance haze: integer arithmetic on the already computed depth.
+         * min(depth/3000,6) as six compares, no division. */
+        unsigned d=f->depth[p];
+        int fog=(d>=3000)+(d>=6000)+(d>=9000)+(d>=12000)+(d>=15000)+(d>=18000);
         int edge=x<18?(18-x)/6:x>RN_W-19?(x-RN_W+19)/6:0;
+        /* Near and away from the side vignette the pixel is unchanged
+         * (x*16/16 and +0): most of a room's floor, walls and sprites. */
+        if(!fog&&!edge)continue;
+        r=r*(16-fog)/16;green=green*(16-fog)/16+fog/2;b=b*(16-fog)/16+fog;
         r=r*(16-edge)/16;green=green*(16-edge)/16;b=b*(16-edge)/16;
         f->pixels[p]=(uint16_t)((r<<11)|(green<<5)|b);
     }
@@ -119,6 +134,8 @@ bool rn_render_quality(const struct rn_game *g,struct rn_frame *f,bool economy)
     memset(f,0,sizeof(*f));memset(f->depth,255,sizeof(f->depth));
     double ca=cos(g->angle),sa=sin(g->angle),eye=g->z+RN_EYE;
     unsigned phase=g->reduced_motion?0:g->steps/4;
+    struct plane_row rows[RN_H];
+    for(int y=0;y<RN_H;y++)rows[y].sector=-1;
     for(int x=0;x<RN_W;x+=economy?2:1){
         double camera=(2*(x+.5)/RN_W-1)*.66,dx=ca-sa*camera,dy=sa+ca*camera;
         int s=g->sector,low=0,high=RN_H-1;double after=-.00001;f->columns++;
@@ -140,11 +157,22 @@ bool rn_render_quality(const struct rn_game *g,struct rn_frame *f,bool economy)
                 y0=y0<low?low:y0;y1=y1>high?high:y1;
                 for(int y=y0;y<=y1;y++){
                     double screen=y+.5-RN_H/2;if(fabs(screen)<.001)continue;
-                    double z=screen>0?sec->floor:sec->ceiling,plane=(eye-z)*focal/screen;
+                    /* A row's plane distance and shade depend only on the
+                     * sector: computed once per run of columns, not per pixel. */
+                    struct plane_row *row=&rows[y];
+                    if(row->sector!=s){
+                        double z=screen>0?sec->floor:sec->ceiling;
+                        row->plane=(eye-z)*focal/screen;row->shade=(int)(sec->light/(1+row->plane*.04));row->sector=s;
+                    }
+                    double plane=row->plane;
                     if(plane>near&&plane<=t+.00001){
-                        int tx=(int)floor((g->x+dx*plane)*32),ty=(int)floor((g->y+dy*plane)*32);
+                        /* put()'s depth test before the texel is shaded; x, y
+                         * and plane (> near > 0, <= t) are always in range. */
+                        unsigned d=(unsigned)fmin(65534,plane*512);int p=y*RN_W+x;
+                        if(d>=f->depth[p])continue;
+                        int tx=ifloor((g->x+dx*plane)*32),ty=ifloor((g->y+dy*plane)*32);
                         int material=screen>0?(sec->floor>0?4:3):5;
-                        int shade=(int)(sec->light/(1+plane*.04));put(f,x,y,plane,surface(material,tx,ty,shade,sec->room,phase));
+                        f->depth[p]=(uint16_t)d;f->pixels[p]=surface(material,tx,ty,row->shade,sec->room,phase);
                     }
                 }
             }

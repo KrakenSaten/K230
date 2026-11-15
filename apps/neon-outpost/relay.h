@@ -59,6 +59,8 @@ bool rn_render(const struct rn_game *g,struct rn_frame *frame);
 const char *rn_room_name(int room);
 uint16_t rn_texture(int material,int x,int y,int light);
 uint16_t rn_emission(int material,int x,int y);
+/* rn_texture's colour, and rn_emission's in *glow, from one lookup. */
+uint16_t rn_texel(int material,int x,int y,int light,uint16_t *glow);
 uint16_t rn_sprite(int kind,int x,int y,int phase,int facing,int state);
 uint16_t rn_weapon(int x,int y,int flash,int reload,int weapon,bool reduced_motion);
 void rn_title(struct rn_frame *frame);

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "neon_app.h"
 #include "relay_audio.h"
+#include "relay_economy.h"
 #include "relay_stats.h"
 #include "pocketui.h"
 #include "shell_power.h"
@@ -17,7 +18,7 @@ struct neon_app {
     lv_obj_t *root,*image,*hud,*message_box,*message,*button[14],*brand,*eyebrow,*sector,*fx;
     enum rn_state visual_state;uint32_t end_at;
     bool compact_brand,compact_message,warning;
-    int scene_x,scene_y,scene_w,scene_h;unsigned slow,fast,lag;bool economy;
+    int scene_x,scene_y,scene_w,scene_h;struct rn_economy economy;unsigned render_us;
     lv_image_dsc_t image_data;lv_timer_t *timer;uint32_t last;
     struct rn_input touch;int pad;bool help,sound,started;int volume;
     struct rn_stats *stats;uint64_t tick;bool title_shown,fullscreen;
@@ -114,13 +115,25 @@ static void layout(struct neon_app *a)
     }
 }
 static void text(lv_obj_t *obj,const char *value){if(strcmp(lv_label_get_text(obj),value))lv_label_set_text(obj,value);}
+/* Where the end-of-run emblem is drawn (end_art), in screen coordinates. */
+static void end_geometry(struct neon_app *a,int *cx,int *cy,int *radius)
+{
+    lv_area_t r;lv_obj_get_coords(a->root,&r);int w=lv_obj_get_width(a->root),h=lv_obj_get_height(a->root);
+    bool wide=w>h;
+    *cx=r.x1+(wide?w*5/6:w/2);*cy=r.y1+(wide?74:275);*radius=wide?34:64;
+}
 static void refresh(struct neon_app *a)
 {
     bool fullscreen=!panel(a);
     if(a->fullscreen!=fullscreen){a->fullscreen=fullscreen;pocketos_shell_set_fullscreen(fullscreen);}
     struct rn_game *g=&a->game;char b[180];
     if(a->visual_state!=g->state){a->visual_state=g->state;a->end_at=lv_tick_get();lv_obj_invalidate(a->fx);}
-    if(g->state!=RN_PLAY&&!g->reduced_motion&&lv_tick_get()-a->end_at<1400)lv_obj_invalidate(a->fx);
+    /* The 1.4 s expansion redraws the emblem's own square, not the screen:
+     * rings reach radius + 32 at 3 px, so radius + 40 holds every frame. */
+    if(g->state!=RN_PLAY&&!g->reduced_motion&&lv_tick_get()-a->end_at<1400){
+        int cx,cy,radius;end_geometry(a,&cx,&cy,&radius);int m=radius+40;
+        lv_area_t box={cx-m,cy-m,cx+m,cy+m};lv_obj_invalidate_area(a->fx,&box);
+    }
     int ammo=g->weapon==RN_SHOTGUN?g->loaded:g->mag,reserve=g->weapon==RN_SHOTGUN?g->shells:g->reserve;
     if(!a->started)lv_snprintf(b,sizeof(b),"REACTOR DORMANT\nAWAITING OPERATOR");
     else lv_snprintf(b,sizeof(b),"VITAL %03d   %s %02d / %02d\nSENTINELS %02d / %02d",g->health,g->weapon==RN_SHOTGUN?"B-2":"C-9",ammo,reserve,g->kills,g->enemy_count);
@@ -152,13 +165,9 @@ static void refresh(struct neon_app *a)
     }
     /* The title is static: drawn once, not re-rendered and re-flushed every frame. */
     if((title&&!a->title_shown)||!menu){uint64_t t=rn_stats_now();if(title)rn_title(&a->rendered);else {
-        rn_render_quality(g,&a->rendered,a->economy);
-        uint64_t elapsed=rn_stats_now()-t;
-        /* Hysteresis: shed world samples/effect work under sustained load,
-         * then probe full detail after a quiet interval. Input still ticks. */
-        if(elapsed>24000){a->fast=0;if(++a->slow>=4)a->economy=true;}
-        else {a->slow=0;if(elapsed<14000){if(++a->fast>=180){a->economy=false;a->fast=0;}}else a->fast=0;}
-        lv_image_set_antialias(a->image,!a->economy);
+        rn_render_quality(g,&a->rendered,a->economy.on);
+        /* Fed to the economy controller by frame(), with the interval. */
+        uint64_t elapsed=rn_stats_now()-t;a->render_us=elapsed>UINT32_MAX?UINT32_MAX:(unsigned)elapsed;
     }rn_stats_add(a->stats,RS_SCENE,t);lv_image_cache_drop(&a->image_data);lv_obj_invalidate(a->image);}
     a->title_shown=title;layout(a);
 }
@@ -226,10 +235,15 @@ static void frame(lv_timer_t *timer)
         rn_audio_poll(&a->audio,a->game.sounds);if(a->game.state!=RN_PLAY)rn_audio_stop(&a->audio);
     }else rn_audio_poll(&a->audio,a->game.sounds);
     rn_stats_add(a->stats,RS_GAME,t0);bool playing=!panel(a);
-    /* Include LVGL draw/flush pressure, which the scene-only timer misses. */
-    if(playing&&dt>45){a->fast=0;if(++a->lag>=8)a->economy=true;}
-    else a->lag=0;
-    refresh(a);rn_stats_frame(a->stats,&a->game,playing,stalled);
+    a->render_us=0;refresh(a);
+    /* Shed optional detail under sustained load, scene or display (LVGL draw
+     * and flush show up in the interval); relay_economy.h has the rules. */
+    if(playing){
+        bool was=a->economy.on;rn_economy_frame(&a->economy,dt,a->render_us);
+        if(a->economy.on!=was)lv_image_set_antialias(a->image,!a->economy.on);
+    }else rn_economy_idle(&a->economy);
+    rn_stats_economy(a->stats,a->economy.on,a->economy.entries);
+    rn_stats_frame(a->stats,&a->game,playing,stalled);
 }
 /* Instrument artwork is local to this app. Fixed geometry is only redrawn
  * when LVGL invalidates its region; no animation objects or extra timers. */
@@ -288,10 +302,9 @@ static void pad_art(lv_event_t *e)
 static void end_art(lv_event_t *e)
 {
     struct neon_app *a=lv_event_get_user_data(e);if(a->game.state==RN_PLAY)return;
-    lv_area_t r;lv_obj_get_coords(a->root,&r);int w=lv_obj_get_width(a->root),h=lv_obj_get_height(a->root);
-    bool wide=w>h,won=a->game.state==RN_WON;
-    int cx=r.x1+(wide?w*5/6:w/2),cy=r.y1+(wide?74:275);
-    int radius=wide?34:64;
+    int cx,cy,radius;
+    bool won=a->game.state==RN_WON;
+    end_geometry(a,&cx,&cy,&radius);
     uint32_t elapsed=lv_tick_get()-a->end_at;if(elapsed>1400)elapsed=1400;
     double t=a->game.reduced_motion?1.0:elapsed/1400.0;
     int expansion=(int)(32*t*(2-t));enum pos_game_ink color=won?POS_GAME_SUCCESS:POS_GAME_DANGER;
@@ -308,6 +321,7 @@ static void end_art(lv_event_t *e)
 static void *create(lv_obj_t *body)
 {
     struct neon_app *a=lv_malloc_zeroed(sizeof(*a));if(!a)return NULL;
+    rn_economy_init(&a->economy);
     bool slice=getenv("DOORS_RELAY_SLICE")!=NULL;
     if(!rn_restart(&a->game,slice)){lv_free(a);return NULL;}a->game.reduced_motion=pocketos_shell_reduced_motion()!=0;
     rn_audio_init(&a->audio);a->help=false;a->pad=-1;rn_pause(&a->game,true);

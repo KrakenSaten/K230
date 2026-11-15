@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "relay.h"
 #include "relay_pilot.h"
+#include "relay_economy.h"
 #include "audio_effects/effects.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,9 +19,59 @@ static void ppm(const struct rn_game *g,const char *name)
     char path[512];snprintf(path,sizeof(path),"%s/%s.ppm",dir,name);FILE *file=fopen(path,"wb");CHECK(file);fprintf(file,"P6\n%d %d\n255\n",RN_W,RN_H);
     for(int i=0;i<RN_W*RN_H;i++){unsigned char p[3]={(f.pixels[i]>>11)*255/31,((f.pixels[i]>>5)&63)*255/63,(f.pixels[i]&31)*255/31};fwrite(p,1,3,file);}fclose(file);
 }
+/* Economy mode: the entry rules, the quiet exit, and the backoff that keeps a
+ * load full detail cannot carry from toggling it every quiet run. */
+static void economy(void)
+{
+    struct rn_economy e;int toggles=0;bool was;
+    rn_economy_init(&e);
+    for(int i=0;i<1000;i++)CHECK(!rn_economy_frame(&e,33,12000));
+    CHECK(!e.entries);
+    for(int i=0;i<3;i++)CHECK(!rn_economy_frame(&e,33,30000));
+    CHECK(rn_economy_frame(&e,33,30000)&&e.entries==1);
+    rn_economy_init(&e);
+    for(int i=0;i<7;i++)CHECK(!rn_economy_frame(&e,50,12000));
+    CHECK(rn_economy_frame(&e,50,12000));
+    /* Eight slow intervals in a row, not eight in all. */
+    rn_economy_init(&e);
+    for(int i=0;i<7;i++)rn_economy_frame(&e,50,12000);
+    rn_economy_frame(&e,33,12000);
+    CHECK(!rn_economy_frame(&e,50,12000));
+    /* Out after a quiet run of RN_ECONOMY_QUIET frames. */
+    rn_economy_init(&e);rn_economy_idle(&e);
+    for(int i=0;i<8;i++)rn_economy_frame(&e,50,12000);
+    CHECK(e.on);
+    for(int i=0;i<(int)RN_ECONOMY_QUIET-1;i++)CHECK(rn_economy_frame(&e,33,9000));
+    CHECK(!rn_economy_frame(&e,33,9000)&&e.exits==1);
+    /* Cheap renders alone are not quiet: long intervals keep economy on. */
+    rn_economy_init(&e);
+    for(int i=0;i<8;i++)rn_economy_frame(&e,50,9000);
+    for(int i=0;i<(int)RN_ECONOMY_QUIET+50;i++)CHECK(rn_economy_frame(&e,50,9000));
+    for(int i=0;i<(int)RN_ECONOMY_QUIET-1;i++)rn_economy_frame(&e,33,9000);
+    rn_economy_frame(&e,48,9000);
+    CHECK(e.on&&e.quiet==0);
+    /* The load that made the old controller cycle (economy left after 180
+     * cheap renders, entered again eight frames later): economy holds 33 ms,
+     * full detail gives 50 ms intervals with 20 ms renders. */
+    rn_economy_init(&e);was=false;
+    for(int i=0;i<30000;i++){
+        bool on=e.on;rn_economy_frame(&e,on?33:50,on?9000:20000);
+        if(e.on!=was){toggles++;was=e.on;}
+    }
+    CHECK(e.quiet_need==RN_ECONOMY_QUIET_MAX);
+    CHECK(toggles<40&&e.entries<20);
+    CHECK(e.exits>=4);
+    /* Full detail that holds up long enough resets the backoff. */
+    for(int i=0;i<(int)RN_ECONOMY_QUIET_MAX;i++)rn_economy_frame(&e,33,9000);
+    CHECK(!e.on);
+    for(int i=0;i<(int)RN_ECONOMY_SETTLED;i++)CHECK(!rn_economy_frame(&e,33,12000));
+    CHECK(e.quiet_need==RN_ECONOMY_QUIET);
+    rn_economy_idle(&e);CHECK(!e.on&&!e.slow&&!e.lag&&!e.quiet);
+}
 int main(void)
 {
     struct rn_game g,a,b;static struct rn_frame frame;
+    economy();
     CHECK(rn_restart(&g,true));CHECK(rn_validate(&g));ppm(&g,"slice-stairs");
     double start=g.z;
     for(int i=0;i<200;i++)rn_advance(&g,(struct rn_input){.forward=1},10);

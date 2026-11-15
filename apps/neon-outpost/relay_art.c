@@ -88,17 +88,25 @@ static void init(void)
     }
     ready=true;
 }
-uint16_t rn_texture(int m,int x,int y,int light)
+/* rn_texture and rn_emission from one lookup: the renderer needs both for
+ * every wall, floor and ceiling pixel. Same results as the two calls. */
+uint16_t rn_texel(int m,int x,int y,int light,uint16_t *glow)
 {
     if(!ready)init();
-    if(m<0||m>5)m=1;
+    int mm=m<0||m>5?1:m;
     int p=((y&63)*64)+(x&63);
-    uint16_t c=textures[m][p],e=emission[m][p];
+    uint16_t c=textures[mm][p],e=emission[mm][p];
+    *glow=mm==m?e:0;
     light=light<55?0:light>255?200:light-55;
     int r=shade5[light][c>>11]+(e>>11);
     int g=shade6[light][(c>>5)&63]+((e>>5)&63);
     int b=shade5[light][c&31]+(e&31);
     return (uint16_t)(((r>31?31:r)<<11)|((g>63?63:g)<<5)|(b>31?31:b));
+}
+uint16_t rn_texture(int m,int x,int y,int light)
+{
+    uint16_t e;
+    return rn_texel(m,x,y,light,&e);
 }
 /* Bounded emissive lookup for the animated current; no texture rebuild. */
 uint16_t rn_emission(int m,int x,int y)

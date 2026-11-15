@@ -156,6 +156,6 @@ int main(void)
      CHECK(!neon_app_game(a)->paused);CHECK(!lv_image_get_antialias(neon_app_image(a)));
      app_neon_outpost.destroy(a);lv_obj_delete(body);unsetenv("DOORS_RELAY_STATS");pump(40);CHECK(lv_display_get_event_count(d)==events);
      char text[4096]={0};FILE *f=fopen(path,"r");CHECK(f);CHECK(fread(text,1,sizeof(text)-1,f)>0);fclose(f);unlink(path);
-     CHECK(strstr(text,"interval_ms=")&&strstr(text,"game_ms=")&&strstr(text,"scene_ms=")&&strstr(text,"refresh_ms=")&&strstr(text,"draw_ms=")&&strstr(text,"flush_ms=")&&strstr(text,"# closed"));}
+     CHECK(strstr(text,"interval_ms=")&&strstr(text,"game_ms=")&&strstr(text,"scene_ms=")&&strstr(text,"refresh_ms=")&&strstr(text,"draw_ms=")&&strstr(text,"flush_ms=")&&strstr(text," economy=")&&strstr(text," entries=")&&strstr(text,"# closed"));}
     pos_input_deinit();lv_indev_delete(p);lv_display_delete(d);lv_deinit();printf("relay_app_test: %u checks passed\n",checks);return 0;
 }
