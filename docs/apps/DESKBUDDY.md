@@ -8,6 +8,10 @@ arrives, are glad to see the owner and wary of a stranger; a desk guard that
 notes who came by while the owner was away; a calm night clock that still
 blinks. Cute, observant, a little mischievous - not a chatbot.
 
+**Current: in the image since Doors 0.3.0; camera presence since 0.3.8 (PR
+#103); the report-counter fix in 0.4.0 (PR #121). The status notes below are
+the dated history of each branch.**
+
 **Status: v0.1, branch `feat/deskbuddy` (from `origin/master` `b3fd2a6`,
 2026-09-29). Not merged. Host-tested only; never run on a K230. No vision:
 real person and owner recognition is deferred to the Vision work in progress

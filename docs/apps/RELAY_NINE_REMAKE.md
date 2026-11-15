@@ -3,7 +3,8 @@
 
 Implemented 2026-11-15 against `ee7c7f1d`. This document describes the current
 presentation; earlier Relay Nine design and performance sheets describe their
-recorded versions. **Host validation only. No K230 deployment or firmware change.**
+recorded versions. **Merged in PR #133 and released in Doors 0.4.0; measured
+on unit A ("K230 measurements" below).**
 
 ## Game and art direction
 

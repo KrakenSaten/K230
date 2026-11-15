@@ -19,13 +19,15 @@ channel's history and a reply from a left channel is refused. Every gate
 above ran bench-deployed builds; none ran from a flashed v0.0.11 image.
 Known limits are in docs/KNOWN_ISSUES.md ("RIFT, the mesh client").
 
-On `feat/rift-ui-next`, **host-tested only** (2026-09-26, no hardware yet):
+On `feat/rift-ui-next` (merged, in the image since 0.2.0), **host-tested only**
+when written (2026-09-26, no hardware yet):
 the whole node table (256) in a virtual NODES list, denser COMMS and threads,
 an activity measure on every node and conversation, and a DM sound behind a
 setting - which in this build is silent, because Doors has no notification
 sound for an app to ask for ("The DM sound", below).
 
-On `feat/rift-management`, **host-tested only** (2026-10-01, no hardware): a
+On `feat/rift-management` (merged, in the image since 0.3.0), **host-tested
+only** when written (2026-10-01, no hardware): a
 channel's sender before its message, a search over NODES and its ZERO-HOP
 repeater view, the NET section drawn (the hop rings), channels joined and left
 from ACTIVITY, the node renamed, and the path hash size of its floods

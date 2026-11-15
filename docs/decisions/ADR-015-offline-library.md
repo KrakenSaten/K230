@@ -1,7 +1,7 @@
 # ADR-015: An offline library from Kiwix archives
 
-Status: **Proposed** (feasibility prototype, branch
-`claude/k230-offline-library-0c9f28`). Nothing here is accepted, nothing is
+Status: **Proposed** (feasibility prototype, merged in PR #118 from branch
+`claude/k230-offline-library-0c9f28`, off by default). Nothing here is accepted, nothing is
 in the shell by default and nothing is in the image.
 Date: 2026-10-29
 Deciders: product owner (final), AI engineering partner (author)

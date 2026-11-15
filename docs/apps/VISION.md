@@ -5,6 +5,9 @@ class and a confidence around every object a YOLOv8n detector finds, a
 persistent id on every object as it moves, and one line across the picture
 that counts what crosses it, each way.
 
+Current: **Doors 0.4.0**, with R0 · Beta the only model in the image ("The
+model"); the dated branch notes below are the history of each step.
+
 Status: **merged and released in v0.2.0 / v0.2.1** (the model in the image
 for internal use, docs/LICENSING.md item 10). **TRAFFIC mode on branch
 `feat/vision-traffic`** (2026-09-28, from v0.2.1): the tracker and the
@@ -51,8 +54,8 @@ body pose and hand landmarks is docs/vision/BODY_HAND_TRACKING_PLAN.md
 **Branch `claude/k230-vision-ui-redesign-ef4926` (2026-11-12, from master
 dd9b1f64):** the screen redesigned around the picture - see "The screen"
 below. No mode, model, protocol word or stored key changed. Host-tested and
-looked at in the simulator in both orientations; not on a unit yet
-("The screen", "To check on a unit").
+looked at in the simulator in both orientations, then checked on unit B by
+screenshots and keys ("To check on a unit"); merged in PR #130, in 0.4.0.
 
 ## The screen
 
@@ -494,7 +497,7 @@ second. Not measured: enrolment and recognition of a live face through the
 camera (the gate ran at night with nobody at the unit), and how the score
 behaves with light, distance and angle.
 
-## SEGMENT and INSTANCES (claude/k230-vision-segmentation-4ee508)
+## SEGMENT and INSTANCES (claude/k230-vision-segmentation-4ee508; PR #129, in 0.4.0)
 
 Two modes that colour the picture instead of boxing it. Both run a model of
 their own in the helper, which paints the result into the preview it
@@ -990,7 +993,7 @@ scope; every detector check on this branch is the fake detector
 (`vision_kpu_fake.c`) or the decoder on built tensors. The camera and KPU
 checks are in docs/hardware/VISION_GENERAL_COLOUR_TRACE_HANDOFF.md.
 
-### GENERAL 365: Objects365 detector (claude/general-365-vision-detector)
+### GENERAL 365: Objects365 detector (claude/general-365-vision-detector; PR #132, in 0.4.0)
 
 A third, optional detector beside R0 and GENERAL 80: PP-YOLOE+ s trained on
 Objects365 (365 classes), compiled at 320 x 320, a8w8. It names much of what
