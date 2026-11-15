@@ -8,7 +8,9 @@ NEGATIVE CONTROL WAS NOT RUN ON HARDWARE.** Explicit
 DIRECT send is implemented (see the follow-up section). The original
 read-only checkpoint below is kept as written. Build evidence and the
 physical acceptance procedure are at the end of this file.
-Design reference: [RIFT Visual Path Builder](../apps/rift/VISUAL_PATH_BUILDER.md).
+Design reference: [RIFT Visual Path Builder](https://github.com/KrakenSaten/K230/blob/341ca4840333bb8d44512d98b201b17338fa76ec/docs/apps/rift/VISUAL_PATH_BUILDER.md)
+(the proposal, PR #99, kept on `feat/rift-visual-path-builder-proposal`; it was
+never merged, so the file is not on master).
 
 ## Grounded feasibility result
 

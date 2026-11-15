@@ -158,17 +158,19 @@ vendor-sdk      CONF:k230_pocketos
 
 ### 4.1 Proposed repo changes — NOT applied
 
-Recorded so the decision is deliberate rather than incidental:
+Recorded so the decision is deliberate rather than incidental (line numbers
+refer to T-DISPLAY-K230.md as it stood before this session, commit
+`3d6120a4`; the links point at that version):
 
-- [T-DISPLAY-K230.md:28](T-DISPLAY-K230.md:28) currently reads
+- [T-DISPLAY-K230.md:28](https://github.com/KrakenSaten/K230/blob/3d6120a4af12aaa8064ba72bdc143e380fbe17dd/docs/hardware/T-DISPLAY-K230.md#L28) currently reads
   *"CONFLICTING, treat as UNVERIFIED"* for RAM, on the conflict between the
   wiki's 1 GB and the DTS's 512 MB. The runtime figure resolves it in favour of
   ~1 GB. **Proposed**, not applied.
-- [T-DISPLAY-K230.md:30](T-DISPLAY-K230.md:30), console via CH342K at 115200n8,
+- [T-DISPLAY-K230.md:30](https://github.com/KrakenSaten/K230/blob/3d6120a4af12aaa8064ba72bdc143e380fbe17dd/docs/hardware/T-DISPLAY-K230.md#L30), console via CH342K at 115200n8,
   is DOCUMENTED and could become VERIFIED for UART0/COM9 only.
-- [T-DISPLAY-K230.md:27](T-DISPLAY-K230.md:27) claims a dual C908. Linux seeing
+- [T-DISPLAY-K230.md:27](https://github.com/KrakenSaten/K230/blob/3d6120a4af12aaa8064ba72bdc143e380fbe17dd/docs/hardware/T-DISPLAY-K230.md#L27) claims a dual C908. Linux seeing
   one core is not a contradiction, but the observation belongs in the row.
-- [T-DISPLAY-K230.md:104](T-DISPLAY-K230.md:104) asks for the CH342K COM port
+- [T-DISPLAY-K230.md:104](https://github.com/KrakenSaten/K230/blob/3d6120a4af12aaa8064ba72bdc143e380fbe17dd/docs/hardware/T-DISPLAY-K230.md#L104) asks for the CH342K COM port
   numbers on this host: COM9 and COM10.
 
 ## 5. Board variant
