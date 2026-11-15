@@ -98,10 +98,13 @@ enum vision_speed_mode {
  * model"): DOORS' own R0 training, which the image carries from 0.3.6 and a
  * fresh installation selects, and the upstream YOLOX-Tiny it was trained to
  * replace, which a bench unit may be given by hand for an A/B comparison.
- * Both are YOLOX-Tiny 416 with the same input and output. */
+ * Both are YOLOX-Tiny 416 with the same input and output. GENERAL 365 is a
+ * third, also by hand only: PP-YOLOE+ s Objects365 at 320, 365 classes, its
+ * boxes and scores in two outputs (vision_kpu.h). */
 enum vision_detector {
     VISION_DET_R0 = 0,
     VISION_DET_UPSTREAM,
+    VISION_DET_GENERAL365,
     VISION_DETECTORS
 };
 
@@ -161,8 +164,9 @@ const char *vision_seg_view_word(enum vision_seg_view v);
 const char *vision_detector_name(enum vision_detector d);
 const char *vision_detector_word(enum vision_detector d);
 /* The detector to open: the one last confirmed when its file is present
- * (a bit per enum vision_detector), else the other one, else -1 (none on
- * the unit: the helper's own default). */
+ * (a bit per enum vision_detector), else the first present of R0, GENERAL
+ * 80 and GENERAL 365, else -1 (none on the unit: the helper's own
+ * default). */
 int vision_detector_pick(enum vision_detector confirmed, uint32_t present);
 /* A group's caption. */
 const char *vision_group_name(enum vision_group g);

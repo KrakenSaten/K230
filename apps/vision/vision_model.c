@@ -43,12 +43,17 @@ static const char *const line_names[VISION_LINE_MODES] = { "OFF", "ACROSS", "DOW
 static const char *const speed_names[VISION_SPEED_MODES] = { "OFF", "NARROW", "WIDE" };
 /* The button names the detector itself: "MODEL: R0 · Beta" does not fit a
  * landscape button. */
-static const char *const model_names[VISION_DETECTORS] = { "R0 · Beta", "GENERAL 80" };
-static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0", "LOADING GENERAL" };
+static const char *const model_names[VISION_DETECTORS] = { "R0 · Beta", "GENERAL 80", "GENERAL 365" };
+static const char *const loading_names[VISION_DETECTORS] = { "LOADING R0", "LOADING GENERAL", "LOADING 365" };
 static const char *const opening_names[VISION_DETECTORS] = {
     "Opening the camera and the R0 · Beta detector",
     "Opening the camera and the GENERAL 80 detector",
+    "Opening the camera and the GENERAL 365 detector",
 };
+
+/* GENERAL 365's names on a CLASSES page: 25 pages, none longer than the
+ * sheet's body. */
+#define VISION_O365_PAGE 15
 
 /* What a helper with a detector runs, when it has not said otherwise. */
 #define AVAIL_DETECTOR ((1u << VISION_MODE_DETECT) | (1u << VISION_MODE_TRACK) | (1u << VISION_MODE_TRAFFIC) | \
@@ -84,9 +89,41 @@ static bool det_present(const struct vision_model *m, int d)
     return d >= 0 && d < VISION_DETECTORS && (m->det_files & (1u << d)) != 0;
 }
 
+/* The detector a MODEL tap names when no other is on the unit: R0 and
+ * GENERAL 80 each other, GENERAL 365 R0. */
 static int det_other(int d)
 {
     return d == VISION_DET_R0 ? VISION_DET_UPSTREAM : VISION_DET_R0;
+}
+
+/* The detector MODEL goes to from d: the next one in `present` in the order
+ * R0, GENERAL 80, GENERAL 365 and round again; -1 when no other is there. */
+static int det_next(uint32_t present, int d)
+{
+    int i;
+
+    for (i = 1; i < VISION_DETECTORS; i++) {
+        int n = (d + i) % VISION_DETECTORS;
+
+        if (present & (1u << n)) {
+            return n;
+        }
+    }
+    return -1;
+}
+
+/* Where a failure to load d goes back to: the first of R0, GENERAL 80 and
+ * GENERAL 365 on the unit that is not d, or -1. */
+static int det_back(const struct vision_model *m, int d)
+{
+    int i;
+
+    for (i = 0; i < VISION_DETECTORS; i++) {
+        if (i != d && det_present(m, i)) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void vision_model_set_detector_files(struct vision_model *m, uint32_t present)
@@ -143,8 +180,9 @@ unsigned vision_model_model_button(struct vision_model *m, uint32_t present)
     if (!m->det_files || m->state != VISION_LIVE || m->det_active < 0) {
         return 0;
     }
-    to = det_other(m->det_active);
-    if ((present & (1u << to)) == 0) {
+    to = det_next(present, m->det_active);
+    if (to < 0) {
+        to = det_other(m->det_active);
         snprintf(m->det_fail, sizeof(m->det_fail), "%s is not on this unit",
                  vision_detector_name((enum vision_detector)to));
         m->det_fail_ms = 0;
@@ -168,8 +206,8 @@ unsigned vision_model_open(struct vision_model *m)
     m->sheet = keep.sheet;
     m->det_files = keep.det_files;
     if (m->det_files) {
-        /* The detector last confirmed, or the other one when its file has
-         * gone; either way the other one is where a failure goes back to. */
+        /* The detector last confirmed, or another when its file has gone;
+         * either way another is where a failure goes back to. */
         int d = vision_detector_pick(m->set.detector, m->det_files);
 
         if (d != (int)m->set.detector) {
@@ -177,7 +215,7 @@ unsigned vision_model_open(struct vision_model *m)
                      vision_detector_name(m->set.detector), vision_detector_name((enum vision_detector)d));
         }
         m->det_loading = d;
-        m->det_fallback = det_present(m, det_other(d)) ? det_other(d) : -1;
+        m->det_fallback = det_back(m, d);
     }
     return VISION_ACT_OPEN;
 }
@@ -290,12 +328,24 @@ static unsigned when_live(const struct vision_model *m, unsigned acts)
     return m->state == VISION_LIVE ? acts : 0;
 }
 
+/* The class list a box's class is in: INSTANCES' own model names COCO's
+ * eighty whatever detector is loaded; otherwise the detector's. */
+static uint32_t label_classes(const struct vision_model *m)
+{
+    return m->mode == VISION_MODE_INSTANCES ? VISION_COCO_CLASSES : m->classes;
+}
+
+const char *vision_model_class_label(const struct vision_model *m, uint32_t cls)
+{
+    return vision_label_for(label_classes(m), cls);
+}
+
 /* A class name as the screen says it: "cell-phone" is "cell phone". */
-static void label_words(uint32_t cls, char *out, size_t len)
+static void label_words(uint32_t classes, uint32_t cls, char *out, size_t len)
 {
     size_t i;
 
-    snprintf(out, len, "%s", vision_label(cls));
+    snprintf(out, len, "%s", vision_label_for(classes, cls));
     for (i = 0; out[i]; i++) {
         if (out[i] == '-') {
             out[i] = ' ';
@@ -340,7 +390,7 @@ static void in_view(struct vision_model *m, const struct vision_shown *t, int n)
         char name[24];
         int w;
 
-        label_words(cls[i], name, sizeof(name));
+        label_words(label_classes(m), cls[i], name, sizeof(name));
         w = snprintf(m->in_view + off, sizeof(m->in_view) - off, "%s%s %d", i ? ", " : "", name, cnt[i]);
         if (w < 0 || (size_t)w >= sizeof(m->in_view) - off) {
             break;
@@ -361,8 +411,15 @@ bool vision_model_r0_only(const struct vision_model *m)
 
 int vision_model_class_pages(const struct vision_model *m)
 {
-    /* R0's six on one page; COCO's eighty a supercategory a page. */
-    return !vision_model_r0_only(m) && m->classes == VISION_COCO_CLASSES ? VISION_COCO_GROUPS : 1;
+    /* R0's six on one page; COCO's eighty a supercategory a page;
+     * Objects365's 365 (no groups) VISION_O365_PAGE a page. */
+    if (vision_model_r0_only(m)) {
+        return 1;
+    }
+    if (m->classes == VISION_COCO_CLASSES) {
+        return VISION_COCO_GROUPS;
+    }
+    return m->classes == VISION_O365_CLASSES ? (VISION_O365_CLASSES + VISION_O365_PAGE - 1) / VISION_O365_PAGE : 1;
 }
 
 unsigned vision_model_classes_button(struct vision_model *m)
@@ -1087,7 +1144,8 @@ static void sheet_traffic(const struct vision_model *m, struct vision_sheet_view
 }
 
 /* CLASSES: a page of what the detector in force names, and only that. R0
- * knows six; a COCO detector eighty, a supercategory a page. */
+ * knows six; a COCO detector eighty, a supercategory a page; GENERAL 365
+ * fifteen a page. */
 static void sheet_classes(const struct vision_model *m, struct vision_sheet_view *v)
 {
     int pages = vision_model_class_pages(m);
@@ -1107,16 +1165,31 @@ static void sheet_classes(const struct vision_model *m, struct vision_sheet_view
         for (i = 0; i < VISION_R0_CLASSES; i++) {
             char name[24];
 
-            label_words(vision_label_r0_class(i), name, sizeof(name));
+            label_words(VISION_COCO_CLASSES, vision_label_r0_class(i), name, sizeof(name));
             add(v->body, sizeof(v->body), &off, "%s%s", i ? ", " : "", name);
         }
         add(v->body, sizeof(v->body), &off, ".\nNothing else is boxed: R0 was trained on these only.");
         if (det_present(m, VISION_DET_UPSTREAM)) {
             add(v->body, sizeof(v->body), &off, " MODEL switches to GENERAL 80 for 80 classes.");
+        } else if (det_present(m, VISION_DET_GENERAL365)) {
+            add(v->body, sizeof(v->body), &off, " MODEL switches to GENERAL 365 for 365 classes.");
         } else {
             add(v->body, sizeof(v->body), &off, " This unit has no 80-class detector file.");
         }
         snprintf(caption, sizeof(caption), "R0 IS A BETA");
+    } else if (m->classes == VISION_O365_CLASSES) {
+        first = (uint32_t)page * VISION_O365_PAGE;
+        last = first + VISION_O365_PAGE < VISION_O365_CLASSES ? first + VISION_O365_PAGE : VISION_O365_CLASSES;
+        snprintf(v->title_buf, sizeof(v->title_buf), "CLASSES %u-%u OF %u", first + 1, last,
+                 (unsigned)VISION_O365_CLASSES);
+        for (c = first; c < last; c++) {
+            char name[24];
+
+            label_words(VISION_O365_CLASSES, c, name, sizeof(name));
+            add(v->body, sizeof(v->body), &off, "%s%s", c > first ? ", " : "", name);
+        }
+        add(v->body, sizeof(v->body), &off, ".\n%s boxes these 365 Objects365 classes.", det);
+        snprintf(caption, sizeof(caption), "PAGE %d OF %d", page + 1, pages);
     } else if (m->classes != VISION_COCO_CLASSES) {
         snprintf(v->title_buf, sizeof(v->title_buf), "%s: %u CLASSES", det, m->classes);
         add(v->body, sizeof(v->body), &off, "This detector reports %u classes; Vision names only the 80 COCO classes.",
@@ -1129,7 +1202,7 @@ static void sheet_classes(const struct vision_model *m, struct vision_sheet_view
         for (c = first; c < last; c++) {
             char name[24];
 
-            label_words(c, name, sizeof(name));
+            label_words(VISION_COCO_CLASSES, c, name, sizeof(name));
             add(v->body, sizeof(v->body), &off, "%s%s", c > first ? ", " : "", name);
         }
         add(v->body, sizeof(v->body), &off, ".\n%s boxes these 80 COCO classes and nothing else.", det);
@@ -1770,7 +1843,7 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     }
     /* MODEL is a choice only when there is another detector to choose: with
      * R0 alone (a fresh card) it names the detector and takes no tap. */
-    out->model_enabled = m->state == VISION_LIVE && m->det_active >= 0 && det_present(m, det_other(m->det_active));
+    out->model_enabled = m->state == VISION_LIVE && m->det_active >= 0 && det_next(m->det_files, m->det_active) >= 0;
     out->speeds = m->mode == VISION_MODE_TRAFFIC && m->set.traffic.speeds;
     out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
                   (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);

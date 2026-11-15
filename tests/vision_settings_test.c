@@ -163,6 +163,17 @@ static void test_detector(void)
               vision_detector_pick(VISION_DET_R0, 2u) == VISION_DET_UPSTREAM &&
               vision_detector_pick(VISION_DET_R0, 0u) == -1 &&
               vision_detector_pick((enum vision_detector)7, 1u) == VISION_DET_R0);
+    check("GENERAL 365: its name and word, and read back",
+          strcmp(vision_detector_name(VISION_DET_GENERAL365), "GENERAL 365") == 0 &&
+              strcmp(vision_detector_word(VISION_DET_GENERAL365), "general365") == 0 &&
+              vision_settings_parse(&s, "detector=general365\n") == 0 && s.detector == VISION_DET_GENERAL365 &&
+              vision_settings_format(&s, text, sizeof(text)) > 0 && strstr(text, "\ndetector=general365\n") != NULL);
+    check("GENERAL 365 kept when its file is there, else the first of R0 and GENERAL 80",
+          vision_detector_pick(VISION_DET_GENERAL365, 7u) == VISION_DET_GENERAL365 &&
+              vision_detector_pick(VISION_DET_GENERAL365, 3u) == VISION_DET_R0 &&
+              vision_detector_pick(VISION_DET_GENERAL365, 2u) == VISION_DET_UPSTREAM &&
+              vision_detector_pick(VISION_DET_UPSTREAM, 5u) == VISION_DET_R0 &&
+              vision_detector_pick(VISION_DET_R0, 4u) == VISION_DET_GENERAL365);
 }
 
 static void test_refusals(void)

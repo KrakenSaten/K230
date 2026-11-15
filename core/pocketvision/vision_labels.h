@@ -25,6 +25,16 @@ uint32_t vision_label_group_first(int g);
 /* The group's name on the screen ("VEHICLES"), or "?". */
 const char *vision_label_group_name(int g);
 
+/* GENERAL 365's classes (PP-YOLOE+ Objects365, docs/apps/VISION.md): the
+ * name of class `cls`, or "?", under the same rules as vision_label. */
+#define VISION_O365_CLASSES 365
+const char *vision_label_o365(uint32_t cls);
+
+/* The name of class `cls` of a detector that reports `classes` classes:
+ * Objects365's list for 365, COCO's for anything else (R0 and GENERAL 80
+ * report COCO's 80). */
+const char *vision_label_for(uint32_t classes, uint32_t cls);
+
 /* The six classes R0 was trained on, by COCO index (docs/apps/VISION.md). */
 #define VISION_R0_CLASSES 6
 uint32_t vision_label_r0_class(int i);

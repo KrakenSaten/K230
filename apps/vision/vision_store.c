@@ -95,10 +95,12 @@ int vision_store_save(const struct vision_settings *s)
 static const char *const det_files[VISION_DETECTORS] = {
     VISION_DET_DIR "det-r0-traffic6-yolox-tiny-416.kmodel",
     VISION_DET_DIR "det-upstream-yolox-tiny-416.kmodel",
+    VISION_DET_DIR "det-general365-ppyoloe-s-320.kmodel",
 };
 static const char *const det_envs[VISION_DETECTORS] = {
     "POCKETOS_VISION_MODEL_R0",
     "POCKETOS_VISION_MODEL_UPSTREAM",
+    "POCKETOS_VISION_MODEL_GENERAL365",
 };
 
 const char *vision_store_detector_path(enum vision_detector d)

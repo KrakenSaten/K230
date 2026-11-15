@@ -37,8 +37,8 @@ static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" 
 /* R0 ships in the image from Doors 0.3.6 as an experimental beta, and says
  * so wherever it is named. "·" is U+00B7, inside the Latin-1 range the
  * product fonts carry. */
-static const char *const detector_names[VISION_DETECTORS] = { "R0 · Beta", "GENERAL 80" };
-static const char *const detector_words[VISION_DETECTORS] = { "r0", "upstream" };
+static const char *const detector_names[VISION_DETECTORS] = { "R0 · Beta", "GENERAL 80", "GENERAL 365" };
+static const char *const detector_words[VISION_DETECTORS] = { "r0", "upstream", "general365" };
 
 void vision_settings_defaults(struct vision_settings *s)
 {
@@ -133,12 +133,16 @@ const char *vision_detector_word(enum vision_detector d)
 int vision_detector_pick(enum vision_detector confirmed, uint32_t present)
 {
     int d = (int)confirmed >= 0 && confirmed < VISION_DETECTORS ? (int)confirmed : VISION_DET_R0;
-    int other = d == VISION_DET_R0 ? VISION_DET_UPSTREAM : VISION_DET_R0;
 
     if (present & (1u << d)) {
         return d;
     }
-    return (present & (1u << other)) ? other : -1;
+    for (d = 0; d < VISION_DETECTORS; d++) {
+        if (present & (1u << d)) {
+            return d;
+        }
+    }
+    return -1;
 }
 
 const char *vision_mode_word(enum vision_mode mode)

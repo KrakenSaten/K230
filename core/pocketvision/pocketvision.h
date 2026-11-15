@@ -32,8 +32,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The largest class count a model may declare (COCO has 80). */
-#define VISION_MAX_CLASSES 128
+/* The largest class count a model may declare (COCO has 80, Objects365
+ * 365). */
+#define VISION_MAX_CLASSES 384
 /* Candidates the decoder keeps: the best-scoring ones when more pass. */
 #define VISION_MAX_CANDIDATES 256
 /* Detections after suppression, per frame. */
