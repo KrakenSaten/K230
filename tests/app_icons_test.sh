@@ -170,7 +170,7 @@ for n in names:
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
     # Photo's mask is the extension's Gallery (gen_app_icons.py APP_IDS).
     W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder", "photo") else
-                                         first if n in ("zabbix", "browser", "vision", "mp3", "video", "solitaire", "blackjack", "2048", "deskbuddy", "terminal", "poker") else art,
+                                         first if n in ("zabbix", "browser", "vision", "mp3", "video", "solitaire", "blackjack", "2048", "deskbuddy", "terminal", "poker", "rotorterror") else art,
                                          "gallery" if n == "photo" else n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
@@ -184,9 +184,9 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes photo poker radar radio recorder settings solitaire system terminal timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 26,624 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "26624" ] && echo 1 || echo 0)"
+    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes photo poker radar radio recorder rotorterror settings solitaire system terminal timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 27,648 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "27648" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
 check "of the extension's thirteen icons only Wave, Files, Camera, Recorder and Gallery (Photo's) are compiled in (${extra} sources)" \
     "$([ "${extra}" = "5" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
@@ -195,8 +195,8 @@ check "of the extension's thirteen icons only Wave, Files, Camera, Recorder and 
        grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/gallery.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
-check "and eleven first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games', DeskBuddy's, the Terminal's and Poker's (${first} sources)" \
-    "$([ "${first}" = "11" ] && echo 1 || echo 0)"
+check "and twelve first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games', DeskBuddy's, the Terminal's, Poker's and RotorTerror's (${first} sources)" \
+    "$([ "${first}" = "12" ] && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
 refused() { # <label> <message fragment> <source>...
@@ -243,9 +243,10 @@ python3 - <<'PY' >"${TMP}/apps.txt" 2>&1
 import glob, os, re, sys
 shell = open("ui/shell/shell.c", encoding="utf-8").read()
 listed = re.findall(r"&(app_\w+)", re.search(r"apps\[\]\s*=\s*\{(.*?)\};", shell, re.S).group(1))
-# The apps a shell can be configured without (OPTIONAL_APPS) are in the
-# registry by default, so the launcher lists them too.
-optional = re.search(r"^#define OPTIONAL_APPS (.+)$", shell, re.M)
+# Zabbix, which a shell can be configured without, is in the registry by
+# default (OPTIONAL_ZABBIX), so the launcher lists it too. Library
+# (OPTIONAL_LIBRARY) is out by default and is not counted.
+optional = re.search(r"^#define OPTIONAL_ZABBIX (.+)$", shell, re.M)
 listed += re.findall(r"&(app_\w+)", optional.group(1)) if optional else []
 # An id may be a macro (RIFT: `.id = RIFT_APP_ID`). It is read through the
 # string #define in the app's own directory; one that does not resolve stays
@@ -261,8 +262,12 @@ def app_id(path, raw):
 descs = {}
 for path in sorted(glob.glob("apps/*/*.c")):
     text = open(path, encoding="utf-8").read()
-    for var, body in re.findall(r"^const struct pocketos_app (app_\w+) = \{(.*?)^\};", text, re.S | re.M):
-        field = lambda f: (re.search(r"\.%s = &?([\w\"]+)," % f, body) or [None, None])[1]
+    # Most descriptors span lines and end with "};" alone; Relay Nine's
+    # (apps/neon-outpost/neon_app.c) is one line with no spaces around "=".
+    blocks = re.findall(r"^const struct pocketos_app (app_\w+) = \{(.*?)^\};", text, re.S | re.M)
+    blocks += re.findall(r"^const struct pocketos_app (app_\w+)\s*=\s*\{([^\n]*)\};[ \t]*$", text, re.M)
+    for var, body in blocks:
+        field = lambda f: (re.search(r"\.%s\s*=\s*&?([\w\"-]+)\s*[,}]" % f, body) or [None, None])[1]
         mask = field("icon_mask")
         if mask in (None, "NULL", "0"):
             mask = "-"
@@ -273,12 +278,12 @@ for var in listed:
 PY
 listed=$(sed -n '/static const struct pocketos_app \*const apps\[\]/,/};/p' ui/shell/shell.c |
          grep -o '&app_[a-z_]*' | wc -l)
-listed=$((listed + $(grep '^#define OPTIONAL_APPS ' ui/shell/shell.c | grep -o '&app_[a-z_]*' | wc -l)))
+listed=$((listed + $(grep '^#define OPTIONAL_ZABBIX , ' ui/shell/shell.c | grep -o '&app_[a-z_]*' | wc -l)))
 check "every launcher app's descriptor was read (${listed} listed)" \
     "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
        echo 1 || echo 0)"
 for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera recorder zabbix browser \
-          vision video solitaire blackjack 2048 deskbuddy mp3 terminal photo poker; do
+          vision video solitaire blackjack 2048 deskbuddy mp3 terminal photo poker rotorterror; do
     check "${id} uses its own icon, pos_app_icon_${id}" \
         "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
 done
@@ -301,8 +306,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the twenty-six app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "26" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the twenty-seven app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "27" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime
