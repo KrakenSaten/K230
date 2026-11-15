@@ -1,0 +1,24 @@
+== angle 0
+portrait view 567x638 at scale 454/256; scaled buffer 735368 bytes
+LVGL transform, antialiased        p50= 21.652 p95= 21.781 p99= 21.821 ms
+LVGL transform, nearest            p50= 12.498 p95= 12.643 p99= 12.682 ms
+app filtered + LVGL copy           p50=  5.859 p95=  5.921 p99=  5.964 ms
+  of which app filtered scale      p50=  5.408 p95=  5.472 p99=  5.489 ms
+app nearest + LVGL copy            p50=  1.826 p95=  1.863 p99=  1.891 ms
+  of which app nearest scale       p50=  1.374 p95=  1.420 p99=  1.432 ms
+app filtered vs LVGL antialiased   mean |d|=1.86/255  PSNR=32.7 dB
+app nearest vs LVGL nearest        mean |d|=1.66/255  PSNR=27.4 dB
+app nearest vs LVGL antialiased    mean |d|=2.49/255  PSNR=28.8 dB
+LVGL nearest vs LVGL antialiased   mean |d|=2.18/255  PSNR=30.3 dB
+== angle 0.9
+portrait view 567x638 at scale 454/256; scaled buffer 735368 bytes
+LVGL transform, antialiased        p50= 25.518 p95= 25.621 p99= 25.661 ms
+LVGL transform, nearest            p50= 14.039 p95= 14.131 p99= 14.186 ms
+app filtered + LVGL copy           p50=  5.870 p95=  5.927 p99=  5.990 ms
+  of which app filtered scale      p50=  5.408 p95=  5.465 p99=  5.501 ms
+app nearest + LVGL copy            p50=  1.817 p95=  1.861 p99=  1.893 ms
+  of which app nearest scale       p50=  1.354 p95=  1.399 p99=  1.411 ms
+app filtered vs LVGL antialiased   mean |d|=1.53/255  PSNR=34.2 dB
+app nearest vs LVGL nearest        mean |d|=1.46/255  PSNR=28.8 dB
+app nearest vs LVGL antialiased    mean |d|=1.97/255  PSNR=30.6 dB
+LVGL nearest vs LVGL antialiased   mean |d|=1.63/255  PSNR=32.7 dB

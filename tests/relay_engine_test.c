@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "relay.h"
 #include "relay_pilot.h"
+#include "relay_economy.h"
+#include "relay_scale.h"
 #include "audio_effects/effects.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,9 +21,111 @@ static void ppm(const struct rn_game *g,const char *name)
     char path[512];snprintf(path,sizeof(path),"%s/%s.ppm",dir,name);FILE *file=fopen(path,"wb");CHECK(file);fprintf(file,"P6\n%d %d\n255\n",RN_W,RN_H);
     for(int i=0;i<RN_W*RN_H;i++){unsigned char p[3]={(f.pixels[i]>>11)*255/31,((f.pixels[i]>>5)&63)*255/63,(f.pixels[i]&31)*255/31};fwrite(p,1,3,file);}fclose(file);
 }
+/* Scene scaling (relay_scale.h): same-size copies, flat colour, nearest picks,
+ * filtered output against an exact bilinear reference, no overshoot past the
+ * four source neighbours, and the size limits. */
+static int channel(uint16_t c,int k){return k==0?c>>11:k==1?(c>>5)&63:c&31;}
+static void scaling(void)
+{
+    static uint16_t src[RN_W*RN_H];uint32_t seed=0x9e3779b9u;
+    for(int i=0;i<RN_W*RN_H;i++){seed=seed*1664525u+1013904223u;src[i]=(uint16_t)(seed>>16);}
+    /* Smooth regions as well as noise: the frame's walls are gradients. */
+    for(int y=0;y<RN_H/2;y++)for(int x=0;x<RN_W;x++)src[y*RN_W+x]=(uint16_t)(((x*31/(RN_W-1))<<11)|((y*63/(RN_H/2-1))<<5)|((x+y)%32));
+    struct rn_scaler s={0};
+    CHECK(rn_scaler_resize(&s,RN_W,RN_H,RN_W,RN_H));
+    for(int f=0;f<2;f++){rn_scale(&s,src,f);CHECK(!memcmp(s.pixels,src,sizeof(src)));}
+    uint16_t *kept=s.pixels;CHECK(rn_scaler_resize(&s,RN_W,RN_H,RN_W,RN_H)&&s.pixels==kept);
+    const int sizes[][2]={{567,638},{568,639},{185,208},{640,720},{1,1},{321,361},{159,179}};
+    for(unsigned n=0;n<sizeof(sizes)/sizeof(sizes[0]);n++){
+        int w=sizes[n][0],h=sizes[n][1];CHECK(rn_scaler_resize(&s,RN_W,RN_H,w,h));
+        CHECK(s.w==w&&s.h==h&&rn_scaler_bytes(RN_W,w,h)>=(size_t)w*h*2);
+        static uint16_t flat[RN_W*RN_H];for(int i=0;i<RN_W*RN_H;i++)flat[i]=0xa5d3;
+        for(int f=0;f<2;f++){rn_scale(&s,flat,f);bool same=true;for(int i=0;i<w*h;i++)same&=s.pixels[i]==0xa5d3;CHECK(same);}
+        rn_scale(&s,src,false);bool picks=true,bounded=true;
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+            int sx=(int)((2LL*x+1)*RN_W/(2LL*w)),sy=(int)((2LL*y+1)*RN_H/(2LL*h));
+            picks&=s.pixels[y*w+x]==src[sy*RN_W+sx];
+        }CHECK(picks);
+        rn_scale(&s,src,true);double err=0;int worst=0;
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+            double u=(x+.5)*RN_W/w-.5,v=(y+.5)*RN_H/h-.5;
+            if(u<0)u=0;
+            if(v<0)v=0;
+            int x0=(int)u,y0=(int)v;if(x0>RN_W-1)x0=RN_W-1;
+            if(y0>RN_H-1)y0=RN_H-1;
+            int x1=x0+1<RN_W?x0+1:x0,y1=y0+1<RN_H?y0+1:y0;double fu=u-x0,fv=v-y0;if(x0==RN_W-1)fu=0;
+            if(y0==RN_H-1)fv=0;
+            uint16_t c[4]={src[y0*RN_W+x0],src[y0*RN_W+x1],src[y1*RN_W+x0],src[y1*RN_W+x1]};
+            for(int k=0;k<3;k++){
+                int got=channel(s.pixels[y*w+x],k),lo=99,hi=-1;
+                for(int j=0;j<4;j++){int q=channel(c[j],k);lo=q<lo?q:lo;hi=q>hi?q:hi;}
+                bounded&=got>=lo&&got<=hi;
+                double want=(channel(c[0],k)*(1-fu)+channel(c[1],k)*fu)*(1-fv)+(channel(c[2],k)*(1-fu)+channel(c[3],k)*fu)*fv;
+                double d=got>want?got-want:want-got;err+=d;if(d>worst)worst=(int)ceil(d-1e-9);
+            }
+        }
+        /* 1/32 weights in two rounded passes: within three steps of exact, and
+         * unbiased (a quarter step on average is integer rounding alone). */
+        CHECK(bounded&&worst<=3&&(w*h<64||err/(3.0*w*h)<.26));
+    }
+    rn_scaler_free(&s);CHECK(!s.pixels);
+    CHECK(!rn_scaler_resize(&s,RN_W,RN_H,0,10)&&!s.pixels);
+    CHECK(!rn_scaler_resize(&s,RN_W,RN_H,5000,10)&&!s.pixels);
+    rn_scale(&s,src,true);rn_scaler_free(&s);
+}
+/* Economy mode: the entry rules, the quiet exit, and the backoff that keeps a
+ * load full detail cannot carry from toggling it every quiet run. */
+static void economy(void)
+{
+    struct rn_economy e;int toggles=0;bool was;
+    rn_economy_init(&e);
+    for(int i=0;i<1000;i++)CHECK(!rn_economy_frame(&e,33,12000));
+    CHECK(!e.entries);
+    for(int i=0;i<3;i++)CHECK(!rn_economy_frame(&e,33,30000));
+    CHECK(rn_economy_frame(&e,33,30000)&&e.entries==1);
+    rn_economy_init(&e);
+    for(int i=0;i<7;i++)CHECK(!rn_economy_frame(&e,50,12000));
+    CHECK(rn_economy_frame(&e,50,12000));
+    /* Eight slow intervals in a row, not eight in all. */
+    rn_economy_init(&e);
+    for(int i=0;i<7;i++)rn_economy_frame(&e,50,12000);
+    rn_economy_frame(&e,33,12000);
+    CHECK(!rn_economy_frame(&e,50,12000));
+    /* Out after a quiet run of RN_ECONOMY_QUIET frames. */
+    rn_economy_init(&e);rn_economy_idle(&e);
+    for(int i=0;i<8;i++)rn_economy_frame(&e,50,12000);
+    CHECK(e.on);
+    for(int i=0;i<(int)RN_ECONOMY_QUIET-1;i++)CHECK(rn_economy_frame(&e,33,9000));
+    CHECK(!rn_economy_frame(&e,33,9000)&&e.exits==1);
+    /* Cheap renders alone are not quiet: long intervals keep economy on. */
+    rn_economy_init(&e);
+    for(int i=0;i<8;i++)rn_economy_frame(&e,50,9000);
+    for(int i=0;i<(int)RN_ECONOMY_QUIET+50;i++)CHECK(rn_economy_frame(&e,50,9000));
+    for(int i=0;i<(int)RN_ECONOMY_QUIET-1;i++)rn_economy_frame(&e,33,9000);
+    rn_economy_frame(&e,48,9000);
+    CHECK(e.on&&e.quiet==0);
+    /* The load that made the old controller cycle (economy left after 180
+     * cheap renders, entered again eight frames later): economy holds 33 ms,
+     * full detail gives 50 ms intervals with 20 ms renders. */
+    rn_economy_init(&e);was=false;
+    for(int i=0;i<30000;i++){
+        bool on=e.on;rn_economy_frame(&e,on?33:50,on?9000:20000);
+        if(e.on!=was){toggles++;was=e.on;}
+    }
+    CHECK(e.quiet_need==RN_ECONOMY_QUIET_MAX);
+    CHECK(toggles<40&&e.entries<20);
+    CHECK(e.exits>=4);
+    /* Full detail that holds up long enough resets the backoff. */
+    for(int i=0;i<(int)RN_ECONOMY_QUIET_MAX;i++)rn_economy_frame(&e,33,9000);
+    CHECK(!e.on);
+    for(int i=0;i<(int)RN_ECONOMY_SETTLED;i++)CHECK(!rn_economy_frame(&e,33,12000));
+    CHECK(e.quiet_need==RN_ECONOMY_QUIET);
+    rn_economy_idle(&e);CHECK(!e.on&&!e.slow&&!e.lag&&!e.quiet);
+}
 int main(void)
 {
     struct rn_game g,a,b;static struct rn_frame frame;
+    economy();scaling();
     CHECK(rn_restart(&g,true));CHECK(rn_validate(&g));ppm(&g,"slice-stairs");
     double start=g.z;
     for(int i=0;i<200;i++)rn_advance(&g,(struct rn_input){.forward=1},10);
@@ -49,8 +154,8 @@ int main(void)
     static struct rn_frame before;CHECK(rn_render(&g,&before));
     g.enemy[0]=(struct rn_actor){.x=5,.y=11.3,.sector=4,.hp=100};CHECK(rn_render(&g,&frame));
     unsigned top_diff=0,leg_diff=0;
-    for(int y=90;y<125;y++)for(int x=145;x<175;x++)top_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
-    for(int y=165;y<185;y++)for(int x=145;x<175;x++)leg_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
+    for(int y=RN_H/2-10;y<RN_H/2+25;y++)for(int x=145;x<175;x++)top_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
+    for(int y=RN_H/2+65;y<RN_H/2+85;y++)for(int x=145;x<175;x++)leg_diff+=frame.pixels[y*RN_W+x]!=before.pixels[y*RN_W+x];
     CHECK(top_diff>10&&leg_diff==0);
     quiet(&g);g.mag=1;g.reserve=3;rn_advance(&g,(struct rn_input){.fire=true},10);
     CHECK(g.mag==0&&g.sounds[RN_SHOT]==1);
@@ -111,7 +216,7 @@ int main(void)
     }
     CHECK(g.state==RN_WON&&g.kills==9&&g.relay&&g.shotgun&&g.secret&&mid&&high&&g.sounds[RN_SCATTER]>0);CHECK(g.health>0&&g.mag>=0&&g.reserve>=0);
     printf("production full run: %u steps, %.2fs simulation, hp %d, ammo %d/%d, kills %d; host loop CPU %.3fs including sampled renders\n",g.steps,g.steps*.01,g.health,g.mag,g.reserve,g.kills,(double)(clock()-begin)/CLOCKS_PER_SEC);
-    qsort(times,timed,sizeof(*times),compare);printf("host renderer: %u frames at 320x200, p50 %.3fms p95 %.3fms p99 %.3fms; max column portal transitions/frame %u; excludes LVGL/flush and does not predict K230\n",timed,times[timed/2],times[timed*95/100],times[timed*99/100],max_portals);
+    qsort(times,timed,sizeof(*times),compare);printf("host renderer: %u frames at %dx%d, p50 %.3fms p95 %.3fms p99 %.3fms; max column portal transitions/frame %u; excludes LVGL/flush and does not predict K230\n",timed,RN_W,RN_H,times[timed/2],times[timed*95/100],times[timed*99/100],max_portals);
     a=g;rn_advance(&g,(struct rn_input){.fire=true},250);CHECK(!memcmp(&a,&g,sizeof(g)));
     /* The optional loop and secret never gate the ordinary route. */
     CHECK(rn_restart(&g,false));static const double main_route[][2]={{6.5,13.3},{1.5,9.5},{-4,7.8},{-4,1.2},{-4,-5.5},{9.5,-5.7},{9.5,3.9},{13.5,10.5},{13,15.5}};unsigned main_goal=0;

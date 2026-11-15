@@ -1,6 +1,9 @@
 <!-- Copyright (c) 2026 PocketOS authors. SPDX-License-Identifier: Apache-2.0 -->
 # Relay Nine
 
+Current presentation: [Reactor Chamber visual remake](RELAY_NINE_REMAKE.md).
+The implementation and measurements below describe the original milestone.
+
 **Rendering update:** [measured optimization and native artwork](RELAY_NINE_RENDER.md).
 
 **Content implementation and handoff:** [industrial polish, BREACH-2 shotgun, title and optional maintenance loop](RELAY_NINE_POLISH.md). Gameplay details, captures and validation below preserve the `4d5a0ed` baseline. Current captures live in `relay-nine/polish/`.

@@ -104,7 +104,18 @@ enum pos_style_role {
     POS_STYLE_SCREEN_OFF,          /* the screen-off cover (DS §52.4): opaque black in every theme and mode */
     POS_STYLE_SCAN_SURFACE,        /* behind a code a camera reads: opaque pure white in every theme and mode */
     POS_STYLE_GAME_SCENE,          /* behind Relay Nine's scene: its own palette's backdrop in every theme and mode */
-    POS_STYLE_GAME_HUD_TEXT,       /* Relay Nine's HUD and message text colour (no font) in every theme and mode */
+    POS_STYLE_GAME_HUD_TEXT,       /* optical instruments: fixed sans 20 */
+    POS_STYLE_GAME_HUD_WARNING,
+    POS_STYLE_GAME_BRAND,
+    POS_STYLE_GAME_BRAND_COMPACT,
+    POS_STYLE_GAME_CAPTION,
+    POS_STYLE_GAME_SECTOR,
+    POS_STYLE_GAME_MESSAGE,
+    POS_STYLE_GAME_MESSAGE_COMPACT,
+    POS_STYLE_GAME_BUTTON,
+    POS_STYLE_GAME_PAD,
+    POS_STYLE_GAME_PRESSED,
+    POS_STYLE_GAME_BUTTON_LABEL,
     /* RotorTerror's original world palette; fonts still use the shared roles. */
     POS_STYLE_ROTOR_BACKDROP,
     POS_STYLE_ROTOR_PANEL,
@@ -215,6 +226,17 @@ void pos_styles_init(void);
 lv_style_t *pos_style(enum pos_style_role role);
 /* Convenience: add a role style to an object for a state selector. */
 void pos_style_add(lv_obj_t *obj, enum pos_style_role role, lv_style_selector_t selector);
+/* Relay Nine's authored artwork palette, independent of shell theme. Like
+ * GAME_SCENE and the Rotor cockpit, these are game inks, not system tokens. */
+enum pos_game_ink {
+    POS_GAME_FRAME, POS_GAME_FRAME_LIT, POS_GAME_CURRENT, POS_GAME_OPTIC,
+    POS_GAME_OPTIC_DIM, POS_GAME_VIOLET, POS_GAME_SUCCESS, POS_GAME_SUCCESS_DIM,
+    POS_GAME_DANGER, POS_GAME_DANGER_DIM, POS_GAME_BACKDROP, POS_GAME_TEXT,
+    POS_GAME_MUTED, POS_GAME_SECONDARY, POS_GAME_SURFACE, POS_GAME_OUTLINE,
+    POS_GAME_PRESSED, POS_GAME_INK_COUNT
+};
+lv_color_t pos_game_color(enum pos_game_ink ink);
+
 /* Token colour as lv_color_t, for the rare draw-callback use. */
 lv_color_t pos_theme_color(enum pos_color_token token);
 

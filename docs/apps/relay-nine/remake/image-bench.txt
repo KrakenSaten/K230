@@ -1,0 +1,3 @@
+LVGL scale=256/256 p50=0.019162 p95=0.028023 p99=0.052022 ms (no-op flush)
+LVGL scale=400/256 p50=4.046487 p95=4.837822 p99=5.612681 ms (no-op flush)
+LVGL scale=640/256 p50=7.559388 p95=9.102261 p99=11.439469 ms (no-op flush)

@@ -1,0 +1,7 @@
+apps/neon-outpost/relay_render.c:13:17:surface	64	static
+apps/neon-outpost/relay_render.c:26:13:put	48	static
+apps/neon-outpost/relay_render.c:47:13:sprite	160	static
+apps/neon-outpost/relay_render.c:32:13:wall	112	static
+apps/neon-outpost/relay_render.c:71:13:atmosphere	7176	static
+apps/neon-outpost/relay_render.c:111:6:rn_render_quality	304	dynamic,bounded
+apps/neon-outpost/relay_render.c:199:6:rn_render	8	static

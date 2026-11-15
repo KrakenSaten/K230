@@ -1,4 +1,4 @@
-/* Original hand-authored pixel recipes: Relay Nine industrial identity.
+/* Original cached reactor materials and sculpted Relay Nine component recipes.
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0 */
 #include "relay.h"
@@ -13,60 +13,74 @@ static uint16_t color(int r,int g,int b)
 {r=r<0?0:r>255?255:r;g=g<0?0:g>255?255:g;b=b<0?0:b>255?255:b;return (uint16_t)(((r>>3)<<11)|((g>>2)<<5)|(b>>3));}
 static unsigned hash(unsigned x,unsigned y){unsigned v=x*374761393u+y*668265263u;v=(v^(v>>13))*1274126177u;return v^(v>>16);}
 static bool box(int x,int y,int a,int b,int c,int d){return x>=a&&x<=c&&y>=b&&y<=d;}
+/* Cached albedo/emission recipes. Edges are bevels, not neon rectangles:
+ * layered ceramic ribs, recessed channels and split reactor shutters. */
+static uint16_t emission[6][64*64];
 static void init(void)
 {
     for(int m=0;m<6;m++)for(int y=0;y<64;y++)for(int x=0;x<64;x++){
-        int n=(int)(hash(x+m*71,y)%7)-3,r=90,g=90,b=80;
-        if(m==0){ /* two-meter painted-steel panels, fine wear, small fittings */
-            r=77+n;g=91+n;b=90+n;
-            if(x<2||y<2){r=24;g=31;b=30;}
-            if(x==2||y==2){r=116;g=120;b=105;}
-            if((x==6||x==58)&&(y==6||y==58)){r=35;g=43;b=42;}
-            if((x==5||x==57)&&(y==5||y==57)){r=183;g=181;b=153;}
-            if(y==4&&x>9&&x<54){r=133;g=144;b=133;}
-            if(box(x,y,42,5,49,58)){
-                r=31+n;g=42+n;b=43+n;
-                if(x==43){r=141;g=151;b=138;}
-                if(x==44||x==45){r=93;g=110;b=105;}
-                if(y==12||y==13||y==48||y==49){r=112;g=119;b=101;}
-            }
-            if(box(x,y,9,30,30,43)){
-                r=22;g=31;b=32;
-                if(y==30||x==9){r=115;g=124;b=112;}
-                if(y%4==1&&x>11&&x<28){r=74;g=88;b=82;}
-                if(y%4==2&&x>11&&x<28){r=40;g=53;b=51;}
-            }
-            if(box(x,y,12,16,26,18)){r=202;g=156;b=71;}
-            if((hash(x/2,y)&255)==1){r+=25;g+=17;b+=4;}
-        }else if(m==1){ /* broad concrete blocks and sparse water streaks */
-            r=149+n;g=142+n;b=124+n;
-            if(y>45&&((x+y/8)%29==0)){r-=14;g-=14;b-=11;}
-            if(y<2||x<1){r=73;g=78;b=70;}
-            if(y==2){r=166;g=164;b=144;}
-            if((hash(x/3,0)&31)==0&&y>10){r-=18;g-=17;b-=10;}
-            if((hash(x,y)&511)==0){r-=32;g-=32;b-=28;}
-        }else if(m==2){ /* steel lift door, recessed ribs, slim safety bands */
-            r=99+n;g=108+n;b=101+n;
-            if(x<4||x>59||x==31||x==32){r=26;g=36;b=35;}
-            if(y%16==0){r=49;g=58;b=55;}
-            if(y%16==1){r=162;g=171;b=153;}
-            if(x==5||x==58){r=157;g=164;b=145;}
-            if(y%16>12&&x>6&&x<57){r-=12;g-=13;b-=11;}
-            if(y>53&&y<61){bool stripe=((x+y)/8)%2;r=stripe?204:31;g=stripe?161:37;b=stripe?63:33;}
-            if(box(x,y,27,21,36,36)){r=29;g=39;b=37;if(y==26&&x>29&&x<34){r=222;g=83;b=38;}}
-        }else if(m==3){ /* half-meter inset floor panels, fine cross tread */
-            r=82+n;g=87+n;b=79+n;
-            if(x%16<2||y%16<2){r=35;g=43;b=40;}
-            else if((x+y)%8==0&&x%16>4&&y%16>4){r=98;g=106;b=95;}
-            if(x%16==2||y%16==2){r=105;g=113;b=101;}
+        int n=(int)(hash(x+m*71,y)%5)-2,r=17+n,g=27+n,b=42+n;
+        int er=0,eg=0,eb=0;
+        if(m==0){
+            int rib=abs(x-32),bevel=abs(y-32);
+            r=24+n;g=37+n;b=55+n;
+            if(rib>25){r=9;g=15;b=26;}
+            if(rib==25||bevel==29){r=84;g=111;b=133;}
+            if(rib==24||bevel==28){r=39;g=60;b=79;}
+            if(x>8&&x<19){r=36+n;g=54+n;b=74+n;if(y%8<2){r=10;g=18;b=30;}}
+            if(x>39&&x<52&&y>12&&y<51){r=6;g=14;b=25;}
+            int d=abs(x-45);
+            if(y>15&&y<48&&d<5){eg=(5-d)*27;eb=(5-d)*35;er=(5-d)*6;}
+            if(y>17&&y<46&&d==0){er=149;eg=248;eb=255;}
+            if((x==5||x==58)&&(y==6||y==57)){r=133;g=155;b=173;}
+            if(y>53&&y<56&&x>12&&x<33){r=154;g=110;b=48;}
+        }else if(m==1){
+            /* Faceted superconducting housings, indigo recess and cyan spine. */
+            int dx=abs(x-32),dy=abs(y-32);
+            r=26+n;g=32+n;b=56+n;
+            if(dx+dy>49){r=10;g=17;b=31;}
+            if(dx+dy==48||x==3){r=88;g=102;b=133;}
+            if(x>10&&x<51&&y>19&&y<45){r=10;g=17;b=34;}
+            if(y>=26&&y<=37&&x>13&&x<49){int d=abs(y-32);er=15;eg=105-d*14;eb=160-d*19;}
+            if(y==32&&x>13&&x<49){er=144;eg=237;eb=255;}
+            if(x>52&&y%8<3){r=95;g=81;b=133;}
+            if(y<2||x<2){r=4;g=8;b=17;}
+        }else if(m==2){
+            /* Split blast iris: diagonal titanium leaves and amber lock. */
+            int d=abs(x-32),rib=(y+d/2)%16;
+            r=32+n;g=44+n;b=65+n;
+            if(rib<2){r=7;g=12;b=24;}
+            if(rib==2){r=105;g=132;b=153;}
+            if(d<3){r=6;g=9;b=18;er=112;eg=57;eb=12;}
+            if(d>27){r=8;g=20;b=31;er=14;eg=120;eb=155;}
+            if(d<8&&y>22&&y<41){r=10;g=16;b=25;er=200;eg=98;eb=22;}
+            if(d<3&&y>27&&y<36){er=255;eg=210;eb=116;}
+        }else if(m==3){
+            /* Broad basalt floor plates with a recessed power rail. */
+            r=13+n;g=23+n;b=34+n;
+            if(x<2||y<2){r=3;g=7;b=14;}
+            if(y==2){r=39;g=58;b=70;}
+            if(x>5&&x<58&&y>7&&y<57&&(x+y)%16==0){r=24;g=37;b=49;}
+            int d=abs(x-32);
+            if(d<4){r=3;g=14;b=23;er=0;eg=48-d*10;eb=67-d*13;}
+            if(d==0){er=23;eg=151;eb=182;}
+            if(y>53&&x>44&&x<57&&(x+y)%6<2){r=111;g=86;b=43;}
         }else if(m==4){
-            r=114+n;g=119+n;b=105+n;
-            if(x%16==0){r=54;g=65;b=59;}
-            if((x+y)%12==0&&y>5&&y<55){r=122;g=130;b=114;}
-            if(y<3){r=36;g=43;b=38;}
-            if(y>57){bool stripe=(x/8)%2;r=stripe?202:32;g=stripe?160:39;b=stripe?65:35;}
-        }else{r=61+n;g=71+n;b=68+n;if(x%32<2||y%32<2){r=26;g=35;b=34;}if(y==6&&x>10&&x<22){r=178;g=150;b=94;}}
+            r=36+n;g=49+n;b=67+n;
+            if(y<4||y>59){r=7;g=15;b=27;er=8;eg=92;eb=124;}
+            if(y==4){r=121;g=148;b=165;}
+            if(x%16<3){r=12;g=22;b=36;}
+            if(y>24&&y<39){r=16;g=29;b=45;if((x+y/2)%16<5){er=160;eg=88;eb=28;}}
+        }else{
+            r=7+n;g=13+n;b=24+n;
+            if(x%32<3||y%32<3){r=27;g=40;b=59;}
+            if(x>22&&x<28){r=40;g=53;b=68;}
+            int d=abs(y-12);
+            if(x>6&&x<18&&d<5){er=33-d*6;eg=126-d*22;eb=166-d*28;}
+            if(x>7&&x<17&&d<2){er=170;eg=236;eb=255;}
+        }
         textures[m][y*64+x]=color(r,g,b);
+        emission[m][y*64+x]=color(er,eg,eb);
     }
     for(int l=55;l<=255;l++){
         for(int v=0;v<32;v++)shade5[l-55][v]=(uint8_t)((v*8*l/255)>>3);
@@ -74,205 +88,178 @@ static void init(void)
     }
     ready=true;
 }
-uint16_t rn_texture(int m,int x,int y,int light)
+/* rn_texture and rn_emission from one lookup: the renderer needs both for
+ * every wall, floor and ceiling pixel. Same results as the two calls. */
+uint16_t rn_texel(int m,int x,int y,int light,uint16_t *glow)
 {
     if(!ready)init();
-    if(m<0||m>5)m=1;
-    uint16_t c=textures[m][((y&63)*64)+(x&63)];
+    int mm=m<0||m>5?1:m;
+    int p=((y&63)*64)+(x&63);
+    uint16_t c=textures[mm][p],e=emission[mm][p];
+    *glow=mm==m?e:0;
     light=light<55?0:light>255?200:light-55;
-    return (uint16_t)((shade5[light][c>>11]<<11)|(shade6[light][(c>>5)&63]<<5)|shade5[light][c&31]);
+    int r=shade5[light][c>>11]+(e>>11);
+    int g=shade6[light][(c>>5)&63]+((e>>5)&63);
+    int b=shade5[light][c&31]+(e&31);
+    return (uint16_t)(((r>31?31:r)<<11)|((g>63?63:g)<<5)|(b>31?31:b));
 }
+uint16_t rn_texture(int m,int x,int y,int light)
+{
+    uint16_t e;
+    return rn_texel(m,x,y,light,&e);
+}
+/* Bounded emissive lookup for the animated current; no texture rebuild. */
+uint16_t rn_emission(int m,int x,int y)
+{
+    if(!ready)init();
+    return m>=0&&m<6?emission[m][(y&63)*64+(x&63)]:0;
+}
+/* Original silhouettes: suspended sentinel, segmented crawler, levitating
+ * supply cells and relay coils. Red/amber telegraphs remain mechanically timed. */
 uint16_t rn_sprite(int kind,int x,int y,int phase,int facing,int state)
 {
     if(x<0||y<0||x>=64||y>=64)return 0;
-    int n=(int)(hash(x,y)%5)-2;
-    if(kind<2&&state==3)y=63+(y-63)*3; /* compressed wreck silhouette */
+    if(kind<2&&state==3)y=63+(y-63)*3;
+    int dx=abs(x-32),dy=abs(y-28);
+    bool alert=state==1,hit=state==4;
+    uint16_t hot=hit?color(255,248,206):alert?color(255,187,57):color(255,64,99);
     if(kind==0){
-        bool back=facing==3||facing==4||facing==5,side=facing==2||facing==6;
-        x=(int)((x-32)*(side?1.35:1))+32;
-        static const int gait[4]={-3,0,3,0};int a=gait[phase&3];if(state) a=0;
-        /* Broad shoulders / narrow articulated waist / independent feet. */
-        if(box(x,y,9,14,23,29)||box(x,y,41,14,55,29)){
-            if(y<17&&(x<12||x>52))return 0;
-            if(x==9||x==55||y==29)return color(23,31,32);
-            if(y<18)return color(226,219,188);
-            if(y==24&&x>13&&x<51)return state==1?color(237,164,66):color(80,101,93);
-            return color(182+n,185+n,162+n);
+        bool back=facing>=3&&facing<=5,side=facing==2||facing==6;
+        int shift=side?3:0;
+        /* Blade shoulders, tapered carapace and an exposed reactor sphere. */
+        if(y>12&&y<35&&dx>13&&dx<27-(y-13)/3){
+            if(y<17||dx==25-(y-13)/3)return color(148,182,207);
+            if(y==24)return hot;
+            return color(36+dx,45+dx,68+dx);
         }
-        if(box(x,y,23,15,41,40)){
-            if(x==23||x==41||y==40)return color(25,33,34);
-            if(back&&box(x,y,27,20,37,34))return color(y%4?46:133, y%4?58:139, y%4?55:119);
-            if(state==4&&abs(x-32)+abs(y-30)<5)return color(255,222,132);
-            if(box(x,y,27,23,37,31))return color(y==23?19:49,y==23?28:63,y==23?30:60);
-            if(y==19||y==35)return color(211,172,79);
-            if(state==4&&y>26&&y<34&&abs(x-32)==abs(y-30))return color(255,222,132);
-            return color(137+n,150+n,138+n);
+        if(y>9&&y<43&&dx<15-abs(y-25)/4){
+            if(dx>10-abs(y-25)/5)return color(89,116,143);
+            if(dx+abs(y-27)<9)return back?color(32,117,167):hot;
+            if(dx+abs(y-27)<12)return color(19,40,66);
+            if(y==12||y==38)return color(170,198,214);
+            return color(24+dx*2,35+dx*2,57+dx*2);
         }
-        if(box(x,y,24,3,40,14)){
-            if(y<6||x==24||x==40)return color(206,207,182);
-            if(y>=7&&y<=11&&!back){
-                if(y==7||y==11)return color(15,24,25);
-                return state==1?color(255,194,75):color(255,64,35);
-            }
-            return color(39,51,51);
+        if(y>2&&y<13&&dx<9-abs(y-8)/2){
+            if(y==8&&!back)return hot;
+            return color(y<6?128:28,y<6?160:39,y<6?186:62);
         }
-        if(box(x,y,13,29,20,44))return color(74,90,84);
-        if(box(x,y,44,28,51,40))return color(96,113,103);
-        if(box(x,y,43,34,59,40))return color(y==34?184:40,y==34?176:52,y==34?137:48);
-        if(state==2&&abs(x-58)+abs(y-36)<10)return color(255,207,106);
-        int lf=63-(a<0?-a:0),rf=63-(a>0?a:0);
-        if(box(x,y,23,46+a,30,51+a)||box(x,y,35,46-a,42,51-a))return color(188,189,163);
-        if(box(x,y,23,40,29,lf-4)||box(x,y,35,40,41,rf-4))return color(49,64,60);
-        if(box(x,y,19,lf-6,31,lf)||box(x,y,34,rf-6,46,rf))return color(y%3?93:171,y%3?111:176,y%3?101:147);
+        static const int gait[4]={-3,0,3,0};int a=state?0:gait[phase&3];
+        if((box(x,y,22+shift,40+a,28+shift,56+a))||box(x,y,36+shift,40-a,42+shift,56-a))
+            return y%9<3?color(122,157,181):color(25,44,67);
+        if(box(x,y,18+shift,54+a,29+shift,60+a)||box(x,y,35+shift,54-a,46+shift,60-a))return color(52,80,107);
+        if(box(x,y,44,29,57,36))return y==29?color(166,199,220):color(20,36,58);
+        if(state==2&&abs(x-58)+abs(y-32)<10)return color(255,218,138);
     }else if(kind==1){
         for(int j=0;j<3;j++){
-            int yy=38+j*10+((phase+j)&1?2:-2),tip=3+j*2;
-            if(box(x,y,tip,yy,23,yy+3)||box(x,y,41,yy,63-tip,yy+3))return color(y==yy?210:71,y==yy?161:87,y==yy?70:77);
-            if(box(x,y,tip,yy+3,tip+3,yy+6)||box(x,y,60-tip,yy+3,63-tip,yy+6))return color(39,53,51);
+            int yy=35+j*10+((phase+j)&1?2:-2),tip=3+j*2;
+            if(y>=yy&&y<yy+3&&dx>12&&dx<30-j*2)return color(99,138,169);
+            if((x==tip||x==63-tip)&&y>yy&&y<yy+7)return color(32,199,221);
         }
-        if(box(x,y,16,24,48,49)){
-            if(y<27&&(x<19||x>45))return 0;
-            if(x==16||x==48||y==49)return color(26,35,34);
-            if(y==24)return color(243,201,112);
-            if(y<29)return color(211+n,164+n,79+n);
-            if(box(x,y,20,42,44,48))return color(x%6<3?213:41,x%6<3?207:53,x%6<3?173:50);
-            if(y>32&&y<36)return color(255,state==1?184:66,35);
-            if(state==4&&abs(x-31)+abs(y-38)<4)return color(255,224,151);
-            return color(95+n,115+n,98+n);
+        if(dx*dx*2+dy*dy<340&&y>15){
+            if(dx*dx*2+dy*dy>245)return color(104,135,168);
+            if(abs(y-26)<3&&dx<14)return hot;
+            if(y>32&&x%8<3)return color(30,191,217);
+            return color(22+dx,32+dx,60+dx);
         }
-        if(state==2&&box(x,y,17,47,47,51))return color(239,187,89);
     }else if(kind==2||kind==3||kind==7||kind==8){
-        y=23+y*30/63; /* fill the world-height cell and rest on the floor */
-        if(box(x,y,10,23,53,53)){
-            if(x==10||y==53||x==53)return color(27,36,34);
-            if(y<27)return color(219,210,175);
-            if(kind==3){if((x>27&&x<36)||(y>35&&y<43))return color(222,66,44);return color(225,225,199);}
-            if(kind==7){if(box(x,y,17,33,47,36)||box(x,y,31,36,39,43))return color(208,211,190);return color(62,89,82);}
-            if(kind==8){if(y>32&&y<47&&x%10<6)return color(y>43?193:167,y>43?151:61,y>43?73:42);return color(62,75,63);}
-            if(x%10<3)return color(209,173,80);
-            return color(67,87,66);
+        if(y>52&&y<57&&dx<23)return color(9,53,74);
+        if(y>48&&y<52&&dx<17)return color(28,117,145);
+        int d=abs(y-28);
+        if(dx+d/2<21&&y>8&&y<46){
+            uint16_t energy=kind==3?color(77,250,171):kind==7?color(186,135,255):kind==8?color(255,166,59):color(47,218,255);
+            if(dx+d/2>17)return color(115,153,179);
+            if(y<13||y>41)return color(24,43,68);
+            if(kind==3&&(dx<3||abs(y-27)<3))return energy;
+            if(kind==7&&(box(x,y,19,22,45,26)||box(x,y,32,26,37,35)))return energy;
+            if(kind!=3&&kind!=7&&x%9<4&&y>18&&y<36)return energy;
+            return color(12,26,48);
         }
-    }else if(kind==4){
-        if(box(x,y,6,4,57,60)){if(x<10||x>53||y<9||y>55)return color(176,184,156);if(box(x,y,16,15,47,36))return color(y%5?35:72,y%5?105:163,76);if(y>43&&x%8<3)return color(220,178,80);return color(45,60,54);}
-    }else if(kind==5){if(box(x,y,6,5,57,58)){if(x<10||x>53||y<9||y>55)return color(211,178,83);if(y>28&&y<34&&x>17&&x<47)return color(135,218,157);return color(31,48,40);}}
-    if(kind==9&&box(x,y,3,10,60,58)){
-        if(x<6||x>57||y<13||y>55)return color(172,160,111);
-        if(phase==2){ /* three warning studs identify the scored service panel */
-            if(y>27&&y<38&&(abs(x-17)<4||abs(x-32)<4||abs(x-47)<4))return color(225,168,67);
-        }else if(phase==1){ /* west-stair arrow, deliberately no tiny text */
-            if((x>14&&x<50&&y>29&&y<36)||(x<29&&abs(y-32)<29-x))return color(226,183,84);
-        }else{ /* station 09: original block numerals */
-            if(box(x,y,12,22,27,45)&&(x<16||x>23||y<26||y>41))return color(218,214,180);
-            if(box(x,y,35,22,50,45)&&(x>46||y<26||(y>31&&y<36)||(x<39&&y<34)))return color(218,214,180);
+    }else if(kind==4||kind==5){
+        int d=dx+abs(y-31)/2;
+        if(d<26&&y>3&&y<61){
+            if(d>22||y<7||y>57)return color(101,138,171);
+            if(dx<3||abs(y-31)<2)return color(122,246,238);
+            if(dx<14&&y>14&&y<49){if((y+phase*4)%9<3)return color(35,177,192);return color(19,69,111);}
+            return color(9,22,43);
         }
-        return color(35,53,49);
+    }else if(kind==9&&box(x,y,3,10,60,58)){
+        if(x<6||x>57||y<13||y>55)return color(62,100,137);
+        if(phase==2){if(y>27&&y<38&&(abs(x-17)<4||abs(x-32)<4||abs(x-47)<4))return color(255,181,70);}
+        else if(phase==1){if((x>14&&x<50&&y>29&&y<36)||(x<29&&abs(y-32)<29-x))return color(79,223,245);}
+        else{
+            if(box(x,y,12,22,27,45)&&(x<16||x>23||y<26||y>41))return color(120,230,255);
+            if(box(x,y,35,22,50,45)&&(x>46||y<26||(y>31&&y<36)||(x<39&&y<34)))return color(120,230,255);
+        }
+        return color(6,17,34);
     }
     return 0;
 }
 uint16_t rn_weapon(int x,int y,int flash,int reload,int weapon,bool reduced_motion)
 {
     if(x<0||y<0||x>=128||y>=96)return 0;
-    int n=(int)(hash(x,y)%5)-2;
     int duration=weapon?1500:900;
     bool open=reload&&(reduced_motion||(reload>duration/4&&reload<duration*4/5));
-    if(reload){double f=(double)reload/duration;int dip=reduced_motion?12:(int)(sin(f*RN_PI)*16);y-=dip;x-=dip/3;}
-    /* Sparse asymmetric muzzle crown, with a pale hot core. */
+    if(reload){int dip=reduced_motion?12:(int)(sin((double)reload/duration*RN_PI)*20);y-=dip;x-=dip/3;}
+    int dx=abs(x-60);
+    /* Short, luminous plasma crown retains the original shot duration. */
     if(flash){
-        int dx=abs(x-59),dy=abs(y-10);
-        if(dx+dy<8)return color(255,246,200);
-        if((dx+dy<(weapon?19:14)&&(dx<5||dy<4))||
-           (x>60&&x<70&&y>2&&y<7))return color(247,176,66);
+        int d=dx+abs(y-13);
+        if(d<6)return color(236,255,255);
+        if(d<(weapon?24:17)&&(dx<4||abs(y-13)<3||abs(dx-abs(y-13))<2))return color(87,220,255);
+        if(d<12)return color(49,119,201);
     }
-    if(weapon==RN_SHOTGUN){
-        /* Two separate bores, a raised joining rib and tapered steel shrouds. */
-        if(y>=17&&y<57&&x>43-(y-17)/9&&x<76+(y-17)/6){
-            if(y<24){
-                if(box(x,y,47,19,55,23)||box(x,y,64,19,72,23))return color(12,21,24);
-                return color(y==17?183:79,y==17?192:96,y==17?179:94);
-            }
-            if(x==59||x==60)return color(195,198,175);
-            if(x<46||x>74+(y-17)/6)return color(135+n,155+n,151+n);
-            if(x==48||x==66)return color(168,181,171);
-            return color(x<59?47:62,x<59?66:82,x<59?70:81);
+    if(y>17&&y<55&&dx<10+(y-17)/5){
+        if(y<25){
+            if(weapon&&((x>51&&x<57)||(x>63&&x<69)))return color(7,16,29);
+            if(!weapon&&dx<5&&y>19)return color(12,22,37);
+            return color(110,154,185);
         }
-        if(y>=53&&x>32+(y-53)/3&&x<87+(y-53)/2){
-            if(open&&y<66){
-                if((x>51&&x<59)||(x>67&&x<75))return color(y<59?223:156,y<59?179:62,y<59?83:44);
-                return color(22,32,34);
-            }
-            if(y<58)return color(171,184,167);
-            if(y<78){if(y%6<2)return color(52,53,42);return color(x<46?199:149,x<46?144:99,54);}
-            if(x==82||y==82)return color(126,144,121);
-            return color(42+n,61+n,56+n);
-        }
-    }else{
-        /* Hooded front sight, narrow barrel and an asymmetric box receiver. */
-        if(box(x,y,51,10,54,25)||box(x,y,64,10,67,25)||box(x,y,51,10,67,12))return color(y==10?142:24,y==10?156:36,y==10?143:37);
-        if(box(x,y,58,15,60,21))return color(214,192,128);
-        if(y>=22&&y<52&&x>52-(y-22)/7&&x<66+(y-22)/5){
-            if(x<53)return color(166+n,183+n,170+n);
-            if(x==56)return color(104,126,119);
-            if(x>65)return color(27,45,46);
-            return color(66+n,90+n,87+n);
-        }
-        if(y>=47&&x>31+(y-47)/2&&x<87+(y-47)/2){
-            if(y<52)return color(184+n,198+n,175+n);
-            if(x<42+(y-47)/2)return color(101,122,103);
-            if(box(x,y,63,56,88,70)){
-                if(y==56||x==63)return color(139,154,132);
-                if(y==70||x==88)return color(20,33,34);
-                if(open)return color(x<74?19:164,x<74?29:128,x<74?30:65);
-                if(y<60)return color(195+n,158+n,79+n);
-                return color(42,57,52);
-            }
-            if(y==75&&x>61&&x<89)return color(134,149,120);
-            if((x==61&&y==54)||(x==88&&y==74))return color(214,212,171);
-            if(y>78&&x>75&&x<81)return color(141,157,130);
-            return color(41+n,63+n,58+n);
-        }
-        /* Magazine well and visible brass-tipped replacement during reload. */
-        if(open&&box(x,y,37,67,51,88))return color(y<70?202:56,y<70?161:70,y<70?77:58);
+        if(dx<2)return color(136,234,255);
+        if(dx==7||dx==12)return color(77,128,170);
+        if(weapon&&y%9<3)return color(12,29,49);
+        return color(25+dx*2,43+dx*2,66+dx*2);
     }
-    /* Glove knuckles, cuff and a dark seam remain legible at native scale. */
-    if(y>71&&x>17+(y-71)/2&&x<56+(y-71)/2){
-        if(y>88)return color(y==89?35:70,y==89?47:86,y==89?41:66);
-        if(y%8==0)return color(44,57,46);
-        if(x<27+(y-71)/2)return color(151,153,111);
-        return color(103+n,117+n,84+n);
+    if(y>=49&&x>30+(y-49)/3&&x<87+(y-49)/2){
+        if(y<53)return color(170,202,220);
+        if(x<38+(y-49)/3)return color(75,107,144);
+        if(box(x,y,56,57,84,73)){
+            if(x==56||y==57)return color(85,144,176);
+            if(open)return color(x%9<5?102:12,x%9<5?209:23,x%9<5?255:41);
+            if(y>61&&y<67&&x>60&&x<80)return weapon?color(190,147,255):color(72,221,254);
+            return color(10,24,43);
+        }
+        if(y>79&&x%9<2)return color(55,118,159);
+        return color(18+(x-40)/4,31+(x-40)/4,52+(x-40)/3);
+    }
+    /* Segmented pressure glove and cool rim-lit sleeve. */
+    if(y>70&&x>16+(y-70)/2&&x<53+(y-70)/2){
+        if(y>88)return color(19,29,49);
+        if(y%7<2)return color(13,23,41);
+        if(x<23+(y-70)/2)return color(100,145,175);
+        return color(38,59,82);
     }
     return 0;
-}
-/* Small original bitmap lettering: only the title's uppercase alphabet.
- * Seven 5-bit rows per glyph; no external font or logo raster. */
-static const unsigned char letters[][7]={
- {30,17,17,30,20,18,17}, /* R */ {31,16,16,30,16,16,31}, /* E */
- {16,16,16,16,16,16,31}, /* L */ {14,17,17,31,17,17,17}, /* A */
- {17,17,10,4,4,4,4}, /* Y */ {17,25,25,21,19,19,17}, /* N */
- {31,4,4,4,4,4,31} /* I */ };
-static void word(struct rn_frame *f,const char *s,int x,int y,int scale,uint16_t c)
-{
-    const char *alphabet="RELAYNI";
-    for(;*s;s++,x+=6*scale){const char *p=strchr(alphabet,*s);if(!p)continue;int g=(int)(p-alphabet);
-        for(int j=0;j<7;j++)for(int i=0;i<5;i++)if(letters[g][j]&(16>>i))for(int yy=0;yy<scale;yy++)for(int xx=0;xx<scale;xx++){
-            int px=x+i*scale+xx,py=y+j*scale+yy;if(px>=0&&px<RN_W&&py>=0&&py<RN_H)f->pixels[py*RN_W+px]=c;
-        }
-    }
 }
 void rn_title(struct rn_frame *f)
 {
     memset(f,0,sizeof(*f));
+    int cy=RN_H/2-18;
     for(int y=0;y<RN_H;y++)for(int x=0;x<RN_W;x++){
-        int n=(int)(hash(x,y)%4);uint16_t c=color(18+n,30+n,29+n);
-        if(x%32==0||y%32==0)c=color(28,42,39);
-        if((y==18||y==179)&&x>18&&x<302)c=color(100,112,94);
-        if(y>174&&y<180&&x>18&&x<70)c=color((x/7)%2?197:29,(x/7)%2?154:41,(x/7)%2?68:36);
-        /* Relay trace emblem: open square, nine contacts, interrupted link. */
-        if(box(x,y,25,44,86,47)||box(x,y,25,44,28,122)||box(x,y,25,119,86,122)||box(x,y,83,44,86,78)||box(x,y,83,98,86,122))c=color(207,164,76);
-        for(int i=0;i<3;i++)for(int j=0;j<3;j++)if(box(x,y,37+i*15,60+j*18,43+i*15,66+j*18))c=color(202,213,182);
-        if(box(x,y,83,86,102,90))c=color(231,85,44);
-        f->pixels[y*RN_W+x]=c;
+        int dx=x-RN_W/2,dy=y-cy,d=(int)sqrt(dx*dx+dy*dy);
+        int halo=d>67&&d<117?(117-d)/3:0;
+        int r=3+halo/4,g=7+halo,b=17+halo*2;
+        if(d>72&&d<91){int ring=(d-72)%7;r=ring<2?55:8;g=ring<2?139:29;b=ring<2?188:51;}
+        if(d>93&&d<96&&((x+y)/16)%3){r=70;g=205;b=239;}
+        if(d<62){r=5;g=15;b=31;if(abs(dx)<3||abs(dy)<2){r=42;g=150;b=188;}}
+        if(d<55&&abs(dx)<36&&abs(dy)<36){
+            for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){
+                int a=abs(dx-i*23),b0=abs(dy-j*23);
+                if(a+b0<8){r=112;g=232;b=255;}else if(a+b0<11){r=24;g=89;b=129;}
+            }
+        }
+        if(y>RN_H-54&&((x-160)*(x-160)/(1+(RN_H-y)*2))%37<2){g+=10;b+=15;}
+        f->pixels[y*RN_W+x]=color(r,g,b);
     }
-    word(f,"RELAY",112,49,5,color(226,225,198));word(f,"NINE",112,98,5,color(208,167,77));
-    /* Power indicator: one failing section, four steady reserves. */
-    for(int i=0;i<5;i++)for(int y=151;y<155;y++)for(int x=113+i*29;x<136+i*29;x++)f->pixels[y*RN_W+x]=i?color(79,115,88):color(227,85,43);
+    for(int i=0;i<9;i++)for(int y=RN_H-44;y<RN_H-40;y++)for(int x=80+i*18;x<91+i*18;x++)
+        f->pixels[y*RN_W+x]=color(35,130+i*9,180+i*7);
 }
