@@ -13,6 +13,8 @@
  *   FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT  non-empty: hold the events until
  *                           the snapshots are answered (events_after_snapshot)
  *   FAKE_MESHCORED_SENDS    where to record every mesh.send (send_log)
+ *   FAKE_MESHCORED_LIST_SENDS  non-empty: mesh.messages lists what
+ *                           mesh.send took (list_sends)
  *   FAKE_MESHCORED_EXPLICIT non-empty: take explicit routes (explicit_path)
  *   FAKE_MESHCORED_SUBSCRIBERS  hold the events until this many subscribes
  *                           (subscribers_before_events)
@@ -63,6 +65,7 @@ int main(void)
     script.cli_timeout_first = getenv("FAKE_MESHCORED_CLI_TIMEOUT_FIRST") != NULL;
     /* The explicit route (tests/rift_app_test.c's route builder session). */
     script.send_log = getenv("FAKE_MESHCORED_SENDS");
+    script.list_sends = getenv("FAKE_MESHCORED_LIST_SENDS") != NULL;
     script.explicit_path = getenv("FAKE_MESHCORED_EXPLICIT") != NULL;
     script.path_refuse_prefix = getenv("FAKE_MESHCORED_PATH_REFUSE");
     script.preview_log = getenv("FAKE_MESHCORED_PREVIEWS");

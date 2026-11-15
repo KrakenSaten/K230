@@ -49,6 +49,9 @@
  * and the meshcored connection is dropped (a reply that arrives later must
  * not be read as the answer to the next request: docs/api/pocketipc.md). */
 #define CMP_MESH_TIMEOUT_MS 5000
+/* How many of meshcored's newest messages are searched for a send whose
+ * outcome is unknown. Such a send is seconds old when the app repeats it. */
+#define CMP_RECOVER_LIMIT 64
 /* Longest direct message text mesh.send takes (docs/api/mesh.md). */
 #define CMP_TEXT_MAX 160
 
@@ -92,6 +95,12 @@ struct cmp_send_rec {
     uint64_t ack_mono_ms;            /* meshcored's, when the ACK matched */
     bool confirm_pending;            /* acked while no app was listening */
     uint64_t age;                    /* for replacing the oldest */
+    /* mesh.send was written but its answer never came (meshcored stalled
+     * past the deadline, or the connection dropped): meshcored may or may
+     * not have taken the message. The app's repeat of it asks mesh.messages
+     * before anything is sent (cmd_recover). */
+    bool unknown;
+    uint64_t asked_mono_ms;          /* when that mesh.send was written */
 };
 
 enum cmp_wait {
@@ -106,6 +115,7 @@ enum cmp_wait {
     CMP_WAIT_RESEND_DM,
     CMP_WAIT_CHAN_LOOKUP,
     CMP_WAIT_SEND_CHAN,
+    CMP_WAIT_RECOVER,                /* mesh.messages, for a send whose outcome is unknown */
 };
 
 struct cmp_bridge {
@@ -133,6 +143,13 @@ struct cmp_bridge {
     uint32_t wait_id;
     uint64_t wait_since;
     int wait_rec;                    /* send record, for the send kinds */
+    /* The app that sent the command has gone (app_down while waiting). The
+     * answer is delivered to no one, and a send in it is still recorded;
+     * nothing it would have started for that app (a contact listing, the
+     * next request of a two-step command) is started for the next one. */
+    bool wait_orphaned;
+    bool mute;                       /* to_app drops output (an orphan's answer) */
+    uint32_t last_ack_timeout_ms;    /* meshcored's latest, for a recovered send */
     uint8_t cmd[CMP_MAX_FRAME + 1];
     size_t cmd_len;
     uint8_t dq_max_channels;
@@ -153,7 +170,7 @@ struct cmp_bridge {
 
     /* counters, for the log and the tests */
     uint32_t n_queued, n_evicted, n_synced, n_sent_dm, n_sent_chan, n_dup_suppressed,
-        n_resent, n_confirmed, n_refused;
+        n_resent, n_confirmed, n_refused, n_orphaned, n_recovered;
 };
 
 void cmp_bridge_init(struct cmp_bridge *b, const struct cmp_io *io, uint32_t tag_seed);
@@ -161,7 +178,8 @@ void cmp_bridge_free(struct cmp_bridge *b);
 
 /* meshcored connection came up: asks for status, info and the subscription. */
 void cmp_bridge_mesh_up(struct cmp_bridge *b);
-/* meshcored connection went away: a command waiting is answered with an error. */
+/* meshcored connection went away: a command waiting is answered with an error
+ * (not when its app has gone), and a send in flight is kept as unknown. */
 void cmp_bridge_mesh_down(struct cmp_bridge *b);
 /* One frame from meshcored (response or event). Not consumed. */
 void cmp_bridge_mesh_frame(struct cmp_bridge *b, const cJSON *msg);

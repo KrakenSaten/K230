@@ -33,7 +33,13 @@ the RIFT stand-in received, not against the bridge's own say-so:
   - coexistence: the RIFT stand-in receives every event the bridge does;
   - meshcored going away and coming back under a live app;
   - the access rules: the wildcard address refused, a peer outside the
-    allowed networks refused.
+    allowed networks refused;
+  - meshcored stalled (frozen with SIGSTOP): an answer still in flight when
+    the app is replaced goes to no one, and a send whose answer never came
+    is put on the air once however often the app repeats it.
+
+Copyright (c) 2026 PocketOS authors.
+SPDX-License-Identifier: Apache-2.0
 """
 
 import json
@@ -118,7 +124,8 @@ def free_port():
 # ---- the scripted meshcored, and a pocketipc subscriber standing in for RIFT --
 
 class Fake:
-    def __init__(self, tmp, ack_sends=1, subscribers=2, events=EVENTS, life_ms=60000):
+    def __init__(self, tmp, ack_sends=1, subscribers=2, events=EVENTS, life_ms=60000,
+                 list_sends=False):
         self.tmp = tmp
         self.sends = os.path.join(tmp, "sends.log")
         self.methods = os.path.join(tmp, "methods.log")
@@ -141,6 +148,8 @@ class Fake:
             "FAKE_MESHCORED_ACK_SENDS": str(ack_sends),
             "FAKE_MESHCORED_LIFE_MS": str(life_ms),
         })
+        if list_sends:
+            env["FAKE_MESHCORED_LIST_SENDS"] = "1"
         for p in (self.sends, self.methods, self.manage):
             if os.path.exists(p):
                 os.unlink(p)
@@ -622,6 +631,148 @@ def suite_resend(tmp):
     fake.stop()
 
 
+class Stalled:
+    """meshcored frozen (SIGSTOP) for the length of a with-block, and let go
+    (SIGCONT) at its end, whatever happened inside."""
+
+    def __init__(self, fake):
+        self.fake = fake
+
+    def __enter__(self):
+        os.kill(self.fake.proc.pid, signal.SIGSTOP)
+        return self
+
+    def __exit__(self, *exc):
+        os.kill(self.fake.proc.pid, signal.SIGCONT)
+        return False
+
+
+def stall_setup(tmp, list_sends=True):
+    fake = Fake(tmp, ack_sends=0, subscribers=1, events=[], list_sends=list_sends)
+    port = free_port()
+    bridge = Bridge(tmp, port)
+    check(bridge.wait_listening(), "companiond listens (stall)")
+    time.sleep(0.3)
+    app = App(port)
+    check(app.cmd(device_query())[0] == 13, "stall setup: DEVICE_INFO")
+    check(app.cmd(app_start())[0] == 5, "stall setup: SELF_INFO")
+    return fake, port, bridge, app
+
+
+def no_frame(app, timeout):
+    try:
+        return app.read_frame(timeout)
+    except (socket.timeout, EOFError):
+        return None
+
+
+def suite_stall(tmp):
+    """Unit A validation 2026-11-15 (PR #126 F1, F2), with the review's own
+    method: meshcored frozen with SIGSTOP/SIGCONT under the real companiond."""
+    # F1: a reply in flight when a new app replaces the old one.
+    fake, port, bridge, a = stall_setup(tmp)
+    ts = int(time.time())
+    with Stalled(fake):
+        a.send(send_dm(ALICE, "in flight", ts))
+        time.sleep(0.4)
+        b = App(port)
+        b.send(device_query())
+        time.sleep(0.4)
+    f = b.read_frame(3.0)
+    check(f[0] == 13, "replacing app: its first frame is its own DEVICE_INFO, not the old "
+          "app's SENT (code %d)" % f[0])
+    check(no_frame(b, 0.5) is None, "replacing app: nothing else arrives")
+    check(wait_until(lambda: len(fake.lines(fake.sends)) == 1),
+          "the old app's message went out once: %r" % fake.lines(fake.sends))
+    check(b.cmd(app_start())[0] == 5, "replacing app starts")
+    f = b.cmd(send_dm(ALICE, "in flight", ts))
+    check(f[0] == 6, "its repeat of the old app's message is answered SENT (%d)" % f[0])
+    check(fake.lines(fake.sends) == ["aa1122222222|in flight"],
+          "and not sent again: %r" % fake.lines(fake.sends))
+    # A contact listing in flight is not started for the app that replaced it.
+    with Stalled(fake):
+        b.send(bytes([4]))
+        time.sleep(0.4)
+        c = App(port)
+        c.send(device_query())
+        time.sleep(0.4)
+    f = c.read_frame(3.0)
+    check(f[0] == 13, "after an orphaned GET_CONTACTS: DEVICE_INFO first (%d)" % f[0])
+    check(no_frame(c, 0.8) is None, "and no unrequested contact listing follows")
+    # A channel message whose table lookup was in flight is not sent for no one.
+    check(c.cmd(app_start())[0] == 5, "third app starts")
+    with Stalled(fake):
+        c.send(send_chan(0, "lookup in flight", ts))
+        time.sleep(0.4)
+        d = App(port)
+        d.send(device_query())
+        time.sleep(0.4)
+    check(d.read_frame(3.0)[0] == 13, "after an orphaned channel lookup: DEVICE_INFO first")
+    time.sleep(0.5)
+    check(not any(l.startswith("#0|") for l in fake.lines(fake.sends)),
+          "the orphaned channel message was not sent: %r" % fake.lines(fake.sends))
+    check("for an app that has gone: not forwarded" in bridge.log(),
+          "the orphaned answers are logged")
+    d.close()
+    bridge.stop_clean("stall suite, replaced app")
+    fake.stop()
+
+    # F2: meshcored stalled past the deadline, then the app repeats the frame.
+    fake, port, bridge, a = stall_setup(tmp)
+    frame = send_dm(ALICE, "dup", ts + 1)
+    with Stalled(fake):
+        f = a.cmd(frame, 9.0)
+        check(f[0] == 1 and f[1] == 4, "stalled past the deadline: BAD_STATE (%r)" % f[:2])
+    time.sleep(2.5)
+    check(fake.lines(fake.sends) == ["aa1122222222|dup"],
+          "meshcored took the first copy: %r" % fake.lines(fake.sends))
+    f = a.cmd(frame, 8.0)
+    check(f[0] == 6, "the repeat is answered SENT (%d)" % f[0])
+    time.sleep(0.5)
+    check(fake.lines(fake.sends) == ["aa1122222222|dup"],
+          "one stall, one repeat: transmitted once: %r" % fake.lines(fake.sends))
+    f2 = a.cmd(frame, 3.0)
+    check(f2[0] == 6 and f2[2:6] == f[2:6] and len(fake.lines(fake.sends)) == 1,
+          "a second repeat: the same tag, still once")
+    # The app's own retry after the stall is meshcored's resend, never a send.
+    a.cmd(send_dm(ALICE, "dup", ts + 1, attempt=1), 3.0)
+    check(fake.lines(fake.sends)[1:] in ([], ["resend|1001"]),
+          "an attempt one higher is a resend at most: %r" % fake.lines(fake.sends))
+    # A channel message, the same way.
+    cf = send_chan(0, "chan dup", ts + 2)
+    with Stalled(fake):
+        f = a.cmd(cf, 9.0)
+        check(f[0] == 1, "channel send stalled past the deadline: an error (%r)" % f[:2])
+    time.sleep(2.5)
+    f = a.cmd(cf, 8.0)
+    check(f[0] == 0, "the channel repeat is answered OK (%d)" % f[0])
+    check([l for l in fake.lines(fake.sends) if l.startswith("#0|")] == ["#0|chan dup"],
+          "the channel message went out once: %r" % fake.lines(fake.sends))
+    log = bridge.log()
+    check("kept as unknown" in log and "answered, not resent" in log,
+          "the unknown sends and their recovery are logged")
+    a.close()
+    bridge.stop_clean("stall suite, stalled send")
+    fake.stop()
+
+    # A message meshcored's list does not hold was never taken, and is sent
+    # now, once. (This fake does not list its sends, so its list says that.)
+    fake, port, bridge, a = stall_setup(tmp, list_sends=False)
+    frame = send_dm(BOB, "never taken", ts + 3)
+    with Stalled(fake):
+        a.cmd(frame, 9.0)
+    time.sleep(2.5)
+    n0 = len(fake.lines(fake.sends))
+    f = a.cmd(frame, 8.0)
+    check(f[0] == 6, "not in meshcored's list: sent now, SENT (%d)" % f[0])
+    check(len(fake.lines(fake.sends)) == n0 + 1,
+          "one mesh.send for it: %r" % fake.lines(fake.sends))
+    check("not in meshcored's list: sending it now" in bridge.log(), "and that is logged")
+    a.close()
+    bridge.stop_clean("stall suite, not taken")
+    fake.stop()
+
+
 def suite_access(tmp):
     port = free_port()
     b = Bridge(tmp, port, listen="0.0.0.0:%d" % port)
@@ -651,6 +802,7 @@ def main():
     try:
         suite_main(tmp)
         suite_resend(tmp)
+        suite_stall(tmp)
         suite_access(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

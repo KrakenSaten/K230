@@ -118,6 +118,20 @@ What the app is told is what meshcored knows, and nothing more:
   from the record and **not transmitted again**. A retry from before the
   record (another run of companiond, or more than 16 sends ago) is sent as a
   new message, as upstream would.
+- **A send whose answer never came.** When meshcored stalls past the 5 s
+  deadline, or its connection drops, after `mesh.send` was written, the app is
+  told `BAD_STATE` - and meshcored may still have taken the message. The record
+  is kept, marked unknown. The app's repeat of that frame asks meshcored's
+  `mesh.messages` first (its newest 64): a message there to the same recipient
+  (or slot) with the same text, newer than the request and not another
+  record's, is that send, and the repeat is answered from it (`SENT` under a
+  new tag, `OK` for a channel) and **not transmitted again**; a message not
+  there was never taken and is sent now, for the first time. A retry with the
+  attempt one higher becomes meshcored's `resend` of the found message. The
+  `SENT` of a found message carries meshcored's latest ACK timeout for another
+  message (its own was in the answer that never came). A meshcored restart in
+  between ends this as it ends every record: the new run's list holds nothing
+  of the old one, and the repeat is sent.
 - **Channel message.** `OK` and nothing after, ever: there is no ACK in the
   protocol. Upstream silently truncates a long one; companiond refuses one
   longer than the channel's `text_limit` with `ERR ILLEGAL_ARG`.
@@ -158,6 +172,13 @@ What the app is told is what meshcored knows, and nothing more:
   upstream's `SerialWifiInterface` does: a phone that changed networks leaves a
   dead socket behind, and refusing the new one would lock its owner out until
   TCP keepalive (60 s idle + 3 x 10 s) noticed.
+- A command of the first app's still waiting for meshcored when it is replaced
+  finishes as an **orphan**: its answer goes to no app (not to the new one,
+  whose own first command waits until it is in), and a send meshcored took is
+  recorded, so the new app's repeat of it is answered and not sent. Nothing
+  the answer would have started is started for the new app: no contact
+  listing, no `SELF_INFO` (so it is not counted as started), and no second
+  step - a channel message whose table lookup was in flight is not sent.
 - An app that stops reading is dropped when 64 KiB of output is waiting or
   nothing has drained for 10 s; a contact listing is written only as the
   socket drains, so a long one does not count against that.
@@ -256,7 +277,7 @@ contacts. Stop it with Ctrl-C or SIGTERM.
 | Claim | Class |
 | --- | --- |
 | Framing: split, combined, wrong-direction, oversized, empty frames; UTF-8 and text rules | VERIFIED host: `tests/companiond_wire_test.c` (plain and ASan/UBSan) |
-| Startup sequence, contacts, channels, queue, sends, ACKs, retries, duplicates, refusals, reconnect, replacement, meshcored restart, access rules | VERIFIED host: `tests/companiond_e2e_test.py` - the real companiond (plain, then built with ASan/UBSan) between `tests/fake-meshcored` and a client written from the pinned framing |
+| Startup sequence, contacts, channels, queue, sends, ACKs, retries, duplicates, refusals, reconnect, replacement, meshcored restart, meshcored stalled (an answer in flight across a replacement; a send whose answer never came, repeated), access rules | VERIFIED host: `tests/companiond_e2e_test.py` - the real companiond (plain, then built with ASan/UBSan) between `tests/fake-meshcored` and a client written from the pinned framing |
 | RIFT coexistence | VERIFIED host: a second pocketipc subscriber on the same fake meshcored receives every event companiond does |
 | riscv64 build | VERIFIED: compiles warning-free with the pinned Xuantie 14.1.1 toolchain against the SDK sysroot |
 | The official app connects, completes its startup and works | **not tested** |

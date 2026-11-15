@@ -72,7 +72,7 @@ static void put_name(uint8_t *field, size_t field_len, const char *s, size_t max
 
 static void to_app(struct cmp_bridge *b, const uint8_t *p, size_t len)
 {
-    if (b->app_up) {
+    if (b->app_up && !b->mute) {
         b->io.to_app(b->io.user, p, len);
     }
 }
@@ -88,7 +88,7 @@ static void reply_err(struct cmp_bridge *b, uint8_t code)
 {
     uint8_t f[2] = { CMP_RESP_ERR, code };
 
-    if (code != CMP_ERR_UNSUPPORTED_CMD) {
+    if (code != CMP_ERR_UNSUPPORTED_CMD && !b->mute) {
         b->n_refused++;
     }
     to_app(b, f, 2);
@@ -114,8 +114,12 @@ static uint32_t mesh_call(struct cmp_bridge *b, const char *method, cJSON *param
  * is answered at once, as one meshcored could not be asked. */
 static void wait_for(struct cmp_bridge *b, enum cmp_wait w, const char *method, cJSON *params)
 {
+    /* Read before the write: a send's record compares it with the mono_ms
+     * meshcored gives the message (cmd_recover), which cannot be earlier. */
+    uint64_t asked = b->io.mono_ms(b->io.user);
     uint32_t id = mesh_call(b, method, params);
 
+    b->wait_orphaned = false;
     if (id == 0) {
         b->wait = CMP_WAIT_NONE;
         reply_err(b, CMP_ERR_BAD_STATE);
@@ -123,7 +127,7 @@ static void wait_for(struct cmp_bridge *b, enum cmp_wait w, const char *method, 
     }
     b->wait = w;
     b->wait_id = id;
-    b->wait_since = b->io.mono_ms(b->io.user);
+    b->wait_since = asked;
 }
 
 /* ---- send records ---------------------------------------------------------- */
@@ -555,6 +559,46 @@ static void cmd_sync_next(struct cmp_bridge *b)
     b->n_synced++;
 }
 
+/* mesh.send of record r's direct message, the first time. The record is not
+ * used until meshcored answers (on_send_dm), and not at all if the request
+ * could not be written: then meshcored never had it. */
+static void send_dm_now(struct cmp_bridge *b, int r)
+{
+    struct cmp_send_rec *rec = &b->sends[r];
+    cJSON *p = cJSON_CreateObject();
+    char hex[13];
+    char body[CMP_TEXT_MAX + 1];
+
+    rec->used = false;
+    rec->unknown = false;
+    memcpy(body, rec->text, rec->text_len);
+    body[rec->text_len] = '\0';
+    cmp_hex(rec->prefix, 6, hex);
+    cJSON_AddStringToObject(p, "to", hex);
+    cJSON_AddStringToObject(p, "text", body);
+    b->wait_rec = r;
+    wait_for(b, CMP_WAIT_SEND_DM, "mesh.send", p);
+}
+
+/* The app sent again a message whose mesh.send was never answered. Whether
+ * meshcored took it is in its message list (docs/api/mesh.md, mesh.messages):
+ * asked for there, and only a message it does not hold is sent (on_recover).
+ * Answering from the record alone could report a message as sent that never
+ * was; sending again could put it on the air twice. */
+static void cmd_recover(struct cmp_bridge *b, int r)
+{
+    cJSON *p;
+
+    if (!b->mesh_ready) {
+        reply_err(b, CMP_ERR_BAD_STATE);
+        return;
+    }
+    p = cJSON_CreateObject();
+    cJSON_AddNumberToObject(p, "limit", CMP_RECOVER_LIMIT);
+    b->wait_rec = r;
+    wait_for(b, CMP_WAIT_RECOVER, "mesh.messages", p);
+}
+
 /* CMD_SEND_TXT_MSG (MyMesh.cpp:1132): type, attempt, timestamp, 6-byte key
  * prefix, text. */
 static void cmd_send_dm(struct cmp_bridge *b, const uint8_t *c, size_t len)
@@ -578,6 +622,11 @@ static void cmd_send_dm(struct cmp_bridge *b, const uint8_t *c, size_t len)
         return;
     }
     r = find_send(b, false, 0, prefix, ts, text, tlen);
+    if (r >= 0 && b->sends[r].unknown) {
+        /* Its first mesh.send was never answered: find out before sending. */
+        cmd_recover(b, r);
+        return;
+    }
     if (r >= 0 && attempt <= b->sends[r].attempt) {
         /* The same frame again: after a reconnect the app could not know its
          * first one was taken. Answered from the record; nothing is sent. */
@@ -603,9 +652,6 @@ static void cmd_send_dm(struct cmp_bridge *b, const uint8_t *c, size_t len)
         return;
     }
     {
-        cJSON *p = cJSON_CreateObject();
-        char hex[13];
-        char body[CMP_TEXT_MAX + 1];
         struct cmp_send_rec *rec;
 
         r = new_send(b);
@@ -616,16 +662,7 @@ static void cmd_send_dm(struct cmp_bridge *b, const uint8_t *c, size_t len)
         rec->attempt = attempt;
         rec->text_len = (uint16_t)tlen;
         memcpy(rec->text, text, tlen);
-        memcpy(body, text, tlen);
-        body[tlen] = '\0';
-        cmp_hex(prefix, 6, hex);
-        cJSON_AddStringToObject(p, "to", hex);
-        cJSON_AddStringToObject(p, "text", body);
-        b->wait_rec = r;
-        wait_for(b, CMP_WAIT_SEND_DM, "mesh.send", p);
-        if (b->wait == CMP_WAIT_NONE) {
-            rec->used = false;
-        }
+        send_dm_now(b, r);
     }
 }
 
@@ -633,6 +670,7 @@ static void cmd_send_dm(struct cmp_bridge *b, const uint8_t *c, size_t len)
 static void cmd_send_channel(struct cmp_bridge *b, const uint8_t *c, size_t len)
 {
     size_t tlen = len - 7;
+    int r;
 
     if (c[1] != CMP_TXT_TYPE_PLAIN) {
         reply_err(b, CMP_ERR_UNSUPPORTED_CMD);
@@ -642,7 +680,12 @@ static void cmd_send_channel(struct cmp_bridge *b, const uint8_t *c, size_t len)
         reply_err(b, CMP_ERR_ILLEGAL_ARG);
         return;
     }
-    if (find_send(b, true, c[2], NULL, cmp_get_u32(c + 3), c + 7, tlen) >= 0) {
+    r = find_send(b, true, c[2], NULL, cmp_get_u32(c + 3), c + 7, tlen);
+    if (r >= 0 && b->sends[r].unknown) {
+        cmd_recover(b, r);
+        return;
+    }
+    if (r >= 0) {
         b->n_dup_suppressed++;
         LOG_INFO("channel message to slot %u again: answered, not resent", c[2]);
         reply_ok(b);
@@ -812,7 +855,9 @@ static void on_send_dm(struct cmp_bridge *b, const cJSON *res, int code, bool re
         return;
     }
     jnum(res, "ack_timeout_ms", &timeout);
+    b->last_ack_timeout_ms = (uint32_t)timeout;
     r->used = true;
+    r->unknown = false;
     r->message_id = (uint32_t)id;
     r->tag = new_tag(b);
     r->timeout_ms = (uint32_t)timeout;
@@ -861,33 +906,212 @@ static void on_chan_lookup(struct cmp_bridge *b, const cJSON *res)
     reply_err(b, CMP_ERR_NOT_FOUND);
 }
 
-static void on_send_chan(struct cmp_bridge *b, const cJSON *res, int code)
+/* A record of the channel message in b->cmd. */
+static struct cmp_send_rec *record_chan(struct cmp_bridge *b)
 {
-    struct cmp_send_rec *r;
+    struct cmp_send_rec *r = &b->sends[new_send(b)];
     size_t tlen = b->cmd_len - 7;
 
-    if (!res || !jtrue(res, "accepted")) {
-        reply_err(b, code == 2 ? CMP_ERR_ILLEGAL_ARG : mesh_error_to_cmp(code));
-        return;
-    }
-    r = &b->sends[new_send(b)];
     r->used = true;
     r->is_channel = true;
     r->channel = b->cmd[2];
     r->app_timestamp = cmp_get_u32(b->cmd + 3);
     r->text_len = (uint16_t)tlen;
     memcpy(r->text, b->cmd + 7, tlen);
+    return r;
+}
+
+static void on_send_chan(struct cmp_bridge *b, const cJSON *res, int code)
+{
+    struct cmp_send_rec *r;
+    double id;
+
+    if (!res || !jtrue(res, "accepted")) {
+        reply_err(b, code == 2 ? CMP_ERR_ILLEGAL_ARG : mesh_error_to_cmp(code));
+        return;
+    }
+    r = record_chan(b);
+    if (jnum(res, "message_id", &id)) {
+        r->message_id = (uint32_t)id;
+    }
     b->n_sent_chan++;
     /* Upstream answers OK and nothing follows (MyMesh.cpp:2212): a channel
      * message is an unacknowledged flood. */
     reply_ok(b);
 }
 
+/* Message m of mesh.messages is record r's send: outgoing, the same kind,
+ * destination and text, given its mono_ms no earlier than the request (an
+ * older copy of the same text is another message), and not a message another
+ * record already holds. A channel message's text is the whole payload, the
+ * sender's "<name>: " first (docs/api/mesh.md), so only its end must match. */
+static bool recover_match(const struct cmp_bridge *b, const struct cmp_send_rec *r,
+                          const cJSON *m, const char *hex)
+{
+    const char *dir = jstr(m, "direction");
+    const char *kind = jstr(m, "kind");
+    const char *text = jstr(m, "text");
+    double id, mono, ch;
+    size_t tl;
+    int i;
+
+    if (!dir || strcmp(dir, "out") != 0 || !text || !jnum(m, "id", &id)) {
+        return false;
+    }
+    if (jnum(m, "mono_ms", &mono) && mono + 1 < (double)r->asked_mono_ms) {
+        return false;
+    }
+    for (i = 0; i < CMP_SEND_RECORDS; i++) {
+        const struct cmp_send_rec *o = &b->sends[i];
+
+        if (o != r && o->used && !o->unknown && o->message_id && o->message_id == (uint32_t)id) {
+            return false;
+        }
+    }
+    tl = strlen(text);
+    if (r->is_channel) {
+        if ((kind && strcmp(kind, "channel") != 0) || !jnum(m, "channel", &ch) ||
+            (int)ch != r->channel || tl < r->text_len ||
+            memcmp(text + tl - r->text_len, r->text, r->text_len) != 0) {
+            return false;
+        }
+        return tl == r->text_len ||
+               (tl >= (size_t)r->text_len + 2 && memcmp(text + tl - r->text_len - 2, ": ", 2) == 0);
+    }
+    {
+        const char *peer = jstr(m, "peer_public_key");
+        int k;
+
+        if ((kind && strcmp(kind, "direct") != 0) || !peer || strlen(peer) < 12) {
+            return false;
+        }
+        for (k = 0; k < 12; k++) {
+            char p = peer[k];
+
+            if (p >= 'A' && p <= 'F') {
+                p = (char)(p - 'A' + 'a');
+            }
+            if (p != hex[k]) {
+                return false;
+            }
+        }
+    }
+    return tl == r->text_len && memcmp(text, r->text, tl) == 0;
+}
+
+/* mesh.messages answered, for the app's repeat of a send whose outcome was
+ * unknown (cmd_recover). Held there: answered from it, as a duplicate is,
+ * and nothing is sent (an app retry with a higher attempt becomes the
+ * resend it would have been). Not held: meshcored never took it, and this is
+ * its first transmission. No answer: the outcome stays unknown. */
+static void on_recover(struct cmp_bridge *b, const cJSON *res)
+{
+    struct cmp_send_rec *r = &b->sends[b->wait_rec];
+    const cJSON *arr = res ? cJSON_GetObjectItemCaseSensitive(res, "messages") : NULL;
+    const cJSON *m;
+    const cJSON *found = NULL;
+    const char *state;
+    char hex[13];
+    double id = 0, mono, ack;
+
+    if (!cJSON_IsArray(arr)) {
+        reply_err(b, CMP_ERR_BAD_STATE);
+        return;
+    }
+    cmp_hex(r->prefix, 6, hex);
+    cJSON_ArrayForEach (m, arr) {
+        if (recover_match(b, r, m, hex)) {
+            found = m; /* oldest first: the last match is the newest */
+        }
+    }
+    if (!found) {
+        LOG_INFO("an unanswered %s message is not in meshcored's list: sending it now",
+                 r->is_channel ? "channel" : "direct");
+        if (r->is_channel) {
+            r->used = false;
+            r->unknown = false;
+            wait_for(b, CMP_WAIT_CHAN_LOOKUP, "mesh.channels", NULL);
+        } else {
+            r->attempt = b->cmd[2];
+            send_dm_now(b, b->wait_rec);
+        }
+        return;
+    }
+    jnum(found, "id", &id);
+    b->n_recovered++;
+    r->unknown = false;
+    r->message_id = (uint32_t)id;
+    LOG_INFO("an unanswered %s message is meshcored's message %u: answered, not resent",
+             r->is_channel ? "channel" : "direct", r->message_id);
+    if (r->is_channel) {
+        reply_ok(b);
+        return;
+    }
+    state = jstr(found, "state");
+    r->tag = new_tag(b);
+    /* meshcored's own estimate went with the answer that never came; its
+     * latest for another message is the nearest there is (0: none yet). */
+    r->timeout_ms = b->last_ack_timeout_ms;
+    r->flood = !state || strcmp(state, "sent_direct") != 0;
+    r->sent_mono_ms = jnum(found, "mono_ms", &mono) && mono > 0 ? (uint64_t)mono : r->asked_mono_ms;
+    r->acked = state && strcmp(state, "acked") == 0;
+    r->confirm_pending = false;
+    if (r->acked) {
+        r->ack_mono_ms = jnum(found, "ack_mono_ms", &ack) && ack > 0 ? (uint64_t)ack
+                                                                      : b->io.mono_ms(b->io.user);
+    }
+    if (b->cmd[2] > r->attempt) {
+        cJSON *p = cJSON_CreateObject();
+
+        cJSON_AddNumberToObject(p, "resend", r->message_id);
+        wait_for(b, CMP_WAIT_RESEND_DM, "mesh.send", p);
+        return;
+    }
+    reply_sent(b, r);
+    if (r->acked) {
+        if (b->app_started) {
+            push_confirmed(b, r);
+        } else {
+            r->confirm_pending = true;
+        }
+    }
+}
+
+/* The answer to a command whose app has gone. It goes to no one - not to the
+ * app that replaced it, whose own first command is still unread - and a send
+ * meshcored took is recorded, so that app's repeat is answered from the
+ * record. A two-step command stops here: a channel message whose lookup this
+ * is was never sent and is not sent now; the app sends it again if it wants. */
+static void on_orphan_reply(struct cmp_bridge *b, enum cmp_wait w, const cJSON *res, int code)
+{
+    b->n_orphaned++;
+    LOG_INFO("an answer from meshcored for an app that has gone: not forwarded");
+    b->mute = true;
+    switch (w) {
+    case CMP_WAIT_SEND_DM:
+    case CMP_WAIT_RESEND_DM:
+        on_send_dm(b, res, code, w == CMP_WAIT_RESEND_DM);
+        break;
+    case CMP_WAIT_SEND_CHAN:
+        on_send_chan(b, res, code);
+        break;
+    default:
+        break;
+    }
+    b->mute = false;
+}
+
 static void on_reply(struct cmp_bridge *b, const cJSON *res, int code)
 {
     enum cmp_wait w = b->wait;
+    bool orphan = b->wait_orphaned;
 
     b->wait = CMP_WAIT_NONE;
+    b->wait_orphaned = false;
+    if (orphan) {
+        on_orphan_reply(b, w, res, code);
+        return;
+    }
     switch (w) {
     case CMP_WAIT_DQ_CHANNELS: {
         double max = 0;
@@ -973,6 +1197,9 @@ static void on_reply(struct cmp_bridge *b, const cJSON *res, int code)
         return;
     case CMP_WAIT_SEND_CHAN:
         on_send_chan(b, res, code);
+        return;
+    case CMP_WAIT_RECOVER:
+        on_recover(b, res);
         return;
     case CMP_WAIT_NONE:
         return;
@@ -1163,12 +1390,33 @@ void cmp_bridge_mesh_down(struct cmp_bridge *b)
     b->id_status = b->id_info = b->id_subscribe = 0;
     if (b->wait != CMP_WAIT_NONE) {
         enum cmp_wait w = b->wait;
+        bool orphan = b->wait_orphaned;
 
         b->wait = CMP_WAIT_NONE;
+        b->wait_orphaned = false;
+        /* A send written and never answered may have been taken: the record
+         * stays, marked unknown, and the app's repeat asks meshcored before
+         * anything is sent (cmd_recover). Forgetting it here is how one stall
+         * used to put the same message on the air twice. */
         if (w == CMP_WAIT_SEND_DM) {
-            b->sends[b->wait_rec].used = false;
+            struct cmp_send_rec *r = &b->sends[b->wait_rec];
+
+            r->used = true;
+            r->unknown = true;
+            r->asked_mono_ms = b->wait_since;
+        } else if (w == CMP_WAIT_SEND_CHAN) {
+            struct cmp_send_rec *r = record_chan(b);
+
+            r->unknown = true;
+            r->asked_mono_ms = b->wait_since;
         }
-        reply_err(b, CMP_ERR_BAD_STATE);
+        if (w == CMP_WAIT_SEND_DM || w == CMP_WAIT_SEND_CHAN) {
+            LOG_INFO("a %s message's mesh.send was not answered: kept as unknown",
+                     w == CMP_WAIT_SEND_DM ? "direct" : "channel");
+        }
+        if (!orphan) {
+            reply_err(b, CMP_ERR_BAD_STATE);
+        }
     }
 }
 
@@ -1185,9 +1433,13 @@ void cmp_bridge_app_down(struct cmp_bridge *b)
     b->app_started = false;
     cJSON_Delete(b->iter_nodes);
     b->iter_nodes = NULL;
-    /* A command still waiting for meshcored is let finish; its answer has
-     * nowhere to go, and a send it made is recorded all the same, so the
-     * app's repeat of it after reconnecting is recognised. */
+    /* A command still waiting for meshcored is let finish, as an orphan: its
+     * answer goes to no app (the next one may already be connected), and a
+     * send it made is recorded all the same, so the app's repeat of it after
+     * reconnecting is recognised (on_orphan_reply). */
+    if (b->wait != CMP_WAIT_NONE) {
+        b->wait_orphaned = true;
+    }
 }
 
 bool cmp_bridge_busy(const struct cmp_bridge *b)

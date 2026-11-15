@@ -53,6 +53,12 @@ struct fake_meshcored_script {
      * is proved by what the service was asked to transmit, not by reading
      * the client's source. */
     const char *send_log;
+    /* List every message this run's mesh.send took in mesh.messages, after
+     * the scripted ones, as the real service does: outgoing, with its id,
+     * destination, text and mono_ms (a channel message's text with a
+     * "<name>: " first, as the payload has it). Without it mesh.messages is
+     * the scripted list alone. */
+    int list_sends;
     /* Raised, in order, after the first subscribe: each is "<event name>|
      * <data as JSON>". NULL-terminated. */
     const char *const *events;

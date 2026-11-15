@@ -36,6 +36,7 @@ struct state {
     int raw_sent;
     int clients_gone;
     int sent;
+    cJSON *sent_list; /* list_sends: what mesh.send took, for mesh.messages */
     int snapshots_answered;
     int inbox_answered;
     int64_t subscribe_ms;
@@ -867,6 +868,13 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             cJSON_Delete(arr);
             arr = cJSON_CreateArray();
         }
+        if (st->script->list_sends && st->sent_list) {
+            const cJSON *sent;
+
+            cJSON_ArrayForEach (sent, st->sent_list) {
+                cJSON_AddItemToArray(arr, cJSON_Duplicate(sent, 1));
+            }
+        }
         total = cJSON_GetArraySize(arr);
         {
             cJSON *item;
@@ -1040,6 +1048,35 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             return;
         }
         st->sent++;
+        if (st->script->list_sends && cJSON_IsString(text)) {
+            cJSON *m = cJSON_CreateObject();
+
+            if (!st->sent_list) {
+                st->sent_list = cJSON_CreateArray();
+            }
+            cJSON_AddNumberToObject(m, "id", 1000 + st->sent);
+            cJSON_AddStringToObject(m, "direction", "out");
+            if (cJSON_IsNumber(chan)) {
+                char body[256];
+
+                snprintf(body, sizeof(body), "Fake: %s", text->valuestring);
+                cJSON_AddStringToObject(m, "kind", "channel");
+                cJSON_AddNumberToObject(m, "channel", chan->valuedouble);
+                cJSON_AddStringToObject(m, "text", body);
+                cJSON_AddStringToObject(m, "state", "sent_flood");
+                cJSON_AddBoolToObject(m, "ack_expected", 0);
+            } else {
+                cJSON_AddStringToObject(m, "kind", "direct");
+                cJSON_AddStringToObject(m, "peer_public_key",
+                                        cJSON_IsString(to) ? to->valuestring : "");
+                cJSON_AddStringToObject(m, "text", text->valuestring);
+                cJSON_AddStringToObject(m, "state", explicit_send ? "sent_direct" : "sent_flood");
+                cJSON_AddBoolToObject(m, "ack_expected", 1);
+                cJSON_AddNumberToObject(m, "attempts", 0);
+            }
+            cJSON_AddNumberToObject(m, "mono_ms", (double)now_ms());
+            cJSON_AddItemToArray(st->sent_list, m);
+        }
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "accepted", 1);
         cJSON_AddNumberToObject(result, "message_id", 1000 + st->sent);
@@ -1343,6 +1380,7 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
         }
     }
     pocketipc_server_free(st.server);
+    cJSON_Delete(st.sent_list);
     return 0;
 }
 

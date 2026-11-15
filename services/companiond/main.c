@@ -55,6 +55,9 @@
 #define MESH_CONNECT_TIMEOUT_MS 200
 #define MESH_BACKOFF_MIN_MS 500
 #define MESH_BACKOFF_MAX_MS 30000
+/* accept4 out of descriptors leaves the connection queued and the listening
+ * socket readable: poll would return at once, every time. */
+#define ACCEPT_PAUSE_MS 1000
 
 struct cidr {
     uint32_t net, mask;
@@ -81,6 +84,7 @@ struct ctx {
     int mesh_backoff_ms;
     struct cidr allow[MAX_ALLOW];
     int n_allow;
+    uint64_t accept_resume_ms; /* listening paused until then (out of descriptors) */
 };
 
 static volatile sig_atomic_t stopping;
@@ -279,6 +283,11 @@ static void app_accept(struct ctx *c, int lfd)
     int idle = 60, intvl = 10, cnt = 3;
 
     if (fd < 0) {
+        if (errno == EMFILE || errno == ENFILE || errno == ENOBUFS || errno == ENOMEM) {
+            LOG_WARN("cannot accept a connection: %s; not listening for %d ms", strerror(errno),
+                     ACCEPT_PAUSE_MS);
+            c->accept_resume_ms = now_ms() + ACCEPT_PAUSE_MS;
+        }
         return;
     }
     inet_ntop(AF_INET, &sa.sin_addr, peer, sizeof(peer));
@@ -528,16 +537,25 @@ int main(int argc, char **argv)
     while (!stopping) {
         struct pollfd p[3];
         int np = 0;
-        int ia = -1, im = -1;
+        int il = -1, ia = -1, im = -1;
+        short app_events;
 
         mesh_try_connect(&c);
-        p[np].fd = lfd;
-        p[np].events = POLLIN;
-        np++;
-        if (c.app.fd >= 0) {
+        if (now_ms() >= c.accept_resume_ms) {
+            il = np;
+            p[np].fd = lfd;
+            p[np].events = POLLIN;
+            np++;
+        }
+        /* With its input full (the bridge waiting for meshcored) and nothing
+         * to write, the app is left out of the poll: a hang-up would be
+         * reported every time and nothing could be done about it until the
+         * bridge is free, which the 100 ms timeout notices. */
+        app_events = (short)((c.app.in_len < IN_CAP ? POLLIN : 0) | (c.app.out_len ? POLLOUT : 0));
+        if (c.app.fd >= 0 && app_events) {
             ia = np;
             p[np].fd = c.app.fd;
-            p[np].events = (c.app.in_len < IN_CAP ? POLLIN : 0) | (c.app.out_len ? POLLOUT : 0);
+            p[np].events = app_events;
             np++;
         }
         if (c.mesh_fd >= 0) {
@@ -554,7 +572,7 @@ int main(int argc, char **argv)
         if (im >= 0 && (p[im].revents & (POLLIN | POLLHUP | POLLERR))) {
             mesh_read(&c);
         }
-        if (p[0].revents & POLLIN) {
+        if (il >= 0 && (p[il].revents & POLLIN)) {
             app_accept(&c, lfd);
             ia = -1; /* the descriptor may have changed under the index */
         }
