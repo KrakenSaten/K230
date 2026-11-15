@@ -6,7 +6,7 @@
 #define RELAY_STATS_H
 #include <stdint.h>
 #include "relay.h"
-enum rn_stat { RS_INTERVAL, RS_GAME, RS_SCENE, RS_REFRESH, RS_DRAW, RS_FLUSH, RS_WAIT, RS_COUNT };
+enum rn_stat { RS_INTERVAL, RS_GAME, RS_SCENE, RS_REFRESH, RS_DRAW, RS_FLUSH, RS_WAIT, RS_SCALE, RS_COUNT };
 struct rn_stats;
 struct rn_stats *rn_stats_open(void);
 uint64_t rn_stats_now(void);

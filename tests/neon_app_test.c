@@ -5,6 +5,7 @@
 #include "pocketui.h"
 #include "src/libs/lodepng/lodepng.h"
 #include "relay_pilot.h"
+#include "relay_scale.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,18 +56,42 @@ static void shot(void *a,const char *mode,const char *state)
         snprintf(path,sizeof(path),"%s/native-%s.png",dir,state);CHECK(!lodepng_encode24_file(path,raw,RN_W,RN_H));
     }
 }
+/* Where the scene is drawn, relative to its parent, in either scaling path.
+ * In the app-scaled path the image is unscaled and its pixels are exactly the
+ * current frame through rn_scale (filtered unless economy turned antialiasing
+ * off); in LVGL's path LVGL scales the native frame about its centre. */
+static void scene(void *a,lv_area_t *out)
+{
+    neon_app_refresh(a);lv_obj_t *im=neon_app_image(a);lv_obj_update_layout(im);
+    const lv_image_dsc_t *src=lv_image_get_src(im);int scale=lv_image_get_scale_x(im);
+    CHECK(src&&src->header.cf==LV_COLOR_FORMAT_RGB565&&scale==(int)lv_image_get_scale_y(im));
+    int x=lv_obj_get_x(im),y=lv_obj_get_y(im),w=lv_obj_get_width(im),h=lv_obj_get_height(im);
+    CHECK((int)src->header.w==w&&(int)src->header.h==h);
+    if(scale==LV_SCALE_NONE&&(w!=RN_W||h!=RN_H)){
+        static struct rn_frame f;static struct rn_scaler sc;
+        CHECK(rn_render_quality(neon_app_game(a),&f,!lv_image_get_antialias(im))&&rn_scaler_resize(&sc,RN_W,RN_H,w,h));
+        rn_scale(&sc,f.pixels,lv_image_get_antialias(im));
+        CHECK(src->header.stride==(uint32_t)w*2&&!memcmp(src->data,sc.pixels,(size_t)w*h*2));
+    }else{
+        CHECK(w==RN_W&&h==RN_H);
+        int dw=RN_W*scale/256,dh=RN_H*scale/256;x+=(RN_W-dw)/2;y+=(RN_H-dh)/2;w=dw;h=dh;
+    }
+    lv_area_set(out,x,y,x+w-1,y+h-1);
+}
+static lv_area_t dirty[64];static int dirty_n;
+static bool inside(const lv_area_t *a,const lv_area_t *b){return a->x1>=b->x1&&a->y1>=b->y1&&a->x2<=b->x2&&a->y2<=b->y2;}
+static void invalidated(lv_event_t *e){if(dirty_n<64)dirty[dirty_n++]=*(lv_area_t *)lv_event_get_param(e);}
 static void bounds(void *a,lv_obj_t *body)
 {
     lv_obj_update_layout(body);
     CHECK(fullscreen==(!neon_app_game(a)->paused&&neon_app_game(a)->state==RN_PLAY));
     if(fullscreen){
-        lv_obj_t *im=neon_app_image(a);int w=lv_obj_get_content_width(body),h=lv_obj_get_content_height(body);
-        int scale=lv_image_get_scale_x(im);
-        CHECK(scale==(int)lv_image_get_scale_y(im));
-        CHECK(RN_W*scale<=w*256&&RN_H*scale<=h*256);
-        CHECK(lv_obj_get_x(im)==(w-RN_W)/2);
-        int top=lv_obj_get_y(im)+(RN_H-RN_H*scale/256)/2;
-        int bottom=top+RN_H*scale/256;
+        int w=lv_obj_get_content_width(body),h=lv_obj_get_content_height(body);
+        lv_area_t s;scene(a,&s);int sw=lv_area_get_width(&s),sh=lv_area_get_height(&s);
+        CHECK(sw<=w&&sh<=h&&s.x1==(w-sw)/2);
+        /* Uniform: both sides from one scale, to the pixel. */
+        CHECK(abs(sw*RN_H-sh*RN_W)<RN_W+RN_H);
+        int top=s.y1,bottom=s.y2+1;
         CHECK(top>=0&&bottom<=h);
         if(w<h){
             lv_area_t pad;lv_obj_get_coords(neon_app_button(a,0),&pad);
@@ -147,6 +172,38 @@ int main(void)
     }
     point=(lv_point_t){0,0};
     for(int i=0;i<12;i++){lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_set_pos(body,12,90);lv_obj_set_size(body,512,560);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);int base=timers();void *a=app_neon_outpost.create(body);pump(40);touch(a,7,50,.5,.5);CHECK(!neon_app_game(a)->paused);pos_input_game_event(1,26,'w',true);app_neon_outpost.destroy(a);lv_obj_delete(body);pos_input_game_event(1,26,0,false);pump(30);CHECK(timers()==base);errno=0;CHECK(waitpid(-1,NULL,WNOHANG)==-1&&errno==ECHILD);}
+    /* LVGL's transform (the allocation fallback, DOORS_RELAY_LVGL_SCALE) and
+     * the app-scaled image put the scene in the same place, in play and in a menu. */
+    {lv_display_set_resolution(d,568,1232);lv_area_t at[2][2];
+     struct pos_panel panel={.width=568,.height=1232};struct pos_display_geometry geometry;pos_display_geometry_init(&geometry,&panel,POS_ROTATION_0);pocketui_set_display_geometry(&geometry);
+     for(int path=0;path<2;path++){
+        if(path)setenv("DOORS_RELAY_LVGL_SCALE","1",1);
+        lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(body);lv_obj_set_pos(body,24,80);lv_obj_set_size(body,568-48,1232-104);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);host_body=body;
+        void *a=app_neon_outpost.create(body);CHECK(a);pump(60);touch(a,7,60,.5,.5);CHECK(!neon_app_game(a)->paused);
+        pump(90);scene(a,&at[path][0]);CHECK((lv_image_get_scale_x(neon_app_image(a))==LV_SCALE_NONE)==!path);
+        touch(a,4,60,.5,.5);CHECK(neon_app_game(a)->paused);lv_obj_update_layout(body);
+        lv_obj_t *im=neon_app_image(a);int x=lv_obj_get_x(im),y=lv_obj_get_y(im),w=lv_obj_get_width(im),h=lv_obj_get_height(im),s=lv_image_get_scale_x(im);
+        if(path){int dw=RN_W*s/256,dh=RN_H*s/256;x+=(RN_W-dw)/2;y+=(RN_H-dh)/2;w=dw;h=dh;}
+        lv_area_set(&at[path][1],x,y,x+w-1,y+h-1);
+        app_neon_outpost.destroy(a);host_body=NULL;fullscreen=false;lv_obj_delete(body);pump(30);unsetenv("DOORS_RELAY_LVGL_SCALE");
+     }
+     for(int k=0;k<2;k++)CHECK(abs(at[0][k].x1-at[1][k].x1)<=1&&abs(at[0][k].y1-at[1][k].y1)<=1&&lv_area_get_width(&at[0][k])==lv_area_get_width(&at[1][k])&&lv_area_get_height(&at[0][k])==lv_area_get_height(&at[1][k]));
+     /* The portrait play view is the full-width 320x360 scene; the menu view differs, so it was rescaled. */
+     CHECK(lv_area_get_width(&at[0][0])==567&&lv_area_get_height(&at[0][0])==638&&lv_area_get_width(&at[0][1])!=567);
+     /* Dirty regions in portrait play: a steady frame invalidates the scene
+      * and nothing else; a kill also invalidates the cockpit's kill ticks. */
+     lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_remove_style_all(body);lv_obj_set_pos(body,24,80);lv_obj_set_size(body,568-48,1232-104);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);host_body=body;
+     void *a=app_neon_outpost.create(body);CHECK(a);pump(60);touch(a,7,60,.5,.5);pump(200);struct rn_game *g=neon_app_game(a);
+     lv_display_add_event_cb(d,invalidated,LV_EVENT_INVALIDATE_AREA,NULL);
+     lv_area_t view;scene(a,&view);lv_area_t vs=view;lv_area_move(&vs,lv_obj_get_x(body),lv_obj_get_y(body));
+     dirty_n=0;pump(30);CHECK(dirty_n>0);for(int i=0;i<dirty_n;i++)CHECK(inside(&dirty[i],&vs));
+     /* The tick strip (cockpit(): 3 px lines at h-310-5 .. h-310+1) is not otherwise redrawn. */
+     lv_area_t root;lv_obj_get_coords(lv_obj_get_child(body,0),&root);int yy=root.y2+1-310;
+     lv_area_t tick={root.x1+lv_obj_get_width(body)/2-56,yy-6,root.x1+lv_obj_get_width(body)/2+52,yy+2};
+     CHECK(tick.y1>vs.y2);
+     g->kills++;dirty_n=0;pump(30);bool strip=false;for(int i=0;i<dirty_n;i++)strip|=inside(&tick,&dirty[i]);CHECK(strip);
+     lv_display_remove_event_cb_with_user_data(d,invalidated,NULL);
+     app_neon_outpost.destroy(a);host_body=NULL;fullscreen=false;lv_obj_delete(body);pump(30);}
     /* Opt-in device timing: a summary with every field, and nothing left on the display once closed. */
     {char path[]="/tmp/relay-stats-XXXXXX";int fd=mkstemp(path);CHECK(fd>=0);close(fd);setenv("DOORS_RELAY_STATS",path,1);uint32_t events=lv_display_get_event_count(d);
      lv_obj_t *body=lv_obj_create(lv_screen_active());lv_obj_set_size(body,512,560);lv_obj_set_flex_flow(body,LV_FLEX_FLOW_COLUMN);void *a=app_neon_outpost.create(body);CHECK(lv_display_get_event_count(d)>events);
@@ -156,6 +213,6 @@ int main(void)
      CHECK(!neon_app_game(a)->paused);CHECK(!lv_image_get_antialias(neon_app_image(a)));
      app_neon_outpost.destroy(a);lv_obj_delete(body);unsetenv("DOORS_RELAY_STATS");pump(40);CHECK(lv_display_get_event_count(d)==events);
      char text[4096]={0};FILE *f=fopen(path,"r");CHECK(f);CHECK(fread(text,1,sizeof(text)-1,f)>0);fclose(f);unlink(path);
-     CHECK(strstr(text,"interval_ms=")&&strstr(text,"game_ms=")&&strstr(text,"scene_ms=")&&strstr(text,"refresh_ms=")&&strstr(text,"draw_ms=")&&strstr(text,"flush_ms=")&&strstr(text," economy=")&&strstr(text," entries=")&&strstr(text,"# closed"));}
+     CHECK(strstr(text,"interval_ms=")&&strstr(text,"scale_ms=")&&strstr(text,"game_ms=")&&strstr(text,"scene_ms=")&&strstr(text,"refresh_ms=")&&strstr(text,"draw_ms=")&&strstr(text,"flush_ms=")&&strstr(text," economy=")&&strstr(text," entries=")&&strstr(text,"# closed"));}
     pos_input_deinit();lv_indev_delete(p);lv_display_delete(d);lv_deinit();printf("relay_app_test: %u checks passed\n",checks);return 0;
 }

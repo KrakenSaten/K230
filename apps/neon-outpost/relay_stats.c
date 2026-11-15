@@ -1,5 +1,6 @@
-/* Opt-in frame timing: the app's own timer, game step and scene render, and
- * the display's refresh split into LVGL drawing, flush and flush wait.
+/* Opt-in frame timing: the app's own timer, game step, scene render and scene
+ * scaling, and the display's refresh split into LVGL drawing, flush and
+ * flush wait.
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0 */
 #include "relay_stats.h"
@@ -9,7 +10,7 @@
 #include <string.h>
 #include <time.h>
 #define RS_CAP 512
-static const char *const names[RS_COUNT]={"interval","game","scene","refresh","draw","flush","wait"};
+static const char *const names[RS_COUNT]={"interval","game","scene","refresh","draw","flush","wait","scale"};
 struct rn_stats {
     FILE *out;lv_display_t *display;uint64_t opened,window,refr,render,flush,wait,mark;bool rendered;
     uint32_t sample[RS_COUNT][RS_CAP];unsigned n[RS_COUNT],frames,playing,stalls,pauses,economy,entries,entries_window;bool economy_on;

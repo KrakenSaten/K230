@@ -66,7 +66,8 @@ hardware access or worker thread is introduced.
   static emblem. These effects reuse the existing app timer.
 - Four scene renders over 24 ms, or eight gameplay intervals over 45 ms, enable
   economy mode. It samples alternate world columns, reconstructs their depth,
-  omits the optional halo pass and uses nearest image scaling. Sprites, weapon,
+  omits the optional halo pass and scales the scene nearest-neighbour instead
+  of filtered (see "App-side scene scaling" below). Sprites, weapon,
   reticle, interaction and simulation retain their resolution and cadence.
   Full detail is probed again after a quiet run of 180 frames: intervals of at
   most 40 ms **and** renders under 14 ms. Renders in economy are cheap by
@@ -81,7 +82,12 @@ hardware access or worker thread is introduced.
   device tuning**, not a K230 performance claim.
 - Static labels, styles, title art and framing are only invalidated when their
   values or geometry change. Animated scene pixels still invalidate their own
-  image. Audio and input continue through the existing foreground lifecycle.
+  image; in steady play that rectangle is the only dirty area
+  (`neon_app_test` records LVGL's invalidations). The portrait kill ticks lie
+  outside every widget that changes in play, so a kill or the relay
+  invalidates their strip explicitly; before, they stayed stale until
+  something else repainted it. Audio and input continue through the existing
+  foreground lifecycle.
 
 ## Visual evidence
 
@@ -104,8 +110,9 @@ illustrates animation and is not a measured device frame rate.
 The comparison shows a different world material language, object silhouettes,
 weapon construction, camera composition, lighting and control presentation.
 The remaining deliberate limitation is software-rendered detail at 320 pixels
-across. Antialiased scaling softens fractional magnification, but this does not
-establish final on-glass quality or readability.
+across. Filtered scaling softens fractional magnification, but this does not
+establish final on-glass quality or readability. (These captures predate
+app-side scaling; its output against LVGL's is compared below.)
 
 ## Host performance and memory (VERIFIED here)
 
@@ -165,6 +172,87 @@ LVGL drawing the taller scaled image: 568×639 against master's 568×355, the
 1.8× of its draw time. Antialiasing is about 2 ms of it (an experiment build
 with it off throughout: draw p50 12.0 ms, interval p95 50.8-52.5 ms).
 
+### App-side scene scaling
+
+LVGL's software image transform resamples every pixel through a generic
+per-pixel inverse mapping. The app now scales the 320×360 frame itself
+(`apps/neon-outpost/relay_scale.c`) into a buffer of exactly the drawn size,
+and LVGL draws that unscaled: on the K230's RGB565 display it is a line copy.
+
+- Sampling is pixel-centre aligned (a same-size target is an exact copy).
+  Full detail is bilinear with 1/32 weights on packed RGB565, rounded, in two
+  separable passes; each filtered source row is computed once. Economy is
+  nearest-neighbour, copying repeated rows. These replace LVGL's antialiased
+  and non-antialiased transforms, which full detail and economy used before.
+- The buffer is rescaled only when a new frame was rendered or the view
+  changed size; the title and menus are not rescaled every frame.
+- If the buffer cannot be allocated, the app falls back to LVGL's transform of
+  the native frame at the same placement. `DOORS_RELAY_LVGL_SCALE=1` selects
+  that path on purpose, for A/B measurement with one binary.
+- `DOORS_RELAY_STATS` adds `scale_ms` (the app-side scaling).
+
+Isolated, `tests/relay_scale_bench.c`: the portrait view (567×638 at
+454/256) on a 568×1232 RGB565 DIRECT-mode display, no-op flush, CPU ms p50 at
+two view bearings ([raw](relay-nine/remake/scale-bench-k230.txt)):
+
+| Unit A, `-O3` | Full detail | Economy |
+| --- | ---: | ---: |
+| LVGL transform | 21.7-25.5 (antialiased) | 12.5-14.0 (nearest) |
+| App scaling + LVGL copy | 5.9 (filtered) | 1.8 (nearest) |
+| of which app scaling | 5.4 | 1.4 |
+
+Fidelity against LVGL's output at the same placement (inner area, 8-bit
+units): filtered vs LVGL antialiased differs by 1.5-1.9 on average (PSNR
+32.7-34.2 dB), less than LVGL's own nearest vs antialiased (1.6-2.2,
+30.3-32.7 dB). The differences are sampling phase (LVGL does not centre-align
+pixels), not a different filter. Bit-identical on host and K230. Against an
+exact floating-point bilinear reference, `relay_engine_test` bounds the
+filtered output to three steps per channel, 0.25 steps on average (the
+integer rounding itself), with no overshoot past the four source neighbours.
+
+![LVGL antialiased, LVGL nearest, app filtered, app nearest](relay-nine/remake/scaling-paths.png)
+
+![The same four at 3×](relay-nine/remake/scaling-paths-zoom.png)
+
+In the shell on Unit A (Doors 0.3.9 image, master `06975053` with #131 and
+#132 merged, plus this PR). Gate route, fully playing 5 s windows at
+t = 20/25 s, two interleaved runs of each in one session. "LVGL scaling" is
+the same binary with `DOORS_RELAY_LVGL_SCALE=1`:
+
+| | master | LVGL scaling | app scaling |
+| --- | --- | --- | --- |
+| frame interval mean | 34.1-34.3 ms | 35.1-35.6 ms | 30.6-30.9 ms |
+| frame interval p95 | 42.7-44.2 ms | 49.7-54.9 ms | **33.3-35.7 ms** |
+| frame interval max | 46-63 ms | 57-67 ms | 43-54 ms |
+| scene render p50 | 10.4-11.3 ms | 11.2-12.9 ms (economy) | 11.9-12.8 ms (economy) |
+| scaling p50 | - | - | 1.32-1.37 ms (nearest) |
+| LVGL draw p50 / p95 | 7.2 / 14.8-15.5 ms | 12.0 / 23.7-27.4 ms | 0.48-0.49 / 0.80-0.85 ms |
+| shell CPU in play, average / 0.5 s peak | 21-23% / 72-74% | 27-28% / 90-92% | 21% / 64-66% |
+
+Standing still in full detail until the sentinels win (24.35 s of game time,
+the same in every run): scene 21.2 ms p50, filtered scaling 5.4 ms, draw
+0.5 ms, interval p95 32.4-32.8 ms (master in the same phase: 33.8-35.1 ms).
+
+Economy entered once per route session, when combat started (t ≈ 15 s), and
+stayed (`entries=0` in every later window, no exits); it never entered in the
+standing sessions. The thresholds in `relay_economy.h` are unchanged.
+
+End of run: the emblem's 1.4 s expansion redraws only its own square. In the
+5 s window after a death on the route (no play frames in it), those frames
+draw in 2.19-2.25 ms p50, 2.47-3.08 ms p95, with app scaling, over the menu's
+20%-opacity scene. With LVGL scaling the death fell inside a window with play
+frames, so its emblem frames could not be separated; the first version's
+whole-screen redraw was not re-measured.
+
+| Memory | |
+| --- | ---: |
+| Scaled buffer, portrait 567×638 | 723,496 B |
+| Maps, packed source row and two filtered rows | 11,872 B |
+| Total, while the app is open | 735,368 B |
+| Shell RSS high-water in play, LVGL / app scaling | 16.1-16.3 / 17.1-17.2 MB |
+| Shell RSS after 5 open/play/close cycles | flat in every run |
+| Unit A MemAvailable | 928 MB |
+
 | Fixed allocation | Before | After |
 | --- | ---: | ---: |
 | Game state | 21,312 B | 21,312 B |
@@ -183,14 +271,21 @@ VERIFIED on this host:
 
 - Full SDL shell build; focused changed code compiles with `-Wall -Wextra -Werror`.
   Initial full-shell build reports existing warnings in unrelated applications.
-- `make CC=gcc relay-nine-test`: engine 29,820 checks; visual invariants 745
-  checks; actual service/ALSA file-output audio 26 checks.
+- `make CC=gcc relay-nine-test`: engine 32,201 checks (including the scaler:
+  same-size copies, flat colour, nearest picks, the bilinear reference bound,
+  no overshoot, size limits); visual invariants 745 checks; actual
+  service/ALSA file-output audio 26 checks.
 - `make CC=gcc relay-nine-san-test`: both engine and visual checks pass under
   AddressSanitizer/UndefinedBehaviorSanitizer.
-- `neon_app_test`: 1,293 checks across Small/Medium/Large, 568×1232, 1232×568
-  and 1280×720; touch movement/turn/fire, releases, focus/lock/screen-off,
-  switching, pause/restart, title/help/sound, full route, death/victory,
-  repeated close/reopen, timer/event cleanup and load fallback.
+- `neon_app_test`: 1,280 checks without captures across Small/Medium/Large,
+  568×1232, 1232×568 and 1280×720; touch movement/turn/fire, releases,
+  focus/lock/screen-off, switching, pause/restart, title/help/sound, full
+  route, death/victory, repeated close/reopen, timer/event cleanup and load
+  fallback. In play the drawn image is checked pixel for pixel against
+  `rn_scale` of the current frame; LVGL's path (`DOORS_RELAY_LVGL_SCALE`)
+  puts the scene in the same place in play and in a menu; a steady frame
+  invalidates only the scene; a kill invalidates the kill-tick strip (this
+  check fails without the fix).
 - `relay_sdl_input_test`: 21 physical key translation/held-input checks.
 - `neon_shell_test.sh`: real-shell all-layout/all-text-size overlap audits,
   full-screen/menu transitions, pointer, physical key path, Back/Home and reopen.
@@ -200,14 +295,15 @@ VERIFIED on this host:
   retains sentinel occlusion behind low walls in both detail modes.
 - `text_size_ui_test`: 199 shared style checks, zero failures.
 - `style_lint.sh`, `neon_outpost_lint.sh`, `license_audit_test.sh` and
-  `git diff --check` pass.
+  `git diff --check` pass. (Merged with current master, `license_audit_test`
+  reports master's own unclassified PR #130 screenshots, as master does.)
 
 Normal simulator commands from a host with the documented development packages:
 
 ```sh
 cmake -S ui/shell -B work/relay-shell -DCMAKE_BUILD_TYPE=Release
 cmake --build work/relay-shell --target pocketos-shell neon_app_test \
-  relay_visual_test relay_sdl_input_test relay_image_bench -j6
+  relay_visual_test relay_sdl_input_test relay_image_bench relay_scale_bench -j6
 make CC=gcc relay-nine-test
 make CC=gcc relay-nine-san-test
 mkdir -p work/relay-shots
@@ -225,17 +321,25 @@ LVGL and the application dependency versions were unchanged. Frozen renders use
 
 ## Remaining device gate
 
-There is no attached Unit B or pinned Xuantie SDK/toolchain in this environment.
-The RISC-V/DRM build, physical touch coordinates, AMOLED appearance, thermal/load
-behavior, total device RSS and actual frame pacing are **not verified** for this
-change. No firmware was flashed, service stopped or live unit modified.
+VERIFIED on Unit A (Doors 0.3.9 image `c03795ce`; shell cross-built with the
+pinned SDK in sysroot mode and run from a kit through the
+[isolated Relay Nine gate](../hardware/relay-nine-gate/rn-start.sh), nothing
+under `/usr` changed, restored after each run): the RISC-V/DRM build, frame
+pacing and draw cost on the gate route and standing to death, economy
+behaviour, end-of-run redraw, shell RSS over repeated open/play/close, audio
+helper lifecycle, pause, and leaving while keys are held. Input was injected
+through `shell.key`, the physical keyboard's path after the matrix read.
 
-On a connected build host, first build the exact candidate source snapshot using
-the pinned SDK. The package export uses `git archive HEAD`; a dirty-build override
-does not package working changes. Keep the installed binary and its hash, stage a
-separate candidate, and follow the existing [isolated Relay Nine gate](../hardware/relay-nine-gate/rn-start.sh)
-and its restoration procedure. Confirm the shell returns after candidate exit
-before extending the run. Use `DOORS_RELAY_STATS` for render/draw/flush/interval
-windows, compare full/economy behavior with sound on and off, inspect memory over
-repeated open/play/pause/close, and restore the original binary/service after the
-session. There is no reason to reflash the SD image for this app-only gate.
+**Not verified** (needs a person at the panel): AMOLED appearance of the
+filtered scaling, the circular pads under a finger, and Small/Large text on
+glass. The 0.3.9 image has `LV_USE_SNAPSHOT 0`, so no panel captures were
+possible; the scaling comparison above is from LVGL's own renderer on the host
+and the K230 bench. Thermal behaviour over long sessions was not measured.
+
+To repeat a device run: build the exact candidate snapshot with the pinned
+SDK, keep the installed binary and its hash, stage a separate kit, start it
+with `rn-start.sh` and restore with `rn-restore.sh`. Use `DOORS_RELAY_STATS`
+for interval/render/scale/draw/flush windows and `DOORS_RELAY_LVGL_SCALE=1`
+for LVGL's scaling in the same binary; unset it before `rn-restore.sh`, which
+restarts the installed service from the calling environment. There is no
+reason to reflash the SD image for this app-only gate.

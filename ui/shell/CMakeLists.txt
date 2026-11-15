@@ -61,7 +61,8 @@ set(POKER_APP_SOURCES
 set(NEON_SOURCES
     ${REPO_DIR}/apps/neon-outpost/relay.c
     ${REPO_DIR}/apps/neon-outpost/relay_render.c
-    ${REPO_DIR}/apps/neon-outpost/relay_art.c)
+    ${REPO_DIR}/apps/neon-outpost/relay_art.c
+    ${REPO_DIR}/apps/neon-outpost/relay_scale.c)
 
 set(ROTOR_SOURCES
     ${REPO_DIR}/apps/rotorterror/rotor.c
@@ -1751,6 +1752,15 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     target_compile_options(relay_image_bench PRIVATE -Wall -Wextra)
     target_link_libraries(relay_image_bench PRIVATE lvgl m)
+
+    add_executable(relay_scale_bench
+        ${REPO_DIR}/tests/relay_scale_bench.c ${NEON_SOURCES})
+    target_include_directories(relay_scale_bench PRIVATE
+        "${REPO_DIR}/apps/neon-outpost" "${LVGL_DIR}")
+    target_compile_definitions(relay_scale_bench PRIVATE LV_LVGL_H_INCLUDE_SIMPLE
+        LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    target_compile_options(relay_scale_bench PRIVATE -Wall -Wextra)
+    target_link_libraries(relay_scale_bench PRIVATE lvgl m)
 
     add_executable(neon_app_test
         ${REPO_DIR}/tests/neon_app_test.c

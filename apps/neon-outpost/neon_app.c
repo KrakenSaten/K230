@@ -5,6 +5,7 @@
 #include "neon_app.h"
 #include "relay_audio.h"
 #include "relay_economy.h"
+#include "relay_scale.h"
 #include "relay_stats.h"
 #include "pocketui.h"
 #include "shell_power.h"
@@ -20,6 +21,11 @@ struct neon_app {
     bool compact_brand,compact_message,warning;
     int scene_x,scene_y,scene_w,scene_h;struct rn_economy economy;unsigned render_us;
     lv_image_dsc_t image_data;lv_timer_t *timer;uint32_t last;
+    /* The scene is scaled here (relay_scale.h) and drawn unscaled. lvgl_scale
+     * selects LVGL's image transform instead: the fallback when the buffer
+     * cannot be allocated, and DOORS_RELAY_LVGL_SCALE for A/B measurement. */
+    struct rn_scaler scaler;int view_x,view_y;unsigned view_scale;bool scene_dirty,lvgl_scale;
+    int ticks; /* kill-tick state last invalidated */
     struct rn_input touch;int pad;bool help,sound,started;int volume;
     struct rn_stats *stats;uint64_t tick;bool title_shown,fullscreen;
 };
@@ -37,6 +43,50 @@ static void scene_rect(struct neon_app *a,int x,int y,int w,int h)
     a->scene_x=x;a->scene_y=y;a->scene_w=w;a->scene_h=h;
     lv_obj_invalidate(a->root);
 }
+/* The scene's top-left corner and uniform scale (in 1/256); present() draws it. */
+static void scene_view(struct neon_app *a,int x,int y,unsigned scale)
+{
+    if(a->view_x==x&&a->view_y==y&&a->view_scale==scale)return;
+    a->view_x=x;a->view_y=y;a->view_scale=scale;a->scene_dirty=true;
+}
+static void image_source(struct neon_app *a,const uint16_t *pixels,int w,int h)
+{
+    lv_image_dsc_t *d=&a->image_data;
+    if(d->data==(const uint8_t *)pixels&&(int)d->header.w==w&&(int)d->header.h==h)return;
+    d->header.w=(uint32_t)w;d->header.h=(uint32_t)h;d->header.stride=(uint32_t)w*2;
+    d->data_size=(uint32_t)((size_t)w*h*2);d->data=(const uint8_t *)pixels;
+    lv_image_set_src(a->image,d);
+}
+/* Puts the latest frame on screen at the current view. In the normal path the
+ * app scales it into a buffer of exactly the drawn size (filtered, or nearest
+ * in economy) and LVGL copies it; nothing is rescaled while the frame and the
+ * view are unchanged (title, menus). */
+static void present(struct neon_app *a)
+{
+    if(!a->scene_dirty||!a->view_scale)return;
+    a->scene_dirty=false;
+    int w=RN_W*(int)a->view_scale/256,h=RN_H*(int)a->view_scale/256;
+    if(w<1)w=1;
+    if(h<1)h=1;
+    if(!a->lvgl_scale&&!rn_scaler_resize(&a->scaler,RN_W,RN_H,w,h)){
+        a->lvgl_scale=true;LV_LOG_WARN("relay: no memory for the scaled scene, using LVGL scaling");
+    }
+    lv_image_cache_drop(&a->image_data);
+    if(a->lvgl_scale){
+        image_source(a,a->rendered.pixels,RN_W,RN_H);
+        lv_image_set_scale(a->image,a->view_scale);
+        /* LVGL scales about the centre of the unscaled object. */
+        lv_obj_set_pos(a->image,a->view_x-(RN_W-w)/2,a->view_y-(RN_H-h)/2);
+    }else{
+        uint64_t t=rn_stats_now();
+        rn_scale(&a->scaler,a->rendered.pixels,!a->economy.on);
+        rn_stats_add(a->stats,RS_SCALE,t);
+        image_source(a,a->scaler.pixels,w,h);
+        lv_image_set_scale(a->image,LV_SCALE_NONE);
+        lv_obj_set_pos(a->image,a->view_x,a->view_y);
+    }
+    lv_obj_invalidate(a->image);
+}
 /* Portrait cockpit: the camera is tall, with dedicated instrument and touch
  * bays. Landscape uses side consoles. Scaling remains uniform, with no crop. */
 static void gameplay_layout(struct neon_app *a,int w,int h)
@@ -53,8 +103,7 @@ static void gameplay_layout(struct neon_app *a,int w,int h)
     unsigned scale=(unsigned)vw*256/RN_W;
     int actual_w=RN_W*(int)scale/256,actual_h=RN_H*(int)scale/256;
     scene_rect(a,(w-actual_w)/2,top,actual_w,actual_h);
-    lv_image_set_scale(a->image,scale);
-    lv_obj_set_pos(a->image,(w-RN_W)/2,top+(actual_h-RN_H)/2);
+    scene_view(a,(w-actual_w)/2,top,scale);
     style_toggle(a->brand,POS_STYLE_GAME_BRAND_COMPACT,wide,&a->compact_brand);
     lv_obj_set_pos(a->brand,x,y);lv_obj_set_width(a->brand,wide?170:rw);
     lv_obj_set_pos(a->eyebrow,x,y+(wide?36:48));lv_obj_set_width(a->eyebrow,wide?172:rw);
@@ -80,6 +129,7 @@ static void gameplay_layout(struct neon_app *a,int w,int h)
         }
         lv_obj_set_pos(a->button[i],bx,by);lv_obj_set_size(a->button[i],bwidth,bheight);
     }
+    present(a);
 }
 static void layout(struct neon_app *a)
 {
@@ -98,8 +148,8 @@ static void layout(struct neon_app *a)
     if(vw>left-32){vw=left-32;vh=vw*RN_H/RN_W;}
     if(vw<1)vw=1;
     if(vh<1)vh=1;
-    lv_image_set_scale(a->image,(unsigned)vw*256/RN_W);
-    lv_obj_set_pos(a->image,(left-RN_W)/2,190+(vh-RN_H)/2);
+    unsigned scale=(unsigned)vw*256/RN_W;int dw=RN_W*(int)scale/256,dh=RN_H*(int)scale/256;
+    scene_view(a,(left-dw)/2,190+(vh-dh)/2,scale);
     scene_rect(a,(left-vw)/2,190,vw,vh);
     int msgy=title?190+vh+12:a->game.state!=RN_PLAY&&!wide?368:206;
     lv_obj_set_pos(a->message_box,24,msgy);
@@ -113,6 +163,7 @@ static void layout(struct neon_app *a)
         int bx=wide?left+12:16+at*(bw+16),by=wide?140+at*76:h-88;at++;
         lv_obj_set_pos(a->button[i],bx,by);lv_obj_set_size(a->button[i],bw,72);
     }
+    present(a);
 }
 static void text(lv_obj_t *obj,const char *value){if(strcmp(lv_label_get_text(obj),value))lv_label_set_text(obj,value);}
 /* Where the end-of-run emblem is drawn (end_art), in screen coordinates. */
@@ -133,6 +184,14 @@ static void refresh(struct neon_app *a)
     if(g->state!=RN_PLAY&&!g->reduced_motion&&lv_tick_get()-a->end_at<1400){
         int cx,cy,radius;end_geometry(a,&cx,&cy,&radius);int m=radius+40;
         lv_area_t box={cx-m,cy-m,cx+m,cy+m};lv_obj_invalidate_area(a->fx,&box);
+    }
+    /* The portrait kill ticks (cockpit) lie outside every widget that changes
+     * in play, so a kill or the relay must redraw their strip itself. */
+    int ticks=g->relay?100:g->kills;
+    if(ticks!=a->ticks){
+        a->ticks=ticks;lv_area_t r;lv_obj_get_coords(a->root,&r);
+        int w=lv_obj_get_width(a->root),yy=r.y1+lv_obj_get_height(a->root)-310;
+        lv_area_t strip={r.x1+w/2-58,yy-8,r.x1+w/2+54,yy+4};lv_obj_invalidate_area(a->root,&strip);
     }
     int ammo=g->weapon==RN_SHOTGUN?g->loaded:g->mag,reserve=g->weapon==RN_SHOTGUN?g->shells:g->reserve;
     if(!a->started)lv_snprintf(b,sizeof(b),"REACTOR DORMANT\nAWAITING OPERATOR");
@@ -168,7 +227,7 @@ static void refresh(struct neon_app *a)
         rn_render_quality(g,&a->rendered,a->economy.on);
         /* Fed to the economy controller by frame(), with the interval. */
         uint64_t elapsed=rn_stats_now()-t;a->render_us=elapsed>UINT32_MAX?UINT32_MAX:(unsigned)elapsed;
-    }rn_stats_add(a->stats,RS_SCENE,t);lv_image_cache_drop(&a->image_data);lv_obj_invalidate(a->image);}
+    }rn_stats_add(a->stats,RS_SCENE,t);a->scene_dirty=true;}
     a->title_shown=title;layout(a);
 }
 static void clear(struct neon_app *a){memset(&a->touch,0,sizeof(a->touch));a->pad=-1;pos_input_game_reset(2);}
@@ -330,6 +389,7 @@ static void *create(lv_obj_t *body)
     lv_obj_add_event_cb(a->root,cockpit,LV_EVENT_DRAW_MAIN,a);
     a->image_data.header.magic=LV_IMAGE_HEADER_MAGIC;a->image_data.header.cf=LV_COLOR_FORMAT_RGB565;a->image_data.header.w=RN_W;a->image_data.header.h=RN_H;a->image_data.header.stride=RN_W*2;a->image_data.data_size=sizeof(a->rendered.pixels);a->image_data.data=(uint8_t *)a->rendered.pixels;
     a->image=lv_image_create(a->root);lv_image_set_src(a->image,&a->image_data);lv_image_set_antialias(a->image,true);
+    a->lvgl_scale=getenv("DOORS_RELAY_LVGL_SCALE")!=NULL;
     a->fx=lv_obj_create(a->root);lv_obj_remove_style_all(a->fx);
     lv_obj_set_size(a->fx,LV_PCT(100),LV_PCT(100));
     lv_obj_remove_flag(a->fx,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
@@ -359,7 +419,7 @@ static void *create(lv_obj_t *body)
 static void destroy(void *priv)
 {
     struct neon_app *a=priv;if(!a)return;lv_timer_delete(a->timer);rn_audio_stop(&a->audio);rn_stats_close(a->stats);pos_input_game_unsubscribe(a->root);pos_input_set_raw_target(NULL);
-    lv_image_cache_drop(&a->image_data);lv_image_set_src(a->image,NULL);
+    lv_image_cache_drop(&a->image_data);lv_image_set_src(a->image,NULL);rn_scaler_free(&a->scaler);
     lv_obj_remove_event_cb(a->fx,end_art);
     lv_obj_remove_event_cb(a->root,cockpit);
     lv_obj_remove_event_cb(a->root,lost);lv_obj_remove_event_cb(a->root,key);lv_obj_remove_event_cb(a->root,resized);
