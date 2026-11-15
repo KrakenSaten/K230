@@ -814,6 +814,32 @@ static void test_instance_ids(void)
     check("found again after a dropout: the old id, the old colour",
           ids[0] == b && ids[1] == a && vision_inst_track_color(ids[1], 0) == ca);
 
+    /* The hardware checklist's hide-and-reappear, at its boundary: hidden
+     * for exactly VISION_TRACK_MAX_MISSES frames (the longest a track
+     * coasts), A comes back where it was with its id and its colour, while B
+     * keeps its own throughout. Frames, not seconds: 15 is ~0.6 s at 25 fps
+     * and ~1 s at INSTANCES' 13-17 fps (unit B, PR #131). */
+    for (i = 0; i < 4; i++) {
+        d[0] = det(0, 176, 10, 40, 80);
+        d[1] = det(0, 34, 10, 40, 80);
+        vision_tracker_update_ids(&tr, d, 2, ids);
+    }
+    stable = 1;
+    for (i = 0; i < VISION_TRACK_MAX_MISSES; i++) {
+        d[0] = det(0, 176, 10, 40, 80);
+        vision_tracker_update_ids(&tr, d, 1, ids);
+        stable &= ids[0] == b && vision_inst_track_color(ids[0], 0) == cb;
+    }
+    check("hidden for the longest a track coasts: the other keeps its id and colour", stable);
+    check("and the hidden one's track is still there, unseen", find(&tr, a) && !find(&tr, a)->seen &&
+                                                                    find(&tr, a)->misses == VISION_TRACK_MAX_MISSES);
+    d[0] = det(0, 176, 10, 40, 80);
+    d[1] = det(0, 34, 10, 40, 80);
+    vision_tracker_update_ids(&tr, d, 2, ids);
+    check("back after VISION_TRACK_MAX_MISSES frames: the old id, the old colour",
+          ids[0] == b && ids[1] == a && vision_inst_track_color(ids[1], 0) == ca);
+    check("and it is still confirmed (its box keeps its #id tag)", find(&tr, a)->confirmed);
+
     /* A box mostly inside A's: A's second box, A's id. */
     d[2] = det(0, 36, 12, 36, 60);
     vision_tracker_update_ids(&tr, d, 3, ids);
@@ -832,6 +858,7 @@ static void test_instance_ids(void)
     check("and comes back with a new id, never an old one", ids[0] == b && c != 0 && c != a && c != b &&
                                                                  c == tr.next_id - 1 && !find(&tr, c)->confirmed);
     check("its colour is its new id's", vision_inst_track_color(c, 0) == vision_inst_track_color(c, 7));
+    check("one frame past the boundary it is a new colour too", vision_inst_track_color(c, 0) != ca);
 
     /* A full tracker: a newcomer has no track and no id. */
     vision_tracker_init(&tr);

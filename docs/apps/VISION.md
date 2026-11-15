@@ -574,7 +574,9 @@ class's colour, as before. So:
   the tracker keeps its id, whatever order the detector lists them in;
 - an object found again after a dropout (within the tracker's 15 frames)
   has its old id and colour; one gone longer comes back with a new id and
-  its new colour;
+  its new colour. The limit is in frames, not seconds: about 0.6 s at 25 fps,
+  about 1 s at the 13-17 fps INSTANCES ran at on unit B
+  (`tests/vision_track_test.c` checks both sides of it);
 - a new object is coloured from its first frame, by the id it will keep; its
   box says its id once the tracker confirms it (two sightings), as in TRACK
   (`#4 person 87%`, `#4 person` when crowded);
