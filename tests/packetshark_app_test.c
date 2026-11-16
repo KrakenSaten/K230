@@ -39,7 +39,9 @@
 #include "chrome.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "pocketui_audit.h"
 #include "pos_theme.h"
+#include "psk_model.h"
 #include "shell_ipc.h"
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
@@ -69,6 +71,9 @@
                                  false))
 
 extern const struct pocketos_app app_packetshark;
+/* apps/packetshark/psk_app.h test seams */
+extern lv_obj_t *psk_app_part(void *priv, const char *name);
+extern void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset);
 
 static int failed;
 static int checks;
@@ -648,8 +653,8 @@ static void capture_journey(void)
     CHECK("START: capturing within the hello deadline", wait_for("CAPTURING", 3500));
     CHECK("the header says so", strcmp(g_hint, "CAPTURING · SYNTH0") == 0);
     pump(1500);
-    l = shown("STORED ");
-    CHECK("counters rise", l && strncmp(lv_label_get_text(l), "STORED 0 ", 9) != 0 && !shown("WAITING FOR PACKETS"));
+    l = containing_in(app_body, " PKT · ");
+    CHECK("counters rise: the readout names the newest second's packets", l && !shown("WAITING FOR PACKETS"));
     CHECK("HOLD and STOP are full targets", target_ok(clickable_of(shown("HOLD")), 64, "HOLD") &&
                                                 target_ok(clickable_of(shown("STOP")), 64, "STOP"));
     shot("capturing");
@@ -694,6 +699,256 @@ static void capture_journey(void)
         CHECK("closing a capturing app takes at most 500 ms", took <= 500);
     }
     CHECK("and leaves no helper", no_child());
+}
+
+/* ---- M4: the graph, the protocols, the layout ----------------------------------------- */
+
+/* A box of mockups/layout.json (01-live-capture.png), within 2 px. */
+static bool box_ok(const char *part, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    lv_obj_t *o = psk_app_part(app_priv, part);
+    lv_area_t a;
+
+    if (!o) {
+        printf("     %s: missing\n", part);
+        return false;
+    }
+    lv_obj_update_layout(o);
+    lv_obj_get_coords(o, &a);
+    if (abs((int)(a.x1 - x)) > 2 || abs((int)(a.y1 - y)) > 2 || abs((int)(lv_area_get_width(&a) - w)) > 2 ||
+        abs((int)(lv_area_get_height(&a) - h)) > 2) {
+        printf("     %s: %d,%d %dx%d, the mockup %d,%d %dx%d\n", part, (int)a.x1, (int)a.y1,
+               (int)lv_area_get_width(&a), (int)lv_area_get_height(&a), (int)x, (int)y, (int)w, (int)h);
+        return false;
+    }
+    return true;
+}
+
+#if LV_USE_SNAPSHOT
+/* How many pixels of the graph are exactly this colour, in rows y0..y1 of it
+ * (y1 < 0: to the bottom). */
+static unsigned pixels_of(lv_color_t c, int y0, int y1)
+{
+    lv_obj_t *g = psk_app_part(app_priv, "graph");
+    lv_draw_buf_t *snap;
+    unsigned n = 0;
+    uint32_t x;
+    uint32_t y;
+
+    if (!g) {
+        return 0;
+    }
+    pump(40);
+    snap = lv_snapshot_take(g, LV_COLOR_FORMAT_RGB888);
+    if (!snap) {
+        return 0;
+    }
+    if (y1 < 0 || (uint32_t)y1 >= snap->header.h) {
+        y1 = (int)snap->header.h - 1;
+    }
+    for (y = (uint32_t)y0; (int)y <= y1; y++) {
+        const unsigned char *row = (const unsigned char *)snap->data + (size_t)y * snap->header.stride;
+
+        for (x = 0; x < snap->header.w; x++) {
+            if (row[x * 3 + 2] == c.red && row[x * 3 + 1] == c.green && row[x * 3] == c.blue) {
+                n++;
+            }
+        }
+    }
+    lv_draw_buf_destroy(snap);
+    return n;
+}
+#endif
+
+static void audit_issue(const struct pocketui_audit_issue *is, void *user)
+{
+    int *bad = user;
+
+    if (is->kind == POCKETUI_AUDIT_TRUNCATED) {
+        return;
+    }
+    if (*bad < 3) {
+        printf("     audit: %s %s '%s' %d,%d-%d,%d / '%s'\n", pocketui_audit_kind_name(is->kind), is->path, is->text,
+               (int)is->area.x1, (int)is->area.y1, (int)is->area.x2, (int)is->area.y2, is->other_text);
+    }
+    (*bad)++;
+}
+
+static int audit_live(void)
+{
+    int bad = 0;
+
+    lv_obj_scroll_to_y(lv_obj_get_parent(lv_obj_get_parent(psk_app_part(app_priv, "traffic"))), 0, LV_ANIM_OFF);
+    pump(60);
+    lv_obj_update_layout(app_body);
+    pocketui_audit(app_body, audit_issue, &bad, NULL);
+    return bad;
+}
+
+static int readout_second(void)
+{
+    lv_obj_t *r = psk_app_part(app_priv, "readout");
+    int mm;
+    int ss;
+
+    if (!r || sscanf(lv_label_get_text(r), "%d:%d", &mm, &ss) != 2) {
+        return -1;
+    }
+    return mm * 60 + ss;
+}
+
+static void tap_graph_column(int col)
+{
+    lv_obj_t *g = psk_app_part(app_priv, "graph");
+    lv_area_t ga;
+
+    lv_obj_scroll_to_view_recursive(g, LV_ANIM_OFF);
+    pump(40);
+    lv_obj_get_coords(g, &ga);
+    finger_point.x = ga.x1 + col * 7 + 2;
+    finger_point.y = ga.y2 - 20;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+static void m4_live(bool portrait)
+{
+    int64_t poll_us = 0;
+    int64_t frame_us = 0;
+    int before;
+    int after;
+    int i;
+    int t;
+    int m;
+    int bad;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:300:1", 1);
+    app_start();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(3200);
+    if (portrait) {
+        bool ok = box_ok("status", 20, 166, 528, 36) & box_ok("traffic", 20, 228, 528, 374) &
+                  box_ok("graph", 40, 320, 418, 209) & box_ok("protocols", 20, 624, 528, 240) &
+                  box_ok("proto0", 40, 642, 236, 52) & box_ok("proto1", 292, 642, 236, 52) &
+                  box_ok("proto6", 40, 798, 236, 52) & box_ok("proto7", 292, 798, 236, 52) &
+                  box_ok("session", 20, 886, 528, 84) & box_ok("tab0", 20, 96, 170, 56) &
+                  box_ok("tab2", 377, 96, 171, 56) & box_ok("bar0", 20, 1138, 170, 64) &
+                  box_ok("bar2", 377, 1138, 171, 64);
+
+        CHECK("LIVE matches the boxes of mockup 01 within 2 px (signals excepted)", ok);
+    }
+#if LV_USE_SNAPSHOT
+    {
+        unsigned c;
+        int missing = 0;
+
+        for (c = 0; c < PPC_CLASS_COUNT; c++) {
+            int hue = psk_class_hue(c);
+            lv_color_t col = hue < 0 ? pos_theme_color(POS_COLOR_TEXT_SECONDARY) : pos_identity_hue((unsigned)hue);
+
+            if (pixels_of(col, 0, -1) == 0) {
+                printf("     class %s not drawn\n", psk_class_word(c));
+                missing++;
+            }
+        }
+        CHECK("every class of the synthetic traffic is drawn in its own hue", missing == 0);
+    }
+#endif
+    shot("m4-capturing");
+    /* A column and its readout (F8 up to the readout). */
+    before = readout_second();
+    tap_graph_column(57);
+    after = readout_second();
+    if (!(before >= 2 && after >= 0 && after < before)) {
+        printf("     readout %d -> %d '%s'\n", before, after, lv_label_get_text(psk_app_part(app_priv, "readout")));
+    }
+    CHECK("a tap selects a column: the readout names that earlier second",
+          before >= 2 && after >= 0 && after < before && after >= before - 3);
+    shot("m4-selected");
+    pump(1100);
+    CHECK("and the selection stays on its second as time goes on", after >= 0 && readout_second() == after);
+    tap("HOLD");
+    pump(2600);
+#if LV_USE_SNAPSHOT
+    CHECK("held seconds are marked above the baseline (T4)",
+          pixels_of(pos_theme_color(POS_COLOR_TEXT_MUTED), PSK_GRAPH_BAND - 4, PSK_GRAPH_BAND - 1) > 0);
+#endif
+    /* A held column, tapped: the newest second, counted and not stored. */
+    tap_graph_column(PSK_GRAPH_SECONDS - 1);
+    CHECK("the readout of a held second says so", containing_in(app_body, " · HELD · ") != NULL);
+    shot("m4-hold");
+    tap("RESUME");
+    pump(300);
+    tap("\xe2\x80\xba PACKETS");
+    pump(100);
+    CHECK("the readout's PACKETS opens the PACKETS tab", containing_in(app_body, "PACKETS IN MEMORY") != NULL);
+    app_packetshark.back(app_priv);
+    pump(100);
+    tap("TCP");
+    pump(100);
+    CHECK("a protocol opens the PACKETS tab", containing_in(app_body, "PACKETS IN MEMORY") != NULL);
+    app_packetshark.back(app_priv);
+    pump(100);
+
+    /* Every theme and display mode, then every text size: nothing clipped or
+     * overlapping on LIVE (I1 for LIVE). */
+    bad = 0;
+    for (t = 0; t < pos_theme_count(); t++) {
+        for (m = 0; m < POS_MODE_COUNT; m++) {
+            char why[96];
+
+            pos_theme_select(pos_theme_at(t)->id, pos_mode_name((enum pos_mode)m), why, sizeof(why));
+            pump(60);
+            i = audit_live();
+            if (i) {
+                printf("     theme %s %s: %d issue(s)\n", pos_theme_at(t)->id, pos_mode_name((enum pos_mode)m), i);
+            }
+            bad += i;
+        }
+    }
+    {
+        char why[96];
+
+        pos_theme_select("doors", "normal", why, sizeof(why));
+    }
+    CHECK("every theme and display mode: LIVE has nothing clipped or overlapping", bad == 0);
+    bad = 0;
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        int n;
+
+        pos_theme_select_text_size((enum pos_text_size)i);
+        pump(80);
+        n = audit_live();
+        if (n) {
+            printf("     text size %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), n);
+        }
+        bad += n;
+        if (i == POS_TEXT_SIZE_LARGE) {
+            shot("m4-large");
+        }
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(80);
+    CHECK("every text size: LIVE has nothing clipped or overlapping", bad == 0);
+    app_stop();
+
+    /* Cost at 8,000 synthetic packets a second (a host regression guard,
+     * not a device figure). */
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:8000:1", 1);
+    app_start();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(1500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll_us, &frame_us, 0);
+    printf("     8,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll_us, (long long)frame_us);
+    CHECK("at 8,000 pps the poll's work stays under 4 ms", poll_us > 0 && poll_us < 4000);
+    app_stop();
+    CHECK("and no helper is left", no_child());
 }
 
 static void faults(void)
@@ -811,12 +1066,14 @@ int main(void)
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     setup_screens();
     capture_journey();
+    m4_live(true);
     faults();
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     shot_orientation = "landscape";
     use_display(POS_ROTATION_90);
     setup_screens();
     capture_journey();
+    m4_live(false);
     shot_orientation = "portrait";
     use_display(POS_ROTATION_0);
     cycles();

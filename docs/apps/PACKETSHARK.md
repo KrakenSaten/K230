@@ -1,6 +1,6 @@
 # PacketShark: a packet analyzer for Doors
 
-**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request). ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
+**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request); M4 (the traffic graph and the protocol distribution) is stacked on it on `feature/packetshark-m4`. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
 
 PacketShark captures the traffic an Ethernet interface sees, counts it and, in later milestones, lists, decodes, filters and saves it. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
 
@@ -25,11 +25,11 @@ The design package these milestones implement (product spec, architecture, UI/UX
 
 | Milestone | Scope | State |
 | --- | --- | --- |
-| M0 | ADR-016, DS §59, this document, the mockups, the libpcap dependency declaration | Done; ADR-016 and DS §59 await the owner |
+| M0 | ADR-016, DS §59, this document, the mockups, the libpcap dependency declaration | Done; ADR-016, DS §59 and libpcap accepted 2026-11-16 |
 | M1 | `core/pocketpcap`: the decoder, the row formatter, the `.pcap` reader and writer; `pos-capture decode` | Done, host-tested |
 | M2 | `pos-capture session`: live, replay and synthetic sources, the bounded store, counters and bins, the line protocol, the lock, the privilege drop, `pos-capture bench` | Done, host-tested; on Unit A see §9 |
 | M3 | The app: setup, START, live counters, HOLD, STOP, DISCARD, the error panel, the launcher entry, the screen kept on | Done, host-tested; on Unit A see §9 |
-| M4 | Traffic graph, protocol distribution | Not started |
+| M4 | Traffic graph (60 s, logarithmic, stacked by class), a tappable second and its readout, protocol distribution; the per-frame cost measured | Done, host-tested; on Unit A see §9.3 |
 | M5 | Packet list, display filter, sort | Not started (the helper already answers `window` for the newest or a given packet, without a filter) |
 | M6 | Packet inspector, pins | Not started (the store already pins) |
 | M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Not started (the counters are carried as zeros) |
@@ -128,7 +128,7 @@ Three tabs, LIVE, PACKETS and INSPECT (disabled in this version), and a capture 
 | View | What it shows | Bar |
 | --- | --- | --- |
 | Setup | READY or NO LINK; the interfaces from sysd (`system.status.network`; Ethernet with a carrier is selectable, Wi-Fi listed and disabled); capture options (stored bytes, stop after, capture-filter preset, promiscuous OFF); the privacy note | START CAPTURE |
-| Capturing, hold | CAPTURING or HOLD chip, interface, link speed, stored-bytes mode, elapsed; packets per second, throughput; packets, bytes, dropped, buffer fill; stored, held, shed; a banner for kernel drops, shedding, or what HOLD is counting | FILTER (later), HOLD or RESUME, STOP |
+| Capturing, hold | CAPTURING or HOLD chip, interface, link speed, stored-bytes mode, elapsed; a banner for kernel drops, shedding, or what HOLD is counting. TRAFFIC: packets per second, throughput, the graph of the last 60 seconds (DS §59.5) and a readout of the selected or newest second (`03:55 · 6 885 PKT · TCP 99%`, `00:06 · HELD · 300 PASSED`); a tap on a column selects that second, a second tap clears it; the readout's `› PACKETS` opens PACKETS. PROTOCOLS: each class's packets in the newest second and its share of the session's stored packets, a tap opens PACKETS. SESSION: packets, bytes, dropped, buffer fill. No signals panel until M7 | FILTER (later), HOLD or RESUME, STOP |
 | Stopped | STOPPED and why (BY YOU, TIME LIMIT, LINK LOST) | SAVE (later), NEW CAPTURE, DISCARD |
 | Helper stopped | The error panel: what happened and its signal, that the interface was released, that the packets went with the helper and nothing was written; the last session's figures | NEW CAPTURE |
 
@@ -167,13 +167,13 @@ Overrides: `POCKETOS_CAPTURE_HELPER` (the helper's path), `POCKETOS_CAPTURE_SOUR
 | `ppc_proto_test` | every command and event round-trips; damaged lines refused; longest lines fit | pass |
 | `ppc_fuzz` | decode + store rule + format + DNS names on mutated fixtures (no libFuzzer on this host: its own mutation driver); 60 s under ASan and UBSan in `packetshark-san-test` | no finding |
 | `pos_capture_test.sh` | every fixture against its expected rows and against the host's tcpdump; a session through a pipe; busy lock; SIGTERM; clock step; time limit; damaged replay; S4, S5, S7; the bench | pass |
-| `psk_model_test`, `psk_session_test` | the model; the client against the real helper: crash, hang, no hello, missing helper, protocol damage, abandon under 500 ms, twenty cycles with no child or descriptor left | pass |
-| `packetshark_app_test`, `packetshark_shell_test.sh` | every M3 state in both orientations; targets and safe area; confirmations; crash and `kill -9` shown within a second; twenty opens and closes leave no helper, timer or object | pass |
+| `psk_model_test`, `psk_session_test` | the model; the graph's ladder at 0, 1, 9, 10, 99, 100, 1 000, 10 000 and 1 000 000 and that it never falls; the 60-second window; the readout of a busy, quiet and held second; the client against the real helper: crash, hang, no hello, missing helper, protocol damage, abandon under 500 ms, twenty cycles with no child or descriptor left | pass |
+| `packetshark_app_test`, `packetshark_shell_test.sh` | every M3 state in both orientations; targets and safe area; confirmations; crash and `kill -9` shown within a second; twenty opens and closes leave no helper, timer or object. M4: LIVE within 2 px of mockup 01's boxes (status, traffic, graph, protocol cells, session, tabs, bar); every class drawn in its own hue (snapshot); a tapped column moves the readout to that second and stays on it; held seconds marked at the baseline; the readout and a protocol open PACKETS; nothing clipped or overlapping in every theme and display mode and every text size; at 8 000 synthetic pps the poll's work under 4 ms (host: 0.2 to 1.0 ms) | pass |
 | `packetshark_lint.sh` | receive only; one libpcap include; the hot path allocates and formats nothing; the shell links only the protocol; one file created (the lock); no log line from a packet | pass |
 
 Host bench (`pos-capture bench`, x86-64, not a device figure): decode 32 ns/frame, decode + store 95 ns, one row of text 443 ns. Device figures: §9.2.
 
-### 9.2 Unit A (2026-11-16)
+### 9.2 Unit A, M0 to M3 (2026-11-16)
 
 Doors 0.4.0 (`21baeef0`) on Unit A, eth0 up at 100 Mb/s on the owner's LAN. Built from `6755ab9a` against the v0.4.0 SDK sysroot and run from a non-persistent kit in `/tmp` (the kit's shell was built with the simulator's test hooks, so `shell.tap` could press its buttons from the console; the image build has none). The installed system was restored and checked byte for byte afterwards. The full record is outside the repository (`K230-artifacts/packetshark-m0-m3/REPORT.md`); no capture and no address from it is in the repository.
 
@@ -200,13 +200,20 @@ Doors 0.4.0 (`21baeef0`) on Unit A, eth0 up at 100 Mb/s on the owner's LAN. Buil
 
 Two labels were corrected after this run (`a0d26736`: "KILLED (SIG 9)" instead of "CRASHED (SIG 9)" for SIGKILL, "MBIT/S" for the link speed); they are host-tested and were not redeployed.
 
+### 9.3 Unit A, M4
+
+M4_UNIT_A_PLACEHOLDER
+
+How the cost is measured: the sysroot's LVGL is built without the performance monitor (`LV_USE_PERF_MONITOR` 0, and the toolchain is not changed for it), so the app times its own poll (reading the helper's lines and painting) and a frame from the display's `LV_EVENT_REFR_START` to `LV_EVENT_REFR_READY`, keeps the worst of each and writes them once a minute at `POCKETOS_LOG_LEVEL=debug` (`packetshark: worst poll … us, worst frame … us in the last minute`). Nothing is logged at the default level.
+
 ## 10. Known limits and open items
 
 - **Owner decisions:** ADR-016 accepted 2026-11-16 subject to its security constraints, which bind every later milestone (in particular: promiscuous mode not offered until its reversion is verified on the hardware; capabilities dropped before a frame is parsed). The libpcap dependency approved 2026-11-16. DS §59 accepted 2026-11-16 after the owner reviewed the mockups; minor adjustments for readability, touch accuracy or LVGL rendering on Unit A are allowed and recorded in DS §59.11.
 - No SAVE: a capture cannot be kept. A helper crash, leaving the app, or the time limit with the app closed loses it (D10, accepted; said on screen).
 - Promiscuous mode not offered (§5).
 - Wi-Fi listed and not offered (D18): managed-mode capture is untested.
-- Landscape uses the portrait column; the wide layout is M9.
+- Landscape uses the portrait column; the wide layout is M9. The graph keeps its portrait size there.
+- During HOLD the per-class rates read `0/s`: held packets are counted, not classified (DS §59.11).
 - The relative-time origin is corrected for clock steps; frames still in the kernel ring across a step can read time 0 (an edge, not measured).
 - GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in M10.
 - No seccomp; no dedicated user (ADR-016).

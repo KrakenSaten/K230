@@ -28,13 +28,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 const uint32_t psk_limit_min[PSK_LIMITS] = { 5, 15, 60, 0 };
 #define LIMIT_DEFAULT 1 /* 15 minutes (ADR-016 rule 6) */
 
+#define COST_LOG_MS 60000
+
 int64_t psk_now(void)
 {
     return (int64_t)lv_tick_get();
+}
+
+static int64_t now_us(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000000 + t.tv_nsec / 1000;
 }
 
 /* ---- interfaces ------------------------------------------------------------------------ */
@@ -228,9 +239,41 @@ static void react(struct psk_app *a, unsigned changed)
 
 static void layout(struct psk_app *a);
 
+/* A display refresh while the app is open: render and flush (B5). */
+static void on_refresh(lv_event_t *e)
+{
+    struct psk_app *a = lv_event_get_user_data(e);
+
+    if (lv_event_get_code(e) == LV_EVENT_REFR_START) {
+        a->frame_start_us = now_us();
+    } else if (a->frame_start_us) {
+        int64_t d = now_us() - a->frame_start_us;
+
+        if (d > a->worst_frame_us) {
+            a->worst_frame_us = d;
+        }
+        a->frame_start_us = 0;
+    }
+}
+
+static void log_cost(struct psk_app *a)
+{
+    if (psk_now() < a->next_cost_log_ms) {
+        return;
+    }
+    a->next_cost_log_ms = psk_now() + COST_LOG_MS;
+    if (a->worst_poll_us || a->worst_frame_us) {
+        LOG_DEBUG("packetshark: worst poll %lld us, worst frame %lld us in the last minute",
+                  (long long)a->worst_poll_us, (long long)a->worst_frame_us);
+        a->worst_poll_us = 0;
+        a->worst_frame_us = 0;
+    }
+}
+
 static void on_poll(lv_timer_t *t)
 {
     struct psk_app *a = lv_timer_get_user_data(t);
+    int64_t t0 = now_us();
     unsigned changed = psk_session_poll(a->session, a->model, psk_now());
 
     react(a, changed);
@@ -252,6 +295,11 @@ static void on_poll(lv_timer_t *t)
     if (changed) {
         psk_live_paint(a, changed);
     }
+    t0 = now_us() - t0;
+    if (t0 > a->worst_poll_us) {
+        a->worst_poll_us = t0;
+    }
+    log_cost(a);
 }
 
 /* ---- actions ------------------------------------------------------------------------------ */
@@ -439,6 +487,11 @@ static void *psk_create(lv_obj_t *root)
     psk_paint_tabs(a);
     psk_live_paint(a, ~0u);
     a->timer = lv_timer_create(on_poll, PSK_POLL_MS, a);
+    a->next_cost_log_ms = psk_now() + COST_LOG_MS;
+    if (lv_display_get_default()) {
+        lv_display_add_event_cb(lv_display_get_default(), on_refresh, LV_EVENT_REFR_START, a);
+        lv_display_add_event_cb(lv_display_get_default(), on_refresh, LV_EVENT_REFR_READY, a);
+    }
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
     lv_obj_update_layout(a->frame);
     layout(a);
@@ -453,6 +506,9 @@ static void psk_destroy(void *priv)
         return;
     }
     lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
+    if (lv_display_get_default()) {
+        lv_display_remove_event_cb_with_user_data(lv_display_get_default(), on_refresh, a);
+    }
     if (a->timer) {
         lv_timer_delete(a->timer);
     }
@@ -489,6 +545,66 @@ static int psk_back(void *priv)
         return 1;
     }
     return 0;
+}
+
+/* ---- test seams ----------------------------------------------------------------------------- */
+
+lv_obj_t *psk_app_part(void *priv, const char *name)
+{
+    struct psk_app *a = priv;
+    int i;
+
+    if (!a || !name) {
+        return NULL;
+    }
+    if (strcmp(name, "traffic") == 0) {
+        return a->traffic;
+    }
+    if (strcmp(name, "graph") == 0) {
+        return a->graph;
+    }
+    if (strcmp(name, "protocols") == 0) {
+        return a->protos;
+    }
+    if (strcmp(name, "readout") == 0) {
+        return a->readout;
+    }
+    if (strcmp(name, "session") == 0) {
+        /* value label -> its cell -> the row -> the panel */
+        return lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(a->cell[0])));
+    }
+    if (strcmp(name, "status") == 0) {
+        return lv_obj_get_parent(a->chip);
+    }
+    if (strncmp(name, "tab", 3) == 0 && (i = name[3] - '0') >= 0 && i < PSK_TAB_COUNT) {
+        return a->tab[i];
+    }
+    if (strncmp(name, "bar", 3) == 0 && (i = name[3] - '0') >= 0 && i < 3) {
+        return a->btn[i];
+    }
+    if (strncmp(name, "proto", 5) == 0 && (i = name[5] - '0') >= 0 && i < PPC_CLASS_COUNT) {
+        return a->proto_cell[i];
+    }
+    return NULL;
+}
+
+void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset)
+{
+    struct psk_app *a = priv;
+
+    if (!a) {
+        return;
+    }
+    if (worst_poll_us) {
+        *worst_poll_us = a->worst_poll_us;
+    }
+    if (worst_frame_us) {
+        *worst_frame_us = a->worst_frame_us;
+    }
+    if (reset) {
+        a->worst_poll_us = 0;
+        a->worst_frame_us = 0;
+    }
 }
 
 LV_IMAGE_DECLARE(pos_app_icon_packetshark);

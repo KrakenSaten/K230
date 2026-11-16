@@ -2268,10 +2268,10 @@ tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures: tests/%: tests/%.o $(P
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
 
 tests/psk_model_test: tests/psk_model_test.o $(PSK_DIR)/psk_model.o $(PPC_APP_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 tests/psk_session_test: tests/psk_session_test.o $(PSK_OBJS) $(PPC_APP_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 # Every PacketShark suite. The fuzz target runs for PACKETSHARK_FUZZ_S
 # seconds here (a short smoke run); packetshark-san-test runs it longer
@@ -2303,9 +2303,9 @@ packetshark-san-test:
 	set -e; for t in ppc_decode_test ppc_pcapfile_test ppc_store_test ppc_stats_test ppc_proto_test ppc_fuzz ppc_mkfixtures; do \
 	    $(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/$$t tests/$$t.c $(PPC_SAN_SRCS); done
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_model_test tests/psk_model_test.c \
-	    $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c
+	    $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_session_test tests/psk_session_test.c \
-	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c
+	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tools/capture/pos-capture tools/capture/pos_capture.c \
 	    $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \

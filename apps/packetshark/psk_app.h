@@ -108,11 +108,20 @@ struct psk_app {
 
     /* LIVE: capturing, held, stopped */
     lv_obj_t *live;
+    lv_obj_t *traffic;   /* the TRAFFIC panel (M4) */
     lv_obj_t *rate;
     lv_obj_t *throughput;
-    lv_obj_t *waiting;
+    lv_obj_t *graph;     /* ui/psk_graph.c */
+    lv_obj_t *readout;
+    lv_obj_t *protos;    /* the PROTOCOLS panel (M4) */
+    lv_obj_t *proto_cell[PPC_CLASS_COUNT];
+    lv_obj_t *proto_swatch[PPC_CLASS_COUNT];
+    lv_obj_t *proto_word[PPC_CLASS_COUNT];
+    lv_obj_t *proto_rate[PPC_CLASS_COUNT];
+    lv_obj_t *proto_share[PPC_CLASS_COUNT];
+    lv_obj_t *proto_bar[PPC_CLASS_COUNT];
+    lv_obj_t *proto_paint;
     lv_obj_t *cell[4];   /* PACKETS, BYTES, DROPPED, BUFFER */
-    lv_obj_t *detail;    /* stored, held, shed */
     lv_obj_t *later;     /* what is not in this version yet */
 
     /* LIVE: the helper stopped */
@@ -158,7 +167,21 @@ struct psk_app {
     char notice[96];     /* why the last START was refused, on the setup banner */
     int64_t next_ifs_ms;
     char hint[48];
+
+    /* Cost, measured (DS §59.9, M4-M6 brief B5): the worst poll (read, apply,
+     * paint) and the worst display refresh while the app is open, in
+     * microseconds, logged once a minute at debug level. */
+    int64_t worst_poll_us;
+    int64_t worst_frame_us;
+    int64_t frame_start_us;
+    int64_t next_cost_log_ms;
 };
+
+/* Test seams (tests/packetshark_app_test.c): a named part of the screen
+ * ("traffic", "graph", "protocols", "session", "status", "tab0".."tab2",
+ * "bar0".."bar2", "readout", "proto0".."proto7"), and the measured costs. */
+lv_obj_t *psk_app_part(void *priv, const char *name);
+void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset);
 
 /* psk_app.c */
 int64_t psk_now(void);

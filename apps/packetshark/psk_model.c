@@ -6,6 +6,7 @@
  */
 #include "psk_model.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -247,4 +248,132 @@ const char *psk_fmt_elapsed(uint64_t ms, char *buf, size_t buflen)
         snprintf(buf, buflen, "%02u:%02u", (unsigned)(s / 60u), (unsigned)(s % 60u));
     }
     return buf;
+}
+
+/* ---- the graph and the protocol distribution ---------------------------------------- */
+
+int32_t psk_graph_height_of(uint64_t n)
+{
+    double h;
+
+    if (n == 0) {
+        return 0;
+    }
+    h = 4.0 + 50.0 * log10((double)n);
+    if (h >= PSK_GRAPH_BAND) {
+        return PSK_GRAPH_BAND;
+    }
+    return (int32_t)(h + 0.5);
+}
+
+int psk_class_hue(unsigned cls)
+{
+    /* DS §59.2 (accepted 2026-11-16). Coral, index 0, is not used: it sits too
+     * close to status_error. */
+    static const int hue[PPC_CLASS_COUNT] = { 6, 5, 4, 1, 2, 7, 3, -1 };
+
+    return cls < PPC_CLASS_COUNT ? hue[cls] : -1;
+}
+
+const char *psk_class_word(unsigned cls)
+{
+    static const char *const words[PPC_CLASS_COUNT] = { "TCP", "UDP", "DNS", "DHCP",
+                                                        "ARP", "ICMP", "IPV6", "OTHER" };
+
+    return cls < PPC_CLASS_COUNT ? words[cls] : "OTHER";
+}
+
+void psk_model_graph(const struct psk_model *m, struct psk_graph_window *w)
+{
+    int i;
+
+    memset(w, 0, sizeof(*w));
+    w->newest = (int64_t)m->bin_next - 1;
+    for (i = 0; i < PSK_GRAPH_SECONDS; i++) {
+        int64_t sec = w->newest - (PSK_GRAPH_SECONDS - 1) + i;
+        unsigned slot;
+
+        if (sec < 0) {
+            continue;
+        }
+        slot = (unsigned)(sec % PSK_BINS);
+        memcpy(w->cls[i], m->bins[slot], sizeof(w->cls[i]));
+        w->held[i] = m->bin_held[slot];
+        w->watched[i] = 1;
+    }
+}
+
+static uint64_t bin_total(const uint32_t cls[PPC_CLASS_COUNT], unsigned *largest)
+{
+    uint64_t t = 0;
+    unsigned c;
+
+    *largest = 0;
+    for (c = 0; c < PPC_CLASS_COUNT; c++) {
+        t += cls[c];
+        if (cls[c] > cls[*largest]) {
+            *largest = c;
+        }
+    }
+    return t;
+}
+
+const char *psk_model_readout(const struct psk_model *m, int64_t sec, char *buf, size_t buflen)
+{
+    int64_t newest = (int64_t)m->bin_next - 1;
+    const uint32_t *cls;
+    unsigned largest;
+    uint64_t total;
+    uint32_t held;
+    char t[24];
+    char n[32];
+
+    if (sec < 0) {
+        sec = newest;
+    }
+    if (!m->had_capture || (m->have_stats && m->c.seen == 0) || newest < 0) {
+        snprintf(buf, buflen, "WAITING FOR PACKETS");
+        return buf;
+    }
+    if (sec > newest || newest - sec >= PSK_BINS) {
+        snprintf(buf, buflen, "-");
+        return buf;
+    }
+    cls = m->bins[sec % PSK_BINS];
+    held = m->bin_held[sec % PSK_BINS];
+    total = bin_total(cls, &largest);
+    psk_fmt_elapsed((uint64_t)sec * 1000u, t, sizeof(t));
+    if (total == 0 && held > 0) {
+        snprintf(buf, buflen, "%s · HELD · %s PASSED", t, psk_fmt_count(held, n, sizeof(n)));
+    } else if (total == 0) {
+        snprintf(buf, buflen, "%s · 0 PKT", t);
+    } else {
+        snprintf(buf, buflen, "%s · %s PKT · %s %u%%", t, psk_fmt_count(total, n, sizeof(n)),
+                 psk_class_word(largest), (unsigned)((cls[largest] * 100u + total / 2u) / total));
+    }
+    return buf;
+}
+
+uint32_t psk_model_class_rate(const struct psk_model *m, unsigned cls)
+{
+    int64_t newest = (int64_t)m->bin_next - 1;
+
+    if (cls >= PPC_CLASS_COUNT || newest < 0) {
+        return 0;
+    }
+    return m->bins[newest % PSK_BINS][cls];
+}
+
+uint32_t psk_model_class_share_permille(const struct psk_model *m, unsigned cls)
+{
+    uint64_t total = 0;
+    unsigned c;
+
+    for (c = 0; c < PPC_CLASS_COUNT; c++) {
+        total += m->c.cls[c];
+    }
+    if (cls >= PPC_CLASS_COUNT || total == 0) {
+        return 0;
+    }
+    return (uint32_t)((m->c.cls[cls] * 1000u + total / 2u) / total);
 }

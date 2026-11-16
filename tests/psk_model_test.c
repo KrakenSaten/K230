@@ -143,6 +143,55 @@ int main(void)
                              strcmp(psk_fmt_elapsed(253000, b, sizeof(b)), "04:13") == 0 &&
                              strcmp(psk_fmt_elapsed(3723000, b, sizeof(b)), "1:02:03") == 0);
     }
+    {
+        /* The graph's ladder (DS §59.5): h(n) = round(4 + 50 log10 n), 0 for
+         * none, capped at the 208 px band. */
+        static const uint64_t n[] = { 0, 1, 9, 10, 99, 100, 1000, 10000, 1000000 };
+        static const int32_t h[] = { 0, 4, 52, 54, 104, 104, 154, 204, 208 };
+        struct psk_graph_window w;
+        int ok = 1;
+        int mono = 1;
+        uint64_t k;
+        char b[64];
+
+        for (i = 0; i < (int)(sizeof(n) / sizeof(n[0])); i++) {
+            if (psk_graph_height_of(n[i]) != h[i]) {
+                printf("     h(%llu) = %d, not %d\n", (unsigned long long)n[i], (int)psk_graph_height_of(n[i]),
+                       (int)h[i]);
+                ok = 0;
+            }
+        }
+        check("the graph's ladder", ok);
+        for (k = 1; k < 200000; k += k / 7 + 1) {
+            if (psk_graph_height_of(k + 1) < psk_graph_height_of(k)) {
+                mono = 0;
+            }
+        }
+        check("the ladder never falls", mono);
+        check("class hues and words", psk_class_hue(0) == 6 && psk_class_hue(6) == 3 && psk_class_hue(7) < 0 &&
+                                          strcmp(psk_class_word(3), "DHCP") == 0 &&
+                                          strcmp(psk_class_word(7), "OTHER") == 0);
+
+        psk_model_init(&M);
+        psk_model_helper_started(&M, 0);
+        check("no capture yet: waiting", strcmp(psk_model_readout(&M, -1, b, sizeof(b)), "WAITING FOR PACKETS") == 0);
+        line("state\tcapturing\tnone\teth0\t100\t1");
+        stats_line(buf, sizeof(buf), 30);
+        line(buf);
+        line("bin\t0\t10\t5\t0\t0\t0\t0\t0\t5\t0");
+        line("bin\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0");
+        line("bin\t2\t0\t0\t0\t0\t0\t0\t0\t0\t7");
+        psk_model_graph(&M, &w);
+        check("the window: the newest second at the right, earlier seconds unwatched",
+              w.newest == 2 && w.watched[59] && w.watched[57] && !w.watched[56] && w.cls[57][0] == 10 &&
+                  w.held[59] == 7);
+        check("a second's readout names its largest class",
+              strcmp(psk_model_readout(&M, 0, b, sizeof(b)), "00:00 · 20 PKT · TCP 50%") == 0);
+        check("a quiet second", strcmp(psk_model_readout(&M, 1, b, sizeof(b)), "00:01 · 0 PKT") == 0);
+        check("a held second (the newest, by default)",
+              strcmp(psk_model_readout(&M, -1, b, sizeof(b)), "00:02 · HELD · 7 PASSED") == 0);
+        check("the newest second's rates", psk_model_class_rate(&M, 0) == 0);
+    }
     printf("psk_model_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

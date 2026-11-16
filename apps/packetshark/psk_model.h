@@ -114,4 +114,41 @@ const char *psk_fmt_bytes(uint64_t n, char *buf, size_t buflen);
 const char *psk_fmt_bits(uint64_t bps, char *buf, size_t buflen);
 const char *psk_fmt_elapsed(uint64_t ms, char *buf, size_t buflen);
 
+/* ---- the graph and the protocol distribution (M4, DS §59.2, §59.5) -------- */
+
+#define PSK_GRAPH_SECONDS 60
+#define PSK_GRAPH_BAND 208 /* px above the baseline */
+
+/* Column height on the fixed logarithmic ladder: round(4 + 50 * log10 n),
+ * capped at PSK_GRAPH_BAND; 0 for none. 1 -> 4, 10 -> 54, 100 -> 104,
+ * 1,000 -> 154, 10,000 -> 204. */
+int32_t psk_graph_height_of(uint64_t n);
+
+/* The class's identity hue (DS §59.2: TCP 6, UDP 5, DNS 4, DHCP 1, ARP 2,
+ * ICMP 7, IPv6 3), or -1 for OTHER, which is drawn in text_secondary. */
+int psk_class_hue(unsigned cls);
+/* "TCP", "UDP", "DNS", "DHCP", "ARP", "ICMP", "IPV6", "OTHER". */
+const char *psk_class_word(unsigned cls);
+
+/* The last PSK_GRAPH_SECONDS bins, oldest first: per-class counts, held
+ * counts, whether the second was watched at all (a second before the capture
+ * started was not), and the absolute second of the newest column. */
+struct psk_graph_window {
+    uint32_t cls[PSK_GRAPH_SECONDS][PPC_CLASS_COUNT];
+    uint32_t held[PSK_GRAPH_SECONDS];
+    uint8_t watched[PSK_GRAPH_SECONDS];
+    int64_t newest;     /* -1 before the first second has been binned */
+};
+
+void psk_model_graph(const struct psk_model *m, struct psk_graph_window *w);
+
+/* The readout of one second (DS §59.5): "03:55 · 6 885 PKT · TCP 99%", or
+ * "03:56 · HELD · 1 204 PASSED" for a held second. sec < 0: the newest. */
+const char *psk_model_readout(const struct psk_model *m, int64_t sec, char *buf, size_t buflen);
+
+/* Packets per second of a class in the newest complete second, and its share
+ * of the session in tenths of a percent (from the stats line's totals). */
+uint32_t psk_model_class_rate(const struct psk_model *m, unsigned cls);
+uint32_t psk_model_class_share_permille(const struct psk_model *m, unsigned cls);
+
 #endif

@@ -5440,13 +5440,18 @@ Meaningful differences between what is built and the mockups, each with its
 reason. A deviation made later for readability, touch accuracy or the LVGL
 rendering on Unit A is added here when it is made.
 
-| Where | Mockup | Built (M3) | Reason |
+| Where | Mockup | Built (M3, M4) | Reason |
 | --- | --- | --- | --- |
-| Panel titles | caption set into the hairline border | caption on the first line inside the panel | `pocketui_card` has no border-gap title; the same words and role. Revisit with M4 if the owner wants the border form |
+| Panel titles | caption set into the hairline border | as the mockup since M4: a floating caption on the screen fill, centred on the top line | resolved in M4. M3 had the caption on the first line inside the panel. In this LVGL, OVERFLOW_VISIBLE only reaches the extended draw size, so the panel and its holder report the title's reach |
 | Setup, interface row | `ETHERNET · 100 MB/S · address` | `ETHERNET · address`; the speed appears once capturing (`ETH0 · 100 MBIT/S · HEADERS`) | sysd's `network[]` carries no link speed; the helper reads it from sysfs after START. Unit written as MBIT/S, not MB/S |
 | Setup, empty traffic panel | dashed hairline, 56 px disc and glyph | solid panel with the caption `NO CAPTURE YET` | no dashed or disc empty-state part exists in pocketui yet; the graph replaces this panel in M4 |
 | Promiscuous mode row | value with a chevron, opens a confirmation | `OFF`, no chevron, takes no tap | ADR-016 rule 3: not offered until its reversion is verified on the hardware |
 | Error panel border | 2 px `status_error` | the field-error border role (1.5 px `status_error`) | the existing role; no new style |
-| LIVE while capturing | graph, protocols, signals | rate, throughput, session counters, stored/held/shed, a line saying what is not built yet | M4 (graph, protocols) and M7 (signals) are later milestones |
+| LIVE while capturing | graph, protocols, signals | M4: rate, throughput, graph, readout, protocols, session counters, a line saying what is not built yet; no signals panel | the signals panel is M7 and stays hidden until then (owner, 2026-11-16) |
+| Session panel | four cells with hairline separators between them | four cells, no separators | no divider-between-cells part in pocketui; the cells keep the mockup's places |
+| Graph readout during HOLD | `HOLD 9 S · 9 204 COUNTED, NOT STORED` | `mm:ss · HELD · n PASSED` for the selected or newest second; the HOLD banner above the panel keeps the running total | the readout always names one second, as it does when capturing |
+| Protocol rates during HOLD | per-class rates continue | `0/s` per class; the shares keep the session's stored packets | held packets are counted, not classified (the `bin` line carries one held total); per-class held counts would change the protocol, left for later |
+| Throughput unit | `9.6 Mb/s` | `9.6 MBIT/S` | the unit spelling of the rest of PacketShark (caption case, BIT not b) |
+| Graph and scale in landscape | (no landscape LIVE mockup) | the 418 px graph and its scale keep their portrait size and stay together at the panel's left | DS §59.5 fixes the column width; a wider landscape graph is M9 |
 | Stopped bar | SAVE primary | SAVE shown disabled, no primary | SAVE is M8 |
 | Landscape | own top row, list and inspector side by side | the portrait column, scrolling | M9; seen on Unit A in landscape, readable |

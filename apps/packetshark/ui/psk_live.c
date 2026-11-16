@@ -12,8 +12,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "psk_app.h"
+#include "psk_graph.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- small helpers -------------------------------------------------------------------- */
@@ -216,6 +218,50 @@ void psk_button_look(lv_obj_t *b, bool primary, bool enabled)
 }
 
 /* A panel with its title (UI_UX §5: a caption at the top of a hairline panel). */
+#define PANEL_PAD_TOP 16
+#define TITLE_PAD 6
+#define TITLE_INSET 16 /* from the panel's left edge to the title's own box */
+
+/* How far a panel's title reaches above it, at the current text size. In
+ * this LVGL, OVERFLOW_VISIBLE lets children draw only as far as the
+ * object's extended draw size (lv_refr.c and lv_obj_pos.c at 59dc7e4), so
+ * the panel and whatever holds it report this reach. */
+static void title_reach(lv_event_t *e)
+{
+    lv_event_set_ext_draw_size(e, pocketui_role_line_height(POS_STYLE_CAPTION) / 2 + 2);
+}
+
+static void let_titles_out(lv_obj_t *obj)
+{
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_OVERFLOW_VISIBLE)) {
+        return;
+    }
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(obj, title_reach, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(obj);
+}
+
+/* The title on the panel's top line: positions are from the content box, so
+ * the panel's padding (which callers may change) is backed out each time. */
+static void place_title(lv_obj_t *p)
+{
+    lv_obj_t *t = lv_obj_get_child(p, 0);
+
+    if (t) {
+        lv_obj_set_pos(t, TITLE_INSET - lv_obj_get_style_pad_left(p, LV_PART_MAIN),
+                       -lv_obj_get_style_pad_top(p, LV_PART_MAIN) - lv_obj_get_style_border_width(p, LV_PART_MAIN));
+    }
+}
+
+static void on_panel_style(lv_event_t *e)
+{
+    place_title(lv_event_get_current_target_obj(e));
+}
+
+/* A panel with its title set into the top hairline (UI_UX §5, the mockups):
+ * a caption on the screen's own fill, so the line stops either side of it,
+ * centred on the line at every text size (moved up by half its own height).
+ * The title floats: it takes no room in the panel. */
 static lv_obj_t *panel(lv_obj_t *parent, const char *title, lv_obj_t **title_out)
 {
     lv_obj_t *p = pocketui_card(parent);
@@ -224,9 +270,20 @@ static lv_obj_t *panel(lv_obj_t *parent, const char *title, lv_obj_t **title_out
     lv_obj_set_width(p, LV_PCT(100));
     lv_obj_set_height(p, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_row(p, 8, 0);
+    lv_obj_set_style_pad_top(p, PANEL_PAD_TOP, 0);
     lv_obj_clear_flag(p, LV_OBJ_FLAG_SCROLLABLE);
-    t = one_line(p, title, POS_STYLE_CAPTION);
-    lv_obj_set_width(t, LV_PCT(100));
+    /* The title reaches above the panel: neither the panel nor whatever
+     * holds it may clip it. */
+    let_titles_out(p);
+    let_titles_out(parent);
+    t = pocketui_label(p, title, POS_STYLE_SCREEN);
+    pos_style_add(t, POS_STYLE_CAPTION, 0);
+    lv_obj_add_flag(t, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(t, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_style_pad_hor(t, TITLE_PAD, 0);
+    lv_obj_set_style_translate_y(t, LV_PCT(-50), 0);
+    place_title(p);
+    lv_obj_add_event_cb(p, on_panel_style, LV_EVENT_STYLE_CHANGED, NULL);
     if (title_out) {
         *title_out = t;
     }
@@ -266,6 +323,27 @@ static void on_iface(lv_event_t *e)
 static void on_option(lv_event_t *e)
 {
     psk_option(lv_event_get_user_data(e), index_of(e));
+}
+
+static void on_graph(lv_event_t *e)
+{
+    struct psk_app *a = lv_event_get_user_data(e);
+    lv_indev_t *in = lv_indev_active();
+    lv_point_t pt;
+
+    if (!in) {
+        return;
+    }
+    lv_indev_get_point(in, &pt);
+    psk_graph_tap(a->graph, pt.x);
+    psk_live_paint(a, PSK_CHANGED_BIN);
+}
+
+/* The readout's and a protocol's way to the packets: the list is M5, so in
+ * this milestone they open PACKETS as it is. */
+static void on_to_packets(lv_event_t *e)
+{
+    psk_select_tab(lv_event_get_user_data(e), PSK_TAB_PACKETS);
 }
 
 static void on_bar(lv_event_t *e)
@@ -341,6 +419,8 @@ static void build_status(struct psk_app *a, lv_obj_t *p)
     lv_obj_t *r = row(p, 12);
 
     lv_obj_set_style_min_height(r, 36, 0);
+    /* 26 px to the first panel (the mockups): the page's 22 and these 4. */
+    lv_obj_set_style_margin_bottom(r, 4, 0);
     a->chip = chip(r);
     a->status_text = one_line(r, "", POS_STYLE_CAPTION);
     grow(a->status_text);
@@ -430,40 +510,242 @@ static void build_setup(struct psk_app *a, lv_obj_t *p)
     one_line(empty, "NO CAPTURE YET", POS_STYLE_CAPTION);
 }
 
-static void build_live(struct psk_app *a, lv_obj_t *p)
+struct proto_paint {
+    lv_obj_t *swatch[PPC_CLASS_COUNT];
+    lv_obj_t *bar[PPC_CLASS_COUNT];
+    uint16_t share[PPC_CLASS_COUNT]; /* permille */
+};
+
+static lv_color_t class_color(unsigned cls)
 {
-    lv_obj_t *traffic;
-    lv_obj_t *r;
+    int hue = psk_class_hue(cls);
+
+    return hue < 0 ? pos_theme_color(POS_COLOR_TEXT_SECONDARY) : pos_identity_hue((unsigned)hue);
+}
+
+static void paint_rect(lv_layer_t *layer, const lv_area_t *a, lv_color_t color)
+{
+    lv_draw_rect_dsc_t dsc;
+
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.radius = 0;
+    dsc.bg_opa = LV_OPA_COVER;
+    dsc.bg_color = color;
+    lv_draw_rect(layer, &dsc, a);
+}
+
+static void protos_draw(lv_event_t *e)
+{
+    const struct proto_paint *pp = lv_obj_get_user_data(lv_event_get_target_obj(e));
+    lv_layer_t *layer = lv_event_get_layer(e);
+    unsigned c;
+
+    if (!pp || !layer) {
+        return;
+    }
+    for (c = 0; c < PPC_CLASS_COUNT; c++) {
+        lv_area_t sw;
+        lv_area_t bar;
+        lv_area_t fill;
+        int32_t w;
+
+        if (lv_obj_has_flag(pp->swatch[c], LV_OBJ_FLAG_HIDDEN)) {
+            continue;
+        }
+        lv_obj_get_coords(pp->swatch[c], &sw);
+        paint_rect(layer, &sw, class_color(c));
+        lv_obj_get_coords(pp->bar[c], &bar);
+        paint_rect(layer, &bar, pos_theme_color(POS_COLOR_SURFACE_RAISED));
+        w = (int32_t)((int64_t)lv_area_get_width(&bar) * pp->share[c] / 1000);
+        if (w < 1 && pp->share[c] > 0) {
+            w = 1; /* present, however small */
+        }
+        if (w > 0) {
+            fill = bar;
+            fill.x2 = fill.x1 + w - 1;
+            paint_rect(layer, &fill, class_color(c));
+        }
+    }
+}
+
+static void protos_delete(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+
+    free(lv_obj_get_user_data(obj));
+    lv_obj_set_user_data(obj, NULL);
+}
+
+#define SCALE_W 70 /* graph and scale: 488 px, the content width of a portrait panel */
+
+static void build_traffic(struct psk_app *a, lv_obj_t *parent)
+{
+    static const char *const scale[] = { "10", "100", "1k", "10k" };
+    static const uint64_t decade[] = { 10, 100, 1000, 10000 };
+    lv_obj_t *t = panel(parent, "TRAFFIC · LAST 60 S", NULL);
+    int32_t lh = pocketui_role_line_height(POS_STYLE_CAPTION);
+    lv_obj_t *head;
     lv_obj_t *left;
     lv_obj_t *right;
-    lv_obj_t *session;
+    lv_obj_t *band;
+    lv_obj_t *axis;
+    lv_obj_t *rule;
+    lv_obj_t *rd;
+    lv_obj_t *lb;
+    int32_t y;
+    int k;
 
-    a->live = column(p, PSK_PANEL_GAP);
-    traffic = panel(a->live, "TRAFFIC", NULL);
-    r = row(traffic, 12);
-    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    left = column(r, 0);
+    a->traffic = t;
+    lv_obj_set_style_pad_row(t, 0, 0);
+    lv_obj_set_style_pad_bottom(t, 14, 0);
+    /* The rate and the throughput: 76 px at Small, so the graph starts where
+     * the mockup has it; taller at a larger text size. */
+    head = row(t, 12);
+    lv_obj_set_style_min_height(head, 76, 0);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    left = row(head, 10);
     lv_obj_set_width(left, LV_SIZE_CONTENT);
+    lv_obj_set_flex_align(left, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     a->rate = one_line(left, "0", POS_STYLE_HERO_48);
-    one_line(left, "PKT/S", POS_STYLE_CAPTION);
-    right = column(r, 2);
+    lb = one_line(left, "PKT/S", POS_STYLE_CAPTION);
+    lv_obj_set_style_pad_bottom(lb, 10, 0);
+    right = column(head, 2);
     lv_obj_set_width(right, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_top(right, 6, 0);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     a->throughput = one_line(right, "0 BIT/S", POS_STYLE_VALUE);
     one_line(right, "THROUGHPUT", POS_STYLE_CAPTION);
-    a->waiting = one_line(traffic, "WAITING FOR PACKETS", POS_STYLE_CAPTION);
+
+    /* The graph and its scale: fixed size at every text size (DS §59.3). */
+    /* The scale stays beside the graph at every width (landscape too). */
+    band = psk_box(t);
+    lv_obj_set_size(band, PSK_GRAPH_W + SCALE_W, PSK_GRAPH_H);
+    a->graph = psk_graph_create(band);
+    lv_obj_add_flag(a->graph, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(a->graph, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(a->graph, on_graph, LV_EVENT_CLICKED, a);
+    for (k = 0; k < 4; k++) {
+        lb = pocketui_label(band, scale[k], POS_STYLE_CAPTION);
+        lv_obj_add_style(lb, pos_style_fixed_size(POS_STYLE_CAPTION), 0);
+        y = PSK_GRAPH_BAND - psk_graph_height_of(decade[k]) - lh / 2;
+        /* 10k sits 4 px below the band's top: its label stays inside. */
+        lv_obj_align(lb, LV_ALIGN_TOP_RIGHT, 0, y < 0 ? 0 : y);
+    }
+    axis = psk_box(t);
+    lv_obj_set_size(axis, PSK_GRAPH_W, lh);
+    lv_obj_set_style_margin_top(axis, 7, 0);
+    lb = pocketui_label(axis, "-60 S", POS_STYLE_CAPTION);
+    lv_obj_add_style(lb, pos_style_fixed_size(POS_STYLE_CAPTION), 0);
+    lv_obj_align(lb, LV_ALIGN_TOP_LEFT, 0, 0);
+    lb = pocketui_label(axis, "NOW", POS_STYLE_CAPTION);
+    lv_obj_add_style(lb, pos_style_fixed_size(POS_STYLE_CAPTION), 0);
+    lv_obj_align(lb, LV_ALIGN_TOP_RIGHT, 0, 0);
+    rule = psk_box(t);
+    lv_obj_set_size(rule, LV_PCT(100), 1);
+    lv_obj_set_style_margin_top(rule, 2, 0);
+    pos_style_add(rule, POS_STYLE_DIVIDER, 0);
+
+    /* The readout: the selected second (or the newest), and the way to its
+     * packets. The row is 24 px; its click area reaches 20 px past it. */
+    rd = row(t, 8);
+    lv_obj_set_style_min_height(rd, 24, 0);
+    lv_obj_set_style_margin_top(rd, 5, 0);
+    lv_obj_set_flex_align(rd, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_flag(rd, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(rd, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_set_ext_click_area(rd, 20);
+    lv_obj_add_event_cb(rd, on_to_packets, LV_EVENT_CLICKED, a);
+    a->readout = one_line(rd, "", POS_STYLE_CAPTION);
+    grow(a->readout);
+    lb = pocketui_label(rd, "\xe2\x80\xba PACKETS", POS_STYLE_CAPTION);
+    pos_style_add(lb, POS_STYLE_ACCENT_TEXT, 0);
+}
+
+static void build_protocols(struct psk_app *a, lv_obj_t *parent)
+{
+    lv_obj_t *p = panel(parent, "PROTOCOLS · SESSION", NULL);
+    struct proto_paint *pp = calloc(1, sizeof(*pp));
+    unsigned r;
+
+    a->protos = p;
+    /* Cells 236 x 52 at x 40 and 292 (mockup 01): 19 px each side. */
+    lv_obj_set_style_pad_hor(p, 19, 0);
+    lv_obj_set_style_pad_top(p, 17, 0);
+    lv_obj_set_style_pad_bottom(p, 13, 0);
+    lv_obj_set_style_pad_row(p, 0, 0);
+    for (r = 0; r < PPC_CLASS_COUNT / 2; r++) {
+        lv_obj_t *line = row(p, 16);
+        unsigned k;
+
+        lv_obj_set_style_min_height(line, 52, 0);
+        lv_obj_set_flex_align(line, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        for (k = 0; k < 2; k++) {
+            unsigned c = r * 2u + k;
+            int hue = psk_class_hue(c);
+            lv_obj_t *cell = column(line, 0);
+            lv_obj_t *top;
+
+            grow(cell);
+            lv_obj_set_style_min_height(cell, 52, 0);
+            lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(cell, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+            lv_obj_add_event_cb(cell, on_to_packets, LV_EVENT_CLICKED, a);
+            a->proto_cell[c] = cell;
+            top = row(cell, 8);
+            lv_obj_set_style_min_height(top, 30, 0);
+            a->proto_swatch[c] = psk_box(top);
+            lv_obj_set_size(a->proto_swatch[c], 10, 10);
+            a->proto_word[c] = one_line(top, psk_class_word(c), POS_STYLE_CAPTION);
+            if (hue >= 0) {
+                lv_obj_add_style(a->proto_word[c], pos_style_identity((unsigned)hue), 0);
+            }
+            a->proto_rate[c] = one_line(top, "0/s", POS_STYLE_CAPTION);
+            grow(a->proto_rate[c]);
+            a->proto_share[c] = one_line(top, "0.0%", POS_STYLE_VALUE);
+            a->proto_bar[c] = psk_box(cell);
+            lv_obj_set_size(a->proto_bar[c], LV_PCT(100), 3);
+            lv_obj_set_style_margin_top(a->proto_bar[c], 6, 0);
+            if (pp) {
+                pp->swatch[c] = a->proto_swatch[c];
+                pp->bar[c] = a->proto_bar[c];
+            }
+        }
+    }
+    /* Swatches and share bars in their class colours: drawn by one object
+     * over the panel (DS §59.2 places), last child so it paints on top, and
+     * watched for theme and display-mode changes. */
+    a->proto_paint = psk_box(p);
+    lv_obj_add_flag(a->proto_paint, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(a->proto_paint, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(a->proto_paint, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_user_data(a->proto_paint, pp);
+    lv_obj_add_event_cb(a->proto_paint, protos_draw, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_add_event_cb(a->proto_paint, protos_delete, LV_EVENT_DELETE, NULL);
+    pos_theme_watch(a->proto_paint);
+}
+
+static void build_live(struct psk_app *a, lv_obj_t *p)
+{
+    lv_obj_t *r;
+    lv_obj_t *session;
+
+    a->live = column(p, PSK_PANEL_GAP);
+    build_traffic(a, a->live);
+    build_protocols(a, a->live);
 
     session = panel(a->live, "SESSION", NULL);
+    lv_obj_set_style_pad_top(session, 18, 0);
+    lv_obj_set_style_pad_bottom(session, 18, 0);
     r = row(session, 12);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     a->cell[0] = cell(r, "PACKETS");
     a->cell[1] = cell(r, "BYTES");
     a->cell[2] = cell(r, "DROPPED");
     a->cell[3] = cell(r, "BUFFER");
-    a->detail = wrapping(session, "", POS_STYLE_CAPTION);
+    /* The SIGNALS panel of the mockups is M7 (DS §59.11): not built yet. */
     a->later = wrapping(a->live,
-                        "The traffic graph, the packet list, the inspector and SAVE are not in this "
-                        "version yet. Leaving PacketShark discards the capture.",
+                        "The packet list, the inspector, signals and SAVE are not in this version yet. "
+                        "Leaving PacketShark discards the capture.",
                         POS_STYLE_TEXT_SECONDARY);
 }
 
@@ -848,23 +1130,42 @@ static void paint_counters(struct psk_app *a)
     const struct psk_model *m = a->model;
     const struct ppc_counters *c = &m->c;
     char b[48];
-    char s1[24];
-    char s2[24];
-    char s3[24];
-    char line[128];
 
     psk_text(a->rate, psk_fmt_count(c->pps, b, sizeof(b)));
     psk_text(a->throughput, psk_fmt_bits(c->bps, b, sizeof(b)));
-    psk_set_hidden(a->waiting, c->seen > 0 || m->state == PPC_STATE_STOPPED);
     psk_text(a->cell[0], psk_fmt_count(c->seen, b, sizeof(b)));
     psk_text(a->cell[1], psk_fmt_bytes(c->bytes, b, sizeof(b)));
     psk_text(a->cell[2], psk_fmt_count(c->kdrop + c->ifdrop, b, sizeof(b)));
     tone(a->cell[2], c->kdrop + c->ifdrop ? POS_STYLE_STATUS_WARN_TEXT : POS_STYLE_STATUS_OK_TEXT);
     snprintf(b, sizeof(b), "%u%%", (unsigned)((c->fill_permille + 5u) / 10u));
     psk_text(a->cell[3], b);
-    snprintf(line, sizeof(line), "STORED %s · HELD %s · SHED %s", psk_fmt_count(c->stored, s1, sizeof(s1)),
-             psk_fmt_count(c->held, s2, sizeof(s2)), psk_fmt_count(c->shed, s3, sizeof(s3)));
-    psk_text(a->detail, line);
+}
+
+/* The graph, the readout and the protocol distribution (M4). */
+static void paint_traffic(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    struct psk_graph_window w;
+    struct proto_paint *pp = lv_obj_get_user_data(a->proto_paint);
+    char b[64];
+    unsigned c;
+
+    psk_model_graph(m, &w);
+    psk_graph_set(a->graph, &w);
+    psk_text(a->readout, psk_model_readout(m, psk_graph_selected(a->graph), b, sizeof(b)));
+    for (c = 0; c < PPC_CLASS_COUNT; c++) {
+        uint32_t share = psk_model_class_share_permille(m, c);
+        char n[24];
+
+        snprintf(b, sizeof(b), "%s/s", psk_fmt_count(psk_model_class_rate(m, c), n, sizeof(n)));
+        psk_text(a->proto_rate[c], b);
+        snprintf(b, sizeof(b), "%u.%u%%", (unsigned)(share / 10u), (unsigned)(share % 10u));
+        psk_text(a->proto_share[c], b);
+        if (pp && pp->share[c] != share) {
+            pp->share[c] = (uint16_t)share;
+            lv_obj_invalidate(a->proto_paint);
+        }
+    }
 }
 
 static void paint_error(struct psk_app *a)
@@ -910,6 +1211,7 @@ void psk_live_paint(struct psk_app *a, unsigned changed)
     paint_hint(a, v);
     if (v == PSK_VIEW_LIVE) {
         paint_counters(a);
+        paint_traffic(a);
     } else if (v == PSK_VIEW_ERROR) {
         paint_error(a);
     } else {
