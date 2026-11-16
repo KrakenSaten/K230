@@ -303,6 +303,144 @@ static lv_obj_t *cell(lv_obj_t *parent, const char *caption)
     return v;
 }
 
+/* ---- room for the figures (DS §46.5) -------------------------------------------------- */
+
+/* A figure is never broken across lines: a label in the dots mode with an
+ * automatic height wraps instead of shortening (DS §46.5), and "492 000"
+ * read as "492" over "000". The widest each figure is expected to reach
+ * decides the shape, so it does not change in the middle of a capture: four
+ * SESSION figures in a line and each class's rate beside its word where
+ * they fit (Small, mockup 01), two by two and the rate on a line of its own
+ * under its word where they do not (Medium and Large). A figure that grows
+ * past its sample (a capture of ten million) gets the same room once seen. */
+#define FIT_COUNT "8 888 888"
+#define FIT_BYTES "88.8 GB"
+#define FIT_RATE "88 888/s"
+#define FIT_SHARE "100.0%"
+
+static bool fits(lv_obj_t *lb, const char *sample, int32_t room)
+{
+    return pocketui_text_width(lb, sample) <= room && pocketui_text_width(lb, lv_label_get_text(lb)) <= room;
+}
+
+/* Four cells of figures (value labels from cell()), in a line or two by two. */
+static void fit_cells(lv_obj_t *const v[4], const char *const sample[4], bool *two)
+{
+    lv_obj_t *r = lv_obj_get_parent(lv_obj_get_parent(v[0]));
+    int32_t gap = lv_obj_get_style_pad_column(r, LV_PART_MAIN);
+    int32_t width = lv_obj_get_content_width(r);
+    int32_t room = (width - 3 * gap) / 4;
+    bool want = false;
+    int i;
+
+    if (room <= 0) {
+        return; /* not laid out yet */
+    }
+    for (i = 0; i < 4; i++) {
+        lv_obj_t *caption = lv_obj_get_child(lv_obj_get_parent(v[i]), 0);
+
+        if (!fits(v[i], sample[i], room) || pocketui_text_width(caption, lv_label_get_text(caption)) > room) {
+            want = true;
+        }
+    }
+    if (want == *two) {
+        return;
+    }
+    *two = want;
+    lv_obj_set_flex_flow(r, want ? LV_FLEX_FLOW_ROW_WRAP : LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_row(r, want ? gap : 0, 0);
+    for (i = 0; i < 4; i++) {
+        lv_obj_t *c = lv_obj_get_parent(v[i]);
+
+        if (want) {
+            lv_obj_set_flex_grow(c, 0);
+            lv_obj_set_width(c, (width - gap) / 2);
+        } else {
+            grow(c);
+        }
+    }
+}
+
+/* Each class's rate beside its word, or on a line of its own under it. All
+ * eight cells take the same shape, so the panel stays a grid. */
+static void fit_protocols(struct psk_app *a)
+{
+    lv_obj_t *top = lv_obj_get_parent(a->proto_word[0]);
+    int32_t gap = lv_obj_get_style_pad_column(top, LV_PART_MAIN);
+    int32_t room = lv_obj_get_content_width(a->proto_cell[0]) - lv_obj_get_width(a->proto_swatch[0]) - 3 * gap;
+    int32_t word = 0;
+    bool want = false;
+    unsigned c;
+
+    if (lv_obj_get_content_width(a->proto_cell[0]) <= 0) {
+        return; /* not laid out yet */
+    }
+    for (c = 0; c < PPC_CLASS_COUNT; c++) {
+        int32_t w = pocketui_text_width(a->proto_word[c], psk_class_word(c));
+        int32_t s = pocketui_text_width(a->proto_share[c], lv_label_get_text(a->proto_share[c]));
+        int32_t widest = pocketui_text_width(a->proto_share[c], FIT_SHARE);
+
+        word = w > word ? w : word;
+        if (room - w - (s > widest ? s : widest) <
+            pocketui_text_width(a->proto_rate[c], lv_label_get_text(a->proto_rate[c]))) {
+            want = true;
+        }
+    }
+    if (room - word - pocketui_text_width(a->proto_share[0], FIT_SHARE) < pocketui_text_width(a->proto_rate[0], FIT_RATE)) {
+        want = true;
+    }
+    if (want == a->proto_rate_below) {
+        return;
+    }
+    a->proto_rate_below = want;
+    for (c = 0; c < PPC_CLASS_COUNT; c++) {
+        lv_obj_t *rate = a->proto_rate[c];
+
+        if (want) {
+            /* Under the word: the swatch's width and the gap in from the left. */
+            lv_obj_set_parent(rate, a->proto_cell[c]);
+            lv_obj_move_to_index(rate, 1);
+            lv_obj_set_flex_grow(rate, 0);
+            lv_obj_set_width(rate, LV_PCT(100));
+            lv_obj_set_style_pad_left(rate, lv_obj_get_width(a->proto_swatch[c]) + gap, 0);
+            grow(a->proto_word[c]); /* keeps the share at the right */
+        } else {
+            lv_obj_set_flex_grow(a->proto_word[c], 0);
+            lv_obj_set_width(a->proto_word[c], LV_SIZE_CONTENT);
+            lv_obj_set_parent(rate, lv_obj_get_parent(a->proto_share[c]));
+            lv_obj_move_to_index(rate, 2);
+            lv_obj_set_style_pad_left(rate, 0, 0);
+            grow(rate);
+        }
+    }
+}
+
+void psk_live_fit(struct psk_app *a)
+{
+    static const char *const session[4] = { FIT_COUNT, FIT_BYTES, FIT_COUNT, "100%" };
+    static const char *const last[4] = { FIT_COUNT, FIT_BYTES, FIT_COUNT, "NO" };
+    bool live = !lv_obj_has_flag(a->live, LV_OBJ_FLAG_HIDDEN);
+    bool error = !lv_obj_has_flag(a->error, LV_OBJ_FLAG_HIDDEN);
+
+    if (!live && !error) {
+        return;
+    }
+    /* A part shown for the first time has not been laid out yet: lay out
+     * now (the poll timer calls this, outside a layout pass), so its first
+     * frame already has its shape. */
+    if ((live && lv_obj_get_content_width(a->proto_cell[0]) <= 0) ||
+        (error && lv_obj_get_content_width(lv_obj_get_parent(a->last[0])) <= 0)) {
+        lv_obj_update_layout(a->frame);
+    }
+    if (live) {
+        fit_cells(a->cell, session, &a->cells_two_by_two);
+        fit_protocols(a);
+    }
+    if (error) {
+        fit_cells(a->last, last, &a->last_two_by_two);
+    }
+}
+
 /* ---- events --------------------------------------------------------------------------- */
 
 static int index_of(lv_event_t *e)

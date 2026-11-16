@@ -121,7 +121,9 @@ struct psk_app {
     lv_obj_t *proto_share[PPC_CLASS_COUNT];
     lv_obj_t *proto_bar[PPC_CLASS_COUNT];
     lv_obj_t *proto_paint;
+    bool proto_rate_below; /* each rate on a line of its own under its word (DS §46.5) */
     lv_obj_t *cell[4];   /* PACKETS, BYTES, DROPPED, BUFFER */
+    bool cells_two_by_two; /* SESSION's figures two by two, as they do not fit four in a line */
     lv_obj_t *later;     /* what is not in this version yet */
 
     /* LIVE: the helper stopped */
@@ -130,6 +132,7 @@ struct psk_app {
     lv_obj_t *err_iface;
     lv_obj_t *err_report;
     lv_obj_t *last[4];   /* PACKETS, BYTES, DROPPED, SAVED */
+    bool last_two_by_two;
 
     /* PACKETS */
     lv_obj_t *pk_title;
@@ -194,6 +197,11 @@ void psk_sheet_answer(struct psk_app *a, bool go);
 /* ui/psk_live.c */
 void psk_live_build(struct psk_app *a);
 void psk_live_paint(struct psk_app *a, unsigned changed);
+/* Gives the figures the shape they fit in at the text size in force: four
+ * SESSION figures in a line or two by two, a class's rate beside its word or
+ * under it (DS §46.5). Lays out first if a part has not been yet, so it is
+ * called from the poll timer and at create, never inside a layout pass. */
+void psk_live_fit(struct psk_app *a);
 void psk_paint_ifaces(struct psk_app *a);
 void psk_paint_options(struct psk_app *a);
 void psk_paint_tabs(struct psk_app *a);

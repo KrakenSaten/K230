@@ -785,6 +785,32 @@ static int audit_live(void)
     return bad;
 }
 
+/* A figure on one line of its own font: not "492" over "000" (DS §46.5). */
+static int figures_broken(const char *prefix, int count)
+{
+    int bad = 0;
+    int i;
+
+    lv_obj_update_layout(app_body);
+    for (i = 0; i < count; i++) {
+        char name[16];
+        lv_obj_t *lb;
+        const lv_font_t *f;
+
+        snprintf(name, sizeof(name), "%s%d", prefix, i);
+        lb = psk_app_part(app_priv, name);
+        f = lb ? lv_obj_get_style_text_font(lb, LV_PART_MAIN) : NULL;
+        if (!lb || !f || lv_obj_get_content_height(lb) > lv_font_get_line_height(f)) {
+            if (bad < 3) {
+                printf("     %s '%s' is %d px high (one line %d)\n", name, lb ? lv_label_get_text(lb) : "?",
+                       lb ? (int)lv_obj_get_content_height(lb) : -1, f ? (int)lv_font_get_line_height(f) : -1);
+            }
+            bad++;
+        }
+    }
+    return bad;
+}
+
 static int readout_second(void)
 {
     lv_obj_t *r = psk_app_part(app_priv, "readout");
@@ -949,6 +975,63 @@ static void m4_live(bool portrait)
     CHECK("at 8,000 pps the poll's work stays under 4 ms", poll_us > 0 && poll_us < 4000);
     app_stop();
     CHECK("and no helper is left", no_child());
+
+    /* Rates in the thousands at every text size: each figure on one line,
+     * SESSION four in a line where they fit and two by two where they do
+     * not, a rate under its word where it does not fit beside it. */
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        lv_area_t c0;
+        lv_area_t c2;
+        bool beside;
+        int broken;
+
+        pos_theme_select_text_size((enum pos_text_size)i);
+        app_start();
+        tap("START CAPTURE");
+        wait_for("CAPTURING", 3500);
+        pump(2600);
+        broken = figures_broken("cell", 4) + figures_broken("rate", PPC_CLASS_COUNT) +
+                 figures_broken("share", PPC_CLASS_COUNT);
+        lv_obj_get_coords(psk_app_part(app_priv, "cell0"), &c0);
+        lv_obj_get_coords(psk_app_part(app_priv, "cell2"), &c2);
+        /* Beside its word: in the row that holds the word and the share. */
+        beside = lv_obj_get_parent(psk_app_part(app_priv, "rate0")) ==
+                 lv_obj_get_parent(psk_app_part(app_priv, "share0"));
+        printf("     text size %s: rate0 '%s', SESSION %s, rates %s\n", pos_text_size_name((enum pos_text_size)i),
+               lv_label_get_text(psk_app_part(app_priv, "rate0")), c2.y1 > c0.y2 ? "two by two" : "in a line",
+               beside ? "beside the word" : "under the word");
+        if (i == POS_TEXT_SIZE_SMALL) {
+            CHECK("Small, 8,000 pps: four SESSION figures in a line, rates beside their words",
+                  c2.y1 == c0.y1 && beside);
+        } else if (i == POS_TEXT_SIZE_LARGE) {
+            /* Portrait's 528 px panels have no room at Large for four
+             * figures in a line or a rate beside its word; the wider
+             * landscape panels do, and keep the Small shape. */
+            if (portrait) {
+                CHECK("Large, portrait: SESSION two by two, each rate under its word", c2.y1 > c0.y2 && !beside);
+            }
+            shot("m4-large-8000");
+        }
+        bad = audit_live();
+        CHECK(i == POS_TEXT_SIZE_SMALL    ? "Small, 8,000 pps: no figure broken across lines, nothing clipped or overlapping"
+              : i == POS_TEXT_SIZE_MEDIUM ? "Medium, 8,000 pps: no figure broken across lines, nothing clipped or overlapping"
+                                          : "Large, 8,000 pps: no figure broken across lines, nothing clipped or overlapping",
+              broken == 0 && bad == 0);
+        if (i == POS_TEXT_SIZE_LARGE) {
+            pid_t pid = child_pid();
+
+            /* LAST SESSION on the error panel takes the same shape. */
+            if (pid > 0) {
+                kill(pid, SIGKILL);
+            }
+            wait_for("KILLED (SIG 9)", 1500);
+            pump(200);
+            CHECK("Large: LAST SESSION's figures each on one line", figures_broken("last", 4) == 0);
+        }
+        app_stop();
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(80);
 }
 
 static void faults(void)

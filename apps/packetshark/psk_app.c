@@ -294,6 +294,7 @@ static void on_poll(lv_timer_t *t)
     }
     if (changed) {
         psk_live_paint(a, changed);
+        psk_live_fit(a);
     }
     t0 = now_us() - t0;
     if (t0 > a->worst_poll_us) {
@@ -495,6 +496,7 @@ static void *psk_create(lv_obj_t *root)
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
     lv_obj_update_layout(a->frame);
     layout(a);
+    psk_live_fit(a);
     return a;
 }
 
@@ -584,6 +586,19 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     }
     if (strncmp(name, "proto", 5) == 0 && (i = name[5] - '0') >= 0 && i < PPC_CLASS_COUNT) {
         return a->proto_cell[i];
+    }
+    /* The figures' labels: SESSION's, LAST SESSION's, each class's rate and share. */
+    if (strncmp(name, "cell", 4) == 0 && (i = name[4] - '0') >= 0 && i < 4) {
+        return a->cell[i];
+    }
+    if (strncmp(name, "last", 4) == 0 && (i = name[4] - '0') >= 0 && i < 4) {
+        return a->last[i];
+    }
+    if (strncmp(name, "rate", 4) == 0 && (i = name[4] - '0') >= 0 && i < PPC_CLASS_COUNT) {
+        return a->proto_rate[i];
+    }
+    if (strncmp(name, "share", 5) == 0 && (i = name[5] - '0') >= 0 && i < PPC_CLASS_COUNT) {
+        return a->proto_share[i];
     }
     return NULL;
 }
