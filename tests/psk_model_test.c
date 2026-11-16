@@ -192,6 +192,63 @@ int main(void)
               strcmp(psk_model_readout(&M, -1, b, sizeof(b)), "00:02 · HELD · 7 PASSED") == 0);
         check("the newest second's rates", psk_model_class_rate(&M, 0) == 0);
     }
+    {
+        uint8_t classes = PPC_CLASSES_ALL;
+        char host[PPC_HOST_TEXT] = "";
+        uint16_t port = 0;
+        char b[48];
+
+        psk_model_init(&M);
+        psk_model_helper_started(&M, 0);
+        line("state\tcapturing\tnone\teth0\t100\t1");
+        M.want_req = 7;
+        line("rows.begin\t7\t3\t40\t900\t1\t950\t44");
+        line("row\t41\t0\t0\tin\t0\tTCP\t60\t0\ta\tb\tc\t1");
+        check("a window: its view, ranks, anchor and the rows' flags",
+              line("rows.end\t7") == PSK_CHANGED_ROWS && M.rows_filter_id == 3 && M.rows_first_rank == 40 &&
+                  M.rows_match == 900 && M.rows_anchor == 44 && M.row_count == 1 && M.rows[0].flags == 1);
+        M.want_pkt = 9;
+        check("an older inspector answer is dropped",
+              line("pkt.begin\t8\t5\t0\t1\t0\t0\tin\t0\tTCP\t60\t60\t0\t0") == 0 &&
+                  line("layer\t0\t-\tFrame\t60 B") == 0 && line("pkt.end\t8") == 0 && !M.have_pkt);
+        line("pkt.begin\t9\t41\t0\t900\t20000\t5000\tin\t0\tTCP\t60\t54\t0\t0");
+        line("pkt.ends\t192.0.2.20\tPORT 443\thost:192.0.2.20\t192.0.2.10\t-\t-");
+        line("layer\t0\t-\tFrame\t60 B");
+        line("field\t0\tON THE WIRE\t60 bytes\t-\t0\t-");
+        line("layer\t1\t0\tTCP\t443 > 49152");
+        line("field\t1\tSOURCE PORT\t443 https\t34\t2\tport:443");
+        line("field\t5\tORPHAN\tx\t-\t0\t-");
+        line("hex\t0\t02 00 5e 10  00 01 02 00\t..^.....");
+        check("a packet shows only when whole", !M.have_pkt);
+        check("the packet: head, ends, layers, fields, hex; a field of no layer dropped",
+              line("pkt.end\t9") == PSK_CHANGED_PACKET && M.have_pkt && M.pkt.head.seq == 41 &&
+                  M.pkt.nlayers == 2 && M.pkt.nfields == 2 && M.pkt.field[1].off == 34 &&
+                  strcmp(M.pkt.field[1].filter, "port:443") == 0 && M.pkt.layer[1].cls == 0 && M.pkt.nhex == 1 &&
+                  strcmp(M.pkt.src.filter, "host:192.0.2.20") == 0 && M.pkt.dst.sub[0] == '\0');
+        check("pinned: the count, and the packet's flag", line("pinned\t41\t1\t1") == PSK_CHANGED_PINS &&
+                                                              M.pins == 1 && (M.pkt.head.flags & PPC_ROWF_PINNED));
+        line("pinned\t41\t0\t0");
+        check("unpinned", M.pins == 0 && !(M.pkt.head.flags & PPC_ROWF_PINNED));
+        psk_model_helper_stopped(&M, PSK_EXIT_CRASHED, 128 + 11, 0);
+        check("a helper gone takes the rows and the packet with it", M.row_count == 0 && !M.have_pkt && M.pins == 0);
+
+        check("a row's time and gap", strcmp(psk_fmt_rel(252318430, b, sizeof(b)), "04:12.318430") == 0 &&
+                                          strcmp(psk_fmt_rel(6012000001ull, b, sizeof(b)), "100:12.000001") == 0 &&
+                                          strcmp(psk_fmt_gap(187554, b, sizeof(b)), "+0.187554") == 0);
+        check("direction glyphs", strcmp(psk_dir_glyph("out"), "\xe2\x86\x91") == 0 &&
+                                      strcmp(psk_dir_glyph("in"), "\xe2\x86\x93") == 0 &&
+                                      strcmp(psk_dir_glyph("bcast"), "\xc2\xb7") == 0);
+        check("filter tokens", psk_filter_token("port:443", &classes, host, sizeof(host), &port) == 0 && port == 443 &&
+                                   psk_filter_token("host:2001:db8::a", &classes, host, sizeof(host), &port) == 0 &&
+                                   strcmp(host, "2001:db8::a") == 0 &&
+                                   psk_filter_token("class:4", &classes, host, sizeof(host), &port) == 0 &&
+                                   classes == (1u << 4));
+        check("and the ones refused", psk_filter_token("port:0", &classes, host, sizeof(host), &port) < 0 &&
+                                          psk_filter_token("port:70000", &classes, host, sizeof(host), &port) < 0 &&
+                                          psk_filter_token("class:8", &classes, host, sizeof(host), &port) < 0 &&
+                                          psk_filter_token("host:", &classes, host, sizeof(host), &port) < 0 &&
+                                          psk_filter_token("rm -rf", &classes, host, sizeof(host), &port) < 0);
+    }
     printf("psk_model_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -159,7 +159,7 @@ int ppc_dns_name(const uint8_t *msg, uint32_t len, uint32_t off, char *out, size
 
 /* ---- sentences ------------------------------------------------------------------- */
 
-static void tcp_flags_text(uint8_t f, char *out, size_t outlen)
+void ppc_tcp_flags_text(uint8_t f, char *out, size_t outlen)
 {
     static const struct {
         uint8_t bit;
@@ -182,7 +182,7 @@ static void tcp_flags_text(uint8_t f, char *out, size_t outlen)
     }
 }
 
-static const char *icmp_text(unsigned type, unsigned code)
+const char *ppc_icmp_text(unsigned type, unsigned code)
 {
     static const char *const unreach[] = { "network unreachable", "host unreachable",
                                            "protocol unreachable", "port unreachable",
@@ -210,7 +210,7 @@ static const char *icmp_text(unsigned type, unsigned code)
     }
 }
 
-static const char *icmp6_text(unsigned type)
+const char *ppc_icmp6_text(unsigned type)
 {
     switch (type) {
     case 1:
@@ -248,7 +248,7 @@ static const char *icmp6_text(unsigned type)
     }
 }
 
-static const char *igmp_text(unsigned type)
+const char *ppc_igmp_text(unsigned type)
 {
     switch (type) {
     case 0x11:
@@ -266,7 +266,7 @@ static const char *igmp_text(unsigned type)
     }
 }
 
-static const char *dhcp_type_text(unsigned type)
+const char *ppc_dhcp_type_text(unsigned type)
 {
     static const char *const names[] = { NULL,      "Discover", "Offer",   "Request", "Decline",
                                          "ACK",     "NAK",      "Release", "Inform" };
@@ -274,7 +274,7 @@ static const char *dhcp_type_text(unsigned type)
     return type < sizeof(names) / sizeof(names[0]) ? names[type] : NULL;
 }
 
-static const char *dhcp6_type_text(unsigned type)
+const char *ppc_dhcp6_type_text(unsigned type)
 {
     static const char *const names[] = { NULL,           "Solicit",  "Advertise", "Request",
                                          "Confirm",      "Renew",    "Rebind",    "Reply",
@@ -284,7 +284,7 @@ static const char *dhcp6_type_text(unsigned type)
     return type < sizeof(names) / sizeof(names[0]) ? names[type] : NULL;
 }
 
-static const char *ntp_mode_text(unsigned mode)
+const char *ppc_ntp_mode_text(unsigned mode)
 {
     static const char *const names[] = { "reserved",  "symmetric active", "symmetric passive",
                                          "client",    "server",           "broadcast",
@@ -293,7 +293,7 @@ static const char *ntp_mode_text(unsigned mode)
     return names[mode & 7u];
 }
 
-static const char *dns_rcode_text(unsigned rcode)
+const char *ppc_dns_rcode_text(unsigned rcode)
 {
     switch (rcode) {
     case 1:
@@ -329,7 +329,7 @@ static void dns_info(const struct ppc_record *r, const uint8_t *bytes, uint32_t 
     unsigned qd = r->b >> 16;
     int response = (flags & 0x8000u) != 0;
     unsigned opcode = (flags >> 11) & 0xfu;
-    const char *rc = response ? dns_rcode_text(flags & 0xfu) : NULL;
+    const char *rc = response ? ppc_dns_rcode_text(flags & 0xfu) : NULL;
     const char *kind = r->app == PPC_APP_NBNS ? (opcode == 5 ? "Registration" : "Name query")
                        : opcode == 0          ? "Standard query"
                        : opcode == 5          ? "Update"
@@ -437,7 +437,7 @@ static void info_text(const struct ppc_record *r, const uint8_t *bytes, uint32_t
                  (unsigned)r->a, (unsigned)r->b);
         return;
     case PPC_INFO_TCP:
-        tcp_flags_text(r->tcp_flags, tmp, sizeof(tmp));
+        ppc_tcp_flags_text(r->tcp_flags, tmp, sizeof(tmp));
         if (r->tcp_flags & PPC_TCP_ACK) {
             snprintf(out, outlen, "%u > %u [%s] Seq=%u Ack=%u%s", r->sport, r->dport, tmp,
                      (unsigned)r->a, (unsigned)r->b, r->app == PPC_APP_NONE ? "" : " (DNS)");
@@ -458,7 +458,7 @@ static void info_text(const struct ppc_record *r, const uint8_t *bytes, uint32_t
                  r->a >= 8 ? (unsigned)r->a - 8u : 0u);
         return;
     case PPC_INFO_ICMP: {
-        const char *t = icmp_text(r->a >> 8, r->a & 0xffu);
+        const char *t = ppc_icmp_text(r->a >> 8, r->a & 0xffu);
 
         if ((r->a >> 8) == 0 || (r->a >> 8) == 8) {
             snprintf(out, outlen, "%s id=0x%04x seq=%u", t, (unsigned)(r->b >> 16), (unsigned)(r->b & 0xffffu));
@@ -471,7 +471,7 @@ static void info_text(const struct ppc_record *r, const uint8_t *bytes, uint32_t
     }
     case PPC_INFO_ICMP6: {
         unsigned type = r->a >> 8;
-        const char *t = icmp6_text(type);
+        const char *t = ppc_icmp6_text(type);
 
         if ((type == 135 || type == 136) && n > 0) {
             uint32_t pay = payload_in(bytes, n);
@@ -494,7 +494,7 @@ static void info_text(const struct ppc_record *r, const uint8_t *bytes, uint32_t
         return;
     }
     case PPC_INFO_IGMP: {
-        const char *t = igmp_text(r->a);
+        const char *t = ppc_igmp_text(r->a);
 
         if (t) {
             snprintf(out, outlen, "%s", t);
@@ -507,7 +507,7 @@ static void info_text(const struct ppc_record *r, const uint8_t *bytes, uint32_t
         dns_info(r, bytes, n, out, outlen);
         return;
     case PPC_INFO_DHCP: {
-        const char *t = dhcp_type_text(r->b & 0xffu);
+        const char *t = ppc_dhcp_type_text(r->b & 0xffu);
 
         if (t) {
             snprintf(out, outlen, "DHCP %s, transaction 0x%08x", t, (unsigned)r->a);
@@ -518,13 +518,13 @@ static void info_text(const struct ppc_record *r, const uint8_t *bytes, uint32_t
         return;
     }
     case PPC_INFO_DHCP6: {
-        const char *t = dhcp6_type_text(r->a);
+        const char *t = ppc_dhcp6_type_text(r->a);
 
         snprintf(out, outlen, "%s, transaction 0x%06x", t ? t : "DHCPv6", (unsigned)r->b);
         return;
     }
     case PPC_INFO_NTP:
-        snprintf(out, outlen, "NTP version %u, %s", (unsigned)(r->a >> 8), ntp_mode_text(r->a & 7u));
+        snprintf(out, outlen, "NTP version %u, %s", (unsigned)(r->a >> 8), ppc_ntp_mode_text(r->a & 7u));
         return;
     default:
         /* A header that could not be read far enough to say anything. */

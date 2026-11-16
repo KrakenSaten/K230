@@ -1,14 +1,14 @@
 /*
- * PacketShark's screen, inside the app (not an API): the state the three
- * sources of the app share - psk_app.c (lifecycle, the poll, the actions),
- * ui/psk_live.c (LIVE: setup, live status, the error panel; the capture
- * bar; PACKETS and INSPECT empty states) and ui/psk_sheets.c (the
- * confirmations).
+ * PacketShark's screen, inside the app (not an API): the state the sources
+ * of the app share - psk_app.c (lifecycle, the poll, the actions),
+ * ui/psk_live.c (LIVE: setup, live status, the error panel; the tabs and
+ * the capture bar), ui/psk_list.c (PACKETS, M5), ui/psk_inspect.c (INSPECT,
+ * M6) and ui/psk_sheets.c (the confirmations and the filter sheet).
  *
- * Milestone M3 (docs/apps/PACKETSHARK.md): setup, START, live counters,
- * HOLD, STOP, the error state. The traffic graph (M4), the packet list (M5)
- * and the inspector (M6) are not built yet: PACKETS shows how many packets
- * the helper holds, INSPECT is disabled.
+ * Milestones M3 to M6 (docs/apps/PACKETSHARK.md): setup, START, live
+ * counters, HOLD, STOP, the error state; the traffic graph and the protocol
+ * distribution (M4); the packet list with its display filter and sort (M5);
+ * the packet inspector and pins (M6).
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -31,6 +31,11 @@
 #define PSK_BAR_H 64
 #define PSK_GAP 8
 #define PSK_PANEL_GAP 22
+#define PSK_LIST_ROWS 16 /* the row pool: a portrait list shows 15 (DS §59.4) */
+#define PSK_ROW_H 56     /* DS §59.6 */
+#define PSK_FIELD_H 36   /* DS §59.6 */
+#define PSK_HELD_REFRESH_MS 1000
+#define PSK_FOLLOW_REFRESH_MS 250
 
 enum psk_tab { PSK_TAB_LIVE = 0, PSK_TAB_PACKETS, PSK_TAB_INSPECT, PSK_TAB_COUNT };
 
@@ -46,6 +51,10 @@ enum psk_sheet {
     PSK_SHEET_LEAVE,    /* Back with packets in memory */
 };
 
+/* What a window was last asked to be anchored at, so its answer can put the
+ * anchor at the top of the list. */
+enum psk_jump { PSK_JUMP_NONE = 0, PSK_JUMP_SEQ, PSK_JUMP_RANK, PSK_JUMP_TIME };
+
 /* The capture bar's buttons, by what they do. */
 enum psk_action {
     PSK_ACT_NONE = 0,
@@ -57,6 +66,8 @@ enum psk_action {
     PSK_ACT_SAVE,
     PSK_ACT_NEW,
     PSK_ACT_DISCARD,
+    PSK_ACT_LIVE,       /* PACKETS: back to the newest packets (FOLLOW on) */
+    PSK_ACT_FILTER_BY,  /* INSPECT: filter on the selected field */
 };
 
 /* Stop-after choices, minutes; 0 is no limit. */
@@ -77,6 +88,36 @@ struct psk_ifrow {
     lv_obj_t *name;
     lv_obj_t *sub;
     lv_obj_t *chip;
+};
+
+/* One row of the list's pool (DS §59.6: two Mono 14 lines in 56 px). */
+struct psk_listrow {
+    lv_obj_t *row;
+    lv_obj_t *bar;   /* the 4 px class bar */
+    lv_obj_t *time;
+    lv_obj_t *dir;
+    lv_obj_t *word;
+    lv_obj_t *addr;
+    lv_obj_t *len;
+    lv_obj_t *gap;
+    lv_obj_t *info;
+    lv_obj_t *pin;
+    uint32_t seq;    /* 0: shows nothing */
+};
+
+struct psk_layerrow {
+    lv_obj_t *row;
+    lv_obj_t *bar;
+    lv_obj_t *tri;
+    lv_obj_t *name;
+    lv_obj_t *summary;
+    lv_obj_t *fields; /* the column its fields go in */
+};
+
+struct psk_fieldrow {
+    lv_obj_t *row;
+    lv_obj_t *name;
+    lv_obj_t *value;
 };
 
 struct psk_app {
@@ -134,9 +175,92 @@ struct psk_app {
     lv_obj_t *last[4];   /* PACKETS, BYTES, DROPPED, SAVED */
     bool last_two_by_two;
 
-    /* PACKETS */
+    /* PACKETS (M5): the view the app asked for, and the list's position */
+    uint32_t view_id;
+    uint8_t sort;        /* enum ppc_sort: 0 time, 1 newest, 2 len */
+    uint8_t classes;     /* PPC_CLASSES_ALL or one class's bit */
+    char host[PPC_HOST_TEXT];
+    uint16_t port;
+    bool pinned_only;
+    bool follow;         /* the list keeps to the newest packets */
+    uint32_t top_rank;   /* the rank of the top row shown */
+    uint32_t top_seq;    /* its packet, which anchors the next window */
+    enum psk_jump jump;  /* the anchor of the window asked for last */
+    uint64_t jump_at;
+    int vis;             /* rows that fit */
+    uint32_t sel_seq;    /* the outlined row: the inspected packet */
+    bool window_due;
+    bool window_inflight;
+    int64_t window_sent_ms;
+    uint32_t window_last_seq;
+    int64_t retry_ms;
+    bool dragging;
+    bool dragged;
+    int32_t drag_y0;
+    uint32_t drag_rank0;
+    lv_obj_t *pk_tools;
+    lv_obj_t *pk_filter;
+    lv_obj_t *pk_sum1;
+    lv_obj_t *pk_sum2;
+    lv_obj_t *pk_sort;
+    lv_obj_t *pk_follow;
+    lv_obj_t *pk_head;
+    lv_obj_t *pk_body;
+    lv_obj_t *pk_list;
+    lv_obj_t *pk_rail;
+    lv_obj_t *pk_foot;
+    lv_obj_t *pk_foot_l;
+    lv_obj_t *pk_foot_r;
+    lv_obj_t *pk_none;   /* a filter that matches nothing */
+    lv_obj_t *pk_empty;  /* no capture: the panel */
     lv_obj_t *pk_title;
     lv_obj_t *pk_text;
+    struct psk_listrow lrow[PSK_LIST_ROWS];
+    int32_t char_w;      /* the fixed face's advance, for the columns */
+    bool sum_below;      /* the filter in words on a line of its own (DS §46.5) */
+
+    /* INSPECT (M6) */
+    uint32_t insp_seq;   /* the packet asked for last; 0: none */
+    uint32_t insp_shown; /* the packet the page shows */
+    int insp_field;      /* the selected field, -1 none */
+    bool layer_open[PSK_LAYERS];
+    char insp_note[96];  /* "! THE PACKET HAS LEFT THE BUFFER", ... */
+    lv_obj_t *in_empty;
+    lv_obj_t *in_body;
+    lv_obj_t *in_num;
+    lv_obj_t *in_word;
+    lv_obj_t *in_finding;
+    lv_obj_t *in_meta1;
+    lv_obj_t *in_meta2;
+    lv_obj_t *in_note;
+    lv_obj_t *in_pin;
+    lv_obj_t *in_prev;
+    lv_obj_t *in_next;
+    lv_obj_t *in_end[2];
+    lv_obj_t *in_end_addr[2];
+    lv_obj_t *in_end_sub[2];
+    struct psk_layerrow layer[PSK_LAYERS];
+    struct psk_fieldrow field[PSK_FIELDS];
+    lv_obj_t *in_bytes_row;
+    lv_obj_t *in_bytes_tri;
+    lv_obj_t *in_bytes_sum;
+    lv_obj_t *in_hex;
+    lv_obj_t *in_hex_note;
+    bool bytes_open;
+
+    /* the filter sheet (M5): a draft, applied by SHOW */
+    lv_obj_t *fsheet;
+    lv_obj_t *fs_cls[PPC_CLASS_COUNT + 1];
+    lv_obj_t *fs_host;
+    lv_obj_t *fs_port;
+    lv_obj_t *fs_pinned;
+    lv_obj_t *fs_host_row;
+    lv_obj_t *fs_port_row;
+    uint8_t fs_classes;
+    char fs_hostv[PPC_HOST_TEXT];
+    uint16_t fs_portv;
+    bool fs_pinnedv;
+    bool fs_to_packets;  /* opened from LIVE: SHOW goes to PACKETS */
 
     /* the capture bar */
     lv_obj_t *bar;
@@ -182,7 +306,10 @@ struct psk_app {
 
 /* Test seams (tests/packetshark_app_test.c): a named part of the screen
  * ("traffic", "graph", "protocols", "session", "status", "tab0".."tab2",
- * "bar0".."bar2", "readout", "proto0".."proto7"), and the measured costs. */
+ * "bar0".."bar2", "readout", "proto0".."proto7"; M5/M6: "list", "rail",
+ * "row0".."row9", "filter", "sort", "follow", "prev", "next", "pin",
+ * "end0", "end1", "hex", "layer0".."layer7", "field0".."field9"), and the
+ * measured costs. */
 lv_obj_t *psk_app_part(void *priv, const char *name);
 void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset);
 
@@ -193,6 +320,18 @@ void psk_select_tab(struct psk_app *a, enum psk_tab t);
 void psk_select_iface(struct psk_app *a, int index);
 void psk_option(struct psk_app *a, int which);
 void psk_sheet_answer(struct psk_app *a, bool go);
+/* PACKETS and INSPECT (M5, M6) */
+void psk_set_view(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned);
+void psk_set_sort(struct psk_app *a, unsigned sort);
+void psk_set_follow(struct psk_app *a, bool on);
+void psk_show_second(struct psk_app *a, int64_t second); /* < 0: the newest */
+void psk_show_class(struct psk_app *a, unsigned cls);
+void psk_list_scroll_to(struct psk_app *a, uint32_t rank, bool final);
+void psk_open_packet(struct psk_app *a, uint32_t seq, int step);
+void psk_select_field(struct psk_app *a, int index);
+void psk_filter_by(struct psk_app *a, const char *token);
+void psk_toggle_pin(struct psk_app *a);
+bool psk_capture_present(const struct psk_app *a);
 
 /* ui/psk_live.c */
 void psk_live_build(struct psk_app *a);
@@ -211,6 +350,31 @@ const char *psk_cfilter_label(enum ppc_cfilter f);
 void psk_sheet_build(struct psk_app *a);
 void psk_sheet_show(struct psk_app *a, enum psk_sheet kind);
 void psk_sheet_hide(struct psk_app *a);
+void psk_fsheet_build(struct psk_app *a);
+void psk_fsheet_show(struct psk_app *a, bool to_packets);
+void psk_fsheet_hide(struct psk_app *a);
+bool psk_fsheet_shown(const struct psk_app *a);
+/* The filter in words: "ALL PROTOCOLS", "TCP · HOST 192.0.2.10". */
+const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, bool pinned, char *buf,
+                             size_t buflen);
+
+/* ui/psk_list.c */
+void psk_list_build(struct psk_app *a, lv_obj_t *page);
+void psk_list_paint(struct psk_app *a);
+/* Rows that fit and the columns, from the laid-out list (the poll timer). */
+void psk_list_fit(struct psk_app *a);
+/* The class bar of a row or a layer: a 4 px object drawn in the class's
+ * hue (cls < 0 or OTHER: text_secondary), DS §59.2. */
+lv_obj_t *psk_class_bar(lv_obj_t *parent);
+void psk_class_bar_set(lv_obj_t *bar, int cls);
+/* A colour-only role over a label (or none: -1); the role in force is kept
+ * in the user data, so only a change is applied. fixed puts the fixed Small
+ * face back on top for the list's labels. */
+void psk_tone(lv_obj_t *lb, int role, bool fixed);
+
+/* ui/psk_inspect.c */
+void psk_inspect_build(struct psk_app *a, lv_obj_t *page);
+void psk_inspect_paint(struct psk_app *a);
 
 /* small LVGL helpers, ui/psk_live.c */
 void psk_set_hidden(lv_obj_t *obj, bool hidden);

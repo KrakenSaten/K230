@@ -439,6 +439,8 @@ set(PACKETSHARK_APP_SOURCES
     ${REPO_DIR}/apps/packetshark/ui/psk_live.c
     ${REPO_DIR}/apps/packetshark/ui/psk_graph.c
     ${REPO_DIR}/apps/packetshark/ui/psk_sheets.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_list.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_inspect.c
     ${REPO_DIR}/core/pocketpcap/ppc_proto.c)
 if(POCKETOS_WITH_PACKETSHARK)
     target_sources(pocketos-shell PRIVATE ${PACKETSHARK_APP_SOURCES})

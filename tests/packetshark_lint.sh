@@ -36,6 +36,12 @@ hits=$(code $C/ppc_store.c | grep -cE '\bmalloc\(')
 check "the store allocates in one place, at init (2 calls)" "$([ "$hits" = "2" ] && echo 1 || echo 0)"
 hits=$(code $C/ppc_decode.c | grep -nE '\bwhile *\(1\)|\bfor *\(;;\)|goto')
 check "the decoder has no unbounded loop and no goto" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $C/ppc_view.c | grep -cE '\b(malloc|calloc|realloc)\(')
+check "the list's view allocates in one place, at init (M5)" "$([ "$hits" = "1" ] && echo 1 || echo 0)"
+hits=$(code $C/ppc_dissect.c | grep -nE '\b(malloc|calloc|realloc|free)\(|\bwhile *\(1\)|\bfor *\(;;\)|goto')
+check "the dissector allocates nothing and has no unbounded loop or goto (M6)" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $C/ppc_decode.c $C/ppc_stats.c $C/ppc_store.c | grep -nE 'ppc_dissect|ppc_view_')
+check "the capture path calls neither the view nor the dissector" "$([ -z "$hits" ] && echo 1 || echo 0)"
 
 # ---- layering --------------------------------------------------------------------
 hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] 2>/dev/null)

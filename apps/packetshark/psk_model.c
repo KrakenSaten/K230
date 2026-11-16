@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void psk_model_init(struct psk_model *m)
@@ -28,7 +29,20 @@ void psk_model_helper_started(struct psk_model *m, int64_t now_ms)
     m->caps[0] = '\0';
     m->err_code[0] = '\0';
     m->err_text[0] = '\0';
+    psk_model_clear_packets(m);
+}
+
+void psk_model_clear_packets(struct psk_model *m)
+{
     m->rows_open = false;
+    m->row_count = 0;
+    m->rows_match = 0;
+    m->rows_first_rank = 0;
+    m->rows_anchor = 0;
+    m->pkt_open = false;
+    m->have_pkt = false;
+    m->pins = 0;
+    m->pin_seq = 0;
 }
 
 void psk_model_helper_stopped(struct psk_model *m, enum psk_exit why, int value, int64_t now_ms)
@@ -44,7 +58,8 @@ void psk_model_helper_stopped(struct psk_model *m, enum psk_exit why, int value,
     }
     m->exit = why;
     m->exit_value = value;
-    m->rows_open = false;
+    /* The packets went with the helper (D10): no row or packet stays. */
+    psk_model_clear_packets(m);
 }
 
 bool psk_model_has_packets(const struct psk_model *m)
@@ -133,6 +148,10 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
         m->row_count = 0;
         m->rows_first_seq = e->u.rows.first_seq;
         m->rows_last_seq = e->u.rows.last_seq;
+        m->rows_filter_id = e->u.rows.filter_id;
+        m->rows_first_rank = e->u.rows.first_rank;
+        m->rows_match = e->u.rows.match;
+        m->rows_anchor = e->u.rows.anchor_rank;
         return 0;
     case PPC_EVT_ROW:
         if (m->rows_open && m->row_count < PSK_ROW_CACHE) {
@@ -146,6 +165,72 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
         }
         m->rows_open = false;
         return 0;
+    case PPC_EVT_PKT_BEGIN:
+        if (e->u.pkt.req != m->want_pkt || m->want_pkt == 0) {
+            m->pkt_open = false;
+            return 0;
+        }
+        memset(&m->pkt_next, 0, sizeof(m->pkt_next));
+        m->pkt_next.head = e->u.pkt;
+        m->pkt_open = true;
+        return 0;
+    case PPC_EVT_PKT_ENDS:
+        if (m->pkt_open) {
+            m->pkt_next.src = e->u.ends.src;
+            m->pkt_next.dst = e->u.ends.dst;
+        }
+        return 0;
+    case PPC_EVT_LAYER:
+        if (m->pkt_open && m->pkt_next.nlayers < PSK_LAYERS && e->u.layer.index == m->pkt_next.nlayers) {
+            struct psk_layer *l = &m->pkt_next.layer[m->pkt_next.nlayers++];
+
+            l->cls = e->u.layer.cls;
+            snprintf(l->name, sizeof(l->name), "%s", e->u.layer.name);
+            snprintf(l->text, sizeof(l->text), "%s", e->u.layer.text);
+        }
+        return 0;
+    case PPC_EVT_FIELD:
+        if (m->pkt_open && m->pkt_next.nfields < PSK_FIELDS && e->u.field.layer < m->pkt_next.nlayers) {
+            struct psk_field *f = &m->pkt_next.field[m->pkt_next.nfields++];
+
+            f->layer = (uint8_t)e->u.field.layer;
+            snprintf(f->name, sizeof(f->name), "%s", e->u.field.name);
+            snprintf(f->text, sizeof(f->text), "%s", e->u.field.text);
+            f->off = e->u.field.off;
+            f->len = e->u.field.len;
+            snprintf(f->filter, sizeof(f->filter), "%s", e->u.field.filter);
+        }
+        return 0;
+    case PPC_EVT_HEX:
+        if (m->pkt_open && m->pkt_next.nhex < PSK_HEX_LINES) {
+            struct psk_hex *h = &m->pkt_next.hex[m->pkt_next.nhex++];
+
+            h->off = e->u.hex.off;
+            snprintf(h->hex, sizeof(h->hex), "%s", e->u.hex.hex);
+            snprintf(h->ascii, sizeof(h->ascii), "%s", e->u.hex.ascii);
+        }
+        return 0;
+    case PPC_EVT_PKT_END:
+        if (m->pkt_open && e->u.pkt.req == m->want_pkt) {
+            m->pkt_open = false;
+            m->pkt = m->pkt_next;
+            m->have_pkt = true;
+            return PSK_CHANGED_PACKET;
+        }
+        m->pkt_open = false;
+        return 0;
+    case PPC_EVT_PINNED:
+        m->pins = e->u.pinned.pins;
+        m->pin_seq = e->u.pinned.seq;
+        m->pin_on = e->u.pinned.on != 0;
+        if (m->have_pkt && m->pkt.head.seq == e->u.pinned.seq) {
+            if (m->pin_on) {
+                m->pkt.head.flags |= PPC_ROWF_PINNED;
+            } else {
+                m->pkt.head.flags &= (uint8_t)~PPC_ROWF_PINNED;
+            }
+        }
+        return PSK_CHANGED_PINS;
     case PPC_EVT_BYE:
     case PPC_EVT_NONE:
     case PPC_EVT_BAD:
@@ -376,4 +461,64 @@ uint32_t psk_model_class_share_permille(const struct psk_model *m, unsigned cls)
         return 0;
     }
     return (uint32_t)((m->c.cls[cls] * 1000u + total / 2u) / total);
+}
+
+/* ---- the list and the inspector ------------------------------------------------- */
+
+const char *psk_fmt_rel(uint64_t us, char *buf, size_t buflen)
+{
+    uint64_t s = us / 1000000u;
+
+    snprintf(buf, buflen, "%02llu:%02llu.%06llu", (unsigned long long)(s / 60u), (unsigned long long)(s % 60u),
+             (unsigned long long)(us % 1000000u));
+    return buf;
+}
+
+const char *psk_fmt_gap(uint64_t us, char *buf, size_t buflen)
+{
+    snprintf(buf, buflen, "+%llu.%06llu", (unsigned long long)(us / 1000000u), (unsigned long long)(us % 1000000u));
+    return buf;
+}
+
+const char *psk_dir_glyph(const char *dir)
+{
+    if (strcmp(dir, "out") == 0) {
+        return "\xe2\x86\x91"; /* up: sent by this device */
+    }
+    if (strcmp(dir, "in") == 0) {
+        return "\xe2\x86\x93";
+    }
+    return "\xc2\xb7";
+}
+
+int psk_filter_token(const char *token, uint8_t *classes, char *host, size_t hostlen, uint16_t *port)
+{
+    char *end;
+    unsigned long v;
+
+    if (!token) {
+        return -1;
+    }
+    if (strncmp(token, "host:", 5) == 0 && token[5] && strlen(token + 5) < hostlen &&
+        strlen(token + 5) < PPC_HOST_TEXT) {
+        snprintf(host, hostlen, "%s", token + 5);
+        return 0;
+    }
+    if (strncmp(token, "port:", 5) == 0) {
+        v = strtoul(token + 5, &end, 10);
+        if (token[5] && !*end && v > 0 && v <= 65535) {
+            *port = (uint16_t)v;
+            return 0;
+        }
+        return -1;
+    }
+    if (strncmp(token, "class:", 6) == 0) {
+        v = strtoul(token + 6, &end, 10);
+        if (token[6] && !*end && v < PPC_CLASS_COUNT) {
+            *classes = (uint8_t)(1u << v);
+            return 0;
+        }
+        return -1;
+    }
+    return -1;
 }

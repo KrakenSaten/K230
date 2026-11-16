@@ -9,15 +9,24 @@
  * (BusyBox ash completes a typed tab). Text derived from a packet never
  * carries a tab or newline (ppc_format.h sanitizes it).
  *
- * Implemented in this milestone (M2/M3):
+ * Implemented (M2/M3; view, the window's rank and time anchors, inspect and
+ * pin since M5/M6, protocol 2):
  *
  *   shell -> helper
  *     start <iface> <headers|full> <promisc 0|1> <cfilter> <limit_s>
  *     hold <0|1>
  *     stop
  *     discard
- *     window <req> <tail|seq:N> <before> <after>     at most PPC_WINDOW_MAX rows
- *     stats                                          one snapshot now
+ *     view <id> <time|newest|len> <classes> <host|-> <port> <pinned 0|1>
+ *                                     the list's display filter and sort;
+ *                                     classes is a hex mask of enum ppc_class
+ *     window <req> <tail|seq:N|rank:N|us:N> <before> <after>
+ *                                     at most PPC_WINDOW_MAX rows of the view
+ *     inspect <req> <seq> <step -1|0|1>
+ *                                     one packet's layers, fields and bytes; a
+ *                                     step moves to its neighbour in the view
+ *     pin <seq> <0|1>
+ *     stats                           one snapshot now
  *     quit
  *
  *   helper -> shell
@@ -26,9 +35,17 @@
  *     stats <elapsed_ms> <seen> <stored> <held> <kdrop> <ifdrop> <shed> <bytes> <pps> <bps>
  *           <first_seq> <last_seq> <match> <fill_permille> <ui_skipped> <c0..c7> <s0..s4>
  *     bin <second> <c0..c7> <held>
- *     rows.begin <req> <filter_id> <first_rank> <match> <first_seq> <last_seq>
- *     row <seq> <rel_us> <gap_us> <dir> <class> <word> <len> <signal> <src> <dst> <info>
+ *     rows.begin <req> <filter_id> <first_rank> <match> <first_seq> <last_seq> [<anchor_rank>]
+ *     row <seq> <rel_us> <gap_us> <dir> <class> <word> <len> <signal> <src> <dst> <info> [<flags>]
  *     rows.end <req>
+ *     pkt.begin <req> <seq> <rank> <match> <rel_us> <gap_us> <dir> <class> <word>
+ *               <wire_len> <stored> <signal> <flags>
+ *     pkt.ends <src> <src_sub> <src_filter> <dst> <dst_sub> <dst_filter>
+ *     layer <index> <class|-> <name> <summary>
+ *     field <layer> <name> <value> <off|-> <len> <filter|->
+ *     hex <off> <hex> <ascii>
+ *     pkt.end <req>
+ *     pinned <seq> <0|1> <pins>
  *     error <code> <text>
  *     note <key> <value>
  *     bye
@@ -50,7 +67,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PPC_PROTO_VERSION 1
+#define PPC_PROTO_VERSION 2
 #define PPC_LINE_MAX 1024
 #define PPC_IFACE_MAX 16
 #define PPC_WINDOW_MAX 48
@@ -87,6 +104,10 @@ enum ppc_cfilter {
 
 /* Replace what is not printable ASCII with '.', in place. */
 void ppc_sanitize(char *s);
+/* The same, keeping exactly two well-formed UTF-8 marks the inspector's own
+ * words use, the middle dot (U+00B7) and the right arrow (U+2192). Never
+ * used on bytes taken from a packet, which ppc_sanitize() makes ASCII. */
+void ppc_sanitize_marks(char *s);
 
 const char *ppc_state_name(enum ppc_state s);
 const char *ppc_reason_name(enum ppc_reason r);
@@ -110,7 +131,31 @@ enum ppc_cmd_kind {
     PPC_CMD_WINDOW,
     PPC_CMD_STATS,
     PPC_CMD_QUIT,
+    PPC_CMD_VIEW,
+    PPC_CMD_INSPECT,
+    PPC_CMD_PIN,
 };
+
+/* Where a window is anchored. */
+enum ppc_anchor {
+    PPC_ANCHOR_TAIL = 0, /* the newest packet's end of the view */
+    PPC_ANCHOR_SEQ,      /* this packet, or its nearest neighbour in the view */
+    PPC_ANCHOR_RANK,     /* this position in the view */
+    PPC_ANCHOR_US,       /* the first packet at or after this time (us since the first) */
+};
+
+#define PPC_HOST_TEXT 48
+/* A view's classes mask for every class. */
+#define PPC_CLASSES_ALL 0xffu
+/* The inspector's hex lines carry this many bytes each. */
+#define PPC_HEX_PER_LINE 8u
+
+/* Row and packet flags (the row's last field, pkt.begin's flags). */
+#define PPC_ROWF_PINNED 0x01u
+#define PPC_ROWF_GONE 0x02u      /* the bytes left the buffer: summary only */
+#define PPC_ROWF_TRUNCATED 0x04u
+#define PPC_ROWF_MALFORMED 0x08u
+#define PPC_ROWF_GRO 0x10u
 
 struct ppc_cmd {
     enum ppc_cmd_kind kind;
@@ -122,9 +167,20 @@ struct ppc_cmd {
     uint8_t on;        /* hold */
     uint32_t req;
     uint8_t tail;      /* window anchored at the newest packet */
-    uint32_t seq;      /* window anchored at this packet */
+    uint32_t seq;      /* window anchored at this packet; inspect, pin: the packet */
     uint32_t before;
     uint32_t after;
+    uint8_t anchor;    /* enum ppc_anchor (tail and seq say it too) */
+    uint64_t at;       /* the rank or the microseconds of those anchors */
+    /* view */
+    uint32_t view_id;
+    uint8_t sort;      /* enum ppc_sort (ppc_view.h) */
+    uint8_t classes;
+    char host[PPC_HOST_TEXT]; /* "" for any */
+    uint16_t port;
+    uint8_t pinned;
+    /* inspect */
+    int8_t step;
 };
 
 /* An interface name as the kernel allows it: 1..15 characters, no slash,
@@ -140,6 +196,13 @@ int ppc_cmd_format_start(char *buf, size_t n, const char *iface, enum ppc_keep k
 int ppc_cmd_format_hold(char *buf, size_t n, int on);
 int ppc_cmd_format_window(char *buf, size_t n, uint32_t req, uint32_t seq, uint32_t before,
                           uint32_t after);
+int ppc_cmd_format_window_at(char *buf, size_t n, uint32_t req, enum ppc_anchor anchor, uint64_t at,
+                             uint32_t before, uint32_t after);
+/* sort: 0 time, 1 newest, 2 len (enum ppc_sort). host NULL or "" for any. */
+int ppc_cmd_format_view(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                        uint16_t port, int pinned);
+int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int step);
+int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on);
 
 /* ---- events ---------------------------------------------------------------------- */
 
@@ -156,7 +219,20 @@ enum ppc_evt_kind {
     PPC_EVT_ERROR,
     PPC_EVT_NOTE,
     PPC_EVT_BYE,
+    PPC_EVT_PKT_BEGIN,
+    PPC_EVT_PKT_ENDS,
+    PPC_EVT_LAYER,
+    PPC_EVT_FIELD,
+    PPC_EVT_HEX,
+    PPC_EVT_PKT_END,
+    PPC_EVT_PINNED,
 };
+
+#define PPC_FIELD_NAME 24
+#define PPC_FIELD_TEXT 112
+#define PPC_FILTER_TEXT 56
+#define PPC_HEX_TEXT 32
+#define PPC_ASCII_TEXT 12
 
 struct ppc_counters {
     uint64_t elapsed_ms;
@@ -190,6 +266,30 @@ struct ppc_evt_row {
     char src[PPC_ADDR_TEXT];
     char dst[PPC_ADDR_TEXT];
     char info[PPC_INFO_TEXT];
+    uint8_t flags;     /* PPC_ROWF_* */
+};
+
+/* pkt.begin: the inspected packet's head. */
+struct ppc_evt_pkt {
+    uint32_t req;
+    uint32_t seq;
+    uint32_t rank;     /* its place in the view; match when it is not in it */
+    uint32_t match;
+    uint64_t rel_us;
+    uint64_t gap_us;
+    char dir[6];
+    uint8_t cls;
+    char word[8];
+    uint32_t wire_len;
+    uint32_t stored;
+    uint16_t signal;
+    uint8_t flags;     /* PPC_ROWF_* */
+};
+
+struct ppc_evt_end {
+    char addr[PPC_ADDR_TEXT];
+    char sub[PPC_ADDR_TEXT];
+    char filter[PPC_FILTER_TEXT];
 };
 
 struct ppc_evt {
@@ -220,6 +320,7 @@ struct ppc_evt {
             uint32_t match;
             uint32_t first_seq;
             uint32_t last_seq;
+            uint32_t anchor_rank; /* the anchor's rank; first_rank when not sent */
         } rows;
         struct ppc_evt_row row;
         struct {
@@ -230,6 +331,35 @@ struct ppc_evt {
             char key[16];
             char value[64];
         } note;
+        struct ppc_evt_pkt pkt;
+        struct {
+            struct ppc_evt_end src;
+            struct ppc_evt_end dst;
+        } ends;
+        struct {
+            uint32_t index;
+            int cls;           /* -1 for none */
+            char name[PPC_FIELD_NAME];
+            char text[PPC_FIELD_TEXT];
+        } layer;
+        struct {
+            uint32_t layer;
+            char name[PPC_FIELD_NAME];
+            char text[PPC_FIELD_TEXT];
+            int32_t off;       /* -1 for none */
+            uint32_t len;
+            char filter[PPC_FILTER_TEXT]; /* "" for none */
+        } field;
+        struct {
+            uint32_t off;
+            char hex[PPC_HEX_TEXT];
+            char ascii[PPC_ASCII_TEXT];
+        } hex;
+        struct {
+            uint32_t seq;
+            uint8_t on;
+            uint32_t pins;
+        } pinned;
     } u;
 };
 
@@ -248,9 +378,22 @@ int ppc_evt_format_rows_begin(char *buf, size_t n, uint32_t req, uint32_t filter
                               uint32_t first_rank, uint32_t match, uint32_t first_seq,
                               uint32_t last_seq);
 int ppc_evt_format_row(char *buf, size_t n, const struct ppc_evt_row *row);
+/* The same with the rank the window was anchored at (protocol 2). */
+int ppc_evt_format_rows_begin_at(char *buf, size_t n, uint32_t req, uint32_t filter_id, uint32_t first_rank,
+                                 uint32_t match, uint32_t first_seq, uint32_t last_seq, uint32_t anchor_rank);
 int ppc_evt_format_rows_end(char *buf, size_t n, uint32_t req);
 int ppc_evt_format_error(char *buf, size_t n, const char *code, const char *text);
 int ppc_evt_format_note(char *buf, size_t n, const char *key, const char *value);
 int ppc_evt_format_bye(char *buf, size_t n);
+int ppc_evt_format_pkt_begin(char *buf, size_t n, const struct ppc_evt_pkt *p);
+int ppc_evt_format_pkt_ends(char *buf, size_t n, const struct ppc_evt_end *src, const struct ppc_evt_end *dst);
+/* cls < 0: none. */
+int ppc_evt_format_layer(char *buf, size_t n, uint32_t index, int cls, const char *name, const char *text);
+/* off < 0: none; filter NULL or "": none. */
+int ppc_evt_format_field(char *buf, size_t n, uint32_t layer, const char *name, const char *text, int32_t off,
+                         uint32_t len, const char *filter);
+int ppc_evt_format_hex(char *buf, size_t n, uint32_t off, const char *hex, const char *ascii);
+int ppc_evt_format_pkt_end(char *buf, size_t n, uint32_t req);
+int ppc_evt_format_pinned(char *buf, size_t n, uint32_t seq, int on, uint32_t pins);
 
 #endif

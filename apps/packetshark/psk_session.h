@@ -95,6 +95,16 @@ int psk_session_discard(struct psk_session *s);
  * request (m->want_req is set here). seq 0: the tail. */
 int psk_session_window(struct psk_session *s, struct psk_model *m, uint32_t seq, uint32_t before,
                        uint32_t after);
+/* The same at any anchor: the tail, a seq, a rank, or a time in us. */
+int psk_session_window_at(struct psk_session *s, struct psk_model *m, enum ppc_anchor anchor, uint64_t at,
+                          uint32_t before, uint32_t after);
+/* The list's display filter and sort (M5). */
+int psk_session_view(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                     uint16_t port, bool pinned);
+/* One packet for the inspector, or its neighbour in the view (step -1, 1)
+ * (M6); the model takes only the answer to the newest request. */
+int psk_session_inspect(struct psk_session *s, struct psk_model *m, uint32_t seq, int step);
+int psk_session_pin(struct psk_session *s, uint32_t seq, bool on);
 
 /* For a destroyed app or a new capture: quit, SIGTERM, wait up to grace_ms,
  * SIGKILL, wait up to PSK_KILL_REAP_MS. Idle afterwards whatever happened. */

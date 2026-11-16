@@ -22,6 +22,24 @@ void ppc_sanitize(char *s)
     }
 }
 
+void ppc_sanitize_marks(char *s)
+{
+    unsigned char *p = (unsigned char *)s;
+
+    while (p && *p) {
+        if (p[0] == 0xc2 && p[1] == 0xb7) {
+            p += 2; /* the middle dot */
+        } else if (p[0] == 0xe2 && p[1] == 0x86 && p[2] == 0x92) {
+            p += 3; /* the right arrow */
+        } else {
+            if (*p < 0x20 || *p >= 0x7f) {
+                *p = '.';
+            }
+            p++;
+        }
+    }
+}
+
 /* ---- names ------------------------------------------------------------------------- */
 
 static const char *const state_names[] = { "idle", "capturing", "hold", "saving", "stopped" };
@@ -198,6 +216,14 @@ static int copy(char *dst, size_t n, const char *src)
     return 0;
 }
 
+/* "-" on the line stands for an empty field. */
+static void none_dash(char *s)
+{
+    if (strcmp(s, "-") == 0) {
+        s[0] = '\0';
+    }
+}
+
 int ppc_iface_ok(const char *name)
 {
     size_t i;
@@ -210,6 +236,41 @@ int ppc_iface_ok(const char *name)
         unsigned char c = (unsigned char)name[i];
 
         if (c <= ' ' || c >= 0x7f || c == '/' || c == ':') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *const sort_words[] = { "time", "newest", "len" };
+
+static int sort_parse(const char *w)
+{
+    unsigned i;
+
+    for (i = 0; i < sizeof(sort_words) / sizeof(sort_words[0]); i++) {
+        if (strcmp(w, sort_words[i]) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+/* An address as a view names its host: hex digits, dots and colons only
+ * (IPv4, IPv6, MAC). The helper parses it properly; this keeps anything
+ * else off the line. */
+static int host_ok(const char *h)
+{
+    size_t i;
+    size_t len = strlen(h);
+
+    if (len == 0 || len >= PPC_HOST_TEXT) {
+        return 0;
+    }
+    for (i = 0; i < len; i++) {
+        char c = h[i];
+
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == '.' || c == ':')) {
             return 0;
         }
     }
@@ -275,12 +336,66 @@ enum ppc_cmd_kind ppc_cmd_parse(const char *line, struct ppc_cmd *c)
         }
         if (strcmp(f[2], "tail") == 0) {
             c->tail = 1;
+            c->anchor = PPC_ANCHOR_TAIL;
         } else if (strncmp(f[2], "seq:", 4) == 0 && u32(f[2] + 4, &c->seq) == 0 && c->seq > 0) {
             c->tail = 0;
+            c->anchor = PPC_ANCHOR_SEQ;
+        } else if (strncmp(f[2], "rank:", 5) == 0 && u32(f[2] + 5, &v) == 0) {
+            c->anchor = PPC_ANCHOR_RANK;
+            c->at = v;
+        } else if (strncmp(f[2], "us:", 3) == 0 && u64(f[2] + 3, &c->at) == 0) {
+            c->anchor = PPC_ANCHOR_US;
         } else {
             return c->kind;
         }
         c->kind = PPC_CMD_WINDOW;
+    } else if (strcmp(f[0], "view") == 0) {
+        int sort;
+        unsigned long classes;
+        char *end;
+
+        if (n != 7 || u32(f[1], &c->view_id) != 0) {
+            return c->kind;
+        }
+        sort = sort_parse(f[2]);
+        classes = strtoul(f[3], &end, 16);
+        if (sort < 0 || *end || f[3][0] == '\0' || strlen(f[3]) > 2 || classes > 0xff) {
+            return c->kind;
+        }
+        if (strcmp(f[4], "-") != 0 && (!host_ok(f[4]) || copy(c->host, sizeof(c->host), f[4]) != 0)) {
+            return c->kind;
+        }
+        if (u32(f[5], &v) != 0 || v > 65535) {
+            return c->kind;
+        }
+        c->port = (uint16_t)v;
+        if (u32(f[6], &v) != 0 || v > 1) {
+            return c->kind;
+        }
+        c->pinned = (uint8_t)v;
+        c->sort = (uint8_t)sort;
+        c->classes = (uint8_t)classes;
+        c->kind = PPC_CMD_VIEW;
+    } else if (strcmp(f[0], "inspect") == 0) {
+        if (n != 4 || u32(f[1], &c->req) != 0 || u32(f[2], &c->seq) != 0 || c->seq == 0) {
+            return c->kind;
+        }
+        if (strcmp(f[3], "-1") == 0) {
+            c->step = -1;
+        } else if (strcmp(f[3], "0") == 0) {
+            c->step = 0;
+        } else if (strcmp(f[3], "1") == 0) {
+            c->step = 1;
+        } else {
+            return c->kind;
+        }
+        c->kind = PPC_CMD_INSPECT;
+    } else if (strcmp(f[0], "pin") == 0) {
+        if (n != 3 || u32(f[1], &c->seq) != 0 || c->seq == 0 || u32(f[2], &v) != 0 || v > 1) {
+            return c->kind;
+        }
+        c->on = (uint8_t)v;
+        c->kind = PPC_CMD_PIN;
     } else {
         c->kind = PPC_CMD_NONE;
     }
@@ -332,6 +447,57 @@ int ppc_cmd_format_window(char *buf, size_t n, uint32_t req, uint32_t seq, uint3
                (unsigned)after);
 }
 
+int ppc_cmd_format_window_at(char *buf, size_t n, uint32_t req, enum ppc_anchor anchor, uint64_t at,
+                             uint32_t before, uint32_t after)
+{
+    switch (anchor) {
+    case PPC_ANCHOR_TAIL:
+        return ppc_cmd_format_window(buf, n, req, 0, before, after);
+    case PPC_ANCHOR_SEQ:
+        if (at == 0 || at > UINT32_MAX) {
+            return -1;
+        }
+        return ppc_cmd_format_window(buf, n, req, (uint32_t)at, before, after);
+    case PPC_ANCHOR_RANK:
+        if (at > UINT32_MAX) {
+            return -1;
+        }
+        return fmt(buf, n, "window\t%u\trank:%u\t%u\t%u", (unsigned)req, (unsigned)at, (unsigned)before,
+                   (unsigned)after);
+    case PPC_ANCHOR_US:
+        return fmt(buf, n, "window\t%u\tus:%llu\t%u\t%u", (unsigned)req, (unsigned long long)at, (unsigned)before,
+                   (unsigned)after);
+    default:
+        return -1;
+    }
+}
+
+int ppc_cmd_format_view(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                        uint16_t port, int pinned)
+{
+    if (sort >= sizeof(sort_words) / sizeof(sort_words[0]) || (host && *host && !host_ok(host))) {
+        return -1;
+    }
+    return fmt(buf, n, "view\t%u\t%s\t%x\t%s\t%u\t%d", (unsigned)id, sort_words[sort], (unsigned)classes,
+               host && *host ? host : "-", (unsigned)port, pinned ? 1 : 0);
+}
+
+int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int step)
+{
+    if (seq == 0 || step < -1 || step > 1) {
+        return -1;
+    }
+    return fmt(buf, n, "inspect\t%u\t%u\t%d", (unsigned)req, (unsigned)seq, step);
+}
+
+int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on)
+{
+    if (seq == 0) {
+        return -1;
+    }
+    return fmt(buf, n, "pin\t%u\t%d", (unsigned)seq, on ? 1 : 0);
+}
+
 /* ---- events ------------------------------------------------------------------------- */
 
 /* Free text for a field: no tabs, newlines or anything else unprintable. */
@@ -339,6 +505,15 @@ static void field_text(char *dst, size_t n, const char *src)
 {
     snprintf(dst, n, "%s", src && *src ? src : "-");
     ppc_sanitize(dst);
+}
+
+/* The same for the inspector's own words, which may carry the two marks. A
+ * mark cut in half by the buffer's end is turned into dots like any other
+ * stray byte. */
+static void mark_text(char *dst, size_t n, const char *src)
+{
+    snprintf(dst, n, "%s", src && *src ? src : "-");
+    ppc_sanitize_marks(dst);
 }
 
 int ppc_evt_format_hello(char *buf, size_t n, const char *version, const char *backend)
@@ -391,6 +566,13 @@ int ppc_evt_format_rows_begin(char *buf, size_t n, uint32_t req, uint32_t filter
                (unsigned)first_rank, (unsigned)match, (unsigned)first_seq, (unsigned)last_seq);
 }
 
+int ppc_evt_format_rows_begin_at(char *buf, size_t n, uint32_t req, uint32_t filter_id, uint32_t first_rank,
+                                 uint32_t match, uint32_t first_seq, uint32_t last_seq, uint32_t anchor_rank)
+{
+    return fmt(buf, n, "rows.begin\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n", (unsigned)req, (unsigned)filter_id,
+               (unsigned)first_rank, (unsigned)match, (unsigned)first_seq, (unsigned)last_seq, (unsigned)anchor_rank);
+}
+
 int ppc_evt_format_row(char *buf, size_t n, const struct ppc_evt_row *r)
 {
     char dir[sizeof(r->dir)];
@@ -404,9 +586,9 @@ int ppc_evt_format_row(char *buf, size_t n, const struct ppc_evt_row *r)
     field_text(src, sizeof(src), r->src);
     field_text(dst, sizeof(dst), r->dst);
     field_text(info, sizeof(info), r->info);
-    return fmt(buf, n, "row\t%u\t%llu\t%llu\t%s\t%u\t%s\t%u\t%u\t%s\t%s\t%s\n", (unsigned)r->seq,
+    return fmt(buf, n, "row\t%u\t%llu\t%llu\t%s\t%u\t%s\t%u\t%u\t%s\t%s\t%s\t%u\n", (unsigned)r->seq,
                (unsigned long long)r->rel_us, (unsigned long long)r->gap_us, dir, (unsigned)r->cls,
-               word, (unsigned)r->len, (unsigned)r->signal, src, dst, info);
+               word, (unsigned)r->len, (unsigned)r->signal, src, dst, info, (unsigned)r->flags);
 }
 
 int ppc_evt_format_rows_end(char *buf, size_t n, uint32_t req)
@@ -437,6 +619,88 @@ int ppc_evt_format_note(char *buf, size_t n, const char *key, const char *value)
 int ppc_evt_format_bye(char *buf, size_t n)
 {
     return fmt(buf, n, "bye\n");
+}
+
+int ppc_evt_format_pkt_begin(char *buf, size_t n, const struct ppc_evt_pkt *p)
+{
+    char dir[sizeof(p->dir)];
+    char word[sizeof(p->word)];
+
+    field_text(dir, sizeof(dir), p->dir);
+    field_text(word, sizeof(word), p->word);
+    return fmt(buf, n, "pkt.begin\t%u\t%u\t%u\t%u\t%llu\t%llu\t%s\t%u\t%s\t%u\t%u\t%u\t%u\n", (unsigned)p->req,
+               (unsigned)p->seq, (unsigned)p->rank, (unsigned)p->match, (unsigned long long)p->rel_us,
+               (unsigned long long)p->gap_us, dir, (unsigned)p->cls, word, (unsigned)p->wire_len,
+               (unsigned)p->stored, (unsigned)p->signal, (unsigned)p->flags);
+}
+
+int ppc_evt_format_pkt_ends(char *buf, size_t n, const struct ppc_evt_end *src, const struct ppc_evt_end *dst)
+{
+    char t[6][PPC_FILTER_TEXT];
+
+    field_text(t[0], sizeof(t[0]), src->addr);
+    mark_text(t[1], sizeof(t[1]), src->sub);
+    field_text(t[2], sizeof(t[2]), src->filter);
+    field_text(t[3], sizeof(t[3]), dst->addr);
+    mark_text(t[4], sizeof(t[4]), dst->sub);
+    field_text(t[5], sizeof(t[5]), dst->filter);
+    return fmt(buf, n, "pkt.ends\t%s\t%s\t%s\t%s\t%s\t%s\n", t[0], t[1], t[2], t[3], t[4], t[5]);
+}
+
+int ppc_evt_format_layer(char *buf, size_t n, uint32_t index, int cls, const char *name, const char *text)
+{
+    char nm[PPC_FIELD_NAME];
+    char tx[PPC_FIELD_TEXT];
+    char c[8];
+
+    field_text(nm, sizeof(nm), name);
+    mark_text(tx, sizeof(tx), text);
+    if (cls < 0 || cls >= PPC_CLASS_COUNT) {
+        snprintf(c, sizeof(c), "-");
+    } else {
+        snprintf(c, sizeof(c), "%d", cls);
+    }
+    return fmt(buf, n, "layer\t%u\t%s\t%s\t%s\n", (unsigned)index, c, nm, tx);
+}
+
+int ppc_evt_format_field(char *buf, size_t n, uint32_t layer, const char *name, const char *text, int32_t off,
+                         uint32_t len, const char *filter)
+{
+    char nm[PPC_FIELD_NAME];
+    char tx[PPC_FIELD_TEXT];
+    char fl[PPC_FILTER_TEXT];
+    char o[16];
+
+    field_text(nm, sizeof(nm), name);
+    mark_text(tx, sizeof(tx), text);
+    field_text(fl, sizeof(fl), filter);
+    if (off < 0) {
+        snprintf(o, sizeof(o), "-");
+        len = 0;
+    } else {
+        snprintf(o, sizeof(o), "%d", (int)off);
+    }
+    return fmt(buf, n, "field\t%u\t%s\t%s\t%s\t%u\t%s\n", (unsigned)layer, nm, tx, o, (unsigned)len, fl);
+}
+
+int ppc_evt_format_hex(char *buf, size_t n, uint32_t off, const char *hex, const char *ascii)
+{
+    char hx[PPC_HEX_TEXT];
+    char as[PPC_ASCII_TEXT];
+
+    field_text(hx, sizeof(hx), hex);
+    field_text(as, sizeof(as), ascii);
+    return fmt(buf, n, "hex\t%u\t%s\t%s\n", (unsigned)off, hx, as);
+}
+
+int ppc_evt_format_pkt_end(char *buf, size_t n, uint32_t req)
+{
+    return fmt(buf, n, "pkt.end\t%u\n", (unsigned)req);
+}
+
+int ppc_evt_format_pinned(char *buf, size_t n, uint32_t seq, int on, uint32_t pins)
+{
+    return fmt(buf, n, "pinned\t%u\t%d\t%u\n", (unsigned)seq, on ? 1 : 0, (unsigned)pins);
 }
 
 enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
@@ -530,10 +794,14 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         }
         e->kind = PPC_EVT_BIN;
     } else if (strcmp(f[0], "rows.begin") == 0) {
-        if (n != 7 || u32(f[1], &e->u.rows.req) != 0 || u32(f[2], &e->u.rows.filter_id) != 0 ||
+        if ((n != 7 && n != 8) || u32(f[1], &e->u.rows.req) != 0 || u32(f[2], &e->u.rows.filter_id) != 0 ||
             u32(f[3], &e->u.rows.first_rank) != 0 || u32(f[4], &e->u.rows.match) != 0 ||
-            u32(f[5], &e->u.rows.first_seq) != 0 || u32(f[6], &e->u.rows.last_seq) != 0) {
+            u32(f[5], &e->u.rows.first_seq) != 0 || u32(f[6], &e->u.rows.last_seq) != 0 ||
+            (n == 8 && u32(f[7], &e->u.rows.anchor_rank) != 0)) {
             return e->kind;
+        }
+        if (n == 7) {
+            e->u.rows.anchor_rank = e->u.rows.first_rank;
         }
         e->kind = PPC_EVT_ROWS_BEGIN;
     } else if (strcmp(f[0], "rows.end") == 0) {
@@ -546,7 +814,10 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         uint32_t cls;
         uint32_t sig;
 
-        if (n != 12 || u32(f[1], &r->seq) != 0 || u64(f[2], &r->rel_us) != 0 ||
+        uint32_t flags = 0;
+
+        if ((n != 12 && n != 13) || (n == 13 && (u32(f[12], &flags) != 0 || flags > 0xff)) ||
+            u32(f[1], &r->seq) != 0 || u64(f[2], &r->rel_us) != 0 ||
             u64(f[3], &r->gap_us) != 0 || copy(r->dir, sizeof(r->dir), f[4]) != 0 ||
             u32(f[5], &cls) != 0 || cls >= PPC_CLASS_COUNT || copy(r->word, sizeof(r->word), f[6]) != 0 ||
             u32(f[7], &r->len) != 0 || u32(f[8], &sig) != 0 || sig > 0xffffu ||
@@ -556,6 +827,7 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         }
         r->cls = (uint8_t)cls;
         r->signal = (uint16_t)sig;
+        r->flags = (uint8_t)flags;
         e->kind = PPC_EVT_ROW;
     } else if (strcmp(f[0], "error") == 0) {
         if (n != 3 || copy(e->u.error.code, sizeof(e->u.error.code), f[1]) != 0) {
@@ -571,6 +843,86 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         e->kind = PPC_EVT_NOTE;
     } else if (strcmp(f[0], "bye") == 0) {
         e->kind = n == 1 ? PPC_EVT_BYE : PPC_EVT_BAD;
+    } else if (strcmp(f[0], "pkt.begin") == 0) {
+        struct ppc_evt_pkt *p = &e->u.pkt;
+        uint32_t cls;
+        uint32_t sig;
+        uint32_t flags;
+
+        if (n != 14 || u32(f[1], &p->req) != 0 || u32(f[2], &p->seq) != 0 || u32(f[3], &p->rank) != 0 ||
+            u32(f[4], &p->match) != 0 || u64(f[5], &p->rel_us) != 0 || u64(f[6], &p->gap_us) != 0 ||
+            copy(p->dir, sizeof(p->dir), f[7]) != 0 || u32(f[8], &cls) != 0 || cls >= PPC_CLASS_COUNT ||
+            copy(p->word, sizeof(p->word), f[9]) != 0 || u32(f[10], &p->wire_len) != 0 ||
+            u32(f[11], &p->stored) != 0 || u32(f[12], &sig) != 0 || sig > 0xffffu || u32(f[13], &flags) != 0 ||
+            flags > 0xff) {
+            return e->kind;
+        }
+        p->cls = (uint8_t)cls;
+        p->signal = (uint16_t)sig;
+        p->flags = (uint8_t)flags;
+        e->kind = PPC_EVT_PKT_BEGIN;
+    } else if (strcmp(f[0], "pkt.ends") == 0) {
+        if (n != 7 || copy(e->u.ends.src.addr, sizeof(e->u.ends.src.addr), f[1]) != 0 ||
+            copy(e->u.ends.src.sub, sizeof(e->u.ends.src.sub), f[2]) != 0 ||
+            copy(e->u.ends.src.filter, sizeof(e->u.ends.src.filter), f[3]) != 0 ||
+            copy(e->u.ends.dst.addr, sizeof(e->u.ends.dst.addr), f[4]) != 0 ||
+            copy(e->u.ends.dst.sub, sizeof(e->u.ends.dst.sub), f[5]) != 0 ||
+            copy(e->u.ends.dst.filter, sizeof(e->u.ends.dst.filter), f[6]) != 0) {
+            return e->kind;
+        }
+        none_dash(e->u.ends.src.sub);
+        none_dash(e->u.ends.src.filter);
+        none_dash(e->u.ends.dst.sub);
+        none_dash(e->u.ends.dst.filter);
+        e->kind = PPC_EVT_PKT_ENDS;
+    } else if (strcmp(f[0], "layer") == 0) {
+        uint32_t cls = 0;
+
+        if (n != 5 || u32(f[1], &e->u.layer.index) != 0 ||
+            (strcmp(f[2], "-") != 0 && (u32(f[2], &cls) != 0 || cls >= PPC_CLASS_COUNT)) ||
+            copy(e->u.layer.name, sizeof(e->u.layer.name), f[3]) != 0 ||
+            copy(e->u.layer.text, sizeof(e->u.layer.text), f[4]) != 0) {
+            return e->kind;
+        }
+        e->u.layer.cls = strcmp(f[2], "-") == 0 ? -1 : (int)cls;
+        none_dash(e->u.layer.text);
+        e->kind = PPC_EVT_LAYER;
+    } else if (strcmp(f[0], "field") == 0) {
+        uint32_t off = 0;
+
+        if (n != 7 || u32(f[1], &e->u.field.layer) != 0 ||
+            copy(e->u.field.name, sizeof(e->u.field.name), f[2]) != 0 ||
+            copy(e->u.field.text, sizeof(e->u.field.text), f[3]) != 0 ||
+            (strcmp(f[4], "-") != 0 && (u32(f[4], &off) != 0 || off > 65535u)) || u32(f[5], &e->u.field.len) != 0 ||
+            e->u.field.len > 65535u || copy(e->u.field.filter, sizeof(e->u.field.filter), f[6]) != 0) {
+            return e->kind;
+        }
+        e->u.field.off = strcmp(f[4], "-") == 0 ? -1 : (int32_t)off;
+        if (e->u.field.off < 0) {
+            e->u.field.len = 0;
+        }
+        none_dash(e->u.field.filter);
+        e->kind = PPC_EVT_FIELD;
+    } else if (strcmp(f[0], "hex") == 0) {
+        if (n != 4 || u32(f[1], &e->u.hex.off) != 0 || copy(e->u.hex.hex, sizeof(e->u.hex.hex), f[2]) != 0 ||
+            copy(e->u.hex.ascii, sizeof(e->u.hex.ascii), f[3]) != 0) {
+            return e->kind;
+        }
+        e->kind = PPC_EVT_HEX;
+    } else if (strcmp(f[0], "pkt.end") == 0) {
+        if (n != 2 || u32(f[1], &e->u.pkt.req) != 0) {
+            return e->kind;
+        }
+        e->kind = PPC_EVT_PKT_END;
+    } else if (strcmp(f[0], "pinned") == 0) {
+        uint32_t on;
+
+        if (n != 4 || u32(f[1], &e->u.pinned.seq) != 0 || u32(f[2], &on) != 0 || on > 1 ||
+            u32(f[3], &e->u.pinned.pins) != 0) {
+            return e->kind;
+        }
+        e->u.pinned.on = (uint8_t)on;
+        e->kind = PPC_EVT_PINNED;
     } else {
         e->kind = PPC_EVT_NONE;
     }

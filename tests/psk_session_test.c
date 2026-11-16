@@ -140,6 +140,42 @@ static void test_capture(void)
         ordered = ordered && m.rows[i].seq == m.rows[i - 1].seq + 1 && m.rows[i].rel_us >= m.rows[i - 1].rel_us;
     }
     check("20 rows in order, each with a protocol word", m.row_count == 20 && ordered && m.rows[0].word[0]);
+
+    /* M5: a view (TCP only, the newest first), a window of it, a packet of
+     * it inspected, its neighbour, a pin. */
+    check("a view: TCP, the newest first", psk_session_view(&s, 5, 1, 1u << PPC_CLASS_TCP, "", 0, false) == 0);
+    check("a window of the view", psk_session_window_at(&s, &m, PPC_ANCHOR_TAIL, 0, 0, 9) == 0);
+    POLL_UNTIL(&s, &m, m.rows_filter_id == 5 && m.row_count == 10 && !m.rows_open, 2000);
+    ordered = m.row_count == 10;
+    for (i = 0; i < m.row_count; i++) {
+        ordered = ordered && m.rows[i].cls == PPC_CLASS_TCP && (i == 0 || m.rows[i].seq < m.rows[i - 1].seq);
+    }
+    check("ten TCP rows, the newest first, from rank 0", ordered && m.rows_first_rank == 0 && m.rows_match > 10 &&
+                                                            m.rows_match < m.c.last_seq);
+    {
+        uint32_t want = m.rows[3].seq;
+        uint32_t next = m.rows[4].seq;
+
+        check("inspect one", psk_session_inspect(&s, &m, want, 0) == 0);
+        POLL_UNTIL(&s, &m, m.have_pkt && m.pkt.head.seq == want, 2000);
+        check("its head, layers, fields and hex", m.have_pkt && m.pkt.head.seq == want && m.pkt.head.rank < m.pkt.head.match &&
+                                                      m.pkt.nlayers >= 4 && m.pkt.nfields > 10 && m.pkt.nhex > 0 &&
+                                                      strcmp(m.pkt.layer[3].name, "TCP") == 0 &&
+                                                      m.pkt.src.filter[0]);
+        check("its neighbour in the view's order", psk_session_inspect(&s, &m, want, 1) == 0);
+        POLL_UNTIL(&s, &m, m.have_pkt && m.pkt.head.seq == next, 2000);
+        /* Ranks move as packets arrive in a newest-first view: the seq is the test. */
+        check("is the next row", m.pkt.head.seq == next);
+        check("pin it", psk_session_pin(&s, next, true) == 0);
+        POLL_UNTIL(&s, &m, m.pins == 1, 2000);
+        check("pinned", m.pins == 1 && m.pin_seq == next && (m.pkt.head.flags & PPC_ROWF_PINNED));
+        check("a pinned view", psk_session_view(&s, 6, 0, PPC_CLASSES_ALL, NULL, 0, true) == 0 &&
+                                   psk_session_window_at(&s, &m, PPC_ANCHOR_RANK, 0, 0, 9) == 0);
+        POLL_UNTIL(&s, &m, m.rows_filter_id == 6 && !m.rows_open, 2000);
+        check("holds that packet alone, marked", m.row_count == 1 && m.rows[0].seq == next &&
+                                                     (m.rows[0].flags & PPC_ROWF_PINNED));
+        psk_session_view(&s, 7, 0, PPC_CLASSES_ALL, NULL, 0, false);
+    }
     check("hold", psk_session_hold(&s, true) == 0);
     POLL_UNTIL(&s, &m, m.state == PPC_STATE_HOLD, 2000);
     {

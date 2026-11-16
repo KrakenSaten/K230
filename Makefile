@@ -2233,7 +2233,7 @@ PACKETSHARK_PCAP_LIBS ?= -lpcap
 PPC_DIR := core/pocketpcap
 PPC_APP_OBJS := $(PPC_DIR)/ppc_proto.o
 PPC_CORE_OBJS := $(PPC_APP_OBJS) $(PPC_DIR)/ppc_format.o $(PPC_DIR)/ppc_decode.o $(PPC_DIR)/ppc_pcapfile.o \
-                 $(PPC_DIR)/ppc_store.o $(PPC_DIR)/ppc_stats.o
+                 $(PPC_DIR)/ppc_store.o $(PPC_DIR)/ppc_stats.o $(PPC_DIR)/ppc_view.o $(PPC_DIR)/ppc_dissect.o
 PPC_SRC_OBJS := $(PPC_DIR)/ppc_source.o $(PPC_DIR)/ppc_source_file.o $(PPC_DIR)/ppc_source_synth.o
 ifeq ($(PACKETSHARK_PCAP),1)
 PPC_LIVE_OBJ := $(PPC_DIR)/ppc_source_pcap.o
@@ -2249,7 +2249,7 @@ PSK_DIR := apps/packetshark
 PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o
 PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test \
                      tests/ppc_stats_test tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures \
-                     tests/psk_model_test tests/psk_session_test
+                     tests/ppc_view_test tests/ppc_dissect_test tests/psk_model_test tests/psk_session_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
@@ -2264,7 +2264,8 @@ tests/psk_%.o: tests/psk_%.c
 	$(CC) $(ALL_CFLAGS) -I$(PSK_DIR) -c -o $@ $<
 
 tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test tests/ppc_stats_test \
-tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures: tests/%: tests/%.o $(PPC_OBJS)
+tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures tests/ppc_view_test \
+tests/ppc_dissect_test: tests/%: tests/%.o $(PPC_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
 
 tests/psk_model_test: tests/psk_model_test.o $(PSK_DIR)/psk_model.o $(PPC_APP_OBJS)
@@ -2279,6 +2280,7 @@ tests/psk_session_test: tests/psk_session_test.o $(PSK_OBJS) $(PPC_APP_OBJS)
 PACKETSHARK_FUZZ_S ?= 5
 PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/ppc_store_test && ./tests/ppc_stats_test && ./tests/ppc_proto_test && \
+    ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
     mkdir -p out/packetshark-fixtures && ./tests/ppc_mkfixtures out/packetshark-fixtures &&     ./tests/ppc_fuzz -seconds $(PACKETSHARK_FUZZ_S) tests/data/packetshark out/packetshark-fixtures && \
     ./tests/psk_model_test && ./tests/psk_session_test tools/capture/pos-capture && \
     bash tests/pos_capture_test.sh tools/capture/pos-capture tests/ppc_mkfixtures && \
@@ -2300,7 +2302,8 @@ PPC_SAN_SRCS := $(patsubst %.o,%.c,$(PPC_CORE_OBJS) $(PPC_SRC_OBJS)) $(PPC_DIR)/
 packetshark-san-test:
 	rm -rf $(PSK_SAN_DIR) && mkdir -p $(PSK_SAN_DIR)/tests/data $(PSK_SAN_DIR)/tools/capture
 	cp -r tests/data/packetshark $(PSK_SAN_DIR)/tests/data/
-	set -e; for t in ppc_decode_test ppc_pcapfile_test ppc_store_test ppc_stats_test ppc_proto_test ppc_fuzz ppc_mkfixtures; do \
+	set -e; for t in ppc_decode_test ppc_pcapfile_test ppc_store_test ppc_stats_test ppc_proto_test ppc_fuzz ppc_mkfixtures \
+	    ppc_view_test ppc_dissect_test; do \
 	    $(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/$$t tests/$$t.c $(PPC_SAN_SRCS); done
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_model_test tests/psk_model_test.c \
 	    $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lm
@@ -2310,7 +2313,8 @@ packetshark-san-test:
 	    $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
 	    ASAN_OPTIONS=allocator_may_return_null=1 ./tests/ppc_store_test && \
-	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/psk_model_test && \
+	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
+	    ./tests/psk_model_test && \
 	    mkdir -p fixtures && ./tests/ppc_mkfixtures fixtures && 	    ./tests/ppc_fuzz -seconds $(PACKETSHARK_SAN_FUZZ_S) tests/data/packetshark fixtures
 	cd $(PSK_SAN_DIR) && ASAN_OPTIONS=handle_segv=0 ./tests/psk_session_test tools/capture/pos-capture
 	ASAN_OPTIONS=handle_segv=0 bash tests/pos_capture_test.sh $(PSK_SAN_DIR)/tools/capture/pos-capture \

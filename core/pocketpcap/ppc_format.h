@@ -50,6 +50,17 @@ int ppc_dns_name(const uint8_t *msg, uint32_t len, uint32_t off, char *out, size
 /* "A", "AAAA", "PTR", ... or "TYPE<n>". */
 const char *ppc_dns_type_name(unsigned type, char *buf, size_t buflen);
 
+/* Words shared with the inspector's dissector (ppc_dissect.c). Each returns
+ * NULL for a value it has no name for. */
+void ppc_tcp_flags_text(uint8_t flags, char *out, size_t outlen); /* "SYN, ACK" */
+const char *ppc_icmp_text(unsigned type, unsigned code);
+const char *ppc_icmp6_text(unsigned type);
+const char *ppc_igmp_text(unsigned type);
+const char *ppc_dhcp_type_text(unsigned type);
+const char *ppc_dhcp6_type_text(unsigned type);
+const char *ppc_ntp_mode_text(unsigned mode); /* never NULL */
+const char *ppc_dns_rcode_text(unsigned rcode);
+
 /* ppc_sanitize() is in ppc_proto.h: the shell needs it without the decoder. */
 
 #endif

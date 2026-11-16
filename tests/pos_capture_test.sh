@@ -72,7 +72,7 @@ check "the backend is named" "$("$HELPER" backend | grep -qxE 'pcap|none' && ech
 } | "$HELPER" session --source synth:500:1 > "$T/s1" 2>&1
 rc=$?
 check "the session leaves with 0" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
-check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t1\t' && echo 1 || echo 0)"
+check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t2\t' && echo 1 || echo 0)"
 check "capturing, hold, capturing, stopped by the user" \
     "$(grep -P '^state\t' "$T/s1" | cut -f2,3 | tr '\t\n' ' ' | grep -q 'idle none capturing none hold none capturing none stopped user' && echo 1 || echo 0)"
 check "a window of 5 rows" "$([ "$(grep -cP '^row\t' "$T/s1")" = "5" ] && grep -qP '^rows.end\t1$' "$T/s1" && echo 1 || echo 0)"
@@ -84,6 +84,35 @@ check "seen = stored + held + shed ($seen = $stored + $held + $shed)" \
     "$([ "$seen" -gt 0 ] && [ "$seen" = "$((stored + held + shed))" ] && [ "$held" -gt 0 ] && echo 1 || echo 0)"
 check "at least one bin" "$(grep -qP '^bin\t0\t' "$T/s1" && echo 1 || echo 0)"
 check "bye last" "$(tail -1 "$T/s1" | grep -qx bye && echo 1 || echo 0)"
+
+# ---- the list and the inspector (M5, M6) --------------------------------------------
+{
+    printf 'view 1 time ff - 0 0\nstart synth0 headers 0 all 0\n'; sleep 1.2
+    printf 'view 2 time 1 - 0 0\nwindow 2 tail 4 0\n'; sleep 0.2
+    printf 'view 3 len ff - 0 0\nwindow 3 rank:0 0 4\n'; sleep 0.2
+    printf 'view 4 newest ff - 443 0\nwindow 4 tail 0 4\n'; sleep 0.2
+    printf 'view 5 time ff 192.0.2.53 0 0\nwindow 5 tail 2 0\n'; sleep 0.2
+    printf 'view 6 time ff 999.1.1.1 0 0\n'
+    printf 'inspect 7 5 0\npin 5 1\nview 8 time ff - 0 1\nwindow 8 tail 3 0\n'; sleep 0.2
+    printf 'inspect 9 999999 0\nstop\n'; sleep 0.3
+    printf 'quit\n'
+} | "$HELPER" session --source synth:500:1 > "$T/s2" 2>&1
+check "view and window: TCP only (classes 1)" \
+    "$(awk -F'\t' '/^rows.begin\t2\t/{on=1;next} /^rows.end\t2/{on=0} on && $1=="row" && $6!=0 {bad=1} END{print bad?0:1}' "$T/s2")"
+check "the length order: largest first" \
+    "$(awk -F'\t' '/^rows.begin\t3\t/{on=1;next} /^rows.end\t3/{on=0} on && $1=="row" {if (prev && $8>prev) bad=1; prev=$8; n++} END{print (n==5 && !bad)?1:0}' "$T/s2")"
+check "port 443, the newest first" \
+    "$(awk -F'\t' '/^rows.begin\t4\t/{on=1;next} /^rows.end\t4/{on=0} on && $1=="row" {if (prev && $2>prev) bad=1; if ($12 !~ /443/) bad=1; prev=$2; n++} END{print (n==5 && !bad)?1:0}' "$T/s2")"
+check "a host filter: every row has it at one end" \
+    "$(awk -F'\t' '/^rows.begin\t5\t/{on=1;next} /^rows.end\t5/{on=0} on && $1=="row" {if ($10!="192.0.2.53" && $11!="192.0.2.53") bad=1; n++} END{print (n==3 && !bad)?1:0}' "$T/s2")"
+check "a host that is not an address is refused" "$(grep -qP '^error\tbadarg\ta host' "$T/s2" && echo 1 || echo 0)"
+check "inspect: the head, the ends, layers, fields, hex, the end" \
+    "$(grep -qP '^pkt.begin\t7\t5\t' "$T/s2" && grep -qP '^pkt.ends\t' "$T/s2" && grep -qP '^layer\t0\t-\tFrame' "$T/s2" && grep -qP '^field\t' "$T/s2" && grep -qP '^hex\t0\t' "$T/s2" && grep -qP '^pkt.end\t7$' "$T/s2" && echo 1 || echo 0)"
+check "pin, and the pinned view holds that packet alone, flagged" \
+    "$(grep -qP '^pinned\t5\t1\t1$' "$T/s2" && awk -F'\t' '/^rows.begin\t8\t/{on=1;next} /^rows.end\t8/{on=0} on && $1=="row" {n++; if ($2!=5 || $13!=1) bad=1} END{print (n==1 && !bad)?1:0}' "$T/s2")"
+check "a packet that was never there is gone" "$(grep -qP '^error\tgone\t' "$T/s2" && echo 1 || echo 0)"
+check "no line from the inspector carries a tab inside a field or a stray byte" \
+    "$(LC_ALL=C grep -P '^(layer|field|hex|pkt)' "$T/s2" | LC_ALL=C grep -qP '[\x00-\x08\x0b-\x1f\x7f]' && echo 0 || echo 1)"
 
 # ---- one capture at a time ----------------------------------------------------------
 { printf 'start synth0 headers 0 all 0\n'; sleep 2; printf 'quit\n'; } |

@@ -40,12 +40,14 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketpaths.h"
 #include "pocketpcap/ppc_decode.h"
+#include "pocketpcap/ppc_dissect.h"
 #include "pocketpcap/ppc_format.h"
 #include "pocketpcap/ppc_pcapfile.h"
 #include "pocketpcap/ppc_proto.h"
 #include "pocketpcap/ppc_source.h"
 #include "pocketpcap/ppc_stats.h"
 #include "pocketpcap/ppc_store.h"
+#include "pocketpcap/ppc_view.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -71,6 +73,7 @@
 #define LINK_EVERY_MS 1000
 #define OUT_BUF (64 * 1024)
 #define ROW_BYTES 2048
+#define PKT_TEXT (40 * 1024)
 #define HELPER_NICE 5
 #define LOCK_NAME "capture.lock"
 
@@ -108,6 +111,13 @@ struct helper {
     int src_open;
     struct ppc_store store;
     int store_ready;
+    /* the packet list's filter and sort (M5); asked for before START, it
+     * waits in pend_* until the view exists */
+    struct ppc_view view;
+    int view_ready;
+    struct ppc_filter pend_f;
+    enum ppc_sort pend_sort;
+    uint32_t pend_id;
     struct ppc_stats st;
     struct ppc_timebase tb;
     enum ppc_keep keep;
@@ -244,6 +254,10 @@ static void fill_counters(struct helper *h, struct ppc_counters *c)
         c->first_seq = ppc_store_count(&h->store) ? h->store.first_seq : 0;
         c->last_seq = h->store.last_seq;
         c->match = ppc_store_count(&h->store);
+        if (h->view_ready) {
+            ppc_view_update(&h->view, &h->store);
+            c->match = ppc_view_count(&h->view);
+        }
         c->fill_permille = ppc_store_fill_permille(&h->store);
     }
     c->ui_skipped = h->st.ui_skipped;
@@ -551,6 +565,15 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
         return;
     }
     h->store_ready = 1;
+    if (ppc_view_init(&h->view, PPC_STORE_SUMMARIES) != 0) {
+        ppc_store_free(&h->store);
+        h->store_ready = 0;
+        release_lock(h);
+        say_error(h, "nomem", "not enough memory for the packet list");
+        return;
+    }
+    h->view_ready = 1;
+    ppc_view_set(&h->view, &h->store, h->pend_id, h->pend_sort, &h->pend_f);
     memset(&o, 0, sizeof(o));
     o.iface = c->iface;
     o.keep = (enum ppc_keep)c->keep;
@@ -561,6 +584,8 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     if (e != PPC_OPEN_OK) {
         LOG_WARN("capture: could not open the source (%s)", ppc_open_err_code(e));
         say_error(h, ppc_open_err_code(e), h->src.err);
+        ppc_view_free(&h->view);
+        h->view_ready = 0;
         ppc_store_free(&h->store);
         h->store_ready = 0;
         release_lock(h);
@@ -600,32 +625,147 @@ static void cmd_hold(struct helper *h, int on)
     say_state(h);
 }
 
-/* One window of rows (the list, a later milestone; the hardware check and
- * the tests now). No display filter yet: match is everything held. */
+/* The record of seq and its stored bytes, from the store or from its pin. */
+static const struct ppc_record *record_bytes(struct helper *h, uint32_t seq, uint8_t *bytes, uint32_t max,
+                                             uint32_t *n)
+{
+    const struct ppc_pin *pin = NULL;
+    const struct ppc_record *r = ppc_view_record(&h->store, seq, &pin);
+
+    *n = 0;
+    if (!r) {
+        return NULL;
+    }
+    if (pin) {
+        *n = pin->n < max ? pin->n : max;
+        memcpy(bytes, pin->bytes, *n);
+    } else {
+        *n = ppc_store_copy(&h->store, r, bytes, max);
+    }
+    return r;
+}
+
+static uint8_t row_flags(struct helper *h, const struct ppc_record *r, uint32_t n)
+{
+    uint8_t f = 0;
+
+    if (ppc_store_pinned(&h->store, r->seq)) {
+        f |= PPC_ROWF_PINNED;
+    }
+    if (n == 0 && r->cap_len > 0) {
+        f |= PPC_ROWF_GONE;
+    }
+    if (r->flags & PPC_F_TRUNCATED) {
+        f |= PPC_ROWF_TRUNCATED;
+    }
+    if (r->flags & PPC_F_MALFORMED) {
+        f |= PPC_ROWF_MALFORMED;
+    }
+    if (r->flags & PPC_F_GRO) {
+        f |= PPC_ROWF_GRO;
+    }
+    return f;
+}
+
+/* The packet before seq in the view's capture order (the one a row's gap
+ * is measured from): the previous row in time order, the next one when the
+ * newest come first, and the previous packet captured for the length order
+ * and the pins. */
+static const struct ppc_record *previous_of(struct helper *h, uint32_t seq, uint32_t rank)
+{
+    const struct ppc_view *v = &h->view;
+    uint32_t prev = 0;
+
+    if (!v->f.pinned && v->sort == PPC_SORT_TIME) {
+        prev = rank > 0 ? ppc_view_at(v, rank - 1u) : 0;
+    } else if (!v->f.pinned && v->sort == PPC_SORT_NEWEST) {
+        prev = ppc_view_at(v, rank + 1u);
+    } else {
+        prev = seq - 1u;
+    }
+    return prev ? ppc_view_record(&h->store, prev, NULL) : NULL;
+}
+
+static void cmd_view(struct helper *h, const struct ppc_cmd *c)
+{
+    struct ppc_filter f;
+    int len;
+
+    memset(&f, 0, sizeof(f));
+    f.classes = c->classes ? c->classes : PPC_CLASSES_ALL;
+    f.port = c->port;
+    f.pinned = c->pinned;
+    if (c->host[0]) {
+        len = ppc_filter_host(c->host, f.host);
+        if (len < 0) {
+            say_error(h, "badarg", "a host this helper cannot read");
+            return;
+        }
+        f.host_len = (uint8_t)len;
+    }
+    h->pend_f = f;
+    h->pend_sort = (enum ppc_sort)c->sort;
+    h->pend_id = c->view_id;
+    if (h->view_ready) {
+        ppc_view_set(&h->view, &h->store, c->view_id, (enum ppc_sort)c->sort, &f);
+    }
+}
+
+/* One window of the view: at most PPC_WINDOW_MAX rows around an anchor. */
 static void cmd_window(struct helper *h, const struct ppc_cmd *c)
 {
     static uint8_t bytes[ROW_BYTES];
     char line[PPC_LINE_MAX];
-    uint32_t count = h->store_ready ? ppc_store_count(&h->store) : 0;
+    struct ppc_view *v = &h->view;
+    uint32_t count = 0;
     uint32_t first = 0;
     uint32_t last = 0;
-    uint32_t seq;
+    uint32_t anchor = 0;
+    uint32_t rank;
     size_t room;
 
+    if (h->view_ready) {
+        ppc_view_update(v, &h->store);
+        ppc_view_prepare(v, &h->store, mono_ms());
+        count = ppc_view_count(v);
+    }
     if (count) {
-        uint32_t lo = h->store.first_seq;
-        uint32_t hi = h->store.last_seq;
-        uint32_t want = c->before + 1u + (c->tail ? 0u : c->after);
-        uint32_t anchor = c->tail ? hi : (c->seq < lo ? lo : c->seq > hi ? hi : c->seq);
+        int time_order = v->sort == PPC_SORT_TIME;
+        uint32_t before = c->before < PPC_WINDOW_MAX - 1u ? c->before : PPC_WINDOW_MAX - 1u;
+        uint32_t after = c->after < PPC_WINDOW_MAX - 1u - before ? c->after : PPC_WINDOW_MAX - 1u - before;
+        uint32_t a;
 
-        if (want > PPC_WINDOW_MAX) {
-            want = PPC_WINDOW_MAX;
+        switch (c->anchor) {
+        case PPC_ANCHOR_SEQ:
+            a = ppc_view_rank_of(v, c->seq, NULL);
+            break;
+        case PPC_ANCHOR_RANK:
+            a = c->at < count ? (uint32_t)c->at : count - 1u;
+            break;
+        case PPC_ANCHOR_US:
+            a = ppc_view_rank_of_time(v, &h->store, c->at > UINT64_MAX / 1000u ? UINT64_MAX : c->at * 1000u);
+            break;
+        case PPC_ANCHOR_TAIL:
+        default:
+            /* The newest packet's end: the bottom of a time-ordered list,
+             * the top of the others. */
+            if (time_order) {
+                a = count - 1u;
+                after = 0;
+                before = c->before < PPC_WINDOW_MAX - 1u ? c->before : PPC_WINDOW_MAX - 1u;
+            } else {
+                a = 0;
+                before = 0;
+                after = c->after < PPC_WINDOW_MAX - 1u ? c->after : PPC_WINDOW_MAX - 1u;
+            }
+            break;
         }
-        first = anchor - lo >= c->before ? anchor - c->before : lo;
-        last = c->tail ? hi : (hi - anchor >= c->after ? anchor + c->after : hi);
-        if (last - first + 1u > want) {
-            last = first + want - 1u;
+        if (a >= count) {
+            a = count - 1u;
         }
+        first = a - (a < before ? a : before);
+        last = count - 1u - a < after ? count - 1u : a + after;
+        anchor = a;
     }
     /* The whole answer goes in or none of it: a half window is worse than
      * an "ask again". A row line is at most a few hundred bytes. */
@@ -635,20 +775,23 @@ static void cmd_window(struct helper *h, const struct ppc_cmd *c)
         return;
     }
     out_line(h, line,
-             ppc_evt_format_rows_begin(line, sizeof(line), c->req, 0, count ? first - h->store.first_seq : 0,
-                                       count, count ? h->store.first_seq : 0, count ? h->store.last_seq : 0),
+             ppc_evt_format_rows_begin_at(line, sizeof(line), c->req, h->view_ready ? v->id : h->pend_id, first,
+                                          count, h->store_ready && ppc_store_count(&h->store) ? h->store.first_seq : 0,
+                                          h->store_ready ? h->store.last_seq : 0, anchor),
              0);
-    for (seq = first; count && seq <= last && seq != 0; seq++) {
-        const struct ppc_record *r = ppc_store_get(&h->store, seq);
-        const struct ppc_record *prev = ppc_store_get(&h->store, seq - 1u);
+    for (rank = first; count && rank <= last; rank++) {
+        uint32_t seq = ppc_view_at(v, rank);
+        const struct ppc_record *r;
+        const struct ppc_record *prev;
         struct ppc_row_text t;
         struct ppc_evt_row row;
         uint32_t n;
 
+        r = seq ? record_bytes(h, seq, bytes, sizeof(bytes), &n) : NULL;
         if (!r) {
-            continue;
+            continue; /* left the store since the length order was built */
         }
-        n = ppc_store_copy(&h->store, r, bytes, sizeof(bytes));
+        prev = previous_of(h, seq, rank);
         ppc_format_row(r, bytes, n, &t);
         memset(&row, 0, sizeof(row));
         row.seq = r->seq;
@@ -662,12 +805,166 @@ static void cmd_window(struct helper *h, const struct ppc_cmd *c)
         snprintf(row.src, sizeof(row.src), "%s", t.src);
         snprintf(row.dst, sizeof(row.dst), "%s", t.dst);
         snprintf(row.info, sizeof(row.info), "%s", t.info);
+        row.flags = row_flags(h, r, n);
         out_line(h, line, ppc_evt_format_row(line, sizeof(line), &row), 0);
-        if (seq == UINT32_MAX) {
-            break;
-        }
     }
     out_line(h, line, ppc_evt_format_rows_end(line, sizeof(line), c->req), 0);
+}
+
+/* The inspector's answer is built here first and queued whole. */
+struct pkt_text {
+    char buf[PKT_TEXT];
+    size_t len;
+    int full;
+};
+
+static void pkt_add(struct pkt_text *p, const char *line, int len)
+{
+    if (len <= 0 || p->full) {
+        return;
+    }
+    if (p->len + (size_t)len > sizeof(p->buf)) {
+        p->full = 1;
+        return;
+    }
+    memcpy(p->buf + p->len, line, (size_t)len);
+    p->len += (size_t)len;
+}
+
+static void on_item(void *ctx, const struct ppc_ds_item *it)
+{
+    struct pkt_text *p = ctx;
+    char line[PPC_LINE_MAX];
+
+    if (it->kind == PPC_DS_LAYER) {
+        pkt_add(p, line, ppc_evt_format_layer(line, sizeof(line), (uint32_t)it->layer, it->cls, it->name, it->text));
+    } else {
+        pkt_add(p, line,
+                ppc_evt_format_field(line, sizeof(line), (uint32_t)it->layer, it->name, it->text, it->off, it->len,
+                                     it->filter));
+    }
+}
+
+/* One packet for the inspector (M6): its head, its two ends, its layers and
+ * fields, and the hex of its first PPC_HEX_MAX stored bytes. A step moves to
+ * its neighbour in the list's order. */
+static void cmd_inspect(struct helper *h, const struct ppc_cmd *c)
+{
+    static uint8_t bytes[65536];
+    static struct pkt_text p;
+    char line[PPC_LINE_MAX];
+    struct ppc_view *v = &h->view;
+    const struct ppc_record *r;
+    const struct ppc_record *prev;
+    struct ppc_row_text t;
+    struct ppc_evt_pkt head;
+    struct ppc_endpoint es;
+    struct ppc_endpoint ed;
+    struct ppc_evt_end src;
+    struct ppc_evt_end dst;
+    uint32_t seq = c->seq;
+    uint32_t count = 0;
+    uint32_t rank = 0;
+    uint32_t n = 0;
+    uint32_t off;
+    int exact = 0;
+
+    if (!h->view_ready) {
+        say_error(h, "gone", "no capture holds packets");
+        return;
+    }
+    ppc_view_update(v, &h->store);
+    ppc_view_prepare(v, &h->store, mono_ms());
+    count = ppc_view_count(v);
+    if (c->step != 0 && count > 0) {
+        rank = ppc_view_rank_of(v, seq, &exact);
+        if (exact) {
+            if (c->step > 0 && rank + 1u < count) {
+                rank++;
+            } else if (c->step < 0 && rank > 0) {
+                rank--;
+            }
+        } else if (c->step < 0 && rank > 0 && v->sort != PPC_SORT_LEN && !v->f.pinned) {
+            rank--; /* rank_of gave the next one in the order */
+        }
+        seq = ppc_view_at(v, rank) ? ppc_view_at(v, rank) : seq;
+    }
+    r = record_bytes(h, seq, bytes, sizeof(bytes), &n);
+    if (!r) {
+        say_error(h, "gone", "the packet has left the buffer");
+        return;
+    }
+    rank = ppc_view_rank_of(v, seq, &exact);
+    prev = ppc_view_record(&h->store, seq - 1u, NULL);
+    ppc_format_row(r, bytes, n, &t);
+    memset(&head, 0, sizeof(head));
+    head.req = c->req;
+    head.seq = seq;
+    head.rank = exact ? rank : count;
+    head.match = count;
+    head.rel_us = r->rel_ns / 1000u;
+    head.gap_us = prev && r->rel_ns >= prev->rel_ns ? (r->rel_ns - prev->rel_ns) / 1000u : 0;
+    snprintf(head.dir, sizeof(head.dir), "%s", t.dir);
+    head.cls = r->cls;
+    snprintf(head.word, sizeof(head.word), "%s", t.word);
+    head.wire_len = r->wire_len;
+    head.stored = n;
+    head.signal = r->signal;
+    head.flags = row_flags(h, r, n);
+    ppc_endpoints(r, &es, &ed);
+    snprintf(src.addr, sizeof(src.addr), "%s", es.addr);
+    snprintf(src.sub, sizeof(src.sub), "%s", es.sub);
+    snprintf(src.filter, sizeof(src.filter), "%s", es.filter);
+    snprintf(dst.addr, sizeof(dst.addr), "%s", ed.addr);
+    snprintf(dst.sub, sizeof(dst.sub), "%s", ed.sub);
+    snprintf(dst.filter, sizeof(dst.filter), "%s", ed.filter);
+
+    p.len = 0;
+    p.full = 0;
+    pkt_add(&p, line, ppc_evt_format_pkt_begin(line, sizeof(line), &head));
+    pkt_add(&p, line, ppc_evt_format_pkt_ends(line, sizeof(line), &src, &dst));
+    ppc_dissect(r, bytes, n, on_item, &p);
+    for (off = 0; off < n && off < PPC_HEX_MAX; off += PPC_HEX_PER_LINE) {
+        char hex[PPC_HEX_TEXT];
+        char ascii[PPC_ASCII_TEXT];
+
+        ppc_hex_line(bytes, n, off, hex, sizeof(hex), ascii, sizeof(ascii));
+        pkt_add(&p, line, ppc_evt_format_hex(line, sizeof(line), off, hex, ascii));
+    }
+    pkt_add(&p, line, ppc_evt_format_pkt_end(line, sizeof(line), c->req));
+    if (p.full || sizeof(h->out) - h->out_len < p.len) {
+        say_error(h, "busy", "the answer does not fit now; ask again");
+        return;
+    }
+    memcpy(h->out + h->out_len, p.buf, p.len);
+    h->out_len += p.len;
+    out_flush(h);
+}
+
+static void cmd_pin(struct helper *h, const struct ppc_cmd *c)
+{
+    char line[PPC_LINE_MAX];
+    uint32_t pins = 0;
+    int rc;
+    int i;
+
+    if (!h->store_ready) {
+        say_error(h, "gone", "no capture holds packets");
+        return;
+    }
+    rc = c->on ? ppc_store_pin(&h->store, c->seq) : ppc_store_unpin(&h->store, c->seq);
+    if (rc == -2) {
+        say_error(h, "pins", "every pin is taken");
+        return;
+    }
+    if (rc != 0) {
+        say_error(h, "gone", c->on ? "the packet has left the buffer" : "the packet is not pinned");
+        return;
+    }
+    for (i = 0; i < PPC_PINS; i++) {
+        pins += h->store.pins[i].seq != 0;
+    }
+    out_line(h, line, ppc_evt_format_pinned(line, sizeof(line), c->seq, c->on, pins), 0);
 }
 
 /* One command line. Returns 0 to go on, 1 to leave. */
@@ -694,6 +991,15 @@ static int command(struct helper *h, const char *line)
         return 0;
     case PPC_CMD_WINDOW:
         cmd_window(h, &c);
+        return 0;
+    case PPC_CMD_VIEW:
+        cmd_view(h, &c);
+        return 0;
+    case PPC_CMD_INSPECT:
+        cmd_inspect(h, &c);
+        return 0;
+    case PPC_CMD_PIN:
+        cmd_pin(h, &c);
         return 0;
     case PPC_CMD_DISCARD:
         LOG_INFO("capture: discarded by the app");
@@ -811,6 +1117,7 @@ static int run_session(const char *source_spec)
 
     memset(&h, 0, sizeof(h));
     h.source_spec = source_spec;
+    h.pend_f.classes = PPC_CLASSES_ALL;
     h.lock_fd = -1;
     h.out_socket = 1;
     h.in_socket = 1;
@@ -871,6 +1178,10 @@ static int run_session(const char *source_spec)
         h.src_open = 0;
     }
     release_lock(&h);
+    if (h.view_ready) {
+        ppc_view_free(&h.view);
+        h.view_ready = 0;
+    }
     if (h.store_ready) {
         ppc_store_free(&h.store);
         h.store_ready = 0;

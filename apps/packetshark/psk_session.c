@@ -123,6 +123,50 @@ int psk_session_window(struct psk_session *s, struct psk_model *m, uint32_t seq,
     return 0;
 }
 
+int psk_session_window_at(struct psk_session *s, struct psk_model *m, enum ppc_anchor anchor, uint64_t at,
+                          uint32_t before, uint32_t after)
+{
+    char line[96];
+    uint32_t req = ++s->next_req ? s->next_req : ++s->next_req;
+    int n = ppc_cmd_format_window_at(line, sizeof(line), req, anchor, at, before, after);
+
+    if (n < 0 || send_raw(s, line, n) != 0) {
+        return -1;
+    }
+    m->want_req = req;
+    return 0;
+}
+
+int psk_session_view(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                     uint16_t port, bool pinned)
+{
+    char line[160];
+    int n = ppc_cmd_format_view(line, sizeof(line), id, sort, classes, host, port, pinned);
+
+    return n < 0 ? -1 : send_raw(s, line, n);
+}
+
+int psk_session_inspect(struct psk_session *s, struct psk_model *m, uint32_t seq, int step)
+{
+    char line[64];
+    uint32_t req = ++s->next_req ? s->next_req : ++s->next_req;
+    int n = ppc_cmd_format_inspect(line, sizeof(line), req, seq, step);
+
+    if (n < 0 || send_raw(s, line, n) != 0) {
+        return -1;
+    }
+    m->want_pkt = req;
+    return 0;
+}
+
+int psk_session_pin(struct psk_session *s, uint32_t seq, bool on)
+{
+    char line[48];
+    int n = ppc_cmd_format_pin(line, sizeof(line), seq, on);
+
+    return n < 0 ? -1 : send_raw(s, line, n);
+}
+
 /* ---- the child ---------------------------------------------------------------- */
 
 static void say(char *err, size_t errlen, const char *what)

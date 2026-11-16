@@ -41,6 +41,7 @@
 #include "pocketui.h"
 #include "pocketui_audit.h"
 #include "pos_theme.h"
+#include "psk_app.h"
 #include "psk_model.h"
 #include "shell_ipc.h"
 
@@ -666,7 +667,9 @@ static void capture_journey(void)
     CHECK("RESUME", wait_for("CAPTURING", 2000) && shown("HOLD") && !shown("RESUME"));
     tap("PACKETS");
     pump(200);
-    CHECK("PACKETS says how many packets the helper holds", containing_in(app_body, " PACKETS IN MEMORY") != NULL);
+    pump(400);
+    CHECK("PACKETS lists the packets the helper holds", containing_in(app_body, " PACKETS") != NULL &&
+                                                            containing_in(app_body, "FOLLOWING THE NEWEST") != NULL);
     shot("packets");
     CHECK("Back from PACKETS returns to LIVE", app_packetshark.back(app_priv) == 1 && shown("TRAFFIC"));
     tap("STOP");
@@ -908,14 +911,46 @@ static void m4_live(bool portrait)
     shot("m4-hold");
     tap("RESUME");
     pump(300);
+    tap_graph_column(PSK_GRAPH_SECONDS - 9);
     tap("\xe2\x80\xba PACKETS");
-    pump(100);
-    CHECK("the readout's PACKETS opens the PACKETS tab", containing_in(app_body, "PACKETS IN MEMORY") != NULL);
+    pump(600);
+    {
+        const struct psk_app *pa = app_priv;
+        const struct psk_model *pm = pa->model;
+        int sel = readout_second();
+        int64_t k = (int64_t)pa->top_rank - (int64_t)pm->rows_first_rank;
+
+        /* The readout names the selected second: the list opens there, held,
+         * its first row in that second. */
+        bool stored = false;
+        bool at;
+        unsigned c;
+
+        /* A held second stored nothing: the list then opens at the first
+         * packet after it. */
+        for (c = 0; sel >= 0 && c < PPC_CLASS_COUNT; c++) {
+            stored = stored || pm->bins[sel % PSK_BINS][c] > 0;
+        }
+        at = pa->cur == PSK_TAB_PACKETS && !pa->follow && pm->row_count > 0 && sel >= 0 && k >= 0 &&
+             k < (int64_t)pm->row_count && pm->rows[k].rel_us >= (uint64_t)sel * 1000000u &&
+             (!stored || pm->rows[k].rel_us < (uint64_t)(sel + 1) * 1000000u);
+
+        if (!at) {
+            printf("     tab %d follow %d sel %d top %u first %u rows %u anchor %u top us %llu\n", (int)pa->cur,
+                   (int)pa->follow, sel, (unsigned)pa->top_rank, (unsigned)pm->rows_first_rank,
+                   (unsigned)pm->row_count, (unsigned)pm->rows_anchor,
+                   k >= 0 && k < (int64_t)pm->row_count ? (unsigned long long)pm->rows[k].rel_us : 0ull);
+        }
+        CHECK("the readout's PACKETS opens the list at the selected second", at);
+    }
     app_packetshark.back(app_priv);
     pump(100);
     tap("TCP");
-    pump(100);
-    CHECK("a protocol opens the PACKETS tab", containing_in(app_body, "PACKETS IN MEMORY") != NULL);
+    pump(600);
+    CHECK("a protocol opens the list filtered on its class",
+          ((const struct psk_app *)app_priv)->cur == PSK_TAB_PACKETS && shown("TCP") &&
+              containing_in(app_body, " OF ") != NULL);
+    psk_set_view(app_priv, PPC_CLASSES_ALL, "", 0, false);
     app_packetshark.back(app_priv);
     pump(100);
 
@@ -1034,6 +1069,466 @@ static void m4_live(bool portrait)
     pump(80);
 }
 
+/* ---- M5, M6: the packet list and the inspector ---------------------------------------- */
+
+static struct psk_app *app(void)
+{
+    return app_priv;
+}
+
+/* Rows the list shows, and their seqs top to bottom. */
+static int rows_shown(uint32_t *seqs, int max)
+{
+    int n = 0;
+    int i;
+
+    for (i = 0; i < PSK_LIST_ROWS; i++) {
+        lv_obj_t *r = app()->lrow[i].row;
+
+        if (!lv_obj_has_flag(r, LV_OBJ_FLAG_HIDDEN) && app()->lrow[i].seq) {
+            if (seqs && n < max) {
+                seqs[n] = app()->lrow[i].seq;
+            }
+            n++;
+        }
+    }
+    return n;
+}
+
+static const char *row_text(int i, int which)
+{
+    const struct psk_listrow *r = &app()->lrow[i];
+    lv_obj_t *lb = which == 0 ? r->word : which == 1 ? r->len : which == 2 ? r->info : r->addr;
+
+    return lv_label_get_text(lb);
+}
+
+/* A drag on an object by dy pixels, in steps (a finger, not a jump). */
+static void drag(lv_obj_t *obj, int32_t dy)
+{
+    lv_area_t a;
+    int k;
+
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
+    finger_point.y = a.y1 + lv_area_get_height(&a) / 2;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    for (k = 1; k <= 8; k++) {
+        finger_point.y = a.y1 + lv_area_get_height(&a) / 2 + dy * k / 8;
+        pump(30);
+    }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+static void tap_at(lv_obj_t *obj, int32_t fy)
+{
+    lv_area_t a;
+
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
+    finger_point.y = a.y1 + fy;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+static bool udp_word(const char *w)
+{
+    return strcmp(w, "UDP") == 0 || strcmp(w, "NTP") == 0 || strcmp(w, "SSDP") == 0 || strcmp(w, "NBNS") == 0;
+}
+
+#if LV_USE_SNAPSHOT
+/* Pixels of exactly this colour inside an object. */
+static unsigned obj_pixels(lv_obj_t *o, lv_color_t c)
+{
+    lv_draw_buf_t *snap;
+    unsigned n = 0;
+    uint32_t x;
+    uint32_t y;
+
+    pump(40);
+    snap = o ? lv_snapshot_take(o, LV_COLOR_FORMAT_RGB888) : NULL;
+    if (!snap) {
+        return 0;
+    }
+    for (y = 0; y < snap->header.h; y++) {
+        const unsigned char *row = (const unsigned char *)snap->data + (size_t)y * snap->header.stride;
+
+        for (x = 0; x < snap->header.w; x++) {
+            if (row[x * 3 + 2] == c.red && row[x * 3 + 1] == c.green && row[x * 3] == c.blue) {
+                n++;
+            }
+        }
+    }
+    lv_draw_buf_destroy(snap);
+    return n;
+}
+#endif
+
+/* Visible dots-mode labels taller than one line of their font: such a label
+ * wrapped instead of shortening (DS §46.5), as "02:00:5e:" over "10:00:02". */
+static int dots_wrapped(lv_obj_t *obj)
+{
+    int n = 0;
+    uint32_t i;
+
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && lv_label_get_long_mode(obj) == LV_LABEL_LONG_DOT) {
+        const lv_font_t *f = lv_obj_get_style_text_font(obj, LV_PART_MAIN);
+
+        if (f && lv_obj_get_content_height(obj) > lv_font_get_line_height(f)) {
+            if (n < 3) {
+                printf("     '%s' is %d px high (one line %d)\n", lv_label_get_text(obj),
+                       (int)lv_obj_get_content_height(obj), (int)lv_font_get_line_height(f));
+            }
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += dots_wrapped(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+static int audit_page(void)
+{
+    int bad = 0;
+
+    pump(60);
+    lv_obj_update_layout(app_body);
+    pocketui_audit(app_body, audit_issue, &bad, NULL);
+    return bad;
+}
+
+static bool wait_rows(int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end) {
+        if (rows_shown(NULL, 0) > 0) {
+            return true;
+        }
+        pump(20);
+    }
+    return rows_shown(NULL, 0) > 0;
+}
+
+static bool wait_packet(uint32_t not_seq, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end) {
+        const struct psk_model *m = app()->model;
+
+        if (m->have_pkt && m->pkt.head.seq != not_seq && app()->insp_shown == m->pkt.head.seq) {
+            return true;
+        }
+        pump(20);
+    }
+    return false;
+}
+
+static void m5_m6(bool portrait)
+{
+    uint32_t s[PSK_LIST_ROWS];
+    uint32_t s2[PSK_LIST_ROWS];
+    int n;
+    int i;
+    int ok;
+    uint32_t seq;
+    int64_t poll_us = 0;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:300:1", 1);
+    app_start();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(2500);
+    tap("PACKETS");
+    CHECK("PACKETS: rows from the helper's window", wait_rows(1500));
+    pump(300);
+    n = rows_shown(s, PSK_LIST_ROWS);
+    printf("     %d rows shown, vis %d\n", n, app()->vis);
+    CHECK(portrait ? "portrait: fifteen 56 px rows (DS §59.4, mockup 02)" : "landscape: the rows that fit the column",
+          portrait ? n == 15 : n >= 3);
+    for (i = 1, ok = 1; i < n; i++) {
+        ok = ok && s[i] > s[i - 1];
+    }
+    CHECK("TIME, oldest first: seqs grow down the list", ok && n > 1);
+    CHECK("each row: a protocol word, a length, its sentence",
+          row_text(0, 0)[0] && atoi(row_text(0, 1)) > 0 && row_text(0, 2)[0]);
+    CHECK("following: the line under the list says so", shown("FOLLOWING THE NEWEST") != NULL);
+    if (portrait) {
+        bool b = box_ok("filter", 20, 164, 118, 56) & box_ok("list", 20, 256, 508, 840) &
+                 box_ok("row0", 20, 256, 508, 56) & box_ok("rail", 528, 256, 20, 840) &
+                 box_ok("bar0", 20, 1138, 170, 64);
+
+        CHECK("PACKETS matches the boxes of mockup 02 within 2 px", b);
+    }
+    CHECK("the filter bar's buttons are 56 px targets",
+          target_ok(psk_app_part(app_priv, "filter"), 56, "FILTER") &&
+              target_ok(psk_app_part(app_priv, "sort"), 56, "SORT") &&
+              target_ok(psk_app_part(app_priv, "follow"), 56, "FOLLOW"));
+    CHECK("a row is a 56 px target (DS §59.6)", target_ok(psk_app_part(app_priv, "row0"), 56, "row"));
+    shot("m5-packets");
+    pump(900);
+    rows_shown(s2, PSK_LIST_ROWS);
+    CHECK("following: newer packets come in at the bottom", n > 0 && s2[n - 1] > s[n - 1]);
+
+    /* A drag holds the view; LIVE brings it back to the newest. */
+    drag(psk_app_part(app_priv, "list"), PSK_ROW_H * 3);
+    pump(400);
+    rows_shown(s, PSK_LIST_ROWS);
+    CHECK("a drag down shows earlier packets and holds the view",
+          !app()->follow && s[0] < s2[0] && containing_in(app_body, "VIEW HELD AT #") != NULL);
+    pump(1200);
+    rows_shown(s2, PSK_LIST_ROWS);
+    CHECK("a held view stays on its packets as more arrive", s2[0] == s[0]);
+    CHECK("LIVE with the count of newer packets is the bar's primary", shown("LIVE \xe2\x86\x93 ") &&
+                                                                          !shown("LIVE \xe2\x86\x93 0"));
+    shot("m5-held");
+    tap("LIVE \xe2\x86\x93 ");
+    pump(600);
+    CHECK("LIVE: following the newest again", app()->follow && shown("FOLLOWING THE NEWEST"));
+
+    /* The rail: its top is the oldest packet held. */
+    tap_at(psk_app_part(app_priv, "rail"), 2);
+    pump(600);
+    rows_shown(s, PSK_LIST_ROWS);
+    if (!(!app()->follow && app()->top_rank == 0 && s[0] == app()->model->rows_first_seq)) {
+        printf("     follow %d top %u s0 %u first seq %u anchor %u match %u\n", (int)app()->follow,
+               (unsigned)app()->top_rank, (unsigned)s[0], (unsigned)app()->model->rows_first_seq,
+               (unsigned)app()->model->rows_anchor, (unsigned)app()->model->rows_match);
+    }
+    CHECK("a tap at the rail's top shows the first packets in memory",
+          !app()->follow && app()->top_rank == 0 && s[0] == app()->model->rows_first_seq);
+    tap_at(psk_app_part(app_priv, "rail"), lv_obj_get_height(psk_app_part(app_priv, "rail")) - 2);
+    pump(600);
+    CHECK("and at its foot the list follows the newest again", app()->follow);
+
+    /* Sort: newest first, largest first, back to oldest first. */
+    tap_obj(psk_app_part(app_priv, "sort"));
+    wait_rows(800);
+    pump(500);
+    n = rows_shown(s, PSK_LIST_ROWS);
+    for (i = 1, ok = 1; i < n; i++) {
+        ok = ok && s[i] < s[i - 1];
+    }
+    CHECK("TIME \xe2\x86\x91: the newest first", ok && n > 1 && shown("TIME \xe2\x86\x91"));
+    tap_obj(psk_app_part(app_priv, "sort"));
+    pump(700);
+    n = rows_shown(NULL, 0);
+    for (i = 1, ok = 1; i < n; i++) {
+        ok = ok && atoi(row_text(i, 1)) <= atoi(row_text(i - 1, 1));
+    }
+    CHECK("LEN \xe2\x86\x91: the largest first, FOLLOW not offered",
+          ok && n > 1 && shown("LEN \xe2\x86\x91") && !enabled("FOLLOW") && !app()->follow);
+    shot("m5-len");
+    tap_obj(psk_app_part(app_priv, "sort"));
+    pump(600);
+    CHECK("TIME \xe2\x86\x93 again, following", shown("TIME \xe2\x86\x93") && app()->follow);
+
+    /* The filter sheet. */
+    tap_obj(psk_app_part(app_priv, "filter"));
+    CHECK("FILTER opens the filter sheet", shown("Filter packets") != NULL);
+    shot("m5-filter-sheet");
+    tap_last("UDP");
+    tap_last("SHOW");
+    pump(700);
+    n = rows_shown(NULL, 0);
+    for (i = 0, ok = 1; i < n; i++) {
+        ok = ok && udp_word(row_text(i, 0));
+    }
+    CHECK("UDP: every row is UDP, the bar says what is shown",
+          ok && n > 0 && shown("UDP") && containing_in(app_body, " OF ") != NULL);
+    shot("m5-filtered");
+    tap_obj(psk_app_part(app_priv, "filter"));
+    tap_last("CLEAR ALL");
+    tap_last("SHOW");
+    pump(600);
+    CHECK("CLEAR ALL: every protocol again", shown("ALL PROTOCOLS") && containing_in(app_body, " OF ") == NULL);
+
+    /* The inspector. */
+    drag(psk_app_part(app_priv, "list"), PSK_ROW_H * 2);
+    pump(400);
+    rows_shown(s, PSK_LIST_ROWS);
+    tap_obj(psk_app_part(app_priv, "row1"));
+    CHECK("a tap on a row opens INSPECT on that packet", wait_packet(0, 1500) && app()->cur == PSK_TAB_INSPECT &&
+                                                             app()->model->pkt.head.seq == s[1]);
+    {
+        char num[24];
+
+        snprintf(num, sizeof(num), "#%u", (unsigned)s[1]);
+        CHECK("its number, the Frame and Ethernet layers, its bytes in hex",
+              shown(num) && shown("Frame") && shown("Ethernet") && shown("Bytes") &&
+                  lv_label_get_text(psk_app_part(app_priv, "hex"))[0] == '0');
+    }
+    CHECK("PIN, previous and next are 56 px targets", target_ok(psk_app_part(app_priv, "pin"), 56, "PIN") &&
+                                                         target_ok(psk_app_part(app_priv, "prev"), 56, "prev") &&
+                                                         target_ok(psk_app_part(app_priv, "next"), 56, "next"));
+    shot("m6-inspect");
+    seq = app()->model->pkt.head.seq;
+    tap_obj(psk_app_part(app_priv, "next"));
+    CHECK("next: the packet after it in the list", wait_packet(seq, 1500) && app()->model->pkt.head.seq == s[2]);
+    tap_obj(psk_app_part(app_priv, "prev"));
+    CHECK("previous: back to it", wait_packet(s[2], 1500) && app()->model->pkt.head.seq == seq);
+    tap("Frame");
+    CHECK("a layer opens on a tap", shown("ON THE WIRE") != NULL);
+    tap("Frame");
+    CHECK("and closes on another", shown("ON THE WIRE") == NULL);
+    /* A field that filters: a port, else an address (its layer opened
+     * first). Tapped by its part: words like SOURCE are on the ends' slabs
+     * too. */
+    {
+        const struct psk_packet *pk = &app()->model->pkt;
+        int want = -1;
+        char part[16];
+
+        for (i = 0; i < (int)pk->nfields && want < 0; i++) {
+            if (strncmp(pk->field[i].filter, "port:", 5) == 0) {
+                want = i;
+            }
+        }
+        for (i = 0; i < (int)pk->nfields && want < 0; i++) {
+            if (strncmp(pk->field[i].filter, "host:", 5) == 0) {
+                want = i;
+            }
+        }
+        i = want;
+        if (want >= 0 && !app()->layer_open[pk->field[want].layer]) {
+            snprintf(part, sizeof(part), "layer%u", (unsigned)pk->field[want].layer);
+            tap_obj(psk_app_part(app_priv, part));
+        }
+        snprintf(part, sizeof(part), "field%d", want);
+        tap_obj(want >= 0 ? psk_app_part(app_priv, part) : NULL);
+    }
+    CHECK("a field row selects its field", app()->insp_field == i && enabled("FILTER BY"));
+#if LV_USE_SNAPSHOT
+    CHECK("its bytes are marked in the hex", obj_pixels(psk_app_part(app_priv, "hex"),
+                                                        pos_theme_color(POS_COLOR_ACCENT_PRIMARY)) > 0);
+#endif
+    shot("m6-field");
+    tap("FILTER BY");
+    pump(700);
+    CHECK("FILTER BY: the list on that field's port or host, the packet among them",
+          app()->cur == PSK_TAB_PACKETS && (app()->host[0] || app()->port) &&
+              (containing_in(app_body, "HOST ") != NULL || containing_in(app_body, "PORT ") != NULL) &&
+              rows_shown(NULL, 0) > 0);
+    tap("INSPECT");
+    pump(200);
+    tap_obj(psk_app_part(app_priv, "end1"));
+    pump(700);
+    CHECK("an end's slab filters on its host", app()->cur == PSK_TAB_PACKETS && containing_in(app_body, "HOST ") != NULL);
+    psk_set_view(app(), PPC_CLASSES_ALL, "", 0, false);
+    pump(500);
+
+    /* Pins. */
+    tap("INSPECT");
+    pump(200);
+    seq = app()->model->pkt.head.seq;
+    tap_obj(psk_app_part(app_priv, "pin"));
+    pump(300);
+    CHECK("PIN: the packet is pinned and says so", containing_in(app_body, " · PINNED") != NULL &&
+                                                      app()->model->pins == 1);
+    shot("m6-pinned");
+    tap("PACKETS");
+    pump(300);
+    tap_obj(psk_app_part(app_priv, "filter"));
+    tap_last("Pinned only");
+    tap_last("SHOW");
+    pump(700);
+    n = rows_shown(s, PSK_LIST_ROWS);
+    CHECK("PINNED ONLY: the pinned packet alone, marked PIN",
+          n == 1 && s[0] == seq && !lv_obj_has_flag(app()->lrow[0].pin, LV_OBJ_FLAG_HIDDEN));
+    tap_obj(psk_app_part(app_priv, "row0"));
+    wait_packet(0, 1000);
+    tap_obj(psk_app_part(app_priv, "pin"));
+    pump(300);
+    CHECK("PIN again unpins it", app()->model->pins == 0 && containing_in(app_body, " · PINNED") == NULL);
+    psk_set_view(app(), PPC_CLASSES_ALL, "", 0, false);
+    pump(300);
+
+    /* Every text size: nothing clipped or overlapping on PACKETS and INSPECT. */
+    ok = 0;
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        int bad;
+
+        pos_theme_select_text_size((enum pos_text_size)i);
+        tap("PACKETS");
+        pump(500);
+        bad = audit_page() + dots_wrapped(app_body);
+        /* The filter in words is never shortened: beside the buttons or
+         * under them. */
+        if (pocketui_text_width(app()->pk_sum1, lv_label_get_text(app()->pk_sum1)) >
+                lv_obj_get_content_width(app()->pk_sum1) ||
+            pocketui_text_width(app()->pk_sum2, lv_label_get_text(app()->pk_sum2)) >
+                lv_obj_get_content_width(app()->pk_sum2)) {
+            printf("     the filter in words is shortened: '%s' / '%s'\n", lv_label_get_text(app()->pk_sum1),
+                   lv_label_get_text(app()->pk_sum2));
+            bad++;
+        }
+        if (bad) {
+            printf("     PACKETS at %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), bad);
+        }
+        ok += bad;
+        if (i == POS_TEXT_SIZE_LARGE) {
+            shot("m5-large");
+        }
+        tap("INSPECT");
+        pump(300);
+        bad = audit_page() + dots_wrapped(app_body);
+        if (bad) {
+            printf("     INSPECT at %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), bad);
+        }
+        ok += bad;
+        if (i == POS_TEXT_SIZE_LARGE) {
+            shot("m6-large");
+        }
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(100);
+    CHECK("every text size: PACKETS and INSPECT have nothing clipped, overlapping or wrapped that should shorten",
+          ok == 0);
+
+    /* Back walks INSPECT -> PACKETS -> LIVE. */
+    tap("INSPECT");
+    pump(100);
+    CHECK("Back from INSPECT returns to PACKETS",
+          app_packetshark.back(app_priv) == 1 && app()->cur == PSK_TAB_PACKETS);
+    CHECK("and from PACKETS to LIVE", app_packetshark.back(app_priv) == 1 && app()->cur == PSK_TAB_LIVE);
+
+    /* Stopped: the packets stay browsable. */
+    tap("STOP");
+    wait_for("STOPPED", 2000);
+    tap("PACKETS");
+    pump(500);
+    CHECK("stopped: the list stays, with NEW CAPTURE and DISCARD",
+          rows_shown(NULL, 0) > 0 && shown("NEW CAPTURE") && shown("DISCARD") && shown("CAPTURE STOPPED"));
+    tap_obj(psk_app_part(app_priv, "row0"));
+    CHECK("and a packet still opens", wait_packet(0, 1500) && app()->cur == PSK_TAB_INSPECT);
+    shot("m6-stopped");
+    app_stop();
+    CHECK("closing leaves no helper", no_child());
+
+    /* PACKETS following at 8,000 pps: the poll stays cheap. */
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:8000:1", 1);
+    app_start();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    tap("PACKETS");
+    pump(1500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll_us, NULL, 0);
+    printf("     PACKETS at 8,000 pps: worst poll %lld us\n", (long long)poll_us);
+    CHECK("PACKETS following 8,000 pps: the poll's work stays under 4 ms", poll_us > 0 && poll_us < 4000);
+    app_stop();
+}
+
 static void faults(void)
 {
     pid_t pid;
@@ -1150,6 +1645,7 @@ int main(void)
     setup_screens();
     capture_journey();
     m4_live(true);
+    m5_m6(true);
     faults();
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     shot_orientation = "landscape";
@@ -1157,6 +1653,7 @@ int main(void)
     setup_screens();
     capture_journey();
     m4_live(false);
+    m5_m6(false);
     shot_orientation = "portrait";
     use_display(POS_ROTATION_0);
     cycles();

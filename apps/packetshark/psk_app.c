@@ -1,7 +1,9 @@
 /*
  * PacketShark: a packet analyzer for Doors (docs/apps/PACKETSHARK.md;
- * ADR-016 and DS §59 accepted). Milestone M3: Ethernet capture from the
- * launcher - setup, START, live counters, HOLD, STOP, the error state.
+ * ADR-016 and DS §59 accepted). Milestones M3 to M6: Ethernet capture from
+ * the launcher - setup, START, live counters, HOLD, STOP, the error state;
+ * the traffic graph (M4); the packet list with its filter and sort (M5); the
+ * inspector and pins (M6).
  *
  * The shell is a viewport (DESIGN_DECISIONS D1, accepted): the capture
  * socket, the decoder and every packet are in pos-capture, one helper per
@@ -177,6 +179,335 @@ static const char *refusal(const char *code)
     return "THE CAPTURE COULD NOT START";
 }
 
+/* ---- the list and the inspector (M5, M6) ---------------------------------------------- */
+
+bool psk_capture_present(const struct psk_app *a)
+{
+    return psk_model_has_packets(a->model) && !a->discarding && !a->failed_view;
+}
+
+/* The list's place, back to the newest packets and no packet open: a new
+ * capture, or none. The filter stays as it was chosen. */
+static void reset_list(struct psk_app *a)
+{
+    a->follow = a->sort != 2;
+    a->top_rank = 0;
+    a->top_seq = 0;
+    a->jump = PSK_JUMP_NONE;
+    a->sel_seq = 0;
+    a->insp_seq = 0;
+    a->insp_shown = 0;
+    a->insp_note[0] = '\0';
+    a->window_due = true;
+    a->window_inflight = false;
+    a->window_last_seq = 0;
+    if (a->cur == PSK_TAB_INSPECT) {
+        a->cur = PSK_TAB_PACKETS;
+    }
+}
+
+static void send_view(struct psk_app *a)
+{
+    a->view_id++;
+    if (psk_session_view(a->session, a->view_id, a->sort, a->classes, a->host, a->port, a->pinned_only) != 0) {
+        LOG_DEBUG("packetshark: the view could not be sent");
+    }
+    a->window_due = true;
+    a->window_inflight = false;
+}
+
+static void send_window(struct psk_app *a)
+{
+    uint32_t vis = (uint32_t)(a->vis > 0 ? a->vis : 1);
+    uint32_t before;
+    uint32_t after;
+    enum ppc_anchor anchor;
+    uint64_t at = 0;
+
+    if (a->follow) {
+        anchor = PPC_ANCHOR_TAIL;
+        before = vis - 1u;
+        after = vis - 1u;
+    } else {
+        /* Rows above and below the top one, so a short drag is painted
+         * from what is here while the next window is on its way. */
+        before = vis;
+        after = 2u * vis - 1u;
+        switch (a->jump) {
+        case PSK_JUMP_RANK:
+            anchor = PPC_ANCHOR_RANK;
+            at = a->jump_at;
+            break;
+        case PSK_JUMP_TIME:
+            anchor = PPC_ANCHOR_US;
+            at = a->jump_at;
+            before = 0;
+            break;
+        default:
+            if (a->top_seq) {
+                anchor = PPC_ANCHOR_SEQ;
+                at = a->top_seq;
+            } else {
+                anchor = PPC_ANCHOR_RANK;
+                at = a->top_rank;
+            }
+            break;
+        }
+    }
+    if (before > PPC_WINDOW_MAX - 1u) {
+        before = PPC_WINDOW_MAX - 1u;
+    }
+    if (after > PPC_WINDOW_MAX - 1u - before) {
+        after = PPC_WINDOW_MAX - 1u - before;
+    }
+    if (psk_session_window_at(a->session, a->model, anchor, at, before, after) == 0) {
+        a->window_inflight = true;
+        a->window_sent_ms = psk_now();
+        a->window_last_seq = a->model->c.last_seq;
+        a->window_due = false;
+    }
+}
+
+/* Ask for a window when the list needs one: shown, and something moved -
+ * its place, its filter, new packets while it follows them, or a second
+ * gone by while it is held (the ranks shift as the buffer turns). One
+ * request at a time. */
+static void list_poll(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    int64_t now = psk_now();
+    bool due = a->window_due;
+
+    if (!psk_capture_present(a) || a->cur != PSK_TAB_PACKETS) {
+        return;
+    }
+    if (a->retry_ms && now < a->retry_ms) {
+        return;
+    }
+    a->retry_ms = 0;
+    if (a->window_inflight && now - a->window_sent_ms < 600) {
+        return;
+    }
+    if (!due && a->follow && m->c.last_seq != a->window_last_seq && now - a->window_sent_ms >= PSK_FOLLOW_REFRESH_MS) {
+        due = true;
+    }
+    if (!due && !a->follow && m->state != PPC_STATE_STOPPED && now - a->window_sent_ms >= PSK_HELD_REFRESH_MS) {
+        due = true;
+    }
+    if (due) {
+        send_window(a);
+    }
+}
+
+static uint32_t max_top(const struct psk_app *a)
+{
+    uint32_t match = a->model->rows_match;
+
+    return match > (uint32_t)a->vis ? match - (uint32_t)a->vis : 0;
+}
+
+static void top_seq_from_rows(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    int64_t k = (int64_t)a->top_rank - (int64_t)m->rows_first_rank;
+
+    if (k >= 0 && k < (int64_t)m->row_count) {
+        a->top_seq = m->rows[k].seq;
+    }
+}
+
+/* A window arrived: where the list now starts. */
+static void rows_arrived(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    uint32_t vis = (uint32_t)(a->vis > 0 ? a->vis : 1);
+
+    a->window_inflight = false;
+    if (m->rows_filter_id != a->view_id) {
+        a->window_due = true; /* rows of a filter that has since changed */
+        return;
+    }
+    if (a->dragging) {
+        /* The finger leads: keep its place, take what rows came. */
+        top_seq_from_rows(a);
+    } else if (a->follow) {
+        a->top_rank = m->rows_first_rank;
+        if (a->sort == 0 && m->row_count > vis) {
+            a->top_rank += m->row_count - vis;
+        }
+        top_seq_from_rows(a);
+    } else {
+        a->top_rank = m->rows_anchor;
+        if (a->top_rank > max_top(a)) {
+            a->top_rank = max_top(a);
+        }
+        a->jump = PSK_JUMP_SEQ;
+        top_seq_from_rows(a);
+    }
+}
+
+void psk_set_view(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned)
+{
+    a->classes = classes ? classes : PPC_CLASSES_ALL;
+    snprintf(a->host, sizeof(a->host), "%s", host ? host : "");
+    a->port = port;
+    a->pinned_only = pinned;
+    a->follow = a->sort != 2;
+    a->top_rank = 0;
+    a->top_seq = 0;
+    a->jump = a->follow ? PSK_JUMP_NONE : PSK_JUMP_RANK;
+    a->jump_at = 0;
+    send_view(a);
+    psk_list_paint(a);
+}
+
+void psk_set_sort(struct psk_app *a, unsigned sort)
+{
+    a->sort = (uint8_t)(sort % 3u);
+    psk_set_view(a, a->classes, a->host, a->port, a->pinned_only);
+}
+
+void psk_set_follow(struct psk_app *a, bool on)
+{
+    if (a->sort == 2) {
+        on = false; /* the length order has no newest end */
+    }
+    if (on == a->follow) {
+        return;
+    }
+    a->follow = on;
+    if (on) {
+        a->jump = PSK_JUMP_NONE;
+    } else {
+        top_seq_from_rows(a);
+        a->jump = PSK_JUMP_SEQ;
+    }
+    a->window_due = true;
+    a->window_inflight = false;
+    psk_list_paint(a);
+    psk_live_paint(a, PSK_CHANGED_STATE);
+}
+
+void psk_show_second(struct psk_app *a, int64_t second)
+{
+    if (second >= 0 && a->sort != 2) {
+        a->follow = false;
+        a->jump = PSK_JUMP_TIME;
+        a->jump_at = (uint64_t)second * 1000000u;
+        a->window_due = true;
+        a->window_inflight = false;
+    }
+    psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+void psk_show_class(struct psk_app *a, unsigned cls)
+{
+    if (cls < PPC_CLASS_COUNT) {
+        psk_set_view(a, (uint8_t)(1u << cls), "", 0, false);
+    }
+    psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+void psk_list_scroll_to(struct psk_app *a, uint32_t rank, bool final)
+{
+    bool live = a->model->state == PPC_STATE_CAPTURING || a->model->state == PPC_STATE_HOLD;
+
+    if (rank > max_top(a)) {
+        rank = max_top(a);
+    }
+    if (a->follow) {
+        a->follow = false;
+        psk_live_paint(a, PSK_CHANGED_STATE);
+    }
+    if (rank != a->top_rank || final) {
+        a->top_rank = rank;
+        a->top_seq = 0;
+        top_seq_from_rows(a);
+        a->jump = PSK_JUMP_RANK;
+        a->jump_at = rank;
+        a->window_due = true;
+        psk_list_paint(a);
+    }
+    if (final && live && ((a->sort == 0 && rank >= max_top(a)) || (a->sort == 1 && rank == 0))) {
+        /* Back at the newest end: the list follows again. */
+        psk_set_follow(a, true);
+    } else if (final) {
+        psk_live_paint(a, PSK_CHANGED_STATE);
+    }
+}
+
+void psk_open_packet(struct psk_app *a, uint32_t seq, int step)
+{
+    if (!seq || !psk_capture_present(a)) {
+        return;
+    }
+    if (step == 0 && a->follow) {
+        /* Opening a packet holds the list where it is, so it is there on
+         * the way back. */
+        psk_set_follow(a, false);
+    }
+    if (psk_session_inspect(a->session, a->model, seq, step) != 0) {
+        return;
+    }
+    a->insp_seq = seq;
+    a->insp_note[0] = '\0';
+    if (step == 0) {
+        a->sel_seq = seq;
+        psk_list_paint(a);
+        psk_select_tab(a, PSK_TAB_INSPECT);
+    }
+}
+
+void psk_select_field(struct psk_app *a, int index)
+{
+    a->insp_field = a->insp_field == index ? -1 : index;
+    psk_inspect_paint(a);
+    psk_live_paint(a, PSK_CHANGED_STATE);
+}
+
+void psk_filter_by(struct psk_app *a, const char *token)
+{
+    uint8_t classes = PPC_CLASSES_ALL;
+    char host[PPC_HOST_TEXT] = "";
+    uint16_t port = 0;
+
+    if (psk_filter_token(token, &classes, host, sizeof(host), &port) != 0) {
+        return;
+    }
+    /* The list shows what the field stands for, and only that. */
+    psk_set_view(a, classes, host, port, false);
+    psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+void psk_toggle_pin(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+
+    if (m->have_pkt) {
+        psk_session_pin(a->session, m->pkt.head.seq, !(m->pkt.head.flags & PPC_ROWF_PINNED));
+    }
+}
+
+static void pins_changed(struct psk_app *a)
+{
+    struct psk_model *m = a->model;
+    uint32_t i;
+
+    a->insp_note[0] = '\0';
+    for (i = 0; i < m->row_count; i++) {
+        if (m->rows[i].seq == m->pin_seq) {
+            if (m->pin_on) {
+                m->rows[i].flags |= PPC_ROWF_PINNED;
+            } else {
+                m->rows[i].flags &= (uint8_t)~PPC_ROWF_PINNED;
+            }
+        }
+    }
+    if (a->pinned_only) {
+        a->window_due = true;
+    }
+}
+
 /* What the poll brought, beyond painting. */
 static void react(struct psk_app *a, unsigned changed)
 {
@@ -196,6 +527,9 @@ static void react(struct psk_app *a, unsigned changed)
     if (a->starting && m->had_capture && m->state != PPC_STATE_IDLE) {
         a->starting = false;
         LOG_INFO("packetshark: capturing on %s", m->iface);
+        /* A new helper knows no view: tell it the list's. */
+        reset_list(a);
+        send_view(a);
     }
     if ((changed & PSK_CHANGED_ERROR) && a->starting) {
         /* The helper refused to start: say why on the setup screen and let
@@ -206,8 +540,33 @@ static void react(struct psk_app *a, unsigned changed)
         a->pending_start = false;
         psk_session_discard(a->session);
     }
+    if ((changed & PSK_CHANGED_ERROR) && !a->starting) {
+        if (strcmp(m->err_code, "busy") == 0) {
+            /* The helper's queue was full: ask again shortly. */
+            a->window_inflight = false;
+            a->window_due = true;
+            a->retry_ms = psk_now() + 150;
+        } else if (strcmp(m->err_code, "gone") == 0 && a->insp_seq) {
+            snprintf(a->insp_note, sizeof(a->insp_note), "! THE PACKET HAS LEFT THE BUFFER");
+        } else if (strcmp(m->err_code, "pins") == 0) {
+            snprintf(a->insp_note, sizeof(a->insp_note), "! EVERY PIN IS TAKEN · UNPIN ONE FIRST");
+        }
+    }
+    if (changed & PSK_CHANGED_ROWS) {
+        rows_arrived(a);
+    }
+    if (changed & PSK_CHANGED_PACKET) {
+        a->insp_note[0] = '\0';
+        a->insp_seq = m->pkt.head.seq;
+        a->sel_seq = m->pkt.head.seq;
+    }
+    if (changed & PSK_CHANGED_PINS) {
+        pins_changed(a);
+    }
     if (changed & PSK_CHANGED_EXITED) {
         bool bad = m->exit != PSK_EXIT_NORMAL;
+
+        reset_list(a);
 
         a->discarding = false;
 
@@ -296,6 +655,8 @@ static void on_poll(lv_timer_t *t)
         psk_live_paint(a, changed);
         psk_live_fit(a);
     }
+    psk_list_fit(a);
+    list_poll(a);
     t0 = now_us() - t0;
     if (t0 > a->worst_poll_us) {
         a->worst_poll_us = t0;
@@ -307,11 +668,16 @@ static void on_poll(lv_timer_t *t)
 
 void psk_select_tab(struct psk_app *a, enum psk_tab t)
 {
-    if (t == PSK_TAB_INSPECT) {
-        return; /* nothing can be opened in this version */
+    if (t == PSK_TAB_INSPECT && (a->insp_seq == 0 || !psk_capture_present(a))) {
+        return; /* no packet has been opened */
     }
     a->cur = t;
     psk_paint_tabs(a);
+    if (t == PSK_TAB_PACKETS) {
+        a->window_due = true;
+        psk_list_fit(a);
+    }
+    psk_live_paint(a, PSK_CHANGED_STATE);
 }
 
 void psk_select_iface(struct psk_app *a, int index)
@@ -389,6 +755,16 @@ void psk_do(struct psk_app *a, enum psk_action act)
         psk_sheet_show(a, PSK_SHEET_NEW);
         return;
     case PSK_ACT_FILTER:
+        psk_fsheet_show(a, a->cur == PSK_TAB_LIVE);
+        return;
+    case PSK_ACT_LIVE:
+        psk_set_follow(a, true);
+        return;
+    case PSK_ACT_FILTER_BY:
+        if (a->model->have_pkt && a->insp_field >= 0 && (uint32_t)a->insp_field < a->model->pkt.nfields) {
+            psk_filter_by(a, a->model->pkt.field[a->insp_field].filter);
+        }
+        return;
     case PSK_ACT_SAVE:
     case PSK_ACT_NONE:
     default:
@@ -478,12 +854,17 @@ static void *psk_create(lv_obj_t *root)
     a->cfilter = PPC_CFILTER_ALL;
     a->simulated = psk_session_default_source() != NULL;
     a->cur = PSK_TAB_LIVE;
+    a->classes = PPC_CLASSES_ALL;
+    a->follow = true;
+    a->vis = 1;
+    a->insp_field = -1;
 
     a->frame = psk_box(root);
     lv_obj_set_size(a->frame, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(a->frame, LV_FLEX_FLOW_COLUMN);
     psk_live_build(a);
     psk_sheet_build(a);
+    psk_fsheet_build(a);
     read_ifaces(a);
     psk_paint_tabs(a);
     psk_live_paint(a, ~0u);
@@ -536,6 +917,14 @@ static int psk_back(void *priv)
     }
     if (a->sheet_kind != PSK_SHEET_NONE) {
         psk_sheet_hide(a);
+        return 1;
+    }
+    if (psk_fsheet_shown(a)) {
+        psk_fsheet_hide(a);
+        return 1;
+    }
+    if (a->cur == PSK_TAB_INSPECT) {
+        psk_select_tab(a, PSK_TAB_PACKETS);
         return 1;
     }
     if (a->cur != PSK_TAB_LIVE) {
@@ -599,6 +988,46 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     }
     if (strncmp(name, "share", 5) == 0 && (i = name[5] - '0') >= 0 && i < PPC_CLASS_COUNT) {
         return a->proto_share[i];
+    }
+    /* M5, M6 */
+    if (strcmp(name, "list") == 0) {
+        return a->pk_list;
+    }
+    if (strcmp(name, "rail") == 0) {
+        return a->pk_rail;
+    }
+    if (strcmp(name, "filter") == 0) {
+        return a->pk_filter;
+    }
+    if (strcmp(name, "sort") == 0) {
+        return a->pk_sort;
+    }
+    if (strcmp(name, "follow") == 0) {
+        return a->pk_follow;
+    }
+    if (strcmp(name, "prev") == 0) {
+        return a->in_prev;
+    }
+    if (strcmp(name, "next") == 0) {
+        return a->in_next;
+    }
+    if (strcmp(name, "pin") == 0) {
+        return a->in_pin;
+    }
+    if (strcmp(name, "hex") == 0) {
+        return a->in_hex;
+    }
+    if (strncmp(name, "end", 3) == 0 && (i = name[3] - '0') >= 0 && i < 2) {
+        return a->in_end[i];
+    }
+    if (strncmp(name, "row", 3) == 0 && (i = atoi(name + 3)) >= 0 && i < PSK_LIST_ROWS) {
+        return a->lrow[i].row;
+    }
+    if (strncmp(name, "layer", 5) == 0 && (i = name[5] - '0') >= 0 && i < PSK_LAYERS) {
+        return a->layer[i].row;
+    }
+    if (strncmp(name, "field", 5) == 0 && (i = atoi(name + 5)) >= 0 && i < PSK_FIELDS) {
+        return a->field[i].row;
     }
     return NULL;
 }

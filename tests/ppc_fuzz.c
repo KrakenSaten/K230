@@ -21,6 +21,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketpcap/ppc_decode.h"
+#include "pocketpcap/ppc_dissect.h"
 #include "pocketpcap/ppc_format.h"
 #include "pocketpcap/ppc_pcapfile.h"
 #include "pocketpcap/ppc_source.h"
@@ -48,6 +49,40 @@ static int text_ok(const char *s, size_t cap)
     return 0;
 }
 
+/* The inspector's dissector on the same bytes: every field inside what was
+ * kept, every text clean (the two marks of the dissector's own words aside). */
+static uint32_t ds_kept;
+
+static int ds_clean(const char *s, size_t cap)
+{
+    const unsigned char *p = (const unsigned char *)s;
+    size_t i = 0;
+
+    while (i < cap && p[i]) {
+        if (p[i] == 0xc2 && p[i + 1] == 0xb7) {
+            i += 2;
+        } else if (p[i] == 0xe2 && p[i + 1] == 0x86 && p[i + 2] == 0x92) {
+            i += 3;
+        } else if (p[i] < 0x20 || p[i] >= 0x7f) {
+            return 0;
+        } else {
+            i++;
+        }
+    }
+    return i < cap;
+}
+
+static void ds_item(void *ctx, const struct ppc_ds_item *it)
+{
+    (void)ctx;
+    if ((it->off >= 0 && ((uint32_t)it->off > ds_kept || it->len > ds_kept - (uint32_t)it->off)) ||
+        !ds_clean(it->name, sizeof(it->name)) || !ds_clean(it->text, sizeof(it->text)) ||
+        !text_ok(it->filter, sizeof(it->filter))) {
+        fprintf(stderr, "ppc_fuzz: a dissected field out of bounds or unclean\n");
+        abort();
+    }
+}
+
 static int one(const uint8_t *data, size_t size)
 {
     struct ppc_frame f;
@@ -70,6 +105,28 @@ static int one(const uint8_t *data, size_t size)
         abort();
     }
     ppc_format_row(&r, data, keep, &t);
+    ds_kept = keep;
+    ppc_dissect(&r, data, keep, ds_item, NULL);
+    {
+        struct ppc_endpoint es;
+        struct ppc_endpoint ed;
+        char hex[PPC_HEX_TEXT];
+        char ascii[PPC_ASCII_TEXT];
+
+        ppc_endpoints(&r, &es, &ed);
+        if (!ds_clean(es.sub, sizeof(es.sub)) || !text_ok(es.addr, sizeof(es.addr)) ||
+            !text_ok(ed.filter, sizeof(ed.filter))) {
+            fprintf(stderr, "ppc_fuzz: unclean ends\n");
+            abort();
+        }
+        if (keep) {
+            ppc_hex_line(data, keep, (keep - 1u) & ~7u, hex, sizeof(hex), ascii, sizeof(ascii));
+            if (!text_ok(hex, sizeof(hex)) || !text_ok(ascii, sizeof(ascii))) {
+                fprintf(stderr, "ppc_fuzz: unclean hex\n");
+                abort();
+            }
+        }
+    }
     if (!text_ok(t.info, sizeof(t.info)) || !text_ok(t.src, sizeof(t.src)) || !text_ok(t.dst, sizeof(t.dst)) ||
         !text_ok(t.word, sizeof(t.word)) || !text_ok(t.dir, sizeof(t.dir))) {
         fprintf(stderr, "ppc_fuzz: unprintable row text\n");

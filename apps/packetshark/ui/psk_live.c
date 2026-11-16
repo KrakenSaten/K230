@@ -1,8 +1,8 @@
 /*
- * PacketShark's LIVE tab (setup, live status, the error panel), the tab row,
- * the capture bar and the PACKETS and INSPECT pages, M3 scope
- * (docs/apps/PACKETSHARK.md; the design is DS §59, accepted, with its
- * deviations in §59.11).
+ * PacketShark's LIVE tab (setup, live status, the error panel), the tab row
+ * and the capture bar (docs/apps/PACKETSHARK.md; the design is DS §59,
+ * accepted, with its deviations in §59.11). PACKETS is ui/psk_list.c and
+ * INSPECT ui/psk_inspect.c.
  *
  * Only existing roles: panels, chips, key/value rows, buttons, captions and
  * values (tests/style_lint.sh). A label is written only when its text
@@ -477,11 +477,19 @@ static void on_graph(lv_event_t *e)
     psk_live_paint(a, PSK_CHANGED_BIN);
 }
 
-/* The readout's and a protocol's way to the packets: the list is M5, so in
- * this milestone they open PACKETS as it is. */
+/* The readout's way to the packets: the list opens at the selected second
+ * (or follows the newest when none is selected). */
 static void on_to_packets(lv_event_t *e)
 {
-    psk_select_tab(lv_event_get_user_data(e), PSK_TAB_PACKETS);
+    struct psk_app *a = lv_event_get_user_data(e);
+
+    psk_show_second(a, psk_graph_selected(a->graph));
+}
+
+/* A protocol's way to its packets: the list filtered on that class. */
+static void on_proto(lv_event_t *e)
+{
+    psk_show_class(lv_event_get_user_data(e), (unsigned)index_of(e));
 }
 
 static void on_bar(lv_event_t *e)
@@ -827,7 +835,8 @@ static void build_protocols(struct psk_app *a, lv_obj_t *parent)
             lv_obj_set_style_min_height(cell, 52, 0);
             lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(cell, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-            lv_obj_add_event_cb(cell, on_to_packets, LV_EVENT_CLICKED, a);
+            lv_obj_set_user_data(cell, (void *)(intptr_t)c);
+            lv_obj_add_event_cb(cell, on_proto, LV_EVENT_CLICKED, a);
             a->proto_cell[c] = cell;
             top = row(cell, 8);
             lv_obj_set_style_min_height(top, 30, 0);
@@ -882,8 +891,7 @@ static void build_live(struct psk_app *a, lv_obj_t *p)
     a->cell[3] = cell(r, "BUFFER");
     /* The SIGNALS panel of the mockups is M7 (DS §59.11): not built yet. */
     a->later = wrapping(a->live,
-                        "The packet list, the inspector, signals and SAVE are not in this version yet. "
-                        "Leaving PacketShark discards the capture.",
+                        "Signals and SAVE are not in this version yet. Leaving PacketShark discards the capture.",
                         POS_STYLE_TEXT_SECONDARY);
 }
 
@@ -921,17 +929,6 @@ static void build_error(struct psk_app *a, lv_obj_t *p)
     tone(a->last[3], POS_STYLE_STATUS_WARN_TEXT);
 }
 
-static void build_packets(struct psk_app *a)
-{
-    lv_obj_t *p = panel(a->page[PSK_TAB_PACKETS], "PACKET LIST", NULL);
-
-    lv_obj_set_style_min_height(p, 160, 0);
-    a->pk_title = wrapping(p, "NO PACKETS YET", POS_STYLE_ROW_TITLE);
-    a->pk_text = wrapping(p, "", POS_STYLE_TEXT_SECONDARY);
-    p = panel(a->page[PSK_TAB_INSPECT], "PACKET INSPECTOR", NULL);
-    wrapping(p, "NO PACKET OPEN", POS_STYLE_ROW_TITLE);
-}
-
 static void build_bar(struct psk_app *a)
 {
     int i;
@@ -962,7 +959,8 @@ void psk_live_build(struct psk_app *a)
     build_setup(a, a->page[PSK_TAB_LIVE]);
     build_live(a, a->page[PSK_TAB_LIVE]);
     build_error(a, a->page[PSK_TAB_LIVE]);
-    build_packets(a);
+    psk_list_build(a, a->page[PSK_TAB_PACKETS]);
+    psk_inspect_build(a, a->page[PSK_TAB_INSPECT]);
     build_bar(a);
     lv_obj_set_style_margin_top(a->bar, 12, 0);
 }
@@ -972,7 +970,7 @@ void psk_live_build(struct psk_app *a)
 void psk_paint_tabs(struct psk_app *a)
 {
     int i;
-    bool inspect = false; /* nothing can be opened before the list exists (M5, M6) */
+    bool inspect = a->insp_seq != 0 && psk_capture_present(a); /* a packet has been opened */
 
     for (i = 0; i < PSK_TAB_COUNT; i++) {
         bool active = i == (int)a->cur;
@@ -1135,23 +1133,73 @@ static void paint_bar(struct psk_app *a, enum psk_view v)
         bool en[] = { !a->starting && a->sel >= 0 };
 
         set_bar(a, 1, acts, words, en, 0);
-    } else if (m->state == PPC_STATE_STOPPED) {
-        static const enum psk_action acts[] = { PSK_ACT_SAVE, PSK_ACT_NEW, PSK_ACT_DISCARD };
-        static const char *const words[] = { "SAVE", "NEW CAPTURE", "DISCARD" };
-        static const bool en[] = { false, true, true };
-
-        /* SAVE is the step forward but not in this version: disabled, and
-         * no other button takes the primary look in its place. */
-        set_bar(a, 3, acts, words, en, -1);
     } else {
-        static const enum psk_action acts_c[] = { PSK_ACT_FILTER, PSK_ACT_HOLD, PSK_ACT_STOP };
-        static const enum psk_action acts_h[] = { PSK_ACT_FILTER, PSK_ACT_RESUME, PSK_ACT_STOP };
-        static const char *const words_c[] = { "FILTER", "HOLD", "STOP" };
-        static const char *const words_h[] = { "FILTER", "RESUME", "STOP" };
-        static const bool en[] = { false, true, true };
+        /* The first button is the tab's own: FILTER on LIVE and on a list
+         * that follows, LIVE and the count of newer packets on a held list,
+         * FILTER BY on INSPECT. The state's buttons follow it on every tab
+         * (ADR-016 rule 13). At most one primary (DS §9): RESUME in HOLD. */
+        bool stopped = m->state == PPC_STATE_STOPPED;
         bool hold = m->state == PPC_STATE_HOLD;
+        enum psk_action acts[3];
+        const char *words[3];
+        bool en[3] = { true, true, true };
+        char live[32];
+        int primary = hold ? 1 : -1;
 
-        set_bar(a, 3, hold ? acts_h : acts_c, hold ? words_h : words_c, en, hold ? 1 : -1);
+        if (a->cur == PSK_TAB_INSPECT) {
+            bool by = m->have_pkt && a->insp_field >= 0 && (uint32_t)a->insp_field < m->pkt.nfields &&
+                      m->pkt.field[a->insp_field].filter[0];
+
+            acts[0] = PSK_ACT_FILTER_BY;
+            words[0] = "FILTER BY";
+            en[0] = by;
+            if (!hold && !stopped) {
+                primary = 0;
+            }
+        } else if (a->cur == PSK_TAB_PACKETS && !stopped && !a->follow && a->sort != 2) {
+            char n[24];
+            uint32_t newer;
+            uint32_t shown = 0;
+            int i;
+
+            for (i = 0; i < a->vis && i < PSK_LIST_ROWS; i++) {
+                shown += a->lrow[i].seq != 0;
+            }
+            if (a->sort == 1) {
+                newer = a->top_rank;
+            } else {
+                newer = m->c.match > a->top_rank + shown ? m->c.match - a->top_rank - shown : 0;
+            }
+            snprintf(live, sizeof(live), "LIVE %s %s", a->sort == 1 ? "\xe2\x86\x91" : "\xe2\x86\x93",
+                     psk_fmt_count(newer, n, sizeof(n)));
+            acts[0] = PSK_ACT_LIVE;
+            words[0] = live;
+            if (!hold) {
+                primary = 0;
+            }
+        } else if (a->cur == PSK_TAB_LIVE && stopped) {
+            /* SAVE is the step forward but not in this version: disabled,
+             * and no other button takes the primary look in its place. */
+            acts[0] = PSK_ACT_SAVE;
+            words[0] = "SAVE";
+            en[0] = false;
+        } else {
+            acts[0] = PSK_ACT_FILTER;
+            words[0] = "FILTER";
+        }
+        if (stopped) {
+            acts[1] = PSK_ACT_NEW;
+            words[1] = "NEW CAPTURE";
+            acts[2] = PSK_ACT_DISCARD;
+            words[2] = "DISCARD";
+            primary = a->cur == PSK_TAB_INSPECT && en[0] ? 0 : -1;
+        } else {
+            acts[1] = hold ? PSK_ACT_RESUME : PSK_ACT_HOLD;
+            words[1] = hold ? "RESUME" : "HOLD";
+            acts[2] = PSK_ACT_STOP;
+            words[2] = "STOP";
+        }
+        set_bar(a, 3, acts, words, en, primary);
     }
 }
 
@@ -1317,29 +1365,10 @@ static void paint_error(struct psk_app *a)
     psk_text(a->last[2], psk_fmt_count(m->c.kdrop + m->c.ifdrop, b, sizeof(b)));
 }
 
-static void paint_packets(struct psk_app *a, enum psk_view v)
-{
-    const struct psk_model *m = a->model;
-    char n[32];
-    char t[96];
-
-    if (v == PSK_VIEW_LIVE && m->c.last_seq >= m->c.first_seq && m->c.last_seq > 0) {
-        snprintf(t, sizeof(t), "%s PACKETS IN MEMORY",
-                 psk_fmt_count((uint64_t)m->c.last_seq - m->c.first_seq + 1u, n, sizeof(n)));
-        psk_text(a->pk_title, t);
-        psk_text(a->pk_text, "The packet list is not in this version of PacketShark yet. "
-                             "The packets stay in the capture helper's memory until you leave.");
-    } else {
-        psk_text(a->pk_title, "NO PACKETS YET");
-        psk_text(a->pk_text, "Start a capture on LIVE.");
-    }
-}
-
 void psk_live_paint(struct psk_app *a, unsigned changed)
 {
     enum psk_view v = view_of(a);
 
-    (void)changed;
     a->view = v;
     psk_set_hidden(a->setup, v != PSK_VIEW_SETUP);
     psk_set_hidden(a->live, v != PSK_VIEW_LIVE);
@@ -1356,5 +1385,12 @@ void psk_live_paint(struct psk_app *a, unsigned changed)
         psk_paint_ifaces(a);
         psk_paint_options(a);
     }
-    paint_packets(a, v);
+    if (changed & (PSK_CHANGED_EXITED | PSK_CHANGED_STATE | PSK_CHANGED_HELLO)) {
+        psk_paint_tabs(a);
+    }
+    if (a->cur == PSK_TAB_PACKETS) {
+        psk_list_paint(a);
+    } else if (a->cur == PSK_TAB_INSPECT) {
+        psk_inspect_paint(a);
+    }
 }
