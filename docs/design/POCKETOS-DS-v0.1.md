@@ -5321,10 +5321,17 @@ and symbols. Other themes, layout, sizes and touch targets are unchanged.
 See [neon/arcade-selected/README.md](neon/arcade-selected/README.md). The owner approved
 the Arcade appearance on unit B's panel on 2026-10-20.
 
-## 59. Amendment AP — PacketShark [PROPOSED]
+## 59. Amendment AP — PacketShark [ACCEPTED]
 
-**Proposed, 2026-11-16. Not accepted: the owner reviews the mockups before
-approval (owner, 2026-11-16).** PacketShark, the packet analyzer
+**Accepted by the product owner, 2026-11-16, as the visual baseline for
+PacketShark,** after reviewing all eight mockups (LIVE, PACKETS, INSPECT, the
+capture states and the landscape layout). Accepted: the protocol colour palette
+(59.2), 56 px packet rows and 36 px inspector field rows (59.6), the navigation
+(59.1, 59.7), the launcher place and the current icon concept (59.8). The
+established design language is kept in implementation; minor adjustments are
+permitted where readability, touch accuracy or the actual LVGL rendering on
+Unit A need them, and every meaningful deviation is recorded in 59.11.
+PacketShark, the packet analyzer
 (docs/apps/PACKETSHARK.md, ADR-016 accepted 2026-11-16), uses only existing parts,
 roles and tokens. It asks this amendment for three things the Design System
 does not yet say: the identity hues as protocol colours, rows denser than
@@ -5405,8 +5412,9 @@ safe area).
 The APPS folder, alphabetical (after MP3, before Photo), in the network hue
 (`HOME_HUE_NETWORK`, as Wave and Browser). The icon is first-party, in the icon
 extension's line language: a dorsal fin rising from a baseline that runs on as
-three stepped bars (`docs/design/doors-app-icons/svg/packetshark.svg`). It is a
-placeholder until the owner chooses the motif, as for Zabbix (§35.4).
+three stepped bars (`docs/design/doors-app-icons/svg/packetshark.svg`). The
+concept was accepted by the owner on 2026-11-16 (it had been drawn as a
+placeholder, as Zabbix's was before §35.4).
 
 ### 59.9 Validation
 
@@ -5422,7 +5430,23 @@ Accept, change or reject: (1) the hue of each protocol class (59.2); (2) 56 px
 packet rows and 36 px field rows (59.6); (3) the launcher place and the icon
 motif (59.8).
 
-Owner, 2026-11-16: the mockups are to be reviewed before this section is
-approved. Until then it stays PROPOSED, and what M3 already draws under it
-(the tab faces, the launcher place, the placeholder icon) is subject to that
-review.
+Owner, 2026-11-16, after a first reading: the mockups to be reviewed before
+approval. Owner, 2026-11-16, after that review: **all three accepted**, with
+the navigation; §59 is the visual baseline (see the status line above).
+
+### 59.11 Implementation deviations
+
+Meaningful differences between what is built and the mockups, each with its
+reason. A deviation made later for readability, touch accuracy or the LVGL
+rendering on Unit A is added here when it is made.
+
+| Where | Mockup | Built (M3) | Reason |
+| --- | --- | --- | --- |
+| Panel titles | caption set into the hairline border | caption on the first line inside the panel | `pocketui_card` has no border-gap title; the same words and role. Revisit with M4 if the owner wants the border form |
+| Setup, interface row | `ETHERNET · 100 MB/S · address` | `ETHERNET · address`; the speed appears once capturing (`ETH0 · 100 MBIT/S · HEADERS`) | sysd's `network[]` carries no link speed; the helper reads it from sysfs after START. Unit written as MBIT/S, not MB/S |
+| Setup, empty traffic panel | dashed hairline, 56 px disc and glyph | solid panel with the caption `NO CAPTURE YET` | no dashed or disc empty-state part exists in pocketui yet; the graph replaces this panel in M4 |
+| Promiscuous mode row | value with a chevron, opens a confirmation | `OFF`, no chevron, takes no tap | ADR-016 rule 3: not offered until its reversion is verified on the hardware |
+| Error panel border | 2 px `status_error` | the field-error border role (1.5 px `status_error`) | the existing role; no new style |
+| LIVE while capturing | graph, protocols, signals | rate, throughput, session counters, stored/held/shed, a line saying what is not built yet | M4 (graph, protocols) and M7 (signals) are later milestones |
+| Stopped bar | SAVE primary | SAVE shown disabled, no primary | SAVE is M8 |
+| Landscape | own top row, list and inspector side by side | the portrait column, scrolling | M9; seen on Unit A in landscape, readable |

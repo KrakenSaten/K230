@@ -1,6 +1,6 @@
 # PacketShark: a packet analyzer for Doors
 
-**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request). ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, launcher place) is **PROPOSED**: the owner reviews the mockups before approval. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
+**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request). ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
 
 PacketShark captures the traffic an Ethernet interface sees, counts it and, in later milestones, lists, decodes, filters and saves it. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
 
@@ -202,7 +202,7 @@ Two labels were corrected after this run (`a0d26736`: "KILLED (SIG 9)" instead o
 
 ## 10. Known limits and open items
 
-- **Owner decisions:** ADR-016 accepted 2026-11-16 subject to its security constraints, which bind every later milestone (in particular: promiscuous mode not offered until its reversion is verified on the hardware; capabilities dropped before a frame is parsed). The libpcap dependency approved 2026-11-16. **Pending:** DS §59 (protocol hues, 56 and 36 px rows, launcher place and icon), after the owner's review of the mockups.
+- **Owner decisions:** ADR-016 accepted 2026-11-16 subject to its security constraints, which bind every later milestone (in particular: promiscuous mode not offered until its reversion is verified on the hardware; capabilities dropped before a frame is parsed). The libpcap dependency approved 2026-11-16. DS §59 accepted 2026-11-16 after the owner reviewed the mockups; minor adjustments for readability, touch accuracy or LVGL rendering on Unit A are allowed and recorded in DS §59.11.
 - No SAVE: a capture cannot be kept. A helper crash, leaving the app, or the time limit with the app closed loses it (D10, accepted; said on screen).
 - Promiscuous mode not offered (§5).
 - Wi-Fi listed and not offered (D18): managed-mode capture is untested.

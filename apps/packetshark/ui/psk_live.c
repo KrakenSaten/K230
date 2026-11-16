@@ -1,7 +1,8 @@
 /*
  * PacketShark's LIVE tab (setup, live status, the error panel), the tab row,
  * the capture bar and the PACKETS and INSPECT pages, M3 scope
- * (docs/apps/PACKETSHARK.md; the design is UI_UX.md §5 and DS §59, proposed).
+ * (docs/apps/PACKETSHARK.md; the design is DS §59, accepted, with its
+ * deviations in §59.11).
  *
  * Only existing roles: panels, chips, key/value rows, buttons, captions and
  * values (tests/style_lint.sh). A label is written only when its text

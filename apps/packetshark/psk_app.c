@@ -1,6 +1,6 @@
 /*
  * PacketShark: a packet analyzer for Doors (docs/apps/PACKETSHARK.md;
- * ADR-016 accepted, DS §59 PROPOSED). Milestone M3: Ethernet capture from the
+ * ADR-016 and DS §59 accepted). Milestone M3: Ethernet capture from the
  * launcher - setup, START, live counters, HOLD, STOP, the error state.
  *
  * The shell is a viewport (DESIGN_DECISIONS D1, accepted): the capture
@@ -499,7 +499,7 @@ const struct pocketos_app app_packetshark = {
     .icon = LV_SYMBOL_WIFI,
     /* First-party, drawn in the icon extension's line language: a fin over a
      * baseline that runs on as stepped bars (docs/design/doors-app-icons,
-     * a placeholder until the owner chooses the motif, DS §59). */
+     * the concept the owner accepted with DS §59.8). */
     .icon_mask = &pos_app_icon_packetshark,
     .create = psk_create,
     .tick = NULL,
