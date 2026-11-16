@@ -26,8 +26,66 @@ LoRa radio, camera and hardware AI acceleration.
 
 <!-- Keep this section near the download links. On each release, replace the
 latest-release summary, retain a small curated screenshot gallery, and move
-older news to docs/releases/HISTORY.md. Use shipped features and real captures;
-label simulator/fixture data and link to stable image paths or commit SHAs. -->
+older news to docs/releases/HISTORY.md. Use real captures; label
+simulator/fixture data and link to stable image paths or commit SHAs. A
+feature merged after the latest release is marked as master-only until an
+image ships it. -->
+
+The first two features below are new on `master` since v0.4.0 and are
+**not in the v0.4.0 image**; they need a build from source until the next
+release ([build environment](docs/BUILD_ENVIRONMENT.md)). Everything from
+[v0.4.0](#v040--15-november-2026) on is in the published image.
+
+### RIFT Activity · watch the mesh come alive
+
+**On `master` · not in the v0.4.0 image.** RIFT's ACTIVITY tab shows the
+MeshCore traffic the radio hears, frame by frame. A live scope plots the last
+minute's frames by signal strength, size and type. Under it, sixty stacked
+bars cover the last 20 or 5 minutes in packet-type colours: adverts, channel
+and direct messages, acks, paths, traces and more. Six figures, a per-type
+legend (tap a type to show it alone) and a live feed with size, RSSI and SNR
+show at a glance how busy the mesh is and what it carries. Once RIFT has
+been opened, new messages also raise a banner wherever you are in DOORS.
+
+![RIFT ACTIVITY in landscape: six activity figures, a live signal scope, twenty minutes of stacked bars in six packet-type colours, and a live feed of received frames](docs/apps/rift/activity-landscape-synthetic.png)
+
+*Actual SDL simulator capture of the shell on `master`, with synthetic nodes
+and MeshCore traffic from the project's test service; no radio traffic was
+recorded.*
+[Activity guide](docs/apps/RIFT.md#heard-on-air-live)
+· [RIFT guide](docs/apps/RIFT.md)
+
+### PacketShark · network analysis in your pocket
+
+**On `master` · not in the v0.4.0 image.** A packet analyzer for the K230's
+wired Ethernet port, under **Apps → PacketShark**:
+
+- **LIVE**: packets and throughput per second, a 60-second traffic graph
+  stacked by protocol, and the share of TCP, UDP, DNS, DHCP, ARP, ICMP and
+  IPv6.
+- **PACKETS**: the captured list, filtered by protocol, host or port and
+  sorted by time or length.
+- **INSPECT**: one packet decoded layer by layer, its fields, and its stored
+  bytes in hex.
+- **Signals** for common network issues: DNS failures, TCP resets,
+  retransmissions, unreachable hosts and connections with no reply.
+- **SAVE** writes a stopped capture to a standard `.pcap` file for Wireshark
+  or tcpdump.
+
+PacketShark is receive-only: it never transmits or injects packets, and it
+does not capture Wi-Fi (no monitor mode).
+
+![PacketShark LIVE in landscape: CAPTURING, 400 packets per second, a full 60-second traffic graph stacked by protocol, protocol shares, session counters and five signal counts](docs/apps/packetshark/live-landscape-synthetic.png)
+
+<p align="center">
+  <img src="docs/apps/packetshark/inspect-portrait-synthetic.png" width="300" alt="PacketShark INSPECT in portrait: a TCP packet between documentation addresses, its decoded TCP fields and its stored header bytes in hex">
+</p>
+
+*Actual captures of the app on `master` running the real capture helper on
+its synthetic source (SYNTH0): LIVE in the SDL simulator after one minute,
+INSPECT from the LVGL host test. Only documentation addresses
+(192.0.2.0/24) and locally administered MACs appear.*
+[PacketShark guide](docs/apps/PACKETSHARK.md)
 
 ### v0.4.0 · 15 November 2026
 
@@ -78,43 +136,11 @@ Open **Games → RotorTerror → LAUNCH**. New in v0.4.0.
 device photograph.*
 [Game guide](docs/apps/ROTORTERROR.md)
 
-### Relay Nine · a small industrial sci-fi FPS
-
-Explore rooms, stairs and a raised gallery, fight animated enemies with a
-carbine and shotgun, restore the relay and reach the exit. Original artwork
-and sound effects give the game its own identity, independent of the DOORS
-theme. Open **Games → Relay Nine → PLAY**.
-
-Introduced in v0.3.8; fullscreen since v0.3.9; **v0.4.0 rebuilds its graphics
-for the Arcade Neon look** and scales the scene in the app for smoother play
-([before and after](docs/apps/RELAY_NINE_REMAKE.md)).
-
-<p align="center">
-  <img src="docs/apps/relay-nine/render-polish/final-slice.png" width="640" alt="Relay Nine engine capture: carbine, robot enemy and industrial stairway leading to a raised gallery">
-</p>
-
-*Actual production-renderer output from a fixed host test scene, not concept
-art or a device photograph.*
-[Fullscreen gameplay and touch controls](docs/apps/relay-nine/fullscreen/after/landscape-gameplay.png)
-· [Game guide](docs/apps/RELAY_NINE.md)
-
-### RIFT · MeshCore messaging and a view of the mesh
-
-Send direct messages and channel messages, browse nodes and choose repeaters
-for an explicit message route with the Visual Path Builder. Since **v0.3.9**,
-**RIFT → MAP → TRAFFIC** shows received packets and their observed paths,
-with reception RSSI/SNR and packet details.
-
-![RIFT MAP TRAFFIC in landscape: observed path on the map and received-packet details beside it](https://raw.githubusercontent.com/KrakenSaten/K230/7dae7717ef19c1bff7d056aef3523442744a796b/traffic-landscape-large.png)
-
-*Actual simulator capture with synthetic nodes and packets. Observed paths
-are inferred from received data; they are not verified radio links or planned
-sending routes.*
-
-MeshCore radio operation is **disabled by default** in a fresh image.
-[Set up RIFT](docs/GETTING_STARTED.md)
-· [TRAFFIC guide](docs/apps/rift/TRAFFIC.md)
-· [RIFT guide](docs/apps/RIFT.md)
+Also in the image: [Relay Nine](docs/apps/RELAY_NINE.md), rebuilt for the
+Arcade Neon look in v0.4.0, and RIFT's
+[MAP TRAFFIC](docs/apps/rift/TRAFFIC.md) view of observed paths (since
+v0.3.9). MeshCore radio operation is **disabled by default** in a fresh
+image: [set up RIFT](docs/GETTING_STARTED.md).
 
 [Previous releases](docs/releases/HISTORY.md)
 · [What's planned next](docs/ROADMAP.md)
