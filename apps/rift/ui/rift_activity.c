@@ -303,6 +303,9 @@ static void build_graph(struct rift_activity_view *v, lv_obj_t *parent)
     lv_obj_set_height(v->legend, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(v->legend, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_style_pad_column(v->legend, 4, 0);
+    /* Room for the outline of the name being shown alone, which is drawn
+     * outside its box and would be cut at the legend's own edge. */
+    lv_obj_set_style_pad_all(v->legend, 4, 0);
     lv_obj_remove_flag(v->legend, LV_OBJ_FLAG_SCROLLABLE);
     for (i = 0; i < RIFT_AIR_TYPES; i++) {
         struct legend_chip *c = &v->chip[i];
@@ -754,10 +757,25 @@ static void refresh_feed(struct rift_activity_view *v, int64_t now)
             snprintf(bytes, sizeof(bytes), "%s B", RIFT_UNKNOWN);
         }
         if (act->kind == RIFT_ACT_RX) {
+            char full[96];
+            char no_snr[80];
+            char least[56];
+            const char *candidate[3];
+
+            /* A row that is too narrow for all of it - portrait, or a larger
+             * text size (seen on unit B at Large, 2026-11-16) - gives up the
+             * SNR, then the RSSI, rather than showing half a figure. */
             rift_fmt_rssi(act->rssi_dbm, act->have_rssi, rssi, sizeof(rssi));
             rift_fmt_snr(act->snr_db, act->have_snr, snr, sizeof(snr));
-            lv_label_set_text_fmt(r->detail, "%s" RIFT_SEP "%s" RIFT_SEP "%s" RIFT_SEP "%s",
-                                  act->word, bytes, rssi, snr);
+            snprintf(full, sizeof(full), "%s" RIFT_SEP "%s" RIFT_SEP "%s" RIFT_SEP "%s", act->word,
+                     bytes, rssi, snr);
+            snprintf(no_snr, sizeof(no_snr), "%s" RIFT_SEP "%s" RIFT_SEP "%s", act->word, bytes, rssi);
+            snprintf(least, sizeof(least), "%s" RIFT_SEP "%s", act->word, bytes);
+            candidate[0] = full;
+            candidate[1] = no_snr;
+            candidate[2] = least;
+            lv_obj_update_layout(r->row);
+            rift_cell_set_text_first_fit(r->detail, candidate, 3);
         } else {
             /* The result word, never the kind: three of the five results a
              * tx activity can carry are not "it went out". */

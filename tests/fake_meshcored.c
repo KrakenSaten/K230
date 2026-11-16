@@ -1255,6 +1255,7 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
 {
     struct state st;
     int64_t started = now_ms();
+    int64_t last_event = 0;
 
     memset(&st, 0, sizeof(st));
     st.script = script;
@@ -1275,10 +1276,13 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
             (!script->events_after_inbox || st.inbox_answered)) {
             /* One per pass, so the client gets them as separate frames and
              * a burst is still a burst. */
-            if (script->events[st.events_sent]) {
+            if (script->events[st.events_sent] &&
+                (!script->event_gap_ms || !st.events_sent ||
+                 now_ms() - last_event >= script->event_gap_ms)) {
                 raise_event(&st, script->events[st.events_sent]);
                 st.events_sent++;
-            } else if (script->junk_frame && !st.raw_sent) {
+                last_event = now_ms();
+            } else if (!script->events[st.events_sent] && script->junk_frame && !st.raw_sent) {
                 pocketipc_server_broadcast(st.server, cJSON_Parse(script->junk_frame));
                 st.raw_sent = 1;
             }
