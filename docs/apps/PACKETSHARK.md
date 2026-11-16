@@ -1,6 +1,6 @@
 # PacketShark: a packet analyzer for Doors
 
-**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request); M4 (the traffic graph and the protocol distribution) is stacked on it on `feature/packetshark-m4`. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
+**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request); M4 (the traffic graph and the protocol distribution) is stacked on it on `feature/packetshark-m4`, the Large-text fix on `claude/packetshark-large-text-fit`, and M5 and M6 (the packet list with its display filter and sort; the inspector and pins) on `claude/packetshark-m5-m6`. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
 
 PacketShark captures the traffic an Ethernet interface sees, counts it and, in later milestones, lists, decodes, filters and saves it. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
 
@@ -30,8 +30,8 @@ The design package these milestones implement (product spec, architecture, UI/UX
 | M2 | `pos-capture session`: live, replay and synthetic sources, the bounded store, counters and bins, the line protocol, the lock, the privilege drop, `pos-capture bench` | Done, host-tested; on Unit A see §9 |
 | M3 | The app: setup, START, live counters, HOLD, STOP, DISCARD, the error panel, the launcher entry, the screen kept on | Done, host-tested; on Unit A see §9 |
 | M4 | Traffic graph (60 s, logarithmic, stacked by class), a tappable second and its readout, protocol distribution; the per-frame cost measured | Done, host-tested; on Unit A see §9.3 |
-| M5 | Packet list, display filter, sort | Not started (the helper already answers `window` for the newest or a given packet, without a filter) |
-| M6 | Packet inspector, pins | Not started (the store already pins) |
+| M5 | Packet list, display filter, sort | Done, host-tested; on Unit B see §9.4 |
+| M6 | Packet inspector, pins | Done, host-tested; on Unit B see §9.4 |
 | M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Not started (the counters are carried as zeros) |
 | M8 | SAVE and saved captures | Not started: **nothing is ever written to storage in this version** |
 | M9 | Landscape layout of its own, keyboard keys, final icon | Not started (landscape uses the portrait column) |
@@ -79,6 +79,8 @@ Files:
 | `core/pocketpcap/ppc_store.[ch]` | Summary ring (65,536 records), byte ring (16 MiB, monotonic offsets), 8 pins |
 | `core/pocketpcap/ppc_stats.[ch]` | Counters, 120 one-second bins, the clock-step time base |
 | `core/pocketpcap/ppc_proto.[ch]` | The line protocol (§6) |
+| `core/pocketpcap/ppc_view.[ch]` | The list's view (M5): the display filter, an index ring of the matching packets kept up as they are stored, the length order (linear-time radix sort, rebuilt at most once a second), the pinned view |
+| `core/pocketpcap/ppc_dissect.[ch]` | The inspector's layers, fields and hex text for one stored packet (M6): bounds-checked, allocation-free, fuzzed, helper only |
 | `core/pocketpcap/ppc_source*.c` | Sources: libpcap (`ppc_source_pcap.c`, the only file that includes `<pcap/pcap.h>`), none, file, synth |
 | `tools/capture/pos_capture.c` | `pos-capture session`, `decode`, `bench`, `backend` |
 | `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model |
@@ -119,17 +121,19 @@ stop
 quit
 ```
 
-Commands: `start <iface> <headers|full> <promisc> <all|ip|names|noself> <limit_s>`, `hold <0|1>`, `stop`, `discard`, `window <req> <tail|seq:N> <before> <after>` (at most 48 rows), `stats`, `quit`. Events: `hello`, `state`, `stats` (4 Hz), `bin` (each elapsed second), `rows.begin`/`row`/`rows.end`, `error <code> <text>`, `note`, `bye`. Snapshot lines (`stats`, `bin`) are dropped and counted (`ui_skipped`) when the shell has not read the previous ones; answers are queued in a 64 KiB buffer or refused with `error busy`. Sequence numbers start at 1 and are never reused; a packet that left the store is simply not there.
+Commands: `start <iface> <headers|full> <promisc> <all|ip|names|noself> <limit_s>`, `hold <0|1>`, `stop`, `discard`, `view <id> <time|newest|len> <classes> <host|-> <port> <pinned>` (M5: the list's display filter and sort), `window <req> <tail|seq:N|rank:N|us:N> <before> <after>` (at most 48 rows of the view), `inspect <req> <seq> <step>` (M6: one packet, or its neighbour in the view), `pin <seq> <0|1>`, `stats`, `quit`. Events: `hello`, `state`, `stats` (4 Hz; `match` is the view's count), `bin` (each elapsed second), `rows.begin`/`row`/`rows.end` (`rows.begin` carries the anchor's rank, `row` its flags: pinned, bytes gone), `pkt.begin`/`pkt.ends`/`layer`/`field`/`hex`/`pkt.end` (the inspector's packet, queued whole), `pinned`, `error <code> <text>`, `note`, `bye`. Protocol 2 (M5): a protocol-1 row still parses. Packet-derived text is ASCII; the inspector's own words may carry two UTF-8 marks, the middle dot and the right arrow (`ppc_sanitize_marks`), and nothing else. Snapshot lines (`stats`, `bin`) are dropped and counted (`ui_skipped`) when the shell has not read the previous ones; answers are queued in a 64 KiB buffer or refused with `error busy`. Sequence numbers start at 1 and are never reused; a packet that left the store is simply not there.
 
 ## 7. The screens
 
-Three tabs, LIVE, PACKETS and INSPECT (disabled in this version), and a capture bar at the foot. The header's hint always states the capture: `NOT CAPTURING` (`SIMULATED` in the simulator), `CAPTURING · ETH0`, `HOLD · ETH0`, `STOPPED · ETH0`, `CAPTURE ENDED`.
+Three tabs, LIVE, PACKETS and INSPECT (enabled once a packet has been opened), and a capture bar at the foot. The header's hint always states the capture: `NOT CAPTURING` (`SIMULATED` in the simulator), `CAPTURING · ETH0`, `HOLD · ETH0`, `STOPPED · ETH0`, `CAPTURE ENDED`.
 
 | View | What it shows | Bar |
 | --- | --- | --- |
 | Setup | READY or NO LINK; the interfaces from sysd (`system.status.network`; Ethernet with a carrier is selectable, Wi-Fi listed and disabled); capture options (stored bytes, stop after, capture-filter preset, promiscuous OFF); the privacy note | START CAPTURE |
 | Capturing, hold | CAPTURING or HOLD chip, interface, link speed, stored-bytes mode, elapsed; a banner for kernel drops, shedding, or what HOLD is counting. TRAFFIC: packets per second, throughput, the graph of the last 60 seconds (DS §59.5) and a readout of the selected or newest second (`03:55 · 6 885 PKT · TCP 99%`, `00:06 · HELD · 300 PASSED`); a tap on a column selects that second, a second tap clears it; the readout's `› PACKETS` opens PACKETS. PROTOCOLS: each class's packets in the newest second and its share of the session's stored packets, a tap opens PACKETS. SESSION: packets, bytes, dropped, buffer fill. No signals panel until M7 | FILTER (later), HOLD or RESUME, STOP |
 | Stopped | STOPPED and why (BY YOU, TIME LIMIT, LINK LOST) | SAVE (later), NEW CAPTURE, DISCARD |
+| PACKETS (M5) | FILTER, the filter in words and the count (`312 OF 48 417 PACKETS`), the sort (`TIME ↓` oldest first, `TIME ↑` newest first, `LEN ↑` largest first), FOLLOW; the column heads; a window of 56 px rows (time and gap, direction, protocol word in its class hue, source → destination, length, the row's sentence, `PIN` on a pinned row); a rail that jumps anywhere in the view; `FOLLOWING THE NEWEST` or `VIEW HELD AT #n`, and where the buffer starts. A drag moves the list a row per 56 px and holds it; a tap opens the row in INSPECT. The filter sheet: one protocol class or all, the host and port a FILTER BY set (cleared there, not typed), PINNED ONLY | FILTER while following, `LIVE ↓ n` (the newer packets) while held; the state's buttons |
+| INSPECT (M6) | The packet's number, class and time, gap, direction, bytes on the wire and stored, PINNED; PIN, previous, next (the list's order); the two ends as slabs that filter on their host; the layers (the deepest open) with 36 px field rows that select; the stored bytes in hex (at most 512), the selected field's bytes marked | FILTER BY (the selected field's host, port or class); the state's buttons |
 | Helper stopped | The error panel: what happened and its signal, that the interface was released, that the packets went with the helper and nothing was written; the last session's figures | NEW CAPTURE |
 
 FULL, no time limit, DISCARD, NEW CAPTURE with packets, and Back with packets in memory each ask first, the safe choice accented. The screen stays on while PacketShark is in front (`awake_apps`, ADR-016 rule 14), so a capture never runs behind a dark panel.
@@ -200,6 +204,24 @@ Doors 0.4.0 (`21baeef0`) on Unit A, eth0 up at 100 Mb/s on the owner's LAN. Buil
 
 Two labels were corrected after this run (`a0d26736`: "KILLED (SIG 9)" instead of "CRASHED (SIG 9)" for SIGKILL, "MBIT/S" for the link speed); they are host-tested and were not redeployed.
 
+### 9.4 Unit B, M5 and M6 (2026-11-16)
+
+Doors 0.3.6 base image on Unit B with the PacketShark binaries replaced (portrait, Carbon, text size Large). Unit B's eth0 has no carrier, so everything below ran on the helper's synthetic source (`POCKETOS_CAPTURE_SOURCE=synth:N`, generated inside the helper, nothing transmitted), from a non-persistent kit in `/tmp` (a shell built with the simulator's test hooks, driven by `shell.tap` and screenshots), then the build was installed with a rollback kit. Built from `f98f089b` against the rm69a10 SDK sysroot and Unit B's own libpcap; no firmware flashed. The record is outside the repository (`K230-artifacts/packetshark-m5-m6/REPORT.md`).
+
+| Check | Result | Class |
+| --- | --- | --- |
+| PACKETS following at 2,000 pps, buffer full and turning | rows in their class hues, the filter in words under the buttons at Large, `BUFFER FROM` moving | VERIFIED |
+| Sort, FOLLOW, the filter sheet (one class, PINNED ONLY), FILTER BY on a port | as on the host; FOLLOW disabled in the length order | VERIFIED |
+| INSPECT: layers, fields, hex, a field selected, PIN | as on the host; a pinned packet stays in PINNED ONLY after the buffer dropped it | VERIFIED |
+| STOP: list and inspector still browsable | VERIFIED | VERIFIED |
+| `kill -9` of the helper on INSPECT | error panel, PACKETS says the packets went with the helper, INSPECT disabled, shell descriptors back to 14 | VERIFIED |
+| Five open → START → PACKETS → inspect → home cycles | no helper left, descriptors 14 → 14, RSS unchanged | VERIFIED |
+| Helper, 8,000 pps, a length-ordered window every 250 ms for 10 s | 0 shed, 0 drops, 0 skipped snapshots, no `busy` | VERIFIED |
+| Bench, C908 (`pos-capture bench`) | a filter over a full store (65,536) 2.4-3.1 ms, the length order 14.9 ms, one packet dissected 52 µs; decode 160 ns, decode + store 742 ns (unchanged) | VERIFIED |
+| Shell cost, 2,000 pps, PACKETS following | 8.3 % of the hart (helper 0.7 %); worst poll 15 ms and worst frame 28 ms in the minute holding START. Before the repaint fix in `f98f089b`: 18.7 % and 44-64 ms | VERIFIED |
+| Capabilities, nice | `dropped bnd=empty`, nice 5 | VERIFIED |
+| Live capture on eth0, landscape, physical touch and drag | not tested (no carrier; driven by IPC; rotation not changed) | — |
+
 ### 9.3 Unit A, M4
 
 Doors 0.4.0 (`21baeef0`) on Unit A, landscape, Neon theme, eth0 up at 100 Mb/s on the owner's LAN. The kit was built from `135d8dc4`: the shell with the simulator's test hooks, `pos-capture` with libpcap, both against the v0.4.0 SDK sysroot. It ran from `/tmp`, as in §9.2, with `POCKETOS_LOG_LEVEL=debug`. Synthetic traffic is generated inside the helper (`POCKETOS_CAPTURE_SOURCE=synth:N`), so nothing was transmitted. Afterwards the installed system was restored and checked byte for byte. The full record is outside the repository (`K230-artifacts/packetshark-m4/REPORT.md`).
@@ -230,4 +252,9 @@ How the cost is measured: the sysroot's LVGL is built without the performance mo
 - The relative-time origin is corrected for clock steps; frames still in the kernel ring across a step can read time 0 (an edge, not measured).
 - GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in M10.
 - No seccomp; no dedicated user (ADR-016).
-- Signals (M7) and the display filter (M5) are not implemented; their protocol fields are zeros.
+- Signals (M7) are not implemented; their protocol fields are zeros, so no row or field shows a finding and the rail has no marks.
+- A full repaint of a following list is the costliest frame the app draws (about 28 ms on Unit B); a following list repaints twice a second.
+- The display filter has one protocol class at a time in the sheet (the protocol carries a mask); a host or port comes from FILTER BY or an end's slab, never typed.
+- A MAC filters only ARP and frames with no network layer: an IP packet's record keeps its IP addresses, not its MACs, so its Ethernet addresses offer no FILTER BY.
+- The length order is a snapshot rebuilt at most once a second; while packets arrive its last rows can have left the buffer by the time they are shown.
+- The hex view shows at most the first 512 stored bytes (said under it).

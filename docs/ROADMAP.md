@@ -80,7 +80,8 @@ from the first model integration and starts from its measured results.
 A receive-only network analyzer for Ethernet ([PACKETSHARK.md](apps/PACKETSHARK.md),
 ADR-016 accepted): milestones M0 to M3 (capture helper, live counters, the
 app on the launcher) are on branch `feature/packetshark` as a draft; the
-graph, packet list, inspector, signals and SAVE are milestones M4 to M8.
+graph (M4), the packet list and the inspector (M5, M6) are stacked on it as
+drafts; signals and SAVE are milestones M7 and M8.
 
 ## History
 

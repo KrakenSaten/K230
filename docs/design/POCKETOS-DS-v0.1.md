@@ -5383,7 +5383,8 @@ text size (§46).
 
 The packet list is a fixed pool of row objects bound to the helper's window
 (§54.3's rule), with a rail of finding marks. The shell holds at most 48 rows
-(DESIGN_DECISIONS D1, accepted by the owner 2026-11-15). Milestone M5.
+(DESIGN_DECISIONS D1, accepted by the owner 2026-11-15). Milestone M5, built
+(16 rows in the pool, 15 shown in portrait; a drag moves a row per 56 px).
 
 ### 59.5 The traffic graph
 
@@ -5440,7 +5441,7 @@ Meaningful differences between what is built and the mockups, each with its
 reason. A deviation made later for readability, touch accuracy or the LVGL
 rendering on Unit A is added here when it is made.
 
-| Where | Mockup | Built (M3, M4) | Reason |
+| Where | Mockup | Built (M3 to M6) | Reason |
 | --- | --- | --- | --- |
 | Panel titles | caption set into the hairline border | as the mockup since M4: a floating caption on the screen fill, centred on the top line | resolved in M4. M3 had the caption on the first line inside the panel. In this LVGL, OVERFLOW_VISIBLE only reaches the extended draw size, so the panel and its holder report the title's reach |
 | Setup, interface row | `ETHERNET · 100 MB/S · address` | `ETHERNET · address`; the speed appears once capturing (`ETH0 · 100 MBIT/S · HEADERS`) | sysd's `network[]` carries no link speed; the helper reads it from sysfs after START. Unit written as MBIT/S, not MB/S |
@@ -5455,4 +5456,13 @@ rendering on Unit A is added here when it is made.
 | Graph and scale in landscape | (no landscape LIVE mockup) | the 418 px graph and its scale keep their portrait size and stay together at the panel's left | DS §59.5 fixes the column width; a wider landscape graph is M9 |
 | Stopped bar | SAVE primary | SAVE shown disabled, no primary | SAVE is M8 |
 | Landscape | own top row, list and inspector side by side | the portrait column, scrolling | M9; seen on Unit A in landscape, readable |
+| PACKETS: FOLLOW on | (held state shown: FOLLOW secondary) | FOLLOW's word in the accent, as the active tab's; no outline | the selected outline is drawn outside the button and the page's edge clips it |
+| PACKETS: the filter in words at Medium and Large | beside FILTER, at Small | beside the buttons where the widest expected words fit (Small); on a line of their own under the buttons where they do not, the sort button taking the room | §46.5: words shortened to `ALL PROTO...` read as nothing; decided from the widest expected words, so the shape does not change as the count grows |
+| PACKETS: sort words | `TIME ↓` | `TIME ↓` (oldest first), `TIME ↑` (newest first), `LEN ↑` (largest first): the arrow points where the key grows | the mockup shows one state only |
+| PACKETS: finding marks on the rail, `!` sentences | marks and warn sentences | none yet | signals are M7 |
+| PACKETS in landscape | own wide layout (mockup 08) | the portrait column: about three rows | M9 |
+| INSPECT: PIN | (no pin control in the mockup) | a 68 × 56 PIN face before the arrows; pinned: the selected outline and its word in the accent, `· PINNED` on the meta line, `PIN` on the row | M6 asks for pins; no new part |
+| INSPECT: the selected field's bytes | raised cell and accent-coloured bytes | raised cell and a 2 px accent rule under each byte; the byte text keeps its colour | the hex is one label in the fixed face; per-byte colours would take a label per byte |
+| INSPECT: long values | one line | a value wider than 62 % of the row wraps in its right part and the row grows | §46.5 (DNS names, sentences at Large) |
+| Filter sheet | (not drawn) | a sheet over the app as the confirmations: PROTOCOL as nine 56 px choices, Host, Port (cleared, not typed), Pinned only, CANCEL, CLEAR ALL, SHOW | only existing parts |
 | Figures at Medium and Large (DS §46) | Small only: four session figures in a line, each class's rate beside its word | where the widest expected figure (`8 888 888`, `88.8 GB`, `88 888/s` beside `100.0%`) does not fit, SESSION and LAST SESSION go two by two and every class's rate takes a line of its own under its word; Small keeps the mockup's shape. Portrait at Medium and Large; landscape's wider panels keep the Small shape | seen on Unit B at Large in portrait: dots-mode labels with an automatic height wrap, so `2 961/s` read as `2` over `961/s` and `492 000` as `492` over `000` (§46.5: wrap or grow the row, never break a figure). Decided from the widest expected figure, so the shape does not change in the middle of a capture; a figure wider still gets the same room once seen |
