@@ -95,7 +95,7 @@ Files:
 
 ## 5. Privilege
 
-All Doors processes run as root (docs/ARCHITECTURE.md). After its capture socket is open, the helper sets `no_new_privs`, clears the bounding set, empties its capability sets with `capset`, reads `/proc/self/status` back and reports what it found (`note caps ...`). A decoder fault can then still write files root owns, but cannot open sockets, change interfaces or load code into the kernel. Measured result on Unit A: §9. File capabilities, a dedicated user and seccomp are not available on the image or not checked (ADR-016).
+All Doors processes run as root (docs/ARCHITECTURE.md). After its capture socket is open, the helper sets `no_new_privs`, clears the bounding set, empties its capability sets with `capset`, reads `/proc/self/status` back and reports what it found (`note caps ...`). A decoder fault can then still write files root owns, but cannot open sockets, change interfaces or load code into the kernel. On Unit A every capability set, the bounding set included, reads 0 with `NoNewPrivs: 1` while the capture runs (VERIFIED, §9.2). File capabilities, a dedicated user and seccomp are not available on the image or not checked (ADR-016).
 
 Promiscuous mode is not offered in this version. The helper accepts the flag (libpcap sets it by socket membership, which the kernel reverts when the socket closes, DOCUMENTED, packet(7)), but the app shows OFF and takes no tap on the row until the reversion is verified on the hardware.
 
@@ -171,11 +171,34 @@ Overrides: `POCKETOS_CAPTURE_HELPER` (the helper's path), `POCKETOS_CAPTURE_SOUR
 | `packetshark_app_test`, `packetshark_shell_test.sh` | every M3 state in both orientations; targets and safe area; confirmations; crash and `kill -9` shown within a second; twenty opens and closes leave no helper, timer or object | pass |
 | `packetshark_lint.sh` | receive only; one libpcap include; the hot path allocates and formats nothing; the shell links only the protocol; one file created (the lock); no log line from a packet | pass |
 
-Host bench (`pos-capture bench`, x86-64, not a device figure): see the M0-M3 report. Device figures: §9.2.
+Host bench (`pos-capture bench`, x86-64, not a device figure): decode 32 ns/frame, decode + store 95 ns, one row of text 443 ns. Device figures: §9.2.
 
-### 9.2 Unit A
+### 9.2 Unit A (2026-11-16)
 
-See the hardware validation report of 2026-11-16 (outside the repository, `K230-artifacts/packetshark-m0-m3/REPORT.md`); its results are summarised here when the branch is reviewed.
+Doors 0.4.0 (`21baeef0`) on Unit A, eth0 up at 100 Mb/s on the owner's LAN. Built from `6755ab9a` against the v0.4.0 SDK sysroot and run from a non-persistent kit in `/tmp` (the kit's shell was built with the simulator's test hooks, so `shell.tap` could press its buttons from the console; the image build has none). The installed system was restored and checked byte for byte afterwards. The full record is outside the repository (`K230-artifacts/packetshark-m0-m3/REPORT.md`); no capture and no address from it is in the repository.
+
+| Check | Result | Class |
+| --- | --- | --- |
+| Real capture on eth0, 30 s | 91 frames (ARP including the unit's own replies, switch RRCP, NDP router advertisements, SSDP, UDP), 0 kernel and 0 interface drops; protocol words and µs gaps as expected | VERIFIED |
+| Capabilities while capturing (S9) | `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, `CapAmb` all 0; `NoNewPrivs: 1` | VERIFIED |
+| Priority (D5) | nice 5 | VERIFIED |
+| Interface flags (S2) | `0x1003` before, during and after: never promiscuous | VERIFIED |
+| Capture socket (S1) | present only between START and STOP or the helper's end (`/proc/net/packet`) | VERIFIED |
+| `kill -9` of the helper (S3) | socket released, flags unchanged; the app shows the error panel and stays usable | VERIFIED |
+| Lock, down interface, missing interface | `busy`, `down`, `nodev` | VERIFIED |
+| Capture-filter presets on eth0 | `ip`, `names`, `noself` start and stop cleanly | VERIFIED |
+| Memory with both rings full (P3) | 315,000 synthetic frames at ~19,860 pps, FULL: peak RSS 23.2 MB (budget 32 MiB), 0 drops | VERIFIED |
+| Bench, C908 | decode 158 ns/frame; decode + store 688 ns; one row of text 4.7 µs (libpcap dispatch not included) | VERIFIED |
+| App: open, START, HOLD, RESUME, STOP, Back → LEAVE | header hint follows each state; opening captures nothing; LEAVE ends the helper | VERIFIED |
+| Screen held awake | while PacketShark is in front only | VERIFIED |
+| Ten open → START → home cycles | no helper left, shell descriptors unchanged (14), shell RSS +128 kB | VERIFIED |
+| CPU, quiet LAN, LIVE showing | shell 1.3 % of the hart, helper 0.05 % | VERIFIED |
+| Other services | sysd, netd, radiod, meshcored unaffected (same PIDs) | VERIFIED |
+| Logs | lifecycle lines only; no address | VERIFIED |
+| Carrier lost while capturing | not tested (needs the cable pulled) | — |
+| Line rate (P1, P2) | not tested (M10, needs an authorised isolated traffic source) | — |
+
+Two labels were corrected after this run (`a0d26736`: "KILLED (SIG 9)" instead of "CRASHED (SIG 9)" for SIGKILL, "MBIT/S" for the link speed); they are host-tested and were not redeployed.
 
 ## 10. Known limits and open items
 

@@ -105,10 +105,11 @@ Migration cost to a `captured` service later: an IPC front for the helper's comm
 Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PACKETSHARK.md` ("Validation"), which is updated with each milestone; this list says where each claim stands.
 
 - ADR-002, ADR-004 and ADR-010 wording; the Recorder's privacy rules; all processes root; no `setcap`: DOCUMENTED (repository) and VERIFIED on Unit A (feasibility report, 2026-11-15, §2.1, §6.2).
-- Receive-only capture on `eth0` without promiscuous mode, the interface flags unchanged, the socket released on exit: VERIFIED on Unit A for the feasibility proof of concept; for `pos-capture` see docs/apps/PACKETSHARK.md.
+- Receive-only capture on `eth0` without promiscuous mode, the interface flags unchanged, the socket released on exit and on `kill -9`: VERIFIED on Unit A for the feasibility proof of concept and for `pos-capture` (2026-11-16, docs/apps/PACKETSHARK.md §9.2).
 - libpcap 1.10.5 with TPACKET_V3 present on the v0.4.0 image: VERIFIED on Unit A (feasibility report §2.1).
 - Promiscuous mode by `PACKET_MR_PROMISC` reverting when the socket closes: DOCUMENTED (Linux packet(7)); not exercised on the unit, which is why rule 3 keeps it off.
-- Dropping all capabilities with `capset`, the bounding set and `no_new_privs`, and reading the open socket afterwards: implemented in `tools/capture/pos_capture.c`, which reads `/proc/self/status` back and reports the outcome; on the host (as an unprivileged user) the sets read empty; on Unit A see docs/apps/PACKETSHARK.md.
+- Dropping all capabilities with `capset`, the bounding set and `no_new_privs`, and reading the open socket afterwards: VERIFIED on Unit A (2026-11-16): `CapInh`, `CapPrm`, `CapEff`, `CapBnd`, `CapAmb` all 0, `NoNewPrivs: 1`, and the capture went on reading frames (docs/apps/PACKETSHARK.md §9.2).
 - `CONFIG_SECCOMP` on the v0.4.0 kernel: not checked.
-- Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c).
+- Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c) and on Unit A (open, START, STOP, LEAVE, `kill -9`, ten cycles with no helper left).
+- The screen held awake while PacketShark is in front, and only then: VERIFIED on Unit A (`shell.info` power.held).
 - Lint for receive-only, one libpcap include, no capture file written, no log line from a packet: `tests/packetshark_lint.sh`.
