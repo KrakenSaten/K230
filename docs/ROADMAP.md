@@ -75,6 +75,13 @@ from the first model integration and starts from its measured results.
 - **Existing games**: improvements to Fleet, Radar, Timber, Solitaire,
   Blackjack and 2048. Planned.
 
+### 6. PacketShark (In progress)
+
+A receive-only network analyzer for Ethernet ([PACKETSHARK.md](apps/PACKETSHARK.md),
+ADR-016 proposed): milestones M0 to M3 (capture helper, live counters, the
+app on the launcher) are on branch `feature/packetshark` as a draft; the
+graph, packet list, inspector, signals and SAVE are milestones M4 to M8.
+
 ## History
 
 Earlier roadmap phases, status tables and per-release summaries up to

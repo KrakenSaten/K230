@@ -1,0 +1,3 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	TCP	192.0.2.20	192.0.2.10	60000	54	TCP	443 > 50200 [ACK] Seq=5000 Ack=77 [GRO]
+# frames=1 wire_bytes=60000 stored_bytes=54 keep=headers

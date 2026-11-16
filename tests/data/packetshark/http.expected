@@ -1,0 +1,7 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	TCP	192.0.2.10	192.0.2.20	60	54	TCP	50100 > 80 [SYN] Seq=100
+2	1500	in	TCP	192.0.2.20	192.0.2.10	60	54	TCP	80 > 50100 [SYN, ACK] Seq=900 Ack=101
+3	3000	in	TCP	192.0.2.10	192.0.2.20	119	54	TCP	50100 > 80 [PSH, ACK] Seq=101 Ack=901
+4	4500	in	TCP	192.0.2.20	192.0.2.10	105	54	TCP	80 > 50100 [PSH, ACK] Seq=901 Ack=166
+5	6000	in	TCP	192.0.2.10	192.0.2.20	60	54	TCP	50100 > 80 [RST, ACK] Seq=166 Ack=952
+# frames=5 wire_bytes=404 stored_bytes=270 keep=headers

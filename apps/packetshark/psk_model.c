@@ -1,0 +1,248 @@
+/*
+ * PacketShark's model in the shell. See psk_model.h.
+ *
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include "psk_model.h"
+
+#include <stdio.h>
+#include <string.h>
+
+void psk_model_init(struct psk_model *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->state = PPC_STATE_IDLE;
+}
+
+void psk_model_helper_started(struct psk_model *m, int64_t now_ms)
+{
+    (void)now_ms;
+    m->running = true;
+    m->hello = false;
+    m->exit = PSK_EXIT_NONE;
+    m->exit_value = 0;
+    m->had_capture = false;
+    m->shed = false;
+    m->caps[0] = '\0';
+    m->err_code[0] = '\0';
+    m->err_text[0] = '\0';
+    m->rows_open = false;
+}
+
+void psk_model_helper_stopped(struct psk_model *m, enum psk_exit why, int value, int64_t now_ms)
+{
+    (void)now_ms;
+    m->running = false;
+    m->hello = false;
+    /* A helper that left on its own while it held a capture went wrong,
+     * whatever its status: the packets went with it. */
+    if (why == PSK_EXIT_NORMAL && m->had_capture &&
+        (m->state == PPC_STATE_CAPTURING || m->state == PPC_STATE_HOLD || m->state == PPC_STATE_SAVING)) {
+        why = PSK_EXIT_UNEXPECTED;
+    }
+    m->exit = why;
+    m->exit_value = value;
+    m->rows_open = false;
+}
+
+bool psk_model_has_packets(const struct psk_model *m)
+{
+    return m->running && m->had_capture && m->state != PPC_STATE_IDLE;
+}
+
+static void bin_store(struct psk_model *m, uint64_t second, const uint32_t cls[PPC_CLASS_COUNT], uint32_t held)
+{
+    unsigned i = (unsigned)(second % PSK_BINS);
+    uint64_t s;
+
+    /* Seconds the helper skipped (a dropped snapshot) are cleared, so an
+     * old second never shows in a new one's place. */
+    if (second >= m->bin_next && second - m->bin_next < PSK_BINS) {
+        for (s = m->bin_next; s < second; s++) {
+            memset(m->bins[s % PSK_BINS], 0, sizeof(m->bins[0]));
+            m->bin_held[s % PSK_BINS] = 0;
+        }
+    } else if (second >= m->bin_next) {
+        memset(m->bins, 0, sizeof(m->bins));
+        memset(m->bin_held, 0, sizeof(m->bin_held));
+    }
+    memcpy(m->bins[i], cls, sizeof(m->bins[i]));
+    m->bin_held[i] = held;
+    if (second + 1u > m->bin_next) {
+        m->bin_next = second + 1u;
+    }
+}
+
+unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t now_ms)
+{
+    switch (e->kind) {
+    case PPC_EVT_HELLO:
+        m->hello = true;
+        snprintf(m->version, sizeof(m->version), "%s", e->u.hello.version);
+        snprintf(m->backend, sizeof(m->backend), "%s", e->u.hello.backend);
+        return PSK_CHANGED_HELLO;
+    case PPC_EVT_STATE:
+        if (e->u.state.state == PPC_STATE_CAPTURING && m->state == PPC_STATE_IDLE) {
+            /* A new capture: the last one's figures and graph go. */
+            memset(&m->c, 0, sizeof(m->c));
+            m->have_stats = false;
+            memset(m->bins, 0, sizeof(m->bins));
+            memset(m->bin_held, 0, sizeof(m->bin_held));
+            m->bin_next = 0;
+        }
+        if (e->u.state.state != PPC_STATE_IDLE) {
+            m->had_capture = true;
+        }
+        m->state = e->u.state.state;
+        m->reason = e->u.state.reason;
+        snprintf(m->iface, sizeof(m->iface), "%s", e->u.state.iface);
+        m->speed = e->u.state.speed;
+        m->clock_set = e->u.state.clock_set != 0;
+        return PSK_CHANGED_STATE;
+    case PPC_EVT_STATS:
+        /* Counters only grow within a session; a stats line from before the
+         * session's own state (there is none) cannot arrive, so this is a
+         * plain replace. */
+        m->c = e->u.stats;
+        m->have_stats = true;
+        m->stats_ms = now_ms;
+        return PSK_CHANGED_STATS;
+    case PPC_EVT_BIN:
+        bin_store(m, e->u.bin.second, e->u.bin.cls, e->u.bin.held);
+        return PSK_CHANGED_BIN;
+    case PPC_EVT_ERROR:
+        snprintf(m->err_code, sizeof(m->err_code), "%s", e->u.error.code);
+        snprintf(m->err_text, sizeof(m->err_text), "%s", e->u.error.text);
+        m->err_ms = now_ms;
+        return PSK_CHANGED_ERROR;
+    case PPC_EVT_NOTE:
+        if (strcmp(e->u.note.key, "caps") == 0) {
+            snprintf(m->caps, sizeof(m->caps), "%s", e->u.note.value);
+        } else if (strcmp(e->u.note.key, "shed") == 0) {
+            m->shed = strcmp(e->u.note.value, "1") == 0;
+        }
+        return PSK_CHANGED_NOTE;
+    case PPC_EVT_ROWS_BEGIN:
+        if (e->u.rows.req != m->want_req || m->want_req == 0) {
+            m->rows_open = false; /* stale: an answer to an older request */
+            return 0;
+        }
+        m->rows_open = true;
+        m->row_count = 0;
+        m->rows_first_seq = e->u.rows.first_seq;
+        m->rows_last_seq = e->u.rows.last_seq;
+        return 0;
+    case PPC_EVT_ROW:
+        if (m->rows_open && m->row_count < PSK_ROW_CACHE) {
+            m->rows[m->row_count++] = e->u.row;
+        }
+        return 0;
+    case PPC_EVT_ROWS_END:
+        if (m->rows_open && e->u.rows.req == m->want_req) {
+            m->rows_open = false;
+            return PSK_CHANGED_ROWS;
+        }
+        m->rows_open = false;
+        return 0;
+    case PPC_EVT_BYE:
+    case PPC_EVT_NONE:
+    case PPC_EVT_BAD:
+    default:
+        return 0;
+    }
+}
+
+const char *psk_exit_text(enum psk_exit e, int value, char *buf, size_t buflen)
+{
+    switch (e) {
+    case PSK_EXIT_CRASHED:
+        snprintf(buf, buflen, "CRASHED (SIG %d)", value > 128 ? value - 128 : value);
+        break;
+    case PSK_EXIT_HUNG:
+        snprintf(buf, buflen, "NOT RESPONDING");
+        break;
+    case PSK_EXIT_PROTOCOL:
+        snprintf(buf, buflen, "PROTOCOL ERROR");
+        break;
+    case PSK_EXIT_START:
+        snprintf(buf, buflen, "HELPER MISSING");
+        break;
+    case PSK_EXIT_UNEXPECTED:
+        snprintf(buf, buflen, "EXITED (%d)", value);
+        break;
+    case PSK_EXIT_NORMAL:
+        snprintf(buf, buflen, "ENDED");
+        break;
+    case PSK_EXIT_NONE:
+    default:
+        snprintf(buf, buflen, "RUNNING");
+        break;
+    }
+    return buf;
+}
+
+/* ---- figures ------------------------------------------------------------------------ */
+
+const char *psk_fmt_count(uint64_t n, char *buf, size_t buflen)
+{
+    char digits[24];
+    size_t len;
+    size_t i;
+    size_t o = 0;
+
+    snprintf(digits, sizeof(digits), "%llu", (unsigned long long)n);
+    len = strlen(digits);
+    for (i = 0; i < len && o + 2 < buflen; i++) {
+        if (i > 0 && (len - i) % 3 == 0) {
+            buf[o++] = ' ';
+        }
+        buf[o++] = digits[i];
+    }
+    buf[o] = '\0';
+    return buf;
+}
+
+static const char *scaled(uint64_t n, const char *const *units, unsigned count, char *buf, size_t buflen)
+{
+    double v = (double)n;
+    unsigned u = 0;
+
+    while (v >= 1000.0 && u + 1 < count) {
+        v /= 1000.0;
+        u++;
+    }
+    if (u == 0) {
+        snprintf(buf, buflen, "%llu %s", (unsigned long long)n, units[0]);
+    } else {
+        snprintf(buf, buflen, v < 100.0 ? "%.1f %s" : "%.0f %s", v, units[u]);
+    }
+    return buf;
+}
+
+const char *psk_fmt_bytes(uint64_t n, char *buf, size_t buflen)
+{
+    static const char *const units[] = { "B", "KB", "MB", "GB", "TB" };
+
+    return scaled(n, units, 5, buf, buflen);
+}
+
+const char *psk_fmt_bits(uint64_t bps, char *buf, size_t buflen)
+{
+    static const char *const units[] = { "BIT/S", "KBIT/S", "MBIT/S", "GBIT/S" };
+
+    return scaled(bps, units, 4, buf, buflen);
+}
+
+const char *psk_fmt_elapsed(uint64_t ms, char *buf, size_t buflen)
+{
+    uint64_t s = ms / 1000u;
+
+    if (s >= 3600u) {
+        snprintf(buf, buflen, "%llu:%02u:%02u", (unsigned long long)(s / 3600u), (unsigned)(s / 60u % 60u),
+                 (unsigned)(s % 60u));
+    } else {
+        snprintf(buf, buflen, "%02u:%02u", (unsigned)(s / 60u), (unsigned)(s % 60u));
+    }
+    return buf;
+}

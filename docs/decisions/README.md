@@ -42,3 +42,4 @@ authoritative.
 | [013](ADR-013-licence-apache-2.md) | Licence: Apache-2.0 | Accepted, 2026-10-01 |
 | [014](ADR-014-foreground-audio-effects.md) | Foreground mixed audio effects | Accepted scope by owner instruction, 2026-10-22 |
 | [015](ADR-015-offline-library.md) | An offline library from Kiwix archives | Proposed |
+| [016](ADR-016-packet-capture.md) | Packet capture: ownership, privilege and privacy | Proposed |

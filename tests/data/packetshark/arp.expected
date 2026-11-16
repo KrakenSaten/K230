@@ -1,0 +1,6 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	bcast	ARP	02:00:00:00:00:0a	broadcast	60	60	ARP	Who has 192.0.2.20? Tell 192.0.2.10
+2	1500	in	ARP	02:00:00:00:00:0b	02:00:00:00:00:0a	60	60	ARP	192.0.2.20 is at 02:00:00:00:00:0b
+3	3000	bcast	ARP	02:00:00:00:00:0a	broadcast	60	60	ARP	Announcement 192.0.2.10
+4	4500	bcast	ARP	02:00:00:00:00:0a	broadcast	60	60	ARP	Who has 192.0.2.20? (probe)
+# frames=4 wire_bytes=240 stored_bytes=240 keep=headers

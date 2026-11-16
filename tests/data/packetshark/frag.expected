@@ -1,0 +1,6 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	UDP	192.0.2.10	192.0.2.20	106	42	UDP	40000 > 4500 Len=2000
+2	1500	in	IPv4	192.0.2.10	192.0.2.20	98	34	UDP	Fragment, protocol 17, offset 1480, id 0x4242
+3	3000	in	UDP	2001:db8::a	2001:db8::b	102	70	UDP	40001 > 4501 Len=2992
+4	4500	in	IPv6	2001:db8::a	2001:db8::b	94	62	UDP	Fragment, protocol 17, offset 1448, id 0xabcdef01
+# frames=4 wire_bytes=400 stored_bytes=208 keep=headers

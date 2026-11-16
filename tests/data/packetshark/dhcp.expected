@@ -1,0 +1,6 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	bcast	DHCP	0.0.0.0	255.255.255.255	294	294	DHCP	DHCP Discover, transaction 0x3903f326
+2	1500	bcast	DHCP	192.0.2.20	255.255.255.255	294	294	DHCP	DHCP Offer, transaction 0x3903f326
+3	3000	bcast	DHCP	0.0.0.0	255.255.255.255	294	294	DHCP	DHCP Request, transaction 0x3903f326
+4	4500	bcast	DHCP	192.0.2.20	255.255.255.255	294	294	DHCP	DHCP ACK, transaction 0x3903f326
+# frames=4 wire_bytes=1176 stored_bytes=1176 keep=headers

@@ -5320,3 +5320,103 @@ readable. Values, body text and user content stay reading text; fills keep
 and symbols. Other themes, layout, sizes and touch targets are unchanged.
 See [neon/arcade-selected/README.md](neon/arcade-selected/README.md). The owner approved
 the Arcade appearance on unit B's panel on 2026-10-20.
+
+## 59. Amendment AP — PacketShark [PROPOSED]
+
+**Proposed, 2026-11-16. Not accepted.** PacketShark, the packet analyzer
+(docs/apps/PACKETSHARK.md, ADR-016 proposed), uses only existing parts,
+roles and tokens. It asks this amendment for three things the Design System
+does not yet say: the identity hues as protocol colours, rows denser than
+§7's 64 px, and a launcher place and icon. The decisions the owner has to make
+in accepting it are listed in 59.10. The design reference is the eight
+mockups in [packetshark/](packetshark/) (drawn by `make_mockups.py` with the
+repository's own bitmap fonts; not LVGL output), replaced as the reference by
+the app test's screenshots (`PACKETSHARK_SHOTS`) milestone by milestone.
+
+### 59.1 Components
+
+Only existing parts and roles: panels (§9) with a caption title; chips (36 px,
+the chip looks of §9); key/value rows with chevrons; buttons (§9) with at most
+one primary per screen, the action that moves the session forward; captions,
+values, `HERO_48`; the empty state. Tabs are three 56 px faces in
+`POS_STYLE_BUTTON_SECONDARY` with the active word in the accent and a 2 px
+underline (the navigation-row form of §51.3). The error panel is the one place
+`status_error` frames a panel (§2), drawn with the existing field-error border
+role. No new role, token, font or size.
+
+### 59.2 Protocol classes from the identity palette
+
+| Class | Identity hue (index) | Words drawn in it |
+| --- | --- | --- |
+| TCP | violet (6) | `TCP` |
+| UDP | sky (5) | `UDP`, `NTP`, `SSDP`, `NBNS` |
+| DNS | teal (4) | `DNS`, `mDNS`, `LLMNR` |
+| DHCP | orange (1) | `DHCP`, `DHCPv6` |
+| ARP | gold (2) | `ARP` |
+| ICMP | pink (7) | `ICMP` |
+| IPv6 | green (3) | `ICMPv6`, `NDP`, `MLD` |
+| Other | `text_secondary` | `IGMP`, `RRCP`, `LLDP`, an ethertype |
+
+Coral (0) is not used: it sits too close to `status_error`. A class colour
+appears only on the 4 px row and layer bar, the protocol word, graph marks, the
+10 px legend swatch and the 3 px share bar; never on a button, panel, chip or
+background. `status_warn` is reserved for findings, always with `!` and a word.
+This amends §37.3 for this app as §54.2 did for RIFT's RX LOG. (No class colour
+is drawn yet: the list, graph and legend are milestones M4 to M6.)
+
+### 59.3 Small and fixed type
+
+The packet list, the hex dump and the graph captions are `POS_STYLE_CAPTION`
+held at Small with its tracking removed (§54.1's rule): 8 px per character, 63
+characters in a portrait row. Controls, headings and field values follow the
+text size (§46).
+
+### 59.4 A window, not a scroll
+
+The packet list is a fixed pool of row objects bound to the helper's window
+(§54.3's rule), with a rail of finding marks. The shell holds at most 48 rows
+(DESIGN_DECISIONS D1, accepted by the owner 2026-11-15). Milestone M5.
+
+### 59.5 The traffic graph
+
+One column per elapsed second, the last 60; height `round(4 + 50·log10(n))`
+px on a fixed ladder (1, 10, 100, 1k, 10k), never rescaled; stacked by class in
+59.2's order; held seconds drawn as a 3 × 2 px muted mark; a tap selects a
+column. Milestone M4.
+
+### 59.6 Dense rows
+
+Packet rows of two Mono 14 lines in 56 px; inspector field rows of 36 px.
+Every control that triggers something stays at 56 px or more (tabs) and 64 px
+(buttons, interface rows of 72 px); a field row only selects. Below §7's
+64 px minimum, hence an amendment.
+
+### 59.7 Shapes
+
+Tall: 528 × 1116 under the shell's header, the capture bar at the foot of every
+tab, 30 px clear of the bottom corners. Wide: a top row of its own and list and
+inspector side by side (milestone M9; until then landscape lays the portrait
+column out in the wide body, which the app test checks for targets and the
+safe area).
+
+### 59.8 Launcher place and icon
+
+The APPS folder, alphabetical (after MP3, before Photo), in the network hue
+(`HOME_HUE_NETWORK`, as Wave and Browser). The icon is first-party, in the icon
+extension's line language: a dorsal fin rising from a baseline that runs on as
+three stepped bars (`docs/design/doors-app-icons/svg/packetshark.svg`). It is a
+placeholder until the owner chooses the motif, as for Zabbix (§35.4).
+
+### 59.9 Validation
+
+Host: `tests/packetshark_app_test.c` (every M3 state in both orientations,
+targets and the safe area, the confirmations, faults, twenty opens and
+closes) and `tests/packetshark_shell_test.sh` (the real shell). Unit A: the
+hardware check of M3 (docs/apps/PACKETSHARK.md, "Validation"); the full gate is
+milestone M10.
+
+### 59.10 For the owner
+
+Accept, change or reject: (1) the hue of each protocol class (59.2); (2) 56 px
+packet rows and 36 px field rows (59.6); (3) the launcher place and the icon
+motif (59.8).
