@@ -1,7 +1,9 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
 # Games Hub - design exploration
 
-**Status: PROPOSED, for owner review. Nothing here is implemented.** The
+**Status: direction chosen - the owner selected Concept C, Poster Wall, on
+2026-11-16. Decisions 2-6 under "Decisions for the owner" remain open.
+Nothing here is implemented.** The
 images in `mockups/` are design mockups drawn by `tools/gen_mockups.py`, not
 screenshots of Doors. No launcher, shell or app code is changed by this
 package.
@@ -132,12 +134,12 @@ hero is the more dramatic single image, and B is the most characterful; if
 the owner prefers more drama, C can adopt A's larger hero for the top
 poster at a later step without changing its structure.
 
-This is a recommendation only. The design is not final until the owner
-chooses.
+The owner chose Concept C on 2026-11-16. Concepts A and B are kept here as
+the record of the alternatives.
 
 ## Decisions for the owner
 
-1. Which concept (A, B, C, or a named combination).
+1. Which concept (A, B, C, or a named combination). **Decided 2026-11-16: C, Poster Wall.**
 2. Whether the hub may use a fixed palette and art in every theme, as the environment does, with the DS amendment that requires.
 3. Featured set and order (proposed: RotorTerror, then Relay Nine) and the order of the other seven.
 4. Wording of the lobby preview ("COMING SOON", HOST GAME / JOIN GAME) and whether any player-count marks should appear.
