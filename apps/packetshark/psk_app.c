@@ -1,16 +1,18 @@
 /*
  * PacketShark: a packet analyzer for Doors (docs/apps/PACKETSHARK.md;
- * ADR-016 and DS §59 accepted). Milestones M3 to M6: Ethernet capture from
+ * ADR-016 and DS §59 accepted). Milestones M3 to M9: Ethernet capture from
  * the launcher - setup, START, live counters, HOLD, STOP, the error state;
  * the traffic graph (M4); the packet list with its filter and sort (M5); the
- * inspector and pins (M6).
+ * inspector and pins (M6); findings (M7); SAVE and the saved captures (M8);
+ * the wide shape and the keys (M9).
  *
  * The shell is a viewport (DESIGN_DECISIONS D1, accepted): the capture
  * socket, the decoder and every packet are in pos-capture, one helper per
  * START, started here through psk_session and polled from an LVGL timer
  * without ever blocking. The app keeps counters and at most a screen of
  * text. Leaving the app ends the helper, and with it the capture: nothing
- * is written to storage (D10, accepted). The screen stays on while the app
+ * is written to storage unless SAVE was confirmed on a stopped capture
+ * (D10, accepted; ADR-016 rule 9). The screen stays on while the app
  * is in front (shell.c awake_apps, D23), so a capture never runs behind a
  * dark panel.
  *
@@ -25,6 +27,7 @@
 #include "psk_app.h"
 
 #include "pocketlog/pocketlog.h"
+#include "pos_input.h"
 #include "shell_ipc.h"
 
 #include <stdio.h>
@@ -209,11 +212,13 @@ static void reset_list(struct psk_app *a)
 static void send_view(struct psk_app *a)
 {
     a->view_id++;
-    if (psk_session_view(a->session, a->view_id, a->sort, a->classes, a->host, a->port, a->pinned_only) != 0) {
+    if (psk_session_view_signals(a->session, a->view_id, a->sort, a->classes, a->host, a->port, a->pinned_only,
+                                 a->sigmask) != 0) {
         LOG_DEBUG("packetshark: the view could not be sent");
     }
     a->window_due = true;
     a->window_inflight = false;
+    a->marks_due = true;
 }
 
 static void send_window(struct psk_app *a)
@@ -297,6 +302,22 @@ static void list_poll(struct psk_app *a)
     if (due) {
         send_window(a);
     }
+    /* The rail's marks: where the view's findings are (M7). Asked for when
+     * the view changes and, while packets arrive, once a second; a view
+     * that shows only findings needs none. */
+    if (!a->sigmask && (a->marks_due || (m->state == PPC_STATE_CAPTURING &&
+                                         now - a->marks_sent_ms >= PSK_MARKS_REFRESH_MS))) {
+        int32_t h = lv_obj_get_height(a->pk_rail);
+        uint32_t buckets = h > 0 ? (uint32_t)h / 12u : 0;
+
+        if (buckets > PPC_MARK_BUCKETS) {
+            buckets = PPC_MARK_BUCKETS;
+        }
+        if (buckets && psk_session_marks(a->session, a->model, buckets) == 0) {
+            a->marks_due = false;
+            a->marks_sent_ms = now;
+        }
+    }
 }
 
 static uint32_t max_top(const struct psk_app *a)
@@ -348,10 +369,21 @@ static void rows_arrived(struct psk_app *a)
 
 void psk_set_view(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned)
 {
+    psk_set_view_signals(a, classes, host, port, pinned, 0);
+}
+
+void psk_set_view_signals(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned,
+                          unsigned signals)
+{
+    char keep[PPC_HOST_TEXT];
+
+    /* host may be a->host itself (the sort changes nothing else). */
+    snprintf(keep, sizeof(keep), "%s", host ? host : "");
     a->classes = classes ? classes : PPC_CLASSES_ALL;
-    snprintf(a->host, sizeof(a->host), "%s", host ? host : "");
+    snprintf(a->host, sizeof(a->host), "%s", keep);
     a->port = port;
     a->pinned_only = pinned;
+    a->sigmask = (uint8_t)(signals & 0x1fu);
     a->follow = a->sort != 2;
     a->top_rank = 0;
     a->top_seq = 0;
@@ -364,7 +396,7 @@ void psk_set_view(struct psk_app *a, uint8_t classes, const char *host, uint16_t
 void psk_set_sort(struct psk_app *a, unsigned sort)
 {
     a->sort = (uint8_t)(sort % 3u);
-    psk_set_view(a, a->classes, a->host, a->port, a->pinned_only);
+    psk_set_view_signals(a, a->classes, a->host, a->port, a->pinned_only, a->sigmask);
 }
 
 void psk_set_follow(struct psk_app *a, bool on)
@@ -406,6 +438,20 @@ void psk_show_class(struct psk_app *a, unsigned cls)
         psk_set_view(a, (uint8_t)(1u << cls), "", 0, false);
     }
     psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+/* A finding's way to its packets (M7): the list shows them alone. */
+void psk_show_signal(struct psk_app *a, unsigned index)
+{
+    if (index < PPC_SIGNAL_COUNT) {
+        psk_set_view_signals(a, PPC_CLASSES_ALL, "", 0, false, 1u << index);
+    }
+    psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+bool psk_inspect_visible(const struct psk_app *a)
+{
+    return a->cur == PSK_TAB_INSPECT || (a->wide && a->cur == PSK_TAB_PACKETS);
 }
 
 void psk_list_scroll_to(struct psk_app *a, uint32_t rank, bool final)
@@ -451,6 +497,7 @@ void psk_open_packet(struct psk_app *a, uint32_t seq, int step)
     }
     a->insp_seq = seq;
     a->insp_note[0] = '\0';
+    a->key_nav = false;
     if (step == 0) {
         a->sel_seq = seq;
         psk_list_paint(a);
@@ -508,6 +555,48 @@ static void pins_changed(struct psk_app *a)
     }
 }
 
+/* The packet a key moved to stays among the rows shown: when it is not,
+ * the list is held with it near the middle. */
+static void keep_selected_in_view(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    uint32_t rank = m->pkt.head.rank;
+    uint32_t vis = (uint32_t)(a->vis > 0 ? a->vis : 1);
+
+    if (!m->have_pkt || rank >= m->pkt.head.match || a->sort == 2) {
+        return; /* not in the view, or an order a rank says little about */
+    }
+    if (rank >= a->top_rank && rank < a->top_rank + vis && !a->follow) {
+        return;
+    }
+    a->follow = false;
+    a->top_rank = rank > vis / 2u ? rank - vis / 2u : 0;
+    a->top_seq = 0;
+    a->jump = PSK_JUMP_RANK;
+    a->jump_at = a->top_rank;
+    a->window_due = true;
+    a->window_inflight = false;
+}
+
+/* ---- the saved captures (M8) --------------------------------------------------------------- */
+
+void psk_saves_refresh(struct psk_app *a)
+{
+    a->nsaves = psk_saves_list(a->saves, PSK_SAVES_ROWS, &a->saves_count, &a->saves_bytes);
+    if (psk_ssheet_shown(a)) {
+        psk_ssheet_paint(a);
+    }
+}
+
+void psk_saved_delete_ask(struct psk_app *a, int index)
+{
+    if (index < 0 || index >= a->nsaves) {
+        return;
+    }
+    snprintf(a->del_name, sizeof(a->del_name), "%s", a->saves[index].name);
+    psk_sheet_show(a, PSK_SHEET_DELETE);
+}
+
 /* What the poll brought, beyond painting. */
 static void react(struct psk_app *a, unsigned changed)
 {
@@ -559,6 +648,17 @@ static void react(struct psk_app *a, unsigned changed)
         a->insp_note[0] = '\0';
         a->insp_seq = m->pkt.head.seq;
         a->sel_seq = m->pkt.head.seq;
+        if (a->key_nav) {
+            keep_selected_in_view(a);
+        }
+    }
+    if ((changed & PSK_CHANGED_SAVE) && m->save != PSK_SAVE_RUNNING) {
+        if (m->save == PSK_SAVE_DONE) {
+            LOG_INFO("packetshark: the capture was saved");
+        } else {
+            LOG_WARN("packetshark: the capture was not saved (%s)", m->save_fail);
+        }
+        psk_saves_refresh(a);
     }
     if (changed & PSK_CHANGED_PINS) {
         pins_changed(a);
@@ -597,6 +697,7 @@ static void react(struct psk_app *a, unsigned changed)
 }
 
 static void layout(struct psk_app *a);
+static int psk_back(void *priv);
 
 /* A display refresh while the app is open: render and flush (B5). */
 static void on_refresh(lv_event_t *e)
@@ -636,6 +737,15 @@ static void on_poll(lv_timer_t *t)
     unsigned changed = psk_session_poll(a->session, a->model, psk_now());
 
     react(a, changed);
+    if (a->back_pending) {
+        /* The app's own back slab (wide): one level back, as the Back
+         * action; at the top level the shell goes home. */
+        a->back_pending = false;
+        if (!psk_back(a)) {
+            pocketos_shell_go_home();
+            return;
+        }
+    }
     if (a->relayout) {
         /* Never inside a layout pass: the size event only marks it. */
         a->relayout = false;
@@ -668,6 +778,9 @@ static void on_poll(lv_timer_t *t)
 
 void psk_select_tab(struct psk_app *a, enum psk_tab t)
 {
+    if (t == PSK_TAB_INSPECT && a->wide) {
+        t = PSK_TAB_PACKETS; /* the inspector is beside the list */
+    }
     if (t == PSK_TAB_INSPECT && (a->insp_seq == 0 || !psk_capture_present(a))) {
         return; /* no packet has been opened */
     }
@@ -717,6 +830,7 @@ void psk_option(struct psk_app *a, int which)
 
 static void back_to_setup(struct psk_app *a)
 {
+    psk_saves_refresh(a);
     a->failed_view = false;
     a->starting = false;
     a->pending_start = false;
@@ -766,6 +880,10 @@ void psk_do(struct psk_app *a, enum psk_action act)
         }
         return;
     case PSK_ACT_SAVE:
+        if (a->model->state == PPC_STATE_STOPPED && a->model->save != PSK_SAVE_RUNNING) {
+            psk_sheet_show(a, PSK_SHEET_SAVE);
+        }
+        return;
     case PSK_ACT_NONE:
     default:
         return;
@@ -801,6 +919,23 @@ void psk_sheet_answer(struct psk_app *a, bool go)
     case PSK_SHEET_LEAVE:
         pocketos_shell_go_home();
         break;
+    case PSK_SHEET_SAVE:
+        /* The helper writes the file; the poll brings its progress. */
+        if (psk_session_save(a->session) != 0) {
+            LOG_WARN("packetshark: the save could not be asked for");
+        }
+        psk_live_paint(a, PSK_CHANGED_STATE);
+        break;
+    case PSK_SHEET_DELETE:
+        if (psk_saves_delete(a->del_name) != 0) {
+            LOG_WARN("packetshark: a saved capture could not be deleted");
+        } else {
+            LOG_INFO("packetshark: a saved capture was deleted");
+        }
+        a->del_name[0] = '\0';
+        psk_saves_refresh(a);
+        psk_live_paint(a, PSK_CHANGED_STATE);
+        break;
     default:
         break;
     }
@@ -811,15 +946,63 @@ void psk_sheet_answer(struct psk_app *a, bool go)
 static void layout(struct psk_app *a)
 {
     struct pos_insets in;
+    const lv_area_t *box;
+    int32_t w;
+    int32_t h;
+    bool wide;
 
     if (!pocketui_layout_begin(&a->guard, a->frame, &in)) {
         return;
+    }
+    box = &a->guard.area;
+    /* At the display's top edge - landscape, where the shell builds no
+     * header above PacketShark (DS §37.2, §59.7) - the app's top row is the
+     * screen's top row: it starts at the edge and keeps clear of the rounded
+     * corners sideways, as RIFT's strip does (rift_app.c). */
+    a->top_inset_l = 0;
+    a->top_inset_r = 0;
+    if (box->y1 <= 0 && in.top > 0) {
+        const struct pos_display_geometry *g = pocketui_display_geometry();
+        struct pos_insets bar = pos_display_bar_insets(g, POS_EDGE_TOP);
+        int32_t left = bar.left - box->x1 - in.left;
+        int32_t right = bar.right - (g->width - 1 - box->x2) - in.right;
+
+        /* What the row still needs past the frame's own side margins. */
+        in.top = bar.top;
+        a->top_inset_l = left > 0 ? left : 0;
+        a->top_inset_r = right > 0 ? right : 0;
     }
     /* Nothing inside the panel's unsafe corners (DS §21.3). */
     lv_obj_set_style_pad_left(a->frame, in.left, 0);
     lv_obj_set_style_pad_right(a->frame, in.right, 0);
     lv_obj_set_style_pad_top(a->frame, in.top, 0);
     lv_obj_set_style_pad_bottom(a->frame, in.bottom, 0);
+    /* The shape is chosen from the room, not from the orientation: a
+     * landscape body with a keyboard sheet over it may not have it. */
+    w = lv_area_get_width(box) - in.left - in.right;
+    h = lv_area_get_height(box) - in.top - in.bottom;
+    wide = w > h && w >= PSK_WIDE_MIN_W;
+    {
+        /* Wide: the body's top padding is given up, so the top row starts
+         * at the display's edge as the shell's header would (RIFT zeroes
+         * its root's padding for the same reason); tall keeps it. The
+         * frame's size changes with it and this runs once more. */
+        lv_obj_t *root = lv_obj_get_parent(a->frame);
+        int32_t want = wide ? 0 : a->root_pad_top;
+
+        if (lv_obj_get_style_pad_top(root, LV_PART_MAIN) != want) {
+            lv_obj_set_style_pad_top(root, want, 0);
+            a->relayout = true;
+        }
+    }
+    if (wide != a->wide || !a->shaped) {
+        a->wide = wide;
+        a->shaped = true;
+        psk_shape(a);
+    } else if (a->wide) {
+        lv_obj_set_style_pad_left(a->top, a->top_inset_l, 0);
+        lv_obj_set_style_pad_right(a->top, a->top_inset_r, 0);
+    }
 }
 
 static void on_frame_size(lv_event_t *e)
@@ -827,6 +1010,190 @@ static void on_frame_size(lv_event_t *e)
     struct psk_app *a = lv_event_get_user_data(e);
 
     a->relayout = true;
+}
+
+/* ---- keys (M9) ----------------------------------------------------------------------------- *
+ *
+ * A keyboard does what the screen's own controls do, and no more: no key
+ * starts a capture, confirms a sheet or deletes anything (ADR-016 rule 1:
+ * an explicit START on the app's own screen).
+ *
+ *   Esc            one level back, as the Back action
+ *   1 2 3, Tab     LIVE, PACKETS, INSPECT; Tab goes to the next
+ *   Space          HOLD or RESUME
+ *   S              STOP
+ *   F              the filter sheet
+ *   Up, Down       PACKETS: the previous or next packet of the list;
+ *                  INSPECT: the previous or next field
+ *   Left, Right    INSPECT (and the wide shape): the previous or next packet
+ *   Home, End      PACKETS: the oldest end; the newest (FOLLOW)
+ *   Enter          PACKETS: open the selected packet in INSPECT;
+ *                  INSPECT: FILTER BY the selected field
+ *   P              PIN or unpin the inspected packet
+ */
+
+/* The packet before or after the inspected one in the list's order; with
+ * none inspected yet, the first row shown. The tab does not change. */
+static void key_packet(struct psk_app *a, int step)
+{
+    uint32_t seq = a->insp_seq;
+    int i;
+
+    if (!psk_capture_present(a)) {
+        return;
+    }
+    if (!seq || !a->model->have_pkt) {
+        step = 0;
+        for (i = 0; i < a->vis && i < PSK_LIST_ROWS && !seq; i++) {
+            seq = a->lrow[i].seq;
+        }
+    }
+    if (!seq) {
+        return;
+    }
+    if (a->follow) {
+        psk_set_follow(a, false);
+    }
+    if (psk_session_inspect(a->session, a->model, seq, step) == 0) {
+        a->insp_seq = seq;
+        a->insp_note[0] = '\0';
+        a->key_nav = true;
+        if (step == 0) {
+            a->sel_seq = seq;
+            psk_list_paint(a);
+        }
+        psk_paint_tabs(a);
+    }
+}
+
+static void key_field(struct psk_app *a, int step)
+{
+    const struct psk_model *m = a->model;
+    int n = m->have_pkt ? (int)m->pkt.nfields : 0;
+    int want = a->insp_field;
+    int tries;
+
+    /* Only fields of an open layer are on screen. */
+    for (tries = 0; tries < n; tries++) {
+        want = want < 0 ? (step > 0 ? 0 : n - 1) : want + step;
+        if (want < 0 || want >= n) {
+            return;
+        }
+        if (a->layer_open[m->pkt.field[want].layer]) {
+            a->insp_field = -1;
+            psk_select_field(a, want);
+            if (a->field[want].row) {
+                lv_obj_scroll_to_view_recursive(a->field[want].row, LV_ANIM_OFF);
+            }
+            return;
+        }
+    }
+}
+
+bool psk_key(struct psk_app *a, uint32_t key)
+{
+    const struct psk_model *m = a->model;
+    bool capture = psk_capture_present(a);
+    bool running = capture && (m->state == PPC_STATE_CAPTURING || m->state == PPC_STATE_HOLD);
+    bool sheet = a->sheet_kind != PSK_SHEET_NONE || psk_fsheet_shown(a) || psk_ssheet_shown(a);
+
+    if (key == LV_KEY_ESC) {
+        a->back_pending = true; /* handled by the poll, outside this event */
+        return true;
+    }
+    if (sheet) {
+        return false; /* a sheet is answered on the screen */
+    }
+    if (key >= 'A' && key <= 'Z') {
+        key += 'a' - 'A';
+    }
+    switch (key) {
+    case '1':
+        psk_select_tab(a, PSK_TAB_LIVE);
+        return true;
+    case '2':
+        psk_select_tab(a, PSK_TAB_PACKETS);
+        return true;
+    case '3':
+        psk_select_tab(a, PSK_TAB_INSPECT);
+        return true;
+    case LV_KEY_NEXT:
+        psk_select_tab(a, a->cur == PSK_TAB_LIVE ? PSK_TAB_PACKETS
+                          : a->cur == PSK_TAB_PACKETS && !a->wide && a->insp_seq ? PSK_TAB_INSPECT : PSK_TAB_LIVE);
+        return true;
+    case ' ':
+        if (running) {
+            psk_do(a, m->state == PPC_STATE_HOLD ? PSK_ACT_RESUME : PSK_ACT_HOLD);
+        }
+        return running;
+    case 's':
+        if (running) {
+            psk_do(a, PSK_ACT_STOP);
+        }
+        return running;
+    case 'f':
+        if (capture) {
+            psk_do(a, PSK_ACT_FILTER);
+        }
+        return capture;
+    case 'p':
+        if (capture && psk_inspect_visible(a)) {
+            psk_toggle_pin(a);
+            return true;
+        }
+        return false;
+    case LV_KEY_UP:
+    case LV_KEY_DOWN:
+        if (a->cur == PSK_TAB_INSPECT) {
+            key_field(a, key == LV_KEY_DOWN ? 1 : -1);
+            return true;
+        }
+        if (a->cur == PSK_TAB_PACKETS) {
+            key_packet(a, key == LV_KEY_DOWN ? 1 : -1);
+            return true;
+        }
+        return false;
+    case LV_KEY_LEFT:
+    case LV_KEY_RIGHT:
+        if (psk_inspect_visible(a)) {
+            key_packet(a, key == LV_KEY_RIGHT ? 1 : -1);
+            return true;
+        }
+        return false;
+    case LV_KEY_HOME:
+        if (capture && a->cur == PSK_TAB_PACKETS) {
+            psk_list_scroll_to(a, 0, true);
+            return true;
+        }
+        return false;
+    case LV_KEY_END:
+        if (capture && a->cur == PSK_TAB_PACKETS) {
+            if (running && a->sort != 2) {
+                psk_set_follow(a, true);
+            } else {
+                psk_list_scroll_to(a, UINT32_MAX, true);
+            }
+            return true;
+        }
+        return false;
+    case LV_KEY_ENTER:
+        if (a->cur == PSK_TAB_INSPECT || (a->wide && a->cur == PSK_TAB_PACKETS && a->insp_field >= 0)) {
+            psk_do(a, PSK_ACT_FILTER_BY);
+            return true;
+        }
+        if (a->cur == PSK_TAB_PACKETS && a->insp_seq) {
+            psk_select_tab(a, PSK_TAB_INSPECT);
+            return true;
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
+static void on_key(lv_event_t *e)
+{
+    psk_key(lv_event_get_user_data(e), lv_event_get_key(e));
 }
 
 /* ---- the app ------------------------------------------------------------------------------ */
@@ -858,13 +1225,18 @@ static void *psk_create(lv_obj_t *root)
     a->follow = true;
     a->vis = 1;
     a->insp_field = -1;
+    a->row_h = PSK_ROW_H;
+    a->marks_due = true;
 
+    a->root_pad_top = lv_obj_get_style_pad_top(root, LV_PART_MAIN);
     a->frame = psk_box(root);
     lv_obj_set_size(a->frame, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(a->frame, LV_FLEX_FLOW_COLUMN);
     psk_live_build(a);
     psk_sheet_build(a);
     psk_fsheet_build(a);
+    psk_ssheet_build(a);
+    psk_saves_refresh(a);
     read_ifaces(a);
     psk_paint_tabs(a);
     psk_live_paint(a, ~0u);
@@ -875,8 +1247,20 @@ static void *psk_create(lv_obj_t *root)
         lv_display_add_event_cb(lv_display_get_default(), on_refresh, LV_EVENT_REFR_READY, a);
     }
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
+    /* Keys (M9): the frame is the app's one focusable object. */
+    lv_obj_add_event_cb(a->frame, on_key, LV_EVENT_KEY, a);
+    pos_input_add_obj(a->frame);
+    pos_input_focus(a->frame);
     lv_obj_update_layout(a->frame);
     layout(a);
+    lv_obj_update_layout(a->frame);
+    if (a->relayout) {
+        /* The wide shape moved the frame to the top edge: its insets again. */
+        a->relayout = false;
+        layout(a);
+        lv_obj_update_layout(a->frame);
+    }
+    psk_live_paint(a, ~0u);
     psk_live_fit(a);
     return a;
 }
@@ -889,6 +1273,7 @@ static void psk_destroy(void *priv)
         return;
     }
     lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
+    lv_obj_remove_event_cb_with_user_data(a->frame, on_key, a);
     if (lv_display_get_default()) {
         lv_display_remove_event_cb_with_user_data(lv_display_get_default(), on_refresh, a);
     }
@@ -896,7 +1281,8 @@ static void psk_destroy(void *priv)
         lv_timer_delete(a->timer);
     }
     /* Leaving the app ends the capture and discards its packets (ADR-016
-     * rule 5): at most PSK_DESTROY_GRACE_MS + PSK_KILL_REAP_MS. */
+     * rule 5): at most PSK_DESTROY_GRACE_MS + PSK_KILL_REAP_MS. A save in
+     * hand is cut short; the helper removes its part file. */
     if (psk_session_active(a->session)) {
         LOG_INFO("packetshark: closed, the capture helper is ended");
     }
@@ -923,6 +1309,10 @@ static int psk_back(void *priv)
         psk_fsheet_hide(a);
         return 1;
     }
+    if (psk_ssheet_shown(a)) {
+        psk_ssheet_hide(a);
+        return 1;
+    }
     if (a->cur == PSK_TAB_INSPECT) {
         psk_select_tab(a, PSK_TAB_PACKETS);
         return 1;
@@ -931,7 +1321,7 @@ static int psk_back(void *priv)
         psk_select_tab(a, PSK_TAB_LIVE);
         return 1;
     }
-    if (psk_model_has_packets(a->model)) {
+    if (psk_model_has_packets(a->model) && !a->discarding && !a->failed_view) {
         psk_sheet_show(a, PSK_SHEET_LEAVE);
         return 1;
     }
@@ -1029,6 +1419,31 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     if (strncmp(name, "field", 5) == 0 && (i = atoi(name + 5)) >= 0 && i < PSK_FIELDS) {
         return a->field[i].row;
     }
+    /* M7 to M9 */
+    if (strcmp(name, "signals") == 0) {
+        return a->signals;
+    }
+    if (strncmp(name, "sig", 3) == 0 && (i = name[3] - '0') >= 0 && i < PPC_SIGNAL_COUNT) {
+        return a->sig_cell[i];
+    }
+    if (strcmp(name, "saves") == 0) {
+        return a->saves_row;
+    }
+    if (strncmp(name, "save", 4) == 0 && (i = name[4] - '0') >= 0 && i < PSK_SAVES_ROWS) {
+        return a->ss_row[i];
+    }
+    if (strcmp(name, "top") == 0) {
+        return a->top;
+    }
+    if (strcmp(name, "back") == 0) {
+        return a->back;
+    }
+    if (strcmp(name, "inspect") == 0) {
+        return a->page[PSK_TAB_INSPECT];
+    }
+    if (strncmp(name, "finding", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_LAYERS) {
+        return a->layer[i].finding;
+    }
     return NULL;
 }
 
@@ -1070,4 +1485,7 @@ const struct pocketos_app app_packetshark = {
     .back = psk_back,
     /* The header's back slab leaves the app; Back asks first (above). */
     .back_slab_in_app = true,
+    /* Landscape draws its own top row, with a back slab of its own, the
+     * state and the capture's buttons (DS §59.7, mockup 08; M9). */
+    .header = POCKETOS_HEADER_NONE_LANDSCAPE,
 };

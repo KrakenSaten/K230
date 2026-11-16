@@ -145,6 +145,70 @@ static uint32_t mix(uint64_t n, uint32_t seed)
     return (uint32_t)x;
 }
 
+/* One TCP segment between 192.0.2.10 and 192.0.2.<peer>. */
+static uint32_t tcp_seg(uint8_t *b, int out, uint8_t peer, uint16_t sp, uint16_t dp, uint32_t seq, uint32_t ack,
+                        uint8_t flags, uint32_t pay)
+{
+    uint32_t l = eth(b, out ? mac_peer : mac_self, out ? mac_self : mac_peer, 0x0800);
+
+    l += ip4(b + l, 6, 20 + pay, 10, peer, out);
+    put16(b + l, sp);
+    put16(b + l + 2, dp);
+    put32(b + l + 4, seq);
+    put32(b + l + 8, ack);
+    b[l + 12] = 0x50;
+    b[l + 13] = flags;
+    put16(b + l + 14, 65535);
+    put32(b + l + 16, 0);
+    l += 20;
+    memset(b + l, 'x', pay);
+    return l + pay;
+}
+
+/* About one frame in a hundred is something PacketShark marks as a finding
+ * (M7), so the simulator and the tests have every kind to show: a failed
+ * lookup, a reset, a segment sent again, an unreachable, and a SYN nobody
+ * answers. Returns 0 for the other frames. */
+static uint32_t finding_frame(uint64_t n, uint32_t r, uint8_t *b)
+{
+    uint32_t l;
+
+    if ((r >> 16) % 97u != 0) {
+        return 0;
+    }
+    switch ((r >> 24) % 5u) {
+    case 0: {
+        /* NXDOMAIN from the resolver: the query's name, no answer. */
+        uint8_t m[128];
+        uint32_t dl = dns(m, (uint16_t)(n & 0xffffu), 0, r >> 4);
+
+        put16(m + 2, 0x8183);
+        l = eth(b, mac_self, mac_peer, 0x0800);
+        l += ip4(b + l, 17, 8 + dl, 1, 53, 0);
+        l += udp(b + l, 53, 50000 + (r & 255u), dl);
+        memcpy(b + l, m, dl);
+        return l + dl;
+    }
+    case 1:
+        return tcp_seg(b, 0, 21, 443, (uint16_t)(49200 + (r & 7u)), (uint32_t)n, 0, 0x14, 0);
+    case 2:
+        /* The same hundred bytes again and again: every one after the
+         * first is a retransmission. */
+        return tcp_seg(b, 1, 22, 50001, 443, 1000, 1, 0x18, 100);
+    case 3:
+        /* Destination unreachable (port), quoting nothing more than zeros. */
+        l = eth(b, mac_self, mac_peer, 0x0800);
+        l += ip4(b + l, 1, 8 + 28, 10, 1, 0);
+        memset(b + l, 0, 36);
+        b[l] = 3;
+        b[l + 1] = 3;
+        return l + 36;
+    default:
+        /* A SYN to a host that never answers; a new port most times. */
+        return tcp_seg(b, 1, 99, (uint16_t)(51000 + ((r >> 4) & 1023u)), 443, (uint32_t)(n * 2654435761u), 0, 0x02, 0);
+    }
+}
+
 uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
 {
     uint32_t r = mix(n, seed);
@@ -152,8 +216,11 @@ uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
     int out = (r >> 8) & 1u;
     const uint8_t *src = out ? mac_self : mac_peer;
     const uint8_t *dst = out ? mac_peer : mac_self;
-    uint32_t len;
+    uint32_t len = finding_frame(n, r, b);
 
+    if (len) {
+        return len;
+    }
     switch (kind) {
     case 0:
     case 1:

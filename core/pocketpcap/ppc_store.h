@@ -95,4 +95,9 @@ int ppc_store_pin(struct ppc_store *s, uint32_t seq);
 int ppc_store_unpin(struct ppc_store *s, uint32_t seq);
 const struct ppc_pin *ppc_store_pinned(const struct ppc_store *s, uint32_t seq);
 
+/* Add findings (PPC_SIG_*) to a packet already stored, and to its pin: a
+ * finding decided after the packet came (M7, the unanswered SYN). 0, or -1
+ * when neither the store nor a pin holds it. */
+int ppc_store_mark(struct ppc_store *s, uint32_t seq, uint16_t signal);
+
 #endif

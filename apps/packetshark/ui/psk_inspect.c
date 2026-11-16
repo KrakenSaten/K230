@@ -308,6 +308,13 @@ void psk_inspect_build(struct psk_app *a, lv_obj_t *page)
         layer_row(a, layers, &a->layer[i], i);
         a->layer[i].fields = col(layers, 0);
         lv_obj_set_style_pad_left(a->layer[i].fields, FIELD_INDENT, 0);
+        /* What the packet's findings say about this layer (M7, mockup 03):
+         * the first line under the layer, in status_warn with its `!`. */
+        a->layer[i].finding = label(a->layer[i].fields, "", POS_STYLE_CAPTION, LV_LABEL_LONG_WRAP);
+        pos_style_add(a->layer[i].finding, POS_STYLE_STATUS_WARN_TEXT, 0);
+        lv_obj_set_width(a->layer[i].finding, LV_PCT(100));
+        lv_obj_set_style_pad_ver(a->layer[i].finding, 8, 0);
+        psk_set_hidden(a->layer[i].finding, true);
         /* Room for the selected outline at the right. */
         lv_obj_set_style_pad_right(a->layer[i].fields, 3, 0);
         psk_set_hidden(a->layer[i].row, true);
@@ -393,6 +400,12 @@ static void new_packet(struct psk_app *a, const struct psk_packet *p)
     for (i = 0; i < PSK_LAYERS; i++) {
         a->layer_open[i] = p->nlayers > 0 && i == p->nlayers - 1u;
     }
+    /* A layer with a finding opens too: what is wrong is what is shown. */
+    for (i = 0; i < p->nfindings; i++) {
+        if (p->finding[i].layer < p->nlayers) {
+            a->layer_open[p->finding[i].layer] = true;
+        }
+    }
     for (i = 0; i < PSK_FIELDS; i++) {
         lv_obj_t *want = i < p->nfields ? a->layer[p->field[i].layer].fields : a->layer[0].fields;
 
@@ -434,7 +447,32 @@ static void paint_head(struct psk_app *a, const struct psk_packet *p)
     if (hue >= 0) {
         lv_obj_add_style(a->in_word, pos_style_identity((unsigned)hue), 0);
     }
-    /* Findings are milestone M7: nothing is flagged yet. */
+    /* The packet's finding beside its class (mockup 03): the first one,
+     * and how many more. */
+    if (p->head.signal) {
+        static const char *const names[PPC_SIGNAL_COUNT] = { "RETRANSMISSION", "RESET", "DNS FAILURE", "UNREACHABLE",
+                                                             "NO ANSWER" };
+        unsigned first = PPC_SIGNAL_COUNT;
+        unsigned more = 0;
+
+        for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+            if (p->head.signal & (1u << i)) {
+                if (first == PPC_SIGNAL_COUNT) {
+                    first = i;
+                } else {
+                    more++;
+                }
+            }
+        }
+        if (first == PPC_SIGNAL_COUNT) {
+            snprintf(b, sizeof(b), "! FINDING");
+        } else if (more) {
+            snprintf(b, sizeof(b), "! %s +%u", names[first], more);
+        } else {
+            snprintf(b, sizeof(b), "! %s", names[first]);
+        }
+        psk_text(a->in_finding, b);
+    }
     psk_set_hidden(a->in_finding, p->head.signal == 0);
     snprintf(dir, sizeof(dir), "%s", p->head.dir);
     for (i = 0; dir[i]; i++) {
@@ -559,6 +597,20 @@ void psk_inspect_paint(struct psk_app *a)
         psk_text(l->tri, a->layer_open[i] ? LV_SYMBOL_DOWN : LV_SYMBOL_RIGHT);
         psk_text(l->name, p->layer[i].name);
         psk_text(l->summary, p->layer[i].text);
+        {
+            char f[PSK_FINDINGS * (PPC_FIELD_TEXT + 4)];
+            size_t o = 0;
+            uint32_t k;
+
+            f[0] = '\0';
+            for (k = 0; k < p->nfindings && o < sizeof(f); k++) {
+                if (p->finding[k].layer == i) {
+                    o += (size_t)snprintf(f + o, sizeof(f) - o, "%s! %s", o ? "\n" : "", p->finding[k].text);
+                }
+            }
+            psk_text(l->finding, f);
+            psk_set_hidden(l->finding, f[0] == '\0');
+        }
     }
     for (i = 0; i < PSK_FIELDS; i++) {
         struct psk_fieldrow *f = &a->field[i];

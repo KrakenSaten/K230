@@ -13,8 +13,9 @@
  * counts and a held count, the last PPC_BINS seconds. A completed second is
  * handed to a callback once (the `bin` line).
  *
- * Signals are a later milestone (M7); their counters are carried as zeros
- * so the line format does not change.
+ * Signals (M7): five counters, one per finding (ppc_signals.h), counted by
+ * the helper as packets are judged; a finding decided late (an unanswered
+ * SYN) is counted when it is decided.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0

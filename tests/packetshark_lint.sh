@@ -56,16 +56,33 @@ hits=$(code $A/*.c $A/ui/*.c | grep -nE '\b(socket|connect|bind|accept|getaddrin
 check "the app opens no network socket (only the helper's socketpair)" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(code $A/psk_app.c $A/psk_model.c $A/ui/*.c | grep -nE '\b(fopen|open|openat|unlink|rename|mkdir|opendir|fork|exec[lv]p?e?)\(')
 check "the screens and the model never touch files or start processes" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $A/psk_saves.c | grep -nE '\b(fopen|open|openat|read|pread|fread|rename|mkdir|unlink|system|fork|exec[lv]p?e?)\(')
+check "the saved captures are listed and deleted, never opened or read (M8)" \
+    "$([ -z "$hits" ] && [ "$(code $A/psk_saves.c | grep -cE '\bunlinkat\(')" = "1" ] &&
+       code $A/psk_saves.c | grep -q 'AT_SYMLINK_NOFOLLOW' && code $A/psk_saves.c | grep -q 'ppc_save_name_ok(name)' &&
+       echo 1 || echo 0)"
+hits=$(code $A/psk_app.c | grep -nE 'case (LV_KEY_ENTER|. .|.s.):' -A3 | grep -E 'PSK_ACT_START|psk_sheet_answer|psk_saves_delete')
+check "no key starts a capture, answers a sheet or deletes a file (ADR-016 rule 1)" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(grep -rlE '\bfork\(' $A $C tools/capture --include='*.c' | sort | tr '\n' ' ')
 check "only the session starts a process ($hits)" "$([ "$hits" = "$A/psk_session.c " ] && echo 1 || echo 0)"
 
 # ---- nothing written (D10, ADR-016 rules 8-9) -------------------------------------
 hits=$(code $H $C/*.c | grep -nE 'O_CREAT|fopen\([^)]*"[wa]')
-check "the helper creates one file, its lock, and writes no capture (M8 adds SAVE)" \
-    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'O_RDWR | O_CREAT' && echo 1 || echo 0)"
-[ "$(echo "$hits" | grep -c .)" != "1" ] && echo "$hits" | head -5
-hits=$(code $H $C/*.c $A/*.c | grep -nE '"/tmp')
-check "nothing goes to /tmp" "$([ -z "$hits" ] && echo 1 || echo 0)"
+check "the helper creates two files: its lock, and SAVE's capture, new and never followed (M8)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "2" ] && echo "$hits" | grep -q 'O_RDWR | O_CREAT' &&
+       echo "$hits" | grep -q 'O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600' && echo 1 || echo 0)"
+[ "$(echo "$hits" | grep -c .)" != "2" ] && echo "$hits" | head -5
+hits=$(code $H | grep -nE 'ppc_pcap_write_(header|record)\(' | grep -vE 'save_fd')
+check "packets are written to SAVE's file and nowhere else" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $H | grep -cE 'case PPC_CMD_SAVE:')
+check "only the save command starts a save" \
+    "$([ "$hits" = "1" ] && [ "$(code $H | grep -cE '\bcmd_save\(h\)')" = "1" ] && echo 1 || echo 0)"
+hits=$(code $C/ppc_decode.c $C/ppc_signals.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf)\(')
+check "the findings allocate once, at init, and format nothing (M7)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'calloc(flows' && echo 1 || echo 0)"
+# The one mention of /tmp is the refusal to save there (ppc_captures_dir).
+hits=$(code $H $C/*.c $A/*.c | grep -nE '"/tmp' | grep -vF 'strncmp(buf, "/tmp", 4) == 0')
+check "nothing goes to /tmp, and a captures folder there is refused" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(code $H | grep -E 'LOG_(INFO|WARN|ERROR|DEBUG)' | grep -E '\b(t|row|rec|r)\.(src|dst|info)|bytes|ppc_format' )
 check "no log line is built from a packet's text (S7)" "$([ -z "$hits" ] && echo 1 || echo 0)"
 

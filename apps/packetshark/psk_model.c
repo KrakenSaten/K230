@@ -43,6 +43,9 @@ void psk_model_clear_packets(struct psk_model *m)
     m->have_pkt = false;
     m->pins = 0;
     m->pin_seq = 0;
+    m->want_marks = 0;
+    m->marks_buckets = 0;
+    m->marks_mask = 0;
 }
 
 void psk_model_helper_stopped(struct psk_model *m, enum psk_exit why, int value, int64_t now_ms)
@@ -106,6 +109,9 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             memset(m->bins, 0, sizeof(m->bins));
             memset(m->bin_held, 0, sizeof(m->bin_held));
             m->bin_next = 0;
+            m->save = PSK_SAVE_NONE;
+            m->save_name[0] = '\0';
+            m->save_fail[0] = '\0';
         }
         if (e->u.state.state != PPC_STATE_IDLE) {
             m->had_capture = true;
@@ -210,6 +216,37 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             snprintf(h->ascii, sizeof(h->ascii), "%s", e->u.hex.ascii);
         }
         return 0;
+    case PPC_EVT_FINDING:
+        if (m->pkt_open && m->pkt_next.nfindings < PSK_FINDINGS) {
+            struct psk_finding *fd = &m->pkt_next.finding[m->pkt_next.nfindings++];
+
+            fd->layer = (uint8_t)(e->u.finding.layer < PSK_LAYERS ? e->u.finding.layer : 0);
+            snprintf(fd->text, sizeof(fd->text), "%s", e->u.finding.text);
+        }
+        return 0;
+    case PPC_EVT_MARKS:
+        if (e->u.marks.req != m->want_marks || m->want_marks == 0) {
+            return 0;
+        }
+        m->marks_view = e->u.marks.view_id;
+        m->marks_match = e->u.marks.match;
+        m->marks_buckets = e->u.marks.buckets;
+        m->marks_mask = e->u.marks.mask;
+        return PSK_CHANGED_MARKS;
+    case PPC_EVT_SAVED:
+        m->save_packets = e->u.saved.packets;
+        m->save_total = e->u.saved.total;
+        m->save_bytes = e->u.saved.bytes;
+        if (e->u.saved.phase == PPC_SAVE_FAIL) {
+            m->save = PSK_SAVE_FAILED;
+            snprintf(m->save_fail, sizeof(m->save_fail), "%.*s", (int)sizeof(m->save_fail) - 1, e->u.saved.name);
+        } else {
+            /* Only a name the helper could have made is ever shown. */
+            m->save = e->u.saved.phase == PPC_SAVE_DONE ? PSK_SAVE_DONE : PSK_SAVE_RUNNING;
+            snprintf(m->save_name, sizeof(m->save_name), "%s", ppc_save_name_ok(e->u.saved.name) ? e->u.saved.name : "");
+            m->save_fail[0] = '\0';
+        }
+        return PSK_CHANGED_SAVE;
     case PPC_EVT_PKT_END:
         if (m->pkt_open && e->u.pkt.req == m->want_pkt) {
             m->pkt_open = false;
@@ -237,6 +274,35 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
     default:
         return 0;
     }
+}
+
+const char *psk_signal_word(unsigned index)
+{
+    static const char *const words[PPC_SIGNAL_COUNT] = { "RETRANS", "TCP RST", "DNS FAIL", "UNREACH", "NO REPLY" };
+
+    return index < PPC_SIGNAL_COUNT ? words[index] : "?";
+}
+
+const char *psk_signal_plural(unsigned index)
+{
+    static const char *const words[PPC_SIGNAL_COUNT] = { "RETRANSMISSIONS", "RESETS", "DNS FAILURES", "UNREACHABLES",
+                                                         "UNANSWERED SYNS" };
+
+    return index < PPC_SIGNAL_COUNT ? words[index] : "?";
+}
+
+const char *psk_save_fail_text(const char *code)
+{
+    if (strcmp(code, "nospace") == 0) {
+        return "NOT ENOUGH FREE STORAGE";
+    }
+    if (strcmp(code, "nodir") == 0) {
+        return "THE CAPTURES FOLDER CANNOT BE USED";
+    }
+    if (strcmp(code, "empty") == 0) {
+        return "NO PACKET BYTES ARE LEFT IN THE BUFFER";
+    }
+    return "THE FILE COULD NOT BE WRITTEN";
 }
 
 const char *psk_exit_text(enum psk_exit e, int value, char *buf, size_t buflen)

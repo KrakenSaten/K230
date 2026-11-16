@@ -10,22 +10,28 @@
  * carries a tab or newline (ppc_format.h sanitizes it).
  *
  * Implemented (M2/M3; view, the window's rank and time anchors, inspect and
- * pin since M5/M6, protocol 2):
+ * pin since M5/M6, protocol 2; the view's findings, marks, save and the
+ * finding line since M7/M8, protocol 3):
  *
  *   shell -> helper
  *     start <iface> <headers|full> <promisc 0|1> <cfilter> <limit_s>
  *     hold <0|1>
  *     stop
  *     discard
- *     view <id> <time|newest|len> <classes> <host|-> <port> <pinned 0|1>
+ *     view <id> <time|newest|len> <classes> <host|-> <port> <pinned 0|1> [<signals>]
  *                                     the list's display filter and sort;
- *                                     classes is a hex mask of enum ppc_class
+ *                                     classes is a hex mask of enum ppc_class,
+ *                                     signals a hex mask of PPC_SIG_* (M7): only
+ *                                     packets with one of those findings
  *     window <req> <tail|seq:N|rank:N|us:N> <before> <after>
  *                                     at most PPC_WINDOW_MAX rows of the view
  *     inspect <req> <seq> <step -1|0|1>
  *                                     one packet's layers, fields and bytes; a
  *                                     step moves to its neighbour in the view
  *     pin <seq> <0|1>
+ *     marks <req> <buckets>           where the view's findings are (M7): the
+ *                                     view cut into at most 64 equal parts
+ *     save                            write the stopped capture to a file (M8)
  *     stats                           one snapshot now
  *     quit
  *
@@ -46,6 +52,12 @@
  *     hex <off> <hex> <ascii>
  *     pkt.end <req>
  *     pinned <seq> <0|1> <pins>
+ *     finding <layer> <text>          inside pkt.begin..pkt.end: a finding of
+ *                                     the packet, under that layer (M7)
+ *     marks <req> <view_id> <match> <buckets> <hex mask>
+ *     saved <run|done|fail> <packets> <total> <bytes> <name|code>
+ *                                     SAVE's progress and outcome (M8); name is
+ *                                     the file's name, without its folder
  *     error <code> <text>
  *     note <key> <value>
  *     bye
@@ -67,7 +79,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PPC_PROTO_VERSION 2
+#define PPC_PROTO_VERSION 3
 #define PPC_LINE_MAX 1024
 #define PPC_IFACE_MAX 16
 #define PPC_WINDOW_MAX 48
@@ -134,6 +146,8 @@ enum ppc_cmd_kind {
     PPC_CMD_VIEW,
     PPC_CMD_INSPECT,
     PPC_CMD_PIN,
+    PPC_CMD_MARKS,
+    PPC_CMD_SAVE,
 };
 
 /* Where a window is anchored. */
@@ -179,8 +193,11 @@ struct ppc_cmd {
     char host[PPC_HOST_TEXT]; /* "" for any */
     uint16_t port;
     uint8_t pinned;
+    uint8_t signals;   /* PPC_SIG_* bits, 0 for any packet */
     /* inspect */
     int8_t step;
+    /* marks */
+    uint32_t buckets;
 };
 
 /* An interface name as the kernel allows it: 1..15 characters, no slash,
@@ -201,7 +218,11 @@ int ppc_cmd_format_window_at(char *buf, size_t n, uint32_t req, enum ppc_anchor 
 /* sort: 0 time, 1 newest, 2 len (enum ppc_sort). host NULL or "" for any. */
 int ppc_cmd_format_view(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
                         uint16_t port, int pinned);
+/* The same with the findings to show (PPC_SIG_* bits, 0: any packet). */
+int ppc_cmd_format_view_signals(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                                uint16_t port, int pinned, unsigned signals);
 int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int step);
+int ppc_cmd_format_marks(char *buf, size_t n, uint32_t req, uint32_t buckets);
 int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on);
 
 /* ---- events ---------------------------------------------------------------------- */
@@ -226,6 +247,9 @@ enum ppc_evt_kind {
     PPC_EVT_HEX,
     PPC_EVT_PKT_END,
     PPC_EVT_PINNED,
+    PPC_EVT_FINDING,
+    PPC_EVT_MARKS,
+    PPC_EVT_SAVED,
 };
 
 #define PPC_FIELD_NAME 24
@@ -233,6 +257,11 @@ enum ppc_evt_kind {
 #define PPC_FILTER_TEXT 56
 #define PPC_HEX_TEXT 32
 #define PPC_ASCII_TEXT 12
+#define PPC_MARK_BUCKETS 64u
+#define PPC_SAVE_NAME 48
+
+/* SAVE's phases (the `saved` line). */
+enum ppc_save_phase { PPC_SAVE_RUN = 0, PPC_SAVE_DONE, PPC_SAVE_FAIL };
 
 struct ppc_counters {
     uint64_t elapsed_ms;
@@ -360,6 +389,24 @@ struct ppc_evt {
             uint8_t on;
             uint32_t pins;
         } pinned;
+        struct {
+            uint32_t layer;
+            char text[PPC_FIELD_TEXT];
+        } finding;
+        struct {
+            uint32_t req;
+            uint32_t view_id;
+            uint32_t match;
+            uint32_t buckets;
+            uint64_t mask;     /* bit i: a finding in part i of the view */
+        } marks;
+        struct {
+            uint8_t phase;     /* enum ppc_save_phase */
+            uint32_t packets;
+            uint32_t total;
+            uint64_t bytes;
+            char name[PPC_SAVE_NAME]; /* the file's name, or the failure's code */
+        } saved;
     } u;
 };
 
@@ -395,5 +442,18 @@ int ppc_evt_format_field(char *buf, size_t n, uint32_t layer, const char *name, 
 int ppc_evt_format_hex(char *buf, size_t n, uint32_t off, const char *hex, const char *ascii);
 int ppc_evt_format_pkt_end(char *buf, size_t n, uint32_t req);
 int ppc_evt_format_pinned(char *buf, size_t n, uint32_t seq, int on, uint32_t pins);
+int ppc_evt_format_finding(char *buf, size_t n, uint32_t layer, const char *text);
+int ppc_evt_format_marks(char *buf, size_t n, uint32_t req, uint32_t view_id, uint32_t match, uint32_t buckets,
+                         uint64_t mask);
+int ppc_evt_format_saved(char *buf, size_t n, enum ppc_save_phase phase, uint32_t packets, uint32_t total,
+                         uint64_t bytes, const char *name);
+/* A saved capture's name as the helper makes it: "capture-" then digits
+ * and dashes, ".pcap"; nothing else is ever shown or deleted. */
+int ppc_save_name_ok(const char *name);
+/* The folder SAVE writes to and the app lists (ADR-016 rule 9):
+ * $POCKETOS_CAPTURES_DIR for the simulator and the tests, else
+ * $HOME/Captures, which is /root/Captures on the unit. Returns buf, or NULL
+ * when it does not fit or names a place under /tmp, where no capture goes. */
+const char *ppc_captures_dir(char *buf, size_t n);
 
 #endif

@@ -97,6 +97,9 @@ int ppc_filter_match(const struct ppc_filter *f, const struct ppc_record *r)
     if (f->classes && f->classes != PPC_CLASSES_ALL && (r->cls >= PPC_CLASS_COUNT || !(f->classes & (1u << r->cls)))) {
         return 0;
     }
+    if (f->signals && !(r->signal & f->signals)) {
+        return 0;
+    }
     if (f->port) {
         if ((r->l4 != 6 && r->l4 != 17) || (r->flags & PPC_F_NONFIRST) || (r->sport != f->port && r->dport != f->port)) {
             return 0;

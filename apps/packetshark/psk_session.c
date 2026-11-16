@@ -146,6 +146,33 @@ int psk_session_view(struct psk_session *s, uint32_t id, unsigned sort, uint8_t 
     return n < 0 ? -1 : send_raw(s, line, n);
 }
 
+int psk_session_view_signals(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                             uint16_t port, bool pinned, unsigned signals)
+{
+    char line[160];
+    int n = ppc_cmd_format_view_signals(line, sizeof(line), id, sort, classes, host, port, pinned, signals);
+
+    return n < 0 ? -1 : send_raw(s, line, n);
+}
+
+int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t buckets)
+{
+    char line[48];
+    uint32_t req = ++s->next_req ? s->next_req : ++s->next_req;
+    int n = ppc_cmd_format_marks(line, sizeof(line), req, buckets);
+
+    if (n < 0 || send_raw(s, line, n) != 0) {
+        return -1;
+    }
+    m->want_marks = req;
+    return 0;
+}
+
+int psk_session_save(struct psk_session *s)
+{
+    return send_word(s, "save");
+}
+
 int psk_session_inspect(struct psk_session *s, struct psk_model *m, uint32_t seq, int step)
 {
     char line[64];

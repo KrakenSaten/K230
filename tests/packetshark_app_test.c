@@ -492,6 +492,19 @@ static void use_display(enum pos_rotation rotation)
     pump(20);
 }
 
+/* Landscape: the display is wider than it is tall. */
+static bool landscape(void)
+{
+    return pocketui_display_geometry()->width > pocketui_display_geometry()->height;
+}
+
+/* The height a capture button must have: 64 px at the foot (DS §59.6), 56 in
+ * the wide shape's top row, as mockup 08 draws it. */
+static int32_t button_h(void)
+{
+    return landscape() ? 56 : 64;
+}
+
 static void app_start(void)
 {
     lv_obj_t *header;
@@ -500,9 +513,13 @@ static void app_start(void)
     lv_obj_remove_style_all(app_root);
     lv_obj_set_size(app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(app_root, LV_FLEX_FLOW_COLUMN);
-    header = lv_obj_create(app_root);
-    lv_obj_remove_style_all(header);
-    lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
+    /* As the shell does (shell.c): an app that draws its own top row in
+     * landscape gets no header there, and its body starts at the top edge. */
+    if (!(app_packetshark.header == POCKETOS_HEADER_NONE_LANDSCAPE && landscape())) {
+        header = lv_obj_create(app_root);
+        lv_obj_remove_style_all(header);
+        lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
+    }
     app_body = lv_obj_create(app_root);
     lv_obj_remove_style_all(app_body);
     lv_obj_set_width(app_body, LV_PCT(100));
@@ -561,6 +578,47 @@ static bool target_ok(lv_obj_t *obj, int32_t min_h, const char *what)
     return true;
 }
 
+/* ---- the captures folder (M8) ----------------------------------------------------------- */
+
+static char captures_dir[300];
+
+static int saved_files(void)
+{
+    DIR *d = opendir(captures_dir);
+    struct dirent *e;
+    int n = 0;
+
+    while (d && (e = readdir(d)) != NULL) {
+        n += e->d_name[0] != '.' || strstr(e->d_name, ".part") != NULL;
+    }
+    if (d) {
+        closedir(d);
+    }
+    return n;
+}
+
+static bool saved_modes_ok(void)
+{
+    DIR *d = opendir(captures_dir);
+    struct dirent *e;
+    struct stat sb;
+    bool ok = stat(captures_dir, &sb) == 0 && (sb.st_mode & 0777) == 0700;
+
+    while (d && (e = readdir(d)) != NULL) {
+        char path[600];
+
+        if (e->d_name[0] == '.') {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s", captures_dir, e->d_name);
+        ok = ok && stat(path, &sb) == 0 && (sb.st_mode & 0777) == 0600 && sb.st_size > 24;
+    }
+    if (d) {
+        closedir(d);
+    }
+    return ok;
+}
+
 /* ---- journeys -------------------------------------------------------------------------- */
 
 #define CHECK(what, cond)                                                                          \
@@ -589,7 +647,8 @@ static void setup_screens(void)
         lv_obj_t *s = shown("START CAPTURE");
         lv_obj_t *l = shown("LIVE");
 
-        CHECK("START is a full target inside the safe area", target_ok(s ? lv_obj_get_parent(s) : NULL, 64, "START"));
+        CHECK("START is a full target inside the safe area",
+              target_ok(s ? lv_obj_get_parent(s) : NULL, button_h(), "START"));
         CHECK("a tab is a 56 px navigation row", target_ok(l ? clickable_of(l) : NULL, 56, "LIVE tab"));
     }
     shot("setup");
@@ -656,8 +715,8 @@ static void capture_journey(void)
     pump(1500);
     l = containing_in(app_body, " PKT · ");
     CHECK("counters rise: the readout names the newest second's packets", l && !shown("WAITING FOR PACKETS"));
-    CHECK("HOLD and STOP are full targets", target_ok(clickable_of(shown("HOLD")), 64, "HOLD") &&
-                                                target_ok(clickable_of(shown("STOP")), 64, "STOP"));
+    CHECK("HOLD and STOP are full targets", target_ok(clickable_of(shown("HOLD")), button_h(), "HOLD") &&
+                                                target_ok(clickable_of(shown("STOP")), button_h(), "STOP"));
     shot("capturing");
     tap("HOLD");
     CHECK("HOLD", wait_for("HOLD: ", 2000) && strcmp(g_hint, "HOLD · SYNTH0") == 0 && shown("RESUME"));
@@ -674,17 +733,59 @@ static void capture_journey(void)
     CHECK("Back from PACKETS returns to LIVE", app_packetshark.back(app_priv) == 1 && shown("TRAFFIC"));
     tap("STOP");
     CHECK("STOP: stopped by you", wait_for("SYNTH0 · BY YOU", 2000) && strcmp(g_hint, "STOPPED · SYNTH0") == 0);
-    CHECK("SAVE is shown and not available yet", shown("SAVE") && !enabled("SAVE") && enabled("DISCARD"));
+    CHECK("SAVE is offered on a stopped capture", shown("SAVE") && enabled("SAVE") && enabled("DISCARD"));
     shot("stopped");
     tap("DISCARD");
-    CHECK("DISCARD asks first", shown("Discard this capture?") != NULL);
+    CHECK("DISCARD asks first, and says nothing was saved",
+          shown("Discard this capture?") && containing_in(app_body, "Nothing has been saved.") != NULL);
     tap("STAY");
     CHECK("STAY keeps it", shown("STOPPED") && !shown("Discard this capture?"));
+
+    /* SAVE (M8): asks first, says where the file goes and who can read it,
+     * writes one file, and the capture is then a saved one. */
+    CHECK("nothing is in the captures folder before SAVE", saved_files() == 0);
+    tap("SAVE");
+    CHECK("SAVE asks first: the folder, and that /root is readable over SSH (ADR-016 rule 16)",
+          shown("Save this capture?") && containing_in(app_body, "Captures on this device") != NULL &&
+              containing_in(app_body, "read over SSH") != NULL);
+    shot("m8-sheet-save");
+    tap("CANCEL");
+    pump(300);
+    CHECK("CANCEL writes nothing", !shown("Save this capture?") && saved_files() == 0 && enabled("SAVE"));
+    tap("SAVE");
+    tap_last("SAVE");
+    CHECK("SAVE: saved, with the packets, the size and the file's name",
+          wait_for("SAVED · ", 5000) && containing_in(app_body, "capture-") != NULL);
+    CHECK("one file in the captures folder, 0600 in a 0700 folder", saved_files() == 1 && saved_modes_ok());
+    CHECK("the capture is still there, SAVE is done, and nothing else changed",
+          shown("SAVED") && !enabled("SAVED") && enabled("DISCARD") && shown("STOPPED") &&
+              containing_in(app_body, "This capture is saved.") != NULL);
+    shot("m8-saved");
     tap("DISCARD");
+    CHECK("DISCARD now says the file stays", containing_in(app_body, "The file you saved stays in Captures.") != NULL);
     tap_last("DISCARD");
     CHECK("DISCARD: setup again", wait_for("START CAPTURE", 1000) && shown("READY"));
     pump(400);
     CHECK("and the helper has gone", no_child());
+
+    /* The saved captures (ADR-016 rule 10): listed with size and age,
+     * deleted only after a confirmation. */
+    CHECK("setup counts the saved capture", shown("SAVED CAPTURES") && containing_in(psk_app_part(app_priv, "saves"), "1 · "));
+    tap_obj(psk_app_part(app_priv, "saves"));
+    CHECK("its list names the file, its size and its age",
+          shown("Saved captures") && containing_in(psk_app_part(app_priv, "save0"), "capture-") != NULL &&
+              containing_in(psk_app_part(app_priv, "save0"), "B · JUST NOW") != NULL);
+    shot("m8-saved-list");
+    tap_obj(psk_app_part(app_priv, "save0"));
+    CHECK("a tap asks before deleting", shown("Delete this capture?") && containing_in(app_body, "cannot be undone"));
+    tap("KEEP");
+    CHECK("KEEP deletes nothing", saved_files() == 1 && !shown("Delete this capture?"));
+    tap_obj(psk_app_part(app_priv, "save0"));
+    tap_last("DELETE");
+    pump(200);
+    CHECK("DELETE removes the file and the row", saved_files() == 0 && containing_in(app_body, "No capture has been saved"));
+    CHECK("Back closes the list", app_packetshark.back(app_priv) == 1 && !shown("Saved captures"));
+    CHECK("and setup says NONE", containing_in(psk_app_part(app_priv, "saves"), "NONE") != NULL);
 
     /* Back while capturing asks; LEAVE goes home. */
     tap("START CAPTURE");
@@ -1273,7 +1374,9 @@ static void m5_m6(bool portrait)
           target_ok(psk_app_part(app_priv, "filter"), 56, "FILTER") &&
               target_ok(psk_app_part(app_priv, "sort"), 56, "SORT") &&
               target_ok(psk_app_part(app_priv, "follow"), 56, "FOLLOW"));
-    CHECK("a row is a 56 px target (DS §59.6)", target_ok(psk_app_part(app_priv, "row0"), 56, "row"));
+    CHECK("a row is a 56 px target (DS §59.6), 40 px on one line in the wide shape (mockup 08)",
+          target_ok(psk_app_part(app_priv, "row0"), portrait ? 56 : PSK_ROW_H_WIDE, "row") &&
+              app()->row_h == (portrait ? 56 : PSK_ROW_H_WIDE));
     shot("m5-packets");
     pump(900);
     rows_shown(s2, PSK_LIST_ROWS);
@@ -1353,11 +1456,11 @@ static void m5_m6(bool portrait)
     CHECK("CLEAR ALL: every protocol again", shown("ALL PROTOCOLS") && containing_in(app_body, " OF ") == NULL);
 
     /* The inspector. */
-    drag(psk_app_part(app_priv, "list"), PSK_ROW_H * 2);
+    drag(psk_app_part(app_priv, "list"), app()->row_h * 2);
     pump(400);
     rows_shown(s, PSK_LIST_ROWS);
     tap_obj(psk_app_part(app_priv, "row1"));
-    CHECK("a tap on a row opens INSPECT on that packet", wait_packet(0, 1500) && app()->cur == PSK_TAB_INSPECT &&
+    CHECK("a tap on a row opens INSPECT on that packet", wait_packet(0, 1500) && psk_inspect_visible(app()) &&
                                                              app()->model->pkt.head.seq == s[1]);
     {
         char num[24];
@@ -1418,7 +1521,9 @@ static void m5_m6(bool portrait)
           app()->cur == PSK_TAB_PACKETS && (app()->host[0] || app()->port) &&
               (containing_in(app_body, "HOST ") != NULL || containing_in(app_body, "PORT ") != NULL) &&
               rows_shown(NULL, 0) > 0);
-    tap("INSPECT");
+    if (!app()->wide) {
+        tap("INSPECT"); /* wide: it is beside the list already */
+    }
     pump(200);
     tap_obj(psk_app_part(app_priv, "end1"));
     pump(700);
@@ -1427,7 +1532,9 @@ static void m5_m6(bool portrait)
     pump(500);
 
     /* Pins. */
-    tap("INSPECT");
+    if (!app()->wide) {
+        tap("INSPECT"); /* wide: it is beside the list already */
+    }
     pump(200);
     seq = app()->model->pkt.head.seq;
     tap_obj(psk_app_part(app_priv, "pin"));
@@ -1478,7 +1585,9 @@ static void m5_m6(bool portrait)
         if (i == POS_TEXT_SIZE_LARGE) {
             shot("m5-large");
         }
-        tap("INSPECT");
+        if (!app()->wide) {
+            tap("INSPECT"); /* wide: it is beside the list already */
+        }
         pump(300);
         bad = audit_page() + dots_wrapped(app_body);
         if (bad) {
@@ -1495,10 +1604,15 @@ static void m5_m6(bool portrait)
           ok == 0);
 
     /* Back walks INSPECT -> PACKETS -> LIVE. */
-    tap("INSPECT");
-    pump(100);
-    CHECK("Back from INSPECT returns to PACKETS",
-          app_packetshark.back(app_priv) == 1 && app()->cur == PSK_TAB_PACKETS);
+    if (!app()->wide) {
+        tap("INSPECT");
+        pump(100);
+        CHECK("Back from INSPECT returns to PACKETS",
+              app_packetshark.back(app_priv) == 1 && app()->cur == PSK_TAB_PACKETS);
+    } else {
+        tap("PACKETS");
+        pump(100);
+    }
     CHECK("and from PACKETS to LIVE", app_packetshark.back(app_priv) == 1 && app()->cur == PSK_TAB_LIVE);
 
     /* Stopped: the packets stay browsable. */
@@ -1509,7 +1623,7 @@ static void m5_m6(bool portrait)
     CHECK("stopped: the list stays, with NEW CAPTURE and DISCARD",
           rows_shown(NULL, 0) > 0 && shown("NEW CAPTURE") && shown("DISCARD") && shown("CAPTURE STOPPED"));
     tap_obj(psk_app_part(app_priv, "row0"));
-    CHECK("and a packet still opens", wait_packet(0, 1500) && app()->cur == PSK_TAB_INSPECT);
+    CHECK("and a packet still opens", wait_packet(0, 1500) && psk_inspect_visible(app()));
     shot("m6-stopped");
     app_stop();
     CHECK("closing leaves no helper", no_child());
@@ -1609,11 +1723,202 @@ static void cycles(void)
     CHECK("and no heap growth beyond one screen", (long)mallinfo2().uordblks - (long)heap_before < 1024 * 1024);
 }
 
+/* The model has a packet other than not_seq (the inspector need not be shown). */
+static bool wait_model_packet(uint32_t not_seq, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end) {
+        const struct psk_model *m = app()->model;
+
+        if (m->have_pkt && m->pkt.head.seq != not_seq) {
+            return true;
+        }
+        pump(20);
+    }
+    return false;
+}
+
+/* Findings (M7), and the keys and the two shapes (M9). */
+static void m7_m9(bool portrait)
+{
+    struct psk_app *a;
+    lv_area_t la;
+    lv_area_t lb;
+    uint32_t seq;
+    unsigned i;
+    int n;
+    int ok;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:2000:1", 1);
+    app_start();
+    a = app();
+    CHECK("no key starts a capture (ADR-016 rule 1)",
+          !psk_key(a, LV_KEY_ENTER) && !psk_key(a, ' ') && !psk_key(a, 's') && (pump(300), no_child()));
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(4600); /* a SYN is unanswered after 3 s */
+
+    /* The shape. */
+    if (portrait) {
+        CHECK("tall: the shell's header above, no back slab, three tabs, the bar at the foot",
+              !a->wide && lv_obj_has_flag(psk_app_part(app_priv, "back"), LV_OBJ_FLAG_HIDDEN) && shown("INSPECT") &&
+                  lv_obj_get_parent(a->bar) == a->frame);
+    } else {
+        lv_obj_get_coords(psk_app_part(app_priv, "traffic"), &la);
+        lv_obj_get_coords(psk_app_part(app_priv, "protocols"), &lb);
+        CHECK("wide: a top row of its own with a back slab, LIVE and PACKETS, the state and the buttons",
+              a->wide && target_ok(psk_app_part(app_priv, "back"), 56, "back") && !shown("INSPECT") &&
+                  lv_obj_get_parent(a->bar) == a->top && lv_obj_get_parent(a->chip) != NULL &&
+                  lv_obj_get_parent(lv_obj_get_parent(a->chip)) == a->top && shown("CAPTURING"));
+        CHECK("wide: LIVE in two columns, the graph beside the protocols", la.x2 < lb.x1 && la.y1 == lb.y1);
+        lv_obj_get_coords(a->top, &la);
+        CHECK("wide: the top row is at the display's top edge, clear of its corners",
+              la.y1 < 16 && pos_display_rect_is_safe(pocketui_display_geometry(), la.x1 + a->top_inset_l, la.y1,
+                                                     la.x2 - a->top_inset_r, la.y2));
+        printf("     top row %d,%d-%d,%d insets %d %d\n", (int)la.x1, (int)la.y1, (int)la.x2, (int)la.y2,
+               (int)a->top_inset_l, (int)a->top_inset_r);
+    }
+
+    /* SIGNALS on LIVE. */
+    ok = shown("SIGNALS · TAP TO LIST") != NULL;
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        char want[24];
+        lv_obj_t *cell = psk_app_part(app_priv, i == 0 ? "sig0" : i == 1 ? "sig1" : i == 2 ? "sig2" : i == 3 ? "sig3" : "sig4");
+
+        psk_fmt_count(a->model->c.sig[i], want, sizeof(want));
+        ok = ok && a->model->c.sig[i] > 0 && cell && containing_in(cell, psk_signal_word(i)) &&
+             target_ok(cell, 56, psk_signal_word(i)) && strcmp(lv_label_get_text(a->sig_val[i]), want) == 0;
+        if (!(a->model->c.sig[i] > 0)) {
+            printf("     %s: none counted\n", psk_signal_word(i));
+        }
+    }
+    CHECK("SIGNALS: five findings, each counted and a full target", ok);
+    CHECK("nothing in SIGNALS is clipped, overlapping or broken across lines", audit_page() + dots_wrapped(app_body) == 0);
+    shot("m7-signals");
+
+    /* A finding is the way to its packets. */
+    tap_obj(psk_app_part(app_priv, "sig1"));
+    pump(700);
+    n = rows_shown(NULL, 0);
+    ok = n > 0;
+    for (i = 0; (int)i < n; i++) {
+        ok = ok && strncmp(lv_label_get_text(a->lrow[i].info), "! ", 2) == 0 &&
+             strstr(lv_label_get_text(a->lrow[i].info), "RST") != NULL;
+    }
+    CHECK("a tap on TCP RST lists the resets, each marked with its `!`",
+          ok && a->cur == PSK_TAB_PACKETS && a->sigmask == PPC_SIG_RST && shown("RESETS") &&
+              containing_in(app_body, " OF ") != NULL);
+    shot("m7-resets");
+    tap_obj(psk_app_part(app_priv, "filter"));
+    pump(100);
+    CHECK("the filter sheet names the finding", shown("Filter packets") && shown("RESETS") && shown("Findings"));
+    tap("Findings");
+    CHECK("and a tap changes it", shown("DNS FAILURES") != NULL);
+    tap("CLEAR ALL");
+    tap("SHOW");
+    pump(1800);
+    CHECK("every packet again, and the rail is marked where the findings are",
+          a->sigmask == 0 && shown("ALL PROTOCOLS") && a->model->marks_view == a->view_id &&
+              a->model->marks_buckets > 0 && a->model->marks_mask != 0);
+    shot("m7-rail");
+
+    /* The inspector says what the finding is, under its layer. */
+    psk_show_signal(a, 0);
+    pump(700);
+    tap_obj(psk_app_part(app_priv, "row0"));
+    CHECK("a retransmission opens with its finding beside its class",
+          wait_packet(0, 1500) && (a->model->pkt.head.signal & PPC_SIG_RETRANS) &&
+              containing_in(psk_app_part(app_priv, "inspect"), "! RETRANSMISSION") != NULL);
+    ok = 0;
+    for (i = 0; i < PSK_LAYERS; i++) {
+        lv_obj_t *f = a->layer[i].finding;
+
+        if (f && !lv_obj_has_flag(f, LV_OBJ_FLAG_HIDDEN) && strstr(lv_label_get_text(f), "! RETRANSMISSION") &&
+            strcmp(a->model->pkt.layer[i].name, "TCP") == 0 && a->layer_open[i]) {
+            ok = 1;
+        }
+    }
+    CHECK("and the sentence under its TCP layer, which is open", ok);
+    shot("m7-inspect");
+    if (!portrait) {
+        lv_obj_get_coords(psk_app_part(app_priv, "list"), &la);
+        lv_obj_get_coords(psk_app_part(app_priv, "inspect"), &lb);
+        CHECK("wide: the list and the inspector side by side, on PACKETS",
+              a->cur == PSK_TAB_PACKETS && la.x2 < lb.x1 && !lv_obj_has_flag(a->page[PSK_TAB_INSPECT], LV_OBJ_FLAG_HIDDEN) &&
+                  !lv_obj_has_flag(a->page[PSK_TAB_PACKETS], LV_OBJ_FLAG_HIDDEN));
+        lv_obj_get_coords(a->lrow[0].info, &la);
+        lv_obj_get_coords(a->lrow[0].len, &lb);
+        CHECK("wide: a row is one line, the sentence after the length", la.x1 > lb.x2 && la.y1 == lb.y1);
+    }
+    psk_set_view(a, PPC_CLASSES_ALL, "", 0, false);
+    pump(600);
+
+    /* Keys (M9). */
+    psk_key(a, '1');
+    CHECK("key 1: LIVE", a->cur == PSK_TAB_LIVE);
+    psk_key(a, '2');
+    pump(600);
+    CHECK("key 2: PACKETS", a->cur == PSK_TAB_PACKETS);
+    a->insp_seq = 0;
+    a->model->have_pkt = false;
+    psk_key(a, LV_KEY_DOWN);
+    CHECK("Down: the first packet shown is selected, the tab stays",
+          wait_model_packet(0, 1500) && a->cur == PSK_TAB_PACKETS && a->sel_seq == a->model->pkt.head.seq);
+    seq = a->model->pkt.head.seq;
+    psk_key(a, LV_KEY_DOWN);
+    CHECK("Down again: the next packet of the list", wait_model_packet(seq, 1500) && a->model->pkt.head.seq > seq);
+    psk_key(a, LV_KEY_UP);
+    CHECK("Up: back to the one before",
+          wait_model_packet(a->model->pkt.head.seq, 1500) && a->model->pkt.head.seq == seq);
+    psk_key(a, LV_KEY_ENTER);
+    CHECK("Enter: the packet in INSPECT", psk_inspect_visible(a) && (a->wide || a->cur == PSK_TAB_INSPECT));
+    psk_key(a, LV_KEY_RIGHT);
+    CHECK("Right: the next packet", wait_packet(seq, 1500) && a->model->pkt.head.seq > seq);
+    if (!a->wide) {
+        psk_key(a, LV_KEY_DOWN);
+        CHECK("Down in INSPECT: a field is selected", a->insp_field >= 0);
+    }
+    psk_key(a, 'p');
+    pump(300);
+    CHECK("P: pinned", (a->model->pkt.head.flags & PPC_ROWF_PINNED) != 0);
+    psk_key(a, 'f');
+    CHECK("F: the filter sheet, and no key answers a sheet but Esc",
+          shown("Filter packets") && !psk_key(a, ' ') && !psk_key(a, LV_KEY_ENTER) && shown("Filter packets"));
+    psk_key(a, LV_KEY_ESC);
+    pump(100);
+    CHECK("Esc closes it", !shown("Filter packets"));
+    psk_key(a, ' ');
+    CHECK("Space: HOLD", wait_for("RESUME", 2000) && a->model->state == PPC_STATE_HOLD);
+    psk_key(a, ' ');
+    pump(400);
+    CHECK("Space again: capturing", a->model->state == PPC_STATE_CAPTURING);
+    psk_key(a, 'S');
+    pump(500);
+    CHECK("S: stopped", a->model->state == PPC_STATE_STOPPED);
+    psk_key(a, '1');
+    g_home = 0;
+    if (a->wide) {
+        tap_obj(psk_app_part(app_priv, "back"));
+        pump(100);
+        CHECK("wide: the back slab is Back: it asks before leaving a capture",
+              shown("Leave PacketShark?") && g_home == 0);
+        psk_key(a, LV_KEY_ESC);
+        pump(100);
+    }
+    psk_key(a, LV_KEY_ESC);
+    pump(100);
+    CHECK("Esc at the top level asks before leaving a capture", shown("Leave PacketShark?") && g_home == 0);
+    tap("STAY");
+    app_stop();
+    CHECK("closing leaves no helper", no_child());
+}
+
 int main(void)
 {
     lv_indev_t *finger;
     const char *helper = getenv("PACKETSHARK_HELPER");
-    char cmd[300];
+    char cmd[700];
 
     setvbuf(stdout, NULL, _IOLBF, 0);
     if (!helper || access(helper, X_OK) != 0) {
@@ -1626,6 +1931,15 @@ int main(void)
     setenv("POCKETOS_STATE_DIR", root, 1);
     setenv("POCKETOS_LOG_DIR", root, 1);
     setenv("POCKETOS_LOG_STDERR", "0", 1);
+    /* SAVE writes nothing under /tmp (ADR-016 rule 9): the test's captures
+     * folder is beside where it runs, and removed at the end. */
+    {
+        char cwd[200];
+
+        snprintf(captures_dir, sizeof(captures_dir), "%s/packetshark-app-captures-%ld",
+                 getcwd(cwd, sizeof(cwd)) ? cwd : ".", (long)getpid());
+        setenv("POCKETOS_CAPTURES_DIR", captures_dir, 1);
+    }
 
     lv_init();
     disp = lv_display_create(PANEL_W, PANEL_H);
@@ -1646,6 +1960,7 @@ int main(void)
     capture_journey();
     m4_live(true);
     m5_m6(true);
+    m7_m9(true);
     faults();
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     shot_orientation = "landscape";
@@ -1654,11 +1969,12 @@ int main(void)
     capture_journey();
     m4_live(false);
     m5_m6(false);
+    m7_m9(false);
     shot_orientation = "portrait";
     use_display(POS_ROTATION_0);
     cycles();
 
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s' '%s'", root, captures_dir);
     if (system(cmd) != 0) {
         printf("note: could not remove %s\n", root);
     }

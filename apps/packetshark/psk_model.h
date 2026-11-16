@@ -28,6 +28,7 @@
 #define PSK_LAYERS 8
 #define PSK_FIELDS 64
 #define PSK_HEX_LINES 64
+#define PSK_FINDINGS 4
 
 /* How the helper ended, as the app shows it. */
 enum psk_exit {
@@ -51,6 +52,8 @@ enum psk_exit {
 #define PSK_CHANGED_NOTE 0x80u
 #define PSK_CHANGED_PACKET 0x100u /* the inspector's packet arrived whole */
 #define PSK_CHANGED_PINS 0x200u
+#define PSK_CHANGED_MARKS 0x400u /* where the view's findings are (M7) */
+#define PSK_CHANGED_SAVE 0x800u  /* SAVE's progress or outcome (M8) */
 
 /* The inspector's packet, as text (M6). */
 struct psk_layer {
@@ -66,6 +69,12 @@ struct psk_field {
     int32_t off;                   /* -1: no bytes */
     uint32_t len;
     char filter[PPC_FILTER_TEXT];  /* "" when it filters nothing */
+};
+
+/* A finding of the inspected packet, under one of its layers (M7). */
+struct psk_finding {
+    uint8_t layer;
+    char text[PPC_FIELD_TEXT];
 };
 
 struct psk_hex {
@@ -84,7 +93,12 @@ struct psk_packet {
     struct psk_field field[PSK_FIELDS];
     uint32_t nhex;
     struct psk_hex hex[PSK_HEX_LINES];
+    uint32_t nfindings;
+    struct psk_finding finding[PSK_FINDINGS];
 };
+
+/* SAVE as the app shows it (M8). */
+enum psk_save { PSK_SAVE_NONE = 0, PSK_SAVE_RUNNING, PSK_SAVE_DONE, PSK_SAVE_FAILED };
 
 struct psk_model {
     /* the helper */
@@ -144,6 +158,22 @@ struct psk_model {
     uint32_t pins;
     uint32_t pin_seq;
     bool pin_on;
+
+    /* the rail's marks (M7): the view cut into marks_buckets parts, a bit
+     * for each part that holds a finding; only the newest request's answer */
+    uint32_t want_marks;
+    uint32_t marks_view;
+    uint32_t marks_match;
+    uint32_t marks_buckets;
+    uint64_t marks_mask;
+
+    /* SAVE (M8): the last save of this capture */
+    enum psk_save save;
+    uint32_t save_packets;
+    uint32_t save_total;
+    uint64_t save_bytes;
+    char save_name[PPC_SAVE_NAME]; /* the file's name once it is whole */
+    char save_fail[16];            /* why it failed: nospace, nodir, io, empty, name */
 };
 
 void psk_model_init(struct psk_model *m);
@@ -221,6 +251,15 @@ const char *psk_fmt_gap(uint64_t us, char *buf, size_t buflen);
 /* The direction glyph of a row: up for out, down for in, a dot for
  * broadcast and multicast (UTF-8). */
 const char *psk_dir_glyph(const char *dir);
+
+/* The word of a finding by its bit's index (PPC_SIG_*): "RETRANS",
+ * "TCP RST", "DNS FAIL", "UNREACH", "NO REPLY"; and the plural a filter is
+ * named by: "RETRANSMISSIONS", "RESETS", "DNS FAILURES", "UNREACHABLES",
+ * "UNANSWERED SYNS". */
+const char *psk_signal_word(unsigned index);
+const char *psk_signal_plural(unsigned index);
+/* Why a save failed, as a sentence in upper case. */
+const char *psk_save_fail_text(const char *code);
 
 /* A filter token from a field ("host:ADDR", "port:N", "class:N") applied to
  * a view's parts. Returns 0, or -1 for a token it does not know. */

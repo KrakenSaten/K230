@@ -237,3 +237,21 @@ int ppc_store_unpin(struct ppc_store *s, uint32_t seq)
     }
     return -1;
 }
+
+int ppc_store_mark(struct ppc_store *s, uint32_t seq, uint16_t signal)
+{
+    int rc = -1;
+    int i;
+
+    if (s->sum && seq != 0 && seq >= s->first_seq && seq <= s->last_seq) {
+        s->sum[(seq - 1u) & (s->sum_cap - 1u)].signal |= signal;
+        rc = 0;
+    }
+    for (i = 0; i < PPC_PINS; i++) {
+        if (seq != 0 && s->pins[i].seq == seq) {
+            s->pins[i].rec.signal |= signal;
+            rc = 0;
+        }
+    }
+    return rc;
+}

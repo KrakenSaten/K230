@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static void on_safe(lv_event_t *e)
 {
@@ -67,11 +68,13 @@ void psk_sheet_build(struct psk_app *a)
 void psk_sheet_show(struct psk_app *a, enum psk_sheet kind)
 {
     char n[32];
-    char text[256];
+    char text[320];
     const char *title = "";
     const char *safe = "STAY";
     const char *go = "";
     uint64_t packets = a->model->c.seen;
+    bool saved = a->model->save == PSK_SAVE_DONE;
+    bool saving = a->model->state == PPC_STATE_SAVING;
 
     psk_fmt_count(packets, n, sizeof(n));
     switch (kind) {
@@ -94,13 +97,40 @@ void psk_sheet_show(struct psk_app *a, enum psk_sheet kind)
     case PSK_SHEET_DISCARD:
     case PSK_SHEET_NEW:
         title = "Discard this capture?";
-        snprintf(text, sizeof(text), "Its %s packets are removed from memory. Nothing has been saved.", n);
+        snprintf(text, sizeof(text), "Its %s packets are removed from memory. %s", n,
+                 saved ? "The file you saved stays in Captures." : "Nothing has been saved.");
         go = kind == PSK_SHEET_NEW ? "NEW CAPTURE" : "DISCARD";
         break;
     case PSK_SHEET_LEAVE:
         title = "Leave PacketShark?";
-        snprintf(text, sizeof(text), "The capture stops and its %s packets are discarded.", n);
+        snprintf(text, sizeof(text), "The capture stops and its %s packets are removed from memory. %s", n,
+                 saving  ? "The file being saved is not finished and is removed."
+                 : saved ? "The file you saved stays in Captures."
+                         : "Nothing has been saved.");
         go = "LEAVE";
+        break;
+    case PSK_SHEET_SAVE: {
+        char held[32];
+        const struct ppc_counters *c = &a->model->c;
+        uint64_t in_buffer = c->last_seq && c->last_seq >= c->first_seq ? (uint64_t)c->last_seq - c->first_seq + 1u : 0;
+
+        /* Where the file goes, what is in it, and who can read it (ADR-016
+         * rules 9 and 16). */
+        title = "Save this capture?";
+        snprintf(text, sizeof(text),
+                 "The %s packets in the buffer are written to a .pcap file in Captures on this device, with %s. "
+                 "Files in /root can be read over SSH on this image until a device password is set.",
+                 psk_fmt_count(in_buffer, held, sizeof(held)),
+                 a->keep == PPC_KEEP_FULL ? "everything that was captured of them" : "their headers");
+        safe = "CANCEL";
+        go = "SAVE";
+        break;
+    }
+    case PSK_SHEET_DELETE:
+        title = "Delete this capture?";
+        snprintf(text, sizeof(text), "%s is removed from this device. This cannot be undone.", a->del_name);
+        safe = "KEEP";
+        go = "DELETE";
         break;
     case PSK_SHEET_NONE:
     default:
@@ -132,8 +162,21 @@ void psk_sheet_hide(struct psk_app *a)
 static const char *const class_choice[PPC_CLASS_COUNT + 1] = { "ALL", "TCP", "UDP", "DNS", "DHCP",
                                                                 "ARP", "ICMP", "IPV6", "OTHER" };
 
-const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, bool pinned, char *buf,
-                             size_t buflen)
+/* The findings a view shows, in words: one finding's plural, or FINDINGS. */
+static const char *signal_words(unsigned signals)
+{
+    unsigned i;
+
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        if (signals == (1u << i)) {
+            return psk_signal_plural(i);
+        }
+    }
+    return signals ? "FINDINGS" : "ANY PACKET";
+}
+
+const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, bool pinned, unsigned signals,
+                             char *buf, size_t buflen)
 {
     size_t o = 0;
     unsigned c;
@@ -141,6 +184,9 @@ const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, b
     buf[0] = '\0';
     if (pinned) {
         o += (size_t)snprintf(buf + o, buflen - o, "PINNED");
+    }
+    if (signals && o < buflen) {
+        o += (size_t)snprintf(buf + o, buflen - o, "%s%s", o ? " · " : "", signal_words(signals));
     }
     if (classes != PPC_CLASSES_ALL && classes != 0) {
         for (c = 0; c < PPC_CLASS_COUNT && o < buflen; c++) {
@@ -198,6 +244,7 @@ static void fs_paint(struct psk_app *a)
     psk_set_hidden(lv_obj_get_child(a->fs_port_row, 2), a->fs_portv == 0);
     snprintf(b, sizeof(b), "%s · %s HELD", a->fs_pinnedv ? "ON" : "OFF", psk_fmt_count(a->model->pins, n, sizeof(n)));
     psk_text(a->fs_pinned, b);
+    psk_text(a->fs_sig, signal_words(a->fs_sigv));
 }
 
 static void on_fs_class(lv_event_t *e)
@@ -218,6 +265,17 @@ static void on_fs_row(lv_event_t *e)
         a->fs_hostv[0] = '\0';
     } else if (i == 1) {
         a->fs_portv = 0;
+    } else if (i == 3) {
+        /* Findings (M7): any packet, any finding, then each finding. */
+        if (a->fs_sigv == 0) {
+            a->fs_sigv = 0x1f;
+        } else if (a->fs_sigv == 0x1f) {
+            a->fs_sigv = 0x01;
+        } else if (a->fs_sigv >= 0x10) {
+            a->fs_sigv = 0;
+        } else {
+            a->fs_sigv = (uint8_t)(a->fs_sigv << 1);
+        }
     } else {
         a->fs_pinnedv = !a->fs_pinnedv;
     }
@@ -232,6 +290,7 @@ static void on_fs_clear(lv_event_t *e)
     a->fs_hostv[0] = '\0';
     a->fs_portv = 0;
     a->fs_pinnedv = false;
+    a->fs_sigv = 0;
     fs_paint(a);
 }
 
@@ -241,7 +300,7 @@ static void on_fs_show(lv_event_t *e)
     bool to_packets = a->fs_to_packets;
 
     psk_fsheet_hide(a);
-    psk_set_view(a, a->fs_classes, a->fs_hostv, a->fs_portv, a->fs_pinnedv);
+    psk_set_view_signals(a, a->fs_classes, a->fs_hostv, a->fs_portv, a->fs_pinnedv, a->fs_sigv);
     if (to_packets) {
         psk_select_tab(a, PSK_TAB_PACKETS);
     }
@@ -328,6 +387,7 @@ void psk_fsheet_build(struct psk_app *a)
     a->fs_host_row = fs_row(card, "Host", &a->fs_host, "CLEAR", a, 0);
     a->fs_port_row = fs_row(card, "Port", &a->fs_port, "CLEAR", a, 1);
     fs_row(card, "Pinned only", &a->fs_pinned, "", a, 2);
+    fs_row(card, "Findings", &a->fs_sig, "CHANGE", a, 3);
     b = pocketui_label(card, "Host and port come from FILTER BY in INSPECT or from a packet's ends.",
                        POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(b, LV_LABEL_LONG_WRAP);
@@ -357,6 +417,7 @@ void psk_fsheet_show(struct psk_app *a, bool to_packets)
     snprintf(a->fs_hostv, sizeof(a->fs_hostv), "%s", a->host);
     a->fs_portv = a->port;
     a->fs_pinnedv = a->pinned_only;
+    a->fs_sigv = a->sigmask;
     a->fs_to_packets = to_packets;
     fs_paint(a);
     psk_set_hidden(a->fsheet, false);
@@ -372,4 +433,146 @@ void psk_fsheet_hide(struct psk_app *a)
 bool psk_fsheet_shown(const struct psk_app *a)
 {
     return a->fsheet && !lv_obj_has_flag(a->fsheet, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* ---- the saved captures (M8; ADR-016 rules 9, 10 and 16) -------------------------------- *
+ *
+ * The newest PSK_SAVES_ROWS files of the captures folder, each with its size
+ * and age; a tap on one asks whether to delete it. The app lists and deletes
+ * (psk_saves.c); it never opens a capture. */
+
+static void on_ss_row(lv_event_t *e)
+{
+    struct psk_app *a = lv_event_get_user_data(e);
+
+    psk_saved_delete_ask(a, (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e)));
+}
+
+static void on_ss_close(lv_event_t *e)
+{
+    psk_ssheet_hide(lv_event_get_user_data(e));
+}
+
+void psk_ssheet_build(struct psk_app *a)
+{
+    lv_obj_t *card;
+    lv_obj_t *b;
+    lv_obj_t *buttons;
+    int i;
+
+    a->ssheet = psk_box(a->frame);
+    lv_obj_add_flag(a->ssheet, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(a->ssheet, LV_OBJ_FLAG_CLICKABLE);
+    pos_style_add(a->ssheet, POS_STYLE_SCREEN, 0);
+    lv_obj_set_size(a->ssheet, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(a->ssheet, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_top(a->ssheet, PSK_TAB_H + 14, 0);
+    lv_obj_set_style_pad_bottom(a->ssheet, 8, 0);
+    lv_obj_add_flag(a->ssheet, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(a->ssheet, LV_DIR_VER);
+
+    card = pocketui_card(a->ssheet);
+    lv_obj_set_width(card, LV_PCT(100));
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(card, 8, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    pocketui_label(card, "Saved captures", POS_STYLE_TITLE);
+    a->ss_note = pocketui_label(card, "", POS_STYLE_TEXT_SECONDARY);
+    lv_label_set_long_mode(a->ss_note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(a->ss_note, LV_PCT(100));
+    for (i = 0; i < PSK_SAVES_ROWS; i++) {
+        lv_obj_t *r = psk_box(card);
+        lv_obj_t *left = psk_box(r);
+        lv_obj_t *act;
+
+        lv_obj_set_width(r, LV_PCT(100));
+        lv_obj_set_height(r, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_height(r, POCKETUI_ROW_H, 0);
+        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(r, 8, 0);
+        lv_obj_set_style_pad_ver(r, 6, 0);
+        pos_style_add(r, POS_STYLE_DIVIDER, 0);
+        pos_style_add(r, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+        lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(r, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_set_user_data(r, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(r, on_ss_row, LV_EVENT_CLICKED, a);
+        lv_obj_set_width(left, 1);
+        lv_obj_set_flex_grow(left, 1);
+        lv_obj_set_height(left, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(left, 2, 0);
+        lv_obj_add_flag(left, LV_OBJ_FLAG_EVENT_BUBBLE);
+        a->ss_name[i] = pocketui_label(left, "", POS_STYLE_VALUE);
+        lv_label_set_long_mode(a->ss_name[i], LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(a->ss_name[i], LV_PCT(100));
+        a->ss_sub[i] = pocketui_label(left, "", POS_STYLE_CAPTION);
+        lv_label_set_long_mode(a->ss_sub[i], LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(a->ss_sub[i], LV_PCT(100));
+        act = pocketui_label(r, "DELETE", POS_STYLE_CAPTION);
+        pos_style_add(act, POS_STYLE_ACCENT_TEXT, 0);
+        a->ss_row[i] = r;
+    }
+    buttons = psk_box(card);
+    lv_obj_set_width(buttons, LV_PCT(100));
+    lv_obj_set_height(buttons, POCKETUI_TOUCH_MIN);
+    lv_obj_set_style_margin_top(buttons, 8, 0);
+    lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
+    b = psk_button(buttons, "CLOSE", true, on_ss_close, a);
+    lv_obj_set_flex_grow(b, 1);
+    lv_obj_set_height(b, POCKETUI_TOUCH_MIN);
+    lv_obj_add_flag(a->ssheet, LV_OBJ_FLAG_HIDDEN);
+}
+
+void psk_ssheet_paint(struct psk_app *a)
+{
+    char note[256];
+    char n[32];
+    int64_t now = (int64_t)time(NULL);
+    int i;
+
+    if (a->saves_count == 0) {
+        snprintf(note, sizeof(note),
+                 "No capture has been saved. STOP a capture and press SAVE to keep it as a .pcap file in Captures.");
+    } else {
+        snprintf(note, sizeof(note),
+                 "%u in Captures on this device, %s%s. Files in /root can be read over SSH on this image until a "
+                 "device password is set. Tap one to delete it.",
+                 (unsigned)a->saves_count, psk_fmt_bytes(a->saves_bytes, n, sizeof(n)),
+                 a->saves_count > (uint32_t)a->nsaves ? "; the newest are listed" : "");
+    }
+    psk_text(a->ss_note, note);
+    for (i = 0; i < PSK_SAVES_ROWS; i++) {
+        char sub[64];
+        char age[24];
+
+        psk_set_hidden(a->ss_row[i], i >= a->nsaves);
+        if (i >= a->nsaves) {
+            continue;
+        }
+        psk_text(a->ss_name[i], a->saves[i].name);
+        psk_saves_age(a->saves[i].mtime, now, age, sizeof(age));
+        snprintf(sub, sizeof(sub), "%s%s%s", psk_fmt_bytes(a->saves[i].bytes, n, sizeof(n)), age[0] ? " · " : "", age);
+        psk_text(a->ss_sub[i], sub);
+    }
+}
+
+void psk_ssheet_show(struct psk_app *a)
+{
+    psk_saves_refresh(a);
+    psk_ssheet_paint(a);
+    psk_set_hidden(a->ssheet, false);
+    lv_obj_scroll_to_y(a->ssheet, 0, LV_ANIM_OFF);
+    lv_obj_move_foreground(a->ssheet);
+}
+
+void psk_ssheet_hide(struct psk_app *a)
+{
+    psk_set_hidden(a->ssheet, true);
+}
+
+bool psk_ssheet_shown(const struct psk_app *a)
+{
+    return a->ssheet && !lv_obj_has_flag(a->ssheet, LV_OBJ_FLAG_HIDDEN);
 }

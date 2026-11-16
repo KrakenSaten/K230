@@ -85,8 +85,9 @@ enum ppc_info {
 #define PPC_F_MALFORMED 0x0100u  /* a header ran past the captured bytes or lied */
 #define PPC_F_NONFIRST 0x0200u   /* a non-first fragment: no transport header */
 
-/* Signals (findings) are set by ppc_stats in a later milestone; the record
- * carries the bits from now on so the format does not change. */
+/* Signals (findings, M7): set by ppc_signals.h as a packet is stored, or
+ * added later by ppc_store_mark() (an unanswered SYN). The bit's index is
+ * the counter's place on the stats line (s0..s4). */
 #define PPC_SIG_RETRANS 0x0001u
 #define PPC_SIG_RST 0x0002u
 #define PPC_SIG_DNS_FAIL 0x0004u

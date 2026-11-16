@@ -575,6 +575,15 @@ void ppc_format_row(const struct ppc_record *r, const uint8_t *bytes, uint32_t n
         break;
     }
     info_text(r, bytes, n, out->info, sizeof(out->info));
+    if (r->signal & (PPC_SIG_RETRANS | PPC_SIG_SYN_UNANSWERED)) {
+        /* The two findings the sentence itself does not say (M7): a reset,
+         * a failed lookup and an unreachable already read as what they are. */
+        char plain[PPC_INFO_TEXT];
+
+        snprintf(plain, sizeof(plain), "%s", out->info);
+        snprintf(out->info, sizeof(out->info), "%s %.*s",
+                 (r->signal & PPC_SIG_RETRANS) ? "Retransmission" : "No answer", (int)sizeof(plain) - 20, plain);
+    }
     len = strlen(out->info);
     if ((r->flags & PPC_F_GRO) && len + 6 < sizeof(out->info)) {
         snprintf(out->info + len, sizeof(out->info) - len, " [GRO]");

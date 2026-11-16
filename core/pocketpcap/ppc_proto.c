@@ -321,6 +321,14 @@ enum ppc_cmd_kind ppc_cmd_parse(const char *line, struct ppc_cmd *c)
         }
         c->on = (uint8_t)v;
         c->kind = PPC_CMD_HOLD;
+    } else if (strcmp(f[0], "marks") == 0) {
+        if (n != 3 || u32(f[1], &c->req) != 0 || u32(f[2], &c->buckets) != 0 || c->buckets == 0 ||
+            c->buckets > PPC_MARK_BUCKETS) {
+            return c->kind;
+        }
+        c->kind = PPC_CMD_MARKS;
+    } else if (strcmp(f[0], "save") == 0) {
+        c->kind = n == 1 ? PPC_CMD_SAVE : PPC_CMD_BAD;
     } else if (strcmp(f[0], "stop") == 0) {
         c->kind = n == 1 ? PPC_CMD_STOP : PPC_CMD_BAD;
     } else if (strcmp(f[0], "discard") == 0) {
@@ -354,8 +362,16 @@ enum ppc_cmd_kind ppc_cmd_parse(const char *line, struct ppc_cmd *c)
         unsigned long classes;
         char *end;
 
-        if (n != 7 || u32(f[1], &c->view_id) != 0) {
+        if ((n != 7 && n != 8) || u32(f[1], &c->view_id) != 0) {
             return c->kind;
+        }
+        if (n == 8) {
+            unsigned long sig = strtoul(f[7], &end, 16);
+
+            if (*end || f[7][0] == '\0' || strlen(f[7]) > 2 || sig > 0x1f) {
+                return c->kind;
+            }
+            c->signals = (uint8_t)sig;
         }
         sort = sort_parse(f[2]);
         classes = strtoul(f[3], &end, 16);
@@ -472,14 +488,33 @@ int ppc_cmd_format_window_at(char *buf, size_t n, uint32_t req, enum ppc_anchor 
     }
 }
 
+int ppc_cmd_format_view_signals(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                                uint16_t port, int pinned, unsigned signals)
+{
+    if (sort >= sizeof(sort_words) / sizeof(sort_words[0]) || (host && *host && !host_ok(host)) || signals > 0x1f) {
+        return -1;
+    }
+    if (signals == 0) {
+        /* The protocol-2 line: a helper that knows no findings reads it. */
+        return fmt(buf, n, "view\t%u\t%s\t%x\t%s\t%u\t%d", (unsigned)id, sort_words[sort], (unsigned)classes,
+                   host && *host ? host : "-", (unsigned)port, pinned ? 1 : 0);
+    }
+    return fmt(buf, n, "view\t%u\t%s\t%x\t%s\t%u\t%d\t%x", (unsigned)id, sort_words[sort], (unsigned)classes,
+               host && *host ? host : "-", (unsigned)port, pinned ? 1 : 0, signals);
+}
+
 int ppc_cmd_format_view(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
                         uint16_t port, int pinned)
 {
-    if (sort >= sizeof(sort_words) / sizeof(sort_words[0]) || (host && *host && !host_ok(host))) {
+    return ppc_cmd_format_view_signals(buf, n, id, sort, classes, host, port, pinned, 0);
+}
+
+int ppc_cmd_format_marks(char *buf, size_t n, uint32_t req, uint32_t buckets)
+{
+    if (buckets == 0 || buckets > PPC_MARK_BUCKETS) {
         return -1;
     }
-    return fmt(buf, n, "view\t%u\t%s\t%x\t%s\t%u\t%d", (unsigned)id, sort_words[sort], (unsigned)classes,
-               host && *host ? host : "-", (unsigned)port, pinned ? 1 : 0);
+    return fmt(buf, n, "marks\t%u\t%u", (unsigned)req, (unsigned)buckets);
 }
 
 int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int step)
@@ -703,6 +738,70 @@ int ppc_evt_format_pinned(char *buf, size_t n, uint32_t seq, int on, uint32_t pi
     return fmt(buf, n, "pinned\t%u\t%d\t%u\n", (unsigned)seq, on ? 1 : 0, (unsigned)pins);
 }
 
+int ppc_evt_format_finding(char *buf, size_t n, uint32_t layer, const char *text)
+{
+    char t[PPC_FIELD_TEXT];
+
+    mark_text(t, sizeof(t), text);
+    return fmt(buf, n, "finding\t%u\t%s\n", (unsigned)layer, t);
+}
+
+int ppc_evt_format_marks(char *buf, size_t n, uint32_t req, uint32_t view_id, uint32_t match, uint32_t buckets,
+                         uint64_t mask)
+{
+    return fmt(buf, n, "marks\t%u\t%u\t%u\t%u\t%llx\n", (unsigned)req, (unsigned)view_id, (unsigned)match,
+               (unsigned)buckets, (unsigned long long)mask);
+}
+
+static const char *const save_words[] = { "run", "done", "fail" };
+
+int ppc_evt_format_saved(char *buf, size_t n, enum ppc_save_phase phase, uint32_t packets, uint32_t total,
+                         uint64_t bytes, const char *name)
+{
+    char nm[PPC_SAVE_NAME];
+
+    if ((unsigned)phase >= sizeof(save_words) / sizeof(save_words[0])) {
+        return -1;
+    }
+    field_text(nm, sizeof(nm), name);
+    return fmt(buf, n, "saved\t%s\t%u\t%u\t%llu\t%s\n", save_words[phase], (unsigned)packets, (unsigned)total,
+               (unsigned long long)bytes, nm);
+}
+
+const char *ppc_captures_dir(char *buf, size_t n)
+{
+    const char *env = getenv("POCKETOS_CAPTURES_DIR");
+    const char *home = getenv("HOME");
+    int len;
+
+    if (env && *env) {
+        len = snprintf(buf, n, "%s", env);
+    } else {
+        len = snprintf(buf, n, "%s/Captures", home && *home ? home : "/root");
+    }
+    if (len <= 0 || (size_t)len >= n || buf[0] != '/' || strncmp(buf, "/tmp", 4) == 0) {
+        return NULL;
+    }
+    return buf;
+}
+
+int ppc_save_name_ok(const char *name)
+{
+    size_t len = name ? strlen(name) : 0;
+    size_t i;
+
+    if (len < 14 || len >= PPC_SAVE_NAME || strncmp(name, "capture-", 8) != 0 ||
+        strcmp(name + len - 5, ".pcap") != 0) {
+        return 0;
+    }
+    for (i = 8; i < len - 5; i++) {
+        if (!((name[i] >= '0' && name[i] <= '9') || name[i] == '-')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
 {
     char buf[PPC_LINE_MAX];
@@ -923,6 +1022,43 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         }
         e->u.pinned.on = (uint8_t)on;
         e->kind = PPC_EVT_PINNED;
+    } else if (strcmp(f[0], "finding") == 0) {
+        if (n != 3 || u32(f[1], &e->u.finding.layer) != 0 ||
+            copy(e->u.finding.text, sizeof(e->u.finding.text), f[2]) != 0) {
+            return e->kind;
+        }
+        e->kind = PPC_EVT_FINDING;
+    } else if (strcmp(f[0], "marks") == 0) {
+        char *end = NULL;
+
+        if (n != 6 || u32(f[1], &e->u.marks.req) != 0 || u32(f[2], &e->u.marks.view_id) != 0 ||
+            u32(f[3], &e->u.marks.match) != 0 || u32(f[4], &e->u.marks.buckets) != 0 ||
+            e->u.marks.buckets > PPC_MARK_BUCKETS || f[5][0] == '\0' || strlen(f[5]) > 16) {
+            return e->kind;
+        }
+        e->u.marks.mask = strtoull(f[5], &end, 16);
+        if (*end) {
+            return e->kind;
+        }
+        e->kind = PPC_EVT_MARKS;
+    } else if (strcmp(f[0], "saved") == 0) {
+        unsigned ph;
+
+        if (n != 6) {
+            return e->kind;
+        }
+        for (ph = 0; ph < sizeof(save_words) / sizeof(save_words[0]); ph++) {
+            if (strcmp(f[1], save_words[ph]) == 0) {
+                break;
+            }
+        }
+        if (ph >= sizeof(save_words) / sizeof(save_words[0]) || u32(f[2], &e->u.saved.packets) != 0 ||
+            u32(f[3], &e->u.saved.total) != 0 || u64(f[4], &e->u.saved.bytes) != 0 ||
+            copy(e->u.saved.name, sizeof(e->u.saved.name), f[5]) != 0) {
+            return e->kind;
+        }
+        e->u.saved.phase = (uint8_t)ph;
+        e->kind = PPC_EVT_SAVED;
     } else {
         e->kind = PPC_EVT_NONE;
     }

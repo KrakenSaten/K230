@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
+#include "psk_saves.h"
 #include "psk_session.h"
 
 #include <dirent.h>
@@ -207,6 +208,110 @@ static void test_capture(void)
     check("the helper leaves normally", !s.running && m.exit == PSK_EXIT_NORMAL && no_child());
 }
 
+/* Findings and SAVE through the session, and the saved captures as the app
+ * lists and deletes them (M7, M8). */
+static void test_findings_and_save(void)
+{
+    static struct psk_session s;
+    static struct psk_model m;
+    struct psk_saved list[4];
+    char caps[300];
+    char cwd[200];
+    char path[400];
+    char cmd[400];
+    uint32_t count = 0;
+    uint64_t bytes = 0;
+    uint32_t i;
+    int n;
+    int ok;
+    FILE *f;
+
+    /* Never under /tmp (ADR-016 rule 9): beside where the test runs. */
+    snprintf(caps, sizeof(caps), "%s/psk-session-captures-%ld", getcwd(cwd, sizeof(cwd)) ? cwd : ".", (long)getpid());
+    setenv("POCKETOS_CAPTURES_DIR", caps, 1);
+    check("no folder yet: an empty list", psk_saves_list(list, 4, &count, &bytes) == 0 && count == 0);
+
+    start(&s, &m, helper, "synth:2000:1");
+    POLL_UNTIL(&s, &m, m.hello, 3000);
+    psk_session_capture(&s, "synth0", PPC_KEEP_HEADERS, 0, PPC_CFILTER_ALL, 900);
+    POLL_UNTIL(&s, &m, m.c.sig[0] > 2 && m.c.sig[1] > 2 && m.c.sig[2] > 2 && m.c.sig[3] > 2, 4000);
+    check("findings are counted in the stats", m.c.sig[0] > 2 && m.c.sig[1] > 2 && m.c.sig[2] > 2 && m.c.sig[3] > 2);
+    check("a view of retransmissions", psk_session_view_signals(&s, 3, 0, PPC_CLASSES_ALL, NULL, 0, false,
+                                                                 PPC_SIG_RETRANS) == 0 &&
+                                           psk_session_window(&s, &m, 0, 9, 0) == 0);
+    POLL_UNTIL(&s, &m, m.rows_filter_id == 3 && m.row_count > 0 && !m.rows_open, 2000);
+    ok = m.row_count > 1;
+    for (i = 0; i < m.row_count; i++) {
+        ok = ok && (m.rows[i].signal & PPC_SIG_RETRANS) && strncmp(m.rows[i].info, "Retransmission ", 15) == 0;
+    }
+    check("every row is one and says so", ok);
+    if (m.row_count > 0) {
+        uint32_t want = m.rows[m.row_count - 1u].seq;
+
+        psk_session_inspect(&s, &m, want, 0);
+        POLL_UNTIL(&s, &m, m.have_pkt && m.pkt.head.seq == want, 2000);
+        check("the inspected packet carries its finding under its TCP layer, naming the packet it repeats",
+              m.have_pkt && m.pkt.nfindings == 1 && m.pkt.finding[0].layer < m.pkt.nlayers &&
+                  strcmp(m.pkt.layer[m.pkt.finding[0].layer].name, "TCP") == 0 &&
+                  strncmp(m.pkt.finding[0].text, "RETRANSMISSION OF #", 19) == 0 &&
+                  strstr(m.pkt.finding[0].text, "MS EARLIER") != NULL);
+    }
+    check("marks: asked for the whole capture", psk_session_view(&s, 4, 0, PPC_CLASSES_ALL, NULL, 0, false) == 0 &&
+                                                    psk_session_marks(&s, &m, 40) == 0);
+    POLL_UNTIL(&s, &m, m.marks_view == 4 && m.marks_buckets == 40, 2000);
+    check("and answered: 40 parts, some with findings", m.marks_view == 4 && m.marks_buckets == 40 && m.marks_mask != 0 &&
+                                                            (m.marks_mask >> 40) == 0);
+
+    check("save while capturing is refused", psk_session_save(&s) == 0);
+    POLL_UNTIL(&s, &m, strcmp(m.err_code, "state") == 0, 2000);
+    check("with a reason, and nothing written", strcmp(m.err_code, "state") == 0 && m.save == PSK_SAVE_NONE &&
+                                                    psk_saves_list(list, 4, &count, NULL) == 0);
+    psk_session_stop(&s);
+    POLL_UNTIL(&s, &m, m.state == PPC_STATE_STOPPED, 2000);
+    check("save a stopped capture", psk_session_save(&s) == 0);
+    POLL_UNTIL(&s, &m, m.save == PSK_SAVE_DONE || m.save == PSK_SAVE_FAILED, 6000);
+    check("saved: every packet, a name the helper made, stopped again",
+          m.save == PSK_SAVE_DONE && m.save_packets == m.save_total && m.save_packets > 1000 &&
+              ppc_save_name_ok(m.save_name) && m.state == PPC_STATE_STOPPED && m.save_bytes > 24);
+    n = psk_saves_list(list, 4, &count, &bytes);
+    check("the app lists it: its name and its size", n == 1 && count == 1 && strcmp(list[0].name, m.save_name) == 0 &&
+                                                         list[0].bytes == m.save_bytes && bytes == m.save_bytes);
+    psk_session_discard(&s);
+    POLL_UNTIL(&s, &m, !s.running, 2000);
+    check("the file outlives the helper", psk_saves_list(list, 4, &count, NULL) == 1 && no_child());
+
+    /* What is not a capture the helper made is neither listed nor deleted. */
+    snprintf(path, sizeof(path), "%s/notes.txt", caps);
+    f = fopen(path, "w");
+    if (f) {
+        fclose(f);
+    }
+    snprintf(path, sizeof(path), "%s/capture-99999999-999999.pcap", caps);
+    check("a link named like a capture", symlink("/etc/hostname", path) == 0);
+    n = psk_saves_list(list, 4, &count, NULL);
+    check("another file and a link are not listed", n == 1 && count == 1);
+    check("nor deleted: a path, another name, a link, a name that is not there",
+          psk_saves_delete("../psk_session_test") == -1 && psk_saves_delete("notes.txt") == -1 &&
+              psk_saves_delete("capture-99999999-999999.pcap") == -1 && psk_saves_delete("capture-1.pcap") == -1 &&
+              psk_saves_delete(NULL) == -1 && access(path, F_OK) == 0);
+    check("the capture is deleted by its name", psk_saves_delete(list[0].name) == 0 &&
+                                                    psk_saves_list(list, 4, &count, NULL) == 0 && count == 0);
+    {
+        char b[24];
+
+        check("ages", strcmp(psk_saves_age(1800000000, 1800000030, b, sizeof(b)), "JUST NOW") == 0 &&
+                          strcmp(psk_saves_age(1800000000, 1800000600, b, sizeof(b)), "10 MIN AGO") == 0 &&
+                          strcmp(psk_saves_age(1800000000, 1800007200, b, sizeof(b)), "2 H AGO") == 0 &&
+                          strcmp(psk_saves_age(1800000000, 1800259200, b, sizeof(b)), "3 D AGO") == 0 &&
+                          strcmp(psk_saves_age(100, 1800000000, b, sizeof(b)), "") == 0);
+    }
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", caps);
+    if (system(cmd) != 0) {
+        printf("note: could not remove %s\n", caps);
+    }
+    unsetenv("POCKETOS_CAPTURES_DIR");
+}
+
 static void test_replay_and_lock(const char *pcap)
 {
     static struct psk_session a;
@@ -388,6 +493,7 @@ int main(int argc, char **argv)
     setenv("POCKETOS_LOG_STDERR", "0", 1);
     unsetenv("POCKETOS_CAPTURE_SOURCE");
     test_capture();
+    test_findings_and_save();
     test_replay_and_lock(getenv("PSK_SELFTEST_PCAP") ? getenv("PSK_SELFTEST_PCAP")
                                                      : "tests/data/packetshark/selftest.pcap");
     test_faults();

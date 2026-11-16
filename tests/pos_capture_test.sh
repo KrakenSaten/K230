@@ -14,7 +14,10 @@
 # the time limit stops a capture; a damaged replay stops with an error; bad
 # commands are refused and unknown ones ignored; the helper's log carries no
 # address from the packets it saw (S7); a session that is not saved leaves
-# no file but its lock and its log (S5); the bench runs.
+# no file but its lock and its log (S5); the five findings are counted, a
+# view shows them alone and the rail's marks say where they are (M7); SAVE
+# writes one 0600 .pcap in a 0700 folder, only from a stopped capture, never
+# under /tmp, and the file reads back packet for packet (M8); the bench runs.
 #
 # PACKETSHARK_UPDATE_EXPECTED=1 rewrites the expected files from the
 # decoder's output instead of comparing (for a reviewed change of output).
@@ -72,7 +75,7 @@ check "the backend is named" "$("$HELPER" backend | grep -qxE 'pcap|none' && ech
 } | "$HELPER" session --source synth:500:1 > "$T/s1" 2>&1
 rc=$?
 check "the session leaves with 0" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
-check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t2\t' && echo 1 || echo 0)"
+check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t3\t' && echo 1 || echo 0)"
 check "capturing, hold, capturing, stopped by the user" \
     "$(grep -P '^state\t' "$T/s1" | cut -f2,3 | tr '\t\n' ' ' | grep -q 'idle none capturing none hold none capturing none stopped user' && echo 1 || echo 0)"
 check "a window of 5 rows" "$([ "$(grep -cP '^row\t' "$T/s1")" = "5" ] && grep -qP '^rows.end\t1$' "$T/s1" && echo 1 || echo 0)"
@@ -176,6 +179,60 @@ check "and says what it did (lifecycle lines)" \
 extra=$(find "$T/run" "$T/log" -type f ! -name capture.lock ! -name 'pos-capture.log*' | head -3)
 check "nothing written but the lock and the log (S5)" "$([ -z "$extra" ] && echo 1 || echo 0)"
 [ -n "$extra" ] && echo "$extra"
+
+# ---- findings, marks and SAVE (M7, M8) ----------------------------------------------
+SV="$PWD/out/packetshark-save-test"
+rm -rf "$SV"
+{
+    printf 'start synth0 headers 0 all 0\n'; sleep 4.6
+    printf 'view 2 time ff - 0 0 2\nwindow 2 tail 3 0\n'; sleep 0.2
+    printf 'view 3 time ff - 0 0 1f\nwindow 3 tail 30 0\nmarks 4 32\n'; sleep 0.2
+    printf 'view 6 time ff - 0 0 1\nwindow 6 tail 3 0\n'; sleep 0.2
+    printf 'view 7 time ff - 0 0 10\nwindow 7 tail 3 0\n'; sleep 0.2
+    printf 'view 5 time ff - 0 0\nmarks 5 32\nsave\n'; sleep 0.2
+    printf 'stop\n'; sleep 0.3
+    printf 'save\n'; sleep 1.5
+    printf 'save\n'; sleep 1.5
+    printf 'stats\nquit\n'
+} | POCKETOS_CAPTURES_DIR="$SV" "$HELPER" session --source synth:2000:1 > "$T/s3" 2>&1
+sig=$(grep -P '^stats\t' "$T/s3" | tail -1 | awk -F'\t' '{ print $(NF-4), $(NF-3), $(NF-2), $(NF-1), $NF }')
+check "retransmissions, resets, failed lookups, unreachables and unanswered SYNs are counted ($sig)" \
+    "$(echo "$sig" | awk '{ print ($1 > 0 && $2 > 0 && $3 > 0 && $4 > 0 && $5 > 0) ? 1 : 0 }')"
+check "a view of resets: every row is one" \
+    "$(awk -F'\t' '$1 == "rows.begin" { on = ($2 == 2) } on && $1 == "row" { n++; if (int($9 / 2) % 2 != 1) bad++ } END { print (n == 4 && !bad) ? 1 : 0 }' "$T/s3")"
+check "a view of every finding: only marked rows" \
+    "$(awk -F'\t' '$1 == "rows.begin" { on = ($2 == 3) } on && $1 == "row" { n++; if ($9 == 0) bad++ } END { print (n > 10 && !bad) ? 1 : 0 }' "$T/s3")"
+check "a retransmission and an unanswered SYN say so in their rows" \
+    "$(awk -F'\t' '$1 == "rows.begin" { v = $2 } $1 == "row" && v == 6 && $12 ~ /^Retransmission / { r++ } $1 == "row" && v == 7 && $12 ~ /^No answer / { s++ } END { print (r && s) ? 1 : 0 }' "$T/s3")"
+check "marks: none to add to a view of findings, some in the whole capture" \
+    "$(grep -qP '^marks\t4\t3\t\d+\t32\t0$' "$T/s3" && grep -P '^marks\t5\t5\t\d+\t32\t[0-9a-f]+$' "$T/s3" | grep -qvP '\t0$' && echo 1 || echo 0)"
+check "save is refused while the capture runs" "$(grep -qP '^error\tstate\tonly a stopped' "$T/s3" && echo 1 || echo 0)"
+check "saving, then stopped again, twice" \
+    "$(grep -P '^state\t' "$T/s3" | cut -f2 | tr '\n' ' ' | grep -q 'capturing stopped saving stopped saving stopped' && echo 1 || echo 0)"
+names=$(grep -P '^saved\tdone\t' "$T/s3" | cut -f6 | tr '\n' ' ')
+first=$(echo "$names" | cut -d' ' -f1)
+npk=$(grep -P '^saved\tdone\t' "$T/s3" | head -1 | cut -f3)
+check "two saves, two files, each named by the helper ($names)" \
+    "$([ "$(echo "$names" | wc -w)" = "2" ] && [ "$(echo "$names" | tr ' ' '\n' | sort -u | grep -c .)" = "2" ] &&
+       echo "$names" | tr ' ' '\n' | grep . | grep -qvE '^capture-[0-9-]+\.pcap$'; [ "$?" = "1" ] && echo 1 || echo 0)"
+check "the folder is 0700 and the file 0600" \
+    "$([ "$(stat -c %a "$SV")" = "700" ] && [ "$(stat -c %a "$SV/$first")" = "600" ] && echo 1 || echo 0)"
+check "no part file is left" "$([ -z "$(find "$SV" -name '*.part' | head -1)" ] && echo 1 || echo 0)"
+check "the saved file reads back packet for packet ($npk)" \
+    "$("$HELPER" decode "$SV/$first" --keep full | tail -1 | grep -q "^# frames=$npk " && [ "${npk:-0}" -gt 1000 ] && echo 1 || echo 0)"
+if command -v tcpdump > /dev/null 2>&1; then
+    check "and tcpdump reads it too" "$([ "$(tcpdump -nn -r "$SV/$first" 2> /dev/null | wc -l)" = "$npk" ] && echo 1 || echo 0)"
+fi
+{ printf 'start synth0 headers 0 all 0\n'; sleep 0.4; printf 'stop\nsave\n'; sleep 0.3; printf 'quit\n'; } |
+    POCKETOS_CAPTURES_DIR="$T/captures" "$HELPER" session --source synth:500:1 > "$T/s4" 2>&1
+check "nothing is saved under /tmp" \
+    "$(case "$T" in /tmp/*) grep -qP '^saved\tfail\t0\t\d+\t0\tnodir$' "$T/s4" && [ ! -e "$T/captures" ] && echo 1 || echo 0 ;; *) echo 1 ;; esac)"
+{ printf 'start synth0 headers 0 all 0\n'; sleep 0.4; printf 'stop\nsave\n'; printf 'quit\n'; } |
+    POCKETOS_CAPTURES_DIR="$SV/cut" "$HELPER" session --source synth:20000:1 > "$T/s5" 2>&1
+check "a save cut short by quit leaves no part file" "$([ -z "$(find "$SV" -name '*.part' | head -1)" ] && echo 1 || echo 0)"
+check "the log says a capture was saved, and not where or what" \
+    "$(grep -q 'capture: saved [0-9]* packets' "$T/log/pos-capture.log" && ! grep -q 'capture-[0-9]' "$T/log/pos-capture.log" && echo 1 || echo 0)"
+rm -rf "$SV"
 
 # ---- the bench --------------------------------------------------------------------
 "$HELPER" bench 20000 > "$T/bench" 2>&1

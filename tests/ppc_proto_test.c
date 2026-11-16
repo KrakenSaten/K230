@@ -15,6 +15,7 @@
 #include "pocketpcap/ppc_proto.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failed;
@@ -232,6 +233,56 @@ static void test_list_and_inspector(void)
               ppc_cmd_parse("view 1 time ff host;rm 0 0", &c) == PPC_CMD_BAD &&
               ppc_cmd_parse("view 1 time ff - 70000 0", &c) == PPC_CMD_BAD &&
               ppc_cmd_parse("view 1 time ff - 0 2", &c) == PPC_CMD_BAD);
+    /* Protocol 3 (M7, M8). */
+    check("a view with findings formats and parses; without them it is the protocol-2 line",
+          ppc_cmd_format_view_signals(line, sizeof(line), 9, 0, 0xff, NULL, 0, 0, 0x12) > 0 &&
+              ppc_cmd_parse(line, &c) == PPC_CMD_VIEW && c.signals == 0x12 && c.view_id == 9 &&
+              ppc_cmd_format_view_signals(line, sizeof(line), 9, 0, 0xff, NULL, 0, 0, 0) > 0 &&
+              strcmp(line, "view\t9\ttime\tff\t-\t0\t0") == 0 && ppc_cmd_parse(line, &c) == PPC_CMD_VIEW &&
+              c.signals == 0);
+    check("findings out of range are refused at both ends",
+          ppc_cmd_format_view_signals(line, sizeof(line), 1, 0, 0xff, NULL, 0, 0, 0x20) < 0 &&
+              ppc_cmd_parse("view 1 time ff - 0 0 20", &c) == PPC_CMD_BAD &&
+              ppc_cmd_parse("view 1 time ff - 0 0 zz", &c) == PPC_CMD_BAD &&
+              ppc_cmd_parse("view 1 time ff - 0 0 1 1", &c) == PPC_CMD_BAD);
+    check("marks and save", ppc_cmd_format_marks(line, sizeof(line), 7, 40) > 0 &&
+                                ppc_cmd_parse(line, &c) == PPC_CMD_MARKS && c.req == 7 && c.buckets == 40 &&
+                                ppc_cmd_format_marks(line, sizeof(line), 7, 65) < 0 &&
+                                ppc_cmd_parse("marks 7 0", &c) == PPC_CMD_BAD &&
+                                ppc_cmd_parse("marks 7 65", &c) == PPC_CMD_BAD &&
+                                ppc_cmd_parse("save", &c) == PPC_CMD_SAVE &&
+                                ppc_cmd_parse("save /etc/passwd", &c) == PPC_CMD_BAD);
+    check("the marks, finding and saved lines",
+          ppc_evt_format_marks(line, sizeof(line), 7, 3, 48417, 64, 0x8000000000000001ull) > 0 &&
+              ppc_evt_parse(line, &e) == PPC_EVT_MARKS && e.u.marks.req == 7 && e.u.marks.view_id == 3 &&
+              e.u.marks.match == 48417 && e.u.marks.buckets == 64 && e.u.marks.mask == 0x8000000000000001ull &&
+              ppc_evt_format_finding(line, sizeof(line), 3, "RETRANSMISSION OF #48195 \xc2\xb7 187.6 MS EARLIER") > 0 &&
+              ppc_evt_parse(line, &e) == PPC_EVT_FINDING && e.u.finding.layer == 3 &&
+              strstr(e.u.finding.text, "#48195 \xc2\xb7 187.6") != NULL &&
+              ppc_evt_format_saved(line, sizeof(line), PPC_SAVE_DONE, 48417, 48417, 3300000, "capture-20261116-101500.pcap") > 0 &&
+              ppc_evt_parse(line, &e) == PPC_EVT_SAVED && e.u.saved.phase == PPC_SAVE_DONE && e.u.saved.packets == 48417 &&
+              e.u.saved.bytes == 3300000 && strcmp(e.u.saved.name, "capture-20261116-101500.pcap") == 0 &&
+              ppc_evt_parse("saved\tgone\t1\t1\t1\tx", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("marks\t1\t1\t1\t65\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("marks\t1\t1\t1\t64\t11112222333344445", &e) == PPC_EVT_BAD);
+    check("only a name the helper makes is a saved capture's",
+          ppc_save_name_ok("capture-20261116-101500.pcap") && ppc_save_name_ok("capture-0001.pcap") &&
+              ppc_save_name_ok("capture-20261116-101500-2.pcap") && !ppc_save_name_ok("capture-.pcap") &&
+              !ppc_save_name_ok("../capture-0001.pcap") && !ppc_save_name_ok("capture-0001.pcap.part") &&
+              !ppc_save_name_ok("capture-00/01.pcap") && !ppc_save_name_ok("capture-0001.PCAP") &&
+              !ppc_save_name_ok(".capture-0001.pcap") && !ppc_save_name_ok("") && !ppc_save_name_ok(NULL));
+    {
+        char dir[64];
+
+        setenv("POCKETOS_CAPTURES_DIR", "/tmp/captures", 1);
+        check("a captures folder under /tmp is refused", ppc_captures_dir(dir, sizeof(dir)) == NULL);
+        setenv("POCKETOS_CAPTURES_DIR", "relative/captures", 1);
+        check("and one that is not absolute", ppc_captures_dir(dir, sizeof(dir)) == NULL);
+        unsetenv("POCKETOS_CAPTURES_DIR");
+        setenv("HOME", "/root", 1);
+        check("the unit's folder is /root/Captures", ppc_captures_dir(dir, sizeof(dir)) != NULL &&
+                                                         strcmp(dir, "/root/Captures") == 0);
+    }
     check("window at a rank and at a time",
           ppc_cmd_format_window_at(line, sizeof(line), 3, PPC_ANCHOR_RANK, 40, 15, 29) > 0 &&
               ppc_cmd_parse(line, &c) == PPC_CMD_WINDOW && c.anchor == PPC_ANCHOR_RANK && c.at == 40 &&

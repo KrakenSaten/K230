@@ -7,8 +7,12 @@
  * PSK_LIST_ROWS rows of 56 px, filled from the rows the helper's last window
  * brought (at most PPC_WINDOW_MAX, DESIGN_DECISIONS D1). A drag moves the
  * position a row per 56 px; the rail beside it jumps to any place in the
- * view. Where the list is and which window to ask for next is psk_app.c's;
- * this file only lays out and paints.
+ * view and carries a mark where the view has findings (M7). Where the list
+ * is and which window to ask for next is psk_app.c's; this file only lays
+ * out and paints.
+ *
+ * In the wide shape (M9, mockup 08) a row is one line of 40 px: time, word,
+ * addresses, length and the sentence side by side, the gap left out.
  *
  * The rows are drawn in the caption role's Small face at every text size,
  * with its tracking removed (DS §59.3, the rule of §54.1): 8 px a character,
@@ -228,7 +232,7 @@ static void on_list(lv_event_t *e)
         }
         if (a->dragged) {
             /* Finger down: earlier rows come into view. */
-            rank = (int64_t)a->drag_rank0 - dy / PSK_ROW_H;
+            rank = (int64_t)a->drag_rank0 - dy / a->row_h;
             psk_list_scroll_to(a, rank < 0 ? 0 : (uint32_t)rank, false);
         }
     } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
@@ -287,6 +291,8 @@ struct rail_paint {
     uint32_t top;
     uint32_t shown;
     uint32_t match;
+    uint32_t buckets; /* the view in this many parts; 0: no marks */
+    uint64_t marks;   /* bit i: a finding in part i */
 };
 
 static void rail_draw(lv_event_t *e)
@@ -314,6 +320,23 @@ static void rail_draw(lv_event_t *e)
     dsc.radius = 0;
     dsc.bg_color = pos_theme_color(POS_COLOR_SURFACE_RAISED);
     lv_draw_rect(layer, &dsc, &a);
+    /* The finding marks (mockup 02): 6 x 2 px in status_warn at the track's
+     * left, one for each part of the view that holds a finding (M7). */
+    if (rp->buckets > 0 && rp->marks) {
+        uint32_t i;
+
+        dsc.bg_color = pos_theme_color(POS_COLOR_STATUS_WARN);
+        for (i = 0; i < rp->buckets && i < 64u; i++) {
+            if (rp->marks & (1ull << i)) {
+                a.x1 = c.x1 + 3;
+                a.x2 = a.x1 + 5;
+                a.y1 = c.y1 + (int32_t)(((int64_t)h * (2 * i + 1)) / (2 * rp->buckets)) - 1;
+                a.y2 = a.y1 + 1;
+                lv_draw_rect(layer, &dsc, &a);
+            }
+        }
+        dsc.bg_color = pos_theme_color(POS_COLOR_SURFACE_RAISED);
+    }
     if (rp->match == 0 || rp->shown == 0) {
         return;
     }
@@ -466,6 +489,9 @@ void psk_list_build(struct psk_app *a, lv_obj_t *page)
     psk_text(lb, "SOURCE \xe2\x86\x92 DESTINATION");
     lb = cell_label(head, POS_STYLE_TEXT_MUTED, LV_TEXT_ALIGN_RIGHT);
     psk_text(lb, "LEN");
+    lb = cell_label(head, POS_STYLE_TEXT_MUTED, LV_TEXT_ALIGN_LEFT);
+    psk_text(lb, "INFO"); /* the wide shape's fifth column */
+    lv_obj_add_flag(lb, LV_OBJ_FLAG_HIDDEN);
 
     /* The list and its rail. */
     a->pk_body = psk_box(page);
@@ -527,6 +553,58 @@ static void place(lv_obj_t *lb, int32_t x, int32_t y, int32_t w)
     }
 }
 
+/* The sentence's width in a row: what is left of the row, less the PIN mark
+ * when the row carries one. */
+static int32_t info_x(const struct psk_app *a)
+{
+    int32_t cw = a->char_w;
+
+    /* Tall: under the word. Wide: after the length (time 12, direction 2,
+     * word 7, addresses 30, length 6, a character between each). */
+    return a->wide ? 14 + (13 + 2 + 7 + 31 + 7) * cw : 14 + 15 * cw;
+}
+
+static int32_t info_w(const struct psk_app *a, int32_t width, bool pinned)
+{
+    int32_t w = width - 8 - info_x(a) - (pinned ? 4 * a->char_w : 0);
+
+    return w > 1 ? w : 1;
+}
+
+/* The wide shape's columns (mockup 08): one line. */
+static void place_columns_wide(struct psk_app *a, int32_t width)
+{
+    int32_t cw = a->char_w;
+    int32_t lh = lv_font_get_line_height(lv_obj_get_style_text_font(a->lrow[0].time, LV_PART_MAIN));
+    int32_t y = (a->row_h - lh) / 2;
+    int32_t x_time = 14;
+    int32_t x_dir = x_time + 13 * cw;
+    int32_t x_word = x_dir + 2 * cw;
+    int32_t x_addr = x_word + 7 * cw;
+    int32_t x_len = x_addr + 31 * cw;
+    int32_t len_w = 6 * cw;
+    int32_t pin_w = 3 * cw;
+    lv_obj_t *h = a->pk_head;
+    int i;
+
+    for (i = 0; i < PSK_LIST_ROWS; i++) {
+        struct psk_listrow *r = &a->lrow[i];
+
+        place(r->time, x_time, y, 12 * cw);
+        place(r->dir, x_dir, y, 2 * cw);
+        place(r->word, x_word, y, 7 * cw);
+        place(r->addr, x_addr, y, 30 * cw);
+        place(r->len, x_len, y, len_w);
+        place(r->info, info_x(a), y, info_w(a, width, !lv_obj_has_flag(r->pin, LV_OBJ_FLAG_HIDDEN)));
+        place(r->pin, width - 8 - pin_w, y, pin_w);
+    }
+    place(lv_obj_get_child(h, 0), x_time, 2, 12 * cw);
+    place(lv_obj_get_child(h, 1), x_word, 2, 6 * cw);
+    place(lv_obj_get_child(h, 2), x_addr, 2, 30 * cw);
+    place(lv_obj_get_child(h, 3), x_len, 2, len_w);
+    place(lv_obj_get_child(h, 4), info_x(a), 2, info_w(a, width, false));
+}
+
 /* Columns in characters of the fixed face (mockup 02: time 12 at 14 px in,
  * the direction at character 13, the word at 15, the addresses at 22; the
  * length right-aligned 8 px from the edge). */
@@ -542,6 +620,10 @@ static void place_columns(struct psk_app *a, int32_t width)
     int32_t pin_w = 3 * cw;
     int i;
 
+    if (a->wide) {
+        place_columns_wide(a, width);
+        return;
+    }
     for (i = 0; i < PSK_LIST_ROWS; i++) {
         struct psk_listrow *r = &a->lrow[i];
 
@@ -551,7 +633,7 @@ static void place_columns(struct psk_app *a, int32_t width)
         place(r->addr, x_addr, LINE1_Y, x_len - x_addr - cw);
         place(r->len, x_len, LINE1_Y, len_w);
         place(r->gap, x_time, LINE2_Y, 12 * cw);
-        place(r->info, x_word, LINE2_Y, width - 8 - x_word - (lv_obj_has_flag(r->pin, LV_OBJ_FLAG_HIDDEN) ? 0 : pin_w + cw));
+        place(r->info, x_word, LINE2_Y, info_w(a, width, !lv_obj_has_flag(r->pin, LV_OBJ_FLAG_HIDDEN)));
         place(r->pin, width - 8 - pin_w, LINE2_Y, pin_w);
     }
     {
@@ -612,6 +694,26 @@ static void fit_summary(struct psk_app *a)
     lv_obj_update_layout(a->frame);
 }
 
+/* The rows for the shape in force: two lines of 56 px, or one of 40 with
+ * the gap left out and the sentence as a fifth column (M9). The columns
+ * are placed again by the next psk_list_fit(). */
+void psk_list_shape(struct psk_app *a)
+{
+    int i;
+
+    a->row_h = a->wide ? PSK_ROW_H_WIDE : PSK_ROW_H;
+    for (i = 0; i < PSK_LIST_ROWS; i++) {
+        struct psk_listrow *r = &a->lrow[i];
+
+        lv_obj_set_height(r->row, a->row_h);
+        lv_obj_set_height(r->bar, a->row_h - 13);
+        psk_set_hidden(r->gap, a->wide);
+    }
+    psk_text(lv_obj_get_child(a->pk_head, 0), a->wide ? "TIME" : "TIME / GAP");
+    psk_set_hidden(lv_obj_get_child(a->pk_head, 4), !a->wide);
+    a->char_w = 0;
+}
+
 void psk_list_fit(struct psk_app *a)
 {
     int32_t h;
@@ -632,7 +734,7 @@ void psk_list_fit(struct psk_app *a)
     if (h <= 0 || w <= 0) {
         return;
     }
-    vis = h / PSK_ROW_H;
+    vis = h / a->row_h;
     if (vis < 1) {
         vis = 1;
     }
@@ -683,10 +785,7 @@ static void paint_row(struct psk_app *a, struct psk_listrow *r, const struct ppc
     psk_set_hidden(r->pin, !pinned);
     if (hidden_pin == pinned && a->char_w > 0) {
         /* The sentence gives the PIN mark its room, or takes it back. */
-        int32_t w = lv_obj_get_content_width(a->pk_list);
-        int32_t x_word = 14 + 15 * a->char_w;
-
-        lv_obj_set_width(r->info, w - 8 - x_word - (pinned ? 4 * a->char_w : 0));
+        lv_obj_set_width(r->info, info_w(a, lv_obj_get_content_width(a->pk_list), pinned));
     }
     psk_style_on(r->row, POS_STYLE_SELECTED, row->seq == a->sel_seq, &r->selected);
     lv_obj_set_x(r->bar, r->selected ? 3 : 0);
@@ -724,9 +823,10 @@ static void paint_tools(struct psk_app *a)
     char t[96];
     uint64_t held = m->c.last_seq >= m->c.first_seq && m->c.last_seq ? (uint64_t)m->c.last_seq - m->c.first_seq + 1u : 0;
     uint32_t match = m->rows_filter_id == a->view_id ? m->rows_match : m->c.match;
-    bool filtered = a->classes != PPC_CLASSES_ALL || a->host[0] || a->port || a->pinned_only;
+    bool filtered = a->classes != PPC_CLASSES_ALL || a->host[0] || a->port || a->pinned_only || a->sigmask;
 
-    psk_text(a->pk_sum1, psk_filter_words(a->classes, a->host, a->port, a->pinned_only, words, sizeof(words)));
+    psk_text(a->pk_sum1,
+             psk_filter_words(a->classes, a->host, a->port, a->pinned_only, a->sigmask, words, sizeof(words)));
     if (filtered) {
         char all[32];
 
@@ -786,11 +886,19 @@ void psk_list_paint(struct psk_app *a)
     psk_set_hidden(a->pk_none, !(rows_ok && m->rows_match == 0));
     if (rp) {
         uint32_t match = rows_ok ? m->rows_match : 0;
+        /* The marks of this view, and no other's; none where the view
+         * itself shows only findings. */
+        bool marked = rows_ok && !a->sigmask && m->marks_view == a->view_id && m->marks_buckets > 0;
+        uint32_t buckets = marked ? m->marks_buckets : 0;
+        uint64_t marks = marked ? m->marks_mask : 0;
 
-        if (rp->top != a->top_rank || rp->shown != shown || rp->match != match) {
+        if (rp->top != a->top_rank || rp->shown != shown || rp->match != match || rp->buckets != buckets ||
+            rp->marks != marks) {
             rp->top = a->top_rank;
             rp->shown = shown;
             rp->match = match;
+            rp->buckets = buckets;
+            rp->marks = marks;
             lv_obj_invalidate(a->pk_rail);
         }
     }

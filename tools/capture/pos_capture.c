@@ -9,8 +9,9 @@
  *       the socket is open (so it cannot open another), and a new capture is
  *       a new helper. It leaves on `quit`, `discard`, end of input, SIGTERM,
  *       and - through PR_SET_PDEATHSIG, set by the app before exec - when the
- *       shell dies. Packets live in its memory only: nothing is written to
- *       storage (DESIGN_DECISIONS D10, accepted).
+ *       shell dies. Packets live in its memory only (DESIGN_DECISIONS D10,
+ *       accepted): one file is ever written, by `save` on a stopped capture,
+ *       0600 in the 0700 captures folder (ADR-016 rule 9, M8).
  *       SPEC: an interface (the default: the one `start` names), file:PATH,
  *       or synth:PPS[:SEED][:crash=N][:step=N,S] (ppc_source.h).
  *       $POCKETOS_CAPTURE_SOURCE is the default for SPEC.
@@ -46,6 +47,7 @@
 #include "pocketpcap/ppc_format.h"
 #include "pocketpcap/ppc_pcapfile.h"
 #include "pocketpcap/ppc_proto.h"
+#include "pocketpcap/ppc_signals.h"
 #include "pocketpcap/ppc_source.h"
 #include "pocketpcap/ppc_stats.h"
 #include "pocketpcap/ppc_store.h"
@@ -64,6 +66,7 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
@@ -78,6 +81,11 @@
 #define PKT_TEXT (40 * 1024)
 #define HELPER_NICE 5
 #define LOCK_NAME "capture.lock"
+#define SIGNAL_EVERY_MS 500
+#define ORIGINAL_LOOKBACK 8192u
+#define SAVE_BATCH 1024u
+#define SAVE_SNAPLEN 65535u
+#define SAVE_MARGIN (4u * 1024u * 1024u)
 
 static volatile sig_atomic_t stop_flag;
 
@@ -122,6 +130,21 @@ struct helper {
     uint32_t pend_id;
     struct ppc_stats st;
     struct ppc_timebase tb;
+    /* findings (M7) */
+    struct ppc_signals sig;
+    int sig_ready;
+    int view_stale;           /* a finding was added to a stored packet: the view is rebuilt */
+    uint64_t next_signal_ms;
+    /* SAVE (M8): one file, written a batch a turn so the helper keeps answering */
+    int save_fd;              /* -1: none being written */
+    char save_name[PPC_SAVE_NAME];
+    char save_part[POCKETOS_PATH_MAX];
+    char save_path[POCKETOS_PATH_MAX];
+    uint32_t save_next;       /* the next seq to write */
+    uint32_t save_last;
+    uint32_t save_done;
+    uint32_t save_total;
+    uint64_t save_bytes;
     enum ppc_keep keep;
     uint32_t limit_s;
     uint64_t start_ms;        /* monotonic, at start */
@@ -237,6 +260,8 @@ static uint64_t elapsed_ms(const struct helper *h)
     return mono_ms() - h->start_ms;
 }
 
+static void view_refresh(struct helper *h);
+
 static void fill_counters(struct helper *h, struct ppc_counters *c)
 {
     int i;
@@ -257,7 +282,7 @@ static void fill_counters(struct helper *h, struct ppc_counters *c)
         c->last_seq = h->store.last_seq;
         c->match = ppc_store_count(&h->store);
         if (h->view_ready) {
-            ppc_view_update(&h->view, &h->store);
+            view_refresh(h);
             c->match = ppc_view_count(&h->view);
         }
         c->fill_permille = ppc_store_fill_permille(&h->store);
@@ -442,6 +467,45 @@ static void clock_check(struct helper *h)
     }
 }
 
+static void count_signals(struct helper *h, uint16_t bits)
+{
+    int i;
+
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        if (bits & (1u << i)) {
+            h->st.signals[i]++;
+        }
+    }
+}
+
+/* A SYN that waited too long: the finding goes on the packet it was, if the
+ * buffer still holds it, and is counted either way. */
+static void on_late_signal(void *ctx, uint32_t seq)
+{
+    struct helper *h = ctx;
+
+    count_signals(h, PPC_SIG_SYN_UNANSWERED);
+    if (ppc_store_mark(&h->store, seq, PPC_SIG_SYN_UNANSWERED) == 0 && h->view.f.signals) {
+        h->view_stale = 1;
+    }
+}
+
+/* The view as it is now. A finding added to a packet the view had already
+ * passed (above) makes a view that filters on findings rebuild itself. */
+static void view_refresh(struct helper *h)
+{
+    if (!h->view_ready) {
+        return;
+    }
+    if (h->view_stale) {
+        struct ppc_filter f = h->view.f;
+
+        h->view_stale = 0;
+        ppc_view_set(&h->view, &h->store, h->view.id, h->view.sort, &f);
+    }
+    ppc_view_update(&h->view, &h->store);
+}
+
 static void on_frame(void *ctx, const struct ppc_frame *f)
 {
     struct helper *h = ctx;
@@ -471,6 +535,14 @@ static void on_frame(void *ctx, const struct ppc_frame *f)
     if (h->shed) {
         ppc_stats_frame(&h->st, r.cls, r.wire_len, PPC_FATE_SHED);
         return;
+    }
+    if (h->sig_ready) {
+        r.signal = ppc_signals_frame(&h->sig, &r,
+                                     r.info == PPC_INFO_TCP ? ppc_tcp_payload_len(f->data, f->cap_len, pay) : 0,
+                                     h->store.last_seq + 1u);
+        if (r.signal) {
+            count_signals(h, r.signal);
+        }
     }
     ppc_store_add(&h->store, &r, f->data, ppc_store_len(&r, pay, f->cap_len, h->keep));
     ppc_stats_frame(&h->st, r.cls, r.wire_len, PPC_FATE_STORED);
@@ -539,6 +611,9 @@ static void ingest(struct helper *h)
             /* The kernel ring is not being emptied: classify and count,
              * stop storing, until a dispatch comes back short (§12.3). */
             h->shed = 1;
+            if (h->sig_ready) {
+                ppc_signals_blind(&h->sig);
+            }
             LOG_WARN("capture: falling behind, counting without storing");
             say_note(h, "shed", "1");
         }
@@ -576,6 +651,8 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     }
     h->view_ready = 1;
     ppc_view_set(&h->view, &h->store, h->pend_id, h->pend_sort, &h->pend_f);
+    /* Findings need their table; a capture without it still captures. */
+    h->sig_ready = ppc_signals_init(&h->sig, PPC_SIG_FLOWS) == 0;
     memset(&o, 0, sizeof(o));
     o.iface = c->iface;
     o.keep = (enum ppc_keep)c->keep;
@@ -588,6 +665,10 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
         say_error(h, ppc_open_err_code(e), h->src.err);
         ppc_view_free(&h->view);
         h->view_ready = 0;
+        if (h->sig_ready) {
+            ppc_signals_free(&h->sig);
+            h->sig_ready = 0;
+        }
         ppc_store_free(&h->store);
         h->store_ready = 0;
         release_lock(h);
@@ -606,6 +687,7 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     h->start_ms = mono_ms();
     h->next_stats_ms = h->start_ms + STATS_EVERY_MS;
     h->next_link_ms = h->start_ms + LINK_EVERY_MS;
+    h->next_signal_ms = h->start_ms + SIGNAL_EVERY_MS;
     h->state = PPC_STATE_CAPTURING;
     h->reason = PPC_REASON_NONE;
     LOG_INFO("capture: start %s source=%s keep=%s promisc=%d filter=%s limit=%us", c->iface,
@@ -618,6 +700,9 @@ static void cmd_hold(struct helper *h, int on)
 {
     if (on && h->state == PPC_STATE_CAPTURING) {
         h->state = PPC_STATE_HOLD;
+        if (h->sig_ready) {
+            ppc_signals_blind(&h->sig); /* answers pass unseen from here */
+        }
     } else if (!on && h->state == PPC_STATE_HOLD) {
         h->state = PPC_STATE_CAPTURING;
     } else if (!((on && h->state == PPC_STATE_HOLD) || (!on && h->state == PPC_STATE_CAPTURING))) {
@@ -697,6 +782,7 @@ static void cmd_view(struct helper *h, const struct ppc_cmd *c)
     f.classes = c->classes ? c->classes : PPC_CLASSES_ALL;
     f.port = c->port;
     f.pinned = c->pinned;
+    f.signals = c->signals;
     if (c->host[0]) {
         len = ppc_filter_host(c->host, f.host);
         if (len < 0) {
@@ -709,8 +795,38 @@ static void cmd_view(struct helper *h, const struct ppc_cmd *c)
     h->pend_sort = (enum ppc_sort)c->sort;
     h->pend_id = c->view_id;
     if (h->view_ready) {
+        h->view_stale = 0;
         ppc_view_set(&h->view, &h->store, c->view_id, (enum ppc_sort)c->sort, &f);
     }
+}
+
+/* Where the view's findings are (M7): the view cut into `buckets` equal
+ * parts, a bit for each part that holds a packet with a finding. A view
+ * that shows only findings has no marks to add. */
+static void cmd_marks(struct helper *h, const struct ppc_cmd *c)
+{
+    char line[PPC_LINE_MAX];
+    struct ppc_view *v = &h->view;
+    uint64_t mask = 0;
+    uint32_t count = 0;
+    uint32_t rank;
+
+    if (h->view_ready) {
+        view_refresh(h);
+        ppc_view_prepare(v, &h->store, mono_ms());
+        count = ppc_view_count(v);
+    }
+    for (rank = 0; rank < count && !v->f.signals; rank++) {
+        uint32_t seq = ppc_view_at(v, rank);
+        const struct ppc_record *r = seq ? ppc_view_record(&h->store, seq, NULL) : NULL;
+
+        if (r && r->signal) {
+            mask |= 1ull << (uint32_t)((uint64_t)rank * c->buckets / count);
+        }
+    }
+    out_line(h, line,
+             ppc_evt_format_marks(line, sizeof(line), c->req, h->view_ready ? v->id : h->pend_id, count, c->buckets, mask),
+             0);
 }
 
 /* One window of the view: at most PPC_WINDOW_MAX rows around an anchor. */
@@ -727,7 +843,7 @@ static void cmd_window(struct helper *h, const struct ppc_cmd *c)
     size_t room;
 
     if (h->view_ready) {
-        ppc_view_update(v, &h->store);
+        view_refresh(h);
         ppc_view_prepare(v, &h->store, mono_ms());
         count = ppc_view_count(v);
     }
@@ -818,6 +934,9 @@ struct pkt_text {
     char buf[PKT_TEXT];
     size_t len;
     int full;
+    int layers;      /* layers seen */
+    int tcp_layer;   /* -1: none */
+    int icmp_layer;
 };
 
 static void pkt_add(struct pkt_text *p, const char *line, int len)
@@ -839,11 +958,84 @@ static void on_item(void *ctx, const struct ppc_ds_item *it)
     char line[PPC_LINE_MAX];
 
     if (it->kind == PPC_DS_LAYER) {
+        p->layers = it->layer + 1;
+        if (strcmp(it->name, "TCP") == 0) {
+            p->tcp_layer = it->layer;
+        } else if (strncmp(it->name, "ICMP", 4) == 0) {
+            p->icmp_layer = it->layer;
+        }
         pkt_add(p, line, ppc_evt_format_layer(line, sizeof(line), (uint32_t)it->layer, it->cls, it->name, it->text));
     } else {
         pkt_add(p, line,
                 ppc_evt_format_field(line, sizeof(line), (uint32_t)it->layer, it->name, it->text, it->off, it->len,
                                      it->filter));
+    }
+}
+
+/* The packet a retransmission repeats: the nearest earlier one in the buffer
+ * going the same way on the same connection with the same sequence number,
+ * no further back than ORIGINAL_LOOKBACK packets. NULL when it has gone. */
+static const struct ppc_record *original_of(struct helper *h, const struct ppc_record *r)
+{
+    uint32_t seq;
+    uint32_t looked = 0;
+
+    for (seq = r->seq - 1u; seq != 0 && seq >= h->store.first_seq && looked < ORIGINAL_LOOKBACK; seq--, looked++) {
+        const struct ppc_record *o = ppc_store_get(&h->store, seq);
+
+        if (o && o->info == PPC_INFO_TCP && o->a == r->a && o->sport == r->sport && o->dport == r->dport &&
+            o->l3 == r->l3 && memcmp(o->src, r->src, 16) == 0 && memcmp(o->dst, r->dst, 16) == 0 &&
+            !(o->flags & PPC_F_NONFIRST)) {
+            return o;
+        }
+    }
+    return NULL;
+}
+
+/* The packet's findings as lines for the inspector (M7), each under the
+ * layer it is about. */
+static void add_findings(struct helper *h, struct pkt_text *p, const struct ppc_record *r)
+{
+    char line[PPC_LINE_MAX];
+    char text[PPC_FIELD_TEXT];
+    int deepest = p->layers > 0 ? p->layers - 1 : 0;
+    int tcp = p->tcp_layer >= 0 ? p->tcp_layer : deepest;
+
+    if (r->signal & PPC_SIG_RETRANS) {
+        const struct ppc_record *o = original_of(h, r);
+
+        if (o && r->rel_ns >= o->rel_ns) {
+            uint64_t us = (r->rel_ns - o->rel_ns) / 1000u;
+
+            snprintf(text, sizeof(text), "RETRANSMISSION OF #%u \xc2\xb7 %llu.%01llu MS EARLIER", (unsigned)o->seq,
+                     (unsigned long long)(us / 1000u), (unsigned long long)(us % 1000u / 100u));
+        } else {
+            snprintf(text, sizeof(text), "RETRANSMISSION \xc2\xb7 THIS SEQUENCE WAS SEEN BEFORE");
+        }
+        pkt_add(p, line, ppc_evt_format_finding(line, sizeof(line), (uint32_t)tcp, text));
+    }
+    if (r->signal & PPC_SIG_RST) {
+        pkt_add(p, line, ppc_evt_format_finding(line, sizeof(line), (uint32_t)tcp, "CONNECTION RESET"));
+    }
+    if (r->signal & PPC_SIG_SYN_UNANSWERED) {
+        pkt_add(p, line, ppc_evt_format_finding(line, sizeof(line), (uint32_t)tcp, "SYN NOT ANSWERED WITHIN 3 S"));
+    }
+    if (r->signal & PPC_SIG_DNS_FAIL) {
+        const char *rc = ppc_dns_rcode_text(r->a & 0xfu);
+        size_t i;
+
+        snprintf(text, sizeof(text), "DNS FAILURE \xc2\xb7 %s", rc ? rc : "ERROR");
+        for (i = 0; text[i]; i++) {
+            if (text[i] >= 'a' && text[i] <= 'z') {
+                text[i] = (char)(text[i] - 'a' + 'A');
+            }
+        }
+        pkt_add(p, line, ppc_evt_format_finding(line, sizeof(line), (uint32_t)deepest, text));
+    }
+    if (r->signal & PPC_SIG_UNREACH) {
+        pkt_add(p, line,
+                ppc_evt_format_finding(line, sizeof(line), (uint32_t)(p->icmp_layer >= 0 ? p->icmp_layer : deepest),
+                                       "DESTINATION UNREACHABLE"));
     }
 }
 
@@ -875,7 +1067,7 @@ static void cmd_inspect(struct helper *h, const struct ppc_cmd *c)
         say_error(h, "gone", "no capture holds packets");
         return;
     }
-    ppc_view_update(v, &h->store);
+    view_refresh(h);
     ppc_view_prepare(v, &h->store, mono_ms());
     count = ppc_view_count(v);
     if (c->step != 0 && count > 0) {
@@ -923,9 +1115,15 @@ static void cmd_inspect(struct helper *h, const struct ppc_cmd *c)
 
     p.len = 0;
     p.full = 0;
+    p.layers = 0;
+    p.tcp_layer = -1;
+    p.icmp_layer = -1;
     pkt_add(&p, line, ppc_evt_format_pkt_begin(line, sizeof(line), &head));
     pkt_add(&p, line, ppc_evt_format_pkt_ends(line, sizeof(line), &src, &dst));
     ppc_dissect(r, bytes, n, on_item, &p);
+    if (r->signal) {
+        add_findings(h, &p, r);
+    }
     for (off = 0; off < n && off < PPC_HEX_MAX; off += PPC_HEX_PER_LINE) {
         char hex[PPC_HEX_TEXT];
         char ascii[PPC_ASCII_TEXT];
@@ -969,6 +1167,183 @@ static void cmd_pin(struct helper *h, const struct ppc_cmd *c)
     out_line(h, line, ppc_evt_format_pinned(line, sizeof(line), c->seq, c->on, pins), 0);
 }
 
+/* ---- SAVE (M8; ADR-016 rules 9 and 16) ----------------------------------------------- */
+
+static void say_saved(struct helper *h, enum ppc_save_phase phase, const char *name, int snapshot)
+{
+    char line[PPC_LINE_MAX];
+
+    out_line(h, line,
+             ppc_evt_format_saved(line, sizeof(line), phase, h->save_done, h->save_total, h->save_bytes, name),
+             snapshot);
+}
+
+/* Give up the file being written: nothing half-written is left behind. */
+static void save_abort(struct helper *h, const char *code)
+{
+    if (h->save_fd >= 0) {
+        close(h->save_fd);
+        h->save_fd = -1;
+        unlink(h->save_part);
+    }
+    if (code) {
+        LOG_WARN("capture: save failed (%s)", code);
+        h->save_done = 0;
+        h->save_bytes = 0;
+        say_saved(h, PPC_SAVE_FAIL, code, 0);
+    }
+    if (h->state == PPC_STATE_SAVING) {
+        h->state = PPC_STATE_STOPPED;
+        say_state(h);
+    }
+}
+
+/* A name no file has: the UTC time when the clock is set, else a number. */
+static int save_pick_name(struct helper *h, const char *dir)
+{
+    char stem[32];
+    struct stat sb;
+    int i;
+
+    if (clock_set_now()) {
+        time_t now = time(NULL);
+        struct tm tm;
+
+        if (!gmtime_r(&now, &tm) || strftime(stem, sizeof(stem), "capture-%Y%m%d-%H%M%S", &tm) == 0) {
+            return -1;
+        }
+    } else {
+        snprintf(stem, sizeof(stem), "capture");
+    }
+    for (i = clock_set_now() ? 0 : 1; i < 10000; i++) {
+        if (i == 0) {
+            snprintf(h->save_name, sizeof(h->save_name), "%s.pcap", stem);
+        } else if (clock_set_now()) {
+            snprintf(h->save_name, sizeof(h->save_name), "%s-%d.pcap", stem, i + 1);
+        } else {
+            snprintf(h->save_name, sizeof(h->save_name), "%s-%04d.pcap", stem, i);
+        }
+        if (snprintf(h->save_path, sizeof(h->save_path), "%s/%s", dir, h->save_name) >= (int)sizeof(h->save_path) ||
+            snprintf(h->save_part, sizeof(h->save_part), "%s/.%s.part", dir, h->save_name) >=
+                (int)sizeof(h->save_part)) {
+            return -1;
+        }
+        if (lstat(h->save_path, &sb) != 0 && errno == ENOENT) {
+            return ppc_save_name_ok(h->save_name) ? 0 : -1;
+        }
+    }
+    return -1;
+}
+
+/* `save`: the stopped capture's packets, as they are in the buffer, to one
+ * new .pcap in the captures folder: 0700 folder, 0600 file, written under
+ * another name and renamed when whole, never over a file that is there. */
+static void cmd_save(struct helper *h)
+{
+    char dirbuf[POCKETOS_PATH_MAX];
+    const char *dir = ppc_captures_dir(dirbuf, sizeof(dirbuf));
+    struct statvfs vfs;
+    uint64_t need = PPC_PCAP_HEADER_LEN;
+    uint32_t seq;
+
+    if (h->state != PPC_STATE_STOPPED || !h->store_ready || h->save_fd >= 0) {
+        say_error(h, "state", "only a stopped capture can be saved");
+        return;
+    }
+    h->save_done = 0;
+    h->save_total = 0;
+    h->save_bytes = 0;
+    h->save_name[0] = '\0';
+    for (seq = h->store.first_seq; seq != 0 && seq <= h->store.last_seq; seq++) {
+        const struct ppc_record *r = ppc_store_get(&h->store, seq);
+
+        if (r && r->cap_len > 0 && ppc_store_has_bytes(&h->store, r)) {
+            h->save_total++;
+            need += PPC_PCAP_RECORD_HEADER_LEN + r->cap_len;
+        }
+    }
+    if (h->save_total == 0) {
+        say_saved(h, PPC_SAVE_FAIL, "empty", 0);
+        return;
+    }
+    if (!dir || pocketos_mkdir_p(dir, 0700) != 0) {
+        LOG_WARN("capture: the captures folder cannot be used");
+        say_saved(h, PPC_SAVE_FAIL, "nodir", 0);
+        return;
+    }
+    if (statvfs(dir, &vfs) == 0 && (uint64_t)vfs.f_bavail * vfs.f_frsize < need + SAVE_MARGIN) {
+        say_saved(h, PPC_SAVE_FAIL, "nospace", 0);
+        return;
+    }
+    if (save_pick_name(h, dir) != 0) {
+        say_saved(h, PPC_SAVE_FAIL, "name", 0);
+        return;
+    }
+    h->save_fd = open(h->save_part, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (h->save_fd < 0 || ppc_pcap_write_header(h->save_fd, SAVE_SNAPLEN) != 0) {
+        save_abort(h, "io");
+        return;
+    }
+    h->save_bytes = PPC_PCAP_HEADER_LEN;
+    h->save_next = h->store.first_seq;
+    h->save_last = h->store.last_seq;
+    h->state = PPC_STATE_SAVING;
+    LOG_INFO("capture: saving %u packets", (unsigned)h->save_total);
+    say_state(h);
+    say_saved(h, PPC_SAVE_RUN, h->save_name, 0);
+}
+
+/* One batch of the file. The loop calls this each turn while a save runs. */
+static void save_step(struct helper *h)
+{
+    static uint8_t bytes[65536];
+    uint32_t n = 0;
+
+    while (h->save_next != 0 && h->save_next <= h->save_last && n < SAVE_BATCH) {
+        const struct ppc_record *r = ppc_store_get(&h->store, h->save_next++);
+        uint32_t len;
+
+        n++;
+        if (!r || r->cap_len == 0) {
+            continue;
+        }
+        len = ppc_store_copy(&h->store, r, bytes, sizeof(bytes));
+        if (len == 0) {
+            continue;
+        }
+        if (ppc_pcap_write_record(h->save_fd, ppc_timebase_wall(&h->tb, r->rel_ns), bytes, len, r->wire_len) != 0) {
+            save_abort(h, errno == ENOSPC ? "nospace" : "io");
+            return;
+        }
+        h->save_done++;
+        h->save_bytes += PPC_PCAP_RECORD_HEADER_LEN + len;
+    }
+    if (h->save_next != 0 && h->save_next <= h->save_last) {
+        say_saved(h, PPC_SAVE_RUN, h->save_name, 1);
+        return;
+    }
+    if (fsync(h->save_fd) != 0 || close(h->save_fd) != 0) {
+        h->save_fd = -1;
+        unlink(h->save_part);
+        save_abort(h, "io");
+        return;
+    }
+    h->save_fd = -1;
+    if (rename(h->save_part, h->save_path) != 0) {
+        unlink(h->save_part);
+        save_abort(h, "io");
+        return;
+    }
+    h->state = PPC_STATE_STOPPED;
+    {
+        unsigned long long size = h->save_bytes;
+
+        LOG_INFO("capture: saved %u packets in a file of %llu B", (unsigned)h->save_done, size);
+    }
+    say_state(h);
+    say_saved(h, PPC_SAVE_DONE, h->save_name, 0);
+}
+
 /* One command line. Returns 0 to go on, 1 to leave. */
 static int command(struct helper *h, const char *line)
 {
@@ -1002,6 +1377,12 @@ static int command(struct helper *h, const char *line)
         return 0;
     case PPC_CMD_PIN:
         cmd_pin(h, &c);
+        return 0;
+    case PPC_CMD_MARKS:
+        cmd_marks(h, &c);
+        return 0;
+    case PPC_CMD_SAVE:
+        cmd_save(h);
         return 0;
     case PPC_CMD_DISCARD:
         LOG_INFO("capture: discarded by the app");
@@ -1089,6 +1470,13 @@ static void tick(struct helper *h, uint64_t now)
             stop_capture(h, PPC_REASON_LIMIT, NULL);
         }
     }
+    if (h->sig_ready && h->sig.waiting && h->tb.started && now >= h->next_signal_ms &&
+        h->state == PPC_STATE_CAPTURING && !h->shed) {
+        uint64_t wall = h->src_open && h->src.ops->wall_ns ? h->src.ops->wall_ns(&h->src) : clock_ns(CLOCK_REALTIME);
+
+        h->next_signal_ms = now + SIGNAL_EVERY_MS;
+        ppc_signals_expire(&h->sig, ppc_timebase_rel(&h->tb, wall), on_late_signal, h);
+    }
     if (h->src_open && h->src.live && now >= h->next_link_ms) {
         h->next_link_ms = now + LINK_EVERY_MS;
         if (carrier(h->iface) != 1) {
@@ -1121,6 +1509,7 @@ static int run_session(const char *source_spec)
     h.source_spec = source_spec;
     h.pend_f.classes = PPC_CLASSES_ALL;
     h.lock_fd = -1;
+    h.save_fd = -1;
     h.out_socket = 1;
     h.in_socket = 1;
     memset(&sa, 0, sizeof(sa));
@@ -1146,7 +1535,9 @@ static int run_session(const char *source_spec)
         int wait = (int)(h.next_stats_ms > now ? h.next_stats_ms - now : 0);
         int pr;
 
-        if (h.state == PPC_STATE_IDLE || h.state == PPC_STATE_STOPPED) {
+        if (h.save_fd >= 0) {
+            wait = 0; /* a save in hand: its next batch, between the app's lines */
+        } else if (h.state == PPC_STATE_IDLE || h.state == PPC_STATE_STOPPED) {
             wait = 1000;
         } else if (wait > STATS_EVERY_MS) {
             wait = STATS_EVERY_MS;
@@ -1173,8 +1564,12 @@ static int run_session(const char *source_spec)
         if (pr > 0 && (p[0].revents & (POLLIN | POLLHUP | POLLERR))) {
             leave = read_commands(&h);
         }
+        if (h.save_fd >= 0 && !leave) {
+            save_step(&h);
+        }
         tick(&h, mono_ms());
     }
+    save_abort(&h, NULL); /* a save cut short leaves no part file */
     if (h.src_open) {
         ppc_source_close(&h.src);
         h.src_open = 0;
@@ -1183,6 +1578,10 @@ static int run_session(const char *source_spec)
     if (h.view_ready) {
         ppc_view_free(&h.view);
         h.view_ready = 0;
+    }
+    if (h.sig_ready) {
+        ppc_signals_free(&h.sig);
+        h.sig_ready = 0;
     }
     if (h.store_ready) {
         ppc_store_free(&h.store);

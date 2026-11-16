@@ -104,6 +104,14 @@ int psk_session_view(struct psk_session *s, uint32_t id, unsigned sort, uint8_t 
 /* One packet for the inspector, or its neighbour in the view (step -1, 1)
  * (M6); the model takes only the answer to the newest request. */
 int psk_session_inspect(struct psk_session *s, struct psk_model *m, uint32_t seq, int step);
+/* The view with the findings to show (PPC_SIG_* bits, 0: any packet) (M7). */
+int psk_session_view_signals(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                             uint16_t port, bool pinned, unsigned signals);
+/* Where the view's findings are, for the rail; the model takes only the
+ * answer to the newest request. */
+int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t buckets);
+/* Write the stopped capture to a file in the captures folder (M8). */
+int psk_session_save(struct psk_session *s);
 int psk_session_pin(struct psk_session *s, uint32_t seq, bool on);
 
 /* For a destroyed app or a new capture: quit, SIGTERM, wait up to grace_ms,

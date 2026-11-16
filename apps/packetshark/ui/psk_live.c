@@ -1,8 +1,9 @@
 /*
- * PacketShark's LIVE tab (setup, live status, the error panel), the tab row
- * and the capture bar (docs/apps/PACKETSHARK.md; the design is DS §59,
- * accepted, with its deviations in §59.11). PACKETS is ui/psk_list.c and
- * INSPECT ui/psk_inspect.c.
+ * PacketShark's LIVE tab (setup, live status, the findings, the error
+ * panel), the tab row and the capture bar, and the two shapes they take
+ * (docs/apps/PACKETSHARK.md; the design is DS §59, accepted, with its
+ * deviations in §59.11). PACKETS is ui/psk_list.c and INSPECT
+ * ui/psk_inspect.c.
  *
  * Only existing roles: panels, chips, key/value rows, buttons, captions and
  * values (tests/style_lint.sh). A label is written only when its text
@@ -492,6 +493,25 @@ static void on_proto(lv_event_t *e)
     psk_show_class(lv_event_get_user_data(e), (unsigned)index_of(e));
 }
 
+/* A finding's way to its packets (M7). */
+static void on_signal(lv_event_t *e)
+{
+    psk_show_signal(lv_event_get_user_data(e), (unsigned)index_of(e));
+}
+
+static void on_saves(lv_event_t *e)
+{
+    psk_ssheet_show(lv_event_get_user_data(e));
+}
+
+/* The app's own back slab (wide): answered by the poll, outside the event. */
+static void on_back(lv_event_t *e)
+{
+    struct psk_app *a = lv_event_get_user_data(e);
+
+    a->back_pending = true;
+}
+
 static void on_bar(lv_event_t *e)
 {
     struct psk_app *a = lv_event_get_user_data(e);
@@ -512,9 +532,31 @@ static const char *const tab_word[PSK_TAB_COUNT] = { "LIVE", "PACKETS", "INSPECT
 
 static void build_tabs(struct psk_app *a)
 {
-    lv_obj_t *strip = row(a->frame, PSK_GAP);
+    lv_obj_t *strip;
     int i;
 
+    /* The top row: the tabs, and in the wide shape a back slab before them
+     * and the state and the capture's buttons after (psk_shape). */
+    a->top = row(a->frame, PSK_GAP);
+    lv_obj_set_height(a->top, PSK_TAB_H);
+    a->back = psk_box(a->top);
+    lv_obj_set_size(a->back, 72, PSK_TOP_H);
+    pos_style_add(a->back, POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_pad_all(a->back, 0, 0);
+    lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
+    {
+        lv_obj_t *chev = pocketui_label(a->back, LV_SYMBOL_LEFT, POS_STYLE_SYMBOL);
+
+        pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
+        lv_obj_center(chev);
+    }
+    lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
+    /* Full width, not a grow item: this LVGL takes a gap from the space for
+     * every grow item, the only one in a row included. */
+    strip = row(a->top, PSK_GAP);
+    a->tabs = strip;
     lv_obj_set_height(strip, PSK_TAB_H);
     for (i = 0; i < PSK_TAB_COUNT; i++) {
         lv_obj_t *t = psk_box(strip);
@@ -564,6 +606,7 @@ static void build_status(struct psk_app *a, lv_obj_t *p)
 {
     lv_obj_t *r = row(p, 12);
 
+    a->status_row = r;
     lv_obj_set_style_min_height(r, 36, 0);
     /* 26 px to the first panel (the mockups): the page's 22 and these 4. */
     lv_obj_set_style_margin_bottom(r, 4, 0);
@@ -586,11 +629,15 @@ static void build_setup(struct psk_app *a, lv_obj_t *p)
 {
     lv_obj_t *opts;
     lv_obj_t *priv;
+    lv_obj_t *saved;
     lv_obj_t *empty;
     int i;
 
     a->setup = column(p, PSK_PANEL_GAP);
-    a->if_panel = panel(a->setup, "INTERFACE", NULL);
+    let_titles_out(a->setup);
+    a->setup_l = column(a->setup, PSK_PANEL_GAP);
+    a->setup_r = column(a->setup, PSK_PANEL_GAP);
+    a->if_panel = panel(a->setup_l, "INTERFACE", NULL);
     for (i = 0; i < PSK_IFACES; i++) {
         struct psk_ifrow *r = &a->ifrow[i];
         lv_obj_t *left;
@@ -615,7 +662,7 @@ static void build_setup(struct psk_app *a, lv_obj_t *p)
     a->if_none = wrapping(a->if_panel, "No network interface is reported by the system service.",
                           POS_STYLE_TEXT_SECONDARY);
 
-    opts = panel(a->setup, "CAPTURE OPTIONS", NULL);
+    opts = panel(a->setup_l, "CAPTURE OPTIONS", NULL);
     lv_obj_set_style_pad_row(opts, 0, 0);
     for (i = 0; i < 4; i++) {
         lv_obj_t *r = row(opts, 8);
@@ -643,14 +690,28 @@ static void build_setup(struct psk_app *a, lv_obj_t *p)
     lv_obj_clear_flag(a->opt_row[3], LV_OBJ_FLAG_CLICKABLE);
     psk_set_hidden(lv_obj_get_child(a->opt_row[3], 2), true);
 
-    priv = panel(a->setup, "PRIVACY", NULL);
+    priv = panel(a->setup_r, "PRIVACY", NULL);
     wrapping(priv,
-             "Packets stay in memory on this device and are discarded when you leave. "
-             "Nothing is written to storage and nothing is sent anywhere. HEADERS keeps addresses, "
-             "ports and protocol fields; payload only for DNS, DHCP, ARP, ICMP and NTP.",
+             "Packets stay in memory on this device and are discarded when you leave, unless you save "
+             "them. Nothing is sent anywhere. HEADERS keeps addresses, ports and protocol fields; "
+             "payload only for DNS, DHCP, ARP, ICMP and NTP.",
              POS_STYLE_TEXT_SECONDARY);
 
-    empty = panel(a->setup, "TRAFFIC", NULL);
+    /* The saved captures (M8, ADR-016 rule 10): how many, and the way to
+     * their list. */
+    saved = panel(a->setup_r, "SAVED CAPTURES", NULL);
+    lv_obj_set_style_pad_row(saved, 0, 0);
+    a->saves_row = row(saved, 8);
+    lv_obj_set_height(a->saves_row, POCKETUI_ROW_H);
+    pos_style_add(a->saves_row, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_add_flag(a->saves_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(a->saves_row, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(a->saves_row, on_saves, LV_EVENT_CLICKED, a);
+    grow(one_line(a->saves_row, "On this device", POS_STYLE_TEXT_SECONDARY));
+    a->saves_val = one_line(a->saves_row, "NONE", POS_STYLE_VALUE);
+    pos_style_add(pocketui_label(a->saves_row, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL), POS_STYLE_ACCENT_TEXT, 0);
+
+    empty = panel(a->setup_r, "TRAFFIC", NULL);
     lv_obj_set_style_min_height(empty, 120, 0);
     lv_obj_set_flex_align(empty, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     one_line(empty, "NO CAPTURE YET", POS_STYLE_CAPTION);
@@ -871,16 +932,79 @@ static void build_protocols(struct psk_app *a, lv_obj_t *parent)
     pos_theme_watch(a->proto_paint);
 }
 
+/* SIGNALS (M7, mockup 01): the findings of the capture, each the way to its
+ * packets. Five cells of 68 px, three to a row: the mockup drew four in a
+ * line and the milestone has five (DS §59.11). A count above zero is drawn
+ * in status_warn, the colour kept for findings (DS §59.2). */
+static void build_signals(struct psk_app *a, lv_obj_t *parent)
+{
+    lv_obj_t *p = panel(parent, "SIGNALS \xc2\xb7 TAP TO LIST", NULL);
+    lv_obj_t *grid = psk_box(p);
+    unsigned i;
+
+    a->signals = p;
+    lv_obj_set_style_pad_hor(p, 14, 0);
+    lv_obj_set_style_pad_top(p, 22, 0);
+    lv_obj_set_style_pad_bottom(p, 14, 0);
+    lv_obj_set_width(grid, LV_PCT(100));
+    lv_obj_set_height(grid, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(grid, PSK_GAP, 0);
+    lv_obj_set_style_pad_row(grid, PSK_GAP, 0);
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        /* The order of the mockup: DNS FAIL, TCP RST, RETRANS, UNREACH,
+         * then the fifth; the user data is the finding's bit. */
+        static const uint8_t order[PPC_SIGNAL_COUNT] = { 2, 1, 0, 3, 4 };
+        unsigned bit = order[i];
+        lv_obj_t *c = psk_box(grid);
+        lv_obj_t *left;
+        lv_obj_t *chev;
+
+        pos_style_add(c, POS_STYLE_SLAB, 0);
+        pos_style_add(c, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+        lv_obj_set_style_radius(c, POCKETUI_RADIUS, 0);
+        lv_obj_set_width(c, LV_PCT(32));
+        lv_obj_set_height(c, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_height(c, 68, 0);
+        lv_obj_set_style_pad_hor(c, 12, 0);
+        lv_obj_set_style_pad_ver(c, 8, 0);
+        lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(c, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_set_user_data(c, (void *)(intptr_t)bit);
+        lv_obj_add_event_cb(c, on_signal, LV_EVENT_CLICKED, a);
+        left = column(c, 2);
+        grow(left);
+        lv_obj_add_flag(left, LV_OBJ_FLAG_EVENT_BUBBLE);
+        {
+            /* One line: a dots-mode label with an automatic height wraps. */
+            lv_obj_t *w = one_line(left, psk_signal_word(bit), POS_STYLE_CAPTION);
+
+            lv_obj_set_width(w, LV_PCT(100));
+            lv_obj_set_height(w, pocketui_role_line_height(POS_STYLE_CAPTION));
+        }
+        a->sig_val[bit] = one_line(left, "0", POS_STYLE_VALUE);
+        lv_obj_set_width(a->sig_val[bit], LV_PCT(100));
+        chev = pocketui_label(c, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL);
+        pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
+        a->sig_cell[bit] = c;
+    }
+}
+
 static void build_live(struct psk_app *a, lv_obj_t *p)
 {
     lv_obj_t *r;
     lv_obj_t *session;
 
     a->live = column(p, PSK_PANEL_GAP);
-    build_traffic(a, a->live);
-    build_protocols(a, a->live);
+    let_titles_out(a->live);
+    a->live_l = column(a->live, PSK_PANEL_GAP);
+    a->live_r = column(a->live, PSK_PANEL_GAP);
+    build_traffic(a, a->live_l);
+    build_protocols(a, a->live_r);
 
-    session = panel(a->live, "SESSION", NULL);
+    session = panel(a->live_r, "SESSION", NULL);
     lv_obj_set_style_pad_top(session, 18, 0);
     lv_obj_set_style_pad_bottom(session, 18, 0);
     r = row(session, 12);
@@ -889,10 +1013,8 @@ static void build_live(struct psk_app *a, lv_obj_t *p)
     a->cell[1] = cell(r, "BYTES");
     a->cell[2] = cell(r, "DROPPED");
     a->cell[3] = cell(r, "BUFFER");
-    /* The SIGNALS panel of the mockups is M7 (DS §59.11): not built yet. */
-    a->later = wrapping(a->live,
-                        "Signals and SAVE are not in this version yet. Leaving PacketShark discards the capture.",
-                        POS_STYLE_TEXT_SECONDARY);
+    build_signals(a, a->live_r);
+    a->later = wrapping(a->live_r, "", POS_STYLE_TEXT_SECONDARY);
 }
 
 static void build_error(struct psk_app *a, lv_obj_t *p)
@@ -948,9 +1070,13 @@ void psk_live_build(struct psk_app *a)
     int i;
 
     build_tabs(a);
+    /* The pages share one row: one of them in the tall shape, the list and
+     * the inspector side by side in the wide one (psk_shape). */
     content = psk_box(a->frame);
+    a->content = content;
     lv_obj_set_width(content, LV_PCT(100));
     lv_obj_set_flex_grow(content, 1);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
     for (i = 0; i < PSK_TAB_COUNT; i++) {
         a->page[i] = page(content);
         psk_set_hidden(a->page[i], i != PSK_TAB_LIVE);
@@ -965,6 +1091,112 @@ void psk_live_build(struct psk_app *a)
     lv_obj_set_style_margin_top(a->bar, 12, 0);
 }
 
+/* ---- the shape (M9) -------------------------------------------------------------------- *
+ *
+ * Tall (DS §59.7): the shell's header above, the tabs, one page, the capture
+ * bar at the foot. Wide (mockup 08): no shell header (app.h NONE_LANDSCAPE),
+ * so the top row is the app's own - a back slab, LIVE and PACKETS, the state
+ * chip and one line of the session, and the capture's buttons; under it LIVE
+ * in two columns, or the list with the inspector beside it. The same objects
+ * in both: they are moved, never built twice. */
+
+static void two_columns(lv_obj_t *holder, lv_obj_t *left, lv_obj_t *right, bool wide, int32_t left_w)
+{
+    lv_obj_set_flex_flow(holder, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(holder, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(holder, PSK_PANEL_GAP, 0);
+    if (wide) {
+        lv_obj_set_flex_grow(left, 0);
+        lv_obj_set_width(left, left_w);
+        grow(right);
+    } else {
+        lv_obj_set_flex_grow(left, 0);
+        lv_obj_set_flex_grow(right, 0);
+        lv_obj_set_width(left, LV_PCT(100));
+        lv_obj_set_width(right, LV_PCT(100));
+    }
+}
+
+void psk_shape(struct psk_app *a)
+{
+    bool w = a->wide;
+    int i;
+
+    /* The top row. */
+    lv_obj_set_style_pad_left(a->top, w ? a->top_inset_l : 0, 0);
+    lv_obj_set_style_pad_right(a->top, w ? a->top_inset_r : 0, 0);
+    psk_set_hidden(a->back, !w);
+    psk_set_hidden(a->tab[PSK_TAB_INSPECT], w);
+    lv_obj_set_width(a->tabs, w ? 2 * 128 + PSK_GAP : LV_PCT(100));
+    /* The state: beside the tabs on every tab (ADR-016 rule 13), or the
+     * first line of LIVE under the shell's header, which states it there. */
+    lv_obj_set_parent(a->status_row, w ? a->top : a->page[PSK_TAB_LIVE]);
+    if (w) {
+        lv_obj_move_to_index(a->status_row, 2);
+        grow(a->status_row);
+        lv_obj_set_style_margin_bottom(a->status_row, 0, 0);
+        lv_obj_set_style_pad_left(a->status_row, 8, 0);
+    } else {
+        lv_obj_move_to_index(a->status_row, 0);
+        lv_obj_set_flex_grow(a->status_row, 0);
+        lv_obj_set_width(a->status_row, LV_PCT(100));
+        lv_obj_set_style_margin_bottom(a->status_row, 4, 0);
+        lv_obj_set_style_pad_left(a->status_row, 0, 0);
+    }
+    psk_set_hidden(a->elapsed, w);
+    /* The capture bar: at the foot, or the top row's right end. */
+    lv_obj_set_parent(a->bar, w ? a->top : a->frame);
+    lv_obj_move_to_index(a->bar, -1);
+    lv_obj_set_style_margin_top(a->bar, w ? 0 : 12, 0);
+    lv_obj_set_height(a->bar, w ? PSK_TOP_H : PSK_BAR_H);
+    lv_obj_set_width(a->bar, w ? LV_SIZE_CONTENT : LV_PCT(100));
+    for (i = 0; i < 3; i++) {
+        lv_obj_set_height(a->btn[i], w ? PSK_TOP_H : PSK_BAR_H);
+        if (w) {
+            lv_obj_set_flex_grow(a->btn[i], 0);
+            lv_obj_set_width(a->btn[i], LV_SIZE_CONTENT);
+            lv_obj_set_style_min_width(a->btn[i], 104, 0);
+            lv_obj_set_style_pad_hor(a->btn[i], 14, 0);
+        } else {
+            lv_obj_set_style_min_width(a->btn[i], 0, 0);
+            lv_obj_remove_local_style_prop(a->btn[i], LV_STYLE_PAD_LEFT, 0);
+            lv_obj_remove_local_style_prop(a->btn[i], LV_STYLE_PAD_RIGHT, 0);
+            grow(a->btn[i]);
+        }
+    }
+    /* The pages: LIVE alone; the list with the inspector beside it. */
+    lv_obj_set_style_pad_column(a->content, w ? 14 : 0, 0);
+    if (w) {
+        lv_obj_set_width(a->page[PSK_TAB_PACKETS], 1);
+        lv_obj_set_flex_grow(a->page[PSK_TAB_PACKETS], 1);
+        lv_obj_set_width(a->page[PSK_TAB_INSPECT], PSK_INSPECT_W);
+        if (a->cur == PSK_TAB_INSPECT) {
+            a->cur = PSK_TAB_PACKETS;
+        }
+    } else {
+        lv_obj_set_flex_grow(a->page[PSK_TAB_PACKETS], 0);
+        lv_obj_set_width(a->page[PSK_TAB_PACKETS], LV_PCT(100));
+        lv_obj_set_width(a->page[PSK_TAB_INSPECT], LV_PCT(100));
+    }
+    two_columns(a->live, a->live_l, a->live_r, w, PSK_LIVE_LEFT_W);
+    two_columns(a->setup, a->setup_l, a->setup_r, w, PSK_LIVE_LEFT_W);
+    /* The findings: three to a row, or all five in the wider column. */
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        lv_obj_set_width(a->sig_cell[i], w ? LV_PCT(19) : LV_PCT(32));
+        /* The chevron has no room in the narrower cell. */
+        psk_set_hidden(lv_obj_get_child(a->sig_cell[i], 1), w);
+        lv_obj_set_style_min_height(a->sig_cell[i], w ? 56 : 68, 0);
+        lv_obj_set_style_pad_ver(a->sig_cell[i], w ? 4 : 8, 0);
+    }
+    /* Wide: LIVE's three panels and the top row fit the body's height. */
+    lv_obj_set_style_pad_row(a->live_r, w ? 12 : PSK_PANEL_GAP, 0);
+    lv_obj_set_style_pad_top(a->page[PSK_TAB_LIVE], w ? 8 : 14, 0);
+    psk_list_shape(a);
+    psk_paint_tabs(a);
+    a->window_due = true;
+    a->marks_due = true;
+}
+
 /* ---- painting ------------------------------------------------------------------------- */
 
 void psk_paint_tabs(struct psk_app *a)
@@ -975,6 +1207,8 @@ void psk_paint_tabs(struct psk_app *a)
     for (i = 0; i < PSK_TAB_COUNT; i++) {
         bool active = i == (int)a->cur;
         bool enabled = i != PSK_TAB_INSPECT || inspect;
+        /* Wide: the inspector is beside the list, on PACKETS. */
+        bool shown = a->wide ? (i == PSK_TAB_LIVE) == (a->cur == PSK_TAB_LIVE) : active;
 
         tone(a->tab_label[i], active ? POS_STYLE_ACCENT_TEXT : TONE_NONE);
         lv_obj_set_style_opa(a->tab_rule[i], active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
@@ -987,7 +1221,7 @@ void psk_paint_tabs(struct psk_app *a)
             lv_obj_clear_flag(a->tab[i], LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_style_opa(a->tab_label[i], LV_OPA_40, 0);
         }
-        psk_set_hidden(a->page[i], !active);
+        psk_set_hidden(a->page[i], !shown);
     }
 }
 
@@ -1138,18 +1372,20 @@ static void paint_bar(struct psk_app *a, enum psk_view v)
          * that follows, LIVE and the count of newer packets on a held list,
          * FILTER BY on INSPECT. The state's buttons follow it on every tab
          * (ADR-016 rule 13). At most one primary (DS §9): RESUME in HOLD. */
-        bool stopped = m->state == PPC_STATE_STOPPED;
+        bool saving = m->state == PPC_STATE_SAVING;
+        bool stopped = m->state == PPC_STATE_STOPPED || saving;
         bool hold = m->state == PPC_STATE_HOLD;
         enum psk_action acts[3];
         const char *words[3];
         bool en[3] = { true, true, true };
         char live[32];
         int primary = hold ? 1 : -1;
+        bool by = m->have_pkt && a->insp_field >= 0 && (uint32_t)a->insp_field < m->pkt.nfields &&
+                  m->pkt.field[a->insp_field].filter[0];
 
-        if (a->cur == PSK_TAB_INSPECT) {
-            bool by = m->have_pkt && a->insp_field >= 0 && (uint32_t)a->insp_field < m->pkt.nfields &&
-                      m->pkt.field[a->insp_field].filter[0];
-
+        /* Wide: the inspector is beside the list, so a selected field
+         * offers FILTER BY there too. */
+        if (a->cur == PSK_TAB_INSPECT || (a->wide && a->cur == PSK_TAB_PACKETS && by)) {
             acts[0] = PSK_ACT_FILTER_BY;
             words[0] = "FILTER BY";
             en[0] = by;
@@ -1178,11 +1414,11 @@ static void paint_bar(struct psk_app *a, enum psk_view v)
                 primary = 0;
             }
         } else if (a->cur == PSK_TAB_LIVE && stopped) {
-            /* SAVE is the step forward but not in this version: disabled,
-             * and no other button takes the primary look in its place. */
+            /* SAVE is the step forward of a stopped capture (M8): primary
+             * until it has been saved. */
             acts[0] = PSK_ACT_SAVE;
-            words[0] = "SAVE";
-            en[0] = false;
+            words[0] = saving ? "SAVING" : m->save == PSK_SAVE_DONE ? "SAVED" : "SAVE";
+            en[0] = !saving && m->save != PSK_SAVE_DONE;
         } else {
             acts[0] = PSK_ACT_FILTER;
             words[0] = "FILTER";
@@ -1192,7 +1428,10 @@ static void paint_bar(struct psk_app *a, enum psk_view v)
             words[1] = "NEW CAPTURE";
             acts[2] = PSK_ACT_DISCARD;
             words[2] = "DISCARD";
-            primary = a->cur == PSK_TAB_INSPECT && en[0] ? 0 : -1;
+            /* The file is being written: nothing ends the helper from here. */
+            en[1] = !saving;
+            en[2] = !saving;
+            primary = (acts[0] == PSK_ACT_FILTER_BY || acts[0] == PSK_ACT_SAVE) && en[0] ? 0 : -1;
         } else {
             acts[1] = hold ? PSK_ACT_RESUME : PSK_ACT_HOLD;
             words[1] = hold ? "RESUME" : "HOLD";
@@ -1221,6 +1460,9 @@ static void paint_hint(struct psk_app *a, enum psk_view v)
             break;
         case PPC_STATE_STOPPED:
             snprintf(h, sizeof(h), "STOPPED · %s", iface);
+            break;
+        case PPC_STATE_SAVING:
+            snprintf(h, sizeof(h), "SAVING · %s", iface);
             break;
         default:
             snprintf(h, sizeof(h), "CAPTURING · %s", iface);
@@ -1271,11 +1513,46 @@ static void paint_status(struct psk_app *a, enum psk_view v)
         case PPC_STATE_STOPPED:
             chip_set(a->chip, CHIP_OFF, "STOPPED");
             break;
+        case PPC_STATE_SAVING:
+            chip_set(a->chip, CHIP_OFF, "SAVING");
+            break;
         default:
             chip_set(a->chip, CHIP_ACTIVE, "CAPTURING");
             break;
         }
-        if (m->state == PPC_STATE_STOPPED) {
+        if (a->wide) {
+            /* One line of the session beside the chip (mockup 08): the
+             * elapsed time and the counts the tall shape shows on LIVE.
+             * Where the line has no room for all of it, the drops stay
+             * when there are any and the packet count when there are none. */
+            char n[32];
+            char d[32];
+            int32_t room = lv_obj_get_width(a->status_text);
+            uint64_t drops = m->c.kdrop + m->c.ifdrop;
+
+            bool ended = m->state == PPC_STATE_STOPPED || m->state == PPC_STATE_SAVING;
+            char head[64];
+
+            /* A stopped capture says why first, as the tall shape does. */
+            if (ended) {
+                snprintf(head, sizeof(head), "%s · %s · %s", iface, reason_word(m->reason), el);
+            } else {
+                snprintf(head, sizeof(head), "%s · %s", iface, el);
+            }
+            psk_fmt_count(m->c.seen, n, sizeof(n));
+            psk_fmt_count(drops, d, sizeof(d));
+            snprintf(text, sizeof(text), "%s · %s PKT · %s DROPPED", head, n, d);
+            if (room > 0 && pocketui_text_width(a->status_text, text) > room) {
+                if (drops) {
+                    snprintf(text, sizeof(text), "%s · %s DROPPED", head, d);
+                } else {
+                    snprintf(text, sizeof(text), "%s · %s PKT", head, n);
+                }
+            }
+            if (room > 0 && pocketui_text_width(a->status_text, text) > room) {
+                snprintf(text, sizeof(text), "%s", head);
+            }
+        } else if (m->state == PPC_STATE_STOPPED || m->state == PPC_STATE_SAVING) {
             snprintf(text, sizeof(text), "%s · %s", iface, reason_word(m->reason));
         } else if (m->speed) {
             snprintf(text, sizeof(text), "%s · %u MBIT/S · %s", iface, (unsigned)m->speed, sz);
@@ -1285,6 +1562,15 @@ static void paint_status(struct psk_app *a, enum psk_view v)
         psk_text(a->elapsed, el);
     }
     psk_text(a->status_text, text);
+    {
+        /* Wide: the line beside the chip is one line (a dots-mode label
+         * with an automatic height wraps, DS §46.5). */
+        int32_t want = a->wide ? pocketui_role_line_height(POS_STYLE_CAPTION) : LV_SIZE_CONTENT;
+
+        if (lv_obj_get_style_height(a->status_text, LV_PART_MAIN) != want) {
+            lv_obj_set_height(a->status_text, want);
+        }
+    }
 
     /* The banner: one sentence, what most needs saying. */
     text[0] = '\0';
@@ -1305,6 +1591,22 @@ static void paint_status(struct psk_app *a, enum psk_view v)
 
         snprintf(text, sizeof(text), "HOLD: %s PACKETS PASSED AND WERE COUNTED, NOT KEPT",
                  psk_fmt_count(m->c.held, n, sizeof(n)));
+    } else if (v == PSK_VIEW_LIVE && (m->state == PPC_STATE_SAVING || m->save == PSK_SAVE_RUNNING)) {
+        char n[32];
+        char t[32];
+
+        snprintf(text, sizeof(text), "SAVING · %s OF %s PACKETS", psk_fmt_count(m->save_packets, n, sizeof(n)),
+                 psk_fmt_count(m->save_total, t, sizeof(t)));
+    } else if (v == PSK_VIEW_LIVE && m->save == PSK_SAVE_DONE) {
+        char n[32];
+        char t[32];
+
+        /* The file's name as it is in the folder: lower case, as written. */
+        snprintf(text, sizeof(text), "SAVED · %s PACKETS · %s · %s", psk_fmt_count(m->save_packets, n, sizeof(n)),
+                 psk_fmt_bytes(m->save_bytes, t, sizeof(t)), m->save_name);
+    } else if (v == PSK_VIEW_LIVE && m->save == PSK_SAVE_FAILED) {
+        snprintf(text, sizeof(text), "! NOT SAVED · %s", psk_save_fail_text(m->save_fail));
+        warn = true;
     }
     psk_text(a->banner_label, text);
     tone(a->banner_label, warn ? POS_STYLE_STATUS_WARN_TEXT : TONE_NONE);
@@ -1316,6 +1618,7 @@ static void paint_counters(struct psk_app *a)
     const struct psk_model *m = a->model;
     const struct ppc_counters *c = &m->c;
     char b[48];
+    unsigned i;
 
     psk_text(a->rate, psk_fmt_count(c->pps, b, sizeof(b)));
     psk_text(a->throughput, psk_fmt_bits(c->bps, b, sizeof(b)));
@@ -1325,6 +1628,14 @@ static void paint_counters(struct psk_app *a)
     tone(a->cell[2], c->kdrop + c->ifdrop ? POS_STYLE_STATUS_WARN_TEXT : POS_STYLE_STATUS_OK_TEXT);
     snprintf(b, sizeof(b), "%u%%", (unsigned)((c->fill_permille + 5u) / 10u));
     psk_text(a->cell[3], b);
+    /* The findings (M7): a count above zero in status_warn (DS §59.2). */
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        psk_text(a->sig_val[i], psk_fmt_count(c->sig[i], b, sizeof(b)));
+        tone(a->sig_val[i], c->sig[i] ? POS_STYLE_STATUS_WARN_TEXT : TONE_NONE);
+    }
+    psk_text(a->later, m->save == PSK_SAVE_DONE
+                           ? "This capture is saved. Leaving PacketShark removes it from memory; the file stays."
+                           : "Leaving PacketShark discards the capture unless it is saved first: STOP, then SAVE.");
 }
 
 /* The graph, the readout and the protocol distribution (M4). */
@@ -1363,6 +1674,8 @@ static void paint_error(struct psk_app *a)
     psk_text(a->last[0], psk_fmt_count(m->c.seen, b, sizeof(b)));
     psk_text(a->last[1], psk_fmt_bytes(m->c.bytes, b, sizeof(b)));
     psk_text(a->last[2], psk_fmt_count(m->c.kdrop + m->c.ifdrop, b, sizeof(b)));
+    psk_text(a->last[3], m->save == PSK_SAVE_DONE ? "YES" : "NO");
+    tone(a->last[3], m->save == PSK_SAVE_DONE ? POS_STYLE_STATUS_OK_TEXT : POS_STYLE_STATUS_WARN_TEXT);
 }
 
 void psk_live_paint(struct psk_app *a, unsigned changed)
@@ -1382,15 +1695,25 @@ void psk_live_paint(struct psk_app *a, unsigned changed)
     } else if (v == PSK_VIEW_ERROR) {
         paint_error(a);
     } else {
+        char n[32];
+        char b[64];
+
         psk_paint_ifaces(a);
         psk_paint_options(a);
+        if (a->saves_count) {
+            snprintf(b, sizeof(b), "%u · %s", (unsigned)a->saves_count, psk_fmt_bytes(a->saves_bytes, n, sizeof(n)));
+        } else {
+            snprintf(b, sizeof(b), "NONE");
+        }
+        psk_text(a->saves_val, b);
     }
     if (changed & (PSK_CHANGED_EXITED | PSK_CHANGED_STATE | PSK_CHANGED_HELLO)) {
         psk_paint_tabs(a);
     }
     if (a->cur == PSK_TAB_PACKETS) {
         psk_list_paint(a);
-    } else if (a->cur == PSK_TAB_INSPECT) {
+    }
+    if (psk_inspect_visible(a)) {
         psk_inspect_paint(a);
     }
 }

@@ -47,6 +47,7 @@ struct ppc_filter {
     uint8_t host[16];  /* either end of the packet */
     uint16_t port;     /* 0: any port; else either end's TCP or UDP port */
     uint8_t pinned;    /* only pinned packets */
+    uint8_t signals;   /* PPC_SIG_* bits; 0: any packet, else one with any of these findings (M7) */
 };
 
 enum ppc_sort {

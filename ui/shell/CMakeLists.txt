@@ -436,6 +436,7 @@ set(PACKETSHARK_APP_SOURCES
     ${REPO_DIR}/apps/packetshark/psk_app.c
     ${REPO_DIR}/apps/packetshark/psk_session.c
     ${REPO_DIR}/apps/packetshark/psk_model.c
+    ${REPO_DIR}/apps/packetshark/psk_saves.c
     ${REPO_DIR}/apps/packetshark/ui/psk_live.c
     ${REPO_DIR}/apps/packetshark/ui/psk_graph.c
     ${REPO_DIR}/apps/packetshark/ui/psk_sheets.c

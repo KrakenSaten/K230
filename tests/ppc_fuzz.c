@@ -21,6 +21,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketpcap/ppc_decode.h"
+#include "pocketpcap/ppc_signals.h"
 #include "pocketpcap/ppc_dissect.h"
 #include "pocketpcap/ppc_format.h"
 #include "pocketpcap/ppc_pcapfile.h"
@@ -103,6 +104,30 @@ static int one(const uint8_t *data, size_t size)
     if (pay > f.cap_len || keep > f.cap_len) {
         fprintf(stderr, "ppc_fuzz: out of bounds: payload %u keep %u of %u\n", pay, keep, f.cap_len);
         abort();
+    }
+    {
+        /* The findings on whatever the decoder made of it (M7): a small
+         * table kept across inputs, so entries are found, made and
+         * replaced; then the row's sentence with every finding set. */
+        static struct ppc_signals sg;
+        static uint32_t seq;
+        uint32_t tcp_len = ppc_tcp_payload_len(data, f.cap_len, pay);
+
+        if (!sg.flows && ppc_signals_init(&sg, 64) != 0) {
+            abort();
+        }
+        r.rel_ns = (uint64_t)seq * 1000000u;
+        r.signal = ppc_signals_frame(&sg, &r, tcp_len, ++seq);
+        if ((r.signal & ~PPC_SIG_ALL) != 0 || sg.waiting > sg.cap) {
+            fprintf(stderr, "ppc_fuzz: findings out of range\n");
+            abort();
+        }
+        if ((seq & 255u) == 0) {
+            ppc_signals_expire(&sg, r.rel_ns + PPC_SIG_SYN_WAIT_NS, NULL, NULL);
+        }
+        if (size & 4u) {
+            r.signal = PPC_SIG_ALL;
+        }
     }
     ppc_format_row(&r, data, keep, &t);
     ds_kept = keep;
