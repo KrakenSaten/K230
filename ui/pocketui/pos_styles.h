@@ -174,6 +174,9 @@ lv_color_t pos_env_hue(enum pos_env_hue hue);
  * (POS_IDENTITY_COUNT, pos_theme.h) wraps, so a hash may be passed
  * straight in. The values are pos_theme.c's, so the audit needs no LVGL. */
 lv_color_t pos_identity_hue(unsigned index);
+/* A packet type's colour (pos_theme.h, CoreScope's palette) as the display
+ * mode shows it, for a draw callback. */
+lv_color_t pos_packet_hue(enum pos_packet_kind kind);
 /* A colour-only text style in that hue, to add over a role that brings the
  * font (a caption, a row title). */
 lv_style_t *pos_style_identity(unsigned index);

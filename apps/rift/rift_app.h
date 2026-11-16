@@ -297,6 +297,10 @@ struct rift_app {
     struct rift_prefs prefs;
     int prefs_saved;
     struct rift_notify notify;
+    /* The arrivals a banner has been raised for (rift_banner.c): the
+     * model's dm_arrivals and ch_arrivals as last read. */
+    unsigned banner_dm_seen;
+    unsigned banner_ch_seen;
 
     /* The session's timer, not the screen's: with no screen it still reads
      * the socket, so the subscription is never left to back up (pocketipc
@@ -388,6 +392,16 @@ int rift_app_can_sound(const struct rift_app *a);
 /* After every pass at the socket: a sound, if a message has just arrived and
  * its setting, its channel's mute, the platform and the policy all say yes. */
 void rift_app_notify_pass(struct rift_app *a, int64_t now);
+
+/* rift_banner.c. After every pass at the socket, with or without a screen:
+ * a notice on whatever Doors is showing (app.h pocketos_shell_notify) for a
+ * direct message, or a message on a channel that is not muted, that has
+ * genuinely just arrived (rift_arrivals.c) - who, where and the first words.
+ * None for the conversation the reader is looking at. A tap opens RIFT on
+ * that conversation. start reads the counters as they stand, so nothing
+ * from before the session is news. */
+void rift_app_banner_start(struct rift_app *a);
+void rift_app_banner_pass(struct rift_app *a);
 
 /* The glyph a node's row and its captions carry. */
 enum rift_glyph rift_app_glyph(const struct rift_node *n, int64_t now_ms);

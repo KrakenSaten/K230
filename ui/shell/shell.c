@@ -43,6 +43,7 @@
 #include "shell_ipc.h"
 #include "shell_kb_state.h"
 #include "shell_kbd.h"
+#include "shell_notice.h"
 #include "shell_overlay.h"
 #include "shell_evkey.h"
 #include "shell_power.h"
@@ -718,6 +719,11 @@ int pocketos_shell_set_timezone(const char *id)
         pocketipc_server_broadcast(sh.server, pocketipc_event("shell.timezone", data));
     }
     return 0;
+}
+
+void pocketos_shell_notify(const struct pocketos_notice *notice)
+{
+    shell_notice_post(notice);
 }
 
 int pocketos_shell_debug_overlay(void)
@@ -3012,6 +3018,18 @@ static cJSON *timezone_json(void)
     return o;
 }
 
+static cJSON *notice_json(void)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddBoolToObject(o, "visible", shell_notice_visible());
+    cJSON_AddNumberToObject(o, "posted", shell_notice_posted());
+    cJSON_AddNumberToObject(o, "dropped", shell_notice_dropped());
+    cJSON_AddStringToObject(o, "title", shell_notice_title());
+    cJSON_AddStringToObject(o, "body", shell_notice_body());
+    return o;
+}
+
 static cJSON *overlay_json(void)
 {
     cJSON *o = cJSON_CreateObject();
@@ -3041,6 +3059,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
      * test tap lands on the cover like a finger. */
     if (strcmp(method, "shell.info") != 0 && strcmp(method, "shell.audit") != 0 &&
         strcmp(method, "shell.screenshot") != 0 && strcmp(method, "shell.subscribe") != 0 &&
+        strcmp(method, "shell.notify") != 0 &&
         strcmp(method, "shell.unsubscribe") != 0 && strcmp(method, "shell.key") != 0 &&
         strcmp(method, "shell.tap") != 0 && strcmp(method, "shell.lock") != 0) {
         shell_power_wake(method);
@@ -3097,6 +3116,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddItemToObject(result, "back_key", evkey_json(&back_key_dev));
         cJSON_AddItemToObject(result, "timezone", timezone_json());
         cJSON_AddItemToObject(result, "debug_overlay", overlay_json());
+        cJSON_AddItemToObject(result, "notice", notice_json());
         if (sh.header_title) {
             cJSON_AddStringToObject(result, "title", lv_label_get_text(sh.header_title));
         }
@@ -3726,6 +3746,30 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
             }
         }
         result = overlay_json();
+    } else if (strcmp(method, "shell.notify") == 0) {
+        /* A notice from outside the shell's own apps (docs/api/shell.md): a
+         * service or a script with something to say. A tap opens `app` when
+         * it names one of this build's. */
+        const cJSON *title = params ? cJSON_GetObjectItemCaseSensitive(params, "title") : NULL;
+        const cJSON *body = params ? cJSON_GetObjectItemCaseSensitive(params, "body") : NULL;
+        const cJSON *source = params ? cJSON_GetObjectItemCaseSensitive(params, "source") : NULL;
+        const cJSON *app = params ? cJSON_GetObjectItemCaseSensitive(params, "app") : NULL;
+        struct pocketos_notice n;
+
+        if (!cJSON_IsString(title) || !title->valuestring[0] || (body && !cJSON_IsString(body)) ||
+            (source && !cJSON_IsString(source)) || (app && !cJSON_IsString(app))) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                id, POCKETIPC_ERR_INVALID_PARAMS, "title is required; title, body, source and app are strings"));
+            return;
+        }
+        memset(&n, 0, sizeof(n));
+        n.title = title->valuestring;
+        n.body = body ? body->valuestring : NULL;
+        n.source = source ? source->valuestring : "DOORS";
+        n.app_id = app ? app->valuestring : NULL;
+        n.accent = -1;
+        pocketos_shell_notify(&n);
+        result = notice_json();
     } else if (strcmp(method, "shell.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();
@@ -4229,6 +4273,7 @@ int main(int argc, char **argv)
      * of a board key: their descriptors are closed here, not left to the
      * exec. */
     shell_overlay_shutdown();
+    shell_notice_shutdown();
     shell_evkey_shutdown(&power_key_dev);
     shell_evkey_shutdown(&back_key_dev);
     shell_power_menu_close("exit");

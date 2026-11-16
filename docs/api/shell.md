@@ -163,12 +163,25 @@ developer tooling, not for applications.
   text, refreshes, period_ms}` - `alive` whether its object and timer exist
   (never while off), `text` the line on show ("" while off).
 
+- `shell.notify` params `{title, body?, source?, app?}` (ui/shell/shell_notice.h,
+  app.h `pocketos_shell_notify`): a notice - a banner at the top of whatever
+  screen is showing, gone by itself after five seconds - for something that
+  has just happened. `title` is required; `body` is a preview (two lines of it
+  are shown), `source` the caption over them (default `DOORS`), and `app` the
+  id of the app a tap opens (nothing when absent; nothing while the lock is
+  engaged). Error 2 when `title` is missing or a field is not a string. Not
+  stored and not replayed: one at a time, at most four waiting. Result, and
+  `shell.info.notice`: `{visible, posted, dropped, title, body}` - the newest
+  one shown. `pos call shell shell.notify title="Backup finished" source=SYSD`.
+  RIFT raises one for a new direct or channel message (docs/apps/RIFT.md,
+  "Message banners").
+
 - `shell.info` also carries `title` with an app open: the header's title, the
   app's name or the page it is on (app.h `pocketos_shell_set_title`).
 
 Requests that act like a person - every method but `shell.info`,
 `shell.audit`, `shell.screenshot`, `shell.subscribe`, `shell.unsubscribe`,
-`shell.lock`, `shell.key` and `shell.tap` - count as activity for Power &
+`shell.notify`, `shell.lock`, `shell.key` and `shell.tap` - count as activity for Power &
 Sleep and wake a dark screen first. `shell.key` and `shell.tap` take the
 physical key's and the finger's own path: while the screen is off they only
 wake it.

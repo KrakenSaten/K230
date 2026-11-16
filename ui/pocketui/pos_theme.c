@@ -526,3 +526,45 @@ uint32_t pos_identity_rgb_mode(unsigned index, enum pos_mode mode)
     }
     return rgb;
 }
+
+/* ---- packet type colours ------------------------------------------------ *
+ *
+ * CoreScope's TYPE_COLORS (public/roles.js), value for value, in the order
+ * of enum pos_packet_kind: the colours MeshCore operators already read
+ * packet types by. Facts about a packet, not a theme's: the same in every
+ * theme, and following the display mode as the identity accents do.
+ */
+static const uint32_t packet_hues[POS_PACKET_COUNT] = {
+    0x22c55e, /* ADVERT */
+    0x3b82f6, /* GRP_TXT */
+    0x8b5cf6, /* GRP_DATA */
+    0xf59e0b, /* TXT_MSG */
+    0x6b7280, /* ACK */
+    0xa855f7, /* REQ */
+    0x06b6d4, /* RESPONSE */
+    0xec4899, /* TRACE */
+    0x14b8a6, /* PATH */
+    0xf43f5e, /* ANON_REQ */
+    0x0d9488, /* MULTIPART */
+    0xb45309, /* CONTROL */
+    0xc026d3, /* RAW_CUSTOM */
+    0x6b7280, /* UNKNOWN */
+};
+
+uint32_t pos_packet_rgb(enum pos_packet_kind kind)
+{
+    return packet_hues[(unsigned)kind < POS_PACKET_COUNT ? (unsigned)kind : POS_PACKET_UNKNOWN];
+}
+
+uint32_t pos_packet_rgb_mode(enum pos_packet_kind kind, enum pos_mode mode)
+{
+    uint32_t rgb = pos_packet_rgb(kind);
+
+    if (mode == POS_MODE_NIGHT) {
+        return pos_mix(pos_mix(rgb, 0x000000, 0.50), 0xffb060, 0.15);
+    }
+    if (mode == POS_MODE_OUTDOOR) {
+        return pos_mix(rgb, 0xffffff, 0.15);
+    }
+    return rgb;
+}

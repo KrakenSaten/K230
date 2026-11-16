@@ -120,6 +120,7 @@ add_executable(pocketos-shell
     shell_power_menu.c
     tz_zones.c
     overlay_model.c
+    shell_notice.c
     shell_overlay.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
@@ -278,6 +279,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_dm_sound.c
     ${REPO_DIR}/apps/rift/rift_arrivals.c
     ${REPO_DIR}/apps/rift/rift_traffic.c
+    ${REPO_DIR}/apps/rift/rift_air.c
+    ${REPO_DIR}/apps/rift/rift_banner.c
     ${REPO_DIR}/apps/rift/rift_rxlog.c
     ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
     ${REPO_DIR}/apps/rift/rift_strip.c
@@ -1473,6 +1476,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_dm_sound.c
         ${REPO_DIR}/apps/rift/rift_arrivals.c
         ${REPO_DIR}/apps/rift/rift_traffic.c
+        ${REPO_DIR}/apps/rift/rift_air.c
+        ${REPO_DIR}/apps/rift/rift_banner.c
         ${REPO_DIR}/apps/rift/rift_rxlog.c
         ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
         ${REPO_DIR}/apps/rift/rift_strip.c
