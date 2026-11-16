@@ -1,0 +1,11 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	mcast	mDNS	192.0.2.10	224.0.0.251	75	75	DNS	Standard query 0x0000 PTR _ipp._tcp.local
+2	1500	mcast	LLMNR	192.0.2.10	224.0.0.252	63	63	DNS	Standard query 0x7a7a A nas
+3	3000	bcast	NBNS	192.0.2.10	192.0.2.255	92	92	UDP	Name query 0x8001 NB EKFCEMEFFDEOEPCACACACACACACACAAA
+4	4500	in	NTP	192.0.2.10	192.0.2.20	90	90	UDP	NTP version 4, client
+5	6000	in	NTP	192.0.2.20	192.0.2.10	90	90	UDP	NTP version 4, server
+6	7500	mcast	SSDP	192.0.2.10	239.255.255.250	93	42	UDP	53000 > 1900 Len=51
+7	9000	mcast	IGMP	192.0.2.10	224.0.0.22	60	42	OTHER	Membership report v2
+8	10500	mcast	IGMP	192.0.2.10	224.0.0.22	60	42	OTHER	Membership report v3
+9	12000	bcast	DHCPv6	fe80::a	ff02::1:2	70	70	DHCP	Solicit, transaction 0x123456
+# frames=9 wire_bytes=693 stored_bytes=606 keep=headers

@@ -144,7 +144,7 @@ static void test_committed(const char *dir)
     /* Terminal made twenty-five apps (its icon came without this count, so
      * master read 28 here), Photo twenty-six, Poker twenty-seven, RotorTerror twenty-eight; the
      * Apps folder (DS §47) is a third folder cell. */
-    check("thirty-two icons: twenty-eight apps, the Games, Utilities and Apps folders and the empty frame", icons == 32);
+    check("thirty-three icons: twenty-nine apps, the Games, Utilities and Apps folders and the empty frame", icons == 33);
     check("nothing else is in the directory as art", files == bg + icons);
 }
 

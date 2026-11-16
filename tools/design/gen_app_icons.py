@@ -63,6 +63,7 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     FIRST_PARTY + "rotorterror.png",
                                                                     FIRST_PARTY + "deskbuddy.png",
                                                                     FIRST_PARTY + "terminal.png",
+                                                                    FIRST_PARTY + "packetshark.png",
                                                                     EXTENSION + "gallery.png"]
 # An icon is named by its file name, which is the app's id - except where a
 # package drew an icon for an app under another name. The extension's Gallery

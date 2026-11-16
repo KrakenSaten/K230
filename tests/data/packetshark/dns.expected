@@ -1,0 +1,11 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	DNS	192.0.2.10	192.0.2.53	75	75	DNS	Standard query 0x1a2b A www.example.net
+2	1500	in	DNS	192.0.2.53	192.0.2.10	91	91	DNS	Standard query response 0x1a2b A www.example.net
+3	3000	in	DNS	192.0.2.10	192.0.2.53	79	79	DNS	Standard query 0x2b3c AAAA printer.example.net
+4	4500	in	DNS	192.0.2.53	192.0.2.10	79	79	DNS	Standard query response 0x2b3c AAAA printer.example.net No such name
+5	6000	in	DNS	192.0.2.53	192.0.2.10	75	75	DNS	Standard query response 0x3c4d A api.example.net Server failure
+6	7500	in	DNS	192.0.2.10	192.0.2.53	83	83	DNS	Standard query 0x4d5e PTR 10.2.0.192.in-addr.arpa
+7	9000	in	DNS	192.0.2.10	192.0.2.53	62	62	DNS	Standard query 0x5e6f
+8	10500	in	DNS	192.0.2.10	192.0.2.53	60	60	DNS	Standard query 0x6f70
+9	12000	in	DNS	192.0.2.10	192.0.2.53	60	60	DNS	51003 > 53 Len=8 [malformed]
+# frames=9 wire_bytes=664 stored_bytes=664 keep=headers

@@ -55,6 +55,7 @@ sheets from that time say so and are kept as written.
 | libcurl 8.12.1 with OpenSSL 3.4.1, libjpeg 9f, libpng 1.6 (Buildroot packages, dynamically linked by pos-browser; libcurl also by pos-zabbix, libjpeg by pos-camera) | curl (MIT-style), Apache-2.0, IJG, libpng licence | DOCUMENTED (Buildroot licence metadata; docs/apps/BROWSER.md §6) | All already in the image (the curl tool, OpenCV); dynamic linking, nothing compiled into Doors. No new package. |
 | FFmpeg 4.4.4: libavformat, libavcodec, libswresample, libavutil (Buildroot package, dynamically linked by pos-mp3) | LGPL-2.1-or-later (configured with --disable-gpl --disable-nonfree) | DOCUMENTED (docs/legal/manifest.csv, docs/legal/licenses/ffmpeg-4.4.4; configure line read from the SDK build tree 2026-09-29) | Already in the image and its sysroot (OpenCV selects it); dynamic linking, nothing compiled into Doors. No new package (docs/apps/MP3.md). |
 | FFmpeg 4.4.4, the vendor's patched build (SDK overlay package `ffmpeg`, `--disable-gpl --disable-nonfree`): libavformat, libavcodec, libavutil, libswscale, libswresample, dynamically linked by pos-video | LGPL-2.1-or-later (with the libjpeg licence for its JPEG code) | DOCUMENTED (docs/legal/manifest.csv, Buildroot licence metadata) | Already in the image for OpenCV and LVGL; dynamic linking, nothing compiled into Doors. No new package (docs/apps/VIDEO.md). |
+| libpcap 1.10.5 (Buildroot package, dynamically linked by pos-capture, PacketShark's capture helper) | BSD-3-Clause | DOCUMENTED (Buildroot licence metadata) | Already in the image through the toolbox's tcpdump; the pocketos package now selects it itself (docs/apps/PACKETSHARK.md; dependency approved by the owner 2026-11-16, ADR-016). Dynamic linking, nothing compiled into Doors. No new package. |
 | libgpiod 2.2 (Buildroot package, dynamically linked by radiod) | LGPL-2.1-or-later | DOCUMENTED (header SPDX) | Dynamic linking keeps Doors code separate; offer library source. Header copy in vendor/libgpiod is for host compile checks only. |
 | nofrendo (bundled) | GPL-2.0 upstream | DOCUMENTED | Not needed by Doors. |
 | libtmt, qrcodegen (bundled, no LICENSE copies) | MIT upstream | DOCUMENTED | Fetch upstream with LICENSE if ever used. |
@@ -312,7 +313,7 @@ Apache-2.0 readiness work to account for.
 | strace | 6.13 | LGPL-2.1-or-later | https://github.com/strace/strace | |
 | iperf3 | 3.18 | BSD-3-Clause, BSD-2-Clause, MIT | https://downloads.es.net/pub/iperf | links OpenSSL (already in the image) for its optional authentication |
 | tcpdump | 4.99.5 | BSD-3-Clause | https://www.tcpdump.org/release | |
-| libpcap | 1.10.5 | BSD-3-Clause | https://www.tcpdump.org/release | tcpdump's capture library |
+| libpcap | 1.10.5 | BSD-3-Clause | https://www.tcpdump.org/release | tcpdump's capture library; also selected by the pocketos package and dynamically linked by pos-capture (PacketShark) |
 | libcurl / curl | 8.12.1 | curl | https://curl.se/download | already in the image (above); selected again so the toolbox never loses it |
 
 Consequences: the GPL and LGPL programs (htop, nano, strace) are separate

@@ -27,6 +27,7 @@ owner-supplied artwork.
 | `svg/deskbuddy.svg` | a small screen with two eyes: a device that looks back (drawn for DeskBuddy, docs/apps/DESKBUDDY.md; WORKSPACE after Calculator, in the `ai` hue; place and icon for the owner to confirm) | DeskBuddy |
 | `svg/mp3.svg` | two beamed eighth notes: the plainest sign for music (drawn for the MP3 app, docs/apps/MP3.md; DEVICE after Vision, in the `apps` hue; place and icon for the owner to confirm) | MP3 |
 | `svg/video.svg` | a screen with a play triangle: the plain sign for playing a video (a frame without Zabbix's stand and trace) | Video (docs/apps/VIDEO.md, DS §41; DEVICE after Vision and MP3, tools colour; for the owner to confirm) |
+| `svg/packetshark.svg` | a dorsal fin rising from a baseline that runs on as three stepped bars: a shark in the traffic | PacketShark (docs/apps/PACKETSHARK.md; APPS folder after MP3, network colour; concept accepted by the owner 2026-11-16, DS §59.8) |
 | `svg/terminal.svg` | a screen with a prompt, `>_`: the plain sign for a command line (a frame like Video's, holding a chevron and a cursor instead of a play triangle) | Terminal (docs/apps/TERMINAL.md, DS §43; DEVICE after System, tools colour; for the owner to confirm) |
 
 **How the files are made:**

@@ -1,0 +1,6 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	UDP	192.0.2.10	192.0.2.20	60	46	UDP	40000 > 9 Len=8
+2	1500	in	TCP	2001:db8::a	2001:db8::b	82	82	TCP	443 > 50000 [SYN, ACK] Seq=1000 Ack=2001
+3	3000	in	VLAN	02:00:00:00:00:0a	02:00:00:00:00:0b	60	22	OTHER	Ethertype 0x8100
+4	4500	in	VLAN	02:00:00:00:00:0a	02:00:00:00:00:0b	16	16	OTHER	Ethertype 0x8100 [malformed]
+# frames=4 wire_bytes=218 stored_bytes=166 keep=headers

@@ -243,7 +243,11 @@ for d in $deps; do
         # dynamically, nothing of it is compiled into Doors. pos-video
         # (docs/apps/VIDEO.md) links the same vendor build (--disable-gpl),
         # with libswscale as well.
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|host-*) ;;
+        # libpcap: libpcap 1.10.5 for pos-capture, PacketShark's helper
+        # (docs/apps/PACKETSHARK.md), in the image and its sysroot already
+        # (the toolbox's tcpdump), BSD-3-Clause with its own licence metadata;
+        # linked dynamically, nothing of it is compiled into Doors.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|libpcap|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         # gsl-lite: header-only, included by the nncase headers pos-vision
         # compiles against; selected by the package since 0.3.5.

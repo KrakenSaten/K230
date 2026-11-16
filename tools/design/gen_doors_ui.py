@@ -113,6 +113,7 @@ APP_ICONS = {
     "rotorterror": (FIRST_PARTY + "rotorterror.svg", "games"),
     "deskbuddy": (FIRST_PARTY + "deskbuddy.svg", "ai"),
     "terminal": (FIRST_PARTY + "terminal.svg", "tools"),
+    "packetshark": (FIRST_PARTY + "packetshark.svg", "network"),
     "photo": (EXTENSION + "gallery.svg", "files"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.

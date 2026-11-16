@@ -5328,3 +5328,156 @@ readable. Values, body text and user content stay reading text; fills keep
 and symbols. Other themes, layout, sizes and touch targets are unchanged.
 See [neon/arcade-selected/README.md](neon/arcade-selected/README.md). The owner approved
 the Arcade appearance on unit B's panel on 2026-10-20.
+
+## 59. Amendment AP — PacketShark [ACCEPTED]
+
+**Accepted by the product owner, 2026-11-16, as the visual baseline for
+PacketShark,** after reviewing all eight mockups (LIVE, PACKETS, INSPECT, the
+capture states and the landscape layout). Accepted: the protocol colour palette
+(59.2), 56 px packet rows and 36 px inspector field rows (59.6), the navigation
+(59.1, 59.7), the launcher place and the current icon concept (59.8). The
+established design language is kept in implementation; minor adjustments are
+permitted where readability, touch accuracy or the actual LVGL rendering on
+Unit A need them, and every meaningful deviation is recorded in 59.11.
+PacketShark, the packet analyzer
+(docs/apps/PACKETSHARK.md, ADR-016 accepted 2026-11-16), uses only existing parts,
+roles and tokens. It asks this amendment for three things the Design System
+does not yet say: the identity hues as protocol colours, rows denser than
+§7's 64 px, and a launcher place and icon. The decisions the owner has to make
+in accepting it are listed in 59.10. The design reference is the eight
+mockups in [packetshark/](packetshark/) (drawn by `make_mockups.py` with the
+repository's own bitmap fonts; not LVGL output), replaced as the reference by
+the app test's screenshots (`PACKETSHARK_SHOTS`) milestone by milestone.
+
+### 59.1 Components
+
+Only existing parts and roles: panels (§9) with a caption title; chips (36 px,
+the chip looks of §9); key/value rows with chevrons; buttons (§9) with at most
+one primary per screen, the action that moves the session forward; captions,
+values, `HERO_48`; the empty state. Tabs are three 56 px faces in
+`POS_STYLE_BUTTON_SECONDARY` with the active word in the accent and a 2 px
+underline (the navigation-row form of §51.3). The error panel is the one place
+`status_error` frames a panel (§2), drawn with the existing field-error border
+role. No new role, token, font or size.
+
+### 59.2 Protocol classes from the identity palette
+
+| Class | Identity hue (index) | Words drawn in it |
+| --- | --- | --- |
+| TCP | violet (6) | `TCP` |
+| UDP | sky (5) | `UDP`, `NTP`, `SSDP`, `NBNS` |
+| DNS | teal (4) | `DNS`, `mDNS`, `LLMNR` |
+| DHCP | orange (1) | `DHCP`, `DHCPv6` |
+| ARP | gold (2) | `ARP` |
+| ICMP | pink (7) | `ICMP` |
+| IPv6 | green (3) | `ICMPv6`, `NDP`, `MLD` |
+| Other | `text_secondary` | `IGMP`, `RRCP`, `LLDP`, an ethertype |
+
+Coral (0) is not used: it sits too close to `status_error`. A class colour
+appears only on the 4 px row and layer bar, the protocol word, graph marks, the
+10 px legend swatch and the 3 px share bar; never on a button, panel, chip or
+background. `status_warn` is reserved for findings, always with `!` and a word.
+This amends §37.3 for this app as §54.2 did for RIFT's RX LOG. (No class colour
+is drawn yet: the list, graph and legend are milestones M4 to M6.)
+
+### 59.3 Small and fixed type
+
+The packet list, the hex dump and the graph captions are `POS_STYLE_CAPTION`
+held at Small with its tracking removed (§54.1's rule): 8 px per character, 63
+characters in a portrait row. Controls, headings and field values follow the
+text size (§46).
+
+### 59.4 A window, not a scroll
+
+The packet list is a fixed pool of row objects bound to the helper's window
+(§54.3's rule), with a rail of finding marks. The shell holds at most 48 rows
+(DESIGN_DECISIONS D1, accepted by the owner 2026-11-15). Milestone M5, built
+(16 rows in the pool, 15 shown in portrait; a drag moves a row per 56 px).
+
+### 59.5 The traffic graph
+
+One column per elapsed second, the last 60; height `round(4 + 50·log10(n))`
+px on a fixed ladder (1, 10, 100, 1k, 10k), never rescaled; stacked by class in
+59.2's order; held seconds drawn as a 3 × 2 px muted mark; a tap selects a
+column. Milestone M4.
+
+### 59.6 Dense rows
+
+Packet rows of two Mono 14 lines in 56 px; inspector field rows of 36 px.
+Every control that triggers something stays at 56 px or more (tabs) and 64 px
+(buttons, interface rows of 72 px); a field row only selects. Below §7's
+64 px minimum, hence an amendment.
+
+### 59.7 Shapes
+
+Tall: 528 × 1116 under the shell's header, the capture bar at the foot of every
+tab, 30 px clear of the bottom corners. Wide: a top row of its own and list and
+inspector side by side (milestone M9, built: the top row at the display's
+top edge with a back slab, LIVE and PACKETS, the state and the capture's
+buttons, all 56 px as mockup 08 draws them; list rows of one 40 px line;
+docs/apps/PACKETSHARK.md §7a).
+
+### 59.8 Launcher place and icon
+
+The APPS folder, alphabetical (after MP3, before Photo), in the network hue
+(`HOME_HUE_NETWORK`, as Wave and Browser). The icon is first-party, in the icon
+extension's line language: a dorsal fin rising from a baseline that runs on as
+three stepped bars (`docs/design/doors-app-icons/svg/packetshark.svg`). The
+concept was accepted by the owner on 2026-11-16 (it had been drawn as a
+placeholder, as Zabbix's was before §35.4).
+
+### 59.9 Validation
+
+Host: `tests/packetshark_app_test.c` (every M3 state in both orientations,
+targets and the safe area, the confirmations, faults, twenty opens and
+closes) and `tests/packetshark_shell_test.sh` (the real shell). Unit A: the
+hardware check of M3 (docs/apps/PACKETSHARK.md, "Validation"); the full gate is
+milestone M10.
+
+### 59.10 For the owner
+
+Accept, change or reject: (1) the hue of each protocol class (59.2); (2) 56 px
+packet rows and 36 px field rows (59.6); (3) the launcher place and the icon
+motif (59.8).
+
+Owner, 2026-11-16, after a first reading: the mockups to be reviewed before
+approval. Owner, 2026-11-16, after that review: **all three accepted**, with
+the navigation; §59 is the visual baseline (see the status line above).
+
+### 59.11 Implementation deviations
+
+Meaningful differences between what is built and the mockups, each with its
+reason. A deviation made later for readability, touch accuracy or the LVGL
+rendering on Unit A is added here when it is made.
+
+| Where | Mockup | Built (M3 to M9) | Reason |
+| --- | --- | --- | --- |
+| Panel titles | caption set into the hairline border | as the mockup since M4: a floating caption on the screen fill, centred on the top line | resolved in M4. M3 had the caption on the first line inside the panel. In this LVGL, OVERFLOW_VISIBLE only reaches the extended draw size, so the panel and its holder report the title's reach |
+| Setup, interface row | `ETHERNET · 100 MB/S · address` | `ETHERNET · address`; the speed appears once capturing (`ETH0 · 100 MBIT/S · HEADERS`) | sysd's `network[]` carries no link speed; the helper reads it from sysfs after START. Unit written as MBIT/S, not MB/S |
+| Setup, empty traffic panel | dashed hairline, 56 px disc and glyph | solid panel with the caption `NO CAPTURE YET` | no dashed or disc empty-state part exists in pocketui yet; the graph replaces this panel in M4 |
+| Promiscuous mode row | value with a chevron, opens a confirmation | `OFF`, no chevron, takes no tap | ADR-016 rule 3: not offered until its reversion is verified on the hardware |
+| Error panel border | 2 px `status_error` | the field-error border role (1.5 px `status_error`) | the existing role; no new style |
+| LIVE while capturing | graph, protocols, signals | M4: rate, throughput, graph, readout, protocols, session counters, a line saying what is not built yet; no signals panel | the signals panel is M7 and stays hidden until then (owner, 2026-11-16) |
+| Session panel | four cells with hairline separators between them | four cells, no separators | no divider-between-cells part in pocketui; the cells keep the mockup's places |
+| Graph readout during HOLD | `HOLD 9 S · 9 204 COUNTED, NOT STORED` | `mm:ss · HELD · n PASSED` for the selected or newest second; the HOLD banner above the panel keeps the running total | the readout always names one second, as it does when capturing |
+| Protocol rates during HOLD | per-class rates continue | `0/s` per class; the shares keep the session's stored packets | held packets are counted, not classified (the `bin` line carries one held total); per-class held counts would change the protocol, left for later |
+| Throughput unit | `9.6 Mb/s` | `9.6 MBIT/S` | the unit spelling of the rest of PacketShark (caption case, BIT not b) |
+| Graph and scale in landscape | (no landscape LIVE mockup) | the 418 px graph and its scale keep their portrait size and stay together at the panel's left | DS §59.5 fixes the column width; a wider landscape graph is M9 |
+| Stopped bar | SAVE primary | as the mockup since M8; `SAVING`, then `SAVED`, disabled once the file is written | resolved in M8 |
+| Landscape | own top row, list and inspector side by side | as mockup 08 since M9 (§59.7). The top row also carries the first bar button (FILTER, LIVE, FILTER BY, SAVE), which the mockup leaves out, and the list keeps its filter bar above the rows | resolved in M9; the controls have no other place in the wide shape |
+| Wide top row, buttons | (mockup 08: 56 px) | 56 px, not §59.6's 64 | as mockup 08 draws them; the row is one height |
+| Wide list rows | (mockup 08: one line) | 40 px, one line, the gap left out | as mockup 08; below §59.6's 56 px, in the wide shape only |
+| SIGNALS | four cells in a line: DNS FAIL, TCP RST, RETRANS, UNREACH | five, the fifth `NO REPLY` (the unanswered SYN): three to a row in portrait (the panel is one row taller and LIVE scrolls for it), five in a line without chevrons in the wide column | M7 has five findings; four 114 px cells do not hold five |
+| INSPECT: a finding under its layer | `! RETRANSMISSION OF #48195 · 187.6 MS EARLIER` | the same when the repeated packet is within the last 8,192 of the buffer, else `! RETRANSMISSION · THIS SEQUENCE WAS SEEN BEFORE`; a layer with a finding opens with the packet | the helper looks back a bounded distance |
+| Filter sheet: Findings | (not drawn) | a row that cycles any packet, any finding, each finding | only existing parts; a finding's cell on LIVE is the direct way |
+| Save sheet, saved captures | (not drawn) | SAVE's confirmation as the other confirmations; a SAVED CAPTURES panel on setup and a sheet of the newest six, a tap asks before deleting | ADR-016 rules 10 and 16; only existing parts |
+| PACKETS: FOLLOW on | (held state shown: FOLLOW secondary) | FOLLOW's word in the accent, as the active tab's; no outline | the selected outline is drawn outside the button and the page's edge clips it |
+| PACKETS: the filter in words at Medium and Large | beside FILTER, at Small | beside the buttons where the widest expected words fit (Small); on a line of their own under the buttons where they do not, the sort button taking the room | §46.5: words shortened to `ALL PROTO...` read as nothing; decided from the widest expected words, so the shape does not change as the count grows |
+| PACKETS: sort words | `TIME ↓` | `TIME ↓` (oldest first), `TIME ↑` (newest first), `LEN ↑` (largest first): the arrow points where the key grows | the mockup shows one state only |
+| PACKETS: finding marks on the rail, `!` sentences | marks and warn sentences | as the mockup since M7: a 6 × 2 px `status_warn` mark for each of at most 64 parts of the view that holds a finding | resolved in M7 |
+| PACKETS in landscape | own wide layout (mockup 08) | as the mockup since M9 | resolved in M9 |
+| INSPECT: PIN | (no pin control in the mockup) | a 68 × 56 PIN face before the arrows; pinned: the selected outline and its word in the accent, `· PINNED` on the meta line, `PIN` on the row | M6 asks for pins; no new part |
+| INSPECT: the selected field's bytes | raised cell and accent-coloured bytes | raised cell and a 2 px accent rule under each byte; the byte text keeps its colour | the hex is one label in the fixed face; per-byte colours would take a label per byte |
+| INSPECT: long values | one line | a value wider than 62 % of the row wraps in its right part and the row grows | §46.5 (DNS names, sentences at Large) |
+| Filter sheet | (not drawn) | a sheet over the app as the confirmations: PROTOCOL as nine 56 px choices, Host, Port (cleared, not typed), Pinned only, CANCEL, CLEAR ALL, SHOW | only existing parts |
+| Figures at Medium and Large (DS §46) | Small only: four session figures in a line, each class's rate beside its word | where the widest expected figure (`8 888 888`, `88.8 GB`, `88 888/s` beside `100.0%`) does not fit, SESSION and LAST SESSION go two by two and every class's rate takes a line of its own under its word; Small keeps the mockup's shape. Portrait at Medium and Large; landscape's wider panels keep the Small shape | seen on Unit B at Large in portrait: dots-mode labels with an automatic height wrap, so `2 961/s` read as `2` over `961/s` and `492 000` as `492` over `000` (§46.5: wrap or grow the row, never break a figure). Decided from the widest expected figure, so the shape does not change in the middle of a capture; a figure wider still gets the same room once seen |

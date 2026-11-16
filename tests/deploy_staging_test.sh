@@ -101,7 +101,7 @@ make_tree() { # <vendor dir>
     mkdir -p "$t/usr/share/doors" "$t/usr/share/pocketos" "$t/etc"
     mkbootimg_rootfs_doors "$t" abc1234
     rm -rf "$t/etc/default"
-    for f in usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix \
+    for f in usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-capture \
              usr/bin/pos-browser usr/bin/pos-audio-effects usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-mp3 usr/bin/pos-video usr/bin/pos-drmtest usr/bin/pos-display-boot; do
         printf '#!/bin/sh\n' > "$t/$f"; chmod 0755 "$t/$f"
     done

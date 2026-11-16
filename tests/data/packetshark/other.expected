@@ -1,0 +1,9 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	mcast	LLDP	02:00:00:00:00:0b	01:80:c2:00:00:0e	60	14	OTHER	Ethertype 0x88cc
+2	1500	bcast	RRCP	02:00:00:00:00:0b	ff:ff:ff:ff:ff:ff	60	14	OTHER	Ethertype 0x8899
+3	3000	mcast	802.3	02:00:00:00:00:0b	01:80:c2:00:00:0e	60	14	OTHER	802.3 frame, length 38
+4	4500	in	ETH	-	-	10	10	OTHER	Runt frame, 10 bytes
+5	6000	in	GRE	192.0.2.10	192.0.2.20	60	34	OTHER	IP protocol 47
+6	7500	in	IPv6	2001:db8::a	2001:db8::b	62	62	IPV6	No next header
+7	9000	in	IPv4	192.0.2.10	192.0.2.20	60	60	OTHER	IPv4 header cut short or invalid
+# frames=7 wire_bytes=372 stored_bytes=208 keep=headers
