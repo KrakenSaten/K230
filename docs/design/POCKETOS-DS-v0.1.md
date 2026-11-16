@@ -3360,32 +3360,40 @@ keeps the same colour wherever it is shown.
 
 ### 37.4 The traffic graph
 
-On ACTIVITY, at the head of MESH ACTIVITY, in both orientations
-(`ui/rift_graph.c`, `rift_traffic.c`):
+Redesigned 2026-11-16 at the owner's request: a live instrument where there
+were twenty plain bars. On ACTIVITY, the first panel (MESH ACTIVITY), in both
+orientations (`ui/rift_graph.c`, `rift_air.c`; docs/apps/RIFT.md, "Heard on
+air, live"):
 
-- **Twenty bars, one per minute**, the newest at the right, in a 28 px band
-  over a 1 px baseline that is drawn under every slot (a quiet minute is a
-  watched minute, not a gap). A bar's width is the pane's twentieth less a
-  3 px gap.
-- **A bar counts frames the service reported hearing** in that minute:
-  every `mesh.activity` of `kind: "rx"` with a `mono_ms`, whether or not the
-  frame was for this node. Nothing sent by this device is in it; nothing is
-  inferred; there is no RF quality in it and the words say so: `HEARD ON
-  AIR · 20 MIN · PEAK 4/MIN`.
-- **Stacked by class**, bottom up: `MSG` (`text`, `group_text`,
-  `group_data`) in `status_ok`, `ADV` (`advert`) in `radio_rx`, `OTHER`
-  (everything else) in `text_muted`. The legend is the three words in the
-  caption line, each after a swatch in its colour; the words carry it.
-- **Heights are a fixed ladder** - 1 frame 4 px, 2–3 9, 4–7 15, 8–15 21,
-  16+ 28 - not a share of the busiest minute, so a bar keeps its height when
-  a busier minute arrives. Every class present in a minute gets at least one
-  pixel, taken from the largest.
-- **Cheap**: one draw callback of at most sixty rectangles, invalidated only
-  when a bin changed; the counts are three `uint16_t` per minute in the model
-  (120 bytes), rolled on write and read as of now.
-- The count starts when RIFT opens; there is no history before that, and a
-  frame stamped before the window is dropped rather than drawn where it did
-  not happen.
+- **Two tiers in one custom-drawn object of a fixed height** (172 px): a
+  56 px **scope** of the last sixty seconds - a mark per frame, across by
+  time, up by measured RSSI, sized by bytes - over a 92 px band of **sixty
+  bars** covering twenty minutes or five, with a time axis under them.
+- **A mark counts or measures what the service reported**: every
+  `mesh.activity` of `kind: "rx"` with a `mono_ms`. Nothing sent by this
+  device is in a bar (a transmit is an upright mark on the scope, in
+  `radio_tx`); nothing is inferred.
+- **Colour is the packet type's**, from the packet palette
+  (`pos_packet_rgb`, pos_theme.h): CoreScope's type colours, value for value.
+  This is the one place RIFT draws a colour that is not a theme token, and
+  it is the theme engine's to hold, not RIFT's: like the identity accents
+  (§37) the palette is the package's, the same in every theme, and follows
+  the display mode. The legend names every type in words with its count; the
+  swatch only agrees with the word.
+- **Motion says something or is not there**: bars scroll with the clock and
+  grow to a new count; a frame arrives with a ripple; a sweep crosses the
+  scope only while the radio is listening. Reduced motion (§12) removes all
+  of it.
+- **The scale moves in steps** (4, 8, 12, 20, 40, ...), printed on the band,
+  so a bar's height is steady between them; any frame at all is at least a
+  3 px tick.
+- **Two things can be pressed**: the graph (or its action) turns the span
+  between twenty minutes and five; a name in the legend shows that type
+  alone. Neither changes anything but the drawing.
+- **Cost**: about 15 frames a second while on screen, from an LVGL animation
+  on the object; a frame repaints the scope tier only, and the bars only
+  when they moved by a pixel. 3.4 KB of slots in the model.
+- Its captions are the caption role at Small at every text size (§46.4).
 
 ### 37.5 Capacity
 

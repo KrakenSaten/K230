@@ -64,6 +64,10 @@ struct fake_meshcored_script {
      * would already say what its event said; this one's cannot. Set it where
      * a check needs an event to land on top of the snapshot. */
     int events_after_snapshot;
+    /* Wait this long between one scripted event and the next (0: one a
+     * pass, as a burst): a mesh heard over minutes rather than in one
+     * instant, for watching a screen under steady traffic. */
+    int event_gap_ms;
     /* Broadcast verbatim after the events: a well-formed JSON object that
      * is neither an event nor a response, which a client must count and
      * ignore rather than drop the connection over. NULL for none. */

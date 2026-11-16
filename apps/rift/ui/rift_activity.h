@@ -1,11 +1,16 @@
 /*
- * ACTIVITY: what this node is doing, and what it has heard.
+ * ACTIVITY: the mesh as this node hears it, live.
  *
- * Not a dashboard of cards, and no settings: those are SYSTEM's. Three
- * things, each of them a fact somebody can act on: what state the service
- * is in and why, which nodes were heard most recently, and the raw feed
- * underneath - frames in and submissions out, with the signal only where
- * one was measured.
+ * No settings - those are SYSTEM's. Led by MESH ACTIVITY: the figures (frames
+ * heard in the last minute and in the span, how long since the last, the
+ * mean RSSI, nodes heard, frames sent), the live graph (ui/rift_graph.h: a
+ * sixty-second scope over sixty bars stacked by payload type, in the packet
+ * palette), the mix of types and the legend that names them. A tap on the
+ * graph turns its span between twenty minutes and five; a tap on a name in
+ * the legend shows that type alone. Then the LIVE FEED frame by frame, what
+ * state the radio service is in and why, the repeaters heard directly and
+ * the nodes heard most recently. Every figure is one the service reported;
+ * the signal is shown only where one was measured.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0

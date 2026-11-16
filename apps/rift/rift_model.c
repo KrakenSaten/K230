@@ -729,11 +729,7 @@ static int apply_activity(struct rift_model *m, const cJSON *data)
         a.snr_db = d;
     }
     push_activity(m, &a);
-    /* The minute bins count what was heard, by what it was. A frame with
-     * no time on it cannot be put in a minute; the feed still shows it. */
-    if (a.kind == RIFT_ACT_RX && a.have_mono) {
-        rift_traffic_note(&m->traffic, a.mono_ms, rift_traffic_class_of(a.word));
-    }
+    rift_model_note_air(m, &a); /* the minute bins and the live graph's slots */
     return 0;
 }
 

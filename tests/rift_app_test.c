@@ -136,6 +136,29 @@ void pocketos_shell_set_background(const char *app_id, const char *label, const 
     snprintf(bg_label, sizeof(bg_label), "%s", label ? label : "");
     snprintf(bg_help, sizeof(bg_help), "%s", help ? help : "");
 }
+/* The app a banner's tap asked the shell to open, with no screen of RIFT's. */
+static int open_app_calls;
+int pocketos_shell_open_app(const char *id)
+{
+    open_app_calls++;
+    return id && strcmp(id, "rift") == 0 ? 0 : -1;
+}
+/* The last notice RIFT raised (rift_banner.c), as the shell would show it. */
+static int notice_calls;
+static char notice_source[64];
+static char notice_title[64];
+static char notice_body[200];
+static void (*notice_open)(void *user);
+static void *notice_user;
+void pocketos_shell_notify(const struct pocketos_notice *n)
+{
+    notice_calls++;
+    snprintf(notice_source, sizeof(notice_source), "%s", n && n->source ? n->source : "");
+    snprintf(notice_title, sizeof(notice_title), "%s", n && n->title ? n->title : "");
+    snprintf(notice_body, sizeof(notice_body), "%s", n && n->body ? n->body : "");
+    notice_open = n ? n->on_open : NULL;
+    notice_user = n ? n->user : NULL;
+}
 int pocketos_shell_reduced_motion(void)
 {
     return 0;
@@ -8296,13 +8319,13 @@ int main(void)
         check("the caption says what the bars count",
               find_text(content(), "HEARD ON AIR") != NULL && find_text(content(), "PEAK 1/MIN"));
         check("and the legend names the classes in words",
-              find_exact(content(), "MSG") && find_exact(content(), "ADV") &&
-                  find_exact(content(), "OTHER"));
+              find_exact(content(), "ADVERT") && find_exact(content(), "CHANNEL") &&
+                  find_exact(content(), "DIRECT"));
         /* Below the fold in portrait: the section scrolled to its end, as a
          * finger would (only the section - the test's body scrolls too, and
          * a recursive scroll would move that and clip every caption), then
          * it has to be inside the body like everything else. */
-        lv_obj_scroll_to_y(ancestor(graph, 4), LV_COORD_MAX, LV_ANIM_OFF);
+        lv_obj_scroll_to_y(ancestor(graph, 4), 0, LV_ANIM_OFF);
         pump(40);
         check("the graph is inside the body", inside_body(graph));
         /* A message heard now lands in the newest minute as a message, and
@@ -8322,9 +8345,10 @@ int main(void)
             bins = rift_traffic_graph_bins(graph);
             check("a message heard now is a message in the newest minute",
                   bins && bins->count[RIFT_TRAFFIC_MINUTES - 1][RIFT_TRAFFIC_MSG] == 1);
-            check("the bar for it is drawn from the ladder",
-                  rift_graph_height_of(1) == 4 && rift_graph_height_of(3) == 9 &&
-                      rift_graph_height_of(16) == RIFT_GRAPH_BAND && rift_graph_height_of(0) == 0);
+            check("the bars' scale moves in steps, not with every frame",
+                  rift_graph_scale_for(0) == 4 && rift_graph_scale_for(4) == 4 &&
+                      rift_graph_scale_for(5) == 8 && rift_graph_scale_for(21) == 40 &&
+                      rift_graph_scale_for(41) == 80);
             /* A few minutes of a working mesh, for the photograph: heard
              * frames of every class spread over the last quarter hour. */
             for (i = 0; i < 40; i++) {

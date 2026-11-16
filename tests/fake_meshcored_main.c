@@ -30,7 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_EVENTS 64
+#define MAX_EVENTS 512
 
 int main(void)
 {
@@ -62,6 +62,7 @@ int main(void)
     script.path_refuse_prefix = getenv("FAKE_MESHCORED_PATH_REFUSE");
     script.preview_log = getenv("FAKE_MESHCORED_PREVIEWS");
     script.rx_log = getenv("FAKE_MESHCORED_RX_LOG") != NULL;
+    script.event_gap_ms = getenv("FAKE_MESHCORED_EVENT_GAP_MS") ? atoi(getenv("FAKE_MESHCORED_EVENT_GAP_MS")) : 0;
     script.life_ms = life ? atoi(life) : 10000;
     if (path) {
         FILE *f = fopen(path, "r");

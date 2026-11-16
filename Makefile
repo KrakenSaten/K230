@@ -1217,7 +1217,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
              $(RIFT_DIR)/rift_ipc_repeater.o $(RIFT_DIR)/rift_repeater.o \
              $(RIFT_DIR)/rift_route.o $(RIFT_DIR)/rift_ipc_path.o \
              $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
-             $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o core/pocketwav/pocketwav.o \
+             $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o $(RIFT_DIR)/rift_air.o core/pocketwav/pocketwav.o \
              $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o
 # The model is several translation units over one struct: rift_model.c
 # dispatches mesh.message and mesh.channel events into rift_messages.c (and
@@ -1230,7 +1230,7 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
                    $(RIFT_DIR)/rift_format.o \
-                   $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o \
+                   $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o $(RIFT_DIR)/rift_air.o \
                    $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
                    $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o \

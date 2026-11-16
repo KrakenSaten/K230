@@ -550,6 +550,9 @@ static void pump(lv_timer_t *t)
     int64_t now = rift_mono_ms();
 
     rift_ipc_poll(&a->ipc, now);
+    /* A message that has just arrived is said on whatever screen is up -
+     * RIFT's or another app's (rift_banner.c). */
+    rift_app_banner_pass(a);
     if (!a->frame) {
         /* No screen: the session takes the mesh in and nothing else - no
          * repaint, no focus, nothing of the screen's touched, because there
@@ -732,6 +735,7 @@ static void rift_tick(void *priv)
      * event arriving. */
     if (a && !a->pump) {
         rift_ipc_poll(&a->ipc, rift_mono_ms());
+        rift_app_banner_pass(a);
         rift_app_notify_pass(a, rift_mono_ms());
         rift_app_refresh(a);
     }

@@ -20,6 +20,26 @@
 #define FEED_ROWS 8
 /* The window the mesh's recent traffic is counted over. */
 #define TRAFFIC_WINDOW_MS (5 * 60 * 1000LL)
+/* The figures over the graph, and how many share a row. */
+enum { TILE_RATE = 0, TILE_SPAN, TILE_LAST, TILE_RSSI, TILE_NODES, TILE_SENT, TILE_COUNT };
+#define TILES_PER_ROW_WIDE 6
+#define TILES_PER_ROW 3
+#define TILE_GAP 8
+/* The types the legend names even when none was heard, so it is never
+ * empty: the three a reader looks for first. */
+#define LEGEND_ALWAYS(t) ((t) == RIFT_AIR_ADVERT || (t) == RIFT_AIR_GRP_TXT || (t) == RIFT_AIR_TXT_MSG)
+
+struct stat_tile {
+    lv_obj_t *box;
+    lv_obj_t *value;
+    lv_obj_t *label;
+};
+
+struct legend_chip {
+    lv_obj_t *box;
+    lv_obj_t *count;
+    unsigned drawn; /* the count it says, + 1; 0: nothing said yet */
+};
 
 struct heard_row {
     lv_obj_t *row;
@@ -32,6 +52,7 @@ struct heard_row {
 
 struct feed_row {
     lv_obj_t *row;
+    lv_obj_t *swatch; /* the frame's type, in the graph's colour */
     lv_obj_t *age;
     lv_obj_t *kind;
     lv_obj_t *detail;
@@ -55,10 +76,19 @@ struct rift_activity_view {
 
     lv_obj_t *heard_note;
     struct heard_row heard[HEARD_ROWS];
-    /* The last twenty minutes, a bar each (rift_graph.h), with its caption
-     * and legend over it, at the head of the feed. */
+    /* MESH ACTIVITY (rift_graph.h): what the graph counts on one line, the
+     * figures, the live graph itself, the mix of types under it and the
+     * legend that names them - a tap on a name shows that type alone. */
     lv_obj_t *graph_caption;
+    lv_obj_t *tiles;
+    struct stat_tile tile[TILE_COUNT];
     lv_obj_t *graph;
+    lv_obj_t *mix;
+    lv_obj_t *legend;
+    struct legend_chip chip[RIFT_AIR_TYPES];
+    lv_obj_t *span; /* the action that turns the graph's span over */
+    lv_obj_t *feed_panel;
+    int feed_wide; /* which column the feed is in: -1 not placed yet */
     lv_obj_t *feed_note;
     struct feed_row feed[FEED_ROWS];
     lv_obj_t *rxlog; /* the way into RX LOG */
@@ -162,47 +192,162 @@ static void on_rxlog(lv_event_t *e)
     rift_app_show_section(lv_event_get_user_data(e), RIFT_SEC_RXLOG);
 }
 
-static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
+/* ---- MESH ACTIVITY ---------------------------------------------------------- */
+
+static void paint_span(struct rift_activity_view *v)
 {
-    lv_obj_t *panel = rift_panel(parent, "MESH ACTIVITY");
-    lv_obj_t *legend;
-    int i;
+    int five = rift_traffic_graph_span(v->graph) == RIFT_GRAPH_SPAN_5MIN;
+
+    /* The action says what a press gives, as every action here does. */
+    lv_label_set_text(lv_obj_get_child(v->span, 0), five ? "SHOW 20 MIN" : "SHOW 5 MIN");
+    lv_label_set_text(v->tile[TILE_SPAN].label, five ? "5 MIN" : "20 MIN");
+}
+
+/* The graph's span, turned over by a tap on the graph or on its action. It
+ * changes what is drawn and nothing else. */
+static void on_span(lv_event_t *e)
+{
+    struct rift_activity_view *v = lv_event_get_user_data(e);
+
+    rift_traffic_graph_set_span(v->graph, rift_traffic_graph_span(v->graph) == RIFT_GRAPH_SPAN_5MIN
+                                              ? RIFT_GRAPH_SPAN_20MIN : RIFT_GRAPH_SPAN_5MIN);
+    paint_span(v);
+    rift_app_refresh(v->app);
+}
+
+static void paint_isolated(struct rift_activity_view *v)
+{
+    int only = rift_traffic_graph_isolated(v->graph);
     int c;
 
-    /* The graph's caption and legend on one 24 px line: what the bars
-     * count on the left, and the three classes named on the right, each
-     * word after a swatch in its colour. The words carry the classes; the
-     * swatches only agree with them (handoff §5). */
-    legend = dense(panel, 6);
-    lv_obj_set_height(legend, rift_group_h());
-    v->graph_caption = rift_cell(legend, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(v->graph_caption, 1);
-    lv_obj_set_width(v->graph_caption, 1);
-    for (c = 0; c < RIFT_TRAFFIC_CLASSES; c++) {
+    for (c = 0; c < RIFT_AIR_TYPES; c++) {
+        lv_obj_remove_style(v->chip[c].box, pos_style(POS_STYLE_SELECTED), 0);
+        if (c == only) {
+            pos_style_add(v->chip[c].box, POS_STYLE_SELECTED, 0);
+        }
+    }
+}
+
+/* A name in the legend, tapped: that type alone at full strength in the
+ * graph, and the same name tapped again for all of them. */
+static void on_chip(lv_event_t *e)
+{
+    struct rift_activity_view *v = lv_event_get_user_data(e);
+    int type = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target_obj(e));
+
+    rift_traffic_graph_isolate(v->graph, rift_traffic_graph_isolated(v->graph) == type ? -1 : type);
+    paint_isolated(v);
+    rift_app_refresh(v->app);
+}
+
+static void build_tile(struct stat_tile *t, lv_obj_t *parent, const char *label)
+{
+    t->box = lv_obj_create(parent);
+    lv_obj_remove_style_all(t->box);
+    pos_style_add(t->box, POS_STYLE_SLAB, 0);
+    lv_obj_set_height(t->box, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(t->box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_hor(t->box, 10, 0);
+    lv_obj_set_style_pad_ver(t->box, 6, 0);
+    lv_obj_set_style_pad_row(t->box, 0, 0);
+    lv_obj_remove_flag(t->box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(t->box, LV_OBJ_FLAG_CLICKABLE);
+    t->value = lv_label_create(t->box);
+    lv_obj_remove_style_all(t->value);
+    pos_style_add(t->value, POS_STYLE_TITLE, 0);
+    lv_label_set_text(t->value, RIFT_UNKNOWN);
+    t->label = lv_label_create(t->box);
+    lv_obj_remove_style_all(t->label);
+    pos_style_add(t->label, POS_STYLE_CAPTION, 0);
+    lv_label_set_text(t->label, label);
+}
+
+static void build_graph(struct rift_activity_view *v, lv_obj_t *parent)
+{
+    static const char *const tile_label[TILE_COUNT] = { "1 MIN", "20 MIN", "HEARD",
+                                                        "RSSI", "NODES", "SENT" };
+    lv_obj_t *panel = rift_panel(parent, "MESH ACTIVITY");
+    lv_obj_t *actions;
+    int i;
+
+    /* What the graph counts, alone on its line so the value at its end is
+     * never cut (DS §46): it gives up the span first, then the words. */
+    v->graph_caption = rift_cell(panel, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_width(v->graph_caption, LV_PCT(100));
+
+    v->tiles = lv_obj_create(panel);
+    lv_obj_remove_style_all(v->tiles);
+    lv_obj_set_width(v->tiles, LV_PCT(100));
+    lv_obj_set_height(v->tiles, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(v->tiles, LV_FLEX_FLOW_ROW_WRAP);
+    /* What a row has over its tiles' shares goes between them. */
+    lv_obj_set_flex_align(v->tiles, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(v->tiles, TILE_GAP, 0);
+    lv_obj_set_style_pad_row(v->tiles, TILE_GAP, 0);
+    lv_obj_remove_flag(v->tiles, LV_OBJ_FLAG_SCROLLABLE);
+    for (i = 0; i < TILE_COUNT; i++) {
+        build_tile(&v->tile[i], v->tiles, tile_label[i]);
+    }
+
+    v->graph = rift_traffic_graph_create(panel);
+    rift_traffic_graph_feed(v->graph, &v->app->model.air);
+    lv_obj_add_event_cb(v->graph, on_span, LV_EVENT_CLICKED, v);
+    v->mix = rift_traffic_mix_create(panel);
+
+    /* The legend: every type that was heard in the span, named in words
+     * with its count; the swatch only agrees with the word (handoff §5). */
+    v->legend = lv_obj_create(panel);
+    lv_obj_remove_style_all(v->legend);
+    lv_obj_set_width(v->legend, LV_PCT(100));
+    lv_obj_set_height(v->legend, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(v->legend, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_column(v->legend, 4, 0);
+    /* Room for the outline of the name being shown alone, which is drawn
+     * outside its box and would be cut at the legend's own edge. */
+    lv_obj_set_style_pad_all(v->legend, 4, 0);
+    lv_obj_remove_flag(v->legend, LV_OBJ_FLAG_SCROLLABLE);
+    for (i = 0; i < RIFT_AIR_TYPES; i++) {
+        struct legend_chip *c = &v->chip[i];
         lv_obj_t *word;
 
-        rift_traffic_swatch_create(legend, (enum rift_traffic_class)c);
-        word = rift_cell(legend, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-        lv_label_set_text(word, rift_traffic_class_word((enum rift_traffic_class)c));
-        lv_obj_set_style_margin_right(word, c + 1 < RIFT_TRAFFIC_CLASSES ? 6 : 0, 0);
-    }
-    v->graph = rift_traffic_graph_create(panel);
-    lv_obj_set_style_margin_bottom(v->graph, 6, 0);
-    /* The packet inspector behind this feed (ui/rift_rxlog_view.h): every
-     * reception, repeats included, which this summary is not. Under the
-     * graph, where it is in view in landscape too; R opens it from the keys. */
-    {
-        lv_obj_t *actions = dense(panel, 12);
-
-        lv_obj_set_height(actions, RIFT_TOUCH_H);
-        lv_obj_set_style_margin_bottom(actions, 6, 0);
-        v->rxlog = rift_action(actions, "RX LOG", 0, 1, on_rxlog, v->app);
+        c->box = dense(v->legend, 6);
+        lv_obj_set_width(c->box, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(c->box, 8, 0);
+        pos_style_add(c->box, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+        lv_obj_add_flag(c->box, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(c->box, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(c->box, on_chip, LV_EVENT_CLICKED, v);
+        rift_traffic_swatch_create(c->box, i);
+        word = rift_cell(c->box, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+        lv_label_set_text(word, rift_air_type_word((enum rift_air_type)i));
+        c->count = rift_cell(c->box, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+        pos_style_add(c->count, POS_STYLE_TEXT_PRIMARY, 0);
+        pos_style_add(c->count, POS_STYLE_CAPTION, 0);
     }
 
+    /* The graph's span, and the packet inspector behind all of this
+     * (ui/rift_rxlog_view.h): every reception, repeats included, which this
+     * summary is not. R opens it from the keys. */
+    actions = dense(panel, 12);
+    lv_obj_set_height(actions, RIFT_TOUCH_H);
+    v->span = rift_action(actions, "SHOW 5 MIN", 0, 1, on_span, v);
+    v->rxlog = rift_action(actions, "RX LOG", 0, 1, on_rxlog, v->app);
+    paint_span(v);
+}
+
+static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
+{
+    lv_obj_t *panel = rift_panel(parent, "LIVE FEED");
+    int i;
+
+    v->feed_panel = panel;
+    v->feed_wide = -1;
     for (i = 0; i < FEED_ROWS; i++) {
         struct feed_row *r = &v->feed[i];
 
         r->row = dense(panel, 8);
+        r->swatch = rift_traffic_swatch_create(r->row, RIFT_AIR_UNKNOWN);
         r->age = rift_cell(r->row, POS_STYLE_CAPTION, 40, LV_TEXT_ALIGN_LEFT);
         r->kind = rift_cell(r->row, POS_STYLE_CAPTION, 32, LV_TEXT_ALIGN_LEFT);
         r->detail = rift_cell(r->row, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
@@ -243,14 +388,16 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
 
     v->col[0] = column(v->split);
     v->col[1] = column(v->split);
-    /* The radio service alone on the left; what was heard, and the feed,
-     * on the right. Stacked in portrait in the same order. Everything that
-     * changes a setting is on SYSTEM (ui/rift_system.c). */
+    /* The live graph leads, with the radio service and the repeaters this
+     * node hears directly under it; the feed and what was heard are beside
+     * them in landscape. In portrait the feed moves up under the graph it
+     * is the detail of (rift_activity_shape). Everything that changes a
+     * setting is on SYSTEM (ui/rift_system.c). */
+    build_graph(v, v->col[0]);
     build_service(v, v->col[0]);
-    /* The repeaters this node hears directly, under the radio service. */
     rift_scan_build(app, v->col[0]);
-    build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
+    build_heard(v, v->col[1]);
     return v->root;
 }
 
@@ -272,12 +419,26 @@ void rift_activity_shape(struct rift_app *app)
     if (!v) {
         return;
     }
-    /* Landscape shows the same four panels side by side rather than
-     * stacked. Nothing exists here that portrait cannot show (handoff §1). */
+    /* Landscape shows the same panels side by side rather than stacked,
+     * the graph's column the wider. Nothing exists here that portrait
+     * cannot show (handoff §1). */
     lv_obj_set_flex_flow(v->split, app->wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
     for (i = 0; i < 2; i++) {
-        lv_obj_set_flex_grow(v->col[i], app->wide ? 1 : 0);
+        lv_obj_set_flex_grow(v->col[i], app->wide ? (i == 0 ? 3 : 2) : 0);
         lv_obj_set_width(v->col[i], app->wide ? LV_SIZE_CONTENT : LV_PCT(100));
+    }
+    if (v->feed_wide != (app->wide ? 1 : 0)) {
+        /* The feed beside the graph in landscape, directly under it in
+         * portrait: only when the shape turned, not on every layout. */
+        v->feed_wide = app->wide ? 1 : 0;
+        lv_obj_set_parent(v->feed_panel, v->col[app->wide ? 1 : 0]);
+        lv_obj_move_to_index(v->feed_panel, app->wide ? 0 : 1);
+    }
+    for (i = 0; i < TILE_COUNT; i++) {
+        int per_row = app->wide ? TILES_PER_ROW_WIDE : TILES_PER_ROW;
+
+        /* A share of the row, less room for the gaps between them. */
+        lv_obj_set_width(v->tile[i].box, LV_PCT(per_row == TILES_PER_ROW ? 31 : 15));
     }
 }
 
@@ -472,21 +633,78 @@ static void refresh_heard(struct rift_activity_view *v, int64_t now)
     }
 }
 
+/* The figures over the graph: each a count or a measurement the service
+ * reported, and a dash where there is none - never a zero for "not known". */
+static void refresh_tiles(struct rift_activity_view *v, int64_t now,
+                          const struct rift_air_view *view)
+{
+    const struct rift_model *m = &v->app->model;
+    char text[RIFT_AGE_MAX + 8];
+    double dbm = 0;
+
+    snprintf(text, sizeof(text), "%u", rift_air_heard_within(&m->air, now, RIFT_TRAFFIC_MINUTE_MS));
+    rift_label_set(v->tile[TILE_RATE].value, text);
+    snprintf(text, sizeof(text), "%u", (unsigned)view->total);
+    rift_label_set(v->tile[TILE_SPAN].value, text);
+    /* The newest frame heard, not sent. */
+    rift_fmt_age(now - m->air.last_rx_ms, m->air.have_last_rx, text, sizeof(text));
+    rift_label_set(v->tile[TILE_LAST].value, text);
+    if (rift_air_mean_rssi(&m->air, now, TRAFFIC_WINDOW_MS, &dbm) > 0) {
+        snprintf(text, sizeof(text), "%d", (int)(dbm < 0 ? dbm - 0.5 : dbm + 0.5));
+    } else {
+        snprintf(text, sizeof(text), "%s", RIFT_UNKNOWN);
+    }
+    rift_label_set(v->tile[TILE_RSSI].value, text);
+    snprintf(text, sizeof(text), "%d", rift_model_fresh_count(m, now));
+    rift_label_set(v->tile[TILE_NODES].value, m->snapshot_valid ? text : RIFT_UNKNOWN);
+    snprintf(text, sizeof(text), "%u", m->tx_ok);
+    rift_label_set(v->tile[TILE_SENT].value, m->have_traffic ? text : RIFT_UNKNOWN);
+}
+
+static void refresh_legend(struct rift_activity_view *v, const struct rift_air_view *view)
+{
+    int only = rift_traffic_graph_isolated(v->graph);
+    int c;
+
+    rift_traffic_mix_set(v->mix, view->type_total);
+    for (c = 0; c < RIFT_AIR_TYPES; c++) {
+        struct legend_chip *chip = &v->chip[c];
+        unsigned n = (unsigned)view->type_total[c];
+
+        /* A type not heard in the span is not named, apart from the three
+         * the legend always carries - and the one being shown alone, which
+         * must stay to be tapped again. */
+        if (n == 0 && !LEGEND_ALWAYS(c) && c != only) {
+            lv_obj_add_flag(chip->box, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_remove_flag(chip->box, LV_OBJ_FLAG_HIDDEN);
+        if (chip->drawn != n + 1) {
+            lv_label_set_text_fmt(chip->count, "%u", n);
+            chip->drawn = n + 1;
+        }
+    }
+}
+
 static void refresh_feed(struct rift_activity_view *v, int64_t now)
 {
     const struct rift_model *m = &v->app->model;
     struct rift_traffic_bins bins;
+    struct rift_air_view view;
+    int five = rift_traffic_graph_span(v->graph) == RIFT_GRAPH_SPAN_5MIN;
     int i;
 
-    /* The last twenty minutes as heard: read as of now, so a quiet minute
-     * since the last frame is a quiet bar and not the last busy one held. */
+    /* The minute bins as heard, read as of now: the caption's PEAK. The
+     * graph reads its own finer record on its own clock (rift_graph.c). */
     rift_traffic_read(&m->traffic, now, &bins);
     rift_traffic_graph_set(v->graph, &bins);
-    /* The caption shares its line with the legend and is clipped where the
-     * legend starts, which at a larger text size (DS §46) is inside the
-     * value it ends with. So it gives up the span first - the graph's own
-     * width says twenty minutes - then what the bars count, and keeps the
-     * value, which nothing else on the panel says. */
+    rift_traffic_graph_set_listening(v->graph, m->have_status && m->radio_online && !m->stale);
+    rift_air_read(&m->air, now, rift_traffic_graph_span(v->graph), &view);
+    refresh_tiles(v, now, &view);
+    refresh_legend(v, &view);
+    /* The caption gives up the span first - the graph's own axis says it -
+     * then what the bars count, and keeps the value, which nothing else on
+     * the panel says (DS §46). */
     {
         char value[32];
         char full[80];
@@ -496,9 +714,18 @@ static void refresh_feed(struct rift_activity_view *v, int64_t now)
         if (!bins.started) {
             snprintf(value, sizeof(value), "NOTHING YET");
         } else {
-            snprintf(value, sizeof(value), "PEAK %u/MIN", rift_traffic_peak(&bins));
+            unsigned peak = 0;
+
+            /* The busiest minute of the span shown. */
+            for (i = five ? RIFT_TRAFFIC_MINUTES - 5 : 0; i < RIFT_TRAFFIC_MINUTES; i++) {
+                unsigned n = bins.count[i][0] + bins.count[i][1] + bins.count[i][2];
+
+                peak = n > peak ? n : peak;
+            }
+            snprintf(value, sizeof(value), "PEAK %u/MIN", peak);
         }
-        snprintf(full, sizeof(full), "HEARD ON AIR" RIFT_SEP "20 MIN" RIFT_SEP "%s", value);
+        snprintf(full, sizeof(full), "HEARD ON AIR" RIFT_SEP "%s MIN" RIFT_SEP "%s", five ? "5" : "20",
+                 value);
         snprintf(counted, sizeof(counted), "HEARD ON AIR" RIFT_SEP "%s", value);
         candidate[0] = full;
         candidate[1] = counted;
@@ -519,19 +746,36 @@ static void refresh_feed(struct rift_activity_view *v, int64_t now)
             continue;
         }
         lv_obj_remove_flag(r->row, LV_OBJ_FLAG_HIDDEN);
+        rift_traffic_swatch_set(r->swatch, act->kind == RIFT_ACT_RX ? (int)rift_air_type_of(act->word)
+                                                                   : RIFT_SWATCH_TX);
         rift_fmt_age(now - act->mono_ms, act->have_mono, age, sizeof(age));
-        lv_label_set_text(r->age, age);
-        lv_label_set_text(r->kind, act->kind == RIFT_ACT_RX ? "RX" : "TX");
+        rift_label_set(r->age, age);
+        rift_label_set(r->kind, act->kind == RIFT_ACT_RX ? "RX" : "TX");
         if (act->have_bytes) {
             snprintf(bytes, sizeof(bytes), "%d B", act->bytes);
         } else {
             snprintf(bytes, sizeof(bytes), "%s B", RIFT_UNKNOWN);
         }
         if (act->kind == RIFT_ACT_RX) {
+            char full[96];
+            char no_snr[80];
+            char least[56];
+            const char *candidate[3];
+
+            /* A row that is too narrow for all of it - portrait, or a larger
+             * text size (seen on unit B at Large, 2026-11-16) - gives up the
+             * SNR, then the RSSI, rather than showing half a figure. */
             rift_fmt_rssi(act->rssi_dbm, act->have_rssi, rssi, sizeof(rssi));
             rift_fmt_snr(act->snr_db, act->have_snr, snr, sizeof(snr));
-            lv_label_set_text_fmt(r->detail, "%s" RIFT_SEP "%s" RIFT_SEP "%s" RIFT_SEP "%s",
-                                  act->word, bytes, rssi, snr);
+            snprintf(full, sizeof(full), "%s" RIFT_SEP "%s" RIFT_SEP "%s" RIFT_SEP "%s", act->word,
+                     bytes, rssi, snr);
+            snprintf(no_snr, sizeof(no_snr), "%s" RIFT_SEP "%s" RIFT_SEP "%s", act->word, bytes, rssi);
+            snprintf(least, sizeof(least), "%s" RIFT_SEP "%s", act->word, bytes);
+            candidate[0] = full;
+            candidate[1] = no_snr;
+            candidate[2] = least;
+            lv_obj_update_layout(r->row);
+            rift_cell_set_text_first_fit(r->detail, candidate, 3);
         } else {
             /* The result word, never the kind: three of the five results a
              * tx activity can carry are not "it went out". */

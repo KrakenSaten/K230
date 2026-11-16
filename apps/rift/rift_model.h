@@ -35,6 +35,7 @@
 
 #include "rift_repeater.h"
 #include "rift_route.h"
+#include "rift_air.h"
 #include "rift_traffic.h"
 
 /* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity).
@@ -661,6 +662,9 @@ struct rift_model {
     /* The same feed counted by the minute, for the last twenty
      * (rift_traffic.h): received frames only, by what they were. */
     struct rift_traffic traffic;
+    /* And by payload type in five-second slots, with the last frames one
+     * by one, for ACTIVITY's live graph (rift_air.h). */
+    struct rift_air air;
 
     /* ---- messages --------------------------------------------------- */
     /* Oldest first, which is the order mesh.messages gives and the order a
@@ -848,6 +852,12 @@ const struct rift_node *rift_model_find(const struct rift_model *m, const char *
 
 /* The newest activity first; index 0 is the newest. NULL past the end. */
 const struct rift_activity *rift_model_activity_at(const struct rift_model *m, int i);
+/* Count one activity where the graphs read it (rift_air.c): a frame heard
+ * goes in its minute (rift_traffic.h) and its slot (rift_air.h); a
+ * transmission whose result is "ok" is marked on the live scope and counted
+ * in neither. A frame with no time on it cannot be placed, and the feed
+ * still shows it. */
+void rift_model_note_air(struct rift_model *m, const struct rift_activity *a);
 
 /* The list order (handoff §11.1, decided here): heard first, most recently
  * heard at the top, then everything not heard for more than the stale

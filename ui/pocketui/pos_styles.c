@@ -224,6 +224,11 @@ lv_color_t pos_identity_hue(unsigned index)
     return lv_color_hex(pos_identity_rgb_mode(index, pos_theme_current_mode()));
 }
 
+lv_color_t pos_packet_hue(enum pos_packet_kind kind)
+{
+    return lv_color_hex(pos_packet_rgb_mode(kind, pos_theme_current_mode()));
+}
+
 lv_style_t *pos_style_identity(unsigned index)
 {
     return &identity_styles[index % POS_IDENTITY_COUNT];

@@ -25,13 +25,7 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 #   Calendar's today mark is a bullet glyph under the day's number; their line
 #   boxes touch at Large in the landscape cell, the ink does not (checked in
 #   the screenshots, DS §46.5).
-#   RIFT's traffic graph caption ("HEARD ON AIR · 20 MIN · NOTHING YET") is cut
-#   by its legend on one line; master already cuts it so at Small in portrait,
-#   and the larger sizes do the same in landscape. Changing how it is cut
-#   would change Small (DS §46.8).
-ALLOW="overlap|calendar|landscape|large|1.2.1.0.1.1.3.0
-clipped|rift|landscape|medium|1.2.0.0.1.0.0.1.2.1.0
-clipped|rift|landscape|large|1.2.0.0.1.0.0.1.2.1.0"
+ALLOW="overlap|calendar|landscape|large|1.2.1.0.1.1.3.0"
 
 WORK=$(mktemp -d)
 APPS=$(python3 - <<'PY'

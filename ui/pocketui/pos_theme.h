@@ -87,6 +87,31 @@ uint32_t pos_identity_rgb(unsigned index);
  * accents (the rule pos_styles.c applies to the package hues). */
 uint32_t pos_identity_rgb_mode(unsigned index, enum pos_mode mode);
 
+/* Packet type colours: CoreScope's palette for MeshCore payload types, so a
+ * packet is the colour here that it is in the analyzer operators already
+ * use. They are the packet's, not a theme's; a display mode treats them as
+ * it does the identity accents. Fills and marks beside a word that names
+ * the type - never the only thing that says which. */
+enum pos_packet_kind {
+    POS_PACKET_ADVERT = 0,
+    POS_PACKET_GRP_TXT,
+    POS_PACKET_GRP_DATA,
+    POS_PACKET_TXT_MSG,
+    POS_PACKET_ACK,
+    POS_PACKET_REQ,
+    POS_PACKET_RESPONSE,
+    POS_PACKET_TRACE,
+    POS_PACKET_PATH,
+    POS_PACKET_ANON_REQ,
+    POS_PACKET_MULTIPART,
+    POS_PACKET_CONTROL,
+    POS_PACKET_RAW_CUSTOM,
+    POS_PACKET_UNKNOWN,
+    POS_PACKET_COUNT
+};
+uint32_t pos_packet_rgb(enum pos_packet_kind kind);
+uint32_t pos_packet_rgb_mode(enum pos_packet_kind kind, enum pos_mode mode);
+
 const char *pos_color_token_name(enum pos_color_token token);
 const char *pos_mode_name(enum pos_mode mode);
 /* Returns 0 on success, -1 for an unknown mode string. */

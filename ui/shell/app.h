@@ -153,6 +153,39 @@ const char *pocketos_shell_radio_state(void);
 #define POCKETOS_BACKGROUND_MAX 4
 void pocketos_shell_set_background(const char *app_id, const char *label, const char *help);
 
+/* ---- notices (shell_notice.h) ------------------------------------------- *
+ *
+ * A short banner at the top of whatever screen is showing, for something
+ * that has just happened in an app that may not be the one on screen: a
+ * message that arrived. It names who says it (`source`, a caption: "RIFT",
+ * "RIFT \xC2\xB7 #public"), who or what it is about (`title`, required) and
+ * a preview (`body`, may be NULL; two lines of it are shown). It goes by
+ * itself after a few seconds. A tap calls on_open(user) - outside the tap's
+ * own event - or, when on_open is NULL, opens the app named by app_id; while
+ * the lock is engaged a tap does nothing.
+ *
+ * `accent` is an identity accent (pos_identity_hue, a hash may be passed) for
+ * the rule down its edge, so a sender is the colour here that they are in
+ * the app; -1 is the theme's accent. title_style and body_style, when not
+ * NULL, are added over the two lines' own roles - an app's colour-emoji
+ * font - and must outlive the notice (a static style).
+ *
+ * The strings are copied. Notices are not stored and not replayed: what
+ * arrives while one is showing waits its turn, a few at most. Called on the
+ * LVGL thread. */
+struct pocketos_notice {
+    const char *app_id;
+    const char *source;
+    const char *title;
+    const char *body;
+    int accent;
+    lv_style_t *title_style;
+    lv_style_t *body_style;
+    void (*on_open)(void *user);
+    void *user;
+};
+void pocketos_shell_notify(const struct pocketos_notice *notice);
+
 /* ---- display brightness ------------------------------------------------ *
  *
  * The panel belongs to the shell, and so does its brightness: an app asks

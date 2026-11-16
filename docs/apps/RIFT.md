@@ -50,7 +50,10 @@ status and traffic only; every setting is on SYSTEM. The strip fits its tabs
 to the row: their padding gives way first, then ACTIVITY and SYSTEM shorten
 to ACT and SYS (portrait at a larger text size).
 
-- **ACTIVITY** — the radio service's state and the reason for it in the
+- **ACTIVITY** — led by **MESH ACTIVITY**, the live picture of what this
+  node hears (below, "Heard on air, live"): six figures, the live graph by
+  packet type, the mix and its legend; then the **LIVE FEED** frame by frame.
+  Under them the radio service's state and the reason for it in the
   service's own words; on one line, whether radiod is connected and what
   state it reported, whether the lease is held and whether the node can
   transmit; how many nodes the service holds, which build of meshcored is
@@ -979,34 +982,101 @@ how many frames the service reported in the last five minutes, by direction
 holds, and says `48+` when all 48 are that recent and there may have been
 more. It is a count of frames and not a measure of the link.
 
-### Heard on air, by the minute
+### Heard on air, live
 
-MESH ACTIVITY also draws the last twenty minutes as a bar each
-(`ui/rift_graph.c`, from `rift_traffic.c`; DS §37.4). A bar is the number
-of frames the service reported hearing in that minute - every `mesh.activity`
-of `kind: "rx"` that carries a `mono_ms`, which is every frame MeshCore
-parsed whether or not it was for this node - stacked by what the frame was:
+Redesigned 2026-11-16 at the owner's request (the twenty plain bars it
+replaces are in git history; DS §37.4). MESH ACTIVITY is the first panel of
+ACTIVITY in both orientations and is built to be watched
+(`ui/rift_activity.c`, `ui/rift_graph.c`, from `rift_air.c`):
 
-| Class | `payload_type` | Colour (token) |
-| --- | --- | --- |
-| `MSG` | `text`, `group_text`, `group_data` - somebody said something | `status_ok` |
-| `ADV` | `advert` - somebody said they are here | `radio_rx` |
-| `OTHER` | everything else: `ack`, `path`, `req`, `response`, `trace`, `control`, ... | `text_muted` |
+- **Six figures**: frames heard in the last minute (`1 MIN`) and in the span
+  shown (`20 MIN` or `5 MIN`), how long since the last frame (`HEARD`), the
+  mean RSSI of the last five minutes' frames that carried one (`RSSI`), nodes
+  heard within twelve hours (`NODES`) and transmits the service counted as ok
+  (`SENT`). A figure the service has not reported is `?`, never 0.
+- **The live scope**, the last sixty seconds: one mark per frame, placed
+  across by when it was heard and up by the RSSI it was heard at (mid-height
+  when none was measured), sized by its bytes, coloured by its type. A frame
+  arrives with a ripple and drifts left as it ages. A transmission this
+  device made (result `ok`) is an upright bar in `radio_tx`. A sweep crosses
+  the scope while the radio is listening and says only that; with the radio
+  not ready it stops and the scope says `RADIO NOT LISTENING`.
+- **Sixty bars** under it over the last twenty minutes (twenty seconds a
+  bar), or five (five seconds a bar): **SHOW 5 MIN / SHOW 20 MIN**, or a tap
+  on the graph, turns the span over. Each bar is stacked by payload type.
+  The bars scroll with the clock rather than stepping, and grow to a new
+  count. The scale is the next of 4, 8, 12, 20, 40, ... at or above the
+  tallest bar and is printed (`8 PER 20 S`).
+- **The mix**: one bar split by type in proportion to the span's counts, and
+  under it the **legend** - each type heard in the span by name, with its
+  count (ADVERT, CHANNEL and DIRECT are always named). **A tap on a name
+  shows that type alone** in the graph, the others dimmed; the same name
+  again shows all.
+- The caption keeps the old words: `HEARD ON AIR · 20 MIN · PEAK 4/MIN`,
+  the busiest minute of the span.
 
-The words are the legend, in the same caption line as `HEARD ON AIR · 20 MIN
-· PEAK 4/MIN`; the swatches beside them only agree with the words. Nothing
-this device sent is in it - a transmit is on the feed with its result, and
-"heard" is the truth of the graph. Bar heights are a fixed ladder (1, 2-3,
-4-7, 8-15, 16+ frames), not a share of the busiest minute, so a bar keeps its
-height when a busier minute comes along, and a quiet mesh's one frame is a
-visible tick rather than nothing; a baseline under every slot says the minute
-was watched. Minutes since the last frame are quiet bars: the ring is read as
-of now, not as of the last frame. It is invalidated only when a bin changes
-and drawn in one pass of at most sixty rectangles. The counts are this
-session's - there is no history before RIFT opened - and a frame the feed
-delivers stamped before the window is dropped rather than drawn where it did
-not happen. The T-Deck's RIFT keeps the same twenty bins; this is the same
-idea in the model with the screen only drawing.
+**Types and colours.** Every `mesh.activity` of `kind: "rx"` that carries a
+`mono_ms` is counted - every frame MeshCore parsed, whether or not it was for
+this node - under its own `payload_type`. The colours are CoreScope's packet
+type colours, value for value (`pos_packet_rgb` in `ui/pocketui/pos_theme.c`),
+so a type is the colour here that it is in the analyzer; they follow the
+display mode as the identity accents do, and the legend's words carry the
+type - the colour only agrees.
+
+| Legend | `payload_type` | CoreScope | Colour |
+| --- | --- | --- | --- |
+| `ADVERT` | `advert` | ADVERT | `#22c55e` |
+| `CHANNEL` | `group_text` | GRP_TXT | `#3b82f6` |
+| `DATA` | `group_data` | GRP_DATA | `#8b5cf6` |
+| `DIRECT` | `text` | TXT_MSG | `#f59e0b` |
+| `ACK` | `ack` | ACK | `#6b7280` |
+| `REQ` | `req` | REQ | `#a855f7` |
+| `RESP` | `response` | RESPONSE | `#06b6d4` |
+| `TRACE` | `trace` | TRACE | `#ec4899` |
+| `PATH` | `path` | PATH | `#14b8a6` |
+| `ANON` | `anon_req` | ANON_REQ | `#f43f5e` |
+| `MULTI` | `multipart` | MULTIPART | `#0d9488` |
+| `CTRL` | `control` | CONTROL | `#b45309` |
+| `RAW` | `raw_custom` | RAW_CUSTOM | `#c026d3` |
+| `OTHER` | `type12`..`type14`, anything unknown | UNKNOWN | `#6b7280` |
+
+Nothing this device sent is in a bar: "heard" is the truth of the graph. The
+counts are this session's - there is no history before RIFT opened - kept in
+five-second slots for twenty minutes (`rift_air.h`, 3.4 KB) beside the minute
+bins the PEAK is read from (`rift_traffic.h`). The scope shows the last 64
+frames at most; a busier minute than that still counts in full in the bars.
+
+**Cost and motion.** The graph is one custom-drawn object, animated by an
+LVGL animation on it (RIFT still has one timer) at about 15 frames a second
+while ACTIVITY is on screen. A frame repaints the 56 px scope only; the bars
+are repainted when a count, the scale or their scroll position moved by a
+pixel. With the radio not listening and nothing on the scope, nothing is
+repainted. With reduced motion on (DS §12) nothing animates: the picture is
+brought up to date when a frame is heard and once a second. Its captions are
+the caption role at Small whatever the text size (DS §46.4): the graph's
+height is fixed.
+
+### Message banners
+
+A direct message, or a message on a channel this node holds, that has just
+arrived raises a **notice** on whatever Doors is showing - RIFT, another app,
+Home, the lock (`rift_banner.c`, app.h `pocketos_shell_notify`,
+`ui/shell/shell_notice.c`): `RIFT · DIRECT MESSAGE`, the sender and the first
+words; or `RIFT · <channel>`, the name the sender claimed and the words. Its
+rule is the sender's identity accent. It goes by itself after five seconds;
+a tap opens RIFT on that conversation (not while the lock is engaged).
+
+- "Just arrived" is the model's answer, the one the sounds use
+  (`rift_arrivals.c`): never history, a snapshot, a replay, a retransmission
+  or this device's own message.
+- None for the conversation open in front of the reader in COMMS, and none
+  for a channel muted under CHANNELS. Several arrivals in one pass are one
+  banner for the newest direct message and one for the newest channel
+  message; the shell shows them in turn.
+- It needs RIFT's session: banners are raised from the moment RIFT is first
+  opened until CLOSE RIFT, with or without RIFT on screen (DS §51). RIFT is
+  not started for them at boot.
+- Sounds are unchanged: still only with RIFT's screen up.
 
 ## RX LOG
 
@@ -1445,7 +1515,9 @@ RIFT started. Two things that are not malformed are kept out of it
 | `rift_background.c` | the session that outlives the screen (DS §51): the one block, its start, its end, and the screen's half cleared on a leave |
 | `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab; a 72 px row of five visible 64 px faces in both orientations (DS §51.3), the tabs sharing the whole row in portrait |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar, the vertical rule in a tone or an identity accent |
-| `ui/rift_graph.c/.h` | the traffic graph: a bar per minute from `rift_traffic`, stacked by class on a fixed ladder, and the legend's swatches. One draw callback from the tokens |
+| `ui/rift_graph.c/.h` | the live traffic graph: a sixty-second scope over sixty bars stacked by payload type in the packet palette, the mix bar and the legend's swatches; animated from an LVGL animation on the object, no timer |
+| `rift_air.c/.h` | what was heard by payload type in five-second slots for twenty minutes, and the last 64 frames one by one, for the graph. No LVGL |
+| `rift_banner.c` | the notice raised on any Doors screen for a direct or channel message that has just arrived; a tap opens the conversation |
 | `ui/rift_activity.c` | ACTIVITY |
 | `ui/rift_rxlog_view.c/.h` | RX LOG: a pool of 24 rows over the ring, filled and coloured; the detail (DS §54) |
 | `ui/rift_rxlog_input.c` | RX LOG's PAUSE, CLEAR and FILTER, a tap, the drag, the keys |
@@ -1594,7 +1666,7 @@ them, one after the other, are two runs of a service and not one.
 16. **The per-node activity measure has no history.** The pulse is the age
     of the newest observation and says nothing about how often *a node* is
     heard. The mesh as a whole now has twenty minutes of history in the
-    traffic graph ("Heard on air, by the minute"), counted from when RIFT
+    traffic graph ("Heard on air, live"), counted from when RIFT
     opened and not before; a per-node rate would need per-node timestamps
     RIFT does not keep. RSSI and SNR stay in their own columns and are never
     folded into either.
