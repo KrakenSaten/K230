@@ -157,7 +157,9 @@ const char *psk_exit_text(enum psk_exit e, int value, char *buf, size_t buflen)
 {
     switch (e) {
     case PSK_EXIT_CRASHED:
-        snprintf(buf, buflen, "CRASHED (SIG %d)", value > 128 ? value - 128 : value);
+        /* SIGKILL is never the helper's own fault: something killed it. */
+        snprintf(buf, buflen, "%s (SIG %d)", value == 128 + 9 ? "KILLED" : "CRASHED",
+                 value > 128 ? value - 128 : value);
         break;
     case PSK_EXIT_HUNG:
         snprintf(buf, buflen, "NOT RESPONDING");

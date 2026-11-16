@@ -723,7 +723,7 @@ static void faults(void)
         kill(pid, SIGKILL);
     }
     CHECK("kill -9 of the helper: the error panel within 1 s (S3)",
-          pid > 0 && wait_for("CRASHED (SIG 9)", 1000) && mono_ms() - t0 <= 1000);
+          pid > 0 && wait_for("KILLED (SIG 9)", 1000) && mono_ms() - t0 <= 1000);
     tap("PACKETS");
     CHECK("and the shell stays usable", shown("NO PACKETS YET") != NULL);
     app_packetshark.back(app_priv);

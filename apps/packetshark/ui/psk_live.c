@@ -809,7 +809,7 @@ static void paint_status(struct psk_app *a, enum psk_view v)
         if (m->state == PPC_STATE_STOPPED) {
             snprintf(text, sizeof(text), "%s · %s", iface, reason_word(m->reason));
         } else if (m->speed) {
-            snprintf(text, sizeof(text), "%s · %u MB/S · %s", iface, (unsigned)m->speed, sz);
+            snprintf(text, sizeof(text), "%s · %u MBIT/S · %s", iface, (unsigned)m->speed, sz);
         } else {
             snprintf(text, sizeof(text), "%s · %s", iface, sz);
         }
