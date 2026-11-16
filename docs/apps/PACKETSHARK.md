@@ -202,7 +202,20 @@ Two labels were corrected after this run (`a0d26736`: "KILLED (SIG 9)" instead o
 
 ### 9.3 Unit A, M4
 
-M4_UNIT_A_PLACEHOLDER
+Doors 0.4.0 (`21baeef0`) on Unit A, landscape, Neon theme, eth0 up at 100 Mb/s on the owner's LAN. The kit was built from `135d8dc4`: the shell with the simulator's test hooks, `pos-capture` with libpcap, both against the v0.4.0 SDK sysroot. It ran from `/tmp`, as in §9.2, with `POCKETOS_LOG_LEVEL=debug`. Synthetic traffic is generated inside the helper (`POCKETOS_CAPTURE_SOURCE=synth:N`), so nothing was transmitted. Afterwards the installed system was restored and checked byte for byte. The full record is outside the repository (`K230-artifacts/packetshark-m4/REPORT.md`).
+
+| Check | Result | Class |
+| --- | --- | --- |
+| Graph, readout, protocols on eth0, 2 min | drawn; panel titles in the border as on the host; at about 8 pkt/s the columns sit below the landscape fold (§10) | VERIFIED |
+| Interface flags, eth0 run | `0x1003` throughout; the capture socket was gone after LEAVE (3, as before) | VERIFIED |
+| CPU, eth0 (quiet LAN), LIVE showing | shell 1.4 % of one hart, helper 0.05 % | VERIFIED |
+| CPU, `synth:2000` (2,003 pps measured) | shell 1.5 %, helper 0.55 % | VERIFIED |
+| CPU, `synth:8000` (8,020 pps measured) | shell 1.6 %, helper 0.9 %; 0 drops, 0 shed | VERIFIED |
+| Worst poll and frame per minute | eth0: 5.4 ms and 10.0 ms in the minute holding the app's opening and START, then 0.6 ms and 4.7 ms. `synth:2000`: 3.0 ms and 7.4 ms. `synth:8000`: 3.3 ms and 7.9 ms. The synthetic minutes include START | VERIFIED |
+| RSS | shell 15.5 MB; helper 5.9 MB (eth0), 20.7 MB (2,000 pps), 23.2 MB (8,000 pps, rings filling) | VERIFIED |
+| Three captures, each ended with STOP and LEAVE | no helper left; 3 packet sockets | VERIFIED |
+| Logs | no address in the helper's log; no error in the shell's | VERIFIED |
+| Column tap on the device | not driven (`shell.tap` presses by text, not by position); host-tested | — |
 
 How the cost is measured: the sysroot's LVGL is built without the performance monitor (`LV_USE_PERF_MONITOR` 0, and the toolchain is not changed for it), so the app times its own poll (reading the helper's lines and painting) and a frame from the display's `LV_EVENT_REFR_START` to `LV_EVENT_REFR_READY`, keeps the worst of each and writes them once a minute at `POCKETOS_LOG_LEVEL=debug` (`packetshark: worst poll … us, worst frame … us in the last minute`). Nothing is logged at the default level.
 
@@ -212,7 +225,7 @@ How the cost is measured: the sysroot's LVGL is built without the performance mo
 - No SAVE: a capture cannot be kept. A helper crash, leaving the app, or the time limit with the app closed loses it (D10, accepted; said on screen).
 - Promiscuous mode not offered (§5).
 - Wi-Fi listed and not offered (D18): managed-mode capture is untested.
-- Landscape uses the portrait column; the wide layout is M9. The graph keeps its portrait size there.
+- Landscape uses the portrait column; the wide layout is M9. The graph keeps its portrait size there, and on Unit A the low part of the graph is below the fold until the page is scrolled.
 - During HOLD the per-class rates read `0/s`: held packets are counted, not classified (DS §59.11).
 - The relative-time origin is corrected for clock steps; frames still in the kernel ring across a step can read time 0 (an edge, not measured).
 - GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in M10.
