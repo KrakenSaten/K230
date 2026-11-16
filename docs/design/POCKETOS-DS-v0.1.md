@@ -5404,9 +5404,10 @@ Every control that triggers something stays at 56 px or more (tabs) and 64 px
 
 Tall: 528 × 1116 under the shell's header, the capture bar at the foot of every
 tab, 30 px clear of the bottom corners. Wide: a top row of its own and list and
-inspector side by side (milestone M9; until then landscape lays the portrait
-column out in the wide body, which the app test checks for targets and the
-safe area).
+inspector side by side (milestone M9, built: the top row at the display's
+top edge with a back slab, LIVE and PACKETS, the state and the capture's
+buttons, all 56 px as mockup 08 draws them; list rows of one 40 px line;
+docs/apps/PACKETSHARK.md §7a).
 
 ### 59.8 Launcher place and icon
 
@@ -5441,7 +5442,7 @@ Meaningful differences between what is built and the mockups, each with its
 reason. A deviation made later for readability, touch accuracy or the LVGL
 rendering on Unit A is added here when it is made.
 
-| Where | Mockup | Built (M3 to M6) | Reason |
+| Where | Mockup | Built (M3 to M9) | Reason |
 | --- | --- | --- | --- |
 | Panel titles | caption set into the hairline border | as the mockup since M4: a floating caption on the screen fill, centred on the top line | resolved in M4. M3 had the caption on the first line inside the panel. In this LVGL, OVERFLOW_VISIBLE only reaches the extended draw size, so the panel and its holder report the title's reach |
 | Setup, interface row | `ETHERNET · 100 MB/S · address` | `ETHERNET · address`; the speed appears once capturing (`ETH0 · 100 MBIT/S · HEADERS`) | sysd's `network[]` carries no link speed; the helper reads it from sysfs after START. Unit written as MBIT/S, not MB/S |
@@ -5454,13 +5455,19 @@ rendering on Unit A is added here when it is made.
 | Protocol rates during HOLD | per-class rates continue | `0/s` per class; the shares keep the session's stored packets | held packets are counted, not classified (the `bin` line carries one held total); per-class held counts would change the protocol, left for later |
 | Throughput unit | `9.6 Mb/s` | `9.6 MBIT/S` | the unit spelling of the rest of PacketShark (caption case, BIT not b) |
 | Graph and scale in landscape | (no landscape LIVE mockup) | the 418 px graph and its scale keep their portrait size and stay together at the panel's left | DS §59.5 fixes the column width; a wider landscape graph is M9 |
-| Stopped bar | SAVE primary | SAVE shown disabled, no primary | SAVE is M8 |
-| Landscape | own top row, list and inspector side by side | the portrait column, scrolling | M9; seen on Unit A in landscape, readable |
+| Stopped bar | SAVE primary | as the mockup since M8; `SAVING`, then `SAVED`, disabled once the file is written | resolved in M8 |
+| Landscape | own top row, list and inspector side by side | as mockup 08 since M9 (§59.7). The top row also carries the first bar button (FILTER, LIVE, FILTER BY, SAVE), which the mockup leaves out, and the list keeps its filter bar above the rows | resolved in M9; the controls have no other place in the wide shape |
+| Wide top row, buttons | (mockup 08: 56 px) | 56 px, not §59.6's 64 | as mockup 08 draws them; the row is one height |
+| Wide list rows | (mockup 08: one line) | 40 px, one line, the gap left out | as mockup 08; below §59.6's 56 px, in the wide shape only |
+| SIGNALS | four cells in a line: DNS FAIL, TCP RST, RETRANS, UNREACH | five, the fifth `NO REPLY` (the unanswered SYN): three to a row in portrait (the panel is one row taller and LIVE scrolls for it), five in a line without chevrons in the wide column | M7 has five findings; four 114 px cells do not hold five |
+| INSPECT: a finding under its layer | `! RETRANSMISSION OF #48195 · 187.6 MS EARLIER` | the same when the repeated packet is within the last 8,192 of the buffer, else `! RETRANSMISSION · THIS SEQUENCE WAS SEEN BEFORE`; a layer with a finding opens with the packet | the helper looks back a bounded distance |
+| Filter sheet: Findings | (not drawn) | a row that cycles any packet, any finding, each finding | only existing parts; a finding's cell on LIVE is the direct way |
+| Save sheet, saved captures | (not drawn) | SAVE's confirmation as the other confirmations; a SAVED CAPTURES panel on setup and a sheet of the newest six, a tap asks before deleting | ADR-016 rules 10 and 16; only existing parts |
 | PACKETS: FOLLOW on | (held state shown: FOLLOW secondary) | FOLLOW's word in the accent, as the active tab's; no outline | the selected outline is drawn outside the button and the page's edge clips it |
 | PACKETS: the filter in words at Medium and Large | beside FILTER, at Small | beside the buttons where the widest expected words fit (Small); on a line of their own under the buttons where they do not, the sort button taking the room | §46.5: words shortened to `ALL PROTO...` read as nothing; decided from the widest expected words, so the shape does not change as the count grows |
 | PACKETS: sort words | `TIME ↓` | `TIME ↓` (oldest first), `TIME ↑` (newest first), `LEN ↑` (largest first): the arrow points where the key grows | the mockup shows one state only |
-| PACKETS: finding marks on the rail, `!` sentences | marks and warn sentences | none yet | signals are M7 |
-| PACKETS in landscape | own wide layout (mockup 08) | the portrait column: about three rows | M9 |
+| PACKETS: finding marks on the rail, `!` sentences | marks and warn sentences | as the mockup since M7: a 6 × 2 px `status_warn` mark for each of at most 64 parts of the view that holds a finding | resolved in M7 |
+| PACKETS in landscape | own wide layout (mockup 08) | as the mockup since M9 | resolved in M9 |
 | INSPECT: PIN | (no pin control in the mockup) | a 68 × 56 PIN face before the arrows; pinned: the selected outline and its word in the accent, `· PINNED` on the meta line, `PIN` on the row | M6 asks for pins; no new part |
 | INSPECT: the selected field's bytes | raised cell and accent-coloured bytes | raised cell and a 2 px accent rule under each byte; the byte text keeps its colour | the hex is one label in the fixed face; per-byte colours would take a label per byte |
 | INSPECT: long values | one line | a value wider than 62 % of the row wraps in its right part and the row grows | §46.5 (DNS names, sentences at Large) |

@@ -1,6 +1,6 @@
 # ADR-016: Packet capture: ownership, privilege and privacy
 
-Status: **Accepted** by the product owner, 2026-11-16, **subject to the security constraints documented in this ADR.** The rules under "Decision" (1 to 18) and the risks accepted under "Consequences" are conditions of the acceptance, not aims: PacketShark may capture only while it keeps them. In particular promiscuous mode stays off and is not offered until the kernel's reversion of it is verified on the hardware (rule 3), and the helper drops every capability and sets `no_new_privs` before it parses a frame (rule 17). Changing any of them is a change to this ADR and needs the owner again. The record of decisions is at the end. Implemented for milestones M0 to M3 on branch `feature/packetshark` (draft PR #136, not merged; docs/apps/PACKETSHARK.md).
+Status: **Accepted** by the product owner, 2026-11-16, **subject to the security constraints documented in this ADR.** The rules under "Decision" (1 to 18) and the risks accepted under "Consequences" are conditions of the acceptance, not aims: PacketShark may capture only while it keeps them. In particular promiscuous mode stays off and is not offered until the kernel's reversion of it is verified on the hardware (rule 3), and the helper drops every capability and sets `no_new_privs` before it parses a frame (rule 17). Changing any of them is a change to this ADR and needs the owner again. The record of decisions is at the end. Implemented for milestones M0 to M3 on branch `feature/packetshark` (draft PR #136, not merged; docs/apps/PACKETSHARK.md); rules 9, 10 and 16 (SAVE, the saved captures, the save sheet's warning) are implemented with M8 on `claude/packetshark-m5-m6` (draft PR #139, not merged).
 Date: 2026-11-15 (drafted with the design package), 2026-11-16 (added to the repository with M0 to M3; accepted)
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -112,7 +112,8 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 - `CONFIG_SECCOMP` on the v0.4.0 kernel: not checked.
 - Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c) and on Unit A (open, START, STOP, LEAVE, `kill -9`, ten cycles with no helper left).
 - The screen held awake while PacketShark is in front, and only then: VERIFIED on Unit A (`shell.info` power.held).
-- Lint for receive-only, one libpcap include, no capture file written, no log line from a packet: `tests/packetshark_lint.sh`.
+- Lint for receive-only, one libpcap include, a capture file written only by SAVE (new, 0600, never followed), saved captures never opened by the shell, no log line from a packet: `tests/packetshark_lint.sh`.
+- SAVE to a 0700 folder as a 0600 file, refused under `/tmp` and while capturing, no part file left, the file read back by tcpdump: VERIFIED on the host (tests/pos_capture_test.sh, tests/psk_session_test.c, tests/packetshark_app_test.c). On the unit, as uid 0 without capabilities writing to `/root/Captures`: ASSUMED (the owner of a directory needs no capability to write in it); not yet run.
 
 ## Decision record
 

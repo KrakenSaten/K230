@@ -1,8 +1,8 @@
 # PacketShark: a packet analyzer for Doors
 
-**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request); M4 (the traffic graph and the protocol distribution) is stacked on it on `feature/packetshark-m4`, the Large-text fix on `claude/packetshark-large-text-fit`, and M5 and M6 (the packet list with its display filter and sort; the inspector and pins) on `claude/packetshark-m5-m6`. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
+**Status: IN DEVELOPMENT.** Milestones M0 to M3 of the design package are implemented on branch `feature/packetshark` (draft pull request); M4 (the traffic graph and the protocol distribution) is stacked on it on `feature/packetshark-m4`, the Large-text fix on `claude/packetshark-large-text-fit`, and M5 to M9 (the packet list with its display filter and sort; the inspector and pins; signals; SAVE and the saved captures; the wide layout and the keys) on `claude/packetshark-m5-m6`. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
 
-PacketShark captures the traffic an Ethernet interface sees, counts it and, in later milestones, lists, decodes, filters and saves it. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
+PacketShark captures the traffic an Ethernet interface sees, counts it, lists, decodes and filters it, marks what looks wrong, and saves a stopped capture when asked. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
 
 Contents:
 
@@ -32,9 +32,9 @@ The design package these milestones implement (product spec, architecture, UI/UX
 | M4 | Traffic graph (60 s, logarithmic, stacked by class), a tappable second and its readout, protocol distribution; the per-frame cost measured | Done, host-tested; on Unit A see §9.3 |
 | M5 | Packet list, display filter, sort | Done, host-tested; on Unit B see §9.4 |
 | M6 | Packet inspector, pins | Done, host-tested; on Unit B see §9.4 |
-| M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Not started (the counters are carried as zeros) |
-| M8 | SAVE and saved captures | Not started: **nothing is ever written to storage in this version** |
-| M9 | Landscape layout of its own, keyboard keys, final icon | Not started (landscape uses the portrait column) |
+| M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Done, host-tested (§4a, §9.1); not yet run on a unit |
+| M8 | SAVE and saved captures | Done, host-tested (§4, §9.1); not yet run on a unit. **One file is written, only by a confirmed SAVE of a stopped capture** |
+| M9 | Landscape layout of its own, keyboard keys, final icon | Layout and keys done, host-tested (§7, §7a); not yet run on a unit. The icon is the one the owner accepted with DS §59.8, unchanged |
 | M10 | The Unit A gate at line rate | Not started |
 
 Out of scope for PacketShark v0.1 altogether: Wi-Fi monitor mode (the installed driver configuration cannot do it), Wi-Fi capture in managed mode (listed, not offered, until validated on a test network), LoRa, any transmit path.
@@ -81,19 +81,36 @@ Files:
 | `core/pocketpcap/ppc_proto.[ch]` | The line protocol (§6) |
 | `core/pocketpcap/ppc_view.[ch]` | The list's view (M5): the display filter, an index ring of the matching packets kept up as they are stored, the length order (linear-time radix sort, rebuilt at most once a second), the pinned view |
 | `core/pocketpcap/ppc_dissect.[ch]` | The inspector's layers, fields and hex text for one stored packet (M6): bounds-checked, allocation-free, fuzzed, helper only |
+| `core/pocketpcap/ppc_signals.[ch]` | The findings (M7): a table of the TCP connections seen (4,096 entries, allocated once at START, the longest-silent replaced), the five decisions, the unanswered SYN decided late (§4a) |
 | `core/pocketpcap/ppc_source*.c` | Sources: libpcap (`ppc_source_pcap.c`, the only file that includes `<pcap/pcap.h>`), none, file, synth |
 | `tools/capture/pos_capture.c` | `pos-capture session`, `decode`, `bench`, `backend` |
-| `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model |
+| `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model, and `psk_saves.c`: the saved captures listed and deleted by name, never opened (M8) |
 
 ## 4. What is kept, and for how long
 
 - **Decoded:** Ethernet II, 802.1Q and 802.1ad (two tags), 802.3 length frames, ARP, IPv4 (options, fragments), IPv6 (hop-by-hop, routing, fragment, destination options), TCP, UDP, ICMP, ICMPv6 (neighbour discovery, MLD named), IGMP; by port DNS, mDNS, LLMNR, DHCP (message type from option 53), DHCPv6, NTP, NetBIOS-NS, SSDP. Every read is bounds-checked; a header that runs out sets `malformed`; nothing allocates (checked over a million frames).
 - **Stored, HEADERS (default; D7, accepted):** link, network and transport headers; plus the whole message, up to 1024 bytes, for ARP, ICMP, ICMPv6, DNS, mDNS, LLMNR, DHCP, DHCPv6, NTP and NetBIOS-NS. No other payload: a plain-text HTTP request leaves nothing of its body in memory (tests: S4). DNS names and DHCP host names are kept; they are what the tool is for, and the setup screen says what HEADERS keeps.
 - **Stored, FULL:** everything captured, up to 65,535 bytes a frame, chosen per capture after a confirmation, never remembered.
-- **Where:** in the helper's memory only (D10, accepted): at most 65,536 records of 80 bytes (5 MiB) and 16 MiB of stored bytes, allocated once at START. **Nothing is written to storage**; there is no SAVE in this version. Leaving the app, DISCARD, NEW CAPTURE, or a helper crash discards the packets.
+- **Where:** in the helper's memory (D10, accepted): at most 65,536 records of 80 bytes (5 MiB) and 16 MiB of stored bytes, allocated once at START. Leaving the app, DISCARD, NEW CAPTURE, or a helper crash discards the packets. **Nothing is written to storage unless a stopped capture is saved** (below).
+- **SAVE (M8; ADR-016 rules 9, 10, 16):** on a stopped capture only, after a sheet that says where the file goes, what is in it and that files in `/root` can be read over SSH on this image until a device password is set. The helper (not the shell) writes every packet whose bytes are still in the buffer to one new classic `.pcap` (nanosecond stamps, as tcpdump and Wireshark read): `capture-YYYYMMDD-HHMMSS.pcap` in UTC when the clock is set, `capture-NNNN.pcap` when it is not, in `/root/Captures` (`$HOME/Captures`; `$POCKETOS_CAPTURES_DIR` for the simulator and the tests). The folder is made 0700, the file 0600, written as `.<name>.part` with `O_EXCL` and `O_NOFOLLOW`, synced and renamed when whole; a failure or leaving mid-save removes the part file. It is refused when the folder is under `/tmp`, when free space is less than the file and a 4 MiB margin, and while a capture runs. It writes 1,024 packets a turn of the helper's loop, so the helper keeps answering. The file holds what was stored: with HEADERS, headers and plumbing messages, not payload. A pinned packet that left the buffer is not in it.
+- **Saved captures:** setup counts them; their sheet lists the newest six with size and age; a tap asks, then deletes. The shell reads names, sizes and dates and unlinks by name inside the folder; only names the helper makes (`capture-` digits and dashes `.pcap`), only regular files, never through a link. It never opens or parses a capture, and there is no way to load one back in this version.
 - **How long:** a capture stops by itself after 15 minutes by default (5, 15, 60 minutes, or no limit after a confirmation that is not remembered).
 - **Logged:** lifecycle lines only, never an address, a name or a byte of a packet (`pos-capture.log`, `shell.log`; tests: S7).
 - **Sent anywhere:** nothing. Neither process has network client code.
+
+## 4a. Signals (M7)
+
+Five findings, a bit each on the packet's record and a counter each on the `stats` line. They are heuristics on what one interface saw, not a TCP analysis.
+
+| Finding | Decided from | Notes |
+| --- | --- | --- |
+| DNS FAIL | a DNS or LLMNR response whose code is not NOERROR | mDNS and NetBIOS are not judged; DNS over TCP is not read |
+| TCP RST | a segment with RST | |
+| RETRANS | a segment whose sequence space was already seen in its direction of its connection | a keep-alive is not counted; a segment that arrives out of order reads as one; a connection that began before the capture is judged from its first segment seen |
+| UNREACH | ICMP destination unreachable; ICMPv6 type 1 | |
+| NO REPLY | a SYN the other end sent nothing back to within 3 s | decided late, twice a second: the mark is added to the stored packet if the buffer still holds it, and counted either way |
+
+The connection table is 4,096 entries (about 300 KiB), allocated once at START; when a probe of eight finds no room the entry silent longest is replaced. Nothing is judged while frames pass unseen: in HOLD and while shedding, waiting SYNs are forgotten rather than called unanswered, and packets counted but not stored carry no finding. Where they show: the SIGNALS panel on LIVE (a tap lists that finding's packets), `!` and `status_warn` on a row's sentence, marks on the list's rail, the finding beside the packet's class in INSPECT and a sentence under the layer it is about (for a retransmission, the packet it repeats and how much earlier, when that packet is within the last 8,192 of the buffer), and a Findings choice in the filter sheet.
 
 ## 5. Privilege
 
@@ -121,24 +138,44 @@ stop
 quit
 ```
 
-Commands: `start <iface> <headers|full> <promisc> <all|ip|names|noself> <limit_s>`, `hold <0|1>`, `stop`, `discard`, `view <id> <time|newest|len> <classes> <host|-> <port> <pinned>` (M5: the list's display filter and sort), `window <req> <tail|seq:N|rank:N|us:N> <before> <after>` (at most 48 rows of the view), `inspect <req> <seq> <step>` (M6: one packet, or its neighbour in the view), `pin <seq> <0|1>`, `stats`, `quit`. Events: `hello`, `state`, `stats` (4 Hz; `match` is the view's count), `bin` (each elapsed second), `rows.begin`/`row`/`rows.end` (`rows.begin` carries the anchor's rank, `row` its flags: pinned, bytes gone), `pkt.begin`/`pkt.ends`/`layer`/`field`/`hex`/`pkt.end` (the inspector's packet, queued whole), `pinned`, `error <code> <text>`, `note`, `bye`. Protocol 2 (M5): a protocol-1 row still parses. Packet-derived text is ASCII; the inspector's own words may carry two UTF-8 marks, the middle dot and the right arrow (`ppc_sanitize_marks`), and nothing else. Snapshot lines (`stats`, `bin`) are dropped and counted (`ui_skipped`) when the shell has not read the previous ones; answers are queued in a 64 KiB buffer or refused with `error busy`. Sequence numbers start at 1 and are never reused; a packet that left the store is simply not there.
+Commands: `start <iface> <headers|full> <promisc> <all|ip|names|noself> <limit_s>`, `hold <0|1>`, `stop`, `discard`, `view <id> <time|newest|len> <classes> <host|-> <port> <pinned> [<signals>]` (M5: the list's display filter and sort; M7: a hex mask of findings), `marks <req> <buckets>` (M7: which of at most 64 equal parts of the view hold a finding), `save` (M8), `window <req> <tail|seq:N|rank:N|us:N> <before> <after>` (at most 48 rows of the view), `inspect <req> <seq> <step>` (M6: one packet, or its neighbour in the view), `pin <seq> <0|1>`, `stats`, `quit`. Events: `hello`, `state`, `stats` (4 Hz; `match` is the view's count), `bin` (each elapsed second), `rows.begin`/`row`/`rows.end` (`rows.begin` carries the anchor's rank, `row` its flags: pinned, bytes gone), `pkt.begin`/`pkt.ends`/`layer`/`field`/`hex`/`pkt.end` (the inspector's packet, queued whole), `pinned`, `finding <layer> <text>` (inside a packet), `marks`, `saved <run|done|fail> <packets> <total> <bytes> <name|code>`, `error <code> <text>`, `note`, `bye`. Protocol 3 (M7, M8; protocol 2 was M5): the shell and the helper are installed together, the shell refuses a helper of another protocol. Packet-derived text is ASCII; the inspector's own words may carry two UTF-8 marks, the middle dot and the right arrow (`ppc_sanitize_marks`), and nothing else. Snapshot lines (`stats`, `bin`) are dropped and counted (`ui_skipped`) when the shell has not read the previous ones; answers are queued in a 64 KiB buffer or refused with `error busy`. Sequence numbers start at 1 and are never reused; a packet that left the store is simply not there.
 
 ## 7. The screens
 
-Three tabs, LIVE, PACKETS and INSPECT (enabled once a packet has been opened), and a capture bar at the foot. The header's hint always states the capture: `NOT CAPTURING` (`SIMULATED` in the simulator), `CAPTURING · ETH0`, `HOLD · ETH0`, `STOPPED · ETH0`, `CAPTURE ENDED`.
+Portrait: three tabs, LIVE, PACKETS and INSPECT (enabled once a packet has been opened), and a capture bar at the foot. Landscape has a shape of its own (§7a). The header's hint always states the capture: `NOT CAPTURING` (`SIMULATED` in the simulator), `CAPTURING · ETH0`, `HOLD · ETH0`, `STOPPED · ETH0`, `CAPTURE ENDED`.
 
 | View | What it shows | Bar |
 | --- | --- | --- |
 | Setup | READY or NO LINK; the interfaces from sysd (`system.status.network`; Ethernet with a carrier is selectable, Wi-Fi listed and disabled); capture options (stored bytes, stop after, capture-filter preset, promiscuous OFF); the privacy note | START CAPTURE |
-| Capturing, hold | CAPTURING or HOLD chip, interface, link speed, stored-bytes mode, elapsed; a banner for kernel drops, shedding, or what HOLD is counting. TRAFFIC: packets per second, throughput, the graph of the last 60 seconds (DS §59.5) and a readout of the selected or newest second (`03:55 · 6 885 PKT · TCP 99%`, `00:06 · HELD · 300 PASSED`); a tap on a column selects that second, a second tap clears it; the readout's `› PACKETS` opens PACKETS. PROTOCOLS: each class's packets in the newest second and its share of the session's stored packets, a tap opens PACKETS. SESSION: packets, bytes, dropped, buffer fill. No signals panel until M7 | FILTER (later), HOLD or RESUME, STOP |
-| Stopped | STOPPED and why (BY YOU, TIME LIMIT, LINK LOST) | SAVE (later), NEW CAPTURE, DISCARD |
+| Capturing, hold | CAPTURING or HOLD chip, interface, link speed, stored-bytes mode, elapsed; a banner for kernel drops, shedding, or what HOLD is counting. TRAFFIC: packets per second, throughput, the graph of the last 60 seconds (DS §59.5) and a readout of the selected or newest second (`03:55 · 6 885 PKT · TCP 99%`, `00:06 · HELD · 300 PASSED`); a tap on a column selects that second, a second tap clears it; the readout's `› PACKETS` opens PACKETS. PROTOCOLS: each class's packets in the newest second and its share of the session's stored packets, a tap opens PACKETS. SESSION: packets, bytes, dropped, buffer fill. SIGNALS: the five findings' counts, each a tap to its packets | FILTER, HOLD or RESUME, STOP |
+| Stopped | STOPPED and why (BY YOU, TIME LIMIT, LINK LOST); after SAVE its progress, then `SAVED · n PACKETS · size · name`, or why it was not saved | SAVE (primary until saved), NEW CAPTURE, DISCARD |
 | PACKETS (M5) | FILTER, the filter in words and the count (`312 OF 48 417 PACKETS`), the sort (`TIME ↓` oldest first, `TIME ↑` newest first, `LEN ↑` largest first), FOLLOW; the column heads; a window of 56 px rows (time and gap, direction, protocol word in its class hue, source → destination, length, the row's sentence, `PIN` on a pinned row); a rail that jumps anywhere in the view; `FOLLOWING THE NEWEST` or `VIEW HELD AT #n`, and where the buffer starts. A drag moves the list a row per 56 px and holds it; a tap opens the row in INSPECT. The filter sheet: one protocol class or all, the host and port a FILTER BY set (cleared there, not typed), PINNED ONLY | FILTER while following, `LIVE ↓ n` (the newer packets) while held; the state's buttons |
 | INSPECT (M6) | The packet's number, class and time, gap, direction, bytes on the wire and stored, PINNED; PIN, previous, next (the list's order); the two ends as slabs that filter on their host; the layers (the deepest open) with 36 px field rows that select; the stored bytes in hex (at most 512), the selected field's bytes marked | FILTER BY (the selected field's host, port or class); the state's buttons |
 | Helper stopped | The error panel: what happened and its signal, that the interface was released, that the packets went with the helper and nothing was written; the last session's figures | NEW CAPTURE |
 
-FULL, no time limit, DISCARD, NEW CAPTURE with packets, and Back with packets in memory each ask first, the safe choice accented. The screen stays on while PacketShark is in front (`awake_apps`, ADR-016 rule 14), so a capture never runs behind a dark panel.
+FULL, no time limit, SAVE, deleting a saved capture, DISCARD, NEW CAPTURE with packets, and Back with packets in memory each ask first, the safe choice accented; the last three say whether a saved file stays. The screen stays on while PacketShark is in front (`awake_apps`, ADR-016 rule 14), so a capture never runs behind a dark panel.
 
 Screenshots of every state, both orientations: `PACKETSHARK_SHOTS=<dir>` on `packetshark_app_test`.
+
+## 7a. The wide shape and the keys (M9)
+
+**Wide (mockup 08, DS §59.7).** Chosen from the room (wider than tall and at least 900 px), not from the orientation. The shell builds no header in landscape (`POCKETOS_HEADER_NONE_LANDSCAPE`); the app's own top row starts at the display's top edge, clear of the corners: a back slab (the Back action: it asks before leaving a capture), LIVE and PACKETS, the state chip with one line of the session (`ETH0 · 00:04:13 · 48 417 PKT · 0 DROPPED`, shortened where it does not fit), and the capture's buttons, all 56 px. Under it LIVE is two columns (TRAFFIC; PROTOCOLS, SESSION, SIGNALS), and PACKETS is the list with the inspector beside it: a row is one 40 px line (time, word, addresses, length, sentence), a tap fills the inspector without leaving the list, and a selected field offers FILTER BY in the top row. There is no INSPECT tab. The same objects serve both shapes; they are moved, not built twice.
+
+**Keys.** A keyboard does what the screen's controls do and no more: no key starts a capture, answers a sheet or deletes a file.
+
+| Key | Does |
+| --- | --- |
+| Esc | one level back (the Back action) |
+| 1, 2, 3; Tab | LIVE, PACKETS, INSPECT; the next tab |
+| Space; S | HOLD or RESUME; STOP |
+| F | the filter sheet |
+| Up, Down | PACKETS: the previous or next packet of the list (the list follows it); INSPECT: the previous or next field |
+| Left, Right | INSPECT and the wide shape: the previous or next packet |
+| Home, End | PACKETS: the oldest end; the newest (FOLLOW) |
+| Enter | PACKETS: the selected packet in INSPECT; INSPECT: FILTER BY the selected field |
+| P | PIN or unpin the inspected packet |
+
+The key table is this milestone's reading of "keyboard keys": the design package's own table is outside the repository, so it is for the owner to confirm or change.
 
 ## 8. Building and running
 
@@ -173,7 +210,9 @@ Overrides: `POCKETOS_CAPTURE_HELPER` (the helper's path), `POCKETOS_CAPTURE_SOUR
 | `pos_capture_test.sh` | every fixture against its expected rows and against the host's tcpdump; a session through a pipe; busy lock; SIGTERM; clock step; time limit; damaged replay; S4, S5, S7; the bench | pass |
 | `psk_model_test`, `psk_session_test` | the model; the graph's ladder at 0, 1, 9, 10, 99, 100, 1 000, 10 000 and 1 000 000 and that it never falls; the 60-second window; the readout of a busy, quiet and held second; the client against the real helper: crash, hang, no hello, missing helper, protocol damage, abandon under 500 ms, twenty cycles with no child or descriptor left | pass |
 | `packetshark_app_test`, `packetshark_shell_test.sh` | every M3 state in both orientations; targets and safe area; confirmations; crash and `kill -9` shown within a second; twenty opens and closes leave no helper, timer or object. M4: LIVE within 2 px of mockup 01's boxes (status, traffic, graph, protocol cells, session, tabs, bar); every class drawn in its own hue (snapshot); a tapped column moves the readout to that second and stays on it; held seconds marked at the baseline; the readout and a protocol open PACKETS; nothing clipped or overlapping in every theme and display mode and every text size; at 8 000 synthetic pps the poll's work under 4 ms (host: 0.2 to 1.0 ms) | pass |
-| `packetshark_lint.sh` | receive only; one libpcap include; the hot path allocates and formats nothing; the shell links only the protocol; one file created (the lock); no log line from a packet | pass |
+| `ppc_signals_test` (M7) | each finding and what must not be one (keep-alive, bare ACK, the other direction, a query, NetBIOS, a later fragment); the sequence space wrapping; a SYN reported once at 3 s and never while frames pass unseen; 20,000 connections through 16 entries; the late mark in the store and the views that filter on findings; Ethernet padding not counted as payload | pass |
+| M7 to M9 in the suites above | `pos_capture_test.sh`: the five counters, views of findings, marks, SAVE refused while capturing and under `/tmp`, two saves two files, 0700/0600, no part file left (also after a quit mid-save), the file read back packet for packet by `pos-capture decode` and by tcpdump, the log naming no file. `psk_session_test`: the same through the app's client, the finding line under the TCP layer, and the saved captures listed and deleted (another file, a link, a path and a missing name refused). `packetshark_app_test`: SIGNALS and a tap to its packets, the rail's marks, the inspector's finding, SAVE's sheet and outcome, the saved list and its delete confirmation, every key, the wide shape's top row, columns and one-line rows. The fuzz target judges findings on every mutated frame | pass |
+| `packetshark_lint.sh` | receive only; one libpcap include; the hot path allocates and formats nothing; the findings allocate once and format nothing; the shell links only the protocol; two files created (the lock, and SAVE's, new and never followed); packets written to SAVE's file and nowhere else; the saved captures listed and deleted, never opened; no key starts a capture, answers a sheet or deletes; no log line from a packet | pass |
 
 Host bench (`pos-capture bench`, x86-64, not a device figure): decode 32 ns/frame, decode + store 95 ns, one row of text 443 ns. Device figures: §9.2.
 
@@ -244,15 +283,18 @@ How the cost is measured: the sysroot's LVGL is built without the performance mo
 ## 10. Known limits and open items
 
 - **Owner decisions:** ADR-016 accepted 2026-11-16 subject to its security constraints, which bind every later milestone (in particular: promiscuous mode not offered until its reversion is verified on the hardware; capabilities dropped before a frame is parsed). The libpcap dependency approved 2026-11-16. DS §59 accepted 2026-11-16 after the owner reviewed the mockups; minor adjustments for readability, touch accuracy or LVGL rendering on Unit A are allowed and recorded in DS §59.11.
-- No SAVE: a capture cannot be kept. A helper crash, leaving the app, or the time limit with the app closed loses it (D10, accepted; said on screen).
+- **M7 to M9 have not run on a unit.** They are built for the K230 and host-tested; Unit B still runs another branch's shell, and the shell and helper must be installed together (protocol 3).
+- An unsaved capture is lost by a helper crash or by leaving the app (D10, accepted; said on screen). A saved capture cannot be opened again in the app in this version: it is listed and deleted there, and read with another tool.
+- SAVE writes the buffer as it is: packets whose bytes have left the ring, and pinned packets that left the buffer, are not in the file. Saved files are readable by anyone who can log in as root over the network (ADR-016, accepted risk; said on the save sheet).
+- Signals are heuristics (§4a): out-of-order segments read as retransmissions, findings are not judged in HOLD or while shedding, and DNS over TCP is not read.
+- The synthetic source now carries about one finding in a hundred frames, so the simulator has every kind to show.
 - Promiscuous mode not offered (§5).
 - Wi-Fi listed and not offered (D18): managed-mode capture is untested.
-- Landscape uses the portrait column; the wide layout is M9. The graph keeps its portrait size there, and on Unit A the low part of the graph is below the fold until the page is scrolled.
+- The wide shape (§7a) is sized for the panel at text size Small; at Medium and Large LIVE's right column and the setup scroll. The error panel and the sheets use the portrait column in the wide body.
 - During HOLD the per-class rates read `0/s`: held packets are counted, not classified (DS §59.11).
 - The relative-time origin is corrected for clock steps; frames still in the kernel ring across a step can read time 0 (an edge, not measured).
 - GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in M10.
 - No seccomp; no dedicated user (ADR-016).
-- Signals (M7) are not implemented; their protocol fields are zeros, so no row or field shows a finding and the rail has no marks.
 - A full repaint of a following list is the costliest frame the app draws (about 28 ms on Unit B); a following list repaints twice a second.
 - The display filter has one protocol class at a time in the sheet (the protocol carries a mask); a host or port comes from FILTER BY or an end's slab, never typed.
 - A MAC filters only ARP and frames with no network layer: an IP packet's record keeps its IP addresses, not its MACs, so its Ethernet addresses offer no FILTER BY.
