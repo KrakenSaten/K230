@@ -19,7 +19,9 @@
  *       built only from the bytes the stored-bytes rule keeps.
  *   pos-capture bench [FRAMES]
  *       Nanoseconds per frame for decode, decode+store and decode+store+
- *       account on synthetic frames, and per formatted row. No network.
+ *       account on synthetic frames, and per formatted row; the list's view
+ *       over a full store (a filter set, the length order built) and one
+ *       packet dissected for the inspector. No network.
  *   pos-capture backend
  *       "pcap" when this build captures live interfaces, "none" when not.
  *
@@ -1241,6 +1243,60 @@ static int run_decode(const char *path, enum ppc_keep keep)
 
 #define BENCH_TEMPLATES 4096
 
+static void bench_item(void *ctx, const struct ppc_ds_item *it)
+{
+    (*(uint64_t *)ctx) += (uint64_t)it->text[0];
+}
+
+/* The list's view and the inspector's dissector on what the store holds
+ * (M5, M6): what a filter change, a length order and an inspected packet
+ * cost, the helper's work behind a window or an inspect. */
+static void bench_view(struct ppc_store *store)
+{
+    static uint8_t b[65536];
+    struct ppc_view v;
+    struct ppc_filter f;
+    uint64_t t0;
+    uint64_t sink = 0;
+    double ms_all;
+    double ms_tcp;
+    double ms_len;
+    double us_dissect;
+    uint32_t i;
+    uint32_t n;
+
+    if (ppc_view_init(&v, PPC_STORE_SUMMARIES) != 0) {
+        printf("bench view: no memory\n");
+        return;
+    }
+    memset(&f, 0, sizeof(f));
+    f.classes = PPC_CLASSES_ALL;
+    t0 = clock_ns(CLOCK_MONOTONIC);
+    ppc_view_set(&v, store, 1, PPC_SORT_TIME, &f);
+    ms_all = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / 1e6;
+    f.classes = 1u << PPC_CLASS_TCP;
+    t0 = clock_ns(CLOCK_MONOTONIC);
+    ppc_view_set(&v, store, 2, PPC_SORT_LEN, &f);
+    ms_tcp = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / 1e6;
+    t0 = clock_ns(CLOCK_MONOTONIC);
+    ppc_view_prepare(&v, store, 0);
+    ms_len = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / 1e6;
+    t0 = clock_ns(CLOCK_MONOTONIC);
+    for (i = 0; i < 1000; i++) {
+        const struct ppc_record *r = ppc_store_get(store, store->last_seq - i);
+
+        n = r ? ppc_store_copy(store, r, b, sizeof(b)) : 0;
+        if (r) {
+            ppc_dissect(r, b, n, bench_item, &sink);
+        }
+    }
+    us_dissect = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / 1000.0 / 1000.0;
+    printf("bench view_all_ms=%.2f view_tcp_ms=%.2f (%u of %u) len_order_ms=%.2f dissect_us=%.1f sink=%llu\n",
+           ms_all, ms_tcp, ppc_view_count(&v), ppc_store_count(store), ms_len, us_dissect,
+           (unsigned long long)(sink & 1u));
+    ppc_view_free(&v);
+}
+
 static int run_bench(uint64_t frames)
 {
     static uint8_t tpl[BENCH_TEMPLATES][1600];
@@ -1325,6 +1381,7 @@ static int run_bench(uint64_t frames)
     printf("bench format_row_ns=%.0f\n", ns_format);
     printf("bench store_fill_permille=%u held=%u sink=%llu\n", ppc_store_fill_permille(&store),
            ppc_store_count(&store), (unsigned long long)(sink & 1u));
+    bench_view(&store);
     ppc_store_free(&store);
     return 0;
 }
