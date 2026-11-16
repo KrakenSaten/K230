@@ -1,6 +1,6 @@
 /*
  * PacketShark: a packet analyzer for Doors (docs/apps/PACKETSHARK.md;
- * ADR-016 and DS §59 PROPOSED). Milestone M3: Ethernet capture from the
+ * ADR-016 accepted, DS §59 PROPOSED). Milestone M3: Ethernet capture from the
  * launcher - setup, START, live counters, HOLD, STOP, the error state.
  *
  * The shell is a viewport (DESIGN_DECISIONS D1, accepted): the capture

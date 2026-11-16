@@ -1,6 +1,6 @@
 /*
  * pocketpcap: the packet record PacketShark's helper keeps for every stored
- * frame (docs/apps/PACKETSHARK.md, ADR-016 proposed).
+ * frame (docs/apps/PACKETSHARK.md, ADR-016 accepted).
  *
  * A record is 80 bytes, fixed, binary, and private to the helper: it never
  * crosses the socket to the shell. The shell receives text formatted from it

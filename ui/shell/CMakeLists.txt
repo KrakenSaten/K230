@@ -426,8 +426,8 @@ if(POCKETOS_WITH_ZABBIX)
     message(STATUS "Zabbix viewer: built into the shell (experiment)")
 endif()
 
-# PacketShark, the packet analyzer (docs/apps/PACKETSHARK.md; ADR-016 and DS
-# §59 PROPOSED), in the shell by default. -DPOCKETOS_WITH_PACKETSHARK=OFF
+# PacketShark, the packet analyzer (docs/apps/PACKETSHARK.md; ADR-016 accepted,
+# DS §59 PROPOSED), in the shell by default. -DPOCKETOS_WITH_PACKETSHARK=OFF
 # leaves it out and gives the shell as it was before it. The shell links
 # only the line protocol of core/pocketpcap (tests/packetshark_lint.sh): the
 # decoder, the packets and the capture socket are in pos-capture.

@@ -5323,8 +5323,9 @@ the Arcade appearance on unit B's panel on 2026-10-20.
 
 ## 59. Amendment AP — PacketShark [PROPOSED]
 
-**Proposed, 2026-11-16. Not accepted.** PacketShark, the packet analyzer
-(docs/apps/PACKETSHARK.md, ADR-016 proposed), uses only existing parts,
+**Proposed, 2026-11-16. Not accepted: the owner reviews the mockups before
+approval (owner, 2026-11-16).** PacketShark, the packet analyzer
+(docs/apps/PACKETSHARK.md, ADR-016 accepted 2026-11-16), uses only existing parts,
 roles and tokens. It asks this amendment for three things the Design System
 does not yet say: the identity hues as protocol colours, rows denser than
 §7's 64 px, and a launcher place and icon. The decisions the owner has to make
@@ -5420,3 +5421,8 @@ milestone M10.
 Accept, change or reject: (1) the hue of each protocol class (59.2); (2) 56 px
 packet rows and 36 px field rows (59.6); (3) the launcher place and the icon
 motif (59.8).
+
+Owner, 2026-11-16: the mockups are to be reviewed before this section is
+approved. Until then it stays PROPOSED, and what M3 already draws under it
+(the tab faces, the launcher place, the placeholder icon) is subject to that
+review.

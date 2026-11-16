@@ -1,7 +1,7 @@
 # ADR-016: Packet capture: ownership, privilege and privacy
 
-Status: **Proposed**. Not accepted: the owner has not decided rule 3 (promiscuous mode), the helper exception to ADR-002 point 2, or the screen kept on (decisions 1 and 8 of the design package). Implemented in part on branch `feature/packetshark` (milestones M0 to M3, docs/apps/PACKETSHARK.md); the parts the owner accepted on 2026-11-15 are marked below.
-Date: 2026-11-15 (drafted with the design package), 2026-11-16 (added to the repository with M0 to M3)
+Status: **Accepted** by the product owner, 2026-11-16, **subject to the security constraints documented in this ADR.** The rules under "Decision" (1 to 18) and the risks accepted under "Consequences" are conditions of the acceptance, not aims: PacketShark may capture only while it keeps them. In particular promiscuous mode stays off and is not offered until the kernel's reversion of it is verified on the hardware (rule 3), and the helper drops every capability and sets `no_new_privs` before it parses a frame (rule 17). Changing any of them is a change to this ADR and needs the owner again. The record of decisions is at the end. Implemented for milestones M0 to M3 on branch `feature/packetshark` (draft PR #136, not merged; docs/apps/PACKETSHARK.md).
+Date: 2026-11-15 (drafted with the design package), 2026-11-16 (added to the repository with M0 to M3; accepted)
 Deciders: product owner (final), AI engineering partner (author)
 
 ## Context
@@ -45,7 +45,7 @@ What PacketShark needs: a capture socket on one interface for as long as a captu
 - Pro: ADR-004's proven shape with no new mechanism; no capture-capable process exists unless a person pressed START and is looking at the app; a decoder fault takes the helper, and the shell says so; the kernel closes the socket and reverts promiscuous mode when the process dies for any reason.
 - Con: not the letter of ADR-002; a fifth small line protocol; still uid 0, though without capabilities.
 
-## Decision (proposed)
+## Decision
 
 **Option D.** Packet capture is owned, per session, by `pos-capture`, as a narrow exception to ADR-002 point 2 of the same shape as ADR-004 and ADR-010. Scope: a receive-only capture socket on one interface, for PacketShark, only while its screen is open.
 
@@ -85,7 +85,7 @@ Revisit when: background capture is wanted; a second app wants packets; Doors ge
 
 ## Consequences
 
-Needed now: `core/pocketpcap`, `tools/capture` (`pos-capture`), `apps/packetshark`, their tests and lint, the launcher entry, one line in the shell's keep-awake table, and an explicit libpcap dependency in the `pocketos` Buildroot package (a dependency declaration, proposed with this ADR; libpcap is already in the image through the toolbox).
+Needed now: `core/pocketpcap`, `tools/capture` (`pos-capture`), `apps/packetshark`, their tests and lint, the launcher entry, one line in the shell's keep-awake table, and an explicit libpcap dependency in the `pocketos` Buildroot package (a dependency declaration, approved by the owner on 2026-11-16; libpcap is already in the image through the toolbox).
 
 Useful soon: the Unit A gate (`docs/hardware/PACKETSHARK_GATE.md`); a seccomp allowlist; a shared helper-process client, which five apps would now use; a device password, which this app makes more pressing.
 
@@ -113,3 +113,12 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 - Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c) and on Unit A (open, START, STOP, LEAVE, `kill -9`, ten cycles with no helper left).
 - The screen held awake while PacketShark is in front, and only then: VERIFIED on Unit A (`shell.info` power.held).
 - Lint for receive-only, one libpcap include, no capture file written, no log line from a packet: `tests/packetshark_lint.sh`.
+
+## Decision record
+
+| Date | Decision | By |
+| --- | --- | --- |
+| 2026-11-15 | Accepted with the design package: the helper owns the packets and the shell keeps at most 48 rows (D1); the helper runs at nice 5 (D5); HEADERS is the default for what is stored (D7); captures stay in memory until SAVE (D10) | Product owner |
+| 2026-11-16 | **ADR-016 approved, subject to the documented security constraints** (rules 1 to 18 and the accepted risks; see Status) | Product owner |
+| 2026-11-16 | **The explicit libpcap dependency of the `pocketos` package approved** (`select BR2_PACKAGE_LIBPCAP`, `libpcap` in `POCKETOS_DEPENDENCIES`, `PACKETSHARK_PCAP=1`) | Product owner |
+| 2026-11-16 | DS §59 (protocol colours, dense rows, launcher place and icon) **not decided**: the owner reviews the mockups before approval; it stays PROPOSED | Product owner |

@@ -131,7 +131,7 @@ extern const struct pocketos_app app_library;
 #define OPTIONAL_LIBRARY
 #endif
 /* PacketShark, the packet analyzer (docs/apps/PACKETSHARK.md, ADR-016
- * proposed): in by default, left out with -DPOCKETOS_WITH_PACKETSHARK=OFF. */
+ * accepted): in by default, left out with -DPOCKETOS_WITH_PACKETSHARK=OFF. */
 #ifdef POCKETOS_WITH_PACKETSHARK
 extern const struct pocketos_app app_packetshark;
 #define OPTIONAL_PACKETSHARK , &app_packetshark
@@ -745,7 +745,7 @@ int pocketos_shell_set_debug_overlay(int on)
  * the lock stays up while one of them is in front (DS §52.4). By id, from
  * this table, so the apps themselves do not change. PacketShark for privacy:
  * screen-off is not sleep here, so a capture would go on behind a dark panel
- * with nothing on screen saying so (ADR-016 rule 14, proposed). */
+ * with nothing on screen saying so (ADR-016 rule 14). */
 static const char *const awake_apps[] = { "video", "camera", "vision", "deskbuddy", "packetshark" };
 
 static bool power_hold(void)

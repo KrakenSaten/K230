@@ -1,6 +1,6 @@
 /*
  * PacketShark's link to its helper: one pos-capture process per capture,
- * driven without ever blocking the LVGL thread (ADR-016 proposed; the
+ * driven without ever blocking the LVGL thread (ADR-016 accepted; the
  * pattern of apps/zabbix/zabbix_session.h, ADR-007 accepted).
  *
  * Why a helper process: the capture socket, the parser of hostile bytes and

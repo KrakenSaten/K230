@@ -1,5 +1,5 @@
 #!/bin/bash
-# PacketShark's boundaries (docs/apps/PACKETSHARK.md, ADR-016 proposed),
+# PacketShark's boundaries (docs/apps/PACKETSHARK.md, ADR-016 accepted),
 # held statically. tests/pos_capture_test.sh and the session and app tests
 # hold the same rules at run time.
 set -u

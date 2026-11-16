@@ -73,7 +73,8 @@ POCKETOS_INSTALL_TARGET = YES
 # --disable-gpl), so this adds a build
 # dependency, not a package.
 # libpcap: pos-capture, PacketShark's capture helper (docs/apps/PACKETSHARK.md,
-# ADR-016 proposed), captures live interfaces with it (PACKETSHARK_PCAP=1).
+# ADR-016 accepted), captures live interfaces with it (PACKETSHARK_PCAP=1);
+# the dependency was approved by the owner on 2026-11-16.
 # libpcap 1.10.5 was already in the image and its sysroot (the toolbox's
 # tcpdump selects it; BSD-3-Clause, docs/LICENSING.md), so this adds a build
 # dependency, not a package. Dynamically linked; nothing compiled into Doors.

@@ -2210,7 +2210,7 @@ zabbix-san-test:
 	    TZ=UTC ./tests/zabbix_view_test && \
 	    ./tests/zabbix_session_test tools/zabbix/pos-zabbix
 
-# PacketShark (docs/apps/PACKETSHARK.md, ADR-016 PROPOSED).
+# PacketShark (docs/apps/PACKETSHARK.md, ADR-016 accepted).
 #
 # core/pocketpcap is PacketShark's capture library, all pure C: the packet
 # record and its decoder, the row formatter, the .pcap reader and writer,

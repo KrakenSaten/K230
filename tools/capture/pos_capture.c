@@ -1,6 +1,6 @@
 /*
  * pos-capture: PacketShark's capture helper (docs/apps/PACKETSHARK.md,
- * ADR-016 proposed). The only Doors program that opens a capture socket.
+ * ADR-016 accepted). The only Doors program that opens a capture socket.
  *
  *   pos-capture session [--source SPEC]
  *       PacketShark's helper. stdin and stdout are a socketpair to the shell;
