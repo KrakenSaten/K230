@@ -35,7 +35,10 @@
 #define PSK_ROW_H 56     /* DS §59.6 */
 #define PSK_FIELD_H 36   /* DS §59.6 */
 #define PSK_HELD_REFRESH_MS 1000
-#define PSK_FOLLOW_REFRESH_MS 250
+/* A following list is repainted twice a second: at a busy rate every row
+ * changes each time, and a repaint of the whole list is the costliest
+ * frame the app draws (measured on Unit B, docs/apps/PACKETSHARK.md §9.4). */
+#define PSK_FOLLOW_REFRESH_MS 500
 
 enum psk_tab { PSK_TAB_LIVE = 0, PSK_TAB_PACKETS, PSK_TAB_INSPECT, PSK_TAB_COUNT };
 
@@ -103,6 +106,7 @@ struct psk_listrow {
     lv_obj_t *info;
     lv_obj_t *pin;
     uint32_t seq;    /* 0: shows nothing */
+    bool selected;   /* the selected outline is on (applied only on a change) */
 };
 
 struct psk_layerrow {
@@ -118,6 +122,7 @@ struct psk_fieldrow {
     lv_obj_t *row;
     lv_obj_t *name;
     lv_obj_t *value;
+    bool selected;
 };
 
 struct psk_app {
@@ -247,6 +252,7 @@ struct psk_app {
     lv_obj_t *in_hex;
     lv_obj_t *in_hex_note;
     bool bytes_open;
+    bool pin_selected;
 
     /* the filter sheet (M5): a draft, applied by SHOW */
     lv_obj_t *fsheet;
@@ -261,6 +267,7 @@ struct psk_app {
     uint16_t fs_portv;
     bool fs_pinnedv;
     bool fs_to_packets;  /* opened from LIVE: SHOW goes to PACKETS */
+    int fs_shown;        /* the class choice outlined, -1 none */
 
     /* the capture bar */
     lv_obj_t *bar;
@@ -367,10 +374,16 @@ void psk_list_fit(struct psk_app *a);
  * hue (cls < 0 or OTHER: text_secondary), DS §59.2. */
 lv_obj_t *psk_class_bar(lv_obj_t *parent);
 void psk_class_bar_set(lv_obj_t *bar, int cls);
-/* A colour-only role over a label (or none: -1); the role in force is kept
- * in the user data, so only a change is applied. fixed puts the fixed Small
- * face back on top for the list's labels. */
+/* A colour role over a label (or none: -1; -10 - hue: an identity hue);
+ * the role in force is kept in the user data, so only a change is applied,
+ * and only the style in force is removed. fixed puts the fixed Small face
+ * back on top for the list's labels when the role brings a font of its own.
+ * Every style added or removed re-lays the label out: the list's paint
+ * changes as few as it can. */
 void psk_tone(lv_obj_t *lb, int role, bool fixed);
+/* A role style on or off, applied only on a change (adding a style that is
+ * there removes and re-adds it, two refreshes). */
+void psk_style_on(lv_obj_t *obj, enum pos_style_role role, bool on, bool *state);
 
 /* ui/psk_inspect.c */
 void psk_inspect_build(struct psk_app *a, lv_obj_t *page);

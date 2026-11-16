@@ -38,46 +38,71 @@ static lv_style_t *fixed_face(void)
     return pos_style_fixed_size(POS_STYLE_CAPTION);
 }
 
+/* The style a tone stands for, NULL for none. */
+static lv_style_t *tone_style(int role)
+{
+    if (role >= 0) {
+        return pos_style((enum pos_style_role)role);
+    }
+    if (role <= -10) {
+        return pos_style_identity((unsigned)(-role - 10));
+    }
+    return NULL;
+}
+
+/* The roles that bring a font with their colour (the others are colour only). */
+static bool brings_font(int role)
+{
+    return role == POS_STYLE_TEXT_PRIMARY || role == POS_STYLE_TEXT_SECONDARY || role == POS_STYLE_TEXT_MUTED;
+}
+
 void psk_tone(lv_obj_t *lb, int role, bool fixed)
 {
-    static const enum pos_style_role tones[] = { POS_STYLE_TEXT_PRIMARY, POS_STYLE_TEXT_MUTED,
-                                                 POS_STYLE_STATUS_WARN_TEXT, POS_STYLE_ACCENT_TEXT,
-                                                 POS_STYLE_STATUS_OK_TEXT, POS_STYLE_STATUS_ERROR_TEXT };
-    intptr_t want = (intptr_t)role + 2;
-    unsigned i;
+    intptr_t had = lb ? (intptr_t)lv_obj_get_user_data(lb) : 0;
+    intptr_t want = (intptr_t)role + 100;
+    lv_style_t *old;
+    lv_style_t *add = tone_style(role);
 
-    if (!lb || (intptr_t)lv_obj_get_user_data(lb) == want) {
+    if (!lb || had == want) {
         return;
     }
+    old = had ? tone_style((int)(had - 100)) : NULL;
     lv_obj_set_user_data(lb, (void *)want);
-    for (i = 0; i < sizeof(tones) / sizeof(tones[0]); i++) {
-        lv_obj_remove_style(lb, pos_style(tones[i]), 0);
+    if (old) {
+        lv_obj_remove_style(lb, old, 0);
     }
-    for (i = 0; i < 8; i++) {
-        lv_obj_remove_style(lb, pos_style_identity(i), 0);
+    if (add) {
+        lv_obj_add_style(lb, add, 0);
     }
-    if (role >= 0) {
-        pos_style_add(lb, (enum pos_style_role)role, 0);
-    } else if (role <= -10) {
-        lv_obj_add_style(lb, pos_style_identity((unsigned)(-role - 10)), 0);
-    }
-    if (fixed) {
-        /* A role brings its own font with its colour: the fixed face goes
-         * back on top (rift_rxlog_view.c's rule). */
+    if (fixed && brings_font(role)) {
+        /* A role that brings its own font: the fixed face goes back on top
+         * (rift_rxlog_view.c's rule). */
         lv_obj_remove_style(lb, fixed_face(), 0);
         lv_obj_add_style(lb, fixed_face(), 0);
         lv_obj_set_style_text_letter_space(lb, 0, 0);
     }
-    lv_obj_invalidate(lb);
 }
 
-/* The identity hue of a class as a tone (psk_tone's -10 - hue), or the
- * secondary text for OTHER. */
+void psk_style_on(lv_obj_t *obj, enum pos_style_role role, bool on, bool *state)
+{
+    if (!obj || *state == on) {
+        return;
+    }
+    *state = on;
+    if (on) {
+        pos_style_add(obj, role, 0);
+    } else {
+        lv_obj_remove_style(obj, pos_style(role), 0);
+    }
+}
+
+/* The identity hue of a class as a tone (psk_tone's -10 - hue), or none
+ * for OTHER: the caption's own secondary text. */
 static int class_tone(unsigned cls)
 {
     int hue = psk_class_hue(cls);
 
-    return hue < 0 ? (int)POS_STYLE_TEXT_SECONDARY : -10 - hue;
+    return hue < 0 ? -1 : -10 - hue;
 }
 
 static void bar_draw(lv_event_t *e)
@@ -121,6 +146,8 @@ void psk_class_bar_set(lv_obj_t *bar, int cls)
     }
 }
 
+/* A cell in the fixed Small face, in role's colour (POS_STYLE_CAPTION: the
+ * caption's own secondary text). */
 static lv_obj_t *cell_label(lv_obj_t *parent, enum pos_style_role role, lv_text_align_t align)
 {
     lv_obj_t *lb = pocketui_label(parent, "", POS_STYLE_CAPTION);
@@ -128,7 +155,11 @@ static lv_obj_t *cell_label(lv_obj_t *parent, enum pos_style_role role, lv_text_
     lv_label_set_long_mode(lb, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(lb, align, 0);
     lv_obj_add_flag(lb, LV_OBJ_FLAG_EVENT_BUBBLE);
-    psk_tone(lb, (int)role, true);
+    lv_obj_add_style(lb, fixed_face(), 0);
+    lv_obj_set_style_text_letter_space(lb, 0, 0);
+    if (role != POS_STYLE_CAPTION) {
+        psk_tone(lb, (int)role, true);
+    }
     return lb;
 }
 
@@ -352,14 +383,14 @@ static void build_row(struct psk_app *a, struct psk_listrow *r)
     lv_obj_set_height(r->bar, PSK_ROW_H - 13);
     lv_obj_set_pos(r->bar, 0, 6);
     lv_obj_add_flag(r->bar, LV_OBJ_FLAG_EVENT_BUBBLE);
-    r->time = cell_label(r->row, POS_STYLE_TEXT_SECONDARY, LV_TEXT_ALIGN_LEFT);
-    r->dir = cell_label(r->row, POS_STYLE_TEXT_SECONDARY, LV_TEXT_ALIGN_LEFT);
-    r->word = cell_label(r->row, POS_STYLE_TEXT_SECONDARY, LV_TEXT_ALIGN_LEFT);
+    r->time = cell_label(r->row, POS_STYLE_CAPTION, LV_TEXT_ALIGN_LEFT);
+    r->dir = cell_label(r->row, POS_STYLE_CAPTION, LV_TEXT_ALIGN_LEFT);
+    r->word = cell_label(r->row, POS_STYLE_CAPTION, LV_TEXT_ALIGN_LEFT);
     r->addr = cell_label(r->row, POS_STYLE_TEXT_PRIMARY, LV_TEXT_ALIGN_LEFT);
     lv_label_set_long_mode(r->addr, LV_LABEL_LONG_DOT);
-    r->len = cell_label(r->row, POS_STYLE_TEXT_SECONDARY, LV_TEXT_ALIGN_RIGHT);
+    r->len = cell_label(r->row, POS_STYLE_CAPTION, LV_TEXT_ALIGN_RIGHT);
     r->gap = cell_label(r->row, POS_STYLE_TEXT_MUTED, LV_TEXT_ALIGN_LEFT);
-    r->info = cell_label(r->row, POS_STYLE_TEXT_SECONDARY, LV_TEXT_ALIGN_LEFT);
+    r->info = cell_label(r->row, POS_STYLE_CAPTION, LV_TEXT_ALIGN_LEFT);
     lv_label_set_long_mode(r->info, LV_LABEL_LONG_DOT);
     r->pin = cell_label(r->row, POS_STYLE_ACCENT_TEXT, LV_TEXT_ALIGN_RIGHT);
     psk_text(r->pin, "PIN");
@@ -647,7 +678,7 @@ static void paint_row(struct psk_app *a, struct psk_listrow *r, const struct ppc
         psk_tone(r->info, POS_STYLE_STATUS_WARN_TEXT, true);
     } else {
         psk_text(r->info, row->info);
-        psk_tone(r->info, POS_STYLE_TEXT_SECONDARY, true);
+        psk_tone(r->info, -1, true);
     }
     psk_set_hidden(r->pin, !pinned);
     if (hidden_pin == pinned && a->char_w > 0) {
@@ -657,13 +688,8 @@ static void paint_row(struct psk_app *a, struct psk_listrow *r, const struct ppc
 
         lv_obj_set_width(r->info, w - 8 - x_word - (pinned ? 4 * a->char_w : 0));
     }
-    if (row->seq == a->sel_seq) {
-        pos_style_add(r->row, POS_STYLE_SELECTED, 0);
-        lv_obj_set_x(r->bar, 3);
-    } else {
-        lv_obj_remove_style(r->row, pos_style(POS_STYLE_SELECTED), 0);
-        lv_obj_set_x(r->bar, 0);
-    }
+    psk_style_on(r->row, POS_STYLE_SELECTED, row->seq == a->sel_seq, &r->selected);
+    lv_obj_set_x(r->bar, r->selected ? 3 : 0);
     psk_set_hidden(r->row, false);
 }
 

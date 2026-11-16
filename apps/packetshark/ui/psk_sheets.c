@@ -171,14 +171,22 @@ static void fs_paint(struct psk_app *a)
         bool on = i == 0 ? a->fs_classes == PPC_CLASSES_ALL : a->fs_classes == (uint8_t)(1u << (i - 1));
         lv_obj_t *lb = lv_obj_get_child(a->fs_cls[i], 0);
 
-        if (on) {
+        /* Only a change is applied: adding a style that is there removes
+         * and re-adds it. */
+        if (on && a->fs_shown != i) {
             pos_style_add(a->fs_cls[i], POS_STYLE_SELECTED, 0);
             pos_style_add(lb, POS_STYLE_ACCENT_TEXT, 0);
-        } else {
+        } else if (!on && a->fs_shown == i) {
             lv_obj_remove_style(a->fs_cls[i], pos_style(POS_STYLE_SELECTED), 0);
             lv_obj_remove_style(lb, pos_style(POS_STYLE_ACCENT_TEXT), 0);
         }
     }
+    for (i = 0; i <= PPC_CLASS_COUNT; i++) {
+        if (i == 0 ? a->fs_classes == PPC_CLASSES_ALL : a->fs_classes == (uint8_t)(1u << (i - 1))) {
+            break;
+        }
+    }
+    a->fs_shown = i <= PPC_CLASS_COUNT ? i : -1;
     psk_text(a->fs_host, a->fs_hostv[0] ? a->fs_hostv : "ANY");
     psk_set_hidden(lv_obj_get_child(a->fs_host_row, 2), a->fs_hostv[0] == '\0');
     if (a->fs_portv) {
@@ -340,6 +348,7 @@ void psk_fsheet_build(struct psk_app *a)
     lv_obj_set_flex_grow(b, 1);
     lv_obj_set_height(b, POCKETUI_TOUCH_MIN);
     lv_obj_add_flag(a->fsheet, LV_OBJ_FLAG_HIDDEN);
+    a->fs_shown = -1;
 }
 
 void psk_fsheet_show(struct psk_app *a, bool to_packets)

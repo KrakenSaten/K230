@@ -65,15 +65,6 @@ static void tappable(lv_obj_t *o, lv_event_cb_t cb, void *user, intptr_t index)
     lv_obj_add_event_cb(o, cb, LV_EVENT_CLICKED, user);
 }
 
-static void selected(lv_obj_t *o, bool on)
-{
-    if (on) {
-        pos_style_add(o, POS_STYLE_SELECTED, 0);
-    } else {
-        lv_obj_remove_style(o, pos_style(POS_STYLE_SELECTED), 0);
-    }
-}
-
 static int index_of(lv_event_t *e)
 {
     return (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
@@ -272,6 +263,10 @@ void psk_inspect_build(struct psk_app *a, lv_obj_t *page)
     lv_obj_set_width(a->in_meta2, LV_PCT(100));
     nav = line(head, 8);
     lv_obj_set_width(nav, LV_SIZE_CONTENT);
+    /* Room for PIN's selected outline, drawn outside the face. */
+    lv_obj_set_style_pad_all(nav, 3, 0);
+    lv_obj_set_style_margin_top(nav, -3, 0);
+    lv_obj_set_style_margin_right(nav, -3, 0);
     a->in_pin = face(nav, "PIN", false);
     tappable(a->in_pin, on_nav, a, 0);
     a->in_prev = face(nav, LV_SYMBOL_LEFT, true);
@@ -458,7 +453,7 @@ static void paint_head(struct psk_app *a, const struct psk_packet *p)
                  (p->head.flags & PPC_ROWF_PINNED) ? " · PINNED" : "");
     }
     psk_text(a->in_meta2, b);
-    selected(a->in_pin, (p->head.flags & PPC_ROWF_PINNED) != 0);
+    psk_style_on(a->in_pin, POS_STYLE_SELECTED, (p->head.flags & PPC_ROWF_PINNED) != 0, &a->pin_selected);
     psk_tone(lv_obj_get_child(a->in_pin, 0), (p->head.flags & PPC_ROWF_PINNED) ? POS_STYLE_ACCENT_TEXT : -1, false);
     /* The arrows walk the list's order; at an end there is nowhere to go. */
     psk_set_hidden(a->in_prev, false);
@@ -574,7 +569,7 @@ void psk_inspect_paint(struct psk_app *a)
         }
         psk_text(f->name, p->field[i].name);
         paint_value(f, p->field[i].text);
-        selected(f->row, (int)i == a->insp_field);
+        psk_style_on(f->row, POS_STYLE_SELECTED, (int)i == a->insp_field, &f->selected);
     }
     paint_hex(a, p);
 }
