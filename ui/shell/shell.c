@@ -131,7 +131,15 @@ extern const struct pocketos_app app_library;
 #else
 #define OPTIONAL_LIBRARY
 #endif
-#define OPTIONAL_APPS OPTIONAL_ZABBIX OPTIONAL_LIBRARY
+/* PacketShark, the packet analyzer (docs/apps/PACKETSHARK.md, ADR-016
+ * accepted): in by default, left out with -DPOCKETOS_WITH_PACKETSHARK=OFF. */
+#ifdef POCKETOS_WITH_PACKETSHARK
+extern const struct pocketos_app app_packetshark;
+#define OPTIONAL_PACKETSHARK , &app_packetshark
+#else
+#define OPTIONAL_PACKETSHARK
+#endif
+#define OPTIONAL_APPS OPTIONAL_ZABBIX OPTIONAL_LIBRARY OPTIONAL_PACKETSHARK
 
 /* The registry. Where each app is shown on the launcher - its group, its
  * place in the group, its colour - is the launcher's table (home_layout.c),
@@ -741,8 +749,10 @@ int pocketos_shell_set_debug_overlay(int on)
 
 /* An alarm ringing, or an app that plays or watches: the screen stays on and
  * the lock stays up while one of them is in front (DS §52.4). By id, from
- * this table, so the apps themselves do not change. */
-static const char *const awake_apps[] = { "video", "camera", "vision", "deskbuddy" };
+ * this table, so the apps themselves do not change. PacketShark for privacy:
+ * screen-off is not sleep here, so a capture would go on behind a dark panel
+ * with nothing on screen saying so (ADR-016 rule 14). */
+static const char *const awake_apps[] = { "video", "camera", "vision", "deskbuddy", "packetshark" };
 
 static bool power_hold(void)
 {

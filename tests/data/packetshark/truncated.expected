@@ -1,0 +1,151 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	ETH	-	-	54	1	OTHER	Captured 1 of 54 bytes
+2	1500	in	ETH	-	-	54	2	OTHER	Captured 2 of 54 bytes
+3	3000	in	ETH	-	-	54	3	OTHER	Captured 3 of 54 bytes
+4	4500	in	ETH	-	-	54	4	OTHER	Captured 4 of 54 bytes
+5	6000	in	ETH	-	-	54	5	OTHER	Captured 5 of 54 bytes
+6	7500	in	ETH	-	-	54	6	OTHER	Captured 6 of 54 bytes
+7	9000	in	ETH	-	-	54	7	OTHER	Captured 7 of 54 bytes
+8	10500	in	ETH	-	-	54	8	OTHER	Captured 8 of 54 bytes
+9	12000	in	ETH	-	-	54	9	OTHER	Captured 9 of 54 bytes
+10	13500	in	ETH	-	-	54	10	OTHER	Captured 10 of 54 bytes
+11	15000	in	ETH	-	-	54	11	OTHER	Captured 11 of 54 bytes
+12	16500	in	ETH	-	-	54	12	OTHER	Captured 12 of 54 bytes
+13	18000	in	ETH	-	-	54	13	OTHER	Captured 13 of 54 bytes
+14	19500	in	IPv4	0.0.0.0	0.0.0.0	54	14	OTHER	IPv4 header cut short or invalid
+15	21000	in	IPv4	0.0.0.0	0.0.0.0	54	15	OTHER	IPv4 header cut short or invalid
+16	22500	in	IPv4	0.0.0.0	0.0.0.0	54	16	OTHER	IPv4 header cut short or invalid
+17	24000	in	IPv4	0.0.0.0	0.0.0.0	54	17	OTHER	IPv4 header cut short or invalid
+18	25500	in	IPv4	0.0.0.0	0.0.0.0	54	18	OTHER	IPv4 header cut short or invalid
+19	27000	in	IPv4	0.0.0.0	0.0.0.0	54	19	OTHER	IPv4 header cut short or invalid
+20	28500	in	IPv4	0.0.0.0	0.0.0.0	54	20	OTHER	IPv4 header cut short or invalid
+21	30000	in	IPv4	0.0.0.0	0.0.0.0	54	21	OTHER	IPv4 header cut short or invalid
+22	31500	in	IPv4	0.0.0.0	0.0.0.0	54	22	OTHER	IPv4 header cut short or invalid
+23	33000	in	IPv4	0.0.0.0	0.0.0.0	54	23	OTHER	IPv4 header cut short or invalid
+24	34500	in	IPv4	0.0.0.0	0.0.0.0	54	24	OTHER	IPv4 header cut short or invalid
+25	36000	in	IPv4	0.0.0.0	0.0.0.0	54	25	OTHER	IPv4 header cut short or invalid
+26	37500	in	IPv4	0.0.0.0	0.0.0.0	54	26	OTHER	IPv4 header cut short or invalid
+27	39000	in	IPv4	0.0.0.0	0.0.0.0	54	27	OTHER	IPv4 header cut short or invalid
+28	40500	in	IPv4	0.0.0.0	0.0.0.0	54	28	OTHER	IPv4 header cut short or invalid
+29	42000	in	IPv4	0.0.0.0	0.0.0.0	54	29	OTHER	IPv4 header cut short or invalid
+30	43500	in	IPv4	0.0.0.0	0.0.0.0	54	30	OTHER	IPv4 header cut short or invalid
+31	45000	in	IPv4	0.0.0.0	0.0.0.0	54	31	OTHER	IPv4 header cut short or invalid
+32	46500	in	IPv4	0.0.0.0	0.0.0.0	54	32	OTHER	IPv4 header cut short or invalid
+33	48000	in	IPv4	0.0.0.0	0.0.0.0	54	33	OTHER	IPv4 header cut short or invalid
+34	49500	in	TCP	192.0.2.10	192.0.2.20	54	34	TCP	TCP header cut short or invalid
+35	51000	in	TCP	192.0.2.10	192.0.2.20	54	35	TCP	TCP header cut short or invalid
+36	52500	in	TCP	192.0.2.10	192.0.2.20	54	36	TCP	TCP header cut short or invalid
+37	54000	in	TCP	192.0.2.10	192.0.2.20	54	37	TCP	TCP header cut short or invalid
+38	55500	in	TCP	192.0.2.10	192.0.2.20	54	38	TCP	TCP header cut short or invalid
+39	57000	in	TCP	192.0.2.10	192.0.2.20	54	39	TCP	TCP header cut short or invalid
+40	58500	in	TCP	192.0.2.10	192.0.2.20	54	40	TCP	TCP header cut short or invalid
+41	60000	in	TCP	192.0.2.10	192.0.2.20	54	41	TCP	TCP header cut short or invalid
+42	61500	in	TCP	192.0.2.10	192.0.2.20	54	42	TCP	TCP header cut short or invalid
+43	63000	in	TCP	192.0.2.10	192.0.2.20	54	43	TCP	TCP header cut short or invalid
+44	64500	in	TCP	192.0.2.10	192.0.2.20	54	44	TCP	TCP header cut short or invalid
+45	66000	in	TCP	192.0.2.10	192.0.2.20	54	45	TCP	TCP header cut short or invalid
+46	67500	in	TCP	192.0.2.10	192.0.2.20	54	46	TCP	TCP header cut short or invalid
+47	69000	in	TCP	192.0.2.10	192.0.2.20	54	47	TCP	TCP header cut short or invalid
+48	70500	in	TCP	192.0.2.10	192.0.2.20	54	48	TCP	TCP header cut short or invalid
+49	72000	in	TCP	192.0.2.10	192.0.2.20	54	49	TCP	TCP header cut short or invalid
+50	73500	in	TCP	192.0.2.10	192.0.2.20	54	50	TCP	TCP header cut short or invalid
+51	75000	in	TCP	192.0.2.10	192.0.2.20	54	51	TCP	TCP header cut short or invalid
+52	76500	in	TCP	192.0.2.10	192.0.2.20	54	52	TCP	TCP header cut short or invalid
+53	78000	in	TCP	192.0.2.10	192.0.2.20	54	53	TCP	TCP header cut short or invalid
+54	79500	in	TCP	192.0.2.10	192.0.2.20	54	54	TCP	50000 > 80 [SYN] Seq=1
+55	81000	in	ETH	-	-	95	1	OTHER	Captured 1 of 95 bytes
+56	82500	in	ETH	-	-	95	2	OTHER	Captured 2 of 95 bytes
+57	84000	in	ETH	-	-	95	3	OTHER	Captured 3 of 95 bytes
+58	85500	in	ETH	-	-	95	4	OTHER	Captured 4 of 95 bytes
+59	87000	in	ETH	-	-	95	5	OTHER	Captured 5 of 95 bytes
+60	88500	in	ETH	-	-	95	6	OTHER	Captured 6 of 95 bytes
+61	90000	in	ETH	-	-	95	7	OTHER	Captured 7 of 95 bytes
+62	91500	in	ETH	-	-	95	8	OTHER	Captured 8 of 95 bytes
+63	93000	in	ETH	-	-	95	9	OTHER	Captured 9 of 95 bytes
+64	94500	in	ETH	-	-	95	10	OTHER	Captured 10 of 95 bytes
+65	96000	in	ETH	-	-	95	11	OTHER	Captured 11 of 95 bytes
+66	97500	in	ETH	-	-	95	12	OTHER	Captured 12 of 95 bytes
+67	99000	in	ETH	-	-	95	13	OTHER	Captured 13 of 95 bytes
+68	100500	in	IPv6	::	::	95	14	IPV6	IPv6 header cut short or invalid
+69	102000	in	IPv6	::	::	95	15	IPV6	IPv6 header cut short or invalid
+70	103500	in	IPv6	::	::	95	16	IPV6	IPv6 header cut short or invalid
+71	105000	in	IPv6	::	::	95	17	IPV6	IPv6 header cut short or invalid
+72	106500	in	IPv6	::	::	95	18	IPV6	IPv6 header cut short or invalid
+73	108000	in	IPv6	::	::	95	19	IPV6	IPv6 header cut short or invalid
+74	109500	in	IPv6	::	::	95	20	IPV6	IPv6 header cut short or invalid
+75	111000	in	IPv6	::	::	95	21	IPV6	IPv6 header cut short or invalid
+76	112500	in	IPv6	::	::	95	22	IPV6	IPv6 header cut short or invalid
+77	114000	in	IPv6	::	::	95	23	IPV6	IPv6 header cut short or invalid
+78	115500	in	IPv6	::	::	95	24	IPV6	IPv6 header cut short or invalid
+79	117000	in	IPv6	::	::	95	25	IPV6	IPv6 header cut short or invalid
+80	118500	in	IPv6	::	::	95	26	IPV6	IPv6 header cut short or invalid
+81	120000	in	IPv6	::	::	95	27	IPV6	IPv6 header cut short or invalid
+82	121500	in	IPv6	::	::	95	28	IPV6	IPv6 header cut short or invalid
+83	123000	in	IPv6	::	::	95	29	IPV6	IPv6 header cut short or invalid
+84	124500	in	IPv6	::	::	95	30	IPV6	IPv6 header cut short or invalid
+85	126000	in	IPv6	::	::	95	31	IPV6	IPv6 header cut short or invalid
+86	127500	in	IPv6	::	::	95	32	IPV6	IPv6 header cut short or invalid
+87	129000	in	IPv6	::	::	95	33	IPV6	IPv6 header cut short or invalid
+88	130500	in	IPv6	::	::	95	34	IPV6	IPv6 header cut short or invalid
+89	132000	in	IPv6	::	::	95	35	IPV6	IPv6 header cut short or invalid
+90	133500	in	IPv6	::	::	95	36	IPV6	IPv6 header cut short or invalid
+91	135000	in	IPv6	::	::	95	37	IPV6	IPv6 header cut short or invalid
+92	136500	in	IPv6	::	::	95	38	IPV6	IPv6 header cut short or invalid
+93	138000	in	IPv6	::	::	95	39	IPV6	IPv6 header cut short or invalid
+94	139500	in	IPv6	::	::	95	40	IPV6	IPv6 header cut short or invalid
+95	141000	in	IPv6	::	::	95	41	IPV6	IPv6 header cut short or invalid
+96	142500	in	IPv6	::	::	95	42	IPV6	IPv6 header cut short or invalid
+97	144000	in	IPv6	::	::	95	43	IPV6	IPv6 header cut short or invalid
+98	145500	in	IPv6	::	::	95	44	IPV6	IPv6 header cut short or invalid
+99	147000	in	IPv6	::	::	95	45	IPV6	IPv6 header cut short or invalid
+100	148500	in	IPv6	::	::	95	46	IPV6	IPv6 header cut short or invalid
+101	150000	in	IPv6	::	::	95	47	IPV6	IPv6 header cut short or invalid
+102	151500	in	IPv6	::	::	95	48	IPV6	IPv6 header cut short or invalid
+103	153000	in	IPv6	::	::	95	49	IPV6	IPv6 header cut short or invalid
+104	154500	in	IPv6	::	::	95	50	IPV6	IPv6 header cut short or invalid
+105	156000	in	IPv6	::	::	95	51	IPV6	IPv6 header cut short or invalid
+106	157500	in	IPv6	::	::	95	52	IPV6	IPv6 header cut short or invalid
+107	159000	in	IPv6	::	::	95	53	IPV6	IPv6 header cut short or invalid
+108	160500	in	UDP	2001:db8::a	2001:db8::b	95	54	UDP	UDP header cut short or invalid
+109	162000	in	UDP	2001:db8::a	2001:db8::b	95	55	UDP	UDP header cut short or invalid
+110	163500	in	UDP	2001:db8::a	2001:db8::b	95	56	UDP	UDP header cut short or invalid
+111	165000	in	UDP	2001:db8::a	2001:db8::b	95	57	UDP	UDP header cut short or invalid
+112	166500	in	UDP	2001:db8::a	2001:db8::b	95	58	UDP	UDP header cut short or invalid
+113	168000	in	UDP	2001:db8::a	2001:db8::b	95	59	UDP	UDP header cut short or invalid
+114	169500	in	UDP	2001:db8::a	2001:db8::b	95	60	UDP	UDP header cut short or invalid
+115	171000	in	UDP	2001:db8::a	2001:db8::b	95	61	UDP	UDP header cut short or invalid
+116	172500	in	DNS	2001:db8::a	2001:db8::b	95	62	DNS	50001 > 53 Len=33 [malformed]
+117	174000	in	DNS	2001:db8::a	2001:db8::b	95	63	DNS	50001 > 53 Len=33 [malformed]
+118	175500	in	DNS	2001:db8::a	2001:db8::b	95	64	DNS	50001 > 53 Len=33 [malformed]
+119	177000	in	DNS	2001:db8::a	2001:db8::b	95	65	DNS	50001 > 53 Len=33 [malformed]
+120	178500	in	DNS	2001:db8::a	2001:db8::b	95	66	DNS	50001 > 53 Len=33 [malformed]
+121	180000	in	DNS	2001:db8::a	2001:db8::b	95	67	DNS	50001 > 53 Len=33 [malformed]
+122	181500	in	DNS	2001:db8::a	2001:db8::b	95	68	DNS	50001 > 53 Len=33 [malformed]
+123	183000	in	DNS	2001:db8::a	2001:db8::b	95	69	DNS	50001 > 53 Len=33 [malformed]
+124	184500	in	DNS	2001:db8::a	2001:db8::b	95	70	DNS	50001 > 53 Len=33 [malformed]
+125	186000	in	DNS	2001:db8::a	2001:db8::b	95	71	DNS	50001 > 53 Len=33 [malformed]
+126	187500	in	DNS	2001:db8::a	2001:db8::b	95	72	DNS	50001 > 53 Len=33 [malformed]
+127	189000	in	DNS	2001:db8::a	2001:db8::b	95	73	DNS	50001 > 53 Len=33 [malformed]
+128	190500	in	DNS	2001:db8::a	2001:db8::b	95	74	DNS	Standard query 0x0102
+129	192000	in	DNS	2001:db8::a	2001:db8::b	95	75	DNS	Standard query 0x0102
+130	193500	in	DNS	2001:db8::a	2001:db8::b	95	76	DNS	Standard query 0x0102
+131	195000	in	DNS	2001:db8::a	2001:db8::b	95	77	DNS	Standard query 0x0102
+132	196500	in	DNS	2001:db8::a	2001:db8::b	95	78	DNS	Standard query 0x0102
+133	198000	in	DNS	2001:db8::a	2001:db8::b	95	79	DNS	Standard query 0x0102
+134	199500	in	DNS	2001:db8::a	2001:db8::b	95	80	DNS	Standard query 0x0102
+135	201000	in	DNS	2001:db8::a	2001:db8::b	95	81	DNS	Standard query 0x0102
+136	202500	in	DNS	2001:db8::a	2001:db8::b	95	82	DNS	Standard query 0x0102
+137	204000	in	DNS	2001:db8::a	2001:db8::b	95	83	DNS	Standard query 0x0102
+138	205500	in	DNS	2001:db8::a	2001:db8::b	95	84	DNS	Standard query 0x0102
+139	207000	in	DNS	2001:db8::a	2001:db8::b	95	85	DNS	Standard query 0x0102
+140	208500	in	DNS	2001:db8::a	2001:db8::b	95	86	DNS	Standard query 0x0102
+141	210000	in	DNS	2001:db8::a	2001:db8::b	95	87	DNS	Standard query 0x0102
+142	211500	in	DNS	2001:db8::a	2001:db8::b	95	88	DNS	Standard query 0x0102
+143	213000	in	DNS	2001:db8::a	2001:db8::b	95	89	DNS	Standard query 0x0102
+144	214500	in	DNS	2001:db8::a	2001:db8::b	95	90	DNS	Standard query 0x0102
+145	216000	in	DNS	2001:db8::a	2001:db8::b	95	91	DNS	Standard query 0x0102
+146	217500	in	DNS	2001:db8::a	2001:db8::b	95	92	DNS	Standard query 0x0102
+147	219000	in	DNS	2001:db8::a	2001:db8::b	95	93	DNS	Standard query 0x0102 AAAA www.example.net
+148	220500	in	DNS	2001:db8::a	2001:db8::b	95	94	DNS	Standard query 0x0102 AAAA www.example.net
+149	222000	in	DNS	2001:db8::a	2001:db8::b	95	95	DNS	Standard query 0x0102 AAAA www.example.net
+# frames=149 wire_bytes=11941 stored_bytes=6045 keep=headers

@@ -1,0 +1,9 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	bcast	ARP	00:00:00:00:00:00	broadcast	60	60	ARP	Who has 192.0.2.2? Tell 192.0.2.1
+2	1234	bcast	TCP	192.0.2.1	192.0.2.2	60	54	TCP	49152 > 80 [SYN] Seq=0
+3	2469	bcast	DNS	192.0.2.1	192.0.2.2	60	60	DNS	54321 > 53 Len=0 [malformed]
+4	3703	bcast	ICMP	192.0.2.1	192.0.2.2	60	60	ICMP	Echo request id=0x0000 seq=0
+5	4938	bcast	NDP	2001:db8::1	2001:db8::2	78	78	IPV6	Neighbor solicitation for ::
+6	6172	bcast	DHCPv6	2001:db8::1	2001:db8::2	70	70	DHCP	546 > 547 Len=0 [malformed]
+7	7407	bcast	TCP	2001:db8::1	2001:db8::2	78	78	TCP	22 > 49152 [SYN, ACK] Seq=0 Ack=0
+# frames=7 wire_bytes=466 stored_bytes=460 keep=headers

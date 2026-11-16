@@ -1,0 +1,10 @@
+# seq	rel_us	dir	proto	src	dst	len	stored	class	info
+1	0	in	ICMP	192.0.2.10	192.0.2.20	74	74	ICMP	Echo request id=0x0042 seq=7
+2	1500	in	ICMP	192.0.2.20	192.0.2.10	74	74	ICMP	Echo reply id=0x0042 seq=7
+3	3000	in	ICMP	192.0.2.20	192.0.2.10	70	70	ICMP	port unreachable
+4	4500	bcast	NDP	fe80::b	ff02::1	70	70	IPV6	Router advertisement
+5	6000	bcast	NDP	2001:db8::a	ff02::1	78	78	IPV6	Neighbor solicitation for 2001:db8::b
+6	7500	in	NDP	2001:db8::b	2001:db8::a	78	78	IPV6	Neighbor advertisement of 2001:db8::b
+7	9000	bcast	MLD	2001:db8::a	ff02::16	70	70	IPV6	Multicast listener report v2
+8	10500	in	ICMPv6	2001:db8::a	2001:db8::b	62	62	IPV6	Echo request id=0x0099 seq=1
+# frames=8 wire_bytes=576 stored_bytes=576 keep=headers

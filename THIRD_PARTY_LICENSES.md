@@ -114,6 +114,7 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | OpenSSL 3.4.1 | via libcurl | Apache-2.0 | OK WITH ATTRIBUTION |
 | libjpeg 9f | pos-camera, pos-browser | IJG | OK WITH ATTRIBUTION |
 | libpng 1.6.46 | pos-browser | Libpng-2.0 | OK WITH ATTRIBUTION |
+| libpcap 1.10.5 | pos-capture (PacketShark); also the toolbox's tcpdump | BSD-3-Clause | OK WITH ATTRIBUTION |
 | FreeType 2.13.3 | via FFmpeg (`--enable-libfreetype`) | FTL or GPL-2.0+ (dual; the FTL is the permissive choice) | OK WITH ATTRIBUTION |
 | FFmpeg 4.4.4 (vendor-patched; libavformat, libavcodec, libavutil, libswscale, libswresample) | pos-mp3, pos-video | LGPL-2.1-or-later, plus the libjpeg licence. **Built `--disable-gpl --disable-nonfree --disable-version3`; `CONFIG_GPL 0`, `CONFIG_NONFREE 0`, `CONFIG_VERSION3 0`; no x264/x265/fdk-aac** (VERIFIED in the built `config.h`, 2026-10-01) | SEPARATE LICENSE (dynamic; offer source and the vendor's patches) |
 

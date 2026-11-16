@@ -17,6 +17,12 @@ config BR2_PACKAGE_POCKETOS
 	# selected here: pocketos.mk's dependency list builds it.
 	select BR2_PACKAGE_LIBNNCASE
 	select BR2_PACKAGE_LIBMMZ
+	# pos-capture, PacketShark's capture helper (docs/apps/PACKETSHARK.md,
+	# ADR-016 accepted), captures with libpcap; the owner approved this
+	# dependency on 2026-11-16. It was already in the
+	# image through the toolbox's tcpdump; selected here so PacketShark
+	# does not depend on the toolbox staying on.
+	select BR2_PACKAGE_LIBPCAP
 	help
 	  Doors tools, services and shell for the LILYGO T-Display K230:
 	  the doors CLI (with pos as its alias), pos-hwcheck, radiod, sysd,

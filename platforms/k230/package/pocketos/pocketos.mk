@@ -72,12 +72,18 @@ POCKETOS_INSTALL_TARGET = YES
 # (BR2_PACKAGE_OPENCV4_WITH_FFMPEG selects it; LGPL-2.1+, the build has
 # --disable-gpl), so this adds a build
 # dependency, not a package.
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz gsl-lite ffmpeg host-cmake host-python3
+# libpcap: pos-capture, PacketShark's capture helper (docs/apps/PACKETSHARK.md,
+# ADR-016 accepted), captures live interfaces with it (PACKETSHARK_PCAP=1);
+# the dependency was approved by the owner on 2026-11-16.
+# libpcap 1.10.5 was already in the image and its sysroot (the toolbox's
+# tcpdump selects it; BSD-3-Clause, docs/LICENSING.md), so this adds a build
+# dependency, not a package. Dynamically linked; nothing compiled into Doors.
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz gsl-lite ffmpeg libpcap host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 
 define POCKETOS_BUILD_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 ENABLE_MESHCORED=1 -C $(@D) all
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 PACKETSHARK_PCAP=1 ENABLE_MESHCORED=1 -C $(@D) all
 	mkdir -p $(POCKETOS_SHELL_BUILD_DIR)
 	cd $(POCKETOS_SHELL_BUILD_DIR) && $(TARGET_MAKE_ENV) $(BR2_CMAKE) $(@D)/ui/shell \
 		-DCMAKE_TOOLCHAIN_FILE=$(HOST_DIR)/share/buildroot/toolchainfile.cmake \
@@ -115,7 +121,7 @@ $(error pocketos: BR2_PACKAGE_YOLO installs Ultralytics YOLO models (AGPL-3.0), 
 endif
 
 define POCKETOS_INSTALL_TARGET_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 PACKETSHARK_PCAP=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell

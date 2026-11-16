@@ -429,6 +429,36 @@ if(POCKETOS_WITH_ZABBIX)
     message(STATUS "Zabbix viewer: built into the shell (experiment)")
 endif()
 
+# PacketShark, the packet analyzer (docs/apps/PACKETSHARK.md; ADR-016 and DS
+# §59 accepted), in the shell by default. -DPOCKETOS_WITH_PACKETSHARK=OFF
+# leaves it out and gives the shell as it was before it. The shell links
+# only the line protocol of core/pocketpcap (tests/packetshark_lint.sh): the
+# decoder, the packets and the capture socket are in pos-capture.
+option(POCKETOS_WITH_PACKETSHARK "Build PacketShark into the shell" ON)
+set(PACKETSHARK_APP_SOURCES
+    ${REPO_DIR}/apps/packetshark/psk_app.c
+    ${REPO_DIR}/apps/packetshark/psk_session.c
+    ${REPO_DIR}/apps/packetshark/psk_model.c
+    ${REPO_DIR}/apps/packetshark/psk_saves.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_live.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_graph.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_sheets.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_list.c
+    ${REPO_DIR}/apps/packetshark/ui/psk_inspect.c
+    ${REPO_DIR}/core/pocketpcap/ppc_proto.c)
+if(POCKETOS_WITH_PACKETSHARK)
+    target_sources(pocketos-shell PRIVATE ${PACKETSHARK_APP_SOURCES})
+    target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/packetshark")
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_WITH_PACKETSHARK=1)
+    if(POCKETOS_DISPLAY STREQUAL "sdl")
+        # The simulator has no network to capture: the helper generates
+        # synthetic traffic and the header says SIMULATED;
+        # POCKETOS_CAPTURE_SOURCE= (empty) captures the chosen interface.
+        target_compile_definitions(pocketos-shell PRIVATE PSK_SOURCE_DEFAULT="synth:200:1")
+    endif()
+    message(STATUS "PacketShark: built into the shell")
+endif()
+
 # Library, an offline knowledge collection read through pos-library
 # (docs/apps/LIBRARY.md, a feasibility prototype): out of the shell unless
 # -DPOCKETOS_WITH_LIBRARY=ON. The app is Browser's screen in Library mode
@@ -1239,6 +1269,35 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(zabbix_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(zabbix_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # PacketShark in the running app, tapped on the panel, with the real
+    # helper on the synthetic source behind it (run by
+    # tests/packetshark_shell_test.sh, which hands it make's
+    # tools/capture/pos-capture). Built whether or not the shell includes it.
+    add_executable(packetshark_app_test
+        ${REPO_DIR}/tests/packetshark_app_test.c
+        chrome.c
+        ${PACKETSHARK_APP_SOURCES}
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pocketui_audit.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONT_OBJS})
+    target_include_directories(packetshark_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/packetshark")
+    target_compile_options(packetshark_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(packetshark_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(packetshark_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(packetshark_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(packetshark_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # PocketClock in the running app, tapped on the panel and on the real
     # keyboard, against a real store (run by tests/clock_shell_test.sh).

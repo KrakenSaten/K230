@@ -199,6 +199,22 @@ BUILD_ID
 /tests/zbx_settings_test
 /tests/zabbix_view_test
 /tests/zabbix_session_test
+# PacketShark (docs/apps/PACKETSHARK.md)
+/tools/capture/pos-capture
+/tests/ppc_decode_test
+/tests/ppc_pcapfile_test
+/tests/ppc_store_test
+/tests/ppc_stats_test
+/tests/ppc_proto_test
+/tests/ppc_fuzz
+/tests/ppc_mkfixtures
+/tests/psk_model_test
+/tests/psk_session_test
+/tests/ppc_view_test
+/tests/ppc_dissect_test
+/tests/ppc_signals_test
+/packetshark-app-captures-*
+/psk-session-captures-*
 # Browser (docs/apps/BROWSER.md)
 /tools/browser/pos-browser
 /tests/web_url_test
