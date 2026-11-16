@@ -2,6 +2,9 @@
 # PacketShark's boundaries (docs/apps/PACKETSHARK.md, ADR-016 accepted),
 # held statically. tests/pos_capture_test.sh and the session and app tests
 # hold the same rules at run time.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

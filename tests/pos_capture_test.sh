@@ -21,6 +21,9 @@
 #
 # PACKETSHARK_UPDATE_EXPECTED=1 rewrites the expected files from the
 # decoder's output instead of comparing (for a reviewed change of output).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 HELPER=$(readlink -f "${1:?pos-capture}")
