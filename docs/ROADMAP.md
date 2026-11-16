@@ -82,7 +82,7 @@ ADR-016 accepted): milestones M0 to M3 (capture helper, live counters, the
 app on the launcher) are on branch `feature/packetshark` as a draft; the
 graph (M4), the packet list and the inspector (M5, M6), signals (M7), SAVE
 and the saved captures (M8) and the wide layout and keys (M9) are stacked on
-it as drafts; M7 to M9 are host-tested and not yet run on a unit. The line-rate
+it as drafts; M7 to M9 are host-tested and were run on Unit B. The line-rate
 gate on Unit A is milestone M10.
 
 ## History

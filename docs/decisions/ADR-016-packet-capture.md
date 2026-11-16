@@ -113,7 +113,7 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 - Helper lifecycle (spawn, watchdog, abandon, crash and kill reported): VERIFIED on the host for `pos-capture` (tests/psk_session_test.c, tests/packetshark_app_test.c) and on Unit A (open, START, STOP, LEAVE, `kill -9`, ten cycles with no helper left).
 - The screen held awake while PacketShark is in front, and only then: VERIFIED on Unit A (`shell.info` power.held).
 - Lint for receive-only, one libpcap include, a capture file written only by SAVE (new, 0600, never followed), saved captures never opened by the shell, no log line from a packet: `tests/packetshark_lint.sh`.
-- SAVE to a 0700 folder as a 0600 file, refused under `/tmp` and while capturing, no part file left, the file read back by tcpdump: VERIFIED on the host (tests/pos_capture_test.sh, tests/psk_session_test.c, tests/packetshark_app_test.c). On the unit, as uid 0 without capabilities writing to `/root/Captures`: ASSUMED (the owner of a directory needs no capability to write in it); not yet run.
+- SAVE to a 0700 folder as a 0600 file, refused under `/tmp` and while capturing, no part file left, the file read back by tcpdump: VERIFIED on the host (tests/pos_capture_test.sh, tests/psk_session_test.c, tests/packetshark_app_test.c). On the unit, as uid 0 with every capability set empty writing to `/root/Captures`: VERIFIED on Unit B (2026-11-16, docs/apps/PACKETSHARK.md §9.5).
 
 ## Decision record
 

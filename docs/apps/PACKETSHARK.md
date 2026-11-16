@@ -32,9 +32,9 @@ The design package these milestones implement (product spec, architecture, UI/UX
 | M4 | Traffic graph (60 s, logarithmic, stacked by class), a tappable second and its readout, protocol distribution; the per-frame cost measured | Done, host-tested; on Unit A see §9.3 |
 | M5 | Packet list, display filter, sort | Done, host-tested; on Unit B see §9.4 |
 | M6 | Packet inspector, pins | Done, host-tested; on Unit B see §9.4 |
-| M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Done, host-tested (§4a, §9.1); not yet run on a unit |
-| M8 | SAVE and saved captures | Done, host-tested (§4, §9.1); not yet run on a unit. **One file is written, only by a confirmed SAVE of a stopped capture** |
-| M9 | Landscape layout of its own, keyboard keys, final icon | Layout and keys done, host-tested (§7, §7a); not yet run on a unit. The icon is the one the owner accepted with DS §59.8, unchanged |
+| M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Done, host-tested (§4a, §9.1); on Unit B see §9.5 |
+| M8 | SAVE and saved captures | Done, host-tested (§4, §9.1); on Unit B see §9.5. **One file is written, only by a confirmed SAVE of a stopped capture** |
+| M9 | Landscape layout of its own, keyboard keys, final icon | Layout and keys done, host-tested (§7, §7a); the layout seen on Unit B (§9.5), the keys not (no keyboard there). The icon is the one the owner accepted with DS §59.8, unchanged |
 | M10 | The Unit A gate at line rate | Not started |
 
 Out of scope for PacketShark v0.1 altogether: Wi-Fi monitor mode (the installed driver configuration cannot do it), Wi-Fi capture in managed mode (listed, not offered, until validated on a test network), LoRa, any transmit path.
@@ -261,6 +261,32 @@ Doors 0.3.6 base image on Unit B with the PacketShark binaries replaced (portrai
 | Capabilities, nice | `dropped bnd=empty`, nice 5 | VERIFIED |
 | Live capture on eth0, landscape, physical touch and drag | not tested (no carrier; driven by IPC; rotation not changed) | — |
 
+### 9.5 Unit B, M7 to M9 (2026-11-16)
+
+Unit B (Doors 0.3.6 base image, portrait, Neon, text size Large), eth0 cabled at 100 Mb/s on the owner's LAN. Built from `ef4e055d` against the rm69a10 SDK sysroot and Unit B's libpcap, and **installed** (shell and helper together, protocol 3) with a rollback kit, `/root/packetshark-m79-ef4e055d/RESTORE.sh`, which puts back the shell and helper that were there. The checks ran from a non-persistent test-hooks shell in `/tmp` driven by `shell.tap` and screenshots, first on the synthetic source, then on eth0; the test shell was removed afterwards and the installed shell opens PacketShark. Traffic for the eth0 run was made on the unit itself: pings, three lookups of names under `.invalid`, a connection to a closed port on the gateway and one to a documentation address (192.0.2.1). No capture left the unit; both saved files were deleted through the app. The record is outside the repository (`K230-artifacts/packetshark-m7-m9/`).
+
+| Check | Result | Class |
+| --- | --- | --- |
+| Synthetic, 2,000 pps: a tap on TCP RST lists the resets, each row with `!` | 88 of 49,500, as on the host | VERIFIED |
+| A retransmission in INSPECT | `! RETRANSMISSION` beside the class; under TCP, open, `! RETRANSMISSION OF #76653 · 28.0 MS EARLIER` | VERIFIED |
+| Rail marks, the Findings row of the filter sheet | drawn; as on the host | VERIFIED |
+| eth0: DNS failures | 6 (three NXDOMAIN lookups, A and AAAA) | VERIFIED |
+| eth0: a reset | 1, the gateway's RST to the closed port | VERIFIED |
+| eth0: an unanswered SYN | marked 3 s later on the first SYN to 192.0.2.1: `! SYN NOT ANSWERED WITHIN 3 S`; its four repeats listed as retransmissions | VERIFIED |
+| eth0: an unreachable | none arrived (the gateway answered a UDP probe with nothing) | not verified |
+| SAVE, synthetic, buffer full | sheet with the SSH warning; 65,536 packets, 5.8 MB, in 1.4 s; folder `drwx------`, file `-rw-------`; the unit's tcpdump reads 65,536 frames, `pos-capture decode` the same | VERIFIED |
+| SAVE by a helper without capabilities (ADR-016 rule 17 with rule 9) | `CapPrm`, `CapEff`, `CapBnd` 0 and `NoNewPrivs: 1` while it wrote to `/root/Captures` | VERIFIED |
+| SAVE, eth0 | 409 packets, 22.8 kB; tcpdump reads 409, the reset among them | VERIFIED |
+| After SAVE | bar shows SAVED; DISCARD says the file stays; setup counts `1 · 5.8 MB` | VERIFIED |
+| Saved captures | listed with size and `JUST NOW`; KEEP keeps the file, DELETE removes it and the row | VERIFIED |
+| Logs | `capture: saving`, `capture: saved n packets in a file of n B`; no address, name or file name in either log | VERIFIED |
+| Interface flags, capture sockets | `0x1003` throughout; no helper and no capture socket left after home | VERIFIED |
+| Wide shape (`--rotation landscape` for the run) | the top row at the panel's top edge clear of its corners; LIVE in two columns; one-line rows with the inspector beside them; a tap on a row fills the inspector | VERIFIED |
+| Wide shape at Large | SESSION goes two by two and SIGNALS is below the fold until LIVE is scrolled; the top row's session line shortens to `SYNTH0 · 00:07` | VERIFIED (a limit, §10) |
+| Cost, 2,000 pps | PACKETS following, portrait: shell 10.5 % of the hart, helper 1.2 % (M5-M6 measured 8.3 % and 0.7 %; the difference was not broken down); wide, list held with the inspector: 6.7 % and 1.1 %. Shell RSS 16 MB, 15 descriptors with a helper, 14 without | VERIFIED |
+| Keys | not tested: no keyboard on the unit | — |
+| SAVE refused for lack of space, a save cut short by leaving, physical touch | not tested on the unit (host-tested) | — |
+
 ### 9.3 Unit A, M4
 
 Doors 0.4.0 (`21baeef0`) on Unit A, landscape, Neon theme, eth0 up at 100 Mb/s on the owner's LAN. The kit was built from `135d8dc4`: the shell with the simulator's test hooks, `pos-capture` with libpcap, both against the v0.4.0 SDK sysroot. It ran from `/tmp`, as in §9.2, with `POCKETOS_LOG_LEVEL=debug`. Synthetic traffic is generated inside the helper (`POCKETOS_CAPTURE_SOURCE=synth:N`), so nothing was transmitted. Afterwards the installed system was restored and checked byte for byte. The full record is outside the repository (`K230-artifacts/packetshark-m4/REPORT.md`).
@@ -283,7 +309,8 @@ How the cost is measured: the sysroot's LVGL is built without the performance mo
 ## 10. Known limits and open items
 
 - **Owner decisions:** ADR-016 accepted 2026-11-16 subject to its security constraints, which bind every later milestone (in particular: promiscuous mode not offered until its reversion is verified on the hardware; capabilities dropped before a frame is parsed). The libpcap dependency approved 2026-11-16. DS §59 accepted 2026-11-16 after the owner reviewed the mockups; minor adjustments for readability, touch accuracy or LVGL rendering on Unit A are allowed and recorded in DS §59.11.
-- **M7 to M9 have not run on a unit.** They are built for the K230 and host-tested; Unit B still runs another branch's shell, and the shell and helper must be installed together (protocol 3).
+- M7 to M9 ran on Unit B (§9.5) except the keys (no keyboard there), a real ICMP unreachable, and SAVE's failure paths. The shell and helper must be installed together (protocol 3).
+- INSPECT names an unanswered SYN `NO ANSWER` beside the class where LIVE's cell says `NO REPLY`: one word should serve both.
 - An unsaved capture is lost by a helper crash or by leaving the app (D10, accepted; said on screen). A saved capture cannot be opened again in the app in this version: it is listed and deleted there, and read with another tool.
 - SAVE writes the buffer as it is: packets whose bytes have left the ring, and pinned packets that left the buffer, are not in the file. Saved files are readable by anyone who can log in as root over the network (ADR-016, accepted risk; said on the save sheet).
 - Signals are heuristics (§4a): out-of-order segments read as retransmissions, findings are not judged in HOLD or while shedding, and DNS over TCP is not read.
