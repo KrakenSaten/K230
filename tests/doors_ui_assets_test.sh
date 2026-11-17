@@ -12,7 +12,10 @@
 #      drawn in, and the environment's palette (pos_styles.c) is the
 #      package's;
 #   4. only runtime art is in the runtime directory - no PNG, no SVG, no
-#      source - and it stays inside its size budget.
+#      source - and it stays inside its size budget;
+#   5. the Games Hub's posters (DS §60) are what gen_doors_ui.py makes from
+#      their PNGs, there is one for every tile of ui/shell/hub_layout.c in
+#      both orientations, and each is exactly its tile's size, RGB565.
 #
 # Standard library python3 only. Run from anywhere; make test runs it.
 set -u
@@ -28,6 +31,33 @@ check "the portal icons are what gen_doors_ui.py draws from their sources" "$([ 
 out=$(python3 tools/design/gen_doors_ui.py --check --only glyphs 2>&1); rc=$?
 [ -n "$out" ] && echo "$out"
 check "pos_glyphs.c/.h are what gen_doors_ui.py makes from the package's glyphs" "$([ $rc = 0 ] && echo 1 || echo 0)"
+
+out=$(python3 tools/design/gen_doors_ui.py --check --only hub 2>&1); rc=$?
+[ -n "$out" ] && echo "$out"
+check "the Games Hub posters are what gen_doors_ui.py makes from their PNGs" "$([ $rc = 0 ] && echo 1 || echo 0)"
+if [ -x tests/hub_layout_test ]; then
+    tiles=$(./tests/hub_layout_test --art)
+    drawn=$(python3 tools/design/gen_games_hub.py --sizes)
+    check "gen_games_hub.py draws every poster at the rectangle hub_layout.c gives it"         "$([ -n "$tiles" ] && [ "$tiles" = "$drawn" ] && echo 1 || echo 0)"
+    bad=$(printf '%s
+' "$tiles" | while read -r name w h _; do
+        python3 - "$A/$name.bin" "$w" "$h" <<'PY'
+import struct, sys
+try:
+    b = open(sys.argv[1], "rb").read()
+    magic, cf, _, w, h, stride, _ = struct.unpack("<BBHHHHH", b[:12])
+    ok = (magic, cf, w, h, stride) == (0x19, 0x12, int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[2]) * 2)         and len(b) == 12 + w * h * 2
+except OSError:
+    ok = False
+if not ok:
+    print(sys.argv[1])
+PY
+    done)
+    check "a poster for each of the twenty tiles, each its tile's size in RGB565${bad:+ (not: $bad)}"         "$([ "$(printf '%s
+' "$tiles" | wc -l)" = 20 ] && [ -z "$bad" ] && echo 1 || echo 0)"
+else
+    check "tests/hub_layout_test is built (make tests/hub_layout_test)" 0
+fi
 
 # ---- 2..4 ----------------------------------------------------------------------
 py=$(python3 - <<'PY'
@@ -48,6 +78,9 @@ check("every art file has the hash MANIFEST.txt records%s" % (" (not: %s)" % bad
 bad_src = [r[3] for r in rows if not os.path.isfile(r[3]) or sha(r[3]) != r[2]]
 check("every source still has the hash it had when the art was made%s" % (" (changed: %s)" % bad_src if bad_src else ""),
       not bad_src)
+check("every Games Hub poster comes from docs/design/games-hub/art",
+      all(r[3].startswith("docs/design/games-hub/art/hub-") for r in rows if "/hub-" in r[1])
+      and sum("/hub-" in r[1] for r in rows) == 20)
 check("every background comes from the approved package's device exports",
       all(r[3].startswith("docs/design/brand/doors-visual-pack-v1/device/backgrounds/") for r in rows if "/bg-" in r[1]))
 
@@ -79,13 +112,14 @@ others = [n for n in os.listdir(A) if not n.endswith(".bin") and n != "MANIFEST.
 check("the runtime directory holds only .bin art and its manifest%s" % (" (also: %s)" % others if others else ""),
       not others)
 total = sum(os.path.getsize(p) for p in present)
-check("the art is %d bytes, inside the 9 MiB budget" % total, total <= 9 * 1024 * 1024)
+# 9 MiB before the Games Hub; its twenty posters are 2.05 MB (DS §60.6).
+check("the art is %d bytes, inside the 11 MiB budget" % total, total <= 11 * 1024 * 1024)
 print("\n".join(res))
 PY
 )
 printf '%s\n' "$py"
 oks=$(printf '%s\n' "$py" | grep -c '^ok')
 failed=$((failed + $(printf '%s\n' "$py" | grep -c '^FAIL')))
-check "the manifest, colour and budget checks ran" "$([ "$oks" -ge 9 ] && echo 1 || echo 0)"
+check "the manifest, colour and budget checks ran" "$([ "$oks" -ge 10 ] && echo 1 || echo 0)"
 echo "doors_ui_assets_test: $failed failure(s)"
 exit $((failed > 0))

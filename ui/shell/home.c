@@ -8,6 +8,8 @@
 
 #include "art.h"
 #include "home_layout.h"
+#include "hub.h"
+#include "hub_layout.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pos_glyphs.h"
@@ -81,6 +83,13 @@ static struct {
     struct page folder;  /* the open folder's (or picker's) page; its root is NULL when none is open */
     lv_obj_t *back;      /* its way back */
     enum home_folder open;
+    /* The Games Hub (hub.h): the Games folder's page when its art is here.
+     * Its posters are folder.cells, each holding its own art; the lobby's
+     * art is held here. */
+    bool hub;
+    struct hub_layout hub_lay;
+    lv_image_dsc_t *hub_lobby_art;
+    lv_obj_t *hub_lobby; /* the lobby widget, for home_hub_lobby_area */
     int picking;         /* the slot the page is the picker for, or -1 */
     /* The favorites: what each slot holds ("" = empty), and where its cell is. */
     char fav[HOME_FAVORITES][HOME_FAVORITE_ID_MAX];
@@ -699,6 +708,14 @@ static void on_key(lv_event_t *e)
             show_focus(p, p->focus >= 0 && p->focus < p->ncells ? p->focus : 0);
             break;
         }
+        if (home.hub && p == &home.folder) {
+            show_focus(p, hub_neighbour(&home.hub_lay, p->focus,
+                                        key == LV_KEY_LEFT    ? HUB_DIR_LEFT
+                                        : key == LV_KEY_RIGHT ? HUB_DIR_RIGHT
+                                        : key == LV_KEY_UP    ? HUB_DIR_UP
+                                                              : HUB_DIR_DOWN));
+            break;
+        }
         show_focus(p, neighbour(p, p->focus, key));
         break;
     case LV_KEY_ENTER:
@@ -872,12 +889,98 @@ static void page_close(void)
     home.folder.root = NULL;
     home.back = NULL;
     cells_release(&home.folder);
+    art_free(home.hub_lobby_art);
+    home.hub_lobby_art = NULL;
+    home.hub_lobby = NULL;
+    home.hub = false;
     home.open = HOME_FOLDER_NONE;
     home.picking = -1;
     lv_obj_remove_flag(home.root.root, LV_OBJ_FLAG_HIDDEN);
     if (home.keys_shown && home.root.focus >= 0 && home.root.focus < home.root.ncells) {
         show_focus(&home.root, home.root.focus);
     }
+}
+
+/* The Games Hub over the launcher's page, in place of the Games folder's
+ * page: the same second page to everything else here - its posters are
+ * home.folder.cells, so a tap, the keys, the focus and home_cell_area work
+ * on them as on a folder's cells, and page_close takes it down. order[0..n-1]
+ * are the folder's installed apps. False, with nothing built and nothing
+ * held, when the hub cannot stand for this folder here: the apps are not
+ * exactly its nine games, the content area cannot hold the wall, or its art
+ * is missing or damaged. The caller then builds the folder page. */
+static bool hub_page_build(const uint8_t *order, int n)
+{
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    const char *ids[HOME_MAX_APPS];
+    lv_image_dsc_t *art[HUB_TILE_COUNT];
+    struct hub_frame fr;
+    struct hub_view view;
+    int k;
+    int t;
+
+    for (k = 0; k < n; k++) {
+        ids[k] = home.apps[order[k]]->id;
+    }
+    if (!hub_games_match(ids, n)) {
+        LOG_INFO("launcher: the Games Hub has no wall for these %d game(s); the folder page instead", n);
+        return false;
+    }
+    memset(&fr, 0, sizeof(fr));
+    fr.landscape = home.landscape;
+    fr.width = home.width;
+    fr.height = home.height;
+    fr.corner_top_left = g->corners.top_left;
+    fr.corner_top_right = g->corners.top_right;
+    fr.corner_bottom_left = g->corners.bottom_left;
+    fr.corner_bottom_right = g->corners.bottom_right;
+    fr.keepout.x = home.keepout.x;
+    fr.keepout.y = home.keepout.y;
+    fr.keepout.w = home.keepout.w;
+    fr.keepout.h = home.keepout.h;
+    if (hub_layout(&fr, &home.hub_lay) < 0) {
+        LOG_INFO("launcher: the Games Hub does not fit %dx%d %s; the folder page instead", (int)fr.width,
+                 (int)fr.height, fr.landscape ? "landscape" : "portrait");
+        return false;
+    }
+    if (!hub_art_load(&home.hub_lay, art)) {
+        LOG_WARN("launcher: the Games Hub's art is not all here; the folder page instead");
+        return false;
+    }
+    hub_build(home.container, &home.hub_lay, art, &view);
+    home.folder.root = view.root;
+    home.back = view.back;
+    lv_obj_add_event_cb(view.back, on_folder_back, LV_EVENT_CLICKED, NULL);
+    for (t = 0; t < HUB_GAMES; t++) {
+        struct cell *c = &home.folder.cells[t];
+
+        memset(c, 0, sizeof(*c));
+        for (k = 0; k < n; k++) {
+            if (strcmp(ids[k], hub_game(t)->id) == 0) {
+                c->app = home.apps[order[k]];
+            }
+        }
+        c->folder = HOME_FOLDER_NONE;
+        c->fav = -1;
+        c->hue = hue_of(c->app->id);
+        c->obj = view.poster[t];
+        c->icon = art[t]; /* the cell's from here on: cells_release frees it */
+        lv_obj_add_event_cb(c->obj, on_cell_pressed, LV_EVENT_PRESSED, c);
+        lv_obj_add_event_cb(c->obj, on_cell_clicked, LV_EVENT_CLICKED, c);
+    }
+    home.hub_lobby_art = art[HUB_TILE_LOBBY];
+    home.hub_lobby = view.lobby;
+    home.folder.ncells = HUB_GAMES;
+    home.folder.focus = 0;
+    home.hub = true;
+    lv_obj_add_flag(home.root.root, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_update_layout(home.folder.root);
+    if (home.keys_shown) {
+        show_focus(&home.folder, 0);
+    }
+    LOG_INFO("launcher: folder games open as the Games Hub, %d poster(s), %s, art %u bytes held", HUB_GAMES,
+             fr.landscape ? "landscape" : "portrait", (unsigned)art_bytes_held());
+    return true;
 }
 
 bool home_folder_open(const char *id)
@@ -909,6 +1012,10 @@ bool home_folder_open(const char *id)
         if (home.root.cells[k].folder == f) {
             home.root.focus = k;
         }
+    }
+    if (f == HOME_FOLDER_GAMES && hub_page_build(order, n)) {
+        home.open = f;
+        return true;
     }
     for (k = 0; k < n; k++) {
         struct cell *c = &home.folder.cells[k];
@@ -954,6 +1061,20 @@ const char *home_folder_current(void)
     const struct home_folder_def *def = home.folder.root ? home_folder_get(home.open) : NULL;
 
     return def ? def->id : NULL;
+}
+
+bool home_hub_showing(void)
+{
+    return home.folder.root && home.hub;
+}
+
+bool home_hub_lobby_area(lv_area_t *out)
+{
+    if (!home_hub_showing() || !home.hub_lobby) {
+        return false;
+    }
+    lv_obj_get_coords(home.hub_lobby, out);
+    return true;
 }
 
 /* ---- favorites ---------------------------------------------------------------- */
@@ -1297,6 +1418,10 @@ void home_destroy(void)
     home.back = NULL;
     home.root.root = NULL;
     cells_release(&home.folder);
+    art_free(home.hub_lobby_art);
+    home.hub_lobby_art = NULL;
+    home.hub_lobby = NULL;
+    home.hub = false;
     cells_release(&home.root);
     memset(home.root.cells, 0, sizeof(home.root.cells));
     art_free(home.frame);

@@ -3291,6 +3291,22 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 } else {
                     cJSON_AddNullToObject(launcher, "folder");
                 }
+                {
+                    /* The Games Hub (DS §60): whether the open folder's
+                     * page is the poster wall, and where its lobby is. */
+                    lv_area_t la;
+
+                    cJSON_AddBoolToObject(launcher, "hub", home_hub_showing());
+                    if (home_hub_lobby_area(&la)) {
+                        cJSON *lb = cJSON_CreateObject();
+
+                        cJSON_AddNumberToObject(lb, "x", la.x1);
+                        cJSON_AddNumberToObject(lb, "y", la.y1);
+                        cJSON_AddNumberToObject(lb, "w", lv_area_get_width(&la));
+                        cJSON_AddNumberToObject(lb, "h", lv_area_get_height(&la));
+                        cJSON_AddItemToObject(launcher, "hub_lobby", lb);
+                    }
+                }
                 cJSON_AddNumberToObject(launcher, "home_cells", hi.cells);
                 cJSON_AddNumberToObject(launcher, "folder_cells", hi.folders);
                 cJSON_AddNumberToObject(launcher, "favorite_cells", hi.favorites);

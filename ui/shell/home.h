@@ -117,6 +117,19 @@ void home_folder_close(void);
 /* The open folder's id, or NULL. */
 const char *home_folder_current(void);
 
+/* The Games Hub (hub.h, DS §60): the page the Games folder opens as when its
+ * nine games are installed, the content area holds the wall and its art is
+ * all there; otherwise Games opens as the folder page above, as it did
+ * before the hub. To everything in this file it is the Games folder's page:
+ * home_folder_open/close/current, the way back, the keys (the arrows move
+ * across the wall by its own geometry, Enter plays), home_cell_area (a
+ * game's poster) and home_focus_id are the same calls. Whether that page is
+ * the hub now: */
+bool home_hub_showing(void);
+/* The Multiplayer Lobby preview on the screen, for tests and the bench:
+ * false when the hub is not showing. A tap there does nothing. */
+bool home_hub_lobby_area(lv_area_t *out);
+
 /* For shell.info: how the launcher came out. */
 struct home_info {
     int groups;

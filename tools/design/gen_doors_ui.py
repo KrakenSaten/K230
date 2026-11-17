@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate the DOORS shell's runtime art from the approved visual package.
 
-    gen_doors_ui.py [--check] [--only backgrounds|icons|glyphs] [--compare]
+    gen_doors_ui.py [--check] [--only backgrounds|icons|glyphs|hub] [--compare]
 
 Sources (never shipped): docs/design/brand/doors-visual-pack-v1 (the B
 package: backgrounds, portal icon masters, system glyphs), the Doors icon
@@ -27,6 +27,12 @@ Outputs, all committed so a build needs neither this script nor the sources:
       glyph for use it; the others use their Doors icon from the earlier
       packages, redrawn in the B line weight. icon-frame.bin is the empty
       portal the shell puts an app's own mask on when it has no icon here.
+  ui/assets/doors/hub-<game>-<orientation>.bin
+      the Games Hub's posters (DS §60): nine games and the lobby, each at
+      its tile's size in each orientation, RGB565 as the backgrounds are and
+      dithered the same way. Made from the PNGs in docs/design/games-hub/art,
+      which tools/design/gen_games_hub.py draws; rounded corners, scrims and
+      lettering are in the picture, against the hub's ground.
   ui/assets/doors/MANIFEST.txt
       every output with its SHA-256 and the SHA-256 of what it was made from;
       tests/doors_ui_assets_test.sh holds the two together.
@@ -136,6 +142,10 @@ BACKGROUNDS = {
     ("home", "landscape"): [(0, 0, 1232, 568, "#0a1014", 0.24)],
 }
 BG_SOURCE = {"lock": "lock", "open": "open", "home": "launcher"}
+# The Games Hub's posters (ui/shell/hub_layout.c: hub_art_name).
+HUB_ART = "docs/design/games-hub/art"
+HUB_POSTERS = ["rotorterror", "relay-nine", "fleet", "radar", "timber", "solitaire", "blackjack", "poker",
+               "2048", "lobby"]
 
 
 def sha(data):
@@ -388,6 +398,13 @@ def build(only=None):
             name = "%s/bg-%s-%s.bin" % (OUT, screen, orient)
             files[name] = background_bin(src, scrims)
             rows.append((name, src))
+    if only in (None, "hub"):
+        for orient in ("portrait", "landscape"):
+            for poster in HUB_POSTERS:
+                src = "%s/hub-%s-%s.png" % (HUB_ART, poster, orient)
+                name = "%s/hub-%s-%s.bin" % (OUT, poster, orient)
+                files[name] = background_bin(src, [])
+                rows.append((name, src))
     if only in (None, "glyphs"):
         c, h = glyphs_c()
         files["ui/pocketui/pos_glyphs.c"] = c

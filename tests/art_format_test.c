@@ -93,6 +93,7 @@ static void test_committed(const char *dir)
     int bad = 0;
     int bg = 0;
     int icons = 0;
+    int hub = 0;
 
     check("the art directory opens", d != NULL);
     if (!d) {
@@ -135,6 +136,14 @@ static void test_committed(const char *dir)
                 printf("FAIL %s: not a 96 px RGB565A8 icon\n", e->d_name);
                 bad++;
             }
+        } else if (strncmp(name, "hub-", 4) == 0) {
+            /* The Games Hub's posters (DS 60): opaque, no larger than the
+             * panel; tests/doors_ui_assets_test.sh holds each to its tile. */
+            hub++;
+            if (h.cf != ART_CF_RGB565 || h.w > 1232 || h.h > 1232) {
+                printf("FAIL %s: not an opaque poster\n", e->d_name);
+                bad++;
+            }
         }
         fclose(f);
     }
@@ -145,7 +154,8 @@ static void test_committed(const char *dir)
      * master read 28 here), Photo twenty-six, Poker twenty-seven, RotorTerror twenty-eight; the
      * Apps folder (DS §47) is a third folder cell. */
     check("thirty-three icons: twenty-nine apps, the Games, Utilities and Apps folders and the empty frame", icons == 33);
-    check("nothing else is in the directory as art", files == bg + icons);
+    check("twenty Games Hub posters: nine games and the lobby in both orientations", hub == 20);
+    check("nothing else is in the directory as art", files == bg + icons + hub);
 }
 
 int main(int argc, char **argv)

@@ -97,6 +97,8 @@ add_executable(pocketos-shell
     art_format.c
     home.c
     home_layout.c
+    hub.c
+    hub_layout.c
     shell_lock.c
     controls.c
     controls_model.c
@@ -927,6 +929,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/home_folder_test.c
         home.c
         home_layout.c
+        hub.c
+        hub_layout.c
         art.c
         art_format.c
         ../pocketui/pos_glyphs.c

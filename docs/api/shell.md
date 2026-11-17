@@ -239,12 +239,15 @@ wake it.
 - `shell.info` also carries the DOORS environment: `lock` `{locked, opening,
   engaged, opened}` (counts since start), `launcher` `{groups, apps,
   icons_art, icons_fallback, cell_width, scrolls, controls, cells, folders,
-  folder, home_cells, folder_cells, favorite_cells, favorites_set,
+  folder, hub, hub_lobby, home_cells, folder_cells, favorite_cells, favorites_set,
   favorites, picker, focus, focus_shown, keys}` - `cells` is every app's
   own cell on the page showing (the launcher's, the open folder's, or the
   picker's), `[{id, x, y, w, h}]`, never a favorite's; `folders` is every
   folder, `[{id, name, apps, x, y, w, h}]`, with the rectangle while its
-  cell is on the screen; `folder` the open one or null; `home_cells` the
+  cell is on the screen; `folder` the open one or null; `hub` whether the
+  open folder's page is the Games Hub (DS §60: Games, with its nine games
+  and its art; `cells` are then the posters) and `hub_lobby` `{x, y, w, h}`,
+  the Multiplayer Lobby preview while the hub shows; `home_cells` the
   launcher's app and folder cells and `folder_cells` how many of them are
   folders; `favorite_cells` the favorite slots before them (3),
   `favorites_set` how many hold an installed app, `favorites`
