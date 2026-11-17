@@ -5502,8 +5502,10 @@ It amends §1-§2 for this one screen (gradients and large bright fills, as
 §31 did for the environment), §39.3 and §47.2 (what the Games folder's page
 is), and adds eighteen fixed style roles (`POS_STYLE_HUB_*`). It adds no
 token and changes no theme, no other folder, no navigation rule and nothing
-in an app. Nothing in §1-§59 is renumbered. **Not validated on hardware**
-(60.8).
+in an app. Nothing in §1-§59 is renumbered. **Gated on Unit A on
+2026-11-17** with a non-persistent kit of `fa7a45ea`: steps 1-5 of 60.8
+PASS by injected taps and keys, step 6 in captures only, step 7 open for the
+owner (docs/hardware/GAMES_HUB_GATE.md).
 
 ### 60.1 The wall
 
@@ -5657,8 +5659,14 @@ model in both orientations at its tile's size, and is in the manifest).
 
 ### 60.8 Gate (before acceptance)
 
-Nothing in §60 has run on a unit. Proposed gate on unit A or B, both
-orientations, by touch and by the keyboard base:
+Run on Unit A on 2026-11-17 (docs/hardware/GAMES_HUB_GATE.md): steps 1-5
+PASS - the wall built 10 ms after its first file was read, memory back to
+its level after twenty open/close rounds, every poster launching, the lobby
+inert, the keys, rotation in the open hub and Timber from the landscape
+wall. Taps and keys were injected (`shell.tap`, `shell.key`) into a
+test-hooks build; a physical finger, the keyboard base, the production
+binary and the look on the glass (steps 6 and 7) are still open. The gate,
+on unit A or B, both orientations, by touch and by the keyboard base:
 
 1. Open time: from the tap on Games to the wall drawn (the art log lines
    give the read time of each file), against the folder page's.

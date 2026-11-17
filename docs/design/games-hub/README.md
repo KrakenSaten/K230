@@ -4,8 +4,9 @@
 **Status: Concept C, Poster Wall, is implemented on branch
 `feature/games-hub` as DS §60 (PROPOSED). The owner chose the concept and
 settled decisions 2-6 on 2026-11-16. Built and tested in the SDL simulator
-and cross-built for riscv64; not run on a unit - the hardware gate is DS
-§60.8.** See "As built" below.
+and cross-built for riscv64; gated on Unit A on 2026-11-17 with a
+non-persistent kit (`docs/hardware/GAMES_HUB_GATE.md`: steps 1-5 PASS, the
+look on the glass still for the owner).** See "As built" below.
 
 The images in `mockups/` are design mockups drawn by `tools/gen_mockups.py`,
 not screenshots of Doors. The images in `captures/` are real captures of the
@@ -22,6 +23,13 @@ Captured from `pocketos-shell` (SDL, `--theme doors`, 568 x 1232 and
 1232 x 568) by `shell.folder id=games` and `pos shell screenshot`. The
 simulator's panel is rectangular: the glass's rounded corners are not in
 the pictures.
+
+On Unit A (frame-buffer captures from the gate; the strip at the foot is the
+unit's debug overlay):
+
+| Portrait | Landscape |
+| --- | --- |
+| ![Unit A, portrait](captures/unit-a-portrait.png) | ![Unit A, landscape](captures/unit-a-landscape-focus.png) |
 
 - The specification is **DS §60** (`docs/design/POCKETOS-DS-v0.1.md`); its
   §60.9 lists every difference from the Concept C mockups and why.
