@@ -1,12 +1,39 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
-# Games Hub - design exploration
+# Games Hub - design exploration and implementation record
 
-**Status: direction chosen - the owner selected Concept C, Poster Wall, on
-2026-11-16. Decisions 2-6 under "Decisions for the owner" remain open.
-Nothing here is implemented.** The
-images in `mockups/` are design mockups drawn by `tools/gen_mockups.py`, not
-screenshots of Doors. No launcher, shell or app code is changed by this
-package.
+**Status: Concept C, Poster Wall, is implemented on branch
+`feature/games-hub` as DS §60 (PROPOSED). The owner chose the concept and
+settled decisions 2-6 on 2026-11-16. Built and tested in the SDL simulator
+and cross-built for riscv64; not run on a unit - the hardware gate is DS
+§60.8.** See "As built" below.
+
+The images in `mockups/` are design mockups drawn by `tools/gen_mockups.py`,
+not screenshots of Doors. The images in `captures/` are real captures of the
+shell in the simulator.
+
+## As built
+
+| Portrait | Landscape |
+| --- | --- |
+| ![Hub, portrait](captures/hub-portrait.png) | ![Hub, landscape](captures/hub-landscape.png) |
+| Night mode: ![Hub, portrait, Night](captures/hub-portrait-night.png) | The key focus on Radar: ![Hub, landscape, focus](captures/hub-landscape-focus.png) |
+
+Captured from `pocketos-shell` (SDL, `--theme doors`, 568 x 1232 and
+1232 x 568) by `shell.folder id=games` and `pos shell screenshot`. The
+simulator's panel is rectangular: the glass's rounded corners are not in
+the pictures.
+
+- The specification is **DS §60** (`docs/design/POCKETOS-DS-v0.1.md`); its
+  §60.9 lists every difference from the Concept C mockups and why.
+- Geometry: `ui/shell/hub_layout.c` (pure C; `tests/hub_layout_test.c`).
+  Drawing: `ui/shell/hub.c`. The launcher opens it from the existing Games
+  folder entry (`home_folder_open`, `ui/shell/home.c`) and falls back to the
+  folder page when the nine games, the room or the art are not all there.
+- Art: `tools/design/gen_games_hub.py` draws the posters into `art/`
+  (PNG, plus the two wall SVGs); `tools/design/gen_doors_ui.py` makes the
+  twenty `ui/assets/doors/hub-*.bin` from them.
+- Not built: hold-for-details (no details surface exists), and anything
+  behind the Multiplayer Lobby, which is a preview only.
 
 Today, **Games** on the launcher opens an ordinary folder page of nine icon
 cells (DS §39, §47.2; `ui/shell/home_layout.c`). This package proposes
@@ -140,13 +167,19 @@ the record of the alternatives.
 ## Decisions for the owner
 
 1. Which concept (A, B, C, or a named combination). **Decided 2026-11-16: C, Poster Wall.**
-2. Whether the hub may use a fixed palette and art in every theme, as the environment does, with the DS amendment that requires.
-3. Featured set and order (proposed: RotorTerror, then Relay Nine) and the order of the other seven.
-4. Wording of the lobby preview ("COMING SOON", HOST GAME / JOIN GAME) and whether any player-count marks should appear.
-5. Whether production artwork is redrawn from the games' renderers, or commissioned separately.
-6. For C: poster names baked into art, or drawn as live text in an existing font.
+2. Whether the hub may use a fixed palette and art in every theme, as the environment does, with the DS amendment that requires. **Decided 2026-11-16: yes, a fixed palette in every theme (DS §60.2, PROPOSED).**
+3. Featured set and order (proposed: RotorTerror, then Relay Nine) and the order of the other seven. **Decided 2026-11-16: RotorTerror, Relay Nine; then Fleet, Radar, Timber, Solitaire, Blackjack, Poker, 2048, placed as the Concept C mockups place them.**
+4. Wording of the lobby preview ("COMING SOON", HOST GAME / JOIN GAME) and whether any player-count marks should appear. **Decided 2026-11-16: as mocked - MULTIPLAYER LOBBY, COMING SOON, disabled HOST GAME / JOIN GAME - with the two illustrative device marks and no player count.**
+5. Whether production artwork is redrawn from the games' renderers, or commissioned separately. **Decided 2026-11-16: generated in the repository (`tools/design/gen_games_hub.py`), replaceable later through the same pipeline.**
+6. For C: poster names baked into art, or drawn as live text in an existing font. **Decided 2026-11-16: baked into the art.**
 
-## Implementation outline (for a later session, after approval)
+## Implementation outline (carried out 2026-11-17; kept as the record of the plan)
+
+Steps 1-5 are done on `feature/games-hub`. Of step 5, the captures at
+Small/Medium/Large are covered by the layout audit in
+`tests/launcher_groups_shell_test.sh` rather than by pictures: the hub's
+type does not follow the text size (DS §60.3), so the three are the same
+picture. Step 6: both builds succeed; the hardware gate is open (DS §60.8).
 
 1. DS amendment for the hub (PROPOSED), citing the chosen mockups as its reference.
 2. Art pipeline: extend `tools/design/gen_doors_ui.py` (or a sibling) to emit the hub's RGB565 `.bin` files and `MANIFEST.txt` entries for both orientations; extend `tests/doors_ui_assets_test.sh`.
@@ -159,4 +192,6 @@ the record of the alternatives.
 
 - `mockups/*.png` - the six mockups at panel size (568 x 1232, 1232 x 568) and `overview.png`.
 - `mockups/*.svg` - their vector sources.
+- `captures/*.png` - the hub as built, captured from the simulator.
+- `art/hub-*.png`, `art/wall-*.svg` - the poster art's sources (drawn by `tools/design/gen_games_hub.py`); the device's `.bin` files are made from the PNGs.
 - `tools/gen_mockups.py` - regenerates both (Python 3 standard library; PNG rendering needs Edge or Chrome; fonts fall back to system faces without network access to IBM Plex).

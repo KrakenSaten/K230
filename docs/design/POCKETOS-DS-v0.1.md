@@ -5481,3 +5481,214 @@ rendering on Unit A is added here when it is made.
 | INSPECT: long values | one line | a value wider than 62 % of the row wraps in its right part and the row grows | §46.5 (DNS names, sentences at Large) |
 | Filter sheet | (not drawn) | a sheet over the app as the confirmations: PROTOCOL as nine 56 px choices, Host, Port (cleared, not typed), Pinned only, CANCEL, CLEAR ALL, SHOW | only existing parts |
 | Figures at Medium and Large (DS §46) | Small only: four session figures in a line, each class's rate beside its word | where the widest expected figure (`8 888 888`, `88.8 GB`, `88 888/s` beside `100.0%`) does not fit, SESSION and LAST SESSION go two by two and every class's rate takes a line of its own under its word; Small keeps the mockup's shape. Portrait at Medium and Large; landscape's wider panels keep the Small shape | seen on Unit B at Large in portrait: dots-mode labels with an automatic height wrap, so `2 961/s` read as `2` over `961/s` and `492 000` as `492` over `000` (§46.5: wrap or grow the row, never break a figure). Decided from the widest expected figure, so the shape does not change in the middle of a capture; a figure wider still gets the same room once seen |
+
+## 60. Amendment AQ — The Games Hub [PROPOSED]
+
+**Proposed 2026-11-17** on branch `feature/games-hub`. The Games folder of
+§39 and §47.2 opens as a dedicated, art-led screen - the Games Hub - instead
+of a folder page. The direction is Concept C, "Poster Wall", of the design
+exploration in [games-hub/](games-hub/README.md), which the owner chose on
+2026-11-16; its reference is the two Concept C mockups
+([portrait](games-hub/mockups/c-poster-wall-portrait.png),
+[landscape](games-hub/mockups/c-poster-wall-landscape.png)), and what is
+built is shown by the captures in [games-hub/captures/](games-hub/captures/).
+The owner settled the package's open decisions 2-6 on 2026-11-16: a fixed
+palette and art in every theme (60.2), the order RotorTerror, Relay Nine,
+then Fleet, Radar, Timber, Solitaire, Blackjack, Poker, 2048 (60.1), the
+lobby's wording as mocked and no player count (60.4), art generated in the
+repository (60.6), and the poster names baked into the art (60.6).
+
+It amends §1-§2 for this one screen (gradients and large bright fills, as
+§31 did for the environment), §39.3 and §47.2 (what the Games folder's page
+is), and adds eighteen fixed style roles (`POS_STYLE_HUB_*`). It adds no
+token and changes no theme, no other folder, no navigation rule and nothing
+in an app. Nothing in §1-§59 is renumbered. **Not validated on hardware**
+(60.8).
+
+### 60.1 The wall
+
+Every game is a poster on one wall; the wall does not scroll and has no
+hidden state. RotorTerror and Relay Nine are large posters, each with a
+FEATURED chip and a PLAY slab; the other seven are colour tiles with their
+names in condensed poster lettering (2048's tiles are its name); the
+Multiplayer Lobby is a poster of its own (60.4).
+
+| | Portrait (568 x 1232) | Landscape (1232 x 568) |
+| --- | --- | --- |
+| RotorTerror | 528 x 300, across the top | 378 x 468, at the left |
+| Relay Nine | 258 x 310, under it at the left | 290 x 468, beside it |
+| Fleet, Radar, Timber | 125 x 150 (a 2 x 2 block with 2048) | 155 x 146, the top row of a 3 x 2 block |
+| Solitaire, Blackjack, Poker | 169 x 160, a row of three | 155 x 146, its second row |
+| 2048 | 125 x 150, in the block | 155 x 156, under Solitaire |
+| Multiplayer Lobby | 528 x 200, across the foot | 319 x 156, beside 2048 |
+| Wall | x 20..548, y 116..1116 | x 30..1202, y 76..544 |
+
+10 px between posters. The geometry is `ui/shell/hub_layout.c`, pure C and
+host-tested (60.7). The wall is made for the panel and never scaled: a wider
+content area centres it, and one that cannot hold it - above a keyboard, or
+where a corner square or the status cluster would cover a poster - gets no
+hub (60.5).
+
+Header: the way back is the screen's top-left corner exactly as on a folder
+page (§48: the same slab at the same place, in the hub's surface colour),
+"Games" beside it (sans 48 semibold in portrait, 28 semibold in landscape),
+and "9 GAMES · 2 FEATURED" in mono 14 - under the header row in portrait,
+in it in landscape, clear of the status cluster (§36). Portrait ends with
+one hint line, "TAP A POSTER TO PLAY".
+
+Safe area (§21.1): no poster lies in a corner square in either orientation.
+Landscape therefore keeps 30 px side margins, where the mockup drew 24, and
+starts the wall under a 72 px header row, where the mockup had none; its
+posters are 468 px tall for 482 and its tiles 146 for 152 (60.9).
+
+### 60.2 One palette, in every theme
+
+Like the environment (§31.1), the hub has a fixed palette and its own art
+and looks the same in `doors`, Neon and every other theme: ground `#0b0b0a`,
+text `#eeeae2`, secondary `#a8a399`, surface `#161513` with a `#36332e`
+hairline (the `doors` theme's Normal values, §32.1), and the accents its
+posters are drawn in - coral `#ff8a6a` and mint `#a5f0d2` (RotorTerror),
+amber `#e0a83a` and `#f0b23a` (Relay Nine), the lobby's blue `#8c9aff` and
+`#c5ccff`. They are roles in `pos_styles.c` (`POS_STYLE_HUB_*`), not tokens,
+and Neon does not replace them.
+
+The display mode applies (§6, §8): **Night** dims the art by the rule the
+portal icons use (black at 110/255) and the chips and PLAY with it, so no
+fill is brighter than its poster, and dims and warms the text by §8's night
+rule; **Outdoor** draws the text white and leaves the art as it is. The
+status cluster over the hub is the launcher's, unchanged.
+
+### 60.3 Type and the text size
+
+Live text uses existing bitmap faces only: sans 48 and 28 semibold, sans 16,
+mono 14, mono 16 medium and mono 22 medium. The game logos and the poster
+names are part of the artwork (60.6), not fonts.
+
+The hub keeps its type at every text size (§46.4): the wall is laid out to
+the pixel, as Fleet's board is, and its names are pictures. Nothing on it is
+a sentence to be read at length, and no role on it follows the setting.
+
+### 60.4 Touch, keys and the lobby
+
+- **A tap on a poster plays that game** - anywhere on it; PLAY is drawn on
+  the featured posters and is not a separate target. The smallest poster is
+  125 x 150 (the package's floor is 96 x 118), PLAY 134 x 52 at its smallest.
+  A held poster shows the focus frame. There is no long press (60.9).
+- **Keys** (§17.4, §39.5): the first arrow shows the focus, on RotorTerror;
+  the arrows then move a 3 px frame in the hub's text colour across the wall
+  by its geometry - to the nearest poster in that direction that lies beside
+  the focused one, and of several equally near the one whose edge starts
+  closest (Down from RotorTerror is Relay Nine; Right from Relay Nine is
+  Fleet). At the wall's edge the focus stays. Enter or Space plays. Esc,
+  Backspace, Back and the back corner return to the launcher's page with the
+  focus on the Games cell; Home, Lock and Controls are §39.4's.
+- **Timber** is portrait-only (§53). On the landscape wall its poster
+  carries a PORTRAIT badge, and playing it turns the display as §53.2 says;
+  the hub adds nothing to that.
+- **The Multiplayer Lobby is a preview only.** It says MULTIPLAYER LOBBY and
+  COMING SOON, "Not available yet. Reserved for linked play." (portrait),
+  and shows HOST GAME and JOIN GAME disabled - a dashed outline and a
+  padlock. It takes no tap and no key focus, and no networking, discovery or
+  session code is part of this amendment. The two device marks are
+  illustrative; no player count is shown. It is one widget inside one tile,
+  so a later amendment can make it live without the wall being laid out
+  again.
+
+Everything else about the Games folder is unchanged: its cell on the
+launcher, `shell.folder {"id":"games"}`, coming home from a game to the
+folder, a rotation restart in it (`DOORS_LAUNCHER_FOLDER=games`), Lock and
+Controls over it.
+
+### 60.5 When there is no hub
+
+The hub stands for exactly its nine games. Games opens as the ordinary
+folder page of §39.3 - as before this amendment - when the Games folder
+holds any other set of apps (a build without one of the nine, or with a
+tenth), when the content area cannot hold the wall, or when any of the ten
+art files of the orientation is missing, damaged or not its tile's size.
+The reason is logged; nothing is fatal, as §31.6 says of all runtime art.
+
+### 60.6 Art
+
+Twenty RGB565 files, `ui/assets/doors/hub-<game>-<orientation>.bin`, one per
+tile and orientation at exactly the tile's size, 2,045,136 bytes in all;
+read when the hub opens and released when it closes (`ui/shell/art.c`), so
+the hub holds about 1.0 MB while open (1,000,200 bytes of pixels in portrait,
+1,044,696 in landscape) and nothing afterwards. Rounded corners, scrims,
+scanlines, logos and names are baked in against the hub's ground: nothing
+is blended, scaled or animated at run time.
+
+The posters are drawn in the repository by `tools/design/gen_games_hub.py`
+- each game in its own palette, the two featured ones after their own title
+screens - rendered once per orientation by a headless browser and cut at
+the model's rectangles into `docs/design/games-hub/art/*.png` (committed,
+with the two wall SVGs). `tools/design/gen_doors_ui.py` (standard library
+only) turns each PNG into its `.bin`, Floyd-Steinberg dithered like the
+backgrounds, and records it in `MANIFEST.txt`. The lettering is IBM Plex
+Sans Condensed and IBM Plex Sans (OFL 1.1); card suits and marks are drawn
+as paths; no system typeface is in the art.
+
+The runtime art budget of `tests/doors_ui_assets_test.sh` rises from 9 MiB
+to 11 MiB for it (all runtime art is now 11,355,300 bytes; it was 9,310,164).
+
+### 60.7 Validation on the host
+
+`tests/hub_layout_test.c` (make test; both orientations with and without the
+status cluster, square corners, 1920 x 1080: no two tiles overlap, all fit
+the content area and the wall's box, none under the cluster or in a corner
+square, launch targets and PLAY at least their minimums, the lobby's parts
+inside it and apart, the header clear of the back corner and the cluster;
+the sizes of 60.1 to the pixel; the frames that are refused; the hub's
+games against the launcher's table; every arrow from every poster, the
+lobby never reached), `tests/home_folder_test.c` (the running launcher under
+a real pointer and the key stream: the wall in both orientations, a tap on
+a poster, on the lobby and on HOST GAME, the keys, Enter, Esc, Backspace and
+the way back, fifty open/back rounds with every object and all art given
+back, a missing game and a missing art file falling back to the folder
+page), `tests/launcher_folder_shell_test.sh` and
+`tests/launcher_groups_shell_test.sh` (the running shell: `shell.folder`,
+`shell.info` `hub` and `hub_lobby`, a tap on a poster and on the lobby by
+`shell.tap`, home from a game, forty open/close rounds, the wall pixel for
+pixel the same in the Ice and Neon themes, the fallback without art, a
+rotation restart into the hub in both orientations, the layout audit at
+Small, Medium and Large) and `tests/doors_ui_assets_test.sh` (every poster
+is what the generator makes from its PNG, exists for every tile of the
+model in both orientations at its tile's size, and is in the manifest).
+
+### 60.8 Gate (before acceptance)
+
+Nothing in §60 has run on a unit. Proposed gate on unit A or B, both
+orientations, by touch and by the keyboard base:
+
+1. Open time: from the tap on Games to the wall drawn (the art log lines
+   give the read time of each file), against the folder page's.
+2. Memory: RssAnon before opening, while open and after closing, and after
+   twenty open/close rounds (the art is mapped and unmapped, §31.6).
+3. Every poster launches its game by finger; the lobby and its two buttons
+   do nothing; the back corner, Back and Home behave as on a folder page.
+4. The keys cross the wall as 60.4 says; Enter plays; Esc returns.
+5. Rotation in the open hub (the restart of §21.2) comes back to the hub in
+   the other orientation; Timber from the landscape wall turns the display
+   and comes back to the hub (§53).
+6. Normal, Night and Outdoor; `doors` and Neon: the wall reads on the AMOLED,
+   the 30 px landscape margins keep every poster out of the glass's corners,
+   and dithering shows no banding in the dark gradients.
+7. For the owner's eyes: the posters themselves.
+
+### 60.9 Implementation deviations
+
+Meaningful differences between what is built and the Concept C mockups.
+
+| Where | Mockup | Built | Reason |
+| --- | --- | --- | --- |
+| Portrait header | back chevron and "Games" in a second row under a status line; wall from y 140 | the back corner and "Games" in the top row; the count on a line under it; wall from y 116, hint at y 1142 | §48: the way back is the screen's corner on every shell page; the status line of the mockup is the status cluster (§36) |
+| Landscape header | none; "DOORS / GAMES" in a status line; wall y 62..544 | a 72 px header row with the back corner, "Games" and the count; wall y 76..544 | the hub needs a way back a finger can reach, and §48 fixes where it is |
+| Landscape sizes | featured 390 and 290 x 482; tiles 155 x 152; 24 px side margins | featured 378 and 290 x 468; tiles 155 x 146 (2048 and the lobby 156); 30 px side margins | the header row above; §21.1: 24 px put the RotorTerror poster and the lobby in the bottom corner squares |
+| Count | "9 GAMES" over "2 FEATURED", two lines | one line, "9 GAMES · 2 FEATURED" | one line fits beside the cluster in landscape; the same words in both |
+| Hint | "TAP A POSTER TO PLAY · HOLD FOR DETAILS" | "TAP A POSTER TO PLAY" | hold-for-details is not built: there is no details surface to open yet |
+| Landscape "ARCADE ACTION" on RotorTerror | a genre line beside PLAY | left out | portrait has none; one treatment for both |
+| Lettering | Bahnschrift and Impact (system faces) | IBM Plex Sans Condensed bold, italic and sheared for ROTOR / TERROR | only OFL-licensed faces in shipped art |
+| Card suits | glyphs of a system symbol font | drawn as paths | the same |
+| Lobby | four player-slot rings | left out | owner decision 4: no player count |
+| Lobby buttons | rounded dashed outline | square-cornered dashed outline | LVGL dashes straight horizontal and vertical lines only; drawn live so the widget can become real |
+| Focus frame | drawn on Fleet in the landscape mockup | shown once a key is used, starting on RotorTerror; also while a finger holds a poster | the launcher's rule for the key focus (§39.5) |
