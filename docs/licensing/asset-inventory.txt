@@ -57,11 +57,14 @@ docs/design/brand/doors-visual-pack-v1/*                                        
 platforms/k230/rootfs_overlay/logo.xrgb                                                      DERIVED-BRAND   boot splash from the Threshold boot art (png2xrgb.py)
 ui/assets/doors/bg-*                                                                         DERIVED-ART     backgrounds from the AI-generated device backgrounds (gen_doors_ui.py)
 ui/assets/doors/icon-*                                                                       DERIVED-ART     portal icons: B frame and glyphs, Threshold/extension icons and first-party icons (gen_doors_ui.py)
+ui/assets/doors/hub-*                                                                        DERIVED-ART     Games Hub posters from the first-party poster PNGs in docs/design/games-hub/art (gen_doors_ui.py)
 ui/pocketui/pos_brand_mark.c                                                                 DERIVED-BRAND   compact mark from the Threshold mark (gen_brand_mark.py)
 ui/pocketui/pos_app_icons.c                                                                  DERIVED-ART     icon masks: 15 owner-made (10 Threshold, 5 extension) and 10 first-party icons (gen_app_icons.py)
 ui/pocketui/pos_glyphs.[ch]                                                                  DERIVED-ART     system glyphs from the B package plus the first-party mode glyph (gen_doors_ui.py)
 docs/design/doors-app-icons/*                                                                ORIGINAL        first-party app icons drawn in this repository (render_app_icon.py)
 docs/design/packetshark/*                                                                    ORIGINAL        PacketShark mockups drawn by make_mockups.py with the repository's own bitmap fonts; invented sample data
+docs/design/games-hub/captures/*                                                             CAPTURE         Games Hub simulator captures (DS 60)
+docs/design/games-hub/*                                                                      ORIGINAL        Games Hub concept mockups (gen_mockups.py) and poster art (tools/design/gen_games_hub.py), drawn in this repository; lettering rendered in IBM Plex (OFL-1.1)
 hardware/stand/k230-desk-stand.stl                                                           ORIGINAL        desk stand model, the owner's own design for DOORS; Apache-2.0 (owner, 2026-10-08)
 docs/design/doors-glyphs/*                                                                   ORIGINAL        first-party glyph
 docs/design/timber-art/*                                                                     ORIGINAL        PocketTimber sprites, Blender scene built by tools/timber_blender.py, procedural materials
