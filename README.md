@@ -31,10 +31,31 @@ simulator/fixture data and link to stable image paths or commit SHAs. A
 feature merged after the latest release is marked as master-only until an
 image ships it. -->
 
-The first two features below are new on `master` since v0.4.0 and are
+The first three features below are new on `master` since v0.4.0 and are
 **not in the v0.4.0 image**; they need a build from source until the next
 release ([build environment](docs/BUILD_ENVIRONMENT.md)). Everything from
 [v0.4.0](#v040--15-november-2026) on is in the published image.
+
+### Games Hub · Your games, your arcade
+
+**On `master` · not in the v0.4.0 image.** **Games** on the launcher now
+opens a poster wall instead of a page of icons. RotorTerror and Relay Nine
+lead as large featured posters with their own **PLAY** buttons; Fleet,
+Radar, Timber, Solitaire, Blackjack, Poker and 2048 each have a colourful
+poster of their own. One tap on any poster starts the game, so all nine
+games are a tap away. The wall is laid out for both portrait and landscape,
+and keeps its own palette and artwork in every theme.
+
+The **Multiplayer Lobby** poster reserves a place for linked play between
+devices. It is a **preview only**: it always reads COMING SOON, HOST GAME
+and JOIN GAME are disabled, and there is no multiplayer, networking or
+discovery behind it yet.
+
+![Games Hub in landscape: RotorTerror and Relay Nine as featured posters with PLAY buttons, seven colourful posters for Fleet, Radar, Timber, Solitaire, Blackjack, Poker and 2048, and a Multiplayer Lobby poster marked COMING SOON with its buttons disabled](docs/apps/games-hub/hub-landscape-carbon.png)
+
+*Actual SDL simulator capture of the shell on `master`, Carbon theme.*
+[Portrait view](docs/apps/games-hub/hub-portrait-carbon.png)
+· [Design and implementation record](docs/design/games-hub/README.md)
 
 ### RIFT Activity · watch the mesh come alive
 
@@ -47,11 +68,11 @@ legend (tap a type to show it alone) and a live feed with size, RSSI and SNR
 show at a glance how busy the mesh is and what it carries. Once RIFT has
 been opened, new messages also raise a banner wherever you are in DOORS.
 
-![RIFT ACTIVITY in landscape: six activity figures, a live signal scope, twenty minutes of stacked bars in six packet-type colours, and a live feed of received frames](docs/apps/rift/activity-landscape-synthetic.png)
+![RIFT ACTIVITY in landscape, Carbon theme: six activity figures, a live signal scope, twenty minutes of stacked bars in six packet-type colours, and a live feed of received frames](docs/apps/rift/activity-landscape-carbon.png)
 
-*Actual SDL simulator capture of the shell on `master`, with synthetic nodes
-and MeshCore traffic from the project's test service; no radio traffic was
-recorded.*
+*Actual SDL simulator capture of the shell on `master`, Carbon theme, with
+synthetic nodes and MeshCore traffic from the project's test service
+(`tests/fake-meshcored`); no radio traffic was recorded.*
 [Activity guide](docs/apps/RIFT.md#heard-on-air-live)
 · [RIFT guide](docs/apps/RIFT.md)
 
@@ -75,16 +96,12 @@ wired Ethernet port, under **Apps → PacketShark**:
 PacketShark is receive-only: it never transmits or injects packets, and it
 does not capture Wi-Fi (no monitor mode).
 
-![PacketShark LIVE in landscape: CAPTURING, 400 packets per second, a full 60-second traffic graph stacked by protocol, protocol shares, session counters and five signal counts](docs/apps/packetshark/live-landscape-synthetic.png)
+![PacketShark LIVE in landscape, Carbon theme: CAPTURING, 400 packets per second, a full 60-second traffic graph stacked by protocol, protocol shares, session counters and five signal counts](docs/apps/packetshark/live-landscape-carbon.png)
 
-<p align="center">
-  <img src="docs/apps/packetshark/inspect-portrait-synthetic.png" width="300" alt="PacketShark INSPECT in portrait: a TCP packet between documentation addresses, its decoded TCP fields and its stored header bytes in hex">
-</p>
-
-*Actual captures of the app on `master` running the real capture helper on
-its synthetic source (SYNTH0): LIVE in the SDL simulator after one minute,
-INSPECT from the LVGL host test. Only documentation addresses
-(192.0.2.0/24) and locally administered MACs appear.*
+*Actual SDL simulator capture of the app on `master`, Carbon theme, after
+one minute on the real capture helper's synthetic source (SYNTH0, a steady
+400 packets per second). The source generates only documentation addresses
+and locally administered MACs, and nothing touches a network.*
 [PacketShark guide](docs/apps/PACKETSHARK.md)
 
 ### v0.4.0 · 15 November 2026
@@ -187,7 +204,8 @@ communication, local AI, everyday tools, games and further development.
   sizes and rotation; **System** status lives there too.
 - **Games** — [RotorTerror](docs/apps/ROTORTERROR.md),
   [Relay Nine](docs/apps/RELAY_NINE.md), Fleet, Radar, Timber, Solitaire,
-  Blackjack, [Poker](docs/apps/POKER.md) and 2048.
+  Blackjack, [Poker](docs/apps/POKER.md) and 2048. On `master`, the
+  [Games Hub](docs/design/games-hub/README.md) poster wall launches them.
 - Landscape and portrait (Timber is portrait-only).
 
 Feature status per release is under [Status](#status) below.
