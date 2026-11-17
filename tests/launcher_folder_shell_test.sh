@@ -13,6 +13,10 @@
 #      home to the folder, the keys are the launcher's at home and not while
 #      an app is open, forty open/close rounds hold no more art, a folder
 #      that is not there is refused;
+#      Games is the Games Hub (DS §60): the poster wall with its nine
+#      games, a tap on a poster plays, a tap on the lobby does nothing, the
+#      wall is pixel-identical in another theme, and without its art Games is
+#      the folder page again;
 #   3. a rotation restart comes back in the open folder (and only a
 #      restart: a cold start with the mark is on the launcher's page), in
 #      both orientations, for Games and for Apps, with the screenshots drawn.
@@ -26,6 +30,8 @@ cd "$(dirname "$0")/.." || exit 1
 export SDL_VIDEODRIVER=dummy
 OUT=$(mktemp -d)
 failed=0
+# The Games folder: the hub's nine (ui/shell/hub_layout.c), sorted as cells() prints them.
+GAMES="2048 blackjack fleet neon-outpost poker radar rotorterror solitaire timber"
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 fresh() {
@@ -66,10 +72,10 @@ fresh
 start_shell --rotation portrait --no-lock
 check "the launcher has one Games cell" \
     "$([ "$(field '["launcher"]["folders"][0]["id"]')" = '"games"' ] &&
-       [ "$(field '["launcher"]["folders"][0]["apps"]')" = 7 ] &&
+       [ "$(field '["launcher"]["folders"][0]["apps"]')" = 9 ] &&
        [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] && echo 1 || echo 0)"
-check "seven cells for twenty-seven apps, three of them folders, after three favorites (DS §47)" \
-    "$([ "$(field '["launcher"]["apps"]')" = 27 ] && [ "$(field '["launcher"]["home_cells"]')" = 7 ] &&
+check "seven cells for thirty apps, three of them folders, after three favorites (DS §47)" \
+    "$([ "$(field '["launcher"]["apps"]')" = 30 ] && [ "$(field '["launcher"]["home_cells"]')" = 7 ] &&
        [ "$(field '["launcher"]["folder_cells"]')" = 3 ] && [ "$(field '["launcher"]["favorite_cells"]')" = 3 ] &&
        echo 1 || echo 0)"
 root_cells=$(cells)
@@ -92,16 +98,32 @@ held_root=$(field '["art"]["bytes_held"]')
 shot "$OUT/p-root.png"
 reply=$(call_out shell.folder id=games)
 check "shell.folder opens Games and says so" "$(printf '%s' "$reply" | grep -q '"folder":[[:space:]]*"games"' && echo 1 || echo 0)"
-check "whose page holds the seven games" "$([ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] && echo 1 || echo 0)"
+check "whose page holds the nine games" "$([ "$(cells)" = "$GAMES" ] && echo 1 || echo 0)"
 check "and shell.info says it is open" "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && echo 1 || echo 0)"
+check "as the Games Hub, its lobby on the wall" \
+    "$([ "$(field '["launcher"]["hub"]')" = true ] && [ "$(field '["launcher"]["hub_lobby"]["w"]')" = 528 ] && echo 1 || echo 0)"
 shot "$OUT/p-games.png"
+centre() { # <json path of a box with x y w h>: "x=<cx> y=<cy>"
+    info | python3 -c "import json,sys; b=json.load(sys.stdin)$1; print('x=%d y=%d' % (b['x'] + b['w'] // 2, b['y'] + b['h'] // 2))"
+}
+call shell.tap $(centre '["launcher"]["hub_lobby"]'); sleep 0.4
+check "a tap on the Multiplayer Lobby does nothing: still the hub, no app" \
+    "$([ "$(field '["current"]')" = '"home"' ] && [ "$(field '["launcher"]["hub"]')" = true ] && echo 1 || echo 0)"
+call shell.tap $(info | python3 -c "
+import json, sys
+c = [c for c in json.load(sys.stdin)['launcher']['cells'] if c['id'] == 'blackjack'][0]
+print('x=%d y=%d' % (c['x'] + c['w'] // 2, c['y'] + c['h'] // 2))"); sleep 0.5
+check "a tap on a poster plays that game" "$([ "$(field '["current"]')" = '"blackjack"' ] && echo 1 || echo 0)"
+"$POS" app home >/dev/null 2>&1; sleep 0.3
+check "and home from it is the hub again" \
+    "$([ "$(field '["launcher"]["hub"]')" = true ] && [ "$(field '["launcher"]["folder"]')" = '"games"' ] && echo 1 || echo 0)"
 "$POS" app start radar >/dev/null 2>&1; sleep 0.4
 check "a game opens from the folder" "$([ "$(field '["current"]')" = '"radar"' ] && echo 1 || echo 0)"
 check "and has the keys, not the launcher" "$([ "$(field '["launcher"]["keys"]')" = false ] && echo 1 || echo 0)"
 "$POS" app home >/dev/null 2>&1; sleep 0.3
 check "coming home comes back to the folder" \
     "$([ "$(field '["current"]')" = '"home"' ] && [ "$(field '["launcher"]["folder"]')" = '"games"' ] &&
-       [ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] && echo 1 || echo 0)"
+       [ "$(cells)" = "$GAMES" ] && echo 1 || echo 0)"
 check "with the keys the launcher's again" "$([ "$(field '["launcher"]["keys"]')" = true ] && echo 1 || echo 0)"
 "$POS" app start fleet >/dev/null 2>&1; sleep 0.4
 "$POS" app home >/dev/null 2>&1; sleep 0.3
@@ -145,7 +167,7 @@ check "whose page holds DeskBuddy, MP3, PacketShark, Photo, Radio, Video, Vision
 check "an app opened from it comes home to it" "$([ "$(field '["launcher"]["folder"]')" = '"apps"' ] && echo 1 || echo 0)"
 call shell.folder id=games
 check "opening Games from Apps swaps the folder" \
-    "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] &&
+    "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(cells)" = "$GAMES" ] &&
        echo 1 || echo 0)"
 call shell.folder id=
 check "and back, holding the art it held before" "$([ "$(field '["art"]["bytes_held"]')" = "$held_root" ] && echo 1 || echo 0)"
@@ -156,9 +178,49 @@ check "the lock over an open folder leaves it open, the keys back with the launc
     "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(field '["launcher"]["keys"]')" = true ] &&
        echo 1 || echo 0)"
 check "the log says what opened and closed" \
-    "$(grep -q 'launcher: folder games open, 7 app(s)' "$POCKETOS_LOG_DIR/shell.log" &&
+    "$(grep -q 'launcher: folder games open as the Games Hub, 9 poster(s)' "$POCKETOS_LOG_DIR/shell.log" &&
        grep -q 'launcher: folder games closed' "$POCKETOS_LOG_DIR/shell.log" && echo 1 || echo 0)"
 check "no fault logged" "$(no_fault && echo 1 || echo 0)"
+stop_shell
+
+# The hub has its own palette (DS §60.2): the wall is the same picture in every theme.
+fresh
+"$SHELL_BIN" --theme neon --mode normal --rotation portrait --no-lock >"$POCKETOS_LOG_DIR/run.log" 2>&1 &
+SP=$!
+for _ in $(seq 1 60); do [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ] && break; sleep 0.1; done
+sleep 0.4
+call shell.folder id=games
+shot "$OUT/p-games-neon.png"
+check "in the Neon theme Games is the hub too" "$([ "$(field '["launcher"]["hub"]')" = true ] && echo 1 || echo 0)"
+same=$(python3 - "$OUT/p-games.png" "$OUT/p-games-neon.png" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+W, H, a = read_png(sys.argv[1])
+_, _, b = read_png(sys.argv[2])
+# The wall and the hint under it (hub_layout.c: 20..548 x 116..1162); the
+# header row above holds the status cluster, which is the theme's.
+print(int(all(a[y][x][:3] == b[y][x][:3] for y in range(116, 1162) for x in range(20, 548))))
+PY
+)
+check "and the wall is pixel for pixel the one the Ice theme shows" "$same"
+stop_shell
+
+# Without its art Games is the folder page it was (art.h: a missing file is drawn around).
+fresh
+ART=$(mktemp -d -p "$OUT")
+cp ui/assets/doors/*.bin "$ART"/ && rm "$ART"/hub-lobby-portrait.bin
+POCKETOS_ART_DIR="$ART" start_shell --rotation portrait --no-lock
+call shell.folder id=games
+check "with a poster file missing Games opens as the folder page, the nine games in it" \
+    "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(field '["launcher"]["hub"]')" = false ] &&
+       [ "$(cells)" = "$GAMES" ] && echo 1 || echo 0)"
+check "and says why" "$(grep -q "the Games Hub's art is not all here" "$POCKETOS_LOG_DIR/shell.log" && echo 1 || echo 0)"
+"$POS" app start poker >/dev/null 2>&1; sleep 0.4
+"$POS" app home >/dev/null 2>&1; sleep 0.3
+check "a game opened from it comes home to it" "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && echo 1 || echo 0)"
+check "no fault logged there" "$(no_fault && echo 1 || echo 0)"
 stop_shell
 
 # ---- 3. a rotation restart, both orientations ------------------------------------
@@ -167,9 +229,10 @@ for o in portrait landscape; do
     DOORS_SHELL_RESUMED=open DOORS_LAUNCHER_FOLDER=games start_shell --rotation "$o"
     check "$o: a restart with Games open comes back in it, unlocked" \
         "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(field '["lock"]["locked"]')" = false ] &&
-           [ "$(cells)" = "2048 blackjack fleet poker radar solitaire timber" ] && echo 1 || echo 0)"
+           [ "$(cells)" = "$GAMES" ] && echo 1 || echo 0)"
     check "$o: and says so" "$(grep -q 'folder games open again after the restart' "$POCKETOS_LOG_DIR/shell.log" &&
                                echo 1 || echo 0)"
+    check "$o: as the Games Hub" "$([ "$(field '["launcher"]["hub"]')" = true ] && echo 1 || echo 0)"
     info > "$OUT/$o-info.json"
     shot "$OUT/$o-games.png"
     python3 - "$OUT/$o-info.json" "$OUT/$o-games.png" > "$OUT/$o-check.txt" <<'PY'
@@ -186,6 +249,12 @@ inside = all(0 <= c["x"] and c["x"] + c["w"] <= dw and 0 <= c["y"] and c["y"] + 
 # as that makes, and no more.
 cols = 4 if dh > dw else 9
 one_row = len({c["y"] for c in cells}) == (len(cells) + cols - 1) // cols
+if d["launcher"].get("hub"):
+    # The Games Hub lays its posters out as a wall (hub_layout_test holds
+    # its geometry); here: nine of them, none over another.
+    def over(a, b):
+        return a["x"] < b["x"] + b["w"] and b["x"] < a["x"] + a["w"] and a["y"] < b["y"] + b["h"] and b["y"] < a["y"] + a["h"]
+    one_row = len(cells) == 9 and not any(over(a, b) for i, a in enumerate(cells) for b in cells[i + 1:])
 # Something is drawn in every cell: its portal icon, not the photograph alone.
 def busy(c):
     xs = range(c["x"] + c["w"] // 2 - 30, c["x"] + c["w"] // 2 + 30, 3)
@@ -196,7 +265,7 @@ print(int(W == dw and H == dh), int(inside), int(one_row), int(all(busy(c) for c
 PY
     set -- $(cat "$OUT/$o-check.txt")
     check "$o: the screenshot is the display's size" "${1:-0}"
-    check "$o: every game's cell is on the screen, in as few rows as the columns allow" \
+    check "$o: every game's poster is on the screen, none over another" \
         "$([ "${2:-0}" = 1 ] && [ "${3:-0}" = 1 ] && echo 1 || echo 0)"
     check "$o: and drawn" "${4:-0}"
     call shell.folder id=

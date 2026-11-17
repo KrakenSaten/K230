@@ -587,6 +587,150 @@ static void fill_env_styles(void)
     lv_style_set_border_width(s, 0);
 }
 
+/* ---- the Games Hub (DS §60) ---------------------------------------------- *
+ *
+ * The hub's own colours: the `doors` theme's ground and text (themes.json,
+ * Normal) and the accents its posters are drawn in (tools/design/
+ * gen_games_hub.py). They are the art's, so no theme changes them - not
+ * Neon either, which is why this is not env(). The display mode does: Night
+ * dims text as it dims the environment's, and the fills as it dims the art
+ * (HUB_ART's recolour), so a chip is never brighter than its poster.
+ */
+#define HUB_GROUND 0x0b0b0a
+#define HUB_SURFACE 0x161513
+#define HUB_RAISED 0x211f1c
+#define HUB_LINE 0x36332e
+#define HUB_INK_TEXT 0xeeeae2
+#define HUB_INK_SECONDARY 0xa8a399
+#define HUB_CORAL 0xff8a6a
+#define HUB_AMBER 0xe0a83a
+#define HUB_PLAY_GOLD 0xf0b23a
+#define HUB_MINT 0xa5f0d2
+#define HUB_LOBBY 0x8c9aff
+#define HUB_LOBBY_PALE 0xc5ccff
+#define HUB_NIGHT_ART_OPA 110
+
+static lv_color_t hub_text(uint32_t rgb)
+{
+    enum pos_mode m = pos_theme_current_mode();
+
+    if (m == POS_MODE_NIGHT) {
+        rgb = pos_mix(pos_mix(rgb, 0x000000, 0.50), 0xffb060, 0.15);
+    } else if (m == POS_MODE_OUTDOOR && rgb == HUB_INK_TEXT) {
+        rgb = 0xffffff;
+    }
+    return lv_color_hex(rgb);
+}
+
+static lv_color_t hub_fill(uint32_t rgb)
+{
+    if (pos_theme_current_mode() == POS_MODE_NIGHT) {
+        rgb = pos_mix(rgb, 0x000000, HUB_NIGHT_ART_OPA / 255.0);
+    }
+    return lv_color_hex(rgb);
+}
+
+static void hub_fill_style(lv_style_t *s, uint32_t rgb)
+{
+    reset(s);
+    lv_style_set_bg_color(s, hub_fill(rgb));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+}
+
+static void fill_hub_styles(void)
+{
+    lv_style_t *s;
+
+    hub_fill_style(&styles[POS_STYLE_HUB_BG], HUB_GROUND);
+    lv_style_set_border_width(&styles[POS_STYLE_HUB_BG], 0);
+    lv_style_set_radius(&styles[POS_STYLE_HUB_BG], 0);
+
+    s = &styles[POS_STYLE_HUB_ART];
+    reset(s);
+    lv_style_set_image_recolor(s, lv_color_hex(0x000000));
+    lv_style_set_image_recolor_opa(s, pos_theme_current_mode() == POS_MODE_NIGHT ? HUB_NIGHT_ART_OPA
+                                                                                 : LV_OPA_TRANSP);
+
+    s = &styles[POS_STYLE_HUB_TEXT];
+    reset(s);
+    lv_style_set_text_color(s, hub_text(HUB_INK_TEXT));
+
+    s = &styles[POS_STYLE_HUB_TITLE];
+    reset(s);
+    lv_style_set_text_color(s, hub_text(HUB_INK_TEXT));
+    lv_style_set_text_font(s, &pos_font_sans_48_semibold);
+
+    s = &styles[POS_STYLE_HUB_TITLE_COMPACT];
+    reset(s);
+    lv_style_set_text_color(s, hub_text(HUB_INK_TEXT));
+    lv_style_set_text_font(s, &pos_font_sans_28_semibold);
+
+    s = &styles[POS_STYLE_HUB_META];
+    reset(s);
+    lv_style_set_text_color(s, hub_text(HUB_INK_SECONDARY));
+    lv_style_set_text_font(s, &pos_font_mono_14);
+    lv_style_set_text_letter_space(s, 1);
+
+    hub_fill_style(&styles[POS_STYLE_HUB_BACK], HUB_SURFACE);
+    s = &styles[POS_STYLE_HUB_BACK];
+    lv_style_set_border_color(s, hub_fill(HUB_LINE));
+    lv_style_set_border_width(s, 1);
+    lv_style_set_radius(s, 6);
+    hub_fill_style(&styles[POS_STYLE_HUB_BACK_PRESSED], HUB_RAISED);
+
+    s = &styles[POS_STYLE_HUB_FOCUS];
+    reset(s);
+    lv_style_set_outline_color(s, hub_text(HUB_INK_TEXT));
+    lv_style_set_outline_width(s, 3);
+    lv_style_set_outline_pad(s, 2);
+    lv_style_set_outline_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 16);
+
+    hub_fill_style(&styles[POS_STYLE_HUB_CHIP], HUB_CORAL);
+    s = &styles[POS_STYLE_HUB_CHIP];
+    lv_style_set_radius(s, 13);
+    lv_style_set_text_color(s, hub_fill(HUB_GROUND));
+    lv_style_set_text_font(s, &pos_font_mono_14);
+    lv_style_set_text_letter_space(s, 1);
+    hub_fill_style(&styles[POS_STYLE_HUB_CHIP_AMBER], HUB_AMBER);
+    hub_fill_style(&styles[POS_STYLE_HUB_CHIP_LOBBY], HUB_LOBBY);
+
+    hub_fill_style(&styles[POS_STYLE_HUB_PLAY], HUB_MINT);
+    s = &styles[POS_STYLE_HUB_PLAY];
+    lv_style_set_radius(s, 10);
+    lv_style_set_text_color(s, hub_fill(HUB_GROUND));
+    lv_style_set_text_font(s, &pos_font_mono_22_medium);
+    lv_style_set_text_letter_space(s, 3);
+    hub_fill_style(&styles[POS_STYLE_HUB_PLAY_AMBER], HUB_PLAY_GOLD);
+
+    hub_fill_style(&styles[POS_STYLE_HUB_BADGE], HUB_GROUND);
+    s = &styles[POS_STYLE_HUB_BADGE];
+    lv_style_set_bg_opa(s, 217);
+    lv_style_set_radius(s, 4);
+    lv_style_set_text_color(s, hub_text(HUB_INK_TEXT));
+    lv_style_set_text_font(s, &pos_font_mono_14);
+
+    s = &styles[POS_STYLE_HUB_LOBBY_TEXT];
+    reset(s);
+    lv_style_set_text_color(s, hub_fill(HUB_LOBBY_PALE));
+    lv_style_set_text_font(s, &pos_font_sans_16);
+
+    s = &styles[POS_STYLE_HUB_GHOST];
+    reset(s);
+    lv_style_set_line_color(s, hub_fill(HUB_LOBBY));
+    lv_style_set_line_width(s, 2);
+    lv_style_set_line_dash_width(s, 6);
+    lv_style_set_line_dash_gap(s, 5);
+    lv_style_set_text_color(s, hub_fill(HUB_LOBBY));
+    lv_style_set_text_font(s, &pos_font_mono_16_medium);
+    lv_style_set_text_letter_space(s, 1);
+
+    s = &styles[POS_STYLE_HUB_GHOST_GLYPH];
+    reset(s);
+    lv_style_set_image_recolor(s, hub_fill(HUB_LOBBY));
+    lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
+}
+
 /* A static tube edge: a crisp core and a flat darker outer band. The
  * one-pixel LVGL shadow kernel is deliberately not a soft/animated glow;
  * spread is bounded to 3 px. Reading panels and text never use it. */
@@ -1209,6 +1353,7 @@ static void fill_styles(void)
     if (neon_environment()) {
         fill_neon_styles();
     }
+    fill_hub_styles();
     fill_identity_styles();
     fill_family_styles();
     fill_size_samples();

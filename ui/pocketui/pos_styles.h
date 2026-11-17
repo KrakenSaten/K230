@@ -143,6 +143,29 @@ enum pos_style_role {
     POS_STYLE_ENV_TILE_SELECTED,
     POS_STYLE_ENV_TILE_FOCUS,
     POS_STYLE_ENV_TILE_SYMBOL,
+    /* The Games Hub (DS §60): a shell-owned, art-led screen with one fixed
+     * palette of its own, the same in every theme (Neon included), as the
+     * environment's is. The display mode still applies: Night dims the art
+     * and these with it, Outdoor whitens the text. All type is fixed: the
+     * wall is laid out to the pixel and does not follow the text size. */
+    POS_STYLE_HUB_BG,              /* the wall's ground: opaque #0b0b0a */
+    POS_STYLE_HUB_ART,             /* poster art: dimmed in Night, as the portal icons are */
+    POS_STYLE_HUB_TEXT,            /* hub text colour (the back chevron) */
+    POS_STYLE_HUB_TITLE,           /* sans 48 semibold, hub text */
+    POS_STYLE_HUB_TITLE_COMPACT,   /* sans 28 semibold, hub text (landscape) */
+    POS_STYLE_HUB_META,            /* mono 14, hub secondary, +1 px tracking */
+    POS_STYLE_HUB_BACK,            /* the back corner: hub surface, hairline */
+    POS_STYLE_HUB_BACK_PRESSED,    /* the same, raised */
+    POS_STYLE_HUB_FOCUS,           /* the frame round a focused or held poster */
+    POS_STYLE_HUB_CHIP,            /* FEATURED: coral pill, ink mono 14 */
+    POS_STYLE_HUB_CHIP_AMBER,      /* over HUB_CHIP: amber */
+    POS_STYLE_HUB_CHIP_LOBBY,      /* over HUB_CHIP: the lobby's blue */
+    POS_STYLE_HUB_PLAY,            /* PLAY: mint slab, ink mono 22 medium */
+    POS_STYLE_HUB_PLAY_AMBER,      /* over HUB_PLAY: amber */
+    POS_STYLE_HUB_BADGE,           /* PORTRAIT: ink plate, hub text mono 14 */
+    POS_STYLE_HUB_LOBBY_TEXT,      /* sans 16, the lobby's pale blue */
+    POS_STYLE_HUB_GHOST,           /* a disabled lobby button: dashed line and mono 16 medium, lobby blue */
+    POS_STYLE_HUB_GHOST_GLYPH,     /* its padlock: an A8 glyph in the same blue */
     POS_STYLE_COUNT
 };
 

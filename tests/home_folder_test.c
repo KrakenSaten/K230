@@ -29,6 +29,12 @@
  *     empty slot, E on any) do the same; the choice is kept, survives a
  *     rebuild in either orientation, and an app that is not installed or an
  *     id that is none fails safe;
+ *   - the Games Hub (hub.h, DS 60): with the hub's nine games installed
+ *     Games opens as the poster wall in both orientations - a tap on a
+ *     poster plays, the arrows cross the wall, Enter plays, the way back and
+ *     Esc leave, the lobby takes no tap and no focus - and as the folder
+ *     page above when a game is missing or the hub's art is; every other
+ *     case here has six games and so is the folder page;
  *   - fifty open/back rounds, thirty picker rounds and twenty launcher
  *     rebuilds, some with a long press or the picker in flight: the objects
  *     on the screen and the art held come back to where they started.
@@ -39,6 +45,7 @@
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
+#define _GNU_SOURCE /* mkdtemp, setenv */
 #include "art.h"
 #include "home.h"
 #include "home_layout.h"
@@ -1094,6 +1101,220 @@ static void test_restarts(void)
     check("and nothing held after", objects(lv_screen_active()) == before && art_bytes_held() == 0);
 }
 
+/* ---- the Games Hub ----------------------------------------------------------- */
+
+/* Today's registry and the three games it lacks: the hub's nine. */
+static size_t make_hub_registry(const char *skip)
+{
+    static const char *const more[] = { "poker", "neon-outpost", "rotorterror" };
+    size_t n = make_registry(skip, 0);
+    size_t k;
+
+    for (k = 0; k < sizeof(more) / sizeof(more[0]); k++) {
+        char pad[32];
+        char list[128];
+
+        snprintf(pad, sizeof(pad), " %s ", more[k]);
+        snprintf(list, sizeof(list), " %s ", skip ? skip : "");
+        if (strstr(list, pad)) {
+            continue;
+        }
+        memset(&defs[n], 0, sizeof(defs[n]));
+        defs[n].id = more[k];
+        defs[n].name = more[k];
+        defs[n].icon = LV_SYMBOL_PLAY;
+        registry[n] = &defs[n];
+        n++;
+    }
+    return n;
+}
+
+static const char *const hub_ids[] = { "rotorterror", "neon-outpost", "fleet", "radar", "timber",
+                                       "solitaire", "blackjack", "poker", "2048" };
+
+static int nine_on_page(void)
+{
+    size_t k;
+    int n = 0;
+
+    for (k = 0; k < sizeof(hub_ids) / sizeof(hub_ids[0]); k++) {
+        n += on_page(hub_ids[k]);
+    }
+    return n;
+}
+
+static int opened_is(const char *id)
+{
+    return opened && strcmp(opened->id, id) == 0;
+}
+
+static void test_hub(void)
+{
+    lv_area_t lobby;
+    lv_area_t a;
+    lv_area_t b;
+    int before_objects;
+    size_t before_art;
+    int before_opens;
+    int k;
+
+    /* Portrait, by finger. */
+    forget_favorites();
+    build(make_hub_registry(NULL), false);
+    before_objects = objects(lv_screen_active());
+    before_art = art_bytes_held();
+    check("hub: nothing is open and no hub shows at home", !home_hub_showing() && !home_hub_lobby_area(&lobby));
+    check("hub: the Games cell holds nine", home_folder_size("games") == 9);
+    check("hub: a tap on Games opens it", tap_folder() && home_folder_current() &&
+                                              strcmp(home_folder_current(), "games") == 0);
+    check("hub: as the poster wall", home_hub_showing());
+    check("hub: with a poster for each of the nine games", nine_on_page() == 9);
+    check("hub: and no other app on it", !on_page("notes") && !on_page("terminal") && !on_page("rift"));
+    check("hub: its art is held while it shows", art_bytes_held() > before_art + 900000);
+    check("hub: the way back is the folder page's slab", home_folder_back_area(&a) && a.x1 == 28 && a.y1 == 8 &&
+                                                             lv_area_get_width(&a) == 72);
+    check("hub: the lobby is on the wall", home_hub_lobby_area(&lobby) && lv_area_get_width(&lobby) == 528 &&
+                                               lv_area_get_height(&lobby) == 200);
+    check("hub: RotorTerror is the large poster at the top, Relay Nine under it",
+          home_cell_area("rotorterror", &a) && home_cell_area("neon-outpost", &b) && lv_area_get_width(&a) == 528 &&
+              lv_area_get_height(&a) == 300 && b.y1 > a.y2 && lv_area_get_width(&b) == 258);
+    before_opens = opens;
+    tap_area(&lobby);
+    check("hub: a tap on the lobby opens nothing and leaves the hub up", opens == before_opens && home_hub_showing());
+    {
+        /* HOST GAME's place in the lobby (hub_layout.c): nothing there either. */
+        lv_area_t host = { lobby.x1 + 22, lobby.y2 - 59, lobby.x1 + 171, lobby.y2 - 16 };
+
+        tap_area(&host);
+        check("hub: nor a tap on HOST GAME", opens == before_opens && home_hub_showing());
+    }
+    check("hub: a tap on a poster plays that game", tap_app("fleet") && opens == before_opens + 1 && opened_is("fleet"));
+    check("hub: the featured poster too, anywhere on it", tap_app("rotorterror") && opened_is("rotorterror"));
+    check("hub: and Timber", tap_app("timber") && opened_is("timber"));
+    check("hub: a finger shows no key focus", !shown());
+    check("hub: the way back closes it", tap_back() && home_folder_current() == NULL && !home_hub_showing());
+    check("hub: and gives its art back", art_bytes_held() == before_art);
+    check("hub: and every object", objects(lv_screen_active()) == before_objects);
+
+    /* Portrait, by the keys. */
+    home_folder_open("games");
+    pump(20);
+    key(LV_KEY_DOWN);
+    check("hub keys: the first arrow shows the focus on RotorTerror", home_hub_showing() && shown() &&
+                                                                          focus_is("rotorterror"));
+    key(LV_KEY_UP);
+    check("hub keys: Up at the top stays", focus_is("rotorterror"));
+    key(LV_KEY_DOWN);
+    check("hub keys: Down is Relay Nine", focus_is("neon-outpost"));
+    key(LV_KEY_RIGHT);
+    check("hub keys: Right is Fleet", focus_is("fleet"));
+    key(LV_KEY_RIGHT);
+    check("hub keys: then Radar", focus_is("radar"));
+    key(LV_KEY_RIGHT);
+    check("hub keys: and the wall's edge", focus_is("radar"));
+    key(LV_KEY_DOWN);
+    check("hub keys: Down is 2048", focus_is("2048"));
+    key(LV_KEY_DOWN);
+    check("hub keys: Down is Poker", focus_is("poker"));
+    key(LV_KEY_DOWN);
+    check("hub keys: the lobby under it takes no focus", focus_is("poker"));
+    key(LV_KEY_LEFT);
+    key(LV_KEY_LEFT);
+    check("hub keys: Left twice is Solitaire", focus_is("solitaire"));
+    before_opens = opens;
+    key(LV_KEY_ENTER);
+    check("hub keys: Enter plays the focused game", opens == before_opens + 1 && opened_is("solitaire"));
+    key(LV_KEY_ESC);
+    check("hub keys: Esc goes back to the Games cell", home_folder_current() == NULL && focus_is("games") &&
+                                                           art_bytes_held() == before_art);
+    key(LV_KEY_ENTER);
+    check("hub keys: Enter on it opens the hub again", home_hub_showing() && focus_is("rotorterror"));
+    key(LV_KEY_BACKSPACE);
+    check("hub keys: Backspace leaves it too", home_folder_current() == NULL);
+
+    for (k = 0; k < 50; k++) {
+        if (k % 2) {
+            tap_folder();
+            tap_back();
+        } else {
+            home_folder_open("games");
+            pump(20);
+            key(LV_KEY_RIGHT);
+            key(LV_KEY_ESC);
+        }
+    }
+    check("hub: fifty open/back rounds end on the launcher's page", home_folder_current() == NULL);
+    check("hub: with exactly the objects and the art it started with",
+          objects(lv_screen_active()) == before_objects && art_bytes_held() == before_art);
+    home_folder_open("games");
+    home_folder_open("utilities");
+    check("hub: another folder opened over it replaces it", !home_hub_showing() && on_page("clock") &&
+                                                               !on_page("fleet"));
+    home_folder_open("games");
+    check("hub: and it comes back", home_hub_showing() && nine_on_page() == 9);
+    teardown();
+    check("hub: a launcher destroyed with the hub up holds nothing", art_bytes_held() == 0);
+
+    /* Landscape: the wide wall, the keys along the top row. */
+    build(make_hub_registry(NULL), true);
+    check("hub landscape: opens as the wall", home_folder_open("games") && home_hub_showing() && nine_on_page() == 9);
+    check("hub landscape: the two featured posters stand side by side, full height",
+          home_cell_area("rotorterror", &a) && home_cell_area("neon-outpost", &b) && a.y1 == b.y1 && a.y2 == b.y2 &&
+              b.x1 > a.x2 && lv_area_get_height(&a) == 468);
+    check("hub landscape: the lobby is the narrow one at the bottom right",
+          home_hub_lobby_area(&lobby) && lv_area_get_width(&lobby) == 319 && lobby.x2 == 1232 - 30 - 1);
+    key(LV_KEY_RIGHT);
+    key(LV_KEY_RIGHT);
+    key(LV_KEY_RIGHT);
+    key(LV_KEY_RIGHT);
+    key(LV_KEY_RIGHT);
+    check("hub landscape keys: Right walks RotorTerror, Relay Nine, Fleet, Radar to Timber", focus_is("timber"));
+    key(LV_KEY_DOWN);
+    key(LV_KEY_DOWN);
+    check("hub landscape keys: Down stops at Poker, above the lobby", focus_is("poker"));
+    before_opens = opens;
+    tap_area(&lobby);
+    check("hub landscape: the lobby takes no tap", opens == before_opens && home_hub_showing());
+    check("hub landscape: Timber plays from its poster (the shell turns the display, DS 53)",
+          tap_app("timber") && opened_is("timber"));
+    teardown();
+
+    /* What the hub does not stand for is the folder page. */
+    build(make_hub_registry("poker"), false);
+    check("hub: with a game missing Games is the folder page, holding the other eight",
+          home_folder_open("games") && !home_hub_showing() && home_folder_size("games") == 8 && on_page("fleet") &&
+              on_page("rotorterror") && !home_hub_lobby_area(&lobby));
+    check("hub: a game still opens from that page", tap_app("radar") && opened_is("radar"));
+    teardown();
+    {
+        /* An art directory with the launcher's icons but one poster short. */
+        char dir[] = "/tmp/hub-art-XXXXXX";
+        char cmd[512];
+
+        if (mkdtemp(dir)) {
+            snprintf(cmd, sizeof(cmd), "cp %s/*.bin %s/ && rm %s/hub-poker-portrait.bin", art_dir(), dir, dir);
+            check("hub: (a copy of the art, one poster short)", system(cmd) == 0);
+            setenv("POCKETOS_ART_DIR", dir, 1);
+            build(make_hub_registry(NULL), false);
+            check("hub: with a poster missing Games is the folder page, all nine in it",
+                  tap_folder() && !home_hub_showing() && home_folder_current() && nine_on_page() == 9);
+            check("hub: holding only the page's icons, none of the wall's art", art_bytes_held() < 1000000);
+            check("hub: and a game opens from it", tap_app("poker") && opened_is("poker"));
+            teardown();
+            build(make_hub_registry(NULL), true);
+            check("hub: landscape still has its wall (its ten posters are there)",
+                  home_folder_open("games") && home_hub_showing());
+            teardown();
+            unsetenv("POCKETOS_ART_DIR");
+            snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
+            check("hub: (the copy removed)", system(cmd) == 0);
+        } else {
+            check("hub: a temporary art directory", 0);
+        }
+    }
+    check("hub: nothing is held at the end", art_bytes_held() == 0);
+}
+
 int main(void)
 {
     lv_indev_t *pointer;
@@ -1119,6 +1340,7 @@ int main(void)
     test_favorites();
     test_favorites_moved();
     test_restarts();
+    test_hub();
 
     printf("home_folder_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
