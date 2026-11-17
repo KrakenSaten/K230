@@ -2,7 +2,8 @@
 # Games Hub (DS §60) - hardware gate, Unit A
 
 **Result: steps 1-5 PASS, step 6 PASS as far as a capture can show it, step
-7 (the owner's eyes) open.** Run on Unit A on 2026-11-17, 05:12-05:18Z, on
+7 approved by the owner on 2026-11-17 from the visual results (see "Not
+covered" for what remains unvalidated).** Run on Unit A on 2026-11-17, 05:12-05:18Z, on
 the owner's say of the same day, with a non-persistent kit. Unit A was put
 back as found and carries nothing of this branch.
 
@@ -10,7 +11,7 @@ back as found and carries nothing of this branch.
   `doors-shell` build `f8939dbb` (sha256 `50786142…`), theme `carbon`, text
   size Large, rotation Automatic, no keyboard base attached, debug overlay
   on - all as found. Unit B was not touched.
-- Branch `feature/games-hub`, commit `fa7a45ea` (draft PR 144).
+- Branch `feature/games-hub`, commit `fa7a45ea` (PR 144).
 - Binary: riscv64 DRM shell cross-built from a clean `git archive` of
   `fa7a45ea` against the v0.4.0 SDK sysroot, Release **with
   `POCKETOS_SHELL_TEST_HOOKS=1`** (sha256 `135984f0…`), so `shell.tap` could
@@ -38,7 +39,7 @@ back as found and carries nothing of this branch.
 | 4 | Keys | **PASS.** First arrow shows the focus on RotorTerror; Down Relay Nine; Right Fleet, Radar, then stays at the edge; Down 2048, Poker, then stays above the lobby; Left Blackjack, Solitaire; Up Relay Nine, RotorTerror; Enter played Fleet; Esc and Backspace returned to the Games cell; Enter on it opened the hub again. | `13-t4.log`, `13-t4b.log` |
 | 5 | Rotation, Timber | **PASS.** `shell.rotation mode=landscape` with the hub open came back in the hub in landscape ("folder games open again after the restart"), the wall accepted by the layout with the unit's real corner squares. Right five times reached Timber, Down twice Poker. Radar played from the landscape wall and came home to it. Timber from the landscape wall turned the display to portrait and opened; home turned it back to landscape, in the hub. | `14-t5.log` |
 | 6 | Modes and themes | **PASS in captures; not judged on the glass.** The hub drew in Normal, Night and Outdoor, and in `carbon` and Neon; the posters are pixel for pixel the same in Neon as in `carbon` (compared over the wall in the two captures; the only difference is the key-focus frame that was showing in the `carbon` one, and the status cluster above). Whether it reads well on the AMOLED, whether the dithered gradients band, and whether the 30 px landscape margins clear the glass's corners needs eyes on the unit. | `15-t6.log`, captures |
-| 7 | The posters themselves | **Open:** for the owner. | - |
+| 7 | The posters themselves | **Approved by the owner on 2026-11-17** after reviewing the visual results (Concept C and the final visual design; DS §60 ACCEPTED). This gate did not record an inspection on the unit's AMOLED; that stays open with step 6. | DS §60 |
 
 The kit shell logged no ERROR. Its one WARN is the kit's own: the 0.4.0
 image has no `icon-packetshark.bin`, so the Apps folder drew that icon's

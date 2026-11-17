@@ -5482,7 +5482,17 @@ rendering on Unit A is added here when it is made.
 | Filter sheet | (not drawn) | a sheet over the app as the confirmations: PROTOCOL as nine 56 px choices, Host, Port (cleared, not typed), Pinned only, CANCEL, CLEAR ALL, SHOW | only existing parts |
 | Figures at Medium and Large (DS §46) | Small only: four session figures in a line, each class's rate beside its word | where the widest expected figure (`8 888 888`, `88.8 GB`, `88 888/s` beside `100.0%`) does not fit, SESSION and LAST SESSION go two by two and every class's rate takes a line of its own under its word; Small keeps the mockup's shape. Portrait at Medium and Large; landscape's wider panels keep the Small shape | seen on Unit B at Large in portrait: dots-mode labels with an automatic height wrap, so `2 961/s` read as `2` over `961/s` and `492 000` as `492` over `000` (§46.5: wrap or grow the row, never break a figure). Decided from the widest expected figure, so the shape does not change in the middle of a capture; a figure wider still gets the same room once seen |
 
-## 60. Amendment AQ — The Games Hub [PROPOSED]
+## 60. Amendment AQ — The Games Hub [ACCEPTED]
+
+**Accepted by the product owner, 2026-11-17,** after reviewing the visual
+results: Concept C, "Poster Wall", and the final visual design as built
+(the captures in [games-hub/captures/](games-hub/captures/)), with the
+merge of PR 143 and PR 144 authorised. The acceptance rests on the Unit A
+gate of the same day (60.8), whose steps 1-5 passed by injected taps and
+keys. It does not record a check that was not made: a physical finger on
+the panel, the physical keyboard base, the production (non-hooks) binary,
+the art read from the SD card on a cold start, and direct inspection on
+the AMOLED under the glass are not validated (60.8).
 
 **Proposed 2026-11-17** on branch `feature/games-hub`. The Games folder of
 §39 and §47.2 opens as a dedicated, art-led screen - the Games Hub - instead
@@ -5657,7 +5667,11 @@ Small, Medium and Large) and `tests/doors_ui_assets_test.sh` (every poster
 is what the generator makes from its PNG, exists for every tile of the
 model in both orientations at its tile's size, and is in the manifest).
 
-### 60.8 Gate (before acceptance)
+### 60.8 Gate
+
+The owner accepted §60 on 2026-11-17 with the gate in the state described
+here; the open items below stay open and are to be checked on a unit with
+the installed production build.
 
 Run on Unit A on 2026-11-17 (docs/hardware/GAMES_HUB_GATE.md): steps 1-5
 PASS - the wall built 10 ms after its first file was read, memory back to
@@ -5665,7 +5679,8 @@ its level after twenty open/close rounds, every poster launching, the lobby
 inert, the keys, rotation in the open hub and Timber from the landscape
 wall. Taps and keys were injected (`shell.tap`, `shell.key`) into a
 test-hooks build; a physical finger, the keyboard base, the production
-binary and the look on the glass (steps 6 and 7) are still open. The gate,
+binary, the art read from the SD card on a cold start and the look on the
+glass (step 6, and step 7 on the unit) are still open. The gate,
 on unit A or B, both orientations, by touch and by the keyboard base:
 
 1. Open time: from the tap on Games to the wall drawn (the art log lines

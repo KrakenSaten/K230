@@ -1,12 +1,16 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
 # Games Hub - design exploration and implementation record
 
-**Status: Concept C, Poster Wall, is implemented on branch
-`feature/games-hub` as DS §60 (PROPOSED). The owner chose the concept and
-settled decisions 2-6 on 2026-11-16. Built and tested in the SDL simulator
-and cross-built for riscv64; gated on Unit A on 2026-11-17 with a
-non-persistent kit (`docs/hardware/GAMES_HUB_GATE.md`: steps 1-5 PASS, the
-look on the glass still for the owner).** See "As built" below.
+**Status: Concept C, Poster Wall, is implemented as DS §60 (ACCEPTED). The
+owner chose the concept and settled decisions 2-6 on 2026-11-16, and on
+2026-11-17, after reviewing the visual results, approved Concept C and the
+final visual design and authorised the merge (PR 143, PR 144). Built and
+tested in the SDL simulator and cross-built for riscv64; gated on Unit A on
+2026-11-17 with a non-persistent kit (`docs/hardware/GAMES_HUB_GATE.md`:
+steps 1-5 PASS by injected taps and keys). Not validated: a physical
+finger, the physical keyboard base, the production binary, the art read
+from the SD card on a cold start, and direct inspection on the AMOLED.**
+See "As built" below.
 
 The images in `mockups/` are design mockups drawn by `tools/gen_mockups.py`,
 not screenshots of Doors. The images in `captures/` are real captures of the
@@ -175,7 +179,7 @@ the record of the alternatives.
 ## Decisions for the owner
 
 1. Which concept (A, B, C, or a named combination). **Decided 2026-11-16: C, Poster Wall.**
-2. Whether the hub may use a fixed palette and art in every theme, as the environment does, with the DS amendment that requires. **Decided 2026-11-16: yes, a fixed palette in every theme (DS §60.2, PROPOSED).**
+2. Whether the hub may use a fixed palette and art in every theme, as the environment does, with the DS amendment that requires. **Decided 2026-11-16: yes, a fixed palette in every theme (DS §60.2).**
 3. Featured set and order (proposed: RotorTerror, then Relay Nine) and the order of the other seven. **Decided 2026-11-16: RotorTerror, Relay Nine; then Fleet, Radar, Timber, Solitaire, Blackjack, Poker, 2048, placed as the Concept C mockups place them.**
 4. Wording of the lobby preview ("COMING SOON", HOST GAME / JOIN GAME) and whether any player-count marks should appear. **Decided 2026-11-16: as mocked - MULTIPLAYER LOBBY, COMING SOON, disabled HOST GAME / JOIN GAME - with the two illustrative device marks and no player count.**
 5. Whether production artwork is redrawn from the games' renderers, or commissioned separately. **Decided 2026-11-16: generated in the repository (`tools/design/gen_games_hub.py`), replaceable later through the same pipeline.**
@@ -187,7 +191,8 @@ Steps 1-5 are done on `feature/games-hub`. Of step 5, the captures at
 Small/Medium/Large are covered by the layout audit in
 `tests/launcher_groups_shell_test.sh` rather than by pictures: the hub's
 type does not follow the text size (DS §60.3), so the three are the same
-picture. Step 6: both builds succeed; the hardware gate is open (DS §60.8).
+picture. Step 6: both builds succeed; the hardware gate ran on Unit A on
+2026-11-17 (steps 1-5 PASS, the rest open: DS §60.8).
 
 1. DS amendment for the hub (PROPOSED), citing the chosen mockups as its reference.
 2. Art pipeline: extend `tools/design/gen_doors_ui.py` (or a sibling) to emit the hub's RGB565 `.bin` files and `MANIFEST.txt` entries for both orientations; extend `tests/doors_ui_assets_test.sh`.
