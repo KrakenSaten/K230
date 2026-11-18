@@ -9,7 +9,11 @@
  *
  * What is checked (PRODUCT_SPEC F1, S3, I2-I4 on the host; M3 acceptance):
  *   - setup with a link: READY, eth0 chosen, START enabled; without one: NO
- *     LINK, START disabled; Wi-Fi listed and not selectable;
+ *     LINK, START disabled;
+ *   - Wi-Fi (M10): off, not connected and connected (its network's name
+ *     from netd, asked only while connected); Ethernet stays the default; a
+ *     tap chooses Wi-Fi, a drop falls back and a rejoin chooses it again;
+ *     Wi-Fi alone is READY and START asks the helper for wlan0;
  *   - START on a live interface this build cannot open: the reason on the
  *     setup banner, no capture, the helper gone;
  *   - START on the synthetic source: CAPTURING within the hello deadline,
@@ -135,9 +139,11 @@ void pocketlog_write(enum pocketlog_level level, const char *fmt, ...)
     (void)fmt;
 }
 
-/* sysd's interface list, as the test says it is. */
+/* sysd's interface list and netd's Wi-Fi, as the test says they are. */
 static int g_link = 1;
+static int g_wifi; /* 0 off, 1 up and not associated, 2 connected */
 static int g_sysd_calls;
+static int g_netd_calls;
 
 cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *params, int timeout_ms,
                               char *err, size_t errlen)
@@ -150,6 +156,18 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
     (void)err;
     (void)errlen;
     cJSON_Delete(params);
+    if (strcmp(service, "netd") == 0 && strcmp(method, "wifi.status") == 0) {
+        g_netd_calls++;
+        st = cJSON_CreateObject();
+        cJSON_AddStringToObject(st, "interface", "wlan0");
+        cJSON_AddStringToObject(st, "state", g_wifi == 2 ? "connected" : g_wifi ? "disconnected" : "off");
+        if (g_wifi == 2) {
+            cJSON_AddStringToObject(st, "ssid", "Example Net");
+        } else {
+            cJSON_AddNullToObject(st, "ssid");
+        }
+        return st;
+    }
     g_sysd_calls++;
     if (strcmp(service, "sysd") != 0 || strcmp(method, "system.status") != 0) {
         return NULL;
@@ -169,6 +187,23 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
     cJSON_AddItemToArray(net, e);
     e = cJSON_CreateObject();
     cJSON_AddStringToObject(e, "name", "wlan0");
+    if (g_wifi == 2) {
+        cJSON_AddStringToObject(e, "operstate", "up");
+        cJSON_AddTrueToObject(e, "carrier");
+        cJSON_AddStringToObject(e, "ipv4", "192.0.2.45");
+    } else if (g_wifi == 1) {
+        cJSON_AddStringToObject(e, "operstate", "dormant");
+        cJSON_AddFalseToObject(e, "carrier");
+        cJSON_AddNullToObject(e, "ipv4");
+    } else {
+        cJSON_AddStringToObject(e, "operstate", "down");
+        cJSON_AddNullToObject(e, "carrier");
+        cJSON_AddNullToObject(e, "ipv4");
+    }
+    cJSON_AddItemToArray(net, e);
+    /* The driver's second, concurrent-mode interface: always down. */
+    e = cJSON_CreateObject();
+    cJSON_AddStringToObject(e, "name", "wlan1");
     cJSON_AddStringToObject(e, "operstate", "down");
     cJSON_AddNullToObject(e, "carrier");
     cJSON_AddNullToObject(e, "ipv4");
@@ -548,6 +583,14 @@ static int64_t app_stop(void)
     return t0;
 }
 
+/* The interface START would capture on, or "" when none is chosen. */
+static const char *chosen_iface(void)
+{
+    const struct psk_app *a = app_priv;
+
+    return a && a->sel >= 0 && a->sel < a->nifs ? a->ifs[a->sel].name : "";
+}
+
 static void body_area(lv_area_t *a)
 {
     lv_obj_update_layout(app_body);
@@ -637,7 +680,8 @@ static void setup_screens(void)
           shown("READY") && shown("NOTHING IS CAPTURED UNTIL YOU START") && strcmp(g_hint, "NOT CAPTURING") == 0);
     CHECK("eth0 is listed with its link and address", shown("eth0") && shown("LINK UP") &&
                                                           shown("ETHERNET · 192.0.2.44"));
-    CHECK("wlan0 is listed and not offered", shown("wlan0") && shown("WI-FI · NOT AVAILABLE IN THIS VERSION"));
+    CHECK("Wi-Fi off: wlan0 listed, not connected, eth0 chosen",
+          shown("wlan0") && shown("WI-FI · NOT CONNECTED") && strcmp(chosen_iface(), "eth0") == 0);
     CHECK("sit0 is not listed", shown("sit0") == NULL);
     CHECK("the safe defaults: HEADERS, 15 MIN, EVERYTHING, OFF",
           shown("HEADERS") && shown("15 MIN") && shown("EVERYTHING") && shown("OFF"));
@@ -692,13 +736,67 @@ static void setup_screens(void)
 
     g_link = 0;
     app_start();
-    CHECK("no link: NO LINK, START disabled", shown("NO LINK") && shown("CONNECT A CABLE TO ETH0") &&
+    CHECK("no link: NO LINK, START disabled", shown("NO LINK") && shown("CONNECT ETH0 OR JOIN WI-FI") &&
                                                   shown("ETHERNET · UP") == NULL && !enabled("START CAPTURE"));
     shot("no-link");
     g_link = 1;
     pump(2200); /* the app asks sysd every 2 s while setup shows */
     CHECK("a cable arrives: READY without reopening", shown("READY") && enabled("START CAPTURE"));
     app_stop();
+}
+
+/* M10: Wi-Fi in managed mode, chosen like Ethernet when it has a carrier. */
+static void wifi_screens(void)
+{
+    int netd_before;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "", 1);
+    g_link = 1;
+    g_wifi = 2;
+    app_start();
+    CHECK("Wi-Fi connected: listed with its network and address",
+          shown("WI-FI · Example Net · 192.0.2.45") && shown("CONNECTED"));
+    CHECK("Ethernet stays the default when both have a link", strcmp(chosen_iface(), "eth0") == 0);
+    CHECK("the concurrent-mode twin is listed, down", shown("wlan1") != NULL && shown("DOWN") != NULL);
+    tap("wlan1");
+    CHECK("a tap on an interface that is down chooses nothing", strcmp(chosen_iface(), "eth0") == 0);
+    tap("wlan0");
+    CHECK("a tap chooses Wi-Fi: READY, START enabled",
+          strcmp(chosen_iface(), "wlan0") == 0 && shown("READY") && enabled("START CAPTURE"));
+    shot("wifi");
+
+    g_wifi = 1;
+    pump(2200);
+    CHECK("Wi-Fi drops: NOT CONNECTED, the choice falls back to eth0",
+          shown("WI-FI · NOT CONNECTED") && !shown("CONNECTED") && strcmp(chosen_iface(), "eth0") == 0 &&
+              shown("READY"));
+    netd_before = g_netd_calls;
+    pump(2200);
+    CHECK("netd is not asked while Wi-Fi has no carrier", g_netd_calls == netd_before);
+    g_wifi = 2;
+    pump(2200);
+    CHECK("Wi-Fi rejoins: chosen again", strcmp(chosen_iface(), "wlan0") == 0);
+    app_stop();
+
+    g_link = 0;
+    g_wifi = 1;
+    app_start();
+    CHECK("no cable, Wi-Fi not joined: NO LINK, START disabled",
+          shown("NO LINK") && shown("CONNECT ETH0 OR JOIN WI-FI") && !enabled("START CAPTURE"));
+    g_wifi = 2;
+    pump(2200);
+    CHECK("Wi-Fi alone: chosen, READY", strcmp(chosen_iface(), "wlan0") == 0 && shown("READY") &&
+                                            enabled("START CAPTURE"));
+    /* The host helper has no live backend: START reaches it with wlan0 and
+     * comes back refused, as for eth0 above. */
+    tap("START CAPTURE");
+    wait_for("! ", 5000);
+    CHECK("START on Wi-Fi asks the helper and shows its answer on setup", shown("! ") && !shown("CAPTURING"));
+    pump(300);
+    CHECK("and the helper is gone", no_child());
+    app_stop();
+    g_link = 1;
+    g_wifi = 0;
 }
 
 static void capture_journey(void)
@@ -1957,6 +2055,7 @@ int main(void)
     use_display(POS_ROTATION_0);
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     setup_screens();
+    wifi_screens();
     capture_journey();
     m4_live(true);
     m5_m6(true);
@@ -1966,6 +2065,7 @@ int main(void)
     shot_orientation = "landscape";
     use_display(POS_ROTATION_90);
     setup_screens();
+    wifi_screens();
     capture_journey();
     m4_live(false);
     m5_m6(false);
