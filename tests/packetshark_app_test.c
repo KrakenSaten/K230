@@ -680,8 +680,8 @@ static void setup_screens(void)
           shown("READY") && shown("NOTHING IS CAPTURED UNTIL YOU START") && strcmp(g_hint, "NOT CAPTURING") == 0);
     CHECK("eth0 is listed with its link and address", shown("eth0") && shown("LINK UP") &&
                                                           shown("ETHERNET · 192.0.2.44"));
-    CHECK("Wi-Fi off: wlan0 listed as off, eth0 chosen",
-          shown("wlan0") && shown("WI-FI · OFF") && strcmp(chosen_iface(), "eth0") == 0);
+    CHECK("Wi-Fi off: wlan0 listed, not connected, eth0 chosen",
+          shown("wlan0") && shown("WI-FI · NOT CONNECTED") && strcmp(chosen_iface(), "eth0") == 0);
     CHECK("sit0 is not listed", shown("sit0") == NULL);
     CHECK("the safe defaults: HEADERS, 15 MIN, EVERYTHING, OFF",
           shown("HEADERS") && shown("15 MIN") && shown("EVERYTHING") && shown("OFF"));
@@ -757,7 +757,7 @@ static void wifi_screens(void)
     CHECK("Wi-Fi connected: listed with its network and address",
           shown("WI-FI · Example Net · 192.0.2.45") && shown("CONNECTED"));
     CHECK("Ethernet stays the default when both have a link", strcmp(chosen_iface(), "eth0") == 0);
-    CHECK("the concurrent-mode twin is listed as off", shown("wlan1") != NULL);
+    CHECK("the concurrent-mode twin is listed, down", shown("wlan1") != NULL && shown("DOWN") != NULL);
     tap("wlan1");
     CHECK("a tap on an interface that is down chooses nothing", strcmp(chosen_iface(), "eth0") == 0);
     tap("wlan0");
@@ -768,7 +768,8 @@ static void wifi_screens(void)
     g_wifi = 1;
     pump(2200);
     CHECK("Wi-Fi drops: NOT CONNECTED, the choice falls back to eth0",
-          shown("WI-FI · NOT CONNECTED") && strcmp(chosen_iface(), "eth0") == 0 && shown("READY"));
+          shown("WI-FI · NOT CONNECTED") && !shown("CONNECTED") && strcmp(chosen_iface(), "eth0") == 0 &&
+              shown("READY"));
     netd_before = g_netd_calls;
     pump(2200);
     CHECK("netd is not asked while Wi-Fi has no carrier", g_netd_calls == netd_before);

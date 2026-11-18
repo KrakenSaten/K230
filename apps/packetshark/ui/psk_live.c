@@ -1250,7 +1250,9 @@ void psk_paint_ifaces(struct psk_app *a)
                      f->ipv4[0] ? " · " : "", f->ipv4);
             chip_set(r->chip, CHIP_ACTIVE, "CONNECTED");
         } else if (f->wifi) {
-            snprintf(sub, sizeof(sub), "WI-FI · %s", f->up ? "NOT CONNECTED" : "OFF");
+            /* rtl8189fs reports operstate down, not dormant, while it is
+             * not associated, so "down" cannot be told from "off" here. */
+            snprintf(sub, sizeof(sub), "WI-FI · NOT CONNECTED");
             chip_set(r->chip, f->up ? CHIP_WARN : CHIP_NA, f->up ? "NO LINK" : "DOWN");
         } else if (f->carrier) {
             snprintf(sub, sizeof(sub), "ETHERNET%s%s", f->ipv4[0] ? " · " : "", f->ipv4);
