@@ -78,13 +78,12 @@ from the first model integration and starts from its measured results.
 ### 6. PacketShark (In progress)
 
 A receive-only network analyzer for Ethernet and Wi-Fi ([PACKETSHARK.md](apps/PACKETSHARK.md),
-ADR-016 accepted): milestones M0 to M3 (capture helper, live counters, the
-app on the launcher) are on branch `feature/packetshark` as a draft; the
-graph (M4), the packet list and the inspector (M5, M6), signals (M7), SAVE
-and the saved captures (M8) and the wide layout and keys (M9) are stacked on
-it as drafts; M7 to M9 are host-tested and were run on Unit B. M10, Wi-Fi
-capture in managed mode, is a draft and was run on Unit B. The line-rate
-gate on Unit A is not started.
+ADR-016 accepted): milestones M0 to M9 (capture helper, live counters, the
+graph, the packet list and the inspector, signals, SAVE and the saved
+captures, the wide layout and keys) are on master through pull request #141;
+M10, Wi-Fi capture in managed mode, through pull request #146. All are
+host-tested; M5 to M10 were run on Unit B. Not in a release yet. The
+line-rate gate on Unit A is not started.
 
 ## History
 
