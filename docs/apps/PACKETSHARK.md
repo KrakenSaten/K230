@@ -35,8 +35,8 @@ The design package these milestones implement (product spec, architecture, UI/UX
 | M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Done, host-tested (§4a, §9.1); on Unit B see §9.5 |
 | M8 | SAVE and saved captures | Done, host-tested (§4, §9.1); on Unit B see §9.5. **One file is written, only by a confirmed SAVE of a stopped capture** |
 | M9 | Landscape layout of its own, keyboard keys, final icon | Layout and keys done, host-tested (§7, §7a); the layout seen on Unit B (§9.5), the keys not (no keyboard there). The icon is the one the owner accepted with DS §59.8, unchanged |
-| M10 | Wi-Fi capture in managed mode: Wi-Fi chosen like Ethernet when it is associated (§2a) | Done, host-tested; on Unit B see §9.7. The owner's brief of 2026-11-18 numbers it M10 |
-| Line-rate gate | Unit A at line rate (numbered M10 until 2026-11-18) | Not started |
+| M10 | Wi-Fi capture in managed mode: Wi-Fi chosen like Ethernet when it is associated (§2a) | Done, host-tested; on Unit B see §9.7. Numbered M10 by the owner (brief and confirmation, 2026-11-18) |
+| Line-rate gate | Unit A at line rate (numbered M10 until 2026-11-18; unnumbered since, owner's decision) | Not started |
 
 Out of scope for PacketShark v0.1 altogether: Wi-Fi monitor mode (the driver does not offer it, §2a), LoRa, any transmit path.
 
