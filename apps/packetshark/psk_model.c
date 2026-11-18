@@ -838,14 +838,16 @@ static unsigned dns_lines(const struct psk_model *m, struct psk_diag_line *out, 
         list_of(l, PPC_SIG_DNS_NOREPLY, 0);
     }
     if (d->dns_retries && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s QUERIES ASKED AGAIN", psk_fmt_count(d->dns_retries, a, sizeof(a)));
+        snprintf(l->text, sizeof(l->text), "%s %s ASKED AGAIN", psk_fmt_count(d->dns_retries, a, sizeof(a)),
+                 d->dns_retries == 1 ? "QUERY" : "QUERIES");
         snprintf(l->why, sizeof(l->why),
                  "The resolver sent a query again before it had an answer: the first copy or its answer was slow or "
                  "lost.");
         list_of(l, 0, PPC_DIAG_DNS_RETRY);
     }
     if (d->dns_orphan && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s ANSWERS WITHOUT THEIR QUERY", psk_fmt_count(d->dns_orphan, a, sizeof(a)));
+        snprintf(l->text, sizeof(l->text), "%s %s", psk_fmt_count(d->dns_orphan, a, sizeof(a)),
+                 d->dns_orphan == 1 ? "ANSWER WITHOUT ITS QUERY" : "ANSWERS WITHOUT THEIR QUERY");
         snprintf(l->why, sizeof(l->why),
                  "Their query is not in this capture: sent before START, while held, or on another interface. Not "
                  "timed or judged.");
@@ -907,20 +909,22 @@ static unsigned tcp_lines(const struct psk_model *m, struct psk_diag_line *out, 
         list_of(l, 0, PPC_DIAG_TCP_REFUSED);
     }
     if (d->tcp_aborted && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s RESETS OF OPEN CONNECTIONS", psk_fmt_count(d->tcp_aborted, a, sizeof(a)));
+        snprintf(l->text, sizeof(l->text), "%s %s", psk_fmt_count(d->tcp_aborted, a, sizeof(a)),
+                 d->tcp_aborted == 1 ? "RESET OF AN OPEN CONNECTION" : "RESETS OF OPEN CONNECTIONS");
         snprintf(l->why, sizeof(l->why),
                  "One end aborted a connection that was open or opening. Applications do this too; many of them point "
                  "to a failing service or a middlebox.");
         list_of(l, 0, PPC_DIAG_TCP_ABORTED);
     }
     if (d->tcp_rst_closed && (l = add_line(out, &n, max, PSK_SEV_OK)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s RESETS AFTER CLOSE", psk_fmt_count(d->tcp_rst_closed, a, sizeof(a)));
+        snprintf(l->text, sizeof(l->text), "%s %s AFTER CLOSE", psk_fmt_count(d->tcp_rst_closed, a, sizeof(a)),
+                 d->tcp_rst_closed == 1 ? "RESET" : "RESETS");
         snprintf(l->why, sizeof(l->why), "Sent while a connection was closing or already reset: usually normal.");
         list_of(l, 0, PPC_DIAG_TCP_RST_CLOSED);
     }
     if (d->tcp_rst_unseen && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s RESETS OF CONNECTIONS NOT SEEN",
-                 psk_fmt_count(d->tcp_rst_unseen, a, sizeof(a)));
+        snprintf(l->text, sizeof(l->text), "%s %s", psk_fmt_count(d->tcp_rst_unseen, a, sizeof(a)),
+                 d->tcp_rst_unseen == 1 ? "RESET OF A CONNECTION NOT SEEN" : "RESETS OF CONNECTIONS NOT SEEN");
         snprintf(l->why, sizeof(l->why), "Their connection began before the capture, or was not tracked.");
         list_of(l, 0, PPC_DIAG_TCP_RST_UNSEEN);
     }
@@ -928,8 +932,15 @@ static unsigned tcp_lines(const struct psk_model *m, struct psk_diag_line *out, 
         uint32_t r = tcp_retrans(d);
         uint64_t pm = d->tcp_segments ? (uint64_t)r * 1000u / d->tcp_segments : 0;
 
-        snprintf(l->text, sizeof(l->text), "%s RETRANSMISSIONS" DOT "%llu.%llu%% OF SEGMENTS",
-                 psk_fmt_count(r, a, sizeof(a)), (unsigned long long)(pm / 10u), (unsigned long long)(pm % 10u));
+        /* A share means little over a few segments: then the count. */
+        if (d->tcp_segments >= 100u) {
+            snprintf(l->text, sizeof(l->text), "%s %s" DOT "%llu.%llu%% OF SEGMENTS", psk_fmt_count(r, a, sizeof(a)),
+                     r == 1 ? "RETRANSMISSION" : "RETRANSMISSIONS", (unsigned long long)(pm / 10u),
+                     (unsigned long long)(pm % 10u));
+        } else {
+            snprintf(l->text, sizeof(l->text), "%s %s IN %s SEGMENTS", psk_fmt_count(r, a, sizeof(a)),
+                     r == 1 ? "RETRANSMISSION" : "RETRANSMISSIONS", psk_fmt_count(d->tcp_segments, b, sizeof(b)));
+        }
         {
             char kinds[128];
             size_t k = 0;
@@ -958,7 +969,8 @@ static unsigned tcp_lines(const struct psk_model *m, struct psk_diag_line *out, 
         list_of(l, PPC_SIG_RETRANS, 0);
     }
     if (d->tcp_syn_again && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s HANDSHAKE STEPS SENT AGAIN", psk_fmt_count(d->tcp_syn_again, a, sizeof(a)));
+        snprintf(l->text, sizeof(l->text), "%s %s SENT AGAIN", psk_fmt_count(d->tcp_syn_again, a, sizeof(a)),
+                 d->tcp_syn_again == 1 ? "HANDSHAKE STEP" : "HANDSHAKE STEPS");
         snprintf(l->why, sizeof(l->why), "A SYN or SYN-ACK was repeated: the first copy or its answer was slow or lost.");
         list_of(l, 0, PPC_DIAG_TCP_SYN_AGAIN);
     }

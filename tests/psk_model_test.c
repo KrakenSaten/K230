@@ -340,6 +340,22 @@ int main(void)
                                                     strcmp(psk_fmt_ms(23400, t, sizeof(t)), "23 MS") == 0 &&
                                                     strcmp(psk_fmt_ms(1250000, t, sizeof(t)), "1.2 S") == 0);
         check("a diagnosis names its filter", strcmp(psk_diag_plural(PPC_DIAG_TCP_REFUSED), "REFUSED CONNECTIONS") == 0);
+        memset(&d, 0, sizeof(d));
+        d.tcp_attempts = 2;
+        d.tcp_connected = 1;
+        d.tcp_segments = 5;
+        d.tcp_retrans = 1;
+        d.tcp_rst_closed = 1;
+        ppc_evt_format_diag(buf, sizeof(buf), &d);
+        line(buf);
+        nl = psk_diag_lines(&M, PSK_DIAG_TCP, dl, PSK_DIAG_LINES);
+        found = 0;
+        for (k = 0; k < nl; k++) {
+            found |= strcmp(dl[k].text, "1 RETRANSMISSION IN 5 SEGMENTS") == 0 && dl[k].sev == PSK_SEV_NOTE ? 1 : 0;
+            found |= strcmp(dl[k].text, "1 RESET AFTER CLOSE") == 0 ? 2 : 0;
+        }
+        check("one is one, and five segments give no share (Unit B, 2026-11-18: '1 RETRANSMISSIONS · 20.0%')",
+              found == 3);
     }
 
     printf("psk_model_test: %d checks, %d failed\n", checks, failed);
