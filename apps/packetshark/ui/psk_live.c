@@ -362,6 +362,57 @@ static void fit_cells(lv_obj_t *const v[4], const char *const sample[4], bool *t
     }
 }
 
+/* The findings' words in the tall shape: one line each, or, where one does
+ * not fit its cell at the text size in force (NO DNS REPLY at Large), every
+ * word wrapping and every cell one caption line taller, so the cells stay a
+ * grid (§46.5: wrap or grow, never cut a word). The wide shape sizes each cell
+ * by its word and keeps one line. */
+static void fit_signals(struct psk_app *a)
+{
+    int32_t line = pocketui_role_line_height(POS_STYLE_CAPTION);
+    int32_t tallest = line;
+    bool want = false;
+    unsigned i;
+
+    if (!a->wide) {
+        for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+            lv_obj_t *w = lv_obj_get_child(lv_obj_get_child(a->sig_cell[i], 0), 0);
+            int32_t room = lv_obj_get_content_width(w);
+            lv_point_t sz;
+
+            if (room <= 0) {
+                return; /* not laid out yet */
+            }
+            if (pocketui_text_width(w, psk_signal_word(i)) > room) {
+                want = true;
+            }
+            /* The word's height wrapped in its cell's room. */
+            lv_text_get_size(&sz, psk_signal_word(i), lv_obj_get_style_text_font(w, LV_PART_MAIN),
+                             lv_obj_get_style_text_letter_space(w, LV_PART_MAIN),
+                             lv_obj_get_style_text_line_space(w, LV_PART_MAIN), room, LV_TEXT_FLAG_NONE);
+            tallest = sz.y > tallest ? sz.y : tallest;
+        }
+    }
+    a->sig_words_wrap = want;
+    /* Applied where it differs only: a text size change lays the labels out
+     * again, and setting a mode or a height that is already there costs a
+     * relayout for nothing. Every word as tall as the tallest wrapped one,
+     * so the six cells are one height. */
+    for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+        lv_obj_t *w = lv_obj_get_child(lv_obj_get_child(a->sig_cell[i], 0), 0);
+        lv_label_long_mode_t mode = want ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT;
+        int32_t h = want ? tallest : line;
+
+        if (lv_label_get_long_mode(w) != mode) {
+            lv_label_set_long_mode(w, mode);
+            lv_label_set_text(w, psk_signal_word(i)); /* dots mode may have cut it */
+        }
+        if (lv_obj_get_style_height(w, LV_PART_MAIN) != h) {
+            lv_obj_set_height(w, h);
+        }
+    }
+}
+
 /* Each class's rate beside its word, or on a line of its own under it. All
  * eight cells take the same shape, so the panel stays a grid. */
 static void fit_protocols(struct psk_app *a)
@@ -436,6 +487,7 @@ void psk_live_fit(struct psk_app *a)
     if (live) {
         fit_cells(a->cell, session, &a->cells_two_by_two);
         fit_protocols(a);
+        fit_signals(a);
     }
     if (error) {
         fit_cells(a->last, last, &a->last_two_by_two);
