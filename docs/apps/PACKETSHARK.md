@@ -1,8 +1,8 @@
 # PacketShark: a packet analyzer for Doors
 
-**Status: IMPLEMENTED, M0 to M9; M10 (the Unit A gate at line rate) not started.** Milestones M0 to M9 of the design package are on master: the capture library and helper, the app with its live counters, traffic graph and protocol distribution, the packet list with its display filter and sort, the inspector and pins, signals, SAVE and the saved captures, the wide layout and the keys. They were developed as four stacked pull requests (#136 M0 to M3, #137 M4, #138 the Large-text fix, #139 M5 to M9) and integrated into master together by the consolidated pull request #141, which supersedes them (§9.6). The limits in §10 still apply, and line-rate behaviour is unmeasured until M10. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
+**Status: IMPLEMENTED, M0 to M9 on master; M10 (Wi-Fi capture in managed mode) on a draft pull request; the line-rate gate on Unit A not started.** Milestones M0 to M9 of the design package are on master: the capture library and helper, the app with its live counters, traffic graph and protocol distribution, the packet list with its display filter and sort, the inspector and pins, signals, SAVE and the saved captures, the wide layout and the keys. They were developed as four stacked pull requests (#136 M0 to M3, #137 M4, #138 the Large-text fix, #139 M5 to M9) and integrated into master together by the consolidated pull request #141, which supersedes them (§9.6). The limits in §10 still apply, and line-rate behaviour is unmeasured until M10. ADR-016 (ownership, privilege, privacy) is **ACCEPTED** (2026-11-16) subject to its documented security constraints, and the explicit libpcap dependency is approved (2026-11-16). DS §59 (protocol colours, dense rows, navigation, launcher place and icon) is **ACCEPTED** (2026-11-16) as the visual baseline; deviations are recorded in DS §59.11. The owner accepted four decisions on 2026-11-15: the helper owns the packets and the shell keeps at most 48 rows (D1), the helper runs at nice 5 (D5), HEADERS is the default for what is kept (D7), and captures stay in memory until SAVE (D10).
 
-PacketShark captures the traffic an Ethernet interface sees, counts it, lists, decodes and filters it, marks what looks wrong, and saves a stopped capture when asked. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
+PacketShark captures the traffic an Ethernet or Wi-Fi interface sees, counts it, lists, decodes and filters it, marks what looks wrong, and saves a stopped capture when asked. It is **receive-only**: it never transmits, injects, spoofs or redirects anything.
 
 Contents:
 
@@ -35,13 +35,24 @@ The design package these milestones implement (product spec, architecture, UI/UX
 | M7 | Signals: DNS failures, resets, retransmissions, unreachables, unanswered SYNs | Done, host-tested (§4a, §9.1); on Unit B see §9.5 |
 | M8 | SAVE and saved captures | Done, host-tested (§4, §9.1); on Unit B see §9.5. **One file is written, only by a confirmed SAVE of a stopped capture** |
 | M9 | Landscape layout of its own, keyboard keys, final icon | Layout and keys done, host-tested (§7, §7a); the layout seen on Unit B (§9.5), the keys not (no keyboard there). The icon is the one the owner accepted with DS §59.8, unchanged |
-| M10 | The Unit A gate at line rate | Not started |
+| M10 | Wi-Fi capture in managed mode: Wi-Fi chosen like Ethernet when it is associated (§2a) | Done, host-tested; on Unit B see §9.7. The owner's brief of 2026-11-18 numbers it M10 |
+| Line-rate gate | Unit A at line rate (numbered M10 until 2026-11-18) | Not started |
 
-Out of scope for PacketShark v0.1 altogether: Wi-Fi monitor mode (the installed driver configuration cannot do it), Wi-Fi capture in managed mode (listed, not offered, until validated on a test network), LoRa, any transmit path.
+Out of scope for PacketShark v0.1 altogether: Wi-Fi monitor mode (the driver does not offer it, §2a), LoRa, any transmit path.
 
 ## 2. What the unit can see
 
 On a switched network, without a mirror port, an interface receives broadcast, multicast and its own traffic (VERIFIED on Unit A, feasibility study 2026-11-15). That answers "is this network healthy from where I stand" and shows this device's own conversations. Seeing other devices' traffic needs a mirror port, a hub or a tap, and promiscuous mode, which **this version does not offer**: the kernel's reversion of the flag when the socket closes has not been verified on the RTL8152 (§5).
+
+## 2a. Wi-Fi (M10)
+
+A Wi-Fi interface is captured in managed mode, through the same helper, socket, decoder and screens as Ethernet; nothing in the helper or the protocol changed for it.
+
+- **What it sees:** what the driver hands up: this device's own traffic and the network's broadcast and multicast, decrypted, with an Ethernet II header the driver builds (libpcap reports `DLT_EN10MB`, so `notether` does not apply). No 802.11 header, no radio information, no other station's unicast. The same answer as a switch port (§2), one hop from the access point.
+- **When it can be chosen:** while it has a carrier, that is, while it is associated. Ethernet stays the default when both have a link (sysd lists `eth` before `wlan`); a tap chooses Wi-Fi, a drop moves the choice to an interface that is still usable, and the tapped interface is chosen again when it comes back. The row names the joined network (netd `wifi.status`, asked only while a Wi-Fi interface has a carrier) and the address.
+- **While capturing:** the helper's carrier check (every second) ends the capture with LINK LOST when the association drops, as for a pulled cable. Wi-Fi has no link speed in sysfs, so the status line reads `WLAN0 · WI-FI · HEADERS` where Ethernet shows `100 MBIT/S`.
+- **What it never does:** change the interface or its association. netd owns Wi-Fi (ADR-002, ADR-016); promiscuous mode stays off (§5).
+- **Monitor mode is not possible on this unit's driver** (VERIFIED on Unit B, 2026-11-18, read-only): the RTL8189FTV's vendor driver `rtl8189fs` v5.7.9 (cfg80211, `CONFIG_CONCURRENT_MODE`, two interfaces wlan0 and wlan1 on phy0 and phy1) advertises the interface types station, AP, ad-hoc, P2P client and P2P GO through nl80211 (`NL80211_CMD_GET_WIPHY`), not monitor; its build configuration (`/proc/net/rtl8189fs/drv_cfg`) has no `CONFIG_WIFI_MONITOR`. libpcap's "can set monitor mode" answer only checks that a phy exists. Enabling it would mean rebuilding the vendor module, which is out of scope.
 
 ## 3. Architecture
 
@@ -64,7 +75,7 @@ Two processes per capture (DESIGN_DECISIONS D1, accepted):
 - **One helper serves one capture.** It drops its capabilities once its socket is open, so it cannot open another; NEW CAPTURE and DISCARD end it and the next START spawns a new one.
 - **One capture at a time:** an exclusive `flock` on `$POCKETOS_RUNTIME_DIR/capture.lock`, taken before the socket opens and released by STOP.
 - **One thread, `poll()`** over the capture descriptor and the socketpair; at most 32 × 256 frames per wake, then the commands are read.
-- **nice 5** (D5, accepted): under contention the shell wins the one hart; the cost appears as counted kernel drops, not a frozen panel. Whether that costs drops at line rate is measured in the M10 gate.
+- **nice 5** (D5, accepted): under contention the shell wins the one hart; the cost appears as counted kernel drops, not a frozen panel. Whether that costs drops at line rate is measured in the line-rate gate.
 - **Shed mode:** when 50 dispatches in a row come back full, frames are classified and counted (`shed`) but not stored until a dispatch comes back short.
 - **The app spawns no helper until START.** Opening PacketShark captures nothing.
 
@@ -146,7 +157,7 @@ Portrait: three tabs, LIVE, PACKETS and INSPECT (enabled once a packet has been 
 
 | View | What it shows | Bar |
 | --- | --- | --- |
-| Setup | READY or NO LINK; the interfaces from sysd (`system.status.network`; Ethernet with a carrier is selectable, Wi-Fi listed and disabled); capture options (stored bytes, stop after, capture-filter preset, promiscuous OFF); the privacy note | START CAPTURE |
+| Setup | READY or NO LINK; the interfaces from sysd (`system.status.network`; Ethernet with a carrier and Wi-Fi while associated are selectable, Wi-Fi with its network's name from netd, §2a); capture options (stored bytes, stop after, capture-filter preset, promiscuous OFF); the privacy note | START CAPTURE |
 | Capturing, hold | CAPTURING or HOLD chip, interface, link speed, stored-bytes mode, elapsed; a banner for kernel drops, shedding, or what HOLD is counting. TRAFFIC: packets per second, throughput, the graph of the last 60 seconds (DS §59.5) and a readout of the selected or newest second (`03:55 · 6 885 PKT · TCP 99%`, `00:06 · HELD · 300 PASSED`); a tap on a column selects that second, a second tap clears it; the readout's `› PACKETS` opens PACKETS. PROTOCOLS: each class's packets in the newest second and its share of the session's stored packets, a tap opens PACKETS. SESSION: packets, bytes, dropped, buffer fill. SIGNALS: the five findings' counts, each a tap to its packets | FILTER, HOLD or RESUME, STOP |
 | Stopped | STOPPED and why (BY YOU, TIME LIMIT, LINK LOST); after SAVE its progress, then `SAVED · n PACKETS · size · name`, or why it was not saved | SAVE (primary until saved), NEW CAPTURE, DISCARD |
 | PACKETS (M5) | FILTER, the filter in words and the count (`312 OF 48 417 PACKETS`), the sort (`TIME ↓` oldest first, `TIME ↑` newest first, `LEN ↑` largest first), FOLLOW; the column heads; a window of 56 px rows (time and gap, direction, protocol word in its class hue, source → destination, length, the row's sentence, `PIN` on a pinned row); a rail that jumps anywhere in the view; `FOLLOWING THE NEWEST` or `VIEW HELD AT #n`, and where the buffer starts. A drag moves the list a row per 56 px and holds it; a tap opens the row in INSPECT. The filter sheet: one protocol class or all, the host and port a FILTER BY set (cleared there, not typed), PINNED ONLY | FILTER while following, `LIVE ↓ n` (the newer packets) while held; the state's buttons |
@@ -239,7 +250,7 @@ Doors 0.4.0 (`21baeef0`) on Unit A, eth0 up at 100 Mb/s on the owner's LAN. Buil
 | Other services | sysd, netd, radiod, meshcored unaffected (same PIDs) | VERIFIED |
 | Logs | lifecycle lines only; no address | VERIFIED |
 | Carrier lost while capturing | not tested (needs the cable pulled) | — |
-| Line rate (P1, P2) | not tested (M10, needs an authorised isolated traffic source) | — |
+| Line rate (P1, P2) | not tested (the line-rate gate, needs an authorised isolated traffic source) | — |
 
 Two labels were corrected after this run (`a0d26736`: "KILLED (SIG 9)" instead of "CRASHED (SIG 9)" for SIGKILL, "MBIT/S" for the link speed); they are host-tested and were not redeployed.
 
@@ -306,13 +317,41 @@ Doors 0.4.0 (`21baeef0`) on Unit A, landscape, Neon theme, eth0 up at 100 Mb/s o
 
 How the cost is measured: the sysroot's LVGL is built without the performance monitor (`LV_USE_PERF_MONITOR` 0, and the toolchain is not changed for it), so the app times its own poll (reading the helper's lines and painting) and a frame from the display's `LV_EVENT_REFR_START` to `LV_EVENT_REFR_READY`, keeps the worst of each and writes them once a minute at `POCKETOS_LOG_LEVEL=debug` (`packetshark: worst poll … us, worst frame … us in the last minute`). Nothing is logged at the default level.
 
+### 9.7 Unit B, M10 Wi-Fi (2026-11-18)
+
+Unit B (Doors 0.3.6 base image with master `851b549a`'s shell and `pos-capture` `50e424f4`, landscape), wlan0 associated to the owner's 2.4 GHz network (WPA2, 72 Mb/s, -53 to -58 dBm), eth0 cabled at 100 Mb/s on the same subnet. Only the shell changed: built from this branch against the rm69a10 SDK sysroot and **installed** with a rollback kit, `/root/packetshark-m10-wifi-9e82bd6c/RESTORE.sh`, which puts back master `851b549a`'s shell (exercised once, then installed again); `pos-capture` is the installed one, unchanged (protocol 3). The checks ran from a non-persistent test-hooks shell in `/tmp` driven by `shell.tap` and screenshots. Traffic was made on the unit itself over wlan0: pings to the gateway, DNS lookups from a socket bound to wlan0's address (one name under `.invalid`), an HTTP request, a connection to a closed port on the gateway, three UDP datagrams to an unused port, a 45 s download. One capture was saved, read back with the unit's tcpdump and deleted; no capture left the unit. The record is outside the repository (`K230-artifacts/packetshark-m10-wifi/`).
+
+| Check | Result | Class |
+| --- | --- | --- |
+| Driver and capture backend | `rtl8189fs` v5.7.9 on SDIO; libpcap 1.10.5 opens wlan0 as `EN10MB`; the existing helper captures it unchanged | VERIFIED |
+| Monitor mode | not among the driver's nl80211 interface types; no `CONFIG_WIFI_MONITOR` in its build (§2a) | VERIFIED (not possible) |
+| Setup (final build `9e82bd6c`; the checks below it ran on `5d70102e`, which differs only in the not-connected wording) | eth0 `LINK UP` chosen by default; wlan0 `CONNECTED`, `WI-FI · <network> · <address>`; wlan1 (the driver's concurrent-mode twin) `DOWN`; a tap chooses wlan0 | VERIFIED |
+| LIVE on wlan0 | counters, graph, protocol shares (TCP, UDP, DNS, DHCP, ARP, ICMP, IPv6, other), session figures; status line `WLAN0` | VERIFIED |
+| ICMP | 5 echo requests out and 5 replies in, directions right; INSPECT: Frame, Ethernet II (wlan0's MAC), IPv4 | VERIFIED |
+| DNS | three queries and their answers on wlan0; the NXDOMAIN answer marked `!` and `! DNS FAILURE` in INSPECT | VERIFIED |
+| TCP | the HTTP exchange (16 segments, handshake to FIN) and the gateway's RST, marked `!` | VERIFIED |
+| UDP | the three datagrams to the unused port (read back from the saved file) | VERIFIED |
+| Display filter | ICMP 10 of 346, DNS, TCP 18 of 421, UDP 170 of 432, ALL | VERIFIED |
+| Capture filter `DNS AND DHCP` on wlan0 | 15 packets, DNS, mDNS and DHCPv6 only; the pings sent meanwhile not captured | VERIFIED |
+| SAVE on wlan0 | 590 packets, 61.8 kB, 0700/0600; tcpdump reads 590 and finds each flow above; the file deleted afterwards | VERIFIED |
+| START, STOP, NEW CAPTURE, four captures in a row | one helper each, none left after; wlan0 stays chosen across NEW CAPTURE | VERIFIED |
+| Switching to eth0 | eth0 chosen by a tap, captured: 74 packets, ICMP both ways, status line `ETH0` | VERIFIED |
+| Association dropped while capturing (`wpa_cli disconnect`) | the capture ended within a second (the helper checks the carrier once a second), `link: carrier lost`, LINK LOST on screen; setup moved the choice to eth0 and showed wlan0 not connected; after `wpa_cli reconnect` (5 s) wlan0 was CONNECTED and chosen again | VERIFIED |
+| Load, 45 s download on wlan0 | about 1,100 packets/s (10 Mbit/s), 57,101 packets, 0 dropped; shell 3.4 % of the hart, helper 0.2 %; helper RSS 10 MB, shell 16 MB | VERIFIED |
+| Privilege and flags (ADR-016) | helper capabilities 0, `NoNewPrivs: 1`, nice 5; wlan0 flags `0x1003` before, during and after; the capture socket gone after each capture | VERIFIED |
+| Other services | sysd, netd, radiod, meshcored, wpa_supplicant unaffected (same PIDs) | VERIFIED |
+| Portrait shape, keys, physical touch | not tested on the unit (portrait host-tested) | — |
+| Wi-Fi at line rate, roaming between access points while capturing | not tested | — |
+
+On this unit the PC's SSH session runs over eth0: the unit answers ARP for both addresses on both interfaces (`arp_ignore` 0), so the LAN reaches wlan0's address through eth0's MAC, and the resolver's queries leave on wlan0 with eth0's address and are answered on eth0. Hence the DNS check used a socket bound to wlan0.
+
 ### 9.6 Integration into master (2026-11-16)
 
 Pull request #141 merged the four stacked branches (head `27115c45`) onto master `f8939dbb`, which already had the RIFT Activity graph and shell notices (#140), without conflicts. Two test expectations were brought up to date: the SPDX header on three PacketShark test scripts (`tests/license_audit_test.sh`) and PacketShark as the ninth app of the Apps folder (`tests/launcher_folder_shell_test.sh`, `tests/launcher_groups_shell_test.sh`). On the merged tree, built on the host and for the K230 (v0.4.0 SDK sysroot, `pos-capture` with libpcap, the shell in Release), `make packetshark-test`, `packetshark_shell_test.sh`, `packetshark_lint.sh`, `rift_lint.sh`, `home_layout_test`, `shell_ipc_test.sh`, `vision_shell_test.sh`, `license_audit_test.sh` and `build_outputs_test.sh` passed. The RIFT, launcher, DeskBuddy, notices and text-size shell tests failed exactly the checks they fail on master `f8939dbb`, which are unrelated to PacketShark. The merged build was not run on a unit; the unit results above are from the milestone branches.
 
 ## 10. Known limits and open items
 
-- **M10 is not started:** behaviour at line rate (drops, the shell's frame time under load, GRO records) is unmeasured on the hardware and needs an authorised, isolated traffic source.
+- **The line-rate gate is not started:** behaviour at line rate (drops, the shell's frame time under load, GRO records) is unmeasured on the hardware and needs an authorised, isolated traffic source.
 - **Owner decisions:** ADR-016 accepted 2026-11-16 subject to its security constraints, which bind every later milestone (in particular: promiscuous mode not offered until its reversion is verified on the hardware; capabilities dropped before a frame is parsed). The libpcap dependency approved 2026-11-16. DS §59 accepted 2026-11-16 after the owner reviewed the mockups; minor adjustments for readability, touch accuracy or LVGL rendering on Unit A are allowed and recorded in DS §59.11.
 - M7 to M9 ran on Unit B (§9.5) except the keys (no keyboard there), a real ICMP unreachable, and SAVE's failure paths. The shell and helper must be installed together (protocol 3).
 - INSPECT names an unanswered SYN `NO ANSWER` beside the class where LIVE's cell says `NO REPLY`: one word should serve both.
@@ -321,11 +360,11 @@ Pull request #141 merged the four stacked branches (head `27115c45`) onto master
 - Signals are heuristics (§4a): out-of-order segments read as retransmissions, findings are not judged in HOLD or while shedding, and DNS over TCP is not read.
 - The synthetic source now carries about one finding in a hundred frames, so the simulator has every kind to show.
 - Promiscuous mode not offered (§5).
-- Wi-Fi listed and not offered (D18): managed-mode capture is untested.
+- Wi-Fi (§2a, §9.7): managed mode only; monitor mode is not offered by the driver. A Wi-Fi capture ends at the first loss of association, roaming included when the driver drops the carrier for it. The `NOT MY SSH` preset excludes SSH to and from the chosen interface's address when the capture starts; a lease that changes the address during a capture is not followed. The interface rows come from sysd and netd every 2 s while setup shows, so a join appears within that time. Unit B's eth0 and wlan0 are on one subnet, so the unit's own traffic can leave on one interface and its answers arrive on the other (§9.7); that is the unit's routing, not something PacketShark changes. Wi-Fi at line rate is unmeasured, like Ethernet.
 - The wide shape (§7a) is sized for the panel at text size Small; at Medium and Large LIVE's right column and the setup scroll. The error panel and the sheets use the portrait column in the wide body.
 - During HOLD the per-class rates read `0/s`: held packets are counted, not classified (DS §59.11).
 - The relative-time origin is corrected for clock steps; frames still in the kernel ring across a step can read time 0 (an edge, not measured).
-- GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in M10.
+- GRO-merged records (r8152) are labelled `[GRO]`; whether they occur on the unit is measured in the line-rate gate.
 - No seccomp; no dedicated user (ADR-016).
 - A full repaint of a following list is the costliest frame the app draws (about 28 ms on Unit B); a following list repaints twice a second.
 - The display filter has one protocol class at a time in the sheet (the protocol carries a mask); a host or port comes from FILTER BY or an end's slab, never typed.

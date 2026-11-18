@@ -5432,7 +5432,7 @@ Host: `tests/packetshark_app_test.c` (every M3 state in both orientations,
 targets and the safe area, the confirmations, faults, twenty opens and
 closes) and `tests/packetshark_shell_test.sh` (the real shell). Unit A: the
 hardware check of M3 (docs/apps/PACKETSHARK.md, "Validation"); the full gate is
-milestone M10.
+the line-rate gate.
 
 ### 59.10 For the owner
 
@@ -5453,6 +5453,7 @@ rendering on Unit A is added here when it is made.
 | Where | Mockup | Built (M3 to M9) | Reason |
 | --- | --- | --- | --- |
 | Panel titles | caption set into the hairline border | as the mockup since M4: a floating caption on the screen fill, centred on the top line | resolved in M4. M3 had the caption on the first line inside the panel. In this LVGL, OVERFLOW_VISIBLE only reaches the extended draw size, so the panel and its holder report the title's reach |
+| Setup, Wi-Fi row (M10) | `wlan0` dimmed, `WI-FI · NOT AVAILABLE IN THIS VERSION` | a row like Ethernet's: `CONNECTED` and `WI-FI · network · address` while associated and selectable; `NO LINK` or `DOWN` and `WI-FI · NOT CONNECTED` otherwise | M10 offers Wi-Fi in managed mode (the owner's brief, 2026-11-18); the driver reports `down`, not `dormant`, when it is not associated, so not connected cannot be told from off |
 | Setup, interface row | `ETHERNET · 100 MB/S · address` | `ETHERNET · address`; the speed appears once capturing (`ETH0 · 100 MBIT/S · HEADERS`) | sysd's `network[]` carries no link speed; the helper reads it from sysfs after START. Unit written as MBIT/S, not MB/S |
 | Setup, empty traffic panel | dashed hairline, 56 px disc and glyph | solid panel with the caption `NO CAPTURE YET` | no dashed or disc empty-state part exists in pocketui yet; the graph replaces this panel in M4 |
 | Promiscuous mode row | value with a chevron, opens a confirmation | `OFF`, no chevron, takes no tap | ADR-016 rule 3: not offered until its reversion is verified on the hardware |
