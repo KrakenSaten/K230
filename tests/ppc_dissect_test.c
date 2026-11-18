@@ -23,6 +23,7 @@
 #include "pocketpcap/ppc_decode.h"
 #include "pocketpcap/ppc_dissect.h"
 #include "pocketpcap/ppc_format.h"
+#include "pocketpcap/ppc_view.h"
 #include "ppc_testframes.h"
 
 #include <stdio.h>
@@ -56,9 +57,15 @@ struct seen {
     int nitems;
     uint32_t n;      /* the stored bytes the walk was given */
     int bad;         /* a field past the bytes, a text that is not clean */
+    const struct ppc_record *r; /* the record the walk was given */
 };
 
 static struct seen S;
+
+/* MAC filters offered over the whole run, and those that do not match their
+ * own packet (FILTER BY would show a list without it). */
+static int mac_filters;
+static int mac_misses;
 
 static int clean(const char *s, size_t cap)
 {
@@ -91,6 +98,19 @@ static void on_item(void *ctx, const struct ppc_ds_item *it)
     if (it->off >= 0 && ((uint32_t)it->off > s->n || it->len > s->n - (uint32_t)it->off)) {
         s->bad++;
     }
+    if (strncmp(it->filter, "host:", 5) == 0 && s->r) {
+        struct ppc_filter f;
+
+        memset(&f, 0, sizeof(f));
+        if (ppc_filter_host(it->filter + 5, f.host) == 6) {
+            f.host_len = 6;
+            mac_filters++;
+            if (!ppc_filter_match(&f, s->r)) {
+                mac_misses++;
+                printf("     %s %s: %s does not match its own packet\n", it->name, it->text, it->filter);
+            }
+        }
+    }
     if (it->kind == PPC_DS_LAYER) {
         if (s->layers < PPC_DS_LAYERS) {
             snprintf(s->layer[s->layers], sizeof(s->layer[0]), "%s", it->name);
@@ -113,6 +133,7 @@ static void dissect(uint32_t n, struct ppc_record *r)
     ppc_decode(&f, r);
     memset(&S, 0, sizeof(S));
     S.n = n;
+    S.r = r;
     ppc_dissect(r, F.b, n, on_item, &S);
 }
 
@@ -333,6 +354,16 @@ static void test_arp_icmp(void)
               strcmp(field("ARP", "SENDER MAC")->filter, "host:02:00:00:00:00:0a") == 0 &&
               is("Ethernet", "TYPE", "0x0806 ARP") && strcmp(field("Ethernet", "SOURCE")->filter,
                                                              "host:02:00:00:00:00:0a") == 0);
+    check("ARP: the broadcast Ethernet destination offers no filter (the record keeps the ARP MACs)",
+          is("Ethernet", "DESTINATION", "ff:ff:ff:ff:ff:ff") && field("Ethernet", "DESTINATION")->filter[0] == '\0');
+
+    fb_reset(&F);
+    fb_eth(&F, MAC_BCAST, MAC_A, 0x88b5);
+    fb_pad(&F);
+    dissect(stored(PPC_KEEP_HEADERS), &r);
+    check("no network layer: the record keeps the Ethernet ends, so the broadcast destination filters",
+          r.l3 == PPC_L3_OTHER && field("Ethernet", "DESTINATION") &&
+              strcmp(field("Ethernet", "DESTINATION")->filter, "host:ff:ff:ff:ff:ff:ff") == 0);
 
     fb_reset(&F);
     fb_eth(&F, MAC_B, MAC_A, 0x0800);
@@ -531,6 +562,7 @@ int main(void)
     test_vlan_ext_frag_runt();
     test_every_cut();
     test_ends_and_hex();
+    check("every MAC filter offered matches its own packet", mac_filters > 0 && mac_misses == 0);
     printf("ppc_dissect_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

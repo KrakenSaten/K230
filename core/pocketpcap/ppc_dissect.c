@@ -126,20 +126,38 @@ static int have(const struct walk *w, uint32_t off, uint32_t len)
     return off <= w->n && len <= w->n - off;
 }
 
+/* Whether the record keeps this MAC as one of its ends (ppc_record.h): an
+ * ARP record keeps the sender and target MAC from the ARP message, a frame
+ * with no network layer its Ethernet source and destination, an IP packet
+ * none. A host filter on any other MAC would match nothing of the packet. */
+static int record_keeps_mac(const struct ppc_record *r, const uint8_t *mac)
+{
+    switch (r->l3) {
+    case PPC_L3_ARP:
+        return memcmp(r->src + 4, mac, 6) == 0 || memcmp(r->dst + 4, mac, 6) == 0;
+    case PPC_L3_NONE:
+    case PPC_L3_OTHER:
+        return memcmp(r->src, mac, 6) == 0 || memcmp(r->dst, mac, 6) == 0;
+    default:
+        return 0;
+    }
+}
+
 /* An address field and the host filter it stands for. A MAC filters only
- * where the record keeps MACs - ARP and frames with no network layer
- * (ppc_record.h); an IP packet's record keeps its IP addresses instead, so
- * its Ethernet addresses offer no filter rather than one that would show
- * nothing of it. */
+ * where the record keeps it (record_keeps_mac): an IP packet's Ethernet
+ * addresses, and an ARP frame's Ethernet addresses that are not its sender
+ * or target MAC (the broadcast destination of a request), offer no filter
+ * rather than one that would show nothing of the packet. */
 static void addr_field(struct walk *w, const char *name, uint32_t off, unsigned len)
 {
     char a[48];
     char f[PPC_DS_FILTER];
-    int filters = len != 6 || w->r->l3 == PPC_L3_ARP || w->r->l3 == PPC_L3_NONE || w->r->l3 == PPC_L3_OTHER;
+    int filters;
 
     if (!have(w, off, len)) {
         return;
     }
+    filters = len != 6 || record_keeps_mac(w->r, w->b + off);
     ppc_format_addr(a, sizeof(a), w->b + off, len);
     snprintf(f, sizeof(f), "host:%s", a);
     field(w, name, (int32_t)off, len, filters ? f : NULL, "%s", a);

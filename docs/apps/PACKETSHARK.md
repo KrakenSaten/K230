@@ -214,6 +214,8 @@ Overrides: `POCKETOS_CAPTURE_HELPER` (the helper's path), `POCKETOS_CAPTURE_SOUR
 | M7 to M9 in the suites above | `pos_capture_test.sh`: the five counters, views of findings, marks, SAVE refused while capturing and under `/tmp`, two saves two files, 0700/0600, no part file left (also after a quit mid-save), the file read back packet for packet by `pos-capture decode` and by tcpdump, the log naming no file. `psk_session_test`: the same through the app's client, the finding line under the TCP layer, and the saved captures listed and deleted (another file, a link, a path and a missing name refused). `packetshark_app_test`: SIGNALS and a tap to its packets, the rail's marks, the inspector's finding, SAVE's sheet and outcome, the saved list and its delete confirmation, every key, the wide shape's top row, columns and one-line rows. The fuzz target judges findings on every mutated frame | pass |
 | `packetshark_lint.sh` | receive only; one libpcap include; the hot path allocates and formats nothing; the findings allocate once and format nothing; the shell links only the protocol; two files created (the lock, and SAVE's, new and never followed); packets written to SAVE's file and nowhere else; the saved captures listed and deleted, never opened; no key starts a capture, answers a sheet or deletes; no log line from a packet | pass |
 
+`ppc_dissect_test` also checks that every MAC filter the inspector offers matches its own packet. Until 2026-11-18 a broadcast ARP request offered FILTER BY on its Ethernet destination, which listed nothing (§10); when the synthetic source put such a packet under the inspector, the FILTER BY check of `packetshark_app_test` failed intermittently.
+
 Host bench (`pos-capture bench`, x86-64, not a device figure): decode 32 ns/frame, decode + store 95 ns, one row of text 443 ns. Device figures: §9.2.
 
 ### 9.2 Unit A, M0 to M3 (2026-11-16)
@@ -329,6 +331,6 @@ Pull request #141 merged the four stacked branches (head `27115c45`) onto master
 - No seccomp; no dedicated user (ADR-016).
 - A full repaint of a following list is the costliest frame the app draws (about 28 ms on Unit B); a following list repaints twice a second.
 - The display filter has one protocol class at a time in the sheet (the protocol carries a mask); a host or port comes from FILTER BY or an end's slab, never typed.
-- A MAC filters only ARP and frames with no network layer: an IP packet's record keeps its IP addresses, not its MACs, so its Ethernet addresses offer no FILTER BY.
+- A MAC filters only ARP and frames with no network layer: an IP packet's record keeps its IP addresses, not its MACs, so its Ethernet addresses offer no FILTER BY. An ARP record keeps the sender and target MAC of the ARP message, so an ARP frame's Ethernet address offers FILTER BY only when it is one of them: the broadcast destination of a request (`ff:ff:ff:ff:ff:ff`) offers none (before this fix it offered one that listed nothing).
 - The length order is a snapshot rebuilt at most once a second; while packets arrive its last rows can have left the buffer by the time they are shown.
 - The hex view shows at most the first 512 stored bytes (said under it).

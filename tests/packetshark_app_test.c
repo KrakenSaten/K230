@@ -1484,8 +1484,10 @@ static void m5_m6(bool portrait)
     tap("Frame");
     CHECK("and closes on another", shown("ON THE WIRE") == NULL);
     /* A field that filters: a port, else an address (its layer opened
-     * first). Tapped by its part: words like SOURCE are on the ends' slabs
-     * too. */
+     * first). Every filter offered matches its own packet (the dissector
+     * offers none on a MAC the record does not keep, such as a broadcast
+     * ARP request's Ethernet destination), so the list is never empty.
+     * Tapped by its part: words like SOURCE are on the ends' slabs too. */
     {
         const struct psk_packet *pk = &app()->model->pkt;
         int want = -1;
