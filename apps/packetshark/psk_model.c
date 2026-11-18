@@ -112,6 +112,8 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             m->save = PSK_SAVE_NONE;
             m->save_name[0] = '\0';
             m->save_fail[0] = '\0';
+            memset(&m->d, 0, sizeof(m->d));
+            m->have_diag = false;
         }
         if (e->u.state.state != PPC_STATE_IDLE) {
             m->had_capture = true;
@@ -224,6 +226,18 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             snprintf(fd->text, sizeof(fd->text), "%s", e->u.finding.text);
         }
         return 0;
+    case PPC_EVT_DETAIL:
+        if (m->pkt_open && m->pkt_next.ndetails < PSK_DETAILS) {
+            struct psk_finding *fd = &m->pkt_next.detail[m->pkt_next.ndetails++];
+
+            fd->layer = (uint8_t)(e->u.finding.layer < PSK_LAYERS ? e->u.finding.layer : 0);
+            snprintf(fd->text, sizeof(fd->text), "%s", e->u.finding.text);
+        }
+        return 0;
+    case PPC_EVT_DIAG:
+        m->d = e->u.diag;
+        m->have_diag = true;
+        return PSK_CHANGED_DIAG;
     case PPC_EVT_MARKS:
         if (e->u.marks.req != m->want_marks || m->want_marks == 0) {
             return 0;
@@ -278,15 +292,16 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
 
 const char *psk_signal_word(unsigned index)
 {
-    static const char *const words[PPC_SIGNAL_COUNT] = { "RETRANS", "TCP RST", "DNS FAIL", "UNREACH", "NO REPLY" };
+    static const char *const words[PPC_SIGNAL_COUNT] = { "RETRANS", "TCP RST",   "DNS FAIL",
+                                                         "UNREACH", "NO ANSWER", "NO DNS REPLY" };
 
     return index < PPC_SIGNAL_COUNT ? words[index] : "?";
 }
 
 const char *psk_signal_plural(unsigned index)
 {
-    static const char *const words[PPC_SIGNAL_COUNT] = { "RETRANSMISSIONS", "RESETS", "DNS FAILURES", "UNREACHABLES",
-                                                         "UNANSWERED SYNS" };
+    static const char *const words[PPC_SIGNAL_COUNT] = { "RETRANSMISSIONS", "RESETS",          "DNS FAILURES",
+                                                         "UNREACHABLES",    "UNANSWERED SYNS", "UNANSWERED DNS QUERIES" };
 
     return index < PPC_SIGNAL_COUNT ? words[index] : "?";
 }
@@ -587,4 +602,454 @@ int psk_filter_token(const char *token, uint8_t *classes, char *host, size_t hos
         return -1;
     }
     return -1;
+}
+
+/* ---- the DNS and TCP diagnosis (M11.1) ------------------------------------------------ */
+
+#define DOT " \xc2\xb7 "
+
+const char *psk_fmt_ms(uint64_t us, char *buf, size_t buflen)
+{
+    unsigned long long u = (unsigned long long)us;
+
+    if (u < 10000ull) {
+        snprintf(buf, buflen, "%llu.%llu MS", u / 1000u, u % 1000u / 100u);
+    } else if (u < 1000000ull) {
+        snprintf(buf, buflen, "%llu MS", (u + 500u) / 1000u);
+    } else {
+        snprintf(buf, buflen, "%llu.%llu S", u / 1000000u, u % 1000000u / 100000u);
+    }
+    return buf;
+}
+
+/* Lower case for the explanations, which are sentences: "23 ms". */
+static const char *ms_lower(uint64_t us, char *buf, size_t buflen)
+{
+    char *p;
+
+    psk_fmt_ms(us, buf, buflen);
+    for (p = buf; *p; p++) {
+        if (*p >= 'A' && *p <= 'Z') {
+            *p = (char)(*p - 'A' + 'a');
+        }
+    }
+    return buf;
+}
+
+static uint32_t dns_failed(const struct ppc_diag *d)
+{
+    return d->dns_nxdomain + d->dns_servfail + d->dns_refused + d->dns_other;
+}
+
+static uint32_t tcp_retrans(const struct ppc_diag *d)
+{
+    return d->tcp_retrans + d->tcp_retrans_acked + d->tcp_retrans_unseen;
+}
+
+/* Retransmissions worth a look: at least three, and at least one in a
+ * hundred segments (a few are normal on any network). */
+static int retrans_high(const struct ppc_diag *d)
+{
+    uint32_t n = tcp_retrans(d);
+
+    return n >= 3 && d->tcp_segments > 0 && (uint64_t)n * 100u >= d->tcp_segments;
+}
+
+static unsigned dns_sev(const struct psk_model *m)
+{
+    const struct ppc_diag *d = &m->d;
+
+    if (d->dns_servfail || d->dns_refused || d->dns_other || d->dns_noreply || d->dns_rtt_max_us >= 1000000u) {
+        return PSK_SEV_WARN;
+    }
+    if (d->dns_nxdomain || d->dns_orphan || d->dns_late || d->dns_retries) {
+        return PSK_SEV_NOTE;
+    }
+    return PSK_SEV_OK;
+}
+
+static unsigned tcp_sev(const struct psk_model *m)
+{
+    const struct ppc_diag *d = &m->d;
+
+    if (m->c.sig[4] || d->tcp_aborted || retrans_high(d)) {
+        return PSK_SEV_WARN;
+    }
+    if (d->tcp_refused || d->tcp_rst_unseen || tcp_retrans(d) || d->tcp_syn_again || d->tcp_oneway) {
+        return PSK_SEV_NOTE;
+    }
+    return PSK_SEV_OK;
+}
+
+/* One more part of a summary line, after a middle dot when it is not the
+ * first. Returns the new length, held inside the buffer. */
+static size_t append(char *buf, size_t buflen, size_t o, const char *fmt, const char *arg)
+{
+    int k;
+
+    if (o >= buflen) {
+        return o;
+    }
+    if (o > 0) {
+        k = snprintf(buf + o, buflen - o, DOT);
+        o = k > 0 ? o + (size_t)k : o;
+        if (o >= buflen) {
+            return buflen - 1;
+        }
+    }
+    k = snprintf(buf + o, buflen - o, fmt, arg);
+    o = k > 0 ? o + (size_t)k : o;
+    return o < buflen ? o : buflen - 1;
+}
+
+unsigned psk_diag_summary(const struct psk_model *m, unsigned kind, char *buf, size_t buflen)
+{
+    const struct ppc_diag *d = &m->d;
+    char n[24];
+    char t[24];
+    size_t o;
+
+    if (kind == PSK_DIAG_DNS) {
+        uint32_t timed = d->dns_answered + d->dns_late;
+
+        if (d->dns_queries == 0 && d->dns_orphan == 0 && dns_failed(d) == 0) {
+            snprintf(buf, buflen, "NO QUERY SEEN YET");
+            return PSK_SEV_OK;
+        }
+        /* What needs a look first, so a narrow line still shows it. */
+        o = 0;
+        buf[0] = '\0';
+        if (d->dns_noreply) {
+            o = append(buf, buflen, o, "%s NO REPLY", psk_fmt_count(d->dns_noreply, n, sizeof(n)));
+        }
+        if (dns_failed(d)) {
+            o = append(buf, buflen, o, "%s FAILED", psk_fmt_count(dns_failed(d), n, sizeof(n)));
+        }
+        o = append(buf, buflen, o, "%s ANSWERED", psk_fmt_count(timed, n, sizeof(n)));
+        if (timed) {
+            append(buf, buflen, o, "AVG %s", psk_fmt_ms(d->dns_rtt_sum_us / timed, t, sizeof(t)));
+        }
+        return dns_sev(m);
+    }
+    if (d->tcp_attempts == 0 && d->tcp_connected == 0 && d->tcp_midstream == 0 && m->c.sig[1] == 0) {
+        snprintf(buf, buflen, "NO CONNECTION SEEN YET");
+        return PSK_SEV_OK;
+    }
+    o = 0;
+    buf[0] = '\0';
+    if (m->c.sig[4]) {
+        o = append(buf, buflen, o, "%s NO ANSWER", psk_fmt_count(m->c.sig[4], n, sizeof(n)));
+    }
+    if (d->tcp_aborted) {
+        o = append(buf, buflen, o, "%s ABORTED", psk_fmt_count(d->tcp_aborted, n, sizeof(n)));
+    }
+    if (d->tcp_refused) {
+        o = append(buf, buflen, o, "%s REFUSED", psk_fmt_count(d->tcp_refused, n, sizeof(n)));
+    }
+    if (retrans_high(d)) { /* a few are normal: the sheet counts them */
+        o = append(buf, buflen, o, "%s RETRANS", psk_fmt_count(tcp_retrans(d), n, sizeof(n)));
+    }
+    o = append(buf, buflen, o, "%s CONNECTED", psk_fmt_count(d->tcp_connected, n, sizeof(n)));
+    if (d->tcp_timed) {
+        append(buf, buflen, o, "AVG %s", psk_fmt_ms(d->tcp_hs_sum_us / d->tcp_timed, t, sizeof(t)));
+    }
+    return tcp_sev(m);
+}
+
+static struct psk_diag_line *add_line(struct psk_diag_line *out, unsigned *n, unsigned max, unsigned sev)
+{
+    struct psk_diag_line *l;
+
+    if (*n >= max) {
+        return NULL;
+    }
+    l = &out[(*n)++];
+    memset(l, 0, sizeof(*l));
+    l->sev = (uint8_t)sev;
+    return l;
+}
+
+static void list_of(struct psk_diag_line *l, unsigned signals, unsigned diag)
+{
+    l->go = PSK_GO_LIST;
+    l->signals = (uint8_t)signals;
+    l->diag = (uint8_t)diag;
+}
+
+static unsigned dns_lines(const struct psk_model *m, struct psk_diag_line *out, unsigned max)
+{
+    const struct ppc_diag *d = &m->d;
+    uint32_t timed = d->dns_answered + d->dns_late;
+    struct psk_diag_line *l;
+    unsigned n = 0;
+    char a[24];
+    char b[24];
+    char c[24];
+
+    l = add_line(out, &n, max, d->dns_rtt_max_us >= 1000000u ? PSK_SEV_WARN : PSK_SEV_OK);
+    if (l && d->dns_queries == 0) {
+        snprintf(l->text, sizeof(l->text), "NO DNS QUERY SEEN");
+        snprintf(l->why, sizeof(l->why),
+                 "No query to a DNS server (UDP port 53) has passed this interface. mDNS and LLMNR are not judged, "
+                 "and DNS over TCP is not read.");
+    } else if (l) {
+        snprintf(l->text, sizeof(l->text), "%s OF %s QUERIES ANSWERED", psk_fmt_count(timed, a, sizeof(a)),
+                 psk_fmt_count(d->dns_queries, b, sizeof(b)));
+        if (timed) {
+            snprintf(l->why, sizeof(l->why),
+                     "Answers took %s on average and %s at most, timed from the latest copy of each query.",
+                     ms_lower(d->dns_rtt_sum_us / timed, a, sizeof(a)), ms_lower(d->dns_rtt_max_us, c, sizeof(c)));
+            if (d->dns_rtt_max_seq) {
+                l->go = PSK_GO_OPEN;
+                l->seq = d->dns_rtt_max_seq;
+            }
+        } else {
+            snprintf(l->why, sizeof(l->why), "No answer has been matched to its query yet.");
+        }
+    }
+    if (d->dns_nxdomain && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s NAME NOT FOUND (NXDOMAIN)", psk_fmt_count(d->dns_nxdomain, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "The server answered that the name does not exist. A confirmed answer, not a network fault: a "
+                 "mistyped name, or a resolver trying its search domains.");
+        list_of(l, PPC_SIG_DNS_FAIL, 0);
+    }
+    if (d->dns_servfail && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s SERVER FAILURE (SERVFAIL)", psk_fmt_count(d->dns_servfail, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "The server could not answer: its own upstream servers or its DNSSEC check failed. Not caused by "
+                 "this device.");
+        list_of(l, PPC_SIG_DNS_FAIL, 0);
+    }
+    if (d->dns_refused + d->dns_other && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s REFUSED OR NOT HANDLED",
+                 psk_fmt_count(d->dns_refused + d->dns_other, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "The server refused this client or could not handle the query: it may not serve this network.");
+        list_of(l, PPC_SIG_DNS_FAIL, 0);
+    }
+    if (d->dns_noreply && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s NOT ANSWERED WITHIN 5 S", psk_fmt_count(d->dns_noreply, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "No answer seen. The query or its answer may have been lost, the answer may have come in on another "
+                 "interface, or the server is down. Not proof of a DNS failure.%s%s%s",
+                 d->dns_late ? " " : "", d->dns_late ? psk_fmt_count(d->dns_late, b, sizeof(b)) : "",
+                 d->dns_late ? " answered later." : "");
+        list_of(l, PPC_SIG_DNS_NOREPLY, 0);
+    }
+    if (d->dns_retries && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s QUERIES ASKED AGAIN", psk_fmt_count(d->dns_retries, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "The resolver sent a query again before it had an answer: the first copy or its answer was slow or "
+                 "lost.");
+        list_of(l, 0, PPC_DIAG_DNS_RETRY);
+    }
+    if (d->dns_orphan && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s ANSWERS WITHOUT THEIR QUERY", psk_fmt_count(d->dns_orphan, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "Their query is not in this capture: sent before START, while held, or on another interface. Not "
+                 "timed or judged.");
+        list_of(l, 0, PPC_DIAG_DNS_ORPHAN);
+    }
+    if (d->dns_waiting && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        bool live = m->state == PPC_STATE_CAPTURING;
+
+        snprintf(l->text, sizeof(l->text), "%s %s", psk_fmt_count(d->dns_waiting, a, sizeof(a)),
+                 live ? "WAITING FOR AN ANSWER" : "NOT ANSWERED WHEN IT STOPPED");
+        snprintf(l->why, sizeof(l->why), "%s",
+                 live ? "Asked less than 5 s ago." : "Still waiting when the capture stopped or was held: not judged.");
+    }
+    return n;
+}
+
+static unsigned tcp_lines(const struct psk_model *m, struct psk_diag_line *out, unsigned max)
+{
+    const struct ppc_diag *d = &m->d;
+    struct psk_diag_line *l;
+    unsigned n = 0;
+    char a[24];
+    char b[24];
+    char c[24];
+
+    l = add_line(out, &n, max, PSK_SEV_OK);
+    if (l && d->tcp_attempts == 0 && d->tcp_connected == 0) {
+        snprintf(l->text, sizeof(l->text), "NO CONNECTION ATTEMPT SEEN");
+        snprintf(l->why, sizeof(l->why),
+                 "No SYN has passed this interface. Connections already open are followed from their first segment.");
+    } else if (l) {
+        snprintf(l->text, sizeof(l->text), "%s OF %s CONNECTIONS OPENED", psk_fmt_count(d->tcp_connected, a, sizeof(a)),
+                 psk_fmt_count(d->tcp_attempts, b, sizeof(b)));
+        if (d->tcp_timed) {
+            snprintf(l->why, sizeof(l->why),
+                     "Handshakes took %s on average and %s at most, from the first SYN to the segment that completed "
+                     "it.",
+                     ms_lower(d->tcp_hs_sum_us / d->tcp_timed, a, sizeof(a)), ms_lower(d->tcp_hs_max_us, c, sizeof(c)));
+            if (d->tcp_hs_max_seq) {
+                l->go = PSK_GO_OPEN;
+                l->seq = d->tcp_hs_max_seq;
+            }
+        } else {
+            snprintf(l->why, sizeof(l->why), "No handshake has been seen whole yet, so none is timed.");
+        }
+    }
+    if (m->c.sig[4] && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s SYN NOT ANSWERED WITHIN 3 S", psk_fmt_count(m->c.sig[4], a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "Nothing came back: the host may be down, a firewall may drop the SYN, or the answer took another "
+                 "path.");
+        list_of(l, PPC_SIG_SYN_UNANSWERED, 0);
+    }
+    if (d->tcp_refused && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s REFUSED", psk_fmt_count(d->tcp_refused, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "A reset answered the SYN: the host is reachable, but nothing listens on that port or a firewall "
+                 "rejects it. Not a network fault.");
+        list_of(l, 0, PPC_DIAG_TCP_REFUSED);
+    }
+    if (d->tcp_aborted && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s RESETS OF OPEN CONNECTIONS", psk_fmt_count(d->tcp_aborted, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "One end aborted a connection that was open or opening. Applications do this too; many of them point "
+                 "to a failing service or a middlebox.");
+        list_of(l, 0, PPC_DIAG_TCP_ABORTED);
+    }
+    if (d->tcp_rst_closed && (l = add_line(out, &n, max, PSK_SEV_OK)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s RESETS AFTER CLOSE", psk_fmt_count(d->tcp_rst_closed, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why), "Sent while a connection was closing or already reset: usually normal.");
+        list_of(l, 0, PPC_DIAG_TCP_RST_CLOSED);
+    }
+    if (d->tcp_rst_unseen && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s RESETS OF CONNECTIONS NOT SEEN",
+                 psk_fmt_count(d->tcp_rst_unseen, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why), "Their connection began before the capture, or was not tracked.");
+        list_of(l, 0, PPC_DIAG_TCP_RST_UNSEEN);
+    }
+    if (tcp_retrans(d) && (l = add_line(out, &n, max, retrans_high(d) ? PSK_SEV_WARN : PSK_SEV_NOTE)) != NULL) {
+        uint32_t r = tcp_retrans(d);
+        uint64_t pm = d->tcp_segments ? (uint64_t)r * 1000u / d->tcp_segments : 0;
+
+        snprintf(l->text, sizeof(l->text), "%s RETRANSMISSIONS" DOT "%llu.%llu%% OF SEGMENTS",
+                 psk_fmt_count(r, a, sizeof(a)), (unsigned long long)(pm / 10u), (unsigned long long)(pm % 10u));
+        {
+            char kinds[128];
+            size_t k = 0;
+
+            /* Only the kinds there are: what passed here before, what
+             * never came by, what was already acknowledged. */
+            kinds[0] = '\0';
+            if (d->tcp_retrans) {
+                k += (size_t)snprintf(kinds + k, sizeof(kinds) - k, "%u had passed here before",
+                                      (unsigned)d->tcp_retrans);
+            }
+            if (d->tcp_retrans_unseen && k < sizeof(kinds)) {
+                k += (size_t)snprintf(kinds + k, sizeof(kinds) - k, "%s%u never reached this interface", k ? ", " : "",
+                                      (unsigned)d->tcp_retrans_unseen);
+            }
+            if (d->tcp_retrans_acked && k < sizeof(kinds)) {
+                snprintf(kinds + k, sizeof(kinds) - k, "%s%u were already acknowledged (spurious)", k ? ", " : "",
+                         (unsigned)d->tcp_retrans_acked);
+            }
+            if (kinds[0] >= 'a' && kinds[0] <= 'z') {
+                kinds[0] = (char)(kinds[0] - 'a' + 'A');
+            }
+            snprintf(l->why, sizeof(l->why), "%s. A few are normal; more than one in a hundred slows connections.",
+                     kinds);
+        }
+        list_of(l, PPC_SIG_RETRANS, 0);
+    }
+    if (d->tcp_syn_again && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s HANDSHAKE STEPS SENT AGAIN", psk_fmt_count(d->tcp_syn_again, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why), "A SYN or SYN-ACK was repeated: the first copy or its answer was slow or lost.");
+        list_of(l, 0, PPC_DIAG_TCP_SYN_AGAIN);
+    }
+    if (d->tcp_ooo && (l = add_line(out, &n, max, PSK_SEV_OK)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s OUT OF ORDER", psk_fmt_count(d->tcp_ooo, a, sizeof(a)));
+        snprintf(l->why, sizeof(l->why),
+                 "Arrived after later data, within a round trip: reordering, not loss. Not counted as "
+                 "retransmissions.");
+        list_of(l, 0, PPC_DIAG_TCP_OUT_OF_ORDER);
+    }
+    if ((d->tcp_midstream || d->tcp_oneway) && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s WITHOUT HANDSHAKE" DOT "%s ONE WAY",
+                 psk_fmt_count(d->tcp_midstream, a, sizeof(a)), psk_fmt_count(d->tcp_oneway, b, sizeof(b)));
+        snprintf(l->why, sizeof(l->why),
+                 "Their start was not seen, so they are not timed. One way: only one direction reached this "
+                 "interface, as with asymmetric routing, or the other passed unseen.");
+        list_of(l, 0, PPC_DIAG_TCP_MIDSTREAM);
+    }
+    return n;
+}
+
+unsigned psk_diag_lines(const struct psk_model *m, unsigned kind, struct psk_diag_line *out, unsigned max)
+{
+    return kind == PSK_DIAG_DNS ? dns_lines(m, out, max) : tcp_lines(m, out, max);
+}
+
+const char *psk_diag_confidence(const struct psk_model *m, unsigned kind, char *buf, size_t buflen)
+{
+    const struct ppc_diag *d = &m->d;
+    uint64_t drops = m->c.kdrop + m->c.ifdrop;
+    char n[24];
+    char t[24];
+    char iface[PPC_IFACE_MAX];
+    size_t o;
+    size_t i;
+
+    snprintf(iface, sizeof(iface), "%s", m->iface[0] ? m->iface : "THE INTERFACE");
+    for (i = 0; iface[i]; i++) {
+        if (iface[i] >= 'a' && iface[i] <= 'z') {
+            iface[i] = (char)(iface[i] - 'a' + 'A');
+        }
+    }
+    o = (size_t)snprintf(buf, buflen, "What %s saw in %s, judged as it passed: heuristics, not proof.", iface,
+                         psk_fmt_elapsed(m->c.elapsed_ms, t, sizeof(t)));
+    if (drops && o < buflen) {
+        o += (size_t)snprintf(buf + o, buflen - o, " The kernel dropped %s packets: a missing answer may be one of them.",
+                              psk_fmt_count(drops, n, sizeof(n)));
+    }
+    if (d->blinded && o < buflen) {
+        o += (size_t)snprintf(buf + o, buflen - o,
+                              " Packets passed unjudged %u time%s (HOLD, or too fast to store): what was waiting then "
+                              "was let go.",
+                              (unsigned)d->blinded, d->blinded == 1 ? "" : "s");
+    }
+    if (kind == PSK_DIAG_DNS && d->dns_unjudged && o < buflen) {
+        o += (size_t)snprintf(buf + o, buflen - o, " %s queries were let go unjudged.",
+                              psk_fmt_count(d->dns_unjudged, n, sizeof(n)));
+    }
+    if (kind == PSK_DIAG_TCP && d->tcp_replaced && o < buflen) {
+        o += (size_t)snprintf(buf + o, buflen - o, " The connection table was full: %s connections were forgotten.",
+                              psk_fmt_count(d->tcp_replaced, n, sizeof(n)));
+    }
+    if (kind == PSK_DIAG_TCP && o < buflen) {
+        snprintf(buf + o, buflen - o, " %s connections followed now.", psk_fmt_count(d->tcp_flows, n, sizeof(n)));
+    }
+    return buf;
+}
+
+const char *psk_diag_plural(unsigned diag)
+{
+    static const char *const words[PPC_DIAG_COUNT] = {
+        "ANY PACKET",
+        "DNS QUERIES",
+        "DNS QUERIES ASKED AGAIN",
+        "DNS ANSWERS",
+        "LATE DNS ANSWERS",
+        "ANSWERS WITHOUT THEIR QUERY",
+        "CONNECTION ATTEMPTS",
+        "HANDSHAKE STEPS SENT AGAIN",
+        "SYN-ACKS",
+        "COMPLETED HANDSHAKES",
+        "CONNECTIONS WITHOUT HANDSHAKE",
+        "REFUSED CONNECTIONS",
+        "RESETS OF OPEN CONNECTIONS",
+        "RESETS AFTER CLOSE",
+        "RESETS OF UNSEEN CONNECTIONS",
+        "RETRANSMISSIONS SEEN BEFORE",
+        "SPURIOUS RETRANSMISSIONS",
+        "RETRANSMISSIONS OF UNSEEN DATA",
+        "OUT-OF-ORDER SEGMENTS",
+    };
+
+    return diag < PPC_DIAG_COUNT ? words[diag] : "?";
 }

@@ -176,7 +176,7 @@ static const char *signal_words(unsigned signals)
 }
 
 const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, bool pinned, unsigned signals,
-                             char *buf, size_t buflen)
+                             unsigned diag, char *buf, size_t buflen)
 {
     size_t o = 0;
     unsigned c;
@@ -187,6 +187,9 @@ const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, b
     }
     if (signals && o < buflen) {
         o += (size_t)snprintf(buf + o, buflen - o, "%s%s", o ? " · " : "", signal_words(signals));
+    }
+    if (diag && o < buflen) {
+        o += (size_t)snprintf(buf + o, buflen - o, "%s%s", o ? " · " : "", psk_diag_plural(diag));
     }
     if (classes != PPC_CLASSES_ALL && classes != 0) {
         for (c = 0; c < PPC_CLASS_COUNT && o < buflen; c++) {
@@ -244,7 +247,11 @@ static void fs_paint(struct psk_app *a)
     psk_set_hidden(lv_obj_get_child(a->fs_port_row, 2), a->fs_portv == 0);
     snprintf(b, sizeof(b), "%s · %s HELD", a->fs_pinnedv ? "ON" : "OFF", psk_fmt_count(a->model->pins, n, sizeof(n)));
     psk_text(a->fs_pinned, b);
-    psk_text(a->fs_sig, signal_words(a->fs_sigv));
+    if (a->fs_diagv) {
+        psk_text(a->fs_sig, psk_diag_plural(a->fs_diagv));
+    } else {
+        psk_text(a->fs_sig, signal_words(a->fs_sigv));
+    }
 }
 
 static void on_fs_class(lv_event_t *e)
@@ -266,12 +273,16 @@ static void on_fs_row(lv_event_t *e)
     } else if (i == 1) {
         a->fs_portv = 0;
     } else if (i == 3) {
-        /* Findings (M7): any packet, any finding, then each finding. */
-        if (a->fs_sigv == 0) {
-            a->fs_sigv = 0x1f;
-        } else if (a->fs_sigv == 0x1f) {
+        /* Findings (M7): any packet, any finding, then each finding. A
+         * diagnosis a diagnosis line chose (M11.1) gives way to them. */
+        if (a->fs_diagv) {
+            a->fs_diagv = 0;
+            a->fs_sigv = 0;
+        } else if (a->fs_sigv == 0) {
+            a->fs_sigv = PPC_SIG_FINDINGS_ALL;
+        } else if (a->fs_sigv == PPC_SIG_FINDINGS_ALL) {
             a->fs_sigv = 0x01;
-        } else if (a->fs_sigv >= 0x10) {
+        } else if (a->fs_sigv >= 0x20) {
             a->fs_sigv = 0;
         } else {
             a->fs_sigv = (uint8_t)(a->fs_sigv << 1);
@@ -291,6 +302,7 @@ static void on_fs_clear(lv_event_t *e)
     a->fs_portv = 0;
     a->fs_pinnedv = false;
     a->fs_sigv = 0;
+    a->fs_diagv = 0;
     fs_paint(a);
 }
 
@@ -300,7 +312,7 @@ static void on_fs_show(lv_event_t *e)
     bool to_packets = a->fs_to_packets;
 
     psk_fsheet_hide(a);
-    psk_set_view_signals(a, a->fs_classes, a->fs_hostv, a->fs_portv, a->fs_pinnedv, a->fs_sigv);
+    psk_set_view_diag(a, a->fs_classes, a->fs_hostv, a->fs_portv, a->fs_pinnedv, a->fs_sigv, a->fs_diagv);
     if (to_packets) {
         psk_select_tab(a, PSK_TAB_PACKETS);
     }
@@ -418,6 +430,7 @@ void psk_fsheet_show(struct psk_app *a, bool to_packets)
     a->fs_portv = a->port;
     a->fs_pinnedv = a->pinned_only;
     a->fs_sigv = a->sigmask;
+    a->fs_diagv = a->diagf;
     a->fs_to_packets = to_packets;
     fs_paint(a);
     psk_set_hidden(a->fsheet, false);
@@ -575,4 +588,171 @@ void psk_ssheet_hide(struct psk_app *a)
 bool psk_ssheet_shown(const struct psk_app *a)
 {
     return a->ssheet && !lv_obj_has_flag(a->ssheet, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* ---- the diagnosis sheet (M11.1) --------------------------------------------------------- *
+ *
+ * The DNS or TCP diagnosis line by line: how far it can be trusted, then the
+ * summary and each kind of finding or non-finding there is, with its
+ * severity in words and colour (status_ok, plain, status_warn with `!`), an
+ * explanation, and where it leads: LIST its packets, or OPEN the packet it
+ * names. Repainted while it shows, as the helper's diag line comes. */
+
+static void on_ds_row(lv_event_t *e)
+{
+    struct psk_app *a = lv_event_get_user_data(e);
+    unsigned i = (unsigned)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+
+    if (i < a->ds_n) {
+        struct psk_diag_line l = a->ds_lines[i];
+
+        psk_diag_go(a, &l);
+    }
+}
+
+static void on_ds_close(lv_event_t *e)
+{
+    psk_dsheet_hide(lv_event_get_user_data(e));
+}
+
+void psk_dsheet_build(struct psk_app *a)
+{
+    lv_obj_t *card;
+    lv_obj_t *b;
+    lv_obj_t *buttons;
+    int i;
+
+    a->dsheet = psk_box(a->frame);
+    lv_obj_add_flag(a->dsheet, LV_OBJ_FLAG_FLOATING);
+    lv_obj_add_flag(a->dsheet, LV_OBJ_FLAG_CLICKABLE);
+    pos_style_add(a->dsheet, POS_STYLE_SCREEN, 0);
+    lv_obj_set_size(a->dsheet, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(a->dsheet, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_top(a->dsheet, PSK_TAB_H + 14, 0);
+    lv_obj_set_style_pad_bottom(a->dsheet, 8, 0);
+    lv_obj_add_flag(a->dsheet, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(a->dsheet, LV_DIR_VER);
+
+    card = pocketui_card(a->dsheet);
+    lv_obj_set_width(card, LV_PCT(100));
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(card, 8, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    a->ds_title = pocketui_label(card, "", POS_STYLE_TITLE);
+    a->ds_note = pocketui_label(card, "", POS_STYLE_TEXT_SECONDARY);
+    lv_label_set_long_mode(a->ds_note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(a->ds_note, LV_PCT(100));
+    for (i = 0; i < PSK_DIAG_LINES; i++) {
+        lv_obj_t *r = psk_box(card);
+        lv_obj_t *left = psk_box(r);
+
+        lv_obj_set_width(r, LV_PCT(100));
+        lv_obj_set_height(r, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_height(r, POCKETUI_ROW_H, 0);
+        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(r, 8, 0);
+        lv_obj_set_style_pad_ver(r, 8, 0);
+        pos_style_add(r, POS_STYLE_DIVIDER, 0);
+        pos_style_add(r, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+        lv_obj_clear_flag(r, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_set_user_data(r, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(r, on_ds_row, LV_EVENT_CLICKED, a);
+        lv_obj_set_width(left, 1);
+        lv_obj_set_flex_grow(left, 1);
+        lv_obj_set_height(left, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(left, 2, 0);
+        lv_obj_add_flag(left, LV_OBJ_FLAG_EVENT_BUBBLE);
+        a->ds_text[i] = pocketui_label(left, "", POS_STYLE_VALUE);
+        lv_label_set_long_mode(a->ds_text[i], LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(a->ds_text[i], LV_PCT(100));
+        a->ds_why[i] = pocketui_label(left, "", POS_STYLE_CAPTION);
+        lv_label_set_long_mode(a->ds_why[i], LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(a->ds_why[i], LV_PCT(100));
+        a->ds_go[i] = pocketui_label(r, "", POS_STYLE_CAPTION);
+        pos_style_add(a->ds_go[i], POS_STYLE_ACCENT_TEXT, 0);
+        a->ds_tone[i] = -1;
+        a->ds_row[i] = r;
+    }
+    buttons = psk_box(card);
+    lv_obj_set_width(buttons, LV_PCT(100));
+    lv_obj_set_height(buttons, POCKETUI_TOUCH_MIN);
+    lv_obj_set_style_margin_top(buttons, 8, 0);
+    lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
+    b = psk_button(buttons, "CLOSE", true, on_ds_close, a);
+    lv_obj_set_flex_grow(b, 1);
+    lv_obj_set_height(b, POCKETUI_TOUCH_MIN);
+    lv_obj_add_flag(a->dsheet, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* A line's severity as a colour over its own role; only a change is applied. */
+static void ds_tone(struct psk_app *a, int i, int sev)
+{
+    if (a->ds_tone[i] == sev) {
+        return;
+    }
+    lv_obj_remove_style(a->ds_text[i], pos_style(POS_STYLE_STATUS_OK_TEXT), 0);
+    lv_obj_remove_style(a->ds_text[i], pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+    if (sev == PSK_SEV_OK) {
+        pos_style_add(a->ds_text[i], POS_STYLE_STATUS_OK_TEXT, 0);
+    } else if (sev == PSK_SEV_WARN) {
+        pos_style_add(a->ds_text[i], POS_STYLE_STATUS_WARN_TEXT, 0);
+    }
+    a->ds_tone[i] = sev;
+}
+
+void psk_dsheet_paint(struct psk_app *a)
+{
+    char note[512];
+    unsigned i;
+    bool present = psk_capture_present(a);
+
+    a->ds_n = psk_diag_lines(a->model, a->ds_kind, a->ds_lines, PSK_DIAG_LINES);
+    psk_text(a->ds_title, a->ds_kind == PSK_DIAG_DNS ? "DNS diagnosis" : "TCP diagnosis");
+    psk_text(a->ds_note, psk_diag_confidence(a->model, a->ds_kind, note, sizeof(note)));
+    for (i = 0; i < PSK_DIAG_LINES; i++) {
+        const struct psk_diag_line *l = &a->ds_lines[i];
+        char t[sizeof(l->text) + 4];
+        bool go;
+
+        psk_set_hidden(a->ds_row[i], i >= a->ds_n);
+        if (i >= a->ds_n) {
+            continue;
+        }
+        /* status_warn always with `!` and a word (DS §59.2). */
+        snprintf(t, sizeof(t), "%s%s", l->sev == PSK_SEV_WARN ? "! " : "", l->text);
+        psk_text(a->ds_text[i], t);
+        ds_tone(a, (int)i, l->sev);
+        psk_text(a->ds_why[i], l->why);
+        go = present && l->go != PSK_GO_NONE;
+        psk_text(a->ds_go[i], !go ? "" : l->go == PSK_GO_OPEN ? "OPEN" : "LIST");
+        psk_set_hidden(a->ds_go[i], !go);
+        if (go) {
+            lv_obj_add_flag(a->ds_row[i], LV_OBJ_FLAG_CLICKABLE);
+        } else {
+            lv_obj_clear_flag(a->ds_row[i], LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+}
+
+void psk_dsheet_show(struct psk_app *a, unsigned kind)
+{
+    a->ds_kind = kind < PSK_DIAG_KINDS ? kind : PSK_DIAG_DNS;
+    psk_dsheet_paint(a);
+    psk_set_hidden(a->dsheet, false);
+    lv_obj_scroll_to_y(a->dsheet, 0, LV_ANIM_OFF);
+    lv_obj_move_foreground(a->dsheet);
+}
+
+void psk_dsheet_hide(struct psk_app *a)
+{
+    if (a->dsheet) {
+        psk_set_hidden(a->dsheet, true);
+    }
+}
+
+bool psk_dsheet_shown(const struct psk_app *a)
+{
+    return a->dsheet && !lv_obj_has_flag(a->dsheet, LV_OBJ_FLAG_HIDDEN);
 }

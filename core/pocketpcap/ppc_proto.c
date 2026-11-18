@@ -362,16 +362,22 @@ enum ppc_cmd_kind ppc_cmd_parse(const char *line, struct ppc_cmd *c)
         unsigned long classes;
         char *end;
 
-        if ((n != 7 && n != 8) || u32(f[1], &c->view_id) != 0) {
+        if ((n != 7 && n != 8 && n != 9) || u32(f[1], &c->view_id) != 0) {
             return c->kind;
         }
-        if (n == 8) {
+        if (n >= 8) {
             unsigned long sig = strtoul(f[7], &end, 16);
 
-            if (*end || f[7][0] == '\0' || strlen(f[7]) > 2 || sig > 0x1f) {
+            if (*end || f[7][0] == '\0' || strlen(f[7]) > 2 || sig > PPC_SIG_FINDINGS_ALL) {
                 return c->kind;
             }
             c->signals = (uint8_t)sig;
+        }
+        if (n == 9) {
+            if (u32(f[8], &v) != 0 || v >= PPC_DIAG_COUNT) {
+                return c->kind;
+            }
+            c->diag = (uint8_t)v;
         }
         sort = sort_parse(f[2]);
         classes = strtoul(f[3], &end, 16);
@@ -488,11 +494,16 @@ int ppc_cmd_format_window_at(char *buf, size_t n, uint32_t req, enum ppc_anchor 
     }
 }
 
-int ppc_cmd_format_view_signals(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
-                                uint16_t port, int pinned, unsigned signals)
+int ppc_cmd_format_view_diag(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                             uint16_t port, int pinned, unsigned signals, unsigned diag)
 {
-    if (sort >= sizeof(sort_words) / sizeof(sort_words[0]) || (host && *host && !host_ok(host)) || signals > 0x1f) {
+    if (sort >= sizeof(sort_words) / sizeof(sort_words[0]) || (host && *host && !host_ok(host)) ||
+        signals > PPC_SIG_FINDINGS_ALL || diag >= PPC_DIAG_COUNT) {
         return -1;
+    }
+    if (diag != 0) {
+        return fmt(buf, n, "view\t%u\t%s\t%x\t%s\t%u\t%d\t%x\t%u", (unsigned)id, sort_words[sort], (unsigned)classes,
+                   host && *host ? host : "-", (unsigned)port, pinned ? 1 : 0, signals, diag);
     }
     if (signals == 0) {
         /* The protocol-2 line: a helper that knows no findings reads it. */
@@ -501,6 +512,12 @@ int ppc_cmd_format_view_signals(char *buf, size_t n, uint32_t id, unsigned sort,
     }
     return fmt(buf, n, "view\t%u\t%s\t%x\t%s\t%u\t%d\t%x", (unsigned)id, sort_words[sort], (unsigned)classes,
                host && *host ? host : "-", (unsigned)port, pinned ? 1 : 0, signals);
+}
+
+int ppc_cmd_format_view_signals(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                                uint16_t port, int pinned, unsigned signals)
+{
+    return ppc_cmd_format_view_diag(buf, n, id, sort, classes, host, port, pinned, signals, 0);
 }
 
 int ppc_cmd_format_view(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
@@ -572,7 +589,7 @@ int ppc_evt_format_stats(char *buf, size_t n, const struct ppc_counters *c)
 {
     return fmt(buf, n,
                "stats\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t%u\t%llu"
-               "\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t%u\t%u\n",
+               "\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\n",
                (unsigned long long)c->elapsed_ms, (unsigned long long)c->seen,
                (unsigned long long)c->stored, (unsigned long long)c->held, (unsigned long long)c->kdrop,
                (unsigned long long)c->ifdrop, (unsigned long long)c->shed, (unsigned long long)c->bytes,
@@ -582,7 +599,47 @@ int ppc_evt_format_stats(char *buf, size_t n, const struct ppc_counters *c)
                (unsigned long long)c->cls[1], (unsigned long long)c->cls[2], (unsigned long long)c->cls[3],
                (unsigned long long)c->cls[4], (unsigned long long)c->cls[5], (unsigned long long)c->cls[6],
                (unsigned long long)c->cls[7], (unsigned)c->sig[0], (unsigned)c->sig[1], (unsigned)c->sig[2],
-               (unsigned)c->sig[3], (unsigned)c->sig[4]);
+               (unsigned)c->sig[3], (unsigned)c->sig[4], (unsigned)c->sig[5]);
+}
+
+/* The diagnosis's figures in struct order: every one but the two sums is
+ * 32 bits. */
+#define DIAG_LIST(X)                                                                                                   \
+    X(dns_queries) X(dns_retries) X(dns_answered) X(dns_late) X(dns_noreply) X(dns_waiting) X(dns_orphan)            \
+    X(dns_unjudged) X(dns_nxdomain) X(dns_servfail) X(dns_refused) X(dns_other) X(dns_rtt_sum_us) X(dns_rtt_max_us) \
+    X(dns_rtt_max_seq) X(tcp_attempts) X(tcp_connected) X(tcp_timed) X(tcp_hs_max_us) X(tcp_hs_sum_us)               \
+    X(tcp_hs_max_seq) X(tcp_refused) X(tcp_aborted) X(tcp_rst_closed) X(tcp_rst_unseen) X(tcp_segments)              \
+    X(tcp_retrans) X(tcp_retrans_acked) X(tcp_retrans_unseen) X(tcp_syn_again) X(tcp_ooo) X(tcp_midstream)           \
+    X(tcp_flows) X(tcp_oneway) X(tcp_replaced) X(blinded)
+#define DIAG_ONE(name) +1
+_Static_assert((0 DIAG_LIST(DIAG_ONE)) == PPC_DIAG_FIELDS, "the diag line names every figure of struct ppc_diag");
+_Static_assert(sizeof(struct ppc_diag) == (PPC_DIAG_FIELDS + 2) * 4, "struct ppc_diag: 34 figures of 32 bits and 2 of 64, no padding");
+#undef DIAG_ONE
+
+int ppc_evt_format_diag(char *buf, size_t n, const struct ppc_diag *d)
+{
+    size_t o;
+    int k;
+
+    if (!buf || n < 8) {
+        return -1;
+    }
+    memcpy(buf, "diag", 4);
+    o = 4;
+#define DIAG_OUT(name)                                                                                                 \
+    k = snprintf(buf + o, n - o, "\t%llu", (unsigned long long)d->name);                                              \
+    if (k < 0 || (size_t)k >= n - o) {                                                                                 \
+        return -1;                                                                                                     \
+    }                                                                                                                  \
+    o += (size_t)k;
+    DIAG_LIST(DIAG_OUT)
+#undef DIAG_OUT
+    if (o + 2 > n) {
+        return -1;
+    }
+    buf[o++] = '\n';
+    buf[o] = '\0';
+    return (int)o;
 }
 
 int ppc_evt_format_bin(char *buf, size_t n, uint64_t second, const uint32_t c[PPC_CLASS_COUNT],
@@ -744,6 +801,14 @@ int ppc_evt_format_finding(char *buf, size_t n, uint32_t layer, const char *text
 
     mark_text(t, sizeof(t), text);
     return fmt(buf, n, "finding\t%u\t%s\n", (unsigned)layer, t);
+}
+
+int ppc_evt_format_detail(char *buf, size_t n, uint32_t layer, const char *text)
+{
+    char t[PPC_FIELD_TEXT];
+
+    mark_text(t, sizeof(t), text);
+    return fmt(buf, n, "detail\t%u\t%s\n", (unsigned)layer, t);
 }
 
 int ppc_evt_format_marks(char *buf, size_t n, uint32_t req, uint32_t view_id, uint32_t match, uint32_t buckets,
@@ -1022,12 +1087,30 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         }
         e->u.pinned.on = (uint8_t)on;
         e->kind = PPC_EVT_PINNED;
-    } else if (strcmp(f[0], "finding") == 0) {
+    } else if (strcmp(f[0], "finding") == 0 || strcmp(f[0], "detail") == 0) {
         if (n != 3 || u32(f[1], &e->u.finding.layer) != 0 ||
             copy(e->u.finding.text, sizeof(e->u.finding.text), f[2]) != 0) {
             return e->kind;
         }
-        e->kind = PPC_EVT_FINDING;
+        e->kind = f[0][0] == 'f' ? PPC_EVT_FINDING : PPC_EVT_DETAIL;
+    } else if (strcmp(f[0], "diag") == 0) {
+        struct ppc_diag *d = &e->u.diag;
+        uint64_t v64;
+        int k = 1;
+
+        if (n != 1 + PPC_DIAG_FIELDS) {
+            return e->kind;
+        }
+        /* Each figure parsed as 64 bits, then held to its field's width:
+         * a 32-bit field given more is refused. */
+#define DIAG_IN(name)                                                                                                  \
+    if (u64(f[k++], &v64) != 0 || (sizeof(d->name) == 4 && v64 > 0xffffffffull)) {                                   \
+        return e->kind;                                                                                                \
+    }                                                                                                                  \
+    d->name = (__typeof__(d->name))v64;
+        DIAG_LIST(DIAG_IN)
+#undef DIAG_IN
+        e->kind = PPC_EVT_DIAG;
     } else if (strcmp(f[0], "marks") == 0) {
         char *end = NULL;
 

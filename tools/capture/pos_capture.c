@@ -82,6 +82,7 @@
 #define HELPER_NICE 5
 #define LOCK_NAME "capture.lock"
 #define SIGNAL_EVERY_MS 500
+#define DIAG_EVERY_MS 1000
 #define ORIGINAL_LOOKBACK 8192u
 #define SAVE_BATCH 1024u
 #define SAVE_SNAPLEN 65535u
@@ -135,6 +136,7 @@ struct helper {
     int sig_ready;
     int view_stale;           /* a finding was added to a stored packet: the view is rebuilt */
     uint64_t next_signal_ms;
+    uint64_t next_diag_ms;    /* the DNS and TCP diagnosis (M11.1) */
     /* SAVE (M8): one file, written a batch a turn so the helper keeps answering */
     int save_fd;              /* -1: none being written */
     char save_name[PPC_SAVE_NAME];
@@ -478,16 +480,30 @@ static void count_signals(struct helper *h, uint16_t bits)
     }
 }
 
-/* A SYN that waited too long: the finding goes on the packet it was, if the
- * buffer still holds it, and is counted either way. */
-static void on_late_signal(void *ctx, uint32_t seq)
+/* A SYN or a DNS query that waited too long: the finding goes on the packet
+ * it was, if the buffer still holds it, and is counted either way. */
+static void on_late_signal(void *ctx, uint32_t seq, uint16_t bit)
 {
     struct helper *h = ctx;
 
-    count_signals(h, PPC_SIG_SYN_UNANSWERED);
-    if (ppc_store_mark(&h->store, seq, PPC_SIG_SYN_UNANSWERED) == 0 && h->view.f.signals) {
+    count_signals(h, bit);
+    if (ppc_store_mark(&h->store, seq, bit) == 0 && h->view.f.signals) {
         h->view_stale = 1;
     }
+}
+
+/* The DNS and TCP diagnosis (M11.1). A snapshot: when the shell has not
+ * read what went before, it waits for the next turn. */
+static int say_diag(struct helper *h, int snapshot)
+{
+    char line[PPC_LINE_MAX];
+    struct ppc_diag d;
+
+    if (!h->sig_ready) {
+        return 0;
+    }
+    ppc_signals_diag(&h->sig, &d);
+    return out_line(h, line, ppc_evt_format_diag(line, sizeof(line), &d), snapshot);
 }
 
 /* The view as it is now. A finding added to a packet the view had already
@@ -573,6 +589,7 @@ static void stop_capture(struct helper *h, enum ppc_reason why, const char *deta
                  (unsigned long long)h->st.kdrop);
         say_state(h);
         say_stats(h, 0);
+        say_diag(h, 0);
     }
 }
 
@@ -688,6 +705,7 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     h->next_stats_ms = h->start_ms + STATS_EVERY_MS;
     h->next_link_ms = h->start_ms + LINK_EVERY_MS;
     h->next_signal_ms = h->start_ms + SIGNAL_EVERY_MS;
+    h->next_diag_ms = h->start_ms + DIAG_EVERY_MS;
     h->state = PPC_STATE_CAPTURING;
     h->reason = PPC_REASON_NONE;
     LOG_INFO("capture: start %s source=%s keep=%s promisc=%d filter=%s limit=%us", c->iface,
@@ -783,6 +801,7 @@ static void cmd_view(struct helper *h, const struct ppc_cmd *c)
     f.port = c->port;
     f.pinned = c->pinned;
     f.signals = c->signals;
+    f.diag = c->diag;
     if (c->host[0]) {
         len = ppc_filter_host(c->host, f.host);
         if (len < 0) {
@@ -820,7 +839,7 @@ static void cmd_marks(struct helper *h, const struct ppc_cmd *c)
         uint32_t seq = ppc_view_at(v, rank);
         const struct ppc_record *r = seq ? ppc_view_record(&h->store, seq, NULL) : NULL;
 
-        if (r && r->signal) {
+        if (r && ppc_sig_findings(r->signal)) {
             mask |= 1ull << (uint32_t)((uint64_t)rank * c->buckets / count);
         }
     }
@@ -919,7 +938,7 @@ static void cmd_window(struct helper *h, const struct ppc_cmd *c)
         row.cls = r->cls;
         snprintf(row.word, sizeof(row.word), "%s", t.word);
         row.len = r->wire_len;
-        row.signal = r->signal;
+        row.signal = (uint16_t)ppc_sig_findings(r->signal);
         snprintf(row.src, sizeof(row.src), "%s", t.src);
         snprintf(row.dst, sizeof(row.dst), "%s", t.dst);
         snprintf(row.info, sizeof(row.info), "%s", t.info);
@@ -1002,9 +1021,12 @@ static void add_findings(struct helper *h, struct pkt_text *p, const struct ppc_
     int tcp = p->tcp_layer >= 0 ? p->tcp_layer : deepest;
 
     if (r->signal & PPC_SIG_RETRANS) {
-        const struct ppc_record *o = original_of(h, r);
+        const struct ppc_record *o =
+            ppc_sig_diag(r->signal) == PPC_DIAG_TCP_RETRANS_UNSEEN ? NULL : original_of(h, r);
 
-        if (o && r->rel_ns >= o->rel_ns) {
+        if (ppc_sig_diag(r->signal) == PPC_DIAG_TCP_RETRANS_UNSEEN) {
+            snprintf(text, sizeof(text), "RETRANSMISSION \xc2\xb7 ITS ORIGINAL NEVER CAME BY THIS INTERFACE");
+        } else if (o && r->rel_ns >= o->rel_ns) {
             uint64_t us = (r->rel_ns - o->rel_ns) / 1000u;
 
             snprintf(text, sizeof(text), "RETRANSMISSION OF #%u \xc2\xb7 %llu.%01llu MS EARLIER", (unsigned)o->seq,
@@ -1036,6 +1058,343 @@ static void add_findings(struct helper *h, struct pkt_text *p, const struct ppc_
         pkt_add(p, line,
                 ppc_evt_format_finding(line, sizeof(line), (uint32_t)(p->icmp_layer >= 0 ? p->icmp_layer : deepest),
                                        "DESTINATION UNREACHABLE"));
+    }
+    if (r->signal & PPC_SIG_DNS_NOREPLY) {
+        pkt_add(p, line,
+                ppc_evt_format_finding(line, sizeof(line), (uint32_t)deepest, "DNS QUERY NOT ANSWERED WITHIN 5 S"));
+    }
+}
+
+/* ---- the diagnosis of one packet (M11.1) ---------------------------------------------- */
+
+/* A duration as the inspector says it: 0.4 MS, 12.3 MS, 6.21 S. */
+static const char *dur_text(uint64_t ns, char *b, size_t n)
+{
+    unsigned long long us = (unsigned long long)(ns / 1000u);
+
+    if (us < 1000000ull) {
+        snprintf(b, n, "%llu.%01llu MS", us / 1000u, us % 1000u / 100u);
+    } else {
+        snprintf(b, n, "%llu.%02llu S", us / 1000000u, us % 1000000u / 10000u);
+    }
+    return b;
+}
+
+static int same_ends(const struct ppc_record *o, const struct ppc_record *r, int swapped)
+{
+    if (o->l3 != r->l3 || o->l4 != r->l4) {
+        return 0;
+    }
+    if (swapped) {
+        return o->sport == r->dport && o->dport == r->sport && memcmp(o->src, r->dst, 16) == 0 &&
+               memcmp(o->dst, r->src, 16) == 0;
+    }
+    return o->sport == r->sport && o->dport == r->dport && memcmp(o->src, r->src, 16) == 0 &&
+           memcmp(o->dst, r->dst, 16) == 0;
+}
+
+typedef int (*want_fn)(const struct ppc_record *o, const struct ppc_record *r);
+
+/* The nearest packet `want` accepts, walking the buffer from r back (dir
+ * -1) or forward (+1), no further than ORIGINAL_LOOKBACK packets. */
+static const struct ppc_record *walk(struct helper *h, const struct ppc_record *r, int dir, want_fn want)
+{
+    uint32_t seq = r->seq;
+    uint32_t looked;
+
+    for (looked = 0; looked < ORIGINAL_LOOKBACK; looked++) {
+        const struct ppc_record *o;
+
+        if (dir < 0) {
+            if (seq <= h->store.first_seq) {
+                break;
+            }
+            seq--;
+        } else {
+            if (seq >= h->store.last_seq) {
+                break;
+            }
+            seq++;
+        }
+        o = ppc_store_get(&h->store, seq);
+        if (o && !(o->flags & (PPC_F_NONFIRST | PPC_F_MALFORMED)) && want(o, r)) {
+            return o;
+        }
+    }
+    return NULL;
+}
+
+#define DNS_ID(rec) ((rec)->a >> 16)
+#define DNS_IS_ANSWER(rec) (((rec)->a & 0x8000u) != 0)
+
+static int is_dns(const struct ppc_record *o)
+{
+    return o->info == PPC_INFO_DNS && o->app == PPC_APP_DNS;
+}
+
+static int want_dns_query(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return is_dns(o) && !DNS_IS_ANSWER(o) && DNS_ID(o) == DNS_ID(r) && same_ends(o, r, 1);
+}
+
+static int want_dns_answer(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return is_dns(o) && DNS_IS_ANSWER(o) && DNS_ID(o) == DNS_ID(r) && same_ends(o, r, 1);
+}
+
+static int want_dns_copy(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return is_dns(o) && !DNS_IS_ANSWER(o) && DNS_ID(o) == DNS_ID(r) && same_ends(o, r, 0);
+}
+
+static int is_syn(const struct ppc_record *o)
+{
+    return o->info == PPC_INFO_TCP && (o->tcp_flags & (PPC_TCP_SYN | PPC_TCP_ACK | PPC_TCP_RST)) == PPC_TCP_SYN;
+}
+
+/* What answered a SYN: its SYN-ACK, or a reset. */
+static int want_syn_answer(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return o->info == PPC_INFO_TCP && same_ends(o, r, 1) &&
+           (((o->tcp_flags & (PPC_TCP_SYN | PPC_TCP_ACK)) == (PPC_TCP_SYN | PPC_TCP_ACK) && o->b == r->a + 1u) ||
+            (o->tcp_flags & PPC_TCP_RST));
+}
+
+/* The SYN of a SYN-ACK, or of a reset that refused it. */
+static int want_syn_back(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return is_syn(o) && same_ends(o, r, 1) && (!(r->tcp_flags & PPC_TCP_SYN) || o->a + 1u == r->b);
+}
+
+/* The SYN of the segment that completed the handshake: the same way. */
+static int want_syn_same(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return is_syn(o) && same_ends(o, r, 0);
+}
+
+static int want_syn_copy(const struct ppc_record *o, const struct ppc_record *r)
+{
+    return is_syn(o) && same_ends(o, r, 0) && o->a == r->a;
+}
+
+/* The first copy of a SYN or query: earlier copies, a few at most. */
+static const struct ppc_record *first_copy(struct helper *h, const struct ppc_record *r, want_fn want, unsigned *copies)
+{
+    const struct ppc_record *first = r;
+    unsigned i;
+
+    *copies = 1;
+    for (i = 0; i < 8; i++) {
+        const struct ppc_record *o = walk(h, first, -1, want);
+
+        if (!o) {
+            break;
+        }
+        first = o;
+        (*copies)++;
+    }
+    return first;
+}
+
+static void detail(struct pkt_text *p, int layer, const char *text)
+{
+    char line[PPC_LINE_MAX];
+
+    pkt_add(p, line, ppc_evt_format_detail(line, sizeof(line), (uint32_t)layer, text));
+}
+
+static uint64_t rel_now(struct helper *h)
+{
+    uint64_t wall = h->src_open && h->src.ops->wall_ns ? h->src.ops->wall_ns(&h->src) : clock_ns(CLOCK_REALTIME);
+
+    return ppc_timebase_rel(&h->tb, wall);
+}
+
+static void upper(char *s)
+{
+    for (; *s; s++) {
+        if (*s >= 'a' && *s <= 'z') {
+            *s = (char)(*s - 'a' + 'A');
+        }
+    }
+}
+
+/* What a response code means, for the one who reads it. */
+static const char *rcode_meaning(unsigned rcode)
+{
+    switch (rcode) {
+    case 3:
+        return "THE SERVER SAYS THE NAME DOES NOT EXIST: A CONFIRMED ANSWER, NOT A NETWORK FAULT";
+    case 2:
+        return "THE SERVER COULD NOT ANSWER: ITS UPSTREAM OR ITS DNSSEC CHECK FAILED";
+    case 5:
+        return "THE SERVER REFUSES TO ANSWER THIS CLIENT";
+    default:
+        return "THE SERVER COULD NOT HANDLE THE QUERY";
+    }
+}
+
+static void dns_details(struct helper *h, struct pkt_text *p, const struct ppc_record *r, int layer)
+{
+    unsigned dg = ppc_sig_diag(r->signal);
+    char text[PPC_FIELD_TEXT];
+    char t[24];
+    const struct ppc_record *o;
+    unsigned copies;
+
+    if (dg == PPC_DIAG_DNS_QUERY || dg == PPC_DIAG_DNS_RETRY) {
+        if (dg == PPC_DIAG_DNS_RETRY) {
+            detail(p, layer, "THE SAME QUERY AGAIN: THE RESOLVER HAD NO ANSWER YET");
+        }
+        o = walk(h, r, 1, want_dns_answer);
+        if (o && o->rel_ns >= r->rel_ns) {
+            const char *rc = ppc_dns_rcode_text(o->a & 0xfu);
+            char code[16];
+
+            snprintf(code, sizeof(code), "%s", rc ? rc : "ERROR");
+            upper(code);
+            snprintf(text, sizeof(text), "%s BY #%u AFTER %s \xc2\xb7 %s",
+                     ppc_sig_diag(o->signal) == PPC_DIAG_DNS_LATE ? "ANSWERED LATE" : "ANSWERED", (unsigned)o->seq,
+                     dur_text(o->rel_ns - r->rel_ns, t, sizeof(t)), code);
+            detail(p, layer, text);
+        } else if (r->signal & PPC_SIG_DNS_NOREPLY) {
+            detail(p, layer, "NO REPLY SEEN: LOST, SENT ON ANOTHER INTERFACE, OR MISSED BY THIS CAPTURE");
+            detail(p, layer, "NOT PROOF OF A DNS FAILURE");
+        } else if (h->state == PPC_STATE_CAPTURING && rel_now(h) < r->rel_ns + PPC_DNS_WAIT_NS) {
+            detail(p, layer, "WAITING FOR ITS ANSWER");
+        } else {
+            detail(p, layer, "NO ANSWER IN THIS CAPTURE \xc2\xb7 NOT JUDGED: THE CAPTURE STOPPED, HELD OR LOST TRACK");
+        }
+    } else if (dg == PPC_DIAG_DNS_ANSWER || dg == PPC_DIAG_DNS_LATE) {
+        o = walk(h, r, -1, want_dns_query);
+        if (o && r->rel_ns >= o->rel_ns) {
+            const struct ppc_record *first = first_copy(h, o, want_dns_copy, &copies);
+            char more[48] = "";
+
+            if (copies > 1 && r->rel_ns >= first->rel_ns) {
+                char t2[24];
+
+                snprintf(more, sizeof(more), " \xc2\xb7 ASKED %u TIMES OVER %s", copies,
+                         dur_text(r->rel_ns - first->rel_ns, t2, sizeof(t2)));
+            }
+            snprintf(text, sizeof(text), "%s TO #%u \xc2\xb7 %s AFTER IT%s",
+                     dg == PPC_DIAG_DNS_LATE ? "LATE ANSWER" : "ANSWER", (unsigned)o->seq,
+                     dur_text(r->rel_ns - o->rel_ns, t, sizeof(t)), more);
+        } else {
+            snprintf(text, sizeof(text), "%s TO A QUERY THAT HAS LEFT THE BUFFER",
+                     dg == PPC_DIAG_DNS_LATE ? "LATE ANSWER" : "ANSWER");
+        }
+        detail(p, layer, text);
+    } else if (dg == PPC_DIAG_DNS_ORPHAN) {
+        detail(p, layer, "ITS QUERY IS NOT IN THIS CAPTURE: SENT BEFORE START, WHILE HELD, OR ON ANOTHER INTERFACE");
+    }
+    if (r->signal & PPC_SIG_DNS_FAIL) {
+        detail(p, layer, rcode_meaning(r->a & 0xfu));
+    }
+}
+
+static void tcp_details(struct helper *h, struct pkt_text *p, const struct ppc_record *r, int layer)
+{
+    char text[PPC_FIELD_TEXT];
+    char t[24];
+    const struct ppc_record *o;
+    unsigned copies;
+
+    switch (ppc_sig_diag(r->signal)) {
+    case PPC_DIAG_TCP_SYN:
+        o = walk(h, r, 1, want_syn_answer);
+        if (o && o->rel_ns >= r->rel_ns) {
+            snprintf(text, sizeof(text), "%s #%u AFTER %s", (o->tcp_flags & PPC_TCP_RST) ? "REFUSED BY" : "ANSWERED BY",
+                     (unsigned)o->seq, dur_text(o->rel_ns - r->rel_ns, t, sizeof(t)));
+            detail(p, layer, text);
+        } else if (r->signal & PPC_SIG_SYN_UNANSWERED) {
+            detail(p, layer, "NOTHING CAME BACK: HOST DOWN, SYN DROPPED BY A FIREWALL, OR THE ANSWER TOOK ANOTHER PATH");
+        } else {
+            detail(p, layer, "A CONNECTION ATTEMPT \xc2\xb7 NO ANSWER IN THIS CAPTURE YET");
+        }
+        break;
+    case PPC_DIAG_TCP_SYN_AGAIN:
+        detail(p, layer, "SENT AGAIN: THE FIRST GOT NO ANSWER IN TIME");
+        break;
+    case PPC_DIAG_TCP_SYNACK:
+        o = walk(h, r, -1, want_syn_back);
+        if (o && r->rel_ns >= o->rel_ns) {
+            snprintf(text, sizeof(text), "ANSWERS SYN #%u \xc2\xb7 %s AFTER IT", (unsigned)o->seq,
+                     dur_text(r->rel_ns - o->rel_ns, t, sizeof(t)));
+            detail(p, layer, text);
+        } else {
+            detail(p, layer, "ANSWERS A SYN THAT HAS LEFT THE BUFFER");
+        }
+        break;
+    case PPC_DIAG_TCP_CONNECTED:
+        o = walk(h, r, -1, want_syn_same);
+        if (o) {
+            const struct ppc_record *first = first_copy(h, o, want_syn_copy, &copies);
+
+            if (r->rel_ns >= first->rel_ns) {
+                snprintf(text, sizeof(text), "HANDSHAKE COMPLETE \xc2\xb7 CONNECTED %s AFTER SYN #%u%s",
+                         dur_text(r->rel_ns - first->rel_ns, t, sizeof(t)), (unsigned)first->seq,
+                         copies > 1 ? " (SENT AGAIN)" : "");
+                detail(p, layer, text);
+                break;
+            }
+        }
+        detail(p, layer, "HANDSHAKE COMPLETE");
+        break;
+    case PPC_DIAG_TCP_MIDSTREAM:
+        detail(p, layer, "FIRST SEEN WITHOUT ITS HANDSHAKE: IT BEGAN BEFORE THE CAPTURE OR ITS START PASSED UNSEEN");
+        break;
+    case PPC_DIAG_TCP_REFUSED:
+        o = walk(h, r, -1, want_syn_back);
+        if (o && r->rel_ns >= o->rel_ns) {
+            snprintf(text, sizeof(text), "CONNECTION REFUSED \xc2\xb7 THE ANSWER TO SYN #%u, %s AFTER IT", (unsigned)o->seq,
+                     dur_text(r->rel_ns - o->rel_ns, t, sizeof(t)));
+            detail(p, layer, text);
+        } else {
+            detail(p, layer, "CONNECTION REFUSED \xc2\xb7 THE ANSWER TO A SYN");
+        }
+        detail(p, layer, "THE HOST IS REACHABLE: NOTHING LISTENS ON THE PORT, OR A FIREWALL REJECTS IT");
+        detail(p, layer, "NOT A NETWORK FAULT");
+        break;
+    case PPC_DIAG_TCP_ABORTED:
+        detail(p, layer, "RESET OF A CONNECTION THAT WAS OPEN OR OPENING: ONE END ABORTED IT");
+        break;
+    case PPC_DIAG_TCP_RST_CLOSED:
+        detail(p, layer, "RESET AFTER THE CONNECTION WAS CLOSING OR RESET \xc2\xb7 USUALLY NORMAL");
+        break;
+    case PPC_DIAG_TCP_RST_UNSEEN:
+        detail(p, layer, "RESET OF A CONNECTION THIS CAPTURE NEVER SAW");
+        break;
+    case PPC_DIAG_TCP_RETRANS:
+        detail(p, layer, "ITS ORIGINAL PASSED HERE: LOST FURTHER ON, OR ITS ACKNOWLEDGEMENT WAS");
+        break;
+    case PPC_DIAG_TCP_RETRANS_ACKED:
+        detail(p, layer, "THE RECEIVER HAD ALREADY ACKNOWLEDGED THESE BYTES: A SPURIOUS RETRANSMISSION");
+        break;
+    case PPC_DIAG_TCP_RETRANS_UNSEEN:
+        detail(p, layer, "IT FILLS A GAP MORE THAN A ROUND TRIP LATE: LOST BEFORE IT REACHED THIS INTERFACE");
+        break;
+    case PPC_DIAG_TCP_OUT_OF_ORDER:
+        detail(p, layer, "OUT OF ORDER: ARRIVED AFTER LATER DATA, WITHIN A ROUND TRIP");
+        detail(p, layer, "REORDERING, NOT LOSS \xc2\xb7 NOT COUNTED AS A RETRANSMISSION");
+        break;
+    default:
+        break;
+    }
+}
+
+/* What the DNS and TCP tables made of the packet, under its layer. */
+static void add_details(struct helper *h, struct pkt_text *p, const struct ppc_record *r)
+{
+    int deepest = p->layers > 0 ? p->layers - 1 : 0;
+
+    if (!h->store_ready) {
+        return;
+    }
+    if (r->info == PPC_INFO_DNS) {
+        dns_details(h, p, r, deepest);
+    } else if (r->info == PPC_INFO_TCP) {
+        tcp_details(h, p, r, p->tcp_layer >= 0 ? p->tcp_layer : deepest);
     }
 }
 
@@ -1103,7 +1462,7 @@ static void cmd_inspect(struct helper *h, const struct ppc_cmd *c)
     snprintf(head.word, sizeof(head.word), "%s", t.word);
     head.wire_len = r->wire_len;
     head.stored = n;
-    head.signal = r->signal;
+    head.signal = (uint16_t)ppc_sig_findings(r->signal);
     head.flags = row_flags(h, r, n);
     ppc_endpoints(r, &es, &ed);
     snprintf(src.addr, sizeof(src.addr), "%s", es.addr);
@@ -1121,9 +1480,10 @@ static void cmd_inspect(struct helper *h, const struct ppc_cmd *c)
     pkt_add(&p, line, ppc_evt_format_pkt_begin(line, sizeof(line), &head));
     pkt_add(&p, line, ppc_evt_format_pkt_ends(line, sizeof(line), &src, &dst));
     ppc_dissect(r, bytes, n, on_item, &p);
-    if (r->signal) {
+    if (ppc_sig_findings(r->signal)) {
         add_findings(h, &p, r);
     }
+    add_details(h, &p, r);
     for (off = 0; off < n && off < PPC_HEX_MAX; off += PPC_HEX_PER_LINE) {
         char hex[PPC_HEX_TEXT];
         char ascii[PPC_ASCII_TEXT];
@@ -1365,6 +1725,7 @@ static int command(struct helper *h, const char *line)
         return 0;
     case PPC_CMD_STATS:
         say_stats(h, 0);
+        say_diag(h, 0);
         return 0;
     case PPC_CMD_WINDOW:
         cmd_window(h, &c);
@@ -1470,12 +1831,16 @@ static void tick(struct helper *h, uint64_t now)
             stop_capture(h, PPC_REASON_LIMIT, NULL);
         }
     }
-    if (h->sig_ready && h->sig.waiting && h->tb.started && now >= h->next_signal_ms &&
+    if (h->sig_ready && ppc_signals_pending(&h->sig) && h->tb.started && now >= h->next_signal_ms &&
         h->state == PPC_STATE_CAPTURING && !h->shed) {
         uint64_t wall = h->src_open && h->src.ops->wall_ns ? h->src.ops->wall_ns(&h->src) : clock_ns(CLOCK_REALTIME);
 
         h->next_signal_ms = now + SIGNAL_EVERY_MS;
         ppc_signals_expire(&h->sig, ppc_timebase_rel(&h->tb, wall), on_late_signal, h);
+    }
+    if (h->sig_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD) && now >= h->next_diag_ms &&
+        say_diag(h, 1) == 0) {
+        h->next_diag_ms = now + DIAG_EVERY_MS;
     }
     if (h->src_open && h->src.live && now >= h->next_link_ms) {
         h->next_link_ms = now + LINK_EVERY_MS;

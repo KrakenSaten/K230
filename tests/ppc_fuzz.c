@@ -118,12 +118,20 @@ static int one(const uint8_t *data, size_t size)
         }
         r.rel_ns = (uint64_t)seq * 1000000u;
         r.signal = ppc_signals_frame(&sg, &r, tcp_len, ++seq);
-        if ((r.signal & ~PPC_SIG_ALL) != 0 || sg.waiting > sg.cap) {
+        if ((ppc_sig_findings(r.signal) & ~PPC_SIG_ALL) != 0 || ppc_sig_diag(r.signal) >= PPC_DIAG_COUNT ||
+            sg.waiting > sg.cap || sg.dns_live > sg.dns_cap || sg.dns_waiting > sg.dns_live) {
             fprintf(stderr, "ppc_fuzz: findings out of range\n");
             abort();
         }
         if ((seq & 255u) == 0) {
-            ppc_signals_expire(&sg, r.rel_ns + PPC_SIG_SYN_WAIT_NS, NULL, NULL);
+            struct ppc_diag dg;
+
+            ppc_signals_expire(&sg, r.rel_ns + PPC_DNS_WAIT_NS, NULL, NULL);
+            ppc_signals_diag(&sg, &dg);
+            if (dg.tcp_flows > sg.cap || dg.tcp_oneway > dg.tcp_flows) {
+                fprintf(stderr, "ppc_fuzz: diagnosis out of range\n");
+                abort();
+            }
         }
         if (size & 4u) {
             r.signal = PPC_SIG_ALL;

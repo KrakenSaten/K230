@@ -11,18 +11,21 @@
  *
  * Implemented (M2/M3; view, the window's rank and time anchors, inspect and
  * pin since M5/M6, protocol 2; the view's findings, marks, save and the
- * finding line since M7/M8, protocol 3):
+ * finding line since M7/M8, protocol 3; the sixth finding, the view's
+ * diagnosis, the diag and detail lines since M11.1, protocol 4):
  *
  *   shell -> helper
  *     start <iface> <headers|full> <promisc 0|1> <cfilter> <limit_s>
  *     hold <0|1>
  *     stop
  *     discard
- *     view <id> <time|newest|len> <classes> <host|-> <port> <pinned 0|1> [<signals>]
+ *     view <id> <time|newest|len> <classes> <host|-> <port> <pinned 0|1> [<signals> [<diag>]]
  *                                     the list's display filter and sort;
  *                                     classes is a hex mask of enum ppc_class,
  *                                     signals a hex mask of PPC_SIG_* (M7): only
- *                                     packets with one of those findings
+ *                                     packets with one of those findings;
+ *                                     diag an enum ppc_diag_code (M11.1): only
+ *                                     packets with that diagnosis, 0 any
  *     window <req> <tail|seq:N|rank:N|us:N> <before> <after>
  *                                     at most PPC_WINDOW_MAX rows of the view
  *     inspect <req> <seq> <step -1|0|1>
@@ -39,7 +42,10 @@
  *     hello <proto> <version> <backend>
  *     state <idle|capturing|hold|saving|stopped> <reason> <iface|-> <speed_mbps> <clock_set>
  *     stats <elapsed_ms> <seen> <stored> <held> <kdrop> <ifdrop> <shed> <bytes> <pps> <bps>
- *           <first_seq> <last_seq> <match> <fill_permille> <ui_skipped> <c0..c7> <s0..s4>
+ *           <first_seq> <last_seq> <match> <fill_permille> <ui_skipped> <c0..c7> <s0..s5>
+ *     diag <36 figures of struct ppc_diag, in its order>
+ *                                     the DNS and TCP diagnosis (M11.1), once
+ *                                     a second while capturing, and on stop
  *     bin <second> <c0..c7> <held>
  *     rows.begin <req> <filter_id> <first_rank> <match> <first_seq> <last_seq> [<anchor_rank>]
  *     row <seq> <rel_us> <gap_us> <dir> <class> <word> <len> <signal> <src> <dst> <info> [<flags>]
@@ -54,6 +60,9 @@
  *     pinned <seq> <0|1> <pins>
  *     finding <layer> <text>          inside pkt.begin..pkt.end: a finding of
  *                                     the packet, under that layer (M7)
+ *     detail <layer> <text>           inside pkt.begin..pkt.end: what the DNS
+ *                                     or TCP diagnosis says of the packet, not
+ *                                     a fault (M11.1)
  *     marks <req> <view_id> <match> <buckets> <hex mask>
  *     saved <run|done|fail> <packets> <total> <bytes> <name|code>
  *                                     SAVE's progress and outcome (M8); name is
@@ -79,7 +88,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PPC_PROTO_VERSION 3
+#define PPC_PROTO_VERSION 4
 #define PPC_LINE_MAX 1024
 #define PPC_IFACE_MAX 16
 #define PPC_WINDOW_MAX 48
@@ -194,6 +203,7 @@ struct ppc_cmd {
     uint16_t port;
     uint8_t pinned;
     uint8_t signals;   /* PPC_SIG_* bits, 0 for any packet */
+    uint8_t diag;      /* enum ppc_diag_code, 0 for any packet (M11.1) */
     /* inspect */
     int8_t step;
     /* marks */
@@ -221,6 +231,9 @@ int ppc_cmd_format_view(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t
 /* The same with the findings to show (PPC_SIG_* bits, 0: any packet). */
 int ppc_cmd_format_view_signals(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
                                 uint16_t port, int pinned, unsigned signals);
+/* The same with a diagnosis to show (enum ppc_diag_code, 0: any packet; M11.1). */
+int ppc_cmd_format_view_diag(char *buf, size_t n, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                             uint16_t port, int pinned, unsigned signals, unsigned diag);
 int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int step);
 int ppc_cmd_format_marks(char *buf, size_t n, uint32_t req, uint32_t buckets);
 int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on);
@@ -250,6 +263,8 @@ enum ppc_evt_kind {
     PPC_EVT_FINDING,
     PPC_EVT_MARKS,
     PPC_EVT_SAVED,
+    PPC_EVT_DIAG,   /* M11.1 */
+    PPC_EVT_DETAIL, /* M11.1: u.finding carries it */
 };
 
 #define PPC_FIELD_NAME 24
@@ -282,6 +297,53 @@ struct ppc_counters {
     uint64_t cls[PPC_CLASS_COUNT];
     uint32_t sig[PPC_SIGNAL_COUNT];
 };
+
+/* The DNS and TCP diagnosis (M11.1, docs/apps/PACKETSHARK.md §4b): running
+ * totals since START, and what the connection table holds now. The `diag`
+ * line carries them in this order, which leaves the struct no padding. */
+struct ppc_diag {
+    /* DNS transactions (UDP port 53) */
+    uint32_t dns_queries;      /* distinct queries */
+    uint32_t dns_retries;      /* copies of a query sent again */
+    uint32_t dns_answered;     /* answered within PPC_DNS_WAIT_NS */
+    uint32_t dns_late;         /* answered after they were called unanswered */
+    uint32_t dns_noreply;      /* no answer seen within PPC_DNS_WAIT_NS */
+    uint32_t dns_waiting;      /* asked, the wait not over */
+    uint32_t dns_orphan;       /* answers whose query this capture did not see */
+    uint32_t dns_unjudged;     /* queries forgotten unjudged (frames passed unseen, table full) */
+    /* response codes of DNS and LLMNR answers */
+    uint32_t dns_nxdomain;
+    uint32_t dns_servfail;
+    uint32_t dns_refused;
+    uint32_t dns_other;        /* any other code but NOERROR */
+    /* response time, from the latest copy of the query; over answered + late */
+    uint64_t dns_rtt_sum_us;
+    uint32_t dns_rtt_max_us;
+    uint32_t dns_rtt_max_seq;  /* the slowest answer's packet */
+    /* TCP connections */
+    uint32_t tcp_attempts;     /* SYNs that began a connection */
+    uint32_t tcp_connected;    /* handshakes completed */
+    uint32_t tcp_timed;        /* of those, timed from their first SYN */
+    uint32_t tcp_hs_max_us;
+    uint64_t tcp_hs_sum_us;    /* first SYN to the segment that completed it */
+    uint32_t tcp_hs_max_seq;   /* the slowest handshake's completing packet */
+    uint32_t tcp_refused;      /* resets answering a SYN */
+    uint32_t tcp_aborted;      /* resets of connections open or opening */
+    uint32_t tcp_rst_closed;   /* resets after a FIN or an earlier reset */
+    uint32_t tcp_rst_unseen;   /* resets of connections never seen */
+    uint32_t tcp_segments;     /* segments that carry sequence space, SYNs aside */
+    uint32_t tcp_retrans;      /* sent again, the original seen here */
+    uint32_t tcp_retrans_acked;/* sent again after the receiver had acknowledged it */
+    uint32_t tcp_retrans_unseen;/* filled a gap later than a round trip */
+    uint32_t tcp_syn_again;    /* a SYN or SYN-ACK sent again */
+    uint32_t tcp_ooo;          /* filled a gap within a round trip: reordering */
+    uint32_t tcp_midstream;    /* connections first seen without their handshake */
+    uint32_t tcp_flows;        /* connections in the table now */
+    uint32_t tcp_oneway;       /* of those, seen in one direction only (three segments or more) */
+    uint32_t tcp_replaced;     /* entries replaced for lack of room */
+    uint32_t blinded;          /* times frames passed unjudged (HOLD, shedding) */
+};
+#define PPC_DIAG_FIELDS 36
 
 struct ppc_evt_row {
     uint32_t seq;
@@ -407,6 +469,7 @@ struct ppc_evt {
             uint64_t bytes;
             char name[PPC_SAVE_NAME]; /* the file's name, or the failure's code */
         } saved;
+        struct ppc_diag diag;
     } u;
 };
 
@@ -443,6 +506,8 @@ int ppc_evt_format_hex(char *buf, size_t n, uint32_t off, const char *hex, const
 int ppc_evt_format_pkt_end(char *buf, size_t n, uint32_t req);
 int ppc_evt_format_pinned(char *buf, size_t n, uint32_t seq, int on, uint32_t pins);
 int ppc_evt_format_finding(char *buf, size_t n, uint32_t layer, const char *text);
+int ppc_evt_format_detail(char *buf, size_t n, uint32_t layer, const char *text);
+int ppc_evt_format_diag(char *buf, size_t n, const struct ppc_diag *d);
 int ppc_evt_format_marks(char *buf, size_t n, uint32_t req, uint32_t view_id, uint32_t match, uint32_t buckets,
                          uint64_t mask);
 int ppc_evt_format_saved(char *buf, size_t n, enum ppc_save_phase phase, uint32_t packets, uint32_t total,

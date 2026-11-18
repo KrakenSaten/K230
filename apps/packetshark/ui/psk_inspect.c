@@ -315,6 +315,13 @@ void psk_inspect_build(struct psk_app *a, lv_obj_t *page)
         lv_obj_set_width(a->layer[i].finding, LV_PCT(100));
         lv_obj_set_style_pad_ver(a->layer[i].finding, 8, 0);
         psk_set_hidden(a->layer[i].finding, true);
+        /* What the DNS and TCP diagnosis says of it (M11.1): not a fault,
+         * so in the secondary text, under any finding. */
+        a->layer[i].detail = label(a->layer[i].fields, "", POS_STYLE_CAPTION, LV_LABEL_LONG_WRAP);
+        pos_style_add(a->layer[i].detail, POS_STYLE_TEXT_SECONDARY, 0);
+        lv_obj_set_width(a->layer[i].detail, LV_PCT(100));
+        lv_obj_set_style_pad_bottom(a->layer[i].detail, 8, 0);
+        psk_set_hidden(a->layer[i].detail, true);
         /* Room for the selected outline at the right. */
         lv_obj_set_style_pad_right(a->layer[i].fields, 3, 0);
         psk_set_hidden(a->layer[i].row, true);
@@ -450,8 +457,8 @@ static void paint_head(struct psk_app *a, const struct psk_packet *p)
     /* The packet's finding beside its class (mockup 03): the first one,
      * and how many more. */
     if (p->head.signal) {
-        static const char *const names[PPC_SIGNAL_COUNT] = { "RETRANSMISSION", "RESET", "DNS FAILURE", "UNREACHABLE",
-                                                             "NO ANSWER" };
+        static const char *const names[PPC_SIGNAL_COUNT] = { "RETRANSMISSION", "RESET",     "DNS FAILURE",
+                                                             "UNREACHABLE",    "NO ANSWER", "NO DNS REPLY" };
         unsigned first = PPC_SIGNAL_COUNT;
         unsigned more = 0;
 
@@ -610,6 +617,20 @@ void psk_inspect_paint(struct psk_app *a)
             }
             psk_text(l->finding, f);
             psk_set_hidden(l->finding, f[0] == '\0');
+        }
+        {
+            char f[PSK_DETAILS * (PPC_FIELD_TEXT + 2)];
+            size_t o = 0;
+            uint32_t k;
+
+            f[0] = '\0';
+            for (k = 0; k < p->ndetails && o < sizeof(f); k++) {
+                if (p->detail[k].layer == i) {
+                    o += (size_t)snprintf(f + o, sizeof(f) - o, "%s%s", o ? "\n" : "", p->detail[k].text);
+                }
+            }
+            psk_text(l->detail, f);
+            psk_set_hidden(l->detail, f[0] == '\0');
         }
     }
     for (i = 0; i < PSK_FIELDS; i++) {

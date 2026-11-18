@@ -107,6 +107,9 @@ int psk_session_inspect(struct psk_session *s, struct psk_model *m, uint32_t seq
 /* The view with the findings to show (PPC_SIG_* bits, 0: any packet) (M7). */
 int psk_session_view_signals(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
                              uint16_t port, bool pinned, unsigned signals);
+/* The same with a diagnosis to show (enum ppc_diag_code, 0: any) (M11.1). */
+int psk_session_view_diag(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                          uint16_t port, bool pinned, unsigned signals, unsigned diag);
 /* Where the view's findings are, for the rail; the model takes only the
  * answer to the newest request. */
 int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t buckets);

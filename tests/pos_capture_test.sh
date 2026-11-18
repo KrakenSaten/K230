@@ -78,7 +78,7 @@ check "the backend is named" "$("$HELPER" backend | grep -qxE 'pcap|none' && ech
 } | "$HELPER" session --source synth:500:1 > "$T/s1" 2>&1
 rc=$?
 check "the session leaves with 0" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
-check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t3\t' && echo 1 || echo 0)"
+check "hello first" "$(head -1 "$T/s1" | grep -qP '^hello\t4\t' && echo 1 || echo 0)"
 check "capturing, hold, capturing, stopped by the user" \
     "$(grep -P '^state\t' "$T/s1" | cut -f2,3 | tr '\t\n' ' ' | grep -q 'idle none capturing none hold none capturing none stopped user' && echo 1 || echo 0)"
 check "a window of 5 rows" "$([ "$(grep -cP '^row\t' "$T/s1")" = "5" ] && grep -qP '^rows.end\t1$' "$T/s1" && echo 1 || echo 0)"
@@ -187,7 +187,7 @@ check "nothing written but the lock and the log (S5)" "$([ -z "$extra" ] && echo
 SV="$PWD/out/packetshark-save-test"
 rm -rf "$SV"
 {
-    printf 'start synth0 headers 0 all 0\n'; sleep 4.6
+    printf 'start synth0 headers 0 all 0\n'; sleep 6.2 # past the DNS wait (5 s)
     printf 'view 2 time ff - 0 0 2\nwindow 2 tail 3 0\n'; sleep 0.2
     printf 'view 3 time ff - 0 0 1f\nwindow 3 tail 30 0\nmarks 4 32\n'; sleep 0.2
     printf 'view 6 time ff - 0 0 1\nwindow 6 tail 3 0\n'; sleep 0.2
@@ -198,9 +198,18 @@ rm -rf "$SV"
     printf 'save\n'; sleep 1.5
     printf 'stats\nquit\n'
 } | POCKETOS_CAPTURES_DIR="$SV" "$HELPER" session --source synth:2000:1 > "$T/s3" 2>&1
-sig=$(grep -P '^stats\t' "$T/s3" | tail -1 | awk -F'\t' '{ print $(NF-4), $(NF-3), $(NF-2), $(NF-1), $NF }')
-check "retransmissions, resets, failed lookups, unreachables and unanswered SYNs are counted ($sig)" \
-    "$(echo "$sig" | awk '{ print ($1 > 0 && $2 > 0 && $3 > 0 && $4 > 0 && $5 > 0) ? 1 : 0 }')"
+sig=$(grep -P '^stats\t' "$T/s3" | tail -1 | awk -F'\t' '{ print $(NF-5), $(NF-4), $(NF-3), $(NF-2), $(NF-1), $NF }')
+check "retransmissions, resets, failed lookups, unreachables, unanswered SYNs and DNS queries are counted ($sig)" \
+    "$(echo "$sig" | awk '{ print ($1 > 0 && $2 > 0 && $3 > 0 && $4 > 0 && $5 > 0 && $6 > 0) ? 1 : 0 }')"
+# M11.1: the diag line (struct ppc_diag's order): DNS answered, timed and
+# not seen; TCP handshakes completed and timed, refusals.
+dg=$(grep -P '^diag\t' "$T/s3" | tail -1)
+check "a diag line every second while capturing, and one on stop ($(grep -cP '^diag\t' "$T/s3"))" \
+    "$([ "$(grep -cP '^diag\t' "$T/s3")" -ge 4 ] && [ "$(echo "$dg" | awk -F'\t' '{ print NF }')" = "37" ] && echo 1 || echo 0)"
+check "DNS transactions: answered and timed, a few unanswered, failures by code ($(echo "$dg" | cut -f2-16))" \
+    "$(echo "$dg" | awk -F'\t' '{ print ($4 > 50 && $6 > 0 && $10 > 0 && $14 > 0 && $15 > 0 && $16 > 0) ? 1 : 0 }')"
+check "TCP connections: handshakes completed and timed, refusals ($(echo "$dg" | cut -f17-24))" \
+    "$(echo "$dg" | awk -F'\t' '{ print ($17 > 50 && $18 > 40 && $19 > 40 && $21 > 0 && $23 > 0) ? 1 : 0 }')"
 check "a view of resets: every row is one" \
     "$(awk -F'\t' '$1 == "rows.begin" { on = ($2 == 2) } on && $1 == "row" { n++; if (int($9 / 2) % 2 != 1) bad++ } END { print (n == 4 && !bad) ? 1 : 0 }' "$T/s3")"
 check "a view of every finding: only marked rows" \

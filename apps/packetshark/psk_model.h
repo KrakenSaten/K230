@@ -29,6 +29,8 @@
 #define PSK_FIELDS 64
 #define PSK_HEX_LINES 64
 #define PSK_FINDINGS 4
+#define PSK_DETAILS 6     /* what the DNS and TCP diagnosis says of the packet (M11.1) */
+#define PSK_DIAG_LINES 10 /* the diagnosis sheet's lines, at most */
 
 /* How the helper ended, as the app shows it. */
 enum psk_exit {
@@ -54,6 +56,7 @@ enum psk_exit {
 #define PSK_CHANGED_PINS 0x200u
 #define PSK_CHANGED_MARKS 0x400u /* where the view's findings are (M7) */
 #define PSK_CHANGED_SAVE 0x800u  /* SAVE's progress or outcome (M8) */
+#define PSK_CHANGED_DIAG 0x1000u /* the DNS and TCP diagnosis (M11.1) */
 
 /* The inspector's packet, as text (M6). */
 struct psk_layer {
@@ -95,6 +98,8 @@ struct psk_packet {
     struct psk_hex hex[PSK_HEX_LINES];
     uint32_t nfindings;
     struct psk_finding finding[PSK_FINDINGS];
+    uint32_t ndetails;                    /* M11.1: not faults, said plainly */
+    struct psk_finding detail[PSK_DETAILS];
 };
 
 /* SAVE as the app shows it (M8). */
@@ -174,6 +179,10 @@ struct psk_model {
     uint64_t save_bytes;
     char save_name[PPC_SAVE_NAME]; /* the file's name once it is whole */
     char save_fail[16];            /* why it failed: nospace, nodir, io, empty, name */
+
+    /* the DNS and TCP diagnosis (M11.1): the helper's last diag line */
+    bool have_diag;
+    struct ppc_diag d;
 };
 
 void psk_model_init(struct psk_model *m);
@@ -253,11 +262,43 @@ const char *psk_fmt_gap(uint64_t us, char *buf, size_t buflen);
 const char *psk_dir_glyph(const char *dir);
 
 /* The word of a finding by its bit's index (PPC_SIG_*): "RETRANS",
- * "TCP RST", "DNS FAIL", "UNREACH", "NO REPLY"; and the plural a filter is
- * named by: "RETRANSMISSIONS", "RESETS", "DNS FAILURES", "UNREACHABLES",
- * "UNANSWERED SYNS". */
+ * "TCP RST", "DNS FAIL", "UNREACH", "NO ANSWER", "NO DNS REPLY"; and the
+ * plural a filter is named by: "RETRANSMISSIONS", "RESETS", "DNS FAILURES",
+ * "UNREACHABLES", "UNANSWERED SYNS", "UNANSWERED DNS QUERIES". */
 const char *psk_signal_word(unsigned index);
 const char *psk_signal_plural(unsigned index);
+
+/* ---- the DNS and TCP diagnosis (M11.1, docs/apps/PACKETSHARK.md §4b) --------- */
+
+/* How a line of the diagnosis reads: as it should be, worth knowing, or worth
+ * a look (status_ok, text_secondary, status_warn with `!`; DS §59.2). */
+enum psk_sev { PSK_SEV_OK = 0, PSK_SEV_NOTE, PSK_SEV_WARN };
+/* Where a line leads: nowhere, the packets it counts, the packet it names. */
+enum psk_go { PSK_GO_NONE = 0, PSK_GO_LIST, PSK_GO_OPEN };
+enum psk_diag_kind { PSK_DIAG_DNS = 0, PSK_DIAG_TCP, PSK_DIAG_KINDS };
+
+struct psk_diag_line {
+    uint8_t sev;       /* enum psk_sev */
+    uint8_t go;        /* enum psk_go */
+    uint8_t signals;   /* PSK_GO_LIST: the findings to show (PPC_SIG_*), or 0 */
+    uint8_t diag;      /* PSK_GO_LIST: the diagnosis to show (enum ppc_diag_code), or 0 */
+    uint32_t seq;      /* PSK_GO_OPEN: the packet */
+    char text[64];     /* "2 NAME NOT FOUND (NXDOMAIN)", upper case */
+    char why[224];     /* the explanation, a sentence or two */
+};
+
+/* The line on LIVE: "12 ANSWERED · AVG 23 MS · 2 FAILED". Returns its
+ * severity (enum psk_sev). */
+unsigned psk_diag_summary(const struct psk_model *m, unsigned kind, char *buf, size_t buflen);
+/* The diagnosis sheet's lines, the summary first; how many. */
+unsigned psk_diag_lines(const struct psk_model *m, unsigned kind, struct psk_diag_line *out, unsigned max);
+/* How far the diagnosis can be trusted: what it rests on, what passed
+ * unseen, what the tables had to forget. */
+const char *psk_diag_confidence(const struct psk_model *m, unsigned kind, char *buf, size_t buflen);
+/* A diagnosis's plural, as a filter is named by: "REFUSED CONNECTIONS". */
+const char *psk_diag_plural(unsigned diag);
+/* A duration in microseconds: "0.4 MS", "23 MS", "1.2 S". */
+const char *psk_fmt_ms(uint64_t us, char *buf, size_t buflen);
 /* Why a save failed, as a sentence in upper case. */
 const char *psk_save_fail_text(const char *code);
 
