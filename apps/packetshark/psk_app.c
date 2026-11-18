@@ -251,8 +251,8 @@ static void reset_list(struct psk_app *a)
 static void send_view(struct psk_app *a)
 {
     a->view_id++;
-    if (psk_session_view_signals(a->session, a->view_id, a->sort, a->classes, a->host, a->port, a->pinned_only,
-                                 a->sigmask) != 0) {
+    if (psk_session_view_diag(a->session, a->view_id, a->sort, a->classes, a->host, a->port, a->pinned_only,
+                              a->sigmask, a->diagf) != 0) {
         LOG_DEBUG("packetshark: the view could not be sent");
     }
     a->window_due = true;
@@ -414,6 +414,12 @@ void psk_set_view(struct psk_app *a, uint8_t classes, const char *host, uint16_t
 void psk_set_view_signals(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned,
                           unsigned signals)
 {
+    psk_set_view_diag(a, classes, host, port, pinned, signals, 0);
+}
+
+void psk_set_view_diag(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned,
+                       unsigned signals, unsigned diag)
+{
     char keep[PPC_HOST_TEXT];
 
     /* host may be a->host itself (the sort changes nothing else). */
@@ -422,7 +428,8 @@ void psk_set_view_signals(struct psk_app *a, uint8_t classes, const char *host, 
     snprintf(a->host, sizeof(a->host), "%s", keep);
     a->port = port;
     a->pinned_only = pinned;
-    a->sigmask = (uint8_t)(signals & 0x1fu);
+    a->sigmask = (uint8_t)(signals & PPC_SIG_FINDINGS_ALL);
+    a->diagf = (uint8_t)(diag < PPC_DIAG_COUNT ? diag : 0);
     a->follow = a->sort != 2;
     a->top_rank = 0;
     a->top_seq = 0;
@@ -435,7 +442,7 @@ void psk_set_view_signals(struct psk_app *a, uint8_t classes, const char *host, 
 void psk_set_sort(struct psk_app *a, unsigned sort)
 {
     a->sort = (uint8_t)(sort % 3u);
-    psk_set_view_signals(a, a->classes, a->host, a->port, a->pinned_only, a->sigmask);
+    psk_set_view_diag(a, a->classes, a->host, a->port, a->pinned_only, a->sigmask, a->diagf);
 }
 
 void psk_set_follow(struct psk_app *a, bool on)
@@ -486,6 +493,23 @@ void psk_show_signal(struct psk_app *a, unsigned index)
         psk_set_view_signals(a, PPC_CLASSES_ALL, "", 0, false, 1u << index);
     }
     psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+void psk_diag_go(struct psk_app *a, const struct psk_diag_line *l)
+{
+    if (!l || l->go == PSK_GO_NONE || !psk_capture_present(a)) {
+        return;
+    }
+    psk_dsheet_hide(a);
+    if (l->go == PSK_GO_LIST) {
+        psk_set_view_diag(a, PPC_CLASSES_ALL, "", 0, false, l->signals, l->diag);
+        psk_select_tab(a, PSK_TAB_PACKETS);
+    } else if (l->seq) {
+        /* The packet alone, in the inspector: the list shows everything, so
+         * the arrows walk its neighbours. */
+        psk_set_view_diag(a, PPC_CLASSES_ALL, "", 0, false, 0, 0);
+        psk_open_packet(a, l->seq, 0);
+    }
 }
 
 bool psk_inspect_visible(const struct psk_app *a)
@@ -701,6 +725,9 @@ static void react(struct psk_app *a, unsigned changed)
     }
     if (changed & PSK_CHANGED_PINS) {
         pins_changed(a);
+    }
+    if ((changed & (PSK_CHANGED_DIAG | PSK_CHANGED_STATE | PSK_CHANGED_EXITED)) && psk_dsheet_shown(a)) {
+        psk_dsheet_paint(a);
     }
     if (changed & PSK_CHANGED_EXITED) {
         bool bad = m->exit != PSK_EXIT_NORMAL;
@@ -1135,7 +1162,7 @@ bool psk_key(struct psk_app *a, uint32_t key)
     const struct psk_model *m = a->model;
     bool capture = psk_capture_present(a);
     bool running = capture && (m->state == PPC_STATE_CAPTURING || m->state == PPC_STATE_HOLD);
-    bool sheet = a->sheet_kind != PSK_SHEET_NONE || psk_fsheet_shown(a) || psk_ssheet_shown(a);
+    bool sheet = a->sheet_kind != PSK_SHEET_NONE || psk_fsheet_shown(a) || psk_ssheet_shown(a) || psk_dsheet_shown(a);
 
     if (key == LV_KEY_ESC) {
         a->back_pending = true; /* handled by the poll, outside this event */
@@ -1276,6 +1303,7 @@ static void *psk_create(lv_obj_t *root)
     psk_sheet_build(a);
     psk_fsheet_build(a);
     psk_ssheet_build(a);
+    psk_dsheet_build(a);
     psk_saves_refresh(a);
     read_ifaces(a);
     psk_paint_tabs(a);
@@ -1351,6 +1379,10 @@ static int psk_back(void *priv)
     }
     if (psk_ssheet_shown(a)) {
         psk_ssheet_hide(a);
+        return 1;
+    }
+    if (psk_dsheet_shown(a)) {
+        psk_dsheet_hide(a);
         return 1;
     }
     if (a->cur == PSK_TAB_INSPECT) {
@@ -1483,6 +1515,19 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     }
     if (strncmp(name, "finding", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_LAYERS) {
         return a->layer[i].finding;
+    }
+    /* M11.1 */
+    if (strncmp(name, "diag", 4) == 0 && (i = name[4] - '0') >= 0 && i < PSK_DIAG_KINDS) {
+        return a->diag_row[i];
+    }
+    if (strcmp(name, "dsheet") == 0) {
+        return a->dsheet;
+    }
+    if (strncmp(name, "dline", 5) == 0 && (i = name[5] - '0') >= 0 && i < PSK_DIAG_LINES) {
+        return a->ds_row[i];
+    }
+    if (strncmp(name, "detail", 6) == 0 && (i = name[6] - '0') >= 0 && i < PSK_LAYERS) {
+        return a->layer[i].detail;
     }
     return NULL;
 }

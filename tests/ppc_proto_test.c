@@ -241,10 +241,49 @@ static void test_list_and_inspector(void)
               strcmp(line, "view\t9\ttime\tff\t-\t0\t0") == 0 && ppc_cmd_parse(line, &c) == PPC_CMD_VIEW &&
               c.signals == 0);
     check("findings out of range are refused at both ends",
-          ppc_cmd_format_view_signals(line, sizeof(line), 1, 0, 0xff, NULL, 0, 0, 0x20) < 0 &&
-              ppc_cmd_parse("view 1 time ff - 0 0 20", &c) == PPC_CMD_BAD &&
+          ppc_cmd_format_view_signals(line, sizeof(line), 1, 0, 0xff, NULL, 0, 0, 0x40) < 0 &&
+              ppc_cmd_parse("view 1 time ff - 0 0 40", &c) == PPC_CMD_BAD &&
               ppc_cmd_parse("view 1 time ff - 0 0 zz", &c) == PPC_CMD_BAD &&
-              ppc_cmd_parse("view 1 time ff - 0 0 1 1", &c) == PPC_CMD_BAD);
+              ppc_cmd_parse("view 1 time ff - 0 0 1 1 1", &c) == PPC_CMD_BAD);
+    /* Protocol 4 (M11.1). */
+    check("the sixth finding (no DNS reply) is a finding a view can ask for",
+          ppc_cmd_parse("view 1 time ff - 0 0 20", &c) == PPC_CMD_VIEW && c.signals == 0x20 && c.diag == 0);
+    check("a view of one diagnosis formats and parses, with or without findings",
+          ppc_cmd_format_view_diag(line, sizeof(line), 4, 0, 0xff, NULL, 0, 0, 0, PPC_DIAG_TCP_REFUSED) > 0 &&
+              ppc_cmd_parse(line, &c) == PPC_CMD_VIEW && c.diag == PPC_DIAG_TCP_REFUSED && c.signals == 0 &&
+              ppc_cmd_format_view_diag(line, sizeof(line), 4, 0, 0xff, NULL, 0, 0, PPC_SIG_RST, PPC_DIAG_TCP_ABORTED) > 0 &&
+              ppc_cmd_parse(line, &c) == PPC_CMD_VIEW && c.diag == PPC_DIAG_TCP_ABORTED && c.signals == PPC_SIG_RST &&
+              ppc_cmd_format_view_diag(line, sizeof(line), 4, 0, 0xff, NULL, 0, 0, 0, 0) > 0 &&
+              strcmp(line, "view\t4\ttime\tff\t-\t0\t0") == 0);
+    check("a diagnosis out of range is refused at both ends",
+          ppc_cmd_format_view_diag(line, sizeof(line), 4, 0, 0xff, NULL, 0, 0, 0, PPC_DIAG_COUNT) < 0 &&
+              ppc_cmd_parse("view 1 time ff - 0 0 0 99", &c) == PPC_CMD_BAD &&
+              ppc_cmd_parse("view 1 time ff - 0 0 0 x", &c) == PPC_CMD_BAD);
+    {
+        struct ppc_diag d;
+        uint32_t *w = (uint32_t *)(void *)&d;
+        size_t i;
+
+        memset(&d, 0xff, sizeof(d));
+        check("the largest diag line fits", ppc_evt_format_diag(line, sizeof(line), &d) > 0 &&
+                                                strlen(line) < PPC_LINE_MAX && ppc_evt_parse(line, &e) == PPC_EVT_DIAG &&
+                                                memcmp(&e.u.diag, &d, sizeof(d)) == 0);
+        memset(&d, 0, sizeof(d));
+        for (i = 0; i < sizeof(d) / 4; i++) {
+            w[i] = (uint32_t)(i + 1);
+        }
+        check("every figure of the diag line comes back in its place",
+              ppc_evt_format_diag(line, sizeof(line), &d) > 0 && ppc_evt_parse(line, &e) == PPC_EVT_DIAG &&
+                  memcmp(&e.u.diag, &d, sizeof(d)) == 0);
+        check("a diag line short of a figure, or with a 32-bit figure too large, is refused",
+              ppc_evt_parse("diag\t1\t2\t3", &e) == PPC_EVT_BAD &&
+                  ppc_evt_parse("diag\t4294967296\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0"
+                                "\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0",
+                                &e) == PPC_EVT_BAD);
+        check("the detail line", ppc_evt_format_detail(line, sizeof(line), 2, "CONNECTION REFUSED \xc2\xb7 SYN #4") > 0 &&
+                                     ppc_evt_parse(line, &e) == PPC_EVT_DETAIL && e.u.finding.layer == 2 &&
+                                     strstr(e.u.finding.text, "REFUSED \xc2\xb7 SYN #4") != NULL);
+    }
     check("marks and save", ppc_cmd_format_marks(line, sizeof(line), 7, 40) > 0 &&
                                 ppc_cmd_parse(line, &c) == PPC_CMD_MARKS && c.req == 7 && c.buckets == 40 &&
                                 ppc_cmd_format_marks(line, sizeof(line), 7, 65) < 0 &&

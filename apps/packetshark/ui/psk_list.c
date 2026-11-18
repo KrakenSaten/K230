@@ -823,10 +823,10 @@ static void paint_tools(struct psk_app *a)
     char t[96];
     uint64_t held = m->c.last_seq >= m->c.first_seq && m->c.last_seq ? (uint64_t)m->c.last_seq - m->c.first_seq + 1u : 0;
     uint32_t match = m->rows_filter_id == a->view_id ? m->rows_match : m->c.match;
-    bool filtered = a->classes != PPC_CLASSES_ALL || a->host[0] || a->port || a->pinned_only || a->sigmask;
+    bool filtered = a->classes != PPC_CLASSES_ALL || a->host[0] || a->port || a->pinned_only || a->sigmask || a->diagf;
 
     psk_text(a->pk_sum1,
-             psk_filter_words(a->classes, a->host, a->port, a->pinned_only, a->sigmask, words, sizeof(words)));
+             psk_filter_words(a->classes, a->host, a->port, a->pinned_only, a->sigmask, a->diagf, words, sizeof(words)));
     if (filtered) {
         char all[32];
 

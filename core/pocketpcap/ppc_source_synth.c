@@ -209,6 +209,64 @@ static uint32_t finding_frame(uint64_t n, uint32_t r, uint8_t *b)
     }
 }
 
+/* One DNS message between the client 192.0.2.1:port and the resolver
+ * 192.0.2.53, with a response code. */
+static uint32_t dns_frame(uint8_t *b, uint16_t id, uint16_t port, int response, unsigned which, unsigned rcode)
+{
+    uint8_t m[128];
+    uint32_t dl = dns(m, id, response, which);
+    uint32_t l = eth(b, response ? mac_self : mac_peer, response ? mac_peer : mac_self, 0x0800);
+
+    if (response && rcode) {
+        put16(m + 2, 0x8180u | (rcode & 0xfu));
+        put16(m + 6, 0); /* no answer */
+        dl -= 16;
+    }
+    l += ip4(b + l, 17, 8 + dl, 1, 53, !response);
+    l += udp(b + l, response ? 53 : port, response ? port : 53, dl);
+    memcpy(b + l, m, dl);
+    return l + dl;
+}
+
+/* Transactions (M11.1): in every 32 frames, a DNS query and its answer one
+ * to seven frames later, and a TCP handshake to 192.0.2.23:443. Some
+ * answers say NXDOMAIN or SERVFAIL, some queries are asked twice, a few
+ * are never answered, and some connections are refused. Returns 0 for the
+ * other frames. */
+static uint32_t transaction_frame(uint64_t n, uint8_t *b)
+{
+    uint32_t k = (uint32_t)(n / 32u);
+    unsigned slot = (unsigned)(n % 32u);
+    uint16_t id = (uint16_t)(0x4000u + (k & 0x3fffu));
+    uint16_t port = (uint16_t)(33000u + k % 4096u);
+    unsigned answer_at = 1u + k % 7u;
+    int unanswered = k % 97u == 2u;
+    int asked_twice = k % 61u == 7u;
+    unsigned rcode = k % 23u == 11u ? 3u : k % 89u == 40u ? 2u : 0u;
+    uint16_t cport = (uint16_t)(40000u + k % 8192u);
+    uint32_t isn = k * 2654435761u;
+    uint32_t sisn = k * 40503u + 7u;
+    int refused = k % 31u == 13u;
+
+    if (slot == 0 || (asked_twice && slot == 8)) {
+        return dns_frame(b, id, port, 0, k, 0);
+    }
+    if (!unanswered && ((!asked_twice && slot == answer_at) || (asked_twice && slot == 9))) {
+        return dns_frame(b, id, port, 1, k, rcode);
+    }
+    if (slot == 16) {
+        return tcp_seg(b, 1, 23, cport, 443, isn, 0, PPC_TCP_SYN, 0);
+    }
+    if (slot == 17u + k % 4u) {
+        return refused ? tcp_seg(b, 0, 23, 443, cport, 0, isn + 1u, PPC_TCP_RST | PPC_TCP_ACK, 0)
+                       : tcp_seg(b, 0, 23, 443, cport, sisn, isn + 1u, PPC_TCP_SYN | PPC_TCP_ACK, 0);
+    }
+    if (slot == 21 && !refused) {
+        return tcp_seg(b, 1, 23, cport, 443, isn + 1u, sisn + 1u, PPC_TCP_ACK, 0);
+    }
+    return 0;
+}
+
 uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
 {
     uint32_t r = mix(n, seed);
@@ -220,6 +278,19 @@ uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
 
     if (len) {
         return len;
+    }
+    len = transaction_frame(n, b);
+    if (len) {
+        if (len < 60) {
+            memset(b + len, 0, 60 - len);
+            len = 60;
+        }
+        return len;
+    }
+    /* The random DNS kinds would be answers without their queries: other
+     * UDP instead, the transactions above carry DNS. */
+    if (kind == 9 || kind == 10) {
+        kind = 6;
     }
     switch (kind) {
     case 0:

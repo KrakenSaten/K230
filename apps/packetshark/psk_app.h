@@ -135,6 +135,7 @@ struct psk_layerrow {
     lv_obj_t *summary;
     lv_obj_t *fields; /* the column its fields go in */
     lv_obj_t *finding; /* the packet's findings about this layer (M7) */
+    lv_obj_t *detail;  /* what the DNS and TCP diagnosis says of it (M11.1) */
 };
 
 struct psk_fieldrow {
@@ -212,6 +213,10 @@ struct psk_app {
     lv_obj_t *signals;   /* the SIGNALS panel (M7) */
     lv_obj_t *sig_cell[PPC_SIGNAL_COUNT];
     lv_obj_t *sig_val[PPC_SIGNAL_COUNT];
+    lv_obj_t *diag_box;                  /* the two below: in SIGNALS, or (wide) under TRAFFIC */
+    lv_obj_t *diag_row[PSK_DIAG_KINDS];  /* the DNS and TCP diagnosis on SIGNALS (M11.1) */
+    lv_obj_t *diag_sev[PSK_DIAG_KINDS];
+    lv_obj_t *diag_text[PSK_DIAG_KINDS];
     lv_obj_t *saves_row; /* setup: the saved captures (M8) */
     lv_obj_t *saves_val;
 
@@ -231,6 +236,7 @@ struct psk_app {
     uint16_t port;
     bool pinned_only;
     uint8_t sigmask;     /* PPC_SIG_* bits: only packets with one of these findings; 0: any */
+    uint8_t diagf;       /* enum ppc_diag_code: only packets with this diagnosis; 0: any (M11.1) */
     bool marks_due;      /* the rail's finding marks are to be asked for */
     int64_t marks_sent_ms;
     bool follow;         /* the list keeps to the newest packets */
@@ -308,6 +314,7 @@ struct psk_app {
     lv_obj_t *fs_pinned;
     lv_obj_t *fs_sig;
     uint8_t fs_sigv;
+    uint8_t fs_diagv;    /* the diagnosis a diagnosis line chose (M11.1); cleared by the Findings row */
     lv_obj_t *fs_host_row;
     lv_obj_t *fs_port_row;
     uint8_t fs_classes;
@@ -341,6 +348,20 @@ struct psk_app {
     uint32_t saves_count;
     uint64_t saves_bytes;
     char del_name[PPC_SAVE_NAME];
+
+    /* the diagnosis sheet (M11.1): DNS or TCP, its lines, each a way to the
+     * packets it counts or the packet it names */
+    lv_obj_t *dsheet;
+    lv_obj_t *ds_title;
+    lv_obj_t *ds_note;
+    lv_obj_t *ds_row[PSK_DIAG_LINES];
+    lv_obj_t *ds_text[PSK_DIAG_LINES];
+    lv_obj_t *ds_why[PSK_DIAG_LINES];
+    lv_obj_t *ds_go[PSK_DIAG_LINES];
+    int ds_tone[PSK_DIAG_LINES];
+    struct psk_diag_line ds_lines[PSK_DIAG_LINES];
+    unsigned ds_n;
+    unsigned ds_kind;
 
     /* state */
     struct psk_session *session;
@@ -377,8 +398,10 @@ struct psk_app {
  * "bar0".."bar2", "readout", "proto0".."proto7"; M5/M6: "list", "rail",
  * "row0".."row9", "filter", "sort", "follow", "prev", "next", "pin",
  * "end0", "end1", "hex", "layer0".."layer7", "field0".."field9"; M7-M9:
- * "signals", "sig0".."sig4", "saves", "save0".."save5", "top", "back",
- * "inspect", "finding0".."finding7"), and the measured costs. */
+ * "signals", "sig0".."sig5", "saves", "save0".."save5", "top", "back",
+ * "inspect", "finding0".."finding7"; M11.1: "diag0" (DNS), "diag1" (TCP),
+ * "dsheet", "dline0".."dline9", "detail0".."detail7"), and the measured
+ * costs. */
 lv_obj_t *psk_app_part(void *priv, const char *name);
 void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset);
 
@@ -398,6 +421,11 @@ void psk_set_view(struct psk_app *a, uint8_t classes, const char *host, uint16_t
 void psk_set_view_signals(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned,
                           unsigned signals);
 void psk_show_signal(struct psk_app *a, unsigned index);
+/* The same with a diagnosis to show (enum ppc_diag_code, 0: any; M11.1). */
+void psk_set_view_diag(struct psk_app *a, uint8_t classes, const char *host, uint16_t port, bool pinned,
+                       unsigned signals, unsigned diag);
+/* A diagnosis line's way: its packets in PACKETS, or its packet in INSPECT. */
+void psk_diag_go(struct psk_app *a, const struct psk_diag_line *l);
 /* INSPECT is on screen: its tab, or beside the list in the wide shape. */
 bool psk_inspect_visible(const struct psk_app *a);
 /* The saved captures (M8). */
@@ -440,9 +468,16 @@ void psk_fsheet_build(struct psk_app *a);
 void psk_fsheet_show(struct psk_app *a, bool to_packets);
 void psk_fsheet_hide(struct psk_app *a);
 bool psk_fsheet_shown(const struct psk_app *a);
-/* The filter in words: "ALL PROTOCOLS", "TCP · HOST 192.0.2.10", "RESETS". */
+/* The filter in words: "ALL PROTOCOLS", "TCP · HOST 192.0.2.10", "RESETS",
+ * "REFUSED CONNECTIONS" (a diagnosis, M11.1). */
 const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, bool pinned, unsigned signals,
-                             char *buf, size_t buflen);
+                             unsigned diag, char *buf, size_t buflen);
+/* The diagnosis sheet (M11.1): DNS or TCP (enum psk_diag_kind). */
+void psk_dsheet_build(struct psk_app *a);
+void psk_dsheet_show(struct psk_app *a, unsigned kind);
+void psk_dsheet_paint(struct psk_app *a);
+void psk_dsheet_hide(struct psk_app *a);
+bool psk_dsheet_shown(const struct psk_app *a);
 /* The saved captures' sheet (M8). */
 void psk_ssheet_build(struct psk_app *a);
 void psk_ssheet_show(struct psk_app *a);

@@ -1144,7 +1144,7 @@ static void m4_live(bool portrait)
     }
     app_packetshark.back(app_priv);
     pump(100);
-    tap("TCP");
+    tap_obj(psk_app_part(app_priv, "proto0")); /* TCP's cell (the diagnosis has a TCP line too, M11.1) */
     pump(600);
     CHECK("a protocol opens the list filtered on its class",
           ((const struct psk_app *)app_priv)->cur == PSK_TAB_PACKETS && shown("TCP") &&
@@ -1857,7 +1857,7 @@ static void m7_m9(bool portrait)
           !psk_key(a, LV_KEY_ENTER) && !psk_key(a, ' ') && !psk_key(a, 's') && (pump(300), no_child()));
     tap("START CAPTURE");
     wait_for("CAPTURING", 3500);
-    pump(4600); /* a SYN is unanswered after 3 s */
+    pump(5600); /* a SYN is unanswered after 3 s, a DNS query after 5 s */
 
     /* The shape. */
     if (portrait) {
@@ -1884,7 +1884,11 @@ static void m7_m9(bool portrait)
     ok = shown("SIGNALS · TAP TO LIST") != NULL;
     for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
         char want[24];
-        lv_obj_t *cell = psk_app_part(app_priv, i == 0 ? "sig0" : i == 1 ? "sig1" : i == 2 ? "sig2" : i == 3 ? "sig3" : "sig4");
+        char part[8];
+        lv_obj_t *cell;
+
+        snprintf(part, sizeof(part), "sig%u", i);
+        cell = psk_app_part(app_priv, part);
 
         psk_fmt_count(a->model->c.sig[i], want, sizeof(want));
         ok = ok && a->model->c.sig[i] > 0 && cell && containing_in(cell, psk_signal_word(i)) &&
@@ -1893,7 +1897,7 @@ static void m7_m9(bool portrait)
             printf("     %s: none counted\n", psk_signal_word(i));
         }
     }
-    CHECK("SIGNALS: five findings, each counted and a full target", ok);
+    CHECK("SIGNALS: six findings, each counted and a full target", ok);
     CHECK("nothing in SIGNALS is clipped, overlapping or broken across lines", audit_page() + dots_wrapped(app_body) == 0);
     shot("m7-signals");
 
@@ -1951,6 +1955,133 @@ static void m7_m9(bool portrait)
         lv_obj_get_coords(a->lrow[0].len, &lb);
         CHECK("wide: a row is one line, the sentence after the length", la.x1 > lb.x2 && la.y1 == lb.y1);
     }
+    psk_set_view(a, PPC_CLASSES_ALL, "", 0, false);
+    pump(600);
+
+    /* The DNS and TCP diagnosis (M11.1). */
+    psk_select_tab(a, PSK_TAB_LIVE);
+    pump(1200);
+    ok = a->model->have_diag && a->model->d.dns_answered > 0 && a->model->d.tcp_connected > 0;
+    for (i = 0; i < PSK_DIAG_KINDS; i++) {
+        lv_obj_t *r = psk_app_part(app_priv, i == 0 ? "diag0" : "diag1");
+
+        if (r) {
+            lv_obj_scroll_to_view_recursive(r, LV_ANIM_OFF); /* tall: LIVE scrolls to it */
+            pump(60);
+        }
+        char sum[96];
+        unsigned sev = psk_diag_summary(a->model, i, sum, sizeof(sum));
+        const char *word = sev == PSK_SEV_WARN ? "! CHECK" : sev == PSK_SEV_NOTE ? "NOTE" : "OK";
+        int good;
+
+        /* A dots-mode label cuts its own text: the line is read from the
+         * model, its start from the label. */
+        good = r && target_ok(r, 56, i == 0 ? "DNS diagnosis" : "TCP diagnosis") &&
+               strstr(sum, i == 0 ? " ANSWERED" : " CONNECTED") && strstr(sum, " MS") &&
+               strncmp(lv_label_get_text(a->diag_text[i]), sum, 8) == 0 &&
+               containing_in(r, i == 0 ? "DNS" : "TCP") && strcmp(lv_label_get_text(a->diag_sev[i]), word) == 0;
+        if (!good) {
+            printf("     %s: '%s' / '%s' / '%s'\n", i == 0 ? "DNS" : "TCP", sum, lv_label_get_text(a->diag_text[i]),
+                   lv_label_get_text(a->diag_sev[i]));
+        }
+        ok = ok && good;
+    }
+    CHECK("SIGNALS: a DNS and a TCP line, each answered or connected, timed, with its severity", ok);
+    CHECK("the DNS line says CHECK: queries went unanswered", containing_in(psk_app_part(app_priv, "diag0"), "! CHECK") &&
+                                                                  a->model->c.sig[5] > 0);
+    CHECK("nothing in SIGNALS is clipped with the diagnosis either", audit_page() + dots_wrapped(app_body) == 0);
+    shot("m11-signals");
+
+    tap_obj(psk_app_part(app_priv, "diag0"));
+    pump(100);
+    ok = psk_dsheet_shown(a) && shown("DNS diagnosis") && containing_in(a->dsheet, "QUERIES ANSWERED") &&
+         containing_in(a->dsheet, "NAME NOT FOUND (NXDOMAIN)") && containing_in(a->dsheet, "! ") &&
+         containing_in(a->dsheet, "NOT ANSWERED WITHIN 5 S") && containing_in(a->dsheet, "Not proof of a DNS failure") &&
+         containing_in(a->dsheet, "heuristics, not proof") && containing_in(a->dsheet, "OPEN") &&
+         containing_in(a->dsheet, "LIST");
+    CHECK("a tap on DNS opens its diagnosis: answered and timed, NXDOMAIN, unanswered not called a failure", ok);
+    CHECK("nothing in the DNS diagnosis is clipped or broken", dots_wrapped(a->dsheet) == 0);
+    shot("m11-dns-sheet");
+    tap_obj(containing_in(a->dsheet, "NOT ANSWERED WITHIN 5 S"));
+    pump(300);
+    wait_rows(1500);
+    ok = !psk_dsheet_shown(a) && a->cur == PSK_TAB_PACKETS && a->sigmask == PPC_SIG_DNS_NOREPLY &&
+         containing_in(app_body, "UNANSWERED DNS") && rows_shown(NULL, 0) > 0;
+    if (!ok) {
+        printf("     sheet %d tab %d mask %x words %d rows %d\n", psk_dsheet_shown(a), (int)a->cur, a->sigmask,
+               containing_in(app_body, "UNANSWERED DNS QUERIES") != NULL, rows_shown(NULL, 0));
+    }
+    CHECK("its unanswered line lists the unanswered queries", ok);
+    shot("m11-noreply-list");
+    seq = a->insp_shown; /* the retransmission inspected above */
+    tap_obj(psk_app_part(app_priv, "row0"));
+    CHECK("an unanswered query says so, and that it is not proof of a failure",
+          wait_packet(seq, 1500) && (a->model->pkt.head.signal & PPC_SIG_DNS_NOREPLY) &&
+              containing_in(psk_app_part(app_priv, "inspect"), "! DNS QUERY NOT ANSWERED WITHIN 5 S") &&
+              containing_in(psk_app_part(app_priv, "inspect"), "NOT PROOF OF A DNS FAILURE"));
+    shot("m11-inspect-noreply");
+
+    psk_set_view_diag(a, PPC_CLASSES_ALL, "", 0, false, 0, PPC_DIAG_DNS_ANSWER);
+    psk_select_tab(a, PSK_TAB_PACKETS);
+    pump(300);
+    wait_rows(1500);
+    seq = a->insp_shown;
+    tap_obj(psk_app_part(app_priv, "row0"));
+    CHECK("a DNS answer names its query and how long it took",
+          a->diagf == PPC_DIAG_DNS_ANSWER && wait_packet(seq, 1500) &&
+              containing_in(psk_app_part(app_priv, "inspect"), "ANSWER TO #") &&
+              containing_in(psk_app_part(app_priv, "inspect"), " MS AFTER IT"));
+    shot("m11-inspect-answer");
+
+    psk_select_tab(a, PSK_TAB_LIVE);
+    pump(100);
+    tap_obj(psk_app_part(app_priv, "diag1"));
+    pump(100);
+    ok = psk_dsheet_shown(a) && shown("TCP diagnosis") && containing_in(a->dsheet, "CONNECTIONS OPENED") &&
+         containing_in(a->dsheet, "REFUSED") && containing_in(a->dsheet, "Not a network fault") &&
+         containing_in(a->dsheet, "RETRANSMISSIONS") && containing_in(a->dsheet, "SYN NOT ANSWERED");
+    CHECK("a tap on TCP opens its diagnosis: connections and their time, refusals not called faults", ok);
+    CHECK("nothing in the TCP diagnosis is clipped or broken", dots_wrapped(a->dsheet) == 0);
+    shot("m11-tcp-sheet");
+    CHECK("Back closes the diagnosis", app_packetshark.back(app_priv) == 1 && !psk_dsheet_shown(a));
+    tap_obj(psk_app_part(app_priv, "diag1"));
+    pump(100);
+    tap_obj(containing_in(a->dsheet, " REFUSED"));
+    pump(300);
+    wait_rows(1500);
+    n = rows_shown(NULL, 0);
+    ok = n > 0;
+    for (i = 0; (int)i < n; i++) {
+        ok = ok && strstr(lv_label_get_text(a->lrow[i].info), "RST") != NULL;
+    }
+    CHECK("its refusals line lists the refused connections, each a reset",
+          ok && a->cur == PSK_TAB_PACKETS && a->diagf == PPC_DIAG_TCP_REFUSED && a->sigmask == 0 &&
+              shown("REFUSED CONNECTIONS"));
+    shot("m11-refused");
+    seq = a->insp_shown;
+    tap_obj(psk_app_part(app_priv, "row0"));
+    CHECK("a refusal says what it answered and that it is not a network fault",
+          wait_packet(seq, 1500) && containing_in(psk_app_part(app_priv, "inspect"), "CONNECTION REFUSED") &&
+              containing_in(psk_app_part(app_priv, "inspect"), "NOT A NETWORK FAULT"));
+    shot("m11-inspect-refused");
+    psk_select_tab(a, PSK_TAB_PACKETS);
+    pump(100);
+    tap_obj(psk_app_part(app_priv, "filter"));
+    pump(100);
+    CHECK("the filter sheet names the diagnosis, and the Findings row lets it go",
+          shown("REFUSED CONNECTIONS") != NULL && (tap("Findings"), a->fs_diagv == 0 && shown("ANY PACKET") != NULL));
+    tap("CANCEL");
+    psk_select_tab(a, PSK_TAB_LIVE);
+    pump(100);
+    tap_obj(psk_app_part(app_priv, "diag1"));
+    pump(100);
+    seq = a->insp_shown;
+    tap_obj(containing_in(a->dsheet, "CONNECTIONS OPENED"));
+    CHECK("the summary opens the slowest handshake, which says how long it took",
+          wait_packet(seq, 1500) && a->model->pkt.head.seq == a->model->d.tcp_hs_max_seq &&
+              containing_in(psk_app_part(app_priv, "inspect"), "HANDSHAKE COMPLETE") &&
+              containing_in(psk_app_part(app_priv, "inspect"), " AFTER SYN #"));
+    shot("m11-inspect-handshake");
     psk_set_view(a, PPC_CLASSES_ALL, "", 0, false);
     pump(600);
 

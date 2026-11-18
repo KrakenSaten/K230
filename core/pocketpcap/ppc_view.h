@@ -48,6 +48,7 @@ struct ppc_filter {
     uint16_t port;     /* 0: any port; else either end's TCP or UDP port */
     uint8_t pinned;    /* only pinned packets */
     uint8_t signals;   /* PPC_SIG_* bits; 0: any packet, else one with any of these findings (M7) */
+    uint8_t diag;      /* enum ppc_diag_code; 0: any packet, else only packets with that diagnosis (M11.1) */
 };
 
 enum ppc_sort {

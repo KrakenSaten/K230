@@ -249,6 +249,115 @@ int main(void)
                                           psk_filter_token("host:", &classes, host, sizeof(host), &port) < 0 &&
                                           psk_filter_token("rm -rf", &classes, host, sizeof(host), &port) < 0);
     }
+    /* M11.1: the diagnosis. */
+    {
+        struct ppc_diag d;
+        struct psk_diag_line dl[PSK_DIAG_LINES];
+        unsigned nl;
+        unsigned k;
+        int found;
+
+        psk_model_init(&M);
+        check("no diagnosis yet: nothing seen, OK", psk_diag_summary(&M, PSK_DIAG_DNS, t, sizeof(t)) == PSK_SEV_OK &&
+                                                      strcmp(t, "NO QUERY SEEN YET") == 0 &&
+                                                      psk_diag_summary(&M, PSK_DIAG_TCP, t, sizeof(t)) == PSK_SEV_OK);
+        memset(&d, 0, sizeof(d));
+        d.dns_queries = 20;
+        d.dns_answered = 20;
+        d.dns_rtt_sum_us = 20 * 23000u;
+        d.dns_rtt_max_us = 140000;
+        d.dns_rtt_max_seq = 77;
+        d.tcp_attempts = 5;
+        d.tcp_connected = 5;
+        d.tcp_timed = 5;
+        d.tcp_hs_sum_us = 5 * 41000u;
+        d.tcp_hs_max_us = 60000;
+        d.tcp_hs_max_seq = 99;
+        d.tcp_segments = 10000;
+        d.tcp_retrans = 2;
+        d.tcp_rst_closed = 3;
+        ppc_evt_format_diag(buf, sizeof(buf), &d);
+        check("the diag line fills the model", line(buf) == PSK_CHANGED_DIAG && M.have_diag && M.d.dns_queries == 20);
+        check("all answered: OK, answered and how fast",
+              psk_diag_summary(&M, PSK_DIAG_DNS, t, sizeof(t)) == PSK_SEV_OK &&
+                  strcmp(t, "20 ANSWERED \xc2\xb7 AVG 23 MS") == 0);
+        check("two retransmissions in ten thousand and resets after close are not a fault: a note at most",
+              psk_diag_summary(&M, PSK_DIAG_TCP, t, sizeof(t)) == PSK_SEV_NOTE &&
+                  strcmp(t, "5 CONNECTED \xc2\xb7 AVG 41 MS") == 0);
+        nl = psk_diag_lines(&M, PSK_DIAG_TCP, dl, PSK_DIAG_LINES);
+        found = 0;
+        for (k = 0; k < nl; k++) {
+            if (strstr(dl[k].text, "RESETS AFTER CLOSE") && dl[k].sev == PSK_SEV_OK && dl[k].go == PSK_GO_LIST &&
+                dl[k].diag == PPC_DIAG_TCP_RST_CLOSED) {
+                found |= 1;
+            }
+            if (strstr(dl[k].text, "2 RETRANSMISSIONS") && dl[k].sev == PSK_SEV_NOTE && dl[k].signals == PPC_SIG_RETRANS &&
+                strncmp(dl[k].why, "2 had passed here before.", 25) == 0) {
+                found |= 2;
+            }
+        }
+        check("TCP lines: the summary opens the slowest handshake; resets after close OK, a few retransmissions a note",
+              nl == 3 && dl[0].go == PSK_GO_OPEN && dl[0].seq == 99 && strcmp(dl[0].text, "5 OF 5 CONNECTIONS OPENED") == 0 &&
+                  found == 3);
+
+        d.dns_nxdomain = 2;
+        d.dns_noreply = 3;
+        d.dns_late = 1;
+        d.dns_orphan = 4;
+        d.tcp_refused = 1;
+        d.tcp_aborted = 2;
+        d.tcp_retrans = 200;
+        d.tcp_retrans_unseen = 10;
+        ppc_evt_format_diag(buf, sizeof(buf), &d);
+        line(buf);
+        check("unanswered queries: CHECK, the problem first",
+              psk_diag_summary(&M, PSK_DIAG_DNS, t, sizeof(t)) == PSK_SEV_WARN &&
+                  strncmp(t, "3 NO REPLY \xc2\xb7 2 FAILED \xc2\xb7 21 ANSWERED", 36) == 0);
+        nl = psk_diag_lines(&M, PSK_DIAG_DNS, dl, PSK_DIAG_LINES);
+        found = 0;
+        for (k = 0; k < nl; k++) {
+            if (strstr(dl[k].text, "NAME NOT FOUND") && dl[k].sev == PSK_SEV_NOTE && dl[k].signals == PPC_SIG_DNS_FAIL) {
+                found |= 1;
+            }
+            if (strstr(dl[k].text, "NOT ANSWERED WITHIN 5 S") && dl[k].sev == PSK_SEV_WARN &&
+                dl[k].signals == PPC_SIG_DNS_NOREPLY && strstr(dl[k].why, "Not proof of a DNS failure. 1 answered later.")) {
+                found |= 2;
+            }
+            if (strstr(dl[k].text, "WITHOUT THEIR QUERY") && dl[k].diag == PPC_DIAG_DNS_ORPHAN && dl[k].sev == PSK_SEV_NOTE) {
+                found |= 4;
+            }
+        }
+        check("DNS lines: NXDOMAIN a note, unanswered a warning that is not proof, answers without a query a note",
+              found == 7);
+        check("aborted connections and many retransmissions: CHECK, refusals named",
+              psk_diag_summary(&M, PSK_DIAG_TCP, t, sizeof(t)) == PSK_SEV_WARN && strstr(t, "2 ABORTED") &&
+                  strstr(t, "1 REFUSED") && strstr(t, "210 RETRANS"));
+        line("state\tcapturing\tnone\teth0\t100\t1");
+        check("a new capture forgets the last one's diagnosis",
+              (line("state\tidle\tnone\t-\t0\t0"), line("state\tcapturing\tnone\teth0\t100\t1"), !M.have_diag) &&
+                  M.d.dns_queries == 0);
+        check("durations: 0.4 MS, 23 MS, 1.2 S", strcmp(psk_fmt_ms(400, t, sizeof(t)), "0.4 MS") == 0 &&
+                                                    strcmp(psk_fmt_ms(23400, t, sizeof(t)), "23 MS") == 0 &&
+                                                    strcmp(psk_fmt_ms(1250000, t, sizeof(t)), "1.2 S") == 0);
+        check("a diagnosis names its filter", strcmp(psk_diag_plural(PPC_DIAG_TCP_REFUSED), "REFUSED CONNECTIONS") == 0);
+        memset(&d, 0, sizeof(d));
+        d.tcp_attempts = 2;
+        d.tcp_connected = 1;
+        d.tcp_segments = 5;
+        d.tcp_retrans = 1;
+        d.tcp_rst_closed = 1;
+        ppc_evt_format_diag(buf, sizeof(buf), &d);
+        line(buf);
+        nl = psk_diag_lines(&M, PSK_DIAG_TCP, dl, PSK_DIAG_LINES);
+        found = 0;
+        for (k = 0; k < nl; k++) {
+            found |= strcmp(dl[k].text, "1 RETRANSMISSION IN 5 SEGMENTS") == 0 && dl[k].sev == PSK_SEV_NOTE ? 1 : 0;
+            found |= strcmp(dl[k].text, "1 RESET AFTER CLOSE") == 0 ? 2 : 0;
+        }
+        check("one is one, and five segments give no share (Unit B, 2026-11-18: '1 RETRANSMISSIONS · 20.0%')",
+              found == 3);
+    }
+
     printf("psk_model_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

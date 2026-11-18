@@ -155,6 +155,15 @@ int psk_session_view_signals(struct psk_session *s, uint32_t id, unsigned sort, 
     return n < 0 ? -1 : send_raw(s, line, n);
 }
 
+int psk_session_view_diag(struct psk_session *s, uint32_t id, unsigned sort, uint8_t classes, const char *host,
+                          uint16_t port, bool pinned, unsigned signals, unsigned diag)
+{
+    char line[160];
+    int n = ppc_cmd_format_view_diag(line, sizeof(line), id, sort, classes, host, port, pinned, signals, diag);
+
+    return n < 0 ? -1 : send_raw(s, line, n);
+}
+
 int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t buckets)
 {
     char line[48];

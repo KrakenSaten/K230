@@ -86,14 +86,52 @@ enum ppc_info {
 #define PPC_F_NONFIRST 0x0200u   /* a non-first fragment: no transport header */
 
 /* Signals (findings, M7): set by ppc_signals.h as a packet is stored, or
- * added later by ppc_store_mark() (an unanswered SYN). The bit's index is
- * the counter's place on the stats line (s0..s4). */
+ * added later by ppc_store_mark() (an unanswered SYN or DNS query). The
+ * bit's index is the counter's place on the stats line (s0..s5). They live
+ * in the low byte of the record's `signal`. */
 #define PPC_SIG_RETRANS 0x0001u
 #define PPC_SIG_RST 0x0002u
 #define PPC_SIG_DNS_FAIL 0x0004u
 #define PPC_SIG_UNREACH 0x0008u
 #define PPC_SIG_SYN_UNANSWERED 0x0010u
-#define PPC_SIGNAL_COUNT 5
+#define PPC_SIG_DNS_NOREPLY 0x0020u /* M11: a DNS query not answered within PPC_DNS_WAIT_NS */
+#define PPC_SIGNAL_COUNT 6
+#define PPC_SIG_FINDINGS 0x00ffu
+#define PPC_SIG_FINDINGS_ALL 0x3fu /* every finding there is */
+
+/* The diagnosis (M11.1): what the DNS transaction or TCP connection table
+ * made of the packet, one code in the high byte of `signal`. A diagnosis is
+ * not a finding: an out-of-order segment or a refused connection has one
+ * and is not a fault. Codes are part of the protocol (the view's filter
+ * carries one). */
+enum ppc_diag_code {
+    PPC_DIAG_NONE = 0,
+    /* DNS */
+    PPC_DIAG_DNS_QUERY,         /* a query, entered in the table */
+    PPC_DIAG_DNS_RETRY,         /* the same query again (same ends, same id) */
+    PPC_DIAG_DNS_ANSWER,        /* a response to a query this capture saw */
+    PPC_DIAG_DNS_LATE,          /* the same, after the query was called unanswered */
+    PPC_DIAG_DNS_ORPHAN,        /* a response whose query this capture did not see */
+    /* TCP */
+    PPC_DIAG_TCP_SYN,           /* a connection attempt */
+    PPC_DIAG_TCP_SYN_AGAIN,     /* the same SYN again */
+    PPC_DIAG_TCP_SYNACK,        /* the answer to a SYN this capture saw */
+    PPC_DIAG_TCP_CONNECTED,     /* the segment that completed a handshake */
+    PPC_DIAG_TCP_MIDSTREAM,     /* first seen without its handshake */
+    PPC_DIAG_TCP_REFUSED,       /* a reset in answer to a SYN */
+    PPC_DIAG_TCP_ABORTED,       /* a reset of a connection that was open or opening */
+    PPC_DIAG_TCP_RST_CLOSED,    /* a reset after a FIN or an earlier reset */
+    PPC_DIAG_TCP_RST_UNSEEN,    /* a reset of a connection this capture never saw */
+    PPC_DIAG_TCP_RETRANS,       /* sent again; the original was seen here */
+    PPC_DIAG_TCP_RETRANS_ACKED, /* sent again after the receiver had acknowledged it */
+    PPC_DIAG_TCP_RETRANS_UNSEEN,/* fills a gap later than a round trip: the original never came by */
+    PPC_DIAG_TCP_OUT_OF_ORDER,  /* fills a gap within a round trip: reordering, not loss */
+    PPC_DIAG_COUNT
+};
+
+#define PPC_DIAG_SHIFT 8
+#define ppc_sig_findings(s) ((unsigned)(s) & PPC_SIG_FINDINGS)
+#define ppc_sig_diag(s) ((unsigned)(s) >> PPC_DIAG_SHIFT)
 
 /* TCP flag bits as on the wire (byte 13). */
 #define PPC_TCP_FIN 0x01u

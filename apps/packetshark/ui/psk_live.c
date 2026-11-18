@@ -499,6 +499,12 @@ static void on_signal(lv_event_t *e)
     psk_show_signal(lv_event_get_user_data(e), (unsigned)index_of(e));
 }
 
+/* The DNS or TCP diagnosis, in its sheet (M11.1). */
+static void on_diag(lv_event_t *e)
+{
+    psk_dsheet_show(lv_event_get_user_data(e), (unsigned)index_of(e));
+}
+
 static void on_saves(lv_event_t *e)
 {
     psk_ssheet_show(lv_event_get_user_data(e));
@@ -933,9 +939,11 @@ static void build_protocols(struct psk_app *a, lv_obj_t *parent)
 }
 
 /* SIGNALS (M7, mockup 01): the findings of the capture, each the way to its
- * packets. Five cells of 68 px, three to a row: the mockup drew four in a
- * line and the milestone has five (DS §59.11). A count above zero is drawn
- * in status_warn, the colour kept for findings (DS §59.2). */
+ * packets. Six cells of 68 px, three to a row (the mockup drew four in a
+ * line; M7 has five, M11.1 six: DS §59.11), DNS's on the first row, TCP's
+ * on the second. A count above zero is drawn in status_warn, the colour
+ * kept for findings (DS §59.2). Under them the DNS and TCP diagnosis
+ * (M11.1): a line each with its severity, the way to its sheet. */
 static void build_signals(struct psk_app *a, lv_obj_t *parent)
 {
     lv_obj_t *p = panel(parent, "SIGNALS \xc2\xb7 TAP TO LIST", NULL);
@@ -952,9 +960,9 @@ static void build_signals(struct psk_app *a, lv_obj_t *parent)
     lv_obj_set_style_pad_column(grid, PSK_GAP, 0);
     lv_obj_set_style_pad_row(grid, PSK_GAP, 0);
     for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
-        /* The order of the mockup: DNS FAIL, TCP RST, RETRANS, UNREACH,
-         * then the fifth; the user data is the finding's bit. */
-        static const uint8_t order[PPC_SIGNAL_COUNT] = { 2, 1, 0, 3, 4 };
+        /* DNS FAIL, NO DNS REPLY, UNREACH; TCP RST, RETRANS, NO ANSWER.
+         * The user data is the finding's bit. */
+        static const uint8_t order[PPC_SIGNAL_COUNT] = { 2, 5, 3, 1, 0, 4 };
         unsigned bit = order[i];
         lv_obj_t *c = psk_box(grid);
         lv_obj_t *left;
@@ -989,6 +997,61 @@ static void build_signals(struct psk_app *a, lv_obj_t *parent)
         chev = pocketui_label(c, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL);
         pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
         a->sig_cell[bit] = c;
+    }
+    {
+        lv_obj_t *dg = psk_box(p);
+        unsigned k;
+
+        a->diag_box = dg;
+        lv_obj_set_width(dg, LV_PCT(100));
+        lv_obj_set_height(dg, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(dg, LV_FLEX_FLOW_ROW_WRAP);
+        lv_obj_set_style_pad_column(dg, PSK_GAP, 0);
+        lv_obj_set_style_pad_row(dg, PSK_GAP, 0);
+        for (k = 0; k < PSK_DIAG_KINDS; k++) {
+            unsigned cls = k == PSK_DIAG_DNS ? PPC_CLASS_DNS : PPC_CLASS_TCP;
+            int hue = psk_class_hue(cls);
+            lv_obj_t *r = psk_box(dg);
+            lv_obj_t *left;
+            lv_obj_t *top;
+            lv_obj_t *w;
+            lv_obj_t *chev;
+
+            pos_style_add(r, POS_STYLE_SLAB, 0);
+            pos_style_add(r, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+            lv_obj_set_style_radius(r, POCKETUI_RADIUS, 0);
+            lv_obj_set_width(r, LV_PCT(100));
+            lv_obj_set_height(r, LV_SIZE_CONTENT);
+            lv_obj_set_style_min_height(r, PSK_ROW_H, 0);
+            lv_obj_set_style_pad_hor(r, 12, 0);
+            lv_obj_set_style_pad_ver(r, 6, 0);
+            lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(r, 10, 0);
+            lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(r, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+            lv_obj_set_user_data(r, (void *)(intptr_t)k);
+            lv_obj_add_event_cb(r, on_diag, LV_EVENT_CLICKED, a);
+            /* Two lines: the protocol in its hue and the severity's word,
+             * then the summary, problems first. */
+            left = column(r, 2);
+            grow(left);
+            lv_obj_add_flag(left, LV_OBJ_FLAG_EVENT_BUBBLE);
+            top = row(left, 10);
+            lv_obj_add_flag(top, LV_OBJ_FLAG_EVENT_BUBBLE);
+            w = one_line(top, psk_class_word(cls), POS_STYLE_CAPTION);
+            if (hue >= 0) {
+                lv_obj_add_style(w, pos_style_identity((unsigned)hue), 0);
+            }
+            a->diag_sev[k] = one_line(top, "OK", POS_STYLE_CAPTION);
+            /* One line: a dots-mode label with an automatic height wraps. */
+            a->diag_text[k] = one_line(left, "", POS_STYLE_CAPTION);
+            lv_obj_set_width(a->diag_text[k], LV_PCT(100));
+            lv_obj_set_height(a->diag_text[k], pocketui_role_line_height(POS_STYLE_CAPTION));
+            chev = pocketui_label(r, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL);
+            pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
+            a->diag_row[k] = r;
+        }
     }
 }
 
@@ -1180,13 +1243,45 @@ void psk_shape(struct psk_app *a)
     }
     two_columns(a->live, a->live_l, a->live_r, w, PSK_LIVE_LEFT_W);
     two_columns(a->setup, a->setup_l, a->setup_r, w, PSK_LIVE_LEFT_W);
-    /* The findings: three to a row, or all five in the wider column. */
+    /* The findings: three to a row, or all six in the wider column; the
+     * DNS and TCP diagnosis one above the other, or side by side. */
     for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
-        lv_obj_set_width(a->sig_cell[i], w ? LV_PCT(19) : LV_PCT(32));
+        lv_obj_t *c = a->sig_cell[i];
+        lv_obj_t *left = lv_obj_get_child(c, 0);
+
+        /* Wide: each cell as wide as its word, spread over the line, so the
+         * six fit one line at text size Small (larger sizes wrap to a second
+         * line); tall: three to a row. A grow item would take an equal share
+         * whatever its word. */
+        if (w) {
+            lv_obj_set_width(c, LV_SIZE_CONTENT);
+            lv_obj_set_flex_grow(left, 0);
+            lv_obj_set_width(left, LV_SIZE_CONTENT);
+            lv_obj_set_width(lv_obj_get_child(left, 0), LV_SIZE_CONTENT);
+            lv_obj_set_width(lv_obj_get_child(left, 1), LV_SIZE_CONTENT);
+        } else {
+            lv_obj_set_width(c, LV_PCT(32));
+            lv_obj_set_width(left, 1);
+            lv_obj_set_flex_grow(left, 1);
+            lv_obj_set_width(lv_obj_get_child(left, 0), LV_PCT(100));
+            lv_obj_set_width(lv_obj_get_child(left, 1), LV_PCT(100));
+        }
         /* The chevron has no room in the narrower cell. */
-        psk_set_hidden(lv_obj_get_child(a->sig_cell[i], 1), w);
-        lv_obj_set_style_min_height(a->sig_cell[i], w ? 56 : 68, 0);
-        lv_obj_set_style_pad_ver(a->sig_cell[i], w ? 4 : 8, 0);
+        psk_set_hidden(lv_obj_get_child(c, 1), w);
+        lv_obj_set_style_min_height(c, w ? 56 : 68, 0);
+        lv_obj_set_style_pad_ver(c, w ? 4 : 8, 0);
+        lv_obj_set_style_pad_hor(c, w ? 8 : 12, 0);
+    }
+    lv_obj_set_flex_align(lv_obj_get_parent(a->sig_cell[0]), w ? LV_FLEX_ALIGN_SPACE_BETWEEN : LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    /* The DNS and TCP diagnosis: under the findings, one above the other;
+     * wide, under TRAFFIC side by side, where the left column has room. The
+     * same objects, moved (M9). */
+    if (lv_obj_get_parent(a->diag_box) != (w ? a->live_l : a->signals)) {
+        lv_obj_set_parent(a->diag_box, w ? a->live_l : a->signals);
+    }
+    for (i = 0; i < PSK_DIAG_KINDS; i++) {
+        lv_obj_set_width(a->diag_row[i], w ? LV_PCT(49) : LV_PCT(100));
     }
     /* Wide: LIVE's three panels and the top row fit the body's height. */
     lv_obj_set_style_pad_row(a->live_r, w ? 12 : PSK_PANEL_GAP, 0);
@@ -1655,6 +1750,18 @@ static void paint_counters(struct psk_app *a)
     for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
         psk_text(a->sig_val[i], psk_fmt_count(c->sig[i], b, sizeof(b)));
         tone(a->sig_val[i], c->sig[i] ? POS_STYLE_STATUS_WARN_TEXT : TONE_NONE);
+    }
+    /* The DNS and TCP diagnosis (M11.1): its line, and a word for how it
+     * reads - OK in status_ok, NOTE plain, ! CHECK in status_warn. */
+    for (i = 0; i < PSK_DIAG_KINDS; i++) {
+        char t[96];
+        unsigned sev = psk_diag_summary(m, i, t, sizeof(t));
+
+        psk_text(a->diag_text[i], t);
+        psk_text(a->diag_sev[i], sev == PSK_SEV_WARN ? "! CHECK" : sev == PSK_SEV_NOTE ? "NOTE" : "OK");
+        tone(a->diag_sev[i], sev == PSK_SEV_WARN ? POS_STYLE_STATUS_WARN_TEXT
+                             : sev == PSK_SEV_OK ? POS_STYLE_STATUS_OK_TEXT
+                                                 : TONE_NONE);
     }
     psk_text(a->later, m->save == PSK_SAVE_DONE
                            ? "This capture is saved. Leaving PacketShark removes it from memory; the file stays."
