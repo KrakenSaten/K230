@@ -1233,7 +1233,7 @@ void psk_paint_ifaces(struct psk_app *a)
         struct psk_ifrow *r = &a->ifrow[i];
         const struct psk_iface *f = &a->ifs[i];
         char sub[96];
-        bool usable = i < a->nifs && !f->wifi && f->carrier;
+        bool usable = i < a->nifs && psk_iface_usable(f);
 
         psk_set_hidden(r->row, i >= a->nifs);
         if (i >= a->nifs) {
@@ -1243,9 +1243,15 @@ void psk_paint_ifaces(struct psk_app *a)
         if (f->synthetic) {
             snprintf(sub, sizeof(sub), "SIMULATED TRAFFIC · NO NETWORK");
             chip_set(r->chip, CHIP_ACTIVE, "READY");
+        } else if (f->wifi && f->carrier) {
+            /* Managed mode: this device's own traffic and the network's
+             * broadcast and multicast, as on a switch port (§2). */
+            snprintf(sub, sizeof(sub), "WI-FI%s%s%s%s", f->ssid[0] ? " · " : "", f->ssid,
+                     f->ipv4[0] ? " · " : "", f->ipv4);
+            chip_set(r->chip, CHIP_ACTIVE, "CONNECTED");
         } else if (f->wifi) {
-            snprintf(sub, sizeof(sub), "WI-FI · NOT AVAILABLE IN THIS VERSION");
-            chip_set(r->chip, CHIP_NA, f->up ? "UP" : "DOWN");
+            snprintf(sub, sizeof(sub), "WI-FI · %s", f->up ? "NOT CONNECTED" : "OFF");
+            chip_set(r->chip, f->up ? CHIP_WARN : CHIP_NA, f->up ? "NO LINK" : "DOWN");
         } else if (f->carrier) {
             snprintf(sub, sizeof(sub), "ETHERNET%s%s", f->ipv4[0] ? " · " : "", f->ipv4);
             chip_set(r->chip, CHIP_ACTIVE, "LINK UP");
@@ -1259,12 +1265,8 @@ void psk_paint_ifaces(struct psk_app *a)
         } else {
             lv_obj_remove_style(r->row, pos_style(POS_STYLE_SELECTED), 0);
         }
-        if (f->wifi) {
-            lv_obj_clear_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_set_style_opa(r->name, LV_OPA_60, 0);
-        } else {
-            lv_obj_add_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
-        }
+        /* Every row takes a tap; only a usable one becomes the choice. */
+        lv_obj_add_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
     }
     psk_set_hidden(a->if_none, a->nifs > 0);
 }
@@ -1497,7 +1499,23 @@ static void paint_status(struct psk_app *a, enum psk_view v)
         if (any) {
             snprintf(text, sizeof(text), "NOTHING IS CAPTURED UNTIL YOU START");
         } else if (a->nifs > 0) {
-            snprintf(text, sizeof(text), "CONNECT A CABLE TO %s", a->ifs[0].wifi ? "ETHERNET" : a->ifs[0].name);
+            const char *eth = NULL;
+            bool wifi = false;
+            int i;
+
+            for (i = 0; i < a->nifs; i++) {
+                wifi |= a->ifs[i].wifi;
+                if (!a->ifs[i].wifi && !eth) {
+                    eth = a->ifs[i].name;
+                }
+            }
+            if (eth && wifi) {
+                snprintf(text, sizeof(text), "CONNECT %s OR JOIN WI-FI", eth);
+            } else if (eth) {
+                snprintf(text, sizeof(text), "CONNECT A CABLE TO %s", eth);
+            } else {
+                snprintf(text, sizeof(text), "JOIN A WI-FI NETWORK");
+            }
             upper(text);
         } else {
             snprintf(text, sizeof(text), "NO INTERFACE TO CAPTURE ON");
@@ -1556,6 +1574,9 @@ static void paint_status(struct psk_app *a, enum psk_view v)
             snprintf(text, sizeof(text), "%s · %s", iface, reason_word(m->reason));
         } else if (m->speed) {
             snprintf(text, sizeof(text), "%s · %u MBIT/S · %s", iface, (unsigned)m->speed, sz);
+        } else if (strncmp(m->iface, "wlan", 4) == 0) {
+            /* A Wi-Fi interface reports no speed (sysfs answers EINVAL). */
+            snprintf(text, sizeof(text), "%s · WI-FI · %s", iface, sz);
         } else {
             snprintf(text, sizeof(text), "%s · %s", iface, sz);
         }

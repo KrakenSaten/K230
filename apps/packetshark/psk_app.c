@@ -4,7 +4,7 @@
  * the launcher - setup, START, live counters, HOLD, STOP, the error state;
  * the traffic graph (M4); the packet list with its filter and sort (M5); the
  * inspector and pins (M6); findings (M7); SAVE and the saved captures (M8);
- * the wide shape and the keys (M9).
+ * the wide shape and the keys (M9); Wi-Fi in managed mode (M10).
  *
  * The shell is a viewport (DESIGN_DECISIONS D1, accepted): the capture
  * socket, the decoder and every packet are in pos-capture, one helper per
@@ -18,8 +18,11 @@
  *
  * The interfaces come from sysd (system.status.network, docs/api/system.md),
  * asked when the app opens and every PSK_IFACE_POLL_MS while the setup view
- * shows. Only an Ethernet interface with a carrier can be chosen; Wi-Fi is
- * listed and not selectable in this version (D18).
+ * shows. An interface with a carrier can be chosen: Ethernet with a cable,
+ * Wi-Fi while it is associated (M10; managed mode, the frames the driver
+ * hands up as Ethernet). The joined network's name comes from netd
+ * (wifi.status, docs/api/network.md), asked only while a Wi-Fi interface
+ * has a carrier. Nothing here changes an interface.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -55,15 +58,38 @@ static int64_t now_us(void)
 
 /* ---- interfaces ------------------------------------------------------------------------ */
 
-static bool usable(const struct psk_iface *f)
+bool psk_iface_usable(const struct psk_iface *f)
 {
-    return !f->wifi && f->carrier;
+    return f->carrier;
 }
 
 static bool capture_name(const char *n)
 {
     return strncmp(n, "eth", 3) == 0 || strncmp(n, "en", 2) == 0 || strncmp(n, "usb", 3) == 0 ||
            strncmp(n, "wlan", 4) == 0;
+}
+
+/* The network netd's Wi-Fi interface has joined, onto that interface's
+ * entry. Display text only (netd sanitises it); nothing when netd does not
+ * answer or is not connected. */
+static void read_ssid(struct psk_app *a)
+{
+    char err[96];
+    cJSON *st = shell_ipc_call_timeout("netd", "wifi.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err, sizeof(err));
+    const cJSON *ifn = st ? cJSON_GetObjectItemCaseSensitive(st, "interface") : NULL;
+    const cJSON *state = st ? cJSON_GetObjectItemCaseSensitive(st, "state") : NULL;
+    const cJSON *ssid = st ? cJSON_GetObjectItemCaseSensitive(st, "ssid") : NULL;
+    int i;
+
+    if (cJSON_IsString(ifn) && cJSON_IsString(ssid) && ssid->valuestring[0] && cJSON_IsString(state) &&
+        (strcmp(state->valuestring, "connected") == 0 || strcmp(state->valuestring, "obtaining_ip") == 0)) {
+        for (i = 0; i < a->nifs; i++) {
+            if (a->ifs[i].wifi && a->ifs[i].carrier && strcmp(a->ifs[i].name, ifn->valuestring) == 0) {
+                snprintf(a->ifs[i].ssid, sizeof(a->ifs[i].ssid), "%s", ssid->valuestring);
+            }
+        }
+    }
+    cJSON_Delete(st);
 }
 
 static void read_ifaces(struct psk_app *a)
@@ -73,6 +99,7 @@ static void read_ifaces(struct psk_app *a)
     cJSON *st;
     const cJSON *net;
     const cJSON *it;
+    bool wifi_up = false;
     int i;
 
     if (a->sel >= 0 && a->sel < a->nifs) {
@@ -87,6 +114,7 @@ static void read_ifaces(struct psk_app *a)
         a->ifs[0].carrier = true;
         a->ifs[0].wifi = false;
         a->ifs[0].ipv4[0] = '\0';
+        a->ifs[0].ssid[0] = '\0';
         a->nifs = 1;
     } else {
         st = shell_ipc_call_timeout("sysd", "system.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err, sizeof(err));
@@ -112,19 +140,30 @@ static void read_ifaces(struct psk_app *a)
             if (cJSON_IsString(ip)) {
                 snprintf(f->ipv4, sizeof(f->ipv4), "%s", ip->valuestring);
             }
+            wifi_up |= f->wifi && f->carrier;
         }
         cJSON_Delete(st);
+        if (wifi_up) {
+            read_ssid(a);
+        }
     }
-    /* Keep the choice while it stays usable; otherwise the first usable
-     * interface, so "plug in, open, START" is two taps (PRODUCT_SPEC F1). */
+    /* The interface last tapped while it is usable (a Wi-Fi that drops and
+     * rejoins is chosen again); else keep the choice while it stays usable;
+     * otherwise the first usable interface, so "plug in, open, START" is
+     * two taps (PRODUCT_SPEC F1). sysd lists names sorted: eth before wlan. */
     a->sel = -1;
     for (i = 0; i < a->nifs; i++) {
-        if (usable(&a->ifs[i]) && strcmp(a->ifs[i].name, keep) == 0) {
+        if (psk_iface_usable(&a->ifs[i]) && strcmp(a->ifs[i].name, a->chosen) == 0) {
             a->sel = i;
         }
     }
     for (i = 0; i < a->nifs && a->sel < 0; i++) {
-        if (usable(&a->ifs[i])) {
+        if (psk_iface_usable(&a->ifs[i]) && strcmp(a->ifs[i].name, keep) == 0) {
+            a->sel = i;
+        }
+    }
+    for (i = 0; i < a->nifs && a->sel < 0; i++) {
+        if (psk_iface_usable(&a->ifs[i])) {
             a->sel = i;
         }
     }
@@ -795,8 +834,9 @@ void psk_select_tab(struct psk_app *a, enum psk_tab t)
 
 void psk_select_iface(struct psk_app *a, int index)
 {
-    if (index >= 0 && index < a->nifs && usable(&a->ifs[index])) {
+    if (index >= 0 && index < a->nifs && psk_iface_usable(&a->ifs[index])) {
         a->sel = index;
+        snprintf(a->chosen, sizeof(a->chosen), "%s", a->ifs[index].name);
         psk_live_paint(a, PSK_CHANGED_STATE);
     }
 }

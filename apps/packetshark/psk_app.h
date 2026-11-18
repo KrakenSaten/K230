@@ -101,6 +101,7 @@ struct psk_iface {
     bool up;
     bool carrier;
     char ipv4[20];
+    char ssid[48]; /* Wi-Fi: the joined network's display text from netd, or empty */
 };
 
 struct psk_ifrow {
@@ -348,6 +349,7 @@ struct psk_app {
     struct psk_iface ifs[PSK_IFACES];
     int nifs;
     int sel;             /* index into ifs, or -1 */
+    char chosen[PPC_IFACE_MAX]; /* the interface last tapped: chosen again when usable */
     bool simulated;      /* a synthetic or replayed source stands in for the interfaces */
     enum ppc_keep keep;
     int limit_idx;
@@ -385,6 +387,9 @@ int64_t psk_now(void);
 void psk_do(struct psk_app *a, enum psk_action act);
 void psk_select_tab(struct psk_app *a, enum psk_tab t);
 void psk_select_iface(struct psk_app *a, int index);
+/* Whether an interface can be captured on: it has a carrier (Ethernet with a
+ * cable, Wi-Fi associated), or it is the simulator's stand-in. */
+bool psk_iface_usable(const struct psk_iface *f);
 void psk_option(struct psk_app *a, int which);
 void psk_sheet_answer(struct psk_app *a, bool go);
 /* PACKETS and INSPECT (M5, M6) */
