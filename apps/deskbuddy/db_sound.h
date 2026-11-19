@@ -1,6 +1,7 @@
 /*
- * The one sound DeskBuddy makes, and the seam it is made through.
+ * DeskBuddy’s character voice and guard chime, and the seam it is made through.
  *
+ * Character calls accompany Buddy reactions and previews.
  * An armed Desk Guard with "Visit sound" on plays one short chime when it
  * logs a new visit (db_brain_take_visit_alert decides when). DeskBuddy does
  * not open the sound card itself: apps never touch hardware (ADR-002).
@@ -26,13 +27,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+enum db_cue {
+    DB_CUE_VISIT, DB_CUE_CURIOUS, DB_CUE_PET, DB_CUE_EAT, DB_CUE_HELLO,
+    DB_CUE_YAWN, DB_CUE_WAKE, DB_CUE_HUFF, DB_CUE_CONFIRM, DB_CUE_COUNT
+};
+
 struct db_sound_backend {
     const char *name;
     /* 1 when this backend can make a sound on this device now. NULL: never. */
     int (*available)(void);
-    /* Start the visit sound at this volume (1..100 percent of the system
+    /* Start the requested cue at this volume (1..100 percent of the system
      * level) and return at once. 0 when it was started, -1 when not. */
-    int (*play)(int volume_percent);
+    int (*play)(enum db_cue cue, int volume_percent);
     /* Stop anything still sounding and release what play took. May be NULL. */
     void (*stop)(void);
     /* One line for a reader: what this backend does, or why it cannot. */
@@ -50,6 +56,7 @@ int db_sound_available(void);
 /* Ask for the visit sound. -1 when the volume is 0, the backend has none,
  * or it would not start one (one is still sounding). */
 int db_sound_play(int volume_percent);
+int db_sound_play_cue(enum db_cue cue, int volume_percent);
 void db_sound_stop(void);
 
 /* ---- the pos-record backend (db_sound_helper.c) -------------------------- */
@@ -60,6 +67,7 @@ extern const struct db_sound_backend db_sound_pos_record;
  * (the amplifier coming up), then three notes, each with a soft attack and
  * decay so nothing clicks. Pure. Returns the frames written, or the frames
  * needed when out is NULL; 0 when out is too small. */
+size_t db_sound_render(enum db_cue cue, int16_t *out, size_t max_frames);
 size_t db_sound_tone_render(int16_t *out, size_t max_frames);
 /* The WAV it is played from: written once into DeskBuddy's runtime
  * directory ($POCKETOS_RUNTIME_DIR/deskbuddy/visit.wav) when first needed,

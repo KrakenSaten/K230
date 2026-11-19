@@ -63,9 +63,9 @@ static void shape(enum db_expr expr, int s, bool right, struct db_eye_shape *e)
         e->pupil_dy = -pm(s, 140);
         break;
     case DB_EXPR_WIDE:
-        e->w = pm(s, 780);
-        e->h = pm(s, 960);
-        e->pupil_d = pm(s, 240);
+        e->w = pm(s, 995);
+        e->h = pm(s, 995);
+        e->pupil_d = pm(s, 360);
         break;
     case DB_EXPR_SQUINT:
         /* "Hey." Lids half down, small pupils on whoever did it. */
@@ -108,9 +108,9 @@ static void shape(enum db_expr expr, int s, bool right, struct db_eye_shape *e)
         break;
     case DB_EXPR_OPEN:
     default:
-        e->w = pm(s, 680);
-        e->h = pm(s, 880);
-        e->pupil_d = pm(s, 320);
+        e->w = pm(s, 940);
+        e->h = pm(s, 940);
+        e->pupil_d = pm(s, 660);
         break;
     }
     e->radius = e->w < e->h ? e->w / 2 : e->h / 2;

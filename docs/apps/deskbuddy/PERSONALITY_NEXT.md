@@ -1,6 +1,6 @@
 # DeskBuddy: the same character beyond Companion (design note)
 
-**Status: a proposal for later slices. Nothing here is implemented.** It
+**Historical proposal.** DeskBuddy 2.0 implements the character voice and reworks the face in all three modes. See [Pip on the perch](perch/README.md) for the implemented behavior. It
 builds on the personality slice in [../DESKBUDDY.md](../DESKBUDDY.md)
 ("Personality (Companion)"): one character - eyes, a mouth when it has
 something to say, a breath - that every mode shows, and one door in, the

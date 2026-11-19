@@ -23,6 +23,8 @@ static const char *const labels[DB_PREF_TOGGLE_COUNT] = { "Companion mode",    "
                                                           "Greeting",          "Idle animation" };
 static const char *const modes[DB_MODE_COUNT] = { "companion", "guard", "night" };
 
+static const char *const voices[DB_VOICE_MODE_COUNT] = { "off", "touch", "all" };
+
 #define KEY_ARMED "guard_armed"
 #define KEY_MODE "mode"
 
@@ -134,6 +136,15 @@ static int parse_line(struct db_prefs *p, char *line)
             return parse_bool(value, &p->on[k]);
         }
     }
+    if (strcmp(key, "sound") == 0) {
+        for (k = 0; k < DB_VOICE_MODE_COUNT; k++) {
+            if (strcmp(value, voices[k]) == 0) {
+                p->voice = (enum db_voice_mode)k;
+                return 0;
+            }
+        }
+        return 1;
+    }
     if (strcmp(key, KEY_ARMED) == 0) {
         return parse_bool(value, &p->guard_armed);
     }
@@ -176,7 +187,7 @@ int db_prefs_format(const struct db_prefs *p, char *out, size_t out_len)
     int n;
     int k;
 
-    if (!p || !out) {
+    if (!p || !out || (unsigned)p->voice >= DB_VOICE_MODE_COUNT) {
         return -1;
     }
     n = snprintf(out, out_len, "# DeskBuddy preferences. Written by DeskBuddy; see docs/apps/DESKBUDDY.md.\n");
@@ -191,7 +202,7 @@ int db_prefs_format(const struct db_prefs *p, char *out, size_t out_len)
         }
         used += (size_t)n;
     }
-    n = snprintf(out + used, out_len - used, "%s=%d\n%s=%s\n", KEY_ARMED, p->guard_armed ? 1 : 0, KEY_MODE,
+    n = snprintf(out + used, out_len - used, "sound=%s\n%s=%d\n%s=%s\n", voices[p->voice], KEY_ARMED, p->guard_armed ? 1 : 0, KEY_MODE,
                  db_mode_name(p->mode));
     if (n < 0 || (size_t)n >= out_len - used) {
         return -1;

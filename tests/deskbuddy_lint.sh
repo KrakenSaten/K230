@@ -6,8 +6,8 @@
 #   2. the core (brain, face, guard log, preferences, vision queue and mock)
 #      is pure: no LVGL, no I/O, no clock of its own;
 #   3. db_store.c is the only file that touches the state directory, and
-#      db_sound_helper.c (9) the only one that writes anything else: its one
-#      WAV in the runtime directory;
+#      db_sound_helper.c (9) the only one that writes anything else: its cue
+#      WAVs in the runtime directory;
 #   4. the identity interface is declarations only: no recognizer exists in
 #      v0.1, and no embedding reaches the brain or the screen;
 #   5. no colour or font is named (style_lint.sh covers every app);
@@ -156,7 +156,7 @@ check "that process is pos-record, by execv, never a shell" \
 check "and only to play or recover" \
     "$(code $APP/db_sound_helper.c | grep -oE '"(play|recover|record|stop|status)"' | sort -u | tr '\n' ' ' |
        grep -qx '"play" "recover" ' && echo 1 || echo 0)"
-check "its one file is in the runtime directory, never the state directory" \
+check "its sound files are in the runtime directory, never the state directory" \
     "$(grep -q 'pocketos_runtime_dir()' $APP/db_sound_helper.c && ! grep -q 'pocketos_state_dir' $APP/db_sound_helper.c &&
        echo 1 || echo 0)"
 hits=$(code $ALL $SOUND | grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketaudio|alsa/|asoundlib)')
@@ -172,6 +172,10 @@ check "and stops it in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_sound_stop()' && echo 1 || echo 0)"
 check "the switch starts off" \
     "$(grep -q 'p->on\[DB_PREF_GUARD_SOUND\] = false;' $APP/db_prefs.c && echo 1 || echo 0)"
+
+check "character audio shares the volume and foreground backend" \
+    "$(awk '/^static bool voice_play\(/,/^}/' $APP/deskbuddy_app.c |
+        grep -q 'db_sound_play_cue(cue, pocketos_shell_volume_effective())' && echo 1 || echo 0)"
 
 echo "deskbuddy_lint: $failed failure(s)"
 exit $((failed > 0))

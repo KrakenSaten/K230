@@ -19,6 +19,7 @@
  *   owner_recognition=0|1  identity events are used; off: everyone is "a person"
  *   greeting=0|1           the owner is greeted when recognised
  *   idle_animation=0|1     random blinks and glances (reduced motion also stops them)
+ *   sound=off|touch|all   character voice (absent: off)
  *   guard_armed=0|1        the guard was armed when the app last saved
  *   mode=companion|guard|night   the mode last shown
  *
@@ -56,7 +57,10 @@ enum db_pref {
     DB_PREF_TOGGLE_COUNT /* the owner-facing switches end here */
 };
 
+enum db_voice_mode { DB_VOICE_OFF, DB_VOICE_TOUCH, DB_VOICE_ALL, DB_VOICE_MODE_COUNT };
+
 struct db_prefs {
+    enum db_voice_mode voice;
     bool on[DB_PREF_TOGGLE_COUNT];
     bool guard_armed;
     enum db_mode mode;

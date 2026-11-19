@@ -9,7 +9,8 @@
  *   stroke  at least DB_STROKE_PATH_PX of path, DB_STROKE_SPAN_PX away
  *           from the start at some point, over at least DB_STROKE_MIN_MS,
  *           and no faster on average than DB_STROKE_MAX_SPEED - a flick is
- *           not a stroke, and neither is a long press that never moves
+ *           not a stroke
+ *   hold    a still finger within tap slop for DB_HOLD_MS asks to rest or wake
  *
  * One gesture is one result at most: a stroke is reported once, as soon as
  * it qualifies (so the response comes while the finger is still moving),
@@ -25,6 +26,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define DB_HOLD_MS 700
 #define DB_TAP_MS 350
 #define DB_TAP_SLOP_PX 16
 #define DB_STROKE_PATH_PX 110
@@ -35,7 +37,8 @@
 enum db_gesture_kind {
     DB_GESTURE_NONE = 0,
     DB_GESTURE_TAP,
-    DB_GESTURE_STROKE
+    DB_GESTURE_STROKE,
+    DB_GESTURE_HOLD
 };
 
 struct db_gesture {

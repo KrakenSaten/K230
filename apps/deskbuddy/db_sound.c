@@ -43,13 +43,18 @@ int db_sound_available(void)
 
 int db_sound_play(int volume_percent)
 {
-    if (!db_sound_available() || volume_percent <= 0) {
+    return db_sound_play_cue(DB_CUE_VISIT, volume_percent);
+}
+
+int db_sound_play_cue(enum db_cue cue, int volume_percent)
+{
+    if ((unsigned)cue >= DB_CUE_COUNT || !db_sound_available() || volume_percent <= 0) {
         return -1;
     }
     if (volume_percent > 100) {
         volume_percent = 100;
     }
-    return current->play(volume_percent) == 0 ? 0 : -1;
+    return current->play(cue, volume_percent) == 0 ? 0 : -1;
 }
 
 void db_sound_stop(void)

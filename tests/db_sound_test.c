@@ -11,6 +11,7 @@
 #include "pocketwav/pocketwav.h"
 
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,8 +37,9 @@ static int fake_plays;
 static int fake_volume;
 
 static int fake_available(void) { return 1; }
-static int fake_play(int volume_percent)
+static int fake_play(enum db_cue cue, int volume_percent)
 {
+    (void)cue;
     fake_plays++;
     fake_volume = volume_percent;
     return 0;
@@ -88,6 +90,32 @@ static void test_tone(void)
     check("not one of RIFT's lengths (150 and 222 ms)", n != 48000 * 150 / 1000 && n != 48000 * 222 / 1000);
     check("a buffer too small is refused", db_sound_tone_render(tone, 100) == 0);
     check("the length is asked for without a buffer", db_sound_tone_render(NULL, 0) == n);
+}
+
+/* Exercise every shipping recipe, including the silence around each call. */
+static void test_voice_bank(void)
+{
+    size_t lengths[DB_CUE_COUNT] = {0};
+    for (enum db_cue cue = DB_CUE_CURIOUS; cue < DB_CUE_COUNT; cue++) {
+        size_t n = db_sound_render(cue, NULL, 0);
+        int peak = 0;
+        bool lead_quiet = true;
+        check("voice fits half a second", n > 1440 && n < 24000);
+        check("short output refused", db_sound_render(cue, tone, n - 1) == 0);
+        check("reported and rendered lengths agree", db_sound_render(cue, tone, 48000) == n);
+        for (size_t i = 0; i < n; i++) {
+            int level = abs(tone[i]);
+            if (level > peak) peak = level;
+            if (i < 1440 && level != 0) lead_quiet = false;
+        }
+        check("voice starts and ends at rest", lead_quiet && tone[n - 1] == 0);
+        check("audible signal within headroom", peak > 1000 && peak < 8192);
+        for (int prior = DB_CUE_CURIOUS; prior < (int)cue; prior++) {
+            check("each inflection has its own duration", n != lengths[prior]);
+        }
+        lengths[cue] = n;
+    }
+    check("unknown recipe refused", db_sound_render(DB_CUE_COUNT, NULL, 0) == 0);
 }
 
 /* ---- the helper -------------------------------------------------------------- */
@@ -185,6 +213,11 @@ static void test_helper(void)
     db_sound_stop();
     check("stop ends it, and another can start straight after", db_sound_play(40) == 0);
     db_sound_stop();
+    check("the same backend accepts a character call", db_sound_play_cue(DB_CUE_EAT, 42) == 0);
+    wait_for(log, "nibble.wav");
+    check("nibble uses the same volume and helper", file_has(log, "play --volume-percent 42 ") && file_has(log, "deskbuddy/nibble.wav"));
+    check("Guard and Buddy share one playback slot", db_sound_play(60) == -1);
+    db_sound_stop();
     check("nothing is left running", waitpid(-1, NULL, WNOHANG) <= 0);
     unsetenv("POCKETOS_RECORD_HELPER");
     unsetenv("POCKETOS_RUNTIME_DIR");
@@ -198,6 +231,7 @@ int main(void)
 {
     test_seam();
     test_tone();
+    test_voice_bank();
     test_helper();
     printf("db_sound_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

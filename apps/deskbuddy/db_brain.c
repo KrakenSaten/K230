@@ -229,9 +229,9 @@ static void start_act(struct db_brain *b, int64_t now)
         /* Slow blinks, and now and then a nod: the lids drop and lift. */
         b->act = pick < 65 ? DB_ACT_BLINK : DB_ACT_DOZE;
         b->act_until_ms = now + (pick < 65 ? DB_DROWSY_BLINK_MS : DB_NOD_MS);
-    } else if (pick < 60) {
+    } else if (pick < (b->state == DB_ST_GUARD_ARMED ? 30u : 60u)) {
         b->act = DB_ACT_BLINK;
-        b->act_until_ms = now + DB_BLINK_MS;
+        b->act_until_ms = now + DB_BLINK_MS + (int)(pick % 33) - 16;
     } else if (pick < 90 || db_seen_present(b->seen) || b->state != DB_ST_IDLE) {
         /* A doze only in Companion with nobody there; otherwise look about. */
         b->act = (pick & 1) ? DB_ACT_GLANCE_LEFT : DB_ACT_GLANCE_RIGHT;
@@ -1238,6 +1238,10 @@ void db_brain_face(const struct db_brain *b, struct db_face *out)
     case DB_ST_WAKE:
     case DB_ST_GUARD_PERSON_DETECTED:
         f.expr = DB_EXPR_WIDE;
+        break;
+    case DB_ST_GUARD_ARMING:
+    case DB_ST_GUARD_ARMED:
+        f.expr = DB_EXPR_SUSPICIOUS;
         break;
     case DB_ST_RECOGNIZING:
     case DB_ST_GUARD_ALERT_PENDING:
