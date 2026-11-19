@@ -1,0 +1,45 @@
+<!-- Original DeskBuddy illustration. Red and blue are two ink separations,
+     mapped at runtime to DOORS theme colours. SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 256 256" width="256" height="256">
+ <defs>
+  <linearGradient id="sky" x2=".22" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#000047"/><stop offset=".55" stop-color="#000020"/><stop offset="1" stop-color="#00000c"/></linearGradient>
+  <linearGradient id="coat" x2=".5" y2="1"><stop stop-color="#dc0000"/><stop offset=".38" stop-color="#a00000"/><stop offset="1" stop-color="#410000"/></linearGradient>
+  <linearGradient id="bib" x2=".2" y2="1"><stop stop-color="#e20000"/><stop offset="1" stop-color="#820000"/></linearGradient>
+  <linearGradient id="wing" x2="1" y2=".9"><stop stop-color="#bb0000"/><stop offset="1" stop-color="#570000"/></linearGradient>
+  <radialGradient id="mask"><stop offset=".66" stop-color="#050000"/><stop offset=".84" stop-color="#1e0000"/><stop offset=".91" stop-color="#610000"/><stop offset=".94" stop-color="#c90000"/><stop offset="1" stop-color="#910000"/></radialGradient>
+  <clipPath id="disc"><circle cx="128" cy="130" r="116"/></clipPath>
+  <path id="star" d="M0 -4 Q.5 -.5 3 0 Q.5 .5 0 4 Q-.5 .5 -3 0 Q-.5 -.5 0 -4" fill="#0000ae"/>
+  <path id="quill" d="M0 0 Q3 4 7 3 Q6 8 0 0" fill="#640000"/>
+  <g id="pinion">
+   <path d="M56 119 C36 133 37 177 49 195 Q54 202 57 192 Q61 200 66 190 C80 158 77 130 56 119Z" fill="url(#wing)"/>
+   <path d="M49 135 Q43 155 51 177 M56 143 Q52 166 57 184 M63 149 Q60 170 63 179" fill="none" stroke="#6a0000" stroke-width="1.7" stroke-linecap="round"/>
+  </g>
+ </defs>
+ <g clip-path="url(#disc)">
+  <circle cx="128" cy="130" r="116" fill="url(#sky)"/>
+  <path d="M6 172 Q59 119 106 150 T239 130 L258 227H3Z" fill="#000030"/>
+  <path d="M0 174 Q52 152 98 168 T260 145 V246H0Z" fill="#000018"/>
+  <path d="M0 198 Q77 152 155 185 T260 165 V256H0Z" fill="#00000b"/>
+  <g fill="#0000a4"><circle cx="43" cy="101" r="1"/><circle cx="99" cy="29" r=".9"/><circle cx="129" cy="37" r=".8"/><circle cx="187" cy="34" r="1.2"/><circle cx="222" cy="85" r=".8"/><circle cx="232" cy="113" r="1.2"/><circle cx="65" cy="44" r=".9"/></g>
+  <use xlink:href="#star" transform="translate(42 78)"/><use xlink:href="#star" transform="translate(196 47) scale(.85)"/><use xlink:href="#star" transform="translate(217 107) scale(.65)"/>
+ </g>
+ <!-- The perch and its leaf buds. -->
+ <path d="M13 209 Q69 217 125 209 Q184 202 244 186 Q240 192 214 200 L230 201 Q214 204 203 203 Q139 227 57 221 Q30 217 13 209Z" fill="#000064"/>
+ <path d="M28 213 Q25 203 15 199 Q17 210 28 213 M216 197 Q222 181 231 177 Q231 189 216 197 M222 198 Q236 190 244 191 Q237 200 222 198" fill="#000086"/>
+ <path d="M26 213 Q92 228 193 202" fill="none" stroke="#00009e" stroke-width="1"/>
+ <!-- Ears, domed crown, mantle and belly. -->
+ <path d="M49 47 Q68 52 84 62 Q125 42 171 62 Q190 52 207 44 Q209 65 196 85 C208 118 209 154 193 184 Q173 213 129 215 Q78 215 61 188 C43 164 46 120 58 86 Q47 67 49 47Z" fill="url(#coat)" stroke="#560000" stroke-width="2"/>
+ <path d="M53 52 Q69 59 79 66 L62 73Z M201 51 Q185 59 178 66 L195 72Z" fill="#530000"/>
+ <path d="M73 156 Q127 135 182 156 C182 187 163 208 128 210 Q82 209 73 156Z" fill="url(#bib)"/>
+ <g><use xlink:href="#pinion"/><use xlink:href="#pinion" transform="translate(256) scale(-1 1)"/></g>
+ <g fill="none" stroke="#f30000" stroke-width="1.8" stroke-linecap="round"><path d="M88 62 Q105 55 119 56 M124 55 L130 55"/></g>
+ <path d="M112 65 Q119 65 125 71 Q119 71 112 65 M126 62 Q134 64 138 68 Q131 69 126 62 M134 71 Q140 67 145 68 Q142 72 134 71" fill="#790000"/>
+ <!-- Two facial disks share a small pointed brow. Live eyes sit at (88,104) and (168,104). -->
+ <path d="M48 99 Q52 64 86 66 Q109 64 128 83 Q150 62 173 66 Q208 68 209 101 Q211 138 174 149 Q149 154 128 141 Q104 157 78 147 Q45 139 48 99Z" fill="#700000"/>
+ <ellipse cx="88" cy="104" rx="39" ry="39" fill="url(#mask)"/><ellipse cx="168" cy="104" rx="39" ry="39" fill="url(#mask)"/>
+ <path d="M117 137 Q128 129 139 136 Q138 145 128 153 Q119 146 117 137Z" fill="#320000"/>
+ <path d="M118 136 Q128 129 138 136 L128 148Z" fill="#ed0000"/><path d="M128 148 L138 136 L128 138Z" fill="#a30000"/>
+ <g><use xlink:href="#quill" x="95" y="161"/><use xlink:href="#quill" x="113" y="165"/><use xlink:href="#quill" x="132" y="165"/><use xlink:href="#quill" x="149" y="160"/><use xlink:href="#quill" x="104" y="176"/><use xlink:href="#quill" x="123" y="180"/><use xlink:href="#quill" x="142" y="175"/><use xlink:href="#quill" x="116" y="192"/><use xlink:href="#quill" x="133" y="191"/></g>
+ <g fill="none" stroke="#430000" stroke-width="5" stroke-linecap="round"><path d="M89 209 q-4 1 -4 7 M96 209 q-4 1 -4 7 M103 209 q-4 1 -4 7 M152 207 q-3 0 -4 7 M159 206 q-3 1 -4 7 M166 205 q-3 1 -4 7"/></g>
+ <g fill="none" stroke="#dc0000" stroke-width="3.5" stroke-linecap="round"><path d="M89 208 q-4 1 -4 6 M96 208 q-4 1 -4 6 M103 208 q-4 1 -4 6 M152 206 q-3 0 -4 6 M159 205 q-3 1 -4 6 M166 204 q-3 1 -4 6"/></g>
+</svg>

@@ -1,5 +1,5 @@
 /*
- * DeskBuddy's visit sound through Doors's existing audio path. See
+ * DeskBuddy's voice and visit chime through Doors's existing audio path. See
  * db_sound.h.
  *
  * One `pos-record play` per sound: the Recorder's helper, unchanged, on the
@@ -9,7 +9,7 @@
  * holds the card is simply not heard, never mixed in - sets the route,
  * enables the amplifier, applies the level ceiling and the system volume it
  * is given, and undoes all of it when the file ends. DeskBuddy only writes
- * one short WAV file and starts the helper; it never opens audio itself.
+ * a short WAV per requested cue and starts the helper; it never opens audio itself.
  *
  * The helper's stdin and stdout are a socketpair held open until it is
  * reaped: pos-record treats a closed stdin as a stop. It leaves with the
@@ -154,6 +154,64 @@ size_t db_sound_tone_render(int16_t *out, size_t max_frames)
     return at;
 }
 
+/* Each syllable is a short pitch glide. Tremolo gives the softer calls
+ * their trill; a deterministic noise component gives the beak its crunch.
+ * Render on first play in the child, using the same WAV path as Guard. */
+struct syllable {
+    unsigned from_hz, to_hz, ms, tremolo_hz, grain;
+};
+
+static const struct {
+    const char *file;
+    struct syllable call[3];
+} calls[DB_CUE_COUNT] = {
+    [DB_CUE_VISIT]   = { "visit", {{0}} },
+    [DB_CUE_CURIOUS] = { "curious", {{430, 610, 90, 0, 0}, {590, 945, 105, 4, 0}} },
+    [DB_CUE_PET]     = { "purr",    {{460, 370, 230, 22, 5}} },
+    [DB_CUE_EAT]     = { "nibble",  {{680, 315, 62, 13, 64}, {580, 255, 80, 16, 55}} },
+    [DB_CUE_HELLO]   = { "hello",   {{565, 850, 74, 0, 0}, {790, 655, 58, 0, 0}, {720, 1060, 106, 9, 0}} },
+    [DB_CUE_YAWN]    = { "yawn",    {{330, 525, 110, 5, 5}, {510, 225, 205, 8, 8}} },
+    [DB_CUE_WAKE]    = { "wake",    {{270, 390, 74, 9, 5}, {405, 715, 133, 5, 0}} },
+    [DB_CUE_HUFF]    = { "huff",    {{420, 245, 122, 18, 35}} },
+    [DB_CUE_CONFIRM] = { "cluck",   {{615, 420, 62, 6, 3}} },
+};
+
+size_t db_sound_render(enum db_cue cue, int16_t *out, size_t max_frames)
+{
+    const size_t lead = RATE * LEAD_MS / 1000;
+    const size_t gap = RATE * 12 / 1000;
+    size_t total = lead, at = lead;
+    uint32_t noise = 131u;
+    const double radians = 6.283185307179586;
+
+    if ((unsigned)cue >= DB_CUE_COUNT) return 0;
+    if (cue == DB_CUE_VISIT) return db_sound_tone_render(out, max_frames);
+    for (unsigned i = 0; i < 3 && calls[cue].call[i].ms; i++) {
+        total += calls[cue].call[i].ms * RATE / 1000 + (i ? gap : 0);
+    }
+    if (!out) return total;
+    if (max_frames < total) return 0;
+    memset(out, 0, total * sizeof(*out));
+    for (unsigned i = 0; i < 3 && calls[cue].call[i].ms; i++) {
+        const struct syllable *s = &calls[cue].call[i];
+        size_t n = RATE * s->ms / 1000;
+        double phase = 0;
+        if (i) at += gap;
+        for (size_t k = 0; k < n; k++) {
+            double t = (double)k / (n - 1);
+            double hz = (1.0 - t) * s->from_hz + t * s->to_hz;
+            double envelope = 4 * t * (1 - t);
+            double tremolo = 0.8 + 0.2 * sine(radians * s->tremolo_hz * k / RATE);
+            phase += radians * hz / RATE;
+            noise = noise * 1664525u + 1013904223u;
+            double grain = ((double)(noise >> 16) / 32768 - 1) * s->grain / 100;
+            double voice = 0.77 * sine(phase) + 0.23 * sine(2 * phase) + grain;
+            out[at++] = (int16_t)(4650 * envelope * tremolo * voice);
+        }
+    }
+    return total;
+}
+
 static int write_all(int fd, const void *buf, size_t len)
 {
     const char *p = buf;
@@ -173,7 +231,7 @@ static int write_all(int fd, const void *buf, size_t len)
     return 0;
 }
 
-const char *db_sound_wav_path(void)
+static const char *wav_for(enum db_cue cue)
 {
     static int16_t pcm[TONE_FRAMES_MAX];
     uint8_t header[POCKETWAV_HEADER_BYTES];
@@ -184,13 +242,13 @@ const char *db_sound_wav_path(void)
     int fd;
 
     snprintf(dir, sizeof(dir), "%s/deskbuddy", pocketos_runtime_dir());
-    snprintf(wav_path, sizeof(wav_path), "%s/visit.wav", dir);
+    snprintf(wav_path, sizeof(wav_path), "%s/%s.wav", dir, calls[cue].file);
     /* The runtime directory is a tmpfs: written once per boot, again if it
      * was cleared. */
     if (access(wav_path, R_OK) == 0) {
         return wav_path;
     }
-    frames = db_sound_tone_render(pcm, TONE_FRAMES_MAX);
+    frames = db_sound_render(cue, pcm, TONE_FRAMES_MAX);
     if (frames == 0 || pocketos_mkdir_p(dir, 0755) != 0) {
         return NULL;
     }
@@ -218,6 +276,11 @@ const char *db_sound_wav_path(void)
         return NULL;
     }
     return wav_path;
+}
+
+const char *db_sound_wav_path(void)
+{
+    return wav_for(DB_CUE_VISIT);
 }
 
 /* ---- the helper ------------------------------------------------------------ */
@@ -280,10 +343,9 @@ static int helper_available(void)
     return access(helper(), X_OK) == 0;
 }
 
-static int helper_play(int volume_percent)
+static int helper_play(enum db_cue cue, int volume_percent)
 {
     char volume[16];
-    const char *path;
     char *argv[6];
     pid_t parent = getpid();
     int sv[2];
@@ -293,16 +355,11 @@ static int helper_play(int volume_percent)
     if (child > 0) {
         return -1; /* the last one is still sounding: never stacked */
     }
-    path = db_sound_wav_path();
-    if (!path) {
-        return -1;
-    }
     snprintf(volume, sizeof(volume), "%d", volume_percent);
     argv[0] = (char *)helper();
     argv[1] = "play";
     argv[2] = "--volume-percent";
     argv[3] = volume;
-    argv[4] = (char *)path;
     argv[5] = NULL;
     if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) {
         return -1;
@@ -334,6 +391,8 @@ static int helper_play(int volume_percent)
             dup2(null, 2);
         }
         close_inherited();
+        argv[4] = (char *)wav_for(cue);
+        if (!argv[4]) _exit(1);
         execv(argv[0], argv);
         _exit(127);
     }

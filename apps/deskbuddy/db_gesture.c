@@ -64,6 +64,10 @@ enum db_gesture_kind db_gesture_move(struct db_gesture *g, int x, int y, int64_t
         return DB_GESTURE_NONE;
     }
     follow(g, x, y);
+    if (!g->reported && g->span <= DB_TAP_SLOP_PX && now_ms - g->t0 >= DB_HOLD_MS) {
+        g->reported = true;
+        return DB_GESTURE_HOLD;
+    }
     if (!g->reported && is_stroke(g, now_ms)) {
         g->reported = true;
         return DB_GESTURE_STROKE;
@@ -82,6 +86,8 @@ enum db_gesture_kind db_gesture_release(struct db_gesture *g, int x, int y, int6
     if (!g->reported) {
         if (g->span <= DB_TAP_SLOP_PX && now_ms - g->t0 <= DB_TAP_MS) {
             k = DB_GESTURE_TAP;
+        } else if (g->span <= DB_TAP_SLOP_PX && now_ms - g->t0 >= DB_HOLD_MS) {
+            k = DB_GESTURE_HOLD;
         } else if (is_stroke(g, now_ms)) {
             k = DB_GESTURE_STROKE;
         }

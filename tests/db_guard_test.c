@@ -140,7 +140,7 @@ static void test_prefs(void)
     db_prefs_defaults(&back);
     check("a file from before the visit sound loads it off",
           db_prefs_parse(&back, "companion=1\nguard=1\nnight=1\nguard_armed=1\nmode=guard\n") == 0 &&
-              !back.on[DB_PREF_GUARD_SOUND] && back.guard_armed);
+              !back.on[DB_PREF_GUARD_SOUND] && back.guard_armed && back.voice == DB_VOICE_OFF);
     check("its label names its mode", strcmp(db_pref_label(DB_PREF_GUARD_SOUND), "Visit sound \xC2\xB7 Guard") == 0 &&
                                           strcmp(db_pref_key(DB_PREF_GUARD_SOUND), "guard_sound") == 0);
     db_prefs_defaults(&back);

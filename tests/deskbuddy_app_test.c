@@ -306,11 +306,11 @@ static void test_open(void)
     check("it opens in Companion, idle", brain() && brain()->state == DB_ST_IDLE);
     check("with no vision it says so, once, and runs blind", brain()->seen == DB_SEEN_UNAVAILABLE);
     check("it made exactly one timer", timer_count() == timers + 1 && deskbuddy_app_timer(app) != NULL);
-    check("the three modes and SET are offered",
+    check("the three modes and Settings are offered",
           shows(deskbuddy_app_mode_button(app, DB_MODE_COMPANION), "BUDDY") &&
               shows(deskbuddy_app_mode_button(app, DB_MODE_GUARD), "GUARD") &&
               shows(deskbuddy_app_mode_button(app, DB_MODE_NIGHT), "NIGHT") &&
-              shows(deskbuddy_app_settings_button(app), "SET"));
+              shows(deskbuddy_app_settings_button(app), "Settings"));
     check("Companion has no guard button", hidden(deskbuddy_app_action_button(app)));
     check("but FEED and REST", shows(deskbuddy_app_feed_button(app), "FEED") &&
                                    shows(deskbuddy_app_rest_button(app), "REST"));
@@ -375,8 +375,8 @@ static void test_guard(void)
     action = deskbuddy_app_action_button(app);
     check("GUARD: disarmed, with an ARM button", brain()->state == DB_ST_GUARD_DISARMED && shows(action, "ARM") &&
                                                      strcmp(caption(), "GUARD OFF") == 0);
-    check("and no FEED or REST: the guard is not a pet", hidden(lv_obj_get_parent(deskbuddy_app_feed_button(app))) &&
-                                                             hidden(lv_obj_get_parent(deskbuddy_app_rest_button(app))));
+    check("and no FEED or REST: the guard is not a pet", hidden(deskbuddy_app_feed_button(app)) &&
+                                                             hidden(deskbuddy_app_rest_button(app)));
     {
         lv_area_t face;
         lv_area_t btn;
@@ -390,7 +390,7 @@ static void test_guard(void)
     }
     tap_obj(action);
     check("ARM arms it (blind: nobody to wait for)", brain()->state == DB_ST_GUARD_ARMED && shows(action, "DISARM") &&
-                                                         strcmp(caption(), "WATCHING THE DESK") == 0);
+                                                         strcmp(caption(), "GUARD ARMED") == 0);
     app_deskbuddy.tick(app);
     check("the armed state is saved at once", file_has(DB_STORE_PREFS, "guard_armed=1") &&
                                                   file_has(DB_STORE_PREFS, "mode=guard"));
@@ -458,14 +458,16 @@ static int fake_ok = 1;
 static int fake_busy;
 static int fake_plays;
 static int fake_volume;
+static enum db_cue fake_cue;
 static int fake_stops;
 
 static int fake_available(void) { return fake_ok; }
-static int fake_play(int volume_percent)
+static int fake_play(enum db_cue cue, int volume_percent)
 {
     if (fake_busy) {
         return -1;
     }
+    fake_cue = cue;
     fake_plays++;
     fake_volume = volume_percent;
     return 0;
@@ -930,6 +932,7 @@ static void test_touch(void)
     pump(3000);
     check("then settles, by itself", brain()->react == DB_REACT_NONE && brain()->state == DB_ST_IDLE);
 
+    tap_obj(deskbuddy_app_settings_button(app));
     tap_obj(deskbuddy_app_rest_button(app));
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
     tap_obj(deskbuddy_app_settings_button(app));
@@ -937,6 +940,7 @@ static void test_touch(void)
     check("taps on the controls never poke it", brain()->poked == 1);
     pump(3000);
     check("REST: asleep", brain()->state == DB_ST_SLEEP && shows(deskbuddy_app_rest_button(app), "WAKE"));
+    tap_obj(deskbuddy_app_settings_button(app));
     tap_obj(deskbuddy_app_rest_button(app));
     check("WAKE: it stirs", brain()->react == DB_REACT_STIR && shows(deskbuddy_app_rest_button(app), "REST"));
     pump(2000);
@@ -958,6 +962,82 @@ static void test_touch(void)
           deskbuddy_app_provider_starts(app) == 1);
     app_stop();
     check("play wrote nothing", !stored(DB_STORE_PREFS) && !stored(DB_STORE_GUARD));
+}
+
+static lv_obj_t *find_label(lv_obj_t *obj, const char *text)
+{
+    if (lv_obj_check_type(obj, &lv_label_class) && strcmp(lv_label_get_text(obj), text) == 0) return obj;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *match = find_label(lv_obj_get_child(obj, i), text);
+        if (match) return match;
+    }
+    return NULL;
+}
+
+static void tap_setting(const char *label)
+{
+    lv_obj_t *text = find_label(deskbuddy_app_settings_panel(app), label);
+    tap_obj(text ? lv_obj_get_parent(text) : NULL);
+}
+
+static void test_character_voice(void)
+{
+    forget();
+    fake_plays = fake_busy = 0;
+    fake_ok = 1;
+    db_sound_set_backend(&fake_sound);
+    app_start();
+    tap_obj(deskbuddy_app_face(app));
+    check("character sounds start off", brain()->prefs.voice == DB_VOICE_OFF && fake_plays == 0);
+    tap_obj(deskbuddy_app_settings_button(app));
+    tap_setting("Touch only");
+    tap_setting("Preview · Greeting");
+    check("preview uses the chosen voice at system volume", fake_plays == 1 && fake_cue == DB_CUE_HELLO && fake_volume == system_volume);
+    tap_setting("Preview · Curious");
+    check("fast previews are dropped", fake_plays == 1);
+    tap_obj(deskbuddy_app_settings_done(app));
+    app_deskbuddy.tick(app);
+    check("Touch only persists", file_has(DB_STORE_PREFS, "sound=touch"));
+    deskbuddy_app_inject(app, DB_VISION_OWNER_RECOGNIZED);
+    pump(DB_GREETING_MS + 500);
+    check("touch only skips spontaneous greetings", fake_plays == 1);
+    stroke(24);
+    check("a stroke sounds once", fake_plays == 2 && fake_cue == DB_CUE_PET);
+    pump(3000);
+    lv_point_t at = centre_of(deskbuddy_app_face(app));
+    finger_at(at, LV_INDEV_STATE_PRESSED, 1000);
+    finger_at(at, LV_INDEV_STATE_RELEASED, 60);
+    check("holding the face rests once with a yawn", brain()->react == DB_REACT_REST && fake_plays == 3 && fake_cue == DB_CUE_YAWN);
+    pump(3000);
+    tap_obj(deskbuddy_app_face(app));
+    check("a tap wakes the sleeper with its waking call", brain()->react == DB_REACT_STIR && fake_plays == 4 && fake_cue == DB_CUE_WAKE);
+    pump(3000);
+    tap_obj(deskbuddy_app_feed_button(app));
+    check("offering the biscuit clucks", fake_plays == 5 && fake_cue == DB_CUE_CONFIRM);
+    tap_obj(deskbuddy_app_snack(app));
+    pump(GLIDE_WAIT);
+    check("the crunch lands with the food", fake_plays == 6 && fake_cue == DB_CUE_EAT && brain()->fed == 1);
+    system_volume = 0;
+    pump(2000);
+    tap_obj(deskbuddy_app_face(app));
+    check("system mute silences a touch", fake_plays == 6);
+    system_volume = 60;
+    tap_obj(deskbuddy_app_settings_button(app));
+    tap_setting("All");
+    tap_obj(deskbuddy_app_settings_done(app));
+    app_stop();
+    app_start();
+    check("all survives reopen", brain()->prefs.voice == DB_VOICE_ALL);
+    deskbuddy_app_inject(app, DB_VISION_OWNER_RECOGNIZED);
+    check("All voices an actual owner greeting", fake_plays == 7 && fake_cue == DB_CUE_HELLO);
+    deskbuddy_app_inject(app, DB_VISION_OWNER_RECOGNIZED);
+    check("a continuing greeting stays quiet", fake_plays == 7);
+    tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
+    pump(2000);
+    tap_obj(deskbuddy_app_face(app));
+    check("night responds in silence with All selected", brain()->state == DB_ST_NIGHT_PRESENCE && fake_plays == 7);
+    app_stop();
+    db_sound_set_backend(&db_sound_pos_record);
 }
 
 static void test_feed(void)
@@ -1037,7 +1117,7 @@ static void test_feed(void)
     check("left alone, it is put away by itself", hidden(snack) && !brain()->snack);
     push_key('f');
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_NIGHT));
-    check("another mode puts it away", hidden(snack) && hidden(lv_obj_get_parent(deskbuddy_app_feed_button(app))));
+    check("another mode puts it away", hidden(snack) && hidden(deskbuddy_app_feed_button(app)));
     push_key('f');
     check("and Night offers no snack", hidden(snack));
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
@@ -1253,12 +1333,12 @@ static void test_camera_modes(void)
               shows(deskbuddy_app_toggle(app, DB_PREF_CAMERA_PRESENCE), "ON"));
     tap_obj(deskbuddy_app_settings_done(app));
     set_presence(false);
-    check("Camera presence off: the helper stops, Companion plays by touch and says nothing of it",
-          !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(note_text(), "") == 0);
+    check("Camera presence off: the helper stops, Companion plays by touch and shows CAMERA OFF",
+          !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE && strcmp(note_text(), "CAMERA OFF") == 0);
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_GUARD));
     check("GUARD starts it all the same: the switch is Companion's", deskbuddy_app_provider_running(app) &&
                                                                          deskbuddy_app_provider_starts(app) == 2);
-    check("and Guard still says when it cannot see", strcmp(note_text(), "NO VISION YET") == 0);
+    check("and Guard still says when it cannot see", (strcmp(note_text(), "CAMERA UNAVAILABLE") == 0 || strcmp(note_text(), "STARTING CAMERA") == 0));
     tap_obj(deskbuddy_app_mode_button(app, DB_MODE_COMPANION));
     check("BUDDY without Camera presence stops it, and Companion is told it cannot see",
           !deskbuddy_app_provider_running(app) && brain()->seen == DB_SEEN_UNAVAILABLE);
@@ -1347,8 +1427,10 @@ static void test_camera_modes(void)
     {
         unsigned events = brain()->events;
 
-        pump(DB_RECOGNIZE_MS + 1000);
-        usleep(1500000);
+        for (int ms = 0; ms < DB_RECOGNIZE_MS + 1000; ms += 50) {
+            usleep(50000);
+            pump(50);
+        }
         check("live: and it settles, with no repeat greeting or flicker",
               brain()->state == DB_ST_IDLE && brain()->events == events && brain()->seen == DB_SEEN_NOBODY);
     }
@@ -1506,6 +1588,7 @@ static void run_demo(void)
     pump(500);
     finger_at(finger_point, LV_INDEV_STATE_RELEASED, 3200);
     /* REST: a yawn, then asleep, breathing. */
+    tap_obj(deskbuddy_app_settings_button(app));
     tap_obj(deskbuddy_app_rest_button(app));
     pump(4500);
     /* WAKE with a touch. */
@@ -1592,6 +1675,7 @@ static void run_tests(void)
     test_guard();
     test_reopen();
     test_guard_sound();
+    test_character_voice();
     test_settings();
     test_night();
     test_quiet();

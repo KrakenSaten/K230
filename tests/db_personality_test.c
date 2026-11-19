@@ -117,7 +117,10 @@ static void test_gestures(void)
     check("a tap may wobble a little", db_gesture_release(&g, 110, 104, 150) == DB_GESTURE_TAP);
 
     db_gesture_press(&g, 100, 100, 0);
-    check("a long press that never moves is nothing", db_gesture_release(&g, 101, 100, 900) == DB_GESTURE_NONE);
+    check("a stationary hold is recognised on release", db_gesture_release(&g, 101, 100, 900) == DB_GESTURE_HOLD);
+    db_gesture_press(&g, 100, 100, 0);
+    check("the hold responds under the finger", db_gesture_move(&g, 100, 100, DB_HOLD_MS) == DB_GESTURE_HOLD);
+    check("releasing a recognised hold cannot poke or rest twice", db_gesture_release(&g, 100, 100, 1200) == DB_GESTURE_NONE);
 
     db_gesture_press(&g, 100, 100, 0);
     db_gesture_move(&g, 140, 100, 40);

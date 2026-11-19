@@ -1,5 +1,11 @@
 # DeskBuddy
 
+## DeskBuddy 2.0
+
+Pip is a touch-responsive owl. Stroke to pet, hold to rest, tap to wake, and drag a biscuit to its beak. Settings offers Off, Touch only and All for the character voice, with a preview of each call. GUARD has its own visit-sound switch. See the design, full-size shell comparisons and validation in [Pip on the perch](deskbuddy/perch/README.md).
+
+## Previous releases
+
 Current bounded follow-up: [presence freshness and owner-aware Guard boundary](deskbuddy/PRESENCE_OWNER_HANDOFF.md)
 (2026-10-26). The dated implementation and hardware records below remain historical evidence.
 
@@ -225,7 +231,7 @@ framework: one struct (`db_prefs`), one parser, one formatter.
 
 | File | Holds |
 | --- | --- |
-| `$POCKETOS_STATE_DIR/deskbuddy/prefs.v1` | `companion`, `camera_presence`, `guard`, `night`, `owner_recognition`, `greeting`, `idle_animation` (0/1, default 1; a file without `camera_presence`, written before it, loads it as 1), `guard_sound` (0/1, default **0**; a file without it loads it as 0), `guard_armed` (0/1), `mode` |
+| `$POCKETOS_STATE_DIR/deskbuddy/prefs.v1` | `companion`, `camera_presence`, `guard`, `night`, `owner_recognition`, `greeting`, `idle_animation` (0/1, default 1; a file without `camera_presence`, written before it, loads it as 1), `guard_sound` (0/1, default **0**; a file without it loads it as 0), `guard_armed` (0/1), `mode`, `sound=off|touch|all` (default off) |
 | `$POCKETOS_RUNTIME_DIR/deskbuddy/visit.wav` | the visit chime (tmpfs), written from code when first needed ("Visit sound", below) |
 | `$POCKETOS_STATE_DIR/deskbuddy/guard.v1` | `next=<id>` and one `e <id> <wall_s> <subject> <conf> <ack> <snapshot>` line per event, oldest first |
 
@@ -233,7 +239,7 @@ The directory is 0700 and the files 0600. Writes are atomic (temp file,
 fsync, rename). A line or value this build could not have written is skipped
 and the rest loads; a damaged file is left in place until there is something
 to save. Changes are written from the shell's once-a-second tick and on
-close. The eight switches are on the screen's SET panel, under them one
+close. The eight switches are in Settings, under them one
 line: "Guard notices people, not who they are. Without Vision's face models
 and an enrolled owner, every visit is SOMEONE - you too."
 
@@ -291,7 +297,7 @@ which with only R0 is "somebody was seen" - never "a stranger".
   accent "white", a pupil and two cut-outs in the background colour - a lid
   (sleepy, wary) and a disc from below that leaves an arch (happy). Night
   dims them by opacity. Shapes come from `db_face.c` as numbers and are
-  restyled only when they change; there is no tweening.
+  restyled only when they change. The current renderer tweens expressions when motion is enabled.
 - One `lv_timer`, created in `create()`, deleted in `destroy()`. Its period
   is set after every run to when the brain or provider next needs it (a
   blink, a timeout, a scripted event), between 20 ms and 1 s. Asleep with no
@@ -346,8 +352,8 @@ SDL_VIDEODRIVER=... DESKBUDDY_SIM="..." DESKBUDDY_MODE=armed pocketos-shell --op
 | `tests/db_guard_test.c` | the ring, text round trip, damaged and oversize files, preferences (the visit sound off by default, its key, a file from before it), the store's files, modes and atomic writes |
 | `tests/db_sound_test.c` | the visit sound's seam (silent backend, volume 0 and above 100), the chime (short, silent lead-in, under pos-record's ceiling, ends at rest), its WAV, and the pos-record backend against a stand-in helper: started at once, refused while sounding, stopped, nothing left running |
 | `tests/deskbuddy_lint.sh` | the vision boundary, the pure core, only the store does I/O, identity is declarations only, no colour or font, registration, timer deleted in destroy, dev path behind the variable; the visit sound only through pos-record from one file, asked for in one place, at the system volume, stopped in destroy, off by default |
-| `tests/deskbuddy_app_test.c` | the screen follows the brain; ARM / DISARM / SEEN IT and the SET panel through a real pointer; the visit sound against a counting backend: off by default and saved, once per new visit at the system volume, none for a stay, a merge, a busy player (not replayed), muted (VISIT SOUND MUTED) or no backend (NO SOUND ON THIS UNIT), disarming, BUDDY or NIGHT, the log at reopen; a person at the desk on reopening sounds; stopped on close; what is saved and when; 25 open/close rounds mid-animation leave no timer, object or focus; a sleeping face does not repaint and wakes about once a second; the simulation path writes nothing; portrait and landscape fit; through the real pointer: a tap on an eye pokes toward it, taps on controls never poke, a stroke pets once however long, rapid taps huff and calm; FEED, drag to the mouth, a drag let go elsewhere goes home, closing mid-drag, a tap on the snack, GIVE, F / Enter / Esc / R, Back, timeout, mode change; drowsy and asleep by inactivity, a stroke wakes; `$DESKBUDDY_VISION=none` plays the same; a snack out across a rotation; no play starts a provider |
-| `tests/deskbuddy_shell_test.sh` | runs the app test; the launcher holds 24 apps; the real shell opens and closes DeskBuddy, every mode on simulated vision in both orientations, nothing written, damaged files open |
+| `tests/deskbuddy_app_test.c` | the screen follows the brain; ARM / DISARM / SEEN IT and Settings through a real pointer; the visit sound against a counting backend: off by default and saved, once per new visit at the system volume, none for a stay, a merge, a busy player (not replayed), muted (VISIT SOUND MUTED) or no backend (NO SOUND ON THIS UNIT), disarming, BUDDY or NIGHT, the log at reopen; a person at the desk on reopening sounds; stopped on close; what is saved and when; 25 open/close rounds mid-animation leave no timer, object or focus; a sleeping face does not repaint and wakes about once a second; the simulation path writes nothing; portrait and landscape fit; through the real pointer: a tap on an eye pokes toward it, taps on controls never poke, a stroke pets once however long, rapid taps huff and calm; FEED, drag to the mouth, a drag let go elsewhere goes home, closing mid-drag, a tap on the snack, GIVE, F / Enter / Esc / R, Back, timeout, mode change; drowsy and asleep by inactivity, a stroke wakes; `$DESKBUDDY_VISION=none` plays the same; a snack out across a rotation; no play starts a provider |
+| `tests/deskbuddy_shell_test.sh` | runs the app test; the launcher opens; the real shell opens and closes DeskBuddy, every mode on simulated vision in both orientations, nothing written, damaged files open |
 
 ```
 make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror" deskbuddy-test
