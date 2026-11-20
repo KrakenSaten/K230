@@ -21,7 +21,10 @@ links libsodium (ADR-007, ADR-017).
 peerd`), because no Doors image selects libsodium yet. There is no init
 script and no Buildroot wiring in this version; both, and the first image
 that carries it, are a separate step that needs an image build and the
-owner's go-ahead. Run by hand it is `peerd [--port N] [--name NAME]`, with
+owner's go-ahead. That step must also turn off
+`BR2_PACKAGE_LIBSODIUM_FULL`, which Buildroot sets by default: peerd was
+decided on, built and tested against the minimal configuration. Run by hand
+it is `peerd [--port N] [--name NAME]`, with
 the usual `POCKETOS_*_DIR` variables.
 
 ## Silent and closed until asked
