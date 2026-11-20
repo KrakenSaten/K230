@@ -1,7 +1,7 @@
 # ADR-017: IP peer datagrams (`peerd`) and their security
 
-Status: Proposed (2026-11-20). Awaiting the product owner. Nothing here is
-binding until it is Accepted, and nothing is implemented.
+Status: Accepted (product owner, 2026-11-20), on the terms under "Terms of
+acceptance". Nothing is implemented; the acceptance is of the design.
 Date: 2026-11-20
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -20,6 +20,23 @@ Binding constraints: services own I/O and apps reach them over pocketipc
 (ADR-007); a rotation re-executes the shell in place (`ui/shell/shell.c`);
 the board has no clock that survives a power cut, so nothing may depend on
 wall time (ADR-008, risks).
+
+## Terms of acceptance
+
+The product owner accepted this ADR on 2026-11-20:
+
+- libsodium, the construction of "Decision" and the limitations of §9 are
+  accepted, including **no forward secrecy, for play on a local network**.
+- A human cryptographic review is **not required before local prototype
+  development**. An independent human review is **recommended before
+  broader deployment on untrusted networks**.
+- Every item of "Validation before implementation carries a game packet"
+  stands, and so do the checks named in "Evidence": the entropy source,
+  the state directory's filesystem, known-answer vectors, the replay and
+  restart tests, fuzzing, and the sanitizer suites.
+- **Approval of the design does not mean the implementation is validated.**
+  That is shown by those tests and by the hardware gate, each of which
+  needs its own go-ahead.
 
 ## Requirements
 
@@ -321,7 +338,7 @@ are fixed with `docs/api/peer.md` at acceptance; none is asserted here.
 
 ## Validation before implementation carries a game packet
 
-1. Owner acceptance of this ADR.
+1. Owner acceptance of this ADR: given 2026-11-20 ("Terms of acceptance").
 2. An independent review of §2-§10: **three passes, 2026-11-20** (see
    "Independent review"); a human review remains the owner's to require.
 3. Known-answer tests: fixed keys, epoch, sequence and nonce produce fixed
@@ -383,7 +400,8 @@ AI reviewer session that was given this file, not the author's reasoning: a
 first review (R1-R15), a second pass over the text as revised for it
 (N1-N8), and a third over the text as revised again (P1-P5), which also
 compared it with M2-PLAN.md §1.3-1.4. **It is not a review by a human
-cryptographer**, and the owner may require one before acceptance. The
+cryptographer**; the owner did not require one before prototype work
+("Terms of acceptance"). The
 design above is the text after all three; the corrections made for the
 third pass are clarifications and were not sent back a fourth time.
 
@@ -450,6 +468,7 @@ restored at the mark; signed frames from kept keys only without a lease;
 the stated-address rule, under which a device on two interfaces of one LAN
 alternates harmlessly between two valid endpoints (third pass).
 
-**Blockers remaining: none in the design.** Open before implementation:
-owner acceptance; whether a human review is required; the "not verified"
-rows of Evidence; `docs/api/peer.md` with the port and figures.
+**Blockers remaining: none in the design.** Still open after acceptance:
+the "not verified" rows of Evidence; `docs/api/peer.md` with the port and
+figures; a human review before deployment on untrusted networks
+(recommended, "Terms of acceptance").

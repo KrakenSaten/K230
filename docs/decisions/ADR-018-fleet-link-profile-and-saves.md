@@ -1,11 +1,12 @@
 # ADR-018: Fleet link profiles and a match save per transport
 
-Status: Proposed (2026-11-20). Awaiting the product owner. Nothing here is
-binding until it is Accepted, and nothing is implemented.
+Status: Accepted (product owner, 2026-11-20), as written: existing LoRa
+behaviour and `match.v1` compatibility remain unchanged; the LAN save is
+separate; one active match per device. Nothing is implemented yet.
 Date: 2026-11-20
 Deciders: product owner (final), AI engineering partner (author)
 
-Builds on ADR-008 (Accepted 2026-11-20) and ADR-017 (Proposed).
+Builds on ADR-008 and ADR-017 (both Accepted 2026-11-20).
 
 ## Context
 

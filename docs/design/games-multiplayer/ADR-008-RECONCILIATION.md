@@ -3,7 +3,8 @@
 
 Prepared 2026-11-20 and **applied the same day on the owner's approval**:
 ADR-008 is Accepted, with its default decisions as shipped. The approval
-covers ADR-008 only; ADR-017 and ADR-018 remain Proposed. This file is kept
+covered ADR-008 only; ADR-017 and ADR-018 were accepted separately later
+the same day. This file is kept
 as the record of what the acceptance rests on; the "text to apply" below is
 what was applied, with the evidence table carried in fuller form.
 

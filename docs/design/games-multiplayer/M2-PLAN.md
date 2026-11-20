@@ -8,7 +8,7 @@ preserved; A/B hardware validation; background invitations deferred to M4,
 so **ADR-008's behaviour is not changed in M2**. The ADRs are
 [ADR-017](../../decisions/ADR-017-peer-datagrams.md) (peerd and its security)
 and [ADR-018](../../decisions/ADR-018-fleet-link-profile-and-saves.md) (link
-profiles, a save per transport), both Proposed.
+profiles, a save per transport), both Accepted 2026-11-20.
 
 ## 1. The four questions, resolved
 
@@ -102,7 +102,7 @@ match itself is unaffected.
 
 | # | Package | Contents | Proof |
 | --- | --- | --- | --- |
-| 0 | **ADRs** | ADR-017 (peerd and its security) reviewed and accepted; ADR-018 (link profile, save per transport) accepted | owner's decision. **Gate for everything below** |
+| 0 | **ADRs** | ADR-017 and ADR-018 | **done**: both Accepted 2026-11-20. Implementation goes in its own PR; hardware deployment needs explicit approval |
 | 1 | **Link profile** | retry and governor figures move from constants to a profile read from the link; human waits split from link waits; mesh profile equals today's constants | `fleet_match_test`, `fleet_mp_sim_test` and `fleet-mp-e2e` unchanged in result; a LAN-profile simulator run |
 | 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh` |
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | unit tests with crafted frames and known-answer vectors; two real peerd processes on loopback and on a mock network with loss, duplication and blocked broadcast; ASan/UBSan; a fuzz run of the frame parser |

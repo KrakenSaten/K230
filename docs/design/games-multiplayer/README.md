@@ -11,7 +11,7 @@ System section is changed by it.** The images are mockups, not screenshots.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | what exists, the options, ownership, interfaces, lifecycle, transports, identity, security, self-review |
 | [UX.md](UX.md) | the two concepts, the chosen design screen by screen, interaction, memory |
 | [M2-PLAN.md](M2-PLAN.md) | after the owner's conditional approval: the four open questions resolved, work packages, hardware gate |
-| [ADR-017](../../decisions/ADR-017-peer-datagrams.md), [ADR-018](../../decisions/ADR-018-fleet-link-profile-and-saves.md) | Proposed ADRs: peerd and its security; Fleet link profiles and a save per transport |
+| [ADR-017](../../decisions/ADR-017-peer-datagrams.md), [ADR-018](../../decisions/ADR-018-fleet-link-profile-and-saves.md) | Accepted 2026-11-20: peerd and its security; Fleet link profiles and a save per transport |
 | [ADR-008-RECONCILIATION.md](ADR-008-RECONCILIATION.md) | ADR-008 against the A/B hardware gates: the record of its acceptance on 2026-11-20 |
 | [PROPOSALS.md](PROPOSALS.md) | every change to an accepted record this would need |
 | [mockups/](mockups/) | eight final screens, the states sheet, concept B, two overview sheets, SVG sources |
