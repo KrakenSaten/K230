@@ -63,6 +63,7 @@
 /* The LAN profile's link waits (starting values; the simulator sets them). */
 #define FLEET_LAN_RETRY_BASE_MS 500u
 #define FLEET_LAN_RETRY_CAP_MS 5000u
+#define FLEET_LAN_DUP_REPLY_MS 200u
 #define FLEET_PROBE_MS 120000u
 #define FLEET_PROBE_MAX 15
 #define FLEET_SILENCE_PROBE_MS 300000u

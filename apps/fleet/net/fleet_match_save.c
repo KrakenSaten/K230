@@ -243,8 +243,8 @@ int fleet_match_save_in_hand(const uint8_t *buf, size_t n, char *peer_name, size
     }
     /* Under its own identity: the key follows the magic and the version. */
     fleet_match_init(&probe, buf + 4 + 2, 1);
-    if (fleet_match_save_decode(&probe, buf, n) != 0 || probe.phase < FLEET_MP_DEPLOY ||
-        probe.phase > FLEET_MP_REVEAL) {
+    if (fleet_match_save_decode(&probe, buf, n) != 0 || fleet_match_restore(&probe, 0) != 0 ||
+        probe.phase < FLEET_MP_DEPLOY || probe.phase > FLEET_MP_REVEAL) {
         return 0;
     }
     if (peer_name && peer_name_size > 0) {

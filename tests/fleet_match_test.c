@@ -1704,7 +1704,8 @@ static void test_profile_lan_unmetered(void)
     check("profile: on the LAN nothing is rationed - every request is answered",
           w.sent[0][FLEET_MSG_SYNC] - before == 100 && A(&w)->stats.gov_drops == 0 &&
           A(&w)->stats.gov_waits == 0);
-    check("profile: the duplicate-reply limit still holds there", ({
+    /* Twenty copies 100 ms apart: one in two is answered, not all twenty. */
+    check("profile: copies are still answered no oftener than its limit, 200 ms", ({
               unsigned sent = w.sent[0][FLEET_MSG_SYNC];
 
               for (i = 0; i < 20; i++) {
@@ -1713,7 +1714,7 @@ static void test_profile_lan_unmetered(void)
                   pump(&w);
                   drop_all(&w);
               }
-              w.sent[0][FLEET_MSG_SYNC] - sent <= 2;
+              w.sent[0][FLEET_MSG_SYNC] - sent >= 8 && w.sent[0][FLEET_MSG_SYNC] - sent <= 11;
           }));
 }
 
@@ -1944,6 +1945,52 @@ static void test_human_mesh_unchanged(void)
           A(&w)->notice == FLEET_NOTICE_NO_ANSWER && A(&w)->human_deadline == 0);
 }
 
+/* The answer to a shot is lost. How long until the shooter has it. */
+static int64_t result_after(const struct fleet_link_profile *p)
+{
+    static struct wire w;
+    int64_t start;
+    int lost = 0;
+    int i;
+
+    wire_init(&w, 66);
+    fleet_match_set_profile(A(&w), p);
+    fleet_match_set_profile(B(&w), p);
+    one_shot(&w);
+    start = w.now;
+    for (i = 0; i < 4000 && B(&w)->resolved < 1; i++) {
+        int guard = 0;
+
+        pump(&w);
+        while (w.qn > 0 && guard++ < 1000) {
+            if (!lost && (w.q[0].b[0] & 0x3F) == FLEET_MSG_RESULT) {
+                remove_at(&w, 0);   /* the first RESULT, and only that */
+                lost = 1;
+            } else {
+                deliver_at(&w, 0);
+            }
+        }
+        advance(&w, 50);
+    }
+    return lost && B(&w)->resolved == 1 ? w.now - start : -1;
+}
+
+static void test_profile_lost_answer(void)
+{
+    int64_t lan = result_after(&fleet_profile_lan);
+    int64_t mesh = result_after(&fleet_profile_mesh);
+
+    printf("     a lost RESULT is made good after %lld ms on the LAN, %lld ms on the mesh\n",
+           (long long)lan, (long long)mesh);
+    check("profile: the mesh answers a copy at most every 2 s, the LAN every 200 ms",
+          fleet_profile_mesh.dup_reply_ms == FLEET_DUP_REPLY_MS && FLEET_DUP_REPLY_MS == 2000 &&
+          fleet_profile_lan.dup_reply_ms == 200 &&
+          fleet_profile_lan.dup_reply_ms < fleet_profile_lan.retry_base_ms);
+    /* The first retry, 0.5 s and up to half as long again, is answered. */
+    check("profile: so on the LAN the first retry brings the lost answer", lan >= 500 && lan <= 900);
+    check("profile: and on the mesh it comes when it always did", mesh >= 7000 && mesh <= 11000);
+}
+
 /* ---- one match per device: is a save a match in hand? (ADR-018 point 4) ------ */
 
 static void test_save_in_hand(void)
@@ -1967,8 +2014,19 @@ static void test_save_in_hand(void)
     strcpy(name, "?");
     check("in hand: a match in battle is, and names the opponent",
           fleet_match_save_in_hand(blob, sizeof(blob), name, sizeof(name)) == 1 && strcmp(name, "B") == 0);
-    check("in hand: a name that does not fit is cut, never overrun",
-          fleet_match_save_in_hand(blob, sizeof(blob), tiny, sizeof(tiny)) == 1 && tiny[1] == '\0');
+    fleet_match_set_peer_name(A(&w), "Bartholomew");
+    fleet_match_save_encode(A(&w), blob, sizeof(blob));
+    memset(name, 'x', sizeof(name));
+    check("in hand: a name that does not fit is cut to what does, and ended",
+          fleet_match_save_in_hand(blob, sizeof(blob), name, 5) == 1 && strcmp(name, "Bart") == 0 &&
+          name[5] == 'x');
+    tiny[0] = 'x';
+    tiny[1] = 'x';
+    check("in hand: into one byte there is only the ending",
+          fleet_match_save_in_hand(blob, sizeof(blob), tiny, 1) == 1 && tiny[0] == '\0' && tiny[1] == 'x');
+    check("in hand: the whole name where there is room",
+          fleet_match_save_in_hand(blob, sizeof(blob), name, sizeof(name)) == 1 &&
+          strcmp(name, "Bartholomew") == 0);
     fleet_match_init(&copy, w.n[2].key, 1);
     check("in hand: whoever saved it - another identity cannot decode it, and it still counts",
           fleet_match_save_decode(&copy, blob, sizeof(blob)) == -2 &&
@@ -1979,6 +2037,31 @@ static void test_save_in_hand(void)
     check("in hand: a damaged one is not, and names nobody",
           fleet_match_save_in_hand(blob, sizeof(blob), name, sizeof(name)) == 0 && name[0] == '\0');
     check("in hand: nothing at all is not", fleet_match_save_in_hand(NULL, 0, NULL, 0) == 0);
+    {
+        /* A log the own fleet contradicts, re-sealed: it decodes, and only
+         * restore can tell that the protocol never produced it. */
+        static struct wire w2;
+        struct fleet_match bad;
+        int k;
+
+        wire_init(&w2, 53);
+        to_battle(&w2);
+        play(&w2, 60000, 0);
+        bad = *A(&w2);
+        for (k = 1; k <= bad.resolved; k++) {
+            if (fleet_match_shooter(k) != bad.role) {
+                bad.log_res[k] = fleet_res_outcome(bad.log_res[k]) == 1 ? fleet_res_make(2, 0, 0)
+                                                                         : fleet_res_make(1, 0, 0);
+                break;
+            }
+        }
+        fleet_match_save_encode(A(&w2), blob, sizeof(blob));
+        check("in hand: (a real one of that match is)",
+              bad.resolved > 0 && fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 1);
+        fleet_match_save_encode(&bad, blob, sizeof(blob));
+        check("in hand: a save that decodes but could not be resumed is not",
+              fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 0);
+    }
     fleet_match_forfeit(A(&w), w.now);
     pump(&w);
     deliver_all(&w);
@@ -1987,18 +2070,23 @@ static void test_save_in_hand(void)
           A(&w)->phase == FLEET_MP_DONE && fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 0);
 }
 
-/* ---- the golden match.v1 (ADR-018, "Validation" 1) -------------------------- *
+/* ---- the golden match.v1 files (ADR-018, "Validation" 1) --------------------- *
  *
- * tests/fixtures/fleet/match.v1.golden was written by the build BEFORE link
- * profiles and the save per transport existed (master 1767f09d), with
- * `fleet_match_test --write-golden`. It holds node A mid-battle with a shot
- * pending and one tombstone. Every later build must load it, restore it and
- * write the very same bytes: that is what "match.v1 is unchanged" means. The
- * file is never regenerated to make this test pass. */
+ * tests/fixtures/fleet/match.v1.golden and match.v1.done.golden were written
+ * by the build BEFORE link profiles and the save per transport existed
+ * (master 1767f09d: that tree's own sources, with only the two builders and
+ * the --write-golden hooks below added to this file). The first holds node A
+ * mid-battle with a shot pending and one tombstone; the second a match played
+ * to its end - both reveals, the verification, the outcome - over a full
+ * table of tombstones, so between them every field of the format is filled.
+ * Every later build must load each, restore it and write the very same
+ * bytes: that is what "match.v1 is unchanged" means. Neither file is ever
+ * regenerated to make this test pass. */
 #define GOLDEN_PATH "tests/fixtures/fleet/match.v1.golden"
+#define GOLDEN_DONE_PATH "tests/fixtures/fleet/match.v1.done.golden"
 #define GOLDEN_NOW 500000
 
-/* The match the fixture was taken from. Returns 0 with A's save in blob. */
+/* The match the first fixture was taken from. Returns 0 with A's save in blob. */
 static int golden_build(uint8_t blob[FLEET_MATCH_SAVE_SIZE])
 {
     static struct wire w;
@@ -2044,12 +2132,66 @@ static int golden_build(uint8_t blob[FLEET_MATCH_SAVE_SIZE])
     return fleet_match_save_encode(A(&w), blob, FLEET_MATCH_SAVE_SIZE) == FLEET_MATCH_SAVE_SIZE ? 0 : -1;
 }
 
-static int golden_write(const char *path)
+/* Let whatever is owed go out and arrive: a minute, governor and all. */
+static void golden_settle(struct wire *w)
+{
+    int i;
+
+    for (i = 0; i < 600; i++) {
+        pump(w);
+        deliver_all(w);
+        advance(w, 100);
+    }
+}
+
+/* The second fixture: every field the first leaves empty. Four matches
+ * forfeited and put away - a full table of tombstones - and then one played
+ * to its end and not put away: both reveals held, verified, an outcome. */
+static int golden_build_done(uint8_t blob[FLEET_MATCH_SAVE_SIZE])
+{
+    static struct wire w;
+    int round;
+    int i;
+
+    wire_init(&w, 78);
+    for (round = 0; round <= FLEET_MATCH_TOMBSTONES; round++) {
+        fleet_match_invite(A(&w), w.n[1].key, "Bartholomew", 0x700001u + (uint32_t)round, w.now);
+        golden_settle(&w);
+        fleet_match_accept(B(&w), w.now);
+        golden_settle(&w);
+        mp_deploy(&w.n[0], w.now);
+        mp_deploy(&w.n[1], w.now);
+        golden_settle(&w);
+        if (A(&w)->phase != FLEET_MP_BATTLE || B(&w)->phase != FLEET_MP_BATTLE) {
+            return -1;
+        }
+        if (round == FLEET_MATCH_TOMBSTONES) {
+            break;
+        }
+        if (fleet_match_forfeit(round % 2 ? B(&w) : A(&w), w.now) != 0) {
+            return -1;
+        }
+        golden_settle(&w);
+        fleet_match_dismiss(A(&w));
+        fleet_match_dismiss(B(&w));
+        golden_settle(&w);
+    }
+    for (i = 0; i < 600 && (A(&w)->phase != FLEET_MP_DONE || B(&w)->phase != FLEET_MP_DONE); i++) {
+        play(&w, 10000, 0);
+    }
+    golden_settle(&w);
+    if (A(&w)->phase != FLEET_MP_DONE || !A(&w)->have_peer_reveal) {
+        return -1;
+    }
+    return fleet_match_save_encode(A(&w), blob, FLEET_MATCH_SAVE_SIZE) == FLEET_MATCH_SAVE_SIZE ? 0 : -1;
+}
+
+static int golden_write(const char *path, int (*build)(uint8_t *))
 {
     uint8_t blob[FLEET_MATCH_SAVE_SIZE];
     FILE *f;
 
-    if (golden_build(blob) != 0 || !(f = fopen(path, "wb"))) {
+    if (build(blob) != 0 || !(f = fopen(path, "wb"))) {
         return 1;
     }
     if (fwrite(blob, 1, sizeof(blob), f) != sizeof(blob) || fclose(f) != 0) {
@@ -2059,54 +2201,84 @@ static int golden_write(const char *path)
     return 0;
 }
 
+/* Load a fixture and hold this build to it. Returns 1 with the match in m. */
+static int golden_check(const char *what, const char *path, int (*build)(uint8_t *),
+                        struct fleet_match *m, uint8_t gold[FLEET_MATCH_SAVE_SIZE])
+{
+    static uint8_t raw[FLEET_MATCH_SAVE_SIZE + 1];
+    uint8_t again[FLEET_MATCH_SAVE_SIZE];
+    uint8_t fresh[FLEET_MATCH_SAVE_SIZE];
+    uint8_t key[FLEET_KEY_BYTES];
+    char label[160];
+    size_t n = 0;
+    FILE *f = fopen(path, "rb");
+
+    if (f) {
+        n = fread(raw, 1, sizeof(raw), f);
+        fclose(f);
+    }
+    snprintf(label, sizeof(label), "golden (%s): the fixture is there, 655 bytes", what);
+    check(label, f != NULL && n == FLEET_MATCH_SAVE_SIZE && FLEET_MATCH_SAVE_SIZE == 655);
+    if (n != FLEET_MATCH_SAVE_SIZE) {
+        return 0;
+    }
+    memcpy(gold, raw, FLEET_MATCH_SAVE_SIZE);
+    mp_key(key, 0x10);
+    fleet_match_init(m, key, 1);
+    snprintf(label, sizeof(label), "golden (%s): a match.v1 of the build before this change decodes", what);
+    check(label, fleet_match_save_decode(m, gold, n) == 0);
+    snprintf(label, sizeof(label), "golden (%s): and restores", what);
+    check(label, fleet_match_restore(m, GOLDEN_NOW) == 0);
+    snprintf(label, sizeof(label), "golden (%s): written again it is the same file, byte for byte", what);
+    check(label, fleet_match_save_encode(m, again, sizeof(again)) == FLEET_MATCH_SAVE_SIZE &&
+          memcmp(again, gold, FLEET_MATCH_SAVE_SIZE) == 0);
+    snprintf(label, sizeof(label), "golden (%s): the same match played by this build saves the same bytes", what);
+    check(label, build(fresh) == 0 && memcmp(fresh, gold, FLEET_MATCH_SAVE_SIZE) == 0);
+    return 1;
+}
+
 static void test_golden_save(void)
 {
     static struct fleet_match m;
-    uint8_t gold[FLEET_MATCH_SAVE_SIZE + 1];
-    uint8_t again[FLEET_MATCH_SAVE_SIZE];
-    uint8_t key[FLEET_KEY_BYTES];
+    uint8_t gold[FLEET_MATCH_SAVE_SIZE];
     uint8_t other[FLEET_KEY_BYTES];
-    size_t n = 0;
     int tombs = 0;
     int i;
-    FILE *f = fopen(GOLDEN_PATH, "rb");
 
-    if (f) {
-        n = fread(gold, 1, sizeof(gold), f);
-        fclose(f);
-    }
-    check("golden: the fixture is there, 655 bytes", f != NULL && n == FLEET_MATCH_SAVE_SIZE &&
-          FLEET_MATCH_SAVE_SIZE == 655);
-    if (n != FLEET_MATCH_SAVE_SIZE) {
-        return;
-    }
-    mp_key(key, 0x10);
     mp_key(other, 0x20);
-    fleet_match_init(&m, key, 1);
-    check("golden: a match.v1 of the build before this change decodes",
-          fleet_match_save_decode(&m, gold, n) == 0);
-    check("golden: and restores", fleet_match_restore(&m, GOLDEN_NOW) == 0);
-    for (i = 0; i < FLEET_MATCH_TOMBSTONES; i++) {
-        tombs += m.tomb[i].sid != 0;
+    if (golden_check("mid-battle", GOLDEN_PATH, golden_build, &m, gold)) {
+        for (i = 0; i < FLEET_MATCH_TOMBSTONES; i++) {
+            tombs += m.tomb[i].sid != 0;
+        }
+        check("golden (mid-battle): a shot pending, a tombstone, the opponent's key",
+              m.phase == FLEET_MP_BATTLE && m.pending != FLEET_NO_CELL && m.resolved > 0 && tombs >= 1 &&
+              memcmp(m.peer_key, other, FLEET_KEY_BYTES) == 0);
+        check("golden (mid-battle): it is a match in hand",
+              fleet_match_save_in_hand(gold, sizeof(gold), NULL, 0) == 1);
     }
-    check("golden: mid-battle, a shot pending, a tombstone, the opponent's key",
-          m.phase == FLEET_MP_BATTLE && m.pending != FLEET_NO_CELL && m.resolved > 0 && tombs >= 1 &&
-          memcmp(m.peer_key, other, FLEET_KEY_BYTES) == 0);
-    check("golden: written again it is the same file, byte for byte",
-          fleet_match_save_encode(&m, again, sizeof(again)) == FLEET_MATCH_SAVE_SIZE &&
-          memcmp(again, gold, FLEET_MATCH_SAVE_SIZE) == 0);
-    {
-        uint8_t fresh[FLEET_MATCH_SAVE_SIZE];
+    if (golden_check("finished", GOLDEN_DONE_PATH, golden_build_done, &m, gold)) {
+        char name[FLEET_MATCH_NAME_MAX];
 
-        check("golden: the same match played by this build saves the same bytes",
-              golden_build(fresh) == 0 && memcmp(fresh, gold, FLEET_MATCH_SAVE_SIZE) == 0);
+        tombs = 0;
+        for (i = 0; i < FLEET_MATCH_TOMBSTONES; i++) {
+            tombs += m.tomb[i].sid != 0;
+        }
+        check("golden (finished): done, both reveals, verified, an outcome, every tombstone slot full",
+              m.phase == FLEET_MP_DONE && m.have_peer_reveal && m.verify == FLEET_VERIFY_OK &&
+              (m.outcome == FLEET_OUTCOME_WIN || m.outcome == FLEET_OUTCOME_LOSS) &&
+              tombs == FLEET_MATCH_TOMBSTONES && strcmp(m.peer_name, "Bartholomew") == 0);
+        check("golden (finished): a finished match is not one in hand",
+              fleet_match_save_in_hand(gold, sizeof(gold), name, sizeof(name)) == 0 && name[0] == '\0');
     }
 }
 
 int main(int argc, char **argv)
 {
     if (argc == 3 && strcmp(argv[1], "--write-golden") == 0) {
-        return golden_write(argv[2]);
+        return golden_write(argv[2], golden_build);
+    }
+    if (argc == 3 && strcmp(argv[1], "--write-golden-done") == 0) {
+        return golden_write(argv[2], golden_build_done);
     }
     test_invite_accept();
     test_start_lost();
@@ -2148,6 +2320,7 @@ int main(int argc, char **argv)
     test_profile_link_waits();
     test_profile_lan_unmetered();
     test_profile_lan_whole_match();
+    test_profile_lost_answer();
     test_human_lost_invitations();
     test_human_delayed_answer();
     test_human_timeout();

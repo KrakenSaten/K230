@@ -149,6 +149,14 @@ check "a link never touches a save" "apps/fleet/link/fleet_link*.c apps/fleet/li
 check "nothing but the mesh session asks for the mesh's save" \
       "$(echo "$OTHERS" | grep -v '^apps/fleet/fleet_mp\.c$')" \
       'FLEET_STORE_MESH|fleet_store_match_(path|save|load)[[:space:]]*\('
+# fleet_mp.c holds the app's one session, and that session is the mesh's: it
+# saves with the mesh's calls. Until a LAN session with its own save is added
+# there (and this rule is rewritten with it), nothing in the file may select
+# the LAN, and the development opponent is held to the mesh's profile.
+check "the app's session is the mesh's alone, for now" "apps/fleet/fleet_mp.c" \
+      'FLEET_STORE_LAN|fleet_profile_lan|fleet_store_match_(path|save|load)_for'
+want "its development opponent cannot be put on the LAN profile" "apps/fleet/fleet_mp.c" \
+     'cfg\.lan = 0;'
 want "the store maps a transport to a file in one place" "$STORE.c" 'static const char \*match_file\('
 n=$(grep -c 'FLEET_STORE_MATCH_FILE' "$STORE.c")
 if [ "$n" = 1 ]; then echo "ok   and match.v1 is spelled there once"; else

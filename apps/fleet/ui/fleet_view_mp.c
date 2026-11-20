@@ -325,9 +325,12 @@ int fleet_view_mp_lobby(const struct fleet_match *m, const char *peer, char *buf
              * many went out. Nothing is said before the mesh would. */
             if (waited < FLEET_HUMAN_BASE_MS) {
                 snprintf(buf, n, "Inviting %s" ELLIPSIS, who(peer));
-            } else if (left > 60000) {
+            } else if (left >= 90000) {
                 snprintf(buf, n, "Inviting %s" ELLIPSIS " no answer yet (about %d min left).", who(peer),
-                         (int)((left + 59999) / 60000));
+                         (int)((left + 30000) / 60000));
+            } else if (left >= 30000) {
+                snprintf(buf, n, "Inviting %s" ELLIPSIS " no answer yet (about a minute left).",
+                         who(peer));
             } else {
                 snprintf(buf, n, "Inviting %s" ELLIPSIS " no answer yet (under a minute left).",
                          who(peer));

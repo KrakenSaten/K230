@@ -179,7 +179,8 @@ void fleet_session_set_other_in_hand(struct fleet_session *s, int in_hand)
 int fleet_session_invite(struct fleet_session *s, const uint8_t peer[FLEET_KEY_BYTES],
                          const char *name, int64_t now)
 {
-    if (s->other_in_hand) {
+    if (s->ready && s->other_in_hand) {
+        s->now = now;
         return FLEET_SESSION_OTHER_MATCH;
     }
     ACT(fleet_match_invite(&s->m, peer, name, random32(s), now));
@@ -187,7 +188,8 @@ int fleet_session_invite(struct fleet_session *s, const uint8_t peer[FLEET_KEY_B
 
 int fleet_session_accept(struct fleet_session *s, int64_t now)
 {
-    if (s->other_in_hand) {
+    if (s->ready && s->other_in_hand) {
+        s->now = now;
         return FLEET_SESSION_OTHER_MATCH;
     }
     ACT(fleet_match_accept(&s->m, now));

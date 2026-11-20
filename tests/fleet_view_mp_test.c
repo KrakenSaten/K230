@@ -224,16 +224,25 @@ int main(void)
         m.human_start = m.now - 60000;
         m.human_deadline = m.human_start + 259000;
         fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
-        says("inviting on a fast link, a minute in: the time left", buf, "no answer yet (about 4 min left)");
+        says("inviting on a fast link, a minute in: the time left, to the nearest minute", buf,
+             "no answer yet (about 3 min left)");
         check("and no count of tries", !strstr(buf, "try") && !strstr(buf, "40"));
         m.human_start = m.now - 139000;
         m.human_deadline = m.human_start + 259000;
         fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
         says("two minutes left", buf, "(about 2 min left)");
+        m.human_start = m.now - 198000;
+        m.human_deadline = m.human_start + 259000;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        says("61 s left is a minute, not two", buf, "no answer yet (about a minute left)");
         m.human_start = m.now - 220000;
         m.human_deadline = m.human_start + 259000;
         fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
-        says("the last minute", buf, "no answer yet (under a minute left)");
+        says("39 s left is still about a minute", buf, "(about a minute left)");
+        m.human_start = m.now - 240000;
+        m.human_deadline = m.human_start + 259000;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        says("the last half minute", buf, "no answer yet (under a minute left)");
         m.human_start = 0;
         m.human_deadline = 0;
         m.attempts = 3;

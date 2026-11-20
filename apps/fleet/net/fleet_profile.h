@@ -26,6 +26,9 @@ struct fleet_link_profile {
     uint32_t retry_base_ms;         /* the first wait for an answer; the floor of the link's own estimate */
     uint32_t retry_cap_ms;          /* the longest wait between tries */
     uint32_t busy_retry_ms;         /* after the transport refused a frame as busy */
+    uint32_t dup_reply_ms;          /* a copy of something already answered is answered again at most
+                                     * this often; under the link's first retry, or a lost answer is
+                                     * only made good by a later one */
     /* The airtime governor. gov_burst 0: frames are not rationed.
      * gov_hour_ms 0: there is no hourly budget. */
     uint8_t gov_burst;

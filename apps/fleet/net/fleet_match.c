@@ -435,6 +435,7 @@ const struct fleet_link_profile fleet_profile_mesh = {
     .retry_base_ms = FLEET_RETRY_BASE_MS,
     .retry_cap_ms = FLEET_RETRY_CAP_MS,
     .busy_retry_ms = FLEET_BUSY_RETRY_MS,
+    .dup_reply_ms = FLEET_DUP_REPLY_MS,
     .gov_burst = FLEET_GOV_BURST,
     .gov_refill_ms = FLEET_GOV_REFILL_MS,
     .gov_hour_ms = FLEET_GOV_HOUR_MS,
@@ -448,6 +449,7 @@ const struct fleet_link_profile fleet_profile_lan = {
     .retry_base_ms = FLEET_LAN_RETRY_BASE_MS,
     .retry_cap_ms = FLEET_LAN_RETRY_CAP_MS,
     .busy_retry_ms = FLEET_BUSY_RETRY_MS,
+    .dup_reply_ms = FLEET_LAN_DUP_REPLY_MS,
     .gov_burst = 0,
     .gov_refill_ms = 0,
     .gov_hour_ms = 0,
@@ -669,7 +671,8 @@ static int enqueue(struct fleet_match *m, const uint8_t *to, const struct fleet_
 static void reply(struct fleet_match *m, const uint8_t *to, const struct fleet_msg *msg, int dup)
 {
     if (dup) {
-        if (m->last_reply[msg->type] && m->now - m->last_reply[msg->type] < FLEET_DUP_REPLY_MS) {
+        if (m->last_reply[msg->type] &&
+            m->now - m->last_reply[msg->type] < m->profile->dup_reply_ms) {
             return;
         }
         m->stats.dup_replies++;
@@ -820,6 +823,8 @@ static void clear_session(struct fleet_match *m)
     memcpy(tomb, m->tomb, sizeof(tomb));
     m->role = FLEET_ROLE_NONE;
     m->phase = FLEET_MP_IDLE;
+    m->human_start = 0;
+    m->human_deadline = 0;
     m->sid = 0;
     memset(m->peer_key, 0, sizeof(m->peer_key));
     memset(m->peer_name, 0, sizeof(m->peer_name));
@@ -1284,10 +1289,11 @@ static void handle_chat(struct fleet_match *m, const struct fleet_msg *in)
         touch(m);
     } else {
         /* Our receipt was lost, or the line came twice. It is answered
-         * again, at most once per FLEET_DUP_REPLY_MS, and not shown again. */
+         * again, at most once per the profile's dup_reply_ms (FLEET_DUP_REPLY_MS
+         * on the mesh), and not shown again. */
         m->stats.chat_dup++;
         if (m->last_reply[FLEET_MSG_CHAT_ACK] &&
-            m->now - m->last_reply[FLEET_MSG_CHAT_ACK] < FLEET_DUP_REPLY_MS) {
+            m->now - m->last_reply[FLEET_MSG_CHAT_ACK] < m->profile->dup_reply_ms) {
             return;
         }
     }
