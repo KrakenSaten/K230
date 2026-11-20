@@ -78,12 +78,14 @@ no socket while it holds neither a visibility lease nor a kept peer.
   derived X25519 secret and every cached session key are wiped on exit.
 - **Created only when the `peerd/` state is absent**, from the kernel's
   random source through libsodium: the epoch files first, the identity
-  last, so a power cut in between leaves "epoch files without an identity",
-  which counts as absent and is created again. A state that has an identity
-  but is otherwise unreadable or incomplete is never repaired by
-  regeneration: peerd reports `identity_fault` or `epoch_fault` and stays
-  closed. Replacing it is an explicit, logged operator action, because a new
-  identity orphans a saved match and every peer's memory of this device.
+  last. Epoch files without an identity count as an interrupted first
+  creation, and creation is finished, **only if** the epoch still has its
+  initial value and no `kept.v1` exists. In every other case - a raised
+  epoch or a kept record without an identity, or an identity with
+  unreadable or incomplete state - nothing is regenerated: peerd reports
+  `identity_fault` or `epoch_fault` and stays closed. Replacing the
+  identity is an explicit, logged operator action, because a new one
+  orphans a saved match and every peer's memory of this device.
 - A lost or replaced key is a new player. There is **no revocation**: a
   stolen key works until its owner replaces it and every peer forgets it.
 
@@ -147,11 +149,14 @@ whenever one exists - **requirement 3 holds for exactly the peers that
 matter**, with no beacon and no client attached. A record lasts until the
 game releases it (the match ends or is put away); there is no timed expiry,
 because there is no clock to time it by. A fifth `peer.keep` is refused
-with an error. `peer.kept` lists the records, so a game reconciles them
-with its saves when it opens and releases any it has no match for; an
-operator command releases one by hand.
+with an error. `peer.kept` lists the records, and a game reconciles **both ways**
+when it opens or resumes: it releases any record it has no match for and
+asserts `peer.keep` again (idempotent) for every saved match, so a record
+lost to a fault is restored. A re-created record has no replay floor until
+the first datagram is accepted. An operator command releases one by hand.
 
-**Signed frames** (beacon, probe, probe reply, lookup reply) are in clear,
+**Signed frames** (beacon, probe, probe reply, lookup, lookup reply) are in
+clear,
 signed with `crypto_sign_detached` over `"DOORS-PEERD-1" | frame`. They
 carry the sender's key, epoch, sequence, the sender's own IPv4 address,
 name (up to 24 bytes of checked UTF-8), wire version and at most one table
@@ -189,8 +194,9 @@ state is updated.
   attacker can still fill the unreserved slots with invented players; that
   spoils discovery, not a match in hand.
 - **Inbox**: 32 datagrams, at most 8 per sender (a ninth pushes out that
-  sender's oldest), and a kept peer's are never pushed out by another
-  sender's.
+  sender's oldest; datagrams waiting for their write, §6, count). A kept
+  peer's are never pushed out by another sender's, and one arriving at a
+  full inbox pushes out the oldest that is not a kept peer's.
 - **No pin store in v1.** Nothing remembers a name-to-key binding outside a
   saved match; a name is a label, two keys may claim it, and the
   remembered-players store (M4) is where a change will first be shown.
@@ -213,21 +219,26 @@ No clock, so freshness is the sender's own persistent counter.
   more clears the map); inside the map and unseen is accepted; seen, or
   below the map, is dropped. A datagram delayed behind more than 64 later
   frames is therefore lost, and the game's retry resends it.
-- **Kept peers: the epoch and a DATA high-water mark are persisted** - the
-  highest sequence of any DATA frame accepted in that epoch, whatever the
-  in-memory `top` is (beacons share the sequence space and move `top`
-  without being persisted). It is written durably whenever an accepted DATA
-  frame exceeds the stored mark, and the datagram reaches the inbox only
-  **after** the write has landed. After a restart the window starts with
-  `top` at the mark and every position seen, so nothing at or below it in
-  that epoch is accepted: an opponent's earlier moves cannot be replayed
-  into a restarted device, including one that had arrived behind a beacon.
-- These writes are capped per kept peer per second; datagrams beyond the
-  cap wait for their write rather than being delivered first. The last
-  address is written only when it changes, under the same cap. `kept.v1`
-  missing is an empty list; unreadable is `kept_fault`: peerd runs, with
-  no kept peers and therefore the non-kept residual below for all of them,
-  and says so.
+- **Kept peers: a DATA high-water mark is persisted** as the pair
+  (epoch, sequence) of the newest DATA frame accepted, compared by epoch
+  first: a higher epoch replaces the record and restarts the sequence, and
+  within an epoch a higher sequence replaces it, whatever the in-memory
+  `top` is (beacons share the sequence space and move `top` without being
+  persisted). It is written durably whenever an accepted DATA frame exceeds
+  the stored pair, and the datagram reaches the inbox only **after** the
+  write has landed. After a restart the window starts in the stored epoch
+  with `top` at the stored sequence and every position seen, so nothing at
+  or below the mark is accepted: an opponent's earlier moves cannot be
+  replayed into a restarted device, including one that had arrived behind
+  a beacon or early in a new epoch.
+- These writes are capped per kept peer per second; one write of the
+  newest mark covers every datagram waiting behind it, and waiting
+  datagrams count against the sender's 8 in the inbox. The last address is
+  written only when it changes, under the same cap. `kept.v1` is written
+  temp-flush-rename with the directory flushed. Missing, it is an empty
+  list; unreadable, it is `kept_fault`: peerd runs with no kept peers, so
+  the non-kept residual below applies to all of them until games assert
+  their keeps again (§5), and says so.
 - Only a frame bearing the sender's signature or the pairwise key changes
   replay state, so a third party cannot advance it to lock a peer out.
 - **Residual**: for a node that is *not* kept, a restarted receiver has no
@@ -238,8 +249,9 @@ No clock, so freshness is the sender's own persistent counter.
   sender's epoch back (peers ignore it until it passes theirs) and a
   receiver's records back (old frames replay). Restoring `peerd/` is
   treated as a new device: the operator removes it instead.
-- The state directory must give an atomic rename (ext4 does; not verified
-  for the unit's actual mount, see Evidence).
+- `identity.v1` and `kept.v1` need an atomic rename from the state
+  directory's filesystem (ext4 gives one; not verified for the unit's
+  actual mount, see Evidence). The epoch files do not.
 
 ### 7. Addresses
 
@@ -310,7 +322,7 @@ are fixed with `docs/api/peer.md` at acceptance; none is asserted here.
 ## Validation before implementation carries a game packet
 
 1. Owner acceptance of this ADR.
-2. An independent review of §2-§10: **done once, 2026-11-20** (see
+2. An independent review of §2-§10: **three passes, 2026-11-20** (see
    "Independent review"); a human review remains the owner's to require.
 3. Known-answer tests: fixed keys, epoch, sequence and nonce produce fixed
    frames; libsodium's own vectors for the primitives.
@@ -324,7 +336,10 @@ are fixed with `docs/api/peer.md` at acceptance; none is asserted here.
    address is not its source, a full node table with a kept peer in it,
    DATA accepted behind a beacon then replayed after a restart, a fifth
    keep, a stranger's beacon and lookup with no lease, a power cut between
-   the epoch files and the identity at first creation.
+   the epoch files and the identity at first creation, an identity file
+   deleted from a device with a raised epoch, DATA of a new epoch with a
+   lower sequence then replayed after a restart, a kept record lost and
+   re-asserted, a kept peer's datagram arriving at a full inbox.
 6. The entropy check of "Evidence": units A and B, from one image, make
    different identities.
 
@@ -363,26 +378,32 @@ version change; identities, the pocketipc surface, games and saves do not.
 
 ## Independent review
 
-2026-11-20. Two passes over §2-§10 against requirements 1-7 by a separate
-AI reviewer session that was given this file alone, not the author's
-reasoning: a first review (R1-R15), then a second pass over the text as
-revised for it (N1-N8). **It is not a review by a human cryptographer**, and
-the owner may require one before acceptance. The design above is the text
-after both passes; the changes made for the second pass have not themselves
-been re-read by the reviewer.
+2026-11-20. Three passes over §2-§10 against requirements 1-7 by a separate
+AI reviewer session that was given this file, not the author's reasoning: a
+first review (R1-R15), a second pass over the text as revised for it
+(N1-N8), and a third over the text as revised again (P1-P5), which also
+compared it with M2-PLAN.md §1.3-1.4. **It is not a review by a human
+cryptographer**, and the owner may require one before acceptance. The
+design above is the text after all three; the corrections made for the
+third pass are clarifications and were not sent back a fourth time.
 
-Verdict of the first pass: the construction (static keys, `crypto_kx`,
+Verdicts. First pass: the construction (static keys, `crypto_kx`,
 XChaCha20-Poly1305, epoch plus window) is acceptable and need not be
 replaced, once R1 is fixed and R2-R5 are fixed or accepted as stated
-residuals. Verdict of the second: **no blockers remain in the design**; N1
-and the eight-digit claim were to be corrected before acceptance, and are.
+residuals. Second: no blockers remain; N1 and the eight-digit claim to be
+corrected before acceptance. Third: **no blockers remain; every earlier
+finding is resolved in the design text; the text is fit for the owner's
+acceptance decision as a design**, with P1-P5 and some wording mismatches
+as corrections that do not change the construction.
+
+First pass:
 
 | # | Severity | Finding | Disposition |
 | --- | --- | --- | --- |
 | R1 | BLOCKER | "Sender must be a known node" contradicted requirement 3: after a restart the opponent's datagram was dropped until a beacon, which might never come; the socket might not even be bound; an unsigned probe left the responder not knowing the prober | **Fixed**: persisted kept-peer records loaded at start, socket bound while one exists (§5, §8); the probe is signed and challenge-bound (§5); no timed keep expiry |
 | R2 | MAJOR | Only the epoch was persisted for kept peers, so a restarted device accepted the opponent's earlier moves again | Fixed in part at the first pass; **fixed** after N1: a DATA high-water mark, persisted before delivery (§6) |
 | R3 | MAJOR | Node table and inbox could be exhausted from the link, evicting the opponent or their waiting move | **Fixed** for a match in hand: reserved slots, eviction rule, kept-only DATA without a lease, inbox caps (§4, §5). **Accepted residual**: invented players in the lobby |
-| R4 | MAJOR | A missing or rolled-back epoch file was undefined and could lock a device out of its peers | **Fixed**: `epoch_fault`, two copies, created only with the identity, counters stop at maximum (§2, §6). **Accepted residual**: a restored state directory. The reviewer's optional epoch hint is not adopted (it is a round trip) |
+| R4 | MAJOR | A missing or rolled-back epoch file was undefined and could lock a device out of its peers | **Fixed**: `epoch_fault`, two copies, created only in a first creation (§2), counters stop at maximum (§2, §6). **Accepted residual**: a restored state directory. The reviewer's optional epoch hint is not adopted (it is a round trip) |
 | R5 | MAJOR | Four hex digits can be matched by brute force; no pin store; beacons have no freshness; the probe reply was not bound to the probe | **Fixed**: challenge-bound probe and lookup (§5); sixteen digits, after the second pass judged eight still within offline reach (§2). **Stated**: no pin store in v1; a beacon is a claim, not presence |
 | R6 | MINOR | Own or equal key undefined | Fixed (§3, §8) |
 | R7 | MINOR | Check order and verification budget for signed frames | Fixed (§4, §5, §10) |
@@ -408,12 +429,26 @@ Second pass:
 | N7 | MINOR | A power cut at first creation left a permanent fault; epoch file rule; `kept.v1` faults | Fixed (§2, §6) |
 | N8 | MINOR | A recorded beacon can reset a kept peer's endpoint after a restart | Stated (§7) |
 
-Found sound as written (first pass): one Ed25519 key converted for
-agreement; role by key order, no reflection or unknown-key-share with the
-sender's whole key in the associated data; random 192-bit nonces; the
-layout and lengths; that no third party can advance a victim's replay
-state; tag before replay update; "never regenerate silently"; the
-forward-secrecy and KCI statements.
+Third pass (all MINOR):
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| P1 | The high-water mark was compared by sequence alone, so the first DATA of a new epoch was never persisted | Fixed: the mark is the pair (epoch, sequence), epoch first (§6) |
+| P2 | "Epoch files without an identity" could not tell an interrupted first creation from a lost identity file, and would have regenerated silently | Fixed: only at the initial epoch with no kept records (§2) |
+| P3 | A kept record lost to a fault was never restored | Fixed: games reconcile both ways and re-assert (§5, §6) |
+| P4 | The queue behind a write was unbounded; `kept.v1`'s write method unstated | Fixed (§5, §6) |
+| P5 | A kept peer's datagram was not guaranteed room in a full inbox | Fixed (§5) |
+| - | Wording: lookup missing from the list of signed frames; "done once"; R4's disposition; M2-PLAN §1.3-1.4 out of step on the probe, the endpoint rule, when Fleet asserts a keep, and the inbox | Fixed here and in M2-PLAN. The pass also reported requirement 3 as still universal; it had already been narrowed |
+
+Found sound as written: one Ed25519 key converted for agreement; role by
+key order, no reflection or unknown-key-share with the sender's whole key
+in the associated data; random 192-bit nonces; the layout and lengths; that
+no third party can advance a victim's replay state; tag before replay
+update; "never regenerate silently"; the forward-secrecy and KCI
+statements (first pass); the in-place two-file epoch rule; the window
+restored at the mark; signed frames from kept keys only without a lease;
+the stated-address rule, under which a device on two interfaces of one LAN
+alternates harmlessly between two valid endpoints (third pass).
 
 **Blockers remaining: none in the design.** Open before implementation:
 owner acceptance; whether a human review is required; the "not verified"
