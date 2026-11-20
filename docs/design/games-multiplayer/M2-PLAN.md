@@ -141,7 +141,7 @@ kit as in the earlier gates, rollback script on each unit.
 | Risk | Handling |
 | --- | --- |
 | The security construction | ADR-P1 chooses an established one and names its review; no code before acceptance |
-| A new dependency may be the right answer (libsodium) | it is a proposal inside ADR-P1, per AGENTS.md; the OpenSSL-only alternative is costed beside it |
+| libsodium is a new dependency | approved by the owner 2026-11-20; packaged in the pinned Buildroot (1.0.18, ISC); the minimal build's exports are ADR-P1's first check |
 | Human waits shortened by a fast profile | ADR-P2 separates them; a simulator invariant that the invite window is the same on both profiles |
 | Broadcast behaviour on real access points is ASSUMED | measured in gate steps 2, 4 and 6 |
 | Refusing the second transport while a match is in hand may annoy | one sentence and RESUME; relaxing it later needs no format change |

@@ -52,7 +52,10 @@ protection against a party already on the device (everything runs as root).
 
 ### Proposed decision
 
-**Option A**, if the owner accepts one new dependency; **option B** if not.
+**Option A.** The owner approved libsodium as a new dependency on
+2026-11-20; option B stays on record as the alternative. The ADR, its
+independent review and the known-answer tests are still required before
+any implementation.
 
 - A is the only option with no handshake at all, which is what "do not
   invent a custom handshake" and requirement 3 both point at. Its cost is no
@@ -65,8 +68,13 @@ protection against a party already on the device (everything runs as root).
   what passes is handed to a game that already ignores duplicates.
 - The long-term identity is an Ed25519 key; the box key is derived by the
   library's own conversion. The 32-byte identity is what games see.
-- Whether libsodium is packaged in the pinned SDK's Buildroot is **not
-  checked** (ASSUMED available); AGENTS.md requires this proposal either way.
+- libsodium is packaged in the pinned SDK's Buildroot 2025.02.1:
+  `package/libsodium`, version 1.0.18, licence ISC (VERIFIED locally,
+  2026-11-20, in the build host's SDK tree). It is not yet selected in the
+  Doors defconfig. Buildroot builds it `--enable-minimal` unless
+  `BR2_PACKAGE_LIBSODIUM_FULL` is set; that the minimal build exports every
+  function the construction needs (in particular the Ed25519-to-X25519
+  conversion) is **not verified** and is the ADR's first check.
 
 To be fixed in the ADR itself, before any code: the frame layout and version
 byte, UDP port, beacon contents and rate, probe and lookup frames, limits
