@@ -2763,6 +2763,11 @@ install: all meshcored-shipping-check
 ifeq ($(ENABLE_MESHCORED),1)
 	install -D -m 0755 services/meshcored/meshcored $(DESTDIR)$(PREFIX)/sbin/meshcored
 endif
+# peerd likewise only when it was asked for and built (make ENABLE_PEERD=1
+# peerd). No init script is installed with it yet: nothing starts it.
+ifeq ($(ENABLE_PEERD),1)
+	install -D -m 0755 services/peerd/peerd $(DESTDIR)$(PREFIX)/sbin/peerd
+endif
 # The third-party notices travel with the binaries that need them. Under
 # share/doors rather than share/doc, which Buildroot strips from the target.
 # share/pocketos, where they were through v0.0.9, stays a directory holding a
@@ -3093,3 +3098,84 @@ relay-nine-san-test:
 	out/relay-nine/engine-test-san
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iapps/neon-outpost tests/relay_visual_test.c apps/neon-outpost/relay.c apps/neon-outpost/relay_render.c apps/neon-outpost/relay_art.c apps/neon-outpost/relay_scale.c -lm -o out/relay-nine/visual-test-san
 	out/relay-nine/visual-test-san
+
+# ---- peerd: IP peer datagrams (docs/decisions/ADR-017, docs/api/peer.md) ------
+#
+# Off unless asked for: it needs libsodium, which no Doors image selects yet
+# (make ENABLE_PEERD=1 ...). SODIUM_DIR is a prefix holding include/ and
+# lib/libsodium.a - a private build of the pinned 1.0.18, minimal
+# configuration - or empty for the toolchain's own -lsodium.
+#
+#   make ENABLE_PEERD=1 SODIUM_DIR=<prefix> peerd        the service
+#   make ENABLE_PEERD=1 SODIUM_DIR=<prefix> peerd-test   its tests: plain, then
+#                                                        under ASan and UBSan,
+#                                                        the fuzzer, the lint
+#                                                        and two real peerds
+#
+# Built in out/peerd by explicit commands, with -Werror, so nothing here
+# joins `make all` or `make test` or changes how any other object is built.
+ENABLE_PEERD ?= 0
+SODIUM_DIR ?=
+PEERD_DIR := services/peerd
+PEERD_OUT := out/peerd
+PEERD_SODIUM_INC := $(if $(SODIUM_DIR),-I$(SODIUM_DIR)/include)
+PEERD_SODIUM_LIB := $(if $(SODIUM_DIR),$(SODIUM_DIR)/lib/libsodium.a,-lsodium)
+PEERD_CFLAGS := -std=gnu11 -Wall -Wextra -Werror $(COMMON_FLAGS) -I$(PEERD_DIR) $(PEERD_SODIUM_INC)
+PEERD_PURE := $(PEERD_DIR)/peer_wire.c $(PEERD_DIR)/peer_replay.c
+PEERD_ENGINE := $(PEERD_PURE) $(PEERD_DIR)/peer_crypto.c $(PEERD_DIR)/peer_store.c $(PEERD_DIR)/peer_core.c
+PEERD_SERVICE := $(PEERD_DIR)/main.c $(PEERD_DIR)/peer_net.c $(PEERD_ENGINE) core/pocketipc/pocketipc.c \
+                 core/pocketipc/server.c core/pocketlog/pocketlog.c core/pocketpaths.c
+PEERD_SAN := -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
+PEERD_FUZZ_RUNS ?= 400000
+
+.PHONY: peerd peerd-test peerd-plain-test peerd-san-test peerd-fuzz peerd-service-test peerd-check-enabled
+peerd-check-enabled:
+	@if [ "$(ENABLE_PEERD)" != 1 ]; then \
+	    echo "peerd needs libsodium: make ENABLE_PEERD=1 SODIUM_DIR=<prefix> $(MAKECMDGOALS)" >&2; exit 1; fi
+
+peerd: peerd-check-enabled
+	mkdir -p $(PEERD_OUT)
+	$(CC) $(CFLAGS) -O2 $(PEERD_CFLAGS) $(PEERD_SERVICE) $(PEERD_SODIUM_LIB) $(LDFLAGS) $(LDLIBS) -o $(PEERD_DIR)/peerd
+
+# Each suite twice: as built, and under the address and undefined-behaviour
+# sanitizers. $(1) the flags, $(2) a suffix for the binaries.
+define PEERD_SUITES
+	$(CC) $(1) $(PEERD_CFLAGS) tests/peer_wire_test.c $(PEERD_PURE) -o $(PEERD_OUT)/wire-test$(2)
+	$(PEERD_OUT)/wire-test$(2)
+	$(CC) $(1) $(PEERD_CFLAGS) tests/peer_replay_test.c $(PEERD_DIR)/peer_replay.c -o $(PEERD_OUT)/replay-test$(2)
+	$(PEERD_OUT)/replay-test$(2)
+	$(CC) $(1) $(PEERD_CFLAGS) tests/peer_crypto_test.c $(PEERD_PURE) $(PEERD_DIR)/peer_crypto.c $(PEERD_SODIUM_LIB) -o $(PEERD_OUT)/crypto-test$(2)
+	$(PEERD_OUT)/crypto-test$(2)
+	$(CC) $(1) $(PEERD_CFLAGS) tests/peer_store_test.c $(PEERD_PURE) $(PEERD_DIR)/peer_crypto.c $(PEERD_DIR)/peer_store.c $(PEERD_SODIUM_LIB) -o $(PEERD_OUT)/store-test$(2)
+	$(PEERD_OUT)/store-test$(2)
+	$(CC) $(1) $(PEERD_CFLAGS) -DPEER_CORE_TEST=1 tests/peer_core_test.c $(PEERD_ENGINE) $(PEERD_SODIUM_LIB) -o $(PEERD_OUT)/core-test$(2)
+	$(PEERD_OUT)/core-test$(2)
+endef
+
+peerd-plain-test: peerd-check-enabled
+	mkdir -p $(PEERD_OUT)
+	$(call PEERD_SUITES,-O2,)
+
+peerd-san-test: peerd-check-enabled
+	mkdir -p $(PEERD_OUT)
+	$(call PEERD_SUITES,$(PEERD_SAN),-san)
+
+# The fuzzer: the frame parser and the whole receive path, under the
+# sanitizers, fed random bytes and mutations of genuine frames. The target is
+# LLVMFuzzerTestOneInput, so a libFuzzer build can drive it too; this build
+# brings its own driver because the build host has gcc only.
+peerd-fuzz: peerd-check-enabled
+	mkdir -p $(PEERD_OUT)
+	$(CC) $(PEERD_SAN) $(PEERD_CFLAGS) -DPEER_FUZZ_STANDALONE=1 tests/peer_fuzz.c $(PEERD_ENGINE) $(PEERD_SODIUM_LIB) -o $(PEERD_OUT)/fuzz
+	$(PEERD_OUT)/fuzz $(PEERD_FUZZ_RUNS)
+
+# Two real peerds on two loopback addresses. The hooks build of peer_net.c
+# is the only object that can be bound to one address; the shipped peerd does
+# not contain the name, which the test checks.
+peerd-service-test: peerd
+	$(CC) $(CFLAGS) -O2 $(PEERD_CFLAGS) -DPEERD_TEST_HOOKS=1 $(PEERD_SERVICE) $(PEERD_SODIUM_LIB) $(LDFLAGS) $(LDLIBS) -o $(PEERD_OUT)/peerd-testhooks
+	$(MAKE) tools/pos/pos
+	bash tests/peerd_test.sh
+
+peerd-test: peerd-plain-test peerd-san-test peerd-fuzz peerd-service-test
+	bash tests/peerd_lint.sh
