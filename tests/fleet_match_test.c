@@ -1622,12 +1622,18 @@ static void test_profile_human_waits(void)
            (long long)mesh_ms, (long long)lan_ms);
     check("profile: an invitation waits for a person about three minutes on the mesh",
           mesh_n == FLEET_RETRY_MAX && mesh_ms > 150000 && mesh_ms < 400000);
-    check("profile: and exactly as long on the LAN, in as many tries",
-          lan_n == FLEET_RETRY_MAX && lan_ms == mesh_ms);
+    printf("     in that time the mesh sent it %u times, the LAN %u\n", mesh_n, lan_n);
+    /* The same window. The mesh's ends on the tick after each of its six
+     * waits, the LAN's on the tick after one deadline: up to six of this
+     * test's 100 ms ticks apart, never more. */
+    check("profile: and as long on the LAN", lan_ms <= mesh_ms && mesh_ms - lan_ms <= 600);
+    check("profile: where it is repeated at the link's pace, not six times",
+          lan_n > 3 * FLEET_RETRY_MAX && lan_n < 120);
     mesh_ms = accept_window(&fleet_profile_mesh, &mesh_n);
     lan_ms = accept_window(&fleet_profile_lan, &lan_n);
     check("profile: an acceptance waits for its host as long on both",
-          mesh_n == FLEET_RETRY_MAX && lan_n == FLEET_RETRY_MAX && mesh_ms > 150000 && lan_ms == mesh_ms);
+          mesh_n == FLEET_RETRY_MAX && lan_n > 3 * FLEET_RETRY_MAX && mesh_ms > 150000 &&
+          lan_ms <= mesh_ms && mesh_ms - lan_ms <= 600);
 }
 
 /* How long a shot nobody answers takes to be given up as a lost link. */
@@ -1730,6 +1736,212 @@ static void test_profile_lan_whole_match(void)
     check("profile: never held back by a governor",
           A(&w)->stats.gov_waits == 0 && B(&w)->stats.gov_waits == 0 &&
           A(&w)->stats.gov_drops == 0 && B(&w)->stats.gov_drops == 0);
+}
+
+/* ---- waiting for a person on a fast link (ADR-018 point 2) ------------------ *
+ *
+ * On the LAN an INVITE or an ACCEPT is repeated at the link's pace and the
+ * wait ends at the deadline the mesh's schedule comes to. On the mesh
+ * nothing here applies: six tries, as ever. */
+
+/* A invites B; the first `lose` INVITEs are lost. How long until B has it. */
+static int64_t invited_after(const struct fleet_link_profile *p, unsigned lose)
+{
+    static struct wire w;
+    int64_t start;
+    int i;
+
+    wire_init(&w, 61);
+    fleet_match_set_profile(A(&w), p);
+    fleet_match_set_profile(B(&w), p);
+    start = w.now;
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x41, w.now);
+    for (i = 0; i < 6000 && B(&w)->phase != FLEET_MP_INVITED; i++) {
+        pump(&w);
+        if (w.sent[0][FLEET_MSG_INVITE] <= lose) {
+            drop_all(&w);
+        } else {
+            deliver_all(&w);
+        }
+        advance(&w, 50);
+    }
+    return B(&w)->phase == FLEET_MP_INVITED ? w.now - start : -1;
+}
+
+static void test_human_lost_invitations(void)
+{
+    int64_t lan = invited_after(&fleet_profile_lan, 3);
+    int64_t mesh = invited_after(&fleet_profile_mesh, 3);
+
+    printf("     three invitations lost: it arrives after %lld ms on the LAN, %lld ms on the mesh\n",
+           (long long)lan, (long long)mesh);
+    /* 0.5 + 1 + 2 s, each up to half as long again. */
+    check("human: on the LAN three lost invitations cost seconds", lan >= 3500 && lan <= 5500);
+    /* 7 + 14 + 28 s, likewise: the mesh is what it was. */
+    check("human: on the mesh they cost what they always did", mesh >= 49000 && mesh <= 74000);
+    check("human: one lost on the LAN is made good within a second",
+          invited_after(&fleet_profile_lan, 1) <= 900);
+}
+
+static void test_human_delayed_answer(void)
+{
+    static struct wire w;
+    unsigned b_sent = 0;
+    int64_t waited = -1;
+    int64_t left = -1;
+    int64_t window;
+    int i;
+    int t;
+
+    wire_init(&w, 62);
+    fleet_match_set_profile(A(&w), &fleet_profile_lan);
+    fleet_match_set_profile(B(&w), &fleet_profile_lan);
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x42, w.now);
+    pump(&w);
+    deliver_all(&w);
+    check("delayed: the invitation is there at once", B(&w)->phase == FLEET_MP_INVITED);
+    check("delayed: the host's wait is one held to a deadline",
+          fleet_match_human_wait(A(&w), &waited, &left) == 1 && waited == 0 && left > 150000);
+    window = left;
+    advance(&w, 1000);
+    deliver_all(&w);
+    check("delayed: a second in, the link is not called a problem",
+          fleet_match_link(A(&w)) == FLEET_LINK_OK && A(&w)->attempts >= 2);
+    /* The guest looks at it for three minutes; every repeat reaches them. */
+    for (i = 0; i < 1800; i++) {
+        advance(&w, 100);
+        deliver_all(&w);
+    }
+    for (t = 0; t < FLEET_MSG_TYPE_COUNT; t++) {
+        b_sent += w.sent[1][t];
+    }
+    check("delayed: three minutes on, the invitation still stands on both sides",
+          A(&w)->phase == FLEET_MP_INVITING && B(&w)->phase == FLEET_MP_INVITED);
+    check("delayed: the host kept asking at the link's pace",
+          w.sent[0][FLEET_MSG_INVITE] > 3 * FLEET_RETRY_MAX);
+    check("delayed: and the guest answered none of the copies", b_sent == 0);
+    check("delayed: by now the host says it is waiting, and how long is left",
+          fleet_match_link(A(&w)) == FLEET_LINK_RETRYING &&
+          fleet_match_human_wait(A(&w), &waited, &left) == 1 && waited >= 180000 &&
+          left > 0 && waited + left == window);
+    fleet_match_accept(B(&w), w.now);
+    pump(&w);
+    deliver_all(&w);
+    check("delayed: accepted then, the match begins",
+          A(&w)->phase == FLEET_MP_DEPLOY && B(&w)->phase == FLEET_MP_DEPLOY &&
+          fleet_match_human_wait(A(&w), NULL, NULL) == 0 && fleet_match_human_wait(B(&w), NULL, NULL) == 0);
+}
+
+static void test_human_timeout(void)
+{
+    static struct wire w;
+    int64_t left = 0;
+    int64_t start;
+    int i;
+
+    wire_init(&w, 63);
+    fleet_match_set_profile(A(&w), &fleet_profile_lan);
+    fleet_match_set_profile(B(&w), &fleet_profile_lan);
+    start = w.now;
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x43, w.now);
+    pump(&w);
+    deliver_all(&w);
+    fleet_match_human_wait(A(&w), NULL, &left);
+    /* The guest never answers. Up to the last moment the invitation stands. */
+    while (w.now + 100 < start + left) {
+        advance(&w, 100);
+        deliver_all(&w);
+    }
+    check("timeout: a moment before the deadline the invitation still stands",
+          A(&w)->phase == FLEET_MP_INVITING && B(&w)->phase == FLEET_MP_INVITED);
+    advance(&w, 200);
+    check("timeout: at the deadline the host gives up and says so",
+          A(&w)->phase == FLEET_MP_IDLE && A(&w)->notice == FLEET_NOTICE_NO_ANSWER &&
+          fleet_match_human_wait(A(&w), NULL, NULL) == 0);
+    check("timeout: the deadline is the mesh's window, not a count of tries",
+          left > 150000 && left < 400000 && w.sent[0][FLEET_MSG_INVITE] > 3 * FLEET_RETRY_MAX);
+    deliver_all(&w);
+    {
+        unsigned invites = w.sent[0][FLEET_MSG_INVITE];
+
+        for (i = 0; i < 300; i++) {
+            advance(&w, 100);
+            deliver_all(&w);
+        }
+        check("timeout: nothing more is sent for it", w.sent[0][FLEET_MSG_INVITE] == invites);
+    }
+    /* The guest answers after all: told it was withdrawn, and not left waiting. */
+    fleet_match_accept(B(&w), w.now);
+    pump(&w);
+    deliver_all(&w);
+    for (i = 0; i < 100; i++) {
+        advance(&w, 100);
+        deliver_all(&w);
+    }
+    check("timeout: an acceptance after it is told the invitation is gone",
+          w.sent[0][FLEET_MSG_END] >= 1 && B(&w)->phase == FLEET_MP_IDLE && A(&w)->phase == FLEET_MP_IDLE);
+}
+
+/* The guest accepted; the host's START is lost for a while. */
+static void test_human_lost_start(void)
+{
+    static struct wire w;
+    int64_t start;
+    int i;
+
+    wire_init(&w, 64);
+    fleet_match_set_profile(A(&w), &fleet_profile_lan);
+    fleet_match_set_profile(B(&w), &fleet_profile_lan);
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x44, w.now);
+    pump(&w);
+    deliver_all(&w);
+    start = w.now;
+    fleet_match_accept(B(&w), w.now);
+    for (i = 0; i < 2000 && B(&w)->phase != FLEET_MP_DEPLOY; i++) {
+        int guard = 0;
+
+        pump(&w);
+        /* Everything the host says is lost for the first three seconds. */
+        while (w.qn > 0 && guard++ < 1000) {
+            if (w.q[0].from == 0 && w.now - start < 3000) {
+                remove_at(&w, 0);
+            } else {
+                deliver_at(&w, 0);
+            }
+        }
+        advance(&w, 50);
+    }
+    printf("     START lost for 3 s: the guest is in Deploy %lld ms after accepting\n",
+           (long long)(w.now - start));
+    check("human: a lost START is asked for again at the link's pace",
+          B(&w)->phase == FLEET_MP_DEPLOY && A(&w)->phase == FLEET_MP_DEPLOY &&
+          w.now - start >= 3000 && w.now - start < 9000 && w.sent[1][FLEET_MSG_ACCEPT] >= 3);
+}
+
+static void test_human_mesh_unchanged(void)
+{
+    static struct wire w;
+    int i;
+
+    wire_init(&w, 65);
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x45, w.now);
+    pump(&w);
+    drop_all(&w);
+    check("human: on the mesh the wait is counted in tries, not held to a deadline",
+          fleet_match_human_wait(A(&w), NULL, NULL) == 0 && A(&w)->human_deadline == 0 &&
+          A(&w)->attempts == 1);
+    for (i = 0; i < 80; i++) {
+        advance(&w, 100);
+        drop_all(&w);
+    }
+    check("human: eight seconds on, one invitation has gone out, no more", A(&w)->attempts <= 2 &&
+          w.sent[0][FLEET_MSG_INVITE] <= 2);
+    for (i = 0; i < 4000 && A(&w)->phase != FLEET_MP_IDLE; i++) {
+        advance(&w, 100);
+        drop_all(&w);
+    }
+    check("human: and it ends after exactly six", w.sent[0][FLEET_MSG_INVITE] == FLEET_RETRY_MAX &&
+          A(&w)->notice == FLEET_NOTICE_NO_ANSWER && A(&w)->human_deadline == 0);
 }
 
 /* ---- one match per device: is a save a match in hand? (ADR-018 point 4) ------ */
@@ -1936,6 +2148,11 @@ int main(int argc, char **argv)
     test_profile_link_waits();
     test_profile_lan_unmetered();
     test_profile_lan_whole_match();
+    test_human_lost_invitations();
+    test_human_delayed_answer();
+    test_human_timeout();
+    test_human_lost_start();
+    test_human_mesh_unchanged();
     test_layout_commit();
     test_chat_line();
     test_chat_duplicates();

@@ -210,6 +210,37 @@ int main(void)
     m.attempts = 3;
     fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
     says("inviting, no answer yet", buf, "no answer yet (try 3 of 6)");
+    {
+        /* A link quicker than the mesh (ADR-018): the invitation is repeated
+         * often and held to a deadline; the screen says how long is left and
+         * never counts the copies. The mesh's words above are untouched. */
+        m.attempts = 40;
+        m.now = 1000000;
+        m.human_start = m.now - 3000;
+        m.human_deadline = m.human_start + 259000;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        check("inviting on a fast link: nothing is said in the first seconds",
+              strstr(buf, "Inviting Anna") && !strstr(buf, "no answer") && !strstr(buf, "try"));
+        m.human_start = m.now - 60000;
+        m.human_deadline = m.human_start + 259000;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        says("inviting on a fast link, a minute in: the time left", buf, "no answer yet (about 4 min left)");
+        check("and no count of tries", !strstr(buf, "try") && !strstr(buf, "40"));
+        m.human_start = m.now - 139000;
+        m.human_deadline = m.human_start + 259000;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        says("two minutes left", buf, "(about 2 min left)");
+        m.human_start = m.now - 220000;
+        m.human_deadline = m.human_start + 259000;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        says("the last minute", buf, "no answer yet (under a minute left)");
+        m.human_start = 0;
+        m.human_deadline = 0;
+        m.attempts = 3;
+        fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+        says("and the mesh still counts its tries", buf, "no answer yet (try 3 of 6)");
+        m.now = 0;
+    }
     m.phase = FLEET_MP_INVITED;
     fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
     says("an invitation for us", buf, "Anna invites you");

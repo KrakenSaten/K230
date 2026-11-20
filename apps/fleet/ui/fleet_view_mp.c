@@ -315,7 +315,25 @@ int fleet_view_mp_lobby(const struct fleet_match *m, const char *peer, char *buf
         return fail(buf, n);
     }
     switch (m->phase) {
-    case FLEET_MP_INVITING:
+    case FLEET_MP_INVITING: {
+        int64_t waited = 0;
+        int64_t left = 0;
+
+        if (fleet_match_human_wait(m, &waited, &left)) {
+            /* A link quicker than the mesh repeats the invitation often and
+             * gives the person the same time: say how long is left, not how
+             * many went out. Nothing is said before the mesh would. */
+            if (waited < FLEET_HUMAN_BASE_MS) {
+                snprintf(buf, n, "Inviting %s" ELLIPSIS, who(peer));
+            } else if (left > 60000) {
+                snprintf(buf, n, "Inviting %s" ELLIPSIS " no answer yet (about %d min left).", who(peer),
+                         (int)((left + 59999) / 60000));
+            } else {
+                snprintf(buf, n, "Inviting %s" ELLIPSIS " no answer yet (under a minute left).",
+                         who(peer));
+            }
+            return 0;
+        }
         if (m->attempts >= 2) {
             snprintf(buf, n, "Inviting %s" ELLIPSIS " no answer yet (try %d of %d).", who(peer),
                      m->attempts, FLEET_RETRY_MAX);
@@ -323,6 +341,7 @@ int fleet_view_mp_lobby(const struct fleet_match *m, const char *peer, char *buf
             snprintf(buf, n, "Inviting %s" ELLIPSIS, who(peer));
         }
         return 0;
+    }
     case FLEET_MP_INVITED:
         snprintf(buf, n, "%s invites you to an engagement.", who(peer));
         return 0;

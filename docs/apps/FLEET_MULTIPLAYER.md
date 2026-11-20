@@ -485,12 +485,23 @@ link reports it. `fleet_profile_lan` is for a local network: link waits from
 values). Probe intervals, try counts and "paused, never forfeited" are the
 same on both.
 
-**Waiting for a person.** An INVITE or an ACCEPT is never retried on a
-schedule quicker than the mesh's (7 s doubling to 60 s, six tries), whatever
-the profile: about 4 min 19 s with the test's seed, identical on both. Only
-waits for the link - SHOT, COMMIT, REVEAL, SYNC, END - follow the profile:
-an unanswered shot is given up as a lost link after about 4 min 40 s on the
-mesh and about 21 s on the LAN profile.
+**Waiting for a person.** How long an INVITE or an ACCEPT waits for a
+person is the same on every link: what the mesh's schedule comes to, six
+waits from 7 s doubling to 60 s (4 min 19 s with the test's seed, the same
+deadline on both profiles). What differs is how often the packet is sent
+in that time. On the mesh nothing has changed: it goes out on that schedule,
+six times, and the lobby says "no answer yet (try 3 of 6)". On a link whose
+own waits are shorter the packet is repeated at the link's pace - 0.5 s
+doubling to 5 s on the LAN profile, some 45 copies in the window - and
+the wait ends at the deadline rather than after a count
+(`fleet_match_human_wait`). There the lobby says "no answer yet (about 3 min
+left)", from the moment the mesh would first have said anything (7 s), and
+the header does not call it a link problem before then. Three lost
+invitations cost about 4 s on the LAN and about a minute on the mesh.
+
+Waits for the link - SHOT, COMMIT, REVEAL, SYNC, END - follow the profile
+and are counted in tries on both: an unanswered shot is given up as a lost
+link after about 4 min 40 s on the mesh and about 21 s on the LAN profile.
 
 **Saves.** `fleet_store` keeps one file per transport, same codec:
 `match.v1` for LoRa, unchanged in name, size and format, and `match-lan.v1`
@@ -517,7 +528,7 @@ does not call it yet: that comes with the transport choice in the lobby.
 | `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen, 0600 under any umask |
 | `tests/fleet_app_test` (sections 8, 9) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK; the header always exactly the derived status, turn by turn; the chat button beside FIRE in multiplayer and absent in single player; the chat typed on keys and sent with Enter, the answer shown, an over-long accented line refused, the touch keyboard only for a finger down the page, a line said while on the board counted on the button, chat from Result after the match and gone once the match is put away |
 | `tests/fleet_shell_test.sh` (section 10) | every multiplayer state rendered in both shapes in the shell, `match.v1` written whole, no mesh service, a damaged `match.v1` |
-| `tests/fleet_match_test` (profiles, golden) | `tests/fixtures/fleet/match.v1.golden`, written by the build before profiles existed (master `1767f09d`): decodes, restores, re-encodes byte for byte, and the same match played now saves the same bytes; the mesh profile is the old constants; the invite and accept windows are equal on both profiles; link waits in minutes on the mesh and seconds on the LAN; nothing rationed on the LAN, a whole match there verified; which saves count as a match in hand |
+| `tests/fleet_match_test` (profiles, golden) | `tests/fixtures/fleet/match.v1.golden`, written by the build before profiles existed (master `1767f09d`): decodes, restores, re-encodes byte for byte, and the same match played now saves the same bytes; the mesh profile is the old constants; the invite and accept windows are equal on both profiles while the LAN repeats at its own pace; lost invitations, a guest who answers after three minutes, the deadline itself and an acceptance after it, a lost START; the mesh still six tries and no deadline; link waits in minutes on the mesh and seconds on the LAN; nothing rationed on the LAN, a whole match there verified; which saves count as a match in hand |
 | `tests/fleet_session_test` (profiles, one match) | a session takes its link's profile; whole matches on the LAN profile, clean and lossy; invite and accept refused, with nothing sent, while the other transport holds a match |
 | `tests/fleet_save_test` (transports) | the two files side by side, each read back whole by its own transport only, 0600, a damaged `match.v1` left untouched by a LAN save |
 | `tests/fleet_lint.sh` | the layers: net pure, one file talks to a service, no radio method, nothing pumped before engaging, the virtual opponent only when asked for; `match.v1` named by the store alone and in one place, no link touching a save, only the mesh session asking for the mesh's file |

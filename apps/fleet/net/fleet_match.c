@@ -92,6 +92,15 @@ int fleet_match_shots_by(const struct fleet_match *m, enum fleet_mp_role side)
     return n;
 }
 
+/* A wait for a person held to a deadline is in force (fleet_match.h,
+ * FLEET_HUMAN_*): only ever while inviting or accepting, whatever the
+ * runtime fields were left at. */
+static int human_waiting(const struct fleet_match *m)
+{
+    return m->human_deadline != 0 &&
+           (m->phase == FLEET_MP_INVITING || m->phase == FLEET_MP_ACCEPTING);
+}
+
 enum fleet_mp_link fleet_match_link(const struct fleet_match *m)
 {
     if (m->resyncing) {
@@ -103,12 +112,31 @@ enum fleet_mp_link fleet_match_link(const struct fleet_match *m)
     if (m->throttled) {
         return FLEET_LINK_THROTTLED;
     }
+    if (human_waiting(m)) {
+        /* Repeats at the link's pace say nothing about the link: a person
+         * has not answered yet. "Retrying" from when the mesh would say so. */
+        return m->now - m->human_start >= FLEET_HUMAN_BASE_MS ? FLEET_LINK_RETRYING : FLEET_LINK_OK;
+    }
     if (m->attempts >= 2 && (m->ob == FLEET_OB_COMMIT || m->ob == FLEET_OB_SHOT ||
                              m->ob == FLEET_OB_REVEAL || m->ob == FLEET_OB_INVITE ||
                              m->ob == FLEET_OB_ACCEPT)) {
         return FLEET_LINK_RETRYING;
     }
     return FLEET_LINK_OK;
+}
+
+int fleet_match_human_wait(const struct fleet_match *m, int64_t *waited_ms, int64_t *left_ms)
+{
+    if (!m || !human_waiting(m)) {
+        return 0;
+    }
+    if (waited_ms) {
+        *waited_ms = m->now > m->human_start ? m->now - m->human_start : 0;
+    }
+    if (left_ms) {
+        *left_ms = m->human_deadline > m->now ? m->human_deadline - m->now : 0;
+    }
+    return 1;
 }
 
 /* ---- the commitment ----------------------------------------------------- */
@@ -1020,26 +1048,23 @@ static int ob_human(uint8_t kind)
     return kind == FLEET_OB_INVITE || kind == FLEET_OB_ACCEPT;
 }
 
-/* The wait before try `attempts + 1`. A link wait follows the profile. A
- * human wait is never shorter than the mesh's schedule, on any link, so the
- * time a person has to answer does not shrink on a fast one (ADR-018). On
- * the mesh the two are the same numbers. */
-static uint32_t backoff(struct fleet_match *m, uint8_t kind, int attempts)
+/* Whether such a wait is held to a deadline here (fleet_match.h,
+ * FLEET_HUMAN_*): on a link whose own waits are shorter than the mesh's.
+ * Never on the mesh, where it ends after FLEET_RETRY_MAX tries as it always
+ * did and none of this is reached. */
+static int human_timed(const struct fleet_match *m, uint8_t kind)
+{
+    return ob_human(kind) && m->profile->retry_base_ms < FLEET_HUMAN_BASE_MS;
+}
+
+/* The wait before try `attempts + 1`, at the link's pace. */
+static uint32_t backoff(struct fleet_match *m, int attempts)
 {
     uint32_t base = m->retry_base ? m->retry_base : m->profile->retry_base_ms;
     uint32_t cap = m->profile->retry_cap_ms;
-    uint32_t d;
+    uint32_t d = base;
     int i;
 
-    if (ob_human(kind)) {
-        if (base < FLEET_HUMAN_BASE_MS) {
-            base = FLEET_HUMAN_BASE_MS;
-        }
-        if (cap < FLEET_HUMAN_CAP_MS) {
-            cap = FLEET_HUMAN_CAP_MS;
-        }
-    }
-    d = base;
     for (i = 1; i < attempts && d < cap; i++) {
         d *= 2;
     }
@@ -1047,6 +1072,28 @@ static uint32_t backoff(struct fleet_match *m, uint8_t kind, int attempts)
         d = cap;
     }
     return d + jitter(m, d / 2);
+}
+
+/* How long a person is given to answer: what the mesh's schedule comes to,
+ * FLEET_RETRY_MAX waits from FLEET_HUMAN_BASE_MS doubling to the cap, each
+ * with its jitter - drawn here as the mesh draws them one by one, so with
+ * the same seed the two windows are the same to the millisecond. */
+static uint32_t human_window(struct fleet_match *m)
+{
+    uint32_t total = 0;
+    uint32_t d = FLEET_HUMAN_BASE_MS;
+    int i;
+
+    for (i = 1; i <= FLEET_RETRY_MAX; i++) {
+        if (d > FLEET_HUMAN_CAP_MS) {
+            d = FLEET_HUMAN_CAP_MS;
+        }
+        total += d + jitter(m, d / 2);
+        if (d < FLEET_HUMAN_CAP_MS) {
+            d *= 2;
+        }
+    }
+    return total;
 }
 
 static void service_game(struct fleet_match *m)
@@ -1062,6 +1109,8 @@ static void service_game(struct fleet_match *m)
         m->attempts = 0;
         m->busy_run = 0;
         m->next_retry = m->now;
+        m->human_start = 0;
+        m->human_deadline = 0;
         touch(m);
     }
     if (kind == FLEET_OB_NONE) {
@@ -1096,10 +1145,17 @@ static void service_game(struct fleet_match *m)
         }
         return;
     }
+    if (m->human_deadline && m->now >= m->human_deadline) {
+        /* The person had as long as on the mesh, and did not answer. */
+        m->human_start = 0;
+        m->human_deadline = 0;
+        exhausted(m, kind);
+        return;
+    }
     if (m->now < m->next_retry) {
         return;
     }
-    if (m->attempts >= ob_max(kind)) {
+    if (!human_timed(m, kind) && m->attempts >= ob_max(kind)) {
         exhausted(m, kind);
         return;
     }
@@ -1117,8 +1173,18 @@ static void service_game(struct fleet_match *m)
         touch(m);
     }
     m->reveal_sends += kind == FLEET_OB_REVEAL;
-    m->attempts++;
-    m->next_retry = m->now + backoff(m, kind, m->attempts);
+    if (human_timed(m, kind)) {
+        if (!m->human_deadline) {
+            m->human_start = m->now;
+            m->human_deadline = m->now + human_window(m);
+        }
+        if (m->attempts < UINT8_MAX) {
+            m->attempts++;
+        }
+    } else {
+        m->attempts++;
+    }
+    m->next_retry = m->now + backoff(m, m->attempts);
     if (m->attempts >= 2) {
         touch(m);
     }
@@ -1186,7 +1252,7 @@ static void chat_service(struct fleet_match *m)
         c->tries = 0;
     }
     c->tries++;
-    c->next_try = m->now + backoff(m, FLEET_OB_NONE, c->tries);
+    c->next_try = m->now + backoff(m, c->tries);
     m->stats.chat_tx++;
     touch(m);
 }
