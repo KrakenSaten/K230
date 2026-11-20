@@ -103,6 +103,8 @@ int fleet_link_loop_parse(const char *spec, struct fleet_link_loop_cfg *cfg)
             cfg->chat = 1;
         } else if (word(&p, "crowd=")) {
             cfg->crowd = atoi(p);
+        } else if (word(&p, "lan")) {
+            cfg->lan = 1;
         }
         p = strchr(p, ',');
         if (p) {
@@ -394,9 +396,14 @@ static void loop_close(void *ctx)
     free(ctx);
 }
 
+static const struct fleet_link_profile *loop_profile(void *ctx)
+{
+    return ((struct loop *)ctx)->cfg.lan ? &fleet_profile_lan : &fleet_profile_mesh;
+}
+
 static const struct fleet_link_ops LOOP_OPS = {
     loop_poll, loop_send, loop_recv, loop_self_key, loop_state, loop_peers,
-    loop_peer_name, loop_advertise, loop_retry_base, loop_close,
+    loop_peer_name, loop_advertise, loop_retry_base, loop_close, loop_profile,
 };
 
 struct fleet_link *fleet_link_loop_open(const struct fleet_link_loop_cfg *cfg)
@@ -419,6 +426,9 @@ struct fleet_link *fleet_link_loop_open(const struct fleet_link_loop_cfg *cfg)
     }
     fleet_rng_seed(&l->rng, cfg->seed ^ 0x100F);
     fleet_match_init(&l->peer, l->peer_key, cfg->seed);
+    if (cfg->lan) {
+        fleet_match_set_profile(&l->peer, &fleet_profile_lan);
+    }
     l->seen = -1;
     l->link.ops = &LOOP_OPS;
     l->link.ctx = l;

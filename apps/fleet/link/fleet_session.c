@@ -43,6 +43,16 @@ static uint32_t random32(struct fleet_session *s)
     return v;
 }
 
+/* An empty match for this node, on this session's link: the mesh profile
+ * unless the link says otherwise (fleet_link.h, ADR-018). */
+static void start_match(struct fleet_session *s, const uint8_t key[FLEET_KEY_BYTES])
+{
+    fleet_match_init(&s->m, key, random32(s));
+    if (s->link->ops->profile) {
+        fleet_match_set_profile(&s->m, s->link->ops->profile(s->link->ctx));
+    }
+}
+
 /* The match exists once our own key is known; a saved one is read then. */
 static void make_ready(struct fleet_session *s)
 {
@@ -51,7 +61,7 @@ static void make_ready(struct fleet_session *s)
     if (s->ready || !s->link || s->link->ops->self_key(s->link->ctx, key) != 0) {
         return;
     }
-    fleet_match_init(&s->m, key, random32(s));
+    start_match(s, key);
     if (s->have_saved) {
         int rc = fleet_match_save_decode(&s->m, s->saved, sizeof(s->saved));
 
@@ -60,7 +70,7 @@ static void make_ready(struct fleet_session *s)
             s->store_fault = 1;
         } else if (rc != 0 || fleet_match_restore(&s->m, s->now) != 0) {
             s->store_fault = 1;
-            fleet_match_init(&s->m, key, random32(s));
+            start_match(s, key);
         }
     }
     fleet_match_set_store_fault(&s->m, s->store_fault);
@@ -158,14 +168,30 @@ unsigned fleet_session_revision(const struct fleet_session *s)
         return rc_;                        \
     } while (0)
 
+void fleet_session_set_other_in_hand(struct fleet_session *s, int in_hand)
+{
+    s->other_in_hand = in_hand != 0;
+}
+
+/* One match per device (ADR-008 decision 4, ADR-018 point 4): no match is
+ * begun here while the other transport's save holds one. Nothing is sent
+ * and nothing changes; the caller says which transport holds it. */
 int fleet_session_invite(struct fleet_session *s, const uint8_t peer[FLEET_KEY_BYTES],
                          const char *name, int64_t now)
 {
+    if (s->ready && s->other_in_hand) {
+        s->now = now;
+        return FLEET_SESSION_OTHER_MATCH;
+    }
     ACT(fleet_match_invite(&s->m, peer, name, random32(s), now));
 }
 
 int fleet_session_accept(struct fleet_session *s, int64_t now)
 {
+    if (s->ready && s->other_in_hand) {
+        s->now = now;
+        return FLEET_SESSION_OTHER_MATCH;
+    }
     ACT(fleet_match_accept(&s->m, now));
 }
 

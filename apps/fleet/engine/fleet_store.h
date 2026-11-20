@@ -65,4 +65,30 @@ int fleet_store_match_save(const uint8_t *blob, size_t n);
  * file, and -1 when there is one that cannot be read. */
 int fleet_store_match_load(uint8_t *buf, size_t max);
 
+/* ---- one save per transport (docs/decisions/ADR-018, point 3) ------------
+ *
+ * A match lives on the transport it began on, and each transport has its own
+ * file, in the same format and written the same way:
+ *
+ *   FLEET_STORE_MESH   match.v1       LoRa. The three functions above are
+ *                                     this transport's, and its file is
+ *                                     exactly what it always was;
+ *   FLEET_STORE_LAN    match-lan.v1   the local network.
+ *
+ * The transport is chosen by file, before a byte is decoded: a file is only
+ * ever handed to the session of its own transport. No LAN code path can
+ * reach match.v1 - it takes FLEET_STORE_LAN, and tests/fleet_lint.sh holds
+ * the names to that. A build older than this ignores match-lan.v1. */
+enum fleet_store_transport {
+    FLEET_STORE_MESH = 0,
+    FLEET_STORE_LAN,
+    FLEET_STORE_TRANSPORT_COUNT
+};
+#define FLEET_STORE_MATCH_LAN_FILE "match-lan.v1"
+
+/* NULL for a transport that is not one. */
+const char *fleet_store_match_path_for(enum fleet_store_transport t);
+int fleet_store_match_save_for(enum fleet_store_transport t, const uint8_t *blob, size_t n);
+int fleet_store_match_load_for(enum fleet_store_transport t, uint8_t *buf, size_t max);
+
 #endif

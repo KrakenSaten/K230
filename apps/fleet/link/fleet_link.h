@@ -22,6 +22,7 @@
 #ifndef POCKETFLEET_LINK_H
 #define POCKETFLEET_LINK_H
 
+#include "../net/fleet_profile.h"
 #include "../net/fleet_proto.h"
 
 #include <stddef.h>
@@ -73,6 +74,10 @@ struct fleet_link_ops {
     /* The service's timeout estimate for the last packet sent, or 0. */
     uint32_t (*retry_base)(void *ctx);
     void (*close)(void *ctx);
+    /* What a match may assume of this link (net/fleet_profile.h, ADR-018).
+     * May be NULL, and may return NULL: both mean the mesh profile. Appended,
+     * so a link written before it existed is a mesh link. */
+    const struct fleet_link_profile *(*profile)(void *ctx);
 };
 
 struct fleet_link {

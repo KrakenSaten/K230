@@ -28,6 +28,7 @@
 #define POCKETFLEET_MATCH_H
 
 #include "fleet_chat.h"
+#include "fleet_profile.h"
 #include "fleet_proto.h"
 
 #include "../engine/fleet_rng.h"
@@ -41,11 +42,28 @@
 #define FLEET_MATCH_NAME_MAX 32
 #define FLEET_MATCH_PEER_PREFIX 8
 
-/* ---- timing (docs/apps/FLEET_MULTIPLAYER.md, "Obligations and retries") -- */
+/* ---- timing (docs/apps/FLEET_MULTIPLAYER.md, "Obligations and retries") --
+ *
+ * The RETRY_BASE/CAP, BUSY, GOV and CHAT budget figures below are the mesh
+ * profile (fleet_profile.h, ADR-018): the match reads them through its
+ * profile, and fleet_profile_mesh holds exactly these values. */
 #define FLEET_RETRY_BASE_MS 7000u
 #define FLEET_RETRY_CAP_MS 60000u
 #define FLEET_RETRY_MAX 6
 #define FLEET_BUSY_RETRY_MS 1500u
+/* Waiting for a person - an INVITE or an ACCEPT to be answered - lasts as
+ * long on every link (ADR-018, point 2): the time the mesh's schedule gives,
+ * FLEET_RETRY_MAX waits from this base doubling to this cap. On the mesh
+ * that schedule is also when the packet is sent again, as it always was. On
+ * a link whose own waits are shorter the packet is repeated at the link's
+ * pace, and the wait ends at the same deadline instead of after a number of
+ * tries (fleet_match_human_wait). */
+#define FLEET_HUMAN_BASE_MS FLEET_RETRY_BASE_MS
+#define FLEET_HUMAN_CAP_MS FLEET_RETRY_CAP_MS
+/* The LAN profile's link waits (starting values; the simulator sets them). */
+#define FLEET_LAN_RETRY_BASE_MS 500u
+#define FLEET_LAN_RETRY_CAP_MS 5000u
+#define FLEET_LAN_DUP_REPLY_MS 200u
 #define FLEET_PROBE_MS 120000u
 #define FLEET_PROBE_MAX 15
 #define FLEET_SILENCE_PROBE_MS 300000u
@@ -227,7 +245,10 @@ struct fleet_match {
     uint8_t attempts;
     uint8_t busy_run;
     int64_t next_retry;
+    int64_t human_start;                    /* a wait for a person held to a deadline: */
+    int64_t human_deadline;                 /* when it began and ends; 0 when there is none */
     uint32_t retry_base;                    /* the transport's estimate */
+    const struct fleet_link_profile *profile;   /* never NULL after init */
     uint8_t lost;
     uint8_t probes;
     uint8_t reveal_sends;
@@ -320,6 +341,10 @@ void fleet_match_tx_refused(struct fleet_match *m, const struct fleet_match_out 
                             int64_t now);
 /* The transport's own timeout estimate for the route, in ms (0: default). */
 void fleet_match_set_retry_base(struct fleet_match *m, uint32_t ms);
+/* The link this match runs on (fleet_profile.h). A match starts on the mesh
+ * profile; a session on another link sets its own once, before anything is
+ * sent. NULL is the mesh profile. The governor's burst starts full. */
+void fleet_match_set_profile(struct fleet_match *m, const struct fleet_link_profile *profile);
 
 /* ---- outputs ------------------------------------------------------------- */
 
@@ -342,6 +367,12 @@ int fleet_match_my_turn(const struct fleet_match *m);
 /* The side that fires ply k. */
 enum fleet_mp_role fleet_match_shooter(int ply);
 enum fleet_mp_link fleet_match_link(const struct fleet_match *m);
+/* Whether the wait in force is one for a person that ends at a deadline
+ * rather than after a count of tries - an INVITE or an ACCEPT on a link
+ * quicker than LoRa. Returns 1 and how long it has lasted and has left
+ * (either may be NULL), in ms; 0 otherwise, as always on the mesh profile,
+ * where the screen counts tries (m->attempts of FLEET_RETRY_MAX). */
+int fleet_match_human_wait(const struct fleet_match *m, int64_t *waited_ms, int64_t *left_ms);
 /* Shots each side has fired. */
 int fleet_match_shots_by(const struct fleet_match *m, enum fleet_mp_role side);
 /* FNV-1a over sid, both commits and plies 1..n (the SYNC digest). */

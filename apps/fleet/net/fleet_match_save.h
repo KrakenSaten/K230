@@ -38,5 +38,19 @@ int fleet_match_save_encode(const struct fleet_match *m, uint8_t *buf, size_t n)
  * node identity. On failure m is untouched. Call fleet_match_restore() after
  * a 0. */
 int fleet_match_save_decode(struct fleet_match *m, const uint8_t *buf, size_t n);
+/* Whether a blob is a match in hand - a well-formed match.v1 between Deploy
+ * and Reveal - whoever saved it and on whatever transport: it is read under
+ * the identity it names itself, so this never answers "another identity".
+ * For the one-match-per-device rule across the two saves (ADR-018 point 4).
+ * Returns 1 and, when peer_name is not NULL, the opponent's saved name (an
+ * empty string when none was saved); 0 for anything else: a damaged or
+ * foreign blob, and one that decodes but that fleet_match_restore() refuses.
+ * Not reentrant: it decodes into one static match.
+ *
+ * What it cannot know is whether the transport that owns the file still has
+ * the identity the save was made under. A save its own session reports as
+ * another identity's (fleet_session.identity_changed) can never be resumed,
+ * and the caller must not let it hold the other transport back. */
+int fleet_match_save_in_hand(const uint8_t *buf, size_t n, char *peer_name, size_t peer_name_size);
 
 #endif

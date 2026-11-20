@@ -342,6 +342,87 @@ static void test_store(void)
     unsetenv("POCKETOS_STATE_DIR");
 }
 
+/* One save per transport (ADR-018 point 3): match.v1 is LoRa's and exactly
+ * what it was; match-lan.v1 is the local network's; neither path can reach
+ * the other's file. */
+static void test_match_store_transports(void)
+{
+    char dir[] = "/tmp/pos_fleet_tr.XXXXXX";
+    char mesh[512];
+    char lan[512];
+    uint8_t a[300];
+    uint8_t b[200];
+    uint8_t back[FLEET_STORE_MATCH_MAX];
+    struct stat st;
+    FILE *f;
+    size_t i;
+
+    if (!mkdtemp(dir)) {
+        perror("mkdtemp");
+        failed++;
+        return;
+    }
+    setenv("POCKETOS_STATE_DIR", dir, 1);
+    snprintf(mesh, sizeof(mesh), "%s/fleet/match.v1", dir);
+    snprintf(lan, sizeof(lan), "%s/fleet/match-lan.v1", dir);
+    for (i = 0; i < sizeof(a); i++) {
+        a[i] = (uint8_t)(i * 3 + 5);
+    }
+    for (i = 0; i < sizeof(b); i++) {
+        b[i] = (uint8_t)(i * 11 + 2);
+    }
+    check("transports: the mesh's file is match.v1, by either name of the call",
+          strcmp(fleet_store_match_path(), mesh) == 0 &&
+          strcmp(fleet_store_match_path_for(FLEET_STORE_MESH), mesh) == 0);
+    check("transports: the LAN's is match-lan.v1 beside it",
+          strcmp(fleet_store_match_path_for(FLEET_STORE_LAN), lan) == 0);
+    check("transports: asking for one does not disturb the other's path",
+          strcmp(fleet_store_match_path_for(FLEET_STORE_MESH), mesh) == 0 &&
+          strcmp(fleet_store_match_path(), mesh) == 0);
+    check("transports: a transport that is not one has no file",
+          fleet_store_match_path_for(FLEET_STORE_TRANSPORT_COUNT) == NULL &&
+          fleet_store_match_save_for(FLEET_STORE_TRANSPORT_COUNT, a, sizeof(a)) == -1 &&
+          fleet_store_match_load_for(FLEET_STORE_TRANSPORT_COUNT, back, sizeof(back)) == -1);
+    check("transports: a LAN save writes match-lan.v1 and no match.v1",
+          fleet_store_match_save_for(FLEET_STORE_LAN, b, sizeof(b)) == 0 && stat(lan, &st) == 0 &&
+          st.st_size == (off_t)sizeof(b) && stat(mesh, &st) != 0 &&
+          fleet_store_match_load(back, sizeof(back)) == 0);
+    check("transports: it is 0600 too", stat(lan, &st) == 0 && (st.st_mode & 0777) == 0600);
+    check("transports: a mesh save writes match.v1 and leaves the LAN's alone",
+          fleet_store_match_save(a, sizeof(a)) == 0 &&
+          fleet_store_match_load_for(FLEET_STORE_LAN, back, sizeof(back)) == (int)sizeof(b) &&
+          memcmp(back, b, sizeof(b)) == 0);
+    check("transports: each reads back its own, whole",
+          fleet_store_match_load(back, sizeof(back)) == (int)sizeof(a) && memcmp(back, a, sizeof(a)) == 0 &&
+          fleet_store_match_load_for(FLEET_STORE_MESH, back, sizeof(back)) == (int)sizeof(a));
+    /* A damaged match.v1: the LAN path neither reads it, repairs it nor removes it. */
+    f = fopen(mesh, "wb");
+    if (f) {
+        fputs("not a match", f);
+        fclose(f);
+    }
+    b[0] ^= 0xFF;
+    check("transports: a LAN save beside a damaged match.v1 leaves it as it is",
+          fleet_store_match_save_for(FLEET_STORE_LAN, b, sizeof(b)) == 0 &&
+          fleet_store_match_load_for(FLEET_STORE_LAN, back, sizeof(back)) == (int)sizeof(b) &&
+          back[0] == b[0] && fleet_store_match_load(back, sizeof(back)) == 11 &&
+          memcmp(back, "not a match", 11) == 0);
+    check("transports: nothing but the two files is left behind", ({
+              char cmd[700];
+
+              snprintf(cmd, sizeof(cmd), "test \"$(ls '%s/fleet' | tr '\\n' ' ')\" = 'match-lan.v1 match.v1 '", dir);
+              system(cmd) == 0;
+          }));
+    {
+        char cmd[700];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s'", dir);
+        if (system(cmd) != 0) {
+            perror("rm");
+        }
+    }
+}
+
 /* match.v1, the multiplayer match (docs/apps/FLEET_MULTIPLAYER.md): stored
  * beside save.v1 and independent of it, whole or not at all. */
 static void test_match_store(void)
@@ -454,6 +535,7 @@ int main(void)
     test_resume_continues_the_match();
     test_store();
     test_match_store();
+    test_match_store_transports();
     printf("fleet_save_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

@@ -258,6 +258,11 @@ void fleet_mp_create(struct fleet_app *app)
 
         fleet_link_loop_defaults(&cfg);
         fleet_link_loop_parse(fake, &cfg);
+        /* This session saves to the mesh's file (mp_save), so it plays on
+         * the mesh's profile whatever the spec says: a match is only ever
+         * saved and read by its own transport (ADR-018 point 3). "lan" is
+         * for the tests, until a LAN session with its own save exists. */
+        cfg.lan = 0;
         app->link = fleet_link_loop_open(&cfg);
         LOG_INFO("fleet: multiplayer against the virtual opponent (%s)", fake);
     } else {
