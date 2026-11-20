@@ -192,6 +192,25 @@ struct zabbix_overview_view {
     char hosts_note[ZABBIX_LINE_TEXT];    /* "1 unknown · 1 in maintenance" */
     int sev_count[ZBX_SEV_COUNT];
     bool sev_exact;
+    /* The tiles: one number each, "--" until its set has been read. Down
+     * keeps its ">=" when the server had more hosts than were read. */
+    char kpi_open[24];
+    enum zabbix_tone kpi_open_tone;
+    char kpi_unack[24];
+    enum zabbix_tone kpi_unack_tone;
+    char kpi_down[32];
+    enum zabbix_tone kpi_down_tone;
+    char kpi_maint[24];
+    /* Availability, as shares of every monitored host. Known only when up,
+     * down and unknown were counted over all of them (a server with more
+     * hosts than were read has no honest percentage: "--", and no ring). */
+    bool avail_known;
+    int up_permille;
+    int down_permille;
+    char avail_pct[8];          /* "91%", rounded down: never 100% with a host down */
+    char hosts_up[24];
+    char hosts_down[32];
+    char hosts_unknown[24];
     char server[ZABBIX_LINE_TEXT];        /* "Production · Zabbix 7.0.31" */
     char updated[ZABBIX_LINE_TEXT];       /* "Updated 18s ago" */
 };

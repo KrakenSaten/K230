@@ -388,6 +388,43 @@ void zabbix_view_overview(const struct zabbix_model *m, int64_t now_ms,
     } else {
         v->hosts_tone = ZABBIX_TONE_QUIET;
     }
+    /* The tiles and the availability ring: the same numbers as the lines
+     * above, one each. */
+    snprintf(v->kpi_open, sizeof(v->kpi_open), "--");
+    snprintf(v->kpi_unack, sizeof(v->kpi_unack), "--");
+    snprintf(v->kpi_down, sizeof(v->kpi_down), "--");
+    snprintf(v->kpi_maint, sizeof(v->kpi_maint), "--");
+    snprintf(v->avail_pct, sizeof(v->avail_pct), "--");
+    snprintf(v->hosts_up, sizeof(v->hosts_up), "--");
+    snprintf(v->hosts_down, sizeof(v->hosts_down), "--");
+    snprintf(v->hosts_unknown, sizeof(v->hosts_unknown), "--");
+    v->kpi_open_tone = v->kpi_unack_tone = v->kpi_down_tone = ZABBIX_TONE_QUIET;
+    if (!v->loading) {
+        zabbix_format_count(v->kpi_open, sizeof(v->kpi_open), o.problems_total);
+        v->kpi_open_tone = o.problems_total > 0 ? v->headline_tone : ZABBIX_TONE_OK;
+        zabbix_format_count(v->kpi_unack, sizeof(v->kpi_unack), o.unacknowledged);
+        v->kpi_unack_tone = o.unacknowledged > 0 ? ZABBIX_TONE_WARN : ZABBIX_TONE_OK;
+    }
+    if (m->hosts_ms > 0) {
+        zabbix_format_count(a, sizeof(a), o.hosts_down);
+        snprintf(v->kpi_down, sizeof(v->kpi_down), "%s%s", o.down_exact ? "" : ">=", a);
+        snprintf(v->hosts_down, sizeof(v->hosts_down), "%s", v->kpi_down);
+        v->kpi_down_tone = o.hosts_down > 0 ? ZABBIX_TONE_ERROR : ZABBIX_TONE_OK;
+        zabbix_format_count(v->kpi_maint, sizeof(v->kpi_maint), o.hosts_maintenance);
+        zabbix_format_count(v->hosts_unknown, sizeof(v->hosts_unknown), o.hosts_unknown);
+        if (o.hosts_exact && o.hosts_total > 0) {
+            int up = o.hosts_total - o.hosts_down - o.hosts_unknown;
+
+            if (up < 0) {
+                up = 0;
+            }
+            v->avail_known = true;
+            v->up_permille = (int)((int64_t)up * 1000 / o.hosts_total);
+            v->down_permille = (int)((int64_t)o.hosts_down * 1000 / o.hosts_total);
+            snprintf(v->avail_pct, sizeof(v->avail_pct), "%d%%", (int)((int64_t)up * 100 / o.hosts_total));
+            zabbix_format_count(v->hosts_up, sizeof(v->hosts_up), up);
+        }
+    }
     snprintf(v->server, sizeof(v->server), "%s%s%s%s", m->label[0] ? m->label : "Zabbix",
              m->version[0] ? " · Zabbix " : "", m->version, m->fake ? " · SIMULATED" : "");
     zabbix_format_since(since, sizeof(since), now_ms,
