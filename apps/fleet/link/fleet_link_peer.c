@@ -3,9 +3,10 @@
  *
  * The shape is fleet_link_mesh.c's, for the same reasons: nothing here may
  * stop the LVGL thread, so requests are written and forgotten, replies are
- * matched by id when they turn up, the socket is read non-blocking in
- * bounded passes, and the only wait in the module is a connect bounded well
- * inside one frame. One connection carries both the subscription and the
+ * matched by id when they turn up, and the socket is read non-blocking in
+ * bounded passes. The waits that remain are pocketipc's own and bounded: a
+ * connect of at most CONNECT_TIMEOUT_MS, and a write to a peerd that has
+ * stopped reading, which pocketipc gives up on and the link then drops. One connection carries both the subscription and the
  * requests.
  *
  * What it asks peerd: peer.subscribe, peer.identity (our key), peer.status
@@ -55,7 +56,10 @@
 #define KEPT_PERIOD_MS 15000
 #define PROBES_PERIOD_MS 300
 #define STALE_MS (15 * 60 * 1000)
-#define RX_QUEUE 16
+/* More than one catch-up can hold (peerd's inbox is 32) and one pass of
+ * events can bring (FRAMES_PER_POLL), so nothing is pushed out before the
+ * session has had a chance to take it. */
+#define RX_QUEUE 96
 #define NODES_MAX 32            /* peerd holds no more */
 #define KEPT_MAX 8              /* peerd keeps 4; read with room to spare */
 
@@ -93,6 +97,7 @@ struct node {
     char name[FLEET_LINK_NAME_MAX];
     int64_t heard_ms;
     int hops;
+    int proved;
 };
 
 struct peer {
@@ -145,9 +150,13 @@ struct peer {
     uint8_t match_key[FLEET_KEY_BYTES];
     int kept_stale;                  /* peerd's list is to be read and put right */
     int kept_count;                  /* as last listed; -1 before that */
+    int kept_wait_ms;                /* how long before a stale list is read again */
 
     enum fleet_link_peer_probe_state probe;
     long probe_id;
+    int probe_req;                   /* the id of the peer.probe request that is ours */
+    int probe_listed_from;           /* peer.probes requests after this id can show it */
+    int last_id;                     /* the id of the request last written */
     uint8_t probe_key[FLEET_KEY_BYTES];
 
     /* For a test, and for anyone reading a core dump. */
@@ -352,10 +361,9 @@ static int request(struct peer *m, enum req what, cJSON *params)
         cJSON_Delete(params);
         return -1;
     }
-    id = m->next_id++;
-    if (m->next_id <= 0) {
-        m->next_id = 1;
-    }
+    id = m->next_id;
+    m->next_id = id >= 0x3fffffff ? 1 : id + 1;
+    m->last_id = id;
     if (!untracked && remember(m, id, what) != 0) {
         cJSON_Delete(params);
         return -1;
@@ -488,6 +496,7 @@ static void apply_nodes(struct peer *m, const cJSON *result)
         const cJSON *name = cJSON_GetObjectItemCaseSensitive(item, "name");
         const cJSON *ago = cJSON_GetObjectItemCaseSensitive(item, "heard_ms_ago");
         const cJSON *addr = cJSON_GetObjectItemCaseSensitive(item, "address");
+        const cJSON *proved = cJSON_GetObjectItemCaseSensitive(item, "proved");
         struct node *n;
         uint8_t key[FLEET_KEY_BYTES];
 
@@ -511,6 +520,7 @@ static void apply_nodes(struct peer *m, const cJSON *result)
         }
         /* On one network there are no hops: reachable, or no address yet. */
         n->hops = cJSON_IsString(addr) ? 0 : -1;
+        n->proved = cJSON_IsTrue(proved);
     }
 }
 
@@ -521,20 +531,22 @@ static void apply_status(struct peer *m, const cJSON *result)
     const cJSON *ifs = cJSON_GetObjectItemCaseSensitive(result, "interfaces");
     const cJSON *first = cJSON_IsArray(ifs) ? cJSON_GetArrayItem(ifs, 0) : NULL;
     const cJSON *addr = cJSON_GetObjectItemCaseSensitive(first, "address");
-    const char *run_id = cJSON_IsString(run) && run->valuestring ? run->valuestring : "";
+    char run_id[sizeof(((struct peer *)0)->run_id)];
     const char *word = cJSON_IsString(state) && state->valuestring ? state->valuestring : "";
 
+    /* Cut as it is stored, so an over-long id is not a new run every time. */
+    snprintf(run_id, sizeof(run_id), "%s",
+             cJSON_IsString(run) && run->valuestring ? run->valuestring : "");
     m->have_status = 1;
     m->ready = strcmp(word, "ready") == 0;
     snprintf(m->fault, sizeof(m->fault), "%s", m->ready ? "" : word);
     m->socket = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(result, "socket"));
     m->visible = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(result, "visible"));
     m->interfaces = cJSON_IsArray(ifs) ? cJSON_GetArraySize(ifs) : 0;
-    /* Visible, or bound for a kept peer, and no interface listed (peerd
-     * lists them only while its socket is open). Believed the second time
-     * running: the status that follows our own set_visible can be answered
-     * before peerd has opened its socket. */
-    if (m->ready && (m->visible || m->socket) && m->interfaces == 0) {
+    /* Bound, and no interface listed (peerd lists them only while its
+     * socket is open). Believed the second time running: peerd reads its
+     * interfaces a moment after it opens the socket. */
+    if (m->ready && m->socket && m->interfaces == 0) {
         if (m->no_net_seen < 2) {
             m->no_net_seen++;
         }
@@ -586,7 +598,8 @@ static void take_datagram(struct peer *m, const cJSON *dg)
         m->ignored++;                            /* not a Fleet packet: too long, or not hex */
         return;
     }
-    if (cJSON_IsNumber(at) && m->now - (int64_t)at->valuedouble > STALE_MS) {
+    if (cJSON_IsNumber(at) && at->valuedouble > -4.0e15 && at->valuedouble < 4.0e15 &&
+        m->now - (int64_t)at->valuedouble > STALE_MS) {
         m->ignored++;
         return;
     }
@@ -641,34 +654,46 @@ static void apply_kept(struct peer *m, const cJSON *result)
         }
         if (m->have_match && memcmp(key, m->match_key, FLEET_KEY_BYTES) == 0) {
             have = 1;
-        } else if (ask_key(m, REQ_RELEASE, key) == 0) {
-            m->releases++;
+        } else {
+            /* Asked, or could not be written: either way the list is not
+             * right yet and is read again. */
             asked++;
+            if (ask_key(m, REQ_RELEASE, key) == 0) {
+                m->releases++;
+            }
         }
     }
     m->kept_count = count;
-    if (m->have_match && !have && ask_key(m, REQ_KEEP, m->match_key) == 0) {
-        m->keeps++;
+    if (m->have_match && !have) {
         asked++;
+        if (ask_key(m, REQ_KEEP, m->match_key) == 0) {
+            m->keeps++;
+        }
     }
     if (asked) {
         m->kept_stale = 1;           /* look again once they have been answered */
+    } else {
+        m->kept_wait_ms = STATUS_PERIOD_MS;
     }
 }
 
-static void apply_probes(struct peer *m, const cJSON *result)
+/* id is the request this list answers. A list asked for before our probe
+ * was registered cannot hold it, and says nothing about it. */
+static void apply_probes(struct peer *m, int id, const cJSON *result)
 {
     const cJSON *arr = cJSON_GetObjectItemCaseSensitive(result, "probes");
     const cJSON *item;
 
-    if (m->probe != FLEET_PEER_PROBE_PENDING || !cJSON_IsArray(arr)) {
+    if (m->probe != FLEET_PEER_PROBE_PENDING || m->probe_id <= 0 || id <= m->probe_listed_from ||
+        !cJSON_IsArray(arr)) {
         return;
     }
     cJSON_ArrayForEach (item, arr) {
         const cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "probe_id");
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(item, "state");
 
-        if (!cJSON_IsNumber(id) || (long)id->valuedouble != m->probe_id || !cJSON_IsString(state)) {
+        if (!cJSON_IsNumber(id) || id->valuedouble != (double)m->probe_id ||
+            !cJSON_IsString(state)) {
             continue;
         }
         if (strcmp(state->valuestring, "answered") == 0 && key_of(item, "key", m->probe_key) == 0) {
@@ -685,8 +710,22 @@ static void apply_probes(struct peer *m, const cJSON *result)
     m->probe = FLEET_PEER_PROBE_NO_ANSWER;
 }
 
-static void on_reply(struct peer *m, enum req what, const cJSON *result, int failed)
+static void kept_failed(struct peer *m)
 {
+    /* Tried again, and less often each time: a peerd whose store is failing
+     * rewrites a file on every keep. */
+    m->kept_stale = 1;
+    m->kept_wait_ms *= 2;
+    if (m->kept_wait_ms > KEPT_PERIOD_MS) {
+        m->kept_wait_ms = KEPT_PERIOD_MS;
+    }
+}
+
+static void on_reply(struct peer *m, enum req what, int id, const cJSON *result, int failed)
+{
+    if (what == REQ_PROBE && id != m->probe_req) {
+        return;                      /* the answer to a probe since replaced */
+    }
     if (failed) {
         switch (what) {
         case REQ_SEND:
@@ -704,7 +743,7 @@ static void on_reply(struct peer *m, enum req what, const cJSON *result, int fai
         case REQ_KEEP:
         case REQ_RELEASE:
         case REQ_KEPT:
-            m->kept_stale = 1;       /* tried again at the next period, not at once */
+            kept_failed(m);
             break;
         default:
             break;
@@ -741,10 +780,11 @@ static void on_reply(struct peer *m, enum req what, const cJSON *result, int fai
         apply_kept(m, result);
         break;
     case REQ_PROBE: {
-        const cJSON *id = cJSON_GetObjectItemCaseSensitive(result, "probe_id");
+        const cJSON *pid = cJSON_GetObjectItemCaseSensitive(result, "probe_id");
 
-        if (cJSON_IsNumber(id) && id->valuedouble >= 1 && id->valuedouble < 2.0e9) {
-            m->probe_id = (long)id->valuedouble;
+        if (cJSON_IsNumber(pid) && pid->valuedouble >= 1 && pid->valuedouble < 2.0e9) {
+            m->probe_id = (long)pid->valuedouble;
+            m->probe_listed_from = m->last_id;
             m->last_probes_ms = m->now;
         } else {
             m->probe = FLEET_PEER_PROBE_REFUSED;
@@ -752,7 +792,7 @@ static void on_reply(struct peer *m, enum req what, const cJSON *result, int fai
         break;
     }
     case REQ_PROBES:
-        apply_probes(m, result);
+        apply_probes(m, id, result);
         break;
     default:
         break;
@@ -775,11 +815,14 @@ static void dispatch(struct peer *m, const cJSON *msg)
     if (!cJSON_IsNumber(id)) {
         return;
     }
+    if (id->valuedouble < 1 || id->valuedouble > 0x3fffffff) {
+        return;
+    }
     what = take_pending(m, (int)id->valuedouble);
     if (what == REQ_NONE) {
         return;
     }
-    on_reply(m, what, cJSON_GetObjectItemCaseSensitive(msg, "result"),
+    on_reply(m, what, (int)id->valuedouble, cJSON_GetObjectItemCaseSensitive(msg, "result"),
              cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(msg, "error")));
 }
 
@@ -867,7 +910,7 @@ static void p_poll(void *ctx, int64_t now)
     }
     /* The opponent: once the session has said who (or that there is none),
      * peerd's list is read and put right, and read again now and then. */
-    if (m->match_known && (m->kept_stale ? now - m->last_kept_ms >= STATUS_PERIOD_MS || m->last_kept_ms == 0
+    if (m->match_known && (m->kept_stale ? now - m->last_kept_ms >= m->kept_wait_ms || m->last_kept_ms == 0
                                          : now - m->last_kept_ms >= KEPT_PERIOD_MS)) {
         m->last_kept_ms = now ? now : 1;
         if (request(m, REQ_KEPT, NULL) != 0) {
@@ -1074,6 +1117,7 @@ static void p_match_peer(void *ctx, const uint8_t *key)
         memset(m->match_key, 0, sizeof(m->match_key));
     }
     m->kept_stale = 1;
+    m->kept_wait_ms = STATUS_PERIOD_MS;
     m->last_kept_ms = 0;             /* at the next poll, not at the next period */
 }
 
@@ -1095,6 +1139,7 @@ struct fleet_link *fleet_link_peer_open(const char *service)
     m->backoff_ms = BACKOFF_MIN_MS;
     m->kept_count = -1;
     m->kept_stale = 1;
+    m->kept_wait_ms = STATUS_PERIOD_MS;
     pocketipc_reader_init(&m->reader);
     m->link.ops = &OPS;
     m->link.ctx = m;
@@ -1154,7 +1199,16 @@ int fleet_link_peer_probe(struct fleet_link *link, const char *address)
         m->probe = FLEET_PEER_PROBE_REFUSED;
         return -1;
     }
+    m->probe_req = m->last_id;
     return 0;
+}
+
+int fleet_link_peer_proved(const struct fleet_link *link, const uint8_t key[FLEET_KEY_BYTES])
+{
+    struct peer *m = peer_of(link);
+    const struct node *n = m && key ? node_find(m, key) : NULL;
+
+    return n ? n->proved : -1;
 }
 
 enum fleet_link_peer_probe_state fleet_link_peer_probe_state(const struct fleet_link *link)

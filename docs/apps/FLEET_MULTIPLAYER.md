@@ -545,22 +545,33 @@ which the session does only once the player has engaged multiplayer:
 - **Visibility.** peerd is silent until asked. The link asks to be visible
   when it connects, renews peerd's 30 s lease every 10 s, renews at once when
   the player presses the button that is "advertise" on the mesh, and ends the
-  lease when it is closed. A Fleet that is not in multiplayer is not on the
-  network. A match in hand does not depend on the lease.
+  lease when it is closed. A Fleet that is not in multiplayer announces
+  nothing and hears no stranger; with a match in hand peerd stays bound for
+  the kept opponent and nobody else, lease or no lease. The lease is held for
+  as long as the session is engaged, a resumed match included, not only
+  while the lobby is on screen.
 - **The opponent.** `fleet_link_ops.match_peer` is a new, optional op (NULL
   on the mesh and the virtual opponent). Once the session has read its save
   it tells the link, on every poll, who the match in hand is with - from
-  Deploy until the END is acknowledged - or that there is none. The link
+  Deploy until the match is done and no END is owed any more (acknowledged,
+  or given up) - or that there is none. When the save could not be read (a
+  store fault, a damaged file, another identity's) it says nothing until a
+  match begins: what the save held is not known. The link
   reads `peer.kept` and puts it right: the opponent is kept, so the match
   survives a restart with nobody visible, and **every other kept peer is
   released**. It reads the list again every 15 s and after any reconnect or
   new run, so a record peerd lost is asserted again. Nothing is kept or
-  released before the session has said.
+  released before the session has said. A keep or release peerd refuses is
+  tried again at a growing interval, 2 s up to 15 s.
 - **An address.** `fleet_link_peer_probe()` asks the device at a dotted IPv4
   address who it is (`peer.probe`), for a network where announcements do not
   get through; anything that is not such an address never becomes a request.
-  One probe at a time; its outcome is read with
-  `fleet_link_peer_probe_state()`.
+  One probe at a time, a new one replacing the last; its outcome is read
+  with `fleet_link_peer_probe_state()`.
+- **Proved.** `fleet_link_peer_proved()` says whether peerd has shown a
+  listed player to be live. The seam's player list does not carry it, and
+  ADR-017 forbids a lobby to present an unproved player as present: package
+  5 must read it.
 - **Why it is not up.** `fleet_link_peer_info()` gives this device's address,
   whether peerd says it is visible, how many peers it keeps, and the trouble:
   no service, a fault peerd names (the link then reports `RADIO_OFF`, the
@@ -580,6 +591,14 @@ Three things to know before package 5 builds on it:
   its own timer, as for a lost packet. The mesh link behaves the same.
 - **`hops` is 0 or -1.** 0 for a node peerd has an address for, -1 for one
   it does not (a kept opponent after a restart, until it is heard).
+- **The opponent is released when the match is done.** If this device then
+  leaves multiplayer, its peerd no longer hears that opponent; a last
+  retransmission from them goes unanswered and their side ends on its own
+  timers. Package 6's end-to-end runs should include that case.
+- **A peerd that is connected and silent leaves the link up**, as a silent
+  meshcored does the mesh link: there is no reply timeout in either.
+- Not tested: a match whose END is still owed (the rule is in the session;
+  no test reaches that state through a link).
 
 ## Tests
 
@@ -601,7 +620,7 @@ Three things to know before package 5 builds on it:
 | `tests/fleet_link_test` | the mesh link against a real socket and a scripted meshcored: nothing asked before the first poll, the four link states, players listed (no repeaters, no forgotten nodes), each datagram taken once from the inbox and from events, the cursor reset on a new service run, stale and malformed datagrams refused, exactly the bytes handed over sent on port 1, a zero-hop advert, a radio that is off |
 | `tests/meshcored_runtime_test.cpp`, `tests/meshcored_service_test.sh` (3d) | meshcored's half: app datagrams between two runtimes with real crypto, flood then direct once the receipt teaches the route, crafted REQs that are not app datagrams ignored, the inbox bounded; every refusal of `mesh.app_send` / `mesh.app_inbox` against the real process |
 | `make ENABLE_MESHCORED=1 fleet-mp-e2e` | **P6.** Whole matches between two Fleet players (`tests/fleet_mp_player`: the real session, mesh link and match, the AI for a finger) through two real meshcored processes over stand-in radiods and a mock air: at the product's own pace; with 15 % of frames lost and 5 % duplicated; with the guest's app killed at ply 30 and resumed from its save; and with the guest's meshcored restarted at ply 40; and ("chat") with both players talking in three-block lines all through a fast match. Each must end with one win and one loss, both fleets verified, identical records, no violation, datagrams both ways, a receipt, and no message in `mesh.messages` (Fleet's chat is app datagrams, never RIFT's text); "chat" also every line held the opponent's, once, in order, none given up |
-| `tests/fleet_link_peer_test` | the LAN link against a real socket and a scripted peerd (`tests/fake_peerd.c`): nothing asked before the first poll; the link states and why; the LAN profile; players listed most recent first, without this device or a broken entry, a kept peer not heard this run with no time and no route; each datagram once from the inbox and from events, the cursor reset on a new run; exactly the bytes handed over, on port 1; the lease renewed after ten seconds and not on every poll, at once on request, ended on close; nothing kept or released before the session says who, then the opponent kept and a stale peer released, asserted again after a restart, released when the match is over; what is not an address never asked, a probe answered, unanswered, pending, and ended when peerd goes; a refused send and a refused keep; a peerd closed by a fault; a peerd with nothing to announce on |
-| `tests/fleet_session_test` (match peer) | the session tells its link who the match is with: nothing before engaging, none while an invitation is only out, the opponent from Deploy, the saved match's opponent first thing after a reopen, none once the END is acknowledged |
+| `tests/fleet_link_peer_test` | the LAN link against a real socket and a scripted peerd (`tests/fake_peerd.c`): nothing asked before the first poll; the link states and why; the LAN profile; players listed most recent first, without this device or a broken entry, a kept peer not heard this run with no time and no route; each datagram once from the inbox and from events, the cursor reset on a new run; exactly the bytes handed over, on port 1; the lease renewed after ten seconds and not on every poll, at once on request, ended on close; nothing kept or released before the session says who, then the opponent kept and a stale peer released, asserted again after a restart, released when the match is over; what is not an address never asked, a probe answered, unanswered, replaced by another before its answer, pending, and ended when peerd goes; which players are proved; an event during the catch-up and a reconnect to the same run, nothing lost or taken twice; a refused send, and a refused keep retried at a growing interval; a peerd closed by a fault; a peerd with nothing to announce on |
+| `tests/fleet_session_test` (match peer) | the session tells its link who the match is with: nothing before engaging, none while an invitation is only out, the opponent from Deploy, the saved match's opponent first thing after a reopen, none once the match is played to its end, and nothing at all when the save could not be read or is damaged |
 | `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-link-peer-real` | the same link against two real peerd processes on two loopback addresses (`tests/fleet_link_peer_real`): found by address, datagrams both ways through peerd's sealing, each peerd keeping exactly the other, visibility ended and the kept peer still bound after the links close. Opt-in: it needs libsodium |
 | `make fleet-mp-san-test` | the native suites under ASan and UBSan, `fleet_link_test` and `fleet_link_peer_test` included |

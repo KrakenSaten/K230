@@ -32,6 +32,9 @@ struct fake_peerd_script {
     /* Raised once a client has subscribed and its inbox has been answered,
      * one per pass: each is the data of a peer.app event. NULL-terminated. */
     const char *const *events;
+    /* Raise them as soon as a client has subscribed, before its inbox has
+     * been answered: the race a client's catch-up has to survive. */
+    int events_early;
     /* The kept list peerd starts with: whole keys, comma separated. */
     const char *kept;
     int refuse_send;            /* peer.app_send fails with code 5 */

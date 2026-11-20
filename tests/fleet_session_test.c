@@ -528,9 +528,27 @@ static void test_match_peer(void)
           memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
     fleet_session_resume(&again, now);
     run(&again, now, 3 * 3600000LL, 1);
-    check("match peer: the match over and its END acknowledged, there is none again",
+    check("match peer: the match played to its end, there is none again",
           again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && !told_have &&
           told_changes == 2);
+
+    /* A save that could not be read: what it held is not known, so the link
+     * is not told there is no match - it would let the opponent go. */
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    fleet_session_set_saved(&again, NULL, 0, 1);
+    fleet_session_engage(&again, now);
+    run(&again, now, 3000, 0);
+    check("match peer: a save that could not be read is not 'no match'",
+          again.ready && again.store_fault && told_calls == 0);
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    st.blob[40] ^= 0x5a;
+    fleet_session_set_saved(&again, st.blob, sizeof(st.blob), 0);
+    fleet_session_engage(&again, now);
+    run(&again, now, 3000, 0);
+    check("match peer: nor is a save that is damaged",
+          again.ready && again.store_fault && told_calls == 0);
     link->ops->close(link->ctx);
 }
 

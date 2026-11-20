@@ -323,7 +323,7 @@ int fake_peerd_run(const struct fake_peerd_script *script)
     pocketipc_server_set_on_disconnect(st.server, on_disconnect, &st);
     for (;;) {
         pocketipc_server_poll(st.server, 10);
-        if (st.subscribed && st.inbox_answered && script->events &&
+        if (st.subscribed && (st.inbox_answered || script->events_early) && script->events &&
             script->events[st.events_sent]) {
             cJSON *data = cJSON_Parse(script->events[st.events_sent++]);
 

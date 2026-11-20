@@ -14,8 +14,9 @@
  *
  *   visibility  peerd is silent until asked. While the link is polled it
  *               renews peerd's 30 s visibility lease; closing it ends the
- *               lease, so a Fleet that is not in multiplayer is not on the
- *               network at all.
+ *               lease, so a Fleet that is not in multiplayer announces
+ *               nothing and hears no stranger. (With a match in hand peerd
+ *               stays bound for the kept opponent, and for nobody else.)
  *   the opponent  the session tells the link who the match in hand is with
  *               (fleet_link_ops.match_peer). The link has peerd keep that
  *               peer - so the match survives a restart with nobody visible -
@@ -62,6 +63,13 @@ struct fleet_link_peer_info {
 
 /* What peerd last said. Returns 0, or -1 when link is not a peer link. */
 int fleet_link_peer_info(const struct fleet_link *link, struct fleet_link_peer_info *out);
+
+/* Whether peerd has shown this listed player to be live - an answer bound
+ * to a question of ours, or a datagram that opened (ADR-017, section 5).
+ * Until then a listed player is a claim: an announcement can be a recording.
+ * 1, 0, or -1 when the key is not listed. A lobby must not present an
+ * unproved player as present. */
+int fleet_link_peer_proved(const struct fleet_link *link, const uint8_t key[FLEET_KEY_BYTES]);
 
 enum fleet_link_peer_probe_state {
     FLEET_PEER_PROBE_NONE = 0,

@@ -320,6 +320,9 @@ int main(void)
           peers[0].heard_ms > 0 && peers[0].heard_ms > peers[1].heard_ms);
     check("a kept peer not heard this run has no time and no route",
           n == 3 && peers[2].heard_ms == 0 && peers[2].hops == -1);
+    check("which of them peerd has shown to be live is kept, not flattened",
+          fleet_link_peer_proved(l, bob) == 1 && fleet_link_peer_proved(l, carol) == 0 &&
+          fleet_link_peer_proved(l, want_self) == -1);
     check("names come from peerd", strcmp(l->ops->peer_name(l->ctx, bob), "Bob") == 0 &&
           l->ops->peer_name(l->ctx, want_self) == NULL);
     spin(l, 2500, NULL);
@@ -396,6 +399,16 @@ int main(void)
     probe_want = FLEET_PEER_PROBE_NO_ANSWER;
     check("and ends with no answer and no key", spin(l, WAIT_MS, probe_is) &&
           fleet_link_peer_probe_key(l, who) != 0);
+    /* A probe replaced before its answer came: the first one's reply and any
+     * list asked for it must not decide the second. */
+    check("a probe is replaced by another before it is answered",
+          fleet_link_peer_probe(l, "192.168.1.99") == 0 &&
+          fleet_link_peer_probe(l, "192.168.1.41") == 0);
+    probe_want = FLEET_PEER_PROBE_ANSWERED;
+    check("and the outcome is the second one's", spin(l, WAIT_MS, probe_is) &&
+          fleet_link_peer_probe_key(l, who) == 0 && memcmp(who, bob, FLEET_KEY_BYTES) == 0);
+    spin(l, 700, NULL);
+    check("and stays so", fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_ANSWERED);
 
     /* ---- peerd restarts ---------------------------------------------------------- */
     fake_peerd_stop(&script, pid);
@@ -461,6 +474,10 @@ int main(void)
         check("a keep peerd cannot write is not hammered",
               count_lines(LOG, "peer.keep|") == n && n == 1);
         skew += 2100;
+        spin(l, 400, NULL);
+        check("nor after the usual two seconds: it waits longer each time",
+              count_lines(LOG, "peer.keep|") == 1);
+        skew += 2100;
         check("and is tried again later", until_logged(l, "peer.keep|", 2));
         check("a probe that is pending stays pending", fleet_link_peer_probe(l, "10.0.0.9") == 0 &&
               (spin(l, 800, NULL), fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_PENDING));
@@ -474,6 +491,70 @@ int main(void)
     }
     if (pid > 0) {
         fake_peerd_stop(&script, pid);
+    }
+
+    /* ---- events during the catch-up, and a reconnect to the same run -------------- */
+    {
+        static const char two[] =
+            "[{\"id\":1,\"port\":1,\"from\":\"" ANNA "\",\"payload_hex\":\"4100000100\","
+            "\"route\":\"lan\",\"mono_ms\":-2000},"
+            "{\"id\":7,\"port\":1,\"from\":\"" BOB "\",\"payload_hex\":\"4700000100\","
+            "\"route\":\"lan\",\"mono_ms\":-500}]";
+        static const char three[] =
+            "[{\"id\":1,\"port\":1,\"from\":\"" ANNA "\",\"payload_hex\":\"4100000100\","
+            "\"route\":\"lan\",\"mono_ms\":-2000},"
+            "{\"id\":7,\"port\":1,\"from\":\"" BOB "\",\"payload_hex\":\"4700000100\","
+            "\"route\":\"lan\",\"mono_ms\":-500},"
+            "{\"id\":9,\"port\":1,\"from\":\"" BOB "\",\"payload_hex\":\"4900000100\","
+            "\"route\":\"lan\",\"mono_ms\":-100}]";
+        /* Datagram 7 as an event, raised before the inbox has been answered.
+         * Taken then, it would put the cursor past datagram 1. */
+        static const char *const early[] = {
+            "{\"id\":7,\"port\":1,\"from\":\"" BOB "\",\"payload_hex\":\"4700000100\","
+            "\"route\":\"lan\",\"mono_ms\":-500}",
+            NULL,
+        };
+
+        memset(&script, 0, sizeof(script));
+        script.inbox_json = two;
+        script.events = early;
+        script.events_early = 1;
+        script.log = LOG;
+        script.life_ms = 60000;
+        remove(LOG);
+        pid = fake_peerd_spawn(&script);
+        if (pid > 0 && fake_peerd_wait_ready(&script, WAIT_MS)) {
+            l = fleet_link_peer_open(NULL);
+            got = 0;
+            got_want = 2;
+            spin(l, WAIT_MS, received);
+            spin(l, 300, received);
+            check("an event that arrives during the catch-up neither hides an older datagram "
+                  "nor is taken twice", got == 2 && firsts[0] == 0x41 && firsts[1] == 0x47);
+            fake_peerd_stop(&script, pid);
+            spin(l, WAIT_MS, is_gone);
+            script.inbox_json = three;
+            script.events = NULL;
+            remove(LOG);
+            pid = fake_peerd_spawn(&script);
+            fake_peerd_wait_ready(&script, WAIT_MS);
+            skew += 6000;
+            got = 0;
+            got_want = 1;
+            spin(l, WAIT_MS, received);
+            spin(l, 300, received);
+            check("reconnected to the same run, only what is new is taken",
+                  got == 1 && firsts[0] == 0x49);
+            check("because the inbox was asked from where the link had got to",
+                  count_lines(LOG, "peer.app_inbox|{\"port\":1,\"after_id\":7}") >= 1 &&
+                  count_lines(LOG, "\"after_id\":0}") == 0);
+            l->ops->close(l->ctx);
+        } else {
+            check("a peerd with early events starts", 0);
+        }
+        if (pid > 0) {
+            fake_peerd_stop(&script, pid);
+        }
     }
 
     /* ---- closed by a fault ------------------------------------------------------- */
