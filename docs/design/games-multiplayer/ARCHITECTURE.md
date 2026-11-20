@@ -24,10 +24,9 @@ choice of this package, not a fact about the repository.
 | The hub's lobby tile is one inert widget, built so it can go live without re-laying out the wall | VERIFIED source | DS §60.4, `ui/shell/hub.c` |
 | Poker, 2048, Relay Nine and RotorTerror have no network code | VERIFIED source | grep of `apps/` |
 
-Note for the owner: **ADR-008 still reads "Proposed"**, and
-`FLEET_MULTIPLAYER.md` still says "nothing here has been on a radio", although
-the P7 gate passed on 2026-09-26. This package builds on ADR-008 as if
-accepted and does not edit it (PROPOSALS.md, item 1).
+ADR-008 was Accepted by the owner on 2026-11-20 and reconciled with the
+hardware gates (ADR-008-RECONCILIATION.md); when this document was first
+written it still read "Proposed".
 
 ### Genuine gaps
 
