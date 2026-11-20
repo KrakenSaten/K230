@@ -43,3 +43,5 @@ authoritative.
 | [014](ADR-014-foreground-audio-effects.md) | Foreground mixed audio effects | Accepted scope by owner instruction, 2026-10-22 |
 | [015](ADR-015-offline-library.md) | An offline library from Kiwix archives | Proposed |
 | [016](ADR-016-packet-capture.md) | Packet capture: ownership, privilege and privacy | Accepted, 2026-11-16, subject to its documented security constraints |
+| [017](ADR-017-peer-datagrams.md) | IP peer datagrams (`peerd`) and their security | Proposed, 2026-11-20 |
+| [018](ADR-018-fleet-link-profile-and-saves.md) | Fleet link profiles and a match save per transport | Proposed, 2026-11-20 |

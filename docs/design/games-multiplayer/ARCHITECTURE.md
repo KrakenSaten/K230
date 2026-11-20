@@ -54,7 +54,7 @@ discovery, sessions, invitations and transports; games are its clients.
 | Sessions survive a shell restart (rotation) | not needed: Fleet persists and resyncs | yes, but turn-based games do not need it |
 | Background invitations | the shell is always running and has notices | yes |
 | Untrusted LAN input | parsed in the root, DRM-master shell | parsed outside the shell |
-| Crypto for LAN | would pull OpenSSL into the shell (against ADR-007) | available in the daemon |
+| Crypto for LAN | would pull a crypto library into the shell (against ADR-007) | available in the daemon |
 | New moving parts | none | a service, an API, a supervisor entry, a second owner of match state |
 | Cost of being wrong | low | high: a session API designed with one game as evidence |
 
@@ -108,7 +108,7 @@ Why this is the simplest thing that works:
   the service and is read by id afterwards - the behaviour the hardware gate
   already verified for LoRa.
 - **The boundary matches ADR-002 and ADR-007.** Services own I/O; the shell
-  reads JSON from a local socket; OpenSSL stays out of the shell.
+  reads JSON from a local socket; crypto libraries stay out of the shell.
 - **A hybrid is what this already is**, and no more of one is justified. If
   a real-time game later needs sessions that survive a shell restart, that
   game's needs can be designed then, behind the same `play_link` seam.
@@ -385,8 +385,9 @@ ADR; none is invented here.
   silently rebinds a name. This is the whole foundation for friends.
 - One person has two keys today, one per transport. The record is a list so
   the two can later be joined by a proof; nothing claims they are joined now.
-- Primitives come from OpenSSL in peerd, never first-party curve code. The
-  exact construction is M2's ADR and wants review before it is built.
+- Primitives come from libsodium in peerd, never first-party curve code.
+  The construction is ADR-017 (Proposed), which supersedes the sketch above
+  where they differ.
 
 ## 9. Security boundaries and limits
 

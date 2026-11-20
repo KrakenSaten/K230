@@ -11,7 +11,8 @@ System section is changed by it.** The images are mockups, not screenshots.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | what exists, the options, ownership, interfaces, lifecycle, transports, identity, security, self-review |
 | [UX.md](UX.md) | the two concepts, the chosen design screen by screen, interaction, memory |
 | [M2-PLAN.md](M2-PLAN.md) | after the owner's conditional approval: the four open questions resolved, work packages, hardware gate |
-| [ADR-PROPOSALS.md](ADR-PROPOSALS.md) | drafts: peerd and its security; Fleet link profile and a save per transport |
+| [ADR-017](../../decisions/ADR-017-peer-datagrams.md), [ADR-018](../../decisions/ADR-018-fleet-link-profile-and-saves.md) | Proposed ADRs: peerd and its security; Fleet link profiles and a save per transport |
+| [ADR-008-RECONCILIATION.md](ADR-008-RECONCILIATION.md) | ADR-008 against the A/B hardware gates, and the text for its acceptance (not applied) |
 | [PROPOSALS.md](PROPOSALS.md) | every change to an accepted record this would need |
 | [mockups/](mockups/) | eight final screens, the states sheet, concept B, two overview sheets, SVG sources |
 | [tools/gen_mockups.py](tools/gen_mockups.py) | regenerates the mockups |
@@ -108,7 +109,7 @@ All four are single-player today with no network code.
 
 | Risk | Class | Handling |
 | --- | --- | --- |
-| peerd's cryptography is new first-party security code | design | its own ADR and review in M2; OpenSSL primitives only |
+| peerd's cryptography is new first-party security code | design | ADR-017 and its independent review; libsodium primitives only |
 | Retry counts double as human patience; a LAN profile could give up on a person in seconds | design | split link waits from human waits; simulator proof that LoRa figures do not move |
 | Broadcast discovery blocked by client isolation or between Wi-Fi and Ethernet segments | ASSUMED | table code fallback; a plain message; measure on the owner's networks in M2 |
 | A LAN match disturbing a LoRa save | resolved | a save file per transport; `match.v1` untouched (M2-PLAN §1.1-1.2) |
@@ -136,7 +137,7 @@ Direction (needed before M2):
 
 - [ ] **1. Architecture**: shell lobby with game adapters, sessions owned
       by games, no session daemon.
-- [ ] **2. `peerd`**: one new transport service for IP, OpenSSL linked into
+- [ ] **2. `peerd`**: one new transport service for IP, libsodium linked into
       it, in place of a socket in the shell.
 - [ ] **3. M2 scope**: Fleet over the local network through Fleet's
       existing lobby first; the new lobby in M3.

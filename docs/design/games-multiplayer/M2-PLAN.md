@@ -5,8 +5,10 @@ Status: plan only, 2026-11-20. No code is written. Follows the owner's
 conditional approval of M1: architecture approved; peerd subject to a
 security ADR and review; Fleet's existing multiplayer UI; LoRa behaviour
 preserved; A/B hardware validation; background invitations deferred to M4,
-so **ADR-008's behaviour is not changed in M2**. The ADR drafts are in
-[ADR-PROPOSALS.md](ADR-PROPOSALS.md).
+so **ADR-008's behaviour is not changed in M2**. The ADRs are
+[ADR-017](../../decisions/ADR-017-peer-datagrams.md) (peerd and its security)
+and [ADR-018](../../decisions/ADR-018-fleet-link-profile-and-saves.md) (link
+profiles, a save per transport), both Proposed.
 
 ## 1. The four questions, resolved
 
@@ -51,7 +53,7 @@ is not engaged; its sender sees "no answer".
   (mid-battle, with a pending shot and tombstones) is committed as a fixture
   and must load, restore and re-encode byte for byte after M2.
 - `fleet_mp_sim_test` and `fleet-mp-e2e` must reproduce today's figures
-  with the mesh profile (ADR-P2): same frames per ply, same airtime.
+  with the mesh profile (ADR-018): same frames per ply, same airtime.
 - **Downgrade is safe**: a pre-M2 shell never looks at `match-lan.v1` and
   finds `match.v1` exactly as it left it.
 - The LAN file is 0600 and written temp-flush-rename-dirsync like `match.v1`.
@@ -66,15 +68,17 @@ connected:
 | Mechanism | Rule |
 | --- | --- |
 | **Visibility lease** | `peer.set_visible` is a lease of 30 s, renewed by the link's poll while Fleet's multiplayer is engaged. It outlives a rotation (seconds) and lapses by itself when Fleet is closed. No lease, no beacons |
-| **Kept peers** | `peer.keep {key}` while a LAN match is in hand: peerd stays bound and accepts sealed datagrams from that key with no client attached. Fleet asserts it when a match starts or is resumed and releases it at the match's end; peerd also drops it after 24 h |
+| **Kept peers** | `peer.keep {key}` while a LAN match is in hand: a persisted record (key, replay state, last address; ADR-017 §5). peerd loads it at start, stays bound and accepts sealed datagrams from that key with no client attached. Fleet asserts it when a match starts and releases it when the match ends or is put away; there is no timed expiry |
 | **Inbox** | the last 32 datagrams of this run, read by `after_id`: packets that arrive during a rotation or while Fleet is closed wait, as on LoRa |
 | **Endpoint follows the key** | any authenticated datagram or beacon from a kept key updates its address: a new DHCP lease or Ethernet's per-boot MAC needs nothing from the player |
 | **Lookup** | while a send to a kept key has no fresh address, peerd asks for it: the last known address by unicast and one broadcast "who holds key K", at most once per 5 s, only while something is waiting to be sent |
-| **peerd restart** | `run_id` changes and the inbox and kept list are empty; the link starts again from `after_id` 0 and re-asserts keep and lease on its next poll. Fleet's own retries cover the gap, as they covered the meshcored restart in the LoRa gate |
+| **peerd restart** | `run_id` changes and the inbox is empty; kept records are reloaded from disk, so the opponent's next datagram is accepted at once. The link starts again from `after_id` 0 and renews its lease on its next poll. Fleet's own retries cover what was in the lost inbox, as they covered the meshcored restart in the LoRa gate |
 | **Fleet closed, peer keeps playing** | datagrams wait in the inbox; RESUME reads them. If peerd also restarted meanwhile they are gone and the peer's retries deliver them after RESUME |
 | **Network gone** | the link reports it; Fleet says "out of reach, paused, not lost" and CHECK LINK probes, as on LoRa |
 
-peerd binds nothing while it has neither a lease nor a kept peer.
+peerd binds nothing while it has neither a lease nor a kept peer, and with
+a kept peer but no lease it serves that peer only (ADR-017 §5). Peers behind
+address translation are not supported.
 Whether it starts at boot is a per-unit flag (`PEERD_ENABLE`, default off,
 like `MESHCORED_ENABLE`), set by hand on units A and B for the gate.
 
@@ -83,9 +87,9 @@ like `MESHCORED_ENABLE`), set by hand on units A and B for the gate.
 | Network | What happens | What the player sees |
 | --- | --- | --- |
 | Broadcast and unicast work (most home networks; Wi-Fi and cable on one segment) | beacons list players within 2 s | PLAYERS IN RANGE, as on LoRa |
-| **Broadcast blocked, unicast works** | nothing is heard. The lobby shows this device's address; the other player enters it under ADD BY ADDRESS. peerd sends one signed probe by unicast, three tries over 3 s; the answer makes each a node of the other, and the endpoint then follows the key | after 6 s of silence: "No players heard on this network. Enter the other device's address: this one is 192.168.1.42." |
+| **Broadcast blocked, unicast works** | nothing is heard. The lobby shows this device's address; the other player enters it under ADD BY ADDRESS. peerd sends a signed, challenge-bound probe by unicast, three tries over 3 s; the signed answer must echo the challenge and come from that address, and makes each a proved node of the other (ADR-017 §5), and the endpoint then follows the key | after 6 s of silence: "No players heard on this network. Enter the other device's address: this one is 192.168.1.42." |
 | **Client isolation** (broadcast and unicast blocked) | the probe gets no answer | "No answer from 192.168.1.42. This network may keep devices apart. Try another network, a cable, or LoRa." No spinner, no silent retry loop |
-| Different subnets, routed | as "unicast works" if the route exists | the same |
+| Different subnets, routed | as "unicast works" if the route exists (ADR-017 allows unicast from another subnet) | the same |
 | No network | the link says so | "Wi-Fi is off and no cable is connected." |
 
 M2 uses a dotted IPv4 address typed on the keyboard base or touch keyboard.
@@ -98,7 +102,7 @@ match itself is unaffected.
 
 | # | Package | Contents | Proof |
 | --- | --- | --- | --- |
-| 0 | **ADRs** | ADR-P1 (peerd and its security) reviewed and accepted; ADR-P2 (link profile, save per transport) accepted | owner's decision. **Gate for everything below** |
+| 0 | **ADRs** | ADR-017 (peerd and its security) reviewed and accepted; ADR-018 (link profile, save per transport) accepted | owner's decision. **Gate for everything below** |
 | 1 | **Link profile** | retry and governor figures move from constants to a profile read from the link; human waits split from link waits; mesh profile equals today's constants | `fleet_match_test`, `fleet_mp_sim_test` and `fleet-mp-e2e` unchanged in result; a LAN-profile simulator run |
 | 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh` |
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | unit tests with crafted frames and known-answer vectors; two real peerd processes on loopback and on a mock network with loss, duplication and blocked broadcast; ASan/UBSan; a fuzz run of the frame parser |
@@ -140,8 +144,8 @@ kit as in the earlier gates, rollback script on each unit.
 
 | Risk | Handling |
 | --- | --- |
-| The security construction | ADR-P1 chooses an established one and names its review; no code before acceptance |
-| libsodium is a new dependency | approved by the owner 2026-11-20; packaged in the pinned Buildroot (1.0.18, ISC); the minimal build's exports are ADR-P1's first check |
-| Human waits shortened by a fast profile | ADR-P2 separates them; a simulator invariant that the invite window is the same on both profiles |
+| The security construction | ADR-017 chooses an established one and names its review; no code before acceptance |
+| libsodium is a new dependency | approved by the owner 2026-11-20; packaged in the pinned Buildroot (1.0.18, ISC); the minimal build's exports are ADR-017's first check |
+| Human waits shortened by a fast profile | ADR-018 separates them; a simulator invariant that the invite window is the same on both profiles |
 | Broadcast behaviour on real access points is ASSUMED | measured in gate steps 2, 4 and 6 |
 | Refusing the second transport while a match is in hand may annoy | one sentence and RESUME; relaxing it later needs no format change |
