@@ -102,6 +102,7 @@ BUILD_ID
 /tests/home_layout_test
 /tests/art_format_test
 /services/netd/netd
+/services/peerd/peerd
 /tests/netd-testhooks
 /tests/fake_wpa_supplicant
 /tests/wifi_parse_test
