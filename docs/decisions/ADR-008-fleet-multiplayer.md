@@ -1,7 +1,10 @@
 # ADR-008: Two-player Fleet over the mesh, and app datagrams in meshcored
 
-Status: Proposed (2026-09-25), on branch `claude/fleet-multiplayer-protocol-95evn7`.
-Awaiting the product owner. Nothing here is binding until it is Accepted.
+Status: Accepted (product owner, 2026-11-20), with its default decisions as
+shipped. Proposed 2026-09-25; hardware evidence: FLEET_MULTIPLAYER_GATE.md
+(P7 minimum scope, 2026-09-26), FLEET_CHAT_STATUS_GATE.md and
+FLEET_MP_AUTO_GATE.md (2026-09-30). Open limitations are listed under
+"Evidence".
 Date: 2026-09-25
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -87,8 +90,8 @@ E. **Generic app datagrams in meshcored, on MeshCore `PAYLOAD_TYPE_REQ`.**
 
 ## Decision
 
-Proposed, with defaults for the questions the owner has not ruled on yet.
-Each default is marked so it can be overturned without touching the rest.
+Proposed with defaults for the questions the owner had not ruled on, each
+marked *(Default)*. The owner accepted them as shipped on 2026-11-20.
 
 1. **Transport is option E.** meshcored gains a generic app-datagram surface
    (docs/api/mesh.md, "App datagrams"). The first byte of REQ data is
@@ -174,9 +177,27 @@ meshcored addition change.
 | Claim | Class | Basis |
 | --- | --- | --- |
 | REQ framing and sizes | DOCUMENTED | vendor/RIFT@3ca7e3f `Mesh.cpp`, `Packet.cpp`, `BaseChatMesh.cpp` |
-| 22-byte frame on air | VERIFIED hardware (ACK only) | MESHCORED_HARDWARE_GATE.md |
+| 22-byte frame on air | VERIFIED hardware | MESHCORED_HARDWARE_GATE.md (ACK); FLEET_MULTIPLAYER_GATE.md (app datagrams: 60 sent, 64 received on unit B) |
 | Airtime figures | VERIFIED (computed) | `services/radiod/airtime.c`, cross-checked against the gate's advert |
 | Upstream REQ types 0x00-0x07 | DOCUMENTED | pinned tree, `simple_*` and `companion_radio` examples |
 | A Doors node ignores a REQ that is not a well-formed app datagram, and answers none | VERIFIED host | `tests/meshcored_runtime_test.cpp` (`test_app_datagrams`), crafted REQs with real crypto |
-| T-Deck ignores an unknown REQ type | ASSUMED | not tested; P7 |
+| T-Deck ignores an unknown REQ type | ASSUMED | not tested: P7 step 10 was out of the minimum scope |
 | Everything built in P1-P6 | VERIFIED host | the suites named in docs/apps/FLEET_MULTIPLAYER.md |
+| App datagrams between two units: flood, receipt, then direct | VERIFIED hardware | FLEET_MULTIPLAYER_GATE.md: INVITE answered in 3.6 s, one receipt, then `DIRECT`, hops 0 both ways |
+| A whole match over LoRa between units A and B, identical logs, both fleets verified, boards hidden until the reveal | VERIFIED hardware | FLEET_MULTIPLAYER_GATE.md: 46 plies |
+| Opening Fleet and its lobby transmits nothing | VERIFIED hardware | FLEET_MULTIPLAYER_GATE.md: 60 s, `tx_packets` 0, every `app_*` 0 |
+| Close and reopen, a meshcored restart, a reboot after FIRE, an RF cut of 179 s: resumed, no shot counted twice, no forfeit | VERIFIED hardware | FLEET_MULTIPLAYER_GATE.md, recovery cases A-D |
+| No Fleet packet in `mesh.messages`; mesh text unaffected | VERIFIED hardware | FLEET_MULTIPLAYER_GATE.md, "Coexistence and radio" |
+| Airtime on air | measured, one 46-ply match | FLEET_MULTIPLAYER_GATE.md: unit B 63 packets, 21,044 ms, duty cycle 0.58 % over the gate |
+| In-match chat on air | VERIFIED hardware | FLEET_CHAT_STATUS_GATE.md, twelve steps |
+| AUTO deployment differs between matches | VERIFIED hardware | FLEET_MP_AUTO_GATE.md |
+
+Open limitations at acceptance (2026-11-20), none of them verified:
+
+- **A non-Doors MeshCore node** (a T-Deck on RIFT firmware) receiving a
+  Doors app datagram: ASSUMED to ignore it. P7 step 10 was not run.
+- **Range, a repeater, a busy channel**: UNRESOLVED. Both units were on a
+  bench, direct, at 2 dBm.
+- **Airtime over a full-length match**: computed only (34-59 s for 104-141
+  plies in the simulator). The one measured match was 46 plies.
+- **An unattended match at real pace** (P7 step 11): not run.
