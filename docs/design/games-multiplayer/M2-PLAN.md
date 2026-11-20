@@ -1,9 +1,11 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
 # M2 implementation plan: Fleet over the local network
 
-Status, 2026-11-20: packages 0, 1 and 2 are done and on master (§2);
-package 3 onwards is not started and waits for the owner's go-ahead. Nothing
-has been deployed to hardware. Follows the owner's
+Status, 2026-11-20: packages 0, 1, 2 and 3 are on master (§2). peerd
+(package 3) is there as an opt-in build that no image includes and nothing
+starts; putting it in an image is a step of its own, not yet done. Package
+4 onwards is not started and waits for the owner's go-ahead. Nothing has
+been deployed to hardware. Follows the owner's
 conditional approval of M1: architecture approved; peerd subject to a
 security ADR and review; Fleet's existing multiplayer UI; LoRa behaviour
 preserved; A/B hardware validation; background invitations deferred to M4,
@@ -107,7 +109,7 @@ match itself is unaffected.
 | 0 | **ADRs** | ADR-017 and ADR-018 | **done**: both Accepted 2026-11-20. Implementation goes in its own PR; hardware deployment needs explicit approval |
 | 1 | **Link profile** | retry and governor figures move from constants to a profile read from the link; human waits split from link waits; mesh profile equals today's constants | **done** (PR 154, master `048b1c15`): `fleet_match_test`, `fleet_mp_sim_test` and `fleet-mp-e2e` unchanged in result; LAN-profile tests |
 | 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | **done** (PR 154) except that the app does not yet apply the one-match rule (below): `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh`, two golden fixtures |
-| 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | unit tests with crafted frames and known-answer vectors; two real peerd processes on loopback and on a mock network with loss, duplication and blocked broadcast; ASan/UBSan; a fuzz run of the frame parser |
+| 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | **done** (PR 156, master `680fc5cc`) **except the init script and image wiring** (step 3b, below): known-answer vectors, negative and restart tests, two real peerd processes on loopback, ASan/UBSan, a fuzz run of the parser and receive path. Not run on a mock network with loss between processes: that is package 6's |
 | 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | `fleet_link_test` extended with a scripted peerd; nothing asked before the first poll |
 | 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | `fleet_view_mp_test`, `fleet_app_test`, `fleet_shell_test.sh` in both shapes |
 | 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | each ends with one win, one loss, both fleets verified, identical records |
@@ -115,6 +117,43 @@ match itself is unaffected.
 
 Order: 0, then 1 and 2 (Fleet only, no new service, a LoRa no-op), then 3,
 4, 5, 6, 7.
+
+As built, package 3 (PR 156; `docs/api/peer.md` is its specification):
+
+- **No init script and no image wiring.** peerd is built only on request
+  (`make ENABLE_PEERD=1 SODIUM_DIR=<prefix> peerd`); `make all`, `make test`
+  and `make install` are unchanged and no defconfig selects libsodium. That
+  integration is its own step, **3b**, before the hardware gate: select
+  libsodium in the Doors defconfig, wire `ENABLE_PEERD` into the Buildroot
+  package, add an init script disabled by default (`PEERD_ENABLE=0`), build
+  an image. It needs an image build and the owner's go-ahead.
+- **Buildroot's default for libsodium is the full build, not the minimal
+  one.** `BR2_PACKAGE_LIBSODIUM_FULL` defaults to yes in the pinned
+  Buildroot 2025.02.1; ADR-017 says the default is minimal, and that
+  sentence of its evidence is wrong. The decision itself stands - minimal,
+  which is what peerd was built and tested against - so step 3b must set
+  `# BR2_PACKAGE_LIBSODIUM_FULL is not set`.
+- The wire format, UDP port 47230 and the `peer.*` method set were fixed
+  with the code, as ADR-017 left them to be. `peer.resolve {code}` of
+  ARCHITECTURE §5.5 is `peer.probe {address}`: table codes are the lobby's
+  (M3).
+- Two deviations from ADR-017 §10, both stated in `docs/api/peer.md`: no
+  per-source or global receive rate limit (a source address can be forged;
+  there are budgets for unknown keys, known keys and each known key
+  instead), and the write cap for the kept list is global rather than per
+  peer.
+- Review: an independent reviewer session read the code against ADR-017 in
+  two passes. One blocker and two major defects in the delivery of a kept
+  peer's datagrams, and a set of minor ones, were fixed before the merge.
+  The last small round of fixes was not re-read. No human review.
+
+Evidence for package 3: published test vectors for the primitives;
+small-order, mixed-order and non-point keys refused; the negative tests
+ADR-017 names; restart, power-cut and persistence-fault cases; 400,000
+fuzzed inputs under ASan and UBSan with nothing forged accepted; two real
+peerd processes on loopback; a riscv64 cross-build. Not done: any run on a
+device, discovery between two machines, and ADR-017's two open evidence
+items (the random source at first boot, the state directory's filesystem).
 
 As built, packages 1 and 2 (PR 154) differ from the rows above in three
 ways, each recorded in docs/apps/FLEET_MULTIPLAYER.md, "Link profiles and a
