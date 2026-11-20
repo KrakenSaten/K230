@@ -10,6 +10,8 @@ System section is changed by it.** The images are mockups, not screenshots.
 | this file | vision, the recommendation in brief, first playable, other games, decisions, alternatives, risks, roadmap, approval checklist |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | what exists, the options, ownership, interfaces, lifecycle, transports, identity, security, self-review |
 | [UX.md](UX.md) | the two concepts, the chosen design screen by screen, interaction, memory |
+| [M2-PLAN.md](M2-PLAN.md) | after the owner's conditional approval: the four open questions resolved, work packages, hardware gate |
+| [ADR-PROPOSALS.md](ADR-PROPOSALS.md) | drafts: peerd and its security; Fleet link profile and a save per transport |
 | [PROPOSALS.md](PROPOSALS.md) | every change to an accepted record this would need |
 | [mockups/](mockups/) | eight final screens, the states sheet, concept B, two overview sheets, SVG sources |
 | [tools/gen_mockups.py](tools/gen_mockups.py) | regenerates the mockups |
@@ -109,7 +111,7 @@ All four are single-player today with no network code.
 | peerd's cryptography is new first-party security code | design | its own ADR and review in M2; OpenSSL primitives only |
 | Retry counts double as human patience; a LAN profile could give up on a person in seconds | design | split link waits from human waits; simulator proof that LoRa figures do not move |
 | Broadcast discovery blocked by client isolation or between Wi-Fi and Ethernet segments | ASSUMED | table code fallback; a plain message; measure on the owner's networks in M2 |
-| `match.v1` may need a field to carry a LAN match | not verified | check the codec first in M2; a `match.v2` would be a proposal of its own |
+| A LAN match disturbing a LoRa save | resolved | a save file per transport; `match.v1` untouched (M2-PLAN §1.1-1.2) |
 | Ethernet's random MAC and unmanaged routes | DOCUMENTED | the endpoint follows the key; peerd answers on the interface it heard |
 | Two identities per player confuse people | design | the link is shown beside every name |
 | Lobby art and open time on the K230 | ASSUMED | about 0.6 MB by the hub's method; gate it as the hub was |

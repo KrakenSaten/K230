@@ -239,9 +239,11 @@ and resumes by the path the gate exercised a dozen times. Nothing is handed
 over in memory, so a rotation or a crash between the two steps is the same
 case as any other reopen.
 
-Fleet chooses its link from the save: a saved match holds this device's key,
-and each transport has its own key, so **the saved key names the link**.
-`match.v1` does not change (to be confirmed in M2 against the codec).
+Fleet chooses its link **by file**: each transport has its own save
+(`match.v1` for LoRa, unchanged; `match-lan.v1` for LAN), so the transport is
+known before a byte is decoded and a LAN match can never disturb a LoRa save.
+An earlier draft chose by the saved key; decoding under the wrong identity
+raises a store fault today, so that was dropped (M2-PLAN §1.1, §1.2).
 
 ### 5.5 peerd's surface (PROPOSED, mirrors `mesh.*`)
 
@@ -442,5 +444,6 @@ Findings from one pass over this document, and what was done.
    people ("Anna" twice). The UI shows the link beside the name everywhere.
 7. **Open risk: peerd's cryptography** is the one piece that is new and
    easy to get wrong. It gets its own ADR and review in M2.
-8. **Not verified:** that `match.v1` needs no change to carry a LAN match
-   (§5.4), and that broadcast discovery works on the owner's networks.
+8. **Not verified:** that broadcast discovery works on the owner's networks
+   (M2 gate). The `match.v1` question is settled by a save per transport
+   (M2-PLAN §1.1).
