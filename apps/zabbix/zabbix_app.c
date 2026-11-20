@@ -10,6 +10,16 @@
  * on the LVGL thread is destroy() (and a demo switch) giving the helper
  * ZABBIX_DESTROY_GRACE_MS to leave before it is killed.
  *
+ * THE LOOK is a monitoring console on the system's own tokens: every block is
+ * a surface card, and a card that stands for a state carries it as a 4 px
+ * stripe on its left edge beside the word that says it (DS section 2: colour
+ * never alone). OVERVIEW leads with the worst open severity, then the four
+ * numbers an operator asks for, the availability ring and each severity's
+ * share of the open problems. Nothing is drawn that the model does not hold:
+ * no history is kept, so there are no trends. Colours are read from the
+ * theme at paint time and only written when they differ, so a theme or mode
+ * change shows within a paint.
+ *
  * LISTS are pools: a row is created the first time a set needs it and
  * reused for every set after, never more than the model holds
  * (ZBX_PROBLEM_MAX, ZBX_HOST_MAX), and only the labels whose text changed
@@ -53,12 +63,22 @@
 #define ZABBIX_DESTROY_GRACE_MS 300
 #define TAB_H 64
 #define TAB_GAP 0
-#define UNDERLINE_H 2
+#define UNDERLINE_H 3
 #define GAP 12
 #define ROW_PAD 12
 #define SEV_W 96
 #define KEY_W 150
 #define BANNER_PAD 12
+#define CARD_PAD 16
+#define STRIPE_W 4
+#define ROW_GAP 8
+/* The availability ring and its stroke; a legend dot; a severity bar. */
+#define RING 124
+#define RING_W 12
+#define DOT 10
+#define BAR_H 8
+#define KPI_COUNT 4
+#define LEGEND_COUNT 3
 /* The most severe open problems OVERVIEW shows under its cards. */
 #define OVERVIEW_TOP 3
 /* CONNECTION: how long a test or save may take before the screen gives up
@@ -148,20 +168,31 @@ struct zabbix_app {
     lv_obj_t *ov_setup_text;
     lv_obj_t *ov_demo;
     lv_obj_t *ov_cards;
+    lv_obj_t *ov_col[2];        /* side by side in the wide shape, stacked in the tall */
     lv_obj_t *ov_head;
+    lv_obj_t *ov_live_dot;
+    lv_obj_t *ov_live;
     lv_obj_t *ov_headline;
     lv_obj_t *ov_head_note;
+    lv_obj_t *ov_kpi_value[KPI_COUNT];
+    lv_obj_t *ov_ring_up;
+    lv_obj_t *ov_ring_down;
+    lv_obj_t *ov_pct;
+    lv_obj_t *ov_leg_dot[LEGEND_COUNT];
+    lv_obj_t *ov_leg_value[LEGEND_COUNT];
+    int ring_up_deg;            /* as last drawn; -1: not yet */
+    int ring_down_deg;
     lv_obj_t *ov_sev;
-    lv_obj_t *ov_sev_cell[ZBX_SEV_COUNT];
     lv_obj_t *ov_sev_value[ZBX_SEV_COUNT];
-    lv_obj_t *ov_sev_word[ZBX_SEV_COUNT];
-    lv_obj_t *ov_counts;
+    lv_obj_t *ov_bar[ZBX_SEV_COUNT];
     lv_obj_t *ov_problems;
     lv_obj_t *ov_hosts;
     lv_obj_t *ov_hosts_note;
     lv_obj_t *ov_server;
     lv_obj_t *ov_updated;
     lv_obj_t *ov_top_cap;       /* the most severe problems, a tap from their host */
+    lv_obj_t *ov_top_box;
+    lv_obj_t *ov_foot;
     struct prow ov_top[OVERVIEW_TOP];
     int ov_top_made;
 
@@ -180,6 +211,8 @@ struct zabbix_app {
     /* one host, over PROBLEMS or HOSTS */
     lv_obj_t *detail;
     lv_obj_t *dt_back;
+    lv_obj_t *dt_head;
+    lv_obj_t *dt_items;
     lv_obj_t *dt_name;
     lv_obj_t *dt_state;
     lv_obj_t *dt_note;
@@ -194,6 +227,7 @@ struct zabbix_app {
     char detail_name[ZBX_HOST_NAME_MAX];
 
     /* STATUS */
+    lv_obj_t *st_card;
     struct srow srows[ZABBIX_STATUS_LINES];
     lv_obj_t *st_refresh;
     lv_obj_t *st_conn;
@@ -234,6 +268,7 @@ struct zabbix_app {
     bool dirty_problems;
     bool dirty_hosts;
     bool dirty_detail;
+    uint32_t theme_sig;         /* the theme the fixed colours were read from; 0: none */
     struct pocketui_layout_guard guard;
     lv_timer_t *timer;
     int64_t painted_ms;
@@ -301,6 +336,67 @@ static void tone(lv_obj_t *lb, enum zabbix_tone t)
         break;
     }
     lv_obj_invalidate(lb);
+}
+
+/* A tone's colour, for a stripe, a dot or a bar. Read from the theme each
+ * time: the tokens already carry the mode (Outdoor, Night). */
+static lv_color_t tone_color(enum zabbix_tone t)
+{
+    switch (t) {
+    case ZABBIX_TONE_OK:
+        return pos_theme_color(POS_COLOR_STATUS_OK);
+    case ZABBIX_TONE_WARN:
+        return pos_theme_color(POS_COLOR_STATUS_WARN);
+    case ZABBIX_TONE_ERROR:
+        return pos_theme_color(POS_COLOR_STATUS_ERROR);
+    case ZABBIX_TONE_PLAIN:
+        return pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+    case ZABBIX_TONE_QUIET:
+    default:
+        return pos_theme_color(POS_COLOR_TEXT_MUTED);
+    }
+}
+
+/* Half way to the card it sits on: an acknowledged problem, the lower of
+ * two severities that share a tone. */
+static lv_color_t dimmed(lv_color_t c)
+{
+    return lv_color_mix(c, pos_theme_color(POS_COLOR_SURFACE), LV_OPA_50);
+}
+
+/* Six severities on three status colours: the word beside each bar tells
+ * them apart, the shade only helps. */
+static lv_color_t severity_color(int sev)
+{
+    switch (sev) {
+    case ZBX_SEV_DISASTER:
+        return pos_theme_color(POS_COLOR_STATUS_ERROR);
+    case ZBX_SEV_HIGH:
+        return dimmed(pos_theme_color(POS_COLOR_STATUS_ERROR));
+    case ZBX_SEV_AVERAGE:
+        return pos_theme_color(POS_COLOR_STATUS_WARN);
+    case ZBX_SEV_WARNING:
+        return dimmed(pos_theme_color(POS_COLOR_STATUS_WARN));
+    case ZBX_SEV_INFORMATION:
+        return pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+    default:
+        return pos_theme_color(POS_COLOR_TEXT_MUTED);
+    }
+}
+
+/* Only a change is written: these run on every paint. */
+static void fill(lv_obj_t *o, lv_color_t c, uint32_t part)
+{
+    if (o && !lv_color_eq(lv_obj_get_style_bg_color(o, part), c)) {
+        lv_obj_set_style_bg_color(o, c, part);
+    }
+}
+
+static void stripe(lv_obj_t *o, lv_color_t c)
+{
+    if (o && !lv_color_eq(lv_obj_get_style_border_color(o, LV_PART_MAIN), c)) {
+        lv_obj_set_style_border_color(o, c, 0);
+    }
 }
 
 static lv_obj_t *box(lv_obj_t *parent)
@@ -382,13 +478,30 @@ static void button_text(lv_obj_t *b, const char *text)
     label_text(lv_obj_get_child(b, 0), text);
 }
 
-/* A tappable list row: a slab-pressed box with the divider under it. */
-static lv_obj_t *list_row(lv_obj_t *parent, lv_event_cb_t cb, void *user)
+/* A surface card. A striped one keeps 4 px of its left edge for the colour
+ * of what it stands for (stripe()): the border of the card itself, so a list
+ * of a hundred of them costs no object more than a plain row did. */
+static lv_obj_t *card(lv_obj_t *parent, int32_t gap, bool striped)
 {
-    lv_obj_t *r = column(parent, 4);
+    lv_obj_t *c = column(parent, gap);
 
-    pos_style_add(r, POS_STYLE_DIVIDER, 0);
-    lv_obj_set_style_pad_all(r, ROW_PAD, 0);
+    pos_style_add(c, POS_STYLE_SLAB, 0);
+    lv_obj_set_style_pad_all(c, CARD_PAD, 0);
+    if (striped) {
+        lv_obj_set_style_border_side(c, LV_BORDER_SIDE_LEFT, 0);
+        lv_obj_set_style_border_width(c, STRIPE_W, 0);
+        lv_obj_set_style_border_opa(c, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(c, pos_theme_color(POS_COLOR_TEXT_MUTED), 0);
+    }
+    return c;
+}
+
+/* A list row: a striped card, tappable when it leads somewhere. */
+static lv_obj_t *card_row(lv_obj_t *parent, lv_event_cb_t cb, void *user)
+{
+    lv_obj_t *r = card(parent, 4, true);
+
+    lv_obj_set_style_pad_ver(r, ROW_PAD, 0);
     lv_obj_set_style_min_height(r, POCKETUI_TOUCH_MIN, 0);
     if (cb) {
         pos_style_add(r, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
@@ -396,6 +509,26 @@ static lv_obj_t *list_row(lv_obj_t *parent, lv_event_cb_t cb, void *user)
         lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, user);
     }
     return r;
+}
+
+/* A line of a card (a latest value, a STATUS line): the divider under it. */
+static lv_obj_t *line_row(lv_obj_t *parent)
+{
+    lv_obj_t *r = column(parent, 4);
+
+    pos_style_add(r, POS_STYLE_DIVIDER, 0);
+    lv_obj_set_style_pad_ver(r, ROW_PAD, 0);
+    return r;
+}
+
+static lv_obj_t *dot(lv_obj_t *parent)
+{
+    lv_obj_t *d = box(parent);
+
+    lv_obj_set_size(d, DOT, DOT);
+    lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+    return d;
 }
 
 /* ---- the session ------------------------------------------------------------------ */
@@ -454,7 +587,7 @@ static void make_prow(struct zabbix_app *a, struct prow *r, lv_obj_t *parent, bo
     lv_obj_t *line;
 
     r->app = a;
-    r->row = list_row(parent, tappable ? on_problem_row : NULL, r);
+    r->row = card_row(parent, tappable ? on_problem_row : NULL, r);
     line = row_box(r->row, GAP);
     r->sev = one_line(line, "", POS_STYLE_CAPTION);
     lv_obj_set_width(r->sev, SEV_W);
@@ -473,6 +606,8 @@ static void fill_prow(struct prow *r, const struct zbx_problem *p, int64_t serve
     zabbix_view_problem(p, server_now, &v);
     label_text(r->sev, v.severity);
     tone(r->sev, v.tone);
+    /* Solid while nobody has acknowledged it. */
+    stripe(r->row, v.acknowledged ? dimmed(tone_color(v.tone)) : tone_color(v.tone));
     label_text(r->host, v.host);
     label_text(r->meta, v.meta);
     tone(r->meta, v.acknowledged ? ZABBIX_TONE_QUIET : ZABBIX_TONE_PLAIN);
@@ -488,7 +623,7 @@ static void make_hrow(struct zabbix_app *a, struct hrow *r, lv_obj_t *parent)
     lv_obj_t *l2;
 
     r->app = a;
-    r->row = list_row(parent, on_host_row, r);
+    r->row = card_row(parent, on_host_row, r);
     l1 = row_box(r->row, GAP);
     r->name = grow(one_line(l1, "", POS_STYLE_TEXT_PRIMARY));
     r->avail = one_line(l1, "", POS_STYLE_CAPTION);
@@ -513,6 +648,10 @@ static void fill_hrow(struct hrow *r, const struct zbx_host *h)
     label_text(r->problems, v.problems);
     tone(r->problems, v.problems_tone);
     set_hidden(r->maint, !v.maintenance);
+    /* The stripe is the worst of the two things a host can be: unreachable,
+     * or reachable with problems. */
+    stripe(r->row, tone_color(h->avail == ZBX_AVAIL_DOWN ? ZABBIX_TONE_ERROR :
+                              h->problems > 0 ? v.problems_tone : v.avail_tone));
     snprintf(r->hostid, sizeof(r->hostid), "%s", h->hostid);
     snprintf(r->hostname, sizeof(r->hostname), "%s", h->name);
     set_hidden(r->row, false);
@@ -533,6 +672,12 @@ static void paint_tabs(struct zabbix_app *a)
 
             zabbix_format_count(n, sizeof(n), a->model->problems.total);
             snprintf(name, sizeof(name), "%s %s", tab_name[i], n);
+            /* The count goes when it does not fit the tab ("PROBLEMS 1 200"
+             * at the large text size, on the panel): the title of the list
+             * and OVERVIEW carry it. A clipped tab name is worse. */
+            if (pocketui_text_width(a->tab_label[i], name) > lv_obj_get_width(a->tab[i]) - 8) {
+                snprintf(name, sizeof(name), "%s", tab_name[i]);
+            }
         } else {
             snprintf(name, sizeof(name), "%s", tab_name[i]);
         }
@@ -542,28 +687,47 @@ static void paint_tabs(struct zabbix_app *a)
         } else {
             lv_obj_remove_style(a->tab_label[i], pos_style(POS_STYLE_ACCENT_TEXT), 0);
         }
-        /* Shown by opacity, not hidden: a hidden rule would leave the flex
-         * and move its label by two pixels. */
-        lv_obj_set_style_opa(a->tab_rule[i], active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        /* The tab in front is raised out of the strip, with the accent
+         * under its name. Shown by opacity, not hidden: a hidden rule would
+         * leave the flex and move its label. */
+        fill(a->tab[i], pos_theme_color(POS_COLOR_SURFACE_RAISED), 0);
+        if (lv_obj_get_style_bg_opa(a->tab[i], LV_PART_MAIN) != (active ? LV_OPA_COVER : LV_OPA_TRANSP)) {
+            lv_obj_set_style_bg_opa(a->tab[i], active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+            lv_obj_set_style_opa(a->tab_rule[i], active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        }
     }
 }
 
 static void paint_banner(struct zabbix_app *a, int64_t now)
 {
+    const struct zabbix_model *m = a->model;
     struct zabbix_banner b;
     char cap[64];
+    char live[80];
+    bool fresh = m->state == ZBX_CONN_ONLINE && !m->busy && (m->problems_ms > 0 || m->hosts_ms > 0);
 
-    zabbix_view_banner(a->model, now, &b);
+    zabbix_view_banner(m, now, &b);
     /* CONNECTION has the screen to itself: with the keyboard up in
      * landscape the body is 100 px, room for a field and nothing else. */
     set_hidden(a->banner, !b.show || a->conn_open);
     if (b.show) {
         label_text(a->banner_label, b.text);
         tone(a->banner_label, b.tone);
+        stripe(a->banner, tone_color(b.tone));
     }
-    zabbix_view_caption(a->model, now, cap, sizeof(cap));
+    zabbix_view_caption(m, now, cap, sizeof(cap));
     label_text(a->pr_age, cap);
     label_text(a->ho_age, cap);
+    /* OVERVIEW's own indicator: the dot is the banner's tone while there is
+     * a banner, and data from the fake server is never called live. */
+    if (fresh) {
+        snprintf(live, sizeof(live), "%s \xc2\xb7 %s", m->fake ? "SIM" : "LIVE", cap);
+    } else {
+        snprintf(live, sizeof(live), "%s", cap);
+    }
+    label_text(a->ov_live, live);
+    set_hidden(a->ov_live_dot, !live[0]);
+    fill(a->ov_live_dot, tone_color(b.show ? b.tone : fresh ? ZABBIX_TONE_OK : ZABBIX_TONE_QUIET), 0);
 }
 
 static void paint_overview(struct zabbix_app *a, int64_t now)
@@ -574,6 +738,7 @@ static void paint_overview(struct zabbix_app *a, int64_t now)
     zabbix_view_overview(a->model, now, &v);
     set_hidden(a->ov_setup, !v.setup);
     set_hidden(a->ov_cards, v.setup);
+    set_hidden(a->ov_foot, v.setup);
     {
         const struct zabbix_model *m = a->model;
         int64_t server_now = zabbix_server_now(m->problems.ref_clock, m->problems_ms, now);
@@ -583,9 +748,10 @@ static void paint_overview(struct zabbix_app *a, int64_t now)
         /* The most severe open problems, under the cards: the first thing
          * to look at, a tap away from their host. */
         set_hidden(a->ov_top_cap, n == 0);
+        set_hidden(a->ov_top_box, n == 0);
         for (i = 0; i < n && i < OVERVIEW_TOP; i++) {
             if (i >= a->ov_top_made) {
-                make_prow(a, &a->ov_top[i], a->page[TAB_OVERVIEW], true);
+                make_prow(a, &a->ov_top[i], a->ov_top_box, true);
                 a->ov_top_made = i + 1;
             }
             fill_prow(&a->ov_top[i], &m->problems.p[i], server_now);
@@ -613,19 +779,69 @@ static void paint_overview(struct zabbix_app *a, int64_t now)
     }
     label_text(a->ov_headline, v.headline);
     tone(a->ov_headline, v.headline_tone);
+    stripe(a->ov_head, tone_color(v.headline_tone));
     label_text(a->ov_head_note, v.headline_note);
-    for (s = 0; s < ZBX_SEV_COUNT; s++) {
-        char n[24];
-        int sev = ZBX_SEV_COUNT - 1 - s; /* disaster on the left */
 
-        if (v.loading) {
-            snprintf(n, sizeof(n), "--");
-        } else {
-            zabbix_format_count(n, sizeof(n), v.sev_count[sev]);
+    label_text(a->ov_kpi_value[0], v.kpi_open);
+    tone(a->ov_kpi_value[0], v.kpi_open_tone);
+    label_text(a->ov_kpi_value[1], v.kpi_unack);
+    tone(a->ov_kpi_value[1], v.kpi_unack_tone);
+    label_text(a->ov_kpi_value[2], v.kpi_down);
+    tone(a->ov_kpi_value[2], v.kpi_down_tone);
+    label_text(a->ov_kpi_value[3], v.kpi_maint);
+
+    /* The ring: up from the top, down after it, the rest of the track is
+     * the hosts nobody has checked. Empty when the shares are not known. */
+    {
+        int up = v.avail_known ? v.up_permille * 360 / 1000 : 0;
+        int down = v.avail_known ? v.down_permille * 360 / 1000 : 0;
+
+        if (v.avail_known && v.down_permille > 0 && down < 4) {
+            down = 4; /* one host down in a thousand is still seen */
         }
-        label_text(a->ov_sev_value[s], n);
-        tone(a->ov_sev_value[s], !v.loading && v.sev_count[sev] > 0 ? zabbix_severity_tone(sev)
-                                                                      : ZABBIX_TONE_QUIET);
+        if (up + down > 360) {
+            up = 360 - down;
+        }
+        if (up != a->ring_up_deg || down != a->ring_down_deg) {
+            a->ring_up_deg = up;
+            a->ring_down_deg = down;
+            lv_arc_set_angles(a->ov_ring_up, 0, (lv_value_precise_t)up);
+            lv_arc_set_angles(a->ov_ring_down, (lv_value_precise_t)up, (lv_value_precise_t)(up + down));
+        }
+    }
+    label_text(a->ov_pct, v.avail_pct);
+    label_text(a->ov_leg_value[0], v.hosts_up);
+    label_text(a->ov_leg_value[1], v.hosts_down);
+    label_text(a->ov_leg_value[2], v.hosts_unknown);
+
+    {
+        int total = 0;
+
+        for (s = 0; s < ZBX_SEV_COUNT; s++) {
+            total += v.sev_count[s];
+        }
+        for (s = 0; s < ZBX_SEV_COUNT; s++) {
+            char n[24];
+            int sev = ZBX_SEV_COUNT - 1 - s; /* disaster first */
+            /* A severity's share of the open problems counted. */
+            int share = v.loading || total <= 0 ? 0 : (int)((int64_t)v.sev_count[sev] * 1000 / total);
+
+            if (!v.loading && v.sev_count[sev] > 0 && share < 20) {
+                share = 20; /* one in a thousand is still a bar */
+            }
+            if (v.loading) {
+                snprintf(n, sizeof(n), "--");
+            } else {
+                zabbix_format_count(n, sizeof(n), v.sev_count[sev]);
+            }
+            label_text(a->ov_sev_value[s], n);
+            tone(a->ov_sev_value[s], !v.loading && v.sev_count[sev] > 0 ? zabbix_severity_tone(sev)
+                                                                          : ZABBIX_TONE_QUIET);
+            if (lv_bar_get_value(a->ov_bar[s]) != share) {
+                lv_bar_set_value(a->ov_bar[s], share, LV_ANIM_OFF);
+            }
+            fill(a->ov_bar[s], severity_color(sev), LV_PART_INDICATOR);
+        }
     }
     label_text(a->ov_problems, v.loading ? "Waiting for the first refresh" : v.problems);
     label_text(a->ov_hosts, v.hosts[0] ? v.hosts : "Hosts: not read yet");
@@ -695,15 +911,15 @@ static void paint_detail(struct zabbix_app *a, int64_t now)
     bool missing = strcmp(m->detail_missing, a->detail_hostid) == 0;
     int64_t server_now = zabbix_server_now(d->ref_clock, m->detail_ms, now);
     char line[ZABBIX_LINE_TEXT];
+    enum zabbix_tone state = ZABBIX_TONE_QUIET;
     int i;
 
     label_text(a->dt_name, have ? d->host.name : a->detail_name);
     if (missing) {
         label_text(a->dt_state, m->detail_missing_text);
-        tone(a->dt_state, ZABBIX_TONE_ERROR);
+        state = ZABBIX_TONE_ERROR;
     } else if (!have) {
         label_text(a->dt_state, "Reading this host...");
-        tone(a->dt_state, ZABBIX_TONE_QUIET);
     } else {
         struct zabbix_host_row v;
 
@@ -711,10 +927,13 @@ static void paint_detail(struct zabbix_app *a, int64_t now)
         snprintf(line, sizeof(line), "%s · %s%s", v.avail, v.problems,
                  v.maintenance ? " · MAINTENANCE" : "");
         label_text(a->dt_state, line);
-        tone(a->dt_state, d->host.avail == ZBX_AVAIL_DOWN || d->host.max_severity >= ZBX_SEV_HIGH
-                              ? ZABBIX_TONE_ERROR
-                              : d->host.problems > 0 ? ZABBIX_TONE_WARN : ZABBIX_TONE_OK);
+        state = d->host.avail == ZBX_AVAIL_DOWN || d->host.max_severity >= ZBX_SEV_HIGH
+                    ? ZABBIX_TONE_ERROR
+                    : d->host.problems > 0 ? ZABBIX_TONE_WARN : ZABBIX_TONE_OK;
     }
+    tone(a->dt_state, state);
+    stripe(a->dt_head, tone_color(state));
+    set_hidden(a->dt_items, !(have && d->item_count > 0));
     set_hidden(a->dt_note, !(have && d->problem_count == 0));
     set_hidden(a->dt_pcap, !(have && d->problem_count > 0));
     set_hidden(a->dt_icap, !(have && d->item_count > 0));
@@ -735,7 +954,7 @@ static void paint_detail(struct zabbix_app *a, int64_t now)
         struct irow *r = &a->irows[i];
 
         if (i >= a->irow_made) {
-            r->row = list_row(a->detail, NULL, NULL);
+            r->row = line_row(a->dt_items);
             {
                 lv_obj_t *l = row_box(r->row, GAP);
 
@@ -845,11 +1064,41 @@ static void paint_conn(struct zabbix_app *a)
     }
 }
 
+/* The colours no paint decides: tracks, the ring, the legend. Written when
+ * the theme they were read from is no longer the one in use. */
+static void restyle(struct zabbix_app *a)
+{
+    lv_color_t track = pos_theme_color(POS_COLOR_SURFACE_RAISED);
+    int i;
+
+    for (i = 0; i < ZBX_SEV_COUNT; i++) {
+        fill(a->ov_bar[i], track, LV_PART_MAIN);
+    }
+    lv_obj_set_style_arc_color(a->ov_ring_up, track, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(a->ov_ring_up, pos_theme_color(POS_COLOR_STATUS_OK), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(a->ov_ring_down, pos_theme_color(POS_COLOR_STATUS_ERROR), LV_PART_INDICATOR);
+    fill(a->ov_leg_dot[0], pos_theme_color(POS_COLOR_STATUS_OK), 0);
+    fill(a->ov_leg_dot[1], pos_theme_color(POS_COLOR_STATUS_ERROR), 0);
+    fill(a->ov_leg_dot[2], pos_theme_color(POS_COLOR_TEXT_MUTED), 0);
+    stripe(a->ov_setup, pos_theme_color(POS_COLOR_ACCENT_PRIMARY));
+    fill(a->pr_empty, pos_theme_color(POS_COLOR_SURFACE), 0);
+    fill(a->ho_empty, pos_theme_color(POS_COLOR_SURFACE), 0);
+}
+
 static void repaint(struct zabbix_app *a, bool force_lists)
 {
     int64_t now = now_ms();
     const char *hint = a->model->fake ? "SIMULATED" : "";
+    uint32_t sig = (lv_color_to_u32(pos_theme_color(POS_COLOR_SURFACE)) ^
+                    (lv_color_to_u32(pos_theme_color(POS_COLOR_STATUS_OK)) << 1) ^
+                    (lv_color_to_u32(pos_theme_color(POS_COLOR_STATUS_ERROR)) << 2)) | 1u;
 
+    if (sig != a->theme_sig) {
+        a->theme_sig = sig;
+        restyle(a);
+        force_lists = true; /* HOSTS paints only on a change: its stripes too */
+        a->dirty_hosts = true;
+    }
     paint_tabs(a);
     paint_banner(a, now);
     if (a->conn_open) {
@@ -1276,36 +1525,10 @@ static void layout(struct zabbix_app *a)
     lv_obj_set_style_pad_right(a->frame, in.right, 0);
     lv_obj_set_style_pad_top(a->frame, in.top, 0);
     lv_obj_set_style_pad_bottom(a->frame, in.bottom, 0);
-    /* OVERVIEW: in the wide shape the headline and the severities share a
-     * line; in the tall one everything is a column. */
-    lv_obj_set_width(a->ov_head, a->wide ? LV_PCT(48) : LV_PCT(100));
-    lv_obj_set_width(a->ov_sev, a->wide ? LV_PCT(48) : LV_PCT(100));
-    /* Six severities in a line when there is room for "DISASTER" in each
-     * (wide), three by two otherwise: a 74 px cell cut it to "DISAS...". */
-    {
-        int s;
-        bool six = a->wide;
-
-        for (s = 0; s < ZBX_SEV_COUNT; s++) {
-            lv_obj_set_width(a->ov_sev_cell[s], six ? LV_PCT(15) : LV_PCT(31));
-        }
-        /* Whether the words fit six in a line is measured, not assumed from
-         * the shape: at a larger text size (DS §46) they may not, and three
-         * by two is the shape that has room for them. Outside a layout pass
-         * (the timer runs this), so laying out to measure is allowed. */
-        if (six) {
-            lv_obj_update_layout(a->frame);
-            for (s = 0; s < ZBX_SEV_COUNT && six; s++) {
-                /* The word itself: a label in the dots mode has already
-                 * shortened its own text to fit. */
-                six = pocketui_text_width(a->ov_sev_word[s], zbx_severity_word(ZBX_SEV_COUNT - 1 - s)) <=
-                      lv_obj_get_content_width(a->ov_sev_word[s]);
-            }
-            for (s = 0; s < ZBX_SEV_COUNT && !six; s++) {
-                lv_obj_set_width(a->ov_sev_cell[s], LV_PCT(31));
-            }
-        }
-    }
+    /* OVERVIEW: two columns in the wide shape - the state and its numbers,
+     * then hosts and severities - and one in the tall. */
+    lv_obj_set_width(a->ov_col[0], a->wide ? LV_PCT(49) : LV_PCT(100));
+    lv_obj_set_width(a->ov_col[1], a->wide ? LV_PCT(49) : LV_PCT(100));
     lv_obj_invalidate(a->frame);
 }
 
@@ -1345,7 +1568,7 @@ static void build_strip(struct zabbix_app *a)
     int i;
 
     a->strip = box(a->frame);
-    pos_style_add(a->strip, POS_STYLE_DIVIDER, 0);
+    pos_style_add(a->strip, POS_STYLE_SLAB, 0);
     lv_obj_set_width(a->strip, LV_PCT(100));
     lv_obj_set_height(a->strip, TAB_H);
     lv_obj_set_flex_flow(a->strip, LV_FLEX_FLOW_ROW);
@@ -1359,7 +1582,9 @@ static void build_strip(struct zabbix_app *a)
         lv_obj_set_height(t, TAB_H);
         grow(t);
         lv_obj_set_flex_flow(t, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(t, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_flex_align(t, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(t, 6, 0);
+        lv_obj_set_style_radius(t, 6, 0);
         lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(t, on_tab, LV_EVENT_CLICKED, a);
         a->tab[i] = t;
@@ -1367,12 +1592,12 @@ static void build_strip(struct zabbix_app *a)
         lv_obj_remove_style_all(a->tab_label[i]);
         pos_style_add(a->tab_label[i], POS_STYLE_CAPTION, 0);
         lv_label_set_text(a->tab_label[i], tab_name[i]);
-        lv_obj_set_style_pad_bottom(a->tab_label[i], 16, 0);
         a->tab_rule[i] = box(t);
-        /* The 2 px underline in the accent: a fill role, not a colour. */
+        /* A short bar in the accent under the name: a fill role, not a
+         * colour. */
         pos_style_add(a->tab_rule[i], POS_STYLE_BUTTON_PRIMARY, 0);
-        lv_obj_set_style_radius(a->tab_rule[i], 0, 0);
-        lv_obj_set_width(a->tab_rule[i], LV_PCT(100));
+        lv_obj_set_style_radius(a->tab_rule[i], UNDERLINE_H / 2, 0);
+        lv_obj_set_width(a->tab_rule[i], 28);
         lv_obj_set_height(a->tab_rule[i], UNDERLINE_H);
         lv_obj_set_style_opa(a->tab_rule[i], LV_OPA_TRANSP, 0);
     }
@@ -1384,8 +1609,8 @@ static lv_obj_t *list_title(lv_obj_t *parent, const char *text, lv_obj_t **age)
     lv_obj_t *l = row_box(parent, GAP);
     lv_obj_t *t;
 
-    lv_obj_set_style_pad_hor(l, ROW_PAD, 0);
-    lv_obj_set_style_pad_bottom(l, 6, 0);
+    lv_obj_set_style_pad_hor(l, 4, 0);
+    lv_obj_set_style_pad_bottom(l, 2, 0);
     t = grow(one_line(l, text, POS_STYLE_CAPTION));
     /* Two lines before the dots: at a larger text size "100 of 1 200 open ·
      * most severe first" lost its point to them on one (DS §46.5). One line
@@ -1398,16 +1623,42 @@ static lv_obj_t *list_title(lv_obj_t *parent, const char *text, lv_obj_t **age)
     return t;
 }
 
+/* One arc of the availability ring: a full circle of track from the top,
+ * nothing to touch, the stroke the only thing drawn. */
+static lv_obj_t *ring_arc(lv_obj_t *parent, bool track)
+{
+    lv_obj_t *arc = lv_arc_create(parent);
+
+    lv_obj_remove_style_all(arc);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_set_size(arc, RING, RING);
+    lv_obj_center(arc);
+    lv_arc_set_rotation(arc, 270);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_angles(arc, 0, 0);
+    lv_obj_set_style_arc_width(arc, RING_W, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, RING_W, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, track ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_INDICATOR);
+    return arc;
+}
+
 static void build_overview(struct zabbix_app *a)
 {
+    static const char *const kpi_name[KPI_COUNT] = { "OPEN PROBLEMS", "UNACKNOWLEDGED", "HOSTS DOWN",
+                                                     "IN MAINTENANCE" };
+    static const char *const legend_name[LEGEND_COUNT] = { "UP", "DOWN", "UNKNOWN" };
     lv_obj_t *p = a->page[TAB_OVERVIEW];
     lv_obj_t *l;
+    lv_obj_t *c;
+    lv_obj_t *col;
+    int32_t word_w = pocketui_role_text_width(POS_STYLE_CAPTION, "DISASTER") + 4;
+    int32_t count_w = pocketui_role_text_width(POS_STYLE_VALUE, "0 000") + 4;
     int s;
 
-    lv_obj_set_style_pad_hor(p, POCKETUI_PAD, 0);
     lv_obj_set_style_pad_row(p, GAP, 0);
 
-    a->ov_setup = column(p, GAP);
+    a->ov_setup = card(p, GAP, true);
     pocketui_label(a->ov_setup, "Not set up", POS_STYLE_TITLE);
     a->ov_setup_text = wrapping(a->ov_setup, "", POS_STYLE_TEXT_SECONDARY);
     {
@@ -1426,52 +1677,124 @@ static void build_overview(struct zabbix_app *a)
     lv_obj_set_flex_align(a->ov_cards, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(a->ov_cards, GAP, 0);
+    a->ov_col[0] = column(a->ov_cards, GAP);
+    a->ov_col[1] = column(a->ov_cards, GAP);
 
-    /* The headline: the worst open severity, in its own words and tone. */
-    a->ov_head = pocketui_card(a->ov_cards);
-    lv_obj_set_width(a->ov_head, LV_PCT(100));
-    lv_obj_set_style_pad_row(a->ov_head, 4, 0);
-    pocketui_label(a->ov_head, "HIGHEST OPEN SEVERITY", POS_STYLE_CAPTION);
-    a->ov_headline = one_line(a->ov_head, "--", POS_STYLE_HERO_40);
+    /* The state of the estate: the worst open severity, in its own word and
+     * tone, the card's stripe in the same; how fresh, at its top right. */
+    a->ov_head = card(a->ov_col[0], 4, true);
+    l = row_box(a->ov_head, 8);
+    grow(one_line(l, "HIGHEST OPEN SEVERITY", POS_STYLE_CAPTION));
+    a->ov_live_dot = dot(l);
+    a->ov_live = one_line(l, "", POS_STYLE_CAPTION);
+    lv_obj_set_width(a->ov_live, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(a->ov_live, LV_LABEL_LONG_CLIP);
+    a->ov_headline = one_line(a->ov_head, "--", POS_STYLE_HERO_48);
     lv_obj_set_width(a->ov_headline, LV_PCT(100));
     a->ov_head_note = wrapping(a->ov_head, "", POS_STYLE_TEXT_SECONDARY);
 
-    /* Every severity's count, disaster first. */
-    a->ov_sev = pocketui_card(a->ov_cards);
-    lv_obj_set_width(a->ov_sev, LV_PCT(100));
-    pocketui_label(a->ov_sev, "OPEN PROBLEMS BY SEVERITY", POS_STYLE_CAPTION);
-    l = row_box(a->ov_sev, 8);
+    /* Four numbers, two by two. */
+    l = box(a->ov_col[0]);
+    lv_obj_set_size(l, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(l, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(l, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(l, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(l, GAP, 0);
-    for (s = 0; s < ZBX_SEV_COUNT; s++) {
-        int sev = ZBX_SEV_COUNT - 1 - s;
-
-        a->ov_sev_cell[s] = column(l, 2);
-        lv_obj_set_width(a->ov_sev_cell[s], LV_PCT(31));
-        a->ov_sev_value[s] = one_line(a->ov_sev_cell[s], "--", POS_STYLE_VALUE);
-        lv_obj_set_width(a->ov_sev_value[s], LV_PCT(100));
-        a->ov_sev_word[s] = one_line(a->ov_sev_cell[s], zbx_severity_word(sev), POS_STYLE_CAPTION);
-        lv_obj_set_width(a->ov_sev_word[s], LV_PCT(100));
+    for (s = 0; s < KPI_COUNT; s++) {
+        c = card(l, 0, false);
+        lv_obj_set_width(c, LV_PCT(49));
+        lv_obj_set_style_pad_ver(c, ROW_PAD, 0);
+        a->ov_kpi_value[s] = one_line(c, "--", POS_STYLE_HERO_40);
+        lv_obj_set_width(a->ov_kpi_value[s], LV_PCT(100));
+        lv_obj_set_width(one_line(c, kpi_name[s], POS_STYLE_CAPTION), LV_PCT(100));
     }
 
-    /* The counts and where they come from. */
-    a->ov_counts = pocketui_card(a->ov_cards);
-    lv_obj_set_width(a->ov_counts, LV_PCT(100));
-    lv_obj_set_style_pad_row(a->ov_counts, 6, 0);
-    a->ov_problems = wrapping(a->ov_counts, "", POS_STYLE_ROW_TITLE);
-    a->ov_hosts = wrapping(a->ov_counts, "", POS_STYLE_ROW_TITLE);
-    a->ov_hosts_note = wrapping(a->ov_counts, "", POS_STYLE_TEXT_SECONDARY);
-    a->ov_server = wrapping(a->ov_counts, "", POS_STYLE_TEXT_SECONDARY);
-    a->ov_updated = one_line(a->ov_counts, "", POS_STYLE_CAPTION);
-    lv_obj_set_width(a->ov_updated, LV_PCT(100));
+    /* Availability: the ring, and the same three numbers beside it. */
+    c = card(a->ov_col[1], ROW_PAD, false);
+    lv_obj_set_width(one_line(c, "HOST AVAILABILITY", POS_STYLE_CAPTION), LV_PCT(100));
+    l = row_box(c, CARD_PAD);
+    {
+        lv_obj_t *ring = box(l);
+        lv_obj_t *mid;
 
-    /* The heading of the most severe problems; their rows follow it, made
-     * when there are problems to show. */
+        lv_obj_set_size(ring, RING, RING);
+        a->ov_ring_up = ring_arc(ring, true);
+        a->ov_ring_down = ring_arc(ring, false);
+        a->ring_up_deg = a->ring_down_deg = -1;
+        mid = box(ring);
+        lv_obj_set_size(mid, RING - 2 * RING_W, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_center(mid);
+        a->ov_pct = pocketui_label(mid, "--", POS_STYLE_TITLE);
+        pocketui_label(mid, "UP", POS_STYLE_CAPTION);
+    }
+    col = grow(column(l, 6));
+    a->ov_hosts = wrapping(col, "", POS_STYLE_ROW_TITLE);
+    for (s = 0; s < LEGEND_COUNT; s++) {
+        lv_obj_t *line = row_box(col, 8);
+
+        a->ov_leg_dot[s] = dot(line);
+        grow(one_line(line, legend_name[s], POS_STYLE_CAPTION));
+        a->ov_leg_value[s] = one_line(line, "--", POS_STYLE_VALUE);
+        lv_obj_set_width(a->ov_leg_value[s], LV_SIZE_CONTENT);
+        lv_label_set_long_mode(a->ov_leg_value[s], LV_LABEL_LONG_CLIP);
+    }
+    a->ov_hosts_note = wrapping(col, "", POS_STYLE_TEXT_SECONDARY);
+
+    /* Every severity's count and its share of the open problems, disaster
+     * first. */
+    a->ov_sev = card(a->ov_col[1], ROW_GAP, false);
+    lv_obj_set_width(one_line(a->ov_sev, "OPEN PROBLEMS BY SEVERITY", POS_STYLE_CAPTION), LV_PCT(100));
+    a->ov_problems = wrapping(a->ov_sev, "", POS_STYLE_ROW_TITLE);
+    for (s = 0; s < ZBX_SEV_COUNT; s++) {
+        int sev = ZBX_SEV_COUNT - 1 - s;
+        lv_obj_t *b;
+
+        l = row_box(a->ov_sev, GAP);
+        lv_obj_set_width(one_line(l, zbx_severity_word(sev), POS_STYLE_CAPTION), word_w);
+        b = a->ov_bar[s] = lv_bar_create(l);
+        lv_obj_remove_style_all(b);
+        lv_obj_clear_flag(b, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_height(b, BAR_H);
+        grow(b);
+        lv_obj_set_style_radius(b, BAR_H / 2, LV_PART_MAIN);
+        lv_obj_set_style_radius(b, BAR_H / 2, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_bar_set_range(b, 0, 1000);
+        lv_bar_set_value(b, 0, LV_ANIM_OFF);
+        a->ov_sev_value[s] = one_line(l, "--", POS_STYLE_VALUE);
+        lv_obj_set_width(a->ov_sev_value[s], count_w);
+        lv_obj_set_style_text_align(a->ov_sev_value[s], LV_TEXT_ALIGN_RIGHT, 0);
+    }
+
+    /* The most severe problems; their rows are made when there are problems
+     * to show. */
     a->ov_top_cap = one_line(p, "MOST SEVERE OPEN PROBLEMS", POS_STYLE_CAPTION);
     lv_obj_set_width(a->ov_top_cap, LV_PCT(100));
-    lv_obj_set_style_margin_top(a->ov_top_cap, GAP, 0);
+    lv_obj_set_style_pad_hor(a->ov_top_cap, 4, 0);
+    lv_obj_set_style_margin_top(a->ov_top_cap, 4, 0);
     lv_obj_add_flag(a->ov_top_cap, LV_OBJ_FLAG_HIDDEN);
+    a->ov_top_box = column(p, ROW_GAP);
+    lv_obj_add_flag(a->ov_top_box, LV_OBJ_FLAG_HIDDEN);
+
+    /* Where it all comes from, last and quiet. */
+    col = a->ov_foot = column(p, 2);
+    lv_obj_set_style_pad_hor(col, 4, 0);
+    a->ov_server = wrapping(col, "", POS_STYLE_TEXT_SECONDARY);
+    a->ov_updated = one_line(col, "", POS_STYLE_CAPTION);
+    lv_obj_set_width(a->ov_updated, LV_PCT(100));
+}
+
+/* What a list says when it has no rows: a card of its own, not a stray line. */
+static lv_obj_t *empty_note(lv_obj_t *parent)
+{
+    lv_obj_t *lb = wrapping(parent, "", POS_STYLE_TEXT_SECONDARY);
+
+    lv_obj_set_style_pad_all(lb, CARD_PAD, 0);
+    lv_obj_set_style_radius(lb, 6, 0);
+    lv_obj_set_style_bg_opa(lb, LV_OPA_COVER, 0);
+    return lb;
 }
 
 static void build_lists(struct zabbix_app *a)
@@ -1479,14 +1802,14 @@ static void build_lists(struct zabbix_app *a)
     lv_obj_t *p;
 
     p = a->page[TAB_PROBLEMS];
+    lv_obj_set_style_pad_row(p, ROW_GAP, 0);
     a->pr_title = list_title(p, "PROBLEMS", &a->pr_age);
-    a->pr_empty = wrapping(p, "", POS_STYLE_TEXT_SECONDARY);
-    lv_obj_set_style_pad_all(a->pr_empty, ROW_PAD, 0);
+    a->pr_empty = empty_note(p);
 
     p = a->page[TAB_HOSTS];
+    lv_obj_set_style_pad_row(p, ROW_GAP, 0);
     a->ho_title = list_title(p, "HOSTS", &a->ho_age);
-    a->ho_empty = wrapping(p, "", POS_STYLE_TEXT_SECONDARY);
-    lv_obj_set_style_pad_all(a->ho_empty, ROW_PAD, 0);
+    a->ho_empty = empty_note(p);
 }
 
 static void build_detail(struct zabbix_app *a)
@@ -1494,26 +1817,26 @@ static void build_detail(struct zabbix_app *a)
     lv_obj_t *d;
 
     d = a->detail = page(a->content);
-    lv_obj_set_style_pad_hor(d, 0, 0);
-    lv_obj_set_style_pad_row(d, 4, 0);
+    lv_obj_set_style_pad_row(d, ROW_GAP, 0);
     a->dt_back = button(d, "\xe2\x80\xb9 BACK", false, on_back, a);
     lv_obj_set_width(a->dt_back, 180);
-    lv_obj_set_style_margin_left(a->dt_back, ROW_PAD, 0);
-    a->dt_name = wrapping(d, "", POS_STYLE_TITLE);
-    lv_obj_set_style_pad_hor(a->dt_name, ROW_PAD, 0);
-    lv_obj_set_style_pad_top(a->dt_name, GAP, 0);
-    a->dt_state = wrapping(d, "", POS_STYLE_TEXT_PRIMARY);
-    lv_obj_set_style_pad_hor(a->dt_state, ROW_PAD, 0);
+    /* The host: its name, and its state in words and on the stripe. */
+    a->dt_head = card(d, 4, true);
+    a->dt_name = wrapping(a->dt_head, "", POS_STYLE_TITLE);
+    a->dt_state = wrapping(a->dt_head, "", POS_STYLE_TEXT_PRIMARY);
     a->dt_note = wrapping(d, "No open problems on this host.", POS_STYLE_TEXT_SECONDARY);
-    lv_obj_set_style_pad_all(a->dt_note, ROW_PAD, 0);
+    lv_obj_set_style_pad_hor(a->dt_note, 4, 0);
     a->dt_pcap = one_line(d, "OPEN PROBLEMS", POS_STYLE_CAPTION);
     lv_obj_set_width(a->dt_pcap, LV_PCT(100));
-    lv_obj_set_style_pad_hor(a->dt_pcap, ROW_PAD, 0);
-    lv_obj_set_style_margin_top(a->dt_pcap, GAP, 0);
+    lv_obj_set_style_pad_hor(a->dt_pcap, 4, 0);
+    lv_obj_set_style_margin_top(a->dt_pcap, 4, 0);
     a->dt_icap = one_line(d, "LATEST VALUES", POS_STYLE_CAPTION);
     lv_obj_set_width(a->dt_icap, LV_PCT(100));
-    lv_obj_set_style_pad_hor(a->dt_icap, ROW_PAD, 0);
-    lv_obj_set_style_margin_top(a->dt_icap, GAP, 0);
+    lv_obj_set_style_pad_hor(a->dt_icap, 4, 0);
+    lv_obj_set_style_margin_top(a->dt_icap, 4, 0);
+    a->dt_items = card(d, 0, false);
+    lv_obj_set_style_pad_ver(a->dt_items, 4, 0);
+    lv_obj_add_flag(a->dt_items, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -1523,10 +1846,13 @@ static void build_status(struct zabbix_app *a)
     lv_obj_t *buttons;
     int i;
 
+    lv_obj_set_style_pad_row(p, GAP, 0);
+    a->st_card = card(p, 0, false);
+    lv_obj_set_style_pad_ver(a->st_card, 4, 0);
     for (i = 0; i < ZABBIX_STATUS_LINES; i++) {
         struct srow *r = &a->srows[i];
 
-        r->row = list_row(p, NULL, NULL);
+        r->row = line_row(a->st_card);
         {
             lv_obj_t *l = row_box(r->row, GAP);
 
@@ -1539,7 +1865,6 @@ static void build_status(struct zabbix_app *a)
         lv_obj_add_flag(r->row, LV_OBJ_FLAG_HIDDEN);
     }
     buttons = column(p, GAP);
-    lv_obj_set_style_pad_all(buttons, ROW_PAD, 0);
     a->st_refresh = button(buttons, "REFRESH NOW", true, on_refresh, a);
     a->st_conn = button(buttons, "CONNECTION SETTINGS", false, on_open_conn, a);
     a->st_scenario = button(buttons, "SCENARIO", false, on_scenario, a);
@@ -1646,6 +1971,9 @@ static void build(struct zabbix_app *a, lv_obj_t *root)
     /* The banner: shown whenever the data is not simply fresh. */
     a->banner = box(a->frame);
     pos_style_add(a->banner, POS_STYLE_SLAB, 0);
+    lv_obj_set_style_border_side(a->banner, LV_BORDER_SIDE_LEFT, 0);
+    lv_obj_set_style_border_width(a->banner, STRIPE_W, 0);
+    lv_obj_set_style_border_opa(a->banner, LV_OPA_COVER, 0);
     lv_obj_set_width(a->banner, LV_PCT(100));
     lv_obj_set_height(a->banner, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(a->banner, BANNER_PAD, 0);
