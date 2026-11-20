@@ -1,15 +1,18 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
-# ADR-008: reconciliation with the hardware evidence (prepared, not applied)
+# ADR-008: reconciliation with the hardware evidence (applied 2026-11-20)
 
-Prepared 2026-11-20. **ADR-008's status is not changed by this package and
-neither file below is edited.** This is the evidence and the exact text for
-its transition to Accepted, ready to apply on the owner's word.
+Prepared 2026-11-20 and **applied the same day on the owner's approval**:
+ADR-008 is Accepted, with its default decisions as shipped. The approval
+covers ADR-008 only; ADR-017 and ADR-018 remain Proposed. This file is kept
+as the record of what the acceptance rests on; the "text to apply" below is
+what was applied, with the evidence table carried in fuller form.
 
 ## Why
 
-ADR-008 reads "Proposed (2026-09-25) ... awaiting the product owner", and
-`docs/apps/FLEET_MULTIPLAYER.md` says "Nothing here has been on a radio ...
-(P7), not yet run". Both statements predate three hardware gates between
+Until 2026-11-20 ADR-008 read "Proposed (2026-09-25) ... awaiting the
+product owner", and `docs/apps/FLEET_MULTIPLAYER.md` said "Nothing here has
+been on a radio ... (P7), not yet run". Both statements predated three
+hardware gates between
 units A and B. The feature is merged and shipped, and ADR-017 and ADR-018
 build on its decisions.
 

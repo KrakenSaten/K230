@@ -34,7 +34,7 @@ authoritative.
 | [005](ADR-005-product-name-doors.md) | Product name Doors | Accepted for Phases 1, 2 and 3 |
 | [006](ADR-006-camera-ownership.md) | Who owns the camera | Accepted, 2026-09-25 |
 | [007](ADR-007-zabbix-viewer.md) | A Zabbix monitoring viewer | Accepted, 2026-09-26 (decisions 1-3) |
-| [008](ADR-008-fleet-multiplayer.md) | Two-player Fleet over the mesh | Proposed, 2026-09-25 |
+| [008](ADR-008-fleet-multiplayer.md) | Two-player Fleet over the mesh | Accepted, 2026-11-20 |
 | [009](ADR-009-browser-engine.md) | A browser without a browser engine | Accepted, 2026-09-27 |
 | [010](ADR-010-recorder-audio.md) | Audio hardware for the Recorder | Accepted, 2026-09-27 |
 | [011](ADR-011-kernel-patches.md) | Doors-owned kernel patches | Accepted, 2026-09-27 |

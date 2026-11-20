@@ -5,8 +5,7 @@ binding until it is Accepted, and nothing is implemented.
 Date: 2026-11-20
 Deciders: product owner (final), AI engineering partner (author)
 
-Builds on ADR-008 (Proposed; see
-docs/design/games-multiplayer/ADR-008-RECONCILIATION.md) and ADR-017.
+Builds on ADR-008 (Accepted 2026-11-20) and ADR-017 (Proposed).
 
 ## Context
 

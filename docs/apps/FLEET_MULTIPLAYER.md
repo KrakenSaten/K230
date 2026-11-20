@@ -1,12 +1,15 @@
 # PocketFleet multiplayer: protocol v1
 
 Two players, one match, turn based, over the MeshCore mesh. The decision and
-its alternatives are docs/decisions/ADR-008-fleet-multiplayer.md (Proposed).
+its alternatives are docs/decisions/ADR-008-fleet-multiplayer.md (Accepted
+2026-11-20).
 Single-player Fleet is unchanged (docs/apps/POCKETFLEET.md).
 
-Status: host-built and host-tested only. **Nothing here has been on a
-radio.** The hardware gate is docs/hardware/FLEET_MULTIPLAYER_GATE.md (P7),
-not yet run.
+Status: host-tested, and gated on hardware between units A and B over LoRa:
+docs/hardware/FLEET_MULTIPLAYER_GATE.md (P7 minimum scope, PASS 2026-09-26),
+FLEET_CHAT_STATUS_GATE.md and FLEET_MP_AUTO_GATE.md (PASS 2026-09-30). **Not
+checked:** a non-Doors MeshCore node, range, a repeater, a busy channel, the
+airtime of a full-length match, an unattended match at real pace.
 
 ## Layers
 
