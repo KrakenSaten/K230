@@ -474,7 +474,7 @@ at the first try, once and in order, in a 110-ply match of 21 s.
 
 ## Link profiles and a save per transport
 
-ADR-018 (docs/decisions/, on the design branch until it is merged). What is
+docs/decisions/ADR-018-fleet-link-profile-and-saves.md (Accepted). What is
 built so far is the part inside Fleet; no second transport exists yet, so
 nothing on a device changes.
 

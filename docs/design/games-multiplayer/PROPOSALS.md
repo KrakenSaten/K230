@@ -1,9 +1,11 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
 # Proposed changes to accepted records (for approval)
 
-This package edits no ADR and no Design System section. Each item below is a
-change it would need, to be written as its own ADR or amendment once the
-owner approves the direction.
+Written as the list of changes the design would need. As of 2026-11-20
+items 1, 2, 4, 5 and 6 are decided (ADR-008 Accepted and reconciled;
+ADR-017 and ADR-018 Accepted) and item 3 is deferred to M4 by the owner. The
+rest - the Design System items 7 and 8 among them - are still proposals; no
+Design System section has been changed.
 
 | # | Record | Proposed change | Needed by |
 | --- | --- | --- | --- |
