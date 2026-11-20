@@ -390,6 +390,60 @@ static void test_chat_session(void)
     link->ops->close(link->ctx);
 }
 
+/* A session takes its match's profile from its link (ADR-018). */
+static void test_link_profile(void)
+{
+    struct store st = { .rng = 21 };
+    struct fleet_session s;
+    struct fleet_link *link = open_loop("");
+
+    fleet_session_init(&s, link, store_save, entropy, &st);
+    fleet_session_poll(&s, 100);
+    check("profile: a link that names none plays on the mesh profile",
+          s.ready && s.m.profile == &fleet_profile_mesh && s.m.tokens == FLEET_GOV_BURST);
+    link->ops->close(link->ctx);
+    link = open_loop("lan");
+    fleet_session_init(&s, link, store_save, entropy, &st);
+    fleet_session_poll(&s, 100);
+    check("profile: a LAN link's session plays on the LAN profile",
+          s.ready && s.m.profile == &fleet_profile_lan && s.m.tokens == 0 &&
+          fleet_link_loop_peer(link)->profile == &fleet_profile_lan);
+    link->ops->close(link->ctx);
+}
+
+/* One match per device, across the two saves (ADR-008 decision 4, ADR-018
+ * point 4): while the other transport's save holds a match, none begins here. */
+static void test_one_match_per_device(void)
+{
+    struct store st = { .rng = 22 };
+    struct fleet_session s;
+    struct fleet_link *link = open_loop("invite=2000");
+    uint8_t key[FLEET_KEY_BYTES];
+    int64_t now = 100;
+
+    peer_key(link, key);
+    fleet_session_init(&s, link, store_save, entropy, &st);
+    fleet_session_engage(&s, now);
+    fleet_session_poll(&s, now);
+    fleet_session_set_other_in_hand(&s, 1);
+    check("one match: no invitation goes out while the other transport holds a match",
+          fleet_session_invite(&s, key, "Opponent", now) == FLEET_SESSION_OTHER_MATCH &&
+          s.m.phase == FLEET_MP_IDLE && s.sent == 0 && st.saves == 0);
+    now = run(&s, now, 6000, 0);
+    check("one match: an invitation that arrives is shown, as ever", s.m.phase == FLEET_MP_INVITED);
+    {
+        unsigned sent = s.sent;
+
+        check("one match: and cannot be accepted; nothing is sent",
+              fleet_session_accept(&s, now) == FLEET_SESSION_OTHER_MATCH &&
+              s.m.phase == FLEET_MP_INVITED && s.sent == sent);
+    }
+    fleet_session_set_other_in_hand(&s, 0);
+    check("one match: once the other is finished or put away, it can",
+          fleet_session_accept(&s, now) == 0 && s.m.phase == FLEET_MP_ACCEPTING);
+    link->ops->close(link->ctx);
+}
+
 int main(void)
 {
     test_not_engaged();
@@ -400,6 +454,10 @@ int main(void)
     test_other_identity();
     test_decline_and_silence();
     test_chat_session();
+    whole_match("lan", "LAN profile, clean link");
+    whole_match("lan,loss=25,dup=10,delay=300", "LAN profile, 25% loss, duplicates");
+    test_link_profile();
+    test_one_match_per_device();
     printf("fleet_session_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

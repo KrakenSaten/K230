@@ -230,3 +230,31 @@ int fleet_match_save_decode(struct fleet_match *m, const uint8_t *buf, size_t n)
     *m = d;
     return 0;
 }
+
+int fleet_match_save_in_hand(const uint8_t *buf, size_t n, char *peer_name, size_t peer_name_size)
+{
+    static struct fleet_match probe;
+
+    if (peer_name && peer_name_size > 0) {
+        peer_name[0] = '\0';
+    }
+    if (!buf || n != FLEET_MATCH_SAVE_SIZE) {
+        return 0;
+    }
+    /* Under its own identity: the key follows the magic and the version. */
+    fleet_match_init(&probe, buf + 4 + 2, 1);
+    if (fleet_match_save_decode(&probe, buf, n) != 0 || probe.phase < FLEET_MP_DEPLOY ||
+        probe.phase > FLEET_MP_REVEAL) {
+        return 0;
+    }
+    if (peer_name && peer_name_size > 0) {
+        size_t len = strnlen(probe.peer_name, sizeof(probe.peer_name));
+
+        if (len >= peer_name_size) {
+            len = peer_name_size - 1;
+        }
+        memcpy(peer_name, probe.peer_name, len);
+        peer_name[len] = '\0';
+    }
+    return 1;
+}

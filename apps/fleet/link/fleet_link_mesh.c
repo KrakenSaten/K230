@@ -857,8 +857,17 @@ static void m_close(void *ctx)
     free(m);
 }
 
+/* LoRa over MeshCore: the mesh profile, whose figures the match always had.
+ * NULL is how a link says so (fleet_link.h), which keeps this file free of
+ * the match's objects: tests/fleet_link_test links it without them. */
+static const struct fleet_link_profile *m_profile(void *ctx)
+{
+    (void)ctx;
+    return NULL;
+}
+
 static const struct fleet_link_ops OPS = {
-    m_poll, m_send, m_recv, m_self, m_state, m_peers, m_name, m_advert, m_base, m_close,
+    m_poll, m_send, m_recv, m_self, m_state, m_peers, m_name, m_advert, m_base, m_close, m_profile,
 };
 
 struct fleet_link *fleet_link_mesh_open(const char *service)

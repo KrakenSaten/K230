@@ -133,28 +133,62 @@ int fleet_store_has_save(void)
 
 /* ---- multiplayer --------------------------------------------------------- */
 
-static char match_buf[STORE_PATH_MAX + 32];
+static char match_buf[FLEET_STORE_TRANSPORT_COUNT][STORE_PATH_MAX + 32];
+
+/* The one place a transport becomes a file name (ADR-018, point 3). */
+static const char *match_file(enum fleet_store_transport t)
+{
+    switch (t) {
+    case FLEET_STORE_MESH:
+        return FLEET_STORE_MATCH_FILE;
+    case FLEET_STORE_LAN:
+        return FLEET_STORE_MATCH_LAN_FILE;
+    default:
+        return NULL;
+    }
+}
+
+const char *fleet_store_match_path_for(enum fleet_store_transport t)
+{
+    const char *file = match_file(t);
+
+    if (!file) {
+        return NULL;
+    }
+    snprintf(match_buf[t], sizeof(match_buf[t]), "%s/%s", fleet_store_dir(), file);
+    return match_buf[t];
+}
 
 const char *fleet_store_match_path(void)
 {
-    snprintf(match_buf, sizeof(match_buf), "%s/%s", fleet_store_dir(), FLEET_STORE_MATCH_FILE);
-    return match_buf;
+    return fleet_store_match_path_for(FLEET_STORE_MESH);
 }
 
 int fleet_store_match_save(const uint8_t *blob, size_t n)
 {
-    char path[sizeof(match_buf)];
-    char tmp[sizeof(match_buf) + 8];
+    return fleet_store_match_save_for(FLEET_STORE_MESH, blob, n);
+}
+
+int fleet_store_match_load(uint8_t *buf, size_t max)
+{
+    return fleet_store_match_load_for(FLEET_STORE_MESH, buf, max);
+}
+
+int fleet_store_match_save_for(enum fleet_store_transport t, const uint8_t *blob, size_t n)
+{
+    const char *target = fleet_store_match_path_for(t);
+    char path[sizeof(match_buf[0])];
+    char tmp[sizeof(match_buf[0]) + 8];
     FILE *f;
     int fd;
     int dir;
     int rc;
 
-    if (!blob || n == 0) {
+    if (!target || !blob || n == 0) {
         return -1;
     }
     make_dirs(fleet_store_dir());
-    snprintf(path, sizeof(path), "%s", fleet_store_match_path());
+    snprintf(path, sizeof(path), "%s", target);
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     /* Private whatever the umask: the match holds our own fleet and its salt,
      * which the opponent must not learn before the reveal. fchmod also covers
@@ -188,15 +222,16 @@ int fleet_store_match_save(const uint8_t *blob, size_t n)
     return rc == 0 ? 0 : -1;
 }
 
-int fleet_store_match_load(uint8_t *buf, size_t max)
+int fleet_store_match_load_for(enum fleet_store_transport t, uint8_t *buf, size_t max)
 {
+    const char *target = fleet_store_match_path_for(t);
     FILE *f;
     size_t got;
 
-    if (!buf || max == 0) {
+    if (!target || !buf || max == 0) {
         return -1;
     }
-    f = fopen(fleet_store_match_path(), "rb");
+    f = fopen(target, "rb");
     if (!f) {
         return errno == ENOENT ? 0 : -1;
     }

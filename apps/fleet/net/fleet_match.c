@@ -400,15 +400,54 @@ static uint8_t verify_peer(struct fleet_match *m)
     return FLEET_VERIFY_OK;
 }
 
+/* ---- link profiles (fleet_profile.h, ADR-018) ------------------------------ */
+
+const struct fleet_link_profile fleet_profile_mesh = {
+    .name = "mesh",
+    .retry_base_ms = FLEET_RETRY_BASE_MS,
+    .retry_cap_ms = FLEET_RETRY_CAP_MS,
+    .busy_retry_ms = FLEET_BUSY_RETRY_MS,
+    .gov_burst = FLEET_GOV_BURST,
+    .gov_refill_ms = FLEET_GOV_REFILL_MS,
+    .gov_hour_ms = FLEET_GOV_HOUR_MS,
+    .chat_token_reserve = FLEET_CHAT_TOKEN_RESERVE,
+    .chat_hour_ms = FLEET_CHAT_HOUR_MS,
+    .chat_share_ms = FLEET_CHAT_SHARE_MS,
+};
+
+const struct fleet_link_profile fleet_profile_lan = {
+    .name = "lan",
+    .retry_base_ms = FLEET_LAN_RETRY_BASE_MS,
+    .retry_cap_ms = FLEET_LAN_RETRY_CAP_MS,
+    .busy_retry_ms = FLEET_BUSY_RETRY_MS,
+    .gov_burst = 0,
+    .gov_refill_ms = 0,
+    .gov_hour_ms = 0,
+    .chat_token_reserve = 0,
+    .chat_hour_ms = 0,
+    .chat_share_ms = 0,
+};
+
 /* ---- the airtime governor ------------------------------------------------ */
+
+/* Whether adding `air` would pass an hourly budget; never, where there is none. */
+static int over_budget(uint32_t used, uint32_t air, uint32_t budget)
+{
+    return budget != 0 && used + air > budget;
+}
 
 static void gov_refill(struct fleet_match *m, int64_t now)
 {
-    while (m->tokens < FLEET_GOV_BURST && now >= m->refill_at) {
-        m->tokens++;
-        m->refill_at += FLEET_GOV_REFILL_MS;
+    const struct fleet_link_profile *p = m->profile;
+
+    if (p->gov_burst == 0) {
+        return;
     }
-    if (m->tokens >= FLEET_GOV_BURST && m->refill_at < now) {
+    while (m->tokens < p->gov_burst && now >= m->refill_at) {
+        m->tokens++;
+        m->refill_at += p->gov_refill_ms;
+    }
+    if (m->tokens >= p->gov_burst && m->refill_at < now) {
         m->refill_at = now;
     }
 }
@@ -445,10 +484,10 @@ static uint32_t gov_chat_hour(const struct fleet_match *m, int64_t now)
 static int gov_allow(struct fleet_match *m, uint32_t air, int64_t now, int fresh)
 {
     gov_refill(m, now);
-    if (gov_hour(m, now) + air > FLEET_GOV_HOUR_MS) {
+    if (over_budget(gov_hour(m, now), air, m->profile->gov_hour_ms)) {
         return 0;
     }
-    return fresh || m->tokens > 0;
+    return fresh || m->profile->gov_burst == 0 || m->tokens > 0;
 }
 
 /* The airtime into the rolling hour, and nothing from the burst. */
@@ -470,8 +509,11 @@ static void gov_charge_hour(struct fleet_match *m, uint32_t air, int64_t now, in
 
 static void gov_take_token(struct fleet_match *m, int64_t now)
 {
-    if (m->tokens == FLEET_GOV_BURST) {
-        m->refill_at = now + FLEET_GOV_REFILL_MS;
+    if (m->profile->gov_burst == 0) {
+        return;
+    }
+    if (m->tokens == m->profile->gov_burst) {
+        m->refill_at = now + m->profile->gov_refill_ms;
     }
     if (m->tokens > 0) {
         m->tokens--;
@@ -572,15 +614,15 @@ static int chat_enqueue(struct fleet_match *m, const struct fleet_msg *msg)
     }
     air = fleet_proto_airtime_ms((size_t)n);
     gov_refill(m, m->now);
-    if (m->out_len > 0 || gov_hour(m, m->now) + air > FLEET_GOV_HOUR_MS) {
+    if (m->out_len > 0 || over_budget(gov_hour(m, m->now), air, m->profile->gov_hour_ms)) {
         return DEFERRED;
     }
-    if (!receipt && (m->tokens <= FLEET_CHAT_TOKEN_RESERVE ||
-                     gov_hour(m, m->now) + air > FLEET_CHAT_HOUR_MS ||
-                     gov_chat_hour(m, m->now) + air > FLEET_CHAT_SHARE_MS)) {
+    if (!receipt && ((m->profile->gov_burst != 0 && m->tokens <= m->profile->chat_token_reserve) ||
+                     over_budget(gov_hour(m, m->now), air, m->profile->chat_hour_ms) ||
+                     over_budget(gov_chat_hour(m, m->now), air, m->profile->chat_share_ms))) {
         return DEFERRED;
     }
-    if (m->tokens > FLEET_CHAT_TOKEN_RESERVE) {
+    if (m->tokens > m->profile->chat_token_reserve) {
         gov_take_token(m, m->now);
     }
     gov_charge_hour(m, air, m->now, 1);
@@ -970,17 +1012,39 @@ static void exhausted(struct fleet_match *m, uint8_t kind)
     }
 }
 
-static uint32_t backoff(struct fleet_match *m, int attempts)
+/* An obligation that waits for a person rather than for the link: the
+ * invitation to be answered, the acceptance to be confirmed while the host
+ * may be away from the screen. */
+static int ob_human(uint8_t kind)
 {
-    uint32_t base = m->retry_base ? m->retry_base : FLEET_RETRY_BASE_MS;
-    uint32_t d = base;
+    return kind == FLEET_OB_INVITE || kind == FLEET_OB_ACCEPT;
+}
+
+/* The wait before try `attempts + 1`. A link wait follows the profile. A
+ * human wait is never shorter than the mesh's schedule, on any link, so the
+ * time a person has to answer does not shrink on a fast one (ADR-018). On
+ * the mesh the two are the same numbers. */
+static uint32_t backoff(struct fleet_match *m, uint8_t kind, int attempts)
+{
+    uint32_t base = m->retry_base ? m->retry_base : m->profile->retry_base_ms;
+    uint32_t cap = m->profile->retry_cap_ms;
+    uint32_t d;
     int i;
 
-    for (i = 1; i < attempts && d < FLEET_RETRY_CAP_MS; i++) {
+    if (ob_human(kind)) {
+        if (base < FLEET_HUMAN_BASE_MS) {
+            base = FLEET_HUMAN_BASE_MS;
+        }
+        if (cap < FLEET_HUMAN_CAP_MS) {
+            cap = FLEET_HUMAN_CAP_MS;
+        }
+    }
+    d = base;
+    for (i = 1; i < attempts && d < cap; i++) {
         d *= 2;
     }
-    if (d > FLEET_RETRY_CAP_MS) {
-        d = FLEET_RETRY_CAP_MS;
+    if (d > cap) {
+        d = cap;
     }
     return d + jitter(m, d / 2);
 }
@@ -1054,7 +1118,7 @@ static void service_game(struct fleet_match *m)
     }
     m->reveal_sends += kind == FLEET_OB_REVEAL;
     m->attempts++;
-    m->next_retry = m->now + backoff(m, m->attempts);
+    m->next_retry = m->now + backoff(m, kind, m->attempts);
     if (m->attempts >= 2) {
         touch(m);
     }
@@ -1122,7 +1186,7 @@ static void chat_service(struct fleet_match *m)
         c->tries = 0;
     }
     c->tries++;
-    c->next_try = m->now + backoff(m, c->tries);
+    c->next_try = m->now + backoff(m, FLEET_OB_NONE, c->tries);
     m->stats.chat_tx++;
     touch(m);
 }
@@ -1858,14 +1922,23 @@ void fleet_match_tx_refused(struct fleet_match *m, const struct fleet_match_out 
     if (o->obligation && o->obligation == m->ob && m->attempts > 0 && m->busy_run < 20) {
         m->attempts--;
         m->busy_run++;
-        m->next_retry = now + FLEET_BUSY_RETRY_MS + jitter(m, FLEET_BUSY_RETRY_MS / 2);
+        m->next_retry = now + m->profile->busy_retry_ms + jitter(m, m->profile->busy_retry_ms / 2);
     }
 }
 
 void fleet_match_set_retry_base(struct fleet_match *m, uint32_t ms)
 {
     if (m) {
-        m->retry_base = ms < FLEET_RETRY_BASE_MS ? FLEET_RETRY_BASE_MS : ms;
+        m->retry_base = ms < m->profile->retry_base_ms ? m->profile->retry_base_ms : ms;
+    }
+}
+
+void fleet_match_set_profile(struct fleet_match *m, const struct fleet_link_profile *profile)
+{
+    if (m) {
+        m->profile = profile ? profile : &fleet_profile_mesh;
+        m->tokens = m->profile->gov_burst;
+        m->retry_base = 0;
     }
 }
 
@@ -1918,7 +1991,8 @@ void fleet_match_init(struct fleet_match *m, const uint8_t self_key[FLEET_KEY_BY
     memset(m, 0, sizeof(*m));
     memcpy(m->self_key, self_key, FLEET_KEY_BYTES);
     m->pending = FLEET_NO_CELL;
-    m->tokens = FLEET_GOV_BURST;
+    m->profile = &fleet_profile_mesh;
+    m->tokens = m->profile->gov_burst;
     fleet_rng_seed(&m->rng, seed);
     /* From the seed rather than the generator, so the jitter a match draws
      * is the same with or without chat. */

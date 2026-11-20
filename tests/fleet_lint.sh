@@ -136,5 +136,26 @@ want "by buttons that are a finger's size" "$BATTLE"      'POCKETUI_TOUCH_MIN'
 want "the nudges are held to that size" tests/fleet_app_test.c      'every one of them is a finger.s size'
 want "and to reaching every square" tests/fleet_app_test.c      'static void test_aim_without_precision'
 
+# 9. One save per transport (docs/decisions/ADR-018, point 3). match.v1 is
+#    LoRa's, in the format it always had, and nothing that is not the mesh's
+#    can name it: the store turns a transport into a file in exactly one
+#    place, a link never touches a save, and only the app's mesh session
+#    (fleet_mp.c) and the store itself speak of the mesh's file.
+STORE=apps/fleet/engine/fleet_store
+OTHERS=$(git ls-files 'apps/fleet/*.c' 'apps/fleet/*.h' 2>/dev/null | grep -v "^$STORE\.[ch]$")
+[ -n "$OTHERS" ] || OTHERS=$(find apps/fleet -name '*.[ch]' | grep -v "^$STORE\.[ch]$")
+check "match.v1 is named by the store alone" "$OTHERS" 'FLEET_STORE_MATCH_FILE|"match\.v1"|match-lan\.v1'
+check "a link never touches a save" "apps/fleet/link/fleet_link*.c apps/fleet/link/fleet_link*.h" 'fleet_store_'
+check "nothing but the mesh session asks for the mesh's save" \
+      "$(echo "$OTHERS" | grep -v '^apps/fleet/fleet_mp\.c$')" \
+      'FLEET_STORE_MESH|fleet_store_match_(path|save|load)[[:space:]]*\('
+want "the store maps a transport to a file in one place" "$STORE.c" 'static const char \*match_file\('
+n=$(grep -c 'FLEET_STORE_MATCH_FILE' "$STORE.c")
+if [ "$n" = 1 ]; then echo "ok   and match.v1 is spelled there once"; else
+    echo "FAIL match.v1 is spelled $n times in $STORE.c"; failed=$((failed + 1)); fi
+want "match.v1 keeps its name" "$STORE.h" '#define FLEET_STORE_MATCH_FILE "match\.v1"'
+want "a build before this one wrote the fixture the codec is held to" tests/fleet_match_test.c \
+     'tests/fixtures/fleet/match\.v1\.golden'
+
 echo "fleet_lint: $failed failure(s)"
 exit $((failed > 0))

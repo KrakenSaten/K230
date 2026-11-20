@@ -44,6 +44,7 @@ struct fleet_session {
     int identity_changed;               /* it was saved by another identity */
     int engaged;
     int save_failed;
+    int other_in_hand;                  /* the other transport's save holds a match */
     unsigned sent;
     unsigned received;
     unsigned busy;
@@ -63,6 +64,15 @@ void fleet_session_poll(struct fleet_session *s, int64_t now);
 /* The match's revision, or 0 before it exists: changes whenever something a
  * screen shows has changed. */
 unsigned fleet_session_revision(const struct fleet_session *s);
+
+/* One match per device (ADR-008 decision 4; ADR-018 point 4). Each
+ * transport keeps its own save, and a session cannot see the other one: the
+ * app tells it whether the other transport's save holds a match between
+ * Deploy and Reveal (fleet_match_save_in_hand). While it does, invite and
+ * accept return FLEET_SESSION_OTHER_MATCH and do nothing. Resuming, playing
+ * and ending this session's own match are unaffected. */
+#define FLEET_SESSION_OTHER_MATCH (-2)
+void fleet_session_set_other_in_hand(struct fleet_session *s, int in_hand);
 
 /* User actions. 0 when done, -1 when not possible now. */
 int fleet_session_invite(struct fleet_session *s, const uint8_t peer[FLEET_KEY_BYTES],

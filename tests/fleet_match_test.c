@@ -1538,8 +1538,364 @@ static void test_chat_under_load(void)
           w.airtime[1] <= FLEET_GOV_HOUR_MS * (busy_ms / 3600000 + 1));
 }
 
-int main(void)
+/* ---- link profiles (ADR-018) ------------------------------------------------- */
+
+static void test_profile_mesh(void)
 {
+    static struct fleet_match m;
+    uint8_t key[FLEET_KEY_BYTES];
+    const struct fleet_link_profile *p = &fleet_profile_mesh;
+
+    mp_key(key, 0x10);
+    fleet_match_init(&m, key, 1);
+    check("profile: the mesh profile is the constants the match always had",
+          p->retry_base_ms == 7000 && p->retry_cap_ms == 60000 && p->busy_retry_ms == 1500 &&
+          p->gov_burst == 6 && p->gov_refill_ms == 5000 && p->gov_hour_ms == 90000 &&
+          p->chat_token_reserve == 2 && p->chat_hour_ms == 50000 && p->chat_share_ms == 20000 &&
+          p->retry_base_ms == FLEET_RETRY_BASE_MS && p->retry_cap_ms == FLEET_RETRY_CAP_MS &&
+          p->gov_burst == FLEET_GOV_BURST && p->gov_hour_ms == FLEET_GOV_HOUR_MS);
+    check("profile: a match starts on it, the burst full", m.profile == p && m.tokens == FLEET_GOV_BURST);
+    fleet_match_set_retry_base(&m, 100);
+    check("profile: the mesh's estimate is never under 7 s", m.retry_base == 7000);
+    fleet_match_set_profile(&m, NULL);
+    check("profile: none given is the mesh", m.profile == p && m.tokens == FLEET_GOV_BURST);
+    fleet_match_set_profile(&m, &fleet_profile_lan);
+    fleet_match_set_retry_base(&m, 100);
+    check("profile: the LAN's link wait starts at half a second, unmetered",
+          m.profile == &fleet_profile_lan && m.retry_base == 500 && m.tokens == 0 &&
+          fleet_profile_lan.gov_burst == 0 && fleet_profile_lan.gov_hour_ms == 0 &&
+          fleet_profile_lan.retry_cap_ms == 5000);
+}
+
+/* How long an unanswered invitation is held, and how many went out. */
+static int64_t invite_window(const struct fleet_link_profile *p, unsigned *invites)
+{
+    static struct wire w;
+    int64_t start;
+    int i;
+
+    wire_init(&w, 5);
+    fleet_match_set_profile(A(&w), p);
+    start = w.now;
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x31, w.now);
+    for (i = 0; i < 4000 && A(&w)->phase != FLEET_MP_IDLE; i++) {
+        pump(&w);
+        drop_all(&w);
+        advance(&w, 100);
+    }
+    *invites = w.sent[0][FLEET_MSG_INVITE];
+    return A(&w)->notice == FLEET_NOTICE_NO_ANSWER ? w.now - start : -1;
+}
+
+/* The same, for an acceptance the host never confirms. */
+static int64_t accept_window(const struct fleet_link_profile *p, unsigned *accepts)
+{
+    static struct wire w;
+    int64_t start;
+    int i;
+
+    wire_init(&w, 6);
+    fleet_match_set_profile(A(&w), p);
+    fleet_match_set_profile(B(&w), p);
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x32, w.now);
+    pump(&w);
+    deliver_all(&w);
+    start = w.now;
+    fleet_match_accept(B(&w), w.now);
+    for (i = 0; i < 4000 && B(&w)->phase != FLEET_MP_IDLE; i++) {
+        pump(&w);
+        drop_all(&w);
+        advance(&w, 100);
+    }
+    *accepts = w.sent[1][FLEET_MSG_ACCEPT];
+    return B(&w)->notice == FLEET_NOTICE_NO_ANSWER ? w.now - start : -1;
+}
+
+static void test_profile_human_waits(void)
+{
+    unsigned mesh_n = 0;
+    unsigned lan_n = 0;
+    int64_t mesh_ms = invite_window(&fleet_profile_mesh, &mesh_n);
+    int64_t lan_ms = invite_window(&fleet_profile_lan, &lan_n);
+
+    printf("     an unanswered invitation is held %lld ms on the mesh, %lld ms on the LAN\n",
+           (long long)mesh_ms, (long long)lan_ms);
+    check("profile: an invitation waits for a person about three minutes on the mesh",
+          mesh_n == FLEET_RETRY_MAX && mesh_ms > 150000 && mesh_ms < 400000);
+    check("profile: and exactly as long on the LAN, in as many tries",
+          lan_n == FLEET_RETRY_MAX && lan_ms == mesh_ms);
+    mesh_ms = accept_window(&fleet_profile_mesh, &mesh_n);
+    lan_ms = accept_window(&fleet_profile_lan, &lan_n);
+    check("profile: an acceptance waits for its host as long on both",
+          mesh_n == FLEET_RETRY_MAX && lan_n == FLEET_RETRY_MAX && mesh_ms > 150000 && lan_ms == mesh_ms);
+}
+
+/* How long a shot nobody answers takes to be given up as a lost link. */
+static int64_t lost_after(const struct fleet_link_profile *p, unsigned *shots)
+{
+    static struct wire w;
+    int64_t start;
+    int i;
+
+    wire_init(&w, 31);
+    fleet_match_set_profile(A(&w), p);
+    fleet_match_set_profile(B(&w), p);
+    one_shot(&w);
+    start = w.now;
+    for (i = 0; i < 6000 && fleet_match_link(B(&w)) != FLEET_LINK_LOST; i++) {
+        drop_all(&w);
+        advance(&w, 100);
+    }
+    *shots = w.sent[1][FLEET_MSG_SHOT];
+    return fleet_match_link(B(&w)) == FLEET_LINK_LOST ? w.now - start : -1;
+}
+
+static void test_profile_link_waits(void)
+{
+    unsigned mesh_n = 0;
+    unsigned lan_n = 0;
+    int64_t mesh_ms = lost_after(&fleet_profile_mesh, &mesh_n);
+    int64_t lan_ms = lost_after(&fleet_profile_lan, &lan_n);
+
+    printf("     an unanswered shot is given up after %lld ms on the mesh, %lld ms on the LAN\n",
+           (long long)mesh_ms, (long long)lan_ms);
+    check("profile: six tries on both before the link is called lost",
+          mesh_n == FLEET_RETRY_MAX && lan_n == FLEET_RETRY_MAX);
+    check("profile: minutes on the mesh", mesh_ms > 150000);
+    /* 0.5 + 1 + 2 + 4 + 5 + 5 s, each up to half as long again. */
+    check("profile: seconds on the LAN", lan_ms >= 17000 && lan_ms <= 27000);
+}
+
+static void test_profile_lan_unmetered(void)
+{
+    static struct wire w;
+    struct fleet_msg msg;
+    uint8_t buf[16];
+    int n;
+    int i;
+    unsigned before;
+
+    wire_init(&w, 32);
+    fleet_match_set_profile(A(&w), &fleet_profile_lan);
+    fleet_match_set_profile(B(&w), &fleet_profile_lan);
+    one_shot(&w);
+    deliver_all(&w);
+    memset(&msg, 0, sizeof(msg));
+    msg.type = FLEET_MSG_SYNC;
+    msg.sid = A(&w)->sid;
+    msg.ply = A(&w)->resolved;
+    msg.flags = FLEET_SYNC_HAVE_COMMIT | (FLEET_SYNC_BATTLE << FLEET_SYNC_PHASE_SHIFT);
+    msg.cell = FLEET_NO_CELL;
+    msg.digest = fleet_match_digest(A(&w), A(&w)->resolved);
+    n = fleet_proto_encode(&msg, buf, sizeof(buf));
+    before = w.sent[0][FLEET_MSG_SYNC];
+    for (i = 0; i < 100; i++) {
+        w.now += 2100;   /* the same flood the mesh governor holds to a burst and a refill */
+        fleet_match_receive(A(&w), w.n[1].key, buf, (size_t)n, w.now);
+        pump(&w);
+        drop_all(&w);
+    }
+    check("profile: on the LAN nothing is rationed - every request is answered",
+          w.sent[0][FLEET_MSG_SYNC] - before == 100 && A(&w)->stats.gov_drops == 0 &&
+          A(&w)->stats.gov_waits == 0);
+    check("profile: the duplicate-reply limit still holds there", ({
+              unsigned sent = w.sent[0][FLEET_MSG_SYNC];
+
+              for (i = 0; i < 20; i++) {
+                  w.now += 100;
+                  fleet_match_receive(A(&w), w.n[1].key, buf, (size_t)n, w.now);
+                  pump(&w);
+                  drop_all(&w);
+              }
+              w.sent[0][FLEET_MSG_SYNC] - sent <= 2;
+          }));
+}
+
+static void test_profile_lan_whole_match(void)
+{
+    static struct wire w;
+    int i;
+
+    wire_init(&w, 44);
+    fleet_match_set_profile(A(&w), &fleet_profile_lan);
+    fleet_match_set_profile(B(&w), &fleet_profile_lan);
+    to_battle(&w);
+    for (i = 0; i < 400 && (A(&w)->phase != FLEET_MP_DONE || B(&w)->phase != FLEET_MP_DONE); i++) {
+        play(&w, 10000, 0);
+    }
+    check("profile: a whole match on the LAN ends won, lost and verified",
+          A(&w)->phase == FLEET_MP_DONE && B(&w)->phase == FLEET_MP_DONE &&
+          A(&w)->outcome + B(&w)->outcome == FLEET_OUTCOME_WIN + FLEET_OUTCOME_LOSS &&
+          A(&w)->verify == FLEET_VERIFY_OK && B(&w)->verify == FLEET_VERIFY_OK);
+    check("profile: never held back by a governor",
+          A(&w)->stats.gov_waits == 0 && B(&w)->stats.gov_waits == 0 &&
+          A(&w)->stats.gov_drops == 0 && B(&w)->stats.gov_drops == 0);
+}
+
+/* ---- one match per device: is a save a match in hand? (ADR-018 point 4) ------ */
+
+static void test_save_in_hand(void)
+{
+    static struct wire w;
+    static struct fleet_match copy;
+    uint8_t blob[FLEET_MATCH_SAVE_SIZE];
+    char name[FLEET_MATCH_NAME_MAX];
+    char tiny[2];
+
+    wire_init(&w, 51);
+    fleet_match_save_encode(A(&w), blob, sizeof(blob));
+    check("in hand: an idle save is not", fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 0);
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x77, w.now);
+    fleet_match_save_encode(A(&w), blob, sizeof(blob));
+    check("in hand: nor an invitation (it is not saved)",
+          fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 0);
+    wire_init(&w, 52);
+    to_battle(&w);
+    fleet_match_save_encode(A(&w), blob, sizeof(blob));
+    strcpy(name, "?");
+    check("in hand: a match in battle is, and names the opponent",
+          fleet_match_save_in_hand(blob, sizeof(blob), name, sizeof(name)) == 1 && strcmp(name, "B") == 0);
+    check("in hand: a name that does not fit is cut, never overrun",
+          fleet_match_save_in_hand(blob, sizeof(blob), tiny, sizeof(tiny)) == 1 && tiny[1] == '\0');
+    fleet_match_init(&copy, w.n[2].key, 1);
+    check("in hand: whoever saved it - another identity cannot decode it, and it still counts",
+          fleet_match_save_decode(&copy, blob, sizeof(blob)) == -2 &&
+          fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 1);
+    check("in hand: a short blob is not", fleet_match_save_in_hand(blob, sizeof(blob) - 1, NULL, 0) == 0);
+    blob[100] ^= 1;
+    strcpy(name, "?");
+    check("in hand: a damaged one is not, and names nobody",
+          fleet_match_save_in_hand(blob, sizeof(blob), name, sizeof(name)) == 0 && name[0] == '\0');
+    check("in hand: nothing at all is not", fleet_match_save_in_hand(NULL, 0, NULL, 0) == 0);
+    fleet_match_forfeit(A(&w), w.now);
+    pump(&w);
+    deliver_all(&w);
+    fleet_match_save_encode(A(&w), blob, sizeof(blob));
+    check("in hand: a finished match waiting to be put away is not",
+          A(&w)->phase == FLEET_MP_DONE && fleet_match_save_in_hand(blob, sizeof(blob), NULL, 0) == 0);
+}
+
+/* ---- the golden match.v1 (ADR-018, "Validation" 1) -------------------------- *
+ *
+ * tests/fixtures/fleet/match.v1.golden was written by the build BEFORE link
+ * profiles and the save per transport existed (master 1767f09d), with
+ * `fleet_match_test --write-golden`. It holds node A mid-battle with a shot
+ * pending and one tombstone. Every later build must load it, restore it and
+ * write the very same bytes: that is what "match.v1 is unchanged" means. The
+ * file is never regenerated to make this test pass. */
+#define GOLDEN_PATH "tests/fixtures/fleet/match.v1.golden"
+#define GOLDEN_NOW 500000
+
+/* The match the fixture was taken from. Returns 0 with A's save in blob. */
+static int golden_build(uint8_t blob[FLEET_MATCH_SAVE_SIZE])
+{
+    static struct wire w;
+    int guard = 0;
+
+    wire_init(&w, 77);
+    /* A first match, forfeited and put away: a tombstone on both sides. */
+    to_battle(&w);
+    if (fleet_match_forfeit(A(&w), w.now) != 0) {
+        return -1;
+    }
+    pump(&w);
+    deliver_all(&w);
+    fleet_match_dismiss(A(&w));
+    fleet_match_dismiss(B(&w));
+    pump(&w);
+    advance(&w, 1000);
+    /* A second one, played for a while. */
+    fleet_match_invite(A(&w), w.n[1].key, "B", 0x654321, w.now);
+    pump(&w);
+    deliver_all(&w);
+    fleet_match_accept(B(&w), w.now);
+    pump(&w);
+    deliver_all(&w);
+    mp_deploy(&w.n[0], w.now);
+    mp_deploy(&w.n[1], w.now);
+    pump(&w);
+    deliver_all(&w);
+    play(&w, 120000, 0);
+    /* Until it is A's turn; then A fires and the shot stays in flight. */
+    while (!fleet_match_my_turn(A(&w)) && guard++ < 2000) {
+        play(&w, 500, 0);
+    }
+    if (A(&w)->phase != FLEET_MP_BATTLE || !fleet_match_my_turn(A(&w))) {
+        return -1;
+    }
+    mp_play(&w.n[0], w.now, 0);
+    pump(&w);
+    drop_all(&w);
+    if (A(&w)->pending == FLEET_NO_CELL) {
+        return -1;
+    }
+    return fleet_match_save_encode(A(&w), blob, FLEET_MATCH_SAVE_SIZE) == FLEET_MATCH_SAVE_SIZE ? 0 : -1;
+}
+
+static int golden_write(const char *path)
+{
+    uint8_t blob[FLEET_MATCH_SAVE_SIZE];
+    FILE *f;
+
+    if (golden_build(blob) != 0 || !(f = fopen(path, "wb"))) {
+        return 1;
+    }
+    if (fwrite(blob, 1, sizeof(blob), f) != sizeof(blob) || fclose(f) != 0) {
+        return 1;
+    }
+    printf("wrote %s (%d bytes)\n", path, (int)sizeof(blob));
+    return 0;
+}
+
+static void test_golden_save(void)
+{
+    static struct fleet_match m;
+    uint8_t gold[FLEET_MATCH_SAVE_SIZE + 1];
+    uint8_t again[FLEET_MATCH_SAVE_SIZE];
+    uint8_t key[FLEET_KEY_BYTES];
+    uint8_t other[FLEET_KEY_BYTES];
+    size_t n = 0;
+    int tombs = 0;
+    int i;
+    FILE *f = fopen(GOLDEN_PATH, "rb");
+
+    if (f) {
+        n = fread(gold, 1, sizeof(gold), f);
+        fclose(f);
+    }
+    check("golden: the fixture is there, 655 bytes", f != NULL && n == FLEET_MATCH_SAVE_SIZE &&
+          FLEET_MATCH_SAVE_SIZE == 655);
+    if (n != FLEET_MATCH_SAVE_SIZE) {
+        return;
+    }
+    mp_key(key, 0x10);
+    mp_key(other, 0x20);
+    fleet_match_init(&m, key, 1);
+    check("golden: a match.v1 of the build before this change decodes",
+          fleet_match_save_decode(&m, gold, n) == 0);
+    check("golden: and restores", fleet_match_restore(&m, GOLDEN_NOW) == 0);
+    for (i = 0; i < FLEET_MATCH_TOMBSTONES; i++) {
+        tombs += m.tomb[i].sid != 0;
+    }
+    check("golden: mid-battle, a shot pending, a tombstone, the opponent's key",
+          m.phase == FLEET_MP_BATTLE && m.pending != FLEET_NO_CELL && m.resolved > 0 && tombs >= 1 &&
+          memcmp(m.peer_key, other, FLEET_KEY_BYTES) == 0);
+    check("golden: written again it is the same file, byte for byte",
+          fleet_match_save_encode(&m, again, sizeof(again)) == FLEET_MATCH_SAVE_SIZE &&
+          memcmp(again, gold, FLEET_MATCH_SAVE_SIZE) == 0);
+    {
+        uint8_t fresh[FLEET_MATCH_SAVE_SIZE];
+
+        check("golden: the same match played by this build saves the same bytes",
+              golden_build(fresh) == 0 && memcmp(fresh, gold, FLEET_MATCH_SAVE_SIZE) == 0);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 3 && strcmp(argv[1], "--write-golden") == 0) {
+        return golden_write(argv[2]);
+    }
     test_invite_accept();
     test_start_lost();
     test_decline();
@@ -1573,6 +1929,13 @@ int main(void)
     test_lost_link();
     test_governor();
     test_save_codec();
+    test_golden_save();
+    test_save_in_hand();
+    test_profile_mesh();
+    test_profile_human_waits();
+    test_profile_link_waits();
+    test_profile_lan_unmetered();
+    test_profile_lan_whole_match();
     test_layout_commit();
     test_chat_line();
     test_chat_duplicates();
