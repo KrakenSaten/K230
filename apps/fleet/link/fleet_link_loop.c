@@ -404,6 +404,7 @@ static const struct fleet_link_profile *loop_profile(void *ctx)
 static const struct fleet_link_ops LOOP_OPS = {
     loop_poll, loop_send, loop_recv, loop_self_key, loop_state, loop_peers,
     loop_peer_name, loop_advertise, loop_retry_base, loop_close, loop_profile,
+    NULL, /* match_peer */
 };
 
 struct fleet_link *fleet_link_loop_open(const struct fleet_link_loop_cfg *cfg)

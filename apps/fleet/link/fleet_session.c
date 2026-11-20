@@ -148,6 +148,16 @@ void fleet_session_poll(struct fleet_session *s, int64_t now)
     if (s->ready) {
         fleet_match_tick(&s->m, now);
         flush(s);
+        /* Only once the saved match has been read: before that "none" would
+         * be a guess, and a link may let go of an opponent on hearing it. A
+         * match that is over and whose END is still unacknowledged is still
+         * in hand - the opponent has to be reachable to hear it. */
+        if (s->link->ops->match_peer) {
+            int in_hand = fleet_match_active(&s->m) ||
+                          (s->m.phase == FLEET_MP_DONE && s->m.end_unacked);
+
+            s->link->ops->match_peer(s->link->ctx, in_hand ? s->m.peer_key : NULL);
+        }
     }
 }
 

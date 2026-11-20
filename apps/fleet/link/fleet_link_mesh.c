@@ -868,6 +868,7 @@ static const struct fleet_link_profile *m_profile(void *ctx)
 
 static const struct fleet_link_ops OPS = {
     m_poll, m_send, m_recv, m_self, m_state, m_peers, m_name, m_advert, m_base, m_close, m_profile,
+    NULL, /* match_peer: meshcored holds nobody for us */
 };
 
 struct fleet_link *fleet_link_mesh_open(const char *service)
