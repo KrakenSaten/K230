@@ -192,6 +192,7 @@ struct zabbix_app {
     lv_obj_t *ov_updated;
     lv_obj_t *ov_top_cap;       /* the most severe problems, a tap from their host */
     lv_obj_t *ov_top_box;
+    lv_obj_t *ov_foot;
     struct prow ov_top[OVERVIEW_TOP];
     int ov_top_made;
 
@@ -671,6 +672,12 @@ static void paint_tabs(struct zabbix_app *a)
 
             zabbix_format_count(n, sizeof(n), a->model->problems.total);
             snprintf(name, sizeof(name), "%s %s", tab_name[i], n);
+            /* The count goes when it does not fit the tab ("PROBLEMS 1 200"
+             * at the large text size, on the panel): the title of the list
+             * and OVERVIEW carry it. A clipped tab name is worse. */
+            if (pocketui_text_width(a->tab_label[i], name) > lv_obj_get_width(a->tab[i]) - 8) {
+                snprintf(name, sizeof(name), "%s", tab_name[i]);
+            }
         } else {
             snprintf(name, sizeof(name), "%s", tab_name[i]);
         }
@@ -731,6 +738,7 @@ static void paint_overview(struct zabbix_app *a, int64_t now)
     zabbix_view_overview(a->model, now, &v);
     set_hidden(a->ov_setup, !v.setup);
     set_hidden(a->ov_cards, v.setup);
+    set_hidden(a->ov_foot, v.setup);
     {
         const struct zabbix_model *m = a->model;
         int64_t server_now = zabbix_server_now(m->problems.ref_clock, m->problems_ms, now);
@@ -1771,7 +1779,7 @@ static void build_overview(struct zabbix_app *a)
     lv_obj_add_flag(a->ov_top_box, LV_OBJ_FLAG_HIDDEN);
 
     /* Where it all comes from, last and quiet. */
-    col = column(p, 2);
+    col = a->ov_foot = column(p, 2);
     lv_obj_set_style_pad_hor(col, 4, 0);
     a->ov_server = wrapping(col, "", POS_STYLE_TEXT_SECONDARY);
     a->ov_updated = one_line(col, "", POS_STYLE_CAPTION);
