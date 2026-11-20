@@ -1,9 +1,15 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
 # DOORS multiplayer platform - M1 design package
 
-**Status: PROPOSED, 2026-11-20. Design and documentation only. Nothing here
-is implemented, built, deployed or accepted, and no accepted ADR or Design
-System section is changed by it.** The images are mockups, not screenshots.
+**Status, 2026-11-20: the direction is approved by the product owner and
+the package is on master as the design record.** What became binding is in
+docs/decisions/: ADR-008 (Accepted, reconciled with the hardware gates),
+ADR-017 and ADR-018 (Accepted). Built so far: M2 packages 1 and 2
+(M2-PLAN.md). Not accepted: the lobby's visual design - "Box Office" is
+provisionally approved and awaits the owner's review of the mockups - and no
+Design System section is changed. Nothing here has been on hardware. The
+images are mockups, not screenshots. Sections below read as they were
+written for the proposal.
 
 | Document | Holds |
 | --- | --- |
@@ -135,21 +141,27 @@ Each milestone is a separate proposal; none starts without approval.
 
 Direction (needed before M2):
 
-- [ ] **1. Architecture**: shell lobby with game adapters, sessions owned
+- [x] **1. Architecture**: shell lobby with game adapters, sessions owned
       by games, no session daemon.
-- [ ] **2. `peerd`**: one new transport service for IP, libsodium linked into
+- [x] **2. `peerd`**: one new transport service for IP, libsodium linked into
       it, in place of a socket in the shell.
-- [ ] **3. M2 scope**: Fleet over the local network through Fleet's
+- [x] **3. M2 scope**: Fleet over the local network through Fleet's
       existing lobby first; the new lobby in M3.
 - [ ] **4. Visual concept**: A, Box Office, as the direction for the lobby.
+      *Provisionally approved 2026-11-20; final approval follows the owner's
+      review of the mockups.*
 - [ ] **5. Background invitations**: the shell may read invitations while
       no game is open and show a notice, never answering by itself
       (PROPOSALS item 3; M4).
 
+Items 1-3 were approved on 2026-11-20 (2 through ADR-017, accepted with its
+terms). Item 5 is **deferred to M4** by the owner: ADR-008's behaviour is
+not changed in M2.
+
 Smaller points, answerable later:
 
-- [ ] ADR-008's status and the stale line in `FLEET_MULTIPLAYER.md` (PROPOSALS 1).
-- [ ] One key per transport, and no transport switching.
+- [x] ADR-008's status and the stale line in `FLEET_MULTIPLAYER.md` (PROPOSALS 1).
+- [x] One key per transport, and no transport switching (ADR-018 point 5).
 - [ ] Wording: Lobby, Host, Join, Table, Local network, LoRa mesh, Online.
 - [ ] The table code as the manual join.
 - [ ] 2048 Race as the second game.

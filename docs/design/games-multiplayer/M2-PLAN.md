@@ -1,7 +1,9 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
-# M2 implementation plan: Fleet over the local network (PROPOSED)
+# M2 implementation plan: Fleet over the local network
 
-Status: plan only, 2026-11-20. No code is written. Follows the owner's
+Status, 2026-11-20: packages 0, 1 and 2 are done and on master (§2);
+package 3 onwards is not started and waits for the owner's go-ahead. Nothing
+has been deployed to hardware. Follows the owner's
 conditional approval of M1: architecture approved; peerd subject to a
 security ADR and review; Fleet's existing multiplayer UI; LoRa behaviour
 preserved; A/B hardware validation; background invitations deferred to M4,
@@ -103,17 +105,37 @@ match itself is unaffected.
 | # | Package | Contents | Proof |
 | --- | --- | --- | --- |
 | 0 | **ADRs** | ADR-017 and ADR-018 | **done**: both Accepted 2026-11-20. Implementation goes in its own PR; hardware deployment needs explicit approval |
-| 1 | **Link profile** | retry and governor figures move from constants to a profile read from the link; human waits split from link waits; mesh profile equals today's constants | `fleet_match_test`, `fleet_mp_sim_test` and `fleet-mp-e2e` unchanged in result; a LAN-profile simulator run |
-| 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh` |
+| 1 | **Link profile** | retry and governor figures move from constants to a profile read from the link; human waits split from link waits; mesh profile equals today's constants | **done** (PR 154, master `048b1c15`): `fleet_match_test`, `fleet_mp_sim_test` and `fleet-mp-e2e` unchanged in result; LAN-profile tests |
+| 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | **done** (PR 154) except that the app does not yet apply the one-match rule (below): `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh`, two golden fixtures |
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | unit tests with crafted frames and known-answer vectors; two real peerd processes on loopback and on a mock network with loss, duplication and blocked broadcast; ASan/UBSan; a fuzz run of the frame parser |
 | 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | `fleet_link_test` extended with a scripted peerd; nothing asked before the first poll |
 | 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | `fleet_view_mp_test`, `fleet_app_test`, `fleet_shell_test.sh` in both shapes |
 | 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | each ends with one win, one loss, both fleets verified, identical records |
 | 7 | **Hardware gate, A + B** | §3 | written gate, run with the owner's go-ahead |
 
-Order: 0, then 1 and 2 (Fleet only, no new service, each mergeable alone
-and each a LoRa no-op), then 3, 4, 5, 6, 7. Packages 1 and 2 can be reviewed
-before the security ADR is settled, because neither depends on peerd.
+Order: 0, then 1 and 2 (Fleet only, no new service, a LoRa no-op), then 3,
+4, 5, 6, 7.
+
+As built, packages 1 and 2 (PR 154) differ from the rows above in three
+ways, each recorded in docs/apps/FLEET_MULTIPLAYER.md, "Link profiles and a
+save per transport":
+
+- On a fast link an INVITE or an ACCEPT is repeated at the link's pace to a
+  deadline equal to the mesh's window, and the lobby shows the time left
+  instead of a try count (the owner's ruling on ADR-018 point 2).
+- The duplicate-reply limit is part of the profile (mesh 2 s, LAN 200 ms).
+- **One match per device is not enforced by the app yet.** The session rule
+  and the save probe exist and are tested; calling them, and showing the
+  refusal, is package 5, when a second save can first exist. A save made
+  under an identity its transport no longer has must not hold the other
+  transport back; that decision is the app's, also in package 5.
+
+Evidence for packages 1 and 2: two `match.v1` fixtures generated from master
+`1767f09d` round-trip byte for byte; the Fleet simulator's output is
+identical to that build's; `fleet-mp-e2e`, the riscv64 cross-build and the
+full `make test` (no failure master does not also have on the build host)
+were run on the commit that was merged (`8951608f`). Not run: an image build, anything on
+hardware.
 
 Not in M2: the shared lobby, the hub tile, table codes, background
 invitations, remembered players, the play library, any second game, IPv6,

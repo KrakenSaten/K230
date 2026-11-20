@@ -1,7 +1,10 @@
 <!-- Copyright (c) 2026 Doors authors. SPDX-License-Identifier: Apache-2.0 -->
-# Multiplayer platform - architecture (M1, PROPOSED)
+# Multiplayer platform - architecture (M1)
 
-Status: **proposal for the product owner. Nothing here is built or binding.**
+Status: **direction approved by the product owner, 2026-11-20.** This
+document is the design record, not the binding text: where it and ADR-017 or
+ADR-018 differ, the ADRs govern. Of it, the link profile and the save per
+transport are built (M2-PLAN.md, packages 1-2); nothing else is.
 Evidence classes follow AGENTS.md. Everything marked PROPOSED is a design
 choice of this package, not a fact about the repository.
 
