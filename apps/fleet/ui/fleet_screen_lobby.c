@@ -10,14 +10,23 @@
  * button a player pressed (INVITE, CANCEL, ACCEPT, DECLINE, MAKE VISIBLE,
  * RESUME, FORFEIT) or the protocol answering for a match the player is in.
  *
+ * The same screen serves both transports. On the local network the list is
+ * peerd's, the link line carries this device's address, and where LoRa has
+ * MAKE VISIBLE there is ADD BY ADDRESS: a field for the other device's
+ * address, for a network that does not carry announcements, and ASK - which
+ * is the one more button that sends something (a question to that address).
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "../fleet_app.h"
 
+#include "../link/fleet_link_peer.h"
 #include "../link/fleet_session.h"
+#include "app.h"
 #include "fleet_view_mp.h"
 #include "fleet_widgets.h"
+#include "pos_input.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +34,10 @@
 
 #define PEER_ROWS 5
 #define PEER_ROW_H 56
+#define ASK_W 132
+#define ASK_GAP 12
+/* A dotted IPv4 address at its longest. */
+#define ADDRESS_MAX 15
 
 enum lobby_action {
     ACT_NONE = 0,
@@ -36,10 +49,12 @@ enum lobby_action {
     ACT_FORFEIT,
     ACT_RESULT,
     ACT_DISMISS,
+    ACT_RETRY,
 };
 
 struct fleet_lobby_ui {
     struct fleet_app *app;
+    lv_obj_t *screen;
     lv_obj_t *cols;
     lv_obj_t *left;
     lv_obj_t *right;
@@ -64,7 +79,55 @@ struct fleet_lobby_ui {
     uint8_t act_kind;
     uint8_t alt_kind;
     char visible_note[64];
+    /* The session would not begin a match: the other transport holds one. */
+    int refused;
+    /* The local network: asking a device at an address who it is. */
+    lv_obj_t *ask_row;
+    lv_obj_t *field;
+    lv_obj_t *ask;
+    int field_enabled;
+    int built;                  /* every object exists: it may be laid out */
+    int ask_open;               /* the address row is on show */
+    int focus_pending;          /* the caret goes to the field at the next tick */
+    char asked[ADDRESS_MAX + 1];    /* the address last asked, as typed */
+    char pending[ADDRESS_MAX + 1];  /* one to ask as soon as the link is up */
+    int answer_taken;           /* the answer to that question has been acted on */
+    int64_t quiet_since;        /* since when nobody has been listed, or 0 */
 };
+
+static int on_lan(const struct fleet_lobby_ui *ui)
+{
+    return ui->app->mp_transport == FLEET_MP_LAN;
+}
+
+/* The network link's own detail, when the link has any to give: the virtual
+ * opponent's does not, and then the lobby offers no address to ask. */
+static int lan_info(const struct fleet_lobby_ui *ui, struct fleet_link_peer_info *info)
+{
+    return on_lan(ui) && ui->app->link && fleet_link_peer_info(ui->app->link, info) == 0;
+}
+
+/* The address row goes: the touch keyboard, called up for its field, goes
+ * with it. */
+static void close_ask(struct fleet_lobby_ui *ui)
+{
+    if (ui->ask_open) {
+        ui->ask_open = 0;
+        ui->focus_pending = 0;
+        if (pocketos_shell_keyboard_visible()) {
+            pocketos_shell_keyboard_hide();
+        }
+    }
+}
+
+static void set_field_enabled(struct fleet_lobby_ui *ui, int on)
+{
+    /* Only on a change: re-enabling a field re-adds it to the focus group. */
+    if (ui->field && on != ui->field_enabled) {
+        ui->field_enabled = on;
+        pocketui_text_field_set_enabled(ui->field, on != 0);
+    }
+}
 
 static struct fleet_session *session(struct fleet_lobby_ui *ui)
 {
@@ -95,6 +158,9 @@ static void on_row(lv_event_t *e)
         if (ui->row[i] == row) {
             memcpy(ui->chosen, ui->peers[i].key, FLEET_KEY_BYTES);
             ui->has_chosen = 1;
+            /* The player has chosen for themselves: an answer to an address
+             * asked earlier does not take the choice from them. */
+            ui->answer_taken = 1;
         }
     }
     fleet_screen_lobby_refresh(ui->app);
@@ -115,20 +181,27 @@ static void run(struct fleet_lobby_ui *ui, uint8_t kind)
     switch (kind) {
     case ACT_INVITE:
         if (ui->selected >= 0 && ui->selected < ui->count) {
-            fleet_session_invite(s, ui->peers[ui->selected].key, ui->peers[ui->selected].name, now);
+            ui->refused = fleet_session_invite(s, ui->peers[ui->selected].key,
+                                               ui->peers[ui->selected].name, now) ==
+                          FLEET_SESSION_OTHER_MATCH;
         }
         break;
     case ACT_CANCEL:
         fleet_session_cancel(s, now);
         break;
     case ACT_ACCEPT:
-        fleet_session_accept(s, now);
+        ui->refused = fleet_session_accept(s, now) == FLEET_SESSION_OTHER_MATCH;
         break;
     case ACT_DECLINE:
         fleet_session_decline(s, now);
         break;
     case ACT_RESUME:
         fleet_app_mp_resume(app);
+        return;
+    case ACT_RETRY:
+        /* The session is made anew: nothing of the old one is used after. */
+        fleet_app_mp_retry(app);
+        fleet_screen_lobby_refresh(app);
         return;
     case ACT_RESULT:
         fleet_app_show(app, FLEET_SCREEN_RESULT);
@@ -166,11 +239,76 @@ static void on_alt(lv_event_t *e)
     run(ui, ui->alt_kind);
 }
 
+/* Hand the question to peerd, or keep it for when the link is up. */
+static void ask_now(struct fleet_lobby_ui *ui, const char *address)
+{
+    struct fleet_link *link = ui->app->link;
+
+    if (!on_lan(ui) || !link || !address) {
+        return;
+    }
+    snprintf(ui->asked, sizeof(ui->asked), "%s", address);
+    ui->pending[0] = '\0';
+    ui->answer_taken = 0;
+    if (link->ops->state(link->ctx) == FLEET_LINK_CONNECTING) {
+        snprintf(ui->pending, sizeof(ui->pending), "%s", ui->asked);
+        return;
+    }
+    (void)fleet_link_peer_probe(link, ui->asked);
+}
+
+static void ask_field(struct fleet_lobby_ui *ui)
+{
+    const char *text = ui->field ? lv_textarea_get_text(ui->field) : "";
+
+    if (text[0]) {
+        ask_now(ui, text);
+    }
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+    fleet_screen_lobby_refresh(ui->app);
+}
+
+static void on_ask(lv_event_t *e)
+{
+    ask_field(lv_event_get_user_data(e));
+}
+
+/* Enter from any source (DS 17.4). */
+static void on_field_ready(lv_event_t *e)
+{
+    ask_field(lv_event_get_user_data(e));
+}
+
+static void on_field_clicked(lv_event_t *e)
+{
+    lv_indev_t *src = lv_indev_active();
+
+    (void)e;
+    /* A finger only: Enter reaches the focused field as a click too, after
+     * it has asked and put the keyboard away, and must not bring it back. */
+    if (src && lv_indev_get_type(src) == LV_INDEV_TYPE_POINTER) {
+        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, NULL);
+    }
+}
+
 static void on_visible(lv_event_t *e)
 {
     struct fleet_lobby_ui *ui = lv_event_get_user_data(e);
     struct fleet_link *link = ui->app->link;
 
+    if (on_lan(ui)) {
+        /* ADD BY ADDRESS: the row with the field comes and goes. */
+        if (ui->ask_open) {
+            close_ask(ui);
+        } else {
+            ui->ask_open = 1;
+            ui->focus_pending = 1;
+        }
+        fleet_screen_lobby_refresh(ui->app);
+        return;
+    }
     if (link && link->ops->advertise(link->ctx) == 0) {
         snprintf(ui->visible_note, sizeof(ui->visible_note),
                  "Announced to devices in direct range.");
@@ -203,6 +341,7 @@ lv_obj_t *fleet_screen_lobby_create(struct fleet_app *app, lv_obj_t *parent)
     ui->selected = -1;
     app->lobby = ui;
     screen = fleet_app_screen_container(parent);
+    ui->screen = screen;
     ui->cols = fleet_app_box(screen);
     ui->left = fleet_app_box(ui->cols);
     ui->right = fleet_app_box(ui->cols);
@@ -237,7 +376,106 @@ lv_obj_t *fleet_screen_lobby_create(struct fleet_app *app, lv_obj_t *parent)
     ui->alt = fleet_button_secondary(ui->right, "DECLINE", on_alt, ui);
 
     ui->back = fleet_button_secondary(ui->foot, "COMMAND", on_back, app);
+
+    /* Last, though it stands in the left column: a field joining the focus
+     * group is scrolled into view, which lays the frame out while this
+     * screen is still being built. _relayout waits for the row to exist, so
+     * what that pass could not do is done below (as the chat does). */
+    {
+        lv_obj_t *wrap;
+
+        ui->ask_row = fleet_hbox(ui->left, LV_SIZE_CONTENT, ASK_GAP);
+        fleet_app_allow_overflow(ui->ask_row);
+        lv_obj_set_flex_align(ui->ask_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START);
+        ui->field = pocketui_text_field(ui->ask_row, "192.168.1.42", true);
+        wrap = lv_obj_get_parent(ui->field);
+        lv_obj_set_width(wrap, LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(wrap, 1);
+        lv_textarea_set_max_length(ui->field, ADDRESS_MAX);
+        lv_textarea_set_accepted_chars(ui->field, "0123456789.");
+        lv_obj_add_event_cb(ui->field, on_field_clicked, LV_EVENT_CLICKED, ui);
+        lv_obj_add_event_cb(ui->field, on_field_ready, LV_EVENT_READY, ui);
+        /* Out of the focus group until the row is on show (lobby_refresh). */
+        ui->field_enabled = 1;
+        set_field_enabled(ui, 0);
+        ui->ask = pocketui_button(ui->ask_row, "ASK", on_ask, ui);
+        lv_obj_set_size(ui->ask, ASK_W, POCKETUI_TOUCH_MIN);
+        lv_obj_add_flag(ui->ask_row, LV_OBJ_FLAG_HIDDEN);
+        ui->built = 1;
+    }
+    if (app->layouts > 0) {
+        fleet_screen_lobby_relayout(app, app->shape == FLEET_SHAPE_WIDE);
+    }
     return screen;
+}
+
+void fleet_screen_lobby_enter(struct fleet_app *app)
+{
+    struct fleet_lobby_ui *ui = app ? app->lobby : NULL;
+
+    if (!ui) {
+        return;
+    }
+    ui->has_chosen = 0;
+    ui->selected = -1;
+    ui->count = 0;
+    ui->visible_note[0] = '\0';
+    close_ask(ui);
+    ui->refused = 0;
+    ui->asked[0] = '\0';
+    ui->pending[0] = '\0';
+    ui->answer_taken = 0;
+    ui->quiet_since = 0;
+    if (ui->field) {
+        lv_textarea_set_text(ui->field, "");
+    }
+}
+
+void fleet_screen_lobby_tick(struct fleet_app *app)
+{
+    struct fleet_lobby_ui *ui = app ? app->lobby : NULL;
+
+    /* Outside any LVGL event, so the focus sticks (as the chat does): keys
+     * typed on the keyboard base go to the address once its row is open. */
+    if (ui && ui->focus_pending) {
+        ui->focus_pending = 0;
+        if (ui->field_enabled) {
+            pos_input_focus(ui->field);
+        }
+    }
+}
+
+void fleet_screen_lobby_leave(struct fleet_app *app)
+{
+    struct fleet_lobby_ui *ui = app ? app->lobby : NULL;
+
+    if (!ui) {
+        return;
+    }
+    /* A hidden field would take the physical keyboard's keys on the next
+     * screen, and the touch keyboard is the shell's: neither outlives the
+     * lobby being on show. */
+    set_field_enabled(ui, 0);
+    close_ask(ui);
+    /* What was asked and what came of it belong to this visit: the next one
+     * starts by listening again. A question still out is left to end. */
+    ui->pending[0] = '\0';
+    if (!ui->app->link ||
+        fleet_link_peer_probe_state(ui->app->link) != FLEET_PEER_PROBE_PENDING) {
+        ui->asked[0] = '\0';
+    }
+}
+
+void fleet_screen_lobby_ask(struct fleet_app *app, const char *address)
+{
+    struct fleet_lobby_ui *ui = app ? app->lobby : NULL;
+
+    if (!ui || !address) {
+        return;
+    }
+    ask_now(ui, address);
+    fleet_screen_lobby_refresh(app);
 }
 
 void fleet_screen_lobby_relayout(struct fleet_app *app, int wide)
@@ -246,12 +484,12 @@ void fleet_screen_lobby_relayout(struct fleet_app *app, int wide)
     lv_obj_t *col[2];
     int i;
 
-    if (!ui) {
-        return;
+    if (!ui || !ui->built) {
+        return;         /* still being built */
     }
     /* Command's arrangement: panels across the page in columns that scroll
      * if they must, and the way back on a foot row that never does. */
-    fleet_app_screen_flow(app->screen[FLEET_SCREEN_LOBBY], wide, 0);
+    fleet_app_screen_flow(ui->screen, wide, 0);
     fleet_app_box_split(ui->cols, wide);
     fleet_app_box_column(ui->left, wide);
     fleet_app_box_column(ui->right, wide);
@@ -280,6 +518,80 @@ void fleet_screen_lobby_relayout(struct fleet_app *app, int wide)
     }
 }
 
+/* An address asked on the local network: the question waiting for the link
+ * goes out once it is up, and the answer is acted on once. Before the rows
+ * are matched to the choice, so whoever answered is lit in the same pass. */
+static void lan_follow_ask(struct fleet_lobby_ui *ui)
+{
+    struct fleet_link *link = ui->app->link;
+    uint8_t key[FLEET_KEY_BYTES];
+
+    if (!link) {
+        return;
+    }
+    if (ui->pending[0] && link->ops->state(link->ctx) != FLEET_LINK_CONNECTING) {
+        ask_now(ui, ui->pending);
+    }
+    if (ui->asked[0] && !ui->pending[0] && !ui->answer_taken &&
+        fleet_link_peer_probe_state(link) == FLEET_PEER_PROBE_ANSWERED &&
+        fleet_link_peer_probe_key(link, key) == 0) {
+        int i;
+
+        /* Whoever answered is who the player was looking for: chosen, so
+         * INVITE is the next press, and the field is done with. Only once
+         * they are in the list - peerd lists them a moment after it says
+         * they answered - or the choice would be dropped as nobody's. */
+        for (i = 0; i < ui->count; i++) {
+            if (memcmp(ui->peers[i].key, key, FLEET_KEY_BYTES) == 0) {
+                ui->answer_taken = 1;
+                memcpy(ui->chosen, key, FLEET_KEY_BYTES);
+                ui->has_chosen = 1;
+                close_ask(ui);
+                lv_textarea_set_text(ui->field, "");
+                break;
+            }
+        }
+    }
+}
+
+/* The local network's half of the players panel: what stands under the
+ * rows. */
+static void refresh_lan(struct fleet_lobby_ui *ui, int64_t now)
+{
+    struct fleet_link *link = ui->app->link;
+    enum fleet_link_state state = link ? link->ops->state(link->ctx) : FLEET_LINK_NO_SERVICE;
+    enum fleet_link_peer_probe_state probe = FLEET_PEER_PROBE_NONE;
+    struct fleet_link_peer_info info;
+    uint8_t key[FLEET_KEY_BYTES];
+    const char *answered = NULL;
+    char text[200];
+    int have_info = lan_info(ui, &info);
+    int engaged = ui->app->mp && ui->app->mp->engaged;
+
+    if (ui->asked[0] && link) {
+        probe = ui->pending[0] ? FLEET_PEER_PROBE_PENDING : fleet_link_peer_probe_state(link);
+    }
+    if (probe == FLEET_PEER_PROBE_ANSWERED && fleet_link_peer_probe_key(link, key) == 0) {
+        answered = link->ops->peer_name(link->ctx, key);
+    }
+    if (engaged && state == FLEET_LINK_UP && ui->count == 0) {
+        if (!ui->quiet_since) {
+            ui->quiet_since = now ? now : 1;
+        }
+    } else {
+        ui->quiet_since = 0;
+    }
+    fleet_view_mp_lan_notice(engaged ? state : FLEET_LINK_CONNECTING, have_info ? &info : NULL,
+                             ui->count, ui->quiet_since ? now - ui->quiet_since : 0, probe,
+                             ui->asked, answered, text, sizeof(text));
+    if (text[0]) {
+        lv_label_set_text(ui->empty, text);
+        lv_obj_remove_flag(ui->empty, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ui->empty, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void refresh_players(struct fleet_lobby_ui *ui, int can_choose)
 {
     struct fleet_link *link = ui->app->link;
@@ -290,6 +602,9 @@ static void refresh_players(struct fleet_lobby_ui *ui, int can_choose)
     ui->count = 0;
     if (link && ui->app->mp && ui->app->mp->engaged) {
         ui->count = link->ops->peers(link->ctx, ui->peers, PEER_ROWS);
+    }
+    if (on_lan(ui)) {
+        lan_follow_ask(ui);
     }
     /* Find the chosen player's row again; one no longer listed is unchosen,
      * so INVITE can only ever go to the player whose row is lit. */
@@ -308,12 +623,22 @@ static void refresh_players(struct fleet_lobby_ui *ui, int can_choose)
             continue;
         }
         lv_obj_remove_flag(ui->row[i], LV_OBJ_FLAG_HIDDEN);
-        fleet_view_mp_peer_row(&ui->peers[i], now, text, sizeof(text));
+        if (on_lan(ui)) {
+            /* -1, a link that does not say: listed as any other. */
+            fleet_view_mp_lan_row(&ui->peers[i], fleet_link_peer_proved(link, ui->peers[i].key),
+                                  now, text, sizeof(text));
+        } else {
+            fleet_view_mp_peer_row(&ui->peers[i], now, text, sizeof(text));
+        }
         lv_label_set_text(ui->row_label[i], text);
         lv_obj_remove_style(ui->row_label[i], pos_style(POS_STYLE_ACCENT_TEXT), 0);
         if (i == ui->selected && can_choose) {
             pos_style_add(ui->row_label[i], POS_STYLE_ACCENT_TEXT, 0);
         }
+    }
+    if (on_lan(ui)) {
+        refresh_lan(ui, now);
+        return;
     }
     if (ui->count == 0) {
         lv_label_set_text(ui->empty, ui->visible_note[0]
@@ -329,18 +654,66 @@ static void refresh_players(struct fleet_lobby_ui *ui, int can_choose)
     }
 }
 
+/* What differs between the transports outside the players panel: the link
+ * line's words, and the button under the list with what it opens. */
+static void refresh_transport(struct fleet_lobby_ui *ui)
+{
+    struct fleet_app *app = ui->app;
+    struct fleet_link_peer_info info;
+    char text[200];
+    int have_info = lan_info(ui, &info);
+    enum fleet_link_state state =
+        app->link ? app->link->ops->state(app->link->ctx) : FLEET_LINK_NO_SERVICE;
+    /* An address can be asked through a link that takes one, once the player
+     * has engaged, while the service is there to ask. */
+    int usable = have_info && app->mp && app->mp->engaged &&
+                 (state == FLEET_LINK_UP || state == FLEET_LINK_CONNECTING);
+
+    if (!on_lan(ui)) {
+        set_button(ui->visible, "MAKE VISIBLE", 1);
+        close_ask(ui);
+    } else {
+        if (!usable) {
+            close_ask(ui);
+        }
+        set_button(ui->visible, ui->ask_open ? "CLOSE ADDRESS" : "ADD BY ADDRESS", usable);
+        if (app->mp) {
+            fleet_view_mp_lan_link(state, have_info ? &info : NULL, text, sizeof(text));
+            lv_label_set_text(ui->link_line, text);
+        }
+    }
+    if (ui->ask_row) {
+        if (ui->ask_open) {
+            lv_obj_remove_flag(ui->ask_row, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(ui->ask_row, LV_OBJ_FLAG_HIDDEN);
+        }
+        /* In the focus group only while it is on show (see _leave). */
+        set_field_enabled(ui, ui->ask_open && app->current == FLEET_SCREEN_LOBBY);
+    }
+}
+
+static void lobby_body(struct fleet_app *app, struct fleet_lobby_ui *ui);
+
 static void lobby_refresh(struct fleet_app *app)
 {
     struct fleet_lobby_ui *ui = app ? app->lobby : NULL;
-    struct fleet_session *s;
-    const struct fleet_match *m;
-    char peer[40];
-    char text[160];
-    int idle;
 
     if (!ui) {
         return;
     }
+    lobby_body(app, ui);
+    refresh_transport(ui);
+}
+
+static void lobby_body(struct fleet_app *app, struct fleet_lobby_ui *ui)
+{
+    struct fleet_session *s;
+    const struct fleet_match *m;
+    char peer[40];
+    char text[260];
+    int idle;
+
     s = app->mp;
     if (!s) {
         lv_label_set_text(ui->link_line, "Multiplayer is not available on this device.");
@@ -353,9 +726,25 @@ static void lobby_refresh(struct fleet_app *app)
     lv_label_set_text(ui->link_line,
                       fleet_link_state_text(app->link->ops->state(app->link->ctx)));
     if (!s->ready) {
+        enum fleet_link_state state = app->link->ops->state(app->link->ctx);
+
         lv_label_set_text(ui->session_line, "");
+        ui->act_kind = ACT_NONE;
+        ui->alt_kind = ACT_NONE;
         set_button(ui->act, NULL, 0);
         set_button(ui->alt, NULL, 0);
+        /* A match in hand whose service does not answer (a device with both
+         * transports; LoRa alone is as it was): the match is kept, nothing
+         * else can be begun, and the player is told so and given a way to
+         * look again now. */
+        if (app->mp_lan_offered && app->mp_saved && !app->mp_stale[app->mp_transport] &&
+            s->engaged && (state == FLEET_LINK_NO_SERVICE || state == FLEET_LINK_RADIO_OFF)) {
+            fleet_view_mp_recovery(app->mp_saved_peer, on_lan(ui), text, sizeof(text));
+            lv_label_set_text(ui->session_line, text);
+            ui->act_kind = ACT_RETRY;
+            set_button(ui->act, "TRY AGAIN", 1);
+            fleet_button_set_enabled(ui->act, 1);
+        }
         refresh_players(ui, 0);
         return;
     }
@@ -367,6 +756,15 @@ static void lobby_refresh(struct fleet_app *app)
     if (m->phase == FLEET_MP_DONE) {
         snprintf(text, sizeof(text), "The engagement with %s is over: %s.", peer,
                  fleet_view_mp_outcome(m));
+    }
+    if (ui->refused && m->phase <= FLEET_MP_INVITED) {
+        size_t len = strlen(text);
+
+        snprintf(text + len, sizeof(text) - len, "%sAn engagement is already under way on %s. "
+                                                 "Finish it or forfeit it first.",
+                 len ? " " : "", on_lan(ui) ? "LoRa" : "the local network");
+    } else {
+        ui->refused = 0;
     }
     if (s->save_failed) {
         size_t len = strlen(text);
@@ -403,6 +801,7 @@ static void lobby_refresh(struct fleet_app *app)
     {
         static const char *const names[] = {
             "", "INVITE", "CANCEL", "ACCEPT", "DECLINE", "RESUME", "FORFEIT", "RESULT", "CLOSE",
+            "TRY AGAIN",
         };
 
         set_button(ui->act, names[ui->act_kind], ui->act_kind != ACT_NONE);

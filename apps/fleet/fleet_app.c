@@ -47,6 +47,11 @@ static void allow_caption(lv_obj_t *obj)
     lv_obj_refresh_ext_draw_size(obj);
 }
 
+void fleet_app_allow_overflow(lv_obj_t *box)
+{
+    allow_caption(box);
+}
+
 lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
 {
     lv_obj_t *screen = lv_obj_create(parent);
@@ -331,6 +336,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     }
     if (app->current == FLEET_SCREEN_CHAT && screen != FLEET_SCREEN_CHAT) {
         fleet_screen_chat_leave(app);
+    }
+    if (app->current == FLEET_SCREEN_LOBBY && screen != FLEET_SCREEN_LOBBY) {
+        fleet_screen_lobby_leave(app);
     }
     for (i = 0; i < FLEET_SCREEN_COUNT; i++) {
         if (app->screen[i]) {
@@ -624,6 +632,9 @@ static void fleet_destroy(void *priv)
     if (app->current == FLEET_SCREEN_CHAT) {
         /* The keyboard is the shell's; it must not outlive the field. */
         fleet_screen_chat_leave(app);
+    }
+    if (app->current == FLEET_SCREEN_LOBBY) {
+        fleet_screen_lobby_leave(app);
     }
     /* The multiplayer timer refers to the app and the link: both go first. */
     fleet_mp_destroy(app);

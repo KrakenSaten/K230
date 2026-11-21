@@ -92,10 +92,26 @@ want "the session says who only once the saved match has been read" "$LINK/fleet
      'if \(s->link->ops->match_peer\) \{'
 want "and never says none of a save it could not read" "$LINK/fleet_session.c" \
      'if \(in_hand \|\| !s->store_fault \|\| s->peer_said\) \{'
-# The app does not open the LAN link yet (package 5 does, with its screens).
-check "nothing in the app opens the LAN link yet" \
-      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_peer.c")" \
-      'fleet_link_peer_'
+# The app opens the LAN link in one place, beside the mesh link, and asks it
+# for its own detail only where that is shown: the lobby and the session's
+# owner. Whether peerd exists is a look at the filesystem, never a connection.
+check "only the session's owner opens a link" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v "$LINK/")" \
+      'fleet_link_(peer|mesh)_open'
+want "one place decides when this device is seen on the network" "apps/fleet/fleet_mp.c" \
+     'app->current == FLEET_SCREEN_LOBBY \|\| handshake'
+check "an invitation merely received keeps nobody seen" "apps/fleet/fleet_mp.c" \
+      'int handshake = [^;]*FLEET_MP_INVITED'
+check "and nothing else in the app sets it" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v "$LINK/")" \
+      'fleet_link_peer_set_visible'
+check "only the lobby and the session's owner ask the LAN link for its detail" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v 'apps/fleet/ui/fleet_screen_lobby.c' | grep -v "$LINK/")" \
+      'fleet_link_peer_(info|probe|probe_state|probe_key|proved|present|set_visible)[[:space:]]*\('
+want "whether the network is offered is a look at the socket, not a connection" \
+     "$LINK/fleet_link_peer.c" 'stat\(path, &sb\) == 0 && S_ISSOCK'
+want "an unproved player is said to be one" "apps/fleet/ui/fleet_screen_lobby.c" \
+     'fleet_link_peer_proved\(link, ui->peers\[i\]\.key\)'
 check "Fleet never names a radio method or radiod" "apps/fleet/*.c apps/fleet/*/*.c" \
       '"radio\.[a-z_]+"|radiod\.sock|"radiod"'
 want "the session pumps nothing before the player engages" "$LINK/fleet_session.c" \
@@ -171,17 +187,25 @@ OTHERS=$(git ls-files 'apps/fleet/*.c' 'apps/fleet/*.h' 2>/dev/null | grep -v "^
 [ -n "$OTHERS" ] || OTHERS=$(find apps/fleet -name '*.[ch]' | grep -v "^$STORE\.[ch]$")
 check "match.v1 is named by the store alone" "$OTHERS" 'FLEET_STORE_MATCH_FILE|"match\.v1"|match-lan\.v1'
 check "a link never touches a save" "apps/fleet/link/fleet_link*.c apps/fleet/link/fleet_link*.h" 'fleet_store_'
-check "nothing but the mesh session asks for the mesh's save" \
+check "nothing but the session's owner asks for a transport's save" \
       "$(echo "$OTHERS" | grep -v '^apps/fleet/fleet_mp\.c$')" \
       'FLEET_STORE_MESH|fleet_store_match_(path|save|load)[[:space:]]*\('
-# fleet_mp.c holds the app's one session, and that session is the mesh's: it
-# saves with the mesh's calls. Until a LAN session with its own save is added
-# there (and this rule is rewritten with it), nothing in the file may select
-# the LAN, and the development opponent is held to the mesh's profile.
-check "the app's session is the mesh's alone, for now" "apps/fleet/fleet_mp.c" \
-      'FLEET_STORE_LAN|fleet_profile_lan|fleet_store_match_(path|save|load)_for'
-want "its development opponent cannot be put on the LAN profile" "apps/fleet/fleet_mp.c" \
-     'cfg\.lan = 0;'
+# fleet_mp.c holds the app's one session, on one transport at a time. A
+# transport becomes a save file in exactly one function there, every read and
+# write goes through it, and the development opponent's profile follows the
+# transport and never its own spec - so a match is only ever saved and read
+# by the transport it is played on.
+n=$(grep -cE 'FLEET_STORE_(LAN|MESH)' apps/fleet/fleet_mp.c)
+if [ "$n" = 1 ]; then echo "ok   the app maps a transport to a save in one line"; else
+    echo "FAIL the stores are named $n times in apps/fleet/fleet_mp.c"; failed=$((failed + 1)); fi
+want "in one function" "apps/fleet/fleet_mp.c" \
+     'return t == FLEET_MP_LAN \? FLEET_STORE_LAN : FLEET_STORE_MESH;'
+check "and never reads or writes a match save but through it" "apps/fleet/fleet_mp.c" \
+      'fleet_store_match_(path|save|load)[[:space:]]*\('
+want "the development opponent's profile follows the transport" "apps/fleet/fleet_mp.c" \
+     'cfg\.lan = t == FLEET_MP_LAN;'
+want "the session is told of a match in hand on the other transport" "apps/fleet/fleet_mp.c" \
+     'fleet_session_set_other_in_hand\(app->mp, app->mp_other_in_hand\);'
 want "the store maps a transport to a file in one place" "$STORE.c" 'static const char \*match_file\('
 n=$(grep -c 'FLEET_STORE_MATCH_FILE' "$STORE.c")
 if [ "$n" = 1 ]; then echo "ok   and match.v1 is spelled there once"; else

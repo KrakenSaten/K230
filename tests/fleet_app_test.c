@@ -45,10 +45,13 @@
 #include "fleet_app.h"
 #include "pocketlog/pocketlog.h"
 #include "link/fleet_link_loop.h"
+#include "link/fleet_link_peer.h"
 #include "link/fleet_session.h"
 #include "pocketui.h"
 #include "ui/fleet_grid.h"
 #include "ui/fleet_widgets.h"
+
+#include "fake_peerd.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -1668,11 +1671,33 @@ static void mp_fresh(void)
     unlink(path);
 }
 
-static lv_obj_t *command_multi_button(void)
+/* The MULTIPLAYER panel ends in one row: the way in, and beside it LOCAL
+ * NETWORK on a device that offers both. */
+static lv_obj_t *command_multi_row(void)
 {
     lv_obj_t *panel = kid(command_col(0), 1);
 
     return kid(panel, (int)lv_obj_get_child_count(panel) - 1);
+}
+
+static lv_obj_t *command_multi_button(void) { return kid(command_multi_row(), 0); }
+static lv_obj_t *command_lan_button(void) { return kid(command_multi_row(), 1); }
+/* Shown, and not to be pressed: the other transport beside a match in hand. */
+static int command_disabled(lv_obj_t *button)
+{
+    return visible(button) && !lv_obj_has_flag(button, LV_OBJ_FLAG_CLICKABLE);
+}
+
+static int command_enabled(lv_obj_t *button)
+{
+    return visible(button) && lv_obj_has_flag(button, LV_OBJ_FLAG_CLICKABLE);
+}
+
+static lv_obj_t *command_multi_state(void)
+{
+    lv_obj_t *panel = kid(command_col(0), 1);
+
+    return kid(panel, (int)lv_obj_get_child_count(panel) - 2);
 }
 
 static lv_obj_t *lobby_screen(void) { return screen_of(FLEET_SCREEN_LOBBY); }
@@ -2349,6 +2374,956 @@ static void test_multiplayer_chat(enum pos_rotation rotation)
     unsetenv("POCKETFLEET_MP_FAKE");
 }
 
+/* ---- 10. multiplayer over the local network ------------------------------ *
+ *
+ * The same lobby on the other transport (docs/apps/FLEET_MULTIPLAYER.md, "The
+ * local network in the app"). Three things are held here: a device without
+ * the network service is what it always was; the choice, the separate save
+ * and the one match per device, against the virtual opponent on the LAN
+ * profile; and the lobby itself against the real link and a scripted peerd
+ * (tests/fake_peerd.c) - the address, who is listed and who is only
+ * announced, and asking a device at an address.
+ */
+
+#define LAN_BOB "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+#define LAN_CAROL "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+
+static const char LAN_NODES[] =
+    "[{\"key\":\"" LAN_BOB "\",\"fingerprint\":\"b2b2-b2b2\",\"name\":\"Bob\","
+    "\"address\":\"192.168.1.41\",\"heard_ms_ago\":1000,\"kept\":false,\"proved\":true,"
+    "\"route\":\"lan\"},"
+    "{\"key\":\"" LAN_CAROL "\",\"fingerprint\":\"c3c3-c3c3\",\"name\":\"Carol\",\"kept\":true,"
+    "\"proved\":false,\"route\":\"lan\"}]";
+
+static char lan_runtime[] = "/tmp/fleet_app_lan_XXXXXX";
+static char lan_log[600];
+static struct fake_peerd_script lan_script;
+static pid_t lan_peerd;
+
+static void lan_fresh(void)
+{
+    char path[600];
+
+    mp_fresh();
+    snprintf(path, sizeof(path), "%s/fleet/match-lan.v1", state_dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/fleet/match-lan.v1.stale", state_dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/fleet/match.v1.stale", state_dir);
+    unlink(path);
+}
+
+/* Begin a match from Command on the button given and place the fleet. */
+static void lan_begin_match(lv_obj_t *button)
+{
+    int i;
+
+    tap_obj(button);
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    mp_wait(500);
+}
+
+static long lan_file_size(const char *name)
+{
+    char path[600];
+    struct stat sb;
+
+    snprintf(path, sizeof(path), "%s/fleet/%s", state_dir, name);
+    return stat(path, &sb) == 0 ? (long)sb.st_size : -1;
+}
+
+static int lan_count(const char *want)
+{
+    static char buf[65536];
+    FILE *f = fopen(lan_log, "r");
+    const char *at;
+    size_t n;
+    int count = 0;
+
+    if (!f) {
+        return 0;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    for (at = buf; (at = strstr(at, want)) != NULL; at += strlen(want)) {
+        count++;
+    }
+    return count;
+}
+
+static int lan_want_shown;
+
+static int lan_shown_again(void)
+{
+    return lan_count("peer.set_visible|{\"visible\":true}") >= lan_want_shown;
+}
+
+static int lan_logged(const char *want)
+{
+    static char buf[65536];
+    FILE *f = fopen(lan_log, "r");
+    size_t n;
+
+    if (!f) {
+        return 0;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return strstr(buf, want) != NULL;
+}
+
+static const char *lan_nodes_after;
+
+static void lan_peerd_start(const char *nodes, const char *state)
+{
+    memset(&lan_script, 0, sizeof(lan_script));
+    lan_script.nodes_json = nodes;
+    lan_script.nodes_after_probe_json = lan_nodes_after ? lan_nodes_after : nodes;
+    lan_script.state = state;
+    lan_script.probe_address = "192.168.1.41";
+    lan_script.probe_key = LAN_BOB;
+    lan_script.log = lan_log;
+    lan_script.life_ms = 120000;
+    unlink(lan_log);
+    setenv("POCKETOS_RUNTIME_DIR", lan_runtime, 1);
+    lan_peerd = fake_peerd_spawn(&lan_script);
+    check("a scripted peerd is running", lan_peerd > 0 && fake_peerd_wait_ready(&lan_script, 3000));
+}
+
+static void lan_peerd_stop(void)
+{
+    if (lan_peerd > 0) {
+        fake_peerd_stop(&lan_script, lan_peerd);
+        lan_peerd = 0;
+    }
+    unsetenv("POCKETOS_RUNTIME_DIR");
+}
+
+/* The match's clock, LVGL's, and a little of the real one: the scripted
+ * peerd is another process and answers in its own time. */
+static int lan_until(int (*done)(void))
+{
+    int i;
+
+    for (i = 0; i < 400; i++) {
+        if (done()) {
+            return 1;
+        }
+        mp_wait(100);
+        usleep(4000);
+    }
+    return done();
+}
+
+static lv_obj_t *lobby_empty(void) { return kid(kid(lobby_col(0), 0), KID_PANEL_FIRST + 5); }
+static lv_obj_t *lobby_under(void) { return kid(lobby_col(0), 1); }
+static lv_obj_t *lobby_ask_row(void) { return kid(lobby_col(0), 2); }
+static lv_obj_t *lobby_ask(void) { return kid(lobby_ask_row(), 1); }
+static lv_obj_t *lobby_back(void) { return kid(kid(lobby_screen(), 1), 0); }
+static lv_obj_t *lobby_link_line(void) { return kid(kid(lobby_col(1), 0), KID_PANEL_FIRST); }
+
+static lv_obj_t *lobby_field(void)
+{
+    lv_obj_t *wrap = kid(lobby_ask_row(), 0);
+    uint32_t i;
+
+    for (i = 0; wrap && i < lv_obj_get_child_count(wrap); i++) {
+        if (lv_obj_check_type(kid(wrap, (int)i), &lv_textarea_class)) {
+            return kid(wrap, (int)i);
+        }
+    }
+    return NULL;
+}
+
+static int lan_row0_shown(void) { return visible(lobby_player_row(0)); }
+static int lan_row0_lit(void) { return lobby_row_lit(0); }
+static int lan_link_up(void) { return strstr(text_of(lobby_link_line()), "Local network ready") != NULL; }
+static int lan_answered(void) { return visible(lobby_empty()) && strstr(text_of(lobby_empty()), "answered") != NULL; }
+static int lan_no_answer(void) { return visible(lobby_empty()) && strstr(text_of(lobby_empty()), "No answer") != NULL; }
+static int lan_sent_logged(void) { return lan_logged("peer.app_send|"); }
+static int lan_hidden_logged(void) { return lan_logged("peer.set_visible|{\"visible\":false}"); }
+static int lan_fault_said(void) { return strstr(text_of(lobby_link_line()), "fault") != NULL; }
+static int lan_gone_said(void) { return strstr(text_of(lobby_link_line()), "not running") != NULL; }
+
+/* A device with no network service, which is every device there is today:
+ * Command is what it was, to the word and to the button. */
+static void test_lan_absent(void)
+{
+    phase = "the local network, on a device without it";
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    check("the network is not on offer", app->mp != NULL && !app->mp_lan_offered &&
+          !fleet_app_mp_choice(app) && app->mp_transport == FLEET_MP_MESH);
+    check("LOCAL NETWORK is not shown", !visible(command_lan_button()));
+    check_str("the one button is MULTIPLAYER", text_of(kid(command_multi_button(), 0)), "MULTIPLAYER");
+    check_str("and the panel says what it always said", text_of(command_multi_state()),
+              "Play another Doors device over the mesh.");
+    {
+        lv_area_t row;
+        lv_area_t btn;
+
+        box_of(command_multi_row(), &row);
+        box_of(command_multi_button(), &btn);
+        check("the button fills the row it stands in, as it filled the panel",
+              btn.x1 == row.x1 && btn.x2 == row.x2 && btn.y1 == row.y1 && btn.y2 == row.y2);
+    }
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check_str("the lobby's button is the mesh's", text_of(kid(lobby_under(), 0)), "MAKE VISIBLE");
+    check("and there is no address to enter", !visible(lobby_ask_row()));
+    app_stop();
+}
+
+/* The choice, the save per transport and the one match per device. */
+static void test_lan_choice(enum pos_rotation rotation)
+{
+    int i;
+
+    phase = rotation == POS_ROTATION_0 ? "the local network, the choice, tall"
+                                       : "the local network, the choice, wide";
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=11,lan", 1);
+    use_display(rotation, PANEL_CORNER);
+    app_start();
+    mp_wait(500);
+    check("both transports are on offer, and nothing is engaged",
+          app->mp_lan_offered && fleet_app_mp_choice(app) && !app->mp->engaged &&
+          app->mp->sent == 0);
+    check_str("the first is LORA", text_of(kid(command_multi_button(), 0)), "LORA");
+    check_str("the second is LOCAL NETWORK", text_of(kid(command_lan_button(), 0)), "LOCAL NETWORK");
+    check("both shown", visible(command_multi_button()) && visible(command_lan_button()));
+    check_str("the panel names both", text_of(command_multi_state()),
+              "Play another Doors device over LoRa or the local network.");
+    {
+        lv_area_t a;
+        lv_area_t b;
+        lv_area_t t;
+
+        box_of(command_multi_button(), &a);
+        box_of(command_lan_button(), &b);
+        box_of(kid(command_lan_button(), 0), &t);
+        check("side by side on one row, neither over the other",
+              a.y1 == b.y1 && a.y2 == b.y2 && a.x2 < b.x1);
+        check("each a finger's size", lv_area_get_height(&a) >= POCKETUI_TOUCH_MIN &&
+              lv_area_get_height(&b) >= POCKETUI_TOUCH_MIN);
+        check("LOCAL NETWORK is written whole inside its button", t.x1 >= b.x1 && t.x2 <= b.x2);
+    }
+    check("the second way in costs the panel no room: both inside the body",
+          inside_body(command_multi_button()) && inside_body(command_lan_button()) &&
+          in_safe_area(command_lan_button()));
+    if (rotation != POS_ROTATION_0) {
+        check_in_view("Command: LORA", command_multi_button());
+        check_in_view("Command: LOCAL NETWORK", command_lan_button());
+        check_in_view("Command: DEPLOY FLEET", command_deploy());
+    }
+
+    /* LoRa first: the session is the mesh's. */
+    tap_obj(command_multi_button());
+    mp_wait(500);
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check("LORA opens the lobby on the mesh, on the mesh's profile",
+          app->mp_transport == FLEET_MP_MESH && app->mp->engaged && app->mp->ready &&
+          app->mp->m.profile == &fleet_profile_mesh);
+    check_str("with the mesh's button", text_of(kid(lobby_under(), 0)), "MAKE VISIBLE");
+    check("and a row that counts hops", strstr(text_of(kid(lobby_player_row(0), 0)), "DIRECT") != NULL);
+    tap_obj(lobby_back());
+    check("back on Command with nothing begun, both are still on offer",
+          app->current == FLEET_SCREEN_COMMAND && fleet_app_mp_choice(app));
+
+    /* Then the network: another session, on another link and profile. */
+    tap_obj(command_lan_button());
+    mp_wait(500);
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check("LOCAL NETWORK opens the lobby on the network, on the LAN profile",
+          app->mp_transport == FLEET_MP_LAN && app->mp->engaged && app->mp->ready &&
+          app->mp->m.profile == &fleet_profile_lan && app->mp->sent == 0);
+    check_str("the header says where we are", g_hint, "MULTIPLAYER");
+    check("its rows count no hops",
+          lobby_row_is(0, "SIM OPPONENT") &&
+          strstr(text_of(kid(lobby_player_row(0), 0)), "DIRECT") == NULL &&
+          strstr(text_of(kid(lobby_player_row(0), 0)), "HOP") == NULL);
+    check("a link with no address to give offers none to ask", !visible(lobby_under()) &&
+          !visible(lobby_ask_row()));
+    check_str("and says the network is ready", text_of(lobby_link_line()), "Local network ready.");
+    check_in_view("Lobby on the network: the opponent's row", lobby_player_row(0));
+    check_in_view("Lobby on the network: INVITE", lobby_act());
+    check("the lobby stays inside the body", inside_body(lobby_screen()));
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    check("INVITE sent one invitation", app->mp->m.phase == FLEET_MP_INVITING && app->mp->sent == 1);
+    tap_obj(lobby_back());
+    check("an invitation open: the network's button leads back to it, LoRa's stands disabled",
+          !fleet_app_mp_choice(app) && command_enabled(command_lan_button()) &&
+          command_disabled(command_multi_button()) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "LORA") == 0 &&
+          strcmp(text_of(kid(command_lan_button(), 0)), "LOCAL NETWORK") == 0);
+    check_str("and the panel says why", text_of(command_multi_state()),
+              "An invitation is open on the local network.");
+    tap_obj(command_multi_button());
+    check("the disabled button does nothing", app->current == FLEET_SCREEN_COMMAND &&
+          app->mp_transport == FLEET_MP_LAN);
+    tap_obj(command_lan_button());
+    check("which is the same lobby and the same invitation",
+          app->current == FLEET_SCREEN_LOBBY && app->mp_transport == FLEET_MP_LAN &&
+          app->mp->m.phase >= FLEET_MP_INVITING);
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    check_one_screen(FLEET_SCREEN_DEPLOY);
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    for (i = 0; i < 400 && app->mp->m.resolved < 6; i++) {
+        if (fleet_match_my_turn(&app->mp->m)) {
+            mp_our_turn(rotation != POS_ROTATION_0);
+        }
+        mp_wait(100);
+    }
+    check("some of the match was played over the network", app->mp->m.resolved >= 6);
+    check("it is saved in the network's file, whole",
+          lan_file_size("match-lan.v1") == FLEET_MATCH_SAVE_SIZE);
+    check("and LoRa's file was never written", lan_file_size("match.v1") == -1);
+
+    /* Closed and opened again: the file decides the transport. */
+    app_stop();
+    app_start();
+    mp_wait(1000);
+    check("reopened, the session is the network's, with nothing engaged or sent",
+          app->mp_transport == FLEET_MP_LAN && app->mp_saved && !app->mp->engaged &&
+          app->mp->sent == 0);
+    check("one match per device: LoRa is shown, disabled, beside a match in hand on the network",
+          !fleet_app_mp_choice(app) && command_disabled(command_multi_button()) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "LORA") == 0);
+    check_str("the network's button offers the match", text_of(kid(command_lan_button(), 0)),
+              "RESUME MATCH");
+    check("which can be pressed", command_enabled(command_lan_button()));
+    check_str("and the panel says why LoRa cannot, in the plan's words",
+              text_of(command_multi_state()),
+              "An engagement with SIM OPPONENT is under way on the local network.");
+    {
+        lv_area_t t;
+        lv_area_t b;
+
+        box_of(kid(command_lan_button(), 0), &t);
+        box_of(command_lan_button(), &b);
+        check("RESUME MATCH is written whole inside its half of the row",
+              t.x1 >= b.x1 && t.x2 <= b.x2);
+    }
+    tap_obj(command_multi_button());
+    check("the disabled LORA does nothing: no session moves, nothing is engaged",
+          app->current == FLEET_SCREEN_COMMAND && app->mp_transport == FLEET_MP_LAN &&
+          !app->mp->engaged);
+    tap_obj(command_lan_button());
+    check("RESUME MATCH opens the lobby on the network",
+          app->current == FLEET_SCREEN_LOBBY && app->mp->engaged &&
+          app->mp_transport == FLEET_MP_LAN);
+    check_str("which offers RESUME", text_of(kid(lobby_act(), 0)), "RESUME");
+    tap_obj(lobby_act());
+    check("and RESUME goes back to the battle, on the LAN profile",
+          app->current == FLEET_SCREEN_BATTLE && app->mp->m.profile == &fleet_profile_lan);
+    app_stop();
+
+    /* A device that has since lost the network service still has the match. */
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=11", 1);
+    app_start();
+    check("a match in hand on the network is offered even where the network no longer is",
+          app->mp_transport == FLEET_MP_LAN && app->mp_saved && app->mp_lan_offered &&
+          strcmp(text_of(kid(command_lan_button(), 0)), "RESUME MATCH") == 0 &&
+          command_enabled(command_lan_button()) && command_disabled(command_multi_button()));
+    app_stop();
+
+    /* And the other way round: a match in hand on LoRa. */
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=12,lan", 1);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    mp_wait(500);
+    check("a match begun on LoRa is saved in LoRa's file and not the network's",
+          lan_file_size("match.v1") == FLEET_MATCH_SAVE_SIZE && lan_file_size("match-lan.v1") == -1);
+    app_stop();
+    app_start();
+    check("reopened, the session is the mesh's and the network stands disabled beside it",
+          app->mp_transport == FLEET_MP_MESH && app->mp_saved && !fleet_app_mp_choice(app) &&
+          command_disabled(command_lan_button()) &&
+          strcmp(text_of(kid(command_lan_button(), 0)), "LOCAL NETWORK") == 0 &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    check_str("and Command says the match is on LoRa", text_of(command_multi_state()),
+              "An engagement with SIM OPPONENT is under way on LoRa.");
+    tap_obj(command_lan_button());
+    check("the disabled LOCAL NETWORK does nothing",
+          app->current == FLEET_SCREEN_COMMAND && app->mp_transport == FLEET_MP_MESH);
+    app_stop();
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+/* A save made under an identity its transport no longer has can never be
+ * resumed. On a device with both transports it must not hold either back. */
+static void test_lan_stale_save(void)
+{
+    int i;
+
+    phase = "the local network, another identity's save";
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=13,lan", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(command_lan_button());
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    mp_wait(500);
+    check("a match on the network is under way and saved",
+          app->mp_transport == FLEET_MP_LAN && fleet_match_active(&app->mp->m) &&
+          lan_file_size("match-lan.v1") == FLEET_MATCH_SAVE_SIZE);
+    app_stop();
+    /* The same device with another key: what replacing a service's identity
+     * leaves behind. */
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=13,lan,self=7", 1);
+    app_start();
+    check("reopened, the file still decides the transport", app->mp_transport == FLEET_MP_LAN);
+    /* The virtual link knows this device's key at once; a real one says it
+     * once the player has engaged. Either way, from then on: */
+    mp_wait(300);
+    check("once the link says who this device is, the save is known for another identity's",
+          app->mp->ready && app->mp->identity_changed && app->mp_stale[FLEET_MP_LAN]);
+    fleet_screen_command_refresh(app);
+    check("and Command offers both transports again, not a match nobody can resume",
+          fleet_app_mp_choice(app) && visible(command_lan_button()) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "LORA") == 0);
+    tap_obj(command_multi_button());
+    mp_wait(500);
+    check("LoRa is not held back by it", app->mp_transport == FLEET_MP_MESH &&
+          !app->mp_other_in_hand && !app->mp->other_in_hand);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    check("an invitation goes out on LoRa", app->mp->m.phase == FLEET_MP_INVITING && app->mp->sent == 1);
+    check("and the old file is still where it was, untouched",
+          lan_file_size("match-lan.v1") == FLEET_MATCH_SAVE_SIZE);
+    app_stop();
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+/* Another identity's save on one transport and a live match on the other:
+ * the live one is what RESUME MATCH leads to, in this run and after. */
+static void test_lan_stale_and_live(void)
+{
+    char marker[600];
+    struct stat sb;
+
+    phase = "the local network, a dead save and a live match";
+    snprintf(marker, sizeof(marker), "%s/fleet/match.v1.stale", state_dir);
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14,lan", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    lan_begin_match(command_multi_button());
+    check("a match on LoRa is in hand", app->mp_transport == FLEET_MP_MESH &&
+          fleet_match_active(&app->mp->m));
+    app_stop();
+
+    /* The device's identity changes. The LoRa save is now nobody's. */
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("the LoRa save is known for another identity's, and that is remembered beside it",
+          app->mp_stale[FLEET_MP_MESH] && stat(marker, &sb) == 0 &&
+          lan_file_size("match.v1") == FLEET_MATCH_SAVE_SIZE);
+    check("both transports are on offer again", fleet_app_mp_choice(app));
+    lan_begin_match(command_lan_button());
+    check("a match on the network is in hand", app->mp_transport == FLEET_MP_LAN &&
+          fleet_match_active(&app->mp->m));
+    app_stop();
+
+    /* Both files now decode as a match. The live one must be the one found. */
+    app_start();
+    mp_wait(300);
+    check("reopened, the session is on the network, where the live match is",
+          app->mp_transport == FLEET_MP_LAN && fleet_app_mp_waiting(app) &&
+          !fleet_app_mp_elsewhere(app));
+    check_str("Command offers it", text_of(kid(command_lan_button(), 0)), "RESUME MATCH");
+    tap_obj(command_lan_button());
+    check_str("and the lobby resumes it", text_of(kid(lobby_act(), 0)), "RESUME");
+    app_stop();
+
+    /* The same without the memory of it: the dead save is met first. */
+    unlink(marker);
+    app_start();
+    check("with nothing remembered, the LoRa save is tried first",
+          app->mp_transport == FLEET_MP_MESH && app->mp_other_in_hand);
+    mp_wait(300);
+    fleet_screen_command_refresh(app);
+    check("once it is known dead, the match is said to be elsewhere",
+          app->mp_stale[FLEET_MP_MESH] && fleet_app_mp_elsewhere(app) &&
+          !fleet_app_mp_choice(app));
+    check_str("Command still offers a match to resume, on the network's button",
+              text_of(kid(command_lan_button(), 0)), "RESUME MATCH");
+    check("with LoRa disabled beside it", command_disabled(command_multi_button()));
+    check("and says it is on the network",
+          strstr(text_of(command_multi_state()), "is under way on the local network.") != NULL);
+    tap_obj(command_lan_button());
+    check("RESUME MATCH takes the session there",
+          app->mp_transport == FLEET_MP_LAN && app->current == FLEET_SCREEN_LOBBY);
+    mp_wait(300);
+    check_str("where the lobby resumes it", text_of(kid(lobby_act(), 0)), "RESUME");
+    tap_obj(lobby_act());
+    check("and the battle goes on", app->current == FLEET_SCREEN_BATTLE &&
+          fleet_match_active(&app->mp->m));
+    app_stop();
+
+    /* A device with LoRa alone remembers nothing beside its save. */
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14", 1);
+    app_start();
+    lan_begin_match(command_multi_button());
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("LoRa alone: another identity's save leaves no mark, and Command is as it was",
+          stat(marker, &sb) != 0 && !app->mp_stale[FLEET_MP_MESH] && app->mp_saved &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    app_stop();
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+static lv_obj_t *lobby_session_line(void)
+{
+    return kid(kid(lobby_col(1), 0), KID_PANEL_FIRST + 1);
+}
+
+/* What becomes of a dead save once a new match is written over it, and of
+ * its mark when the save is replaced without Fleet knowing of the mark. */
+static void test_lan_stale_overwritten(void)
+{
+    char marker[600];
+    struct stat sb;
+    int i;
+
+    phase = "the local network, a dead save written over";
+    snprintf(marker, sizeof(marker), "%s/fleet/match-lan.v1.stale", state_dir);
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=15,lan", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    lan_begin_match(command_lan_button());
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=15,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("the network's save is known dead, marked, and no longer a match to resume",
+          app->mp_stale[FLEET_MP_LAN] && stat(marker, &sb) == 0 && !app->mp_saved &&
+          fleet_app_mp_choice(app));
+    lan_begin_match(command_lan_button());
+    check("a new match on the network is written over it, and the mark goes",
+          app->mp_transport == FLEET_MP_LAN && fleet_match_active(&app->mp->m) &&
+          !app->mp_stale[FLEET_MP_LAN] && stat(marker, &sb) != 0);
+    fleet_app_show(app, FLEET_SCREEN_COMMAND);
+    check_str("Command offers that match", text_of(kid(command_lan_button(), 0)), "RESUME MATCH");
+    tap_obj(command_lan_button());
+    tap_obj(lobby_alt());
+    tap_obj(lobby_alt());
+    for (i = 0; i < 100 && app->mp->m.end_unacked; i++) {
+        mp_wait(100);
+    }
+    check("forfeited, the match is over", app->mp->m.phase == FLEET_MP_DONE);
+    tap_obj(lobby_back());
+    check("a finished match not yet put away does not hold the other transport back",
+          fleet_app_mp_choice(app) && visible(command_lan_button()));
+    tap_obj(command_lan_button());
+    check_str("put away", text_of(kid(lobby_alt(), 0)), "CLOSE");
+    tap_obj(lobby_alt());
+    tap_obj(lobby_back());
+    check("with it put away, Command has no match waiting and offers both again",
+          !fleet_app_mp_waiting(app) && fleet_app_mp_choice(app) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "LORA") == 0);
+    app_stop();
+
+    /* A mark left behind beside a save that has been replaced: LoRa's save
+     * is found dead and marked, then a run with no network (which knows of
+     * no mark) writes a new match over it. */
+    snprintf(marker, sizeof(marker), "%s/fleet/match.v1.stale", state_dir);
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,lan", 1);
+    app_start();
+    lan_begin_match(command_multi_button());
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("LoRa's save is marked dead", app->mp_stale[FLEET_MP_MESH] && stat(marker, &sb) == 0);
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,self=7", 1);
+    app_start();
+    mp_wait(300);
+    lan_begin_match(command_multi_button());
+    check("a device without the network writes a new LoRa match over it, and leaves the mark",
+          fleet_match_active(&app->mp->m) && stat(marker, &sb) == 0);
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("the mark is not taken for the new save's: the live match is found",
+          app->mp_transport == FLEET_MP_MESH && !app->mp_stale[FLEET_MP_MESH] &&
+          fleet_app_mp_waiting(app) && !fleet_app_mp_choice(app) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    app_stop();
+
+    /* The session's own refusal, should it ever be reached: it has words. */
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=17,lan", 1);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    fleet_session_set_other_in_hand(app->mp, 1);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    check("a session told the other transport holds a match begins none and sends nothing",
+          app->mp->m.phase == FLEET_MP_IDLE && app->mp->sent == 0);
+    check("and the lobby says why",
+          strstr(text_of(lobby_session_line()),
+                 "An engagement is already under way on the local network.") != NULL);
+    app_stop();
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+/* A match in hand on the network, and no peerd: the match is kept, nothing
+ * else can be begun, and the lobby says so and offers to look again. */
+static void test_lan_recovery(void)
+{
+    char path[600];
+    FILE *f;
+    static uint8_t blob[FLEET_MATCH_SAVE_SIZE];
+    size_t got = 0;
+
+    phase = "the local network, a match in hand and no service";
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=18,lan", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    lan_begin_match(command_lan_button());
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+    snprintf(path, sizeof(path), "%s/fleet/match-lan.v1", state_dir);
+    f = fopen(path, "rb");
+    if (f) {
+        got = fread(blob, 1, sizeof(blob), f);
+        fclose(f);
+    }
+    check("a match on the network is saved", got == sizeof(blob));
+
+    /* The real links now, and no service of either kind. */
+    setenv("POCKETOS_RUNTIME_DIR", lan_runtime, 1);
+    app_start();
+    check("with no peerd the network is still offered, for the match its save holds",
+          app->mp_lan_offered && app->mp_transport == FLEET_MP_LAN && app->mp_saved);
+    check_str("Command offers the match on the network's button",
+              text_of(kid(command_lan_button(), 0)), "RESUME MATCH");
+    check("and LoRa stands disabled: no second match while this one is in hand",
+          command_disabled(command_multi_button()) && !fleet_app_mp_choice(app));
+    tap_obj(command_lan_button());
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check("the lobby says the service is not running", lan_until(lan_gone_said));
+    check("that the match is kept, what it waits for, and what can be done",
+          strstr(text_of(lobby_session_line()), "Your engagement with SIM OPPONENT is kept.") != NULL &&
+          strstr(text_of(lobby_session_line()), "local network service is running again") != NULL &&
+          strstr(text_of(lobby_session_line()), "nothing else can be started") != NULL);
+    check_str("and offers to look again", text_of(kid(lobby_act(), 0)), "TRY AGAIN");
+    check("which can be pressed, with nothing else on offer",
+          visible(lobby_act()) && lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE) &&
+          !visible(lobby_alt()));
+    check_in_view("Lobby, no service: TRY AGAIN", lobby_act());
+    tap_obj(lobby_act());
+    mp_wait(300);
+    check("TRY AGAIN with still no service changes nothing but the trying",
+          app->current == FLEET_SCREEN_LOBBY && app->mp_transport == FLEET_MP_LAN &&
+          app->mp->engaged && app->mp_saved &&
+          strcmp(text_of(kid(lobby_act(), 0)), "TRY AGAIN") == 0);
+    tap_obj(lobby_back());
+    check("back on Command the match is still what is offered",
+          strcmp(text_of(kid(command_lan_button(), 0)), "RESUME MATCH") == 0 &&
+          command_disabled(command_multi_button()));
+    f = fopen(path, "rb");
+    {
+        static uint8_t now_blob[FLEET_MATCH_SAVE_SIZE];
+        size_t n = f ? fread(now_blob, 1, sizeof(now_blob), f) : 0;
+
+        if (f) {
+            fclose(f);
+        }
+        check("and its save is byte for byte what it was",
+              n == sizeof(blob) && memcmp(blob, now_blob, sizeof(blob)) == 0);
+    }
+    check("no LoRa save was made by any of it", lan_file_size("match.v1") == -1);
+    app_stop();
+    unsetenv("POCKETOS_RUNTIME_DIR");
+    lan_fresh();
+}
+
+/* The lobby against the real link and a scripted peerd. */
+static void test_lan_lobby(enum pos_rotation rotation)
+{
+    int keyboard_before;
+
+    phase = rotation == POS_ROTATION_0 ? "the local network, the lobby, tall"
+                                       : "the local network, the lobby, wide";
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+    lan_peerd_start(LAN_NODES, NULL);
+    use_display(rotation, PANEL_CORNER);
+    app_start();
+    mp_wait(1500);
+    usleep(50000);
+    check("a device where peerd is there offers the network",
+          app->mp_lan_offered && fleet_app_mp_choice(app) && visible(command_lan_button()));
+    check("and opening Fleet asked peerd nothing at all", !lan_logged("peer."));
+    tap_obj(command_lan_button());
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check("the link comes up", lan_until(lan_link_up));
+    check_str("the lobby says the network is ready and what this device's address is",
+              text_of(lobby_link_line()), "Local network ready. This device is 192.168.1.23.");
+    check("only now was peerd asked to make this device visible",
+          lan_logged("peer.set_visible|{\"visible\":true}"));
+    check("the players peerd holds are listed", lan_until(lan_row0_shown));
+    check_str("one heard and proved", text_of(kid(lobby_player_row(0), 0)),
+              "BOB \xc2\xb7 HEARD JUST NOW");
+    check_str("one only kept, not heard this run and not confirmed",
+              text_of(kid(lobby_player_row(1), 0)),
+              "CAROL \xc2\xb7 UNCONFIRMED \xc2\xb7 NOT HEARD YET");
+    check_str("where LoRa has MAKE VISIBLE there is ADD BY ADDRESS", text_of(kid(lobby_under(), 0)),
+              "ADD BY ADDRESS");
+    check_in_view("Lobby on the network: ADD BY ADDRESS", lobby_under());
+    check("the address row is not shown until asked for", !visible(lobby_ask_row()));
+    check("with players listed nothing is said under them", !visible(lobby_empty()));
+
+    /* An address, typed on keys. */
+    keyboard_before = g_keyboard_calls;
+    tap_obj(lobby_under());
+    mp_wait(300);
+    check("ADD BY ADDRESS shows the field and ASK", visible(lobby_ask_row()) &&
+          lobby_field() != NULL && visible(lobby_ask()));
+    check_str("and becomes the way to put them away", text_of(kid(lobby_under(), 0)), "CLOSE ADDRESS");
+    check_in_view("Lobby on the network: the address field", lobby_field());
+    check_in_view("Lobby on the network: ASK", lobby_ask());
+    check("ASK is a finger's size", lv_obj_get_height(lobby_ask()) >= POCKETUI_TOUCH_MIN);
+    check("the lobby stays inside the body", inside_body(lobby_screen()));
+    type_keys("19x2.16a8.1,.41");
+    check_str("keys go to the field, and only what an address is made of stays",
+              lv_textarea_get_text(lobby_field()), "192.168.1.41");
+    check_int("typing on keys never called up the touch keyboard", g_keyboard_calls,
+              keyboard_before);
+    check("nothing is asked before Enter or ASK", !lan_logged("peer.probe|"));
+    type_key(LV_KEY_ENTER);
+    check("Enter asks the device at that address",
+          lan_until(lan_answered) && lan_logged("peer.probe|{\"address\":\"192.168.1.41\"}"));
+    check_str("and the lobby says who answered", text_of(lobby_empty()),
+              "Bob answered at 192.168.1.41.");
+    check("whoever answered is chosen, and INVITE is the next press",
+          lobby_row_lit(0) && lobby_rows_lit() == 1 &&
+          lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    check("the address row has gone again, the field empty",
+          !visible(lobby_ask_row()) && lv_textarea_get_text(lobby_field())[0] == '\0');
+
+    /* An address nobody is at, asked with the button. */
+    tap_obj(lobby_under());
+    mp_wait(300);
+    type_keys("192.168.1.99");
+    tap_obj(lobby_ask());
+    check("an address with nobody at it gets no answer", lan_until(lan_no_answer));
+    check_str("and the lobby says so in full, with nothing spinning", text_of(lobby_empty()),
+              "No answer from 192.168.1.99. This network may keep devices apart. Try another "
+              "network, a cable, or LoRa.");
+
+    /* A finger on the field is the one thing that asks for the keyboard. */
+    keyboard_before = g_keyboard_calls;
+    tap_obj(lobby_field());
+    check_int("a finger on the address field asks for the touch keyboard, once",
+              g_keyboard_calls, keyboard_before + 1);
+    g_keyboard_calls = keyboard_before;     /* section 9's count is of the chat's */
+
+    /* Leaving the lobby takes the field out of the keys' way, and this
+     * device off the network: it is announced only while the lobby is open. */
+    check("so far nothing has asked peerd to hide this device", !lan_hidden_logged());
+    tap_obj(lobby_back());
+    check_one_screen(FLEET_SCREEN_COMMAND);
+    check("back on Command, peerd is asked to hide it", lan_until(lan_hidden_logged));
+    {
+        int shown = lan_count("peer.set_visible|{\"visible\":true}");
+
+        mp_wait(25000);
+        usleep(50000);
+        check("and for as long as the lobby is closed the lease is not asked for again",
+              lan_count("peer.set_visible|{\"visible\":true}") == shown);
+        check("the session is still engaged and its link still up: only the visibility went",
+              app->mp->engaged && app->link->ops->state(app->link->ctx) == FLEET_LINK_UP);
+    }
+    type_keys("7");
+    check_str("on Command the keys do not reach the address field",
+              lv_textarea_get_text(lobby_field()), "192.168.1.99");
+    check("and the network is still on offer, nothing having begun", fleet_app_mp_choice(app));
+    check("no match file was written by any of it",
+          lan_file_size("match-lan.v1") == -1 && lan_file_size("match.v1") == -1);
+
+    /* peerd goes away under an open lobby. */
+    {
+        int shown = lan_count("peer.set_visible|{\"visible\":true}");
+
+        tap_obj(command_lan_button());
+        lan_want_shown = shown + 1;
+        check("opening the lobby again makes it visible again, at once",
+              lan_until(lan_shown_again));
+    }
+    lan_until(lan_link_up);
+    fake_peerd_stop(&lan_script, lan_peerd);
+    lan_peerd = 0;
+    check("peerd gone, the lobby says the service is not running", lan_until(lan_gone_said));
+    check("in the network's words, not the mesh's",
+          strstr(text_of(lobby_link_line()), "mesh") == NULL &&
+          strstr(text_of(lobby_link_line()), "local network service") != NULL);
+    check("and there is nothing to ask through", !visible(lobby_ask_row()));
+    app_stop();
+    lan_peerd_stop();
+}
+
+/* Nobody heard: the six seconds, and the sentence that says what to do. */
+static void test_lan_silence(void)
+{
+    phase = "the local network, nobody heard";
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+    lan_nodes_after = LAN_NODES;
+    lan_peerd_start("[]", NULL);
+    lan_nodes_after = NULL;
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(command_lan_button());
+    check("the link comes up", lan_until(lan_link_up));
+    mp_wait(1500);
+    check("at first the lobby is listening",
+          visible(lobby_empty()) && strstr(text_of(lobby_empty()), "Listening for players") != NULL);
+    mp_wait(7000);
+    check_str("after six seconds of silence it says what to do, with this device's address",
+              text_of(lobby_empty()),
+              "No players heard on this network. Enter the other device's address: this one is "
+              "192.168.1.23.");
+    check_in_view("Lobby on the network, silent: ADD BY ADDRESS", lobby_under());
+    check("INVITE has nobody to go to", !lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+
+    /* The case ADD BY ADDRESS is for: nobody listed, and whoever answers is
+     * listed only a moment after peerd says they answered. */
+    tap_obj(lobby_under());
+    mp_wait(300);
+    type_keys("192.168.1.41");
+    type_key(LV_KEY_ENTER);
+    check("an address is answered by a device that was not listed", lan_until(lan_answered));
+    check("once it is listed, it is the one chosen, with INVITE ready", lan_until(lan_row0_lit) &&
+          lobby_row_is(0, "BOB") && lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    check_str("and the lobby names it", text_of(lobby_empty()), "Bob answered at 192.168.1.41.");
+
+    /* An invitation open and the lobby left: the device stays seen, or the
+     * answer - from a player nobody keeps yet - would never be heard. */
+    tap_obj(lobby_act());
+    check("an invitation goes out to the device that answered",
+          app->mp->m.phase == FLEET_MP_INVITING && lan_until(lan_sent_logged));
+    tap_obj(lobby_back());
+    check_one_screen(FLEET_SCREEN_COMMAND);
+    mp_wait(3000);
+    usleep(50000);
+    check("with an invitation open, leaving the lobby does not hide this device",
+          app->mp->m.phase == FLEET_MP_INVITING && !lan_hidden_logged());
+    check_str("Command says an invitation is open", text_of(command_multi_state()),
+              "An invitation is open on the local network.");
+    tap_obj(command_lan_button());
+    tap_obj(lobby_act());
+    check("cancelled, there is no invitation", app->mp->m.phase == FLEET_MP_IDLE);
+    tap_obj(lobby_back());
+    check("and now leaving the lobby hides it", lan_until(lan_hidden_logged));
+    tap_obj(command_lan_button());
+    mp_wait(300);
+    tap_obj(lobby_back());
+    tap_obj(command_lan_button());
+    mp_wait(1200);
+    check("coming back to the lobby, the old answer is not still standing there",
+          !visible(lobby_empty()) || strstr(text_of(lobby_empty()), "answered") == NULL);
+    app_stop();
+    {
+        int waited;
+
+        /* The app is gone; only the scripted peerd's own time passes. */
+        for (waited = 0; waited < 3000 && !lan_hidden_logged(); waited += 5) {
+            usleep(5000);
+        }
+    }
+    check("closing Fleet ends this device's visibility at once", lan_hidden_logged());
+    lan_peerd_stop();
+
+    /* A peerd closed by a fault. */
+    lan_peerd_start("[]", "identity_fault");
+    app_start();
+    tap_obj(command_lan_button());
+    check("a peerd closed by a fault: the lobby says so", lan_until(lan_fault_said));
+    check("and names the fault, without calling it a radio",
+          strstr(text_of(lobby_link_line()), "identity_fault") != NULL &&
+          strstr(text_of(lobby_link_line()), "adio") == NULL);
+    check_str("the header says the network is off", g_hint, "NETWORK OFFLINE");
+    app_stop();
+    lan_peerd_stop();
+}
+
+static void test_lan(void)
+{
+    if (!mkdtemp(lan_runtime)) {
+        check("a runtime directory for the scripted peerd", 0);
+        return;
+    }
+    snprintf(lan_log, sizeof(lan_log), "%s/requests.txt", lan_runtime);
+    test_lan_absent();
+    test_lan_choice(POS_ROTATION_0);
+    test_lan_choice(POS_ROTATION_270);
+    test_lan_stale_save();
+    test_lan_stale_and_live();
+    test_lan_stale_overwritten();
+    test_lan_recovery();
+    test_lan_lobby(POS_ROTATION_0);
+    test_lan_lobby(POS_ROTATION_270);
+    test_lan_silence();
+    {
+        char cmd[700];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s'", lan_runtime);
+        if (system(cmd) != 0) {
+            printf("note: could not remove %s\n", lan_runtime);
+        }
+    }
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -2997,6 +3972,7 @@ int main(void)
     test_multiplayer_lost();
     test_multiplayer_chat(POS_ROTATION_0);
     test_multiplayer_chat(POS_ROTATION_270);
+    test_lan();
     {
         char mp_file[600];
 

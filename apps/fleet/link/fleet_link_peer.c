@@ -4,9 +4,10 @@
  * The shape is fleet_link_mesh.c's, for the same reasons: nothing here may
  * stop the LVGL thread, so requests are written and forgotten, replies are
  * matched by id when they turn up, and the socket is read non-blocking in
- * bounded passes. The waits that remain are pocketipc's own and bounded: a
+ * bounded passes. The waits that remain are bounded: pocketipc's own - a
  * connect of at most CONNECT_TIMEOUT_MS, and a write to a peerd that has
- * stopped reading, which pocketipc gives up on and the link then drops. One connection carries both the subscription and the
+ * stopped reading, which pocketipc gives up on and the link then drops -
+ * and one of at most 60 ms when the link is closed (p_close). One connection carries both the subscription and the
  * requests.
  *
  * What it asks peerd: peer.subscribe, peer.identity (our key), peer.status
@@ -32,9 +33,11 @@
 #include "pocketipc/pocketipc.h"
 
 #include <errno.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* The same bounds as the mesh link, for the same reasons. */
@@ -62,6 +65,10 @@
 #define RX_QUEUE 96
 #define NODES_MAX 32            /* peerd holds no more */
 #define KEPT_MAX 8              /* peerd keeps 4; read with room to spare */
+/* Closing: how long peerd's answers to what was last asked are waited for,
+ * in all, before the request to hide is written (p_close). */
+#define CLOSE_QUIET_MS 15
+#define CLOSE_ROUNDS 4
 
 enum req {
     REQ_NONE = 0,
@@ -127,6 +134,9 @@ struct peer {
     int interfaces;                  /* how many it announces on */
     int no_net_seen;                 /* statuses in a row with nothing to announce on */
     int visible;
+    int want_visible;                /* the owner wants the device seen (the default) */
+    int hide_due;                    /* it stopped wanting it: the lease is to be ended */
+    int lease_asked;                 /* a lease has been asked for on this connection */
     char fault[24];
     char address[16];
     char run_id[40];
@@ -309,6 +319,8 @@ static void drop(struct peer *m, int64_t now)
     m->interfaces = 0;
     m->no_net_seen = 0;
     m->visible = 0;
+    m->hide_due = 0;                 /* a lease nobody renews ends by itself */
+    m->lease_asked = 0;
     m->catching_up = 0;
     m->subscribed = 0;
     m->kept_stale = 1;               /* whatever comes back may have lost its list */
@@ -412,6 +424,7 @@ static int ask_visible(struct peer *m)
     }
     cJSON_AddBoolToObject(p, "visible", 1);
     m->last_lease_ms = m->now;
+    m->lease_asked = 1;
     m->leases++;
     return request(m, REQ_VISIBLE, p);
 }
@@ -462,7 +475,7 @@ static void connect_now(struct peer *m, int64_t now)
     if (request(m, REQ_STATUS, NULL) != 0) {
         return;
     }
-    if (ask_visible(m) != 0) {
+    if (m->want_visible && ask_visible(m) != 0) {
         return;
     }
     m->last_nodes_ms = now;
@@ -566,7 +579,8 @@ static void apply_status(struct peer *m, const cJSON *result)
         m->catching_up = 1;
         m->kept_stale = 1;
     }
-    if (m->ready && !m->visible && m->now - m->last_lease_ms >= STATUS_PERIOD_MS) {
+    if (m->ready && m->want_visible && !m->visible &&
+        m->now - m->last_lease_ms >= STATUS_PERIOD_MS) {
         (void)ask_visible(m);        /* it lapsed, or the service restarted */
     }
     if (m->fd >= 0 && m->ready && m->catching_up) {
@@ -897,8 +911,29 @@ static void p_poll(void *ctx, int64_t now)
     if (!m->ready) {
         return;                      /* closed by a fault: only its status is asked */
     }
-    if (now - m->last_lease_ms >= LEASE_RENEW_MS && ask_visible(m) != 0) {
+    if (m->want_visible && now - m->last_lease_ms >= LEASE_RENEW_MS && ask_visible(m) != 0) {
         return;
+    }
+    /* No longer wanted: the lease is ended rather than left to lapse. Not
+     * before the opponent of a match in hand is kept - peerd, hidden and
+     * keeping nobody, would hear nothing at all. (If the keep keeps failing
+     * the lease lapses by itself within 30 s.) */
+    if (!m->want_visible && m->hide_due && (!m->have_match || !m->kept_stale)) {
+        cJSON *p = cJSON_CreateObject();
+
+        m->hide_due = 0;
+        /* Nothing to end where nothing was asked for: a link told not to
+         * be seen before it ever connected says nothing about it at all. */
+        if (p && m->lease_asked) {
+            cJSON_AddBoolToObject(p, "visible", 0);
+            m->lease_asked = 0;
+            if (request(m, REQ_HIDE, p) != 0) {
+                return;
+            }
+            m->visible = 0;
+        } else {
+            cJSON_Delete(p);
+        }
     }
     if (now - m->last_nodes_ms >= NODES_PERIOD_MS) {
         m->last_nodes_ms = now;
@@ -1057,7 +1092,7 @@ static int p_advertise(void *ctx)
 {
     struct peer *m = ctx;
 
-    if (m->fd < 0 || p_state(m) != FLEET_LINK_UP) {
+    if (m->fd < 0 || p_state(m) != FLEET_LINK_UP || !m->want_visible) {
         return -1;
     }
     return ask_visible(m);
@@ -1073,14 +1108,43 @@ static void p_close(void *ctx)
     struct peer *m = ctx;
 
     if (m->fd >= 0) {
-        cJSON *p = cJSON_CreateObject();
+        uint8_t waste[1024];
+        cJSON *p;
+        int rounds;
+        int spins;
 
+        /* The request below is the last thing written, and the socket is
+         * closed straight after. A pocketipc server answers what it reads in
+         * order and drops the connection - with whatever it has not yet
+         * handled - at the first answer it cannot deliver; so a request of
+         * ours still unanswered when we close takes this one down with it.
+         * What peerd owes us is therefore let arrive first: until the socket
+         * has been quiet for CLOSE_QUIET_MS, and for at most CLOSE_ROUNDS
+         * of that. This is the one wait in the link beyond pocketipc's own,
+         * it happens once, as Fleet leaves multiplayer, and it is bounded
+         * at 60 ms. If the request is lost all the same, the lease ends
+         * this device's visibility within its 30 s. */
+        for (rounds = 0, spins = 0; spins < MAX_PENDING; spins++) {
+            rounds += m->pending[spins].what != REQ_NONE;
+        }
+        /* Nothing owed, nothing to wait for. */
+        for (rounds = rounds ? 0 : CLOSE_ROUNDS; rounds < CLOSE_ROUNDS; rounds++) {
+            struct pollfd pfd = { m->fd, POLLIN, 0 };
+
+            if (poll(&pfd, 1, CLOSE_QUIET_MS) <= 0 || read(m->fd, waste, sizeof(waste)) <= 0) {
+                break;
+            }
+        }
+        p = cJSON_CreateObject();
         /* Fleet is leaving multiplayer: off the network at once, rather
-         * than when the lease would have lapsed. A match in hand is not
+         * than when the lease would have lapsed (which is what happens
+         * anyway if this does not get through). A match in hand is not
          * affected - peerd goes on serving the kept opponent. */
-        if (p) {
+        if (p && m->lease_asked) {
             cJSON_AddBoolToObject(p, "visible", 0);
             (void)request(m, REQ_HIDE, p);
+        } else {
+            cJSON_Delete(p);         /* no lease of ours to end */
         }
         if (m->fd >= 0 && m->subscribed) {
             (void)request(m, REQ_UNSUBSCRIBE, NULL);
@@ -1127,6 +1191,16 @@ static const struct fleet_link_ops OPS = {
     p_match_peer,
 };
 
+int fleet_link_peer_present(const char *service)
+{
+    char path[256];
+    struct stat sb;
+
+    return pocketipc_socket_path(service && *service ? service : FLEET_PEER_SERVICE, path,
+                                 sizeof(path)) == 0 &&
+           stat(path, &sb) == 0 && S_ISSOCK(sb.st_mode);
+}
+
 struct fleet_link *fleet_link_peer_open(const char *service)
 {
     struct peer *m = calloc(1, sizeof(*m));
@@ -1141,6 +1215,7 @@ struct fleet_link *fleet_link_peer_open(const char *service)
     m->kept_count = -1;
     m->kept_stale = 1;
     m->kept_wait_ms = STATUS_PERIOD_MS;
+    m->want_visible = 1;
     pocketipc_reader_init(&m->reader);
     m->link.ops = &OPS;
     m->link.ctx = m;
@@ -1152,6 +1227,25 @@ struct fleet_link *fleet_link_peer_open(const char *service)
 static struct peer *peer_of(const struct fleet_link *link)
 {
     return link && link->ops == &OPS ? link->ctx : NULL;
+}
+
+void fleet_link_peer_set_visible(struct fleet_link *link, int visible)
+{
+    struct peer *m = peer_of(link);
+
+    visible = visible != 0;
+    if (!m || m->want_visible == visible) {
+        return;
+    }
+    m->want_visible = visible;
+    if (!visible) {
+        m->hide_due = 1;             /* written at the next poll (p_poll) */
+    } else {
+        m->hide_due = 0;
+        if (m->fd >= 0 && m->ready) {
+            (void)ask_visible(m);    /* at once: the lobby has just opened */
+        }
+    }
 }
 
 int fleet_link_peer_info(const struct fleet_link *link, struct fleet_link_peer_info *out)

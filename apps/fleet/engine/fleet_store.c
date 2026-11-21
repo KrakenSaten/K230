@@ -164,6 +164,86 @@ const char *fleet_store_match_path(void)
     return fleet_store_match_path_for(FLEET_STORE_MESH);
 }
 
+static int stale_path(enum fleet_store_transport t, char *out, size_t n)
+{
+    const char *file = match_file(t);
+
+    return file && snprintf(out, n, "%s/%s.stale", fleet_store_dir(), file) < (int)n ? 0 : -1;
+}
+
+/* Where a match save names the identity it was written under: after its
+ * magic and version (apps/fleet/net/fleet_match_save.c). The store reads
+ * these bytes to tell one save from another and for nothing else. */
+#define SAVE_KEY_AT 6
+#define SAVE_KEY_LEN 32
+
+static int save_key(enum fleet_store_transport t, uint8_t key[SAVE_KEY_LEN])
+{
+    const char *target = fleet_store_match_path_for(t);
+    uint8_t head[SAVE_KEY_AT + SAVE_KEY_LEN];
+    FILE *f = target ? fopen(target, "rb") : NULL;
+    size_t got;
+
+    if (!f) {
+        return -1;
+    }
+    got = fread(head, 1, sizeof(head), f);
+    fclose(f);
+    if (got != sizeof(head)) {
+        return -1;
+    }
+    memcpy(key, head + SAVE_KEY_AT, SAVE_KEY_LEN);
+    return 0;
+}
+
+int fleet_store_match_stale(enum fleet_store_transport t)
+{
+    char path[sizeof(match_buf[0]) + 8];
+    uint8_t marked[SAVE_KEY_LEN + 1];
+    uint8_t key[SAVE_KEY_LEN];
+    FILE *f;
+    size_t got;
+
+    if (stale_path(t, path, sizeof(path)) != 0) {
+        return 0;
+    }
+    f = fopen(path, "rb");
+    if (!f) {
+        return 0;
+    }
+    got = fread(marked, 1, sizeof(marked), f);
+    fclose(f);
+    return got == SAVE_KEY_LEN && save_key(t, key) == 0 && memcmp(marked, key, SAVE_KEY_LEN) == 0;
+}
+
+int fleet_store_match_set_stale(enum fleet_store_transport t, int stale)
+{
+    char path[sizeof(match_buf[0]) + 8];
+    uint8_t key[SAVE_KEY_LEN];
+    FILE *f;
+    int ok;
+
+    if (stale_path(t, path, sizeof(path)) != 0) {
+        return -1;
+    }
+    if (!stale) {
+        return unlink(path) == 0 || errno == ENOENT ? 0 : -1;
+    }
+    if (save_key(t, key) != 0) {
+        return -1;
+    }
+    f = fopen(path, "wb");
+    if (!f) {
+        return -1;
+    }
+    ok = fwrite(key, 1, sizeof(key), f) == sizeof(key);
+    if (fclose(f) != 0 || !ok) {
+        unlink(path);
+        return -1;
+    }
+    return 0;
+}
+
 int fleet_store_match_save(const uint8_t *blob, size_t n)
 {
     return fleet_store_match_save_for(FLEET_STORE_MESH, blob, n);

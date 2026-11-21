@@ -102,6 +102,12 @@ enum fleet_mp_status fleet_view_mp_state(const struct fleet_match *m, enum fleet
 int fleet_view_mp_status(const struct fleet_match *m, enum fleet_link_state link,
                          const char *peer, char *buf, size_t n)
 {
+    return fleet_view_mp_status_on(m, link, peer, 0, buf, n);
+}
+
+int fleet_view_mp_status_on(const struct fleet_match *m, enum fleet_link_state link,
+                            const char *peer, int lan, char *buf, size_t n)
+{
     char name[FLEET_MATCH_NAME_MAX + 4];
 
     if (!buf || n == 0) {
@@ -112,7 +118,7 @@ int fleet_view_mp_status(const struct fleet_match *m, enum fleet_link_state link
         snprintf(buf, n, "CONNECTING");
         break;
     case FLEET_STATUS_OFFLINE:
-        snprintf(buf, n, "MESH OFFLINE");
+        snprintf(buf, n, lan ? "NETWORK OFFLINE" : "MESH OFFLINE");
         break;
     case FLEET_STATUS_DEPLOYING:
         snprintf(buf, n, "DEPLOY YOUR FLEET");
@@ -482,5 +488,185 @@ int fleet_view_mp_peer_row(const struct fleet_link_peer *p, int64_t now_ms, char
         snprintf(heard, sizeof(heard), "HEARD %d MIN AGO", (int)((now_ms - p->heard_ms) / 60000));
     }
     snprintf(buf, n, "%s " DOT " %s " DOT " %s", name, hops, heard);
+    return 0;
+}
+
+/* ---- the local network -------------------------------------------------------- */
+
+int fleet_view_mp_lan_link(enum fleet_link_state link, const struct fleet_link_peer_info *info,
+                           char *buf, size_t n)
+{
+    if (!buf || n == 0) {
+        return fail(buf, n);
+    }
+    switch (link) {
+    case FLEET_LINK_UP:
+        if (info && info->trouble == FLEET_PEER_NO_NETWORK) {
+            snprintf(buf, n, "Wi-Fi is off and no cable is connected.");
+        } else if (info && info->address[0]) {
+            snprintf(buf, n, "Local network ready. This device is %s.", info->address);
+        } else {
+            snprintf(buf, n, "Local network ready.");
+        }
+        break;
+    case FLEET_LINK_CONNECTING:
+        snprintf(buf, n, "Looking for the local network service.");
+        break;
+    case FLEET_LINK_NO_SERVICE:
+        snprintf(buf, n, "The local network service is not running on this device, and "
+                         "playing over the network needs it. It is switched on per device.");
+        break;
+    case FLEET_LINK_RADIO_OFF:
+        if (info && info->fault[0]) {
+            snprintf(buf, n, "The local network service has stopped with a fault (%s). It "
+                             "cannot be used until that is put right.", info->fault);
+        } else {
+            snprintf(buf, n, "The local network service has stopped with a fault.");
+        }
+        break;
+    default:
+        buf[0] = '\0';
+        break;
+    }
+    return 0;
+}
+
+/* Four numbers of 0 to 255 with dots between, and nothing else. */
+static int address_ok(const char *s)
+{
+    int part;
+
+    if (!s) {
+        return 0;
+    }
+    for (part = 0; part < 4; part++) {
+        unsigned v = 0;
+        int digits = 0;
+
+        while (*s >= '0' && *s <= '9' && digits < 3) {
+            v = v * 10 + (unsigned)(*s - '0');
+            s++;
+            digits++;
+        }
+        if (digits == 0 || v > 255 || *s != (part < 3 ? '.' : '\0')) {
+            return 0;
+        }
+        s++;
+    }
+    return 1;
+}
+
+int fleet_view_mp_lan_notice(enum fleet_link_state link, const struct fleet_link_peer_info *info,
+                             int players, int64_t silent_ms,
+                             enum fleet_link_peer_probe_state probe, const char *asked,
+                             const char *answered, char *buf, size_t n)
+{
+    const char *where = asked && asked[0] ? asked : "that address";
+
+    if (!buf || n == 0) {
+        return fail(buf, n);
+    }
+    buf[0] = '\0';
+    switch (probe) {
+    case FLEET_PEER_PROBE_PENDING:
+        snprintf(buf, n, "Asking %s" ELLIPSIS, where);
+        return 0;
+    case FLEET_PEER_PROBE_ANSWERED:
+        if (answered && answered[0]) {
+            snprintf(buf, n, "%s answered at %s.", answered, where);
+        } else {
+            snprintf(buf, n, "A device answered at %s.", where);
+        }
+        return 0;
+    case FLEET_PEER_PROBE_NO_ANSWER:
+        snprintf(buf, n, "No answer from %s. This network may keep devices apart. Try "
+                         "another network, a cable, or LoRa.", where);
+        return 0;
+    case FLEET_PEER_PROBE_REFUSED:
+        if (address_ok(asked)) {
+            /* A good address that could not be asked: the service was not
+             * ready for it, or has too many questions out. */
+            snprintf(buf, n, "Could not ask %s just now. Try again in a moment.", where);
+        } else {
+            snprintf(buf, n, "Could not ask %s. An address is four numbers, like "
+                             "192.168.1.42.", where);
+        }
+        return 0;
+    default:
+        break;
+    }
+    if (link != FLEET_LINK_UP || players > 0 || (info && info->trouble == FLEET_PEER_NO_NETWORK)) {
+        return 0;
+    }
+    if (silent_ms < FLEET_VIEW_LAN_SILENCE_MS) {
+        snprintf(buf, n, "Listening for players on this network" ELLIPSIS);
+    } else if (info && info->address[0]) {
+        snprintf(buf, n, "No players heard on this network. Enter the other device's "
+                         "address: this one is %s.", info->address);
+    } else {
+        snprintf(buf, n, "No players heard on this network. Both devices need Fleet open on "
+                         "LOCAL NETWORK.");
+    }
+    return 0;
+}
+
+int fleet_view_mp_lan_row(const struct fleet_link_peer *p, int proved, int64_t now_ms, char *buf,
+                          size_t n)
+{
+    char name[FLEET_LINK_NAME_MAX];
+    char heard[32];
+
+    if (!p || !buf || n == 0) {
+        return fail(buf, n);
+    }
+    upper_into(name, sizeof(name), p->name[0] ? p->name : "UNNAMED");
+    if (!p->heard_ms) {
+        snprintf(heard, sizeof(heard), "NOT HEARD YET");
+    } else if (now_ms - p->heard_ms < 60000) {
+        snprintf(heard, sizeof(heard), "HEARD JUST NOW");
+    } else {
+        snprintf(heard, sizeof(heard), "HEARD %d MIN AGO", (int)((now_ms - p->heard_ms) / 60000));
+    }
+    /* The marker before the time: a row too long for its column is cut at
+     * the end, and what is cut must never be the marker. */
+    snprintf(buf, n, "%s%s " DOT " %s", name, proved == 0 ? " " DOT " UNCONFIRMED" : "", heard);
+    return 0;
+}
+
+int fleet_view_mp_recovery(const char *peer, int lan, char *buf, size_t n)
+{
+    if (!buf || n == 0) {
+        return fail(buf, n);
+    }
+    snprintf(buf, n, "Your engagement with %s is kept. It goes on when the %s service is "
+                     "running again, and nothing else can be started until then. Fleet keeps "
+                     "trying; TRY AGAIN looks now.",
+             peer && peer[0] ? peer : "your opponent", lan ? "local network" : "mesh");
+    return 0;
+}
+
+int fleet_view_mp_command(int in_hand, const char *peer, int lan_offered, int choice, int lan,
+                          char *buf, size_t n)
+{
+    if (!buf || n == 0) {
+        return fail(buf, n);
+    }
+    if (in_hand >= 0) {
+        if (lan_offered) {
+            /* The plan's sentence (M2-PLAN 1.1): it is why the other
+             * transport's button stands disabled. */
+            snprintf(buf, n, "An engagement with %s is under way on %s.",
+                     peer && peer[0] ? peer : "your opponent",
+                     in_hand ? "the local network" : "LoRa");
+        } else {
+            snprintf(buf, n, "An engagement with %s is waiting.", who(peer));
+        }
+    } else if (choice) {
+        snprintf(buf, n, "Play another Doors device over LoRa or the local network.");
+    } else if (lan_offered) {
+        snprintf(buf, n, "An invitation is open on %s.", lan ? "the local network" : "LoRa");
+    } else {
+        snprintf(buf, n, "Play another Doors device over the mesh.");
+    }
     return 0;
 }

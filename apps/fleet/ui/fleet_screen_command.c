@@ -7,6 +7,7 @@
 #include "../fleet_app.h"
 
 #include "fleet_view.h"
+#include "fleet_view_mp.h"
 #include "fleet_widgets.h"
 
 #include "../link/fleet_session.h"
@@ -40,7 +41,12 @@ struct fleet_command_ui {
      * without scrolling. After OPPONENT, so every panel keeps its place. */
     lv_obj_t *multi;
     lv_obj_t *multi_state;
+    /* One row, so a second way in costs the panel no height: MULTIPLAYER
+     * alone, as it always was, or - on a device that can do both - LoRa's
+     * button beside the local network's. */
+    lv_obj_t *multi_row;
     lv_obj_t *multi_open;
+    lv_obj_t *multi_lan;
 };
 
 static void on_difficulty(lv_event_t *e)
@@ -70,6 +76,21 @@ static void on_resume(lv_event_t *e)
     fleet_app_resume(lv_event_get_user_data(e));
 }
 
+/* One of the two ways in, shown and not to be pressed, or back as it was.
+ * Not fleet_button_set_enabled: that one is for a primary button and would
+ * make these one. Only ever called on a device with both transports. */
+static void way_enabled(lv_obj_t *button, int enabled)
+{
+    if (enabled) {
+        lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_DISABLED), 0);
+        lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    } else if (lv_obj_has_flag(button, LV_OBJ_FLAG_CLICKABLE)) {
+        pos_style_add(button, POS_STYLE_BUTTON_DISABLED, 0);
+        lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    }
+    lv_obj_invalidate(button);
+}
+
 static void on_multiplayer(lv_event_t *e)
 {
     struct fleet_app *app = lv_event_get_user_data(e);
@@ -78,8 +99,20 @@ static void on_multiplayer(lv_event_t *e)
      * under way and offers RESUME and FORFEIT - the only place FORFEIT is -
      * so this must not jump past it to the board. This press is the player
      * choosing multiplayer, and only now does anything talk to the mesh
-     * service. */
-    fleet_app_multiplayer(app);
+     * service. On a device with both transports this button is LoRa's:
+     * LORA, or RESUME MATCH for a match that is on LoRa. */
+    if (app->mp_lan_offered) {
+        fleet_app_multiplayer_on(app, FLEET_MP_MESH);
+    } else {
+        fleet_app_multiplayer(app);
+    }
+}
+
+static void on_local_network(lv_event_t *e)
+{
+    /* The player choosing the local network, or resuming a match on it:
+     * only now is peerd asked anything. */
+    fleet_app_multiplayer_on(lv_event_get_user_data(e), FLEET_MP_LAN);
 }
 
 /* Hull length drawn as blocks, in the spirit of the segmented meter (DS §9). */
@@ -162,7 +195,16 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     ui->multi_state = pocketui_label(panel, "", POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(ui->multi_state, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->multi_state, LV_PCT(100));
-    ui->multi_open = fleet_button_secondary(panel, "MULTIPLAYER", on_multiplayer, app);
+    ui->multi_row = fleet_hbox(panel, LV_SIZE_CONTENT, 12);
+    /* The row is exactly its buttons' size and paints nothing: a button's
+     * outer band (the Neon theme's) must be drawn as it was when the button
+     * stood in the panel itself. */
+    fleet_app_allow_overflow(ui->multi_row);
+    ui->multi_open = fleet_button_secondary(ui->multi_row, "MULTIPLAYER", on_multiplayer, app);
+    lv_obj_set_flex_grow(ui->multi_open, 1);
+    ui->multi_lan = fleet_button_secondary(ui->multi_row, "LOCAL NETWORK", on_local_network, app);
+    lv_obj_set_flex_grow(ui->multi_lan, 1);
+    lv_obj_add_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
 
     ui->deploy = pocketui_button(ui->foot, "DEPLOY FLEET", on_deploy, app);
     return screen;
@@ -299,19 +341,51 @@ static void command_refresh(struct fleet_app *app)
         char peer[40];
         const struct fleet_match *m = app->mp && app->mp->ready ? &app->mp->m : NULL;
         lv_obj_t *label = lv_obj_get_child(ui->multi_open, 0);
+        lv_obj_t *lan_label = lv_obj_get_child(ui->multi_lan, 0);
+        char text[120];
+        int lan = app->mp_transport == FLEET_MP_LAN;
+        int waiting = fleet_app_mp_waiting(app) || (m && fleet_match_active(m));
 
         if (!app->mp) {
             lv_label_set_text(ui->multi_state, "Not available on this device.");
             lv_obj_add_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
-        } else if (app->mp_saved || (m && fleet_match_active(m))) {
-            lv_label_set_text_fmt(ui->multi_state, "An engagement with %s is waiting.",
-                                  fleet_app_peer(app, peer, sizeof(peer)));
-            lv_label_set_text(label, "RESUME MATCH");
+            lv_obj_add_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
+        } else if (!app->mp_lan_offered) {
+            /* LoRa alone: one button and the words it always had. */
+            fleet_view_mp_command(waiting ? 0 : -1, fleet_app_peer(app, peer, sizeof(peer)), 0, 0,
+                                  0, text, sizeof(text));
+            lv_label_set_text(ui->multi_state, text);
+            lv_label_set_text(label, waiting ? "RESUME MATCH" : "MULTIPLAYER");
             lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_label_set_text(ui->multi_state, "Play another Doors device over the mesh.");
-            lv_label_set_text(label, "MULTIPLAYER");
+            /* Both transports, each on its own button, always: LoRa's first.
+             * With a match in hand, or an invitation open, on one of them the
+             * other stands disabled and the panel says why (M2-PLAN 1.1). */
+            int choice = fleet_app_mp_choice(app);
+            int held = -1;              /* the transport a match is in hand on */
+            int open_on = -1;           /* the one that can be entered, when not both */
+
+            if (fleet_app_mp_elsewhere(app)) {
+                held = !lan;
+                snprintf(peer, sizeof(peer), "%s", app->mp_other_peer);
+            } else if (waiting) {
+                held = lan;
+                fleet_app_peer(app, peer, sizeof(peer));
+            }
+            if (held >= 0) {
+                open_on = held;
+            } else if (!choice) {
+                open_on = lan;
+            }
+            fleet_view_mp_command(held, peer, 1, choice, open_on > 0, text, sizeof(text));
+            lv_label_set_text(ui->multi_state, text);
+            lv_label_set_text(label, held == 0 ? "RESUME MATCH" : "LORA");
+            lv_label_set_text(lan_label, held == 1 ? "RESUME MATCH" : "LOCAL NETWORK");
             lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
+            way_enabled(ui->multi_open, open_on != 1);
+            way_enabled(ui->multi_lan, open_on != 0);
         }
     }
 }

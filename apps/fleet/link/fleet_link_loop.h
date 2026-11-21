@@ -32,6 +32,7 @@ struct fleet_link_loop_cfg {
     int chat;               /* the opponent answers every line of chat, after think_ms */
     int crowd;              /* bystanders listed beside the opponent, never answering */
     int lan;                /* the link reports the LAN profile, and the opponent plays on it */
+    int self;               /* this device's key is another one: a device whose identity changed */
     uint32_t seed;
 };
 

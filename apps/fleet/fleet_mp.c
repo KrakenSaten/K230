@@ -3,14 +3,25 @@
  * drives them, and the steering of the screens by the match's phase
  * (docs/apps/FLEET_MULTIPLAYER.md). See fleet_app.h.
  *
- * What opening the app does here: pick a link and read the saved match file.
- * Nothing more - no connection to the mesh service and no packet - until the
+ * What opening the app does here: pick a link and read the saved match files.
+ * Nothing more - no connection to any service and no packet - until the
  * player opens Multiplayer or presses Resume (fleet_session.h).
  *
- * The link is meshcored's (fleet_link_mesh.c) unless POCKETFLEET_MP_FAKE asks
- * for the virtual opponent (fleet_link_loop.h), a development aid in the
- * spirit of POCKETFLEET_SCREEN: with it set, one simulator shell plays a whole
- * match against the real protocol and nothing reaches any radio.
+ * There are two transports and one session (docs/decisions/ADR-018): LoRa,
+ * through meshcored (fleet_link_mesh.c), and the local network, through
+ * peerd (fleet_link_peer.c). Each has its own save, and a save is only ever
+ * handed to the session of its own transport: the file decides, before a
+ * byte of it is decoded. The session is on LoRa unless the local network's
+ * save holds the match in hand, and moves only when the player picks the
+ * other one with no match in hand on either. The local network is offered
+ * only on a device where peerd's socket exists (or its save holds a match):
+ * elsewhere Fleet is exactly what it was.
+ *
+ * POCKETFLEET_MP_FAKE asks for the virtual opponent instead
+ * (fleet_link_loop.h), a development aid in the spirit of POCKETFLEET_SCREEN:
+ * with it set, one simulator shell plays a whole match against the real
+ * protocol and nothing reaches any radio or network. "lan" in it offers the
+ * local network too, played by the same virtual opponent on the LAN profile.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -22,6 +33,7 @@
 #include "engine/fleet_store.h"
 #include "link/fleet_link_loop.h"
 #include "link/fleet_link_mesh.h"
+#include "link/fleet_link_peer.h"
 #include "link/fleet_session.h"
 #include "pocketlog/pocketlog.h"
 #include "ui/fleet_view_mp.h"
@@ -31,6 +43,7 @@
 #include <string.h>
 #include <sys/random.h>
 #include <time.h>
+#include <unistd.h>
 
 /* Often enough that an answer is on the screen as it arrives; the session
  * does nothing on a tick with nothing due. */
@@ -44,13 +57,26 @@ int64_t fleet_app_now(struct fleet_app *app)
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000 + (app ? app->mp_clock_offset : 0);
 }
 
+/* The one place a transport becomes a save file. */
+static enum fleet_store_transport store_of(enum fleet_mp_transport t)
+{
+    return t == FLEET_MP_LAN ? FLEET_STORE_LAN : FLEET_STORE_MESH;
+}
+
 static int mp_save(void *user, const uint8_t *blob, size_t n)
 {
-    (void)user;
-    if (fleet_store_match_save(blob, n) != 0) {
+    struct fleet_app *app = user;
+    enum fleet_store_transport store = store_of((enum fleet_mp_transport)app->mp_transport);
+
+    if (fleet_store_match_save_for(store, blob, n) != 0) {
         LOG_WARN("fleet: cannot write %s, this match lasts for the session only",
-                 fleet_store_match_path());
+                 fleet_store_match_path_for(store));
         return -1;
+    }
+    if (app->mp_stale[app->mp_transport]) {
+        /* Written anew, by this identity: it is nobody else's any more. */
+        app->mp_stale[app->mp_transport] = 0;
+        (void)fleet_store_match_set_stale(store, 0);
     }
     return 0;
 }
@@ -102,8 +128,9 @@ int fleet_app_mp_status(struct fleet_app *app, char *buf, size_t n)
     if (app->link && app->link->ops->state) {
         link = app->link->ops->state(app->link->ctx);
     }
-    return fleet_view_mp_status(app->mp->ready ? &app->mp->m : NULL, link,
-                                fleet_app_peer(app, peer, sizeof(peer)), buf, n);
+    return fleet_view_mp_status_on(app->mp->ready ? &app->mp->m : NULL, link,
+                                   fleet_app_peer(app, peer, sizeof(peer)),
+                                   app->mp_transport == FLEET_MP_LAN, buf, n);
 }
 
 /* The header says where the match stands. Read afresh every time from the
@@ -181,6 +208,22 @@ void fleet_app_mp_changed(struct fleet_app *app)
         return;
     }
     rev = fleet_session_revision(app->mp);
+    if (app->mp->ready && app->mp_lan_offered &&
+        app->mp->identity_changed != app->mp_stale[app->mp_transport] && app->mp_revision == 0) {
+        /* The link has said who this device is, and so whose the save is.
+         * On a device with two transports that is remembered, so another
+         * identity's save does not pass for a match in hand again. */
+        app->mp_stale[app->mp_transport] = (uint8_t)(app->mp->identity_changed != 0);
+        (void)fleet_store_match_set_stale(
+            store_of((enum fleet_mp_transport)app->mp_transport), app->mp->identity_changed);
+    }
+    if (app->mp->ready && app->mp_lan_offered && app->mp->identity_changed &&
+        app->mp_revision == 0) {
+        /* And it is no match of this device's to resume, now or once a new
+         * one has been written over it. */
+        app->mp_saved = 0;
+        app->mp_saved_peer[0] = '\0';
+    }
     if (app->mp->ready && app->mp_revision == 0) {
         /* The match was only just read, when our key became known: nothing
          * moved by itself, so the player stays where they chose to be - in
@@ -194,10 +237,38 @@ void fleet_app_mp_changed(struct fleet_app *app)
     refresh_current(app);
 }
 
+/* When this device is to be seen on the local network: while the lobby is
+ * on screen (ADR-008: while its screen is open), and while an invitation the
+ * player sent, or one they accepted, is waiting for its answer. The second
+ * is not discovery but its consequence: until a match begins nobody is kept,
+ * and a peerd that is hidden and keeps nobody drops the very packets that
+ * would begin it - an invitation would die, or be accepted on one side only,
+ * the moment either player looked at another screen. Both are the player's
+ * own acts and both run out by themselves (the match's human window). An
+ * invitation merely received is not among them: anybody on the network can
+ * send one, it has no end of its own, and answering it means coming back to
+ * the lobby anyway. A match in hand needs none of it: its opponent is kept.
+ * One place decides, every tick; the link acts only on a change. A no-op on
+ * any other link. */
+static void follow_visibility(struct fleet_app *app)
+{
+    const struct fleet_session *s = app->mp;
+    int handshake = s->ready &&
+                    (s->m.phase == FLEET_MP_INVITING || s->m.phase == FLEET_MP_ACCEPTING);
+
+    fleet_link_peer_set_visible(app->link,
+                                app->mp_transport == FLEET_MP_LAN && s->engaged &&
+                                    (app->current == FLEET_SCREEN_LOBBY || handshake));
+}
+
 static void on_mp_tick(lv_timer_t *t)
 {
     struct fleet_app *app = lv_timer_get_user_data(t);
 
+    if (!app->mp) {
+        return;
+    }
+    follow_visibility(app);
     fleet_session_poll(app->mp, fleet_app_now(app));
     if (fleet_session_revision(app->mp) != app->mp_revision) {
         fleet_app_mp_changed(app);
@@ -217,6 +288,8 @@ static void on_mp_tick(lv_timer_t *t)
     }
     if (app->current == FLEET_SCREEN_CHAT) {
         fleet_screen_chat_tick(app);
+    } else if (app->current == FLEET_SCREEN_LOBBY) {
+        fleet_screen_lobby_tick(app);
     }
 }
 
@@ -247,45 +320,150 @@ static int summarise_saved(struct fleet_app *app, const uint8_t *blob, size_t n)
     return ok ? 0 : -1;
 }
 
-void fleet_mp_create(struct fleet_app *app)
+/* Whether this device can play over the local network at all. */
+static int lan_available(void)
 {
     const char *fake = getenv("POCKETFLEET_MP_FAKE");
-    uint8_t blob[FLEET_STORE_MATCH_MAX];
-    int n;
 
     if (fake && *fake) {
         struct fleet_link_loop_cfg cfg;
 
         fleet_link_loop_defaults(&cfg);
         fleet_link_loop_parse(fake, &cfg);
-        /* This session saves to the mesh's file (mp_save), so it plays on
-         * the mesh's profile whatever the spec says: a match is only ever
-         * saved and read by its own transport (ADR-018 point 3). "lan" is
-         * for the tests, until a LAN session with its own save exists. */
-        cfg.lan = 0;
-        app->link = fleet_link_loop_open(&cfg);
-        LOG_INFO("fleet: multiplayer against the virtual opponent (%s)", fake);
-    } else {
-        app->link = fleet_link_mesh_open(NULL);
+        return cfg.lan != 0;
     }
+    return fleet_link_peer_present(NULL);
+}
+
+static struct fleet_link *open_link(enum fleet_mp_transport t)
+{
+    const char *fake = getenv("POCKETFLEET_MP_FAKE");
+
+    if (fake && *fake) {
+        struct fleet_link_loop_cfg cfg;
+
+        fleet_link_loop_defaults(&cfg);
+        fleet_link_loop_parse(fake, &cfg);
+        /* The profile follows the transport, never the spec: a match is only
+         * ever saved and read by its own transport (ADR-018 point 3). */
+        cfg.lan = t == FLEET_MP_LAN;
+        LOG_INFO("fleet: multiplayer against the virtual opponent (%s)", fake);
+        return fleet_link_loop_open(&cfg);
+    }
+    return t == FLEET_MP_LAN ? fleet_link_peer_open(NULL) : fleet_link_mesh_open(NULL);
+}
+
+/* The session, on one transport: its link, and that transport's save. Opens
+ * no connection and sends nothing. */
+static int open_session(struct fleet_app *app, enum fleet_mp_transport t)
+{
+    enum fleet_store_transport store = store_of(t);
+    uint8_t blob[FLEET_STORE_MATCH_MAX];
+    int n;
+
+    app->mp_transport = (uint8_t)t;
+    app->mp_saved = 0;
+    app->mp_saved_peer[0] = '\0';
+    app->mp_revision = 0;
+    app->mp_phase = FLEET_MP_IDLE;
+    app->mp_forfeit_armed = 0;
+    app->link = open_link(t);
     app->mp = calloc(1, sizeof(*app->mp));
     if (!app->link || !app->mp) {
+        if (app->link) {
+            app->link->ops->close(app->link->ctx);
+            app->link = NULL;
+        }
         free(app->mp);
         app->mp = NULL;
-        return;
+        return -1;
     }
+    /* Not seen on the network until follow_visibility says so: nothing is
+     * asked for on the link's first connection that the player did not ask
+     * for. A no-op on any other link. */
+    fleet_link_peer_set_visible(app->link, 0);
     fleet_session_init(app->mp, app->link, mp_save, mp_entropy, app);
-    n = fleet_store_match_load(blob, sizeof(blob));
+    n = fleet_store_match_load_for(store, blob, sizeof(blob));
     if (n > 0) {
         fleet_session_set_saved(app->mp, blob, (size_t)n, 0);
         if (summarise_saved(app, blob, (size_t)n) != 0) {
             /* Left in place, as save.v1 is: it is the only evidence. */
-            LOG_WARN("fleet: %s cannot be read; no match to resume", fleet_store_match_path());
+            LOG_WARN("fleet: %s cannot be read; no match to resume",
+                     fleet_store_match_path_for(store));
         }
     } else if (n < 0) {
         fleet_session_set_saved(app->mp, NULL, 0, 1);
-        LOG_WARN("fleet: %s cannot be read; no match to resume", fleet_store_match_path());
+        LOG_WARN("fleet: %s cannot be read; no match to resume",
+                 fleet_store_match_path_for(store));
     }
+    return 0;
+}
+
+static void close_session(struct fleet_app *app)
+{
+    if (app->link) {
+        app->link->ops->close(app->link->ctx);
+        app->link = NULL;
+    }
+    free(app->mp);
+    app->mp = NULL;
+}
+
+/* Whether a transport's save holds a match between Deploy and Reveal that
+ * this device could still play. The blob is read under its own identity and
+ * handed to nobody; one known to be another identity's does not count. */
+static int save_in_hand(const struct fleet_app *app, enum fleet_mp_transport t, char *peer,
+                        size_t peer_size)
+{
+    uint8_t blob[FLEET_STORE_MATCH_MAX];
+    int n = fleet_store_match_load_for(store_of(t), blob, sizeof(blob));
+
+    if (peer && peer_size) {
+        peer[0] = '\0';
+    }
+    return n > 0 && !app->mp_stale[t] &&
+           fleet_match_save_in_hand(blob, (size_t)n, peer, peer_size);
+}
+
+/* One match per device (ADR-008 decision 4, ADR-018 point 4): the session is
+ * told whether the other transport's save holds one, and then begins none. */
+static void read_other(struct fleet_app *app)
+{
+    enum fleet_mp_transport other =
+        app->mp_transport == FLEET_MP_LAN ? FLEET_MP_MESH : FLEET_MP_LAN;
+
+    app->mp_other_in_hand =
+        (uint8_t)save_in_hand(app, other, app->mp_other_peer, sizeof(app->mp_other_peer));
+    if (app->mp) {
+        fleet_session_set_other_in_hand(app->mp, app->mp_other_in_hand);
+    }
+}
+
+void fleet_mp_create(struct fleet_app *app)
+{
+    enum fleet_mp_transport t = FLEET_MP_MESH;
+    int lan_hand;
+
+    app->mp_stale[FLEET_MP_MESH] = (uint8_t)fleet_store_match_stale(store_of(FLEET_MP_MESH));
+    app->mp_stale[FLEET_MP_LAN] = (uint8_t)fleet_store_match_stale(store_of(FLEET_MP_LAN));
+    lan_hand = save_in_hand(app, FLEET_MP_LAN, NULL, 0);
+    /* The transport is the one whose save holds the match in hand. Both can
+     * seem to hold one when one of them is another identity's and that is
+     * not known - not yet learnt, or its mark lost. LoRa's is then offered
+     * first; what it really is is learnt when its link says who this device
+     * is, and RESUME MATCH then leads to the other (fleet_app_mp_elsewhere). */
+    if (lan_hand && !save_in_hand(app, FLEET_MP_MESH, NULL, 0)) {
+        t = FLEET_MP_LAN;
+    }
+    app->mp_lan_offered = (uint8_t)(lan_hand || lan_available());
+    if (!app->mp_lan_offered) {
+        /* LoRa alone: nothing is remembered about its save beyond the save. */
+        app->mp_stale[FLEET_MP_MESH] = 0;
+    }
+    if (open_session(app, t) != 0) {
+        return;
+    }
+    read_other(app);
     app->mp_timer = lv_timer_create(on_mp_tick, MP_POLL_MS, app);
 }
 
@@ -295,12 +473,87 @@ void fleet_mp_destroy(struct fleet_app *app)
         lv_timer_delete(app->mp_timer);
         app->mp_timer = NULL;
     }
-    if (app->link) {
-        app->link->ops->close(app->link->ctx);
-        app->link = NULL;
+    close_session(app);
+}
+
+/* A saved match of this session's own transport is waiting. Where there is
+ * only LoRa this is mp_saved, as it always was. */
+static int waiting_here(const struct fleet_app *app)
+{
+    return app->mp_saved && !(app->mp_lan_offered && app->mp_stale[app->mp_transport]);
+}
+
+int fleet_app_mp_elsewhere(const struct fleet_app *app)
+{
+    const struct fleet_session *s = app ? app->mp : NULL;
+
+    /* The other transport's save holds a match, and this one has nothing in
+     * hand or under way: nothing waiting, no match being played, no
+     * invitation open. */
+    return s && app->mp_lan_offered && app->mp_other_in_hand && !waiting_here(app) &&
+           (!s->ready || s->m.phase == FLEET_MP_IDLE || s->m.phase == FLEET_MP_DONE);
+}
+
+int fleet_app_mp_waiting(const struct fleet_app *app)
+{
+    return app && (waiting_here(app) || fleet_app_mp_elsewhere(app));
+}
+
+int fleet_app_mp_choice(const struct fleet_app *app)
+{
+    const struct fleet_session *s = app ? app->mp : NULL;
+
+    if (!s || !app->mp_lan_offered || fleet_app_mp_waiting(app) || app->mp_other_in_hand) {
+        return 0;
     }
-    free(app->mp);
-    app->mp = NULL;
+    /* A finished match waiting to be put away does not block the other
+     * transport (ADR-018 point 4), an END still owed included: its save
+     * keeps it, and it is sent again when the player comes back. */
+    return !s->ready || s->m.phase == FLEET_MP_IDLE || s->m.phase == FLEET_MP_DONE;
+}
+
+void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport transport)
+{
+    if (!app || !app->mp) {
+        return;
+    }
+    if (transport != (enum fleet_mp_transport)app->mp_transport &&
+        (fleet_app_mp_choice(app) || fleet_app_mp_elsewhere(app))) {
+        enum fleet_mp_transport was = (enum fleet_mp_transport)app->mp_transport;
+
+        /* The session leaves the transport it was on: its link is closed
+         * (and on the network that ends this device's visibility at once),
+         * and nothing of it is carried over but what its own save holds. */
+        close_session(app);
+        if (open_session(app, transport) != 0 && open_session(app, was) != 0) {
+            fleet_app_show(app, FLEET_SCREEN_COMMAND);
+            return;
+        }
+        read_other(app);
+        fleet_screen_lobby_enter(app);
+    }
+    fleet_app_multiplayer(app);
+}
+
+void fleet_app_mp_retry(struct fleet_app *app)
+{
+    enum fleet_mp_transport t;
+
+    if (!app || !app->mp) {
+        return;
+    }
+    /* The same transport, its save read again and its service looked for
+     * afresh, at once rather than when the link's own next try comes round.
+     * Nothing is lost by it: what is not on disk was never begun. */
+    t = (enum fleet_mp_transport)app->mp_transport;
+    close_session(app);
+    if (open_session(app, t) != 0) {
+        fleet_app_show(app, FLEET_SCREEN_COMMAND);
+        return;
+    }
+    read_other(app);
+    app->mode = FLEET_MODE_MULTI;
+    fleet_session_engage(app->mp, fleet_app_now(app));
 }
 
 void fleet_app_multiplayer(struct fleet_app *app)
@@ -411,6 +664,24 @@ static void skip(struct fleet_app *app, int64_t ms)
     fleet_app_mp_changed(app);
 }
 
+/* The real link, given real time: whatever answers as peerd is another
+ * process. For a screenshot only - the shell takes it after its first tick,
+ * and the lobby should by then be showing what peerd said. */
+static void settle(struct fleet_app *app, int ms)
+{
+    int t;
+
+    for (t = 0; t < ms; t += 10) {
+        usleep(10000);
+        follow_visibility(app);
+        fleet_session_poll(app->mp, fleet_app_now(app));
+        if (t % 100 == 0) {
+            fleet_screen_lobby_refresh(app);
+        }
+    }
+    fleet_app_mp_changed(app);
+}
+
 /* Our side's shot, chosen as the AI would from our own answers. */
 static int debug_fire(struct fleet_app *app)
 {
@@ -443,10 +714,29 @@ int fleet_mp_debug(struct fleet_app *app, const char *want)
     int plies = 0;
     int i;
 
-    if (strcmp(want, "lobby") != 0 && strncmp(want, "mp_", 3) != 0) {
+    if (strcmp(want, "lobby") != 0 && strncmp(want, "mp_", 3) != 0 &&
+        strncmp(want, "lan_", 4) != 0) {
         return 0;
     }
     if (!app->mp) {
+        return 1;
+    }
+    if (strncmp(want, "lan_", 4) == 0) {
+        /* The local network's lobby, against whatever answers as peerd:
+         * as it opens, after an address has been asked, and after the six
+         * seconds of silence. */
+        fleet_app_multiplayer_on(app, FLEET_MP_LAN);
+        if (getenv("POCKETFLEET_MP_FAKE") || app->mp_transport != FLEET_MP_LAN) {
+            return 1;
+        }
+        settle(app, 600);
+        if (strcmp(want, "lan_ask") == 0 && getenv("POCKETFLEET_LAN_ASK")) {
+            fleet_screen_lobby_ask(app, getenv("POCKETFLEET_LAN_ASK"));
+            settle(app, 900);
+        } else if (strcmp(want, "lan_silent") == 0) {
+            app->mp_clock_offset += 7000;
+            settle(app, 100);
+        }
         return 1;
     }
     if (!getenv("POCKETFLEET_MP_FAKE")) {

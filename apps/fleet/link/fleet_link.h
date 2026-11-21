@@ -14,12 +14,15 @@
  *                      the fake transport of P3; only POCKETFLEET_MP_FAKE
  *                      turns it on.
  *
- * A third is written and not yet opened by the app:
+ * and a third for the other transport:
  *
  *   fleet_link_peer.c  the local network: peerd's peer.app_* over pocketipc
- *                      (ADR-017, ADR-018).
+ *                      (ADR-017, ADR-018). Opened when the player picks
+ *                      LOCAL NETWORK, on a device where peerd is.
  *
- * Every call returns at once. A link never blocks the LVGL thread.
+ * Every call returns at once. A link never blocks the LVGL thread - but for
+ * close on the local network's link, which may wait up to 60 ms for the
+ * service's outstanding answers (fleet_link_peer.c, p_close).
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0

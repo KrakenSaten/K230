@@ -12,11 +12,15 @@
  * peerd, all of them only while it is polled - which the session does only
  * once the player has engaged multiplayer (fleet_session.h):
  *
- *   visibility  peerd is silent until asked. While the link is polled it
- *               renews peerd's 30 s visibility lease; closing it ends the
- *               lease, so a Fleet that is not in multiplayer announces
- *               nothing and hears no stranger. (With a match in hand peerd
- *               stays bound for the kept opponent, and for nobody else.)
+ *   visibility  peerd is silent until asked. While the link is polled and
+ *               its owner wants the device seen (fleet_link_peer_set_visible;
+ *               it does unless told otherwise) it renews peerd's 30 s
+ *               visibility lease; told otherwise, or closed, it ends the
+ *               lease. The app wants it while the lobby is on screen and
+ *               while an invitation of the player's own is waiting for its
+ *               answer; a Fleet that is anywhere else announces nothing and
+ *               hears no stranger. (With a match in hand peerd stays bound
+ *               for the kept opponent, and for nobody else.)
  *   the opponent  the session tells the link who the match in hand is with
  *               (fleet_link_ops.match_peer). The link has peerd keep that
  *               peer - so the match survives a restart with nobody visible -
@@ -37,9 +41,27 @@
 /* The same number as on the mesh: a game has one port on every transport. */
 #define FLEET_PEER_PORT 1
 
+/* Whether peerd's socket exists on this device (service NULL: the usual
+ * one). A look at the filesystem and nothing else: nothing is connected to
+ * and nothing is asked, so a Fleet that has not been taken into multiplayer
+ * still says nothing to any service. It is how the app decides whether to
+ * offer the local network at all. */
+int fleet_link_peer_present(const char *service);
+
 /* A link to peerd on its usual socket (service NULL), or on another one
  * (tests). Connects lazily, on the first poll. NULL when out of memory. */
 struct fleet_link *fleet_link_peer_open(const char *service);
+
+/* Whether this device is to be visible on the network: announced, and
+ * heard by strangers. On (the default) the lease is asked for and renewed;
+ * off it is ended and not asked for again - once the opponent of a match
+ * just begun has been kept, so that while the link is open the match has no
+ * moment in which peerd would hear neither a stranger nor a kept peer.
+ * (Closing the link in the instant between a match beginning and its
+ * opponent being kept is the exception; the match's own retries cover it
+ * when it is resumed.) Datagrams with a kept opponent go on either way. A
+ * no-op on a link that is not this one. */
+void fleet_link_peer_set_visible(struct fleet_link *link, int visible);
 
 /* What is wrong, for the words on the screen. NO_SERVICE and FAULT are why
  * the link is not up; NO_NETWORK is said of a link that is. */

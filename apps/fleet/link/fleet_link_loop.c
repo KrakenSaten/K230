@@ -105,6 +105,8 @@ int fleet_link_loop_parse(const char *spec, struct fleet_link_loop_cfg *cfg)
             cfg->crowd = atoi(p);
         } else if (word(&p, "lan")) {
             cfg->lan = 1;
+        } else if (word(&p, "self=")) {
+            cfg->self = atoi(p) & 0xff;
         }
         p = strchr(p, ',');
         if (p) {
@@ -422,6 +424,7 @@ struct fleet_link *fleet_link_loop_open(const struct fleet_link_loop_cfg *cfg)
         l->self[i] = (uint8_t)(0xD0 + i);
         l->peer_key[i] = (uint8_t)(0x50 + i);
     }
+    l->self[0] ^= (uint8_t)l->cfg.self;
     for (i = 0; i <= FLEET_LINK_LOOP_CROWD_MAX; i++) {
         l->order[i] = i;
     }
