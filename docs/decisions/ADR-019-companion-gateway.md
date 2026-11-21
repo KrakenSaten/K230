@@ -1,6 +1,6 @@
 # ADR-019: An authenticated Companion Gateway (`gatewayd`)
 
-Status: **Proposed** (draft for acceptance). The direction was approved by the product owner on 2026-11-21 with eight conditions, recorded under "Terms of the approval"; this ADR turns them into rules. Nothing is implemented, nothing has run on a unit.
+Status: **Accepted** by the product owner, 2026-11-21, as written. The direction had been approved the same day with eight conditions, recorded under "Terms of the approval"; this ADR turns them into rules. **Acceptance of the design does not mean an implementation is validated**: nothing is implemented, nothing has run on a unit, and the checks of `docs/design/companion/THREAT_MODEL.md` §5 and each hardware gate still need their own go-ahead. ADR-016 amendment 1 is a separate decision and remains proposed.
 Date: 2026-11-21
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -53,7 +53,7 @@ Binding constraints:
 7. One thread, one `poll()` loop, non-blocking I/O. It reads its upstream connections continuously and queues per client, so a slow client cannot make pocketipc's backpressure rule fire against another service.
 8. It drops every capability and sets `no_new_privs` before it accepts a connection. It remains uid 0 until Doors has per-service users.
 9. It logs lifecycle lines only: never message text, a node name, a key, a token, or an address other than a connecting client's.
-9a. Names (proposed 2026-11-21): the service is `gatewayd`; its protocol and local control API are `gateway.*`, protocol version 1; it listens on **TCP 47231** (subject to the port being free on the image, `docs/design/companion/README.md` H4).
+9a. Names: the service is `gatewayd`; its protocol and local control API are `gateway.*`, protocol version 1; it listens on **TCP 47231** (subject to the port being free on the image, `docs/design/companion/README.md` H4).
 9b. **No device password, no gateway.** The service does not listen, and cannot be enabled from Settings, while the unit's root account has no password set: a unit whose sshd would admit anyone on the network must not also be made a normal member of that network by this service. The service reports `password_required` and stays closed. How a device password is set on a unit is not defined by Doors today (ADR-016 calls it "a device password, which this app makes more pressing"); that mechanism is a precondition of product integration, not of this ADR's host-side work.
 
 ### 2. Transport
@@ -97,7 +97,7 @@ Revisit when: Doors gets per-service users (then the gateway gets its own) or a 
 Reviewed against every accepted ADR on 2026-11-21. No accepted rule is contradicted; three are touched and say so here.
 
 - **ADR-002** (services own I/O, apps use pocketipc): followed. The gateway is a service and a pocketipc client; no app or shell code opens a network socket for it.
-- **ADR-003 and `docs/ARCHITECTURE.md`** ("no other Doors component may persist a secret"): **this ADR adds one exception**, the gateway's private key (rule 15), under the same file-permission protection and the same limits as ADR-003 and ADR-017 §2. On acceptance that sentence in `docs/ARCHITECTURE.md` must name it. The paired list holds no secret.
+- **ADR-003 and `docs/ARCHITECTURE.md`** ("no other Doors component may persist a secret"): **this ADR adds one exception**, the gateway's private key (rule 15), under the same file-permission protection and the same limits as ADR-003 and ADR-017 §2. That sentence in `docs/ARCHITECTURE.md` names it since the acceptance. The paired list holds no secret.
 - **ADR-007** (no network parser and no crypto library in the shell): followed. Settings talks to `gatewayd.sock`; the QR code is drawn by LVGL from a string.
 - **ADR-016** (packet capture): not changed by this ADR. Everything a client may see or do of a capture is decided in ADR-016 amendment 1, which is proposed separately; without it the gateway has no capture entry.
 - **ADR-017** (peerd): independent. peerd's UDP 47230 and this service's TCP 47231 do not collide. ADR-017's terms asked for established constructions and no custom handshake, and named libsodium for peerd; TLS 1.3 is an established construction with no first-party handshake, and uses a library already in the image, so no dependency is added (AGENTS.md: no dependency change without a proposal).
@@ -135,5 +135,5 @@ Classes as in AGENTS.md.
 | Date | Decision | By |
 | --- | --- | --- |
 | 2026-11-21 | M0 direction approved with the eight conditions above; M1 documentation requested | Product owner |
-| 2026-11-21 | Proposed for the final text: `gatewayd`; TCP 47231; `gateway.*` v1; disabled by default; a configured device password required before the gateway can be enabled (rules 1, 9a, 9b) | Product owner |
-| | ADR-019 accepted / changed / rejected (pending) | Product owner |
+| 2026-11-21 | Decided for the final text: `gatewayd`; TCP 47231; `gateway.*` v1; disabled by default; a configured device password required before the gateway can be enabled (rules 1, 9a, 9b) | Product owner |
+| 2026-11-21 | **ADR-019 accepted as written**, including rules 9a and 9b and the scope names of rule 24 | Product owner |

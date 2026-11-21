@@ -206,8 +206,12 @@ world-readable and unauthenticated, and must never hold passwords, private
 keys, Wi-Fi credentials or tokens. The one exception is netd's Wi-Fi store,
 under docs/decisions/ADR-003-wifi-credentials.md (accepted 2026-09-13):
 a root-only file, protected by Unix file permissions and not encrypted, with
-no secret in logs, results, command lines or the environment. No other
-Doors component may persist a secret.
+no secret in logs, results, command lines or the environment. Two later
+ADRs each add one key under the same protection: peerd's identity
+(docs/decisions/ADR-017-peer-datagrams.md) and the Companion Gateway's
+private key (docs/decisions/ADR-019-companion-gateway.md, accepted
+2026-11-21; not implemented). No other Doors component may persist a
+secret.
 
 ## netd
 

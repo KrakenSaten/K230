@@ -9,7 +9,7 @@ DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, Packe
 | Document | What it settles | Status |
 | --- | --- | --- |
 | [M0-PROPOSAL.md](M0-PROPOSAL.md) | Feasibility, what exists, what is missing, alternatives, the phased plan | Direction approved 2026-11-21 with eight conditions |
-| [ADR-019](../../decisions/ADR-019-companion-gateway.md) | The gateway: service, transport, keys, pairing, what a client can never do | Proposed |
+| [ADR-019](../../decisions/ADR-019-companion-gateway.md) | The gateway: service, transport, keys, pairing, what a client can never do | **Accepted 2026-11-21** |
 | [ADR-016 amendment 1](../../decisions/ADR-016-amendment-1-companion.md) | Aggregate capture figures, HOLD/STOP, START by request and a tap | Proposed |
 | [docs/api/gateway.md](../../api/gateway.md) | Protocol v1: envelope, versioning, scopes, every method and event | Draft |
 | [PAIRING.md](PAIRING.md) | Identities, certificates without a clock, pairing, revocation, reconnect and resume | Draft |
@@ -38,7 +38,7 @@ DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, Packe
 - **`gateway.unpair`** added so a phone can remove itself.
 - Certificates carry fixed dates and no decision reads them (M0 said only "ignore validity dates").
 
-## Proposed decisions (recorded 2026-11-21, pending final approval of ADR-019)
+## Decisions (product owner, 2026-11-21; ADR-019 accepted the same day)
 
 | Decision | Value | Where |
 | --- | --- | --- |
@@ -52,14 +52,13 @@ DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, Packe
 
 ## Unresolved decisions
 
-For the product owner. The first two block implementation; the rest block the milestone named.
+For the product owner. Each blocks the milestone named.
 
 | # | Decision | Recommendation | Blocks |
 | --- | --- | --- | --- |
-| U1 | Accept ADR-019 | Accept | all implementation |
 | U2 | Accept ADR-016 amendment 1 | Accept | the capture group only |
 | U4 | The shell hook that lets an app serve methods on `shell.sock`: not designed, and an addition to an existing API | Design it as the first step of the capture milestone; alternative: a dedicated socket owned by the app | the capture group |
-| U5 | The scope names and the init order `S70` (the service and API names are recorded above) | As written | gateway core |
+| U5 | The init order `S70` (the scope names were accepted with ADR-019 rule 24) | As written | product integration |
 | U6 | Logs and crash reports to a phone (`system.logs`, `system.crashes`) | Not in v1; later behind its own scope, after checking what the logs can contain | nothing |
 | U7 | **How a device password is set.** Rule 9b requires one, and Doors has no way to set it today (only `passwd` on a root console). Also: what exactly counts as configured (a non-empty root password hash is proposed) | A Settings page, designed with its own decision; until then `passwd` by hand on the bench | product integration (not the host-side gateway core) |
 | U8 | Pairing without a camera (a typed code) | Not in v1 | nothing |
@@ -91,9 +90,9 @@ Everything about the repository in this package is DOCUMENTED (read from source 
 
 ## Remaining blockers before implementation
 
-1. U1 (ADR-019) accepted.
+1. ~~ADR-019 accepted~~ done 2026-11-21.
 2. H1 confirmed for the v0.4.0 image, since the whole transport rests on it. One sysroot's headers agree; the first cross-build of the gateway core settles the rest without a unit.
-3. U5 settled (scope names, init order); the service name, port and namespace are recorded above.
+3. ~~Names~~ settled with the acceptance (service, port, namespace, scopes).
 4. U13 settled before the Android project is created.
 5. U2 and U4 before any capture work; they do not block the gateway core, status or RIFT.
 

@@ -1,6 +1,6 @@
 # Companion: pairing, certificates, revocation and reconnect
 
-Status: **draft, not implemented.** Details ADR-019 (proposed) rules 10 to 24. The wire methods are in `docs/api/gateway.md`.
+Status: **draft, not implemented.** Details ADR-019 (accepted 2026-11-21) rules 10 to 24. The wire methods are in `docs/api/gateway.md`.
 
 ## 1. Identities
 

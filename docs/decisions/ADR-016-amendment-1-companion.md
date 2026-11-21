@@ -3,7 +3,7 @@
 Status: **Proposed** (draft for acceptance). ADR-016 is accepted subject to its security constraints and says that changing any of them "is a change to this ADR and needs the owner again". This is that change, kept in its own file so the accepted text stays as it was accepted. Until this amendment is accepted, ADR-016 stands unchanged and no companion sees anything of a capture.
 Date: 2026-11-21
 Deciders: product owner (final), AI engineering partner (author)
-Depends on: ADR-019 (the authenticated gateway). Without ADR-019 this amendment has no effect.
+Depends on: ADR-019 (the authenticated gateway, accepted 2026-11-21). Without ADR-019 this amendment has no effect.
 
 ## Why
 
@@ -51,7 +51,7 @@ Packet rows, the inspector, findings or diagnosis text for a packet, DNS or host
 
 - **ADR-016**: rules 1 and 11 are reworded and rules 19 to 21 added; every other rule and every accepted risk stands. The option ADR-016 rejected (a supervised capture service) is not reintroduced: no process other than the per-capture helper can capture.
 - **ADR-002 and ADR-007**: the new methods are served by an app inside the shell from memory; no parser of network input and no capture code enters the shell.
-- **ADR-019** (proposed): the only path by which these methods are reachable from outside the unit.
+- **ADR-019** (accepted): the only path by which these methods are reachable from outside the unit.
 
 ## Consequences
 

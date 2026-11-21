@@ -1,6 +1,6 @@
 # Companion: threat model
 
-Status: **draft** for ADR-019 (proposed). A design-time analysis: no code exists, nothing was tested, and no independent review has taken place (open item U10).
+Status: **draft** for ADR-019 (accepted 2026-11-21). A design-time analysis: no code exists, nothing was tested, and no independent review has taken place (open item U10).
 
 ## 1. What is protected
 

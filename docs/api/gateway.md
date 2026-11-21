@@ -1,12 +1,12 @@
 # Companion Gateway protocol v1 (`gateway.*`)
 
-Status: **draft, not implemented.** Protocol version 1. Specified for ADR-019 (proposed) and ADR-016 amendment 1 (proposed); it binds nothing until they are accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
+Status: **draft, not implemented.** Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
 
 Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connection life cycle: `docs/design/companion/PAIRING.md`.
 
 ## 1. Transport
 
-- TCP port 47231 (proposed; ADR-019 rule 9a), on the address of one interface. TLS 1.3, mutual authentication, pinned keys (ADR-019 rules 10 to 14).
+- TCP port 47231 (ADR-019 rule 9a), on the address of one interface. TLS 1.3, mutual authentication, pinned keys (ADR-019 rules 10 to 14).
 - Framing as pocketipc: a 4-byte big-endian length, then that many bytes of UTF-8 JSON encoding one object. Client to gateway at most 64 KiB; gateway to client at most 256 KiB. A longer frame, invalid UTF-8, invalid JSON or a non-object closes the connection.
 - Messages as pocketipc (`docs/api/pocketipc.md`): request `{id, method, params}`, exactly one response `{id, result}` or `{id, error: {code, message}}`, events `{event, data}`. Requests may be pipelined; the gateway answers at most 8 at a time per client and reads no further until one completes.
 - Every response and event also carries `mono_ms`: the unit's monotonic clock when it was written. All `*_mono_ms` fields anywhere are on that clock. The unit's wall clock is reported, never relied on (`clock_set`).

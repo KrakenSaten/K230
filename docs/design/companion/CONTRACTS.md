@@ -1,6 +1,6 @@
 # Companion: integration contracts
 
-Status: **draft, not implemented.** The minimum each side must do so that the unit and the app can be built separately and still fit. The wire format is `docs/api/gateway.md`; the rules come from ADR-019 and ADR-016 amendment 1 (both proposed).
+Status: **draft, not implemented.** The minimum each side must do so that the unit and the app can be built separately and still fit. The wire format is `docs/api/gateway.md`; the rules come from ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed).
 
 ## 1. `gatewayd` must
 
@@ -32,7 +32,7 @@ Status: **draft, not implemented.** The minimum each side must do so that the un
 
 ## 2. The Android app must
 
-Identity (proposed 2026-11-21): application id `app.doors.companion`, Apache-2.0, project at `C:\Android\DoorsCompanion` on the build host, min SDK 29. The project does not exist yet.
+Identity (owner's decision, 2026-11-21): application id `app.doors.companion`, Apache-2.0, project at `C:\Android\DoorsCompanion` on the build host, min SDK 29. The project does not exist yet.
 
 **Trust**
 - Hold one non-exportable P-256 key in the Android Keystore, generated at first use, hardware-backed where available.
