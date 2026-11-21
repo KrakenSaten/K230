@@ -626,7 +626,8 @@ with the words it always had, and nothing about the network is shown or
 asked. When this was written, screenshots of Command, Deploy, Battle,
 Result and the LoRa lobby from this build and from the one before were
 compared and were the same files, byte for byte, in both shapes and in both
-themes; no test repeats that comparison, since it needs the older build.
+the two themes compared, Carbon (the default) and Neon; no test repeats
+that comparison, since it needs the older build.
 
 **One session, one transport at a time** (`apps/fleet/fleet_mp.c`). The
 session is on LoRa unless the network's save holds the match in hand; the
@@ -665,7 +666,8 @@ an invitation open it is `MULTIPLAYER` alone, back to that lobby.
   network may keep devices apart. Try another network, a cable, or LoRa.",
   with nothing spinning and nothing retried. A good address that could not
   be asked just then is said to be that, not blamed. What was asked is
-  forgotten when the lobby is left;
+  forgotten when the lobby is left, unless the question is still out: its
+  outcome is then shown on the next visit;
 - with nobody listed it says it is listening, and after six seconds "No
   players heard on this network. Enter the other device's address: this one
   is 192.168.1.42."
@@ -676,20 +678,29 @@ natively.
 **One match per device.** While either save holds a match between Deploy and
 Reveal the other transport is not offered, and the session is told
 (`fleet_session_set_other_in_hand`) so that it would refuse to begin one in
-any case. Leaving a transport is also refused while a match that is over
-still owes its END.
+any case. A finished match waiting to be put away does not block the other
+transport (ADR-018 point 4), one whose END is still owed included: its save
+keeps it, and the END is sent again when the player comes back to that
+transport.
 
 **Another identity's save.** A save made under an identity its transport no
 longer has can never be resumed. On a device with both transports that is
-remembered once the link has said who this device is: an empty file beside
+remembered once the link has said who this device is: a small file beside
 the save, `match.v1.stale` or `match-lan.v1.stale`
-(`fleet_store_match_stale`), removed when that transport's save is written
-anew or the identity turns out to be this device's after all. Such a save
-does not count as a match in hand - it does not choose the transport when
-Fleet opens and holds neither transport back - and the save itself is left
-in place, as `match.v1` always was. When it is found out with a live match on
-the other transport, Command's `RESUME MATCH` leads to that match. A device
-with LoRa alone writes no such file and behaves as it always did.
+(`fleet_store_match_stale`), holding the identity the save was written
+under. It counts only while the save still carries that identity, so a save
+written anew - by this build, by one that knows nothing of marks, or in a
+run where the network was not on offer - is never taken for the dead one,
+whether or not the mark was removed. Fleet removes it when it writes that
+transport's save anew, or when the identity turns out to be this device's
+after all (which is learnt only when that transport is next engaged; until
+then the save is treated as dead). A marked save does not count as a match
+in hand - it does not choose the transport when Fleet opens and holds
+neither transport back - and the save itself is left in place, as `match.v1`
+always was. Whenever the other transport's save holds a match and this one
+has nothing in hand, Command's `RESUME MATCH` leads there. A device with
+LoRa alone writes no such file and behaves as it always did. ADR-018 does
+not describe the marks; they are an addition of this package.
 
 Known limits of this package:
 
@@ -727,7 +738,7 @@ Known limits of this package:
 | `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers; and two profiles with both players talking throughout (no line shown twice, none from another session, the oracle unchanged). `make fleet-mp-soak` for 5000 matches a profile |
 | `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence; chat through the session with no save, the opponent out of reach while typing and after, the app closed with a line waiting and reopened twenty times, a new match with an empty chat on both sides |
 | `tests/fleet_view_mp_test` (local network) | the header on each transport; the link line in each state, never naming the mesh or a radio; listening, the sentence after six seconds, asking, an answer, no answer and what is not an address, each to the word; a row with no hops, unconfirmed, not heard yet; Command's sentence on a device with and without the network, word for word what it was without |
-| `tests/fleet_app_test` (section 10) | a device without the network: one button, the old words, the button filling its row; the choice on one row, both buttons in view across the page, neither clipped; LoRa and the network each opening its own session and profile; a match on the network saved in `match-lan.v1` only, and one on LoRa in `match.v1` only; reopened on the transport whose save holds the match, the other not offered; another identity's save holding neither transport back, remembered beside the save, and - with a live match on the other transport - RESUME MATCH leading to the live one, in the same run and after a restart; LoRa alone leaving no mark; and, against the real link and a scripted peerd: nothing asked before LOCAL NETWORK is pressed, this device's address, proved and unconfirmed rows, an address typed on keys (letters refused) and answered, the answerer lit with INVITE ready (also when it was not listed before it answered), an old answer gone on coming back to the lobby, an address with no answer, the touch keyboard only for a finger, the field out of the keys' way off the lobby, peerd going away under an open lobby, six seconds of silence, a peerd closed by a fault, visibility ended on close |
+| `tests/fleet_app_test` (section 10) | a device without the network: one button, the old words, the button filling its row; the choice on one row, both buttons in view across the page, neither clipped; LoRa and the network each opening its own session and profile; a match on the network saved in `match-lan.v1` only, and one on LoRa in `match.v1` only; reopened on the transport whose save holds the match, the other not offered; another identity's save holding neither transport back, remembered beside the save, gone as a match to resume once a new one is written over it, its mark not taken for a later save's, a finished match not holding the other transport back, the session's refusal said in words, and - with a live match on the other transport - RESUME MATCH leading to the live one, in the same run and after a restart; LoRa alone leaving no mark; and, against the real link and a scripted peerd: nothing asked before LOCAL NETWORK is pressed, this device's address, proved and unconfirmed rows, an address typed on keys (letters refused) and answered, the answerer lit with INVITE ready (also when it was not listed before it answered), an old answer gone on coming back to the lobby, an address with no answer, the touch keyboard only for a finger, the field out of the keys' way off the lobby, peerd going away under an open lobby, six seconds of silence, a peerd closed by a fault, visibility ended on close |
 | `tests/fleet_shell_test.sh` (section 11) | against `tests/fake-peerd` in the running shell: Command with both transports, the lobby with players, an address answered and unanswered, and silence, in both shapes with no fault; nothing asked of peerd by opening Fleet; visibility asked for by the lobby and ended on exit; no match file written; and no peerd, no offer |
 | `tests/fleet_view_mp_test` | every UX state's words; the status for each state and in its order of precedence, a long or accented name cut whole; the chat button and every line's wording |
 | `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen, 0600 under any umask |

@@ -92,12 +92,17 @@ int fleet_store_match_save_for(enum fleet_store_transport t, const uint8_t *blob
 int fleet_store_match_load_for(enum fleet_store_transport t, uint8_t *buf, size_t max);
 
 /* A transport's save that was found to be another identity's - it can never
- * be resumed - is marked so beside it ("<file>.stale", empty), and the save
- * itself is left as it is. Fleet writes the mark only on a device with two
- * transports, where such a save would otherwise hold the other one back; a
- * device with LoRa alone never has one. Returns 1 when marked, else 0. */
+ * be resumed - is marked so beside it ("<file>.stale"), and the save itself
+ * is left as it is. The mark holds the identity the save was written under
+ * (the key in its header) and counts only while the save still carries that
+ * key: a save written anew, by this build or by any other, is not the one
+ * that was marked, whatever became of the mark. Fleet writes the mark only
+ * on a device with two transports, where such a save would otherwise hold
+ * the other one back; a device with LoRa alone never has one. Returns 1
+ * when the save there now is the one marked, else 0. */
 int fleet_store_match_stale(enum fleet_store_transport t);
-/* Set or clear the mark. Returns 0, or -1 when it could not be written. */
+/* Mark the save that is there now, or clear the mark. Returns 0, or -1 when
+ * it could not be written (or there is no save to mark). */
 int fleet_store_match_set_stale(enum fleet_store_transport t, int stale);
 
 #endif

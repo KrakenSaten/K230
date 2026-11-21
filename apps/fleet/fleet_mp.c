@@ -217,6 +217,13 @@ void fleet_app_mp_changed(struct fleet_app *app)
         (void)fleet_store_match_set_stale(
             store_of((enum fleet_mp_transport)app->mp_transport), app->mp->identity_changed);
     }
+    if (app->mp->ready && app->mp_lan_offered && app->mp->identity_changed &&
+        app->mp_revision == 0) {
+        /* And it is no match of this device's to resume, now or once a new
+         * one has been written over it. */
+        app->mp_saved = 0;
+        app->mp_saved_peer[0] = '\0';
+    }
     if (app->mp->ready && app->mp_revision == 0) {
         /* The match was only just read, when our key became known: nothing
          * moved by itself, so the player stays where they chose to be - in
@@ -412,10 +419,10 @@ void fleet_mp_create(struct fleet_app *app)
     app->mp_stale[FLEET_MP_LAN] = (uint8_t)fleet_store_match_stale(store_of(FLEET_MP_LAN));
     lan_hand = save_in_hand(app, FLEET_MP_LAN, NULL, 0);
     /* The transport is the one whose save holds the match in hand. Both can
-     * hold one only when the first of them is another identity's and that is
-     * not yet known (it is learnt when the link says who this device is, and
-     * RESUME MATCH then leads to the other: fleet_app_mp_elsewhere). LoRa's
-     * is offered first. */
+     * seem to hold one when one of them is another identity's and that is
+     * not known - not yet learnt, or its mark lost. LoRa's is then offered
+     * first; what it really is is learnt when its link says who this device
+     * is, and RESUME MATCH then leads to the other (fleet_app_mp_elsewhere). */
     if (lan_hand && !save_in_hand(app, FLEET_MP_MESH, NULL, 0)) {
         t = FLEET_MP_LAN;
     }
@@ -440,20 +447,27 @@ void fleet_mp_destroy(struct fleet_app *app)
     close_session(app);
 }
 
+/* A saved match of this session's own transport is waiting. Where there is
+ * only LoRa this is mp_saved, as it always was. */
+static int waiting_here(const struct fleet_app *app)
+{
+    return app->mp_saved && !(app->mp_lan_offered && app->mp_stale[app->mp_transport]);
+}
+
 int fleet_app_mp_elsewhere(const struct fleet_app *app)
 {
-    return app && app->mp && app->mp_lan_offered && app->mp_stale[app->mp_transport] &&
-           app->mp_other_in_hand;
+    const struct fleet_session *s = app ? app->mp : NULL;
+
+    /* The other transport's save holds a match, and this one has nothing in
+     * hand or under way: nothing waiting, no match being played, no
+     * invitation open. */
+    return s && app->mp_lan_offered && app->mp_other_in_hand && !waiting_here(app) &&
+           (!s->ready || s->m.phase == FLEET_MP_IDLE || s->m.phase == FLEET_MP_DONE);
 }
 
 int fleet_app_mp_waiting(const struct fleet_app *app)
 {
-    if (!app) {
-        return 0;
-    }
-    /* Where there is only LoRa this is mp_saved, as it always was. */
-    return (app->mp_saved && !(app->mp_lan_offered && app->mp_stale[app->mp_transport])) ||
-           fleet_app_mp_elsewhere(app);
+    return app && (waiting_here(app) || fleet_app_mp_elsewhere(app));
 }
 
 int fleet_app_mp_choice(const struct fleet_app *app)
@@ -463,10 +477,10 @@ int fleet_app_mp_choice(const struct fleet_app *app)
     if (!s || !app->mp_lan_offered || fleet_app_mp_waiting(app) || app->mp_other_in_hand) {
         return 0;
     }
-    /* A match that is over and whose END is still owed is not done with:
-     * leaving its transport would leave the opponent waiting for it. */
-    return !s->ready || s->m.phase == FLEET_MP_IDLE ||
-           (s->m.phase == FLEET_MP_DONE && !s->m.end_unacked);
+    /* A finished match waiting to be put away does not block the other
+     * transport (ADR-018 point 4), an END still owed included: its save
+     * keeps it, and it is sent again when the player comes back. */
+    return !s->ready || s->m.phase == FLEET_MP_IDLE || s->m.phase == FLEET_MP_DONE;
 }
 
 void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport transport)

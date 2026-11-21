@@ -2738,8 +2738,7 @@ static void test_lan_stale_save(void)
      * leaves behind. */
     setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=13,lan,self=7", 1);
     app_start();
-    check("reopened, the file still decides the transport",
-          app->mp_transport == FLEET_MP_LAN && app->mp_saved);
+    check("reopened, the file still decides the transport", app->mp_transport == FLEET_MP_LAN);
     /* The virtual link knows this device's key at once; a real one says it
      * once the player has engaged. Either way, from then on: */
     mp_wait(300);
@@ -2841,6 +2840,107 @@ static void test_lan_stale_and_live(void)
     check("LoRa alone: another identity's save leaves no mark, and Command is as it was",
           stat(marker, &sb) != 0 && !app->mp_stale[FLEET_MP_MESH] && app->mp_saved &&
           strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    app_stop();
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+static lv_obj_t *lobby_session_line(void)
+{
+    return kid(kid(lobby_col(1), 0), KID_PANEL_FIRST + 1);
+}
+
+/* What becomes of a dead save once a new match is written over it, and of
+ * its mark when the save is replaced without Fleet knowing of the mark. */
+static void test_lan_stale_overwritten(void)
+{
+    char marker[600];
+    struct stat sb;
+    int i;
+
+    phase = "the local network, a dead save written over";
+    snprintf(marker, sizeof(marker), "%s/fleet/match-lan.v1.stale", state_dir);
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=15,lan", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    lan_begin_match(command_lan_button());
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=15,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("the network's save is known dead, marked, and no longer a match to resume",
+          app->mp_stale[FLEET_MP_LAN] && stat(marker, &sb) == 0 && !app->mp_saved &&
+          fleet_app_mp_choice(app));
+    lan_begin_match(command_lan_button());
+    check("a new match on the network is written over it, and the mark goes",
+          app->mp_transport == FLEET_MP_LAN && fleet_match_active(&app->mp->m) &&
+          !app->mp_stale[FLEET_MP_LAN] && stat(marker, &sb) != 0);
+    fleet_app_show(app, FLEET_SCREEN_COMMAND);
+    check_str("Command offers that match", text_of(kid(command_multi_button(), 0)), "RESUME MATCH");
+    tap_obj(command_multi_button());
+    tap_obj(lobby_alt());
+    tap_obj(lobby_alt());
+    for (i = 0; i < 100 && app->mp->m.end_unacked; i++) {
+        mp_wait(100);
+    }
+    check("forfeited, the match is over", app->mp->m.phase == FLEET_MP_DONE);
+    tap_obj(lobby_back());
+    check("a finished match not yet put away does not hold the other transport back",
+          fleet_app_mp_choice(app) && visible(command_lan_button()));
+    tap_obj(command_lan_button());
+    check_str("put away", text_of(kid(lobby_alt(), 0)), "CLOSE");
+    tap_obj(lobby_alt());
+    tap_obj(lobby_back());
+    check("with it put away, Command has no match waiting and offers both again",
+          !fleet_app_mp_waiting(app) && fleet_app_mp_choice(app) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "LORA") == 0);
+    app_stop();
+
+    /* A mark left behind beside a save that has been replaced: LoRa's save
+     * is found dead and marked, then a run with no network (which knows of
+     * no mark) writes a new match over it. */
+    snprintf(marker, sizeof(marker), "%s/fleet/match.v1.stale", state_dir);
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,lan", 1);
+    app_start();
+    lan_begin_match(command_multi_button());
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("LoRa's save is marked dead", app->mp_stale[FLEET_MP_MESH] && stat(marker, &sb) == 0);
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,self=7", 1);
+    app_start();
+    mp_wait(300);
+    lan_begin_match(command_multi_button());
+    check("a device without the network writes a new LoRa match over it, and leaves the mark",
+          fleet_match_active(&app->mp->m) && stat(marker, &sb) == 0);
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=16,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("the mark is not taken for the new save's: the live match is found",
+          app->mp_transport == FLEET_MP_MESH && !app->mp_stale[FLEET_MP_MESH] &&
+          fleet_app_mp_waiting(app) && !fleet_app_mp_choice(app) &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    app_stop();
+
+    /* The session's own refusal, should it ever be reached: it has words. */
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=17,lan", 1);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    fleet_session_set_other_in_hand(app->mp, 1);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    check("a session told the other transport holds a match begins none and sends nothing",
+          app->mp->m.phase == FLEET_MP_IDLE && app->mp->sent == 0);
+    check("and the lobby says why",
+          strstr(text_of(lobby_session_line()),
+                 "An engagement is already under way on the local network.") != NULL);
     app_stop();
     lan_fresh();
     unsetenv("POCKETFLEET_MP_FAKE");
@@ -3027,6 +3127,7 @@ static void test_lan(void)
     test_lan_choice(POS_ROTATION_270);
     test_lan_stale_save();
     test_lan_stale_and_live();
+    test_lan_stale_overwritten();
     test_lan_lobby(POS_ROTATION_0);
     test_lan_lobby(POS_ROTATION_270);
     test_lan_silence();

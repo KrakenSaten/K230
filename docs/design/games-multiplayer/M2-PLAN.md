@@ -137,13 +137,16 @@ the app"):
   Command shows RESUME MATCH alone and says which transport the match is
   on: one button that does something, rather than one that explains why it
   does nothing.
-- **Another identity's save is remembered** in an empty file beside it
-  (`match.v1.stale`, `match-lan.v1.stale`), on a device with both transports
-  only: without it such a save would be taken for the match in hand at every
-  start and hold the other transport back.
-- **For the owner to rule on**: visibility lasts while the network's session
-  is engaged, Command included; and a match in hand on a transport whose
-  service has been switched off blocks the other one.
+- **Another identity's save is remembered** in a small file beside it
+  (`match.v1.stale`, `match-lan.v1.stale`, holding the identity the save
+  was written under), on a device with both transports only: without it such
+  a save would be taken for the match in hand at every start and hold the
+  other transport back. ADR-018 does not describe these files.
+- **For the owner to rule on**: that the network is offered only where
+  peerd's socket exists; that visibility lasts while the network's session
+  is engaged, Command included; that a match in hand on a transport whose
+  service has been switched off blocks the other one; and the hidden second
+  button with a match in hand (above).
 - `fleet_link_peer_present()` was added to the link, and the link now lets
   peerd's outstanding answers arrive (60 ms at most) before it writes its
   request to hide and closes: without that the request was lost whenever
