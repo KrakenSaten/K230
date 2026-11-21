@@ -559,16 +559,21 @@ which the session does only once the player has engaged multiplayer:
   on the mesh and the virtual opponent). Once the session has read its save
   it tells the link, on every poll, who the match in hand is with - from
   Deploy until the match is done, no END is owed any more (acknowledged, or
-  given up), and the opponent has been quiet for the profile's whole run of
-  tries (six of at most five seconds on the network) - or that there is
+  given up), and the opponent has been quiet for thirty seconds on the
+  network (the profile's six tries at its longest wait of five seconds;
+  their tries, with jitter, come at most 7.5 s apart) - or that there is
   none. That last wait is because a match over on this side may not be over
   on the other: the packet that would finish it there can be the one that
   was lost, and the opponent then sends its last packet again and needs an
   answer. This side answers from DONE, but only while peerd still listens
   for that opponent; released at once, it left the opponent retrying into a
-  closed socket (one match in ten at 15 % loss, before this was added).
+  closed socket (one match in ten at 15 % loss, before this was added) until
+  it gave up and settled by itself, about half an hour later.
   Every packet heard from them starts the wait again. Putting the match
-  away (CLOSE) ends it at once. When the save could not be read (a
+  away (CLOSE) ends it at once. ADR-017 section 5 and M2-PLAN 1.3 say the
+  game releases the kept peer "when the match ends or is put away"; as
+  built it is half a minute after the match has ended here and the opponent
+  has gone quiet. peerd itself still has no timed expiry. When the save could not be read (a
   store fault, a damaged file, another identity's) it says nothing until a
   match begins: what the save held is not known. From then on it speaks as
   usual, the end of that match included. The link
@@ -623,6 +628,13 @@ To know about it:
   Fleet inside that half minute, the session is no longer polled and nothing
   answers; peerd still keeps the opponent, so their packets wait in its
   inbox, and are answered when Fleet is next in multiplayer on the network.
+  Until then peerd stays bound for that one opponent - possibly for days, on
+  a device whose player finishes a match and closes Fleet at once. Before
+  this wait was added peerd was left keeping nobody in that case.
+- **Left as it is:** if all of the opponent's tries are lost, or the player
+  presses CLOSE and leaves the lobby in the first seconds after a match
+  whose last packet was lost, the opponent is no longer heard; it settles by
+  itself, with the same record, after its own probes run out.
 - **A peerd that is connected and silent leaves the link up**, as a silent
   meshcored does the mesh link: there is no reply timeout in either.
 - Not tested: a match whose END is still owed (the rule is in the session;
