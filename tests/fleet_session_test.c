@@ -527,10 +527,36 @@ static void test_match_peer(void)
           told_calls > 0 && told_changes == 1 && told_have &&
           memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
     fleet_session_resume(&again, now);
-    run(&again, now, 3 * 3600000LL, 1);
-    check("match peer: the match played to its end, there is none again",
-          again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && !told_have &&
-          told_changes == 2);
+    now = run(&again, now, 3 * 3600000LL, 1);
+    /* Over here is not over there: the opponent may have lost the packet
+     * that would finish it, and is then still sending. The link is told to
+     * hold on for the profile's whole run of tries after the opponent was
+     * last heard - on this link six tries of at most five seconds. */
+    check("match peer: the match over on this side, the opponent is still named",
+          again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && told_have &&
+          memcmp(told_key, key, FLEET_KEY_BYTES) == 0 && told_changes == 1);
+    {
+        int64_t quiet = again.m.last_heard > now ? again.m.last_heard : now;
+        int64_t t;
+
+        for (t = now; t < quiet + 29000; t += 500) {
+            fleet_session_poll(&again, t);
+        }
+        check("match peer: and stays named for as long as they may still be trying",
+              told_have && told_changes == 1);
+        /* Heard again - a copy of their last packet, say: the wait starts over. */
+        again.m.last_heard = quiet + 29000;
+        for (t = quiet + 29000; t < quiet + 29000 + 29000; t += 500) {
+            fleet_session_poll(&again, t);
+        }
+        check("match peer: hearing them again starts the wait over", told_have && told_changes == 1);
+        for (; t < quiet + 29000 + 31000; t += 500) {
+            fleet_session_poll(&again, t);
+        }
+        check("match peer: once they have been quiet that long, there is none again",
+              !told_have && told_changes == 2);
+        now = t;
+    }
 
     /* A save that could not be read: what it held is not known, so the link
      * is not told there is no match - it would let the opponent go. */
@@ -558,9 +584,14 @@ static void test_match_peer(void)
     check("match peer: a match begun after an unreadable save is named",
           fleet_match_active(&again.m) && again.store_fault && told_have &&
           memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
-    run(&again, now, 3 * 3600000LL, 1);
-    check("match peer: and when it is over the link is told there is none",
-          again.m.phase == FLEET_MP_DONE && again.store_fault && told_calls > 0 && !told_have);
+    now = run(&again, now, 3 * 3600000LL, 1);
+    check("match peer: over, it is still named while the opponent may be trying",
+          again.m.phase == FLEET_MP_DONE && again.store_fault && told_have);
+    /* Put away by the player: nothing is waited for. */
+    fleet_session_dismiss(&again, now);
+    fleet_session_poll(&again, now + 100);
+    check("match peer: and put away, the link is told at once there is none",
+          again.m.phase == FLEET_MP_IDLE && told_calls > 0 && !told_have);
     link->ops->close(link->ctx);
 }
 
