@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.Doors" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/doors_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <color name="doors_bg">#0B0B0A</color>
+</resources>
