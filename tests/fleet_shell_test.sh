@@ -262,6 +262,19 @@ if [ -x "$FAKE_PEERD" ]; then
 else
     echo "FAIL fake-peerd binary missing: $FAKE_PEERD (make tests/fake-peerd)"; failed=$((failed + 1))
 fi
+# A match in hand on LoRa, on a device that has both: Command shows the
+# network disabled beside RESUME MATCH. (The virtual opponent stands in for
+# both transports; "lan" in its spec is what offers the network.)
+rm -f "$MATCH" "$LAN_MATCH"
+POCKETFLEET_MP_FAKE="think=1500,lan" POCKETFLEET_SCREEN=mp_battle \
+    "$SHELL_BIN" --open fleet --exit-after-ms 1500 >"$OUT/lan-held-make.log" 2>&1
+check "a LoRa match is in hand" "$([ -f "$MATCH" ] && echo 1 || echo 0)"
+for shape in portrait landscape; do
+    POCKETFLEET_MP_FAKE="think=1500,lan" lan_shot - "lan-held-$shape" "$shape" 900
+done
+check "showing Command touched neither save" \
+      "$([ "$(wc -c < "$MATCH" 2>/dev/null)" = "$MATCH_BYTES" ] && [ ! -f "$LAN_MATCH" ] && echo 1 || echo 0)"
+rm -f "$MATCH" "$LAN_MATCH"
 # No peerd on the device: the network is not offered, and asking for its
 # lobby opens the one there is.
 lan_shot lan_lobby "lan-absent" portrait 900

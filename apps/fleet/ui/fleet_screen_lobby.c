@@ -49,6 +49,7 @@ enum lobby_action {
     ACT_FORFEIT,
     ACT_RESULT,
     ACT_DISMISS,
+    ACT_RETRY,
 };
 
 struct fleet_lobby_ui {
@@ -196,6 +197,11 @@ static void run(struct fleet_lobby_ui *ui, uint8_t kind)
         break;
     case ACT_RESUME:
         fleet_app_mp_resume(app);
+        return;
+    case ACT_RETRY:
+        /* The session is made anew: nothing of the old one is used after. */
+        fleet_app_mp_retry(app);
+        fleet_screen_lobby_refresh(app);
         return;
     case ACT_RESULT:
         fleet_app_show(app, FLEET_SCREEN_RESULT);
@@ -452,6 +458,9 @@ void fleet_screen_lobby_leave(struct fleet_app *app)
      * lobby being on show. */
     set_field_enabled(ui, 0);
     close_ask(ui);
+    /* Off the lobby the device is not announced and hears no stranger. A
+     * match in hand goes on with its kept opponent. */
+    fleet_link_peer_set_visible(app->link, 0);
     /* What was asked and what came of it belong to this visit: the next one
      * starts by listening again. A question still out is left to end. */
     ui->pending[0] = '\0';
@@ -663,6 +672,10 @@ static void refresh_transport(struct fleet_lobby_ui *ui)
     int usable = have_info && app->mp && app->mp->engaged &&
                  (state == FLEET_LINK_UP || state == FLEET_LINK_CONNECTING);
 
+    /* Seen on the network while the lobby is on screen and the player has
+     * engaged, and not otherwise (ADR-008: while its screen is open). */
+    fleet_link_peer_set_visible(app->link, on_lan(ui) && app->current == FLEET_SCREEN_LOBBY &&
+                                               app->mp && app->mp->engaged);
     if (!on_lan(ui)) {
         set_button(ui->visible, "MAKE VISIBLE", 1);
         close_ask(ui);
@@ -720,9 +733,25 @@ static void lobby_body(struct fleet_app *app, struct fleet_lobby_ui *ui)
     lv_label_set_text(ui->link_line,
                       fleet_link_state_text(app->link->ops->state(app->link->ctx)));
     if (!s->ready) {
+        enum fleet_link_state state = app->link->ops->state(app->link->ctx);
+
         lv_label_set_text(ui->session_line, "");
+        ui->act_kind = ACT_NONE;
+        ui->alt_kind = ACT_NONE;
         set_button(ui->act, NULL, 0);
         set_button(ui->alt, NULL, 0);
+        /* A match in hand whose service does not answer (a device with both
+         * transports; LoRa alone is as it was): the match is kept, nothing
+         * else can be begun, and the player is told so and given a way to
+         * look again now. */
+        if (app->mp_lan_offered && app->mp_saved && !app->mp_stale[app->mp_transport] &&
+            s->engaged && (state == FLEET_LINK_NO_SERVICE || state == FLEET_LINK_RADIO_OFF)) {
+            fleet_view_mp_recovery(app->mp_saved_peer, on_lan(ui), text, sizeof(text));
+            lv_label_set_text(ui->session_line, text);
+            ui->act_kind = ACT_RETRY;
+            set_button(ui->act, "TRY AGAIN", 1);
+            fleet_button_set_enabled(ui->act, 1);
+        }
         refresh_players(ui, 0);
         return;
     }
@@ -779,6 +808,7 @@ static void lobby_body(struct fleet_app *app, struct fleet_lobby_ui *ui)
     {
         static const char *const names[] = {
             "", "INVITE", "CANCEL", "ACCEPT", "DECLINE", "RESUME", "FORFEIT", "RESULT", "CLOSE",
+            "TRY AGAIN",
         };
 
         set_button(ui->act, names[ui->act_kind], ui->act_kind != ACT_NONE);

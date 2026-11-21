@@ -100,7 +100,7 @@ check "only the session's owner opens a link" \
       'fleet_link_(peer|mesh)_open'
 check "only the lobby and the session's owner ask the LAN link for its detail" \
       "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v 'apps/fleet/ui/fleet_screen_lobby.c' | grep -v "$LINK/")" \
-      'fleet_link_peer_(info|probe|probe_state|probe_key|proved|present)[[:space:]]*\('
+      'fleet_link_peer_(info|probe|probe_state|probe_key|proved|present|set_visible)[[:space:]]*\('
 want "whether the network is offered is a look at the socket, not a connection" \
      "$LINK/fleet_link_peer.c" 'stat\(path, &sb\) == 0 && S_ISSOCK'
 want "an unproved player is said to be one" "apps/fleet/ui/fleet_screen_lobby.c" \

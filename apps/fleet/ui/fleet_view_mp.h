@@ -123,9 +123,15 @@ int fleet_view_mp_lan_row(const struct fleet_link_peer *p, int proved, int64_t n
 /* Command's MULTIPLAYER panel. in_hand: -1 no match, 0 one on LoRa, 1 one on
  * the local network. lan_offered: this device can play over the network;
  * while it cannot, the words are exactly what they were before there was
- * one. choice: both transports are on offer now. lan: the transport the one
- * button would open, when there is no choice. */
+ * one. choice: both transports are on offer now. lan: with neither a match
+ * nor a choice, the transport an invitation is open on. With a match in hand
+ * it is the plan's sentence, "An engagement with X is under way on LoRa.",
+ * which is also why the other transport's button is disabled. */
 int fleet_view_mp_command(int in_hand, const char *peer, int lan_offered, int choice, int lan,
                           char *buf, size_t n);
+
+/* The lobby, with a match in hand whose service does not answer: the match
+ * is kept, what it waits for, and what can be done. */
+int fleet_view_mp_recovery(const char *peer, int lan, char *buf, size_t n);
 
 #endif

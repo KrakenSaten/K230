@@ -134,6 +134,9 @@ struct peer {
     int interfaces;                  /* how many it announces on */
     int no_net_seen;                 /* statuses in a row with nothing to announce on */
     int visible;
+    int want_visible;                /* the owner wants the device seen (the default) */
+    int hide_due;                    /* it stopped wanting it: the lease is to be ended */
+    int lease_asked;                 /* a lease has been asked for on this connection */
     char fault[24];
     char address[16];
     char run_id[40];
@@ -316,6 +319,8 @@ static void drop(struct peer *m, int64_t now)
     m->interfaces = 0;
     m->no_net_seen = 0;
     m->visible = 0;
+    m->hide_due = 0;                 /* a lease nobody renews ends by itself */
+    m->lease_asked = 0;
     m->catching_up = 0;
     m->subscribed = 0;
     m->kept_stale = 1;               /* whatever comes back may have lost its list */
@@ -419,6 +424,7 @@ static int ask_visible(struct peer *m)
     }
     cJSON_AddBoolToObject(p, "visible", 1);
     m->last_lease_ms = m->now;
+    m->lease_asked = 1;
     m->leases++;
     return request(m, REQ_VISIBLE, p);
 }
@@ -469,7 +475,7 @@ static void connect_now(struct peer *m, int64_t now)
     if (request(m, REQ_STATUS, NULL) != 0) {
         return;
     }
-    if (ask_visible(m) != 0) {
+    if (m->want_visible && ask_visible(m) != 0) {
         return;
     }
     m->last_nodes_ms = now;
@@ -573,7 +579,8 @@ static void apply_status(struct peer *m, const cJSON *result)
         m->catching_up = 1;
         m->kept_stale = 1;
     }
-    if (m->ready && !m->visible && m->now - m->last_lease_ms >= STATUS_PERIOD_MS) {
+    if (m->ready && m->want_visible && !m->visible &&
+        m->now - m->last_lease_ms >= STATUS_PERIOD_MS) {
         (void)ask_visible(m);        /* it lapsed, or the service restarted */
     }
     if (m->fd >= 0 && m->ready && m->catching_up) {
@@ -904,8 +911,29 @@ static void p_poll(void *ctx, int64_t now)
     if (!m->ready) {
         return;                      /* closed by a fault: only its status is asked */
     }
-    if (now - m->last_lease_ms >= LEASE_RENEW_MS && ask_visible(m) != 0) {
+    if (m->want_visible && now - m->last_lease_ms >= LEASE_RENEW_MS && ask_visible(m) != 0) {
         return;
+    }
+    /* No longer wanted: the lease is ended rather than left to lapse. Not
+     * before the opponent of a match in hand is kept - peerd, hidden and
+     * keeping nobody, would hear nothing at all. (If the keep keeps failing
+     * the lease lapses by itself within 30 s.) */
+    if (!m->want_visible && m->hide_due && (!m->have_match || !m->kept_stale)) {
+        cJSON *p = cJSON_CreateObject();
+
+        m->hide_due = 0;
+        /* Nothing to end where nothing was asked for: a link told not to
+         * be seen before it ever connected says nothing about it at all. */
+        if (p && m->lease_asked) {
+            cJSON_AddBoolToObject(p, "visible", 0);
+            m->lease_asked = 0;
+            if (request(m, REQ_HIDE, p) != 0) {
+                return;
+            }
+            m->visible = 0;
+        } else {
+            cJSON_Delete(p);
+        }
     }
     if (now - m->last_nodes_ms >= NODES_PERIOD_MS) {
         m->last_nodes_ms = now;
@@ -1064,7 +1092,7 @@ static int p_advertise(void *ctx)
 {
     struct peer *m = ctx;
 
-    if (m->fd < 0 || p_state(m) != FLEET_LINK_UP) {
+    if (m->fd < 0 || p_state(m) != FLEET_LINK_UP || !m->want_visible) {
         return -1;
     }
     return ask_visible(m);
@@ -1112,9 +1140,11 @@ static void p_close(void *ctx)
          * than when the lease would have lapsed (which is what happens
          * anyway if this does not get through). A match in hand is not
          * affected - peerd goes on serving the kept opponent. */
-        if (p) {
+        if (p && m->lease_asked) {
             cJSON_AddBoolToObject(p, "visible", 0);
             (void)request(m, REQ_HIDE, p);
+        } else {
+            cJSON_Delete(p);         /* no lease of ours to end */
         }
         if (m->fd >= 0 && m->subscribed) {
             (void)request(m, REQ_UNSUBSCRIBE, NULL);
@@ -1185,6 +1215,7 @@ struct fleet_link *fleet_link_peer_open(const char *service)
     m->kept_count = -1;
     m->kept_stale = 1;
     m->kept_wait_ms = STATUS_PERIOD_MS;
+    m->want_visible = 1;
     pocketipc_reader_init(&m->reader);
     m->link.ops = &OPS;
     m->link.ctx = m;
@@ -1196,6 +1227,25 @@ struct fleet_link *fleet_link_peer_open(const char *service)
 static struct peer *peer_of(const struct fleet_link *link)
 {
     return link && link->ops == &OPS ? link->ctx : NULL;
+}
+
+void fleet_link_peer_set_visible(struct fleet_link *link, int visible)
+{
+    struct peer *m = peer_of(link);
+
+    visible = visible != 0;
+    if (!m || m->want_visible == visible) {
+        return;
+    }
+    m->want_visible = visible;
+    if (!visible) {
+        m->hide_due = 1;             /* written at the next poll (p_poll) */
+    } else {
+        m->hide_due = 0;
+        if (m->fd >= 0 && m->ready) {
+            (void)ask_visible(m);    /* at once: the lobby has just opened */
+        }
+    }
 }
 
 int fleet_link_peer_info(const struct fleet_link *link, struct fleet_link_peer_info *out)

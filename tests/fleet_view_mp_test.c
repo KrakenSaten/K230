@@ -453,13 +453,26 @@ int main(void)
         fleet_view_mp_command(-1, NULL, 1, 1, 0, big, sizeof(big));
         says("Command, both on offer", big, "over LoRa or the local network");
         fleet_view_mp_command(1, "Anna", 1, 0, 1, big, sizeof(big));
-        check("a match in hand on the network says where",
-              strcmp(big, "An engagement with Anna is waiting on the local network.") == 0);
+        check("a match in hand on the network: why LoRa is disabled, in the plan's words",
+              strcmp(big, "An engagement with Anna is under way on the local network.") == 0);
         fleet_view_mp_command(0, "Anna", 1, 0, 0, big, sizeof(big));
-        says("and one on LoRa, on a device that has both", big, "is waiting on LoRa.");
+        check("and one on LoRa: why the network is",
+              strcmp(big, "An engagement with Anna is under way on LoRa.") == 0);
+        fleet_view_mp_command(0, "", 1, 0, 0, big, sizeof(big));
+        says("with no name known it still reads as a sentence", big,
+             "An engagement with your opponent is under way on LoRa.");
         fleet_view_mp_command(-1, NULL, 1, 0, 1, big, sizeof(big));
-        says("an invitation open on the network: one way in, named", big,
-             "over the local network.");
+        check("an invitation open on the network",
+              strcmp(big, "An invitation is open on the local network.") == 0);
+        fleet_view_mp_command(-1, NULL, 1, 0, 0, big, sizeof(big));
+        says("or on LoRa", big, "An invitation is open on LoRa.");
+        fleet_view_mp_recovery("Anna", 1, big, sizeof(big));
+        says("a match whose service is gone: kept", big, "Your engagement with Anna is kept.");
+        says("what it waits for", big, "when the local network service is running again");
+        says("that nothing else can be begun", big, "nothing else can be started until then");
+        says("and what can be done", big, "TRY AGAIN looks now.");
+        fleet_view_mp_recovery("Anna", 0, big, sizeof(big));
+        says("the same for the mesh, on a device with both", big, "when the mesh service is running");
     }
     printf("fleet_view_mp_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;

@@ -132,21 +132,20 @@ the app"):
   transport is chosen before any service is asked anything.
 - **One session at a time.** Picking the other transport closes the link in
   use and opens the other with its own save.
-- **With a match in hand the other transport's button is not shown**, where
-  §1.1 has it stay and say "An engagement with X is under way on LoRa."
-  Command shows RESUME MATCH alone and says which transport the match is
-  on: one button that does something, rather than one that explains why it
-  does nothing.
 - **Another identity's save is remembered** in a small file beside it
   (`match.v1.stale`, `match-lan.v1.stale`, holding the identity the save
   was written under), on a device with both transports only: without it such
   a save would be taken for the match in hand at every start and hold the
   other transport back. ADR-018 does not describe these files.
-- **For the owner to rule on**: that the network is offered only where
-  peerd's socket exists; that visibility lasts while the network's session
-  is engaged, Command included; that a match in hand on a transport whose
-  service has been switched off blocks the other one; and the hidden second
-  button with a match in hand (above).
+- **The owner's rulings, 2026-11-21**, as built: the network is offered
+  where peerd is available and always where a network save holds a match;
+  the device is visible on the network only while the lobby is on screen,
+  and a match in hand goes on with its kept opponent; a match in hand is
+  preserved when its service does not answer, the other transport stays
+  blocked, and the lobby says so and offers TRY AGAIN; and the other
+  transport is shown disabled with "An engagement with X is under way on
+  LoRa." as §1.1 has it. §1.3's "renewed while Fleet's multiplayer is
+  engaged" is narrowed by the second of these to the lobby.
 - `fleet_link_peer_present()` was added to the link, and the link now lets
   peerd's outstanding answers arrive (60 ms at most) before it writes its
   request to hide and closes: without that the request was lost whenever

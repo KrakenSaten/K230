@@ -101,6 +101,24 @@ static int count_lines(const char *path, const char *want)
     return count;
 }
 
+/* Where in the log a line first stands, or -1. */
+static long log_pos(const char *path, const char *want)
+{
+    static char buf[65536];
+    FILE *f = fopen(path, "r");
+    const char *at;
+    size_t n;
+
+    if (!f) {
+        return -1;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    at = strstr(buf, want);
+    return at ? (long)(at - buf) : -1;
+}
+
 static long file_size(const char *path)
 {
     struct stat sb;
@@ -562,6 +580,80 @@ int main(void)
         if (pid > 0) {
             fake_peerd_stop(&script, pid);
         }
+    }
+
+    /* ---- seen only when its owner wants it -------------------------------------- */
+    memset(&script, 0, sizeof(script));
+    script.log = LOG;
+    script.life_ms = 60000;
+    remove(LOG);
+    pid = fake_peerd_spawn(&script);
+    if (pid > 0 && fake_peerd_wait_ready(&script, WAIT_MS)) {
+        l = fleet_link_peer_open(NULL);
+        fleet_link_peer_set_visible(l, 0);
+        check("told not to be seen, the link still comes up", spin(l, WAIT_MS, is_up));
+        skew += 11000;
+        spin(l, 400, NULL);
+        check("and never asks for the lease, on connecting or as time passes",
+              count_lines(LOG, "peer.set_visible|") == 0);
+        check("nor when asked to advertise", l->ops->advertise(l->ctx) != 0);
+        check("a packet still goes: a kept opponent is reached without being seen",
+              l->ops->send(l->ctx, anna, (const uint8_t *)"\x41\0\0\1\0", 5) == FLEET_LINK_SENT);
+        fleet_link_peer_set_visible(l, 1);
+        check("wanted, it asks at once", until_logged(l, "peer.set_visible|{\"visible\":true}", 1));
+        fleet_link_peer_set_visible(l, 1);
+        spin(l, 300, NULL);
+        check("and being told the same again asks nothing more",
+              count_lines(LOG, "peer.set_visible|{\"visible\":true}") == 1);
+        /* A match has just begun and the lobby is left in the same moment:
+         * the opponent is kept first, then the device is hidden. */
+        l->ops->match_peer(l->ctx, bob);
+        fleet_link_peer_set_visible(l, 0);
+        check("no longer wanted, the lease is ended",
+              until_logged(l, "peer.set_visible|{\"visible\":false}", 1));
+        check("but not before the opponent of the match in hand is kept",
+              log_pos(LOG, "peer.keep|{\"key\":\"" BOB "\"}") >= 0 &&
+              log_pos(LOG, "peer.keep|{\"key\":\"" BOB "\"}") <
+                  log_pos(LOG, "peer.set_visible|{\"visible\":false}"));
+        skew += 11000;
+        spin(l, 400, NULL);
+        check("and it is not asked for again while unwanted",
+              count_lines(LOG, "peer.set_visible|{\"visible\":true}") == 1 &&
+              count_lines(LOG, "peer.set_visible|{\"visible\":false}") == 1 && is_up(l));
+        l->ops->close(l->ctx);
+    } else {
+        check("a peerd for the visibility checks starts", 0);
+    }
+    if (pid > 0) {
+        fake_peerd_stop(&script, pid);
+    }
+    /* A keep that never succeeds: the hide waits for it, and the lease is
+     * simply not renewed - peerd ends it by itself. */
+    memset(&script, 0, sizeof(script));
+    script.refuse_keep = 1;
+    script.log = LOG;
+    script.life_ms = 60000;
+    remove(LOG);
+    pid = fake_peerd_spawn(&script);
+    if (pid > 0 && fake_peerd_wait_ready(&script, WAIT_MS)) {
+        l = fleet_link_peer_open(NULL);
+        spin(l, WAIT_MS, is_up);
+        until_logged(l, "peer.set_visible|{\"visible\":true}", 1);
+        l->ops->match_peer(l->ctx, bob);
+        fleet_link_peer_set_visible(l, 0);
+        until_logged(l, "peer.keep|", 1);
+        skew += 11000;
+        spin(l, 400, NULL);
+        check("while the opponent cannot be kept the device is not hidden by request",
+              count_lines(LOG, "peer.set_visible|{\"visible\":false}") == 0);
+        check("and the lease is left to lapse: it is not renewed",
+              count_lines(LOG, "peer.set_visible|{\"visible\":true}") == 1);
+        l->ops->close(l->ctx);
+    } else {
+        check("a peerd that cannot keep starts", 0);
+    }
+    if (pid > 0) {
+        fake_peerd_stop(&script, pid);
     }
 
     /* ---- closed by a fault ------------------------------------------------------- */

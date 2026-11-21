@@ -633,6 +633,18 @@ int fleet_view_mp_lan_row(const struct fleet_link_peer *p, int proved, int64_t n
     return 0;
 }
 
+int fleet_view_mp_recovery(const char *peer, int lan, char *buf, size_t n)
+{
+    if (!buf || n == 0) {
+        return fail(buf, n);
+    }
+    snprintf(buf, n, "Your engagement with %s is kept. It goes on when the %s service is "
+                     "running again, and nothing else can be started until then. Fleet keeps "
+                     "trying; TRY AGAIN looks now.",
+             peer && peer[0] ? peer : "your opponent", lan ? "local network" : "mesh");
+    return 0;
+}
+
 int fleet_view_mp_command(int in_hand, const char *peer, int lan_offered, int choice, int lan,
                           char *buf, size_t n)
 {
@@ -641,15 +653,18 @@ int fleet_view_mp_command(int in_hand, const char *peer, int lan_offered, int ch
     }
     if (in_hand >= 0) {
         if (lan_offered) {
-            snprintf(buf, n, "An engagement with %s is waiting on %s.", who(peer),
+            /* The plan's sentence (M2-PLAN 1.1): it is why the other
+             * transport's button stands disabled. */
+            snprintf(buf, n, "An engagement with %s is under way on %s.",
+                     peer && peer[0] ? peer : "your opponent",
                      in_hand ? "the local network" : "LoRa");
         } else {
             snprintf(buf, n, "An engagement with %s is waiting.", who(peer));
         }
     } else if (choice) {
         snprintf(buf, n, "Play another Doors device over LoRa or the local network.");
-    } else if (lan) {
-        snprintf(buf, n, "Play another Doors device over the local network.");
+    } else if (lan_offered) {
+        snprintf(buf, n, "An invitation is open on %s.", lan ? "the local network" : "LoRa");
     } else {
         snprintf(buf, n, "Play another Doors device over the mesh.");
     }

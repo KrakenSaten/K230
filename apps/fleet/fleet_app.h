@@ -271,6 +271,9 @@ int fleet_app_mp_elsewhere(const struct fleet_app *app);
 /* Let a transparent box's children draw a little outside it (a caption, a
  * button's outer band): it paints nothing itself and has nothing to clip. */
 void fleet_app_allow_overflow(lv_obj_t *box);
+/* Look for the session's service again, now: its link is opened anew and
+ * its save read again. For a match in hand whose service does not answer. */
+void fleet_app_mp_retry(struct fleet_app *app);
 /* Continue the match in hand on the screen its phase belongs to. */
 void fleet_app_mp_resume(struct fleet_app *app);
 /* Open the chat with the opponent, and leave it for the screen the match's

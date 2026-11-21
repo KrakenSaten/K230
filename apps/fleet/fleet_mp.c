@@ -353,6 +353,9 @@ static int open_session(struct fleet_app *app, enum fleet_mp_transport t)
         app->mp = NULL;
         return -1;
     }
+    /* Seen on the network only while the lobby is on screen (ADR-008): the
+     * lobby says when (fleet_screen_lobby.c). A no-op on any other link. */
+    fleet_link_peer_set_visible(app->link, 0);
     fleet_session_init(app->mp, app->link, mp_save, mp_entropy, app);
     n = fleet_store_match_load_for(store, blob, sizeof(blob));
     if (n > 0) {
@@ -504,6 +507,27 @@ void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport tra
         fleet_screen_lobby_enter(app);
     }
     fleet_app_multiplayer(app);
+}
+
+void fleet_app_mp_retry(struct fleet_app *app)
+{
+    enum fleet_mp_transport t;
+
+    if (!app || !app->mp) {
+        return;
+    }
+    /* The same transport, its save read again and its service looked for
+     * afresh, at once rather than when the link's own next try comes round.
+     * Nothing is lost by it: what is not on disk was never begun. */
+    t = (enum fleet_mp_transport)app->mp_transport;
+    close_session(app);
+    if (open_session(app, t) != 0) {
+        fleet_app_show(app, FLEET_SCREEN_COMMAND);
+        return;
+    }
+    read_other(app);
+    app->mode = FLEET_MODE_MULTI;
+    fleet_session_engage(app->mp, fleet_app_now(app));
 }
 
 void fleet_app_multiplayer(struct fleet_app *app)
