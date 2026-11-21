@@ -47,6 +47,9 @@ struct fake_peerd_script {
     const char *probe_address;
     const char *probe_key;
     int probe_pending;
+    /* peer.probe is answered this long after it was asked, so that a client
+     * can have replaced its probe before the answer to the first arrives. */
+    int probe_reply_delay_ms;
     /* Every request, one per line: "<method>|<params as JSON>". */
     const char *log;
     int life_ms;                /* backstop; 0 is forever */
