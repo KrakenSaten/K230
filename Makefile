@@ -2791,6 +2791,13 @@ endif
 ifeq ($(ENABLE_PEERD),1)
 	install -D -m 0755 services/peerd/peerd $(DESTDIR)$(PREFIX)/sbin/peerd
 endif
+# gatewayd only when it was asked for and built (make gatewayd). Its init
+# script goes with it and ships disabled: GATEWAYD_ENABLE=0 until a unit is
+# told otherwise (docs/services/GATEWAYD.md). Neither is in the rootfs overlay.
+ifeq ($(ENABLE_GATEWAYD),1)
+	install -D -m 0755 services/gatewayd/gatewayd $(DESTDIR)$(PREFIX)/sbin/gatewayd
+	install -D -m 0755 services/gatewayd/S70gatewayd $(DESTDIR)/etc/init.d/S70gatewayd
+endif
 # The third-party notices travel with the binaries that need them. Under
 # share/doors rather than share/doc, which Buildroot strips from the target.
 # share/pocketos, where they were through v0.0.9, stays a directory holding a
@@ -3215,3 +3222,65 @@ fleet-link-peer-real: peerd tests/fleet_link_peer_real
 
 peerd-test: peerd-plain-test peerd-san-test peerd-fuzz peerd-service-test
 	bash tests/peerd_lint.sh
+
+# ---- gatewayd: the Companion Gateway (docs/decisions/ADR-019, docs/api/gateway.md) ----
+#
+# Off unless asked for, like peerd: no Doors image carries it yet, and putting
+# it into one (the init script in the overlay, deploy.sh, the release checks,
+# an explicit OpenSSL dependency of the package) is product integration with
+# its own go-ahead. It links the OpenSSL already in the image and its sysroot
+# (3.4.1; libcurl's backend) and adds no dependency.
+#
+#   make gatewayd                      the service, services/gatewayd/gatewayd
+#   make gatewayd-test                 unit suites plain and under ASan/UBSan,
+#                                      the fuzzer, the lint, and the real
+#                                      service against TLS clients
+#   make ENABLE_GATEWAYD=1 install     also installs it and S70gatewayd
+#
+# Built by explicit commands with -Werror into out/gatewayd, so nothing here
+# joins `make all` or `make test` or changes how any other object is built.
+ENABLE_GATEWAYD ?= 0
+GATEWAYD_DIR := services/gatewayd
+GATEWAYD_OUT := out/gatewayd
+GATEWAYD_CFLAGS := -std=gnu11 -Wall -Wextra -Werror $(COMMON_FLAGS) -I$(GATEWAYD_DIR)
+GATEWAYD_PURE := $(GATEWAYD_DIR)/gw_util.c $(GATEWAYD_DIR)/gw_frame.c $(GATEWAYD_DIR)/gw_pair.c \
+                 $(GATEWAYD_DIR)/gw_policy.c $(GATEWAYD_DIR)/gw_store.c $(GATEWAYD_DIR)/gw_gate.c
+GATEWAYD_SERVICE := $(GATEWAYD_DIR)/main.c $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_PURE) \
+                    core/pocketipc/pocketipc.c core/pocketipc/server.c core/pocketlog/pocketlog.c \
+                    core/pocketpaths.c
+GATEWAYD_LIBS := -lssl -lcrypto
+GATEWAYD_SAN := -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
+GATEWAYD_FUZZ_RUNS ?= 200000
+
+.PHONY: gatewayd gatewayd-test gatewayd-unit-test gatewayd-fuzz gatewayd-service-test
+gatewayd:
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_DIR)/gatewayd
+
+gatewayd-unit-test:
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) -O2 $(GATEWAYD_CFLAGS) tests/gatewayd_unit_test.c $(GATEWAYD_PURE) $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_LIBS) -lcjson -lm -o $(GATEWAYD_OUT)/unit-test
+	$(GATEWAYD_OUT)/unit-test
+	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) tests/gatewayd_unit_test.c $(GATEWAYD_PURE) $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_LIBS) -lcjson -lm -o $(GATEWAYD_OUT)/unit-test-san
+	$(GATEWAYD_OUT)/unit-test-san
+
+# The parsers of everything a peer or a damaged file can supply, under the
+# sanitizers, fed noise and mutations of genuine input.
+gatewayd-fuzz:
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) -DGATEWAYD_FUZZ_STANDALONE=1 tests/gatewayd_fuzz.c $(GATEWAYD_PURE) -lcjson -lm -o $(GATEWAYD_OUT)/fuzz
+	$(GATEWAYD_OUT)/fuzz $(GATEWAYD_FUZZ_RUNS)
+
+# The real service between fake pocketipc services and real TLS clients:
+# once as built and once under the sanitizers. The hooks build is the only
+# one that can be bound to an address that is not an interface's or told
+# another shadow file; the shipped gatewayd does not contain the options,
+# which the lint checks.
+gatewayd-service-test: gatewayd
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+
+gatewayd-test: gatewayd-unit-test gatewayd-fuzz gatewayd-service-test
+	bash tests/gatewayd_lint.sh

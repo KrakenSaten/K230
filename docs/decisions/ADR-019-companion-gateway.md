@@ -1,6 +1,6 @@
 # ADR-019: An authenticated Companion Gateway (`gatewayd`)
 
-Status: **Accepted** by the product owner, 2026-11-21, as written. The direction had been approved the same day with eight conditions, recorded under "Terms of the approval"; this ADR turns them into rules. **Acceptance of the design does not mean an implementation is validated**: nothing is implemented, nothing has run on a unit, and the checks of `docs/design/companion/THREAT_MODEL.md` §5 and each hardware gate still need their own go-ahead. ADR-016 amendment 1 is a separate decision and remains proposed.
+Status: **Accepted** by the product owner, 2026-11-21, as written. The direction had been approved the same day with eight conditions, recorded under "Terms of the approval"; this ADR turns them into rules. **Acceptance of the design does not mean an implementation is validated**: the M2 core (`docs/services/GATEWAYD.md`) is host-tested and cross-built only, nothing has run on a unit, and the checks of `docs/design/companion/THREAT_MODEL.md` §5 and each hardware gate still need their own go-ahead. ADR-016 amendment 1 is a separate decision and remains proposed.
 Date: 2026-11-21
 Deciders: product owner (final), AI engineering partner (author)
 

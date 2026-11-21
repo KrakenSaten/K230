@@ -1,6 +1,6 @@
 # DOORS Companion: design package (M1)
 
-Status: **documentation only.** No code, no Android project, no build, no test run, no unit touched. Written 2026-11-21 against `origin/master` 085a089f.
+Status: the design package of M1. Since M2 the gateway core exists, host-tested and cross-built only (`docs/services/GATEWAYD.md`); still no Android project and no unit touched. Written 2026-11-21 against `origin/master` 085a089f.
 
 DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, PacketShark statistics and device status over the local Wi-Fi network or the phone's hotspot, through a new authenticated service on the unit, `gatewayd`.
 
@@ -75,7 +75,7 @@ Everything about the repository in this package is DOCUMENTED (read from source 
 
 | # | Assumption | How to check | Needs a unit |
 | --- | --- | --- | --- |
-| H1 | The image's OpenSSL 3.4.1 has TLS 1.3 and P-256 (ECDSA and ECDHE) enabled | **Partly checked 2026-11-21, read-only:** one SDK sysroot on the build host (`~/work/neon-p98/f398ecb/sysroot`, OpenSSL 3.4.1) defines none of `OPENSSL_NO_TLS1_3`, `OPENSSL_NO_EC`, `OPENSSL_NO_ECDSA`, `OPENSSL_NO_ECDH` in `openssl/configuration.h`. Not checked: that this sysroot is the v0.4.0 image's, and `openssl list` on a unit | the rest: yes (read-only) |
+| H1 | The image's OpenSSL 3.4.1 has TLS 1.3 and P-256 (ECDSA and ECDHE) enabled | **Partly checked 2026-11-21, read-only:** one SDK sysroot on the build host (`~/work/neon-p98/f398ecb/sysroot`, OpenSSL 3.4.1) defines none of `OPENSSL_NO_TLS1_3`, `OPENSSL_NO_EC`, `OPENSSL_NO_ECDSA`, `OPENSSL_NO_ECDH` in `openssl/configuration.h`. **2026-11-21, M2:** the v0.4.0 release build's sysroot says the same, and `gatewayd` cross-builds and links against its `libssl.so.3`. Not checked: the library's behaviour on a unit | the rest: yes |
 | H2 | A full mutual P-256 handshake is cheap enough on the one hart that the shell keeps its frame time, with no resumption | Measure handshake time and shell frame time during a connect and during a flood | yes, with go-ahead |
 | H3 | The unit reaches, and is reached by, a phone whose hotspot it joined (no client isolation between hotspot host and client) | Join a hotspot, connect | yes |
 | H4 | TCP 47231 is unused on the image | `netstat -ltn` on a unit, read-only | yes (read-only) |
@@ -91,7 +91,7 @@ Everything about the repository in this package is DOCUMENTED (read from source 
 ## Remaining blockers before implementation
 
 1. ~~ADR-019 accepted~~ done 2026-11-21.
-2. H1 confirmed for the v0.4.0 image, since the whole transport rests on it. One sysroot's headers agree; the first cross-build of the gateway core settles the rest without a unit.
+2. ~~H1~~ settled as far as a build can: `gatewayd` cross-builds against the v0.4.0 sysroot (M2). Its behaviour on a unit is hardware gate 1.
 3. ~~Names~~ settled with the acceptance (service, port, namespace, scopes).
 4. U13 settled before the Android project is created.
 5. U2 and U4 before any capture work; they do not block the gateway core, status or RIFT.

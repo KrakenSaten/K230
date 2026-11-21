@@ -1,6 +1,6 @@
 # Companion Gateway protocol v1 (`gateway.*`)
 
-Status: **draft, not implemented.** Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
+Status: **draft; partly implemented (M2, host-tested only).** `services/gatewayd` serves §5 without `gateway.subscribe`, §6 without the `device.status` event, and §10; §7 to §9 are not implemented and their methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
 
 Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connection life cycle: `docs/design/companion/PAIRING.md`.
 
