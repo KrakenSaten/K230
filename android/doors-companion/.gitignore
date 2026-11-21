@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.kotlin/
+captures/
+# The host gateway harness builds and runs here; none of it is source.
+harness/out/
