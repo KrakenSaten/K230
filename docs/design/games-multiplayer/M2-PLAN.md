@@ -116,7 +116,7 @@ match itself is unaffected.
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | **done** (PR 156, master `680fc5cc`) **except the init script and image wiring** (step 3b, below): known-answer vectors, negative and restart tests, two real peerd processes on loopback, ASan/UBSan, a fuzz run of the parser and receive path. Not run on a mock network with loss between processes: that is package 6's |
 | 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | **done** (PR 159, master `c92f93a7`), not opened by the app: `tests/fleet_link_peer_test` against a scripted peerd (nothing asked before the first poll), the session's `match_peer` in `fleet_session_test`, ASan/UBSan, and opt-in against two real peerd processes |
 | 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | **done** (PR 161, master `1106e6ae`): `fleet_view_mp_test`, `fleet_app_test` section 10 and `fleet_shell_test.sh` section 11 in both shapes, against the virtual opponent and a scripted peerd |
-| 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | **written, in review** (draft PR): eight scenarios through two shipped peerd processes in network namespaces, each ending with one win, one loss, both fleets verified, identical records (the forfeit: by its END) |
+| 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | **written, in review** (draft PR): ten scenarios through two shipped peerd processes in network namespaces, each ending with one win, one loss, both fleets verified, identical records (the forfeit: by its END, answered) |
 | 7 | **Hardware gate, A + B** | §3 | written gate, run with the owner's go-ahead |
 
 Order: 0, then 1 and 2 (Fleet only, no new service, a LoRa no-op), then 3,
@@ -130,18 +130,26 @@ local network"):
   unprivileged user, network and mount namespaces, veth pairs and netem, so
   nothing had to be stubbed. Broadcast is real; "broadcast blocked" is a
   third namespace routing between two subnets.
-- Eight scenarios where the plan names six: the plan's, plus both players
-  talking, and a forfeit under loss (an END that has to be acknowledged),
-  which earlier reviews left to this package.
+- Ten scenarios where the plan names six: the plan's, plus a lookup that is
+  the only thing that can find a moved opponent, a network outage, both
+  players talking, and a forfeit under loss (an END that is answered), which
+  earlier reviews left to this package.
 - The stale answer to a replaced probe, also left to this package, is in
   `tests/fleet_link_peer_test`: the scripted peerd can now answer a probe
   late.
-- **Observations for the hardware gate**, not changed here: peerd writes its
-  kept record about once per datagram accepted (120 to 145 small writes a
-  match); with both players talking, each chat line makes the match send its
-  pending shot again.
+- **Measured, for the hardware gate to weigh**, not changed here: peerd
+  rewrites its kept record about once per ply (some 105 small writes in a
+  match of 100 plies); and when players talk, more than twice the packets
+  cross, a third of them answers to copies of shots already answered - the
+  cause not established.
+- Review: an independent reviewer session read the first commit; it found
+  no blocker and four major weaknesses in what the scenarios proved, which
+  the second commit answers (the blocked and address checks, an explanation
+  in the docs that the code did not support, and processes left behind by
+  an interrupted run).
 - Not done: any run on a device; an invitation with one player off the
-  lobby, on two devices.
+  lobby, on two devices; a fault on the host's side; an address lost on the
+  network that carries no announcements.
 
 As built, package 5 (PR 161; `docs/apps/FLEET_MULTIPLAYER.md`, "The local
 network in the app"):

@@ -801,6 +801,17 @@ tests/fake-peerd: tests/fake_peerd_main.o tests/fake_peerd.o $(IPC_OBJS) core/po
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 FLEET_TESTS += tests/fake-peerd
 
+# A player on the local network without a screen - the real session, LAN link
+# and match, with PocketFleet's AI for a finger - for the end-to-end test over
+# two real peerd processes (make ENABLE_PEERD=1 ... fleet-lan-e2e). It needs
+# neither libsodium nor peerd to build, so it is built here with the rest: a
+# change to the session or the link cannot leave it behind unnoticed.
+tests/fleet_lan_player.o: ALL_CFLAGS += -Iapps/fleet/link -I$(FLEET_DIR)
+tests/fleet_lan_player: tests/fleet_lan_player.o $(FLEET_PEER_LINK_OBJS) apps/fleet/link/fleet_session.o \
+                        $(FLEET_NET_OBJS) $(FLEET_OBJS) $(IPC_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+FLEET_TESTS += tests/fleet_lan_player
+
 # A player without a screen - the real session, mesh link and match, with
 # PocketFleet's AI for a finger - for the end-to-end test over two real
 # meshcored processes (tests/fleet_mp_e2e_test.sh, make fleet-mp-e2e).
@@ -3221,11 +3232,7 @@ fleet-link-peer-real: peerd tests/fleet_link_peer_real
 # broadcast. Needs libsodium and unprivileged user namespaces; a few minutes,
 # so it is its own target rather than part of make test:
 #   make ENABLE_PEERD=1 SODIUM_DIR=... fleet-lan-e2e
-tests/fleet_lan_player.o: ALL_CFLAGS += -Iapps/fleet/link -I$(FLEET_DIR)
-tests/fleet_lan_player: tests/fleet_lan_player.o $(FLEET_PEER_LINK_OBJS) apps/fleet/link/fleet_session.o \
-                        $(FLEET_NET_OBJS) $(FLEET_OBJS) $(IPC_OBJS) $(PATHS_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
-
+# (The player itself is built with the other Fleet tests, further up.)
 .PHONY: fleet-lan-e2e
 fleet-lan-e2e: peerd tests/fleet_lan_player
 	bash tests/fleet_lan_e2e_test.sh

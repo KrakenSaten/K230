@@ -16,14 +16,16 @@
  * invites whoever answers. The guest accepts the first invitation. Each
  * deploys a random fleet and fires the AI's shot on its turn. The match is
  * saved to --save exactly as the app saves it - before any packet it produced
- * may leave - and a player started on a save resumes that match, which is how
- * the test restarts one mid-match.
+ * may leave - before, as the app does, though to a file of the test's own -
+ * and a player started on a save resumes that match, which is how the test
+ * restarts one mid-match.
  *
  * It is seen on the network as the app is (apps/fleet/fleet_mp.c,
  * follow_visibility): while it is "in the lobby" - no match begun - and
  * while its own invitation or acceptance waits for an answer; from Deploy on
  * it is hidden, and the match is played with the kept opponent alone. A
- * player resuming a save is never visible at all.
+ * player resuming a save is never visible at all, which is stricter than
+ * the app (whose lobby is on screen for a moment before RESUME).
  *
  * --crash-at-ply N leaves with _exit(3) once N plies are resolved: no close,
  * no unsubscribe, as a crash would.
@@ -34,12 +36,16 @@
  * --chat talks through the battle, a line every 2 s whenever one is not
  * already waiting, "<role> line <n>, Fleet over the network".
  *
- * Output, one line each: "READY <key>", "LISTED <n>" (players listed when
- * the host first looked), "ASKED <address>", "ANSWERED", "INVITED <name>",
+ * Output, one line each: "READY <key>", "LISTED <n> after_ms=<t>" (with
+ * --peer: when the first player was listed; with --address: how many were
+ * after seven seconds of listening, before anything is asked), "ASKED
+ * <address>", "ANSWERED", "INVITED <name>",
  * "ACCEPTED", "DEPLOYED", "HIDDEN" (once it stops asking to be seen),
  * "RESUMED ...", "PLY <n>", and at the end "DONE role=.. outcome=.. ...".
- * After DONE it keeps answering until SIGTERM, so a peer still waiting for
- * its last answer gets it. Exit 0 when the match finished, 2 on a timeout.
+ * DONE comes only once no END is owed any more, and says whether a forfeit's
+ * END was answered (end_acked=1) or given up. After DONE it keeps answering
+ * until SIGTERM, so a peer still waiting for its last answer gets it. Exit 0
+ * when the match finished, 2 on a timeout, 4 when stopped before the end.
  *
  * Copyright (c) 2026 Doors authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -82,7 +88,9 @@ static int64_t mono_ms(void)
 }
 
 /* Written whole and renamed into place, so a crash leaves the last save or
- * this one, never half of each. */
+ * this one, never half of each. The file is the test's own: Fleet's store,
+ * and which file a transport's save goes to, are not what this exercises
+ * (tests/fleet_save_test, tests/fleet_app_test). */
 static int save(void *user, const uint8_t *blob, size_t n)
 {
     struct player *p = user;
@@ -108,8 +116,8 @@ static int save(void *user, const uint8_t *blob, size_t n)
     return 0;
 }
 
-/* Seeded, so a run can be repeated; this is a test, and the commitment salt's
- * secrecy is not what it is testing. */
+/* From a generator seeded with --seed and the process id: this is a test,
+ * and the commitment salt's secrecy is not what it is testing. */
 static int entropy(void *user, void *buf, size_t n)
 {
     struct player *p = user;
@@ -207,6 +215,8 @@ int main(int argc, char **argv)
     int crash_at = 0;
     int forfeit_at = 0;
     int forfeited = 0;
+    int end_owed = 0;
+    int end_acked = 0;
     int talk = 0;
     unsigned said = 0;
     int64_t next_say = 0;
@@ -282,9 +292,15 @@ int main(int argc, char **argv)
     for (;;) {
         int64_t now = mono_ms();
         struct fleet_match *m = &s.m;
+        unsigned rx_before;
         int row;
         int col;
 
+        if (stopping) {
+            /* Told to go before the match was over: as the app closes. */
+            link->ops->close(link->ctx);
+            return 4;
+        }
         if (now - start > (int64_t)timeout_s * 1000) {
             struct fleet_link_peer_info info;
 
@@ -308,7 +324,18 @@ int main(int argc, char **argv)
                 printf("HIDDEN\n");
             }
         }
+        rx_before = s.ready ? m->stats.rx : 0;
         fleet_session_poll(&s, now);
+        if (s.ready && end_owed && !m->end_unacked) {
+            /* The END is no longer owed: answered, if a packet of the match
+             * came in on the poll that settled it; given up after its three
+             * tries otherwise. */
+            end_owed = 0;
+            end_acked = m->stats.rx > rx_before;
+        }
+        if (s.ready && m->end_unacked) {
+            end_owed = 1;
+        }
         if (!s.ready || link->ops->state(link->ctx) != FLEET_LINK_UP) {
             usleep(10000);
             continue;
@@ -351,11 +378,13 @@ int main(int argc, char **argv)
                 if (address) {
                     enum fleet_link_peer_probe_state ps = fleet_link_peer_probe_state(link);
 
-                    if (!listed_said && now - start >= 3000) {
-                        /* Given time to hear announcements first, so that
-                         * "nobody was listed" means something. */
+                    if (!listed_said && now - start >= 7000) {
+                        /* Seven seconds of listening first - three of
+                         * peerd's announcements and three of the link's
+                         * looks at its list, and the six seconds the lobby
+                         * itself waits - so "nobody was listed" means it. */
                         listed_said = 1;
-                        printf("LISTED %d\n", n);
+                        printf("LISTED %d after_ms=%lld\n", n, (long long)(now - start));
                     }
                     if (ps == FLEET_PEER_PROBE_ANSWERED &&
                         fleet_link_peer_probe_key(link, asked_key) == 0) {
@@ -372,7 +401,7 @@ int main(int argc, char **argv)
                     }
                 } else if (!listed_said && n > 0) {
                     listed_said = 1;
-                    printf("LISTED %d\n", n);
+                    printf("LISTED %d after_ms=%lld\n", n, (long long)(now - start));
                 }
                 for (k = 0; k < n; k++) {
                     if (address ? have_asked && !memcmp(peers[k].key, asked_key, FLEET_KEY_BYTES)
@@ -382,7 +411,7 @@ int main(int argc, char **argv)
                         break;
                     }
                 }
-                next_invite = now + (address ? 300 : 1000);
+                next_invite = now + 300;
             }
             break;
         case FLEET_MP_INVITED:
@@ -406,8 +435,10 @@ int main(int argc, char **argv)
         case FLEET_MP_BATTLE:
             if (forfeit_at && !forfeited && m->resolved >= forfeit_at) {
                 forfeited = 1;
-                fleet_session_forfeit(&s, now);
-                printf("FORFEITED at ply %d\n", m->resolved);
+                if (fleet_session_forfeit(&s, now) == 0) {
+                    end_owed = m->end_unacked != 0;
+                    printf("FORFEITED at ply %d\n", m->resolved);
+                }
                 break;
             }
             if (talk && now >= next_say && fleet_chat_pending(&m->chat) == 0) {
@@ -429,12 +460,12 @@ int main(int argc, char **argv)
             if (m->end_unacked) {
                 break;      /* over for us; the END is still owed its answer */
             }
-            printf("DONE role=%s outcome=%s end=%d by_me=%d verify=%d plies=%d digest=%08x sent=%u rx=%u "
-                   "profile=%s gov_waits=%u resyncs=%u dup_replies=%u violations=%u saves=%u "
+            printf("DONE role=%s outcome=%s end=%d by_me=%d end_acked=%d verify=%d plies=%d "
+                   "digest=%08x sent=%u rx=%u profile=%s gov_waits=%u resyncs=%u dup_replies=%u violations=%u saves=%u "
                    "chat_said=%u chat_tx=%u chat_shown=%u chat_dup=%u chat_failed=%u chat_ok=%d "
                    "chat_order=%d\n",
-                   role, outcome_name(m->outcome), m->end_reason, m->end_by_me, m->verify,
-                   m->resolved,
+                   role, outcome_name(m->outcome), m->end_reason, m->end_by_me, end_acked,
+                   m->verify, m->resolved,
                    fleet_match_digest(m, m->resolved), m->stats.tx, m->stats.rx,
                    m->profile ? m->profile->name : "?", m->stats.gov_waits, m->stats.resyncs,
                    m->stats.dup_replies, m->stats.violations, pl.saves, said, m->stats.chat_tx,
