@@ -70,8 +70,9 @@ private class Said(val m: MessageRow, val first: Boolean) : Entry {
     override val key get() = "m" + m.ord
 }
 
-private class Day(val date: LocalDate) : Entry {
-    override val key get() = "d$date"
+/** [before]: the message it stands above. The phone's clock can go back, so a date alone may come twice. */
+private class Day(val date: LocalDate, val before: Long) : Entry {
+    override val key get() = "d$before"
 }
 
 private class Break(val mark: MarkRow) : Entry {
@@ -105,7 +106,7 @@ private fun timeline(rows: List<MessageRow>, marks: List<MarkRow>): List<Entry> 
         }
         val d = day(m.heardAtMs)
         if (d != shown) {
-            out += Day(d)
+            out += Day(d, m.ord)
             shown = d
             last = null
         }

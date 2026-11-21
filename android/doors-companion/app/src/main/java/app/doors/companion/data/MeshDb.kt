@@ -268,8 +268,19 @@ abstract class MeshDao {
     @Query("SELECT * FROM units WHERE unit = :unit")
     abstract fun unit(unit: String): Flow<UnitRow?>
 
-    @Query("INSERT INTO reads (unit, conv, lastOrd) VALUES (:unit, :conv, :ord) ON CONFLICT (unit, conv) DO UPDATE SET lastOrd = MAX(lastOrd, excluded.lastOrd)")
-    abstract suspend fun markRead(unit: String, conv: String, ord: Long)
+    // Two plain statements, not an upsert: Android 10 (the minimum) has SQLite 3.22,
+    // which does not know ON CONFLICT ... DO UPDATE.
+    @Query("INSERT OR IGNORE INTO reads (unit, conv, lastOrd) VALUES (:unit, :conv, :ord)")
+    protected abstract suspend fun readFirst(unit: String, conv: String, ord: Long)
+
+    @Query("UPDATE reads SET lastOrd = :ord WHERE unit = :unit AND conv = :conv AND lastOrd < :ord")
+    protected abstract suspend fun readFurther(unit: String, conv: String, ord: Long)
+
+    @Transaction
+    open suspend fun markRead(unit: String, conv: String, ord: Long) {
+        readFirst(unit, conv, ord)
+        readFurther(unit, conv, ord)
+    }
 
     // ---- forgetting a unit ----
     @Query("DELETE FROM messages WHERE unit = :unit")
