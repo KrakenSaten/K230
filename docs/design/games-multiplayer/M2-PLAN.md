@@ -6,7 +6,9 @@ is there as an opt-in build that no image includes and nothing starts;
 putting it in an image is a step of its own, not yet done. Fleet can be
 played over the local network (packages 4 and 5) on a device where peerd's
 socket exists - which, with no image containing peerd, is none yet; on
-every device there is, Fleet is what it was. Package 6 onwards is not started and waits for the owner's go-ahead. Nothing has
+every device there is, Fleet is what it was. Package 6, the end-to-end
+runs on a host, is written and in review (a draft PR), not merged. Package 7,
+the hardware gate, is not started and waits for the owner's go-ahead. Nothing has
 been deployed to hardware. Follows the owner's
 conditional approval of M1: architecture approved; peerd subject to a
 security ADR and review; Fleet's existing multiplayer UI; LoRa behaviour
@@ -114,11 +116,32 @@ match itself is unaffected.
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | **done** (PR 156, master `680fc5cc`) **except the init script and image wiring** (step 3b, below): known-answer vectors, negative and restart tests, two real peerd processes on loopback, ASan/UBSan, a fuzz run of the parser and receive path. Not run on a mock network with loss between processes: that is package 6's |
 | 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | **done** (PR 159, master `c92f93a7`), not opened by the app: `tests/fleet_link_peer_test` against a scripted peerd (nothing asked before the first poll), the session's `match_peer` in `fleet_session_test`, ASan/UBSan, and opt-in against two real peerd processes |
 | 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | **done** (PR 161, master `1106e6ae`): `fleet_view_mp_test`, `fleet_app_test` section 10 and `fleet_shell_test.sh` section 11 in both shapes, against the virtual opponent and a scripted peerd |
-| 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | each ends with one win, one loss, both fleets verified, identical records |
+| 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | **written, in review** (draft PR): eight scenarios through two shipped peerd processes in network namespaces, each ending with one win, one loss, both fleets verified, identical records (the forfeit: by its END) |
 | 7 | **Hardware gate, A + B** | §3 | written gate, run with the owner's go-ahead |
 
 Order: 0, then 1 and 2 (Fleet only, no new service, a LoRa no-op), then 3,
 4, 5, 6, 7.
+
+As built, package 6 (`docs/apps/FLEET_MULTIPLAYER.md`, "End to end over the
+local network"):
+
+- **The peerd under test is the shipped binary in real network namespaces**,
+  not the test-hook build on two loopback addresses: the host allows
+  unprivileged user, network and mount namespaces, veth pairs and netem, so
+  nothing had to be stubbed. Broadcast is real; "broadcast blocked" is a
+  third namespace routing between two subnets.
+- Eight scenarios where the plan names six: the plan's, plus both players
+  talking, and a forfeit under loss (an END that has to be acknowledged),
+  which earlier reviews left to this package.
+- The stale answer to a replaced probe, also left to this package, is in
+  `tests/fleet_link_peer_test`: the scripted peerd can now answer a probe
+  late.
+- **Observations for the hardware gate**, not changed here: peerd writes its
+  kept record about once per datagram accepted (120 to 145 small writes a
+  match); with both players talking, each chat line makes the match send its
+  pending shot again.
+- Not done: any run on a device; an invitation with one player off the
+  lobby, on two devices.
 
 As built, package 5 (PR 161; `docs/apps/FLEET_MULTIPLAYER.md`, "The local
 network in the app"):

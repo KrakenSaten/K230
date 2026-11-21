@@ -760,6 +760,51 @@ Known limits of this package:
   (its last address, then a lookup). If that fails too, `ADD BY ADDRESS`
   from the lobby finds them; nothing steers the player there.
 
+## End to end over the local network
+
+M2 package 6: `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-lan-e2e`. Not part of
+`make test`: it needs libsodium and a host that allows unprivileged user
+namespaces (it fails, rather than skips, where it cannot run). Nothing here
+has run on a device.
+
+What it adds to the tests before it is the real thing on both sides of the
+socket and of the wire: the peerd is `services/peerd/peerd` as it would be
+shipped (the test refuses a build with test hooks), it enumerates a real
+interface, announces on its broadcast address and binds every address, and
+the two of them are joined by a veth pair - or, for the network that carries
+no announcements, by a third namespace that routes between two subnets. The
+players stand in for the app: `tests/fleet_lan_player` is seen on the network
+by the app's own rule, so every match is played hidden, with the kept
+opponent alone.
+
+What it showed, beyond the matches finishing:
+
+- **The address change needs nothing from the player.** With the guest
+  moved to another address mid-match, the host's peerd follows it and the
+  match goes on (peerd's lookup and "the endpoint follows the key").
+- **A killed peerd comes back with its kept opponent** read from disk, and
+  the match goes on without anybody being visible.
+- **The hide follows the keep by well under a second** on a quiet host: the
+  devices stop being visible a few plies into the battle.
+- **peerd writes its kept record about once per datagram accepted** - some
+  120 to 145 writes of a small file in a match of that many plies (its
+  counter `kept_writes`). That is ADR-017's replay floor being kept on disk.
+  On a device it is as many flash writes per match; whether that is
+  acceptable is for the hardware gate to measure, not something this
+  package changes.
+- **With both players talking, a third or so more packets cross than the
+  lines and their receipts account for:** each chat line makes the match
+  send its pending shot again (the same on LoRa; on the network the reply
+  to such a copy is limited to one per 200 ms where LoRa's is one per 2 s).
+  The matches are correct and nothing is rationed on the network; it is
+  recorded because it is traffic nobody asked for.
+
+Not covered here, and left to the hardware gate: two real devices; Wi-Fi and
+Ethernet; a DHCP lease or a cable replug; client isolation on a real access
+point; rotation; a reboot straight after FIRE; anything on a panel. Not
+covered at all: an invitation while one player is off the lobby, on two
+devices (the players here stay "in the lobby" until the match begins).
+
 ## Tests
 
 | Test | Covers |
@@ -787,5 +832,7 @@ Known limits of this package:
 | `make ENABLE_MESHCORED=1 fleet-mp-e2e` | **P6.** Whole matches between two Fleet players (`tests/fleet_mp_player`: the real session, mesh link and match, the AI for a finger) through two real meshcored processes over stand-in radiods and a mock air: at the product's own pace; with 15 % of frames lost and 5 % duplicated; with the guest's app killed at ply 30 and resumed from its save; and with the guest's meshcored restarted at ply 40; and ("chat") with both players talking in three-block lines all through a fast match. Each must end with one win and one loss, both fleets verified, identical records, no violation, datagrams both ways, a receipt, and no message in `mesh.messages` (Fleet's chat is app datagrams, never RIFT's text); "chat" also every line held the opponent's, once, in order, none given up |
 | `tests/fleet_link_peer_test` | the LAN link against a real socket and a scripted peerd (`tests/fake_peerd.c`): nothing asked before the first poll; the link states and why; the LAN profile; players listed most recent first, without this device or a broken entry, a kept peer not heard this run with no time and no route; each datagram once from the inbox and from events, the cursor reset on a new run; exactly the bytes handed over, on port 1; the lease renewed after ten seconds and not on every poll, at once on request, ended on close; nothing kept or released before the session says who, then the opponent kept and a stale peer released, asserted again after a restart, released when the match is over; what is not an address never asked, a probe answered, unanswered, replaced by another before its answer (the outcome; a stale reply to the replaced one cannot be scripted and is not tested), pending, and ended when peerd goes; which players are proved; an event during the catch-up and a reconnect to the same run, nothing lost or taken twice; a refused send, and a refused keep retried at a growing interval; a peerd closed by a fault; a peerd with nothing to announce on |
 | `tests/fleet_session_test` (match peer) | the session tells its link who the match is with: nothing before engaging, none while an invitation is only out, the opponent from Deploy, the saved match's opponent first thing after a reopen, none once the match is played to its end, nothing at all when the save could not be read or is damaged, and a match begun after that named and then ended as usual |
+| `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-lan-e2e` | **M2 package 6.** Whole matches between two Fleet players (`tests/fleet_lan_player`: the real session, LAN link and match, the AI for a finger) through two **shipped** peerd processes, each in a network namespace of its own with a real interface (`tests/fleet_lan_e2e.py`, under `unshare -Urnm`: no root, nothing left behind): found by announcement on one subnet; with 15 % of packets lost, 5 % duplicated and 20 ms delay each way; with the guest's app killed at ply 30 and resumed from its save; with the guest's peerd killed at ply 40 and started again; with the guest's address changed at ply 30; across a router that carries no broadcast, joined by address; with both players talking; and with the host forfeiting at ply 20 under loss. Each must end with one win and one loss, both fleets verified, identical records, no violation (the forfeit: the forfeiter lost by its own END, which reached the other side). In every one the players are hidden from Deploy on, as the app is outside its lobby, so the match is played with the kept opponent alone; each peerd is checked to be hidden, bound and keeping exactly one mid-match, and to keep nobody and close its socket after it |
+| `tests/fleet_link_peer_test` (late answer) | against a scripted peerd that answers `peer.probe` late: an address asked and replaced before the first answer arrives - the late answer is not taken for the second's |
 | `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-link-peer-real` | the same link against two real peerd processes on two loopback addresses (`tests/fleet_link_peer_real`): found by address, datagrams both ways through peerd's sealing, each peerd keeping exactly the other, visibility ended and the kept peer still bound after the links close. Opt-in: it needs libsodium |
 | `make fleet-mp-san-test` | the native suites under ASan and UBSan, `fleet_link_test` and `fleet_link_peer_test` included |
