@@ -78,6 +78,29 @@ check "upstream calls pass no client parameter" \
 check "upstream methods are called only by table name" \
     "$([ "$(grep -c 'pocketipc_call' $D/main.c)" = 1 ] && echo 1 || echo 0)"
 
+# 4b. The mesh group (M4.1): reading only, by mesh_read only, and the
+# gateway's own connection to meshcored asks for three things by name.
+meshrows=$(echo "$table" | grep -E '\{"mesh\.' | grep -v '"mesh.status"')
+check "the mesh rows were found" "$([ "$(echo "$meshrows" | grep -c .)" -ge 6 ] && echo 1 || echo 0)"
+check "every mesh row but mesh.status needs mesh_read" \
+    "$([ -z "$(echo "$meshrows" | grep -v 'GW_S_MESH_READ')" ] && echo 1 || echo 0)"
+none "no sending in this milestone" '"mesh\.(send|resend|app_send)' $SRC
+none "the receive log is never asked for" 'rx_log' $SRC
+own=$(grep -oE 'gw_uplink_call\(G\.mesh, "[a-z_.]+"' $D/main.c | grep -oE '"[a-z_.]+"' | sort | tr -d '\n')
+check "the gateway's own calls to meshcored are status, subscribe and messages" \
+    "$([ "$own" = '"mesh.messages""mesh.status""mesh.subscribe"' ] && echo 1 || echo 0)"
+check "every other call to meshcored is a table row by its name" \
+    "$([ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 5 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] && echo 1 || echo 0)"
+check "what goes upstream with a client's request is the row's own parameter check" \
+    "$(grep -q 'gw_uplink_call(G.mesh, m->name, up,' $D/main.c && grep -q 'm->params(params, &up)' $D/main.c && echo 1 || echo 0)"
+passed=$(awk '/^cJSON \*gw_filter_event\(/,/^}/' $D/gw_policy.c | grep -oE '"mesh\.[a-z_]+"' | sort | tr -d '\n')
+check "three events of meshcored are passed on by name and no other" \
+    "$([ "$passed" = '"mesh.channel""mesh.node""mesh.state"' ] && echo 1 || echo 0)"
+none "no field list of the mesh group names a key or a secret" \
+    '^\s*"[a-z_", ]*"(key|secret|private_key|prv|psk|password|passphrase|token)"' $D/gw_policy.c
+check "the journal is memory only: no file is written by it" \
+    "$(grep -qE 'fopen|open\(|write\(|fwrite' $D/gw_journal.c $D/gw_feed.c && echo 0 || echo 1)"
+
 # 5. Logs. No LOG_ line takes a %s fed by a token, a name, a URI, a method,
 # text or key material; fingerprints are logged as an 8-byte prefix only.
 logs=$(grep -nE 'LOG_(INFO|WARN|ERROR|DEBUG)\(' -A2 $D/*.c)

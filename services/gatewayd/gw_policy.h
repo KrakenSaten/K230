@@ -41,6 +41,20 @@ enum gw_kind {
     GW_K_PAIR,
     GW_K_UNPAIR,
     GW_K_UPSTREAM,      /* passed to a service, the result filtered */
+    GW_K_SUBSCRIBE,     /* gateway.subscribe: the topics of this session */
+    GW_K_MESH,          /* passed to meshcored without blocking the loop */
+    GW_K_NODES,         /* mesh.nodes: one upstream list, answered in pages */
+    GW_K_SYNC,          /* mesh.sync: answered from the journal */
+};
+
+/* The topics of gateway.subscribe this build serves (docs/api/gateway.md
+ * §5). "device" and "capture" are names of the protocol that nothing serves
+ * yet: asked for, they are left out of the answer like a topic the client's
+ * scopes do not allow. */
+enum gw_topic {
+    GW_T_MESH = 1u << 0,
+    GW_T_MESH_ACTIVITY = 1u << 1,
+    GW_T_ALL = (1u << 2) - 1u,
 };
 
 struct gw_method {
@@ -48,8 +62,12 @@ struct gw_method {
     enum gw_kind kind;
     unsigned who;               /* GW_W_* bits */
     unsigned scope;             /* one GW_S_* bit, or 0: none needed */
-    const char *service;        /* GW_K_UPSTREAM: the pocketipc service */
+    const char *service;        /* the pocketipc service that answers it */
     cJSON *(*filter)(const cJSON *result);
+    /* The parameters this method takes: checked, and written again from
+     * nothing as *out (to free; NULL for none) - what a client sent is never
+     * what a service receives. 0, or -1. NULL: the method takes none. */
+    int (*params)(const cJSON *in, cJSON **out);
 };
 
 enum gw_verdict {
@@ -90,7 +108,38 @@ bool gw_params_empty(const cJSON *params);
  * survives at any depth (gw_scrub). */
 cJSON *gw_filter_result(const struct gw_method *m, const cJSON *result);
 /* Removes, at any depth, members named for a key, a secret, a passphrase,
- * a password, a token or a PSK. "public_key" stays. */
+ * a password, a token or a PSK. "public_key", "peer_public_key" and
+ * "key_bits" stay. */
 void gw_scrub(cJSON *node);
+
+/* ---- the mesh group (docs/api/gateway.md §5 and §7) --------------------- */
+
+/* One message, node or channel as meshcored reports it, reduced to the
+ * fields docs/api/mesh.md names. A new object, or NULL (not an object, no
+ * memory). */
+cJSON *gw_filter_message(const cJSON *message);
+cJSON *gw_filter_node(const cJSON *node);
+cJSON *gw_filter_channel(const cJSON *channel);
+/* The data of an event of meshcored that is passed on under its own name:
+ * mesh.node {reason, node}, mesh.channel {reason, channel}, mesh.state
+ * {state, reason, mono_ms}. NULL for every other event: it is not passed
+ * on. */
+cJSON *gw_filter_event(const char *name, const cJSON *data);
+
+/* mesh.nodes {offset, limit}: both optional, whole numbers, 0 to
+ * GW_NODES_OFFSET_MAX and 1 to GW_NODES_LIMIT (the default). 0, or -1. */
+int gw_page_params(const cJSON *params, int *offset, int *limit);
+/* One page of a filtered mesh.nodes result: nodes[], count, total, run_id. */
+cJSON *gw_nodes_page(const cJSON *filtered, int offset, int limit, const char *run_id);
+/* mesh.sync {after_seq, limit}: both optional. 0, or -1. */
+int gw_sync_params(const cJSON *params, bool *have_after, uint64_t *after_seq, int *limit);
+
+/* gateway.subscribe {topics[]}: at most 8 strings. The topics this build
+ * serves and these scopes allow are set in *mask; any other name is left
+ * out. 0, or -1 when params is not that shape. */
+int gw_topics_parse(const cJSON *params, unsigned scopes, unsigned *mask);
+cJSON *gw_topics_json(unsigned mask);
+/* The topics these scopes allow, of those in mask. */
+unsigned gw_topics_allowed(unsigned mask, unsigned scopes);
 
 #endif

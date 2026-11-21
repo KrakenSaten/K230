@@ -13,8 +13,10 @@
 #define _GNU_SOURCE
 
 #include "gw.h"
+#include "gw_feed.h"
 #include "gw_frame.h"
 #include "gw_gate.h"
+#include "gw_journal.h"
 #include "gw_policy.h"
 #include "gw_store.h"
 #include "gw_util.h"
@@ -70,9 +72,47 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 (void)gw_policy_check(m, GW_W_PAIRED, (unsigned)size & GW_S_ALL);
                 (void)gw_policy_check(m, GW_W_CANDIDATE, 0);
                 (void)gw_params_empty(params);
-                if (m != NULL && m->kind == GW_K_UPSTREAM && params != NULL) {
+                if (m != NULL && m->filter != NULL && params != NULL) {
                     /* The filters, on an object the fuzzer made. */
                     cJSON_Delete(gw_filter_result(m, params));
+                }
+                /* The mesh group (M4.1): the parameter checks on what a
+                 * client sent, and - as if meshcored had sent it - the
+                 * event filters, the feed and the journal. */
+                {
+                    static struct gw_journal j;
+                    static struct gw_feed feed;
+                    static int64_t t;
+                    static bool ready;
+                    uint64_t after;
+                    unsigned mask;
+                    bool have;
+                    int off, lim;
+                    cJSON *up = NULL, *d;
+
+                    if (!ready) {
+                        ready = gw_journal_init(&j, "fuzz") == 0 && gw_journal_set_run(&j, "run") == 1;
+                        gw_feed_init(&feed);
+                    }
+                    if (m != NULL && m->params != NULL && m->params(params, &up) == 0) {
+                        cJSON_Delete(up);
+                    }
+                    (void)gw_page_params(params, &off, &lim);
+                    (void)gw_topics_parse(params, (unsigned)size & GW_S_ALL, &mask);
+                    if (gw_sync_params(params, &have, &after, &lim) == 0) {
+                        cJSON_Delete(gw_journal_sync(&j, have, after, lim));
+                    }
+                    t += 700;
+                    cJSON_Delete(gw_feed_node(&feed, gw_filter_event("mesh.node", params), t));
+                    cJSON_Delete(gw_filter_event("mesh.channel", params));
+                    cJSON_Delete(gw_filter_event("mesh.state", params));
+                    while ((d = gw_feed_node_due(&feed, t)) != NULL) {
+                        cJSON_Delete(d);
+                    }
+                    gw_feed_activity(&feed, params, t);
+                    cJSON_Delete(gw_feed_activity_due(&feed, t));
+                    (void)gw_journal_put(&j, gw_filter_message(params), NULL);
+                    cJSON_Delete(gw_nodes_page(params, off, lim, "run"));
                 }
                 cJSON_Delete(root);
             }
@@ -134,6 +174,12 @@ static const char *const SEEDS[] = {
     "{\"id\":1,\"method\":\"gateway.hello\",\"params\":{\"proto_min\":1,\"proto_max\":1,\"app\":\"a\",\"app_version\":\"1\"}}",
     "{\"id\":2,\"method\":\"system.status\",\"params\":{\"network\":[{\"name\":\"w\",\"mac\":\"m\"}],\"services\":[1,{}],\"k\":{\"api_key\":[{\"token\":1}]}}}",
     "{\"id\":3,\"method\":\"gateway.pair\",\"params\":{\"token\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"name\":\"n\"}}",
+    "{\"id\":4,\"method\":\"mesh.node\",\"params\":{\"node\":\"ab12\",\"id\":7,\"state\":\"acked\",\"text\":\"t\",\"reason\":\"path\",\"node2\":1}}",
+    "{\"id\":5,\"method\":\"mesh.sync\",\"params\":{\"after_seq\":3,\"limit\":9}}",
+    "{\"id\":6,\"method\":\"mesh.nodes\",\"params\":{\"offset\":1,\"limit\":2,\"nodes\":[{\"public_key\":\"aa\",\"key\":1},2]}}",
+    "{\"id\":7,\"method\":\"gateway.subscribe\",\"params\":{\"topics\":[\"mesh\",\"mesh.activity\",\"x\"]}}",
+    "{\"id\":8,\"method\":\"mesh.path_preview\",\"params\":{\"to\":\"aa00000000000000000000000000000000000000000000000000000000000001\",\"via\":[\"bb00000000000000000000000000000000000000000000000000000000000002\"]}}",
+    "{\"id\":9,\"method\":\"x\",\"params\":{\"reason\":\"path\",\"node\":{\"public_key\":\"aa00000000000000000000000000000000000000000000000000000000000001\",\"n\":1},\"kind\":\"rx\",\"payload_type\":\"advert\",\"bytes\":40,\"id\":3}}",
     "doors-gatewayd-paired 1\nclient aa00000000000000000000000000000000000000000000000000000000000000 7 1763700000 506978656c\n",
     "root:$6$salt$hash:19000:0:99999:7:::\ndaemon:*:1::::::\n",
 };

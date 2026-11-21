@@ -1,4 +1,4 @@
-# gatewayd: the Companion Gateway (M2 core)
+# gatewayd: the Companion Gateway (M2 core, M4.1 mesh reading)
 
 Status: **host-tested and cross-built only.** Built by name (`make gatewayd`), not in `make all`, not in any image, not in the rootfs overlay. **No part of it has run on a K230, and no phone app exists yet.** Design: `docs/decisions/ADR-019-companion-gateway.md` (accepted 2026-11-21); protocol: `docs/api/gateway.md`; pairing: `docs/design/companion/PAIRING.md`.
 
@@ -8,7 +8,8 @@ gatewayd is the one Doors service that listens on the network. A paired phone re
  phone ── TLS 1.3, both keys pinned ──▶ gatewayd ──┬─ sysd      system.info, system.status
                                           │        ├─ netd      wifi.status
  Settings / doors ── gatewayd.sock ───────┘        ├─ radiod    radio.status
- (root only: pair, decide, scopes, revoke)         └─ meshcored mesh.status
+ (root only: pair, decide, scopes, revoke)         └─ meshcored mesh.status; M4.1: one kept connection,
+                                                              subscribed, for reading the mesh
 ```
 
 ## What M2 contains
@@ -26,7 +27,29 @@ gatewayd is the one Doors service that listens on the network. A paired phone re
 
 Served to a paired client in M2: `gateway.hello`, `gateway.ping`, `gateway.unpair`, and with the `status` scope `system.info`, `system.status`, `wifi.status`, `radio.status`, `mesh.status`. `gateway.pair` is for a pairing candidate only. `capabilities` is `["status"]`.
 
-**Not in M2** (each returns "unknown method" today): `gateway.subscribe` and every event except `gateway.scopes` and `gateway.revoked`; the mesh group (`mesh_read`, `mesh_send`); the capture group (`capture_view`, `capture_control`; ADR-016 amendment 1 is still proposed). All five scopes are defined, granted, stored and changed now, so later milestones add table rows and not a permission model. `gateway.hello` does not yet carry `model` or `api`.
+**Not in M2:** `gateway.subscribe` and every event except `gateway.scopes` and `gateway.revoked`; the mesh group; the capture group. All five scopes are defined, granted, stored and changed since M2, so later milestones add table rows and not a permission model. `gateway.hello` does not yet carry `model` or `api`.
+
+## What M4.1 adds: reading the mesh
+
+Served to a paired client with the `mesh_read` scope: `mesh.identity`, `mesh.nodes` (in pages), `mesh.node`, `mesh.channels`, `mesh.path_preview`, `mesh.sync`; and to any paired client `gateway.subscribe`, whose topics `mesh` and `mesh.activity` need `mesh_read`. `capabilities` is `["status", "mesh", "mesh.activity"]`. The wire details are `docs/api/gateway.md` §5 and §7.
+
+| Part | File | What it does |
+| --- | --- | --- |
+| The connection to meshcored | `gw_uplink.c` | A pocketipc client that never blocks: connects or tries again later (250 ms to 4 s), reads everything as it comes, matches answers to requests by id, gives each request 2 s |
+| The journal | `gw_journal.c` | The last 512 messages under the gateway's own `seq`; the cursor of `mesh.sync`. Pure, memory only |
+| Bounding the events | `gw_feed.c` | `mesh.node` at most once per node per 10 s; `mesh.activity` as one-second counts. Pure, clock passed in |
+| Rows, filters, parameters, topics | `gw_policy.c` | Seven table rows; every result and event reduced to named fields; every parameter checked and written again |
+| The mesh section | `main.c` | meshcored's events into the journal and to subscribers; requests without waiting; the limit of 8 waiting requests per client |
+
+**Still not served** (each "unknown method"): sending (`mesh.send`, `mesh.resend`, scope `mesh_send`), the capture group (ADR-016 amendment 1 is still proposed), and the topics `device` and `capture`, which a subscription leaves out.
+
+How it behaves:
+
+- **Read only while somebody may read.** The gateway connects to meshcored only while at least one paired client holds `mesh_read`. When the last one loses it, the connection is closed and the journal emptied.
+- **What it asks meshcored for, itself:** `mesh.status` (for the `run_id`), `mesh.subscribe` with no parameters (so never the receive log), `mesh.messages`. For a client: the five reading methods, by their table name, with parameters the row's own check wrote. Nothing else, and nothing that changes the node; `tests/gatewayd_lint.sh` holds the text of that and the service suite checks what a fake meshcored was asked.
+- **meshcored is not changed and not held up.** The gateway is one more subscriber, as RIFT is. It reads its socket in every turn of the loop whether or not a client is connected, so meshcored's 200 ms backpressure rule has no cause to fire. A client that does not read is disconnected at 256 KiB of unread output; meshcored does not notice.
+- **Restarts.** A new `run_id` empties the journal (meshcored's message ids start again) and is announced with `gateway.upstream`. A lost connection within one run is repaired from `mesh.messages`: only what changed or is new gets a `seq`. A gateway restart is a new `journal_id`. A meshcored that reports no usable `run_id`, or answers the three calls wrongly, is dropped and tried again; the mesh group answers code 9 meanwhile.
+- **Nothing secret.** meshcored reports no channel key and no identity key (`docs/api/mesh.md`). The gateway does not rely on that alone: each result and event is reduced to the fields that document names, and the scrub of secret-named members runs behind it. No message text, node name, key or `run_id` is logged.
 
 ## When it listens
 
@@ -83,6 +106,8 @@ doors call gatewayd gateway.revoke client=<64 hex>
 
 8 paired clients; 2 sessions at once (a second connection of the same client replaces its first); 8 handshakes in progress and 4 new ones a second; 64 KiB per request frame; 256 KiB per reply and of unread output; 40 requests at once then 20 a second per client (code 10 beyond); 10 s to finish a handshake and 10 s more to send `gateway.hello`; 90 s idle; 2 s for a connection that is being ended to take its last message. An upstream call has 100 ms to connect and 300 ms to answer, and during it the service serves nobody else; a service that failed to answer is not asked again for 1 s (code 9 at once meanwhile).
 
+The mesh group (M4.1): 16 requests of one client in one turn of the loop; no further request read from a client with more than 32 KiB of answers it has not taken; 8 requests of one client waiting for meshcored at a time (nothing further is read from that client until one completes), 16 of all clients together (code 5 beyond); 2 s for meshcored to answer one; 512 journaled messages of at most 8 KiB each as JSON (a larger one is not journaled and not sent); 100 messages and 192 KiB in one `mesh.sync` answer; 100 nodes in one `mesh.nodes` page; 128 nodes tracked for `mesh.node` at a time (an advert of a further node inside one 10 s period is not sent as an event; `mesh.nodes` still has it); 16 type words in one activity bin; a request to meshcored that cannot be written within 2 s ends that connection.
+
 The service runs at nice 5, and does not start at all unless every capability was dropped and read back as dropped.
 
 ## Logging
@@ -107,14 +132,16 @@ Classes as in AGENTS.md. Measured 2026-11-21 on the build host (x86-64, WSL Ubun
 
 | Claim | Class |
 | --- | --- |
-| Pure modules, identity handling: 528 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_unit_test.c`) |
-| Frame reader, request parser, paired-list loader, gate: 200,000 fuzzed inputs, no fault | VERIFIED host, ASan/UBSan (`tests/gatewayd_fuzz.c`) |
+| Pure modules, identity handling: 1544 checks (528 of M2; M4.1 adds the mesh rows, filters, parameters and topics, the journal and its cursor, the event bounds) | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_unit_test.c`) |
+| Frame reader, request parser, paired-list loader, gate, and since M4.1 the mesh parameter checks, filters, feed and journal: 200,000 fuzzed inputs, no fault | VERIFIED host, ASan/UBSan (`tests/gatewayd_fuzz.c`). **Not fuzzed:** `gw_uplink.c` (its reader is pocketipc's) |
+| **M4.1.** The real service between a fake meshcored and TLS clients: not read while nobody holds `mesh_read`; what meshcored is asked for and in which order; the scope on every method and topic; filters; parameters; pages of `mesh.nodes`; every event and what is not passed on; the journal, its cursor, a repeated event; meshcored lost and back in the same run and in a new one; the ring wrapping; a meshcored that does not answer (given up and taken up again) and the limit of waiting requests; a client that does not read; five large answers pipelined; a meshcored that answers wrongly; a scope taken away and a client revoked mid-request; log contents: 90 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_mesh_e2e_test.py`) |
+| **M4.1.** The real meshcored | **not tested**: the suite's meshcored is a fake written from `docs/api/mesh.md` and `services/meshcored/api.c`. That the real service's results and events have the documented shape, that it writes an event before the answer to a later request, and its 200 ms backpressure rule against this client are ASSUMED |
 | The real service against TLS clients: gate, closed until asked, pairing, failed handshakes (no certificate, TLS 1.2, RSA, P-384, unknown key, two certificates, plaintext), no resumption, scopes, revocation, malformed and oversized frames, limits, upstream failures, restart, damaged and missing state, log contents: 190 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_e2e_test.py`) |
 | The fingerprint equals the SHA-256 of the SubjectPublicKeyInfo as the `openssl` tool writes it | VERIFIED host (unit and service suites) |
 | riscv64 build: warning-free with `-Werror`, Xuantie GCC 14.1.1, against the v0.4.0 release build's sysroot; links `libssl.so.3`, `libcrypto.so.3`, `libcjson.so.1`, all present in that build's target tree | VERIFIED (cross-build only) |
 | The v0.4.0 sysroot's OpenSSL is 3.4.1 with none of `OPENSSL_NO_TLS1_3`, `_EC`, `_ECDSA`, `_ECDH` defined | VERIFIED (headers); the library's behaviour on a unit is not |
 | Anything on a K230: handshake cost on the one hart, capabilities dropped with a listening socket, the entropy source at first start, the state directory across a power cut, `/etc/shadow` as the image has it, TCP 47231 free, Wi-Fi power saving and idle sessions | **not tested** (`docs/design/companion/README.md`, H2 to H8, H11) |
-| A phone client | **does not exist** |
+| A phone client | **not tested against**: every client in these suites is the Python reference client |
 
 Not tested on the host either: the 10 s handshake and hello deadlines, the 90 s idle timeout and the 120 s window in real time (the pairing deadlines are tested with the state machine's own clock); an address change of the interface; `S70gatewayd` beyond parsing and the disabled default.
 
@@ -140,9 +167,44 @@ Left as they are, by decision: the shared handshake budget (above), no check of 
 
 The reviewer could not assess, and nobody has: anything on the unit (the library as built for the image, the kernel's handling of the capability drop, the image's passwd and shadow layout, the runtime directory's mode), and what the real services return for `radio.status` and `mesh.status`, which are passed whole apart from the scrub of secret-named fields.
 
+## Independent review of M4.1 (2026-11-21)
+
+A second reviewer, given the change and the specification and not the author's conclusions, read the new modules and the mesh section of `main.c` for authorization, data exposure, memory safety, re-entrancy in the loop, bounds and liveness, cursor semantics and fail-closed behaviour. It built and ran nothing.
+
+**No blocker:** no path was found that gives mesh data to a client without `mesh_read`, no field reaching a client that is not on a list, no parameter or method reaching meshcored that the table does not name, and no memory-safety defect in the new code.
+
+Fixed before the commit:
+
+| Finding | Fix |
+| --- | --- |
+| A client that pipelined requests for large answers (ten pages of `mesh.nodes`, two `mesh.sync`) ran into the 256 KiB output limit and was disconnected, again after every reconnect | No further request is read from a client with more than 32 KiB unsent; waiting `mesh.nodes` pages are handed out as its output is written. Tested with five pipelined `mesh.sync` answers |
+| One client sending small requests as fast as the unit takes them kept the loop inside its session: meshcored unread, the other client and the local socket (revocation) unserved | At most 16 requests of one client per turn of the loop |
+| A meshcored that stopped answering was never noticed: the mesh stayed "connected", the journal was served as if live | A request whose deadline passes with not one byte from meshcored since it was asked ends that connection: clients are told, and it is made again. Tested |
+| After the journal was emptied (nobody held `mesh_read`), a cursor equal to the last `seq` got no `gap` although messages may have passed meanwhile | One `seq` is left out when the journal is emptied, so every earlier cursor is a `gap` |
+| A `mesh.node` removal was skipped, and never repeated, for a client that was behind on reading | A removal is sent like a message: never skipped |
+| An event arriving before the subscription was answered would have been journaled under the previous run | Events are taken only after `mesh.subscribe` was answered on that connection |
+| A failed `mesh.subscribe` after a run change left the emptied journal marked as filled | The order was changed |
+
+Left as they are, and listed under the limits below: no `gap` when more messages were missed during a lost connection than meshcored still holds; a held `mesh.node` that came due while the only subscriber was behind is not sent later; the places for waiting requests outlive a session that left for up to 2 s; the types of result fields are not checked, only their names; a possible short busy turn when TLS wants to read during a write while a client is at its limit of waiting requests (bounded by 2 s, not reproduced).
+
+The reviewer could not assess, and nobody has: anything at run time on a unit; whether a phone can send faster than the one hart processes; the real meshcored's ordering of events and answers; OpenSSL's behaviour on a key update.
+
+## Known limits of M4.1
+
+- **A cursor is exact only while meshcored still holds what was missed.** After a lost connection within one run the journal is repaired from `mesh.messages` (64 direct and 64 channel messages). If more than that passed meanwhile, the rest is lost and the answer carries no `gap`.
+
+- **A meshcored restart loses what a phone had not yet taken.** The journal is emptied when the `run_id` changes, because the new run's message ids collide with the old ones and `mesh.sync` names one run per answer. A phone that was connected had everything as events; one that was away loses up to 512 messages of the old run. Keeping them would need a `run_id` per entry in `mesh.sync`: a protocol decision, not taken here.
+- **meshcored holds 64 direct and 64 channel messages.** After a gateway restart, or after the first `mesh_read` client is paired, the journal starts from those; older ones are not anywhere.
+- Each state change of a message is its own journal entry (as the protocol says), so a busy conversation with ACKs uses the 512 places about twice as fast as its message count.
+- The device-status methods of M2 still call their service synchronously (below), `mesh.status` included, which therefore has a second, short-lived connection to meshcored. While such a call blocks (up to 400 ms) no event is read; meshcored's socket buffer holds them.
+- `gateway.hello` carries no `api` object yet: a client cannot read meshcored's `api_version` from it, only from `mesh.status`.
+- The `device` topic (`device.status`) is not served.
+- Strings from the mesh are passed on as meshcored sanitised them; the gateway does not check their encoding again.
+- A paired client can keep the 16 places for waiting requests busy for 2 s at a time while meshcored is not answering, and the other client then gets code 5 for mesh methods. It cannot stall the loop.
+
 ## Known limits of M2
 
-- Upstream calls block the loop for up to 400 ms each. Acceptable for status reads by two clients; the mesh group needs a non-blocking upstream client first.
+- The device-status calls block the loop for up to 400 ms each. Acceptable for status reads by two clients; the mesh group has its own non-blocking client since M4.1.
 - IPv4 only.
 - A phone that is already paired and scans a new code connects as itself, not as a candidate; changing its scopes is `gateway.set_scopes`.
 - While a pairing window is open, someone on the network can hold the door (one candidate at a time, 30 s without a token, then again) and so keep the owner's phone out for that window. It cannot pair, and it cannot close the window: only three presented wrong tokens do.
