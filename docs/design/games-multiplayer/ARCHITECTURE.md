@@ -5,8 +5,8 @@ Status: **direction approved by the product owner, 2026-11-20.** This
 document is the design record, not the binding text: where it and ADR-017 or
 ADR-018 differ, the ADRs govern. Of it, the link profile and the save per
 transport are built, peerd as an opt-in service no image includes, and
-Fleet's link to it (M2-PLAN.md, packages 1-4); Fleet's screens for it are
-written and in review (package 5); nothing else is.
+Fleet's link to it and Fleet's screens for it (M2-PLAN.md, packages 1-5);
+nothing else is.
 Evidence classes follow AGENTS.md. Everything marked PROPOSED is a design
 choice of this package, not a fact about the repository.
 
