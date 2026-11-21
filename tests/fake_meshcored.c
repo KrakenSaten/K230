@@ -31,10 +31,12 @@ struct state {
     const struct fake_meshcored_script *script;
     struct pocketipc_server *server;
     int subscribed;
+    int subscribes; /* mesh.subscribe requests answered, for subscribers_before_events */
     int events_sent;
     int raw_sent;
     int clients_gone;
     int sent;
+    cJSON *sent_list; /* list_sends: what mesh.send took, for mesh.messages */
     int snapshots_answered;
     int inbox_answered;
     int64_t subscribe_ms;
@@ -570,6 +572,23 @@ static cJSON *node_by_key(struct state *st, const char *key)
     return found;
 }
 
+/* The recipient's ACK matched message id (ack_sends): the state change the
+ * real service raises, as a mesh.message of its own. */
+static void raise_ack(struct pocketipc_server *s, double id)
+{
+    cJSON *data = cJSON_CreateObject();
+    cJSON *msg = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(msg, "id", id);
+    cJSON_AddStringToObject(msg, "direction", "out");
+    cJSON_AddStringToObject(msg, "kind", "direct");
+    cJSON_AddStringToObject(msg, "state", "acked");
+    cJSON_AddBoolToObject(msg, "ack_expected", 1);
+    cJSON_AddNumberToObject(msg, "ack_mono_ms", (double)now_ms());
+    cJSON_AddItemToObject(data, "message", msg);
+    pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));
+}
+
 static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, cJSON *req,
                        void *user)
 {
@@ -597,6 +616,17 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddStringToObject(result, "version", "0.0.10");
         cJSON_AddStringToObject(result, "build", "fake");
         cJSON_AddStringToObject(result, "protocol", "meshcore");
+        {
+            /* The profile the real service is configured with: the
+             * MeshCore values S65meshcored passes by default. */
+            cJSON *p = cJSON_AddObjectToObject(result, "requested_profile");
+
+            cJSON_AddNumberToObject(p, "frequency_mhz", 869.618);
+            cJSON_AddNumberToObject(p, "bandwidth_khz", 62.5);
+            cJSON_AddNumberToObject(p, "spreading_factor", 8);
+            cJSON_AddNumberToObject(p, "coding_rate", 8);
+            cJSON_AddNumberToObject(p, "tx_power_dbm", 2);
+        }
         if (st->script->explicit_path) {
             cJSON *caps = cJSON_AddObjectToObject(result, "capabilities");
 
@@ -838,6 +868,13 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             cJSON_Delete(arr);
             arr = cJSON_CreateArray();
         }
+        if (st->script->list_sends && st->sent_list) {
+            const cJSON *sent;
+
+            cJSON_ArrayForEach (sent, st->sent_list) {
+                cJSON_AddItemToArray(arr, cJSON_Duplicate(sent, 1));
+            }
+        }
         total = cJSON_GetArraySize(arr);
         {
             cJSON *item;
@@ -898,6 +935,21 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                     found = item;
                 }
             }
+            /* With ack_sends, a direct message this run sent can be resent
+             * too: one not acknowledged, as the real service requires. */
+            if (!found && st->script->ack_sends == 2 && cJSON_IsNumber(resend) &&
+                resend->valuedouble > 1000 && resend->valuedouble <= 1000 + st->sent) {
+                if (!all) {
+                    all = cJSON_CreateArray();
+                }
+                found = cJSON_CreateObject();
+                cJSON_AddNumberToObject(found, "id", resend->valuedouble);
+                cJSON_AddStringToObject(found, "direction", "out");
+                cJSON_AddStringToObject(found, "kind", "direct");
+                cJSON_AddStringToObject(found, "state", "no_ack");
+                cJSON_AddNumberToObject(found, "attempts", 1);
+                cJSON_AddItemToArray(all, found);
+            }
             if (to != NULL || chan != NULL || text != NULL || via != NULL || !found ||
                 st->script->refuse_send) {
                 pocketipc_server_reply(
@@ -930,6 +982,9 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                 relative_to_now(msg, "mono_ms");
                 cJSON_AddItemToObject(data, "message", msg);
                 pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));
+            }
+            if (st->script->ack_sends) {
+                raise_ack(s, resend->valuedouble);
             }
             cJSON_Delete(all);
             return;
@@ -993,6 +1048,35 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             return;
         }
         st->sent++;
+        if (st->script->list_sends && cJSON_IsString(text)) {
+            cJSON *m = cJSON_CreateObject();
+
+            if (!st->sent_list) {
+                st->sent_list = cJSON_CreateArray();
+            }
+            cJSON_AddNumberToObject(m, "id", 1000 + st->sent);
+            cJSON_AddStringToObject(m, "direction", "out");
+            if (cJSON_IsNumber(chan)) {
+                char body[256];
+
+                snprintf(body, sizeof(body), "Fake: %s", text->valuestring);
+                cJSON_AddStringToObject(m, "kind", "channel");
+                cJSON_AddNumberToObject(m, "channel", chan->valuedouble);
+                cJSON_AddStringToObject(m, "text", body);
+                cJSON_AddStringToObject(m, "state", "sent_flood");
+                cJSON_AddBoolToObject(m, "ack_expected", 0);
+            } else {
+                cJSON_AddStringToObject(m, "kind", "direct");
+                cJSON_AddStringToObject(m, "peer_public_key",
+                                        cJSON_IsString(to) ? to->valuestring : "");
+                cJSON_AddStringToObject(m, "text", text->valuestring);
+                cJSON_AddStringToObject(m, "state", explicit_send ? "sent_direct" : "sent_flood");
+                cJSON_AddBoolToObject(m, "ack_expected", 1);
+                cJSON_AddNumberToObject(m, "attempts", 0);
+            }
+            cJSON_AddNumberToObject(m, "mono_ms", (double)now_ms());
+            cJSON_AddItemToArray(st->sent_list, m);
+        }
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "accepted", 1);
         cJSON_AddNumberToObject(result, "message_id", 1000 + st->sent);
@@ -1027,6 +1111,9 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             cJSON_AddNumberToObject(msg, "mono_ms", (double)now_ms());
             cJSON_AddItemToObject(data, "message", msg);
             pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));
+            if (st->script->ack_sends == 1) {
+                raise_ack(s, 1000 + st->sent);
+            }
         }
         return;
     } else if (strcmp(name, "mesh.advert") == 0) {
@@ -1188,6 +1275,7 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         }
         pocketipc_client_set_subscribed(c, true);
         st->subscribed = 1;
+        st->subscribes++;
         st->subscribe_ms = now_ms();
         result = cJSON_CreateObject();
         cJSON_AddBoolToObject(result, "subscribed", 1);
@@ -1272,6 +1360,7 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
          * here, after the last snapshot's reply went out, reaches the client
          * after it too. */
         if (st.subscribed && script->events &&
+            st.subscribes >= script->subscribers_before_events &&
             (!script->events_after_snapshot || st.snapshots_answered == ANSWERED_ALL) &&
             (!script->events_after_inbox || st.inbox_answered)) {
             /* One per pass, so the client gets them as separate frames and
@@ -1295,6 +1384,7 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
         }
     }
     pocketipc_server_free(st.server);
+    cJSON_Delete(st.sent_list);
     return 0;
 }
 
