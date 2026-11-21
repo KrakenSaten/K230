@@ -91,7 +91,7 @@ want "it keeps or releases nobody before the session has said who" "$LINK/fleet_
 want "the session says who only once the saved match has been read" "$LINK/fleet_session.c" \
      'if \(s->link->ops->match_peer\) \{'
 want "and never says none of a save it could not read" "$LINK/fleet_session.c" \
-     'if \(in_hand \|\| !s->store_fault\) \{'
+     'if \(in_hand \|\| !s->store_fault \|\| s->peer_said\) \{'
 # The app does not open the LAN link yet (package 5 does, with its screens).
 check "nothing in the app opens the LAN link yet" \
       "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_peer.c")" \

@@ -473,11 +473,11 @@ int main(void)
         spin(l, 400, NULL);
         check("a keep peerd cannot write is not hammered",
               count_lines(LOG, "peer.keep|") == n && n == 1);
-        skew += 2100;
+        skew += 1700;                /* 2.1 s of link time gone; the next try is due at 4 s */
         spin(l, 400, NULL);
         check("nor after the usual two seconds: it waits longer each time",
               count_lines(LOG, "peer.keep|") == 1);
-        skew += 2100;
+        skew += 2500;
         check("and is tried again later", until_logged(l, "peer.keep|", 2));
         check("a probe that is pending stays pending", fleet_link_peer_probe(l, "10.0.0.9") == 0 &&
               (spin(l, 800, NULL), fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_PENDING));

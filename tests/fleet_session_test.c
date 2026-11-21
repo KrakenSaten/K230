@@ -549,6 +549,18 @@ static void test_match_peer(void)
     run(&again, now, 3000, 0);
     check("match peer: nor is a save that is damaged",
           again.ready && again.store_fault && told_calls == 0);
+    /* A match begun in that session is known, and so is its end. */
+    fleet_session_invite(&again, key, NULL, now);
+    while (now < 100 * 60000 && !fleet_match_active(&again.m)) {
+        now += 100;
+        fleet_session_poll(&again, now);
+    }
+    check("match peer: a match begun after an unreadable save is named",
+          fleet_match_active(&again.m) && again.store_fault && told_have &&
+          memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
+    run(&again, now, 3 * 3600000LL, 1);
+    check("match peer: and when it is over the link is told there is none",
+          again.m.phase == FLEET_MP_DONE && again.store_fault && told_calls > 0 && !told_have);
     link->ops->close(link->ctx);
 }
 

@@ -450,6 +450,7 @@ static void connect_now(struct peer *m, int64_t now)
      * is and so where the cursor starts. */
     m->catching_up = 1;
     m->kept_stale = 1;
+    m->kept_wait_ms = STATUS_PERIOD_MS;     /* a new connection: no back-off carried over */
     if (request(m, REQ_SUBSCRIBE, NULL) != 0) {
         return;
     }
