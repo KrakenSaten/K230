@@ -73,6 +73,11 @@ static int mp_save(void *user, const uint8_t *blob, size_t n)
                  fleet_store_match_path_for(store));
         return -1;
     }
+    if (app->mp_stale[app->mp_transport]) {
+        /* Written anew, by this identity: it is nobody else's any more. */
+        app->mp_stale[app->mp_transport] = 0;
+        (void)fleet_store_match_set_stale(store, 0);
+    }
     return 0;
 }
 
@@ -203,8 +208,14 @@ void fleet_app_mp_changed(struct fleet_app *app)
         return;
     }
     rev = fleet_session_revision(app->mp);
-    if (app->mp->ready && app->mp->identity_changed) {
-        app->mp_stale[app->mp_transport] = 1;
+    if (app->mp->ready && app->mp_lan_offered &&
+        app->mp->identity_changed != app->mp_stale[app->mp_transport] && app->mp_revision == 0) {
+        /* The link has said who this device is, and so whose the save is.
+         * On a device with two transports that is remembered, so another
+         * identity's save does not pass for a match in hand again. */
+        app->mp_stale[app->mp_transport] = (uint8_t)(app->mp->identity_changed != 0);
+        (void)fleet_store_match_set_stale(
+            store_of((enum fleet_mp_transport)app->mp_transport), app->mp->identity_changed);
     }
     if (app->mp->ready && app->mp_revision == 0) {
         /* The match was only just read, when our key became known: nothing
@@ -362,14 +373,20 @@ static void close_session(struct fleet_app *app)
     app->mp = NULL;
 }
 
-/* Whether a transport's save holds a match between Deploy and Reveal. The
- * blob is read under its own identity and handed to nobody. */
-static int save_in_hand(enum fleet_mp_transport t)
+/* Whether a transport's save holds a match between Deploy and Reveal that
+ * this device could still play. The blob is read under its own identity and
+ * handed to nobody; one known to be another identity's does not count. */
+static int save_in_hand(const struct fleet_app *app, enum fleet_mp_transport t, char *peer,
+                        size_t peer_size)
 {
     uint8_t blob[FLEET_STORE_MATCH_MAX];
     int n = fleet_store_match_load_for(store_of(t), blob, sizeof(blob));
 
-    return n > 0 && fleet_match_save_in_hand(blob, (size_t)n, NULL, 0);
+    if (peer && peer_size) {
+        peer[0] = '\0';
+    }
+    return n > 0 && !app->mp_stale[t] &&
+           fleet_match_save_in_hand(blob, (size_t)n, peer, peer_size);
 }
 
 /* One match per device (ADR-008 decision 4, ADR-018 point 4): the session is
@@ -379,7 +396,8 @@ static void read_other(struct fleet_app *app)
     enum fleet_mp_transport other =
         app->mp_transport == FLEET_MP_LAN ? FLEET_MP_MESH : FLEET_MP_LAN;
 
-    app->mp_other_in_hand = (uint8_t)(save_in_hand(other) && !app->mp_stale[other]);
+    app->mp_other_in_hand =
+        (uint8_t)save_in_hand(app, other, app->mp_other_peer, sizeof(app->mp_other_peer));
     if (app->mp) {
         fleet_session_set_other_in_hand(app->mp, app->mp_other_in_hand);
     }
@@ -388,15 +406,24 @@ static void read_other(struct fleet_app *app)
 void fleet_mp_create(struct fleet_app *app)
 {
     enum fleet_mp_transport t = FLEET_MP_MESH;
-    int lan_hand = save_in_hand(FLEET_MP_LAN);
+    int lan_hand;
 
-    /* The transport is the one whose save holds the match in hand. Both
-     * holding one cannot arise through Fleet; if the files say so anyway,
-     * LoRa's is offered first and the other waits its turn. */
-    if (lan_hand && !save_in_hand(FLEET_MP_MESH)) {
+    app->mp_stale[FLEET_MP_MESH] = (uint8_t)fleet_store_match_stale(store_of(FLEET_MP_MESH));
+    app->mp_stale[FLEET_MP_LAN] = (uint8_t)fleet_store_match_stale(store_of(FLEET_MP_LAN));
+    lan_hand = save_in_hand(app, FLEET_MP_LAN, NULL, 0);
+    /* The transport is the one whose save holds the match in hand. Both can
+     * hold one only when the first of them is another identity's and that is
+     * not yet known (it is learnt when the link says who this device is, and
+     * RESUME MATCH then leads to the other: fleet_app_mp_elsewhere). LoRa's
+     * is offered first. */
+    if (lan_hand && !save_in_hand(app, FLEET_MP_MESH, NULL, 0)) {
         t = FLEET_MP_LAN;
     }
     app->mp_lan_offered = (uint8_t)(lan_hand || lan_available());
+    if (!app->mp_lan_offered) {
+        /* LoRa alone: nothing is remembered about its save beyond the save. */
+        app->mp_stale[FLEET_MP_MESH] = 0;
+    }
     if (open_session(app, t) != 0) {
         return;
     }
@@ -413,10 +440,20 @@ void fleet_mp_destroy(struct fleet_app *app)
     close_session(app);
 }
 
+int fleet_app_mp_elsewhere(const struct fleet_app *app)
+{
+    return app && app->mp && app->mp_lan_offered && app->mp_stale[app->mp_transport] &&
+           app->mp_other_in_hand;
+}
+
 int fleet_app_mp_waiting(const struct fleet_app *app)
 {
+    if (!app) {
+        return 0;
+    }
     /* Where there is only LoRa this is mp_saved, as it always was. */
-    return app && app->mp_saved && !(app->mp_lan_offered && app->mp_stale[app->mp_transport]);
+    return (app->mp_saved && !(app->mp_lan_offered && app->mp_stale[app->mp_transport])) ||
+           fleet_app_mp_elsewhere(app);
 }
 
 int fleet_app_mp_choice(const struct fleet_app *app)
@@ -426,7 +463,10 @@ int fleet_app_mp_choice(const struct fleet_app *app)
     if (!s || !app->mp_lan_offered || fleet_app_mp_waiting(app) || app->mp_other_in_hand) {
         return 0;
     }
-    return !s->ready || s->m.phase == FLEET_MP_IDLE || s->m.phase == FLEET_MP_DONE;
+    /* A match that is over and whose END is still owed is not done with:
+     * leaving its transport would leave the opponent waiting for it. */
+    return !s->ready || s->m.phase == FLEET_MP_IDLE ||
+           (s->m.phase == FLEET_MP_DONE && !s->m.end_unacked);
 }
 
 void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport transport)
@@ -434,7 +474,8 @@ void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport tra
     if (!app || !app->mp) {
         return;
     }
-    if (transport != (enum fleet_mp_transport)app->mp_transport && fleet_app_mp_choice(app)) {
+    if (transport != (enum fleet_mp_transport)app->mp_transport &&
+        (fleet_app_mp_choice(app) || fleet_app_mp_elsewhere(app))) {
         enum fleet_mp_transport was = (enum fleet_mp_transport)app->mp_transport;
 
         /* The session leaves the transport it was on: its link is closed

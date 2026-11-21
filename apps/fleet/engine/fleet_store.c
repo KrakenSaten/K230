@@ -164,6 +164,38 @@ const char *fleet_store_match_path(void)
     return fleet_store_match_path_for(FLEET_STORE_MESH);
 }
 
+static int stale_path(enum fleet_store_transport t, char *out, size_t n)
+{
+    const char *file = match_file(t);
+
+    return file && snprintf(out, n, "%s/%s.stale", fleet_store_dir(), file) < (int)n ? 0 : -1;
+}
+
+int fleet_store_match_stale(enum fleet_store_transport t)
+{
+    char path[sizeof(match_buf[0]) + 8];
+
+    return stale_path(t, path, sizeof(path)) == 0 && access(path, F_OK) == 0;
+}
+
+int fleet_store_match_set_stale(enum fleet_store_transport t, int stale)
+{
+    char path[sizeof(match_buf[0]) + 8];
+    FILE *f;
+
+    if (stale_path(t, path, sizeof(path)) != 0) {
+        return -1;
+    }
+    if (!stale) {
+        return unlink(path) == 0 || errno == ENOENT ? 0 : -1;
+    }
+    f = fopen(path, "wb");
+    if (!f) {
+        return -1;
+    }
+    return fclose(f) == 0 ? 0 : -1;
+}
+
 int fleet_store_match_save(const uint8_t *blob, size_t n)
 {
     return fleet_store_match_save_for(FLEET_STORE_MESH, blob, n);

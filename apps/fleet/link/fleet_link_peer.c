@@ -1083,6 +1083,7 @@ static void p_close(void *ctx)
         uint8_t waste[1024];
         cJSON *p;
         int rounds;
+        int spins;
 
         /* The request below is the last thing written, and the socket is
          * closed straight after. A pocketipc server answers what it reads in
@@ -1095,7 +1096,11 @@ static void p_close(void *ctx)
          * it happens once, as Fleet leaves multiplayer, and it is bounded
          * at 60 ms. If the request is lost all the same, the lease ends
          * this device's visibility within its 30 s. */
-        for (rounds = 0; rounds < CLOSE_ROUNDS; rounds++) {
+        for (rounds = 0, spins = 0; spins < MAX_PENDING; spins++) {
+            rounds += m->pending[spins].what != REQ_NONE;
+        }
+        /* Nothing owed, nothing to wait for. */
+        for (rounds = rounds ? 0 : CLOSE_ROUNDS; rounds < CLOSE_ROUNDS; rounds++) {
             struct pollfd pfd = { m->fd, POLLIN, 0 };
 
             if (poll(&pfd, 1, CLOSE_QUIET_MS) <= 0 || read(m->fd, waste, sizeof(waste)) <= 0) {

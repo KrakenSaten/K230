@@ -127,10 +127,11 @@ struct fleet_app {
     uint8_t mp_transport;                     /* enum fleet_mp_transport: link and mp's */
     uint8_t mp_lan_offered;                   /* this device can play over the network */
     uint8_t mp_other_in_hand;                 /* the other transport's save holds a match */
+    char mp_other_peer[32];                   /* and whom it is with */
     /* A transport whose save turned out, once its link said who this device
      * is, to be another identity's: it can never be resumed, so on a device
-     * with two transports it holds neither of them back for the rest of this
-     * run. The file is left where it is, as ever. */
+     * with two transports it does not count as a match in hand. Remembered
+     * beside the save (fleet_store_match_stale); the save is left as it is. */
     uint8_t mp_stale[FLEET_MP_TRANSPORTS];
     lv_timer_t *mp_timer;
     unsigned mp_revision;                     /* what the screens last showed */
@@ -263,6 +264,13 @@ void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport tra
 int fleet_app_mp_choice(const struct fleet_app *app);
 /* Whether a saved match is waiting to be resumed, as Command says it. */
 int fleet_app_mp_waiting(const struct fleet_app *app);
+/* Whether that match is on the transport the session is not on: this one's
+ * save proved to be another identity's, and the other holds a match. RESUME
+ * MATCH then takes the session there. */
+int fleet_app_mp_elsewhere(const struct fleet_app *app);
+/* Let a transparent box's children draw a little outside it (a caption, a
+ * button's outer band): it paints nothing itself and has nothing to clip. */
+void fleet_app_allow_overflow(lv_obj_t *box);
 /* Continue the match in hand on the screen its phase belongs to. */
 void fleet_app_mp_resume(struct fleet_app *app);
 /* Open the chat with the opponent, and leave it for the screen the match's

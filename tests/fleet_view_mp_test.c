@@ -412,6 +412,13 @@ int main(void)
         fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 0, FLEET_PEER_PROBE_REFUSED, "192.168",
                                  NULL, big, sizeof(big));
         says("what is not an address", big, "Could not ask 192.168. An address is four numbers");
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 0, FLEET_PEER_PROBE_REFUSED, "192.168.1.50",
+                                 NULL, big, sizeof(big));
+        check("a good address that could not be asked is not blamed",
+              strcmp(big, "Could not ask 192.168.1.50 just now. Try again in a moment.") == 0);
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 0, FLEET_PEER_PROBE_REFUSED, "192.168.1.256",
+                                 NULL, big, sizeof(big));
+        says("a number too large is not an address either", big, "An address is four numbers");
 
         memset(&p, 0, sizeof(p));
         strcpy(p.name, "Anna");
@@ -422,8 +429,18 @@ int main(void)
         check("a link that does not say who is proved lists them plainly",
               strcmp(buf, "ANNA \xc2\xb7 HEARD 3 MIN AGO") == 0);
         fleet_view_mp_lan_row(&p, 0, 2000, buf, sizeof(buf));
-        check("a player only announced is said to be unconfirmed",
-              strcmp(buf, "ANNA \xc2\xb7 HEARD JUST NOW \xc2\xb7 UNCONFIRMED") == 0);
+        check("a player only announced is said to be unconfirmed, before anything that could be cut",
+              strcmp(buf, "ANNA \xc2\xb7 UNCONFIRMED \xc2\xb7 HEARD JUST NOW") == 0);
+        {
+            char row[96];
+
+            strcpy(p.name, "A name as long as a name may be");
+            fleet_view_mp_lan_row(&p, 0, 2000, row, sizeof(row));
+            check("it follows the name at once, however long the name: a row too wide for its "
+                  "column loses its end, never the marker's place",
+                  strncmp(row, "A NAME AS LONG AS A NAME MAY BE \xc2\xb7 UNCONFIRMED", 46) == 0);
+            strcpy(p.name, "Anna");
+        }
         p.heard_ms = 0;
         fleet_view_mp_lan_row(&p, 0, 2000, buf, sizeof(buf));
         says("a kept opponent not heard this run", buf, "NOT HEARD YET");

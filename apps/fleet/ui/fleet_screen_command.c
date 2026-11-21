@@ -87,6 +87,10 @@ static void on_multiplayer(lv_event_t *e)
      * service. With both transports on offer this button is LORA. */
     if (fleet_app_mp_choice(app)) {
         fleet_app_multiplayer_on(app, FLEET_MP_MESH);
+    } else if (fleet_app_mp_elsewhere(app)) {
+        /* RESUME MATCH, and the match is on the other transport. */
+        fleet_app_multiplayer_on(app, app->mp_transport == FLEET_MP_LAN ? FLEET_MP_MESH
+                                                                        : FLEET_MP_LAN);
     } else {
         fleet_app_multiplayer(app);
     }
@@ -180,6 +184,10 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     lv_label_set_long_mode(ui->multi_state, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->multi_state, LV_PCT(100));
     ui->multi_row = fleet_hbox(panel, LV_SIZE_CONTENT, 12);
+    /* The row is exactly its buttons' size and paints nothing: a button's
+     * outer band (the Neon theme's) must be drawn as it was when the button
+     * stood in the panel itself. */
+    fleet_app_allow_overflow(ui->multi_row);
     ui->multi_open = fleet_button_secondary(ui->multi_row, "MULTIPLAYER", on_multiplayer, app);
     lv_obj_set_flex_grow(ui->multi_open, 1);
     ui->multi_lan = fleet_button_secondary(ui->multi_row, "LOCAL NETWORK", on_local_network, app);
@@ -330,6 +338,11 @@ static void command_refresh(struct fleet_app *app)
         if (!app->mp) {
             lv_label_set_text(ui->multi_state, "Not available on this device.");
             lv_obj_add_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+        } else if (fleet_app_mp_elsewhere(app)) {
+            fleet_view_mp_command(!lan, app->mp_other_peer, 1, 0, !lan, text, sizeof(text));
+            lv_label_set_text(ui->multi_state, text);
+            lv_label_set_text(label, "RESUME MATCH");
+            lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
         } else if (fleet_app_mp_waiting(app) || (m && fleet_match_active(m))) {
             fleet_view_mp_command(lan, fleet_app_peer(app, peer, sizeof(peer)),
                                   app->mp_lan_offered, 0, lan, text, sizeof(text));

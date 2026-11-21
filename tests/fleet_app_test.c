@@ -2396,6 +2396,27 @@ static void lan_fresh(void)
     mp_fresh();
     snprintf(path, sizeof(path), "%s/fleet/match-lan.v1", state_dir);
     unlink(path);
+    snprintf(path, sizeof(path), "%s/fleet/match-lan.v1.stale", state_dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/fleet/match.v1.stale", state_dir);
+    unlink(path);
+}
+
+/* Begin a match from Command on the button given and place the fleet. */
+static void lan_begin_match(lv_obj_t *button)
+{
+    int i;
+
+    tap_obj(button);
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    mp_wait(500);
 }
 
 static long lan_file_size(const char *name)
@@ -2422,11 +2443,13 @@ static int lan_logged(const char *want)
     return strstr(buf, want) != NULL;
 }
 
+static const char *lan_nodes_after;
+
 static void lan_peerd_start(const char *nodes, const char *state)
 {
     memset(&lan_script, 0, sizeof(lan_script));
     lan_script.nodes_json = nodes;
-    lan_script.nodes_after_probe_json = nodes;
+    lan_script.nodes_after_probe_json = lan_nodes_after ? lan_nodes_after : nodes;
     lan_script.state = state;
     lan_script.probe_address = "192.168.1.41";
     lan_script.probe_key = LAN_BOB;
@@ -2484,6 +2507,7 @@ static lv_obj_t *lobby_field(void)
 }
 
 static int lan_row0_shown(void) { return visible(lobby_player_row(0)); }
+static int lan_row0_lit(void) { return lobby_row_lit(0); }
 static int lan_link_up(void) { return strstr(text_of(lobby_link_line()), "Local network ready") != NULL; }
 static int lan_answered(void) { return visible(lobby_empty()) && strstr(text_of(lobby_empty()), "answered") != NULL; }
 static int lan_no_answer(void) { return visible(lobby_empty()) && strstr(text_of(lobby_empty()), "No answer") != NULL; }
@@ -2739,6 +2763,89 @@ static void test_lan_stale_save(void)
     unsetenv("POCKETFLEET_MP_FAKE");
 }
 
+/* Another identity's save on one transport and a live match on the other:
+ * the live one is what RESUME MATCH leads to, in this run and after. */
+static void test_lan_stale_and_live(void)
+{
+    char marker[600];
+    struct stat sb;
+
+    phase = "the local network, a dead save and a live match";
+    snprintf(marker, sizeof(marker), "%s/fleet/match.v1.stale", state_dir);
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14,lan", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    lan_begin_match(command_multi_button());
+    check("a match on LoRa is in hand", app->mp_transport == FLEET_MP_MESH &&
+          fleet_match_active(&app->mp->m));
+    app_stop();
+
+    /* The device's identity changes. The LoRa save is now nobody's. */
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14,lan,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("the LoRa save is known for another identity's, and that is remembered beside it",
+          app->mp_stale[FLEET_MP_MESH] && stat(marker, &sb) == 0 &&
+          lan_file_size("match.v1") == FLEET_MATCH_SAVE_SIZE);
+    check("both transports are on offer again", fleet_app_mp_choice(app));
+    lan_begin_match(command_lan_button());
+    check("a match on the network is in hand", app->mp_transport == FLEET_MP_LAN &&
+          fleet_match_active(&app->mp->m));
+    app_stop();
+
+    /* Both files now decode as a match. The live one must be the one found. */
+    app_start();
+    mp_wait(300);
+    check("reopened, the session is on the network, where the live match is",
+          app->mp_transport == FLEET_MP_LAN && fleet_app_mp_waiting(app) &&
+          !fleet_app_mp_elsewhere(app));
+    check_str("Command offers it", text_of(kid(command_multi_button(), 0)), "RESUME MATCH");
+    tap_obj(command_multi_button());
+    check_str("and the lobby resumes it", text_of(kid(lobby_act(), 0)), "RESUME");
+    app_stop();
+
+    /* The same without the memory of it: the dead save is met first. */
+    unlink(marker);
+    app_start();
+    check("with nothing remembered, the LoRa save is tried first",
+          app->mp_transport == FLEET_MP_MESH && app->mp_other_in_hand);
+    mp_wait(300);
+    fleet_screen_command_refresh(app);
+    check("once it is known dead, the match is said to be elsewhere",
+          app->mp_stale[FLEET_MP_MESH] && fleet_app_mp_elsewhere(app) &&
+          !fleet_app_mp_choice(app));
+    check_str("Command still offers a match to resume", text_of(kid(command_multi_button(), 0)),
+              "RESUME MATCH");
+    check("and says it is on the network",
+          strstr(text_of(command_multi_state()), "is waiting on the local network.") != NULL);
+    tap_obj(command_multi_button());
+    check("RESUME MATCH takes the session there",
+          app->mp_transport == FLEET_MP_LAN && app->current == FLEET_SCREEN_LOBBY);
+    mp_wait(300);
+    check_str("where the lobby resumes it", text_of(kid(lobby_act(), 0)), "RESUME");
+    tap_obj(lobby_act());
+    check("and the battle goes on", app->current == FLEET_SCREEN_BATTLE &&
+          fleet_match_active(&app->mp->m));
+    app_stop();
+
+    /* A device with LoRa alone remembers nothing beside its save. */
+    lan_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14", 1);
+    app_start();
+    lan_begin_match(command_multi_button());
+    app_stop();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=14,self=7", 1);
+    app_start();
+    mp_wait(300);
+    check("LoRa alone: another identity's save leaves no mark, and Command is as it was",
+          stat(marker, &sb) != 0 && !app->mp_stale[FLEET_MP_MESH] && app->mp_saved &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    app_stop();
+    lan_fresh();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
 /* The lobby against the real link and a scripted peerd. */
 static void test_lan_lobby(enum pos_rotation rotation)
 {
@@ -2768,7 +2875,7 @@ static void test_lan_lobby(enum pos_rotation rotation)
               "BOB \xc2\xb7 HEARD JUST NOW");
     check_str("one only kept, not heard this run and not confirmed",
               text_of(kid(lobby_player_row(1), 0)),
-              "CAROL \xc2\xb7 NOT HEARD YET \xc2\xb7 UNCONFIRMED");
+              "CAROL \xc2\xb7 UNCONFIRMED \xc2\xb7 NOT HEARD YET");
     check_str("where LoRa has MAKE VISIBLE there is ADD BY ADDRESS", text_of(kid(lobby_under(), 0)),
               "ADD BY ADDRESS");
     check_in_view("Lobby on the network: ADD BY ADDRESS", lobby_under());
@@ -2850,7 +2957,9 @@ static void test_lan_silence(void)
     phase = "the local network, nobody heard";
     lan_fresh();
     unsetenv("POCKETFLEET_MP_FAKE");
+    lan_nodes_after = LAN_NODES;
     lan_peerd_start("[]", NULL);
+    lan_nodes_after = NULL;
     use_display(POS_ROTATION_0, PANEL_CORNER);
     app_start();
     tap_obj(command_lan_button());
@@ -2865,6 +2974,22 @@ static void test_lan_silence(void)
               "192.168.1.23.");
     check_in_view("Lobby on the network, silent: ADD BY ADDRESS", lobby_under());
     check("INVITE has nobody to go to", !lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+
+    /* The case ADD BY ADDRESS is for: nobody listed, and whoever answers is
+     * listed only a moment after peerd says they answered. */
+    tap_obj(lobby_under());
+    mp_wait(300);
+    type_keys("192.168.1.41");
+    type_key(LV_KEY_ENTER);
+    check("an address is answered by a device that was not listed", lan_until(lan_answered));
+    check("once it is listed, it is the one chosen, with INVITE ready", lan_until(lan_row0_lit) &&
+          lobby_row_is(0, "BOB") && lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    check_str("and the lobby names it", text_of(lobby_empty()), "Bob answered at 192.168.1.41.");
+    tap_obj(lobby_back());
+    tap_obj(command_lan_button());
+    mp_wait(1200);
+    check("coming back to the lobby, the old answer is not still standing there",
+          !visible(lobby_empty()) || strstr(text_of(lobby_empty()), "answered") == NULL);
     app_stop();
     {
         int waited;
@@ -2901,6 +3026,7 @@ static void test_lan(void)
     test_lan_choice(POS_ROTATION_0);
     test_lan_choice(POS_ROTATION_270);
     test_lan_stale_save();
+    test_lan_stale_and_live();
     test_lan_lobby(POS_ROTATION_0);
     test_lan_lobby(POS_ROTATION_270);
     test_lan_silence();

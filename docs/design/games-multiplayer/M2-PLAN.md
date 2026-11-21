@@ -132,6 +132,18 @@ the app"):
   transport is chosen before any service is asked anything.
 - **One session at a time.** Picking the other transport closes the link in
   use and opens the other with its own save.
+- **With a match in hand the other transport's button is not shown**, where
+  §1.1 has it stay and say "An engagement with X is under way on LoRa."
+  Command shows RESUME MATCH alone and says which transport the match is
+  on: one button that does something, rather than one that explains why it
+  does nothing.
+- **Another identity's save is remembered** in an empty file beside it
+  (`match.v1.stale`, `match-lan.v1.stale`), on a device with both transports
+  only: without it such a save would be taken for the match in hand at every
+  start and hold the other transport back.
+- **For the owner to rule on**: visibility lasts while the network's session
+  is engaged, Command included; and a match in hand on a transport whose
+  service has been switched off blocks the other one.
 - `fleet_link_peer_present()` was added to the link, and the link now lets
   peerd's outstanding answers arrive (60 ms at most) before it writes its
   request to hide and closes: without that the request was lost whenever

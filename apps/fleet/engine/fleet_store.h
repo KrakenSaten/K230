@@ -91,4 +91,13 @@ const char *fleet_store_match_path_for(enum fleet_store_transport t);
 int fleet_store_match_save_for(enum fleet_store_transport t, const uint8_t *blob, size_t n);
 int fleet_store_match_load_for(enum fleet_store_transport t, uint8_t *buf, size_t max);
 
+/* A transport's save that was found to be another identity's - it can never
+ * be resumed - is marked so beside it ("<file>.stale", empty), and the save
+ * itself is left as it is. Fleet writes the mark only on a device with two
+ * transports, where such a save would otherwise hold the other one back; a
+ * device with LoRa alone never has one. Returns 1 when marked, else 0. */
+int fleet_store_match_stale(enum fleet_store_transport t);
+/* Set or clear the mark. Returns 0, or -1 when it could not be written. */
+int fleet_store_match_set_stale(enum fleet_store_transport t, int stale);
+
 #endif

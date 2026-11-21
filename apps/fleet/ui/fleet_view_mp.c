@@ -531,6 +531,31 @@ int fleet_view_mp_lan_link(enum fleet_link_state link, const struct fleet_link_p
     return 0;
 }
 
+/* Four numbers of 0 to 255 with dots between, and nothing else. */
+static int address_ok(const char *s)
+{
+    int part;
+
+    if (!s) {
+        return 0;
+    }
+    for (part = 0; part < 4; part++) {
+        unsigned v = 0;
+        int digits = 0;
+
+        while (*s >= '0' && *s <= '9' && digits < 3) {
+            v = v * 10 + (unsigned)(*s - '0');
+            s++;
+            digits++;
+        }
+        if (digits == 0 || v > 255 || *s != (part < 3 ? '.' : '\0')) {
+            return 0;
+        }
+        s++;
+    }
+    return 1;
+}
+
 int fleet_view_mp_lan_notice(enum fleet_link_state link, const struct fleet_link_peer_info *info,
                              int players, int64_t silent_ms,
                              enum fleet_link_peer_probe_state probe, const char *asked,
@@ -558,8 +583,14 @@ int fleet_view_mp_lan_notice(enum fleet_link_state link, const struct fleet_link
                          "another network, a cable, or LoRa.", where);
         return 0;
     case FLEET_PEER_PROBE_REFUSED:
-        snprintf(buf, n, "Could not ask %s. An address is four numbers, like 192.168.1.42.",
-                 where);
+        if (address_ok(asked)) {
+            /* A good address that could not be asked: the service was not
+             * ready for it, or has too many questions out. */
+            snprintf(buf, n, "Could not ask %s just now. Try again in a moment.", where);
+        } else {
+            snprintf(buf, n, "Could not ask %s. An address is four numbers, like "
+                             "192.168.1.42.", where);
+        }
         return 0;
     default:
         break;
@@ -596,7 +627,9 @@ int fleet_view_mp_lan_row(const struct fleet_link_peer *p, int proved, int64_t n
     } else {
         snprintf(heard, sizeof(heard), "HEARD %d MIN AGO", (int)((now_ms - p->heard_ms) / 60000));
     }
-    snprintf(buf, n, "%s " DOT " %s%s", name, heard, proved == 0 ? " " DOT " UNCONFIRMED" : "");
+    /* The marker before the time: a row too long for its column is cut at
+     * the end, and what is cut must never be the marker. */
+    snprintf(buf, n, "%s%s " DOT " %s", name, proved == 0 ? " " DOT " UNCONFIRMED" : "", heard);
     return 0;
 }
 

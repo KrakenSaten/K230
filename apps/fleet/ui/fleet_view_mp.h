@@ -115,7 +115,8 @@ int fleet_view_mp_lan_notice(enum fleet_link_state link, const struct fleet_link
 
 /* "ANNA · HEARD JUST NOW", a lobby row on the local network: no hops there.
  * proved 0 marks a player peerd has only heard announced (ADR-017, section
- * 5): listed, and not presented as present. */
+ * 5): listed, and not presented as present - "ANNA · UNCONFIRMED · HEARD
+ * JUST NOW", the marker where a long row is never cut. */
 int fleet_view_mp_lan_row(const struct fleet_link_peer *p, int proved, int64_t now_ms, char *buf,
                           size_t n);
 

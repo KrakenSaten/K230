@@ -47,6 +47,11 @@ static void allow_caption(lv_obj_t *obj)
     lv_obj_refresh_ext_draw_size(obj);
 }
 
+void fleet_app_allow_overflow(lv_obj_t *box)
+{
+    allow_caption(box);
+}
+
 lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
 {
     lv_obj_t *screen = lv_obj_create(parent);
