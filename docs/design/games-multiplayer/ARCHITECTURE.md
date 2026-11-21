@@ -4,8 +4,9 @@
 Status: **direction approved by the product owner, 2026-11-20.** This
 document is the design record, not the binding text: where it and ADR-017 or
 ADR-018 differ, the ADRs govern. Of it, the link profile and the save per
-transport are built, and peerd as an opt-in service no image includes
-(M2-PLAN.md, packages 1-3); nothing else is.
+transport are built, peerd as an opt-in service no image includes, and
+Fleet's link to it, which the app does not open yet (M2-PLAN.md, packages
+1-4); nothing else is.
 Evidence classes follow AGENTS.md. Everything marked PROPOSED is a design
 choice of this package, not a fact about the repository.
 

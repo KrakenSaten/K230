@@ -4,8 +4,8 @@
 **Status, 2026-11-20: the direction is approved by the product owner and
 the package is on master as the design record.** What became binding is in
 docs/decisions/: ADR-008 (Accepted, reconciled with the hardware gates),
-ADR-017 and ADR-018 (Accepted). Built so far: M2 packages 1, 2 and 3
-(M2-PLAN.md). Not accepted: the lobby's visual design - "Box Office" is
+ADR-017 and ADR-018 (Accepted). Built so far: M2 packages 1 to 4
+(M2-PLAN.md); the app does not use the local network yet. Not accepted: the lobby's visual design - "Box Office" is
 provisionally approved and awaits the owner's review of the mockups - and no
 Design System section is changed. Nothing here has been on hardware. The
 images are mockups, not screenshots. Sections below read as they were
