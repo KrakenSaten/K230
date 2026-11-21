@@ -53,6 +53,15 @@ interface Transport {
     fun available(): Boolean
 }
 
+/**
+ * Something that lives inside an open session and ends with it: it is started
+ * once hello was answered and cancelled when the connection closes. It gets no
+ * socket of its own and no say over the session's life.
+ */
+fun interface SessionFeature {
+    suspend fun run(unit: PairedUnit, conn: GatewayConnection, hello: Hello, scopes: StateFlow<Set<String>>)
+}
+
 sealed interface LinkState {
     data object Idle : LinkState
     data object NoWifi : LinkState
@@ -130,6 +139,7 @@ class GatewaySession(
     private val now: () -> Long = System::currentTimeMillis,
     private val backoff: (Int) -> Long = { backoffMs(it) },
     private val helloTimeoutMs: Long = GatewayConnection.CALL_TIMEOUT_MS,
+    private val features: List<SessionFeature> = emptyList(),
 ) {
     private val _state = MutableStateFlow<LinkState>(LinkState.Idle)
     val state: StateFlow<LinkState> = _state
@@ -201,7 +211,7 @@ class GatewaySession(
                         _scopes.value = hello.scopes
                         _state.value = LinkState.Online(hello)
                         val since = System.nanoTime()
-                        if (serve(conn, hello)) {
+                        if (serve(unit, conn, hello)) {
                             _state.value = LinkState.Stopped(Stop.REVOKED)
                             return
                         }
@@ -260,7 +270,7 @@ class GatewaySession(
     }
 
     /** Runs a live session until it ends. True when the unit revoked this phone. */
-    private suspend fun serve(conn: GatewayConnection, hello: Hello): Boolean = coroutineScope {
+    private suspend fun serve(unit: PairedUnit, conn: GatewayConnection, hello: Hello): Boolean = coroutineScope {
         val events = launch {
             conn.events.collect { e ->
                 when (e.name) {
@@ -284,7 +294,7 @@ class GatewaySession(
             }
         }
         val poll = launch {
-            // No gateway.subscribe in this gateway build: status is read, not pushed.
+            // The device topic is not served yet (GATEWAYD.md): status is read, not pushed.
             if ("status" !in hello.capabilities) return@launch
             read(conn, "system.info") { t, r -> t.copy(info = r) }
             while (true) {
@@ -295,10 +305,23 @@ class GatewaySession(
                 delay(POLL_MS)
             }
         }
+        val extras = features.map { f ->
+            launch {
+                try {
+                    f.run(unit, conn, hello, scopes)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // A feature that fails ends by itself: the session, and
+                    // with it what the unit is told about this phone, stays.
+                }
+            }
+        }
         conn.closed.await()
         events.cancel()
         keepAlive.cancel()
         poll.cancel()
+        extras.forEach { it.cancel() }
         conn.revoked
     }
 

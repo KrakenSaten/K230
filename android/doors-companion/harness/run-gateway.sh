@@ -11,7 +11,7 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REF="${1:-/mnt/c/K230/.claude/worktrees/gatewayd-m2}"
+REF="${1:-/mnt/c/K230/.claude/worktrees/gatewayd-m41}"
 PORT="${2:-47231}"
 CTL="${3:-47232}"
 OUT="$HERE/out"

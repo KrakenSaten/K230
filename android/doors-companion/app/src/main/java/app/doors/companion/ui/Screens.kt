@@ -41,6 +41,7 @@ import app.doors.companion.Link
 import app.doors.companion.core.Fingerprint
 import app.doors.companion.core.GatewayError
 import app.doors.companion.core.LinkState
+import app.doors.companion.core.MeshPhase
 import app.doors.companion.core.PairedUnit
 import app.doors.companion.core.Reading
 import app.doors.companion.core.Stop
@@ -148,6 +149,8 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
     val t by link.session.telemetry.collectAsStateWithLifecycle()
     val now = rememberNow()
     val l = look(state, unit)
+    val mesh by link.mesh.link.collectAsStateWithLifecycle()
+    val unread by remember(unit.fingerprint) { link.meshDb.dao().unread(unit.fingerprint) }.collectAsStateWithLifecycle(0)
     val online = state is LinkState.Online
     val dim = if (online) 1f else 0.45f
 
@@ -230,8 +233,15 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
         }
 
         Section("Rooms") {
-            Room("RIFT", "Mesh messages, nodes and channels", Doors.Rx) { go(Screen.Rift) }
-            Room("PacketShark", "Capture state and traffic figures", Doors.Tx) { go(Screen.PacketShark) }
+            Room(
+                "RIFT", "Mesh messages, nodes and channels", Doors.Rx,
+                when {
+                    unread > 0 -> if (unread > 99) "99+ new" else "$unread new"
+                    mesh.phase == MeshPhase.LIVE -> "Live"
+                    else -> "Read only"
+                },
+            ) { go(Screen.Rift) }
+            Room("PacketShark", "Capture state and traffic figures", Doors.Tx, "Soon") { go(Screen.PacketShark) }
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -266,7 +276,7 @@ private fun Service(label: String, r: Reading, color: Color, dim: Float, modifie
 }
 
 @Composable
-private fun Room(name: String, what: String, color: Color, onClick: () -> Unit) {
+private fun Room(name: String, what: String, color: Color, tag: String, onClick: () -> Unit) {
     Panel(Modifier.fillMaxWidth(), onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(3.dp).height(38.dp).clip(CircleShape).background(color))
@@ -274,7 +284,7 @@ private fun Room(name: String, what: String, color: Color, onClick: () -> Unit) 
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(name, style = Type.Title)
-                    Tag("Soon", color)
+                    Tag(tag, color)
                 }
                 Text(what, style = Type.Body)
             }
