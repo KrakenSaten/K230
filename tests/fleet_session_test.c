@@ -444,6 +444,126 @@ static void test_one_match_per_device(void)
     link->ops->close(link->ctx);
 }
 
+/* A link that is told who the match is with (fleet_link_ops.match_peer): the
+ * loop link, with that one op added and what it hears written down. */
+static struct fleet_link_ops told_ops;
+static unsigned told_calls;
+static unsigned told_changes;
+static int told_have;
+static uint8_t told_key[FLEET_KEY_BYTES];
+
+static void told(void *ctx, const uint8_t *key)
+{
+    int have = key != NULL;
+
+    (void)ctx;
+    if (told_calls == 0 || have != told_have ||
+        (have && memcmp(key, told_key, FLEET_KEY_BYTES) != 0)) {
+        told_changes++;
+    }
+    told_calls++;
+    told_have = have;
+    if (have) {
+        memcpy(told_key, key, FLEET_KEY_BYTES);
+    }
+}
+
+static struct fleet_link tell(struct fleet_link *link)
+{
+    struct fleet_link wrapped;
+
+    told_ops = *link->ops;
+    told_ops.match_peer = told;
+    told_calls = 0;
+    told_changes = 0;
+    told_have = 0;
+    wrapped.ops = &told_ops;
+    wrapped.ctx = link->ctx;
+    return wrapped;
+}
+
+/* The session says who the match in hand is with: nobody until it is engaged
+ * and has read its save, nobody while an invitation is only out, the opponent
+ * from Deploy until the END is acknowledged, and nobody after. */
+static void test_match_peer(void)
+{
+    struct store st = { .rng = 31 };
+    struct fleet_session s;
+    struct fleet_session again;
+    struct fleet_link *link = open_loop("lan");
+    struct fleet_link wrapped = tell(link);
+    uint8_t key[FLEET_KEY_BYTES];
+    int64_t now = 0;
+
+    peer_key(link, key);
+    fleet_session_init(&s, &wrapped, store_save, entropy, &st);
+    now = run(&s, now, 2000, 0);
+    check("match peer: a session that is not engaged tells its link nothing", told_calls == 0);
+    fleet_session_engage(&s, now);
+    fleet_session_poll(&s, now);
+    check("match peer: engaged with no match, it says there is none",
+          told_calls > 0 && !told_have);
+    fleet_session_invite(&s, key, NULL, now);
+    fleet_session_poll(&s, now + 1);
+    check("match peer: an invitation that is only out is not a match in hand",
+          s.m.phase == FLEET_MP_INVITING && !told_have);
+    while (now < 60000 && !fleet_match_active(&s.m)) {
+        now += 100;
+        fleet_session_poll(&s, now);
+    }
+    check("match peer: accepted, the opponent is named",
+          fleet_match_active(&s.m) && told_have && memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
+    now = run(&s, now, 60000, 1);
+    check("match peer: and stays named through the battle",
+          s.m.phase == FLEET_MP_BATTLE && told_have && told_changes == 2);
+
+    /* The app closes and opens again: nothing is said before the save is read. */
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    fleet_session_set_saved(&again, st.blob, sizeof(st.blob), 0);
+    fleet_session_engage(&again, now);
+    fleet_session_poll(&again, now);
+    check("match peer: reopened, the first thing said is the saved match's opponent",
+          told_calls > 0 && told_changes == 1 && told_have &&
+          memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
+    fleet_session_resume(&again, now);
+    run(&again, now, 3 * 3600000LL, 1);
+    check("match peer: the match played to its end, there is none again",
+          again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && !told_have &&
+          told_changes == 2);
+
+    /* A save that could not be read: what it held is not known, so the link
+     * is not told there is no match - it would let the opponent go. */
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    fleet_session_set_saved(&again, NULL, 0, 1);
+    fleet_session_engage(&again, now);
+    run(&again, now, 3000, 0);
+    check("match peer: a save that could not be read is not 'no match'",
+          again.ready && again.store_fault && told_calls == 0);
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    st.blob[40] ^= 0x5a;
+    fleet_session_set_saved(&again, st.blob, sizeof(st.blob), 0);
+    fleet_session_engage(&again, now);
+    run(&again, now, 3000, 0);
+    check("match peer: nor is a save that is damaged",
+          again.ready && again.store_fault && told_calls == 0);
+    /* A match begun in that session is known, and so is its end. */
+    fleet_session_invite(&again, key, NULL, now);
+    while (now < 100 * 60000 && !fleet_match_active(&again.m)) {
+        now += 100;
+        fleet_session_poll(&again, now);
+    }
+    check("match peer: a match begun after an unreadable save is named",
+          fleet_match_active(&again.m) && again.store_fault && told_have &&
+          memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
+    run(&again, now, 3 * 3600000LL, 1);
+    check("match peer: and when it is over the link is told there is none",
+          again.m.phase == FLEET_MP_DONE && again.store_fault && told_calls > 0 && !told_have);
+    link->ops->close(link->ctx);
+}
+
 int main(void)
 {
     test_not_engaged();
@@ -458,6 +578,7 @@ int main(void)
     whole_match("lan,loss=25,dup=10,delay=300", "LAN profile, 25% loss, duplicates");
     test_link_profile();
     test_one_match_per_device();
+    test_match_peer();
     printf("fleet_session_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

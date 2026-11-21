@@ -57,8 +57,9 @@ want() { # <label> <files> <regex>
     fi
 }
 
-# 9. Multiplayer's joints (ADR-008). The view model and the link layer draw
-#    nothing; exactly one file talks to a service, and it is the mesh link;
+# 9. Multiplayer's joints (ADR-008, ADR-017). The view model and the link
+#    layer draw nothing; exactly two files talk to a service, the mesh link
+#    (to meshcored) and the LAN link (to peerd), each to its own and no other;
 #    nothing in Fleet names a radio method or radiod's socket; the session
 #    pumps nothing until the player engages; and the virtual opponent exists
 #    only when POCKETFLEET_MP_FAKE asks for it.
@@ -68,9 +69,33 @@ check "the multiplayer view model is free of LVGL" \
       'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
 check "the link layer is free of LVGL" "$LINK/*.c $LINK/*.h" \
       'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
-check "only the mesh link talks to a service" \
-      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_mesh.c")" \
+check "only the mesh link and the LAN link talk to a service" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_mesh.c" | grep -v "$LINK/fleet_link_peer.c")" \
       'pocketipc_|include[[:space:]]*"pocketipc'
+check "the mesh link asks peerd nothing" "$LINK/fleet_link_mesh.c" '"peer\.[a-z_]+"|"peerd"'
+check "the LAN link asks meshcored nothing" "$LINK/fleet_link_peer.c $LINK/fleet_link_peer.h" \
+      '"mesh\.[a-z_]+"|"meshcored"'
+# The LAN link opens no socket to the network: peerd holds the UDP socket,
+# the identity and the cryptography (ADR-017). It never renames the device,
+# and it announces no table (the lobby's, M3).
+check "the LAN link opens no network socket and does no cryptography" \
+      "$LINK/fleet_link_peer.c" \
+      '\b(socket|sendto|recvfrom|bind)[[:space:]]*\(|sodium|crypto_|AF_INET'
+check "nor renames the device or announces a table" "$LINK/fleet_link_peer.c" \
+      '"peer\.(set_name|announce|withdraw)"'
+want "it is on the LAN profile" "$LINK/fleet_link_peer.c" 'return &fleet_profile_lan;'
+want "it ends the visibility lease when closed" "$LINK/fleet_link_peer.c" \
+     'cJSON_AddBoolToObject\(p, "visible", 0\)'
+want "it keeps or releases nobody before the session has said who" "$LINK/fleet_link_peer.c" \
+     'if \(!cJSON_IsArray\(arr\) \|\| !m->match_known\) \{'
+want "the session says who only once the saved match has been read" "$LINK/fleet_session.c" \
+     'if \(s->link->ops->match_peer\) \{'
+want "and never says none of a save it could not read" "$LINK/fleet_session.c" \
+     'if \(in_hand \|\| !s->store_fault \|\| s->peer_said\) \{'
+# The app does not open the LAN link yet (package 5 does, with its screens).
+check "nothing in the app opens the LAN link yet" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_peer.c")" \
+      'fleet_link_peer_'
 check "Fleet never names a radio method or radiod" "apps/fleet/*.c apps/fleet/*/*.c" \
       '"radio\.[a-z_]+"|radiod\.sock|"radiod"'
 want "the session pumps nothing before the player engages" "$LINK/fleet_session.c" \

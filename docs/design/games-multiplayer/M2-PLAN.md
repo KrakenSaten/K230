@@ -4,7 +4,8 @@
 Status, 2026-11-20: packages 0, 1, 2 and 3 are on master (§2). peerd
 (package 3) is there as an opt-in build that no image includes and nothing
 starts; putting it in an image is a step of its own, not yet done. Package
-4 onwards is not started and waits for the owner's go-ahead. Nothing has
+4 (the LAN link) is written and tested and is not opened by the app.
+Package 5 onwards is not started and waits for the owner's go-ahead. Nothing has
 been deployed to hardware. Follows the owner's
 conditional approval of M1: architecture approved; peerd subject to a
 security ADR and review; Fleet's existing multiplayer UI; LoRa behaviour
@@ -110,13 +111,24 @@ match itself is unaffected.
 | 1 | **Link profile** | retry and governor figures move from constants to a profile read from the link; human waits split from link waits; mesh profile equals today's constants | **done** (PR 154, master `048b1c15`): `fleet_match_test`, `fleet_mp_sim_test` and `fleet-mp-e2e` unchanged in result; LAN-profile tests |
 | 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | **done** (PR 154) except that the app does not yet apply the one-match rule (below): `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh`, two golden fixtures |
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | **done** (PR 156, master `680fc5cc`) **except the init script and image wiring** (step 3b, below): known-answer vectors, negative and restart tests, two real peerd processes on loopback, ASan/UBSan, a fuzz run of the parser and receive path. Not run on a mock network with loss between processes: that is package 6's |
-| 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | `fleet_link_test` extended with a scripted peerd; nothing asked before the first poll |
+| 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | **done**, not opened by the app: `tests/fleet_link_peer_test` against a scripted peerd (nothing asked before the first poll), the session's `match_peer` in `fleet_session_test`, ASan/UBSan, and opt-in against two real peerd processes |
 | 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | `fleet_view_mp_test`, `fleet_app_test`, `fleet_shell_test.sh` in both shapes |
 | 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | each ends with one win, one loss, both fleets verified, identical records |
 | 7 | **Hardware gate, A + B** | §3 | written gate, run with the owner's go-ahead |
 
 Order: 0, then 1 and 2 (Fleet only, no new service, a LoRa no-op), then 3,
 4, 5, 6, 7.
+
+As built, package 4 (`docs/apps/FLEET_MULTIPLAYER.md`, "The local network
+link"): the link is its own test binary, `tests/fleet_link_peer_test`, with
+its own scripted peerd, rather than an extension of `fleet_link_test`. The
+session gained one optional link op, `match_peer`, through which it says who
+the match in hand is with; the link keeps that peer and releases every other,
+which assumes Fleet is peerd's only client. Having no interface to announce
+on does not take the link down: a real peerd bound to one address announces
+on none and still exchanges datagrams, which the opt-in check against two
+real peerd processes (`make ENABLE_PEERD=1 ... fleet-link-peer-real`) showed.
+Not done: any run on a device; the app does not open the link.
 
 As built, package 3 (PR 156; `docs/api/peer.md` is its specification):
 

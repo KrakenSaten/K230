@@ -148,6 +148,25 @@ void fleet_session_poll(struct fleet_session *s, int64_t now)
     if (s->ready) {
         fleet_match_tick(&s->m, now);
         flush(s);
+        /* Only once the saved match has been read: before that "none" would
+         * be a guess, and a link may let go of an opponent on hearing it. So
+         * too when the save could not be read (a store fault, or another
+         * identity's): what it held is not known, and nothing is said until
+         * a match begins here - from then on this session knows, and says
+         * so when that match is over too. A match that is over and whose END
+         * is still owed is still in hand - the opponent has to be reachable
+         * to hear it. */
+        if (s->link->ops->match_peer) {
+            int in_hand = fleet_match_active(&s->m) ||
+                          (s->m.phase == FLEET_MP_DONE && s->m.end_unacked);
+
+            if (in_hand) {
+                s->peer_said = 1;
+            }
+            if (in_hand || !s->store_fault || s->peer_said) {
+                s->link->ops->match_peer(s->link->ctx, in_hand ? s->m.peer_key : NULL);
+            }
+        }
     }
 }
 

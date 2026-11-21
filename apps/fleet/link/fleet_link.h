@@ -14,6 +14,11 @@
  *                      the fake transport of P3; only POCKETFLEET_MP_FAKE
  *                      turns it on.
  *
+ * A third is written and not yet opened by the app:
+ *
+ *   fleet_link_peer.c  the local network: peerd's peer.app_* over pocketipc
+ *                      (ADR-017, ADR-018).
+ *
  * Every call returns at once. A link never blocks the LVGL thread.
  *
  * Copyright (c) 2026 PocketOS authors.
@@ -78,6 +83,11 @@ struct fleet_link_ops {
      * May be NULL, and may return NULL: both mean the mesh profile. Appended,
      * so a link written before it existed is a mesh link. */
     const struct fleet_link_profile *(*profile)(void *ctx);
+    /* Who the match in hand is with, or NULL when there is none. Said by the
+     * session on every poll once it knows; a link that has to hold on to an
+     * opponent between runs (fleet_link_peer.c) acts when it changes. May be
+     * NULL: a link that needs no telling. Appended, like profile. */
+    void (*match_peer)(void *ctx, const uint8_t *key);
 };
 
 struct fleet_link {
