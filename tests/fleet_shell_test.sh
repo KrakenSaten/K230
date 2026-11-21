@@ -189,6 +189,86 @@ has "and is reported" 'cannot be read\|no match to resume' "$log"
 rm -f "$MATCH"
 unset POCKETFLEET_SCREEN
 
+# 11. The local network in the running shell (docs/apps/FLEET_MULTIPLAYER.md,
+#     "The local network in the app"), against a scripted peerd
+#     (tests/fake-peerd): Command offers both transports and opening Fleet
+#     asks peerd nothing; the lobby on the network renders in both shapes
+#     with this device's address and the players peerd holds; an address is
+#     asked and answered, and one nobody is at is said to be so; closing ends
+#     this device's visibility; no match file is written by any of it; and
+#     with no peerd the network is not offered at all. A missing fake-peerd
+#     is a failure, not a skip.
+FAKE_PEERD=${FAKE_PEERD:-$(cd "$(dirname "$0")" && pwd)/fake-peerd}
+LAN_MATCH="$POCKETOS_STATE_DIR/fleet/match-lan.v1"
+PEERD_LOG="$OUT/peerd.log"
+BOB=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
+CAROL=c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3
+LAN_NODES="[{\"key\":\"$BOB\",\"name\":\"Bob\",\"address\":\"192.168.1.41\",\"heard_ms_ago\":1000,\"kept\":false,\"proved\":true,\"route\":\"lan\"},{\"key\":\"$CAROL\",\"name\":\"Carol\",\"kept\":true,\"proved\":false,\"route\":\"lan\"}]"
+PEERD_PID=""
+peerd_start() { # <nodes json>
+    rm -f "$PEERD_LOG"
+    FAKE_PEERD_NODES="$1" FAKE_PEERD_NODES_AFTER="$LAN_NODES" FAKE_PEERD_PROBE="192.168.1.41=$BOB" \
+        FAKE_PEERD_LOG="$PEERD_LOG" FAKE_PEERD_LIFE_MS=120000 "$FAKE_PEERD" &
+    PEERD_PID=$!
+    for _ in $(seq 100); do [ -S "$POCKETOS_RUNTIME_DIR/peerd.sock" ] && break; sleep 0.05; done
+}
+peerd_stop() {
+    [ -n "$PEERD_PID" ] && kill "$PEERD_PID" 2>/dev/null && wait "$PEERD_PID" 2>/dev/null
+    PEERD_PID=""
+    rm -f "$POCKETOS_RUNTIME_DIR/peerd.sock"
+}
+lan_shot() { # <screen|-> <name> <shape> <ms>
+    if [ "$1" = "-" ]; then unset POCKETFLEET_SCREEN; else export POCKETFLEET_SCREEN="$1"; fi
+    "$SHELL_BIN" --open fleet --rotation "$3" --screenshot "$OUT/$2.png" --exit-after-ms "$4" \
+        >"$OUT/$2.log" 2>&1
+    check "$2 renders" "$([ -s "$OUT/$2.png" ] && echo 1 || echo 0)"
+    hasnt "no fault on $2" 'ERROR\|Assert\|assert' "$(cat "$OUT/$2.log")"
+    if [ -n "${FLEET_SHOTS_DIR:-}" ]; then cp "$OUT/$2.png" "$FLEET_SHOTS_DIR/fleet-$2.png"; fi
+}
+rm -f "$SAVE" "$MATCH" "$LAN_MATCH"
+if [ -x "$FAKE_PEERD" ]; then
+    peerd_start "$LAN_NODES"
+    check "a scripted peerd is listening" "$([ -S "$POCKETOS_RUNTIME_DIR/peerd.sock" ] && echo 1 || echo 0)"
+    for shape in portrait landscape; do
+        lan_shot - "lan-command-$shape" "$shape" 900
+    done
+    check "opening Fleet on a device with peerd asks it nothing" \
+          "$([ -s "$PEERD_LOG" ] && echo 0 || echo 1)"
+    for shape in portrait landscape; do
+        lan_shot lan_lobby "lan-lobby-$shape" "$shape" 900
+    done
+    has "the lobby asked to be visible" 'peer.set_visible|{"visible":true}' "$(cat "$PEERD_LOG" 2>/dev/null)"
+    has "and listed the players" 'peer.nodes|' "$(cat "$PEERD_LOG" 2>/dev/null)"
+    sleep 0.3
+    has "closing the shell ended the visibility" 'peer.set_visible|{"visible":false}' \
+        "$(cat "$PEERD_LOG" 2>/dev/null)"
+    hasnt "nothing was sent to anybody" 'peer.app_send|' "$(cat "$PEERD_LOG" 2>/dev/null)"
+    peerd_stop
+    peerd_start "[]"
+    for shape in portrait landscape; do
+        POCKETFLEET_LAN_ASK=192.168.1.99 lan_shot lan_ask "lan-no-answer-$shape" "$shape" 900
+    done
+    for shape in portrait landscape; do
+        POCKETFLEET_LAN_ASK=192.168.1.41 lan_shot lan_ask "lan-answered-$shape" "$shape" 900
+    done
+    has "an address was asked" 'peer.probe|{"address":"192.168.1.41"}' "$(cat "$PEERD_LOG" 2>/dev/null)"
+    peerd_stop
+    peerd_start "[]"
+    lan_shot lan_silent "lan-silent-portrait" portrait 900
+    lan_shot lan_silent "lan-silent-landscape" landscape 900
+    peerd_stop
+    check "none of it wrote a match file" \
+          "$([ -f "$LAN_MATCH" ] || [ -f "$MATCH" ] && echo 0 || echo 1)"
+else
+    echo "FAIL fake-peerd binary missing: $FAKE_PEERD (make tests/fake-peerd)"; failed=$((failed + 1))
+fi
+# No peerd on the device: the network is not offered, and asking for its
+# lobby opens the one there is.
+lan_shot lan_lobby "lan-absent" portrait 900
+check "with no peerd nothing is stored either" \
+      "$([ -f "$LAN_MATCH" ] || [ -f "$MATCH" ] && echo 0 || echo 1)"
+unset POCKETFLEET_SCREEN
+
 rm -rf "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR" "$POCKETOS_CONFIG_DIR" \
        "$POCKETOS_STATE_DIR" "$OUT"
 echo "fleet_shell_test: $failed failure(s)"

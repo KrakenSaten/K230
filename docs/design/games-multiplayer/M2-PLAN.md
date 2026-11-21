@@ -4,8 +4,8 @@
 Status, 2026-11-21: packages 0, 1, 2, 3 and 4 are on master (§2). peerd
 (package 3) is there as an opt-in build that no image includes and nothing
 starts; putting it in an image is a step of its own, not yet done. The LAN
-link (package 4) is there and is not opened by the app, which package 5
-does. Package 5 onwards is not started and waits for the owner's go-ahead. Nothing has
+link (package 4) is there. Package 5, Fleet's screens for it, is written and
+in review (a draft PR), not merged. Package 6 onwards is not started and waits for the owner's go-ahead. Nothing has
 been deployed to hardware. Follows the owner's
 conditional approval of M1: architecture approved; peerd subject to a
 security ADR and review; Fleet's existing multiplayer UI; LoRa behaviour
@@ -112,12 +112,36 @@ match itself is unaffected.
 | 2 | **Save per transport** | store path by transport; one-match-per-device across both; lint rule; golden fixture | **done** (PR 154) except that the app does not yet apply the one-match rule (below): `fleet_save_test`, `fleet_session_test`, `fleet_lint.sh`, two golden fixtures |
 | 3 | **peerd** | identity, beacons, probe, sealed datagrams, lease, kept peers, lookup, inbox, limits; `peer.*` over pocketipc; `docs/api/peer.md`; init script, disabled by default | **done** (PR 156, master `680fc5cc`) **except the init script and image wiring** (step 3b, below): known-answer vectors, negative and restart tests, two real peerd processes on loopback, ASan/UBSan, a fuzz run of the parser and receive path. Not run on a mock network with loss between processes: that is package 6's |
 | 4 | **`fleet_link_peer.c`** | a sibling of `fleet_link_mesh.c` on `peer.*`: lease and keep on poll, address entry | **done** (PR 159, master `c92f93a7`), not opened by the app: `tests/fleet_link_peer_test` against a scripted peerd (nothing asked before the first poll), the session's `match_peer` in `fleet_session_test`, ASan/UBSan, and opt-in against two real peerd processes |
-| 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | `fleet_view_mp_test`, `fleet_app_test`, `fleet_shell_test.sh` in both shapes |
+| 5 | **Fleet UI, minimal** | a LORA / LOCAL NETWORK choice on the existing Multiplayer panel; the existing lobby screen with the LAN link; ADD BY ADDRESS and this device's address; the sentences of §1.4. No new screen | **written, in review** (draft PR): `fleet_view_mp_test`, `fleet_app_test` section 10 and `fleet_shell_test.sh` section 11 in both shapes, against the virtual opponent and a scripted peerd |
 | 6 | **End to end, host** | `fleet-lan-e2e`: two Fleet players through two peerd processes - clean; lossy; app killed and resumed; peerd restarted; address changed mid-match; broadcast blocked with manual join | each ends with one win, one loss, both fleets verified, identical records |
 | 7 | **Hardware gate, A + B** | §3 | written gate, run with the owner's go-ahead |
 
 Order: 0, then 1 and 2 (Fleet only, no new service, a LoRa no-op), then 3,
 4, 5, 6, 7.
+
+As built, package 5 (`docs/apps/FLEET_MULTIPLAYER.md`, "The local network in
+the app"):
+
+- **The network is offered only where peerd's socket exists** when Fleet
+  opens, or where `match-lan.v1` holds a match. The plan did not say; without
+  this every device would show a way in that leads to "the service is not
+  running", and no image has peerd. On such a device Fleet's screens are
+  unchanged to the byte.
+- **The choice is two buttons on one row** of Command's MULTIPLAYER panel,
+  not a control in the lobby, so it costs the panel no height and the
+  transport is chosen before any service is asked anything.
+- **One session at a time.** Picking the other transport closes the link in
+  use and opens the other with its own save.
+- `fleet_link_peer_present()` was added to the link, and the link now lets
+  peerd's outstanding answers arrive (60 ms at most) before it writes its
+  request to hide and closes: without that the request was lost whenever
+  Fleet closed between a question and its answer. A defect of package 4,
+  found by this package's tests.
+- The virtual opponent's link gained `self=N`, another key for this device,
+  to test a save from another identity.
+- Not done: any run on a device; the touch keyboard over the address field
+  on a panel; a stale reply to a replaced probe (the scripted peerd still
+  cannot delay one).
 
 As built, package 4 (PR 159; `docs/apps/FLEET_MULTIPLAYER.md`, "The local
 network link"): the link is its own test binary, `tests/fleet_link_peer_test`, with
@@ -182,11 +206,11 @@ save per transport":
   deadline equal to the mesh's window, and the lobby shows the time left
   instead of a try count (the owner's ruling on ADR-018 point 2).
 - The duplicate-reply limit is part of the profile (mesh 2 s, LAN 200 ms).
-- **One match per device is not enforced by the app yet.** The session rule
-  and the save probe exist and are tested; calling them, and showing the
-  refusal, is package 5, when a second save can first exist. A save made
-  under an identity its transport no longer has must not hold the other
-  transport back; that decision is the app's, also in package 5.
+- **One match per device** is enforced by the app from package 5: the
+  other transport is not offered while either save holds a match, and the
+  session is told. A save made under an identity its transport no longer has
+  holds neither back once the link has said who the device is (as built,
+  package 5).
 
 Evidence for packages 1 and 2: two `match.v1` fixtures generated from master
 `1767f09d` round-trip byte for byte; the Fleet simulator's output is

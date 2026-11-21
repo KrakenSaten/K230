@@ -164,6 +164,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/fleet/link/fleet_link.c
     ${REPO_DIR}/apps/fleet/link/fleet_link_loop.c
     ${REPO_DIR}/apps/fleet/link/fleet_link_mesh.c
+    ${REPO_DIR}/apps/fleet/link/fleet_link_peer.c
     ${REPO_DIR}/apps/fleet/link/fleet_session.c
     ${REPO_DIR}/apps/fleet/ui/fleet_view_mp.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_lobby.c
@@ -1371,6 +1372,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/fleet/link/fleet_link.c
         ${REPO_DIR}/apps/fleet/link/fleet_link_loop.c
         ${REPO_DIR}/apps/fleet/link/fleet_link_mesh.c
+        ${REPO_DIR}/apps/fleet/link/fleet_link_peer.c
+        ${REPO_DIR}/tests/fake_peerd.c
+        ${REPO_DIR}/core/pocketipc/server.c
         ${REPO_DIR}/apps/fleet/link/fleet_session.c
         ${REPO_DIR}/apps/fleet/ui/fleet_view_mp.c
         ${REPO_DIR}/apps/fleet/ui/fleet_screen_lobby.c
@@ -1390,7 +1394,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${POCKETUI_FONT_OBJS})
     target_include_directories(fleet_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
-        "${REPO_DIR}/core" "${REPO_DIR}/apps/fleet")
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/fleet" "${REPO_DIR}/tests")
     target_compile_options(fleet_app_test PRIVATE -Wall -Wextra)
     target_compile_definitions(fleet_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
     if(POCKETOS_LVGL_MODE STREQUAL "source")

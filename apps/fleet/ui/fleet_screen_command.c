@@ -7,6 +7,7 @@
 #include "../fleet_app.h"
 
 #include "fleet_view.h"
+#include "fleet_view_mp.h"
 #include "fleet_widgets.h"
 
 #include "../link/fleet_session.h"
@@ -40,7 +41,12 @@ struct fleet_command_ui {
      * without scrolling. After OPPONENT, so every panel keeps its place. */
     lv_obj_t *multi;
     lv_obj_t *multi_state;
+    /* One row, so a second way in costs the panel no height: MULTIPLAYER
+     * alone, as it always was, or LORA beside LOCAL NETWORK on a device
+     * that can do both and has no match in hand. */
+    lv_obj_t *multi_row;
     lv_obj_t *multi_open;
+    lv_obj_t *multi_lan;
 };
 
 static void on_difficulty(lv_event_t *e)
@@ -78,8 +84,19 @@ static void on_multiplayer(lv_event_t *e)
      * under way and offers RESUME and FORFEIT - the only place FORFEIT is -
      * so this must not jump past it to the board. This press is the player
      * choosing multiplayer, and only now does anything talk to the mesh
-     * service. */
-    fleet_app_multiplayer(app);
+     * service. With both transports on offer this button is LORA. */
+    if (fleet_app_mp_choice(app)) {
+        fleet_app_multiplayer_on(app, FLEET_MP_MESH);
+    } else {
+        fleet_app_multiplayer(app);
+    }
+}
+
+static void on_local_network(lv_event_t *e)
+{
+    /* The player choosing the local network: only now is peerd asked
+     * anything, and only from now is this device visible on it. */
+    fleet_app_multiplayer_on(lv_event_get_user_data(e), FLEET_MP_LAN);
 }
 
 /* Hull length drawn as blocks, in the spirit of the segmented meter (DS §9). */
@@ -162,7 +179,12 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     ui->multi_state = pocketui_label(panel, "", POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(ui->multi_state, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->multi_state, LV_PCT(100));
-    ui->multi_open = fleet_button_secondary(panel, "MULTIPLAYER", on_multiplayer, app);
+    ui->multi_row = fleet_hbox(panel, LV_SIZE_CONTENT, 12);
+    ui->multi_open = fleet_button_secondary(ui->multi_row, "MULTIPLAYER", on_multiplayer, app);
+    lv_obj_set_flex_grow(ui->multi_open, 1);
+    ui->multi_lan = fleet_button_secondary(ui->multi_row, "LOCAL NETWORK", on_local_network, app);
+    lv_obj_set_flex_grow(ui->multi_lan, 1);
+    lv_obj_add_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
 
     ui->deploy = pocketui_button(ui->foot, "DEPLOY FLEET", on_deploy, app);
     return screen;
@@ -300,18 +322,28 @@ static void command_refresh(struct fleet_app *app)
         const struct fleet_match *m = app->mp && app->mp->ready ? &app->mp->m : NULL;
         lv_obj_t *label = lv_obj_get_child(ui->multi_open, 0);
 
+        char text[120];
+        int lan = app->mp_transport == FLEET_MP_LAN;
+        int choice = fleet_app_mp_choice(app);
+
+        lv_obj_add_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
         if (!app->mp) {
             lv_label_set_text(ui->multi_state, "Not available on this device.");
             lv_obj_add_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
-        } else if (app->mp_saved || (m && fleet_match_active(m))) {
-            lv_label_set_text_fmt(ui->multi_state, "An engagement with %s is waiting.",
-                                  fleet_app_peer(app, peer, sizeof(peer)));
+        } else if (fleet_app_mp_waiting(app) || (m && fleet_match_active(m))) {
+            fleet_view_mp_command(lan, fleet_app_peer(app, peer, sizeof(peer)),
+                                  app->mp_lan_offered, 0, lan, text, sizeof(text));
+            lv_label_set_text(ui->multi_state, text);
             lv_label_set_text(label, "RESUME MATCH");
             lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_label_set_text(ui->multi_state, "Play another Doors device over the mesh.");
-            lv_label_set_text(label, "MULTIPLAYER");
+            fleet_view_mp_command(-1, NULL, app->mp_lan_offered, choice, lan, text, sizeof(text));
+            lv_label_set_text(ui->multi_state, text);
+            lv_label_set_text(label, choice ? "LORA" : "MULTIPLAYER");
             lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+            if (choice) {
+                lv_obj_remove_flag(ui->multi_lan, LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
 }

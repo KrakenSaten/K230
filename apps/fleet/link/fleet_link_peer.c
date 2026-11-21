@@ -4,9 +4,10 @@
  * The shape is fleet_link_mesh.c's, for the same reasons: nothing here may
  * stop the LVGL thread, so requests are written and forgotten, replies are
  * matched by id when they turn up, and the socket is read non-blocking in
- * bounded passes. The waits that remain are pocketipc's own and bounded: a
+ * bounded passes. The waits that remain are bounded: pocketipc's own - a
  * connect of at most CONNECT_TIMEOUT_MS, and a write to a peerd that has
- * stopped reading, which pocketipc gives up on and the link then drops. One connection carries both the subscription and the
+ * stopped reading, which pocketipc gives up on and the link then drops -
+ * and one of at most 60 ms when the link is closed (p_close). One connection carries both the subscription and the
  * requests.
  *
  * What it asks peerd: peer.subscribe, peer.identity (our key), peer.status
@@ -32,9 +33,11 @@
 #include "pocketipc/pocketipc.h"
 
 #include <errno.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* The same bounds as the mesh link, for the same reasons. */
@@ -62,6 +65,10 @@
 #define RX_QUEUE 96
 #define NODES_MAX 32            /* peerd holds no more */
 #define KEPT_MAX 8              /* peerd keeps 4; read with room to spare */
+/* Closing: how long peerd's answers to what was last asked are waited for,
+ * in all, before the request to hide is written (p_close). */
+#define CLOSE_QUIET_MS 15
+#define CLOSE_ROUNDS 4
 
 enum req {
     REQ_NONE = 0,
@@ -1073,10 +1080,32 @@ static void p_close(void *ctx)
     struct peer *m = ctx;
 
     if (m->fd >= 0) {
-        cJSON *p = cJSON_CreateObject();
+        uint8_t waste[1024];
+        cJSON *p;
+        int rounds;
 
+        /* The request below is the last thing written, and the socket is
+         * closed straight after. A pocketipc server answers what it reads in
+         * order and drops the connection - with whatever it has not yet
+         * handled - at the first answer it cannot deliver; so a request of
+         * ours still unanswered when we close takes this one down with it.
+         * What peerd owes us is therefore let arrive first: until the socket
+         * has been quiet for CLOSE_QUIET_MS, and for at most CLOSE_ROUNDS
+         * of that. This is the one wait in the link beyond pocketipc's own,
+         * it happens once, as Fleet leaves multiplayer, and it is bounded
+         * at 60 ms. If the request is lost all the same, the lease ends
+         * this device's visibility within its 30 s. */
+        for (rounds = 0; rounds < CLOSE_ROUNDS; rounds++) {
+            struct pollfd pfd = { m->fd, POLLIN, 0 };
+
+            if (poll(&pfd, 1, CLOSE_QUIET_MS) <= 0 || read(m->fd, waste, sizeof(waste)) <= 0) {
+                break;
+            }
+        }
+        p = cJSON_CreateObject();
         /* Fleet is leaving multiplayer: off the network at once, rather
-         * than when the lease would have lapsed. A match in hand is not
+         * than when the lease would have lapsed (which is what happens
+         * anyway if this does not get through). A match in hand is not
          * affected - peerd goes on serving the kept opponent. */
         if (p) {
             cJSON_AddBoolToObject(p, "visible", 0);
@@ -1126,6 +1155,16 @@ static const struct fleet_link_ops OPS = {
     p_poll, p_send, p_recv, p_self, p_state, p_peers, p_name, p_advertise, p_base, p_close, p_profile,
     p_match_peer,
 };
+
+int fleet_link_peer_present(const char *service)
+{
+    char path[256];
+    struct stat sb;
+
+    return pocketipc_socket_path(service && *service ? service : FLEET_PEER_SERVICE, path,
+                                 sizeof(path)) == 0 &&
+           stat(path, &sb) == 0 && S_ISSOCK(sb.st_mode);
+}
 
 struct fleet_link *fleet_link_peer_open(const char *service)
 {

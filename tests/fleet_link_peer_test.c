@@ -439,6 +439,13 @@ int main(void)
           until_logged(l, "peer.release|{\"key\":\"" BOB "\"}", 1));
     kept_want = 0;
     check("and peerd keeps nobody", spin(l, WAIT_MS, kept_is));
+    /* Closed with answers from peerd still unread, as an app that is shut
+     * between two polls closes it: the request to hide must get through
+     * all the same. */
+    l->ops->match_peer(l->ctx, bob);
+    l->ops->advertise(l->ctx);
+    l->ops->poll(l->ctx, now_ms() + 2100);
+    usleep(50000);
     l->ops->close(l->ctx);
     {
         int waited = 0;

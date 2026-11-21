@@ -332,6 +332,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     if (app->current == FLEET_SCREEN_CHAT && screen != FLEET_SCREEN_CHAT) {
         fleet_screen_chat_leave(app);
     }
+    if (app->current == FLEET_SCREEN_LOBBY && screen != FLEET_SCREEN_LOBBY) {
+        fleet_screen_lobby_leave(app);
+    }
     for (i = 0; i < FLEET_SCREEN_COUNT; i++) {
         if (app->screen[i]) {
             lv_obj_add_flag(app->screen[i], LV_OBJ_FLAG_HIDDEN);
@@ -624,6 +627,9 @@ static void fleet_destroy(void *priv)
     if (app->current == FLEET_SCREEN_CHAT) {
         /* The keyboard is the shell's; it must not outlive the field. */
         fleet_screen_chat_leave(app);
+    }
+    if (app->current == FLEET_SCREEN_LOBBY) {
+        fleet_screen_lobby_leave(app);
     }
     /* The multiplayer timer refers to the app and the link: both go first. */
     fleet_mp_destroy(app);

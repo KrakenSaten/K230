@@ -323,6 +323,127 @@ int main(void)
 
     check("nothing is written through a NULL", fleet_view_mp_note(NULL, "a", 0, buf, sizeof(buf)) == -1 &&
           buf[0] == '\0');
+
+    /* ---- the local network (M2-PLAN 1.4) ----------------------------------------- */
+    {
+        struct fleet_link_peer_info info;
+        struct fleet_link_peer p;
+        char big[240];
+        char mesh[64];
+
+        fleet_view_mp_status(NULL, FLEET_LINK_NO_SERVICE, "Anna", mesh, sizeof(mesh));
+        says("with no service the mesh's header is what it was", mesh, "MESH OFFLINE");
+        fleet_view_mp_status_on(NULL, FLEET_LINK_NO_SERVICE, "Anna", 0, buf, sizeof(buf));
+        check("and unchanged when asked for by transport", strcmp(buf, mesh) == 0);
+        fleet_view_mp_status_on(NULL, FLEET_LINK_NO_SERVICE, "Anna", 1, buf, sizeof(buf));
+        check("the network's header never names the mesh", strcmp(buf, "NETWORK OFFLINE") == 0);
+        battle(&m, FLEET_ROLE_HOST);
+        fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", mesh, sizeof(mesh));
+        fleet_view_mp_status_on(&m, FLEET_LINK_UP, "Anna", 1, buf, sizeof(buf));
+        check("a match's status reads the same on both", strcmp(buf, mesh) == 0);
+
+        memset(&info, 0, sizeof(info));
+        snprintf(info.address, sizeof(info.address), "192.168.1.42");
+        fleet_view_mp_lan_link(FLEET_LINK_UP, &info, big, sizeof(big));
+        check("link line: ready, with this device's address",
+              strcmp(big, "Local network ready. This device is 192.168.1.42.") == 0);
+        fleet_view_mp_lan_link(FLEET_LINK_UP, NULL, big, sizeof(big));
+        check("link line: ready, from a link with no detail", strcmp(big, "Local network ready.") == 0);
+        info.trouble = FLEET_PEER_NO_NETWORK;
+        fleet_view_mp_lan_link(FLEET_LINK_UP, &info, big, sizeof(big));
+        check("link line: no network",
+              strcmp(big, "Wi-Fi is off and no cable is connected.") == 0);
+        info.trouble = FLEET_PEER_OK;
+        fleet_view_mp_lan_link(FLEET_LINK_CONNECTING, &info, big, sizeof(big));
+        says("link line: looking for the service", big, "Looking for the local network service");
+        fleet_view_mp_lan_link(FLEET_LINK_NO_SERVICE, &info, big, sizeof(big));
+        says("link line: no service", big, "local network service is not running on this device");
+        check("which says nothing of the mesh or the radio",
+              !strstr(big, "mesh") && !strstr(big, "radio"));
+        info.trouble = FLEET_PEER_FAULT;
+        snprintf(info.fault, sizeof(info.fault), "identity_fault");
+        fleet_view_mp_lan_link(FLEET_LINK_RADIO_OFF, &info, big, sizeof(big));
+        says("link line: a fault, named", big, "stopped with a fault (identity_fault)");
+        check("and never called a radio", !strstr(big, "radio") && !strstr(big, "Radio"));
+        memset(&info, 0, sizeof(info));
+        snprintf(info.address, sizeof(info.address), "192.168.1.42");
+
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 0, FLEET_PEER_PROBE_NONE, "", NULL, big,
+                                 sizeof(big));
+        says("nobody listed yet: listening", big, "Listening for players on this network");
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, FLEET_VIEW_LAN_SILENCE_MS - 1,
+                                 FLEET_PEER_PROBE_NONE, "", NULL, big, sizeof(big));
+        says("still listening just under six seconds", big, "Listening");
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, FLEET_VIEW_LAN_SILENCE_MS,
+                                 FLEET_PEER_PROBE_NONE, "", NULL, big, sizeof(big));
+        check("after six seconds of silence: the sentence of the plan, with this address",
+              strcmp(big, "No players heard on this network. Enter the other device's address: "
+                          "this one is 192.168.1.42.") == 0);
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, NULL, 0, 60000, FLEET_PEER_PROBE_NONE, "", NULL, big,
+                                 sizeof(big));
+        says("silence with no address to give", big, "Both devices need Fleet open on LOCAL NETWORK");
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 2, 60000, FLEET_PEER_PROBE_NONE, "", NULL, big,
+                                 sizeof(big));
+        check("with players listed there is nothing to add", big[0] == '\0');
+        fleet_view_mp_lan_notice(FLEET_LINK_NO_SERVICE, &info, 0, 60000, FLEET_PEER_PROBE_NONE, "",
+                                 NULL, big, sizeof(big));
+        check("nor when the link is down: the link line says why", big[0] == '\0');
+        info.trouble = FLEET_PEER_NO_NETWORK;
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 60000, FLEET_PEER_PROBE_NONE, "", NULL, big,
+                                 sizeof(big));
+        check("nor with no network at all", big[0] == '\0');
+        info.trouble = FLEET_PEER_OK;
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 60000, FLEET_PEER_PROBE_PENDING,
+                                 "192.168.1.50", NULL, big, sizeof(big));
+        says("an address being asked", big, "Asking 192.168.1.50");
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 60000, FLEET_PEER_PROBE_NO_ANSWER,
+                                 "192.168.1.50", NULL, big, sizeof(big));
+        check("no answer: the sentence of the plan, no spinner",
+              strcmp(big, "No answer from 192.168.1.50. This network may keep devices apart. Try "
+                          "another network, a cable, or LoRa.") == 0);
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 1, 0, FLEET_PEER_PROBE_ANSWERED,
+                                 "192.168.1.50", "Bob", big, sizeof(big));
+        check("an answer names who answered and where",
+              strcmp(big, "Bob answered at 192.168.1.50.") == 0);
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 0, FLEET_PEER_PROBE_ANSWERED,
+                                 "192.168.1.50", NULL, big, sizeof(big));
+        says("or that somebody did, before the name is known", big,
+             "A device answered at 192.168.1.50.");
+        fleet_view_mp_lan_notice(FLEET_LINK_UP, &info, 0, 0, FLEET_PEER_PROBE_REFUSED, "192.168",
+                                 NULL, big, sizeof(big));
+        says("what is not an address", big, "Could not ask 192.168. An address is four numbers");
+
+        memset(&p, 0, sizeof(p));
+        strcpy(p.name, "Anna");
+        p.heard_ms = 1000;
+        fleet_view_mp_lan_row(&p, 1, 2000, buf, sizeof(buf));
+        check("a row on the network has no hops", strcmp(buf, "ANNA \xc2\xb7 HEARD JUST NOW") == 0);
+        fleet_view_mp_lan_row(&p, -1, 1000 + 3 * 60000, buf, sizeof(buf));
+        check("a link that does not say who is proved lists them plainly",
+              strcmp(buf, "ANNA \xc2\xb7 HEARD 3 MIN AGO") == 0);
+        fleet_view_mp_lan_row(&p, 0, 2000, buf, sizeof(buf));
+        check("a player only announced is said to be unconfirmed",
+              strcmp(buf, "ANNA \xc2\xb7 HEARD JUST NOW \xc2\xb7 UNCONFIRMED") == 0);
+        p.heard_ms = 0;
+        fleet_view_mp_lan_row(&p, 0, 2000, buf, sizeof(buf));
+        says("a kept opponent not heard this run", buf, "NOT HEARD YET");
+
+        fleet_view_mp_command(-1, NULL, 0, 0, 0, big, sizeof(big));
+        check("Command, a device without the network: the words it always had",
+              strcmp(big, "Play another Doors device over the mesh.") == 0);
+        fleet_view_mp_command(0, "Anna", 0, 0, 0, big, sizeof(big));
+        check("and for a match in hand", strcmp(big, "An engagement with Anna is waiting.") == 0);
+        fleet_view_mp_command(-1, NULL, 1, 1, 0, big, sizeof(big));
+        says("Command, both on offer", big, "over LoRa or the local network");
+        fleet_view_mp_command(1, "Anna", 1, 0, 1, big, sizeof(big));
+        check("a match in hand on the network says where",
+              strcmp(big, "An engagement with Anna is waiting on the local network.") == 0);
+        fleet_view_mp_command(0, "Anna", 1, 0, 0, big, sizeof(big));
+        says("and one on LoRa, on a device that has both", big, "is waiting on LoRa.");
+        fleet_view_mp_command(-1, NULL, 1, 0, 1, big, sizeof(big));
+        says("an invitation open on the network: one way in, named", big,
+             "over the local network.");
+    }
     printf("fleet_view_mp_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

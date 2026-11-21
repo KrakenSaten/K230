@@ -37,6 +37,13 @@
 /* The same number as on the mesh: a game has one port on every transport. */
 #define FLEET_PEER_PORT 1
 
+/* Whether peerd's socket exists on this device (service NULL: the usual
+ * one). A look at the filesystem and nothing else: nothing is connected to
+ * and nothing is asked, so a Fleet that has not been taken into multiplayer
+ * still says nothing to any service. It is how the app decides whether to
+ * offer the local network at all. */
+int fleet_link_peer_present(const char *service);
+
 /* A link to peerd on its usual socket (service NULL), or on another one
  * (tests). Connects lazily, on the first poll. NULL when out of memory. */
 struct fleet_link *fleet_link_peer_open(const char *service);

@@ -15,6 +15,7 @@
 #define POCKETFLEET_VIEW_MP_H
 
 #include "../link/fleet_link.h"
+#include "../link/fleet_link_peer.h"
 #include "../net/fleet_match.h"
 
 /* Where the match stands, as the player needs to hear it first. Read off the
@@ -85,5 +86,45 @@ int fleet_view_mp_accuracy(const struct fleet_match *m, int mine, char *buf, siz
 
 /* "ANNA · 2 HOPS · HEARD 3 MIN AGO", a lobby row. */
 int fleet_view_mp_peer_row(const struct fleet_link_peer *p, int64_t now_ms, char *buf, size_t n);
+
+/* ---- the local network (docs/design/games-multiplayer/M2-PLAN.md, 1.4) --------
+ *
+ * The same lobby on the other transport. Nothing above changes for it but
+ * the one word in the header: lan non-zero says "NETWORK OFFLINE" where the
+ * mesh says "MESH OFFLINE". */
+int fleet_view_mp_status_on(const struct fleet_match *m, enum fleet_link_state link,
+                            const char *peer, int lan, char *buf, size_t n);
+
+/* The lobby's link line: ready and this device's address, looking for the
+ * service, no service, a fault peerd names, or no network at all. info may
+ * be NULL (a link that has no detail to give). */
+int fleet_view_mp_lan_link(enum fleet_link_state link, const struct fleet_link_peer_info *info,
+                           char *buf, size_t n);
+
+/* What stands under the players: the outcome of asking an address, or -
+ * when nobody is listed - that the lobby is listening, and after six seconds
+ * of silence what to do about it. "" when there is nothing to say.
+ * players: how many are listed; silent_ms: for how long none has been;
+ * asked: the address last asked, as typed; answered: the name of whoever
+ * answered there, or NULL. */
+#define FLEET_VIEW_LAN_SILENCE_MS 6000
+int fleet_view_mp_lan_notice(enum fleet_link_state link, const struct fleet_link_peer_info *info,
+                             int players, int64_t silent_ms,
+                             enum fleet_link_peer_probe_state probe, const char *asked,
+                             const char *answered, char *buf, size_t n);
+
+/* "ANNA · HEARD JUST NOW", a lobby row on the local network: no hops there.
+ * proved 0 marks a player peerd has only heard announced (ADR-017, section
+ * 5): listed, and not presented as present. */
+int fleet_view_mp_lan_row(const struct fleet_link_peer *p, int proved, int64_t now_ms, char *buf,
+                          size_t n);
+
+/* Command's MULTIPLAYER panel. in_hand: -1 no match, 0 one on LoRa, 1 one on
+ * the local network. lan_offered: this device can play over the network;
+ * while it cannot, the words are exactly what they were before there was
+ * one. choice: both transports are on offer now. lan: the transport the one
+ * button would open, when there is no choice. */
+int fleet_view_mp_command(int in_hand, const char *peer, int lan_offered, int choice, int lan,
+                          char *buf, size_t n);
 
 #endif

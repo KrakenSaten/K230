@@ -75,6 +75,14 @@ enum fleet_shape {
  * validated at. */
 #define FLEET_CELL_ACROSS_MAX 51
 
+/* What a multiplayer match travels over. One session exists at a time, on
+ * one of them (docs/decisions/ADR-018). */
+enum fleet_mp_transport {
+    FLEET_MP_MESH = 0,                        /* LoRa, through meshcored */
+    FLEET_MP_LAN,                             /* the local network, through peerd */
+    FLEET_MP_TRANSPORTS
+};
+
 struct fleet_app {
     struct fleet_game game;
     uint8_t difficulty;                       /* the Command screen selection */
@@ -116,6 +124,14 @@ struct fleet_app {
     uint8_t mode;                             /* enum fleet_mode */
     struct fleet_link *link;                  /* NULL when there is none */
     struct fleet_session *mp;                 /* NULL when there is no link */
+    uint8_t mp_transport;                     /* enum fleet_mp_transport: link and mp's */
+    uint8_t mp_lan_offered;                   /* this device can play over the network */
+    uint8_t mp_other_in_hand;                 /* the other transport's save holds a match */
+    /* A transport whose save turned out, once its link said who this device
+     * is, to be another identity's: it can never be resumed, so on a device
+     * with two transports it holds neither of them back for the rest of this
+     * run. The file is left where it is, as ever. */
+    uint8_t mp_stale[FLEET_MP_TRANSPORTS];
     lv_timer_t *mp_timer;
     unsigned mp_revision;                     /* what the screens last showed */
     uint8_t mp_phase;                         /* the phase they were steered by */
@@ -204,6 +220,16 @@ void fleet_screen_result_relayout(struct fleet_app *app, int wide);
 lv_obj_t *fleet_screen_lobby_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_lobby_refresh(struct fleet_app *app);
 void fleet_screen_lobby_relayout(struct fleet_app *app, int wide);
+/* The lobby is being opened for another transport: nobody is chosen and
+ * nothing has been asked. And left: its address field gives up the keys. */
+void fleet_screen_lobby_enter(struct fleet_app *app);
+void fleet_screen_lobby_leave(struct fleet_app *app);
+/* Once per tick of the multiplayer timer while the lobby is shown: what
+ * must not be done from inside an LVGL event (focus). */
+void fleet_screen_lobby_tick(struct fleet_app *app);
+/* Ask the device at an address who it is, as ASK does (the local network
+ * only). Kept until the link is up when it is still connecting. */
+void fleet_screen_lobby_ask(struct fleet_app *app, const char *address);
 lv_obj_t *fleet_screen_chat_create(struct fleet_app *app, lv_obj_t *parent);
 /* The chat's history list: the one part of Fleet whose text follows the text
  * size (fleet_app_hold_type). */
@@ -228,6 +254,15 @@ void fleet_mp_destroy(struct fleet_app *app);
 /* Open the lobby. This is the player choosing multiplayer: from here the
  * session is engaged and packets move. */
 void fleet_app_multiplayer(struct fleet_app *app);
+/* The same, on a transport the player chose. The session moves to it only
+ * when a choice is on offer (fleet_app_mp_choice); otherwise the lobby opens
+ * on the transport the session already has. */
+void fleet_app_multiplayer_on(struct fleet_app *app, enum fleet_mp_transport transport);
+/* Whether LoRa and the local network are both on offer now: the device can
+ * do both, no match is in hand on either, and no invitation is open. */
+int fleet_app_mp_choice(const struct fleet_app *app);
+/* Whether a saved match is waiting to be resumed, as Command says it. */
+int fleet_app_mp_waiting(const struct fleet_app *app);
 /* Continue the match in hand on the screen its phase belongs to. */
 void fleet_app_mp_resume(struct fleet_app *app);
 /* Open the chat with the opponent, and leave it for the screen the match's
@@ -249,7 +284,10 @@ const char *fleet_app_peer(struct fleet_app *app, char *buf, size_t n);
 /* Development aid: with POCKETFLEET_MP_FAKE set, drive a match against the
  * virtual opponent into the named state on a skipped clock, for screenshots
  * (POCKETFLEET_SCREEN=lobby|mp_invited|mp_deploy|mp_battle|mp_waiting|mp_lost|
- * mp_result|mp_chat). Returns 1 when it recognised the name. */
+ * mp_result|mp_chat). lan_lobby opens the lobby on the local network,
+ * lan_ask does and asks the address in POCKETFLEET_LAN_ASK, and lan_silent
+ * shows it after six seconds with nobody heard. Returns 1 when it
+ * recognised the name. */
 int fleet_mp_debug(struct fleet_app *app, const char *want);
 /* The board Deploy works on: the AI match's, or the one for a multiplayer
  * match. */

@@ -31,6 +31,7 @@ struct state {
     int kept_count;
     int probes;                 /* how many have been asked; the last one is listed */
     char probe_address[32];
+    int probe_answered;
 };
 
 static const char *name_of(const struct fake_peerd_script *script)
@@ -148,7 +149,9 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddBoolToObject(result, "visible", st->visible);
         cJSON_AddNumberToObject(result, "lease_ms", st->visible ? 30000 : 0);
     } else if (strcmp(name, "peer.nodes") == 0) {
-        cJSON *arr = sc->nodes_json ? cJSON_Parse(sc->nodes_json) : NULL;
+        const char *nodes = st->probe_answered && sc->nodes_after_probe_json
+                                ? sc->nodes_after_probe_json : sc->nodes_json;
+        cJSON *arr = nodes ? cJSON_Parse(nodes) : NULL;
 
         if (!cJSON_IsArray(arr)) {
             cJSON_Delete(arr);
@@ -278,6 +281,7 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                                                   : answered ? "answered" : "no_answer");
             if (answered && !sc->probe_pending) {
                 cJSON_AddStringToObject(one, "key", sc->probe_key);
+                st->probe_answered = 1;
             }
             cJSON_AddItemToArray(arr, one);
         }

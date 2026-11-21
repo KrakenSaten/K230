@@ -20,8 +20,9 @@ apps/fleet/net/      pure C: SHA-256, the packet codec, the match state
 apps/fleet/link/     the transport seam: fleet_link.h, and fleet_link_mesh.c,
                      the one file that speaks mesh.app_* over pocketipc.
                      fleet_link_peer.c is its sibling for the local network
-                     (peer.app_* to peerd); the app does not open it yet -
-                     see "The local network link".
+                     (peer.app_* to peerd), opened when the player picks
+                     LOCAL NETWORK - see "The local network link" and "The
+                     local network in the app".
 apps/fleet/ui/       the lobby screen, and Battle/Result reading a match.
 apps/fleet/engine/   fleet_store.c also reads and writes match.v1.
 services/meshcored   mesh.app_send / mesh.app_inbox / mesh.app (generic,
@@ -521,19 +522,17 @@ mesh's and behave as before.
 is a match between Deploy and Reveal, whoever saved it. A session told that
 the other transport holds one (`fleet_session_set_other_in_hand`) refuses to
 invite or accept (`FLEET_SESSION_OTHER_MATCH`) and sends nothing. The app
-does not call it yet, and the lobby does not yet read the refusal: both
-come with the transport choice in the lobby. Until then the app's one
-session is the mesh's, and its development opponent is held to the mesh
-profile (`tests/fleet_lint.sh`).
+tells its session so whenever it opens one ("The local network in the app"),
+and does not offer the other transport while either save holds a match, so
+the refusal is a second line of defence and has no words of its own.
 
 ## The local network link
 
 `apps/fleet/link/fleet_link_peer.c` (M2 package 4) is the second link behind
 `fleet_link.h`: peerd's app datagrams (`docs/api/peer.md`, ADR-017) on port 1,
-the same number as on the mesh. It is written and tested, and **nothing in
-the app opens it yet**: the transport choice, the LAN session with its own
-save and the words for it come with the lobby (package 5), and
-`tests/fleet_lint.sh` holds the app to that. It has not run on a device.
+the same number as on the mesh. The app opens it when the player picks
+LOCAL NETWORK ("The local network in the app", M2 package 5). It has not run
+on a device.
 
 It is `fleet_link_mesh.c`'s shape - one non-blocking pocketipc connection,
 requests matched by id, every datagram taken once by peerd's per-run id,
@@ -580,8 +579,19 @@ which the session does only once the player has engaged multiplayer:
   seam's word for "the service is there and unusable"), or no interface to
   announce on. The last leaves the link up: a device at a known address is
   still reached.
+- **Whether peerd is there at all.** `fleet_link_peer_present()` looks for
+  peerd's socket in the filesystem and does nothing else: no connection, no
+  request.
+- **Closing.** The request to hide is the last thing written before the
+  socket is closed. A pocketipc server drops a connection, with whatever it
+  has not yet handled, at the first answer it cannot deliver, so a request
+  of ours still unanswered at that moment would take the hide down with it;
+  the link therefore waits for peerd's outstanding answers first - until the
+  socket has been quiet for 15 ms, 60 ms at most. It is the one wait in the
+  link beyond pocketipc's own. If the hide is lost all the same, the lease
+  ends the visibility within 30 s.
 
-To know before packages 5 and 6 build on it:
+To know about it:
 
 - **The link assumes Fleet is peerd's only client.** Releasing every kept
   peer that is not this match's opponent is right while that holds, and
@@ -602,6 +612,82 @@ To know before packages 5 and 6 build on it:
 - Not tested: a match whose END is still owed (the rule is in the session;
   no test reaches that state through a link).
 
+## The local network in the app
+
+M2 package 5. Nothing here has run on a device, and no image contains peerd:
+on every device there is today, Fleet is exactly what it was.
+
+**When it is offered.** The local network is offered only where peerd's
+socket exists when Fleet opens (`fleet_link_peer_present`), or where
+`match-lan.v1` holds a match in hand. Elsewhere `MULTIPLAYER` is one button
+with the words it always had, and nothing about the network is shown or
+asked. Screenshots of Command and of the LoRa lobby from this build and the
+one before are the same files, byte for byte.
+
+**One session, one transport at a time** (`apps/fleet/fleet_mp.c`). The
+session is on LoRa unless the network's save holds the match in hand; the
+file decides, before a byte is decoded. It moves to the other transport only
+when the player picks it and a choice is on offer: the device can do both,
+neither save holds a match, and no invitation is open. Moving closes the
+link it leaves - on the network that ends this device's visibility - and
+opens the other with its own save; nothing is carried over. A transport
+becomes a save file in one function, and the virtual opponent's profile
+follows the transport, never its own spec.
+
+**Command.** The `MULTIPLAYER` panel ends in one row. With a choice on offer
+it holds `LORA` and `LOCAL NETWORK` side by side, at the height the one
+button had, and the panel says "Play another Doors device over LoRa or the
+local network." With a match in hand it is `RESUME MATCH` alone, and on a
+device with both transports the panel says which one the match is on. With
+an invitation open it is `MULTIPLAYER` alone, back to that lobby.
+
+**The lobby** is the same screen. On the local network:
+
+- the link line is the network's: "Local network ready. This device is
+  192.168.1.42.", looking for the service, the service not running, a fault
+  peerd names, or "Wi-Fi is off and no cable is connected." The header says
+  `NETWORK OFFLINE` where LoRa says `MESH OFFLINE`;
+- a row has no hops: "ANNA · HEARD JUST NOW". A player peerd has only heard
+  announced is listed with `UNCONFIRMED` (ADR-017 section 5: not presented
+  as present), and can be invited - an answer is what confirms them;
+- where LoRa has `MAKE VISIBLE` there is `ADD BY ADDRESS`, which shows a
+  field for a dotted IPv4 address and `ASK`. The field takes digits and dots
+  only. Enter or `ASK` hands the question to peerd; the lobby then says
+  "Asking ...", and either who answered - who is then chosen, so `INVITE` is
+  the next press - or "No answer from 192.168.1.42. This network may keep
+  devices apart. Try another network, a cable, or LoRa.", with nothing
+  spinning and nothing retried;
+- with nobody listed it says it is listening, and after six seconds "No
+  players heard on this network. Enter the other device's address: this one
+  is 192.168.1.42."
+
+The words are `fleet_view_mp_lan_*` and `fleet_view_mp_command`, tested
+natively.
+
+**One match per device.** While either save holds a match between Deploy and
+Reveal the other transport is not offered, and the session is told
+(`fleet_session_set_other_in_hand`) so that it would refuse to begin one in
+any case. A save made under an identity its transport no longer has can
+never be resumed: once the link has said who this device is, such a save
+holds neither transport back for the rest of that run (on a device with both
+transports). The file is left in place, as `match.v1` always was, so after a
+restart it is offered once more until a new match on that transport
+overwrites it.
+
+Known limits of this package:
+
+- **Visibility lasts as long as the network's session is engaged**, a resumed
+  match included, and ends when Fleet closes or the player picks LoRa. Going
+  back to Command does not end it, as it does not stop the mesh session.
+- **The touch keyboard over the address field has not been seen on a
+  device.** The field is in a column that scrolls and is brought into view
+  when focused; on the keyboard base nothing covers it.
+- **No table codes**, no QR, no invitation outside Fleet: those are the
+  lobby's (M3) and the shell's (M4).
+- A match in hand whose opponent's address is lost is reached again by peerd
+  (its last address, then a lookup). If that fails too, `ADD BY ADDRESS`
+  from the lobby finds them; nothing steers the player there.
+
 ## Tests
 
 | Test | Covers |
@@ -611,6 +697,9 @@ To know before packages 5 and 6 build on it:
 | `tests/fleet_match_test` | each session, turn, resync, fairness, END and save-codec rule by name; chat: sent, received from the opponent only, a copy shown once, a lost receipt, a line given up after three tries without the link called lost, reordered, the history and the waiting lines bounded under a flood, the limits, malformed and unknown types, a line of an old session never shown in a new one, a shot always before a line, the token and hour reserves, lines given up when a forfeit ends the match, a word after a finished match, and a whole match with both sides talking played shot for shot as in silence |
 | `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers; and two profiles with both players talking throughout (no line shown twice, none from another session, the oracle unchanged). `make fleet-mp-soak` for 5000 matches a profile |
 | `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence; chat through the session with no save, the opponent out of reach while typing and after, the app closed with a line waiting and reopened twenty times, a new match with an empty chat on both sides |
+| `tests/fleet_view_mp_test` (local network) | the header on each transport; the link line in each state, never naming the mesh or a radio; listening, the sentence after six seconds, asking, an answer, no answer and what is not an address, each to the word; a row with no hops, unconfirmed, not heard yet; Command's sentence on a device with and without the network, word for word what it was without |
+| `tests/fleet_app_test` (section 10) | a device without the network: one button, the old words, the button filling its row; the choice on one row, both buttons in view across the page, neither clipped; LoRa and the network each opening its own session and profile; a match on the network saved in `match-lan.v1` only, and one on LoRa in `match.v1` only; reopened on the transport whose save holds the match, the other not offered; another identity's save holding neither transport back; and, against the real link and a scripted peerd: nothing asked before LOCAL NETWORK is pressed, this device's address, proved and unconfirmed rows, an address typed on keys (letters refused) and answered, the answerer lit with INVITE ready, an address with no answer, the touch keyboard only for a finger, the field out of the keys' way off the lobby, peerd going away under an open lobby, six seconds of silence, a peerd closed by a fault, visibility ended on close |
+| `tests/fleet_shell_test.sh` (section 11) | against `tests/fake-peerd` in the running shell: Command with both transports, the lobby with players, an address answered and unanswered, and silence, in both shapes with no fault; nothing asked of peerd by opening Fleet; visibility asked for by the lobby and ended on exit; no match file written; and no peerd, no offer |
 | `tests/fleet_view_mp_test` | every UX state's words; the status for each state and in its order of precedence, a long or accented name cut whole; the chat button and every line's wording |
 | `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen, 0600 under any umask |
 | `tests/fleet_app_test` (sections 8, 9) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK; the header always exactly the derived status, turn by turn; the chat button beside FIRE in multiplayer and absent in single player; the chat typed on keys and sent with Enter, the answer shown, an over-long accented line refused, the touch keyboard only for a finger down the page, a line said while on the board counted on the button, chat from Result after the match and gone once the match is put away |

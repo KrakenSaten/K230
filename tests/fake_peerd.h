@@ -26,6 +26,9 @@ struct fake_peerd_script {
     /* peer.nodes "nodes", as JSON text. A negative heard_ms_ago is not
      * rewritten: the field is already relative. */
     const char *nodes_json;
+    /* The same, from the moment a probe has been answered: whoever answered
+     * is a node from then on. NULL: nodes_json throughout. */
+    const char *nodes_after_probe_json;
     /* peer.app_inbox "datagrams", as JSON text; a negative mono_ms means
      * "this long ago". */
     const char *inbox_json;
