@@ -102,10 +102,12 @@ added; a send lives in the session's scope like the reader does.
   never delivered; the composer says so. A message still waiting for its
   acknowledgement when the mesh service started again is "Outcome unknown".
 - **No answer is not failure.** An unanswered send is asked about once by the
-  app, under the same id and only within two minutes of the tap (again only
-  while the gateway answers that its mesh service is away). The gateway
+  app, under the same id and only within two minutes of the tap. The gateway
   answers that from its record, or looks before it sends, so the repeat cannot
-  transmit twice. After that only a person asks ("Ask the unit").
+  transmit twice; if the gateway never had the message, that repeat is its
+  one transmission, and the thread says so while it is pending. After that
+  only a person asks ("Ask the unit"), or lets it go. A send found on its way
+  when the app starts is treated the same.
 - **After a gateway restart nothing is repeated.** Its records are gone
   (another `journal_id`), and a repeat would be a new message. The phone looks
   in what it synced (same thread, same words, learned after the tap, not
@@ -129,6 +131,10 @@ added; a send lives in the session's scope like the reader does.
 - **Rate.** `limits.send_per_min` from hello (20). The phone counts its own
   requests and holds Send when the window is full; the gateway's code 10 is
   shown as "not sent".
+
+Not covered by a test that runs: the Room store itself (`RoomSendStore`, the
+migration) is exercised on the emulator only, where a version 1 database with
+its history was opened by this build.
 
 Known limits: the gateway's at-most-once is per id while it runs and keeps 64
 ids per phone, so a send left unanswered for more than 48 later sends is not

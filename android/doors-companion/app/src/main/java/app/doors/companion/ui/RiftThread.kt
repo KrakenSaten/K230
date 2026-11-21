@@ -116,7 +116,7 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
     val liveRun = mesh.runId.takeIf { mesh.phase == MeshPhase.LIVE }
     val to = if (channel) Destination(null, slot?.slot, SendText.limit(slot?.textLimit), gone = listed != null && slot == null)
     else Destination(peer, null, SendText.DIRECT_MAX, gone = !MeshMessage.isKey(peer))
-    val sending = outbox.any { !it.isResend && it.outPhase == OutPhase.SENDING }
+    val sending = sendState.session && outbox.any { !it.isResend && it.outPhase == OutPhase.SENDING }
     var ask by remember { mutableStateOf<Ask?>(null) }
 
     // Reading it is reaching its end: the newest message on screen is read.
@@ -165,10 +165,10 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
                         )
                     }
                     is Pending -> PendingBubble(
-                        e.o, e.first, sendState.perMin, storedRun, canAsk = block == null && !sending,
+                        e.o, e.first, sendState.perMin, storedRun, online = sendState.session, now = now, canAsk = block == null && !sending && !to.gone,
                         onCheck = { ask = Ask.Check(e.o) },
                         // Refused: nothing went out, so trying again is a plain send. Unknown: it may have, so it is asked.
-                        onAgain = { if (e.o.outPhase == OutPhase.UNKNOWN) ask = Ask.AsNew(e.o) else scope.launch { link.send.sendAgain(id, e.o.clientMsgId, to.limit) } },
+                        onAgain = { if (e.o.outPhase == OutPhase.UNKNOWN) ask = Ask.AsNew(e.o) else scope.launch { link.send.sendAgain(id, e.o.clientMsgId, to.peerKey, to.channel, to.limit) } },
                         onDiscard = { scope.launch { link.send.discard(id, e.o.clientMsgId) } },
                     )
                     is Day -> DayLine(e.date)
@@ -199,13 +199,13 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
     when (val a = ask) {
         is Ask.Check -> Confirm(
             "Ask the unit?",
-            "The unit is asked about this message under the id it was first given. If the unit has no record of it, it sends it now. It cannot be sent twice this way.",
+            "The unit is asked about this message under the id it was first given. If the unit has no record of it, it sends it now.",
             "Ask the unit", onYes = { ask = null; scope.launch { link.send.check(id, a.o.clientMsgId) } }, onNo = { ask = null },
         )
         is Ask.AsNew -> Confirm(
             "Send it as a new message?",
             "Nobody can tell whether the first one went out. If it did, ${if (channel) "the channel" else title} gets these words twice.",
-            "Send as new", onYes = { ask = null; scope.launch { link.send.sendAgain(id, a.o.clientMsgId, to.limit) } }, onNo = { ask = null },
+            "Send as new", onYes = { ask = null; scope.launch { link.send.sendAgain(id, a.o.clientMsgId, to.peerKey, to.channel, to.limit) } }, onNo = { ask = null },
         )
         is Ask.Resend -> Confirm(
             "Send it again?",

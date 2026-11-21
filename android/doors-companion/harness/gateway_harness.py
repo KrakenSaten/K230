@@ -547,6 +547,8 @@ def ctl(method, params=None):
 
 def start():
     global proc
+    if proc is not None and proc.poll() is None:
+        return  # already running: a second one would leave the first without anyone to stop it
     env = dict(os.environ, POCKETOS_RUNTIME_DIR=RUN, POCKETOS_STATE_DIR=STATE, POCKETOS_LOG_DIR=LOGS, POCKETOS_LOG_STDERR="0")
     proc = subprocess.Popen([BIN, "--test-listen", HOST, "--test-port", str(PORT), "--test-shadow", SHADOW, "--test-passwd", PASSWD], env=env)
     end = time.time() + 10

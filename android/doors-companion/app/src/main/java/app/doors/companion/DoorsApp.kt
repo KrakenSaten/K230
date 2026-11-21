@@ -24,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class DoorsApp : Application() {
     lateinit var link: Link
@@ -54,10 +56,15 @@ class Link(app: Application) {
     val session = GatewaySession(transport, identity, VERSION, onUnitMoved = { store.save(it) }, features = listOf(mesh, send))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Draft writes happen in the order they were asked for. */
+    private val drafts = Mutex()
     private var loop: Job? = null
     private var foreground = false
 
     init {
+        // A send that a process before this one left on its way has no answer coming.
+        scope.launch { store.unit.value?.let { send.recover(it.fingerprint) } }
         // Another network may be where the paired unit really is: a loop that
         // stopped at somebody else's key there starts again here. A confirmed
         // revocation stays stopped.
@@ -133,7 +140,9 @@ class Link(app: Application) {
      */
     fun keepDraft(unit: String, conv: String, text: String) {
         scope.launch {
-            if (text.isEmpty()) meshDb.dao().dropDraft(unit, conv) else meshDb.dao().saveDraft(unit, conv, text, System.currentTimeMillis())
+            drafts.withLock {
+                if (text.isEmpty()) meshDb.dao().dropDraft(unit, conv) else meshDb.dao().saveDraft(unit, conv, text, System.currentTimeMillis())
+            }
         }
     }
 

@@ -255,6 +255,14 @@ class SendIntegrationTest {
         assertNull(say("the line went quiet"))
         until("no answer") { row("the line went quiet").phase == OutPhase.UNCERTAIN }
         mode("ok")
+        // The gateway gave its connection to the mesh service up; the app asks once by itself, a person after that.
+        delay(1_500)
+        ready()
+        until("the app has asked, or is done") { row("the line went quiet").let { it.phase == OutPhase.UNKNOWN || (it.phase == OutPhase.UNCERTAIN && it.checks >= 1) } }
+        if (row("the line went quiet").phase == OutPhase.UNCERTAIN) {
+            ready()
+            assertNull(send.check(uid, row("the line went quiet").clientMsgId))
+        }
         until("outcome unknown", 40_000) { row("the line went quiet").phase == OutPhase.UNKNOWN }
         val quiet = row("the line went quiet")
         assertEquals(Why.OUTCOME_UNKNOWN, quiet.why)
@@ -263,7 +271,7 @@ class SendIntegrationTest {
         assertEquals("nothing sends it", 0, takenTexts().count { it == "the line went quiet" })
         // A person decides to send the words as a new message.
         ready()
-        assertNull(send.sendAgain(uid, quiet.clientMsgId, 160))
+        assertNull(send.sendAgain(uid, quiet.clientMsgId, ola, null, 160))
         until("the new message") { row("the line went quiet").phase == OutPhase.ACCEPTED }
         assertNotEquals(quiet.clientMsgId, row("the line went quiet").clientMsgId)
         assertEquals(1, takenTexts().count { it == "the line went quiet" })
@@ -276,7 +284,7 @@ class SendIntegrationTest {
         assertEquals(Why.BUSY, row("when there is room").why)
         assertEquals(0, takenTexts().count { it == "when there is room" })
         mode("ok")
-        assertNull(send.sendAgain(uid, row("when there is room").clientMsgId, 160))
+        assertNull(send.sendAgain(uid, row("when there is room").clientMsgId, ola, null, 160))
         until("sent on the second try") { row("when there is room").phase == OutPhase.ACCEPTED }
         assertEquals(1, takenTexts().count { it == "when there is room" })
 

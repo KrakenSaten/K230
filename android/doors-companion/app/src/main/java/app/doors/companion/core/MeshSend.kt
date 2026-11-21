@@ -177,8 +177,12 @@ data class Outgoing(
 
 /** Where sends are kept. On the phone: the same database as the history, so a message and its draft change hands in one transaction. */
 interface SendStore {
-    /** Atomic: stores [o] (giving it its `ord` and `afterOrd`) and removes the draft of its thread when [clearDraft]. */
-    suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean): Outgoing
+    /**
+     * Atomic: stores [o] (giving it its `ord` and `afterOrd`), removes the
+     * draft of its thread when [clearDraft], and removes the send [replaces]
+     * names, which [o] takes the place of.
+     */
+    suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean, replaces: String? = null): Outgoing
     suspend fun get(unit: String, clientMsgId: String): Outgoing?
     suspend fun put(unit: String, o: Outgoing)
     suspend fun remove(unit: String, clientMsgId: String)
@@ -186,7 +190,7 @@ interface SendStore {
     /** Every send still [OutPhase.SENDING] or [OutPhase.UNCERTAIN], oldest first. */
     suspend fun open(unit: String): List<Outgoing>
 
-    /** How many sends were stored after the one with [ord]. */
+    /** How many sends were stored after the one with [ord], whether or not they are still kept. */
     suspend fun newerThan(unit: String, ord: Long): Int
 
     /**
@@ -227,9 +231,8 @@ enum class SendBlock { OFFLINE, NOT_SERVED, NOT_PERMITTED, SYNCING, SERVICE_AWAY
  *    sends, so a repeat cannot make a second transmission while that gateway
  *    runs.
  *  - **No answer is not "failed".** A send without an answer is UNCERTAIN. The
- *    unit is asked again under the same id once by the app itself (a few
- *    times more only while the answer is "the mesh service is away"), and
- *    only within [autoWindowMs] of the tap; after that only a person asks. When the gateway has started again its records are gone:
+ *    unit is asked again under the same id once by the app itself, and only
+ *    within [autoWindowMs] of the tap; after that only a person asks. When the gateway has started again its records are gone:
  *    then nothing is repeated at all, the phone looks in what it synced, and
  *    what it does not find is UNKNOWN.
  *  - **UNKNOWN is final.** That id is never sent again. Sending the words as a
@@ -303,6 +306,14 @@ class MeshSend(
         }
     }
 
+    /**
+     * At the start of the app: what an earlier process left in flight has no
+     * answer coming. Does nothing while a session is open.
+     */
+    suspend fun recover(unit: String) {
+        if (live == null) orphan(unit)
+    }
+
     private suspend fun orphan(unit: String) = lock.withLock {
         for (o in store.open(unit)) {
             if (o.phase == OutPhase.SENDING) store.put(unit, o.copy(phase = OutPhase.UNCERTAIN, why = Why.NO_ANSWER, updatedAtMs = now()))
@@ -317,14 +328,17 @@ class MeshSend(
      * Null when it was stored and handed to the connection; otherwise why it
      * was not taken, and then nothing was stored and the draft is untouched.
      */
-    suspend fun send(unit: String, conversation: String, peerKey: String?, channel: Int?, text: String, limit: Int): SendBlock? {
+    suspend fun send(unit: String, conversation: String, peerKey: String?, channel: Int?, text: String, limit: Int): SendBlock? =
+        send(unit, conversation, peerKey, channel, text, limit, clearDraft = true, replaces = null)
+
+    private suspend fun send(unit: String, conversation: String, peerKey: String?, channel: Int?, text: String, limit: Int, clearDraft: Boolean, replaces: String?): SendBlock? {
         val body = SendText.clean(text)
         if ((peerKey == null) == (channel == null) || (peerKey != null && !MeshMessage.isKey(peerKey))) return SendBlock.NOT_FOUND
         if (SendText.check(body, limit) != null) return SendBlock.TEXT
         return take(unit) { journal ->
             // One tap, one message: a second tap while the first is on its way is not a second message.
             if (store.open(unit).any { it.phase == OutPhase.SENDING && !it.resend && it.conversation == conversation }) return@take null
-            store.add(unit, Outgoing(clientMsgId = newId(), conversation = conversation, peerKey = peerKey?.lowercase(), channel = channel, text = body, journalId = journal, createdAtMs = now()), clearDraft = true)
+            store.add(unit, Outgoing(clientMsgId = newId(), conversation = conversation, peerKey = peerKey?.lowercase(), channel = channel, text = body, journalId = journal, createdAtMs = now()), clearDraft, replaces)
         }
     }
 
@@ -383,20 +397,26 @@ class MeshSend(
     /**
      * A person decides to send the words of a FAILED or UNKNOWN send as a new
      * message, under a new id. For UNKNOWN the caller has said that it may
-     * arrive twice. The old entry goes only when the new one was taken.
+     * arrive twice. The old entry goes in the same step in which the new one
+     * is stored, or not at all. [peerKey] and [channel] are where the thread
+     * sends now: a channel slot that has since become another channel's is
+     * not written to.
      */
-    suspend fun sendAgain(unit: String, clientMsgId: String, limit: Int): SendBlock? {
+    suspend fun sendAgain(unit: String, clientMsgId: String, peerKey: String?, channel: Int?, limit: Int): SendBlock? {
         val old = lock.withLock { store.get(unit, clientMsgId) } ?: return SendBlock.NOT_FOUND
         if (old.resend || (old.phase != OutPhase.FAILED && old.phase != OutPhase.UNKNOWN)) return SendBlock.NOT_FOUND
-        send(unit, old.conversation, old.peerKey, old.channel, old.text, limit)?.let { return it }
-        lock.withLock { store.remove(unit, clientMsgId) }
-        return null
+        if (old.peerKey != peerKey?.lowercase() || old.channel != channel) return SendBlock.NOT_FOUND
+        return send(unit, old.conversation, old.peerKey, old.channel, old.text, limit, clearDraft = false, replaces = clientMsgId)
     }
 
-    /** Removes a send that is settled without a message: FAILED, UNKNOWN, or a finished resend. */
+    /**
+     * A person removes a send that is not a message: FAILED, UNKNOWN, a
+     * finished resend, or one without an answer that they no longer want
+     * asked about. Never one that is on its way.
+     */
     suspend fun discard(unit: String, clientMsgId: String) = lock.withLock {
         val o = store.get(unit, clientMsgId) ?: return@withLock
-        if (o.phase == OutPhase.FAILED || o.phase == OutPhase.UNKNOWN || (o.resend && o.phase == OutPhase.ACCEPTED)) store.remove(unit, clientMsgId)
+        if (o.phase != OutPhase.SENDING && (o.phase != OutPhase.ACCEPTED || o.resend)) store.remove(unit, clientMsgId)
     }
 
     // ---- the request ----
@@ -436,10 +456,13 @@ class MeshSend(
             Answer.None
         }
         val next = settle(o, answer, first)
-        lock.withLock {
-            // Only a send still in flight is settled: nothing overwrites what was decided since.
-            if (store.get(l.unit, o.clientMsgId)?.phase == OutPhase.SENDING) store.put(l.unit, next)
-            if (answer is Answer.Error && answer.code == GatewayError.RATE) _state.update { it.copy(rateOpenAtMs = rateOpenAt() ?: (now() + RATE_HOLD_MS)) }
+        // An answer that came is written down, also when the session ends at this moment.
+        withContext(NonCancellable) {
+            lock.withLock {
+                // Only a send still in flight is settled: nothing overwrites what was decided since.
+                if (store.get(l.unit, o.clientMsgId)?.phase == OutPhase.SENDING) store.put(l.unit, next)
+                if (answer is Answer.Error && answer.code == GatewayError.RATE) _state.update { it.copy(rateOpenAtMs = rateOpenAt() ?: (now() + RATE_HOLD_MS)) }
+            }
         }
         if (next.phase == OutPhase.UNCERTAIN) {
             l.scope.launch {
@@ -481,10 +504,7 @@ class MeshSend(
     private suspend fun checkOpen(unit: String) {
         val l = live?.takeIf { it.unit == unit } ?: return
         for (o in lock.withLock { store.open(unit) }) {
-            if (o.phase != OutPhase.UNCERTAIN || now() - o.createdAtMs > autoWindowMs) continue
-            // Once; and again only while the answer is that the mesh service was
-            // away, which says the gateway could not even look.
-            if (o.checks >= AUTO_CHECKS && !(o.why == Why.SERVICE_AWAY && o.checks < AWAY_CHECKS)) continue
+            if (o.phase != OutPhase.UNCERTAIN || o.checks >= AUTO_CHECKS || now() - o.createdAtMs > autoWindowMs) continue
             val since = now() - o.updatedAtMs
             if (since < settleMs) {
                 l.scope.launch {
@@ -560,7 +580,6 @@ class MeshSend(
         /** The gateway gives meshcored 2 s before it calls a send unanswered; asking sooner would only hear "busy". */
         const val SETTLE_MS = 3_000L
         const val AUTO_CHECKS = 1
-        const val AWAY_CHECKS = 4
         const val AUTO_WINDOW_MS = 120_000L
         const val RECORDS_SAFE = 48
         const val STALE_RUN_MESSAGE = "not a message of this run"

@@ -200,11 +200,20 @@ class GatewayConnection(private val socket: Socket) : Closeable {
         )
     }
 
+    /**
+     * Closing a TLS socket writes to it (the close alert), and the callers
+     * are on the main thread: the session's own coroutines, also the one
+     * that hears gateway.revoked. So the close has a thread of its own;
+     * [closed] completes when the reader has seen it.
+     */
     override fun close() {
-        try {
-            socket.close()
-        } catch (_: IOException) {
-        }
+        Thread({
+            try {
+                socket.close()
+            } catch (_: IOException) {
+            } catch (_: RuntimeException) {
+            }
+        }, "doors-gateway-close").apply { isDaemon = true }.start()
     }
 
     companion object {

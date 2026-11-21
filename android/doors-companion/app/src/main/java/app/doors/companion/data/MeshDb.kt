@@ -346,7 +346,8 @@ abstract class MeshDao {
     @Query("SELECT * FROM outbox WHERE unit = :unit AND phase IN ('SENDING', 'UNCERTAIN') ORDER BY ord")
     abstract suspend fun openOutgoing(unit: String): List<OutboxRow>
 
-    @Query("SELECT COUNT(*) FROM outbox WHERE unit = :unit AND ord > :ord")
+    // By the numbering, not by what is still kept: a discarded send was a send to the gateway all the same.
+    @Query("SELECT COALESCE(MAX(ord), :ord) - :ord FROM outbox WHERE unit = :unit")
     abstract suspend fun newerOutgoing(unit: String, ord: Long): Int
 
     @Query("SELECT * FROM messages WHERE unit = :unit AND conv = :conv AND outgoing = 1 AND ord > :afterOrd ORDER BY ord")
@@ -369,9 +370,12 @@ abstract class MeshDao {
 
     /** The message is on the phone, and its draft is gone, in one step: never both, never neither. */
     @Transaction
-    open suspend fun addOutgoing(row: OutboxRow, clearDraft: Boolean): OutboxRow {
-        val placed = row.copy(afterOrd = newest(row.unit))
+    open suspend fun addOutgoing(row: OutboxRow, clearDraft: Boolean, replaces: String?): OutboxRow {
+        // What it takes the place of keeps its place in the thread.
+        val old = replaces?.let { outgoing(row.unit, it) }
+        val placed = row.copy(afterOrd = old?.afterOrd ?: newest(row.unit))
         val ord = insert(placed)
+        if (old != null) removeOutgoing(row.unit, old.clientMsgId)
         if (clearDraft) dropDraft(row.unit, row.conv)
         return placed.copy(ord = ord)
     }
@@ -467,7 +471,7 @@ class RoomMeshStore(private val dao: MeshDao, private val now: () -> Long = Syst
 
 /** MeshSend's store, on Room. */
 class RoomSendStore(private val dao: MeshDao) : SendStore {
-    override suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean): Outgoing = dao.addOutgoing(row(unit, o), clearDraft).outgoing()
+    override suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean, replaces: String?): Outgoing = dao.addOutgoing(row(unit, o), clearDraft, replaces).outgoing()
     override suspend fun get(unit: String, clientMsgId: String): Outgoing? = dao.outgoing(unit, clientMsgId)?.outgoing()
     override suspend fun put(unit: String, o: Outgoing) = dao.update(row(unit, o))
     override suspend fun remove(unit: String, clientMsgId: String) = dao.removeOutgoing(unit, clientMsgId)

@@ -36,8 +36,9 @@ class MemorySendStore(private val history: MemoryMeshStore? = null) : SendStore 
     val drafts = HashMap<String, String>()
     private var next = 1L
 
-    override suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean): Outgoing = synchronized(this) {
-        val stored = o.copy(ord = next++, afterOrd = history?.size?.toLong() ?: sent.maxOfOrNull { it.ord } ?: 0)
+    override suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean, replaces: String?): Outgoing = synchronized(this) {
+        val stored = o.copy(ord = next++, afterOrd = rows[replaces]?.afterOrd ?: history?.size?.toLong() ?: sent.maxOfOrNull { it.ord } ?: 0)
+        if (replaces != null) rows.remove(replaces)
         rows[o.clientMsgId] = stored
         if (clearDraft) drafts.remove(o.conversation)
         stored
@@ -56,7 +57,7 @@ class MemorySendStore(private val history: MemoryMeshStore? = null) : SendStore 
 
     override suspend fun open(unit: String) = synchronized(this) { rows.values.filter { it.phase == OutPhase.SENDING || it.phase == OutPhase.UNCERTAIN } }
 
-    override suspend fun newerThan(unit: String, ord: Long) = synchronized(this) { rows.values.count { it.ord > ord } }
+    override suspend fun newerThan(unit: String, ord: Long) = synchronized(this) { (next - 1 - ord).toInt() }
 
     override suspend fun findSent(unit: String, o: Outgoing): Pair<String, Long>? = synchronized(this) {
         if (history != null) {
@@ -319,11 +320,34 @@ class SendTest {
         assertEquals(SendBlock.NOT_FOUND, send.check(id, first))
         delay(400)
         assertEquals("an unknown id is never asked again", 2, gw.requests.size)
-        assertNull(send.sendAgain(id, first, 160))
+        store.drafts[conv] = "other words, still being typed"
+        assertEquals("not to another place than it was written for", SendBlock.NOT_FOUND, send.sendAgain(id, first, null, 3, 160))
+        assertNull(send.sendAgain(id, first, key, null, 160))
+        assertEquals("the old entry went in the step that stored the new one", 1, store.all().size)
+        assertEquals("the draft of the thread is not this message", "other words, still being typed", store.drafts[conv])
         until("the new message") { store.all().size == 1 && store.only().phase == OutPhase.ACCEPTED }
         assertNotEquals(first, store.only().clientMsgId)
         assertEquals("did it go?", gw.requests[2].second.string("text"))
         assertNotEquals(first, gw.requests[2].second.string("client_msg_id"))
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun whatAnEarlierProcessLeftOnItsWayIsUncertainAndARepeatThatIsRefusedStaysSo() = runBlocking {
+        val send = sender()
+        store.add(id, Outgoing(clientMsgId = "0123456789abcdef-left", conversation = conv, peerKey = key, channel = null, text = "the app was closed", journalId = "j1", createdAtMs = System.currentTimeMillis()), false)
+        send.recover(id)
+        assertEquals(OutPhase.UNCERTAIN to Why.NO_ANSWER, store.only().phase to store.only().why)
+        // While its first request may still be waiting, "not permitted" says nothing about it.
+        val (gw, job) = session(send) { _, _ -> ScriptedGateway.Err(7, "not permitted") }
+        until("asked once") { gw.requests.size == 1 && store.only().phase == OutPhase.UNCERTAIN && store.only().checks == 1 }
+        delay(500)
+        assertEquals(1, gw.requests.size)
+        assertEquals("0123456789abcdef-left", gw.requests.single().second.string("client_msg_id"))
+        assertEquals(Why.NOT_PERMITTED, store.only().why)
+        // A person may let it go; a send on its way may not be let go.
+        send.discard(id, store.only().clientMsgId)
+        assertEquals(0, store.all().size)
         job.cancelAndJoin()
     }
 

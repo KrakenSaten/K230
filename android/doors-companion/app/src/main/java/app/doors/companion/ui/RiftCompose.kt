@@ -75,7 +75,7 @@ internal fun why(o: OutboxRow, perMin: Int): String = when (o.outWhy) {
     Why.NONE -> ""
     Why.NO_ANSWER -> "The unit did not answer."
     Why.SERVICE_AWAY -> "The unit's mesh service did not answer."
-    Why.REFUSED -> if (o.channel != null) "The unit refused it: too long for this channel, or the channel is no longer there." else "The unit refused it: it does not know this node, or does not take this text."
+    Why.REFUSED -> if (o.isResend) "The unit will not send it again: only a direct message of this run that got no acknowledgement can be." else if (o.channel != null) "The unit refused it: too long for this channel, or the channel is no longer there." else "The unit refused it: it does not know this node, or does not take this text."
     Why.BUSY -> "The unit had no room: eight messages already wait for an acknowledgement, or its radio is not available."
     Why.NOT_PERMITTED -> "The unit does not let this phone send."
     Why.RATE -> "The unit takes $perMin messages a minute from this phone."
@@ -128,8 +128,11 @@ internal fun Confirm(title: String, text: String, yes: String, onYes: () -> Unit
  * Every state says what is known and offers only what is safe.
  */
 @Composable
-internal fun PendingBubble(o: OutboxRow, first: Boolean, perMin: Int, currentRun: String?, canAsk: Boolean, onCheck: () -> Unit, onAgain: () -> Unit, onDiscard: () -> Unit) {
-    val phase = o.outPhase
+internal fun PendingBubble(o: OutboxRow, first: Boolean, perMin: Int, currentRun: String?, online: Boolean, now: Long, canAsk: Boolean, onCheck: () -> Unit, onAgain: () -> Unit, onDiscard: () -> Unit) {
+    // A send found on its way with no session open was left there by a process that is gone.
+    val phase = if (o.outPhase == OutPhase.SENDING && !online) OutPhase.UNCERTAIN else o.outPhase
+    // The app asks once by itself, soon after the tap; this is whether that is still to come.
+    val asking = o.outPhase == OutPhase.UNCERTAIN && o.checks < MeshSend.AUTO_CHECKS && now - o.createdAtMs <= MeshSend.AUTO_WINDOW_MS
     val color = when (phase) {
         OutPhase.SENDING, OutPhase.ACCEPTED -> Doors.Tx
         OutPhase.UNCERTAIN, OutPhase.UNKNOWN -> Doors.Warn
@@ -163,14 +166,18 @@ internal fun PendingBubble(o: OutboxRow, first: Boolean, perMin: Int, currentRun
         val note = when (phase) {
             OutPhase.SENDING -> null
             OutPhase.ACCEPTED -> if (currentRun != null && o.runId != currentRun) "The mesh service restarted since. What became of it is not known." else null
-            OutPhase.UNCERTAIN -> why(o, perMin) + " Whether it was sent is not known. It is not sent again unless you ask."
+            OutPhase.UNCERTAIN -> (if (o.outPhase == OutPhase.SENDING) "The app was closed before an answer came." else why(o, perMin)) + " Whether it was sent is not known. " +
+                if (asking) "The unit is asked about it once when it is reached; if it has no record of it, it sends it then." else "Nothing more happens to it unless you ask."
             OutPhase.UNKNOWN -> why(o, perMin) + " It may have been sent. It will never be sent again by itself."
             OutPhase.FAILED -> why(o, perMin) + " Nothing was transmitted."
         }
         if (note != null) Text(note, style = Type.Body.copy(fontSize = Type.Mono.fontSize, lineHeight = Type.Mono.lineHeight), color = Doors.Muted, modifier = Modifier.widthIn(max = 300.dp).padding(start = 6.dp, end = 6.dp, top = 5.dp))
         Row(Modifier.padding(top = if (phase == OutPhase.SENDING || phase == OutPhase.ACCEPTED) 0.dp else 8.dp, bottom = if (phase == OutPhase.SENDING || phase == OutPhase.ACCEPTED) 0.dp else 8.dp, end = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when (phase) {
-                OutPhase.UNCERTAIN -> if (canAsk) Act("Ask the unit", Doors.Warn, onCheck)
+                OutPhase.UNCERTAIN -> if (o.outPhase == OutPhase.UNCERTAIN) {
+                    if (!asking) Act("Discard", Doors.Muted, onDiscard)
+                    if (canAsk) Act("Ask the unit", Doors.Warn, onCheck)
+                }
                 OutPhase.UNKNOWN -> {
                     Act("Discard", Doors.Muted, onDiscard)
                     if (canAsk) Act("Send as new", Doors.Warn, onAgain)
