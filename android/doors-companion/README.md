@@ -7,7 +7,10 @@ history kept on the phone: RIFT, read-only (M4.1). It sends nothing to the
 mesh. PacketShark is a navigation placeholder.
 
 Application id `app.doors.companion`, min SDK 29, Kotlin and Jetpack Compose,
-Apache-2.0. The contracts it is built to are in the Doors repository:
+Apache-2.0 (the repository's `LICENSE`). It lives in `android/doors-companion`
+and builds by itself with Gradle: the firmware's `make` does not look in here,
+and nothing here needs the firmware toolchain. The contracts it is built to
+are in this repository, from its root:
 `docs/api/gateway.md`, `docs/design/companion/PAIRING.md` and `CONTRACTS.md`
 section 2.
 
@@ -79,7 +82,8 @@ session carries it; there is no second connection, service or notification.
 ## Build and test
 
 ```sh
-source /c/Android/toolchain/env.sh
+cd android/doors-companion
+source /c/Android/toolchain/env.sh        # or any JDK 17 and Android SDK 36
 ./gradlew :app:testDebugUnitTest          # unit tests and the lint
 ./gradlew :app:assembleDebug
 ```
@@ -87,7 +91,7 @@ source /c/Android/toolchain/env.sh
 Against the real gateway (WSL, with gcc, libssl-dev, libcjson-dev, python3):
 
 ```sh
-wsl -- bash /mnt/c/Android/doorscompanion/harness/run-gateway.sh    # leave running
+harness/run-gateway.sh [checkout with gatewayd M4.1]    # in WSL; leave running
 ./gradlew :app:testDebugUnitTest -Ddoors.gateway.ctl=127.0.0.1:47232
 ```
 
