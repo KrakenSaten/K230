@@ -18,6 +18,7 @@
 #include "gw_gate.h"
 #include "gw_journal.h"
 #include "gw_policy.h"
+#include "gw_send.h"
 #include "gw_store.h"
 #include "gw_util.h"
 
@@ -113,6 +114,40 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     cJSON_Delete(gw_feed_activity_due(&feed, t));
                     (void)gw_journal_put(&j, gw_filter_message(params), NULL);
                     cJSON_Delete(gw_nodes_page(params, off, lim, "run"));
+                    /* Sending (M4.2): the request check, and the records
+                     * through every state a noise answer can put them in. */
+                    {
+                        static struct gw_send gs;
+                        static const uint8_t fp[GW_FP_LEN] = {7};
+                        struct gw_send_client *sc = gw_send_client(&gs, fp, NULL);
+                        struct gw_send_rec *sr = NULL;
+                        struct gw_send_req q;
+                        int k;
+
+                        for (k = 0; sc != NULL && k < 2; k++) {
+                            if (gw_send_parse(params, k == 1, &q) != 0) {
+                                continue;
+                            }
+                            cJSON_Delete(gw_send_upstream(&q, params));
+                            switch (gw_send_begin(sc, &q, (size & 1u) != 0 ? "run" : NULL, (double)(size % 7u), t, &sr)) {
+                            case GW_SA_FORWARD:
+                                (void)gw_send_answered(sr, (size & 2u) != 0 ? cJSON_GetObjectItemCaseSensitive(root, "answer") : NULL,
+                                                       (int)(size % 11u));
+                                break;
+                            case GW_SA_LOOKUP:
+                                if (gw_send_looked(&gs, sr, cJSON_GetObjectItemCaseSensitive(root, "list")) ==
+                                    GW_SL_ABSENT) {
+                                    gw_send_unresolved(sr);
+                                }
+                                break;
+                            case GW_SA_REPLY:
+                                cJSON_Delete(gw_send_result(sr, true));
+                                break;
+                            default:
+                                break;
+                            }
+                        }
+                    }
                 }
                 cJSON_Delete(root);
             }
@@ -174,6 +209,10 @@ static const char *const SEEDS[] = {
     "{\"id\":1,\"method\":\"gateway.hello\",\"params\":{\"proto_min\":1,\"proto_max\":1,\"app\":\"a\",\"app_version\":\"1\"}}",
     "{\"id\":2,\"method\":\"system.status\",\"params\":{\"network\":[{\"name\":\"w\",\"mac\":\"m\"}],\"services\":[1,{}],\"k\":{\"api_key\":[{\"token\":1}]}}}",
     "{\"id\":3,\"method\":\"gateway.pair\",\"params\":{\"token\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"name\":\"n\"}}",
+    "{\"id\":5,\"method\":\"mesh.send\",\"params\":{\"to\":\"aa00000000000000000000000000000000000000000000000000000000000001\",\"text\":\"hello\",\"client_msg_id\":\"0123456789abcdef\",\"via\":[]}}",
+    "{\"id\":8,\"method\":\"mesh.send\",\"params\":{\"to\":\"aa00000000000000000000000000000000000000000000000000000000000001\",\"text\":\"hello\",\"client_msg_id\":\"0123456789abcdei\"},\"answer\":{\"accepted\":true,\"message_id\":3,\"route\":\"flood\",\"ack_expected\":true,\"ack_timeout_ms\":9},\"list\":[{\"id\":2,\"direction\":\"out\",\"kind\":\"direct\",\"peer_public_key\":\"aa00000000000000000000000000000000000000000000000000000000000001\",\"text\":\"hello\",\"state\":\"sent_flood\",\"attempts\":1},{\"id\":3,\"direction\":\"out\",\"kind\":\"channel\",\"channel\":0,\"sender_name\":\"u\",\"text\":\"u: hello\"}]}",
+    "{\"id\":6,\"method\":\"mesh.send\",\"params\":{\"channel\":0,\"text\":\"hello\",\"client_msg_id\":\"0123456789abcdeg\"}}",
+    "{\"id\":7,\"method\":\"mesh.resend\",\"params\":{\"message_id\":3,\"run_id\":\"run\",\"client_msg_id\":\"0123456789abcdeh\"}}",
     "{\"id\":4,\"method\":\"mesh.node\",\"params\":{\"node\":\"ab12\",\"id\":7,\"state\":\"acked\",\"text\":\"t\",\"reason\":\"path\",\"node2\":1}}",
     "{\"id\":5,\"method\":\"mesh.sync\",\"params\":{\"after_seq\":3,\"limit\":9}}",
     "{\"id\":6,\"method\":\"mesh.nodes\",\"params\":{\"offset\":1,\"limit\":2,\"nodes\":[{\"public_key\":\"aa\",\"key\":1},2]}}",

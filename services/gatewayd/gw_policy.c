@@ -531,6 +531,10 @@ static const struct gw_method METHODS[] = {
     {"mesh.path_preview", GW_K_MESH, GW_W_PAIRED, GW_S_MESH_READ, "meshcored", filter_path_preview,
      params_path_preview},
     {"mesh.sync", GW_K_SYNC, GW_W_PAIRED, GW_S_MESH_READ, NULL, NULL, NULL},
+    /* Sending (M4.2): its own scope, which mesh_read does not give. What a
+     * client sent is checked and written again by gw_send.c. */
+    {"mesh.send", GW_K_SEND, GW_W_PAIRED, GW_S_MESH_SEND, "meshcored", NULL, NULL},
+    {"mesh.resend", GW_K_RESEND, GW_W_PAIRED, GW_S_MESH_SEND, "meshcored", NULL, NULL},
 };
 
 const struct gw_method *gw_methods(size_t *count)

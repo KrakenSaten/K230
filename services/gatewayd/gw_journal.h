@@ -73,6 +73,10 @@ uint64_t gw_journal_put(struct gw_journal *j, cJSON *message, const cJSON **stor
 uint64_t gw_journal_seq(const struct gw_journal *j);        /* the newest held; 0: none yet */
 uint64_t gw_journal_first_seq(const struct gw_journal *j);  /* the oldest held, or the next */
 
+/* The newest entry of the message with this id, or NULL. Valid until the
+ * next put. */
+const cJSON *gw_journal_find(const struct gw_journal *j, double msg_id);
+
 /* The answer to mesh.sync: journal_id, run_id, seq, first_seq, messages[]
  * of {seq, message}, more, and gap when the cursor is not one this journal
  * can continue from (older than first_seq, or newer than seq). Without a

@@ -69,7 +69,7 @@ check "main.c makes no trust decision of its own" \
 table=$(awk '/^static const struct gw_method METHODS\[\]/,/^};/' $D/gw_policy.c)
 names=$(echo "$table" | grep -oE '\{"[a-z_.]+"' | tr -d '{"')
 check "the method table was found" "$([ -n "$names" ] && echo 1 || echo 0)"
-bad=$(echo "$names" | grep -E '^shell\.|reboot|poweroff|expand|eject|radio_setup|connect|forget|set_enabled|configure|\.send|set_name|set_path_hash|channel_add|channel_remove|node_remove|reset_path|advert|discover|remote_|app_send|pair_begin|pair_decide|revoke|set_scopes' || true)
+bad=$(echo "$names" | grep -vE '^mesh\.(send|resend)$' | grep -E '^shell\.|reboot|poweroff|expand|eject|radio_setup|connect|forget|set_enabled|configure|\.send|set_name|set_path_hash|channel_add|channel_remove|node_remove|reset_path|advert|discover|remote_|app_send|pair_begin|pair_decide|revoke|set_scopes' || true)
 check "no method that changes the unit, and none of the shell" "$([ -z "$bad" ] && echo 1 || echo 0)"
 [ -n "$bad" ] && echo "$bad" | sed 's/^/       /'
 none "no shell socket is opened in M2" '"shell"' $SRC
@@ -80,26 +80,45 @@ check "upstream methods are called only by table name" \
 
 # 4b. The mesh group (M4.1): reading only, by mesh_read only, and the
 # gateway's own connection to meshcored asks for three things by name.
-meshrows=$(echo "$table" | grep -E '\{"mesh\.' | grep -v '"mesh.status"')
+meshrows=$(echo "$table" | grep -E '\{"mesh\.' | grep -vE '"mesh\.(status|send|resend)"')
 check "the mesh rows were found" "$([ "$(echo "$meshrows" | grep -c .)" -ge 6 ] && echo 1 || echo 0)"
 check "every mesh row but mesh.status needs mesh_read" \
     "$([ -z "$(echo "$meshrows" | grep -v 'GW_S_MESH_READ')" ] && echo 1 || echo 0)"
-none "no sending in this milestone" '"mesh\.(send|resend|app_send)' $SRC
+none "no app datagram is ever sent" '"mesh\.app_send' $SRC
 none "the receive log is never asked for" 'rx_log' $SRC
-own=$(grep -oE 'gw_uplink_call\(G\.mesh, "[a-z_.]+"' $D/main.c | grep -oE '"[a-z_.]+"' | sort | tr -d '\n')
-check "the gateway's own calls to meshcored are status, subscribe and messages" \
-    "$([ "$own" = '"mesh.messages""mesh.status""mesh.subscribe"' ] && echo 1 || echo 0)"
+own=$(grep -oE 'gw_uplink_call\(G\.mesh, "[a-z_.]+"' $D/main.c | grep -oE '"[a-z_.]+"' | sort -u | tr -d '\n')
+check "the gateway's own calls to meshcored are status, subscribe, messages and send" \
+    "$([ "$own" = '"mesh.messages""mesh.send""mesh.status""mesh.subscribe"' ] && echo 1 || echo 0)"
 check "every other call to meshcored is a table row by its name" \
-    "$([ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 5 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] && echo 1 || echo 0)"
+    "$([ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 7 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] && echo 1 || echo 0)"
 check "what goes upstream with a client's request is the row's own parameter check" \
     "$(grep -q 'gw_uplink_call(G.mesh, m->name, up,' $D/main.c && grep -q 'm->params(params, &up)' $D/main.c && echo 1 || echo 0)"
+# 4c. Sending (M4.2): two rows, by mesh_send only; one place passes a
+# message to meshcored, and what it passes was written by gw_send.c.
+sendrows=$(echo "$table" | grep 'GW_S_MESH_SEND' | grep -oE '\{"[a-z_.]+"' | tr -d '{"' | sort | tr '\n' ' ')
+check "mesh_send is needed by mesh.send and mesh.resend and by nothing else" \
+    "$([ "$sendrows" = 'mesh.resend mesh.send ' ] && echo 1 || echo 0)"
+check "the send rows need mesh_send and no other scope" \
+    "$([ "$(echo "$table" | grep -cE '"mesh\.(send|resend)", GW_K_(SEND|RESEND), GW_W_PAIRED, GW_S_MESH_SEND, ')" = 2 ] && echo 1 || echo 0)"
+check "a message is passed to meshcored in one place" \
+    "$([ "$(grep -c 'G.mesh, "mesh.send"' $D/main.c)" = 1 ] && grep -q 'gw_uplink_call(G.mesh, "mesh.send", up, r->tag' $D/main.c && echo 1 || echo 0)"
+check "and what is passed was written by gw_send_upstream" \
+    "$([ "$(grep -c 'gw_send_upstream(&q, params)' $D/main.c)" = 2 ] && echo 1 || echo 0)"
+check "the lookup for an unanswered send asks for the list with no parameter" \
+    "$(grep -q 'gw_uplink_call(G.mesh, "mesh.messages", NULL, r->tag' $D/main.c && echo 1 || echo 0)"
+check "meshcored keeps at least the 16 messages of a kind that the absence proof assumes" \
+    "$([ "$(grep -cE '^const int (MSG_RING|CHAN_MSG_RING) = (1[6-9]|[2-9][0-9]|[0-9]{3,});' services/meshcored/mesh_runtime.cpp)" = 2 ] && grep -q 'define GW_SEND_RING_MIN 16$' $D/gw_send.h && echo 1 || echo 0)"
+check "absence is proof only on the connection the message was passed on" \
+    "$(awk '/^static bool send_on_reply\(/,/^}/' $D/main.c | grep -q 'r->conn != G.mesh_conn' && echo 1 || echo 0)"
+check "a proven-absent message is sent only after the scope was looked up again" \
+    "$(awk '/^static bool send_on_reply\(/,/^}/' $D/main.c | grep -q 'GW_S_MESH_SEND' && echo 1 || echo 0)"
 passed=$(awk '/^cJSON \*gw_filter_event\(/,/^}/' $D/gw_policy.c | grep -oE '"mesh\.[a-z_]+"' | sort | tr -d '\n')
 check "three events of meshcored are passed on by name and no other" \
     "$([ "$passed" = '"mesh.channel""mesh.node""mesh.state"' ] && echo 1 || echo 0)"
 none "no field list of the mesh group names a key or a secret" \
     '^\s*"[a-z_", ]*"(key|secret|private_key|prv|psk|password|passphrase|token)"' $D/gw_policy.c
 check "the journal is memory only: no file is written by it" \
-    "$(grep -qE 'fopen|open\(|write\(|fwrite' $D/gw_journal.c $D/gw_feed.c && echo 0 || echo 1)"
+    "$(grep -qE 'fopen|open\(|write\(|fwrite' $D/gw_journal.c $D/gw_feed.c $D/gw_send.c && echo 0 || echo 1)"
 
 # 5. Logs. No LOG_ line takes a %s fed by a token, a name, a URI, a method,
 # text or key material; fingerprints are logged as an 8-byte prefix only.

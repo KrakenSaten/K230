@@ -1,6 +1,6 @@
 # DOORS Companion: design package (M1)
 
-Status: the design package of M1. Since M2 the gateway core exists, and since M4.1 it reads the mesh for a client (`mesh_read`: nodes, channels, messages, activity, the journal and its cursor); both host-tested and cross-built only (`docs/services/GATEWAYD.md`). No sending, no capture group, and no unit touched. Written 2026-11-21 against `origin/master` 085a089f.
+Status: the design package of M1. Since M2 the gateway core exists, and since M4.1 it reads the mesh for a client (`mesh_read`: nodes, channels, messages, activity, the journal and its cursor); and since M4.2 it sends for one (`mesh_send`: `mesh.send`, `mesh.resend`, at most once per `client_msg_id`); all host-tested and cross-built only (`docs/services/GATEWAYD.md`). No capture group, and no unit touched. Written 2026-11-21 against `origin/master` 085a089f.
 
 DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, PacketShark statistics and device status over the local Wi-Fi network or the phone's hotspot, through a new authenticated service on the unit, `gatewayd`.
 

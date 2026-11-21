@@ -142,6 +142,18 @@ uint64_t gw_journal_put(struct gw_journal *j, cJSON *message, const cJSON **stor
     return e->seq;
 }
 
+const cJSON *gw_journal_find(const struct gw_journal *j, double msg_id)
+{
+    int i;
+
+    for (i = j->count - 1; i >= 0; i--) {
+        if (at(j, i)->msg_id == msg_id) {
+            return at(j, i)->message;
+        }
+    }
+    return NULL;
+}
+
 cJSON *gw_journal_sync(const struct gw_journal *j, bool have_after, uint64_t after_seq, int limit)
 {
     uint64_t first = gw_journal_first_seq(j), newest = gw_journal_seq(j);
