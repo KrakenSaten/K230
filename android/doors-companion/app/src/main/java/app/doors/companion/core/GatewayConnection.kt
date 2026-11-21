@@ -168,13 +168,13 @@ class GatewayConnection(private val socket: Socket) : Closeable {
             }
         }
 
-    suspend fun hello(appVersion: String): Hello {
+    suspend fun hello(appVersion: String, timeoutMs: Long = CALL_TIMEOUT_MS): Hello {
         val r = call("gateway.hello", buildJsonObject {
             put("proto_min", PROTO)
             put("proto_max", PROTO)
             put("app", "app.doors.companion")
             put("app_version", appVersion)
-        }).result
+        }, timeoutMs).result
         return Hello(
             proto = (r.long("proto") ?: 0).toInt(),
             deviceId = r.string("device_id") ?: "",

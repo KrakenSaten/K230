@@ -4,7 +4,10 @@ package app.doors.companion
 
 import android.app.Application
 import android.os.Build
+import app.doors.companion.core.Fingerprint
 import app.doors.companion.core.GatewaySession
+import app.doors.companion.core.LinkState
+import app.doors.companion.core.Stop
 import app.doors.companion.core.PairOutcome
 import app.doors.companion.core.PairingUri
 import app.doors.companion.device.KeystoreIdentity
@@ -43,7 +46,12 @@ class Link(app: Application) {
     private var foreground = false
 
     init {
-        transport.onChange = { session.kick() }
+        // Another network may be where the paired unit really is: a loop that
+        // stopped at somebody else's key there starts again here. A confirmed
+        // revocation stays stopped.
+        transport.onChange = {
+            if (session.state.value == LinkState.Stopped(Stop.WRONG_UNIT)) scope.launch { restart() } else session.kick()
+        }
     }
 
     fun onForeground() {
@@ -73,6 +81,10 @@ class Link(app: Application) {
     }
 
     suspend fun pair(code: PairingUri, onWaiting: () -> Unit): PairOutcome {
+        val known = store.unit.value
+        if (known != null && known.fingerprint != Fingerprint.hex(code.fingerprint)) {
+            return PairOutcome.Failed("another unit is paired; forget it first")
+        }
         loop?.cancelAndJoin()
         val outcome = session.pair(code, phoneName(), onWaiting)
         if (outcome is PairOutcome.Paired) {
@@ -81,6 +93,15 @@ class Link(app: Application) {
         }
         restart()
         return outcome
+    }
+
+    /** The person asked to look for the paired unit on this network. True when it was found, by its pinned key. */
+    suspend fun locate(): Boolean {
+        val unit = store.unit.value ?: return false
+        val found = session.locate(unit) ?: return false
+        store.save(found)
+        restart()
+        return true
     }
 
     /** Forget the unit: tell it when it can hear, forget either way (PAIRING.md section 5). */

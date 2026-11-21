@@ -34,8 +34,9 @@ class TestIdentity(private val key: PrivateKey, val certificate: X509Certificate
         override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?) = arrayOf("id")
         override fun getCertificateChain(alias: String?) = arrayOf(certificate)
         override fun getPrivateKey(alias: String?) = key
-        override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? = null
-        override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? = null
+        override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?) = arrayOf("id")
+        override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?) = "id"
+        override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?) = "id"
     }
 
     companion object {

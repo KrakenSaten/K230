@@ -28,8 +28,17 @@ data class PairedUnit(
     val host: String,
     val port: Int,
     val pairedAtMs: Long,
+    /** Earlier addresses the unit was found at, newest first, at most three. */
+    val knownHosts: List<String> = emptyList(),
 ) {
     val pin: ByteArray get() = Fingerprint.parseHex(fingerprint)
+
+    /** Where the loop may look: the last good address, then the saved ones. */
+    fun endpoints(): List<String> = (listOf(host) + knownHosts).distinct().take(4)
+
+    /** The same unit, by the same pin, at another address. */
+    fun movedTo(newHost: String): PairedUnit =
+        copy(host = newHost, knownHosts = (listOf(host) + knownHosts).filter { it != newHost }.distinct().take(3))
 }
 
 /** How sockets reach the unit. On the phone: bound to the Wi-Fi network, never mobile data. */
@@ -37,7 +46,7 @@ interface Transport {
     /** A connected TCP socket, or an IOException. */
     suspend fun connect(host: String, port: Int, timeoutMs: Int): Socket
 
-    /** Other addresses on the phone's own Wi-Fi subnet (at most a /24) where the port answers. */
+    /** Addresses on the phone's own Wi-Fi subnet (at most a /24) where the port answers. Called only by [GatewaySession.locate]. */
     suspend fun probe(port: Int): List<String>
 
     /** False while there is no Wi-Fi network to use. */
@@ -47,16 +56,32 @@ interface Transport {
 sealed interface LinkState {
     data object Idle : LinkState
     data object NoWifi : LinkState
-    data class Connecting(val attempt: Int, val searching: Boolean = false) : LinkState
+    data class Connecting(val attempt: Int) : LinkState
     data class Online(val hello: Hello) : LinkState
-    data class Waiting(val retryInMs: Long, val reason: String, val notOnNetwork: Boolean) : LinkState
+    data class Waiting(val retryInMs: Long, val reason: String, val trouble: Trouble) : LinkState
 
     /** The loop has ended and will not run again by itself. */
     data class Stopped(val why: Stop) : LinkState
 }
 
+/** Why the loop is waiting to try again. None of these ends the pairing or touches the pin. */
+enum class Trouble {
+    /** Network: no answer at any saved address, or a timeout. */
+    UNREACHABLE,
+
+    /** Network: a session that was up ended. */
+    LOST,
+
+    /** Authentication: the unit proved its key, then did not let this phone in. Not a revocation. */
+    NOT_ADMITTED,
+}
+
 enum class Stop {
-    /** The unit removed this phone (gateway.revoked, or it no longer admits our key). */
+    /**
+     * Confirmed by the unit over a connection its pinned key authenticated:
+     * it sent gateway.revoked, or answered hello with paired=false. Nothing
+     * else is ever called a revocation.
+     */
     REVOKED,
 
     /** The address answers with another key. Only "forget and pair again" is offered. */
@@ -88,10 +113,11 @@ sealed interface PairOutcome {
 
 /**
  * The connection life cycle of PAIRING.md section 7: connect, pin, hello;
- * find the unit again on its subnet; back off 1 s doubling to 60 s with
+ * try the saved addresses; back off 1 s doubling to 60 s with
  * jitter, reset by a network change or the person; ping every 30 s and close
- * after 90 s of silence; stop for good when the unit has revoked this phone
- * or answers with another key.
+ * after 90 s of silence; stop only when the unit itself confirmed a
+ * revocation, answers with another key, or shares no protocol version. A
+ * timeout, a lost session and a closed door are troubles to wait out.
  *
  * [run] is the loop. It lives only as long as its caller's scope: the app
  * runs it while it is in front, and nothing here survives that.
@@ -102,6 +128,8 @@ class GatewaySession(
     private val appVersion: String,
     private val onUnitMoved: (PairedUnit) -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
+    private val backoff: (Int) -> Long = { backoffMs(it) },
+    private val helloTimeoutMs: Long = GatewayConnection.CALL_TIMEOUT_MS,
 ) {
     private val _state = MutableStateFlow<LinkState>(LinkState.Idle)
     val state: StateFlow<LinkState> = _state
@@ -131,8 +159,7 @@ class GatewaySession(
     suspend fun run(initial: PairedUnit) {
         var unit = initial
         var attempt = 0
-        var unreachable = 0
-        var turnedAway = 0
+        var endpoint = 0
         try {
             while (true) {
                 if (!transport.available()) {
@@ -141,31 +168,49 @@ class GatewaySession(
                     attempt = 0
                     continue
                 }
+                // The saved addresses, the last good one first. Nothing else is
+                // ever tried by the loop: no sweep of the network runs unasked.
+                val hosts = unit.endpoints()
+                val host = hosts[endpoint.coerceAtMost(hosts.lastIndex)]
+                val primary = host == unit.host
                 _state.value = LinkState.Connecting(attempt)
                 var reason: String
+                var trouble: Trouble
                 var verified = false
                 try {
-                    val tls = open(unit.host, unit.port, unit.pin)
+                    val tls = open(host, unit.port, unit.pin)
                     verified = true
                     val conn = GatewayConnection(tls)
                     live = conn
                     try {
-                        val hello = conn.hello(appVersion)
-                        if (!hello.paired || !hello.deviceId.equals(unit.fingerprint, ignoreCase = true)) {
-                            // Admitted only as a pairing candidate: the unit no longer knows this phone.
+                        val hello = conn.hello(appVersion, helloTimeoutMs)
+                        if (!hello.deviceId.equals(unit.fingerprint, ignoreCase = true)) {
+                            throw IOException("the unit named another identity")
+                        }
+                        if (!hello.paired) {
+                            // Said by the unit itself, over a connection its pinned
+                            // key authenticated: this phone is not in its list.
                             _state.value = LinkState.Stopped(Stop.REVOKED)
                             return
                         }
-                        attempt = 0
-                        unreachable = 0
-                        turnedAway = 0
+                        if (!primary) {
+                            unit = unit.movedTo(host)
+                            onUnitMoved(unit)
+                        }
+                        endpoint = 0
                         _scopes.value = hello.scopes
                         _state.value = LinkState.Online(hello)
+                        val since = System.nanoTime()
                         if (serve(conn, hello)) {
                             _state.value = LinkState.Stopped(Stop.REVOKED)
                             return
                         }
+                        // Only a session that held resets the back-off: a unit
+                        // that lets the phone in and drops it at once is not
+                        // knocked on every second.
+                        if ((System.nanoTime() - since) / 1_000_000 >= STABLE_MS) attempt = 0
                         reason = "the connection was lost"
+                        trouble = Trouble.LOST
                     } finally {
                         live = null
                         conn.close()
@@ -173,44 +218,39 @@ class GatewaySession(
                 } catch (e: CancellationException) {
                     if (e !is TimeoutCancellationException) throw e
                     reason = "the unit did not answer"
+                    trouble = Trouble.UNREACHABLE
                 } catch (e: GatewayError) {
                     if (e.code == GatewayError.NO_PROTO) {
                         _state.value = LinkState.Stopped(Stop.INCOMPATIBLE)
                         return
                     }
-                    reason = e.message ?: "refused"
+                    reason = "the unit refused the session"
+                    trouble = Trouble.NOT_ADMITTED
                 } catch (e: IOException) {
-                    if (GatewayTls.isPinMismatch(e)) {
+                    if (GatewayTls.isPinMismatch(e) && primary) {
                         _state.value = LinkState.Stopped(Stop.WRONG_UNIT)
                         return
                     }
                     if (verified) {
-                        // The unit proved its key and then closed without an
-                        // answer: it does not admit ours. Once could be its
-                        // handshake budget; three times in a row is a removal.
-                        turnedAway++
-                        if (turnedAway >= 3) {
-                            _state.value = LinkState.Stopped(Stop.REVOKED)
-                            return
-                        }
-                        reason = "the unit closed the connection"
+                        // The unit proved its key and closed without an answer.
+                        // That is all the phone knows: the unit may be busy, may
+                        // have restarted, or may have removed this phone. It is
+                        // never called a revocation, and the pairing is kept.
+                        reason = "the unit did not let this phone in"
+                        trouble = Trouble.NOT_ADMITTED
                     } else {
-                        unreachable++
+                        // No answer, or (at an older saved address) somebody else's key.
                         reason = "the unit did not answer"
-                        if (unreachable >= 2) {
-                            _state.value = LinkState.Connecting(attempt, searching = true)
-                            val found = search(unit)
-                            if (found != null) {
-                                unit = unit.copy(host = found)
-                                onUnitMoved(unit)
-                                unreachable = 0
-                                continue
-                            }
-                        }
+                        trouble = Trouble.UNREACHABLE
                     }
                 }
-                val wait = backoffMs(attempt++)
-                _state.value = LinkState.Waiting(wait, reason, notOnNetwork = unreachable >= 2)
+                if (trouble == Trouble.UNREACHABLE && endpoint + 1 < hosts.size) {
+                    endpoint++
+                    continue
+                }
+                endpoint = 0
+                val wait = backoff(attempt++)
+                _state.value = LinkState.Waiting(wait, reason, trouble)
                 if (withTimeoutOrNull(wait) { kicks.receive() } != null) attempt = 0
             }
         } finally {
@@ -349,13 +389,18 @@ class GatewaySession(
         }
     }
 
-    /** Step 3 of "find the unit again": TLS only where the port answers, and only the pinned key. */
-    private suspend fun search(unit: PairedUnit): String? {
-        for (host in transport.probe(unit.port)) {
-            if (host == unit.host) continue
+    /**
+     * Looks for the unit on the phone's own Wi-Fi subnet. Only ever on a
+     * person's request, once per request: the loop never sweeps. TLS is tried
+     * only where the port answers, at a bounded number of hosts, and only the
+     * pinned key is accepted, so the answer is the same unit at a new address
+     * or nothing. The pin itself cannot change here.
+     */
+    suspend fun locate(unit: PairedUnit): PairedUnit? {
+        for (host in transport.probe(unit.port).filter { it != unit.host }.take(LOCATE_MAX)) {
             try {
                 open(host, unit.port, unit.pin).close()
-                return host
+                return unit.movedTo(host)
             } catch (_: IOException) {
             }
         }
@@ -369,6 +414,8 @@ class GatewaySession(
         const val SILENCE_MS = 90_000L
         const val POLL_MS = 3_000L
         const val PAIR_WAIT_MS = 130_000L
+        const val STABLE_MS = 30_000L
+        const val LOCATE_MAX = 8
 
         /** 1 s doubling to 60 s, with a fifth of jitter either way. */
         fun backoffMs(attempt: Int, random: Random = Random.Default): Long {

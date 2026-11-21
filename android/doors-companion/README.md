@@ -32,6 +32,14 @@ section 2.
   one.
 - `device/WifiTransport.kt`: every socket is made by the Wi-Fi network's own
   factory. Addresses are IPv4 literals on private ranges; nothing is resolved.
+- A waiting loop never ends a pairing. Only the unit's own word over an
+  authenticated connection (`gateway.revoked`, or `paired: false` in hello) is
+  shown as a removal; no answer, a timeout, a lost session and a door closed
+  after the handshake are retried with back-off. Another key at the address
+  stops the loop and leaves the pin as it was.
+- The loop tries the saved addresses only. Looking across the phone's /24 is
+  a button on the Connection screen: one sweep, at most 8 TLS attempts, the
+  pinned key only. A stored pin is never replaced; forgetting comes first.
 - `SecurityLintTest` fails the build's tests if a second trust manager, a name
   verifier, an older protocol, cleartext, a build variant, a telemetry
   dependency or an extra permission appears.

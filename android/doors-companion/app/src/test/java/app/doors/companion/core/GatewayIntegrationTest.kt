@@ -175,10 +175,14 @@ class GatewayIntegrationTest {
             .pair(PairingUri.parse("doors-pair:1?h=${unit.host}&p=${unit.port}&fp=${b64(TestIdentity.create().fingerprint())}&t=${b64(ByteArray(16))}&n=x"), "x") {}
         assertEquals("a code promising another key sends nothing", PairOutcome.WrongUnit, wrongCode)
 
-        // ---- a phone the unit does not know is turned away, and the loop stops ----
-        val stranger = GatewaySession(transport, TestIdentity.create(), "test")
+        // ---- a phone the unit does not know is turned away: not let in, and never called revoked ----
+        val stranger = GatewaySession(transport, TestIdentity.create(), "test", backoff = { 400 })
         val strangerLoop = scope.launch { stranger.run(unit) }
-        assertEquals(LinkState.Stopped(Stop.REVOKED), stranger.await("stranger", 40_000) { it is LinkState.Stopped })
+        var turnedAway = 0
+        val watch = scope.launch { stranger.state.collect { if (it is LinkState.Waiting && it.trouble == Trouble.NOT_ADMITTED) turnedAway++ } }
+        withTimeout(30_000) { while (turnedAway < 4) delay(100) }
+        assertFalse("turned away is never a revocation", stranger.state.value is LinkState.Stopped)
+        watch.cancelAndJoin()
         strangerLoop.cancelAndJoin()
         assertTrue("the paired session was not disturbed", session.state.value is LinkState.Online)
 

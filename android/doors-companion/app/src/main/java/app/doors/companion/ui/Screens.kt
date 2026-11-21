@@ -44,6 +44,7 @@ import app.doors.companion.core.LinkState
 import app.doors.companion.core.PairedUnit
 import app.doors.companion.core.Reading
 import app.doors.companion.core.Stop
+import app.doors.companion.core.Trouble
 import app.doors.companion.core.array
 import app.doors.companion.core.bool
 import app.doors.companion.core.double
@@ -65,16 +66,16 @@ private class Look(val pill: String, val color: Color, val pulse: Boolean, val o
 
 private fun look(state: LinkState, unit: PairedUnit): Look = when (state) {
     is LinkState.Online -> Look("Open", Doors.Ok, false, 1f, "${unit.host}  ·  TLS 1.3  ·  key pinned")
-    is LinkState.Connecting ->
-        if (state.searching) Look("Searching", Doors.Accent, true, 0.10f, "Looking for the unit on this network")
-        else Look("Knocking", Doors.Accent, true, 0.10f, "Reaching ${unit.host}")
-    is LinkState.Waiting ->
-        if (state.notOnNetwork) Look("Away", Doors.Warn, false, 0f, "Not on this network. Trying again shortly")
-        else Look("Away", Doors.Warn, false, 0f, state.reason.replaceFirstChar { it.uppercase() } + ". Trying again shortly")
+    is LinkState.Connecting -> Look("Knocking", Doors.Accent, true, 0.10f, "Reaching ${unit.host}")
+    is LinkState.Waiting -> when (state.trouble) {
+        Trouble.NOT_ADMITTED -> Look("Not let in", Doors.Warn, false, 0f, "The unit answered but did not let this phone in. Trying again")
+        Trouble.UNREACHABLE -> Look("Away", Doors.Warn, false, 0f, "No answer on this network. Trying again shortly")
+        Trouble.LOST -> Look("Away", Doors.Warn, false, 0f, "The connection was lost. Trying again shortly")
+    }
     LinkState.NoWifi -> Look("No Wi-Fi", Doors.Muted, false, 0f, "The unit is reached over Wi-Fi only")
     LinkState.Idle -> Look("Idle", Doors.Muted, false, 0f, "Not connected")
     is LinkState.Stopped -> when (state.why) {
-        Stop.REVOKED -> Look("Removed", Doors.Error, false, 0f, "The unit no longer admits this phone")
+        Stop.REVOKED -> Look("Removed", Doors.Error, false, 0f, "The unit says this phone was removed")
         Stop.WRONG_UNIT -> Look("Not your unit", Doors.Error, false, 0f, "This is not the unit you paired")
         Stop.INCOMPATIBLE -> Look("Update needed", Doors.Error, false, 0f, "The unit and the app share no protocol version")
     }
@@ -181,6 +182,12 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
                 )
                 Spacer(Modifier.height(14.dp))
                 GhostButton("Connection details") { go(Screen.Connection) }
+            }
+        }
+
+        if ((state as? LinkState.Waiting)?.trouble == Trouble.NOT_ADMITTED) {
+            Panel(tint = Doors.Warn.copy(alpha = 0.07f)) {
+                Text("It is the right unit: its key matched. It closed the door without saying why. It may be busy or restarting, or this phone may have been removed on it. The pairing is kept here; the unit's Companion page shows whether this phone is still listed.", style = Type.Body, color = Doors.Text)
             }
         }
 
@@ -394,6 +401,8 @@ fun ConnectionScreen(link: Link, unit: PairedUnit, onBack: () -> Unit) {
     val hello = (state as? LinkState.Online)?.hello
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf(false) }
+    var looking by remember { mutableStateOf(false) }
+    var lookResult by remember { mutableStateOf<String?>(null) }
     val mine by produceState<Pair<String, String>?>(null) {
         value = withContext(Dispatchers.IO) {
             try {
@@ -453,7 +462,20 @@ fun ConnectionScreen(link: Link, unit: PairedUnit, onBack: () -> Unit) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        if (state !is LinkState.Online) PrimaryButton("Try now") { link.retry() }
+        if (state !is LinkState.Online) {
+            PrimaryButton("Try now") { link.retry() }
+            if (state !is LinkState.Stopped || (state as LinkState.Stopped).why == Stop.WRONG_UNIT) {
+                GhostButton(if (looking) "Looking…" else "Look for it on this network") {
+                    if (!looking) scope.launch {
+                        looking = true
+                        lookResult = if (link.locate()) "Found at a new address. Same key." else "Not found on this network. Nothing was changed."
+                        looking = false
+                    }
+                }
+                lookResult?.let { Text(it, style = Type.Body) }
+                Text("Looks once, on this Wi-Fi network only, and accepts only the key above.", style = Type.Body, color = Doors.Muted)
+            }
+        }
         if (!confirm) {
             GhostButton("Forget this unit", color = Doors.Error) { confirm = true }
         } else {

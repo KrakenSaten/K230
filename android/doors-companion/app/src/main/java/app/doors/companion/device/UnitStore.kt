@@ -5,12 +5,15 @@ package app.doors.companion.device
 import app.doors.companion.core.Fingerprint
 import app.doors.companion.core.PairedUnit
 import app.doors.companion.core.PairingUri
+import app.doors.companion.core.array
 import app.doors.companion.core.long
 import app.doors.companion.core.string
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
@@ -32,13 +35,18 @@ class UnitStore(dir: File) {
         val host = o.string("host")!!
         val port = o.long("port")!!.toInt()
         require(Fingerprint.parseHex(fp).size == Fingerprint.LEN && PairingUri.isLocalIpv4(host) && port in 1..65535)
-        PairedUnit(fp.lowercase(), o.string("name") ?: "DOORS unit", host, port, o.long("paired_at_ms") ?: 0)
+        val known = o.array("known_hosts").mapNotNull { (it as? JsonPrimitive)?.content }.filter { PairingUri.isLocalIpv4(it) && it != host }.take(3)
+        PairedUnit(fp.lowercase(), o.string("name") ?: "DOORS unit", host, port, o.long("paired_at_ms") ?: 0, known)
     } catch (e: Exception) {
         null
     }
 
     @Synchronized
     fun save(unit: PairedUnit) {
+        // A pin is set once, by pairing. An address may change; the key a
+        // record stands for may not. Replacing it means forgetting first.
+        val current = _unit.value
+        check(current == null || current.fingerprint == unit.fingerprint) { "a paired unit's pin is never replaced" }
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(buildJsonObject {
             put("fingerprint", unit.fingerprint)
@@ -46,6 +54,7 @@ class UnitStore(dir: File) {
             put("host", unit.host)
             put("port", unit.port)
             put("paired_at_ms", unit.pairedAtMs)
+            put("known_hosts", JsonArray(unit.knownHosts.map { JsonPrimitive(it) }))
         }.toString())
         if (!tmp.renameTo(file)) {
             file.delete()
