@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,29 +32,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.doors.companion.Link
 import app.doors.companion.core.MeshMessage
+import app.doors.companion.core.MeshPhase
+import app.doors.companion.core.MeshSend
+import app.doors.companion.core.OutPhase
 import app.doors.companion.core.PairedUnit
+import app.doors.companion.core.SendText
 import app.doors.companion.data.MarkRow
 import app.doors.companion.data.MessageRow
+import app.doors.companion.data.OutboxRow
 import app.doors.companion.data.markKind
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -62,72 +67,35 @@ import java.util.Locale
 
 private const val PAGE = 60
 
-private sealed interface Entry {
-    val key: String
-}
-
-private class Said(val m: MessageRow, val first: Boolean) : Entry {
-    override val key get() = "m" + m.ord
-}
-
-/** [before]: the message it stands above. The phone's clock can go back, so a date alone may come twice. */
-private class Day(val date: LocalDate, val before: Long) : Entry {
-    override val key get() = "d$before"
-}
-
-private class Break(val mark: MarkRow) : Entry {
-    override val key get() = "k" + mark.id
-}
-
-private fun day(ms: Long): LocalDate = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
-
 private val CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
 private val DATE = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)
 
-private fun clock(ms: Long): String = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(CLOCK)
+internal fun clock(ms: Long): String = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(CLOCK)
 
-/**
- * The thread as it is drawn, oldest first: the loaded messages in the order
- * this phone learned of them, a line where the day changes, and every break in
- * continuity that lies inside the loaded span. A break is global (the journal
- * is one journal), so it is drawn in every thread that was already there.
- */
-private fun timeline(rows: List<MessageRow>, marks: List<MarkRow>): List<Entry> {
-    val asc = rows.asReversed()
-    val oldest = asc.firstOrNull()?.ord ?: return emptyList()
-    val pending = ArrayDeque(marks.filter { it.afterOrd >= oldest }.sortedWith(compareBy({ it.afterOrd }, { it.id })))
-    val out = ArrayList<Entry>(asc.size + 8)
-    var last: MessageRow? = null
-    var shown: LocalDate? = null
-    for (m in asc) {
-        while (pending.isNotEmpty() && pending.first().afterOrd < m.ord) {
-            out += Break(pending.removeFirst())
-            last = null
-        }
-        val d = day(m.heardAtMs)
-        if (d != shown) {
-            out += Day(d, m.ord)
-            shown = d
-            last = null
-        }
-        val sameVoice = last != null && last.outgoing == m.outgoing && last.senderName == m.senderName && m.heardAtMs - last.heardAtMs < 5 * 60_000
-        out += Said(m, !sameVoice)
-        last = m
-    }
-    while (pending.isNotEmpty()) out += Break(pending.removeFirst())
-    return out
+/** Something a person is asked before it is done. */
+private sealed interface Ask {
+    class Check(val o: OutboxRow) : Ask
+    class AsNew(val o: OutboxRow) : Ask
+    class Resend(val m: MessageRow, val old: OutboxRow?) : Ask
 }
 
 @Composable
 fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit) {
     val dao = link.meshDb.dao()
     val id = unit.fingerprint
+    val scope = rememberCoroutineScope()
     var limit by rememberSaveable(conv) { mutableIntStateOf(PAGE) }
     val rows by remember(id, conv, limit) { dao.thread(id, conv, limit) }.collectAsStateWithLifecycle(emptyList())
     val total by remember(id, conv) { dao.threadSize(id, conv) }.collectAsStateWithLifecycle(0)
     val marks by remember(id) { dao.marks(id) }.collectAsStateWithLifecycle(emptyList())
     val nodes by remember(id) { dao.nodes(id) }.collectAsStateWithLifecycle(emptyList())
-    val channels by remember(id) { dao.channels(id) }.collectAsStateWithLifecycle(emptyList())
+    val listed by remember(id) { dao.channels(id) }.collectAsStateWithLifecycle(null)
+    val outbox by remember(id, conv) { dao.outbox(id, conv) }.collectAsStateWithLifecycle(emptyList())
+    val unitRow by remember(id) { dao.unit(id) }.collectAsStateWithLifecycle(null)
+    val mesh by link.mesh.link.collectAsStateWithLifecycle()
+    val sendState by link.send.state.collectAsStateWithLifecycle()
+    val now = rememberClock()
+    val channels = listed.orEmpty()
     val newest = rows.firstOrNull()
     val channel = conv.startsWith("c:")
     val peer = if (channel) null else conv.substring(2)
@@ -138,11 +106,21 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
         else -> nodes.firstOrNull { it.publicKey == peer }?.name?.ifBlank { null } ?: shortKey(peer)
     }
     val color = if (channel) RiftInk else hue(peer.orEmpty())
-    val entries = remember(rows, marks) { timeline(rows, marks).asReversed() }
+    val whole = rows.size >= total
+    val entries = remember(rows, marks, outbox, whole) { timeline(rows, marks, outbox, whole).asReversed() }
     val state = rememberLazyListState()
 
+    val block = MeshSend.blocked(sendState, mesh, now)
+    // The run the unit's mesh service is in, as far as this phone has synced. A message of another run can no longer change.
+    val storedRun = unitRow?.runId
+    val liveRun = mesh.runId.takeIf { mesh.phase == MeshPhase.LIVE }
+    val to = if (channel) Destination(null, slot?.slot, SendText.limit(slot?.textLimit), gone = listed != null && slot == null)
+    else Destination(peer, null, SendText.DIRECT_MAX, gone = !MeshMessage.isKey(peer))
+    val sending = outbox.any { !it.isResend && it.outPhase == OutPhase.SENDING }
+    var ask by remember { mutableStateOf<Ask?>(null) }
+
     // Reading it is reaching its end: the newest message on screen is read.
-    LaunchedEffect(newest?.ord) {
+    LaunchedEffect(newest?.ord, outbox.lastOrNull()?.ord) {
         newest?.let { dao.markRead(id, conv, it.ord) }
         // Someone reading the end stays at the end; someone reading back is left where they are.
         if (state.firstVisibleItemIndex <= 2) state.animateScrollToItem(0)
@@ -153,7 +131,7 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
             .collect { nearTop -> if (nearTop && limit < total) limit += PAGE }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             BackButton(onBack)
             Spacer(Modifier.width(14.dp))
@@ -175,12 +153,29 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
         ) {
             items(entries, key = { it.key }) { e ->
                 when (e) {
-                    is Said -> Bubble(e.m, e.first, channel)
+                    is Said -> {
+                        val again = e.resend?.outPhase
+                        val canResend = block == null && e.m.outgoing && !e.m.channelKind && e.m.state == "no_ack" && liveRun != null && e.m.runId == liveRun &&
+                            (again == null || again == OutPhase.FAILED || again == OutPhase.UNKNOWN)
+                        Bubble(
+                            e.m, e.first, channel, e.mine, e.resend, storedRun, sendState.perMin,
+                            onResend = if (canResend) ({ ask = Ask.Resend(e.m, e.resend) }) else null,
+                            onCheck = e.resend?.takeIf { block == null && again == OutPhase.UNCERTAIN }?.let { r -> { ask = Ask.Check(r) } },
+                            onDismiss = e.resend?.takeIf { again == OutPhase.FAILED || again == OutPhase.UNKNOWN }?.let { r -> { scope.launch { link.send.discard(id, r.clientMsgId) } } },
+                        )
+                    }
+                    is Pending -> PendingBubble(
+                        e.o, e.first, sendState.perMin, storedRun, canAsk = block == null && !sending,
+                        onCheck = { ask = Ask.Check(e.o) },
+                        // Refused: nothing went out, so trying again is a plain send. Unknown: it may have, so it is asked.
+                        onAgain = { if (e.o.outPhase == OutPhase.UNKNOWN) ask = Ask.AsNew(e.o) else scope.launch { link.send.sendAgain(id, e.o.clientMsgId, to.limit) } },
+                        onDiscard = { scope.launch { link.send.discard(id, e.o.clientMsgId) } },
+                    )
                     is Day -> DayLine(e.date)
                     is Break -> BreakLine(e.mark)
                 }
             }
-            if (rows.isNotEmpty() && rows.size >= total) {
+            if (rows.isNotEmpty() && whole) {
                 item(key = "start") {
                     Column(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Label("Where this phone's copy begins", color = Doors.Faint)
@@ -188,7 +183,7 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
                     }
                 }
             }
-            if (rows.isEmpty()) {
+            if (entries.isEmpty()) {
                 item(key = "none") {
                     Column(Modifier.fillMaxWidth().padding(vertical = 80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Nothing stored here yet", style = Type.Title)
@@ -198,16 +193,34 @@ fun ThreadScreen(link: Link, unit: PairedUnit, conv: String, onBack: () -> Unit)
             }
         }
         Hairline()
-        // Where a composer will be. It is a statement, not a control.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.size(14.dp)) {
-                val w = size.width
-                drawRoundRect(Doors.Muted, Offset(w * 0.12f, w * 0.44f), Size(w * 0.76f, w * 0.52f), CornerRadius(w * 0.12f), style = Stroke(1.4.dp.toPx()))
-                drawArc(Doors.Muted, 180f, 180f, false, Offset(w * 0.28f, w * 0.06f), Size(w * 0.44f, w * 0.7f), style = Stroke(1.4.dp.toPx(), cap = StrokeCap.Round))
-            }
-            Spacer(Modifier.width(12.dp))
-            Text("Read only. This release of the Companion sends nothing to the mesh.", style = Type.Body, color = Doors.Muted)
-        }
+        Composer(link, id, conv, title, channel, to, block, sendState.perMin, rateWait(link.send, now), sending)
+    }
+
+    when (val a = ask) {
+        is Ask.Check -> Confirm(
+            "Ask the unit?",
+            "The unit is asked about this message under the id it was first given. If the unit has no record of it, it sends it now. It cannot be sent twice this way.",
+            "Ask the unit", onYes = { ask = null; scope.launch { link.send.check(id, a.o.clientMsgId) } }, onNo = { ask = null },
+        )
+        is Ask.AsNew -> Confirm(
+            "Send it as a new message?",
+            "Nobody can tell whether the first one went out. If it did, ${if (channel) "the channel" else title} gets these words twice.",
+            "Send as new", onYes = { ask = null; scope.launch { link.send.sendAgain(id, a.o.clientMsgId, to.limit) } }, onNo = { ask = null },
+        )
+        is Ask.Resend -> Confirm(
+            "Send it again?",
+            "No acknowledgement came back. The unit transmits the same message once more. If the first did arrive and only its acknowledgement was lost, $title gets it twice.",
+            "Send again",
+            onYes = {
+                ask = null
+                scope.launch {
+                    a.old?.let { link.send.discard(id, it.clientMsgId) }
+                    link.send.resend(id, conv, a.m.runId, a.m.msgId, a.m.attempts)
+                }
+            },
+            onNo = { ask = null },
+        )
+        null -> Unit
     }
 }
 
@@ -245,30 +258,41 @@ private fun Dashes(modifier: Modifier) {
     }
 }
 
-private class Delivery(val text: String, val color: Color)
+internal class Delivery(val text: String, val color: Color)
 
 /**
  * What may be said about a message the unit sent. Only what MeshCore can
- * know: a channel message is never "delivered", and "sent" means accepted by
- * the service, not transmitted (docs/api/mesh.md).
+ * know: "accepted" is the unit having taken it, not a transmission
+ * (docs/api/mesh.md); "delivered" is the recipient's own acknowledgement and
+ * nothing less; a channel message has no such thing and is never called
+ * delivered. A message of an earlier run that still waited for its
+ * acknowledgement when the mesh service started again can never get one:
+ * what became of it is not known ([currentRun]: the run this phone last
+ * synced with).
  */
-private fun delivery(m: MessageRow): Delivery = when {
+internal fun delivery(m: MessageRow, currentRun: String?): Delivery = when {
     m.channelKind -> when {
         (m.heardBack ?: 0) > 0 -> Delivery("Heard back ×${m.heardBack}", Doors.Ok)
         m.transmitted == true -> Delivery("On the air", Doors.Tx)
         m.transmitted == false -> Delivery("Not transmitted", Doors.Error)
-        else -> Delivery("Queued", Doors.Muted)
+        else -> Delivery("Accepted", Doors.Muted)
     }
-    m.state == "acked" -> Delivery("Acknowledged", Doors.Ok)
+    m.state == "acked" -> Delivery("Delivered", Doors.Ok)
     m.state == "no_ack" -> Delivery("No acknowledgement", Doors.Warn)
     m.state == "failed" -> Delivery("Failed", Doors.Error)
-    m.state == "sent_direct" -> Delivery(if (m.ackExpected) "Sent direct  ·  awaiting ACK" else "Sent direct", Doors.Muted)
-    m.state == "sent_flood" -> Delivery(if (m.ackExpected) "Sent flood  ·  awaiting ACK" else "Sent flood", Doors.Muted)
+    m.state == "sent_direct" || m.state == "sent_flood" -> when {
+        !m.ackExpected -> Delivery("Accepted", Doors.Muted)
+        currentRun != null && m.runId != currentRun -> Delivery("Outcome unknown", Doors.Warn)
+        else -> Delivery("Accepted  ·  awaiting acknowledgement", Doors.Muted)
+    }
     else -> Delivery(m.state.replace('_', ' '), Doors.Muted)
 }
 
 @Composable
-private fun Bubble(m: MessageRow, first: Boolean, channel: Boolean) {
+private fun Bubble(
+    m: MessageRow, first: Boolean, channel: Boolean, mine: Boolean, resend: OutboxRow?, currentRun: String?, perMin: Int,
+    onResend: (() -> Unit)?, onCheck: (() -> Unit)?, onDismiss: (() -> Unit)?,
+) {
     val out = m.outgoing
     val shape = RoundedCornerShape(
         topStart = if (!out && first) 6.dp else 18.dp, topEnd = if (out && first) 6.dp else 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp,
@@ -276,7 +300,7 @@ private fun Bubble(m: MessageRow, first: Boolean, channel: Boolean) {
     val tint = if (out) Doors.Tx else RiftInk
     Column(Modifier.fillMaxWidth().padding(top = if (first) 10.dp else 3.dp), horizontalAlignment = if (out) Alignment.End else Alignment.Start) {
         if (first) {
-            val who = if (out) "This unit" else if (channel) m.senderName?.ifBlank { null } else null
+            val who = if (out) (if (mine) "From this phone" else "This unit") else if (channel) m.senderName?.ifBlank { null } else null
             if (who != null) {
                 Row(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(who, style = Type.Label.copy(letterSpacing = Type.Body.letterSpacing), color = if (out) Doors.Tx else hue(who), maxLines = 1)
@@ -294,14 +318,34 @@ private fun Bubble(m: MessageRow, first: Boolean, channel: Boolean) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(clock(m.heardAtMs), style = Type.Mono.copy(fontSize = Type.Label.fontSize), color = Doors.Muted)
                 if (out) {
-                    val d = delivery(m)
+                    val d = delivery(m, currentRun)
                     Dot(d.color, 5.dp)
                     Text(d.text, style = Type.Label.copy(letterSpacing = Type.Body.letterSpacing), color = d.color)
+                    if ((m.attempts ?: 1) > 1) Text("sent ×${m.attempts}", style = Type.Mono.copy(fontSize = Type.Label.fontSize), color = Doors.Faint)
                 } else if (m.rssiDbm != null || m.snrDb != null) {
                     Text(
                         listOfNotNull(m.rssiDbm?.let { "%.0f dBm".format(it) }, m.snrDb?.let { "%.1f dB".format(it) }).joinToString("  "),
                         style = Type.Mono.copy(fontSize = Type.Label.fontSize), color = Doors.Faint,
                     )
+                }
+            }
+        }
+        if (out) {
+            val note = when (resend?.outPhase) {
+                OutPhase.SENDING -> "Asking the unit to send it again…"
+                OutPhase.UNCERTAIN -> "Sending it again was asked for and got no answer. Whether it went out again is not known."
+                OutPhase.UNKNOWN -> "Whether it went out again is not known. " + why(resend, perMin)
+                OutPhase.FAILED -> "It was not sent again. " + why(resend, perMin)
+                else -> if (m.state == "sent_direct" || m.state == "sent_flood") {
+                    if (m.ackExpected && currentRun != null && m.runId != currentRun) "The mesh service restarted while it waited for its acknowledgement." else null
+                } else null
+            }
+            if (note != null) Text(note, style = Type.Body.copy(fontSize = Type.Mono.fontSize, lineHeight = Type.Mono.lineHeight), color = Doors.Muted, modifier = Modifier.widthIn(max = 300.dp).padding(start = 6.dp, end = 6.dp, top = 5.dp))
+            if (onResend != null || onCheck != null || onDismiss != null) {
+                Row(Modifier.padding(top = 8.dp, bottom = 8.dp, end = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (onDismiss != null) Act("Dismiss", Doors.Muted, onDismiss)
+                    if (onCheck != null) Act("Ask the unit", Doors.Warn, onCheck)
+                    if (onResend != null) Act("Send again", Doors.Accent, onResend)
                 }
             }
         }
@@ -375,6 +419,10 @@ fun NodeScreen(link: Link, unit: PairedUnit, key: String, open: (String) -> Unit
         if (thread != null) {
             Spacer(Modifier.height(4.dp))
             GhostButton("Open the conversation  ·  ${thread.total}", color = RiftInk) { open("t:d:$key") }
+        } else if (n != null && (n.type == 1 || n.type == 3)) {
+            // A chat node or a room: a conversation can begin here.
+            Spacer(Modifier.height(4.dp))
+            GhostButton("Write a message", color = RiftInk) { open("t:d:$key") }
         }
         Spacer(Modifier.height(12.dp))
     }

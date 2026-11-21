@@ -7,12 +7,14 @@ import android.os.Build
 import app.doors.companion.core.Fingerprint
 import app.doors.companion.core.GatewaySession
 import app.doors.companion.core.LinkState
+import app.doors.companion.core.MeshSend
 import app.doors.companion.core.MeshSync
 import app.doors.companion.core.Stop
 import app.doors.companion.core.PairOutcome
 import app.doors.companion.core.PairingUri
 import app.doors.companion.data.MeshDb
 import app.doors.companion.data.RoomMeshStore
+import app.doors.companion.data.RoomSendStore
 import app.doors.companion.device.KeystoreIdentity
 import app.doors.companion.device.UnitStore
 import app.doors.companion.device.WifiTransport
@@ -46,7 +48,10 @@ class Link(app: Application) {
     /** The mesh as this phone has stored it, and the reader that fills it while a session is open. */
     val meshDb = MeshDb.open(app)
     val mesh = MeshSync(RoomMeshStore(meshDb.dao()))
-    val session = GatewaySession(transport, identity, VERSION, onUnitMoved = { store.save(it) }, features = listOf(mesh))
+
+    /** Sending, for a person who tapped Send while the session is open. It keeps no queue and starts nothing by itself. */
+    val send = MeshSend(RoomSendStore(meshDb.dao()), mesh.link)
+    val session = GatewaySession(transport, identity, VERSION, onUnitMoved = { store.save(it) }, features = listOf(mesh, send))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var loop: Job? = null
@@ -122,6 +127,16 @@ class Link(app: Application) {
         session.clear()
     }
 
+    /**
+     * What is typed and not sent is kept per thread, and outlives the screen
+     * it was typed on: it is written from here, not from the screen's scope.
+     */
+    fun keepDraft(unit: String, conv: String, text: String) {
+        scope.launch {
+            if (text.isEmpty()) meshDb.dao().dropDraft(unit, conv) else meshDb.dao().saveDraft(unit, conv, text, System.currentTimeMillis())
+        }
+    }
+
     /** The phone's claim about itself, 1 to 32 bytes, shown as a claim on the unit. */
     private fun phoneName(): String {
         var name = (Build.MODEL ?: "").filter { it.code in 0x20..0x7e }.trim().ifEmpty { "Android phone" }
@@ -130,6 +145,6 @@ class Link(app: Application) {
     }
 
     companion object {
-        const val VERSION = "0.2.0"
+        const val VERSION = "0.3.0"
     }
 }

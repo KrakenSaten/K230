@@ -177,6 +177,7 @@ private fun RiftRoom(link: Link, unit: PairedUnit, tab: Tab, onTab: (Tab) -> Uni
     val bins by link.mesh.activity.collectAsStateWithLifecycle()
     val feed by link.mesh.feed.collectAsStateWithLifecycle()
     val threads by remember(id) { dao.conversations(id) }.collectAsStateWithLifecycle(emptyList())
+    val attention by remember(id) { dao.attention(id) }.collectAsStateWithLifecycle(emptyList())
     val channels by remember(id) { dao.channels(id) }.collectAsStateWithLifecycle(emptyList())
     val nodes by remember(id) { dao.nodes(id) }.collectAsStateWithLifecycle(emptyList())
     val marks by remember(id) { dao.marks(id) }.collectAsStateWithLifecycle(emptyList())
@@ -197,7 +198,9 @@ private fun RiftRoom(link: Link, unit: PairedUnit, tab: Tab, onTab: (Tab) -> Uni
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text("RIFT", style = Type.Title)
-                    Label("Mesh  ·  read only", color = RiftInk)
+                    // Said of this phone on this unit, now: sending is the unit's to grant.
+                    val sending by link.send.state.collectAsStateWithLifecycle()
+                    Label(if (sending.served && sending.permitted) "Mesh  ·  read and send" else if (sending.session) "Mesh  ·  read only" else "Mesh  ·  stored", color = RiftInk)
                 }
                 Pill(look.pill, look.color, look.pulse)
             }
@@ -221,7 +224,7 @@ private fun RiftRoom(link: Link, unit: PairedUnit, tab: Tab, onTab: (Tab) -> Uni
         }
         item(key = "tabs") { Tabs(tab, threads.sumOf { it.unread }, onTab) }
         when (tab) {
-            Tab.Threads -> threads(threads, byKey, now, open)
+            Tab.Threads -> threads(threads, byKey, attention.associate { it.conv to it.n }, now, open)
             Tab.Channels -> channels(channels, threads, open)
             Tab.Nodes -> nodes(nodes, now, open)
             Tab.Activity -> activity(bins, feed, marks, row, mesh, stored, now)
@@ -441,7 +444,7 @@ private fun Empty(title: String, text: String) {
 
 // ---- threads ---------------------------------------------------------------
 
-private fun LazyListScope.threads(list: List<ConversationRow>, nodes: Map<String, NodeRow>, now: Long, open: (String) -> Unit) {
+private fun LazyListScope.threads(list: List<ConversationRow>, nodes: Map<String, NodeRow>, attention: Map<String, Int>, now: Long, open: (String) -> Unit) {
     if (list.isEmpty()) {
         item { Empty("No messages stored", "The unit keeps no messages itself. What its gateway still holds is read when this phone connects, and what arrives while it is connected is kept here.") }
     }
@@ -465,6 +468,11 @@ private fun LazyListScope.threads(list: List<ConversationRow>, nodes: Map<String
                             who + MeshMessage.body(m.body, m.senderName).replace('\n', ' '), style = Type.Body,
                             color = if (c.unread > 0) Doors.Text else Doors.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                         )
+                        // A send of this phone in this thread that is unanswered, unknown or refused.
+                        if ((attention[m.conv] ?: 0) > 0) {
+                            Spacer(Modifier.width(10.dp))
+                            Tag("Check", Doors.Warn)
+                        }
                         if (c.unread > 0) {
                             Spacer(Modifier.width(10.dp))
                             Box(Modifier.clip(CircleShape).background(RiftInk).padding(horizontal = 8.dp, vertical = 2.dp)) {
