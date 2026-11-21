@@ -552,8 +552,9 @@ which the session does only once the player has engaged multiplayer:
   kept, so that peerd is never hidden while keeping nobody - and closing ends
   it too. A lease that was never asked for is never ended: nothing is said.
   With a match in hand peerd stays bound for the kept opponent and nobody
-  else, lease or no lease. The app wants the device seen only while the
-  lobby is on screen ("The local network in the app").
+  else, lease or no lease. The app wants the device seen while the lobby is
+  on screen and while an invitation of the player's own is waiting for its
+  answer ("The local network in the app").
 - **The opponent.** `fleet_link_ops.match_peer` is a new, optional op (NULL
   on the mesh and the virtual opponent). Once the session has read its save
   it tells the link, on every poll, who the match in hand is with - from
@@ -658,14 +659,17 @@ MATCH`, with the words it always had.
 
 **Visibility.** The device is announced on the network, and hears strangers,
 while the network's lobby is on screen (ADR-008: while its screen is open) -
-and while an invitation the player sent or was sent is still open, wherever
-they are. Leaving the lobby with no invitation open - to Command, into
-Deploy or Battle, or by closing Fleet - ends it; coming back asks again at
-once. The invitation is the one exception because until a match begins
-nobody is kept, and a peerd that is hidden and keeps nobody drops the
-packets that would begin it: an invitation would die, or be accepted on one
-side only, when either player looked at another screen. It ends when the
-invitation is answered, cancelled or runs out. A match in hand needs no
+and while an invitation the player sent, or one they accepted, is waiting
+for its answer, wherever they are. Leaving the lobby otherwise - to Command,
+into Deploy or Battle, or by closing Fleet - ends it; coming back asks again
+at once. The player's own invitation is the one exception because until a
+match begins nobody is kept, and a peerd that is hidden and keeps nobody
+drops the packets that would begin it: an invitation would die, or be
+accepted on one side only, when either player looked at another screen. It
+ends when the invitation is answered or cancelled, and runs out by itself
+after the match's waiting window. An invitation merely received keeps
+nobody visible: anyone on the network can send one, and answering it means
+coming back to the lobby. A match in hand needs no
 visibility: peerd keeps exchanging datagrams with the kept opponent, and
 with nobody else. `ADD BY ADDRESS` is the lobby's, so it always has it. One
 function decides (`follow_visibility` in `fleet_mp.c`).
@@ -766,7 +770,7 @@ Known limits of this package:
 | `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers; and two profiles with both players talking throughout (no line shown twice, none from another session, the oracle unchanged). `make fleet-mp-soak` for 5000 matches a profile |
 | `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence; chat through the session with no save, the opponent out of reach while typing and after, the app closed with a line waiting and reopened twenty times, a new match with an empty chat on both sides |
 | `tests/fleet_view_mp_test` (local network) | the header on each transport; the link line in each state, never naming the mesh or a radio; listening, the sentence after six seconds, asking, an answer, no answer and what is not an address, each to the word; a row with no hops, unconfirmed, not heard yet; Command's sentence on a device with and without the network, word for word what it was without |
-| `tests/fleet_app_test` (section 10, the owner's four decisions) | the other transport shown disabled beside RESUME MATCH and beside an open invitation, the panel's sentence to the word, a disabled button doing nothing; visibility ended on leaving the lobby for Command, not asked for again while it is closed with the link still up, asked at once on coming back, and kept while an invitation is open until it is cancelled; a match in hand with no peerd: still offered, LoRa disabled, the lobby's words and TRY AGAIN, the save byte for byte what it was |
+| `tests/fleet_app_test` (section 10, the owner's four decisions) | the other transport shown disabled beside RESUME MATCH and beside an open invitation, the panel's sentence to the word, a disabled button doing nothing; visibility ended on leaving the lobby for Command, not asked for again while it is closed with the link still up, asked at once on coming back, kept while the player's own invitation is open until it is cancelled, and not kept by an invitation merely received; a match in hand with no peerd: still offered, LoRa disabled, the lobby's words and TRY AGAIN, the save byte for byte what it was |
 | `tests/fleet_link_peer_test` (visibility) | a link told not to be seen never asking for the lease, a packet still going, the lease asked at once when wanted and ended when not - after the opponent of a match just begun is kept - and left to lapse when the keep cannot succeed |
 | `tests/fleet_app_test` (section 10) | a device without the network: one button, the old words, the button filling its row; the choice on one row, both buttons in view across the page, neither clipped; LoRa and the network each opening its own session and profile; a match on the network saved in `match-lan.v1` only, and one on LoRa in `match.v1` only; reopened on the transport whose save holds the match, the other not offered; another identity's save holding neither transport back, remembered beside the save, gone as a match to resume once a new one is written over it, its mark not taken for a later save's, a finished match not holding the other transport back, the session's refusal said in words, and - with a live match on the other transport - RESUME MATCH leading to the live one, in the same run and after a restart; LoRa alone leaving no mark; and, against the real link and a scripted peerd: nothing asked before LOCAL NETWORK is pressed, this device's address, proved and unconfirmed rows, an address typed on keys (letters refused) and answered, the answerer lit with INVITE ready (also when it was not listed before it answered), an old answer gone on coming back to the lobby, an address with no answer, the touch keyboard only for a finger, the field out of the keys' way off the lobby, peerd going away under an open lobby, six seconds of silence, a peerd closed by a fault, visibility ended on close |
 | `tests/fleet_shell_test.sh` (section 11) | against `tests/fake-peerd` in the running shell: Command with both transports, the lobby with players, an address answered and unanswered, and silence, in both shapes with no fault; nothing asked of peerd by opening Fleet; visibility asked for by the lobby and ended on exit; no match file written; and no peerd, no offer |

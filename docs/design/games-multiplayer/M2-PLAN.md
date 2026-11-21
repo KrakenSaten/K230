@@ -140,8 +140,9 @@ the app"):
 - **The owner's rulings, 2026-11-21**, as built: the network is offered
   where peerd is available and always where a network save holds a match;
   the device is visible on the network only while the lobby is on screen -
-  and, added in building it, while an invitation is open, because nobody is
-  kept before a match begins and a hidden peerd would drop the handshake -
+  and, added in building it, while an invitation the player sent or
+  accepted waits for its answer, because nobody is kept before a match
+  begins and a hidden peerd would drop the handshake -
   and a match in hand goes on with its kept opponent; a match in hand is
   preserved when its service does not answer, the other transport stays
   blocked, and the lobby says so and offers TRY AGAIN; and the other

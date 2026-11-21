@@ -239,18 +239,22 @@ void fleet_app_mp_changed(struct fleet_app *app)
 
 /* When this device is to be seen on the local network: while the lobby is
  * on screen (ADR-008: while its screen is open), and while an invitation the
- * player sent or was sent is still open. The second is not discovery but its
- * consequence: until a match begins nobody is kept, and a peerd that is
- * hidden and keeps nobody drops the very packets that would begin it - an
- * invitation would die, or be accepted on one side only, the moment either
- * player looked at another screen. It ends with the invitation. A match in
- * hand needs none of it: its opponent is kept. One place decides, every
- * tick; the link acts only on a change. A no-op on any other link. */
+ * player sent, or one they accepted, is waiting for its answer. The second
+ * is not discovery but its consequence: until a match begins nobody is kept,
+ * and a peerd that is hidden and keeps nobody drops the very packets that
+ * would begin it - an invitation would die, or be accepted on one side only,
+ * the moment either player looked at another screen. Both are the player's
+ * own acts and both run out by themselves (the match's human window). An
+ * invitation merely received is not among them: anybody on the network can
+ * send one, it has no end of its own, and answering it means coming back to
+ * the lobby anyway. A match in hand needs none of it: its opponent is kept.
+ * One place decides, every tick; the link acts only on a change. A no-op on
+ * any other link. */
 static void follow_visibility(struct fleet_app *app)
 {
     const struct fleet_session *s = app->mp;
-    int handshake = s->ready && (s->m.phase == FLEET_MP_INVITING || s->m.phase == FLEET_MP_INVITED ||
-                                 s->m.phase == FLEET_MP_ACCEPTING);
+    int handshake = s->ready &&
+                    (s->m.phase == FLEET_MP_INVITING || s->m.phase == FLEET_MP_ACCEPTING);
 
     fleet_link_peer_set_visible(app->link,
                                 app->mp_transport == FLEET_MP_LAN && s->engaged &&
@@ -669,6 +673,7 @@ static void settle(struct fleet_app *app, int ms)
 
     for (t = 0; t < ms; t += 10) {
         usleep(10000);
+        follow_visibility(app);
         fleet_session_poll(app->mp, fleet_app_now(app));
         if (t % 100 == 0) {
             fleet_screen_lobby_refresh(app);

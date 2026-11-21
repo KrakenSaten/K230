@@ -16,10 +16,11 @@
  *               its owner wants the device seen (fleet_link_peer_set_visible;
  *               it does unless told otherwise) it renews peerd's 30 s
  *               visibility lease; told otherwise, or closed, it ends the
- *               lease. The app wants it only while the lobby is on screen, so
- *               a Fleet that is anywhere else announces nothing and hears no
- *               stranger. (With a match in hand peerd stays bound for the
- *               kept opponent, and for nobody else.)
+ *               lease. The app wants it while the lobby is on screen and
+ *               while an invitation of the player's own is waiting for its
+ *               answer; a Fleet that is anywhere else announces nothing and
+ *               hears no stranger. (With a match in hand peerd stays bound
+ *               for the kept opponent, and for nobody else.)
  *   the opponent  the session tells the link who the match in hand is with
  *               (fleet_link_ops.match_peer). The link has peerd keep that
  *               peer - so the match survives a restart with nobody visible -

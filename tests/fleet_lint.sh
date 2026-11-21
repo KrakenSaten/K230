@@ -100,6 +100,8 @@ check "only the session's owner opens a link" \
       'fleet_link_(peer|mesh)_open'
 want "one place decides when this device is seen on the network" "apps/fleet/fleet_mp.c" \
      'app->current == FLEET_SCREEN_LOBBY \|\| handshake'
+check "an invitation merely received keeps nobody seen" "apps/fleet/fleet_mp.c" \
+      'int handshake = [^;]*FLEET_MP_INVITED'
 check "and nothing else in the app sets it" \
       "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v "$LINK/")" \
       'fleet_link_peer_set_visible'
