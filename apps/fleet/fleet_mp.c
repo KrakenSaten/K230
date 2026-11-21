@@ -237,6 +237,26 @@ void fleet_app_mp_changed(struct fleet_app *app)
     refresh_current(app);
 }
 
+/* When this device is to be seen on the local network: while the lobby is
+ * on screen (ADR-008: while its screen is open), and while an invitation the
+ * player sent or was sent is still open. The second is not discovery but its
+ * consequence: until a match begins nobody is kept, and a peerd that is
+ * hidden and keeps nobody drops the very packets that would begin it - an
+ * invitation would die, or be accepted on one side only, the moment either
+ * player looked at another screen. It ends with the invitation. A match in
+ * hand needs none of it: its opponent is kept. One place decides, every
+ * tick; the link acts only on a change. A no-op on any other link. */
+static void follow_visibility(struct fleet_app *app)
+{
+    const struct fleet_session *s = app->mp;
+    int handshake = s->ready && (s->m.phase == FLEET_MP_INVITING || s->m.phase == FLEET_MP_INVITED ||
+                                 s->m.phase == FLEET_MP_ACCEPTING);
+
+    fleet_link_peer_set_visible(app->link,
+                                app->mp_transport == FLEET_MP_LAN && s->engaged &&
+                                    (app->current == FLEET_SCREEN_LOBBY || handshake));
+}
+
 static void on_mp_tick(lv_timer_t *t)
 {
     struct fleet_app *app = lv_timer_get_user_data(t);
@@ -244,6 +264,7 @@ static void on_mp_tick(lv_timer_t *t)
     if (!app->mp) {
         return;
     }
+    follow_visibility(app);
     fleet_session_poll(app->mp, fleet_app_now(app));
     if (fleet_session_revision(app->mp) != app->mp_revision) {
         fleet_app_mp_changed(app);
@@ -353,8 +374,9 @@ static int open_session(struct fleet_app *app, enum fleet_mp_transport t)
         app->mp = NULL;
         return -1;
     }
-    /* Seen on the network only while the lobby is on screen (ADR-008): the
-     * lobby says when (fleet_screen_lobby.c). A no-op on any other link. */
+    /* Not seen on the network until follow_visibility says so: nothing is
+     * asked for on the link's first connection that the player did not ask
+     * for. A no-op on any other link. */
     fleet_link_peer_set_visible(app->link, 0);
     fleet_session_init(app->mp, app->link, mp_save, mp_entropy, app);
     n = fleet_store_match_load_for(store, blob, sizeof(blob));

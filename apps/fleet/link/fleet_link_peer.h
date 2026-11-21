@@ -54,9 +54,12 @@ struct fleet_link *fleet_link_peer_open(const char *service);
 /* Whether this device is to be visible on the network: announced, and
  * heard by strangers. On (the default) the lease is asked for and renewed;
  * off it is ended and not asked for again - once the opponent of a match
- * just begun has been kept, so that the match never has a moment in which
- * peerd would hear neither a stranger nor a kept peer. Datagrams with a kept
- * opponent go on either way. A no-op on a link that is not this one. */
+ * just begun has been kept, so that while the link is open the match has no
+ * moment in which peerd would hear neither a stranger nor a kept peer.
+ * (Closing the link in the instant between a match beginning and its
+ * opponent being kept is the exception; the match's own retries cover it
+ * when it is resumed.) Datagrams with a kept opponent go on either way. A
+ * no-op on a link that is not this one. */
 void fleet_link_peer_set_visible(struct fleet_link *link, int visible);
 
 /* What is wrong, for the words on the screen. NO_SERVICE and FAULT are why

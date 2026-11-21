@@ -458,9 +458,6 @@ void fleet_screen_lobby_leave(struct fleet_app *app)
      * lobby being on show. */
     set_field_enabled(ui, 0);
     close_ask(ui);
-    /* Off the lobby the device is not announced and hears no stranger. A
-     * match in hand goes on with its kept opponent. */
-    fleet_link_peer_set_visible(app->link, 0);
     /* What was asked and what came of it belong to this visit: the next one
      * starts by listening again. A question still out is left to end. */
     ui->pending[0] = '\0';
@@ -672,10 +669,6 @@ static void refresh_transport(struct fleet_lobby_ui *ui)
     int usable = have_info && app->mp && app->mp->engaged &&
                  (state == FLEET_LINK_UP || state == FLEET_LINK_CONNECTING);
 
-    /* Seen on the network while the lobby is on screen and the player has
-     * engaged, and not otherwise (ADR-008: while its screen is open). */
-    fleet_link_peer_set_visible(app->link, on_lan(ui) && app->current == FLEET_SCREEN_LOBBY &&
-                                               app->mp && app->mp->engaged);
     if (!on_lan(ui)) {
         set_button(ui->visible, "MAKE VISIBLE", 1);
         close_ask(ui);

@@ -2549,6 +2549,7 @@ static int lan_row0_lit(void) { return lobby_row_lit(0); }
 static int lan_link_up(void) { return strstr(text_of(lobby_link_line()), "Local network ready") != NULL; }
 static int lan_answered(void) { return visible(lobby_empty()) && strstr(text_of(lobby_empty()), "answered") != NULL; }
 static int lan_no_answer(void) { return visible(lobby_empty()) && strstr(text_of(lobby_empty()), "No answer") != NULL; }
+static int lan_sent_logged(void) { return lan_logged("peer.app_send|"); }
 static int lan_hidden_logged(void) { return lan_logged("peer.set_visible|{\"visible\":false}"); }
 static int lan_fault_said(void) { return strstr(text_of(lobby_link_line()), "fault") != NULL; }
 static int lan_gone_said(void) { return strstr(text_of(lobby_link_line()), "not running") != NULL; }
@@ -3245,6 +3246,27 @@ static void test_lan_silence(void)
     check("once it is listed, it is the one chosen, with INVITE ready", lan_until(lan_row0_lit) &&
           lobby_row_is(0, "BOB") && lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
     check_str("and the lobby names it", text_of(lobby_empty()), "Bob answered at 192.168.1.41.");
+
+    /* An invitation open and the lobby left: the device stays seen, or the
+     * answer - from a player nobody keeps yet - would never be heard. */
+    tap_obj(lobby_act());
+    check("an invitation goes out to the device that answered",
+          app->mp->m.phase == FLEET_MP_INVITING && lan_until(lan_sent_logged));
+    tap_obj(lobby_back());
+    check_one_screen(FLEET_SCREEN_COMMAND);
+    mp_wait(3000);
+    usleep(50000);
+    check("with an invitation open, leaving the lobby does not hide this device",
+          app->mp->m.phase == FLEET_MP_INVITING && !lan_hidden_logged());
+    check_str("Command says an invitation is open", text_of(command_multi_state()),
+              "An invitation is open on the local network.");
+    tap_obj(command_lan_button());
+    tap_obj(lobby_act());
+    check("cancelled, there is no invitation", app->mp->m.phase == FLEET_MP_IDLE);
+    tap_obj(lobby_back());
+    check("and now leaving the lobby hides it", lan_until(lan_hidden_logged));
+    tap_obj(command_lan_button());
+    mp_wait(300);
     tap_obj(lobby_back());
     tap_obj(command_lan_button());
     mp_wait(1200);

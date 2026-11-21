@@ -98,6 +98,11 @@ want "and never says none of a save it could not read" "$LINK/fleet_session.c" \
 check "only the session's owner opens a link" \
       "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v "$LINK/")" \
       'fleet_link_(peer|mesh)_open'
+want "one place decides when this device is seen on the network" "apps/fleet/fleet_mp.c" \
+     'app->current == FLEET_SCREEN_LOBBY \|\| handshake'
+check "and nothing else in the app sets it" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v "$LINK/")" \
+      'fleet_link_peer_set_visible'
 check "only the lobby and the session's owner ask the LAN link for its detail" \
       "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v 'apps/fleet/fleet_mp.c' | grep -v 'apps/fleet/ui/fleet_screen_lobby.c' | grep -v "$LINK/")" \
       'fleet_link_peer_(info|probe|probe_state|probe_key|proved|present|set_visible)[[:space:]]*\('
