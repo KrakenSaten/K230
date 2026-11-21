@@ -46,6 +46,8 @@ struct fleet_session {
     int save_failed;
     int other_in_hand;                  /* the other transport's save holds a match */
     int peer_said;                      /* the link has been told of a match in hand */
+    int over_seen;                      /* the match was seen to be over, at over_at */
+    int64_t over_at;
     unsigned sent;
     unsigned received;
     unsigned busy;
