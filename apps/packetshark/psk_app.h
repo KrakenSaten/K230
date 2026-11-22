@@ -65,6 +65,7 @@
  * phone asks at least this often while the phone reads. */
 #define PSK_READER_MS 5000
 #define PSK_CLIENT_TEXT 28
+#define PSK_TOKEN_TEXT 33
 
 enum psk_tab { PSK_TAB_LIVE = 0, PSK_TAB_PACKETS, PSK_TAB_INSPECT, PSK_TAB_COUNT };
 
@@ -404,6 +405,8 @@ struct psk_app {
     int req_saved_limit;
     char req_saved_chosen[PPC_IFACE_MAX];
     uint8_t req_outcome; /* enum psk_remote_reason: REFUSED or TIMEOUT until it has been said; 0 none */
+    uint8_t req_last;    /* enum psk_remote_request: how the last request ended, for capture.status */
+    char req_token[PSK_TOKEN_TEXT]; /* what the asker called this request: a cancel must name it */
     bool by_companion;   /* the capture was started from that sheet */
     /* rule 20: somebody outside the app is reading */
     bool reader_seen;

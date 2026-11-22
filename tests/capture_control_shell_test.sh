@@ -77,7 +77,7 @@ events() { # $1: the file, $2: the question
 import json, re, sys
 TOP = ["available", "state", "reason", "iface", "keep", "elapsed_ms", "limit_s", "seen", "stored", "held",
        "kernel_drops", "iface_drops", "shed", "bytes", "pps", "bps", "fill_permille", "classes", "findings",
-       "diag", "requested_by_companion"]
+       "diag", "requested_by_companion", "request"]
 STATE = ["state", "reason", "iface", "keep", "limit_s"]
 STATES = ["idle", "capturing", "hold", "saving", "stopped", "ended"]
 REASONS = ["none", "user", "limit", "link", "end", "error", "helper_crashed", "helper_hung", "left"]
@@ -144,7 +144,7 @@ elif q == "shape":
                         assert all(type(x) is int and x >= 0 for x in v.values()), k
                     elif k == "findings":
                         assert len(v) == 6 and all(type(x) is int and x >= 0 for x in v), k
-                    elif k not in ("available", "requested_by_companion", "state", "reason", "iface", "keep"):
+                    elif k not in ("available", "requested_by_companion", "request", "state", "reason", "iface", "keep"):
                         assert type(v) is int and v >= 0, k
         print("ok")
     except Exception as e:

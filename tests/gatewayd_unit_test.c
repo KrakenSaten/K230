@@ -10,6 +10,7 @@
 #define _GNU_SOURCE
 
 #include "gw.h"
+#include "gw_capture.h"
 #include "gw_feed.h"
 #include "gw_frame.h"
 #include "gw_gate.h"
@@ -575,7 +576,8 @@ static void test_mesh_policy(void)
     CHECK(gw_method_find("mesh.messages") == NULL && gw_method_find("mesh.subscribe") == NULL);
     CHECK(gw_method_find("mesh.app_inbox") == NULL && gw_method_find("mesh.remote_session") == NULL);
     CHECK(gw_method_find("mesh.discovered") == NULL && gw_method_find("mesh.channel") == NULL);
-    CHECK(gw_method_find("capture.status") == NULL);
+    /* (The capture group has its rows since G1: test_capture.) */
+    CHECK(gw_method_find("capture.request_cancel") == NULL);
     m = gw_method_find("gateway.subscribe");
     CHECK(m != NULL && m->scope == 0 && gw_policy_check(m, GW_W_CANDIDATE, 0) == GW_V_UNKNOWN);
 
@@ -748,9 +750,10 @@ static void test_mesh_policy(void)
 
     /* Topics: served and allowed, or left out; a wrong shape is refused. */
     a = parse("{\"topics\":[\"mesh\",\"mesh.activity\",\"device\",\"capture\",\"nonsense\"]}");
-    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) == 0 && mask == (GW_T_MESH | GW_T_MESH_ACTIVITY));
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) == 0 && mask == (GW_T_MESH | GW_T_MESH_ACTIVITY | GW_T_CAPTURE));
+    CHECK(gw_topics_parse(a, GW_S_DEFAULT, &mask) == 0 && mask == (GW_T_MESH | GW_T_MESH_ACTIVITY));
     CHECK(gw_topics_parse(a, GW_S_STATUS, &mask) == 0 && mask == 0);
-    CHECK(gw_topics_parse(a, GW_S_ALL & ~GW_S_MESH_READ, &mask) == 0 && mask == 0);
+    CHECK(gw_topics_parse(a, GW_S_ALL & ~GW_S_MESH_READ, &mask) == 0 && mask == GW_T_CAPTURE);
     cJSON_Delete(a);
     a = parse("{\"topics\":[]}");
     CHECK(gw_topics_parse(a, GW_S_ALL, &mask) == 0 && mask == 0);
@@ -770,7 +773,7 @@ static void test_mesh_policy(void)
     cJSON_Delete(a);
     CHECK(gw_topics_allowed(GW_T_ALL, GW_S_STATUS) == 0 && gw_topics_allowed(GW_T_MESH, GW_S_MESH_READ) == GW_T_MESH);
     a = gw_topics_json(GW_T_ALL);
-    CHECK(cJSON_GetArraySize(a) == 2);
+    CHECK(cJSON_GetArraySize(a) == 3);
     cJSON_Delete(a);
 }
 
@@ -1382,6 +1385,8 @@ static void test_tls(void)
     }
 }
 
+#include "gatewayd_capture_unit.inc"
+
 int main(void)
 {
     char cmd[512];
@@ -1399,6 +1404,7 @@ int main(void)
     test_journal();
     test_feed();
     test_send();
+    test_capture();
     test_store();
     test_gate();
     test_tls();

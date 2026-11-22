@@ -14,6 +14,7 @@ static const char *const state_words[PSK_RS_COUNT] = { "idle", "capturing", "hol
 static const char *const reason_words[PSK_RR_COUNT] = { "none", "user",  "limit",          "link",
                                                         "end",  "error", "helper_crashed", "helper_hung",
                                                         "left", "refused",        "timeout" };
+static const char *const request_words[PSK_RQ_COUNT] = { "none", "shown", "refused", "timeout" };
 static const char *const class_keys[PPC_CLASS_COUNT] = { "tcp", "udp", "dns", "dhcp", "arp", "icmp", "ipv6", "other" };
 static const char *const diag_keys[PSK_REMOTE_DIAG] = {
     "dns_queries",    "dns_retries",    "dns_answered",  "dns_late",      "dns_noreply",   "dns_waiting",
@@ -226,7 +227,8 @@ struct cJSON *psk_remote_json(const struct psk_remote_figures *f)
     }
     /* Every capture is started by a tap on this screen (ADR-016 rule 1);
      * this says whether the tap was on the sheet a start request raised. */
-    ok = ok && cJSON_AddBoolToObject(o, "requested_by_companion", f->by_companion);
+    ok = ok && cJSON_AddBoolToObject(o, "requested_by_companion", f->by_companion) &&
+         cJSON_AddStringToObject(o, "request", request_words[f->request < PSK_RQ_COUNT ? f->request : PSK_RQ_NONE]);
     if (!ok) {
         cJSON_Delete(o);
         return NULL;

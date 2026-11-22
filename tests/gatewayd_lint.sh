@@ -72,7 +72,58 @@ check "the method table was found" "$([ -n "$names" ] && echo 1 || echo 0)"
 bad=$(echo "$names" | grep -vE '^mesh\.(send|resend)$' | grep -E '^shell\.|reboot|poweroff|expand|eject|radio_setup|connect|forget|set_enabled|configure|\.send|set_name|set_path_hash|channel_add|channel_remove|node_remove|reset_path|advert|discover|remote_|app_send|pair_begin|pair_decide|revoke|set_scopes' || true)
 check "no method that changes the unit, and none of the shell" "$([ -z "$bad" ] && echo 1 || echo 0)"
 [ -n "$bad" ] && echo "$bad" | sed 's/^/       /'
-none "no shell socket is opened in M2" '"shell"' $SRC
+# The shell (ADR-019 rule 6 as amended 2026-11-22): one connection to its
+# socket, on which the gateway calls five methods of the PacketShark app and
+# no other - no shell.* method, and no subscription to its events. Four of
+# the five are rows a client with the scope can reach; the fifth, the
+# cancel, is the gateway's own and is no row.
+check "the shell's socket is opened in one place" \
+    "$([ "$(grep -c 'gw_uplink_new("shell"' $D/main.c)" = 1 ] && [ "$(grep -ho '"shell"' $SRC | wc -l)" = 7 ] && echo 1 || echo 0)"
+shell_rows=$(echo "$table" | grep '"shell"' | grep -oE '\{"[a-z_.]+"' | tr -d '{"' | sort | tr '\n' ' ')
+check "its rows are the four capture methods ($shell_rows)" \
+    "$([ "$shell_rows" = "capture.hold capture.request_start capture.status capture.stop " ] && echo 1 || echo 0)"
+check "every capture row is of the capture kind and needs a capture scope" \
+    "$([ "$(echo "$table" | grep -cE '\{"capture\.[a-z_]+", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_(VIEW|CONTROL), "shell", gw_capture_')" = 4 ] &&
+       [ "$(echo "$table" | grep -c '"capture\.')" = 4 ] && echo 1 || echo 0)"
+called=$(grep -ohE 'gw_uplink_call\(G\.shell, ("[a-z_.]+"|m->name)' $D/main.c | sed 's/.*G\.shell, //' | sort | uniq -c | awk '{print $2 "x" $1}' | tr '\n' ' ')
+check "on it the gateway calls capture.status, capture.request_cancel and a row by its name, and nothing else ($called)" \
+    "$([ "$called" = '"capture.request_cancel"x1 "capture.status"x2 m->namex1 ' ] && echo 1 || echo 0)"
+none "no shell.* method is named anywhere, and no subscription to the shell" '"shell\.[a-z_]+"|shell\.subscribe' $SRC
+check "the gateway's cancel is no method of a client: not a row, and sent from one function" \
+    "$(echo "$names" | grep -q 'request_cancel' && echo 0 ||
+       { [ "$(grep -c '"capture.request_cancel"' $D/main.c)" = 1 ] &&
+         awk '/^static bool cap_send_cancel\(/,/^}/' $D/main.c | grep -q '"capture.request_cancel"' && echo 1 || echo 0; })"
+check "and it always names the request it takes back" \
+    "$(awk '/^static bool cap_send_cancel\(/,/^}/' $D/main.c | grep -q 'cJSON_AddStringToObject(p, "request", token) == NULL' &&
+       [ "$(grep -c 'cap_send_cancel(' $D/main.c)" = 4 ] &&
+       [ "$(grep -cE 'cap_send_cancel\(G\.cap\.token, (say|NULL), TAG_CAP_CANCEL\)|cap_send_cancel\(G\.cap_late, NULL, TAG_CAP_LATE\)' $D/main.c)" = 3 ] && echo 1 || echo 0)"
+check "a cancel says a request was refused only when the unit answers that it took the sheet down" \
+    "$(awk '/^static void cap_on_reply\(/,/^}/' $D/main.c |
+       grep -q 'if (say != NULL && result != NULL && cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(result, "shown"))) {' && echo 1 || echo 0)"
+check "a request whose answer did not come is taken back, not forgotten" \
+    "$(awk '/^static void cap_ask_answered\(/,/^}/' $D/main.c | grep -q 'cap_cancel("its answer did not come", NULL);' &&
+       awk '/^static void cap_ask_answered\(/,/^}/' $D/main.c | grep -q 'cap_cancel_later(G.cap.token);' &&
+       awk '/^static void cap_tick\(/,/^}/' $D/main.c | grep -q 'cap_send_cancel(G.cap_late, NULL, TAG_CAP_LATE);' &&
+       awk '/^static void cap_on_state\(/,/^}/' $D/main.c | grep -q 'cap_cancel_later(G.cap.token);' && echo 1 || echo 0)"
+check "the capability is offered by the client's own scope, so a client without it sees no change" \
+    "$(grep -B1 -A6 'if ((scopes & GW_S_CAPTURE_VIEW) != 0) {' $D/main.c | grep -q 'cJSON_CreateString("capture")' && echo 1 || echo 0)"
+check "who asks is the paired name, and the request's name is the gateway's own random one" \
+    "$(awk '/^static bool do_capture\(/,/^}/' $D/main.c | grep -q 'cJSON_AddStringToObject(up, "client", G.store.c\[idx\].name)' &&
+       awk '/^static bool do_capture\(/,/^}/' $D/main.c | grep -q 'gw_tls_random(rnd, sizeof(rnd))' && echo 1 || echo 0)"
+check "the shell's events are taken from nobody: the callback is empty" \
+    "$([ "$(awk '/^static void cap_on_event\(/,/^}/' $D/main.c | grep -c ';')" = 3 ] && echo 1 || echo 0)"
+check "an answer of the unit reaches a client only through its row's filter" \
+    "$(awk '/^static void cap_on_reply\(/,/^}/' $D/main.c | grep -q 'gw_filter_result(q->m, result)' &&
+       [ "$(awk '/^static void cap_on_reply\(/,/^}/' $D/main.c | grep -c 'req_done(')" = 1 ] && echo 1 || echo 0)"
+capblock=$(awk '/^\/\* ---- PacketShark.s capture/,/^static bool do_subscribe\(/' $D/main.c)
+check "an event of a capture is made by gw_capture, never from the unit's answer itself" \
+    "$(echo "$capblock" | grep -E 'mesh_emit\(|pocketipc_event\(' |
+       grep -vqE 'mesh_emit\(GW_T_CAPTURE, "capture\.(state|stats)", (state|stats|gw_capture_outcome\((say|outcome)\)), (true|false)\);|mesh_emit\(GW_T_CAPTURE, "gateway\.upstream", d, false\);|pocketipc_event\("capture\.state", again\)' &&
+       echo 0 || echo 1)"
+check "the capture block was found, and names result only to filter it, to read shown, or to hand it to gw_capture" \
+    "$([ -n "$capblock" ] && [ -z "$(echo "$capblock" | grep -E '\bresult\b' |
+       grep -vE 'result (!=|==) NULL|gw_filter_result\(q->m, result\)|GetObjectItemCaseSensitive\(result, "shown"\)|gw_capture_step\(&G\.cap, result,|cap_ask_answered\(result, code, now\)|const cJSON \*result, int code')" ] && echo 1 || echo 0)"
+none "the capture code is free of I/O and of the session's types" 'SSL|socket\(|epoll|read\(|write\(|LOG_|struct sess' $D/gw_capture.c $D/gw_capture.h
 check "upstream calls pass no client parameter" \
     "$(grep -q 'pocketipc_call_timeout(u->fd, m->name, NULL,' $D/main.c && echo 1 || echo 0)"
 check "upstream methods are called only by table name" \
@@ -90,7 +141,8 @@ own=$(grep -oE 'gw_uplink_call\(G\.mesh, "[a-z_.]+"' $D/main.c | grep -oE '"[a-z
 check "the gateway's own calls to meshcored are status, subscribe, messages and send" \
     "$([ "$own" = '"mesh.messages""mesh.send""mesh.status""mesh.subscribe"' ] && echo 1 || echo 0)"
 check "every other call to meshcored is a table row by its name" \
-    "$([ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 7 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] && echo 1 || echo 0)"
+    "$([ "$(grep -c 'gw_uplink_call(G.mesh,' $D/main.c)" = 7 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] &&
+       [ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 11 ] && [ "$(grep -c 'gw_uplink_call(G.shell,' $D/main.c)" = 4 ] && echo 1 || echo 0)"
 check "what goes upstream with a client's request is the row's own parameter check" \
     "$(grep -q 'gw_uplink_call(G.mesh, m->name, up,' $D/main.c && grep -q 'm->params(params, &up)' $D/main.c && echo 1 || echo 0)"
 # 4c. Sending (M4.2): two rows, by mesh_send only; one place passes a

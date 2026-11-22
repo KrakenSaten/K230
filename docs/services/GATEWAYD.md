@@ -41,7 +41,9 @@ Served to a paired client with the `mesh_read` scope: `mesh.identity`, `mesh.nod
 | Rows, filters, parameters, topics | `gw_policy.c` | Seven table rows; every result and event reduced to named fields; every parameter checked and written again |
 | The mesh section | `main.c` | meshcored's events into the journal and to subscribers; requests without waiting; the limit of 8 waiting requests per client |
 
-**Still not served** (each "unknown method"): the capture group (ADR-016 amendment 1 is still proposed), and the topics `device` and `capture`, which a subscription leaves out.
+**The capture group (G1; ADR-016 amendment 1 and ADR-019 rule 6a, both of 2026-11-22):** `capture.status`, `capture.hold`, `capture.stop`, `capture.request_start` and the topic `capture`, served through a second non-blocking connection, to the shell's socket, held only while some paired client has `capture_view` (`gw_capture.[ch]`; `docs/api/gateway.md` section 9 says how). The gateway never listens to the shell: it asks `capture.status` once a second while a client holds the topic and makes the events from the answers. Its own `capture.request_cancel` takes back a waiting start request, by name, when its client disconnects, is revoked, loses `capture_control`, or the request expires. Nothing the gateway sends starts a capture. Tests: `tests/gatewayd_capture_unit.inc`, `tests/gatewayd_capture_e2e_test.py`, `tests/gatewayd_lint.sh`. Host-tested against a fake shell only.
+
+**Still not served:** the topic `device`, which a subscription leaves out.
 
 ## What M4.2 adds: sending
 

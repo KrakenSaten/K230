@@ -206,9 +206,9 @@ static const char *s(const cJSON *o, const char *key)
 static const char *const top_keys[] = {
     "available", "state", "reason", "iface", "keep", "elapsed_ms", "limit_s", "seen", "stored", "held",
     "kernel_drops", "iface_drops", "shed", "bytes", "pps", "bps", "fill_permille", "classes", "findings",
-    "diag", "requested_by_companion", NULL,
+    "diag", "requested_by_companion", "request", NULL,
 };
-static const char *const string_keys[] = { "state", "reason", "iface", "keep", NULL };
+static const char *const string_keys[] = { "state", "reason", "iface", "keep", "request", NULL };
 
 static int in_list(const char *const *list, const char *key)
 {
@@ -714,6 +714,19 @@ int main(void)
         o = psk_remote_json(&f);
         check("setup never says it", cJSON_IsFalse(cJSON_GetObjectItem(o, "requested_by_companion")));
         cJSON_Delete(o);
+        {
+            static const char *const want[] = { "none", "shown", "refused", "timeout", "none" };
+            int ok = 1;
+
+            for (i = 0; i < 5; i++) {
+                psk_remote_take(&M, PSK_REMOTE_IDLE, false, 300, false, &f);
+                f.request = (uint8_t)(i < 4 ? i : 99);
+                o = psk_remote_json(&f);
+                ok = ok && strcmp(s(o, "request"), want[i]) == 0 && shape_ok(o);
+                cJSON_Delete(o);
+            }
+            check("where a start request stands is one of four words, whatever the number", ok);
+        }
         check("a request's two outcomes have their words",
               strcmp(psk_remote_reason_name(PSK_RR_REFUSED), "refused") == 0 &&
                   strcmp(psk_remote_reason_name(PSK_RR_TIMEOUT), "timeout") == 0 &&
