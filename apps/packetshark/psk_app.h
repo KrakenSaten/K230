@@ -376,6 +376,8 @@ struct psk_app {
     int limit_idx;
     enum ppc_cfilter cfilter;
     bool starting;       /* START pressed, the capture not yet confirmed */
+    bool run_full;       /* what the capture command last sent asked for: FULL, */
+    uint32_t run_limit_s; /* and its time limit (capture.status reports these) */
     bool pending_start;  /* the capture command waits for the helper's hello */
     bool discarding;     /* discard sent: the helper is on its way out */
     bool failed_view;    /* the helper ended a capture badly: the error panel */

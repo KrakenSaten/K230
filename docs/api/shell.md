@@ -273,10 +273,11 @@ wake it.
 
 An app inside the shell may serve methods of its own on this socket while it
 is in front (`ui/shell/app.h`: `ipc_prefix`, `ipc_request`, `ipc_status`,
-`ipc_opens`; the rules are `ui/shell/app_ipc.c`). **No app of the product
-serves any yet.** The only one that does is the probe of the simulator's
-tests (`ui/shell/app_probe.c`, present only when `POCKETOS_TEST_PROBE` is set
-in a simulator build), which is what `tests/shell_app_methods_test.sh` asks.
+`ipc_opens`; the rules are `ui/shell/app_ipc.c`). **One app of the product
+serves one method:** PacketShark's `capture.status` (below). The only other
+is the probe of the simulator's tests (`ui/shell/app_probe.c`, present only
+when `POCKETOS_TEST_PROBE` is set in a simulator build), which is what
+`tests/shell_app_methods_test.sh` asks.
 
 - **Names.** An app's methods all begin with its prefix: lower-case words
   ending in a dot. A prefix is never in the shell's own names (`shell.`) and
@@ -319,6 +320,84 @@ in a simulator build), which is what `tests/shell_app_methods_test.sh` asks.
 `worst_us`, `worst_method`, `too_large`, `closed_status`, `closed_refused`,
 `opened`, `open_refused`, `events`, `events_dropped` - counts since the
 shell started.
+
+### `capture.status` (PacketShark)
+
+The state of PacketShark's capture and its aggregate figures, read from the
+model the app already holds (`apps/packetshark/psk_remote.[ch]`). It reads
+and nothing else: it starts no capture and no helper, sends the helper
+nothing, changes nothing on the screen and logs nothing. It takes no
+parameters.
+
+**Reach.** This is a method on the unit's own socket. Nothing passes it to a
+paired phone: gatewayd knows no `capture.*` name, and letting a companion
+read it is ADR-016 amendment 1, which is proposed and not accepted.
+
+While PacketShark is not in front (closed, behind the lock, under an alarm)
+the answer is `{"available": false}` and nothing else (also in front, should
+the app have failed to start). In front:
+
+```json
+{"available": true, "state": "capturing", "reason": "none", "iface": "eth0", "keep": "headers",
+ "elapsed_ms": 61250, "limit_s": 900, "seen": 48211, "stored": 48211, "held": 0,
+ "kernel_drops": 0, "iface_drops": 0, "shed": 0, "bytes": 31022764, "pps": 812, "bps": 4120000,
+ "fill_permille": 310,
+ "classes": {"tcp": 39120, "udp": 5210, "dns": 1630, "dhcp": 4, "arp": 61, "icmp": 12, "ipv6": 2101, "other": 73},
+ "findings": [0, 3, 0, 1, 0, 0],
+ "diag": {"dns_queries": 815, "dns_retries": 4, "dns_answered": 800, "dns_late": 5, "dns_noreply": 6,
+          "dns_waiting": 0, "dns_nxdomain": 2, "dns_servfail": 0, "dns_refused": 0,
+          "dns_rtt_sum_us": 18400000, "dns_rtt_max_us": 950000, "tcp_attempts": 40, "tcp_connected": 38,
+          "tcp_timed": 37, "tcp_hs_sum_us": 1900000, "tcp_hs_max_us": 120000, "tcp_refused": 1,
+          "tcp_aborted": 2},
+ "requested_by_companion": false}
+```
+
+- `state` is what the screen shows: `idle` (setup, and START tapped but the
+  helper not yet capturing), `capturing`, `hold`, `saving`, `stopped`, or
+  `ended` (the panel of a capture whose helper ended badly; the figures are
+  then the last session's).
+- `reason`: `none`; for `stopped` and `saving` why it stopped, `user`,
+  `limit`, `link`, `end` (a replayed file ended) or `error` (the source
+  failed); for `ended`, `helper_hung` (it stopped answering and was killed)
+  or `helper_crashed` (it is gone in any other way).
+- In `idle` there is no capture: `iface` is empty, `keep` is `headers` and
+  every figure is zero, whatever was chosen on the setup screen.
+- `iface` is the capture's interface when its name is `eth`, `wlan`, `usb`
+  or `synth` and one or two digits; any other name is sent as `""` (a name
+  can be chosen, and the kernel's `enx...`/`wlx...` names are a hardware
+  address).
+- `keep` (`headers` or `full`) and `limit_s` (0: none) are what the capture
+  command asked for, kept when it was sent.
+- Figures are zero until the helper's first figures arrive;
+  `fill_permille` is never over 1000.
+- `pps` and `bps` are zero unless the state is `capturing` or `hold`.
+- `classes` counts frames by PacketShark's eight classes, `findings` its six
+  findings in their order (retransmission, TCP reset, DNS failure,
+  unreachable, unanswered SYN, unanswered DNS query), `diag` totals and times
+  of the DNS and TCP diagnosis, all since START.
+- Every figure is a whole number, a count, a rate, a size or a time, never
+  over 999,999,999,999,999. `requested_by_companion` is always `false`: no
+  companion can ask for a capture.
+
+**What is never in it:** a packet or a byte of one, a row of the list, the
+inspected packet, an address, a host or DNS name, a port, a packet's
+sequence number (the diagnosis' "slowest answer" is a packet, and stays), a
+saved capture's name, the helper's version or its own words. The answer is
+made from a structure that has room for none of these, and
+`tests/packetshark_lint.sh` holds the list of the model's members that may
+be read into it and the list of every key and word it can carry.
+
+`docs/api/gateway.md` section 9 (on the companion branches) is the proposed
+contract for a phone and is not changed by this. It differs in `reason`: it
+lists `left`, `refused` and `timeout`, which belong to a start request and to
+events and do not exist here, and it does not list `user`, `end` and `error`.
+The two are to be made one when the later steps are decided.
+
+No other `capture.*` method exists. In front, any other name under the
+prefix is error 1; not in front it is error 3, "PacketShark is not open".
+No method opens PacketShark, and it raises no event. Tests:
+`tests/psk_remote_test.c`, `tests/capture_status_shell_test.sh`,
+`tests/packetshark_app_test.c`.
 
 ## Events
 

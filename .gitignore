@@ -215,6 +215,7 @@ BUILD_ID
 /tests/ppc_mkfixtures
 /tests/psk_model_test
 /tests/psk_session_test
+/tests/psk_remote_test
 /tests/ppc_view_test
 /tests/ppc_dissect_test
 /tests/ppc_signals_test

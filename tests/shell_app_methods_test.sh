@@ -46,7 +46,7 @@ stop_shell() { [ -n "$SP" ] && kill $SP 2>/dev/null; wait $SP 2>/dev/null; SP=; 
 # ---- 1. a shell with no app that serves anything: nothing changed ------------
 start_shell "" || { echo "FAIL the shell did not start"; cat "$OUT/shell.log" | tail -5; exit 1; }
 check "without the probe its names do not exist" '^ERR 1 unknown method' "$(call probe.status)"
-check "nor does any other name outside shell." '^ERR 1 unknown method' "$(call capture.status)"
+check "nor does any other name outside shell." '^ERR 1 unknown method' "$(call nobody.status)"
 check "an unknown shell method is still unknown" '^ERR 1 unknown method' "$(call shell.nothing)"
 is "no handler was called" 0 "$(stat calls)"
 is "the budget is reported" 2000 "$(stat budget_us)"
@@ -54,8 +54,8 @@ is "the limit is reported" 8192 "$(stat result_max)"
 check "the probe is in no app list" '^0$' "$(call shell.info | grep -c '"id": *"probe"')"
 stop_shell
 
-# ---- 2. no app of the product serves a method or opens itself yet ------------
-is "only the probe declares a prefix" "ui/shell/app_probe.c" \
+# ---- 2. what the product's apps serve: PacketShark its status (H2); none opens itself
+is "PacketShark and the probe declare a prefix, and no other app" "apps/packetshark/psk_app.c ui/shell/app_probe.c" \
    "$(grep -rlE '\.ipc_prefix[[:space:]]*=' apps ui --include='*.c' | sort | tr '\n' ' ' | sed 's/ $//')"
 is "only the probe declares an opening method" "ui/shell/app_probe.c" \
    "$(grep -rlE '\.ipc_opens[[:space:]]*=' apps ui --include='*.c' | sort | tr '\n' ' ' | sed 's/ $//')"
