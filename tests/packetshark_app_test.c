@@ -110,6 +110,16 @@ void pocketos_shell_go_home(void)
     g_home++;
 }
 
+/* The header's hint, the mark that a companion is reading aside (it is
+ * there for five seconds after any capture.* request: remote_request()
+ * holds when). */
+static bool hint_is(const char *want)
+{
+    size_t n = strlen(want);
+
+    return strncmp(g_hint, want, n) == 0 && (g_hint[n] == '\0' || strcmp(g_hint + n, " · COMPANION") == 0);
+}
+
 /* The events the app raises (capture.state, capture.stats), kept in order as
  * the shell would pass them on; g_ev_front false stands for a unit that is
  * locked, where the shell passes nothing on and says so. */
@@ -733,7 +743,7 @@ static void setup_screens(void)
     g_link = 1;
     app_start();
     CHECK("setup: READY with a link, nothing captured yet",
-          shown("READY") && shown("NOTHING IS CAPTURED UNTIL YOU START") && strcmp(g_hint, "NOT CAPTURING") == 0);
+          shown("READY") && shown("NOTHING IS CAPTURED UNTIL YOU START") && hint_is("NOT CAPTURING"));
     CHECK("eth0 is listed with its link and address", shown("eth0") && shown("LINK UP") &&
                                                           shown("ETHERNET · 192.0.2.44"));
     CHECK("Wi-Fi off: wlan0 listed, not connected, eth0 chosen",
@@ -920,6 +930,20 @@ static bool remote_matches_screen(bool error_panel)
     return ok;
 }
 
+/* A label holding `needle` anywhere in it, within `ms`. */
+static bool wait_has(const char *needle, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end) {
+        if (containing_in(app_body, needle)) {
+            return true;
+        }
+        pump(20);
+    }
+    return containing_in(app_body, needle) != NULL;
+}
+
 static void capture_journey(void)
 {
     lv_obj_t *l;
@@ -927,11 +951,11 @@ static void capture_journey(void)
     setenv("POCKETOS_CAPTURE_SOURCE", "synth:300:1", 1);
     app_start();
     CHECK("the simulator's stand-in is ready", shown("synth0") && shown("SIMULATED TRAFFIC · NO NETWORK") &&
-                                                   strcmp(g_hint, "SIMULATED") == 0);
+                                                   hint_is("SIMULATED"));
     CHECK("capture.status on setup: idle", remote_is("idle", "none") && no_child());
     tap("START CAPTURE");
     CHECK("START: capturing within the hello deadline", wait_for("CAPTURING", 3500));
-    CHECK("the header says so", strcmp(g_hint, "CAPTURING · SYNTH0") == 0);
+    CHECK("the header says so", hint_is("CAPTURING · SYNTH0"));
     pump(1500);
     l = containing_in(app_body, " PKT · ");
     CHECK("counters rise: the readout names the newest second's packets", l && !shown("WAITING FOR PACKETS"));
@@ -940,8 +964,13 @@ static void capture_journey(void)
     shot("capturing");
     CHECK("capture.status while capturing: its state, and the screen's own packets, bytes and drops",
           remote_is("capturing", "none") && remote_matches_screen(false));
+    pump(120);
+    CHECK("and the screen says a companion is reading: in the header, or in the wide shape's own top row",
+          strstr(g_hint, " · COMPANION") != NULL &&
+              (!((struct psk_app *)app_priv)->wide ||
+               strncmp(lv_label_get_text(((struct psk_app *)app_priv)->status_text), "COMPANION · ", 13) == 0));
     tap("HOLD");
-    CHECK("HOLD", wait_for("HOLD: ", 2000) && strcmp(g_hint, "HOLD · SYNTH0") == 0 && shown("RESUME"));
+    CHECK("HOLD", wait_for("HOLD: ", 2000) && hint_is("HOLD · SYNTH0") && shown("RESUME"));
     pump(600);
     CHECK("capture.status on HOLD: its state, and the screen's figures", remote_is("hold", "none") &&
                                                                               remote_matches_screen(false));
@@ -956,7 +985,9 @@ static void capture_journey(void)
     shot("packets");
     CHECK("Back from PACKETS returns to LIVE", app_packetshark.back(app_priv) == 1 && shown("TRAFFIC"));
     tap("STOP");
-    CHECK("STOP: stopped by you", wait_for("SYNTH0 · BY YOU", 2000) && strcmp(g_hint, "STOPPED · SYNTH0") == 0);
+    /* (The wide shape's line begins with the mark that a companion is
+     * reading while the checks above are fresh, so it is looked for whole.) */
+    CHECK("STOP: stopped by you", wait_has("SYNTH0 · BY YOU", 2000) && hint_is("STOPPED · SYNTH0"));
     CHECK("SAVE is offered on a stopped capture", shown("SAVE") && enabled("SAVE") && enabled("DISCARD"));
     pump(300);
     CHECK("capture.status when stopped: by the user, and the screen's figures",
@@ -1239,7 +1270,7 @@ static void remote_control(void)
           remote_call("capture.hold", "{\"on\": true}", st, sizeof(st), &ch) == 0 && strcmp(st, "capturing") == 0 &&
               ch == 1);
     CHECK("the screen is the one a tap on HOLD gives",
-          wait_for("HOLD: ", 2000) && strcmp(g_hint, "HOLD · SYNTH0") == 0 && shown("RESUME") && remote_is("hold", "none"));
+          wait_for("HOLD: ", 2000) && hint_is("HOLD · SYNTH0") && shown("RESUME") && remote_is("hold", "none"));
     CHECK("capture.hold on again: already held, nothing to do",
           remote_call("capture.hold", "{\"on\": true}", st, sizeof(st), &ch) == 0 && strcmp(st, "hold") == 0 && ch == 0);
     pump(600);
@@ -1253,13 +1284,13 @@ static void remote_control(void)
     CHECK("a method that is not served is unknown and does nothing",
           remote_call("capture.discard", NULL, st, sizeof(st), &ch) == POCKETIPC_ERR_UNKNOWN_METHOD &&
               remote_call("capture.save", NULL, st, sizeof(st), &ch) == POCKETIPC_ERR_UNKNOWN_METHOD &&
-              remote_call("capture.request_start", "{\"iface\": \"synth0\", \"limit_s\": 300}", st, sizeof(st), &ch) ==
+              remote_call("capture.start", "{\"iface\": \"synth0\", \"limit_s\": 300}", st, sizeof(st), &ch) ==
                   POCKETIPC_ERR_UNKNOWN_METHOD &&
               remote_is("capturing", "none") && !shown("Discard this capture?"));
     CHECK("capture.stop: taken", remote_call("capture.stop", NULL, st, sizeof(st), &ch) == 0 &&
                                      strcmp(st, "capturing") == 0 && ch == 1);
     CHECK("the screen is the one a tap on STOP gives",
-          wait_for("SYNTH0 · BY YOU", 2000) && strcmp(g_hint, "STOPPED · SYNTH0") == 0 && shown("SAVE") &&
+          wait_for("SYNTH0 · BY YOU", 2000) && hint_is("STOPPED · SYNTH0") && shown("SAVE") &&
               enabled("SAVE") && enabled("DISCARD") && remote_is("stopped", "user"));
     CHECK("the stopped capture keeps its packets and its helper", !no_child() && psk_capture_present(a));
     CHECK("capture.stop and capture.hold on a stopped capture: nothing is capturing",
@@ -1318,6 +1349,281 @@ static void remote_control(void)
     app_stop();
     CHECK("leaving setup says nothing", g_evn == at);
     CHECK("the event log did not overflow", g_evn < EV_MAX);
+}
+
+/* ---- capture.request_start: a sheet that asks, and the reader's mark (H4) ----------------- */
+
+static int ask(const char *params, char *msg, size_t n)
+{
+    return remote_call("capture.request_start", params, msg, n, NULL);
+}
+
+static bool sheet_is_request(void)
+{
+    const struct psk_app *a = app_priv;
+
+    return a->sheet_kind == PSK_SHEET_REQUEST && !lv_obj_has_flag(a->sheet, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* The last event is the request's outcome, raised once, and setup is plain
+ * setup again afterwards. */
+static bool outcome_was(int before, const char *reason)
+{
+    cJSON *o;
+    bool plain;
+
+    if (g_evn != before + 1 || g_ev[g_evn - 1].stats || strcmp(g_ev[g_evn - 1].state, "idle") != 0 ||
+        strcmp(g_ev[g_evn - 1].reason, reason) != 0) {
+        printf("     %d events since, the last %s/%s\n", g_evn - before, g_evn ? g_ev[g_evn - 1].state : "",
+               g_evn ? g_ev[g_evn - 1].reason : "");
+        return false;
+    }
+    o = remote_status();
+    plain = strcmp(cJSON_GetObjectItem(o, "reason")->valuestring, "none") == 0;
+    cJSON_Delete(o);
+    return plain;
+}
+
+static void remote_request(void)
+{
+    struct psk_app *a;
+    char st[96];
+    int ch;
+    int at;
+    cJSON *o;
+    const char *good = "{\"iface\": \"synth0\", \"limit_s\": 300, \"client\": \"Flip8\"}";
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:300:1", 1);
+    g_evn = 0;
+    g_ev_other = 0;
+    g_ev_front = true;
+    app_start();
+    a = app_priv;
+    pump(200);
+    CHECK("nobody has asked anything: the header carries no mark", strcmp(g_hint, "SIMULATED") == 0 && !a->reading);
+
+    /* What cannot be asked. */
+    CHECK("a request without its interface or its limit, or with a client that is not text, is refused as malformed",
+          ask(NULL, st, sizeof(st)) == POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"iface\": \"synth0\"}", st, sizeof(st)) == POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"limit_s\": 300}", st, sizeof(st)) == POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": \"300\"}", st, sizeof(st)) == POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"iface\": 0, \"limit_s\": 300}", st, sizeof(st)) == POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": 300, \"client\": 7}", st, sizeof(st)) == POCKETIPC_ERR_INVALID_PARAMS &&
+              !sheet_is_request());
+    CHECK("an interface the setup screen does not offer cannot be asked for",
+          ask("{\"iface\": \"eth9\", \"limit_s\": 300}", st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "that interface is not offered") == 0 &&
+              ask("{\"iface\": \"\", \"limit_s\": 300}", st, sizeof(st)) == POCKETIPC_ERR_POLICY && !sheet_is_request());
+    CHECK("no limit, or a limit that is not one of the list, cannot be asked for",
+          ask("{\"iface\": \"synth0\", \"limit_s\": 0}", st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "that time limit is not offered") == 0 &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": 120}", st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": 86400}", st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": 300.5}", st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": -300}", st, sizeof(st)) == POCKETIPC_ERR_POLICY && !sheet_is_request());
+    CHECK("capture.request_cancel with no request shown is an error",
+          remote_call("capture.request_cancel", NULL, st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "no request is shown") == 0);
+    CHECK("none of that started a helper or raised an event", no_child() && g_evn == 1);
+
+    /* Asked: a sheet, and nothing else. A name from outside is shown only
+     * as letters, digits and a few marks. */
+    psk_option(a, 1); /* the person's own choice on setup: 60 minutes */
+    at = g_evn;
+    CHECK("a request raises its sheet",
+          ask("{\"iface\": \"synth0\", \"limit_s\": 300, \"client\": \"Flip8 <b>#ff0000 x#\\n%s\", \"keep\": \"full\", "
+              "\"promisc\": true}",
+              st, sizeof(st)) == 0 &&
+              sheet_is_request() && shown("Start a capture?"));
+    CHECK("the sheet names who asks, the interface and the minutes, in plain characters only",
+          containing_in(app_body, "Flip8 bff0000 xs asks to capture on synth0 for 5 minutes, headers only (filter: ") != NULL &&
+              containing_in(app_body, "Nothing is captured unless you tap START.") != NULL &&
+              containing_in(app_body, "never packets, addresses or names") != NULL);
+    CHECK("its two buttons are full targets, REFUSE first",
+          target_ok(a->sheet_safe, button_h(), "REFUSE") && target_ok(a->sheet_go, button_h(), "START") &&
+              strcmp(lv_label_get_text(lv_obj_get_child(a->sheet_safe, 0)), "REFUSE") == 0 &&
+              strcmp(lv_label_get_text(lv_obj_get_child(a->sheet_go, 0)), "START") == 0);
+    shot("h4-request");
+    tap_obj(a->sheet_go);
+    pump(150);
+    CHECK("START tapped in the sheet's first moment is not an answer: the sheet stays, nothing starts",
+          sheet_is_request() && no_child() && !a->starting);
+    pump(1500);
+    CHECK("asking started nothing: no helper, no capture, setup's own choices untouched, no event",
+          no_child() && !a->starting && !psk_capture_present(a) && remote_is("idle", "none") &&
+              psk_limit_min[a->limit_idx] == 60 && a->keep == PPC_KEEP_HEADERS && g_evn == at);
+    CHECK("a second request while one is shown is refused",
+          ask(good, st, sizeof(st)) == POCKETIPC_ERR_POLICY && strcmp(st, "a request is already shown") == 0);
+    CHECK("capture.hold and capture.stop have nothing to act on",
+          remote_call("capture.hold", "{\"on\": true}", st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY &&
+              remote_call("capture.stop", NULL, st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY);
+    CHECK("no key answers the sheet", !psk_key(a, LV_KEY_ENTER) && !psk_key(a, 's') && !psk_key(a, ' ') &&
+                                          sheet_is_request() && no_child());
+
+    /* REFUSE, Back, cancel, the lock, time. */
+    tap_obj(a->sheet_safe);
+    pump(400);
+    CHECK("REFUSE, tapped: the sheet goes, nothing starts", !sheet_is_request() && no_child() && shown("START CAPTURE"));
+    CHECK("and it is said once: refused", outcome_was(at, "refused"));
+    pump(1200);
+    CHECK("and not again", g_evn == at + 1);
+    CHECK("nothing of the request is kept, not even under the hidden sheet",
+          a->req_client[0] == '\0' && a->req_iface[0] == '\0' && a->req_limit_s == 0 &&
+              lv_label_get_text(a->sheet_text)[0] == '\0');
+
+    at = g_evn;
+    CHECK("asked again", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    CHECK("Back is REFUSE", app_packetshark.back(app_priv) == 1 && !sheet_is_request());
+    pump(400);
+    CHECK("said: refused", outcome_was(at, "refused") && no_child());
+
+    at = g_evn;
+    CHECK("asked again", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    CHECK("capture.request_cancel takes the sheet down",
+          remote_call("capture.request_cancel", NULL, st, sizeof(st), &ch) == 0 && !sheet_is_request());
+    pump(400);
+    CHECK("said: refused", outcome_was(at, "refused") && no_child());
+
+    at = g_evn;
+    CHECK("asked again", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    g_ev_front = false; /* the unit is locked, or an alarm shows */
+    pump(200);
+    CHECK("the lock takes the sheet down at once, so nobody finds a START they did not see asked for",
+          !sheet_is_request() && no_child() && g_evn == at);
+    g_ev_front = true;
+    pump(500);
+    CHECK("said when the unit is open again: refused", outcome_was(at, "refused"));
+
+    at = g_evn;
+    CHECK("asked again", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    CHECK("the sheet has 60 seconds", a->req_deadline_ms - psk_now() > 59000 && a->req_deadline_ms - psk_now() <= 60000);
+    pump(1200);
+    CHECK("and is still there after one of them", sheet_is_request());
+    a->req_deadline_ms = psk_now() + 150; /* the other 59, not waited for here */
+    pump(500);
+    CHECK("time: the sheet goes by itself, nothing starts", !sheet_is_request() && no_child());
+    CHECK("said: timeout", outcome_was(at, "timeout"));
+
+    /* Another sheet is up: no request over it. */
+    psk_option(a, 0);
+    CHECK("a request while another sheet is up is refused",
+          shown("Keep full packets?") && ask(good, st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "a sheet is open on the unit") == 0 && shown("Keep full packets?"));
+    psk_sheet_answer(a, true); /* the person chooses FULL for their next capture */
+    CHECK("the person's own choice on setup is FULL now", a->keep == PPC_KEEP_FULL);
+
+    /* START, tapped on the sheet. */
+    at = g_evn;
+    CHECK("asked again", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    pump(PSK_REQUEST_SETTLE_MS + 200);
+    tap_obj(a->sheet_go);
+    CHECK("START, tapped on the sheet: capturing", wait_for("CAPTURING", 3500) && !sheet_is_request());
+    CHECK("nothing of the request is kept once it is answered",
+          a->req_client[0] == '\0' && a->req_iface[0] == '\0' && a->req_limit_s == 0 &&
+              lv_label_get_text(a->sheet_text)[0] == '\0');
+    pump(1300);
+    o = remote_status();
+    CHECK("it is the capture the sheet said: synth0, 5 minutes, HEADERS whatever setup had, and marked as asked for",
+          strcmp(cJSON_GetObjectItem(o, "iface")->valuestring, "synth0") == 0 &&
+              cJSON_GetObjectItem(o, "limit_s")->valuedouble == 300 &&
+              strcmp(cJSON_GetObjectItem(o, "keep")->valuestring, "headers") == 0 &&
+              cJSON_IsTrue(cJSON_GetObjectItem(o, "requested_by_companion")) && !a->run_full);
+    cJSON_Delete(o);
+    CHECK("the listeners hear capturing, with no refusal before it",
+          g_evn > at && !g_ev[at].stats && strcmp(g_ev[at].state, "capturing") == 0 && strcmp(g_ev[at].reason, "none") == 0);
+    CHECK("a request while a capture runs is refused", ask(good, st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+                                                        strcmp(st, "a capture is running") == 0 && !sheet_is_request());
+
+    /* The reader's mark (ADR-016 rule 20). */
+    pump(200);
+    CHECK("while requests come, the header says a companion is reading, beside the state",
+          strcmp(g_hint, "CAPTURING · SYNTH0 · COMPANION") == 0 && a->reading);
+    pump(PSK_READER_MS + 400);
+    CHECK("five seconds after the last one it no longer says so", strcmp(g_hint, "CAPTURING · SYNTH0") == 0 && !a->reading);
+    at = g_evn;
+    pump(2400);
+    CHECK("and while it does not, no figures are raised to anybody", stats_between(at, g_evn) == 0);
+    cJSON_Delete(remote_status());
+    pump(150);
+    CHECK("one status request and it says so again", strcmp(g_hint, "CAPTURING · SYNTH0 · COMPANION") == 0);
+    pump(1400);
+    CHECK("and the figures come again", stats_between(at, g_evn) >= 1);
+    tap("PACKETS");
+    pump(300);
+    CHECK("on PACKETS too", strcmp(g_hint, "CAPTURING · SYNTH0 · COMPANION") == 0);
+    tap("LIVE");
+    pump(200);
+
+    /* The capture a request began is an ordinary one from there on. */
+    CHECK("capture.stop stops it", remote_call("capture.stop", NULL, st, sizeof(st), &ch) == 0 &&
+                                       wait_for("SYNTH0 · BY YOU", 2000) && remote_is("stopped", "user"));
+    CHECK("a request over a stopped capture is refused", ask(good, st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
+                                                          strcmp(st, "a capture is running") == 0);
+    tap("DISCARD");
+    tap_last("DISCARD");
+    CHECK("DISCARD: setup again, HEADERS again, and the person's own 60 minutes back",
+          wait_for("START CAPTURE", 1500) && a->keep == PPC_KEEP_HEADERS && psk_limit_min[a->limit_idx] == 60);
+    pump(600);
+    tap("START CAPTURE");
+    CHECK("a capture started on the setup screen", wait_for("CAPTURING", 3500));
+    pump(600);
+    o = remote_status();
+    CHECK("is nobody's request", cJSON_IsFalse(cJSON_GetObjectItem(o, "requested_by_companion")));
+    cJSON_Delete(o);
+    app_stop();
+
+    /* Leaving with the question unanswered refuses it. */
+    app_start();
+    a = app_priv;
+    pump(200);
+    CHECK("asked", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    at = g_evn;
+    app_stop();
+    CHECK("leaving refuses it: said once as the app goes, and no helper was ever started",
+          g_evn == at + 1 && !g_ev[at].stats && strcmp(g_ev[at].state, "idle") == 0 &&
+              strcmp(g_ev[at].reason, "refused") == 0 && no_child());
+
+    /* START on the sheet with no helper to start: the request is refused
+     * after all, and setup says why. */
+    setenv("POCKETOS_CAPTURE_HELPER", "/nonexistent/pos-capture", 1);
+    app_start();
+    a = app_priv;
+    pump(200);
+    CHECK("asked", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
+    at = g_evn;
+    pump(PSK_REQUEST_SETTLE_MS + 200);
+    tap_obj(a->sheet_go);
+    CHECK("START with no helper: said on setup", wait_for("! THE CAPTURE HELPER IS NOT INSTALLED", 2500));
+    pump(500);
+    CHECK("and to the listeners: refused, and nothing is marked as asked for", outcome_was(at, "refused") && !a->by_companion);
+    app_stop();
+    setenv("POCKETOS_CAPTURE_HELPER", getenv("PACKETSHARK_HELPER"), 1);
+    CHECK("the app raised no event but its two", g_ev_other == 0 && g_evn < EV_MAX);
+}
+
+/* The request's sheet in the shape in force (run for the wide one): it fits,
+ * its buttons can be reached, and REFUSE refuses. */
+static void request_shape(void)
+{
+    struct psk_app *a;
+    char st[96];
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:300:1", 1);
+    app_start();
+    a = app_priv;
+    pump(200);
+    CHECK("a request's sheet in this shape", ask("{\"iface\": \"synth0\", \"limit_s\": 900}", st, sizeof(st)) == 0 &&
+                                                 sheet_is_request() && shown("Start a capture?"));
+    CHECK("names a companion when no name was given",
+          containing_in(app_body, "A companion asks to capture on synth0 for 15 minutes") != NULL);
+    CHECK("its buttons are full targets inside the screen",
+          target_ok(a->sheet_safe, button_h(), "REFUSE") && target_ok(a->sheet_go, button_h(), "START"));
+    shot("h4-request");
+    tap_obj(a->sheet_safe);
+    pump(300);
+    CHECK("REFUSE refuses", !sheet_is_request() && no_child());
+    app_stop();
 }
 
 /* ---- M4: the graph, the protocols, the layout ----------------------------------------- */
@@ -2170,7 +2476,7 @@ static void faults(void)
     tap("START CAPTURE");
     CHECK("a crashing helper: the error panel", wait_for("Capture ended unexpectedly", 5000) &&
                                                     shown("CRASHED (SIG 11)") && shown("RELEASED"));
-    CHECK("the header says the capture ended", strcmp(g_hint, "CAPTURE ENDED") == 0);
+    CHECK("the header says the capture ended", hint_is("CAPTURE ENDED"));
     CHECK("capture.status on the error panel: ended, the helper crashed, LAST SESSION's figures",
           remote_is("ended", "helper_crashed") && remote_matches_screen(true));
     CHECK("NEW CAPTURE is the one way on", shown("NEW CAPTURE") && enabled("NEW CAPTURE"));
@@ -2612,6 +2918,7 @@ int main(void)
     wifi_screens();
     capture_journey();
     remote_control();
+    remote_request();
     m4_live(true);
     m5_m6(true);
     m7_m9(true);
@@ -2622,6 +2929,7 @@ int main(void)
     setup_screens();
     wifi_screens();
     capture_journey();
+    request_shape();
     m4_live(false);
     m5_m6(false);
     m7_m9(false);

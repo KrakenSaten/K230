@@ -60,6 +60,8 @@ enum psk_remote_reason {
     PSK_RR_HELPER_CRASHED,
     PSK_RR_HELPER_HUNG,
     PSK_RR_LEFT,
+    PSK_RR_REFUSED, /* a start request: refused on the unit, or it could not start */
+    PSK_RR_TIMEOUT, /* a start request: nobody answered it in time */
     PSK_RR_COUNT
 };
 
@@ -69,6 +71,7 @@ struct psk_remote_figures {
     uint8_t state;         /* enum psk_remote_state */
     uint8_t reason;        /* enum psk_remote_reason */
     bool keep_full;
+    bool by_companion;     /* started from a start request's sheet, by a tap on it */
     char iface[PPC_IFACE_MAX]; /* eth, wlan, usb or synth and one or two digits, or "" */
     uint32_t limit_s;      /* 0: none */
     uint32_t fill_permille;
@@ -90,9 +93,10 @@ struct psk_remote_figures {
 /* Fill `out` from the model for what the screen shows. In PSK_REMOTE_IDLE
  * there is no capture and every figure is zero, whatever the model still
  * holds of an earlier one. keep_full and limit_s are the choices the capture
- * was started with. */
+ * was started with; by_companion, that it was started from the sheet of a
+ * start request. */
 void psk_remote_take(const struct psk_model *m, enum psk_remote_phase phase, bool keep_full, uint32_t limit_s,
-                     struct psk_remote_figures *out);
+                     bool by_companion, struct psk_remote_figures *out);
 
 /* The `capture.status` answer, or NULL when memory is short. The caller owns
  * it. */

@@ -105,13 +105,14 @@ is "locked: the status says not available, and nothing else" 'OK {"available": f
 check "unlock, as a person at the unit" '"locked": false' "$(call shell.unlock)"
 is "home" home "$(info 'd["current"]')"
 is "closed: the status says not available, and nothing else" 'OK {"available": false}' "$(call capture.status)"
-for m in capture.hold capture.stop capture.request_start capture.discard capture.save capture.rows capture.x; do
+for m in capture.hold capture.stop capture.request_cancel capture.discard capture.save capture.rows capture.x; do
     check "closed: $m is refused as unavailable" '^ERR 3 PacketShark is not open$' "$(call $m '{"on": true, "iface": "synth0", "limit_s": 300}')"
 done
 is "and none of them opened the app" home "$(info 'd["current"]')"
 is "nor called it" 0 "$(info 'd["app_ipc"]["calls"]')"
 is "nor started a helper" 0 "$(helpers)"
-is "PacketShark declares no method that opens it" 0 "$(grep -cE '\.ipc_opens[[:space:]]*=' apps/packetshark/psk_app.c)"
+is "one method may open it: the start request (tests/capture_request_shell_test.sh)" '"capture.request_start", NULL' \
+   "$(grep -E 'psk_ipc_opens\[\] *=' apps/packetshark/psk_app.c | sed 's/.*{ *//; s/ *}.*//')"
 is "and one status method" '"capture.status", NULL' \
    "$(grep -E 'psk_ipc_status\[\] *=' apps/packetshark/psk_app.c | sed 's/.*{ *//; s/ *}.*//')"
 
@@ -130,7 +131,7 @@ is "setup: idle, no reason, no interface, HEADERS" "idle none [] headers" "$(of 
 is "setup: every figure zero" 0 "$(of "$S" 'sum(v for k, v in d.items() if type(v) is int) + sum(d["classes"].values()) + sum(d["findings"]) + sum(d["diag"].values())')"
 is "asking started no helper" 0 "$(helpers)"
 is "and wrote no capture log" no "$([ -e "$POCKETOS_LOG_DIR/pos-capture.log" ] && echo yes || echo no)"
-check "in front: a method that is not served is unknown" '^ERR 1 unknown method$' "$(call capture.request_start '{"iface": "synth0", "limit_s": 300}')"
+check "in front: a method that is not served is unknown" '^ERR 1 unknown method$' "$(call capture.start '{"iface": "synth0", "limit_s": 300}')"
 sleep 0.3
 is "and it started nothing" "idle 0" "$(of "$(status)" 'd["state"]') $(helpers)"
 
@@ -148,7 +149,7 @@ sleep 1.2
 B=$(status)
 is "capturing: the figures move" True "$(python3 -c "import json,sys; a=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); print(b['seen'] > a['seen'] and b['elapsed_ms'] > a['elapsed_ms'] and b['bytes'] > a['bytes'])" "$A" "$B")"
 is "one helper, the app's own" 1 "$(helpers)"
-for m in capture.discard capture.save capture.request_start; do
+for m in capture.discard capture.save capture.start; do
     check "capturing: $m is not served" '^ERR 1 unknown method$' "$(call $m '{"on": true}')"
 done
 sleep 0.4
