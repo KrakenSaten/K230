@@ -185,7 +185,7 @@ static cJSON *answer(enum psk_remote_phase phase, bool full, uint32_t limit_s)
 {
     struct psk_remote_figures f;
 
-    psk_remote_take(&M, phase, full, limit_s, &f);
+    psk_remote_take(&M, phase, full, limit_s, false, &f);
     return psk_remote_json(&f);
 }
 
@@ -540,7 +540,7 @@ int main(void)
         struct psk_remote_figures f;
 
         memset(&f, 0xff, sizeof(f));
-        psk_remote_take(NULL, PSK_REMOTE_CAPTURE, true, 900, &f);
+        psk_remote_take(NULL, PSK_REMOTE_CAPTURE, true, 900, false, &f);
         o = psk_remote_json(&f);
         check("no model: idle, zeros", strcmp(s(o, "state"), "idle") == 0 && all_zero(o) &&
                                           strcmp(s(o, "keep"), "headers") == 0);
@@ -560,7 +560,7 @@ int main(void)
 
         M.state = PPC_STATE_STOPPED;
         M.reason = PPC_REASON_LIMIT;
-        psk_remote_take(&M, PSK_REMOTE_CAPTURE, true, 300, &f);
+        psk_remote_take(&M, PSK_REMOTE_CAPTURE, true, 300, false, &f);
         o = psk_remote_state_json(&f);
         text = cJSON_PrintUnformatted(o);
         i = 0;
@@ -695,6 +695,30 @@ int main(void)
         psk_remote_tried(&e, PSK_REMOTE_DUE_STATS, &f, 4000000000ll, true);
         check("a clock that starts again from zero does not stop the figures", psk_remote_due(&e, &f, 5) ==
                                                                                  PSK_REMOTE_DUE_STATS);
+    }
+
+    /* ---- a capture started from a start request's sheet, and a request's outcomes ---------- */
+    poison();
+    {
+        struct psk_remote_figures f;
+
+        psk_remote_take(&M, PSK_REMOTE_CAPTURE, false, 300, true, &f);
+        o = psk_remote_json(&f);
+        text = cJSON_PrintUnformatted(o);
+        check("a capture started from a request's sheet says so, and is otherwise as any other",
+              cJSON_IsTrue(cJSON_GetObjectItem(o, "requested_by_companion")) && n(o, "seen") == 48211 &&
+                  n(o, "limit_s") == 300 && clean(text));
+        cJSON_free(text);
+        cJSON_Delete(o);
+        psk_remote_take(&M, PSK_REMOTE_IDLE, false, 300, true, &f);
+        o = psk_remote_json(&f);
+        check("setup never says it", cJSON_IsFalse(cJSON_GetObjectItem(o, "requested_by_companion")));
+        cJSON_Delete(o);
+        check("a request's two outcomes have their words",
+              strcmp(psk_remote_reason_name(PSK_RR_REFUSED), "refused") == 0 &&
+                  strcmp(psk_remote_reason_name(PSK_RR_TIMEOUT), "timeout") == 0 &&
+                  strcmp(psk_remote_reason_name(PSK_RR_LEFT), "left") == 0 &&
+                  strcmp(psk_remote_reason_name(PSK_RR_COUNT), "none") == 0);
     }
 
     printf("psk_remote_test: %d checks, %d failed\n", checks, failed);

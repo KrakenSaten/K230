@@ -1,6 +1,6 @@
 # Companion Gateway protocol v1 (`gateway.*`)
 
-Status: **draft; partly implemented (M2, M4.1 and M4.2, host-tested only).** `services/gatewayd` serves §5 (the topics `device` and `capture` are not served yet), §6 without the `device.status` event, §7, §8, and §10; §9 is not implemented and its methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
+Status: **draft; partly implemented (M2, M4.1 and M4.2, host-tested only).** `services/gatewayd` serves §5 (the topics `device` and `capture` are not served yet), §6 without the `device.status` event, §7, §8, and §10; §9 is not implemented and its methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (accepted 2026-11-22): §9 is not served by the gateway yet. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
 
 Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connection life cycle: `docs/design/companion/PAIRING.md`.
 
@@ -185,13 +185,25 @@ Only with ADR-016 amendment 1. Served by the PacketShark app; the gateway passes
 | `helper_crashed` | `ended` | the helper is gone, however it went; its packets with it |
 | `helper_hung` | `ended` | the helper stopped answering and was ended |
 | `left` | `ended` | PacketShark was left with a capture in it, which ends the capture. Only ever in a `capture.state` event: afterwards the app is not there to be asked |
-| `refused`, `timeout` | (none yet) | reserved for the outcome of a start request (ADR-016 amendment 1 rule 1a). Nothing raises them |
+| `refused` | `idle` | a start request ended without a capture: REFUSE or Back on its sheet, the unit locked or an alarm over it, the app left, the request withdrawn, or START tapped and the capture could not start. Said once, in a `capture.state` event, and in a status only until that event has gone out |
+| `timeout` | `idle` | a start request's sheet was not answered in 60 s. Said once, likewise |
 
 - Every figure is a count, a rate or a size. **No field identifies a host**; ADR-016 rule 11a lists what may be here.
 
 Events (topic `capture`): `capture.state` `{state, reason, iface, keep, limit_s}` on every change; `capture.stats`, the figures above, once after each change of state that has figures (unless it changes again first) and once a second while capturing or held. Figures never come before their state; at most four of each in a second, the last `ended`/`left` aside.
 
-**Where this stands.** PacketShark serves `capture.status`, `capture.hold`, `capture.stop` and the two events on the unit's own shell socket (`docs/api/shell.md`). The gateway passes none of them on and knows no `capture.*` name: this section still binds nothing until ADR-016 amendment 1 is accepted. `capture.request_start` is not implemented anywhere.
+**Where this stands.** ADR-016 amendment 1 was accepted on 2026-11-22. PacketShark serves `capture.status`, `capture.hold`, `capture.stop`, `capture.request_start`, `capture.request_cancel` and the two events on the unit's own shell socket (`docs/api/shell.md`, which has every answer). **The gateway passes none of them on yet and knows no `capture.*` name.**
+
+What the gateway owes when it does (the acceptance's clarification 5; none of it may be left to the shell or the app):
+
+- `capture_view` for `capture.status` and the topic `capture`; `capture_control` as well for `capture.hold`, `capture.stop` and `capture.request_start`. Checked on every request and on every event before it is sent, and again when a client's scopes change or it is revoked.
+- Events only to clients that hold the topic `capture` now. The shell broadcasts to every listener of its socket and has no topics: the filtering is the gateway's.
+- `client` in `capture.request_start` is the paired client's name as the unit knows it, never text the phone sends.
+- One `capture.request_start` in 30 s per client (error 10), counted before the shell is asked: a request opens PacketShark even when it is then refused.
+- `capture.request_cancel` to the shell when the client that asked disconnects, is revoked or loses `capture_control` while its sheet is up. It is not a method a phone can call.
+- `capture.status` asked of the shell at least every 3 s while any client holds the topic, and not at all when none does. The unit's screen says a companion is reading for five seconds after a request (ADR-016 rule 20), and the app raises `capture.stats` only while it says so: a gateway that stops asking stops getting figures.
+- A 60 s timer of its own for each request it passed on. On a locked unit the outcome event comes only when the unit is open again, and not at all if PacketShark is closed meanwhile; `available: false` from `capture.status` also ends a request.
+- The connection to the shell never blocks the gateway's loop.
 
 ## 10. The local control surface (`gatewayd.sock`)
 

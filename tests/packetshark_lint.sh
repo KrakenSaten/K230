@@ -124,7 +124,7 @@ check "the figures are numbers, a flag and one interface name" "$([ -z "$hits" ]
 [ -n "$hits" ] && echo "$hits" | head -5
 # Every text that can reach the answer: the keys and the enumerated words.
 hits=$(code $R | grep -vE '^#include' | grep -oE '"[^"]*"' | LC_ALL=C sort -u | tr '\n' ' ')
-want='"arp" "available" "bps" "bytes" "capturing" "classes" "dhcp" "diag" "dns" "dns_answered" "dns_late" "dns_noreply" "dns_nxdomain" "dns_queries" "dns_refused" "dns_retries" "dns_rtt_max_us" "dns_rtt_sum_us" "dns_servfail" "dns_waiting" "elapsed_ms" "end" "ended" "error" "eth" "fill_permille" "findings" "full" "headers" "held" "helper_crashed" "helper_hung" "hold" "icmp" "idle" "iface" "iface_drops" "ipv6" "keep" "kernel_drops" "left" "limit" "limit_s" "link" "none" "other" "pps" "reason" "requested_by_companion" "saving" "seen" "shed" "state" "stopped" "stored" "synth" "tcp" "tcp_aborted" "tcp_attempts" "tcp_connected" "tcp_hs_max_us" "tcp_hs_sum_us" "tcp_refused" "tcp_timed" "udp" "usb" "user" "wlan" '
+want='"arp" "available" "bps" "bytes" "capturing" "classes" "dhcp" "diag" "dns" "dns_answered" "dns_late" "dns_noreply" "dns_nxdomain" "dns_queries" "dns_refused" "dns_retries" "dns_rtt_max_us" "dns_rtt_sum_us" "dns_servfail" "dns_waiting" "elapsed_ms" "end" "ended" "error" "eth" "fill_permille" "findings" "full" "headers" "held" "helper_crashed" "helper_hung" "hold" "icmp" "idle" "iface" "iface_drops" "ipv6" "keep" "kernel_drops" "left" "limit" "limit_s" "link" "none" "other" "pps" "reason" "refused" "requested_by_companion" "saving" "seen" "shed" "state" "stopped" "stored" "synth" "tcp" "tcp_aborted" "tcp_attempts" "tcp_connected" "tcp_hs_max_us" "tcp_hs_sum_us" "tcp_refused" "tcp_timed" "timeout" "udp" "usb" "user" "wlan" '
 check "its keys and words are the contract's list, to the letter" "$([ "$hits" = "$want" ] && echo 1 || echo 0)"
 [ "$hits" = "$want" ] || echo "     $hits"
 hits=$(grep -lE 'psk_remote_(take|json|state_json)\(' $A/*.c $A/ui/*.c ui/shell/*.c 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
@@ -147,6 +147,56 @@ check "it takes the app as const" \
 hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_(hold|stop)\(')
 check "the helper is told to hold or stop in one function only (3 calls, psk_session.c's own definitions aside)" \
     "$([ "$hits" = "5" ] && [ "$(body capture_command | grep -cE 'psk_session_(hold|stop)\(')" = "3" ] && echo 1 || echo 0)"
+# A start request (capture.request_start; ADR-016 rules 1 and 1a): asking
+# raises a sheet and starts nothing; a capture starts in one function, which
+# only START on the setup screen and START on that sheet reach.
+hits=$(code $A/*.c $A/ui/*.c | grep -cE '\bstart_capture\(a\)')
+check "a capture is started in two places: START on setup, and START on a request's sheet" \
+    "$([ "$hits" = "2" ] && body psk_do | grep -q 'start_capture(a);' && body request_answer | grep -q 'start_capture(a);' &&
+       echo 1 || echo 0)"
+hits=$(code $A/*.c $A/ui/*.c | grep -cE '\brequest_answer\(')
+check "the sheet's answer is reached only from a tap on one of its buttons, or Back as REFUSE" \
+    "$([ "$hits" = "2" ] && body psk_sheet_answer | grep -q 'request_answer(a, go);' &&
+       [ "$(code $A/*.c $A/ui/*.c | grep -cE 'psk_sheet_answer\(')" = "4" ] &&
+       code $A/ui/psk_sheets.c | grep -A3 '^static void on_go' | grep -q 'psk_sheet_answer(lv_event_get_user_data(e), true);' &&
+       body psk_back | grep -q 'psk_sheet_answer(a, false); /\* Back is REFUSE \*/' && echo 1 || echo 0)"
+hits=$( { body psk_ipc_ask; body psk_ipc_unask; body request_watch; body request_over; body client_text; } |
+       grep -nE 'start_capture|psk_session_|psk_do\(|psk_sheet_answer|request_answer|a->(keep|limit_idx|sel|cfilter|chosen) *=|LOG_')
+check "asking, cancelling and timing out start nothing, choose nothing on the setup screen and log nothing" \
+    "$([ -z "$hits" ] && [ -n "$(body psk_ipc_ask)" ] && [ -n "$(body request_watch)" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "a request's START is HEADERS with a time limit of the list, whatever was asked" \
+    "$(body request_answer | grep -q 'a->keep = PPC_KEEP_HEADERS;' &&
+       body request_answer | grep -q 'if (psk_limit_min\[i\] && psk_limit_min\[i\] \* 60u == a->req_limit_s) {' &&
+       body psk_ipc_ask | grep -q 'offered |= psk_limit_min\[i\] != 0 &&' &&
+       ! body request_answer | grep -q 'PPC_KEEP_FULL' && ! body psk_ipc_ask | grep -qE 'keep|promisc|cfilter' && echo 1 || echo 0)"
+check "the request's sheet goes after 60 s, and at once when the unit is locked or an alarm shows" \
+    "$(grep -q '^#define PSK_REQUEST_MS 60000$' $A/psk_app.h &&
+       body request_watch | grep -q 'if (!pocketos_shell_app_in_front()) {' &&
+       body request_watch | grep -q 'request_over(a, PSK_RR_TIMEOUT);' &&
+       code $A/psk_app.c | grep -A3 '^    react(a, changed);' | grep -q 'request_watch(a);' && echo 1 || echo 0)"
+check "START on a request's sheet is not taken in the sheet's first moment" \
+    "$(grep -q '^#define PSK_REQUEST_SETTLE_MS 1500$' $A/psk_app.h &&
+       body psk_sheet_answer | grep -q 'if (kind == PSK_SHEET_REQUEST && go && !request_settled(a)) {' &&
+       code $A/ui/psk_sheets.c | grep -q 'psk_button_look(a->sheet_go, false, kind != PSK_SHEET_REQUEST);' && echo 1 || echo 0)"
+check "a requested capture borrows the interface and the limit, and gives them back" \
+    "$(body request_answer | grep -q 'a->req_saved_limit = a->limit_idx;' &&
+       body back_to_setup | grep -q 'request_restore(a);' && body start_failed | grep -q 'request_restore(a);' && echo 1 || echo 0)"
+check "START on the setup screen ends a request that is still asking" \
+    "$(body psk_do | grep -A6 'case PSK_ACT_START:' | grep -q 'request_over(a, 0);' &&
+       body request_watch | grep -q 'if (a->starting || psk_capture_present(a)) {' && echo 1 || echo 0)"
+check "figures are raised only while the header says a companion is reading" \
+    "$(body announce | grep -q 'if (!due || (due == PSK_REMOTE_DUE_STATS && !a->reading)) {' && echo 1 || echo 0)"
+check "what a request names is held only for its sheet: cleared with every outcome" \
+    "$(body request_over | grep -q "a->req_client\[0\] = '\\\\0';" && body request_over | grep -q "a->req_iface\[0\] = '\\\\0';" &&
+       body request_answer | grep -q 'request_over(a, 0); /\* nothing of the request is kept past its sheet \*/' &&
+       code $A/ui/psk_sheets.c | grep -q 'psk_text(a->sheet_text, "");' && echo 1 || echo 0)"
+# ADR-016 rule 20: the header says that a companion is reading.
+check "every capture.* request marks a reader, and the header and the wide top row say so" \
+    "$(body psk_ipc_request | grep -q 'a->reader_ms = psk_now();' &&
+       code $A/ui/psk_live.c | grep -q 'snprintf(h + at, sizeof(h) - at, " · COMPANION");' &&
+       code $A/ui/psk_live.c | grep -q 'static const char mark\[\] = "COMPANION · ";' &&
+       grep -q '^#define PSK_READER_MS 5000$' $A/psk_app.h && echo 1 || echo 0)"
 hits=$(code $A/psk_app.c | grep -cE '\bcapture_command\(a, act\)')
 check "which the capture bar and capture.hold / capture.stop both call" \
     "$([ "$hits" = "2" ] && body psk_do | grep -q 'capture_command(a, act);' &&
@@ -168,18 +218,19 @@ check "from START on, no setup row takes a tap: the interface, the options, a sh
 check "nothing is made to be raised while the app is not in front" \
     "$(body announce | grep -q 'if (!pocketos_shell_app_in_front()) {' && echo 1 || echo 0)"
 hits=$(grep -ohE '"capture\.[a-z_]+"' $A/*.c $A/ui/*.c | LC_ALL=C sort -u | tr '\n' ' ')
-check "the app knows three methods and two events, and no other capture.* name ($hits)" \
-    "$([ "$hits" = '"capture.hold" "capture.state" "capture.stats" "capture.status" "capture.stop" ' ] && echo 1 || echo 0)"
+check "the app knows five methods and two events, and no other capture.* name ($hits)" \
+    "$([ "$hits" = '"capture.hold" "capture.request_cancel" "capture.request_start" "capture.state" "capture.stats" "capture.status" "capture.stop" ' ] && echo 1 || echo 0)"
 hits=$(code $A/*.c $A/ui/*.c | grep -cE 'pocketos_shell_app_event\(')
-check "events are raised in two places: the poll's one a turn, and leaving" \
-    "$([ "$hits" = "2" ] && [ "$(body announce | grep -c 'pocketos_shell_app_event(')" = "1" ] &&
-       [ "$(body psk_destroy | grep -c 'pocketos_shell_app_event(')" = "1" ] && echo 1 || echo 0)"
+check "events are raised in three places: the poll's one a turn, and leaving a capture or a request" \
+    "$([ "$hits" = "3" ] && [ "$(body announce | grep -c 'pocketos_shell_app_event(')" = "1" ] &&
+       [ "$(body psk_destroy | grep -c 'pocketos_shell_app_event(')" = "2" ] && echo 1 || echo 0)"
 check "every event is made by psk_remote, from the figures" \
     "$(body announce | grep -q 'data = due == PSK_REMOTE_DUE_STATE ? psk_remote_state_json(&f) : psk_remote_json(&f);' &&
-       body psk_destroy | grep -q 'data = psk_remote_state_json(&f);' && echo 1 || echo 0)"
-check "no method opens PacketShark, and only capture.status is answered for a closed app" \
-    "$(code $A/*.c $A/ui/*.c | grep -qE 'ipc_opens' && echo 0 ||
-       { code $A/psk_app.c | grep -q 'psk_ipc_status\[\] = { "capture.status", NULL };' && echo 1 || echo 0; })"
+       [ "$(body psk_destroy | grep -c 'data = psk_remote_state_json(&f);')" = "2" ] && echo 1 || echo 0)"
+check "one method opens PacketShark, the start request, and only capture.status is answered for a closed app" \
+    "$(code $A/psk_app.c | grep -q 'psk_ipc_opens\[\] = { "capture.request_start", NULL };' &&
+       [ "$(code $A/*.c $A/ui/*.c | grep -c 'psk_ipc_opens')" = "2" ] &&
+       code $A/psk_app.c | grep -q 'psk_ipc_status\[\] = { "capture.status", NULL };' && echo 1 || echo 0)"
 
 # ---- lifecycle ------------------------------------------------------------------
 check "the helper is spawned with PR_SET_PDEATHSIG and a parent check" \

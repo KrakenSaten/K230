@@ -211,7 +211,7 @@ is "and the capture ran on untouched" "capturing True" "$(of "$A" 'd["state"]') 
 sleep 1.3
 
 # ---- 5. stop ---------------------------------------------------------------------------------
-for m in capture.discard capture.save capture.new capture.request_start capture.resume; do
+for m in capture.discard capture.save capture.new capture.start capture.resume; do
     check "$m is not served" '^ERR 1 unknown method$' "$(call $m '{"on": true, "iface": "synth0", "limit_s": 300}')"
 done
 is "and the capture runs on" capturing "$(state)"

@@ -13,7 +13,7 @@
 static const char *const state_words[PSK_RS_COUNT] = { "idle", "capturing", "hold", "saving", "stopped", "ended" };
 static const char *const reason_words[PSK_RR_COUNT] = { "none", "user",  "limit",          "link",
                                                         "end",  "error", "helper_crashed", "helper_hung",
-                                                        "left" };
+                                                        "left", "refused",        "timeout" };
 static const char *const class_keys[PPC_CLASS_COUNT] = { "tcp", "udp", "dns", "dhcp", "arp", "icmp", "ipv6", "other" };
 static const char *const diag_keys[PSK_REMOTE_DIAG] = {
     "dns_queries",    "dns_retries",    "dns_answered",  "dns_late",      "dns_noreply",   "dns_waiting",
@@ -108,7 +108,7 @@ static uint8_t reason_of_exit(enum psk_exit e)
 }
 
 void psk_remote_take(const struct psk_model *m, enum psk_remote_phase phase, bool keep_full, uint32_t limit_s,
-                     struct psk_remote_figures *out)
+                     bool by_companion, struct psk_remote_figures *out)
 {
     unsigned i;
 
@@ -129,6 +129,7 @@ void psk_remote_take(const struct psk_model *m, enum psk_remote_phase phase, boo
     }
     out->keep_full = keep_full;
     out->limit_s = limit_s;
+    out->by_companion = by_companion;
     if (iface_plain(m->iface)) {
         memcpy(out->iface, m->iface, strlen(m->iface) + 1);
     }
@@ -223,9 +224,9 @@ struct cJSON *psk_remote_json(const struct psk_remote_figures *f)
     for (i = 0; ok && i < PSK_REMOTE_DIAG; i++) {
         ok = cJSON_AddNumberToObject(diag, diag_keys[i], num(f->diag[i])) != NULL;
     }
-    /* No companion can ask for a capture yet (ADR-016 amendment 1 is
-     * proposed): every capture was started by a tap on this screen. */
-    ok = ok && cJSON_AddBoolToObject(o, "requested_by_companion", false);
+    /* Every capture is started by a tap on this screen (ADR-016 rule 1);
+     * this says whether the tap was on the sheet a start request raised. */
+    ok = ok && cJSON_AddBoolToObject(o, "requested_by_companion", f->by_companion);
     if (!ok) {
         cJSON_Delete(o);
         return NULL;

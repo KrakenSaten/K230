@@ -274,8 +274,9 @@ wake it.
 An app inside the shell may serve methods of its own on this socket while it
 is in front (`ui/shell/app.h`: `ipc_prefix`, `ipc_request`, `ipc_status`,
 `ipc_opens`; the rules are `ui/shell/app_ipc.c`). **One app of the product
-serves any:** PacketShark, with `capture.status`, `capture.hold` and
-`capture.stop` and the events `capture.state` and `capture.stats` (below).
+serves any:** PacketShark, with `capture.status`, `capture.hold`,
+`capture.stop`, `capture.request_start` and `capture.request_cancel` and the
+events `capture.state` and `capture.stats` (below).
 The only other is the probe of the simulator's tests (`ui/shell/app_probe.c`, present only
 when `POCKETOS_TEST_PROBE` is set in a simulator build), which is what
 `tests/shell_app_methods_test.sh` asks.
@@ -301,9 +302,9 @@ when `POCKETOS_TEST_PROBE` is set in a simulator build), which is what
   and never opens the lock (unlike `shell.open`); error 5, with nothing
   touched, when the display would have to be turned for the app first (a
   portrait-only app in landscape: the shell would restart, and the caller
-  with it). **Only the probe
-  declares one.** Which method of a real app may open it from outside the
-  unit is a decision of its own (ADR-016 amendment 1, proposed).
+  with it). **One method of the product is declared so:** PacketShark's
+  `capture.request_start` (ADR-016 amendment 1 rule 1a, accepted); the other
+  is the probe's.
 - **Waking.** Apart from an opening method that is let through, an app method
   neither wakes the screen nor counts as activity.
 - **Time.** A handler runs on the LVGL thread and must answer from memory. It
@@ -332,14 +333,27 @@ shell started.
 | `capture.status` | method | the capture's state and aggregate figures; reads only |
 | `capture.hold` `{on}` | method | HOLD (`on: true`) and RESUME (`on: false`), as the capture bar's buttons |
 | `capture.stop` | method | STOP, as the capture bar's button |
+| `capture.request_start` `{iface, limit_s, client}` | method | asks the person at the unit for a capture: a sheet, and nothing else. Opens the app |
+| `capture.request_cancel` | method | takes that sheet down again |
 | `capture.state` | event | the state, on every change |
 | `capture.stats` | event | the figures, once a second while a capture runs |
 
-**Reach.** These are on the unit's own socket. Nothing passes them to a
-paired phone: gatewayd knows no `capture.*` name, and letting a companion
-read or hold or stop a capture is ADR-016 amendment 1, which is proposed and
-not accepted. **Nothing here starts a capture**, discards or saves one, or
-opens the app: that stays with a finger on the unit (ADR-016 rule 1).
+**Reach.** These are on the unit's own socket, under its access controls
+(ADR-016 amendment 1, accepted 2026-11-22). Nothing passes them to a paired
+phone yet: gatewayd knows no `capture.*` name. **No method starts a
+capture**, discards or saves one: a capture starts when a finger taps START,
+on the setup screen or on the sheet a start request raised (ADR-016 rules 1
+and 1a).
+
+**A companion is reading** (ADR-016 rule 20). For five seconds after any
+`capture.*` request the app says so beside the capture state on every one of
+its screens: `· COMPANION` after the state in the shell's header, and
+`COMPANION ·` first in the app's own top row in the wide shape. The app
+cannot see who listens to its events, so it raises `capture.stats` **only
+while it says so**: a listener that does not ask gets no figures (it still
+gets `capture.state`, which carries none). Whoever passes figures on for a
+phone asks `capture.status` at least every five seconds while the phone
+reads; three is the figure to build to.
 
 `reason`, in every answer and event, and the same in `docs/api/gateway.md`
 section 9:
@@ -355,7 +369,8 @@ section 9:
 | `helper_crashed` | `ended` | the helper is gone, however it went; its packets with it |
 | `helper_hung` | `ended` | the helper stopped answering and was ended |
 | `left` | `ended` | PacketShark was left with a capture in it, which ends the capture. Only ever in a `capture.state` event: afterwards the app is not there to be asked |
-| `refused`, `timeout` | (none yet) | reserved for the outcome of a start request (ADR-016 amendment 1 rule 1a). Nothing raises them |
+| `refused` | `idle` | a start request ended without a capture: REFUSE or Back on its sheet, the unit locked or an alarm over it, the app left, the request withdrawn, or START tapped and the capture could not start. Said once, in a `capture.state` event, and in a status only until that event has gone out |
+| `timeout` | `idle` | a start request's sheet was not answered in 60 s. Said once, likewise |
 
 #### `capture.status`
 
@@ -405,8 +420,8 @@ the app have failed to start). In front:
   unreachable, unanswered SYN, unanswered DNS query), `diag` totals and times
   of the DNS and TCP diagnosis, all since START.
 - Every figure is a whole number, a count, a rate, a size or a time, never
-  over 999,999,999,999,999. `requested_by_companion` is always `false`: no
-  companion can ask for a capture.
+  over 999,999,999,999,999. `requested_by_companion` is true for a capture
+  started by a tap on a start request's sheet, false for every other.
 
 **What is never in it:** a packet or a byte of one, a row of the list, the
 inspected packet, an address, a host or DNS name, a port, a packet's
@@ -476,11 +491,77 @@ Order and bounds (`psk_remote_due`, `apps/packetshark/psk_remote.h`):
   not sent later.
 - An event holds what `capture.status` holds and nothing else.
 
+#### `capture.request_start` and `capture.request_cancel`
+
+`capture.request_start` `{"iface": "eth0", "limit_s": 900, "client": "Flip8"}`
+asks the person at the unit whether a capture may start. It raises a sheet
+over PacketShark's setup screen and answers `{"shown": true}`. **It starts
+nothing**: no helper, no capture, and no choice on the setup screen changes.
+A capture starts only if a finger taps START on that sheet; no key and no
+request answers it.
+
+- The sheet names who asks, the interface and the minutes, says that only
+  headers are kept, which capture filter of the setup screen applies, that
+  nothing is captured without a tap, and what a companion sees. Its buttons
+  are REFUSE (the safe one, first) and START.
+- START takes no tap in the sheet's first 1.5 seconds and is drawn disabled
+  meanwhile: a finger already on its way elsewhere is not an answer.
+- `iface` must be an interface the setup screen offers now. `limit_s` must
+  be 300, 900 or 3600. HEADERS always: FULL, no limit, promiscuous mode and a
+  filter cannot be asked for, and anything else in the request is ignored.
+- `client` is optional text for the sheet. Only letters, digits, space, dot,
+  dash and underscore of it are shown, 27 at most; without it the sheet says
+  "A companion". It is not kept after the sheet and never logged.
+- One request at a time, never queued, never remembered.
+- START on the sheet starts the capture the sheet named, through the setup
+  screen's own START. `capture.status` then says
+  `"requested_by_companion": true` for that capture. The person's own
+  interface and time limit on the setup screen are back when it is over.
+- START tapped on the setup screen while a request's sheet is up starts the
+  person's own capture and ends the request unsaid.
+
+| When | Answer |
+| --- | --- |
+| The unit is locked or showing an alarm | error 3, "the unit is locked or showing an alarm"; the lock is not opened, the app is not opened, nothing is shown |
+| PacketShark is closed and the unit is open | the shell opens it, as a person would (a dark screen wakes), then as below; error 5 if it cannot be opened now |
+| `iface` or `limit_s` missing or of the wrong kind, `client` not text | error 2 |
+| A request's sheet is already up | error 3, "a request is already shown" |
+| A capture is starting, running, held, saving or stopped | error 3, "a capture is running" |
+| The error panel is up, or a discard is on its way | error 3, "PacketShark is not on its setup screen" |
+| Another sheet is up | error 3, "a sheet is open on the unit" |
+| `iface` is not offered; `limit_s` is not of the list | error 3, "that interface is not offered"; "that time limit is not offered" |
+| Otherwise | `{"shown": true}` |
+
+How a request ends, each said once as `capture.state`:
+
+| What happens | Event |
+| --- | --- |
+| START is tapped on the sheet | `capturing`, as any capture |
+| REFUSE or Back; the unit is locked or an alarm comes over the app (at once: nobody finds a START they did not see asked for); `capture.request_cancel`; the app is left; START is tapped but the capture cannot start | `idle` with `refused` |
+| 60 seconds pass | `idle` with `timeout` |
+
+The outcome is said when it can be. While the unit is locked nothing is
+raised, so a refusal by the lock goes out when the unit is open again, and
+not at all if PacketShark is closed first; an outcome not yet said is
+dropped when a new request or a capture takes its place. An event does not
+say which request it answers. Whoever asks for a phone therefore keeps its
+own 60 seconds and reads `capture.status`.
+
+A request that is refused on its parameters has still opened the app if it
+was closed: whoever passes requests on checks them first and limits how
+often one client may ask.
+
+`capture.request_cancel` takes no parameters. It answers `{"shown": false}`
+and the sheet goes as if refused; error 3, "no request is shown", when there
+is none. It is for whoever asked and no longer does: a phone that went away
+or lost its right to ask.
+
 No other `capture.*` name exists. In front, any other name under the prefix
-is error 1; not in front it is error 3, "PacketShark is not open". No method
-opens PacketShark. Tests: `tests/psk_remote_test.c`,
+is error 1; not in front it is error 3, "PacketShark is not open". Only
+`capture.request_start` opens PacketShark. Tests: `tests/psk_remote_test.c`,
 `tests/capture_status_shell_test.sh`, `tests/capture_control_shell_test.sh`,
-`tests/packetshark_app_test.c`, `tests/packetshark_lint.sh`.
+`tests/capture_request_shell_test.sh`, `tests/packetshark_app_test.c`,
+`tests/packetshark_lint.sh`.
 
 ## Events
 

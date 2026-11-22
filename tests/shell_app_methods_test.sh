@@ -57,7 +57,7 @@ stop_shell
 # ---- 2. what the product's apps serve: PacketShark its status (H2); none opens itself
 is "PacketShark and the probe declare a prefix, and no other app" "apps/packetshark/psk_app.c ui/shell/app_probe.c" \
    "$(grep -rlE '\.ipc_prefix[[:space:]]*=' apps ui --include='*.c' | sort | tr '\n' ' ' | sed 's/ $//')"
-is "only the probe declares an opening method" "ui/shell/app_probe.c" \
+is "PacketShark (its start request, H4) and the probe declare an opening method, and no other app" "apps/packetshark/psk_app.c ui/shell/app_probe.c" \
    "$(grep -rlE '\.ipc_opens[[:space:]]*=' apps ui --include='*.c' | sort | tr '\n' ' ' | sed 's/ $//')"
 is "the probe's methods are compiled only with the simulator's hooks" 1 \
    "$(sed -n '/^#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS$/,/^#else$/p' ui/shell/app_probe.c | grep -c 'static const struct pocketos_app app_probe')"
