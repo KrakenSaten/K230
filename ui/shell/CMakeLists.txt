@@ -84,6 +84,8 @@ add_executable(pocketos-shell
     ${POKER_ENGINE_SOURCES}
     ${POKER_APP_SOURCES}
     shell.c
+    app_ipc.c
+    app_probe.c
     shell_ipc.c
     shell_kb_state.c
     settings.c

@@ -269,6 +269,57 @@ wake it.
   `{tapped, x, y}`; no such text, no point or a tap still running is error 2.
   For the suites: `pos call shell shell.tap text=System`.
 
+## Methods served by an app
+
+An app inside the shell may serve methods of its own on this socket while it
+is in front (`ui/shell/app.h`: `ipc_prefix`, `ipc_request`, `ipc_status`,
+`ipc_opens`; the rules are `ui/shell/app_ipc.c`). **No app of the product
+serves any yet.** The only one that does is the probe of the simulator's
+tests (`ui/shell/app_probe.c`, present only when `POCKETOS_TEST_PROBE` is set
+in a simulator build), which is what `tests/shell_app_methods_test.sh` asks.
+
+- **Names.** An app's methods all begin with its prefix: lower-case words
+  ending in a dot. A prefix is never in the shell's own names (`shell.`) and
+  never overlaps another app's. The shell checks every app's declaration when
+  it starts and exits with status 2, naming the fault, rather than serve an
+  unsound one. A name under no app's prefix is error 1, as before.
+- **In front** means the app is the open one with neither the lock nor an
+  alarm over it. A dark screen that is not locked, Controls or the power menu
+  over the app do not change that. Then
+  the request goes to the app's `ipc_request` and its answer is the answer:
+  a result, or one of pocketipc's error codes with the app's own words. A
+  code that is not pocketipc's is error 4.
+- **Not in front.** A method the app declared in `ipc_status` is answered by
+  the shell with `{"available": false}` and nothing else. Every other method
+  is error 3, "<App> is not open": a request to do something is never
+  answered as if it had been done.
+- **Opening.** A method the app declared in `ipc_opens` opens the app first,
+  as a person opening it would (the screen wakes), and is then answered by
+  it. It is refused with error 3 while the unit is locked or an alarm shows,
+  and never opens the lock (unlike `shell.open`); error 5, with nothing
+  touched, when the display would have to be turned for the app first (a
+  portrait-only app in landscape: the shell would restart, and the caller
+  with it). **Only the probe
+  declares one.** Which method of a real app may open it from outside the
+  unit is a decision of its own (ADR-016 amendment 1, proposed).
+- **Waking.** Apart from an opening method that is let through, an app method
+  neither wakes the screen nor counts as activity.
+- **Time.** A handler runs on the LVGL thread and must answer from memory. It
+  has a budget of 2 ms (`APP_IPC_BUDGET_US`). The shell measures every call,
+  counts and logs the ones over it, and reports them; it does not interrupt
+  a handler, which cannot be done safely.
+- **Size.** A result is at most 8192 bytes serialised
+  (`APP_IPC_RESULT_MAX`), for every app; a larger one is replaced by error 4.
+- **Events.** An app in front (so not under the lock or an alarm) may raise
+  events under its own prefix
+  (`pocketos_shell_app_event`), delivered like the shell's own to
+  `shell.subscribe` listeners. Any other name is dropped and counted.
+
+`shell.info` carries `app_ipc`: `budget_us`, `result_max`, `calls`, `slow`,
+`worst_us`, `worst_method`, `too_large`, `closed_status`, `closed_refused`,
+`opened`, `open_refused`, `events`, `events_dropped` - counts since the
+shell started.
+
 ## Events
 
 `shell.app` `{current}` when the visible app changes, `shell.theme`
