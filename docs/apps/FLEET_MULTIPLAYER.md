@@ -570,10 +570,19 @@ which the session does only once the player has engaged multiplayer:
   closed socket (one match in ten at 15 % loss, before this was added) until
   it gave up and settled by itself, about half an hour later.
   Every packet heard from them starts the wait again. Putting the match
-  away (CLOSE) ends it at once. ADR-017 section 5 and M2-PLAN 1.3 say the
+  away (CLOSE) ends it at once. So does leaving: when Fleet closes, the
+  other transport is picked, or the service is looked for afresh, the app
+  calls `fleet_session_close_retention()` before it closes the link, and an
+  opponent held only for this wait is let go there and then - nobody will
+  be polling to answer them, and peerd holds a kept peer until told
+  otherwise. It lets go of nothing else: the opponent of a match still in
+  play, or of one over with its END still owed, stays kept, because that
+  match is resumed from its save and its opponent must be reachable then.
+  ADR-017 section 5 and M2-PLAN 1.3 say the
   game releases the kept peer "when the match ends or is put away"; as
   built it is half a minute after the match has ended here and the opponent
-  has gone quiet. peerd itself still has no timed expiry. When the save could not be read (a
+  has gone quiet, or when Fleet leaves the network's link, whichever comes
+  first. peerd itself still has no timed expiry. When the save could not be read (a
   store fault, a damaged file, another identity's) it says nothing until a
   match begins: what the save held is not known. From then on it speaks as
   usual, the end of that match included. The link
@@ -609,7 +618,16 @@ which the session does only once the player has engaged multiplayer:
   the link therefore waits for peerd's outstanding answers first - until the
   socket has been quiet for 15 ms, 60 ms at most. It is the one wait in the
   link beyond pocketipc's own. If the hide is lost all the same, the lease
-  ends the visibility within 30 s.
+  ends the visibility within 30 s. One more thing can come before the hide:
+  an opponent the session has stopped naming and peerd's list has not yet
+  been seen without (the ordinary reconciling needs a poll, and a closing
+  link gets none) is released by name, `peer.release`. Never the opponent
+  the session still names. When a hide is to follow it, peerd's answer to
+  the release is waited for first, 120 ms at most, for the same reason as
+  above; peerd puts its list on disk before it answers. If the release is
+  lost all the same, peerd keeps that opponent until Fleet is next in
+  multiplayer on the network, where it is released after the same half
+  minute.
 
 To know about it:
 
@@ -624,13 +642,16 @@ To know about it:
 - **`hops` is 0 or -1.** 0 for a node peerd has an address for, -1 for one
   it does not (a kept opponent after a restart, until it is heard).
 - **The opponent is released half a minute after the match is done and they
-  have gone quiet** (above). If this device leaves multiplayer or closes
-  Fleet inside that half minute, the session is no longer polled and nothing
-  answers; peerd still keeps the opponent, so their packets wait in its
-  inbox, and are answered when Fleet is next in multiplayer on the network.
-  Until then peerd stays bound for that one opponent - possibly for days, on
-  a device whose player finishes a match and closes Fleet at once. Before
-  this wait was added peerd was left keeping nobody in that case.
+  have gone quiet, or at once when Fleet leaves** (above). A player who
+  closes Fleet, or switches to LoRa, inside that half minute cuts the wait
+  short: an opponent whose last packet was lost and who is still asking is
+  then not answered, and settles by itself as below. That is the price of
+  not leaving peerd bound for an opponent nobody is there to answer.
+- **A match that is not finished keeps its opponent across a close**, for
+  as long as its save exists: in play, or over with an END nobody has
+  answered or given up. peerd stays bound for that one authenticated
+  opponent until the match is resumed and ended. That is ADR-017's kept
+  peer, and is what lets a match go on after both devices have been off.
 - **Left as it is:** if all of the opponent's tries are lost, or the player
   presses CLOSE and leaves the lobby in the first seconds after a match
   whose last packet was lost, the opponent is no longer heard; it settles by
@@ -807,7 +828,7 @@ Known limits of this package:
 | `tests/fleet_link_test` | the mesh link against a real socket and a scripted meshcored: nothing asked before the first poll, the four link states, players listed (no repeaters, no forgotten nodes), each datagram taken once from the inbox and from events, the cursor reset on a new service run, stale and malformed datagrams refused, exactly the bytes handed over sent on port 1, a zero-hop advert, a radio that is off |
 | `tests/meshcored_runtime_test.cpp`, `tests/meshcored_service_test.sh` (3d) | meshcored's half: app datagrams between two runtimes with real crypto, flood then direct once the receipt teaches the route, crafted REQs that are not app datagrams ignored, the inbox bounded; every refusal of `mesh.app_send` / `mesh.app_inbox` against the real process |
 | `make ENABLE_MESHCORED=1 fleet-mp-e2e` | **P6.** Whole matches between two Fleet players (`tests/fleet_mp_player`: the real session, mesh link and match, the AI for a finger) through two real meshcored processes over stand-in radiods and a mock air: at the product's own pace; with 15 % of frames lost and 5 % duplicated; with the guest's app killed at ply 30 and resumed from its save; and with the guest's meshcored restarted at ply 40; and ("chat") with both players talking in three-block lines all through a fast match. Each must end with one win and one loss, both fleets verified, identical records, no violation, datagrams both ways, a receipt, and no message in `mesh.messages` (Fleet's chat is app datagrams, never RIFT's text); "chat" also every line held the opponent's, once, in order, none given up |
-| `tests/fleet_link_peer_test` | the LAN link against a real socket and a scripted peerd (`tests/fake_peerd.c`): nothing asked before the first poll; the link states and why; the LAN profile; players listed most recent first, without this device or a broken entry, a kept peer not heard this run with no time and no route; each datagram once from the inbox and from events, the cursor reset on a new run; exactly the bytes handed over, on port 1; the lease renewed after ten seconds and not on every poll, at once on request, ended on close; nothing kept or released before the session says who, then the opponent kept and a stale peer released, asserted again after a restart, released when the match is over; what is not an address never asked, a probe answered, unanswered, replaced by another before its answer (the outcome; a stale reply to the replaced one cannot be scripted and is not tested), pending, and ended when peerd goes; which players are proved; an event during the catch-up and a reconnect to the same run, nothing lost or taken twice; a refused send, and a refused keep retried at a growing interval; a peerd closed by a fault; a peerd with nothing to announce on |
-| `tests/fleet_session_test` (match peer) | the session tells its link who the match is with: nothing before engaging, none while an invitation is only out, the opponent from Deploy, the saved match's opponent first thing after a reopen, still the opponent when the match is over on this side and for as long as they may be trying, the wait starting over when they are heard, none once they have been quiet for the profile's run of tries or the match is put away, nothing at all when the save could not be read or is damaged, and a match begun after that named and then ended as usual |
+| `tests/fleet_link_peer_test` | the LAN link against a real socket and a scripted peerd (`tests/fake_peerd.c`): nothing asked before the first poll; the link states and why; the LAN profile; players listed most recent first, without this device or a broken entry, a kept peer not heard this run with no time and no route; each datagram once from the inbox and from events, the cursor reset on a new run; exactly the bytes handed over, on port 1; the lease renewed after ten seconds and not on every poll, at once on request, ended on close; nothing kept or released before the session says who, then the opponent kept and a stale peer released, asserted again after a restart, released when the match is over; closing with a match in hand releasing nobody, closing straight after the session stops naming an opponent releasing them by name and still hiding, a link that has already put the list right releasing nobody twice; an opponent let go and named again before a poll not released; what is not an address never asked, a probe answered, unanswered, replaced by another before its answer (the outcome; a stale reply to the replaced one cannot be scripted and is not tested), pending, and ended when peerd goes; which players are proved; an event during the catch-up and a reconnect to the same run, nothing lost or taken twice; a refused send, and a refused keep retried at a growing interval; a peerd closed by a fault; a peerd with nothing to announce on |
+| `tests/fleet_session_test` (match peer) | the session tells its link who the match is with: nothing before engaging, none while an invitation is only out, the opponent from Deploy, the saved match's opponent first thing after a reopen, still the opponent when the match is over on this side and for as long as they may be trying, the wait starting over when they are heard, none once they have been quiet for the profile's run of tries or the match is put away; on leaving (`fleet_session_close_retention`) nothing said by a session that never engaged, has no match or has not read its save, the opponent of a match in play or read back unfinished from its save never let go, nor one whose END is still owed, the opponent of a finished match let go at once, also after a reopen on that finished match; nothing at all when the save could not be read or is damaged, and a match begun after that named and then ended as usual |
 | `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-link-peer-real` | the same link against two real peerd processes on two loopback addresses (`tests/fleet_link_peer_real`): found by address, datagrams both ways through peerd's sealing, each peerd keeping exactly the other, visibility ended and the kept peer still bound after the links close. Opt-in: it needs libsodium |
 | `make fleet-mp-san-test` | the native suites under ASan and UBSan, `fleet_link_test` and `fleet_link_peer_test` included |

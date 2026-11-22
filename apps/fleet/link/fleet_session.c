@@ -142,6 +142,16 @@ static int lingering(struct fleet_session *s, int64_t now)
     return now - since < (int64_t)FLEET_RETRY_MAX * p->retry_cap_ms;
 }
 
+void fleet_session_close_retention(struct fleet_session *s)
+{
+    if (!s || !s->link || !s->ready || !s->link->ops->match_peer || !s->peer_said) {
+        return;
+    }
+    if (s->m.phase == FLEET_MP_DONE && !s->m.end_unacked) {
+        s->link->ops->match_peer(s->link->ctx, NULL);
+    }
+}
+
 void fleet_session_poll(struct fleet_session *s, int64_t now)
 {
     uint8_t from[FLEET_KEY_BYTES];
