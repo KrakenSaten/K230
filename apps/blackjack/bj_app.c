@@ -33,6 +33,7 @@
 #include "bj_app.h"
 #include "bj_store.h"
 #include "bj_table_widget.h"
+#include "cg_spike.h"
 
 #include "app.h"
 #include "pocketui.h"
@@ -58,6 +59,7 @@ _Static_assert(BUTTON_H >= POCKETUI_TOUCH_MIN, "a button must meet the DS 64 px 
 #define BJ_DEBUG_SEED 20260913u
 
 struct bj_app {
+    void *spike; /* redesign milestone 0 (cg_spike.h); NULL in the game */
     struct bj_game game;
     enum bj_cmd last_cmd;
     enum bj_result last;
@@ -445,6 +447,12 @@ static void *blackjack_create(lv_obj_t *body)
     if (!a) {
         return NULL;
     }
+    if (debug && strcmp(debug, "lamplight-spike") == 0) {
+        /* Not the game: the redesign's measurement table. Nothing is saved. */
+        a->session_only = 1;
+        a->spike = cg_spike_create(body);
+        return a;
+    }
     build(a, body);
     if (debug && *debug) {
         debug_state(a, debug);
@@ -472,6 +480,11 @@ static void blackjack_destroy(void *priv)
 {
     struct bj_app *a = priv;
 
+    if (a && a->spike) {
+        cg_spike_destroy(a->spike);
+        lv_free(priv);
+        return;
+    }
     /* The shell deletes the objects; the game is saved if it changed. */
     if (a && a->dirty) {
         save_now(a);
@@ -513,7 +526,7 @@ lv_obj_t *bj_app_button(void *priv, int index)
 
 void bj_app_refresh(void *priv)
 {
-    if (priv) {
+    if (priv && !((struct bj_app *)priv)->spike) {
         refresh(priv);
     }
 }

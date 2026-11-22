@@ -1078,6 +1078,18 @@ CARDS_OBJS := $(CARDS_DIR)/cg_rng.o $(CARDS_DIR)/cg_cards.o $(CARDS_DIR)/cg_shoe
 $(CARDS_DIR)/%.o: $(CARDS_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(CARDS_DIR) -c -o $@ $<
 
+# The table pieces the redesign shares (docs/design/card-games): the cloth
+# renderer and the tween are pure C and tested here; the atlas and the
+# milestone 0 spike need LVGL and are built by ui/shell (CMake).
+CARDS_TABLE_OBJS := $(CARDS_DIR)/cg_cloth.o $(CARDS_DIR)/cg_tween.o
+CARDS_TESTS := tests/cg_table_test
+
+tests/cg_table_test.o: tests/cg_table_test.c
+	$(CC) $(ALL_CFLAGS) -I$(CARDS_DIR) -c -o $@ $<
+
+tests/cg_table_test: tests/cg_table_test.o $(CARDS_TABLE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 SOL_DIR := apps/solitaire
 SOL_INC := -I$(CARDS_DIR) -I$(SOL_DIR) -I$(SOL_DIR)/engine -I$(SOL_DIR)/ui
 SOL_OBJS := $(CARDS_OBJS) $(SOL_DIR)/engine/sol_rules.o
@@ -1166,13 +1178,13 @@ poker-san-test:
 	    -o tests/poker_engine_test-asan
 	./tests/poker_engine_test-asan
 
-GAMES_TESTS := $(G2048_TESTS) $(SOL_TESTS) $(BJ_TESTS) $(POKER_TESTS)
+GAMES_TESTS := $(G2048_TESTS) $(SOL_TESTS) $(BJ_TESTS) $(POKER_TESTS) $(CARDS_TESTS)
 GAMES_OBJS := $(G2048_OBJS) $(G2048_APP_OBJS) $(G2048_UI_OBJS) $(SOL_OBJS) $(SOL_UI_OBJS) $(SOL_APP_OBJS) \
-              $(BJ_OBJS) $(BJ_UI_OBJS) $(BJ_APP_OBJS) $(POKER_OBJS) $(POKER_VIEW_OBJS)
+              $(BJ_OBJS) $(BJ_UI_OBJS) $(BJ_APP_OBJS) $(POKER_OBJS) $(POKER_VIEW_OBJS) $(CARDS_TABLE_OBJS)
 GAMES_TEST_RUN = ./tests/g2048_rules_test && ./tests/g2048_store_test && ./tests/g2048_view_test && \
                  ./tests/g2048_theme_test && ./tests/sol_rules_test && ./tests/sol_view_test && \
                  ./tests/sol_store_test && ./tests/bj_rules_test && ./tests/bj_view_test && ./tests/bj_store_test && \
-                 ./tests/poker_engine_test && ./tests/poker_view_test
+                 ./tests/poker_engine_test && ./tests/poker_view_test && ./tests/cg_table_test
 
 # Card and puzzle games on their own, for a focused run.
 games-test: $(GAMES_TESTS)

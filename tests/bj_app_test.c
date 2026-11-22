@@ -85,6 +85,11 @@ void pocketos_shell_set_status_hint(const char *text)
     shell_calls++;
 }
 void pocketos_shell_go_home(void) { shell_calls++; }
+void pocketos_shell_set_fullscreen(bool fullscreen)
+{
+    (void)fullscreen;
+    shell_calls++;
+}
 int pocketos_shell_reduced_motion(void)
 {
     shell_calls++;
