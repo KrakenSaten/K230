@@ -2,8 +2,9 @@
 # DOORS card games: redesign proposal
 
 Blackjack, Poker (Texas Hold'em) and Solitaire (Klondike).
-Status: **DIRECTION APPROVED: A, Lamplight** (owner, 2026-11-22). Decisions
-2 to 8 in section 11 are still open, and no implementation has started. Nothing in
+Status: **DIRECTION APPROVED: A, Lamplight**; decisions 1 to 5 in section 11
+accepted (owner, 2026-11-22), 6 to 8 open. Implementation is in separate
+branches (milestone 1a: PR 179). Nothing in
 this branch changes the product: it holds this document, mockups and the
 script that draws them. Baseline: master `a5d18bfc` (2026-11-22).
 
@@ -461,11 +462,12 @@ merged or put on a unit without the owner's word.
 1. **Direction:** A (Lamplight), B (Imprint) or C (Signal), or a mix.
    **DECIDED 2026-11-22: A, Lamplight.**
 2. **Fixed palette in every theme**, Night dimming, as the hub: accept as a
-   design-system amendment?
+   design-system amendment? **ACCEPTED 2026-11-22.**
 3. **Full screen** with the game's own back mark, instead of the shell's
-   header row.
-4. **Cards stop following the text-size setting.**
+   header row. **ACCEPTED 2026-11-22.**
+4. **Cards stop following the text-size setting.** **ACCEPTED 2026-11-22.**
 5. **Fraunces** (SIL OFL 1.1) for art and headline phrases.
+   **ACCEPTED 2026-11-22.**
 6. **Sound** on by default at a low level, or off until switched on.
 7. **Split** in Blackjack: later PR, or never.
 8. **A unit for milestone 0** measurements (A or B), when the time comes.
