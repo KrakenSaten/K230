@@ -28,7 +28,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "psk_app.h"
-#include "psk_remote.h"
 
 #include "pocketlog/pocketlog.h"
 #include "pos_input.h"
@@ -670,8 +669,8 @@ static void react(struct psk_app *a, unsigned changed)
         const struct psk_iface *f = a->sel >= 0 ? &a->ifs[a->sel] : NULL;
 
         a->pending_start = false;
-        /* What this capture is asked for, kept as it is sent: the setup
-         * rows can still be tapped until the helper says it is capturing. */
+        /* What this capture is asked for, kept as it is sent (the setup
+         * rows take no tap from START on, psk_option). */
         a->run_full = a->keep == PPC_KEEP_FULL;
         a->run_limit_s = psk_limit_min[a->limit_idx] * 60u;
         if (!f || psk_session_capture(a->session, f->name, a->run_full ? PPC_KEEP_FULL : PPC_KEEP_HEADERS, 0,
@@ -801,6 +800,45 @@ static void log_cost(struct psk_app *a)
     }
 }
 
+/* ---- what the app says of its capture to the shell's listeners ------------------------------ */
+
+/* The figures of what the screen shows (psk_remote.h says what can be in
+ * them): the error panel, a capture, or setup. */
+static void remote_figures(const struct psk_app *a, struct psk_remote_figures *f)
+{
+    enum psk_remote_phase phase =
+        a->failed_view ? PSK_REMOTE_ENDED : psk_capture_present(a) ? PSK_REMOTE_CAPTURE : PSK_REMOTE_IDLE;
+
+    psk_remote_take(a->model, phase, a->run_full, a->run_limit_s, f);
+}
+
+/* capture.state on a change and capture.stats once a second while a capture
+ * runs: at most one event a poll, as psk_remote_due() says (it bounds them).
+ * The shell passes an event on only while this app is in front; one it did
+ * not pass on is tried again. */
+static void announce(struct psk_app *a)
+{
+    struct psk_remote_figures f;
+    int64_t now = psk_now();
+    unsigned due;
+    cJSON *data;
+
+    if (!pocketos_shell_app_in_front()) {
+        /* Locked, or an alarm over the app: nothing would be passed on, so
+         * nothing is made. What changed meanwhile is due when it is back. */
+        return;
+    }
+    remote_figures(a, &f);
+    due = psk_remote_due(&a->emit, &f, now);
+    if (!due) {
+        return;
+    }
+    data = due == PSK_REMOTE_DUE_STATE ? psk_remote_state_json(&f) : psk_remote_json(&f);
+    psk_remote_tried(&a->emit, due, &f, now,
+                     data && pocketos_shell_app_event(due == PSK_REMOTE_DUE_STATE ? "capture.state" : "capture.stats",
+                                                      data));
+}
+
 static void on_poll(lv_timer_t *t)
 {
     struct psk_app *a = lv_timer_get_user_data(t);
@@ -808,6 +846,7 @@ static void on_poll(lv_timer_t *t)
     unsigned changed = psk_session_poll(a->session, a->model, psk_now());
 
     react(a, changed);
+    announce(a);
     if (a->back_pending) {
         /* The app's own back slab (wide): one level back, as the Back
          * action; at the top level the shell goes home. */
@@ -866,6 +905,9 @@ void psk_select_tab(struct psk_app *a, enum psk_tab t)
 
 void psk_select_iface(struct psk_app *a, int index)
 {
+    if (a->starting) {
+        return; /* START has been tapped: what it asked for is settled */
+    }
     if (index >= 0 && index < a->nifs && psk_iface_usable(&a->ifs[index])) {
         a->sel = index;
         snprintf(a->chosen, sizeof(a->chosen), "%s", a->ifs[index].name);
@@ -875,6 +917,12 @@ void psk_select_iface(struct psk_app *a, int index)
 
 void psk_option(struct psk_app *a, int which)
 {
+    if (a->starting) {
+        /* START has been tapped. A row changed now would show a choice the
+         * capture was not started with: the rows wait until it is capturing
+         * (and gone from the screen) or back on setup. */
+        return;
+    }
     switch (which) {
     case 0:
         if (a->keep == PPC_KEEP_FULL) {
@@ -915,6 +963,50 @@ static void back_to_setup(struct psk_app *a)
     psk_live_paint(a, PSK_CHANGED_STATE);
 }
 
+bool psk_action_offered(const struct psk_app *a, enum psk_action act)
+{
+    enum ppc_state s = a->model->state;
+
+    if (!psk_capture_present(a)) {
+        return false;
+    }
+    switch (act) {
+    case PSK_ACT_HOLD:
+        return s == PPC_STATE_CAPTURING;
+    case PSK_ACT_RESUME:
+        return s == PPC_STATE_HOLD;
+    case PSK_ACT_STOP:
+        return s == PPC_STATE_CAPTURING || s == PPC_STATE_HOLD;
+    default:
+        return false;
+    }
+}
+
+/* HOLD, RESUME and STOP: the one way they are done, for the capture bar's
+ * buttons and for capture.hold and capture.stop alike. The helper is told;
+ * the state changes when it answers. 0, or -1 when it did not take the
+ * line. */
+static int capture_command(struct psk_app *a, enum psk_action act)
+{
+    int rc;
+
+    switch (act) {
+    case PSK_ACT_HOLD:
+        rc = psk_session_hold(a->session, true);
+        break;
+    case PSK_ACT_RESUME:
+        rc = psk_session_hold(a->session, false);
+        break;
+    case PSK_ACT_STOP:
+        rc = psk_session_stop(a->session);
+        break;
+    default:
+        return -1;
+    }
+    psk_live_paint(a, PSK_CHANGED_STATE);
+    return rc;
+}
+
 void psk_do(struct psk_app *a, enum psk_action act)
 {
     switch (act) {
@@ -922,14 +1014,10 @@ void psk_do(struct psk_app *a, enum psk_action act)
         start_capture(a);
         break;
     case PSK_ACT_HOLD:
-        psk_session_hold(a->session, true);
-        break;
     case PSK_ACT_RESUME:
-        psk_session_hold(a->session, false);
-        break;
     case PSK_ACT_STOP:
-        psk_session_stop(a->session);
-        break;
+        capture_command(a, act);
+        return;
     case PSK_ACT_DISCARD:
         psk_sheet_show(a, PSK_SHEET_DISCARD);
         return;
@@ -973,12 +1061,16 @@ void psk_sheet_answer(struct psk_app *a, bool go)
     }
     switch (kind) {
     case PSK_SHEET_FULL:
-        a->keep = PPC_KEEP_FULL;
-        psk_paint_options(a);
+        if (!a->starting) {
+            a->keep = PPC_KEEP_FULL;
+            psk_paint_options(a);
+        }
         break;
     case PSK_SHEET_NOLIMIT:
-        a->limit_idx = PSK_LIMITS - 1;
-        psk_paint_options(a);
+        if (!a->starting) {
+            a->limit_idx = PSK_LIMITS - 1;
+            psk_paint_options(a);
+        }
         break;
     case PSK_SHEET_DISCARD:
     case PSK_SHEET_NEW:
@@ -1290,6 +1382,7 @@ static void *psk_create(lv_obj_t *root)
     a->sel = -1;
     a->keep = PPC_KEEP_HEADERS;
     a->limit_idx = LIMIT_DEFAULT;
+    psk_remote_emit_init(&a->emit);
     a->cfilter = PPC_CFILTER_ALL;
     a->simulated = psk_session_default_source() != NULL;
     a->cur = PSK_TAB_LIVE;
@@ -1352,6 +1445,21 @@ static void psk_destroy(void *priv)
     }
     if (a->timer) {
         lv_timer_delete(a->timer);
+    }
+    if (psk_capture_present(a)) {
+        /* A capture goes with the app: say so, once, with no figure, past
+         * the emitter's pacing (it is the last word). Only a capture that
+         * is there now: not setup, not one whose helper already ended. If
+         * nobody can be told (the unit is locked) it is not kept. */
+        struct psk_remote_figures f;
+        cJSON *data;
+
+        remote_figures(a, &f);
+        psk_remote_left(&f);
+        data = psk_remote_state_json(&f);
+        if (data) {
+            pocketos_shell_app_event("capture.state", data);
+        }
     }
     /* Leaving the app ends the capture and discards its packets (ADR-016
      * rule 5): at most PSK_DESTROY_GRACE_MS + PSK_KILL_REAP_MS. A save in
@@ -1556,32 +1664,27 @@ void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, i
     }
 }
 
-/* ---- what may be read from outside the app (app.h ipc_*, docs/api/shell.md) ---------------- */
+/* ---- the methods served on the shell's socket (app.h ipc_*, docs/api/shell.md) -------------- */
 
-/* capture.status: the capture's state and aggregate figures, from the model
- * this app already holds (psk_remote.h says what can be in it, and what
- * cannot). It reads; it sends the helper nothing, starts nothing, changes
- * nothing on the screen. The shell calls it only while this app is in front
- * and answers {"available": false} itself otherwise.
+/* The shell calls these only while this app is in front (open, not locked, no
+ * alarm). Not in front it answers capture.status with {"available": false}
+ * itself and refuses every other capture.* name.
  *
- * It is the only method served. HOLD, STOP and a request to start are a
- * later step and need ADR-016 amendment 1, which is proposed: until then
- * every other capture.* name is unknown here, and refused by the shell while
- * the app is not in front. No method opens the app (no ipc_opens). */
+ *   capture.status  reads
+ *   capture.hold    HOLD and RESUME, as the capture bar's buttons
+ *   capture.stop    STOP, as the capture bar's button
+ *
+ * Nothing here starts a capture, discards or saves one, or opens the app (no
+ * ipc_opens): those stay with a finger on this screen (ADR-016 rule 1). */
 static const char *const psk_ipc_status[] = { "capture.status", NULL };
 
-static int psk_ipc_request(void *priv, const char *method, const cJSON *params, cJSON **result,
-                           const char **message)
+/* capture.status: the capture's state and aggregate figures, from the model
+ * this app already holds. It reads; it sends the helper nothing, starts
+ * nothing, changes nothing on the screen. */
+static int psk_ipc_read(const struct psk_app *a, cJSON **result, const char **message)
 {
-    const struct psk_app *a = priv;
     struct psk_remote_figures f;
-    enum psk_remote_phase phase;
 
-    (void)params;
-    if (strcmp(method, "capture.status") != 0) {
-        *message = "unknown method";
-        return POCKETIPC_ERR_UNKNOWN_METHOD;
-    }
     if (!a || !a->model) {
         /* The app could not be made: it is not there to be read. */
         *result = cJSON_CreateObject();
@@ -1593,15 +1696,92 @@ static int psk_ipc_request(void *priv, const char *method, const cJSON *params, 
         }
         return 0;
     }
-    /* The phase is the screen's: the error panel, a capture, or setup. */
-    phase = a->failed_view ? PSK_REMOTE_ENDED : psk_capture_present(a) ? PSK_REMOTE_CAPTURE : PSK_REMOTE_IDLE;
-    psk_remote_take(a->model, phase, a->run_full, a->run_limit_s, &f);
+    remote_figures(a, &f);
     *result = psk_remote_json(&f);
     if (!*result) {
         *message = "out of memory";
         return POCKETIPC_ERR_BACKEND;
     }
     return 0;
+}
+
+/* A sheet is up over the capture bar: a confirmation, the filter, the saved
+ * captures or a diagnosis. */
+static bool sheet_up(const struct psk_app *a)
+{
+    return a->sheet_kind != PSK_SHEET_NONE || psk_fsheet_shown(a) || psk_ssheet_shown(a) || psk_dsheet_shown(a);
+}
+
+/* capture.hold {on} and capture.stop: what the button of the same name does,
+ * through the same function, and only when the capture bar offers it. The
+ * answer is the state as it is now and whether the helper was told; the
+ * change itself arrives as it does on the screen, when the helper answers
+ * (capture.state). Asking for the state a capture is already in is no
+ * fault and does nothing. */
+static int psk_ipc_command(struct psk_app *a, const char *method, const cJSON *params, cJSON **result,
+                           const char **message)
+{
+    struct psk_remote_figures f;
+    enum psk_action act;
+    bool told;
+    cJSON *o;
+
+    if (!a || !a->model) {
+        *message = "PacketShark is not ready";
+        return POCKETIPC_ERR_POLICY;
+    }
+    if (strcmp(method, "capture.stop") == 0) {
+        act = PSK_ACT_STOP;
+    } else {
+        const cJSON *on = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "on") : NULL;
+
+        if (!cJSON_IsBool(on)) {
+            *message = "on must be true or false";
+            return POCKETIPC_ERR_INVALID_PARAMS;
+        }
+        act = cJSON_IsTrue(on) ? PSK_ACT_HOLD : PSK_ACT_RESUME;
+    }
+    if (!psk_action_offered(a, PSK_ACT_STOP)) {
+        /* Setup, starting, stopped, saving, a helper that ended, a discard
+         * on its way: there is no running capture to hold or stop. */
+        *message = "nothing is capturing";
+        return POCKETIPC_ERR_POLICY;
+    }
+    if (sheet_up(a)) {
+        /* A sheet covers the capture bar: no finger and no key reaches
+         * HOLD or STOP now (psk_key), so no request does either. */
+        *message = "a sheet is open on the unit";
+        return POCKETIPC_ERR_POLICY;
+    }
+    remote_figures(a, &f);
+    told = psk_action_offered(a, act);
+    o = cJSON_CreateObject();
+    if (!o || !cJSON_AddStringToObject(o, "state", psk_remote_state_name(f.state)) ||
+        !cJSON_AddBoolToObject(o, "changing", told)) {
+        cJSON_Delete(o);
+        *message = "out of memory";
+        return POCKETIPC_ERR_BACKEND;
+    }
+    if (told && capture_command(a, act) != 0) {
+        cJSON_Delete(o);
+        *message = "the capture helper did not take it";
+        return POCKETIPC_ERR_BACKEND;
+    }
+    *result = o;
+    return 0;
+}
+
+static int psk_ipc_request(void *priv, const char *method, const cJSON *params, cJSON **result,
+                           const char **message)
+{
+    if (strcmp(method, "capture.status") == 0) {
+        return psk_ipc_read(priv, result, message);
+    }
+    if (strcmp(method, "capture.hold") == 0 || strcmp(method, "capture.stop") == 0) {
+        return psk_ipc_command(priv, method, params, result, message);
+    }
+    *message = "unknown method";
+    return POCKETIPC_ERR_UNKNOWN_METHOD;
 }
 
 LV_IMAGE_DECLARE(pos_app_icon_packetshark);

@@ -22,6 +22,7 @@
 #include "app.h"
 #include "pocketui.h"
 #include "psk_model.h"
+#include "psk_remote.h"
 #include "psk_saves.h"
 #include "psk_session.h"
 
@@ -378,6 +379,7 @@ struct psk_app {
     bool starting;       /* START pressed, the capture not yet confirmed */
     bool run_full;       /* what the capture command last sent asked for: FULL, */
     uint32_t run_limit_s; /* and its time limit (capture.status reports these) */
+    struct psk_remote_emit emit; /* which of capture.state and capture.stats were raised, and when */
     bool pending_start;  /* the capture command waits for the helper's hello */
     bool discarding;     /* discard sent: the helper is on its way out */
     bool failed_view;    /* the helper ended a capture badly: the error panel */
@@ -410,6 +412,9 @@ void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, i
 /* psk_app.c */
 int64_t psk_now(void);
 void psk_do(struct psk_app *a, enum psk_action act);
+/* Whether the capture bar offers HOLD, RESUME or STOP now: a capture is on
+ * the screen and its state has that button. */
+bool psk_action_offered(const struct psk_app *a, enum psk_action act);
 void psk_select_tab(struct psk_app *a, enum psk_tab t);
 void psk_select_iface(struct psk_app *a, int index);
 /* Whether an interface can be captured on: it has a carrier (Ethernet with a

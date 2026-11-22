@@ -112,29 +112,74 @@ check "nothing of a row, a packet, an address, a file or a formatted text is nam
 # The JSON is made from the figures alone: the function that writes it never
 # sees the model.
 hits=$(sed -n '/^struct cJSON \*psk_remote_json/,$p' $R | grep -cE 'psk_model|m->')
-check "the JSON is written from struct psk_remote_figures, which the model is not in" "$([ "$hits" = "0" ] && echo 1 || echo 0)"
+check "the JSON, the state event and the events' timing are made from the figures, which the model is not in" \
+    "$([ "$hits" = "0" ] && echo 1 || echo 0)"
+hits=$(sed -n '/^struct psk_remote_emit {/,/^};/p' $A/psk_remote.h | grep -E ';' |
+       grep -vE '^[[:space:]]*(uint8_t|uint32_t|int64_t|bool) [a-z_]+;[[:space:]]*(/\*.*\*/)?$|^[[:space:]]*char iface\[PPC_IFACE_MAX\];[[:space:]]*(/\*.*\*/)?$|^};$')
+check "what is remembered of the events is a state, times and one interface name" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
 hits=$(sed -n '/^struct psk_remote_figures {/,/^};/p' $A/psk_remote.h | grep -E ';' |
        grep -vE '^[[:space:]]*(uint8_t|uint32_t|uint64_t|bool) [a-z_]+;[[:space:]]*(/\*.*\*/)?$|^[[:space:]]*uint64_t [a-z_]+\[[A-Z_]+\];[[:space:]]*(/\*.*\*/)?$|^[[:space:]]*char iface\[PPC_IFACE_MAX\];[[:space:]]*(/\*.*\*/)?$|^};$')
 check "the figures are numbers, a flag and one interface name" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 # Every text that can reach the answer: the keys and the enumerated words.
 hits=$(code $R | grep -vE '^#include' | grep -oE '"[^"]*"' | LC_ALL=C sort -u | tr '\n' ' ')
-want='"arp" "available" "bps" "bytes" "capturing" "classes" "dhcp" "diag" "dns" "dns_answered" "dns_late" "dns_noreply" "dns_nxdomain" "dns_queries" "dns_refused" "dns_retries" "dns_rtt_max_us" "dns_rtt_sum_us" "dns_servfail" "dns_waiting" "elapsed_ms" "end" "ended" "error" "eth" "fill_permille" "findings" "full" "headers" "held" "helper_crashed" "helper_hung" "hold" "icmp" "idle" "iface" "iface_drops" "ipv6" "keep" "kernel_drops" "limit" "limit_s" "link" "none" "other" "pps" "reason" "requested_by_companion" "saving" "seen" "shed" "state" "stopped" "stored" "synth" "tcp" "tcp_aborted" "tcp_attempts" "tcp_connected" "tcp_hs_max_us" "tcp_hs_sum_us" "tcp_refused" "tcp_timed" "udp" "usb" "user" "wlan" '
+want='"arp" "available" "bps" "bytes" "capturing" "classes" "dhcp" "diag" "dns" "dns_answered" "dns_late" "dns_noreply" "dns_nxdomain" "dns_queries" "dns_refused" "dns_retries" "dns_rtt_max_us" "dns_rtt_sum_us" "dns_servfail" "dns_waiting" "elapsed_ms" "end" "ended" "error" "eth" "fill_permille" "findings" "full" "headers" "held" "helper_crashed" "helper_hung" "hold" "icmp" "idle" "iface" "iface_drops" "ipv6" "keep" "kernel_drops" "left" "limit" "limit_s" "link" "none" "other" "pps" "reason" "requested_by_companion" "saving" "seen" "shed" "state" "stopped" "stored" "synth" "tcp" "tcp_aborted" "tcp_attempts" "tcp_connected" "tcp_hs_max_us" "tcp_hs_sum_us" "tcp_refused" "tcp_timed" "udp" "usb" "user" "wlan" '
 check "its keys and words are the contract's list, to the letter" "$([ "$hits" = "$want" ] && echo 1 || echo 0)"
 [ "$hits" = "$want" ] || echo "     $hits"
-hits=$(grep -lE 'psk_remote_(take|json)\(' $A/*.c $A/ui/*.c ui/shell/*.c 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
-check "one caller: the app's capture.status ($hits)" "$([ "$hits" = "$A/psk_app.c $A/psk_remote.c " ] && echo 1 || echo 0)"
-# The handler reads: it sends the helper nothing and touches no part of the screen.
-hits=$(sed -n '/^static int psk_ipc_request/,/^}/p' $A/psk_app.c |
-       grep -nE 'psk_session_|psk_do\(|psk_sheet|psk_select|psk_set_|psk_open|lv_|psk_text|LOG_|a->[a-z_]+ *=[^=]')
-check "capture.status sends the helper nothing, changes nothing and logs nothing" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(grep -lE 'psk_remote_(take|json|state_json)\(' $A/*.c $A/ui/*.c ui/shell/*.c 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
+check "the figures are taken and written in the app's own file and nowhere else ($hits)" \
+    "$([ "$hits" = "$A/psk_app.c $A/psk_remote.c " ] && echo 1 || echo 0)"
+hits=$(code $A/psk_app.c | grep -cE 'psk_remote_take\(')
+check "and taken in one place, for what the screen shows" "$([ "$hits" = "1" ] && echo 1 || echo 0)"
+# Reading reads: it sends the helper nothing and touches no part of the screen.
+body() { sed -n -E "/^(static )?[a-z]+ +$1\(/,/^}/p" $A/psk_app.c; }
+hits=$( { body psk_ipc_read; body remote_figures; } |
+       grep -nE 'psk_session_|psk_do\(|capture_command|psk_sheet|psk_select|psk_set_|psk_open|lv_|psk_text|LOG_|a->[a-z_]+ *=[^=]')
+check "capture.status sends the helper nothing, changes nothing and logs nothing" \
+    "$([ -z "$hits" ] && [ -n "$(body psk_ipc_read)" ] && [ -n "$(body remote_figures)" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-check "its handler takes the app as const" \
-    "$(sed -n '/^static int psk_ipc_request/,/^}/p' $A/psk_app.c | grep -q 'const struct psk_app \*a = priv;' && echo 1 || echo 0)"
+check "it takes the app as const" \
+    "$(body psk_ipc_read | grep -q '^static int psk_ipc_read(const struct psk_app \*a,' &&
+       body remote_figures | grep -q '^static void remote_figures(const struct psk_app \*a,' && echo 1 || echo 0)"
+# HOLD, RESUME and STOP have one way to the helper, the buttons' own; the
+# request cannot reach it in a state whose bar does not offer the button.
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_(hold|stop)\(')
+check "the helper is told to hold or stop in one function only (3 calls, psk_session.c's own definitions aside)" \
+    "$([ "$hits" = "5" ] && [ "$(body capture_command | grep -cE 'psk_session_(hold|stop)\(')" = "3" ] && echo 1 || echo 0)"
+hits=$(code $A/psk_app.c | grep -cE '\bcapture_command\(a, act\)')
+check "which the capture bar and capture.hold / capture.stop both call" \
+    "$([ "$hits" = "2" ] && body psk_do | grep -q 'capture_command(a, act);' &&
+       body psk_ipc_command | grep -q 'told && capture_command(a, act) != 0' && echo 1 || echo 0)"
+check "a request is refused unless the bar offers STOP, and does only what the bar offers" \
+    "$(body psk_ipc_command | grep -q 'if (!psk_action_offered(a, PSK_ACT_STOP))' &&
+       body psk_ipc_command | grep -q 'told = psk_action_offered(a, act);' && echo 1 || echo 0)"
+hits=$(body psk_ipc_command | grep -nE 'psk_session_|psk_sheet|psk_do\(|psk_back|pocketos_shell_go_home|start_capture|back_to_setup|PSK_ACT_(START|DISCARD|NEW|SAVE)|LOG_')
+check "a request cannot start, discard, save or leave a capture, and logs nothing" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "and is refused under a sheet, by the rule the keys are" \
+    "$(body psk_ipc_command | grep -q 'if (sheet_up(a)) {' &&
+       body sheet_up | grep -qF 'a->sheet_kind != PSK_SHEET_NONE || psk_fsheet_shown(a) || psk_ssheet_shown(a) || psk_dsheet_shown(a)' &&
+       echo 1 || echo 0)"
+check "from START on, no setup row takes a tap: the interface, the options, a sheet answered late" \
+    "$([ "$(body psk_select_iface | grep -c 'if (a->starting) {')" = "1" ] &&
+       [ "$(body psk_option | grep -c 'if (a->starting) {')" = "1" ] &&
+       [ "$(body psk_sheet_answer | grep -c 'if (!a->starting) {')" = "2" ] && echo 1 || echo 0)"
+check "nothing is made to be raised while the app is not in front" \
+    "$(body announce | grep -q 'if (!pocketos_shell_app_in_front()) {' && echo 1 || echo 0)"
 hits=$(grep -ohE '"capture\.[a-z_]+"' $A/*.c $A/ui/*.c | LC_ALL=C sort -u | tr '\n' ' ')
-check "capture.status is the one method the app knows ($hits)" "$([ "$hits" = '"capture.status" ' ] && echo 1 || echo 0)"
-check "no method opens PacketShark, and it raises no event" \
-    "$(code $A/*.c $A/ui/*.c | grep -qE 'ipc_opens|pocketos_shell_app_event' && echo 0 || echo 1)"
+check "the app knows three methods and two events, and no other capture.* name ($hits)" \
+    "$([ "$hits" = '"capture.hold" "capture.state" "capture.stats" "capture.status" "capture.stop" ' ] && echo 1 || echo 0)"
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'pocketos_shell_app_event\(')
+check "events are raised in two places: the poll's one a turn, and leaving" \
+    "$([ "$hits" = "2" ] && [ "$(body announce | grep -c 'pocketos_shell_app_event(')" = "1" ] &&
+       [ "$(body psk_destroy | grep -c 'pocketos_shell_app_event(')" = "1" ] && echo 1 || echo 0)"
+check "every event is made by psk_remote, from the figures" \
+    "$(body announce | grep -q 'data = due == PSK_REMOTE_DUE_STATE ? psk_remote_state_json(&f) : psk_remote_json(&f);' &&
+       body psk_destroy | grep -q 'data = psk_remote_state_json(&f);' && echo 1 || echo 0)"
+check "no method opens PacketShark, and only capture.status is answered for a closed app" \
+    "$(code $A/*.c $A/ui/*.c | grep -qE 'ipc_opens' && echo 0 ||
+       { code $A/psk_app.c | grep -q 'psk_ipc_status\[\] = { "capture.status", NULL };' && echo 1 || echo 0; })"
 
 # ---- lifecycle ------------------------------------------------------------------
 check "the helper is spawned with PR_SET_PDEATHSIG and a parent check" \

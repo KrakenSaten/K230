@@ -154,8 +154,8 @@ Only with ADR-016 amendment 1. Served by the PacketShark app; the gateway passes
 | Method | Scope | Result |
 | --- | --- | --- |
 | `capture.status` | view | see below |
-| `capture.hold` `{on}` | control | `{state}`; error 3 when nothing is capturing |
-| `capture.stop` | control | `{state}`; error 3 when nothing is capturing |
+| `capture.hold` `{on}` | control | `{state, changing}`: the state when asked, and whether the capture was told to change (false when it is already in the state asked for). Error 2 unless `on` is true or false; error 3 when nothing is capturing |
+| `capture.stop` | control | `{state, changing}`; error 3 when nothing is capturing |
 | `capture.request_start` `{iface, limit_s}` | control | `{shown: true}` when the sheet is up on the unit; the outcome arrives as `capture.state`. Error 3: a capture is running, a request is already shown, the unit is locked or showing an alert, or `iface`/`limit_s` is not one the setup screen offers. Error 10: more than one request in 30 s |
 
 `capture.status`:
@@ -171,10 +171,27 @@ Only with ADR-016 amendment 1. Served by the PacketShark app; the gateway passes
 ```
 
 - `available: false` (and nothing else) when PacketShark is not the app in front.
-- `state`: `idle`, `capturing`, `hold`, `saving`, `stopped`, or `ended` with `reason` (`left`, `limit`, `link`, `helper_crashed`, `helper_hung`, `refused`, `timeout`).
+- `state`: `idle`, `capturing`, `hold`, `saving`, `stopped`, or `ended`.
+- `reason`, the same words as on the unit's own socket (`docs/api/shell.md`, "PacketShark: `capture.*`"):
+
+| `reason` | With `state` | Meaning |
+| --- | --- | --- |
+| `none` | any | no reason: setup, or a capture that is running or held |
+| `user` | `stopped`, `saving` | STOP, tapped on the screen or asked by `capture.stop` |
+| `limit` | `stopped`, `saving` | the capture's own time limit |
+| `link` | `stopped`, `saving` | the interface went down or lost its carrier |
+| `end` | `stopped`, `saving` | a replayed file ended (the simulator and the tests) |
+| `error` | `stopped`, `saving` | the capture source failed |
+| `helper_crashed` | `ended` | the helper is gone, however it went; its packets with it |
+| `helper_hung` | `ended` | the helper stopped answering and was ended |
+| `left` | `ended` | PacketShark was left with a capture in it, which ends the capture. Only ever in a `capture.state` event: afterwards the app is not there to be asked |
+| `refused`, `timeout` | (none yet) | reserved for the outcome of a start request (ADR-016 amendment 1 rule 1a). Nothing raises them |
+
 - Every figure is a count, a rate or a size. **No field identifies a host**; ADR-016 rule 11a lists what may be here.
 
-Events (topic `capture`): `capture.state` on every change; `capture.stats`, the figures above, once a second while capturing.
+Events (topic `capture`): `capture.state` `{state, reason, iface, keep, limit_s}` on every change; `capture.stats`, the figures above, once after each change of state that has figures (unless it changes again first) and once a second while capturing or held. Figures never come before their state; at most four of each in a second, the last `ended`/`left` aside.
+
+**Where this stands.** PacketShark serves `capture.status`, `capture.hold`, `capture.stop` and the two events on the unit's own shell socket (`docs/api/shell.md`). The gateway passes none of them on and knows no `capture.*` name: this section still binds nothing until ADR-016 amendment 1 is accepted. `capture.request_start` is not implemented anywhere.
 
 ## 10. The local control surface (`gatewayd.sock`)
 

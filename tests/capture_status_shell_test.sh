@@ -8,8 +8,8 @@
 # a helper that crashes and one that is missing; that every answer has the
 # contract's keys and no other and no text but four checked words; that
 # asking starts nothing, sends the helper nothing and changes nothing; that
-# no other capture.* name does anything, in front or not, and none opens the
-# app; that nothing is raised as an event.
+# a capture.* name that is not served does nothing, in front or not, and none
+# opens the app. HOLD, STOP and the events: tests/capture_control_shell_test.sh.
 #
 # Requires: SHELL_BIN (the CMake-built simulator, pocketos-shell), make's
 # tools/capture/pos-capture, python3. Run from the repository root.
@@ -148,7 +148,7 @@ sleep 1.2
 B=$(status)
 is "capturing: the figures move" True "$(python3 -c "import json,sys; a=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); print(b['seen'] > a['seen'] and b['elapsed_ms'] > a['elapsed_ms'] and b['bytes'] > a['bytes'])" "$A" "$B")"
 is "one helper, the app's own" 1 "$(helpers)"
-for m in capture.hold capture.stop capture.discard; do
+for m in capture.discard capture.save capture.request_start; do
     check "capturing: $m is not served" '^ERR 1 unknown method$' "$(call $m '{"on": true}')"
 done
 sleep 0.4
@@ -185,7 +185,8 @@ sleep 0.3
 kill $LP 2>/dev/null; wait $LP 2>/dev/null
 LP=
 check "the listener heard the shell's own events through all of it" '^EVENT shell\.app ' "$(cat "$OUT/events")"
-is "and no capture.* event (events are a later step)" 0 "$(grep -c '^EVENT capture\.' "$OUT/events")"
+is "and of the app only the two events it may raise (tests/capture_control_shell_test.sh has their order)" 0 \
+   "$(grep '^EVENT capture\.' "$OUT/events" | grep -cvE '^EVENT capture\.(state|stats) ')"
 # A handler over its budget is logged as a warning by design and reported
 # below; on a loaded host that is not a fault of the answer.
 is "the shell logged no error about it" 0 "$(grep -cE ' ERROR .*(app method|capture\.)' "$OUT/shell.out" "$POCKETOS_LOG_DIR/shell.log" 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}')"

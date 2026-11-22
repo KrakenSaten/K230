@@ -59,6 +59,7 @@ enum psk_remote_reason {
     PSK_RR_ERROR,
     PSK_RR_HELPER_CRASHED,
     PSK_RR_HELPER_HUNG,
+    PSK_RR_LEFT,
     PSK_RR_COUNT
 };
 
@@ -96,6 +97,59 @@ void psk_remote_take(const struct psk_model *m, enum psk_remote_phase phase, boo
 /* The `capture.status` answer, or NULL when memory is short. The caller owns
  * it. */
 struct cJSON *psk_remote_json(const struct psk_remote_figures *f);
+
+/* The `capture.state` event: the state, why, and what the capture was
+ * started as. No figure. NULL when memory is short. */
+struct cJSON *psk_remote_state_json(const struct psk_remote_figures *f);
+
+/* The app is being left with a capture in it: the capture ends there and its
+ * packets go (ADR-016 rule 5). The totals stay, the rates do not. */
+void psk_remote_left(struct psk_remote_figures *f);
+
+/* ---- when to raise the events (capture.state, capture.stats) ------------------
+ *
+ * Asked on every poll of the app; says which one event, if any, is due now.
+ *
+ *   capture.state  when the state, its reason or what the capture was started
+ *                  as differs from what was last raised; at most one attempt
+ *                  every PSK_REMOTE_STATE_GAP_MS, so a helper that flaps
+ *                  cannot make more of them. A change that could not be
+ *                  raised (the unit is locked) is tried again, and what is
+ *                  then raised is the state as it is by then.
+ *   capture.stats  the figures: once after each raised state that has any
+ *                  (so the totals of a stopped capture go out once, last),
+ *                  and every PSK_REMOTE_STATS_GAP_MS while capturing or held.
+ *                  Never while a change of state waits to be raised: figures
+ *                  never carry a state nobody was told of.
+ *
+ * So in any second this asks for at most 1000 / PSK_REMOTE_STATE_GAP_MS of
+ * each. A state that changes again before its figures went out does not get
+ * them: the newer state is raised first. The app raises one event past this,
+ * the last word when it is left with a capture (psk_remote_left), and starts
+ * afresh each time it is opened. Pure, the clock passed in. */
+#define PSK_REMOTE_STATE_GAP_MS 250
+#define PSK_REMOTE_STATS_GAP_MS 1000
+#define PSK_REMOTE_DUE_STATE 0x1u
+#define PSK_REMOTE_DUE_STATS 0x2u
+
+struct psk_remote_emit {
+    bool announced;        /* a state has been raised */
+    uint8_t state;         /* what was raised last */
+    uint8_t reason;
+    bool keep_full;
+    uint32_t limit_s;
+    char iface[PPC_IFACE_MAX];
+    bool owed;             /* the figures of that state have not gone out */
+    int64_t state_try_ms;  /* the last attempts */
+    int64_t stats_try_ms;
+};
+
+void psk_remote_emit_init(struct psk_remote_emit *e);
+/* PSK_REMOTE_DUE_STATE, PSK_REMOTE_DUE_STATS or 0; never both. */
+unsigned psk_remote_due(const struct psk_remote_emit *e, const struct psk_remote_figures *f, int64_t now_ms);
+/* The attempt was made; `raised` is what the shell said of it. */
+void psk_remote_tried(struct psk_remote_emit *e, unsigned what, const struct psk_remote_figures *f, int64_t now_ms,
+                      bool raised);
 
 const char *psk_remote_state_name(unsigned state);
 const char *psk_remote_reason_name(unsigned reason);

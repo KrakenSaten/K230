@@ -3099,15 +3099,21 @@ static bool app_would_turn(const struct pocketos_app *app)
     return turn;
 }
 
-void pocketos_shell_app_event(const char *event, cJSON *data)
+bool pocketos_shell_app_event(const char *event, cJSON *data)
 {
     if (!sh.server || !app_in_front(sh.app) || !app_ipc_event_allowed(sh.app, event)) {
         ipc_stats.events_dropped++;
         cJSON_Delete(data);
-        return;
+        return false;
     }
     ipc_stats.events++;
     pocketipc_server_broadcast(sh.server, pocketipc_event(event, data ? data : cJSON_CreateObject()));
+    return true;
+}
+
+bool pocketos_shell_app_in_front(void)
+{
+    return app_in_front(sh.app);
 }
 
 static cJSON *app_ipc_json(void)
