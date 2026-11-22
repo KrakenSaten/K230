@@ -94,6 +94,8 @@ Losing any of them closes the listener and every session. It binds that one addr
 
 **The password gate reads only whether root has a password hash.** Root's entry in `/etc/passwd` must hold a hash itself, or say `x` with a hash in `/etc/shadow`. An empty field in either place, a locked field (`!`, `*`, or a hash behind `!`) and an unreadable file all count as no password; an empty field in `/etc/passwd` counts as none whatever the shadow file holds. Doors has no way to set a device password yet (open item U7): on the bench it is `passwd` on a root console.
 
+**Setting that password opens root SSH by password on a stock image.** The 0.4.0 image runs OpenSSH on `0.0.0.0:22` and `[::]:22` with `PermitRootLogin yes` and `PasswordAuthentication yes`, and the empty root password it ships with is what keeps that login shut. Meeting the password gate on such a unit therefore makes root reachable over SSH with that password from the LAN and from any global IPv6 address. Before enabling the gateway on a unit, set `PermitRootLogin prohibit-password` in `/etc/ssh/sshd_config` and restart sshd; image integration and the device-password flow (U7) must ship that setting (or stronger). VERIFIED in M5 on Unit A, 2026-11-21: with the line changed, root's real password was refused over IPv4; a refusal over IPv6 was not observed (the attempt ended before authentication).
+
 ## Trust
 
 - TLS 1.3 only, ciphersuites of TLS 1.3, groups P-256 and X25519, signatures `ecdsa_secp256r1_sha256`. No tickets, no session cache, no early data, no renegotiation, no compression. The settings are read back after they are made, and a finished handshake is checked again for version 1.3, not resumed, and the admitted key.
@@ -120,11 +122,14 @@ The local socket is root-only, so these are actions on the unit. The token is in
 ```sh
 doors call gatewayd gateway.pair_begin        # prints the doors-pair: URI; 120 s
 # the phone connects and presents the token; then, on the unit:
-doors call gatewayd gateway.subscribe         # (a client that stays connected sees gateway.candidate)
 doors call gatewayd gateway.pair_decide allow=true
-doors call gatewayd gateway.clients
+doors call gatewayd gateway.clients           # compare the new fingerprint with the phone
 doors call gatewayd gateway.revoke client=<64 hex>
 ```
+
+**The candidate's fingerprint is not shown before the decision on the bench.** The service announces a candidate only as the `gateway.candidate` event, which a client subscribed with `gateway.subscribe` that stays connected receives. `doors call` sends one request and exits, so it never sees the event, and `gateway.status` does not carry the candidate. On the bench the decision therefore rests on the 120 s window, a single candidate and the one-time token. Check it straight after `pair_decide`: the fingerprint `gateway.clients` lists for the new client must match "This phone's key" on the phone's pairing screen; if it does not, revoke that client. Showing the candidate before the tap is the Settings page's job (`docs/design/companion/PAIRING.md`). VERIFIED in M5 on Unit A, 2026-11-21.
+
+Read `device_id` from `gateway.status` immediately before opening a window when it is compared by hand with the phone's view of the unit: removing the state directory gives the unit a new key on the next start (M5 compared against a stale value this way; the QR carried the correct key).
 
 `gateway.pair_decide` takes `scopes` as an array, which `doors call` cannot express; without it a client gets `status`, `mesh_read`, `mesh_send`. The Settings page is the real client of this API (`docs/design/companion/CONTRACTS.md` §3).
 
