@@ -244,7 +244,7 @@ interface VisionSource {
 object VisionLimits {
     const val MAX_SIDE = 640
     const val MAX_FRAME_BYTES = 96 * 1024
-    const val MAX_FPS = 10
+    const val MAX_FPS = 5
     const val MAX_BOXES = 24
     const val SHEET_MS = 30_000L
     const val STALL_MS = 3_000L
