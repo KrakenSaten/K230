@@ -50,6 +50,8 @@
 #include "shell_power_menu.h"
 #include "tz_zones.h"
 #include "hw_actions.h"
+#include "app_ipc.h"
+#include "app_probe.h"
 #include "hw_activity.h"
 #include "kbd_leds.h"
 #include "kbd_light.h"
@@ -152,6 +154,18 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
                                             &app_video, &app_solitaire, &app_blackjack, &app_poker, &app_neon_outpost, &app_2048, &app_mp3,
                                             &app_deskbuddy, &app_terminal, &app_photo, &app_rotorterror OPTIONAL_APPS };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
+
+/* Apps that are in no launcher and no list: the probe of the simulator's
+ * tests (app_probe.c), and only when a test asked for it. Always empty in
+ * the build that goes on a card. */
+#define EXTRA_APP_MAX 2
+static const struct pocketos_app *extra_apps[EXTRA_APP_MAX];
+static size_t extra_app_count;
+/* Every app that may serve a method on shell.sock (app.h ipc_*): the
+ * registry, then the extras. Filled once, in main, before the socket opens. */
+static const struct pocketos_app *ipc_apps[APP_COUNT + EXTRA_APP_MAX];
+static size_t ipc_app_count;
+static struct app_ipc_stats ipc_stats;
 
 /* Apps that are a page of another app (DS §47): System is Settings' System
  * page. The page stays an app of the registry - shell.open, Controls'
@@ -2244,6 +2258,11 @@ static const struct pocketos_app *find_app(const char *id)
             return apps[k];
         }
     }
+    for (k = 0; id && k < extra_app_count; k++) {
+        if (strcmp(extra_apps[k]->id, id) == 0) {
+            return extra_apps[k];
+        }
+    }
     return NULL;
 }
 
@@ -3052,6 +3071,168 @@ static cJSON *overlay_json(void)
     return o;
 }
 
+/* ---- methods served by an app (app.h ipc_*, app_ipc.h) ------------------ */
+
+/* In front: the open app, with neither the lock nor an alarm over it. A
+ * screen that is merely dark, or Controls' sheet or the power menu over the
+ * app, does not take it from the front: the app is still what a touch or a
+ * key would reach next. */
+static bool app_in_front(const struct pocketos_app *app)
+{
+    return app && sh.app == app && !shell_lock_is_locked() && !shell_alarm_visible();
+}
+
+/* Whether opening `app` now would turn the display first (a portrait-only
+ * app in landscape, app_turns_first): the shell then restarts in place and
+ * opens it in the next run. Asked without changing anything. */
+static bool app_would_turn(const struct pocketos_app *app)
+{
+    const char *was = sh.display.portrait_app;
+    bool turn;
+
+    if (app->orientation != POCKETOS_APP_ORIENTATION_PORTRAIT) {
+        return false;
+    }
+    sh.display.portrait_app = app->id;
+    turn = shell_display_next_rotation(&sh.display) != sh.display.geometry.rotation;
+    sh.display.portrait_app = was;
+    return turn;
+}
+
+void pocketos_shell_app_event(const char *event, cJSON *data)
+{
+    if (!sh.server || !app_in_front(sh.app) || !app_ipc_event_allowed(sh.app, event)) {
+        ipc_stats.events_dropped++;
+        cJSON_Delete(data);
+        return;
+    }
+    ipc_stats.events++;
+    pocketipc_server_broadcast(sh.server, pocketipc_event(event, data ? data : cJSON_CreateObject()));
+}
+
+static cJSON *app_ipc_json(void)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(o, "budget_us", APP_IPC_BUDGET_US);
+    cJSON_AddNumberToObject(o, "result_max", APP_IPC_RESULT_MAX);
+    cJSON_AddNumberToObject(o, "calls", ipc_stats.calls);
+    cJSON_AddNumberToObject(o, "slow", ipc_stats.slow);
+    cJSON_AddNumberToObject(o, "worst_us", ipc_stats.worst_us);
+    cJSON_AddStringToObject(o, "worst_method", ipc_stats.worst_method);
+    cJSON_AddNumberToObject(o, "too_large", ipc_stats.too_large);
+    cJSON_AddNumberToObject(o, "closed_status", ipc_stats.closed_status);
+    cJSON_AddNumberToObject(o, "closed_refused", ipc_stats.closed_refused);
+    cJSON_AddNumberToObject(o, "opened", ipc_stats.opened);
+    cJSON_AddNumberToObject(o, "open_refused", ipc_stats.open_refused);
+    cJSON_AddNumberToObject(o, "events", ipc_stats.events);
+    cJSON_AddNumberToObject(o, "events_dropped", ipc_stats.events_dropped);
+    return o;
+}
+
+/* One request for a method of `owner` (app_in_front says what "in front" is). */
+static void serve_app_method(struct pocketipc_server *s, struct pocketipc_client *c, const cJSON *id,
+                             const struct pocketos_app *owner, const char *method, const cJSON *params)
+{
+    cJSON *result = NULL;
+    const char *message = NULL;
+    struct timespec t0;
+    struct timespec t1;
+    char text[96];
+    char *out;
+    int64_t us;
+    int rc;
+
+    if (!app_in_front(owner)) {
+        switch (app_ipc_closed_rule(owner, method)) {
+        case APP_IPC_CLOSED_STATUS:
+            ipc_stats.closed_status++;
+            result = cJSON_CreateObject();
+            cJSON_AddBoolToObject(result, "available", false);
+            pocketipc_server_reply(s, c, pocketipc_response(id, result));
+            return;
+        case APP_IPC_CLOSED_OPEN:
+            /* Opening is what a person does, and a locked unit has nobody at
+             * it: unlike shell.open, this never opens the lock. */
+            if (shell_lock_is_locked() || shell_alarm_visible()) {
+                ipc_stats.open_refused++;
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_POLICY, "the unit is locked or showing an alarm"));
+                return;
+            }
+            /* An app that needs the display turned first would be opened by a
+             * restart of the shell, after this request and its caller are
+             * gone. Nothing is started that cannot be answered: refused
+             * before anything is touched. */
+            if (app_would_turn(owner)) {
+                ipc_stats.open_refused++;
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_BUSY, "the app cannot be opened in this orientation"));
+                return;
+            }
+            shell_power_wake(method);
+            shell_power_activity();
+            if (sh.app != owner) {
+                app_open(owner);
+            }
+            if (sh.app != owner) {
+                ipc_stats.open_refused++;
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_BUSY, "the app could not be opened now"));
+                return;
+            }
+            ipc_stats.opened++;
+            break;
+        case APP_IPC_CLOSED_REFUSE:
+        default:
+            ipc_stats.closed_refused++;
+            snprintf(text, sizeof(text), "%s is not open", owner->name);
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_POLICY, text));
+            return;
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    rc = owner->ipc_request(sh.app_priv, method, params, &result, &message);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    us = (int64_t)(t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000;
+    app_ipc_note_time(&ipc_stats, method, us < 0 ? 0 : us > UINT32_MAX ? UINT32_MAX : (uint32_t)us);
+    if (us > (int64_t)APP_IPC_BUDGET_US) {
+        LOG_WARN("app method %s took %lld us (budget %u)", method, (long long)us, APP_IPC_BUDGET_US);
+    }
+    if (rc != 0) {
+        cJSON_Delete(result);
+        /* A code that is not pocketipc's is the app's mistake, not the caller's. */
+        if (rc < POCKETIPC_ERR_UNKNOWN_METHOD || rc > POCKETIPC_ERR_UNSUPPORTED) {
+            rc = POCKETIPC_ERR_BACKEND;
+            message = "the app answered with an unknown error";
+        }
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, rc, message ? message : "refused"));
+        return;
+    }
+    if (!result) {
+        result = cJSON_CreateObject();
+    }
+    out = cJSON_PrintUnformatted(result);
+    if (!out) {
+        cJSON_Delete(result);
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BACKEND,
+                                                              "the app's answer could not be written"));
+        return;
+    }
+    if (strlen(out) > APP_IPC_RESULT_MAX) {
+        ipc_stats.too_large++;
+        LOG_WARN("app method %s: result of %zu bytes over the limit of %u", method, strlen(out),
+                 APP_IPC_RESULT_MAX);
+        cJSON_free(out);
+        cJSON_Delete(result);
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BACKEND,
+                                                              "the app's answer is too large"));
+        return;
+    }
+    cJSON_free(out);
+    pocketipc_server_reply(s, c, pocketipc_response(id, result));
+}
+
 static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client *c,
                              cJSON *req, void *user)
 {
@@ -3062,6 +3243,18 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
     cJSON *result = NULL;
 
     (void)user;
+    /* A method of an app (app.h ipc_*): never one of the shell's own names,
+     * and it neither wakes the screen nor counts as activity, except where
+     * it opens its app (serve_app_method). A name no app owns goes on below
+     * and ends as "unknown method", as it always did. */
+    if (strncmp(method, "shell.", 6) != 0) {
+        const struct pocketos_app *owner = app_ipc_owner(ipc_apps, ipc_app_count, method);
+
+        if (owner) {
+            serve_app_method(s, c, id, owner, method, params);
+            return;
+        }
+    }
     /* A request that acts the way a person would - opening, going home,
      * pressing an action - is activity, and wakes a dark screen first, as a
      * touch would. Reading the state does neither, and a key goes through
@@ -3230,6 +3423,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
             cJSON_AddNumberToObject(lock, "engaged", shell_lock_engage_count());
             cJSON_AddNumberToObject(lock, "opened", shell_lock_open_count());
             cJSON_AddItemToObject(result, "lock", lock);
+            cJSON_AddItemToObject(result, "app_ipc", app_ipc_json());
             home_info(&hi);
             cJSON_AddNumberToObject(launcher, "groups", hi.groups);
             cJSON_AddNumberToObject(launcher, "apps", hi.apps);
@@ -3920,6 +4114,28 @@ int main(int argc, char **argv)
     uint32_t started;
     int i;
 
+    {
+        /* Which apps serve methods, and whether what they declare is sound
+         * (app_ipc.h). An unsound declaration is a mistake in the build, and
+         * the shell says so and does not start rather than serve it. First
+         * of all, before the display, the clock's handoff or anything else
+         * of a run exists: it needs nothing but the apps' own tables. */
+        char why[200];
+        size_t k;
+
+        extra_app_count = app_probe_apps(extra_apps, EXTRA_APP_MAX);
+        ipc_app_count = 0;
+        for (k = 0; k < APP_COUNT; k++) {
+            ipc_apps[ipc_app_count++] = apps[k];
+        }
+        for (k = 0; k < extra_app_count; k++) {
+            ipc_apps[ipc_app_count++] = extra_apps[k];
+        }
+        if (app_ipc_check(ipc_apps, ipc_app_count, why, sizeof(why)) != 0) {
+            fprintf(stderr, "doors-shell: app methods: %s: not starting\n", why);
+            return 2;
+        }
+    }
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--open") == 0 && i + 1 < argc) {
             open_id = argv[++i];
