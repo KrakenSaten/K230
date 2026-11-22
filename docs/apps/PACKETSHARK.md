@@ -96,7 +96,7 @@ Files:
 | `core/pocketpcap/ppc_signals.[ch]` | The findings (M7) and the diagnosis (M11.1): a table of the TCP connections seen (4,096 entries) and one of the DNS queries waiting (1,024), allocated together once at START; the six findings, the unanswered SYN and DNS query decided late (§4a); the diagnosis code of each packet and the running totals (§4b) |
 | `core/pocketpcap/ppc_source*.c` | Sources: libpcap (`ppc_source_pcap.c`, the only file that includes `<pcap/pcap.h>`), none, file, synth |
 | `tools/capture/pos_capture.c` | `pos-capture session`, `decode`, `bench`, `backend` |
-| `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model, and `psk_saves.c`: the saved captures listed and deleted by name, never opened (M8) |
+| `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model, `psk_saves.c`: the saved captures listed and deleted by name, never opened (M8), and `psk_remote.c`: the figures `capture.status` may carry, and their JSON |
 
 ## 4. What is kept, and for how long
 
@@ -109,6 +109,7 @@ Files:
 - **How long:** a capture stops by itself after 15 minutes by default (5, 15, 60 minutes, or no limit after a confirmation that is not remembered).
 - **Logged:** lifecycle lines only, never an address, a name or a byte of a packet (`pos-capture.log`, `shell.log`; tests: S7).
 - **Sent anywhere:** nothing. Neither process has network client code.
+- **Readable on the unit's own shell socket:** the capture's state and aggregate figures, as `capture.status` (`docs/api/shell.md`; `psk_remote.[ch]`), only while PacketShark is in front and not behind the lock. Counts, rates, sizes, times, the interface name when it is a plain one (`eth0`, `wlan0`) and three enumerated words; no packet, row, address, name, port, sequence number or file name. It reads the app's model and asks the helper for nothing. Nothing forwards it off the unit: gatewayd knows no `capture.*` name, and a companion reading it is ADR-016 amendment 1 (proposed).
 
 ## 4a. Signals (M7)
 

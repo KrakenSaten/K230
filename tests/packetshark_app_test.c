@@ -799,6 +799,71 @@ static void wifi_screens(void)
     g_wifi = 0;
 }
 
+/* ---- capture.status, as the shell would ask it (app.h ipc_request; H2) ----------------- */
+
+static cJSON *remote_status(void)
+{
+    cJSON *res = NULL;
+    const char *msg = NULL;
+
+    if (!app_packetshark.ipc_request ||
+        app_packetshark.ipc_request(app_priv, "capture.status", NULL, &res, &msg) != 0) {
+        cJSON_Delete(res);
+        return NULL;
+    }
+    return res;
+}
+
+static bool remote_is(const char *state, const char *reason)
+{
+    cJSON *o = remote_status();
+    const cJSON *s = cJSON_GetObjectItemCaseSensitive(o, "state");
+    const cJSON *w = cJSON_GetObjectItemCaseSensitive(o, "reason");
+    bool ok = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "available")) && cJSON_IsString(s) &&
+              cJSON_IsString(w) && strcmp(s->valuestring, state) == 0 && strcmp(w->valuestring, reason) == 0;
+
+    if (!ok) {
+        printf("     capture.status says %s / %s\n", cJSON_IsString(s) ? s->valuestring : "(none)",
+               cJSON_IsString(w) ? w->valuestring : "(none)");
+    }
+    cJSON_Delete(o);
+    return ok;
+}
+
+/* The answer's packets and bytes are the ones on the screen: SESSION's cells
+ * on LIVE, or LAST SESSION's on the error panel, printed as the screen
+ * prints them. Asked and compared in one pass, so no poll comes between. */
+static bool remote_matches_screen(bool error_panel)
+{
+    struct psk_app *a = app_priv;
+    cJSON *o = remote_status();
+    const cJSON *seen = cJSON_GetObjectItemCaseSensitive(o, "seen");
+    const cJSON *bytes = cJSON_GetObjectItemCaseSensitive(o, "bytes");
+    const cJSON *kd = cJSON_GetObjectItemCaseSensitive(o, "kernel_drops");
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(o, "iface_drops");
+    char b1[48];
+    char b2[48];
+    char b3[48];
+    lv_obj_t *const *cell = error_panel ? a->last : a->cell;
+    bool ok;
+
+    if (!cJSON_IsNumber(seen) || !cJSON_IsNumber(bytes) || !cJSON_IsNumber(kd) || !cJSON_IsNumber(id)) {
+        cJSON_Delete(o);
+        return false;
+    }
+    psk_fmt_count((uint64_t)seen->valuedouble, b1, sizeof(b1));
+    psk_fmt_bytes((uint64_t)bytes->valuedouble, b2, sizeof(b2));
+    psk_fmt_count((uint64_t)(kd->valuedouble + id->valuedouble), b3, sizeof(b3));
+    ok = seen->valuedouble > 0 && strcmp(lv_label_get_text(cell[0]), b1) == 0 &&
+         strcmp(lv_label_get_text(cell[1]), b2) == 0 && strcmp(lv_label_get_text(cell[2]), b3) == 0;
+    if (!ok) {
+        printf("     the screen: %s, %s, %s; the answer: %s, %s, %s\n", lv_label_get_text(cell[0]),
+               lv_label_get_text(cell[1]), lv_label_get_text(cell[2]), b1, b2, b3);
+    }
+    cJSON_Delete(o);
+    return ok;
+}
+
 static void capture_journey(void)
 {
     lv_obj_t *l;
@@ -807,6 +872,7 @@ static void capture_journey(void)
     app_start();
     CHECK("the simulator's stand-in is ready", shown("synth0") && shown("SIMULATED TRAFFIC · NO NETWORK") &&
                                                    strcmp(g_hint, "SIMULATED") == 0);
+    CHECK("capture.status on setup: idle", remote_is("idle", "none") && no_child());
     tap("START CAPTURE");
     CHECK("START: capturing within the hello deadline", wait_for("CAPTURING", 3500));
     CHECK("the header says so", strcmp(g_hint, "CAPTURING · SYNTH0") == 0);
@@ -816,9 +882,13 @@ static void capture_journey(void)
     CHECK("HOLD and STOP are full targets", target_ok(clickable_of(shown("HOLD")), button_h(), "HOLD") &&
                                                 target_ok(clickable_of(shown("STOP")), button_h(), "STOP"));
     shot("capturing");
+    CHECK("capture.status while capturing: its state, and the screen's own packets, bytes and drops",
+          remote_is("capturing", "none") && remote_matches_screen(false));
     tap("HOLD");
     CHECK("HOLD", wait_for("HOLD: ", 2000) && strcmp(g_hint, "HOLD · SYNTH0") == 0 && shown("RESUME"));
     pump(600);
+    CHECK("capture.status on HOLD: its state, and the screen's figures", remote_is("hold", "none") &&
+                                                                              remote_matches_screen(false));
     shot("hold");
     tap("RESUME");
     CHECK("RESUME", wait_for("CAPTURING", 2000) && shown("HOLD") && !shown("RESUME"));
@@ -832,6 +902,22 @@ static void capture_journey(void)
     tap("STOP");
     CHECK("STOP: stopped by you", wait_for("SYNTH0 · BY YOU", 2000) && strcmp(g_hint, "STOPPED · SYNTH0") == 0);
     CHECK("SAVE is offered on a stopped capture", shown("SAVE") && enabled("SAVE") && enabled("DISCARD"));
+    pump(300);
+    CHECK("capture.status when stopped: by the user, and the screen's figures",
+          remote_is("stopped", "user") && remote_matches_screen(false));
+    {
+        struct psk_app *a = app_priv;
+        uint32_t req = a->model->want_req;
+        uint32_t view = a->view_id;
+        enum psk_tab tab = a->cur;
+        int i;
+
+        for (i = 0; i < 50; i++) {
+            cJSON_Delete(remote_status());
+        }
+        CHECK("asking fifty times asks for no rows and moves nothing on the screen (the lint holds the rest)",
+              a->model->want_req == req && a->view_id == view && a->cur == tab && shown("STOPPED"));
+    }
     shot("stopped");
     tap("DISCARD");
     CHECK("DISCARD asks first, and says nothing was saved",
@@ -865,6 +951,7 @@ static void capture_journey(void)
     CHECK("DISCARD: setup again", wait_for("START CAPTURE", 1000) && shown("READY"));
     pump(400);
     CHECK("and the helper has gone", no_child());
+    CHECK("capture.status after DISCARD: idle again", remote_is("idle", "none"));
 
     /* The saved captures (ADR-016 rule 10): listed with size and age,
      * deleted only after a confirmation. */
@@ -1754,10 +1841,13 @@ static void faults(void)
     CHECK("a crashing helper: the error panel", wait_for("Capture ended unexpectedly", 5000) &&
                                                     shown("CRASHED (SIG 11)") && shown("RELEASED"));
     CHECK("the header says the capture ended", strcmp(g_hint, "CAPTURE ENDED") == 0);
+    CHECK("capture.status on the error panel: ended, the helper crashed, LAST SESSION's figures",
+          remote_is("ended", "helper_crashed") && remote_matches_screen(true));
     CHECK("NEW CAPTURE is the one way on", shown("NEW CAPTURE") && enabled("NEW CAPTURE"));
     shot("helper-stopped");
     tap("NEW CAPTURE");
     CHECK("NEW CAPTURE: setup again", wait_for("START CAPTURE", 1000) && shown("READY"));
+    CHECK("capture.status after NEW CAPTURE: idle", remote_is("idle", "none"));
     app_stop();
 
     setenv("POCKETOS_CAPTURE_SOURCE", "synth:300:1", 1);
@@ -1780,6 +1870,7 @@ static void faults(void)
     app_start();
     tap("START CAPTURE");
     CHECK("a missing helper is said on setup", wait_for("! THE CAPTURE HELPER IS NOT INSTALLED", 2000));
+    CHECK("capture.status with no helper: idle", remote_is("idle", "none"));
     app_stop();
 }
 

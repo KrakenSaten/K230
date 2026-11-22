@@ -28,6 +28,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "psk_app.h"
+#include "psk_remote.h"
 
 #include "pocketlog/pocketlog.h"
 #include "pos_input.h"
@@ -669,8 +670,12 @@ static void react(struct psk_app *a, unsigned changed)
         const struct psk_iface *f = a->sel >= 0 ? &a->ifs[a->sel] : NULL;
 
         a->pending_start = false;
-        if (!f || psk_session_capture(a->session, f->name, a->keep, 0, a->cfilter,
-                                      psk_limit_min[a->limit_idx] * 60u) != 0) {
+        /* What this capture is asked for, kept as it is sent: the setup
+         * rows can still be tapped until the helper says it is capturing. */
+        a->run_full = a->keep == PPC_KEEP_FULL;
+        a->run_limit_s = psk_limit_min[a->limit_idx] * 60u;
+        if (!f || psk_session_capture(a->session, f->name, a->run_full ? PPC_KEEP_FULL : PPC_KEEP_HEADERS, 0,
+                                      a->cfilter, a->run_limit_s) != 0) {
             snprintf(a->notice, sizeof(a->notice), "THE CAPTURE COULD NOT START");
             a->starting = false;
             psk_session_discard(a->session);
@@ -1551,6 +1556,54 @@ void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, i
     }
 }
 
+/* ---- what may be read from outside the app (app.h ipc_*, docs/api/shell.md) ---------------- */
+
+/* capture.status: the capture's state and aggregate figures, from the model
+ * this app already holds (psk_remote.h says what can be in it, and what
+ * cannot). It reads; it sends the helper nothing, starts nothing, changes
+ * nothing on the screen. The shell calls it only while this app is in front
+ * and answers {"available": false} itself otherwise.
+ *
+ * It is the only method served. HOLD, STOP and a request to start are a
+ * later step and need ADR-016 amendment 1, which is proposed: until then
+ * every other capture.* name is unknown here, and refused by the shell while
+ * the app is not in front. No method opens the app (no ipc_opens). */
+static const char *const psk_ipc_status[] = { "capture.status", NULL };
+
+static int psk_ipc_request(void *priv, const char *method, const cJSON *params, cJSON **result,
+                           const char **message)
+{
+    const struct psk_app *a = priv;
+    struct psk_remote_figures f;
+    enum psk_remote_phase phase;
+
+    (void)params;
+    if (strcmp(method, "capture.status") != 0) {
+        *message = "unknown method";
+        return POCKETIPC_ERR_UNKNOWN_METHOD;
+    }
+    if (!a || !a->model) {
+        /* The app could not be made: it is not there to be read. */
+        *result = cJSON_CreateObject();
+        if (!*result || !cJSON_AddBoolToObject(*result, "available", false)) {
+            cJSON_Delete(*result);
+            *result = NULL;
+            *message = "out of memory";
+            return POCKETIPC_ERR_BACKEND;
+        }
+        return 0;
+    }
+    /* The phase is the screen's: the error panel, a capture, or setup. */
+    phase = a->failed_view ? PSK_REMOTE_ENDED : psk_capture_present(a) ? PSK_REMOTE_CAPTURE : PSK_REMOTE_IDLE;
+    psk_remote_take(a->model, phase, a->run_full, a->run_limit_s, &f);
+    *result = psk_remote_json(&f);
+    if (!*result) {
+        *message = "out of memory";
+        return POCKETIPC_ERR_BACKEND;
+    }
+    return 0;
+}
+
 LV_IMAGE_DECLARE(pos_app_icon_packetshark);
 
 const struct pocketos_app app_packetshark = {
@@ -1573,4 +1626,7 @@ const struct pocketos_app app_packetshark = {
     /* Landscape draws its own top row, with a back slab of its own, the
      * state and the capture's buttons (DS §59.7, mockup 08; M9). */
     .header = POCKETOS_HEADER_NONE_LANDSCAPE,
+    .ipc_prefix = "capture.",
+    .ipc_request = psk_ipc_request,
+    .ipc_status = psk_ipc_status,
 };
