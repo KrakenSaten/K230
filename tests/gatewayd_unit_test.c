@@ -10,8 +10,10 @@
 #define _GNU_SOURCE
 
 #include "gw.h"
+#include "gw_feed.h"
 #include "gw_frame.h"
 #include "gw_gate.h"
+#include "gw_journal.h"
 #include "gw_pair.h"
 #include "gw_policy.h"
 #include "gw_store.h"
@@ -526,6 +528,590 @@ static void test_policy(void)
     cJSON_Delete(r);
 }
 
+/* ---- the mesh group: filters, parameters, topics (M4.1) ---------------- */
+
+static bool has(const cJSON *o, const char *name)
+{
+    return cJSON_GetObjectItemCaseSensitive(o, name) != NULL;
+}
+
+static int upstream_params(const char *method, const char *params_text, cJSON **out)
+{
+    const struct gw_method *m = gw_method_find(method);
+    cJSON *p = params_text != NULL ? parse(params_text) : NULL;
+    int r = m->params(p, out);
+
+    cJSON_Delete(p);
+    return r;
+}
+
+#define K64 "aa00000000000000000000000000000000000000000000000000000000000001"
+#define K64B "bb00000000000000000000000000000000000000000000000000000000000002"
+
+static void test_mesh_policy(void)
+{
+    static const char *const read_rows[] = {"mesh.identity", "mesh.nodes",        "mesh.node",
+                                            "mesh.channels", "mesh.path_preview", "mesh.sync", NULL};
+    const struct gw_method *m;
+    cJSON *r, *f, *a, *p;
+    unsigned mask;
+    uint64_t after;
+    bool have;
+    int i, off, lim;
+
+    /* Every reading method needs mesh_read and nothing else gives it; the
+     * status scope does not, the send scope alone is not a valid set. */
+    for (i = 0; read_rows[i] != NULL; i++) {
+        m = gw_method_find(read_rows[i]);
+        CHECK(m != NULL && m->scope == GW_S_MESH_READ && m->who == GW_W_PAIRED);
+        CHECK(gw_policy_check(m, GW_W_PAIRED, GW_S_STATUS) == GW_V_FORBIDDEN);
+        CHECK(gw_policy_check(m, GW_W_PAIRED, GW_S_ALL & ~GW_S_MESH_READ) == GW_V_FORBIDDEN);
+        CHECK(gw_policy_check(m, GW_W_PAIRED, GW_S_MESH_READ) == GW_V_OK);
+        CHECK(gw_policy_check(m, GW_W_CANDIDATE, GW_S_ALL) == GW_V_UNKNOWN);
+    }
+    /* Not in M4.1: sending, and reading that was never approved. */
+    CHECK(gw_method_find("mesh.send") == NULL && gw_method_find("mesh.resend") == NULL);
+    CHECK(gw_method_find("mesh.messages") == NULL && gw_method_find("mesh.subscribe") == NULL);
+    CHECK(gw_method_find("mesh.app_inbox") == NULL && gw_method_find("mesh.remote_session") == NULL);
+    CHECK(gw_method_find("mesh.discovered") == NULL && gw_method_find("mesh.channel") == NULL);
+    CHECK(gw_method_find("capture.status") == NULL);
+    m = gw_method_find("gateway.subscribe");
+    CHECK(m != NULL && m->scope == 0 && gw_policy_check(m, GW_W_CANDIDATE, 0) == GW_V_UNKNOWN);
+
+    /* The identity: the public half only, whatever the service would add. */
+    r = parse("{\"public_key\":\"ab\",\"node_hash\":\"ab\",\"name\":\"n\",\"name_source\":\"stored\",\"name_max\":31,"
+              "\"private_key\":\"LEAK\",\"prv\":\"LEAK\",\"seed\":\"LEAK\",\"state_path\":\"/var/lib\"}");
+    f = gw_filter_result(gw_method_find("mesh.identity"), r);
+    CHECK(f != NULL && cJSON_GetArraySize(f) == 5 && has(f, "public_key") && !has(f, "private_key") &&
+          !has(f, "prv") && !has(f, "seed") && !has(f, "state_path"));
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+
+    /* Channels: never a key, by whatever name. */
+    r = parse("{\"channels\":[{\"channel\":0,\"name\":\"Public\",\"channel_hash\":\"11\",\"key_bits\":128,"
+              "\"well_known\":\"public\",\"text_limit\":140,\"ack_expected\":false,\"key\":\"LEAK\","
+              "\"secret_hex\":\"LEAK\",\"psk\":\"LEAK\",\"k\":\"LEAK\"},\"x\"],\"count\":1,\"max\":8,"
+              "\"persistent\":true,\"store\":\"/var/lib/x\"}");
+    f = gw_filter_result(gw_method_find("mesh.channels"), r);
+    a = cJSON_GetObjectItem(f, "channels");
+    CHECK(f != NULL && cJSON_GetArraySize(a) == 1 && !has(f, "store") && has(f, "max"));
+    a = cJSON_GetArrayItem(a, 0);
+    CHECK(cJSON_GetArraySize(a) == 7 && has(a, "key_bits") && !has(a, "key") && !has(a, "secret_hex") &&
+          !has(a, "psk") && !has(a, "k"));
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+
+    /* A node and a message keep the documented fields, the peer's public
+     * key among them, and lose every other. */
+    r = parse("{\"public_key\":\"" K64 "\",\"name\":\"n\",\"type\":1,\"path_known\":true,\"hops\":2,"
+              "\"path_hex\":\"0102\",\"lat\":59.9,\"lon\":10.7,\"shared_secret\":\"LEAK\",\"out_path_key\":\"LEAK\","
+              "\"internal_slot\":7}");
+    f = gw_filter_node(r);
+    CHECK(f != NULL && cJSON_GetArraySize(f) == 8 && !has(f, "shared_secret") && !has(f, "out_path_key") &&
+          !has(f, "internal_slot"));
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+    r = parse("{\"id\":4,\"direction\":\"in\",\"kind\":\"direct\",\"peer_public_key\":\"" K64 "\","
+              "\"peer_name\":\"p\",\"text\":\"hello\",\"timestamp\":1,\"mono_ms\":2,\"state\":\"received\","
+              "\"ack_expected\":false,\"snr_db\":4.5,\"ack_hash\":\"LEAK\",\"expected_ack\":123,\"raw_hex\":\"00\","
+              "\"session_key\":\"LEAK\"}");
+    f = gw_filter_message(r);
+    CHECK(f != NULL && cJSON_GetArraySize(f) == 11 && has(f, "peer_public_key") && has(f, "text") &&
+          !has(f, "ack_hash") && !has(f, "expected_ack") && !has(f, "raw_hex") && !has(f, "session_key"));
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+    CHECK(gw_filter_message(NULL) == NULL && gw_filter_node(NULL) == NULL);
+    r = parse("[1]");
+    CHECK(gw_filter_message(r) == NULL && gw_filter_channel(r) == NULL);
+    cJSON_Delete(r);
+
+    /* mesh.nodes: only the list, each node filtered; no list, no answer. */
+    r = parse("{\"nodes\":[{\"public_key\":\"" K64 "\",\"secret\":\"LEAK\"},3],\"count\":1,\"debug\":1}");
+    f = gw_filter_result(gw_method_find("mesh.nodes"), r);
+    a = cJSON_GetObjectItem(f, "nodes");
+    CHECK(f != NULL && cJSON_GetArraySize(f) == 1 && cJSON_GetArraySize(a) == 1 &&
+          !has(cJSON_GetArrayItem(a, 0), "secret"));
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+    r = parse("{\"nodes\":7}");
+    CHECK(gw_filter_result(gw_method_find("mesh.nodes"), r) == NULL);
+    cJSON_Delete(r);
+
+    /* Pages of it. */
+    r = parse("{\"nodes\":[{\"name\":\"a\"},{\"name\":\"b\"},{\"name\":\"c\"}]}");
+    f = gw_nodes_page(r, 1, 1, "run1");
+    a = cJSON_GetObjectItem(f, "nodes");
+    CHECK(f != NULL && cJSON_GetArraySize(a) == 1 &&
+          strcmp(cJSON_GetObjectItem(cJSON_GetArrayItem(a, 0), "name")->valuestring, "b") == 0);
+    CHECK(cJSON_GetObjectItem(f, "count")->valueint == 1 && cJSON_GetObjectItem(f, "total")->valueint == 3 &&
+          strcmp(cJSON_GetObjectItem(f, "run_id")->valuestring, "run1") == 0);
+    cJSON_Delete(f);
+    f = gw_nodes_page(r, 5, 100, "run1");
+    CHECK(f != NULL && cJSON_GetObjectItem(f, "count")->valueint == 0 && cJSON_GetObjectItem(f, "total")->valueint == 3);
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+
+    /* Events: three kinds pass, reduced; nothing else has a filter at all. */
+    r = parse("{\"reason\":\"discovered\",\"node\":{\"public_key\":\"" K64 "\",\"name\":\"n\",\"secret\":\"LEAK\"},"
+              "\"extra\":1}");
+    f = gw_filter_event("mesh.node", r);
+    CHECK(f != NULL && cJSON_GetArraySize(f) == 2 && !has(cJSON_GetObjectItem(f, "node"), "secret"));
+    cJSON_Delete(f);
+    CHECK(gw_filter_event("mesh.channel", r) == NULL); /* no channel in it */
+    CHECK(gw_filter_event("mesh.rx", r) == NULL && gw_filter_event("mesh.app", r) == NULL &&
+          gw_filter_event("mesh.remote", r) == NULL && gw_filter_event("mesh.discover", r) == NULL &&
+          gw_filter_event("mesh.activity", r) == NULL && gw_filter_event("mesh.message", r) == NULL &&
+          gw_filter_event(NULL, r) == NULL && gw_filter_event("mesh.node", NULL) == NULL);
+    cJSON_Delete(r);
+    r = parse("{\"reason\":\"added\",\"channel\":{\"channel\":1,\"name\":\"c\",\"key\":\"LEAK\"}}");
+    f = gw_filter_event("mesh.channel", r);
+    CHECK(f != NULL && !has(cJSON_GetObjectItem(f, "channel"), "key") && has(cJSON_GetObjectItem(f, "channel"), "name"));
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+    r = parse("{\"state\":\"online\",\"reason\":\"none\",\"mono_ms\":5,\"lease_owner_id\":9}");
+    f = gw_filter_event("mesh.state", r);
+    CHECK(f != NULL && cJSON_GetArraySize(f) == 3);
+    cJSON_Delete(f);
+    cJSON_Delete(r);
+
+    /* Parameters: checked, and written again; nothing else reaches a service. */
+    CHECK(upstream_params("mesh.node", "{\"node\":\"aB01\"}", &p) == 0 && cJSON_GetArraySize(p) == 1 &&
+          strcmp(cJSON_GetObjectItem(p, "node")->valuestring, "aB01") == 0);
+    cJSON_Delete(p);
+    CHECK(upstream_params("mesh.node", NULL, &p) != 0 && p == NULL);
+    CHECK(upstream_params("mesh.node", "{}", &p) != 0);
+    CHECK(upstream_params("mesh.node", "{\"node\":\"abc\"}", &p) != 0);      /* odd */
+    CHECK(upstream_params("mesh.node", "{\"node\":\"zz\"}", &p) != 0);
+    CHECK(upstream_params("mesh.node", "{\"node\":\"\"}", &p) != 0);
+    CHECK(upstream_params("mesh.node", "{\"node\":7}", &p) != 0);
+    CHECK(upstream_params("mesh.node", "{\"node\":\"" K64 "aa\"}", &p) != 0); /* too long */
+    CHECK(upstream_params("mesh.node", "{\"node\":\"ab\",\"remove\":true}", &p) != 0);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\",\"via\":[\"" K64B "\"]}", &p) == 0 &&
+          cJSON_GetArraySize(p) == 2 && cJSON_GetArraySize(cJSON_GetObjectItem(p, "via")) == 1);
+    cJSON_Delete(p);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\",\"via\":[]}", &p) == 0);
+    cJSON_Delete(p);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\"}", &p) != 0);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"ab\",\"via\":[]}", &p) != 0); /* a prefix */
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\",\"via\":[\"ab\"]}", &p) != 0);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\",\"via\":[7]}", &p) != 0);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\",\"via\":{}}", &p) != 0);
+    CHECK(upstream_params("mesh.path_preview", "{\"to\":\"" K64 "\",\"via\":[],\"text\":\"x\"}", &p) != 0);
+    CHECK(gw_method_find("mesh.identity")->params == NULL && gw_method_find("mesh.channels")->params == NULL);
+
+    a = parse("{\"offset\":200,\"limit\":50}");
+    CHECK(gw_page_params(a, &off, &lim) == 0 && off == 200 && lim == 50);
+    cJSON_Delete(a);
+    CHECK(gw_page_params(NULL, &off, &lim) == 0 && off == 0 && lim == GW_NODES_LIMIT);
+    a = parse("{\"limit\":101}");
+    CHECK(gw_page_params(a, &off, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"limit\":0}");
+    CHECK(gw_page_params(a, &off, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"offset\":-1}");
+    CHECK(gw_page_params(a, &off, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"offset\":1.5}");
+    CHECK(gw_page_params(a, &off, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"offset\":1e30}");
+    CHECK(gw_page_params(a, &off, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"page\":1}");
+    CHECK(gw_page_params(a, &off, &lim) != 0);
+    cJSON_Delete(a);
+
+    CHECK(gw_sync_params(NULL, &have, &after, &lim) == 0 && !have && lim == GW_SYNC_LIMIT);
+    a = parse("{\"after_seq\":0,\"limit\":1}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) == 0 && have && after == 0 && lim == 1);
+    cJSON_Delete(a);
+    a = parse("{\"after_seq\":9007199254740992}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) == 0 && after == 9007199254740992ull);
+    cJSON_Delete(a);
+    a = parse("{\"after_seq\":-1}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"after_seq\":\"5\"}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"after_seq\":1e300}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"limit\":1000}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"run_id\":\"x\"}");
+    CHECK(gw_sync_params(a, &have, &after, &lim) != 0);
+    cJSON_Delete(a);
+
+    /* Topics: served and allowed, or left out; a wrong shape is refused. */
+    a = parse("{\"topics\":[\"mesh\",\"mesh.activity\",\"device\",\"capture\",\"nonsense\"]}");
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) == 0 && mask == (GW_T_MESH | GW_T_MESH_ACTIVITY));
+    CHECK(gw_topics_parse(a, GW_S_STATUS, &mask) == 0 && mask == 0);
+    CHECK(gw_topics_parse(a, GW_S_ALL & ~GW_S_MESH_READ, &mask) == 0 && mask == 0);
+    cJSON_Delete(a);
+    a = parse("{\"topics\":[]}");
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) == 0 && mask == 0);
+    cJSON_Delete(a);
+    CHECK(gw_topics_parse(NULL, GW_S_ALL, &mask) != 0);
+    a = parse("{\"topics\":\"mesh\"}");
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"topics\":[1]}");
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"topics\":[\"mesh\"],\"rx_log\":true}");
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) != 0);
+    cJSON_Delete(a);
+    a = parse("{\"topics\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]}");
+    CHECK(gw_topics_parse(a, GW_S_ALL, &mask) != 0);
+    cJSON_Delete(a);
+    CHECK(gw_topics_allowed(GW_T_ALL, GW_S_STATUS) == 0 && gw_topics_allowed(GW_T_MESH, GW_S_MESH_READ) == GW_T_MESH);
+    a = gw_topics_json(GW_T_ALL);
+    CHECK(cJSON_GetArraySize(a) == 2);
+    cJSON_Delete(a);
+}
+
+/* ---- gw_journal -------------------------------------------------------- */
+
+static cJSON *msg(int id, const char *state)
+{
+    cJSON *m = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(m, "id", id);
+    cJSON_AddStringToObject(m, "state", state);
+    cJSON_AddStringToObject(m, "text", "t");
+    return m;
+}
+
+static double num(const cJSON *o, const char *name)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, name);
+
+    return cJSON_IsNumber(v) ? v->valuedouble : -1;
+}
+
+/* seq of entry i of a sync answer, and the id of its message. */
+static double sync_seq(const cJSON *r, int i)
+{
+    return num(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "messages"), i), "seq");
+}
+
+static double sync_id(const cJSON *r, int i)
+{
+    return num(cJSON_GetObjectItem(cJSON_GetArrayItem(cJSON_GetObjectItem(r, "messages"), i), "message"), "id");
+}
+
+static int sync_n(const cJSON *r)
+{
+    return cJSON_GetArraySize(cJSON_GetObjectItem(r, "messages"));
+}
+
+static void test_journal(void)
+{
+    static struct gw_journal j;
+    const cJSON *kept;
+    cJSON *r, *big;
+    char *text;
+    int i;
+
+    CHECK(gw_ident_ok("a1B2-_") && !gw_ident_ok("") && !gw_ident_ok(NULL) && !gw_ident_ok("a b") &&
+          !gw_ident_ok("a\"b") && !gw_ident_ok("0123456789012345678901234567890123"));
+    CHECK(gw_journal_init(&j, "bad id") != 0);
+    CHECK(gw_journal_init(&j, "j1") == 0);
+    CHECK(gw_journal_seq(&j) == 0 && gw_journal_first_seq(&j) == 1);
+
+    /* No run known: nothing is journaled, since nothing could say whose
+     * ids these are. */
+    CHECK(gw_journal_put(&j, msg(1, "received"), NULL) == 0);
+    CHECK(gw_journal_set_run(&j, "not a run id") == -1 && j.run_id[0] == '\0');
+    CHECK(gw_journal_set_run(&j, "runA") == 1);
+    CHECK(gw_journal_set_run(&j, "runA") == 0);
+
+    CHECK(gw_journal_put(&j, msg(1, "sent_direct"), &kept) == 1 && kept != NULL);
+    CHECK(gw_journal_put(&j, msg(2, "received"), NULL) == 2);
+    /* The same again is not news (a repeated event; a snapshot after it). */
+    CHECK(gw_journal_put(&j, msg(1, "sent_direct"), &kept) == 0 && kept == NULL);
+    CHECK(gw_journal_put(&j, msg(2, "received"), NULL) == 0);
+    /* A change of state is: a new seq, the same message id. */
+    CHECK(gw_journal_put(&j, msg(1, "acked"), NULL) == 3);
+    CHECK(gw_journal_put(&j, msg(1, "acked"), NULL) == 0);
+    /* Going back to an earlier state is a change too, and is kept: the
+     * journal records what was said, in order. */
+    CHECK(gw_journal_put(&j, msg(1, "sent_direct"), NULL) == 4);
+    /* Unusable: no id, a fraction, zero, text, not an object, nothing. */
+    r = cJSON_CreateObject();
+    CHECK(gw_journal_put(&j, r, NULL) == 0);
+    r = parse("{\"id\":1.5}");
+    CHECK(gw_journal_put(&j, r, NULL) == 0);
+    r = parse("{\"id\":0}");
+    CHECK(gw_journal_put(&j, r, NULL) == 0);
+    r = parse("{\"id\":\"7\"}");
+    CHECK(gw_journal_put(&j, r, NULL) == 0);
+    r = parse("{\"id\":1e300}");
+    CHECK(gw_journal_put(&j, r, NULL) == 0);
+    r = parse("[1]");
+    CHECK(gw_journal_put(&j, r, NULL) == 0);
+    CHECK(gw_journal_put(&j, NULL, NULL) == 0);
+    /* Larger than one message may be. */
+    big = msg(9, "received");
+    text = malloc(GW_JOURNAL_MSG_MAX + 1);
+    memset(text, 'x', GW_JOURNAL_MSG_MAX);
+    text[GW_JOURNAL_MSG_MAX] = '\0';
+    cJSON_AddStringToObject(big, "more", text);
+    free(text);
+    CHECK(gw_journal_put(&j, big, NULL) == 0);
+    CHECK(gw_journal_seq(&j) == 4 && gw_journal_first_seq(&j) == 1 && j.count == 4);
+
+    /* Without a cursor: the newest, oldest first. */
+    r = gw_journal_sync(&j, false, 0, 100);
+    CHECK(r != NULL && sync_n(r) == 4 && sync_seq(r, 0) == 1 && sync_seq(r, 3) == 4 && sync_id(r, 3) == 1);
+    CHECK(strcmp(cJSON_GetObjectItem(r, "journal_id")->valuestring, "j1") == 0 &&
+          strcmp(cJSON_GetObjectItem(r, "run_id")->valuestring, "runA") == 0);
+    CHECK(num(r, "seq") == 4 && num(r, "first_seq") == 1 && cJSON_IsFalse(cJSON_GetObjectItem(r, "more")) &&
+          !has(r, "gap"));
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, false, 0, 2);
+    CHECK(sync_n(r) == 2 && sync_seq(r, 0) == 3 && sync_seq(r, 1) == 4);
+    cJSON_Delete(r);
+    /* With one: what came after it, in pages. */
+    r = gw_journal_sync(&j, true, 0, 3);
+    CHECK(sync_n(r) == 3 && sync_seq(r, 0) == 1 && cJSON_IsTrue(cJSON_GetObjectItem(r, "more")) && !has(r, "gap"));
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, true, 3, 3);
+    CHECK(sync_n(r) == 1 && sync_seq(r, 0) == 4 && cJSON_IsFalse(cJSON_GetObjectItem(r, "more")));
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, true, 4, 100); /* up to date */
+    CHECK(sync_n(r) == 0 && !has(r, "gap") && cJSON_IsFalse(cJSON_GetObjectItem(r, "more")));
+    cJSON_Delete(r);
+    /* A cursor from the future is not one of this journal's. */
+    r = gw_journal_sync(&j, true, 5, 100);
+    CHECK(sync_n(r) == 4 && cJSON_IsTrue(cJSON_GetObjectItem(r, "gap")));
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, true, 4, 0); /* a limit below 1 is 1 */
+    CHECK(r != NULL && sync_n(r) == 0);
+    cJSON_Delete(r);
+
+    /* The ring: 512 held, the oldest gone, and a cursor into what is gone
+     * is told so and gets what is left from its start. */
+    for (i = 0; i < GW_JOURNAL_MAX + 10; i++) {
+        CHECK(gw_journal_put(&j, msg(100 + i, "received"), NULL) == (uint64_t)(5 + i));
+    }
+    CHECK(j.count == GW_JOURNAL_MAX && gw_journal_seq(&j) == 4 + GW_JOURNAL_MAX + 10);
+    CHECK(gw_journal_first_seq(&j) == gw_journal_seq(&j) - GW_JOURNAL_MAX + 1);
+    r = gw_journal_sync(&j, true, 2, 100);
+    CHECK(sync_n(r) == 100 && cJSON_IsTrue(cJSON_GetObjectItem(r, "gap")) &&
+          sync_seq(r, 0) == (double)gw_journal_first_seq(&j) && cJSON_IsTrue(cJSON_GetObjectItem(r, "more")));
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, true, gw_journal_first_seq(&j) - 1, 5); /* exactly the edge: nothing lost */
+    CHECK(sync_n(r) == 5 && !has(r, "gap") && sync_seq(r, 0) == (double)gw_journal_first_seq(&j));
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, true, gw_journal_first_seq(&j) - 2, 5); /* one was lost */
+    CHECK(cJSON_IsTrue(cJSON_GetObjectItem(r, "gap")));
+    cJSON_Delete(r);
+    /* Walking it by cursor reaches the end exactly once, in order. */
+    {
+        uint64_t cur = gw_journal_first_seq(&j) - 1, seen = 0;
+        bool more = true, ordered = true;
+
+        while (more) {
+            int n;
+
+            r = gw_journal_sync(&j, true, cur, 100);
+            n = sync_n(r);
+            for (i = 0; i < n; i++) {
+                ordered = ordered && sync_seq(r, i) == (double)(cur + 1);
+                cur = (uint64_t)sync_seq(r, i);
+                seen++;
+            }
+            more = cJSON_IsTrue(cJSON_GetObjectItem(r, "more"));
+            cJSON_Delete(r);
+            if (n == 0) {
+                break;
+            }
+        }
+        CHECK(ordered && seen == GW_JOURNAL_MAX && cur == gw_journal_seq(&j));
+    }
+    /* A duplicate is looked for across the whole ring, not just at its end. */
+    CHECK(gw_journal_put(&j, msg(100 + 20, "received"), NULL) == 0);
+
+    /* meshcored started again: its ids start again, so what is held goes,
+     * the sequence goes on, and every old cursor is a gap. */
+    {
+        uint64_t before = gw_journal_seq(&j);
+
+        CHECK(gw_journal_set_run(&j, "runB") == 1 && j.count == 0);
+        CHECK(gw_journal_seq(&j) == before && gw_journal_first_seq(&j) == before + 1);
+        r = gw_journal_sync(&j, true, before - 3, 100);
+        CHECK(sync_n(r) == 0 && cJSON_IsTrue(cJSON_GetObjectItem(r, "gap")) &&
+              strcmp(cJSON_GetObjectItem(r, "run_id")->valuestring, "runB") == 0);
+        cJSON_Delete(r);
+        r = gw_journal_sync(&j, false, 0, 100);
+        CHECK(sync_n(r) == 0 && !has(r, "gap"));
+        cJSON_Delete(r);
+        /* Message id 1 of the new run is a new message, not the old one. */
+        CHECK(gw_journal_put(&j, msg(1, "sent_direct"), NULL) == before + 1);
+    }
+
+    /* An answer stays under its size however much is held. */
+    CHECK(gw_journal_set_run(&j, "runC") == 1);
+    text = malloc(6000);
+    memset(text, 'y', 5999);
+    text[5999] = '\0';
+    for (i = 0; i < 100; i++) {
+        big = msg(i + 1, "received");
+        cJSON_AddStringToObject(big, "more", text);
+        CHECK(gw_journal_put(&j, big, NULL) != 0);
+    }
+    free(text);
+    r = gw_journal_sync(&j, false, 0, 100);
+    text = cJSON_PrintUnformatted(r);
+    CHECK(text != NULL && strlen(text) < GW_FRAME_OUT_MAX - 4096 && sync_n(r) > 10 && sync_n(r) < 100);
+    CHECK(sync_seq(r, sync_n(r) - 1) == (double)gw_journal_seq(&j)); /* the newest are the ones kept */
+    free(text);
+    cJSON_Delete(r);
+    r = gw_journal_sync(&j, true, gw_journal_first_seq(&j) - 1, 100);
+    text = cJSON_PrintUnformatted(r);
+    CHECK(text != NULL && strlen(text) < GW_FRAME_OUT_MAX - 4096 && cJSON_IsTrue(cJSON_GetObjectItem(r, "more")));
+    free(text);
+    cJSON_Delete(r);
+    gw_journal_free(&j);
+    CHECK(j.count == 0);
+}
+
+/* ---- gw_feed ----------------------------------------------------------- */
+
+static cJSON *node_event(const char *key, const char *reason, int n)
+{
+    cJSON *d = cJSON_CreateObject();
+    cJSON *node = cJSON_AddObjectToObject(d, "node");
+
+    cJSON_AddStringToObject(d, "reason", reason);
+    cJSON_AddStringToObject(node, "public_key", key);
+    cJSON_AddNumberToObject(node, "n", n);
+    return d;
+}
+
+static double node_n(const cJSON *d)
+{
+    return num(cJSON_GetObjectItem(d, "node"), "n");
+}
+
+static void test_feed(void)
+{
+    static struct gw_feed f;
+    cJSON *d, *a;
+    char key[65];
+    int i, out;
+
+    gw_feed_init(&f);
+    /* The first event of a node goes out; what follows within ten seconds
+     * is held, the newest replacing the older, and goes out when they end. */
+    d = gw_feed_node(&f, node_event(K64, "discovered", 1), 1000);
+    CHECK(d != NULL && node_n(d) == 1);
+    cJSON_Delete(d);
+    CHECK(gw_feed_node(&f, node_event(K64, "path", 2), 1100) == NULL);
+    CHECK(gw_feed_node(&f, node_event(K64, "path", 3), 9000) == NULL);
+    CHECK(gw_feed_node_due(&f, 10999) == NULL);
+    /* Another node is not held up by this one. */
+    d = gw_feed_node(&f, node_event(K64B, "discovered", 7), 2000);
+    CHECK(d != NULL && node_n(d) == 7);
+    cJSON_Delete(d);
+    d = gw_feed_node_due(&f, 11000);
+    CHECK(d != NULL && node_n(d) == 3);
+    cJSON_Delete(d);
+    CHECK(gw_feed_node_due(&f, 11000) == NULL);
+    /* That counted as its event: the next is held again. */
+    CHECK(gw_feed_node(&f, node_event(K64, "path", 4), 12000) == NULL);
+    /* "removed" is never held, and nothing held may follow it. */
+    d = gw_feed_node(&f, node_event(K64, "removed", 5), 12500);
+    CHECK(d != NULL && node_n(d) == 5);
+    cJSON_Delete(d);
+    CHECK(gw_feed_node_due(&f, 60000) == NULL);
+    /* After the time with nothing held, a node is new again. */
+    d = gw_feed_node(&f, node_event(K64B, "path", 8), 12001);
+    CHECK(d != NULL);
+    cJSON_Delete(d);
+    /* Unusable events are dropped. */
+    CHECK(gw_feed_node(&f, node_event("abcd", "path", 1), 1) == NULL);
+    CHECK(gw_feed_node(&f, NULL, 1) == NULL);
+    d = cJSON_CreateObject();
+    CHECK(gw_feed_node(&f, d, 1) == NULL);
+
+    /* A burst: per node at most one now and one later, whatever is sent;
+     * more nodes than the table holds are not sent unbounded. */
+    gw_feed_reset(&f);
+    out = 0;
+    for (i = 0; i < 3 * GW_FEED_NODES * 4; i++) {
+        snprintf(key, sizeof(key), "%064x", i % (3 * GW_FEED_NODES));
+        d = gw_feed_node(&f, node_event(key, "path", i), 100000 + i);
+        if (d != NULL) {
+            out++;
+            cJSON_Delete(d);
+        }
+    }
+    CHECK(out == GW_FEED_NODES);
+    out = 0;
+    while ((d = gw_feed_node_due(&f, 100000 + GW_NODE_EVENT_MS + 3 * GW_FEED_NODES * 4)) != NULL) {
+        out++;
+        cJSON_Delete(d);
+    }
+    CHECK(out == GW_FEED_NODES);
+    gw_feed_reset(&f);
+    CHECK(gw_feed_node_due(&f, 1 << 30) == NULL);
+
+    /* Activity: counted into a bin, one bin a second, counts only. */
+    CHECK(gw_feed_activity_due(&f, 5000) == NULL);
+    a = parse("{\"kind\":\"rx\",\"payload_type\":\"advert\",\"bytes\":100,\"rssi_dbm\":-90,\"snr_db\":3.5,\"mono_ms\":1}");
+    gw_feed_activity(&f, a, 5000);
+    gw_feed_activity(&f, a, 5100);
+    cJSON_Delete(a);
+    a = parse("{\"kind\":\"rx\",\"payload_type\":\"Group Text!\",\"bytes\":1e9}");
+    gw_feed_activity(&f, a, 5200);
+    cJSON_Delete(a);
+    a = parse("{\"kind\":\"tx\",\"result\":\"ok\",\"bytes\":20,\"submit_id\":4}");
+    gw_feed_activity(&f, a, 5300);
+    cJSON_Delete(a);
+    a = parse("{\"kind\":\"tx\",\"result\":\"rx_resume_failed\"}");
+    gw_feed_activity(&f, a, 5300);
+    cJSON_Delete(a);
+    a = parse("{\"kind\":\"tx\",\"result\":\"refused\"}");
+    gw_feed_activity(&f, a, 5300);
+    cJSON_Delete(a);
+    a = parse("{\"kind\":\"tx\",\"result\":\"unknown\"}");
+    gw_feed_activity(&f, a, 5300);
+    cJSON_Delete(a);
+    a = parse("{\"kind\":\"other\"}");
+    gw_feed_activity(&f, a, 5300);
+    cJSON_Delete(a);
+    gw_feed_activity(&f, NULL, 5300);
+    CHECK(gw_feed_activity_due(&f, 5999) == NULL);
+    d = gw_feed_activity_due(&f, 6000);
+    CHECK(d != NULL && num(d, "start_mono_ms") == 5000 && num(d, "rx_frames") == 3 && num(d, "rx_bytes") == 200);
+    CHECK(num(d, "tx_ok") == 2 && num(d, "tx_failed") == 1 && num(d, "tx_unknown") == 1);
+    a = cJSON_GetObjectItem(d, "by_type");
+    CHECK(num(a, "advert") == 2 && num(a, "other") == 1 && cJSON_GetArraySize(a) == 2);
+    CHECK(cJSON_GetArraySize(d) == 7 && !has(d, "rssi_dbm") && !has(d, "snr_db")); /* no signal figure leaves */
+    cJSON_Delete(d);
+    CHECK(gw_feed_activity_due(&f, 7000) == NULL); /* nothing happened: no bin */
+    /* More type words than a bin holds end up in "other". */
+    for (i = 0; i < 40; i++) {
+        char t[80];
+
+        snprintf(t, sizeof(t), "{\"kind\":\"rx\",\"payload_type\":\"type_%d\"}", i);
+        a = parse(t);
+        gw_feed_activity(&f, a, 8000);
+        cJSON_Delete(a);
+    }
+    d = gw_feed_activity_due(&f, 9000);
+    a = cJSON_GetObjectItem(d, "by_type");
+    CHECK(cJSON_GetArraySize(a) == GW_FEED_TYPES && num(a, "other") == 40 - (GW_FEED_TYPES - 1) &&
+          num(d, "rx_frames") == 40);
+    cJSON_Delete(d);
+    gw_feed_reset(&f);
+}
+
 /* ---- gw_store ---------------------------------------------------------- */
 
 static void test_store(void)
@@ -806,6 +1392,9 @@ int main(void)
     test_frame();
     test_pair();
     test_policy();
+    test_mesh_policy();
+    test_journal();
+    test_feed();
     test_store();
     test_gate();
     test_tls();

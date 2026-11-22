@@ -1,6 +1,6 @@
 # Companion Gateway protocol v1 (`gateway.*`)
 
-Status: **draft; partly implemented (M2, host-tested only).** `services/gatewayd` serves §5 without `gateway.subscribe`, §6 without the `device.status` event, and §10; §7 to §9 are not implemented and their methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
+Status: **draft; partly implemented (M2 and M4.1, host-tested only).** `services/gatewayd` serves §5 (the topics `device` and `capture` are not served yet), §6 without the `device.status` event, §7, and §10; §8 and §9 are not implemented and their methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
 
 Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connection life cycle: `docs/design/companion/PAIRING.md`.
 
@@ -52,9 +52,13 @@ Granted per client on the unit (ADR-019 rule 24).
 | `gateway.pair` | `token` (base64url), `name` (1 to 32 bytes) | only for a pairing candidate, once. Answers when a person has approved or refused on the unit, or the window closed: `{paired: true, scopes[]}` or error 3 |
 | `gateway.ping` | - | `{}` |
 | `gateway.unpair` | - | `{}`, then the gateway closes. Removes the calling client from the paired list (a phone forgetting the unit); it can remove nobody else |
-| `gateway.subscribe` | `topics[]` | `{topics[]}`: the topics now held. Replaces the previous set. Topics: `device`, `mesh`, `mesh.activity`, `capture`; one the client's scopes do not allow is left out |
+| `gateway.subscribe` | `topics[]` (at most 8 names) | `{topics[], upstream{meshcored}}`: the topics now held, and - when one is held - whether meshcored is connected now. Replaces the previous set. Topics: `device`, `mesh`, `mesh.activity`, `capture`; one the client's scopes do not allow, one this build does not serve and one it does not know are left out |
 
-Events: `gateway.scopes {scopes[]}` when the unit reduced them; `gateway.revoked {}` immediately before the gateway closes a revoked client; `gateway.upstream {service, connected}` when a service behind the gateway goes away or comes back.
+Events: `gateway.scopes {scopes[]}` when the unit reduced them; `gateway.revoked {}` immediately before the gateway closes a revoked client; `gateway.upstream {service, connected}` when a service behind the gateway goes away or comes back. For meshcored it goes to the clients holding a mesh topic, and with `connected: true` it carries `run_id` and `journal_id`: the moment to call `mesh.sync`.
+
+A subscription belongs to the connection: a new connection holds no topic. A topic is lost when the unit takes away the scope it needs (`gateway.scopes`), and does not return with the scope: the client subscribes again.
+
+A parameter object with a member the method does not take is code 2, for every method of §5 to §7 (the gateway is an allowlist of parameters too).
 
 `boot_id` changes when the unit restarts: `mono_ms` values from another `boot_id` are not comparable.
 
@@ -92,9 +96,24 @@ Not in v1: `system.logs`, `system.crashes`, `storage.status`, `radio.stats` (ope
 - A changed `journal_id` (the gateway restarted) or `run_id` (meshcored restarted; message ids start again at 1): the client discards its cursor and syncs without `after_seq`. Messages it already stored stay stored under their old `run_id`.
 - The journal is not history. The unit keeps no messages on storage (meshcored's rule); a client that wants history keeps it.
 
-Events (topic `mesh`): `mesh.message {seq, message}`; `mesh.node {reason, node}`, at most one per node every 10 s except `removed`; `mesh.channel`; `mesh.state`.
+As implemented (M4.1):
 
-Events (topic `mesh.activity`): `mesh.activity_bin {start_mono_ms, rx_frames, rx_bytes, tx_ok, tx_failed, by_type{...}}` once a second while there was activity. Counts only; the per-frame `mesh.activity` and the receive log `mesh.rx` are not passed on in v1.
+- `gap: true` also answers an `after_seq` newer than `seq` (a cursor this journal never gave). With `gap`, what lay between is lost to this client; the answer starts at `first_seq`.
+- `more: true` means entries after the last one returned are held: ask again with that entry's `seq`. An answer holds at most `limit` entries and stays under the frame limit, so it can hold fewer than `limit` with `more` set. Without a cursor the answer is the newest entries that fit and `more` is false.
+- When meshcored starts again the entries of the old run are discarded at once (its ids would collide); `seq` goes on, so every older cursor is a `gap`. What a client had not yet taken of the old run is lost to it.
+- A repeated event, and a snapshot entry that says what the journal already holds as the newest state of that message, get no `seq` and raise no event. After a lost connection to meshcored within one run the gateway takes `mesh.messages` again and journals only what changed or is new.
+- `mesh.sync` is answered from memory, also while meshcored is away. It is code 9 only until the journal has been filled once for the run it is in.
+- The gateway reads the mesh only while at least one paired client holds `mesh_read`. When the last one loses it (revoked, unpaired, scopes reduced) the connection to meshcored is closed and the journal is emptied; `journal_id` is kept and the sequence goes on with one `seq` left out, so every cursor from before is a `gap`.
+- A meshcored that sends nothing at all while a request waits out its 2 s is treated as gone: `gateway.upstream {connected: false}`, then `true` when it is back.
+- Pipelining is allowed, and bounded: a client with more than 32 KiB of answers it has not taken is not read from until they are written, so several large answers asked for at once arrive one after another.
+- `mesh.nodes`: one upstream list serves the pages asked for within 5 s, so the pages of one reading belong together. `offset` past the end is an empty page.
+- `mesh.identity`, `mesh.node`, `mesh.channels` and `mesh.path_preview` have 2 s to be answered by meshcored (code 9 after that, and at once while it is not connected); an upstream error keeps its code (1 to 6) with the message "upstream error". Results are reduced to the fields `docs/api/mesh.md` documents, by name.
+
+Events (topic `mesh`): `mesh.message {seq, run_id, journal_id, message}`; `mesh.node {reason, node}`, at most one per node every 10 s except `removed` (the first at once, the newest of what followed when the 10 s are over); `mesh.channel {reason, channel}`; `mesh.state {state, reason, mono_ms}`.
+
+Events (topic `mesh.activity`): `mesh.activity_bin {start_mono_ms, rx_frames, rx_bytes, tx_ok, tx_failed, tx_unknown, by_type{...}}` once a second while there was activity. Counts only; the per-frame `mesh.activity` and the receive log `mesh.rx` are not passed on in v1. `tx_ok` counts frames that went on the air (meshcored's `ok` and `rx_resume_failed`), `tx_failed` those that did not (`tx_failed`, `refused`), `tx_unknown` the rest.
+
+Delivery: `mesh.message`, `mesh.channel`, `mesh.state` and `gateway.upstream` are never skipped; a client whose unread output would pass 256 KiB with one of them is disconnected, and syncs when it returns. `mesh.node` and `mesh.activity_bin` are skipped for a client with more than 128 KiB unread. No other event of meshcored is passed on.
 
 ## 8. Mesh, sending (`mesh_send`)
 
