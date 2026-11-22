@@ -12,7 +12,8 @@
 
 static const char *const state_words[PSK_RS_COUNT] = { "idle", "capturing", "hold", "saving", "stopped", "ended" };
 static const char *const reason_words[PSK_RR_COUNT] = { "none", "user",  "limit",          "link",
-                                                        "end",  "error", "helper_crashed", "helper_hung" };
+                                                        "end",  "error", "helper_crashed", "helper_hung",
+                                                        "left" };
 static const char *const class_keys[PPC_CLASS_COUNT] = { "tcp", "udp", "dns", "dhcp", "arp", "icmp", "ipv6", "other" };
 static const char *const diag_keys[PSK_REMOTE_DIAG] = {
     "dns_queries",    "dns_retries",    "dns_answered",  "dns_late",      "dns_noreply",   "dns_waiting",
@@ -230,4 +231,89 @@ struct cJSON *psk_remote_json(const struct psk_remote_figures *f)
         return NULL;
     }
     return o;
+}
+
+struct cJSON *psk_remote_state_json(const struct psk_remote_figures *f)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    if (!o || !cJSON_AddStringToObject(o, "state", psk_remote_state_name(f->state)) ||
+        !cJSON_AddStringToObject(o, "reason", psk_remote_reason_name(f->reason)) ||
+        !cJSON_AddStringToObject(o, "iface", f->iface) ||
+        !cJSON_AddStringToObject(o, "keep", f->keep_full ? "full" : "headers") ||
+        !cJSON_AddNumberToObject(o, "limit_s", num(f->limit_s))) {
+        cJSON_Delete(o);
+        return NULL;
+    }
+    return o;
+}
+
+void psk_remote_left(struct psk_remote_figures *f)
+{
+    f->state = PSK_RS_ENDED;
+    f->reason = PSK_RR_LEFT;
+    f->pps = 0;
+    f->bps = 0;
+}
+
+/* Long enough ago that the first attempt of each kind is due at once. */
+#define NEVER_MS (-((int64_t)1 << 40))
+
+void psk_remote_emit_init(struct psk_remote_emit *e)
+{
+    memset(e, 0, sizeof(*e));
+    e->state_try_ms = NEVER_MS;
+    e->stats_try_ms = NEVER_MS;
+}
+
+/* Whether `gap` has passed since `then`. A clock that went back (the tick
+ * counter wrapped) counts as passed, so nothing waits for ever. */
+static bool passed(int64_t now_ms, int64_t then_ms, int64_t gap)
+{
+    return now_ms < then_ms || now_ms - then_ms >= gap;
+}
+
+static bool same_state(const struct psk_remote_emit *e, const struct psk_remote_figures *f)
+{
+    return e->announced && e->state == f->state && e->reason == f->reason && e->keep_full == f->keep_full &&
+           e->limit_s == f->limit_s && strcmp(e->iface, f->iface) == 0;
+}
+
+unsigned psk_remote_due(const struct psk_remote_emit *e, const struct psk_remote_figures *f, int64_t now_ms)
+{
+    bool running = f->state == PSK_RS_CAPTURING || f->state == PSK_RS_HOLD;
+
+    if (!same_state(e, f)) {
+        return passed(now_ms, e->state_try_ms, PSK_REMOTE_STATE_GAP_MS) ? PSK_REMOTE_DUE_STATE : 0;
+    }
+    if (e->owed && passed(now_ms, e->stats_try_ms, PSK_REMOTE_STATE_GAP_MS)) {
+        return PSK_REMOTE_DUE_STATS;
+    }
+    if (running && passed(now_ms, e->stats_try_ms, PSK_REMOTE_STATS_GAP_MS)) {
+        return PSK_REMOTE_DUE_STATS;
+    }
+    return 0;
+}
+
+void psk_remote_tried(struct psk_remote_emit *e, unsigned what, const struct psk_remote_figures *f, int64_t now_ms,
+                      bool raised)
+{
+    if (what == PSK_REMOTE_DUE_STATE) {
+        e->state_try_ms = now_ms;
+        if (raised) {
+            e->announced = true;
+            e->state = f->state;
+            e->reason = f->reason;
+            e->keep_full = f->keep_full;
+            e->limit_s = f->limit_s;
+            memcpy(e->iface, f->iface, sizeof(e->iface));
+            /* Setup has no figures to send after it. */
+            e->owed = f->state != PSK_RS_IDLE;
+        }
+    } else if (what == PSK_REMOTE_DUE_STATS) {
+        e->stats_try_ms = now_ms;
+        if (raised) {
+            e->owed = false;
+        }
+    }
 }

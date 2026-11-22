@@ -146,8 +146,12 @@ struct pocketos_app {
 /* Raise an event to the listeners of shell.sock (shell.subscribe). `event`
  * must be a name under the app's own ipc_prefix and the app must be in front
  * (not under the lock or an alarm); anything else is dropped and counted. `data` is consumed either
- * way and may be NULL. */
-void pocketos_shell_app_event(const char *event, struct cJSON *data);
+ * way and may be NULL. Returns whether it was raised, so an app that must
+ * not lose a change (a state) can raise it again once it is in front. */
+bool pocketos_shell_app_event(const char *event, struct cJSON *data);
+/* Whether the open app is in front: neither the lock nor an alarm over it.
+ * An app asks before it makes an event it would only have dropped. */
+bool pocketos_shell_app_in_front(void);
 void pocketos_shell_set_status_hint(const char *text); /* short text at the app header's right end */
 void pocketos_shell_go_home(void);
 /* Temporarily use the whole app body: the existing NONE chrome, hidden

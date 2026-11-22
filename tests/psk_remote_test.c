@@ -11,7 +11,11 @@
  * address, a name, a file, a sequence number or the helper's own words
  * reaches it; an interface name that is more than a kernel name is dropped;
  * figures are whole numbers however large; the largest answer fits the
- * shell's limit for an app's answer.
+ * shell's limit for an app's answer; the state event and the word for a
+ * capture that was left; and when the two events are due: a state once per
+ * change and never more than four a second, figures once a second while a
+ * capture runs and once after it stops, never before their state, and
+ * attempts that fail are spaced like the rest.
  *
  * Copyright (c) 2026 Doors authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -545,6 +549,153 @@ int main(void)
     check("a state or reason out of range has a word of the list",
           strcmp(psk_remote_state_name(99), "idle") == 0 && strcmp(psk_remote_reason_name(99), "none") == 0);
     check("the lists end", !psk_remote_diag_name(PSK_REMOTE_DIAG) && !psk_remote_class_name(PPC_CLASS_COUNT));
+
+    /* ---- the capture.state event ------------------------------------------------------- */
+    poison();
+    {
+        struct psk_remote_figures f;
+        const cJSON *it;
+        static const char *const keys[] = { "state", "reason", "iface", "keep", "limit_s" };
+        int ok = 1;
+
+        M.state = PPC_STATE_STOPPED;
+        M.reason = PPC_REASON_LIMIT;
+        psk_remote_take(&M, PSK_REMOTE_CAPTURE, true, 300, &f);
+        o = psk_remote_state_json(&f);
+        text = cJSON_PrintUnformatted(o);
+        i = 0;
+        cJSON_ArrayForEach(it, o)
+        {
+            ok = ok && i < 5 && strcmp(it->string, keys[i]) == 0;
+            i++;
+        }
+        check("the state event: five keys, the state and what the capture was started as, no figure",
+              ok && i == 5 && strcmp(s(o, "state"), "stopped") == 0 && strcmp(s(o, "reason"), "limit") == 0 &&
+                  strcmp(s(o, "iface"), "eth0") == 0 && strcmp(s(o, "keep"), "full") == 0 && n(o, "limit_s") == 300);
+        check("the state event: nothing of the model's packets", clean(text));
+        cJSON_free(text);
+        cJSON_Delete(o);
+
+        psk_remote_left(&f);
+        o = psk_remote_json(&f);
+        check("left: ended, left, the totals and no rate",
+              strcmp(s(o, "state"), "ended") == 0 && strcmp(s(o, "reason"), "left") == 0 && n(o, "seen") == 48211 &&
+                  n(o, "pps") == 0 && n(o, "bps") == 0 && shape_ok(o));
+        cJSON_Delete(o);
+    }
+
+    /* ---- when the events are due ---------------------------------------------------------- */
+    {
+        struct psk_remote_emit e;
+        struct psk_remote_figures f;
+        struct psk_remote_figures g;
+        int64_t t;
+        int states = 0;
+        int stats = 0;
+        int ahead = 0;
+        unsigned due;
+
+        memset(&f, 0, sizeof(f));
+        psk_remote_emit_init(&e);
+        check("at first the state is due, whatever the clock says",
+              psk_remote_due(&e, &f, 0) == PSK_REMOTE_DUE_STATE && psk_remote_due(&e, &f, 5) == PSK_REMOTE_DUE_STATE);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATE, &f, 0, true);
+        check("setup, once said, is not said again and has no figures", psk_remote_due(&e, &f, 1) == 0 &&
+                                                                          psk_remote_due(&e, &f, 100000) == 0);
+
+        f.state = PSK_RS_CAPTURING;
+        memcpy(f.iface, "eth0", 5);
+        f.limit_s = 900;
+        check("a change within the gap waits, and no figures go before it", psk_remote_due(&e, &f, 100) == 0);
+        check("after the gap the state is due, not the figures", psk_remote_due(&e, &f, 250) == PSK_REMOTE_DUE_STATE);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATE, &f, 250, false);
+        check("a state that could not be raised is due again after the gap, and only then",
+              psk_remote_due(&e, &f, 300) == 0 && psk_remote_due(&e, &f, 500) == PSK_REMOTE_DUE_STATE);
+        f.state = PSK_RS_HOLD;
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATE, &f, 500, true);
+        check("what is raised is the state as it is by then, and its figures follow",
+              e.state == PSK_RS_HOLD && psk_remote_due(&e, &f, 501) == PSK_REMOTE_DUE_STATS);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATS, &f, 501, true);
+        check("then figures once a second while held or capturing",
+              psk_remote_due(&e, &f, 1400) == 0 && psk_remote_due(&e, &f, 1501) == PSK_REMOTE_DUE_STATS);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATS, &f, 1501, false);
+        check("figures that could not be raised wait a second like any others", psk_remote_due(&e, &f, 1800) == 0 &&
+                                                                                  psk_remote_due(&e, &f, 2501) != 0);
+
+        f.state = PSK_RS_STOPPED;
+        f.reason = PSK_RR_USER;
+        check("a stop is a change", psk_remote_due(&e, &f, 2600) == PSK_REMOTE_DUE_STATE);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATE, &f, 2600, true);
+        check("its totals are owed once", psk_remote_due(&e, &f, 2601) == PSK_REMOTE_DUE_STATS);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATS, &f, 2601, false);
+        check("owed totals that could not be raised are tried again after the gap",
+              psk_remote_due(&e, &f, 2700) == 0 && psk_remote_due(&e, &f, 2851) == PSK_REMOTE_DUE_STATS);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATS, &f, 2851, true);
+        check("and a stopped capture then says nothing, however long", psk_remote_due(&e, &f, 2852) == 0 &&
+                                                                         psk_remote_due(&e, &f, 9000000) == 0);
+        g = f;
+        g.reason = PSK_RR_LIMIT;
+        check("a reason alone is a change", psk_remote_due(&e, &g, 4000) == PSK_REMOTE_DUE_STATE);
+        g = f;
+        g.keep_full = true;
+        check("so is what the capture is kept as", psk_remote_due(&e, &g, 4000) == PSK_REMOTE_DUE_STATE);
+        g = f;
+        g.seen = 99;
+        g.bytes = 99;
+        check("a figure alone is not", psk_remote_due(&e, &g, 4000) == 0);
+
+        /* A helper that changes its state on every poll (33 ms) for ten
+         * seconds, and a shell that passes everything on. */
+        psk_remote_emit_init(&e);
+        memset(&f, 0, sizeof(f));
+        for (t = 0; t < 10000; t += 33) {
+            f.state = (t / 33) % 2 ? PSK_RS_HOLD : PSK_RS_CAPTURING;
+            due = psk_remote_due(&e, &f, t);
+            /* Figures are due only for the very state that was raised last. */
+            ahead += due == PSK_REMOTE_DUE_STATS && (!e.announced || e.state != f.state);
+            states += due == PSK_REMOTE_DUE_STATE;
+            stats += due == PSK_REMOTE_DUE_STATS;
+            if (due) {
+                psk_remote_tried(&e, due, &f, t, true);
+            }
+        }
+        printf("     a flapping helper, 10 s: %d state events, %d stats events\n", states, stats);
+        check("a flapping helper makes at most four state events a second, and as few figures",
+              states >= 20 && states <= 41 && stats <= 41);
+        check("and its figures never carry a state that was not raised", ahead == 0);
+
+        /* A steady capture for a minute. */
+        psk_remote_emit_init(&e);
+        f.state = PSK_RS_CAPTURING;
+        states = stats = 0;
+        for (t = 0; t < 60000; t += 33) {
+            due = psk_remote_due(&e, &f, t);
+            states += due == PSK_REMOTE_DUE_STATE;
+            stats += due == PSK_REMOTE_DUE_STATS;
+            if (due) {
+                psk_remote_tried(&e, due, &f, t, true);
+            }
+        }
+        check("a steady capture: its state once, its figures once a second", states == 1 && stats >= 57 && stats <= 61);
+
+        /* A locked unit for a minute: attempts are spaced too. */
+        psk_remote_emit_init(&e);
+        states = 0;
+        for (t = 0; t < 60000; t += 33) {
+            due = psk_remote_due(&e, &f, t);
+            states += due != 0;
+            if (due) {
+                psk_remote_tried(&e, due, &f, t, false);
+            }
+        }
+        check("while nothing can be raised: at most four attempts a second, no figures", states >= 200 && states <= 241 &&
+                                                                                           !e.announced);
+        psk_remote_emit_init(&e);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATE, &f, 4000000000ll, true);
+        psk_remote_tried(&e, PSK_REMOTE_DUE_STATS, &f, 4000000000ll, true);
+        check("a clock that starts again from zero does not stop the figures", psk_remote_due(&e, &f, 5) ==
+                                                                                 PSK_REMOTE_DUE_STATS);
+    }
 
     printf("psk_remote_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;

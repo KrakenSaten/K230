@@ -274,8 +274,9 @@ wake it.
 An app inside the shell may serve methods of its own on this socket while it
 is in front (`ui/shell/app.h`: `ipc_prefix`, `ipc_request`, `ipc_status`,
 `ipc_opens`; the rules are `ui/shell/app_ipc.c`). **One app of the product
-serves one method:** PacketShark's `capture.status` (below). The only other
-is the probe of the simulator's tests (`ui/shell/app_probe.c`, present only
+serves any:** PacketShark, with `capture.status`, `capture.hold` and
+`capture.stop` and the events `capture.state` and `capture.stats` (below).
+The only other is the probe of the simulator's tests (`ui/shell/app_probe.c`, present only
 when `POCKETOS_TEST_PROBE` is set in a simulator build), which is what
 `tests/shell_app_methods_test.sh` asks.
 
@@ -314,24 +315,55 @@ when `POCKETOS_TEST_PROBE` is set in a simulator build), which is what
 - **Events.** An app in front (so not under the lock or an alarm) may raise
   events under its own prefix
   (`pocketos_shell_app_event`), delivered like the shell's own to
-  `shell.subscribe` listeners. Any other name is dropped and counted.
+  `shell.subscribe` listeners. Any other name is dropped and counted, and
+  the app is told whether its event was raised. An app can ask first whether
+  it is in front (`pocketos_shell_app_in_front`), and so make nothing that
+  would only be dropped.
 
 `shell.info` carries `app_ipc`: `budget_us`, `result_max`, `calls`, `slow`,
 `worst_us`, `worst_method`, `too_large`, `closed_status`, `closed_refused`,
 `opened`, `open_refused`, `events`, `events_dropped` - counts since the
 shell started.
 
-### `capture.status` (PacketShark)
+### PacketShark: `capture.*`
+
+| Name | Kind | What |
+| --- | --- | --- |
+| `capture.status` | method | the capture's state and aggregate figures; reads only |
+| `capture.hold` `{on}` | method | HOLD (`on: true`) and RESUME (`on: false`), as the capture bar's buttons |
+| `capture.stop` | method | STOP, as the capture bar's button |
+| `capture.state` | event | the state, on every change |
+| `capture.stats` | event | the figures, once a second while a capture runs |
+
+**Reach.** These are on the unit's own socket. Nothing passes them to a
+paired phone: gatewayd knows no `capture.*` name, and letting a companion
+read or hold or stop a capture is ADR-016 amendment 1, which is proposed and
+not accepted. **Nothing here starts a capture**, discards or saves one, or
+opens the app: that stays with a finger on the unit (ADR-016 rule 1).
+
+`reason`, in every answer and event, and the same in `docs/api/gateway.md`
+section 9:
+
+| `reason` | With `state` | Meaning |
+| --- | --- | --- |
+| `none` | any | no reason: setup, or a capture that is running or held |
+| `user` | `stopped`, `saving` | STOP, tapped on the screen or asked by `capture.stop` |
+| `limit` | `stopped`, `saving` | the capture's own time limit |
+| `link` | `stopped`, `saving` | the interface went down or lost its carrier |
+| `end` | `stopped`, `saving` | a replayed file ended (the simulator and the tests) |
+| `error` | `stopped`, `saving` | the capture source failed |
+| `helper_crashed` | `ended` | the helper is gone, however it went; its packets with it |
+| `helper_hung` | `ended` | the helper stopped answering and was ended |
+| `left` | `ended` | PacketShark was left with a capture in it, which ends the capture. Only ever in a `capture.state` event: afterwards the app is not there to be asked |
+| `refused`, `timeout` | (none yet) | reserved for the outcome of a start request (ADR-016 amendment 1 rule 1a). Nothing raises them |
+
+#### `capture.status`
 
 The state of PacketShark's capture and its aggregate figures, read from the
 model the app already holds (`apps/packetshark/psk_remote.[ch]`). It reads
 and nothing else: it starts no capture and no helper, sends the helper
 nothing, changes nothing on the screen and logs nothing. It takes no
 parameters.
-
-**Reach.** This is a method on the unit's own socket. Nothing passes it to a
-paired phone: gatewayd knows no `capture.*` name, and letting a companion
-read it is ADR-016 amendment 1, which is proposed and not accepted.
 
 While PacketShark is not in front (closed, behind the lock, under an alarm)
 the answer is `{"available": false}` and nothing else (also in front, should
@@ -356,10 +388,7 @@ the app have failed to start). In front:
   helper not yet capturing), `capturing`, `hold`, `saving`, `stopped`, or
   `ended` (the panel of a capture whose helper ended badly; the figures are
   then the last session's).
-- `reason`: `none`; for `stopped` and `saving` why it stopped, `user`,
-  `limit`, `link`, `end` (a replayed file ended) or `error` (the source
-  failed); for `ended`, `helper_hung` (it stopped answering and was killed)
-  or `helper_crashed` (it is gone in any other way).
+- `reason` is one of the table above; a status never says `left`.
 - In `idle` there is no capture: `iface` is empty, `keep` is `headers` and
   every figure is zero, whatever was chosen on the setup screen.
 - `iface` is the capture's interface when its name is `eth`, `wlan`, `usb`
@@ -387,17 +416,71 @@ made from a structure that has room for none of these, and
 `tests/packetshark_lint.sh` holds the list of the model's members that may
 be read into it and the list of every key and word it can carry.
 
-`docs/api/gateway.md` section 9 (on the companion branches) is the proposed
-contract for a phone and is not changed by this. It differs in `reason`: it
-lists `left`, `refused` and `timeout`, which belong to a start request and to
-events and do not exist here, and it does not list `user`, `end` and `error`.
-The two are to be made one when the later steps are decided.
+#### `capture.hold` and `capture.stop`
 
-No other `capture.*` method exists. In front, any other name under the
-prefix is error 1; not in front it is error 3, "PacketShark is not open".
-No method opens PacketShark, and it raises no event. Tests:
-`tests/psk_remote_test.c`, `tests/capture_status_shell_test.sh`,
-`tests/packetshark_app_test.c`.
+`capture.hold` takes `{"on": true}` (HOLD) or `{"on": false}` (RESUME);
+anything else is error 2, "on must be true or false". `capture.stop` takes
+nothing. Each does what the button of the same name on PacketShark's capture
+bar does, through the same function, and nothing the bar does not offer:
+
+| When | Answer |
+| --- | --- |
+| PacketShark is not in front (closed, behind the lock, under an alarm) | error 3, "PacketShark is not open"; nothing is done |
+| No capture is running or held: setup, START tapped but not yet capturing, stopped, saving, ended, a discard on its way | error 3, "nothing is capturing" |
+| A sheet is up over the capture bar (a confirmation, the filter, the saved captures, a diagnosis): no finger or key reaches HOLD or STOP there | error 3, "a sheet is open on the unit" |
+| Capturing or held, and the request changes that | `{"state": <the state now>, "changing": true}`; the helper has been told |
+| `capture.hold` for the state the capture is already in | `{"state": <the state now>, "changing": false}`; nothing is sent |
+| The helper did not take the line | error 4, "the capture helper did not take it" |
+| The app could not be made, or memory is short | error 3, "PacketShark is not ready"; error 4, "out of memory" |
+
+`state` in the answer is the state when asked. The change happens when the
+helper answers, as it does after a tap, and arrives as `capture.state`; a
+client that does not listen asks `capture.status`.
+
+A held capture counts frames and stores none (`held`); a stopped capture
+keeps its packets on the unit until it is discarded or the app is left, and
+is stopped `user`, as after a tap. SAVE, DISCARD, NEW CAPTURE, the filter,
+the list and the inspector cannot be reached this way.
+
+#### `capture.state` and `capture.stats` (events)
+
+To `shell.subscribe` listeners, and only while PacketShark is in front.
+
+- `capture.state` `{state, reason, iface, keep, limit_s}`: each time the
+  app is opened (`idle`), and whenever the state, its reason or what the
+  capture was started as changes. No figure. When the app is left with a
+  capture in it (running, held, saving or stopped; not one whose helper
+  already ended), one last `{"state": "ended", "reason": "left", ...}`,
+  unless the unit is locked or showing an alarm at that moment: then it is
+  not raised at all, and `shell.app` is what tells a listener.
+- `capture.stats`: the `capture.status` answer, whole. Once after each
+  raised state that has figures (so a stopped or ended capture's totals go
+  out once, last), unless the state changes again first; and once a second
+  while the state is `capturing` or `hold`. Not on setup, and not after the
+  totals of a stopped capture.
+- A listener that subscribes while a capture runs gets `capture.stats`
+  without a `capture.state` before it: it asks `capture.status` first.
+
+Order and bounds (`psk_remote_due`, `apps/packetshark/psk_remote.h`):
+
+- Figures never come before their state: a `capture.stats` always carries
+  the `state` of the last `capture.state`.
+- At most four `capture.state` and four `capture.stats` in any second,
+  whatever the helper does. The one event past that pacing is the last
+  `ended`/`left`; and the pacing starts afresh each time the app is opened.
+- Changes closer together than 250 ms are raised as one, the later.
+- While the app is not in front nothing is raised, and nothing is made to
+  be dropped. A change of state made then is raised when the app is in
+  front again, as the state is by then; states passed through meanwhile are
+  not replayed, and an unchanged state is not said again. Figures missed are
+  not sent later.
+- An event holds what `capture.status` holds and nothing else.
+
+No other `capture.*` name exists. In front, any other name under the prefix
+is error 1; not in front it is error 3, "PacketShark is not open". No method
+opens PacketShark. Tests: `tests/psk_remote_test.c`,
+`tests/capture_status_shell_test.sh`, `tests/capture_control_shell_test.sh`,
+`tests/packetshark_app_test.c`, `tests/packetshark_lint.sh`.
 
 ## Events
 
