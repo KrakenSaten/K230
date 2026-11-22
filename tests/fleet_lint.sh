@@ -204,6 +204,10 @@ check "and never reads or writes a match save but through it" "apps/fleet/fleet_
       'fleet_store_match_(path|save|load)[[:space:]]*\('
 want "the development opponent's profile follows the transport" "apps/fleet/fleet_mp.c" \
      'cfg\.lan = t == FLEET_MP_LAN;'
+want "the app lets a finished match's opponent go before it closes a link" "apps/fleet/fleet_mp.c" \
+     'fleet_session_close_retention\(app->mp\);'
+want "and the session never lets go of one whose match is not finished" "$LINK/fleet_session.c" \
+     'if \(s->m.phase == FLEET_MP_DONE && !s->m.end_unacked\) \{'
 want "the session is told of a match in hand on the other transport" "apps/fleet/fleet_mp.c" \
      'fleet_session_set_other_in_hand\(app->mp, app->mp_other_in_hand\);'
 want "the store maps a transport to a file in one place" "$STORE.c" 'static const char \*match_file\('

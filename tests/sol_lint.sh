@@ -9,7 +9,8 @@
 #   4. no colour is written in the game's C sources: interface colours are
 #      tokens, card colours are art in apps/solitaire/art/cards_palette.txt,
 #      generated into the build by CMake;
-#   5. the felt is PocketTimber's, reached through sol_felt.c alone;
+#   5. nothing reaches into PocketTimber: the cloth, and its flat colour
+#      without memory, are the shared table's (ui/cards/cg_scene.c);
 #   6. input is one key sink and one map; no keyboard is created; nothing
 #      tapped takes the focus; there is no drag;
 #   7. the app is registered, built and tested.
@@ -19,11 +20,13 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 APP=apps/solitaire
-ENGINE="$APP/engine/sol_rng.c $APP/engine/sol_rng.h $APP/engine/sol_cards.c $APP/engine/sol_cards.h \
+# The card, shuffle and shoe primitives are the shared module (core/cards).
+CARDS=core/cards
+ENGINE="$CARDS/cg_rng.c $CARDS/cg_rng.h $CARDS/cg_cards.c $CARDS/cg_cards.h $CARDS/cg_shoe.c $CARDS/cg_shoe.h \
         $APP/engine/sol_rules.c $APP/engine/sol_rules.h"
 VIEW="$APP/ui/sol_view.c $APP/ui/sol_view.h"
 LVGL_SIDE="$APP/sol_app.c $APP/sol_app.h $APP/ui/sol_card_draw.c $APP/ui/sol_card_draw.h \
-           $APP/ui/sol_table_widget.c $APP/ui/sol_table_widget.h $APP/ui/sol_felt.c $APP/ui/sol_felt.h \
+           $APP/ui/sol_table_widget.c $APP/ui/sol_table_widget.h \
            $APP/ui/sol_palette.h"
 ALL="$ENGINE $VIEW $LVGL_SIDE"
 
@@ -78,13 +81,14 @@ check "CMake generates the palette into the build tree" \
        grep -q 'set(src "${REPO_DIR}/apps/${game}/art/cards_palette.txt")' ui/shell/CMakeLists.txt &&
        grep -q 'set(out "${CMAKE_BINARY_DIR}/${prefix}_palette.c")' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 check "and no generated palette is committed" "$([ ! -e $APP/ui/sol_palette.c ] && echo 1 || echo 0)"
-check "interface marks use tokens" \
-    "$(code $APP/ui/sol_table_widget.c | grep -q 'pos_theme_color(POS_COLOR_FOCUS)' && echo 1 || echo 0)"
+# The table's palette is fixed in every theme (owner decision 2 of the card
+# games, 2026-11-22): the selection and the cursor are the table's gold.
+check "interface marks use the table's fixed inks" \
+    "$(code $APP/ui/sol_table_widget.c | grep -q 'cg_table_ink(CG_INK_GOLD)' && echo 1 || echo 0)"
 
-hits=$(grep -lE 'timber' $ALL | grep -v 'sol_felt\.[ch]$')
-check "only sol_felt.c reaches into PocketTimber" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits"
-check "and it reuses Timber's felt rather than drawing one" \
-    "$(code $APP/ui/sol_felt.c | grep -q 'timber_art_felt()' && echo 1 || echo 0)"
+hits=$(grep -lE 'timber' $ALL)
+check "nothing reaches into PocketTimber" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits"
+check "the cloth is the shared scene's" "$(code $APP/sol_app.c | grep -q 'cg_scene_build' && echo 1 || echo 0)"
 
 hits=$(grep -nE 'pos_keyboard\.h|lv_keyboard|pocketos_shell_keyboard|pocketui_text_field|lv_textarea' $ALL)
 check "no keyboard is created or asked for" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits" | head -3
@@ -111,8 +115,8 @@ check "registered once" "$([ "$(grep -c '&app_solitaire\b' ui/shell/shell.c)" = 
 # (ui/shell/home_layout.c): a game, in the Games folder, in the games colour (DS §47).
 check "the launcher shows it in the Games folder" \
     "$(grep -q '{ "solitaire", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
-for src in sol_app.c engine/sol_rng.c engine/sol_cards.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
-           ui/sol_table_widget.c ui/sol_felt.c; do
+for src in sol_app.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
+           ui/sol_table_widget.c; do
     check "the shell builds $src" "$(grep -q "apps/solitaire/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done
 check "the app test is a host-only target" \
@@ -121,6 +125,9 @@ check "the app test is a host-only target" \
 for t in sol_rules_test sol_view_test sol_store_test; do
     check "make test runs $t" "$(grep -q "./tests/$t" Makefile && grep -q "/tests/$t\$" .gitignore && echo 1 || echo 0)"
 done
+
+check "the shell builds the shared cards" "$(grep -q 'core/cards/cg_cards.c' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+check "and no private copy is left" "$([ ! -e $APP/engine/sol_cards.h ] && [ ! -e $APP/engine/sol_rng.h ] && echo 1 || echo 0)"
 
 echo "sol_lint: $failed failure(s)"
 exit $((failed > 0))

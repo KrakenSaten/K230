@@ -29,10 +29,10 @@ static void check(const char *what, int ok)
     }
 }
 
-#define S BJ_SPADES
-#define H BJ_HEARTS
-#define C BJ_CLUBS
-#define D BJ_DIAMONDS
+#define S CG_SPADES
+#define H CG_HEARTS
+#define C CG_CLUBS
+#define D CG_DIAMONDS
 
 static void hand(struct bj_hand *h, ...)
 {
@@ -46,7 +46,7 @@ static void hand(struct bj_hand *h, ...)
         if (rank == 0) {
             break;
         }
-        h->card[h->n++] = bj_card(rank, (enum bj_suit)va_arg(ap, int));
+        h->card[h->n++] = cg_card(rank, (enum cg_suit)va_arg(ap, int));
     }
     va_end(ap);
 }
@@ -74,10 +74,10 @@ static void stack(struct bj_game *g, ...)
     va_end(ap);
     g->shoe.n = (uint8_t)(40 + k);
     for (i = 0; i < 40; i++) {
-        g->shoe.card[i] = bj_card(2 + i % 3, (enum bj_suit)(i % 4)); /* 2s, 3s, 4s */
+        g->shoe.card[i] = cg_card(2 + i % 3, (enum cg_suit)(i % 4)); /* 2s, 3s, 4s */
     }
     for (i = 0; i < k; i++) {
-        g->shoe.card[g->shoe.n - 1 - i] = bj_card(ranks[i], (enum bj_suit)((i + 1) % 4));
+        g->shoe.card[g->shoe.n - 1 - i] = cg_card(ranks[i], (enum cg_suit)((i + 1) % 4));
     }
 }
 
@@ -93,8 +93,8 @@ static void test_totals(void)
     struct bj_hand h;
     int soft;
 
-    check("courts count ten", bj_card_points(bj_card(11, S)) == 10 && bj_card_points(bj_card(13, H)) == 10);
-    check("an ace counts one before aces are decided", bj_card_points(bj_card(1, C)) == 1);
+    check("courts count ten", bj_card_points(cg_card(11, S)) == 10 && bj_card_points(cg_card(13, H)) == 10);
+    check("an ace counts one before aces are decided", bj_card_points(cg_card(1, C)) == 1);
     hand(&h, 1, S, 13, H, 0);
     check("A K is 21, soft", bj_hand_total(&h, &soft) == 21 && soft);
     check("and a blackjack", bj_is_blackjack(&h));
@@ -332,7 +332,7 @@ static void count_ids(const struct bj_game *g, int *counts, int include_shoe)
 {
     int i;
 
-    memset(counts, 0, sizeof(int) * BJ_DECK);
+    memset(counts, 0, sizeof(int) * CG_DECK);
     for (i = 0; include_shoe && i < g->shoe.n; i++) {
         counts[g->shoe.card[i]]++;
     }
@@ -348,13 +348,13 @@ static void test_shoe(void)
 {
     struct bj_game g;
     struct bj_game h;
-    int counts[BJ_DECK];
+    int counts[CG_DECK];
     int ok = 1;
     int i;
 
     fresh(&g);
     count_ids(&g, counts, 1);
-    for (i = 0; i < BJ_DECK; i++) {
+    for (i = 0; i < CG_DECK; i++) {
         ok &= counts[i] == BJ_DECKS;
     }
     check("a new shoe holds every card exactly twice", ok && g.shoe.n == BJ_SHOE && g.shoe.shuffles == 1);
@@ -382,7 +382,7 @@ static void test_shoe(void)
     check("a hit from an empty shoe still deals a card", bj_hit(&g) == BJ_OK && g.player.n == 3);
     count_ids(&g, counts, 1);
     ok = 1;
-    for (i = 0; i < BJ_DECK; i++) {
+    for (i = 0; i < CG_DECK; i++) {
         ok &= counts[i] == BJ_DECKS;
     }
     check("refilled from everything not on the table: each card still exactly twice", ok);
@@ -392,7 +392,7 @@ static void test_shoe(void)
      * than the shoe holds it between two shuffles. */
     fresh(&g);
     {
-        int seen[BJ_DECK];
+        int seen[CG_DECK];
         uint32_t shuffles = g.shoe.shuffles;
         int too_many = 0;
         int rounds = 0;
@@ -441,7 +441,7 @@ static void test_rounds(void)
 {
     struct bj_game g;
     struct bj_game h;
-    struct bj_rng pick;
+    struct cg_rng pick;
     int i;
     int bad = 0;
     long outcomes[8];
@@ -476,15 +476,15 @@ static void test_rounds(void)
     check("the same seed and the same choices are the same session", memcmp(&g, &h, sizeof(g)) == 0);
 
     memset(outcomes, 0, sizeof(outcomes));
-    bj_rng_seed(&pick, 31);
+    cg_rng_seed(&pick, 31);
     bj_new_session(&g, 555);
     for (i = 0; i < 20000; i++) {
         uint32_t chips = bj_chips(&g);
 
-        if (bj_rng_below(&pick, 4) == 0) {
+        if (cg_rng_below(&pick, 4) == 0) {
             bj_bet_up(&g);
         }
-        if (bj_rng_below(&pick, 5) == 0) {
+        if (cg_rng_below(&pick, 5) == 0) {
             bj_bet_down(&g);
         }
         if (bj_deal(&g) != BJ_OK) {
@@ -495,7 +495,7 @@ static void test_rounds(void)
             bad++;
         }
         while (g.phase == BJ_PLAYER) {
-            switch (bj_rng_below(&pick, 3)) {
+            switch (cg_rng_below(&pick, 3)) {
             case 0:
                 bj_hit(&g);
                 break;
@@ -525,11 +525,11 @@ static void test_rounds(void)
             bad++;
         }
         {
-            int counts[BJ_DECK];
+            int counts[CG_DECK];
             int k;
 
             count_ids(&g, counts, 1);
-            for (k = 0; k < BJ_DECK; k++) {
+            for (k = 0; k < CG_DECK; k++) {
                 bad += counts[k] > BJ_DECKS;
             }
         }
@@ -550,8 +550,8 @@ static void test_rounds(void)
  * most BJ_DECKS times, with the wanted ranks on top. */
 static void stack_fair(struct bj_game *g, ...)
 {
-    uint8_t left[BJ_DECK];
-    bj_card_t picked[40];
+    uint8_t left[CG_DECK];
+    cg_card_t picked[40];
     int k = 0;
     int n = 0;
     int c;
@@ -573,15 +573,15 @@ static void stack_fair(struct bj_game *g, ...)
         if (r == 0) {
             break;
         }
-        for (s = 0; s < BJ_SUITS && !left[bj_card(r, (enum bj_suit)s)]; s++) {
+        for (s = 0; s < CG_SUITS && !left[cg_card(r, (enum cg_suit)s)]; s++) {
         }
-        picked[k] = bj_card(r, (enum bj_suit)(s % BJ_SUITS));
+        picked[k] = cg_card(r, (enum cg_suit)(s % CG_SUITS));
         left[picked[k++]]--;
     }
     va_end(ap);
-    for (c = 0; c < BJ_DECK; c++) {
+    for (c = 0; c < CG_DECK; c++) {
         for (i = 0; i < left[c]; i++) {
-            g->shoe.card[n++] = (bj_card_t)c;
+            g->shoe.card[n++] = (cg_card_t)c;
         }
     }
     for (i = k - 1; i >= 0; i--) {
@@ -591,7 +591,7 @@ static void stack_fair(struct bj_game *g, ...)
 }
 
 /* Move card c out of the shoe into h, so a changed hand copies no card. */
-static int from_shoe(struct bj_game *g, struct bj_hand *h, bj_card_t c)
+static int from_shoe(struct bj_game *g, struct bj_hand *h, cg_card_t c)
 {
     int i;
 
@@ -609,7 +609,7 @@ static void test_valid(void)
 {
     struct bj_game g;
     struct bj_game v;
-    struct bj_rng pick;
+    struct cg_rng pick;
     int bad = 0;
     int i;
 
@@ -618,10 +618,10 @@ static void test_valid(void)
     check("nothing is", !bj_game_valid(NULL));
 
     /* Every position random play reaches, after every single command. */
-    bj_rng_seed(&pick, 77);
+    cg_rng_seed(&pick, 77);
     bj_new_session(&g, 4242);
     for (i = 0; i < 60000; i++) {
-        switch (bj_rng_below(&pick, 8)) {
+        switch (cg_rng_below(&pick, 8)) {
         case 0:
             bj_bet_up(&g);
             break;
@@ -647,7 +647,7 @@ static void test_valid(void)
             }
             break;
         }
-        if (bj_rng_below(&pick, 500) == 0 && g.phase == BJ_PLAYER) {
+        if (cg_rng_below(&pick, 500) == 0 && g.phase == BJ_PLAYER) {
             g.shoe.n = 0; /* and now and then a shoe runs dry mid-round */
         }
         bad += !bj_game_valid(&g);
@@ -662,14 +662,14 @@ static void test_valid(void)
     check("a live hand is valid", g.phase == BJ_PLAYER && bj_game_valid(&g));
     v = g;
     check("a live hand of 21 is not: it stands by itself",
-          from_shoe(&v, &v.player, bj_card(5, BJ_CLUBS)) && bj_game_valid(&g) && !bj_game_valid(&v));
+          from_shoe(&v, &v.player, cg_card(5, CG_CLUBS)) && bj_game_valid(&g) && !bj_game_valid(&v));
     v = g;
     v.dealer.n = 0;
-    check("nor one where the dealer holds a blackjack", from_shoe(&v, &v.dealer, bj_card(BJ_KING, BJ_CLUBS)) &&
-                                                            from_shoe(&v, &v.dealer, bj_card(BJ_ACE, BJ_CLUBS)) &&
+    check("nor one where the dealer holds a blackjack", from_shoe(&v, &v.dealer, cg_card(CG_KING, CG_CLUBS)) &&
+                                                            from_shoe(&v, &v.dealer, cg_card(CG_ACE, CG_CLUBS)) &&
                                                             !bj_game_valid(&v));
     v = g;
-    check("nor one where the dealer has drawn", from_shoe(&v, &v.dealer, bj_card(2, BJ_CLUBS)) && !bj_game_valid(&v));
+    check("nor one where the dealer has drawn", from_shoe(&v, &v.dealer, cg_card(2, CG_CLUBS)) && !bj_game_valid(&v));
     v = g;
     v.stake = 20;
     check("nor one whose stake is not the bet", !bj_game_valid(&v));

@@ -629,14 +629,15 @@ mkdir -p "${PKG_DIR}/src"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/Config.in" "${PKG_DIR}/Config.in"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/pocketos.mk" "${PKG_DIR}/pocketos.mk"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/pocketos.hash" "${PKG_DIR}/pocketos.hash"
-# What the package is built from. Kept on one line and in this form so
+# What the package is built from (the Android app under android/ is built
+# by Gradle, never by Buildroot). Kept on one line and in this form so
 # tests/package_sync_test.sh can read it and stay in step with this script.
-POCKETOS_PKG_PATHSPEC=". :(exclude)docs :(exclude)platforms"
+POCKETOS_PKG_PATHSPEC=". :(exclude)docs :(exclude)platforms :(exclude)android"
 # git archive rather than rsync: only tracked files at HEAD, with the modes
 # git records, and no exclude-list to keep in step with the build outputs.
 rm -rf "${PKG_DIR}/src"
 mkdir -p "${PKG_DIR}/src"
-# shellcheck disable=SC2086  # the pathspec is three words on purpose
+# shellcheck disable=SC2086  # the pathspec is several words on purpose
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- ${POCKETOS_PKG_PATHSPEC} \
     | tar -x -C "${PKG_DIR}/src/"
 # PocketTimber's proof sprites and their converter live under docs/, which the

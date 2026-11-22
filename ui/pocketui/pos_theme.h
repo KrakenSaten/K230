@@ -194,6 +194,10 @@ enum pos_type_face {
     POS_FACE_SANS_SEMIBOLD,
     POS_FACE_MONO,
     POS_FACE_MONO_MEDIUM,
+    /* Fraunces SemiBold Italic (72pt cut), ASCII and the apostrophe only:
+     * the card games' few headline phrases (owner decision 5 of the card
+     * games, 2026-11-22). No DS role uses it. */
+    POS_FACE_SERIF_ITALIC,
     POS_FACE_COUNT
 };
 

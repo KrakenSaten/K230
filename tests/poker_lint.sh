@@ -13,14 +13,14 @@ none() {
     grep "$@" || rc=$?
     [ "${rc}" = 1 ]
 }
-none -rnE --include='*.c' 'lvgl|#include.*(app\.h|pocketui)|\b(malloc|calloc|free|rand|srand|time|fopen|socket)\(' apps/poker/engine ||
+none -rnE --include='*.c' 'lvgl|#include.*(app\.h|pocketui)|\b(malloc|calloc|free|rand|srand|time|fopen|socket)\(' apps/poker/engine core/cards ||
     { echo 'FAIL poker engine must remain graphical/platform/heap independent'; exit 1; }
 test "$(grep -c 'pos_input_add_obj' apps/poker/poker_app.c)" = 1 ||
     { echo 'FAIL poker app must register exactly one key sink'; exit 1; }
 none -rnE --include='*.c' 'lv_timer_create|pthread_create|fork\(' apps/poker ||
     { echo 'FAIL poker must start no timers, threads or processes'; exit 1; }
 grep -q 'bj_draw_face' apps/poker/ui/poker_table.c
-grep -q 'bj_felt_image' apps/poker/ui/poker_table.c
+grep -q 'cg_scene_build' apps/poker/poker_app.c
 grep -q '&app_poker' ui/shell/shell.c
 grep -qE '"poker".*HOME_FOLDER_GAMES' ui/shell/home_layout.c
 # Its own launcher icon: the mask on the tile and the portal art the shell loads.

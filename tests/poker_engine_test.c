@@ -13,9 +13,9 @@ static int checks, failed;
             printf("FAIL line %d: %s\n", __LINE__, #x);                                                      \
         }                                                                                                    \
     } while (0)
-static bj_card_t card(int rank, int suit)
+static cg_card_t card(int rank, int suit)
 {
-    return bj_card(rank, (enum bj_suit)suit);
+    return cg_card(rank, (enum cg_suit)suit);
 }
 static uint32_t total(const struct poker_game *g)
 {
@@ -53,7 +53,7 @@ static void deck_test(void)
         CHECK(poker_new_hand(&b));
         CHECK(memcmp(a.deck, b.deck, 52) == 0);
         for (int i = 0; i < 52; ++i) {
-            CHECK(bj_card_valid(a.deck[i]));
+            CHECK(cg_card_valid(a.deck[i]));
             CHECK(!(seen & (UINT64_C(1) << a.deck[i])));
             seen |= UINT64_C(1) << a.deck[i];
         }
@@ -68,17 +68,17 @@ static void deck_test(void)
 }
 static void ranking_test(void)
 {
-    bj_card_t royal[] = {card(1, 0),  card(13, 0), card(12, 0), card(11, 0),
+    cg_card_t royal[] = {card(1, 0),  card(13, 0), card(12, 0), card(11, 0),
                          card(10, 0), card(2, 1),  card(3, 2)};
-    bj_card_t wheel[] = {card(1, 0), card(2, 1),  card(3, 2), card(4, 3),
+    cg_card_t wheel[] = {card(1, 0), card(2, 1),  card(3, 2), card(4, 3),
                          card(5, 0), card(13, 1), card(12, 2)};
-    bj_card_t six[] = {card(2, 0), card(3, 1), card(4, 2), card(5, 3), card(6, 0)};
-    bj_card_t house[] = {card(13, 0), card(13, 1), card(13, 2), card(12, 0),
+    cg_card_t six[] = {card(2, 0), card(3, 1), card(4, 2), card(5, 3), card(6, 0)};
+    cg_card_t house[] = {card(13, 0), card(13, 1), card(13, 2), card(12, 0),
                          card(12, 1), card(12, 2), card(1, 0)};
-    bj_card_t two[] = {card(1, 0),  card(1, 1),  card(13, 0), card(13, 1),
+    cg_card_t two[] = {card(1, 0),  card(1, 1),  card(13, 0), card(13, 1),
                        card(12, 0), card(12, 1), card(2, 2)};
-    bj_card_t a[] = {card(9, 0), card(9, 1), card(1, 2), card(13, 0), card(12, 1)};
-    bj_card_t b[] = {card(9, 2), card(9, 3), card(1, 3), card(13, 2), card(11, 1)};
+    cg_card_t a[] = {card(9, 0), card(9, 1), card(1, 2), card(13, 0), card(12, 1)};
+    cg_card_t b[] = {card(9, 2), card(9, 3), card(1, 3), card(13, 2), card(11, 1)};
     CHECK(poker_rank_category(poker_evaluate(royal, 7)) == POKER_STRAIGHT_FLUSH);
     CHECK(poker_rank_category(poker_evaluate(wheel, 7)) == POKER_STRAIGHT);
     CHECK(poker_evaluate(six, 5) > poker_evaluate(wheel, 7));
@@ -105,8 +105,8 @@ static void ranking_test(void)
             for (int k = j + 1; k < 50; ++k)
                 for (int l = k + 1; l < 51; ++l)
                     for (int m = l + 1; m < 52; ++m) {
-                        bj_card_t hand[] = {(bj_card_t)i, (bj_card_t)j, (bj_card_t)k, (bj_card_t)l,
-                                            (bj_card_t)m};
+                        cg_card_t hand[] = {(cg_card_t)i, (cg_card_t)j, (cg_card_t)k, (cg_card_t)l,
+                                            (cg_card_t)m};
                         ++counts[poker_rank_category(poker_evaluate(hand, 5))];
                     }
     for (int i = 0; i < 9; ++i)
@@ -389,7 +389,7 @@ static void settlement_test(void)
     poker_restart(&g, 18);
     poker_new_hand(&g);
     fixture(&g);
-    bj_card_t tmp[2];
+    cg_card_t tmp[2];
     memcpy(tmp, g.player[0].hole, 2);
     memcpy(g.player[0].hole, g.player[1].hole, 2);
     memcpy(g.player[1].hole, tmp, 2);
@@ -438,7 +438,7 @@ static void ai_test(void)
         int steps = 0;
         while (poker_playing(&a) && steps++ < 400) {
             struct poker_options o = poker_options(&a);
-            unsigned pick = bj_rng_below(&a.rng, 10);
+            unsigned pick = cg_rng_below(&a.rng, 10);
             enum poker_action action = o.can_check ? POKER_CHECK : POKER_CALL;
             uint32_t amount = 0;
             if (pick == 0)

@@ -96,7 +96,7 @@ Files:
 | `core/pocketpcap/ppc_signals.[ch]` | The findings (M7) and the diagnosis (M11.1): a table of the TCP connections seen (4,096 entries) and one of the DNS queries waiting (1,024), allocated together once at START; the six findings, the unanswered SYN and DNS query decided late (§4a); the diagnosis code of each packet and the running totals (§4b) |
 | `core/pocketpcap/ppc_source*.c` | Sources: libpcap (`ppc_source_pcap.c`, the only file that includes `<pcap/pcap.h>`), none, file, synth |
 | `tools/capture/pos_capture.c` | `pos-capture session`, `decode`, `bench`, `backend` |
-| `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model, and `psk_saves.c`: the saved captures listed and deleted by name, never opened (M8) |
+| `apps/packetshark/` | The app (`psk_app.c`, `ui/`), its helper client and model, `psk_saves.c`: the saved captures listed and deleted by name, never opened (M8), and `psk_remote.c`: the figures `capture.status` may carry, and their JSON |
 
 ## 4. What is kept, and for how long
 
@@ -109,6 +109,11 @@ Files:
 - **How long:** a capture stops by itself after 15 minutes by default (5, 15, 60 minutes, or no limit after a confirmation that is not remembered).
 - **Logged:** lifecycle lines only, never an address, a name or a byte of a packet (`pos-capture.log`, `shell.log`; tests: S7).
 - **Sent anywhere:** nothing. Neither process has network client code.
+- **Readable on the unit's own shell socket:** the capture's state and aggregate figures, as `capture.status` (`docs/api/shell.md`; `psk_remote.[ch]`), only while PacketShark is in front and not behind the lock. Counts, rates, sizes, times, the interface name when it is a plain one (`eth0`, `wlan0`) and three enumerated words; no packet, row, address, name, port, sequence number or file name. It reads the app's model and asks the helper for nothing. The same figures go to the socket's subscribed listeners as `capture.stats`, once a second while a capture runs, and its state as `capture.state`. Nothing forwards any of it off the unit: gatewayd knows no `capture.*` name, and a companion reading it is ADR-016 amendment 1 (accepted 2026-11-22), which the gateway does not serve yet. Figures are raised only while the header says a companion is reading (below).
+- **Held and stopped from the shell socket:** `capture.hold` and `capture.stop` do what HOLD, RESUME and STOP on the capture bar do, through the same function, only while PacketShark is in front and not behind the lock, and only in a state whose bar has that button. They cannot start, save, discard or leave a capture. Local only, like the above.
+- **Asked for from the shell socket (ADR-016 amendment 1, rules 1 and 1a):** `capture.request_start` raises a sheet over setup that names who asks, the interface and the minutes, and waits for a finger. It starts no helper and no capture and changes no choice; START on the sheet (not in its first 1.5 seconds) starts HEADERS with a limit of 5, 15 or 60 minutes and the setup screen's own filter, which the sheet names; the person's own interface and limit come back afterwards. REFUSE or Back refuses, and so do 60 seconds, the lock, an alarm, leaving the app and a withdrawal. Nothing of a request is kept after its sheet or logged. A request may carry a name, and only a cancel that names it takes its sheet down; a cancel never reaches a capture that was started.
+- **A companion is reading (rule 20):** for five seconds after a `capture.status` (and after no other request) the header says `· COMPANION` beside the capture state, on every screen of the app (in the wide shape, first in its own top row).
+- **The setup rows after START:** once START is tapped, the interface, Keep, Stop after and Filter rows take no tap until the capture is on the screen or setup is back, so the screen never shows a choice the capture was not started with.
 
 ## 4a. Signals (M7)
 

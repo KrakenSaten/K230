@@ -69,7 +69,7 @@ static uint32_t get_u32(const uint8_t *p)
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
-static void put_cards(uint8_t *p, const bj_card_t *card, uint8_t n, int slots)
+static void put_cards(uint8_t *p, const cg_card_t *card, uint8_t n, int slots)
 {
     p[0] = n;
     memset(p + 1, NO_CARD, (size_t)slots);
@@ -77,7 +77,7 @@ static void put_cards(uint8_t *p, const bj_card_t *card, uint8_t n, int slots)
 }
 
 /* 0 when the count fits and every slot past it is empty. */
-static int get_cards(const uint8_t *p, bj_card_t *card, uint8_t *n, int slots)
+static int get_cards(const uint8_t *p, cg_card_t *card, uint8_t *n, int slots)
 {
     int i;
 
@@ -143,6 +143,7 @@ int bj_save_decode(struct bj_game *g, const uint8_t *buf, size_t n)
     tmp.outcome = (enum bj_outcome)buf[27];
     tmp.doubled = buf[28];
     tmp.reshuffled = buf[29];
+    tmp.shoe.decks = BJ_DECKS; /* not in the file: the rules fix it */
     tmp.shoe.rng.state = get_u32(buf + 30);
     tmp.shoe.shuffles = get_u32(buf + 34);
     if (get_cards(buf + SHOE_AT, tmp.shoe.card, &tmp.shoe.n, BJ_SHOE) != 0 ||

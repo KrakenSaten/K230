@@ -10,7 +10,7 @@ static unsigned strength(struct poker_game *g)
 {
     const struct poker_player *p = &g->player[g->actor];
     if (!g->board_count) {
-        int a = bj_card_rank(p->hole[0]), b = bj_card_rank(p->hole[1]);
+        int a = cg_card_rank(p->hole[0]), b = cg_card_rank(p->hole[1]);
         unsigned score;
         if (a == 1)
             a = 14;
@@ -19,7 +19,7 @@ static unsigned strength(struct poker_game *g)
         if (a == b)
             return 48 + (unsigned)a * 3;
         score = (unsigned)(a + b) * 2;
-        if (bj_card_suit(p->hole[0]) == bj_card_suit(p->hole[1]))
+        if (cg_card_suit(p->hole[0]) == cg_card_suit(p->hole[1]))
             score += 8;
         if (a - b == 1 || b - a == 1)
             score += 6;
@@ -27,23 +27,23 @@ static unsigned strength(struct poker_game *g)
     }
     unsigned equity = 0;
     uint64_t known = (UINT64_C(1) << p->hole[0]) | (UINT64_C(1) << p->hole[1]);
-    bj_card_t pool[52], cards[7];
+    cg_card_t pool[52], cards[7];
     unsigned n = 0;
     for (int i = 0; i < g->board_count; ++i)
         known |= UINT64_C(1) << g->board[i];
     for (int i = 0; i < 52; ++i)
         if (!(known & (UINT64_C(1) << i)))
-            pool[n++] = (bj_card_t)i;
+            pool[n++] = (cg_card_t)i;
     for (unsigned trial = 0; trial < 16; ++trial) {
-        bj_card_t sample[52];
+        cg_card_t sample[52];
         unsigned at = 0, ties = 1;
         bool beaten = false;
         uint32_t ours;
         memcpy(sample, pool, n);
         /* Partial Fisher-Yates: at most eleven unknown cards are needed. */
         for (unsigned i = 0; i < 11 && i < n; ++i) {
-            unsigned j = i + bj_rng_below(&g->rng, n - i);
-            bj_card_t tmp = sample[i];
+            unsigned j = i + cg_rng_below(&g->rng, n - i);
+            cg_card_t tmp = sample[i];
             sample[i] = sample[j];
             sample[j] = tmp;
         }
@@ -78,7 +78,7 @@ struct poker_decision poker_ai(struct poker_game *g)
         return d;
     o = poker_options(g);
     equity = strength(g);
-    variation = bj_rng_below(&g->rng, 100);
+    variation = cg_rng_below(&g->rng, 100);
     pot = poker_pot_total(g);
     d.action = o.can_check ? POKER_CHECK : POKER_CALL;
     if (o.to_call && equity < 45 && (uint64_t)equity * (pot + o.call_cost) < (uint64_t)o.call_cost * 115)

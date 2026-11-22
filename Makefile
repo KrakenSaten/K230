@@ -1081,9 +1081,29 @@ tests/g2048_theme_test: tests/g2048_theme_test.o $(G2048_UI_OBJS) $(G2048_OBJS) 
 # only door to the filesystem and is tested here as well. The app, the card
 # renderer and the table widget need a display and are built by ui/shell
 # (CMake).
+# Card, RNG and shoe primitives shared by Blackjack, Solitaire and Poker
+# (core/cards): pure C, held to the same rules by each game's lint.
+CARDS_DIR := core/cards
+CARDS_OBJS := $(CARDS_DIR)/cg_rng.o $(CARDS_DIR)/cg_cards.o $(CARDS_DIR)/cg_shoe.o
+
+$(CARDS_DIR)/%.o: $(CARDS_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(CARDS_DIR) -c -o $@ $<
+
+# The table pieces the redesign shares (docs/design/card-games): the cloth
+# renderer and the tween are pure C and tested here; the atlas and the
+# milestone 0 spike need LVGL and are built by ui/shell (CMake).
+CARDS_TABLE_OBJS := $(CARDS_DIR)/cg_cloth.o $(CARDS_DIR)/cg_tween.o
+CARDS_TESTS := tests/cg_table_test
+
+tests/cg_table_test.o: tests/cg_table_test.c
+	$(CC) $(ALL_CFLAGS) -I$(CARDS_DIR) -c -o $@ $<
+
+tests/cg_table_test: tests/cg_table_test.o $(CARDS_TABLE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 SOL_DIR := apps/solitaire
-SOL_INC := -I$(SOL_DIR) -I$(SOL_DIR)/engine -I$(SOL_DIR)/ui
-SOL_OBJS := $(SOL_DIR)/engine/sol_rng.o $(SOL_DIR)/engine/sol_cards.o $(SOL_DIR)/engine/sol_rules.o
+SOL_INC := -I$(CARDS_DIR) -I$(SOL_DIR) -I$(SOL_DIR)/engine -I$(SOL_DIR)/ui
+SOL_OBJS := $(CARDS_OBJS) $(SOL_DIR)/engine/sol_rules.o
 SOL_UI_OBJS := $(SOL_DIR)/ui/sol_view.o
 SOL_APP_OBJS := $(SOL_DIR)/sol_store.o
 SOL_TESTS := tests/sol_rules_test tests/sol_view_test tests/sol_store_test
@@ -1115,8 +1135,8 @@ tests/sol_store_test: tests/sol_store_test.o $(SOL_APP_OBJS) $(SOL_OBJS)
 # LVGL-free too, so both are tested here (tests/bj_lint.sh). The app, the
 # card renderer and the table widget are built by ui/shell (CMake).
 BJ_DIR := apps/blackjack
-BJ_INC := -I$(BJ_DIR) -I$(BJ_DIR)/engine -I$(BJ_DIR)/ui
-BJ_OBJS := $(BJ_DIR)/engine/bj_rng.o $(BJ_DIR)/engine/bj_cards.o $(BJ_DIR)/engine/bj_rules.o
+BJ_INC := -I$(CARDS_DIR) -I$(BJ_DIR) -I$(BJ_DIR)/engine -I$(BJ_DIR)/ui
+BJ_OBJS := $(CARDS_OBJS) $(BJ_DIR)/engine/bj_rules.o
 BJ_UI_OBJS := $(BJ_DIR)/ui/bj_view.o
 BJ_APP_OBJS := $(BJ_DIR)/bj_store.o
 BJ_TESTS := tests/bj_rules_test tests/bj_view_test tests/bj_store_test
@@ -1142,9 +1162,9 @@ tests/bj_view_test: tests/bj_view_test.o $(BJ_UI_OBJS) $(BJ_OBJS)
 tests/bj_store_test: tests/bj_store_test.o $(BJ_APP_OBJS) $(BJ_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Poker shares Blackjack's card/RNG primitives; no UI or platform I/O here.
+# Poker uses the shared card/RNG primitives; no UI or platform I/O here.
 POKER_DIR := apps/poker
-POKER_INC := -I$(POKER_DIR)/engine -I$(POKER_DIR)/ui -I$(BJ_DIR)/engine
+POKER_INC := -I$(POKER_DIR)/engine -I$(POKER_DIR)/ui -I$(CARDS_DIR)
 POKER_OBJS := $(POKER_DIR)/engine/poker.o $(POKER_DIR)/engine/poker_eval.o $(POKER_DIR)/engine/poker_ai.o
 POKER_VIEW_OBJS := $(POKER_DIR)/ui/poker_view.o
 POKER_TESTS := tests/poker_engine_test tests/poker_view_test
@@ -1155,7 +1175,7 @@ $(POKER_DIR)/ui/poker_view.o: $(POKER_DIR)/ui/poker_view.c
 	$(CC) $(ALL_CFLAGS) $(POKER_INC) -c -o $@ $<
 tests/poker_%_test.o: tests/poker_%_test.c
 	$(CC) $(ALL_CFLAGS) $(POKER_INC) -c -o $@ $<
-tests/poker_engine_test: tests/poker_engine_test.o $(POKER_OBJS) $(BJ_DIR)/engine/bj_cards.o $(BJ_DIR)/engine/bj_rng.o
+tests/poker_engine_test: tests/poker_engine_test.o $(POKER_OBJS) $(CARDS_DIR)/cg_cards.o $(CARDS_DIR)/cg_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 tests/poker_view_test: tests/poker_view_test.o $(POKER_VIEW_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -1165,17 +1185,17 @@ poker-test: $(POKER_TESTS)
 	bash tests/poker_lint.sh
 poker-san-test:
 	$(CC) $(POKER_INC) -std=gnu11 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer \
-	    tests/poker_engine_test.c $(POKER_OBJS:.o=.c) $(BJ_DIR)/engine/bj_cards.c $(BJ_DIR)/engine/bj_rng.c \
+	    tests/poker_engine_test.c $(POKER_OBJS:.o=.c) $(CARDS_DIR)/cg_cards.c $(CARDS_DIR)/cg_rng.c \
 	    -o tests/poker_engine_test-asan
 	./tests/poker_engine_test-asan
 
-GAMES_TESTS := $(G2048_TESTS) $(SOL_TESTS) $(BJ_TESTS) $(POKER_TESTS)
+GAMES_TESTS := $(G2048_TESTS) $(SOL_TESTS) $(BJ_TESTS) $(POKER_TESTS) $(CARDS_TESTS)
 GAMES_OBJS := $(G2048_OBJS) $(G2048_APP_OBJS) $(G2048_UI_OBJS) $(SOL_OBJS) $(SOL_UI_OBJS) $(SOL_APP_OBJS) \
-              $(BJ_OBJS) $(BJ_UI_OBJS) $(BJ_APP_OBJS) $(POKER_OBJS) $(POKER_VIEW_OBJS)
+              $(BJ_OBJS) $(BJ_UI_OBJS) $(BJ_APP_OBJS) $(POKER_OBJS) $(POKER_VIEW_OBJS) $(CARDS_TABLE_OBJS)
 GAMES_TEST_RUN = ./tests/g2048_rules_test && ./tests/g2048_store_test && ./tests/g2048_view_test && \
                  ./tests/g2048_theme_test && ./tests/sol_rules_test && ./tests/sol_view_test && \
                  ./tests/sol_store_test && ./tests/bj_rules_test && ./tests/bj_view_test && ./tests/bj_store_test && \
-                 ./tests/poker_engine_test && ./tests/poker_view_test
+                 ./tests/poker_engine_test && ./tests/poker_view_test && ./tests/cg_table_test
 
 # Card and puzzle games on their own, for a focused run.
 games-test: $(GAMES_TESTS)
@@ -2295,7 +2315,7 @@ PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_saves
 PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test \
                      tests/ppc_stats_test tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures \
                      tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/psk_model_test \
-                     tests/psk_session_test
+                     tests/psk_session_test tests/psk_remote_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
@@ -2317,6 +2337,9 @@ tests/ppc_dissect_test tests/ppc_signals_test: tests/%: tests/%.o $(PPC_OBJS)
 tests/psk_model_test: tests/psk_model_test.o $(PSK_DIR)/psk_model.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
+tests/psk_remote_test: tests/psk_remote_test.o $(PSK_DIR)/psk_remote.o $(PSK_DIR)/psk_model.o $(PPC_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lcjson -lm
+
 tests/psk_session_test: tests/psk_session_test.o $(PSK_OBJS) $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
@@ -2328,7 +2351,7 @@ PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/ppc_store_test && ./tests/ppc_stats_test && ./tests/ppc_proto_test && \
     ./tests/ppc_view_test && ./tests/ppc_dissect_test && ./tests/ppc_signals_test && \
     mkdir -p out/packetshark-fixtures && ./tests/ppc_mkfixtures out/packetshark-fixtures &&     ./tests/ppc_fuzz -seconds $(PACKETSHARK_FUZZ_S) tests/data/packetshark out/packetshark-fixtures && \
-    ./tests/psk_model_test && ./tests/psk_session_test tools/capture/pos-capture && \
+    ./tests/psk_model_test && ./tests/psk_remote_test && ./tests/psk_session_test tools/capture/pos-capture && \
     bash tests/pos_capture_test.sh tools/capture/pos-capture tests/ppc_mkfixtures && \
     bash tests/packetshark_lint.sh
 packetshark-test: tools/capture/pos-capture $(PACKETSHARK_TESTS)
@@ -2353,6 +2376,8 @@ packetshark-san-test:
 	    $(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/$$t tests/$$t.c $(PPC_SAN_SRCS); done
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_model_test tests/psk_model_test.c \
 	    $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lm
+	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_remote_test tests/psk_remote_test.c \
+	    $(PSK_DIR)/psk_remote.c $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lcjson -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_session_test tests/psk_session_test.c \
 	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_saves.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tools/capture/pos-capture tools/capture/pos_capture.c \
@@ -2360,7 +2385,7 @@ packetshark-san-test:
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
 	    ASAN_OPTIONS=allocator_may_return_null=1 ./tests/ppc_store_test && \
 	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
-	    ./tests/ppc_signals_test && ./tests/psk_model_test && \
+	    ./tests/ppc_signals_test && ./tests/psk_model_test && ./tests/psk_remote_test && \
 	    mkdir -p fixtures && ./tests/ppc_mkfixtures fixtures && 	    ./tests/ppc_fuzz -seconds $(PACKETSHARK_SAN_FUZZ_S) tests/data/packetshark fixtures
 	cd $(PSK_SAN_DIR) && ASAN_OPTIONS=handle_segv=0 ./tests/psk_session_test tools/capture/pos-capture
 	ASAN_OPTIONS=handle_segv=0 bash tests/pos_capture_test.sh $(PSK_SAN_DIR)/tools/capture/pos-capture \
@@ -2802,6 +2827,13 @@ endif
 ifeq ($(ENABLE_PEERD),1)
 	install -D -m 0755 services/peerd/peerd $(DESTDIR)$(PREFIX)/sbin/peerd
 endif
+# gatewayd only when it was asked for and built (make gatewayd). Its init
+# script goes with it and ships disabled: GATEWAYD_ENABLE=0 until a unit is
+# told otherwise (docs/services/GATEWAYD.md). Neither is in the rootfs overlay.
+ifeq ($(ENABLE_GATEWAYD),1)
+	install -D -m 0755 services/gatewayd/gatewayd $(DESTDIR)$(PREFIX)/sbin/gatewayd
+	install -D -m 0755 services/gatewayd/S70gatewayd $(DESTDIR)/etc/init.d/S70gatewayd
+endif
 # The third-party notices travel with the binaries that need them. Under
 # share/doors rather than share/doc, which Buildroot strips from the target.
 # share/pocketos, where they were through v0.0.9, stays a directory holding a
@@ -3239,3 +3271,90 @@ fleet-lan-e2e: peerd tests/fleet_lan_player
 
 peerd-test: peerd-plain-test peerd-san-test peerd-fuzz peerd-service-test
 	bash tests/peerd_lint.sh
+
+# ---- gatewayd: the Companion Gateway (docs/decisions/ADR-019, docs/api/gateway.md) ----
+#
+# Off unless asked for, like peerd: no Doors image carries it yet, and putting
+# it into one (the init script in the overlay, deploy.sh, the release checks,
+# an explicit OpenSSL dependency of the package) is product integration with
+# its own go-ahead. It links the OpenSSL already in the image and its sysroot
+# (3.4.1; libcurl's backend) and adds no dependency.
+#
+#   make gatewayd                      the service, services/gatewayd/gatewayd
+#   make gatewayd-test                 unit suites plain and under ASan/UBSan,
+#                                      the fuzzer, the lint, and the real
+#                                      service against TLS clients
+#   make ENABLE_GATEWAYD=1 install     also installs it and S70gatewayd
+#
+# Built by explicit commands with -Werror into out/gatewayd, so nothing here
+# joins `make all` or `make test` or changes how any other object is built.
+ENABLE_GATEWAYD ?= 0
+GATEWAYD_DIR := services/gatewayd
+GATEWAYD_OUT := out/gatewayd
+GATEWAYD_CFLAGS := -std=gnu11 -Wall -Wextra -Werror $(COMMON_FLAGS) -I$(GATEWAYD_DIR)
+GATEWAYD_PURE := $(GATEWAYD_DIR)/gw_util.c $(GATEWAYD_DIR)/gw_frame.c $(GATEWAYD_DIR)/gw_pair.c \
+                 $(GATEWAYD_DIR)/gw_policy.c $(GATEWAYD_DIR)/gw_store.c $(GATEWAYD_DIR)/gw_gate.c \
+                 $(GATEWAYD_DIR)/gw_journal.c $(GATEWAYD_DIR)/gw_feed.c $(GATEWAYD_DIR)/gw_send.c \
+                 $(GATEWAYD_DIR)/gw_capture.c
+GATEWAYD_SERVICE := $(GATEWAYD_DIR)/main.c $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_DIR)/gw_uplink.c $(GATEWAYD_PURE) \
+                    core/pocketipc/pocketipc.c core/pocketipc/server.c core/pocketlog/pocketlog.c \
+                    core/pocketpaths.c
+GATEWAYD_LIBS := -lssl -lcrypto
+GATEWAYD_SAN := -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
+GATEWAYD_FUZZ_RUNS ?= 200000
+
+.PHONY: gatewayd gatewayd-test gatewayd-unit-test gatewayd-fuzz gatewayd-service-test
+gatewayd:
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_DIR)/gatewayd
+
+gatewayd-unit-test:
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) -O2 $(GATEWAYD_CFLAGS) tests/gatewayd_unit_test.c $(GATEWAYD_PURE) $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_LIBS) -lcjson -lm -o $(GATEWAYD_OUT)/unit-test
+	$(GATEWAYD_OUT)/unit-test
+	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) tests/gatewayd_unit_test.c $(GATEWAYD_PURE) $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_LIBS) -lcjson -lm -o $(GATEWAYD_OUT)/unit-test-san
+	$(GATEWAYD_OUT)/unit-test-san
+
+# The parsers of everything a peer or a damaged file can supply, under the
+# sanitizers, fed noise and mutations of genuine input.
+gatewayd-fuzz:
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) -DGATEWAYD_FUZZ_STANDALONE=1 tests/gatewayd_fuzz.c $(GATEWAYD_PURE) -lcjson -lm -o $(GATEWAYD_OUT)/fuzz
+	$(GATEWAYD_OUT)/fuzz $(GATEWAYD_FUZZ_RUNS)
+
+# The real service between fake pocketipc services and real TLS clients:
+# once as built and once under the sanitizers. The hooks build is the only
+# one that can be bound to an address that is not an interface's or told
+# another shadow file; the shipped gatewayd does not contain the options,
+# which the lint checks.
+gatewayd-service-test: gatewayd
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_mesh_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_capture_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_capture_regress_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_mesh_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_capture_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_capture_regress_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+
+# The mesh group alone (M4.1), while working on it: the hooks build and its
+# suite, without the M2 suite before it.
+.PHONY: gatewayd-mesh-test
+gatewayd-mesh-test:
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_mesh_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+
+# Sending alone (M4.2), while working on it.
+.PHONY: gatewayd-send-test
+gatewayd-send-test:
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+
+gatewayd-test: gatewayd-unit-test gatewayd-fuzz gatewayd-service-test
+	bash tests/gatewayd_lint.sh

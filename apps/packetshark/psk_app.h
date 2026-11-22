@@ -22,6 +22,7 @@
 #include "app.h"
 #include "pocketui.h"
 #include "psk_model.h"
+#include "psk_remote.h"
 #include "psk_saves.h"
 #include "psk_session.h"
 
@@ -54,6 +55,17 @@
 /* The rail's finding marks are asked for this often while packets arrive. */
 #define PSK_MARKS_REFRESH_MS 1000
 #define PSK_SAVES_ROWS 6
+/* A start request's sheet refuses itself after this long (ADR-016 rule 1a). */
+#define PSK_REQUEST_MS 60000
+/* START on that sheet takes no tap for this long after the sheet appears:
+ * a finger already on its way to something else is not an answer. */
+#define PSK_REQUEST_SETTLE_MS 1500
+/* The header says a companion is reading for this long after the last
+ * capture.status (ADR-016 rule 20). Whoever reads for a phone asks at
+ * least this often while the phone reads, and not when it does not. */
+#define PSK_READER_MS 5000
+#define PSK_CLIENT_TEXT 28
+#define PSK_TOKEN_TEXT 33
 
 enum psk_tab { PSK_TAB_LIVE = 0, PSK_TAB_PACKETS, PSK_TAB_INSPECT, PSK_TAB_COUNT };
 
@@ -69,6 +81,7 @@ enum psk_sheet {
     PSK_SHEET_LEAVE,    /* Back with packets in memory */
     PSK_SHEET_SAVE,     /* SAVE: where the file goes and who can read it (ADR-016 rule 16) */
     PSK_SHEET_DELETE,   /* delete one saved capture (ADR-016 rule 10) */
+    PSK_SHEET_REQUEST,  /* a companion asks for a capture: START or REFUSE (ADR-016 rule 1a) */
 };
 
 /* What a window was last asked to be anchored at, so its answer can put the
@@ -376,6 +389,29 @@ struct psk_app {
     int limit_idx;
     enum ppc_cfilter cfilter;
     bool starting;       /* START pressed, the capture not yet confirmed */
+    bool run_full;       /* what the capture command last sent asked for: FULL, */
+    uint32_t run_limit_s; /* and its time limit (capture.status reports these) */
+    struct psk_remote_emit emit; /* which of capture.state and capture.stats were raised, and when */
+    /* a start request (capture.request_start; ADR-016 rule 1a): what its
+     * sheet says and what START on it starts. Held only while the sheet is
+     * up: never queued, never remembered */
+    char req_client[PSK_CLIENT_TEXT];
+    char req_iface[PPC_IFACE_MAX];
+    uint32_t req_limit_s;
+    int64_t req_deadline_ms;
+    int64_t req_shown_ms;
+    /* the person's own setup choices, put back when a requested capture is over */
+    bool req_saved;
+    int req_saved_limit;
+    char req_saved_chosen[PPC_IFACE_MAX];
+    uint8_t req_outcome; /* enum psk_remote_reason: REFUSED or TIMEOUT until it has been said; 0 none */
+    uint8_t req_last;    /* enum psk_remote_request: how the last request ended, for capture.status */
+    char req_token[PSK_TOKEN_TEXT]; /* what the asker called this request: a cancel must name it */
+    bool by_companion;   /* the capture was started from that sheet */
+    /* rule 20: somebody outside the app is reading */
+    bool reader_seen;
+    int64_t reader_ms;   /* the last capture.* request */
+    bool reading;        /* the header says so */
     bool pending_start;  /* the capture command waits for the helper's hello */
     bool discarding;     /* discard sent: the helper is on its way out */
     bool failed_view;    /* the helper ended a capture badly: the error panel */
@@ -408,6 +444,9 @@ void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, i
 /* psk_app.c */
 int64_t psk_now(void);
 void psk_do(struct psk_app *a, enum psk_action act);
+/* Whether the capture bar offers HOLD, RESUME or STOP now: a capture is on
+ * the screen and its state has that button. */
+bool psk_action_offered(const struct psk_app *a, enum psk_action act);
 void psk_select_tab(struct psk_app *a, enum psk_tab t);
 void psk_select_iface(struct psk_app *a, int index);
 /* Whether an interface can be captured on: it has a carrier (Ethernet with a

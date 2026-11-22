@@ -121,6 +121,37 @@ void fleet_session_engage(struct fleet_session *s, int64_t now)
     make_ready(s);
 }
 
+/* Whether the link should still hold on to the opponent of a match that is
+ * over. This side being done says nothing of the other: the packet that
+ * finished the match here may have crossed with the loss of the one that
+ * would finish it there, and that side then sends its last packet again and
+ * waits for an answer - which this side gives, from DONE, for as long as it
+ * can still be reached. On the mesh the service always listens. A link that
+ * holds an opponent only while told to (the local network's: peerd, hidden
+ * and keeping nobody, closes its socket) must therefore go on being told
+ * for as long as the opponent may still be trying: the profile's whole run
+ * of tries, counted from when the match ended here or the opponent was last
+ * heard, whichever is later. Every packet of theirs starts it again, so it
+ * ends only once they have gone quiet - which is what their being done too
+ * looks like. */
+static int lingering(struct fleet_session *s, int64_t now)
+{
+    const struct fleet_link_profile *p = s->m.profile ? s->m.profile : &fleet_profile_mesh;
+    int64_t since = s->over_at > s->m.last_heard ? s->over_at : s->m.last_heard;
+
+    return now - since < (int64_t)FLEET_RETRY_MAX * p->retry_cap_ms;
+}
+
+void fleet_session_close_retention(struct fleet_session *s)
+{
+    if (!s || !s->link || !s->ready || !s->link->ops->match_peer || !s->peer_said) {
+        return;
+    }
+    if (s->m.phase == FLEET_MP_DONE && !s->m.end_unacked) {
+        s->link->ops->match_peer(s->link->ctx, NULL);
+    }
+}
+
 void fleet_session_poll(struct fleet_session *s, int64_t now)
 {
     uint8_t from[FLEET_KEY_BYTES];
@@ -153,12 +184,20 @@ void fleet_session_poll(struct fleet_session *s, int64_t now)
          * too when the save could not be read (a store fault, or another
          * identity's): what it held is not known, and nothing is said until
          * a match begins here - from then on this session knows, and says
-         * so when that match is over too. A match that is over and whose END
-         * is still owed is still in hand - the opponent has to be reachable
-         * to hear it. */
+         * so when that match is over too. A match that is over is still in
+         * hand for the link while its END is owed - the opponent has to be
+         * reachable to hear it - and for a while after it is over, while
+         * the opponent may still need an answer to finish (lingering). */
         if (s->link->ops->match_peer) {
-            int in_hand = fleet_match_active(&s->m) ||
-                          (s->m.phase == FLEET_MP_DONE && s->m.end_unacked);
+            int over = s->m.phase == FLEET_MP_DONE;
+            int in_hand;
+
+            if (over && !s->over_seen) {
+                s->over_at = now;
+            }
+            s->over_seen = over;
+            in_hand = fleet_match_active(&s->m) ||
+                      (over && (s->m.end_unacked || lingering(s, now)));
 
             if (in_hand) {
                 s->peer_said = 1;

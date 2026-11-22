@@ -28,10 +28,10 @@ static void check(const char *what, int ok)
     }
 }
 
-#define S SOL_SPADES
-#define H SOL_HEARTS
-#define C SOL_CLUBS
-#define D SOL_DIAMONDS
+#define S CG_SPADES
+#define H CG_HEARTS
+#define C CG_CLUBS
+#define D CG_DIAMONDS
 
 /* Cards as (rank, suit) pairs, terminated by rank 0. */
 static void set_pile(struct sol_game *g, int pile, int down, ...)
@@ -49,7 +49,7 @@ static void set_pile(struct sol_game *g, int pile, int down, ...)
             break;
         }
         suit = va_arg(ap, int);
-        s->card[s->n++] = sol_card(rank, (enum sol_suit)suit);
+        s->card[s->n++] = cg_card(rank, (enum cg_suit)suit);
     }
     va_end(ap);
     s->down = (uint8_t)down;
@@ -64,33 +64,33 @@ static void empty_game(struct sol_game *g)
 
 static void test_cards(void)
 {
-    sol_card_t deck[SOL_DECK];
-    sol_card_t again[SOL_DECK];
-    uint8_t seen[SOL_DECK];
-    struct sol_rng rng;
+    cg_card_t deck[CG_DECK];
+    cg_card_t again[CG_DECK];
+    uint8_t seen[CG_DECK];
+    struct cg_rng rng;
     int i;
     int moved = 0;
     int differ = 0;
     uint32_t seed;
 
-    check("ace of spades is card 0", sol_card(SOL_ACE, S) == 0);
-    check("king of diamonds is card 51", sol_card(SOL_KING, D) == 51);
-    check("rank and suit come back", sol_card_rank(sol_card(7, C)) == 7 && sol_card_suit(sol_card(7, C)) == C);
-    check("hearts and diamonds are red", sol_card_is_red(sol_card(3, H)) && sol_card_is_red(sol_card(3, D)));
-    check("spades and clubs are black", !sol_card_is_red(sol_card(3, S)) && !sol_card_is_red(sol_card(3, C)));
-    check("rank 0 and 14 are not cards", sol_card(0, S) == 0xFF && sol_card(14, S) == 0xFF);
-    check("a fifth suit is not a card", sol_card(1, (enum sol_suit)4) == 0xFF);
-    check("an invalid card has no rank and no colour", sol_card_rank(0xFF) == 0 && !sol_card_is_red(0xFF));
-    check("rank names", strcmp(sol_rank_text(1), "A") == 0 && strcmp(sol_rank_text(10), "10") == 0 &&
-                            strcmp(sol_rank_text(11), "J") == 0 && strcmp(sol_rank_text(13), "K") == 0 &&
-                            strcmp(sol_rank_text(14), "") == 0);
+    check("ace of spades is card 0", cg_card(CG_ACE, S) == 0);
+    check("king of diamonds is card 51", cg_card(CG_KING, D) == 51);
+    check("rank and suit come back", cg_card_rank(cg_card(7, C)) == 7 && cg_card_suit(cg_card(7, C)) == C);
+    check("hearts and diamonds are red", cg_card_is_red(cg_card(3, H)) && cg_card_is_red(cg_card(3, D)));
+    check("spades and clubs are black", !cg_card_is_red(cg_card(3, S)) && !cg_card_is_red(cg_card(3, C)));
+    check("rank 0 and 14 are not cards", cg_card(0, S) == 0xFF && cg_card(14, S) == 0xFF);
+    check("a fifth suit is not a card", cg_card(1, (enum cg_suit)4) == 0xFF);
+    check("an invalid card has no rank and no colour", cg_card_rank(0xFF) == 0 && !cg_card_is_red(0xFF));
+    check("rank names", strcmp(cg_rank_text(1), "A") == 0 && strcmp(cg_rank_text(10), "10") == 0 &&
+                            strcmp(cg_rank_text(11), "J") == 0 && strcmp(cg_rank_text(13), "K") == 0 &&
+                            strcmp(cg_rank_text(14), "") == 0);
 
-    sol_deck_fill(deck);
-    sol_rng_seed(&rng, 2026);
-    sol_deck_shuffle(deck, &rng);
+    cg_deck_fill(deck);
+    cg_rng_seed(&rng, 2026);
+    cg_deck_shuffle(deck, &rng);
     memset(seen, 0, sizeof(seen));
-    for (i = 0; i < SOL_DECK; i++) {
-        if (sol_card_valid(deck[i])) {
+    for (i = 0; i < CG_DECK; i++) {
+        if (cg_card_valid(deck[i])) {
             seen[deck[i]]++;
         }
         moved += deck[i] != i;
@@ -98,20 +98,20 @@ static void test_cards(void)
     {
         int unique = 1;
 
-        for (i = 0; i < SOL_DECK; i++) {
+        for (i = 0; i < CG_DECK; i++) {
             unique &= seen[i] == 1;
         }
         check("a shuffled deck holds exactly the 52 cards, once each", unique);
     }
     check("and is actually shuffled", moved > 40);
-    sol_deck_fill(again);
-    sol_rng_seed(&rng, 2026);
-    sol_deck_shuffle(again, &rng);
+    cg_deck_fill(again);
+    cg_rng_seed(&rng, 2026);
+    cg_deck_shuffle(again, &rng);
     check("the same seed shuffles the same way", memcmp(deck, again, sizeof(deck)) == 0);
     for (seed = 1; seed <= 20; seed++) {
-        sol_deck_fill(again);
-        sol_rng_seed(&rng, seed);
-        sol_deck_shuffle(again, &rng);
+        cg_deck_fill(again);
+        cg_rng_seed(&rng, seed);
+        cg_deck_shuffle(again, &rng);
         differ += memcmp(deck, again, sizeof(deck)) != 0;
     }
     check("other seeds shuffle differently", differ == 20);
@@ -120,22 +120,22 @@ static void test_cards(void)
      * so each (card, position) pair expects 1000; bounds are over six
      * standard deviations. */
     {
-        static int count[SOL_DECK][SOL_DECK];
+        static int count[CG_DECK][CG_DECK];
         int worst_lo = 100000;
         int worst_hi = 0;
         int k;
         int j;
 
-        sol_rng_seed(&rng, 777);
+        cg_rng_seed(&rng, 777);
         for (k = 0; k < 52000; k++) {
-            sol_deck_fill(deck);
-            sol_deck_shuffle(deck, &rng);
-            for (j = 0; j < SOL_DECK; j++) {
+            cg_deck_fill(deck);
+            cg_deck_shuffle(deck, &rng);
+            for (j = 0; j < CG_DECK; j++) {
                 count[deck[j]][j]++;
             }
         }
-        for (i = 0; i < SOL_DECK; i++) {
-            for (j = 0; j < SOL_DECK; j++) {
+        for (i = 0; i < CG_DECK; i++) {
+            for (j = 0; j < CG_DECK; j++) {
                 worst_lo = count[i][j] < worst_lo ? count[i][j] : worst_lo;
                 worst_hi = count[i][j] > worst_hi ? count[i][j] : worst_hi;
             }
@@ -197,7 +197,7 @@ static void test_tableau(void)
     check("a card does not move onto its own pile", sol_can_move(&g, SOL_T0, 0, SOL_T0) == SOL_ERR_SAME_PILE);
 
     check("the legal move happens", sol_move(&g, SOL_T0 + 1, 0, SOL_T0, &m) == SOL_OK && m.count == 1);
-    check("the 7 now lies on the 8", g.pile[SOL_T0].n == 2 && sol_top(&g, SOL_T0) == sol_card(7, H));
+    check("the 7 now lies on the 8", g.pile[SOL_T0].n == 2 && sol_top(&g, SOL_T0) == cg_card(7, H));
     check("and its column is empty", g.pile[SOL_T0 + 1].n == 0);
     check("a move is counted", g.moves == 1);
     {
@@ -211,9 +211,9 @@ static void test_tableau(void)
     check("the run 8 7 can be picked from its 8", sol_can_pick(&g, SOL_T0, 0) == SOL_OK);
     check("and moves onto the red 9", sol_move(&g, SOL_T0, 0, SOL_T0 + 4, &m) == SOL_OK && m.count == 2);
     check("the column reads 9 8 7", g.pile[SOL_T0 + 4].n == 3 &&
-                                        g.pile[SOL_T0 + 4].card[0] == sol_card(9, H) &&
-                                        g.pile[SOL_T0 + 4].card[1] == sol_card(8, S) &&
-                                        g.pile[SOL_T0 + 4].card[2] == sol_card(7, H));
+                                        g.pile[SOL_T0 + 4].card[0] == cg_card(9, H) &&
+                                        g.pile[SOL_T0 + 4].card[1] == cg_card(8, S) &&
+                                        g.pile[SOL_T0 + 4].card[2] == cg_card(7, H));
     /* Part of a run: the 7 alone. */
     check("the top card of a run is picked on its own", sol_can_pick(&g, SOL_T0 + 4, 2) == SOL_OK);
     check("and a red 7 on a black 7 is refused on rank", sol_can_move(&g, SOL_T0 + 4, 2, SOL_T0 + 2) == SOL_ERR_RANK);
@@ -303,13 +303,13 @@ static void test_foundations(void)
 static void test_stock(void)
 {
     struct sol_game g;
-    sol_card_t first_pass[24];
+    cg_card_t first_pass[24];
     int i;
     int ok = 1;
 
     sol_deal(&g, 9);
     for (i = 0; i < 24; i++) {
-        sol_card_t expect = g.pile[SOL_STOCK].card[g.pile[SOL_STOCK].n - 1];
+        cg_card_t expect = g.pile[SOL_STOCK].card[g.pile[SOL_STOCK].n - 1];
 
         ok &= sol_draw(&g) == SOL_DREW && sol_top(&g, SOL_WASTE) == expect;
         first_pass[i] = expect;
@@ -351,10 +351,10 @@ static void test_win(void)
     int r;
 
     empty_game(&g);
-    for (s = 0; s < SOL_SUITS; s++) {
+    for (s = 0; s < CG_SUITS; s++) {
         for (r = 1; r <= 13; r++) {
             if (!(s == D && r == 13)) {
-                g.pile[SOL_F0 + s].card[g.pile[SOL_F0 + s].n++] = sol_card(r, (enum sol_suit)s);
+                g.pile[SOL_F0 + s].card[g.pile[SOL_F0 + s].n++] = cg_card(r, (enum cg_suit)s);
             }
         }
     }
@@ -372,21 +372,21 @@ static void test_win(void)
 
 static void test_random_play(void)
 {
-    struct sol_rng pick;
+    struct cg_rng pick;
     uint32_t seed;
     int broken = 0;
     int wins = 0;
     long moves = 0;
 
-    sol_rng_seed(&pick, 11);
+    cg_rng_seed(&pick, 11);
     for (seed = 1; seed <= 400; seed++) {
         struct sol_game g;
         int turn;
 
         sol_deal(&g, seed);
         for (turn = 0; turn < 1500 && !g.won; turn++) {
-            int from = (int)sol_rng_below(&pick, SOL_PILES);
-            int to = (int)sol_rng_below(&pick, SOL_PILES);
+            int from = (int)cg_rng_below(&pick, SOL_PILES);
+            int to = (int)cg_rng_below(&pick, SOL_PILES);
             struct sol_game before;
             enum sol_result can;
             enum sol_result did;
@@ -394,10 +394,10 @@ static void test_random_play(void)
             int target;
 
             /* Draw now and then, so games get somewhere. */
-            if (sol_rng_below(&pick, 3) == 0) {
+            if (cg_rng_below(&pick, 3) == 0) {
                 sol_draw(&g);
             }
-            index = g.pile[from].n ? (int)sol_rng_below(&pick, g.pile[from].n) : 0;
+            index = g.pile[from].n ? (int)cg_rng_below(&pick, g.pile[from].n) : 0;
             before = g;
             can = sol_can_move(&g, from, index, to);
             did = sol_move(&g, from, index, to, NULL);

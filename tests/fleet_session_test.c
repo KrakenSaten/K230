@@ -527,10 +527,36 @@ static void test_match_peer(void)
           told_calls > 0 && told_changes == 1 && told_have &&
           memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
     fleet_session_resume(&again, now);
-    run(&again, now, 3 * 3600000LL, 1);
-    check("match peer: the match played to its end, there is none again",
-          again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && !told_have &&
-          told_changes == 2);
+    now = run(&again, now, 3 * 3600000LL, 1);
+    /* Over here is not over there: the opponent may have lost the packet
+     * that would finish it, and is then still sending. The link is told to
+     * hold on for the profile's whole run of tries after the opponent was
+     * last heard - on this link six tries of at most five seconds. */
+    check("match peer: the match over on this side, the opponent is still named",
+          again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && told_have &&
+          memcmp(told_key, key, FLEET_KEY_BYTES) == 0 && told_changes == 1);
+    {
+        int64_t quiet = again.m.last_heard > now ? again.m.last_heard : now;
+        int64_t t;
+
+        for (t = now; t < quiet + 29000; t += 500) {
+            fleet_session_poll(&again, t);
+        }
+        check("match peer: and stays named for as long as they may still be trying",
+              told_have && told_changes == 1);
+        /* Heard again - a copy of their last packet, say: the wait starts over. */
+        again.m.last_heard = quiet + 29000;
+        for (t = quiet + 29000; t < quiet + 29000 + 29000; t += 500) {
+            fleet_session_poll(&again, t);
+        }
+        check("match peer: hearing them again starts the wait over", told_have && told_changes == 1);
+        for (; t < quiet + 29000 + 31000; t += 500) {
+            fleet_session_poll(&again, t);
+        }
+        check("match peer: once they have been quiet that long, there is none again",
+              !told_have && told_changes == 2);
+        now = t;
+    }
 
     /* A save that could not be read: what it held is not known, so the link
      * is not told there is no match - it would let the opponent go. */
@@ -558,9 +584,108 @@ static void test_match_peer(void)
     check("match peer: a match begun after an unreadable save is named",
           fleet_match_active(&again.m) && again.store_fault && told_have &&
           memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
-    run(&again, now, 3 * 3600000LL, 1);
-    check("match peer: and when it is over the link is told there is none",
-          again.m.phase == FLEET_MP_DONE && again.store_fault && told_calls > 0 && !told_have);
+    now = run(&again, now, 3 * 3600000LL, 1);
+    check("match peer: over, it is still named while the opponent may be trying",
+          again.m.phase == FLEET_MP_DONE && again.store_fault && told_have);
+    /* Put away by the player: nothing is waited for. */
+    fleet_session_dismiss(&again, now);
+    fleet_session_poll(&again, now + 100);
+    check("match peer: and put away, the link is told at once there is none",
+          again.m.phase == FLEET_MP_IDLE && told_calls > 0 && !told_have);
+    link->ops->close(link->ctx);
+}
+
+/* Leaving - Fleet closing, or another transport picked: what the link holds
+ * only for a finished match is let go, and nothing else is. */
+static void test_close_retention(void)
+{
+    struct store st = { .rng = 41 };
+    struct fleet_session s;
+    struct fleet_session again;
+    struct fleet_link *link = open_loop("lan");
+    struct fleet_link wrapped = tell(link);
+    uint8_t active_blob[FLEET_MATCH_SAVE_SIZE];
+    uint8_t key[FLEET_KEY_BYTES];
+    unsigned calls;
+    int64_t now = 0;
+
+    peer_key(link, key);
+    fleet_session_init(&s, &wrapped, store_save, entropy, &st);
+    fleet_session_close_retention(&s);
+    check("leaving: a session that was never engaged says nothing", told_calls == 0);
+    fleet_session_engage(&s, now);
+    fleet_session_poll(&s, now);
+    calls = told_calls;
+    fleet_session_close_retention(&s);
+    check("leaving: with no match there is nothing to let go", told_calls == calls && !told_have);
+    fleet_session_invite(&s, key, NULL, now);
+    while (now < 60000 && !fleet_match_active(&s.m)) {
+        now += 100;
+        fleet_session_poll(&s, now);
+    }
+    now = run(&s, now, 60000, 1);
+    memcpy(active_blob, st.blob, sizeof(active_blob));
+    calls = told_calls;
+    fleet_session_close_retention(&s);
+    check("leaving in the middle of a match: its opponent is not let go",
+          s.m.phase == FLEET_MP_BATTLE && told_have && told_calls == calls &&
+          memcmp(told_key, key, FLEET_KEY_BYTES) == 0);
+
+    /* The same match read back from its save, as after Fleet was closed. */
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    fleet_session_set_saved(&again, active_blob, sizeof(active_blob), 0);
+    fleet_session_close_retention(&again);
+    check("leaving before the save has been read says nothing", told_calls == 0);
+    fleet_session_engage(&again, now);
+    fleet_session_poll(&again, now);
+    calls = told_calls;
+    fleet_session_close_retention(&again);
+    check("leaving with an unfinished saved match: its opponent is still named",
+          fleet_match_active(&again.m) && told_have && told_calls == calls);
+
+    /* Played to its end: held for the opponent's sake, and let go on leaving. */
+    fleet_session_resume(&again, now);
+    now = run(&again, now, 3 * 3600000LL, 1);
+    check("leaving: the match is over and its opponent is still held",
+          again.m.phase == FLEET_MP_DONE && !again.m.end_unacked && told_have);
+    fleet_session_close_retention(&again);
+    check("leaving after a finished match: the opponent is let go at once",
+          !told_have && told_changes == 2);
+
+    /* Opened again on that finished match, and closed again. */
+    wrapped = tell(link);
+    fleet_session_init(&again, &wrapped, store_save, entropy, &st);
+    fleet_session_set_saved(&again, st.blob, sizeof(st.blob), 0);
+    fleet_session_engage(&again, now);
+    fleet_session_poll(&again, now);
+    check("reopened on a finished match, the opponent is named while an answer may be owed",
+          again.m.phase == FLEET_MP_DONE && told_have);
+    fleet_session_close_retention(&again);
+    check("and let go again on leaving: nothing is left held between runs", !told_have);
+    link->ops->close(link->ctx);
+
+    /* A forfeit whose END nobody has answered: not finished with. */
+    link = open_loop("lan");
+    wrapped = tell(link);
+    peer_key(link, key);
+    st.has = 0;
+    fleet_session_init(&s, &wrapped, store_save, entropy, &st);
+    now = 0;
+    fleet_session_engage(&s, now);
+    fleet_session_invite(&s, key, NULL, now);
+    while (now < 60000 && !fleet_match_active(&s.m)) {
+        now += 100;
+        fleet_session_poll(&s, now);
+    }
+    now = run(&s, now, 30000, 1);
+    fleet_link_loop_set_cut(link, 1);
+    fleet_session_forfeit(&s, now);
+    fleet_session_poll(&s, now + 100);
+    calls = told_calls;
+    fleet_session_close_retention(&s);
+    check("leaving with an END still owed: the opponent has to stay reachable",
+          s.m.phase == FLEET_MP_DONE && s.m.end_unacked && told_have && told_calls == calls);
     link->ops->close(link->ctx);
 }
 
@@ -579,6 +704,7 @@ int main(void)
     test_link_profile();
     test_one_match_per_device();
     test_match_peer();
+    test_close_retention();
     printf("fleet_session_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

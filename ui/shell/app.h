@@ -19,6 +19,10 @@
 
 #define POCKETOS_APP_API_VERSION 0
 
+/* The JSON of pocketipc (cJSON.h), named here so that an app which serves no
+ * method needs no header of it. */
+struct cJSON;
+
 /* The orientations an app runs in (DS §21, `orientation` below). */
 enum pocketos_app_orientation {
     POCKETOS_APP_ORIENTATION_ANY = 0,  /* whatever the mode and the keyboard give */
@@ -95,9 +99,59 @@ struct pocketos_app {
      * `chrome`: the app never rotates anything and the stored mode is never
      * touched. Appended and zero, so the API version stays. */
     enum pocketos_app_orientation orientation;
+    /* ---- methods served on shell.sock (docs/api/shell.md, app_ipc.h) ---- *
+     *
+     * An app may answer requests on the shell's socket while it is in front.
+     * Every name it serves begins with this prefix: lower-case words ending
+     * in a dot ("capture."), never the shell's own "shell.", and no other
+     * app's. NULL: the app serves nothing, as every app written before this.
+     * The shell checks the declarations of all apps when it starts and does
+     * not start with an unsound one. Appended and zero, so the API version
+     * stays. */
+    const char *ipc_prefix;
+    /* Answer one request. Return 0 and set *result (the shell frees it; left
+     * NULL it is an empty object), or return a pocketipc error code and set
+     * *message to a string that outlives the call.
+     *
+     * Called on the LVGL thread, between frames, never from inside an LVGL
+     * event, and only while the app is in front: the open app, with neither
+     * the lock nor an alarm over it. `priv` is what create() returned, also
+     * when that was NULL.
+     * It must answer from what the app already holds: no call to a service,
+     * no file, no wait. The shell measures it against APP_IPC_BUDGET_US and
+     * counts every call that takes longer (shell.info `app_ipc`); it cannot
+     * and does not interrupt one. A result larger than APP_IPC_RESULT_MAX
+     * serialised is replaced by an error. */
+    int (*ipc_request)(void *priv, const char *method, const struct cJSON *params, struct cJSON **result,
+                       const char **message);
+    /* The methods (full names, NULL-terminated, at most APP_IPC_LIST_MAX)
+     * that say whether the app is there. While the app is not in front the
+     * shell answers these, and only these, with {"available": false}, so an
+     * app that is not running needs no code for it. Every other method of a
+     * closed app is an error: nothing that was asked to act is ever answered
+     * as if it had. NULL: none. */
+    const char *const *ipc_status;
+    /* The methods (same form) that may be called while the app is not in
+     * front: the shell opens the app, as a person opening it would, and then
+     * calls ipc_request. Refused while the unit is locked or an alarm shows
+     * (an opening method never unlocks), and for an app the display would
+     * have to be turned for first. NULL: none - and no app of the product
+     * lists any: which method may open an app from outside the unit is a
+     * decision of its own (ADR-016 amendment 1). Only the simulator's probe
+     * (app_probe.c) uses it. */
+    const char *const *ipc_opens;
 };
 
 /* Shell services available to apps. */
+/* Raise an event to the listeners of shell.sock (shell.subscribe). `event`
+ * must be a name under the app's own ipc_prefix and the app must be in front
+ * (not under the lock or an alarm); anything else is dropped and counted. `data` is consumed either
+ * way and may be NULL. Returns whether it was raised, so an app that must
+ * not lose a change (a state) can raise it again once it is in front. */
+bool pocketos_shell_app_event(const char *event, struct cJSON *data);
+/* Whether the open app is in front: neither the lock nor an alarm over it.
+ * An app asks before it makes an event it would only have dropped. */
+bool pocketos_shell_app_in_front(void);
 void pocketos_shell_set_status_hint(const char *text); /* short text at the app header's right end */
 void pocketos_shell_go_home(void);
 /* Temporarily use the whole app body: the existing NONE chrome, hidden

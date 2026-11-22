@@ -164,8 +164,10 @@ from the game; at most 4). Each has a persisted record in
 node from the first instant after a restart and peerd binds its socket
 whenever one exists - **requirement 3 holds for exactly the peers that
 matter**, with no beacon and no client attached. A record lasts until the
-game releases it (the match ends or is put away); there is no timed expiry,
-because there is no clock to time it by. A fifth `peer.keep` is refused
+game releases it (the match ends or is put away; as amended, Amendment 1:
+thirty quiet seconds after the match ends, at once when it is put away, and
+at once when the game leaves the network unless the match is unfinished);
+peerd has no timed expiry, because there is no clock to time it by. A fifth `peer.keep` is refused
 with an error. `peer.kept` lists the records, and a game reconciles **both ways**
 when it opens or resumes: it releases any record it has no match for and
 asserts `peer.keep` again (idempotent) for every saved match, so a record
@@ -472,3 +474,49 @@ alternates harmlessly between two valid endpoints (third pass).
 the "not verified" rows of Evidence; `docs/api/peer.md` with the port and
 figures; a human review before deployment on untrusted networks
 (recommended, "Terms of acceptance").
+
+## Amendment 1 (ACCEPTED 2026-11-22): when the game releases a kept peer
+
+Status: Accepted (product owner, 2026-11-22, with the approval to merge PR
+164). The decision stands as accepted; this amendment makes one statement of
+§5 exact. peerd is unchanged: it still has no timed expiry, and a record
+still lasts until the game releases it.
+
+**Why.** A match over on one side may not be over on the other: the packet
+that would finish it there can be the one that was lost, and the opponent
+then sends its last packet again and needs an answer. Released the moment
+the match ended here, the opponent was left retrying into a closed socket
+(3 matches in 30 at 15 % loss, end to end over two real peerd processes)
+until it settled by itself about half an hour later.
+
+**§5, "A record lasts until the game releases it (the match ends or is put
+away)", now reads as follows.** The game releases a kept peer:
+
+- **thirty seconds after the match has ended on this side and the opponent
+  has been quiet** - the LAN profile's six tries at its longest wait, counted
+  from the later of the match ending here and the opponent's last datagram;
+  every datagram from them starts the wait again; or
+- **at once, when the match is put away** (CLOSE) or another begins; or
+- **at once, when the game leaves the network** - Fleet closes, another
+  transport is picked, the service is looked for afresh - if that wait is
+  all the record is held for. Nobody would be there to answer, and peerd
+  would otherwise keep the record indefinitely.
+
+**Never released on leaving:** the opponent of a match in play, of an
+unfinished match read back from its save, or of a match over with its END
+still owed. Such a match is resumed from its save, and its opponent must
+still be reachable then; the record lasts until that match ends or is put
+away, as before.
+
+**Known limits, as built.** A game that dies without closing (killed,
+crashed) releases nothing; the record is reconciled away when the game is
+next on the network. A player who leaves inside the thirty seconds cuts the
+wait short, and an opponent whose last datagram was lost then settles by
+itself, with the same record, as before this amendment. The release written
+as the link closes, and the hide after it, are best effort; a hide that is
+lost ends with the lease (30 s).
+
+Evidence: `docs/apps/FLEET_MULTIPLAYER.md` (the LAN link, "To know about
+it"); PR 164 (unit tests, mutations, and end-to-end runs with a
+deterministically lost final datagram and an unanswered END). Not verified
+on a device.

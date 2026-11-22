@@ -1568,6 +1568,12 @@ static void paint_hint(struct psk_app *a, enum psk_view v)
             break;
         }
     }
+    if (a->reading) {
+        /* ADR-016 rule 20: beside the capture state, on every screen. */
+        size_t at = strlen(h);
+
+        snprintf(h + at, sizeof(h) - at, " · COMPANION");
+    }
     if (strcmp(h, a->hint) != 0) {
         snprintf(a->hint, sizeof(a->hint), "%s", h);
         pocketos_shell_set_status_hint(a->hint);
@@ -1619,7 +1625,7 @@ static void paint_status(struct psk_app *a, enum psk_view v)
         }
         psk_text(a->elapsed, "");
     } else {
-        const char *sz = a->keep == PPC_KEEP_FULL ? "FULL" : "HEADERS";
+        const char *sz = a->run_full ? "FULL" : "HEADERS"; /* what this capture was started with */
 
         switch (m->state) {
         case PPC_STATE_HOLD:
@@ -1678,6 +1684,17 @@ static void paint_status(struct psk_app *a, enum psk_view v)
             snprintf(text, sizeof(text), "%s · %s", iface, sz);
         }
         psk_text(a->elapsed, el);
+    }
+    if (a->wide && a->reading) {
+        /* The wide shape has no shell header: its own top row says it
+         * (rule 20), first, where a line too long for the row is not cut. */
+        static const char mark[] = "COMPANION · ";
+        size_t n = strlen(text);
+
+        if (n + sizeof(mark) <= sizeof(text)) {
+            memmove(text + sizeof(mark) - 1, text, n + 1);
+            memcpy(text, mark, sizeof(mark) - 1);
+        }
     }
     psk_text(a->status_text, text);
     {

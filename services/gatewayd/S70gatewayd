@@ -1,0 +1,137 @@
+#!/bin/sh
+# Doors gatewayd under pos-supervise (BusyBox init).
+#
+# DISABLED BY DEFAULT, and that is ADR-019 rule 1, not an oversight. gatewayd
+# is the one Doors service that listens on the network. Switch it on per
+# unit, deliberately, in /etc/default/gatewayd:
+#
+#   GATEWAYD_ENABLE=1
+#
+# and read docs/services/GATEWAYD.md first. Enabled is still not open: the
+# service binds nothing until the unit has a device password (rule 9b) and a
+# phone is paired or a pairing window was opened on the unit.
+#
+# It starts after S50sysd..S65meshcored but waits for none of them: it
+# connects to a service when a paired client asks for something of it.
+#
+# Not in the rootfs overlay: `make ENABLE_GATEWAYD=1 install` installs it
+# beside the binary. Putting both into an image is a later, separate step.
+#
+# Copyright (c) 2026 Doors authors.
+# SPDX-License-Identifier: Apache-2.0
+
+SUPERVISE=/usr/bin/pos-supervise
+DAEMON=/usr/sbin/gatewayd
+PIDFILE=/var/run/gatewayd-supervise.pid
+# pos-supervise records the daemon it is watching here. stop needs it: asking
+# the supervisor to go is not the same as the daemon going.
+CHILD_PIDFILE=/run/pocketos/gatewayd.pid
+LOGDIR=/var/lib/pocketos/log
+LOGFILE=$LOGDIR/gatewayd.stdio.log
+STATEDIR=/var/lib/pocketos/gatewayd
+
+GATEWAYD_ENABLE=0
+# The interface whose address the gateway listens on. One, never all.
+GATEWAYD_INTERFACE=wlan0
+[ -r /etc/default/gatewayd ] && . /etc/default/gatewayd
+export POCKETOS_LOG_DIR=$LOGDIR
+export POCKETOS_LOG_STDERR=0
+
+running() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+
+STOP_TIMEOUT=3
+if sleep 0.1 2>/dev/null; then STOP_STEP="0.1"; STOP_TICKS=$((STOP_TIMEOUT * 10)); else STOP_STEP="1"; STOP_TICKS=$STOP_TIMEOUT; fi
+
+wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
+	_n=0
+	while running "$1"; do
+		_n=$((_n + 1))
+		[ "$_n" -gt "$STOP_TICKS" ] && return 1
+		sleep "$STOP_STEP"
+	done
+	return 0
+}
+
+start() {
+	printf "Starting gatewayd: "
+	if [ "$GATEWAYD_ENABLE" != "1" ]; then
+		echo "disabled (set GATEWAYD_ENABLE=1 in /etc/default/gatewayd)"
+		return 0
+	fi
+	if [ ! -x "$DAEMON" ]; then
+		echo "FAILED: enabled, but $DAEMON is not installed or not executable"
+		return 1
+	fi
+	if [ ! -x "$SUPERVISE" ]; then
+		echo "FAILED: $SUPERVISE is not installed; gatewayd is never run unsupervised"
+		return 1
+	fi
+	# The interface name becomes an argument of a root daemon: a name, not
+	# whatever the file happened to hold.
+	case "$GATEWAYD_INTERFACE" in
+	""|*[!A-Za-z0-9_.-]*) echo "FAILED: GATEWAYD_INTERFACE is not an interface name"; return 1 ;;
+	esac
+	mkdir -p /run/pocketos /var/run "$LOGDIR" "$STATEDIR"
+	# The state directory holds the unit's private key. The daemon sets
+	# this itself; repeated here for a directory made by hand or restored.
+	chmod 0700 "$STATEDIR" 2>/dev/null
+	_sup=""; _child=""
+	[ -s "$PIDFILE" ] && _sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && _child=$(cat "$CHILD_PIDFILE")
+	if running "$_sup" || running "$_child"; then
+		echo "already running"; return 0
+	fi
+	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
+	POS_SUPERVISE_PIDFILE="$PIDFILE" nohup "$SUPERVISE" gatewayd "$DAEMON" --interface "$GATEWAYD_INTERFACE" >"$LOGFILE" 2>&1 &
+	echo $! > "$PIDFILE"
+	echo "OK"
+}
+
+stop() {
+	printf "Stopping gatewayd: "
+	sup=""; child=""
+	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
+	forced=""
+	if ! running "$sup" && ! running "$child"; then
+		rm -f "$PIDFILE" "$CHILD_PIDFILE"
+		echo "not running"
+		return 0
+	fi
+	kill "$sup" 2>/dev/null
+	if ! wait_gone "$sup"; then
+		# The supervisor is not answering SIGTERM. Ask the daemon itself:
+		# killing only the supervisor would leave a listener behind.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$sup"; then
+			kill -KILL "$child" 2>/dev/null
+			kill -KILL "$sup" 2>/dev/null
+			wait_gone "$sup"
+			forced=" (forced)"
+		fi
+	fi
+	if running "$child"; then
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$child"; then
+			kill -KILL "$child" 2>/dev/null
+			wait_gone "$child"
+			forced=" (forced)"
+		fi
+	fi
+	if running "$sup" || running "$child"; then
+		echo "FAILED, still running"
+		return 1
+	fi
+	rm -f "$PIDFILE" "$CHILD_PIDFILE"
+	echo "OK$forced"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	# A stop that failed leaves the daemon listening. Starting on top of it
+	# would add a second one, so restart stops here.
+	restart|reload) stop && start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit $?

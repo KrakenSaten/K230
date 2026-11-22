@@ -46,6 +46,8 @@ struct fleet_session {
     int save_failed;
     int other_in_hand;                  /* the other transport's save holds a match */
     int peer_said;                      /* the link has been told of a match in hand */
+    int over_seen;                      /* the match was seen to be over, at over_at */
+    int64_t over_at;
     unsigned sent;
     unsigned received;
     unsigned busy;
@@ -62,6 +64,16 @@ void fleet_session_set_saved(struct fleet_session *s, const uint8_t *blob, size_
 void fleet_session_engage(struct fleet_session *s, int64_t now);
 /* Do everything due: link I/O, received packets, timers, saving, sending. */
 void fleet_session_poll(struct fleet_session *s, int64_t now);
+/* The session is about to stop being polled - Fleet is closing, or leaving
+ * this transport. An opponent the link is holding only because a finished
+ * match may still have an answer to give (see fleet_session.c, lingering)
+ * is let go now: nobody will be here to give that answer, and a link that
+ * holds an opponent until told otherwise would hold it for ever. The
+ * opponent of a match that is not finished - in play, or over with its END
+ * still owed - is not touched: that match is resumed from its save, and its
+ * opponent must still be reachable then. Nor is anything said when this
+ * session never named an opponent. Call it before closing the link. */
+void fleet_session_close_retention(struct fleet_session *s);
 /* The match's revision, or 0 before it exists: changes whenever something a
  * screen shows has changed. */
 unsigned fleet_session_revision(const struct fleet_session *s);
