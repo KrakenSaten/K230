@@ -11,7 +11,9 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REF="${1:-/mnt/c/K230/.claude/worktrees/gatewayd-m2}"
+# By default the checkout this file is in. Until gatewayd M4.1 is on that
+# branch, name a checkout that has it (services/gatewayd with gw_journal.c).
+REF="${1:-$(cd "$HERE/../../.." && pwd)}"
 PORT="${2:-47231}"
 CTL="${3:-47232}"
 OUT="$HERE/out"
@@ -20,7 +22,7 @@ mkdir -p "$OUT"
 BIN="${TMPDIR:-/tmp}/doors-companion-gatewayd-testhooks"
 cd "$REF"
 CMD="$(make -n gatewayd-service-test 2>/dev/null | grep -- '-DGATEWAYD_TEST_HOOKS=1' | grep -v -- '-fsanitize' | head -1)"
-[ -n "$CMD" ] || { echo "no test-hooks build command in $REF/Makefile" >&2; exit 1; }
+[ -n "$CMD" ] || { echo "no gatewayd test-hooks build in $REF/Makefile: pass a checkout that has gatewayd M4.1" >&2; exit 1; }
 CMD="${CMD% -o *} -o $BIN"
 eval "$CMD"
 git -C "$REF" rev-parse --short HEAD > "$OUT/gateway-commit.txt" 2>/dev/null || true

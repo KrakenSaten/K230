@@ -14,6 +14,9 @@ Control: one JSON object per line, {"method": ..., "params": ...}.
   harness.stop     stop gatewayd (the unit goes away)
   harness.start    start it again on the same state directory
   harness.upstream {"service": "sysd", "mode": "ok" | "error"}
+  harness.mesh     {"op": ...}: the fake meshcored (FakeMesh below): message,
+                   state, bulk, node, channel, activity, down, up, restart,
+                   seed, demo
 
 This is a bench tool. It is not part of the app and ships in no build.
 
@@ -22,6 +25,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import json
 import os
+import random
 import signal
 import socket
 import socketserver
@@ -119,8 +123,272 @@ SERVICES = {
     "netd": FakeService("netd", {"wifi.status": {"state": "connected", "reason": None, "ssid": "workshop", "bssid": "aa:bb:cc:dd:ee:ff",
                                                  "signal_dbm": -58, "bars": 3, "ipv4": "192.168.1.20", "security": "wpa2"}}),
     "radiod": FakeService("radiod", {"radio.status": {"state": "idle", "frequency_hz": 869525000, "profile": {"sf": 11, "bw_hz": 250000}}}),
-    "meshcored": FakeService("meshcored", {"mesh.status": {"state": "ready", "run_id": "harness", "nodes": 4}}),
 }
+
+
+def mono():
+    return int(time.monotonic() * 1000)  # CLOCK_MONOTONIC, the clock gatewayd stamps with
+
+
+def key(i):
+    return "%02x" % (0xa0 + i) + "%062x" % (0x5eed0000 + i * 7919)
+
+
+NODES = [("Ola Nordmann", 1), ("Kari Fjell", 1), ("Ridge repeater", 2), ("Harbour room", 3), ("Weather mast", 4),
+         ("Saga", 1), ("North relay", 2)]
+CHANNELS = [{"channel": 0, "name": "Public", "channel_hash": "11", "key_bits": 128, "well_known": "public",
+             "text_limit": 140, "ack_expected": False},
+            {"channel": 1, "name": "#workshop", "channel_hash": "a4", "key_bits": 128, "text_limit": 140,
+             "ack_expected": False}]
+LINES = ["Anyone on the ridge tonight?", "Copy that, signal is good here.", "Repeater battery at 81 percent.",
+         "Fog rolling in over the harbour.", "Moving to the north side, back in ten.", "Heard you through two relays.",
+         "Antenna is up again.", "Coffee is on at the workshop."]
+
+
+class FakeMesh:
+    """A meshcored written from docs/api/mesh.md, as far as the gateway reads
+    it: status with a run_id, a subscription, the two message rings (64
+    direct, 64 channel), nodes, channels, identity, and the events. It holds
+    no key and transmits nothing; a test, or the demo thread, tells it what
+    "happened" on the air."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.path = os.path.join(RUN, "meshcored.sock")
+        self.sock = None
+        self.conns = []
+        self.subs = []
+        self.demo = False
+        self.fresh()
+        self.up()
+        threading.Thread(target=self.demo_loop, daemon=True).start()
+
+    def fresh(self):
+        self.run_id = "%016x" % random.getrandbits(64)
+        self.t0 = time.time()
+        self.next_id = 1
+        self.direct, self.chan = [], []
+        self.nodes = [self.node(i) for i in range(len(NODES))]
+
+    def node(self, i):
+        name, kind = NODES[i]
+        n = {"public_key": key(i), "node_hash": key(i)[:2], "name": name, "type": kind, "path_known": i % 3 != 2,
+             "last_advert_timestamp": int(time.time()) - i * 40, "last_heard_mono_ms": mono() - i * 45000,
+             "last_snr_db": 9.5 - i * 2.25, "last_rssi_dbm": -71 - i * 6, "advert_hops": i % 3,
+             "advert_mono_ms": mono() - i * 45000}
+        if n["path_known"]:
+            n.update({"hops": i % 3, "direct": i % 3 == 0, "path_hex": "a2" * (i % 3)})
+        if kind in (2, 4):
+            n.update({"lat": 59.91 + i / 100.0, "lon": 10.75 + i / 100.0})
+        return n
+
+    # ---- the socket ----
+    def up(self):
+        with self.lock:
+            if self.sock is not None:
+                return
+            if os.path.exists(self.path):
+                os.unlink(self.path)
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.bind(self.path)
+            self.sock.listen(8)
+            threading.Thread(target=self.accept, args=(self.sock,), daemon=True).start()
+
+    def down(self):
+        with self.lock:
+            if self.sock is None:
+                return
+            sock, self.sock = self.sock, None
+            # A listener blocked in accept() only leaves it when it is woken.
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            sock.close()
+            os.unlink(self.path)
+            for c in self.conns:
+                try:
+                    c.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            self.conns, self.subs = [], []
+
+    def accept(self, sock):
+        while True:
+            try:
+                c, _ = sock.accept()
+            except OSError:
+                return
+            with self.lock:
+                self.conns.append(c)
+            threading.Thread(target=self.serve, args=(c,), daemon=True).start()
+
+    def serve(self, c):
+        try:
+            while True:
+                req = recv_frame(c)
+                res = self.answer(req.get("method"), req.get("params") or {})
+                with self.lock:
+                    if isinstance(res, tuple):
+                        send_frame(c, {"id": req["id"], "error": {"code": res[0], "message": res[1]}})
+                    else:
+                        send_frame(c, {"id": req["id"], "result": res})
+                    if req.get("method") == "mesh.subscribe":
+                        self.subs.append(c)
+        except (EOFError, OSError, ValueError):
+            c.close()
+
+    def answer(self, m, p):
+        with self.lock:
+            if m == "mesh.status":
+                return {"state": "ready", "reason": "none", "run_id": self.run_id, "uptime_s": int(time.time() - self.t0),
+                        "nodes": len(self.nodes), "messages": len(self.direct) + len(self.chan)}
+            if m == "mesh.subscribe":
+                return {"subscribed": True}
+            if m == "mesh.messages":
+                all_ = sorted(self.direct + self.chan, key=lambda x: x["id"])
+                return {"messages": all_, "count": len(all_), "total": len(all_), "persistent": False}
+            if m == "mesh.identity":
+                return {"public_key": key(90), "node_hash": key(90)[:2], "name": "Doors bench", "name_source": "stored",
+                        "name_max": 31}
+            if m == "mesh.nodes":
+                return {"nodes": self.nodes, "count": len(self.nodes)}
+            if m == "mesh.node":
+                hit = [n for n in self.nodes if n["public_key"].startswith(str(p.get("node", "?")))]
+                return hit[0] if len(hit) == 1 else (2, "no such node")
+            if m == "mesh.channels":
+                return {"channels": CHANNELS, "count": len(CHANNELS), "max": 8, "persistent": True}
+            return (1, "unknown method")
+
+    def emit(self, event, data):
+        with self.lock:
+            for c in list(self.subs):
+                try:
+                    send_frame(c, {"event": event, "data": data})
+                except OSError:
+                    self.subs.remove(c)
+
+    # ---- what "happens" ----
+    def message(self, p):
+        with self.lock:
+            m = {"id": self.next_id, "direction": p.get("direction", "in"), "kind": p.get("kind", "direct"),
+                 "text": p.get("text", "hello"), "timestamp": int(time.time()), "mono_ms": mono(),
+                 "ack_expected": False}
+            self.next_id += 1
+            out = m["direction"] == "out"
+            if m["kind"] == "channel":
+                ch = CHANNELS[int(p.get("channel", 0))]
+                m.update({"channel": ch["channel"], "channel_name": ch["name"], "channel_hash": ch["channel_hash"],
+                          "state": "sent_flood" if out else "received"})
+                if not out:
+                    who = p.get("sender_name", NODES[int(p.get("peer", 0))][0])
+                    m.update({"sender_name": who, "text": who + ": " + m["text"]})
+                ring = self.chan
+            else:
+                i = int(p.get("peer", 0))
+                m.update({"peer_public_key": key(i), "peer_name": NODES[i][0], "state": "sent_direct" if out else "received"})
+                if out:
+                    m.update({"ack_expected": True, "attempts": 1})
+                ring = self.direct
+            if not out:
+                m.update({"snr_db": 7.25, "rssi_dbm": -88})
+            m.update(p.get("more", {}))
+            ring.append(m)
+            del ring[:-64]
+            self.emit("mesh.message", {"message": m})
+            return {"id": m["id"], "run_id": self.run_id}
+
+    def state(self, p):
+        with self.lock:
+            for m in self.direct + self.chan:
+                if m["id"] == p["id"]:
+                    m.update(p.get("more", {}))
+                    if "state" in p:
+                        m["state"] = p["state"]
+                    self.emit("mesh.message", {"message": m})
+                    return {"id": m["id"]}
+            return {}
+
+    def heard(self, i, reason="discovered"):
+        with self.lock:
+            n = self.nodes[i]
+            n.update({"last_heard_mono_ms": mono(), "advert_mono_ms": mono(), "last_rssi_dbm": random.randint(-112, -64),
+                      "last_snr_db": random.randint(-20, 44) / 4.0})
+            self.emit("mesh.node", {"reason": reason, "node": n})
+
+    def activity(self, rx=0, tx=0, kind="advert", result="ok"):
+        for _ in range(rx):
+            self.emit("mesh.activity", {"kind": "rx", "payload_type": kind, "bytes": random.randint(20, 180), "mono_ms": mono(),
+                                        "rssi_dbm": -90, "snr_db": 6.0})
+        for _ in range(tx):
+            self.emit("mesh.activity", {"kind": "tx", "submit_id": 1, "result": result, "bytes": 64, "mono_ms": mono()})
+
+    def seed(self):
+        for i, line in enumerate(LINES):
+            self.message({"kind": "channel", "channel": i % 2, "peer": i % 6, "text": line})
+        self.message({"peer": 0, "text": "Are you at the cabin this weekend?"})
+        a = self.message({"peer": 0, "direction": "out", "text": "Yes, from Friday evening."})
+        self.state({"id": a["id"], "state": "acked", "more": {"ack_mono_ms": mono()}})
+        self.message({"peer": 0, "text": "Good. Bring the spare antenna."})
+        self.message({"peer": 1, "text": "Test from the fjell, how copy?"})
+        b = self.message({"peer": 1, "direction": "out", "text": "Loud and clear."})
+        self.state({"id": b["id"], "state": "no_ack"})
+        c = self.message({"kind": "channel", "channel": 0, "direction": "out", "text": "Doors bench: Evening all."})
+        self.state({"id": c["id"], "more": {"transmitted": True, "heard_back": 2, "heard_back_hops": 1}})
+
+    def demo_loop(self):
+        n = 0
+        while True:
+            time.sleep(1.0)
+            if not self.demo or self.sock is None:
+                continue
+            n += 1
+            self.activity(rx=random.choice([0, 1, 1, 2, 3, 6]), kind=random.choice(["advert", "group_text", "text", "ack", "path"]))
+            if n % 5 == 0:
+                self.activity(tx=1, result=random.choice(["ok", "ok", "ok", "tx_failed"]))
+            if n % 7 == 0:
+                self.heard(random.randrange(len(NODES)))
+            if n % 11 == 0:
+                self.activity(rx=1, kind="group_text")
+                self.message({"kind": "channel", "channel": random.randrange(2), "peer": random.randrange(6), "text": random.choice(LINES)})
+            if n % 23 == 0:
+                self.activity(rx=1, kind="text")
+                self.message({"peer": random.randrange(2), "text": random.choice(LINES)})
+
+    def control(self, p):
+        op = p.get("op")
+        if op == "message":
+            return self.message(p)
+        if op == "state":
+            return self.state(p)
+        if op == "bulk":
+            for i in range(int(p["count"])):
+                self.message({"kind": p.get("kind", "channel"), "peer": i % 6, "text": "%s %d" % (p.get("text", "bulk"), i)})
+        elif op == "node":
+            self.heard(int(p.get("peer", 0)), p.get("reason", "discovered"))
+        elif op == "channel":
+            self.emit("mesh.channel", {"reason": p.get("reason", "added"), "channel": p["channel"]})
+        elif op == "activity":
+            self.activity(int(p.get("rx", 0)), int(p.get("tx", 0)), p.get("kind", "advert"), p.get("result", "ok"))
+        elif op == "down":
+            self.down()
+        elif op == "up":
+            self.up()
+        elif op == "restart":
+            self.down()
+            with self.lock:
+                self.fresh()
+            self.up()
+        elif op == "seed":
+            self.seed()
+        elif op == "demo":
+            self.demo = bool(p.get("on", True))
+        else:
+            raise ValueError("unknown mesh op %r" % (op,))
+        return {"run_id": self.run_id}
+
+
+MESH = FakeMesh()
 
 proc = None
 lock = threading.Lock()
@@ -181,6 +449,8 @@ class Handler(socketserver.StreamRequestHandler):
                     elif m == "harness.upstream":
                         SERVICES[p["service"]].mode = p["mode"]
                         out = {"result": {}}
+                    elif m == "harness.mesh":
+                        out = {"result": MESH.control(p)}
                     elif m.startswith("gateway."):
                         out = ctl(m, p)
                     else:

@@ -35,6 +35,7 @@ import app.doors.companion.ui.Doors
 import app.doors.companion.ui.DoorsTheme
 import app.doors.companion.ui.Home
 import app.doors.companion.ui.PairFlow
+import app.doors.companion.ui.RiftScreen
 import app.doors.companion.ui.RoomPlaceholder
 import app.doors.companion.ui.Screen
 import app.doors.companion.ui.TelemetryScreen
@@ -97,10 +98,7 @@ private fun Root(link: Link) {
                 s == Screen.Home -> Home(link, u) { screen = it }
                 s == Screen.Telemetry -> TelemetryScreen(link, back)
                 s == Screen.Connection -> ConnectionScreen(link, u, back)
-                s == Screen.Rift -> RoomPlaceholder(
-                    link, "RIFT", Doors.Rx, "mesh", "mesh_read",
-                    listOf("Direct and channel messages", "Nodes heard on the mesh", "Delivery state for what you send", "Activity, second by second"), back,
-                )
+                s == Screen.Rift -> RiftScreen(link, u, back)
                 else -> RoomPlaceholder(
                     link, "PacketShark", Doors.Tx, "capture", "capture_view",
                     listOf("Whether the unit is capturing", "Packet, byte and drop counts", "Protocol shares and findings", "Hold and stop, from the phone"), back,

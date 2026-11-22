@@ -74,7 +74,9 @@ class GatewayConnection(private val socket: Socket) : Closeable {
     private val nextId = AtomicLong(1)
     private val inFlight = Semaphore(MAX_IN_FLIGHT)
     private val writeLock = Any()
-    private val _events = MutableSharedFlow<GatewayEvent>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    // Wide enough for a burst the gateway may send at once; a collector that
+    // still falls behind loses the oldest, and MeshSync notices by the seq.
+    private val _events = MutableSharedFlow<GatewayEvent>(extraBufferCapacity = 1024, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     val events: SharedFlow<GatewayEvent> = _events
 
