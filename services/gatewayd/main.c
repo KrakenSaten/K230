@@ -1,0 +1,1619 @@
+/*
+ * gatewayd: the authenticated Companion Gateway (docs/decisions/ADR-019,
+ * accepted 2026-11-21; docs/api/gateway.md; docs/services/GATEWAYD.md).
+ *
+ * One thread, one loop. Two surfaces:
+ *
+ *   gatewayd.sock   pocketipc, root only: the unit's own control of the
+ *                   gateway (open a pairing window, decide about a
+ *                   candidate, list, re-scope and revoke clients). The
+ *                   physical approval of ADR-019 rule 22 arrives here: the
+ *                   Settings page is its client, and until that page exists
+ *                   `doors call` on a root console is.
+ *   TCP 47231       TLS 1.3, both sides pinned (gw_tls.c). Paired clients
+ *                   call the allowlist of gw_policy.c and nothing else.
+ *
+ * Closed until asked (rule 5): no TCP socket exists unless a client is
+ * paired or a pairing window is open, the unit has a device password
+ * (rule 9b), and the identity and the paired list are intact. Each of those
+ * is re-evaluated as it changes, and losing any of them closes the listener
+ * and every session.
+ *
+ * Milestone M2: the session group and device status. Upstream calls are
+ * synchronous with a deadline (GW_UPSTREAM_CALL_MS); the event-carrying
+ * groups (mesh, capture) need a non-blocking upstream client and come with
+ * their own milestones.
+ *
+ * Copyright (c) 2026 Doors authors.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#define _GNU_SOURCE
+
+#include "gw.h"
+#include "gw_frame.h"
+#include "gw_gate.h"
+#include "gw_pair.h"
+#include "gw_policy.h"
+#include "gw_store.h"
+#include "gw_tls.h"
+#include "gw_util.h"
+
+#include "pocketipc/pocketipc.h"
+#include "pocketipc/server.h"
+#include "pocketlog/pocketlog.h"
+#include "pocketpaths.h"
+
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <ifaddrs.h>
+#include <linux/capability.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <openssl/err.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/epoll.h>
+#include <sys/file.h>
+#include <sys/prctl.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
+
+#define SESS_SLOTS (GW_MAX_SESSIONS + GW_MAX_PENDING + 1)
+#define LOOP_MS 100
+#define RECHECK_MS 5000
+#define CLOSING_MS 2000          /* how long an ending connection may take to drain */
+#define UPSTREAM_BACKOFF_MS 1000 /* after a service failed to answer */
+#define WALL_SET_AFTER 1704067200LL /* 2024-01-01: an unset clock reads 1970 */
+
+enum sess_state { S_FREE = 0, S_HANDSHAKE, S_OPEN };
+
+struct sess {
+    enum sess_state st;
+    uint64_t id;
+    int fd;
+    SSL *ssl;
+    bool admitted;          /* the verification callback said yes */
+    enum gw_who who;
+    uint8_t fp[GW_FP_LEN];
+    bool hello;
+    bool closing;           /* close once the output is written */
+    bool pair_waiting;      /* gateway.pair is waiting for the person */
+    double pair_id;
+    int64_t deadline_ms;    /* the handshake's, then gateway.hello's; 0: none */
+    int64_t last_rx_ms;
+    struct gw_frame in;
+    uint8_t *out;
+    size_t out_len, out_off, out_cap;
+    struct gw_bucket rate;
+    uint32_t events;
+    char peer[INET_ADDRSTRLEN];
+};
+
+struct upstream {
+    const char *service;
+    int fd;
+    int64_t retry_ms;   /* not asked again before this */
+};
+
+static struct {
+    struct pocketipc_server *ctl;
+    int epfd;
+    int lfd;                        /* the TCP listener, or -1 */
+    uint32_t laddr;                 /* what it is bound to, network order */
+    uint16_t port;
+    const char *iface;
+    const char *listen_override;    /* test hooks only */
+    const char *shadow;
+    const char *passwd;
+    bool store_dirty;               /* the paired list in memory is not the one on storage */
+    SSL_CTX *ctx;
+    EVP_PKEY *key;
+    uint8_t device_fp[GW_FP_LEN];
+    char state_dir[GW_STORE_PATH_MAX];
+    struct gw_store store;
+    struct gw_pair pair;
+    struct sess s[SESS_SLOTS];
+    uint64_t next_id;
+    struct gw_bucket handshakes;
+    struct upstream up[4];
+    bool identity_fault, state_fault, password_set;
+    bool relisten;                  /* the listener's conditions changed: re-evaluate */
+    int64_t recheck_ms;
+    char boot_id[40];
+    int ssl_idx;
+} G;
+
+static volatile sig_atomic_t g_stop;
+
+static void on_signal(int sig)
+{
+    (void)sig;
+    g_stop = 1;
+}
+
+static int64_t mono_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static int64_t wall_s(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec;
+}
+
+static void fp_prefix(const uint8_t fp[GW_FP_LEN], char out[17])
+{
+    gw_hex(fp, 8, out);
+}
+
+/* ---- privilege ---------------------------------------------------------- */
+
+/* The gateway needs no capability: its port is above 1024 and everything it
+ * opens is root's own. Dropped before the first connection is accepted
+ * (ADR-019 rule 8); it stays uid 0 until Doors has per-service users. */
+static bool drop_capabilities(void)
+{
+    struct __user_cap_header_struct hdr;
+    struct __user_cap_data_struct data[2];
+    int cap;
+
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+        LOG_ERROR("no_new_privs refused: %s", strerror(errno));
+        return false;
+    }
+    for (cap = 0; cap < 64; cap++) {
+        if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0) != 0) {
+            if (errno == EINVAL) {
+                break; /* past the kernel's last capability */
+            }
+            /* EPERM is what a process that is not root gets (the host
+             * suites): it has no capability to lose. For root it is a
+             * refusal, and the service does not run on. */
+            if (geteuid() == 0) {
+                LOG_ERROR("bounding set: capability %d was not dropped: %s", cap, strerror(errno));
+                return false;
+            }
+        }
+    }
+    memset(&hdr, 0, sizeof(hdr));
+    memset(data, 0, sizeof(data));
+    hdr.version = _LINUX_CAPABILITY_VERSION_3;
+    if (syscall(SYS_capset, &hdr, data) != 0) {
+        LOG_ERROR("capset refused: %s", strerror(errno));
+        return false;
+    }
+    /* Read back: what the kernel says is held now, not what was asked. */
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.version = _LINUX_CAPABILITY_VERSION_3;
+    memset(data, 0xff, sizeof(data));
+    if (syscall(SYS_capget, &hdr, data) != 0 || data[0].effective != 0 || data[0].permitted != 0 ||
+        data[0].inheritable != 0 || data[1].effective != 0 || data[1].permitted != 0 ||
+        data[1].inheritable != 0) {
+        LOG_ERROR("capabilities are still held after the drop");
+        return false;
+    }
+    LOG_INFO("capabilities dropped");
+    return true;
+}
+
+/* ---- sessions ----------------------------------------------------------- */
+
+static struct sess *sess_by_id(uint64_t id)
+{
+    int i;
+
+    for (i = 0; id != 0 && i < SESS_SLOTS; i++) {
+        if (G.s[i].st != S_FREE && G.s[i].id == id) {
+            return &G.s[i];
+        }
+    }
+    return NULL;
+}
+
+static void ctl_event(const char *name, cJSON *data)
+{
+    pocketipc_server_broadcast(G.ctl, pocketipc_event(name, data));
+}
+
+static void pairing_closed_event(const char *reason)
+{
+    cJSON *d = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(d, "state", "closed");
+    cJSON_AddStringToObject(d, "reason", reason);
+    ctl_event("gateway.pairing", d);
+    /* A window that closed may have been the only reason to listen. Done
+     * from the loop, not from here: this runs inside a session's own
+     * handling, and closing the listener closes sessions. */
+    G.relisten = true;
+}
+
+static void sess_close(struct sess *s, const char *why)
+{
+    bool was_open_window = gw_pair_open(&G.pair);
+
+    if (s->st == S_FREE) {
+        return;
+    }
+    if (s->admitted) {
+        char p[17];
+
+        fp_prefix(s->fp, p);
+        LOG_INFO("session %llu (%s) closed: %s", (unsigned long long)s->id, p, why);
+    }
+    gw_pair_gone(&G.pair, s->id);
+    if (was_open_window && !gw_pair_open(&G.pair)) {
+        pairing_closed_event("candidate_left");
+    }
+    if (s->ssl != NULL) {
+        /* One attempt at a close_notify; a peer that is not reading does
+         * not get to hold the slot. */
+        (void)SSL_shutdown(s->ssl);
+        SSL_free(s->ssl);
+    }
+    if (s->fd >= 0) {
+        (void)epoll_ctl(G.epfd, EPOLL_CTL_DEL, s->fd, NULL);
+        close(s->fd);
+    }
+    gw_frame_free(&s->in);
+    free(s->out);
+    memset(s, 0, sizeof(*s));
+    s->fd = -1;
+    ERR_clear_error();
+}
+
+static void close_all_sessions(const char *why)
+{
+    int i;
+
+    for (i = 0; i < SESS_SLOTS; i++) {
+        sess_close(&G.s[i], why);
+    }
+}
+
+static void sess_events(struct sess *s, uint32_t ev)
+{
+    struct epoll_event e;
+
+    if (s->events == ev) {
+        return;
+    }
+    memset(&e, 0, sizeof(e));
+    e.events = ev;
+    e.data.u64 = s->id;
+    if (epoll_ctl(G.epfd, EPOLL_CTL_MOD, s->fd, &e) == 0) {
+        s->events = ev;
+    }
+}
+
+/* The connection ends as soon as what is queued for it is written. From
+ * here nothing more is read from it, so it is taken off the read set (an
+ * unread byte would otherwise wake the loop for ever) and given a short
+ * time to drain; a peer that does not read does not keep the slot. */
+static void sess_end(struct sess *s)
+{
+    s->closing = true;
+    s->deadline_ms = mono_ms() + CLOSING_MS;
+}
+
+/* Writes what is queued. False when the session was closed. */
+static bool sess_flush(struct sess *s)
+{
+    while (s->out_off < s->out_len) {
+        size_t n = s->out_len - s->out_off;
+        int w, err;
+
+        if (n > 16384) {
+            n = 16384;
+        }
+        ERR_clear_error();
+        w = SSL_write(s->ssl, s->out + s->out_off, (int)n);
+        if (w > 0) {
+            s->out_off += (size_t)w;
+            continue;
+        }
+        err = SSL_get_error(s->ssl, w);
+        if (err == SSL_ERROR_WANT_WRITE) {
+            sess_events(s, s->closing ? EPOLLOUT : (EPOLLIN | EPOLLOUT));
+            return true;
+        }
+        if (err == SSL_ERROR_WANT_READ && !s->closing) {
+            sess_events(s, EPOLLIN);
+            return true;
+        }
+        sess_close(s, "write failed");
+        return false;
+    }
+    s->out_len = s->out_off = 0;
+    sess_events(s, EPOLLIN);
+    if (s->closing) {
+        sess_close(s, "done");
+        return false;
+    }
+    return true;
+}
+
+/* Queues one message (taken and freed). False when the session was closed. */
+static bool sess_send(struct sess *s, cJSON *msg)
+{
+    char *text;
+    size_t len, pending;
+
+    if (msg == NULL) {
+        sess_close(s, "out of memory");
+        return false;
+    }
+    /* Every response and event carries the unit's monotonic clock
+     * (docs/api/gateway.md §1). */
+    cJSON_AddNumberToObject(msg, "mono_ms", (double)mono_ms());
+    text = cJSON_PrintUnformatted(msg);
+    cJSON_Delete(msg);
+    if (text == NULL) {
+        sess_close(s, "out of memory");
+        return false;
+    }
+    len = strlen(text);
+    if (s->out_off > 0) {
+        memmove(s->out, s->out + s->out_off, s->out_len - s->out_off);
+        s->out_len -= s->out_off;
+        s->out_off = 0;
+    }
+    pending = s->out_len;
+    /* One frame of any allowed size always fits; behind unread output the
+     * queue's limit holds (ADR-019 "Limits"). */
+    if (len > GW_FRAME_OUT_MAX || (pending != 0 && pending + 4 + len > GW_OUTQ_MAX)) {
+        free(text);
+        sess_close(s, "output limit");
+        return false;
+    }
+    if (pending + 4 + len > s->out_cap) {
+        size_t cap = pending + 4 + len;
+        uint8_t *grown = realloc(s->out, cap);
+
+        if (grown == NULL) {
+            free(text);
+            sess_close(s, "out of memory");
+            return false;
+        }
+        s->out = grown;
+        s->out_cap = cap;
+    }
+    s->out[pending] = (uint8_t)(len >> 24);
+    s->out[pending + 1] = (uint8_t)(len >> 16);
+    s->out[pending + 2] = (uint8_t)(len >> 8);
+    s->out[pending + 3] = (uint8_t)len;
+    memcpy(s->out + pending + 4, text, len);
+    s->out_len = pending + 4 + len;
+    free(text);
+    return sess_flush(s);
+}
+
+static bool reply_error(struct sess *s, const cJSON *id, int code, const char *message)
+{
+    return sess_send(s, pocketipc_error_response(id, code, message));
+}
+
+/* An error, then the connection ends once it is written. */
+static bool reply_fatal(struct sess *s, const cJSON *id, int code, const char *message)
+{
+    sess_end(s);
+    return reply_error(s, id, code, message);
+}
+
+/* ---- the listener ------------------------------------------------------- */
+
+static bool addr_private(uint32_t net_order)
+{
+    uint32_t a = ntohl(net_order);
+
+    return (a >> 24) == 10 || (a >> 24) == 127 || (a >> 20) == ((172u << 4) | 1u) ||
+           (a >> 16) == ((192u << 8) | 168u) || (a >> 16) == ((169u << 8) | 254u);
+}
+
+/* The address to listen on: the interface's first IPv4 address. 0 for none. */
+static uint32_t wanted_addr(void)
+{
+    struct ifaddrs *list, *it;
+    struct in_addr a;
+    uint32_t found = 0;
+
+    if (G.listen_override != NULL) {
+        return inet_pton(AF_INET, G.listen_override, &a) == 1 ? a.s_addr : 0;
+    }
+    if (getifaddrs(&list) != 0) {
+        return 0;
+    }
+    for (it = list; it != NULL; it = it->ifa_next) {
+        if (it->ifa_addr != NULL && it->ifa_addr->sa_family == AF_INET && (it->ifa_flags & IFF_UP) != 0 &&
+            strcmp(it->ifa_name, G.iface) == 0) {
+            found = ((struct sockaddr_in *)(void *)it->ifa_addr)->sin_addr.s_addr;
+            break;
+        }
+    }
+    freeifaddrs(list);
+    return found;
+}
+
+static void listener_close(const char *why)
+{
+    if (G.lfd < 0) {
+        return;
+    }
+    (void)epoll_ctl(G.epfd, EPOLL_CTL_DEL, G.lfd, NULL);
+    close(G.lfd);
+    G.lfd = -1;
+    G.laddr = 0;
+    LOG_INFO("listener closed: %s", why);
+    close_all_sessions("listener closed");
+}
+
+/* Why the listener is closed, or NULL when nothing forbids it. */
+static const char *closed_reason(uint32_t addr)
+{
+    if (G.identity_fault) {
+        return "identity_fault";
+    }
+    if (G.state_fault) {
+        return "state_fault";
+    }
+    if (!G.password_set) {
+        return "password_required";
+    }
+    if (G.store.n == 0 && !gw_pair_open(&G.pair)) {
+        return "no_clients";
+    }
+    if (addr == 0) {
+        return "no_address";
+    }
+    if (!addr_private(addr)) {
+        return "public_address";
+    }
+    return NULL;
+}
+
+/* Brings the listener to what the state says it should be. Called after
+ * anything that state depends on changed, and every RECHECK_MS. */
+static void listener_update(void)
+{
+    uint32_t addr = wanted_addr();
+    const char *why = closed_reason(addr);
+    struct sockaddr_in sa;
+    struct epoll_event e;
+    char text[INET_ADDRSTRLEN];
+    int fd, one = 1;
+
+    if (why != NULL) {
+        listener_close(why);
+        return;
+    }
+    if (G.lfd >= 0 && G.laddr == addr) {
+        return;
+    }
+    listener_close("address changed");
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        return;
+    }
+    (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(G.port);
+    sa.sin_addr.s_addr = addr; /* one address, never the wildcard */
+    memset(&e, 0, sizeof(e));
+    e.events = EPOLLIN;
+    e.data.u64 = 0;
+    if (bind(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0 || listen(fd, GW_MAX_PENDING) != 0 ||
+        epoll_ctl(G.epfd, EPOLL_CTL_ADD, fd, &e) != 0) {
+        LOG_WARN("listen failed: %s", strerror(errno));
+        close(fd);
+        return;
+    }
+    G.lfd = fd;
+    G.laddr = addr;
+    LOG_INFO("listening on %s:%u", inet_ntop(AF_INET, &sa.sin_addr, text, sizeof(text)), (unsigned)G.port);
+}
+
+static int count_state(enum sess_state st, bool paired_only)
+{
+    int i, n = 0;
+
+    for (i = 0; i < SESS_SLOTS; i++) {
+        if (G.s[i].st == st && (!paired_only || G.s[i].who == GW_W_PAIRED)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+/* The trust decision of one handshake (gw_tls.c calls it once). */
+static int admit(void *user, SSL *ssl, const uint8_t fp[GW_FP_LEN])
+{
+    struct sess *s = SSL_get_ex_data(ssl, G.ssl_idx);
+    int64_t now = mono_ms();
+
+    (void)user;
+    if (s == NULL || s->st != S_HANDSHAKE || s->admitted) {
+        return 0;
+    }
+    if (gw_store_find(&G.store, fp) >= 0) {
+        s->who = GW_W_PAIRED;
+    } else if (gw_pair_admits(&G.pair, now)) {
+        /* Rule 14: an unknown key gets through only while a window is open
+         * and nobody else is at the door, and then only to gateway.pair. */
+        gw_pair_candidate(&G.pair, s->id, fp, now);
+        s->who = GW_W_CANDIDATE;
+    } else {
+        return 0;
+    }
+    memcpy(s->fp, fp, GW_FP_LEN);
+    s->admitted = true;
+    return 1;
+}
+
+static void sess_handshake(struct sess *s)
+{
+    char p[17];
+    int r, err, i;
+
+    ERR_clear_error();
+    r = SSL_accept(s->ssl);
+    if (r != 1) {
+        err = SSL_get_error(s->ssl, r);
+        if (err == SSL_ERROR_WANT_READ) {
+            sess_events(s, EPOLLIN);
+        } else if (err == SSL_ERROR_WANT_WRITE) {
+            sess_events(s, EPOLLIN | EPOLLOUT);
+        } else {
+            /* Not a line a stranger can write to storage four times a
+             * second: debug level only. */
+            if (!s->admitted) {
+                LOG_DEBUG("handshake from %s refused", s->peer);
+            }
+            sess_close(s, "handshake failed");
+        }
+        return;
+    }
+    /* The callback decided; the finished connection is checked again
+     * against what was decided (TLS 1.3, not resumed, that key). */
+    if (!s->admitted || !gw_tls_established_ok(s->ssl, s->fp)) {
+        LOG_WARN("handshake from %s ended without an admitted key", s->peer);
+        sess_close(s, "not admitted");
+        return;
+    }
+    fp_prefix(s->fp, p);
+    if (s->who == GW_W_PAIRED) {
+        /* A second connection of the same client replaces the first: a
+         * phone that changed networks leaves a dead socket behind. */
+        for (i = 0; i < SESS_SLOTS; i++) {
+            if (&G.s[i] != s && G.s[i].st == S_OPEN && G.s[i].who == GW_W_PAIRED &&
+                gw_ct_eq(G.s[i].fp, s->fp, GW_FP_LEN)) {
+                sess_close(&G.s[i], "replaced");
+            }
+        }
+        if (count_state(S_OPEN, true) >= GW_MAX_SESSIONS) {
+            sess_close(s, "session limit");
+            return;
+        }
+    }
+    s->st = S_OPEN;
+    s->deadline_ms = mono_ms() + GW_HELLO_MS;
+    s->last_rx_ms = mono_ms();
+    sess_events(s, EPOLLIN);
+    LOG_INFO("session %llu (%s) %s from %s", (unsigned long long)s->id, p,
+             s->who == GW_W_PAIRED ? "paired" : "pairing candidate", s->peer);
+}
+
+static void listener_accept(void)
+{
+    for (;;) {
+        struct sockaddr_in sa;
+        socklen_t slen = sizeof(sa);
+        struct epoll_event e;
+        struct sess *s = NULL;
+        int64_t now = mono_ms();
+        int fd, i, one = 1;
+
+        fd = accept4(G.lfd, (struct sockaddr *)&sa, &slen, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        if (fd < 0) {
+            return;
+        }
+        for (i = 0; i < SESS_SLOTS; i++) {
+            if (G.s[i].st == S_FREE) {
+                s = &G.s[i];
+                break;
+            }
+        }
+        /* Refusals cost a close and nothing else: no TLS, no log line a
+         * flood could fill the storage with. */
+        if (s == NULL || sa.sin_family != AF_INET || !addr_private(sa.sin_addr.s_addr) ||
+            count_state(S_HANDSHAKE, false) >= GW_MAX_PENDING || !gw_bucket_take(&G.handshakes, now)) {
+            close(fd);
+            continue;
+        }
+        memset(s, 0, sizeof(*s));
+        s->fd = fd;
+        s->id = ++G.next_id;
+        (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+        inet_ntop(AF_INET, &sa.sin_addr, s->peer, sizeof(s->peer));
+        s->ssl = SSL_new(G.ctx);
+        memset(&e, 0, sizeof(e));
+        e.events = EPOLLIN;
+        e.data.u64 = s->id;
+        if (s->ssl == NULL || gw_frame_init(&s->in, GW_FRAME_IN_MAX) != 0 || SSL_set_fd(s->ssl, fd) != 1 ||
+            SSL_set_ex_data(s->ssl, G.ssl_idx, s) != 1 || epoll_ctl(G.epfd, EPOLL_CTL_ADD, fd, &e) != 0) {
+            s->st = S_HANDSHAKE;
+            sess_close(s, "setup failed");
+            continue;
+        }
+        SSL_set_accept_state(s->ssl);
+        s->events = EPOLLIN;
+        s->st = S_HANDSHAKE;
+        s->deadline_ms = now + GW_HANDSHAKE_MS;
+        gw_bucket_init(&s->rate, GW_REQ_BURST, GW_REQ_PER_S, now);
+        sess_handshake(s);
+    }
+}
+
+/* ---- upstream ----------------------------------------------------------- */
+
+/* Calls one allowlisted method of a service, with a deadline on the connect
+ * and on the call. NULL with *code: an upstream error code, or
+ * GW_ERR_UPSTREAM when the service is not there or did not answer. */
+static cJSON *upstream_call(const struct gw_method *m, int *code)
+{
+    struct upstream *u = NULL;
+    char err[160];
+    cJSON *res;
+    size_t i;
+    int c = 0;
+
+    for (i = 0; i < sizeof(G.up) / sizeof(G.up[0]); i++) {
+        if (strcmp(G.up[i].service, m->service) == 0) {
+            u = &G.up[i];
+        }
+    }
+    *code = GW_ERR_UPSTREAM;
+    if (u == NULL) {
+        return NULL;
+    }
+    /* A service that just failed to answer is not asked again at once:
+     * every call blocks this loop for its deadline, and a client that
+     * repeats the request must not be able to turn that into a stall. */
+    if (mono_ms() < u->retry_ms) {
+        return NULL;
+    }
+    if (u->fd < 0) {
+        u->fd = pocketipc_connect_timeout(u->service, GW_UPSTREAM_CONNECT_MS);
+        if (u->fd < 0) {
+            u->retry_ms = mono_ms() + UPSTREAM_BACKOFF_MS;
+            return NULL;
+        }
+    }
+    res = pocketipc_call_timeout(u->fd, m->name, NULL, GW_UPSTREAM_CALL_MS, &c, err, sizeof(err));
+    if (res == NULL) {
+        if (c == 0) {
+            /* A transport failure or a timeout: the connection can no
+             * longer be interpreted (docs/api/pocketipc.md). */
+            close(u->fd);
+            u->fd = -1;
+            u->retry_ms = mono_ms() + UPSTREAM_BACKOFF_MS;
+        } else if (c >= 1 && c <= 6) {
+            *code = c;
+        }
+    }
+    return res;
+}
+
+/* ---- requests from clients ---------------------------------------------- */
+
+static cJSON *hello_result(const struct sess *s, unsigned scopes)
+{
+    cJSON *r = cJSON_CreateObject();
+    cJSON *limits = cJSON_CreateObject();
+    cJSON *caps = cJSON_CreateArray();
+    char id[GW_FP_HEX + 1], host[65];
+    int64_t w = wall_s();
+
+    gw_hex(G.device_fp, GW_FP_LEN, id);
+    if (gethostname(host, sizeof(host)) != 0) {
+        host[0] = '\0';
+    }
+    host[sizeof(host) - 1] = '\0';
+    cJSON_AddNumberToObject(r, "proto", GW_PROTO);
+    cJSON_AddStringToObject(r, "device_id", id);
+    cJSON_AddStringToObject(r, "name", host);
+    cJSON_AddBoolToObject(r, "paired", s->who == GW_W_PAIRED);
+    if (s->who != GW_W_PAIRED) {
+        /* A pairing candidate learns who it is talking to and nothing else. */
+        cJSON_Delete(limits);
+        cJSON_Delete(caps);
+        return r;
+    }
+    cJSON_AddStringToObject(r, "version", pocketlog_version());
+    cJSON_AddStringToObject(r, "build", pocketlog_build_id());
+    cJSON_AddItemToObject(r, "scopes", gw_scopes_json(scopes));
+    /* What this build serves. A client shows a feature only when its
+     * capability is here; mesh and capture arrive with their milestones. */
+    cJSON_AddItemToArray(caps, cJSON_CreateString("status"));
+    cJSON_AddItemToObject(r, "capabilities", caps);
+    cJSON_AddNumberToObject(r, "wall_ms", (double)w * 1000.0);
+    cJSON_AddBoolToObject(r, "clock_set", w > WALL_SET_AFTER);
+    cJSON_AddStringToObject(r, "boot_id", G.boot_id);
+    cJSON_AddNumberToObject(limits, "frame_in", GW_FRAME_IN_MAX);
+    cJSON_AddNumberToObject(limits, "frame_out", GW_FRAME_OUT_MAX);
+    cJSON_AddItemToObject(r, "limits", limits);
+    return r;
+}
+
+static bool int_param(const cJSON *params, const char *name, int *out)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, name);
+
+    /* The range first: converting a number outside it is not defined. */
+    if (!cJSON_IsNumber(v) || !(v->valuedouble >= 0 && v->valuedouble <= 65535) ||
+        v->valuedouble != (double)(int)v->valuedouble) {
+        return false;
+    }
+    *out = (int)v->valuedouble;
+    return true;
+}
+
+static bool short_string(const cJSON *params, const char *name, size_t max)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, name);
+
+    return cJSON_IsString(v) && strlen(v->valuestring) <= max;
+}
+
+static bool do_hello(struct sess *s, const cJSON *id, const cJSON *params, unsigned scopes)
+{
+    int lo, hi;
+
+    if (s->hello) {
+        return reply_fatal(s, id, POCKETIPC_ERR_POLICY, "gateway.hello was already sent");
+    }
+    if (params == NULL || !int_param(params, "proto_min", &lo) || !int_param(params, "proto_max", &hi) ||
+        lo > hi || !short_string(params, "app", 64) || !short_string(params, "app_version", 32)) {
+        return reply_fatal(s, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+    }
+    if (GW_PROTO < lo || GW_PROTO > hi) {
+        return reply_fatal(s, id, GW_ERR_NO_PROTO, "no common protocol version");
+    }
+    s->hello = true;
+    s->deadline_ms = 0;
+    return sess_send(s, pocketipc_response(id, hello_result(s, scopes)));
+}
+
+static bool do_pair(struct sess *s, const cJSON *id, const cJSON *params)
+{
+    const cJSON *tok = params != NULL ? cJSON_GetObjectItemCaseSensitive(params, "token") : NULL;
+    const cJSON *name = params != NULL ? cJSON_GetObjectItemCaseSensitive(params, "name") : NULL;
+    uint8_t token[GW_TOKEN_LEN];
+    bool have = cJSON_IsString(tok) && gw_unb64url(tok->valuestring, token, sizeof(token)) == 0;
+    enum gw_pair_token_result r;
+    char fp[GW_FP_HEX + 1];
+    cJSON *d;
+
+    if (s->pair_waiting) {
+        return reply_fatal(s, id, POCKETIPC_ERR_POLICY, "refused");
+    }
+    r = gw_pair_token(&G.pair, s->id, have ? token : NULL, have ? sizeof(token) : 0,
+                      cJSON_IsString(name) ? name->valuestring : NULL, mono_ms());
+    memset(token, 0, sizeof(token));
+    if (r != GW_PAIR_TOKEN_OK) {
+        LOG_WARN("pairing: a candidate from %s was refused", s->peer);
+        if (!gw_pair_open(&G.pair)) {
+            pairing_closed_event("failed");
+        }
+        /* One answer for every reason: a wrong token, a bad name, no window. */
+        return reply_fatal(s, id, POCKETIPC_ERR_POLICY, "refused");
+    }
+    /* The token was right. Nobody is paired: a person decides, on the unit
+     * (gateway.pair_decide on the local socket). The answer waits for that. */
+    s->pair_waiting = true;
+    s->pair_id = id->valuedouble;
+    gw_hex(s->fp, GW_FP_LEN, fp);
+    d = cJSON_CreateObject();
+    cJSON_AddStringToObject(d, "name", G.pair.name);
+    cJSON_AddStringToObject(d, "fingerprint", fp);
+    ctl_event("gateway.candidate", d);
+    LOG_INFO("pairing: a candidate passed; waiting for the decision on the unit");
+    return true;
+}
+
+static bool do_unpair(struct sess *s, const cJSON *id, int idx)
+{
+    gw_store_remove(&G.store, idx);
+    G.relisten = true; /* it may have been the last client */
+    if (gw_store_save(&G.store) != 0) {
+        G.store_dirty = true;
+        LOG_ERROR("paired list could not be written");
+        /* Out of memory's list either way; the client is told it is not
+         * durable, and the connection ends. */
+        return reply_fatal(s, id, POCKETIPC_ERR_BACKEND, "not durable");
+    }
+    LOG_INFO("a client removed itself");
+    sess_end(s);
+    return sess_send(s, pocketipc_response(id, NULL));
+}
+
+static bool do_upstream(struct sess *s, const cJSON *id, const struct gw_method *m, const cJSON *params)
+{
+    cJSON *res, *filtered;
+    int code = 0;
+
+    /* Every M2 upstream method takes no parameters, and nothing a client
+     * sends is ever passed on as one. */
+    if (!gw_params_empty(params)) {
+        return reply_error(s, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+    }
+    res = upstream_call(m, &code);
+    if (res == NULL) {
+        /* The upstream's own words stay on the unit. */
+        return reply_error(s, id, code, code == GW_ERR_UPSTREAM ? "upstream unavailable" : "upstream error");
+    }
+    filtered = gw_filter_result(m, res);
+    cJSON_Delete(res);
+    if (filtered == NULL) {
+        return reply_error(s, id, POCKETIPC_ERR_BACKEND, "upstream error");
+    }
+    return sess_send(s, pocketipc_response(id, filtered));
+}
+
+/* One frame from a client. False when the session was closed. */
+static bool sess_request(struct sess *s, const uint8_t *p, size_t n)
+{
+    const cJSON *id = NULL, *params = NULL;
+    const char *method = NULL;
+    const struct gw_method *m;
+    cJSON *root = NULL;
+    unsigned scopes = 0;
+    int idx = -1;
+    bool alive;
+
+    if (gw_request_parse(p, n, &root, &id, &method, &params) != 0) {
+        sess_close(s, "malformed frame");
+        return false;
+    }
+    if (s->who == GW_W_PAIRED) {
+        /* Looked up on every request, not remembered from the handshake: a
+         * revocation or a reduced scope holds from the next request. */
+        idx = gw_store_find(&G.store, s->fp);
+        if (idx < 0) {
+            cJSON_Delete(root);
+            sess_close(s, "no longer paired");
+            return false;
+        }
+        scopes = G.store.c[idx].scopes;
+    }
+    m = gw_method_find(method);
+    if (!gw_bucket_take(&s->rate, mono_ms())) {
+        alive = reply_error(s, id, GW_ERR_RATE, "rate limited");
+    } else if (!s->hello && (m == NULL || m->kind != GW_K_HELLO)) {
+        alive = reply_fatal(s, id, POCKETIPC_ERR_POLICY, "gateway.hello first");
+    } else {
+        switch (gw_policy_check(m, s->who, scopes)) {
+        case GW_V_UNKNOWN:
+            alive = reply_error(s, id, POCKETIPC_ERR_UNKNOWN_METHOD, "unknown method");
+            break;
+        case GW_V_FORBIDDEN:
+            alive = reply_error(s, id, GW_ERR_FORBIDDEN, "not permitted");
+            break;
+        default:
+            switch (m->kind) {
+            case GW_K_HELLO:
+                alive = do_hello(s, id, params, scopes);
+                break;
+            case GW_K_PING:
+                alive = sess_send(s, pocketipc_response(id, NULL));
+                break;
+            case GW_K_PAIR:
+                alive = do_pair(s, id, params);
+                break;
+            case GW_K_UNPAIR:
+                alive = do_unpair(s, id, idx);
+                break;
+            case GW_K_UPSTREAM:
+                alive = do_upstream(s, id, m, params);
+                break;
+            default:
+                alive = reply_error(s, id, POCKETIPC_ERR_UNKNOWN_METHOD, "unknown method");
+                break;
+            }
+            break;
+        }
+    }
+    cJSON_Delete(root);
+    return alive;
+}
+
+static void sess_read(struct sess *s)
+{
+    for (;;) {
+        const uint8_t *body;
+        size_t n, room;
+        uint8_t *space;
+        int r, err;
+
+        if (s->closing) {
+            return; /* nothing more is read from a connection that is ending */
+        }
+        r = gw_frame_next(&s->in, &body, &n);
+        if (r < 0) {
+            sess_close(s, "frame too large");
+            return;
+        }
+        if (r == 1) {
+            if (!sess_request(s, body, n)) {
+                return;
+            }
+            gw_frame_consume(&s->in);
+            continue;
+        }
+        space = gw_frame_space(&s->in, &room);
+        ERR_clear_error();
+        r = SSL_read(s->ssl, space, (int)room);
+        if (r > 0) {
+            gw_frame_added(&s->in, (size_t)r);
+            s->last_rx_ms = mono_ms();
+            continue;
+        }
+        err = SSL_get_error(s->ssl, r);
+        if (err == SSL_ERROR_WANT_READ) {
+            return;
+        }
+        if (err == SSL_ERROR_WANT_WRITE) {
+            sess_events(s, EPOLLIN | EPOLLOUT);
+            return;
+        }
+        sess_close(s, err == SSL_ERROR_ZERO_RETURN ? "peer closed" : "read failed");
+        return;
+    }
+}
+
+static void sess_ready(struct sess *s, uint32_t ev)
+{
+    uint64_t id = s->id;
+
+    if (s->st == S_HANDSHAKE) {
+        sess_handshake(s);
+        if (s->st != S_OPEN || s->id != id) {
+            return;
+        }
+    } else if ((ev & (EPOLLHUP | EPOLLERR)) != 0 && (ev & EPOLLIN) == 0) {
+        sess_close(s, "connection lost");
+        return;
+    }
+    if (s->closing) {
+        /* Only its output matters now. */
+        if ((ev & (EPOLLHUP | EPOLLERR)) != 0) {
+            sess_close(s, "connection lost");
+        } else if ((ev & EPOLLOUT) != 0) {
+            (void)sess_flush(s);
+        }
+        return;
+    }
+    if ((ev & EPOLLOUT) != 0) {
+        if (s->out_off < s->out_len) {
+            if (!sess_flush(s)) {
+                return;
+            }
+        } else {
+            /* Asked for by a read that needed to write; the read below asks
+             * again if it still does. */
+            sess_events(s, EPOLLIN);
+        }
+    }
+    if (s->st == S_OPEN && s->id == id && !s->closing) {
+        sess_read(s);
+    }
+}
+
+static void sessions_tick(int64_t now)
+{
+    bool was_open = gw_pair_open(&G.pair);
+    uint64_t drop = gw_pair_tick(&G.pair, now);
+    struct sess *s = sess_by_id(drop);
+    int i;
+
+    if (s != NULL) {
+        if (s->pair_waiting) {
+            cJSON *idn = cJSON_CreateNumber(s->pair_id);
+
+            s->pair_waiting = false;
+            (void)reply_fatal(s, idn, POCKETIPC_ERR_POLICY, "refused");
+            cJSON_Delete(idn);
+        } else {
+            sess_close(s, "pairing timed out");
+        }
+    }
+    if (was_open && !gw_pair_open(&G.pair)) {
+        pairing_closed_event("expired");
+        listener_update();
+    }
+    for (i = 0; i < SESS_SLOTS; i++) {
+        s = &G.s[i];
+        if (s->st == S_FREE) {
+            continue;
+        }
+        if (s->deadline_ms != 0 && now >= s->deadline_ms) {
+            sess_close(s, s->st == S_HANDSHAKE ? "handshake timed out"
+                                              : s->closing ? "did not drain" : "no gateway.hello");
+        } else if (s->st == S_OPEN && now - s->last_rx_ms >= GW_IDLE_MS) {
+            sess_close(s, "idle");
+        }
+    }
+}
+
+/* ---- the local control surface (docs/api/gateway.md §10) ---------------- */
+
+static void ctl_reply(struct pocketipc_client *c, const cJSON *id, cJSON *result)
+{
+    pocketipc_server_reply(G.ctl, c, pocketipc_response(id, result));
+}
+
+static void ctl_error(struct pocketipc_client *c, const cJSON *id, int code, const char *message)
+{
+    pocketipc_server_reply(G.ctl, c, pocketipc_error_response(id, code, message));
+}
+
+static bool client_connected(const uint8_t fp[GW_FP_LEN])
+{
+    int i;
+
+    for (i = 0; i < SESS_SLOTS; i++) {
+        if (G.s[i].st == S_OPEN && G.s[i].who == GW_W_PAIRED && gw_ct_eq(G.s[i].fp, fp, GW_FP_LEN)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static cJSON *status_json(void)
+{
+    cJSON *r = cJSON_CreateObject();
+    uint32_t addr = wanted_addr();
+    const char *why = closed_reason(addr);
+    char text[INET_ADDRSTRLEN], id[GW_FP_HEX + 1];
+    struct in_addr a;
+
+    gw_hex(G.device_fp, GW_FP_LEN, id);
+    cJSON_AddBoolToObject(r, "listening", G.lfd >= 0);
+    if (G.lfd >= 0) {
+        a.s_addr = G.laddr;
+        cJSON_AddStringToObject(r, "address", inet_ntop(AF_INET, &a, text, sizeof(text)));
+        cJSON_AddNumberToObject(r, "port", G.port);
+    } else {
+        cJSON_AddStringToObject(r, "closed", why != NULL ? why : "listen_failed");
+    }
+    cJSON_AddBoolToObject(r, "password_set", G.password_set);
+    cJSON_AddBoolToObject(r, "identity_fault", G.identity_fault);
+    cJSON_AddBoolToObject(r, "state_fault", G.state_fault);
+    /* True while a revocation, a scope change or an unpairing is in force
+     * in memory and not yet on storage. */
+    cJSON_AddBoolToObject(r, "store_dirty", G.store_dirty);
+    if (!G.identity_fault) {
+        cJSON_AddStringToObject(r, "device_id", id);
+    }
+    cJSON_AddNumberToObject(r, "clients", G.store.n);
+    cJSON_AddNumberToObject(r, "sessions", count_state(S_OPEN, true));
+    cJSON_AddBoolToObject(r, "pairing", gw_pair_open(&G.pair));
+    return r;
+}
+
+static void url_name(const char *in, char *out, size_t cap)
+{
+    size_t o = 0;
+
+    for (; *in != '\0' && o + 4 < cap; in++) {
+        unsigned char c = (unsigned char)*in;
+
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-' || c == '.') {
+            out[o++] = (char)c;
+        } else {
+            o += (size_t)snprintf(out + o, cap - o, "%%%02X", c);
+        }
+    }
+    out[o] = '\0';
+}
+
+static void ctl_pair_begin(struct pocketipc_client *c, const cJSON *id)
+{
+    uint8_t token[GW_TOKEN_LEN];
+    char t64[32], f64[64], host[65], name[200], addr[INET_ADDRSTRLEN], uri[512];
+    struct in_addr a;
+    cJSON *r;
+
+    if (G.identity_fault || G.state_fault) {
+        ctl_error(c, id, POCKETIPC_ERR_BACKEND, "gateway state fault");
+        return;
+    }
+    if (!G.password_set) {
+        ctl_error(c, id, POCKETIPC_ERR_POLICY, "password_required");
+        return;
+    }
+    if (G.store.n >= GW_MAX_CLIENTS) {
+        ctl_error(c, id, POCKETIPC_ERR_POLICY, "client list full");
+        return;
+    }
+    if (gw_pair_open(&G.pair)) {
+        ctl_error(c, id, POCKETIPC_ERR_BUSY, "a pairing window is open");
+        return;
+    }
+    if (gw_tls_random(token, sizeof(token)) != 0 || gw_pair_begin(&G.pair, token, mono_ms()) != 0) {
+        ctl_error(c, id, POCKETIPC_ERR_BACKEND, "no random source");
+        return;
+    }
+    listener_update();
+    if (G.lfd < 0) {
+        const char *why = closed_reason(wanted_addr());
+
+        (void)gw_pair_cancel(&G.pair);
+        memset(token, 0, sizeof(token));
+        listener_update();
+        ctl_error(c, id, POCKETIPC_ERR_POLICY, why != NULL ? why : "listen_failed");
+        return;
+    }
+    gw_b64url(token, sizeof(token), t64, sizeof(t64));
+    memset(token, 0, sizeof(token));
+    gw_b64url(G.device_fp, GW_FP_LEN, f64, sizeof(f64));
+    if (gethostname(host, sizeof(host)) != 0) {
+        host[0] = '\0';
+    }
+    host[sizeof(host) - 1] = '\0';
+    url_name(host, name, sizeof(name));
+    a.s_addr = G.laddr;
+    snprintf(uri, sizeof(uri), "doors-pair:1?h=%s&p=%u&fp=%s&t=%s&n=%s",
+             inet_ntop(AF_INET, &a, addr, sizeof(addr)), (unsigned)G.port, f64, t64, name);
+    /* The URI holds the token. It goes to the local caller - the panel -
+     * and nowhere else: not to the log, not to an event. */
+    r = cJSON_CreateObject();
+    cJSON_AddStringToObject(r, "uri", uri);
+    cJSON_AddNumberToObject(r, "expires_in_ms", GW_PAIR_WINDOW_MS);
+    ctl_reply(c, id, r);
+    memset(uri, 0, sizeof(uri));
+    memset(t64, 0, sizeof(t64));
+    LOG_INFO("pairing: window opened");
+}
+
+static void ctl_pair_decide(struct pocketipc_client *c, const cJSON *id, const cJSON *params)
+{
+    const cJSON *allow = cJSON_GetObjectItemCaseSensitive(params, "allow");
+    const cJSON *sc = cJSON_GetObjectItemCaseSensitive(params, "scopes");
+    unsigned scopes = GW_S_DEFAULT;
+    uint64_t sid = 0;
+    struct sess *s;
+    cJSON *idn, *r;
+    bool ok = false;
+    int d;
+
+    if (!cJSON_IsBool(allow) || (sc != NULL && gw_scopes_from_json(sc, &scopes) != 0)) {
+        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+        return;
+    }
+    d = gw_pair_decide(&G.pair, cJSON_IsTrue(allow), mono_ms(), &sid);
+    if (d < 0) {
+        ctl_error(c, id, POCKETIPC_ERR_POLICY, "no candidate is waiting");
+        return;
+    }
+    s = sess_by_id(sid);
+    if (d == 1 && s != NULL && s->pair_waiting && gw_ct_eq(s->fp, G.pair.fp, GW_FP_LEN)) {
+        int64_t w = wall_s();
+
+        if (gw_store_add(&G.store, G.pair.fp, G.pair.name, scopes, w > WALL_SET_AFTER ? w : 0) == 0) {
+            if (gw_store_save(&G.store) == 0) {
+                ok = true;
+            } else {
+                /* Not on storage, so not paired: allowed means durable. The
+                 * save may have got as far as the rename, so the list
+                 * without this client is written again - now, or by the
+                 * loop until it succeeds. */
+                gw_store_remove(&G.store, G.store.n - 1);
+                G.store_dirty = gw_store_save(&G.store) != 0;
+                LOG_ERROR("paired list could not be written; pairing refused");
+            }
+        }
+    }
+    (void)gw_pair_cancel(&G.pair);
+    if (s != NULL) {
+        idn = cJSON_CreateNumber(s->pair_id);
+        s->pair_waiting = false;
+        sess_end(s); /* the client reconnects as a paired one */
+        if (ok) {
+            r = cJSON_CreateObject();
+            cJSON_AddBoolToObject(r, "paired", 1);
+            cJSON_AddItemToObject(r, "scopes", gw_scopes_json(scopes));
+            (void)sess_send(s, pocketipc_response(idn, r));
+        } else {
+            (void)reply_error(s, idn, POCKETIPC_ERR_POLICY, "refused");
+        }
+        cJSON_Delete(idn);
+    }
+    LOG_INFO("pairing: %s", ok ? "a client was paired" : "refused");
+    pairing_closed_event(ok ? "paired" : "refused");
+    listener_update();
+    if (d == 1 && !ok) {
+        ctl_error(c, id, POCKETIPC_ERR_BACKEND, "could not pair");
+        return;
+    }
+    r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "paired", ok);
+    ctl_reply(c, id, r);
+}
+
+/* The client a local request names by its full fingerprint, or -1. */
+static int ctl_client(const cJSON *params, uint8_t fp[GW_FP_LEN])
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "client");
+
+    if (!cJSON_IsString(v) || gw_unhex(v->valuestring, fp, GW_FP_LEN) != 0) {
+        return -1;
+    }
+    return gw_store_find(&G.store, fp);
+}
+
+static void ctl_clients(struct pocketipc_client *c, const cJSON *id)
+{
+    cJSON *r = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(r, "clients");
+    int i;
+
+    for (i = 0; i < G.store.n; i++) {
+        cJSON *o = cJSON_CreateObject();
+        char fp[GW_FP_HEX + 1];
+
+        gw_hex(G.store.c[i].fp, GW_FP_LEN, fp);
+        cJSON_AddStringToObject(o, "fingerprint", fp);
+        cJSON_AddStringToObject(o, "name", G.store.c[i].name);
+        cJSON_AddItemToObject(o, "scopes", gw_scopes_json(G.store.c[i].scopes));
+        cJSON_AddNumberToObject(o, "paired_wall_s", (double)G.store.c[i].paired_wall_s);
+        cJSON_AddBoolToObject(o, "connected", client_connected(G.store.c[i].fp));
+        cJSON_AddItemToArray(arr, o);
+    }
+    cJSON_AddNumberToObject(r, "max", GW_MAX_CLIENTS);
+    ctl_reply(c, id, r);
+}
+
+static void ctl_revoke(struct pocketipc_client *c, const cJSON *id, const cJSON *params)
+{
+    uint8_t fp[GW_FP_LEN];
+    int idx = ctl_client(params, fp), i, saved;
+
+    if (idx < 0) {
+        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "no such client");
+        return;
+    }
+    /* Out of the list first, then its sessions, then the storage: whatever
+     * the storage says, that key opens nothing from this line on. */
+    gw_store_remove(&G.store, idx);
+    for (i = 0; i < SESS_SLOTS; i++) {
+        struct sess *s = &G.s[i];
+
+        if (s->st != S_FREE && s->who == GW_W_PAIRED && gw_ct_eq(s->fp, fp, GW_FP_LEN)) {
+            uint64_t sid = s->id;
+
+            if (s->st == S_OPEN && s->hello && !s->closing) {
+                sess_end(s);
+                (void)sess_send(s, pocketipc_event("gateway.revoked", NULL));
+            }
+            /* Rule 23: closed at once. The notice is sent if the socket
+             * takes it now; a revoked client is not waited for. */
+            if (s->st != S_FREE && s->id == sid) {
+                sess_close(s, "revoked");
+            }
+        }
+    }
+    saved = gw_store_save(&G.store);
+    if (saved != 0) {
+        G.store_dirty = true; /* retried by the loop until it is on storage */
+    }
+    LOG_INFO("a client was revoked%s", saved == 0 ? "" : " (NOT durable yet)");
+    listener_update();
+    if (saved != 0) {
+        ctl_error(c, id, POCKETIPC_ERR_BACKEND, "revoked, but not durable");
+        return;
+    }
+    ctl_reply(c, id, NULL);
+}
+
+static void ctl_set_scopes(struct pocketipc_client *c, const cJSON *id, const cJSON *params)
+{
+    uint8_t fp[GW_FP_LEN];
+    int idx = ctl_client(params, fp), i;
+    unsigned scopes = 0;
+    cJSON *d;
+
+    if (idx < 0 || gw_scopes_from_json(cJSON_GetObjectItemCaseSensitive(params, "scopes"), &scopes) != 0) {
+        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+        return;
+    }
+    G.store.c[idx].scopes = scopes;
+    for (i = 0; i < SESS_SLOTS; i++) {
+        struct sess *s = &G.s[i];
+
+        if (s->st == S_OPEN && s->hello && s->who == GW_W_PAIRED && gw_ct_eq(s->fp, fp, GW_FP_LEN)) {
+            d = cJSON_CreateObject();
+            cJSON_AddItemToObject(d, "scopes", gw_scopes_json(scopes));
+            (void)sess_send(s, pocketipc_event("gateway.scopes", d));
+        }
+    }
+    if (gw_store_save(&G.store) != 0) {
+        G.store_dirty = true;
+        ctl_error(c, id, POCKETIPC_ERR_BACKEND, "changed, but not durable");
+        return;
+    }
+    LOG_INFO("a client's scopes were changed");
+    d = cJSON_CreateObject();
+    cJSON_AddItemToObject(d, "scopes", gw_scopes_json(scopes));
+    ctl_reply(c, id, d);
+}
+
+static void ctl_handler(struct pocketipc_server *srv, struct pocketipc_client *c, cJSON *req, void *user)
+{
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(req, "id");
+    const cJSON *m = cJSON_GetObjectItemCaseSensitive(req, "method");
+    const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+    const char *method = cJSON_IsString(m) ? m->valuestring : "";
+    cJSON *r;
+
+    (void)srv;
+    (void)user;
+    if (strcmp(method, "gateway.info") == 0) {
+        r = cJSON_CreateObject();
+        cJSON_AddStringToObject(r, "service", "gatewayd");
+        cJSON_AddNumberToObject(r, "api_version", GW_API_VERSION);
+        cJSON_AddNumberToObject(r, "proto", GW_PROTO);
+        cJSON_AddStringToObject(r, "version", pocketlog_version());
+        cJSON_AddStringToObject(r, "build", pocketlog_build_id());
+        ctl_reply(c, id, r);
+    } else if (strcmp(method, "gateway.status") == 0) {
+        ctl_reply(c, id, status_json());
+    } else if (strcmp(method, "gateway.pair_begin") == 0) {
+        ctl_pair_begin(c, id);
+    } else if (strcmp(method, "gateway.pair_cancel") == 0) {
+        bool was = gw_pair_open(&G.pair);
+        struct sess *s = sess_by_id(gw_pair_cancel(&G.pair));
+
+        if (s != NULL) {
+            sess_close(s, "pairing cancelled");
+        }
+        if (was) {
+            pairing_closed_event("cancelled");
+        }
+        listener_update();
+        ctl_reply(c, id, NULL);
+    } else if (strcmp(method, "gateway.pair_decide") == 0) {
+        ctl_pair_decide(c, id, params);
+    } else if (strcmp(method, "gateway.clients") == 0) {
+        ctl_clients(c, id);
+    } else if (strcmp(method, "gateway.revoke") == 0) {
+        ctl_revoke(c, id, params);
+    } else if (strcmp(method, "gateway.set_scopes") == 0) {
+        ctl_set_scopes(c, id, params);
+    } else if (strcmp(method, "gateway.subscribe") == 0 || strcmp(method, "gateway.unsubscribe") == 0) {
+        pocketipc_client_set_subscribed(c, method[8] == 's');
+        r = cJSON_CreateObject();
+        cJSON_AddBoolToObject(r, "subscribed", pocketipc_client_subscribed(c));
+        ctl_reply(c, id, r);
+    } else {
+        ctl_error(c, id, POCKETIPC_ERR_UNKNOWN_METHOD, "unknown method");
+    }
+}
+
+/* ---- start and stop ----------------------------------------------------- */
+
+static void read_boot_id(void)
+{
+    FILE *f = fopen("/proc/sys/kernel/random/boot_id", "re");
+    uint8_t rnd[16];
+
+    G.boot_id[0] = '\0';
+    if (f != NULL) {
+        if (fgets(G.boot_id, sizeof(G.boot_id), f) != NULL) {
+            G.boot_id[strcspn(G.boot_id, "\n")] = '\0';
+        }
+        fclose(f);
+    }
+    if (G.boot_id[0] == '\0' && gw_tls_random(rnd, sizeof(rnd)) == 0) {
+        gw_hex(rnd, sizeof(rnd), G.boot_id);
+    }
+}
+
+static void usage(const char *argv0)
+{
+    fprintf(stderr,
+            "usage: %s [--interface NAME]\n"
+            "The Companion Gateway (docs/services/GATEWAYD.md). Listens on TCP %d on the\n"
+            "interface's address, only while a client is paired or a pairing window is open.\n",
+            argv0, GW_PORT);
+}
+
+int main(int argc, char **argv)
+{
+    char lock_path[GW_STORE_PATH_MAX];
+    struct epoll_event evs[SESS_SLOTS + 1];
+    enum gw_tls_identity_result idr;
+    struct sigaction sa;
+    int i, lock_fd;
+
+    memset(&G, 0, sizeof(G));
+    G.lfd = -1;
+    G.port = GW_PORT;
+    G.iface = "wlan0";
+    G.shadow = GW_GATE_SHADOW;
+    G.passwd = GW_GATE_PASSWD;
+    G.up[0].service = "sysd";
+    G.up[1].service = "netd";
+    G.up[2].service = "radiod";
+    G.up[3].service = "meshcored";
+    for (i = 0; i < 4; i++) {
+        G.up[i].fd = -1;
+    }
+    for (i = 0; i < SESS_SLOTS; i++) {
+        G.s[i].fd = -1;
+    }
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--interface") == 0 && i + 1 < argc) {
+            G.iface = argv[++i];
+#ifdef GATEWAYD_TEST_HOOKS
+        /* The host suite's handles: an address that is not an interface's,
+         * a port two instances can share a machine on, a shadow file that
+         * is not the machine's. The shipped binary has none of them
+         * (tests/gatewayd_lint.sh checks its strings). */
+        } else if (strcmp(argv[i], "--test-listen") == 0 && i + 1 < argc) {
+            G.listen_override = argv[++i];
+        } else if (strcmp(argv[i], "--test-port") == 0 && i + 1 < argc) {
+            G.port = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--test-shadow") == 0 && i + 1 < argc) {
+            G.shadow = argv[++i];
+        } else if (strcmp(argv[i], "--test-passwd") == 0 && i + 1 < argc) {
+            G.passwd = argv[++i];
+#endif
+        } else {
+            usage(argv[0]);
+            return 2;
+        }
+    }
+
+    pocketlog_init("gatewayd");
+    (void)pocketlog_install_crash_handler();
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = on_signal;
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
+    signal(SIGPIPE, SIG_IGN);
+    /* Under contention the shell wins the one hart (THREAT_MODEL T4). */
+    (void)setpriority(PRIO_PROCESS, 0, 5);
+    /* Rule 8 is a condition of running at all, not a best effort. */
+    if (!drop_capabilities()) {
+        LOG_ERROR("capabilities could not be dropped; not starting");
+        return 1;
+    }
+
+    if (gw_tls_init() != 0) {
+        LOG_ERROR("OpenSSL 3.0 or later with TLS 1.3 is required");
+        return 1;
+    }
+    /* One gatewayd per unit: two would share one key and one port. */
+    (void)pocketos_mkdir_p(pocketos_runtime_dir(), 0770);
+    snprintf(lock_path, sizeof(lock_path), "%s/gatewayd.lock", pocketos_runtime_dir());
+    lock_fd = open(lock_path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (lock_fd < 0 || flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        LOG_ERROR("another gatewayd is running, or %s cannot be locked", lock_path);
+        return 1;
+    }
+
+    (void)pocketos_mkdir_p(pocketos_state_dir(), 0755);
+    if (snprintf(G.state_dir, sizeof(G.state_dir), "%s/gatewayd", pocketos_state_dir()) >=
+            (int)sizeof(G.state_dir) ||
+        gw_store_dir(G.state_dir) != 0) {
+        LOG_ERROR("state directory %s is not usable", G.state_dir);
+        return 1;
+    }
+    gw_pair_init(&G.pair);
+    if (gw_store_load(&G.store, G.state_dir) != 0) {
+        /* Not read as an empty list: nobody is let in, nothing is rewritten. */
+        LOG_ERROR("paired list is damaged; the gateway stays closed (state_fault)");
+        G.state_fault = true;
+        memcpy(G.store.dir, G.state_dir, strlen(G.state_dir) + 1);
+    }
+    /* An identity is created only where there is no state at all. A paired
+     * list without its key means the key was lost: every phone pinned it,
+     * and a new one would be a different unit to all of them (rule 16). */
+    idr = gw_tls_identity(G.state_dir, !gw_store_exists(G.state_dir), &G.key);
+    if (idr == GW_TLS_ID_FAULT || gw_tls_fingerprint(G.key, G.device_fp) != 0) {
+        LOG_ERROR("identity is missing or unusable; the gateway stays closed (identity_fault)");
+        G.identity_fault = true;
+    } else {
+        if (idr == GW_TLS_ID_CREATED) {
+            LOG_INFO("identity created");
+        }
+        G.ctx = gw_tls_ctx(G.key, admit, NULL);
+        if (G.ctx == NULL) {
+            LOG_ERROR("TLS could not be configured as required; the gateway stays closed");
+            G.identity_fault = true;
+        }
+    }
+    G.ssl_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+    read_boot_id();
+
+    G.epfd = epoll_create1(EPOLL_CLOEXEC);
+    G.ctl = pocketipc_server_new("gatewayd", ctl_handler, NULL);
+    if (G.epfd < 0 || G.ctl == NULL || G.ssl_idx < 0) {
+        LOG_ERROR("could not start: %s", strerror(errno));
+        return 1;
+    }
+    gw_bucket_init(&G.handshakes, GW_HANDSHAKES_PER_S, GW_HANDSHAKES_PER_S, mono_ms());
+    G.password_set = gw_gate_password_set(G.passwd, G.shadow);
+    LOG_INFO("started: %d paired client(s), device password %s", G.store.n, G.password_set ? "set" : "NOT set");
+    listener_update();
+
+    while (!g_stop) {
+        int64_t now;
+        int ready = 0, n;
+
+        (void)pocketipc_server_poll_fd(G.ctl, LOOP_MS, G.epfd, &ready);
+        n = ready ? epoll_wait(G.epfd, evs, SESS_SLOTS + 1, 0) : 0;
+        for (i = 0; i < n; i++) {
+            if (evs[i].data.u64 == 0) {
+                if (G.lfd >= 0) {
+                    listener_accept();
+                }
+            } else {
+                struct sess *s = sess_by_id(evs[i].data.u64);
+
+                if (s != NULL) {
+                    sess_ready(s, evs[i].events);
+                }
+            }
+        }
+        now = mono_ms();
+        sessions_tick(now);
+        if (G.relisten) {
+            G.relisten = false;
+            listener_update();
+        }
+        if (now - G.recheck_ms >= RECHECK_MS) {
+            /* The password can be removed and the address can change while
+             * the service runs; neither sends a signal. */
+            G.recheck_ms = now;
+            if (G.store_dirty && !G.state_fault && gw_store_save(&G.store) == 0) {
+                G.store_dirty = false;
+                LOG_INFO("paired list written after an earlier failure");
+            }
+            G.password_set = gw_gate_password_set(G.passwd, G.shadow);
+            listener_update();
+        }
+    }
+
+    LOG_INFO("stopping");
+    listener_close("stopping");
+    close_all_sessions("stopping");
+    (void)gw_pair_cancel(&G.pair);
+    pocketipc_server_free(G.ctl);
+    for (i = 0; i < 4; i++) {
+        if (G.up[i].fd >= 0) {
+            close(G.up[i].fd);
+        }
+    }
+    SSL_CTX_free(G.ctx);
+    EVP_PKEY_free(G.key);
+    close(G.epfd);
+    close(lock_fd);
+    pocketlog_close();
+    return 0;
+}
