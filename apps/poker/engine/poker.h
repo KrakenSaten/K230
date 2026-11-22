@@ -7,7 +7,7 @@
 #ifndef DOORS_POKER_H
 #define DOORS_POKER_H
 
-#include "bj_cards.h"
+#include "cg_cards.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -43,7 +43,7 @@ struct poker_player {
     uint32_t stack, bet, committed, payout;
     uint32_t refunded;  /* included in payout, excluded from contested winnings */
     uint32_t reopen_at; /* cumulative short raises can reopen a player's bet */
-    bj_card_t hole[2];
+    cg_card_t hole[2];
     bool in_hand, folded, acted, checked_zero;
     enum poker_action last_action;
 };
@@ -54,8 +54,8 @@ struct poker_pot {
 };
 struct poker_game {
     struct poker_player player[POKER_SEATS];
-    struct bj_rng rng;
-    bj_card_t deck[BJ_DECK], board[5];
+    struct cg_rng rng;
+    cg_card_t deck[CG_DECK], board[5];
     uint8_t next_card, board_count, pot_count, winners;
     struct poker_pot pots[POKER_SEATS];
     uint32_t current_bet, min_raise, hand_number, settled_pot;
@@ -83,7 +83,7 @@ struct poker_options poker_options(const struct poker_game *g);
 bool poker_act(struct poker_game *g, enum poker_action action, uint32_t raise_to);
 /* Best five out of 5..7 distinct cards; category then five descending rank
  * nibbles, so unsigned comparison breaks ties. Invalid input returns zero. */
-uint32_t poker_evaluate(const bj_card_t *cards, unsigned count);
+uint32_t poker_evaluate(const cg_card_t *cards, unsigned count);
 enum poker_rank poker_rank_category(uint32_t rank);
 const char *poker_rank_name(uint32_t rank);
 const char *poker_phase_name(enum poker_phase phase);

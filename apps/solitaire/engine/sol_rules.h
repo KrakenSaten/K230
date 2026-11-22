@@ -39,7 +39,7 @@
 #ifndef PGSOL_RULES_H
 #define PGSOL_RULES_H
 
-#include "sol_cards.h"
+#include "cg_cards.h"
 
 #include <stdint.h>
 
@@ -58,7 +58,7 @@ enum sol_pile {
 struct sol_stack {
     uint8_t n;
     uint8_t down;
-    sol_card_t card[SOL_DECK];
+    cg_card_t card[CG_DECK];
 };
 
 struct sol_game {
@@ -121,7 +121,7 @@ int sol_cards_home(const struct sol_game *g);
 int sol_is_foundation(int pile);
 int sol_is_column(int pile);
 /* The top card, or 0xFF for an empty pile. */
-sol_card_t sol_top(const struct sol_game *g, int pile);
+cg_card_t sol_top(const struct sol_game *g, int pile);
 
 /* Could the rules have produced this position? All 52 cards exactly once,
  * foundations in suit and order, face-up tableau runs descending in

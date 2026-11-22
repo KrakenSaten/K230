@@ -19,7 +19,9 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 APP=apps/blackjack
-ENGINE="$APP/engine/bj_rng.c $APP/engine/bj_rng.h $APP/engine/bj_cards.c $APP/engine/bj_cards.h \
+# The card, shuffle and shoe primitives are the shared module (core/cards).
+CARDS=core/cards
+ENGINE="$CARDS/cg_rng.c $CARDS/cg_rng.h $CARDS/cg_cards.c $CARDS/cg_cards.h $CARDS/cg_shoe.c $CARDS/cg_shoe.h \
         $APP/engine/bj_rules.c $APP/engine/bj_rules.h"
 VIEW="$APP/ui/bj_view.c $APP/ui/bj_view.h"
 LVGL_SIDE="$APP/bj_app.c $APP/bj_app.h $APP/ui/bj_card_draw.c $APP/ui/bj_card_draw.h \
@@ -87,11 +89,13 @@ check "and no generated palette is committed" "$([ ! -e $APP/ui/bj_palette.c ] &
 hits=$(grep -lE 'timber' $ALL | grep -v 'bj_felt\.[ch]$')
 check "only bj_felt.c reaches into PocketTimber" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits"
 check "and it reuses Timber's felt" "$(code $APP/ui/bj_felt.c | grep -q 'timber_art_felt()' && echo 1 || echo 0)"
-check "the Pocket Cards copies say where they came from" \
-    "$(grep -q "PG Solitaire's sol_cards.h" $APP/engine/bj_cards.h &&
-       grep -q "PG Solitaire's sol_card_draw" $APP/ui/bj_card_draw.h && echo 1 || echo 0)"
+check "the card renderer copy says where it came from" \
+    "$(grep -q "PG Solitaire's sol_card_draw" $APP/ui/bj_card_draw.h && echo 1 || echo 0)"
+check "the cards are the shared module, with no private copy left" \
+    "$(grep -q 'core/cards/cg_cards.c' ui/shell/CMakeLists.txt &&
+       [ ! -e $APP/engine/bj_cards.h ] && [ ! -e $APP/engine/bj_rng.h ] && echo 1 || echo 0)"
 check "and the card API has the shared shape" \
-    "$([ "$(grep -cE '^(bj_card_t |int |enum bj_suit |const char \*|void )bj_(card|card_rank|card_suit|card_is_red|card_valid|rank_text|suit_name|deck_fill|deck_shuffle)\(' $APP/engine/bj_cards.h)" = "9" ] &&
+    "$([ "$(grep -cE '^(cg_card_t |int |enum cg_suit |const char \*|void )cg_(card|card_rank|card_suit|card_is_red|card_valid|rank_text|suit_name|deck_fill|deck_shuffle)\(' core/cards/cg_cards.h)" = "9" ] &&
        echo 1 || echo 0)"
 
 hits=$(grep -nE 'pos_keyboard\.h|lv_keyboard|pocketos_shell_keyboard|pocketui_text_field|lv_textarea' $ALL)
@@ -120,7 +124,7 @@ check "registered once" "$([ "$(grep -c '&app_blackjack\b' ui/shell/shell.c)" = 
 # (ui/shell/home_layout.c): a game, in the Games folder, in the games colour (DS §47).
 check "the launcher shows it in the Games folder" \
     "$(grep -q '{ "blackjack", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
-for src in bj_app.c engine/bj_rng.c engine/bj_cards.c engine/bj_rules.c ui/bj_view.c ui/bj_card_draw.c \
+for src in bj_app.c engine/bj_rules.c ui/bj_view.c ui/bj_card_draw.c \
            ui/bj_table_widget.c ui/bj_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/blackjack/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done

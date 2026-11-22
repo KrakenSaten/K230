@@ -670,15 +670,15 @@ void sol_view_caption(const struct sol_ui *ui, const struct sol_game *g, char *o
     } else if (ui->note == SOL_NOTE_EMPTY) {
         snprintf(out, len, "STOCK AND WASTE ARE EMPTY");
     } else if (ui->sel_pile >= 0 && ui->sel_index >= 0 && ui->sel_index < g->pile[ui->sel_pile].n) {
-        sol_card_t c = g->pile[ui->sel_pile].card[ui->sel_index];
+        cg_card_t c = g->pile[ui->sel_pile].card[ui->sel_index];
         int more = g->pile[ui->sel_pile].n - 1 - ui->sel_index;
         char extra[8] = "";
 
         if (more > 0) {
             snprintf(extra, sizeof(extra), " +%d", more);
         }
-        snprintf(out, len, "%s OF %s%s SELECTED \xC2\xB7 %s", sol_rank_text(sol_card_rank(c)),
-                 sol_suit_name(sol_card_suit(c)), extra, ui->keyboard ? "ESC TO CANCEL" : "TAP FELT TO CANCEL");
+        snprintf(out, len, "%s OF %s%s SELECTED \xC2\xB7 %s", cg_rank_text(cg_card_rank(c)),
+                 cg_suit_name(cg_card_suit(c)), extra, ui->keyboard ? "ESC TO CANCEL" : "TAP FELT TO CANCEL");
     } else if (ui->keyboard) {
         snprintf(out, len, "ARROWS \xC2\xB7 ENTER PICK AND PLACE \xC2\xB7 D DRAW \xC2\xB7 F HOME");
     } else {

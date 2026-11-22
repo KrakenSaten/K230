@@ -51,17 +51,17 @@ static void disc(lv_layer_t *layer, int cx, int cy, int r, lv_color_t c)
 /* s percent of size, rounded. */
 #define P(size, pct) (((size) * (pct) + 50) / 100)
 
-void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum bj_suit suit, lv_color_t c)
+void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum cg_suit suit, lv_color_t c)
 {
     if (s < 4) {
         return;
     }
     switch (suit) {
-    case BJ_DIAMONDS:
+    case CG_DIAMONDS:
         triangle(layer, cx, cy - P(s, 50), cx + P(s, 38), cy, cx - P(s, 38), cy, c);
         triangle(layer, cx - P(s, 38), cy, cx + P(s, 38), cy, cx, cy + P(s, 50), c);
         break;
-    case BJ_HEARTS: {
+    case CG_HEARTS: {
         int r = P(s, 26);
 
         disc(layer, cx - P(s, 24), cy - P(s, 20), r, c);
@@ -69,7 +69,7 @@ void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum bj_suit suit, l
         triangle(layer, cx - P(s, 49), cy - P(s, 12), cx + P(s, 49), cy - P(s, 12), cx, cy + P(s, 48), c);
         break;
     }
-    case BJ_SPADES: {
+    case CG_SPADES: {
         int r = P(s, 24);
 
         triangle(layer, cx, cy - P(s, 50), cx + P(s, 47), cy + P(s, 8), cx - P(s, 47), cy + P(s, 8), c);
@@ -78,7 +78,7 @@ void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum bj_suit suit, l
         triangle(layer, cx, cy + P(s, 6), cx + P(s, 18), cy + P(s, 50), cx - P(s, 18), cy + P(s, 50), c);
         break;
     }
-    case BJ_CLUBS:
+    case CG_CLUBS:
     default: {
         int r = P(s, 22);
 
@@ -192,23 +192,23 @@ void bj_card_index_size(int card_w, int *index_w, int *index_h)
     }
 }
 
-void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum bj_index index)
+void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index)
 {
     int w = lv_area_get_width(area);
     int h = lv_area_get_height(area);
-    int rank = bj_card_rank(card);
-    enum bj_suit suit = bj_card_suit(card);
-    lv_color_t ink = bj_palette[bj_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
+    int rank = cg_card_rank(card);
+    enum cg_suit suit = cg_card_suit(card);
+    lv_color_t ink = bj_palette[cg_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
     struct corner c = corner_of(w, index);
     int pad = c.pad;
     int line = c.line;
     int pip = c.pip;
 
-    if (!bj_card_valid(card)) {
+    if (!cg_card_valid(card)) {
         return;
     }
     panel(layer, area, bj_card_radius(w), bj_palette[BJ_INK_PAPER], LV_OPA_COVER, bj_palette[BJ_INK_EDGE], 1);
-    text(layer, bj_rank_text(rank), c.role, ink, area->x1 + pad, area->y1 + pad / 2 - line / 12,
+    text(layer, cg_rank_text(rank), c.role, ink, area->x1 + pad, area->y1 + pad / 2 - line / 12,
          area->x2 - pad, LV_TEXT_ALIGN_LEFT);
     if (index == BJ_INDEX_BELOW) {
         bj_draw_suit(layer, area->x1 + pad + pip / 2, area->y1 + pad / 2 + line + pip / 2, pip, suit, ink);
@@ -221,14 +221,14 @@ void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum
         int cx = area->x1 + w / 2;
         int cy = area->y1 + h * 62 / 100;
 
-        if (rank >= BJ_JACK) {
+        if (rank >= CG_JACK) {
             const lv_font_t *big = role_font(POS_STYLE_HERO_40, NULL);
             int bl = big ? lv_font_get_line_height(big) : 40;
 
-            text(layer, bj_rank_text(rank), w >= 56 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, ink, area->x1,
+            text(layer, cg_rank_text(rank), w >= 56 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, ink, area->x1,
                  cy - bl / 2, area->x2, LV_TEXT_ALIGN_CENTER);
         } else {
-            bj_draw_suit(layer, cx, cy, rank == BJ_ACE ? w * 58 / 100 : w * 44 / 100, suit, ink);
+            bj_draw_suit(layer, cx, cy, rank == CG_ACE ? w * 58 / 100 : w * 44 / 100, suit, ink);
         }
     }
 }
@@ -244,11 +244,11 @@ void bj_draw_back(lv_layer_t *layer, const lv_area_t *area)
     panel(layer, &frame, r > 2 ? r - 2 : 1, bj_palette[BJ_INK_BACK], LV_OPA_TRANSP,
           bj_palette[BJ_INK_BACK_LINE], 1);
     /* One small diamond in the middle, and nothing else. */
-    bj_draw_suit(layer, area->x1 + w / 2, area->y1 + lv_area_get_height(area) / 2, w / 4, BJ_DIAMONDS,
+    bj_draw_suit(layer, area->x1 + w / 2, area->y1 + lv_area_get_height(area) / 2, w / 4, CG_DIAMONDS,
                   bj_palette[BJ_INK_BACK_LINE]);
 }
 
-void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum bj_suit suit)
+void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum cg_suit suit)
 {
     int w = lv_area_get_width(area);
     int h = lv_area_get_height(area);

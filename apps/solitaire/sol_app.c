@@ -433,7 +433,7 @@ static int debug_long(struct sol_app *a, const char *want)
     }
     if (strcmp(want, "longest") == 0) {
         struct sol_stack *col = &a->game.pile[SOL_T0 + 6];
-        uint8_t used[SOL_DECK] = { 0 };
+        uint8_t used[CG_DECK] = { 0 };
         int r;
         int c;
 
@@ -441,18 +441,18 @@ static int debug_long(struct sol_app *a, const char *want)
         a->game.seed = SOL_DEBUG_SEED;
         a->game.moves = 1;
         for (r = 1; r <= 6; r++) {
-            col->card[col->n++] = sol_card(r, SOL_CLUBS);
+            col->card[col->n++] = cg_card(r, CG_CLUBS);
         }
         col->down = 6;
-        for (r = SOL_KING; r >= 1; r--) {
-            col->card[col->n++] = sol_card(r, (r % 2) ? SOL_SPADES : SOL_HEARTS);
+        for (r = CG_KING; r >= 1; r--) {
+            col->card[col->n++] = cg_card(r, (r % 2) ? CG_SPADES : CG_HEARTS);
         }
         for (c = 0; c < col->n; c++) {
             used[col->card[c]] = 1;
         }
-        for (c = 0; c < SOL_DECK; c++) {
-            if (sol_card_valid((sol_card_t)c) && !used[c]) {
-                a->game.pile[SOL_STOCK].card[a->game.pile[SOL_STOCK].n++] = (sol_card_t)c;
+        for (c = 0; c < CG_DECK; c++) {
+            if (cg_card_valid((cg_card_t)c) && !used[c]) {
+                a->game.pile[SOL_STOCK].card[a->game.pile[SOL_STOCK].n++] = (cg_card_t)c;
             }
         }
         a->game.pile[SOL_STOCK].down = a->game.pile[SOL_STOCK].n;
@@ -530,9 +530,9 @@ static void debug_state(struct sol_app *a, const char *want)
         int r;
 
         memset(&a->game.pile, 0, sizeof(a->game.pile));
-        for (s = 0; s < SOL_SUITS; s++) {
-            for (r = 1; r <= SOL_KING; r++) {
-                a->game.pile[SOL_F0 + s].card[a->game.pile[SOL_F0 + s].n++] = sol_card(r, (enum sol_suit)s);
+        for (s = 0; s < CG_SUITS; s++) {
+            for (r = 1; r <= CG_KING; r++) {
+                a->game.pile[SOL_F0 + s].card[a->game.pile[SOL_F0 + s].n++] = cg_card(r, (enum cg_suit)s);
             }
         }
         a->game.won = 1;

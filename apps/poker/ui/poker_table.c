@@ -61,7 +61,7 @@ static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_
         const struct poker_rect *c = &place->card[k];
         lv_area_t r = area(origin, c->x, c->y, c->w, c->h);
         if (!p->in_hand || p->folded)
-            bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, BJ_SPADES);
+            bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, CG_SPADES);
         else if (i == 0 || (g->showdown && !poker_playing(g)))
             bj_draw_face(layer, &r, p->hole[k], BJ_INDEX_BELOW);
         else
@@ -145,7 +145,7 @@ static void draw(lv_event_t *event)
         if (i < g->board_count)
             bj_draw_face(layer, &r, g->board[i], BJ_INDEX_BELOW);
         else
-            bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, BJ_SPADES);
+            bj_draw_slot(layer, &r, BJ_SLOT_PLAIN, CG_SPADES);
     }
     seat(layer, &origin, g, 0, &place.seat[0]);
 }

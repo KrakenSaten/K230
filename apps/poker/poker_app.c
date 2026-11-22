@@ -209,13 +209,13 @@ static void review(struct poker_app *a, const char *screen)
     poker_new_hand(&a->game);
     if (strcmp(screen, "split") == 0) {
         for (int i = 0; i < POKER_SEATS; ++i) {
-            a->game.player[i].hole[0] = bj_card(2 + i, BJ_SPADES);
-            a->game.player[i].hole[1] = bj_card(2 + i, BJ_HEARTS);
+            a->game.player[i].hole[0] = cg_card(2 + i, CG_SPADES);
+            a->game.player[i].hole[1] = cg_card(2 + i, CG_HEARTS);
         }
         const int index[] = {9, 10, 11, 13, 15};
-        const int rank[] = {BJ_ACE, 13, 12, 11, 10};
+        const int rank[] = {CG_ACE, 13, 12, 11, 10};
         for (int i = 0; i < 5; ++i)
-            a->game.deck[index[i]] = bj_card(rank[i], BJ_DIAMONDS);
+            a->game.deck[index[i]] = cg_card(rank[i], CG_DIAMONDS);
     }
     int steps = 0;
     while (poker_playing(&a->game) && steps++ < 100) {

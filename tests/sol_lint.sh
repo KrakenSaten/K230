@@ -19,7 +19,9 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 APP=apps/solitaire
-ENGINE="$APP/engine/sol_rng.c $APP/engine/sol_rng.h $APP/engine/sol_cards.c $APP/engine/sol_cards.h \
+# The card, shuffle and shoe primitives are the shared module (core/cards).
+CARDS=core/cards
+ENGINE="$CARDS/cg_rng.c $CARDS/cg_rng.h $CARDS/cg_cards.c $CARDS/cg_cards.h $CARDS/cg_shoe.c $CARDS/cg_shoe.h \
         $APP/engine/sol_rules.c $APP/engine/sol_rules.h"
 VIEW="$APP/ui/sol_view.c $APP/ui/sol_view.h"
 LVGL_SIDE="$APP/sol_app.c $APP/sol_app.h $APP/ui/sol_card_draw.c $APP/ui/sol_card_draw.h \
@@ -111,7 +113,7 @@ check "registered once" "$([ "$(grep -c '&app_solitaire\b' ui/shell/shell.c)" = 
 # (ui/shell/home_layout.c): a game, in the Games folder, in the games colour (DS §47).
 check "the launcher shows it in the Games folder" \
     "$(grep -q '{ "solitaire", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
-for src in sol_app.c engine/sol_rng.c engine/sol_cards.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
+for src in sol_app.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
            ui/sol_table_widget.c ui/sol_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/solitaire/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done
@@ -121,6 +123,9 @@ check "the app test is a host-only target" \
 for t in sol_rules_test sol_view_test sol_store_test; do
     check "make test runs $t" "$(grep -q "./tests/$t" Makefile && grep -q "/tests/$t\$" .gitignore && echo 1 || echo 0)"
 done
+
+check "the shell builds the shared cards" "$(grep -q 'core/cards/cg_cards.c' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+check "and no private copy is left" "$([ ! -e $APP/engine/sol_cards.h ] && [ ! -e $APP/engine/sol_rng.h ] && echo 1 || echo 0)"
 
 echo "sol_lint: $failed failure(s)"
 exit $((failed > 0))

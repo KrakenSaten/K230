@@ -1,19 +1,19 @@
 /*
- * PG Solitaire deterministic pseudo-random source. See sol_rng.h.
+ * Card games: deterministic pseudo-random source. See cg_rng.h.
  *
- * Copyright (c) 2026 PocketOS authors.
+ * Copyright (c) 2026 Doors authors.
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sol_rng.h"
+#include "cg_rng.h"
 
-void sol_rng_seed(struct sol_rng *rng, uint32_t seed)
+void cg_rng_seed(struct cg_rng *rng, uint32_t seed)
 {
     if (rng) {
-        rng->state = seed ? seed : SOL_RNG_ZERO_SEED;
+        rng->state = seed ? seed : CG_RNG_ZERO_SEED;
     }
 }
 
-uint32_t sol_rng_next(struct sol_rng *rng)
+uint32_t cg_rng_next(struct cg_rng *rng)
 {
     uint32_t x;
 
@@ -21,7 +21,7 @@ uint32_t sol_rng_next(struct sol_rng *rng)
         return 0;
     }
     if (rng->state == 0) {
-        rng->state = SOL_RNG_ZERO_SEED;
+        rng->state = CG_RNG_ZERO_SEED;
     }
     x = rng->state;
     x ^= x << 13;
@@ -31,7 +31,7 @@ uint32_t sol_rng_next(struct sol_rng *rng)
     return x;
 }
 
-uint32_t sol_rng_below(struct sol_rng *rng, uint32_t limit)
+uint32_t cg_rng_below(struct cg_rng *rng, uint32_t limit)
 {
     uint32_t reject;
     uint32_t v;
@@ -41,7 +41,7 @@ uint32_t sol_rng_below(struct sol_rng *rng, uint32_t limit)
     }
     reject = (uint32_t)(0x100000000ULL % (uint64_t)limit);
     do {
-        v = sol_rng_next(rng);
+        v = cg_rng_next(rng);
     } while (v < reject);
     return v % limit;
 }
