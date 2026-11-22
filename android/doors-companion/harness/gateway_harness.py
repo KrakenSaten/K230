@@ -14,6 +14,10 @@ Control: one JSON object per line, {"method": ..., "params": ...}.
   harness.stop     stop gatewayd (the unit goes away)
   harness.start    start it again on the same state directory
   harness.upstream {"service": "sysd", "mode": "ok" | "error"}
+  harness.unit     {"method": ..., "params": ...}: one request on the real
+                   shell's own socket, as a person or the bench at the unit
+                   (shell.tap is the finger). Only with DOORS_SHELL_BIN.
+  harness.shell    {"op": "start" | "stop" | "helpers"}: the real shell
   harness.mesh     {"op": ...}: the fake meshcored (FakeMesh below): message,
                    state, bulk, node, channel, activity, down, up, restart,
                    seed, demo; and for sending: send_mode, release, sends, auto
@@ -37,6 +41,11 @@ import threading
 import time
 
 BIN, PORT, CTL_PORT = os.path.abspath(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+# The real shell with PacketShark (the SDL simulator build) and its capture
+# helper, when both are named: gatewayd then talks to it on its own socket,
+# as on a unit. Without them the capture group is simply not there.
+SHELL_BIN = os.environ.get("DOORS_SHELL_BIN", "")
+CAPTURE_HELPER = os.environ.get("DOORS_CAPTURE_HELPER", "")
 HOST = "127.0.0.1"
 ROOT = tempfile.mkdtemp(prefix="doors-companion-gw-")
 RUN, STATE, LOGS = (os.path.join(ROOT, d) for d in ("run", "state", "log"))
@@ -108,7 +117,9 @@ def system_status():
         "storage": [{"mount": "/", "total_bytes": 574000000, "avail_bytes": 211000000},
                     {"mount": "/data", "total_bytes": 29000000000, "avail_bytes": 27100000000}],
         "network": [{"name": "eth0", "operstate": "down", "carrier": None, "mac": "02:11:22:33:44:55", "ipv4": None},
-                    {"name": "wlan0", "operstate": "up", "carrier": True, "mac": "02:11:22:33:44:56", "ipv4": "192.168.1.20"}],
+                    {"name": "wlan0", "operstate": "up", "carrier": True, "mac": "02:11:22:33:44:56", "ipv4": "192.168.1.20"}]
+                   # The simulator's PacketShark captures on its stand-in, and offers nothing else.
+                   + ([{"name": "synth0", "operstate": "up", "carrier": True, "mac": None, "ipv4": None}] if SHELL_BIN else []),
         "power": {"source": "external", "external_online": True, "battery": None, "supplies": []},
         "services": [{"name": n, "pid": 100 + i, "running": True, "crashloop": False, "last_exit_code": None, "restarts": 0}
                      for i, n in enumerate(["gatewayd", "meshcored", "netd", "radiod", "sysd"])],
@@ -545,8 +556,65 @@ def ctl(method, params=None):
         s.close()
 
 
+shell_proc = None
+
+
+def unit(method, params=None):
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(5)
+    try:
+        s.connect(os.path.join(RUN, "shell.sock"))
+        req = {"id": 1, "method": method}
+        if params is not None:
+            req["params"] = params
+        send_frame(s, req)
+        while True:
+            msg = recv_frame(s)
+            if msg.get("id") == 1:
+                return msg
+    finally:
+        s.close()
+
+
+def shell_start():
+    global shell_proc
+    if not SHELL_BIN or (shell_proc is not None and shell_proc.poll() is None):
+        return
+    path = os.path.join(RUN, "shell.sock")
+    if os.path.exists(path):
+        os.unlink(path)
+    conf = os.path.join(ROOT, "conf")
+    os.makedirs(conf, exist_ok=True)
+    env = dict(os.environ, POCKETOS_RUNTIME_DIR=RUN, POCKETOS_STATE_DIR=STATE, POCKETOS_LOG_DIR=LOGS,
+               POCKETOS_CONFIG_DIR=conf, SDL_VIDEODRIVER="dummy", POCKETOS_CAPTURE_SOURCE="synth:200:1",
+               POCKETOS_CAPTURE_HELPER=CAPTURE_HELPER)
+    shell_proc = subprocess.Popen([SHELL_BIN], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    end = time.time() + 15
+    while time.time() < end:
+        try:
+            unit("shell.info")
+            unit("shell.unlock")  # a person at the unit: the simulator starts behind its lock
+            return
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError("the shell did not come up")
+
+
+def shell_stop():
+    global shell_proc
+    if shell_proc is not None:
+        shell_proc.terminate()
+        try:
+            shell_proc.wait(5)
+        except subprocess.TimeoutExpired:
+            shell_proc.kill()
+            shell_proc.wait()
+        shell_proc = None
+
+
 def start():
     global proc
+    shell_start()
     if proc is not None and proc.poll() is None:
         return  # already running: a second one would leave the first without anyone to stop it
     env = dict(os.environ, POCKETOS_RUNTIME_DIR=RUN, POCKETOS_STATE_DIR=STATE, POCKETOS_LOG_DIR=LOGS, POCKETOS_LOG_STDERR="0")
@@ -587,6 +655,16 @@ class Handler(socketserver.StreamRequestHandler):
                         out = {"result": {}}
                     elif m == "harness.mesh":
                         out = {"result": MESH.control(p)}
+                    elif m == "harness.unit" and SHELL_BIN:
+                        out = unit(p["method"], p.get("params"))
+                        out = {"result": out.get("result", {})} if "result" in out else {"result": {"error": out.get("error")}}
+                    elif m == "harness.shell" and SHELL_BIN:
+                        if p["op"] == "stop":
+                            shell_stop()
+                        elif p["op"] == "start":
+                            shell_start()
+                        n = len(subprocess.run(["pgrep", "-f", CAPTURE_HELPER + " session"], capture_output=True, text=True).stdout.split())
+                        out = {"result": {"running": shell_proc is not None, "helpers": n}}
                     elif m.startswith("gateway."):
                         out = ctl(m, p)
                     else:
@@ -604,7 +682,7 @@ class Server(socketserver.ThreadingTCPServer):
 
 start()
 srv = Server((HOST, CTL_PORT), Handler)
-signal.signal(signal.SIGTERM, lambda *_: (stop(), os._exit(0)))
+signal.signal(signal.SIGTERM, lambda *_: (stop(), shell_stop(), os._exit(0)))
 print("harness ready: gateway %s:%d, control %s:%d, state %s" % (HOST, PORT, HOST, CTL_PORT, ROOT), flush=True)
 try:
     srv.serve_forever()
@@ -612,3 +690,4 @@ except KeyboardInterrupt:
     pass
 finally:
     stop()
+    shell_stop()

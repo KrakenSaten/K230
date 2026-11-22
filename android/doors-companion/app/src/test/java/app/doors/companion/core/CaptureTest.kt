@@ -253,8 +253,9 @@ class CaptureTest {
         when (method) {
             "gateway.subscribe" -> """{"topics":${params["topics"]}}"""
             "capture.status" -> status
-            "capture.hold" -> """{"state":"${if (params.bool("on") == true) "hold" else "capturing"}"}"""
-            "capture.stop" -> """{"state":"stopped"}"""
+            // The state when asked, and that the capture was told to change (gateway.md section 9).
+            "capture.hold" -> """{"state":"${if (params.bool("on") == true) "capturing" else "hold"}","changing":true}"""
+            "capture.stop" -> """{"state":"capturing","changing":true}"""
             "capture.request_start" -> """{"shown":true}"""
             else -> "!1"
         }
@@ -407,6 +408,80 @@ class CaptureTest {
         capture.watch(false)
         await("mesh kept") { unit.asked.last().second.strings("topics") == setOf("mesh", "mesh.activity") }
         job.cancelAndJoin()
+    }
+
+    @Test
+    fun whatBecomesOfARequestIsSaidByTheStateEvent() = runBlocking {
+        val idle = example.replace("capturing", "idle")
+        for ((event, want) in listOf(
+            """{"state":"idle","reason":"refused","iface":"","keep":"headers","limit_s":0}""" to StartRequest.REFUSED,
+            """{"state":"idle","reason":"timeout","iface":"","keep":"headers","limit_s":0}""" to StartRequest.TIMED_OUT,
+            """{"state":"capturing","reason":"none","iface":"eth0","keep":"headers","limit_s":900}""" to StartRequest.STARTED,
+        )) {
+            val unit = FakeUnit(serving(idle))
+            val conn = unit.connect()
+            val capture = GatewayCapture(pollMs = 5_000)
+            capture.watch(true)
+            val job = scope.launch { capture.run(paired, conn, hello("capture"), MutableStateFlow(setOf("capture_view", "capture_control"))) }
+            await("open") { capture.view.value.access == CaptureAccess.OPEN }
+            capture.requestStart("eth0", 900)
+            assertEquals(StartRequest.SHOWN, capture.view.value.request)
+            // The status read after it is plain setup: only the event says what happened.
+            unit.write("""{"event":"capture.state","data":$event}""")
+            await("$want") { capture.view.value.request == want }
+            job.cancelAndJoin()
+        }
+    }
+
+    @Test
+    fun aHoldThatChangesNothingIsShownAsTheUnitSaysItIs() = runBlocking {
+        val unit = FakeUnit { method, params ->
+            when (method) {
+                "gateway.subscribe" -> """{"topics":${params["topics"]}}"""
+                "capture.status" -> example
+                "capture.hold" -> """{"state":"capturing","changing":false}"""
+                "capture.request_start" -> "!5"
+                else -> "!1"
+            }
+        }
+        val conn = unit.connect()
+        val capture = GatewayCapture(pollMs = 5_000)
+        capture.watch(true)
+        val job = scope.launch { capture.run(paired, conn, hello("capture"), MutableStateFlow(setOf("capture_view", "capture_control"))) }
+        await("open") { capture.view.value.access == CaptureAccess.OPEN }
+        capture.hold(false)
+        assertEquals(CaptureState.CAPTURING, capture.view.value.status?.state)
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun aGrantDuringTheSessionIsTriedAndAGatewayWithoutCaptureIsNotServed() = runBlocking {
+        // The hello named no capture capability because the phone held no capture scope then.
+        val unit = FakeUnit(serving())
+        val conn = unit.connect()
+        val scopes = MutableStateFlow(setOf("status"))
+        val capture = GatewayCapture(pollMs = 5_000)
+        capture.watch(true)
+        val job = scope.launch { capture.run(paired, conn, hello("status", "mesh"), scopes) }
+        await("not granted") { capture.view.value.access == CaptureAccess.NOT_GRANTED }
+        assertTrue(unit.methods().isEmpty())
+        scopes.value = setOf("status", "capture_view")
+        await("open once granted") { capture.view.value.access == CaptureAccess.OPEN }
+        job.cancelAndJoin()
+
+        // The same against a gateway that knows no capture method: asked once, then not served.
+        val old = FakeUnit { method, params -> if (method == "gateway.subscribe") """{"topics":${params["topics"]}}""" else "!1" }
+        val conn2 = old.connect()
+        val scopes2 = MutableStateFlow(setOf("status"))
+        val capture2 = GatewayCapture(pollMs = 200)
+        capture2.watch(true)
+        val job2 = scope.launch { capture2.run(paired, conn2, hello("status", "mesh"), scopes2) }
+        await("not granted") { capture2.view.value.access == CaptureAccess.NOT_GRANTED }
+        scopes2.value = setOf("status", "capture_view")
+        await("not served") { capture2.view.value.access == CaptureAccess.NOT_SERVED }
+        delay(700)
+        assertEquals("asked once, not again and again", 1, old.methods().count { it == "capture.status" })
+        job2.cancelAndJoin()
     }
 
     // ---- 5. the simulation ----

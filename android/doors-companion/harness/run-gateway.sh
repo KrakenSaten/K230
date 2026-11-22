@@ -7,6 +7,11 @@
 #
 #   harness/run-gateway.sh [reference checkout] [tls port] [control port]
 #
+# With DOORS_SHELL_BIN (the simulator's pocketos-shell, built with PacketShark)
+# and DOORS_CAPTURE_HELPER (pos-capture) in the environment, the real shell
+# runs beside gatewayd and the capture group is served as on a unit; the
+# reference checkout must then be one whose gatewayd has it (G1 or later).
+#
 # Copyright (c) 2026 Doors authors.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
