@@ -2,7 +2,8 @@
 # DOORS card games: redesign proposal
 
 Blackjack, Poker (Texas Hold'em) and Solitaire (Klondike).
-Status: **PROPOSED, awaiting the owner's choice of direction.** Nothing in
+Status: **DIRECTION APPROVED: A, Lamplight** (owner, 2026-11-22). Decisions
+2 to 8 in section 11 are still open, and no implementation has started. Nothing in
 this branch changes the product: it holds this document, mockups and the
 script that draws them. Baseline: master `a5d18bfc` (2026-11-22).
 
@@ -458,6 +459,7 @@ merged or put on a unit without the owner's word.
 ## 11. Decisions for the owner
 
 1. **Direction:** A (Lamplight), B (Imprint) or C (Signal), or a mix.
+   **DECIDED 2026-11-22: A, Lamplight.**
 2. **Fixed palette in every theme**, Night dimming, as the hub: accept as a
    design-system amendment?
 3. **Full screen** with the game's own back mark, instead of the shell's
