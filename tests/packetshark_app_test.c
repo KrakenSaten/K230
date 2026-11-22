@@ -2687,6 +2687,42 @@ static void m7_m9(bool portrait)
     CHECK("SIGNALS: six findings, each counted and a full target", ok);
     CHECK("nothing in SIGNALS is clipped, overlapping or broken across lines", audit_page() + dots_wrapped(app_body) == 0);
     shot("m7-signals");
+    if (portrait) {
+        /* Unit B, 2026-11-18: at Large the tall shape cut NO DNS REPLY to
+         * "NO DNS ...". Every word whole, wrapped if need be, the cells even. */
+        int32_t h0 = 0;
+
+        pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+        pump(500);
+        lv_obj_update_layout(app_body);
+        ok = a->sig_words_wrap;
+        for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+            lv_obj_t *w = lv_obj_get_child(lv_obj_get_child(a->sig_cell[i], 0), 0);
+            int32_t h = lv_obj_get_height(a->sig_cell[i]);
+
+            h0 = i == 0 ? h : h0;
+            if (strcmp(lv_label_get_text(w), psk_signal_word(i)) != 0 || h != h0) {
+                printf("     Large: '%s' (want '%s'), cell %d px high (first %d)\n", lv_label_get_text(w),
+                       psk_signal_word(i), (int)h, (int)h0);
+                ok = 0;
+            }
+        }
+        lv_obj_scroll_to_view_recursive(a->sig_cell[0], LV_ANIM_OFF);
+        pump(60);
+        CHECK("tall, Large: every finding's word whole, wrapped where it must be, the six cells one height",
+              ok && audit_page() == 0);
+        shot("m11-signals-large");
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(500);
+        ok = !a->sig_words_wrap;
+        for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+            lv_obj_t *w = lv_obj_get_child(lv_obj_get_child(a->sig_cell[i], 0), 0);
+
+            ok = ok && strcmp(lv_label_get_text(w), psk_signal_word(i)) == 0 &&
+                 lv_label_get_long_mode(w) == LV_LABEL_LONG_DOT;
+        }
+        CHECK("and back at Small, one line each", ok && dots_wrapped(app_body) == 0);
+    }
 
     /* A finding is the way to its packets. */
     tap_obj(psk_app_part(app_priv, "sig1"));
