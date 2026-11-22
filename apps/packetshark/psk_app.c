@@ -980,6 +980,8 @@ static void on_poll(lv_timer_t *t)
     }
     if (changed) {
         psk_live_paint(a, changed);
+    }
+    if (changed || a->fit_due) {
         psk_live_fit(a);
     }
     psk_list_fit(a);
@@ -1336,6 +1338,7 @@ static void layout(struct psk_app *a)
         lv_obj_set_style_pad_left(a->top, a->top_inset_l, 0);
         lv_obj_set_style_pad_right(a->top, a->top_inset_r, 0);
     }
+    a->fit_due = true; /* a new size: the fits follow at the next poll */
 }
 
 static void on_frame_size(lv_event_t *e)

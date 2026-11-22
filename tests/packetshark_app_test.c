@@ -2722,6 +2722,34 @@ static void m7_m9(bool portrait)
                  lv_label_get_long_mode(w) == LV_LABEL_LONG_DOT;
         }
         CHECK("and back at Small, one line each", ok && dots_wrapped(app_body) == 0);
+
+        /* Not left to the next packet, which a quiet capture may never
+         * send: the text size itself asks for the fit, ... */
+        ok = !a->fit_due;
+        pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+        CHECK("Large chosen with LIVE shown: the text size itself asks for LIVE's fit", ok && a->fit_due);
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(500);
+        /* ... and one asked for while another tab is shown waits until LIVE
+         * is seen, and is made in the first poll after. */
+        psk_select_tab(a, PSK_TAB_PACKETS);
+        pump(200);
+        pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+        pump(300);
+        ok = a->fit_due && !a->sig_words_wrap; /* LIVE hidden: not measured there */
+        CHECK("Large chosen on another tab: LIVE's fit waits until it is seen", ok);
+        psk_select_tab(a, PSK_TAB_LIVE);
+        pump(60);
+        ok = !a->fit_due && a->sig_words_wrap;
+        for (i = 0; i < PPC_SIGNAL_COUNT; i++) {
+            lv_obj_t *w = lv_obj_get_child(lv_obj_get_child(a->sig_cell[i], 0), 0);
+
+            ok = ok && strcmp(lv_label_get_text(w), psk_signal_word(i)) == 0;
+        }
+        CHECK("and made as LIVE comes back: every word whole, without waiting for traffic", ok);
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(500);
+        CHECK("Small again: one line each", !a->sig_words_wrap && dots_wrapped(app_body) == 0);
     }
 
     /* A finding is the way to its packets. */

@@ -223,6 +223,8 @@ struct psk_app {
     lv_obj_t *cell[4];   /* PACKETS, BYTES, DROPPED, BUFFER */
     bool cells_two_by_two; /* SESSION's figures two by two, as they do not fit four in a line */
     bool sig_words_wrap;   /* tall: the findings' words on two lines, as one does not fit its cell */
+    bool fit_due;          /* LIVE's fits to be made again once it is shown: its shape or the text
+                            * size changed, which a quiet capture would not repaint */
     lv_obj_t *later;     /* what leaving does to the capture */
     lv_obj_t *signals;   /* the SIGNALS panel (M7) */
     lv_obj_t *sig_cell[PPC_SIGNAL_COUNT];
