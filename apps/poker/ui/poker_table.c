@@ -219,9 +219,35 @@ static void draw(lv_event_t *event)
     seat(layer, &origin, st, 2, &place.seat[2]);
     seat(layer, &origin, st, 1, &place.seat[1]);
     seat(layer, &origin, st, 3, &place.seat[3]);
-    snprintf(line, sizeof(line), "%s | POT %u", poker_phase_name(g->phase),
-             poker_playing(g) ? poker_pot_total(g) : g->settled_pot);
-    text(layer, &origin, place.pot, line, POS_STYLE_ROW_TITLE, POS_COLOR_TEXT_PRIMARY);
+    const lv_font_t *head = cg_deck_font(CG_TYPE_HEADLINE_SMALL);
+    int winners = 0;
+    for (int i = 0; i < POKER_SEATS; ++i)
+        winners += (g->winners >> i) & 1;
+    if (!poker_playing(g) && winners == 1 && cg_motion_pose(&st->motion, KEY_POT, NULL) < 0 &&
+        lv_font_get_line_height(head) <= place.pot.h + 16) {
+        /* One winner: one sentence, in the one serif (decision 5). */
+        int w = first_winner(g);
+        lv_draw_label_dsc_t d;
+        int lh = lv_font_get_line_height(head);
+        lv_area_t r = area(&origin, place.pot.x, place.pot.y + (place.pot.h - lh) / 2, place.pot.w, lh);
+        if (w == 0)
+            snprintf(line, sizeof(line), "You take it.");
+        else
+            snprintf(line, sizeof(line), "%c%s takes it.", poker_seat_name(w)[0], poker_seat_name(w) + 1);
+        for (char *c = line + 1; *c && *c != ' '; ++c)
+            *c = (char)(*c >= 'A' && *c <= 'Z' ? *c - 'A' + 'a' : *c);
+        lv_draw_label_dsc_init(&d);
+        d.font = head;
+        d.text = line;
+        d.text_local = 1;
+        d.align = LV_TEXT_ALIGN_CENTER;
+        d.color = cg_table_ink(CG_INK_GOLD);
+        lv_draw_label(layer, &d, &r);
+    } else {
+        snprintf(line, sizeof(line), "%s | POT %u", poker_phase_name(g->phase),
+                 poker_playing(g) ? poker_pot_total(g) : g->settled_pot);
+        text(layer, &origin, place.pot, line, POS_STYLE_ROW_TITLE, POS_COLOR_TEXT_PRIMARY);
+    }
     for (int i = 0; i < g->board_count; ++i) {
         const struct poker_rect *c = &place.board[i];
         lv_area_t r = area(&origin, c->x, c->y, c->w, c->h);

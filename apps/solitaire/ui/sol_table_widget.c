@@ -16,6 +16,8 @@
 /* How far a finger may travel and still tap: LVGL's own scroll threshold
  * (LV_INDEV_DEF_SCROLL_LIMIT, private to lv_indev.c in 9.5). */
 #define TAP_SLOP 10
+/* The motion key of the "Solved." line (card keys are card bytes). */
+#define KEY_SOLVED 0xffffff01u
 
 struct sol_table_state {
     const struct sol_game *game;
@@ -266,12 +268,37 @@ static void table_draw(lv_event_t *e)
             layer->_clip_area = was;
         }
     }
+    /* A won deal: "Solved." on the emptied tableau, in the one serif
+     * (decision 5), once the kings have risen. */
+    if (st->game->won) {
+        struct cg_pose pose;
+        int shown = cg_motion_pose(&st->motion, KEY_SOLVED, &pose);
+
+        if (shown == 1 || (shown < 0 && !cg_motion_busy(&st->motion))) {
+            lv_draw_label_dsc_t dsc;
+            const lv_font_t *head = cg_deck_font(CG_TYPE_HEADLINE);
+            int lh = lv_font_get_line_height(head);
+            int top = coords.y1 + t.tableau_y + t.card_h;
+            int cy = top + (coords.y2 - top) / 2;
+            lv_area_t a = { coords.x1, cy - lh / 2, coords.x2, cy - lh / 2 + lh - 1 };
+
+            if (coords.y2 - top >= lh + 16) {
+                lv_draw_label_dsc_init(&dsc);
+                dsc.font = head;
+                dsc.color = cg_table_ink(CG_INK_GOLD);
+                dsc.opa = shown == 1 ? pose.opa : LV_OPA_COVER;
+                dsc.align = LV_TEXT_ALIGN_CENTER;
+                dsc.text = "Solved.";
+                lv_draw_label(layer, &dsc, &a);
+            }
+        }
+    }
     /* Cards in motion, over every pile they cross. */
     for (p = 0; p < cg_motion_count(&st->motion); p++) {
         uint32_t key = cg_motion_key(&st->motion, p);
         struct cg_pose pose;
 
-        if (cg_motion_pose(&st->motion, key, &pose) == 1) {
+        if (key != KEY_SOLVED && cg_motion_pose(&st->motion, key, &pose) == 1) {
             lv_area_t a = { coords.x1 + pose.rect.x1, coords.y1 + pose.rect.y1, coords.x1 + pose.rect.x2,
                             coords.y1 + pose.rect.y2 };
 
@@ -582,6 +609,11 @@ void sol_table_after(lv_obj_t *table, int won)
         r = sol_view_card(&t, st->game, SOL_F0 + i, s->n - 1);
         a = (lv_area_t){ r.x, r.y, r.x + r.w - 1, r.y + r.h - 1 };
         cg_motion_add(&st->motion, s->card[s->n - 1], CG_MOVE_HOP, &a, &a, 1, 1, end + 60 + (uint32_t)i * 130, 460);
+    }
+    {
+        lv_area_t all = { 0, t.tableau_y, t.w - 1, t.h - 1 };
+
+        cg_motion_add(&st->motion, KEY_SOLVED, CG_MOVE_FADE, NULL, &all, 1, 1, end + 60 + 4 * 130 + 200, 360);
     }
 }
 

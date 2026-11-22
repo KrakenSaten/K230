@@ -49,13 +49,16 @@ void cg_deck_court(lv_layer_t *layer, const lv_area_t *box, cg_card_t card, int 
                    const struct cg_deck_inks *inks);
 void cg_deck_back(lv_layer_t *layer, const lv_area_t *area, int radius, const struct cg_deck_inks *inks);
 
-/* The card's own type, fixed whatever the text size (owner decision 4,
- * 2026-11-22): the faces the Medium text size gives the DS title (28
- * semibold), label (24) and hero-40 roles. */
+/* The card games' own type, fixed whatever the text size (owner decisions
+ * 4 and 5, 2026-11-22): for the cards, the faces the Medium text size gives
+ * the DS title (28 semibold), label (24) and hero-40 roles; for the few big
+ * moments, Fraunces italic. Through PocketUI's one font table. */
 enum cg_deck_type {
     CG_TYPE_INDEX = 0,   /* the corner rank on a card 56 px wide or more */
     CG_TYPE_INDEX_SMALL, /* the corner rank on a smaller card */
-    CG_TYPE_LARGE        /* a large letter (an empty column's K) */
+    CG_TYPE_LARGE,       /* a large letter (an empty column's K) */
+    CG_TYPE_HEADLINE,      /* Fraunces italic 48: "Blackjack", "Solved." */
+    CG_TYPE_HEADLINE_SMALL /* Fraunces italic 32: "Linus takes it." */
 };
 const lv_font_t *cg_deck_font(enum cg_deck_type type);
 

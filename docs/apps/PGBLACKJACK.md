@@ -40,6 +40,7 @@ this section and the older text below disagree, this section holds.
 - **Motion** (`ui/cards/cg_motion.[ch]`). A deal comes out of the shoe card by card (140 ms apart), a hit at once; after a stand or a double the hole card turns over and the dealer draws at a dealer's pace (450 ms apart); the stake then slides to whoever won it (it nudges on a push) and the result fades in. The rules settle each command at once; the save holds only positions the rules reached. Under reduced motion (DS 12)
   nothing moves and the end state is drawn at once. One 33 ms timer exists
   only while something moves; each frame repaints only what moved.
+- **Headline** (decision 5): a natural says "Blackjack" in Fraunces italic over what it paid.
 - **Memory.** The atlas and the cloth are freed when the game closes. Measured in the simulator: about 3.5 MB of composed cards and 1.3 MB of cloth while open; a deal animates in 640 ms, its largest frame repainting 24 % of the panel.
 
 ## Ruleset

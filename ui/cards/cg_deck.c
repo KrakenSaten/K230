@@ -7,6 +7,7 @@
 #include "cg_deck.h"
 
 #include "cg_atlas.h"
+#include "pocketui.h"
 
 #include <string.h>
 
@@ -533,21 +534,29 @@ void cg_deck_back(lv_layer_t *layer, const lv_area_t *area, int radius, const st
 
 /* ---- the type ------------------------------------------------------------------- */
 
-LV_FONT_DECLARE(pos_font_sans_24);
-LV_FONT_DECLARE(pos_font_sans_28_semibold);
-LV_FONT_DECLARE(pos_font_sans_40_semibold);
-
 const lv_font_t *cg_deck_font(enum cg_deck_type type)
 {
+    struct pos_type_spec spec;
+
     switch (type) {
     case CG_TYPE_INDEX:
-        return &pos_font_sans_28_semibold;
+        spec = (struct pos_type_spec){ POS_FACE_SANS_SEMIBOLD, 28 };
+        break;
     case CG_TYPE_LARGE:
-        return &pos_font_sans_40_semibold;
+        spec = (struct pos_type_spec){ POS_FACE_SANS_SEMIBOLD, 40 };
+        break;
+    case CG_TYPE_HEADLINE:
+        spec = (struct pos_type_spec){ POS_FACE_SERIF_ITALIC, 48 };
+        break;
+    case CG_TYPE_HEADLINE_SMALL:
+        spec = (struct pos_type_spec){ POS_FACE_SERIF_ITALIC, 32 };
+        break;
     case CG_TYPE_INDEX_SMALL:
     default:
-        return &pos_font_sans_24;
+        spec = (struct pos_type_spec){ POS_FACE_SANS, 24 };
+        break;
     }
+    return pos_type_font(spec);
 }
 
 /* ---- the cache ------------------------------------------------------------------ */

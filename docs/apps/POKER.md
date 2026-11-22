@@ -31,6 +31,7 @@ this section and the older text below disagree, this section holds.
 - **Motion** (`ui/cards/cg_motion.[ch]`). Hole cards are dealt round the table from the deck (110 ms apart), the board's cards turn over from it, the hands turn over at a showdown and the pot slides to the winner, whose seat is ringed in gold. The opponents wait while the table moves. Under reduced motion (DS 12)
   nothing moves and the end state is drawn at once. One 33 ms timer exists
   only while something moves; each frame repaints only what moved.
+- **Headline** (decision 5): a hand with one winner says "Linus takes it." (or "You take it.") in Fraunces italic on the pot line.
 - **Memory.** The atlas and the cloth are freed when the game closes.
 
 ## Controls

@@ -254,9 +254,34 @@ static void table_draw(lv_event_t *e)
      * have. */
     shown = cg_motion_pose(&st->motion, KEY_RESULT, &p);
     if (shown == 1 || (shown < 0 && !cg_motion_busy(&st->motion))) {
-        draw_text(layer, &coords, open, POS_STYLE_HERO_40, text,
-                  result > 0 ? POS_COLOR_STATUS_OK : result < 0 ? POS_COLOR_TEXT_SECONDARY : POS_COLOR_TEXT_PRIMARY,
-                  shown == 1 ? p.opa : LV_OPA_COVER);
+        lv_opa_t opa = shown == 1 ? p.opa : LV_OPA_COVER;
+        const lv_font_t *head = cg_deck_font(CG_TYPE_HEADLINE);
+        int head_h = lv_font_get_line_height(head);
+
+        if (text[0] && g->outcome == BJ_PLAYER_BLACKJACK && open.h >= head_h + 48 + 8) {
+            /* A natural says so, in the one serif (decision 5), above what
+             * it paid. */
+            lv_draw_label_dsc_t dsc;
+            struct bj_rect below = open;
+            lv_area_t a = { coords.x1 + open.x, coords.y1 + open.y + open.h / 2 - head_h, coords.x1 + open.x + open.w - 1,
+                            coords.y1 + open.y + open.h / 2 - 1 };
+
+            lv_draw_label_dsc_init(&dsc);
+            dsc.font = head;
+            dsc.color = cg_table_ink(CG_INK_GOLD);
+            dsc.opa = opa;
+            dsc.align = LV_TEXT_ALIGN_CENTER;
+            dsc.text = "Blackjack";
+            lv_draw_label(layer, &dsc, &a);
+            /* The amount right under the word. */
+            below.y = open.y + open.h / 2 + 4;
+            below.h = open.h - open.h / 2 - 4 < 64 ? open.h - open.h / 2 - 4 : 64;
+            draw_text(layer, &coords, below, POS_STYLE_HERO_40, text, POS_COLOR_STATUS_OK, opa);
+        } else {
+            draw_text(layer, &coords, open, POS_STYLE_HERO_40, text,
+                      result > 0 ? POS_COLOR_STATUS_OK : result < 0 ? POS_COLOR_TEXT_SECONDARY : POS_COLOR_TEXT_PRIMARY,
+                      opa);
+        }
     }
     draw_moving(layer, &coords, st);
 }

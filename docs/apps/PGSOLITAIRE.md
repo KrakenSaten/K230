@@ -36,6 +36,7 @@ this section and the older text below disagree, this section holds.
 - **Motion** (`ui/cards/cg_motion.[ch]`). A moved card or run travels (170 ms), a drawn card turns over on its way to the waste, an uncovered card turns over, and a win lifts the four kings one after another. A new deal and the waste turned back (more cards than the runner holds) simply appear. Cards in motion draw over every pile, and the selection and cursor are gold. Under reduced motion (DS 12)
   nothing moves and the end state is drawn at once. One 33 ms timer exists
   only while something moves; each frame repaints only what moved.
+- **Headline** (decision 5): a won deal says "Solved." in Fraunces italic on the emptied tableau, once the kings have risen.
 - **Memory.** The atlas and the cloth are freed when the game closes. Measured in the simulator: about 1 MB of composed cards and 1.3 MB of cloth while open.
 
 ## Ruleset
