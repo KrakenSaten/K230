@@ -339,14 +339,16 @@ shell started.
 | `capture.stats` | event | the figures, once a second while a capture runs |
 
 **Reach.** These are on the unit's own socket, under its access controls
-(ADR-016 amendment 1, accepted 2026-11-22). Nothing passes them to a paired
-phone yet: gatewayd knows no `capture.*` name. **No method starts a
+(ADR-016 amendment 1, accepted 2026-11-22). gatewayd passes four of them on to a paired
+phone that holds the scope (`docs/api/gateway.md` section 9), and calls
+`capture.request_cancel` for itself. **No method starts a
 capture**, discards or saves one: a capture starts when a finger taps START,
 on the setup screen or on the sheet a start request raised (ADR-016 rules 1
 and 1a).
 
-**A companion is reading** (ADR-016 rule 20). For five seconds after any
-`capture.*` request the app says so beside the capture state on every one of
+**A companion is reading** (ADR-016 rule 20). For five seconds after a
+`capture.status` (reading is that method and no other: a hold, a stop, a
+start request or its cancel reads nothing) the app says so beside the capture state on every one of
 its screens: `· COMPANION` after the state in the shell's header, and
 `COMPANION ·` first in the app's own top row in the wide shape. The app
 cannot see who listens to its events, so it raises `capture.stats` **only

@@ -397,15 +397,13 @@ try:
     wait_for("a shell without PacketShark is connected to", lambda: shell.live == 1, 12)
     time.sleep(1.5)
     check("and asked nothing while nobody reads", shell.calls == [])
-    h = connect(H, fp, ["capture"])
-    d = None
-    end = time.time() + 6
-    while d is None and time.time() < end:
-        d = next((x["data"] for x in events(h, "gateway.upstream") if x["data"] == {"service": "shell", "connected": False}), None)
-        time.sleep(0.2)
-    check("a client that listens is told that nothing there answers", d is not None)
-    check("and its methods are unavailable (code 9)", err_code(h.call("capture.status")) == 9 and
+    h = connect(H, fp)
+    check("the first question is a client's own, and it listens to nothing: unavailable (code 9), not unknown",
+          err_code(h.call("capture.status")) == 9)
+    check("and so is every method after it", err_code(h.call("capture.hold", {"on": True})) == 9 and
           err_code(h.call("capture.request_start", ASK)) == 9)
+    r = h.call("gateway.subscribe", {"topics": ["capture"]}).get("result")
+    check("a client that then listens is told that nothing there answers", r is not None and r["upstream"].get("shell") is False)
     time.sleep(2.2)
     check("the shell was asked once, and not again and again", shell.calls == [("capture.status", None)])
     h.close()

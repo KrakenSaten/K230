@@ -1378,6 +1378,18 @@ static void cap_on_state(void *user, bool up)
     }
 }
 
+/* The shell answered "unknown method" to a capture.* name: this unit has no
+ * PacketShark. Learned from the first question, whoever's it was; not asked
+ * again on this connection, and its methods are unavailable (error 9). */
+static void cap_absent(void)
+{
+    if (G.cap_seen >= 0) {
+        G.cap_seen = -1;
+        LOG_INFO("the shell knows no capture.status: no PacketShark in this image");
+        cap_upstream_event(false);
+    }
+}
+
 /* The gateway asked for no events and takes none. */
 static void cap_on_event(void *user, const char *name, const cJSON *data)
 {
@@ -1438,11 +1450,8 @@ static void cap_on_reply(void *user, uint64_t tag, const cJSON *result, int code
 
         G.cap_polling = false;
         if (result == NULL) {
-            if (code == POCKETIPC_ERR_UNKNOWN_METHOD && G.cap_seen >= 0) {
-                /* This unit has no PacketShark: not asked again on this connection. */
-                G.cap_seen = -1;
-                LOG_INFO("the shell knows no capture.status: no PacketShark in this image");
-                cap_upstream_event(false);
+            if (code == POCKETIPC_ERR_UNKNOWN_METHOD) {
+                cap_absent();
             }
             return; /* a shell that does not answer in time loses the connection (gw_uplink), which is made again */
         }
@@ -1493,6 +1502,13 @@ static void cap_on_reply(void *user, uint64_t tag, const cJSON *result, int code
             if (tag == G.cap_ask_tag && G.cap.asking) {
                 cap_ask_answered(result, code, now);
             }
+            if (result == NULL && code == POCKETIPC_ERR_UNKNOWN_METHOD) {
+                /* A client's own question was the first: no PacketShark
+                 * here, which to the client is "unavailable", as it is to
+                 * every question after this one. */
+                cap_absent();
+                code = GW_ERR_UPSTREAM;
+            }
             req_done(q, filtered, result != NULL ? POCKETIPC_ERR_BACKEND : code);
             return;
         }
@@ -1522,7 +1538,9 @@ static void cap_tick(int64_t now)
             }
             gw_uplink_drop(G.shell, now);
         }
-        G.cap_late[0] = '\0';
+        /* (A cancel that is still owed, cap_cancel_later, is kept: it is
+         * sent if a client may read again within the sheet's lifetime, and
+         * expires by itself otherwise.) */
         G.cap_close_ms = 0;
         return;
     }
