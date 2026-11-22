@@ -1016,8 +1016,8 @@ const char *psk_diag_confidence(const struct psk_model *m, unsigned kind, char *
     o = (size_t)snprintf(buf, buflen, "What %s saw in %s, judged as it passed: heuristics, not proof.", iface,
                          psk_fmt_elapsed(m->c.elapsed_ms, t, sizeof(t)));
     if (drops && o < buflen) {
-        o += (size_t)snprintf(buf + o, buflen - o, " The kernel dropped %s packets: a missing answer may be one of them.",
-                              psk_fmt_count(drops, n, sizeof(n)));
+        o += (size_t)snprintf(buf + o, buflen - o, " The kernel dropped %s %s: a missing answer may be one of them.",
+                              psk_fmt_count(drops, n, sizeof(n)), drops == 1 ? "packet" : "packets");
     }
     if (d->blinded && o < buflen) {
         o += (size_t)snprintf(buf + o, buflen - o,

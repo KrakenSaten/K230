@@ -467,23 +467,51 @@ static void fit_protocols(struct psk_app *a)
     }
 }
 
+/* Shown: neither it nor anything holding it hidden (another tab's page). */
+static bool shown_obj(lv_obj_t *o)
+{
+    for (; o; o = lv_obj_get_parent(o)) {
+        if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The text size changed (the theme restyles the panel): the fits again at
+ * the next poll, whether or not the capture has anything new to paint. */
+static void on_fit_style(lv_event_t *e)
+{
+    struct psk_app *a = lv_event_get_user_data(e);
+
+    a->fit_due = true;
+}
+
 void psk_live_fit(struct psk_app *a)
 {
     static const char *const session[4] = { FIT_COUNT, FIT_BYTES, FIT_COUNT, "100%" };
     static const char *const last[4] = { FIT_COUNT, FIT_BYTES, FIT_COUNT, "NO" };
-    bool live = !lv_obj_has_flag(a->live, LV_OBJ_FLAG_HIDDEN);
-    bool error = !lv_obj_has_flag(a->error, LV_OBJ_FLAG_HIDDEN);
+    bool live = shown_obj(a->live);
+    bool error = shown_obj(a->error);
 
     if (!live && !error) {
+        /* Measured where it is seen. LIVE or ERROR is the view, but on a
+         * tab not shown: whatever asked for this fit (a change the capture
+         * will not repeat once it has ended) is kept due for when it is. */
+        if (!lv_obj_has_flag(a->live, LV_OBJ_FLAG_HIDDEN) || !lv_obj_has_flag(a->error, LV_OBJ_FLAG_HIDDEN)) {
+            a->fit_due = true;
+        }
         return;
     }
-    /* A part shown for the first time has not been laid out yet: lay out
-     * now (the poll timer calls this, outside a layout pass), so its first
-     * frame already has its shape. */
-    if ((live && lv_obj_get_content_width(a->proto_cell[0]) <= 0) ||
+    /* A part shown for the first time has not been laid out yet, and one
+     * whose shape, text size or tab has just changed has not been laid out
+     * again: lay out now (the poll timer calls this, outside a layout pass),
+     * so the fits measure what will be drawn. */
+    if (a->fit_due || (live && lv_obj_get_content_width(a->proto_cell[0]) <= 0) ||
         (error && lv_obj_get_content_width(lv_obj_get_parent(a->last[0])) <= 0)) {
         lv_obj_update_layout(a->frame);
     }
+    a->fit_due = false;
     if (live) {
         fit_cells(a->cell, session, &a->cells_two_by_two);
         fit_protocols(a);
@@ -1003,6 +1031,7 @@ static void build_signals(struct psk_app *a, lv_obj_t *parent)
     unsigned i;
 
     a->signals = p;
+    lv_obj_add_event_cb(p, on_fit_style, LV_EVENT_STYLE_CHANGED, a);
     lv_obj_set_style_pad_hor(p, 14, 0);
     lv_obj_set_style_pad_top(p, 22, 0);
     lv_obj_set_style_pad_bottom(p, 14, 0);

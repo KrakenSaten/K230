@@ -380,6 +380,16 @@ int main(void)
             psk_diag_confidence(&M, PSK_DIAG_TCP, note, sizeof(note));
             found = found && strstr(note, "2 connections were forgotten.") && strstr(note, " 9 connections followed now.");
             check("the confidence note counts one in the singular (Unit B, 2026-11-18: '1 queries were let go')", found);
+            M.c.kdrop = 1;
+            M.c.ifdrop = 0;
+            psk_diag_confidence(&M, PSK_DIAG_DNS, note, sizeof(note));
+            found = strstr(note, " The kernel dropped 1 packet: ") != NULL;
+            M.c.kdrop = 2;
+            M.c.ifdrop = 1;
+            psk_diag_confidence(&M, PSK_DIAG_DNS, note, sizeof(note));
+            found = found && strstr(note, " The kernel dropped 3 packets: ") != NULL;
+            M.c.kdrop = M.c.ifdrop = 0;
+            check("and one dropped packet is a packet", found);
         }
     }
 
