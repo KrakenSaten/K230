@@ -582,6 +582,53 @@ int main(void)
         }
     }
 
+    /* ---- a probe replaced while its answer is still on its way --------------------- */
+    memset(&script, 0, sizeof(script));
+    script.probe_address = "192.168.1.41";
+    script.probe_key = BOB;
+    script.probe_reply_delay_ms = 1500;
+    script.log = LOG;
+    script.life_ms = 60000;
+    remove(LOG);
+    pid = fake_peerd_spawn(&script);
+    if (pid > 0 && fake_peerd_wait_ready(&script, WAIT_MS)) {
+        l = fleet_link_peer_open(NULL);
+        spin(l, WAIT_MS, is_up);
+        until_logged(l, "peer.set_visible|{\"visible\":true}", 1);
+        /* Nobody is at the first address; Bob is at the second. peerd's
+         * answer to the first question arrives after the second was asked,
+         * and long enough before the second's own answer that the link has
+         * read peerd's list in between: taken for the second's, it would
+         * name a probe that list does not hold, and "no answer" would stand. */
+        check("an address is asked", fleet_link_peer_probe(l, "192.168.1.99") == 0);
+        until_logged(l, "peer.probe|{\"address\":\"192.168.1.99\"}", 1);
+        {
+            int64_t asked = now_ms();
+
+            spin(l, 500, NULL);
+            check("and replaced before peerd has answered",
+                  fleet_link_peer_probe(l, "192.168.1.41") == 0 &&
+                  fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_PENDING);
+            /* peerd answers the first 1.5 s after it was asked. Had this
+             * machine been too slow to replace it in time, what follows
+             * would prove nothing: say so rather than pass. */
+            check("with the first answer still more than half a second away",
+                  now_ms() - asked < 1000);
+        }
+        probe_want = FLEET_PEER_PROBE_ANSWERED;
+        check("the late answer to the first is not taken for the second's: Bob answers",
+              spin(l, WAIT_MS, probe_is) && fleet_link_peer_probe_key(l, who) == 0 &&
+              memcmp(who, bob, FLEET_KEY_BYTES) == 0);
+        spin(l, 900, NULL);
+        check("and it stays answered", fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_ANSWERED);
+        l->ops->close(l->ctx);
+    } else {
+        check("a peerd that answers probes late starts", 0);
+    }
+    if (pid > 0) {
+        fake_peerd_stop(&script, pid);
+    }
+
     /* ---- closing: who is let go, and who is not ------------------------------------ */
     memset(&script, 0, sizeof(script));
     script.log = LOG;

@@ -48,6 +48,7 @@
 /tests/fleet_link_peer_test
 /tests/fleet_link_peer_real
 /tests/fake-peerd
+/tests/fleet_lan_player
 /tests/fleet_mp_player
 /tests/radar_rng_test
 /tests/radar_types_test
