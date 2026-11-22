@@ -269,12 +269,12 @@ try:
     check("invalid parameters are code 2, each of them", all(err_code(a.call(m, p)) == 2 for m, p in bad))
     check("and none reached meshcored", len(mesh.calls) == n0)
     time.sleep(1.5)  # the request budget (40, then 20 a second) is not what is under test
-    gone = ["mesh.send", "mesh.resend", "mesh.messages", "mesh.subscribe", "mesh.unsubscribe", "mesh.info",
+    gone = ["mesh.messages", "mesh.subscribe", "mesh.unsubscribe", "mesh.info",
             "mesh.channel", "mesh.channel_add", "mesh.channel_remove", "mesh.set_name", "mesh.node_remove",
             "mesh.node_reset_path", "mesh.advert", "mesh.discover", "mesh.discovered", "mesh.remote_login",
             "mesh.remote_session", "mesh.app_send", "mesh.app_inbox", "mesh.path_hash", "mesh.set_path_hash",
             "capture.status"]
-    check("sending, changing and everything unapproved does not exist (code 1)",
+    check("changing and everything unapproved does not exist (code 1); sending has its own suite",
           all(err_code(a.call(m, {"to": K1, "text": "x", "client_msg_id": "0123456789abcdef"})) == 1 for m in gone))
     check("and none reached meshcored", len(mesh.calls) == n0)
 

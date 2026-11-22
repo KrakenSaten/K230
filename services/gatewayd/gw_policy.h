@@ -45,6 +45,8 @@ enum gw_kind {
     GW_K_MESH,          /* passed to meshcored without blocking the loop */
     GW_K_NODES,         /* mesh.nodes: one upstream list, answered in pages */
     GW_K_SYNC,          /* mesh.sync: answered from the journal */
+    GW_K_SEND,          /* mesh.send: at most once per client_msg_id (gw_send.h) */
+    GW_K_RESEND,        /* mesh.resend: the same, as meshcored's mesh.send {resend} */
 };
 
 /* The topics of gateway.subscribe this build serves (docs/api/gateway.md

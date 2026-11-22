@@ -188,7 +188,7 @@ try:
     h = a.hello()["result"]
     check("hello: protocol 1, paired, this unit", h["proto"] == 1 and h["paired"] is True and h["device_id"] == device_id)
     check("hello: the scopes granted on the unit", h["scopes"] == ["status"])
-    check("hello: capabilities of this build", h["capabilities"] == ["status", "mesh", "mesh.activity"])
+    check("hello: capabilities of this build", h["capabilities"] == ["status", "mesh", "mesh.activity", "mesh.send"])
     check("hello: clock facts and limits", "boot_id" in h and "clock_set" in h and h["limits"]["frame_in"] == 65536)
     check("a second hello is refused", err_code(a.call("gateway.hello", {"proto_min": 1, "proto_max": 1, "app": "e", "app_version": "0"})) == 3)
     a.close()
@@ -218,9 +218,11 @@ try:
     check("no LEAK anywhere", all("LEAK" not in json.dumps(a.call(m)) for m in ("system.status", "wifi.status", "radio.status", "mesh.status")))
     check("params on a status method are code 2", err_code(a.call("system.status", {"x": 1})) == 2)
     calls_before = len(sysd.calls)
-    for m in ("system.reboot", "system.poweroff", "shell.key", "shell.open", "mesh.send", "mesh.channel_add", "wifi.connect",
+    for m in ("system.reboot", "system.poweroff", "shell.key", "shell.open", "mesh.app_send", "mesh.channel_add", "wifi.connect",
               "radio.send", "storage.expand", "gateway.pair", "gateway.pair_begin", "gateway.revoke", "nonsense", "system.logs"):
         check("%s does not exist for a client (code 1)" % m, err_code(a.call(m, {})) == 1)
+    check("mesh.send exists since M4.2 and is not permitted without its scope (code 7)",
+          err_code(a.call("mesh.send", {})) == 7 and err_code(a.call("mesh.resend", {})) == 7)
     check("none of them reached a service", len(sysd.calls) == calls_before)
     check("no client parameter is ever passed upstream", all(p is None for _, p in sysd.calls + netd.calls + radiod.calls + meshd.calls))
     check("only allowlisted methods were called upstream",

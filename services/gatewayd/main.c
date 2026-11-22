@@ -42,6 +42,7 @@
 #include "gw_journal.h"
 #include "gw_pair.h"
 #include "gw_policy.h"
+#include "gw_send.h"
 #include "gw_store.h"
 #include "gw_tls.h"
 #include "gw_uplink.h"
@@ -173,6 +174,10 @@ static struct {
     bool nodes_fetching;
     uint64_t next_tag;
     struct mesh_req req[GW_MESH_PENDING];
+    /* Sending (M4.2). */
+    struct gw_send send;
+    double mesh_max_id;             /* the highest message id of this run seen so far */
+    uint64_t mesh_conn;             /* counts the connections to meshcored */
 } G;
 
 static volatile sig_atomic_t g_stop;
@@ -856,10 +861,13 @@ static void mesh_upstream_event(bool connected)
  * into the journal, and - when that was news - to the clients. */
 static void mesh_message(const cJSON *message)
 {
-    const cJSON *kept = NULL;
+    const cJSON *kept = NULL, *mid = cJSON_GetObjectItemCaseSensitive(message, "id");
     uint64_t seq = gw_journal_put(&G.journal, gw_filter_message(message), &kept);
     cJSON *d, *copy;
 
+    if (cJSON_IsNumber(mid) && mid->valuedouble > G.mesh_max_id && mid->valuedouble <= GW_MSG_ID_MAX) {
+        G.mesh_max_id = mid->valuedouble; /* what a send that follows is told apart from */
+    }
     if (seq == 0 || !topic_held(GW_T_MESH)) {
         return;
     }
@@ -933,6 +941,7 @@ static void mesh_on_state(void *user, bool up)
 
     (void)user;
     if (up) {
+        G.mesh_conn++;
         memset(&e, 0, sizeof(e));
         e.events = EPOLLIN;
         e.data.u64 = MESH_EPOLL_ID;
@@ -1039,6 +1048,8 @@ static void nodes_done(const cJSON *result, int code)
     (void)nodes_serve(code);
 }
 
+static bool send_on_reply(uint64_t tag, const cJSON *result, int code);
+
 static void mesh_on_reply(void *user, uint64_t tag, const cJSON *result, int code)
 {
     int64_t now = mono_ms();
@@ -1058,6 +1069,7 @@ static void mesh_on_reply(void *user, uint64_t tag, const cJSON *result, int cod
         if (changed == 1) {
             /* Another run of meshcored: its message ids start again. */
             G.journal_filled = false;
+            G.mesh_max_id = 0;
             nodes_drop();
             if (i) {
                 LOG_INFO("meshcored started again: the journal starts again with it");
@@ -1100,6 +1112,9 @@ static void mesh_on_reply(void *user, uint64_t tag, const cJSON *result, int cod
         return;
     default:
         break;
+    }
+    if (send_on_reply(tag, result, code)) {
+        return;
     }
     for (i = 0; i < GW_MESH_PENDING; i++) {
         struct mesh_req *q = &G.req[i];
@@ -1291,6 +1306,224 @@ static bool do_sync(struct sess *s, const cJSON *id, const cJSON *params)
     return sess_send(s, pocketipc_response(id, r));
 }
 
+/* ---- the mesh: sending (docs/api/gateway.md §8; gw_send.h) -------------- */
+
+static bool send_paired(const uint8_t fp[GW_FP_LEN])
+{
+    return gw_store_find(&G.store, fp) >= 0;
+}
+
+/* Answers the request that waits for a send, if its session is still
+ * there; result is taken. The record has the outcome either way. */
+static void send_answer(uint64_t sid, double rid, cJSON *result, int code, const char *message)
+{
+    struct sess *s = sess_by_id(sid);
+    cJSON *idn;
+
+    if (s == NULL || s->st != S_OPEN) {
+        cJSON_Delete(result);
+        return;
+    }
+    if (s->inflight > 0) {
+        s->inflight--;
+    }
+    s->resume = true;
+    idn = cJSON_CreateNumber(rid);
+    if (s->closing || idn == NULL) {
+        cJSON_Delete(result);
+    } else if (result != NULL) {
+        (void)sess_send(s, pocketipc_response(idn, result));
+    } else {
+        (void)reply_error(s, idn, code, message);
+    }
+    cJSON_Delete(idn);
+}
+
+/* Passes one record's message to meshcored; up is taken. False when it did
+ * not leave the gateway. */
+static bool send_forward(struct gw_send_rec *r, cJSON *up)
+{
+    r->tag = TAG_CLIENT + G.next_tag++;
+    r->conn = G.mesh_conn;
+    return up != NULL && gw_uplink_call(G.mesh, "mesh.send", up, r->tag, mono_ms(), GW_MESH_CALL_MS) == 0;
+}
+
+/* meshcored's answer to a request made for a send: to the send itself, or
+ * to the list asked for because an earlier answer never came. False when
+ * the tag is not a send's. */
+static bool send_on_reply(uint64_t tag, const cJSON *result, int code)
+{
+    struct gw_send_client *c = NULL;
+    struct gw_send_rec *r = gw_send_by_tag(&G.send, tag, &c);
+    uint64_t sid;
+    double rid;
+    bool dup;
+    cJSON *up;
+    int idx;
+
+    if (r == NULL) {
+        return false;
+    }
+    sid = r->sid;
+    rid = r->rid;
+    dup = r->dup;
+    r->sid = 0;
+    if (r->state == GW_SS_PENDING) {
+        switch (gw_send_answered(r, result, code)) {
+        case GW_SO_DONE:
+            /* Without memory for the answer: not a code that says "refused". */
+            send_answer(sid, rid, gw_send_result(r, dup), GW_ERR_UPSTREAM, "upstream unavailable");
+            break;
+        case GW_SO_REFUSED:
+            /* The upstream's own words stay on the unit. */
+            send_answer(sid, rid, NULL, code, "upstream error");
+            break;
+        case GW_SO_UNCERTAIN:
+            LOG_WARN("a send got no answer from meshcored: its outcome is not known");
+            send_answer(sid, rid, NULL, GW_ERR_UPSTREAM, "upstream unavailable");
+            break;
+        default:
+            LOG_WARN("meshcored answered a send in a way that says nothing: it is not sent again");
+            send_answer(sid, rid, NULL, POCKETIPC_ERR_POLICY, "outcome unknown");
+            break;
+        }
+        return true;
+    }
+    /* RESOLVING: the list that says whether the earlier attempt was taken. */
+    if (result == NULL) {
+        gw_send_unresolved(r);
+        send_answer(sid, rid, NULL, GW_ERR_UPSTREAM, "upstream unavailable");
+        return true;
+    }
+    switch (gw_send_looked(&G.send, r, cJSON_GetObjectItemCaseSensitive(result, "messages"))) {
+    case GW_SL_FOUND:
+        send_answer(sid, rid, gw_send_result(r, true), GW_ERR_UPSTREAM, "upstream unavailable");
+        return true;
+    case GW_SL_UNKNOWN:
+        send_answer(sid, rid, NULL, POCKETIPC_ERR_POLICY, "outcome unknown");
+        return true;
+    default:
+        break;
+    }
+    /* Not in the list. That is proof only when the list came over the very
+     * connection the message was passed on: there meshcored reads the
+     * request before the question. On a connection made since, a request
+     * still unread in the old one could be taken after this answer. */
+    if (r->conn != G.mesh_conn) {
+        r->state = GW_SS_UNKNOWN;
+        cJSON_Delete(r->up);
+        r->up = NULL;
+        LOG_WARN("a send got no answer and the connection to meshcored is another since: it is not sent again");
+        send_answer(sid, rid, NULL, POCKETIPC_ERR_POLICY, "outcome unknown");
+        return true;
+    }
+    /* Proven not taken, so it is sent now - if the client may still send
+     * and meshcored is still the run that was asked. */
+    idx = gw_store_find(&G.store, c->fp);
+    if (idx < 0 || (G.store.c[idx].scopes & GW_S_MESH_SEND) == 0) {
+        gw_send_unresolved(r);
+        send_answer(sid, rid, NULL, GW_ERR_FORBIDDEN, "not permitted");
+        return true;
+    }
+    up = r->up;
+    r->up = NULL;
+    if (!G.mesh_ready || strcmp(r->run_id, G.journal.run_id) != 0) {
+        cJSON_Delete(up);
+        up = NULL;
+    }
+    r->state = GW_SS_PENDING;
+    r->id_before = G.mesh_max_id;
+    if (up == NULL || !send_forward(r, up)) {
+        gw_send_unresolved(r);
+        send_answer(sid, rid, NULL, GW_ERR_UPSTREAM, "upstream unavailable");
+        return true;
+    }
+    LOG_INFO("a send whose answer never came was not with meshcored: passed on again");
+    r->sid = sid;
+    r->rid = rid;
+    r->dup = false;
+    return true;
+}
+
+/* mesh.send and mesh.resend (scope mesh_send). One client_msg_id is passed
+ * to meshcored at most once unless meshcored's own list proves that it did
+ * not take it. */
+static bool do_send(struct sess *s, const cJSON *id, const struct gw_method *m, const cJSON *params)
+{
+    struct gw_send_client *c;
+    struct gw_send_rec *r = NULL;
+    struct gw_send_req q;
+    const cJSON *att;
+    struct sess *w;
+    cJSON *res, *up;
+
+    if (gw_send_parse(params, m->kind == GW_K_RESEND, &q) != 0) {
+        return reply_error(s, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+    }
+    c = gw_send_client(&G.send, s->fp, send_paired);
+    if (c == NULL) {
+        return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+    }
+    switch (gw_send_begin(c, &q, G.mesh_ready ? G.journal.run_id : NULL, G.mesh_max_id, mono_ms(), &r)) {
+    case GW_SA_REPLY:
+        /* Answered from the record, also while meshcored is away. */
+        res = gw_send_result(r, true);
+        return res != NULL ? sess_send(s, pocketipc_response(id, res))
+                           : reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    case GW_SA_MISMATCH:
+        return reply_error(s, id, POCKETIPC_ERR_INVALID_PARAMS, "client_msg_id was used for another message");
+    case GW_SA_UNKNOWN:
+        return reply_error(s, id, POCKETIPC_ERR_POLICY, "outcome unknown");
+    case GW_SA_STALE_RUN:
+        return reply_error(s, id, POCKETIPC_ERR_POLICY, "not a message of this run");
+    case GW_SA_RATE:
+        return reply_error(s, id, GW_ERR_RATE, "rate limited");
+    case GW_SA_BUSY:
+        return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+    case GW_SA_UNAVAILABLE:
+        return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    case GW_SA_IN_PROGRESS:
+        w = sess_by_id(r->sid);
+        if (w != NULL && w->st == S_OPEN && !w->closing) {
+            return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+        }
+        /* The connection that asked is gone (PAIRING.md §7): this request
+         * takes its place and gets the answer when it comes. */
+        r->sid = s->id;
+        r->rid = id->valuedouble;
+        r->dup = true;
+        s->inflight++;
+        return true;
+    case GW_SA_LOOKUP:
+        up = gw_send_upstream(&q, params);
+        r->tag = TAG_CLIENT + G.next_tag++;
+        if (up == NULL || gw_uplink_call(G.mesh, "mesh.messages", NULL, r->tag, mono_ms(), GW_MESH_CALL_MS) != 0) {
+            cJSON_Delete(up);
+            gw_send_unresolved(r);
+            return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+        }
+        r->up = up;
+        break;
+    default: /* GW_SA_FORWARD */
+        if (q.resend) {
+            att = cJSON_GetObjectItemCaseSensitive(gw_journal_find(&G.journal, q.message_id), "attempts");
+            if (cJSON_IsNumber(att) && att->valuedouble >= 0) {
+                r->attempts_before = att->valuedouble;
+            }
+        }
+        if (!send_forward(r, gw_send_upstream(&q, params))) {
+            gw_send_release(r); /* it never left: the id is free to be tried again */
+            return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+        }
+        break;
+    }
+    r->sid = s->id;
+    r->rid = id->valuedouble;
+    r->dup = false;
+    s->inflight++;
+    return true;
+}
+
 /* ---- requests from clients ---------------------------------------------- */
 
 static cJSON *hello_result(const struct sess *s, unsigned scopes)
@@ -1320,17 +1553,19 @@ static cJSON *hello_result(const struct sess *s, unsigned scopes)
     cJSON_AddStringToObject(r, "build", pocketlog_build_id());
     cJSON_AddItemToObject(r, "scopes", gw_scopes_json(scopes));
     /* What this build serves. A client shows a feature only when its
-     * capability is here (and its scope allows it); sending and capture
-     * arrive with their milestones. */
+     * capability is here (and its scope allows it); capture arrives with
+     * its milestone. */
     cJSON_AddItemToArray(caps, cJSON_CreateString("status"));
     cJSON_AddItemToArray(caps, cJSON_CreateString("mesh"));
     cJSON_AddItemToArray(caps, cJSON_CreateString("mesh.activity"));
+    cJSON_AddItemToArray(caps, cJSON_CreateString("mesh.send"));
     cJSON_AddItemToObject(r, "capabilities", caps);
     cJSON_AddNumberToObject(r, "wall_ms", (double)w * 1000.0);
     cJSON_AddBoolToObject(r, "clock_set", w > WALL_SET_AFTER);
     cJSON_AddStringToObject(r, "boot_id", G.boot_id);
     cJSON_AddNumberToObject(limits, "frame_in", GW_FRAME_IN_MAX);
     cJSON_AddNumberToObject(limits, "frame_out", GW_FRAME_OUT_MAX);
+    cJSON_AddNumberToObject(limits, "send_per_min", GW_SEND_PER_MIN);
     cJSON_AddItemToObject(r, "limits", limits);
     return r;
 }
@@ -1517,6 +1752,10 @@ static bool sess_request(struct sess *s, const uint8_t *p, size_t n)
                 break;
             case GW_K_SYNC:
                 alive = do_sync(s, id, params);
+                break;
+            case GW_K_SEND:
+            case GW_K_RESEND:
+                alive = do_send(s, id, m, params);
                 break;
             default:
                 alive = reply_error(s, id, POCKETIPC_ERR_UNKNOWN_METHOD, "unknown method");
@@ -2186,6 +2425,7 @@ int main(int argc, char **argv)
     /* The journal is this run's: a new journal_id tells a client that the
      * cursor it kept means nothing any more. */
     gw_feed_init(&G.feed);
+    gw_send_init(&G.send);
     G.mesh = gw_uplink_new("meshcored", &mesh_cb, NULL);
     if (gw_tls_random(jrnd, sizeof(jrnd)) != 0) {
         LOG_ERROR("no random source");
@@ -2264,6 +2504,7 @@ int main(int argc, char **argv)
     (void)gw_pair_cancel(&G.pair);
     gw_uplink_free(G.mesh);
     gw_journal_free(&G.journal);
+    gw_send_free(&G.send);
     gw_feed_reset(&G.feed);
     nodes_forget();
     pocketipc_server_free(G.ctl);

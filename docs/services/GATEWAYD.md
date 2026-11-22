@@ -1,4 +1,4 @@
-# gatewayd: the Companion Gateway (M2 core, M4.1 mesh reading)
+# gatewayd: the Companion Gateway (M2 core, M4.1 mesh reading, M4.2 sending)
 
 Status: **host-tested and cross-built only.** Built by name (`make gatewayd`), not in `make all`, not in any image, not in the rootfs overlay. **No part of it has run on a K230, and no phone app exists yet.** Design: `docs/decisions/ADR-019-companion-gateway.md` (accepted 2026-11-21); protocol: `docs/api/gateway.md`; pairing: `docs/design/companion/PAIRING.md`.
 
@@ -41,7 +41,33 @@ Served to a paired client with the `mesh_read` scope: `mesh.identity`, `mesh.nod
 | Rows, filters, parameters, topics | `gw_policy.c` | Seven table rows; every result and event reduced to named fields; every parameter checked and written again |
 | The mesh section | `main.c` | meshcored's events into the journal and to subscribers; requests without waiting; the limit of 8 waiting requests per client |
 
-**Still not served** (each "unknown method"): sending (`mesh.send`, `mesh.resend`, scope `mesh_send`), the capture group (ADR-016 amendment 1 is still proposed), and the topics `device` and `capture`, which a subscription leaves out.
+**Still not served** (each "unknown method"): the capture group (ADR-016 amendment 1 is still proposed), and the topics `device` and `capture`, which a subscription leaves out.
+
+## What M4.2 adds: sending
+
+Served to a paired client with the `mesh_send` scope: `mesh.send` (to a node, with or without a route, or to a channel) and `mesh.resend`. `capabilities` gains `mesh.send`; `gateway.hello` names `limits.send_per_min`. The wire details and every rule below are `docs/api/gateway.md` §8.
+
+| Part | File | What it does |
+| --- | --- | --- |
+| The request, the records, the rate | `gw_send.c` | Checks what a client asks to have sent and writes it again for meshcored; keeps per paired client its last 64 `client_msg_id` values with what became of them, and the times of its last 20 sends. Pure, memory only, clock passed in |
+| Two table rows | `gw_policy.c` | `mesh.send` and `mesh.resend`, by `mesh_send` only |
+| The send section | `main.c` | Passes a message to meshcored in one place (`send_forward`); records meshcored's answer whether or not the session that asked is still there; asks for `mesh.messages` before a send whose answer never came is passed on a second time |
+
+One `client_msg_id` reaches meshcored as `mesh.send` once. It reaches it a second time only when meshcored's own list has proven that it did not take the first (§8 says what counts as proof); when that cannot be proven the answer is "outcome unknown" and the id is never sent again. What decides this is in `gw_send.h`, as states of a record:
+
+| State | Meaning | A repeat of the id |
+| --- | --- | --- |
+| pending | meshcored was asked, no answer yet | code 5, or takes the place of a requester that is gone |
+| done | meshcored accepted it | answered from the record, `duplicate: true` |
+| (no record) | meshcored refused it with an error of its own, or the request never left the gateway | sent as new |
+| uncertain | no answer in 2 s, or the connection to meshcored was lost | `mesh.messages` first: found, proven absent (then sent), or unknown |
+| unknown | cannot be found out: meshcored started again, the connection to it was made anew since the message was passed on, or its list proves nothing | code 3, never sent again |
+
+In practice an unanswered send ends as "found" or "unknown": the gateway gives its connection to meshcored up when meshcored sends nothing at all for 2 s, and after that nothing is proven absent. "Proven absent, then sent" needs a meshcored that went on talking and did not answer that one request.
+
+Delivery states need nothing new: the message meshcored makes for a send arrives as `mesh.message` events and in `mesh.sync` like every other (M4.1), under the `message_id` and `run_id` of the answer.
+
+A send is logged as an event without its content: the log says that a send got no answer, or that it was passed on again after a lookup; never a text, a key or an id.
 
 How it behaves:
 
@@ -67,6 +93,8 @@ Never by default. Every one of these must hold, and each is re-evaluated when it
 Losing any of them closes the listener and every session. It binds that one address, never the wildcard, and closes connections from any other kind of source address before TLS.
 
 **The password gate reads only whether root has a password hash.** Root's entry in `/etc/passwd` must hold a hash itself, or say `x` with a hash in `/etc/shadow`. An empty field in either place, a locked field (`!`, `*`, or a hash behind `!`) and an unreadable file all count as no password; an empty field in `/etc/passwd` counts as none whatever the shadow file holds. Doors has no way to set a device password yet (open item U7): on the bench it is `passwd` on a root console.
+
+**Setting that password opens root SSH by password on a stock image.** The 0.4.0 image runs OpenSSH on `0.0.0.0:22` and `[::]:22` with `PermitRootLogin yes` and `PasswordAuthentication yes`, and the empty root password it ships with is what keeps that login shut. Meeting the password gate on such a unit therefore makes root reachable over SSH with that password from the LAN and from any global IPv6 address. Before enabling the gateway on a unit, set `PermitRootLogin prohibit-password` in `/etc/ssh/sshd_config` and restart sshd; image integration and the device-password flow (U7) must ship that setting (or stronger). VERIFIED in M5 on Unit A, 2026-11-21: with the line changed, root's real password was refused over IPv4; a refusal over IPv6 was not observed (the attempt ended before authentication).
 
 ## Trust
 
@@ -94,11 +122,14 @@ The local socket is root-only, so these are actions on the unit. The token is in
 ```sh
 doors call gatewayd gateway.pair_begin        # prints the doors-pair: URI; 120 s
 # the phone connects and presents the token; then, on the unit:
-doors call gatewayd gateway.subscribe         # (a client that stays connected sees gateway.candidate)
 doors call gatewayd gateway.pair_decide allow=true
-doors call gatewayd gateway.clients
+doors call gatewayd gateway.clients           # compare the new fingerprint with the phone
 doors call gatewayd gateway.revoke client=<64 hex>
 ```
+
+**The candidate's fingerprint is not shown before the decision on the bench.** The service announces a candidate only as the `gateway.candidate` event, which a client subscribed with `gateway.subscribe` that stays connected receives. `doors call` sends one request and exits, so it never sees the event, and `gateway.status` does not carry the candidate. On the bench the decision therefore rests on the 120 s window, a single candidate and the one-time token. Check it straight after `pair_decide`: the fingerprint `gateway.clients` lists for the new client must match "This phone's key" on the phone's pairing screen; if it does not, revoke that client. Showing the candidate before the tap is the Settings page's job (`docs/design/companion/PAIRING.md`). VERIFIED in M5 on Unit A, 2026-11-21.
+
+Read `device_id` from `gateway.status` immediately before opening a window when it is compared by hand with the phone's view of the unit: removing the state directory gives the unit a new key on the next start (M5 compared against a stale value this way; the QR carried the correct key).
 
 `gateway.pair_decide` takes `scopes` as an array, which `doors call` cannot express; without it a client gets `status`, `mesh_read`, `mesh_send`. The Settings page is the real client of this API (`docs/design/companion/CONTRACTS.md` §3).
 
@@ -120,6 +151,7 @@ The service runs at nice 5, and does not start at all unless every capability wa
 make gatewayd            # services/gatewayd/gatewayd; needs OpenSSL 3 and cJSON
 make gatewayd-test       # unit suites (plain, ASan/UBSan), fuzzer, the real service
                          # against TLS clients (plain, ASan/UBSan), the lint
+make gatewayd-send-test  # the sending suite alone (gatewayd-mesh-test: the reading suite)
 make CC=riscv64-unknown-linux-gnu-gcc gatewayd      # with the SDK's host/bin on PATH
 make ENABLE_GATEWAYD=1 install                      # also installs it and S70gatewayd
 ```
@@ -135,6 +167,10 @@ Classes as in AGENTS.md. Measured 2026-11-21 on the build host (x86-64, WSL Ubun
 | Pure modules, identity handling: 1544 checks (528 of M2; M4.1 adds the mesh rows, filters, parameters and topics, the journal and its cursor, the event bounds) | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_unit_test.c`) |
 | Frame reader, request parser, paired-list loader, gate, and since M4.1 the mesh parameter checks, filters, feed and journal: 200,000 fuzzed inputs, no fault | VERIFIED host, ASan/UBSan (`tests/gatewayd_fuzz.c`). **Not fuzzed:** `gw_uplink.c` (its reader is pocketipc's) |
 | **M4.1.** The real service between a fake meshcored and TLS clients: not read while nobody holds `mesh_read`; what meshcored is asked for and in which order; the scope on every method and topic; filters; parameters; pages of `mesh.nodes`; every event and what is not passed on; the journal, its cursor, a repeated event; meshcored lost and back in the same run and in a new one; the ring wrapping; a meshcored that does not answer (given up and taken up again) and the limit of waiting requests; a client that does not read; five large answers pipelined; a meshcored that answers wrongly; a scope taken away and a client revoked mid-request; log contents: 90 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_mesh_e2e_test.py`) |
+| **M4.2.** `gw_send.c`: the request checks, every state of a record, the absence proof, the rate window, eviction (unit suite now 3065 checks in all); its parser and records in the fuzz run | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_send_unit.inc`, `tests/gatewayd_fuzz.c`) |
+| **M4.2.** The real service between a fake meshcored and TLS clients, counting what the fake was made to transmit: the scope on its own; request checks; direct, routed and channel messages; delivery states as events and in `mesh.sync`; repeats from the record; meshcored refusing; an answer lost with the message taken, and not taken; the connection to meshcored given up meanwhile (never sent again); a client gone while a send waits; a second connection taking the first one's place; a scope taken away during the lookup; meshcored away and back as another run; resend in the same cases; the rate limit per client; log contents: 73 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_send_e2e_test.py`) |
+| **M4.2.** That the real meshcored reads a connection's requests in order, records an outgoing message the moment it accepts it, hands out ids in order, keeps 64 messages of each kind and loses the oldest first, and sends nothing when it answers with an error | DOCUMENTED (read in `services/meshcored/api.c`, `mesh_runtime.cpp`, `core/pocketipc/server.c`; the ring sizes are held by the lint). Not run against |
+| **M4.2.** A message actually on the air, and a phone as the client | **not tested** |
 | **M4.1.** The real meshcored | **not tested**: the suite's meshcored is a fake written from `docs/api/mesh.md` and `services/meshcored/api.c`. That the real service's results and events have the documented shape, that it writes an event before the answer to a later request, and its 200 ms backpressure rule against this client are ASSUMED |
 | The real service against TLS clients: gate, closed until asked, pairing, failed handshakes (no certificate, TLS 1.2, RSA, P-384, unknown key, two certificates, plaintext), no resumption, scopes, revocation, malformed and oversized frames, limits, upstream failures, restart, damaged and missing state, log contents: 190 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_e2e_test.py`) |
 | The fingerprint equals the SHA-256 of the SubjectPublicKeyInfo as the `openssl` tool writes it | VERIFIED host (unit and service suites) |
@@ -188,6 +224,40 @@ Fixed before the commit:
 Left as they are, and listed under the limits below: no `gap` when more messages were missed during a lost connection than meshcored still holds; a held `mesh.node` that came due while the only subscriber was behind is not sent later; the places for waiting requests outlive a session that left for up to 2 s; the types of result fields are not checked, only their names; a possible short busy turn when TLS wants to read during a write while a client is at its limit of waiting requests (bounded by 2 s, not reproduced).
 
 The reviewer could not assess, and nobody has: anything at run time on a unit; whether a phone can send faster than the one hart processes; the real meshcored's ordering of events and answers; OpenSSL's behaviour on a key update.
+
+## Independent review of M4.2 (2026-11-21)
+
+A second reviewer, given the change and the specification and not the author's conclusions, read `gw_send.c`, the send section of `main.c`, `gw_uplink.c`, meshcored's send path and pocketipc's server loop for duplicate transmissions, authorization and the correctness of answers and delivery states. It built and ran nothing.
+
+**No certain duplicate transmission and no authorization fault was found.** Sound as read: the scope on every request and again before a message is passed on after a lookup; records and rate window per client key; one answer per request and the count of waiting requests on every path; nothing a client sent reaching meshcored unchecked; no memory-safety defect in `gw_send.c`.
+
+Fixed before the commit:
+
+| Finding | Fix |
+| --- | --- |
+| The author's own, before the review returned: "the list reaches back" was judged by the lowest id of the whole list, but meshcored keeps direct and channel messages in two rings | Judged per kind: a message of that kind from before, or fewer than 16 from after |
+| The same: an outgoing message to the same place with another text was "not it", although meshcored reports text as it sanitised it | It is "may be it": outcome unknown |
+| Plausible, not shown: after the gateway gave its connection to meshcored up, a request could lie unread in the old one while the list came over the new one, be judged absent, sent again, and then be read | Absence is proof only over the connection the message was passed on; otherwise outcome unknown. Tested |
+| An id whose outcome was not known was forgotten after 64 further sends like any other, and its repeat then sent as new | Settled records are replaced first; an unresolved one only when all 64 are unresolved. Tested |
+| On a channel any text ending in `: <text>` was taken for the message | Exactly `<sender_name>: <text>` |
+| Without memory for the answer of an accepted send the client got code 4, which elsewhere means "refused, nothing sent" | Code 9; a result that could not be built whole is "outcome unknown" |
+| The fuzz run never reached the list matching or an accepted answer | Both are fed what the fuzzer made, with a seed of each |
+| Nothing held the assumption about meshcored's ring sizes | A lint line |
+
+Left as they are, and listed under the limits below: a late answer is not used; a wrong "duplicate" when the same words went to the same place from elsewhere; "outcome unknown" more often than strictly needed.
+
+The reviewer could not assess, and nobody has: the real meshcored's timing; whether its explicit-route send can answer with an error after a packet was already queued (`mcd_runtime_send_explicit_text`, where the vendor's `sendMessage` returned something other than a direct send); that `run_id` differs for every start.
+
+## Known limits of M4.2
+
+- **At most once is the gateway's, per `client_msg_id`, while it runs.** A gateway restart forgets every record (`PAIRING.md` §7: the app looks in `mesh.sync` and asks the person). meshcored itself knows no such id; giving it one would close the remaining gaps and is a change of its API, not made here.
+- **"Outcome unknown" is the usual end of a send that got no answer and was not taken.** After 2 s of silence the connection to meshcored is made anew, and from then on absence cannot be proven. The person decides whether to send the message as a new one.
+- **A late answer is not used.** meshcored answering after the 2 s leaves the record uncertain; the repeat then finds the message in the list (or gets "outcome unknown" if another message to the same place followed).
+- **A message from elsewhere can be taken for the client's.** While a send is uncertain, the same words to the same place sent by RIFT, or by another client whose record is gone, answer the repeat with `duplicate: true` although the client's own copy was never sent. Two uncertain sends of one client with the same words to the same place can get each other's `message_id`. The number of transmissions is right in each case.
+- Any other outgoing message to the same node or channel after an uncertain send makes that send "outcome unknown" for good, also when it was not taken.
+- An uncertain or unknown id is forgotten when 64 unresolved ids of that client are remembered, and a removed client's records go when a ninth client needs room; a repeat after that is a new message.
+- The rate limit counts a refused send and a lookup like a send: a client that meshcored refuses (code 5) twenty times in a minute waits like one that sent.
+- Text is refused more narrowly than meshcored would (the C1 controls too), and a channel's own `text_limit` is only known to meshcored: its refusal is code 2 with no number in it; the client reads `text_limit` from `mesh.channels`.
 
 ## Known limits of M4.1
 

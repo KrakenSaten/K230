@@ -1,6 +1,6 @@
 # Companion Gateway protocol v1 (`gateway.*`)
 
-Status: **draft; partly implemented (M2 and M4.1, host-tested only).** `services/gatewayd` serves §5 (the topics `device` and `capture` are not served yet), §6 without the `device.status` event, §7, and §10; §8 and §9 are not implemented and their methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
+Status: **draft; partly implemented (M2, M4.1 and M4.2, host-tested only).** `services/gatewayd` serves §5 (the topics `device` and `capture` are not served yet), §6 without the `device.status` event, §7, §8, and §10; §9 is not implemented and its methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
 
 Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connection life cycle: `docs/design/companion/PAIRING.md`.
 
@@ -15,7 +15,7 @@ Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connect
 
 - `proto` is one integer for the envelope, the `gateway.*` methods, the allowlist and its filters. Adding a method, a result field, an event or a capability is compatible. Removing or renaming anything, changing a type, or widening what a scope allows raises `proto`.
 - The first request on every connection must be `gateway.hello`. The gateway picks the highest `proto` both sides support, or answers error 8 and closes. A gateway serves at most two consecutive versions.
-- `capabilities` is a list of strings; a client shows a feature only when its capability is present. v1: `status`, `mesh`, `mesh.activity`, `capture` (absent until amendment 1 is implemented and PacketShark is in the image).
+- `capabilities` is a list of strings; a client shows a feature only when its capability is present. v1: `status`, `mesh`, `mesh.activity`, `mesh.send` (present since the gateway serves §8; a client with the `mesh_send` scope offers sending only when it is there), `capture` (absent until amendment 1 is implemented and PacketShark is in the image).
 - `api` repeats the `api_version` of each upstream service, so a client can tell which fields of a passed-through result to expect.
 - Clients ignore unknown fields, events and capabilities.
 
@@ -58,7 +58,7 @@ Events: `gateway.scopes {scopes[]}` when the unit reduced them; `gateway.revoked
 
 A subscription belongs to the connection: a new connection holds no topic. A topic is lost when the unit takes away the scope it needs (`gateway.scopes`), and does not return with the scope: the client subscribes again.
 
-A parameter object with a member the method does not take is code 2, for every method of §5 to §7 (the gateway is an allowlist of parameters too).
+A parameter object with a member the method does not take is code 2, for every method of §5 to §8 (the gateway is an allowlist of parameters too).
 
 `boot_id` changes when the unit restarts: `mono_ms` values from another `boot_id` are not comparable.
 
@@ -127,6 +127,25 @@ Delivery: `mesh.message`, `mesh.channel`, `mesh.state` and `gateway.upstream` ar
 - Text is refused (code 2) unless it is well-formed UTF-8 with no NUL and no control character other than newline and tab, within the upstream limit.
 - Rate limit: 20 sends per minute per client (code 10). Upstream limits apply unchanged: 8 direct messages waiting for an ACK across all clients, RIFT included, is code 5.
 - Delivery state is not in the response. It arrives as `mesh.message` with the same `message_id`: `sent_flood`/`sent_direct`, then `acked` or `no_ack`; for a channel, `transmitted` and `heard_back`.
+
+As implemented (M4.2):
+
+- **The scope.** Both methods need `mesh_send` and nothing else opens them: with `mesh_read` alone they are code 7, before anything about the request is looked at. The scope is looked up on every request and once more at the moment a message is passed to meshcored after a lookup (below).
+- **The request.** `to` is a whole public key (64 hex digits; a prefix is code 2). `channel` is a whole number from 0 to 255; meshcored says which slots exist. `text` is 1 to 160 bytes of well-formed UTF-8 with no control character but newline and tab - not the C0 set, DEL or the C1 set (U+0080 to U+009F); a channel's shorter `text_limit` is meshcored's to refuse (code 2). `client_msg_id` is 16 to 36 characters of `A-Z a-z 0-9 - _` (a UUID fits). `via` is as in `mesh.path_preview`: an array, also an empty one, of at most 63 whole keys, with `to` only. What meshcored receives is written again from the checked values: `to` or `channel`, `text`, `via`; for `mesh.resend`, `resend` with the message id.
+- **The answer** is `accepted`, `message_id`, `run_id`, `duplicate`, and what meshcored said of `route`, `ack_expected`, `ack_timeout_ms` (absent for a channel), `channel` (a channel), `resent` (a resend). The `mesh.message` event of the message can arrive before the answer; both name it by `message_id` within `run_id`.
+- **A `client_msg_id` belongs to one message.** The same id with another destination, text or route is code 2 and nothing is sent. The same id while its first request still waits for meshcored is code 5, unless the connection that asked is gone: then the repeat takes its place and gets that answer (`duplicate: true`).
+- **What is remembered**: per paired client its last 64 ids, in memory, for as long as the gateway runs and the client stays paired. A record is replaced oldest first, never while it waits for meshcored, and one whose outcome is settled before one whose outcome is not known: an unresolved id is forgotten only when all 64 are unresolved. A gateway restart forgets them (`boot_id`/`journal_id` change; `docs/design/companion/PAIRING.md` §7).
+- **Refused by meshcored** (its own codes 1 to 6, the message "upstream error"): nothing was sent and the id is not remembered; the same id may be tried again. Code 5 is the upstream limit of this section or a radio that is not available.
+- **No answer** from meshcored in 2 s, or its connection lost meanwhile: code 9, and whether it took the message is not known. Code 9 at once, with nothing remembered, when meshcored is not connected. A repeat of an id whose outcome is not known is never passed on directly. The gateway first asks meshcored for `mesh.messages`:
+  - the message is there (an outgoing message to the same node or channel with the same text - on a channel exactly `<sender_name>: <text>` - with an id above the highest the gateway had seen when it asked, and not the message of another recorded send): the answer is made from it, `duplicate: true`, without `ack_timeout_ms`; nothing is sent;
+  - the message is not there, the list came over the same connection to meshcored that the message was passed on (there meshcored reads the request before the question), no other outgoing message to that node or channel came after, and the list still reaches back to before the gateway asked (of the message's kind, direct or channel, it holds one the gateway had seen before, or fewer than 16 newer ones: meshcored keeps 64 of each kind and loses the oldest first): it was not taken, and it is sent now - once the client's scope has been looked up again;
+  - anything else: an outgoing message to the same node or channel came after with a text that is not the same (meshcored reports text as it sanitised it, so it may be the one), the list does not reach back that far or cannot be read, the gateway's connection to meshcored was made anew since (it is given up when meshcored sends nothing at all for 2 s, and a request may then lie unread in the old one), or meshcored has started again (`run_id` changed): code 3, "outcome unknown". The id is never sent again; whether to send the message as a new one is for the person to decide.
+  For `mesh.resend` the message's `attempts` decide: one more than before the resend was asked for means it was taken; the same number means it was not; a message that is no longer in the list, or whose attempts the gateway had not seen, is "outcome unknown".
+- A message the unit's own RIFT sent to the same place with the same words while the answer was missing is taken for the client's: the client is told `duplicate: true` and its own copy is not sent. The error is on the side of not transmitting twice.
+- An answer of meshcored that says `accepted` without a usable `message_id` is code 3, "outcome unknown", and the id is never sent again.
+- `mesh.resend` with a `run_id` other than the current one is code 3 without asking meshcored. Which message can be resent is meshcored's rule (an outgoing direct message of this run that is `no_ack`); its refusal is code 2.
+- **Rate limit**: 20 in any 60 s per paired client, across its connections, counted when a request is passed to meshcored (a send, a resend, or the lookup for an unanswered one); the 21st is code 10. Answers from the record are not counted. At most 8 sends of one client wait for meshcored at a time (code 5 beyond). `gateway.hello` names the limit as `limits.send_per_min`.
+- While no paired client holds `mesh_read` the gateway has no connection to meshcored (§7); `mesh_send` is only ever held with `mesh_read`.
 
 ## 9. Capture (`capture_view`, `capture_control`)
 

@@ -16,6 +16,7 @@
 #include "gw_journal.h"
 #include "gw_pair.h"
 #include "gw_policy.h"
+#include "gw_send.h"
 #include "gw_store.h"
 #include "gw_tls.h"
 #include "gw_util.h"
@@ -569,8 +570,8 @@ static void test_mesh_policy(void)
         CHECK(gw_policy_check(m, GW_W_PAIRED, GW_S_MESH_READ) == GW_V_OK);
         CHECK(gw_policy_check(m, GW_W_CANDIDATE, GW_S_ALL) == GW_V_UNKNOWN);
     }
-    /* Not in M4.1: sending, and reading that was never approved. */
-    CHECK(gw_method_find("mesh.send") == NULL && gw_method_find("mesh.resend") == NULL);
+    /* Reading that was never approved (sending has its own rows and its
+     * own scope: test_send). */
     CHECK(gw_method_find("mesh.messages") == NULL && gw_method_find("mesh.subscribe") == NULL);
     CHECK(gw_method_find("mesh.app_inbox") == NULL && gw_method_find("mesh.remote_session") == NULL);
     CHECK(gw_method_find("mesh.discovered") == NULL && gw_method_find("mesh.channel") == NULL);
@@ -1112,6 +1113,8 @@ static void test_feed(void)
     gw_feed_reset(&f);
 }
 
+#include "gatewayd_send_unit.inc"
+
 /* ---- gw_store ---------------------------------------------------------- */
 
 static void test_store(void)
@@ -1395,6 +1398,7 @@ int main(void)
     test_mesh_policy();
     test_journal();
     test_feed();
+    test_send();
     test_store();
     test_gate();
     test_tls();
