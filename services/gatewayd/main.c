@@ -63,6 +63,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <openssl/err.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,11 +137,11 @@ struct mesh_req {
 #define TAG_MESSAGES 3
 #define TAG_NODES 4
 /* The gateway's own requests to PacketShark on the shell's socket. */
-#define TAG_CAP_PROBE 5
 #define TAG_CAP_POLL 6
 #define TAG_CAP_CANCEL 7
 #define TAG_CAP_LATE 8
 #define CAP_SAY_MAX 4
+#define CAP_STOP_FLUSH_MS 500      /* on stopping: a cancel on its way gets this long to be answered */
 #define TAG_CLIENT 16
 
 static struct {
@@ -190,7 +191,9 @@ static struct {
     /* PacketShark's capture (ADR-016 amendment 1). */
     struct gw_uplink *shell;        /* to the shell's socket: capture.* of the PacketShark app only */
     bool cap_up;                    /* that socket is connected */
-    bool cap_served;                /* and the shell answers capture.status: PacketShark is in the image */
+    int cap_seen;                   /* 1: the shell answered capture.status; -1: it knows no such method
+                                     * (no PacketShark in this image); 0: not asked yet on this connection */
+    int64_t cap_close_ms;           /* the link is no longer wanted and goes by then at the latest */
     bool cap_polling;               /* the gateway's own capture.status waits for its answer */
     int64_t cap_poll_ms;            /* when it was last asked, or tried */
     int64_t cap_poll_sent_ms;       /* when the one that waits was sent */
@@ -1252,9 +1255,14 @@ static bool cap_wanted(void)
     return false;
 }
 
+/* The shell is connected and has not said that it knows no capture.status.
+ * The gateway asks nothing on connecting to find out: the first question is
+ * a client's, or the gateway's own once a client listens. So nothing reads
+ * a capture, and the unit's screen says nothing of a reader, until a client
+ * does. */
 static bool cap_ready(void)
 {
-    return G.cap_up && G.cap_served;
+    return G.cap_up && G.cap_seen >= 0;
 }
 
 static void cap_upstream_event(bool connected)
@@ -1336,24 +1344,27 @@ static void cap_on_state(void *user, bool up)
         e.events = EPOLLIN;
         e.data.u64 = SHELL_EPOLL_ID;
         G.cap_up = true;
-        G.cap_served = false;
+        G.cap_seen = 0;
         G.cap_polling = false;
-        /* Whether this unit has PacketShark at all: one question. (The
-         * unit's screen says for five seconds that a companion reads.) */
-        if (epoll_ctl(G.epfd, EPOLL_CTL_ADD, gw_uplink_fd(G.shell), &e) != 0 ||
-            gw_uplink_call(G.shell, "capture.status", NULL, TAG_CAP_PROBE, mono_ms(), GW_CAPTURE_CALL_MS) != 0) {
+        G.cap_poll_due = true;
+        if (epoll_ctl(G.epfd, EPOLL_CTL_ADD, gw_uplink_fd(G.shell), &e) != 0) {
             gw_uplink_drop(G.shell, mono_ms());
+            return;
         }
+        cap_upstream_event(true);
         return;
     }
     /* The closed socket left the epoll set by being closed. Requests that
      * waited were answered "upstream unavailable" before this. */
     if (cap_ready()) {
-        LOG_INFO("PacketShark on the shell's socket is out of reach");
+        if (G.cap_seen > 0) {
+            LOG_INFO("PacketShark on the shell's socket is out of reach");
+        }
         cap_upstream_event(false);
     }
     G.cap_up = false;
-    G.cap_served = false;
+    G.cap_seen = 0;
+    G.cap_close_ms = 0;
     G.cap_polling = false;
     G.cap_say_n = 0;
     gw_capture_lost(&G.cap, &state);
@@ -1422,24 +1433,22 @@ static void cap_on_reply(void *user, uint64_t tag, const cJSON *result, int code
         }
         return;
     }
-    if (tag == TAG_CAP_PROBE) {
-        if (result != NULL) {
-            G.cap_served = true;
-            G.cap_poll_due = true;
-            LOG_INFO("PacketShark answers on the shell's socket");
-            cap_upstream_event(true);
-        } else if (code != POCKETIPC_ERR_UNKNOWN_METHOD) {
-            gw_uplink_drop(G.shell, now); /* no answer: asked again on the next connection */
-        }
-        /* An unknown method: this unit has no PacketShark. */
-        return;
-    }
     if (tag == TAG_CAP_POLL) {
         bool said;
 
         G.cap_polling = false;
         if (result == NULL) {
+            if (code == POCKETIPC_ERR_UNKNOWN_METHOD && G.cap_seen >= 0) {
+                /* This unit has no PacketShark: not asked again on this connection. */
+                G.cap_seen = -1;
+                LOG_INFO("the shell knows no capture.status: no PacketShark in this image");
+                cap_upstream_event(false);
+            }
             return; /* a shell that does not answer in time loses the connection (gw_uplink), which is made again */
+        }
+        if (G.cap_seen <= 0) {
+            G.cap_seen = 1;
+            LOG_INFO("PacketShark answers on the shell's socket");
         }
         gw_capture_step(&G.cap, result, G.cap_poll_sent_ms, &state, &stats, &outcome);
         said = state != NULL;
@@ -1498,12 +1507,26 @@ static void cap_on_reply(void *user, uint64_t tag, const cJSON *result, int code
 static void cap_tick(int64_t now)
 {
     if (!cap_wanted()) {
+        /* Nobody may read a capture any more: the connection goes. But a
+         * request that waits on the unit is taken back first, and the link
+         * stays until the unit has answered that (or its time is up): a
+         * sheet is not left asking for a client that was just revoked. */
         if (gw_uplink_connected(G.shell)) {
             cap_cancel("no client may read a capture", NULL);
+            if (G.cap_close_ms == 0) {
+                G.cap_close_ms = now + GW_CAPTURE_CALL_MS;
+            }
+            if (G.cap_say_n > 0 && now < G.cap_close_ms) {
+                gw_uplink_tick(G.shell, now);
+                return;
+            }
             gw_uplink_drop(G.shell, now);
         }
+        G.cap_late[0] = '\0';
+        G.cap_close_ms = 0;
         return;
     }
+    G.cap_close_ms = 0;
     gw_uplink_tick(G.shell, now);
     if (G.cap.asking) {
         /* Whose request it is, looked up now: the session that asked must
@@ -2931,8 +2954,19 @@ int main(int argc, char **argv)
     close_all_sessions("stopping");
     (void)gw_pair_cancel(&G.pair);
     gw_uplink_free(G.mesh);
-    if (G.cap.asking && gw_uplink_connected(G.shell)) {
-        (void)cap_send_cancel(G.cap.token, NULL, TAG_CAP_CANCEL); /* stopping: no sheet is left asking for a gateway that is gone */
+    if (G.cap.asking && gw_uplink_connected(G.shell) && cap_send_cancel(G.cap.token, NULL, TAG_CAP_CANCEL)) {
+        /* Stopping: no sheet is left asking for a gateway that is gone. The
+         * unit's answer is waited for, a moment at most, so that the cancel
+         * has left before the socket is closed. */
+        int64_t until = mono_ms() + CAP_STOP_FLUSH_MS;
+
+        while (G.cap_say_n > 0 && gw_uplink_connected(G.shell) && mono_ms() < until) {
+            struct pollfd pf = {gw_uplink_fd(G.shell), POLLIN, 0};
+
+            (void)poll(&pf, 1, 20);
+            gw_uplink_io(G.shell, mono_ms());
+            gw_uplink_tick(G.shell, mono_ms());
+        }
     }
     gw_uplink_free(G.shell);
     gw_journal_free(&G.journal);
