@@ -578,11 +578,10 @@ which the session does only once the player has engaged multiplayer:
   otherwise. It lets go of nothing else: the opponent of a match still in
   play, or of one over with its END still owed, stays kept, because that
   match is resumed from its save and its opponent must be reachable then.
-  ADR-017 section 5 and M2-PLAN 1.3 say the
-  game releases the kept peer "when the match ends or is put away"; as
-  built it is half a minute after the match has ended here and the opponent
-  has gone quiet, or when Fleet leaves the network's link, whichever comes
-  first. peerd itself still has no timed expiry. When the save could not be read (a
+  This is ADR-017 Amendment 1 (and M2-PLAN 1.3): half a minute after the
+  match has ended here and the opponent has gone quiet, or when Fleet
+  leaves the network's link, whichever comes first. peerd itself still has
+  no timed expiry. When the save could not be read (a
   store fault, a damaged file, another identity's) it says nothing until a
   match begins: what the save held is not known. From then on it speaks as
   usual, the end of that match included. The link
