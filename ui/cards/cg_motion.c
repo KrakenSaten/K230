@@ -8,6 +8,62 @@
 
 #include <string.h>
 
+/* ---- measurement (hardware gate builds only) ---------------------------------- *
+ * Built with -DCG_MOTION_TRACE=1, one line on stdout per animation: frames,
+ * how long, the mean and longest gap between frames (a frame late because the
+ * last one took long shows here), and the largest area one frame repainted.
+ * Off in every normal build. */
+#if defined(CG_MOTION_TRACE) && CG_MOTION_TRACE
+#include <stdio.h>
+#include <time.h>
+
+static struct {
+    uint64_t first_us, last_us, max_gap_us;
+    uint32_t frames, max_px;
+} tr;
+
+static uint64_t now_us(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000u + (uint64_t)t.tv_nsec / 1000u;
+}
+
+static void trace_frame(uint32_t px, int last, const char *how)
+{
+    uint64_t t = now_us();
+    int32_t screen = lv_display_get_horizontal_resolution(NULL) * lv_display_get_vertical_resolution(NULL);
+
+    if (tr.frames == 0) {
+        tr.first_us = t;
+    } else if (t - tr.last_us > tr.max_gap_us) {
+        tr.max_gap_us = t - tr.last_us;
+    }
+    tr.last_us = t;
+    tr.frames++;
+    tr.max_px = px > tr.max_px ? px : tr.max_px;
+    if (last) {
+        uint64_t span = tr.last_us - tr.first_us;
+
+        printf("cards-motion: %u frame(s) in %u ms (%s), %u.%u fps, mean gap %u ms, max gap %u ms, "
+               "largest repaint %u px (%u%% of screen)\n",
+               (unsigned)tr.frames, (unsigned)(span / 1000), how,
+               (unsigned)(span && tr.frames > 1 ? (tr.frames - 1) * 1000000ull / span : 0),
+               (unsigned)(span && tr.frames > 1 ? ((tr.frames - 1) * 10000000ull / span) % 10 : 0),
+               (unsigned)(tr.frames > 1 ? span / (tr.frames - 1) / 1000 : 0), (unsigned)(tr.max_gap_us / 1000),
+               (unsigned)tr.max_px, (unsigned)(screen > 0 ? tr.max_px * 100u / (uint32_t)screen : 0));
+        fflush(stdout);
+        tr.frames = 0;
+        tr.max_px = 0;
+        tr.max_gap_us = 0;
+    }
+}
+#define TRACE_FRAME(px, last, how) trace_frame((px), (last), (how))
+#else
+#define TRACE_FRAME(px, last, how) ((void)0)
+#endif
+
 static int lerp(int a, int b, int p)
 {
     return a + (int)(((int64_t)(b - a) * p) / 1024);
@@ -133,6 +189,7 @@ static void frame(lv_timer_t *timer)
     if (px > m->max_px) {
         m->max_px = px;
     }
+    TRACE_FRAME(px, m->n == 0, "landed");
     if (m->n == 0) {
         lv_timer_delete(m->timer);
         m->timer = NULL;
@@ -169,6 +226,7 @@ void cg_motion_stop(struct cg_motion *m)
     if (m->timer) {
         lv_timer_delete(m->timer);
         m->timer = NULL;
+        TRACE_FRAME(0, 1, "cut short");
     }
     if (m->n && m->obj) {
         lv_obj_invalidate(m->obj);

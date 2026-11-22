@@ -10,6 +10,17 @@
 #include "pocketui.h"
 
 #include <string.h>
+#if defined(CG_MOTION_TRACE) && CG_MOTION_TRACE
+#include <stdio.h>
+#include <time.h>
+static uint64_t trace_us(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000u + (uint64_t)t.tv_nsec / 1000u;
+}
+#endif
 
 /* s percent of size, rounded. */
 #define P(size, pct) (((size) * (pct) + 50) / 100)
@@ -640,6 +651,9 @@ static void build(void *user)
         }
         drop_entry(victim);
     }
+#if defined(CG_MOTION_TRACE) && CG_MOTION_TRACE
+    uint64_t t0 = trace_us();
+#endif
     if (cg_atlas_build(&e->atlas, lv_layer_sys(), e->w, e->h, CG_DECK_IDS, compose_one, e) != 0) {
         /* No memory for it: the direct path keeps drawing. */
         e->atlas.count = 0;
@@ -651,6 +665,11 @@ static void build(void *user)
     if (cg_shadow_build(&e->shadow, e->w, e->h, radius, e->margin, 110) != 0) {
         memset(&e->shadow, 0, sizeof(e->shadow));
     }
+#if defined(CG_MOTION_TRACE) && CG_MOTION_TRACE
+    printf("cards-deck: %dx%d set composed in %u ms; decks hold %u kB\n", e->w, e->h,
+           (unsigned)((trace_us() - t0) / 1000), (unsigned)(held_bytes() / 1024));
+    fflush(stdout);
+#endif
     lv_obj_invalidate(lv_screen_active());
 }
 

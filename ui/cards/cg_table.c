@@ -10,6 +10,10 @@
 #include "cg_deck.h"
 
 #include <stdlib.h>
+#if defined(CG_MOTION_TRACE) && CG_MOTION_TRACE
+#include <stdio.h>
+#include <time.h>
+#endif
 #include <string.h>
 
 lv_color_t cg_table_ink(enum cg_table_ink ink)
@@ -77,7 +81,20 @@ static struct cloth *cloth_for(enum cg_cloth_kind kind, int w, int h)
     lamp.rx = w * 88 / 100;
     lamp.ry = h * 78 / 100;
     lamp.grain = 3;
+#if defined(CG_MOTION_TRACE) && CG_MOTION_TRACE
+    {
+        struct timespec a, b;
+
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        cg_cloth_render(slot->px, w, h, w, &lamp);
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        printf("cards-cloth: %dx%d in %ld ms, %u kB\n", w, h,
+               (long)((b.tv_sec - a.tv_sec) * 1000 + (b.tv_nsec - a.tv_nsec) / 1000000), (unsigned)(w * h * 2 / 1024));
+        fflush(stdout);
+    }
+#else
     cg_cloth_render(slot->px, w, h, w, &lamp);
+#endif
     slot->kind = (int)kind;
     slot->w = w;
     slot->h = h;
