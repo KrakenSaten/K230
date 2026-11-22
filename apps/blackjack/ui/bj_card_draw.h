@@ -46,6 +46,9 @@ void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum
  * pip's foot. A card laid over it must leave this much in view. */
 void bj_card_index_size(int card_w, int *index_w, int *index_h);
 void bj_draw_back(lv_layer_t *layer, const lv_area_t *area);
+/* The shadow a card at `area` casts on the cloth: draw a hand's shadows
+ * before its cards (cg_deck.h). */
+void bj_draw_shadow(lv_layer_t *layer, const lv_area_t *area);
 
 enum bj_slot_mark {
     BJ_SLOT_PLAIN = 0,

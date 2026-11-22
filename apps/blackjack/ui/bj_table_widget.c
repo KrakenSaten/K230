@@ -9,6 +9,7 @@
 #include "bj_card_draw.h"
 #include "bj_felt.h"
 #include "bj_palette.h"
+#include "cg_table.h"
 #include "pocketui.h"
 
 struct bj_table_state {
@@ -27,9 +28,30 @@ static lv_area_t area_of(const lv_area_t *origin, struct bj_rect r)
     return a;
 }
 
+/* The table is a Lamplight scene with a palette of its own in every theme
+ * (cg_table.h): the roles the view asks for, in its inks. */
+static lv_color_t table_ink(enum pos_color_token color)
+{
+    switch (color) {
+    case POS_COLOR_STATUS_OK:
+    case POS_COLOR_ACCENT_PRIMARY:
+        return cg_table_ink(CG_INK_GOLD);
+    case POS_COLOR_TEXT_SECONDARY:
+        return cg_table_ink(CG_INK_DIM);
+    default:
+        return cg_table_ink(CG_INK_IVORY);
+    }
+}
+
 static void draw_felt(lv_layer_t *layer, const lv_area_t *coords)
 {
-    const lv_image_dsc_t *felt = bj_felt_image();
+    const lv_image_dsc_t *felt;
+
+    /* The claret cloth under the lamp; the felt tile only without memory. */
+    if (cg_table_cloth(layer, coords, CG_CLOTH_CLARET)) {
+        return;
+    }
+    felt = bj_felt_image();
 
     if (felt) {
         lv_draw_image_dsc_t dsc;
@@ -71,6 +93,11 @@ static void draw_hand(lv_layer_t *layer, const lv_area_t *origin, const struct b
     for (i = 0; i < h->n; i++) {
         lv_area_t a = area_of(origin, bj_view_card(t, row, h->n, i));
 
+        bj_draw_shadow(layer, &a);
+    }
+    for (i = 0; i < h->n; i++) {
+        lv_area_t a = area_of(origin, bj_view_card(t, row, h->n, i));
+
         if (row == BJ_ROW_DEALER && bj_view_face_down(g, i)) {
             bj_draw_back(layer, &a);
         } else {
@@ -103,7 +130,7 @@ static void draw_text(lv_layer_t *layer, const lv_area_t *origin, struct bj_rect
     if (line_h > r.h) {
         return;
     }
-    dsc.color = pos_theme_color(color);
+    dsc.color = table_ink(color);
     dsc.align = LV_TEXT_ALIGN_CENTER;
     dsc.text = text;
     dsc.text_local = 1;
@@ -169,6 +196,16 @@ static void table_draw(lv_event_t *e)
     /* What the round won or lost, large, in the open felt between the hands:
      * the sign says it, the colour only repeats it. */
     bj_view_result(st->game, text, sizeof(text));
+    if (!text[0]) {
+        /* No result to show there yet: the stake, as chips on the cloth. */
+        struct bj_rect r = bj_view_result_area(&t, st->game->dealer.n, st->game->player.n);
+        uint32_t stake = st->game->stake ? st->game->stake : st->game->bet;
+        int d = r.h >= 96 ? 44 : r.h >= 64 ? 34 : 0;
+
+        if (d && r.w >= 4 * d) {
+            cg_table_chips(layer, coords.x1 + r.x + r.w / 2, coords.y1 + r.y + r.h / 2 + d / 2 + d / 4, stake, d);
+        }
+    }
     draw_text(layer, &coords, bj_view_result_area(&t, st->game->dealer.n, st->game->player.n), POS_STYLE_HERO_40,
               text, result > 0 ? POS_COLOR_STATUS_OK : result < 0 ? POS_COLOR_TEXT_SECONDARY : POS_COLOR_TEXT_PRIMARY);
 }
@@ -198,6 +235,7 @@ lv_obj_t *bj_table_create(lv_obj_t *parent)
     lv_obj_remove_style_all(obj);
     /* The felt inside a hairline DS panel, as PocketTimber's viewport. */
     pos_style_add(obj, POS_STYLE_PANEL, 0);
+    lv_obj_set_style_border_opa(obj, LV_OPA_TRANSP, 0); /* the cloth runs out into the dark */
     lv_obj_set_style_pad_all(obj, 0, 0);
     lv_obj_set_style_clip_corner(obj, 1, 0);
     lv_obj_set_user_data(obj, st);

@@ -4,6 +4,7 @@
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0 */
 #include "poker_app.h"
+#include "cg_table.h"
 #include "app.h"
 #include "pocketui.h"
 #include "poker_table.h"
@@ -42,6 +43,8 @@ static void style_button(lv_obj_t *obj, bool enabled, bool primary)
                   : primary ? POS_STYLE_BUTTON_PRIMARY
                             : POS_STYLE_BUTTON_SECONDARY,
                   0);
+    /* The Lamplight look over the DS roles (cg_table.h). */
+    cg_table_style_button(obj, primary, enabled);
 }
 static void layout(struct poker_app *a)
 {
@@ -254,11 +257,14 @@ static void *create(lv_obj_t *body)
     lv_obj_set_width(a->root, LV_PCT(100));
     lv_obj_set_flex_grow(a->root, 1);
     lv_obj_remove_flag(a->root, LV_OBJ_FLAG_SCROLLABLE);
+    cg_table_style_room(a->root);
     a->table = poker_table_create(a->root, &a->game);
     a->caption = pocketui_label(a->root, "", POS_STYLE_TEXT_PRIMARY);
     lv_obj_set_style_text_align(a->caption, LV_TEXT_ALIGN_CENTER, 0);
+    cg_table_style_text(a->caption, CG_INK_IVORY);
     a->amount = pocketui_label(a->root, "", POS_STYLE_VALUE);
     lv_obj_set_style_text_align(a->amount, LV_TEXT_ALIGN_CENTER, 0);
+    cg_table_style_text(a->amount, CG_INK_GOLD);
     static const char *const labels[] = {"FOLD", "CALL", "RAISE", "ALL IN", "NEXT HAND", "RESTART", "-", "+"};
     for (int i = 0; i < POKER_UI_COUNT; ++i) {
         a->button[i] = lv_button_create(a->root);

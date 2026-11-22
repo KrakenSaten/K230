@@ -6,6 +6,8 @@
  */
 #include "sol_card_draw.h"
 
+#include "cg_deck.h"
+
 #include "pocketui.h"
 #include "sol_palette.h"
 
@@ -207,53 +209,61 @@ int sol_card_index_h(int card_w)
     return foot + 2;
 }
 
-void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card)
+static struct cg_deck_inks deck_inks(void)
+{
+    struct cg_deck_inks in = { sol_palette[SOL_INK_PAPER], sol_palette[SOL_INK_EDGE],  sol_palette[SOL_INK_BLACK],
+                               sol_palette[SOL_INK_RED],   sol_palette[SOL_INK_BACK], sol_palette[SOL_INK_BACK_LINE] };
+
+    return in;
+}
+
+/* The card itself, drawn with shapes: what the deck cache composes once per
+ * size, and what a first frame shows before it has (cg_deck.h). */
+static void compose(lv_layer_t *layer, const lv_area_t *area, int id)
 {
     int w = lv_area_get_width(area);
-    int h = lv_area_get_height(area);
-    int rank = cg_card_rank(card);
-    enum cg_suit suit = cg_card_suit(card);
-    lv_color_t ink = sol_palette[cg_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
+    struct cg_deck_inks in = deck_inks();
     struct corner c = corner_of(w);
+    cg_card_t card = (cg_card_t)id;
+    lv_color_t ink = cg_card_is_red(card) ? in.red : in.black;
 
-    if (!cg_card_valid(card)) {
+    if (id == CG_DECK_ID_BACK) {
+        cg_deck_back(layer, area, sol_card_radius(w), &in);
         return;
     }
-    panel(layer, area, sol_card_radius(w), sol_palette[SOL_INK_PAPER], LV_OPA_COVER, sol_palette[SOL_INK_EDGE], 1);
-    text(layer, cg_rank_text(rank), c.role, ink, area->x1 + c.pad, area->y1 + c.text_y, area->x2 - c.pad,
-         LV_TEXT_ALIGN_LEFT);
-    sol_draw_suit(layer, area->x2 - c.pad - c.pip / 2, area->y1 + c.pip_y, c.pip, suit, ink);
+    cg_deck_paper(layer, area, sol_card_radius(w), &in);
+    text(layer, cg_rank_text(cg_card_rank(card)), c.role, ink, area->x1 + c.pad, area->y1 + c.text_y,
+         area->x2 - c.pad, LV_TEXT_ALIGN_LEFT);
+    cg_deck_suit(layer, area->x2 - c.pad - c.pip / 2, area->y1 + c.pip_y, c.pip, cg_card_suit(card), ink);
+    /* Below the strip a fanned card shows. */
+    cg_deck_body(layer, area, sol_card_index_h(w) + 2, 31, 31, card,
+                 role_font(w >= 96 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, NULL), &in);
+}
 
-    /* The face below the corner: a large pip, or the court card's letter. */
-    {
-        int cx = area->x1 + w / 2;
-        int cy = area->y1 + h * 62 / 100;
+/* One set; its look changes with the fonts of the text size. */
+#define SOL_DECK_SET 20
 
-        if (rank >= CG_JACK) {
-            const lv_font_t *big = role_font(POS_STYLE_HERO_40, NULL);
-            int bl = big ? lv_font_get_line_height(big) : 40;
+static uintptr_t deck_stamp(void)
+{
+    return (uintptr_t)role_font(POS_STYLE_TITLE, NULL) ^ ((uintptr_t)role_font(POS_STYLE_HERO_40, NULL) << 1) ^
+           ((uintptr_t)role_font(POS_STYLE_ROW_TITLE, NULL) << 2);
+}
 
-            text(layer, cg_rank_text(rank), w >= 56 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, ink, area->x1,
-                 cy - bl / 2, area->x2, LV_TEXT_ALIGN_CENTER);
-        } else {
-            sol_draw_suit(layer, cx, cy, rank == CG_ACE ? w * 58 / 100 : w * 44 / 100, suit, ink);
-        }
+void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card)
+{
+    if (cg_card_valid(card)) {
+        cg_deck_draw(layer, area, SOL_DECK_SET, deck_stamp(), card, compose);
     }
+}
+
+void sol_draw_shadow(lv_layer_t *layer, const lv_area_t *area)
+{
+    cg_deck_shadow(layer, area, SOL_DECK_SET, deck_stamp(), compose);
 }
 
 void sol_draw_back(lv_layer_t *layer, const lv_area_t *area)
 {
-    int w = lv_area_get_width(area);
-    int r = sol_card_radius(w);
-    int inset = w / 12 < 3 ? 3 : w / 12;
-    lv_area_t frame = { area->x1 + inset, area->y1 + inset, area->x2 - inset, area->y2 - inset };
-
-    panel(layer, area, r, sol_palette[SOL_INK_BACK], LV_OPA_COVER, sol_palette[SOL_INK_EDGE], 1);
-    panel(layer, &frame, r > 2 ? r - 2 : 1, sol_palette[SOL_INK_BACK], LV_OPA_TRANSP,
-          sol_palette[SOL_INK_BACK_LINE], 1);
-    /* One small diamond in the middle, and nothing else. */
-    sol_draw_suit(layer, area->x1 + w / 2, area->y1 + lv_area_get_height(area) / 2, w / 4, CG_DIAMONDS,
-                  sol_palette[SOL_INK_BACK_LINE]);
+    cg_deck_draw(layer, area, SOL_DECK_SET, deck_stamp(), CG_DECK_ID_BACK, compose);
 }
 
 void sol_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum sol_slot_mark mark, enum cg_suit suit)

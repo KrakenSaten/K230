@@ -9,6 +9,7 @@
 #include "pocketui.h"
 #include "sol_card_draw.h"
 #include "sol_felt.h"
+#include "cg_table.h"
 #include "sol_palette.h"
 
 /* How far a finger may travel and still tap: LVGL's own scroll threshold
@@ -58,7 +59,13 @@ static lv_area_t area_of(const lv_area_t *origin, struct sol_rect r)
 
 static void draw_felt(lv_layer_t *layer, const lv_area_t *coords)
 {
-    const lv_image_dsc_t *felt = sol_felt_image();
+    const lv_image_dsc_t *felt;
+
+    /* The green cloth under the lamp; the felt tile only without memory. */
+    if (cg_table_cloth(layer, coords, CG_CLOTH_GREEN)) {
+        return;
+    }
+    felt = sol_felt_image();
 
     if (felt) {
         lv_draw_image_dsc_t dsc;
@@ -101,6 +108,11 @@ static void draw_pile(lv_layer_t *layer, const lv_area_t *origin, const struct s
     }
     /* A pile off the tableau shows only its top card; drawing the rest,
      * exactly underneath, would cost time and show nothing. */
+    for (i = sol_is_column(pile) ? 0 : s->n - 1; i < s->n; i++) {
+        lv_area_t a = area_of(origin, sol_view_card(t, g, pile, i));
+
+        sol_draw_shadow(layer, &a);
+    }
     for (i = sol_is_column(pile) ? 0 : s->n - 1; i < s->n; i++) {
         lv_area_t a = area_of(origin, sol_view_card(t, g, pile, i));
 
@@ -402,6 +414,7 @@ lv_obj_t *sol_table_create(lv_obj_t *parent)
     /* The felt is confined to a hairline-framed panel, as PocketTimber's
      * viewport is: the scene is content, the frame is chrome. */
     pos_style_add(obj, POS_STYLE_PANEL, 0);
+    lv_obj_set_style_border_opa(obj, LV_OPA_TRANSP, 0); /* the cloth runs out into the dark */
     lv_obj_set_style_pad_all(obj, 0, 0);
     lv_obj_set_style_clip_corner(obj, 1, 0);
     lv_obj_set_user_data(obj, st);

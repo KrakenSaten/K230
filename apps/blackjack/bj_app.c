@@ -33,7 +33,7 @@
 #include "bj_app.h"
 #include "bj_store.h"
 #include "bj_table_widget.h"
-#include "cg_spike.h"
+#include "cg_table.h"
 
 #include "app.h"
 #include "pocketui.h"
@@ -59,7 +59,6 @@ _Static_assert(BUTTON_H >= POCKETUI_TOUCH_MIN, "a button must meet the DS 64 px 
 #define BJ_DEBUG_SEED 20260913u
 
 struct bj_app {
-    void *spike; /* redesign milestone 0 (cg_spike.h); NULL in the game */
     struct bj_game game;
     enum bj_cmd last_cmd;
     enum bj_result last;
@@ -113,6 +112,8 @@ static void style_button(lv_obj_t *btn, int primary, int enabled)
     }
     lv_obj_remove_style(btn, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
     lv_obj_remove_style(btn, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+    /* The Lamplight look over the DS roles (cg_table.h). */
+    cg_table_style_button(btn, primary, enabled);
     if (!enabled) {
         pos_style_add(btn, POS_STYLE_BUTTON_DISABLED, 0);
         lv_obj_add_state(btn, LV_STATE_DISABLED);
@@ -279,6 +280,7 @@ static void hud_panel(struct bj_app *a, int i)
     a->panel[i] = panel;
     a->label[i] = pocketui_label(panel, bj_view_hud_label(i), POS_STYLE_CAPTION);
     a->value[i] = pocketui_label(panel, "0", POS_STYLE_HERO_40);
+    cg_table_style_hud(panel, a->label[i], a->value[i]);
 }
 
 static lv_obj_t *button(struct bj_app *a, lv_obj_t *parent)
@@ -308,6 +310,7 @@ static void build(struct bj_app *a, lv_obj_t *body)
     lv_obj_set_width(a->root, LV_PCT(100));
     lv_obj_set_flex_grow(a->root, 1);
     lv_obj_remove_flag(a->root, LV_OBJ_FLAG_SCROLLABLE);
+    cg_table_style_room(a->root);
 
     a->hud = lv_obj_create(a->root);
     lv_obj_remove_style_all(a->hud);
@@ -332,6 +335,7 @@ static void build(struct bj_app *a, lv_obj_t *body)
     a->caption = pocketui_label(a->controls, "", POS_STYLE_CAPTION);
     lv_obj_set_width(a->caption, LV_PCT(100));
     lv_label_set_long_mode(a->caption, LV_LABEL_LONG_DOT);
+    cg_table_style_text(a->caption, CG_INK_DIM);
     a->buttons = lv_obj_create(a->controls);
     lv_obj_remove_style_all(a->buttons);
     lv_obj_set_size(a->buttons, LV_PCT(100), BUTTON_H);
@@ -447,12 +451,6 @@ static void *blackjack_create(lv_obj_t *body)
     if (!a) {
         return NULL;
     }
-    if (debug && strcmp(debug, "lamplight-spike") == 0) {
-        /* Not the game: the redesign's measurement table. Nothing is saved. */
-        a->session_only = 1;
-        a->spike = cg_spike_create(body);
-        return a;
-    }
     build(a, body);
     if (debug && *debug) {
         debug_state(a, debug);
@@ -480,11 +478,6 @@ static void blackjack_destroy(void *priv)
 {
     struct bj_app *a = priv;
 
-    if (a && a->spike) {
-        cg_spike_destroy(a->spike);
-        lv_free(priv);
-        return;
-    }
     /* The shell deletes the objects; the game is saved if it changed. */
     if (a && a->dirty) {
         save_now(a);
@@ -526,7 +519,7 @@ lv_obj_t *bj_app_button(void *priv, int index)
 
 void bj_app_refresh(void *priv)
 {
-    if (priv && !((struct bj_app *)priv)->spike) {
+    if (priv) {
         refresh(priv);
     }
 }

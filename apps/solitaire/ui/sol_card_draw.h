@@ -32,6 +32,9 @@ void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card);
  * with. */
 int sol_card_index_h(int card_w);
 void sol_draw_back(lv_layer_t *layer, const lv_area_t *area);
+/* The shadow a card at `area` casts on the cloth: draw a pile's shadows
+ * before its cards (cg_deck.h). */
+void sol_draw_shadow(lv_layer_t *layer, const lv_area_t *area);
 
 enum sol_slot_mark {
     SOL_SLOT_PLAIN = 0,

@@ -36,6 +36,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "sol_app.h"
+#include "cg_table.h"
 #include "sol_store.h"
 #include "sol_table_widget.h"
 
@@ -131,6 +132,8 @@ static void style_button(lv_obj_t *btn, int primary)
         pos_style_add(btn, POS_STYLE_BUTTON_SECONDARY, 0);
         pos_style_add(btn, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
     }
+    /* The Lamplight look over the DS roles (cg_table.h). */
+    cg_table_style_button(btn, primary, 1);
 }
 
 static void set_button(lv_obj_t *btn, const char *text, enum sol_button what, int primary)
@@ -300,8 +303,12 @@ static lv_obj_t *hud_panel(lv_obj_t *parent, const char *caption, lv_obj_t **val
     lv_obj_set_style_pad_row(panel, 2, 0);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_CLICKABLE);
-    pocketui_label(panel, caption, POS_STYLE_CAPTION);
-    *value = pocketui_label(panel, "0", POS_STYLE_TITLE);
+    {
+        lv_obj_t *label = pocketui_label(panel, caption, POS_STYLE_CAPTION);
+
+        *value = pocketui_label(panel, "0", POS_STYLE_TITLE);
+        cg_table_style_hud(panel, label, *value);
+    }
     return panel;
 }
 
@@ -330,6 +337,7 @@ static void build(struct sol_app *a, lv_obj_t *body)
     lv_obj_set_width(a->root, LV_PCT(100));
     lv_obj_set_flex_grow(a->root, 1);
     lv_obj_remove_flag(a->root, LV_OBJ_FLAG_SCROLLABLE);
+    cg_table_style_room(a->root);
 
     a->hud = lv_obj_create(a->root);
     lv_obj_remove_style_all(a->hud);
@@ -351,6 +359,7 @@ static void build(struct sol_app *a, lv_obj_t *body)
     lv_obj_remove_flag(a->controls, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(a->controls, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     a->caption = pocketui_label(a->controls, "", POS_STYLE_CAPTION);
+    cg_table_style_text(a->caption, CG_INK_DIM);
     lv_obj_set_width(a->caption, LV_PCT(100));
     lv_label_set_long_mode(a->caption, LV_LABEL_LONG_DOT);
     a->buttons = lv_obj_create(a->controls);

@@ -5,9 +5,25 @@
 #include "bj_card_draw.h"
 #include "bj_felt.h"
 #include "bj_palette.h"
+#include "cg_table.h"
 #include "pocketui.h"
 #include "poker_view.h"
 #include <stdio.h>
+
+/* The table is a Lamplight scene with a palette of its own in every theme
+ * (cg_table.h): the roles the view asks for, in its inks. */
+static lv_color_t table_ink(enum pos_color_token color)
+{
+    switch (color) {
+    case POS_COLOR_STATUS_OK:
+    case POS_COLOR_ACCENT_PRIMARY:
+        return cg_table_ink(CG_INK_GOLD);
+    case POS_COLOR_TEXT_SECONDARY:
+        return cg_table_ink(CG_INK_DIM);
+    default:
+        return cg_table_ink(CG_INK_IVORY);
+    }
+}
 
 static lv_area_t area(const lv_area_t *origin, int x, int y, int w, int h)
 {
@@ -31,7 +47,7 @@ static void text(lv_layer_t *layer, const lv_area_t *origin, struct poker_rect p
     d.text = value;
     d.text_local = 1;
     d.align = LV_TEXT_ALIGN_CENTER;
-    d.color = pos_theme_color(color);
+    d.color = table_ink(color);
     lv_area_t r = area(origin, place.x, place.y, place.w, place.h);
     lv_draw_label(layer, &d, &r);
 }
@@ -49,7 +65,7 @@ static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_
         lv_draw_rect_dsc_t d;
         lv_draw_rect_dsc_init(&d);
         d.bg_opa = LV_OPA_TRANSP;
-        d.border_color = pos_theme_color(POS_COLOR_ACCENT_PRIMARY);
+        d.border_color = cg_table_ink(CG_INK_GOLD);
         d.border_width = 2;
         d.radius = 8;
         lv_area_t r = area(origin, place->ring.x, place->ring.y, place->ring.w, place->ring.h);
@@ -57,6 +73,11 @@ static void seat(lv_layer_t *layer, const lv_area_t *origin, const struct poker_
     }
     snprintf(line, sizeof(line), "%s%s%s %u", g->actor == i ? ">" : "", poker_seat_name(i), badge, p->stack);
     text(layer, origin, place->name, line, POS_STYLE_BUTTON_LABEL, color);
+    for (int k = 0; k < 2 && p->in_hand && !p->folded; ++k) {
+        const struct poker_rect *c = &place->card[k];
+        lv_area_t r = area(origin, c->x, c->y, c->w, c->h);
+        bj_draw_shadow(layer, &r);
+    }
     for (int k = 0; k < 2; ++k) {
         const struct poker_rect *c = &place->card[k];
         lv_area_t r = area(origin, c->x, c->y, c->w, c->h);
@@ -94,8 +115,10 @@ static void draw(lv_event_t *event)
     int w = lv_obj_get_width(obj), h = lv_obj_get_height(obj);
     if (!g || !layer)
         return;
+    /* The indigo cloth under the lamp; the felt tile only without memory. */
     const lv_image_dsc_t *felt = bj_felt_image();
-    if (felt) {
+    if (cg_table_cloth(layer, &origin, CG_CLOTH_INDIGO)) {
+    } else if (felt) {
         lv_draw_image_dsc_t d;
         lv_draw_image_dsc_init(&d);
         d.src = felt;
@@ -139,6 +162,21 @@ static void draw(lv_event_t *event)
     snprintf(line, sizeof(line), "%s | POT %u", poker_phase_name(g->phase),
              poker_playing(g) ? poker_pot_total(g) : g->settled_pot);
     text(layer, &origin, place.pot, line, POS_STYLE_ROW_TITLE, POS_COLOR_TEXT_PRIMARY);
+    {
+        /* The pot as chips, at the head of its line where there is room. */
+        uint32_t pot = poker_playing(g) ? poker_pot_total(g) : g->settled_pot;
+        int d = place.pot.h >= 30 ? 26 : 20;
+
+        if (place.pot.w >= 12 * d) {
+            cg_table_chips(layer, origin.x1 + place.pot.x + 2 * d, origin.y1 + place.pot.y + place.pot.h / 2 + d / 2,
+                           pot, d);
+        }
+    }
+    for (int i = 0; i < g->board_count; ++i) {
+        const struct poker_rect *c = &place.board[i];
+        lv_area_t r = area(&origin, c->x, c->y, c->w, c->h);
+        bj_draw_shadow(layer, &r);
+    }
     for (int i = 0; i < 5; ++i) {
         const struct poker_rect *c = &place.board[i];
         lv_area_t r = area(&origin, c->x, c->y, c->w, c->h);
