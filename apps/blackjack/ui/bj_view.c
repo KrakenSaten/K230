@@ -318,7 +318,7 @@ void bj_view_dealer_label(const struct bj_game *g, char *out, size_t len)
     if (!g || g->dealer.n == 0) {
         snprintf(out, len, "DEALER");
     } else if (g->phase == BJ_PLAYER) {
-        snprintf(out, len, "DEALER SHOWS %s", bj_rank_text(bj_card_rank(g->dealer.card[0])));
+        snprintf(out, len, "DEALER SHOWS %s", cg_rank_text(cg_card_rank(g->dealer.card[0])));
     } else if (bj_is_blackjack(&g->dealer)) {
         snprintf(out, len, "DEALER BLACKJACK");
     } else if (bj_is_bust(&g->dealer)) {

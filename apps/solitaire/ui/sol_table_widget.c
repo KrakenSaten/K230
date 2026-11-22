@@ -95,7 +95,7 @@ static void draw_pile(lv_layer_t *layer, const lv_area_t *origin, const struct s
             mark = SOL_SLOT_TURN;
         }
         if (s->n == 0) {
-            sol_draw_slot(layer, &a, mark, (enum sol_suit)(pile - SOL_F0));
+            sol_draw_slot(layer, &a, mark, (enum cg_suit)(pile - SOL_F0));
             return;
         }
     }

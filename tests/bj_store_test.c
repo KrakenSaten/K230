@@ -51,12 +51,12 @@ static int same_game(const struct bj_game *a, const struct bj_game *b)
 }
 
 /* Every card in the shoe and on the table, by id. */
-static int count_cards(const struct bj_game *g, int counts[BJ_DECK])
+static int count_cards(const struct bj_game *g, int counts[CG_DECK])
 {
     int total = g->shoe.n + g->player.n + g->dealer.n;
     int i;
 
-    memset(counts, 0, sizeof(int) * BJ_DECK);
+    memset(counts, 0, sizeof(int) * CG_DECK);
     for (i = 0; i < g->shoe.n; i++) {
         counts[g->shoe.card[i]]++;
     }
@@ -73,8 +73,8 @@ static int count_cards(const struct bj_game *g, int counts[BJ_DECK])
  * these ranks on top in the order they are dealt. */
 static void stack_fair(struct bj_game *g, ...)
 {
-    uint8_t left[BJ_DECK];
-    bj_card_t picked[40];
+    uint8_t left[CG_DECK];
+    cg_card_t picked[40];
     int k = 0;
     int n = 0;
     int c;
@@ -96,15 +96,15 @@ static void stack_fair(struct bj_game *g, ...)
         if (r == 0) {
             break;
         }
-        for (s = 0; s < BJ_SUITS && !left[bj_card(r, (enum bj_suit)s)]; s++) {
+        for (s = 0; s < CG_SUITS && !left[cg_card(r, (enum cg_suit)s)]; s++) {
         }
-        picked[k] = bj_card(r, (enum bj_suit)(s % BJ_SUITS));
+        picked[k] = cg_card(r, (enum cg_suit)(s % CG_SUITS));
         left[picked[k++]]--;
     }
     va_end(ap);
-    for (c = 0; c < BJ_DECK; c++) {
+    for (c = 0; c < CG_DECK; c++) {
         for (i = 0; i < left[c]; i++) {
-            g->shoe.card[n++] = (bj_card_t)c;
+            g->shoe.card[n++] = (cg_card_t)c;
         }
     }
     for (i = k - 1; i >= 0; i--) {
@@ -163,8 +163,8 @@ static void round_trip(const char *name, const struct bj_game *g)
     struct bj_game back;
     uint8_t blob[BJ_SAVE_SIZE];
     uint8_t again[BJ_SAVE_SIZE];
-    int before[BJ_DECK];
-    int after[BJ_DECK];
+    int before[CG_DECK];
+    int after[CG_DECK];
     char what[128];
     int n;
 
@@ -185,7 +185,7 @@ static void test_codec(void)
     struct bj_game g;
     struct bj_game back;
     uint8_t blob[BJ_SAVE_SIZE + 8];
-    int counts[BJ_DECK];
+    int counts[CG_DECK];
     int n;
     int i;
     int ok;
@@ -206,7 +206,7 @@ static void test_codec(void)
     bj_save_decode(&back, blob, BJ_SAVE_SIZE);
     count_cards(&back, counts);
     ok = 1;
-    for (i = 0; i < BJ_DECK; i++) {
+    for (i = 0; i < CG_DECK; i++) {
         ok &= counts[i] == BJ_DECKS;
     }
     check("a new session's shoe comes back holding every card exactly twice", ok && back.shoe.n == BJ_SHOE);
@@ -411,7 +411,7 @@ static void test_codec(void)
         copy[SHOE_AT + 1 + copy[SHOE_AT]] = 0xFF;
         reseal(copy);
         check("a sealed file with a busted hand still in play is refused",
-              bj_hand_total(&g.player, NULL) == 15 && bj_card_rank(copy[PLAYER_AT + 3]) == BJ_KING &&
+              bj_hand_total(&g.player, NULL) == 15 && cg_card_rank(copy[PLAYER_AT + 3]) == CG_KING &&
                   bj_save_decode(&back, copy, BJ_SAVE_SIZE) == -1);
         memcpy(copy, blob, sizeof(copy));
         copy[6] = 0x77;

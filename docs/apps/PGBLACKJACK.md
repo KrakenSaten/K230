@@ -77,8 +77,9 @@ success token after a win, never as the only signal.
 ## Architecture
 
 ```
-apps/blackjack/engine/bj_cards.[ch]      card, rank/suit/colour, deck, shuffle  (copy of Solitaire's, bj_ prefix)
-apps/blackjack/engine/bj_rng.[ch]        xorshift32                              (copy)
+core/cards/cg_cards.[ch]                 card, rank/suit/colour, deck, shuffle  (shared with Solitaire and Poker)
+core/cards/cg_rng.[ch]                   xorshift32                              (shared)
+core/cards/cg_shoe.[ch]                  the N-deck shoe, refill excluding the table (shared)
 apps/blackjack/engine/bj_rules.[ch]      shoe, hands and totals, deal/hit/stand/double, dealer, settlement, chips, bj_game_valid
 apps/blackjack/ui/bj_view.[ch]           pure: screen blocks, table and hand geometry, key map, buttons, HUD, labels, result, captions
 apps/blackjack/ui/bj_card_draw.[ch]      LVGL: face (with index layout), back, slot, suits  (copy + one parameter)
@@ -282,7 +283,10 @@ shoe was one card short. `give()` now draws in its own statement.
 
 ## Pocket Cards: what to extract later
 
-Written after both card games, from what actually had to be copied:
+Written after both card games, from what actually had to be copied.
+**Done since:** the card byte, the shuffle, the RNG and the shoe are one
+module, `core/cards` (`cg_*`), used by Blackjack, Solitaire and Poker. The
+renderer, palette and felt below are still per-game copies.
 
 - **Shared, verbatim:** the card byte and its rank/suit/colour/rank-text
   helpers; Fisher-Yates over xorshift32; the suit shapes; the card back; the

@@ -10,9 +10,9 @@
 
 /* ---- hands --------------------------------------------------------------- */
 
-int bj_card_points(bj_card_t c)
+int bj_card_points(cg_card_t c)
 {
-    int rank = bj_card_rank(c);
+    int rank = cg_card_rank(c);
 
     return rank >= 10 ? 10 : rank;
 }
@@ -31,7 +31,7 @@ int bj_hand_total(const struct bj_hand *h, int *soft)
     }
     for (i = 0; i < h->n; i++) {
         total += bj_card_points(h->card[i]);
-        aces += bj_card_rank(h->card[i]) == BJ_ACE;
+        aces += cg_card_rank(h->card[i]) == CG_ACE;
     }
     /* At most one ace can ever count as 11: two would be 22. */
     if (aces > 0 && total + 10 <= 21) {
@@ -55,56 +55,12 @@ int bj_is_bust(const struct bj_hand *h)
 
 /* ---- the shoe ---------------------------------------------------------------- */
 
-static void shoe_fill_shuffled(struct bj_shoe *shoe, const uint8_t *exclude_count)
-{
-    int copies[BJ_DECK];
-    int n = 0;
-    int c;
-    int i;
-
-    for (c = 0; c < BJ_DECK; c++) {
-        copies[c] = BJ_DECKS - (exclude_count ? exclude_count[c] : 0);
-    }
-    for (c = 0; c < BJ_DECK; c++) {
-        for (i = 0; i < copies[c]; i++) {
-            shoe->card[n++] = (bj_card_t)c;
-        }
-    }
-    /* Fisher-Yates over the whole shoe, one draw per position. */
-    for (i = n - 1; i > 0; i--) {
-        int j = (int)bj_rng_below(&shoe->rng, (uint32_t)i + 1u);
-        bj_card_t t = shoe->card[i];
-
-        shoe->card[i] = shoe->card[j];
-        shoe->card[j] = t;
-    }
-    shoe->n = (uint8_t)n;
-    shoe->shuffles++;
-}
-
-void bj_shoe_init(struct bj_shoe *shoe, uint32_t seed)
-{
-    if (!shoe) {
-        return;
-    }
-    memset(shoe, 0, sizeof(*shoe));
-    bj_rng_seed(&shoe->rng, seed);
-    shoe_fill_shuffled(shoe, NULL);
-}
-
-void bj_shoe_shuffle(struct bj_shoe *shoe)
-{
-    if (shoe) {
-        shoe_fill_shuffled(shoe, NULL);
-    }
-}
-
 /* The next card. A shoe that has run out mid-round is refilled with every
  * card that is not on the table, so no card is ever in two places. */
-static bj_card_t draw(struct bj_game *g)
+static cg_card_t draw(struct bj_game *g)
 {
     if (g->shoe.n == 0) {
-        uint8_t on_table[BJ_DECK];
+        uint8_t on_table[CG_DECK];
         int i;
 
         memset(on_table, 0, sizeof(on_table));
@@ -114,9 +70,9 @@ static bj_card_t draw(struct bj_game *g)
         for (i = 0; i < g->dealer.n; i++) {
             on_table[g->dealer.card[i]]++;
         }
-        shoe_fill_shuffled(&g->shoe, on_table);
+        cg_shoe_refill(&g->shoe, on_table);
     }
-    return g->shoe.card[--g->shoe.n];
+    return cg_shoe_draw(&g->shoe);
 }
 
 static void give(struct bj_game *g, struct bj_hand *h)
@@ -127,7 +83,7 @@ static void give(struct bj_game *g, struct bj_hand *h)
          * unspecified whether n has already grown by then - it had, and a
          * stale slot was counted as a card on the table (tests/
          * bj_rules_test.c, the empty shoe). */
-        bj_card_t c = draw(g);
+        cg_card_t c = draw(g);
 
         h->card[h->n++] = c;
     }
@@ -167,7 +123,7 @@ void bj_new_session(struct bj_game *g, uint32_t seed)
         return;
     }
     memset(g, 0, sizeof(*g));
-    bj_shoe_init(&g->shoe, seed);
+    cg_shoe_init(&g->shoe, BJ_DECKS, seed);
     g->bankroll = BJ_BANKROLL_START;
     g->bet = BJ_BET_MIN;
     g->phase = BJ_BETTING;
@@ -286,7 +242,7 @@ enum bj_result bj_deal(struct bj_game *g)
     }
     g->reshuffled = 0;
     if (g->shoe.n < BJ_RESHUFFLE_AT) {
-        bj_shoe_shuffle(&g->shoe);
+        cg_shoe_shuffle(&g->shoe);
         g->reshuffled = 1;
     }
     g->player.n = 0;
@@ -370,12 +326,12 @@ enum bj_result bj_double(struct bj_game *g)
 
 /* ---- a reachable position -------------------------------------------------------------- */
 
-static int cards_ok(const bj_card_t *card, int n, uint8_t copies[BJ_DECK])
+static int cards_ok(const cg_card_t *card, int n, uint8_t copies[CG_DECK])
 {
     int i;
 
     for (i = 0; i < n; i++) {
-        if (!bj_card_valid(card[i]) || ++copies[card[i]] > BJ_DECKS) {
+        if (!cg_card_valid(card[i]) || ++copies[card[i]] > BJ_DECKS) {
             return 0;
         }
     }
@@ -433,9 +389,9 @@ static int64_t delta_for(enum bj_outcome outcome, uint32_t stake)
 
 int bj_game_valid(const struct bj_game *g)
 {
-    uint8_t copies[BJ_DECK];
+    uint8_t copies[CG_DECK];
 
-    if (!g || g->shoe.n > BJ_SHOE || g->player.n > BJ_HAND_MAX || g->dealer.n > BJ_HAND_MAX) {
+    if (!g || g->shoe.decks != BJ_DECKS || g->shoe.n > BJ_SHOE || g->player.n > BJ_HAND_MAX || g->dealer.n > BJ_HAND_MAX) {
         return 0;
     }
     memset(copies, 0, sizeof(copies));

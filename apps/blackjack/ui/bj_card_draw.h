@@ -28,7 +28,7 @@
 #define PGBJ_CARD_DRAW_H
 
 #include "lvgl.h"
-#include "bj_cards.h"
+#include "cg_cards.h"
 
 /* The corner radius a card of this width gets. */
 int bj_card_radius(int card_w);
@@ -39,7 +39,7 @@ enum bj_index {
     BJ_INDEX_BESIDE = 0,
     BJ_INDEX_BELOW
 };
-void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum bj_index index);
+void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index);
 /* What a BJ_INDEX_BELOW corner of a card `card_w` wide takes in the current
  * fonts, from the card's left and top edges, with two pixels to spare: across,
  * the inset and the wider of the widest rank ("10") and the pip; down, to the
@@ -53,9 +53,9 @@ enum bj_slot_mark {
     BJ_SLOT_KING,    /* an empty column: a ghost K */
     BJ_SLOT_TURN     /* an empty stock with cards in the waste: the turn-over mark */
 };
-void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum bj_suit suit);
+void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum cg_suit suit);
 
 /* A suit centred at (cx, cy) in a box `size` pixels high. */
-void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int size, enum bj_suit suit, lv_color_t color);
+void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int size, enum cg_suit suit, lv_color_t color);
 
 #endif

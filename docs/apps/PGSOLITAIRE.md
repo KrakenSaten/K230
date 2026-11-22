@@ -68,8 +68,8 @@ the table nor the buttons take the focus when tapped. Tab is not used
 ## Architecture
 
 ```
-apps/solitaire/engine/sol_cards.[ch]      card, rank/suit/colour, deck, shuffle   (Pocket Cards candidate)
-apps/solitaire/engine/sol_rng.[ch]        xorshift32                              (Pocket Cards candidate)
+core/cards/cg_cards.[ch]                  card, rank/suit/colour, deck, shuffle   (shared with Blackjack and Poker)
+core/cards/cg_rng.[ch]                    xorshift32                              (shared)
 apps/solitaire/engine/sol_rules.[ch]      Klondike draw-1: deal, pick, move, draw, foundation target, validity
 apps/solitaire/ui/sol_view.[ch]           pure: screen blocks, table geometry, fans, hit test,
                                           cursor/selection state machine for keys and taps, captions

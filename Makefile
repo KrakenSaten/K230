@@ -1070,9 +1070,17 @@ tests/g2048_theme_test: tests/g2048_theme_test.o $(G2048_UI_OBJS) $(G2048_OBJS) 
 # only door to the filesystem and is tested here as well. The app, the card
 # renderer and the table widget need a display and are built by ui/shell
 # (CMake).
+# Card, RNG and shoe primitives shared by Blackjack, Solitaire and Poker
+# (core/cards): pure C, held to the same rules by each game's lint.
+CARDS_DIR := core/cards
+CARDS_OBJS := $(CARDS_DIR)/cg_rng.o $(CARDS_DIR)/cg_cards.o $(CARDS_DIR)/cg_shoe.o
+
+$(CARDS_DIR)/%.o: $(CARDS_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(CARDS_DIR) -c -o $@ $<
+
 SOL_DIR := apps/solitaire
-SOL_INC := -I$(SOL_DIR) -I$(SOL_DIR)/engine -I$(SOL_DIR)/ui
-SOL_OBJS := $(SOL_DIR)/engine/sol_rng.o $(SOL_DIR)/engine/sol_cards.o $(SOL_DIR)/engine/sol_rules.o
+SOL_INC := -I$(CARDS_DIR) -I$(SOL_DIR) -I$(SOL_DIR)/engine -I$(SOL_DIR)/ui
+SOL_OBJS := $(CARDS_OBJS) $(SOL_DIR)/engine/sol_rules.o
 SOL_UI_OBJS := $(SOL_DIR)/ui/sol_view.o
 SOL_APP_OBJS := $(SOL_DIR)/sol_store.o
 SOL_TESTS := tests/sol_rules_test tests/sol_view_test tests/sol_store_test
@@ -1104,8 +1112,8 @@ tests/sol_store_test: tests/sol_store_test.o $(SOL_APP_OBJS) $(SOL_OBJS)
 # LVGL-free too, so both are tested here (tests/bj_lint.sh). The app, the
 # card renderer and the table widget are built by ui/shell (CMake).
 BJ_DIR := apps/blackjack
-BJ_INC := -I$(BJ_DIR) -I$(BJ_DIR)/engine -I$(BJ_DIR)/ui
-BJ_OBJS := $(BJ_DIR)/engine/bj_rng.o $(BJ_DIR)/engine/bj_cards.o $(BJ_DIR)/engine/bj_rules.o
+BJ_INC := -I$(CARDS_DIR) -I$(BJ_DIR) -I$(BJ_DIR)/engine -I$(BJ_DIR)/ui
+BJ_OBJS := $(CARDS_OBJS) $(BJ_DIR)/engine/bj_rules.o
 BJ_UI_OBJS := $(BJ_DIR)/ui/bj_view.o
 BJ_APP_OBJS := $(BJ_DIR)/bj_store.o
 BJ_TESTS := tests/bj_rules_test tests/bj_view_test tests/bj_store_test
@@ -1131,9 +1139,9 @@ tests/bj_view_test: tests/bj_view_test.o $(BJ_UI_OBJS) $(BJ_OBJS)
 tests/bj_store_test: tests/bj_store_test.o $(BJ_APP_OBJS) $(BJ_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Poker shares Blackjack's card/RNG primitives; no UI or platform I/O here.
+# Poker uses the shared card/RNG primitives; no UI or platform I/O here.
 POKER_DIR := apps/poker
-POKER_INC := -I$(POKER_DIR)/engine -I$(POKER_DIR)/ui -I$(BJ_DIR)/engine
+POKER_INC := -I$(POKER_DIR)/engine -I$(POKER_DIR)/ui -I$(CARDS_DIR)
 POKER_OBJS := $(POKER_DIR)/engine/poker.o $(POKER_DIR)/engine/poker_eval.o $(POKER_DIR)/engine/poker_ai.o
 POKER_VIEW_OBJS := $(POKER_DIR)/ui/poker_view.o
 POKER_TESTS := tests/poker_engine_test tests/poker_view_test
@@ -1144,7 +1152,7 @@ $(POKER_DIR)/ui/poker_view.o: $(POKER_DIR)/ui/poker_view.c
 	$(CC) $(ALL_CFLAGS) $(POKER_INC) -c -o $@ $<
 tests/poker_%_test.o: tests/poker_%_test.c
 	$(CC) $(ALL_CFLAGS) $(POKER_INC) -c -o $@ $<
-tests/poker_engine_test: tests/poker_engine_test.o $(POKER_OBJS) $(BJ_DIR)/engine/bj_cards.o $(BJ_DIR)/engine/bj_rng.o
+tests/poker_engine_test: tests/poker_engine_test.o $(POKER_OBJS) $(CARDS_DIR)/cg_cards.o $(CARDS_DIR)/cg_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 tests/poker_view_test: tests/poker_view_test.o $(POKER_VIEW_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -1154,7 +1162,7 @@ poker-test: $(POKER_TESTS)
 	bash tests/poker_lint.sh
 poker-san-test:
 	$(CC) $(POKER_INC) -std=gnu11 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer \
-	    tests/poker_engine_test.c $(POKER_OBJS:.o=.c) $(BJ_DIR)/engine/bj_cards.c $(BJ_DIR)/engine/bj_rng.c \
+	    tests/poker_engine_test.c $(POKER_OBJS:.o=.c) $(CARDS_DIR)/cg_cards.c $(CARDS_DIR)/cg_rng.c \
 	    -o tests/poker_engine_test-asan
 	./tests/poker_engine_test-asan
 

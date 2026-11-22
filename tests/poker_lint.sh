@@ -13,7 +13,7 @@ none() {
     grep "$@" || rc=$?
     [ "${rc}" = 1 ]
 }
-none -rnE --include='*.c' 'lvgl|#include.*(app\.h|pocketui)|\b(malloc|calloc|free|rand|srand|time|fopen|socket)\(' apps/poker/engine ||
+none -rnE --include='*.c' 'lvgl|#include.*(app\.h|pocketui)|\b(malloc|calloc|free|rand|srand|time|fopen|socket)\(' apps/poker/engine core/cards ||
     { echo 'FAIL poker engine must remain graphical/platform/heap independent'; exit 1; }
 test "$(grep -c 'pos_input_add_obj' apps/poker/poker_app.c)" = 1 ||
     { echo 'FAIL poker app must register exactly one key sink'; exit 1; }

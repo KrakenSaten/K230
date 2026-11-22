@@ -64,7 +64,7 @@ static void draw_hand(lv_layer_t *layer, const lv_area_t *origin, const struct b
             struct bj_rect r = { x0 + i * (t->card_w + gap), t->cards_y[row], t->card_w, t->card_h };
             lv_area_t a = area_of(origin, r);
 
-            bj_draw_slot(layer, &a, BJ_SLOT_PLAIN, BJ_SPADES);
+            bj_draw_slot(layer, &a, BJ_SLOT_PLAIN, CG_SPADES);
         }
         return;
     }

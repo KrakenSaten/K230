@@ -51,17 +51,17 @@ static void disc(lv_layer_t *layer, int cx, int cy, int r, lv_color_t c)
 /* s percent of size, rounded. */
 #define P(size, pct) (((size) * (pct) + 50) / 100)
 
-void sol_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum sol_suit suit, lv_color_t c)
+void sol_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum cg_suit suit, lv_color_t c)
 {
     if (s < 4) {
         return;
     }
     switch (suit) {
-    case SOL_DIAMONDS:
+    case CG_DIAMONDS:
         triangle(layer, cx, cy - P(s, 50), cx + P(s, 38), cy, cx - P(s, 38), cy, c);
         triangle(layer, cx - P(s, 38), cy, cx + P(s, 38), cy, cx, cy + P(s, 50), c);
         break;
-    case SOL_HEARTS: {
+    case CG_HEARTS: {
         int r = P(s, 26);
 
         disc(layer, cx - P(s, 24), cy - P(s, 20), r, c);
@@ -69,7 +69,7 @@ void sol_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum sol_suit suit,
         triangle(layer, cx - P(s, 49), cy - P(s, 12), cx + P(s, 49), cy - P(s, 12), cx, cy + P(s, 48), c);
         break;
     }
-    case SOL_SPADES: {
+    case CG_SPADES: {
         int r = P(s, 24);
 
         triangle(layer, cx, cy - P(s, 50), cx + P(s, 47), cy + P(s, 8), cx - P(s, 47), cy + P(s, 8), c);
@@ -78,7 +78,7 @@ void sol_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum sol_suit suit,
         triangle(layer, cx, cy + P(s, 6), cx + P(s, 18), cy + P(s, 50), cx - P(s, 18), cy + P(s, 50), c);
         break;
     }
-    case SOL_CLUBS:
+    case CG_CLUBS:
     default: {
         int r = P(s, 22);
 
@@ -207,20 +207,20 @@ int sol_card_index_h(int card_w)
     return foot + 2;
 }
 
-void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, sol_card_t card)
+void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card)
 {
     int w = lv_area_get_width(area);
     int h = lv_area_get_height(area);
-    int rank = sol_card_rank(card);
-    enum sol_suit suit = sol_card_suit(card);
-    lv_color_t ink = sol_palette[sol_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
+    int rank = cg_card_rank(card);
+    enum cg_suit suit = cg_card_suit(card);
+    lv_color_t ink = sol_palette[cg_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
     struct corner c = corner_of(w);
 
-    if (!sol_card_valid(card)) {
+    if (!cg_card_valid(card)) {
         return;
     }
     panel(layer, area, sol_card_radius(w), sol_palette[SOL_INK_PAPER], LV_OPA_COVER, sol_palette[SOL_INK_EDGE], 1);
-    text(layer, sol_rank_text(rank), c.role, ink, area->x1 + c.pad, area->y1 + c.text_y, area->x2 - c.pad,
+    text(layer, cg_rank_text(rank), c.role, ink, area->x1 + c.pad, area->y1 + c.text_y, area->x2 - c.pad,
          LV_TEXT_ALIGN_LEFT);
     sol_draw_suit(layer, area->x2 - c.pad - c.pip / 2, area->y1 + c.pip_y, c.pip, suit, ink);
 
@@ -229,14 +229,14 @@ void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, sol_card_t card)
         int cx = area->x1 + w / 2;
         int cy = area->y1 + h * 62 / 100;
 
-        if (rank >= SOL_JACK) {
+        if (rank >= CG_JACK) {
             const lv_font_t *big = role_font(POS_STYLE_HERO_40, NULL);
             int bl = big ? lv_font_get_line_height(big) : 40;
 
-            text(layer, sol_rank_text(rank), w >= 56 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, ink, area->x1,
+            text(layer, cg_rank_text(rank), w >= 56 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, ink, area->x1,
                  cy - bl / 2, area->x2, LV_TEXT_ALIGN_CENTER);
         } else {
-            sol_draw_suit(layer, cx, cy, rank == SOL_ACE ? w * 58 / 100 : w * 44 / 100, suit, ink);
+            sol_draw_suit(layer, cx, cy, rank == CG_ACE ? w * 58 / 100 : w * 44 / 100, suit, ink);
         }
     }
 }
@@ -252,11 +252,11 @@ void sol_draw_back(lv_layer_t *layer, const lv_area_t *area)
     panel(layer, &frame, r > 2 ? r - 2 : 1, sol_palette[SOL_INK_BACK], LV_OPA_TRANSP,
           sol_palette[SOL_INK_BACK_LINE], 1);
     /* One small diamond in the middle, and nothing else. */
-    sol_draw_suit(layer, area->x1 + w / 2, area->y1 + lv_area_get_height(area) / 2, w / 4, SOL_DIAMONDS,
+    sol_draw_suit(layer, area->x1 + w / 2, area->y1 + lv_area_get_height(area) / 2, w / 4, CG_DIAMONDS,
                   sol_palette[SOL_INK_BACK_LINE]);
 }
 
-void sol_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum sol_slot_mark mark, enum sol_suit suit)
+void sol_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum sol_slot_mark mark, enum cg_suit suit)
 {
     int w = lv_area_get_width(area);
     int h = lv_area_get_height(area);

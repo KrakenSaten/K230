@@ -252,8 +252,8 @@ static int button_is(int i, const char *text, int enabled)
  * the rules can reach and saves like one. */
 static void stack(struct bj_game *g, ...)
 {
-    uint8_t left[BJ_DECK];
-    bj_card_t picked[40];
+    uint8_t left[CG_DECK];
+    cg_card_t picked[40];
     int k = 0;
     int n = 0;
     int c;
@@ -275,15 +275,15 @@ static void stack(struct bj_game *g, ...)
         if (r == 0) {
             break;
         }
-        for (s = 0; s < BJ_SUITS && !left[bj_card(r, (enum bj_suit)s)]; s++) {
+        for (s = 0; s < CG_SUITS && !left[cg_card(r, (enum cg_suit)s)]; s++) {
         }
-        picked[k] = bj_card(r, (enum bj_suit)(s % BJ_SUITS));
+        picked[k] = cg_card(r, (enum cg_suit)(s % CG_SUITS));
         left[picked[k++]]--;
     }
     va_end(ap);
-    for (c = 0; c < BJ_DECK; c++) {
+    for (c = 0; c < CG_DECK; c++) {
         for (i = 0; i < left[c]; i++) {
-            g->shoe.card[n++] = (bj_card_t)c;
+            g->shoe.card[n++] = (cg_card_t)c;
         }
     }
     for (i = k - 1; i >= 0; i--) {
@@ -457,7 +457,7 @@ static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_spac
  * the rank in its corner font, inset max(3, w / 14), with the w / 5 pip
  * below it - as wide as the wider of the two, from the card's top edge to
  * the pip's foot. */
-static lv_area_t corner_of(lv_area_t r, bj_card_t card)
+static lv_area_t corner_of(lv_area_t r, cg_card_t card)
 {
     int w = lv_area_get_width(&r);
     int pad = w / 14 < 3 ? 3 : w / 14;
@@ -469,7 +469,7 @@ static lv_area_t corner_of(lv_area_t r, bj_card_t card)
     lv_area_t c;
 
     if (font) {
-        lv_text_get_size(&size, bj_rank_text(bj_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_text_get_size(&size, cg_rank_text(cg_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     }
     c.x1 = r.x1 + pad;
     c.x2 = c.x1 + (size.x > pip ? size.x : pip) - 1;
@@ -481,9 +481,9 @@ static lv_area_t corner_of(lv_area_t r, bj_card_t card)
 /* Pixels of exactly the card's ink inside `a` of the last frame: the fully
  * covered part of the rank glyphs and the pip, which a card painted over
  * the corner replaces with its paper or its edge. */
-static int ink_in(const lv_area_t *a, bj_card_t card)
+static int ink_in(const lv_area_t *a, cg_card_t card)
 {
-    lv_color_t ink = bj_palette[bj_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
+    lv_color_t ink = bj_palette[cg_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
     uint16_t ink16 = lv_color_to_u16(ink);
     uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(g_disp));
     int32_t hor = lv_display_get_horizontal_resolution(g_disp);
@@ -566,8 +566,8 @@ static int corners_readable(const char *mode)
             want = ink_in(&a, whole.card[i]);
             if (want == 0 || got[i] != want) {
                 printf("note %s: %s card %d of %d (%s%s) shows %d of its %d index pixels (corner %d,%d..%d,%d)\n",
-                       mode, row ? "player" : "dealer", i + 1, whole.n, bj_rank_text(bj_card_rank(whole.card[i])),
-                       bj_suit_name(bj_card_suit(whole.card[i])), got[i], want, (int)corner[i].x1,
+                       mode, row ? "player" : "dealer", i + 1, whole.n, cg_rank_text(cg_card_rank(whole.card[i])),
+                       cg_suit_name(cg_card_suit(whole.card[i])), got[i], want, (int)corner[i].x1,
                        (int)corner[i].y1, (int)corner[i].x2, (int)corner[i].y2);
                 bad++;
             }
@@ -630,20 +630,20 @@ static void test_long_hands(void)
             }
             snprintf(what, sizeof(what), "%s, %s: the ten-card hand is a live hard 20 against 10 7", places[p], sizes[s]);
             check(what, g->phase == BJ_PLAYER && g->player.n == 10 && bj_hand_total(&g->player, NULL) == 20 &&
-                            g->dealer.n == 2 && bj_card_rank(g->dealer.card[0]) == 10 &&
-                            bj_card_rank(g->dealer.card[1]) == 7);
+                            g->dealer.n == 2 && cg_card_rank(g->dealer.card[0]) == 10 &&
+                            cg_card_rank(g->dealer.card[1]) == 7);
             snprintf(what, sizeof(what), "%s, %s: every index of the ten-card hard 20 is whole", places[p], sizes[s]);
             check(what, corners_readable(what) == 0);
             key('h');
             snprintf(what, sizeof(what), "%s, %s: one more 2 busts it in eleven cards", places[p], sizes[s]);
             check(what, g->phase == BJ_SETTLED && g->outcome == BJ_PLAYER_BUSTS && g->player.n == 11 &&
-                            bj_card_rank(g->player.card[10]) == 2);
+                            cg_card_rank(g->player.card[10]) == 2);
             snprintf(what, sizeof(what), "%s, %s: every index of the eleven-card bust is whole", places[p], sizes[s]);
             check(what, corners_readable(what) == 0);
             /* Drawn, not dealt: the table shows whatever the game holds. */
             for (i = 0; i < BJ_HAND_MAX; i++) {
-                g->player.card[i] = bj_card(i < 8 ? BJ_ACE : 2, (enum bj_suit)(i % BJ_SUITS));
-                g->dealer.card[i] = bj_card(i < 8 ? 10 : 3, (enum bj_suit)((i + 1) % BJ_SUITS));
+                g->player.card[i] = cg_card(i < 8 ? CG_ACE : 2, (enum cg_suit)(i % CG_SUITS));
+                g->dealer.card[i] = cg_card(i < 8 ? 10 : 3, (enum cg_suit)((i + 1) % CG_SUITS));
             }
             g->player.n = BJ_HAND_MAX;
             g->dealer.n = BJ_HAND_MAX;
@@ -844,21 +844,21 @@ static void test_glass(void)
 static void test_random(void)
 {
     static const pos_key_t keys[] = { LV_KEY_ENTER, ' ', 'h', 's', 'd', 'n', LV_KEY_LEFT, LV_KEY_RIGHT, '+', '-', 'q' };
-    struct bj_rng rng;
+    struct cg_rng rng;
     int step;
     int bad = 0;
     int unsaved = 0;
     uint32_t rounds = game()->rounds;
 
-    bj_rng_seed(&rng, 17);
+    cg_rng_seed(&rng, 17);
     for (step = 0; step < 3000; step++) {
         uint32_t chips = bj_chips(game());
         enum bj_phase before = game()->phase;
 
-        if (bj_rng_below(&rng, 5) == 0) {
-            tap_obj(bj_app_button(app_priv, (int)bj_rng_below(&rng, 3)));
+        if (cg_rng_below(&rng, 5) == 0) {
+            tap_obj(bj_app_button(app_priv, (int)cg_rng_below(&rng, 3)));
         } else {
-            key(keys[bj_rng_below(&rng, sizeof(keys) / sizeof(keys[0]))]);
+            key(keys[cg_rng_below(&rng, sizeof(keys) / sizeof(keys[0]))]);
         }
         if (step % 7 == 0) {
             tick();

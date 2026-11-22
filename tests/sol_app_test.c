@@ -459,7 +459,7 @@ static struct sol_ui *ui_rw(void) { return (struct sol_ui *)sol_app_ui(app_priv)
  * the rank's line in the corner font, inset max(3, w / 14), as wide as the
  * rank; and the w / 4 pip beside it at the right inset, centred half a line
  * down, with a pixel around it for its edges. */
-static void corner_boxes(lv_area_t r, sol_card_t card, lv_area_t box[2])
+static void corner_boxes(lv_area_t r, cg_card_t card, lv_area_t box[2])
 {
     int w = lv_area_get_width(&r);
     int pad = w / 14 < 3 ? 3 : w / 14;
@@ -472,7 +472,7 @@ static void corner_boxes(lv_area_t r, sol_card_t card, lv_area_t box[2])
     int cy = r.y1 + pad / 2 + line / 2;
 
     if (font) {
-        lv_text_get_size(&size, sol_rank_text(sol_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_text_get_size(&size, cg_rank_text(cg_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     }
     box[0].x1 = r.x1 + pad;
     box[0].x2 = box[0].x1 + size.x - 1;
@@ -512,9 +512,9 @@ static int is_ink(int32_t x, int32_t y, lv_color_t ink)
 /* The ink of `card`'s corner on `r` in the last frame, box by box and row by
  * row into `mask`. Returns the number of ink pixels. */
 #define MASK_MAX (2 * 160 * 160)
-static int corner_ink(lv_area_t r, sol_card_t card, uint8_t *mask, int *len)
+static int corner_ink(lv_area_t r, cg_card_t card, uint8_t *mask, int *len)
 {
-    lv_color_t ink = sol_palette[sol_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
+    lv_color_t ink = sol_palette[cg_card_is_red(card) ? SOL_INK_RED : SOL_INK_BLACK];
     lv_area_t box[2];
     int n = 0;
     int k = 0;
@@ -573,7 +573,7 @@ static int column_card_readable(const char *mode, int pile, int index)
     lv_obj_t *table = sol_app_table(app_priv);
     struct sol_game whole = *game();
     struct sol_ui ui_was;
-    sol_card_t card = whole.pile[pile].card[index];
+    cg_card_t card = whole.pile[pile].card[index];
     struct sol_table t;
     lv_area_t ta;
     lv_area_t a;
@@ -614,8 +614,8 @@ static int column_card_readable(const char *mode, int pile, int index)
     if (n_want == 0 || missing || outside || got_len != want_len) {
         printf("note %s: column %d card %d of %d (%s of %s, %d down) shows %d of its %d index pixels%s "
                "(card at y %d, %d px below the one before)\n",
-               mode, pile - SOL_T0 + 1, index + 1, whole.pile[pile].n, sol_rank_text(sol_card_rank(card)),
-               sol_suit_name(sol_card_suit(card)), whole.pile[pile].down, n_want - missing, n_want, outside ? ", outside the tableau" : "",
+               mode, pile - SOL_T0 + 1, index + 1, whole.pile[pile].n, cg_rank_text(cg_card_rank(card)),
+               cg_suit_name(cg_card_suit(card)), whole.pile[pile].down, n_want - missing, n_want, outside ? ", outside the tableau" : "",
                (int)(a.y1 - ta.y1), index > 0 ? (int)(a.y1 - card_area(pile, index - 1).y1) : 0);
         return 1;
     }
@@ -726,7 +726,7 @@ static void open_deal(const struct sol_game *g)
 static void longest_column(struct sol_game *g)
 {
     struct sol_stack *col = &g->pile[SOL_T0 + 6];
-    uint8_t used[SOL_DECK];
+    uint8_t used[CG_DECK];
     int r;
     int c;
 
@@ -735,18 +735,18 @@ static void longest_column(struct sol_game *g)
     g->seed = 20260913u; /* sol_app.c's review deal, so its "longest" state is this game */
     g->moves = 1;
     for (r = 1; r <= 6; r++) {
-        col->card[col->n++] = sol_card(r, SOL_CLUBS);
+        col->card[col->n++] = cg_card(r, CG_CLUBS);
     }
     col->down = 6;
-    for (r = SOL_KING; r >= 1; r--) {
-        col->card[col->n++] = sol_card(r, (r % 2) ? SOL_SPADES : SOL_HEARTS);
+    for (r = CG_KING; r >= 1; r--) {
+        col->card[col->n++] = cg_card(r, (r % 2) ? CG_SPADES : CG_HEARTS);
     }
     for (c = 0; c < col->n; c++) {
         used[col->card[c]] = 1;
     }
-    for (c = 0; c < SOL_DECK; c++) {
-        if (sol_card_valid((sol_card_t)c) && !used[c]) {
-            g->pile[SOL_STOCK].card[g->pile[SOL_STOCK].n++] = (sol_card_t)c;
+    for (c = 0; c < CG_DECK; c++) {
+        if (cg_card_valid((cg_card_t)c) && !used[c]) {
+            g->pile[SOL_STOCK].card[g->pile[SOL_STOCK].n++] = (cg_card_t)c;
         }
     }
     g->pile[SOL_STOCK].down = g->pile[SOL_STOCK].n;
@@ -1397,22 +1397,22 @@ static void test_random(void)
 {
     static const pos_key_t keys[] = { LV_KEY_UP, LV_KEY_DOWN, LV_KEY_LEFT, LV_KEY_RIGHT, LV_KEY_ENTER, ' ',
                                       LV_KEY_ESC, 'd', 'f', '1', '5', '7' };
-    struct sol_rng rng;
+    struct cg_rng rng;
     lv_area_t a;
     int step;
     int bad = 0;
     uint32_t moves = 0;
 
-    sol_rng_seed(&rng, 5);
+    cg_rng_seed(&rng, 5);
     lv_obj_get_coords(sol_app_table(app_priv), &a);
     for (step = 0; step < 1500; step++) {
         uint32_t before = game()->moves;
 
-        if (sol_rng_below(&rng, 2)) {
-            key(keys[sol_rng_below(&rng, sizeof(keys) / sizeof(keys[0]))]);
+        if (cg_rng_below(&rng, 2)) {
+            key(keys[cg_rng_below(&rng, sizeof(keys) / sizeof(keys[0]))]);
         } else {
-            tap_at(a.x1 + (int)sol_rng_below(&rng, (uint32_t)lv_area_get_width(&a)),
-                   a.y1 + (int)sol_rng_below(&rng, (uint32_t)lv_area_get_height(&a)));
+            tap_at(a.x1 + (int)cg_rng_below(&rng, (uint32_t)lv_area_get_width(&a)),
+                   a.y1 + (int)cg_rng_below(&rng, (uint32_t)lv_area_get_height(&a)));
         }
         moves += game()->moves - before;
         if (ui()->confirming) {
@@ -1476,11 +1476,11 @@ static void test_glass(void)
 
             memset(&longest, 0, sizeof(longest));
             for (r = 0; r < 6; r++) {
-                longest.pile[SOL_T0 + 6].card[longest.pile[SOL_T0 + 6].n++] = (sol_card_t)(26 + r);
+                longest.pile[SOL_T0 + 6].card[longest.pile[SOL_T0 + 6].n++] = (cg_card_t)(26 + r);
             }
             for (r = 13; r >= 1; r--) {
                 longest.pile[SOL_T0 + 6].card[longest.pile[SOL_T0 + 6].n++] =
-                    sol_card(r, (r % 2) ? SOL_SPADES : SOL_HEARTS);
+                    cg_card(r, (r % 2) ? CG_SPADES : CG_HEARTS);
             }
             longest.pile[SOL_T0 + 6].down = 6;
             last = sol_view_card(&t, &longest, SOL_T0 + 6, longest.pile[SOL_T0 + 6].n - 1);
@@ -1603,9 +1603,9 @@ static void test_persistence(void)
         int r;
 
         memset(&won, 0, sizeof(won));
-        for (s = 0; s < SOL_SUITS; s++) {
-            for (r = 1; r <= SOL_KING; r++) {
-                won.pile[SOL_F0 + s].card[won.pile[SOL_F0 + s].n++] = sol_card(r, (enum sol_suit)s);
+        for (s = 0; s < CG_SUITS; s++) {
+            for (r = 1; r <= CG_KING; r++) {
+                won.pile[SOL_F0 + s].card[won.pile[SOL_F0 + s].n++] = cg_card(r, (enum cg_suit)s);
             }
         }
         won.won = 1;
