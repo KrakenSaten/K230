@@ -157,18 +157,28 @@ fun PacketSharkScreen(link: Link, onBack: () -> Unit) {
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             val wide = maxWidth >= 600.dp
             Column(Modifier.fillMaxSize().padding(horizontal = if (wide) 24.dp else 16.dp)) {
+                val hold: (Boolean) -> Unit = { on -> scope.launch { source.hold(on) } }
+                val stop: () -> Unit = { scope.launch { source.stop() } }
+                val ask = { sheet = true }
+                val offered = open || view.access == CaptureAccess.CLOSED
                 InstrumentBar("PacketShark", onBack) {
+                    // A wide screen is short: its keys live on the bar.
+                    if (wide && offered) {
+                        ControlKeys(view, status.takeIf { open }, compact = true, hold, stop, ask)
+                        Spacer(Modifier.width(12.dp))
+                    }
                     if (open) Pill(look.word, look.color, look.pulse) else Pill(gateWord(view.access), Doors.Muted)
                 }
                 if (view.simulated) {
-                    SimulatedBand("Made-up traffic. Nothing here is read from your unit.") { demo = false }
+                    SimulatedBand("Made-up traffic. Nothing here is read from your unit.", compact = wide) { demo = false }
                     Spacer(Modifier.height(10.dp))
                 }
+                val notes: @Composable () -> Unit = { if (offered) ControlNotes(view, source::dismissNotice) }
                 if (open && status != null) {
-                    Instrument(view, status, telemetry, ifaces, wide, Modifier.weight(1f))
-                    Controls(view, status, onHold = { on -> scope.launch { source.hold(on) } }, onStop = { scope.launch { source.stop() } }, onAsk = { sheet = true }, onDismiss = source::dismissNotice)
+                    Instrument(view, status, telemetry, ifaces, wide, Modifier.weight(1f), notes.takeIf { wide })
                 } else {
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (wide) notes()
                         Gate(view, state)
                         Bezel("On this unit") {
                             val hello = (state as? LinkState.Online)?.hello
@@ -183,8 +193,11 @@ fun PacketSharkScreen(link: Link, onBack: () -> Unit) {
                         }
                         Spacer(Modifier.height(8.dp))
                     }
-                    if (view.access == CaptureAccess.CLOSED) {
-                        Controls(view, null, onHold = {}, onStop = {}, onAsk = { sheet = true }, onDismiss = source::dismissNotice)
+                }
+                if (!wide && offered) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        notes()
+                        ControlKeys(view, status.takeIf { open }, compact = false, hold, stop, ask)
                     }
                 }
             }
@@ -258,7 +271,7 @@ private fun Gate(view: CaptureView, link: LinkState) {
 // ---- the instrument ----------------------------------------------------------
 
 @Composable
-private fun Instrument(view: CaptureView, s: CaptureStatus, telemetry: Telemetry, ifaces: List<UnitIface>, wide: Boolean, modifier: Modifier) {
+private fun Instrument(view: CaptureView, s: CaptureStatus, telemetry: Telemetry, ifaces: List<UnitIface>, wide: Boolean, modifier: Modifier, notes: (@Composable () -> Unit)?) {
     var mode by rememberSaveable { mutableStateOf(GraphMode.PACKETS) }
     var selected by remember { mutableStateOf<Long?>(null) }
     // A second that scrolled off the graph is no longer selected.
@@ -269,8 +282,9 @@ private fun Instrument(view: CaptureView, s: CaptureStatus, telemetry: Telemetry
     val stale = s.state.running && view.readAtMs > 0 && now - view.readAtMs > STALE_MS
 
     val head: @Composable ColumnScope.() -> Unit = {
+        notes?.invoke()
         SessionLine(s, stale, (now - view.readAtMs) / 1000)
-        TrafficBezel(s, view.history, mode, { mode = it }, selected, { selected = it }, if (wide) 132.dp else 168.dp)
+        TrafficBezel(s, view.history, mode, { mode = it }, selected, { selected = it }, if (wide) 104.dp else 168.dp)
     }
     val rest: @Composable ColumnScope.() -> Unit = {
         ProtocolsBezel(s, view.history.lastOrNull())
@@ -352,7 +366,7 @@ private fun TrafficBezel(
         } else {
             val peak = history.maxOf { it.total() }
             val mean = history.sumOf { it.total() } / history.size
-            "Peak ${Fmt.count(peak)}  ·  mean ${Fmt.count(mean)} pkt/s  ·  touch a bar to read it"
+            "Peak ${Fmt.count(peak)}  ·  mean ${Fmt.count(mean)} pkt/s  ·  touch a bar"
         }
         Text(line, style = Type.MonoSmall, color = if (pickedSample != null) Doors.Accent else Doors.Muted, maxLines = 2)
     }
@@ -553,9 +567,50 @@ private fun InterfacesBezel(ifaces: List<UnitIface>, capturing: String?) {
 
 // ---- what can be asked of the unit --------------------------------------------
 
+/** What the unit said about the last thing asked of it, and a request that waits for a tap there. */
 @Composable
-private fun Controls(view: CaptureView, s: CaptureStatus?, onHold: (Boolean) -> Unit, onStop: () -> Unit, onAsk: () -> Unit, onDismiss: () -> Unit) {
+private fun ControlNotes(view: CaptureView, onDismiss: () -> Unit) {
     val now = rememberClock()
+    view.notice?.let { text ->
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Doors.Warn.copy(alpha = 0.08f))
+                .clickable(onClickLabel = "Dismiss", onClick = onDismiss).padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text, style = Type.Body, color = Doors.Text, modifier = Modifier.weight(1f))
+            Text("OK", style = Type.Label, color = Doors.Warn, modifier = Modifier.padding(start = 12.dp))
+        }
+    }
+    when {
+        view.request == StartRequest.SHOWN -> {
+            val left = ((CaptureLimits.SHEET_MS - (now - view.requestAtMs)) / 1000).coerceIn(0, 60)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Doors.Accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Dot(Doors.Accent, pulse = true)
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (view.simulated) "Waiting for a tap (simulated)" else "Waiting for a tap on the unit", style = Type.BodyStrong, modifier = Modifier.weight(1f))
+                    Text("$left s", style = Type.Mono, color = Doors.Accent)
+                }
+                Spacer(Modifier.height(10.dp))
+                Meter(left / 60f, Doors.Accent)
+                Spacer(Modifier.height(8.dp))
+                Text("The unit shows a sheet that names this phone. Nothing is captured unless someone taps START there.", style = Type.MonoSmall)
+            }
+        }
+        !view.canControl -> Statement("View only. The unit has not granted this phone capture control, so hold, stop and start requests are not offered.")
+        view.request == StartRequest.REFUSED -> Statement("The start was refused on the unit.", color = Doors.Warn)
+        view.request == StartRequest.TIMED_OUT -> Statement("Nobody answered the start sheet on the unit.", color = Doors.Warn)
+    }
+}
+
+/**
+ * Hold and stop while a capture runs, the start request while none does.
+ * Nothing at all without capture control, or while a request waits for its tap.
+ * [compact] is the top bar's form on a wide screen.
+ */
+@Composable
+private fun ControlKeys(view: CaptureView, s: CaptureStatus?, compact: Boolean, onHold: (Boolean) -> Unit, onStop: () -> Unit, onAsk: () -> Unit) {
+    if (!view.canControl || view.request == StartRequest.SHOWN) return
     var confirmStop by remember { mutableStateOf(false) }
     // A confirmation that is not used goes away by itself.
     LaunchedEffect(confirmStop) {
@@ -566,64 +621,29 @@ private fun Controls(view: CaptureView, s: CaptureStatus?, onHold: (Boolean) -> 
     }
     val running = s?.state?.running == true
     LaunchedEffect(running) { if (!running) confirmStop = false }
-
-    Column(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        view.notice?.let { text ->
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Doors.Warn.copy(alpha = 0.08f))
-                    .clickable(onClickLabel = "Dismiss", onClick = onDismiss).padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+    val key = if (compact) Modifier.width(132.dp).height(44.dp) else null
+    Row(if (compact) Modifier else Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (running) {
+            val holding = s?.state == CaptureState.HOLD
+            InstrumentKey(
+                if (view.busy == CaptureCommand.HOLD || view.busy == CaptureCommand.RESUME) "…" else if (holding) "Resume" else "Hold",
+                key ?: Modifier.weight(1f), color = if (holding) Doors.Ok else Doors.Text, enabled = view.busy == null,
+            ) { onHold(!holding) }
+            InstrumentKey(
+                if (view.busy == CaptureCommand.STOP) "…" else if (confirmStop) (if (compact) "Stop it?" else "Stop the capture?") else "Stop",
+                key ?: Modifier.weight(1f), color = Doors.Error, filled = confirmStop, enabled = view.busy == null,
             ) {
-                Text(text, style = Type.Body, color = Doors.Text, modifier = Modifier.weight(1f))
-                Text("OK", style = Type.Label, color = Doors.Warn, modifier = Modifier.padding(start = 12.dp))
+                if (confirmStop) {
+                    confirmStop = false
+                    onStop()
+                } else confirmStop = true
             }
-        }
-        when {
-            view.request == StartRequest.SHOWN -> {
-                val left = ((CaptureLimits.SHEET_MS - (now - view.requestAtMs)) / 1000).coerceIn(0, 60)
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Doors.Accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Dot(Doors.Accent, pulse = true)
-                        Spacer(Modifier.width(10.dp))
-                        Text(if (view.simulated) "Waiting for a tap (simulated)" else "Waiting for a tap on the unit", style = Type.BodyStrong, modifier = Modifier.weight(1f))
-                        Text("$left s", style = Type.Mono, color = Doors.Accent)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Meter(left / 60f, Doors.Accent)
-                    Spacer(Modifier.height(8.dp))
-                    Text("The unit shows a sheet that names this phone. Nothing is captured unless someone taps START there.", style = Type.MonoSmall)
-                }
-            }
-            !view.canControl -> Statement("View only. The unit has not granted this phone capture control, so hold, stop and start requests are not offered.")
-            running -> {
-                val holding = s?.state == CaptureState.HOLD
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    InstrumentKey(
-                        if (view.busy == CaptureCommand.HOLD || view.busy == CaptureCommand.RESUME) "…" else if (holding) "Resume" else "Hold",
-                        Modifier.weight(1f), color = if (holding) Doors.Ok else Doors.Text, enabled = view.busy == null,
-                    ) { onHold(!holding) }
-                    InstrumentKey(
-                        if (view.busy == CaptureCommand.STOP) "…" else if (confirmStop) "Stop the capture?" else "Stop",
-                        Modifier.weight(1f), color = Doors.Error, filled = confirmStop, enabled = view.busy == null,
-                    ) {
-                        if (confirmStop) {
-                            confirmStop = false
-                            onStop()
-                        } else confirmStop = true
-                    }
-                }
-            }
-            else -> {
-                when (view.request) {
-                    StartRequest.REFUSED -> Statement("The start was refused on the unit.", color = Doors.Warn)
-                    StartRequest.TIMED_OUT -> Statement("Nobody answered the start sheet on the unit.", color = Doors.Warn)
-                    else -> Unit
-                }
-                InstrumentKey(
-                    if (view.busy == CaptureCommand.REQUEST_START) "Asking…" else "Ask the unit to start",
-                    Modifier.fillMaxWidth(), color = Doors.Tx, filled = true, enabled = view.busy == null && s?.state != CaptureState.SAVING, onClick = onAsk,
-                )
-            }
+        } else {
+            InstrumentKey(
+                if (view.busy == CaptureCommand.REQUEST_START) "Asking…" else if (compact) "Ask to start" else "Ask the unit to start",
+                if (compact) Modifier.width(180.dp).height(44.dp) else Modifier.weight(1f),
+                color = Doors.Tx, filled = true, enabled = view.busy == null && s?.state != CaptureState.SAVING, onClick = onAsk,
+            )
         }
     }
 }

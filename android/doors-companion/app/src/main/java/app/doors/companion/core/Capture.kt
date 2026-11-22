@@ -35,8 +35,8 @@ enum class TrafficClass(val wire: String, val word: String) {
 
 /** PacketShark's six findings, in the order `findings[]` carries their totals. */
 enum class CaptureSignal(val word: String) {
-    RETRANS("Retransmissions"), TCP_RST("TCP resets"), DNS_FAIL("DNS failures"),
-    UNREACH("Unreachable"), NO_ANSWER("Unanswered SYN"), NO_DNS_REPLY("Unanswered DNS"),
+    RETRANS("Retrans"), TCP_RST("TCP reset"), DNS_FAIL("DNS fail"),
+    UNREACH("Unreach"), NO_ANSWER("No answer"), NO_DNS_REPLY("No DNS reply"),
 }
 
 /** The DNS and TCP diagnosis: totals since START. A figure the unit did not send is zero. */

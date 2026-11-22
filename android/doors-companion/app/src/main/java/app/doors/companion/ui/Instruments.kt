@@ -140,14 +140,14 @@ fun InstrumentKey(
  * be mistaken for a unit's at a glance or in a screenshot.
  */
 @Composable
-fun SimulatedBand(what: String, modifier: Modifier = Modifier, onLeave: (() -> Unit)? = null) {
+fun SimulatedBand(what: String, modifier: Modifier = Modifier, compact: Boolean = false, onLeave: (() -> Unit)? = null) {
     val shape = RoundedCornerShape(12.dp)
     Row(
         modifier.fillMaxWidth().clip(shape).background(Doors.Warn.copy(alpha = 0.08f)).border(1.dp, Doors.Warn.copy(alpha = 0.55f), shape)
             .semantics { contentDescription = "Simulated. $what" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Canvas(Modifier.width(26.dp).height(56.dp)) {
+        Canvas(Modifier.width(26.dp).height(if (compact) 44.dp else 56.dp)) {
             // Hazard hatching: the same in every simulated room.
             val step = 9.dp.toPx()
             var y = -size.width
@@ -156,12 +156,22 @@ fun SimulatedBand(what: String, modifier: Modifier = Modifier, onLeave: (() -> U
                 y += step
             }
         }
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text("SIMULATED", style = Type.Label, color = Doors.Warn)
-            Text(what, style = Type.Body.copy(fontSize = Type.Mono.fontSize, lineHeight = Type.Mono.lineHeight), color = Doors.Text)
+        val words = Type.Body.copy(fontSize = Type.Mono.fontSize, lineHeight = Type.Mono.lineHeight)
+        if (compact) {
+            // One line, for a screen that has width and no height.
+            Row(Modifier.weight(1f).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("SIMULATED", style = Type.Label, color = Doors.Warn)
+                Spacer(Modifier.width(12.dp))
+                Text(what, style = words, color = Doors.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else {
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text("SIMULATED", style = Type.Label, color = Doors.Warn)
+                Text(what, style = words, color = Doors.Text)
+            }
         }
         if (onLeave != null) {
-            Box(Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 56.dp).clickable(role = Role.Button, onClick = onLeave), contentAlignment = Alignment.Center) {
+            Box(Modifier.defaultMinSize(minWidth = 64.dp, minHeight = if (compact) 44.dp else 56.dp).clickable(role = Role.Button, onClick = onLeave), contentAlignment = Alignment.Center) {
                 Text("LEAVE", style = Type.Label, color = Doors.Warn)
             }
         }

@@ -4,7 +4,9 @@ The phone side of the Doors Companion Gateway (ADR-019). It pairs with one
 unit, keeps an authenticated TLS 1.3 session to it while the app is in front,
 shows the unit's status (M3), reads the mesh through the gateway into a
 history kept on the phone (RIFT, M4.1), and sends messages a person writes
-while the session is open (M4.2). PacketShark is a navigation placeholder.
+while the session is open (M4.2). PacketShark (M6) is built to the capture
+contract, which no unit serves yet: see below for what is real and what is
+simulated.
 
 Application id `app.doors.companion`, min SDK 29, Kotlin and Jetpack Compose,
 Apache-2.0 (the repository's `LICENSE`). It lives in `android/doors-companion`
@@ -142,6 +144,46 @@ asked about but looked up; a match by words can take the unit's own message
 with the same words for the phone's (the gateway does the same); a thread that
 holds only an unsent message is reached from its node's page, not the list.
 
+## PacketShark (M6)
+
+Built to `docs/api/gateway.md` section 9 and ADR-016 amendment 1. **The
+amendment is Proposed, not accepted, and no gatewayd serves `capture.*`.** The
+app is ready for a gateway that does; nothing in it switches the feature on.
+
+| Part | State |
+| --- | --- |
+| The screen, in portrait and wide layouts | Real code, seen on the emulator with simulated figures only |
+| `core/Capture.kt`: the figures and the graph's seconds | Real; unit-tested |
+| `core/GatewayCapture.kt`: `capture.status`, `capture.hold`, `capture.stop`, `capture.request_start`, the events `capture.state` and `capture.stats`, the topic `capture` | Real client code, tested against a gateway played in the test's JVM from the contract. **Never run against a gatewayd or a unit** |
+| The unit's interfaces, processor and memory | Real, from `system.status` (M3), also beside simulated traffic |
+| Traffic, protocols, signals, diagnosis, loss, HOLD/STOP/START in the simulated instrument | **Simulated** (`core/CaptureSim.kt`): made on the phone, marked by a hatched band across the screen, reachable only by the button "Open the simulated instrument" |
+
+- **Against a real unit today** the room says "Not served by this unit" and
+  sends nothing: `GatewayCapture` asks only when hello names the `capture`
+  capability and the unit granted `capture_view`.
+- **Read only while shown.** The `capture` topic is held while the PacketShark
+  screen is in front and given back when it is left (ADR-016 rule 20: the unit
+  marks a companion that reads; the mark should be true). Nothing of a capture
+  is stored on the phone.
+- **Counts only.** `CaptureStatus.parse` takes the fields of section 9 by name:
+  counts, rates, sizes, a state word, an interface name of the form `eth0`.
+  Anything else in an answer has no place to go (`CaptureTest`).
+- **Commands** need `capture_control` and a person's tap. STOP asks twice. A
+  start request can only name an interface with a link, 5, 15 or 60 minutes,
+  and headers; it is held to one every 30 s on the phone as well. The capture
+  starts with a tap on the unit, or not at all.
+- **The graph** is made on the phone from consecutive readings (per-class
+  frames per second, 120 s, memory only), on the unit's logarithmic scale and
+  in the unit's class colours. Bits are one colour: the contract carries bytes
+  for the whole capture, not per class.
+- `GatewayConnection.subscribe` keeps one topic set per connection, because
+  `gateway.subscribe` replaces the whole set and the mesh reader holds topics
+  too.
+
+Open: `capture.state`'s payload is not specified in section 9; the app treats
+it as "ask `capture.status` again". `diag` is read with the field names of
+`struct ppc_diag` (`core/pocketpcap/ppc_proto.h`); section 9 shows two of them.
+
 ## Build and test
 
 ```sh
@@ -172,6 +214,7 @@ it in the app, then send `gateway.pair_decide {"allow": true}`.
 
 ## Not yet
 
-Choosing a route for a message (`via`, `mesh.path_preview`), capture (PacketShark), the optional background
+Choosing a route for a message (`via`, `mesh.path_preview`), capture against a real unit (the gateway and shell side of
+ADR-016 amendment 1), the optional background
 connection service and its notification, more than one paired unit, and
 anything measured on a K230 or a physical phone.

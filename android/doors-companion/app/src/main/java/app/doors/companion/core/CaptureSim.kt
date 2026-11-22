@@ -138,7 +138,8 @@ class SimulatedCapture(
         )
         val pps = per.sum()
         val bytes = tcp * rnd.nextInt(780, 980) + (pps - tcp) * 140
-        val shed = if (lift > 1 && rnd.nextInt(3) == 0) rnd.nextInt(5, 60).toLong() else 0L
+        val shed = if (lift > 1 && rnd.nextInt(6) == 0) rnd.nextInt(2, 12).toLong() else 0L
+        val nx = if (rnd.nextInt(50) == 0) 1L else 0L
         val dns = per[TrafficClass.DNS.ordinal]
         val asks = (dns + 1) / 2
         val lost = if (rnd.nextInt(45) == 0) 1L else 0L
@@ -165,7 +166,7 @@ class SimulatedCapture(
                 v + when (CaptureSignal.entries[i]) {
                     CaptureSignal.RETRANS -> if (rnd.nextInt(6) == 0) rnd.nextInt(1, 4).toLong() else 0L
                     CaptureSignal.TCP_RST -> refusedNow
-                    CaptureSignal.DNS_FAIL -> if (rnd.nextInt(90) == 0) 1L else 0L
+                    CaptureSignal.DNS_FAIL -> nx
                     CaptureSignal.UNREACH -> if (rnd.nextInt(200) == 0) 1L else 0L
                     CaptureSignal.NO_ANSWER -> 0L
                     CaptureSignal.NO_DNS_REPLY -> lost
@@ -174,7 +175,7 @@ class SimulatedCapture(
             diag = d.copy(
                 dnsQueries = d.dnsQueries + asks, dnsAnswered = d.dnsAnswered + answered, dnsNoReply = d.dnsNoReply + lost,
                 dnsRetries = d.dnsRetries + lost,
-                dnsNxdomain = d.dnsNxdomain + if (rnd.nextInt(50) == 0) 1 else 0,
+                dnsNxdomain = d.dnsNxdomain + nx,
                 dnsRttSumUs = d.dnsRttSumUs + answered * rnd.nextInt(9_000, 38_000),
                 dnsRttMaxUs = maxOf(d.dnsRttMaxUs, if (answered > 0) rnd.nextInt(20_000, 140_000).toLong() else 0L),
                 tcpAttempts = d.tcpAttempts + tries, tcpConnected = d.tcpConnected + joined, tcpTimed = d.tcpTimed + joined,

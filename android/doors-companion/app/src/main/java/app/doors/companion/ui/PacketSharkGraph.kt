@@ -130,7 +130,7 @@ fun TrafficGraph(
             scale.lines().forEach { v ->
                 val y = h * (1f - scale.at(v))
                 drawLine(Doors.Line.copy(alpha = 0.55f), Offset(0f, y), Offset(plotW, y), 1f, pathEffect = if (v == scale.hi) null else dash)
-                val text = measurer.measure(Fmt.short(v), Type.MonoSmall)
+                val text = measurer.measure(Fmt.axis(v), Type.MonoSmall)
                 drawText(text, topLeft = Offset(size.width - text.size.width, (y - text.size.height / 2f).coerceIn(0f, h - text.size.height)))
             }
             drawLine(Doors.Line, Offset(0f, h - 0.5f), Offset(plotW, h - 0.5f), 1f)

@@ -31,6 +31,14 @@ object Fmt {
         else -> scaled(n / 1e9, "G")
     }
 
+    /** A power of ten on a graph's axis: 10, 100, 1k, 10k, 1M. */
+    fun axis(n: Long): String = when {
+        n < 1_000 -> n.toString()
+        n < 1_000_000 -> "${n / 1_000}k"
+        n < 1_000_000_000 -> "${n / 1_000_000}M"
+        else -> "${n / 1_000_000_000}G"
+    }
+
     /** Bits per second: "9.6 Mb/s". Decimal steps, as link speeds are named. */
     fun bitrate(bps: Long): Pair<String, String> = when {
         bps < 1_000 -> bps.toString() to "b/s"
