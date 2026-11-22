@@ -2123,9 +2123,11 @@ static int psk_ipc_request(void *priv, const char *method, const cJSON *params, 
 {
     struct psk_app *a = priv;
 
-    if (a) {
-        /* Somebody outside the app is asking: the header says so (rule 20;
-         * the poll paints it). */
+    if (a && strcmp(method, "capture.status") == 0) {
+        /* Somebody outside the app is reading the capture's figures: the
+         * header says so (rule 20; the poll paints it). Reading is this
+         * method and no other: a request to hold or stop, a start request
+         * or the taking back of one reads nothing and does not say so. */
         a->reader_ms = psk_now();
         a->reader_seen = true;
     }

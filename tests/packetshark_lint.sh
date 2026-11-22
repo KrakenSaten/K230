@@ -199,8 +199,9 @@ check "what a request names is held only for its sheet: cleared with every outco
        body request_answer | grep -q 'request_over(a, 0); /\* nothing of the request is kept past its sheet \*/' &&
        code $A/ui/psk_sheets.c | grep -q 'psk_text(a->sheet_text, "");' && echo 1 || echo 0)"
 # ADR-016 rule 20: the header says that a companion is reading.
-check "every capture.* request marks a reader, and the header and the wide top row say so" \
-    "$(body psk_ipc_request | grep -q 'a->reader_ms = psk_now();' &&
+check "reading (capture.status, and no other request) marks a reader, and the header and the wide top row say so" \
+    "$(body psk_ipc_request | grep -q 'if (a && strcmp(method, "capture.status") == 0) {' &&
+       body psk_ipc_request | grep -q 'a->reader_ms = psk_now();' &&
        code $A/ui/psk_live.c | grep -q 'snprintf(h + at, sizeof(h) - at, " · COMPANION");' &&
        code $A/ui/psk_live.c | grep -q 'static const char mark\[\] = "COMPANION · ";' &&
        grep -q '^#define PSK_READER_MS 5000$' $A/psk_app.h && echo 1 || echo 0)"

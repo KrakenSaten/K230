@@ -1230,7 +1230,15 @@ static void remote_control(void)
         a->keep = PPC_KEEP_FULL;
     }
     CHECK("capturing", wait_for("CAPTURING", 3500));
-    pump(2300);
+    {
+        /* Figures are raised while somebody reads (capture.status), and only then. */
+        int k;
+
+        for (k = 0; k < 3; k++) {
+            cJSON_Delete(remote_status());
+            pump(780);
+        }
+    }
     o = remote_status();
     CHECK("the capture is the one START asked for, and is said so: FULL, 60 minutes",
           cJSON_GetObjectItem(o, "limit_s")->valuedouble == 3600 &&
@@ -1584,6 +1592,15 @@ static void remote_request(void)
           strcmp(g_hint, "CAPTURING · SYNTH0 · COMPANION") == 0 && a->reading);
     pump(PSK_READER_MS + 400);
     CHECK("five seconds after the last one it no longer says so", strcmp(g_hint, "CAPTURING · SYNTH0") == 0 && !a->reading);
+    /* Reading is capture.status and nothing else: a hold and its release
+     * are no reader, and the header does not say there is one. */
+    CHECK("capture.hold is taken while nobody reads", remote_call("capture.hold", "{\"on\": true}", st, sizeof(st), &ch) == 0 &&
+                                                         wait_for("HOLD: ", 2000));
+    pump(300);
+    CHECK("and lights no reader's mark", !a->reading && strcmp(g_hint, "HOLD · SYNTH0") == 0);
+    CHECK("nor does its release", remote_call("capture.hold", "{\"on\": false}", st, sizeof(st), &ch) == 0 &&
+                                      wait_for("CAPTURING", 2000) && (pump(300), !a->reading) &&
+                                      strcmp(g_hint, "CAPTURING · SYNTH0") == 0);
     at = g_evn;
     pump(2400);
     CHECK("and while it does not, no figures are raised to anybody", stats_between(at, g_evn) == 0);

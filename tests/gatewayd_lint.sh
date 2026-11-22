@@ -87,7 +87,13 @@ check "every capture row is of the capture kind and needs a capture scope" \
        [ "$(echo "$table" | grep -c '"capture\.')" = 4 ] && echo 1 || echo 0)"
 called=$(grep -ohE 'gw_uplink_call\(G\.shell, ("[a-z_.]+"|m->name)' $D/main.c | sed 's/.*G\.shell, //' | sort | uniq -c | awk '{print $2 "x" $1}' | tr '\n' ' ')
 check "on it the gateway calls capture.status, capture.request_cancel and a row by its name, and nothing else ($called)" \
-    "$([ "$called" = '"capture.request_cancel"x1 "capture.status"x2 m->namex1 ' ] && echo 1 || echo 0)"
+    "$([ "$called" = '"capture.request_cancel"x1 "capture.status"x1 m->namex1 ' ] && echo 1 || echo 0)"
+check "the gateway asks capture.status only for somebody: no question of its own on connecting" \
+    "$(awk '/^static void cap_on_state\(/,/^}/' $D/main.c | grep -q 'gw_uplink_call' && echo 0 ||
+       { awk '/^static void cap_tick\(/,/^}/' $D/main.c | grep -B3 'gw_uplink_call(G.shell, "capture.status"' |
+         grep -q '(topic_held(GW_T_CAPTURE) || G.cap.asking)' && echo 1 || echo 0; })"
+check "a link that is no longer wanted stays until a cancel on its way is answered" \
+    "$(awk '/^static void cap_tick\(/,/^}/' $D/main.c | grep -q 'if (G.cap_say_n > 0 && now < G.cap_close_ms) {' && echo 1 || echo 0)"
 none "no shell.* method is named anywhere, and no subscription to the shell" '"shell\.[a-z_]+"|shell\.subscribe' $SRC
 check "the gateway's cancel is no method of a client: not a row, and sent from one function" \
     "$(echo "$names" | grep -q 'request_cancel' && echo 0 ||
@@ -142,7 +148,7 @@ check "the gateway's own calls to meshcored are status, subscribe, messages and 
     "$([ "$own" = '"mesh.messages""mesh.send""mesh.status""mesh.subscribe"' ] && echo 1 || echo 0)"
 check "every other call to meshcored is a table row by its name" \
     "$([ "$(grep -c 'gw_uplink_call(G.mesh,' $D/main.c)" = 7 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] &&
-       [ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 11 ] && [ "$(grep -c 'gw_uplink_call(G.shell,' $D/main.c)" = 4 ] && echo 1 || echo 0)"
+       [ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 10 ] && [ "$(grep -c 'gw_uplink_call(G.shell,' $D/main.c)" = 3 ] && echo 1 || echo 0)"
 check "what goes upstream with a client's request is the row's own parameter check" \
     "$(grep -q 'gw_uplink_call(G.mesh, m->name, up,' $D/main.c && grep -q 'm->params(params, &up)' $D/main.c && echo 1 || echo 0)"
 # 4c. Sending (M4.2): two rows, by mesh_send only; one place passes a

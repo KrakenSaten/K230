@@ -3289,11 +3289,13 @@ gatewayd-service-test: gatewayd
 	python3 tests/gatewayd_mesh_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 	python3 tests/gatewayd_capture_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_capture_regress_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_mesh_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_capture_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_capture_regress_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 
 # The mesh group alone (M4.1), while working on it: the hooks build and its
 # suite, without the M2 suite before it.

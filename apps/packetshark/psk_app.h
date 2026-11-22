@@ -61,8 +61,8 @@
  * a finger already on its way to something else is not an answer. */
 #define PSK_REQUEST_SETTLE_MS 1500
 /* The header says a companion is reading for this long after the last
- * capture.* request (ADR-016 rule 20). Whoever passes requests on for a
- * phone asks at least this often while the phone reads. */
+ * capture.status (ADR-016 rule 20). Whoever reads for a phone asks at
+ * least this often while the phone reads, and not when it does not. */
 #define PSK_READER_MS 5000
 #define PSK_CLIENT_TEXT 28
 #define PSK_TOKEN_TEXT 33
