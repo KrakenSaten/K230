@@ -82,7 +82,7 @@ These are the implementer's readings, not the owner's words. They are in the cod
 - **Rule 1a, how a request ends.** Besides Back, leaving the app and 60 s, the sheet is taken down at once when the unit is locked or an alarm comes over the app, and it can be withdrawn by whoever asked (`capture.request_cancel`). START on the sheet takes no tap in the sheet's first 1.5 s. A request for a unit that is locked or showing an alarm is refused without opening anything.
 - **Rule 20, "while a companion is reading".** The app cannot see who listens to its events. It says a companion is reading for five seconds after any `capture.*` request on the shell socket, and raises its figures (`capture.stats`) only while it says so. Whoever forwards for a phone therefore has to keep asking while the phone reads, or it gets no figures; clarification 5 puts that on the gateway.
 - **Clarification 1.** Rule 19 names a paired companion. The methods are served on `shell.sock`, where any process the socket admits can call them.
-- **Open, the owner's call:** a request to a unit whose screen is dark but not locked wakes the screen and shows the sheet. Refusing it instead, as a locked unit is refused, would be a change to the shell's opening rule.
+- **Decided by the owner, 2026-11-22: accepted as implemented.** A request to a unit whose screen is dark but not locked wakes the screen and shows the sheet. (Refusing it instead, as a locked unit is refused, would have changed the shell's opening rule.)
 
 ## Evidence
 
