@@ -3,6 +3,7 @@
 /tests/poker_engine_test
 /tests/poker_engine_test-asan
 /tests/poker_view_test
+/tests/cg_table_test
 /schematic_text.txt
 /wsl_probe.txt
 # Build outputs

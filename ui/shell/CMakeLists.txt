@@ -58,6 +58,13 @@ set(CARDS_SOURCES
     ${REPO_DIR}/core/cards/cg_rng.c
     ${REPO_DIR}/core/cards/cg_cards.c
     ${REPO_DIR}/core/cards/cg_shoe.c)
+# The card table the redesign shares (docs/design/card-games): cloth, tweens,
+# the composed atlas, and the milestone 0 measurement spike.
+set(CARDS_UI_SOURCES
+    ${REPO_DIR}/core/cards/cg_cloth.c
+    ${REPO_DIR}/core/cards/cg_tween.c
+    ${REPO_DIR}/ui/cards/cg_atlas.c
+    ${REPO_DIR}/ui/cards/cg_spike.c)
 set(POKER_ENGINE_SOURCES
     ${REPO_DIR}/apps/poker/engine/poker.c
     ${REPO_DIR}/apps/poker/engine/poker_eval.c
@@ -371,6 +378,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/2048/ui/g2048_view.c
     ${REPO_DIR}/apps/2048/ui/g2048_board.c
     ${CARDS_SOURCES}
+    ${CARDS_UI_SOURCES}
     ${REPO_DIR}/apps/solitaire/sol_app.c
     ${REPO_DIR}/apps/solitaire/sol_store.c
     ${REPO_DIR}/apps/solitaire/engine/sol_rules.c
@@ -531,6 +539,7 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/2048/engine"
                                                   "${REPO_DIR}/apps/2048/ui"
                                                   "${REPO_DIR}/core/cards"
+                                                  "${REPO_DIR}/ui/cards"
                                                   "${REPO_DIR}/apps/solitaire"
                                                   "${REPO_DIR}/apps/solitaire/engine"
                                                   "${REPO_DIR}/apps/solitaire/ui"
@@ -1767,6 +1776,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/blackjack/bj_app.c
         ${REPO_DIR}/apps/blackjack/bj_store.c
         ${CARDS_SOURCES}
+        ${CARDS_UI_SOURCES}
+        ${REPO_DIR}/core/pocketlog/pocketlog.c
+        ${REPO_DIR}/core/pocketpaths.c
         ${REPO_DIR}/apps/blackjack/engine/bj_rules.c
         ${REPO_DIR}/apps/blackjack/ui/bj_view.c
         ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
@@ -1776,7 +1788,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         "${BJ_PALETTE_C}"
         ${GAMES_APP_TEST_UI})
     target_include_directories(bj_app_test PRIVATE
-        "${REPO_DIR}/core/cards" "${REPO_DIR}/apps/blackjack" "${REPO_DIR}/apps/blackjack/engine"
+        "${REPO_DIR}/core" "${REPO_DIR}/core/cards" "${REPO_DIR}/ui/cards" "${REPO_DIR}/apps/blackjack" "${REPO_DIR}/apps/blackjack/engine"
         "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
     add_executable(poker_app_test
         ${REPO_DIR}/tests/poker_app_test.c
