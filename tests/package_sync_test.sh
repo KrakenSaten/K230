@@ -110,6 +110,7 @@ absent "package carries no docs tree beyond the timber art" -type f -path '*/doc
 absent "the timber art carries no Blender sources or studies" -type f -path '*/docs/design/timber-art/*' \( -name '*.blend' -o -path '*/study/*' \)
 absent "package carries no platforms tree"      -path '*/platforms/*'
 absent "package carries no vendor tree"         -path '*/vendor/*'
+absent "package carries no android tree"        -path '*/android/*'
 absent "package carries no out tree"            -path '*/out/*'
 absent "package carries no repository metadata" -name '.git' -o -name '*.orig' -o -name '*.rej'
 absent "package carries no CMake build tree"    -name 'CMakeCache.txt'

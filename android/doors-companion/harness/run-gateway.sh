@@ -1,0 +1,27 @@
+#!/bin/bash
+# Builds the reference gatewayd's test-hooks binary into harness/out and runs
+# it behind gateway_harness.py. Run inside WSL (needs gcc, libssl-dev,
+# libcjson-dev, python3). The reference checkout is read and never written:
+# the one compiler command is taken from its Makefile by a dry run, with the
+# output path replaced by one here.
+#
+#   harness/run-gateway.sh [reference checkout] [tls port] [control port]
+#
+# Copyright (c) 2026 Doors authors.
+# SPDX-License-Identifier: Apache-2.0
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REF="${1:-/mnt/c/K230/.claude/worktrees/gatewayd-m2}"
+PORT="${2:-47231}"
+CTL="${3:-47232}"
+OUT="$HERE/out"
+mkdir -p "$OUT"
+# Built on the Linux side: an executable on a Windows mount may not run.
+BIN="${TMPDIR:-/tmp}/doors-companion-gatewayd-testhooks"
+cd "$REF"
+CMD="$(make -n gatewayd-service-test 2>/dev/null | grep -- '-DGATEWAYD_TEST_HOOKS=1' | grep -v -- '-fsanitize' | head -1)"
+[ -n "$CMD" ] || { echo "no test-hooks build command in $REF/Makefile" >&2; exit 1; }
+CMD="${CMD% -o *} -o $BIN"
+eval "$CMD"
+git -C "$REF" rev-parse --short HEAD > "$OUT/gateway-commit.txt" 2>/dev/null || true
+exec python3 "$HERE/gateway_harness.py" "$BIN" "$PORT" "$CTL"
