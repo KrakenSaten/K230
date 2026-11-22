@@ -300,7 +300,7 @@ class CaptureTest {
         // Off screen again: the topic is given back and the figures are gone.
         capture.watch(false)
         await("given back") { unit.asked.last().let { it.first == "gateway.subscribe" && "capture" !in it.second.strings("topics") } }
-        assertNull(capture.view.value.status)
+        await("figures gone") { capture.view.value.status == null }
         val before = unit.asked.size
         delay(150)
         assertEquals(before, unit.asked.size)
