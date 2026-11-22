@@ -47,11 +47,11 @@ A paired phone shows what the unit's Vision app is looking at: the picture, the 
 | --- | --- |
 | Pass the memfd to gatewayd (SCM_RIGHTS) | Not in v1. Fewer copies, but gatewayd would hold a descriptor of the camera's memory for as long as it liked, and the gateway, a plain pocketipc client today, would have to take descriptors |
 | A second socket from the helper to gatewayd | Rejected. The helper would have a peer besides its parent |
-| **The Vision app answers `vision.frame` on `shell.sock` from memory** | **Proposed.** One bounded copy and a base64 of at most 64 KiB in a handler that does nothing else; it uses the same app-method hook ADR-016 amendment 1 needs. To be measured: the handler's time in the LVGL loop (budget 2 ms) |
+| **The Vision app answers `vision.pull` on `shell.sock` from memory** | **Proposed.** One bounded copy and a base64 of at most 64 KiB in a handler that does nothing else; it uses the same app-method hook ADR-016 amendment 1 needs. To be measured: the handler's time in the LVGL loop (budget 2 ms) |
 
 **How it is paced.** Pulled, not pushed. The gateway asks the Vision app for a picture only when its one viewer has acknowledged the previous one and the interval has passed; the app asks the helper to encode only then. So a slow phone or a slow network lowers the frame rate at the source: nothing is encoded that will not be sent, and there is no queue anywhere. At most one picture is held at each stage (helper slot, gateway, phone), the newest.
 
-**Boxes and pixels.** A `vision.frame` carries the boxes of the helper's newest `det` line, scaled into the shared picture's pixels by the Vision app, in the same message as the picture. They cannot drift apart, and the phone needs no geometry of the unit's.
+**Boxes and pixels.** A picture (the answer to `vision.pull`, passed on as the event `vision.frame`) carries the boxes of the helper's newest `det` line, scaled into the shared picture's pixels by the Vision app, in the same message as the picture. They cannot drift apart, and the phone needs no geometry of the unit's.
 
 ## 4. The path
 
@@ -61,8 +61,8 @@ GC2093 -> ISP -> /dev/video2 -> pos-vision  (the only opener; unchanged)
                                   |- RGB565 picture, slots 0..2   -> shell -> panel     (unchanged)
                                   '- while sharing, on request:
                                      that picture, halved, JPEG   -> slot 3 + `share` line
-shell, Vision app: answers vision.status / vision.frame from memory; draws the sharing mark and STOP
-gatewayd:          one viewer; pulls on acknowledgement; forwards as the event vision.frame
+shell, Vision app: answers vision.status / vision.pull from memory; draws the sharing mark and STOP
+gatewayd:          one viewer; calls vision.pull when the viewer sent vision.ack; passes the answer on as the event vision.frame
 phone:             one picture held; decodes off the main thread; draws picture and boxes with one transform
 ```
 
@@ -70,18 +70,44 @@ New helper commands: `share on <max_side> <quality>`, `share next`, `share off`.
 
 ## 5. Gateway API (proposed addition to `docs/api/gateway.md`)
 
+There are two surfaces, and they do not have the same names for a picture. **5.1 is what a phone sees**; it is what `GatewayVision` in the Android app is written to. **5.2 is what gatewayd calls on the shell's socket**; a phone never sees it. A picture is *pulled* upstream (`vision.pull`, a request with an answer) and *pushed* to the phone (`vision.frame`, an event), and the phone's `vision.ack` is what allows the next pull. `vision.ack` is answered by gatewayd itself and never reaches the shell; `vision.pull` is not a method a phone can call (code 1, like any method outside the allowlist).
+
+### 5.1 The phone's side
+
 Capability `vision`. Topic `vision`. Scopes `vision_view` and `vision_control` (which requires `vision_view`).
 
 | Method | Scope | Params | Result |
 | --- | --- | --- | --- |
 | `vision.status` | view | - | `available` (false and nothing else unless Vision is the app in front), `owner` (`vision`, `camera`, `none`), `mode`, `modes[]` (what the helper can run), `settings{}`, `model`, `labels[]` (the detector's class names), `pic{w,h}`, `stats{fps_x10, infer_ms, pre_ms, post_ms, cpu_pct, rss_kb, dropped, count_ab, count_ba}`, `share` (`off`, `asking`, `live`, `refused`, `ended`), `share_left_s` |
 | `vision.share` `{on}` | view | | `{state}`. `on: true` raises the sheet on the unit and answers `asking`; the outcome arrives as `vision.state`. Error 3: Vision is not in front, the mode is one that is never shared, the unit is locked. Error 5: another phone is being shown the picture. Error 10: more than one request in 30 s |
-| `vision.ack` `{seq}` | view | | `{}`; the next picture may be sent |
+| `vision.ack` `{seq}` | view | the `seq` of the newest `vision.frame` received | `{}`. Answered by the gateway alone: it marks the viewer ready, and the gateway then pulls the next picture (5.2) no sooner than the interval allows. An unknown or old `seq` is ignored, not an error. The first picture of a share needs no acknowledgement |
 | `vision.mode` `{mode}` | control | one of `detect track traffic segment instances color edge trace` that is in `modes[]` | `{}` |
 | `vision.set` `{key, value}` | control | `track.line`, `traffic.range`, `traffic.line`, `traffic.speed`, `color.tol`, `edge.hard`, `trace.dark`, `seg.view`, each with the values of `docs/apps/VISION.md` "Stored settings" | `{}` |
 | `vision.reset` | control | - | `{}`; TRACK's and TRAFFIC's counters |
 
 Events (topic `vision`): `vision.state {}` on any change of mode, owner, sharing or settings (the client asks `vision.status`); `vision.stats {…}` once a second while Vision runs; `vision.frame {seq, w, h, age_ms, jpeg, boxes[[id, cls, conf, x, y, w, h, dir, kmh10], …]}` only while sharing is `live`, `jpeg` being base64 of a baseline JPEG.
+
+### 5.2 The unit's side (gatewayd to the Vision app, on `shell.sock`)
+
+Served by the Vision app while it is in front, through the app-method hook (`SHELL_APP_METHODS.md`); "not served" when another app is in front, which the gateway passes on as `available: false`.
+
+| Upstream method | Called when | Params | Answer |
+| --- | --- | --- | --- |
+| `vision.status` | a phone calls `vision.status`; after a `vision.state` event | - | as 5.1, without `share_left_s` (the gateway's own clock) |
+| `vision.share` | a phone calls `vision.share`; and with `on: false` whenever the gateway ends a share itself (the viewer left, was revoked, lost the scope, stopped acknowledging, ten minutes passed) | `on`, and with `on: true` the viewer's `client` (fingerprint prefix) and `name` for the sheet | `{state}` |
+| `vision.pull` | the viewer acknowledged the last picture (or none was sent yet) and the interval passed | `after_seq` | `{seq, w, h, age_ms, jpeg, boxes[]}` when a picture newer than `after_seq` is ready; `{seq}` alone when none is yet (the gateway asks again after the interval); error 3 when no share is live |
+| `vision.mode`, `vision.set`, `vision.reset` | a phone calls the method of the same name | as 5.1 | `{}` |
+
+Upstream events (the shell's existing `shell.subscribe`): `vision.state {}` and `vision.stats {…}`, passed on to the phones holding the topic. The gateway makes `vision.frame` itself from each `vision.pull` answer that carries a picture, for the one viewer only.
+
+| On the phone's side | On the unit's side |
+| --- | --- |
+| method `vision.status` | method `vision.status` |
+| method `vision.share` | method `vision.share` (plus who is asking) |
+| method `vision.ack` | nothing: gateway only |
+| event `vision.frame` | answer to method `vision.pull` |
+| methods `vision.mode`, `vision.set`, `vision.reset` | the same |
+| events `vision.state`, `vision.stats` | the same, as shell events |
 
 Not offered, in any version without a new decision: FACE, RECOGNIZE and READ (neither chosen nor shared; `vision.share` is refused and a live share ends when the unit enters one), `enrol` and `forget`, anything of a face or an owner, the detector's choice, the camera's configuration, a still at full size, saving on the unit, lines by coordinates, opening Vision or the camera from the phone.
 
@@ -111,13 +137,31 @@ Not offered, in any version without a new decision: FACE, RECOGNIZE and READ (ne
 
 Accepted if this is approved: a paired phone whose owner was allowed a share sees what the unit's camera sees for up to ten minutes; anyone who can tap ALLOW on an unlocked unit can grant that.
 
+## 7a. The phone's screen (reviewed 2026-11-22)
+
+What the Android app does with a picture today, and what is recommended.
+
+| Path by which a picture could outlive the share | Today | Recommended |
+| --- | --- | --- |
+| App storage, cache, logs, saved instance state, backup | Nothing: a picture exists as one `VisionFrame` and two bitmaps in memory, is not in any `rememberSaveable` or database, and the app has no backup (`allowBackup=false`) | Keep. A lint test should hold that `ui/Vision*.kt` and `core/*Vision*.kt` write no file |
+| Screenshot, screen recording, casting, the assistant's screen read | Allowed by Android unless the window says otherwise | **Blocked while a unit's picture is shown**: `FLAG_SECURE` on the window for exactly that time. Implemented in `ui/Vision.kt`; it has never run with a real picture, because none exists |
+| The recents thumbnail | Would show the last picture | Covered by the same flag (the thumbnail is blank while it is set); and the picture is dropped when the screen stops, which is already so |
+| The simulated viewfinder | Capturable | Keep capturable: it is drawn, and screenshots of it are how the screen is reviewed |
+| Lock screen | The activity is not shown over the lock screen | Keep |
+| Notifications, widgets, share sheet, clipboard | None exist for Vision | Add none |
+| A second device photographing the phone | Cannot be prevented | Say nothing that suggests otherwise |
+
+Recommendation for the owner: keep the flag unconditional for real pictures in v1, with no switch. A person who wants a still should take it on the unit, where the Camera app writes to the unit's own storage under the unit's own rules; a "save" on the phone would be a new decision against "nothing is kept" in section 7. Not recommended: setting the flag for the whole app (it would block screenshots of RIFT and of status pages, which are the owner's own data and useful in bug reports).
+
+Open: whether the capture figures of PacketShark deserve the same flag. They name no host; the recommendation is no.
+
 ## 8. To be measured before any of it ships
 
 Nothing below has been done.
 
 1. `pos-vision bench` with a JPEG of the half-size picture: milliseconds per encode on the C908 at quality 40, 50, 60; bytes per picture for a real scene.
 2. The detector's frame rate and the helper's processor share with a share at 3 and 5 pictures a second, in DETECT, TRAFFIC and SEGMENT.
-3. The Vision app's handler time for `vision.frame` in the LVGL loop, and the shell's worst frame meanwhile.
+3. The Vision app's handler time for `vision.pull` in the LVGL loop, and the shell's worst frame meanwhile.
 4. gatewayd's processor share and resident memory while one viewer is served.
 5. End to end on Wi-Fi: age of a picture on the phone, pictures a second, behaviour when the phone is slow (the rate falls, nothing queues).
 6. Every way a share ends, in section 7, each seen on a unit.

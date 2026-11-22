@@ -5,6 +5,7 @@ package app.doors.companion.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -157,6 +158,14 @@ fun VisionScreen(link: Link, onBack: () -> Unit) {
     DisposableEffect(live) {
         host.keepScreenOn = live
         onDispose { host.keepScreenOn = false }
+    }
+    // A picture from a unit's camera is on this screen and nowhere else: not in a screenshot, a
+    // screen recording, a cast, or the recents thumbnail. The simulation is drawn, and stays capturable.
+    val guarded = live && !view.simulated
+    DisposableEffect(guarded) {
+        val window = host.context.activity()?.window
+        if (guarded) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (guarded) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     // Full screen needs a picture: when it ends, so does full screen.
     LaunchedEffect(live) { if (!live) full = false }

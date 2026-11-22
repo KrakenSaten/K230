@@ -17,7 +17,7 @@ ADR-019 fixes what the gateway may pass on. Three of its rules do not allow a Vi
 ## The changes proposed
 
 1. **Two scopes**, granted per client on the unit like the others: `vision_view` (Vision's state and figures; to ask for a share) and `vision_control` (mode, the listed settings, the counters; requires `vision_view`). Neither is in the default set a pairing grants.
-2. **Rule 6, extended**: the gateway may also call, on the shell's socket, the methods `vision.status`, `vision.share`, `vision.frame`, `vision.mode`, `vision.set` and `vision.reset`, served by the Vision app while it is in front, and no other. Every one is an allowlist row with its scope, its parameters and the fields passed on. The lint keeps holding that no other `shell.` or app method name appears.
+2. **Rule 6, extended**: the gateway may also call, on the shell's socket, the methods `vision.status`, `vision.share`, `vision.pull`, `vision.mode`, `vision.set` and `vision.reset`, served by the Vision app while it is in front, and no other (`VISION_PREVIEW.md` section 5.2). A phone calls `vision.status`, `vision.share`, `vision.ack`, `vision.mode`, `vision.set` and `vision.reset` (section 5.1): `vision.ack` is answered by the gateway and never passed on, `vision.pull` is the gateway's own and not a method a phone can call, and a picture reaches the phone as the event `vision.frame`. Every one is an allowlist row with its scope, its parameters and the fields passed on. The lint keeps holding that no other `shell.` or app method name appears.
 3. **A capability** `vision` and a topic `vision`, named only by a gateway that serves them.
 4. **Pictures.** A reduced picture may travel as base64 inside a JSON event, under these rules: one viewer on the unit; the gateway pulls a picture only when the viewer acknowledged the last one; it holds at most one; it is a snapshot event (skipped, never queued, for a client with unread output); 64 KiB of JPEG at most; 5 a second at most; nothing of it is logged or stored.
 5. **Physical approval, per share.** Having `vision_view` shares nothing. Each share is allowed by a tap on the unit, shown there while it lasts, and ends after ten minutes (ADR-006 amendment 1).
@@ -33,7 +33,7 @@ A stream endpoint outside the session; a picture without the tap; the modes FACE
 
 ## Risks
 
-- The gateway's surface grows by six methods that reach an app inside the shell. Each answers from memory, takes enumerated values only, and is refused unless Vision is in front.
+- The gateway's surface grows by six methods for a phone (five of which reach an app inside the shell) and one, `vision.pull`, that only the gateway calls. Each answers from memory, takes enumerated values only, and is refused unless Vision is in front.
 - A picture is the largest thing the gateway sends. It is bounded per message and per second, and paced by the receiver.
 - `vision_control` lets a paired phone change what the person at the unit sees on the Vision screen. It is a separate grant for that reason.
 

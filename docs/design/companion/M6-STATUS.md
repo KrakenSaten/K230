@@ -24,6 +24,15 @@ Status: working notes of the M6 development session (2026-11-22). Not a contract
 - The three gatewayd harness tests of the Android suite (`GatewayIntegrationTest`, `MeshIntegrationTest`, `SendIntegrationTest`) against the reference gatewayd built from this branch in WSL, after `GatewayConnection.subscribe` was introduced: all pass.
 - The screens on an emulator, simulated sources, portrait and landscape.
 
+## Integration readiness pass (2026-11-22, later the same day)
+
+- Vision API: the phone's side and the unit's side are now two named surfaces (`VISION_PREVIEW.md` 5.1 and 5.2). A phone sees the event `vision.frame` and calls `vision.ack`; gatewayd calls `vision.pull` on the shell. The amendments stay Proposed.
+- All 72 Android tests, the three gatewayd harness tests among them, pass after the review fixes (none skipped).
+- Emulator against the reference gatewayd (not Unit A, not a physical phone): pairing, status, RIFT live, a draft kept through two rotations, a channel message sent and accepted; PacketShark and Vision both "Not served". No crash.
+- The phone's screenshot behaviour for Vision: reviewed, recommendation in `VISION_PREVIEW.md` 7a, `FLAG_SECURE` set while a unit's picture is shown.
+- The shell hook both features wait for: `SHELL_APP_METHODS.md`. Step H1 is next.
+- **Not done: the Flip8.** No device was visible to ADB, so the APK was not installed on it and nothing was checked against Unit A from a phone.
+
 ## Not run in this session
 
 - Anything on a physical phone.
