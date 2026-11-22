@@ -2729,7 +2729,11 @@ static void m7_m9(bool portrait)
          * asks for the fit, ... */
         uint64_t seen_quiet;
 
-        kill(a->session->pid, SIGSTOP);
+        /* Never kill(-1, ...): a helper already reaped has no pid. */
+        CHECK("the capture helper is running, to be paused", a->session->pid > 0);
+        if (a->session->pid > 0) {
+            kill(a->session->pid, SIGSTOP);
+        }
         pump(400);
         seen_quiet = a->model->c.seen;
         ok = !a->fit_due;
@@ -2768,7 +2772,9 @@ static void m7_m9(bool portrait)
         pump(60);
         CHECK("a fit asked for on another tab is kept, and made once LIVE is seen", ok && !a->fit_due);
         CHECK("all of it on a quiet capture: nothing new arrived meanwhile", a->model->c.seen == seen_quiet);
-        kill(a->session->pid, SIGCONT);
+        if (a->session->pid > 0) {
+            kill(a->session->pid, SIGCONT);
+        }
         pump(300);
     }
 
