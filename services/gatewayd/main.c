@@ -36,6 +36,7 @@
 #define _GNU_SOURCE
 
 #include "gw.h"
+#include "gw_capture.h"
 #include "gw_feed.h"
 #include "gw_frame.h"
 #include "gw_gate.h"
@@ -106,6 +107,7 @@ struct sess {
     uint32_t events;
     unsigned topics;        /* GW_T_*: what gateway.subscribe left it holding */
     int inflight;           /* requests waiting for meshcored's answer */
+    bool cap_new;           /* it began to listen to the capture and has not been told its state */
     bool resume;            /* one of them completed: read on */
     char peer[INET_ADDRSTRLEN];
 };
@@ -127,11 +129,18 @@ struct mesh_req {
 };
 
 #define MESH_EPOLL_ID UINT64_MAX
+#define SHELL_EPOLL_ID (UINT64_MAX - 1)
 /* The gateway's own requests to meshcored; a client's start at TAG_CLIENT. */
 #define TAG_STATUS 1
 #define TAG_SUBSCRIBE 2
 #define TAG_MESSAGES 3
 #define TAG_NODES 4
+/* The gateway's own requests to PacketShark on the shell's socket. */
+#define TAG_CAP_PROBE 5
+#define TAG_CAP_POLL 6
+#define TAG_CAP_CANCEL 7
+#define TAG_CAP_LATE 8
+#define CAP_SAY_MAX 4
 #define TAG_CLIENT 16
 
 static struct {
@@ -178,6 +187,21 @@ static struct {
     struct gw_send send;
     double mesh_max_id;             /* the highest message id of this run seen so far */
     uint64_t mesh_conn;             /* counts the connections to meshcored */
+    /* PacketShark's capture (ADR-016 amendment 1). */
+    struct gw_uplink *shell;        /* to the shell's socket: capture.* of the PacketShark app only */
+    bool cap_up;                    /* that socket is connected */
+    bool cap_served;                /* and the shell answers capture.status: PacketShark is in the image */
+    bool cap_polling;               /* the gateway's own capture.status waits for its answer */
+    int64_t cap_poll_ms;            /* when it was last asked, or tried */
+    int64_t cap_poll_sent_ms;       /* when the one that waits was sent */
+    bool cap_poll_due;              /* ask now: somebody began to listen */
+    const char *cap_say[CAP_SAY_MAX]; /* what to tell clients when the unit confirms each cancel on its way */
+    int cap_say_at, cap_say_n;
+    char cap_late[GW_CAPTURE_TOKEN]; /* a request to take back once the shell is reached again */
+    int64_t cap_late_until;
+    int64_t cap_late_ms;            /* when it was last tried */
+    uint64_t cap_ask_tag;           /* the capture.request_start that is on its way */
+    struct gw_capture cap;
 } G;
 
 static volatile sig_atomic_t g_stop;
@@ -854,7 +878,7 @@ static void mesh_upstream_event(bool connected)
         cJSON_AddStringToObject(d, "run_id", G.journal.run_id);
         cJSON_AddStringToObject(d, "journal_id", G.journal.id);
     }
-    mesh_emit(GW_T_ALL, "gateway.upstream", d, false);
+    mesh_emit(GW_T_MESH_ALL, "gateway.upstream", d, false);
 }
 
 /* One message as meshcored reports it, from an event or from mesh.messages:
@@ -1202,6 +1226,384 @@ static void req_cancel(struct sess *s, struct mesh_req *q)
     s->inflight--;
 }
 
+/* ---- PacketShark's capture (ADR-016 amendment 1; ADR-019 rules 6 and 6a; gw_capture.h) ----
+ *
+ * A second connection that never blocks, to the shell's socket, held only
+ * while some paired client may read a capture. On it the gateway calls five
+ * methods of the PacketShark app and nothing else - no shell.* method, and
+ * no subscription: what clients are told is made from the gateway's own
+ * capture.status, asked once a second while a client holds the topic.
+ *
+ * A client's scopes are looked up when it asks, again when the unit's
+ * answer comes (req_done), and again for every event (mesh_emit). */
+
+static bool cap_wanted(void)
+{
+    int i;
+
+    if (G.identity_fault || G.state_fault) {
+        return false;
+    }
+    for (i = 0; i < G.store.n; i++) {
+        if ((G.store.c[i].scopes & GW_S_CAPTURE_VIEW) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cap_ready(void)
+{
+    return G.cap_up && G.cap_served;
+}
+
+static void cap_upstream_event(bool connected)
+{
+    cJSON *d = cJSON_CreateObject();
+
+    if (d != NULL) {
+        cJSON_AddStringToObject(d, "service", "shell");
+        cJSON_AddBoolToObject(d, "connected", connected);
+    }
+    mesh_emit(GW_T_CAPTURE, "gateway.upstream", d, false);
+}
+
+/* capture.request_cancel for the request of this name: the gateway's own
+ * method, which no client can call (ADR-019 rule 6a). The unit takes down
+ * the sheet of that request and no other - not a later request's, and not a
+ * capture that a tap has started, which is no request any more. `say` is
+ * what clients are told if the unit answers that it took the sheet down
+ * ("refused", "timeout"), or NULL for nothing. `tag` is TAG_CAP_CANCEL, or
+ * TAG_CAP_LATE for one that is owed from before (cap_cancel_later). True
+ * when it is on its way. */
+static bool cap_send_cancel(const char *token, const char *say, uint64_t tag)
+{
+    cJSON *p = cJSON_CreateObject();
+
+    if (p == NULL || cJSON_AddStringToObject(p, "request", token) == NULL || !gw_uplink_connected(G.shell)) {
+        cJSON_Delete(p);
+        return false;
+    }
+    if (gw_uplink_call(G.shell, "capture.request_cancel", p, tag, mono_ms(), GW_CAPTURE_CALL_MS) != 0) {
+        return false;
+    }
+    /* The answers come in the order of the cancels. */
+    if (tag == TAG_CAP_CANCEL && G.cap_say_n < CAP_SAY_MAX) {
+        G.cap_say[(G.cap_say_at + G.cap_say_n++) % CAP_SAY_MAX] = say;
+    }
+    return true;
+}
+
+/* A request that could not be taken back for certain, because the shell
+ * could not be reached or did not answer: its sheet may be up, or may still
+ * come up when a slow shell gets to the request. It is taken back by name
+ * once a second (cap_tick) until the unit says it took a sheet down, or
+ * until no sheet of it can be up any more. Under all of this the unit's own
+ * 60 seconds end the sheet. */
+static void cap_cancel_later(const char *token)
+{
+    snprintf(G.cap_late, sizeof(G.cap_late), "%s", token);
+    G.cap_late_until = mono_ms() + GW_CAPTURE_ASK_MS;
+    G.cap_late_ms = 0;
+}
+
+/* The waiting start request is the gateway's no longer: taken back on the
+ * unit by its own name, and forgotten here. What clients are told waits for
+ * the unit's answer: if START was tapped a moment ago there was no sheet to
+ * take down, the capture runs on, and nothing is said of a refusal. */
+static void cap_cancel(const char *why, const char *say)
+{
+    if (!G.cap.asking) {
+        return;
+    }
+    if (cap_send_cancel(G.cap.token, say, TAG_CAP_CANCEL)) {
+        LOG_INFO("capture: a start request was withdrawn (%s)", why);
+    } else {
+        cap_cancel_later(G.cap.token);
+        LOG_INFO("capture: a start request could not be withdrawn yet (%s); the unit ends it by itself", why);
+    }
+    gw_capture_ask_end(&G.cap);
+}
+
+static void cap_on_state(void *user, bool up)
+{
+    struct epoll_event e;
+    cJSON *state = NULL;
+
+    (void)user;
+    if (up) {
+        memset(&e, 0, sizeof(e));
+        e.events = EPOLLIN;
+        e.data.u64 = SHELL_EPOLL_ID;
+        G.cap_up = true;
+        G.cap_served = false;
+        G.cap_polling = false;
+        /* Whether this unit has PacketShark at all: one question. (The
+         * unit's screen says for five seconds that a companion reads.) */
+        if (epoll_ctl(G.epfd, EPOLL_CTL_ADD, gw_uplink_fd(G.shell), &e) != 0 ||
+            gw_uplink_call(G.shell, "capture.status", NULL, TAG_CAP_PROBE, mono_ms(), GW_CAPTURE_CALL_MS) != 0) {
+            gw_uplink_drop(G.shell, mono_ms());
+        }
+        return;
+    }
+    /* The closed socket left the epoll set by being closed. Requests that
+     * waited were answered "upstream unavailable" before this. */
+    if (cap_ready()) {
+        LOG_INFO("PacketShark on the shell's socket is out of reach");
+        cap_upstream_event(false);
+    }
+    G.cap_up = false;
+    G.cap_served = false;
+    G.cap_polling = false;
+    G.cap_say_n = 0;
+    gw_capture_lost(&G.cap, &state);
+    if (state != NULL) {
+        mesh_emit(GW_T_CAPTURE, "capture.state", state, false);
+    }
+    if (G.cap.asking) {
+        /* Its sheet may be up and cannot be taken down now. */
+        cap_cancel_later(G.cap.token);
+        gw_capture_ask_end(&G.cap);
+    }
+}
+
+/* The gateway asked for no events and takes none. */
+static void cap_on_event(void *user, const char *name, const cJSON *data)
+{
+    (void)user;
+    (void)name;
+    (void)data;
+}
+
+/* The unit's answer to the waiting start request, whoever still waits for
+ * it here. */
+static void cap_ask_answered(const cJSON *result, int code, int64_t now)
+{
+    if (result != NULL && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(result, "shown"))) {
+        gw_capture_ask_shown(&G.cap, now);
+    } else if (result == NULL && code >= POCKETIPC_ERR_UNKNOWN_METHOD && code <= POCKETIPC_ERR_UNSUPPORTED) {
+        gw_capture_ask_end(&G.cap); /* the unit refused it: no sheet is up */
+    } else {
+        /* No answer in time, or one that does not say: the request may
+         * still reach the unit and raise its sheet, now or when a slow
+         * shell gets to it. Taken back by name, and again until it is. */
+        cap_cancel_later(G.cap.token);
+        cap_cancel("its answer did not come", NULL);
+    }
+}
+
+static void cap_on_reply(void *user, uint64_t tag, const cJSON *result, int code)
+{
+    cJSON *state = NULL, *stats = NULL;
+    const char *outcome = NULL;
+    int64_t now = mono_ms();
+    int i;
+
+    (void)user;
+    if (tag == TAG_CAP_CANCEL) {
+        const char *say = NULL;
+
+        if (G.cap_say_n > 0) {
+            say = G.cap_say[G.cap_say_at];
+            G.cap_say_at = (G.cap_say_at + 1) % CAP_SAY_MAX;
+            G.cap_say_n--;
+        }
+        /* Only a sheet the unit says it took down was refused by this.
+         * Anything else - no request of that name was up: answered on the
+         * unit a moment before, or START was tapped - is not ours to call. */
+        if (say != NULL && result != NULL && cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(result, "shown"))) {
+            mesh_emit(GW_T_CAPTURE, "capture.state", gw_capture_outcome(say), false);
+        }
+        return;
+    }
+    if (tag == TAG_CAP_LATE) {
+        if (result != NULL && cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(result, "shown"))) {
+            G.cap_late[0] = '\0'; /* the sheet that came up after all is down */
+        }
+        return;
+    }
+    if (tag == TAG_CAP_PROBE) {
+        if (result != NULL) {
+            G.cap_served = true;
+            G.cap_poll_due = true;
+            LOG_INFO("PacketShark answers on the shell's socket");
+            cap_upstream_event(true);
+        } else if (code != POCKETIPC_ERR_UNKNOWN_METHOD) {
+            gw_uplink_drop(G.shell, now); /* no answer: asked again on the next connection */
+        }
+        /* An unknown method: this unit has no PacketShark. */
+        return;
+    }
+    if (tag == TAG_CAP_POLL) {
+        bool said;
+
+        G.cap_polling = false;
+        if (result == NULL) {
+            return; /* a shell that does not answer in time loses the connection (gw_uplink), which is made again */
+        }
+        gw_capture_step(&G.cap, result, G.cap_poll_sent_ms, &state, &stats, &outcome);
+        said = state != NULL;
+        if (state != NULL) {
+            mesh_emit(GW_T_CAPTURE, "capture.state", state, false);
+        }
+        /* A client that has just begun to listen is told how things are,
+         * it alone: the others were told when it changed. */
+        for (i = 0; i < SESS_SLOTS; i++) {
+            struct sess *s = &G.s[i];
+            cJSON *again;
+
+            if (s->st != S_OPEN || !s->cap_new || !G.cap.told) {
+                continue;
+            }
+            s->cap_new = false;
+            if (said || !s->hello || s->closing || s->who != GW_W_PAIRED ||
+                (gw_topics_allowed(s->topics, sess_scopes(s)) & GW_T_CAPTURE) == 0) {
+                continue;
+            }
+            again = gw_capture_told(&G.cap);
+            if (again != NULL) {
+                (void)sess_send(s, pocketipc_event("capture.state", again));
+            }
+        }
+        if (stats != NULL) {
+            /* Figures are replaced by the next: skipped for a client that is behind. */
+            mesh_emit(GW_T_CAPTURE, "capture.stats", stats, true);
+        }
+        if (outcome != NULL) {
+            gw_capture_ask_end(&G.cap);
+            mesh_emit(GW_T_CAPTURE, "capture.state", gw_capture_outcome(outcome), false);
+        }
+        return;
+    }
+    for (i = 0; i < GW_MESH_PENDING; i++) {
+        struct mesh_req *q = &G.req[i];
+
+        if (q->used && q->tag == tag) {
+            cJSON *filtered = result != NULL ? gw_filter_result(q->m, result) : NULL;
+
+            if (tag == G.cap_ask_tag && G.cap.asking) {
+                cap_ask_answered(result, code, now);
+            }
+            req_done(q, filtered, result != NULL ? POCKETIPC_ERR_BACKEND : code);
+            return;
+        }
+    }
+    /* The session that asked is gone; its request may still have raised a
+     * sheet. (cap_tick takes back the request of a client that went away.) */
+    if (tag == G.cap_ask_tag && G.cap.asking) {
+        cap_ask_answered(result, code, now);
+    }
+}
+
+static void cap_tick(int64_t now)
+{
+    if (!cap_wanted()) {
+        if (gw_uplink_connected(G.shell)) {
+            cap_cancel("no client may read a capture", NULL);
+            gw_uplink_drop(G.shell, now);
+        }
+        return;
+    }
+    gw_uplink_tick(G.shell, now);
+    if (G.cap.asking) {
+        /* Whose request it is, looked up now: the session that asked must
+         * still be there, be that client, and that client must still be
+         * paired and allowed to ask. */
+        const struct sess *s = sess_by_id(G.cap.sid);
+        int idx = gw_store_find(&G.store, G.cap.fp);
+
+        if (s == NULL || s->st != S_OPEN || s->closing || memcmp(s->fp, G.cap.fp, GW_FP_LEN) != 0) {
+            cap_cancel("its client went away", "refused");
+        } else if (idx < 0 || (G.store.c[idx].scopes & GW_S_CAPTURE_CONTROL) == 0) {
+            cap_cancel("its client may no longer ask", "refused");
+        } else if (now - G.cap.asked_ms >= GW_CAPTURE_ASK_MS) {
+            cap_cancel("nobody answered it", "timeout");
+        }
+    }
+    if (G.cap_late[0] != '\0') {
+        /* A request owed a cancel (cap_cancel_later). */
+        if (now >= G.cap_late_until) {
+            G.cap_late[0] = '\0';
+        } else if (cap_ready() && now - G.cap_late_ms >= GW_CAPTURE_POLL_MS) {
+            (void)cap_send_cancel(G.cap_late, NULL, TAG_CAP_LATE);
+            G.cap_late_ms = now;
+        }
+    }
+    /* Asked only while somebody is told the answer. */
+    if (cap_ready() && !G.cap_polling && (topic_held(GW_T_CAPTURE) || G.cap.asking) &&
+        (G.cap_poll_due || now - G.cap_poll_ms >= GW_CAPTURE_POLL_MS)) {
+        if (gw_uplink_call(G.shell, "capture.status", NULL, TAG_CAP_POLL, now, GW_CAPTURE_CALL_MS) == 0) {
+            G.cap_polling = true;
+            G.cap_poll_sent_ms = now;
+        }
+        G.cap_poll_ms = now;
+        G.cap_poll_due = false;
+    }
+}
+
+/* capture.status, capture.hold, capture.stop, capture.request_start. The
+ * row has said who may call it; the parameters are checked and written
+ * again before anything is sent; the answer comes later (cap_on_reply). */
+static bool do_capture(struct sess *s, const cJSON *id, const struct gw_method *m, const cJSON *params, int idx)
+{
+    bool ask = strcmp(m->name, "capture.request_start") == 0;
+    char token[GW_CAPTURE_TOKEN] = "";
+    int64_t now = mono_ms();
+    struct mesh_req *q;
+    cJSON *up = NULL;
+
+    if (m->params != NULL ? m->params(params, &up) != 0 : !gw_params_empty(params)) {
+        return reply_error(s, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+    }
+    if (!cap_ready() || idx < 0) {
+        cJSON_Delete(up);
+        return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    }
+    if (ask) {
+        uint8_t rnd[(GW_CAPTURE_TOKEN - 1) / 2];
+
+        /* How often, counted here and not on the unit: a request opens
+         * PacketShark there even when it is then refused. */
+        switch (gw_capture_may_ask(&G.cap, s->fp, now)) {
+        case GW_ASK_BUSY:
+            cJSON_Delete(up);
+            return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+        case GW_ASK_RATE:
+            cJSON_Delete(up);
+            return reply_error(s, id, GW_ERR_RATE, "rate limited");
+        default:
+            break;
+        }
+        /* Who asks is the name this unit gave the client at pairing, never
+         * a word of the client's; what the request is called is the
+         * gateway's own, so that only the gateway can take it back. */
+        if (gw_tls_random(rnd, sizeof(rnd)) != 0 || up == NULL) {
+            cJSON_Delete(up);
+            return reply_error(s, id, POCKETIPC_ERR_BACKEND, "upstream error");
+        }
+        gw_hex(rnd, sizeof(rnd), token);
+        if (cJSON_AddStringToObject(up, "client", G.store.c[idx].name) == NULL ||
+            cJSON_AddStringToObject(up, "request", token) == NULL) {
+            cJSON_Delete(up);
+            return reply_error(s, id, POCKETIPC_ERR_BACKEND, "upstream error");
+        }
+    }
+    q = req_new(s, id, m);
+    if (q == NULL) {
+        cJSON_Delete(up);
+        return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+    }
+    if (gw_uplink_call(G.shell, m->name, up, q->tag, now, GW_CAPTURE_CALL_MS) != 0) {
+        req_cancel(s, q);
+        return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    }
+    if (ask) {
+        gw_capture_ask(&G.cap, s->fp, s->id, token, now);
+        G.cap_ask_tag = q->tag;
+    }
+    return true;
+}
+
 static bool do_subscribe(struct sess *s, const cJSON *id, const cJSON *params, unsigned scopes)
 {
     unsigned mask = 0;
@@ -1217,6 +1619,14 @@ static bool do_subscribe(struct sess *s, const cJSON *id, const cJSON *params, u
         /* gateway.upstream says when this changes; this is how it is now. */
         up = cJSON_AddObjectToObject(r, "upstream");
         cJSON_AddBoolToObject(up, "meshcored", G.mesh_ready);
+        if ((mask & GW_T_CAPTURE) != 0) {
+            cJSON_AddBoolToObject(up, "shell", cap_ready());
+        }
+    }
+    /* A new listener is told how the capture is, with the next answer. */
+    s->cap_new = (mask & GW_T_CAPTURE) != 0;
+    if (s->cap_new) {
+        G.cap_poll_due = true;
     }
     return sess_send(s, pocketipc_response(id, r));
 }
@@ -1559,6 +1969,13 @@ static cJSON *hello_result(const struct sess *s, unsigned scopes)
     cJSON_AddItemToArray(caps, cJSON_CreateString("mesh"));
     cJSON_AddItemToArray(caps, cJSON_CreateString("mesh.activity"));
     cJSON_AddItemToArray(caps, cJSON_CreateString("mesh.send"));
+    if ((scopes & GW_S_CAPTURE_VIEW) != 0) {
+        /* Offered to a client that may read a capture, and to no other: the
+         * answer to a client without the scope is what it always was.
+         * Whether PacketShark answers now is gateway.subscribe's
+         * upstream.shell and the gateway.upstream event. */
+        cJSON_AddItemToArray(caps, cJSON_CreateString("capture"));
+    }
     cJSON_AddItemToObject(r, "capabilities", caps);
     cJSON_AddNumberToObject(r, "wall_ms", (double)w * 1000.0);
     cJSON_AddBoolToObject(r, "clock_set", w > WALL_SET_AFTER);
@@ -1746,6 +2163,9 @@ static bool sess_request(struct sess *s, const uint8_t *p, size_t n)
                 break;
             case GW_K_MESH:
                 alive = do_mesh(s, id, m, params);
+                break;
+            case GW_K_CAPTURE:
+                alive = do_capture(s, id, m, params, idx);
                 break;
             case GW_K_NODES:
                 alive = do_nodes(s, id, m, params);
@@ -2308,7 +2728,8 @@ int main(int argc, char **argv)
 {
     char lock_path[GW_STORE_PATH_MAX];
     static const struct gw_uplink_cb mesh_cb = {mesh_on_state, mesh_on_event, mesh_on_reply};
-    struct epoll_event evs[SESS_SLOTS + 2];
+    static const struct gw_uplink_cb cap_cb = {cap_on_state, cap_on_event, cap_on_reply};
+    struct epoll_event evs[SESS_SLOTS + 3];
     enum gw_tls_identity_result idr;
     struct sigaction sa;
     uint8_t jrnd[8];
@@ -2427,12 +2848,14 @@ int main(int argc, char **argv)
     gw_feed_init(&G.feed);
     gw_send_init(&G.send);
     G.mesh = gw_uplink_new("meshcored", &mesh_cb, NULL);
+    gw_capture_init(&G.cap);
+    G.shell = gw_uplink_new("shell", &cap_cb, NULL);
     if (gw_tls_random(jrnd, sizeof(jrnd)) != 0) {
         LOG_ERROR("no random source");
         return 1;
     }
     gw_hex(jrnd, sizeof(jrnd), jid);
-    if (G.mesh == NULL || gw_journal_init(&G.journal, jid) != 0) {
+    if (G.mesh == NULL || G.shell == NULL || gw_journal_init(&G.journal, jid) != 0) {
         LOG_ERROR("could not start: out of memory");
         return 1;
     }
@@ -2447,7 +2870,7 @@ int main(int argc, char **argv)
 
         (void)pocketipc_server_poll_fd(G.ctl, G.resume_soon ? 0 : LOOP_MS, G.epfd, &ready);
         G.resume_soon = false;
-        n = ready ? epoll_wait(G.epfd, evs, SESS_SLOTS + 2, 0) : 0;
+        n = ready ? epoll_wait(G.epfd, evs, SESS_SLOTS + 3, 0) : 0;
         for (i = 0; i < n; i++) {
             if (evs[i].data.u64 == 0) {
                 if (G.lfd >= 0) {
@@ -2456,6 +2879,10 @@ int main(int argc, char **argv)
             } else if (evs[i].data.u64 == MESH_EPOLL_ID) {
                 if (gw_uplink_connected(G.mesh)) {
                     gw_uplink_io(G.mesh, mono_ms());
+                }
+            } else if (evs[i].data.u64 == SHELL_EPOLL_ID) {
+                if (gw_uplink_connected(G.shell)) {
+                    gw_uplink_io(G.shell, mono_ms());
                 }
             } else {
                 struct sess *s = sess_by_id(evs[i].data.u64);
@@ -2467,6 +2894,7 @@ int main(int argc, char **argv)
         }
         now = mono_ms();
         mesh_tick(now);
+        cap_tick(now);
         /* A session that was at its limit of waiting requests and had one
          * answered reads on. Here and not where the answer was sent: never
          * from inside another session's handling. */
@@ -2503,6 +2931,10 @@ int main(int argc, char **argv)
     close_all_sessions("stopping");
     (void)gw_pair_cancel(&G.pair);
     gw_uplink_free(G.mesh);
+    if (G.cap.asking && gw_uplink_connected(G.shell)) {
+        (void)cap_send_cancel(G.cap.token, NULL, TAG_CAP_CANCEL); /* stopping: no sheet is left asking for a gateway that is gone */
+    }
+    gw_uplink_free(G.shell);
     gw_journal_free(&G.journal);
     gw_send_free(&G.send);
     gw_feed_reset(&G.feed);

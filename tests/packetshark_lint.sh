@@ -124,7 +124,7 @@ check "the figures are numbers, a flag and one interface name" "$([ -z "$hits" ]
 [ -n "$hits" ] && echo "$hits" | head -5
 # Every text that can reach the answer: the keys and the enumerated words.
 hits=$(code $R | grep -vE '^#include' | grep -oE '"[^"]*"' | LC_ALL=C sort -u | tr '\n' ' ')
-want='"arp" "available" "bps" "bytes" "capturing" "classes" "dhcp" "diag" "dns" "dns_answered" "dns_late" "dns_noreply" "dns_nxdomain" "dns_queries" "dns_refused" "dns_retries" "dns_rtt_max_us" "dns_rtt_sum_us" "dns_servfail" "dns_waiting" "elapsed_ms" "end" "ended" "error" "eth" "fill_permille" "findings" "full" "headers" "held" "helper_crashed" "helper_hung" "hold" "icmp" "idle" "iface" "iface_drops" "ipv6" "keep" "kernel_drops" "left" "limit" "limit_s" "link" "none" "other" "pps" "reason" "refused" "requested_by_companion" "saving" "seen" "shed" "state" "stopped" "stored" "synth" "tcp" "tcp_aborted" "tcp_attempts" "tcp_connected" "tcp_hs_max_us" "tcp_hs_sum_us" "tcp_refused" "tcp_timed" "timeout" "udp" "usb" "user" "wlan" '
+want='"arp" "available" "bps" "bytes" "capturing" "classes" "dhcp" "diag" "dns" "dns_answered" "dns_late" "dns_noreply" "dns_nxdomain" "dns_queries" "dns_refused" "dns_retries" "dns_rtt_max_us" "dns_rtt_sum_us" "dns_servfail" "dns_waiting" "elapsed_ms" "end" "ended" "error" "eth" "fill_permille" "findings" "full" "headers" "held" "helper_crashed" "helper_hung" "hold" "icmp" "idle" "iface" "iface_drops" "ipv6" "keep" "kernel_drops" "left" "limit" "limit_s" "link" "none" "other" "pps" "reason" "refused" "request" "requested_by_companion" "saving" "seen" "shed" "shown" "state" "stopped" "stored" "synth" "tcp" "tcp_aborted" "tcp_attempts" "tcp_connected" "tcp_hs_max_us" "tcp_hs_sum_us" "tcp_refused" "tcp_timed" "timeout" "udp" "usb" "user" "wlan" '
 check "its keys and words are the contract's list, to the letter" "$([ "$hits" = "$want" ] && echo 1 || echo 0)"
 [ "$hits" = "$want" ] || echo "     $hits"
 hits=$(grep -lE 'psk_remote_(take|json|state_json)\(' $A/*.c $A/ui/*.c ui/shell/*.c 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
@@ -170,6 +170,13 @@ check "a request's START is HEADERS with a time limit of the list, whatever was 
        body request_answer | grep -q 'if (psk_limit_min\[i\] && psk_limit_min\[i\] \* 60u == a->req_limit_s) {' &&
        body psk_ipc_ask | grep -q 'offered |= psk_limit_min\[i\] != 0 &&' &&
        ! body request_answer | grep -q 'PPC_KEEP_FULL' && ! body psk_ipc_ask | grep -qE 'keep|promisc|cfilter' && echo 1 || echo 0)"
+hits=$(body psk_ipc_unask | grep -nE 'capture_command|psk_session_|psk_do\(|start_capture|back_to_setup|PSK_ACT_|LOG_')
+check "a cancel takes down a sheet and nothing else: it cannot reach a capture that was started" \
+    "$([ -z "$hits" ] && body psk_ipc_unask | grep -q 'a->sheet_kind != PSK_SHEET_REQUEST' && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "and only the request it names: a late cancel leaves a newer request alone" \
+    "$(body psk_ipc_unask | grep -q 'if (strcmp(a->req_token, token ? token->valuestring : "") != 0) {' &&
+       body request_over | grep -q "a->req_token\[0\] = '\\\\0';" && echo 1 || echo 0)"
 check "the request's sheet goes after 60 s, and at once when the unit is locked or an alarm shows" \
     "$(grep -q '^#define PSK_REQUEST_MS 60000$' $A/psk_app.h &&
        body request_watch | grep -q 'if (!pocketos_shell_app_in_front()) {' &&

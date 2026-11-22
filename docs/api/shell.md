@@ -396,7 +396,7 @@ the app have failed to start). In front:
           "dns_rtt_sum_us": 18400000, "dns_rtt_max_us": 950000, "tcp_attempts": 40, "tcp_connected": 38,
           "tcp_timed": 37, "tcp_hs_sum_us": 1900000, "tcp_hs_max_us": 120000, "tcp_refused": 1,
           "tcp_aborted": 2},
- "requested_by_companion": false}
+ "requested_by_companion": false, "request": "none"}
 ```
 
 - `state` is what the screen shows: `idle` (setup, and START tapped but the
@@ -551,10 +551,22 @@ A request that is refused on its parameters has still opened the app if it
 was closed: whoever passes requests on checks them first and limits how
 often one client may ask.
 
-`capture.request_cancel` takes no parameters. It answers `{"shown": false}`
-and the sheet goes as if refused; error 3, "no request is shown", when there
-is none. It is for whoever asked and no longer does: a phone that went away
-or lost its right to ask.
+`capture.request_start` may carry `"request"`: a name the asker gives its
+request, 1 to 32 hex digits. `capture.request_cancel` `{"request": <name>}`
+takes down the request so named and no other: it answers `{"shown": false}`
+and the sheet goes as if refused. Error 3, "no request is shown", when there
+is none; error 3, "that is not the request shown", when the name is another's
+(a cancel meant for an earlier request, arriving late, leaves a newer one
+alone). A request given no name is cancelled by a cancel with none. It takes
+down a sheet and nothing else: once START has been tapped there is no
+request, and the capture is out of its reach. It is for whoever asked and no
+longer does: a phone that went away or lost its right to ask.
+
+`capture.status` carries `"request"`: `shown` while a request's sheet is up,
+`refused` or `timeout` for how the last one ended (until the next request,
+or a capture started on the setup screen), else `none`. It is for an asker
+that reads and does not listen, such as the gateway, which does not pass it
+on.
 
 No other `capture.*` name exists. In front, any other name under the prefix
 is error 1; not in front it is error 3, "PacketShark is not open". Only

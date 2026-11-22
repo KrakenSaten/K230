@@ -1453,6 +1453,13 @@ static void remote_request(void)
     CHECK("asking started nothing: no helper, no capture, setup's own choices untouched, no event",
           no_child() && !a->starting && !psk_capture_present(a) && remote_is("idle", "none") &&
               psk_limit_min[a->limit_idx] == 60 && a->keep == PPC_KEEP_HEADERS && g_evn == at);
+    {
+        cJSON *q = remote_status();
+
+        CHECK("capture.status says a request is shown, to an asker that reads and does not listen",
+              strcmp(cJSON_GetObjectItem(q, "request")->valuestring, "shown") == 0);
+        cJSON_Delete(q);
+    }
     CHECK("a second request while one is shown is refused",
           ask(good, st, sizeof(st)) == POCKETIPC_ERR_POLICY && strcmp(st, "a request is already shown") == 0);
     CHECK("capture.hold and capture.stop have nothing to act on",
@@ -1468,6 +1475,14 @@ static void remote_request(void)
     CHECK("and it is said once: refused", outcome_was(at, "refused"));
     pump(1200);
     CHECK("and not again", g_evn == at + 1);
+    {
+        cJSON *q = remote_status();
+
+        CHECK("capture.status keeps how the request ended, after the event has gone",
+              strcmp(cJSON_GetObjectItem(q, "request")->valuestring, "refused") == 0 &&
+                  strcmp(cJSON_GetObjectItem(q, "reason")->valuestring, "none") == 0);
+        cJSON_Delete(q);
+    }
     CHECK("nothing of the request is kept, not even under the hidden sheet",
           a->req_client[0] == '\0' && a->req_iface[0] == '\0' && a->req_limit_s == 0 &&
               lv_label_get_text(a->sheet_text)[0] == '\0');
@@ -1484,6 +1499,31 @@ static void remote_request(void)
           remote_call("capture.request_cancel", NULL, st, sizeof(st), &ch) == 0 && !sheet_is_request());
     pump(400);
     CHECK("said: refused", outcome_was(at, "refused") && no_child());
+
+    /* A request with a name: only a cancel that names it takes it down. */
+    at = g_evn;
+    CHECK("a request with a name that is not a short hex name is malformed",
+          ask("{\"iface\": \"synth0\", \"limit_s\": 300, \"request\": \"XYZ\"}", st, sizeof(st)) ==
+                  POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": 300, \"request\": \"\"}", st, sizeof(st)) ==
+                  POCKETIPC_ERR_INVALID_PARAMS &&
+              ask("{\"iface\": \"synth0\", \"limit_s\": 300, \"request\": 7}", st, sizeof(st)) ==
+                  POCKETIPC_ERR_INVALID_PARAMS &&
+              !sheet_is_request());
+    CHECK("asked, as request 0b",
+          ask("{\"iface\": \"synth0\", \"limit_s\": 300, \"request\": \"0b\"}", st, sizeof(st)) == 0 && sheet_is_request());
+    CHECK("a cancel that names an earlier request leaves this one up",
+          remote_call("capture.request_cancel", "{\"request\": \"0a\"}", st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "that is not the request shown") == 0 && sheet_is_request());
+    CHECK("so does a cancel that names none",
+          remote_call("capture.request_cancel", NULL, st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY && sheet_is_request());
+    CHECK("the cancel that names it takes it down",
+          remote_call("capture.request_cancel", "{\"request\": \"0b\"}", st, sizeof(st), &ch) == 0 && !sheet_is_request());
+    CHECK("and the same cancel again finds nothing to take down",
+          remote_call("capture.request_cancel", "{\"request\": \"0b\"}", st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "no request is shown") == 0);
+    pump(400);
+    CHECK("said: refused", outcome_was(at, "refused") && no_child() && a->req_token[0] == '\0');
 
     at = g_evn;
     CHECK("asked again", ask(good, st, sizeof(st)) == 0 && sheet_is_request());
@@ -1534,6 +1574,9 @@ static void remote_request(void)
           g_evn > at && !g_ev[at].stats && strcmp(g_ev[at].state, "capturing") == 0 && strcmp(g_ev[at].reason, "none") == 0);
     CHECK("a request while a capture runs is refused", ask(good, st, sizeof(st)) == POCKETIPC_ERR_POLICY &&
                                                         strcmp(st, "a capture is running") == 0 && !sheet_is_request());
+    CHECK("a cancel cannot reach the capture a tap on START began: it finds no request, and the capture runs on",
+          remote_call("capture.request_cancel", NULL, st, sizeof(st), &ch) == POCKETIPC_ERR_POLICY &&
+              strcmp(st, "no request is shown") == 0 && remote_is("capturing", "none") && !no_child());
 
     /* The reader's mark (ADR-016 rule 20). */
     pump(200);

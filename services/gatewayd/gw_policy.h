@@ -47,17 +47,20 @@ enum gw_kind {
     GW_K_SYNC,          /* mesh.sync: answered from the journal */
     GW_K_SEND,          /* mesh.send: at most once per client_msg_id (gw_send.h) */
     GW_K_RESEND,        /* mesh.resend: the same, as meshcored's mesh.send {resend} */
+    GW_K_CAPTURE,       /* passed to PacketShark on the shell's socket, without blocking (gw_capture.h) */
 };
 
 /* The topics of gateway.subscribe this build serves (docs/api/gateway.md
- * §5). "device" and "capture" are names of the protocol that nothing serves
- * yet: asked for, they are left out of the answer like a topic the client's
- * scopes do not allow. */
+ * §5). "device" is a name of the protocol that nothing serves yet: asked
+ * for, it is left out of the answer like a topic the client's scopes do not
+ * allow. */
 enum gw_topic {
     GW_T_MESH = 1u << 0,
     GW_T_MESH_ACTIVITY = 1u << 1,
-    GW_T_ALL = (1u << 2) - 1u,
+    GW_T_CAPTURE = 1u << 2,
+    GW_T_ALL = (1u << 3) - 1u,
 };
+#define GW_T_MESH_ALL (GW_T_MESH | GW_T_MESH_ACTIVITY)
 
 struct gw_method {
     const char *name;           /* as the client sends it and as upstream knows it */

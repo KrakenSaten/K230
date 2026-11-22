@@ -55,7 +55,7 @@ shape() {
 import json, sys
 TOP = ["available", "state", "reason", "iface", "keep", "elapsed_ms", "limit_s", "seen", "stored", "held",
        "kernel_drops", "iface_drops", "shed", "bytes", "pps", "bps", "fill_permille", "classes", "findings",
-       "diag", "requested_by_companion"]
+       "diag", "requested_by_companion", "request"]
 CLASSES = ["tcp", "udp", "dns", "dhcp", "arp", "icmp", "ipv6", "other"]
 DIAG = ["dns_queries", "dns_retries", "dns_answered", "dns_late", "dns_noreply", "dns_waiting", "dns_nxdomain",
         "dns_servfail", "dns_refused", "dns_rtt_sum_us", "dns_rtt_max_us", "tcp_attempts", "tcp_connected",
@@ -67,12 +67,12 @@ def whole(v): return type(v) is int and v >= 0
 try:
     d = json.loads(sys.argv[1])
     assert sorted(d) == sorted(TOP), "keys: %s" % sorted(d)
-    assert d["available"] is True and d["requested_by_companion"] is False
+    assert d["available"] is True and d["requested_by_companion"] is False and d["request"] == "none"
     assert d["state"] in STATES and d["reason"] in REASONS and d["keep"] in ("headers", "full")
     assert re.fullmatch(r"((eth|wlan|usb|synth)[0-9]{1,2})?", d["iface"]), "iface"
     for k in TOP:
         if k not in ("available", "state", "reason", "iface", "keep", "classes", "findings", "diag",
-                     "requested_by_companion"):
+                     "requested_by_companion", "request"):
             assert whole(d[k]), k
     assert sorted(d["classes"]) == sorted(CLASSES) and all(whole(v) for v in d["classes"].values()), "classes"
     assert len(d["findings"]) == 6 and all(whole(v) for v in d["findings"]), "findings"

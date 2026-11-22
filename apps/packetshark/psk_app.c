@@ -820,6 +820,10 @@ static void remote_figures(const struct psk_app *a, struct psk_remote_figures *f
          * has been said to the listeners (announce). */
         f->reason = a->req_outcome;
     }
+    /* Where a start request stands, for an asker that reads and does not
+     * listen: up now, or how the last one ended (until the next request or
+     * capture). */
+    f->request = a->sheet_kind == PSK_SHEET_REQUEST ? PSK_RQ_SHOWN : a->req_last;
 }
 
 /* The person's own interface and time limit, as they were before START on
@@ -846,6 +850,8 @@ static bool request_settled(const struct psk_app *a)
 static void request_over(struct psk_app *a, unsigned outcome)
 {
     a->req_client[0] = '\0';
+    a->req_token[0] = '\0';
+    a->req_last = outcome == PSK_RR_REFUSED ? PSK_RQ_REFUSED : outcome == PSK_RR_TIMEOUT ? PSK_RQ_TIMEOUT : PSK_RQ_NONE;
     a->req_iface[0] = '\0';
     a->req_limit_s = 0;
     a->req_deadline_ms = 0;
@@ -1978,7 +1984,26 @@ static void client_text(const cJSON *v, char *out, size_t n)
     out[at] = '\0';
 }
 
-/* capture.request_start {iface, limit_s, client}: asks the person at the
+/* The name an asker gives its request, so that only it can take it back:
+ * 1 to PSK_TOKEN_TEXT - 1 hex digits. */
+static bool token_ok(const cJSON *v)
+{
+    const char *s = cJSON_IsString(v) ? v->valuestring : "";
+    size_t n = strlen(s);
+    size_t i;
+
+    if (n == 0 || n >= PSK_TOKEN_TEXT) {
+        return false;
+    }
+    for (i = 0; i < n; i++) {
+        if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* capture.request_start {iface, limit_s, client, request}: asks the person at the
  * unit. It raises the sheet and does nothing else: no helper, no capture, no
  * choice changed. Only setup can be asked, only for what a tap could choose
  * there with HEADERS and a time limit, and only one request at a time; it is
@@ -1989,6 +2014,7 @@ static int psk_ipc_ask(struct psk_app *a, const cJSON *params, cJSON **result, c
     const cJSON *iface = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "iface") : NULL;
     const cJSON *limit = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "limit_s") : NULL;
     const cJSON *client = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "client") : NULL;
+    const cJSON *token = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "request") : NULL;
     bool offered = false;
     cJSON *o;
     int i;
@@ -1997,8 +2023,9 @@ static int psk_ipc_ask(struct psk_app *a, const cJSON *params, cJSON **result, c
         *message = "PacketShark is not ready";
         return POCKETIPC_ERR_POLICY;
     }
-    if (!cJSON_IsString(iface) || !cJSON_IsNumber(limit) || (client && !cJSON_IsString(client))) {
-        *message = "iface and limit_s are needed, and client is a text";
+    if (!cJSON_IsString(iface) || !cJSON_IsNumber(limit) || (client && !cJSON_IsString(client)) ||
+        (token && !token_ok(token))) {
+        *message = "iface and limit_s are needed; client is a text and request a short hex name";
         return POCKETIPC_ERR_INVALID_PARAMS;
     }
     if (a->sheet_kind == PSK_SHEET_REQUEST) {
@@ -2039,6 +2066,8 @@ static int psk_ipc_ask(struct psk_app *a, const cJSON *params, cJSON **result, c
         return POCKETIPC_ERR_BACKEND;
     }
     client_text(client, a->req_client, sizeof(a->req_client));
+    snprintf(a->req_token, sizeof(a->req_token), "%s", token ? token->valuestring : "");
+    a->req_last = PSK_RQ_NONE;
     snprintf(a->req_iface, sizeof(a->req_iface), "%s", iface->valuestring);
     a->req_limit_s = (uint32_t)limit->valuedouble;
     a->req_deadline_ms = psk_now() + PSK_REQUEST_MS;
@@ -2052,14 +2081,29 @@ static int psk_ipc_ask(struct psk_app *a, const cJSON *params, cJSON **result, c
     return 0;
 }
 
-/* capture.request_cancel: whoever asked no longer does (the phone went, or
- * lost its right to ask). The sheet goes as if refused. */
-static int psk_ipc_unask(struct psk_app *a, cJSON **result, const char **message)
+/* capture.request_cancel {request}: whoever asked no longer does (the phone
+ * went, or lost its right to ask). The sheet goes as if refused.
+ *
+ * It takes down the sheet and nothing else: a capture that a tap on START
+ * has begun is not a request any more and is out of its reach. And it takes
+ * down only the request it names: a cancel that was meant for an earlier
+ * request, arriving late, leaves a newer one alone. A request that was
+ * given no name is cancelled by a cancel with none. */
+static int psk_ipc_unask(struct psk_app *a, const cJSON *params, cJSON **result, const char **message)
 {
+    const cJSON *token = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "request") : NULL;
     cJSON *o;
 
+    if (token && !token_ok(token)) {
+        *message = "request is a short hex name";
+        return POCKETIPC_ERR_INVALID_PARAMS;
+    }
     if (!a || !a->model || a->sheet_kind != PSK_SHEET_REQUEST) {
         *message = "no request is shown";
+        return POCKETIPC_ERR_POLICY;
+    }
+    if (strcmp(a->req_token, token ? token->valuestring : "") != 0) {
+        *message = "that is not the request shown";
         return POCKETIPC_ERR_POLICY;
     }
     o = cJSON_CreateObject();
@@ -2089,7 +2133,7 @@ static int psk_ipc_request(void *priv, const char *method, const cJSON *params, 
         return psk_ipc_ask(priv, params, result, message);
     }
     if (strcmp(method, "capture.request_cancel") == 0) {
-        return psk_ipc_unask(priv, result, message);
+        return psk_ipc_unask(priv, params, result, message);
     }
     if (strcmp(method, "capture.status") == 0) {
         return psk_ipc_read(priv, result, message);

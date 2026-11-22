@@ -65,11 +65,16 @@ enum psk_remote_reason {
     PSK_RR_COUNT
 };
 
+/* Where a start request stands, for whoever asked and reads capture.status
+ * rather than listening: its sheet is up, or how the last one ended. */
+enum psk_remote_request { PSK_RQ_NONE = 0, PSK_RQ_SHOWN, PSK_RQ_REFUSED, PSK_RQ_TIMEOUT, PSK_RQ_COUNT };
+
 #define PSK_REMOTE_DIAG 18
 
 struct psk_remote_figures {
     uint8_t state;         /* enum psk_remote_state */
     uint8_t reason;        /* enum psk_remote_reason */
+    uint8_t request;       /* enum psk_remote_request: where a start request stands */
     bool keep_full;
     bool by_companion;     /* started from a start request's sheet, by a tap on it */
     char iface[PPC_IFACE_MAX]; /* eth, wlan, usb or synth and one or two digits, or "" */
