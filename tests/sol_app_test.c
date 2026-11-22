@@ -18,6 +18,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
+#include "cg_deck.h"
+#include "cg_table.h"
 #include "chrome.h"
 #include "pocketui.h"
 #include "sol_app.h"
@@ -61,11 +63,29 @@ void pocketos_shell_set_status_hint(const char *text)
     (void)text;
     shell_calls++;
 }
-void pocketos_shell_go_home(void) { shell_calls++; }
+/* Reduced motion on unless a test turns it off: the end state is drawn at
+ * once, which every check before the motion test reads. */
+static int reduced_motion = 1;
+static int fullscreen_calls;
+static int go_home_calls;
+void pocketos_shell_go_home(void) { go_home_calls++; }
+static lv_obj_t *app_header;
+static lv_obj_t *app_body;
+void pocketos_shell_set_fullscreen(bool fullscreen)
+{
+    /* The game takes the whole screen; it never gives it back itself. As
+     * the shell does (shell.c): the header hidden, the body unpadded. */
+    fullscreen_calls += fullscreen ? 1 : 1000;
+    if (app_header) {
+        lv_obj_add_flag(app_header, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (app_body) {
+        lv_obj_set_style_pad_all(app_body, 0, 0);
+    }
+}
 int pocketos_shell_reduced_motion(void)
 {
-    shell_calls++;
-    return 0;
+    return reduced_motion;
 }
 int64_t pocketos_shell_system_day(void)
 {
@@ -180,20 +200,17 @@ static void tap_obj(lv_obj_t *obj)
 
 static lv_obj_t *g_content;
 static lv_obj_t *app_root;
-static lv_obj_t *app_body;
 static void *app_priv;
 
 static void app_start(void)
 {
-    lv_obj_t *header;
-
     app_root = lv_obj_create(g_content);
     lv_obj_remove_style_all(app_root);
     lv_obj_set_size(app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(app_root, LV_FLEX_FLOW_COLUMN);
-    header = lv_obj_create(app_root);
-    lv_obj_remove_style_all(header);
-    lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
+    app_header = lv_obj_create(app_root);
+    lv_obj_remove_style_all(app_header);
+    lv_obj_set_size(app_header, LV_PCT(100), POCKETUI_HEADER_H);
     app_body = lv_obj_create(app_root);
     lv_obj_remove_style_all(app_body);
     lv_obj_set_width(app_body, LV_PCT(100));
@@ -214,13 +231,15 @@ static void app_stop(void)
     app_priv = NULL;
     lv_obj_delete(app_root);
     app_root = NULL;
+    app_header = NULL;
     app_body = NULL;
     pump(60);
 }
 
 static const struct sol_game *game(void) { return sol_app_game(app_priv); }
 static const struct sol_ui *ui(void) { return sol_app_ui(app_priv); }
-static lv_obj_t *sink(void) { return app_body ? lv_obj_get_child(app_body, 0) : NULL; }
+/* The app's key sink: its root, inside the scene's frame (cg_scene.h). */
+static lv_obj_t *sink(void) { return app_priv ? lv_obj_get_parent(sol_app_table(app_priv)) : NULL; }
 static const char *caption(void) { return lv_label_get_text(sol_app_caption(app_priv)); }
 
 static int shows(int index, const char *text)
@@ -441,15 +460,12 @@ static void use_external(int32_t w, int32_t h)
     lv_obj_set_pos(g_content, 0, status_h());
 }
 
+/* The corner's type: fixed whatever the text size (owner decision 4 of the
+ * card games), the faces the Medium size gives the two roles a corner uses. */
 static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
 {
-    lv_style_value_t v;
-
     *letter_space = 0;
-    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
-        *letter_space = v.num;
-    }
-    return lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND ? v.ptr : NULL;
+    return cg_deck_font(role == POS_STYLE_TITLE ? CG_TYPE_INDEX : CG_TYPE_INDEX_SMALL);
 }
 
 static struct sol_game *game_rw(void) { return (struct sol_game *)sol_app_game(app_priv); }
@@ -1653,6 +1669,37 @@ static void test_persistence(void)
     app_start();
 }
 
+/* Motion: with reduced motion off a move travels and ends in the position the
+ * rules made; with it on, nothing moves. */
+static void test_motion(void)
+{
+    struct sol_game before;
+    int t, moved = 0;
+
+    reduced_motion = 0;
+    app_start();
+    key('d');
+    moved = sol_table_moving(sol_app_table(app_priv));
+    before = *(struct sol_game *)game();
+    for (t = 0; t < 3000 && sol_table_moving(sol_app_table(app_priv)); t += 20) {
+        pump(20);
+    }
+    check("motion: a draw turns a card onto the waste, and it lands", moved && !sol_table_moving(sol_app_table(app_priv)) &&
+                                                                       t <= 600);
+    check("motion: the position is the one the rules made", memcmp(&before, game(), sizeof(before)) == 0);
+    redraw();
+    app_stop();
+    check("motion: leaving frees the composed cards", cg_deck_bytes() == 0 && cg_table_bytes() == 0);
+    reduced_motion = 1;
+    app_start();
+    key('d');
+    check("motion: reduced motion draws at once", !sol_table_moving(sol_app_table(app_priv)));
+    redraw();
+    printf("note memory: Solitaire holds %u kB of composed cards and %u kB of cloth\n",
+           (unsigned)(cg_deck_bytes() / 1024), (unsigned)(cg_table_bytes() / 1024));
+    app_stop();
+}
+
 int main(void)
 {
     lv_display_t *disp;
@@ -1691,8 +1738,10 @@ int main(void)
     test_landscape();
     test_long_columns();
     test_scroll_review();
+    test_motion();
 
-    check("the app asked the shell for nothing", shell_calls == 0);
+    check("the app asked the shell for nothing but the whole screen", shell_calls == 0 && go_home_calls == 0 &&
+                                                                    fullscreen_calls > 0 && fullscreen_calls < 1000);
     {
         char cmd[128];
 

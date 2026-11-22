@@ -32,4 +32,15 @@ void sol_table_follow_cursor(lv_obj_t *table);
 /* The geometry the table last drew with, for tests. */
 void sol_table_geometry(lv_obj_t *table, struct sol_table *out);
 
+/* Motion (cg_motion.h): a picture before a command, and the difference
+ * played after it - a card moved travels, a card drawn travels to the waste
+ * turning over, a card uncovered in a column turns over. A whole new deal or
+ * the waste turned back (more than the runner holds) simply appears. When
+ * `won` the four kings then rise and settle one after another. The app does
+ * not call sol_table_after under reduced motion. */
+void sol_table_before(lv_obj_t *table);
+void sol_table_after(lv_obj_t *table, int won);
+int sol_table_moving(lv_obj_t *table);
+void sol_table_finish(lv_obj_t *table);
+
 #endif

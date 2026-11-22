@@ -4,6 +4,35 @@ Offline, single-player no-limit Texas Hold'em against Ada, Linus and Grace.
 Open **Games → Poker**. Each seat starts with 1,000 fictional chips; blinds
 stay at 10 / 20. There are no accounts, network requests or real-money bets.
 
+
+## Lamplight (2026-11)
+
+The card games redesign, direction A (`docs/design/card-games` on
+`design/card-games-redesign`; owner decisions 1 to 5, 2026-11-22). Where
+this section and the older text below disagree, this section holds.
+
+- **Full screen** (decision 3). The shell's header is hidden
+  (`pocketos_shell_set_fullscreen`); the game draws its own back mark, a
+  chevron in the top-left corner clear of the corner square (30 px portrait,
+  50 px landscape), and its name in gold. The device's Back and Home and Esc
+  are the shell's, unchanged. Shared code: `ui/cards/cg_scene.[ch]`.
+- **Cloth** (decision 2). The indigo cloth under one lamp fills the screen and
+  falls off to black; its palette is fixed in every theme. Night dims cloth,
+  cards and chips by half; labels and buttons are not dimmed. Without memory
+  for the cloth buffer the cloth's deep colour is laid flat. Timber's felt is
+  no longer used.
+- **Cards.** Ivory stock, pip layouts, and illustrated court cards: a
+  double-ended jack (feathered cap, halberd), queen (tiara, flower) and king
+  (crown, beard, sceptre), robed in the suit's colour with the suit on the
+  breast; small cards show one head and shoulders. Drawn as shapes once per
+  size into a RAM atlas (`ui/cards/cg_deck.c`), then blitted. The corner
+  index has fixed type (decision 4): the faces the Medium text size gives,
+  whatever the setting.
+- **Motion** (`ui/cards/cg_motion.[ch]`). Hole cards are dealt round the table from the deck (110 ms apart), the board's cards turn over from it, the hands turn over at a showdown and the pot slides to the winner, whose seat is ringed in gold. The opponents wait while the table moves. Under reduced motion (DS 12)
+  nothing moves and the end state is drawn at once. One 33 ms timer exists
+  only while something moves; each frame repaints only what moved.
+- **Memory.** The atlas and the cloth are freed when the game closes.
+
 ## Controls
 
 The outline and `>` identify the active seat. `D`, `SB` and `BB` identify the

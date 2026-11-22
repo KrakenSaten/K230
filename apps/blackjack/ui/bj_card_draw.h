@@ -40,12 +40,15 @@ enum bj_index {
     BJ_INDEX_BELOW
 };
 void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index);
-/* What a BJ_INDEX_BELOW corner of a card `card_w` wide takes in the current
- * fonts, from the card's left and top edges, with two pixels to spare: across,
+/* What a BJ_INDEX_BELOW corner of a card `card_w` wide takes in the card's
+ * fixed type, from the card's left and top edges, with two pixels to spare: across,
  * the inset and the wider of the widest rank ("10") and the pip; down, to the
  * pip's foot. A card laid over it must leave this much in view. */
 void bj_card_index_size(int card_w, int *index_w, int *index_h);
 void bj_draw_back(lv_layer_t *layer, const lv_area_t *area);
+/* A card in motion: its face (BJ_INDEX_BELOW) or its back, squashed across
+ * to `scale_x` 256ths of its width as it turns over (cg_deck_draw_scaled). */
+void bj_draw_card_scaled(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, int face_up, int scale_x);
 /* The shadow a card at `area` casts on the cloth: draw a hand's shadows
  * before its cards (cg_deck.h). */
 void bj_draw_shadow(lv_layer_t *layer, const lv_area_t *area);

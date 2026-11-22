@@ -93,10 +93,21 @@ void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum cg_suit suit, l
     }
 }
 
+/* The card's own type is fixed, whatever the text size (owner decision 4,
+ * 2026-11-22): the deck's type (cg_deck_font) for the three roles a card
+ * uses. Every other role (the slots' symbols) is the theme's. */
 static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
 {
     lv_style_value_t v;
 
+    if (role == POS_STYLE_TITLE || role == POS_STYLE_ROW_TITLE || role == POS_STYLE_HERO_40) {
+        if (letter_space) {
+            *letter_space = 0;
+        }
+        return cg_deck_font(role == POS_STYLE_TITLE      ? CG_TYPE_INDEX
+                            : role == POS_STYLE_HERO_40 ? CG_TYPE_LARGE
+                                                        : CG_TYPE_INDEX_SMALL);
+    }
     if (letter_space) {
         *letter_space = 0;
         if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
@@ -227,8 +238,11 @@ static void face_vector(lv_layer_t *layer, const lv_area_t *area, cg_card_t card
     } else {
         cg_deck_suit(layer, area->x2 - pad - pip / 2, area->y1 + pad / 2 + line / 2, pip, suit, ink);
     }
-    /* Below the rank; the outer pip columns stand clear of the corner pip. */
-    cg_deck_body(layer, area, pad / 2 + line + 2, index == BJ_INDEX_BELOW ? 43 : 31, index == BJ_INDEX_BELOW ? 23 : 31, card,
+    /* Below the rank; the outer pip columns stand clear of the corner pip. A
+     * court's frame stands beside a BELOW index, so it runs from the top. */
+    cg_deck_body(layer, area,
+                 rank >= CG_JACK && index == BJ_INDEX_BELOW && w >= 96 ? pad : pad / 2 + line + 2,
+                 index == BJ_INDEX_BELOW ? 43 : 31, index == BJ_INDEX_BELOW ? 23 : 31, card,
                  role_font(w >= 96 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, NULL), &in);
 }
 
@@ -253,13 +267,21 @@ static void compose_beside(lv_layer_t *layer, const lv_area_t *area, int id)
     compose(layer, area, id, BJ_INDEX_BESIDE);
 }
 
-/* A set per index layout; its look changes with the fonts of the text size. */
+/* A set per index layout. Its type is fixed, so its look never changes. */
 #define BJ_DECK_SET 10
 
 static uintptr_t deck_stamp(void)
 {
-    return (uintptr_t)role_font(POS_STYLE_TITLE, NULL) ^ ((uintptr_t)role_font(POS_STYLE_HERO_40, NULL) << 1) ^
-           ((uintptr_t)role_font(POS_STYLE_ROW_TITLE, NULL) << 2);
+    return 1;
+}
+
+void bj_draw_card_scaled(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, int face_up, int scale_x)
+{
+    if (face_up && !cg_card_valid(card)) {
+        return;
+    }
+    cg_deck_draw_scaled(layer, area, BJ_DECK_SET + (int)BJ_INDEX_BELOW, deck_stamp(),
+                        face_up ? (int)card : CG_DECK_ID_BACK, compose_below, scale_x);
 }
 
 void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index)

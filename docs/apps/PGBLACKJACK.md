@@ -2,6 +2,7 @@
 
 A Pocket Games title: single-player Blackjack against the dealer, on
 PocketTimber's felt, in the same card family as PG Solitaire.
+(Since Lamplight: on its own claret cloth, full screen - see "Lamplight" below.)
 Integrated for Doors v0.2.x on `feat/games-solitaire-blackjack-2048` (from
 v0.2.1 `c9c2105`, 2026-09-28): imported byte for byte from `feature/game-blackjack` `311df93`
 (physically tested on unit A at `189f7f7` on 2026-09-13, in the temporary
@@ -11,6 +12,35 @@ on glass in this form.
 
 This is a game with play chips. There is no money, no purchase, no
 networking and nothing that leaves the device.
+
+
+## Lamplight (2026-11)
+
+The card games redesign, direction A (`docs/design/card-games` on
+`design/card-games-redesign`; owner decisions 1 to 5, 2026-11-22). Where
+this section and the older text below disagree, this section holds.
+
+- **Full screen** (decision 3). The shell's header is hidden
+  (`pocketos_shell_set_fullscreen`); the game draws its own back mark, a
+  chevron in the top-left corner clear of the corner square (30 px portrait,
+  50 px landscape), and its name in gold. The device's Back and Home and Esc
+  are the shell's, unchanged. Shared code: `ui/cards/cg_scene.[ch]`.
+- **Cloth** (decision 2). The claret cloth under one lamp fills the screen and
+  falls off to black; its palette is fixed in every theme. Night dims cloth,
+  cards and chips by half; labels and buttons are not dimmed. Without memory
+  for the cloth buffer the cloth's deep colour is laid flat. Timber's felt is
+  no longer used.
+- **Cards.** Ivory stock, pip layouts, and illustrated court cards: a
+  double-ended jack (feathered cap, halberd), queen (tiara, flower) and king
+  (crown, beard, sceptre), robed in the suit's colour with the suit on the
+  breast; small cards show one head and shoulders. Drawn as shapes once per
+  size into a RAM atlas (`ui/cards/cg_deck.c`), then blitted. The corner
+  index has fixed type (decision 4): the faces the Medium text size gives,
+  whatever the setting.
+- **Motion** (`ui/cards/cg_motion.[ch]`). A deal comes out of the shoe card by card (140 ms apart), a hit at once; after a stand or a double the hole card turns over and the dealer draws at a dealer's pace (450 ms apart); the stake then slides to whoever won it (it nudges on a push) and the result fades in. The rules settle each command at once; the save holds only positions the rules reached. Under reduced motion (DS 12)
+  nothing moves and the end state is drawn at once. One 33 ms timer exists
+  only while something moves; each frame repaints only what moved.
+- **Memory.** The atlas and the cloth are freed when the game closes. Measured in the simulator: about 3.5 MB of composed cards and 1.3 MB of cloth while open; a deal animates in 640 ms, its largest frame repainting 24 % of the panel.
 
 ## Ruleset
 
@@ -83,8 +113,7 @@ core/cards/cg_shoe.[ch]                  the N-deck shoe, refill excluding the t
 apps/blackjack/engine/bj_rules.[ch]      shoe, hands and totals, deal/hit/stand/double, dealer, settlement, chips, bj_game_valid
 apps/blackjack/ui/bj_view.[ch]           pure: screen blocks, table and hand geometry, key map, buttons, HUD, labels, result, captions
 apps/blackjack/ui/bj_card_draw.[ch]      LVGL: face (with index layout), back, slot, suits  (copy + one parameter)
-apps/blackjack/ui/bj_table_widget.[ch]   LVGL: felt, both hands, labels, the round's result
-apps/blackjack/ui/bj_felt.[ch]           the one door to PocketTimber's felt
+apps/blackjack/ui/bj_table_widget.[ch]   LVGL: both hands, chips, labels, the round's result, their motion
 apps/blackjack/ui/bj_palette.h           card world palette (values generated from art/)
 apps/blackjack/art/cards_palette.txt     the card colours, as art (same values as Solitaire's)
 apps/blackjack/bj_store.[ch]             the save file: codec, atomic write, validated load (the only file I/O)

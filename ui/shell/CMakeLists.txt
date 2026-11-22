@@ -65,6 +65,8 @@ set(CARDS_UI_SOURCES
     ${REPO_DIR}/core/cards/cg_tween.c
     ${REPO_DIR}/ui/cards/cg_atlas.c
     ${REPO_DIR}/ui/cards/cg_deck.c
+    ${REPO_DIR}/ui/cards/cg_motion.c
+    ${REPO_DIR}/ui/cards/cg_scene.c
     ${REPO_DIR}/ui/cards/cg_table.c)
 set(POKER_ENGINE_SOURCES
     ${REPO_DIR}/apps/poker/engine/poker.c
@@ -386,14 +388,12 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/solitaire/ui/sol_view.c
     ${REPO_DIR}/apps/solitaire/ui/sol_card_draw.c
     ${REPO_DIR}/apps/solitaire/ui/sol_table_widget.c
-    ${REPO_DIR}/apps/solitaire/ui/sol_felt.c
     ${REPO_DIR}/apps/blackjack/bj_app.c
     ${REPO_DIR}/apps/blackjack/bj_store.c
     ${REPO_DIR}/apps/blackjack/engine/bj_rules.c
     ${REPO_DIR}/apps/blackjack/ui/bj_view.c
     ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
     ${REPO_DIR}/apps/blackjack/ui/bj_table_widget.c
-    ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c
@@ -1766,8 +1766,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/solitaire/ui/sol_view.c
         ${REPO_DIR}/apps/solitaire/ui/sol_card_draw.c
         ${REPO_DIR}/apps/solitaire/ui/sol_table_widget.c
-        ${REPO_DIR}/apps/solitaire/ui/sol_felt.c
-        ${REPO_DIR}/apps/timber/ui/timber_art.c
+            ${REPO_DIR}/apps/timber/ui/timber_art.c
         "${SOL_PALETTE_C}"
         ${GAMES_APP_TEST_UI})
     target_include_directories(sol_app_test PRIVATE
@@ -1783,8 +1782,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/blackjack/ui/bj_view.c
         ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
         ${REPO_DIR}/apps/blackjack/ui/bj_table_widget.c
-        ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
-        ${REPO_DIR}/apps/timber/ui/timber_art.c
+            ${REPO_DIR}/apps/timber/ui/timber_art.c
         "${BJ_PALETTE_C}"
         ${GAMES_APP_TEST_UI})
     target_include_directories(bj_app_test PRIVATE
@@ -1796,8 +1794,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${CARDS_SOURCES}
         ${CARDS_UI_SOURCES}
         ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
-        ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
-        ${REPO_DIR}/apps/timber/ui/timber_art.c
+            ${REPO_DIR}/apps/timber/ui/timber_art.c
         "${BJ_PALETTE_C}" ${GAMES_APP_TEST_UI})
     target_include_directories(poker_app_test PRIVATE
         "${REPO_DIR}/apps/poker" "${REPO_DIR}/apps/poker/engine" "${REPO_DIR}/apps/poker/ui"

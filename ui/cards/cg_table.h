@@ -12,6 +12,7 @@
 
 #include "lvgl.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 enum cg_cloth_kind {
@@ -31,13 +32,23 @@ enum cg_table_ink {
 
 lv_color_t cg_table_ink(enum cg_table_ink ink);
 
-/* Fill `coords` with the cloth, rendered once per size and kept. Returns 1,
- * or 0 when there was no memory for it and nothing was drawn. */
+/* Fill `coords` with the cloth, rendered once per size and kept, dimmed at
+ * night. Returns 1, or 0 when there was no memory for the lamp and the
+ * cloth's deep colour was laid flat instead. */
 int cg_table_cloth(lv_layer_t *layer, const lv_area_t *coords, enum cg_cloth_kind kind);
+/* Night dims the scene - cloth, cards and chips - by half; the interface
+ * drawn over it (labels, buttons) is not dimmed. Set before drawing. */
+void cg_table_set_night(int night);
+/* Free the kept cloths (a game closing), and what they hold now. */
+void cg_table_purge(void);
+size_t cg_table_bytes(void);
 
 /* `amount` as stacks of chips (500, 100, 50 and 10), centred on cx with their
  * feet on `base_y`; `d` is a chip's width. Returns the width drawn. */
 int cg_table_chips(lv_layer_t *layer, int cx, int base_y, uint32_t amount, int d);
+/* The most chips of width `d` can cover round (cx, base_y): half its width
+ * across, and its height above the base (four stacks of eight). */
+void cg_table_chips_reach(int d, int *half_w, int *height);
 
 /* The room, a HUD panel and a table button in the Lamplight look. These set
  * local styles; call them after the object's own styles. */

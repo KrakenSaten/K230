@@ -29,13 +29,20 @@
  * replaces it, and said on the caption; a save that fails is said too, and
  * play goes on.
  *
- * No motion: every change is immediate, so reduced motion has nothing to
- * switch off.
+ * FULL SCREEN. The game takes the whole screen (cg_scene.h): the green cloth
+ * edge to edge, its own back mark and name in a band at the top. The
+ * device's Back and Home are the shell's, as before.
+ *
+ * MOTION. The rules settle a move at once; the table then plays the
+ * difference (sol_table_widget.h): a card travels, a drawn card turns on its
+ * way to the waste, an uncovered card turns over, and a win lifts the four
+ * kings. Reduced motion (DS 12) skips it and the end state is drawn at once.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "sol_app.h"
+#include "cg_scene.h"
 #include "cg_table.h"
 #include "sol_store.h"
 #include "sol_table_widget.h"
@@ -87,6 +94,7 @@ struct sol_app {
     int save_failed;  /* the last save did not reach the file */
     int unreadable;   /* the save found at open was refused */
     int session_only; /* a review state: never read or write the file */
+    struct cg_scene scene;
 };
 
 /* ---- persistence --------------------------------------------------------------------- */
@@ -200,7 +208,7 @@ static void deal(struct sol_app *a, uint32_t seed)
  * game itself changed. Every move and draw advances the move count, so a
  * count that did not move means only the cursor, the selection or a caption
  * did, and there is nothing to save. */
-static void apply(struct sol_app *a, enum sol_cmd cmd, uint32_t moves_before, uint8_t won_before)
+static void apply(struct sol_app *a, enum sol_cmd cmd, uint32_t moves_before, uint8_t won_before, int follow)
 {
     if (cmd == SOL_CMD_NEW_GAME) {
         deal(a, fresh_seed(a));
@@ -216,6 +224,13 @@ static void apply(struct sol_app *a, enum sol_cmd cmd, uint32_t moves_before, ui
     if (cmd != SOL_CMD_NONE) {
         refresh(a);
     }
+    if (follow) {
+        sol_table_follow_cursor(a->table);
+    }
+    /* After the refresh and the cursor's scroll, which move the tableau. */
+    if ((cmd == SOL_CMD_NEW_GAME || a->game.moves != moves_before) && !pocketos_shell_reduced_motion()) {
+        sol_table_after(a->table, a->game.won && !won_before);
+    }
 }
 
 static void on_key(lv_event_t *e)
@@ -224,8 +239,8 @@ static void on_key(lv_event_t *e)
     uint32_t moves = a->game.moves;
     uint8_t won = a->game.won;
 
-    apply(a, sol_view_key(&a->ui, &a->game, lv_event_get_key(e)), moves, won);
-    sol_table_follow_cursor(a->table);
+    sol_table_before(a->table);
+    apply(a, sol_view_key(&a->ui, &a->game, lv_event_get_key(e)), moves, won, 1);
 }
 
 static void on_tap(void *user, struct sol_hit hit)
@@ -234,7 +249,8 @@ static void on_tap(void *user, struct sol_hit hit)
     uint32_t moves = a->game.moves;
     uint8_t won = a->game.won;
 
-    apply(a, sol_view_tap(&a->ui, &a->game, hit), moves, won);
+    sol_table_before(a->table);
+    apply(a, sol_view_tap(&a->ui, &a->game, hit), moves, won, 0);
 }
 
 static void on_button(lv_event_t *e)
@@ -244,12 +260,13 @@ static void on_button(lv_event_t *e)
     uint32_t moves = a->game.moves;
     uint8_t won = a->game.won;
 
+    sol_table_before(a->table);
     switch ((enum sol_button)(intptr_t)lv_obj_get_user_data(btn)) {
     case SOL_BUTTON_NEW_GAME:
-        apply(a, sol_view_new_game_button(&a->ui, &a->game), moves, won);
+        apply(a, sol_view_new_game_button(&a->ui, &a->game), moves, won, 0);
         break;
     case SOL_BUTTON_KEEP_PLAYING:
-        apply(a, sol_view_keep_playing_button(&a->ui), moves, won);
+        apply(a, sol_view_keep_playing_button(&a->ui), moves, won, 0);
         break;
     default:
         break;
@@ -332,12 +349,13 @@ static lv_obj_t *button(struct sol_app *a, lv_obj_t *parent)
 
 static void build(struct sol_app *a, lv_obj_t *body)
 {
-    a->root = lv_obj_create(body);
+    lv_obj_t *content = cg_scene_build(&a->scene, body, CG_CLOTH_GREEN, "SOLITAIRE", NULL, NULL);
+
+    a->root = lv_obj_create(content ? content : body);
     lv_obj_remove_style_all(a->root);
     lv_obj_set_width(a->root, LV_PCT(100));
     lv_obj_set_flex_grow(a->root, 1);
     lv_obj_remove_flag(a->root, LV_OBJ_FLAG_SCROLLABLE);
-    cg_table_style_room(a->root);
 
     a->hud = lv_obj_create(a->root);
     lv_obj_remove_style_all(a->hud);
@@ -594,6 +612,10 @@ static void solitaire_destroy(void *priv)
     if (a && a->dirty) {
         save_now(a);
     }
+    if (a) {
+        sol_table_finish(a->table);
+        cg_scene_close(&a->scene);
+    }
     lv_free(priv);
 }
 
@@ -639,6 +661,7 @@ const struct pocketos_app app_solitaire = {
     .tick = solitaire_tick,
     .destroy = solitaire_destroy,
     /* Fullscreen, like Fleet, Radar and Timber (DS §36): no status
-     * cluster over the game; the shell's header keeps the way back. */
+     * cluster, no shell header (owner decision 3 of the card games); the
+     * scene's back mark is the way back. */
     .chrome = POCKETOS_CHROME_NONE,
 };

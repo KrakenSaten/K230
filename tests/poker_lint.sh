@@ -20,7 +20,7 @@ test "$(grep -c 'pos_input_add_obj' apps/poker/poker_app.c)" = 1 ||
 none -rnE --include='*.c' 'lv_timer_create|pthread_create|fork\(' apps/poker ||
     { echo 'FAIL poker must start no timers, threads or processes'; exit 1; }
 grep -q 'bj_draw_face' apps/poker/ui/poker_table.c
-grep -q 'bj_felt_image' apps/poker/ui/poker_table.c
+grep -q 'cg_scene_build' apps/poker/poker_app.c
 grep -q '&app_poker' ui/shell/shell.c
 grep -qE '"poker".*HOME_FOLDER_GAMES' ui/shell/home_layout.c
 # Its own launcher icon: the mask on the tile and the portal art the shell loads.

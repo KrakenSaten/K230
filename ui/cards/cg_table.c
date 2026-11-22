@@ -7,6 +7,7 @@
 #include "cg_table.h"
 
 #include "cg_cloth.h"
+#include "cg_deck.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -91,24 +92,67 @@ static struct cloth *cloth_for(enum cg_cloth_kind kind, int w, int h)
     return slot;
 }
 
+static lv_opa_t night_opa;
+
+void cg_table_set_night(int night)
+{
+    night_opa = night ? LV_OPA_50 : 0;
+    cg_deck_set_dim(night_opa);
+}
+
 int cg_table_cloth(lv_layer_t *layer, const lv_area_t *coords, enum cg_cloth_kind kind)
 {
     int w = lv_area_get_width(coords);
     int h = lv_area_get_height(coords);
     lv_draw_image_dsc_t dsc;
+    lv_draw_rect_dsc_t flat;
     struct cloth *c;
 
     if (!layer || kind < 0 || kind >= CG_CLOTH_KINDS || w <= 0 || h <= 0) {
         return 0;
     }
     c = cloth_for(kind, w, h);
-    if (!c) {
-        return 0;
+    if (c) {
+        lv_draw_image_dsc_init(&dsc);
+        dsc.src = &c->image;
+        lv_draw_image(layer, &dsc, coords);
+    } else {
+        /* No memory for the lamp: the cloth's own deep colour, flat. */
+        lv_draw_rect_dsc_init(&flat);
+        flat.bg_color = lv_color_hex(cloth_ink[kind][1]);
+        flat.bg_opa = LV_OPA_COVER;
+        lv_draw_rect(layer, &flat, coords);
     }
-    lv_draw_image_dsc_init(&dsc);
-    dsc.src = &c->image;
-    lv_draw_image(layer, &dsc, coords);
-    return 1;
+    if (night_opa) {
+        lv_draw_rect_dsc_init(&flat);
+        flat.bg_color = lv_color_black();
+        flat.bg_opa = night_opa;
+        lv_draw_rect(layer, &flat, coords);
+    }
+    return c != NULL;
+}
+
+void cg_table_purge(void)
+{
+    int i;
+
+    for (i = 0; i < CLOTHS; i++) {
+        free(cloths[i].px);
+        memset(&cloths[i], 0, sizeof(cloths[i]));
+    }
+}
+
+size_t cg_table_bytes(void)
+{
+    size_t sum = 0;
+    int i;
+
+    for (i = 0; i < CLOTHS; i++) {
+        if (cloths[i].px) {
+            sum += (size_t)cloths[i].w * cloths[i].h * 2;
+        }
+    }
+    return sum;
 }
 
 /* ---- chips ---------------------------------------------------------------------- */
@@ -131,11 +175,13 @@ static void ring(lv_layer_t *layer, int cx, int cy, int r, lv_color_t fill, lv_c
 static void chip(lv_layer_t *layer, int cx, int cy, int d, uint32_t body, uint32_t rim)
 {
     int r = d / 2;
+    lv_color_t b = lv_color_mix(lv_color_black(), lv_color_hex(body), night_opa);
+    lv_color_t e = lv_color_mix(lv_color_black(), lv_color_hex(rim), night_opa);
 
     /* Its shadow on the chip or cloth below, then the chip. */
     ring(layer, cx, cy + 2, r, lv_color_black(), lv_color_black(), 0, LV_OPA_TRANSP);
-    ring(layer, cx, cy, r, lv_color_hex(body), lv_color_hex(rim), d >= 28 ? 3 : 2, LV_OPA_COVER);
-    ring(layer, cx, cy, r * 58 / 100, lv_color_hex(body), lv_color_hex(rim), 1, LV_OPA_70);
+    ring(layer, cx, cy, r, b, e, d >= 28 ? 3 : 2, LV_OPA_COVER);
+    ring(layer, cx, cy, r * 58 / 100, b, e, 1, LV_OPA_70);
 }
 
 int cg_table_chips(lv_layer_t *layer, int cx, int base_y, uint32_t amount, int d)
@@ -177,6 +223,18 @@ int cg_table_chips(lv_layer_t *layer, int cx, int base_y, uint32_t amount, int d
         x += d + gap;
     }
     return width;
+}
+
+void cg_table_chips_reach(int d, int *half_w, int *height)
+{
+    int lift = d / 6 < 3 ? 3 : d / 6;
+
+    if (half_w) {
+        *half_w = (4 * d + 3 * (d / 8)) / 2 + 2;
+    }
+    if (height) {
+        *height = d + 7 * lift + 4;
+    }
 }
 
 /* ---- the controls --------------------------------------------------------------- */
