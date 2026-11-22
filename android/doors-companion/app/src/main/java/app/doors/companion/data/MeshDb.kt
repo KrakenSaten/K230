@@ -16,6 +16,8 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import app.doors.companion.core.MarkKind
 import app.doors.companion.core.MeshBatch
 import app.doors.companion.core.MeshChannel
@@ -24,6 +26,10 @@ import app.doors.companion.core.MeshIdentity
 import app.doors.companion.core.MeshMessage
 import app.doors.companion.core.MeshNode
 import app.doors.companion.core.MeshStore
+import app.doors.companion.core.OutPhase
+import app.doors.companion.core.Outgoing
+import app.doors.companion.core.SendStore
+import app.doors.companion.core.Why
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
@@ -130,6 +136,48 @@ data class UnitRow(
 /** How far the person has read a thread. The phone's own; the unit never hears of it. */
 @Entity(tableName = "reads", primaryKeys = ["unit", "conv"])
 data class ReadRow(val unit: String, val conv: String, val lastOrd: Long)
+
+/**
+ * A message this phone asked the unit to send, or a resend it asked for
+ * (`resendMsgId` set). It is written before anything is transmitted, with the
+ * `clientMsgId` the gateway knows it by. Once accepted, `(runId, msgId)` name
+ * the mesh message it became; how that message fared is that message's row,
+ * never this one.
+ */
+@Entity(tableName = "outbox", indices = [Index(value = ["clientMsgId"], unique = true), Index(value = ["unit", "conv", "ord"])])
+data class OutboxRow(
+    @PrimaryKey(autoGenerate = true) val ord: Long = 0,
+    val unit: String,
+    val clientMsgId: String,
+    val conv: String,
+    val peerKey: String?,
+    val channel: Int?,
+    val body: String,
+    val resendRunId: String?,
+    val resendMsgId: Long?,
+    val attemptsBefore: Int?,
+    val phase: String,
+    val why: String,
+    val journalId: String?,
+    val runId: String?,
+    val msgId: Long?,
+    /** The newest stored message when this was written: its place in the thread. */
+    val afterOrd: Long,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+    val checks: Int,
+) {
+    val outPhase: OutPhase get() = OutPhase.entries.firstOrNull { it.name == phase } ?: OutPhase.UNKNOWN
+    val outWhy: Why get() = Why.entries.firstOrNull { it.name == why } ?: Why.NONE
+    val isResend: Boolean get() = resendMsgId != null
+}
+
+/** What a person has typed and not sent, per thread. It stays until it is sent or cleared by hand. */
+@Entity(tableName = "drafts", primaryKeys = ["unit", "conv"])
+data class DraftRow(val unit: String, val conv: String, val body: String, val atMs: Long)
+
+/** How many sends of a thread wait for a person: unanswered, unknown or refused. */
+data class AttentionRow(val conv: String, val n: Int)
 
 data class ConversationRow(@Embedded val last: MessageRow, val unread: Int, val total: Int)
 
@@ -282,6 +330,68 @@ abstract class MeshDao {
         readFurther(unit, conv, ord)
     }
 
+    // ---- what this phone sends ----
+    @Insert
+    protected abstract suspend fun insert(row: OutboxRow): Long
+
+    @Update
+    abstract suspend fun update(row: OutboxRow)
+
+    @Query("SELECT * FROM outbox WHERE unit = :unit AND clientMsgId = :id")
+    abstract suspend fun outgoing(unit: String, id: String): OutboxRow?
+
+    @Query("DELETE FROM outbox WHERE unit = :unit AND clientMsgId = :id")
+    abstract suspend fun removeOutgoing(unit: String, id: String)
+
+    @Query("SELECT * FROM outbox WHERE unit = :unit AND phase IN ('SENDING', 'UNCERTAIN') ORDER BY ord")
+    abstract suspend fun openOutgoing(unit: String): List<OutboxRow>
+
+    // By the numbering, not by what is still kept: a discarded send was a send to the gateway all the same.
+    @Query("SELECT COALESCE(MAX(ord), :ord) - :ord FROM outbox WHERE unit = :unit")
+    abstract suspend fun newerOutgoing(unit: String, ord: Long): Int
+
+    @Query("SELECT * FROM messages WHERE unit = :unit AND conv = :conv AND outgoing = 1 AND ord > :afterOrd ORDER BY ord")
+    abstract suspend fun sentAfter(unit: String, conv: String, afterOrd: Long): List<MessageRow>
+
+    @Query("SELECT COUNT(*) FROM outbox WHERE unit = :unit AND runId = :runId AND msgId = :msgId AND resendMsgId IS NULL")
+    abstract suspend fun claimed(unit: String, runId: String, msgId: Long): Int
+
+    @Query("SELECT attempts FROM messages WHERE unit = :unit AND runId = :runId AND msgId = :msgId")
+    abstract suspend fun attempts(unit: String, runId: String, msgId: Long): Int?
+
+    @Query("DELETE FROM drafts WHERE unit = :unit AND conv = :conv")
+    abstract suspend fun dropDraft(unit: String, conv: String)
+
+    @Query("INSERT OR REPLACE INTO drafts (unit, conv, body, atMs) VALUES (:unit, :conv, :body, :atMs)")
+    abstract suspend fun saveDraft(unit: String, conv: String, body: String, atMs: Long)
+
+    @Query("SELECT body FROM drafts WHERE unit = :unit AND conv = :conv")
+    abstract suspend fun draft(unit: String, conv: String): String?
+
+    /** The message is on the phone, and its draft is gone, in one step: never both, never neither. */
+    @Transaction
+    open suspend fun addOutgoing(row: OutboxRow, clearDraft: Boolean, replaces: String?): OutboxRow {
+        // What it takes the place of keeps its place in the thread.
+        val old = replaces?.let { outgoing(row.unit, it) }
+        val placed = row.copy(afterOrd = old?.afterOrd ?: newest(row.unit))
+        val ord = insert(placed)
+        if (old != null) removeOutgoing(row.unit, old.clientMsgId)
+        if (clearDraft) dropDraft(row.unit, row.conv)
+        return placed.copy(ord = ord)
+    }
+
+    @Query("SELECT * FROM outbox WHERE unit = :unit AND conv = :conv ORDER BY ord")
+    abstract fun outbox(unit: String, conv: String): Flow<List<OutboxRow>>
+
+    @Query("SELECT conv, COUNT(*) AS n FROM outbox WHERE unit = :unit AND resendMsgId IS NULL AND phase IN ('UNCERTAIN', 'UNKNOWN', 'FAILED') GROUP BY conv")
+    abstract fun attention(unit: String): Flow<List<AttentionRow>>
+
+    @Query("DELETE FROM outbox WHERE unit = :unit")
+    protected abstract suspend fun dropOutbox(unit: String)
+
+    @Query("DELETE FROM drafts WHERE unit = :unit")
+    protected abstract suspend fun dropDrafts(unit: String)
+
     // ---- forgetting a unit ----
     @Query("DELETE FROM messages WHERE unit = :unit")
     protected abstract suspend fun dropMessages(unit: String)
@@ -302,21 +412,42 @@ abstract class MeshDao {
         clearNodes(unit)
         clearChannels(unit)
         dropReads(unit)
+        dropOutbox(unit)
+        dropDrafts(unit)
         dropUnit(unit)
     }
 }
 
 @Database(
-    entities = [MessageRow::class, MarkRow::class, NodeRow::class, ChannelRow::class, UnitRow::class, ReadRow::class],
-    version = 1,
+    entities = [MessageRow::class, MarkRow::class, NodeRow::class, ChannelRow::class, UnitRow::class, ReadRow::class, OutboxRow::class, DraftRow::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class MeshDb : RoomDatabase() {
     abstract fun dao(): MeshDao
 
     companion object {
+        /** Version 2 adds what the phone sends (M4.2). The history of version 1 is the only one there is, and is kept. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `outbox` (`ord` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `unit` TEXT NOT NULL, " +
+                        "`clientMsgId` TEXT NOT NULL, `conv` TEXT NOT NULL, `peerKey` TEXT, `channel` INTEGER, `body` TEXT NOT NULL, " +
+                        "`resendRunId` TEXT, `resendMsgId` INTEGER, `attemptsBefore` INTEGER, `phase` TEXT NOT NULL, `why` TEXT NOT NULL, " +
+                        "`journalId` TEXT, `runId` TEXT, `msgId` INTEGER, `afterOrd` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, " +
+                        "`updatedAtMs` INTEGER NOT NULL, `checks` INTEGER NOT NULL)",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_outbox_clientMsgId` ON `outbox` (`clientMsgId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_unit_conv_ord` ON `outbox` (`unit`, `conv`, `ord`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `drafts` (`unit` TEXT NOT NULL, `conv` TEXT NOT NULL, `body` TEXT NOT NULL, " +
+                        "`atMs` INTEGER NOT NULL, PRIMARY KEY(`unit`, `conv`))",
+                )
+            }
+        }
+
         fun open(context: Context): MeshDb =
-            Room.databaseBuilder(context, MeshDb::class.java, File(context.noBackupFilesDir, "mesh.v1.db").path).build()
+            Room.databaseBuilder(context, MeshDb::class.java, File(context.noBackupFilesDir, "mesh.v1.db").path).addMigrations(MIGRATION_1_2).build()
     }
 }
 
@@ -336,6 +467,41 @@ class RoomMeshStore(private val dao: MeshDao, private val now: () -> Long = Syst
     override suspend fun putIdentity(unit: String, identity: MeshIdentity) = dao.putIdentity(unit, identity.publicKey, identity.name)
 
     private fun row(unit: String, c: MeshChannel) = ChannelRow(unit, c.slot, c.name, c.hash, c.keyBits, c.wellKnown, c.textLimit)
+}
+
+/** MeshSend's store, on Room. */
+class RoomSendStore(private val dao: MeshDao) : SendStore {
+    override suspend fun add(unit: String, o: Outgoing, clearDraft: Boolean, replaces: String?): Outgoing = dao.addOutgoing(row(unit, o), clearDraft, replaces).outgoing()
+    override suspend fun get(unit: String, clientMsgId: String): Outgoing? = dao.outgoing(unit, clientMsgId)?.outgoing()
+    override suspend fun put(unit: String, o: Outgoing) = dao.update(row(unit, o))
+    override suspend fun remove(unit: String, clientMsgId: String) = dao.removeOutgoing(unit, clientMsgId)
+    override suspend fun open(unit: String): List<Outgoing> = dao.openOutgoing(unit).map { it.outgoing() }
+    override suspend fun newerThan(unit: String, ord: Long): Int = dao.newerOutgoing(unit, ord)
+    override suspend fun attempts(unit: String, runId: String, messageId: Long): Int? = dao.attempts(unit, runId, messageId)
+
+    override suspend fun findSent(unit: String, o: Outgoing): Pair<String, Long>? {
+        // A channel message comes back as "<the unit's name>: <text>".
+        val own = dao.unitNow(unit)?.nodeName
+        val hit = dao.sentAfter(unit, o.conversation, o.afterOrd).firstOrNull { m ->
+            (m.body == o.text || MeshMessage.body(m.body, m.senderName) == o.text || (!own.isNullOrEmpty() && m.body == "$own: ${o.text}")) &&
+                dao.claimed(unit, m.runId, m.msgId) == 0
+        } ?: return null
+        return hit.runId to hit.msgId
+    }
+
+    private fun row(unit: String, o: Outgoing) = OutboxRow(
+        ord = o.ord, unit = unit, clientMsgId = o.clientMsgId, conv = o.conversation, peerKey = o.peerKey, channel = o.channel, body = o.text,
+        resendRunId = o.resendRunId, resendMsgId = o.resendMsgId, attemptsBefore = o.attemptsBefore, phase = o.phase.name, why = o.why.name,
+        journalId = o.journalId, runId = o.runId, msgId = o.messageId, afterOrd = o.afterOrd, createdAtMs = o.createdAtMs,
+        updatedAtMs = o.updatedAtMs, checks = o.checks,
+    )
+
+    private fun OutboxRow.outgoing() = Outgoing(
+        ord = ord, clientMsgId = clientMsgId, conversation = conv, peerKey = peerKey, channel = channel, text = body,
+        resendRunId = resendRunId, resendMsgId = resendMsgId, attemptsBefore = attemptsBefore, phase = outPhase, why = outWhy,
+        journalId = journalId, runId = runId, messageId = msgId, afterOrd = afterOrd, createdAtMs = createdAtMs, updatedAtMs = updatedAtMs,
+        checks = checks,
+    )
 }
 
 fun MarkRow.markKind(): MarkKind? = MarkKind.entries.firstOrNull { it.name == kind }

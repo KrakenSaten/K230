@@ -238,7 +238,7 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
                 when {
                     unread > 0 -> if (unread > 99) "99+ new" else "$unread new"
                     mesh.phase == MeshPhase.LIVE -> "Live"
-                    else -> "Read only"
+                    else -> "Stored"
                 },
             ) { go(Screen.Rift) }
             Room("PacketShark", "Capture state and traffic figures", Doors.Tx, "Soon") { go(Screen.PacketShark) }

@@ -11,8 +11,8 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# By default the checkout this file is in. Until gatewayd M4.1 is on that
-# branch, name a checkout that has it (services/gatewayd with gw_journal.c).
+# By default the checkout this file is in. Until gatewayd M4.2 is on that
+# branch, name a checkout that has it (services/gatewayd with gw_send.c).
 REF="${1:-$(cd "$HERE/../../.." && pwd)}"
 PORT="${2:-47231}"
 CTL="${3:-47232}"

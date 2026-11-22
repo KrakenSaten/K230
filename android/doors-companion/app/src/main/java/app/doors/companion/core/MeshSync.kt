@@ -43,6 +43,8 @@ data class MeshLink(
     /** meshcored's own state word, when it has said one in this session. */
     val meshState: String? = null,
     val runId: String? = null,
+    /** The gateway's journal this phone last synced with: another one means another gateway process. */
+    val journalId: String? = null,
     val lastSyncMs: Long = 0,
 )
 
@@ -230,7 +232,7 @@ class MeshSync(
                 marks.clear()
                 if (r.bool("more") != true) break
             }
-            _link.update { it.copy(lastSyncMs = now(), runId = c.runId) }
+            _link.update { it.copy(lastSyncMs = now(), runId = c.runId, journalId = c.journalId) }
         }
 
         /** A cursor at the oldest entry the journal holds: everything it has is then asked for, in order. */

@@ -16,7 +16,7 @@ Control: one JSON object per line, {"method": ..., "params": ...}.
   harness.upstream {"service": "sysd", "mode": "ok" | "error"}
   harness.mesh     {"op": ...}: the fake meshcored (FakeMesh below): message,
                    state, bulk, node, channel, activity, down, up, restart,
-                   seed, demo
+                   seed, demo; and for sending: send_mode, release, sends, auto
 
 This is a bench tool. It is not part of the app and ships in no build.
 
@@ -150,7 +150,22 @@ class FakeMesh:
     it: status with a run_id, a subscription, the two message rings (64
     direct, 64 channel), nodes, channels, identity, and the events. It holds
     no key and transmits nothing; a test, or the demo thread, tells it what
-    "happened" on the air."""
+    "happened" on the air.
+
+    It takes mesh.send the way the gateway's own suite models it
+    (tests/gatewayd_send_e2e_test.py). send_mode says what becomes of one:
+      ok       taken and answered
+      refuse   answered with its own error 5, nothing taken
+      swallow  taken (the message exists, its event is raised), never answered
+      ignore   read and not taken, no answer; the service goes on talking, so
+               the gateway keeps its connection
+      drop     nothing taken, no answer, and not a byte: the gateway gives the
+               connection up
+      hold     taken and answered only on the op "release"
+    `taken` counts what it was made to "transmit"; that number is what a test
+    of at-most-once looks at. With auto on, what it took then fares as on a
+    quiet evening: a direct message is acknowledged (not by Kari Fjell, who
+    never answers), a channel message goes on the air and is heard back."""
 
     def __init__(self):
         self.lock = threading.RLock()
@@ -159,6 +174,11 @@ class FakeMesh:
         self.conns = []
         self.subs = []
         self.demo = False
+        self.send_mode = "ok"
+        self.auto = False
+        self.held = []
+        self.asked = 0   # mesh.send requests that reached it, taken or not
+        self.taken = []  # what it was made to transmit, in order
         self.fresh()
         self.up()
         threading.Thread(target=self.demo_loop, daemon=True).start()
@@ -227,6 +247,22 @@ class FakeMesh:
         try:
             while True:
                 req = recv_frame(c)
+                if req.get("method") == "mesh.send":
+                    with self.lock:
+                        self.asked += 1
+                        mode = self.send_mode
+                    if mode == "drop":
+                        continue
+                    if mode == "ignore":
+                        self.emit("mesh.state", {"state": "ready", "reason": "none", "mono_ms": mono()})
+                        continue
+                    if mode == "swallow":
+                        self.send(req.get("params") or {})
+                        continue
+                    if mode == "hold":
+                        with self.lock:
+                            self.held.append((c, req))
+                        continue
                 res = self.answer(req.get("method"), req.get("params") or {})
                 with self.lock:
                     if isinstance(res, tuple):
@@ -258,7 +294,93 @@ class FakeMesh:
                 return hit[0] if len(hit) == 1 else (2, "no such node")
             if m == "mesh.channels":
                 return {"channels": CHANNELS, "count": len(CHANNELS), "max": 8, "persistent": True}
+            if m == "mesh.send":
+                if self.send_mode == "refuse":
+                    return (5, "8 messages are already waiting for an ACK")
+                return self.send(p)
             return (1, "unknown method")
+
+    def send(self, p):
+        """Accepts one message the way meshcored does, or refuses it with a
+        code of its own: from here on it exists, and its event is raised."""
+        with self.lock:
+            if "resend" in p:
+                old = [x for x in self.direct if x["id"] == p["resend"]]
+                if not old or old[0].get("direction") != "out" or old[0].get("state") != "no_ack":
+                    return (2, "not an unacknowledged direct message of this run")
+                m = old[0]
+                m.update({"state": "sent_direct", "attempts": m.get("attempts", 1) + 1})
+                self.taken.append(dict(p))
+                self.emit("mesh.message", {"message": m})
+                self.fare(m)
+                return {"accepted": True, "message_id": m["id"], "route": "direct", "ack_timeout_ms": 8000,
+                        "ack_expected": True, "resent": True}
+            text = p.get("text", "")
+            if "channel" in p:
+                ch = [c for c in CHANNELS if c["channel"] == p["channel"]]
+                if not ch:
+                    return (2, "no such channel")
+                if len(text.encode()) > ch[0]["text_limit"]:
+                    return (2, "text too long for this channel")
+                m = {"kind": "channel", "channel": ch[0]["channel"], "channel_name": ch[0]["name"],
+                     "channel_hash": ch[0]["channel_hash"], "sender_name": "Doors bench", "text": "Doors bench: " + text,
+                     "state": "sent_flood", "ack_expected": False}
+                ring = self.chan
+                res = {"accepted": True, "route": "flood", "channel": ch[0]["channel"], "ack_expected": False}
+            else:
+                peer = [n for n in self.nodes if n["public_key"] == p.get("to")]
+                if not peer:
+                    return (2, "no such node")
+                if len(text.encode()) > 160:
+                    return (2, "text too long")
+                m = {"kind": "direct", "peer_public_key": peer[0]["public_key"], "peer_name": peer[0]["name"], "text": text,
+                     "state": "sent_flood", "ack_expected": True, "attempts": 1}
+                ring = self.direct
+                res = {"accepted": True, "route": "flood", "ack_timeout_ms": 9000, "ack_expected": True}
+            m.update({"id": self.next_id, "direction": "out", "timestamp": int(time.time()), "mono_ms": mono()})
+            self.next_id += 1
+            res["message_id"] = m["id"]
+            ring.append(m)
+            del ring[:-64]
+            self.taken.append(dict(p))
+            self.emit("mesh.message", {"message": m})
+            self.fare(m)
+            return res
+
+    def fare(self, m):
+        if not self.auto:
+            return
+        mid, run = m["id"], self.run_id
+
+        def later(delay, **change):
+            def go():
+                time.sleep(delay)
+                with self.lock:
+                    if self.run_id == run:
+                        self.state(change | {"id": mid})
+            threading.Thread(target=go, daemon=True).start()
+
+        if m["kind"] == "channel":
+            later(0.6, more={"transmitted": True})
+            later(2.2, more={"heard_back": 1, "heard_back_hops": 1})
+        elif m.get("peer_public_key") == key(1):
+            later(3.0, state="no_ack")
+        else:
+            later(1.4, state="acked", more={"ack_mono_ms": mono()})
+
+    def release(self):
+        with self.lock:
+            held, self.held = self.held, []
+        for c, req in held:
+            res = self.send(req.get("params") or {})
+            with self.lock:
+                try:
+                    if isinstance(res, tuple):
+                        send_frame(c, {"id": req["id"], "error": {"code": res[0], "message": res[1]}})
+                    else:
+                        send_frame(c, {"id": req["id"], "result": res})
+                except OSError:
+                    pass
 
     def emit(self, event, data):
         with self.lock:
@@ -383,6 +505,18 @@ class FakeMesh:
             self.seed()
         elif op == "demo":
             self.demo = bool(p.get("on", True))
+        elif op == "send_mode":
+            with self.lock:
+                self.send_mode = p.get("mode", "ok")
+        elif op == "release":
+            self.release()
+        elif op == "auto":
+            self.auto = bool(p.get("on", True))
+        elif op == "sends":
+            with self.lock:
+                if p.get("reset"):
+                    self.asked, self.taken = 0, []
+                return {"asked": self.asked, "taken": self.taken, "run_id": self.run_id}
         else:
             raise ValueError("unknown mesh op %r" % (op,))
         return {"run_id": self.run_id}
@@ -413,6 +547,8 @@ def ctl(method, params=None):
 
 def start():
     global proc
+    if proc is not None and proc.poll() is None:
+        return  # already running: a second one would leave the first without anyone to stop it
     env = dict(os.environ, POCKETOS_RUNTIME_DIR=RUN, POCKETOS_STATE_DIR=STATE, POCKETOS_LOG_DIR=LOGS, POCKETOS_LOG_STDERR="0")
     proc = subprocess.Popen([BIN, "--test-listen", HOST, "--test-port", str(PORT), "--test-shadow", SHADOW, "--test-passwd", PASSWD], env=env)
     end = time.time() + 10

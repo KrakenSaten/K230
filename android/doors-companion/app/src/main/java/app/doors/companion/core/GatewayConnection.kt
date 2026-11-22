@@ -34,7 +34,11 @@ import java.util.concurrent.atomic.AtomicLong
 class GatewayError(val code: Int, message: String) : IOException(message) {
     companion object {
         const val UNKNOWN_METHOD = 1
+        const val INVALID = 2
         const val POLICY = 3
+        const val BACKEND = 4
+        const val BUSY = 5
+        const val NOT_SUPPORTED = 6
         const val NOT_PERMITTED = 7
         const val NO_PROTO = 8
         const val UPSTREAM = 9
@@ -59,6 +63,8 @@ class Hello(
     val clockSet: Boolean,
     val wallMs: Long?,
     val bootId: String?,
+    /** `limits.send_per_min`: how many sends a minute the gateway takes from one phone. */
+    val sendPerMin: Int? = null,
 )
 
 /**
@@ -190,14 +196,24 @@ class GatewayConnection(private val socket: Socket) : Closeable {
             clockSet = r.bool("clock_set") ?: false,
             wallMs = r.long("wall_ms"),
             bootId = r.string("boot_id"),
+            sendPerMin = r.obj("limits")?.long("send_per_min")?.toInt()?.takeIf { it > 0 },
         )
     }
 
+    /**
+     * Closing a TLS socket writes to it (the close alert), and the callers
+     * are on the main thread: the session's own coroutines, also the one
+     * that hears gateway.revoked. So the close has a thread of its own;
+     * [closed] completes when the reader has seen it.
+     */
     override fun close() {
-        try {
-            socket.close()
-        } catch (_: IOException) {
-        }
+        Thread({
+            try {
+                socket.close()
+            } catch (_: IOException) {
+            } catch (_: RuntimeException) {
+            }
+        }, "doors-gateway-close").apply { isDaemon = true }.start()
     }
 
     companion object {
