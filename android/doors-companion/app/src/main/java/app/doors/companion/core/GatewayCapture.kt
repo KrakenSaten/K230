@@ -28,9 +28,16 @@ import java.io.IOException
  * not granted `capture_view`, or while no screen shows the figures; a command
  * is sent only on a person's tap and only with `capture_control`.
  *
- * The four methods exist in the contract and not yet in any gatewayd: until
- * ADR-016 amendment 1 is accepted and implemented on the unit, a real unit
- * leaves this at [CaptureAccess.NOT_SERVED], and that is what is shown.
+ * The contract is ADR-016 amendment 1 (accepted 2026-11-22) as gatewayd
+ * serves it since G1:
+ *  - the gateway names the `capture` capability to a phone that holds
+ *    `capture_view`; a phone that is granted the scope during a session asks
+ *    anyway, and a gateway that does not know the method is "not served";
+ *  - `capture.hold` and `capture.stop` answer `{state, changing}`: the state
+ *    when asked, and whether the capture was told to change;
+ *  - `capture.request_start` answers `{shown: true}`; what the person at the
+ *    unit does arrives as a `capture.state` event: `capturing`, or `idle`
+ *    with `refused` or `timeout`. A request starts nothing by itself.
  */
 class GatewayCapture(
     private val now: () -> Long = System::currentTimeMillis,
@@ -49,6 +56,13 @@ class GatewayCapture(
     /** How the capture stood when the request went out: only something else is an answer to it. */
     private var requestBase: Pair<CaptureState, String>? = null
 
+    /** The gateway named the capability in its hello. */
+    private var named = false
+
+    /** This gateway does not know the capture methods at all. */
+    @Volatile
+    private var unserved = false
+
     override fun watch(on: Boolean) {
         watching.value = on
     }
@@ -57,7 +71,12 @@ class GatewayCapture(
 
     override suspend fun run(unit: PairedUnit, conn: GatewayConnection, hello: Hello, scopes: StateFlow<Set<String>>) {
         try {
-            if (CAPABILITY !in hello.capabilities) {
+            named = CAPABILITY in hello.capabilities
+            unserved = false
+            // A gateway that serves capture names it to a phone that may read.
+            // One that was told the phone may read and still did not name it
+            // does not serve it: nothing is asked of it.
+            if (!named && SCOPE_VIEW in scopes.value) {
                 _view.update { CaptureView(access = CaptureAccess.NOT_SERVED) }
                 awaitCancellation()
             }
@@ -99,6 +118,7 @@ class GatewayCapture(
                     apply(conn.call(METHOD_STATUS, timeoutMs = CALL_MS).result)
                 } catch (e: GatewayError) {
                     refused(e)
+                    if (unserved) awaitCancellation() // asked once, and not again until the grant changes
                 } catch (_: TimeoutCancellationException) {
                     // No answer: the last reading stays, and ages on screen.
                 }
@@ -110,6 +130,9 @@ class GatewayCapture(
                     apply(e.data, event = true)
                     e = withTimeoutOrNull(pollMs) { inbox.receive() }
                 }
+                // What became of a request is said by the event alone: by the
+                // time the status is read again, setup is plain setup.
+                if (e != null && e.name == EVENT_STATE) outcome(e.data)
                 expireRequest()
             }
         } finally {
@@ -131,9 +154,15 @@ class GatewayCapture(
                 feed.reset()
                 _view.update { CaptureView(access = CaptureAccess.NOT_GRANTED) }
             }
-            // The gateway named the capability and does not know the method,
-            // or PacketShark's side of it is away: not readable now.
-            GatewayError.UNKNOWN_METHOD, GatewayError.NOT_SUPPORTED, GatewayError.UPSTREAM ->
+            // A gateway that never named the capability and does not know
+            // the method does not serve capture.
+            GatewayError.UNKNOWN_METHOD -> if (!named) {
+                unserved = true
+                feed.reset()
+                _view.update { CaptureView(access = CaptureAccess.NOT_SERVED) }
+            } else _view.update { it.copy(access = CaptureAccess.CLOSED, status = null, history = emptyList()) }
+            // PacketShark's side of it is away (the shell, or a unit without it): not readable now.
+            GatewayError.NOT_SUPPORTED, GatewayError.UPSTREAM ->
                 _view.update { it.copy(access = CaptureAccess.CLOSED, status = null, history = emptyList()) }
             else -> Unit
         }
@@ -152,12 +181,21 @@ class GatewayCapture(
     private fun settle(r: StartRequest, s: CaptureStatus?): StartRequest {
         if (r != StartRequest.SHOWN || s == null) return r
         if (!s.state.running && (s.state to s.reason) == requestBase) return r
-        return when {
-            s.state.running -> StartRequest.STARTED
-            s.state == CaptureState.ENDED && s.reason == "refused" -> StartRequest.REFUSED
-            s.state == CaptureState.ENDED && s.reason == "timeout" -> StartRequest.TIMED_OUT
-            else -> r
-        }
+        return verdict(s.state, s.reason) ?: r
+    }
+
+    /** What a state and its reason say of a request that is shown, or null when they say nothing yet. */
+    private fun verdict(state: CaptureState?, reason: String?): StartRequest? = when {
+        state?.running == true -> StartRequest.STARTED
+        state == CaptureState.IDLE && reason == "refused" -> StartRequest.REFUSED
+        state == CaptureState.IDLE && reason == "timeout" -> StartRequest.TIMED_OUT
+        else -> null
+    }
+
+    /** A `capture.state` event: `{state, reason, iface, keep, limit_s}`. Only its two words are read. */
+    private fun outcome(o: JsonObject) {
+        val v = verdict(CaptureState.of(o.string("state")), o.string("reason")) ?: return
+        _view.update { if (it.request == StartRequest.SHOWN) it.copy(request = v) else it }
     }
 
     /** The sheet closes itself after a minute; a phone that heard nothing by then says so. */
@@ -167,12 +205,12 @@ class GatewayCapture(
 
     override suspend fun hold(on: Boolean) = command(if (on) CaptureCommand.HOLD else CaptureCommand.RESUME) { conn ->
         if (_view.value.status?.state?.running != true) return@command "Nothing is capturing."
-        answer(conn.call(METHOD_HOLD, buildJsonObject { put("on", on) }, CALL_MS).result)
+        answer(conn.call(METHOD_HOLD, buildJsonObject { put("on", on) }, CALL_MS).result, if (on) CaptureState.HOLD else CaptureState.CAPTURING)
     }
 
     override suspend fun stop() = command(CaptureCommand.STOP) { conn ->
         if (_view.value.status?.state?.running != true) return@command "Nothing is capturing."
-        answer(conn.call(METHOD_STOP, timeoutMs = CALL_MS).result)
+        answer(conn.call(METHOD_STOP, timeoutMs = CALL_MS).result, CaptureState.STOPPED)
     }
 
     override suspend fun requestStart(iface: String, limitS: Int) = command(CaptureCommand.REQUEST_START) { conn ->
@@ -193,8 +231,14 @@ class GatewayCapture(
         } else "The unit did not show the request."
     }
 
-    private fun answer(r: JsonObject): String? {
-        val state = CaptureState.of(r.string("state")) ?: return null
+    /**
+     * `{state, changing}`: the state when asked, and whether the capture was
+     * told to change. Told to, it is shown as [target] at once; the unit's
+     * own word follows as an event. Not told to (it was already so), it is
+     * shown as the unit said it is.
+     */
+    private fun answer(r: JsonObject, target: CaptureState): String? {
+        val state = (if (r.bool("changing") == true) target else CaptureState.of(r.string("state"))) ?: return null
         _view.update { v -> v.copy(status = v.status?.copy(state = state)) }
         return null
     }
@@ -225,6 +269,7 @@ class GatewayCapture(
                 }
                 GatewayError.NOT_PERMITTED -> "The unit has not granted this phone capture control."
                 GatewayError.RATE -> "The unit takes one request every 30 seconds."
+                GatewayError.BUSY -> "Another request is waiting on the unit."
                 GatewayError.UPSTREAM, GatewayError.UNKNOWN_METHOD -> "PacketShark is not answering on the unit."
                 else -> "The unit did not take it."
             }

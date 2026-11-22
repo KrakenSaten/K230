@@ -218,7 +218,8 @@ object CaptureLimits {
     val LIMITS_S = listOf(300, 900, 3600)
     const val REQUEST_EVERY_MS = 30_000L
     const val SHEET_MS = 60_000L
-    private val IFACE = Regex("(eth|wlan)[0-9]{1,2}")
+    /** What the gateway takes: the kind and number of an interface, as a status may show it. */
+    private val IFACE = Regex("(eth|wlan|usb|synth)[0-9]{1,2}")
 
     fun ifaceOk(name: String) = IFACE.matches(name)
 }
