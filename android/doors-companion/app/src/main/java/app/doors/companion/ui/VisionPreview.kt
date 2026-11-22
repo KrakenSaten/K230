@@ -90,12 +90,14 @@ class Shown(val image: ImageBitmap, val w: Int, val h: Int, val seq: Long, val s
  */
 class FrameRenderer {
     private val buffers = arrayOfNulls<Bitmap>(2)
-    private var next = 0
+    /** Which of the two is on screen; the other is the one to write. */
+    private var front = -1
 
     fun render(f: VisionFrame): Bitmap? {
         if (f.w !in 1..VisionLimits.MAX_SIDE || f.h !in 1..VisionLimits.MAX_SIDE) return null
-        val target = buffer(f.w, f.h)
-        return when (val p = f.pixels) {
+        val back = if (front == 0) 1 else 0
+        val target = buffer(back, f.w, f.h)
+        val done = when (val p = f.pixels) {
             is FramePixels.Argb -> {
                 if (p.pixels.size < f.w * f.h) return null
                 target.setPixels(p.pixels, 0, f.w, 0, 0, f.w, f.h)
@@ -119,21 +121,20 @@ class FrameRenderer {
                 }
             }
         }
+        // Only a picture that was made changes places: a refused one leaves the screen's bitmap alone.
+        if (done != null) front = back
+        return done
     }
 
-    private fun buffer(w: Int, h: Int): Bitmap {
-        next = (next + 1) % buffers.size
-        val have = buffers[next]
-        if (have != null && have.width == w && have.height == h && !have.isRecycled) return have
-        have?.recycle()
-        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { buffers[next] = it }
+    private fun buffer(i: Int, w: Int, h: Int): Bitmap {
+        val have = buffers[i]
+        if (have != null && have.width == w && have.height == h) return have
+        // The old one is only let go, never recycled: a frame that is still being drawn may hold it.
+        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { buffers[i] = it }
     }
 
     fun release() {
-        for (i in buffers.indices) {
-            buffers[i]?.recycle()
-            buffers[i] = null
-        }
+        for (i in buffers.indices) buffers[i] = null
     }
 }
 

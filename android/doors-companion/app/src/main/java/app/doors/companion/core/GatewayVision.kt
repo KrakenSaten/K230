@@ -25,6 +25,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import java.io.IOException
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Vision over a live session, to the PROPOSED contract of
@@ -93,8 +94,14 @@ class GatewayVision(
 
     private suspend fun read(conn: GatewayConnection) = coroutineScope {
         val inbox = Channel<GatewayEvent>(Channel.UNLIMITED)
+        // One pending picture, the newest: a unit that ignored the window of one could not fill the phone with them.
+        val newest = AtomicReference<GatewayEvent?>(null)
         val pump = launch(start = CoroutineStart.UNDISPATCHED) {
-            conn.events.collect { if (it.name.startsWith("vision.")) inbox.trySend(it) }
+            conn.events.collect {
+                if (it.name == "vision.frame") {
+                    if (newest.getAndSet(it) == null) inbox.trySend(it)
+                } else if (it.name.startsWith("vision.")) inbox.trySend(it)
+            }
         }
         try {
             var subscribed = false
@@ -113,9 +120,10 @@ class GatewayVision(
                 var e = withTimeoutOrNull(pollMs) { inbox.receive() }
                 while (e != null && e.name != "vision.state") {
                     when (e.name) {
-                        "vision.frame" -> picture(conn, e.data)
+                        "vision.frame" -> newest.getAndSet(null)?.let { picture(conn, it.data) }
                         "vision.stats" -> stats(e.data)
                     }
+                    stalled()
                     e = withTimeoutOrNull(pollMs) { inbox.receive() }
                 }
                 stalled()
@@ -195,7 +203,7 @@ class GatewayVision(
             val w = (o.long("w") ?: 0).toInt()
             val h = (o.long("h") ?: 0).toInt()
             val text = o.string("jpeg") ?: return
-            if (v.preview == PreviewState.OFF || v.mode?.remote == false) return
+            if (v.preview !in SHARING || v.mode?.remote != true) return
             if (w !in 1..VisionLimits.MAX_SIDE || h !in 1..VisionLimits.MAX_SIDE || text.length > VisionLimits.MAX_FRAME_BYTES * 4 / 3 + 4) return
             val bytes = try {
                 Base64.getDecoder().decode(text)
@@ -212,10 +220,12 @@ class GatewayVision(
             }
             val f = VisionFrame(seq, w, h, FramePixels.Jpeg(bytes), now(), o.long("age_ms")?.coerceIn(0, 60_000), VisionScene(seq, w, h, boxes))
             _frame.value = f
-            _view.update { it.copy(preview = PreviewState.LIVE, scene = f.scene, stream = meter.take(f, 0), readAtMs = now()) }
+            val stream = meter.take(f, 0)
+            _view.update { it.copy(preview = PreviewState.LIVE, scene = f.scene, stream = stream, readAtMs = now()) }
         } finally {
-            // Acknowledged whether or not it was kept: the unit's window is one picture.
-            try {
+            // Acknowledged whether or not it was kept (the unit's window is one picture), but not
+            // by a phone that stopped: without acknowledgements the unit ends the share by itself.
+            if (_view.value.preview != PreviewState.OFF) try {
                 conn.call("vision.ack", buildJsonObject { put("seq", seq) }, CALL_MS)
             } catch (_: IOException) {
             } catch (_: TimeoutCancellationException) {
@@ -238,11 +248,19 @@ class GatewayVision(
         null
     }
 
-    override suspend fun stopPreview() = command(needControl = false) { conn ->
+    /** Stopping is never refused and never waits for another command: the picture goes at once, the unit is told. */
+    override suspend fun stopPreview() {
+        val conn = live
         _frame.value = null
-        _view.update { it.copy(preview = PreviewState.OFF, stream = StreamStats(), scene = VisionScene()) }
-        conn.call("vision.share", buildJsonObject { put("on", false) }, CALL_MS)
-        null
+        _view.update { it.copy(preview = PreviewState.OFF, stream = StreamStats(), scene = VisionScene(), notice = null) }
+        if (conn == null) return
+        try {
+            conn.call("vision.share", buildJsonObject { put("on", false) }, CALL_MS)
+        } catch (e: IOException) {
+            _view.update { it.copy(notice = "The unit did not confirm. This phone no longer answers its pictures, so the unit stops within seconds.") }
+        } catch (e: TimeoutCancellationException) {
+            _view.update { it.copy(notice = "The unit did not confirm. This phone no longer answers its pictures, so the unit stops within seconds.") }
+        }
     }
 
     override suspend fun setMode(mode: VisionMode) = command(needControl = true) { conn ->
@@ -310,5 +328,6 @@ class GatewayVision(
         const val POLL_MS = 3_000L
         const val CALL_MS = 5_000L
         const val MAX_LABELS = 400
+        private val SHARING = setOf(PreviewState.ASKING, PreviewState.LIVE, PreviewState.STALLED)
     }
 }

@@ -18,8 +18,14 @@ Status: working notes of the M6 development session (2026-11-22). Not a contract
 3. Capture on the unit: the four `capture.*` methods in PacketShark, the request sheet, the header mark, gatewayd rows, the lint extension. Then `GatewayCapture` against the WSL harness and a unit.
 4. Vision on the unit, only if its amendments are accepted: the measurements of `VISION_PREVIEW.md` section 8 first (items 1 and 2 decide the default rate), then helper, app and gateway.
 
+## Run in this session
+
+- The Android unit tests: 71, none failing (22 new: `CaptureTest`, `VisionTest`).
+- The three gatewayd harness tests of the Android suite (`GatewayIntegrationTest`, `MeshIntegrationTest`, `SendIntegrationTest`) against the reference gatewayd built from this branch in WSL, after `GatewayConnection.subscribe` was introduced: all pass.
+- The screens on an emulator, simulated sources, portrait and landscape.
+
 ## Not run in this session
 
-- The gatewayd harness tests of the Android suite (`MeshIntegrationTest`, `SendIntegrationTest`, `GatewayIntegrationTest`) after `GatewayConnection.subscribe` was introduced. They need `harness/run-gateway.sh` in WSL.
 - Anything on a physical phone.
+- JPEG decoding of a preview picture at run time (the simulation gives raw pixels).
 - Anything on a unit beyond read-only inspection.

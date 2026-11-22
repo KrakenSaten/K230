@@ -274,7 +274,9 @@ private fun Viewfinder(
 @Composable
 private fun BoxScope.Hud(view: VisionView, shown: Shown) {
     Row(Modifier.align(Alignment.TopStart).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        GlassTag(if (view.simulated) "Simulated" else "Live", if (view.simulated) Doors.Warn else Doors.Ok, dot = true)
+        // A picture that stopped arriving is not called live.
+        if (view.preview == PreviewState.STALLED) GlassTag("Stalled", Doors.Warn)
+        else GlassTag(if (view.simulated) "Simulated" else "Live", if (view.simulated) Doors.Warn else Doors.Ok, dot = true)
         view.mode?.let { GlassTag(it.word, VisionHue) }
         if (shown.scene.boxes.isNotEmpty()) GlassTag("${shown.scene.boxes.size}", Doors.Text)
     }
@@ -368,8 +370,8 @@ private fun ShareKey(view: VisionView, compact: Boolean, onStart: () -> Unit, on
     val m = if (compact) Modifier.width(190.dp).height(44.dp) else Modifier.fillMaxWidth()
     val shareable = view.owner == CameraOwner.VISION && view.mode?.remote != false
     when (view.preview) {
-        PreviewState.LIVE, PreviewState.STALLED -> InstrumentKey("Stop sharing", m, color = Doors.Error, enabled = !view.busy, onClick = onStop)
-        PreviewState.ASKING -> InstrumentKey("Cancel request", m, enabled = !view.busy, onClick = onStop)
+        PreviewState.LIVE, PreviewState.STALLED -> InstrumentKey("Stop sharing", m, color = Doors.Error, onClick = onStop)
+        PreviewState.ASKING -> InstrumentKey("Cancel request", m, onClick = onStop)
         else -> InstrumentKey(if (view.busy) "Asking…" else if (compact) "Ask for picture" else "Ask the unit for its picture", m, color = VisionHue, filled = true, enabled = !view.busy && shareable, onClick = onStart)
     }
 }

@@ -52,6 +52,9 @@ class SimulatedVision(
     private var askedAt = 0L
     private var nextId = 1
 
+    /** The screen is in front. Guarded with the rest: the ticker and whoever asks are not always one thread. */
+    private var running = false
+
     // Three pictures are kept and reused in turn: a reader has two frame times to copy one out.
     private val pool = Array(3) { IntArray(W * H) }
     private val classes = ByteArray(W * H)
@@ -63,12 +66,15 @@ class SimulatedVision(
     override fun watch(on: Boolean) {
         job?.cancel()
         job = null
-        if (!on) {
-            // Leaving the screen ends a preview, here as it will on a unit.
-            _frame.value = null
-            _view.update { it.copy(preview = PreviewState.OFF, stream = StreamStats()) }
-            return
+        synchronized(this) {
+            running = on
+            if (!on) {
+                // Leaving the screen ends a preview, here as it will on a unit.
+                _frame.value = null
+                _view.update { it.copy(preview = PreviewState.OFF, stream = StreamStats()) }
+            }
         }
+        if (!on) return
         job = scope.launch {
             while (true) {
                 step()
@@ -85,7 +91,7 @@ class SimulatedVision(
         _view.update { it.copy(preview = PreviewState.ASKING, previewAtMs = askedAt) }
     }
 
-    override suspend fun stopPreview() = act {
+    override suspend fun stopPreview() = synchronized(this) {
         _frame.value = null
         _view.update { it.copy(preview = PreviewState.OFF, stream = StreamStats()) }
     }
@@ -106,7 +112,7 @@ class SimulatedVision(
         _view.update { it.copy(busy = true, notice = null) }
         try {
             delay(ANSWER_MS)
-            what()
+            synchronized(this) { what() }
         } finally {
             _view.update { it.copy(busy = false) }
         }
@@ -114,7 +120,9 @@ class SimulatedVision(
 
     // ---- the made-up world ------------------------------------------------------
 
+    @Synchronized
     private fun step() {
+        if (!running) return
         tick++
         val v = _view.value
         val mode = v.mode ?: VisionMode.DETECT
@@ -129,7 +137,8 @@ class SimulatedVision(
             draw(px, mode, v.settings)
             val f = VisionFrame(seq, W, H, FramePixels.Argb(px), now(), 60 + rnd.nextLong(50), scene.copy(seq = seq))
             _frame.value = f
-            _view.update { it.copy(stream = meter.take(f, 0)) }
+            val stream = meter.take(f, 0)
+            _view.update { it.copy(stream = stream) }
         }
         // What is in the picture travels with the picture, and only then.
         _view.update { it.copy(scene = if (it.preview == PreviewState.LIVE) scene else VisionScene(), readAtMs = now()) }
