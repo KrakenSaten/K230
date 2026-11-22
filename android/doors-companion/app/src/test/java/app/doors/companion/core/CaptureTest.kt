@@ -439,7 +439,8 @@ class CaptureTest {
             when (method) {
                 "gateway.subscribe" -> """{"topics":${params["topics"]}}"""
                 "capture.status" -> example
-                "capture.hold" -> """{"state":"capturing","changing":false}"""
+                // Already held by a tap on the unit, which this phone has not read yet.
+                "capture.hold" -> """{"state":"hold","changing":false}"""
                 "capture.request_start" -> "!5"
                 else -> "!1"
             }
@@ -449,8 +450,9 @@ class CaptureTest {
         capture.watch(true)
         val job = scope.launch { capture.run(paired, conn, hello("capture"), MutableStateFlow(setOf("capture_view", "capture_control"))) }
         await("open") { capture.view.value.access == CaptureAccess.OPEN }
+        // The phone reads "capturing" and asks to resume; the unit says it is held and nothing changed.
         capture.hold(false)
-        assertEquals(CaptureState.CAPTURING, capture.view.value.status?.state)
+        assertEquals(CaptureState.HOLD, capture.view.value.status?.state)
         job.cancelAndJoin()
     }
 
