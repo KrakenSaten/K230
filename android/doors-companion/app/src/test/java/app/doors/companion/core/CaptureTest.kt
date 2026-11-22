@@ -140,6 +140,18 @@ class CaptureTest {
     }
 
     @Test
+    fun aGraphBeginsWhenPacketSharkIsOpenedAfterThePhone() {
+        // The usual order: the phone's screen first, PacketShark on the unit after it.
+        val f = CaptureFeed()
+        f.take(CaptureStatus(available = false))
+        f.take(CaptureStatus(available = false))
+        assertFalse(f.take(reading(1000, 100)))
+        assertTrue(f.take(reading(2000, 300)))
+        assertTrue(f.take(reading(3000, 600)))
+        assertEquals(listOf(200L, 300L), f.history.map { it.classes[0] })
+    }
+
+    @Test
     fun anotherCaptureBeginsAnotherGraphAndItIsBounded() {
         val f = CaptureFeed()
         for (i in 1..200) f.take(reading(i * 1000L, i * 10L))

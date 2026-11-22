@@ -190,7 +190,13 @@ class GatewayConnection(private val socket: Socket) : Closeable {
     suspend fun subscribe(add: Set<String> = emptySet(), remove: Set<String> = emptySet(), timeoutMs: Long = CALL_TIMEOUT_MS): Reply =
         topicLock.withLock {
             val want = LinkedHashSet(topics).apply { addAll(add); removeAll(remove) }
-            val r = call("gateway.subscribe", buildJsonObject { put("topics", JsonArray(want.map { JsonPrimitive(it) })) }, timeoutMs)
+            val r = try {
+                call("gateway.subscribe", buildJsonObject { put("topics", JsonArray(want.map { JsonPrimitive(it) })) }, timeoutMs)
+            } catch (e: Throwable) {
+                // What was to be given back stays given back: the next subscription does not ask for it again.
+                topics.removeAll(remove)
+                throw e
+            }
             topics.clear()
             topics.addAll(want)
             r

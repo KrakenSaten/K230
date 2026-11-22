@@ -170,7 +170,7 @@ fun PacketSharkScreen(link: Link, onBack: () -> Unit) {
                     if (open) Pill(look.word, look.color, look.pulse) else Pill(gateWord(view.access), Doors.Muted)
                 }
                 if (view.simulated) {
-                    SimulatedBand("Made-up traffic. Nothing here is read from your unit.", compact = wide) { demo = false }
+                    SimulatedBand("Made-up traffic. Only the unit's interfaces and load, where shown, are its own.", compact = wide) { demo = false }
                     Spacer(Modifier.height(10.dp))
                 }
                 val notes: @Composable () -> Unit = { if (offered) ControlNotes(view, source::dismissNotice) }
@@ -292,7 +292,7 @@ private fun Instrument(view: CaptureView, s: CaptureStatus, telemetry: Telemetry
         SignalsBezel(s)
         DiagnosisBezel(s.diag)
         ResourcesBezel(s, telemetry, view.simulated)
-        InterfacesBezel(ifaces, s.iface)
+        InterfacesBezel(ifaces, s.iface.takeIf { !view.simulated })
         Spacer(Modifier.height(4.dp))
     }
     if (wide) {

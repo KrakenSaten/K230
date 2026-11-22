@@ -46,6 +46,9 @@ class GatewayCapture(
     private var live: GatewayConnection? = null
     private var lastRequestMs = 0L
 
+    /** How the capture stood when the request went out: only something else is an answer to it. */
+    private var requestBase: Pair<CaptureState, String>? = null
+
     override fun watch(on: Boolean) {
         watching.value = on
     }
@@ -148,6 +151,7 @@ class GatewayCapture(
     /** What became of a request that is on the unit's screen, as the unit's own state tells it. */
     private fun settle(r: StartRequest, s: CaptureStatus?): StartRequest {
         if (r != StartRequest.SHOWN || s == null) return r
+        if (!s.state.running && (s.state to s.reason) == requestBase) return r
         return when {
             s.state.running -> StartRequest.STARTED
             s.state == CaptureState.ENDED && s.reason == "refused" -> StartRequest.REFUSED
@@ -178,6 +182,7 @@ class GatewayCapture(
         val wait = CaptureLimits.REQUEST_EVERY_MS - (now() - lastRequestMs)
         if (lastRequestMs != 0L && wait > 0) return@command "The unit takes one request every 30 seconds. Try again in ${(wait + 999) / 1000} s."
         lastRequestMs = now()
+        requestBase = _view.value.status?.let { it.state to it.reason }
         val r = conn.call(METHOD_REQUEST, buildJsonObject {
             put("iface", iface)
             put("limit_s", limitS)

@@ -241,7 +241,8 @@ class CaptureFeed {
 
     /** Takes a reading. Returns true when it added a second to the graph. */
     fun take(s: CaptureStatus): Boolean {
-        val before = last
+        // A reading from while PacketShark was not in front is no baseline: the next one starts afresh.
+        val before = last?.takeIf { it.available }
         last = s
         if (!s.available || s.state == CaptureState.IDLE) {
             samples.clear()
@@ -250,7 +251,7 @@ class CaptureFeed {
         // Another capture began: the graph begins again with it.
         if (before != null && (s.elapsedMs < before.elapsedMs || s.seen < before.seen)) samples.clear()
         if (s.state != CaptureState.CAPTURING && s.state != CaptureState.HOLD) return false
-        val dt = if (before == null || !before.available) 0 else s.elapsedMs - before.elapsedMs
+        val dt = if (before == null) 0 else s.elapsedMs - before.elapsedMs
         // The first reading has nothing to be compared with, and two readings
         // of the same moment (an answer and an event) are one second, not two.
         if (before == null || dt < MIN_STEP_MS) {

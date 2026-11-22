@@ -92,25 +92,28 @@ class SimulatedCapture(
         var notice: String? = null
         try {
             delay(ANSWER_MS)
-            notice = act()
+            notice = synchronized(this) { act() }
             publish()
         } finally {
             _view.update { it.copy(busy = null, notice = notice) }
         }
     }
 
+    @Synchronized
     private fun begin(iface: String, limitS: Int, byCompanion: Boolean) {
         feed.reset()
         burst = 0
         s = CaptureStatus(available = true, state = CaptureState.CAPTURING, iface = iface, limitS = limitS.toLong(), requestedByCompanion = byCompanion)
     }
 
+    @Synchronized
     private fun publish() {
         feed.take(s)
         _view.update { it.copy(status = s, history = feed.history, readAtMs = now()) }
     }
 
     /** One second of made-up traffic. */
+    @Synchronized
     private fun step() {
         val asked = requested
         if (asked != null && ++requestTicks >= TAP_AFTER_S) {
