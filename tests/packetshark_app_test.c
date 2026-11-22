@@ -2724,7 +2724,14 @@ static void m7_m9(bool portrait)
         CHECK("and back at Small, one line each", ok && dots_wrapped(app_body) == 0);
 
         /* Not left to the next packet, which a quiet capture may never
-         * send: the text size itself asks for the fit, ... */
+         * send. The helper is stopped, so nothing new arrives to paint and
+         * only what is checked here can make a fit. The text size itself
+         * asks for the fit, ... */
+        uint64_t seen_quiet;
+
+        kill(a->session->pid, SIGSTOP);
+        pump(400);
+        seen_quiet = a->model->c.seen;
         ok = !a->fit_due;
         pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
         CHECK("Large chosen with LIVE shown: the text size itself asks for LIVE's fit", ok && a->fit_due);
@@ -2750,6 +2757,19 @@ static void m7_m9(bool portrait)
         pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
         pump(500);
         CHECK("Small again: one line each", !a->sig_words_wrap && dots_wrapped(app_body) == 0);
+        /* A fit a change asked for while another tab is shown (a capture
+         * that ends there says so once): kept for when LIVE is seen. */
+        psk_select_tab(a, PSK_TAB_PACKETS);
+        pump(200);
+        a->fit_due = false;
+        psk_live_fit(a);
+        ok = a->fit_due;
+        psk_select_tab(a, PSK_TAB_LIVE);
+        pump(60);
+        CHECK("a fit asked for on another tab is kept, and made once LIVE is seen", ok && !a->fit_due);
+        CHECK("all of it on a quiet capture: nothing new arrived meanwhile", a->model->c.seen == seen_quiet);
+        kill(a->session->pid, SIGCONT);
+        pump(300);
     }
 
     /* A finding is the way to its packets. */

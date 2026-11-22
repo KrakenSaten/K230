@@ -495,7 +495,13 @@ void psk_live_fit(struct psk_app *a)
     bool error = shown_obj(a->error);
 
     if (!live && !error) {
-        return; /* measured where it is seen: a fit still due stays due */
+        /* Measured where it is seen. LIVE or ERROR is the view, but on a
+         * tab not shown: whatever asked for this fit (a change the capture
+         * will not repeat once it has ended) is kept due for when it is. */
+        if (!lv_obj_has_flag(a->live, LV_OBJ_FLAG_HIDDEN) || !lv_obj_has_flag(a->error, LV_OBJ_FLAG_HIDDEN)) {
+            a->fit_due = true;
+        }
+        return;
     }
     /* A part shown for the first time has not been laid out yet, and one
      * whose shape, text size or tab has just changed has not been laid out
