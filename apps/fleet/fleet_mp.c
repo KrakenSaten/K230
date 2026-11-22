@@ -401,6 +401,13 @@ static int open_session(struct fleet_app *app, enum fleet_mp_transport t)
 
 static void close_session(struct fleet_app *app)
 {
+    /* Leaving this session's link - Fleet closing, another transport
+     * picked, the service looked for afresh: an opponent held only for a
+     * finished match is let go first. One of a match still to be played is
+     * not (fleet_session_close_retention). */
+    if (app->mp) {
+        fleet_session_close_retention(app->mp);
+    }
     if (app->link) {
         app->link->ops->close(app->link->ctx);
         app->link = NULL;
