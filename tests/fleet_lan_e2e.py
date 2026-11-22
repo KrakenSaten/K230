@@ -19,10 +19,14 @@ makes, and where everything it starts ends with it. It then builds:
           network that keeps announcements from crossing
 
 Scenarios:
-  clean    flat; the host finds the guest by its announcement and invites it
+  clean    flat; the host finds the guest by its announcement and invites it;
+           after the match both keep the opponent, the host's app is closed
+           and its peerd lets go at once, the guest's after the quiet half
+           minute
   lossy    flat, with 15 % of packets lost, 5 % duplicated and 20 ms of delay
            each way (netem)
-  crash    the guest's app dies at ply 30 and is started again on its save
+  crash    the guest's app dies at ply 30 (or the first ply after it that
+           leaves the host to shoot) and is started again on its save
   restart  the guest's peerd is killed at ply 40 and started again: a new
            run, an empty inbox, its kept peer read back from disk
   address  the guest's address changes at ply 30; the match goes on (the
@@ -31,16 +35,32 @@ Scenarios:
   lookup   the guest's app is stopped, then its address changed: nothing it
            sends can say where it went, and the host's peerd has to ask
            ("who holds this key") and be answered before the app is let go on
-  outage   the guest's interface is down for eight seconds at ply 30
+  outage   the guest's interface is down for eight seconds at ply 30: an
+           outage shorter than the match's retry budget (six tries, 12.5 s
+           at the least), so nothing is given up; the match pauses and goes on
   blocked  routed: after five seconds visible neither peerd has heard the
            other; the host listens seven, then asks the guest's address
   chat     "clean", with both players talking all through the battle
   forfeit  5 % loss, and the host forfeits at ply 20: the match ends with an
            END that is answered across a network that loses packets
+  lastpacket  400 ms of delay each way; the instant the first player is done,
+           its interface goes down for half a second, which throws away the
+           packet it has just sent - the one the other needs to be done too.
+           The other must still finish, by asking again and being answered.
+           When the two reveals cross, both are done at once and there is no
+           such packet; the scenario then says so and exits 5, and the
+           wrapper plays it again (three times at most)
+  endlost  400 ms of delay; the host forfeits at ply 20 and its interface is
+           down for eight seconds from that moment, so the END and all its
+           repeats are lost and given up. The guest must still learn of the
+           forfeit, from a host that goes on answering
+  closemid the guest's app is closed (SIGTERM: the player closes its link as
+           the app does) at ply 30 and opened again on its save
 
 Each must end with one win and one loss, both fleets verified, the same
 record on both sides and no violation ("forfeit": the forfeiter lost, by its
-own END, which was answered, and no violation). From Deploy on the players are hidden
+own END, which was answered, and no violation; "endlost": by its END, given
+up unanswered and learnt all the same). From Deploy on the players are hidden
 (as the app is outside its lobby), so every match here is played with the
 kept opponent alone; that is checked when the match begins and then sampled
 to its end, through every fault, along with peerd keeping exactly the
@@ -63,6 +83,8 @@ import time
 
 PEERD, PLAYER, ROOT, SCENARIO = sys.argv[1:5]
 PEERD = os.path.abspath(PEERD)
+T0 = time.monotonic()
+NOT_STAGED = [False]
 PLAYER = os.path.abspath(PLAYER)
 fails = 0
 
@@ -235,6 +257,7 @@ class Player(object):
     def __init__(self, peerd, role, save, seed, peer=None, address=None, crash_at=0,
                  forfeit_at=0, chat=False):
         self.lines = []
+        self.done_t = None
         self.lock = threading.Lock()
         args = [PLAYER, "--role", role, "--save", save, "--seed", str(seed), "--timeout", "420"]
         if peer:
@@ -262,6 +285,8 @@ class Player(object):
             self.log.write(line + "\n")
             self.log.flush()
             with self.lock:
+                if line.startswith("DONE ") and self.done_t is None:
+                    self.done_t = time.monotonic() - T0
                 self.lines.append(line)
 
     def find(self, prefix):
@@ -311,6 +336,12 @@ def wait_for(cond, seconds):
 # The scenario
 # ---------------------------------------------------------------------------
 
+def netem_delay(ms):
+    for ns, dev in (("a", "va"), ("b", "vb")):
+        sh("ip", "netns", "exec", ns, "tc", "qdisc", "add", "dev", dev, "root", "netem",
+           "delay", ms)
+
+
 def netem(loss):
     for ns, dev in (("a", "va"), ("b", "vb")):
         sh("ip", "netns", "exec", ns, "tc", "qdisc", "add", "dev", dev, "root", "netem",
@@ -338,6 +369,7 @@ def address_of(peerd, name):
 
 
 def main():
+    global T0
     routed = SCENARIO == "blocked"
     addr_b = build_network(routed)
     ok("the two devices reach each other by address", wait_for(lambda: reachable("a", addr_b), 10))
@@ -347,6 +379,10 @@ def main():
         # Less loss than "lossy": the END is tried three times and then given
         # up, and this scenario is about its being answered.
         netem("5%")
+    elif SCENARIO in ("lastpacket", "endlost"):
+        # Long enough that a packet just sent is still in the interface's
+        # queue when the interface is taken down, and is thrown away with it.
+        netem_delay("400ms")
     a = Peerd("a", "a", "ALPHA")
     b = Peerd("b", "b", "BRAVO")
     players = []
@@ -365,17 +401,44 @@ def main():
                        chat=SCENARIO == "chat")
         host = Player(a, "host", save_a, 11, peer=None if routed else "BRAVO",
                       address=addr_b if routed else None,
-                      forfeit_at=20 if SCENARIO == "forfeit" else 0,
-                      # "lookup": the host keeps talking, so its peerd always
-                      # has something to send to an opponent gone silent.
+                      forfeit_at=20 if SCENARIO in ("forfeit", "endlost") else 0,
+                      # "lookup": the host talks, so its peerd mostly has
+                      # something to send to an opponent gone silent. Not
+                      # always: a line waits while a shot of the host's is
+                      # unanswered, and then it is that shot's own repeats
+                      # that make peerd ask.
                       chat=SCENARIO in ("chat", "lookup"))
         players = [host, guest]
-        started = time.monotonic()
-        crashed = restarted = moved = down = silent_checked = False
+        started = T0 = time.monotonic()
+        crashed = restarted = moved = down = silent_checked = cut = closed = False
         seen_hidden = False
         seen_visible_again = []
         fault_at_ply = 30
         limit = 400
+        cutter = {}
+
+        def cut_last_packet():
+            # The first player to be done has, in the same instant, sent the
+            # packet the other needs to be done too. It is still waiting out
+            # its 400 ms in the interface's queue: taking the interface down
+            # now throws it away. Watched every 10 ms, well inside that.
+            while not cutter.get("stop"):
+                h, g = host.done(), guest.done()
+                if h and g:
+                    cutter["late"] = True       # both at once: nothing to cut
+                    return
+                if h or g:
+                    ns, dev = ("a", "va") if h else ("b", "vb")
+                    at = time.monotonic() - started
+                    sh("ip", "-n", ns, "link", "set", dev, "down")
+                    time.sleep(0.5)
+                    sh("ip", "-n", ns, "link", "set", dev, "up")
+                    cutter.update(first="host" if h else "guest", at=at)
+                    return
+                time.sleep(0.01)
+
+        if SCENARIO == "lastpacket":
+            threading.Thread(target=cut_last_packet, daemon=True).start()
         while time.monotonic() - started < limit:
             if host.done() and guest.done():
                 break
@@ -388,6 +451,14 @@ def main():
                 va, vb = a.status(), b.status()
                 ok("both devices are visible and announcing", va["visible"] and vb["visible"] and
                    va["socket"] and vb["socket"], (va["visible"], vb["visible"]))
+                # Announcing, not merely meaning to: each has an interface to
+                # announce on and has sent (a beacon every two seconds), so
+                # hearing nothing below is the router's doing.
+                ok("each has an interface to announce on and has sent on it",
+                   len(va.get("interfaces", [])) >= 1 and len(vb.get("interfaces", [])) >= 1 and
+                   va["counters"]["tx"] >= 2 and vb["counters"]["tx"] >= 2,
+                   (va.get("interfaces"), vb.get("interfaces"), va["counters"]["tx"],
+                    vb["counters"]["tx"]))
                 ok("and neither peerd has heard the other: no announcement crossed the router",
                    a.nodes() == [] and b.nodes() == [], (a.nodes(), b.nodes()))
                 ok("nothing has been asked yet", host.find("ASKED") is None)
@@ -424,9 +495,13 @@ def main():
                 ok("its save is on disk", os.path.getsize(save_b) > 0)
                 ok("its peerd still keeps the opponent, with no client attached",
                    b.kept() == 1 and b.status()["socket"])
+                # Newer than anything the app could have read before it died:
+                # only what the host sends after the crash counts.
+                held = call(b.sock, "peer.app_inbox", {"port": 1, "after_id": 0})["datagrams"]
+                last = max([d["id"] for d in held] or [0])
                 waiting = wait_for(lambda: call(b.sock, "peer.app_inbox",
-                                                {"port": 1, "after_id": 0})["count"] > 0, 6)
-                ok("and what the host sends meanwhile waits in its inbox", waiting)
+                                                {"port": 1, "after_id": last})["count"] > 0, 12)
+                ok("and what the host sends after the crash waits in its inbox", waiting, last)
                 guest = Player(b, "guest", save_b, 22)
                 players.append(guest)
 
@@ -457,6 +532,7 @@ def main():
                 moved = True
                 signed_before = a.status()["counters"]["accepted_signed"]
                 os.kill(guest.proc.pid, signal.SIGSTOP)
+                time.sleep(0.3)     # a line already in the pipe is read first
                 ply_stopped = guest.ply()
                 ok("the guest has a new address, and the old one is gone", move_guest())
                 found = wait_for(lambda: address_of(a, "BRAVO") == ADDR_B_MOVED, 40)
@@ -479,10 +555,41 @@ def main():
                    (ply_then, host.ply()))
                 sh("ip", "-n", "b", "link", "set", "vb", "up")
                 ok("the network is back", wait_for(lambda: reachable("a", ADDR_B_FLAT), 10))
+
+            if SCENARIO == "endlost" and not cut and host.find("FORFEITED"):
+                # The END has just gone out; the host's interface goes down
+                # for longer than it is tried, so it is given up unanswered.
+                cut = True
+                sh("ip", "-n", "a", "link", "set", "va", "down")
+                time.sleep(8)
+                sh("ip", "-n", "a", "link", "set", "va", "up")
+
+            if SCENARIO == "closemid" and not closed and guest.ply() >= fault_at_ply:
+                # The app closed by its player, not killed: the player closes
+                # its link the way the app does when it is closed.
+                closed = True
+                guest.proc.terminate()
+                rc = guest.proc.wait(10)
+                guest.t.join(3)
+                ok("the guest's app was closed mid-match, and closed its link", rc == 4, rc)
+                time.sleep(1)
+                ok("its peerd still keeps the opponent of the unfinished match, and stays bound",
+                   b.kept() == 1 and b.status()["socket"], (b.kept(), b.status()["socket"]))
+                guest = Player(b, "guest", save_b, 22)
+                players.append(guest)
             time.sleep(0.2)
         elapsed = time.monotonic() - started
+        cutter["stop"] = True
         for p in (host, guest):
             p.t.join(0.5)
+        done_at = {}
+        if SCENARIO == "lastpacket":
+            # When each was done, from the player's own account of it.
+            for tag, p in (("host", host), ("guest", guest)):
+                line = p.find("DONE ")
+                if line is not None:
+                    with p.lock:
+                        done_at[tag] = p.done_t
         dh, dg = host.done(), guest.done()
         ok("the host finished the match", dh is not None,
            host.find("TIMEOUT") or "ply %d" % host.ply())
@@ -498,6 +605,11 @@ def main():
                listed is not None and listed.startswith("LISTED 0 "), listed)
             ok("the host asked the guest's address, and it answered",
                host.find("ASKED " + addr_b) is not None and host.find("ANSWERED") is not None)
+        elif SCENARIO in ("lossy", "forfeit"):
+            # A beacon every two seconds, and some of them lost: found later.
+            ms = int(listed.split("after_ms=")[1]) if listed else -1
+            ok("the host found the guest by its announcement, through the loss",
+               0 <= ms < 12000, listed)
         else:
             ms = int(listed.split("after_ms=")[1]) if listed else -1
             ok("the host found the guest by its announcement, well inside the time the "
@@ -516,10 +628,42 @@ def main():
             ok("the peerd was restarted mid-match", restarted)
         if SCENARIO == "outage":
             ok("the network was taken away mid-match", down)
+        if SCENARIO == "closemid":
+            ok("the app was closed mid-match", closed)
+            ok("opened again, it resumed its match rather than starting another",
+               guest.find("RESUMED") is not None and guest.find("ACCEPTED") is None)
+        if SCENARIO == "lastpacket":
+            ok("the first player's last packet was thrown away", "first" in cutter, cutter)
+            if "first" in cutter and len(done_at) == 2:
+                gap = max(done_at.values()) - cutter["at"]
+                if gap < 0.4 and not fails:
+                    # Both reveals were on their way before either side was
+                    # done: the second was done with what it already had,
+                    # and nothing it needed was left in the queue to lose.
+                    print("     [lastpacket] not staged: the reveals crossed (the other was done "
+                          "%.2f s later); to be played again" % gap, flush=True)
+                    NOT_STAGED[0] = True
+                else:
+                    ok("the other finished all the same, later, by asking again and being answered",
+                       gap > 1.0, (cutter, done_at))
+                    print("     [lastpacket] %s was done first, at %.1f s; the other %.1f s later"
+                          % (cutter["first"], cutter["at"], gap), flush=True)
         if SCENARIO in ("lossy", "forfeit"):
             dropped = netem_dropped()
             ok("packets really were lost on the way", dropped > 0, dropped)
-        if dh and dg and SCENARIO == "forfeit":
+        if SCENARIO == "endlost":
+            ok("the host forfeited and its END was cut off", cut)
+            if dh and dg:
+                ok("the forfeiter lost and the other won",
+                   dh["outcome"] == "loss" and dg["outcome"] == "win",
+                   (dh["outcome"], dg["outcome"]))
+                ok("the host gave its END up unanswered",
+                   dh["end"] == "1" and dh["by_me"] == "1" and dh["end_acked"] == "0",
+                   (dh["end"], dh["by_me"], dh["end_acked"]))
+                ok("the guest learnt of the forfeit all the same, from a host still answering",
+                   dg["end"] == "1" and dg["by_me"] == "0", (dg["end"], dg["by_me"]))
+                ok("and neither saw a violation", dh["violations"] == "0" and dg["violations"] == "0")
+        elif dh and dg and SCENARIO == "forfeit":
             ok("the host forfeited, as told", host.find("FORFEITED") is not None)
             ok("the forfeiter lost and the other won",
                dh["outcome"] == "loss" and dg["outcome"] == "win", (dh["outcome"], dg["outcome"]))
@@ -554,9 +698,25 @@ def main():
                 ok("on a clean network no line was given up",
                    dh["chat_failed"] == "0" and dg["chat_failed"] == "0",
                    (dh["chat_failed"], dg["chat_failed"]))
+        if dh and dg and SCENARIO == "clean":
+            # Over on both sides. Each still keeps the other for as long as
+            # the other may need an answer; closing the app lets go at once.
+            time.sleep(3)
+            ok("three seconds after the match both still keep the opponent",
+               a.kept() == 1 and b.kept() == 1, (a.kept(), b.kept()))
+            t0 = time.monotonic()
+            host.stop()
+            ok("the host's app closed: its peerd lets the opponent go at once",
+               wait_for(lambda: a.kept() == 0, 3), a.kept())
+            ok("and closes its socket", wait_for(lambda: not a.status()["socket"], 5))
+            ok("the guest's app is still open, and still keeps the host", b.kept() == 1, b.kept())
+            ok("until the host has been quiet half a minute; then it lets go by itself",
+               wait_for(lambda: b.kept() == 0, 45) and time.monotonic() - t0 > 15,
+               (b.kept(), round(time.monotonic() - t0, 1)))
         if dh and dg:
+            # Thirty quiet seconds after the match, the opponent is let go.
             ok("the match over, each peerd lets its opponent go",
-               wait_for(lambda: a.kept() == 0 and b.kept() == 0, 25), (a.kept(), b.kept()))
+               wait_for(lambda: a.kept() == 0 and b.kept() == 0, 60), (a.kept(), b.kept()))
             ok("and, hidden and keeping nobody, closes its socket",
                wait_for(lambda: not a.status()["socket"] and not b.status()["socket"], 15),
                (a.status()["socket"], b.status()["socket"]))
@@ -572,6 +732,9 @@ def main():
             p.stop()
         a.stop()
         b.stop()
+    if NOT_STAGED[0] and not fails:
+        print("fleet_lan_e2e [%s]: not staged" % SCENARIO, flush=True)
+        return 5
     print("fleet_lan_e2e [%s]: %d failure(s)" % (SCENARIO, fails), flush=True)
     return 1 if fails else 0
 

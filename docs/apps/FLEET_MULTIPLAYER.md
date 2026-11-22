@@ -822,10 +822,12 @@ opponent alone.
 What the scenarios prove, each by something that fails when it is not so:
 
 - **Found by announcement** ("clean"): the host lists the guest within six
-  seconds without asking any address.
+  seconds without asking any address (twelve under loss, where beacons are
+  lost too).
 - **A network that carries no announcements** ("blocked"): two subnets and a
-  router. After five seconds with both lobbies open and announcing, neither
-  peerd has heard the other; the host listens for seven, has nobody listed,
+  router. After five seconds with both lobbies open and announcing - each
+  with an interface and beacons sent on it - neither peerd has heard the
+  other; the host listens for seven, has nobody listed,
   asks the guest's address, and is answered. Run on one subnet instead, the
   same checks fail.
 - **A killed peerd comes back with its kept opponent** ("restart"): by
@@ -838,12 +840,35 @@ What the scenarios prove, each by something that fails when it is not so:
   peerd finds it at the new address while the app is still stopped, and has
   accepted a signed answer from a device that announces nothing - which is
   peerd's "who holds this key" being asked and answered.
-- **A network gone and back** ("outage"): eight seconds with the guest's
-  interface down, the match standing still, and going on when it is back.
-- **An app killed mid-match** ("crash"): its peerd still keeps the opponent
-  with no client attached, what the host sends meanwhile waits in peerd's
-  inbox, and the app started again on its save resumes that match.
+- **A short outage** ("outage"): eight seconds with the guest's interface
+  down - less than the match's retry budget, so nothing is given up and no
+  probe or lookup is needed - the match standing still, and going on when it
+  is back. A longer one, where the match goes "out of reach" and recovers by
+  probing, is not covered here.
+- **An app killed mid-match** ("crash", on the host's turn, so the host has
+  something to send): its peerd still keeps the opponent
+  with no client attached, what the host sends after the crash waits in
+  peerd's inbox, and the app started again on its save resumes that match.
+- **An app closed mid-match** ("closemid"): the player closes its link as the
+  app's close does; peerd still keeps the opponent of the unfinished match
+  and stays bound, and the app opened again resumes and finishes it.
 - **A forfeit under loss**: the END is answered, not given up.
+- **The last packet of a match lost** ("lastpacket"): every packet is held
+  400 ms on its way out, and the instant the first player is done its
+  interface goes down for half a second, throwing away the packet the other
+  needs to be done. The other still finishes, seconds later, by asking again
+  and being answered by a side that is already done. With the half minute
+  a finished match keeps its opponent taken out, it does not. When the two
+  reveals cross on the wire, both sides are done at once and no such packet
+  exists: the scenario says so and is played again, three times at most.
+- **An END nobody answers** ("endlost"): the host forfeits and its interface
+  is down for eight seconds from that moment, so its END is given up; the
+  guest still learns of the forfeit, from the host still answering. With the
+  half minute taken out, it does not.
+- **Let go when the app closes** ("clean"): both keep the opponent after the
+  match; the host's app closed, its peerd keeps nobody and closes its socket
+  within seconds, while the guest's, still open, lets go by itself after
+  thirty quiet seconds.
 - **Loss is real** ("lossy", "forfeit"): netem reports packets dropped.
 - **Hidden throughout**: neither device is visible again from the start of
   the match to its end, through each of the faults above.
@@ -872,12 +897,14 @@ Not covered here, and left to the hardware gate: two real devices; Wi-Fi and
 Ethernet; a DHCP lease or a cable replug; client isolation on a real access
 point (a probe that gets no answer is tested against the scripted peerd
 only); rotation; a reboot straight after FIRE; Fleet closed and reopened by
-its player rather than killed; anything on a panel. Not covered at all: an
+its player through the app's own screens (the player here closes its link
+the same way); anything on a panel. Not covered at all: an
 invitation while one player is off the lobby, on two devices (the players
 here stay "in the lobby" until the match begins); an address lost on the
-network that carries no announcements; a fault on the host's side (every
-fault here is the guest's); the last packet of a match being the one lost,
-other than by chance in "lossy".
+network that carries no announcements; an outage longer than the retry
+budget; a fault on the host's side other than its forfeit's END ("endlost")
+and its interface after the last packet ("lastpacket"); an END that is lost
+once and then answered, other than by chance in "forfeit".
 
 ## Tests
 
@@ -906,7 +933,7 @@ other than by chance in "lossy".
 | `make ENABLE_MESHCORED=1 fleet-mp-e2e` | **P6.** Whole matches between two Fleet players (`tests/fleet_mp_player`: the real session, mesh link and match, the AI for a finger) through two real meshcored processes over stand-in radiods and a mock air: at the product's own pace; with 15 % of frames lost and 5 % duplicated; with the guest's app killed at ply 30 and resumed from its save; and with the guest's meshcored restarted at ply 40; and ("chat") with both players talking in three-block lines all through a fast match. Each must end with one win and one loss, both fleets verified, identical records, no violation, datagrams both ways, a receipt, and no message in `mesh.messages` (Fleet's chat is app datagrams, never RIFT's text); "chat" also every line held the opponent's, once, in order, none given up |
 | `tests/fleet_link_peer_test` | the LAN link against a real socket and a scripted peerd (`tests/fake_peerd.c`): nothing asked before the first poll; the link states and why; the LAN profile; players listed most recent first, without this device or a broken entry, a kept peer not heard this run with no time and no route; each datagram once from the inbox and from events, the cursor reset on a new run; exactly the bytes handed over, on port 1; the lease renewed after ten seconds and not on every poll, at once on request, ended on close; nothing kept or released before the session says who, then the opponent kept and a stale peer released, asserted again after a restart, released when the match is over; closing with a match in hand releasing nobody, closing straight after the session stops naming an opponent releasing them by name and still hiding, a link that has already put the list right releasing nobody twice; an opponent let go and named again before a poll not released; what is not an address never asked, a probe answered, unanswered, replaced by another before its answer, pending, and ended when peerd goes; which players are proved; an event during the catch-up and a reconnect to the same run, nothing lost or taken twice; a refused send, and a refused keep retried at a growing interval; a peerd closed by a fault; a peerd with nothing to announce on |
 | `tests/fleet_session_test` (match peer) | the session tells its link who the match is with: nothing before engaging, none while an invitation is only out, the opponent from Deploy, the saved match's opponent first thing after a reopen, still the opponent when the match is over on this side and for as long as they may be trying, the wait starting over when they are heard, none once they have been quiet for the profile's run of tries or the match is put away; on leaving (`fleet_session_close_retention`) nothing said by a session that never engaged, has no match or has not read its save, the opponent of a match in play or read back unfinished from its save never let go, nor one whose END is still owed, the opponent of a finished match let go at once, also after a reopen on that finished match; nothing at all when the save could not be read or is damaged, and a match begun after that named and then ended as usual |
-| `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-lan-e2e` | **M2 package 6.** Whole matches between two Fleet players (`tests/fleet_lan_player`: the real session, LAN link and match, the AI for a finger) through two **shipped** peerd processes, each in a network namespace of its own with a real interface (`tests/fleet_lan_e2e.py`; no root, and nothing left behind even when the test is killed): found by announcement on one subnet; with 15 % of packets lost, 5 % duplicated and 20 ms delay each way; with the guest's app killed at ply 30 and resumed from its save; with the guest's peerd killed at ply 40 and started again; with the guest's address changed at ply 30; with the guest's app stopped and then its address changed, so that only the host's peerd asking can find it; with the guest's interface down for eight seconds; across a router that carries no broadcast, joined by address; with both players talking; and with the host forfeiting at ply 20 under loss. Each must end with one win and one loss, both fleets verified, identical records, no violation (the forfeit: the forfeiter lost by its own END, which was answered). In every one the players are hidden from Deploy on, as the app is outside its lobby, so the match is played with the kept opponent alone; each peerd is checked to be hidden, bound and keeping exactly one when the match begins, sampled to the end of the match for never being visible again, and checked to keep nobody and close its socket after it |
+| `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-lan-e2e` | **M2 package 6.** Whole matches between two Fleet players (`tests/fleet_lan_player`: the real session, LAN link and match, the AI for a finger) through two **shipped** peerd processes, each in a network namespace of its own with a real interface (`tests/fleet_lan_e2e.py`; no root, and nothing left behind when the test is stopped - a SIGKILL of the wrapper alone leaves its scenarios to run to their end): found by announcement on one subnet; with 15 % of packets lost, 5 % duplicated and 20 ms delay each way; with the guest's app killed at ply 30 (on the host's turn) and resumed from its save; with the guest's peerd killed at ply 40 and started again; with the guest's address changed at ply 30; with the guest's app stopped and then its address changed, so that only the host's peerd asking can find it; with the guest's interface down for eight seconds; across a router that carries no broadcast, joined by address; with both players talking; with the host forfeiting at ply 20 under loss; with the first finisher's last packet thrown away; with the host's END given up unanswered; and with the guest's app closed at ply 30 and reopened. Each must end with one win and one loss, both fleets verified, identical records, no violation (the forfeit: the forfeiter lost by its own END, which was answered; "endlost": given up, and learnt all the same). After "clean" each keeps the opponent, the host's app closed lets go at once, the guest's after thirty quiet seconds. In every one the players are hidden from Deploy on, as the app is outside its lobby, so the match is played with the kept opponent alone; each peerd is checked to be hidden, bound and keeping exactly one when the match begins, sampled to the end of the match for never being visible again, and checked to keep nobody and close its socket after it |
 | `tests/fleet_link_peer_test` (late answer) | against a scripted peerd that answers `peer.probe` late: an address asked and replaced before the first answer arrives - the late answer is not taken for the second's |
 | `make ENABLE_PEERD=1 SODIUM_DIR=... fleet-link-peer-real` | the same link against two real peerd processes on two loopback addresses (`tests/fleet_link_peer_real`): found by address, datagrams both ways through peerd's sealing, each peerd keeping exactly the other, visibility ended and the kept peer still bound after the links close. Opt-in: it needs libsodium |
 | `make fleet-mp-san-test` | the native suites under ASan and UBSan, `fleet_link_test` and `fleet_link_peer_test` included |

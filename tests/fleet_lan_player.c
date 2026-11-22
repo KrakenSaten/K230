@@ -27,7 +27,8 @@
  * player resuming a save is never visible at all, which is stricter than
  * the app (whose lobby is on screen for a moment before RESUME).
  *
- * --crash-at-ply N leaves with _exit(3) once N plies are resolved: no close,
+ * --crash-at-ply N leaves with _exit(3) once N plies are resolved and it is
+ * the opponent's turn to shoot: no close,
  * no unsubscribe, as a crash would.
  *
  * --forfeit-at-ply N forfeits once N plies are resolved, as FORFEIT in the
@@ -44,7 +45,9 @@
  * "RESUMED ...", "PLY <n>", and at the end "DONE role=.. outcome=.. ...".
  * DONE comes only once no END is owed any more, and says whether a forfeit's
  * END was answered (end_acked=1) or given up. After DONE it keeps answering
- * until SIGTERM, so a peer still waiting for its last answer gets it. Exit 0
+ * until SIGTERM, so a peer still waiting for its last answer gets it. On any
+ * exit it leaves as the app's close does: fleet_session_close_retention(),
+ * then the link's close. Exit 0
  * when the match finished, 2 on a timeout, 4 when stopped before the end.
  *
  * Copyright (c) 2026 Doors authors.
@@ -298,6 +301,7 @@ int main(int argc, char **argv)
 
         if (stopping) {
             /* Told to go before the match was over: as the app closes. */
+            fleet_session_close_retention(&s);
             link->ops->close(link->ctx);
             return 4;
         }
@@ -310,6 +314,7 @@ int main(int argc, char **argv)
                    s.ready ? fleet_match_phase_name((enum fleet_mp_phase)m->phase) : "none",
                    s.ready ? m->resolved : 0, (int)link->ops->state(link->ctx), (int)info.trouble,
                    info.kept);
+            fleet_session_close_retention(&s);
             link->ops->close(link->ctx);
             return 2;
         }
@@ -362,7 +367,10 @@ int main(int argc, char **argv)
         if (m->resolved != last_ply) {
             last_ply = m->resolved;
             printf("PLY %d\n", last_ply);
-            if (crash_at && last_ply >= crash_at && m->phase == FLEET_MP_BATTLE) {
+            /* On the opponent's turn: they have a shot to send, and go on
+             * sending it, so something is sure to wait in peerd's inbox. */
+            if (crash_at && last_ply >= crash_at && m->phase == FLEET_MP_BATTLE &&
+                !fleet_match_my_turn(m)) {
                 _exit(3);
             }
         }
@@ -476,6 +484,7 @@ int main(int argc, char **argv)
                 fleet_session_poll(&s, mono_ms());
                 usleep(10000);
             }
+            fleet_session_close_retention(&s);
             link->ops->close(link->ctx);
             return 0;
         }
