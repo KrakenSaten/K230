@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.doors.companion.Link
+import app.doors.companion.core.CaptureAccess
 import app.doors.companion.core.Fingerprint
 import app.doors.companion.core.GatewayError
 import app.doors.companion.core.LinkState
@@ -150,6 +151,7 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
     val now = rememberNow()
     val l = look(state, unit)
     val mesh by link.mesh.link.collectAsStateWithLifecycle()
+    val capture by link.capture.view.collectAsStateWithLifecycle()
     val unread by remember(unit.fingerprint) { link.meshDb.dao().unread(unit.fingerprint) }.collectAsStateWithLifecycle(0)
     val online = state is LinkState.Online
     val dim = if (online) 1f else 0.45f
@@ -241,7 +243,15 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
                     else -> "Stored"
                 },
             ) { go(Screen.Rift) }
-            Room("PacketShark", "Capture state and traffic figures", Doors.Tx, "Soon") { go(Screen.PacketShark) }
+            Room(
+                "PacketShark", "Capture state and traffic figures", Doors.Tx,
+                when (capture.access) {
+                    CaptureAccess.NOT_SERVED -> "Not served"
+                    CaptureAccess.NOT_GRANTED -> "Not granted"
+                    CaptureAccess.OFFLINE -> "Away"
+                    else -> "Open"
+                },
+            ) { go(Screen.PacketShark) }
         }
         Spacer(Modifier.height(12.dp))
     }

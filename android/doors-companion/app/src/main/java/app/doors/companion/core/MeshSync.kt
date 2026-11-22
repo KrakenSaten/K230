@@ -177,9 +177,12 @@ class MeshSync(
         }
 
         private suspend fun subscribe() {
-            val r = ask("gateway.subscribe", buildJsonObject {
-                put("topics", JsonArray(listOf(JsonPrimitive(TOPIC), JsonPrimitive(TOPIC_ACTIVITY))))
-            }).result
+            // Through the connection's own set: capture holds a topic here too.
+            val r = try {
+                conn.subscribe(add = setOf(TOPIC, TOPIC_ACTIVITY), timeoutMs = CALL_MS).result
+            } catch (e: TimeoutCancellationException) {
+                throw GatewayError(NO_ANSWER, "no answer")
+            }
             if (TOPIC !in r.strings("topics")) throw GatewayError(GatewayError.NOT_PERMITTED, "topic not held")
             away = r.obj("upstream")?.bool("meshcored") == false
             subscribed = true

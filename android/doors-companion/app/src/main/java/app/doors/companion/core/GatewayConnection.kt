@@ -7,7 +7,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -174,6 +176,24 @@ class GatewayConnection(private val socket: Socket) : Closeable {
             } finally {
                 pending.remove(id)
             }
+        }
+
+    private val topicLock = Mutex()
+    private val topics = LinkedHashSet<String>()
+
+    /**
+     * `gateway.subscribe` replaces the connection's whole set of topics, and
+     * more than one feature lives on a connection: the set is kept here, so
+     * that one feature's subscription does not end another's. The answer names
+     * the topics the gateway really holds for this client now.
+     */
+    suspend fun subscribe(add: Set<String> = emptySet(), remove: Set<String> = emptySet(), timeoutMs: Long = CALL_TIMEOUT_MS): Reply =
+        topicLock.withLock {
+            val want = LinkedHashSet(topics).apply { addAll(add); removeAll(remove) }
+            val r = call("gateway.subscribe", buildJsonObject { put("topics", JsonArray(want.map { JsonPrimitive(it) })) }, timeoutMs)
+            topics.clear()
+            topics.addAll(want)
+            r
         }
 
     suspend fun hello(appVersion: String, timeoutMs: Long = CALL_TIMEOUT_MS): Hello {

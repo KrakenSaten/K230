@@ -49,6 +49,10 @@ object Type {
     val Label = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.16.em, color = Doors.Muted)
     val Figure = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal, fontSize = 26.sp, lineHeight = 30.sp, letterSpacing = (-0.02).em, color = Doors.Text)
     val Mono = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp, color = Doors.Text)
+    /** The one large number of an instrument screen. */
+    val Hero = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 44.sp, lineHeight = 48.sp, letterSpacing = (-0.03).em, color = Doors.Text)
+    val Reading = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 20.sp, lineHeight = 24.sp, letterSpacing = (-0.01).em, color = Doors.Text)
+    val MonoSmall =TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 14.sp, color = Doors.Muted)
     val Button = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, letterSpacing = 0.08.em)
 }
 
