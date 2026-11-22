@@ -6,6 +6,8 @@
  */
 #include "bj_card_draw.h"
 
+#include "cg_deck.h"
+
 #include "pocketui.h"
 #include "bj_palette.h"
 
@@ -91,10 +93,21 @@ void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int s, enum cg_suit suit, l
     }
 }
 
+/* The card's own type is fixed, whatever the text size (owner decision 4,
+ * 2026-11-22): the deck's type (cg_deck_font) for the three roles a card
+ * uses. Every other role (the slots' symbols) is the theme's. */
 static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
 {
     lv_style_value_t v;
 
+    if (role == POS_STYLE_TITLE || role == POS_STYLE_ROW_TITLE || role == POS_STYLE_HERO_40) {
+        if (letter_space) {
+            *letter_space = 0;
+        }
+        return cg_deck_font(role == POS_STYLE_TITLE      ? CG_TYPE_INDEX
+                            : role == POS_STYLE_HERO_40 ? CG_TYPE_LARGE
+                                                        : CG_TYPE_INDEX_SMALL);
+    }
     if (letter_space) {
         *letter_space = 0;
         if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
@@ -192,13 +205,23 @@ void bj_card_index_size(int card_w, int *index_w, int *index_h)
     }
 }
 
-void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index)
+static struct cg_deck_inks deck_inks(void)
+{
+    struct cg_deck_inks in = { bj_palette[BJ_INK_PAPER], bj_palette[BJ_INK_EDGE],  bj_palette[BJ_INK_BLACK],
+                               bj_palette[BJ_INK_RED],   bj_palette[BJ_INK_BACK], bj_palette[BJ_INK_BACK_LINE] };
+
+    return in;
+}
+
+/* The card itself, drawn with shapes: what the deck cache composes once per
+ * size, and what a first frame shows before it has (cg_deck.h). */
+static void face_vector(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index)
 {
     int w = lv_area_get_width(area);
-    int h = lv_area_get_height(area);
     int rank = cg_card_rank(card);
     enum cg_suit suit = cg_card_suit(card);
-    lv_color_t ink = bj_palette[cg_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
+    struct cg_deck_inks in = deck_inks();
+    lv_color_t ink = cg_card_is_red(card) ? in.red : in.black;
     struct corner c = corner_of(w, index);
     int pad = c.pad;
     int line = c.line;
@@ -207,45 +230,76 @@ void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum
     if (!cg_card_valid(card)) {
         return;
     }
-    panel(layer, area, bj_card_radius(w), bj_palette[BJ_INK_PAPER], LV_OPA_COVER, bj_palette[BJ_INK_EDGE], 1);
+    cg_deck_paper(layer, area, bj_card_radius(w), &in);
     text(layer, cg_rank_text(rank), c.role, ink, area->x1 + pad, area->y1 + pad / 2 - line / 12,
          area->x2 - pad, LV_TEXT_ALIGN_LEFT);
     if (index == BJ_INDEX_BELOW) {
-        bj_draw_suit(layer, area->x1 + pad + pip / 2, area->y1 + pad / 2 + line + pip / 2, pip, suit, ink);
+        cg_deck_suit(layer, area->x1 + pad + pip / 2, area->y1 + pad / 2 + line + pip / 2, pip, suit, ink);
     } else {
-        bj_draw_suit(layer, area->x2 - pad - pip / 2, area->y1 + pad / 2 + line / 2, pip, suit, ink);
+        cg_deck_suit(layer, area->x2 - pad - pip / 2, area->y1 + pad / 2 + line / 2, pip, suit, ink);
     }
+    /* Below the rank; the outer pip columns stand clear of the corner pip. A
+     * court's frame stands beside a BELOW index, so it runs from the top. */
+    cg_deck_body(layer, area,
+                 rank >= CG_JACK && index == BJ_INDEX_BELOW && w >= 96 ? pad : pad / 2 + line + 2,
+                 index == BJ_INDEX_BELOW ? 43 : 31, index == BJ_INDEX_BELOW ? 23 : 31, card,
+                 role_font(w >= 96 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, NULL), &in);
+}
 
-    /* The face below the corner: a large pip, or the court card's letter. */
-    {
-        int cx = area->x1 + w / 2;
-        int cy = area->y1 + h * 62 / 100;
+static void compose(lv_layer_t *layer, const lv_area_t *area, int id, enum bj_index index)
+{
+    if (id == CG_DECK_ID_BACK) {
+        struct cg_deck_inks in = deck_inks();
 
-        if (rank >= CG_JACK) {
-            const lv_font_t *big = role_font(POS_STYLE_HERO_40, NULL);
-            int bl = big ? lv_font_get_line_height(big) : 40;
-
-            text(layer, cg_rank_text(rank), w >= 56 ? POS_STYLE_HERO_40 : POS_STYLE_TITLE, ink, area->x1,
-                 cy - bl / 2, area->x2, LV_TEXT_ALIGN_CENTER);
-        } else {
-            bj_draw_suit(layer, cx, cy, rank == CG_ACE ? w * 58 / 100 : w * 44 / 100, suit, ink);
-        }
+        cg_deck_back(layer, area, bj_card_radius(lv_area_get_width(area)), &in);
+    } else {
+        face_vector(layer, area, (cg_card_t)id, index);
     }
+}
+
+static void compose_below(lv_layer_t *layer, const lv_area_t *area, int id)
+{
+    compose(layer, area, id, BJ_INDEX_BELOW);
+}
+
+static void compose_beside(lv_layer_t *layer, const lv_area_t *area, int id)
+{
+    compose(layer, area, id, BJ_INDEX_BESIDE);
+}
+
+/* A set per index layout. Its type is fixed, so its look never changes. */
+#define BJ_DECK_SET 10
+
+static uintptr_t deck_stamp(void)
+{
+    return 1;
+}
+
+void bj_draw_card_scaled(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, int face_up, int scale_x)
+{
+    if (face_up && !cg_card_valid(card)) {
+        return;
+    }
+    cg_deck_draw_scaled(layer, area, BJ_DECK_SET + (int)BJ_INDEX_BELOW, deck_stamp(),
+                        face_up ? (int)card : CG_DECK_ID_BACK, compose_below, scale_x);
+}
+
+void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index)
+{
+    if (cg_card_valid(card)) {
+        cg_deck_draw(layer, area, BJ_DECK_SET + (int)index, deck_stamp(), card,
+                     index == BJ_INDEX_BELOW ? compose_below : compose_beside);
+    }
+}
+
+void bj_draw_shadow(lv_layer_t *layer, const lv_area_t *area)
+{
+    cg_deck_shadow(layer, area, BJ_DECK_SET + (int)BJ_INDEX_BELOW, deck_stamp(), compose_below);
 }
 
 void bj_draw_back(lv_layer_t *layer, const lv_area_t *area)
 {
-    int w = lv_area_get_width(area);
-    int r = bj_card_radius(w);
-    int inset = w / 12 < 3 ? 3 : w / 12;
-    lv_area_t frame = { area->x1 + inset, area->y1 + inset, area->x2 - inset, area->y2 - inset };
-
-    panel(layer, area, r, bj_palette[BJ_INK_BACK], LV_OPA_COVER, bj_palette[BJ_INK_EDGE], 1);
-    panel(layer, &frame, r > 2 ? r - 2 : 1, bj_palette[BJ_INK_BACK], LV_OPA_TRANSP,
-          bj_palette[BJ_INK_BACK_LINE], 1);
-    /* One small diamond in the middle, and nothing else. */
-    bj_draw_suit(layer, area->x1 + w / 2, area->y1 + lv_area_get_height(area) / 2, w / 4, CG_DIAMONDS,
-                  bj_palette[BJ_INK_BACK_LINE]);
+    cg_deck_draw(layer, area, BJ_DECK_SET + (int)BJ_INDEX_BELOW, deck_stamp(), CG_DECK_ID_BACK, compose_below);
 }
 
 void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum cg_suit suit)

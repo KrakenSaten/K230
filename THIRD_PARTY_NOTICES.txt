@@ -75,112 +75,117 @@ Components
     Licence: OFL-1.1, Reserved Font Name "Plex"
     In the image: compiled into /usr/bin/doors-shell
 
-10. Noto Color Emoji artwork (Google), googlefonts/noto-emoji 2D/png/72
+10. Fraunces (The Fraunces Project Authors, undercasetype/Fraunces), Fraunces72pt-SemiBoldItalic
+    Version: commit 7ccdec31c6028118dce3e47fe864e3744460371d; converted to bitmap fonts named pos_font_serif_italic_32 and _48 (ASCII and U+2019 only)
+    Licence: OFL-1.1
+    In the image: compiled into /usr/bin/doors-shell
+
+11. Noto Color Emoji artwork (Google), googlefonts/noto-emoji 2D/png/72
     Version: commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e; 1683 images converted to RGB565A8 for RIFT (apps/rift/ui/rift_emoji_px.bin), skin-tone variants left out
     Licence: Apache-2.0
     In the image: compiled into /usr/bin/doors-shell (RIFT's colour emoji)
 
-11. Region flags (googlei18n/region-flags at 743e1f4a92b7d2dac49d7e6af509af63a71f0b45), as bundled in googlefonts/noto-emoji third_party/region-flags
+12. Region flags (googlei18n/region-flags at 743e1f4a92b7d2dac49d7e6af509af63a71f0b45), as bundled in googlefonts/noto-emoji third_party/region-flags
     Version: commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e; 262 flags converted to RGB565A8 for RIFT
     Licence: public domain or otherwise exempt from copyright (see text)
     In the image: compiled into /usr/bin/doors-shell (RIFT's colour emoji)
 
-12. LVGL
+13. LVGL
     Version: commit 59dc7e436ae97a25e32656739ea6a943f9f11b6a (liblvgl 9.5.0)
     Licence: MIT
     In the image: /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/doors-shell
 
-13. lv_port_linux
+14. lv_port_linux
     Version: commit b492d738b00cb7733c2ea442e2a2d5070f74d663
     Licence: MIT
     In the image: /usr/lib/liblvgl_linux.so (vendor LVGL package)
 
-14. LodePNG, bundled in LVGL
+15. LodePNG, bundled in LVGL
     Version: as in LVGL 59dc7e4
     Licence: Zlib
     In the image: compiled into /usr/lib/liblvgl.so
 
-15. TJpgDec (ChaN), bundled in LVGL
+16. TJpgDec (ChaN), bundled in LVGL
     Version: as in LVGL 59dc7e4
     Licence: TJpgDec licence (BSD-style, see text)
     In the image: compiled into /usr/lib/liblvgl.so
 
-16. ThorVG, bundled in LVGL
+17. ThorVG, bundled in LVGL
     Version: as in LVGL 59dc7e4
     Licence: MIT
     In the image: compiled into /usr/lib/liblvgl_thorvg.so
 
-17. Montserrat font, LVGL built-in fonts
+18. Montserrat font, LVGL built-in fonts
     Version: as in LVGL 59dc7e4
     Licence: OFL-1.1
     In the image: compiled into /usr/lib/liblvgl.so; used by /usr/bin/doors-shell
 
-18. Font Awesome Free 5 glyphs in LVGL's built-in fonts
+19. Font Awesome Free 5 glyphs in LVGL's built-in fonts
     Version: as in LVGL 59dc7e4
     Licence: OFL-1.1 for the font glyphs (see text)
     In the image: compiled into /usr/lib/liblvgl.so; LV_SYMBOL_* glyphs used by /usr/bin/doors-shell
 
-19. DejaVu Sans, LVGL built-in font (Persian and Hebrew subset)
+20. DejaVu Sans, LVGL built-in font (Persian and Hebrew subset)
     Version: as in LVGL 59dc7e4
     Licence: Bitstream Vera and Arev font licences, DejaVu changes public domain
     In the image: compiled into /usr/lib/liblvgl.so
 
-20. Source Han Sans SC, LVGL built-in font (CJK subset)
+21. Source Han Sans SC, LVGL built-in font (CJK subset)
     Version: as in LVGL 59dc7e4
     Licence: OFL-1.1
     In the image: compiled into /usr/lib/liblvgl.so
 
-21. unscii-8 font (Viznut), LVGL built-in font
+22. unscii-8 font (Viznut), LVGL built-in font
     Version: as in LVGL 59dc7e4
     Licence: public domain
     In the image: compiled into /usr/lib/liblvgl.so
 
-22. nncase runtime (Canaan Inc.): the generic runtime libNncase.Runtime.Native from the vendor's release archive nncase_k230_v2.11.0_runtime_linux.tgz (sha256 28680932ac879d8591fbaaaab7b8c1ee2d305c2a82471fb2f38c449316cfb91f); its source is kendryte/nncase at tag v2.11.0. The archive's K230 modules (libnncase.rt_modules.k230, libfunctional_k230), linked with it, state no licence: see docs/licensing/APACHE_2_READINESS.md B5
+23. nncase runtime (Canaan Inc.): the generic runtime libNncase.Runtime.Native from the vendor's release archive nncase_k230_v2.11.0_runtime_linux.tgz (sha256 28680932ac879d8591fbaaaab7b8c1ee2d305c2a82471fb2f38c449316cfb91f); its source is kendryte/nncase at tag v2.11.0. The archive's K230 modules (libnncase.rt_modules.k230, libfunctional_k230), linked with it, state no licence: see docs/licensing/APACHE_2_READINESS.md B5
     Version: 2.11.0
     Licence: Apache-2.0
     In the image: compiled (statically) into /usr/bin/pos-vision
 
-23. itlib-small-vector (Chobolabs Inc., Borislav Stanimirov), bundled in the nncase runtime
+24. itlib-small-vector (Chobolabs Inc., Borislav Stanimirov), bundled in the nncase runtime
     Version: v1.00, as in nncase 2.11.0 (include/nncase/runtime/small_vector.hpp; the text is that header's licence comment, verbatim)
     Licence: MIT
     In the image: compiled (statically) into /usr/bin/pos-vision
 
-24. gsl-lite (Martin Moene, Moritz Beutel, Microsoft), used by the nncase runtime's headers
+25. gsl-lite (Martin Moene, Moritz Beutel, Microsoft), used by the nncase runtime's headers
     Version: v0.41.0 (the SDK's gsl-lite package archive)
     Licence: MIT
     In the image: compiled into /usr/bin/pos-vision (header-only)
 
-25. GNU C Library, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/glibc commit 29dd660835c54e1bbcf3d911693070354d8dae78 (branch riscv-glibc-2.33-thead). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
+26. GNU C Library, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/glibc commit 29dd660835c54e1bbcf3d911693070354d8dae78 (branch riscv-glibc-2.33-thead). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
     Version: 2.33
     Licence: LGPL-2.1-or-later
     In the image: /lib/libc.so.6, libm, libpthread, libdl, librt, libutil, libnsl, libresolv, libanl, libnss_*, libcrypt.so.1 and the dynamic loader, loaded by every Doors binary; /usr/bin/ldd (a script, LGPL-2.1-or-later by its own header)
 
-26. the further notices of code inside the GNU C Library (its LICENSES file)
+27. the further notices of code inside the GNU C Library (its LICENSES file)
     Version: 2.33, as glibc above
     Licence: as stated in the text
     In the image: in the glibc libraries above
 
-27. GCC runtime libraries libgcc_s, libstdc++, libatomic and libgomp, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/gcc commit c2e0bcc86d1f6eb59051cba8efdcca165fa3e858 (branch xuantie-gcc-14.1.1). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
+28. GCC runtime libraries libgcc_s, libstdc++, libatomic and libgomp, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/gcc commit c2e0bcc86d1f6eb59051cba8efdcca165fa3e858 (branch xuantie-gcc-14.1.1). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
     Version: GCC 14.1.1
     Licence: GPL-3.0-or-later WITH GCC-exception-3.1 (the libstdc++ GDB helper script: GPL-3.0-or-later)
     In the image: /lib/libgcc_s.so.1, /lib/libstdc++.so.6 with its GDB helper script libstdc++.so.6.0.33-gdb.py, /lib/libatomic.so.1, /lib/libgomp.so.1; loaded by Doors' C++ binaries, libcurl and OpenCV
 
-28. GCC Runtime Library Exception, which applies to the GCC runtime libraries above
+29. GCC Runtime Library Exception, which applies to the GCC runtime libraries above
     Version: 3.1
     Licence: GCC-exception-3.1
     In the image: with the GCC runtime libraries above
 
-29. YOLOX (Megvii Inc.), the training and export code of Vision's R0 detector; R0's weights were trained by the Doors project from no pretrained weights, and no YOLOX code is in the image
+30. YOLOX (Megvii Inc.), the training and export code of Vision's R0 detector; R0's weights were trained by the Doors project from no pretrained weights, and no YOLOX code is in the image
     Version: commit 6ddff4824372906469a7fae2dc3206c7aa4bbaee
     Licence: Apache-2.0
     In the image: /usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel was trained and exported with it
 
-30. Training data of Vision's R0 detector: COCO 2017 annotations (COCO Consortium), Open Images V7 annotations (Google LLC) and the Flickr images they list
+31. Training data of Vision's R0 detector: COCO 2017 annotations (COCO Consortium), Open Images V7 annotations (Google LLC) and the Flickr images they list
     Version: dataset traffic6_r0, manifest sha256 27b45431e6aaf2276bc34dc1aed3d77644112712b86713425f782cf9ac16274b
     Licence: CC BY 4.0 (annotations); CC BY 2.0 or no known copyright restrictions (images)
     In the image: /usr/share/doors/vision/det-r0-traffic6-yolox-tiny-416.kmodel was trained on it; none of it is in the image
 
-31. QR Code generator (Project Nayuki), bundled in LVGL
+32. QR Code generator (Project Nayuki), bundled in LVGL
     Version: as in LVGL 59dc7e4
     Licence: MIT
     In the image: compiled into /usr/lib/liblvgl.so for offline feedback QR
@@ -505,7 +510,106 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
 ================================================================================
-10. Noto Color Emoji artwork (Google), googlefonts/noto-emoji 2D/png/72
+10. Fraunces (The Fraunces Project Authors, undercasetype/Fraunces), Fraunces72pt-SemiBoldItalic
+================================================================================
+
+Copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+http://scripts.sil.org/OFL
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded, 
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+
+
+================================================================================
+11. Noto Color Emoji artwork (Google), googlefonts/noto-emoji 2D/png/72
 ================================================================================
 
 Noto Color Emoji artwork (googlefonts/noto-emoji at commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e,
@@ -733,7 +837,7 @@ verbatim:
 
 
 ================================================================================
-11. Region flags (googlei18n/region-flags at 743e1f4a92b7d2dac49d7e6af509af63a71f0b45), as bundled in googlefonts/noto-emoji third_party/region-flags
+12. Region flags (googlei18n/region-flags at 743e1f4a92b7d2dac49d7e6af509af63a71f0b45), as bundled in googlefonts/noto-emoji third_party/region-flags
 ================================================================================
 
 == Copying ==
@@ -795,7 +899,7 @@ files in `html/`.
 
 
 ================================================================================
-12. LVGL
+13. LVGL
 ================================================================================
 
 MIT licence
@@ -809,7 +913,7 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 
 
 ================================================================================
-13. lv_port_linux
+14. lv_port_linux
 ================================================================================
 
 MIT License
@@ -836,7 +940,7 @@ SOFTWARE.
 
 
 ================================================================================
-14. LodePNG, bundled in LVGL
+15. LodePNG, bundled in LVGL
 ================================================================================
 
 Copyright (c) 2005-2018 Lode Vandevenne
@@ -863,7 +967,7 @@ freely, subject to the following restrictions:
 
 
 ================================================================================
-15. TJpgDec (ChaN), bundled in LVGL
+16. TJpgDec (ChaN), bundled in LVGL
 ================================================================================
 
 /*----------------------------------------------------------------------------/
@@ -884,7 +988,7 @@ freely, subject to the following restrictions:
 
 
 ================================================================================
-16. ThorVG, bundled in LVGL
+17. ThorVG, bundled in LVGL
 ================================================================================
 
 Copyright (c) 2020 - 2025 notice for the ThorVG Project (see CONTRIBUTORS)
@@ -897,7 +1001,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 ================================================================================
-17. Montserrat font, LVGL built-in fonts
+18. Montserrat font, LVGL built-in fonts
 ================================================================================
 
 Copyright 2011 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat)
@@ -996,7 +1100,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
 ================================================================================
-18. Font Awesome Free 5 glyphs in LVGL's built-in fonts
+19. Font Awesome Free 5 glyphs in LVGL's built-in fonts
 ================================================================================
 
 Fonticons, Inc. (https://fontawesome.com)
@@ -1167,7 +1271,7 @@ to represent the company, product, or service to which they refer.**
 
 
 ================================================================================
-19. DejaVu Sans, LVGL built-in font (Persian and Hebrew subset)
+20. DejaVu Sans, LVGL built-in font (Persian and Hebrew subset)
 ================================================================================
 
 Fonts are (c) Bitstream (see below). DejaVu changes are in public domain.
@@ -1272,7 +1376,7 @@ $Id: LICENSE 2133 2007-11-28 02:46:28Z lechimp $
 
 
 ================================================================================
-20. Source Han Sans SC, LVGL built-in font (CJK subset)
+21. Source Han Sans SC, LVGL built-in font (CJK subset)
 ================================================================================
 
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font
@@ -1374,7 +1478,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
 ================================================================================
-21. unscii-8 font (Viznut), LVGL built-in font
+22. unscii-8 font (Viznut), LVGL built-in font
 ================================================================================
 
 unscii-8, by Viznut, is compiled into LVGL as the built-in font
@@ -1390,7 +1494,7 @@ public domain. No notice is required; this entry is informational.
 
 
 ================================================================================
-22. nncase runtime (Canaan Inc.): the generic runtime libNncase.Runtime.Native from the vendor's release archive nncase_k230_v2.11.0_runtime_linux.tgz (sha256 28680932ac879d8591fbaaaab7b8c1ee2d305c2a82471fb2f38c449316cfb91f); its source is kendryte/nncase at tag v2.11.0. The archive's K230 modules (libnncase.rt_modules.k230, libfunctional_k230), linked with it, state no licence: see docs/licensing/APACHE_2_READINESS.md B5
+23. nncase runtime (Canaan Inc.): the generic runtime libNncase.Runtime.Native from the vendor's release archive nncase_k230_v2.11.0_runtime_linux.tgz (sha256 28680932ac879d8591fbaaaab7b8c1ee2d305c2a82471fb2f38c449316cfb91f); its source is kendryte/nncase at tag v2.11.0. The archive's K230 modules (libnncase.rt_modules.k230, libfunctional_k230), linked with it, state no licence: see docs/licensing/APACHE_2_READINESS.md B5
 ================================================================================
 
 
@@ -1598,7 +1702,7 @@ public domain. No notice is required; this entry is informational.
 
 
 ================================================================================
-23. itlib-small-vector (Chobolabs Inc., Borislav Stanimirov), bundled in the nncase runtime
+24. itlib-small-vector (Chobolabs Inc., Borislav Stanimirov), bundled in the nncase runtime
 ================================================================================
 
 // itlib-small-vector v1.00
@@ -1631,7 +1735,7 @@ public domain. No notice is required; this entry is informational.
 
 
 ================================================================================
-24. gsl-lite (Martin Moene, Moritz Beutel, Microsoft), used by the nncase runtime's headers
+25. gsl-lite (Martin Moene, Moritz Beutel, Microsoft), used by the nncase runtime's headers
 ================================================================================
 
 The MIT License (MIT)
@@ -1661,7 +1765,7 @@ SOFTWARE.
 
 
 ================================================================================
-25. GNU C Library, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/glibc commit 29dd660835c54e1bbcf3d911693070354d8dae78 (branch riscv-glibc-2.33-thead). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
+26. GNU C Library, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/glibc commit 29dd660835c54e1bbcf3d911693070354d8dae78 (branch riscv-glibc-2.33-thead). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
 ================================================================================
 
                   GNU LESSER GENERAL PUBLIC LICENSE
@@ -2169,7 +2273,7 @@ That's all there is to it!
 
 
 ================================================================================
-26. the further notices of code inside the GNU C Library (its LICENSES file)
+27. the further notices of code inside the GNU C Library (its LICENSES file)
 ================================================================================
 
 This file contains the copying permission notices for various files in the
@@ -2566,7 +2670,7 @@ Copyright 2001 by Stephen L. Moshier <moshier@na-net.ornl.gov>
 
 
 ================================================================================
-27. GCC runtime libraries libgcc_s, libstdc++, libatomic and libgomp, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/gcc commit c2e0bcc86d1f6eb59051cba8efdcca165fa3e858 (branch xuantie-gcc-14.1.1). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
+28. GCC runtime libraries libgcc_s, libstdc++, libatomic and libgomp, as built into the external Xuantie-900 toolchain V3.0.2 (build B-20250410); licence text from XUANTIE-RV/gcc commit c2e0bcc86d1f6eb59051cba8efdcca165fa3e858 (branch xuantie-gcc-14.1.1). XuanTie publishes no source for this build; the text is copied from the public fork at the commit named here, which is not established as the build's source (docs/licensing/APACHE_2_READINESS.md B9)
 ================================================================================
 
                     GNU GENERAL PUBLIC LICENSE
@@ -3246,7 +3350,7 @@ Public License instead of this License.  But first, please read
 
 
 ================================================================================
-28. GCC Runtime Library Exception, which applies to the GCC runtime libraries above
+29. GCC Runtime Library Exception, which applies to the GCC runtime libraries above
 ================================================================================
 
 GCC RUNTIME LIBRARY EXCEPTION
@@ -3325,7 +3429,7 @@ requirements of the license of GCC.
 
 
 ================================================================================
-29. YOLOX (Megvii Inc.), the training and export code of Vision's R0 detector; R0's weights were trained by the Doors project from no pretrained weights, and no YOLOX code is in the image
+30. YOLOX (Megvii Inc.), the training and export code of Vision's R0 detector; R0's weights were trained by the Doors project from no pretrained weights, and no YOLOX code is in the image
 ================================================================================
 
                                  Apache License
@@ -3532,7 +3636,7 @@ requirements of the license of GCC.
 
 
 ================================================================================
-30. Training data of Vision's R0 detector: COCO 2017 annotations (COCO Consortium), Open Images V7 annotations (Google LLC) and the Flickr images they list
+31. Training data of Vision's R0 detector: COCO 2017 annotations (COCO Consortium), Open Images V7 annotations (Google LLC) and the Flickr images they list
 ================================================================================
 
 Training data of Vision's R0 detector
@@ -3577,7 +3681,7 @@ Images
 
 
 ================================================================================
-31. QR Code generator (Project Nayuki), bundled in LVGL
+32. QR Code generator (Project Nayuki), bundled in LVGL
 ================================================================================
 
 Copyright © 2025 Project Nayuki. (MIT License)

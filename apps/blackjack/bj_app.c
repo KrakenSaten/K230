@@ -24,8 +24,14 @@
  * game that cannot be used is left in place and a new bankroll starts, saying
  * so; the review states never read or write the file.
  *
- * No motion: the dealer's cards appear at once, so reduced motion has nothing
- * to switch off.
+ * FULL SCREEN. The game takes the whole screen (cg_scene.h): the claret cloth
+ * edge to edge, its own back mark and name in a band at the top. The
+ * device's Back and Home are the shell's, as before.
+ *
+ * MOTION. The engine settles a command at once; the table then plays the
+ * difference (bj_table_widget.h). Reduced motion (DS 12) skips it: the end
+ * state is drawn at once. A command given while cards are still moving
+ * lands them first.
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
@@ -33,7 +39,8 @@
 #include "bj_app.h"
 #include "bj_store.h"
 #include "bj_table_widget.h"
-#include "cg_spike.h"
+#include "cg_scene.h"
+#include "cg_table.h"
 
 #include "app.h"
 #include "pocketui.h"
@@ -59,7 +66,6 @@ _Static_assert(BUTTON_H >= POCKETUI_TOUCH_MIN, "a button must meet the DS 64 px 
 #define BJ_DEBUG_SEED 20260913u
 
 struct bj_app {
-    void *spike; /* redesign milestone 0 (cg_spike.h); NULL in the game */
     struct bj_game game;
     enum bj_cmd last_cmd;
     enum bj_result last;
@@ -67,6 +73,7 @@ struct bj_app {
     int save_failed;  /* the last save did not reach the file */
     int unreadable;   /* the save found at open was refused */
     int session_only; /* a review state: never read or write the file */
+    struct cg_scene scene;
     lv_obj_t *root;
     lv_obj_t *hud;
     lv_obj_t *panel[2];
@@ -113,6 +120,10 @@ static void style_button(lv_obj_t *btn, int primary, int enabled)
     }
     lv_obj_remove_style(btn, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
     lv_obj_remove_style(btn, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+    /* The Lamplight look over the DS roles (cg_table.h), and the key that
+     * does the same printed small in the corner. */
+    cg_table_style_button(btn, primary, enabled);
+    cg_table_style_text(lv_obj_get_child(btn, 1), primary ? CG_INK_DARK : CG_INK_DIM);
     if (!enabled) {
         pos_style_add(btn, POS_STYLE_BUTTON_DISABLED, 0);
         lv_obj_add_state(btn, LV_STATE_DISABLED);
@@ -125,6 +136,29 @@ static void style_button(lv_obj_t *btn, int primary, int enabled)
     } else {
         pos_style_add(btn, POS_STYLE_BUTTON_SECONDARY, 0);
         pos_style_add(btn, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    }
+}
+
+/* The key printed in a button's corner: the letter or key that runs the
+ * same command (bj_view_command_for_key). */
+static const char *key_hint(enum bj_cmd cmd)
+{
+    switch (cmd) {
+    case BJ_CMD_HIT:
+        return "H";
+    case BJ_CMD_STAND:
+        return "S";
+    case BJ_CMD_DOUBLE:
+        return "D";
+    case BJ_CMD_BET_DOWN:
+        return "\xE2\x88\x92"; /* minus */
+    case BJ_CMD_BET_UP:
+        return "+";
+    case BJ_CMD_DEAL:
+    case BJ_CMD_NEW_BANKROLL:
+        return "N";
+    default:
+        return "";
     }
 }
 
@@ -173,6 +207,7 @@ static void refresh(struct bj_app *a)
         visible++;
         lv_obj_remove_flag(a->button[i], LV_OBJ_FLAG_HIDDEN);
         set_text(lv_obj_get_child(a->button[i], 0), b[i].text);
+        set_text(lv_obj_get_child(a->button[i], 1), key_hint(b[i].cmd));
         lv_obj_set_user_data(a->button[i], (void *)(intptr_t)b[i].cmd);
         style_button(a->button[i], i == 0, b[i].enabled);
     }
@@ -191,6 +226,7 @@ static void run(struct bj_app *a, enum bj_cmd cmd)
     if (cmd == BJ_CMD_NONE) {
         return;
     }
+    bj_table_before(a->table);
     a->last_cmd = cmd;
     a->last = bj_view_run(&a->game, cmd);
     /* The rules change nothing when they refuse. */
@@ -199,6 +235,9 @@ static void run(struct bj_app *a, enum bj_cmd cmd)
         a->unreadable = 0;
         if (a->game.rounds != rounds_before) {
             save_now(a);
+        }
+        if (!pocketos_shell_reduced_motion()) {
+            bj_table_after(a->table, cmd == BJ_CMD_DEAL, cmd == BJ_CMD_DOUBLE);
         }
     }
     refresh(a);
@@ -279,6 +318,7 @@ static void hud_panel(struct bj_app *a, int i)
     a->panel[i] = panel;
     a->label[i] = pocketui_label(panel, bj_view_hud_label(i), POS_STYLE_CAPTION);
     a->value[i] = pocketui_label(panel, "0", POS_STYLE_HERO_40);
+    cg_table_style_hud(panel, a->label[i], a->value[i]);
 }
 
 static lv_obj_t *button(struct bj_app *a, lv_obj_t *parent)
@@ -294,6 +334,11 @@ static lv_obj_t *button(struct bj_app *a, lv_obj_t *parent)
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     pos_style_add(label, POS_STYLE_BUTTON_LABEL, 0);
     lv_obj_center(label);
+    {
+        lv_obj_t *hint = pocketui_label(btn, "", POS_STYLE_CAPTION);
+
+        lv_obj_align(hint, LV_ALIGN_TOP_RIGHT, -10, 4);
+    }
     lv_obj_add_event_cb(btn, on_button, LV_EVENT_CLICKED, a);
     style_button(btn, 0, 1);
     return btn;
@@ -301,9 +346,10 @@ static lv_obj_t *button(struct bj_app *a, lv_obj_t *parent)
 
 static void build(struct bj_app *a, lv_obj_t *body)
 {
+    lv_obj_t *content = cg_scene_build(&a->scene, body, CG_CLOTH_CLARET, "BLACKJACK", NULL, NULL);
     int i;
 
-    a->root = lv_obj_create(body);
+    a->root = lv_obj_create(content ? content : body);
     lv_obj_remove_style_all(a->root);
     lv_obj_set_width(a->root, LV_PCT(100));
     lv_obj_set_flex_grow(a->root, 1);
@@ -332,6 +378,7 @@ static void build(struct bj_app *a, lv_obj_t *body)
     a->caption = pocketui_label(a->controls, "", POS_STYLE_CAPTION);
     lv_obj_set_width(a->caption, LV_PCT(100));
     lv_label_set_long_mode(a->caption, LV_LABEL_LONG_DOT);
+    cg_table_style_text(a->caption, CG_INK_DIM);
     a->buttons = lv_obj_create(a->controls);
     lv_obj_remove_style_all(a->buttons);
     lv_obj_set_size(a->buttons, LV_PCT(100), BUTTON_H);
@@ -447,12 +494,6 @@ static void *blackjack_create(lv_obj_t *body)
     if (!a) {
         return NULL;
     }
-    if (debug && strcmp(debug, "lamplight-spike") == 0) {
-        /* Not the game: the redesign's measurement table. Nothing is saved. */
-        a->session_only = 1;
-        a->spike = cg_spike_create(body);
-        return a;
-    }
     build(a, body);
     if (debug && *debug) {
         debug_state(a, debug);
@@ -480,14 +521,13 @@ static void blackjack_destroy(void *priv)
 {
     struct bj_app *a = priv;
 
-    if (a && a->spike) {
-        cg_spike_destroy(a->spike);
-        lv_free(priv);
-        return;
-    }
     /* The shell deletes the objects; the game is saved if it changed. */
     if (a && a->dirty) {
         save_now(a);
+    }
+    if (a) {
+        bj_table_finish(a->table);
+        cg_scene_close(&a->scene);
     }
     lv_free(priv);
 }
@@ -526,7 +566,7 @@ lv_obj_t *bj_app_button(void *priv, int index)
 
 void bj_app_refresh(void *priv)
 {
-    if (priv && !((struct bj_app *)priv)->spike) {
+    if (priv) {
         refresh(priv);
     }
 }
@@ -543,7 +583,7 @@ const struct pocketos_app app_blackjack = {
     .create = blackjack_create,
     .tick = blackjack_tick,
     .destroy = blackjack_destroy,
-    /* Fullscreen, like Fleet, Radar and Timber (DS §36): no status
-     * cluster over the game; the shell's header keeps the way back. */
+    /* Fullscreen (DS §36, owner decision 3 of the card games): no status
+     * cluster, no shell header; the scene's back mark is the way back. */
     .chrome = POCKETOS_CHROME_NONE,
 };

@@ -58,13 +58,16 @@ set(CARDS_SOURCES
     ${REPO_DIR}/core/cards/cg_rng.c
     ${REPO_DIR}/core/cards/cg_cards.c
     ${REPO_DIR}/core/cards/cg_shoe.c)
-# The card table the redesign shares (docs/design/card-games): cloth, tweens,
-# the composed atlas, and the milestone 0 measurement spike.
+# The Lamplight card table the games share (docs/design/card-games): cloth,
+# tweens, the composed deck and its cache, chips and the controls' look.
 set(CARDS_UI_SOURCES
     ${REPO_DIR}/core/cards/cg_cloth.c
     ${REPO_DIR}/core/cards/cg_tween.c
     ${REPO_DIR}/ui/cards/cg_atlas.c
-    ${REPO_DIR}/ui/cards/cg_spike.c)
+    ${REPO_DIR}/ui/cards/cg_deck.c
+    ${REPO_DIR}/ui/cards/cg_motion.c
+    ${REPO_DIR}/ui/cards/cg_scene.c
+    ${REPO_DIR}/ui/cards/cg_table.c)
 set(POKER_ENGINE_SOURCES
     ${REPO_DIR}/apps/poker/engine/poker.c
     ${REPO_DIR}/apps/poker/engine/poker_eval.c
@@ -387,14 +390,12 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/solitaire/ui/sol_view.c
     ${REPO_DIR}/apps/solitaire/ui/sol_card_draw.c
     ${REPO_DIR}/apps/solitaire/ui/sol_table_widget.c
-    ${REPO_DIR}/apps/solitaire/ui/sol_felt.c
     ${REPO_DIR}/apps/blackjack/bj_app.c
     ${REPO_DIR}/apps/blackjack/bj_store.c
     ${REPO_DIR}/apps/blackjack/engine/bj_rules.c
     ${REPO_DIR}/apps/blackjack/ui/bj_view.c
     ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
     ${REPO_DIR}/apps/blackjack/ui/bj_table_widget.c
-    ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c
@@ -1763,16 +1764,16 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/solitaire/sol_app.c
         ${REPO_DIR}/apps/solitaire/sol_store.c
         ${CARDS_SOURCES}
+        ${CARDS_UI_SOURCES}
         ${REPO_DIR}/apps/solitaire/engine/sol_rules.c
         ${REPO_DIR}/apps/solitaire/ui/sol_view.c
         ${REPO_DIR}/apps/solitaire/ui/sol_card_draw.c
         ${REPO_DIR}/apps/solitaire/ui/sol_table_widget.c
-        ${REPO_DIR}/apps/solitaire/ui/sol_felt.c
-        ${REPO_DIR}/apps/timber/ui/timber_art.c
+            ${REPO_DIR}/apps/timber/ui/timber_art.c
         "${SOL_PALETTE_C}"
         ${GAMES_APP_TEST_UI})
     target_include_directories(sol_app_test PRIVATE
-        "${REPO_DIR}/core/cards" "${REPO_DIR}/apps/solitaire" "${REPO_DIR}/apps/solitaire/engine"
+        "${REPO_DIR}/core/cards" "${REPO_DIR}/ui/cards" "${REPO_DIR}/apps/solitaire" "${REPO_DIR}/apps/solitaire/engine"
         "${REPO_DIR}/apps/solitaire/ui" "${REPO_DIR}/apps/timber/ui")
     add_executable(bj_app_test
         ${REPO_DIR}/tests/bj_app_test.c
@@ -1780,14 +1781,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/blackjack/bj_store.c
         ${CARDS_SOURCES}
         ${CARDS_UI_SOURCES}
-        ${REPO_DIR}/core/pocketlog/pocketlog.c
-        ${REPO_DIR}/core/pocketpaths.c
         ${REPO_DIR}/apps/blackjack/engine/bj_rules.c
         ${REPO_DIR}/apps/blackjack/ui/bj_view.c
         ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
         ${REPO_DIR}/apps/blackjack/ui/bj_table_widget.c
-        ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
-        ${REPO_DIR}/apps/timber/ui/timber_art.c
+            ${REPO_DIR}/apps/timber/ui/timber_art.c
         "${BJ_PALETTE_C}"
         ${GAMES_APP_TEST_UI})
     target_include_directories(bj_app_test PRIVATE
@@ -1797,13 +1795,13 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/poker_app_test.c
         ${POKER_ENGINE_SOURCES} ${POKER_APP_SOURCES}
         ${CARDS_SOURCES}
+        ${CARDS_UI_SOURCES}
         ${REPO_DIR}/apps/blackjack/ui/bj_card_draw.c
-        ${REPO_DIR}/apps/blackjack/ui/bj_felt.c
-        ${REPO_DIR}/apps/timber/ui/timber_art.c
+            ${REPO_DIR}/apps/timber/ui/timber_art.c
         "${BJ_PALETTE_C}" ${GAMES_APP_TEST_UI})
     target_include_directories(poker_app_test PRIVATE
         "${REPO_DIR}/apps/poker" "${REPO_DIR}/apps/poker/engine" "${REPO_DIR}/apps/poker/ui"
-        "${REPO_DIR}/core/cards" "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
+        "${REPO_DIR}/core/cards" "${REPO_DIR}/ui/cards" "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
     # DeskBuddy in the running app (run by tests/deskbuddy_shell_test.sh):
     # vision events into the real screen, taps on the real buttons, the
     # preferences and the guard log against a real store in a temporary

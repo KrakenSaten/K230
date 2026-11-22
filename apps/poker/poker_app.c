@@ -1,9 +1,14 @@
 /* Offline Texas Hold'em, hosted by the standard Doors app lifecycle.
  * Only the private screen is allocated. AI performs one bounded action on
- * the shell's tick; closing pauses play and leaves no timer or process.
+ * the shell's tick, once the table has stopped moving; closing pauses play
+ * and leaves no timer or process. Full screen with its own back mark
+ * (cg_scene.h); every action's difference is played on the table
+ * (poker_table.h) unless reduced motion is on.
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0 */
 #include "poker_app.h"
+#include "cg_scene.h"
+#include "cg_table.h"
 #include "app.h"
 #include "pocketui.h"
 #include "poker_table.h"
@@ -17,11 +22,13 @@ struct poker_app {
     lv_obj_t *root, *table, *caption, *amount, *button[POKER_UI_COUNT];
     uint32_t raise_to;
     bool confirm_restart, review;
+    struct cg_scene scene;
 };
 /* Session-only resume, no retained objects, pointers, workers or timers. */
 static struct poker_game session;
 static bool session_exists;
 static void refresh(struct poker_app *a);
+static int back(void *priv);
 
 static void place(lv_obj_t *obj, struct poker_rect r)
 {
@@ -42,6 +49,8 @@ static void style_button(lv_obj_t *obj, bool enabled, bool primary)
                   : primary ? POS_STYLE_BUTTON_PRIMARY
                             : POS_STYLE_BUTTON_SECONDARY,
                   0);
+    /* The Lamplight look over the DS roles (cg_table.h). */
+    cg_table_style_button(obj, primary, enabled);
 }
 static void layout(struct poker_app *a)
 {
@@ -152,6 +161,7 @@ static void command(struct poker_app *a, enum poker_control control)
     struct poker_options o = poker_options(&a->game);
     if (control == POKER_UI_NONE)
         return;
+    poker_table_before(a->table);
     if (control == POKER_UI_RESTART) {
         if (a->confirm_restart) {
             poker_restart(&a->game, (uint32_t)time(NULL) ^ lv_tick_get());
@@ -188,6 +198,8 @@ static void command(struct poker_app *a, enum poker_control control)
                 break;
             }
     }
+    if (!pocketos_shell_reduced_motion())
+        poker_table_after(a->table);
     refresh(a);
 }
 static void click(lv_event_t *e)
@@ -249,7 +261,8 @@ static void *create(lv_obj_t *body)
         poker_restart(&a->game, (uint32_t)time(NULL) ^ lv_tick_get());
         poker_new_hand(&a->game);
     }
-    a->root = lv_obj_create(body);
+    lv_obj_t *content = cg_scene_build(&a->scene, body, CG_CLOTH_INDIGO, "HOLD'EM", back, a);
+    a->root = lv_obj_create(content ? content : body);
     lv_obj_remove_style_all(a->root);
     lv_obj_set_width(a->root, LV_PCT(100));
     lv_obj_set_flex_grow(a->root, 1);
@@ -257,8 +270,10 @@ static void *create(lv_obj_t *body)
     a->table = poker_table_create(a->root, &a->game);
     a->caption = pocketui_label(a->root, "", POS_STYLE_TEXT_PRIMARY);
     lv_obj_set_style_text_align(a->caption, LV_TEXT_ALIGN_CENTER, 0);
+    cg_table_style_text(a->caption, CG_INK_IVORY);
     a->amount = pocketui_label(a->root, "", POS_STYLE_VALUE);
     lv_obj_set_style_text_align(a->amount, LV_TEXT_ALIGN_CENTER, 0);
+    cg_table_style_text(a->amount, CG_INK_GOLD);
     static const char *const labels[] = {"FOLD", "CALL", "RAISE", "ALL IN", "NEXT HAND", "RESTART", "-", "+"};
     for (int i = 0; i < POKER_UI_COUNT; ++i) {
         a->button[i] = lv_button_create(a->root);
@@ -283,10 +298,14 @@ static void *create(lv_obj_t *body)
 static void tick(void *priv)
 {
     struct poker_app *a = priv;
-    if (!a || a->confirm_restart || a->review || !poker_playing(&a->game) || a->game.actor == 0)
+    if (!a || a->confirm_restart || a->review || !poker_playing(&a->game) || a->game.actor == 0 ||
+        poker_table_moving(a->table))
         return;
     struct poker_decision decision = poker_ai(&a->game);
+    poker_table_before(a->table);
     poker_act(&a->game, decision.action, decision.raise_to);
+    if (!pocketos_shell_reduced_motion())
+        poker_table_after(a->table);
     refresh(a);
 }
 static void destroy(void *priv)
@@ -297,6 +316,10 @@ static void destroy(void *priv)
         session_exists = true;
     }
     /* The shell owns/deletes the objects; no timer or worker survives. */
+    if (a) {
+        poker_table_finish(a->table);
+        cg_scene_close(&a->scene);
+    }
     lv_free(a);
 }
 static int back(void *priv)

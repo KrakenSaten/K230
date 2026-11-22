@@ -2,6 +2,10 @@
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0 */
 #include "app.h"
+#include "cg_deck.h"
+#include "cg_scene.h"
+#include "cg_table.h"
+#include "poker_table.h"
 #include "pocketui.h"
 #include "poker_app.h"
 #include <stdio.h>
@@ -22,12 +26,17 @@ void pocketos_shell_set_status_hint(const char *text)
 {
     (void)text;
 }
+static int reduced_motion = 1;
 void pocketos_shell_go_home(void)
 {
 }
+void pocketos_shell_set_fullscreen(bool fullscreen)
+{
+    (void)fullscreen;
+}
 int pocketos_shell_reduced_motion(void)
 {
-    return 1;
+    return reduced_motion;
 }
 int64_t pocketos_shell_system_day(void)
 {
@@ -232,7 +241,7 @@ int main(void)
     }
     {
         /* The short table (a 1280 x 720 external display's portrait column,
-         * 528 x 604 of content) with the real fonts at every text size:
+         * in full screen the old 528 x 604 content box plus its header and padding) with the real fonts at every text size:
          * the line heights poker_view_test assumes, every seat line, caption
          * and pot line the table can write inside its place, a "10" on one
          * line on every card (there and on every taller short table), and
@@ -252,7 +261,11 @@ int main(void)
         lv_obj_t *column = lv_obj_create(lv_screen_active());
         lv_obj_remove_style_all(column);
         lv_obj_set_pos(column, 20, 96);
-        lv_obj_set_size(column, 528, 604);
+        /* Full screen: the column is the whole body - the old 528 x 604 content
+         * box with the header and the body's padding given back
+         * (pocketos_shell_set_fullscreen). */
+        const int col_w = 528 + 2 * POCKETUI_PAD, col_h = 604 + POCKETUI_HEADER_H + POCKETUI_BODY_PAD_TOP + POCKETUI_PAD;
+        lv_obj_set_size(column, col_w, col_h);
         lv_obj_set_flex_flow(column, LV_FLEX_FLOW_COLUMN);
         for (int size = 0; size < 3; ++size) {
             pos_theme_select_text_size((enum pos_text_size)size);
@@ -262,10 +275,13 @@ int main(void)
                                             lv_font_get_line_height(pot)};
             CHECK(type.name == lines[size][0] && type.caption == lines[size][1] && type.pot == lines[size][2]);
             struct poker_layout l;
-            poker_view_layout(528, 604, &l);
+            /* The column less the scene's band, foot and sides (cg_scene.h). */
+            const int box_w = col_w - 2 * CG_SCENE_SIDE, box_h = col_h - CG_SCENE_BAR_H - CG_SCENE_FOOT;
+            poker_view_layout(box_w, box_h, &l);
             CHECK(poker_view_short(l.table.w, l.table.h));
             lv_point_t sz, ten;
-            lv_text_get_size(&ten, "10", pot, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            /* The corner's rank is the cards' fixed type (cg_deck_font). */
+            lv_text_get_size(&ten, "10", cg_deck_font(CG_TYPE_INDEX_SMALL), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
             /* 720p's table, and every taller one still short. */
             for (int h = l.table.h; h <= 900; ++h) {
                 if (!poker_view_short(l.table.w, h))
@@ -324,6 +340,63 @@ int main(void)
         unsetenv("DOORS_POKER_SCREEN");
         pos_theme_select_text_size(was);
         lv_obj_delete(column);
+    }
+    {
+        /* Motion: with reduced motion off, the next hand is dealt round the
+         * table; the opponents wait while it moves; it lands and leaves no
+         * timer; closing frees the composed cards. Reduced motion deals at
+         * once. */
+        reduced_motion = 0;
+        priv = app_poker.create(body);
+        pump(60);
+        g = poker_app_game(priv);
+        lv_obj_t *table = lv_obj_get_child(poker_app_root(priv), 0);
+        poker_restart(g, 31);
+        poker_new_hand(g);
+        for (int n = 0; n < 60 && poker_playing(g); ++n) {
+            if (g->actor == 0)
+                tap(priv, POKER_UI_FOLD);
+            else
+                app_poker.tick(priv);
+            pump(1500); /* the table lands between actions */
+        }
+        pump(3000);
+        CHECK(!poker_table_moving(table) && g->phase == POKER_FINISHED);
+        uint32_t hand = g->hand_number;
+        tap(priv, POKER_UI_NEXT);
+        CHECK(g->hand_number == hand + 1 && poker_table_moving(table));
+        struct poker_game dealt = *g;
+        app_poker.tick(priv);
+        CHECK(memcmp(&dealt, g, sizeof(dealt)) == 0); /* the opponents wait for the deal */
+        int t = 0;
+        for (; t < 4000 && poker_table_moving(table); t += 20)
+            pump(20);
+        CHECK(!poker_table_moving(table) && t <= 1600);
+        printf("note motion: the deal took %d ms\n", t);
+        CHECK(timers() == baseline);
+        printf("note memory: Hold'em holds %u kB of composed cards and %u kB of cloth\n",
+               (unsigned)(cg_deck_bytes() / 1024), (unsigned)(cg_table_bytes() / 1024));
+        CHECK(cg_deck_bytes() + cg_table_bytes() < 8u * 1024 * 1024);
+        app_poker.destroy(priv);
+        lv_obj_clean(body);
+        pump(60);
+        CHECK(cg_deck_bytes() == 0 && cg_table_bytes() == 0 && timers() == baseline);
+        reduced_motion = 1;
+        priv = app_poker.create(body);
+        pump(60);
+        g = poker_app_game(priv);
+        table = lv_obj_get_child(poker_app_root(priv), 0);
+        for (int n = 0; n < 60 && poker_playing(g); ++n) {
+            if (g->actor == 0)
+                tap(priv, POKER_UI_FOLD);
+            else
+                app_poker.tick(priv);
+        }
+        tap(priv, POKER_UI_NEXT);
+        CHECK(!poker_table_moving(table));
+        app_poker.destroy(priv);
+        lv_obj_clean(body);
+        pump(60);
     }
     CHECK(poker_app_game(NULL) == NULL);
     CHECK(poker_app_button(NULL, POKER_UI_CALL) == NULL);

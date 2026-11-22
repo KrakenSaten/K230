@@ -26,12 +26,18 @@ int sol_card_radius(int card_w);
 
 void sol_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card);
 /* How far down from its top edge a face drawn `card_w` wide carries ink in
- * its corner, in the current fonts, with two pixels to spare: the lower of
- * the lowest rank glyph and the pip's foot. A card laid over it must leave
+ * its corner, in the card's fixed type, with two pixels to spare: the lower
+ * of the lowest rank glyph and the pip's foot. A card laid over it must leave
  * this much in view. It reads the same corner metrics sol_draw_face() draws
  * with. */
 int sol_card_index_h(int card_w);
 void sol_draw_back(lv_layer_t *layer, const lv_area_t *area);
+/* A card in motion: its face or its back, squashed across to `scale_x`
+ * 256ths of its width as it turns over (cg_deck_draw_scaled). */
+void sol_draw_card_scaled(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, int face_up, int scale_x);
+/* The shadow a card at `area` casts on the cloth: draw a pile's shadows
+ * before its cards (cg_deck.h). */
+void sol_draw_shadow(lv_layer_t *layer, const lv_area_t *area);
 
 enum sol_slot_mark {
     SOL_SLOT_PLAIN = 0,
