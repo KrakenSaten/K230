@@ -35,7 +35,7 @@ for bin in "$PEERD" "$PLAYER"; do
         exit 1
     fi
 done
-for tool in unshare ip tc python3 ping strings; do
+for tool in unshare ip tc python3 ping strings pkill; do
     command -v "$tool" >/dev/null || { echo "FAIL $tool is needed and not installed"; exit 1; }
 done
 if strings "$PEERD" | grep -q "PEERD_TEST"; then

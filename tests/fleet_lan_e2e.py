@@ -425,20 +425,48 @@ def main():
             while not cutter.get("stop"):
                 h, g = host.done(), guest.done()
                 if h and g:
-                    cutter["late"] = True       # both at once: nothing to cut
+                    # Both done within one look: the second needed nothing
+                    # more from the first, so there is nothing to throw away.
+                    cutter["late"] = True
                     return
                 if h or g:
                     ns, dev = ("a", "va") if h else ("b", "vb")
-                    at = time.monotonic() - started
-                    sh("ip", "-n", ns, "link", "set", dev, "down")
-                    time.sleep(0.5)
-                    sh("ip", "-n", ns, "link", "set", dev, "up")
-                    cutter.update(first="host" if h else "guest", at=at)
+                    cutter.update(first="host" if h else "guest", at=time.monotonic() - started)
+                    try:
+                        sh("ip", "-n", ns, "link", "set", dev, "down")
+                        time.sleep(0.5)
+                    finally:
+                        sh("ip", "-n", ns, "link", "set", dev, "up")
                     return
                 time.sleep(0.01)
 
+        def cut_end():
+            # The END goes out in the same instant the host says FORFEITED,
+            # and waits out its 400 ms in the interface's queue: taken down
+            # within 10 ms of that, the interface throws it away, and stays
+            # down for longer than the END is tried (three tries, given up
+            # within about 5.3 s). Whether it really was lost is checked
+            # below: a guest that got it is done long before this ends.
+            while not cutter.get("stop"):
+                if host.find("FORFEITED"):
+                    cutter["at"] = time.monotonic() - started
+                    try:
+                        sh("ip", "-n", "a", "link", "set", "va", "down")
+                        time.sleep(8)
+                        cutter["guest_done_meanwhile"] = guest.done() is not None
+                    finally:
+                        sh("ip", "-n", "a", "link", "set", "va", "up")
+                    cutter["up"] = time.monotonic() - started
+                    return
+                time.sleep(0.01)
+
+        watcher = None
         if SCENARIO == "lastpacket":
-            threading.Thread(target=cut_last_packet, daemon=True).start()
+            watcher = threading.Thread(target=cut_last_packet, daemon=True)
+        elif SCENARIO == "endlost":
+            watcher = threading.Thread(target=cut_end, daemon=True)
+        if watcher:
+            watcher.start()
         while time.monotonic() - started < limit:
             if host.done() and guest.done():
                 break
@@ -556,14 +584,6 @@ def main():
                 sh("ip", "-n", "b", "link", "set", "vb", "up")
                 ok("the network is back", wait_for(lambda: reachable("a", ADDR_B_FLAT), 10))
 
-            if SCENARIO == "endlost" and not cut and host.find("FORFEITED"):
-                # The END has just gone out; the host's interface goes down
-                # for longer than it is tried, so it is given up unanswered.
-                cut = True
-                sh("ip", "-n", "a", "link", "set", "va", "down")
-                time.sleep(8)
-                sh("ip", "-n", "a", "link", "set", "va", "up")
-
             if SCENARIO == "closemid" and not closed and guest.ply() >= fault_at_ply:
                 # The app closed by its player, not killed: the player closes
                 # its link the way the app does when it is closed.
@@ -580,10 +600,13 @@ def main():
             time.sleep(0.2)
         elapsed = time.monotonic() - started
         cutter["stop"] = True
+        if watcher:
+            watcher.join(15)
+            ok("the fault was put in and taken out again", not watcher.is_alive())
         for p in (host, guest):
             p.t.join(0.5)
         done_at = {}
-        if SCENARIO == "lastpacket":
+        if SCENARIO in ("lastpacket", "endlost"):
             # When each was done, from the player's own account of it.
             for tag, p in (("host", host), ("guest", guest)):
                 line = p.find("DONE ")
@@ -632,7 +655,11 @@ def main():
             ok("the app was closed mid-match", closed)
             ok("opened again, it resumed its match rather than starting another",
                guest.find("RESUMED") is not None and guest.find("ACCEPTED") is None)
-        if SCENARIO == "lastpacket":
+        if SCENARIO == "lastpacket" and cutter.get("late") and not fails:
+            print("     [lastpacket] not staged: both were done at once; to be played again",
+                  flush=True)
+            NOT_STAGED[0] = True
+        elif SCENARIO == "lastpacket":
             ok("the first player's last packet was thrown away", "first" in cutter, cutter)
             if "first" in cutter and len(done_at) == 2:
                 gap = max(done_at.values()) - cutter["at"]
@@ -652,7 +679,11 @@ def main():
             dropped = netem_dropped()
             ok("packets really were lost on the way", dropped > 0, dropped)
         if SCENARIO == "endlost":
-            ok("the host forfeited and its END was cut off", cut)
+            ok("the host forfeited and its END was cut off", "up" in cutter, cutter)
+            ok("lost on the way: the guest was not done while the host was cut off",
+               cutter.get("guest_done_meanwhile") is False and
+               "guest" in done_at and done_at["guest"] > cutter.get("up", 1e9),
+               (cutter, done_at))
             if dh and dg:
                 ok("the forfeiter lost and the other won",
                    dh["outcome"] == "loss" and dg["outcome"] == "win",
