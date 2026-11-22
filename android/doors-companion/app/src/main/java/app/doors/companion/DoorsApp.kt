@@ -5,6 +5,7 @@ package app.doors.companion
 import android.app.Application
 import android.os.Build
 import app.doors.companion.core.Fingerprint
+import app.doors.companion.core.GatewayCapture
 import app.doors.companion.core.GatewaySession
 import app.doors.companion.core.LinkState
 import app.doors.companion.core.MeshSend
@@ -12,6 +13,7 @@ import app.doors.companion.core.MeshSync
 import app.doors.companion.core.Stop
 import app.doors.companion.core.PairOutcome
 import app.doors.companion.core.PairingUri
+import app.doors.companion.core.SimulatedCapture
 import app.doors.companion.data.MeshDb
 import app.doors.companion.data.RoomMeshStore
 import app.doors.companion.data.RoomSendStore
@@ -53,9 +55,15 @@ class Link(app: Application) {
 
     /** Sending, for a person who tapped Send while the session is open. It keeps no queue and starts nothing by itself. */
     val send = MeshSend(RoomSendStore(meshDb.dao()), mesh.link)
-    val session = GatewaySession(transport, identity, VERSION, onUnitMoved = { store.save(it) }, features = listOf(mesh, send))
+
+    /** PacketShark's figures, read only while its screen shows them. Nothing of a capture is stored on the phone. */
+    val capture = GatewayCapture()
+    val session = GatewaySession(transport, identity, VERSION, onUnitMoved = { store.save(it) }, features = listOf(mesh, send, capture))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Made-up capture figures for a unit that serves none. Marked as simulated wherever they are shown; talks to nothing. */
+    val captureDemo = SimulatedCapture(scope)
 
     /** Draft writes happen in the order they were asked for. */
     private val drafts = Mutex()
