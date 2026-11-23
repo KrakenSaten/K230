@@ -8,7 +8,7 @@ Status: working notes of the M6 development session (2026-11-22). Not a contract
 | Vision room in the Android app | Done against the proposed contract and a simulated source. `feat/companion-m6-vision`, stacked on #173 |
 | Vision preview architecture | Proposed: `VISION_PREVIEW.md` |
 | ADR-016 amendment 1 (capture for a companion) | Proposed since 2026-11-21; untouched |
-| ADR-006 amendment 1, ADR-019 amendment 1 (Vision) | Proposed in this branch; revised 2026-11-23 to the trusted-device model, still Proposed |
+| ADR-006 amendment 1, ADR-019 amendment 1 (Vision) | Proposed in this branch; revised 2026-11-23 to the trusted-device model and **accepted by the owner the same day** |
 | gatewayd, shell, PacketShark app, Vision app, `pos-vision` | Not touched. Nothing new is served by any unit |
 
 ## Next, in order
@@ -41,7 +41,7 @@ Status: working notes of the M6 development session (2026-11-22). Not a contract
 
 ## Trusted-device revision (2026-11-23)
 
-The owner asked for a simpler policy for a personally owned unit and its own phone. Changed in this branch, all of it still a proposal:
+The owner asked for a simpler policy for a personally owned unit and its own phone. Changed in this branch, and accepted by the owner on 2026-11-23 (both amendments, as written):
 
 - Both amendments and `VISION_PREVIEW.md` rewritten: the phone is authorized once (one scope, `vision`); the preview starts by itself; no sheet, no tap per preview, no ten-minute limit, no 30 s request limit; screenshots and recording allowed on the phone. Each amendment ends with a table of the product choices for the owner to accept or change.
 - Kept: one camera owner, one viewer, TLS and pinned keys, the scope checked on every request, revocation, the mark and STOP on the unit (STOP now holds against the phone until resumed there), no FACE, RECOGNIZE or READ, the picture and rate bounds, acknowledgement and the pull pacing.
@@ -49,3 +49,4 @@ The owner asked for a simpler policy for a personally owned unit and its own pho
 - Android: `GatewayVision` asks for the picture by itself and holds back on `stopped`, `busy`, a refusal and a pause on the phone; `PreviewState` is `OFF, LIVE, STALLED, STOPPED, BUSY`; `canControl` and the two scopes are gone; `FLAG_SECURE` removed; the simulation starts by itself. 78 unit tests, none failing, 4 skipped (the gatewayd harness tests were not run this time); `:app:assembleDebug` builds.
 - master (through #184) merged into the branch; the capture stack this was stacked on is in master.
 - Not done: nothing was looked at on an emulator or a phone after this change; no gatewayd, shell or helper code exists for Vision; nothing was deployed.
+- Next on the unit side, each its own reviewable step: the measurements of `VISION_PREVIEW.md` section 8 (items 1 and 2 first), the helper's `share` commands, the Vision app's `vision.*` handlers with the mark and STOP, then gatewayd. The larger answer size `vision.pull` needs, and a way to grant `vision` to a paired phone (#172), are open.

@@ -1,7 +1,7 @@
-# Companion: Vision preview (proposal)
+# Companion: Vision preview (design)
 
-Status: **Proposed. Nothing here is implemented on a unit, and nothing here is approved.** It needs two decisions of the owner first: `docs/decisions/ADR-006-amendment-1-companion-preview.md` and `docs/decisions/ADR-019-amendment-1-vision.md`. The Android side exists against a simulated source (`android/doors-companion`, README "Vision"); its gateway client is written to section 5 and has never met a gateway.
-Date: 2026-11-22, revised 2026-11-23 (trusted-device model: one authorization of the phone, automatic preview, no time limit, one scope, screenshots allowed; all of it still proposed)
+Status: **Design accepted in principle; nothing here is implemented on a unit.** Its two decisions, `docs/decisions/ADR-006-amendment-1-companion-preview.md` and `docs/decisions/ADR-019-amendment-1-vision.md`, were accepted by the owner on 2026-11-23. The measurements of section 8 still come before anything ships, and the wire format of section 5 becomes a contract only when it is written into `docs/api/gateway.md` with the gateway code. The Android side exists against a simulated source (`android/doors-companion`, README "Vision"); its gateway client is written to section 5 and has never met a gateway.
+Date: 2026-11-22, revised 2026-11-23 (trusted-device model: one authorization of the phone, automatic preview, no time limit, one scope, screenshots allowed)
 
 Evidence classes as in the hardware baseline: VERIFIED (seen on a unit), DOCUMENTED (in this repository's code or documents), ASSUMED (reasoned, not measured).
 
@@ -141,7 +141,7 @@ The model is a trusted device: the unit and the phone belong to the same person,
 - **No biometrics.** No face picture, embedding, enrolment or recognition result is a field of any message.
 - **No camera without the screen.** A phone cannot open Vision or keep it open; the preview lives inside the Vision screen's own life.
 
-Accepted if this is approved: an authorized phone sees what the unit's camera sees whenever Vision is in front, with no act at the unit; whoever holds that phone unlocked, with the app, sees it too until the phone is revoked on the unit.
+Accepted with the amendments: an authorized phone sees what the unit's camera sees whenever Vision is in front, with no act at the unit; whoever holds that phone unlocked, with the app, sees it too until the phone is revoked on the unit.
 
 ## 7a. The phone's screen (revised 2026-11-23)
 

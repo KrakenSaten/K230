@@ -1,9 +1,9 @@
 # ADR-006 amendment 1: Vision's picture and a trusted companion
 
-Status: **Proposed** (draft for the owner; revised 2026-11-23 to the trusted-device model the owner asked for). Until it is accepted ADR-006 stands as written and no picture leaves a unit.
+Status: **Accepted** by the product owner on 2026-11-23, as revised that day to the trusted-device model. Nothing is implemented on a unit yet: no picture leaves a unit until the helper, the Vision app and the gateway are built, measured (`VISION_PREVIEW.md` section 8) and released.
 Date: 2026-11-22, revised 2026-11-23
 Deciders: product owner (final), AI engineering partner (author)
-Depends on: ADR-019 (accepted) and its amendment 1 (proposed). Without both this amendment has no effect.
+Depends on: ADR-019 (accepted) and its amendment 1 (accepted the same day).
 Design: `docs/design/companion/VISION_PREVIEW.md`.
 
 ## Why
@@ -44,7 +44,7 @@ Not introduced and not needed. If a later feature needs the camera while no scre
 - A trusted phone sees the room whenever Vision is in front on the unit, with no further act at the unit. What stands against a lost or misused phone is the mark and STOP on the unit, revocation there, and that a phone can never open Vision itself. Accepted as the price of not asking every time.
 - Pictures can leave the phone as screenshots or recordings its owner makes. Accepted: it is the owner's phone.
 
-## Product choices in this revision, for the owner
+## Product choices in this revision (all accepted as proposed)
 
 | # | Choice proposed | Alternative |
 | --- | --- | --- |
@@ -58,5 +58,5 @@ Not introduced and not needed. If a later feature needs the camera while no scre
 
 | Date | Decision | By |
 | --- | --- | --- |
-| 2026-11-23 | Direction given: trusted-device model (one authorization, automatic preview, no time limit, screenshots allowed); draft revised accordingly. The amendment itself is still pending | Product owner |
-| | Amendment 1 accepted / changed / rejected (pending) | Product owner |
+| 2026-11-23 | Direction given: trusted-device model (one authorization, automatic preview, no time limit, screenshots allowed); draft revised accordingly. | Product owner |
+| 2026-11-23 | **Amendment 1 accepted as written**, with the proposed choice in every row of the product-choices table above | Product owner |

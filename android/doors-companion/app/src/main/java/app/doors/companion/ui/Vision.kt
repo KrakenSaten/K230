@@ -583,7 +583,7 @@ private fun VisionGate(view: VisionView, link: LinkState) {
             "Nothing of Vision is stored on the phone, so there is nothing to show until the session is back." +
             if (link is LinkState.NoWifi) " The unit is reached over Wi-Fi only." else ""
         VisionAccess.NOT_SERVED -> "Not served by this unit" to
-            "This unit's gateway does not serve Vision. Sharing a picture with a paired phone is a proposal (ADR-006 and ADR-019 would both change) and is in no released Doors."
+            "This unit's gateway does not serve Vision. Sharing a picture with a paired phone is decided but not built yet, and is in no released Doors."
         VisionAccess.NOT_GRANTED -> "Not granted to this phone" to
             "On the unit, open Settings, Companion, this phone, and allow Vision. That is done once; after it the picture comes by itself whenever Vision is open on the unit."
         VisionAccess.WAITING -> "Asking the unit" to "Waiting for Vision's state."

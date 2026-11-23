@@ -1,9 +1,9 @@
 # ADR-019 amendment 1: Vision through the gateway
 
-Status: **Proposed** (draft for the owner; revised 2026-11-23 to the trusted-device model the owner asked for). Until it is accepted ADR-019 stands as written: five scopes, and no method of the shell but the `capture.*` entries of rules 6 and 6a.
+Status: **Accepted** by the product owner on 2026-11-23, as revised that day to the trusted-device model. Nothing is implemented yet: no gatewayd serves `vision`, and gateway code for it is still to be written, reviewed and approved for deployment as its own work.
 Date: 2026-11-22, revised 2026-11-23
 Deciders: product owner (final), AI engineering partner (author)
-Depends on: ADR-006 amendment 1 (proposed). Neither has an effect without the other.
+Depends on: ADR-006 amendment 1 (accepted the same day). Neither has an effect without the other.
 Design and wire format: `docs/design/companion/VISION_PREVIEW.md` sections 5 to 7.
 
 ## Why
@@ -26,7 +26,7 @@ ADR-019 fixes what the gateway may pass on. Three of its rules do not allow a Vi
 
 ## What does not change
 
-Rules 1 to 5, 7 to 23, 25 and 26: disabled by default; pocketipc client only; TLS 1.3 with both keys pinned; pairing at the unit; per-client revocation; nothing that changes the node, the radio, Wi-Fi, storage or power; no secrets. `vision.mode` and `vision.set` change what the Vision app on the screen is doing and what its settings file remembers, exactly as a tap there would; they change nothing else of the unit. Whether that is within rule 25 as the owner means it is part of this decision.
+Rules 1 to 5, 7 to 23, 25 and 26: disabled by default; pocketipc client only; TLS 1.3 with both keys pinned; pairing at the unit; per-client revocation; nothing that changes the node, the radio, Wi-Fi, storage or power; no secrets. `vision.mode` and `vision.set` change what the Vision app on the screen is doing and what its settings file remembers, exactly as a tap there would; they change nothing else of the unit. The owner's acceptance of this amendment settles that this is within rule 25.
 
 ## Not allowed
 
@@ -38,7 +38,7 @@ A stream endpoint outside the session; a picture for a client without the scope;
 - A picture is the largest thing the gateway sends. It is bounded per message and per second, and paced by the receiver.
 - A phone with `vision` sees the picture whenever Vision is in front, and can change what the person at the unit sees on the Vision screen. One grant now carries both; the mark, STOP and revocation on the unit are what remain.
 
-## Product choices in this revision, for the owner
+## Product choices in this revision (all accepted as proposed)
 
 | # | Choice proposed | Alternative |
 | --- | --- | --- |
@@ -53,5 +53,5 @@ Choice 2 needs a way to grant a scope to an already paired phone on the unit, wh
 
 | Date | Decision | By |
 | --- | --- | --- |
-| 2026-11-23 | Direction given: trusted-device model (one authorization, automatic preview, no time limit, simpler permissions); draft revised accordingly. The amendment itself is still pending | Product owner |
-| | Amendment 1 accepted / changed / rejected (pending) | Product owner |
+| 2026-11-23 | Direction given: trusted-device model (one authorization, automatic preview, no time limit, simpler permissions); draft revised accordingly. | Product owner |
+| 2026-11-23 | **Amendment 1 accepted as written**, with the proposed choice in every row of the product-choices table above | Product owner |

@@ -187,7 +187,7 @@ it as "ask `capture.status` again". `diag` is read with the field names of
 ## Vision (M6)
 
 The phone side of a **proposal**: `docs/design/companion/VISION_PREVIEW.md`,
-with ADR-006 amendment 1 and ADR-019 amendment 1, all three Proposed. No unit
+with ADR-006 amendment 1 and ADR-019 amendment 1, both accepted on 2026-11-23. No unit
 shares a picture and no gatewayd names `vision`. **Real camera streaming has
 never run**; every picture this app has shown was drawn by its own simulation.
 
@@ -210,7 +210,7 @@ never run**; every picture this app has shown was drawn by its own simulation.
 - **Asked only** with the capability, the scope `vision` and the screen in
   front. Leaving the screen ends the preview on the unit and gives the topic
   back.
-- **A trusted device** (proposed 2026-11-23). The phone is authorized once on
+- **A trusted device** (accepted 2026-11-23). The phone is authorized once on
   the unit. After that the picture comes by itself when this screen opens while
   Vision is in front on the unit: no tap there, no time limit, one scope for
   viewing and for modes. The app does not ask again while the unit says the
