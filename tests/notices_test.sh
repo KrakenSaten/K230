@@ -202,9 +202,12 @@ check "ggwave's FFT and Reed-Solomon code are what the package copies" \
 check "the shell embeds the IBM Plex bitmaps, which have an entry" \
     "$(grep -q 'ui/pocketui/fonts/pos_font_\*\.c' ui/shell/CMakeLists.txt && [ "$(has_id ibm-plex)" = 1 ] &&
        grep -q -l 'IBMPlex' ui/pocketui/fonts/pos_font_sans_16.c && echo 1 || echo 0)"
-fontsrc=$(grep -h -o -E -- '--font [^ ]+' ui/pocketui/fonts/*.c | awk '{print $2}' | xargs -n1 basename | sort -u | grep -v -E '^IBMPlex(Sans|Mono)-' | tr '\n' ' ')
-check "every embedded bitmap font was converted from IBM Plex${fontsrc:+ (other sources: $fontsrc)}" \
+fontsrc=$(grep -h -o -E -- '--font [^ ]+' ui/pocketui/fonts/*.c | awk '{print $2}' | xargs -n1 basename | sort -u | grep -v -E '^(IBMPlex(Sans|Mono)-|Fraunces72pt-SemiBoldItalic\.ttf$)' | tr '\n' ' ')
+check "every embedded bitmap font was converted from IBM Plex or Fraunces${fontsrc:+ (other sources: $fontsrc)}" \
     "$([ -z "$fontsrc" ] && echo 1 || echo 0)"
+check "the Fraunces bitmaps have an entry and the OFL text" \
+    "$([ "$(has_id fraunces)" = 1 ] && [ -s docs/legal/fonts/Fraunces-OFL-1.1.txt ] &&
+       grep -q 'Fraunces72pt-SemiBoldItalic' ui/pocketui/fonts/pos_font_serif_italic_48.c && echo 1 || echo 0)"
 check "the shell embeds RIFT's colour emoji, whose artwork and flags have entries" \
     "$(grep -q 'apps/rift/ui/rift_emoji_px.S' ui/shell/CMakeLists.txt && [ "$(has_id noto-color-emoji)" = 1 ] &&
        [ "$(has_id region-flags)" = 1 ] && grep -q 'googlefonts/noto-emoji' apps/rift/ui/rift_emoji_img.c &&

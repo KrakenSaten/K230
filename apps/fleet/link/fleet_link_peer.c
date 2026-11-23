@@ -7,7 +7,9 @@
  * bounded passes. The waits that remain are bounded: pocketipc's own - a
  * connect of at most CONNECT_TIMEOUT_MS, and a write to a peerd that has
  * stopped reading, which pocketipc gives up on and the link then drops -
- * and one of at most 60 ms when the link is closed (p_close). One connection carries both the subscription and the
+ * and, when the link is closed (p_close), one of at most 60 ms and - only
+ * when an opponent is let go and the device hidden in the same breath - a
+ * second of at most 120 ms. One connection carries both the subscription and the
  * requests.
  *
  * What it asks peerd: peer.subscribe, peer.identity (our key), peer.status
@@ -69,6 +71,9 @@
  * in all, before the request to hide is written (p_close). */
 #define CLOSE_QUIET_MS 15
 #define CLOSE_ROUNDS 4
+/* Closing: how long peerd's answer to a release is waited for when a
+ * request to hide has to follow it. */
+#define CLOSE_RELEASE_MS 120
 
 enum req {
     REQ_NONE = 0,
@@ -78,6 +83,7 @@ enum req {
     REQ_STATUS,
     REQ_VISIBLE,
     REQ_HIDE,
+    REQ_LET_GO,                      /* peer.release, written as the link closes */
     REQ_NODES,
     REQ_INBOX,
     REQ_SEND,
@@ -161,6 +167,11 @@ struct peer {
     int kept_stale;                  /* peerd's list is to be read and put right */
     int kept_count;                  /* as last listed; -1 before that */
     int kept_wait_ms;                /* how long before a stale list is read again */
+    /* The opponent the session last stopped naming, until peerd's list has
+     * been seen without it: what is to be released if the link closes
+     * before its ordinary reconciling has got that far. */
+    int gone_due;
+    uint8_t gone_key[FLEET_KEY_BYTES];
 
     enum fleet_link_peer_probe_state probe;
     long probe_id;
@@ -280,6 +291,7 @@ static const char *method_of(enum req what)
     case REQ_STATUS: return "peer.status";
     case REQ_VISIBLE:
     case REQ_HIDE: return "peer.set_visible";
+    case REQ_LET_GO: return "peer.release";
     case REQ_NODES: return "peer.nodes";
     case REQ_INBOX: return "peer.app_inbox";
     case REQ_SEND: return "peer.app_send";
@@ -365,7 +377,7 @@ static enum req take_pending(struct peer *m, int id)
 static int request(struct peer *m, enum req what, cJSON *params)
 {
     cJSON *msg;
-    int untracked = what == REQ_UNSUBSCRIBE || what == REQ_HIDE;
+    int untracked = what == REQ_UNSUBSCRIBE || what == REQ_HIDE || what == REQ_LET_GO;
     int id;
     int rc;
 
@@ -689,6 +701,7 @@ static void apply_kept(struct peer *m, const cJSON *result)
         m->kept_stale = 1;           /* look again once they have been answered */
     } else {
         m->kept_wait_ms = STATUS_PERIOD_MS;
+        m->gone_due = 0;             /* the list is right: nobody is left to let go */
     }
 }
 
@@ -1135,7 +1148,35 @@ static void p_close(void *ctx)
                 break;
             }
         }
-        p = cJSON_CreateObject();
+        /* An opponent the session stopped naming and peerd may still keep:
+         * let go now, by name, because after this nobody reconciles. Never
+         * the opponent the session still names - that is a match to be
+         * resumed. When a request to hide is to follow, peerd's answer to
+         * this one is waited for first (bounded: CLOSE_RELEASE_MS), for the
+         * reason above - written back to back, the first answer that cannot
+         * be delivered would take the second request down with it. peerd
+         * puts the list on disk before it answers, so this wait is longer
+         * than the other; it happens only when Fleet closes straight after
+         * a match while still visible. */
+        if (m->gone_due && !(m->have_match &&
+                             memcmp(m->gone_key, m->match_key, FLEET_KEY_BYTES) == 0)) {
+            char hex[FLEET_KEY_BYTES * 2 + 1];
+            cJSON *r = cJSON_CreateObject();
+
+            if (r) {
+                tohex(m->gone_key, FLEET_KEY_BYTES, hex);
+                cJSON_AddStringToObject(r, "key", hex);
+                if (request(m, REQ_LET_GO, r) == 0 && m->lease_asked) {
+                    struct pollfd pfd = { m->fd, POLLIN, 0 };
+
+                    if (poll(&pfd, 1, CLOSE_RELEASE_MS) > 0 &&
+                        read(m->fd, waste, sizeof(waste)) < 0) {
+                        /* Nothing to do about it: the hide is tried anyway. */
+                    }
+                }
+            }
+        }
+        p = m->fd >= 0 ? cJSON_CreateObject() : NULL;
         /* Fleet is leaving multiplayer: off the network at once, rather
          * than when the lease would have lapsed (which is what happens
          * anyway if this does not get through). A match in hand is not
@@ -1173,6 +1214,12 @@ static void p_match_peer(void *ctx, const uint8_t *key)
     if (m->match_known && m->have_match == have &&
         (!have || memcmp(m->match_key, key, FLEET_KEY_BYTES) == 0)) {
         return;
+    }
+    if (m->match_known && m->have_match) {
+        /* Whoever was named is no longer: kept in peerd until that has been
+         * put right, by the next reconciling or as the link closes. */
+        memcpy(m->gone_key, m->match_key, FLEET_KEY_BYTES);
+        m->gone_due = 1;
     }
     m->match_known = 1;
     m->have_match = have;

@@ -119,6 +119,7 @@ Classes as in `AGENTS.md`. The hardware results of M0 to M3 are in `docs/apps/PA
 
 | Date | Decision | By |
 | --- | --- | --- |
+| 2026-11-22 | **Amendment 1 accepted** (`ADR-016-amendment-1-companion.md`): rules 1 and 11 reworded, rules 1a, 11a, 19, 20 and 21 added, for a paired companion; every other rule and accepted risk stands. Listed first here because it changes the rules below | Product owner |
 | 2026-11-15 | Accepted with the design package: the helper owns the packets and the shell keeps at most 48 rows (D1); the helper runs at nice 5 (D5); HEADERS is the default for what is stored (D7); captures stay in memory until SAVE (D10) | Product owner |
 | 2026-11-16 | **ADR-016 approved, subject to the documented security constraints** (rules 1 to 18 and the accepted risks; see Status) | Product owner |
 | 2026-11-16 | **The explicit libpcap dependency of the `pocketos` package approved** (`select BR2_PACKAGE_LIBPCAP`, `libpcap` in `POCKETOS_DEPENDENCIES`, `PACKETSHARK_PCAP=1`) | Product owner |

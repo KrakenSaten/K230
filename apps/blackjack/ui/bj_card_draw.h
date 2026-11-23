@@ -28,7 +28,7 @@
 #define PGBJ_CARD_DRAW_H
 
 #include "lvgl.h"
-#include "bj_cards.h"
+#include "cg_cards.h"
 
 /* The corner radius a card of this width gets. */
 int bj_card_radius(int card_w);
@@ -39,13 +39,19 @@ enum bj_index {
     BJ_INDEX_BESIDE = 0,
     BJ_INDEX_BELOW
 };
-void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, bj_card_t card, enum bj_index index);
-/* What a BJ_INDEX_BELOW corner of a card `card_w` wide takes in the current
- * fonts, from the card's left and top edges, with two pixels to spare: across,
+void bj_draw_face(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, enum bj_index index);
+/* What a BJ_INDEX_BELOW corner of a card `card_w` wide takes in the card's
+ * fixed type, from the card's left and top edges, with two pixels to spare: across,
  * the inset and the wider of the widest rank ("10") and the pip; down, to the
  * pip's foot. A card laid over it must leave this much in view. */
 void bj_card_index_size(int card_w, int *index_w, int *index_h);
 void bj_draw_back(lv_layer_t *layer, const lv_area_t *area);
+/* A card in motion: its face (BJ_INDEX_BELOW) or its back, squashed across
+ * to `scale_x` 256ths of its width as it turns over (cg_deck_draw_scaled). */
+void bj_draw_card_scaled(lv_layer_t *layer, const lv_area_t *area, cg_card_t card, int face_up, int scale_x);
+/* The shadow a card at `area` casts on the cloth: draw a hand's shadows
+ * before its cards (cg_deck.h). */
+void bj_draw_shadow(lv_layer_t *layer, const lv_area_t *area);
 
 enum bj_slot_mark {
     BJ_SLOT_PLAIN = 0,
@@ -53,9 +59,9 @@ enum bj_slot_mark {
     BJ_SLOT_KING,    /* an empty column: a ghost K */
     BJ_SLOT_TURN     /* an empty stock with cards in the waste: the turn-over mark */
 };
-void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum bj_suit suit);
+void bj_draw_slot(lv_layer_t *layer, const lv_area_t *area, enum bj_slot_mark mark, enum cg_suit suit);
 
 /* A suit centred at (cx, cy) in a box `size` pixels high. */
-void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int size, enum bj_suit suit, lv_color_t color);
+void bj_draw_suit(lv_layer_t *layer, int cx, int cy, int size, enum cg_suit suit, lv_color_t color);
 
 #endif

@@ -8,12 +8,16 @@
 
 #include "pocketui.h"
 #include "sol_card_draw.h"
-#include "sol_felt.h"
+#include "cg_deck.h"
+#include "cg_motion.h"
+#include "cg_table.h"
 #include "sol_palette.h"
 
 /* How far a finger may travel and still tap: LVGL's own scroll threshold
  * (LV_INDEV_DEF_SCROLL_LIMIT, private to lv_indev.c in 9.5). */
 #define TAP_SLOP 10
+/* The motion key of the "Solved." line (card keys are card bytes). */
+#define KEY_SOLVED 0xffffff01u
 
 struct sol_table_state {
     const struct sol_game *game;
@@ -22,6 +26,8 @@ struct sol_table_state {
     void *user;
     lv_point_t pressed_at; /* where the finger went down */
     int listening;         /* registered with pos_theme_add_listener */
+    struct cg_motion motion; /* a card's key is its byte: one deck */
+    struct cg_spots before;
 };
 
 static struct sol_table_state *state_of(lv_obj_t *obj)
@@ -56,30 +62,15 @@ static lv_area_t area_of(const lv_area_t *origin, struct sol_rect r)
 
 /* ---- drawing ------------------------------------------------------------------ */
 
-static void draw_felt(lv_layer_t *layer, const lv_area_t *coords)
+static int moving(const struct sol_table_state *st, cg_card_t card)
 {
-    const lv_image_dsc_t *felt = sol_felt_image();
-
-    if (felt) {
-        lv_draw_image_dsc_t dsc;
-
-        lv_draw_image_dsc_init(&dsc);
-        dsc.src = felt;
-        dsc.tile = 1;
-        lv_draw_image(layer, &dsc, coords);
-    } else {
-        lv_draw_rect_dsc_t dsc;
-
-        lv_draw_rect_dsc_init(&dsc);
-        dsc.bg_color = sol_palette[SOL_INK_FELT];
-        dsc.bg_opa = LV_OPA_COVER;
-        lv_draw_rect(layer, &dsc, coords);
-    }
+    return cg_motion_pose(&st->motion, card, NULL) >= 0;
 }
 
 static void draw_pile(lv_layer_t *layer, const lv_area_t *origin, const struct sol_table *t,
-                      const struct sol_game *g, int pile)
+                      const struct sol_table_state *st, int pile)
 {
+    const struct sol_game *g = st->game;
     const struct sol_stack *s = &g->pile[pile];
     int i;
 
@@ -95,15 +86,34 @@ static void draw_pile(lv_layer_t *layer, const lv_area_t *origin, const struct s
             mark = SOL_SLOT_TURN;
         }
         if (s->n == 0) {
-            sol_draw_slot(layer, &a, mark, (enum sol_suit)(pile - SOL_F0));
+            sol_draw_slot(layer, &a, mark, (enum cg_suit)(pile - SOL_F0));
             return;
         }
     }
     /* A pile off the tableau shows only its top card; drawing the rest,
-     * exactly underneath, would cost time and show nothing. */
-    for (i = sol_is_column(pile) ? 0 : s->n - 1; i < s->n; i++) {
+     * exactly underneath, would cost time and show nothing - except while
+     * its top card is on its way, when the one under it shows. */
+    {
+        int first = sol_is_column(pile) ? 0 : s->n - 1;
+
+        if (!sol_is_column(pile) && s->n > 1 && moving(st, s->card[s->n - 1])) {
+            first = s->n - 2;
+        }
+        for (i = first; i < s->n; i++) {
+            lv_area_t a = area_of(origin, sol_view_card(t, g, pile, i));
+
+            if (!moving(st, s->card[i])) {
+                sol_draw_shadow(layer, &a);
+            }
+        }
+        i = first;
+    }
+    for (; i < s->n; i++) {
         lv_area_t a = area_of(origin, sol_view_card(t, g, pile, i));
 
+        if (moving(st, s->card[i])) {
+            continue;
+        }
         if (i < s->down) {
             sol_draw_back(layer, &a);
         } else {
@@ -138,7 +148,7 @@ static void draw_selection(lv_layer_t *layer, const lv_area_t *a, int radius)
     lv_draw_rect_dsc_init(&dsc);
     dsc.bg_opa = LV_OPA_TRANSP;
     dsc.radius = radius;
-    dsc.outline_color = pos_theme_color(POS_COLOR_FOCUS);
+    dsc.outline_color = cg_table_ink(CG_INK_GOLD);
     dsc.outline_width = 3;
     dsc.outline_pad = 1;
     dsc.outline_opa = LV_OPA_COVER;
@@ -167,7 +177,7 @@ static void draw_cursor(lv_layer_t *layer, const lv_area_t *target, int card_w)
     int i;
 
     lv_draw_rect_dsc_init(&dsc);
-    dsc.bg_color = pos_theme_color(POS_COLOR_FOCUS);
+    dsc.bg_color = cg_table_ink(CG_INK_GOLD);
     dsc.bg_opa = LV_OPA_COVER;
     for (i = 0; i < 8; i++) {
         lv_draw_rect(layer, &dsc, &bars[i]);
@@ -224,7 +234,7 @@ static void draw_scroll_mark(lv_layer_t *layer, const lv_area_t *coords, const s
     bar.y2 = bar.y1 + len - 1;
     lv_draw_rect_dsc_init(&dsc);
     dsc.radius = 2;
-    dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+    dsc.bg_color = cg_table_ink(CG_INK_DIM);
     dsc.bg_opa = LV_OPA_COVER;
     lv_draw_rect(layer, &dsc, &bar);
 }
@@ -246,25 +256,57 @@ static void table_draw(lv_event_t *e)
     lv_obj_get_coords(obj, &coords);
     geometry(obj, &t);
     tableau = tableau_clip(&coords, &t);
-    draw_felt(layer, &coords);
+    /* Night mode dims the world - cloth (the scene's), cards - as
+     * PocketTimber's art review designed it (docs/apps/POCKETTIMBER_ART.md
+     * 11). The interface marks below are not dimmed. */
+    cg_table_set_night(pos_theme_current_mode() == POS_MODE_NIGHT);
     for (p = 0; p < SOL_PILES; p++) {
         if (!sol_is_column(p)) {
-            draw_pile(layer, &coords, &t, st->game, p);
+            draw_pile(layer, &coords, &t, st, p);
         } else if (clip_to(layer, &tableau, &was)) {
-            draw_pile(layer, &coords, &t, st->game, p);
+            draw_pile(layer, &coords, &t, st, p);
             layer->_clip_area = was;
         }
     }
-    /* Night mode dims the world, as PocketTimber's art review designed it
-     * (docs/apps/POCKETTIMBER_ART.md 11): half of bg over the scene. The
-     * interface marks below are drawn after it, in the night tokens. */
-    if (pos_theme_current_mode() == POS_MODE_NIGHT) {
-        lv_draw_rect_dsc_t dim;
+    /* A won deal: "Solved." on the emptied tableau, in the one serif
+     * (decision 5), once the kings have risen. */
+    if (st->game->won) {
+        struct cg_pose pose;
+        int shown = cg_motion_pose(&st->motion, KEY_SOLVED, &pose);
 
-        lv_draw_rect_dsc_init(&dim);
-        dim.bg_color = pos_theme_color(POS_COLOR_BG);
-        dim.bg_opa = LV_OPA_50;
-        lv_draw_rect(layer, &dim, &coords);
+        if (shown == 1 || (shown < 0 && !cg_motion_busy(&st->motion))) {
+            lv_draw_label_dsc_t dsc;
+            const lv_font_t *head = cg_deck_font(CG_TYPE_HEADLINE);
+            int lh = lv_font_get_line_height(head);
+            int top = coords.y1 + t.tableau_y + t.card_h;
+            int cy = top + (coords.y2 - top) / 2;
+            lv_area_t a = { coords.x1, cy - lh / 2, coords.x2, cy - lh / 2 + lh - 1 };
+
+            if (coords.y2 - top >= lh + 16) {
+                lv_draw_label_dsc_init(&dsc);
+                dsc.font = head;
+                dsc.color = cg_table_ink(CG_INK_GOLD);
+                dsc.opa = shown == 1 ? pose.opa : LV_OPA_COVER;
+                dsc.align = LV_TEXT_ALIGN_CENTER;
+                dsc.text = "Solved.";
+                lv_draw_label(layer, &dsc, &a);
+            }
+        }
+    }
+    /* Cards in motion, over every pile they cross. */
+    for (p = 0; p < cg_motion_count(&st->motion); p++) {
+        uint32_t key = cg_motion_key(&st->motion, p);
+        struct cg_pose pose;
+
+        if (key != KEY_SOLVED && cg_motion_pose(&st->motion, key, &pose) == 1) {
+            lv_area_t a = { coords.x1 + pose.rect.x1, coords.y1 + pose.rect.y1, coords.x1 + pose.rect.x2,
+                            coords.y1 + pose.rect.y2 };
+
+            if (pose.scale_x >= 256) {
+                sol_draw_shadow(layer, &a);
+            }
+            sol_draw_card_scaled(layer, &a, (cg_card_t)key, pose.face, pose.scale_x);
+        }
     }
     draw_scroll_mark(layer, &coords, &t, sol_view_scroll_max(&t, st->game));
     if (st->ui && st->ui->sel_pile >= 0) {
@@ -353,6 +395,9 @@ static void table_delete(lv_event_t *e)
     if (st && st->listening) {
         pos_theme_remove_listener(on_theme, obj);
     }
+    if (st) {
+        cg_motion_stop(&st->motion);
+    }
     lv_async_call_cancel(readjust_later, obj);
     lv_free(st);
     lv_obj_set_user_data(obj, NULL);
@@ -378,7 +423,23 @@ static void table_self_size(lv_event_t *e)
  * scroll inside it. */
 static void table_resized(lv_event_t *e)
 {
+    struct sol_table_state *st = state_of(lv_event_get_target_obj(e));
+
+    /* The places changed under whatever was moving: it arrives now. */
+    if (st) {
+        cg_motion_stop(&st->motion);
+    }
     lv_obj_readjust_scroll(lv_event_get_target_obj(e), LV_ANIM_OFF);
+}
+
+/* A drag moved the tableau under whatever was moving: it arrives now. */
+static void table_scrolled(lv_event_t *e)
+{
+    struct sol_table_state *st = state_of(lv_event_get_target_obj(e));
+
+    if (st && cg_motion_busy(&st->motion)) {
+        cg_motion_stop(&st->motion);
+    }
 }
 
 static void table_theme_changed(lv_event_t *e)
@@ -399,12 +460,9 @@ lv_obj_t *sol_table_create(lv_obj_t *parent)
         return NULL;
     }
     lv_obj_remove_style_all(obj);
-    /* The felt is confined to a hairline-framed panel, as PocketTimber's
-     * viewport is: the scene is content, the frame is chrome. */
-    pos_style_add(obj, POS_STYLE_PANEL, 0);
-    lv_obj_set_style_pad_all(obj, 0, 0);
-    lv_obj_set_style_clip_corner(obj, 1, 0);
+    /* No ground of its own: the scene's cloth runs under it, edge to edge. */
     lv_obj_set_user_data(obj, st);
+    cg_motion_init(&st->motion, obj, 12);
     /* Only a column too long for the table scrolls, and only the tableau
      * moves (table_draw); LVGL's own drag does it, so a drag is never a tap.
      * Inside its range, unshared with the body, with no bar of its own. */
@@ -421,6 +479,7 @@ lv_obj_t *sol_table_create(lv_obj_t *parent)
     lv_obj_add_event_cb(obj, table_click, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(obj, table_self_size, LV_EVENT_GET_SELF_SIZE, NULL);
     lv_obj_add_event_cb(obj, table_resized, LV_EVENT_SIZE_CHANGED, NULL);
+    lv_obj_add_event_cb(obj, table_scrolled, LV_EVENT_SCROLL, NULL);
     lv_obj_add_event_cb(obj, table_delete, LV_EVENT_DELETE, NULL);
     if (pos_theme_watch(obj) != 0) {
         lv_obj_add_event_cb(obj, table_theme_changed, (lv_event_code_t)pos_event_theme_changed(), NULL);
@@ -478,5 +537,98 @@ void sol_table_geometry(lv_obj_t *table, struct sol_table *out)
 {
     if (table && out) {
         geometry(table, out);
+    }
+}
+
+/* ---- motion ------------------------------------------------------------------------ */
+
+/* Every card drawn now, where, and which way up: the tableau's cards, and the
+ * top card of every other pile. */
+static void picture(lv_obj_t *obj, const struct sol_table_state *st, struct cg_spots *out)
+{
+    const struct sol_game *g = st->game;
+    struct sol_table t;
+    int p, i;
+
+    out->n = 0;
+    geometry(obj, &t);
+    for (p = 0; p < SOL_PILES; p++) {
+        const struct sol_stack *s = &g->pile[p];
+
+        for (i = sol_is_column(p) ? 0 : s->n - 1; i >= 0 && i < s->n && out->n < CG_SPOTS; i++) {
+            struct sol_rect r = sol_view_card(&t, g, p, i);
+            struct cg_spot *spot = &out->s[out->n++];
+
+            spot->key = s->card[i];
+            spot->rect = (lv_area_t){ r.x, r.y, r.x + r.w - 1, r.y + r.h - 1 };
+            spot->face = i >= s->down;
+        }
+    }
+}
+
+void sol_table_before(lv_obj_t *table)
+{
+    struct sol_table_state *st = state_of(table);
+
+    if (st && st->game) {
+        cg_motion_stop(&st->motion);
+        picture(table, st, &st->before);
+    }
+}
+
+void sol_table_after(lv_obj_t *table, int won)
+{
+    static const struct cg_plan plan = { 0, 0, 170, 200 };
+    struct sol_table_state *st = state_of(table);
+    struct cg_spots after;
+    struct sol_table t;
+    uint32_t end = 0;
+    int i;
+
+    if (!st || !st->game) {
+        return;
+    }
+    picture(table, st, &after);
+    geometry(table, &t);
+    /* What a moving card repaints: itself and its shadow. */
+    st->motion.margin = cg_deck_shadow_reach(t.card_w);
+    cg_motion_diff(&st->motion, &st->before, &after, NULL, &plan);
+    if (!won) {
+        return;
+    }
+    end = cg_motion_end(&st->motion);
+    /* The win: the four kings rise and settle, one after another. */
+    for (i = 0; i < 4; i++) {
+        const struct sol_stack *s = &st->game->pile[SOL_F0 + i];
+        struct sol_rect r;
+        lv_area_t a;
+
+        if (s->n == 0 || cg_motion_pose(&st->motion, s->card[s->n - 1], NULL) >= 0) {
+            continue;
+        }
+        r = sol_view_card(&t, st->game, SOL_F0 + i, s->n - 1);
+        a = (lv_area_t){ r.x, r.y, r.x + r.w - 1, r.y + r.h - 1 };
+        cg_motion_add(&st->motion, s->card[s->n - 1], CG_MOVE_HOP, &a, &a, 1, 1, end + 60 + (uint32_t)i * 130, 460);
+    }
+    {
+        lv_area_t all = { 0, t.tableau_y, t.w - 1, t.h - 1 };
+
+        cg_motion_add(&st->motion, KEY_SOLVED, CG_MOVE_FADE, NULL, &all, 1, 1, end + 60 + 4 * 130 + 200, 360);
+    }
+}
+
+int sol_table_moving(lv_obj_t *table)
+{
+    struct sol_table_state *st = state_of(table);
+
+    return st && cg_motion_busy(&st->motion);
+}
+
+void sol_table_finish(lv_obj_t *table)
+{
+    struct sol_table_state *st = state_of(table);
+
+    if (st) {
+        cg_motion_stop(&st->motion);
     }
 }

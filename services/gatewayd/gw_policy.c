@@ -7,6 +7,7 @@
 #include "gw_policy.h"
 
 #include "gw.h"
+#include "gw_capture.h"
 #include "gw_util.h"
 
 #include <ctype.h>
@@ -447,6 +448,7 @@ static const struct {
 } TOPICS[] = {
     {GW_T_MESH, "mesh", GW_S_MESH_READ},
     {GW_T_MESH_ACTIVITY, "mesh.activity", GW_S_MESH_READ},
+    {GW_T_CAPTURE, "capture", GW_S_CAPTURE_VIEW},
 };
 #define TOPIC_COUNT (sizeof(TOPICS) / sizeof(TOPICS[0]))
 
@@ -535,6 +537,19 @@ static const struct gw_method METHODS[] = {
      * client sent is checked and written again by gw_send.c. */
     {"mesh.send", GW_K_SEND, GW_W_PAIRED, GW_S_MESH_SEND, "meshcored", NULL, NULL},
     {"mesh.resend", GW_K_RESEND, GW_W_PAIRED, GW_S_MESH_SEND, "meshcored", NULL, NULL},
+    /* PacketShark's capture (ADR-016 amendment 1; ADR-019 rule 6): these
+     * four and no other. They are served by the PacketShark app on the
+     * shell's socket and are no shell.* method. Reading needs capture_view;
+     * holding, stopping and asking for a start need capture_control, which
+     * is only ever held with capture_view. Asking starts nothing: a person
+     * taps START on the unit. capture.request_cancel is not here and never
+     * will be: the gateway calls it for itself (main.c cap_cancel). */
+    {"capture.status", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_VIEW, "shell", gw_capture_status, NULL},
+    {"capture.hold", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_CONTROL, "shell", gw_capture_command,
+     gw_capture_params_hold},
+    {"capture.stop", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_CONTROL, "shell", gw_capture_command, NULL},
+    {"capture.request_start", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_CONTROL, "shell", gw_capture_shown,
+     gw_capture_params_ask},
 };
 
 const struct gw_method *gw_methods(size_t *count)

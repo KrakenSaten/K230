@@ -60,7 +60,7 @@ void poker_restart(struct poker_game *g, uint32_t seed)
     if (!g)
         return;
     memset(g, 0, sizeof(*g));
-    bj_rng_seed(&g->rng, seed);
+    cg_rng_seed(&g->rng, seed);
     for (int i = 0; i < POKER_SEATS; ++i)
         g->player[i].stack = POKER_START_STACK;
     g->button = POKER_SEATS - 1;
@@ -75,7 +75,7 @@ static void settle(struct poker_game *g)
     g->settled_pot = poker_pot_total(g);
     g->showdown = remaining > 1;
     for (int i = 0; i < POKER_SEATS; ++i) {
-        bj_card_t cards[7];
+        cg_card_t cards[7];
         if (!g->player[i].in_hand || g->player[i].folded)
             continue;
         sole = i;
@@ -229,8 +229,8 @@ bool poker_new_hand(struct poker_game *g)
         g->player[i].stack = stack;
         g->player[i].in_hand = stack > 0;
     }
-    bj_deck_fill(g->deck);
-    bj_deck_shuffle(g->deck, &g->rng);
+    cg_deck_fill(g->deck);
+    cg_deck_shuffle(g->deck, &g->rng);
     for (int round = 0; round < 2; ++round)
         for (int k = 1; k <= POKER_SEATS; ++k) {
             int i = (g->button + k) % POKER_SEATS;

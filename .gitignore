@@ -3,6 +3,7 @@
 /tests/poker_engine_test
 /tests/poker_engine_test-asan
 /tests/poker_view_test
+/tests/cg_table_test
 /schematic_text.txt
 /wsl_probe.txt
 # Build outputs
@@ -47,6 +48,7 @@
 /tests/fleet_link_peer_test
 /tests/fleet_link_peer_real
 /tests/fake-peerd
+/tests/fleet_lan_player
 /tests/fleet_mp_player
 /tests/radar_rng_test
 /tests/radar_types_test
@@ -215,6 +217,7 @@ BUILD_ID
 /tests/ppc_mkfixtures
 /tests/psk_model_test
 /tests/psk_session_test
+/tests/psk_remote_test
 /tests/ppc_view_test
 /tests/ppc_dissect_test
 /tests/ppc_signals_test

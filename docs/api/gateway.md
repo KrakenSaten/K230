@@ -1,6 +1,6 @@
 # Companion Gateway protocol v1 (`gateway.*`)
 
-Status: **draft; partly implemented (M2, M4.1 and M4.2, host-tested only).** `services/gatewayd` serves §5 (the topics `device` and `capture` are not served yet), §6 without the `device.status` event, §7, §8, and §10; §9 is not implemented and its methods answer "unknown method" (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (proposed): §9 binds nothing until the amendment is accepted. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
+Status: **draft; partly implemented (M2, M4.1 and M4.2, host-tested only).** `services/gatewayd` serves §5 (the topic `device` is not served yet), §6 without the `device.status` event, §7, §8, and §10; §9 since G1 (`docs/services/GATEWAYD.md`). Protocol version 1. Specified for ADR-019 (accepted 2026-11-21) and ADR-016 amendment 1 (accepted 2026-11-22): §9 is served since G1, host-tested only. Served by `gatewayd` to paired clients over TLS; a second, local surface on `gatewayd.sock` is for the unit's own Settings and the `doors` CLI.
 
 Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connection life cycle: `docs/design/companion/PAIRING.md`.
 
@@ -15,7 +15,7 @@ Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connect
 
 - `proto` is one integer for the envelope, the `gateway.*` methods, the allowlist and its filters. Adding a method, a result field, an event or a capability is compatible. Removing or renaming anything, changing a type, or widening what a scope allows raises `proto`.
 - The first request on every connection must be `gateway.hello`. The gateway picks the highest `proto` both sides support, or answers error 8 and closes. A gateway serves at most two consecutive versions.
-- `capabilities` is a list of strings; a client shows a feature only when its capability is present. v1: `status`, `mesh`, `mesh.activity`, `mesh.send` (present since the gateway serves §8; a client with the `mesh_send` scope offers sending only when it is there), `capture` (absent until amendment 1 is implemented and PacketShark is in the image).
+- `capabilities` is a list of strings; a client shows a feature only when its capability is present. v1: `status`, `mesh`, `mesh.activity`, `mesh.send` (present since the gateway serves §8; a client with the `mesh_send` scope offers sending only when it is there), `capture` (for a client that holds `capture_view`; section 9 says how a client learns whether PacketShark answers).
 - `api` repeats the `api_version` of each upstream service, so a client can tell which fields of a passed-through result to expect.
 - Clients ignore unknown fields, events and capabilities.
 
@@ -154,8 +154,8 @@ Only with ADR-016 amendment 1. Served by the PacketShark app; the gateway passes
 | Method | Scope | Result |
 | --- | --- | --- |
 | `capture.status` | view | see below |
-| `capture.hold` `{on}` | control | `{state}`; error 3 when nothing is capturing |
-| `capture.stop` | control | `{state}`; error 3 when nothing is capturing |
+| `capture.hold` `{on}` | control | `{state, changing}`: the state when asked, and whether the capture was told to change (false when it is already in the state asked for). Error 2 unless `on` is true or false; error 3 when nothing is capturing |
+| `capture.stop` | control | `{state, changing}`; error 3 when nothing is capturing |
 | `capture.request_start` `{iface, limit_s}` | control | `{shown: true}` when the sheet is up on the unit; the outcome arrives as `capture.state`. Error 3: a capture is running, a request is already shown, the unit is locked or showing an alert, or `iface`/`limit_s` is not one the setup screen offers. Error 10: more than one request in 30 s |
 
 `capture.status`:
@@ -171,10 +171,42 @@ Only with ADR-016 amendment 1. Served by the PacketShark app; the gateway passes
 ```
 
 - `available: false` (and nothing else) when PacketShark is not the app in front.
-- `state`: `idle`, `capturing`, `hold`, `saving`, `stopped`, or `ended` with `reason` (`left`, `limit`, `link`, `helper_crashed`, `helper_hung`, `refused`, `timeout`).
+- `state`: `idle`, `capturing`, `hold`, `saving`, `stopped`, or `ended`.
+- `reason`, the same words as on the unit's own socket (`docs/api/shell.md`, "PacketShark: `capture.*`"):
+
+| `reason` | With `state` | Meaning |
+| --- | --- | --- |
+| `none` | any | no reason: setup, or a capture that is running or held |
+| `user` | `stopped`, `saving` | STOP, tapped on the screen or asked by `capture.stop` |
+| `limit` | `stopped`, `saving` | the capture's own time limit |
+| `link` | `stopped`, `saving` | the interface went down or lost its carrier |
+| `end` | `stopped`, `saving` | a replayed file ended (the simulator and the tests) |
+| `error` | `stopped`, `saving` | the capture source failed |
+| `helper_crashed` | `ended` | the helper is gone, however it went; its packets with it |
+| `helper_hung` | `ended` | the helper stopped answering and was ended |
+| `left` | `ended` | PacketShark was left with a capture in it, which ends the capture. Only ever in a `capture.state` event: afterwards the app is not there to be asked |
+| `refused` | `idle` | a start request ended without a capture: REFUSE or Back on its sheet, the unit locked or an alarm over it, the app left, the request withdrawn, or START tapped and the capture could not start. Said once, in a `capture.state` event, and in a status only until that event has gone out |
+| `timeout` | `idle` | a start request's sheet was not answered in 60 s. Said once, likewise |
+
 - Every figure is a count, a rate or a size. **No field identifies a host**; ADR-016 rule 11a lists what may be here.
 
-Events (topic `capture`): `capture.state` on every change; `capture.stats`, the figures above, once a second while capturing.
+Events (topic `capture`): `capture.state` `{state, reason, iface, keep, limit_s}` on every change; `capture.stats`, the figures above, once after each change of state that has figures (unless it changes again first) and once a second while capturing or held. Figures never come before their state; at most four of each in a second, the last `ended`/`left` aside.
+
+**Served by `gatewayd` since G1** (`services/gatewayd/gw_capture.[ch]`, `main.c`), host-tested against a fake shell; not yet run against the real shell or on a unit.
+
+How the gateway serves it (ADR-016 amendment 1, clarification 5; ADR-019 rules 6 and 6a):
+
+- **One connection to the shell's socket that never blocks**, held only while some paired client has `capture_view`. On it the gateway calls `capture.status`, `capture.hold`, `capture.stop`, `capture.request_start` and, for itself, `capture.request_cancel`; nothing else, no `shell.*` method, and no subscription to the shell's events.
+- **Scopes** are looked up when a client asks, again when the unit's answer comes, and again for every event before it is sent. A method without its scope is error 7; the topic `capture` is not held without `capture_view`, and is dropped from a session the moment the scope goes.
+- **Parameters** are checked and written again before anything is sent: `capture.status` and `capture.stop` take none, `capture.hold` one boolean, `capture.request_start` an interface name of the kind a status may show (`eth`, `wlan`, `usb` or `synth` with one or two digits: asking cannot be used to find out a name the status would hide) and a limit of 300, 900 or 3600. Anything else is error 2 and does not reach the unit. A client can name neither who asks (the unit is told the name it gave the client at pairing) nor what its request is called (a random name of the gateway's own).
+- **Answers and events are rebuilt**, never passed on: the fields of this section by name, each figure a whole number in range, each word one of the lists, the interface name `eth`, `wlan`, `usb` or `synth` with one or two digits or else empty. The unit's `request` field is the gateway's to read and is not sent.
+- **Events** are made from the gateway's own `capture.status`, asked once a second while a client holds the topic or a start request waits, and not at all otherwise (the unit's screen then shows no reader: ADR-016 rule 20). `capture.state` on a change, and once to a client that has just subscribed (to it alone); `capture.stats` with the state and with every answer while capturing or held, skipped for a client that is behind on reading. When PacketShark or the shell goes out of reach, a capture clients were told of ends as `ended`/`left`.
+- **A start request:** one waiting at a time (error 5 to anyone else), and one per client in 30 s (error 10), both decided before the unit is asked. Its outcome is `capture.state` with `capturing`, or `idle` with `refused` or `timeout`. Only the unit's own word ends a request as refused: while START has been tapped and the capture is starting, the request simply waits for it.
+- **`capture.request_cancel`** is sent by the gateway, with the request's name, when the client that asked disconnects, is revoked, loses `capture_control`, when 62 s have passed, when the unit's answer to the request did not come in time, and when the gateway stops. If the shell cannot be reached, or did not answer the request in time (so that a slow shell may raise the sheet later), the cancel is repeated once a second, by the same name, until the unit says it took the sheet down or no sheet of that request can be up any more; under all of it the unit's own 60 seconds end the sheet. Clients are told `refused` or `timeout` only when the unit answers that it took the sheet down: if START was tapped a moment before, there was nothing to take down, the capture runs on and no refusal is said. It is sent for no request that is over and cannot reach a capture a tap has started. No client can call it (error 1).
+- **Limits:** one status question in flight; a client's requests share the 16 waiting slots of the mesh group; every request to the shell is given up after 2 s (error 9), and a shell that does not answer in that time loses the connection, which is made again with the uplink's backoff.
+- `capabilities` has `capture` for a client that holds `capture_view`, and for no other (a client without the scope sees what it always saw). Whether the shell is connected and has not said that it has no PacketShark is `upstream.shell` in the answer to `gateway.subscribe` for a session that holds the topic, and the event `gateway.upstream` `{"service": "shell", "connected": bool}` to those sessions; on a unit without PacketShark it turns false with the first question and the methods answer error 9.
+- The gateway asks the shell nothing on connecting. The first `capture.status` is a client's, or the gateway's own once a client holds the topic, so the unit's screen says that a companion reads only while one does. A shell that answers "unknown method" has no PacketShark: `gateway.upstream` then says `connected: false`, the methods answer error 9, and it is not asked again on that connection.
+- When the last client that may read a capture loses that right, the connection to the shell is kept until a cancel on its way has been answered (2 s at most), and then given up. When the gateway stops, a waiting request is cancelled first.
 
 ## 10. The local control surface (`gatewayd.sock`)
 

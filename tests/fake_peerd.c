@@ -32,6 +32,12 @@ struct state {
     int probes;                 /* how many have been asked; the last one is listed */
     char probe_address[32];
     int probe_answered;
+    /* Answers to peer.probe held back (probe_reply_delay_ms). */
+    struct {
+        struct pocketipc_client *client;
+        cJSON *reply;
+        int64_t due;
+    } late[4];
 };
 
 static const char *name_of(const struct fake_peerd_script *script)
@@ -267,6 +273,18 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         st->probes++;
         snprintf(st->probe_address, sizeof(st->probe_address), "%s", addr->valuestring);
         cJSON_AddNumberToObject(result, "probe_id", st->probes);
+        if (sc->probe_reply_delay_ms > 0) {
+            int i;
+
+            for (i = 0; i < 4; i++) {
+                if (!st->late[i].reply) {
+                    st->late[i].client = c;
+                    st->late[i].reply = pocketipc_response(id, result);
+                    st->late[i].due = now_ms() + sc->probe_reply_delay_ms;
+                    return;
+                }
+            }
+        }
     } else if (strcmp(name, "peer.probes") == 0) {
         cJSON *arr = cJSON_AddArrayToObject(result, "probes");
 
@@ -301,6 +319,15 @@ static void on_disconnect(struct pocketipc_server *s, uint64_t client_id, void *
     (void)client_id;
     st->subscribed = 0;
     st->inbox_answered = 0;
+    {
+        int i;
+
+        /* The client an answer was held for has gone. */
+        for (i = 0; i < 4; i++) {
+            cJSON_Delete(st->late[i].reply);
+            st->late[i].reply = NULL;
+        }
+    }
 }
 
 int fake_peerd_run(const struct fake_peerd_script *script)
@@ -335,6 +362,18 @@ int fake_peerd_run(const struct fake_peerd_script *script)
                 relative_to_now(data, "mono_ms");
             }
             pocketipc_server_broadcast(st.server, pocketipc_event("peer.app", data));
+        }
+        {
+            int i;
+
+            for (i = 0; i < 4; i++) {
+                if (st.late[i].reply && now_ms() >= st.late[i].due) {
+                    cJSON *reply = st.late[i].reply;
+
+                    st.late[i].reply = NULL;
+                    pocketipc_server_reply(st.server, st.late[i].client, reply);
+                }
+            }
         }
         if (script->life_ms && now_ms() - started >= script->life_ms) {
             break;

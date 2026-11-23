@@ -7,7 +7,8 @@
 #      atomically and restores only what the rules call valid;
 #   4. no colour is written in the game's C sources: interface colours are
 #      tokens, card colours are art in apps/blackjack/art/cards_palette.txt;
-#   5. the felt is PocketTimber's, reached through bj_felt.c alone;
+#   5. nothing reaches into PocketTimber: the cloth, and its flat colour
+#      without memory, are the shared table's (ui/cards/cg_scene.c);
 #   6. the Pocket Cards copies match their PG Solitaire origin in shape
 #      (the prefix is the only intended difference);
 #   7. input is one key sink and one map; nothing tapped takes the focus;
@@ -19,11 +20,13 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
 APP=apps/blackjack
-ENGINE="$APP/engine/bj_rng.c $APP/engine/bj_rng.h $APP/engine/bj_cards.c $APP/engine/bj_cards.h \
+# The card, shuffle and shoe primitives are the shared module (core/cards).
+CARDS=core/cards
+ENGINE="$CARDS/cg_rng.c $CARDS/cg_rng.h $CARDS/cg_cards.c $CARDS/cg_cards.h $CARDS/cg_shoe.c $CARDS/cg_shoe.h \
         $APP/engine/bj_rules.c $APP/engine/bj_rules.h"
 VIEW="$APP/ui/bj_view.c $APP/ui/bj_view.h"
 LVGL_SIDE="$APP/bj_app.c $APP/bj_app.h $APP/ui/bj_card_draw.c $APP/ui/bj_card_draw.h \
-           $APP/ui/bj_table_widget.c $APP/ui/bj_table_widget.h $APP/ui/bj_felt.c $APP/ui/bj_felt.h \
+           $APP/ui/bj_table_widget.c $APP/ui/bj_table_widget.h \
            $APP/ui/bj_palette.h"
 ALL="$ENGINE $VIEW $LVGL_SIDE"
 
@@ -84,14 +87,16 @@ check "CMake generates the palette into the build tree" \
        grep -q 'set(out "${CMAKE_BINARY_DIR}/${prefix}_palette.c")' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 check "and no generated palette is committed" "$([ ! -e $APP/ui/bj_palette.c ] && echo 1 || echo 0)"
 
-hits=$(grep -lE 'timber' $ALL | grep -v 'bj_felt\.[ch]$')
-check "only bj_felt.c reaches into PocketTimber" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits"
-check "and it reuses Timber's felt" "$(code $APP/ui/bj_felt.c | grep -q 'timber_art_felt()' && echo 1 || echo 0)"
-check "the Pocket Cards copies say where they came from" \
-    "$(grep -q "PG Solitaire's sol_cards.h" $APP/engine/bj_cards.h &&
-       grep -q "PG Solitaire's sol_card_draw" $APP/ui/bj_card_draw.h && echo 1 || echo 0)"
+hits=$(grep -lE 'timber' $ALL)
+check "nothing reaches into PocketTimber" "$([ -z "$hits" ] && echo 1 || echo 0)"; [ -n "$hits" ] && echo "$hits"
+check "the cloth is the shared scene's" "$(code $APP/bj_app.c | grep -q 'cg_scene_build' && echo 1 || echo 0)"
+check "the card renderer copy says where it came from" \
+    "$(grep -q "PG Solitaire's sol_card_draw" $APP/ui/bj_card_draw.h && echo 1 || echo 0)"
+check "the cards are the shared module, with no private copy left" \
+    "$(grep -q 'core/cards/cg_cards.c' ui/shell/CMakeLists.txt &&
+       [ ! -e $APP/engine/bj_cards.h ] && [ ! -e $APP/engine/bj_rng.h ] && echo 1 || echo 0)"
 check "and the card API has the shared shape" \
-    "$([ "$(grep -cE '^(bj_card_t |int |enum bj_suit |const char \*|void )bj_(card|card_rank|card_suit|card_is_red|card_valid|rank_text|suit_name|deck_fill|deck_shuffle)\(' $APP/engine/bj_cards.h)" = "9" ] &&
+    "$([ "$(grep -cE '^(cg_card_t |int |enum cg_suit |const char \*|void )cg_(card|card_rank|card_suit|card_is_red|card_valid|rank_text|suit_name|deck_fill|deck_shuffle)\(' core/cards/cg_cards.h)" = "9" ] &&
        echo 1 || echo 0)"
 
 hits=$(grep -nE 'pos_keyboard\.h|lv_keyboard|pocketos_shell_keyboard|pocketui_text_field|lv_textarea' $ALL)
@@ -120,8 +125,8 @@ check "registered once" "$([ "$(grep -c '&app_blackjack\b' ui/shell/shell.c)" = 
 # (ui/shell/home_layout.c): a game, in the Games folder, in the games colour (DS §47).
 check "the launcher shows it in the Games folder" \
     "$(grep -q '{ "blackjack", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
-for src in bj_app.c engine/bj_rng.c engine/bj_cards.c engine/bj_rules.c ui/bj_view.c ui/bj_card_draw.c \
-           ui/bj_table_widget.c ui/bj_felt.c; do
+for src in bj_app.c engine/bj_rules.c ui/bj_view.c ui/bj_card_draw.c \
+           ui/bj_table_widget.c; do
     check "the shell builds $src" "$(grep -q "apps/blackjack/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done
 check "the app test is a host-only target" \

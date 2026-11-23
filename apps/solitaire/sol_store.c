@@ -17,7 +17,7 @@
 #define STORE_PATH_MAX 512
 #define PILES_AT 19
 #define CARDS_AT (PILES_AT + 2 * SOL_PILES)
-#define SUM_AT (CARDS_AT + SOL_DECK)
+#define SUM_AT (CARDS_AT + CG_DECK)
 
 static const uint8_t magic[4] = { 'P', 'G', 'S', 'L' };
 
@@ -115,7 +115,7 @@ int sol_save_decode(struct sol_game *g, const uint8_t *buf, size_t n)
 
         /* Counts that run past the cards would read the checksum as cards;
          * refuse before copying anything. */
-        if (count > SOL_DECK || at + count > SUM_AT) {
+        if (count > CG_DECK || at + count > SUM_AT) {
             return -1;
         }
         tmp.pile[p].n = count;

@@ -22,7 +22,8 @@
  *
  * Every call returns at once. A link never blocks the LVGL thread - but for
  * close on the local network's link, which may wait up to 60 ms for the
- * service's outstanding answers (fleet_link_peer.c, p_close).
+ * service's outstanding answers, and up to 120 ms more when it has both an
+ * opponent to let go and a visibility to end (fleet_link_peer.c, p_close).
  *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0

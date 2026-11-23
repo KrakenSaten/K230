@@ -2,18 +2,18 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "poker.h"
 
-static uint32_t five(const bj_card_t c[5])
+static uint32_t five(const cg_card_t c[5])
 {
     int count[15] = {0}, ranks[5], pairs[2] = {0}, np = 0, triple = 0, quad = 0;
     int flush = 1, straight = 0, n = 0, run = 0;
     enum poker_rank category;
     uint32_t result;
     for (int i = 0; i < 5; ++i) {
-        int rank = bj_card_rank(c[i]);
-        if (rank == BJ_ACE)
+        int rank = cg_card_rank(c[i]);
+        if (rank == CG_ACE)
             rank = 14;
         ++count[rank];
-        if (bj_card_suit(c[i]) != bj_card_suit(c[0]))
+        if (cg_card_suit(c[i]) != cg_card_suit(c[0]))
             flush = 0;
     }
     for (int r = 14; r >= 2; --r) {
@@ -71,15 +71,15 @@ static uint32_t five(const bj_card_t c[5])
     return result;
 }
 
-uint32_t poker_evaluate(const bj_card_t *cards, unsigned count)
+uint32_t poker_evaluate(const cg_card_t *cards, unsigned count)
 {
     uint64_t seen = 0;
     uint32_t best = 0;
-    bj_card_t hand[5];
+    cg_card_t hand[5];
     if (!cards || count < 5 || count > 7)
         return 0;
     for (unsigned i = 0; i < count; ++i) {
-        if (!bj_card_valid(cards[i]) || (seen & (UINT64_C(1) << cards[i])))
+        if (!cg_card_valid(cards[i]) || (seen & (UINT64_C(1) << cards[i])))
             return 0;
         seen |= UINT64_C(1) << cards[i];
     }

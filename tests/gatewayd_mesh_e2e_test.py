@@ -273,9 +273,11 @@ try:
             "mesh.channel", "mesh.channel_add", "mesh.channel_remove", "mesh.set_name", "mesh.node_remove",
             "mesh.node_reset_path", "mesh.advert", "mesh.discover", "mesh.discovered", "mesh.remote_login",
             "mesh.remote_session", "mesh.app_send", "mesh.app_inbox", "mesh.path_hash", "mesh.set_path_hash",
-            "capture.status"]
+            "capture.request_cancel", "capture.start", "shell.subscribe"]
     check("changing and everything unapproved does not exist (code 1); sending has its own suite",
           all(err_code(a.call(m, {"to": K1, "text": "x", "client_msg_id": "0123456789abcdef"})) == 1 for m in gone))
+    check("the capture group exists since G1 and is not this client's to call: it holds no capture scope (code 7)",
+          err_code(a.call("capture.status")) == 7 and err_code(a.call("capture.stop")) == 7)
     check("and none reached meshcored", len(mesh.calls) == n0)
 
     # mesh.nodes in pages, from one upstream list.

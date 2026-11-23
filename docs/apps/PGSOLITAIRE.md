@@ -1,12 +1,43 @@
 # PG Solitaire
 
 A Pocket Games title: Klondike solitaire on PocketTimber's felt.
+(Since Lamplight: on its own green cloth, full screen - see "Lamplight" below.)
 Integrated for Doors v0.2.x on `feat/games-solitaire-blackjack-2048` (from
 v0.2.1 `c9c2105`, 2026-09-28): imported byte for byte from `feature/game-solitaire` `62f5413`
 (physically tested on unit A at `040955e` on 2026-09-13, in the temporary
 combined build `test/pocket-games-triple` `03a0fef`: PASS), then brought up
 to the current frame - see "Doors integration" below. Not merged; not yet
 on glass in this form.
+
+
+## Lamplight (2026-11)
+
+The card games redesign, direction A (`docs/design/card-games` on
+`design/card-games-redesign`; owner decisions 1 to 5, 2026-11-22). Where
+this section and the older text below disagree, this section holds.
+
+- **Full screen** (decision 3). The shell's header is hidden
+  (`pocketos_shell_set_fullscreen`); the game draws its own back mark, a
+  chevron in the top-left corner clear of the corner square (30 px portrait,
+  50 px landscape), and its name in gold. The device's Back and Home and Esc
+  are the shell's, unchanged. Shared code: `ui/cards/cg_scene.[ch]`.
+- **Cloth** (decision 2). The green cloth under one lamp fills the screen and
+  falls off to black; its palette is fixed in every theme. Night dims cloth,
+  cards and chips by half; labels and buttons are not dimmed. Without memory
+  for the cloth buffer the cloth's deep colour is laid flat. Timber's felt is
+  no longer used.
+- **Cards.** Ivory stock, pip layouts, and illustrated court cards: a
+  double-ended jack (feathered cap, halberd), queen (tiara, flower) and king
+  (crown, beard, sceptre), robed in the suit's colour with the suit on the
+  breast; small cards show one head and shoulders. Drawn as shapes once per
+  size into a RAM atlas (`ui/cards/cg_deck.c`), then blitted. The corner
+  index has fixed type (decision 4): the faces the Medium text size gives,
+  whatever the setting.
+- **Motion** (`ui/cards/cg_motion.[ch]`). A moved card or run travels (170 ms), a drawn card turns over on its way to the waste, an uncovered card turns over, and a win lifts the four kings one after another. A new deal and the waste turned back (more cards than the runner holds) simply appear. Cards in motion draw over every pile, and the selection and cursor are gold. Under reduced motion (DS 12)
+  nothing moves and the end state is drawn at once. One 33 ms timer exists
+  only while something moves; each frame repaints only what moved.
+- **Headline** (decision 5): a won deal says "Solved." in Fraunces italic on the emptied tableau, once the kings have risen.
+- **Memory.** The atlas and the cloth are freed when the game closes. Measured in the simulator: about 1 MB of composed cards and 1.3 MB of cloth while open.
 
 ## Ruleset
 
@@ -68,14 +99,13 @@ the table nor the buttons take the focus when tapped. Tab is not used
 ## Architecture
 
 ```
-apps/solitaire/engine/sol_cards.[ch]      card, rank/suit/colour, deck, shuffle   (Pocket Cards candidate)
-apps/solitaire/engine/sol_rng.[ch]        xorshift32                              (Pocket Cards candidate)
+core/cards/cg_cards.[ch]                  card, rank/suit/colour, deck, shuffle   (shared with Blackjack and Poker)
+core/cards/cg_rng.[ch]                    xorshift32                              (shared)
 apps/solitaire/engine/sol_rules.[ch]      Klondike draw-1: deal, pick, move, draw, foundation target, validity
 apps/solitaire/ui/sol_view.[ch]           pure: screen blocks, table geometry, fans, hit test,
                                           cursor/selection state machine for keys and taps, captions
 apps/solitaire/ui/sol_card_draw.[ch]      LVGL: face, back, slot, suit shapes    (Pocket Cards candidate)
-apps/solitaire/ui/sol_table_widget.[ch]   LVGL: felt, piles, selection, cursor; tap -> hit
-apps/solitaire/ui/sol_felt.[ch]           the one door to PocketTimber's felt
+apps/solitaire/ui/sol_table_widget.[ch]   LVGL: piles, selection, cursor, their motion; tap -> hit
 apps/solitaire/ui/sol_palette.h           card world palette (values generated from art/)
 apps/solitaire/art/cards_palette.txt      the card colours, as art
 apps/solitaire/sol_app.[ch]               LVGL: HUD, table, controls, input plumbing

@@ -582,6 +582,136 @@ int main(void)
         }
     }
 
+    /* ---- a probe replaced while its answer is still on its way --------------------- */
+    memset(&script, 0, sizeof(script));
+    script.probe_address = "192.168.1.41";
+    script.probe_key = BOB;
+    script.probe_reply_delay_ms = 1500;
+    script.log = LOG;
+    script.life_ms = 60000;
+    remove(LOG);
+    pid = fake_peerd_spawn(&script);
+    if (pid > 0 && fake_peerd_wait_ready(&script, WAIT_MS)) {
+        l = fleet_link_peer_open(NULL);
+        spin(l, WAIT_MS, is_up);
+        until_logged(l, "peer.set_visible|{\"visible\":true}", 1);
+        /* Nobody is at the first address; Bob is at the second. peerd's
+         * answer to the first question arrives after the second was asked,
+         * and long enough before the second's own answer that the link has
+         * read peerd's list in between: taken for the second's, it would
+         * name a probe that list does not hold, and "no answer" would stand. */
+        check("an address is asked", fleet_link_peer_probe(l, "192.168.1.99") == 0);
+        until_logged(l, "peer.probe|{\"address\":\"192.168.1.99\"}", 1);
+        {
+            int64_t asked = now_ms();
+
+            spin(l, 500, NULL);
+            check("and replaced before peerd has answered",
+                  fleet_link_peer_probe(l, "192.168.1.41") == 0 &&
+                  fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_PENDING);
+            /* peerd answers the first 1.5 s after it was asked. Had this
+             * machine been too slow to replace it in time, what follows
+             * would prove nothing: say so rather than pass. */
+            check("with the first answer still more than half a second away",
+                  now_ms() - asked < 1000);
+        }
+        probe_want = FLEET_PEER_PROBE_ANSWERED;
+        check("the late answer to the first is not taken for the second's: Bob answers",
+              spin(l, WAIT_MS, probe_is) && fleet_link_peer_probe_key(l, who) == 0 &&
+              memcmp(who, bob, FLEET_KEY_BYTES) == 0);
+        spin(l, 900, NULL);
+        check("and it stays answered", fleet_link_peer_probe_state(l) == FLEET_PEER_PROBE_ANSWERED);
+        l->ops->close(l->ctx);
+    } else {
+        check("a peerd that answers probes late starts", 0);
+    }
+    if (pid > 0) {
+        fake_peerd_stop(&script, pid);
+    }
+
+    /* ---- closing: who is let go, and who is not ------------------------------------ */
+    memset(&script, 0, sizeof(script));
+    script.log = LOG;
+    script.life_ms = 60000;
+    remove(LOG);
+    pid = fake_peerd_spawn(&script);
+    if (pid > 0 && fake_peerd_wait_ready(&script, WAIT_MS)) {
+        /* A match in hand when the link closes: its opponent stays kept. */
+        l = fleet_link_peer_open(NULL);
+        spin(l, WAIT_MS, is_up);
+        l->ops->match_peer(l->ctx, bob);
+        until_logged(l, "peer.keep|{\"key\":\"" BOB "\"}", 1);
+        kept_want = 1;
+        spin(l, WAIT_MS, kept_is);
+        l->ops->close(l->ctx);
+        usleep(300000);
+        check("closed with a match in hand: the opponent is not released",
+              count_lines(LOG, "peer.release|") == 0);
+        check("and the device is hidden, as ever",
+              count_lines(LOG, "peer.set_visible|{\"visible\":false}") == 1);
+
+        /* The session says the match is finished with, and the link closes
+         * before it has had a poll to put peerd's list right. */
+        remove(LOG);
+        l = fleet_link_peer_open(NULL);
+        spin(l, WAIT_MS, is_up);
+        until_logged(l, "peer.set_visible|{\"visible\":true}", 1);
+        l->ops->match_peer(l->ctx, bob);
+        kept_want = 1;
+        spin(l, WAIT_MS, kept_is);
+        check("the scripted peerd still keeps the opponent from before", kept_is(l));
+        l->ops->match_peer(l->ctx, NULL);
+        l->ops->close(l->ctx);
+        usleep(400000);
+        check("closed straight after the match is finished with: the opponent is released by name",
+              count_lines(LOG, "peer.release|{\"key\":\"" BOB "\"}") == 1);
+        check("and the device hidden too: the second request was not lost behind the first",
+              count_lines(LOG, "peer.set_visible|{\"visible\":false}") == 1 &&
+              log_pos(LOG, "peer.release|") < log_pos(LOG, "peer.set_visible|{\"visible\":false}"));
+
+        /* Nobody is kept any more: a third link finds the list empty, and
+         * closing a link that has already put the list right releases nothing more. */
+        remove(LOG);
+        l = fleet_link_peer_open(NULL);
+        fleet_link_peer_set_visible(l, 0);
+        spin(l, WAIT_MS, is_up);
+        l->ops->match_peer(l->ctx, bob);
+        until_logged(l, "peer.keep|{\"key\":\"" BOB "\"}", 1);
+        kept_want = 1;
+        spin(l, WAIT_MS, kept_is);
+        l->ops->match_peer(l->ctx, NULL);
+        until_logged(l, "peer.release|{\"key\":\"" BOB "\"}", 1);
+        kept_want = 0;
+        check("left open, the link lets the opponent go by itself", spin(l, WAIT_MS, kept_is));
+        l->ops->close(l->ctx);
+        usleep(300000);
+        check("and closing it then releases nobody twice", count_lines(LOG, "peer.release|") == 1);
+        check("nor says anything of a visibility it never asked for",
+              count_lines(LOG, "peer.set_visible|") == 0);
+
+        /* Let go and named again before the link has had a poll: the one
+         * the session names is never the one released as the link closes. */
+        remove(LOG);
+        l = fleet_link_peer_open(NULL);
+        fleet_link_peer_set_visible(l, 0);
+        spin(l, WAIT_MS, is_up);
+        l->ops->match_peer(l->ctx, bob);
+        until_logged(l, "peer.keep|{\"key\":\"" BOB "\"}", 1);
+        kept_want = 1;
+        spin(l, WAIT_MS, kept_is);
+        l->ops->match_peer(l->ctx, NULL);
+        l->ops->match_peer(l->ctx, bob);
+        l->ops->close(l->ctx);
+        usleep(300000);
+        check("let go and named again, then closed: the opponent in hand is not released",
+              count_lines(LOG, "peer.release|") == 0);
+    } else {
+        check("a peerd for the closing checks starts", 0);
+    }
+    if (pid > 0) {
+        fake_peerd_stop(&script, pid);
+    }
+
     /* ---- seen only when its owner wants it -------------------------------------- */
     memset(&script, 0, sizeof(script));
     script.log = LOG;

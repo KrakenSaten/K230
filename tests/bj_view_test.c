@@ -56,10 +56,10 @@ static void stack(struct bj_game *g, ...)
     va_end(ap);
     g->shoe.n = (uint8_t)(40 + k);
     for (i = 0; i < 40; i++) {
-        g->shoe.card[i] = bj_card(2 + i % 3, (enum bj_suit)(i % 4));
+        g->shoe.card[i] = cg_card(2 + i % 3, (enum cg_suit)(i % 4));
     }
     for (i = 0; i < k; i++) {
-        g->shoe.card[g->shoe.n - 1 - i] = bj_card(ranks[i], (enum bj_suit)((i + 1) % 4));
+        g->shoe.card[g->shoe.n - 1 - i] = cg_card(ranks[i], (enum cg_suit)((i + 1) % 4));
     }
 }
 

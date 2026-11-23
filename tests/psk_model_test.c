@@ -356,6 +356,41 @@ int main(void)
         }
         check("one is one, and five segments give no share (Unit B, 2026-11-18: '1 RETRANSMISSIONS · 20.0%')",
               found == 3);
+        {
+            char note[512];
+
+            memset(&d, 0, sizeof(d));
+            d.dns_unjudged = 1;
+            d.tcp_replaced = 1;
+            d.tcp_flows = 1;
+            d.blinded = 1;
+            ppc_evt_format_diag(buf, sizeof(buf), &d);
+            line(buf);
+            psk_diag_confidence(&M, PSK_DIAG_DNS, note, sizeof(note));
+            found = strstr(note, " 1 query was let go unjudged.") != NULL && strstr(note, "1 time (") != NULL;
+            psk_diag_confidence(&M, PSK_DIAG_TCP, note, sizeof(note));
+            found = found && strstr(note, "1 connection was forgotten.") && strstr(note, " 1 connection followed now.");
+            d.dns_unjudged = 3;
+            d.tcp_replaced = 2;
+            d.tcp_flows = 9;
+            ppc_evt_format_diag(buf, sizeof(buf), &d);
+            line(buf);
+            psk_diag_confidence(&M, PSK_DIAG_DNS, note, sizeof(note));
+            found = found && strstr(note, " 3 queries were let go unjudged.");
+            psk_diag_confidence(&M, PSK_DIAG_TCP, note, sizeof(note));
+            found = found && strstr(note, "2 connections were forgotten.") && strstr(note, " 9 connections followed now.");
+            check("the confidence note counts one in the singular (Unit B, 2026-11-18: '1 queries were let go')", found);
+            M.c.kdrop = 1;
+            M.c.ifdrop = 0;
+            psk_diag_confidence(&M, PSK_DIAG_DNS, note, sizeof(note));
+            found = strstr(note, " The kernel dropped 1 packet: ") != NULL;
+            M.c.kdrop = 2;
+            M.c.ifdrop = 1;
+            psk_diag_confidence(&M, PSK_DIAG_DNS, note, sizeof(note));
+            found = found && strstr(note, " The kernel dropped 3 packets: ") != NULL;
+            M.c.kdrop = M.c.ifdrop = 0;
+            check("and one dropped packet is a packet", found);
+        }
     }
 
     printf("psk_model_test: %d checks, %d failed\n", checks, failed);

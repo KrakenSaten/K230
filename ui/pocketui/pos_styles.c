@@ -32,6 +32,8 @@ LV_FONT_DECLARE(pos_font_mono_28)
 LV_FONT_DECLARE(pos_font_mono_16_medium)
 LV_FONT_DECLARE(pos_font_mono_19_medium)
 LV_FONT_DECLARE(pos_font_mono_22_medium)
+LV_FONT_DECLARE(pos_font_serif_italic_32)
+LV_FONT_DECLARE(pos_font_serif_italic_48)
 LV_FONT_DECLARE(pos_font_clock_64)
 LV_FONT_DECLARE(pos_font_clock_96)
 
@@ -67,6 +69,8 @@ static const struct {
     { POS_FACE_MONO_MEDIUM, 16, &pos_font_mono_16_medium },
     { POS_FACE_MONO_MEDIUM, 19, &pos_font_mono_19_medium },
     { POS_FACE_MONO_MEDIUM, 22, &pos_font_mono_22_medium },
+    { POS_FACE_SERIF_ITALIC, 32, &pos_font_serif_italic_32 },
+    { POS_FACE_SERIF_ITALIC, 48, &pos_font_serif_italic_48 },
 };
 
 #define TYPE_FONT_COUNT ((int)(sizeof(type_fonts) / sizeof(type_fonts[0])))

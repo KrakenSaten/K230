@@ -40,12 +40,12 @@
 #ifndef PGBJ_RULES_H
 #define PGBJ_RULES_H
 
-#include "bj_cards.h"
+#include "cg_shoe.h"
 
 #include <stdint.h>
 
 #define BJ_DECKS 2
-#define BJ_SHOE (BJ_DECKS * BJ_DECK)
+#define BJ_SHOE (BJ_DECKS * CG_DECK)
 /* A round never needs more than this; reshuffling below it at the deal means
  * a round in progress does not normally run the shoe dry. */
 #define BJ_RESHUFFLE_AT 26
@@ -60,15 +60,9 @@
 
 struct bj_hand {
     uint8_t n;
-    bj_card_t card[BJ_HAND_MAX];
+    cg_card_t card[BJ_HAND_MAX];
 };
 
-struct bj_shoe {
-    uint8_t n;                 /* cards left; card[n - 1] is dealt next */
-    bj_card_t card[BJ_SHOE];
-    struct bj_rng rng;
-    uint32_t shuffles;
-};
 
 enum bj_phase {
     BJ_BETTING = 0, /* before the first round, or after one: bet and deal */
@@ -97,7 +91,7 @@ enum bj_result {
 };
 
 struct bj_game {
-    struct bj_shoe shoe;
+    struct cg_shoe shoe;
     struct bj_hand player;
     struct bj_hand dealer;
     enum bj_phase phase;
@@ -114,18 +108,12 @@ struct bj_game {
 /* ---- hands --------------------------------------------------------------- */
 
 /* The value a card adds before aces are decided: aces 1, courts 10. */
-int bj_card_points(bj_card_t c);
+int bj_card_points(cg_card_t c);
 /* The best total not over 21 if there is one, else the lowest; *soft is 1
  * when an ace is being counted as 11 (soft may be NULL). */
 int bj_hand_total(const struct bj_hand *h, int *soft);
 int bj_is_blackjack(const struct bj_hand *h);
 int bj_is_bust(const struct bj_hand *h);
-
-/* ---- the shoe ---------------------------------------------------------------- */
-
-void bj_shoe_init(struct bj_shoe *shoe, uint32_t seed);
-/* Replace the shoe with a full, freshly shuffled one. */
-void bj_shoe_shuffle(struct bj_shoe *shoe);
 
 /* ---- a session ------------------------------------------------------------------ */
 

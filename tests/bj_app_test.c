@@ -25,6 +25,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
+#include "cg_deck.h"
+#include "cg_table.h"
 #include "chrome.h"
 #include "bj_app.h"
 #include "bj_palette.h"
@@ -84,11 +86,29 @@ void pocketos_shell_set_status_hint(const char *text)
     (void)text;
     shell_calls++;
 }
-void pocketos_shell_go_home(void) { shell_calls++; }
+/* Reduced motion on unless a test turns it off: the end state is drawn at
+ * once, which every check before the motion test reads. */
+static int reduced_motion = 1;
+static int fullscreen_calls;
+static int go_home_calls;
+void pocketos_shell_go_home(void) { go_home_calls++; }
+static lv_obj_t *app_header;
+static lv_obj_t *app_body;
+void pocketos_shell_set_fullscreen(bool fullscreen)
+{
+    /* The game takes the whole screen; it never gives it back itself. As
+     * the shell does (shell.c): the header hidden, the body unpadded. */
+    fullscreen_calls += fullscreen ? 1 : 1000;
+    if (app_header) {
+        lv_obj_add_flag(app_header, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (app_body) {
+        lv_obj_set_style_pad_all(app_body, 0, 0);
+    }
+}
 int pocketos_shell_reduced_motion(void)
 {
-    shell_calls++;
-    return 0;
+    return reduced_motion;
 }
 int64_t pocketos_shell_system_day(void)
 {
@@ -193,20 +213,17 @@ static void tap_obj(lv_obj_t *obj)
 
 static lv_obj_t *g_content;
 static lv_obj_t *app_root;
-static lv_obj_t *app_body;
 static void *app_priv;
 
 static void app_start(void)
 {
-    lv_obj_t *header;
-
     app_root = lv_obj_create(g_content);
     lv_obj_remove_style_all(app_root);
     lv_obj_set_size(app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(app_root, LV_FLEX_FLOW_COLUMN);
-    header = lv_obj_create(app_root);
-    lv_obj_remove_style_all(header);
-    lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
+    app_header = lv_obj_create(app_root);
+    lv_obj_remove_style_all(app_header);
+    lv_obj_set_size(app_header, LV_PCT(100), POCKETUI_HEADER_H);
     app_body = lv_obj_create(app_root);
     lv_obj_remove_style_all(app_body);
     lv_obj_set_width(app_body, LV_PCT(100));
@@ -227,12 +244,14 @@ static void app_stop(void)
     app_priv = NULL;
     lv_obj_delete(app_root);
     app_root = NULL;
+    app_header = NULL;
     app_body = NULL;
     pump(60);
 }
 
 static struct bj_game *game(void) { return bj_app_game(app_priv); }
-static lv_obj_t *sink(void) { return app_body ? lv_obj_get_child(app_body, 0) : NULL; }
+/* The app's key sink: its root, inside the scene's frame (cg_scene.h). */
+static lv_obj_t *sink(void) { return app_priv ? lv_obj_get_parent(bj_app_table(app_priv)) : NULL; }
 static const char *caption(void) { return lv_label_get_text(bj_app_caption(app_priv)); }
 static const char *value(int i) { return lv_label_get_text(bj_app_value(app_priv, i)); }
 
@@ -252,8 +271,8 @@ static int button_is(int i, const char *text, int enabled)
  * the rules can reach and saves like one. */
 static void stack(struct bj_game *g, ...)
 {
-    uint8_t left[BJ_DECK];
-    bj_card_t picked[40];
+    uint8_t left[CG_DECK];
+    cg_card_t picked[40];
     int k = 0;
     int n = 0;
     int c;
@@ -275,15 +294,15 @@ static void stack(struct bj_game *g, ...)
         if (r == 0) {
             break;
         }
-        for (s = 0; s < BJ_SUITS && !left[bj_card(r, (enum bj_suit)s)]; s++) {
+        for (s = 0; s < CG_SUITS && !left[cg_card(r, (enum cg_suit)s)]; s++) {
         }
-        picked[k] = bj_card(r, (enum bj_suit)(s % BJ_SUITS));
+        picked[k] = cg_card(r, (enum cg_suit)(s % CG_SUITS));
         left[picked[k++]]--;
     }
     va_end(ap);
-    for (c = 0; c < BJ_DECK; c++) {
+    for (c = 0; c < CG_DECK; c++) {
         for (i = 0; i < left[c]; i++) {
-            g->shoe.card[n++] = (bj_card_t)c;
+            g->shoe.card[n++] = (cg_card_t)c;
         }
     }
     for (i = k - 1; i >= 0; i--) {
@@ -442,22 +461,19 @@ static void use_external(int32_t w, int32_t h)
     lv_obj_set_pos(g_content, 0, status_h());
 }
 
+/* The corner's type: fixed whatever the text size (owner decision 4 of the
+ * card games), the faces the Medium size gives the two roles a corner uses. */
 static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
 {
-    lv_style_value_t v;
-
     *letter_space = 0;
-    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
-        *letter_space = v.num;
-    }
-    return lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND ? v.ptr : NULL;
+    return cg_deck_font(role == POS_STYLE_TITLE ? CG_TYPE_INDEX : CG_TYPE_INDEX_SMALL);
 }
 
 /* The corner index bj_draw_face paints on a card `r` (screen coordinates):
  * the rank in its corner font, inset max(3, w / 14), with the w / 5 pip
  * below it - as wide as the wider of the two, from the card's top edge to
  * the pip's foot. */
-static lv_area_t corner_of(lv_area_t r, bj_card_t card)
+static lv_area_t corner_of(lv_area_t r, cg_card_t card)
 {
     int w = lv_area_get_width(&r);
     int pad = w / 14 < 3 ? 3 : w / 14;
@@ -469,7 +485,7 @@ static lv_area_t corner_of(lv_area_t r, bj_card_t card)
     lv_area_t c;
 
     if (font) {
-        lv_text_get_size(&size, bj_rank_text(bj_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_text_get_size(&size, cg_rank_text(cg_card_rank(card)), font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     }
     c.x1 = r.x1 + pad;
     c.x2 = c.x1 + (size.x > pip ? size.x : pip) - 1;
@@ -481,9 +497,9 @@ static lv_area_t corner_of(lv_area_t r, bj_card_t card)
 /* Pixels of exactly the card's ink inside `a` of the last frame: the fully
  * covered part of the rank glyphs and the pip, which a card painted over
  * the corner replaces with its paper or its edge. */
-static int ink_in(const lv_area_t *a, bj_card_t card)
+static int ink_in(const lv_area_t *a, cg_card_t card)
 {
-    lv_color_t ink = bj_palette[bj_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
+    lv_color_t ink = bj_palette[cg_card_is_red(card) ? BJ_INK_RED : BJ_INK_BLACK];
     uint16_t ink16 = lv_color_to_u16(ink);
     uint32_t bpp = lv_color_format_get_size(lv_display_get_color_format(g_disp));
     int32_t hor = lv_display_get_horizontal_resolution(g_disp);
@@ -566,8 +582,8 @@ static int corners_readable(const char *mode)
             want = ink_in(&a, whole.card[i]);
             if (want == 0 || got[i] != want) {
                 printf("note %s: %s card %d of %d (%s%s) shows %d of its %d index pixels (corner %d,%d..%d,%d)\n",
-                       mode, row ? "player" : "dealer", i + 1, whole.n, bj_rank_text(bj_card_rank(whole.card[i])),
-                       bj_suit_name(bj_card_suit(whole.card[i])), got[i], want, (int)corner[i].x1,
+                       mode, row ? "player" : "dealer", i + 1, whole.n, cg_rank_text(cg_card_rank(whole.card[i])),
+                       cg_suit_name(cg_card_suit(whole.card[i])), got[i], want, (int)corner[i].x1,
                        (int)corner[i].y1, (int)corner[i].x2, (int)corner[i].y2);
                 bad++;
             }
@@ -630,20 +646,20 @@ static void test_long_hands(void)
             }
             snprintf(what, sizeof(what), "%s, %s: the ten-card hand is a live hard 20 against 10 7", places[p], sizes[s]);
             check(what, g->phase == BJ_PLAYER && g->player.n == 10 && bj_hand_total(&g->player, NULL) == 20 &&
-                            g->dealer.n == 2 && bj_card_rank(g->dealer.card[0]) == 10 &&
-                            bj_card_rank(g->dealer.card[1]) == 7);
+                            g->dealer.n == 2 && cg_card_rank(g->dealer.card[0]) == 10 &&
+                            cg_card_rank(g->dealer.card[1]) == 7);
             snprintf(what, sizeof(what), "%s, %s: every index of the ten-card hard 20 is whole", places[p], sizes[s]);
             check(what, corners_readable(what) == 0);
             key('h');
             snprintf(what, sizeof(what), "%s, %s: one more 2 busts it in eleven cards", places[p], sizes[s]);
             check(what, g->phase == BJ_SETTLED && g->outcome == BJ_PLAYER_BUSTS && g->player.n == 11 &&
-                            bj_card_rank(g->player.card[10]) == 2);
+                            cg_card_rank(g->player.card[10]) == 2);
             snprintf(what, sizeof(what), "%s, %s: every index of the eleven-card bust is whole", places[p], sizes[s]);
             check(what, corners_readable(what) == 0);
             /* Drawn, not dealt: the table shows whatever the game holds. */
             for (i = 0; i < BJ_HAND_MAX; i++) {
-                g->player.card[i] = bj_card(i < 8 ? BJ_ACE : 2, (enum bj_suit)(i % BJ_SUITS));
-                g->dealer.card[i] = bj_card(i < 8 ? 10 : 3, (enum bj_suit)((i + 1) % BJ_SUITS));
+                g->player.card[i] = cg_card(i < 8 ? CG_ACE : 2, (enum cg_suit)(i % CG_SUITS));
+                g->dealer.card[i] = cg_card(i < 8 ? 10 : 3, (enum cg_suit)((i + 1) % CG_SUITS));
             }
             g->player.n = BJ_HAND_MAX;
             g->dealer.n = BJ_HAND_MAX;
@@ -844,21 +860,21 @@ static void test_glass(void)
 static void test_random(void)
 {
     static const pos_key_t keys[] = { LV_KEY_ENTER, ' ', 'h', 's', 'd', 'n', LV_KEY_LEFT, LV_KEY_RIGHT, '+', '-', 'q' };
-    struct bj_rng rng;
+    struct cg_rng rng;
     int step;
     int bad = 0;
     int unsaved = 0;
     uint32_t rounds = game()->rounds;
 
-    bj_rng_seed(&rng, 17);
+    cg_rng_seed(&rng, 17);
     for (step = 0; step < 3000; step++) {
         uint32_t chips = bj_chips(game());
         enum bj_phase before = game()->phase;
 
-        if (bj_rng_below(&rng, 5) == 0) {
-            tap_obj(bj_app_button(app_priv, (int)bj_rng_below(&rng, 3)));
+        if (cg_rng_below(&rng, 5) == 0) {
+            tap_obj(bj_app_button(app_priv, (int)cg_rng_below(&rng, 3)));
         } else {
-            key(keys[bj_rng_below(&rng, sizeof(keys) / sizeof(keys[0]))]);
+            key(keys[cg_rng_below(&rng, sizeof(keys) / sizeof(keys[0]))]);
         }
         if (step % 7 == 0) {
             tick();
@@ -1058,6 +1074,62 @@ static void test_review_and_rounds(void)
     check("and no focusable object", pos_input_focused() == NULL);
 }
 
+/* Motion (cg_motion.h): with reduced motion off a deal, a hit and a stand
+ * each move cards for a moment and end in the same game the rules made; no
+ * frame repaints more than a quarter of the panel; with reduced motion on
+ * nothing moves. Leaving while cards move leaves nothing running. */
+static void test_motion(void)
+{
+    const struct cg_motion *m;
+    struct bj_game before;
+    int t;
+
+    reduced_motion = 0;
+    setenv("PGBLACKJACK_SCREEN", "bet", 1);
+    app_start();
+    unsetenv("PGBLACKJACK_SCREEN");
+    m = bj_table_motion(bj_app_table(app_priv));
+    key(LV_KEY_ENTER);
+    check("motion: a deal sets cards moving", bj_table_moving(bj_app_table(app_priv)) && game()->player.n == 2);
+    before = *game();
+    for (t = 0; t < 4000 && bj_table_moving(bj_app_table(app_priv)); t += 20) {
+        pump(20);
+    }
+    check("motion: and they land within a second and a half", t <= 1500 && !bj_table_moving(bj_app_table(app_priv)));
+    check("motion: the game is the one the rules dealt", memcmp(&before, game(), sizeof(before)) == 0);
+    printf("note motion: deal took %d ms, %u frame(s), largest frame %u px (%u%% of the panel)\n", t,
+           (unsigned)m->frames, (unsigned)m->max_px, (unsigned)(m->max_px * 100u / (PANEL_W * PANEL_H)));
+    check("motion: no frame repaints more than a quarter of the panel", m->max_px <= PANEL_W * PANEL_H / 4);
+    if (game()->phase == BJ_PLAYER) {
+        key('s');
+        check("motion: a stand turns the hole card and plays the dealer out", bj_table_moving(bj_app_table(app_priv)));
+        redraw();
+        for (t = 0; t < 8000 && bj_table_moving(bj_app_table(app_priv)); t += 20) {
+            pump(20);
+        }
+        check("motion: the round settles on the table", !bj_table_moving(bj_app_table(app_priv)) &&
+                                                         game()->phase == BJ_SETTLED);
+    }
+    key(LV_KEY_ENTER);
+    check("motion: a command while cards move lands them first", bj_table_moving(bj_app_table(app_priv)));
+    key('h');
+    redraw();
+    app_stop();
+    check("motion: leaving mid-deal leaves no deck composed", cg_deck_bytes() == 0 && cg_table_bytes() == 0);
+    reduced_motion = 1;
+    setenv("PGBLACKJACK_SCREEN", "bet", 1);
+    app_start();
+    unsetenv("PGBLACKJACK_SCREEN");
+    key(LV_KEY_ENTER);
+    check("motion: reduced motion deals at once", !bj_table_moving(bj_app_table(app_priv)) && game()->player.n == 2);
+    redraw();
+    printf("note memory: Blackjack holds %u kB of composed cards and %u kB of cloth\n",
+           (unsigned)(cg_deck_bytes() / 1024), (unsigned)(cg_table_bytes() / 1024));
+    check("memory: one deck and one cloth, under 6 MB", cg_deck_bytes() > 0 && cg_deck_bytes() + cg_table_bytes() <
+                                                            6u * 1024 * 1024);
+    app_stop();
+}
+
 int main(void)
 {
     lv_display_t *disp;
@@ -1095,8 +1167,10 @@ int main(void)
     test_review_and_rounds();
     test_landscape();
     test_long_hands();
+    test_motion();
 
-    check("the app asked the shell for nothing", shell_calls == 0);
+    check("the app asked the shell for nothing but the whole screen", shell_calls == 0 && go_home_calls == 0 &&
+                                                                    fullscreen_calls > 0 && fullscreen_calls < 1000);
     check("and wrote only its own file, no temporary left", entries(state_dir) == 1 && entries(bj_store_dir()) == 1 &&
                                                                 file_size(bj_store_path()) == BJ_SAVE_SIZE);
     {

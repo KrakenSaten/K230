@@ -35,10 +35,10 @@ static void check_str(const char *what, const char *got, const char *want)
     }
 }
 
-#define S SOL_SPADES
-#define H SOL_HEARTS
-#define C SOL_CLUBS
-#define D SOL_DIAMONDS
+#define S CG_SPADES
+#define H CG_HEARTS
+#define C CG_CLUBS
+#define D CG_DIAMONDS
 
 static void set_pile(struct sol_game *g, int pile, int down, ...)
 {
@@ -55,7 +55,7 @@ static void set_pile(struct sol_game *g, int pile, int down, ...)
             break;
         }
         suit = va_arg(ap, int);
-        s->card[s->n++] = sol_card(rank, (enum sol_suit)suit);
+        s->card[s->n++] = cg_card(rank, (enum cg_suit)suit);
     }
     va_end(ap);
     s->down = (uint8_t)down;
@@ -370,7 +370,7 @@ static void test_pick_and_place(void)
     sol_view_key(&ui, &g, '1');
     sol_view_key(&ui, &g, ' ');
     check("Space on the 8 of spades puts it down there", g.pile[SOL_T0].n == 2 &&
-                                                            sol_top(&g, SOL_T0) == sol_card(7, H) &&
+                                                            sol_top(&g, SOL_T0) == cg_card(7, H) &&
                                                             g.pile[SOL_WASTE].n == 0);
     check("the selection is gone and the cursor followed the card", ui.sel_pile == -1 &&
                                                                         ui.cursor_pile == SOL_T0 &&
@@ -396,7 +396,7 @@ static void test_pick_and_place(void)
     sol_view_key(&ui, &g, '1');
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
     check("a black 6 goes on a red 7 and uncovers the card below it",
-          sol_top(&g, SOL_T0) == sol_card(6, C) && g.pile[SOL_T0 + 4].n == 1 && g.pile[SOL_T0 + 4].down == 0);
+          sol_top(&g, SOL_T0) == cg_card(6, C) && g.pile[SOL_T0 + 4].n == 1 && g.pile[SOL_T0 + 4].down == 0);
     sol_view_key(&ui, &g, '2');
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
     sol_view_key(&ui, &g, '5');
@@ -446,14 +446,14 @@ static void test_pick_and_place(void)
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
     sol_view_key(&ui, &g, '1');
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
-    check("the red 7 goes onto the black 8", sol_top(&g, SOL_T0) == sol_card(7, D) && g.pile[SOL_T0 + 1].n == 3);
+    check("the red 7 goes onto the black 8", sol_top(&g, SOL_T0) == cg_card(7, D) && g.pile[SOL_T0 + 1].n == 3);
 
     /* The king to the empty column, and a queen refused there. */
     sol_view_key(&ui, &g, '4');
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
     sol_view_key(&ui, &g, '3');
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
-    check("a king goes to the empty column", sol_top(&g, SOL_T0 + 2) == sol_card(13, D) && g.pile[SOL_T0 + 3].n == 0);
+    check("a king goes to the empty column", sol_top(&g, SOL_T0 + 2) == cg_card(13, D) && g.pile[SOL_T0 + 3].n == 0);
     sol_view_key(&ui, &g, '7');
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
     sol_view_key(&ui, &g, '4');
@@ -477,10 +477,10 @@ static void test_draw_home_new(void)
     position(&g);
     sol_view_reset(&ui, &g);
     sol_view_key(&ui, &g, 'd');
-    check("d draws", g.pile[SOL_STOCK].n == 1 && sol_top(&g, SOL_WASTE) == sol_card(3, C));
+    check("d draws", g.pile[SOL_STOCK].n == 1 && sol_top(&g, SOL_WASTE) == cg_card(3, C));
     sol_view_key(&ui, &g, SOL_KEY_UP);
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
-    check("Enter on the stock draws too", g.pile[SOL_STOCK].n == 0 && sol_top(&g, SOL_WASTE) == sol_card(4, D));
+    check("Enter on the stock draws too", g.pile[SOL_STOCK].n == 0 && sol_top(&g, SOL_WASTE) == cg_card(4, D));
     sol_view_key(&ui, &g, SOL_KEY_ENTER);
     sol_view_caption(&ui, &g, cap, sizeof(cap));
     check_str("an empty stock turns the waste over, and says so", cap, "WASTE TURNED OVER \xC2\xB7 PASS 1");
@@ -557,7 +557,7 @@ static void test_taps(void)
     check("a tap on the felt drops the selection", ui.sel_pile == -1);
     sol_view_tap(&ui, &g, hit_centre(&t, &g, SOL_WASTE, 0));
     sol_view_tap(&ui, &g, hit_centre(&t, &g, SOL_T0, 0));
-    check("a tap on a pile puts the selection down there", sol_top(&g, SOL_T0) == sol_card(7, H));
+    check("a tap on a pile puts the selection down there", sol_top(&g, SOL_T0) == cg_card(7, H));
     {
         struct sol_rect r = sol_view_slot(&t, SOL_T0 + 5);
         struct sol_hit below;
@@ -613,25 +613,25 @@ static void test_random_session(void)
     struct sol_table t;
     struct sol_game g;
     struct sol_ui ui;
-    struct sol_rng rng;
+    struct cg_rng rng;
     int broken = 0;
     int moved = 0;
     int step;
     char cap[96];
 
     sol_view_table(528, 820, &t);
-    sol_rng_seed(&rng, 99);
+    cg_rng_seed(&rng, 99);
     sol_deal(&g, 3);
     sol_view_reset(&ui, &g);
     for (step = 0; step < 200000; step++) {
         uint32_t before = g.moves;
         enum sol_cmd cmd;
 
-        if (sol_rng_below(&rng, 2)) {
-            cmd = sol_view_key(&ui, &g, keyset[sol_rng_below(&rng, sizeof(keyset) / sizeof(keyset[0]))]);
+        if (cg_rng_below(&rng, 2)) {
+            cmd = sol_view_key(&ui, &g, keyset[cg_rng_below(&rng, sizeof(keyset) / sizeof(keyset[0]))]);
         } else {
-            cmd = sol_view_tap(&ui, &g, sol_view_hit(&t, &g, (int)sol_rng_below(&rng, 528),
-                                                     (int)sol_rng_below(&rng, 820)));
+            cmd = sol_view_tap(&ui, &g, sol_view_hit(&t, &g, (int)cg_rng_below(&rng, 528),
+                                                     (int)cg_rng_below(&rng, 820)));
         }
         if (cmd == SOL_CMD_NEW_GAME || g.won) {
             sol_deal(&g, (uint32_t)step + 1u);

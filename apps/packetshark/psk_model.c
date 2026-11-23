@@ -1016,8 +1016,8 @@ const char *psk_diag_confidence(const struct psk_model *m, unsigned kind, char *
     o = (size_t)snprintf(buf, buflen, "What %s saw in %s, judged as it passed: heuristics, not proof.", iface,
                          psk_fmt_elapsed(m->c.elapsed_ms, t, sizeof(t)));
     if (drops && o < buflen) {
-        o += (size_t)snprintf(buf + o, buflen - o, " The kernel dropped %s packets: a missing answer may be one of them.",
-                              psk_fmt_count(drops, n, sizeof(n)));
+        o += (size_t)snprintf(buf + o, buflen - o, " The kernel dropped %s %s: a missing answer may be one of them.",
+                              psk_fmt_count(drops, n, sizeof(n)), drops == 1 ? "packet" : "packets");
     }
     if (d->blinded && o < buflen) {
         o += (size_t)snprintf(buf + o, buflen - o,
@@ -1026,15 +1026,17 @@ const char *psk_diag_confidence(const struct psk_model *m, unsigned kind, char *
                               (unsigned)d->blinded, d->blinded == 1 ? "" : "s");
     }
     if (kind == PSK_DIAG_DNS && d->dns_unjudged && o < buflen) {
-        o += (size_t)snprintf(buf + o, buflen - o, " %s queries were let go unjudged.",
-                              psk_fmt_count(d->dns_unjudged, n, sizeof(n)));
+        o += (size_t)snprintf(buf + o, buflen - o, " %s %s let go unjudged.", psk_fmt_count(d->dns_unjudged, n, sizeof(n)),
+                              d->dns_unjudged == 1 ? "query was" : "queries were");
     }
     if (kind == PSK_DIAG_TCP && d->tcp_replaced && o < buflen) {
-        o += (size_t)snprintf(buf + o, buflen - o, " The connection table was full: %s connections were forgotten.",
-                              psk_fmt_count(d->tcp_replaced, n, sizeof(n)));
+        o += (size_t)snprintf(buf + o, buflen - o, " The connection table was full: %s %s forgotten.",
+                              psk_fmt_count(d->tcp_replaced, n, sizeof(n)),
+                              d->tcp_replaced == 1 ? "connection was" : "connections were");
     }
     if (kind == PSK_DIAG_TCP && o < buflen) {
-        snprintf(buf + o, buflen - o, " %s connections followed now.", psk_fmt_count(d->tcp_flows, n, sizeof(n)));
+        snprintf(buf + o, buflen - o, " %s %s followed now.", psk_fmt_count(d->tcp_flows, n, sizeof(n)),
+                 d->tcp_flows == 1 ? "connection" : "connections");
     }
     return buf;
 }

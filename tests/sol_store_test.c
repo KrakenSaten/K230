@@ -138,9 +138,9 @@ static void test_codec(void)
         int r;
 
         memset(&g, 0, sizeof(g));
-        for (s = 0; s < SOL_SUITS; s++) {
-            for (r = 1; r <= SOL_KING; r++) {
-                g.pile[SOL_F0 + s].card[g.pile[SOL_F0 + s].n++] = sol_card(r, (enum sol_suit)s);
+        for (s = 0; s < CG_SUITS; s++) {
+            for (r = 1; r <= CG_KING; r++) {
+                g.pile[SOL_F0 + s].card[g.pile[SOL_F0 + s].n++] = cg_card(r, (enum cg_suit)s);
             }
         }
         g.won = 1;
@@ -174,7 +174,7 @@ static void test_codec(void)
     }
     check("the next draw is the same card", sol_top(&back, SOL_STOCK) == sol_top(&g, SOL_STOCK));
     {
-        uint8_t seen[SOL_DECK];
+        uint8_t seen[CG_DECK];
         int p;
         int i;
         int once = 1;
@@ -185,7 +185,7 @@ static void test_codec(void)
                 seen[back.pile[p].card[i]]++;
             }
         }
-        for (i = 0; i < SOL_DECK; i++) {
+        for (i = 0; i < CG_DECK; i++) {
             once &= seen[i] == 1;
         }
         check("all 52 cards come back exactly once", once);

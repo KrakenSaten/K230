@@ -132,6 +132,20 @@ void psk_sheet_show(struct psk_app *a, enum psk_sheet kind)
         safe = "KEEP";
         go = "DELETE";
         break;
+    case PSK_SHEET_REQUEST:
+        /* Who asks, for what, what they will and will not see, and that
+         * nothing happens without a tap here (ADR-016 rules 1a and 11a). */
+        title = "Start a capture?";
+        snprintf(text, sizeof(text),
+                 "%s asks to capture on %s for %u minutes, headers only (filter: %s). Nothing is captured unless you "
+                 "tap START. "
+                 "A companion sees counts and rates, never packets, addresses or names. "
+                 "This is refused by itself after %u seconds.",
+                 a->req_client[0] ? a->req_client : "A companion", a->req_iface, (unsigned)(a->req_limit_s / 60u),
+                 psk_cfilter_label(a->cfilter), (unsigned)(PSK_REQUEST_MS / 1000u));
+        safe = "REFUSE";
+        go = "START";
+        break;
     case PSK_SHEET_NONE:
     default:
         psk_sheet_hide(a);
@@ -142,6 +156,9 @@ void psk_sheet_show(struct psk_app *a, enum psk_sheet kind)
     psk_text(a->sheet_text, text);
     psk_text(lv_obj_get_child(a->sheet_safe, 0), safe);
     psk_text(lv_obj_get_child(a->sheet_go, 0), go);
+    /* A request's START takes no tap in its first moment (psk_app.c
+     * request_settled), and looks it. */
+    psk_button_look(a->sheet_go, false, kind != PSK_SHEET_REQUEST);
     psk_set_hidden(a->sheet, false);
     lv_obj_move_foreground(a->sheet);
 }
@@ -150,6 +167,7 @@ void psk_sheet_hide(struct psk_app *a)
 {
     a->sheet_kind = PSK_SHEET_NONE;
     psk_set_hidden(a->sheet, true);
+    psk_text(a->sheet_text, ""); /* what a sheet said is not kept under it */
 }
 
 /* ---- the filter sheet (M5) -------------------------------------------------------------- *
