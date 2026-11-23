@@ -30,6 +30,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Vision on the phone, to the proposed contract (VISION_PREVIEW.md):
@@ -37,6 +38,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  *  - one picture is held, the newest; boxes and pixels share one transform;
  *  - nothing is asked of a unit that does not serve Vision, has not granted
  *    the scope, or while the screen is away; leaving the screen ends sharing;
+ *  - an authorized phone gets the picture by itself, with nothing confirmed on
+ *    the unit; a preview stopped on the unit or held by another phone is not
+ *    asked for again; a pause on the phone holds;
  *  - a picture outside the bounds is not kept, and every picture is acknowledged;
  *  - the people and text modes are neither chosen nor shown from a phone;
  *  - simulated pictures always say that they are.
@@ -175,7 +179,7 @@ class VisionTest {
         when (method) {
             "gateway.subscribe" -> """{"topics":${params["topics"]}}"""
             "vision.status" -> status(mode(), share())
-            "vision.share" -> """{"state":"${if (params.bool("on") == true) "asking" else "off"}"}"""
+            "vision.share" -> """{"state":"${if (params.bool("on") == true) "live" else "off"}"}"""
             "vision.ack", "vision.mode", "vision.set", "vision.reset" -> "{}"
             else -> "!1"
         }
@@ -195,7 +199,7 @@ class VisionTest {
         val unit = FakeUnit(serving())
         val vision = GatewayVision(pollMs = 50)
         vision.watch(true)
-        val job = scope.launch { vision.run(paired, unit.connect(), hello("status", "mesh", "capture"), MutableStateFlow(setOf("vision_view", "vision_control"))) }
+        val job = scope.launch { vision.run(paired, unit.connect(), hello("status", "mesh", "capture"), MutableStateFlow(setOf("vision"))) }
         await("not served") { vision.view.value.access == VisionAccess.NOT_SERVED }
         vision.startPreview()
         vision.setMode(VisionMode.DETECT)
@@ -217,13 +221,14 @@ class VisionTest {
         val job = scope.launch { vision.run(paired, unit.connect(), hello("vision"), scopes) }
         await("not granted") { vision.view.value.access == VisionAccess.NOT_GRANTED }
         vision.watch(false)
-        scopes.value = setOf("vision_view")
+        scopes.value = setOf("vision")
         await("waiting") { vision.view.value.access == VisionAccess.WAITING }
         delay(120)
         assertEquals(emptyList<String>(), unit.methods())
 
         vision.watch(true)
-        await("open") { vision.view.value.access == VisionAccess.OPEN }
+        // The figures are written just after the state: wait for both.
+        await("open") { vision.view.value.access == VisionAccess.OPEN && vision.view.value.stats != null }
         val v = vision.view.value
         assertEquals(VisionMode.TRACK, v.mode)
         assertEquals(setOf(VisionMode.DETECT, VisionMode.TRACK, VisionMode.TRAFFIC, VisionMode.FACE), v.modes)
@@ -234,12 +239,13 @@ class VisionTest {
         assertEquals(3, v.countAb)
         assertFalse(v.simulated)
 
-        // View only: a mode is not sent. A picture may be asked for; the unit decides.
-        vision.setMode(VisionMode.DETECT)
-        assertFalse(unit.methods().contains("vision.mode"))
-        vision.startPreview()
-        assertEquals(PreviewState.ASKING, vision.view.value.preview)
+        // The picture was asked for by itself, once, and nothing waits for a tap anywhere.
+        await("asked by itself") { unit.asked.count { it.first == "vision.share" && it.second.bool("on") == true } == 1 }
+        await("live") { vision.view.value.preview == PreviewState.LIVE }
         share = "live"
+        // One permission: a mode is sent with the same scope.
+        vision.setMode(VisionMode.DETECT)
+        assertEquals("detect", unit.asked.last { it.first == "vision.mode" }.second.string("mode"))
         unit.write(picture(1))
         await("a picture") { vision.frame.value?.seq == 1L }
         await("acknowledged") { unit.asked.any { it.first == "vision.ack" && it.second.long("seq") == 1L } }
@@ -262,12 +268,68 @@ class VisionTest {
         job.cancelAndJoin()
     }
 
+    private fun shareRequests(unit: FakeUnit) = unit.asked.count { it.first == "vision.share" && it.second.bool("on") == true }
+
+    @Test
+    fun aPreviewStoppedOnTheUnitOrHeldByAnotherPhoneIsNotAskedForAgain() = runBlocking {
+        // A unit that keeps its own word: sharing is what the last request made it, unless it is told otherwise here.
+        val share = AtomicReference("stopped")
+        val base = serving({ share.get() })
+        val unit = FakeUnit { method, params ->
+            if (method == "vision.share") {
+                share.set(if (params.bool("on") == true) "live" else "off")
+                """{"state":"${share.get()}"}"""
+            } else base(method, params)
+        }
+        val vision = GatewayVision(pollMs = 40)
+        vision.watch(true)
+        val job = scope.launch { vision.run(paired, unit.connect(), hello("vision"), MutableStateFlow(setOf("vision"))) }
+        await("stopped on the unit") { vision.view.value.preview == PreviewState.STOPPED }
+        share.set("busy")
+        await("another viewer") { vision.view.value.preview == PreviewState.BUSY }
+        delay(200)
+        assertEquals("nothing is asked against a STOP or another viewer", 0, shareRequests(unit))
+        // Resumed on the unit: the phone asks again by itself.
+        share.set("off")
+        await("asked again") { shareRequests(unit) == 1 }
+        await("live") { vision.view.value.preview == PreviewState.LIVE }
+
+        // Paused here: told to the unit, and not started again by a later reading.
+        vision.stopPreview()
+        await("the unit is told") { unit.asked.any { it.first == "vision.share" && it.second.bool("on") == false } }
+        delay(200)
+        assertEquals(PreviewState.OFF, vision.view.value.preview)
+        assertEquals(1, shareRequests(unit))
+        vision.startPreview()
+        await("live again") { vision.view.value.preview == PreviewState.LIVE }
+        delay(200)
+        assertEquals("asked once more, by the tap or by the reader, never by both", 2, shareRequests(unit))
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun aUnitThatRefusesIsAskedOncePerState() = runBlocking {
+        var mode = "track"
+        val base = serving(mode = { mode })
+        val unit = FakeUnit { method, params -> if (method == "vision.share" && params.bool("on") == true) "!3" else base(method, params) }
+        val vision = GatewayVision(pollMs = 40)
+        vision.watch(true)
+        val job = scope.launch { vision.run(paired, unit.connect(), hello("vision"), MutableStateFlow(setOf("vision"))) }
+        await("asked") { shareRequests(unit) == 1 }
+        delay(250)
+        assertEquals("a refusal is not answered with a stream of requests", 1, shareRequests(unit))
+        assertEquals(PreviewState.OFF, vision.view.value.preview)
+        mode = "detect"
+        await("asked again in the new state") { shareRequests(unit) == 2 }
+        job.cancelAndJoin()
+    }
+
     @Test
     fun aModeThatIsNeverSharedShowsNoPictureAndCannotBeChosen() = runBlocking {
         val unit = FakeUnit(serving({ "live" }, { "face" }))
         val vision = GatewayVision(pollMs = 5_000)
         vision.watch(true)
-        val job = scope.launch { vision.run(paired, unit.connect(), hello("vision"), MutableStateFlow(setOf("vision_view", "vision_control"))) }
+        val job = scope.launch { vision.run(paired, unit.connect(), hello("vision"), MutableStateFlow(setOf("vision"))) }
         await("open") { vision.view.value.access == VisionAccess.OPEN }
         assertEquals(VisionMode.FACE, vision.view.value.mode)
         // A unit that sent a picture of a people mode all the same: it is not kept.
@@ -289,15 +351,12 @@ class VisionTest {
     // ---- 5. the simulation ----
 
     @Test
-    fun simulatedPicturesAlwaysSaySoAndNeedTheirTap() = runBlocking {
+    fun simulatedPicturesAlwaysSaySoAndStartByThemselves() = runBlocking {
         val sim = SimulatedVision(scope, tickMs = 10)
         assertTrue(sim.view.value.simulated)
+        assertNull("no picture while the screen is away", sim.frame.value)
         sim.watch(true)
-        delay(100)
-        assertNull("no picture before it is asked for", sim.frame.value)
-        assertTrue(sim.view.value.scene.boxes.isEmpty())
-        sim.startPreview()
-        assertEquals(PreviewState.ASKING, sim.view.value.preview)
+        assertEquals(PreviewState.LIVE, sim.view.value.preview)
         val f = withTimeout(8_000) { sim.frame.first { it != null && it.seq >= 3 } }!!
         assertEquals(SimulatedVision.W, f.w)
         assertEquals(SimulatedVision.W * SimulatedVision.H, (f.pixels as FramePixels.Argb).pixels.size)
@@ -308,6 +367,12 @@ class VisionTest {
         assertNotNull(sim.view.value.notice)
         sim.setMode(VisionMode.SEGMENT)
         assertEquals(VisionMode.SEGMENT, sim.view.value.mode)
+        // A pause holds until the picture is asked for again.
+        sim.stopPreview()
+        assertNull(sim.frame.value)
+        assertEquals(PreviewState.OFF, sim.view.value.preview)
+        sim.startPreview()
+        assertEquals(PreviewState.LIVE, sim.view.value.preview)
         // Leaving the screen ends the preview.
         sim.watch(false)
         assertNull(sim.frame.value)

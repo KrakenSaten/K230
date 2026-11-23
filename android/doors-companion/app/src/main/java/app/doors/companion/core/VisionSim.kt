@@ -18,7 +18,8 @@ import kotlin.random.Random
  * phone so that the Vision screen, its overlays and its preview path can be
  * built and tested without a unit that shares a picture. No camera of the
  * phone or of any unit is opened, nothing is sent, and every view it gives
- * says [VisionView.simulated]. The "tap on the unit" is played by itself.
+ * says [VisionView.simulated]. Like a real source, its preview starts by
+ * itself when the screen comes to the front.
  *
  * It goes through the same [VisionSource] as a real transport will: pictures
  * into a conflated flow, boxes in picture pixels, the helper's figures once a
@@ -33,7 +34,7 @@ class SimulatedVision(
 ) : VisionSource {
     private val _view = MutableStateFlow(
         VisionView(
-            simulated = true, access = VisionAccess.OPEN, canControl = true, owner = CameraOwner.VISION,
+            simulated = true, access = VisionAccess.OPEN, owner = CameraOwner.VISION,
             mode = VisionMode.TRACK, modes = VisionMode.entries.toSet(),
             settings = VisionSetting.entries.associateWith { it.values[if (it == VisionSetting.SEG_VIEW || it == VisionSetting.TRACK_LINE || it == VisionSetting.TRAFFIC_LINE || it == VisionSetting.TRAFFIC_RANGE || it == VisionSetting.COLOR_TOL) 1 else 0].first },
             model = "simulated detector  ·  320",
@@ -49,7 +50,6 @@ class SimulatedVision(
     private var job: Job? = null
     private var tick = 0L
     private var seq = 0L
-    private var askedAt = 0L
     private var nextId = 1
 
     /** The screen is in front. Guarded with the rest: the ticker and whoever asks are not always one thread. */
@@ -75,6 +75,8 @@ class SimulatedVision(
             }
         }
         if (!on) return
+        meter.reset()
+        _view.update { it.copy(preview = PreviewState.LIVE, previewAtMs = now()) }
         job = scope.launch {
             while (true) {
                 step()
@@ -87,8 +89,7 @@ class SimulatedVision(
 
     override suspend fun startPreview() = act {
         meter.reset()
-        askedAt = now()
-        _view.update { it.copy(preview = PreviewState.ASKING, previewAtMs = askedAt) }
+        _view.update { it.copy(preview = PreviewState.LIVE, previewAtMs = now()) }
     }
 
     override suspend fun stopPreview() = synchronized(this) {
@@ -126,9 +127,6 @@ class SimulatedVision(
         tick++
         val v = _view.value
         val mode = v.mode ?: VisionMode.DETECT
-        if (v.preview == PreviewState.ASKING && now() - askedAt >= TAP_AFTER_MS) {
-            _view.update { it.copy(preview = PreviewState.LIVE) }
-        }
         move(mode)
         val scene = VisionScene(seq + 1, W, H, boxes(mode))
         if (_view.value.preview == PreviewState.LIVE) {
@@ -349,7 +347,6 @@ class SimulatedVision(
     companion object {
         const val W = 480
         const val H = 270
-        const val TAP_AFTER_MS = 1_800L
         const val ANSWER_MS = 180L
         private const val HORIZON = 132
         private const val SIDEWALK = 150

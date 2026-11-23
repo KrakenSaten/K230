@@ -5,7 +5,6 @@ package app.doors.companion.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -41,7 +40,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -77,7 +75,6 @@ import app.doors.companion.core.VisionMode
 import app.doors.companion.core.VisionSetting
 import app.doors.companion.core.VisionSource
 import app.doors.companion.core.VisionView
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
@@ -85,8 +82,9 @@ import kotlinx.coroutines.launch
  * makes for its own screen, with what it found in it, and its modes.
  *
  * The camera has one owner, the Vision app on the unit (ADR-006), and this
- * screen never changes that. A picture is shared only after a person at the
- * unit allowed it, every time, and stops when this screen is left. The whole
+ * screen never changes that. The phone is authorized once on the unit; after
+ * that the picture comes by itself while Vision is in front there and this
+ * screen is in front here, and stops when this screen is left. The whole
  * of the contract behind this is PROPOSED (docs/design/companion/
  * VISION_PREVIEW.md); until a unit serves it the only pictures here are the
  * simulation's, under its band.
@@ -94,17 +92,6 @@ import kotlinx.coroutines.launch
 
 /** Vision's own colour among the rooms: the teal of the unit's identity hues. */
 val VisionHue = Color(0xFF74D1C4)
-
-@Composable
-private fun rememberSecond(): Long {
-    val now by produceState(System.currentTimeMillis()) {
-        while (true) {
-            delay(500)
-            value = System.currentTimeMillis()
-        }
-    }
-    return now
-}
 
 private fun Context.activity(): Activity? {
     var c: Context? = this
@@ -129,8 +116,9 @@ private fun previewLook(v: VisionView): PreviewLook = when {
         Doors.Muted, false,
     )
     v.preview == PreviewState.LIVE -> PreviewLook("Sharing", Doors.Ok, true)
-    v.preview == PreviewState.ASKING -> PreviewLook("Waiting", Doors.Accent, true)
     v.preview == PreviewState.STALLED -> PreviewLook("Stalled", Doors.Warn, true)
+    v.preview == PreviewState.STOPPED -> PreviewLook("Stopped on unit", Doors.Warn, false)
+    v.preview == PreviewState.BUSY -> PreviewLook("Other viewer", Doors.Warn, false)
     else -> PreviewLook("Not shared", Doors.Secondary, false)
 }
 
@@ -158,14 +146,6 @@ fun VisionScreen(link: Link, onBack: () -> Unit) {
     DisposableEffect(live) {
         host.keepScreenOn = live
         onDispose { host.keepScreenOn = false }
-    }
-    // A picture from a unit's camera is on this screen and nowhere else: not in a screenshot, a
-    // screen recording, a cast, or the recents thumbnail. The simulation is drawn, and stays capturable.
-    val guarded = live && !view.simulated
-    DisposableEffect(guarded) {
-        val window = host.context.activity()?.window
-        if (guarded) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { if (guarded) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     // Full screen needs a picture: when it ends, so does full screen.
     LaunchedEffect(live) { if (!live) full = false }
@@ -213,8 +193,7 @@ fun VisionScreen(link: Link, onBack: () -> Unit) {
                     Bezel("On this unit") {
                         val hello = (state as? LinkState.Online)?.hello
                         KeyValue("Gateway serves it", if (hello == null) "—" else if ("vision" in hello.capabilities) "Yes" else "Not yet", mono = false)
-                        KeyValue("Vision view", if (hello == null) "—" else if ("vision_view" in scopes) "Granted" else "Not granted", mono = false)
-                        KeyValue("Vision control", if (hello == null) "—" else if ("vision_control" in scopes) "Granted" else "Not granted", mono = false)
+                        KeyValue("Vision", if (hello == null) "—" else if ("vision" in scopes) "Granted" else "Not granted", mono = false)
                     }
                     if (!view.simulated) {
                         GhostButton("Open the simulated viewfinder") { demo = true }
@@ -262,14 +241,17 @@ private fun Viewfinder(
                 GlassKey("Full", onFull)
             }
         } else {
-            Reticle(Modifier.fillMaxSize(), if (view.preview == PreviewState.ASKING) Doors.Accent else Doors.Line)
+            Reticle(Modifier.fillMaxSize(), Doors.Line)
             Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 val (title, body) = when (view.preview) {
-                    PreviewState.ASKING -> "Waiting for a tap on the unit" to "The unit names this phone and asks whether to share its picture."
-                    PreviewState.REFUSED -> "Not shared" to "The request was refused on the unit, or nobody answered it."
-                    PreviewState.ENDED -> "The unit stopped sharing" to "Vision was left, changed to a mode that is never shared, or the permission was taken back."
-                    PreviewState.STALLED, PreviewState.LIVE -> "Waiting for a picture" to "Sharing is allowed; no picture has arrived yet."
-                    PreviewState.OFF -> "No picture is shared" to if (view.owner == CameraOwner.VISION) "Vision is running on the unit. Its picture stays there until you ask and someone at the unit allows it." else "Vision does not have the camera right now."
+                    PreviewState.STOPPED -> "Stopped on the unit" to "Someone tapped STOP there. The picture comes back when it is resumed on the unit or Vision is opened again."
+                    PreviewState.BUSY -> "Another phone has the picture" to "The unit shows its picture to one phone at a time."
+                    PreviewState.STALLED, PreviewState.LIVE -> "Waiting for a picture" to "The unit is sharing; no picture has arrived yet."
+                    PreviewState.OFF -> "No picture" to when {
+                        view.owner != CameraOwner.VISION -> "Vision does not have the camera right now."
+                        view.mode?.remote == false -> "This mode's picture stays on the unit."
+                        else -> "The picture is paused on this phone."
+                    }
                 }
                 Text(title, style = Type.Title, color = Doors.Text)
                 Spacer(Modifier.height(6.dp))
@@ -379,29 +361,15 @@ private fun ShareKey(view: VisionView, compact: Boolean, onStart: () -> Unit, on
     val m = if (compact) Modifier.width(190.dp).height(44.dp) else Modifier.fillMaxWidth()
     val shareable = view.owner == CameraOwner.VISION && view.mode?.remote != false
     when (view.preview) {
-        PreviewState.LIVE, PreviewState.STALLED -> InstrumentKey("Stop sharing", m, color = Doors.Error, onClick = onStop)
-        PreviewState.ASKING -> InstrumentKey("Cancel request", m, onClick = onStop)
-        else -> InstrumentKey(if (view.busy) "Asking…" else if (compact) "Ask for picture" else "Ask the unit for its picture", m, color = VisionHue, filled = true, enabled = !view.busy && shareable, onClick = onStart)
+        PreviewState.LIVE, PreviewState.STALLED -> InstrumentKey(if (compact) "Pause" else "Pause the picture", m, onClick = onStop)
+        PreviewState.STOPPED, PreviewState.BUSY -> InstrumentKey(if (compact) "Show picture" else "Show the unit's picture", m, color = VisionHue, filled = true, enabled = false, onClick = onStart)
+        else -> InstrumentKey(if (view.busy) "Starting…" else if (compact) "Show picture" else "Show the unit's picture", m, color = VisionHue, filled = true, enabled = !view.busy && shareable, onClick = onStart)
     }
 }
 
 @Composable
 private fun ShareNotes(view: VisionView) {
-    val now = rememberSecond()
     when {
-        view.preview == PreviewState.ASKING -> {
-            val left = ((VisionLimits.SHEET_MS - (now - view.previewAtMs)) / 1000).coerceIn(0, 30)
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Doors.Accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Dot(Doors.Accent, pulse = true)
-                    Spacer(Modifier.width(10.dp))
-                    Text(if (view.simulated) "Waiting for a tap (simulated)" else "Waiting for a tap on the unit", style = Type.BodyStrong, modifier = Modifier.weight(1f))
-                    Text("$left s", style = Type.Mono, color = Doors.Accent)
-                }
-                Spacer(Modifier.height(10.dp))
-                Meter(left / 30f, Doors.Accent)
-            }
-        }
         view.owner == CameraOwner.CAMERA -> Statement("The Camera app has the camera on the unit. Vision, and its picture, are there again when Vision is opened.", color = Doors.Warn)
         view.mode?.remote == false -> Statement("${view.mode.word} is running on the unit. Its picture is never shared, and it is chosen on the unit only.", color = Doors.Warn)
         view.preview == PreviewState.STALLED -> Statement("No picture for a few seconds. The unit may be busy; the session is kept.", color = Doors.Warn)
@@ -431,16 +399,13 @@ private fun ModeBezel(view: VisionView, onMode: (VisionMode) -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         VisionMode.entries.filter { it.group == group }.forEach { m ->
-                            ModeChip(m, on = m == view.mode, can = m in view.modes && m.remote && view.canControl && !view.busy, onClick = { onMode(m) })
+                            ModeChip(m, on = m == view.mode, can = m in view.modes && m.remote && !view.busy, onClick = { onMode(m) })
                         }
                     }
                 }
             }
         }
-        val why = when {
-            !view.canControl -> "View only. Choosing a mode needs Vision control, granted on the unit."
-            else -> "People and text modes are chosen on the unit and are never shared. A dimmed mode has no model on this unit."
-        }
+        val why = "People and text modes are chosen on the unit and are never shared. A dimmed mode has no model on this unit."
         Spacer(Modifier.height(10.dp))
         Text(why, style = Type.MonoSmall)
     }
@@ -473,7 +438,7 @@ private fun SettingsBezel(view: VisionView, onSet: (VisionSetting, String) -> Un
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Readout("Left to right", Fmt.count(view.countAb), Modifier.weight(1f), color = VisionHue)
                 Readout("Right to left", Fmt.count(view.countBa), Modifier.weight(1f), color = VisionHue)
-                if (view.canControl) InstrumentKey("Reset", Modifier.width(96.dp).height(44.dp), enabled = !view.busy && view.countAb + view.countBa > 0, onClick = onReset)
+                InstrumentKey("Reset", Modifier.width(96.dp).height(44.dp), enabled = !view.busy && view.countAb + view.countBa > 0, onClick = onReset)
             }
             if (settings.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -485,11 +450,7 @@ private fun SettingsBezel(view: VisionView, onSet: (VisionSetting, String) -> Un
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(s.word, style = Type.Body, color = Doors.Text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val value = view.settings[s]
-                if (view.canControl) {
-                    Segmented(s.values, value ?: "", color = VisionHue) { if (!view.busy && it != value) onSet(s, it) }
-                } else {
-                    Text(s.values.firstOrNull { it.first == value }?.second ?: "—", style = Type.Mono)
-                }
+                Segmented(s.values, value ?: "", color = VisionHue) { if (!view.busy && it != value) onSet(s, it) }
             }
         }
     }
@@ -603,12 +564,13 @@ private fun CameraBezel(view: VisionView) {
             "Picture",
             when (view.preview) {
                 PreviewState.LIVE, PreviewState.STALLED -> "Shared with this phone"
-                PreviewState.ASKING -> "Asked for; waiting"
+                PreviewState.STOPPED -> "Stopped on the unit"
+                PreviewState.BUSY -> "Shared with another phone"
                 else -> "Stays on the unit"
             },
             mono = false, valueColor = if (view.preview == PreviewState.LIVE) Doors.Ok else Doors.Text,
         )
-        Text("The camera has one owner at a time, and it is never this phone. While a picture is shared the unit shows a mark on its screen, and sharing ends when this screen is left.", style = Type.MonoSmall, modifier = Modifier.padding(top = 6.dp))
+        Text("The camera has one owner at a time, and it is never this phone. While a picture is shared the unit shows a mark and a STOP on its screen, and sharing ends when this screen is left.", style = Type.MonoSmall, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -623,7 +585,7 @@ private fun VisionGate(view: VisionView, link: LinkState) {
         VisionAccess.NOT_SERVED -> "Not served by this unit" to
             "This unit's gateway does not serve Vision. Sharing a picture with a paired phone is a proposal (ADR-006 and ADR-019 would both change) and is in no released Doors."
         VisionAccess.NOT_GRANTED -> "Not granted to this phone" to
-            "On the unit, open Settings, Companion, this phone, and allow Vision view. Choosing modes needs Vision control as well. A picture still needs a tap on the unit each time."
+            "On the unit, open Settings, Companion, this phone, and allow Vision. That is done once; after it the picture comes by itself whenever Vision is open on the unit."
         VisionAccess.WAITING -> "Asking the unit" to "Waiting for Vision's state."
         VisionAccess.CLOSED -> "Vision is not open on the unit" to
             "The camera runs only while Vision is the app in front there, and a phone cannot open it."

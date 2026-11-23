@@ -61,7 +61,7 @@ class Link(app: Application) {
     /** PacketShark's figures, read only while its screen shows them. Nothing of a capture is stored on the phone. */
     val capture = GatewayCapture()
 
-    /** Vision's state and, after a tap on the unit, its picture: read only while the Vision screen shows it. Never stored. */
+    /** Vision's state and, for a phone the unit has authorized, its picture: read only while the Vision screen shows it. Never stored. */
     val vision = GatewayVision()
     val session = GatewaySession(transport, identity, VERSION, onUnitMoved = { store.save(it) }, features = listOf(mesh, send, capture, vision))
 

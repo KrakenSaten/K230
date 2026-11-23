@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
  * contract (docs/design/companion/VISION_PREVIEW.md): nothing on a unit
  * serves it. The camera stays with the Vision app on the unit, which owns
  * it alone (ADR-006); a phone is shown the picture Vision already makes for
- * its own screen, smaller and slower, after a person at the unit allowed it.
+ * its own screen, smaller and slower. The phone is authorized once, on the
+ * unit (the scope `vision`); after that the preview needs no confirmation.
  *
  * The types here are what a screen needs, whoever fills them: the gateway
  * reader when there is one, and the labelled simulation today.
@@ -140,7 +141,7 @@ enum class VisionAccess {
     /** The unit's gateway does not serve Vision. */
     NOT_SERVED,
 
-    /** The unit has not granted this phone `vision_view`. */
+    /** The unit has not granted this phone `vision`. */
     NOT_GRANTED,
 
     /** Asked; no answer yet. */
@@ -153,25 +154,22 @@ enum class VisionAccess {
     OPEN,
 }
 
-/** Where the preview of this phone stands. A preview begins with a tap on the unit, every time. */
+/** Where the preview of this phone stands. It starts by itself for an authorized phone; nothing is confirmed on the unit. */
 enum class PreviewState {
-    /** Not asked for. No picture leaves the unit. */
+    /** No picture is coming to this phone. */
     OFF,
 
-    /** Asked; the unit shows its sheet and waits for a person. */
-    ASKING,
-
-    /** Allowed; pictures arrive. */
+    /** Pictures arrive. */
     LIVE,
 
-    /** Allowed, but no picture came for a while. */
+    /** Sharing, but no picture came for a while. */
     STALLED,
 
-    /** Refused on the unit, or nobody answered. */
-    REFUSED,
+    /** STOP was tapped on the unit. It stays so until a person there resumes or Vision is opened again. */
+    STOPPED,
 
-    /** Ended by the unit: Vision was left, the mode is one that is not shared, the permission went. */
-    ENDED,
+    /** Another phone is being shown the picture; the unit has one viewer. */
+    BUSY,
 }
 
 /** What the stream itself is doing, measured on the phone. */
@@ -187,7 +185,6 @@ data class StreamStats(
 data class VisionView(
     val simulated: Boolean = false,
     val access: VisionAccess = VisionAccess.OFFLINE,
-    val canControl: Boolean = false,
     val owner: CameraOwner = CameraOwner.NONE,
     val mode: VisionMode? = null,
     /** The modes the helper can run on this unit (its `caps` line). */
@@ -229,8 +226,10 @@ interface VisionSource {
     /** Vision's screen is in front on the phone, or no longer. Nothing is read otherwise, and a preview ends. */
     fun watch(on: Boolean)
 
-    /** Asks the unit to show its sheet. A person there allows or refuses. */
+    /** Shows the picture again after [stopPreview]. A source starts by itself when the screen comes to the front. */
     suspend fun startPreview()
+
+    /** The person here does not want the picture for now; it is not started again until [startPreview] or the screen is opened anew. */
     suspend fun stopPreview()
     suspend fun setMode(mode: VisionMode)
     suspend fun set(setting: VisionSetting, value: String)
@@ -246,7 +245,6 @@ object VisionLimits {
     const val MAX_FRAME_BYTES = 96 * 1024
     const val MAX_FPS = 5
     const val MAX_BOXES = 24
-    const val SHEET_MS = 30_000L
     const val STALL_MS = 3_000L
     const val HISTORY = 60
 }

@@ -207,9 +207,16 @@ never run**; every picture this app has shown was drawn by its own simulation.
 - **Bounded.** One picture is held (`FrameSlot`, newest wins, the rest counted
   as skipped); two bitmaps exist; a picture over 640 px or 96 KiB, or whose
   JPEG is not the size its frame said, is not shown.
-- **Asked only** with the capability, `vision_view` and the screen in front.
-  Leaving the screen ends the share on the unit and gives the topic back. A
-  picture needs a tap on the unit every time; the phone can only ask.
+- **Asked only** with the capability, the scope `vision` and the screen in
+  front. Leaving the screen ends the preview on the unit and gives the topic
+  back.
+- **A trusted device** (proposed 2026-11-23). The phone is authorized once on
+  the unit. After that the picture comes by itself when this screen opens while
+  Vision is in front on the unit: no tap there, no time limit, one scope for
+  viewing and for modes. The app does not ask again while the unit says the
+  preview was stopped there (`stopped`) or another phone has it (`busy`), and
+  not after the person paused it here. Screenshots and screen recording are not
+  blocked (`FLAG_SECURE` is not set).
 - **Modes and settings** are Vision's own (`docs/apps/VISION.md`): the modes of
   the helper protocol and the stored settings a sheet offers. FACE, RECOGNIZE
   and READ are listed, never chosen and never shown.
@@ -218,7 +225,7 @@ never run**; every picture this app has shown was drawn by its own simulation.
 
 Open: whether boxes should be shown without a picture (today they travel with
 it and only then); the counting line's place is not drawn (the contract carries
-no line); screenshots of the viewfinder are not blocked on the phone.
+no line).
 
 ## Build and test
 
