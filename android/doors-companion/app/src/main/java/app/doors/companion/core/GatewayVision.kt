@@ -31,14 +31,12 @@ import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Vision over a live session, to the PROPOSED contract of
- * docs/design/companion/VISION_PREVIEW.md section 5. No gatewayd names the
- * `vision` capability, so against every unit that exists this stays at
- * [VisionAccess.NOT_SERVED] and sends nothing; it is here so that the screen
- * is written against the transport's real shape, and so that the contract can
- * be reviewed with a client beside it.
+ * Vision over a live session, to the contract of docs/api/gateway.md section 9a
+ * (ADR-019 amendment 1, accepted 2026-11-23). A gateway that does not name the
+ * `vision` capability to this phone leaves this at [VisionAccess.NOT_SERVED] and
+ * is sent nothing.
  *
- * Its rules, each of which the proposal also puts on the unit:
+ * Its rules, each of which the unit holds as well:
  *  - nothing is asked without the capability, the scope `vision`, and the screen in front;
  *  - the preview starts by itself when the unit could share, is not asked for again while the
  *    unit says it was stopped there or another phone has it, and is given up when the screen goes;

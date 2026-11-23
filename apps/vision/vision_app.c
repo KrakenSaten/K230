@@ -980,6 +980,10 @@ static void share_check(struct vision_app *a, int64_t now)
             share_end(a, VISION_SHARE_OFF, vision_remote_private(a->model.mode) ? "a mode that is never shared" : "the picture stopped");
         } else if (now - a->share_asked_ms >= VISION_REMOTE_IDLE_MS) {
             share_end(a, VISION_SHARE_OFF, "the viewer went quiet");
+        } else if (a->session.share_fail_run >= VISION_REMOTE_FAIL_RUN) {
+            /* The helper cannot make this picture (too large twice over, an
+             * encoder error): not a share to keep asking for. */
+            share_end(a, VISION_SHARE_OFF, "no picture could be made");
         }
     }
     share_paint(a);
@@ -1958,6 +1962,10 @@ static int vision_ipc_pull(struct vision_app *a, const cJSON *params, cJSON **re
     uint32_t seen = 0;
     int64_t now = now_ms();
 
+    /* The mode may have changed in a tap since the last poll: looked at
+     * again before anything is handed out, so nothing held from before a
+     * private mode leaves while one is in force. */
+    share_check(a, now);
     if (a->share != VISION_SHARE_LIVE) {
         *message = "the picture is not shared";
         return POCKETIPC_ERR_POLICY;

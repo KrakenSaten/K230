@@ -46,7 +46,7 @@ struct fixed_dest {
     struct jpeg_destination_mgr pub;
     uint8_t *out;
     size_t cap;
-    bool full;
+    volatile bool full; /* written before a longjmp, read after it */
 };
 
 struct share_err {

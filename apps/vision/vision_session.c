@@ -1000,6 +1000,7 @@ static bool take_share(struct vision_session *s, struct vision_event *ev, int64_
     }
     s->share_at_ms = now;
     s->share_made++;
+    s->share_fail_run = 0;
     s->share_box_count = 0;
     if (s->frame_w > 0 && s->frame_h > 0) {
         for (i = 0; i < s->shown_count && i < VISION_MAX_SHOWN; i++) {
@@ -1052,6 +1053,7 @@ static void handle(struct vision_session *s, struct vision_event *ev, int64_t no
     case VISION_EV_SHAREFAIL:
         s->share_pending = false;
         s->share_failed++;
+        s->share_fail_run++;
         break;
     case VISION_EV_SHARE:
         if (!take_share(s, ev, now)) {
@@ -1411,6 +1413,7 @@ int vision_session_share(struct vision_session *s, bool on, uint32_t max_side, i
     }
     s->share_on = true;
     s->share_pending = false;
+    s->share_fail_run = 0;
     s->share_len = 0;
     s->share_box_count = 0;
     return 0;

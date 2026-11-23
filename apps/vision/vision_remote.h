@@ -40,6 +40,8 @@ enum vision_share_state {
 /* A viewer that has not asked for a picture for this long is gone (its
  * gateway died, or lost it without saying so): the sharing ends here. */
 #define VISION_REMOTE_IDLE_MS 8000
+/* This many requests in a row that gave no picture end the sharing. */
+#define VISION_REMOTE_FAIL_RUN 10
 /* The class names a status carries: left out altogether when they would
  * not fit the answer (a detector with hundreds of long names). */
 #define VISION_REMOTE_LABELS_MAX 400

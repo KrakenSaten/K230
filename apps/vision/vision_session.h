@@ -306,6 +306,7 @@ struct vision_session {
     int64_t share_at_ms;   /* when it was taken in */
     uint32_t share_made;   /* pictures taken in since the session began */
     uint32_t share_failed; /* requests that gave none */
+    uint32_t share_fail_run; /* of those, in a row since the last picture */
     uint32_t share_enc_max_ms;
     struct vision_shown share_boxes[VISION_MAX_SHOWN]; /* the tracks said for that picture, in its pixels */
     int share_box_count;
