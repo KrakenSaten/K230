@@ -271,7 +271,8 @@ private fun BoxScope.Hud(view: VisionView, shown: Shown) {
         view.mode?.let { GlassTag(it.word, VisionHue) }
         if (shown.scene.boxes.isNotEmpty()) GlassTag("${shown.scene.boxes.size}", Doors.Text)
     }
-    Row(Modifier.align(Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    // Under the first row, not beside it: a unit held upright gives a narrow picture, and the two rows met on it.
+    Row(Modifier.align(Alignment.TopEnd).padding(top = 42.dp, end = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         GlassTag("%.1f fps".format(view.stream.fpsX10 / 10f), Doors.Text)
         view.stream.ageMs?.let { GlassTag("$it ms", if (it > 400) Doors.Warn else Doors.Text) }
     }

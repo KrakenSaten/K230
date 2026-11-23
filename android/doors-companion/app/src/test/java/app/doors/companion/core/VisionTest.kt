@@ -260,6 +260,16 @@ class VisionTest {
         await("both acknowledged") { unit.asked.count { it.first == "vision.ack" } == 3 }
         assertEquals(1L, vision.frame.value?.seq)
 
+        // In order: a later picture replaces it, an earlier or the same one again never does.
+        unit.write(picture(5))
+        await("the later one") { vision.frame.value?.seq == 5L }
+        val acked = unit.asked.count { it.first == "vision.ack" }
+        unit.write(picture(4))
+        await("the earlier one is acknowledged") { unit.asked.count { it.first == "vision.ack" } == acked + 1 }
+        unit.write(picture(5))
+        await("and the same one again") { unit.asked.count { it.first == "vision.ack" } == acked + 2 }
+        assertEquals("pictures never go back", 5L, vision.frame.value?.seq)
+
         // The screen goes: sharing is ended on the unit, the topic given back, the picture let go.
         vision.watch(false)
         await("ended") { unit.asked.any { it.first == "vision.share" && it.second.bool("on") == false } }

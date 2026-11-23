@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -65,6 +66,9 @@ class GatewayVision(
     /** The unit refused to share in this state (owner, mode); it is asked again when the state is another. */
     private var refusedIn: Pair<CameraOwner, VisionMode?>? = null
 
+    /** The number of the newest picture kept in this share. A picture that is not newer is not shown: pictures never go back. */
+    private var lastSeq = 0L
+
     /** One request for the picture at a time: the reader's own and a person's tap do not both ask. */
     private val asking = Mutex()
 
@@ -81,6 +85,13 @@ class GatewayVision(
         try {
             if (CAPABILITY !in hello.capabilities) {
                 _view.value = VisionView(access = VisionAccess.NOT_SERVED)
+                // A gateway names Vision at hello, and only to a phone that holds the scope. When the
+                // scope is given on the unit during this session, a new hello is what shows it: the
+                // connection is given up and the session makes another.
+                if (SCOPE !in scopes.value) {
+                    scopes.first { SCOPE in it }
+                    conn.close()
+                }
                 awaitCancellation()
             }
             live = conn
@@ -214,6 +225,7 @@ class GatewayVision(
             val h = (o.long("h") ?: 0).toInt()
             val text = o.string("jpeg") ?: return
             if (paused || v.preview !in SHARING || v.mode?.remote != true) return
+            if (seq <= lastSeq) return
             if (w !in 1..VisionLimits.MAX_SIDE || h !in 1..VisionLimits.MAX_SIDE || text.length > VisionLimits.MAX_FRAME_BYTES * 4 / 3 + 4) return
             val bytes = try {
                 Base64.getDecoder().decode(text)
@@ -230,6 +242,7 @@ class GatewayVision(
             }
             val f = VisionFrame(seq, w, h, FramePixels.Jpeg(bytes), now(), o.long("age_ms")?.coerceIn(0, 60_000), VisionScene(seq, w, h, boxes))
             _frame.value = f
+            lastSeq = seq
             val stream = meter.take(f, 0)
             _view.update { it.copy(preview = PreviewState.LIVE, scene = f.scene, stream = stream, readAtMs = now()) }
         } finally {
@@ -252,6 +265,7 @@ class GatewayVision(
     private suspend fun ask(conn: GatewayConnection) = asking.withLock {
         if (_view.value.preview in SHARING) return@withLock
         meter.reset()
+        lastSeq = 0
         val state = conn.call("vision.share", buildJsonObject { put("on", true) }, CALL_MS).result.string("state")
         if (state == "live") _view.update { it.copy(preview = PreviewState.LIVE, previewAtMs = now()) }
     }

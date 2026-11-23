@@ -42,6 +42,8 @@ android {
             // gives it one (harness/run-gateway.sh); without it, it is skipped.
             it.systemProperty("doors.gateway.uri", System.getProperty("doors.gateway.uri") ?: "")
             it.systemProperty("doors.gateway.ctl", System.getProperty("doors.gateway.ctl") ?: "")
+            // Where VisionIntegrationTest may leave the first picture it was sent, for a person to look at.
+            it.systemProperty("doors.vision.keep", System.getProperty("doors.vision.keep") ?: "")
             it.systemProperty("doors.project.dir", rootDir.absolutePath)
         }
     }
