@@ -50,3 +50,14 @@ The owner asked for a simpler policy for a personally owned unit and its own pho
 - master (through #184) merged into the branch; the capture stack this was stacked on is in master.
 - Not done: nothing was looked at on an emulator or a phone after this change; no gatewayd, shell or helper code exists for Vision; nothing was deployed.
 - Next on the unit side, each its own reviewable step: the measurements of `VISION_PREVIEW.md` section 8 (items 1 and 2 first), the helper's `share` commands, the Vision app's `vision.*` handlers with the mark and STOP, then gatewayd. The larger answer size `vision.pull` needs, and a way to grant `vision` to a paired phone (#172), are open.
+
+## Real streaming implemented (2026-11-23, later)
+
+Built in this branch: helper JPEG sharing, the Vision app's `vision.*` methods with the mark and STOP, the shell's one larger answer for `vision.pull`, gatewayd's vision group with `gateway.scope`, and the Android room on real frames. Details: `docs/apps/VISION.md` "Shown to a paired companion", `docs/api/gateway.md` 9a, `docs/api/shell.md`.
+
+- Host, end to end: PASS. The Android client and the real app on an emulator were sent real JPEGs made by the real helper (fake camera) through the real Vision app and the real gatewayd.
+- On a unit: NOT TESTED. A tmpfs kit (build 5339a3e8) was being sent to Unit A over serial when the USB serial adapter left the PC; seven of eight files are in `/tmp/vsk` there, nothing was started or stopped, the installed shell and the M5 gateway run as before. Kit, scripts and the preflight: `C:\K230-artifactsision-stream`. The kit predates the review fixes of 8161df55 and should be rebuilt from the branch head before use.
+- Still to measure on a unit (`VISION_PREVIEW.md` section 8): encode time, pictures a second, the helper's and the shell's processor share with and without a viewer, the detector's rate, memory, `vision.pull` handler time against the 2 ms budget.
+- Rules without a test (from the independent review): STOP, hold and ALLOW in the real app except through the Android integration test's simulator taps; the app ending a share on a tap to a private mode; the helper's `sharefail mode`; the session's intake of a picture from shared memory on the default host build (no libjpeg); helper death during a share; a method named like `vision.pull` but longer.
+- Known and left: a Vision app the shell restarts by itself forgets STOP (it lives in the app's memory); `vision.mode` took 5 ms on the host against the 2 ms handler budget (it lays the screen out again, as a tap does).
+
