@@ -3122,6 +3122,7 @@ static cJSON *app_ipc_json(void)
 
     cJSON_AddNumberToObject(o, "budget_us", APP_IPC_BUDGET_US);
     cJSON_AddNumberToObject(o, "result_max", APP_IPC_RESULT_MAX);
+    cJSON_AddNumberToObject(o, "vision_pull_max", APP_IPC_VISION_PULL_MAX);
     cJSON_AddNumberToObject(o, "calls", ipc_stats.calls);
     cJSON_AddNumberToObject(o, "slow", ipc_stats.slow);
     cJSON_AddNumberToObject(o, "worst_us", ipc_stats.worst_us);
@@ -3225,10 +3226,10 @@ static void serve_app_method(struct pocketipc_server *s, struct pocketipc_client
                                                               "the app's answer could not be written"));
         return;
     }
-    if (strlen(out) > APP_IPC_RESULT_MAX) {
+    if (strlen(out) > app_ipc_result_max(method)) {
         ipc_stats.too_large++;
-        LOG_WARN("app method %s: result of %zu bytes over the limit of %u", method, strlen(out),
-                 APP_IPC_RESULT_MAX);
+        LOG_WARN("app method %s: result of %zu bytes over the limit of %zu", method, strlen(out),
+                 app_ipc_result_max(method));
         cJSON_free(out);
         cJSON_Delete(result);
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BACKEND,

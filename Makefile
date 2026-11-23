@@ -1560,6 +1560,7 @@ ifeq ($(POCKETCAM_JPEG),1)
 CAM_LIBS := -ljpeg
 $(CAM_DIR)/pocketcam_codec.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
 $(CAM_DIR)/pocketcam_image.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
+core/pocketvision/vision_share.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
 tests/pocketcam_gallery_test.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
 endif
 CAMERA_DIR := apps/camera
@@ -1673,7 +1674,8 @@ VISION_CORE_OBJS := $(VISION_DIR)/vision_decode.o $(VISION_DIR)/vision_nms.o $(V
                     $(VISION_DIR)/vision_line.o $(VISION_DIR)/vision_traffic.o $(VISION_DIR)/vision_geom.o \
                     $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_pixels.o $(VISION_DIR)/vision_range.o \
                     $(VISION_DIR)/vision_window.o $(VISION_DIR)/vision_text.o $(VISION_DIR)/vision_face.o \
-                    $(VISION_DIR)/vision_embed.o $(VISION_DIR)/vision_swatch.o $(VISION_DIR)/vision_seg.o
+                    $(VISION_DIR)/vision_embed.o $(VISION_DIR)/vision_swatch.o $(VISION_DIR)/vision_seg.o \
+                    $(VISION_DIR)/vision_share.o
 ifeq ($(POCKETVISION_KPU),1)
 VISION_KPU_OBJS := $(VISION_DIR)/vision_kpu_nncase.o
 VISION_LINK := $(CXX)
@@ -1695,7 +1697,7 @@ POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OB
 VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_traffic_test tests/vision_pixels_test \
                 tests/vision_geom_test tests/vision_model_test tests/vision_session_test tests/vision_settings_test \
                 tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test \
-                tests/vision_embed_test tests/vision_keys_test tests/vision_swatch_test tests/vision_seg_test
+                tests/vision_embed_test tests/vision_keys_test tests/vision_swatch_test tests/vision_seg_test \n                tests/vision_remote_test
 
 # The one C++ file: -Wno-multichar as the vendor builds against these headers
 # (a four-character constant in the runtime's own header).
@@ -1785,11 +1787,16 @@ tests/vision_settings_test: tests/vision_settings_test.o $(VISION_APP_DIR)/visio
                             $(VISION_APP_DIR)/vision_store.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# What Vision answers a paired companion's gateway, and the shared picture's
+# bounds (apps/vision/vision_remote.h, core/pocketvision/vision_share.h).
+tests/vision_remote_test: tests/vision_remote_test.o $(VISION_APP_DIR)/vision_remote.o $(VISION_APP_OBJS)                           $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_share.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lcjson -lm
+
 VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./tests/vision_traffic_test && \
                   ./tests/vision_pixels_test && ./tests/vision_swatch_test && ./tests/vision_seg_test && ./tests/vision_geom_test && ./tests/vision_model_test && \
                   ./tests/vision_settings_test && ./tests/vision_range_test && ./tests/vision_window_test && \
                   ./tests/vision_text_test && ./tests/vision_face_test && ./tests/vision_embed_test && \
-                  ./tests/vision_keys_test && ./tests/vision_session_test tools/vision/pos-vision
+                  ./tests/vision_keys_test && ./tests/vision_remote_test && ./tests/vision_session_test tools/vision/pos-vision
 
 vision-test: $(VISION_TESTS) tools/vision/pos-vision
 	$(VISION_TEST_RUN)
@@ -3295,7 +3302,7 @@ GATEWAYD_CFLAGS := -std=gnu11 -Wall -Wextra -Werror $(COMMON_FLAGS) -I$(GATEWAYD
 GATEWAYD_PURE := $(GATEWAYD_DIR)/gw_util.c $(GATEWAYD_DIR)/gw_frame.c $(GATEWAYD_DIR)/gw_pair.c \
                  $(GATEWAYD_DIR)/gw_policy.c $(GATEWAYD_DIR)/gw_store.c $(GATEWAYD_DIR)/gw_gate.c \
                  $(GATEWAYD_DIR)/gw_journal.c $(GATEWAYD_DIR)/gw_feed.c $(GATEWAYD_DIR)/gw_send.c \
-                 $(GATEWAYD_DIR)/gw_capture.c
+                 $(GATEWAYD_DIR)/gw_capture.c $(GATEWAYD_DIR)/gw_vision.c
 GATEWAYD_SERVICE := $(GATEWAYD_DIR)/main.c $(GATEWAYD_DIR)/gw_tls.c $(GATEWAYD_DIR)/gw_uplink.c $(GATEWAYD_PURE) \
                     core/pocketipc/pocketipc.c core/pocketipc/server.c core/pocketlog/pocketlog.c \
                     core/pocketpaths.c
@@ -3334,12 +3341,14 @@ gatewayd-service-test: gatewayd
 	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 	python3 tests/gatewayd_capture_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 	python3 tests/gatewayd_capture_regress_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/gatewayd_vision_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 	$(CC) $(GATEWAYD_SAN) $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_mesh_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_capture_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 	python3 tests/gatewayd_capture_regress_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
+	python3 tests/gatewayd_vision_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks-san
 
 # The mesh group alone (M4.1), while working on it: the hooks build and its
 # suite, without the M2 suite before it.

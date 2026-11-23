@@ -15,7 +15,7 @@ Design rules: `docs/decisions/ADR-019-companion-gateway.md`. Pairing and connect
 
 - `proto` is one integer for the envelope, the `gateway.*` methods, the allowlist and its filters. Adding a method, a result field, an event or a capability is compatible. Removing or renaming anything, changing a type, or widening what a scope allows raises `proto`.
 - The first request on every connection must be `gateway.hello`. The gateway picks the highest `proto` both sides support, or answers error 8 and closes. A gateway serves at most two consecutive versions.
-- `capabilities` is a list of strings; a client shows a feature only when its capability is present. v1: `status`, `mesh`, `mesh.activity`, `mesh.send` (present since the gateway serves §8; a client with the `mesh_send` scope offers sending only when it is there), `capture` (for a client that holds `capture_view`; section 9 says how a client learns whether PacketShark answers).
+- `capabilities` is a list of strings; a client shows a feature only when its capability is present. v1: `status`, `mesh`, `mesh.activity`, `mesh.send` (present since the gateway serves §8; a client with the `mesh_send` scope offers sending only when it is there), `capture` (for a client that holds `capture_view`; section 9 says how a client learns whether PacketShark answers), `vision` (for a client that holds `vision`, and for no other; section 9a).
 - `api` repeats the `api_version` of each upstream service, so a client can tell which fields of a passed-through result to expect.
 - Clients ignore unknown fields, events and capabilities.
 
@@ -43,6 +43,7 @@ Granted per client on the unit (ADR-019 rule 24).
 | `mesh_send` | §8: sending messages. Requires `mesh_read` |
 | `capture_view` | §9: the capture's state and aggregate figures |
 | `capture_control` | §9: hold, stop, request a start. Requires `capture_view` |
+| `vision` | §9a: Vision's state and figures, the preview picture, and its mode, listed settings and counters. Needs no other scope. Never part of what a new pairing gets by default: it is given on the unit, per client (`gateway.scope`, §10, or `scopes[]` of `gateway.pair_decide`) |
 
 ## 5. Session
 
@@ -52,7 +53,7 @@ Granted per client on the unit (ADR-019 rule 24).
 | `gateway.pair` | `token` (base64url), `name` (1 to 32 bytes) | only for a pairing candidate, once. Answers when a person has approved or refused on the unit, or the window closed: `{paired: true, scopes[]}` or error 3 |
 | `gateway.ping` | - | `{}` |
 | `gateway.unpair` | - | `{}`, then the gateway closes. Removes the calling client from the paired list (a phone forgetting the unit); it can remove nobody else |
-| `gateway.subscribe` | `topics[]` (at most 8 names) | `{topics[], upstream{meshcored}}`: the topics now held, and - when one is held - whether meshcored is connected now. Replaces the previous set. Topics: `device`, `mesh`, `mesh.activity`, `capture`; one the client's scopes do not allow, one this build does not serve and one it does not know are left out |
+| `gateway.subscribe` | `topics[]` (at most 8 names) | `{topics[], upstream{meshcored}}`: the topics now held, and - when one is held - whether meshcored is connected now. Replaces the previous set. Topics: `device`, `mesh`, `mesh.activity`, `capture`, `vision`; one the client's scopes do not allow, one this build does not serve and one it does not know are left out |
 
 Events: `gateway.scopes {scopes[]}` when the unit reduced them; `gateway.revoked {}` immediately before the gateway closes a revoked client; `gateway.upstream {service, connected}` when a service behind the gateway goes away or comes back. For meshcored it goes to the clients holding a mesh topic, and with `connected: true` it carries `run_id` and `journal_id`: the moment to call `mesh.sync`.
 
@@ -208,6 +209,58 @@ How the gateway serves it (ADR-016 amendment 1, clarification 5; ADR-019 rules 6
 - The gateway asks the shell nothing on connecting. The first `capture.status` is a client's, or the gateway's own once a client holds the topic, so the unit's screen says that a companion reads only while one does. A shell that answers "unknown method" has no PacketShark: `gateway.upstream` then says `connected: false`, the methods answer error 9, and it is not asked again on that connection.
 - When the last client that may read a capture loses that right, the connection to the shell is kept until a cancel on its way has been answered (2 s at most), and then given up. When the gateway stops, a waiting request is cancelled first.
 
+## 9a. Vision (`vision`)
+
+ADR-019 amendment 1 and ADR-006 amendment 1 (both accepted 2026-11-23); design in `docs/design/companion/VISION_PREVIEW.md` sections 5 to 7. Implemented in `services/gatewayd` (`gw_vision.[ch]`, the Vision section of `main.c`). **Tested against a fake shell only** (`tests/gatewayd_vision_e2e_test.py`, `tests/gatewayd_vision_unit.inc`): nothing in this section has been run against the Vision app, a camera or a unit, and no image enables `gatewayd`.
+
+Capability `vision`, topic `vision`, one scope `vision` for every method. Without the scope each method is error 7, the topic is not held and the capability is not offered.
+
+### What a phone sees
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `vision.status` | - | `{available: false}` and nothing else unless Vision is the app in front. Otherwise `available`, `owner` (`vision`, `camera`, `none`), `mode` (one of `detect track traffic segment instances color edge trace face recognize read`, or empty), `modes[]` (of those words, what the unit can run), `settings{}` (of `track.line traffic.range traffic.line traffic.speed color.tol edge.hard trace.dark seg.view`, those the unit reports), `model` (at most 48 printable characters), `labels[]` (at most 400 class names of at most 24 characters; a box's `cls` is an index into it), `pic{w, h}`, `stats{fps_x10, infer_ms, pre_ms, post_ms, cpu_pct, rss_kb, dropped, count_ab, count_ba}`, `share` |
+| `vision.share` | `on` (boolean) | `{state}`. `on: true`: the preview starts at once and the answer is `live`; no approval on the unit. Error 3: the unit refuses (Vision is not in front, a mode that is never shared, STOP was tapped there), or the session does not hold the topic `vision`. Error 5: another client is the viewer, or is about to be. From the viewer itself: `live` again. `on: false`: always `{state: "off"}`; it ends the preview when the caller is the viewer and does nothing otherwise |
+| `vision.ack` | `seq` (whole number) | `{}`. Answered by the gateway alone. It counts only from the viewer and only for the `seq` of the picture last sent; any other is ignored, not an error |
+| `vision.mode` | `mode`: one of `detect track traffic segment instances color edge trace` | `{}`. `face`, `recognize` and `read` cannot be named (error 2). Error 3 from the unit: a mode it cannot run |
+| `vision.set` | `key`, `value` | `{}`. `track.line` and `traffic.line`: `off across down`; `traffic.range`: `near normal far`; `traffic.speed`: `off narrow wide`; `color.tol`: `low med high`; `edge.hard` and `trace.dark`: `0 1`; `seg.view`: `original overlay mask`. Anything else is error 2. Error 3 from the unit: a setting of a mode that is not the one in force |
+| `vision.reset` | - | `{}`: TRACK's and TRAFFIC's counters |
+
+`share` reads `live` for the viewer alone, `busy` for every other client while somebody views, `stopped` after STOP on the unit, else `off`. Who the viewer is, is never sent to a phone.
+
+`vision.pull` is not a method of a client (error 1, like any name outside the allowlist), nor are the event names.
+
+Events (topic `vision`):
+
+- `vision.state {}`: something of the status changed (availability, owner, mode, modes, settings, sharing, or who views). The data is empty: the client asks `vision.status`, which answers for that client. Sent once to a session that begins to hold the topic.
+- `vision.stats {fps_x10, infer_ms, pre_ms, post_ms, cpu_pct, rss_kb, dropped, count_ab, count_ba}`: about once a second while Vision is in front. Skipped for a client that is behind on reading.
+- `vision.frame {seq, w, h, age_ms, jpeg, boxes}`: one picture, to the viewer's session only. `jpeg` is base64 (RFC 4648 section 4, padded) of a JPEG of at most 65536 bytes (at most 87384 characters); `w` and `h` are 1 to 640; `boxes` is at most 24 arrays of exactly nine whole numbers `[id, cls, conf, x, y, w, h, dir, kmh10]`; `seq` rises within one preview and starts again with the next.
+
+One viewer and the acknowledgement:
+
+- The first client that asks while nobody views is the viewer. There is no queue of clients and no time limit.
+- The first picture of a preview comes without an acknowledgement. Every further one is asked of the unit only after the viewer sent `vision.ack` with the `seq` of the last, and no sooner than 200 ms after the last was sent: 5 a second at most, never faster than the phone takes them.
+- A picture is never queued. If the viewer's unread output is above 128 KiB when a picture arrives, that picture is not sent, no acknowledgement is owed for it, and the next is asked for after the interval.
+
+A preview ends, and `vision.state` says so, when: the viewer sends `vision.share {on: false}`; disconnects; gives the topic back (`gateway.subscribe` without `vision`); is revoked or unpairs; loses the scope `vision`; has not acknowledged a sent picture for 5 s; STOP is tapped on the unit; Vision is left or its mode becomes one that is never shared; the shell goes out of reach; the gateway stops. After any of them a client asks again with `vision.share {on: true}` (the phone app does when `share` reads `off`).
+
+`gateway.upstream {"service": "shell", "connected": bool}` and `upstream.shell` in the answer to `gateway.subscribe` say, to a session that holds `vision` and not `capture`, whether the shell is connected and has not said that it knows no `vision.status`. (A session that holds `capture` is told of PacketShark by the same names, section 9; it learns that Vision is not served from `vision.status` answering error 9.) On an image whose shell knows no `vision.status`, the methods answer error 9.
+
+Limits: `vision.share {on: true}`, `vision.mode`, `vision.set` and `vision.reset` together 20 a minute per client (error 10, decided before the unit is asked). `vision.status`, `vision.ack` and `vision.share {on: false}` are under the general request limit only. Every request to the unit is given up after 2 s (error 9).
+
+### The gateway's side
+
+- **The shell's socket** is the connection of section 9, now held while some paired client holds `capture_view` or `vision`. On it the gateway calls, for Vision, `vision.status`, `vision.share`, `vision.mode`, `vision.set`, `vision.reset` and its own `vision.pull`, and nothing else: no `shell.*` method, no subscription (`tests/gatewayd_lint.sh`). It asks nothing on connecting.
+- **Upstream contract** (the Vision app, while in front; otherwise the shell answers `vision.status` with `{available: false}` and every other `vision.*` with error 3): `vision.status` as above with `share` as `off`, `live` or `stopped` and, when live, `client`; `vision.share {on: true, client, name}` (`client`: the first 16 hex digits of the viewer's fingerprint; `name`: the name the unit gave the client at pairing, at most 32 bytes; both added by the gateway, a client can send neither) or `{on: false}`, answered `{state}`; `vision.pull {after_seq}`, answered `{seq, w, h, age_ms, jpeg, boxes}`, or `{seq}` alone when no newer picture is ready (asked again after 40 ms), or error 3 when nothing is shared; `vision.mode`, `vision.set`, `vision.reset` answered with an object. Each preview's first `vision.pull` carries `after_seq: 0`.
+- **Answers are rebuilt**, never passed on: the fields above by name, each word one of its list, each number whole and in range (otherwise 0; `cpu_pct` at most 100), a label that is not printable ASCII kept as an empty string so that the indices hold. Anything else the unit says, in `stats` or elsewhere, is not sent. The unit's error codes 1 to 6 are passed as the code alone.
+- **A picture** is the answer to the gateway's `vision.pull`. All of it is checked: `seq` whole and above the last of this preview, `w` and `h` 1 to 640, `age_ms` whole and 0 to 3600000, `jpeg` padded base64 of at most 87384 characters that begins `/9j/` (the bytes FF D8 FF), `boxes` present and at most 24 arrays of exactly nine whole numbers between -1000000 and 1000000. An answer that fails any of it is dropped whole (logged once per run of the gateway, without content) and the unit is asked again after the interval. The gateway holds the picture only from the unit's answer until it is queued for the viewer; it stores and logs nothing of it.
+- **No allowance was added for the size of the answer.** The uplink reads pocketipc frames up to pocketipc's own 1 MiB; the unit bounds its `vision.pull` answer at 90112 bytes, and what the gateway passes on is bounded by the checks above, well under the 256 KiB of a frame to a client. No global limit changed.
+- **Scope and topic** of the viewer are looked up when it asks, when the unit's answer to `vision.share` comes, before every picture, and on every turn of the loop. `gateway.scope` and `gateway.set_scopes` end the viewer's preview in the same call.
+- **The gateway tells the unit** `vision.share {on: false}` whenever a preview ends other than by the unit's own word, and waits up to 2 s for the answer before giving up a connection nobody else needs (500 ms when stopping).
+- **Status poll:** the gateway's own `vision.status` once a second while a client holds the topic or views, and not otherwise. From it: `vision.state` when availability, owner, mode, modes, settings or the unit's `share` word changed; `vision.stats`; and the reconciliation: a unit that says `live` while the gateway has no viewer (the gateway was started again) is told `{on: false}`; a viewer whose unit no longer says `live`, says `live` for another `client`, or is in `face`, `recognize` or `read` is ended. Only an answer asked for after the preview began speaks of it.
+- **Modes that are never shared:** a picture that arrives while the unit's last reported mode is `face`, `recognize` or `read` is dropped and the preview ended. Whether a preview may begin is the unit's to say (error 3).
+- **Logging:** when a preview began and ended and why, by the first 16 hex digits of the client's fingerprint. No picture, name or answer of the unit.
+
 ## 10. The local control surface (`gatewayd.sock`)
 
 pocketipc, root only, for Settings and `doors`. Never reachable from the network.
@@ -220,6 +273,7 @@ pocketipc, root only, for Settings and `doors`. Never reachable from the network
 | `gateway.pair_decide` `{allow, scopes[]}` | the person's decision about the waiting candidate |
 | `gateway.clients` | the paired list: fingerprint, name, scopes, connected, last seen |
 | `gateway.set_scopes` `{client, scopes[]}` | reduces or changes one client's scopes |
+| `gateway.scope` `{client, scope, on}` | gives (`on: true`) or takes (`on: false`) exactly one named scope of one paired client; answers `{scopes[]}`, the set it holds now. Strings and one boolean, so that `doors call gatewayd gateway.scope client=<hex> scope=vision on=true` can send it. `client` is a string: the full fingerprint (64 hex digits) or the start of it, at least 8 hex digits, that begins exactly one paired client's (upper or lower case). The CLI sends a value of decimal digits only as a number, and a number is refused: give the prefix long enough to contain a letter `a` to `f`, or in full. Error 2 for anything else: an unknown or ambiguous client, an unknown scope, `on` that is not a boolean, any other member, or a resulting set a client may not hold (`mesh_send` without `mesh_read`, `capture_control` without `capture_view`; give or take the other one first). Stored and applied like `gateway.set_scopes`: a connected client gets `gateway.scopes`, loses the topics the new set does not allow, and taking `vision` from the viewer ends its preview at once (§9a) |
 | `gateway.revoke` `{client}` | removes one client |
 | `gateway.subscribe` | events `gateway.candidate`, `gateway.session` |
 

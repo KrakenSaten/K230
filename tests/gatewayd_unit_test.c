@@ -21,6 +21,7 @@
 #include "gw_store.h"
 #include "gw_tls.h"
 #include "gw_util.h"
+#include "gw_vision.h"
 
 #include <openssl/ec.h>
 #include <openssl/evp.h>
@@ -773,7 +774,7 @@ static void test_mesh_policy(void)
     cJSON_Delete(a);
     CHECK(gw_topics_allowed(GW_T_ALL, GW_S_STATUS) == 0 && gw_topics_allowed(GW_T_MESH, GW_S_MESH_READ) == GW_T_MESH);
     a = gw_topics_json(GW_T_ALL);
-    CHECK(cJSON_GetArraySize(a) == 3);
+    CHECK(cJSON_GetArraySize(a) == 4); /* mesh, mesh.activity, capture, vision */
     cJSON_Delete(a);
 }
 
@@ -1386,6 +1387,7 @@ static void test_tls(void)
 }
 
 #include "gatewayd_capture_unit.inc"
+#include "gatewayd_vision_unit.inc"
 
 int main(void)
 {
@@ -1405,6 +1407,7 @@ int main(void)
     test_feed();
     test_send();
     test_capture();
+    test_vision();
     test_store();
     test_gate();
     test_tls();

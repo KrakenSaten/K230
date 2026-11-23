@@ -7,7 +7,8 @@
  * line per message each way, and a sealed memfd on descriptor 3 laid out as
  * POCKETCAM_SLOTS slots of POCKETCAM_SLOT_BYTES with the same header. The
  * helper writes a preview picture into a slot it owns, announces it with
- * `frame`, and touches it again only after `release`. Slot 3 is unused.
+ * `frame`, and touches it again only after `release`. Slot 3 carries the
+ * picture shared with a paired companion (`share`), and nothing else.
  * Lines here may be longer than Camera's: a detection line carries up to
  * VISION_MAX_SHOWN boxes.
  *
@@ -61,6 +62,17 @@
  *                                 always detect as normal
  *   reset                         counts and speeds to zero, tracks
  *                                 forgotten
+ *   share on [<max_side> [<quality>]] | share off
+ *                                 the picture for a paired companion
+ *                                 (vision_share.h): allowed or not. On
+ *                                 makes nothing by itself
+ *   share next                    make one: the next preview picture,
+ *                                 reduced so that its longer side is at
+ *                                 most max_side, as a baseline JPEG in
+ *                                 slot 3; answered by `share` or
+ *                                 `sharefail`. Never in FACE, RECOGNIZE or
+ *                                 READ, and at most every
+ *                                 VISION_SHARE_MIN_INTERVAL_MS
  *   quit                          close the camera and leave; `bye`
  *                                 (SIGTERM, taken between frames, too)
  *
@@ -78,6 +90,18 @@
  *                                 listed, and the screen never offers it;
  *                                 without the detector: no detect, track
  *                                 or traffic, and `mode` refuses them)
+ *   sharecap <max_side> <max_bytes>
+ *                                 right after caps, from a helper that can
+ *                                 make a shared picture: the largest side
+ *                                 and file it will ever make
+ *   share <seq> <w> <h> <bytes> <ms>
+ *                                 the JPEG of preview frame seq is in slot
+ *                                 3: w x h pixels, bytes long (at most
+ *                                 VISION_SHARE_MAX_BYTES), made in ms. The
+ *                                 slot is not written again before the
+ *                                 next `share next`
+ *   sharefail <seq> <mode|size|toolarge|nojpeg|error>
+ *                                 no picture was made for that request
  *   nodevice <text>               there is no camera; the helper leaves
  *   nomodel <text>                a model file there could not be opened;
  *                                 the helper leaves

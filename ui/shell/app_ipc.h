@@ -25,6 +25,17 @@
 /* The largest result an app method may give, serialised. A larger one is
  * replaced by an error. One limit for every app. */
 #define APP_IPC_RESULT_MAX 8192u
+/* The one exception, approved by the owner on 2026-11-23 for Vision's image
+ * transport and nothing else: the answer to `vision.pull` carries a JPEG of
+ * at most 64 KiB (core/pocketvision/vision_share.h, VISION_SHARE_MAX_BYTES)
+ * as base64, which is 87384 characters, with its numbers and at most 24
+ * boxes beside it. 90112 bytes (88 KiB) hold that and are the whole of the
+ * allowance: a larger answer is replaced by an error like any other, the
+ * method is named here and matched exactly, and no app can declare a limit
+ * of its own. It stays well under what the gateway may send a phone (256
+ * KiB, services/gatewayd/gw.h). */
+#define APP_IPC_VISION_PULL_METHOD "vision.pull"
+#define APP_IPC_VISION_PULL_MAX 90112u
 /* Entries read from an app's ipc_status or ipc_opens list. */
 #define APP_IPC_LIST_MAX 16u
 
@@ -60,6 +71,9 @@ bool app_ipc_event_allowed(const struct pocketos_app *app, const char *event);
  * in `why`. Checked once at start; a shell with an unsound declaration does
  * not start. */
 int app_ipc_check(const struct pocketos_app *const *apps, size_t count, char *why, size_t whylen);
+/* The largest serialised result `method` may give: APP_IPC_RESULT_MAX, or
+ * APP_IPC_VISION_PULL_MAX for exactly APP_IPC_VISION_PULL_METHOD. */
+size_t app_ipc_result_max(const char *method);
 /* One handler's time. */
 void app_ipc_note_time(struct app_ipc_stats *st, const char *method, uint32_t us);
 

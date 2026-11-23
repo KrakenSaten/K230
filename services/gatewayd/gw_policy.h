@@ -18,14 +18,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The five scopes of ADR-019 rule 24. */
+/* The five scopes of ADR-019 rule 24, and vision (ADR-019 amendment 1),
+ * which is never part of GW_S_DEFAULT: it is granted on the unit, to one
+ * client at a time. */
 enum gw_scope {
     GW_S_STATUS = 1u << 0,
     GW_S_MESH_READ = 1u << 1,
     GW_S_MESH_SEND = 1u << 2,
     GW_S_CAPTURE_VIEW = 1u << 3,
     GW_S_CAPTURE_CONTROL = 1u << 4,
-    GW_S_ALL = (1u << 5) - 1u,
+    GW_S_VISION = 1u << 5,
+    GW_S_ALL = (1u << 6) - 1u,
 };
 /* What a newly approved client gets when the person chose nothing else. */
 #define GW_S_DEFAULT (GW_S_STATUS | GW_S_MESH_READ | GW_S_MESH_SEND)
@@ -48,6 +51,7 @@ enum gw_kind {
     GW_K_SEND,          /* mesh.send: at most once per client_msg_id (gw_send.h) */
     GW_K_RESEND,        /* mesh.resend: the same, as meshcored's mesh.send {resend} */
     GW_K_CAPTURE,       /* passed to PacketShark on the shell's socket, without blocking (gw_capture.h) */
+    GW_K_VISION,        /* Vision on the shell's socket: passed on or answered here (gw_vision.h) */
 };
 
 /* The topics of gateway.subscribe this build serves (docs/api/gateway.md
@@ -58,7 +62,8 @@ enum gw_topic {
     GW_T_MESH = 1u << 0,
     GW_T_MESH_ACTIVITY = 1u << 1,
     GW_T_CAPTURE = 1u << 2,
-    GW_T_ALL = (1u << 3) - 1u,
+    GW_T_VISION = 1u << 3,
+    GW_T_ALL = (1u << 4) - 1u,
 };
 #define GW_T_MESH_ALL (GW_T_MESH | GW_T_MESH_ACTIVITY)
 
@@ -91,7 +96,7 @@ const char *gw_scope_name(unsigned bit);
 /* 0 for a name that is not a scope. */
 unsigned gw_scope_parse(const char *name);
 /* A set a client may hold: only known bits, mesh_send with mesh_read,
- * capture_control with capture_view. */
+ * capture_control with capture_view. vision depends on no other scope. */
 bool gw_scopes_valid(unsigned mask);
 cJSON *gw_scopes_json(unsigned mask);
 /* An array of scope names, each known and none twice, forming a valid set.

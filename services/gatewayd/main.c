@@ -30,6 +30,11 @@
  * the clients that subscribed. Nothing here sends a message, changes the
  * node or holds a mesh key; the capture group has its own milestone.
  *
+ * Vision (ADR-019 amendment 1): on the shell's socket, beside the capture's
+ * requests, the gateway asks the Vision app for its state and, for one
+ * viewer at a time, for one picture at a time. See the Vision section below
+ * and gw_vision.h.
+ *
  * Copyright (c) 2026 Doors authors.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -48,6 +53,7 @@
 #include "gw_tls.h"
 #include "gw_uplink.h"
 #include "gw_util.h"
+#include "gw_vision.h"
 
 #include "pocketipc/pocketipc.h"
 #include "pocketipc/server.h"
@@ -142,6 +148,10 @@ struct mesh_req {
 #define TAG_CAP_LATE 8
 #define CAP_SAY_MAX 4
 #define CAP_STOP_FLUSH_MS 500      /* on stopping: a cancel on its way gets this long to be answered */
+/* The gateway's own requests to the Vision app on the shell's socket. */
+#define TAG_VIS_POLL 9
+#define TAG_VIS_PULL 10
+#define TAG_VIS_OFF 11
 #define TAG_CLIENT 16
 
 static struct {
@@ -205,6 +215,24 @@ static struct {
     int64_t cap_late_ms;            /* when it was last tried */
     uint64_t cap_ask_tag;           /* the capture.request_start that is on its way */
     struct gw_capture cap;
+    /* Vision (ADR-019 amendment 1), on the same connection to the shell. */
+    int vis_seen;                   /* 1: the shell answered vision.status; -1: it knows no such name (an image
+                                     * without Vision's part); 0: not asked yet on this connection */
+    bool vis_polling;               /* the gateway's own vision.status waits for its answer */
+    int64_t vis_poll_ms;            /* when it was last asked, or tried */
+    bool vis_poll_due;              /* ask now: somebody began to listen, or a preview began or ended */
+    uint64_t vis_order;             /* counts the requests to the unit whose order matters */
+    uint64_t vis_poll_order;        /* the place of the vision.status that waits */
+    bool vis_pulling;               /* the gateway's own vision.pull waits for its answer */
+    uint64_t vis_pull_for;          /* the preview it was asked for (gw_vision.began) */
+    uint64_t vis_share_tag;         /* a client's vision.share {on: true} that is on its way, or 0 */
+    uint64_t vis_share_sid;         /* whose it is */
+    uint64_t vis_share_order;       /* and its place */
+    bool vis_share_void;            /* that client has asked for off since: the answer makes no viewer */
+    int vis_offs;                   /* the gateway's own vision.share {on: false} waiting for their answers */
+    bool vis_say;                   /* vision.state is owed to the clients that listen */
+    bool vis_biometric;             /* the unit's mode, as last answered, is never shared */
+    struct gw_vision vis;
 } G;
 
 static volatile sig_atomic_t g_stop;
@@ -318,6 +346,8 @@ static void pairing_closed_event(const char *reason)
     G.relisten = true;
 }
 
+static void vis_session_gone(uint64_t sid);
+
 static void sess_close(struct sess *s, const char *why)
 {
     bool was_open_window = gw_pair_open(&G.pair);
@@ -326,6 +356,8 @@ static void sess_close(struct sess *s, const char *why)
     if (s->st == S_FREE) {
         return;
     }
+    /* A preview does not outlive its viewer's connection. */
+    vis_session_gone(s->id);
     /* What it asked meshcored is no longer owed to anyone; the answer is
      * ignored when it comes. */
     for (i = 0; i < GW_MESH_PENDING; i++) {
@@ -1229,11 +1261,18 @@ static void req_cancel(struct sess *s, struct mesh_req *q)
     s->inflight--;
 }
 
+/* Vision shares the connection to the shell's socket (its section is
+ * further down). */
+static bool vis_holds_link(void);
+static bool vis_ready(void);
+static void vis_end(const char *why, bool tell);
+
 /* ---- PacketShark's capture (ADR-016 amendment 1; ADR-019 rules 6 and 6a; gw_capture.h) ----
  *
  * A second connection that never blocks, to the shell's socket, held only
- * while some paired client may read a capture. On it the gateway calls five
- * methods of the PacketShark app and nothing else - no shell.* method, and
+ * while some paired client may read a capture or holds vision. On it the
+ * gateway calls five methods of the PacketShark app (and six of the Vision
+ * app, in the Vision section) and nothing else - no shell.* method, and
  * no subscription: what clients are told is made from the gateway's own
  * capture.status, asked once a second while a client holds the topic.
  *
@@ -1536,12 +1575,19 @@ static void cap_tick(int64_t now)
                 gw_uplink_tick(G.shell, now);
                 return;
             }
-            gw_uplink_drop(G.shell, now);
+            if (!vis_holds_link()) {
+                gw_uplink_drop(G.shell, now);
+            }
         }
         /* (A cancel that is still owed, cap_cancel_later, is kept: it is
          * sent if a client may read again within the sheet's lifetime, and
          * expires by itself otherwise.) */
         G.cap_close_ms = 0;
+        if (vis_holds_link()) {
+            /* The link is Vision's alone: kept, or made, for it. Nothing of
+             * a capture is asked on it. */
+            gw_uplink_tick(G.shell, now);
+        }
         return;
     }
     G.cap_close_ms = 0;
@@ -1648,12 +1694,18 @@ static bool do_capture(struct sess *s, const cJSON *id, const struct gw_method *
 static bool do_subscribe(struct sess *s, const cJSON *id, const cJSON *params, unsigned scopes)
 {
     unsigned mask = 0;
+    bool vis_new;
     cJSON *r, *up;
 
     if (gw_topics_parse(params, scopes, &mask) != 0) {
         return reply_error(s, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
     }
+    vis_new = (mask & GW_T_VISION) != 0 && (s->topics & GW_T_VISION) == 0;
     s->topics = mask; /* replaces what was held */
+    if ((mask & GW_T_VISION) == 0 && gw_vision_view_of(&G.vis, s->id) == GW_VV_SELF) {
+        /* The viewer gave the topic back: its preview goes with it. */
+        vis_end("its client no longer listens", true);
+    }
     r = cJSON_CreateObject();
     cJSON_AddItemToObject(r, "topics", gw_topics_json(mask));
     if (mask != 0) {
@@ -1662,6 +1714,8 @@ static bool do_subscribe(struct sess *s, const cJSON *id, const cJSON *params, u
         cJSON_AddBoolToObject(up, "meshcored", G.mesh_ready);
         if ((mask & GW_T_CAPTURE) != 0) {
             cJSON_AddBoolToObject(up, "shell", cap_ready());
+        } else if ((mask & GW_T_VISION) != 0) {
+            cJSON_AddBoolToObject(up, "shell", vis_ready());
         }
     }
     /* A new listener is told how the capture is, with the next answer. */
@@ -1669,7 +1723,15 @@ static bool do_subscribe(struct sess *s, const cJSON *id, const cJSON *params, u
     if (s->cap_new) {
         G.cap_poll_due = true;
     }
-    return sess_send(s, pocketipc_response(id, r));
+    if (!sess_send(s, pocketipc_response(id, r))) {
+        return false;
+    }
+    if (vis_new) {
+        /* A new listener to Vision is told to ask how it is, once. */
+        G.vis_poll_due = true;
+        return sess_send(s, pocketipc_event("vision.state", cJSON_CreateObject()));
+    }
+    return true;
 }
 
 /* A mesh_read method meshcored answers. The answer comes later
@@ -1975,6 +2037,576 @@ static bool do_send(struct sess *s, const cJSON *id, const struct gw_method *m, 
     return true;
 }
 
+/* ---- Vision (ADR-019 amendment 1; ADR-006 amendment 1; gw_vision.h) ------
+ *
+ * On the connection to the shell's socket, which is held while some paired
+ * client may read a capture or holds vision, the gateway calls six methods
+ * of the Vision app and nothing else: vision.status, vision.share,
+ * vision.mode, vision.set and vision.reset when a client with the scope
+ * asks, and vision.pull for itself alone. No shell.* method and no
+ * subscription: vision.state and vision.stats are made from the gateway's
+ * own vision.status, asked once a second while a client holds the topic.
+ *
+ * One viewer. A client that asks for the preview while Vision is in front
+ * gets it at once (the scope is the authorization); a second is told busy.
+ * A picture is pulled only when the viewer has acknowledged the last one
+ * and the interval has passed, is sent to the viewer's session alone, and
+ * is held here only from the unit's answer to the moment it is queued: no
+ * queue, no copy, nothing of it in a log.
+ *
+ * The viewer's scope and topic are looked up when it asks, when the unit's
+ * answer comes, before every picture, and on every turn of the loop; a
+ * preview whose viewer went away, gave the topic back, was revoked, lost
+ * the scope or stopped acknowledging is ended here, and the unit is told. */
+
+static bool vis_wanted(void)
+{
+    int i;
+
+    if (G.identity_fault || G.state_fault) {
+        return false;
+    }
+    for (i = 0; i < G.store.n; i++) {
+        if ((G.store.c[i].scopes & GW_S_VISION) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The connection is Vision's to keep: a client holds the scope, or the unit
+ * has not yet answered that a preview is over. */
+static bool vis_holds_link(void)
+{
+    return vis_wanted() || G.vis_offs > 0;
+}
+
+/* The shell is connected and has not said that it knows no vision.status. */
+static bool vis_ready(void)
+{
+    return G.cap_up && G.vis_seen >= 0;
+}
+
+/* gateway.upstream for the clients that listen to Vision and not to a
+ * capture (those are told by the capture's own event, of PacketShark). */
+static void vis_upstream_event(bool connected)
+{
+    int i;
+
+    for (i = 0; i < SESS_SLOTS; i++) {
+        struct sess *s = &G.s[i];
+        cJSON *d;
+
+        if (s->st != S_OPEN || !s->hello || s->closing || s->who != GW_W_PAIRED || s->topics == 0) {
+            continue;
+        }
+        s->topics = gw_topics_allowed(s->topics, sess_scopes(s));
+        if ((s->topics & GW_T_VISION) == 0 || (s->topics & GW_T_CAPTURE) != 0) {
+            continue;
+        }
+        d = cJSON_CreateObject();
+        if (d != NULL) {
+            cJSON_AddStringToObject(d, "service", "shell");
+            cJSON_AddBoolToObject(d, "connected", connected);
+            (void)sess_send(s, pocketipc_event("gateway.upstream", d));
+        }
+    }
+}
+
+/* vision.share {on: false}, the gateway's own: the unit is told that a
+ * preview is over whenever it did not say so itself. */
+static void vis_send_off(void)
+{
+    cJSON *p = cJSON_CreateObject();
+
+    if (p == NULL || cJSON_AddBoolToObject(p, "on", false) == NULL || !gw_uplink_connected(G.shell)) {
+        cJSON_Delete(p);
+        return;
+    }
+    G.vis_order++;
+    if (gw_uplink_call(G.shell, "vision.share", p, TAG_VIS_OFF, mono_ms(), GW_VISION_CALL_MS) == 0) {
+        G.vis_offs++;
+    }
+}
+
+/* The preview is over. `tell`: the unit does not know it yet. What clients
+ * are told (vision.state) is said from the loop (vis_tick), never from
+ * inside another session's handling. */
+static void vis_end(const char *why, bool tell)
+{
+    char p[17];
+
+    if (!G.vis.viewing) {
+        return;
+    }
+    fp_prefix(G.vis.fp, p);
+    LOG_INFO("vision: the preview of %s ended (%s)", p, why);
+    gw_vision_viewer_end(&G.vis);
+    if (tell) {
+        vis_send_off();
+    }
+    G.vis_say = true;
+    G.vis_poll_due = true;
+}
+
+static void vis_session_gone(uint64_t sid)
+{
+    if (gw_vision_view_of(&G.vis, sid) == GW_VV_SELF) {
+        vis_end("its client went away", true);
+    }
+}
+
+/* The viewer's session, if it is still one a picture may go to: there, that
+ * client, paired, holding the scope and the topic. NULL with the reason. */
+static struct sess *vis_viewer(const char **why)
+{
+    struct sess *s = sess_by_id(G.vis.sid);
+    unsigned scopes;
+
+    if (s == NULL || s->st != S_OPEN || s->closing || s->who != GW_W_PAIRED ||
+        memcmp(s->fp, G.vis.fp, GW_FP_LEN) != 0) {
+        *why = "its client went away";
+        return NULL;
+    }
+    scopes = sess_scopes(s);
+    if ((scopes & GW_S_VISION) == 0) {
+        *why = "its client may no longer view";
+        return NULL;
+    }
+    s->topics = gw_topics_allowed(s->topics, scopes);
+    if ((s->topics & GW_T_VISION) == 0) {
+        *why = "its client no longer listens";
+        return NULL;
+    }
+    return s;
+}
+
+/* The shell answered "unknown method" to a vision.* name: this image has no
+ * Vision that serves them. Not asked again on this connection, and its
+ * methods are unavailable (error 9). */
+static void vis_absent(void)
+{
+    if (G.vis_seen >= 0) {
+        G.vis_seen = -1;
+        LOG_INFO("the shell knows no vision.status: this image serves no Vision preview");
+        vis_upstream_event(false);
+        vis_end("the unit serves no Vision", false);
+    }
+}
+
+static void vis_on_state(bool up)
+{
+    if (up) {
+        G.vis_seen = 0;
+        G.vis_polling = false;
+        G.vis_pulling = false;
+        G.vis_poll_due = true;
+        G.vis_offs = 0;
+        G.vis_share_tag = 0;
+        vis_upstream_event(true);
+        return;
+    }
+    /* Requests that waited were answered "upstream unavailable" before
+     * this. Called while G.cap_up still says how it was. */
+    if (vis_ready()) {
+        if (G.vis_seen > 0) {
+            LOG_INFO("Vision on the shell's socket is out of reach");
+        }
+        vis_upstream_event(false);
+    }
+    G.vis_seen = 0;
+    G.vis_polling = false;
+    G.vis_pulling = false;
+    G.vis_offs = 0;
+    G.vis_share_tag = 0;
+    G.vis_biometric = false;
+    vis_end("the shell went away", false);
+    if (gw_vision_lost(&G.vis)) {
+        G.vis_say = true;
+    }
+}
+
+static void vis_say_state(void)
+{
+    if (G.vis_say) {
+        G.vis_say = false;
+        /* Empty: a client that is told asks vision.status, which answers
+         * for that client (live, or busy). */
+        mesh_emit(GW_T_VISION, "vision.state", cJSON_CreateObject(), false);
+    }
+}
+
+/* One answer to the gateway's own vision.status. */
+static void vis_polled(const cJSON *result, int code)
+{
+    struct gw_vision_seen seen;
+    cJSON *stats = NULL;
+    bool changed = false;
+    char p[17];
+
+    G.vis_polling = false;
+    if (result == NULL) {
+        if (code == POCKETIPC_ERR_UNKNOWN_METHOD) {
+            vis_absent();
+        }
+        return; /* a shell that does not answer in time loses the connection (gw_uplink), which is made again */
+    }
+    if (G.vis_seen <= 0) {
+        G.vis_seen = 1;
+        LOG_INFO("Vision answers on the shell's socket");
+    }
+    gw_vision_step(&G.vis, result, &changed, &stats, &seen);
+    if (changed) {
+        G.vis_say = true;
+    }
+    G.vis_biometric = seen.available && seen.biometric;
+    if (G.vis.viewing) {
+        /* Only an answer asked for after the preview began speaks of it. */
+        if (G.vis_poll_order > G.vis.began) {
+            fp_prefix(G.vis.fp, p);
+            if (!seen.live) {
+                vis_end("the unit stopped sharing", false);
+            } else if (seen.biometric) {
+                vis_end("a mode that is never shared", true);
+            } else if (seen.client[0] != '\0' && strcmp(seen.client, p) != 0) {
+                vis_end("the unit shares with another", true);
+            }
+        }
+    } else if (seen.live && G.vis_share_tag == 0 && G.vis_offs == 0) {
+        /* The unit shares and the gateway has no viewer (it was started
+         * again, or an answer was lost): nobody is there to see it. */
+        LOG_INFO("vision: the unit shares and nobody views: it is told to stop");
+        vis_send_off();
+    }
+    vis_say_state();
+    if (stats != NULL) {
+        /* Figures are replaced by the next: skipped for a client that is behind. */
+        mesh_emit(GW_T_VISION, "vision.stats", stats, true);
+    }
+}
+
+/* One answer to the gateway's own vision.pull. The picture in it, if it is
+ * one, exists here from this call to the end of it. */
+static void vis_pulled(const cJSON *result, int code, int64_t now)
+{
+    const char *why = NULL;
+    struct sess *s;
+    cJSON *data = NULL;
+    double seq = 0;
+
+    G.vis_pulling = false;
+    if (!G.vis.viewing || G.vis_pull_for != G.vis.began) {
+        return; /* asked for a preview that is over */
+    }
+    if (result == NULL) {
+        if (code == POCKETIPC_ERR_UNKNOWN_METHOD) {
+            vis_absent();
+        } else if (code == POCKETIPC_ERR_POLICY) {
+            /* STOP on the unit, another mode, or Vision was left. */
+            vis_end("the unit stopped sharing", false);
+        } else if (code == GW_ERR_UPSTREAM) {
+            gw_vision_skipped(&G.vis, 0, now); /* no answer in time: asked again while the link holds */
+        } else {
+            vis_end("the unit refused a picture", true);
+        }
+        return;
+    }
+    s = vis_viewer(&why);
+    if (s == NULL) {
+        vis_end(why, true);
+        return;
+    }
+    if (G.vis_biometric) {
+        vis_end("a mode that is never shared", true);
+        return;
+    }
+    switch (gw_vision_frame(result, G.vis.last_seq, &data, &seq)) {
+    case GW_VF_NONE:
+        gw_vision_none(&G.vis, now);
+        return;
+    case GW_VF_BAD:
+        if (G.vis.bad++ == 0) {
+            LOG_WARN("vision: an answer to vision.pull was not as the contract says and was dropped (said once)");
+        }
+        gw_vision_skipped(&G.vis, 0, now);
+        return;
+    default:
+        break;
+    }
+    if (s->out_len - s->out_off > GW_EVENT_SOFT_MAX) {
+        /* The viewer is behind on reading: this picture is not for it, and
+         * nothing is kept for later. */
+        cJSON_Delete(data);
+        gw_vision_skipped(&G.vis, seq, now);
+        return;
+    }
+    gw_vision_sent(&G.vis, seq, now);
+    (void)sess_send(s, pocketipc_event("vision.frame", data));
+}
+
+/* An answer on the shell's socket that is Vision's. False when it is not. */
+static bool vis_on_reply(uint64_t tag, const cJSON *result, int code)
+{
+    int64_t now = mono_ms();
+    int i;
+
+    if (tag == TAG_VIS_OFF) {
+        if (G.vis_offs > 0) {
+            G.vis_offs--;
+        }
+        return true;
+    }
+    if (tag == TAG_VIS_POLL) {
+        vis_polled(result, code);
+        return true;
+    }
+    if (tag == TAG_VIS_PULL) {
+        vis_pulled(result, code, now);
+        return true;
+    }
+    for (i = 0; i < GW_MESH_PENDING; i++) {
+        struct mesh_req *q = &G.req[i];
+        struct sess *s;
+        cJSON *filtered = NULL;
+        bool share;
+        int err;
+
+        if (!q->used || q->tag != tag) {
+            continue;
+        }
+        if (q->m->kind != GW_K_VISION) {
+            return false;
+        }
+        share = tag == G.vis_share_tag;
+        err = result != NULL ? POCKETIPC_ERR_BACKEND : code;
+        if (result == NULL && code == POCKETIPC_ERR_UNKNOWN_METHOD) {
+            /* A client's own question was the first: no Vision here, which
+             * to the client is "unavailable". */
+            vis_absent();
+            err = GW_ERR_UPSTREAM;
+        }
+        if (result != NULL && strcmp(q->m->name, "vision.status") == 0) {
+            if (G.vis_seen <= 0) {
+                G.vis_seen = 1;
+                LOG_INFO("Vision answers on the shell's socket");
+            }
+            /* For the client that asked: live is the viewer's word alone. */
+            filtered = gw_vision_status(result, gw_vision_view_of(&G.vis, q->sid));
+        } else if (result != NULL) {
+            filtered = gw_filter_result(q->m, result);
+        }
+        if (share) {
+            const cJSON *st = cJSON_GetObjectItemCaseSensitive(filtered, "state");
+
+            G.vis_share_tag = 0;
+            if (cJSON_IsString(st) && strcmp(st->valuestring, "live") == 0) {
+                unsigned scopes;
+
+                /* The unit shares. Whether for this client, is looked up
+                 * now, not remembered from when it asked. */
+                s = sess_by_id(q->sid);
+                scopes = s != NULL ? sess_scopes(s) : 0;
+                if (s != NULL && s->st == S_OPEN && !s->closing && !G.vis_share_void && !G.vis.viewing &&
+                    (scopes & GW_S_VISION) != 0 && (gw_topics_allowed(s->topics, scopes) & GW_T_VISION) != 0) {
+                    char p[17];
+
+                    gw_vision_viewer(&G.vis, s->fp, s->id, G.vis_share_order, now);
+                    fp_prefix(s->fp, p);
+                    LOG_INFO("vision: the preview of %s began", p);
+                    G.vis_say = true;
+                    G.vis_poll_due = true;
+                } else {
+                    vis_send_off();
+                    cJSON_Delete(filtered);
+                    filtered = NULL;
+                    err = POCKETIPC_ERR_POLICY;
+                }
+            }
+        }
+        req_done(q, filtered, err);
+        return true;
+    }
+    if (tag == G.vis_share_tag) {
+        /* The session that asked is gone; the unit may share for it now. */
+        G.vis_share_tag = 0;
+        if (result != NULL) {
+            vis_send_off();
+        }
+        return true;
+    }
+    return false;
+}
+
+static void vis_tick(int64_t now)
+{
+    const char *why = NULL;
+
+    if (G.vis.viewing) {
+        if (vis_viewer(&why) == NULL) {
+            vis_end(why, true);
+        } else if (gw_vision_ack_late(&G.vis, now)) {
+            vis_end("no acknowledgement", true);
+        }
+    }
+    /* Asked only while somebody is told the answer. Before the picture: the
+     * unit answers in order, so the first picture of a preview is read
+     * knowing the mode the unit was in when the preview began. */
+    if (vis_ready() && !G.vis_polling && (topic_held(GW_T_VISION) || G.vis.viewing) &&
+        (G.vis_poll_due || now - G.vis_poll_ms >= GW_VISION_POLL_MS)) {
+        if (gw_uplink_call(G.shell, "vision.status", NULL, TAG_VIS_POLL, now, GW_VISION_CALL_MS) == 0) {
+            G.vis_polling = true;
+            G.vis_poll_order = ++G.vis_order;
+        }
+        G.vis_poll_ms = now;
+        G.vis_poll_due = false;
+    }
+    /* The next picture: only for a viewer that has taken the last. */
+    if (G.vis.viewing && vis_ready() && !G.vis_pulling && gw_vision_pull_due(&G.vis, now)) {
+        cJSON *p = cJSON_CreateObject();
+
+        if (p == NULL || cJSON_AddNumberToObject(p, "after_seq", G.vis.last_seq) == NULL) {
+            cJSON_Delete(p);
+            gw_vision_none(&G.vis, now);
+        } else if (gw_uplink_call(G.shell, "vision.pull", p, TAG_VIS_PULL, now, GW_VISION_CALL_MS) == 0) {
+            G.vis_pulling = true;
+            G.vis_pull_for = G.vis.began;
+        } else {
+            gw_vision_none(&G.vis, now);
+        }
+    }
+    vis_say_state();
+}
+
+/* How long the loop may sleep: its usual turn, or less when the next
+ * picture may be asked for before that. */
+static int vis_wait_ms(int64_t now)
+{
+    int64_t t = G.vis.next_ms - now;
+
+    if (G.vis.viewing && !G.vis_pulling && !(G.vis.sent && G.vis.waiting) && t > 0 && t < LOOP_MS) {
+        return (int)t;
+    }
+    return LOOP_MS;
+}
+
+/* vision.status, vision.share, vision.ack, vision.mode, vision.set,
+ * vision.reset. The row has said who may call it; the parameters are
+ * checked and written again before anything is sent; the unit's answer
+ * comes later (vis_on_reply). */
+static bool do_vision(struct sess *s, const cJSON *id, const struct gw_method *m, const cJSON *params, int idx)
+{
+    bool share = strcmp(m->name, "vision.share") == 0;
+    int64_t now = mono_ms();
+    struct mesh_req *q;
+    cJSON *up = NULL, *r;
+    char p[17];
+
+    if (m->params != NULL ? m->params(params, &up) != 0 : !gw_params_empty(params)) {
+        return reply_error(s, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+    }
+    if (idx < 0) {
+        cJSON_Delete(up);
+        return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    }
+    if (strcmp(m->name, "vision.ack") == 0) {
+        /* The gateway's own: it reaches nothing. It counts from the viewer
+         * and for the picture last sent; anything else is ignored. */
+        const cJSON *seq = cJSON_GetObjectItemCaseSensitive(up, "seq");
+
+        (void)gw_vision_ack(&G.vis, s->id, cJSON_IsNumber(seq) ? seq->valuedouble : -1);
+        cJSON_Delete(up);
+        return sess_send(s, pocketipc_response(id, NULL));
+    }
+    if (share && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(up, "on"))) {
+        /* Off always succeeds. The unit is told only by the viewer's. */
+        cJSON_Delete(up);
+        if (G.vis_share_tag != 0 && G.vis_share_sid == s->id) {
+            G.vis_share_void = true; /* its own request to view is still on its way */
+        }
+        if (gw_vision_view_of(&G.vis, s->id) == GW_VV_SELF) {
+            vis_end("its client asked", true);
+        }
+        r = cJSON_CreateObject();
+        cJSON_AddStringToObject(r, "state", "off");
+        return sess_send(s, pocketipc_response(id, r));
+    }
+    /* How often, counted here: each of these wakes the Vision app on the
+     * unit's one hart. Reading the state is under the general limit only. */
+    if (strcmp(m->name, "vision.status") != 0 && !gw_vision_rate(&G.vis, s->fp, now)) {
+        cJSON_Delete(up);
+        return reply_error(s, id, GW_ERR_RATE, "rate limited");
+    }
+    if (!vis_ready()) {
+        cJSON_Delete(up);
+        return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    }
+    if (share) {
+        if (gw_vision_view_of(&G.vis, s->id) == GW_VV_SELF) {
+            cJSON_Delete(up);
+            r = cJSON_CreateObject();
+            cJSON_AddStringToObject(r, "state", "live");
+            return sess_send(s, pocketipc_response(id, r));
+        }
+        if (G.vis.viewing || G.vis_share_tag != 0) {
+            cJSON_Delete(up);
+            return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+        }
+        if ((s->topics & GW_T_VISION) == 0) {
+            /* A picture is an event of the topic: without it there is
+             * nobody to send one to. */
+            cJSON_Delete(up);
+            return reply_error(s, id, POCKETIPC_ERR_POLICY, "the topic is not held");
+        }
+        /* (Whether the unit's mode is one that may be shared is the unit's
+         * to say, now: what the gateway last heard of it may be a second
+         * old. The gateway's own check is on every picture, vis_pulled.) */
+        /* Who views is this unit's own word for the client: the start of
+         * its fingerprint, and the name it was given at pairing. */
+        fp_prefix(s->fp, p);
+        if (up == NULL || cJSON_AddStringToObject(up, "client", p) == NULL ||
+            cJSON_AddStringToObject(up, "name", G.store.c[idx].name) == NULL) {
+            cJSON_Delete(up);
+            return reply_error(s, id, POCKETIPC_ERR_BACKEND, "upstream error");
+        }
+    }
+    q = req_new(s, id, m);
+    if (q == NULL) {
+        cJSON_Delete(up);
+        return reply_error(s, id, POCKETIPC_ERR_BUSY, "busy");
+    }
+    if (gw_uplink_call(G.shell, m->name, up, q->tag, now, GW_VISION_CALL_MS) != 0) {
+        req_cancel(s, q);
+        return reply_error(s, id, GW_ERR_UPSTREAM, "upstream unavailable");
+    }
+    if (share) {
+        G.vis_share_tag = q->tag;
+        G.vis_share_sid = s->id;
+        G.vis_share_order = ++G.vis_order;
+        G.vis_share_void = false;
+    }
+    return true;
+}
+
+/* The shell's socket serves two apps: each answer and each change of the
+ * link goes to the part it belongs to. */
+static void shell_on_reply(void *user, uint64_t tag, const cJSON *result, int code)
+{
+    if (!vis_on_reply(tag, result, code)) {
+        cap_on_reply(user, tag, result, code);
+    }
+}
+
+static void shell_on_state(void *user, bool up)
+{
+    if (!up) {
+        vis_on_state(false);
+    }
+    cap_on_state(user, up);
+    if (up && G.cap_up) {
+        vis_on_state(true);
+    }
+}
+
 /* ---- requests from clients ---------------------------------------------- */
 
 static cJSON *hello_result(const struct sess *s, unsigned scopes)
@@ -2016,6 +2648,11 @@ static cJSON *hello_result(const struct sess *s, unsigned scopes)
          * Whether PacketShark answers now is gateway.subscribe's
          * upstream.shell and the gateway.upstream event. */
         cJSON_AddItemToArray(caps, cJSON_CreateString("capture"));
+    }
+    if ((scopes & GW_S_VISION) != 0) {
+        /* The same rule: offered to a client that holds vision, and to no
+         * other. Whether Vision is in front now is vision.status. */
+        cJSON_AddItemToArray(caps, cJSON_CreateString("vision"));
     }
     cJSON_AddItemToObject(r, "capabilities", caps);
     cJSON_AddNumberToObject(r, "wall_ms", (double)w * 1000.0);
@@ -2207,6 +2844,9 @@ static bool sess_request(struct sess *s, const uint8_t *p, size_t n)
                 break;
             case GW_K_CAPTURE:
                 alive = do_capture(s, id, m, params, idx);
+                break;
+            case GW_K_VISION:
+                alive = do_vision(s, id, m, params, idx);
                 break;
             case GW_K_NODES:
                 alive = do_nodes(s, id, m, params);
@@ -2651,18 +3291,21 @@ static void ctl_revoke(struct pocketipc_client *c, const cJSON *id, const cJSON 
     ctl_reply(c, id, NULL);
 }
 
-static void ctl_set_scopes(struct pocketipc_client *c, const cJSON *id, const cJSON *params)
+/* The paired client at idx holds these scopes from now: in memory first,
+ * with what follows for its connection, then on storage. */
+static void ctl_scopes_apply(struct pocketipc_client *c, const cJSON *id, int idx, unsigned scopes)
 {
     uint8_t fp[GW_FP_LEN];
-    int idx = ctl_client(params, fp), i;
-    unsigned scopes = 0;
     cJSON *d;
+    int i;
 
-    if (idx < 0 || gw_scopes_from_json(cJSON_GetObjectItemCaseSensitive(params, "scopes"), &scopes) != 0) {
-        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
-        return;
-    }
+    memcpy(fp, G.store.c[idx].fp, GW_FP_LEN);
     G.store.c[idx].scopes = scopes;
+    if ((scopes & GW_S_VISION) == 0 && G.vis.viewing && gw_ct_eq(G.vis.fp, fp, GW_FP_LEN)) {
+        /* The viewer lost vision: its preview ends with this line, not with
+         * the next picture. */
+        vis_end("its client may no longer view", true);
+    }
     for (i = 0; i < SESS_SLOTS; i++) {
         struct sess *s = &G.s[i];
 
@@ -2683,6 +3326,92 @@ static void ctl_set_scopes(struct pocketipc_client *c, const cJSON *id, const cJ
     d = cJSON_CreateObject();
     cJSON_AddItemToObject(d, "scopes", gw_scopes_json(scopes));
     ctl_reply(c, id, d);
+}
+
+static void ctl_set_scopes(struct pocketipc_client *c, const cJSON *id, const cJSON *params)
+{
+    uint8_t fp[GW_FP_LEN];
+    int idx = ctl_client(params, fp);
+    unsigned scopes = 0;
+
+    if (idx < 0 || gw_scopes_from_json(cJSON_GetObjectItemCaseSensitive(params, "scopes"), &scopes) != 0) {
+        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+        return;
+    }
+    ctl_scopes_apply(c, id, idx, scopes);
+}
+
+/* The client a local request names by its fingerprint or by the start of
+ * it: 8 to 64 hex digits that begin exactly one paired client's. -1 for
+ * none, and for more than one. */
+static int ctl_client_prefix(const cJSON *params)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "client");
+    char hex[GW_FP_HEX + 1], want[GW_FP_HEX + 1];
+    size_t n, k;
+    int i, found = -1;
+
+    if (!cJSON_IsString(v)) {
+        return -1;
+    }
+    n = strlen(v->valuestring);
+    if (n < 8 || n > GW_FP_HEX) {
+        return -1;
+    }
+    for (k = 0; k < n; k++) {
+        char ch = v->valuestring[k];
+
+        if (ch >= 'A' && ch <= 'F') {
+            ch = (char)(ch - 'A' + 'a');
+        }
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            return -1;
+        }
+        want[k] = ch;
+    }
+    for (i = 0; i < G.store.n; i++) {
+        gw_hex(G.store.c[i].fp, GW_FP_LEN, hex);
+        if (memcmp(hex, want, n) == 0) {
+            if (found >= 0) {
+                return -1;
+            }
+            found = i;
+        }
+    }
+    return found;
+}
+
+/* gateway.scope {client, scope, on}: one scope of one paired client, given
+ * or taken. Strings and a boolean, so that the unit's own command line and
+ * a switch in Settings can send it (gateway.set_scopes takes a list). What
+ * results must be a set a client may hold. */
+static void ctl_scope(struct pocketipc_client *c, const cJSON *id, const cJSON *params)
+{
+    const cJSON *name = cJSON_GetObjectItemCaseSensitive(params, "scope");
+    const cJSON *on = cJSON_GetObjectItemCaseSensitive(params, "on");
+    const cJSON *el;
+    int idx = ctl_client_prefix(params);
+    unsigned bit = cJSON_IsString(name) ? gw_scope_parse(name->valuestring) : 0;
+    unsigned scopes;
+
+    cJSON_ArrayForEach(el, params) {
+        if (el->string == NULL || (strcmp(el->string, "client") != 0 && strcmp(el->string, "scope") != 0 &&
+                                   strcmp(el->string, "on") != 0)) {
+            idx = -1;
+        }
+    }
+    if (idx < 0 || bit == 0 || !cJSON_IsBool(on)) {
+        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+        return;
+    }
+    scopes = cJSON_IsTrue(on) ? (G.store.c[idx].scopes | bit) : (G.store.c[idx].scopes & ~bit);
+    if (!gw_scopes_valid(scopes)) {
+        /* mesh_send without mesh_read, or capture_control without
+         * capture_view: the other one first. */
+        ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "not a set a client may hold");
+        return;
+    }
+    ctl_scopes_apply(c, id, idx, scopes);
 }
 
 static void ctl_handler(struct pocketipc_server *srv, struct pocketipc_client *c, cJSON *req, void *user)
@@ -2727,6 +3456,8 @@ static void ctl_handler(struct pocketipc_server *srv, struct pocketipc_client *c
         ctl_revoke(c, id, params);
     } else if (strcmp(method, "gateway.set_scopes") == 0) {
         ctl_set_scopes(c, id, params);
+    } else if (strcmp(method, "gateway.scope") == 0) {
+        ctl_scope(c, id, params);
     } else if (strcmp(method, "gateway.subscribe") == 0 || strcmp(method, "gateway.unsubscribe") == 0) {
         pocketipc_client_set_subscribed(c, method[8] == 's');
         r = cJSON_CreateObject();
@@ -2769,7 +3500,7 @@ int main(int argc, char **argv)
 {
     char lock_path[GW_STORE_PATH_MAX];
     static const struct gw_uplink_cb mesh_cb = {mesh_on_state, mesh_on_event, mesh_on_reply};
-    static const struct gw_uplink_cb cap_cb = {cap_on_state, cap_on_event, cap_on_reply};
+    static const struct gw_uplink_cb shell_cb = {shell_on_state, cap_on_event, shell_on_reply};
     struct epoll_event evs[SESS_SLOTS + 3];
     enum gw_tls_identity_result idr;
     struct sigaction sa;
@@ -2890,7 +3621,8 @@ int main(int argc, char **argv)
     gw_send_init(&G.send);
     G.mesh = gw_uplink_new("meshcored", &mesh_cb, NULL);
     gw_capture_init(&G.cap);
-    G.shell = gw_uplink_new("shell", &cap_cb, NULL);
+    gw_vision_init(&G.vis);
+    G.shell = gw_uplink_new("shell", &shell_cb, NULL);
     if (gw_tls_random(jrnd, sizeof(jrnd)) != 0) {
         LOG_ERROR("no random source");
         return 1;
@@ -2909,7 +3641,7 @@ int main(int argc, char **argv)
         int64_t now;
         int ready = 0, n;
 
-        (void)pocketipc_server_poll_fd(G.ctl, G.resume_soon ? 0 : LOOP_MS, G.epfd, &ready);
+        (void)pocketipc_server_poll_fd(G.ctl, G.resume_soon ? 0 : vis_wait_ms(mono_ms()), G.epfd, &ready);
         G.resume_soon = false;
         n = ready ? epoll_wait(G.epfd, evs, SESS_SLOTS + 3, 0) : 0;
         for (i = 0; i < n; i++) {
@@ -2936,6 +3668,7 @@ int main(int argc, char **argv)
         now = mono_ms();
         mesh_tick(now);
         cap_tick(now);
+        vis_tick(now);
         /* A session that was at its limit of waiting requests and had one
          * answered reads on. Here and not where the answer was sent: never
          * from inside another session's handling. */
@@ -2979,6 +3712,21 @@ int main(int argc, char **argv)
         int64_t until = mono_ms() + CAP_STOP_FLUSH_MS;
 
         while (G.cap_say_n > 0 && gw_uplink_connected(G.shell) && mono_ms() < until) {
+            struct pollfd pf = {gw_uplink_fd(G.shell), POLLIN, 0};
+
+            (void)poll(&pf, 1, 20);
+            gw_uplink_io(G.shell, mono_ms());
+            gw_uplink_tick(G.shell, mono_ms());
+        }
+    }
+    if (G.vis_offs > 0 && gw_uplink_connected(G.shell)) {
+        /* Stopping: the viewer's session was closed above, and with that
+         * the unit was told that its preview is over. Its answer is waited
+         * for, a moment at most, so that the word has left before the
+         * socket is closed. */
+        int64_t until = mono_ms() + CAP_STOP_FLUSH_MS;
+
+        while (G.vis_offs > 0 && gw_uplink_connected(G.shell) && mono_ms() < until) {
             struct pollfd pf = {gw_uplink_fd(G.shell), POLLIN, 0};
 
             (void)poll(&pf, 1, 20);

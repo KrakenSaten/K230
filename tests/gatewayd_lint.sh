@@ -69,7 +69,7 @@ check "main.c makes no trust decision of its own" \
 table=$(awk '/^static const struct gw_method METHODS\[\]/,/^};/' $D/gw_policy.c)
 names=$(echo "$table" | grep -oE '\{"[a-z_.]+"' | tr -d '{"')
 check "the method table was found" "$([ -n "$names" ] && echo 1 || echo 0)"
-bad=$(echo "$names" | grep -vE '^mesh\.(send|resend)$' | grep -E '^shell\.|reboot|poweroff|expand|eject|radio_setup|connect|forget|set_enabled|configure|\.send|set_name|set_path_hash|channel_add|channel_remove|node_remove|reset_path|advert|discover|remote_|app_send|pair_begin|pair_decide|revoke|set_scopes' || true)
+bad=$(echo "$names" | grep -vE '^mesh\.(send|resend)$' | grep -E '^shell\.|reboot|poweroff|expand|eject|radio_setup|connect|forget|set_enabled|configure|\.send|set_name|set_path_hash|channel_add|channel_remove|node_remove|reset_path|advert|discover|remote_|app_send|pair_begin|pair_decide|revoke|set_scopes|^gateway\.scope$|^vision\.(pull|frame|state|stats|enrol|open|start|save)$' || true)
 check "no method that changes the unit, and none of the shell" "$([ -z "$bad" ] && echo 1 || echo 0)"
 [ -n "$bad" ] && echo "$bad" | sed 's/^/       /'
 # The shell (ADR-019 rule 6 as amended 2026-11-22): one connection to its
@@ -77,17 +77,24 @@ check "no method that changes the unit, and none of the shell" "$([ -z "$bad" ] 
 # no other - no shell.* method, and no subscription to its events. Four of
 # the five are rows a client with the scope can reach; the fifth, the
 # cancel, is the gateway's own and is no row.
+# As amended again 2026-11-23 (ADR-019 amendment 1): on the same connection
+# the gateway also calls six methods of the Vision app - five of them rows a
+# client with the scope vision can reach, the sixth, vision.pull, the
+# gateway's own - and still no other (section 4d below).
+# "shell" is written 14 times: 9 rows, the one connection, the service name
+# in the two gateway.upstream events, and the two answers of
+# gateway.subscribe.
 check "the shell's socket is opened in one place" \
-    "$([ "$(grep -c 'gw_uplink_new("shell"' $D/main.c)" = 1 ] && [ "$(grep -ho '"shell"' $SRC | wc -l)" = 7 ] && echo 1 || echo 0)"
+    "$([ "$(grep -c 'gw_uplink_new("shell"' $D/main.c)" = 1 ] && [ "$(grep -ho '"shell"' $SRC | wc -l)" = 14 ] && echo 1 || echo 0)"
 shell_rows=$(echo "$table" | grep '"shell"' | grep -oE '\{"[a-z_.]+"' | tr -d '{"' | sort | tr '\n' ' ')
-check "its rows are the four capture methods ($shell_rows)" \
-    "$([ "$shell_rows" = "capture.hold capture.request_start capture.status capture.stop " ] && echo 1 || echo 0)"
+check "its rows are the four capture methods and the five of Vision ($shell_rows)" \
+    "$([ "$shell_rows" = "capture.hold capture.request_start capture.status capture.stop vision.mode vision.reset vision.set vision.share vision.status " ] && echo 1 || echo 0)"
 check "every capture row is of the capture kind and needs a capture scope" \
     "$([ "$(echo "$table" | grep -cE '\{"capture\.[a-z_]+", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_(VIEW|CONTROL), "shell", gw_capture_')" = 4 ] &&
        [ "$(echo "$table" | grep -c '"capture\.')" = 4 ] && echo 1 || echo 0)"
 called=$(grep -ohE 'gw_uplink_call\(G\.shell, ("[a-z_.]+"|m->name)' $D/main.c | sed 's/.*G\.shell, //' | sort | uniq -c | awk '{print $2 "x" $1}' | tr '\n' ' ')
-check "on it the gateway calls capture.status, capture.request_cancel and a row by its name, and nothing else ($called)" \
-    "$([ "$called" = '"capture.request_cancel"x1 "capture.status"x1 m->namex1 ' ] && echo 1 || echo 0)"
+check "on it the gateway calls capture.status, capture.request_cancel, vision.status, vision.share, vision.pull and a row by its name, and nothing else ($called)" \
+    "$([ "$called" = '"capture.request_cancel"x1 "capture.status"x1 "vision.pull"x1 "vision.share"x1 "vision.status"x1 m->namex2 ' ] && echo 1 || echo 0)"
 check "the gateway asks capture.status only for somebody: no question of its own on connecting" \
     "$(awk '/^static void cap_on_state\(/,/^}/' $D/main.c | grep -q 'gw_uplink_call' && echo 0 ||
        { awk '/^static void cap_tick\(/,/^}/' $D/main.c | grep -B3 'gw_uplink_call(G.shell, "capture.status"' |
@@ -135,6 +142,77 @@ check "upstream calls pass no client parameter" \
 check "upstream methods are called only by table name" \
     "$([ "$(grep -c 'pocketipc_call' $D/main.c)" = 1 ] && echo 1 || echo 0)"
 
+# 4d. Vision (ADR-019 amendment 1; rule 6 as extended 2026-11-23). Ten names
+# and no other: six the gateway calls on the shell's socket (vision.status,
+# vision.share, vision.pull, vision.mode, vision.set, vision.reset), one a
+# client calls that reaches nothing (vision.ack), and three events
+# (vision.frame, vision.state, vision.stats).
+visnames=$(grep -ohE '"vision\.[a-z_.]*"' $SRC | sort -u | tr -d '"' | tr '\n' ' ')
+check "the vision names in the source are the ten of the amendment ($visnames)" \
+    "$([ "$visnames" = "vision.ack vision.frame vision.mode vision.pull vision.reset vision.set vision.share vision.state vision.stats vision.status " ] && echo 1 || echo 0)"
+visrows=$(echo "$table" | grep -oE '\{"vision\.[a-z_]+"' | tr -d '{"' | sort | tr '\n' ' ')
+check "the vision rows are six, and vision.pull is none of them ($visrows)" \
+    "$([ "$visrows" = "vision.ack vision.mode vision.reset vision.set vision.share vision.status " ] && echo 1 || echo 0)"
+check "every vision row is of the Vision kind, for a paired client, by the scope vision" \
+    "$([ "$(echo "$table" | grep -cE '\{"vision\.[a-z_]+", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, ("shell", gw_vision_[a-z_]+|NULL, NULL), ')" = 6 ] &&
+       [ "$(echo "$table" | grep -cE 'GW_K_VISION|GW_S_VISION|"vision\.')" = 6 ] && echo 1 || echo 0)"
+check "vision.ack reaches no service: the gateway answers it alone" \
+    "$(echo "$table" | grep -q '{"vision.ack", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, NULL, NULL, gw_vision_params_ack},' && echo 1 || echo 0)"
+check "the scope vision is no part of what a new pairing gets" \
+    "$(grep -q '^#define GW_S_DEFAULT (GW_S_STATUS | GW_S_MESH_READ | GW_S_MESH_SEND)$' $D/gw_policy.h && echo 1 || echo 0)"
+check "FACE, RECOGNIZE and READ cannot be chosen: vision.mode reads the list only up to them" \
+    "$(grep -A1 '^static const char \*const MODES\[\]' $D/gw_vision.c | tr -d '\n' | tr -s ' ' |
+       grep -q '{"detect", "track", "traffic", "segment", "instances", "color", "edge", "trace", "face", "recognize", "read", NULL};' &&
+       grep -q '^#define GW_VISION_REMOTE 8$' $D/gw_vision.c &&
+       awk '/^int gw_vision_params_mode\(/,/^}/' $D/gw_vision.c | grep -q 'i < GW_VISION_REMOTE; i++' && echo 1 || echo 0)"
+check "the picture is asked for in one place, for a viewer that has taken the last" \
+    "$([ "$(grep -c '"vision.pull"' $D/main.c)" = 1 ] &&
+       awk '/^static void vis_tick\(/,/^}/' $D/main.c | grep -q 'gw_uplink_call(G.shell, "vision.pull", p, TAG_VIS_PULL,' &&
+       awk '/^static void vis_tick\(/,/^}/' $D/main.c | grep -q 'if (G.vis.viewing && vis_ready() && !G.vis_pulling && gw_vision_pull_due(&G.vis, now)) {' && echo 1 || echo 0)"
+check "a picture goes to one session, from one place, and never to a topic's listeners" \
+    "$([ "$(grep -c '"vision.frame"' $D/main.c)" = 1 ] &&
+       awk '/^static void vis_pulled\(/,/^}/' $D/main.c | grep -q '(void)sess_send(s, pocketipc_event("vision.frame", data));' && echo 1 || echo 0)"
+check "before it is sent the viewer is looked up again, and the unit's mode" \
+    "$(awk '/^static void vis_pulled\(/,/^}/' $D/main.c |
+       awk '/s = vis_viewer\(&why\);/{a=NR} /if \(G.vis_biometric\) \{/{b=NR} /gw_vision_frame\(result, G.vis.last_seq, &data, &seq\)/{c=NR} /sess_send\(/{d=NR} END{print (a && b && c && d && a<b && b<c && c<d) ? 1 : 0}')"
+check "the viewer is one whose scope and topic hold now" \
+    "$(awk '/^static struct sess \*vis_viewer\(/,/^}/' $D/main.c | grep -q '(scopes & GW_S_VISION) == 0' &&
+       awk '/^static struct sess \*vis_viewer\(/,/^}/' $D/main.c | grep -q '(s->topics & GW_T_VISION) == 0' && echo 1 || echo 0)"
+check "a picture is made by gw_vision_frame and its answer is named for nothing else" \
+    "$([ -z "$(awk '/^static void vis_pulled\(/,/^}/' $D/main.c | grep -E '\bresult\b' |
+       grep -vE 'result == NULL|gw_vision_frame\(result, G\.vis\.last_seq, &data, &seq\)|const cJSON \*result, int code')" ] && echo 1 || echo 0)"
+check "nothing of a picture is logged: no log call in the pull takes a value" \
+    "$(awk '/^static void vis_pulled\(/,/^}/' $D/main.c | grep 'LOG_' | grep -q '%' && echo 0 || echo 1)"
+check "the gateway's own vision.share is only ever off" \
+    "$([ "$(grep -c '"vision.share"' $D/main.c)" = 2 ] &&
+       awk '/^static void vis_send_off\(/,/^}/' $D/main.c | grep -q 'cJSON_AddBoolToObject(p, "on", false) == NULL' &&
+       awk '/^static void vis_send_off\(/,/^}/' $D/main.c | grep -q 'gw_uplink_call(G.shell, "vision.share", p, TAG_VIS_OFF,' && echo 1 || echo 0)"
+check "who views is the start of the paired key and the paired name, added by the gateway" \
+    "$(awk '/^static bool do_vision\(/,/^}/' $D/main.c | grep -q 'cJSON_AddStringToObject(up, "client", p) == NULL' &&
+       awk '/^static bool do_vision\(/,/^}/' $D/main.c | grep -q 'cJSON_AddStringToObject(up, "name", G.store.c\[idx\].name) == NULL' &&
+       awk '/^int gw_vision_params_share\(/,/^}/' $D/gw_vision.c | grep -q 'static const char \*const names\[\] = {"on", NULL};' && echo 1 || echo 0)"
+check "the gateway asks vision.status only for somebody: no question of its own on connecting" \
+    "$(awk '/^static void vis_on_state\(/,/^}/' $D/main.c | grep -q 'gw_uplink_call' && echo 0 ||
+       { awk '/^static void vis_tick\(/,/^}/' $D/main.c | grep -B3 'gw_uplink_call(G.shell, "vision.status"' |
+         grep -q '(topic_held(GW_T_VISION) || G.vis.viewing)' && echo 1 || echo 0; })"
+visblock=$(awk '/^\/\* ---- Vision \(ADR-019 amendment 1/,/^\/\* ---- requests from clients/' $D/main.c)
+check "the Vision block was found, and its events are the three of Vision and the link's, made here and never the unit's answer" \
+    "$([ -n "$visblock" ] && echo "$visblock" | grep -E 'mesh_emit\(|pocketipc_event\(' |
+       grep -vqE 'mesh_emit\(GW_T_VISION, "vision\.state", cJSON_CreateObject\(\), false\);|mesh_emit\(GW_T_VISION, "vision\.stats", stats, true\);|pocketipc_event\("vision\.frame", data\)|pocketipc_event\("gateway\.upstream", d\)' &&
+       echo 0 || echo 1)"
+check "an answer of the unit reaches a client only through gw_vision_status or its row's filter" \
+    "$(awk '/^static bool vis_on_reply\(/,/^}/' $D/main.c | grep -q 'filtered = gw_vision_status(result, gw_vision_view_of(&G.vis, q->sid));' &&
+       awk '/^static bool vis_on_reply\(/,/^}/' $D/main.c | grep -q 'filtered = gw_filter_result(q->m, result);' &&
+       [ "$(awk '/^static bool vis_on_reply\(/,/^}/' $D/main.c | grep -c 'req_done(')" = 1 ] && echo 1 || echo 0)"
+check "the capability is offered by the client's own scope vision" \
+    "$(grep -A4 'if ((scopes & GW_S_VISION) != 0) {' $D/main.c | grep -q 'cJSON_CreateString("vision")' && echo 1 || echo 0)"
+check "the shell's events are still taken from nobody" \
+    "$(grep -q 'static const struct gw_uplink_cb shell_cb = {shell_on_state, cap_on_event, shell_on_reply};' $D/main.c && echo 1 || echo 0)"
+check "gateway.scope is a method of the local control socket alone" \
+    "$([ "$(grep -c '"gateway.scope"' $SRC | awk -F: '{n+=$2} END{print n}')" = 1 ] &&
+       awk '/^static void ctl_handler\(/,/^}/' $D/main.c | grep -q 'strcmp(method, "gateway.scope") == 0' && echo 1 || echo 0)"
+none "the vision code is free of I/O and of the session's types" 'SSL|socket\(|epoll|read\(|write\(|LOG_|struct sess|fopen|open\(' $D/gw_vision.c $D/gw_vision.h
+
 # 4b. The mesh group (M4.1): reading only, by mesh_read only, and the
 # gateway's own connection to meshcored asks for three things by name.
 meshrows=$(echo "$table" | grep -E '\{"mesh\.' | grep -vE '"mesh\.(status|send|resend)"')
@@ -148,7 +226,7 @@ check "the gateway's own calls to meshcored are status, subscribe, messages and 
     "$([ "$own" = '"mesh.messages""mesh.send""mesh.status""mesh.subscribe"' ] && echo 1 || echo 0)"
 check "every other call to meshcored is a table row by its name" \
     "$([ "$(grep -c 'gw_uplink_call(G.mesh,' $D/main.c)" = 7 ] && [ "$(grep -c 'gw_uplink_call(G.mesh, m->name,' $D/main.c)" = 2 ] &&
-       [ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 10 ] && [ "$(grep -c 'gw_uplink_call(G.shell,' $D/main.c)" = 3 ] && echo 1 || echo 0)"
+       [ "$(grep -c 'gw_uplink_call(' $D/main.c)" = 14 ] && [ "$(grep -c 'gw_uplink_call(G.shell,' $D/main.c)" = 7 ] && echo 1 || echo 0)"
 check "what goes upstream with a client's request is the row's own parameter check" \
     "$(grep -q 'gw_uplink_call(G.mesh, m->name, up,' $D/main.c && grep -q 'm->params(params, &up)' $D/main.c && echo 1 || echo 0)"
 # 4c. Sending (M4.2): two rows, by mesh_send only; one place passes a

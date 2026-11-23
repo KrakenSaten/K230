@@ -1,6 +1,6 @@
 # Companion: Vision preview (design)
 
-Status: **Design accepted in principle; nothing here is implemented on a unit.** Its two decisions, `docs/decisions/ADR-006-amendment-1-companion-preview.md` and `docs/decisions/ADR-019-amendment-1-vision.md`, were accepted by the owner on 2026-11-23. The measurements of section 8 still come before anything ships, and the wire format of section 5 becomes a contract only when it is written into `docs/api/gateway.md` with the gateway code. The Android side exists against a simulated source (`android/doors-companion`, README "Vision"); its gateway client is written to section 5 and has never met a gateway.
+Status: **Design accepted; implemented in PR #174 (helper, Vision app, shell, gatewayd, Android), not merged and not deployed.** Its two decisions, `docs/decisions/ADR-006-amendment-1-companion-preview.md` and `docs/decisions/ADR-019-amendment-1-vision.md`, were accepted by the owner on 2026-11-23. The measurements of section 8 still come before anything ships, and the wire format of section 5 becomes a contract only when it is written into `docs/api/gateway.md` with the gateway code. The Android side exists against a simulated source (`android/doors-companion`, README "Vision"); its gateway client is written to section 5 and has never met a gateway.
 Date: 2026-11-22, revised 2026-11-23 (trusted-device model: one authorization of the phone, automatic preview, no time limit, one scope, screenshots allowed)
 
 Evidence classes as in the hardware baseline: VERIFIED (seen on a unit), DOCUMENTED (in this repository's code or documents), ASSUMED (reasoned, not measured).
@@ -66,7 +66,9 @@ gatewayd:          one viewer; asks vision.status about once a second for its ev
 phone:             one picture held; decodes off the main thread; draws picture and boxes with one transform
 ```
 
-New helper commands: `share on <max_side> <quality>`, `share next`, `share off`. New event: `share slot seq w h len`. Protocol version 4; the app and the helper ship together.
+As built (PR #174): helper commands `share on [<max_side> [<quality>]]`, `share next`, `share off`; events `sharecap <max_side> <max_bytes>`, `share <seq> <w> <h> <bytes> <ms>` and `sharefail <seq> <why>` (`core/pocketvision/pocketvision_proto.h`). The protocol version stays 3: the words are additions either side ignores when it does not know them, so an older helper simply offers no sharing.
+
+Two things differ from the first sketch. The camera's own frame number stays 0 on the K230, so pictures are numbered by the unit's software: the session counts the pictures it takes in, and the Vision app numbers what it hands out, upwards for as long as it lives. And a `vision.pull` both hands out the newest picture the viewer has not had and asks the helper for the next one, so the next is being made while this one travels; the helper still makes one picture per request and never more often than every 200 ms, so at most one picture is ever made that is not sent.
 
 ## 5. Gateway API (proposed addition to `docs/api/gateway.md`)
 
@@ -169,7 +171,7 @@ Nothing below has been done.
 
 ## 9. What it takes
 
-- The app-method hook on `shell.sock`: exists (merged with the capture work, PRs #175 to #178). Vision answers larger than its 8192-byte limit (`vision.pull`) need the owner's separate approval, as decided for H1.
+- The app-method hook on `shell.sock`: exists (merged with the capture work, PRs #175 to #178). The answer to `vision.pull`, and to no other method, may be 90112 bytes instead of 8192: the owner's exception of 2026-11-23, written down in `docs/api/shell.md` "Methods served by an app".
 - `pos-vision`: the `share` commands, a memory destination for the codec, the half-size reduction.
 - Vision app: `vision.*` handlers, the mark with STOP and resume, settings applied as if chosen on its own sheets. No sheet.
 - gatewayd: the scope, topic, rows and filters (`gw_policy.[ch]`), the shell uplink that exists for `capture`, the status poll, the one-viewer pull loop, limits (`gw.h`), `tests/gatewayd_lint.sh` (which today forbids every `shell.` name), unit and end-to-end tests.

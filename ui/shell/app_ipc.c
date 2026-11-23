@@ -171,6 +171,12 @@ int app_ipc_check(const struct pocketos_app *const *apps, size_t count, char *wh
     return 0;
 }
 
+size_t app_ipc_result_max(const char *method)
+{
+    /* Exactly the one name: not a prefix, not a pattern. */
+    return method && strcmp(method, APP_IPC_VISION_PULL_METHOD) == 0 ? APP_IPC_VISION_PULL_MAX : APP_IPC_RESULT_MAX;
+}
+
 void app_ipc_note_time(struct app_ipc_stats *st, const char *method, uint32_t us)
 {
     st->calls++;

@@ -72,6 +72,7 @@
 #include "pocketvision/vision_swatch.h"
 #include "pocketvision/vision_range.h"
 #include "pocketvision/vision_seg.h"
+#include "pocketvision/vision_share.h"
 #include "pocketvision/vision_text.h"
 #include "pocketvision/vision_track.h"
 #include "pocketvision/vision_traffic.h"
@@ -383,6 +384,13 @@ struct session {
     int display_rotation;
     bool view_contain;       /* `view ... contain`: the whole frame, letterboxed */
     bool streaming;
+    /* The picture shared with a paired companion (vision_share.h): on while
+     * the session says so, one picture for each `share next`, into slot 3. */
+    bool share_on;
+    bool share_want;
+    uint32_t share_side;
+    int share_quality;
+    int64_t share_last_ms;
     int64_t last_sent_ms;
     int64_t last_frame_ms;
     int64_t last_stall_ms;
@@ -2624,6 +2632,39 @@ static void command(struct session *s, char *line)
             say_traffic(s);
             say_recent(s, mono_ms());
         }
+    } else if (strcmp(w, "share") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+
+        if (!a) {
+            return;
+        }
+        if (strcmp(a, "on") == 0) {
+            char *b = strtok_r(NULL, " ", &save);
+            char *c = strtok_r(NULL, " ", &save);
+            unsigned side = VISION_SHARE_DEFAULT_SIDE;
+            int q = VISION_SHARE_QUALITY_DEFAULT;
+
+            if ((b && sscanf(b, "%u", &side) != 1) || (c && sscanf(c, "%d", &q) != 1) ||
+                side < VISION_SHARE_MIN_SIDE || side > VISION_SHARE_MAX_SIDE ||
+                q < VISION_SHARE_QUALITY_MIN || q > VISION_SHARE_QUALITY_MAX) {
+                return;
+            }
+            if (!vision_share_supported()) {
+                say("sharefail 0 nojpeg");
+                return;
+            }
+            s->share_on = true;
+            s->share_want = false;
+            s->share_side = side;
+            s->share_quality = q;
+        } else if (strcmp(a, "off") == 0) {
+            s->share_on = false;
+            s->share_want = false;
+        } else if (strcmp(a, "next") == 0) {
+            if (s->share_on) {
+                s->share_want = true;
+            }
+        }
     } else if (strcmp(w, "quit") == 0) {
         s->quit = true;
     }
@@ -2665,6 +2706,55 @@ static void read_commands(struct session *s, int timeout_ms)
             s->in[s->in_len++] = buf[i];
         }
     }
+}
+
+/* The modes whose picture never leaves the unit (ADR-006 amendment 1): a
+ * face, an owner, a text someone is reading. The session does not ask for a
+ * shared picture in them, and the helper would not make one if it did. */
+static bool private_mode(const struct session *s)
+{
+    return s->mode == MODE_FACE || s->mode == MODE_RECOGNIZE || s->mode == MODE_READ;
+}
+
+/* One shared picture, asked for with `share next`: the preview just made
+ * for the screen (px, the view's size, already painted by a pixel or a
+ * segmentation mode), reduced and written as a JPEG into slot 3, which no
+ * preview uses. The file is at most VISION_SHARE_MAX_BYTES: one that does not
+ * fit is tried once more at a lower quality and then given up, never grown
+ * into. Slot 3 is the helper's from `share next` until it says `share`; it
+ * is not written again before the next `share next`. */
+static void share_picture(struct session *s, const uint16_t *px, uint32_t seq, int64_t now)
+{
+    uint8_t *out = s->shm + pocketcam_slot_offset(POCKETCAM_REVIEW_SLOT);
+    uint32_t div = vision_share_divisor(s->view_w, s->view_h, s->share_side);
+    uint32_t ow = 0;
+    uint32_t oh = 0;
+    int64_t t0;
+    int n;
+
+    s->share_want = false;
+    if (private_mode(s)) {
+        s->share_on = false;
+        say("sharefail %u mode", seq);
+        return;
+    }
+    if (div == 0) {
+        say("sharefail %u size", seq);
+        return;
+    }
+    t0 = mono_ms();
+    n = vision_share_encode(px, s->view_w, s->view_h, s->view_w, div, s->share_quality, out,
+                            VISION_SHARE_MAX_BYTES, &ow, &oh);
+    if (n == -ENOSPC && s->share_quality > VISION_SHARE_QUALITY_RETRY) {
+        n = vision_share_encode(px, s->view_w, s->view_h, s->view_w, div, VISION_SHARE_QUALITY_RETRY, out,
+                                VISION_SHARE_MAX_BYTES, &ow, &oh);
+    }
+    s->share_last_ms = now;
+    if (n <= 0) {
+        say("sharefail %u %s", seq, n == -ENOSPC ? "toolarge" : "error");
+        return;
+    }
+    say("share %u %u %u %d %lld", seq, ow, oh, n, (long long)(mono_ms() - t0));
 }
 
 static int free_preview_slot(const struct session *s)
@@ -2850,6 +2940,11 @@ static void stream_once(struct session *s)
             s->held[slot] = true;
             s->last_sent_ms = now;
             say("frame %d %u %u %u", slot, f.seq, s->view_w, s->view_h);
+            /* After the frame is said, so the screen's own picture never
+             * waits for the encoder. */
+            if (s->share_on && s->share_want && now - s->share_last_ms >= VISION_SHARE_MIN_INTERVAL_MS) {
+                share_picture(s, slot_pixels(s, slot), f.seq, now);
+            }
         }
     }
     if (!s->replay) {
@@ -3033,6 +3128,11 @@ static int run_session(const char *backend, const char *config, const char *mode
     say("caps%s color edge trace%s%s%s%s%s", s->detect_offered ? " detect track traffic" : "",
         s->text_offered ? " read" : "", s->face_offered ? " face" : "", s->recog_offered ? " recognize" : "",
         s->seg_offered ? " segment" : "", s->inst_offered ? " instances" : "");
+    /* Whether this build can make the picture a companion is shown, and its
+     * bounds. A session that does not know the word ignores it. */
+    if (vision_share_supported()) {
+        say("sharecap %u %u", VISION_SHARE_MAX_SIDE, VISION_SHARE_MAX_BYTES);
+    }
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {

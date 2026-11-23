@@ -256,7 +256,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/vision/vision_store.c
     ${REPO_DIR}/apps/vision/vision_trails.c
     ${REPO_DIR}/apps/vision/vision_keys.c
+    ${REPO_DIR}/apps/vision/vision_remote.c
     ${REPO_DIR}/core/pocketvision/vision_labels.c
+    ${REPO_DIR}/core/pocketvision/vision_share.c
     ${REPO_DIR}/apps/mp3/mp3_app.c
     ${REPO_DIR}/apps/mp3/mp3_ctl.c
     ${REPO_DIR}/apps/mp3/mp3_view.c
