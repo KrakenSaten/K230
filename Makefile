@@ -1693,7 +1693,7 @@ VISION_APP_DIR := apps/vision
 VISION_APP_OBJS := $(VISION_APP_DIR)/vision_session.o $(VISION_APP_DIR)/vision_model.o \
                    $(VISION_APP_DIR)/vision_layout.o $(VISION_APP_DIR)/vision_settings.o $(VISION_APP_DIR)/vision_trails.o \
                    $(VISION_APP_DIR)/vision_keys.o
-POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
+POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_DIR)/vision_share_worker.o $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_traffic_test tests/vision_pixels_test \
                 tests/vision_geom_test tests/vision_model_test tests/vision_session_test tests/vision_settings_test \
                 tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test \
@@ -1720,7 +1720,7 @@ $(VISION_APP_DIR)/%.o: $(VISION_APP_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(VISION_APP_DIR) -c -o $@ $<
 
 tools/vision/pos-vision: $(POS_VISION_OBJS)
-	$(VISION_LINK) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) $(VISION_LIBS) -lm
+	$(VISION_LINK) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) $(VISION_LIBS) -lpthread -lm
 
 tests/vision_%_test.o: tests/vision_%_test.c
 	$(CC) $(ALL_CFLAGS) -I$(VISION_APP_DIR) -c -o $@ $<
@@ -1791,8 +1791,8 @@ tests/vision_settings_test: tests/vision_settings_test.o $(VISION_APP_DIR)/visio
 # What Vision answers a paired companion's gateway, and the shared picture's
 # bounds (apps/vision/vision_remote.h, core/pocketvision/vision_share.h).
 tests/vision_remote_test: tests/vision_remote_test.o $(VISION_APP_DIR)/vision_remote.o $(VISION_APP_OBJS) \
-                          $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_share.o
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lcjson -lm
+                          $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_share.o $(VISION_DIR)/vision_share_worker.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lcjson -lpthread -lm
 
 VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./tests/vision_traffic_test && \
                   ./tests/vision_pixels_test && ./tests/vision_swatch_test && ./tests/vision_seg_test && ./tests/vision_geom_test && ./tests/vision_model_test && \

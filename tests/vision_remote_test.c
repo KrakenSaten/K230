@@ -18,11 +18,13 @@
 
 #include "pocketipc/pocketipc.h"
 #include "pocketvision/vision_share.h"
+#include "pocketvision/vision_share_worker.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* ui/shell/app_ipc.h, which this test does not include (it is the shell's):
  * the two limits an answer is held to. tests/shell_app_methods_test.sh holds
@@ -381,6 +383,107 @@ static void test_encoder(void)
                                                  vision_share_encode(px, 64, 64, 32, 1, 50, out, sizeof(out), &w, &h) == -EINVAL);
 }
 
+/* The encoder thread: one picture at a time, by copy, the same bytes the
+ * encoder gives directly, and nothing left behind when it is freed with a
+ * picture in the making. */
+static void test_worker(void)
+{
+    static uint16_t px[128 * 96];
+    static uint8_t direct[VISION_SHARE_MAX_BYTES];
+    static uint8_t got[VISION_SHARE_MAX_BYTES];
+    struct vision_share_worker *w = vision_share_worker_new();
+    uint32_t ow = 0;
+    uint32_t oh = 0;
+    uint32_t ms = 0;
+    uint32_t tag = 0;
+    uint32_t dw = 0;
+    uint32_t dh = 0;
+    int n = 0;
+    int dn;
+    int tries;
+    int taken = 0;
+    size_t i;
+
+    check("the worker starts", w != NULL);
+    if (!w) {
+        return;
+    }
+    for (i = 0; i < sizeof(px) / sizeof(px[0]); i++) {
+        px[i] = (uint16_t)((i % 128) * 500u + (i / 128) * 37u);
+    }
+    check("nothing to take before anything was given", vision_share_worker_take(w, got, sizeof(got), &n, &ow, &oh, &ms, &tag) == 0 &&
+                                                           !vision_share_worker_busy(w));
+    check("a picture without a size is refused", vision_share_worker_submit(w, px, 0, 96, 128, 2, 50, 25, 1) == -EINVAL &&
+                                                     vision_share_worker_submit(w, px, 128, 96, 64, 2, 50, 25, 1) == -EINVAL);
+    check("a picture is taken in", vision_share_worker_submit(w, px, 128, 96, 128, 2, 50, 25, 77) == 0 && vision_share_worker_busy(w));
+    check("a second one meanwhile is refused, not queued", vision_share_worker_submit(w, px, 128, 96, 128, 2, 50, 25, 78) == -EBUSY);
+    /* The caller's picture may change at once: the worker has its own copy. */
+    memset(px, 0, sizeof(px));
+    for (tries = 0; tries < 400 && !taken; tries++) {
+        struct timespec ts = { 0, 5 * 1000 * 1000 };
+
+        taken = vision_share_worker_take(w, got, sizeof(got), &n, &ow, &oh, &ms, &tag);
+        if (!taken) {
+            nanosleep(&ts, NULL);
+        }
+    }
+    check("its result comes, once, with its tag", taken == 1 && tag == 77 &&
+                                                      vision_share_worker_take(w, got, sizeof(got), &n, &ow, &oh, &ms, &tag) == 0);
+    for (i = 0; i < sizeof(px) / sizeof(px[0]); i++) {
+        px[i] = (uint16_t)((i % 128) * 500u + (i / 128) * 37u);
+    }
+    dn = vision_share_encode(px, 128, 96, 128, 2, 50, direct, sizeof(direct), &dw, &dh);
+    if (!vision_share_supported()) {
+        check("without libjpeg the worker says so too", n == -ENOTSUP && dn == -ENOTSUP);
+    } else {
+        check("it is the picture that was given, not what the caller wrote after", n == dn && n > 4 && ow == dw && oh == dh &&
+                                                                                       memcmp(got, direct, (size_t)n) == 0);
+        check("a result that does not fit where it is taken is refused", vision_share_worker_submit(w, px, 128, 96, 128, 2, 50, 25, 79) == 0);
+        for (tries = 0, taken = 0; tries < 400 && !taken; tries++) {
+            struct timespec ts = { 0, 5 * 1000 * 1000 };
+
+            taken = vision_share_worker_take(w, got, 16, &n, &ow, &oh, &ms, &tag);
+            if (!taken) {
+                nanosleep(&ts, NULL);
+            }
+        }
+        check("as too large, with nothing written past the room given", taken == 1 && n == -ENOSPC);
+    }
+    check("the worker is free again", !vision_share_worker_busy(w));
+    /* Freed with a picture in the making: it ends cleanly (the sanitizer run says whether it did). */
+    vision_share_worker_submit(w, px, 128, 96, 128, 1, 50, 25, 80);
+    vision_share_worker_free(w);
+    vision_share_worker_free(NULL);
+    check("freed, with one in the making", 1);
+}
+
+/* The reduction: a flat picture stays its colour through every divisor. */
+static void test_reduction(void)
+{
+    static uint16_t px[96 * 96];
+    static uint8_t out[VISION_SHARE_MAX_BYTES];
+    uint32_t w = 0;
+    uint32_t h = 0;
+    size_t i;
+    uint32_t div;
+    int ok = 1;
+
+    if (!vision_share_supported()) {
+        return;
+    }
+    for (i = 0; i < sizeof(px) / sizeof(px[0]); i++) {
+        px[i] = 0xffff;
+    }
+    for (div = 1; div <= 4; div++) {
+        int n = vision_share_encode(px, 96, 96, 96, div, 85, out, sizeof(out), &w, &h);
+
+        if (n <= 4 || w != 96 / div || h != 96 / div) {
+            ok = 0;
+        }
+    }
+    check("every divisor gives a picture of its size", ok);
+}
+
 int main(void)
 {
     test_private();
@@ -390,6 +493,8 @@ int main(void)
     test_mode_and_set();
     test_share_params();
     test_encoder();
+    test_worker();
+    test_reduction();
     printf("vision_remote_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

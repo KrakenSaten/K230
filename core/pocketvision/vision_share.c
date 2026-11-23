@@ -90,36 +90,89 @@ static void dest_term(j_compress_ptr cinfo)
 }
 
 /* One reduced row as RGB888: each output pixel the mean of its div x div
- * block. */
+ * block. Halving, the usual case, is two rows and shifts; any other divisor
+ * multiplies by a reciprocal instead of dividing three times a pixel. */
 static void reduce_row(const uint16_t *px, uint32_t stride, uint32_t div, uint32_t ow, uint32_t oy, uint8_t *row)
 {
-    const uint32_t n = div * div;
     uint32_t ox;
 
-    for (ox = 0; ox < ow; ox++) {
-        uint32_t r = 0;
-        uint32_t g = 0;
-        uint32_t b = 0;
-        uint32_t dy;
+    if (div == 1) {
+        const uint16_t *p = px + (size_t)oy * stride;
 
-        for (dy = 0; dy < div; dy++) {
-            const uint16_t *p = px + (size_t)(oy * div + dy) * stride + (size_t)ox * div;
-            uint32_t dx;
+        for (ox = 0; ox < ow; ox++) {
+            uint32_t v = p[ox];
+            uint32_t r = (v >> 11) & 0x1f;
+            uint32_t g = (v >> 5) & 0x3f;
+            uint32_t b = v & 0x1f;
 
-            for (dx = 0; dx < div; dx++) {
-                uint16_t v = p[dx];
-
-                r += (v >> 11) & 0x1f;
-                g += (v >> 5) & 0x3f;
-                b += v & 0x1f;
-            }
+            row[ox * 3 + 0] = (uint8_t)((r << 3) | (r >> 2));
+            row[ox * 3 + 1] = (uint8_t)((g << 2) | (g >> 4));
+            row[ox * 3 + 2] = (uint8_t)((b << 3) | (b >> 2));
         }
-        r /= n;
-        g /= n;
-        b /= n;
-        row[ox * 3 + 0] = (uint8_t)((r << 3) | (r >> 2));
-        row[ox * 3 + 1] = (uint8_t)((g << 2) | (g >> 4));
-        row[ox * 3 + 2] = (uint8_t)((b << 3) | (b >> 2));
+        return;
+    }
+    if (div == 2) {
+        const uint16_t *p0 = px + (size_t)(oy * 2) * stride;
+        const uint16_t *p1 = p0 + stride;
+
+        for (ox = 0; ox < ow; ox++) {
+            uint32_t a = p0[ox * 2];
+            uint32_t b = p0[ox * 2 + 1];
+            uint32_t c = p1[ox * 2];
+            uint32_t d = p1[ox * 2 + 1];
+            /* Sums of four 5- and 6-bit values are 7 and 8 bits: one more
+             * bit than a channel needs, so the shift to 8 bits is by one (red,
+             * blue) or none (green), rounding kept in the low bits. */
+            uint32_t r = ((a >> 11) & 0x1f) + ((b >> 11) & 0x1f) + ((c >> 11) & 0x1f) + ((d >> 11) & 0x1f);
+            uint32_t g = ((a >> 5) & 0x3f) + ((b >> 5) & 0x3f) + ((c >> 5) & 0x3f) + ((d >> 5) & 0x3f);
+            uint32_t bl = (a & 0x1f) + (b & 0x1f) + (c & 0x1f) + (d & 0x1f);
+
+            row[ox * 3 + 0] = (uint8_t)((r << 1) | (r >> 6));
+            row[ox * 3 + 1] = (uint8_t)g;
+            row[ox * 3 + 2] = (uint8_t)((bl << 1) | (bl >> 6));
+        }
+        return;
+    }
+    {
+        /* 1/n in 16.16, rounded up so that a full block of full values does
+         * not fall one short. */
+        const uint32_t n = div * div;
+        const uint32_t inv = (65536u + n - 1) / n;
+
+        for (ox = 0; ox < ow; ox++) {
+            uint32_t r = 0;
+            uint32_t g = 0;
+            uint32_t b = 0;
+            uint32_t dy;
+
+            for (dy = 0; dy < div; dy++) {
+                const uint16_t *p = px + (size_t)(oy * div + dy) * stride + (size_t)ox * div;
+                uint32_t dx;
+
+                for (dx = 0; dx < div; dx++) {
+                    uint16_t v = p[dx];
+
+                    r += (v >> 11) & 0x1f;
+                    g += (v >> 5) & 0x3f;
+                    b += v & 0x1f;
+                }
+            }
+            r = (r * inv) >> 16;
+            g = (g * inv) >> 16;
+            b = (b * inv) >> 16;
+            if (r > 0x1f) {
+                r = 0x1f;
+            }
+            if (g > 0x3f) {
+                g = 0x3f;
+            }
+            if (b > 0x1f) {
+                b = 0x1f;
+            }
+            row[ox * 3 + 0] = (uint8_t)((r << 3) | (r >> 2));
+            row[ox * 3 + 1] = (uint8_t)((g << 2) | (g >> 4));
+            row[ox * 3 + 2] = (uint8_t)((b << 3) | (b >> 2));
+        }
     }
 }
 

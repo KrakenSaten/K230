@@ -94,7 +94,8 @@ cJSON *vision_remote_status(const struct vision_model *m, const struct vision_se
         }
         if (label_bytes <= VISION_REMOTE_LABEL_BYTES) {
             for (i = 0; i < m->classes; i++) {
-                cJSON_AddItemToArray(labels, cJSON_CreateString(vision_model_class_label(m, i)));
+                /* The names are the label tables' own, which outlive every answer: referred to, not copied. */
+                cJSON_AddItemToArray(labels, cJSON_CreateStringReference(vision_model_class_label(m, i)));
             }
         }
     }
