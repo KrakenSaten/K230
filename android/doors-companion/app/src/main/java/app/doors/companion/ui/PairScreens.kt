@@ -127,7 +127,7 @@ fun PairFlow(link: Link) {
                     Threshold(0.07f, Doors.Accent, Modifier.fillMaxWidth().height(250.dp), searching = true)
                     Text("A door to\nyour unit.", style = Type.Display)
                     Text(
-                        "On the unit, open Settings, Companion, Pair a phone. It shows a code for two minutes. The code carries the unit's key, so this phone knows the unit before it says anything.",
+                        "Pairing is started on the unit and stays open for two minutes. Its Settings has no pairing page yet: the unit's command line gives the pairing link (gateway.pair_begin), to scan as a code or to paste. The link carries the unit's key, so this phone knows the unit before it says anything.",
                         style = Type.Body,
                     )
                     Spacer(Modifier.height(6.dp))

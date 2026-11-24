@@ -167,7 +167,7 @@ class VisionIntegrationTest {
         val (one, unitOne) = pairPhone(scope, "Vision phone one", listOf("status"))
         val loopOne = scope.launch { one.session.run(unitOne) }
         one.vision.watch(true)
-        until("Vision is not offered to a phone without the permission") { one.view.access == VisionAccess.NOT_SERVED }
+        until("a phone without the permission is told it is not granted, not that the unit has no Vision") { one.view.access == VisionAccess.NOT_GRANTED }
         unit("shell.open", buildJsonObject { put("id", "vision") })
         until("Vision is live on the unit") { unit("vision.status").string("owner") == "vision" }
         delay(1_500)

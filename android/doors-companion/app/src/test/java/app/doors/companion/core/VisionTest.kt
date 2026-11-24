@@ -212,6 +212,30 @@ class VisionTest {
     }
 
     @Test
+    fun aPhoneWithoutTheScopeLearnsWhetherTheUnitServesVisionByAskingOnce() = runBlocking {
+        // A gateway that serves Vision names it only to a phone that holds the scope, and refuses the rest with 7.
+        val serves = FakeUnit { method, _ -> if (method == "vision.status") "!7" else "!1" }
+        val granted = GatewayVision(pollMs = 50)
+        granted.watch(true)
+        val one = scope.launch { granted.run(paired, serves.connect(), hello("status", "mesh"), MutableStateFlow(setOf("status"))) }
+        await("not granted") { granted.view.value.access == VisionAccess.NOT_GRANTED }
+        delay(150)
+        assertEquals("asked once, and nothing else", listOf("vision.status"), serves.methods())
+        one.cancelAndJoin()
+
+        // A gateway from before Vision knows no such method: not served.
+        val old = FakeUnit { _, _ -> "!1" }
+        val absent = GatewayVision(pollMs = 50)
+        absent.watch(true)
+        val two = scope.launch { absent.run(paired, old.connect(), hello("status", "mesh"), MutableStateFlow(setOf("status"))) }
+        await("asked") { old.methods() == listOf("vision.status") }
+        delay(150)
+        assertEquals(VisionAccess.NOT_SERVED, absent.view.value.access)
+        assertEquals(listOf("vision.status"), old.methods())
+        two.cancelAndJoin()
+    }
+
+    @Test
     fun withoutTheScopeOrOffScreenNothingIsReadAndLeavingEndsSharing() = runBlocking {
         var share = "off"
         val unit = FakeUnit(serving({ share }))

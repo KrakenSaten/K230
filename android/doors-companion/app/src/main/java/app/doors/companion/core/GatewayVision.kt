@@ -32,9 +32,14 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Vision over a live session, to the contract of docs/api/gateway.md section 9a
- * (ADR-019 amendment 1, accepted 2026-11-23). A gateway that does not name the
- * `vision` capability to this phone leaves this at [VisionAccess.NOT_SERVED] and
- * is sent nothing.
+ * (ADR-019 amendment 1, accepted 2026-11-23). A gateway names the `vision`
+ * capability only to a phone that holds the scope, so a phone without it cannot
+ * tell from the hello whether the unit has no Vision to show or has simply not
+ * been told to show it to this phone. It asks once, `vision.status`: a gateway
+ * that serves Vision refuses with "not permitted" ([VisionAccess.NOT_GRANTED],
+ * and the screen says where on the unit to switch it on); one that knows no such
+ * method leaves this at [VisionAccess.NOT_SERVED]. A gateway that did not name
+ * the capability to a phone that holds the scope is sent nothing.
  *
  * Its rules, each of which the unit holds as well:
  *  - nothing is asked without the capability, the scope `vision`, and the screen in front;
@@ -82,7 +87,7 @@ class GatewayVision(
     override suspend fun run(unit: PairedUnit, conn: GatewayConnection, hello: Hello, scopes: StateFlow<Set<String>>) {
         try {
             if (CAPABILITY !in hello.capabilities) {
-                _view.value = VisionView(access = VisionAccess.NOT_SERVED)
+                _view.value = VisionView(access = if (SCOPE !in scopes.value && refusedForWantOfTheScope(conn)) VisionAccess.NOT_GRANTED else VisionAccess.NOT_SERVED)
                 // A gateway names Vision at hello, and only to a phone that holds the scope. When the
                 // scope is given on the unit during this session, a new hello is what shows it: the
                 // connection is given up and the session makes another.
@@ -107,6 +112,15 @@ class GatewayVision(
             _view.value = VisionView()
         }
     }
+
+    /** One question to a gateway that named no Vision to a phone without the scope: is it the scope that is missing? */
+    private suspend fun refusedForWantOfTheScope(conn: GatewayConnection): Boolean =
+        try {
+            conn.call("vision.status", timeoutMs = CALL_MS)
+            false
+        } catch (e: GatewayError) {
+            e.code == GatewayError.NOT_PERMITTED
+        }
 
     private suspend fun read(conn: GatewayConnection) = coroutineScope {
         val inbox = Channel<GatewayEvent>(Channel.UNLIMITED)

@@ -192,7 +192,7 @@ fun VisionScreen(link: Link, onBack: () -> Unit) {
                     VisionGate(view, state)
                     Bezel("On this unit") {
                         val hello = (state as? LinkState.Online)?.hello
-                        KeyValue("Gateway serves it", if (hello == null) "—" else if ("vision" in hello.capabilities) "Yes" else "Not yet", mono = false)
+                        KeyValue("Gateway serves it", if (hello == null) "—" else if ("vision" in hello.capabilities || view.access == VisionAccess.NOT_GRANTED) "Yes" else "No", mono = false)
                         KeyValue("Vision", if (hello == null) "—" else if ("vision" in scopes) "Granted" else "Not granted", mono = false)
                     }
                     if (!view.simulated) {
@@ -584,9 +584,9 @@ private fun VisionGate(view: VisionView, link: LinkState) {
             "Nothing of Vision is stored on the phone, so there is nothing to show until the session is back." +
             if (link is LinkState.NoWifi) " The unit is reached over Wi-Fi only." else ""
         VisionAccess.NOT_SERVED -> "Not served by this unit" to
-            "This unit's gateway does not serve Vision. Sharing a picture with a paired phone is decided but not built yet, and is in no released Doors."
+            "This unit's gateway does not serve Vision. Showing Vision on a paired phone needs a Doors that has it, and this unit's does not."
         VisionAccess.NOT_GRANTED -> "Not granted to this phone" to
-            "On the unit, open Settings, Companion, this phone, and allow Vision. That is done once; after it the picture comes by itself whenever Vision is open on the unit."
+            "On the unit, open Settings, then Companion, and switch this phone on under Show Vision on. That is done once; after it the picture comes by itself whenever Vision is open on the unit."
         VisionAccess.WAITING -> "Asking the unit" to "Waiting for Vision's state."
         VisionAccess.CLOSED -> "Vision is not open on the unit" to
             "The camera runs only while Vision is the app in front there, and a phone cannot open it."

@@ -245,7 +245,7 @@ private fun Gate(view: CaptureView, link: LinkState) {
         CaptureAccess.NOT_SERVED -> "Not served by this unit" to
             "This unit's gateway does not serve capture. Reading PacketShark from a phone is a proposed change to the capture rules (ADR-016, amendment 1) and is in no released Doors yet."
         CaptureAccess.NOT_GRANTED -> "Not granted to this phone" to
-            "On the unit, open Settings, Companion, this phone, and allow Capture view. Hold, stop and start requests need Capture control as well."
+            "Capture view is given to a phone on the unit. Its Settings has no switch for it yet: it is given from the unit's command line (gateway.scope). Hold, stop and start requests need Capture control as well."
         CaptureAccess.WAITING -> "Asking the unit" to "Waiting for PacketShark's state."
         CaptureAccess.CLOSED -> "PacketShark is not open on the unit" to
             "Its figures can be read only while PacketShark is the app in front there." +

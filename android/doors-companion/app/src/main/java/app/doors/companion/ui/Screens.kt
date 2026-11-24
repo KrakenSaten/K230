@@ -181,7 +181,7 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
             Panel(tint = Doors.Error.copy(alpha = 0.08f)) {
                 Text(
                     when ((state as LinkState.Stopped).why) {
-                        Stop.REVOKED -> "This phone was removed on the unit. Forget the unit here and pair again from its Settings."
+                        Stop.REVOKED -> "This phone was removed on the unit. Forget the unit here and pair again on the unit."
                         Stop.WRONG_UNIT -> "The address answered with a different key. The app will never accept it. If the unit was reset, forget it and pair again."
                         Stop.INCOMPATIBLE -> "Update the app or the unit so that they share a protocol version."
                     },
