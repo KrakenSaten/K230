@@ -47,7 +47,7 @@ A stream endpoint outside the session; a picture for a client without the scope;
 | 3 | No physical approval per preview; the scope is the authorization | The first draft: a sheet on the unit for every preview |
 | 4 | No time limit; ends only by the causes in change 6, STOP, or Vision closing | A limit (the first draft had ten minutes) |
 
-Choice 2 needs a way to grant a scope to an already paired phone on the unit, which does not exist yet (issue #172). That is unit-side work and is not part of this pull request.
+Choice 2 needs a way to grant a scope to an already paired phone on the unit, which did not exist when this was accepted (issue #172). Note of 2026-11-24, not a change to the decision: PR #174 adds it as `gateway.scope` on the local socket and as the switch on Settings > Companion (`docs/apps/SETTINGS.md`).
 
 ## Decision record
 

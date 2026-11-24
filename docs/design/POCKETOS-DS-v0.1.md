@@ -4886,8 +4886,8 @@ docs/apps/SETTINGS.md; API: docs/api/shell.md (`shell.power`,
 ### 52.1 Settings is a list of categories
 
 Settings opens on two panels of category rows - Display, Appearance, Sound,
-Keyboard, Power & Sleep; Time & Region, Network, System, Developer - one above
-the other when tall, side by side when wide. Each row is the category's name
+Keyboard, Power & Sleep; Time & Region, Network, Companion (§52.8), System,
+Developer - one above the other when tall, side by side when wide. Each row is the category's name
 over one caption line saying what is set, with a chevron; the whole row is
 the target, never under 64 px, growing with its words at larger text sizes.
 A tap opens the category's page; System opens the System app (§47). The
@@ -4992,6 +4992,24 @@ its places and its standard offset with "summer time" where it has one). The
 shell applies it at once - TZ and `tzset()`, the C library's own mechanism; the
 image has no zone database, so each zone is a POSIX rule - and stores its IANA
 name (`timezone`). Services keep UTC, which their logs say they use.
+
+### 52.8 Companion (proposed, PR #174)
+
+A category between Network and System: the Companion gateway's state and the
+paired phones (docs/apps/SETTINGS.md "Companion"). Two panels. COMPANION
+GATEWAY: one value line in the tone of its state (ok while it listens, muted
+when off or not running, error for a fault) over one line of secondary text.
+SHOW VISION ON: secondary text saying what the switch means, then one row per
+paired phone - the phone's name as the row's title, whole, on two lines if it
+needs them; under it a caption with the start of its key and `connected`; at
+the right a §52.3 switch (120 x 64, ON accented). Rows are divided as list
+rows are and are as tall as their words, never under 64 px. With no phone,
+or no gateway, one muted line stands in place of the rows. A refusal from
+the gateway is one line of error text under the rows. Nothing on the page
+scrolls on its own (§52.2); with eight phones the page scrolls.
+
+The category's line on the list: `2 phones · Vision shown to 1`, `1 phone ·
+Vision not shown to any`, `No phone paired`, `Not running`.
 
 ## 53. Amendment AK — Portrait-only apps: Timber [PROPOSED]
 

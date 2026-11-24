@@ -1,6 +1,6 @@
 # Companion: Vision preview (design)
 
-Status: **Design accepted; implemented in PR #174 (helper, Vision app, shell, gatewayd, Android), not merged and not deployed.** Its two decisions, `docs/decisions/ADR-006-amendment-1-companion-preview.md` and `docs/decisions/ADR-019-amendment-1-vision.md`, were accepted by the owner on 2026-11-23. The measurements of section 8 still come before anything ships, and the wire format of section 5 becomes a contract only when it is written into `docs/api/gateway.md` with the gateway code. The Android side exists against a simulated source (`android/doors-companion`, README "Vision"); its gateway client is written to section 5 and has never met a gateway.
+Status: **Design accepted; implemented in PR #174 (helper, Vision app, shell, gatewayd, Android), not merged and not deployed.** Its two decisions, `docs/decisions/ADR-006-amendment-1-companion-preview.md` and `docs/decisions/ADR-019-amendment-1-vision.md`, were accepted by the owner on 2026-11-23. The measurements of section 8 still come before anything ships, and the wire format of section 5 becomes a contract only when it is written into `docs/api/gateway.md` with the gateway code. The Android side (`android/doors-companion`, README "Vision") has shown real pictures on an emulator; where the whole stands is `M6-STATUS.md`.
 Date: 2026-11-22, revised 2026-11-23 (trusted-device model: one authorization of the phone, automatic preview, no time limit, one scope, screenshots allowed)
 
 Evidence classes as in the hardware baseline: VERIFIED (seen on a unit), DOCUMENTED (in this repository's code or documents), ASSUMED (reasoned, not measured).
@@ -175,7 +175,7 @@ Nothing below has been done.
 - `pos-vision`: the `share` commands, a memory destination for the codec, the half-size reduction.
 - Vision app: `vision.*` handlers, the mark with STOP and resume, settings applied as if chosen on its own sheets. No sheet.
 - gatewayd: the scope, topic, rows and filters (`gw_policy.[ch]`), the shell uplink that exists for `capture`, the status poll, the one-viewer pull loop, limits (`gw.h`), `tests/gatewayd_lint.sh` (which today forbids every `shell.` name), unit and end-to-end tests.
-- Settings: one Vision switch per phone on the Companion page (granting a scope to a paired phone is not possible on a unit today: issue #172).
+- Settings: one Vision switch per phone on the Companion page. Built in PR #174 on 2026-11-24 (`apps/settings/settings_companion.c`, `docs/apps/SETTINGS.md` "Companion"); it sends `gateway.scope`. Pairing and revoking are not on that page yet (issue #172).
 - `docs/api/gateway.md`, `docs/apps/VISION.md`, `docs/design/companion/THREAT_MODEL.md`.
 
 No gatewayd code was written for this: a new scope, topic or method is exactly what ADR-019 says needs the owner first.

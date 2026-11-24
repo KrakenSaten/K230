@@ -1457,11 +1457,28 @@ gateway's side: `docs/design/companion/VISION_PREVIEW.md` and
   viewer; a second is refused as busy. Each `vision.pull` hands out the
   newest picture the viewer has not had and asks the helper for the next, so
   the viewer's pace is the encoder's pace and nothing queues.
+- **Who may be shown it** is decided on the unit: Settings > Companion has
+  one switch per paired phone, off unless switched on there
+  (`docs/apps/SETTINGS.md` "Companion"). Nothing in this app grants anything.
 - **The mark and STOP.** While a phone is shown the picture a bar on every
-  Vision screen, over sheets too, says `SHOWN ON <phone's name>` with a STOP
-  button. STOP ends the sharing in the same tap and holds: the bar then says
-  `SHARING STOPPED` with ALLOW, and no phone is shown anything until ALLOW is
-  tapped or Vision is opened again.
+  Vision screen says `SHOWN ON <phone's name>` with a STOP button. On the
+  picture it lies under the top chips, as wide as the picture and no wider,
+  72 px tall with STOP a full 64 px target. While a sheet covers the picture
+  it moves into the sheet's title band, beside the title and above the first
+  row, so that no choice of a sheet is ever under it (the first version lay
+  over the first row of the mode sheet in both orientations, and over the
+  side column's text when wide); STOP is as tall as that band there, 52 px
+  on the reference panel, which is under the 64 px of a full target and all
+  the band has. STOP ends the sharing in the same tap and holds: the bar
+  then says `SHARING STOPPED` with ALLOW, and no phone is shown anything
+  until ALLOW is tapped or Vision is opened again.
+- **STOP outlives the app's own memory.** The shell creates the app in front
+  again by itself when the text size is changed over IPC, or when an open
+  request names the app already open. That is not Vision being opened again:
+  the app asks the shell (`pocketos_shell_app_reopening`, `app.h`) and keeps
+  STOP across it. Opened from the launcher or from another app, Vision is
+  opened anew and STOP's word ends, as accepted; STOP is kept in the shell's
+  memory and does not outlive the shell process.
 - **Ends by itself** when the mode becomes FACE, RECOGNIZE or READ, when the
   picture stops (the helper left, an error), when Vision is left, and when
   the viewer has asked for no picture for 8 s (its gateway died or lost it).
@@ -1469,8 +1486,21 @@ gateway's side: `docs/design/companion/VISION_PREVIEW.md` and
   takes (`vision_model_set_mode`, the sheet's own setters), so the helper and
   the stored settings follow as they do there. The three private modes
   cannot be chosen; a setting is changed only while its mode is in force.
+  The model changes inside the answer; the word to the helper, the layout and
+  the settings file (a write and an fsync) are done on the app's next poll,
+  at most 33 ms later, because a handler answers from memory and touches no
+  file (`app.h`). On Unit A the first version's `vision.mode` took 4.6 ms.
+- **The class names** of a status are one array made once per detector and
+  referred to by every answer, not 365 strings made anew each second.
 
-Tests: `tests/vision_remote_test.c` (77 checks with libjpeg, 75 without),
+Tests: `tests/vision_remote_test.c` (93 checks with libjpeg, 88 without),
 `tests/vision_remote_shell_test.sh` (the real shell and helper on the fake
 camera; with a libjpeg helper a real JPEG travels the whole way to the
-socket).
+socket), and `tests/companion_vision_integration_test.py` (96 checks: the
+real gatewayd, the real shell with this app and Settings, the real helper
+with libjpeg and TLS clients; the switch, STOP and ALLOW by the simulator's
+finger, STOP across the shell creating the app again, FACE, RECOGNIZE and
+READ tapped while a phone is shown the picture, and the viewer
+disconnecting, losing the scope and being revoked). `tests/vision_lint.sh`
+holds that Vision has one thread, the shared picture's encoder in the helper,
+and no other.

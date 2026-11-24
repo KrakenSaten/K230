@@ -21,6 +21,7 @@ Since DS §52 it opens on a short list of categories, each a page of its own:
 | Power & Sleep | screen off after, lock after, lock when Doors starts; what sleep is not | the shell (`power_policy.h`, `shell_power.c`) |
 | Time & Region | the time zone (one level further: the list of zones), whether the clock is set | the shell (`tz_zones.h`) |
 | Network | Wi-Fi, its networks, the join sheet (one level further) | netd (`docs/api/network.md`) |
+| Companion | the Companion gateway's state; the paired phones, each with its Vision switch | gatewayd (`docs/api/gateway.md` section 10) |
 | System | opens System, Settings' page (DS §47) | sysd and the System app |
 | Developer | the debug overlay | the shell (`shell_overlay.h`) |
 
@@ -61,15 +62,51 @@ apps/settings/settings_app.c       the list of categories, moving between pages,
 apps/settings/settings_pages.c     Display, Appearance, Sound, Keyboard, Power & Sleep,
                                    Time & Region (and its zone list), Developer
 apps/settings/settings_wifi.c      Network: Wi-Fi, the list, the join sheet
-tests/settings_view_test.c         143 checks (Makefile)
-tests/settings_app_test.c          1432 checks under a real LVGL pointer device and the key
-                                   stream, with netd and the shell scripted, hosted as the shell
+apps/settings/settings_companion.c Companion: gatewayd's paired phones and each one's Vision switch
+tests/settings_view_test.c         210 checks (Makefile)
+tests/settings_app_test.c          1660 checks under a real LVGL pointer device and the key
+                                   stream, with netd, gatewayd and the shell scripted, hosted as the shell
                                    hosts it: the hierarchy and every way back, every page at
                                    Small, Medium and Large in portrait and landscape (CMake, host)
 tests/settings_shell_test.sh       the app test, registration, opening it in the real shell
 tests/settings_lint.sh             boundary checks, the layout's among them (make test)
 tests/power_overlay_shell_test.sh  Power & Sleep, the time zone and the overlay in the real shell
 ```
+
+## Companion
+
+The phones paired with this unit through the Companion gateway (ADR-019),
+and which of them is shown Vision's picture (ADR-019 amendment 1: one scope,
+`vision`, "granted by one switch per phone on the unit", off unless switched
+on). Added in PR #174 (2026-11-24); it closes the part of issue #172 that
+asked for a way to grant a scope to a phone that is already paired.
+
+- **COMPANION GATEWAY**: what `gateway.status` says, in words: `On` with the
+  address it listens on, `Off` with the reason (`no phone is paired`, `this
+  unit has no password set`, `no network`, `not on a private network`), a
+  fault, or `Not running` when gatewayd does not answer (it is off by default
+  and then not started at all).
+- **SHOW VISION ON**: one row per paired phone, from `gateway.clients`: the
+  name the phone gave at pairing, the first eight bytes of its key in fours
+  and capitals (exactly what the phone shows as "This phone's key", so the
+  two can be compared), `connected` while it is, and a switch. A tap sends
+  `gateway.scope {client: <the whole key>, scope: "vision", on}`; the switch
+  then shows what gatewayd holds, asked again, never what was hoped for. A
+  refusal is said in gatewayd's words under the rows. Taking the scope away
+  ends that phone's preview in the same call (gatewayd's rule).
+- The page is read again once a second while it shows; a phone paired,
+  revoked or renamed meanwhile builds the rows again, and a tap on a row
+  whose list has changed under it sends nothing.
+
+What makes the switch safe is where it is: a tap on the unit's own screen
+behind the lock. The page serves no IPC method, gatewayd's control socket is
+root's and local, and a phone cannot raise its own scopes (ADR-019 rule 24;
+`gateway.scope` is not a method a phone can call). A phone's name is drawn
+only as printable ASCII and Latin-1 letters; anything else is a `?`.
+
+Not on this page yet (issue #172): pairing with its code and the candidate's
+key shown before the decision, revoking a phone, and the capture scopes.
+Those stay on the unit's command line (`docs/services/GATEWAYD.md`).
 
 ## Power & Sleep
 
