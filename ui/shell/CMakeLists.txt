@@ -156,6 +156,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/system/diag_view.c
     ${REPO_DIR}/apps/settings/settings_app.c
     ${REPO_DIR}/apps/settings/settings_pages.c
+    ${REPO_DIR}/apps/settings/settings_companion.c
     ${REPO_DIR}/apps/settings/settings_wifi.c
     ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
@@ -1495,6 +1496,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         tz_zones.c
         ${REPO_DIR}/apps/settings/settings_app.c
         ${REPO_DIR}/apps/settings/settings_pages.c
+        ${REPO_DIR}/apps/settings/settings_companion.c
         ${REPO_DIR}/apps/settings/settings_wifi.c
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c

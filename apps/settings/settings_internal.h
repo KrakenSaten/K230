@@ -7,6 +7,8 @@
  *   settings_pages.c  every other page: Display, Appearance, Sound,
  *                     Keyboard, Power & Sleep, Time & Region (and its zone
  *                     list), Developer
+ *   settings_companion.c  Companion: the paired phones and each one's
+ *                     Vision switch (gatewayd's, over pocketipc)
  *
  * The page on show is rebuilt whenever it changes and repainted in place
  * every tick otherwise, so a scroll position survives a poll (as before).
@@ -59,6 +61,7 @@ enum settings_page {
     PAGE_POWER,
     PAGE_TIME,
     PAGE_NETWORK,
+    PAGE_COMPANION,
     PAGE_SYSTEM,
     PAGE_DEVELOPER,
     PAGE_ZONES, /* Time & Region > Time zone */
@@ -135,6 +138,12 @@ struct settings_widgets {
     lv_obj_t *zone_chip[SETTINGS_ZONES_MAX];
     /* Developer */
     lv_obj_t *overlay_btn;
+    /* Companion */
+    lv_obj_t *gw_headline;
+    lv_obj_t *gw_note;
+    lv_obj_t *phone_error;
+    lv_obj_t *phone_switch[SV_MAX_PHONES];
+    lv_obj_t *phone_detail[SV_MAX_PHONES];
 };
 
 struct settings_app {
@@ -162,6 +171,13 @@ struct settings_app {
     /* what the network list was built from, so it is rebuilt only when it changes */
     char list_sig[SV_MAX_NETWORKS * 120];
     int built_list_visible;
+    /* Companion: gatewayd's paired list as last read, what the rows on
+     * screen were built from, and why the last tap changed nothing. */
+    struct sv_companion companion;
+    int companion_tick;
+    int companion_missed; /* polls in a row gatewayd did not answer, after it had */
+    char phone_sig[SV_MAX_PHONES * (SV_PHONE_KEY + SV_PHONE_NAME + 2) + 16];
+    char companion_error[SV_TEXT];
 };
 
 /* ---- settings_app.c: builders shared by the pages ---- */
@@ -209,6 +225,15 @@ void settings_sheet_close(struct settings_app *a);
 void settings_sheet_after_layout(struct settings_app *a);
 /* The app is going: the passphrase first, then nothing may call back. */
 void settings_wifi_teardown(struct settings_app *a);
+
+/* ---- settings_companion.c ---- */
+/* gatewayd's gateway.status and gateway.clients, into a->companion. */
+void settings_poll_companion(struct settings_app *a);
+void settings_companion_build(struct settings_app *a);
+void settings_companion_repaint(struct settings_app *a);
+/* The page's second: the list read again, the rows built again when it is
+ * no longer the list they were built from. */
+void settings_companion_tick(struct settings_app *a);
 
 /* ---- settings_pages.c ---- */
 const char *settings_page_title(enum settings_page page);

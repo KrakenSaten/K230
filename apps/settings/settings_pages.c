@@ -30,6 +30,7 @@ const char *settings_page_title(enum settings_page page)
         [PAGE_SOUND] = "Sound",         [PAGE_KEYBOARD] = "Keyboard",     [PAGE_POWER] = "Power & Sleep",
         [PAGE_TIME] = "Time & Region",  [PAGE_NETWORK] = "Network",       [PAGE_SYSTEM] = "System",
         [PAGE_DEVELOPER] = "Developer", [PAGE_ZONES] = "Time zone",       [PAGE_SHEET] = "Wi-Fi network",
+        [PAGE_COMPANION] = "Companion",
     };
 
     return page >= 0 && page < PAGE_COUNT && titles[page] ? titles[page] : "Settings";
@@ -99,6 +100,9 @@ void settings_summary(struct settings_app *a, enum settings_page page, char *out
         break;
     case PAGE_NETWORK:
         snprintf(out, n, "%s", a->wifi.headline);
+        break;
+    case PAGE_COMPANION:
+        snprintf(out, n, "%s", a->companion.summary);
         break;
     case PAGE_SYSTEM:
         snprintf(out, n, "About, status, diagnostics, restart and power off");
@@ -692,6 +696,9 @@ void settings_page_build(struct settings_app *a)
     case PAGE_DEVELOPER:
         build_developer(a);
         break;
+    case PAGE_COMPANION:
+        settings_companion_build(a);
+        break;
     default:
         break;
     }
@@ -720,6 +727,9 @@ void settings_page_repaint(struct settings_app *a)
         break;
     case PAGE_DEVELOPER:
         repaint_developer(a);
+        break;
+    case PAGE_COMPANION:
+        settings_companion_repaint(a);
         break;
     default:
         break;

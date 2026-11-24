@@ -58,6 +58,8 @@
 #define PASS "correct horse 9"
 
 extern const struct pocketos_app app_settings;
+struct settings_app;
+void settings_poll_companion(struct settings_app *a);
 
 static int failed;
 static int checks;
@@ -87,6 +89,36 @@ static const char *g_networks;
 static const char *g_connect_error;
 /* sysd's system.status, for Power & Sleep's battery; NULL: sysd does not answer. */
 static const char *g_sysd_status;
+/* The scripted gatewayd (Companion). g_gw_status NULL: it is not running.
+ * Its paired list is two phones, the second there only while g_gw_two; each
+ * holds `vision` or not, and gateway.scope changes that unless
+ * g_gw_scope_error is what it answers instead. */
+#define GW_KEY_A "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+#define GW_KEY_B "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
+#define GW_ON "{\"listening\":true,\"address\":\"192.168.10.171\",\"port\":47231}"
+static const char *g_gw_status;
+static int g_gw_two = 1;
+static int g_gw_first = 1; /* 0: the first phone is gone, and the second is the list's first */
+static int g_gw_miss;      /* this many calls from now are not answered */
+static int g_gw_vision[2];
+static const char *g_gw_scope_error;
+
+static cJSON *gw_clients(void)
+{
+    char text[640];
+
+    char first[240] = "";
+
+    if (g_gw_first) {
+        snprintf(first, sizeof(first),
+                 "{\"fingerprint\":\"" GW_KEY_A "\",\"name\":\"Flip8\",\"scopes\":[\"status\"%s],\"connected\":true}%s",
+                 g_gw_vision[0] ? ",\"vision\"" : "", g_gw_two ? "," : "");
+    }
+    snprintf(text, sizeof(text), "{\"clients\":[%s%s%s%s],\"max\":8}", first,
+             g_gw_two ? "{\"fingerprint\":\"" GW_KEY_B "\",\"name\":\"A phone with a rather long name!\",\"scopes\":[\"status\"" : "",
+             g_gw_two ? (g_gw_vision[1] ? ",\"vision\"" : "") : "", g_gw_two ? "],\"connected\":false}" : "");
+    return cJSON_Parse(text);
+}
 
 static void calls_reset(void)
 {
@@ -117,6 +149,38 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
     if (strcmp(service, "sysd") == 0 && strcmp(method, "system.status") == 0 && g_sysd_status) {
         cJSON_Delete(params);
         return cJSON_Parse(g_sysd_status);
+    }
+    if (strcmp(service, "gatewayd") == 0) {
+        const cJSON *who = cJSON_GetObjectItemCaseSensitive(params, "client");
+        cJSON *r = NULL;
+
+        if (strcmp(method, "gateway.scope") == 0 && call_count < CALLS_MAX) {
+            char *text = cJSON_PrintUnformatted(params);
+
+            snprintf(calls[call_count].method, sizeof(calls[0].method), "%s", method);
+            snprintf(calls[call_count].params, sizeof(calls[0].params), "%s", text ? text : "null");
+            free(text);
+            call_count++;
+        }
+        if (!g_gw_status) {
+            r = NULL;
+        } else if (g_gw_miss > 0) {
+            g_gw_miss--;
+            snprintf(err, errlen, "timed out");
+        } else if (strcmp(method, "gateway.status") == 0) {
+            r = cJSON_Parse(g_gw_status);
+        } else if (strcmp(method, "gateway.clients") == 0) {
+            r = gw_clients();
+        } else if (strcmp(method, "gateway.scope") == 0 && g_gw_scope_error) {
+            snprintf(err, errlen, "%s", g_gw_scope_error);
+        } else if (strcmp(method, "gateway.scope") == 0 && cJSON_IsString(who)) {
+            int i = strcmp(who->valuestring, GW_KEY_B) == 0;
+
+            g_gw_vision[i] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "on"));
+            r = cJSON_Parse("{\"scopes\":[\"status\"]}");
+        }
+        cJSON_Delete(params);
+        return r;
     }
     if (strcmp(service, "netd") != 0) {
         cJSON_Delete(params);
@@ -1123,10 +1187,10 @@ static void check_plain_sheet(const char *what, const char *row, const char *fir
 
 /* ---- the hierarchy (DS §52) ------------------------------------------------------------ */
 
-#define CATEGORY_COUNT 9
+#define CATEGORY_COUNT 10
 static const char *const categories[CATEGORY_COUNT] = { "Display", "Appearance", "Sound", "Keyboard",
-                                                        "Power & Sleep", "Time & Region", "Network", "System",
-                                                        "Developer" };
+                                                        "Power & Sleep", "Time & Region", "Network", "Companion",
+                                                        "System", "Developer" };
 
 /* Objects inside the page that scroll on their own: anything but the page
  * itself whose content does not fit it. A text field scrolls its own text
@@ -1215,6 +1279,7 @@ static const struct {
     { "Time & Region", NULL, "CHANGE TIME ZONE", 0 },
     { "Time & Region", "CHANGE TIME ZONE", "CHOOSE A TIME ZONE", 1 },
     { "Network", NULL, "WI-FI", 1 },
+    { "Companion", NULL, "SHOW VISION ON", 0 },
     { "Developer", NULL, "DEBUG OVERLAY", 0 },
 };
 #define PAGE_CASES (sizeof(pages) / sizeof(pages[0]))
@@ -1517,8 +1582,8 @@ int main(void)
     check("list: the keyboard", shows("Keyboard base unknown"));
     {
         static const char *const titles[CATEGORY_COUNT] = { "Display", "Appearance", "Sound", "Keyboard",
-                                                            "Power & Sleep", "Time & Region", "Network", NULL,
-                                                            "Developer" };
+                                                            "Power & Sleep", "Time & Region", "Network", "Companion",
+                                                            NULL, "Developer" };
         int i;
 
         for (i = 0; i < CATEGORY_COUNT; i++) {
@@ -1989,6 +2054,106 @@ int main(void)
         check("requested Settings validation theme selected",
               pos_theme_apply(getenv("SETTINGS_THEME"), "normal", why, sizeof(why)) == 0);
     }
+
+    /* ---- 17b. Companion: the paired phones and each one's Vision switch (DS §52.8) --------------- */
+    g_gw_status = NULL;
+    app_start();
+    tick();
+    check("companion: gatewayd not running is said on the list", shows("Not running"));
+    open_category("Companion");
+    tick();
+    check("companion: and on its page, with no switch to tap",
+          shows("Not running") && shows("The Companion gateway is not running on this unit, so no phone can connect.") &&
+              !shows("OFF") && !shows("ON"));
+    /* It comes up while the page shows: the rows are built from its list. */
+    g_gw_status = GW_ON;
+    g_gw_two = 1;
+    g_gw_vision[0] = 0;
+    g_gw_vision[1] = 1;
+    g_gw_scope_error = NULL;
+    tick();
+    tick();
+    check("companion: the gateway's state", shows("On \xc2\xb7 192.168.10.171:47231"));
+    check("companion: both phones by name and key",
+          shows("Flip8") && shows("Key 0A1B 2C3D 4E5F 6071 \xc2\xb7 connected") &&
+              shows("A phone with a rather long name!") && shows("Key FFEE DDCC BBAA 9988"));
+    check("companion: one switch OFF, one ON, as gatewayd holds them", shows("OFF") && shows("ON"));
+    check("companion: every target is a finger's size", small_targets(app_body) == 0);
+    check_page("Companion, two phones");
+    calls_reset();
+    tap("OFF");
+    check("companion: a tap on OFF asks gatewayd for vision for exactly that phone",
+          call_count == 1 && called("gateway.scope", "{\"client\":\"" GW_KEY_A "\",\"scope\":\"vision\",\"on\":true}"));
+    check("companion: and shows what gatewayd then holds: both ON", !shows("OFF") && shows("ON") && g_gw_vision[0] == 1);
+    /* A refusal: said, and the switch stays what gatewayd holds. */
+    g_gw_vision[0] = 0;
+    tick();
+    check("companion: a change made elsewhere is shown within a second", shows("OFF"));
+    g_gw_scope_error = "invalid params";
+    calls_reset();
+    tap("OFF");
+    check("companion: a refused change is said in the gateway's words",
+          call_count == 1 && shows("The gateway answered: invalid params"));
+    check("companion: and the switch still reads OFF", shows("OFF") && g_gw_vision[0] == 0);
+    g_gw_scope_error = NULL;
+    /* Taking it away: the other phone's switch. */
+    g_gw_vision[0] = 1;
+    g_gw_vision[1] = 1;
+    tick();
+    g_gw_vision[0] = 0;
+    tick();
+    calls_reset();
+    tap("ON");
+    check("companion: a tap on ON takes vision from exactly that phone",
+          call_count == 1 && called("gateway.scope", "{\"client\":\"" GW_KEY_B "\",\"scope\":\"vision\",\"on\":false}"));
+    check("companion: both read OFF, and the refusal's words are gone",
+          !shows("ON") && shows("OFF") && !shows("The gateway answered: invalid params"));
+    /* The list changes under the rows: the first phone is revoked, so the
+     * second is now the list's first. A tap on the first row before the page
+     * has built its rows again must send nothing: the row still reads Flip8,
+     * and the list's first phone is another. (The tap's own asking again is
+     * what tells the page; the rows are built again on the next tick.) */
+    g_gw_first = 0;
+    settings_poll_companion(app_priv);
+    calls_reset();
+    tap("OFF");
+    check("companion: a tap on a row whose list changed under it sends nothing", call_count == 0);
+    tick();
+    check("companion: the phone that was revoked leaves the page within a second",
+          !shows("Flip8") && shows("A phone with a rather long name!"));
+    calls_reset();
+    tap("OFF");
+    check("companion: and the row that is left names its own phone",
+          call_count == 1 && called("gateway.scope", "{\"client\":\"" GW_KEY_B "\",\"scope\":\"vision\",\"on\":true}"));
+    /* A gatewayd that misses a poll or two is busy, not gone: the rows stay. */
+    g_gw_miss = 2;
+    tick();
+    tick();
+    check("companion: two polls it does not answer leave the list as it was",
+          shows("A phone with a rather long name!") && !shows("Not running") && shows("ON"));
+    tick();
+    check("companion: and it is read again when it answers", shows("On \xc2\xb7 192.168.10.171:47231"));
+    g_gw_first = 1;
+    g_gw_two = 0;
+    tick();
+    /* The gateway stops while the page shows. */
+    g_gw_status = NULL;
+    tick();
+    tick();
+    check("companion: one more it does not answer: the rows are still there", shows("Flip8"));
+    tick();
+    tick();
+    check("companion: the gateway staying silent takes the rows away", shows("Not running") && !shows("Flip8") && !shows("ON"));
+    back_to_root();
+    app_stop();
+    g_gw_status = GW_ON;
+    g_gw_two = 1;
+    g_gw_vision[0] = 1;
+    g_gw_vision[1] = 0;
+    app_start();
+    tick();
+    check("companion: the list's line counts the phones and who is shown Vision", shows("2 phones \xc2\xb7 Vision shown to 1"));
+    app_stop();
 
     /* ---- 18. every page, both ways up, every text size (DS §46, §52) ---------------------------- */
     g_status = STATUS_CONN;

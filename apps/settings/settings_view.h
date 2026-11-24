@@ -209,4 +209,43 @@ void sv_battery_apply(struct sv_battery *b, const cJSON *status);
  * line is empty when both of its values are. */
 void sv_battery_compact(const struct sv_battery *b, char *first, size_t first_n, char *second, size_t second_n);
 
+/* ---- Companion: the paired phones and what each is shown (gatewayd) ------- */
+
+/* gatewayd's own limit (services/gatewayd/gw.h GW_MAX_CLIENTS). */
+#define SV_MAX_PHONES 8
+#define SV_PHONE_NAME 33
+/* The phone's key as gatewayd names it: 64 hex digits. */
+#define SV_PHONE_KEY 65
+
+struct sv_phone {
+    char name[SV_PHONE_NAME]; /* as the phone gave it, made safe to draw; "Unnamed phone" when it gave none */
+    char key[SV_PHONE_KEY];   /* what gateway.scope is sent; never drawn whole */
+    char detail[64];          /* "Key 1A2B 3C4D 5E6F 7A8B, connected": the start of the key as the phone shows its own */
+    int connected;
+    int vision;               /* holds the scope `vision` */
+};
+
+struct sv_companion {
+    int reachable;            /* gatewayd answered */
+    char headline[SV_TEXT];   /* "On, 192.168.1.20:47231", "Off: no phone is paired", "Not running" */
+    enum sv_tone tone;
+    char note[SV_TEXT];       /* what the list says when it has no rows; empty otherwise */
+    char summary[SV_TEXT];    /* the line under Companion in the list of categories */
+    int count;
+    struct sv_phone phones[SV_MAX_PHONES];
+};
+
+/* status: gatewayd's gateway.status result; clients: its gateway.clients
+ * result. Either NULL: gatewayd did not answer (it is off by default, and
+ * then not running at all). A client whose key is not 64 hex digits is not
+ * listed: nothing could be sent for it. */
+void sv_companion_apply(struct sv_companion *c, const cJSON *status, const cJSON *clients);
+/* The gateway.scope parameters that give (on) or take the scope `vision` of
+ * this phone: {client, scope, on}, the client named by its whole key. */
+cJSON *sv_companion_vision_params(const struct sv_phone *p, int on);
+/* What the paired list was made of, for telling whether the rows on screen
+ * are still right: names, keys, order. Not the switches' states, which are
+ * repainted in place. */
+void sv_companion_signature(const struct sv_companion *c, char *out, size_t n);
+
 #endif

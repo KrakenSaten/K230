@@ -674,3 +674,188 @@ void sv_battery_compact(const struct sv_battery *b, char *first, size_t first_n,
         second[0] = (char)(second[0] - 'a' + 'A');
     }
 }
+
+/* ---- Companion ----------------------------------------------------------- */
+
+/* A phone's name is what the phone said at pairing: drawn only as printable
+ * ASCII and the Latin-1 letters the product fonts carry (two bytes of UTF-8,
+ * U+00A0 to U+00FF); anything else is a '?'. */
+static void phone_name(char *dst, size_t n, const char *src)
+{
+    size_t o = 0;
+    size_t i = 0;
+
+    while (src && src[i]) {
+        unsigned char ch = (unsigned char)src[i];
+        unsigned char next = (unsigned char)src[i + 1];
+        int latin1 = (ch == 0xc2 && next >= 0xa0 && next <= 0xbf) || (ch == 0xc3 && next >= 0x80 && next <= 0xbf);
+
+        /* Room for this character whole, and the end. */
+        if (o + (latin1 ? 2u : 1u) >= n) {
+            break;
+        }
+        if (ch >= 0x20 && ch < 0x7f) {
+            dst[o++] = (char)ch;
+            i++;
+        } else if (latin1) {
+            dst[o++] = (char)ch;
+            dst[o++] = (char)next;
+            i += 2;
+        } else {
+            dst[o++] = '?';
+            i++;
+            /* The rest of one character is one '?', not one each. */
+            while (((unsigned char)src[i] & 0xc0) == 0x80) {
+                i++;
+            }
+        }
+    }
+    dst[o] = '\0';
+    /* No name, or one of spaces alone: a row needs a title. */
+    if (strspn(dst, " ") == o) {
+        copy(dst, n, "Unnamed phone");
+    }
+}
+
+static int is_key(const char *k)
+{
+    size_t i;
+
+    if (!k || strlen(k) != SV_PHONE_KEY - 1) {
+        return 0;
+    }
+    for (i = 0; k[i]; i++) {
+        if (!((k[i] >= '0' && k[i] <= '9') || (k[i] >= 'a' && k[i] <= 'f'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int holds(const cJSON *scopes, const char *scope)
+{
+    const cJSON *el;
+
+    cJSON_ArrayForEach(el, scopes) {
+        if (cJSON_IsString(el) && strcmp(el->valuestring, scope) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void sv_companion_apply(struct sv_companion *c, const cJSON *status, const cJSON *clients)
+{
+    const cJSON *list = cJSON_GetObjectItemCaseSensitive(clients, "clients");
+    const cJSON *el;
+    const char *why;
+    int allowed = 0;
+    int i;
+
+    memset(c, 0, sizeof(*c));
+    if (!cJSON_IsObject(status) || !cJSON_IsArray(list)) {
+        copy(c->headline, sizeof(c->headline), "Not running");
+        c->tone = SV_TONE_MUTED;
+        copy(c->note, sizeof(c->note), "The Companion gateway is not running on this unit, so no phone can connect.");
+        copy(c->summary, sizeof(c->summary), "Not running");
+        return;
+    }
+    c->reachable = 1;
+    cJSON_ArrayForEach(el, list) {
+        struct sv_phone *p = &c->phones[c->count];
+        const char *key = str(el, "fingerprint");
+        size_t o = 0;
+
+        if (c->count >= SV_MAX_PHONES) {
+            break;
+        }
+        if (!is_key(key)) {
+            continue;
+        }
+        copy(p->key, sizeof(p->key), key);
+        phone_name(p->name, sizeof(p->name), str(el, "name"));
+        p->connected = flag(el, "connected");
+        p->vision = holds(cJSON_GetObjectItemCaseSensitive(el, "scopes"), "vision");
+        /* The first eight bytes in fours and capitals, as the phone shows
+         * "This phone's key" (Fingerprint.display in the app). */
+        o += (size_t)snprintf(p->detail + o, sizeof(p->detail) - o, "Key");
+        for (i = 0; i < 16; i++) {
+            char ch = key[i];
+
+            if (i % 4 == 0) {
+                p->detail[o++] = ' ';
+            }
+            p->detail[o++] = ch >= 'a' && ch <= 'f' ? (char)(ch - 'a' + 'A') : ch;
+        }
+        snprintf(p->detail + o, sizeof(p->detail) - o, "%s", p->connected ? SEP "connected" : "");
+        allowed += p->vision;
+        c->count++;
+    }
+    if (flag(status, "listening")) {
+        const char *addr = str(status, "address");
+
+        if (addr) {
+            snprintf(c->headline, sizeof(c->headline), "On" SEP "%.40s:%d", addr, num(status, "port", 0));
+        } else {
+            copy(c->headline, sizeof(c->headline), "On");
+        }
+        c->tone = SV_TONE_OK;
+    } else {
+        why = str(status, "closed");
+        c->tone = SV_TONE_MUTED;
+        if (why && strcmp(why, "no_clients") == 0) {
+            copy(c->headline, sizeof(c->headline), "Off: no phone is paired");
+        } else if (why && strcmp(why, "password_required") == 0) {
+            copy(c->headline, sizeof(c->headline), "Off: this unit has no password set");
+        } else if (why && strcmp(why, "no_address") == 0) {
+            copy(c->headline, sizeof(c->headline), "Off: no network");
+        } else if (why && strcmp(why, "public_address") == 0) {
+            copy(c->headline, sizeof(c->headline), "Off: not on a private network");
+        } else if (why && (strcmp(why, "state_fault") == 0 || strcmp(why, "identity_fault") == 0)) {
+            copy(c->headline, sizeof(c->headline), "Fault: its stored state cannot be used");
+            c->tone = SV_TONE_ERROR;
+        } else {
+            copy(c->headline, sizeof(c->headline), "Off");
+        }
+    }
+    if (c->count == 0) {
+        copy(c->note, sizeof(c->note), "No phone is paired with this unit.");
+        copy(c->summary, sizeof(c->summary), "No phone paired");
+    } else if (allowed == 0) {
+        snprintf(c->summary, sizeof(c->summary), "%d phone%s" SEP "Vision not shown to any", c->count,
+                 c->count == 1 ? "" : "s");
+    } else {
+        snprintf(c->summary, sizeof(c->summary), "%d phone%s" SEP "Vision shown to %d", c->count,
+                 c->count == 1 ? "" : "s", allowed);
+    }
+}
+
+cJSON *sv_companion_vision_params(const struct sv_phone *p, int on)
+{
+    cJSON *o;
+
+    if (!p || !is_key(p->key)) {
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    if (o) {
+        cJSON_AddStringToObject(o, "client", p->key);
+        cJSON_AddStringToObject(o, "scope", "vision");
+        cJSON_AddBoolToObject(o, "on", on != 0);
+    }
+    return o;
+}
+
+void sv_companion_signature(const struct sv_companion *c, char *out, size_t n)
+{
+    size_t o = 0;
+    int i;
+
+    if (n == 0) {
+        return;
+    }
+    o += (size_t)snprintf(out, n, "%d:%d", c->reachable, c->count);
+    for (i = 0; i < c->count && o < n; i++) {
+        o += (size_t)snprintf(out + o, n - o, "|%s/%s", c->phones[i].key, c->phones[i].name);
+    }
+}
