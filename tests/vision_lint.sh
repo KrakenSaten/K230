@@ -62,8 +62,14 @@ hits=$(grep -rlE '\bfork\(' $A $C tools/vision --include='*.c' --include='*.cpp'
 check "only the session starts a process" "$([ "$hits" = "$A/vision_session.c" ] && echo 1 || echo 0)"
 hits=$(code $C/*.c $C/*.cpp $H | grep -nE '\b(system|popen)\(')
 check "no shell is ever run" "$([ -z "$hits" ] && echo 1 || echo 0)"
-hits=$(grep -nE 'pthread|std::thread|thrd_' $A/*.c $C/*.c $C/*.cpp $H)
-check "no threads anywhere in Vision" "$([ -z "$hits" ] && echo 1 || echo 0)"
+# One thread, and one only: the shared picture's JPEG encoder in the helper
+# (vision_share_worker.h; the owner's "tune it" of 2026-11-23, after the
+# encode in the detector's loop cost it a tenth of its rate on unit A). The
+# app, the session, the detector and the helper's loop have none.
+hits=$(grep -lE 'pthread|std::thread|thrd_' $A/*.c $C/*.c $C/*.cpp $H)
+check "no thread in Vision but the shared picture's encoder" "$([ "$hits" = "$C/vision_share_worker.c" ] && echo 1 || echo 0)"
+check "and that thread is started by the helper alone, never by the app" \
+    "$(grep -q 'vision_share_worker_new' $H && ! grep -q 'vision_share_worker' $A/*.c $A/*.h && echo 1 || echo 0)"
 
 # ---- bounds --------------------------------------------------------------------
 check "every list has a constant bound" \

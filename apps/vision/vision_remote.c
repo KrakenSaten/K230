@@ -45,19 +45,65 @@ static const char *word_or(const char *const *words, int n, int i)
     return i >= 0 && i < n ? words[i] : words[0];
 }
 
+/* The detector's class names as one array, made once per detector and kept:
+ * a status is asked about once a second for as long as a companion looks, and
+ * a detector has up to 365 names (on Unit A a status that made them anew each
+ * time took up to 3.4 ms of the shell's 2 ms; VISION_PREVIEW.md section 8).
+ * The names are the label tables' own, which outlive every answer: referred
+ * to, not copied. NULL when the detector has none, more than a status
+ * carries, or memory is short: all of them or none, since a list cut short
+ * would name some boxes and not others. */
+static const cJSON *labels_of(const struct vision_model *m)
+{
+    static cJSON *kept;
+    static uint32_t kept_classes;
+    static const char *kept_first;
+    static const char *kept_last;
+    size_t label_bytes = 0;
+    uint32_t i;
+
+    if (m->classes == 0 || m->classes > VISION_REMOTE_LABELS_MAX) {
+        return NULL;
+    }
+    if (kept && kept_classes == m->classes && kept_first == vision_model_class_label(m, 0) &&
+        kept_last == vision_model_class_label(m, m->classes - 1)) {
+        return kept;
+    }
+    cJSON_Delete(kept);
+    kept = NULL;
+    for (i = 0; i < m->classes; i++) {
+        label_bytes += strlen(vision_model_class_label(m, i)) + 3;
+    }
+    if (label_bytes > VISION_REMOTE_LABEL_BYTES) {
+        return NULL;
+    }
+    kept = cJSON_CreateArray();
+    for (i = 0; kept && i < m->classes; i++) {
+        cJSON *name = cJSON_CreateStringReference(vision_model_class_label(m, i));
+
+        if (!name || !cJSON_AddItemToArray(kept, name)) {
+            cJSON_Delete(name);
+            cJSON_Delete(kept);
+            kept = NULL;
+        }
+    }
+    kept_classes = m->classes;
+    kept_first = vision_model_class_label(m, 0);
+    kept_last = vision_model_class_label(m, m->classes - 1);
+    return kept;
+}
+
 cJSON *vision_remote_status(const struct vision_model *m, const struct vision_session *s,
                             enum vision_share_state share, const char *client)
 {
     cJSON *o = cJSON_CreateObject();
     cJSON *modes;
     cJSON *set;
-    cJSON *labels;
+    const cJSON *labels;
     cJSON *pic;
     cJSON *stats;
     uint32_t pw = s->share_w;
     uint32_t ph = s->share_h;
-    size_t label_bytes = 0;
-    uint32_t i;
     int mode;
 
     if (!o) {
@@ -85,19 +131,12 @@ cJSON *vision_remote_status(const struct vision_model *m, const struct vision_se
     }
     cJSON_AddStringToObject(o, "model", m->model_name);
     /* The detector's class names, by index, so that a box's class can be
-     * said on the phone. All of them or none: a list cut short would name
-     * some boxes and not others. */
-    labels = cJSON_AddArrayToObject(o, "labels");
-    if (labels && m->classes > 0 && m->classes <= VISION_REMOTE_LABELS_MAX) {
-        for (i = 0; i < m->classes; i++) {
-            label_bytes += strlen(vision_model_class_label(m, i)) + 3;
-        }
-        if (label_bytes <= VISION_REMOTE_LABEL_BYTES) {
-            for (i = 0; i < m->classes; i++) {
-                /* The names are the label tables' own, which outlive every answer: referred to, not copied. */
-                cJSON_AddItemToArray(labels, cJSON_CreateStringReference(vision_model_class_label(m, i)));
-            }
-        }
+     * said on the phone: the kept array (labels_of), referred to. */
+    labels = labels_of(m);
+    if (labels) {
+        cJSON_AddItemReferenceToObject(o, "labels", (cJSON *)labels);
+    } else {
+        cJSON_AddArrayToObject(o, "labels");
     }
     if (pw == 0 || ph == 0) {
         /* Before the first shared picture: the size it will have. */

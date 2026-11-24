@@ -174,6 +174,56 @@ static void test_status(void)
                                                  cJSON_GetArraySize(cJSON_GetObjectItem(o, "labels")) == 0));
     free(text);
     cJSON_Delete(o);
+
+    /* The names are made once per detector and kept (vision_remote.c
+     * labels_of), because a status is asked every second while a companion
+     * looks. What must hold: an answer that is freed takes nothing of the
+     * kept names with it, and another detector's names replace them. */
+    {
+        cJSON *first = vision_remote_status(&model, &session, VISION_SHARE_OFF, NULL);
+        cJSON *second = vision_remote_status(&model, &session, VISION_SHARE_OFF, NULL);
+        const cJSON *names;
+        const cJSON *el;
+        struct timespec t0;
+        struct timespec t1;
+        int n365 = first ? cJSON_GetArraySize(cJSON_GetObjectItem(first, "labels")) : -1;
+        int whole = 1;
+        int i;
+
+        cJSON_Delete(first);
+        names = second ? cJSON_GetObjectItem(second, "labels") : NULL;
+        cJSON_ArrayForEach(el, names) {
+            whole &= cJSON_IsString(el) && el->valuestring && el->valuestring[0] != '\0';
+        }
+        check("a second status has the same names after the first was freed", second && cJSON_GetArraySize(names) == n365 && whole);
+        cJSON_Delete(second);
+
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        for (i = 0; i < 2000; i++) {
+            cJSON_Delete(vision_remote_status(&model, &session, VISION_SHARE_OFF, NULL));
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        printf("     status with %d class names: %.1f us each on this host (2000 made)\n", n365,
+               ((double)(t1.tv_sec - t0.tv_sec) * 1e6 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e3) / 2000.0);
+
+        go_live(80);
+        first = vision_remote_status(&model, &session, VISION_SHARE_OFF, NULL);
+        names = first ? cJSON_GetObjectItem(first, "labels") : NULL;
+        check("another detector: its eighty names, not the last one's",
+              cJSON_GetArraySize(names) == 80 && strcmp(cJSON_GetArrayItem(names, 0)->valuestring, "person") == 0 &&
+                  strcmp(cJSON_GetArrayItem(names, 79)->valuestring, "toothbrush") == 0);
+        cJSON_Delete(first);
+        go_live(365);
+        first = vision_remote_status(&model, &session, VISION_SHARE_OFF, NULL);
+        check("and back again", first && cJSON_GetArraySize(cJSON_GetObjectItem(first, "labels")) == n365);
+        cJSON_Delete(first);
+        model.classes = 0;
+        first = vision_remote_status(&model, &session, VISION_SHARE_OFF, NULL);
+        check("a mode without a detector has an empty list, still a list",
+              first && cJSON_IsArray(cJSON_GetObjectItem(first, "labels")) && cJSON_GetArraySize(cJSON_GetObjectItem(first, "labels")) == 0);
+        cJSON_Delete(first);
+        go_live(80);
+    }
 }
 
 static void test_picture(void)

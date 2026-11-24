@@ -89,10 +89,17 @@
 #define VISION_TAGS_FULL 6
 /* The chips and the key on the picture: their distance from its edge. */
 #define VISION_HUD_MARGIN 8
-/* The sharing mark: a bar under the picture's top chips. */
-#define VISION_SHARE_BAR_H 60
+/* The sharing mark: a bar on the picture under its top chips, as wide as the
+ * picture and no wider; STOP in it is a full touch target (POCKETUI_TOUCH_MIN).
+ * While a sheet covers the picture the bar moves into the sheet's title band,
+ * beside the title and above the first row of choices, so that nothing that
+ * can be chosen is ever under it (share_place). The band is lower than a
+ * touch target, so STOP there is as tall as the band (52 px on the reference
+ * panel), not 64. */
+#define VISION_SHARE_BAR_H (POCKETUI_TOUCH_MIN + 8)
 #define VISION_SHARE_BAR_Y 56
 #define VISION_SHARE_BTN_W 132
+#define VISION_SHARE_INSET 4
 /* The mode switcher's text from its left edge, and the room its chevron
  * takes at the right. */
 #define VISION_MODE_PAD 14
@@ -201,6 +208,10 @@ struct vision_app {
     lv_obj_t *share_text;
     lv_obj_t *share_btn;
     int share_painted;        /* what the mark last showed; -1 nothing yet */
+    /* What a companion's vision.mode, vision.set or vision.reset asked of
+     * the helper, the layout and the settings file: done on the next poll,
+     * never inside the answer (app.h: no file, no wait). */
+    unsigned remote_acts;
 
     struct vision_model model;
     struct vision_session session;
@@ -660,6 +671,8 @@ static void draw_legend(struct vision_app *a, const struct vision_view_text *s)
  * A sheet that does not fit the picture stays hidden (and is logged once
  * per shape: it never happens on the reference panel,
  * tests/vision_model_test.c). */
+static void share_place(struct vision_app *a);
+
 static void draw_sheet(struct vision_app *a)
 {
     struct vision_sheet_view v;
@@ -676,7 +689,10 @@ static void draw_sheet(struct vision_app *a)
     if (v.kind == VISION_SHEET_NONE || v.rows == 0 ||
         vision_layout_sheet(&sl, a->lay.picture.w, a->lay.picture.h, v.rows, cells) != 0) {
         set_hidden(a->sheet, true);
-        a->sheet_on = false;
+        if (a->sheet_on) {
+            a->sheet_on = false;
+            share_place(a);
+        }
         return;
     }
     a->sheet_lay = sl;
@@ -736,6 +752,7 @@ static void draw_sheet(struct vision_app *a)
         }
     }
     set_hidden(a->sheet, false);
+    share_place(a);
 }
 
 /* ---- the keyboard (KEYS above) ------------------------------------------------------- */
@@ -934,7 +951,17 @@ static void repaint(struct vision_app *a)
  * unit is to say so for as long as it lasts, and to stop at once when told:
  * the mark carries the phone's name and STOP on every Vision screen. After
  * STOP nothing is shared again until ALLOW is tapped here or Vision is
- * opened anew; a phone cannot undo it. */
+ * opened anew; a phone cannot undo it.
+ *
+ * STOP is a person's word, and only a person takes it back. It is kept here,
+ * outside the app's own memory, because the shell may create the Vision app
+ * again by itself while it is in front (a text size changed over IPC, an
+ * open request naming the app already open): that is not Vision being opened
+ * anew, and must not let a phone back in. vision_create drops it only when
+ * the shell says the app was opened by somebody (app.h
+ * pocketos_shell_app_reopening). It does not outlive the shell process: a
+ * shell that starts has no STOP to hold, whatever it opens first. */
+static bool share_stop_held;
 
 static void share_end(struct vision_app *a, enum vision_share_state to, const char *why)
 {
@@ -943,6 +970,45 @@ static void share_end(struct vision_app *a, enum vision_share_state to, const ch
         vision_session_share(&a->session, false, 0, 0);
     }
     a->share = to;
+}
+
+/* Where the mark is: see VISION_SHARE_BAR_H. Called whenever the layout,
+ * the sheet or the sharing changes. */
+static void share_place(struct vision_app *a)
+{
+    struct vision_rect r;
+    int32_t btn_h;
+
+    if (!a->laid_out) {
+        return;
+    }
+    r.x = a->lay.picture.x + VISION_HUD_MARGIN;
+    r.y = a->lay.picture.y + VISION_SHARE_BAR_Y;
+    r.w = a->lay.picture.w - 2 * VISION_HUD_MARGIN;
+    r.h = VISION_SHARE_BAR_H;
+    if (a->sheet_on) {
+        const struct vision_sheet_layout *sl = &a->sheet_lay;
+        int32_t first = sl->cell[0][0].y < sl->caption[0].y ? sl->cell[0][0].y : sl->caption[0].y;
+        int32_t left = sl->title.x + pocketui_text_width(a->sheet_title, lv_label_get_text(a->sheet_title)) + 16;
+
+        /* A title so long that no STOP fits beside it gives way: the bar
+         * takes the band, and the choices under it are still all free. */
+        if (a->lay.picture.w - left - VISION_HUD_MARGIN < VISION_SHARE_BTN_W + 2 * VISION_SHARE_INSET) {
+            left = VISION_HUD_MARGIN;
+        }
+        r.x = a->lay.picture.x + left;
+        r.y = a->lay.picture.y + 2;
+        r.w = a->lay.picture.w - left - VISION_HUD_MARGIN;
+        r.h = first - 4;
+    }
+    place(a->share_bar, &r);
+    /* On the picture STOP is a full touch target inside the bar; in the
+     * sheet's band it takes the band's whole height, which is all there is. */
+    btn_h = a->sheet_on ? r.h : r.h - 2 * VISION_SHARE_INSET;
+    lv_obj_set_size(a->share_btn, VISION_SHARE_BTN_W, btn_h);
+    lv_obj_align(a->share_btn, LV_ALIGN_RIGHT_MID, a->sheet_on ? 0 : -VISION_SHARE_INSET, 0);
+    lv_obj_set_width(a->share_text, r.w - VISION_SHARE_BTN_W - 3 * 12 > 0 ? r.w - VISION_SHARE_BTN_W - 3 * 12 : 0);
+    lv_obj_align(a->share_text, LV_ALIGN_LEFT_MID, 12, 0);
 }
 
 static void share_paint(struct vision_app *a)
@@ -967,6 +1033,7 @@ static void share_paint(struct vision_app *a)
         button_style(a->share_btn, false, true);
     }
     label_text(a->share_text, text);
+    share_place(a);
     lv_obj_remove_flag(a->share_bar, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(a->share_bar);
 }
@@ -995,8 +1062,11 @@ static void on_share_btn(lv_event_t *e)
 
     if (a->share == VISION_SHARE_LIVE) {
         share_end(a, VISION_SHARE_STOPPED, "STOP");
+        share_stop_held = true;
     } else if (a->share == VISION_SHARE_STOPPED) {
         a->share = VISION_SHARE_OFF;
+        share_stop_held = false;
+        LOG_INFO("vision: sharing allowed again here");
     }
     share_paint(a);
 }
@@ -1137,6 +1207,14 @@ static void on_poll(lv_timer_t *t)
     int64_t now = now_ms();
     bool changed = vision_model_tick(&a->model, now);
 
+    /* What a companion asked for since the last poll (vision_ipc_request). */
+    if (a->remote_acts) {
+        unsigned acts = a->remote_acts;
+
+        a->remote_acts = 0;
+        do_actions(a, acts);
+        changed = true;
+    }
     /* The unit turned while the screen is open: on an external display the
      * shell does not restart for it (app.h hold_rotation), so the picture
      * takes the new shape and the helper the new turn here. */
@@ -1511,6 +1589,7 @@ static void layout(struct vision_app *a)
     }
     a->laid_out = true;
     place(a->box, &a->lay.picture);
+    share_place(a);
     place(a->status, &a->lay.status);
     /* The switcher's name stops short of its chevron, however wide it is. */
     lv_obj_set_width(a->mode_name, a->lay.mode.w - VISION_MODE_PAD - VISION_MODE_CHEVRON_W);
@@ -1774,22 +1853,18 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->retry_btn = button(a->frame, "TRY AGAIN", on_retry, a);
     lv_obj_add_flag(a->retry_btn, LV_OBJ_FLAG_HIDDEN);
 
-    /* The sharing mark: over everything else on this screen, a sheet
-     * included, so that STOP is always one tap away. */
+    /* The sharing mark: on every Vision screen, a sheet included, so that
+     * STOP is always one tap away; placed by share_place, never over a
+     * choice. */
     a->share_bar = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->share_bar);
     pos_style_add(a->share_bar, POS_STYLE_SLAB, 0);
-    lv_obj_set_size(a->share_bar, LV_PCT(92), VISION_SHARE_BAR_H);
-    lv_obj_align(a->share_bar, LV_ALIGN_TOP_MID, 0, VISION_SHARE_BAR_Y);
+    lv_obj_set_size(a->share_bar, 0, VISION_SHARE_BAR_H);
     lv_obj_clear_flag(a->share_bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(a->share_bar, LV_OBJ_FLAG_FLOATING);
     a->share_text = pocketui_label(a->share_bar, "", POS_STYLE_VALUE);
     lv_label_set_long_mode(a->share_text, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(a->share_text, LV_PCT(62));
-    lv_obj_align(a->share_text, LV_ALIGN_LEFT_MID, 12, 0);
     a->share_btn = button(a->share_bar, "STOP", on_share_btn, a);
-    lv_obj_set_size(a->share_btn, VISION_SHARE_BTN_W, VISION_SHARE_BAR_H - 12);
-    lv_obj_align(a->share_btn, LV_ALIGN_RIGHT_MID, -6, 0);
     lv_obj_add_flag(a->share_bar, LV_OBJ_FLAG_HIDDEN);
     a->share_painted = -1;
 }
@@ -1805,6 +1880,14 @@ static void *vision_create(lv_obj_t *root)
     }
     vision_session_init(&a->session);
     vision_model_init(&a->model);
+    /* Opened by somebody: Vision opened anew, and STOP's word ends. Created
+     * again by the shell while in front: STOP stands (share_stop_held). */
+    if (!pocketos_shell_app_reopening()) {
+        share_stop_held = false;
+    } else if (share_stop_held) {
+        a->share = VISION_SHARE_STOPPED;
+        LOG_INFO("vision: created again by the shell; sharing stays stopped");
+    }
     {
         /* The owner's choices from the last time; the defaults when there
          * are none, or the file is damaged. */
@@ -1877,6 +1960,10 @@ static void vision_destroy(void *priv)
     if (a->timer) {
         lv_timer_delete(a->timer);
     }
+    /* A companion's change of a setting that the next poll was to store. */
+    if ((a->remote_acts & VISION_ACT_SAVE) && vision_store_save(&a->model.set) != 0) {
+        LOG_WARN("vision: could not store the settings in %s", vision_store_dir());
+    }
     /* The helper first: once it is gone nothing writes the shared memory
      * the session is about to unmap. */
     vision_session_abandon(&a->session, VISION_DESTROY_GRACE_MS);
@@ -1935,6 +2022,17 @@ static int vision_ipc_share(struct vision_app *a, const cJSON *params, cJSON **r
     } else if (a->share != VISION_SHARE_LIVE) {
         int64_t now = now_ms();
 
+        /* A mode this companion chose a moment ago may still wait for the
+         * poll to tell the helper (vision_ipc_request): told now, so that
+         * the helper is not asked for a picture of the mode it is leaving
+         * (it refuses one of FACE, RECOGNIZE or READ, and the share would
+         * end at once). The settings file still waits for the poll. */
+        if (a->remote_acts & ~VISION_ACT_SAVE) {
+            unsigned acts = a->remote_acts & ~VISION_ACT_SAVE;
+
+            a->remote_acts &= VISION_ACT_SAVE;
+            do_actions(a, acts);
+        }
         if (vision_session_share(&a->session, true, 0, 0) != 0) {
             *message = "the picture cannot be shared";
             return POCKETIPC_ERR_POLICY;
@@ -2032,8 +2130,13 @@ static int vision_ipc_request(void *priv, const char *method, const cJSON *param
         return rc;
     }
     /* As a tap on Vision's own sheet: the helper, the stored settings and
-     * the screen follow. */
-    act(a, acts);
+     * the screen follow - on the next poll, at most VISION_POLL_MS from now,
+     * not inside this answer. The model has changed already, so a status
+     * asked next says the new mode; what waits is the word to the helper,
+     * the layout and the settings file (a write and an fsync, which on Unit A
+     * made vision.mode take 4.6 ms of the handler's 2 ms). do_actions reads
+     * the model as it is when it runs, so a tap in between loses nothing. */
+    a->remote_acts |= acts;
     share_check(a, now_ms());
     return 0;
 }

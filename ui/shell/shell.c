@@ -248,6 +248,9 @@ struct shell {
      * is opened again in the new size. */
     bool text_size_pending;
     bool text_size_recreate;
+    /* True for the length of create() when the shell itself is creating the
+     * app that was in front again (app.h pocketos_shell_app_reopening). */
+    bool app_reopening;
 };
 
 static struct shell sh;
@@ -1728,6 +1731,8 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_t *back;
     lv_obj_t *name;
     lv_obj_t *body;
+    /* The app in front, created again: nobody chose to open it. */
+    bool again = sh.app == app;
 
     /* Whatever opens now is what was asked for last. */
     lv_async_call_cancel(open_requested, NULL);
@@ -1843,8 +1848,10 @@ body:
 
     sh.app = app;
     environment_apply();
+    sh.app_reopening = again;
     sh.app_priv = app->create(body);
-    LOG_INFO("open app %s", app->id);
+    sh.app_reopening = false;
+    LOG_INFO("open app %s%s", app->id, again ? " (again, by the shell)" : "");
     if (app->tick) {
         app->tick(sh.app_priv);
     }
@@ -2231,6 +2238,11 @@ enum pos_text_size pocketos_shell_text_size(void)
 int pocketos_shell_set_text_size(enum pos_text_size size)
 {
     return shell_set_text_size(size, false);
+}
+
+bool pocketos_shell_app_reopening(void)
+{
+    return sh.app_reopening;
 }
 
 /* What settings.conf holds, read once at start: anything but the three names
