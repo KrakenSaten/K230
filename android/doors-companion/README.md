@@ -184,6 +184,56 @@ Open: `capture.state`'s payload is not specified in section 9; the app treats
 it as "ask `capture.status` again". `diag` is read with the field names of
 `struct ppc_diag` (`core/pocketpcap/ppc_proto.h`); section 9 shows two of them.
 
+## Vision (M6)
+
+The phone side of `docs/design/companion/VISION_PREVIEW.md`, with ADR-006
+amendment 1 and ADR-019 amendment 1, both accepted on 2026-11-23. The unit's
+side is built in the same pull request (#174) and is in no released Doors.
+**Real camera pictures have been shown by this app on an emulator** (Unit A's
+camera through a temporary kit, 2026-11-23, and the host bench);
+**not yet on a physical phone**. The simulation remains, banded and separate.
+
+| Part | State |
+| --- | --- |
+| The screen: viewfinder, overlays, modes, settings, figures; portrait, wide, full screen | Real code, seen on the emulator with the simulated source and with real frames (portrait and wide with the simulated source; real frames in the default orientation) |
+| `ui/VisionPreview.kt`: one-picture slot, decode off the main thread into two reused bitmaps, one transform for pixels and boxes | Real; the slot, the meter and the transform are unit-tested. The JPEG path (`BitmapFactory`) has decoded real frames on the emulator |
+| `core/GatewayVision.kt`: `vision.status/share/ack/mode/set/reset`, the events, the topic | Tested against a gateway played in the test's JVM, and by `VisionIntegrationTest` against the real gatewayd, the real simulator shell with the real Vision app and a helper with libjpeg (the harness, below) |
+| The street, its traffic, the boxes, the detector's figures | **Simulated** (`core/VisionSim.kt`), under a hatched band and a mark that stays in full screen. It opens no camera, on the phone or anywhere |
+
+- **The camera stays where it is.** The picture is the one Vision's helper
+  already makes for the unit's screen, halved and JPEG-encoded on request;
+  nothing opens the camera a second time (the proposal, sections 3 and 4).
+- **The interface the screen is written to** is `VisionSource`: a state flow of
+  `VisionView`, and a conflated flow of `VisionFrame` (JPEG or raw pixels, with
+  the boxes of that very picture). A real transport is another `VisionSource`.
+- **Bounded.** One picture is held (`FrameSlot`, newest wins, the rest counted
+  as skipped); two bitmaps exist; a picture over 640 px or 96 KiB, or whose
+  JPEG is not the size its frame said, is not shown.
+- **Asked only** with the capability, the scope `vision` and the screen in
+  front. One exception: a gateway names the capability only to a phone that
+  holds the scope, so a phone without it asks `vision.status` once to learn
+  which it is: error 7 is "Not granted" (and the screen says where on the
+  unit to switch it on), anything else "Not served". Leaving the screen ends the preview on the unit and gives the topic
+  back.
+- **A trusted device** (accepted 2026-11-23). The phone is authorized once on
+  the unit: Settings, Companion, and the switch beside this phone under "Show
+  Vision on" (the app's "Not granted" text says the same). After that the
+  picture comes by itself when this screen opens while
+  Vision is in front on the unit: no tap there, no time limit, one scope for
+  viewing and for modes. The app does not ask again while the unit says the
+  preview was stopped there (`stopped`) or another phone has it (`busy`), and
+  not after the person paused it here. Screenshots and screen recording are not
+  blocked (`FLAG_SECURE` is not set).
+- **Modes and settings** are Vision's own (`docs/apps/VISION.md`): the modes of
+  the helper protocol and the stored settings a sheet offers. FACE, RECOGNIZE
+  and READ are listed, never chosen and never shown.
+- **Nothing is stored**, and the phone's screen is kept awake only while a
+  picture is on it.
+
+Open: whether boxes should be shown without a picture (today they travel with
+it and only then); the counting line's place is not drawn (the contract carries
+no line).
+
 ## Build and test
 
 ```sh
@@ -214,7 +264,7 @@ it in the app, then send `gateway.pair_decide {"allow": true}`.
 
 ## Not yet
 
-Choosing a route for a message (`via`, `mesh.path_preview`), capture against a real unit (the gateway and shell side of
+Choosing a route for a message (`via`, `mesh.path_preview`), a Vision picture from a real unit (the whole unit side of the Vision proposal), capture against a real unit (the gateway and shell side of
 ADR-016 amendment 1), the optional background
 connection service and its notification, more than one paired unit, and
 anything measured on a K230 or a physical phone.

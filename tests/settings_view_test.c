@@ -572,6 +572,143 @@ int main(void)
         check_str("compact: second line empty", second, "");
     }
 
+    /* ---- Companion: the paired phones and their Vision switch ----------------- */
+    {
+        static const char *const K1 = "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9";
+        static const char *const K2 = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+        struct sv_companion c;
+        cJSON *st;
+        cJSON *cl;
+        cJSON *p;
+        char text[2048];
+        char sig[1024];
+        char sig2[1024];
+        char *out;
+
+        sv_companion_apply(&c, NULL, NULL);
+        check("companion: gatewayd not answering is not running, with no phone listed", !c.reachable && c.count == 0);
+        check_str("companion: and says so", c.headline, "Not running");
+        check_str("companion: its line in the list", c.summary, "Not running");
+        check("companion: with a note in place of the rows", strstr(c.note, "not running") != NULL);
+
+        st = json("{\"listening\":false,\"closed\":\"no_clients\",\"clients\":0}");
+        cl = json("{\"clients\":[],\"max\":8}");
+        sv_companion_apply(&c, st, cl);
+        check("companion: running with nobody paired", c.reachable && c.count == 0);
+        check_str("companion: closed because nobody is paired", c.headline, "Off: no phone is paired");
+        check_str("companion: no phone", c.note, "No phone is paired with this unit.");
+        check_str("companion: the list's line", c.summary, "No phone paired");
+        /* A status without the list is not a list of nobody. */
+        sv_companion_apply(&c, st, NULL);
+        check("companion: a missing list is no answer, not an empty one", !c.reachable);
+        cJSON_Delete(st);
+        cJSON_Delete(cl);
+
+        st = json("{\"listening\":true,\"address\":\"192.168.10.171\",\"port\":47231}");
+        snprintf(text, sizeof(text),
+                 "{\"clients\":["
+                 "{\"fingerprint\":\"%s\",\"name\":\"Andr\xc3\xa9's Flip8\",\"scopes\":[\"status\",\"mesh_read\"],\"connected\":true},"
+                 "{\"fingerprint\":\"%s\",\"name\":\"\",\"scopes\":[\"status\",\"vision\"],\"connected\":false},"
+                 "{\"fingerprint\":\"nothex\",\"name\":\"bad key\",\"scopes\":[\"vision\"],\"connected\":true},"
+                 "{\"fingerprint\":\"%.63sG\",\"name\":\"capital in the key\",\"scopes\":[\"vision\"]},"
+                 "{\"name\":\"no key\",\"scopes\":[\"vision\"]}],\"max\":8}",
+                 K1, K2, K1);
+        cl = json(text);
+        sv_companion_apply(&c, st, cl);
+        check_str("companion: listening, and where", c.headline, "On \xc2\xb7 192.168.10.171:47231");
+        check("companion: in the tone of something that works", c.tone == SV_TONE_OK);
+        check("companion: two phones; one without a usable key is never listed", c.count == 2);
+        check_str("companion: a name with a Latin-1 letter is kept", c.phones[0].name, "Andr\xc3\xa9's Flip8");
+        check_str("companion: the key's first eight bytes, as the phone shows its own", c.phones[0].detail,
+                  "Key 0A1B 2C3D 4E5F 6071 \xc2\xb7 connected");
+        check("companion: connected, and not shown Vision", c.phones[0].connected && !c.phones[0].vision);
+        check_str("companion: a phone that gave no name", c.phones[1].name, "Unnamed phone");
+        check_str("companion: not connected says nothing more", c.phones[1].detail, "Key FFEE DDCC BBAA 9988");
+        check("companion: and that one is shown Vision", !c.phones[1].connected && c.phones[1].vision);
+        check_str("companion: the list's line counts both", c.summary, "2 phones \xc2\xb7 Vision shown to 1");
+        check("companion: no note over rows", c.note[0] == '\0');
+
+        p = sv_companion_vision_params(&c.phones[0], 1);
+        out = p ? cJSON_PrintUnformatted(p) : NULL;
+        snprintf(text, sizeof(text), "{\"client\":\"%s\",\"scope\":\"vision\",\"on\":true}", K1);
+        check_str("companion: switching on names the whole key, the scope and true, and nothing else", out ? out : "", text);
+        cJSON_free(out);
+        cJSON_Delete(p);
+        p = sv_companion_vision_params(&c.phones[1], 0);
+        out = p ? cJSON_PrintUnformatted(p) : NULL;
+        snprintf(text, sizeof(text), "{\"client\":\"%s\",\"scope\":\"vision\",\"on\":false}", K2);
+        check_str("companion: switching off the same with false", out ? out : "", text);
+        cJSON_free(out);
+        cJSON_Delete(p);
+        check("companion: nothing is sent for a phone that is not there", sv_companion_vision_params(NULL, 1) == NULL);
+
+        sv_companion_signature(&c, sig, sizeof(sig));
+        c.phones[0].vision = 1;
+        c.phones[1].connected = 1;
+        sv_companion_signature(&c, sig2, sizeof(sig2));
+        check("companion: a switch or a connection changing is not another list", strcmp(sig, sig2) == 0);
+        c.count = 1;
+        sv_companion_signature(&c, sig2, sizeof(sig2));
+        check("companion: a phone gone is", strcmp(sig, sig2) != 0);
+        cJSON_Delete(st);
+        cJSON_Delete(cl);
+
+        /* A name is what a phone said: only what the fonts carry is drawn. */
+        st = json("{\"listening\":false,\"closed\":\"password_required\"}");
+        snprintf(text, sizeof(text),
+                 "{\"clients\":[{\"fingerprint\":\"%s\",\"name\":\"a\\u0007b\xe2\x82\xac" "c\xf0\x9f\x93\xb1\xc3\",\"scopes\":[]}]}", K1);
+        cl = json(text);
+        sv_companion_apply(&c, st, cl);
+        check_str("companion: a control character, a euro sign, an emoji and half a letter are each one '?'",
+                  c.count == 1 ? c.phones[0].name : "", "a?b?c??");
+        check_str("companion: closed for want of a password", c.headline, "Off: this unit has no password set");
+        check_str("companion: one phone, none shown Vision", c.summary, "1 phone \xc2\xb7 Vision not shown to any");
+        cJSON_Delete(cl);
+        /* The longest name gatewayd keeps, 32 bytes, is drawn whole; one ending in a two-byte letter too. */
+        snprintf(text, sizeof(text),
+                 "{\"clients\":[{\"fingerprint\":\"%s\",\"name\":\"A phone with a rather long name!\",\"scopes\":[]},"
+                 "{\"fingerprint\":\"%s\",\"name\":\"012345678901234567890123456 \xc3\xa9\xc3\xa9\",\"scopes\":[]}]}", K1, K2);
+        cl = json(text);
+        sv_companion_apply(&c, st, cl);
+        check_str("companion: a name of 32 bytes is whole", c.count == 2 ? c.phones[0].name : "", "A phone with a rather long name!");
+        cJSON_Delete(cl);
+        snprintf(text, sizeof(text), "{\"clients\":[{\"fingerprint\":\"%s\",\"name\":\"   \",\"scopes\":[]},"
+                                     "{\"fingerprint\":\"%s\",\"name\":\"012345678901234567890123456 \xc3\xa9\xc3\xa9\",\"scopes\":[]}]}", K1, K2);
+        cl = json(text);
+        sv_companion_apply(&c, st, cl);
+        check_str("companion: a name of spaces alone is no name", c.count == 2 ? c.phones[0].name : "", "Unnamed phone");
+        check_str("companion: and one that ends in two-byte letters", c.count == 2 ? c.phones[1].name : "",
+                  "012345678901234567890123456 \xc3\xa9\xc3\xa9");
+        cJSON_Delete(st);
+        cJSON_Delete(cl);
+
+        st = json("{\"listening\":false,\"closed\":\"state_fault\"}");
+        cl = json("{\"clients\":[]}");
+        sv_companion_apply(&c, st, cl);
+        check("companion: a state fault is an error, said", c.tone == SV_TONE_ERROR && strstr(c.headline, "Fault") != NULL);
+        cJSON_Delete(st);
+        cJSON_Delete(cl);
+
+        /* More than gatewayd pairs: the page's rows end where its arrays do. */
+        {
+            size_t o = (size_t)snprintf(text, sizeof(text), "{\"clients\":[");
+            int i;
+
+            for (i = 0; i < SV_MAX_PHONES + 3; i++) {
+                o += (size_t)snprintf(text + o, sizeof(text) - o, "%s{\"fingerprint\":\"%02x%.62s\",\"name\":\"p\",\"scopes\":[]}",
+                                      i ? "," : "", i, K1);
+            }
+            snprintf(text + o, sizeof(text) - o, "]}");
+        }
+        st = json("{\"listening\":true}");
+        cl = json(text);
+        sv_companion_apply(&c, st, cl);
+        check("companion: never more rows than the page has", cl != NULL && c.count == SV_MAX_PHONES);
+        check_str("companion: listening without an address is still on", c.headline, "On");
+        cJSON_Delete(st);
+        cJSON_Delete(cl);
+    }
+
     printf("settings_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

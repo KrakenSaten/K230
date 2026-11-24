@@ -47,6 +47,7 @@ import app.doors.companion.core.PairedUnit
 import app.doors.companion.core.Reading
 import app.doors.companion.core.Stop
 import app.doors.companion.core.Trouble
+import app.doors.companion.core.VisionAccess
 import app.doors.companion.core.array
 import app.doors.companion.core.bool
 import app.doors.companion.core.double
@@ -62,7 +63,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-enum class Screen { Home, Telemetry, Connection, Rift, PacketShark }
+enum class Screen { Home, Telemetry, Connection, Rift, PacketShark, Vision }
 
 private class Look(val pill: String, val color: Color, val pulse: Boolean, val open: Float, val line: String)
 
@@ -152,6 +153,7 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
     val l = look(state, unit)
     val mesh by link.mesh.link.collectAsStateWithLifecycle()
     val capture by link.capture.view.collectAsStateWithLifecycle()
+    val vision by link.vision.view.collectAsStateWithLifecycle()
     val unread by remember(unit.fingerprint) { link.meshDb.dao().unread(unit.fingerprint) }.collectAsStateWithLifecycle(0)
     val online = state is LinkState.Online
     val dim = if (online) 1f else 0.45f
@@ -179,7 +181,7 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
             Panel(tint = Doors.Error.copy(alpha = 0.08f)) {
                 Text(
                     when ((state as LinkState.Stopped).why) {
-                        Stop.REVOKED -> "This phone was removed on the unit. Forget the unit here and pair again from its Settings."
+                        Stop.REVOKED -> "This phone was removed on the unit. Forget the unit here and pair again on the unit."
                         Stop.WRONG_UNIT -> "The address answered with a different key. The app will never accept it. If the unit was reset, forget it and pair again."
                         Stop.INCOMPATIBLE -> "Update the app or the unit so that they share a protocol version."
                     },
@@ -252,6 +254,15 @@ fun Home(link: Link, unit: PairedUnit, go: (Screen) -> Unit) {
                     else -> "Open"
                 },
             ) { go(Screen.PacketShark) }
+            Room(
+                "Vision", "The unit's camera view, modes and detections", VisionHue,
+                when (vision.access) {
+                    VisionAccess.NOT_SERVED -> "Not served"
+                    VisionAccess.NOT_GRANTED -> "Not granted"
+                    VisionAccess.OFFLINE -> "Away"
+                    else -> "Open"
+                },
+            ) { go(Screen.Vision) }
         }
         Spacer(Modifier.height(12.dp))
     }

@@ -9,6 +9,7 @@
 #include "gw.h"
 #include "gw_capture.h"
 #include "gw_util.h"
+#include "gw_vision.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -449,6 +450,7 @@ static const struct {
     {GW_T_MESH, "mesh", GW_S_MESH_READ},
     {GW_T_MESH_ACTIVITY, "mesh.activity", GW_S_MESH_READ},
     {GW_T_CAPTURE, "capture", GW_S_CAPTURE_VIEW},
+    {GW_T_VISION, "vision", GW_S_VISION},
 };
 #define TOPIC_COUNT (sizeof(TOPICS) / sizeof(TOPICS[0]))
 
@@ -550,6 +552,20 @@ static const struct gw_method METHODS[] = {
     {"capture.stop", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_CONTROL, "shell", gw_capture_command, NULL},
     {"capture.request_start", GW_K_CAPTURE, GW_W_PAIRED, GW_S_CAPTURE_CONTROL, "shell", gw_capture_shown,
      gw_capture_params_ask},
+    /* Vision (ADR-019 amendment 1; rule 6 as extended): these six and no
+     * other, all by the one scope vision. Five are served by the Vision app
+     * on the shell's socket while it is in front and are no shell.* method;
+     * vision.ack is answered by the gateway alone and reaches nothing.
+     * vision.pull is not here and never will be: the gateway calls it for
+     * itself, for the one viewer (main.c vis_tick), and a picture reaches a
+     * client only as the event vision.frame. The modes FACE, RECOGNIZE and
+     * READ cannot be named in vision.mode (gw_vision_params_mode). */
+    {"vision.status", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, "shell", gw_vision_status_row, NULL},
+    {"vision.share", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, "shell", gw_vision_shared, gw_vision_params_share},
+    {"vision.ack", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, NULL, NULL, gw_vision_params_ack},
+    {"vision.mode", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, "shell", gw_vision_done, gw_vision_params_mode},
+    {"vision.set", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, "shell", gw_vision_done, gw_vision_params_set},
+    {"vision.reset", GW_K_VISION, GW_W_PAIRED, GW_S_VISION, "shell", gw_vision_done, NULL},
 };
 
 const struct gw_method *gw_methods(size_t *count)
@@ -597,6 +613,7 @@ static const struct {
     {GW_S_MESH_SEND, "mesh_send"},
     {GW_S_CAPTURE_VIEW, "capture_view"},
     {GW_S_CAPTURE_CONTROL, "capture_control"},
+    {GW_S_VISION, "vision"},
 };
 #define SCOPE_COUNT (sizeof(SCOPES) / sizeof(SCOPES[0]))
 

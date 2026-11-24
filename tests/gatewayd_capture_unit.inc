@@ -306,7 +306,8 @@ static void test_capture(void)
             shell_rows += all[k].service != NULL && strcmp(all[k].service, "shell") == 0;
             CHECK(strncmp(all[k].name, "shell.", 6) != 0);
         }
-        CHECK(capture_rows == 4 && shell_rows == 4);
+        /* The shell's socket also answers five rows of Vision (test_vision). */
+        CHECK(capture_rows == 4 && shell_rows == 4 + 5);
     }
     /* A scope set with control and no view is not one a client can hold. */
     CHECK(!gw_scopes_valid(GW_S_CAPTURE_CONTROL) && gw_scopes_valid(GW_S_CAPTURE_VIEW | GW_S_CAPTURE_CONTROL));

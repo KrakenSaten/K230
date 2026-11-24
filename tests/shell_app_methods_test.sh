@@ -51,11 +51,14 @@ check "an unknown shell method is still unknown" '^ERR 1 unknown method' "$(call
 is "no handler was called" 0 "$(stat calls)"
 is "the budget is reported" 2000 "$(stat budget_us)"
 is "the limit is reported" 8192 "$(stat result_max)"
+is "and the one larger answer, vision.pull's" 90112 "$(stat vision_pull_max)"
+is "which belongs to exactly one method name" 1 "$(grep -c 'APP_IPC_VISION_PULL_METHOD "vision.pull"' ui/shell/app_ipc.h)"
+is "and is used in exactly one place" 1 "$(grep -c 'APP_IPC_VISION_PULL_MAX' ui/shell/app_ipc.c)"
 check "the probe is in no app list" '^0$' "$(call shell.info | grep -c '"id": *"probe"')"
 stop_shell
 
 # ---- 2. what the product's apps serve: PacketShark its status (H2); none opens itself
-is "PacketShark and the probe declare a prefix, and no other app" "apps/packetshark/psk_app.c ui/shell/app_probe.c" \
+is "PacketShark, Vision (its preview for a companion, PR #174) and the probe declare a prefix, and no other app" "apps/packetshark/psk_app.c apps/vision/vision_app.c ui/shell/app_probe.c" \
    "$(grep -rlE '\.ipc_prefix[[:space:]]*=' apps ui --include='*.c' | sort | tr '\n' ' ' | sed 's/ $//')"
 is "PacketShark (its start request, H4) and the probe declare an opening method, and no other app" "apps/packetshark/psk_app.c ui/shell/app_probe.c" \
    "$(grep -rlE '\.ipc_opens[[:space:]]*=' apps ui --include='*.c' | sort | tr '\n' ' ' | sed 's/ $//')"

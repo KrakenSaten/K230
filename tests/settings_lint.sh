@@ -16,7 +16,7 @@ code() { grep -vE '^[[:space:]]*(/\*|\*|//)' "$@"; }
 APP=apps/settings/settings_app.c
 WIFI=apps/settings/settings_wifi.c
 VIEW=apps/settings/settings_view.c
-ALL="apps/settings/settings_app.c apps/settings/settings_pages.c apps/settings/settings_wifi.c
+ALL="apps/settings/settings_app.c apps/settings/settings_pages.c apps/settings/settings_wifi.c apps/settings/settings_companion.c
      apps/settings/settings_view.c apps/settings/settings_view.h apps/settings/settings_internal.h"
 
 check "the view model has no LVGL" "$(code "$VIEW" apps/settings/settings_view.h | grep -q 'lvgl\|lv_' && echo 0 || echo 1)"

@@ -46,6 +46,9 @@ BIN, PORT, CTL_PORT = os.path.abspath(sys.argv[1]), int(sys.argv[2]), int(sys.ar
 # as on a unit. Without them the capture group is simply not there.
 SHELL_BIN = os.environ.get("DOORS_SHELL_BIN", "")
 CAPTURE_HELPER = os.environ.get("DOORS_CAPTURE_HELPER", "")
+# pos-vision for the real shell's Vision app, on the fake camera. One built with libjpeg
+# (POCKETCAM_JPEG=1) makes real JPEGs; one without shares nothing.
+VISION_HELPER = os.environ.get("DOORS_VISION_HELPER", "")
 HOST = "127.0.0.1"
 ROOT = tempfile.mkdtemp(prefix="doors-companion-gw-")
 RUN, STATE, LOGS = (os.path.join(ROOT, d) for d in ("run", "state", "log"))
@@ -588,6 +591,9 @@ def shell_start():
     env = dict(os.environ, POCKETOS_RUNTIME_DIR=RUN, POCKETOS_STATE_DIR=STATE, POCKETOS_LOG_DIR=LOGS,
                POCKETOS_CONFIG_DIR=conf, SDL_VIDEODRIVER="dummy", POCKETOS_CAPTURE_SOURCE="synth:200:1",
                POCKETOS_CAPTURE_HELPER=CAPTURE_HELPER)
+    if VISION_HELPER:
+        env.update(POCKETOS_VISION_HELPER=VISION_HELPER, POCKETOS_CAMERA_BACKEND="fake", POCKETOS_CAMERA_FAKE="period=20",
+                   POCKETOS_VISION_KPU_SCRIPT="box=2:800:100:120:120:80:3:0,box=0:700:400:40:60:160")
     shell_proc = subprocess.Popen([SHELL_BIN], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     end = time.time() + 15
     while time.time() < end:
@@ -664,7 +670,7 @@ class Handler(socketserver.StreamRequestHandler):
                         elif p["op"] == "start":
                             shell_start()
                         n = len(subprocess.run(["pgrep", "-f", CAPTURE_HELPER + " session"], capture_output=True, text=True).stdout.split())
-                        out = {"result": {"running": shell_proc is not None, "helpers": n}}
+                        out = {"result": {"running": shell_proc is not None, "helpers": n, "vision": bool(VISION_HELPER)}}
                     elif m.startswith("gateway."):
                         out = ctl(m, p)
                     else:

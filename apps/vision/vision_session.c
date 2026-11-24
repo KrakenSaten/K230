@@ -691,6 +691,44 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->kind = VISION_EV_STOPPED;
         return 1;
     }
+    if (strncmp(line, "sharecap ", 9) == 0) {
+        unsigned side = 0;
+        unsigned bytes = 0;
+
+        if (sscanf(line, "sharecap %u %u", &side, &bytes) != 2 || side < VISION_SHARE_MIN_SIDE ||
+            side > VISION_SHARE_MAX_SIDE || bytes == 0 || bytes > VISION_SHARE_MAX_BYTES) {
+            return 0;
+        }
+        ev->kind = VISION_EV_SHARECAP;
+        ev->w = side;
+        ev->value = (int)bytes;
+        return 1;
+    }
+    if (strncmp(line, "sharefail ", 10) == 0) {
+        ev->kind = VISION_EV_SHAREFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 2));
+        return 1;
+    }
+    if (strncmp(line, "share ", 6) == 0) {
+        unsigned seq = 0;
+        unsigned w = 0;
+        unsigned h = 0;
+        unsigned len = 0;
+        unsigned ms = 0;
+
+        /* A picture outside the bounds is not one this session takes in:
+         * the line is refused, and with it the picture. */
+        if (sscanf(line, "share %u %u %u %u %u", &seq, &w, &h, &len, &ms) != 5 || w == 0 || h == 0 ||
+            w > VISION_SHARE_MAX_SIDE || h > VISION_SHARE_MAX_SIDE || len < 4 || len > VISION_SHARE_MAX_BYTES) {
+            return 0;
+        }
+        ev->kind = VISION_EV_SHARE;
+        ev->w = w;
+        ev->h = h;
+        ev->value = (int)len;
+        ev->report = ms > 60000 ? 60000 : ms;
+        return 1;
+    }
     if (strncmp(line, "nodevice", 8) == 0) {
         ev->kind = VISION_EV_NODEVICE;
         snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
@@ -925,6 +963,59 @@ static void loading(struct vision_session *s, int64_t now)
     }
 }
 
+/* `share`: the JPEG in slot 3 is copied out now, with the tracks the helper
+ * said for the same frame (its det line comes before its picture), scaled
+ * from the view's pixels into the shared picture's. A picture nobody asked
+ * for, one that came while sharing is off, or bytes that are not a JPEG are
+ * dropped: false. */
+static bool take_share(struct vision_session *s, struct vision_event *ev, int64_t now)
+{
+    const uint8_t *src;
+    uint32_t len = (uint32_t)ev->value;
+    int i;
+
+    if (!s->share_on || !s->share_pending || !s->shm || !s->streaming) {
+        return false;
+    }
+    s->share_pending = false;
+    src = s->shm + pocketcam_slot_offset(POCKETCAM_REVIEW_SLOT);
+    memcpy(s->share_jpeg, src, len);
+    /* Checked on the copy: the helper cannot change it after the check. */
+    if (s->share_jpeg[0] != 0xff || s->share_jpeg[1] != 0xd8 || s->share_jpeg[len - 2] != 0xff ||
+        s->share_jpeg[len - 1] != 0xd9) {
+        s->share_len = 0;
+        s->share_failed++;
+        return false;
+    }
+    s->share_seq++;
+    if (s->share_seq == 0) {
+        s->share_seq = 1;
+    }
+    s->share_w = ev->w;
+    s->share_h = ev->h;
+    s->share_len = len;
+    s->share_enc_ms = ev->report;
+    if (s->share_enc_ms > s->share_enc_max_ms) {
+        s->share_enc_max_ms = s->share_enc_ms;
+    }
+    s->share_at_ms = now;
+    s->share_made++;
+    s->share_fail_run = 0;
+    s->share_box_count = 0;
+    if (s->frame_w > 0 && s->frame_h > 0) {
+        for (i = 0; i < s->shown_count && i < VISION_MAX_SHOWN; i++) {
+            struct vision_shown b = s->shown[i];
+
+            b.x = (int32_t)((int64_t)b.x * (int64_t)ev->w / (int64_t)s->frame_w);
+            b.y = (int32_t)((int64_t)b.y * (int64_t)ev->h / (int64_t)s->frame_h);
+            b.w = (int32_t)((int64_t)b.w * (int64_t)ev->w / (int64_t)s->frame_w);
+            b.h = (int32_t)((int64_t)b.h * (int64_t)ev->h / (int64_t)s->frame_h);
+            s->share_boxes[s->share_box_count++] = b;
+        }
+    }
+    return true;
+}
+
 static void handle(struct vision_session *s, struct vision_event *ev, int64_t now)
 {
     if (s->streaming) {
@@ -955,6 +1046,19 @@ static void handle(struct vision_session *s, struct vision_event *ev, int64_t no
         break;
     case VISION_EV_STOPPED:
         s->reply_by = 0;
+        break;
+    case VISION_EV_SHARECAP:
+        s->share_cap = true;
+        break;
+    case VISION_EV_SHAREFAIL:
+        s->share_pending = false;
+        s->share_failed++;
+        s->share_fail_run++;
+        break;
+    case VISION_EV_SHARE:
+        if (!take_share(s, ev, now)) {
+            return; /* not asked for, or not a picture: dropped */
+        }
         break;
     case VISION_EV_LOST:
         s->streaming = false;
@@ -1280,6 +1384,87 @@ int vision_session_trace(struct vision_session *s, bool dark)
 int vision_session_reset(struct vision_session *s)
 {
     return send_line(s, "reset");
+}
+
+int vision_session_share(struct vision_session *s, bool on, uint32_t max_side, int quality)
+{
+    if (!on) {
+        s->share_on = false;
+        s->share_pending = false;
+        s->share_len = 0;
+        s->share_box_count = 0;
+        return send_line(s, "share off");
+    }
+    if (!s->share_cap) {
+        return -1;
+    }
+    if (max_side == 0) {
+        max_side = VISION_SHARE_DEFAULT_SIDE;
+    }
+    if (quality == 0) {
+        quality = VISION_SHARE_QUALITY_DEFAULT;
+    }
+    if (max_side < VISION_SHARE_MIN_SIDE || max_side > VISION_SHARE_MAX_SIDE ||
+        quality < VISION_SHARE_QUALITY_MIN || quality > VISION_SHARE_QUALITY_MAX) {
+        return -1;
+    }
+    if (send_line(s, "share on %u %d", max_side, quality) != 0) {
+        return -1;
+    }
+    s->share_on = true;
+    s->share_pending = false;
+    s->share_fail_run = 0;
+    s->share_len = 0;
+    s->share_box_count = 0;
+    return 0;
+}
+
+int vision_session_share_next(struct vision_session *s, int64_t now_ms)
+{
+    if (!s->share_on || !s->streaming) {
+        return -1;
+    }
+    if (s->share_pending && now_ms - s->share_asked_ms < VISION_SHARE_REPLY_MS) {
+        return 0;
+    }
+    if (send_line(s, "share next") != 0) {
+        return -1;
+    }
+    s->share_pending = true;
+    s->share_asked_ms = now_ms;
+    return 0;
+}
+
+const uint8_t *vision_session_shared(const struct vision_session *s, uint32_t *seq, uint32_t *w, uint32_t *h,
+                                     uint32_t *len, int64_t *at_ms)
+{
+    if (!s->share_on || s->share_len == 0) {
+        return NULL;
+    }
+    if (seq) {
+        *seq = s->share_seq;
+    }
+    if (w) {
+        *w = s->share_w;
+    }
+    if (h) {
+        *h = s->share_h;
+    }
+    if (len) {
+        *len = s->share_len;
+    }
+    if (at_ms) {
+        *at_ms = s->share_at_ms;
+    }
+    return s->share_jpeg;
+}
+
+const struct vision_shown *vision_session_shared_boxes(const struct vision_session *s, int *count)
+{
+    if (count) {
+        *count = s->share_on && s->share_len > 0 ? s->share_box_count : 0;
+    }
+    return s->share_boxes;
 }
 
 int vision_session_take_frame(struct vision_session *s, uint16_t *dst, uint32_t w, uint32_t h)

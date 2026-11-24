@@ -22,6 +22,7 @@
 
 #include "pocketvision/pocketvision.h"
 #include "pocketvision/pocketvision_proto.h"
+#include "pocketvision/vision_share.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -34,6 +35,8 @@
 #define VISION_OPEN_MS 15000
 #define VISION_SILENCE_MS 4000
 #define VISION_REPLY_MS 3000
+/* A shared picture asked for and not answered by then is asked for again. */
+#define VISION_SHARE_REPLY_MS 1500
 /* A model the helper opens while it runs (READ, FACE, RECOGNIZE: up to a
  * 46 MB kmodel read and checked by the runtime), announced by `loading`:
  * no line comes while it loads, so the silence and reply deadlines, and a
@@ -79,6 +82,9 @@ enum vision_ev_kind {
     VISION_EV_SEGINFO,   /* SEGMENT, INSTANCES: text says what is in the picture */
     VISION_EV_SEGFAIL,   /* SEGMENT, INSTANCES cannot run: text says why */
     VISION_EV_STATS,     /* vision_session_stats() */
+    VISION_EV_SHARECAP,  /* the helper can make a shared picture: w = largest side, value = largest file */
+    VISION_EV_SHARE,     /* a shared picture was taken in: vision_session_shared() */
+    VISION_EV_SHAREFAIL, /* none was made for the last request: text says why */
     VISION_EV_MALFORMED, /* value = damaged frames or bad tensors in a row */
     VISION_EV_STALL,     /* value = ms without a frame */
     VISION_EV_STOPPED,
@@ -284,6 +290,28 @@ struct vision_session {
     struct vision_pixel_report pixels;
     struct vision_stats stats;
 
+    /* The picture shared with a paired companion (core/pocketvision/
+     * vision_share.h). The helper makes one for each request, into slot 3;
+     * the session copies it out in the tick it is announced, so nothing here
+     * points into the shared memory. */
+    bool share_cap;        /* the helper said `sharecap` */
+    bool share_on;         /* `share on` was sent */
+    bool share_pending;    /* `share next` was sent, nothing came back yet */
+    int64_t share_asked_ms;
+    uint32_t share_seq;    /* the session's own number of the picture held: 0 none, then 1, 2, ... */
+    uint32_t share_w;
+    uint32_t share_h;
+    uint32_t share_len;
+    uint32_t share_enc_ms; /* what the helper said the encoding took */
+    int64_t share_at_ms;   /* when it was taken in */
+    uint32_t share_made;   /* pictures taken in since the session began */
+    uint32_t share_failed; /* requests that gave none */
+    uint32_t share_fail_run; /* of those, in a row since the last picture */
+    uint32_t share_enc_max_ms;
+    struct vision_shown share_boxes[VISION_MAX_SHOWN]; /* the tracks said for that picture, in its pixels */
+    int share_box_count;
+    uint8_t share_jpeg[VISION_SHARE_MAX_BYTES];
+
     struct vision_event queue[VISION_EVENT_QUEUE];
     int q_head;
     int q_count;
@@ -334,6 +362,22 @@ int vision_session_edge(struct vision_session *s, uint32_t threshold);
 int vision_session_seg_view(struct vision_session *s, const char *word);
 int vision_session_trace(struct vision_session *s, bool dark);
 int vision_session_reset(struct vision_session *s);
+
+/* The picture for a paired companion. On: the helper may make them, with
+ * the longer side at most max_side and at this JPEG quality (0 for the
+ * defaults); nothing is made until one is asked for. Off: none, and the one
+ * held is dropped. -1 when the helper cannot (no `sharecap`) or is not
+ * running. */
+int vision_session_share(struct vision_session *s, bool on, uint32_t max_side, int quality);
+/* Ask for one picture, unless one is already being made. A request the
+ * helper did not answer in VISION_SHARE_REPLY_MS is asked again. */
+int vision_session_share_next(struct vision_session *s, int64_t now_ms);
+/* The newest shared picture: its bytes (a JPEG, *len long) and the session's
+ * number for it, or NULL while there is none. Valid until the next poll. */
+const uint8_t *vision_session_shared(const struct vision_session *s, uint32_t *seq, uint32_t *w, uint32_t *h,
+                                     uint32_t *len, int64_t *at_ms);
+/* The tracks of that picture, scaled into its pixels. */
+const struct vision_shown *vision_session_shared_boxes(const struct vision_session *s, int *count);
 
 /* Copy the newest preview picture into dst (w x h RGB565, tightly packed)
  * and give its slot back. 1 when copied, 0 when there was none or it was of

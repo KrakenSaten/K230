@@ -21,6 +21,7 @@
 #include "gw_send.h"
 #include "gw_store.h"
 #include "gw_util.h"
+#include "gw_vision.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,6 +115,22 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     cJSON_Delete(gw_feed_activity_due(&feed, t));
                     (void)gw_journal_put(&j, gw_filter_message(params), NULL);
                     cJSON_Delete(gw_nodes_page(params, off, lim, "run"));
+                    /* Vision: as if the unit had sent it, a status for each
+                     * kind of reader, the gateway's own reading of one, and
+                     * a picture. */
+                    {
+                        static struct gw_vision gv;
+                        struct gw_vision_seen seen;
+                        cJSON *vs = NULL, *vd = NULL;
+                        bool changed;
+                        double vseq;
+
+                        cJSON_Delete(gw_vision_status(params, (enum gw_vision_view)(size % 3u)));
+                        gw_vision_step(&gv, params, &changed, &vs, &seen);
+                        cJSON_Delete(vs);
+                        (void)gw_vision_frame(params, (double)(size % 5u), &vd, &vseq);
+                        cJSON_Delete(vd);
+                    }
                     /* Sending (M4.2): the request check, and the records
                      * through every state a noise answer can put them in. */
                     {

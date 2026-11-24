@@ -9,6 +9,7 @@
  *   Power & Sleep   screen off, lock, lock at start; what sleep is not
  *   Time & Region   the time zone (and its list), whether the clock is set
  *   Network         Wi-Fi, its networks and the join sheet
+ *   Companion       the paired phones; which of them is shown Vision
  *   System          the System app, Settings' page (DS §47)
  *   Developer       the debug overlay
  *
@@ -21,7 +22,9 @@
  * two columns scrolling separately).
  *
  * It owns no hardware and reads nothing from the machine: Wi-Fi is netd's
- * (wifi.* over pocketipc, docs/api/network.md), and everything else is the
+ * (wifi.* over pocketipc, docs/api/network.md), the paired phones and their
+ * permissions are gatewayd's (gateway.* on its local socket,
+ * docs/api/gateway.md section 10), and everything else is the
  * shell's (app.h): brightness, rotation, appearance, text size, volume, the
  * keyboard light, Power & Sleep, the time zone, the overlay. Every IPC call
  * carries the UI deadline. Nothing is stored here: the shell stores what it
@@ -385,6 +388,10 @@ void settings_go(struct settings_app *a, enum settings_page page)
         settings_poll_status(a);
         settings_poll_networks(a);
     }
+    if (page == PAGE_COMPANION) {
+        a->companion_error[0] = '\0';
+        settings_poll_companion(a);
+    }
     pocketos_shell_set_title(page == PAGE_ROOT ? NULL : settings_page_title(page));
     settings_rebuild(a);
 }
@@ -585,6 +592,7 @@ static void *settings_create(lv_obj_t *root)
     settings_poll_status(a);
     settings_poll_brightness(a);
     settings_poll_rotation(a);
+    settings_poll_companion(a);
     build_frame(a);
     settings_rebuild(a);
     /* Only now: building lays objects out as it goes, and the layout step
@@ -617,6 +625,15 @@ static void settings_tick(void *priv)
         settings_poll_status(a);
         settings_poll_brightness(a);
         settings_poll_rotation(a);
+        /* Companion's line: gatewayd is off on most units, and a socket
+         * that is not there is asked every few seconds, not every one. */
+        if (++a->companion_tick >= SETTINGS_BATTERY_POLL_TICKS) {
+            a->companion_tick = 0;
+            settings_poll_companion(a);
+        }
+        break;
+    case PAGE_COMPANION:
+        settings_companion_tick(a);
         break;
     case PAGE_DISPLAY:
         settings_poll_brightness(a);

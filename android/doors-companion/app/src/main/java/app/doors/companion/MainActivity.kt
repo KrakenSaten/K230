@@ -39,6 +39,7 @@ import app.doors.companion.ui.PairFlow
 import app.doors.companion.ui.RiftScreen
 import app.doors.companion.ui.Screen
 import app.doors.companion.ui.TelemetryScreen
+import app.doors.companion.ui.VisionScreen
 
 class MainActivity : ComponentActivity() {
     private val link get() = (application as DoorsApp).link
@@ -99,6 +100,7 @@ private fun Root(link: Link) {
                 s == Screen.Telemetry -> TelemetryScreen(link, back)
                 s == Screen.Connection -> ConnectionScreen(link, u, back)
                 s == Screen.Rift -> RiftScreen(link, u, back)
+                s == Screen.Vision -> VisionScreen(link, back)
                 else -> PacketSharkScreen(link, back)
             }
         }

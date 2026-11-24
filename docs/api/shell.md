@@ -313,6 +313,21 @@ when `POCKETOS_TEST_PROBE` is set in a simulator build), which is what
   a handler, which cannot be done safely.
 - **Size.** A result is at most 8192 bytes serialised
   (`APP_IPC_RESULT_MAX`), for every app; a larger one is replaced by error 4.
+- **The one exception: `vision.pull`.** Approved by the owner on 2026-11-23
+  for Vision's image transport and nothing else. The answer to exactly this
+  method name may be up to 90112 bytes (88 KiB) serialised
+  (`APP_IPC_VISION_PULL_MAX`): a JPEG of at most 65536 bytes
+  (`VISION_SHARE_MAX_BYTES`) as base64, which is 87384 characters, with five
+  numbers and at most 24 boxes of nine numbers beside it. The name is fixed in
+  `ui/shell/app_ipc.h` and matched exactly (`app_ipc_result_max`): no other
+  method of Vision or of any app gets it, an app cannot declare a limit of its
+  own, and a `vision.pull` answer over 90112 bytes is replaced by error 4 and
+  counted in `too_large` like any other. The JPEG is bounded where it is made
+  (the helper writes into a buffer of 65536 bytes and gives up a picture that
+  does not fit) and again where it is taken in (the session refuses a `share`
+  line that says more). pocketipc's own frame limit (1 MiB) and the gateway's
+  limit to a phone (256 KiB) are unchanged and both well above it.
+  `shell.info` shows the number as `app_ipc.vision_pull_max`.
 - **Events.** An app in front (so not under the lock or an alarm) may raise
   events under its own prefix
   (`pocketos_shell_app_event`), delivered like the shell's own to

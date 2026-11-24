@@ -1,0 +1,394 @@
+// Copyright (c) 2026 Doors authors.
+// SPDX-License-Identifier: Apache-2.0
+package app.doors.companion.core
+
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+import java.io.IOException
+import java.util.Base64
+import java.util.concurrent.atomic.AtomicReference
+
+/**
+ * Vision over a live session, to the contract of docs/api/gateway.md section 9a
+ * (ADR-019 amendment 1, accepted 2026-11-23). A gateway names the `vision`
+ * capability only to a phone that holds the scope, so a phone without it cannot
+ * tell from the hello whether the unit has no Vision to show or has simply not
+ * been told to show it to this phone. It asks once, `vision.status`: a gateway
+ * that serves Vision refuses with "not permitted" ([VisionAccess.NOT_GRANTED],
+ * and the screen says where on the unit to switch it on); one that knows no such
+ * method leaves this at [VisionAccess.NOT_SERVED]. A gateway that did not name
+ * the capability to a phone that holds the scope is sent nothing.
+ *
+ * Its rules, each of which the unit holds as well:
+ *  - nothing is asked without the capability, the scope `vision`, and the screen in front;
+ *  - the preview starts by itself when the unit could share, is not asked for again while the
+ *    unit says it was stopped there or another phone has it, and is given up when the screen goes;
+ *  - one picture is acknowledged before the next is sent (the gateway's window is one);
+ *  - a picture larger than the bounds, or of a mode that is never shared, is not kept.
+ */
+class GatewayVision(
+    private val now: () -> Long = System::currentTimeMillis,
+    private val pollMs: Long = POLL_MS,
+) : SessionFeature, VisionSource {
+    private val _view = MutableStateFlow(VisionView())
+    override val view: StateFlow<VisionView> = _view
+
+    private val _frame = MutableStateFlow<VisionFrame?>(null)
+    override val frame: StateFlow<VisionFrame?> = _frame
+
+    private val watching = MutableStateFlow(false)
+    private val meter = StreamMeter()
+    private var labels: List<String> = emptyList()
+
+    /** The person here stopped the preview: it is not started again by itself on this visit to the screen. */
+    @Volatile
+    private var paused = false
+
+    /** The unit refused to share in this state (owner, mode); it is asked again when the state is another. */
+    private var refusedIn: Pair<CameraOwner, VisionMode?>? = null
+
+    /** The number of the newest picture kept in this share. A picture that is not newer is not shown: pictures never go back. */
+    private var lastSeq = 0L
+
+    /** One request for the picture at a time: the reader's own and a person's tap do not both ask. */
+    private val asking = Mutex()
+
+    @Volatile
+    private var live: GatewayConnection? = null
+
+    override fun watch(on: Boolean) {
+        watching.value = on
+    }
+
+    override fun dismissNotice() = _view.update { it.copy(notice = null) }
+
+    override suspend fun run(unit: PairedUnit, conn: GatewayConnection, hello: Hello, scopes: StateFlow<Set<String>>) {
+        try {
+            if (CAPABILITY !in hello.capabilities) {
+                _view.value = VisionView(access = if (SCOPE !in scopes.value && refusedForWantOfTheScope(conn)) VisionAccess.NOT_GRANTED else VisionAccess.NOT_SERVED)
+                // A gateway names Vision at hello, and only to a phone that holds the scope. When the
+                // scope is given on the unit during this session, a new hello is what shows it: the
+                // connection is given up and the session makes another.
+                if (SCOPE !in scopes.value) {
+                    scopes.first { SCOPE in it }
+                    conn.close()
+                }
+                awaitCancellation()
+            }
+            live = conn
+            combine(scopes, watching) { s, w -> (SCOPE in s) to w }
+                .distinctUntilChanged()
+                .collectLatest { (granted, shown) ->
+                    _frame.value = null
+                    _view.value = VisionView(access = if (granted) VisionAccess.WAITING else VisionAccess.NOT_GRANTED)
+                    if (granted && shown) read(conn)
+                }
+        } catch (_: IOException) {
+        } finally {
+            live = null
+            _frame.value = null
+            _view.value = VisionView()
+        }
+    }
+
+    /** One question to a gateway that named no Vision to a phone without the scope: is it the scope that is missing? */
+    private suspend fun refusedForWantOfTheScope(conn: GatewayConnection): Boolean =
+        try {
+            conn.call("vision.status", timeoutMs = CALL_MS)
+            false
+        } catch (e: GatewayError) {
+            e.code == GatewayError.NOT_PERMITTED
+        }
+
+    private suspend fun read(conn: GatewayConnection) = coroutineScope {
+        val inbox = Channel<GatewayEvent>(Channel.UNLIMITED)
+        // One pending picture, the newest: a unit that ignored the window of one could not fill the phone with them.
+        val newest = AtomicReference<GatewayEvent?>(null)
+        val pump = launch(start = CoroutineStart.UNDISPATCHED) {
+            conn.events.collect {
+                if (it.name == "vision.frame") {
+                    if (newest.getAndSet(it) == null) inbox.trySend(it)
+                } else if (it.name.startsWith("vision.")) inbox.trySend(it)
+            }
+        }
+        paused = false
+        refusedIn = null
+        try {
+            var subscribed = false
+            while (true) {
+                try {
+                    if (!subscribed) subscribed = TOPIC in conn.subscribe(add = setOf(TOPIC), timeoutMs = CALL_MS).result.strings("topics")
+                    status(conn.call("vision.status", timeoutMs = CALL_MS).result)
+                } catch (e: GatewayError) {
+                    when (e.code) {
+                        GatewayError.NOT_PERMITTED -> _view.value = VisionView(access = VisionAccess.NOT_GRANTED)
+                        GatewayError.UNKNOWN_METHOD, GatewayError.NOT_SUPPORTED, GatewayError.UPSTREAM -> closed()
+                        else -> Unit
+                    }
+                } catch (_: TimeoutCancellationException) {
+                }
+                autoStart(conn)
+                var e = withTimeoutOrNull(pollMs) { inbox.receive() }
+                while (e != null && e.name != "vision.state") {
+                    when (e.name) {
+                        "vision.frame" -> newest.getAndSet(null)?.let { picture(conn, it.data) }
+                        "vision.stats" -> stats(e.data)
+                    }
+                    stalled()
+                    e = withTimeoutOrNull(pollMs) { inbox.receive() }
+                }
+                stalled()
+            }
+        } finally {
+            pump.cancel()
+            _frame.value = null
+            // Leaving the screen ends the sharing on the unit as well, if it can still hear.
+            withContext(NonCancellable) {
+                try {
+                    if (_view.value.preview in SHARING) conn.call("vision.share", buildJsonObject { put("on", false) }, 2_000)
+                    conn.subscribe(remove = setOf(TOPIC), timeoutMs = 2_000)
+                } catch (_: IOException) {
+                } catch (_: TimeoutCancellationException) {
+                }
+            }
+        }
+    }
+
+    private fun closed() {
+        _frame.value = null
+        _view.value = VisionView(access = VisionAccess.CLOSED)
+    }
+
+    private fun status(o: JsonObject) {
+        if (o.bool("available") != true) return closed()
+        labels = o.array("labels").mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content?.take(24) }.take(MAX_LABELS)
+        val mode = VisionMode.of(o.string("mode"))
+        val share = when (o.string("share")) {
+            "live" -> PreviewState.LIVE
+            "stopped" -> PreviewState.STOPPED
+            "busy" -> PreviewState.BUSY
+            else -> PreviewState.OFF
+        }
+        if (share != PreviewState.LIVE) _frame.value = null
+        if (share != PreviewState.OFF) refusedIn = null
+        val settings = o.obj("settings")
+        _view.update { v ->
+            v.copy(
+                access = VisionAccess.OPEN,
+                owner = when (o.string("owner")) {
+                    "vision" -> CameraOwner.VISION
+                    "camera" -> CameraOwner.CAMERA
+                    "none", null -> CameraOwner.NONE
+                    else -> CameraOwner.OTHER
+                },
+                mode = mode,
+                modes = o.strings("modes").mapNotNull { VisionMode.of(it) }.toSet(),
+                settings = VisionSetting.entries.mapNotNull { s -> settings?.string(s.key)?.takeIf { s.accepts(it) }?.let { s to it } }.toMap(),
+                model = o.string("model")?.take(48),
+                // A stalled preview stays stalled until a picture says otherwise.
+                preview = if (share == PreviewState.LIVE && v.preview == PreviewState.STALLED) v.preview else share,
+                previewAtMs = if (share == PreviewState.LIVE && v.preview !in SHARING) now() else v.previewAtMs,
+                stream = if (share == PreviewState.LIVE) v.stream else StreamStats(),
+                readAtMs = now(),
+            )
+        }
+        o.obj("stats")?.let { stats(it) }
+    }
+
+    private fun stats(o: JsonObject) {
+        fun n(key: String) = (o.long(key) ?: 0).coerceIn(0, 10_000_000)
+        val s = VisionStats(n("fps_x10").toInt(), n("infer_ms").toInt(), n("pre_ms").toInt(), n("post_ms").toInt(), n("cpu_pct").coerceAtMost(100).toInt(), n("rss_kb"), n("dropped"))
+        _view.update {
+            it.copy(
+                stats = s, countAb = n("count_ab"), countBa = n("count_ba"),
+                fpsHistory = (it.fpsHistory + s.fpsX10).takeLast(VisionLimits.HISTORY), inferHistory = (it.inferHistory + s.inferMs).takeLast(VisionLimits.HISTORY),
+            )
+        }
+    }
+
+    /** One picture: checked against the bounds, kept as the newest, and acknowledged so that the next may come. */
+    private suspend fun picture(conn: GatewayConnection, o: JsonObject) {
+        val seq = o.long("seq") ?: return
+        try {
+            val v = _view.value
+            val w = (o.long("w") ?: 0).toInt()
+            val h = (o.long("h") ?: 0).toInt()
+            val text = o.string("jpeg") ?: return
+            if (paused || v.preview !in SHARING || v.mode?.remote != true) return
+            if (seq <= lastSeq) return
+            if (w !in 1..VisionLimits.MAX_SIDE || h !in 1..VisionLimits.MAX_SIDE || text.length > VisionLimits.MAX_FRAME_BYTES * 4 / 3 + 4) return
+            val bytes = try {
+                Base64.getDecoder().decode(text)
+            } catch (_: IllegalArgumentException) {
+                return
+            }
+            val boxes = o.array("boxes").take(VisionLimits.MAX_BOXES).mapNotNull { row ->
+                val a = (row as? JsonArray)?.map { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.intOrNull ?: return@mapNotNull null } ?: return@mapNotNull null
+                if (a.size < 9) return@mapNotNull null
+                VisionBox(
+                    id = a[0].coerceAtLeast(0), cls = a[1].coerceAtLeast(0), label = labels.getOrNull(a[1]).orEmpty(), confidence = a[2].coerceIn(0, 1000),
+                    x = a[3], y = a[4], w = a[5].coerceAtLeast(0), h = a[6].coerceAtLeast(0), dir = a[7].coerceIn(0, 4), kmh10 = a[8].coerceIn(0, 5000),
+                )
+            }
+            val f = VisionFrame(seq, w, h, FramePixels.Jpeg(bytes), now(), o.long("age_ms")?.coerceIn(0, 60_000), VisionScene(seq, w, h, boxes))
+            _frame.value = f
+            lastSeq = seq
+            val stream = meter.take(f, 0)
+            _view.update { it.copy(preview = PreviewState.LIVE, scene = f.scene, stream = stream, readAtMs = now()) }
+        } finally {
+            // Acknowledged whether or not it was kept (the unit's window is one picture), but not
+            // by a phone that stopped: without acknowledgements the unit ends the preview by itself.
+            if (!paused) try {
+                conn.call("vision.ack", buildJsonObject { put("seq", seq) }, CALL_MS)
+            } catch (_: IOException) {
+            } catch (_: TimeoutCancellationException) {
+            }
+        }
+    }
+
+    private fun stalled() = _view.update { v ->
+        val last = _frame.value?.receivedAtMs ?: v.previewAtMs
+        if (v.preview == PreviewState.LIVE && now() - last > VisionLimits.STALL_MS) v.copy(preview = PreviewState.STALLED) else v
+    }
+
+    /** Asks for the picture. An authorized phone gets it at once: the answer is `live`, or an error that says why not. */
+    private suspend fun ask(conn: GatewayConnection) = asking.withLock {
+        if (_view.value.preview in SHARING) return@withLock
+        meter.reset()
+        lastSeq = 0
+        val state = conn.call("vision.share", buildJsonObject { put("on", true) }, CALL_MS).result.string("state")
+        if (state == "live") _view.update { it.copy(preview = PreviewState.LIVE, previewAtMs = now()) }
+    }
+
+    /**
+     * The preview starts by itself: asked for whenever the unit could share and does not. Not when
+     * the person here stopped it, not while the unit says it is stopped there or busy, and not twice
+     * in a state in which the unit has refused.
+     */
+    private suspend fun autoStart(conn: GatewayConnection) {
+        val v = _view.value
+        if (paused || v.access != VisionAccess.OPEN || v.preview != PreviewState.OFF) return
+        val key = v.owner to v.mode
+        if (v.owner != CameraOwner.VISION || v.mode?.remote != true || refusedIn == key) return
+        try {
+            ask(conn)
+        } catch (e: GatewayError) {
+            refusedIn = key
+            if (e.code == GatewayError.BUSY) _view.update { it.copy(preview = PreviewState.BUSY) }
+        } catch (_: TimeoutCancellationException) {
+        }
+    }
+
+    override suspend fun startPreview() {
+        paused = false
+        refusedIn = null
+        command { conn ->
+            val v = _view.value
+            if (v.owner != CameraOwner.VISION) return@command "Vision does not have the camera on the unit."
+            if (v.mode?.remote == false) return@command "${v.mode.word} is never shared."
+            ask(conn)
+            null
+        }
+    }
+
+    /** Stopping is never refused and never waits for another command: the picture goes at once, the unit is told. */
+    override suspend fun stopPreview() {
+        val conn = live
+        paused = true
+        _frame.value = null
+        _view.update { it.copy(preview = PreviewState.OFF, stream = StreamStats(), scene = VisionScene(), notice = null) }
+        if (conn == null) return
+        try {
+            conn.call("vision.share", buildJsonObject { put("on", false) }, CALL_MS)
+        } catch (e: IOException) {
+            _view.update { it.copy(notice = "The unit did not confirm. This phone no longer answers its pictures, so the unit stops within seconds.") }
+        } catch (e: TimeoutCancellationException) {
+            _view.update { it.copy(notice = "The unit did not confirm. This phone no longer answers its pictures, so the unit stops within seconds.") }
+        }
+    }
+
+    override suspend fun setMode(mode: VisionMode) = command { conn ->
+        if (!mode.remote) return@command "${mode.word} is chosen on the unit only."
+        if (mode !in _view.value.modes) return@command "This unit has no model for ${mode.word}."
+        conn.call("vision.mode", buildJsonObject { put("mode", mode.wire) }, CALL_MS)
+        null
+    }
+
+    override suspend fun set(setting: VisionSetting, value: String) = command { conn ->
+        if (!setting.accepts(value)) return@command "That is not a value Vision offers."
+        conn.call("vision.set", buildJsonObject {
+            put("key", setting.key)
+            put("value", value)
+        }, CALL_MS)
+        _view.update { it.copy(settings = it.settings + (setting to value)) }
+        null
+    }
+
+    override suspend fun resetCounts() = command { conn ->
+        conn.call("vision.reset", timeoutMs = CALL_MS)
+        null
+    }
+
+    private suspend fun command(send: suspend (GatewayConnection) -> String?) {
+        val conn = live
+        val v = _view.value
+        if (v.busy) return
+        if (conn == null || v.access != VisionAccess.OPEN) {
+            _view.update { it.copy(notice = "Vision is not readable on the unit right now.") }
+            return
+        }
+        _view.update { it.copy(busy = true, notice = null) }
+        var notice: String? = null
+        try {
+            notice = try {
+                send(conn)
+            } catch (e: GatewayError) {
+                when (e.code) {
+                    GatewayError.POLICY -> "The unit refused it. Sharing may have been stopped there."
+                    GatewayError.NOT_PERMITTED -> "Not granted to this phone on the unit."
+                    GatewayError.RATE -> "Too many requests. Wait a little."
+                    GatewayError.BUSY -> "Another phone is being shown the picture."
+                    else -> "The unit did not take it."
+                }
+            } catch (_: TimeoutCancellationException) {
+                "The unit did not answer."
+            } catch (_: IOException) {
+                "The connection was lost."
+            }
+        } finally {
+            _view.update { it.copy(busy = false, notice = notice) }
+        }
+    }
+
+    companion object {
+        const val CAPABILITY = "vision"
+        const val SCOPE = "vision"
+        const val TOPIC = "vision"
+        const val POLL_MS = 3_000L
+        const val CALL_MS = 5_000L
+        const val MAX_LABELS = 400
+        private val SHARING = setOf(PreviewState.LIVE, PreviewState.STALLED)
+    }
+}

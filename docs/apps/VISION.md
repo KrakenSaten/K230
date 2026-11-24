@@ -1421,3 +1421,86 @@ the right direction on both lines; repeated open and close (mindful of the
 pre-existing camera lock-up in KNOWN_ISSUES: a bounded count, the console
 logged); Camera working after Vision; no helper left; the helper's CPU
 share and resident set from `stats`, and the shell's from `top`.
+
+## Shown to a paired companion (PR #174; ADR-006 amendment 1, ADR-019 amendment 1)
+
+A paired phone that was given the `vision` permission on the unit is shown
+the picture this screen shows, reduced, for as long as Vision stays in front
+and the phone has its own Vision screen open. Design, bounds and the
+gateway's side: `docs/design/companion/VISION_PREVIEW.md` and
+`docs/api/gateway.md`. What is in this app and its helper:
+
+- **The helper** makes the shared picture from the RGB565 preview it has
+  just made for the screen (so it is turned, mirrored and painted exactly as
+  the screen's is): each `div x div` block averaged into one pixel, the
+  divisor the smallest that brings the longer side to 480 or under (the
+  reference panel's 528 x 938 picture becomes 264 x 469), then a baseline
+  JPEG at quality 50 with libjpeg's fast integer transform
+  (`core/pocketvision/vision_share.[ch]`). It writes into slot 3 of the
+  shared memory, which no preview uses, and into no more than 65536 bytes of
+  it: a picture that does not fit is tried once at quality 25 and then given
+  up (`sharefail ... toolarge`), never grown into. One picture per
+  `share next`, at most every 200 ms, after the screen's own `frame` has been
+  said, and never in FACE, RECOGNIZE or READ (the helper turns sharing off
+  itself if asked there). Commands `share on|off|next`, events `sharecap`,
+  `share`, `sharefail`: `core/pocketvision/pocketvision_proto.h`. A helper
+  built without libjpeg (this host's default build) says no `sharecap` and
+  shares nothing.
+- **The session** copies the JPEG out of slot 3 in the tick it is announced
+  (at most 65536 bytes, into its own buffer), checks the copy begins and ends
+  as a JPEG does, numbers it (the camera's own sequence number stays 0 on the
+  K230), and keeps the tracks the helper said for the same frame, scaled into
+  the shared picture's pixels. A picture nobody asked for is dropped.
+- **The app** serves `vision.status`, `vision.share`, `vision.pull`,
+  `vision.mode`, `vision.set` and `vision.reset` on the shell's socket while
+  it is in front (`apps/vision/vision_remote.[ch]`, `vision_app.c`). One
+  viewer; a second is refused as busy. Each `vision.pull` hands out the
+  newest picture the viewer has not had and asks the helper for the next, so
+  the viewer's pace is the encoder's pace and nothing queues.
+- **Who may be shown it** is decided on the unit: Settings > Companion has
+  one switch per paired phone, off unless switched on there
+  (`docs/apps/SETTINGS.md` "Companion"). Nothing in this app grants anything.
+- **The mark and STOP.** While a phone is shown the picture a bar on every
+  Vision screen says `SHOWN ON <phone's name>` with a STOP button. On the
+  picture it lies under the top chips, as wide as the picture and no wider,
+  72 px tall with STOP a full 64 px target. While a sheet covers the picture
+  it moves into the sheet's title band, beside the title and above the first
+  row, so that no choice of a sheet is ever under it (the first version lay
+  over the first row of the mode sheet in both orientations, and over the
+  side column's text when wide); STOP is as tall as that band there, 52 px
+  on the reference panel, which is under the 64 px of a full target and all
+  the band has. STOP ends the sharing in the same tap and holds: the bar
+  then says `SHARING STOPPED` with ALLOW, and no phone is shown anything
+  until ALLOW is tapped or Vision is opened again.
+- **STOP outlives the app's own memory.** The shell creates the app in front
+  again by itself when the text size is changed over IPC, or when an open
+  request names the app already open. That is not Vision being opened again:
+  the app asks the shell (`pocketos_shell_app_reopening`, `app.h`) and keeps
+  STOP across it. Opened from the launcher or from another app, Vision is
+  opened anew and STOP's word ends, as accepted; STOP is kept in the shell's
+  memory and does not outlive the shell process.
+- **Ends by itself** when the mode becomes FACE, RECOGNIZE or READ, when the
+  picture stops (the helper left, an error), when Vision is left, and when
+  the viewer has asked for no picture for 8 s (its gateway died or lost it).
+- **Modes and settings from the phone** go through the same steps a tap
+  takes (`vision_model_set_mode`, the sheet's own setters), so the helper and
+  the stored settings follow as they do there. The three private modes
+  cannot be chosen; a setting is changed only while its mode is in force.
+  The model changes inside the answer; the word to the helper, the layout and
+  the settings file (a write and an fsync) are done on the app's next poll,
+  at most 33 ms later, because a handler answers from memory and touches no
+  file (`app.h`). On Unit A the first version's `vision.mode` took 4.6 ms.
+- **The class names** of a status are one array made once per detector and
+  referred to by every answer, not 365 strings made anew each second.
+
+Tests: `tests/vision_remote_test.c` (93 checks with libjpeg, 88 without),
+`tests/vision_remote_shell_test.sh` (the real shell and helper on the fake
+camera; with a libjpeg helper a real JPEG travels the whole way to the
+socket), and `tests/companion_vision_integration_test.py` (96 checks: the
+real gatewayd, the real shell with this app and Settings, the real helper
+with libjpeg and TLS clients; the switch, STOP and ALLOW by the simulator's
+finger, STOP across the shell creating the app again, FACE, RECOGNIZE and
+READ tapped while a phone is shown the picture, and the viewer
+disconnecting, losing the scope and being revoked). `tests/vision_lint.sh`
+holds that Vision has one thread, the shared picture's encoder in the helper,
+and no other.

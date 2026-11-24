@@ -298,6 +298,14 @@ int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name);
  * stored (the running size changes, the next start will not have it). */
 enum pos_text_size pocketos_shell_text_size(void);
 int pocketos_shell_set_text_size(enum pos_text_size size);
+/* For an app's create(): true when the shell is creating the app that was in
+ * front again by itself (a text size changed over IPC, an open request naming
+ * the app already in front), false when the app was opened from anywhere
+ * else. What a person decided on the app's screen and the app keeps only in
+ * memory is theirs to take back, not the shell's: an app holds such a
+ * decision across this (Vision's STOP of a shared picture). False outside
+ * create(). */
+bool pocketos_shell_app_reopening(void);
 
 /* ---- display orientation (DS §21) --------------------------------------- *
  *

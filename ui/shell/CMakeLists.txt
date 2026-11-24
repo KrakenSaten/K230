@@ -156,6 +156,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/system/diag_view.c
     ${REPO_DIR}/apps/settings/settings_app.c
     ${REPO_DIR}/apps/settings/settings_pages.c
+    ${REPO_DIR}/apps/settings/settings_companion.c
     ${REPO_DIR}/apps/settings/settings_wifi.c
     ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
@@ -256,7 +257,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/vision/vision_store.c
     ${REPO_DIR}/apps/vision/vision_trails.c
     ${REPO_DIR}/apps/vision/vision_keys.c
+    ${REPO_DIR}/apps/vision/vision_remote.c
     ${REPO_DIR}/core/pocketvision/vision_labels.c
+    ${REPO_DIR}/core/pocketvision/vision_share.c
     ${REPO_DIR}/apps/mp3/mp3_app.c
     ${REPO_DIR}/apps/mp3/mp3_ctl.c
     ${REPO_DIR}/apps/mp3/mp3_view.c
@@ -1495,6 +1498,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         tz_zones.c
         ${REPO_DIR}/apps/settings/settings_app.c
         ${REPO_DIR}/apps/settings/settings_pages.c
+        ${REPO_DIR}/apps/settings/settings_companion.c
         ${REPO_DIR}/apps/settings/settings_wifi.c
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
