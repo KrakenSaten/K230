@@ -1,0 +1,161 @@
+{
+ "u8": {
+  "kmodel_bytes": 31064,
+  "compile_s": 3.9,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_0",
+    "macs": 0,
+    "est_ms": 0.0057599999999999995
+   },
+   {
+    "name": "TileLayerGroup_1",
+    "macs": 13303808,
+    "est_ms": 0.10077539062499999
+   },
+   {
+    "name": "TileLayerGroup_2",
+    "macs": 0,
+    "est_ms": 0.12877624999999998
+   },
+   {
+    "name": "TileLayerGroup_3",
+    "macs": 0,
+    "est_ms": 0.06746500000000001
+   },
+   {
+    "name": "TileLayerGroup_4",
+    "macs": 0,
+    "est_ms": 0.07052109375
+   }
+  ],
+  "cpu_ops": [
+   {
+    "name": "Gather",
+    "flops": 0,
+    "est_ms": 0.00512
+   },
+   {
+    "name": "Reshape",
+    "flops": 0,
+    "est_ms": 0.0
+   },
+   {
+    "name": "Unary",
+    "flops": 2048,
+    "est_ms": 0.00512
+   },
+   {
+    "name": "Binary",
+    "flops": 64,
+    "est_ms": 0.00016125
+   },
+   {
+    "name": "Binary",
+    "flops": 8192,
+    "est_ms": 0.0052
+   }
+  ],
+  "est_ms_kpu": 0.37329773437499997,
+  "est_ms_cpu": 0.01560125,
+  "kpu_datatypes": {
+   "fp32": 11,
+   "fp16": 34,
+   "i8": 35,
+   "u8": 8
+  },
+  "main_level_ops": [
+   "Binary",
+   "Gather",
+   "Reshape",
+   "Unary"
+  ],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU+CPU",
+  "set0": {
+   "file": "dna_test_h64.npy",
+   "n": 37,
+   "sim_s": 12.4
+  }
+ },
+ "a16w8": {
+  "kmodel_bytes": 32720,
+  "compile_s": 2.1,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_5",
+    "macs": 0,
+    "est_ms": 0.0057599999999999995
+   },
+   {
+    "name": "TileLayerGroup_6",
+    "macs": 13303808,
+    "est_ms": 0.117215390625
+   },
+   {
+    "name": "TileLayerGroup_7",
+    "macs": 0,
+    "est_ms": 0.06447070312499999
+   },
+   {
+    "name": "TileLayerGroup_8",
+    "macs": 0,
+    "est_ms": 0.06746500000000001
+   },
+   {
+    "name": "TileLayerGroup_9",
+    "macs": 0,
+    "est_ms": 0.070060546875
+   }
+  ],
+  "cpu_ops": [
+   {
+    "name": "Gather",
+    "flops": 0,
+    "est_ms": 0.00512
+   },
+   {
+    "name": "Reshape",
+    "flops": 0,
+    "est_ms": 0.0
+   },
+   {
+    "name": "Unary",
+    "flops": 2048,
+    "est_ms": 0.00512
+   },
+   {
+    "name": "Binary",
+    "flops": 64,
+    "est_ms": 0.00016125
+   },
+   {
+    "name": "Binary",
+    "flops": 8192,
+    "est_ms": 0.0052
+   }
+  ],
+  "est_ms_kpu": 0.324971640625,
+  "est_ms_cpu": 0.01560125,
+  "kpu_datatypes": {
+   "fp32": 11,
+   "fp16": 30,
+   "i8": 31,
+   "u8": 4,
+   "i16": 18
+  },
+  "main_level_ops": [
+   "Binary",
+   "Gather",
+   "Reshape",
+   "Unary"
+  ],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU+CPU",
+  "set0": {
+   "file": "dna_test_h64.npy",
+   "n": 37,
+   "sim_s": 13.3
+  }
+ }
+}

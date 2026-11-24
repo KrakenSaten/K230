@@ -1,0 +1,78 @@
+{
+ "u8": {
+  "kmodel_bytes": 56440,
+  "compile_s": 3.4,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_0",
+    "macs": 23040,
+    "est_ms": 0.012675
+   },
+   {
+    "name": "TileLayerGroup_1",
+    "macs": 664320,
+    "est_ms": 0.07141226562500001
+   }
+  ],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.08408726562500002,
+  "est_ms_cpu": 0.0,
+  "kpu_datatypes": {
+   "fp32": 2,
+   "fp16": 32,
+   "i8": 47,
+   "u8": 5
+  },
+  "main_level_ops": [],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU",
+  "set0": {
+   "file": "val_x.npy",
+   "n": 600,
+   "sim_s": 50.9
+  },
+  "set1": {
+   "file": "test_x.npy",
+   "n": 1800,
+   "sim_s": 154.3
+  }
+ },
+ "a16w8": {
+  "kmodel_bytes": 52280,
+  "compile_s": 6.1,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_2",
+    "macs": 23040,
+    "est_ms": 0.0128825
+   },
+   {
+    "name": "TileLayerGroup_3",
+    "macs": 664320,
+    "est_ms": 0.072209140625
+   }
+  ],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.085091640625,
+  "est_ms_cpu": 0.0,
+  "kpu_datatypes": {
+   "fp32": 2,
+   "fp16": 32,
+   "i8": 90,
+   "i16": 20
+  },
+  "main_level_ops": [],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU",
+  "set0": {
+   "file": "val_x.npy",
+   "n": 600,
+   "sim_s": 56.1
+  },
+  "set1": {
+   "file": "test_x.npy",
+   "n": 1800,
+   "sim_s": 113.3
+  }
+ }
+}

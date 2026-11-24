@@ -1,0 +1,29 @@
+{
+ "n_train": 7200,
+ "n_test": 2400,
+ "unseen": [
+  "gaming",
+  "ssh_interactive"
+ ],
+ "gen_s": 1.4,
+ "baseline_handcrafted_24d": {
+  "proto_acc_known": 0.8885,
+  "knn5_acc_known": 0.9055,
+  "proto_acc_known_short_lt16": 0.7134,
+  "proto_acc_known_full32": 0.9725,
+  "open_set_auroc_unknown_vs_known": 0.6519,
+  "unknown_rejected_at_95pct_known_accept": 0.0
+ },
+ "train_s": 13.5,
+ "dna_cnn_32d": {
+  "proto_acc_known": 0.9329,
+  "knn5_acc_known": 0.9319,
+  "proto_acc_known_short_lt16": 0.793,
+  "proto_acc_known_full32": 1.0,
+  "open_set_auroc_unknown_vs_known": 0.7041,
+  "unknown_rejected_at_95pct_known_accept": 0.0022
+ },
+ "params": 20960,
+ "h64_matches_h1_max_abs": 2.2351741790771484e-07,
+ "total_s": 20.7
+}

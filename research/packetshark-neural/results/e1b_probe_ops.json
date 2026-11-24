@@ -1,0 +1,264 @@
+[
+ {
+  "case": "charcnn_batch32_names",
+  "mode": "none",
+  "inputs": [
+   [
+    "x",
+    [
+     1,
+     40,
+     32,
+     64
+    ],
+    "onehot"
+   ]
+  ],
+  "imported": true,
+  "compiled": true,
+  "compile_s": 0.7,
+  "kmodel_bytes": 138856,
+  "kpu_groups": [],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.0,
+  "est_ms_cpu": 0.0,
+  "placement": "CPU",
+  "out_shape": [
+   1,
+   1,
+   32,
+   1
+  ],
+  "sim_vs_float_cosine_min": 1.0,
+  "sim_vs_float_rel_maxerr": 0.0,
+  "wall_s": 3.1
+ },
+ {
+  "case": "charcnn_batch32_names",
+  "mode": "u8",
+  "inputs": [
+   [
+    "x",
+    [
+     1,
+     40,
+     32,
+     64
+    ],
+    "onehot"
+   ]
+  ],
+  "imported": true,
+  "compiled": true,
+  "compile_s": 3.2,
+  "kmodel_bytes": 45120,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_0",
+    "macs": 65602560,
+    "est_ms": 0.22909242187499998
+   }
+  ],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.22909242187499998,
+  "est_ms_cpu": 0.0,
+  "kpu_datatypes": {
+   "fp32": 2,
+   "fp16": 17,
+   "i8": 51,
+   "u8": 11
+  },
+  "main_level_ops": [],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU",
+  "out_shape": [
+   1,
+   1,
+   32,
+   1
+  ],
+  "sim_vs_float_cosine_min": 1.0,
+  "sim_vs_float_rel_maxerr": 0.00178,
+  "wall_s": 6.2
+ },
+ {
+  "case": "charcnn_batch32_names",
+  "mode": "a16w8",
+  "inputs": [
+   [
+    "x",
+    [
+     1,
+     40,
+     32,
+     64
+    ],
+    "onehot"
+   ]
+  ],
+  "imported": true,
+  "compiled": true,
+  "compile_s": 4.4,
+  "kmodel_bytes": 53352,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_0",
+    "macs": 65602560,
+    "est_ms": 0.32111520000000005
+   }
+  ],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.32111520000000005,
+  "est_ms_cpu": 0.0,
+  "kpu_datatypes": {
+   "fp32": 2,
+   "fp16": 18,
+   "i8": 47,
+   "u8": 8,
+   "i16": 21
+  },
+  "main_level_ops": [],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU",
+  "out_shape": [
+   1,
+   1,
+   32,
+   1
+  ],
+  "sim_vs_float_cosine_min": 1.0,
+  "sim_vs_float_rel_maxerr": 0.00178,
+  "wall_s": 10.3
+ },
+ {
+  "case": "dna_batch64_avgpool",
+  "mode": "none",
+  "inputs": [
+   [
+    "x",
+    [
+     1,
+     3,
+     64,
+     32
+    ],
+    "normal"
+   ]
+  ],
+  "imported": true,
+  "compiled": true,
+  "compile_s": 0.8,
+  "kmodel_bytes": 85368,
+  "kpu_groups": [],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.0,
+  "est_ms_cpu": 0.0,
+  "placement": "CPU",
+  "out_shape": [
+   1,
+   32,
+   64,
+   1
+  ],
+  "sim_vs_float_cosine_min": 1.0,
+  "sim_vs_float_rel_maxerr": 0.0,
+  "wall_s": 2.3
+ },
+ {
+  "case": "dna_batch64_avgpool",
+  "mode": "u8",
+  "inputs": [
+   [
+    "x",
+    [
+     1,
+     3,
+     64,
+     32
+    ],
+    "normal"
+   ]
+  ],
+  "imported": true,
+  "compiled": true,
+  "compile_s": 3.2,
+  "kmodel_bytes": 27304,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_0",
+    "macs": 13303808,
+    "est_ms": 0.10077539062499999
+   }
+  ],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.10077539062499999,
+  "est_ms_cpu": 0.0,
+  "kpu_datatypes": {
+   "fp32": 2,
+   "fp16": 14,
+   "i8": 35,
+   "u8": 8
+  },
+  "main_level_ops": [],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU",
+  "out_shape": [
+   1,
+   32,
+   64,
+   1
+  ],
+  "sim_vs_float_cosine_min": 0.99994,
+  "sim_vs_float_rel_maxerr": 0.03458,
+  "wall_s": 5.0
+ },
+ {
+  "case": "dna_batch64_avgpool",
+  "mode": "a16w8",
+  "inputs": [
+   [
+    "x",
+    [
+     1,
+     3,
+     64,
+     32
+    ],
+    "normal"
+   ]
+  ],
+  "imported": true,
+  "compiled": true,
+  "compile_s": 3.0,
+  "kmodel_bytes": 29224,
+  "kpu_groups": [
+   {
+    "name": "TileLayerGroup_0",
+    "macs": 13303808,
+    "est_ms": 0.117215390625
+   }
+  ],
+  "cpu_ops": [],
+  "est_ms_kpu": 0.117215390625,
+  "est_ms_cpu": 0.0,
+  "kpu_datatypes": {
+   "fp32": 2,
+   "fp16": 14,
+   "i8": 31,
+   "u8": 4,
+   "i16": 18
+  },
+  "main_level_ops": [],
+  "main_level_from": "7_TargetDependentAfterQuantPass/10_FusionToTirPass/End/main.il",
+  "placement": "KPU",
+  "out_shape": [
+   1,
+   32,
+   64,
+   1
+  ],
+  "sim_vs_float_cosine_min": 0.99996,
+  "sim_vs_float_rel_maxerr": 0.03575,
+  "wall_s": 5.7
+ }
+]
