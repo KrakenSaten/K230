@@ -8,16 +8,16 @@ DOORS turns the K230 into a small Linux platform for communication, local AI,
 tools, games and experimentation — built around its touchscreen, keyboard,
 LoRa radio, camera and hardware AI acceleration.
 
-- **[Download DOORS v0.4.0 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.4.0/doors-0.4.0-tdisplay-k230-21baeef0.img.gz)**: the ready-to-flash
-  microSD card image (121 MB). Write it to a card as it is; GitHub's
+- **[Download DOORS v0.5.0 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/doors-0.5.0-tdisplay-k230-b37b644a.img.gz)**: the ready-to-flash
+  microSD card image (122 MB). Write it to a card as it is; GitHub's
   "Source code" archives on the release page are source, not an image.
 - **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
   write the card, first boot, Wi-Fi and RIFT. No development tools needed.
 - **[3D-print a desk stand](https://github.com/KrakenSaten/K230/tree/master/hardware/stand)**: a printable stand for the
   K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
-- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.4.0)**: what v0.4.0 contains, the
+- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.5.0)**: what v0.5.0 contains, the
   SHA-256 checksums
-  ([SHA256SUMS.txt](https://github.com/KrakenSaten/K230/releases/download/v0.4.0/SHA256SUMS.txt)),
+  ([SHA256SUMS.txt](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/SHA256SUMS.txt)),
   and the licence, notices and attribution files.
 - **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
   priority order.
@@ -31,14 +31,28 @@ simulator/fixture data and link to stable image paths or commit SHAs. A
 feature merged after the latest release is marked as master-only until an
 image ships it. -->
 
-The first three features below are new on `master` since v0.4.0 and are
-**not in the v0.4.0 image**; they need a build from source until the next
-release ([build environment](docs/BUILD_ENVIRONMENT.md)). Everything from
-[v0.4.0](#v040--15-november-2026) on is in the published image.
+### v0.5.0 · 24 November 2026
+
+- **PacketShark**, new in the image: a receive-only network analyzer for
+  Ethernet and Wi-Fi, with DNS and TCP diagnosis and a network overview of
+  devices, DHCP and ARP.
+- **Games Hub** and **Lamplight card tables**: a poster wall for every game,
+  and illustrated, animated tables for Blackjack, Poker and Solitaire.
+- **RIFT Activity**: the mesh traffic the radio hears, live, and message
+  banners anywhere in DOORS.
+- **DeskBuddy 2.0**: Pip, a touch-responsive owl, with an optional voice.
+- **Zabbix**: a card-based monitoring console.
+- **In source, not active in the image:** the DOORS Companion Android app
+  and its gateway, and Fleet over the local network.
+
+The image includes the experimental **R0 · Beta** detector only; no optional
+model weights are included. See the
+[full v0.5.0 release notes](docs/releases/v0.5.0.md) for validation and
+known limitations.
 
 ### Games Hub · Your games, your arcade
 
-**On `master` · not in the v0.4.0 image.** **Games** on the launcher now
+**New in v0.5.0.** **Games** on the launcher now
 opens a poster wall instead of a page of icons. RotorTerror and Relay Nine
 lead as large featured posters with their own **PLAY** buttons; Fleet,
 Radar, Timber, Solitaire, Blackjack, Poker and 2048 each have a colourful
@@ -51,6 +65,11 @@ devices. It is a **preview only**: it always reads COMING SOON, HOST GAME
 and JOIN GAME are disabled, and there is no multiplayer, networking or
 discovery behind it yet.
 
+Blackjack, Poker and Solitaire now share the **Lamplight** table:
+illustrated court cards, motion, a full-screen table and serif headlines
+([Blackjack](docs/apps/PGBLACKJACK.md) · [Poker](docs/apps/POKER.md) ·
+[Solitaire](docs/apps/PGSOLITAIRE.md)).
+
 ![Games Hub in landscape: RotorTerror and Relay Nine as featured posters with PLAY buttons, seven colourful posters for Fleet, Radar, Timber, Solitaire, Blackjack, Poker and 2048, and a Multiplayer Lobby poster marked COMING SOON with its buttons disabled](docs/apps/games-hub/hub-landscape-carbon.png)
 
 *Actual SDL simulator capture of the shell on `master`, Carbon theme.*
@@ -59,7 +78,7 @@ discovery behind it yet.
 
 ### RIFT Activity · watch the mesh come alive
 
-**On `master` · not in the v0.4.0 image.** RIFT's ACTIVITY tab shows the
+**New in v0.5.0.** RIFT's ACTIVITY tab shows the
 MeshCore traffic the radio hears, frame by frame. A live scope plots the last
 minute's frames by signal strength, size and type. Under it, sixty stacked
 bars cover the last 20 or 5 minutes in packet-type colours: adverts, channel
@@ -78,8 +97,8 @@ synthetic nodes and MeshCore traffic from the project's test service
 
 ### PacketShark · network analysis in your pocket
 
-**On `master` · not in the v0.4.0 image.** A packet analyzer for the K230's
-wired Ethernet port, under **Apps → PacketShark**:
+**New in v0.5.0.** A packet analyzer for the K230's Ethernet port and its
+Wi-Fi link, under **Apps → PacketShark**:
 
 - **LIVE**: packets and throughput per second, a 60-second traffic graph
   stacked by protocol, and the share of TCP, UDP, DNS, DHCP, ARP, ICMP and
@@ -92,9 +111,13 @@ wired Ethernet port, under **Apps → PacketShark**:
   retransmissions, unreachable hosts and connections with no reply.
 - **SAVE** writes a stopped capture to a standard `.pcap` file for Wireshark
   or tcpdump.
+- **Diagnosis**: DNS queries paired with their answers and TCP connections
+  followed through handshake, resets and retransmissions.
+- **Network overview**: the devices seen, DHCP exchanges, servers and
+  leases, ARP pairs and conflicts, and findings with their evidence.
 
-PacketShark is receive-only: it never transmits or injects packets, and it
-does not capture Wi-Fi (no monitor mode).
+PacketShark is receive-only: it never transmits or injects packets. On
+Wi-Fi it sees the unit's own link only (managed mode; no monitor mode).
 
 ![PacketShark LIVE in landscape, Carbon theme: CAPTURING, 400 packets per second, a full 60-second traffic graph stacked by protocol, protocol shares, session counters and five signal counts](docs/apps/packetshark/live-landscape-carbon.png)
 
@@ -103,29 +126,6 @@ one minute on the real capture helper's synthetic source (SYNTH0, a steady
 400 packets per second). The source generates only documentation addresses
 and locally administered MACs, and nothing touches a network.*
 [PacketShark guide](docs/apps/PACKETSHARK.md)
-
-### v0.4.0 · 15 November 2026
-
-- **Vision, redesigned around the picture:** counters on the picture's
-  corners, a wider upright picture and a MODE switcher of its own; new
-  SEGMENT and INSTANCES modes (INSTANCES colours each object by its track),
-  an optional GENERAL 365 detector, and a fix for CMA memory lost when a
-  model was described or refused.
-- **Relay Nine in Arcade Neon:** rebuilt graphics, and a scene scaled in
-  the app for smoother frame pacing on the K230.
-- **RotorTerror:** a new, original helicopter arcade game under Games.
-- **RIFT usability:** correct ignored-message counts, automatic capitals,
-  clearer channel sender names and larger touch targets.
-- **Safer radio setup:** no transmit while the radio's settings are
-  uncertain, and a failed setup restores the previous on/off choice.
-- **DeskBuddy keeps seeing on the K230:** Vision reports are no longer
-  dropped after the first one.
-
-The image includes the experimental six-class **R0 · Beta** detector only.
-SEGMENT, INSTANCES, GENERAL 80 and GENERAL 365 work when their model file is
-on the unit, but **none of those model weights are included**. See the
-[full v0.4.0 release notes](docs/releases/v0.4.0.md) for validation and
-known limitations.
 
 ### Neon · give DOORS an Arcade look
 
@@ -255,8 +255,8 @@ A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
 the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
 keep their own licences. Not everything in this repository is Apache-2.0
 either. Vision's R0 detector model is Apache-2.0 too, while the data it was
-trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.4.0, like 0.3.5
-to 0.3.9, is published on the product owner's decision with some third-party
+trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.5.0, like 0.3.5
+to 0.4.0, is published on the product owner's decision with some third-party
 questions still open (the vendor's KPU runtime modules and ISP server, the
 toolchain's source, LILYGO's files, and the points about R0's training data
 in MODEL_LICENSES.md);
@@ -333,22 +333,21 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.4.0** (tag `v0.4.0`, 2026-11-15) is the current release:
-**[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.4.0/doors-0.4.0-tdisplay-k230-21baeef0.img.gz)**
-([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.4.0)),
+**Doors 0.5.0** (tag `v0.5.0`, 2026-11-24) is the current release:
+**[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/doors-0.5.0-tdisplay-k230-b37b644a.img.gz)**
+([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.5.0)),
 then follow [Get started](docs/GETTING_STARTED.md). It is everything merged
-since 0.3.9, summarised under [What's new](#whats-new) above; the image is
-built from a clean SDK output (PR #115). Release notes:
-[docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
+since 0.4.0, summarised under [What's new](#whats-new) above; the image is
+built from a clean SDK output. Release notes:
+[docs/releases/v0.5.0.md](docs/releases/v0.5.0.md).
 
-**Doors 0.3.9** (tag `v0.3.9`, 2026-10-28) was the previous release:
-everything merged since 0.3.8 - Vision's CLASSES list, COLOR and LINE
-TRACE, the optional GENERAL 80 detector (weights not part of Doors),
-DeskBuddy telling a stalled camera from an empty desk, Relay Nine played
-fullscreen, and RIFT MAP's read-only TRAFFIC mode. Release notes:
-[docs/releases/v0.3.9.md](docs/releases/v0.3.9.md).
+**Doors 0.4.0** (tag `v0.4.0`, 2026-11-15) was the previous release:
+everything merged since 0.3.9 - Vision redesigned around the picture with
+SEGMENT, INSTANCES and an optional GENERAL 365 (weights not part of Doors),
+Relay Nine in Arcade Neon, RotorTerror, RIFT usability and safer radio
+setup. Release notes: [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
 
-Earlier releases, from v0.3.8 back to the first PocketOS images:
+Earlier releases, from v0.3.9 back to the first PocketOS images:
 [docs/releases/HISTORY.md](docs/releases/HISTORY.md).
 
 The K230 SD image is built by `platforms/k230` (see

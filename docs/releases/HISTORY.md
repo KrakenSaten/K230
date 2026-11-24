@@ -6,6 +6,12 @@ first, as they were described at the time. The full notes of every release
 from v0.0.10 on are next to this file; the earlier bench and gate records are
 in [docs/hardware/](../hardware/).
 
+**Doors 0.3.9** (tag `v0.3.9`, 2026-10-28): everything merged since 0.3.8 -
+Vision's CLASSES list, COLOR and LINE TRACE, the optional GENERAL 80
+detector (weights not part of Doors), DeskBuddy telling a stalled camera
+from an empty desk, Relay Nine played fullscreen, and RIFT MAP's read-only
+TRAFFIC mode. Release notes: [v0.3.9.md](v0.3.9.md).
+
 **Doors 0.3.8** (tag `v0.3.8`, 2026-10-22): everything merged since 0.3.7 -
 Relay Nine, explicit routes for a RIFT direct message, sentence capitals and
 a larger emoji picker in RIFT, DeskBuddy's camera presence and an optional

@@ -5,8 +5,8 @@ priorities. This page promises no dates or versions: an item
 is ready when it has been built and tested, and the release notes say what
 each release actually contains.
 
-The current release is **Doors 0.4.0**
-([release notes](releases/v0.4.0.md)). What works today is in the
+The current release is **Doors 0.5.0**
+([release notes](releases/v0.5.0.md)). What works today is in the
 [README](../README.md#highlights); known limitations are in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
@@ -23,7 +23,7 @@ priorities.
 
 ### 1. Vision: our own trained AI model (Ongoing)
 
-Doors 0.3.5 shipped without a detector model; 0.3.6 to 0.4.0 ship the
+Doors 0.3.5 shipped without a detector model; 0.3.6 to 0.5.0 ship the
 project's own first one, R0, as a beta ([VISION.md](apps/VISION.md),
 [MODEL_LICENSES.md](../MODEL_LICENSES.md)). The aim is a detector trained by
 the DOORS project, on data whose licences allow it to be shipped.
@@ -36,7 +36,7 @@ export to the K230's KPU format. R0 ran on unit A in a bench A/B
 comparison. It misses many small and distant vehicles.
 
 Now: R0 ships in Doors since 0.3.6 (2026-10-09) as an experimental beta
-("R0 · Beta"), under Apache-2.0, unchanged in 0.3.7 to 0.4.0. It passed a fresh-card smoke test on
+("R0 · Beta"), under Apache-2.0, unchanged in 0.3.7 to 0.5.0. It passed a fresh-card smoke test on
 hardware. A second training round (R1-A), aimed at the cars R0 misses in
 street scenes, is running; no result from it is claimed here.
 
@@ -78,18 +78,14 @@ from the first model integration and starts from its measured results.
 ### 6. PacketShark (In progress)
 
 A receive-only network analyzer for Ethernet and Wi-Fi ([PACKETSHARK.md](apps/PACKETSHARK.md),
-ADR-016 accepted): milestones M0 to M9 (capture helper, live counters, the
-graph, the packet list and the inspector, signals, SAVE and the saved
-captures, the wide layout and keys) are on master through pull request #141;
-M10, Wi-Fi capture in managed mode, through pull request #146. All are
-host-tested; M5 to M10 were run on Unit B. Not in a release yet. M11.1,
-protocol intelligence (DNS transactions and TCP connections diagnosed in
-SIGNALS, a diagnosis sheet and INSPECT; protocol 4), is on master through
-pull request #149. M12.1, network intelligence (devices, DHCP exchanges,
-servers and leases, ARP pairs and conflicts, findings with their evidence
-on a network overview; protocol 5), is on a draft pull request, host-tested
-and run on Unit B without being installed. The line-rate gate on Unit A is
-not started.
+ADR-016 accepted), **in the image since Doors 0.5.0** with milestones M0 to
+M12.1: the capture helper, live counters, the graph, the packet list and
+the inspector, signals, SAVE and the saved captures, the wide layout and
+keys (pull request #141), Wi-Fi capture in managed mode (M10, #146), DNS
+and TCP diagnosis (M11.1, #149) and network intelligence (M12.1, #185:
+devices, DHCP exchanges, servers and leases, ARP pairs and conflicts,
+findings with their evidence). All are host-tested; M5 to M12.1 were run on
+Unit B. The line-rate gate on Unit A is not started.
 
 ## History
 
