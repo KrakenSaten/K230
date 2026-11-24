@@ -89,8 +89,40 @@ The owner's brief: finish the existing feature, no new milestone, no redesign. W
 
 **Independent review** of the finalization changes: no blocking defect. Its findings that were acted on: one missed poll of gatewayd no longer reads "Not running" (three in a row do); a tap on a row whose list changed under it is now tested to send nothing; the mark's place is asserted, not only pictured; STOP in a sheet is said to be 52 px, as it is; a mode a phone chose a moment ago is told to the helper before a share starts; a name of spaces alone is "Unnamed phone". Left as they are: the over-limit label set is measured on every status (cost only); no test of a setting changed by a phone and Vision left within 33 ms (the code stores it on the way out).
 
-**Hardware: not validated in this session.** On 2026-11-24 the bench PC had no serial port to a unit (COM5 absent), no phone on ADB, and was on a network from which Unit A (192.168.10.171) did not answer; Unit A's root password is also not known to this session since the owner's reboot. Nothing was deployed, started or stopped on any unit, so there was nothing to restore. What stands from 2026-11-23 is the PASS above, for streaming to an emulator.
+**Hardware: validated later the same day, see "Hardware validation (2026-11-24, evening)" below. What this paragraph said in the afternoon:** not validated in this session. On 2026-11-24 the bench PC had no serial port to a unit (COM5 absent), no phone on ADB, and was on a network from which Unit A (192.168.10.171) did not answer; Unit A's root password is also not known to this session since the owner's reboot. Nothing was deployed, started or stopped on any unit, so there was nothing to restore. What stands from 2026-11-23 is the PASS above, for streaming to an emulator.
 
 Still to be done on a unit and a phone, none of it claimed: the picture on a physical phone over Wi-Fi; STOP, ALLOW and the Settings switch under a real finger and how they look on the panel; FACE, RECOGNIZE and READ ending a share on hardware; disconnect and reconnect on a real network; portrait on the unit; GENERAL, SEGMENT and TRAFFIC figures; a long run; the detector's rate with and without a viewer in one and the same scene (the 2026-11-23 figures are from two scenes); the handler times after these changes.
 
 **Owner's calls, not made here:** DS section 52.8 (a new Settings category) is proposed, not accepted. A phone with `vision` can choose DETECT while the unit is in FACE and is then shown the picture; the decisions neither allow nor forbid it (found by the review; behaviour unchanged).
+
+## Hardware validation (2026-11-24, evening)
+
+Unit A (device 53fc1db8, installed shell f8939dbb) and the owner's Flip8 (SM-F776B), over the owner's Wi-Fi. A tmpfs kit of 03a5d025 in `/tmp/vsk` (production shell without test hooks, `pos-vision` with KPU and libjpeg, gatewayd without test hooks, on a tmpfs copy of the gateway's state); the test build of the app on the phone, its data kept. The owner ended the session early (the bench laptop's battery); what was finished stands, what was not is NOT TESTED, not failed. Evidence: `C:\K230-artifacts\vision-stream\finalization\evidence` and `...\phone`.
+
+| Check | Result | Seen |
+| --- | --- | --- |
+| Real K230 camera to a physical phone | **PASS** | Live picture on the Flip8, 392 x 221, about 5.4 to 6.6 KB each, 4.2 to 5.0 a second, age 6 to 31 ms on the phone |
+| A phone without `vision` | **PASS** | "Not granted to this phone" with the instruction; "Gateway serves it: Yes" |
+| Granting by the switch on Settings > Companion, by a finger | **PASS** | The owner's tap; gatewayd logged the scope change; the page was not reported wrong |
+| Automatic preview when Vision opens | **PASS** | No touch on the phone: the preview began 2 s after Vision was opened (16 s after the grant), and 3 s after Vision was opened again later |
+| Orientation, boxes, labels, mask, live figures | **PASS** | Upright; boxes with "cup", "telephone", "desk", "cell-phone" and their confidences; INSTANCES masks in place; the detector's figures live (18 to 19 a second, 29 to 31 ms, 44 to 45 %) |
+| Portrait and landscape on the phone | **PASS** | Both, picture and boxes in place |
+| Modes from the phone | **PASS** | detect, track, instances, traffic, segment, color, edge and trace chosen; the picture stayed live in each |
+| STOP by a finger | **PASS** | The unit ended the share at the tap; gatewayd saw it 132 ms later; the phone read "Stopped on the unit" |
+| ALLOW by a finger | **PASS** | The picture was back 0.45 s later with no touch on the phone |
+| Leaving Vision | **PASS** | The preview ended with the screen; no helper left |
+| Disconnect and reconnect | **PASS** | The app killed on the phone: the unit stopped sharing about 0.17 s later ("its client went away"). The app opened again: the preview resumed when its Vision screen opened |
+| Taking the scope away and giving it back | **PASS**, from the console | Ended in the same millisecond at the gateway and 3 ms later on the unit; given back, the picture resumed 0.13 s later with no touch. The switch's OFF was not tapped on hardware |
+| FACE, RECOGNIZE, READ | **NOT TESTED** | Unit A has no face or text models, so the modes are not offered there. Nothing was installed |
+| GENERAL (DETECT, 365 classes) with and without a viewer, one scene | **PASS** | 18.1 to 18.2 a second with the phone viewing, 19.1 to 19.4 without, 17.9 to 18.1 with it again: about 6 % lower, inside the 10 % bound. `pos-vision` 46 % against 43 % of the hart; shell 16 %; gatewayd 0 %. Encode 24 ms, 31 ms at most |
+| SEGMENT with a viewer | Measured | 12.7 to 12.9 a second, `pos-vision` 44 to 45 %, 21.9 MB. No figure without a viewer |
+| TRAFFIC figures | **NOT TESTED** | The run was interrupted before its figures were read |
+| Sustained streaming | **NOT TESTED** as a run | Interrupted about two minutes in. What exists: the phone was shown the picture for most of 16 minutes with no error in either log and no failed picture (`share_failed` 0 of about 1450) |
+| Handler budget (2 ms) | Measured | 9 of 6504 calls over, worst 4.9 ms (`vision.pull`); `vision.status` once at 2.4 ms. Still scheduling on one hart by every sign (commands on the console at the same moment halve the detector's rate too), and still over the budget now and then |
+| The mark's look, the switch's look, STOP's size under a finger | Owner's eyes | Nothing was reported wrong; no picture of the panel exists (a production shell takes none) |
+
+**Unit A afterwards.** Restored with the kit's own script and checked: the installed shell f8939dbb is the only shell and the only DRM holder; no gatewayd runs, as before; the kit is gone from `/tmp`; every file under `/etc/pocketos` and `/var/lib/pocketos`, `/etc/shadow` and the installed binaries have the checksums taken before, except meshcored's own `state.v1`. `eth0`, taken down for the test because it had lost its carrier and still held the route to the phone's network, is up again as it was found (no carrier). The root password is the one the owner set that evening. Unit B was not touched.
+
+**The phone afterwards** keeps the test build (03a5d025); the build it had is saved as `C:\K230-artifacts\vision-stream\finalization\phone\installed-before.apk`. Its pairing holds `status`, `mesh_read`, `mesh_send` on the unit, as before: the grant of `vision` was made on the kit's tmpfs copy and went with it.
+
+**Found on hardware, not fixed:** a box that touches the picture's top edge has its label under the app's LIVE and mode chips.
