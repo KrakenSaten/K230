@@ -504,6 +504,11 @@ void psk_diag_go(struct psk_app *a, const struct psk_diag_line *l)
     if (l->go == PSK_GO_LIST) {
         psk_set_view_diag(a, PPC_CLASSES_ALL, "", 0, false, l->signals, l->diag);
         psk_select_tab(a, PSK_TAB_PACKETS);
+    } else if (l->go == PSK_GO_HOST) {
+        /* The packets of a class and a host (M12.1): the ARP messages that
+         * name an address, every DHCP message. */
+        psk_set_view_diag(a, l->classes ? l->classes : PPC_CLASSES_ALL, l->host, 0, false, 0, 0);
+        psk_select_tab(a, PSK_TAB_PACKETS);
     } else if (l->seq) {
         /* The packet alone, in the inspector: the list shows everything, so
          * the arrows walk its neighbours. */
@@ -660,6 +665,32 @@ void psk_saved_delete_ask(struct psk_app *a, int index)
     psk_sheet_show(a, PSK_SHEET_DELETE);
 }
 
+/* The network intelligence's lists (M12.1): asked for when the overview or
+ * a sheet that shows them comes up, and once a second while it shows and
+ * the capture runs. Never otherwise: LIVE's own line needs only the totals
+ * the helper sends by itself. */
+static void net_poll(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    int64_t now = psk_now();
+    bool wanted = psk_net_shown(a) || (psk_dsheet_shown(a) && a->ds_kind >= PSK_DIAG_KINDS);
+    bool running = m->state == PPC_STATE_CAPTURING || m->state == PPC_STATE_HOLD;
+
+    if (!wanted || !psk_capture_present(a)) {
+        return;
+    }
+    if (!a->net_due && !(running && now - a->net_sent_ms >= PSK_NET_REFRESH_MS)) {
+        return;
+    }
+    if (now - a->net_sent_ms < 200) {
+        return; /* one asked for a moment ago is on its way */
+    }
+    if (psk_session_net(a->session, a->model) == 0) {
+        a->net_due = false;
+        a->net_sent_ms = now;
+    }
+}
+
 /* What the poll brought, beyond painting. */
 static void start_failed(struct psk_app *a);
 
@@ -734,8 +765,15 @@ static void react(struct psk_app *a, unsigned changed)
     if (changed & PSK_CHANGED_PINS) {
         pins_changed(a);
     }
-    if ((changed & (PSK_CHANGED_DIAG | PSK_CHANGED_STATE | PSK_CHANGED_EXITED)) && psk_dsheet_shown(a)) {
+    if (changed & PSK_CHANGED_STATE) {
+        a->net_due = true; /* a capture that stopped: its last word */
+    }
+    if ((changed & (PSK_CHANGED_DIAG | PSK_CHANGED_STATE | PSK_CHANGED_EXITED | PSK_CHANGED_NET | PSK_CHANGED_NETLIST)) &&
+        psk_dsheet_shown(a)) {
         psk_dsheet_paint(a);
+    }
+    if ((changed & (PSK_CHANGED_DIAG | PSK_CHANGED_STATE | PSK_CHANGED_NET | PSK_CHANGED_NETLIST)) && psk_net_shown(a)) {
+        psk_net_paint(a);
     }
     if (changed & PSK_CHANGED_EXITED) {
         bool bad = m->exit != PSK_EXIT_NORMAL;
@@ -986,6 +1024,7 @@ static void on_poll(lv_timer_t *t)
     }
     psk_list_fit(a);
     list_poll(a);
+    net_poll(a);
     t0 = now_us() - t0;
     if (t0 > a->worst_poll_us) {
         a->worst_poll_us = t0;
@@ -1003,8 +1042,15 @@ void psk_select_tab(struct psk_app *a, enum psk_tab t)
     if (t == PSK_TAB_INSPECT && (a->insp_seq == 0 || !psk_capture_present(a))) {
         return; /* no packet has been opened */
     }
+    if (t == PSK_TAB_LIVE && a->cur == PSK_TAB_LIVE) {
+        a->net_view = false; /* LIVE tapped on LIVE: its first face */
+    }
     a->cur = t;
     psk_paint_tabs(a);
+    if (psk_net_shown(a)) {
+        a->net_due = true;
+        psk_net_paint(a);
+    }
     if (t == PSK_TAB_PACKETS) {
         a->window_due = true;
         psk_list_fit(a);
@@ -1688,6 +1734,10 @@ static int psk_back(void *priv)
         psk_dsheet_hide(a);
         return 1;
     }
+    if (psk_net_shown(a)) {
+        psk_net_show(a, false); /* the network overview: back to LIVE */
+        return 1;
+    }
     if (a->cur == PSK_TAB_INSPECT) {
         psk_select_tab(a, PSK_TAB_PACKETS);
         return 1;
@@ -1820,8 +1870,30 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
         return a->layer[i].finding;
     }
     /* M11.1 */
-    if (strncmp(name, "diag", 4) == 0 && (i = name[4] - '0') >= 0 && i < PSK_DIAG_KINDS) {
+    if (strncmp(name, "diag", 4) == 0 && (i = name[4] - '0') >= 0 && i < PSK_LIVE_DIAGS) {
         return a->diag_row[i];
+    }
+    /* M12.1 */
+    if (strcmp(name, "netpage") == 0) {
+        return a->nv_page;
+    }
+    if (strcmp(name, "netclose") == 0) {
+        return a->nv_close;
+    }
+    if (strcmp(name, "netnote") == 0) {
+        return a->nv_note;
+    }
+    if (strncmp(name, "netcell", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_NV_CELLS) {
+        return a->nv_cell[i];
+    }
+    if (strncmp(name, "netfind", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_NV_FINDS) {
+        return a->nv_find[i];
+    }
+    if (strncmp(name, "netdiag", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_NV_DIAGS) {
+        return a->nv_diag[i];
+    }
+    if (strncmp(name, "nethost", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_NV_HOSTS) {
+        return a->nv_host[i];
     }
     if (strcmp(name, "dsheet") == 0) {
         return a->dsheet;

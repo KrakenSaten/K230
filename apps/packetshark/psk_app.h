@@ -22,6 +22,7 @@
 #include "app.h"
 #include "pocketui.h"
 #include "psk_model.h"
+#include "psk_net.h"
 #include "psk_remote.h"
 #include "psk_saves.h"
 #include "psk_session.h"
@@ -64,6 +65,17 @@
  * capture.status (ADR-016 rule 20). Whoever reads for a phone asks at
  * least this often while the phone reads, and not when it does not. */
 #define PSK_READER_MS 5000
+/* LIVE's diagnosis lines: DNS, TCP, and the way to the network overview
+ * (M12.1). */
+#define PSK_LIVE_DIAGS (PSK_DIAG_KINDS + 1)
+/* The network overview (M12.1): its figures, the findings and devices it
+ * has rows for, its four diagnosis lines, and how often it asks the helper
+ * for its lists while it shows. */
+#define PSK_NV_CELLS 4
+#define PSK_NV_FINDS 6
+#define PSK_NV_DIAGS 4
+#define PSK_NV_HOSTS 8
+#define PSK_NET_REFRESH_MS 1000
 #define PSK_CLIENT_TEXT 28
 #define PSK_TOKEN_TEXT 33
 
@@ -230,9 +242,9 @@ struct psk_app {
     lv_obj_t *sig_cell[PPC_SIGNAL_COUNT];
     lv_obj_t *sig_val[PPC_SIGNAL_COUNT];
     lv_obj_t *diag_box;                  /* the two below: in SIGNALS, or (wide) under TRAFFIC */
-    lv_obj_t *diag_row[PSK_DIAG_KINDS];  /* the DNS and TCP diagnosis on SIGNALS (M11.1) */
-    lv_obj_t *diag_sev[PSK_DIAG_KINDS];
-    lv_obj_t *diag_text[PSK_DIAG_KINDS];
+    lv_obj_t *diag_row[PSK_LIVE_DIAGS];  /* the DNS and TCP diagnosis on SIGNALS (M11.1), */
+    lv_obj_t *diag_sev[PSK_LIVE_DIAGS];  /* and the network's line (M12.1) */
+    lv_obj_t *diag_text[PSK_LIVE_DIAGS];
     lv_obj_t *saves_row; /* setup: the saved captures (M8) */
     lv_obj_t *saves_val;
 
@@ -378,6 +390,39 @@ struct psk_app {
     struct psk_diag_line ds_lines[PSK_DIAG_LINES];
     unsigned ds_n;
     unsigned ds_kind;
+    struct ppc_evt_net_event ds_event; /* PSK_DIAG_FINDING: the event it shows (M12.1) */
+
+    /* the network overview (M12.1): LIVE's second face */
+    bool net_view;       /* it is what LIVE shows */
+    bool net_due;        /* its lists are to be asked for */
+    int64_t net_sent_ms;
+    lv_obj_t *nv_page;
+    lv_obj_t *nv_close;
+    lv_obj_t *nv_note;
+    lv_obj_t *nv_cols;
+    lv_obj_t *nv_l;
+    lv_obj_t *nv_r;
+    lv_obj_t *nv_cell[PSK_NV_CELLS];
+    lv_obj_t *nv_cellbox[PSK_NV_CELLS];
+    lv_obj_t *nv_mix;
+    lv_obj_t *nv_finds_panel;
+    lv_obj_t *nv_find_none;
+    lv_obj_t *nv_find_more;
+    lv_obj_t *nv_find[PSK_NV_FINDS];
+    lv_obj_t *nv_find_text[PSK_NV_FINDS];
+    lv_obj_t *nv_find_sub[PSK_NV_FINDS];
+    int nv_find_tone[PSK_NV_FINDS];
+    struct psk_find nv_finds[PSK_NV_FINDS];
+    unsigned nv_nfinds;
+    lv_obj_t *nv_diag[PSK_NV_DIAGS];
+    lv_obj_t *nv_diag_sev[PSK_NV_DIAGS];
+    lv_obj_t *nv_diag_text[PSK_NV_DIAGS];
+    lv_obj_t *nv_host_none;
+    lv_obj_t *nv_host[PSK_NV_HOSTS];
+    lv_obj_t *nv_host_l1[PSK_NV_HOSTS];
+    lv_obj_t *nv_host_l2[PSK_NV_HOSTS];
+    lv_obj_t *nv_host_bar[PSK_NV_HOSTS];
+    int nv_host_share[PSK_NV_HOSTS];
 
     /* state */
     struct psk_session *session;
@@ -439,8 +484,10 @@ struct psk_app {
  * "end0", "end1", "hex", "layer0".."layer7", "field0".."field9"; M7-M9:
  * "signals", "sig0".."sig5", "saves", "save0".."save5", "top", "back",
  * "inspect", "finding0".."finding7"; M11.1: "diag0" (DNS), "diag1" (TCP),
- * "dsheet", "dline0".."dline9", "detail0".."detail7"), and the measured
- * costs. */
+ * "dsheet", "dline0".."dline9", "detail0".."detail7"; M12.1: "diag2" (the
+ * network's line on LIVE), "netpage", "netclose", "netnote", "netcell0"..
+ * "netcell3", "netfind0".."netfind5", "netdiag0".."netdiag3" (DHCP, ARP,
+ * DNS, TCP), "nethost0".."nethost7"), and the measured costs. */
 lv_obj_t *psk_app_part(void *priv, const char *name);
 void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset);
 
@@ -514,7 +561,14 @@ bool psk_fsheet_shown(const struct psk_app *a);
  * "REFUSED CONNECTIONS" (a diagnosis, M11.1). */
 const char *psk_filter_words(uint8_t classes, const char *host, uint16_t port, bool pinned, unsigned signals,
                              unsigned diag, char *buf, size_t buflen);
-/* The diagnosis sheet (M11.1): DNS or TCP (enum psk_diag_kind). */
+/* ui/psk_netview.c: the network overview (M12.1), LIVE's second face. */
+void psk_net_build(struct psk_app *a, lv_obj_t *page);
+void psk_net_shape(struct psk_app *a);
+void psk_net_paint(struct psk_app *a);
+void psk_net_show(struct psk_app *a, bool on);
+bool psk_net_shown(const struct psk_app *a);
+/* The diagnosis sheet (M11.1): DNS or TCP (enum psk_diag_kind); DHCP, ARP,
+ * or one finding - a->ds_event - and its evidence (M12.1). */
 void psk_dsheet_build(struct psk_app *a);
 void psk_dsheet_show(struct psk_app *a, unsigned kind);
 void psk_dsheet_paint(struct psk_app *a);
@@ -557,6 +611,11 @@ void psk_inspect_paint(struct psk_app *a);
 void psk_set_hidden(lv_obj_t *obj, bool hidden);
 void psk_text(lv_obj_t *label, const char *text);
 lv_obj_t *psk_box(lv_obj_t *parent);
+/* A hairline panel with its title in the top line, and a figure under its
+ * caption (the value's label is returned), as LIVE's own. */
+lv_obj_t *psk_panel(lv_obj_t *parent, const char *title);
+/* Whatever holds a column of panels lets their titles reach above them. */
+void psk_titles_out(lv_obj_t *holder);
 lv_obj_t *psk_button(lv_obj_t *parent, const char *text, bool primary, lv_event_cb_t cb, void *user);
 void psk_button_look(lv_obj_t *b, bool primary, bool enabled);
 

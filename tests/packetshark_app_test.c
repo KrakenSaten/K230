@@ -3022,6 +3022,334 @@ static void m7_m9(bool portrait)
     CHECK("closing leaves no helper", no_child());
 }
 
+/* ---- M12.1: the network intelligence ------------------------------------------------------ */
+
+static lv_obj_t *net_page(void)
+{
+    return psk_app_part(app_priv, "netpage");
+}
+
+/* The overview's lists have come: a device and a finding are on the page. */
+static bool wait_net(int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end) {
+        if (app()->model->have_net_lists && app()->model->net.nhosts > 0 && app()->nv_nfinds > 0) {
+            return true;
+        }
+        pump(20);
+    }
+    return false;
+}
+
+static void open_overview(void)
+{
+    struct psk_app *a = app();
+
+    psk_select_tab(a, PSK_TAB_LIVE);
+    if (!psk_net_shown(a)) {
+        tap_obj(psk_app_part(app_priv, "diag2"));
+    }
+    pump(100);
+    wait_net(2500);
+}
+
+/* The page's finding with this title, or NULL. */
+static lv_obj_t *finding_row(const char *title)
+{
+    lv_obj_t *l = containing_in(net_page(), title);
+
+    return l ? clickable_of(l) : NULL;
+}
+
+static void m12(bool portrait)
+{
+    struct psk_app *a;
+    const struct psk_model *m;
+    char sum[96];
+    char b[64];
+    uint32_t seq;
+    int64_t poll = 0;
+    int64_t frame = 0;
+    unsigned sev;
+    unsigned i;
+    int n;
+    int ok;
+    int bad;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:2000:1", 1);
+    app_start();
+    a = app();
+    m = a->model;
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    /* A DHCP DISCOVER is called unanswered after 10 s; the synthetic source
+     * sends its first one nobody answers at 1.3 s. */
+    pump(12200);
+
+    /* LIVE: the network's line under DNS and TCP. */
+    {
+        lv_obj_t *r = psk_app_part(app_priv, "diag2");
+
+        if (r) {
+            lv_obj_scroll_to_view_recursive(r, LV_ANIM_OFF);
+            pump(60);
+        }
+        sev = psk_diag_summary(m, PSK_DIAG_NET, sum, sizeof(sum));
+        ok = m->have_net && r && target_ok(r, 56, "the network's line") && containing_in(r, "NETWORK") &&
+             strstr(sum, " DEVICES") && strstr(sum, " DHCP SERVERS") && sev == PSK_SEV_WARN &&
+             strncmp(lv_label_get_text(a->diag_text[2]), sum, 8) == 0 && containing_in(r, "! CHECK");
+        if (!ok) {
+            printf("     NETWORK: '%s' sev %u\n", sum, sev);
+        }
+        CHECK("LIVE has a NETWORK line: devices, DHCP servers, what to check, with its severity", ok);
+        CHECK("nothing on LIVE is clipped with it", audit_page() + dots_wrapped(app_body) == 0);
+        CHECK("LIVE alone asks the helper for no list", !m->have_net_lists && m->want_net == 0);
+        shot("m12-live");
+        tap_obj(r);
+    }
+    pump(100);
+    ok = psk_net_shown(a) && net_page() && !lv_obj_has_flag(net_page(), LV_OBJ_FLAG_HIDDEN) &&
+         lv_obj_has_flag(a->page[PSK_TAB_LIVE], LV_OBJ_FLAG_HIDDEN) && a->cur == PSK_TAB_LIVE;
+    CHECK("a tap on it opens the network overview in LIVE's place", ok && shown("Network overview"));
+    CHECK("the tabs, the state and the capture's buttons stay (ADR-016 rule 13)",
+          hint_is("CAPTURING · SYNTH0") && shown("STOP") && shown("PACKETS") && enabled("STOP"));
+    CHECK("its lists arrive within a second", wait_net(2500));
+    pump(300);
+    ok = strcmp(lv_label_get_text(psk_app_part(app_priv, "netcell0")), psk_fmt_count(m->nt.hosts, b, sizeof(b))) == 0 &&
+         m->nt.hosts >= 10 && strcmp(lv_label_get_text(psk_app_part(app_priv, "netcell1")), "2") == 0 &&
+         m->nt.arp_binds > 0 && m->nt.events_warn >= 4;
+    CHECK("the figures: devices, two DHCP servers, ARP addresses, what to check", ok);
+    ok = containing_in(net_page(), "SECOND DHCP SERVER ANSWERING") && containing_in(net_page(), "TWO DEVICES CLAIM ONE ADDRESS") &&
+         containing_in(net_page(), "ADDRESS CONFLICT SEEN") && containing_in(net_page(), "DHCP SERVER REFUSED A REQUEST") &&
+         containing_in(net_page(), "192.0.2.77") && a->nv_nfinds >= 4;
+    if (!ok) {
+        dump_in(net_page());
+    }
+    CHECK("the findings: a second server, a duplicate, a conflict and a refusal, each with its address", ok);
+    ok = true;
+    for (i = 0; i < a->nv_nfinds; i++) {
+        /* Warnings first, and every warning with `!` (DS §59.2). */
+        const char *t = lv_label_get_text(a->nv_find_text[i]);
+
+        ok = ok && (a->nv_finds[i].sev == PSK_SEV_WARN) == (strncmp(t, "! ", 2) == 0) &&
+             (i == 0 || a->nv_finds[i - 1].sev >= a->nv_finds[i].sev);
+    }
+    CHECK("warnings come first, each with its mark", ok);
+    ok = true;
+    for (i = 0; i < PSK_NV_DIAGS; i++) {
+        static const char *const word[PSK_NV_DIAGS] = { "DHCP", "ARP", "DNS", "TCP" };
+        char name[12];
+        lv_obj_t *r;
+
+        snprintf(name, sizeof(name), "netdiag%u", i);
+        r = psk_app_part(app_priv, name);
+        ok = ok && r && containing_in(r, word[i]) && lv_label_get_text(a->nv_diag_text[i])[0] != '\0';
+    }
+    CHECK("the diagnosis: DHCP, ARP, DNS and TCP, each with a line", ok);
+    CHECK("DHCP and ARP say CHECK: two servers, a duplicate address",
+          containing_in(psk_app_part(app_priv, "netdiag0"), "! CHECK") &&
+              containing_in(psk_app_part(app_priv, "netdiag1"), "! CHECK"));
+    ok = m->net.nhosts >= 2 && containing_in(net_page(), "ROUTER") && containing_in(net_page(), "DHCP SERVER") &&
+         containing_in(net_page(), "THIS DEVICE") && containing_in(net_page(), " PKT ");
+    CHECK("the devices: the router and DHCP server, this device, each with its frames and bytes", ok);
+    CHECK("the device that sent the most is first", m->net.nhosts >= 2 && m->net.host[0].bytes >= m->net.host[1].bytes);
+    ok = true;
+    for (i = 0; i < a->nv_nfinds; i++) {
+        lv_obj_scroll_to_view_recursive(a->nv_find[i], LV_ANIM_OFF);
+        ok = ok && target_ok(a->nv_find[i], 56, "a finding");
+    }
+    for (i = 0; i < m->net.nhosts && i < PSK_NV_HOSTS; i++) {
+        lv_obj_scroll_to_view_recursive(a->nv_host[i], LV_ANIM_OFF);
+        ok = ok && target_ok(a->nv_host[i], 56, "a device");
+    }
+    lv_obj_scroll_to_y(net_page(), 0, LV_ANIM_OFF);
+    CHECK("every row of the overview is a 56 px target inside the body", ok);
+    CHECK("nothing in the overview is clipped or overlapping", audit_page() + dots_wrapped(net_page()) == 0);
+    shot("m12-network");
+    lv_obj_scroll_to_view_recursive(psk_app_part(app_priv, "netdiag0"), LV_ANIM_OFF);
+    pump(60);
+    shot("m12-network-diagnosis");
+    lv_obj_scroll_to_y(net_page(), LV_COORD_MAX, LV_ANIM_OFF);
+    pump(60);
+    shot("m12-network-devices");
+    lv_obj_scroll_to_y(net_page(), 0, LV_ANIM_OFF);
+
+    /* A finding and its evidence. */
+    tap_obj(finding_row("TWO DEVICES CLAIM ONE ADDRESS"));
+    pump(150);
+    ok = psk_dsheet_shown(a) && shown("Finding") && containing_in(a->dsheet, "! TWO DEVICES CLAIM ONE ADDRESS") &&
+         containing_in(a->dsheet, "192.0.2.77 was claimed by 02:00:5e:30:00:a") &&
+         containing_in(a->dsheet, "WHAT IT MAY MEAN") && containing_in(a->dsheet, "potential duplicate address") &&
+         containing_in(a->dsheet, "EVIDENCE") && containing_in(a->dsheet, "OPEN") && containing_in(a->dsheet, "LIST") &&
+         containing_in(a->dsheet, "Passive: nothing was sent to check");
+    CHECK("a finding opens its sheet: what was seen, what it may mean, its evidence, and how far to trust it", ok);
+    CHECK("nothing in the finding's sheet is clipped or broken", dots_wrapped(a->dsheet) == 0);
+    shot("m12-finding");
+    seq = a->insp_shown;
+    tap_obj(clickable_of(containing_in(a->dsheet, "EVIDENCE")));
+    ok = wait_packet(seq, 1500) && m->pkt.head.cls == PPC_CLASS_ARP && m->pkt.head.seq == a->ds_event.seq &&
+         !psk_dsheet_shown(a) && psk_inspect_visible(a);
+    CHECK("its evidence opens the ARP packet that showed it, in INSPECT", ok);
+    shot("m12-finding-packet");
+    psk_select_tab(a, PSK_TAB_LIVE);
+    pump(100);
+    CHECK("back on LIVE the overview is where it was left", psk_net_shown(a) && !lv_obj_has_flag(net_page(), LV_OBJ_FLAG_HIDDEN));
+    tap_obj(finding_row("TWO DEVICES CLAIM ONE ADDRESS"));
+    pump(150);
+    tap_obj(clickable_of(containing_in(a->dsheet, "ARP PACKETS OF 192.0.2.77")));
+    pump(300);
+    wait_rows(1500);
+    n = rows_shown(NULL, 0);
+    ok = n > 0;
+    for (i = 0; (int)i < n; i++) {
+        ok = ok && strcmp(lv_label_get_text(a->lrow[i].word), "ARP") == 0;
+    }
+    CHECK("and its packets are the ARP messages that name the address",
+          ok && a->cur == PSK_TAB_PACKETS && a->classes == (1u << PPC_CLASS_ARP) && strcmp(a->host, "192.0.2.77") == 0);
+    shot("m12-finding-list");
+    psk_set_view(a, PPC_CLASSES_ALL, "", 0, false);
+
+    /* The DHCP sheet. */
+    open_overview();
+    tap_obj(psk_app_part(app_priv, "netdiag0"));
+    pump(300);
+    ok = psk_dsheet_shown(a) && shown("DHCP diagnosis") && containing_in(a->dsheet, "EXCHANGES ACKNOWLEDGED") &&
+         containing_in(a->dsheet, "SERVER 192.0.2.1 ") && containing_in(a->dsheet, "! SERVER 192.0.2.254") &&
+         containing_in(a->dsheet, "It gives router 192.0.2.1, DNS 192.0.2.53, mask 255.255.255.0, leases of 24 h.") &&
+         containing_in(a->dsheet, " LEASED TO 02:00:5e:20:00:1") && containing_in(a->dsheet, "The client calls itself desk-") &&
+         containing_in(a->dsheet, "REFUSED BY A SERVER (NAK)") && containing_in(a->dsheet, "DISCOVER NOT ANSWERED IN 10 S") &&
+         containing_in(a->dsheet, "Not proof of a fault");
+    if (!ok) {
+        dump_in(a->dsheet);
+    }
+    CHECK("DHCP: the exchanges, each server and what it gives, the leases, what was refused or unanswered", ok);
+    CHECK("nothing in the DHCP sheet is clipped or broken", dots_wrapped(a->dsheet) == 0);
+    shot("m12-dhcp-sheet");
+    seq = a->insp_shown;
+    tap_obj(clickable_of(containing_in(a->dsheet, " LEASED TO ")));
+    CHECK("a lease opens its ACK", wait_packet(seq, 1500) && m->pkt.head.cls == PPC_CLASS_DHCP &&
+                                       m->pkt.head.seq == m->net.lease[0].seq);
+    shot("m12-lease-packet");
+
+    /* The ARP sheet. */
+    open_overview();
+    tap_obj(psk_app_part(app_priv, "netdiag1"));
+    pump(300);
+    ok = psk_dsheet_shown(a) && shown("ARP diagnosis") && containing_in(a->dsheet, " REQUESTS") &&
+         containing_in(a->dsheet, "ADDRESS CONFLICT") && containing_in(a->dsheet, "TWO MACS CLAIMED ONE ADDRESS") &&
+         containing_in(a->dsheet, "A potential duplicate address") && containing_in(a->dsheet, "GRATUITOUS") &&
+         containing_in(a->dsheet, "PROBE") && containing_in(a->dsheet, "OF THIS DEVICE'S REQUESTS UNANSWERED");
+    if (!ok) {
+        dump_in(a->dsheet);
+    }
+    CHECK("ARP: the pairs and counts, conflicts and duplicate claims as potential, gratuitous ARP as normal", ok);
+    CHECK("nothing in the ARP sheet is clipped or broken", dots_wrapped(a->dsheet) == 0);
+    shot("m12-arp-sheet");
+    CHECK("Back closes the sheet, and the overview is under it",
+          app_packetshark.back(app_priv) == 1 && !psk_dsheet_shown(a) && psk_net_shown(a));
+
+    /* A DNS finding goes to the DNS diagnosis. */
+    {
+        lv_obj_t *r = finding_row("DNS \xc2\xb7 ");
+
+        if (r) {
+            tap_obj(r);
+            pump(150);
+            CHECK("a finding of the DNS diagnosis opens that diagnosis", psk_dsheet_shown(a) && shown("DNS diagnosis"));
+            app_packetshark.back(app_priv);
+        }
+    }
+
+    /* A device's packets. */
+    snprintf(b, sizeof(b), "%s", psk_net_host_filter(m, 0));
+    tap_obj(psk_app_part(app_priv, "nethost0"));
+    pump(300);
+    wait_rows(1500);
+    CHECK("a device lists its packets", a->cur == PSK_TAB_PACKETS && b[0] && strcmp(a->host, b) == 0 && rows_shown(NULL, 0) > 0);
+    psk_set_view(a, PPC_CLASSES_ALL, "", 0, false);
+
+    /* Cost with the overview showing: its lists once a second. */
+    open_overview();
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(4000);
+    psk_app_cost(app_priv, &poll, &frame, 0);
+    printf("     overview at 2,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll, (long long)frame);
+    CHECK("the overview's poll stays under 4 ms at 2,000 pps", poll > 0 && poll < 4000);
+
+    /* Every text size: nothing clipped (Unit B runs at Large). */
+    bad = 0;
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        pos_theme_select_text_size((enum pos_text_size)i);
+        pump(200);
+        lv_obj_scroll_to_y(net_page(), 0, LV_ANIM_OFF);
+        n = audit_page() + dots_wrapped(net_page());
+        if (n) {
+            printf("     overview at text size %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), n);
+        }
+        bad += n;
+        if (i == POS_TEXT_SIZE_LARGE) {
+            shot("m12-network-large");
+            tap_obj(psk_app_part(app_priv, "netdiag0"));
+            pump(200);
+            n = dots_wrapped(a->dsheet);
+            bad += n;
+            shot("m12-dhcp-sheet-large");
+            app_packetshark.back(app_priv);
+            pump(60);
+        }
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(200);
+    CHECK("every text size: the overview and its sheet have nothing clipped or overlapping", bad == 0);
+
+    /* HOLD: what waited is let go, and the page says so. */
+    psk_do(a, PSK_ACT_HOLD);
+    pump(700);
+    psk_do(a, PSK_ACT_RESUME);
+    pump(1600);
+    CHECK("after a HOLD the overview says packets passed unjudged",
+          m->nt.blinded >= 1 && strstr(lv_label_get_text(psk_app_part(app_priv, "netnote")), "passed unjudged"));
+
+    /* Back, one level at a time. */
+    CHECK("Back leaves the overview for LIVE",
+          app_packetshark.back(app_priv) == 1 && !psk_net_shown(a) && a->cur == PSK_TAB_LIVE &&
+              !lv_obj_has_flag(a->page[PSK_TAB_LIVE], LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(net_page(), LV_OBJ_FLAG_HIDDEN));
+    open_overview();
+    psk_key(a, '1');
+    pump(60);
+    CHECK("key 1 on the overview is LIVE's first face", !psk_net_shown(a) && a->cur == PSK_TAB_LIVE);
+
+    /* A stopped capture is still read. */
+    open_overview();
+    psk_do(a, PSK_ACT_STOP);
+    pump(900);
+    seq = a->insp_shown;
+    ok = m->state == PPC_STATE_STOPPED && psk_net_shown(a) && a->nv_nfinds > 0;
+    tap_obj(finding_row("ADDRESS CONFLICT SEEN"));
+    pump(150);
+    ok = ok && psk_dsheet_shown(a) && containing_in(a->dsheet, "probed for 192.0.2.88") &&
+         containing_in(a->dsheet, "Confirmed by the exchange itself");
+    tap_obj(clickable_of(containing_in(a->dsheet, "EVIDENCE")));
+    CHECK("stopped: the overview stays, and a finding's evidence still opens",
+          ok && wait_packet(seq, 1500) && m->pkt.head.cls == PPC_CLASS_ARP);
+    shot("m12-stopped-evidence");
+
+    /* A new capture starts from nothing. */
+    psk_select_tab(a, PSK_TAB_LIVE);
+    tap("NEW CAPTURE");
+    pump(100);
+    tap_last("NEW CAPTURE");
+    pump(600);
+    CHECK("NEW CAPTURE leaves the overview: setup shows, and nothing of the last network",
+          !psk_net_shown(a) && lv_obj_has_flag(net_page(), LV_OBJ_FLAG_HIDDEN) && shown("START CAPTURE") &&
+              !a->model->have_net_lists);
+    (void)portrait;
+    app_stop();
+    CHECK("closing leaves no helper", no_child());
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -3072,6 +3400,7 @@ int main(void)
     m4_live(true);
     m5_m6(true);
     m7_m9(true);
+    m12(true);
     faults();
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     shot_orientation = "landscape";
@@ -3083,6 +3412,7 @@ int main(void)
     m4_live(false);
     m5_m6(false);
     m7_m9(false);
+    m12(false);
     shot_orientation = "portrait";
     use_display(POS_ROTATION_0);
     cycles();

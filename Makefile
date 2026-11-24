@@ -2298,7 +2298,7 @@ PPC_DIR := core/pocketpcap
 PPC_APP_OBJS := $(PPC_DIR)/ppc_proto.o
 PPC_CORE_OBJS := $(PPC_APP_OBJS) $(PPC_DIR)/ppc_format.o $(PPC_DIR)/ppc_decode.o $(PPC_DIR)/ppc_pcapfile.o \
                  $(PPC_DIR)/ppc_store.o $(PPC_DIR)/ppc_stats.o $(PPC_DIR)/ppc_view.o $(PPC_DIR)/ppc_dissect.o \
-                 $(PPC_DIR)/ppc_signals.o
+                 $(PPC_DIR)/ppc_signals.o $(PPC_DIR)/ppc_net.o
 PPC_SRC_OBJS := $(PPC_DIR)/ppc_source.o $(PPC_DIR)/ppc_source_file.o $(PPC_DIR)/ppc_source_synth.o
 ifeq ($(PACKETSHARK_PCAP),1)
 PPC_LIVE_OBJ := $(PPC_DIR)/ppc_source_pcap.o
@@ -2311,11 +2311,11 @@ endif
 PPC_OBJS := $(PPC_CORE_OBJS) $(PPC_SRC_OBJS) $(PPC_LIVE_OBJ)
 POS_CAPTURE_OBJS := tools/capture/pos_capture.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 PSK_DIR := apps/packetshark
-PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_saves.o
+PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PSK_DIR)/psk_saves.o
 PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test \
                      tests/ppc_stats_test tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures \
-                     tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/psk_model_test \
-                     tests/psk_session_test tests/psk_remote_test
+                     tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test \
+                     tests/psk_model_test tests/psk_net_test tests/psk_session_test tests/psk_remote_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
@@ -2331,13 +2331,13 @@ tests/psk_%.o: tests/psk_%.c
 
 tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test tests/ppc_stats_test \
 tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures tests/ppc_view_test \
-tests/ppc_dissect_test tests/ppc_signals_test: tests/%: tests/%.o $(PPC_OBJS)
+tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test: tests/%: tests/%.o $(PPC_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
 
-tests/psk_model_test: tests/psk_model_test.o $(PSK_DIR)/psk_model.o $(PPC_APP_OBJS)
+tests/psk_model_test tests/psk_net_test: tests/%: tests/%.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
-tests/psk_remote_test: tests/psk_remote_test.o $(PSK_DIR)/psk_remote.o $(PSK_DIR)/psk_model.o $(PPC_APP_OBJS)
+tests/psk_remote_test: tests/psk_remote_test.o $(PSK_DIR)/psk_remote.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lcjson -lm
 
 tests/psk_session_test: tests/psk_session_test.o $(PSK_OBJS) $(PPC_APP_OBJS)
@@ -2349,9 +2349,10 @@ tests/psk_session_test: tests/psk_session_test.o $(PSK_OBJS) $(PPC_APP_OBJS)
 PACKETSHARK_FUZZ_S ?= 5
 PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/ppc_store_test && ./tests/ppc_stats_test && ./tests/ppc_proto_test && \
-    ./tests/ppc_view_test && ./tests/ppc_dissect_test && ./tests/ppc_signals_test && \
+    ./tests/ppc_view_test && ./tests/ppc_dissect_test && ./tests/ppc_signals_test && ./tests/ppc_net_test && \
     mkdir -p out/packetshark-fixtures && ./tests/ppc_mkfixtures out/packetshark-fixtures &&     ./tests/ppc_fuzz -seconds $(PACKETSHARK_FUZZ_S) tests/data/packetshark out/packetshark-fixtures && \
-    ./tests/psk_model_test && ./tests/psk_remote_test && ./tests/psk_session_test tools/capture/pos-capture && \
+    ./tests/psk_model_test && ./tests/psk_net_test && ./tests/psk_remote_test && \
+    ./tests/psk_session_test tools/capture/pos-capture && \
     bash tests/pos_capture_test.sh tools/capture/pos-capture tests/ppc_mkfixtures && \
     bash tests/packetshark_lint.sh
 packetshark-test: tools/capture/pos-capture $(PACKETSHARK_TESTS)
@@ -2372,20 +2373,24 @@ packetshark-san-test:
 	rm -rf $(PSK_SAN_DIR) && mkdir -p $(PSK_SAN_DIR)/tests/data $(PSK_SAN_DIR)/tools/capture
 	cp -r tests/data/packetshark $(PSK_SAN_DIR)/tests/data/
 	set -e; for t in ppc_decode_test ppc_pcapfile_test ppc_store_test ppc_stats_test ppc_proto_test ppc_fuzz ppc_mkfixtures \
-	    ppc_view_test ppc_dissect_test ppc_signals_test; do \
+	    ppc_view_test ppc_dissect_test ppc_signals_test ppc_net_test; do \
 	    $(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/$$t tests/$$t.c $(PPC_SAN_SRCS); done
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_model_test tests/psk_model_test.c \
-	    $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lm
+	    $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lm
+	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_net_test tests/psk_net_test.c \
+	    $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_remote_test tests/psk_remote_test.c \
-	    $(PSK_DIR)/psk_remote.c $(PSK_DIR)/psk_model.c $(PPC_DIR)/ppc_proto.c -lcjson -lm
+	    $(PSK_DIR)/psk_remote.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lcjson -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_session_test tests/psk_session_test.c \
-	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_saves.c $(PPC_DIR)/ppc_proto.c -lm
+	    $(PSK_DIR)/psk_session.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PSK_DIR)/psk_saves.c \
+	    $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tools/capture/pos-capture tools/capture/pos_capture.c \
 	    $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
 	    ASAN_OPTIONS=allocator_may_return_null=1 ./tests/ppc_store_test && \
 	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
-	    ./tests/ppc_signals_test && ./tests/psk_model_test && ./tests/psk_remote_test && \
+	    ./tests/ppc_signals_test && ./tests/ppc_net_test && ./tests/psk_model_test && ./tests/psk_net_test && \
+	    ./tests/psk_remote_test && \
 	    mkdir -p fixtures && ./tests/ppc_mkfixtures fixtures && 	    ./tests/ppc_fuzz -seconds $(PACKETSHARK_SAN_FUZZ_S) tests/data/packetshark fixtures
 	cd $(PSK_SAN_DIR) && ASAN_OPTIONS=handle_segv=0 ./tests/psk_session_test tools/capture/pos-capture
 	ASAN_OPTIONS=handle_segv=0 bash tests/pos_capture_test.sh $(PSK_SAN_DIR)/tools/capture/pos-capture \

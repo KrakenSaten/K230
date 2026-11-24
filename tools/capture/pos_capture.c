@@ -47,6 +47,7 @@
 #include "pocketpcap/ppc_format.h"
 #include "pocketpcap/ppc_pcapfile.h"
 #include "pocketpcap/ppc_proto.h"
+#include "pocketpcap/ppc_net.h"
 #include "pocketpcap/ppc_signals.h"
 #include "pocketpcap/ppc_source.h"
 #include "pocketpcap/ppc_stats.h"
@@ -137,6 +138,10 @@ struct helper {
     int view_stale;           /* a finding was added to a stored packet: the view is rebuilt */
     uint64_t next_signal_ms;
     uint64_t next_diag_ms;    /* the DNS and TCP diagnosis (M11.1) */
+    /* the network intelligence (M12.1): devices, ARP, DHCP, events */
+    struct ppc_net net;
+    int net_ready;
+    uint64_t next_net_ms;
     /* SAVE (M8): one file, written a batch a turn so the helper keeps answering */
     int save_fd;              /* -1: none being written */
     char save_name[PPC_SAVE_NAME];
@@ -506,6 +511,42 @@ static int say_diag(struct helper *h, int snapshot)
     return out_line(h, line, ppc_evt_format_diag(line, sizeof(line), &d), snapshot);
 }
 
+/* The network intelligence's totals (M12.1). A snapshot like the diagnosis. */
+static int say_net(struct helper *h, int snapshot)
+{
+    char line[PPC_LINE_MAX];
+    struct ppc_net_totals t;
+
+    if (!h->net_ready) {
+        return 0;
+    }
+    ppc_net_totals(&h->net, &t);
+    return out_line(h, line, ppc_evt_format_net(line, sizeof(line), &t), snapshot);
+}
+
+/* Both once a second, as one snapshot: two snapshots in a turn would have
+ * the second dropped as unread behind the first. */
+static int say_figures(struct helper *h)
+{
+    char line[2 * PPC_LINE_MAX];
+    struct ppc_diag d;
+    struct ppc_net_totals t;
+    int len = 0;
+    int k;
+
+    if (h->sig_ready) {
+        ppc_signals_diag(&h->sig, &d);
+        k = ppc_evt_format_diag(line, PPC_LINE_MAX, &d);
+        len = k > 0 ? k : 0;
+    }
+    if (h->net_ready) {
+        ppc_net_totals(&h->net, &t);
+        k = ppc_evt_format_net(line + len, PPC_LINE_MAX, &t);
+        len += k > 0 ? k : 0;
+    }
+    return len ? out_line(h, line, len, 1) : 0;
+}
+
 /* The view as it is now. A finding added to a packet the view had already
  * passed (above) makes a view that filters on findings rebuild itself. */
 static void view_refresh(struct helper *h)
@@ -560,6 +601,9 @@ static void on_frame(void *ctx, const struct ppc_frame *f)
             count_signals(h, r.signal);
         }
     }
+    if (h->net_ready) {
+        ppc_net_frame(&h->net, &r, f->data, f->cap_len, pay, h->store.last_seq + 1u);
+    }
     ppc_store_add(&h->store, &r, f->data, ppc_store_len(&r, pay, f->cap_len, h->keep));
     ppc_stats_frame(&h->st, r.cls, r.wire_len, PPC_FATE_STORED);
 }
@@ -590,6 +634,7 @@ static void stop_capture(struct helper *h, enum ppc_reason why, const char *deta
         say_state(h);
         say_stats(h, 0);
         say_diag(h, 0);
+        say_net(h, 0);
     }
 }
 
@@ -631,6 +676,9 @@ static void ingest(struct helper *h)
             if (h->sig_ready) {
                 ppc_signals_blind(&h->sig);
             }
+            if (h->net_ready) {
+                ppc_net_blind(&h->net);
+            }
             LOG_WARN("capture: falling behind, counting without storing");
             say_note(h, "shed", "1");
         }
@@ -670,6 +718,8 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     ppc_view_set(&h->view, &h->store, h->pend_id, h->pend_sort, &h->pend_f);
     /* Findings need their table; a capture without it still captures. */
     h->sig_ready = ppc_signals_init(&h->sig, PPC_SIG_FLOWS) == 0;
+    /* The same of the network intelligence and its tables. */
+    h->net_ready = ppc_net_init(&h->net) == 0;
     memset(&o, 0, sizeof(o));
     o.iface = c->iface;
     o.keep = (enum ppc_keep)c->keep;
@@ -685,6 +735,10 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
         if (h->sig_ready) {
             ppc_signals_free(&h->sig);
             h->sig_ready = 0;
+        }
+        if (h->net_ready) {
+            ppc_net_free(&h->net);
+            h->net_ready = 0;
         }
         ppc_store_free(&h->store);
         h->store_ready = 0;
@@ -706,6 +760,7 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     h->next_link_ms = h->start_ms + LINK_EVERY_MS;
     h->next_signal_ms = h->start_ms + SIGNAL_EVERY_MS;
     h->next_diag_ms = h->start_ms + DIAG_EVERY_MS;
+    h->next_net_ms = h->start_ms + DIAG_EVERY_MS;
     h->state = PPC_STATE_CAPTURING;
     h->reason = PPC_REASON_NONE;
     LOG_INFO("capture: start %s source=%s keep=%s promisc=%d filter=%s limit=%us", c->iface,
@@ -720,6 +775,9 @@ static void cmd_hold(struct helper *h, int on)
         h->state = PPC_STATE_HOLD;
         if (h->sig_ready) {
             ppc_signals_blind(&h->sig); /* answers pass unseen from here */
+        }
+        if (h->net_ready) {
+            ppc_net_blind(&h->net);
         }
     } else if (!on && h->state == PPC_STATE_HOLD) {
         h->state = PPC_STATE_CAPTURING;
@@ -1704,6 +1762,135 @@ static void save_step(struct helper *h)
     say_saved(h, PPC_SAVE_DONE, h->save_name, 0);
 }
 
+/* ---- the network intelligence's answer (M12.1) ------------------------------------------ */
+
+static const uint8_t no_addr[6];
+
+/* An address as text, or "" when there is none (all zeros). */
+static const char *ip_text(const uint8_t *ip, char *b, size_t n)
+{
+    if (memcmp(ip, no_addr, 4) == 0) {
+        b[0] = '\0';
+    } else {
+        snprintf(b, n, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    }
+    return b;
+}
+
+static const char *mac_text(const uint8_t *m, char *b, size_t n)
+{
+    if (memcmp(m, no_addr, 6) == 0) {
+        b[0] = '\0';
+    } else {
+        snprintf(b, n, "%02x:%02x:%02x:%02x:%02x:%02x", m[0], m[1], m[2], m[3], m[4], m[5]);
+    }
+    return b;
+}
+
+/* The devices, servers, leases and events as they stand, after the totals:
+ * built first and queued whole, like the inspector's packet. An answer that
+ * does not fit now is not sent; the app asks again within a second. */
+static void cmd_net(struct helper *h, const struct ppc_cmd *c)
+{
+    static char buf[8 * 1024];
+    const struct ppc_net_host *hosts[PPC_NET_WIRE_HOSTS];
+    const struct ppc_net_server *servers[PPC_NET_WIRE_SERVERS];
+    const struct ppc_net_lease *leases[PPC_NET_WIRE_LEASES];
+    const struct ppc_net_event *events[PPC_NET_WIRE_EVENTS];
+    char line[PPC_LINE_MAX];
+    size_t len = 0;
+    unsigned n;
+    unsigned i;
+    int k;
+
+    if (!h->net_ready) {
+        say_error(h, "state", "nothing has been captured");
+        return;
+    }
+#define NET_ADD(expr)                                                                                                  \
+    do {                                                                                                               \
+        k = (expr);                                                                                                    \
+        if (k > 0 && len + (size_t)k <= sizeof(buf)) {                                                                 \
+            memcpy(buf + len, line, (size_t)k);                                                                        \
+            len += (size_t)k;                                                                                          \
+        }                                                                                                              \
+    } while (0)
+    NET_ADD(ppc_evt_format_net_begin(line, sizeof(line), c->req));
+    n = ppc_net_top(&h->net, hosts, PPC_NET_WIRE_HOSTS);
+    for (i = 0; i < n; i++) {
+        struct ppc_evt_net_host e;
+
+        memset(&e, 0, sizeof(e));
+        mac_text(hosts[i]->mac, e.mac, sizeof(e.mac));
+        if (hosts[i]->flags & PPC_NH_IP) {
+            ip_text(hosts[i]->ip, e.ip, sizeof(e.ip));
+        }
+        e.flags = hosts[i]->flags;
+        e.pkts = hosts[i]->pkts;
+        e.bytes = hosts[i]->bytes;
+        snprintf(e.name, sizeof(e.name), "%s", hosts[i]->name);
+        NET_ADD(ppc_evt_format_net_host(line, sizeof(line), &e));
+    }
+    n = ppc_net_servers(&h->net, servers, PPC_NET_WIRE_SERVERS);
+    for (i = 0; i < n; i++) {
+        struct ppc_evt_net_srv e;
+
+        memset(&e, 0, sizeof(e));
+        ip_text(servers[i]->ip, e.ip, sizeof(e.ip));
+        mac_text(servers[i]->mac, e.mac, sizeof(e.mac));
+        e.relayed = servers[i]->relayed;
+        e.offers = servers[i]->offers;
+        e.acks = servers[i]->acks;
+        e.naks = servers[i]->naks;
+        e.seq = servers[i]->seq;
+        e.lease_s = servers[i]->lease_s;
+        ip_text(servers[i]->router, e.router, sizeof(e.router));
+        ip_text(servers[i]->dns, e.dns, sizeof(e.dns));
+        ip_text(servers[i]->mask, e.mask, sizeof(e.mask));
+        NET_ADD(ppc_evt_format_net_srv(line, sizeof(line), &e));
+    }
+    n = ppc_net_leases(&h->net, leases, PPC_NET_WIRE_LEASES);
+    for (i = 0; i < n; i++) {
+        struct ppc_evt_net_lease e;
+
+        memset(&e, 0, sizeof(e));
+        ip_text(leases[i]->ip, e.ip, sizeof(e.ip));
+        mac_text(leases[i]->mac, e.mac, sizeof(e.mac));
+        ip_text(leases[i]->server, e.server, sizeof(e.server));
+        e.lease_s = leases[i]->lease_s;
+        e.rel_us = leases[i]->ns / 1000u;
+        e.seq = leases[i]->seq;
+        snprintf(e.name, sizeof(e.name), "%s", leases[i]->name);
+        NET_ADD(ppc_evt_format_net_lease(line, sizeof(line), &e));
+    }
+    n = ppc_net_events(&h->net, events, PPC_NET_WIRE_EVENTS);
+    for (i = 0; i < n; i++) {
+        struct ppc_evt_net_event e;
+
+        memset(&e, 0, sizeof(e));
+        e.kind = events[i]->kind;
+        e.sev = events[i]->sev;
+        e.count = events[i]->count;
+        e.seq = events[i]->seq;
+        e.first_us = events[i]->first_ns / 1000u;
+        e.last_us = events[i]->last_ns / 1000u;
+        ip_text(events[i]->ip, e.ip, sizeof(e.ip));
+        mac_text(events[i]->mac, e.mac, sizeof(e.mac));
+        ip_text(events[i]->ip2, e.ip2, sizeof(e.ip2));
+        mac_text(events[i]->mac2, e.mac2, sizeof(e.mac2));
+        NET_ADD(ppc_evt_format_net_evt(line, sizeof(line), &e));
+    }
+    NET_ADD(ppc_evt_format_net_end(line, sizeof(line), c->req));
+#undef NET_ADD
+    if (sizeof(h->out) - h->out_len < len + PPC_LINE_MAX) {
+        return;
+    }
+    say_net(h, 0);
+    memcpy(h->out + h->out_len, buf, len);
+    h->out_len += len;
+    out_flush(h);
+}
+
 /* One command line. Returns 0 to go on, 1 to leave. */
 static int command(struct helper *h, const char *line)
 {
@@ -1726,6 +1913,10 @@ static int command(struct helper *h, const char *line)
     case PPC_CMD_STATS:
         say_stats(h, 0);
         say_diag(h, 0);
+        say_net(h, 0);
+        return 0;
+    case PPC_CMD_NET:
+        cmd_net(h, &c);
         return 0;
     case PPC_CMD_WINDOW:
         cmd_window(h, &c);
@@ -1838,8 +2029,17 @@ static void tick(struct helper *h, uint64_t now)
         h->next_signal_ms = now + SIGNAL_EVERY_MS;
         ppc_signals_expire(&h->sig, ppc_timebase_rel(&h->tb, wall), on_late_signal, h);
     }
-    if (h->sig_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD) && now >= h->next_diag_ms &&
-        say_diag(h, 1) == 0) {
+    /* The network intelligence's late decisions, by the same rule: only
+     * while every frame is seen. Twice a second while something waits. */
+    if (h->net_ready && ppc_net_pending(&h->net) && h->tb.started && now >= h->next_net_ms &&
+        h->state == PPC_STATE_CAPTURING && !h->shed) {
+        uint64_t wall = h->src_open && h->src.ops->wall_ns ? h->src.ops->wall_ns(&h->src) : clock_ns(CLOCK_REALTIME);
+
+        h->next_net_ms = now + SIGNAL_EVERY_MS;
+        ppc_net_expire(&h->net, ppc_timebase_rel(&h->tb, wall));
+    }
+    if ((h->sig_ready || h->net_ready) && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD) &&
+        now >= h->next_diag_ms && say_figures(h) == 0) {
         h->next_diag_ms = now + DIAG_EVERY_MS;
     }
     if (h->src_open && h->src.live && now >= h->next_link_ms) {
@@ -1947,6 +2147,10 @@ static int run_session(const char *source_spec)
     if (h.sig_ready) {
         ppc_signals_free(&h.sig);
         h.sig_ready = 0;
+    }
+    if (h.net_ready) {
+        ppc_net_free(&h.net);
+        h.net_ready = 0;
     }
     if (h.store_ready) {
         ppc_store_free(&h.store);
@@ -2077,6 +2281,8 @@ static int run_bench(uint64_t frames)
     double ns_store;
     double ns_account;
     double ns_format;
+    double ns_net = 0;
+    struct ppc_net net;
     uint64_t rows;
 
     for (i = 0; i < BENCH_TEMPLATES; i++) {
@@ -2124,6 +2330,27 @@ static int run_bench(uint64_t frames)
     }
     ns_account = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / (double)frames;
 
+    /* The network intelligence on every frame (M12.1), beside the decoder
+     * it follows: its cost is the difference to the first figure. */
+    if (ppc_net_init(&net) == 0) {
+        t0 = clock_ns(CLOCK_MONOTONIC);
+        for (i = 0; i < frames; i++) {
+            uint32_t pay;
+
+            f.data = tpl[i % BENCH_TEMPLATES];
+            f.cap_len = f.wire_len = tpl_len[i % BENCH_TEMPLATES];
+            pay = ppc_decode(&f, &r);
+            r.rel_ns = i * 500000u;
+            ppc_net_frame(&net, &r, f.data, f.cap_len, pay, (uint32_t)i + 1u);
+            if ((i & 1023u) == 0) {
+                ppc_net_expire(&net, r.rel_ns);
+            }
+        }
+        ns_net = (double)(clock_ns(CLOCK_MONOTONIC) - t0) / (double)frames;
+        sink += net.st.hosts;
+        ppc_net_free(&net);
+    }
+
     rows = frames / 10u ? frames / 10u : 1u;
     t0 = clock_ns(CLOCK_MONOTONIC);
     for (i = 0; i < rows; i++) {
@@ -2143,6 +2370,10 @@ static int run_bench(uint64_t frames)
     printf("bench decode_store_ns_per_frame=%.0f\n", ns_store);
     printf("bench decode_store_account_ns_per_frame=%.0f\n", ns_account);
     printf("bench format_row_ns=%.0f\n", ns_format);
+    printf("bench decode_net_ns_per_frame=%.0f\n", ns_net);
+    printf("bench net_tables_bytes=%u\n",
+           (unsigned)(PPC_NET_HOSTS * sizeof(struct ppc_net_host) + PPC_NET_BINDS * sizeof(struct ppc_net_bind) +
+                      PPC_NET_DHCP * sizeof(struct ppc_net_dhcp) + sizeof(struct ppc_net)));
     printf("bench store_fill_permille=%u held=%u sink=%llu\n", ppc_store_fill_permille(&store),
            ppc_store_count(&store), (unsigned long long)(sink & 1u));
     bench_view(&store);

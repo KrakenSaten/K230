@@ -47,8 +47,8 @@ hits=$(code $C/ppc_decode.c $C/ppc_stats.c $C/ppc_store.c | grep -nE 'ppc_dissec
 check "the capture path calls neither the view nor the dissector" "$([ -z "$hits" ] && echo 1 || echo 0)"
 
 # ---- layering --------------------------------------------------------------------
-hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] 2>/dev/null)
-check "the library, the helper, the session and the model are free of LVGL" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] $A/psk_net.[ch] 2>/dev/null)
+check "the library, the helper, the session, the model and its words are free of LVGL" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(code $A/*.c $A/*.h $A/ui/*.c $A/ui/*.h | grep -nE '#include "(pocketpcap/)?(ppc_decode|ppc_store|ppc_stats|ppc_source|ppc_pcapfile|ppc_format)\.h"')
 check "the app includes nothing of the capture library but the protocol" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
@@ -83,6 +83,18 @@ check "only the save command starts a save" \
 hits=$(code $C/ppc_decode.c $C/ppc_signals.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf)\(')
 check "the findings allocate once, at init, and format nothing (M7)" \
     "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'calloc(flows' && echo 1 || echo 0)"
+# The network intelligence (M12.1) by the same rules: one allocation, no
+# text, no loop without a bound; and passive, as everything here is.
+hits=$(code $C/ppc_net.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf)\(')
+check "the network intelligence allocates once, at init, and formats nothing (M12.1)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'nt->mem = calloc(1, PPC_NET_HOSTS' && echo 1 || echo 0)"
+hits=$(code $C/ppc_net.c | grep -nE '\bwhile *\(1\)|\bfor *\(;;\)|goto|#include <(sys/socket|netinet|arpa|unistd)')
+check "it has no unbounded loop, no goto, and nothing of a socket in it" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_net\(')
+check "its lists are asked for in one place, while the overview or its sheet shows (psk_session.c's definition aside)" \
+    "$([ "$hits" = "2" ] && sed -n -E '/^static void net_poll\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_net(a->session, a->model)' &&
+       sed -n -E '/^static void net_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if (!wanted || !psk_capture_present(a)) {' && echo 1 || echo 0)"
 # The one mention of /tmp is the refusal to save there (ppc_captures_dir).
 hits=$(code $H $C/*.c $A/*.c | grep -nE '"/tmp' | grep -vF 'strncmp(buf, "/tmp", 4) == 0')
 check "nothing goes to /tmp, and a captures folder there is refused" "$([ -z "$hits" ] && echo 1 || echo 0)"

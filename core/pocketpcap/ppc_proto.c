@@ -327,6 +327,11 @@ enum ppc_cmd_kind ppc_cmd_parse(const char *line, struct ppc_cmd *c)
             return c->kind;
         }
         c->kind = PPC_CMD_MARKS;
+    } else if (strcmp(f[0], "net") == 0) {
+        if (n != 2 || u32(f[1], &c->req) != 0) {
+            return c->kind;
+        }
+        c->kind = PPC_CMD_NET;
     } else if (strcmp(f[0], "save") == 0) {
         c->kind = n == 1 ? PPC_CMD_SAVE : PPC_CMD_BAD;
     } else if (strcmp(f[0], "stop") == 0) {
@@ -550,6 +555,11 @@ int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on)
     return fmt(buf, n, "pin\t%u\t%d", (unsigned)seq, on ? 1 : 0);
 }
 
+int ppc_cmd_format_net(char *buf, size_t n, uint32_t req)
+{
+    return fmt(buf, n, "net\t%u", (unsigned)req);
+}
+
 /* ---- events ------------------------------------------------------------------------- */
 
 /* Free text for a field: no tabs, newlines or anything else unprintable. */
@@ -640,6 +650,129 @@ int ppc_evt_format_diag(char *buf, size_t n, const struct ppc_diag *d)
     buf[o++] = '\n';
     buf[o] = '\0';
     return (int)o;
+}
+
+/* ---- the network intelligence (M12.1) ----------------------------------------------- */
+
+/* The totals' figures in struct order, all 32 bits. */
+#define NET_LIST(X)                                                                                                    \
+    X(hosts) X(hosts_replaced) X(arp_requests) X(arp_replies) X(arp_gratuitous) X(arp_probes) X(arp_other)            \
+    X(arp_binds) X(arp_moved) X(arp_flips) X(arp_conflicts) X(arp_noreply) X(dhcp_discover) X(dhcp_offer)             \
+    X(dhcp_request) X(dhcp_ack) X(dhcp_nak) X(dhcp_decline) X(dhcp_release) X(dhcp_inform) X(dhcp_tx)                 \
+    X(dhcp_complete) X(dhcp_no_offer) X(dhcp_no_ack) X(dhcp_unseen) X(dhcp_unjudged) X(dhcp_late) X(dhcp_waiting)     \
+    X(dhcp_servers) X(events_warn) X(events_note) X(events_lost) X(blinded)
+#define NET_ONE(name) +1
+_Static_assert((0 NET_LIST(NET_ONE)) == PPC_NET_FIELDS, "the net line names every figure of struct ppc_net_totals");
+_Static_assert(sizeof(struct ppc_net_totals) == PPC_NET_FIELDS * 4, "struct ppc_net_totals: figures of 32 bits, no padding");
+#undef NET_ONE
+
+int ppc_evt_format_net(char *buf, size_t n, const struct ppc_net_totals *t)
+{
+    size_t o;
+    int k;
+
+    if (!buf || n < 8) {
+        return -1;
+    }
+    memcpy(buf, "net", 3);
+    o = 3;
+#define NET_OUT(name)                                                                                                  \
+    k = snprintf(buf + o, n - o, "\t%u", (unsigned)t->name);                                                          \
+    if (k < 0 || (size_t)k >= n - o) {                                                                                 \
+        return -1;                                                                                                     \
+    }                                                                                                                  \
+    o += (size_t)k;
+    NET_LIST(NET_OUT)
+#undef NET_OUT
+    if (o + 2 > n) {
+        return -1;
+    }
+    buf[o++] = '\n';
+    buf[o] = '\0';
+    return (int)o;
+}
+
+/* An address as the helper writes one: an IPv4 address in dotted form or a
+ * MAC with colons, or nothing. Anything else is not put on a line and not
+ * taken from one. */
+static int addr_ok(const char *s, size_t max, int mac)
+{
+    size_t i;
+    size_t len = strlen(s);
+
+    if (len >= max) {
+        return 0;
+    }
+    for (i = 0; i < len; i++) {
+        char c = s[i];
+
+        if (!((c >= '0' && c <= '9') || (mac ? ((c >= 'a' && c <= 'f') || c == ':') : c == '.'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *dash(const char *s)
+{
+    return s && *s ? s : "-";
+}
+
+int ppc_evt_format_net_begin(char *buf, size_t n, uint32_t req)
+{
+    return fmt(buf, n, "net.begin\t%u\n", (unsigned)req);
+}
+
+int ppc_evt_format_net_end(char *buf, size_t n, uint32_t req)
+{
+    return fmt(buf, n, "net.end\t%u\n", (unsigned)req);
+}
+
+int ppc_evt_format_net_host(char *buf, size_t n, const struct ppc_evt_net_host *h)
+{
+    char name[PPC_NET_NAME];
+
+    if (!h->mac[0] || !addr_ok(h->mac, PPC_MAC_TEXT, 1) || !addr_ok(h->ip, PPC_IP_TEXT, 0)) {
+        return -1;
+    }
+    field_text(name, sizeof(name), h->name);
+    return fmt(buf, n, "net.host\t%s\t%s\t%u\t%u\t%llu\t%s\n", h->mac, dash(h->ip), (unsigned)(h->flags & PPC_NH_ALL),
+               (unsigned)h->pkts, (unsigned long long)h->bytes, name);
+}
+
+int ppc_evt_format_net_srv(char *buf, size_t n, const struct ppc_evt_net_srv *s)
+{
+    if (!s->ip[0] || !addr_ok(s->ip, PPC_IP_TEXT, 0) || !addr_ok(s->mac, PPC_MAC_TEXT, 1) ||
+        !addr_ok(s->router, PPC_IP_TEXT, 0) || !addr_ok(s->dns, PPC_IP_TEXT, 0) || !addr_ok(s->mask, PPC_IP_TEXT, 0)) {
+        return -1;
+    }
+    return fmt(buf, n, "net.srv\t%s\t%s\t%d\t%u\t%u\t%u\t%u\t%u\t%s\t%s\t%s\n", s->ip, dash(s->mac), s->relayed ? 1 : 0,
+               (unsigned)s->offers, (unsigned)s->acks, (unsigned)s->naks, (unsigned)s->seq, (unsigned)s->lease_s,
+               dash(s->router), dash(s->dns), dash(s->mask));
+}
+
+int ppc_evt_format_net_lease(char *buf, size_t n, const struct ppc_evt_net_lease *l)
+{
+    char name[PPC_NET_NAME];
+
+    if (!l->ip[0] || !addr_ok(l->ip, PPC_IP_TEXT, 0) || !addr_ok(l->mac, PPC_MAC_TEXT, 1) ||
+        !addr_ok(l->server, PPC_IP_TEXT, 0)) {
+        return -1;
+    }
+    field_text(name, sizeof(name), l->name);
+    return fmt(buf, n, "net.lease\t%s\t%s\t%s\t%u\t%llu\t%u\t%s\n", l->ip, dash(l->mac), dash(l->server),
+               (unsigned)l->lease_s, (unsigned long long)l->rel_us, (unsigned)l->seq, name);
+}
+
+int ppc_evt_format_net_evt(char *buf, size_t n, const struct ppc_evt_net_event *e)
+{
+    if (e->kind == PPC_NK_NONE || e->kind >= PPC_NK_COUNT || e->sev > PPC_NS_WARN || !addr_ok(e->ip, PPC_IP_TEXT, 0) ||
+        !addr_ok(e->mac, PPC_MAC_TEXT, 1) || !addr_ok(e->ip2, PPC_IP_TEXT, 0) || !addr_ok(e->mac2, PPC_MAC_TEXT, 1)) {
+        return -1;
+    }
+    return fmt(buf, n, "net.evt\t%u\t%u\t%u\t%u\t%llu\t%llu\t%s\t%s\t%s\t%s\n", (unsigned)e->kind, (unsigned)e->sev,
+               (unsigned)e->count, (unsigned)e->seq, (unsigned long long)e->first_us, (unsigned long long)e->last_us,
+               dash(e->ip), dash(e->mac), dash(e->ip2), dash(e->mac2));
 }
 
 int ppc_evt_format_bin(char *buf, size_t n, uint64_t second, const uint32_t c[PPC_CLASS_COUNT],
@@ -1111,6 +1244,111 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         DIAG_LIST(DIAG_IN)
 #undef DIAG_IN
         e->kind = PPC_EVT_DIAG;
+    } else if (strcmp(f[0], "net") == 0) {
+        struct ppc_net_totals *t = &e->u.net;
+        int k = 1;
+
+        if (n != 1 + PPC_NET_FIELDS) {
+            return e->kind;
+        }
+#define NET_IN(name)                                                                                                   \
+    if (u32(f[k++], &t->name) != 0) {                                                                                  \
+        return e->kind;                                                                                                \
+    }
+        NET_LIST(NET_IN)
+#undef NET_IN
+        e->kind = PPC_EVT_NET;
+    } else if (strcmp(f[0], "net.begin") == 0 || strcmp(f[0], "net.end") == 0) {
+        if (n != 2 || u32(f[1], &e->u.net_req) != 0) {
+            return e->kind;
+        }
+        e->kind = f[0][4] == 'b' ? PPC_EVT_NET_BEGIN : PPC_EVT_NET_END;
+    } else if (strcmp(f[0], "net.host") == 0) {
+        struct ppc_evt_net_host *h = &e->u.net_host;
+        uint32_t flags;
+
+        if (n != 7) {
+            return e->kind;
+        }
+        none_dash(f[2]);
+        none_dash(f[6]);
+        if (!f[1][0] || !addr_ok(f[1], PPC_MAC_TEXT, 1) || !addr_ok(f[2], PPC_IP_TEXT, 0) || u32(f[3], &flags) != 0 ||
+            flags > PPC_NH_ALL || u32(f[4], &h->pkts) != 0 || u64(f[5], &h->bytes) != 0 ||
+            copy(h->name, sizeof(h->name), f[6]) != 0) {
+            return e->kind;
+        }
+        copy(h->mac, sizeof(h->mac), f[1]);
+        copy(h->ip, sizeof(h->ip), f[2]);
+        h->flags = (uint8_t)flags;
+        ppc_sanitize(h->name);
+        e->kind = PPC_EVT_NET_HOST;
+    } else if (strcmp(f[0], "net.srv") == 0) {
+        struct ppc_evt_net_srv *s = &e->u.net_srv;
+        uint32_t relayed;
+
+        if (n != 12) {
+            return e->kind;
+        }
+        none_dash(f[2]);
+        none_dash(f[9]);
+        none_dash(f[10]);
+        none_dash(f[11]);
+        if (!f[1][0] || !addr_ok(f[1], PPC_IP_TEXT, 0) || !addr_ok(f[2], PPC_MAC_TEXT, 1) || u32(f[3], &relayed) != 0 ||
+            relayed > 1 || u32(f[4], &s->offers) != 0 || u32(f[5], &s->acks) != 0 || u32(f[6], &s->naks) != 0 ||
+            u32(f[7], &s->seq) != 0 || u32(f[8], &s->lease_s) != 0 || !addr_ok(f[9], PPC_IP_TEXT, 0) ||
+            !addr_ok(f[10], PPC_IP_TEXT, 0) || !addr_ok(f[11], PPC_IP_TEXT, 0)) {
+            return e->kind;
+        }
+        copy(s->ip, sizeof(s->ip), f[1]);
+        copy(s->mac, sizeof(s->mac), f[2]);
+        s->relayed = (uint8_t)relayed;
+        copy(s->router, sizeof(s->router), f[9]);
+        copy(s->dns, sizeof(s->dns), f[10]);
+        copy(s->mask, sizeof(s->mask), f[11]);
+        e->kind = PPC_EVT_NET_SRV;
+    } else if (strcmp(f[0], "net.lease") == 0) {
+        struct ppc_evt_net_lease *l = &e->u.net_lease;
+
+        if (n != 8) {
+            return e->kind;
+        }
+        none_dash(f[2]);
+        none_dash(f[3]);
+        none_dash(f[7]);
+        if (!f[1][0] || !addr_ok(f[1], PPC_IP_TEXT, 0) || !addr_ok(f[2], PPC_MAC_TEXT, 1) ||
+            !addr_ok(f[3], PPC_IP_TEXT, 0) || u32(f[4], &l->lease_s) != 0 || u64(f[5], &l->rel_us) != 0 ||
+            u32(f[6], &l->seq) != 0 || copy(l->name, sizeof(l->name), f[7]) != 0) {
+            return e->kind;
+        }
+        copy(l->ip, sizeof(l->ip), f[1]);
+        copy(l->mac, sizeof(l->mac), f[2]);
+        copy(l->server, sizeof(l->server), f[3]);
+        ppc_sanitize(l->name);
+        e->kind = PPC_EVT_NET_LEASE;
+    } else if (strcmp(f[0], "net.evt") == 0) {
+        struct ppc_evt_net_event *v = &e->u.net_evt;
+        uint32_t kind;
+        uint32_t sev;
+
+        if (n != 11) {
+            return e->kind;
+        }
+        for (i = 7; i <= 10; i++) {
+            none_dash(f[i]);
+        }
+        if (u32(f[1], &kind) != 0 || kind == PPC_NK_NONE || kind >= PPC_NK_COUNT || u32(f[2], &sev) != 0 ||
+            sev > PPC_NS_WARN || u32(f[3], &v->count) != 0 || u32(f[4], &v->seq) != 0 || u64(f[5], &v->first_us) != 0 ||
+            u64(f[6], &v->last_us) != 0 || !addr_ok(f[7], PPC_IP_TEXT, 0) || !addr_ok(f[8], PPC_MAC_TEXT, 1) ||
+            !addr_ok(f[9], PPC_IP_TEXT, 0) || !addr_ok(f[10], PPC_MAC_TEXT, 1)) {
+            return e->kind;
+        }
+        v->kind = (uint8_t)kind;
+        v->sev = (uint8_t)sev;
+        copy(v->ip, sizeof(v->ip), f[7]);
+        copy(v->mac, sizeof(v->mac), f[8]);
+        copy(v->ip2, sizeof(v->ip2), f[9]);
+        copy(v->mac2, sizeof(v->mac2), f[10]);
+        e->kind = PPC_EVT_NET_EVT;
     } else if (strcmp(f[0], "marks") == 0) {
         char *end = NULL;
 

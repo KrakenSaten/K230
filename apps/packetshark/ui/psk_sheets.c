@@ -722,12 +722,25 @@ static void ds_tone(struct psk_app *a, int i, int sev)
 
 void psk_dsheet_paint(struct psk_app *a)
 {
+    static const char *const title[PSK_DIAG_ALL] = { "DNS diagnosis", "TCP diagnosis", "DHCP diagnosis",
+                                                     "ARP diagnosis", "Network",       "Finding" };
     char note[512];
     unsigned i;
     bool present = psk_capture_present(a);
 
-    a->ds_n = psk_diag_lines(a->model, a->ds_kind, a->ds_lines, PSK_DIAG_LINES);
-    psk_text(a->ds_title, a->ds_kind == PSK_DIAG_DNS ? "DNS diagnosis" : "TCP diagnosis");
+    if (a->ds_kind == PSK_DIAG_FINDING) {
+        /* The event as the helper tells it now (it may have been seen
+         * again); when it has left the helper's ring, as it was. */
+        const struct ppc_evt_net_event *now = psk_net_event_same(a->model, &a->ds_event);
+
+        if (now) {
+            a->ds_event = *now;
+        }
+        a->ds_n = psk_net_event_lines(&a->ds_event, a->ds_lines, PSK_DIAG_LINES);
+    } else {
+        a->ds_n = psk_diag_lines(a->model, a->ds_kind, a->ds_lines, PSK_DIAG_LINES);
+    }
+    psk_text(a->ds_title, title[a->ds_kind < PSK_DIAG_ALL ? a->ds_kind : 0]);
     psk_text(a->ds_note, psk_diag_confidence(a->model, a->ds_kind, note, sizeof(note)));
     for (i = 0; i < PSK_DIAG_LINES; i++) {
         const struct psk_diag_line *l = &a->ds_lines[i];
@@ -744,8 +757,7 @@ void psk_dsheet_paint(struct psk_app *a)
         ds_tone(a, (int)i, l->sev);
         psk_text(a->ds_why[i], l->why);
         go = present && l->go != PSK_GO_NONE;
-        psk_text(a->ds_go[i], !go ? "" : l->go == PSK_GO_OPEN ? "OPEN" : "LIST");
-        psk_set_hidden(a->ds_go[i], !go);
+        psk_text(a->ds_go[i], !go ? "" : l->go == PSK_GO_OPEN ? "OPEN" : "LIST");        psk_set_hidden(a->ds_go[i], !go);
         if (go) {
             lv_obj_add_flag(a->ds_row[i], LV_OBJ_FLAG_CLICKABLE);
         } else {
@@ -756,7 +768,8 @@ void psk_dsheet_paint(struct psk_app *a)
 
 void psk_dsheet_show(struct psk_app *a, unsigned kind)
 {
-    a->ds_kind = kind < PSK_DIAG_KINDS ? kind : PSK_DIAG_DNS;
+    a->ds_kind = kind < PSK_DIAG_ALL && kind != PSK_DIAG_NET ? kind : PSK_DIAG_DNS;
+    a->net_due = true; /* what DHCP, ARP and a finding show comes with the lists */
     psk_dsheet_paint(a);
     psk_set_hidden(a->dsheet, false);
     lv_obj_scroll_to_y(a->dsheet, 0, LV_ANIM_OFF);
