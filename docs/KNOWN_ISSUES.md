@@ -1,6 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-11-15 for v0.4.0 (tag `v0.4.0`; docs/releases/v0.4.0.md), following
+Updated 2026-11-24 for v0.5.0 (tag `v0.5.0`; docs/releases/v0.5.0.md), following
+v0.4.0 (tag `v0.4.0`; docs/releases/v0.4.0.md),
 v0.3.9 (tag `v0.3.9`; docs/releases/v0.3.9.md),
 v0.3.8 (tag `v0.3.8`; docs/releases/v0.3.8.md), v0.3.7
 (tag `v0.3.7`; docs/releases/v0.3.7.md), v0.3.6 (tag `v0.3.6`;
@@ -10,6 +11,25 @@ v0.3.0 summary in docs/releases/v0.3.0.md still applies where not fixed, the
 per-app details are in docs/apps/ and the gate sheets). Move items to git
 history when resolved.
 
+- **The 0.5.0 image was not booted on hardware as a whole** (0.5.0,
+  docs/releases/v0.5.0.md "Validation"): no unit was flashed for it, so its
+  first boot, kernel, services and first-boot path are covered only by the
+  image gate. Its changes were run on units A and B as kits on a 0.4.0
+  base, PR by PR.
+- **Companion and Fleet over the local network are not active in the
+  image** (0.5.0): `gatewayd` and `peerd` are not shipped, so no phone can
+  pair with a 0.5.0 card (Settings → Companion says so) and Fleet plays over
+  the mesh only. The gateway's open items are issue #172; #171 is a flaky
+  host test.
+- **`style_lint` fails** (since 2026-11-20, PRs #152, #179, #183): the card
+  tables and the Zabbix console set colours outside the theme engine. Not a
+  user-visible defect; left for the owner.
+- **PacketShark** (0.5.0, docs/apps/PACKETSHARK.md §10): no monitor mode;
+  Wi-Fi capture sees the unit's own link only. The Unit A line-rate gate is
+  not run; M10-M12.1 were seen on Unit B by injected taps, not by finger,
+  and not with the keyboard base.
+- **Zabbix console** (0.5.0, PR #152): DS §35 and docs/apps/ZABBIX.md still
+  describe the previous layout.
 - **HDMI is chosen at boot only** (0.3.7, docs/hardware/HDMI_OUTPUT.md):
   `pos-display-boot hdmi|lcd && reboot`. There is no touch on HDMI, so
   Settings cannot be navigated there; Vision's keyboard navigation is
