@@ -12,7 +12,8 @@
  * Implemented (M2/M3; view, the window's rank and time anchors, inspect and
  * pin since M5/M6, protocol 2; the view's findings, marks, save and the
  * finding line since M7/M8, protocol 3; the sixth finding, the view's
- * diagnosis, the diag and detail lines since M11.1, protocol 4):
+ * diagnosis, the diag and detail lines since M11.1, protocol 4; the network
+ * intelligence, the net command and the net lines since M12.1, protocol 5):
  *
  *   shell -> helper
  *     start <iface> <headers|full> <promisc 0|1> <cfilter> <limit_s>
@@ -35,6 +36,8 @@
  *     marks <req> <buckets>           where the view's findings are (M7): the
  *                                     view cut into at most 64 equal parts
  *     save                            write the stopped capture to a file (M8)
+ *     net <req>                       the devices, DHCP servers, leases and
+ *                                     events as they stand (M12.1)
  *     stats                           one snapshot now
  *     quit
  *
@@ -46,6 +49,21 @@
  *     diag <36 figures of struct ppc_diag, in its order>
  *                                     the DNS and TCP diagnosis (M11.1), once
  *                                     a second while capturing, and on stop
+ *     net <33 figures of struct ppc_net_totals, in its order>
+ *                                     the network intelligence's totals (M12.1),
+ *                                     once a second while capturing, on stop,
+ *                                     and before each answer below
+ *     net.begin <req>
+ *     net.host <mac> <ip|-> <flags> <pkts> <bytes> <name|->
+ *     net.srv <ip> <mac> <relayed 0|1> <offers> <acks> <naks> <seq> <lease_s>
+ *             <router|-> <dns|-> <mask|->
+ *     net.lease <ip> <mac> <server> <lease_s> <rel_us> <seq> <name|->
+ *     net.evt <kind> <sev> <count> <seq> <first_us> <last_us> <ip|-> <mac|->
+ *             <ip2|-> <mac2|->
+ *     net.end <req>                   the answer to `net`, queued whole: at
+ *                                     most PPC_NET_WIRE_HOSTS devices (most
+ *                                     bytes first), _SERVERS, _LEASES (newest
+ *                                     first) and _EVENTS (warnings first)
  *     bin <second> <c0..c7> <held>
  *     rows.begin <req> <filter_id> <first_rank> <match> <first_seq> <last_seq> [<anchor_rank>]
  *     row <seq> <rel_us> <gap_us> <dir> <class> <word> <len> <signal> <src> <dst> <info> [<flags>]
@@ -88,7 +106,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PPC_PROTO_VERSION 4
+#define PPC_PROTO_VERSION 5
 #define PPC_LINE_MAX 1024
 #define PPC_IFACE_MAX 16
 #define PPC_WINDOW_MAX 48
@@ -157,6 +175,7 @@ enum ppc_cmd_kind {
     PPC_CMD_PIN,
     PPC_CMD_MARKS,
     PPC_CMD_SAVE,
+    PPC_CMD_NET, /* M12.1 */
 };
 
 /* Where a window is anchored. */
@@ -237,6 +256,7 @@ int ppc_cmd_format_view_diag(char *buf, size_t n, uint32_t id, unsigned sort, ui
 int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int step);
 int ppc_cmd_format_marks(char *buf, size_t n, uint32_t req, uint32_t buckets);
 int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on);
+int ppc_cmd_format_net(char *buf, size_t n, uint32_t req);
 
 /* ---- events ---------------------------------------------------------------------- */
 
@@ -265,6 +285,13 @@ enum ppc_evt_kind {
     PPC_EVT_SAVED,
     PPC_EVT_DIAG,   /* M11.1 */
     PPC_EVT_DETAIL, /* M11.1: u.finding carries it */
+    PPC_EVT_NET,       /* M12.1: the totals */
+    PPC_EVT_NET_BEGIN, /* u.net_req */
+    PPC_EVT_NET_HOST,
+    PPC_EVT_NET_SRV,
+    PPC_EVT_NET_LEASE,
+    PPC_EVT_NET_EVT,
+    PPC_EVT_NET_END,   /* u.net_req */
 };
 
 #define PPC_FIELD_NAME 24
@@ -344,6 +371,133 @@ struct ppc_diag {
     uint32_t blinded;          /* times frames passed unjudged (HOLD, shedding) */
 };
 #define PPC_DIAG_FIELDS 36
+
+/* ---- the network intelligence (M12.1, docs/apps/PACKETSHARK.md §4c) ----------- */
+
+/* What a device was seen to be (net.host's flags). */
+#define PPC_NH_IP 0x01u      /* its IPv4 address is known, from ARP or a DHCP ACK */
+#define PPC_NH_SELF 0x02u    /* this device: it sent the frames the capture calls outgoing */
+#define PPC_NH_ROUTER 0x04u  /* a DHCP server named its address as the router */
+#define PPC_NH_DHCP 0x08u    /* it answered as a DHCP server */
+#define PPC_NH_ALL 0x0fu
+
+/* An event's kind. The comment says what its addresses are; the app's words
+ * for each are in apps/packetshark/psk_net.c. Part of the protocol. */
+enum ppc_net_kind {
+    PPC_NK_NONE = 0,
+    PPC_NK_DHCP_SERVERS,     /* a second DHCP server answered: ip it, mac its frame's source, ip2 the first */
+    PPC_NK_DHCP_NAK,         /* a server refused a request: ip the server, mac the client */
+    PPC_NK_DHCP_DECLINE,     /* a client declined its address as in use: ip it, mac the client, ip2 the server */
+    PPC_NK_DHCP_NO_OFFER,    /* a DISCOVER no OFFER was seen to: mac the client */
+    PPC_NK_DHCP_NO_ACK,      /* a REQUEST no ACK or NAK was seen to: mac the client, ip asked for, ip2 the server */
+    PPC_NK_DHCP_SHORT_LEASE, /* a lease under PPC_NET_SHORT_LEASE_S: ip the server, mac the client, ip2 the address */
+    PPC_NK_ARP_CONFLICT,     /* an address claimed during a probe for it: ip, mac the claimant, mac2 the prober */
+    PPC_NK_ARP_DUPLICATE,    /* two MACs claim one address in turn: ip, mac, mac2 */
+    PPC_NK_ARP_MOVED,        /* an address changed MAC: ip, mac the new, mac2 the old */
+    PPC_NK_ARP_ROUTER_MOVED, /* the same, of the router a DHCP server named */
+    PPC_NK_ARP_NO_REPLY,     /* this device's ARP requests unanswered: ip asked for */
+    PPC_NK_ARP_SWEEP,        /* a station asking for many addresses: mac, ip its own */
+    PPC_NK_ARP_SENDER,       /* an ARP sender MAC that is not the frame's source: ip, mac the frame's, mac2 ARP's */
+    PPC_NK_COUNT
+};
+
+enum ppc_net_sev { PPC_NS_NOTE = 0, PPC_NS_WARN };
+
+/* The totals since START. The `net` line carries them in this order. */
+struct ppc_net_totals {
+    uint32_t hosts;          /* devices in the table now */
+    uint32_t hosts_replaced; /* devices forgotten for lack of room */
+    /* ARP */
+    uint32_t arp_requests;
+    uint32_t arp_replies;
+    uint32_t arp_gratuitous; /* of those, sender and target address the same */
+    uint32_t arp_probes;     /* requests with no sender address (RFC 5227) */
+    uint32_t arp_other;      /* any other opcode */
+    uint32_t arp_binds;      /* addresses a MAC has claimed */
+    uint32_t arp_moved;      /* times an address changed MAC */
+    uint32_t arp_flips;      /* times two MACs claimed one address in turn */
+    uint32_t arp_conflicts;  /* claims during a probe */
+    uint32_t arp_noreply;    /* this device's requests left unanswered */
+    /* DHCP messages */
+    uint32_t dhcp_discover;
+    uint32_t dhcp_offer;
+    uint32_t dhcp_request;
+    uint32_t dhcp_ack;
+    uint32_t dhcp_nak;
+    uint32_t dhcp_decline;
+    uint32_t dhcp_release;
+    uint32_t dhcp_inform;
+    /* DHCP transactions */
+    uint32_t dhcp_tx;        /* transactions seen (transaction id and client MAC) */
+    uint32_t dhcp_complete;  /* of those, acknowledged */
+    uint32_t dhcp_no_offer;  /* a DISCOVER whose OFFER would have been seen here, and was not */
+    uint32_t dhcp_no_ack;    /* the same of a REQUEST */
+    uint32_t dhcp_unseen;    /* requests not judged: their answer is unicast to another device */
+    uint32_t dhcp_unjudged;  /* requests forgotten unjudged (frames passed unseen, table full) */
+    uint32_t dhcp_late;      /* answered after they were called unanswered */
+    uint32_t dhcp_waiting;   /* requests whose wait is not over */
+    uint32_t dhcp_servers;   /* servers seen answering */
+    /* events */
+    uint32_t events_warn;    /* in the ring now, by severity */
+    uint32_t events_note;
+    uint32_t events_lost;    /* events that left the ring for newer ones */
+    uint32_t blinded;        /* times frames passed unjudged (HOLD, shedding) */
+};
+#define PPC_NET_FIELDS 33
+
+#define PPC_NET_NAME 20      /* a DHCP host name, cut to fit */
+#define PPC_IP_TEXT 16
+#define PPC_MAC_TEXT 18
+#define PPC_NET_WIRE_HOSTS 8u
+#define PPC_NET_WIRE_SERVERS 4u
+#define PPC_NET_WIRE_LEASES 6u
+#define PPC_NET_WIRE_EVENTS 12u
+
+struct ppc_evt_net_host {
+    char mac[PPC_MAC_TEXT];
+    char ip[PPC_IP_TEXT];    /* "" when not known */
+    uint8_t flags;           /* PPC_NH_* */
+    uint32_t pkts;
+    uint64_t bytes;
+    char name[PPC_NET_NAME];
+};
+
+struct ppc_evt_net_srv {
+    char ip[PPC_IP_TEXT];
+    char mac[PPC_MAC_TEXT];
+    uint8_t relayed;
+    uint32_t offers;
+    uint32_t acks;
+    uint32_t naks;
+    uint32_t seq;
+    uint32_t lease_s;
+    char router[PPC_IP_TEXT];
+    char dns[PPC_IP_TEXT];
+    char mask[PPC_IP_TEXT];
+};
+
+struct ppc_evt_net_lease {
+    char ip[PPC_IP_TEXT];
+    char mac[PPC_MAC_TEXT];
+    char server[PPC_IP_TEXT];
+    uint32_t lease_s;
+    uint64_t rel_us;
+    uint32_t seq;
+    char name[PPC_NET_NAME];
+};
+
+struct ppc_evt_net_event {
+    uint8_t kind;            /* enum ppc_net_kind */
+    uint8_t sev;             /* enum ppc_net_sev */
+    uint32_t count;
+    uint32_t seq;
+    uint64_t first_us;
+    uint64_t last_us;
+    char ip[PPC_IP_TEXT];
+    char mac[PPC_MAC_TEXT];
+    char ip2[PPC_IP_TEXT];
+    char mac2[PPC_MAC_TEXT];
+};
 
 struct ppc_evt_row {
     uint32_t seq;
@@ -470,6 +624,12 @@ struct ppc_evt {
             char name[PPC_SAVE_NAME]; /* the file's name, or the failure's code */
         } saved;
         struct ppc_diag diag;
+        struct ppc_net_totals net;
+        uint32_t net_req;
+        struct ppc_evt_net_host net_host;
+        struct ppc_evt_net_srv net_srv;
+        struct ppc_evt_net_lease net_lease;
+        struct ppc_evt_net_event net_evt;
     } u;
 };
 
@@ -510,6 +670,16 @@ int ppc_evt_format_detail(char *buf, size_t n, uint32_t layer, const char *text)
 int ppc_evt_format_diag(char *buf, size_t n, const struct ppc_diag *d);
 int ppc_evt_format_marks(char *buf, size_t n, uint32_t req, uint32_t view_id, uint32_t match, uint32_t buckets,
                          uint64_t mask);
+/* The network intelligence (M12.1). Addresses are text the helper made
+ * ("192.0.2.1", "02:00:5e:10:00:01"; "" for none); anything else in their
+ * place is refused by the parser. A name is sanitized like any free text. */
+int ppc_evt_format_net(char *buf, size_t n, const struct ppc_net_totals *t);
+int ppc_evt_format_net_begin(char *buf, size_t n, uint32_t req);
+int ppc_evt_format_net_host(char *buf, size_t n, const struct ppc_evt_net_host *h);
+int ppc_evt_format_net_srv(char *buf, size_t n, const struct ppc_evt_net_srv *s);
+int ppc_evt_format_net_lease(char *buf, size_t n, const struct ppc_evt_net_lease *l);
+int ppc_evt_format_net_evt(char *buf, size_t n, const struct ppc_evt_net_event *e);
+int ppc_evt_format_net_end(char *buf, size_t n, uint32_t req);
 int ppc_evt_format_saved(char *buf, size_t n, enum ppc_save_phase phase, uint32_t packets, uint32_t total,
                          uint64_t bytes, const char *name);
 /* A saved capture's name as the helper makes it: "capture-" then digits

@@ -291,6 +291,16 @@ static lv_obj_t *panel(lv_obj_t *parent, const char *title, lv_obj_t **title_out
     return p;
 }
 
+lv_obj_t *psk_panel(lv_obj_t *parent, const char *title)
+{
+    return panel(parent, title, NULL);
+}
+
+void psk_titles_out(lv_obj_t *holder)
+{
+    let_titles_out(holder);
+}
+
 /* A figure under its caption, one of a row of equal cells. */
 static lv_obj_t *cell(lv_obj_t *parent, const char *caption)
 {
@@ -579,10 +589,17 @@ static void on_signal(lv_event_t *e)
     psk_show_signal(lv_event_get_user_data(e), (unsigned)index_of(e));
 }
 
-/* The DNS or TCP diagnosis, in its sheet (M11.1). */
+/* The DNS or TCP diagnosis, in its sheet (M11.1); the network's line opens
+ * the network overview (M12.1). */
 static void on_diag(lv_event_t *e)
 {
-    psk_dsheet_show(lv_event_get_user_data(e), (unsigned)index_of(e));
+    unsigned k = (unsigned)index_of(e);
+
+    if (k < PSK_DIAG_KINDS) {
+        psk_dsheet_show(lv_event_get_user_data(e), k);
+    } else {
+        psk_net_show(lv_event_get_user_data(e), true);
+    }
 }
 
 static void on_saves(lv_event_t *e)
@@ -1089,10 +1106,13 @@ static void build_signals(struct psk_app *a, lv_obj_t *parent)
         lv_obj_set_flex_flow(dg, LV_FLEX_FLOW_ROW_WRAP);
         lv_obj_set_style_pad_column(dg, PSK_GAP, 0);
         lv_obj_set_style_pad_row(dg, PSK_GAP, 0);
-        for (k = 0; k < PSK_DIAG_KINDS; k++) {
+        for (k = 0; k < PSK_LIVE_DIAGS; k++) {
             unsigned cls = k == PSK_DIAG_DNS ? PPC_CLASS_DNS : PPC_CLASS_TCP;
-            int hue = psk_class_hue(cls);
-            lv_obj_t *r = psk_box(dg);
+            int hue = k < PSK_DIAG_KINDS ? psk_class_hue(cls) : -1;
+            /* The network's line stays in SIGNALS in both shapes: wide, DNS
+             * and TCP move under TRAFFIC and it keeps the right column,
+             * which has the room. */
+            lv_obj_t *r = psk_box(k < PSK_DIAG_KINDS ? dg : p);
             lv_obj_t *left;
             lv_obj_t *top;
             lv_obj_t *w;
@@ -1120,7 +1140,7 @@ static void build_signals(struct psk_app *a, lv_obj_t *parent)
             lv_obj_add_flag(left, LV_OBJ_FLAG_EVENT_BUBBLE);
             top = row(left, 10);
             lv_obj_add_flag(top, LV_OBJ_FLAG_EVENT_BUBBLE);
-            w = one_line(top, psk_class_word(cls), POS_STYLE_CAPTION);
+            w = one_line(top, k < PSK_DIAG_KINDS ? psk_class_word(cls) : "NETWORK", POS_STYLE_CAPTION);
             if (hue >= 0) {
                 lv_obj_add_style(w, pos_style_identity((unsigned)hue), 0);
             }
@@ -1231,6 +1251,7 @@ void psk_live_build(struct psk_app *a)
     build_error(a, a->page[PSK_TAB_LIVE]);
     psk_list_build(a, a->page[PSK_TAB_PACKETS]);
     psk_inspect_build(a, a->page[PSK_TAB_INSPECT]);
+    psk_net_build(a, page(content));
     build_bar(a);
     lv_obj_set_style_margin_top(a->bar, 12, 0);
 }
@@ -1361,9 +1382,10 @@ void psk_shape(struct psk_app *a)
     if (lv_obj_get_parent(a->diag_box) != (w ? a->live_l : a->signals)) {
         lv_obj_set_parent(a->diag_box, w ? a->live_l : a->signals);
     }
-    for (i = 0; i < PSK_DIAG_KINDS; i++) {
-        lv_obj_set_width(a->diag_row[i], w ? LV_PCT(49) : LV_PCT(100));
+    for (i = 0; i < PSK_LIVE_DIAGS; i++) {
+        lv_obj_set_width(a->diag_row[i], w && i < PSK_DIAG_KINDS ? LV_PCT(49) : LV_PCT(100));
     }
+    psk_net_shape(a);
     /* Wide: LIVE's three panels and the top row fit the body's height. */
     lv_obj_set_style_pad_row(a->live_r, w ? 12 : PSK_PANEL_GAP, 0);
     lv_obj_set_style_pad_top(a->page[PSK_TAB_LIVE], w ? 8 : 14, 0);
@@ -1386,6 +1408,11 @@ void psk_paint_tabs(struct psk_app *a)
         /* Wide: the inspector is beside the list, on PACKETS. */
         bool shown = a->wide ? (i == PSK_TAB_LIVE) == (a->cur == PSK_TAB_LIVE) : active;
 
+        /* LIVE's second face, the network overview, in LIVE's place. */
+        if (i == PSK_TAB_LIVE && a->net_view) {
+            shown = false;
+        }
+
         tone(a->tab_label[i], active ? POS_STYLE_ACCENT_TEXT : TONE_NONE);
         lv_obj_set_style_opa(a->tab_rule[i], active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         /* A disabled tab is dimmed, not recoloured: the label keeps its role
@@ -1399,6 +1426,7 @@ void psk_paint_tabs(struct psk_app *a)
         }
         psk_set_hidden(a->page[i], !shown);
     }
+    psk_set_hidden(a->nv_page, !psk_net_shown(a));
 }
 
 void psk_paint_ifaces(struct psk_app *a)
@@ -1851,9 +1879,9 @@ static void paint_counters(struct psk_app *a)
     }
     /* The DNS and TCP diagnosis (M11.1): its line, and a word for how it
      * reads - OK in status_ok, NOTE plain, ! CHECK in status_warn. */
-    for (i = 0; i < PSK_DIAG_KINDS; i++) {
+    for (i = 0; i < PSK_LIVE_DIAGS; i++) {
         char t[96];
-        unsigned sev = psk_diag_summary(m, i, t, sizeof(t));
+        unsigned sev = psk_diag_summary(m, i < PSK_DIAG_KINDS ? i : (unsigned)PSK_DIAG_NET, t, sizeof(t));
 
         psk_text(a->diag_text[i], t);
         psk_text(a->diag_sev[i], sev == PSK_SEV_WARN ? "! CHECK" : sev == PSK_SEV_NOTE ? "NOTE" : "OK");
@@ -1911,6 +1939,11 @@ void psk_live_paint(struct psk_app *a, unsigned changed)
     enum psk_view v = view_of(a);
 
     a->view = v;
+    if (a->net_view && (v != PSK_VIEW_LIVE || !psk_capture_present(a))) {
+        /* The network overview is of a capture: with none, LIVE is LIVE. */
+        a->net_view = false;
+        psk_paint_tabs(a);
+    }
     psk_set_hidden(a->setup, v != PSK_VIEW_SETUP);
     psk_set_hidden(a->live, v != PSK_VIEW_LIVE);
     psk_set_hidden(a->error, v != PSK_VIEW_ERROR);

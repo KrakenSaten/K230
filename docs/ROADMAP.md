@@ -84,9 +84,12 @@ captures, the wide layout and keys) are on master through pull request #141;
 M10, Wi-Fi capture in managed mode, through pull request #146. All are
 host-tested; M5 to M10 were run on Unit B. Not in a release yet. M11.1,
 protocol intelligence (DNS transactions and TCP connections diagnosed in
-SIGNALS, a diagnosis sheet and INSPECT; protocol 4), is on a draft pull
-request, host-tested and run on Unit B without being installed. The
-line-rate gate on Unit A is not started.
+SIGNALS, a diagnosis sheet and INSPECT; protocol 4), is on master through
+pull request #149. M12.1, network intelligence (devices, DHCP exchanges,
+servers and leases, ARP pairs and conflicts, findings with their evidence
+on a network overview; protocol 5), is on a draft pull request, host-tested
+and run on Unit B without being installed. The line-rate gate on Unit A is
+not started.
 
 ## History
 

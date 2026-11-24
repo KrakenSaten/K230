@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "psk_model.h"
+#include "psk_net.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -46,6 +47,11 @@ void psk_model_clear_packets(struct psk_model *m)
     m->want_marks = 0;
     m->marks_buckets = 0;
     m->marks_mask = 0;
+    /* The network intelligence's lists name packets: they go too. */
+    m->want_net = 0;
+    m->net_open = false;
+    m->have_net_lists = false;
+    memset(&m->net, 0, sizeof(m->net));
 }
 
 void psk_model_helper_stopped(struct psk_model *m, enum psk_exit why, int value, int64_t now_ms)
@@ -114,6 +120,11 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             m->save_fail[0] = '\0';
             memset(&m->d, 0, sizeof(m->d));
             m->have_diag = false;
+            memset(&m->nt, 0, sizeof(m->nt));
+            m->have_net = false;
+            memset(&m->net, 0, sizeof(m->net));
+            m->have_net_lists = false;
+            m->net_open = false;
         }
         if (e->u.state.state != PPC_STATE_IDLE) {
             m->had_capture = true;
@@ -238,6 +249,47 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
         m->d = e->u.diag;
         m->have_diag = true;
         return PSK_CHANGED_DIAG;
+    case PPC_EVT_NET:
+        m->nt = e->u.net;
+        m->have_net = true;
+        return PSK_CHANGED_NET;
+    case PPC_EVT_NET_BEGIN:
+        if (e->u.net_req != m->want_net || m->want_net == 0) {
+            m->net_open = false; /* stale: an answer to an older request */
+            return 0;
+        }
+        memset(&m->net_next, 0, sizeof(m->net_next));
+        m->net_open = true;
+        return 0;
+    case PPC_EVT_NET_HOST:
+        if (m->net_open && m->net_next.nhosts < PPC_NET_WIRE_HOSTS) {
+            m->net_next.host[m->net_next.nhosts++] = e->u.net_host;
+        }
+        return 0;
+    case PPC_EVT_NET_SRV:
+        if (m->net_open && m->net_next.nservers < PPC_NET_WIRE_SERVERS) {
+            m->net_next.srv[m->net_next.nservers++] = e->u.net_srv;
+        }
+        return 0;
+    case PPC_EVT_NET_LEASE:
+        if (m->net_open && m->net_next.nleases < PPC_NET_WIRE_LEASES) {
+            m->net_next.lease[m->net_next.nleases++] = e->u.net_lease;
+        }
+        return 0;
+    case PPC_EVT_NET_EVT:
+        if (m->net_open && m->net_next.nevents < PPC_NET_WIRE_EVENTS) {
+            m->net_next.evt[m->net_next.nevents++] = e->u.net_evt;
+        }
+        return 0;
+    case PPC_EVT_NET_END:
+        if (m->net_open && e->u.net_req == m->want_net) {
+            m->net_open = false;
+            m->net = m->net_next;
+            m->have_net_lists = true;
+            return PSK_CHANGED_NETLIST;
+        }
+        m->net_open = false;
+        return 0;
     case PPC_EVT_MARKS:
         if (e->u.marks.req != m->want_marks || m->want_marks == 0) {
             return 0;
@@ -709,6 +761,9 @@ unsigned psk_diag_summary(const struct psk_model *m, unsigned kind, char *buf, s
     char t[24];
     size_t o;
 
+    if (kind >= PSK_DIAG_KINDS) {
+        return psk_net_summary(m, kind, buf, buflen);
+    }
     if (kind == PSK_DIAG_DNS) {
         uint32_t timed = d->dns_answered + d->dns_late;
 
@@ -994,6 +1049,9 @@ static unsigned tcp_lines(const struct psk_model *m, struct psk_diag_line *out, 
 
 unsigned psk_diag_lines(const struct psk_model *m, unsigned kind, struct psk_diag_line *out, unsigned max)
 {
+    if (kind >= PSK_DIAG_KINDS) {
+        return psk_net_lines(m, kind, out, max);
+    }
     return kind == PSK_DIAG_DNS ? dns_lines(m, out, max) : tcp_lines(m, out, max);
 }
 
@@ -1007,6 +1065,9 @@ const char *psk_diag_confidence(const struct psk_model *m, unsigned kind, char *
     size_t o;
     size_t i;
 
+    if (kind >= PSK_DIAG_KINDS) {
+        return psk_net_confidence(m, kind, buf, buflen);
+    }
     snprintf(iface, sizeof(iface), "%s", m->iface[0] ? m->iface : "THE INTERFACE");
     for (i = 0; iface[i]; i++) {
         if (iface[i] >= 'a' && iface[i] <= 'z') {

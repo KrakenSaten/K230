@@ -177,6 +177,19 @@ int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t bucke
     return 0;
 }
 
+int psk_session_net(struct psk_session *s, struct psk_model *m)
+{
+    char line[32];
+    uint32_t req = ++s->next_req ? s->next_req : ++s->next_req;
+    int n = ppc_cmd_format_net(line, sizeof(line), req);
+
+    if (n < 0 || send_raw(s, line, n) != 0) {
+        return -1;
+    }
+    m->want_net = req;
+    return 0;
+}
+
 int psk_session_save(struct psk_session *s)
 {
     return send_word(s, "save");

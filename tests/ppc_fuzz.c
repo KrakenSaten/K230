@@ -21,6 +21,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketpcap/ppc_decode.h"
+#include "pocketpcap/ppc_net.h"
 #include "pocketpcap/ppc_signals.h"
 #include "pocketpcap/ppc_dissect.h"
 #include "pocketpcap/ppc_format.h"
@@ -135,6 +136,48 @@ static int one(const uint8_t *data, size_t size)
         }
         if (size & 4u) {
             r.signal = PPC_SIG_ALL;
+        }
+    }
+    {
+        /* The network intelligence on the same frame (M12.1): its tables
+         * kept across inputs, so devices, pairs and transactions are found,
+         * made and replaced; its counts stay inside its tables, and what it
+         * hands out is what it holds. */
+        static struct ppc_net nt;
+        static uint32_t nseq;
+        struct ppc_net_totals tt;
+
+        if (!nt.mem && ppc_net_init(&nt) != 0) {
+            abort();
+        }
+        ppc_net_frame(&nt, &r, data, f.cap_len, pay, ++nseq);
+        if (nt.waiting > PPC_NET_WAITS || nt.st.dhcp_waiting > PPC_NET_DHCP || nt.st.hosts > PPC_NET_HOSTS ||
+            nt.st.arp_binds > PPC_NET_BINDS || nt.st.dhcp_servers > PPC_NET_SERVERS) {
+            fprintf(stderr, "ppc_fuzz: network tables out of range\n");
+            abort();
+        }
+        if ((nseq & 255u) == 0) {
+            const struct ppc_net_host *hs[PPC_NET_WIRE_HOSTS];
+            const struct ppc_net_event *ev[PPC_NET_EVENTS];
+            unsigned n = ppc_net_events(&nt, ev, PPC_NET_EVENTS);
+            unsigned k;
+
+            ppc_net_expire(&nt, r.rel_ns + PPC_NET_DHCP_WAIT_NS);
+            ppc_net_totals(&nt, &tt);
+            if (ppc_net_top(&nt, hs, PPC_NET_WIRE_HOSTS) > PPC_NET_WIRE_HOSTS || n > PPC_NET_EVENTS ||
+                tt.events_warn + tt.events_note > PPC_NET_EVENTS) {
+                fprintf(stderr, "ppc_fuzz: network lists out of range\n");
+                abort();
+            }
+            for (k = 0; k < n; k++) {
+                if (ev[k]->kind == PPC_NK_NONE || ev[k]->kind >= PPC_NK_COUNT || ev[k]->sev > PPC_NS_WARN) {
+                    fprintf(stderr, "ppc_fuzz: an event of no kind\n");
+                    abort();
+                }
+            }
+            if ((nseq & 4095u) == 0) {
+                ppc_net_blind(&nt);
+            }
         }
     }
     ppc_format_row(&r, data, keep, &t);

@@ -113,6 +113,9 @@ int psk_session_view_diag(struct psk_session *s, uint32_t id, unsigned sort, uin
 /* Where the view's findings are, for the rail; the model takes only the
  * answer to the newest request. */
 int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t buckets);
+/* The network intelligence's lists as they stand (M12.1); the model takes
+ * only the answer to the newest request. */
+int psk_session_net(struct psk_session *s, struct psk_model *m);
 /* Write the stopped capture to a file in the captures folder (M8). */
 int psk_session_save(struct psk_session *s);
 int psk_session_pin(struct psk_session *s, uint32_t seq, bool on);

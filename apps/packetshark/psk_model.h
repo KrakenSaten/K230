@@ -30,7 +30,7 @@
 #define PSK_HEX_LINES 64
 #define PSK_FINDINGS 4
 #define PSK_DETAILS 6     /* what the DNS and TCP diagnosis says of the packet (M11.1) */
-#define PSK_DIAG_LINES 10 /* the diagnosis sheet's lines, at most */
+#define PSK_DIAG_LINES 16 /* the diagnosis sheet's lines, at most */
 
 /* How the helper ended, as the app shows it. */
 enum psk_exit {
@@ -57,6 +57,8 @@ enum psk_exit {
 #define PSK_CHANGED_MARKS 0x400u /* where the view's findings are (M7) */
 #define PSK_CHANGED_SAVE 0x800u  /* SAVE's progress or outcome (M8) */
 #define PSK_CHANGED_DIAG 0x1000u /* the DNS and TCP diagnosis (M11.1) */
+#define PSK_CHANGED_NET 0x2000u  /* the network intelligence's totals (M12.1) */
+#define PSK_CHANGED_NETLIST 0x4000u /* its devices, servers, leases and events arrived whole */
 
 /* The inspector's packet, as text (M6). */
 struct psk_layer {
@@ -100,6 +102,20 @@ struct psk_packet {
     struct psk_finding finding[PSK_FINDINGS];
     uint32_t ndetails;                    /* M11.1: not faults, said plainly */
     struct psk_finding detail[PSK_DETAILS];
+};
+
+/* The network intelligence as the helper last told it (M12.1): the totals
+ * from its `net` line, and the lists of one whole answer to `net`. Text and
+ * figures only, like the rest of the model. */
+struct psk_net_lists {
+    uint32_t nhosts;
+    struct ppc_evt_net_host host[PPC_NET_WIRE_HOSTS];
+    uint32_t nservers;
+    struct ppc_evt_net_srv srv[PPC_NET_WIRE_SERVERS];
+    uint32_t nleases;
+    struct ppc_evt_net_lease lease[PPC_NET_WIRE_LEASES];
+    uint32_t nevents;
+    struct ppc_evt_net_event evt[PPC_NET_WIRE_EVENTS];
 };
 
 /* SAVE as the app shows it (M8). */
@@ -183,6 +199,17 @@ struct psk_model {
     /* the DNS and TCP diagnosis (M11.1): the helper's last diag line */
     bool have_diag;
     struct ppc_diag d;
+
+    /* the network intelligence (M12.1): the last totals, and the lists of
+     * the newest request's answer, filled in net_next while its lines come
+     * and copied when the last one has (half an answer is never shown) */
+    bool have_net;
+    struct ppc_net_totals nt;
+    uint32_t want_net;
+    bool net_open;
+    bool have_net_lists;
+    struct psk_net_lists net;
+    struct psk_net_lists net_next;
 };
 
 void psk_model_init(struct psk_model *m);
@@ -273,9 +300,19 @@ const char *psk_signal_plural(unsigned index);
 /* How a line of the diagnosis reads: as it should be, worth knowing, or worth
  * a look (status_ok, text_secondary, status_warn with `!`; DS §59.2). */
 enum psk_sev { PSK_SEV_OK = 0, PSK_SEV_NOTE, PSK_SEV_WARN };
-/* Where a line leads: nowhere, the packets it counts, the packet it names. */
-enum psk_go { PSK_GO_NONE = 0, PSK_GO_LIST, PSK_GO_OPEN };
+/* Where a line leads: nowhere, the packets it counts, the packet it names,
+ * the packets of a class and a host (M12.1). */
+enum psk_go { PSK_GO_NONE = 0, PSK_GO_LIST, PSK_GO_OPEN, PSK_GO_HOST };
 enum psk_diag_kind { PSK_DIAG_DNS = 0, PSK_DIAG_TCP, PSK_DIAG_KINDS };
+/* M12.1: what else the same sheet shows (psk_net.h). LIVE's own two lines
+ * stay the two above; these are reached from the network overview. */
+enum {
+    PSK_DIAG_DHCP = PSK_DIAG_KINDS,
+    PSK_DIAG_ARP,
+    PSK_DIAG_NET,     /* the overview's summary: a line, no sheet of its own */
+    PSK_DIAG_FINDING, /* one event and its evidence */
+    PSK_DIAG_ALL
+};
 
 struct psk_diag_line {
     uint8_t sev;       /* enum psk_sev */
@@ -283,8 +320,10 @@ struct psk_diag_line {
     uint8_t signals;   /* PSK_GO_LIST: the findings to show (PPC_SIG_*), or 0 */
     uint8_t diag;      /* PSK_GO_LIST: the diagnosis to show (enum ppc_diag_code), or 0 */
     uint32_t seq;      /* PSK_GO_OPEN: the packet */
+    uint8_t classes;   /* PSK_GO_HOST: the classes to show (a mask), */
+    char host[PPC_HOST_TEXT]; /* and the host, "" for any (M12.1) */
     char text[64];     /* "2 NAME NOT FOUND (NXDOMAIN)", upper case */
-    char why[224];     /* the explanation, a sentence or two */
+    char why[288];     /* the explanation, a sentence or two */
 };
 
 /* The line on LIVE: "12 ANSWERED · AVG 23 MS · 2 FAILED". Returns its

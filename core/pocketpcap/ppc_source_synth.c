@@ -267,6 +267,192 @@ static uint32_t transaction_frame(uint64_t n, uint8_t *b)
     return 0;
 }
 
+/* ---- the network's own traffic (M12.1) ---------------------------------------------------- */
+
+static void mac_id(uint8_t *m, uint8_t group, uint8_t id)
+{
+    m[0] = 0x02;
+    m[1] = 0x00;
+    m[2] = 0x5e;
+    m[3] = group;
+    m[4] = 0x00;
+    m[5] = id;
+}
+
+static void ip_last(uint8_t *p, uint8_t last)
+{
+    p[0] = 192;
+    p[1] = 0;
+    p[2] = 2;
+    p[3] = last;
+}
+
+/* An ARP message for IPv4 over Ethernet. spa 0: no sender address (a
+ * probe). A request is broadcast, a reply goes to mac_self. */
+static uint32_t arp_frame(uint8_t *b, const uint8_t *eth_src, uint16_t op, const uint8_t *sha, uint8_t spa, uint8_t tpa)
+{
+    uint32_t l = eth(b, op == 1 ? mac_bcast : mac_self, eth_src, 0x0806);
+
+    memset(b + l, 0, 28);
+    put16(b + l, 1);
+    put16(b + l + 2, 0x0800);
+    b[l + 4] = 6;
+    b[l + 5] = 4;
+    put16(b + l + 6, op);
+    memcpy(b + l + 8, sha, 6);
+    if (spa) {
+        ip_last(b + l + 14, spa);
+    }
+    ip_last(b + l + 24, tpa);
+    return l + 28;
+}
+
+/* A DHCP message of one transaction: the client's (types 1 and 3) from the
+ * client, broadcast, asking for a broadcast reply; the server's (2, 5, 6)
+ * from 192.0.2.<server>. */
+static uint32_t dhcp_frame(uint8_t *b, uint8_t type, uint32_t xid, const uint8_t *client, const uint8_t *server_mac,
+                           uint8_t server, uint8_t addr, uint8_t name)
+{
+    int reply = type == 2 || type == 5 || type == 6;
+    uint32_t l = eth(b, mac_bcast, reply ? server_mac : client, 0x0800);
+    uint32_t ipo = l;
+    uint8_t *p;
+    uint32_t o = 240;
+
+    l += 20 + 8;
+    p = b + l;
+    memset(p, 0, 320);
+    p[0] = reply ? 2 : 1;
+    p[1] = 1;
+    p[2] = 6;
+    put32(p + 4, xid);
+    put16(p + 10, 0x8000);
+    if (reply && type != 6) {
+        ip_last(p + 16, addr);
+    }
+    memcpy(p + 28, client, 6);
+    put32(p + 236, 0x63825363u);
+    p[o++] = 53;
+    p[o++] = 1;
+    p[o++] = type;
+    if (reply || type == 3) {
+        p[o++] = 54;
+        p[o++] = 4;
+        ip_last(p + o, server);
+        o += 4;
+    }
+    if (type == 3) {
+        p[o++] = 50;
+        p[o++] = 4;
+        ip_last(p + o, addr);
+        o += 4;
+    }
+    if (reply && type != 6) {
+        p[o++] = 51;
+        p[o++] = 4;
+        put32(p + o, server == 1 ? 86400u : 600u);
+        o += 4;
+        p[o++] = 1;
+        p[o++] = 4;
+        memset(p + o, 0xff, 3);
+        p[o + 3] = 0;
+        o += 4;
+        p[o++] = 3;
+        p[o++] = 4;
+        ip_last(p + o, server);
+        o += 4;
+        p[o++] = 6;
+        p[o++] = 4;
+        ip_last(p + o, server == 1 ? 53 : server);
+        o += 4;
+    }
+    if (!reply) {
+        p[o++] = 12;
+        p[o++] = 6;
+        memcpy(p + o, "desk-", 5);
+        p[o + 5] = (uint8_t)('1' + name);
+        o += 6;
+    }
+    p[o++] = 255;
+    ip4(b + ipo, 17, 8 + o, 0, 0, 0);
+    if (reply) {
+        ip_last(b + ipo + 12, server);
+    } else {
+        memset(b + ipo + 12, 0, 4);
+    }
+    memset(b + ipo + 16, 0xff, 4);
+    udp(b + ipo + 20, reply ? 67 : 68, reply ? 68 : 67, o);
+    return l + o;
+}
+
+/* The network's own traffic (M12.1), in the last slots of every sixteenth
+ * group of 32 frames: a DHCP exchange between one of six clients and the
+ * server at 192.0.2.1 (the peer every other frame comes from), or ARP
+ * between stations. Now and then a second server offers too, a request is
+ * refused or left unanswered, an address is claimed by two stations in
+ * turn or defended against a probe, and this device asks for an address
+ * nobody holds. Returns 0 for the other frames. */
+static uint32_t network_frame(uint64_t n, uint8_t *b)
+{
+    uint32_t k = (uint32_t)(n / 32u);
+    unsigned slot = (unsigned)(n % 32u);
+    uint32_t j = k / 16u;
+    unsigned v = j % 16u;
+    uint8_t m1[6];
+    uint8_t m2[6];
+
+    if (slot < 24 || slot > 28) {
+        return 0;
+    }
+    if (k % 16u == 0) {
+        uint8_t c = (uint8_t)(j % 6u);
+        uint32_t xid = 0x5e200000u + j;
+        uint8_t addr = (uint8_t)(100u + c);
+
+        mac_id(m1, 0x20, (uint8_t)(0x10u + c));
+        mac_id(m2, 0x10, 0xfd); /* the second server, 192.0.2.254 */
+        switch (slot) {
+        case 24:
+            return dhcp_frame(b, 1, xid, m1, NULL, 0, 0, c);
+        case 25:
+            return v == 5 ? 0 : dhcp_frame(b, 2, xid, m1, mac_peer, 1, addr, c);
+        case 26:
+            return v == 13 ? dhcp_frame(b, 2, xid, m1, m2, 254, (uint8_t)(200u + c), c) : 0;
+        case 27:
+            return v == 5 ? 0 : dhcp_frame(b, 3, xid, m1, NULL, 1, addr, c);
+        default:
+            return v == 5 ? 0 : dhcp_frame(b, v == 9 ? 6 : 5, xid, m1, mac_peer, 1, addr, c);
+        }
+    }
+    if (k % 16u != 8) {
+        return 0;
+    }
+    /* A station asks for the router, and the router answers it. */
+    mac_id(m1, 0x30, (uint8_t)(0x30u + j % 8u));
+    if (slot == 24) {
+        return arp_frame(b, m1, 1, m1, (uint8_t)(30u + j % 8u), 1);
+    }
+    if (slot == 25) {
+        return arp_frame(b, mac_peer, 2, mac_peer, 1, (uint8_t)(30u + j % 8u));
+    }
+    switch (v) {
+    case 3: /* a station announces itself */
+        mac_id(m1, 0x30, 0x40);
+        return slot == 26 ? arp_frame(b, m1, 1, m1, 40, 40) : 0;
+    case 6: /* two stations claim 192.0.2.77 in turn */
+        mac_id(m1, 0x30, slot == 26 ? 0xa1 : 0xa2);
+        return slot <= 27 ? arp_frame(b, m1, 1, m1, 77, 1) : 0;
+    case 10: /* a probe for 192.0.2.88, and its holder's defence */
+        mac_id(m1, 0x30, 0xb1);
+        mac_id(m2, 0x30, 0xb2);
+        return slot == 26 ? arp_frame(b, m1, 1, m1, 0, 88) : slot == 27 ? arp_frame(b, m2, 2, m2, 88, 88) : 0;
+    case 12: /* this device asks three times for an address nobody holds */
+        return arp_frame(b, mac_self, 1, mac_self, 10, 250);
+    default:
+        return 0;
+    }
+}
+
 uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
 {
     uint32_t r = mix(n, seed);
@@ -287,9 +473,18 @@ uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
         }
         return len;
     }
+    len = network_frame(n, b);
+    if (len) {
+        if (len < 60) {
+            memset(b + len, 0, 60 - len);
+            len = 60;
+        }
+        return len;
+    }
     /* The random DNS kinds would be answers without their queries: other
-     * UDP instead, the transactions above carry DNS. */
-    if (kind == 9 || kind == 10) {
+     * UDP instead, the transactions above carry DNS. The same of the random
+     * DHCP DISCOVER since M12.1: the exchanges above carry DHCP. */
+    if (kind == 9 || kind == 10 || kind == 11) {
         kind = 6;
     }
     switch (kind) {
@@ -375,14 +570,17 @@ uint32_t ppc_synth_frame(uint64_t n, uint32_t seed, uint8_t *b)
         b[l + 4] = 6;
         b[l + 5] = 4;
         put16(b + l + 6, 1);
+        /* The router at 192.0.2.1 asks for one of thirty stations. */
         memcpy(b + l + 8, mac_peer, 6);
         b[l + 14] = 192;
+        b[l + 15] = 0;
         b[l + 16] = 2;
-        b[l + 17] = 20;
+        b[l + 17] = 1;
         memset(b + l + 18, 0, 6);
         b[l + 24] = 192;
+        b[l + 25] = 0;
         b[l + 26] = 2;
-        b[l + 27] = (uint8_t)(1 + r % 30u);
+        b[l + 27] = (uint8_t)(2 + r % 30u);
         len = l + 28;
         break;
     }
