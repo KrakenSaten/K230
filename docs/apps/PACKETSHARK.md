@@ -481,7 +481,8 @@ Unit B (Doors 0.3.6 base image with master `14ae78ab`'s shell and `pos-capture` 
 | Cleanup | no helper left, 3 packet sockets as before, eth0 and wlan0 flags `0x1003` throughout, sysd, netd, radiod, meshcored and wpa_supplicant running, the installed shell and helper unchanged | VERIFIED |
 | A second DHCP server, a NAK, a DECLINE, two MACs for one address, a probed address in use, a moved router | not tested on the unit: they need a second server or a second station misbehaving on the owner's LAN, which this run did not make. Host-tested (§9.1) and seen on the unit from the synthetic source | — |
 | The UI in both shapes, a second run of the same build from `/tmp` (`--rotation portrait` for the tall shape), synthetic 2,000 pps, text size Large, driven by `shell.tap` | LIVE's NETWORK line opens the overview; the three tabs and the capture bar stay and work; a finding opens its sheet; LIST shows the 14 ARP packets that name the address (`ARP · HOST 192.0.2.77`); OPEN shows the ARP packet with that sender in INSPECT; a device lists its packets (`HOST 192.0.2.10`); the DHCP sheet; BACK and the LIVE tab return to LIVE; a row below the fold is reached by scrolling to it; nothing cut or overlapping in the pictures; no error in the shell's log | VERIFIED |
-| Physical touch and finger scrolling, keys | not tested: nobody was at the unit, and it has no keyboard. The taps above are the shell's test hook, not a finger | — |
+| Physical touch and finger scrolling, the same build from `/tmp`, landscape, synthetic 2,000 pps | passed, as reported by the owner at the unit (2026-11-24); one capture started, no error in the shell's log. What was tapped is not recorded | VERIFIED (owner) |
+| Keys | not tested: the unit has no keyboard | — |
 
 ### 9.6 Integration into master (2026-11-16)
 
