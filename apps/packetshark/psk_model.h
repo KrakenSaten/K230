@@ -30,7 +30,7 @@
 #define PSK_HEX_LINES 64
 #define PSK_FINDINGS 4
 #define PSK_DETAILS 6     /* what the DNS and TCP diagnosis says of the packet (M11.1) */
-#define PSK_DIAG_LINES 14 /* the diagnosis sheet's lines, at most */
+#define PSK_DIAG_LINES 16 /* the diagnosis sheet's lines, at most */
 
 /* How the helper ended, as the app shows it. */
 enum psk_exit {

@@ -1109,7 +1109,10 @@ static void build_signals(struct psk_app *a, lv_obj_t *parent)
         for (k = 0; k < PSK_LIVE_DIAGS; k++) {
             unsigned cls = k == PSK_DIAG_DNS ? PPC_CLASS_DNS : PPC_CLASS_TCP;
             int hue = k < PSK_DIAG_KINDS ? psk_class_hue(cls) : -1;
-            lv_obj_t *r = psk_box(dg);
+            /* The network's line stays in SIGNALS in both shapes: wide, DNS
+             * and TCP move under TRAFFIC and it keeps the right column,
+             * which has the room. */
+            lv_obj_t *r = psk_box(k < PSK_DIAG_KINDS ? dg : p);
             lv_obj_t *left;
             lv_obj_t *top;
             lv_obj_t *w;

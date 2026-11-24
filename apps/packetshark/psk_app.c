@@ -679,6 +679,9 @@ static void net_poll(struct psk_app *a)
     if (!wanted || !psk_capture_present(a)) {
         return;
     }
+    if (a->net_asked && now - a->net_sent_ms >= PSK_NET_REFRESH_MS) {
+        a->net_due = true; /* the helper had no room for the answer then */
+    }
     if (!a->net_due && !(running && now - a->net_sent_ms >= PSK_NET_REFRESH_MS)) {
         return;
     }
@@ -687,6 +690,7 @@ static void net_poll(struct psk_app *a)
     }
     if (psk_session_net(a->session, a->model) == 0) {
         a->net_due = false;
+        a->net_asked = true;
         a->net_sent_ms = now;
     }
 }
@@ -767,6 +771,9 @@ static void react(struct psk_app *a, unsigned changed)
     }
     if (changed & PSK_CHANGED_STATE) {
         a->net_due = true; /* a capture that stopped: its last word */
+    }
+    if (changed & PSK_CHANGED_NETLIST) {
+        a->net_asked = false;
     }
     if ((changed & (PSK_CHANGED_DIAG | PSK_CHANGED_STATE | PSK_CHANGED_EXITED | PSK_CHANGED_NET | PSK_CHANGED_NETLIST)) &&
         psk_dsheet_shown(a)) {
@@ -1025,6 +1032,9 @@ static void on_poll(lv_timer_t *t)
     psk_list_fit(a);
     list_poll(a);
     net_poll(a);
+    if (psk_net_shown(a) && a->nv_line_h != pocketui_role_line_height(POS_STYLE_VALUE)) {
+        psk_net_paint(a); /* a new text size: its lines' heights follow */
+    }
     t0 = now_us() - t0;
     if (t0 > a->worst_poll_us) {
         a->worst_poll_us = t0;

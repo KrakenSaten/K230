@@ -128,10 +128,10 @@ static unsigned dhcp_sev(const struct psk_model *m)
 {
     const struct ppc_net_totals *t = &m->nt;
 
-    if (t->dhcp_no_offer || t->dhcp_no_ack || t->dhcp_nak || t->dhcp_decline || t->dhcp_servers >= 2) {
+    if (t->dhcp_no_offer || t->dhcp_no_ack || t->dhcp_decline || t->dhcp_servers >= 2) {
         return PSK_SEV_WARN;
     }
-    return t->dhcp_late ? PSK_SEV_NOTE : PSK_SEV_OK;
+    return t->dhcp_late || t->dhcp_nak ? PSK_SEV_NOTE : PSK_SEV_OK;
 }
 
 static unsigned arp_sev(const struct psk_model *m)
@@ -139,7 +139,7 @@ static unsigned arp_sev(const struct psk_model *m)
     const struct ppc_net_totals *t = &m->nt;
     uint32_t i;
 
-    if (t->arp_conflicts || t->arp_flips) {
+    if (t->arp_flips) {
         return PSK_SEV_WARN;
     }
     for (i = 0; i < m->net.nevents; i++) {
@@ -149,7 +149,7 @@ static unsigned arp_sev(const struct psk_model *m)
             return PSK_SEV_WARN;
         }
     }
-    return t->arp_moved || t->arp_noreply ? PSK_SEV_NOTE : PSK_SEV_OK;
+    return t->arp_moved || t->arp_noreply || t->arp_conflicts ? PSK_SEV_NOTE : PSK_SEV_OK;
 }
 
 /* ---- the summaries ---------------------------------------------------------------------- */
@@ -196,11 +196,11 @@ unsigned psk_net_summary(const struct psk_model *m, unsigned kind, char *buf, si
             snprintf(buf, buflen, "NO ARP SEEN YET");
             return PSK_SEV_OK;
         }
-        if (t->arp_conflicts) {
-            part(buf, buflen, "%s CONFLICT%s", count(t->arp_conflicts, a, sizeof(a)), plural(t->arp_conflicts));
-        }
         if (t->arp_flips) {
             part(buf, buflen, "%s DUPLICATE CLAIM%s", count(t->arp_flips, a, sizeof(a)), plural(t->arp_flips));
+        }
+        if (t->arp_conflicts) {
+            part(buf, buflen, "%s PROBED IN USE", count(t->arp_conflicts, a, sizeof(a)));
         }
         if (t->arp_moved) {
             part(buf, buflen, "%s MOVED", count(t->arp_moved, a, sizeof(a)));
@@ -261,8 +261,9 @@ static unsigned dhcp_lines(const struct psk_model *m, struct psk_diag_line *out,
     for (i = 0; i < m->net.nservers; i++) {
         const struct ppc_evt_net_srv *s = &m->net.srv[i];
 
-        /* Every server after the first is the one to look at. */
-        l = add_line(out, &n, max, i == 0 ? PSK_SEV_OK : PSK_SEV_WARN);
+        /* More than one: each is to be looked at. Which came first here
+         * says nothing of which one is meant to be there. */
+        l = add_line(out, &n, max, t->dhcp_servers >= 2 ? PSK_SEV_WARN : PSK_SEV_OK);
         if (!l) {
             break;
         }
@@ -290,8 +291,8 @@ static unsigned dhcp_lines(const struct psk_model *m, struct psk_diag_line *out,
             }
             l->why[strlen(l->why) - 1] = '.';
         }
-        if (i > 0) {
-            more(l->why, sizeof(l->why), " A second server: meant, or a mistake? Compare what each gives.");
+        if (t->dhcp_servers >= 2) {
+            more(l->why, sizeof(l->why), " More than one server answers: meant, or a mistake? Compare what each gives.");
         }
         go_open(l, s->seq);
     }
@@ -334,11 +335,11 @@ static unsigned dhcp_lines(const struct psk_model *m, struct psk_diag_line *out,
                  "No ACK or NAK was seen to a REQUEST whose answer would have passed here. The server may be slow or "
                  "gone, or the answer was lost. Not proof of a fault.");
     }
-    if (t->dhcp_nak && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
+    if (t->dhcp_nak && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
         snprintf(l->text, sizeof(l->text), "%s REFUSED BY A SERVER (NAK)", count(t->dhcp_nak, a, sizeof(a)));
         snprintf(l->why, sizeof(l->why),
-                 "A server told a client that it may not have the address it asked for: a lease from another network, "
-                 "an address given to someone else, or two servers that disagree. The client starts again.");
+                 "A server told a client that it may not have the address it asked for. Routine for a device that "
+                 "arrives with a lease from another network; many of them may mean two servers that disagree.");
     }
     if (t->dhcp_decline && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
         snprintf(l->text, sizeof(l->text), "%s DECLINED BY THE CLIENT", count(t->dhcp_decline, a, sizeof(a)));
@@ -355,7 +356,9 @@ static unsigned dhcp_lines(const struct psk_model *m, struct psk_diag_line *out,
     }
     if (t->dhcp_late && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
         snprintf(l->text, sizeof(l->text), "%s ANSWERED LATE", count(t->dhcp_late, a, sizeof(a)));
-        snprintf(l->why, sizeof(l->why), "An answer came after its request had been called unanswered: a slow server.");
+        snprintf(l->why, sizeof(l->why),
+                 "An answer came after its request had been called unanswered: a slow server, or the answer to a "
+                 "later copy of the request.");
     }
     if (t->dhcp_waiting && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
         bool live = m->state == PPC_STATE_CAPTURING;
@@ -394,19 +397,20 @@ static unsigned arp_lines(const struct psk_model *m, struct psk_diag_line *out, 
                  "the device that asked, so few replies beside many requests is normal on a switch port.");
         go_host(l, PPC_CLASS_ARP, "");
     }
-    if (t->arp_conflicts && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
-        snprintf(l->text, sizeof(l->text), "%s ADDRESS CONFLICT%s SEEN", count(t->arp_conflicts, a, sizeof(a)),
-                 plural(t->arp_conflicts));
-        snprintf(l->why, sizeof(l->why),
-                 "A device probed for an address before using it, and another claimed that address within 10 s. The "
-                 "conflict the probe exists to find (RFC 5227): confirmed by the exchange itself.");
-    }
     if (t->arp_flips && (l = add_line(out, &n, max, PSK_SEV_WARN)) != NULL) {
         snprintf(l->text, sizeof(l->text), "%s TIME%s TWO MACS CLAIMED ONE ADDRESS", count(t->arp_flips, a, sizeof(a)),
                  plural(t->arp_flips));
         snprintf(l->why, sizeof(l->why),
                  "An address went back to the MAC it had just left, within a minute. A potential duplicate address: "
                  "two stations using it at once. Failover pairs and forged ARP look the same from here.");
+    }
+    if (t->arp_conflicts && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
+        snprintf(l->text, sizeof(l->text), "%s PROBED ADDRESS%s IN USE", count(t->arp_conflicts, a, sizeof(a)),
+                 t->arp_conflicts == 1 ? "" : "ES");
+        snprintf(l->why, sizeof(l->why),
+                 "An address was probed for (a request with no sender address) and another MAC claimed it within "
+                 "10 s. A device about to take the address must back off (RFC 5227); some switches probe like this "
+                 "only to see who is there.");
     }
     if (t->arp_moved && (l = add_line(out, &n, max, PSK_SEV_NOTE)) != NULL) {
         snprintf(l->text, sizeof(l->text), "%s ADDRESS MOVE%s", count(t->arp_moved, a, sizeof(a)), plural(t->arp_moved));
@@ -418,7 +422,7 @@ static unsigned arp_lines(const struct psk_model *m, struct psk_diag_line *out, 
         snprintf(l->text, sizeof(l->text), "%s OF THIS DEVICE'S REQUESTS UNANSWERED", count(t->arp_noreply, a, sizeof(a)));
         snprintf(l->why, sizeof(l->why),
                  "This device asked for an address three times or more and saw no reply: nothing on this link holds "
-                 "it, or its holder is down. Other devices' requests are not judged: their replies do not pass here.");
+                 "it, its holder is down, or the reply was lost. Other devices' requests are not judged.");
     }
     if (t->arp_gratuitous && (l = add_line(out, &n, max, PSK_SEV_OK)) != NULL) {
         snprintf(l->text, sizeof(l->text), "%s GRATUITOUS", count(t->arp_gratuitous, a, sizeof(a)));
@@ -500,8 +504,8 @@ const char *psk_net_event_title(unsigned kind)
         "DHCP DISCOVER NOT ANSWERED",
         "DHCP REQUEST NOT ANSWERED",
         "VERY SHORT DHCP LEASE",
-        "ADDRESS CONFLICT SEEN",
-        "TWO DEVICES CLAIM ONE ADDRESS",
+        "PROBED ADDRESS IS IN USE",
+        "TWO MACS CLAIM ONE ADDRESS",
         "ADDRESS MOVED TO ANOTHER MAC",
         "ROUTER'S ADDRESS AT ANOTHER MAC",
         "NO ARP REPLY FOR AN ADDRESS",
@@ -538,9 +542,9 @@ static void event_words(const struct ppc_evt_net_event *e, char *seen, size_t sn
     case PPC_NK_DHCP_NAK:
         snprintf(seen, sn, "Server %s answered NAK to the client %s.", ip, mac);
         snprintf(means, mn,
-                 "The client asked for an address this server does not give it: a lease from another network, an "
-                 "address handed to someone else, or two servers that disagree. The client starts again with "
-                 "DISCOVER.");
+                 "The client asked for an address this server does not give it. Routine for a device that arrives "
+                 "with a lease from another network; also seen when an address was handed to someone else or two "
+                 "servers disagree. The client normally starts again with DISCOVER.");
         break;
     case PPC_NK_DHCP_DECLINE:
         snprintf(seen, sn, "The client %s declined %s%s%s.", mac, ip, e->ip2[0] ? ", given by " : "",
@@ -570,10 +574,12 @@ static void event_words(const struct ppc_evt_net_event *e, char *seen, size_t sn
                  "server's settings; not a fault by itself.");
         break;
     case PPC_NK_ARP_CONFLICT:
-        snprintf(seen, sn, "%s probed for %s before using it, and %s claimed that address within 10 s.", mac2, ip, mac);
+        snprintf(seen, sn, "%s probed for %s (a request with no sender address), and %s claimed that address within 10 s.",
+                 mac2, ip, mac);
         snprintf(means, mn,
-                 "This is the conflict the probe exists to find (RFC 5227): the address is already in use, and the "
-                 "probing device should not take it. Confirmed by the exchange itself.");
+                 "The address is in use. If the prober was about to take it, this is the conflict its probe exists "
+                 "to find (RFC 5227) and it must back off; if it takes the address anyway, that is listed as two MACs "
+                 "claiming it. Some switches probe like this only to see who is there.");
         break;
     case PPC_NK_ARP_DUPLICATE:
         snprintf(seen, sn, "%s was claimed by %s and by %s in turn, within a minute of each other.", ip, mac, mac2);
@@ -598,8 +604,8 @@ static void event_words(const struct ppc_evt_net_event *e, char *seen, size_t sn
     case PPC_NK_ARP_NO_REPLY:
         snprintf(seen, sn, "This device asked who has %s three times or more and saw no reply.", ip);
         snprintf(means, mn,
-                 "Nothing on this link holds the address, or its holder is down or filtered. When it is the router's "
-                 "address, nothing beyond this network can be reached.");
+                 "Nothing on this link holds the address, its holder is down or filtered, or the replies were lost. "
+                 "When it is the router's address, nothing beyond this network can be reached.");
         break;
     case PPC_NK_ARP_SWEEP:
         snprintf(seen, sn, "%s%s%s%s sent ARP requests for 32 or more different addresses within 10 s.", mac,
@@ -674,6 +680,12 @@ unsigned psk_net_event_lines(const struct ppc_evt_net_event *e, struct psk_diag_
     return n;
 }
 
+/* The kinds the helper keeps one event a station of (ppc_net.c). */
+static int by_mac(unsigned kind)
+{
+    return is_dhcp(kind) ? kind != PPC_NK_DHCP_SERVERS : kind == PPC_NK_ARP_SWEEP || kind == PPC_NK_ARP_SENDER;
+}
+
 const struct ppc_evt_net_event *psk_net_event_same(const struct psk_model *m, const struct ppc_evt_net_event *e)
 {
     uint32_t i;
@@ -682,8 +694,10 @@ const struct ppc_evt_net_event *psk_net_event_same(const struct psk_model *m, co
         const struct ppc_evt_net_event *o = &m->net.evt[i];
 
         /* The same finding: its kind, when it was first seen, and whom it
-         * is about (its latest MACs may have changed since). */
-        if (o->kind == e->kind && o->first_us == e->first_us && strcmp(o->ip, e->ip) == 0) {
+         * is about - the address, and the MAC too where the helper keeps
+         * one event a station (elsewhere the latest MAC may have changed). */
+        if (o->kind == e->kind && o->first_us == e->first_us && strcmp(o->ip, e->ip) == 0 &&
+            (!by_mac(e->kind) || strcmp(o->mac, e->mac) == 0)) {
             return o;
         }
     }
@@ -701,10 +715,10 @@ static void find_event(struct psk_find *f, const struct ppc_evt_net_event *e)
     f->kind = PSK_DIAG_FINDING;
     f->ev = *e;
     snprintf(f->text, sizeof(f->text), "%s", psk_net_event_title(e->kind));
+    /* One address on the row, so it stays one line: the sheet has both. */
     if (e->ip[0]) {
         part(f->sub, sizeof(f->sub), "%s", e->ip);
-    }
-    if (e->mac[0]) {
+    } else if (e->mac[0]) {
         part(f->sub, sizeof(f->sub), "%s", e->mac);
     }
     part(f->sub, sizeof(f->sub), "%s", at(e->last_us, a, sizeof(a)));
@@ -808,10 +822,12 @@ unsigned psk_net_host_share(const struct psk_model *m, unsigned i)
 
 const char *psk_net_host_filter(const struct psk_model *m, unsigned i)
 {
+    /* By its address only: a MAC filters ARP and frames without a network
+     * layer, not the IP packets a device's count is mostly made of. */
     if (i >= m->net.nhosts) {
         return "";
     }
-    return m->net.host[i].ip[0] ? m->net.host[i].ip : m->net.host[i].mac;
+    return m->net.host[i].ip;
 }
 
 const char *psk_net_mix(const struct psk_model *m, char *buf, size_t buflen)

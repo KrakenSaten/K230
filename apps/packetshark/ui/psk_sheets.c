@@ -757,7 +757,8 @@ void psk_dsheet_paint(struct psk_app *a)
         ds_tone(a, (int)i, l->sev);
         psk_text(a->ds_why[i], l->why);
         go = present && l->go != PSK_GO_NONE;
-        psk_text(a->ds_go[i], !go ? "" : l->go == PSK_GO_OPEN ? "OPEN" : "LIST");        psk_set_hidden(a->ds_go[i], !go);
+        psk_text(a->ds_go[i], !go ? "" : l->go == PSK_GO_OPEN ? "OPEN" : "LIST");
+        psk_set_hidden(a->ds_go[i], !go);
         if (go) {
             lv_obj_add_flag(a->ds_row[i], LV_OBJ_FLAG_CLICKABLE);
         } else {

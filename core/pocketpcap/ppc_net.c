@@ -129,6 +129,9 @@ static void event(struct ppc_net *nt, unsigned kind, unsigned sev, const uint8_t
             if (e->count < 0xffffffffu) {
                 e->count++;
             }
+            if (sev > e->sev) {
+                e->sev = (uint8_t)sev; /* more is known now than when it was first seen */
+            }
             e->last_ns = now;
             e->seq = seq;
             memcpy(e->mac, kmac, 6);
@@ -313,9 +316,12 @@ static void claim(struct ppc_net *nt, const uint8_t *ip, const uint8_t *mac, uin
         if (since(now, b->probe_ns) > PPC_NET_PROBE_NS) {
             b->probed = 0;
         } else if (memcmp(b->probe_mac, mac, 6) != 0) {
-            /* RFC 5227: the address a station probed for is in use. */
+            /* The address a station probed for (RFC 5227) is in use. A note:
+             * a device about to take it must back off, but switches also
+             * probe like this only to see who is there. Should the prober
+             * claim the address after all, that is a duplicate, above. */
             nt->st.arp_conflicts++;
-            event(nt, PPC_NK_ARP_CONFLICT, PPC_NS_WARN, ip, mac, NULL, b->probe_mac, now, seq);
+            event(nt, PPC_NK_ARP_CONFLICT, PPC_NS_NOTE, ip, mac, NULL, b->probe_mac, now, seq);
             b->probed = 0;
         }
     }
@@ -533,7 +539,23 @@ static int dh_parse(const uint8_t *d, uint32_t n, uint32_t off, struct dh *m)
         }
         i += 2u + len;
     }
-    return m->type && mac_ok(m->chaddr) ? 0 : -1;
+    if (!m->type || !mac_ok(m->chaddr)) {
+        return -1;
+    }
+    /* A server's message is a BOOTREPLY and a client's a BOOTREQUEST: one
+     * that says otherwise is not taken for either. */
+    if (m->type == 2 || m->type == 5 || m->type == 6) {
+        return m->op == 2 ? 0 : -1;
+    }
+    return m->op == 1 ? 0 : -1;
+}
+
+/* Whether the answer to a client's message would pass this interface: it is
+ * this device's own, or the server must broadcast it (RFC 2131 §4.1: the
+ * broadcast flag, no relay, and no address of the client's to unicast to). */
+static int answer_seen_here(const struct dh *m, int own)
+{
+    return own || (m->bflag && memcmp(m->ciaddr, none, 4) == 0 && memcmp(m->giaddr, none, 4) == 0);
 }
 
 static void wait_stop(struct ppc_net *nt, struct ppc_net_dhcp *t)
@@ -604,6 +626,9 @@ static struct ppc_net_server *server_of(struct ppc_net *nt, const struct ppc_rec
     struct ppc_net_server *s = NULL;
     unsigned i;
 
+    if (!ip_ok(sid)) {
+        return NULL; /* no address a server has */
+    }
     for (i = 0; i < PPC_NET_SERVERS; i++) {
         if (nt->servers[i].used && memcmp(nt->servers[i].ip, sid, 4) == 0) {
             s = &nt->servers[i];
@@ -690,10 +715,15 @@ static void dhcp(struct ppc_net *nt, const struct ppc_record *r, const uint8_t *
         if (m.name[0]) {
             memcpy(t->name, m.name, sizeof(t->name));
         }
+        if (t->seen & (PPC_DH_ACK | PPC_DH_NAK)) {
+            /* The client starts over under the same transaction id. */
+            t->seen = 0;
+            t->judged = 0;
+            st->dhcp_tx++;
+        }
         if (!(t->seen & PPC_DH_DISCOVER)) {
-            /* The first copy: its OFFER is seen here only when it is this
-             * device's own, or the client asked for a broadcast reply. */
-            if (own || m.bflag) {
+            /* The first copy: judged only when its OFFER would be seen. */
+            if (answer_seen_here(&m, own)) {
                 wait_start(nt, t, PPC_DH_WAIT_OFFER, now, seq);
             } else {
                 st->dhcp_unseen++;
@@ -719,8 +749,15 @@ static void dhcp(struct ppc_net *nt, const struct ppc_record *r, const uint8_t *
         if (t->wait == PPC_DH_WAIT_OFFER) {
             wait_stop(nt, t); /* the client chose an offer, seen here or not */
         }
+        if (t->seen & (PPC_DH_ACK | PPC_DH_NAK)) {
+            /* Answered before: this is a renewal under the same transaction
+             * id (udhcpc keeps its id), an exchange of its own. */
+            t->seen &= (uint8_t)~(PPC_DH_REQUEST | PPC_DH_ACK | PPC_DH_NAK);
+            t->judged &= (uint8_t)~JUDGED_ACK;
+            st->dhcp_tx++;
+        }
         if (!(t->seen & PPC_DH_REQUEST)) {
-            if (own || m.bflag) {
+            if (answer_seen_here(&m, own)) {
                 wait_start(nt, t, PPC_DH_WAIT_ACK, now, seq);
             } else {
                 st->dhcp_unseen++;
@@ -777,7 +814,9 @@ static void dhcp(struct ppc_net *nt, const struct ppc_record *r, const uint8_t *
             if (t->judged & JUDGED_ACK) {
                 st->dhcp_late++;
             }
-            st->dhcp_complete++;
+            if (ip_ok(m.yiaddr)) {
+                st->dhcp_complete++; /* an ACK to INFORM gives no address */
+            }
         }
         t->seen |= PPC_DH_ACK;
         if (ip_ok(m.yiaddr)) {
@@ -820,7 +859,9 @@ static void dhcp(struct ppc_net *nt, const struct ppc_record *r, const uint8_t *
         t->last_ns = now;
         wait_stop(nt, t);
         t->seen |= PPC_DH_NAK;
-        event(nt, PPC_NK_DHCP_NAK, PPC_NS_WARN, m.has_sid ? m.sid : r->src, m.chaddr, NULL, NULL, now, seq);
+        /* A note: a device arriving from another network gets one as a
+         * matter of course. */
+        event(nt, PPC_NK_DHCP_NAK, PPC_NS_NOTE, m.has_sid ? m.sid : r->src, m.chaddr, NULL, NULL, now, seq);
         break;
     default:
         break;

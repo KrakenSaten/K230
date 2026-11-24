@@ -395,6 +395,7 @@ struct psk_app {
     /* the network overview (M12.1): LIVE's second face */
     bool net_view;       /* it is what LIVE shows */
     bool net_due;        /* its lists are to be asked for */
+    bool net_asked;      /* asked, and no answer yet: asked again after a second */
     int64_t net_sent_ms;
     lv_obj_t *nv_page;
     lv_obj_t *nv_close;
@@ -423,6 +424,7 @@ struct psk_app {
     lv_obj_t *nv_host_l2[PSK_NV_HOSTS];
     lv_obj_t *nv_host_bar[PSK_NV_HOSTS];
     int nv_host_share[PSK_NV_HOSTS];
+    int32_t nv_line_h;   /* the value role's line when its one-line labels were last sized */
 
     /* state */
     struct psk_session *session;

@@ -3119,15 +3119,15 @@ static void m12(bool portrait)
     pump(300);
     ok = strcmp(lv_label_get_text(psk_app_part(app_priv, "netcell0")), psk_fmt_count(m->nt.hosts, b, sizeof(b))) == 0 &&
          m->nt.hosts >= 10 && strcmp(lv_label_get_text(psk_app_part(app_priv, "netcell1")), "2") == 0 &&
-         m->nt.arp_binds > 0 && m->nt.events_warn >= 4;
+         m->nt.arp_binds > 0 && m->nt.events_warn >= 3;
     CHECK("the figures: devices, two DHCP servers, ARP addresses, what to check", ok);
-    ok = containing_in(net_page(), "SECOND DHCP SERVER ANSWERING") && containing_in(net_page(), "TWO DEVICES CLAIM ONE ADDRESS") &&
-         containing_in(net_page(), "ADDRESS CONFLICT SEEN") && containing_in(net_page(), "DHCP SERVER REFUSED A REQUEST") &&
-         containing_in(net_page(), "192.0.2.77") && a->nv_nfinds >= 4;
+    ok = containing_in(net_page(), "SECOND DHCP SERVER ANSWERING") && containing_in(net_page(), "TWO MACS CLAIM ONE ADDRESS") &&
+         containing_in(net_page(), "DHCP DISCOVER NOT ANSWERED") && containing_in(net_page(), "192.0.2.77") &&
+         a->nv_nfinds >= 4;
     if (!ok) {
         dump_in(net_page());
     }
-    CHECK("the findings: a second server, a duplicate, a conflict and a refusal, each with its address", ok);
+    CHECK("the findings: a second server, two MACs for one address, an unanswered DISCOVER, each with its address", ok);
     ok = true;
     for (i = 0; i < a->nv_nfinds; i++) {
         /* Warnings first, and every warning with `!` (DS §59.2). */
@@ -3177,9 +3177,9 @@ static void m12(bool portrait)
     lv_obj_scroll_to_y(net_page(), 0, LV_ANIM_OFF);
 
     /* A finding and its evidence. */
-    tap_obj(finding_row("TWO DEVICES CLAIM ONE ADDRESS"));
+    tap_obj(finding_row("TWO MACS CLAIM ONE ADDRESS"));
     pump(150);
-    ok = psk_dsheet_shown(a) && shown("Finding") && containing_in(a->dsheet, "! TWO DEVICES CLAIM ONE ADDRESS") &&
+    ok = psk_dsheet_shown(a) && shown("Finding") && containing_in(a->dsheet, "! TWO MACS CLAIM ONE ADDRESS") &&
          containing_in(a->dsheet, "192.0.2.77 was claimed by 02:00:5e:30:00:a") &&
          containing_in(a->dsheet, "WHAT IT MAY MEAN") && containing_in(a->dsheet, "potential duplicate address") &&
          containing_in(a->dsheet, "EVIDENCE") && containing_in(a->dsheet, "OPEN") && containing_in(a->dsheet, "LIST") &&
@@ -3196,7 +3196,7 @@ static void m12(bool portrait)
     psk_select_tab(a, PSK_TAB_LIVE);
     pump(100);
     CHECK("back on LIVE the overview is where it was left", psk_net_shown(a) && !lv_obj_has_flag(net_page(), LV_OBJ_FLAG_HIDDEN));
-    tap_obj(finding_row("TWO DEVICES CLAIM ONE ADDRESS"));
+    tap_obj(finding_row("TWO MACS CLAIM ONE ADDRESS"));
     pump(150);
     tap_obj(clickable_of(containing_in(a->dsheet, "ARP PACKETS OF 192.0.2.77")));
     pump(300);
@@ -3216,7 +3216,7 @@ static void m12(bool portrait)
     tap_obj(psk_app_part(app_priv, "netdiag0"));
     pump(300);
     ok = psk_dsheet_shown(a) && shown("DHCP diagnosis") && containing_in(a->dsheet, "EXCHANGES ACKNOWLEDGED") &&
-         containing_in(a->dsheet, "SERVER 192.0.2.1 ") && containing_in(a->dsheet, "! SERVER 192.0.2.254") &&
+         containing_in(a->dsheet, "! SERVER 192.0.2.1 ") && containing_in(a->dsheet, "! SERVER 192.0.2.254") &&
          containing_in(a->dsheet, "It gives router 192.0.2.1, DNS 192.0.2.53, mask 255.255.255.0, leases of 24 h.") &&
          containing_in(a->dsheet, " LEASED TO 02:00:5e:20:00:1") && containing_in(a->dsheet, "The client calls itself desk-") &&
          containing_in(a->dsheet, "REFUSED BY A SERVER (NAK)") && containing_in(a->dsheet, "DISCOVER NOT ANSWERED IN 10 S") &&
@@ -3238,13 +3238,13 @@ static void m12(bool portrait)
     tap_obj(psk_app_part(app_priv, "netdiag1"));
     pump(300);
     ok = psk_dsheet_shown(a) && shown("ARP diagnosis") && containing_in(a->dsheet, " REQUESTS") &&
-         containing_in(a->dsheet, "ADDRESS CONFLICT") && containing_in(a->dsheet, "TWO MACS CLAIMED ONE ADDRESS") &&
+         containing_in(a->dsheet, "PROBED ADDRESS") && containing_in(a->dsheet, "TWO MACS CLAIMED ONE ADDRESS") &&
          containing_in(a->dsheet, "A potential duplicate address") && containing_in(a->dsheet, "GRATUITOUS") &&
          containing_in(a->dsheet, "PROBE") && containing_in(a->dsheet, "OF THIS DEVICE'S REQUESTS UNANSWERED");
     if (!ok) {
         dump_in(a->dsheet);
     }
-    CHECK("ARP: the pairs and counts, conflicts and duplicate claims as potential, gratuitous ARP as normal", ok);
+    CHECK("ARP: the pairs and counts, duplicate claims as potential, a probed address in use as a note, gratuitous ARP as normal", ok);
     CHECK("nothing in the ARP sheet is clipped or broken", dots_wrapped(a->dsheet) == 0);
     shot("m12-arp-sheet");
     CHECK("Back closes the sheet, and the overview is under it",
@@ -3285,6 +3285,19 @@ static void m12(bool portrait)
         pump(200);
         lv_obj_scroll_to_y(net_page(), 0, LV_ANIM_OFF);
         n = audit_page() + dots_wrapped(net_page());
+        {
+            /* A one-line label is as high as its line at this text size:
+             * one built for a smaller size would cut its text. */
+            const lv_font_t *f = lv_obj_get_style_text_font(a->nv_cell[0], LV_PART_MAIN);
+            const lv_font_t *g = lv_obj_get_style_text_font(a->nv_host_l2[0], LV_PART_MAIN);
+
+            if (lv_obj_get_height(a->nv_cell[0]) < lv_font_get_line_height(f) ||
+                lv_obj_get_height(a->nv_host_l2[0]) < lv_font_get_line_height(g) ||
+                lv_obj_get_height(a->nv_diag_text[0]) < lv_font_get_line_height(g)) {
+                printf("     a one-line label is lower than its line at %s\n", pos_text_size_name((enum pos_text_size)i));
+                n++;
+            }
+        }
         if (n) {
             printf("     overview at text size %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), n);
         }
@@ -3327,13 +3340,13 @@ static void m12(bool portrait)
     pump(900);
     seq = a->insp_shown;
     ok = m->state == PPC_STATE_STOPPED && psk_net_shown(a) && a->nv_nfinds > 0;
-    tap_obj(finding_row("ADDRESS CONFLICT SEEN"));
+    tap_obj(finding_row("SECOND DHCP SERVER ANSWERING"));
     pump(150);
-    ok = ok && psk_dsheet_shown(a) && containing_in(a->dsheet, "probed for 192.0.2.88") &&
-         containing_in(a->dsheet, "Confirmed by the exchange itself");
+    ok = ok && psk_dsheet_shown(a) && containing_in(a->dsheet, "DHCP answers came from 192.0.2.254") &&
+         containing_in(a->dsheet, "Not proof of a fault");
     tap_obj(clickable_of(containing_in(a->dsheet, "EVIDENCE")));
     CHECK("stopped: the overview stays, and a finding's evidence still opens",
-          ok && wait_packet(seq, 1500) && m->pkt.head.cls == PPC_CLASS_ARP);
+          ok && wait_packet(seq, 1500) && m->pkt.head.cls == PPC_CLASS_DHCP);
     shot("m12-stopped-evidence");
 
     /* A new capture starts from nothing. */

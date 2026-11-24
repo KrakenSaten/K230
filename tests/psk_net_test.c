@@ -360,7 +360,7 @@ static void test_words(void)
           psk_diag_summary(&M, PSK_DIAG_DHCP, b, sizeof(b)) == PSK_SEV_WARN && strncmp(b, "2 SERVERS", 9) == 0 &&
               strstr(b, "2 NO ANSWER") && strstr(b, "1 REFUSED") && strstr(b, "1 DECLINED"));
     check("and on the ARP line", psk_diag_summary(&M, PSK_DIAG_ARP, b, sizeof(b)) == PSK_SEV_WARN &&
-                                     strncmp(b, "1 CONFLICT \xc2\xb7 2 DUPLICATE CLAIMS", 31) == 0);
+                                     strncmp(b, "2 DUPLICATE CLAIMS \xc2\xb7 1 PROBED IN USE", 36) == 0);
     check("and on the overview's", psk_diag_summary(&M, PSK_DIAG_NET, b, sizeof(b)) == PSK_SEV_WARN &&
                                        strncmp(b, "4 TO CHECK", 10) == 0);
 
@@ -373,8 +373,8 @@ static void test_words(void)
         }
     }
     check("every line of the full DHCP sheet is a whole sentence", ok);
-    check("the first server is plain, the second is the one to look at, each opens its latest packet",
-          strncmp(dl[1].text, "SERVER 192.0.2.1 ", 17) == 0 && dl[1].sev == PSK_SEV_OK && dl[1].go == PSK_GO_OPEN &&
+    check("with two servers each is to be looked at, whichever was seen first; each opens its latest packet",
+          strncmp(dl[1].text, "SERVER 192.0.2.1 ", 17) == 0 && dl[1].sev == PSK_SEV_WARN && dl[1].go == PSK_GO_OPEN &&
               dl[1].seq == 900 && strncmp(dl[2].text, "SERVER 192.0.2.254", 18) == 0 && dl[2].sev == PSK_SEV_WARN &&
               dl[2].seq == 950);
     check("a server's line says what it gives",
@@ -411,8 +411,10 @@ static void test_words(void)
         }
     }
     check("every line of the full ARP sheet is a whole sentence", ok);
-    check("a conflict is a warning, a move a note, gratuitous ARP and probes are as they should be",
-          dl[1].sev == PSK_SEV_WARN && strstr(dl[1].text, "CONFLICT") && dl[2].sev == PSK_SEV_WARN &&
+    check("two MACs for one address is a warning, a probed address in use and a move are notes, gratuitous ARP and probes "
+          "as they should be",
+          dl[1].sev == PSK_SEV_WARN && strstr(dl[1].text, "TWO MACS") && dl[2].sev == PSK_SEV_NOTE &&
+              strstr(dl[2].text, "PROBED") && strstr(dl[2].why, "switches probe") &&
               dl[3].sev == PSK_SEV_NOTE && strstr(dl[3].text, "MOVE") && dl[5].sev == PSK_SEV_OK &&
               strstr(dl[5].text, "GRATUITOUS") && dl[6].sev == PSK_SEV_OK && strstr(dl[6].text, "PROBE"));
 
@@ -449,8 +451,8 @@ static void test_events(void)
         /* What was seen names an address or a MAC of the event. */
         addressed &= strstr(dl[0].why, "192.0.2.77") || strstr(dl[0].why, "02:00:5e:30:00:a1");
         /* Only what the protocol itself reports is called confirmed: a
-         * client's DECLINE, and a claim made during a probe. */
-        if (kind != PPC_NK_DHCP_DECLINE && kind != PPC_NK_ARP_CONFLICT) {
+         * client's DECLINE. */
+        if (kind != PPC_NK_DHCP_DECLINE) {
             no_overclaim &= strstr(dl[0].why, "onfirmed") == NULL && strstr(dl[1].why, "onfirmed") == NULL;
         }
         /* And nothing is called an attack: at most what one looks like. */
@@ -460,7 +462,7 @@ static void test_events(void)
     check("every event has four lines: what was seen, what it may mean, its packet, the packets around it", four);
     check("every one of them a whole sentence", all_whole);
     check("what was seen names the event's addresses", addressed);
-    check("only a DECLINE and a claim during a probe are called confirmed; nothing is called an attack", no_overclaim);
+    check("only a client's DECLINE is called confirmed; nothing is called an attack", no_overclaim);
 
     e = event(PPC_NK_ARP_DUPLICATE, PPC_NS_WARN, "192.0.2.77", "02:00:5e:30:00:a1", "", "02:00:5e:30:00:a2");
     n = psk_net_event_lines(&e, dl, PSK_DIAG_LINES);
@@ -518,8 +520,8 @@ static void test_findings(void)
               f[1].kind == PSK_DIAG_DNS && f[2].sev == PSK_SEV_NOTE && f[2].kind == PSK_DIAG_FINDING);
     check("an event's row: its title, then its addresses, its time and how often",
           strcmp(f[0].text, "SECOND DHCP SERVER ANSWERING") == 0 &&
-              strcmp(f[0].sub, "192.0.2.254 \xc2\xb7 02:00:5e:10:00:fd \xc2\xb7 00:42") == 0 &&
-              strcmp(f[2].sub, "192.0.2.40 \xc2\xb7 02:00:5e:30:00:b2 \xc2\xb7 00:42 \xc2\xb7 3 TIMES") == 0);
+              strcmp(f[0].sub, "192.0.2.254 \xc2\xb7 00:42") == 0 &&
+              strcmp(f[2].sub, "192.0.2.40 \xc2\xb7 00:42 \xc2\xb7 3 TIMES") == 0);
     check("a diagnosis's row says where it is from", strcmp(f[1].text, "DNS \xc2\xb7 1 NOT ANSWERED WITHIN 5 S") == 0 &&
                                                          strcmp(f[1].sub, "FROM THE DNS DIAGNOSIS") == 0);
     check("cut to what was asked for", psk_findings(&M, f, 1) == 1);
@@ -540,9 +542,9 @@ static void test_findings(void)
     check("one without an address is named by its MAC, and says so",
           strcmp(l1, "02:00:5e:10:00:01 \xc2\xb7 THIS DEVICE \xc2\xb7 doors") == 0 &&
               strncmp(l2, "NO IPV4 ADDRESS SEEN \xc2\xb7 300 PKT", 31) == 0);
-    check("its packets are listed by its address, else its MAC",
-          strcmp(psk_net_host_filter(&M, 0), "192.0.2.1") == 0 &&
-              strcmp(psk_net_host_filter(&M, 1), "02:00:5e:10:00:01") == 0 && psk_net_host_filter(&M, 9)[0] == '\0');
+    check("its packets are listed by its address; without one it offers no list (a MAC does not filter IP packets)",
+          strcmp(psk_net_host_filter(&M, 0), "192.0.2.1") == 0 && psk_net_host_filter(&M, 1)[0] == '\0' &&
+              psk_net_host_filter(&M, 9)[0] == '\0');
     check("the share is of the session's bytes, in tenths of a percent",
           psk_net_host_share(&M, 0) == 750 && psk_net_host_share(&M, 1) == 250 && psk_net_host_share(&M, 9) == 0);
     psk_net_host_lines(&M, 9, l1, sizeof(l1), l2, sizeof(l2));

@@ -132,6 +132,9 @@ static void on_host(lv_event_t *e)
         return;
     }
     snprintf(host, sizeof(host), "%s", psk_net_host_filter(a->model, (unsigned)i));
+    if (!host[0]) {
+        return; /* no address known: nothing its packets could be listed by */
+    }
     psk_set_view(a, PPC_CLASSES_ALL, host, 0, false);
     psk_select_tab(a, PSK_TAB_PACKETS);
 }
@@ -246,7 +249,7 @@ void psk_net_build(struct psk_app *a, lv_obj_t *page)
     }
 
     /* The devices that sent the most, as far as this interface saw. */
-    p = psk_panel(a->nv_r, "DEVICES \xc2\xb7 BY BYTES SENT \xc2\xb7 TAP TO LIST");
+    p = psk_panel(a->nv_r, "DEVICES \xc2\xb7 BY BYTES SENT");
     lv_obj_set_style_pad_hor(p, 14, 0);
     lv_obj_set_style_pad_top(p, 22, 0);
     lv_obj_set_style_pad_bottom(p, 14, 0);
@@ -273,8 +276,6 @@ void psk_net_build(struct psk_app *a, lv_obj_t *page)
 void psk_net_shape(struct psk_app *a)
 {
     bool w = a->wide;
-    int i;
-
     lv_obj_set_flex_flow(a->nv_cols, w ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(a->nv_cols, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(a->nv_cols, PSK_PANEL_GAP, 0);
@@ -289,10 +290,37 @@ void psk_net_shape(struct psk_app *a)
         lv_obj_set_width(a->nv_l, LV_PCT(100));
         lv_obj_set_width(a->nv_r, LV_PCT(100));
     }
-    for (i = 0; i < PSK_NV_CELLS; i++) {
-        lv_obj_set_width(a->nv_cellbox[i], w ? LV_PCT(23) : LV_PCT(48));
-    }
     lv_obj_set_style_pad_top(a->nv_page, w ? 8 : 14, 0);
+}
+
+/* A one-line label is as high as its role's line at the text size in force:
+ * set where it differs, so a change of text size is followed at the next
+ * paint and a label is never cut by the height it was built with. */
+static void line_h(lv_obj_t *lb, enum pos_style_role role)
+{
+    int32_t h = pocketui_role_line_height(role);
+
+    if (lb && lv_obj_get_style_height(lb, LV_PART_MAIN) != h) {
+        lv_obj_set_height(lb, h);
+    }
+}
+
+static void fit_lines(struct psk_app *a)
+{
+    int i;
+
+    a->nv_line_h = pocketui_role_line_height(POS_STYLE_VALUE);
+    for (i = 0; i < PSK_NV_CELLS; i++) {
+        line_h(lv_obj_get_child(a->nv_cellbox[i], 0), POS_STYLE_CAPTION);
+        line_h(a->nv_cell[i], POS_STYLE_VALUE);
+    }
+    for (i = 0; i < PSK_NV_DIAGS; i++) {
+        line_h(a->nv_diag_text[i], POS_STYLE_CAPTION);
+    }
+    for (i = 0; i < PSK_NV_HOSTS; i++) {
+        line_h(a->nv_host_l1[i], POS_STYLE_VALUE);
+        line_h(a->nv_host_l2[i], POS_STYLE_CAPTION);
+    }
 }
 
 /* ---- painting --------------------------------------------------------------------------- */
@@ -318,6 +346,7 @@ void psk_net_paint(struct psk_app *a)
     if (!psk_net_shown(a)) {
         return;
     }
+    fit_lines(a);
     psk_text(a->nv_note, psk_net_confidence(m, PSK_DIAG_NET, b, sizeof(b)));
     psk_text(a->nv_cell[0], psk_fmt_count(t->hosts, b, sizeof(b)));
     psk_text(a->nv_cell[1], psk_fmt_count(t->dhcp_servers, b, sizeof(b)));
@@ -371,6 +400,21 @@ void psk_net_paint(struct psk_app *a)
         psk_set_hidden(a->nv_host[i], !on);
         if (!on) {
             continue;
+        }
+        {
+            /* A device with an address lists the packets to and from it;
+             * one without has no chevron and takes no tap. */
+            bool can = psk_net_host_filter(m, i)[0] != '\0';
+            lv_obj_t *chev = lv_obj_get_child(a->nv_host[i], 1);
+
+            if (can != lv_obj_has_flag(a->nv_host[i], LV_OBJ_FLAG_CLICKABLE)) {
+                if (can) {
+                    lv_obj_add_flag(a->nv_host[i], LV_OBJ_FLAG_CLICKABLE);
+                } else {
+                    lv_obj_clear_flag(a->nv_host[i], LV_OBJ_FLAG_CLICKABLE);
+                }
+            }
+            lv_obj_set_style_opa(chev, can ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         }
         psk_net_host_lines(m, i, l1, sizeof(l1), l2, sizeof(l2));
         psk_text(a->nv_host_l1[i], l1);

@@ -130,6 +130,8 @@ struct dhm {
     unsigned router;   /* option 3 */
     const char *name;  /* option 12 */
     unsigned giaddr;
+    unsigned ciaddr;
+    int wrong_op;      /* a server's type in a BOOTREQUEST, or the reverse */
 };
 
 static uint32_t dhcp_build(uint8_t *b, const struct dhm *m)
@@ -153,11 +155,14 @@ static uint32_t dhcp_build(uint8_t *b, const struct dhm *m)
     put16(b + 34, reply ? 67 : 68);
     put16(b + 36, reply ? 68 : 67);
     p = b + 42;
-    p[0] = reply ? 2 : 1;
+    p[0] = (reply != 0) != (m->wrong_op != 0) ? 2 : 1;
     p[1] = 1;
     p[2] = 6;
     put32(p + 4, m->xid);
     put16(p + 10, m->bflag ? 0x8000u : 0);
+    if (m->ciaddr) {
+        ip_of(p + 12, m->ciaddr);
+    }
     if (m->yiaddr) {
         ip_of(p + 16, m->yiaddr);
     }
@@ -343,9 +348,9 @@ static void test_arp_probe(void)
     ppc_net_totals(&nt, &t);
     e = event_of(&nt, PPC_NK_ARP_CONFLICT);
     check("a probe is counted and claims nothing", t.arp_probes == 1 && t.arp_binds == 1);
-    check("a claim from another MAC during the probe is the conflict RFC 5227 probes for",
-          t.arp_conflicts == 1 && e && e->sev == PPC_NS_WARN && is_ip(e->ip, 50) && is_mac(e->mac, 0x51) &&
-              is_mac(e->mac2, 0x50));
+    check("a claim from another MAC during the probe: the probed address is in use, a note (switches probe too)",
+          t.arp_conflicts == 1 && e && e->sev == PPC_NS_NOTE && is_ip(e->ip, 50) && is_mac(e->mac, 0x51) &&
+              is_mac(e->mac2, 0x50) && t.events_warn == 0);
     arp_req(&nt, 0x52, 0, 52, 2 * S);
     arp_req(&nt, 0x52, 52, 52, 4 * S);       /* the prober's own announcement */
     arp_req(&nt, 0x53, 0, 53, 5 * S);
@@ -596,6 +601,59 @@ static void test_dhcp_unanswered(void)
     check("a wait is forgotten unjudged once frames pass unseen",
           !ppc_net_pending(&nt) && t.dhcp_unjudged == 1 && t.dhcp_waiting == 0 && ppc_net_expire(&nt, 500 * S) == 0 &&
               t.dhcp_no_offer == 2);
+
+    /* A rebinding client broadcasts with its address set: the server
+     * answers that address directly, whatever the flag says. */
+    memset(&m, 0, sizeof(m));
+    m.type = 3;
+    m.xid = 0x2006;
+    m.client = 0x35;
+    m.bflag = 1;
+    m.ciaddr = 135;
+    dhcp_send(&nt, &m, 600 * S, 0);
+    check("a REQUEST from a client that has an address is not waited for: its ACK is unicast", !ppc_net_pending(&nt));
+    m = discover(0x2007, 0x36, 1);
+    m.giaddr = 5;
+    dhcp_send(&nt, &m, 601 * S, 0);
+    check("nor a relayed DISCOVER: its OFFER goes back through the relay", !ppc_net_pending(&nt));
+
+    /* This device renews under the transaction id it used before. */
+    memset(&m, 0, sizeof(m));
+    m.type = 3;
+    m.xid = 0x2008;
+    m.client = 0x37;
+    m.ciaddr = 137;
+    dhcp_send(&nt, &m, 700 * S, 1);
+    m.type = 5;
+    m.from = 0x01;
+    m.src_ip = 1;
+    m.sid = 1;
+    m.ciaddr = 0;
+    m.yiaddr = 137;
+    m.lease = 3600;
+    dhcp_send(&nt, &m, 700 * S + 1000000, 0);
+    memset(&m, 0, sizeof(m));
+    m.type = 3;
+    m.xid = 0x2008;
+    m.client = 0x37;
+    m.ciaddr = 137;
+    dhcp_send(&nt, &m, 2500 * S, 1);
+    ppc_net_totals(&nt, &t);
+    {
+        uint32_t late = t.dhcp_late;
+
+        check("a renewal under the same transaction id waits for its own answer", ppc_net_pending(&nt));
+        check("and is called unanswered when none comes", ppc_net_expire(&nt, 2510 * S) == 1);
+        m.type = 5;
+        m.from = 0x01;
+        m.src_ip = 1;
+        m.sid = 1;
+        m.ciaddr = 0;
+        m.yiaddr = 137;
+        dhcp_send(&nt, &m, 2511 * S, 0);
+        ppc_net_totals(&nt, &t);
+        check("its late answer is counted as late, once", t.dhcp_late == late + 1);
+    }
     ppc_net_free(&nt);
 }
 
@@ -638,8 +696,8 @@ static void test_dhcp_trouble(void)
     dhcp_send(&nt, &m, 4 * S, 0);
     e = event_of(&nt, PPC_NK_DHCP_NAK);
     ppc_net_totals(&nt, &t);
-    check("a NAK is a warning that names the server and the client",
-          t.dhcp_nak == 1 && e && e->sev == PPC_NS_WARN && is_ip(e->ip, 1) && is_mac(e->mac, 0x40));
+    check("a NAK is a note that names the server and the client: routine for a device from another network",
+          t.dhcp_nak == 1 && e && e->sev == PPC_NS_NOTE && is_ip(e->ip, 1) && is_mac(e->mac, 0x40));
 
     memset(&m, 0, sizeof(m));
     m.type = 4;
@@ -686,6 +744,36 @@ static void test_dhcp_trouble(void)
     dhcp_send(&nt, &m, 8 * S, 0);
     check("a relayed answer does not make the relay a DHCP server",
           host_by(&nt, 0x05) && !(host_by(&nt, 0x05)->flags & PPC_NH_DHCP));
+    {
+        const struct ppc_net_lease *ls[PPC_NET_LEASES];
+        uint32_t servers;
+        unsigned leases = ppc_net_leases(&nt, ls, PPC_NET_LEASES);
+
+        ppc_net_totals(&nt, &t);
+        servers = t.dhcp_servers;
+        memset(&m, 0, sizeof(m));
+        m.type = 5; /* an ACK that claims to be a client's message */
+        m.wrong_op = 1;
+        m.xid = 0x3006;
+        m.client = 0x45;
+        m.from = 0x77;
+        m.src_ip = 77;
+        m.sid = 77;
+        m.yiaddr = 145;
+        m.router = 77;
+        dhcp_send(&nt, &m, 9 * S, 0);
+        ppc_net_totals(&nt, &t);
+        check("an ACK in a BOOTREQUEST is not taken for a server's: no server, no lease, no router",
+              t.dhcp_servers == servers && ppc_net_leases(&nt, ls, PPC_NET_LEASES) == leases &&
+                  !(host_by(&nt, 0x77)->flags & (PPC_NH_DHCP | PPC_NH_ROUTER)));
+        m.wrong_op = 0;
+        m.xid = 0x3007;
+        m.sid = 0; /* no identifier, and no source address either */
+        m.src_ip = 0;
+        dhcp_send(&nt, &m, 10 * S, 0);
+        ppc_net_totals(&nt, &t);
+        check("a server with no address takes no place in the table", t.dhcp_servers == servers);
+    }
     ppc_net_free(&nt);
 }
 
