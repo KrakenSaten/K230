@@ -1,355 +1,284 @@
 # DOORS
 
-**Open. Explore. Connect.**
+*Open. Explore. Connect.*
 
-A complete Linux environment for the LILYGO T-Display K230.
+DOORS is a complete Linux environment for the
+[LILYGO T-Display K230](docs/hardware/T-DISPLAY-K230.md), a handheld RISC-V
+computer with a 4.1-inch AMOLED touchscreen, a LoRa radio, a camera, a
+neural-network accelerator (KPU) and an optional keyboard base. It gives that
+hardware a real operating environment: a shell driven by touch and keys, the
+apps that run inside it, and system services that own the radio, the network
+and the hardware. Mesh messaging, on-device object detection, network
+analysis, games and a root Linux terminal all run on the device itself.
 
-DOORS turns the K230 into a small Linux platform for communication, local AI,
-tools, games and experimentation — built around its touchscreen, keyboard,
-LoRa radio, camera and hardware AI acceleration.
+**[Download DOORS 0.5.0](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/doors-0.5.0-tdisplay-k230-b37b644a.img.gz)** (122 MB card image)
+· [Install guide](docs/GETTING_STARTED.md)
+· [Release notes](docs/releases/v0.5.0.md)
+· [Roadmap](docs/ROADMAP.md)
 
-- **[Download DOORS v0.5.0 (.img.gz)](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/doors-0.5.0-tdisplay-k230-b37b644a.img.gz)**: the ready-to-flash
-  microSD card image (122 MB). Write it to a card as it is; GitHub's
-  "Source code" archives on the release page are source, not an image.
-- **[Installation guide](docs/GETTING_STARTED.md)**: check the download,
-  write the card, first boot, Wi-Fi and RIFT. No development tools needed.
-- **[3D-print a desk stand](https://github.com/KrakenSaten/K230/tree/master/hardware/stand)**: a printable stand for the
-  K230; [download the STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl).
-- **[Release notes and checksums](https://github.com/KrakenSaten/K230/releases/tag/v0.5.0)**: what v0.5.0 contains, the
-  SHA-256 checksums
-  ([SHA256SUMS.txt](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/SHA256SUMS.txt)),
-  and the licence, notices and attribution files.
-- **[Roadmap](docs/ROADMAP.md)**: what DOORS is working on next, in
-  priority order.
+![The DOORS launcher in landscape, Carbon theme: clock and date, Favorites (Vision, PacketShark, DeskBuddy), Essentials (Terminal, RIFT, Browser, Settings) and the Apps, Utilities and Games folders](docs/images/launcher-landscape-carbon.png)
 
-## What's new
+<sub>The launcher in the Carbon theme, one of seven. SDL simulator capture of the 0.5.0 shell at the panel's native 1232 × 568.</sub>
 
-<!-- Keep this section near the download links. On each release, replace the
-latest-release summary, retain a small curated screenshot gallery, and move
-older news to docs/releases/HISTORY.md. Use real captures; label
-simulator/fixture data and link to stable image paths or commit SHAs. A
-feature merged after the latest release is marked as master-only until an
-image ships it. -->
+## What's new in 0.5.0
 
-### v0.5.0 · 24 November 2026
+<!-- Keep this section short and near the download links. On each release,
+replace this summary, keep the Highlights screenshots current, and move older
+news to docs/releases/HISTORY.md. Use real captures; label simulator or fixture
+data and use stable image paths. A feature merged after the latest release is
+marked as master-only until an image ships it. -->
 
-- **PacketShark**, new in the image: a receive-only network analyzer for
-  Ethernet and Wi-Fi, with DNS and TCP diagnosis and a network overview of
-  devices, DHCP and ARP.
-- **Games Hub** and **Lamplight card tables**: a poster wall for every game,
-  and illustrated, animated tables for Blackjack, Poker and Solitaire.
+Released 24 November 2026.
+
+- **PacketShark** joins the image: a receive-only network analyzer for
+  Ethernet and Wi-Fi.
+- **Games Hub**, a poster wall for every game, and the **Lamplight** tables
+  for Blackjack, Poker and Solitaire.
 - **RIFT Activity**: the mesh traffic the radio hears, live, and message
   banners anywhere in DOORS.
-- **DeskBuddy 2.0**: Pip, a touch-responsive owl, with an optional voice.
-- **Zabbix**: a card-based monitoring console.
-- **In source, not active in the image:** the DOORS Companion Android app
-  and its gateway, and Fleet over the local network.
+- **DeskBuddy 2.0**: Pip, a touch-responsive owl with an optional voice.
+- **Zabbix**, redesigned as a card-based monitoring console.
 
-The image includes the experimental **R0 · Beta** detector only; no optional
-model weights are included. See the
-[full v0.5.0 release notes](docs/releases/v0.5.0.md) for validation and
-known limitations.
-
-### Games Hub · Your games, your arcade
-
-**New in v0.5.0.** **Games** on the launcher now
-opens a poster wall instead of a page of icons. RotorTerror and Relay Nine
-lead as large featured posters with their own **PLAY** buttons; Fleet,
-Radar, Timber, Solitaire, Blackjack, Poker and 2048 each have a colourful
-poster of their own. One tap on any poster starts the game, so all nine
-games are a tap away. The wall is laid out for both portrait and landscape,
-and keeps its own palette and artwork in every theme.
-
-The **Multiplayer Lobby** poster reserves a place for linked play between
-devices. It is a **preview only**: it always reads COMING SOON, HOST GAME
-and JOIN GAME are disabled, and there is no multiplayer, networking or
-discovery behind it yet.
-
-Blackjack, Poker and Solitaire now share the **Lamplight** table:
-illustrated court cards, motion, a full-screen table and serif headlines
-([Blackjack](docs/apps/PGBLACKJACK.md) · [Poker](docs/apps/POKER.md) ·
-[Solitaire](docs/apps/PGSOLITAIRE.md)).
-
-![Games Hub in landscape: RotorTerror and Relay Nine as featured posters with PLAY buttons, seven colourful posters for Fleet, Radar, Timber, Solitaire, Blackjack, Poker and 2048, and a Multiplayer Lobby poster marked COMING SOON with its buttons disabled](docs/apps/games-hub/hub-landscape-carbon.png)
-
-*Actual SDL simulator capture of the shell on `master`, Carbon theme.*
-[Portrait view](docs/apps/games-hub/hub-portrait-carbon.png)
-· [Design and implementation record](docs/design/games-hub/README.md)
-
-### RIFT Activity · watch the mesh come alive
-
-**New in v0.5.0.** RIFT's ACTIVITY tab shows the
-MeshCore traffic the radio hears, frame by frame. A live scope plots the last
-minute's frames by signal strength, size and type. Under it, sixty stacked
-bars cover the last 20 or 5 minutes in packet-type colours: adverts, channel
-and direct messages, acks, paths, traces and more. Six figures, a per-type
-legend (tap a type to show it alone) and a live feed with size, RSSI and SNR
-show at a glance how busy the mesh is and what it carries. Once RIFT has
-been opened, new messages also raise a banner wherever you are in DOORS.
-
-![RIFT ACTIVITY in landscape, Carbon theme: six activity figures, a live signal scope, twenty minutes of stacked bars in six packet-type colours, and a live feed of received frames](docs/apps/rift/activity-landscape-carbon.png)
-
-*Actual SDL simulator capture of the shell on `master`, Carbon theme, with
-synthetic nodes and MeshCore traffic from the project's test service
-(`tests/fake-meshcored`); no radio traffic was recorded.*
-[Activity guide](docs/apps/RIFT.md#heard-on-air-live)
-· [RIFT guide](docs/apps/RIFT.md)
-
-### PacketShark · network analysis in your pocket
-
-**New in v0.5.0.** A packet analyzer for the K230's Ethernet port and its
-Wi-Fi link, under **Apps → PacketShark**:
-
-- **LIVE**: packets and throughput per second, a 60-second traffic graph
-  stacked by protocol, and the share of TCP, UDP, DNS, DHCP, ARP, ICMP and
-  IPv6.
-- **PACKETS**: the captured list, filtered by protocol, host or port and
-  sorted by time or length.
-- **INSPECT**: one packet decoded layer by layer, its fields, and its stored
-  bytes in hex.
-- **Signals** for common network issues: DNS failures, TCP resets,
-  retransmissions, unreachable hosts and connections with no reply.
-- **SAVE** writes a stopped capture to a standard `.pcap` file for Wireshark
-  or tcpdump.
-- **Diagnosis**: DNS queries paired with their answers and TCP connections
-  followed through handshake, resets and retransmissions.
-- **Network overview**: the devices seen, DHCP exchanges, servers and
-  leases, ARP pairs and conflicts, and findings with their evidence.
-
-PacketShark is receive-only: it never transmits or injects packets. On
-Wi-Fi it sees the unit's own link only (managed mode; no monitor mode).
-
-![PacketShark LIVE in landscape, Carbon theme: CAPTURING, 400 packets per second, a full 60-second traffic graph stacked by protocol, protocol shares, session counters and five signal counts](docs/apps/packetshark/live-landscape-carbon.png)
-
-*Actual SDL simulator capture of the app on `master`, Carbon theme, after
-one minute on the real capture helper's synthetic source (SYNTH0, a steady
-400 packets per second). The source generates only documentation addresses
-and locally administered MACs, and nothing touches a network.*
-[PacketShark guide](docs/apps/PACKETSHARK.md)
-
-### Neon · give DOORS an Arcade look
-
-An optional system-wide theme with an indigo background, violet frames,
-yellow clocks, magenta headings and colourful app-family tiles. Choose
-**Settings → Appearance → Neon**. The original Doors theme remains the
-default. Neon has been available since **v0.3.8**.
-
-![Neon Arcade theme: landscape launcher with yellow clock and colourful app-family tiles](docs/design/neon/arcade-selected/screens/launcher-landscape-medium.png)
-
-*Actual SDL simulator capture of the shipped Arcade theme.*
-[Portrait view](docs/design/neon/arcade-selected/screens/launcher-portrait-normal.png)
-· [Theme gallery](docs/design/neon/arcade-selected/README.md)
-
-### RotorTerror · an original helicopter arcade game
-
-Fly the Kestrel across Ember Coast, Violet Ridge and Ion City. The cannon
-fires automatically and guided rockets steer toward enemies ahead; collect
-salvage, chain kills into combos and face a heavy gunship every third wave.
-Open **Games → RotorTerror → LAUNCH**. New in v0.4.0.
-
-![RotorTerror gameplay in landscape: the Kestrel over Ember Coast with enemy drones, gold salvage and a combo counter](https://raw.githubusercontent.com/KrakenSaten/K230/1c0f302c2388e2e7376a7a02fbaa567d8b409725/docs/apps/rotorterror/combat-landscape.png)
-
-*Actual LVGL host-test capture with scripted input, not concept art or a
-device photograph.*
-[Game guide](docs/apps/ROTORTERROR.md)
-
-Also in the image: [Relay Nine](docs/apps/RELAY_NINE.md), rebuilt for the
-Arcade Neon look in v0.4.0, and RIFT's
-[MAP TRAFFIC](docs/apps/rift/TRAFFIC.md) view of observed paths (since
-v0.3.9). MeshCore radio operation is **disabled by default** in a fresh
-image: [set up RIFT](docs/GETTING_STARTED.md).
-
-[Previous releases](docs/releases/HISTORY.md)
-· [What's planned next](docs/ROADMAP.md)
-
-![DOORS for the LILYGO T-Display K230](docs/images/doors-poster.jpg)
-
-## What is DOORS?
-
-DOORS is the user environment for the T-Display K230: a shell with a
-launcher, lock screen and status bar, apps that run inside it, and system
-services that own the radio, network and hardware. It runs on the K230's
-Linux (Buildroot, based on LILYGO's BSP, ADR-001) and is an independent
-project: not LILYGO software and not affiliated with LILYGO.
-
-The aim is to make the hardware useful beyond vendor demos — for mesh
-communication, local AI, everyday tools, games and further development.
+The DOORS Companion Android app and Fleet over the local network are in the
+source but not active in the image ([Status](#status)).
+[Full release notes](docs/releases/v0.5.0.md) ·
+[Earlier releases](docs/releases/HISTORY.md)
 
 ## Highlights
 
-- **RIFT** — MeshCore messaging: direct messages with delivery acknowledgement,
-  channels (Public included), nodes, a map and the radio's own status.
-  MAP's [TRAFFIC mode](docs/apps/rift/TRAFFIC.md) (since 0.3.9) is a local,
-  read-only analysis of the packets heard and their observed paths.
-- **MeshCore integration** — `meshcored`, the MeshCore protocol service on the
-  SX1262 radio; disabled in the image and enabled per unit
-  ([docs/services/MESHCORED.md](docs/services/MESHCORED.md)).
-- **Fleet** — naval battle, solo against the device or multiplayer between two
-  DOORS devices over LoRa, with chat between shots.
-- **Wave** — short text messages sent and received as sound.
-- **Vision** — camera and KPU: COLOR, EDGE and LINE TRACE; DETECT, TRACK and
-  TRAFFIC (vehicles counted across a line) with DOORS' own detector,
-  R0 · Beta, an experimental detector for car, truck, bus, motorcycle,
-  bicycle and person that can miss vehicles. With model files that are not
-  part of the image: the GENERAL 80 and GENERAL 365 detectors, SEGMENT and
-  INSTANCES (since 0.4.0), and FACE, READ and RECOGNIZE
-  ([docs/apps/VISION.md](docs/apps/VISION.md)).
-- **DeskBuddy** — a desk companion with BUDDY, GUARD and NIGHT modes.
-- **Terminal** — a real Linux shell with a kept session.
-- **Files** — the card and USB drives.
-- **Camera and Photo**, **MP3**, **Video** and **Recorder**.
-- **Browser**, a read-only **Zabbix** viewer, **Radio**, **Clock**, **Calendar**,
-  **Calculator** and **Notes**.
-- **Settings** — Wi-Fi, display, seven themes (Neon among them), three text
-  sizes and rotation; **System** status lives there too.
-- **Games** — [RotorTerror](docs/apps/ROTORTERROR.md),
-  [Relay Nine](docs/apps/RELAY_NINE.md), Fleet, Radar, Timber, Solitaire,
-  Blackjack, [Poker](docs/apps/POKER.md) and 2048. On `master`, the
-  [Games Hub](docs/design/games-hub/README.md) poster wall launches them.
-- Landscape and portrait (Timber is portrait-only).
+### RIFT · mesh messaging over LoRa
 
-Feature status per release is under [Status](#status) below.
+RIFT is DOORS' MeshCore messenger: direct messages with delivery
+acknowledgement, channels, a node list, a map and the radio's own status.
+ACTIVITY shows the traffic the radio hears, frame by frame, as a live signal
+scope, twenty minutes of stacked bars by packet type and a live feed; MAP's
+TRAFFIC mode draws the paths the heard packets took. MeshCore runs as its own
+service on top of DOORS' SX1262 radio service, and stays off until you set it
+up.
+
+![RIFT ACTIVITY in landscape, Carbon theme: six activity figures, a live signal scope, twenty minutes of stacked bars in six packet-type colours and a live feed of received frames](docs/apps/rift/activity-landscape-carbon.png)
+
+<sub>SDL simulator capture with synthetic nodes and traffic from the project's test service (`tests/fake-meshcored`); no radio traffic was recorded.
+[RIFT guide](docs/apps/RIFT.md)</sub>
+
+### PacketShark · network analysis in your pocket
+
+A packet analyzer for Ethernet and the unit's Wi-Fi link. LIVE shows packets
+and throughput with a 60-second graph stacked by protocol; PACKETS lists,
+filters and sorts the capture; INSPECT decodes one packet layer by layer,
+down to its bytes. Signals flag DNS failures, TCP resets, retransmissions and
+connections that got no reply. The diagnosis pairs DNS queries with their
+answers and follows TCP handshakes, and a network overview lists the devices,
+DHCP exchanges and ARP pairs it saw, with findings and the evidence for each.
+A stopped capture saves to a standard `.pcap` file for Wireshark.
+PacketShark is receive-only: it never transmits or injects, and on Wi-Fi it
+sees the unit's own link (no monitor mode).
+
+![PacketShark LIVE in landscape, Carbon theme: 400 packets per second, a 60-second traffic graph stacked by protocol, protocol shares, session counters and five signal counts](docs/apps/packetshark/live-landscape-carbon.png)
+
+<sub>SDL simulator capture after one minute on the capture helper's synthetic source (SYNTH0, 400 packets per second, documentation addresses only).
+[PacketShark guide](docs/apps/PACKETSHARK.md)</sub>
+
+### Vision · object detection on the KPU
+
+Vision runs object detection on the K230's KPU over the live camera picture:
+boxes, classes and confidence, persistent track ids, and a counting line for
+traffic in each direction. The image ships DOORS' own experimental detector,
+R0 · Beta, for cars, trucks, buses, motorcycles, bicycles and people; it
+drives DETECT, TRACK and TRAFFIC beside COLOR, EDGE and LINE TRACE. GENERAL 80,
+GENERAL 365, SEGMENT, INSTANCES, FACE, READ and RECOGNIZE appear when their
+model files are installed; those weights are not part of DOORS.
+[Vision guide](docs/apps/VISION.md)
+
+### Games
+
+**Games** opens a poster wall. RotorTerror, an original helicopter arcade
+game, and Relay Nine lead; Fleet, Radar, Timber, Solitaire, Blackjack, Poker
+and 2048 are one tap away. Fleet is a naval battle against the device or
+another DOORS unit over LoRa, with chat between shots.
+
+<p align="center">
+  <img src="docs/apps/games-hub/hub-landscape-carbon.png" width="49%" alt="Games Hub in landscape: RotorTerror and Relay Nine as featured posters, seven posters for the other games and a Multiplayer Lobby poster marked COMING SOON">
+  <img src="docs/apps/rotorterror/combat-landscape.png" width="49%" alt="RotorTerror gameplay in landscape: the Kestrel helicopter over Ember Coast with enemy drones, gold salvage and a combo counter">
+</p>
+
+Blackjack, Poker (Texas Hold'em against three computer players) and
+Solitaire share the Lamplight table: illustrated court cards, motion and a
+full-screen felt.
+
+<p align="center">
+  <img src="docs/apps/cards/blackjack-portrait-carbon.png" width="32%" alt="Blackjack on a crimson Lamplight table: the dealer busts with two illustrated queens, the player wins +50">
+  <img src="docs/apps/cards/solitaire-portrait-carbon.png" width="32%" alt="Klondike Solitaire on a green Lamplight table with an illustrated king and queen and a long selected run">
+  <img src="docs/apps/cards/poker-portrait-carbon.png" width="32%" alt="Texas Hold'em on an indigo Lamplight table at the river, three computer players and the player's hand with an illustrated queen">
+</p>
+
+<sub>Games Hub and the three card tables: SDL simulator captures, Carbon theme; the card tables show each game's fixed review deal. RotorTerror: LVGL host-test capture with scripted input.
+[Games Hub](docs/design/games-hub/README.md) · [RotorTerror](docs/apps/ROTORTERROR.md) · [Relay Nine](docs/apps/RELAY_NINE.md) · [Blackjack](docs/apps/PGBLACKJACK.md) · [Poker](docs/apps/POKER.md) · [Solitaire](docs/apps/PGSOLITAIRE.md)</sub>
+
+### DeskBuddy · Pip
+
+DeskBuddy turns the unit into a desk companion. Pip, an owl on a perch,
+answers touch: stroke to pet, hold to rest, tap to wake, drag a biscuit to
+its beak. With the camera on, Pip notices people at the desk; GUARD notes who
+came by while you were away, with an optional chime, and NIGHT is a calm
+bedside clock. The character voice is off unless you choose it.
+
+<p align="center">
+  <img src="docs/apps/deskbuddy/perch/pip-landscape-carbon.png" width="80%" alt="DeskBuddy in landscape, Carbon theme: Pip the owl on its perch with FEED and Settings buttons and the BUDDY, GUARD and NIGHT modes">
+</p>
+
+<sub>SDL simulator capture, Carbon theme, with camera presence switched off.
+[DeskBuddy guide](docs/apps/DESKBUDDY.md)</sub>
+
+### DOORS Companion for Android · in development
+
+The DOORS Companion app pairs an Android phone with one unit over the local
+network: an authenticated TLS 1.3 session to the unit's pinned key, with no
+cloud service or account. It shows the unit's vitals, keeps the RIFT message
+history on the phone and sends messages through the unit's radio; PacketShark
+and a live Vision picture have run against a unit carrying a test build of
+the gateway. **It does not work with 0.5.0 yet:** the image does not include
+the unit's gateway service, `gatewayd`, and no APK is published
+([Status](#status)).
+
+<p align="center">
+  <img src="android/doors-companion/docs/screens/20-dashboard.png" width="30%" alt="DOORS Companion status dashboard: unit Doors-4f1c, session OPEN over TLS 1.3 with a pinned key, live processor, memory, temperature and uptime, Wi-Fi link, radio and mesh state">
+  <img src="android/doors-companion/docs/screens/22-rift-room.png" width="30%" alt="DOORS Companion RIFT room: this node's last minute of heard and sent frames, counts of nodes and stored messages, and the thread list">
+  <img src="android/doors-companion/docs/screens/21-rift-thread.png" width="30%" alt="DOORS Companion RIFT direct thread: messages from the unit and from the phone marked Delivered, and the newest Accepted and awaiting acknowledgement">
+</p>
+
+<sub>Android emulator captures of the app against the reference `gatewayd` and the fake services of the host test harness; unit, people and traffic are the harness's own.
+[Companion app](android/doors-companion/README.md) · [Gateway](docs/services/GATEWAYD.md)</sub>
+
+## All apps
+
+- **Communication**: RIFT, Wave (short text messages sent as sound) and
+  Radio (the LoRa radio's status).
+- **Network and system**: PacketShark, Browser, Zabbix (read-only), Terminal,
+  Files (the card and USB drives) and Settings (Wi-Fi, display, seven themes,
+  three text sizes, rotation and System status).
+- **Camera and media**: Vision, Camera, Photo, Video, MP3 and Recorder.
+- **Everyday**: DeskBuddy, Clock, Calendar, Calculator and Notes.
+- **Games**: RotorTerror, Relay Nine, Fleet, Radar, Timber, Solitaire,
+  Blackjack, Poker and 2048.
+
+DOORS runs in landscape and portrait; Timber and Poker play upright only.
+Each app has a guide in [docs/apps/](docs/apps/).
+
+## Status
+
+**Doors 0.5.0** (tag `v0.5.0`, 24 November 2026) is the current release.
+Everything above is in its image unless marked otherwise; the
+[release notes](docs/releases/v0.5.0.md) list what was validated and the
+known limitations.
+
+**In the source, not in the image**
+
+- The DOORS Companion app and its unit service `gatewayd`; shipping the
+  gateway waits on the open security items in
+  [issue #172](https://github.com/KrakenSaten/K230/issues/172).
+- Fleet over the local network (the `peerd` peer service), tested end to end
+  on the host. On a 0.5.0 card Fleet plays over the mesh.
+- Library, an offline-collection prototype (opt-in build).
+- The optional Vision models: their weights are neither included nor
+  published ([MODEL_LICENSES.md](MODEL_LICENSES.md)).
+
+**Preview only**: the Games Hub's Multiplayer Lobby poster reads COMING SOON;
+there is no linked play behind it yet.
+
+**Planned**, in priority order: DOORS' own trained Vision model (ongoing),
+DeskBuddy, RIFT, further Vision work, new and improved games, and
+PacketShark. See the [roadmap](docs/ROADMAP.md) and the
+[known issues](docs/KNOWN_ISSUES.md).
+
+## Install
+
+1. Download
+   [`doors-0.5.0-tdisplay-k230-b37b644a.img.gz`](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/doors-0.5.0-tdisplay-k230-b37b644a.img.gz)
+   and check its SHA-256:
+   `514658c6250c2f635608451a89df6bc4f1f48f972c2621453ad8c7e8de70ee3e`
+   ([all checksums](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/SHA256SUMS.txt)).
+2. Write it, still compressed, to a microSD card larger than 763 MB with
+   balenaEtcher or Rufus.
+3. Insert the card into the K230 and power it on.
+
+The LoRa radio is off on a fresh card. Connect an antenna first, then set it
+up from **Controls**; DOORS uses the MeshCore EU profile (869.618 MHz). The
+"Source code" archives GitHub adds to every release are source, not a card
+image. The [install guide](docs/GETTING_STARTED.md) covers each step, Wi-Fi,
+RIFT and troubleshooting.
 
 ## Hardware
 
 Built for the **LILYGO T-Display K230**
-([docs/hardware/T-DISPLAY-K230.md](docs/hardware/T-DISPLAY-K230.md)):
+([hardware baseline](docs/hardware/T-DISPLAY-K230.md)):
 
-- Kendryte K230, RISC-V, Linux; 1 GB RAM
-- 4.1" AMOLED, 568 × 1232, touchscreen
-- physical keyboard with F-keys (keyboard base)
-- GC2093 camera
-- SX1262 LoRa radio
-- K230 KPU (AI accelerator)
-- Wi-Fi, USB-C, microSD storage
+- Kendryte K230 (RISC-V) with its KPU AI accelerator, 1 GB RAM
+- 4.1-inch AMOLED touchscreen, 568 × 1232
+- SX1262 LoRa radio and GC2093 camera
+- Wi-Fi, USB-C and microSD; DOORS runs from the card
+- optional keyboard base with F-keys
 
-> Hardware by LILYGO. DOORS is an independent project built for the T-Display K230.
-> The product photos and the LILYGO logo in the poster are LILYGO's.
+A [3D-printable desk stand](hardware/stand) holds the unit upright
+([STL](https://raw.githubusercontent.com/KrakenSaten/K230/master/hardware/stand/k230-desk-stand.stl)).
 
-**Thank you, LILYGO ♥**
+The hardware is LILYGO's. DOORS is an independent project built for it and
+is not affiliated with LILYGO. **Thank you, LILYGO ♥**
 
 ## Development
 
 DOORS is meant to be explored and built on. The Terminal is a real Linux
-shell with root access on the device. Apps are C modules hosted by the shell
-(`apps/`), and services talk over `pocketipc` with documented APIs
-([docs/api/](docs/api/)). The shell also runs as an SDL simulator on a PC,
-and `make test` runs the native test suite. Host, toolchain and build
-commands: [docs/BUILD_ENVIRONMENT.md](docs/BUILD_ENVIRONMENT.md).
+shell with root access. Apps are C modules hosted by the shell, on LVGL 9
+and DOORS' own theme engine; services own the hardware and talk over
+`pocketipc` with documented contracts. The shell also runs as an SDL
+simulator on a PC, which is where most screenshots here come from, and
+`make test` runs the native test suite. The image is built with Buildroot on
+LILYGO's BSP ([ADR-001](docs/decisions/ADR-001-pocketos-base.md)).
 
-> Root access gives you full control of the system — including the ability to
-> break it. Know what a command does before running it.
+> Root access gives you full control of the system, including the ability to
+> break it. Know what a command does before you run it.
+
+- [Get started](docs/GETTING_STARTED.md): install a released image
+- [Architecture](docs/ARCHITECTURE.md): layers, IPC, services, the shell and
+  the repository layout
+- [Build environment](docs/BUILD_ENVIRONMENT.md): host, toolchain, pinned
+  SDK, and the build, flash and test commands
+- [API contracts](docs/api/) and [decisions (ADRs)](docs/decisions/README.md)
+- [Known issues](docs/KNOWN_ISSUES.md) and
+  [release history](docs/releases/HISTORY.md)
+- [Contributing](CONTRIBUTING.md): Apache-2.0, DCO sign-off, source headers
 
 ## Licence
 
-DOORS' own code is licensed under the Apache License, Version 2.0: see
-[LICENSE](LICENSE) and [NOTICE](NOTICE) (ADR-013). Third-party components
-keep their own licences ([THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md);
-the texts the image ships are in
-[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)), and the Vision models are
-documented separately in [MODEL_LICENSES.md](MODEL_LICENSES.md). The Doors
-mark, lockups and boot splash are not Apache-2.0: they may be redistributed
-unmodified as part of Doors ([docs/licensing/BRAND.md](docs/licensing/BRAND.md)).
+DOORS' own code is licensed under the **Apache License 2.0**: see
+[LICENSE](LICENSE) and [NOTICE](NOTICE)
+([ADR-013](docs/decisions/ADR-013-licence-apache-2.md)). Not everything in this
+repository or in an image is Apache-2.0:
 
-A DOORS image is a whole Linux system and is **not** Apache-2.0 as a whole:
-the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
-keep their own licences. Not everything in this repository is Apache-2.0
-either. Vision's R0 detector model is Apache-2.0 too, while the data it was
-trained on keeps its own terms (MODEL_LICENSES.md). Doors 0.5.0, like 0.3.5
-to 0.4.0, is published on the product owner's decision with some third-party
-questions still open (the vendor's KPU runtime modules and ISP server, the
-toolchain's source, LILYGO's files, and the points about R0's training data
-in MODEL_LICENSES.md);
+- Third-party components keep their own licences
+  ([THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md); the texts the image
+  ships are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)).
+- Vision's R0 detector model is Apache-2.0, while the data it was trained on
+  keeps its own terms; every model is documented in
+  [MODEL_LICENSES.md](MODEL_LICENSES.md).
+- The Doors mark, lockups and boot splash are not Apache-2.0: they may be
+  redistributed unmodified as part of Doors
+  ([docs/licensing/BRAND.md](docs/licensing/BRAND.md)).
+- A DOORS image is a whole Linux system and is not Apache-2.0 as a whole:
+  the kernel, U-Boot, BusyBox, the Buildroot packages and the vendor packages
+  keep their own licences.
+
+Doors 0.5.0, like 0.3.5 to 0.4.0, is published on the product owner's
+decision with some third-party questions still open: the vendor's KPU
+runtime modules and ISP server, the toolchain's source, LILYGO's files, and
+the points about R0's training data in MODEL_LICENSES.md.
 [docs/licensing/APACHE_2_READINESS.md](docs/licensing/APACHE_2_READINESS.md)
 §14 lists the platform ones.
 
-## Repository
+## Name
 
-Doors was previously known as PocketOS through v0.0.9. Release history,
-hardware records and many identifiers (`pos_*`, the `pos-*` helpers,
-`pocketui`, `/var/lib/pocketos`, `POCKETOS_*`) keep the old name on
-purpose; which ones, and when they may change, is in
-[ADR-005](docs/decisions/ADR-005-product-name-doors.md). The CLI is `doors`,
-with `pos` as its permanent alias.
-
-### Layout
-
-```text
-AGENTS.md                  Rules for AI agents working here
-Makefile                   First-party build (called by the Buildroot package)
-VERSION                    Doors version
-LICENSE                    Apache License 2.0, the licence of Doors' own code (ADR-013); NOTICE beside it
-THIRD_PARTY_LICENSES.md    Inventory of third-party material and how each licence sits with Apache-2.0
-MODEL_LICENSES.md          Licence status of every Vision model
-CONTRIBUTING.md            Contributions: Apache-2.0, DCO sign-off, source headers
-THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries and LVGL (generated; installed in /usr/share/doors/, linked from /usr/share/pocketos/)
-third_party/notices/       Sources of those notices: the component list and verbatim licence texts
-apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer), solitaire, blackjack and 2048 (Pocket Games, docs/apps/PG*.md), poker, rotorterror (RotorTerror), neon-outpost (Relay Nine; the internal id keeps its first name), deskbuddy (DeskBuddy, docs/apps/DESKBUDDY.md) and deskbuddy_vision (its Vision provider), terminal, vision, browser, camera, photo, video, mp3, recorder, wave, zabbix, library (opt-in prototype, not in the image) (docs/apps/)
-ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
-ui/shell/                  Shell: status cluster, launcher, app host; SDL simulator or DRM target (CMake)
-core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
-core/pocketlog/            Structured logging, rotation and crash reports
-core/pocketsys.c           System facts (identity, resources, storage, network) behind system.*
-services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib)
-services/sysd/             System service: system.info and system.status over pocketipc (read-only), plus the supervisor state reader
-services/netd/             Network service: wifi.* over pocketipc (wpa_supplicant and udhcpc owned by netd, root-only credential store)
-services/meshcored/        MeshCore protocol service: mesh.* over pocketipc, on top of radiod's radio.*; owns no radio (`make ENABLE_MESHCORED=1 meshcored`, disabled in the image)
-protocols/meshcore/        The portable MeshCore protocol core, `libmeshcore.a` (`make meshcore-core`)
-hardware/stand/            3D-printable desk stand (k230-desk-stand.stl)
-tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
-docs/
-  GETTING_STARTED.md       Install a released image: download, write the card, first boot, Wi-Fi, RIFT
-  ARCHITECTURE.md          How the layers, IPC, services and shell fit together
-  apps/                    One guide per app (Vision, RIFT, Relay Nine, RotorTerror, DeskBuddy, ...) with its captures
-  ROADMAP.md               Current priorities, ongoing and planned work; ROADMAP_HISTORY.md for earlier phases
-  releases/                Release notes per version (v0.0.10 on) and HISTORY.md for the earlier releases
-  KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
-  api/                     Public API contracts: pocketipc v0, radio.* v0, mesh.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
-  services/MESHCORED.md    The MeshCore service: ownership, persistence, safety and how to enable it on a unit
-  design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
-  BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
-  LICENSING.md             Licence register for vendor and third-party code (Doors itself: Apache-2.0)
-  licensing/                Apache-2.0 readiness audit and its blockers, B1 artwork questions, asset inventory, public-source exclusions
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-013 licence, Apache-2.0: Accepted; all fifteen and their status: docs/decisions/README.md)
-  hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
-  hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
-  hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
-platforms/k230/            Defconfig, Buildroot package and apply/build scripts (ADR-001)
-tools/pos/                 `doors` CLI (`pos` is the same binary under its old name): system, hardware, network, radio, wifi, logs, app, shell
-tools/supervise/           `pos-supervise`: restart with backoff and crash-loop detection
-tools/design/              Generators: theme table from themes.json, LVGL fonts from IBM Plex
-tools/hwcheck/             `pos-hwcheck`: first-boot hardware inventory script
-tools/legal/               `gen_notices.sh`: generates and verifies THIRD_PARTY_NOTICES.txt
-tools/meshcore-frame/      `meshcore-frame`: host-side MeshCore wire frames, built and parsed with the real protocol and crypto (`make meshcore-frame`)
-vendor/                    Read-only reference clones (git-ignored)
-  T-Display-K230/          LILYGO BSP + LVGL launcher, pinned (see platforms/k230/vendor_bsp_commit.txt)
-    k230_linux_sdk/        Kendryte K230 Linux SDK submodule, pinned
-  T-Display-K230_canmv_rt/ LILYGO RT-Smart firmware, schematic, datasheets
-  RIFT/                    MeshCore protocol source, pinned (protocols/meshcore, tools/meshcore-frame)
-  Crypto/                  rweather/arduinolibs, the crypto MeshCore uses, pinned (same two)
-```
-
-`vendor/` is reference material only. Nothing in it is edited in place.
-
-## Status
-
-**Doors 0.5.0** (tag `v0.5.0`, 2026-11-24) is the current release:
-**[download the image](https://github.com/KrakenSaten/K230/releases/download/v0.5.0/doors-0.5.0-tdisplay-k230-b37b644a.img.gz)**
-([release page](https://github.com/KrakenSaten/K230/releases/tag/v0.5.0)),
-then follow [Get started](docs/GETTING_STARTED.md). It is everything merged
-since 0.4.0, summarised under [What's new](#whats-new) above; the image is
-built from a clean SDK output. Release notes:
-[docs/releases/v0.5.0.md](docs/releases/v0.5.0.md).
-
-**Doors 0.4.0** (tag `v0.4.0`, 2026-11-15) was the previous release:
-everything merged since 0.3.9 - Vision redesigned around the picture with
-SEGMENT, INSTANCES and an optional GENERAL 365 (weights not part of Doors),
-Relay Nine in Arcade Neon, RotorTerror, RIFT usability and safer radio
-setup. Release notes: [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md).
-
-Earlier releases, from v0.3.9 back to the first PocketOS images:
-[docs/releases/HISTORY.md](docs/releases/HISTORY.md).
-
-The K230 SD image is built by `platforms/k230` (see
-[docs/BUILD_ENVIRONMENT.md](docs/BUILD_ENVIRONMENT.md) and
-[docs/hardware/FIRST_BOOT.md](docs/hardware/FIRST_BOOT.md)).
+DOORS was called PocketOS through v0.0.9. Release history, hardware records
+and many identifiers (`pos_*`, the `pos-*` helpers, `pocketui`,
+`/var/lib/pocketos`, `POCKETOS_*`) keep the old name on purpose;
+[ADR-005](docs/decisions/ADR-005-product-name-doors.md) says which, and when
+they may change. The CLI is `doors`, with `pos` as its permanent alias.
