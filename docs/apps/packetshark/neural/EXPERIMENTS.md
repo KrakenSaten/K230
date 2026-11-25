@@ -188,7 +188,7 @@ Before the hardware run, the comparison was between roughly 0.1 ms (the compiler
 
 ## K1 on Unit A: hardware (25 November 2026)
 
-This is the first measurement on a unit, authorized by the owner, non-destructive, with P7 (SIGKILL) skipped. The verdicts against the GO/NO-GO criteria are in [ROADMAP §1](ROADMAP.md#result-on-unit-a-25-november-2026). The full report is `poc/K1-UNIT-A.md` on the research branch at [`9b790069`](https://github.com/KrakenSaten/K230/blob/9b790069/research/packetshark-neural/poc/K1-UNIT-A.md).
+This is the first measurement on a unit, authorized by the owner, non-destructive, with P7 (SIGKILL) skipped. The verdicts against the GO/NO-GO criteria are in [ROADMAP §1](ROADMAP.md#result-on-unit-a-25-november-2026). The full report is `poc/K1-UNIT-A.md` on the research branch at [`7e757cb9`](https://github.com/KrakenSaten/K230/blob/7e757cb9/research/packetshark-neural/poc/K1-UNIT-A.md). It was corrected after the review with its measurements unchanged; the original text is at `9b790069`.
 
 | Measurement (`dna_b64`, 64 conversations per call) | u8 | a16w8 |
 | --- | --- | --- |

@@ -75,7 +75,7 @@ Unit B is preferred, because Unit A is the owner's daily unit. The bench needs s
 
 ### Result on Unit A, 25 November 2026
 
-The owner authorized a non-destructive run on Unit A, because Unit B was not connected. **P7 was skipped by decision.** Nothing was installed, rebooted or reconfigured, and Unit A was left as found. The measurements, method and limits are in the research report [`poc/K1-UNIT-A.md`](https://github.com/KrakenSaten/K230/blob/9b790069/research/packetshark-neural/poc/K1-UNIT-A.md). The raw output is beside it. The independent review brief is [K1-REVIEW.md](K1-REVIEW.md). All values below are VERIFIED measurements on Unit A for `dna_b64` u8 unless stated.
+The owner authorized a non-destructive run on Unit A, because Unit B was not connected. **P7 was skipped by decision.** Nothing was installed, rebooted or reconfigured, and Unit A was left as found. The measurements, method and limits are in the research report [`poc/K1-UNIT-A.md`](https://github.com/KrakenSaten/K230/blob/7e757cb9/research/packetshark-neural/poc/K1-UNIT-A.md), which carries the same post-review corrections as this page. The raw output is beside it. The independent review brief is [K1-REVIEW.md](K1-REVIEW.md). All values below are VERIFIED measurements on Unit A for `dna_b64` u8 unless stated.
 
 **The verdicts below were revised on 25 November 2026 after the independent review** ([INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) §3). The measurements are unchanged.
 
@@ -85,7 +85,7 @@ The owner authorized a non-destructive run on Unit A, because Unit B was not con
 | Under load (P8) | p95 ≤ 4 ms; the C reference slows at least as much | KPU **221.4 µs** p95 (×1.7). The C reference slowed to 925.0 ms p95: ×3.4 at p95 and ×3.56 at p50, where one extra task predicts ×2.0. That is unexplained. The p99 of 2.2 ms is consistent with one scheduler slice lost to the hog. | **PASS** |
 | Agreement (P5) | device vs simulator cosine ≥ 0.999; nearest neighbour identical ≥ 99 % | Device output **byte-identical** to the simulator for u8 and a16w8, 2,048 conversations each; nearest neighbour 100 %. This shows the device computes what the simulator computes. It says nothing about quantization quality. | **PASS** |
 | Memory after normal exit (P6) | `CmaFree` back to idle within measured noise; RSS ≤ 12 MiB | RSS peak 5.1 MiB. A per-call or MB-scale leak is excluded. Whether a process returns its 76–84 kB is unanswered: per-process `CmaFree` deltas averaged −129 kB with a standard deviation of 379 kB, and a run without the KPU moved it by −756 kB. The kernel is built with CMA debugfs, which gives an exact count once mounted. It was not used. | **INCONCLUSIVE** (RSS passes) |
-| SIGKILL (P7) | loss measured and ≤ 4 MiB per kill | not run | **PENDING** |
+| SIGKILL (P7) | loss measured and ≤ 4 MiB per kill | not run | **NOT TESTED** |
 | Duty cycle (P9) | no RSS or CMA growth beyond noise in 10 minutes | 600 calls at 1 per second. RSS flat at 4,480 kB. Latency 190.6 µs p95. `CmaFree` was flat from minute 2 to 10, but that meter cannot carry a verdict (see P6). | **PASS** for RSS. CMA not assessable. |
 | Exclusivity (P10) | the second instance refuses; the first is unaffected | The second instance got `EAGAIN` and exited with code 3, with no CMA allocation. The holder completed all 600 calls, and its output matched the simulator at cosine 1.000000 (it was not byte-compared). This tests `flock` between two bench instances. Vision does not take the lock, so sharing the KPU with Vision is untested. | **PASS** for the bench only |
 
