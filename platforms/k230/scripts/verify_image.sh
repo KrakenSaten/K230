@@ -171,6 +171,26 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 bad "/etc/init.d/S90doors-shell is not on by default: a fresh card would leave the panel to nobody"
             fi
         fi
+        # SSH lets root in by key only (issue #172, ADR-019 amendment 2): the
+        # device password Companion needs must never also open root over SSH
+        # to the network. apply_to_sdk.sh [3c] patches the vendor file; this
+        # is the image's own word for it, judged by the rule sysd uses on a
+        # unit (tools/release/sshd_root_login.sh).
+        if rootfs_has /usr/sbin/sshd; then
+            rootfs_cat /etc/ssh/sshd_config > "${WORK}/sshd_config" 2>/dev/null
+            if ! rootfs_has /etc/ssh/sshd_config; then
+                bad "/usr/sbin/sshd is installed and /etc/ssh/sshd_config is not"
+            else
+                verdict=$(bash "${SCRIPT_DIR}/../../../tools/release/sshd_root_login.sh" "${WORK}/sshd_config")
+                case "${verdict}" in
+                hardened) note "ok  /etc/ssh/sshd_config: root signs in with a key only" ;;
+                open) bad "/etc/ssh/sshd_config lets root sign in with a password (PermitRootLogin); a device password would open root to the network" ;;
+                *) bad "/etc/ssh/sshd_config cannot be judged (an Include line?); root's SSH login is unknown" ;;
+                esac
+            fi
+        else
+            note "ok  /usr/sbin/sshd absent: no SSH server"
+        fi
         # Vision's detector (0.3.6 on, MODEL_LICENSES.md): the R0 beta, and
         # exactly the bytes tools/vision/r0-model.sha256 pins; neither the
         # Ultralytics YOLOv8n Vision used to open by default nor the upstream

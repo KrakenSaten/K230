@@ -286,13 +286,18 @@ check "the service does not start with capabilities held" \
 check "OpenSSL reads no configuration file" \
     "$(grep -q 'OPENSSL_INIT_NO_LOAD_CONFIG' $D/gw_tls.c && echo 1 || echo 0)"
 
-# 8. The init script.
-check "S70gatewayd parses" "$(sh -n $D/S70gatewayd 2>/dev/null && echo 1 || echo 0)"
-check "S70gatewayd ships disabled" "$(grep -qx 'GATEWAYD_ENABLE=0' $D/S70gatewayd && echo 1 || echo 0)"
+# 8. The init script: in the rootfs overlay with the others since ADR-019
+# amendment 2 (the image carries gatewayd), disabled until a unit says so.
+INIT=platforms/k230/rootfs_overlay/etc/init.d/S70gatewayd
+check "S70gatewayd parses" "$(sh -n $INIT 2>/dev/null && echo 1 || echo 0)"
+check "S70gatewayd ships disabled" "$(grep -qx 'GATEWAYD_ENABLE=0' $INIT && echo 1 || echo 0)"
 check "S70gatewayd never runs the daemon unsupervised" \
-    "$([ "$(grep -c '"\$DAEMON"' $D/S70gatewayd)" = "$(grep -c '"\$SUPERVISE" gatewayd "\$DAEMON"\|-x "\$DAEMON"' $D/S70gatewayd)" ] && echo 1 || echo 0)"
-check "the overlay does not carry it" \
-    "$([ -e platforms/k230/rootfs_overlay/etc/init.d/S70gatewayd ] && echo 0 || echo 1)"
+    "$([ "$(grep -c '"\$DAEMON"' $INIT)" = "$(grep -c '"\$SUPERVISE" gatewayd "\$DAEMON"\|-x "\$DAEMON"' $INIT)" ] && echo 1 || echo 0)"
+check "the overlay carries it, executable in git, and the service directory no copy" \
+    "$([ -e $INIT ] && [ ! -e $D/S70gatewayd ] &&
+       { ! git rev-parse --git-dir >/dev/null 2>&1 || git ls-files -s $INIT | grep -q '^100755'; } && echo 1 || echo 0)"
+check "the overlay ships no per-unit switch" \
+    "$([ -e platforms/k230/rootfs_overlay/etc/default/gatewayd ] && echo 0 || echo 1)"
 
 if [ "$failed" -eq 0 ]; then echo "gatewayd lint: all checks passed"; else echo "gatewayd lint: $failed check(s) FAILED"; fi
 exit "$failed"

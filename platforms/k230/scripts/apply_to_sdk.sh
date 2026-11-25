@@ -538,7 +538,7 @@ for mk in "${SDK_DIR}/buildroot-overlay/package/camera_rtsp_demo/camera_rtsp_dem
         || { echo "cannot make ${mk#"${SDK_DIR}"/} create /root/app" >&2; exit 1; }
 done
 
-echo "[3c/5] sshd: no empty-password logins"
+echo "[3c/5] sshd: no empty-password logins; root by key only"
 # Vendor sshd_config allows root with an empty password over the network
 # (PermitRootLogin yes, PasswordAuthentication yes, PermitEmptyPasswords yes)
 # and the root account ships with no password. Patch the vendor file in place
@@ -553,6 +553,16 @@ sed -i -e 's/^PermitEmptyPasswords yes$/PermitEmptyPasswords no/' "${SSHD}"
 grep -q '^PermitEmptyPasswords no$' "${SSHD}" \
     || { echo "failed to set PermitEmptyPasswords no in ${SSHD}" >&2; exit 1; }
 grep -q '^PermitEmptyPasswords yes' "${SSHD}" && { echo "PermitEmptyPasswords yes still present in ${SSHD}" >&2; exit 1; }
+# Root by key only (issue #172, ADR-019 amendment 2). The empty root password
+# was what kept `PermitRootLogin yes` + `PasswordAuthentication yes` shut; the
+# device password the Companion gateway needs (ADR-019 rule 9b) would open root
+# over SSH to the network, so the image ships prohibit-password. Root keeps
+# signing in with a key from /root/.ssh/authorized_keys (the deploy scripts
+# use keys), and the serial console keeps its login. Units deployed over an
+# older card are hardened by sysd before they get a password or a gateway.
+sed -i -e 's/^PermitRootLogin yes$/PermitRootLogin prohibit-password/' "${SSHD}"
+bash "${REPO_DIR}/tools/release/sshd_root_login.sh" "${SSHD}" >/dev/null \
+    || { echo "${SSHD} still lets root sign in with a password: $(bash "${REPO_DIR}/tools/release/sshd_root_login.sh" "${SSHD}")" >&2; exit 1; }
 
 echo "[4/5] Doors rootfs overlay"
 # Also from git, and for the same reason as the package below, but here the

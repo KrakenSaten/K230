@@ -2,20 +2,23 @@
 # Doors gatewayd under pos-supervise (BusyBox init).
 #
 # DISABLED BY DEFAULT, and that is ADR-019 rule 1, not an oversight. gatewayd
-# is the one Doors service that listens on the network. Switch it on per
-# unit, deliberately, in /etc/default/gatewayd:
+# is the one Doors service that listens on the network. It is switched on per
+# unit in /etc/default/gatewayd:
 #
 #   GATEWAYD_ENABLE=1
 #
-# and read docs/services/GATEWAYD.md first. Enabled is still not open: the
-# service binds nothing until the unit has a device password (rule 9b) and a
-# phone is paired or a pairing window was opened on the unit.
+# which Settings > Companion writes through sysd (companion.set_enabled,
+# ADR-019 amendment 2): sysd refuses it while root has no password, hardens
+# SSH first, and runs this script's start or stop itself. By hand it is the
+# same line; read docs/services/GATEWAYD.md first. Enabled is still not open:
+# the service binds nothing until the unit has a device password (rule 9b)
+# and a phone is paired or a pairing window was opened on the unit.
 #
 # It starts after S50sysd..S65meshcored but waits for none of them: it
 # connects to a service when a paired client asks for something of it.
 #
-# Not in the rootfs overlay: `make ENABLE_GATEWAYD=1 install` installs it
-# beside the binary. Putting both into an image is a later, separate step.
+# In every image since ADR-019 amendment 2, with the binary; no image and no
+# deploy ships /etc/default/gatewayd, so a unit's choice survives both.
 #
 # Copyright (c) 2026 Doors authors.
 # SPDX-License-Identifier: Apache-2.0

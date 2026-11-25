@@ -7,6 +7,10 @@
 # sx1262 backend, meshcored, pos-hwcheck, pos-supervise) and the CMake shell
 # against the vendor LVGL package in staging.
 #
+# gatewayd, the Companion gateway, is built and installed here
+# (ENABLE_GATEWAYD=1) since ADR-019 amendment 2. Installing it starts nothing:
+# S70gatewayd ships disabled and Settings > Companion switches it on per unit.
+#
 # meshcored is built and installed here (ENABLE_MESHCORED=1) since its
 # third-party notices landed (docs/LICENSING.md item 9). The MeshCore and
 # Crypto sources it compiles are exported by apply_to_sdk.sh into
@@ -78,12 +82,21 @@ POCKETOS_INSTALL_TARGET = YES
 # libpcap 1.10.5 was already in the image and its sysroot (the toolbox's
 # tcpdump selects it; BSD-3-Clause, docs/LICENSING.md), so this adds a build
 # dependency, not a package. Dynamically linked; nothing compiled into Doors.
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz gsl-lite ffmpeg libpcap host-cmake host-python3
+# openssl: gatewayd, the Companion gateway (docs/services/GATEWAYD.md, ADR-019
+# accepted; in the image since ADR-019 amendment 2, installed with
+# ENABLE_GATEWAYD=1 and disabled until a unit is switched on), terminates TLS
+# 1.3 with libssl. OpenSSL 3.4.1 was already in the image (libcurl, sshd), so
+# this adds a build dependency, not a package.
+# libxcrypt: sysd's companion.set_password hashes the device password with it
+# (SHA-512 crypt; ADR-019 amendment 2). libxcrypt 4.4.38 was already in the
+# image - the image's sshd links it to check passwords - so this adds a build
+# dependency, not a package.
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz gsl-lite ffmpeg libpcap openssl libxcrypt host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 
 define POCKETOS_BUILD_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 PACKETSHARK_PCAP=1 ENABLE_MESHCORED=1 -C $(@D) all
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 PACKETSHARK_PCAP=1 ENABLE_MESHCORED=1 ENABLE_GATEWAYD=1 -C $(@D) all
 	mkdir -p $(POCKETOS_SHELL_BUILD_DIR)
 	cd $(POCKETOS_SHELL_BUILD_DIR) && $(TARGET_MAKE_ENV) $(BR2_CMAKE) $(@D)/ui/shell \
 		-DCMAKE_TOOLCHAIN_FILE=$(HOST_DIR)/share/buildroot/toolchainfile.cmake \
@@ -121,7 +134,7 @@ $(error pocketos: BR2_PACKAGE_YOLO installs Ultralytics YOLO models (AGPL-3.0), 
 endif
 
 define POCKETOS_INSTALL_TARGET_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 PACKETSHARK_PCAP=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 MP3_FFMPEG=1 POCKETVIDEO_FFMPEG=1 PACKETSHARK_PCAP=1 ENABLE_MESHCORED=1 ENABLE_GATEWAYD=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell

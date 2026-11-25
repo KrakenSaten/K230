@@ -305,6 +305,37 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
     mcd_default() { mkbootimg_rootfs_doors "$1"; printf 'MESHCORED_ENABLE=1\n' > "$1/etc/default/meshcored"; }
     gate_refuses "a per-unit meshcored switch shipped in the image" mcd-default mcd_default \
         "/etc/default/meshcored is in the tree; it is per-unit"
+    # Companion (ADR-019 amendment 2): gatewayd is a service like the others,
+    # its switch is per unit, and the image's SSH lets root in by key only.
+    gw_noinit() { mkbootimg_rootfs_doors "$1"; rm -f "$1/etc/init.d/S70gatewayd"; }
+    gate_refuses "gatewayd installed with no init script" gw-noinit gw_noinit \
+        "/usr/sbin/gatewayd is installed and /etc/init.d/S70gatewayd is not"
+    gw_mixed() { mkbootimg_rootfs_doors "$1"; mkbootimg_stamped "$1/usr/sbin/gatewayd" 3e89c9c; }
+    gate_refuses "a gatewayd from another build than the release file" gw-mixed gw_mixed \
+        "/usr/sbin/gatewayd is build 3e89c9c, and /etc/doors-release says abc1234"
+    gw_default() { mkbootimg_rootfs_doors "$1"; printf 'GATEWAYD_ENABLE=1\n' > "$1/etc/default/gatewayd"; }
+    gate_refuses "a per-unit gateway switch shipped in the image" gw-default gw_default \
+        "/etc/default/gatewayd is in the tree; it is per-unit"
+    sshd_vendor() {
+        mkbootimg_rootfs_doors "$1"; mkdir -p "$1/etc/ssh"; printf '#!/bin/sh\n' > "$1/usr/sbin/sshd"; chmod 0755 "$1/usr/sbin/sshd"
+        printf '#PermitRootLogin prohibit-password\nPermitRootLogin yes\nPasswordAuthentication yes\nPermitEmptyPasswords no\n' > "$1/etc/ssh/sshd_config"
+    }
+    gate_refuses "an sshd that lets root in by password (the vendor file)" sshd-vendor sshd_vendor \
+        "/etc/ssh/sshd_config lets root sign in with a password (PermitRootLogin)"
+    sshd_include() { sshd_vendor "$1"; printf 'Include /etc/ssh/sshd_config.d/*.conf\nPermitRootLogin no\n' > "$1/etc/ssh/sshd_config"; }
+    gate_refuses "an sshd_config that includes files the gate cannot read" sshd-include sshd_include \
+        "/etc/ssh/sshd_config cannot be judged"
+    sshd_hard() { sshd_vendor "$1"; sed -i 's/^PermitRootLogin yes$/PermitRootLogin prohibit-password/' "$1/etc/ssh/sshd_config"; }
+    if rootfs_img "${TMP}/sshd-hard.img" sshd_hard; then
+        rc="$(run_gate "${TMP}/sshd-hard.img")"
+        check "an image whose sshd lets root in by key only passes" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+        check "and the gate says so" \
+            "$(grep -q 'ok  /etc/ssh/sshd_config: root signs in with a key only' "${TMP}/out.txt" && echo 1 || echo 0)"
+        check "a complete installation names gatewayd with its init script" \
+            "$(grep -q 'gatewayd: /usr/sbin/gatewayd and /etc/init.d/S70gatewayd, both executable' "${TMP}/out.txt" && echo 1 || echo 0)"
+        check "and no per-unit gateway switch" \
+            "$(grep -q '/etc/default/gatewayd absent (per-unit)' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
     nodoors() { mkbootimg_rootfs_doors "$1"; rm -f "$1/usr/bin/doors"; }
     gate_refuses "an image with no /usr/bin/doors (a stamped binary that is no service)" no-doors nodoors \
         "/usr/bin/doors is missing"

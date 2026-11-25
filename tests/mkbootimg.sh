@@ -93,6 +93,7 @@ mkbootimg_rootfs_doors() {
     printf '0.0.10\nBUILD_ID=%s\n' "${id}" > "${d}/etc/doors-release"
     for entry in sysd:usr/sbin/sysd:S50sysd netd:usr/sbin/netd:S55netd \
                  radiod:usr/sbin/radiod:S60radiod meshcored:usr/sbin/meshcored:S65meshcored \
+                 gatewayd:usr/sbin/gatewayd:S70gatewayd \
                  doors-shell:usr/bin/doors-shell:S90doors-shell; do
         name="${entry%%:*}"; bin="${entry#*:}"; bin="${bin%%:*}"; init="${entry##*:}"
         mkbootimg_stamped "${d}/${bin}" "${id}"

@@ -194,6 +194,11 @@ BINS += services/meshcored/meshcored
 endif
 
 all: $(BINS)
+# gatewayd with ENABLE_GATEWAYD=1, as the image builds it (ADR-019 amendment
+# 2): its own -Werror recipe below, by name, so it is built here too.
+ifeq ($(ENABLE_GATEWAYD),1)
+all: gatewayd
+endif
 
 tools/pos/pos: $(POS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
@@ -2864,12 +2869,13 @@ endif
 ifeq ($(ENABLE_PEERD),1)
 	install -D -m 0755 services/peerd/peerd $(DESTDIR)$(PREFIX)/sbin/peerd
 endif
-# gatewayd only when it was asked for and built (make gatewayd). Its init
-# script goes with it and ships disabled: GATEWAYD_ENABLE=0 until a unit is
-# told otherwise (docs/services/GATEWAYD.md). Neither is in the rootfs overlay.
+# gatewayd with ENABLE_GATEWAYD=1, which the image's package sets (ADR-019
+# amendment 2). Installing it starts nothing: its init script, S70gatewayd,
+# comes with the rootfs overlay like every other Doors init script and ships
+# disabled (GATEWAYD_ENABLE=0) until a unit is switched on in Settings >
+# Companion (docs/services/GATEWAYD.md).
 ifeq ($(ENABLE_GATEWAYD),1)
 	install -D -m 0755 services/gatewayd/gatewayd $(DESTDIR)$(PREFIX)/sbin/gatewayd
-	install -D -m 0755 services/gatewayd/S70gatewayd $(DESTDIR)/etc/init.d/S70gatewayd
 endif
 # The third-party notices travel with the binaries that need them. Under
 # share/doors rather than share/doc, which Buildroot strips from the target.
@@ -3321,10 +3327,10 @@ peerd-test: peerd-plain-test peerd-san-test peerd-fuzz peerd-service-test
 #   make gatewayd-test                 unit suites plain and under ASan/UBSan,
 #                                      the fuzzer, the lint, and the real
 #                                      service against TLS clients
-#   make ENABLE_GATEWAYD=1 install     also installs it and S70gatewayd
+#   make ENABLE_GATEWAYD=1 install     also installs it (S70gatewayd is in the rootfs overlay)
 #
-# Built by explicit commands with -Werror into out/gatewayd, so nothing here
-# joins `make all` or `make test` or changes how any other object is built.
+# Built by explicit commands with -Werror into out/gatewayd. It joins `make all`
+# only with ENABLE_GATEWAYD=1 (the image), and changes how no other object is built.
 ENABLE_GATEWAYD ?= 0
 GATEWAYD_DIR := services/gatewayd
 GATEWAYD_OUT := out/gatewayd
