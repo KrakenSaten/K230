@@ -1,0 +1,27 @@
+{"what":"step","step":"before","uptime":"90604.25","loadavg":"1.42 1.36 0.85","cma_alloc_success":97,"cma_alloc_pages":28872,"CmaFree_dropped_kB":470740}
+{"what":"lock","ok":true}
+{"what":"mem","when":"start","CmaFree_kB":470740,"MemAvailable_kB":909556,"VmRSS_kB":3456,"VmHWM_kB":3456}
+{"what":"load","us":1292.9,"out_rank":4}
+{"what":"mem","when":"loaded","CmaFree_kB":471116,"MemAvailable_kB":910564,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"first_call","us":700.1}
+{"what":"mem","when":"duty","CmaFree_kB":471096,"MemAvailable_kB":910064,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909488,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909496,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909504,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909504,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909504,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909504,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909504,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"mem","when":"duty","CmaFree_kB":470592,"MemAvailable_kB":909756,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"kpu_copy_in","n":600,"p50_us":15.0,"p95_us":20.3,"p99_us":21.5,"max_us":31.2}
+{"what":"kpu_sync","n":600,"p50_us":2.7,"p95_us":3.2,"p99_us":8.9,"max_us":35.7}
+{"what":"kpu_run","n":600,"p50_us":145.8,"p95_us":165.0,"p99_us":188.0,"max_us":3496.7}
+{"what":"kpu_copy_out","n":600,"p50_us":4.5,"p95_us":5.3,"p99_us":10.5,"max_us":39.1}
+{"what":"kpu_call","n":600,"p50_us":169.1,"p95_us":190.6,"p99_us":211.3,"max_us":3520.2}
+{"what":"mem","when":"before_release","CmaFree_kB":470592,"MemAvailable_kB":909764,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"mem","when":"released","CmaFree_kB":470592,"MemAvailable_kB":909764,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"agree","a":"kpu","b":"expect","cos_min":1.000000,"cos_mean":1.000000,"n":2048,"nn_same":1.0000,"nn_top3":1.0000}
+{"what":"mem","when":"end","CmaFree_kB":470592,"MemAvailable_kB":909764,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"rc","rc":0}
+{"what":"step","step":"after","uptime":"91206.54","loadavg":"0.00 0.20 0.44","cma_alloc_success":101,"cma_alloc_pages":28891,"CmaFree_dropped_kB":470592}
+{"what":"done","step":"p9"}

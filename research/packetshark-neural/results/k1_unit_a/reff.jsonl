@@ -1,0 +1,6 @@
+{"what":"mem","when":"start","CmaFree_kB":471260,"MemAvailable_kB":910436,"VmRSS_kB":3456,"VmHWM_kB":3456}
+{"what":"ref_call","n":32,"p50_us":260724.2,"p95_us":267779.7,"p99_us":271374.0,"max_us":271374.0}
+{"what":"agree","a":"ref","b":"expect","cos_min":1.000000,"cos_mean":1.000000,"n":2048,"nn_same":1.0000,"nn_top3":1.0000}
+{"what":"mem","when":"end","CmaFree_kB":470504,"MemAvailable_kB":909720,"VmRSS_kB":4556,"VmHWM_kB":4992}
+{"what":"rc","rc":0}
+{"what":"done","step":"reff"}

@@ -1,0 +1,4 @@
+{"what":"step","step":"idle1","uptime":"89160.06","loadavg":"0.08 0.04 0.01","CmaFree_dropped_kB":472252}
+{"what":"step","step":"idle2","uptime":"89182.13","loadavg":"0.05 0.04 0.01","CmaFree_dropped_kB":472252}
+{"what":"step","step":"idle3","uptime":"89204.17","loadavg":"0.04 0.03 0.00","CmaFree_dropped_kB":472252}
+{"what":"done","step":"idle"}

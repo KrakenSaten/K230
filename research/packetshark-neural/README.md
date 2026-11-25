@@ -3,7 +3,7 @@
 Host-side experiments and desk research behind `docs/apps/packetshark/NEURAL.md` and `docs/apps/packetshark/neural/` (draft PR #186). **Nothing here is built by `make`, linked into DOORS or installed on a unit.** The branch `research/packetshark-neural-lab` is not meant to be merged. It records what was run, so that the numbers in the design documents can be reproduced and challenged.
 
 - Data: **all training and test data is generated** by the scripts below. No dataset was downloaded. Numbers measured on generated data show whether a mechanism works (shapes, masks, quantization, abstention, evaluation protocol). They do not show how a method behaves on a real network.
-- Units: none was touched. The bench kit in `poc/` has been compiled but never run on a K230.
+- Units: the host experiments touched none. The bench kit in `poc/` ran once on Unit A on 25 November 2026, with the owner's authorization, without P7 (SIGKILL) and leaving the unit as found: [poc/K1-UNIT-A.md](poc/K1-UNIT-A.md).
 - Toolchain: the pinned Vision AI environment on the build host (`C:\K230-artifacts\ai-env\SETUP.md`). It provides nncase 2.11.0 + nncase-kpu 2.11.0 (venv-convert) and torch 2.1.2+cpu / onnx 1.16.2 (venv-train) in WSL `Ubuntu-22.04`. No package was added or upgraded.
 
 ## Layout
@@ -18,7 +18,8 @@ Host-side experiments and desk research behind `docs/apps/packetshark/NEURAL.md`
 | `exp_dna.py` | **E3b** Traffic DNA: generated flows, hand-crafted baseline vs 1-D CNN embedding, open-set rejection; exports `dna_h1`, `dna_h64`, `dna_b64` and the C-reference weights |
 | `exp_rhythm.py` | **E3c** how many repetitions a periodicity claim needs at a 1 % false-alert rate |
 | `summarize.py` | prints the result tables (stdlib only) |
-| `poc/` | **K1 kit**: `infer_bench.cpp` (nncase host-tensor path + C reference), `build.sh`, `README.md` |
+| `poc/` | **K1 kit**: `infer_bench.cpp` (nncase host-tensor path + C reference), `build.sh`, `README.md`; `k1/` the on-unit driver and host scripts; `k1_analyze.py` the host analysis; `K1-UNIT-A.md` the hardware report |
+| `results/k1_unit_a/` | every JSON line Unit A printed during K1; `results/k1_unit_a.json` the host analysis |
 | `results/` | the JSON results of the runs quoted in `docs/apps/packetshark/neural/EXPERIMENTS.md` |
 | `notes/` | desk research R1–R6 with their sources |
 
@@ -56,5 +57,5 @@ Seeds are fixed in every script. Training runs single-process on the CPU. nncase
 ## Known limits of the lab
 
 - The generators encode their author's model of a network. A detector that matches the generator's assumptions looks good on it. That is why every comparison here includes a baseline written from the same assumptions, and why no number here may be quoted as accuracy on real traffic.
-- The compiler's KPU time is its own ideal roofline estimate (0.6 TFLOP/s, 3.2 GB/s off chip, 800 MHz). It leaves out the runtime's call, copy and cache-sync overhead. K1 measures that.
+- The compiler's KPU time is its own ideal roofline estimate (0.6 TFLOP/s, 3.2 GB/s off chip, 800 MHz). It leaves out the runtime's call, copy and cache-sync overhead. K1 measured both for `dna_b64` u8: the KPU section took 106 µs at p50 against an estimate of 101 µs, and the whole call 124 µs.
 - The simulator is functional, not timed.

@@ -1,0 +1,31 @@
+{"what":"step","step":"before","uptime":"89225.16","loadavg":"0.03 0.03 0.00","CmaFree_dropped_kB":472252}
+{"what":"mem","when":"start","CmaFree_kB":472252,"MemAvailable_kB":911060,"VmRSS_kB":3456,"VmHWM_kB":3456}
+{"what":"load","us":1442.5,"out_rank":4}
+{"what":"mem","when":"loaded","CmaFree_kB":472008,"MemAvailable_kB":911324,"VmRSS_kB":4480,"VmHWM_kB":4480}
+{"what":"first_call","us":616.4}
+{"what":"kpu_copy_in","n":10,"p50_us":8.7,"p95_us":9.3,"p99_us":9.3,"max_us":9.3}
+{"what":"kpu_sync","n":10,"p50_us":2.0,"p95_us":2.2,"p99_us":2.2,"max_us":2.2}
+{"what":"kpu_run","n":10,"p50_us":105.5,"p95_us":159.1,"p99_us":159.1,"max_us":159.1}
+{"what":"kpu_copy_out","n":10,"p50_us":3.6,"p95_us":3.7,"p99_us":3.7,"max_us":3.7}
+{"what":"kpu_call","n":10,"p50_us":119.7,"p95_us":173.2,"p99_us":173.2,"max_us":173.2}
+{"what":"mem","when":"before_release","CmaFree_kB":471728,"MemAvailable_kB":911044,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"mem","when":"released","CmaFree_kB":471728,"MemAvailable_kB":911044,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"agree","a":"kpu","b":"expect","cos_min":1.000000,"cos_mean":1.000000,"n":2048,"nn_same":1.0000,"nn_top3":1.0000}
+{"what":"mem","when":"end","CmaFree_kB":471728,"MemAvailable_kB":911044,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"rc","rc":0}
+{"what":"mem","when":"start","CmaFree_kB":471728,"MemAvailable_kB":911224,"VmRSS_kB":3456,"VmHWM_kB":3456}
+{"what":"load","us":1248.2,"out_rank":4}
+{"what":"mem","when":"loaded","CmaFree_kB":471640,"MemAvailable_kB":911132,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"first_call","us":616.3}
+{"what":"kpu_copy_in","n":10,"p50_us":8.8,"p95_us":19.1,"p99_us":19.1,"max_us":19.1}
+{"what":"kpu_sync","n":10,"p50_us":2.1,"p95_us":2.1,"p99_us":2.1,"max_us":2.1}
+{"what":"kpu_run","n":10,"p50_us":106.7,"p95_us":136.6,"p99_us":136.6,"max_us":136.6}
+{"what":"kpu_copy_out","n":10,"p50_us":3.6,"p95_us":10.5,"p99_us":10.5,"max_us":10.5}
+{"what":"kpu_call","n":10,"p50_us":121.7,"p95_us":151.5,"p99_us":151.5,"max_us":151.5}
+{"what":"mem","when":"before_release","CmaFree_kB":471596,"MemAvailable_kB":911088,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"mem","when":"released","CmaFree_kB":471596,"MemAvailable_kB":911088,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"agree","a":"kpu","b":"expect","cos_min":1.000000,"cos_mean":1.000000,"n":2048,"nn_same":1.0000,"nn_top3":1.0000}
+{"what":"mem","when":"end","CmaFree_kB":471596,"MemAvailable_kB":911088,"VmRSS_kB":4608,"VmHWM_kB":4608}
+{"what":"rc","rc":0}
+{"what":"step","step":"after","uptime":"89227.35","loadavg":"0.02 0.03 0.00","CmaFree_dropped_kB":471596}
+{"what":"done","step":"p1"}

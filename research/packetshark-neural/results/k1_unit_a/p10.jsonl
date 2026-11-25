@@ -1,0 +1,4 @@
+{"what":"step","step":"during","uptime":"90716.33","loadavg":"0.26 0.95 0.76","cma_alloc_success":101,"cma_alloc_pages":28891,"CmaFree_dropped_kB":470844}
+{"what":"lock","ok":false,"errno":11}
+{"what":"rc","rc":3}
+{"what":"done","step":"p10"}

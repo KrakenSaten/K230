@@ -1,8 +1,8 @@
 /*
  * infer-bench: the first KPU proof of concept for PacketShark NEURAL
  * (docs/apps/packetshark/neural/ROADMAP.md section 1). RESEARCH CODE: not a
- * DOORS component, never installed, no capture, no network, no files
- * written. It runs the DNA encoder dna-b64 ([1,3,64,32] float32 in,
+ * DOORS component, never installed, no capture, no network, and no file
+ * written except the one named by --dump. It runs the DNA encoder dna-b64 ([1,3,64,32] float32 in,
  * [1,32,64,1] float32 out) two ways on the same inputs:
  *
  *   kpu  through the nncase 2.11 runtime with plain host tensors (no AI2D),
@@ -15,10 +15,12 @@
  *
  *   infer-bench --in F --batches N [--weights F] [--kmodel F] [--expect F]
  *               [--mode kpu|ref|both] [--iters N] [--lock F] [--profile]
- *               [--interval-ms N --duration-s N] [--hold]
+ *               [--interval-ms N --duration-s N] [--hold] [--dump F]
  *
  * --expect: float outputs [N][32*64] to compare against (the float model or
- * the simulator). --lock: an exclusive flock is taken first, refused if held
+ * the simulator); the agree lines give the per-conversation cosine and the
+ * share of conversations whose nearest neighbour in the batch is unchanged.
+ * --dump: write the kpu outputs [N][32*64] float32 to F. --lock: an exclusive flock is taken first, refused if held
  * (P10). --hold: stay alive after loading, for the SIGKILL test (P7).
  *
  * Copyright (c) 2026 PocketOS authors.
@@ -213,6 +215,52 @@ static void compare(const float *a, const float *b, double &cmin, double &cmean,
     }
 }
 
+/* within one batch (layout [32][64]): is each conversation's nearest other
+ * conversation under a also the nearest under b (same), or among b's three
+ * nearest (top3)? Ties under b count as the same neighbour. */
+static void nn_agree(const float *a, const float *b, int &same, int &top3, int &n)
+{
+    static double na[H][D], nb[H][D];
+    auto unit = [](const float *x, double (*o)[D]) {
+        for (int h = 0; h < H; h++) {
+            double s = 0;
+            for (int d = 0; d < D; d++) {
+                o[h][d] = x[(size_t)d * H + h];
+                s += o[h][d] * o[h][d];
+            }
+            s = std::sqrt(s) + 1e-12;
+            for (int d = 0; d < D; d++) {
+                o[h][d] /= s;
+            }
+        }
+    };
+    unit(a, na);
+    unit(b, nb);
+    for (int h = 0; h < H; h++) {
+        int best = -1;
+        double sa = -2, sb[H];
+        for (int j = 0; j < H; j++) {
+            double x = 0, y = 0;
+            for (int d = 0; d < D; d++) {
+                x += na[h][d] * na[j][d];
+                y += nb[h][d] * nb[j][d];
+            }
+            sb[j] = y;
+            if (j != h && x > sa) {
+                sa = x;
+                best = j;
+            }
+        }
+        int nearer = 0;
+        for (int j = 0; j < H; j++) {
+            nearer += j != h && sb[j] > sb[best];
+        }
+        same += nearer == 0;
+        top3 += nearer < 3;
+        n++;
+    }
+}
+
 static double pct(std::vector<double> v, double p)
 {
     if (v.empty()) {
@@ -229,6 +277,20 @@ static void print_lat(const char *what, const std::vector<double> &v)
            v.size(), pct(v, .5), pct(v, .95), pct(v, .99), v.empty() ? NAN : *std::max_element(v.begin(), v.end()));
 }
 
+static void print_agree(const char *an, const char *bn, const std::vector<float> &a, const std::vector<float> &b,
+                        int batches)
+{
+    double cmin = 1, cmean = 0;
+    int n = 0, same = 0, top3 = 0, m = 0;
+    for (int k = 0; k < batches; k++) {
+        compare(&a[OUT_N * k], &b[OUT_N * k], cmin, cmean, n);
+        nn_agree(&a[OUT_N * k], &b[OUT_N * k], same, top3, m);
+    }
+    printf("{\"what\":\"agree\",\"a\":\"%s\",\"b\":\"%s\",\"cos_min\":%.6f,\"cos_mean\":%.6f,\"n\":%d,"
+           "\"nn_same\":%.4f,\"nn_top3\":%.4f}\n",
+           an, bn, cmin, cmean / n, n, (double)same / m, (double)top3 / m);
+}
+
 static void print_mem(const char *when)
 {
     printf("{\"what\":\"mem\",\"when\":\"%s\",\"CmaFree_kB\":%ld,\"MemAvailable_kB\":%ld,\"VmRSS_kB\":%ld,"
@@ -239,7 +301,8 @@ static void print_mem(const char *when)
 
 int main(int argc, char **argv)
 {
-    const char *in_path = NULL, *w_path = NULL, *k_path = NULL, *exp_path = NULL, *lock_path = NULL;
+    const char *in_path = NULL, *w_path = NULL, *k_path = NULL, *exp_path = NULL, *lock_path = NULL,
+               *dump_path = NULL;
     std::string mode = "both";
     int batches = 0, iters = 1000, interval_ms = 0, duration_s = 0;
     bool profile = false, hold = false;
@@ -252,6 +315,7 @@ int main(int argc, char **argv)
         else if (a == "--kmodel" && v) { k_path = v; i++; }
         else if (a == "--expect" && v) { exp_path = v; i++; }
         else if (a == "--lock" && v) { lock_path = v; i++; }
+        else if (a == "--dump" && v) { dump_path = v; i++; }
         else if (a == "--mode" && v) { mode = v; i++; }
         else if (a == "--batches" && v) { batches = atoi(v); i++; }
         else if (a == "--iters" && v) { iters = atoi(v); i++; }
@@ -264,7 +328,7 @@ int main(int argc, char **argv)
     if (!in_path || batches < 1 || batches > 4096 || iters < 1) {
         fprintf(stderr, "usage: infer-bench --in F --batches N [--weights F] [--kmodel F] [--expect F] "
                         "[--mode kpu|ref|both] [--iters N] [--lock F] [--profile] [--interval-ms N --duration-s N] "
-                        "[--hold]\n");
+                        "[--hold] [--dump F]\n");
         return 2;
     }
     int lock_fd = -1;
@@ -465,23 +529,19 @@ int main(int argc, char **argv)
             continue;
         }
         if (!expect.empty()) {
-            double cmin = 1, cmean = 0;
-            int n = 0;
-            for (int b = 0; b < batches; b++) {
-                compare(&x[OUT_N * b], &expect[OUT_N * b], cmin, cmean, n);
-            }
-            printf("{\"what\":\"agree\",\"a\":\"%s\",\"b\":\"expect\",\"cos_min\":%.6f,\"cos_mean\":%.6f,"
-                   "\"n\":%d}\n", which ? "kpu" : "ref", cmin, cmean / n, n);
+            print_agree(which ? "kpu" : "ref", "expect", x, expect, batches);
         }
     }
     if (do_ref && do_kpu) {
-        double cmin = 1, cmean = 0;
-        int n = 0;
-        for (int b = 0; b < batches; b++) {
-            compare(&out_kpu[OUT_N * b], &out_ref[OUT_N * b], cmin, cmean, n);
+        print_agree("kpu", "ref", out_kpu, out_ref, batches);
+    }
+    if (dump_path && do_kpu) {
+        FILE *f = fopen(dump_path, "wb");
+        bool ok = f && fwrite(out_kpu.data(), sizeof(float), out_kpu.size(), f) == out_kpu.size();
+        if (f) {
+            ok = fclose(f) == 0 && ok;
         }
-        printf("{\"what\":\"agree\",\"a\":\"kpu\",\"b\":\"ref\",\"cos_min\":%.6f,\"cos_mean\":%.6f,\"n\":%d}\n",
-               cmin, cmean / n, n);
+        printf("{\"what\":\"dump\",\"ok\":%s,\"floats\":%zu}\n", ok ? "true" : "false", out_kpu.size());
     }
     print_mem("end");
     if (lock_fd >= 0) {

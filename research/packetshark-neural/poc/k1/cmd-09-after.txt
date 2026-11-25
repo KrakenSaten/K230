@@ -1,0 +1,13 @@
+ps -o pid,args | grep -E 'infer-bench|k1.sh' | grep -v grep; echo procs-scan-end
+rm -rf /tmp/k1; ls -d /tmp/k1 2>&1
+cat /sys/class/net/wlan0/address; grep BUILD_ID /etc/doors-release; uptime
+sha256sum /usr/bin/doors-shell /usr/bin/pos-vision /usr/bin/doors 2>&1
+ps -o pid,ppid,stat,args | grep -v -E ' \[|grep ' ; ps | wc -l
+for d in /proc/[0-9]*; do for f in $d/fd/*; do case "$(readlink $f 2>/dev/null)" in /dev/k230*|/dev/mmz*) echo "kpu-fd ${d#/proc/} $(readlink $f)";; esac; done; done; echo kpu-fd-scan-end
+ls -la /tmp; df -k /tmp | tail -1
+dmesg | wc -l; dmesg | grep -v drop_caches | tail -2 | cut -c1-150
+grep cma_alloc /proc/vmstat; cat /sys/kernel/mm/cma/reserved/alloc_pages_success
+grep -E 'count:' /proc/zoneinfo | head -1
+for i in 1 2 3; do sync; echo 1 > /proc/sys/vm/drop_caches; sleep 2; grep CmaFree /proc/meminfo; sleep 8; done
+grep -E 'MemTotal|MemAvailable|CmaTotal|CmaFree' /proc/meminfo
+echo AF$((1+1))DONE

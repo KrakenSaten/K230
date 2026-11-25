@@ -1,0 +1,22 @@
+{"what":"step","step":"before","uptime":"90290.43","loadavg":"0.06 0.44 0.42","cma_alloc_success":93,"cma_alloc_pages":28853,"CmaFree_dropped_kB":471188}
+{"what":"hog","loadavg":"0.13 0.44 0.42"}
+{"what":"mem","when":"start","CmaFree_kB":471188,"MemAvailable_kB":909860,"VmRSS_kB":3584,"VmHWM_kB":3584}
+{"what":"ref_call","n":300,"p50_us":915431.6,"p95_us":924966.6,"p99_us":927483.6,"max_us":931145.8}
+{"what":"load","us":3768.1,"out_rank":4}
+{"what":"mem","when":"loaded","CmaFree_kB":470780,"MemAvailable_kB":910168,"VmRSS_kB":4812,"VmHWM_kB":5120}
+{"what":"first_call","us":3215.7}
+{"what":"kpu_copy_in","n":300,"p50_us":9.0,"p95_us":11.0,"p99_us":16.2,"max_us":16.8}
+{"what":"kpu_sync","n":300,"p50_us":2.1,"p95_us":2.5,"p99_us":2.7,"max_us":8.7}
+{"what":"kpu_run","n":300,"p50_us":116.8,"p95_us":196.5,"p99_us":2156.3,"max_us":3335.4}
+{"what":"kpu_copy_out","n":300,"p50_us":4.3,"p95_us":5.5,"p99_us":6.9,"max_us":102.1}
+{"what":"kpu_call","n":300,"p50_us":132.1,"p95_us":221.4,"p99_us":2174.0,"max_us":3354.4}
+{"what":"mem","when":"before_release","CmaFree_kB":470740,"MemAvailable_kB":910112,"VmRSS_kB":4812,"VmHWM_kB":5120}
+{"what":"mem","when":"released","CmaFree_kB":470740,"MemAvailable_kB":910112,"VmRSS_kB":4812,"VmHWM_kB":5120}
+{"what":"agree","a":"ref","b":"expect","cos_min":0.994739,"cos_mean":0.999764,"n":2048,"nn_same":0.9336,"nn_top3":0.9995}
+{"what":"agree","a":"kpu","b":"expect","cos_min":1.000000,"cos_mean":1.000000,"n":2048,"nn_same":1.0000,"nn_top3":1.0000}
+{"what":"agree","a":"kpu","b":"ref","cos_min":0.994739,"cos_mean":0.999764,"n":2048,"nn_same":0.9316,"nn_top3":0.9990}
+{"what":"mem","when":"end","CmaFree_kB":470740,"MemAvailable_kB":910112,"VmRSS_kB":4812,"VmHWM_kB":5120}
+{"what":"rc","rc":0}
+{"what":"hog","loadavg":"2.29 1.48 0.87"}
+{"what":"step","step":"after","uptime":"90572.42","loadavg":"2.29 1.48 0.87","cma_alloc_success":97,"cma_alloc_pages":28872,"CmaFree_dropped_kB":470740}
+{"what":"done","step":"p8"}

@@ -1,0 +1,11 @@
+cd /root; cat /sys/class/net/wlan0/address; grep -E '^(VERSION|BUILD_ID)=' /etc/doors-release; uptime; nproc
+sha256sum /usr/bin/doors-shell /usr/bin/pos-vision /usr/bin/doors 2>&1
+ps -o pid,nice,args | grep -v -E ' \[|ps -o|grep '
+for d in /proc/[0-9]*; do for f in $d/fd/*; do case "$(readlink $f 2>/dev/null)" in /dev/k230*|/dev/mmz*) echo "kpu-fd ${d#/proc/} $(readlink $f)";; esac; done; done; echo kpu-fd-scan-end
+ls -l /dev/k230* /dev/mmz* 2>&1
+ls -la /tmp; df -k /tmp | tail -1
+grep -E 'MemTotal|MemAvailable|CmaTotal|CmaFree' /proc/meminfo
+dmesg | wc -l; dmesg | tail -3 | cut -c1-150
+ls -l /lib/libstdc++.so.6 /lib/libgcc_s.so.1 /lib/ld-linux-riscv64-lp64d.so.1 /usr/lib/libstdc++.so.6 2>&1
+for i in 1 2 3; do sync; echo 1 > /proc/sys/vm/drop_caches; sleep 2; grep CmaFree /proc/meminfo; sleep 8; done
+echo BF$((1+1))DONE
