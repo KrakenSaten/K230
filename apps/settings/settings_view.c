@@ -1297,6 +1297,13 @@ void sv_companion_system(struct sv_companion *c, const cJSON *sys)
         c->pair_hint[0] = '\0';
     }
 
+    /* The list is gatewayd's: with it off there is none to show. */
+    if (!c->reachable) {
+        copy(c->note, sizeof(c->note),
+             c->enabled && !c->busy ? "The gateway does not answer, so its phones cannot be listed."
+                                    : "The paired phones are listed while the gateway is on.");
+    }
+
     /* ---- the list's line ---- */
     if (!c->installed) {
         copy(c->summary, sizeof(c->summary), "Not installed");

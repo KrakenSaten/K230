@@ -121,11 +121,17 @@ static void on_cancel(lv_event_t *e)
  * sheet already fits, nothing moves. */
 static void reveal_field(struct settings_app *a)
 {
-    if (a->page != PAGE_SHEET || !a->w.field) {
+    lv_obj_t *f = a->w.field;
+
+    if ((a->page != PAGE_SHEET && a->page != PAGE_PASSWORD) || !f) {
         return;
     }
+    /* The device password's sheet has two fields: the one being typed in. */
+    if (a->w.field2 && lv_obj_has_state(a->w.field2, LV_STATE_FOCUSED)) {
+        f = a->w.field2;
+    }
     lv_obj_update_layout(a->body);
-    lv_obj_scroll_to_view_recursive(lv_obj_get_parent(a->w.field), LV_ANIM_OFF);
+    lv_obj_scroll_to_view_recursive(a->page == PAGE_SHEET ? lv_obj_get_parent(f) : f, LV_ANIM_OFF);
 }
 
 /* The same once the body has changed size. That is learned in the middle of
