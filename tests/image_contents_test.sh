@@ -25,6 +25,7 @@ check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 
 missing="$(mkbootimg_missing_tools)"
 command -v debugfs >/dev/null 2>&1 || missing="${missing} debugfs"
+command -v readelf >/dev/null 2>&1 || missing="${missing} readelf"
 if [ -n "${missing}" ]; then
     echo "NOT RUN image_contents_test: missing${missing}, so whether the image gate works cannot be checked."
     echo "        This is a release gate; not running it is not a pass."
@@ -339,6 +340,77 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         check "and no per-unit gateway switch" \
             "$(grep -q '/etc/default/gatewayd absent (per-unit)' "${TMP}/out.txt" && echo 1 || echo 0)"
     fi
+    # ---- nothing of one unit's Companion, no root password (ADR-019 am. 2) --
+    gw_state() { mkbootimg_rootfs_doors "$1"; mkdir -p "$1/var/lib/pocketos/gatewayd"; printf 'key\n' > "$1/var/lib/pocketos/gatewayd/identity.pem"; }
+    gate_refuses "an image that ships a unit's gateway key and phones" gw-state gw_state \
+        "/var/lib/pocketos/gatewayd: one unit's Companion state must not be in the image"
+    gw_marker() { mkbootimg_rootfs_doors "$1"; mkdir -p "$1/var/lib/pocketos/companion"; printf 'b007 42\n' > "$1/var/lib/pocketos/companion/activating"; }
+    gate_refuses "an image that ships an activation record" gw-marker gw_marker \
+        "/var/lib/pocketos/companion: one unit's Companion state must not be in the image"
+    shadow_of() { mkbootimg_rootfs_doors "$1"; printf 'root:%s:19000:0:99999:7:::\ndaemon:*:19000:0:99999:7:::\n' "$2" > "$1/etc/shadow"; }
+    root_hash() { shadow_of "$1" '$6$saltsaltsaltsalt$hashhashhash'; }
+    gate_refuses "an image that gives root a password" root-hash root_hash \
+        "/etc/shadow gives root a password in the image: every unit made from it would share it"
+    no_root() { mkbootimg_rootfs_doors "$1"; printf 'daemon:*:19000:0:99999:7:::\n' > "$1/etc/shadow"; }
+    gate_refuses "an image whose shadow has no root" no-root no_root "/etc/shadow has no line for root"
+    root_empty() { shadow_of "$1" ''; }
+    if rootfs_img "${TMP}/root-empty.img" root_empty; then
+        rc="$(run_gate "${TMP}/root-empty.img")"
+        check "an image whose root has no password passes" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+        check "and the gate says so, and that no Companion state is in it" \
+            "$(grep -q 'ok  /etc/shadow: root has no password in the image' "${TMP}/out.txt" &&
+               grep -q 'ok  /var/lib/pocketos/gatewayd absent (made on the unit)' "${TMP}/out.txt" && echo 1 || echo 0)"
+    else
+        check "could not build the image for: root without a password" 0
+    fi
+
+    # ---- the libraries the binaries ask for (ADR-019 amendment 2) ------------
+    # sysd now needs libcrypt.so.2, gatewayd libssl, libcrypto and libcjson: a
+    # binary whose library is not in the image does not start.
+    long_cjson="libcjson.so.1.7.18.a-name-long-enough-that-the-link-needs-a-block-of-its-own"
+    with_libs() {
+        mkbootimg_rootfs_doors "$1"
+        mkbootimg_dynamic "$1/usr/sbin/gatewayd" abc1234 libssl.so.3 libcrypto.so.3 libcjson.so.1 libc.so.6
+        mkbootimg_dynamic "$1/usr/sbin/sysd" abc1234 libcrypt.so.2 libc.so.6
+        mkdir -p "$1/lib" "$1/usr/lib"
+        printf 'libc\n' > "$1/lib/libc.so.6"
+        printf 'ssl\n' > "$1/usr/lib/libssl.so.3"
+        printf 'crypto\n' > "$1/usr/lib/libcrypto.so.3"
+        printf 'crypt\n' > "$1/usr/lib/libcrypt.so.2.0.0"
+        ln -s libcrypt.so.2.0.0 "$1/usr/lib/libcrypt.so.2"
+        printf 'cjson\n' > "$1/usr/lib/${long_cjson}"
+        ln -s "${long_cjson}" "$1/usr/lib/libcjson.so.1"
+    }
+    if rootfs_img "${TMP}/libs.img" with_libs; then
+        rc="$(run_gate "${TMP}/libs.img")"
+        check "binaries whose libraries are all in the image pass (through a short and a long link)" \
+            "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+        check "the gate says what it read of sysd and gatewayd" \
+            "$(grep -q 'ok  /usr/sbin/sysd: its 2 libraries are in the image' "${TMP}/out.txt" &&
+               grep -q 'ok  /usr/sbin/gatewayd: its 4 libraries are in the image' "${TMP}/out.txt" && echo 1 || echo 0)"
+        check "and of a binary that asks for none" \
+            "$(grep -q 'ok  /usr/sbin/netd: asks for no shared library' "${TMP}/out.txt" && echo 1 || echo 0)"
+    else
+        check "could not build the image for: libraries in the image" 0
+    fi
+    no_crypt() { with_libs "$1"; rm -f "$1/usr/lib/libcrypt.so.2" "$1/usr/lib/libcrypt.so.2.0.0"; }
+    gate_refuses "a sysd that asks for libcrypt.so.2, which the image lacks" no-crypt no_crypt \
+        "/usr/sbin/sysd needs libcrypt.so.2, not in the image's /lib or /usr/lib: it would not start"
+    dangling() { with_libs "$1"; rm -f "$1/usr/lib/libcrypt.so.2.0.0"; }
+    gate_refuses "a library link that leads nowhere" dangling dangling \
+        "/usr/sbin/sysd needs libcrypt.so.2, not in the image"
+    long_dangling() { with_libs "$1"; rm -f "$1/usr/lib/${long_cjson}"; }
+    gate_refuses "a long library link that leads nowhere" long-dangling long_dangling \
+        "/usr/sbin/gatewayd needs libcjson.so.1, not in the image"
+    two_missing() { with_libs "$1"; rm -f "$1/usr/lib/libssl.so.3"; : > "$1/usr/lib/libcrypto.so.3"; }
+    gate_refuses "a missing and an empty library" two-missing two_missing \
+        "/usr/sbin/gatewayd needs libssl.so.3 libcrypto.so.3, not in the image"
+    unreadable() {
+        with_libs "$1"; printf '\177ELF broken\000DOORS_BUILD_ID=abc1234\000' > "$1/usr/sbin/netd"
+        chmod 0755 "$1/usr/sbin/netd"
+    }
+    gate_refuses "a binary readelf cannot read" unreadable-elf unreadable \
+        "/usr/sbin/netd: readelf cannot read it, so the libraries it needs are unknown"
     nodoors() { mkbootimg_rootfs_doors "$1"; rm -f "$1/usr/bin/doors"; }
     gate_refuses "an image with no /usr/bin/doors (a stamped binary that is no service)" no-doors nodoors \
         "/usr/bin/doors is missing"
