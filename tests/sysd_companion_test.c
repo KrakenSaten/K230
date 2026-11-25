@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -50,7 +52,8 @@ static void check(const char *what, int ok)
 
 static char dir[] = "/tmp/sysd-companion-XXXXXX";
 static char p_def[300], p_init[300], p_daemon[300], p_pid[300], p_passwd[300], p_shadow[300], p_sshdc[300],
-    p_sshd[300], p_sshd_init[300], p_sshd_pid[300], p_proc[300], p_log[300], trace[300];
+    p_sshd[300], p_sshd_init[300], p_sshd_pid[300], p_proc[300], p_marker[340], p_bootid[300], p_log[300],
+    trace[300], p_state[300];
 
 static void put(const char *path, const char *text, mode_t mode)
 {
@@ -93,6 +96,7 @@ static int init_stop_fails;
 static int reload_fails;
 static int gateway_answers = 1;
 static int run_sleeps_ms;
+static int start_hangs_ms; /* S70gatewayd start hangs this long */
 
 static void record(const char *line)
 {
@@ -135,6 +139,10 @@ static int fake_run(const char *const argv[], int log_fd, void *user)
     }
     if (strcmp(argv[0], p_init) == 0 && strcmp(argv[1], "start") == 0) {
         record(has(p_def, "GATEWAYD_ENABLE=1") ? "  (enabled in the file)" : "  (NOT enabled in the file)");
+        record(access(p_marker, F_OK) == 0 ? "  (activation recorded)" : "  (activation NOT recorded)");
+        if (start_hangs_ms) {
+            usleep((useconds_t)start_hangs_ms * 1000);
+        }
         return init_start_fails ? 1 : 0;
     }
     if (strcmp(argv[0], p_init) == 0 && strcmp(argv[1], "stop") == 0) {
@@ -184,7 +192,8 @@ static struct sysd_companion C;
 static void setup(void)
 {
     struct sysd_companion_paths p = { p_def, p_init, p_daemon, p_pid, p_passwd, p_shadow,
-                                      p_sshdc, p_sshd, p_sshd_init, p_sshd_pid, p_proc, p_log };
+                                      p_sshdc, p_sshd, p_sshd_init, p_sshd_pid, p_proc, p_marker, p_bootid,
+                                      p_log };
     char pid[32];
 
     unlink(p_def);
@@ -207,7 +216,8 @@ static void setup(void)
     snprintf(pid, sizeof(pid), "%d\n", (int)getpid());
     put(p_sshd_pid, pid, 0644);
     unlink(p_pid);
-    sshd_test_fails = init_start_fails = init_stop_fails = reload_fails = run_sleeps_ms = 0;
+    sshd_test_fails = init_start_fails = init_stop_fails = reload_fails = run_sleeps_ms = start_hangs_ms = 0;
+    unlink(p_marker);
     gateway_answers = 1;
     sysd_companion_init(&C, &p, &fake_ops);
     C.answer_ms = 600;
@@ -274,6 +284,11 @@ int main(void)
     P(p_log, "companion.log");
     P(p_proc, "proc");
     mkdir(p_proc, 0755);
+    P(p_state, "state");
+    mkdir(p_state, 0755);
+    snprintf(p_marker, sizeof(p_marker), "%s/companion/activating", p_state);
+    P(p_bootid, "boot_id");
+    put(p_bootid, "0f0e0d0c-boot-this\n", 0644);
     P(trace, "trace");
 
     /* ---- 1. judging sshd_config ------------------------------------------------ */
@@ -552,7 +567,9 @@ int main(void)
     check("on: done", strcmp(status_str("state"), "done") == 0 && strcmp(status_str("action"), "enable") == 0);
     check("SSH hardened first, then the switch, then start, then gatewayd answered",
           has(trace, "run sshd -t -f sshd_config.doors-check\n  (checked a hardened file)\nrun S50sshd reload\n"
-                     "run S70gatewayd start\n  (enabled in the file)\ncall gatewayd gateway.status"));
+                     "run S70gatewayd start\n  (enabled in the file)\n  (activation recorded)\ncall gatewayd gateway.status"));
+    check("and once it answered, the activation record is gone: on is now the unit's choice",
+          access(p_marker, F_OK) != 0);
     check("the file says enabled, and keeps the interface and the comment",
           strcmp(get(p_def), "# per unit\nGATEWAYD_INTERFACE=eth0\nGATEWAYD_ENABLE=1\n") == 0 &&
               strcmp(status_str("enabled"), "true") == 0);
@@ -635,6 +652,119 @@ int main(void)
     check("a change that does not finish in its time is stopped and said (timed_out)",
           strcmp(status_str("state"), "failed") == 0 && strcmp(status_str("error"), "timed_out") == 0 &&
               !sysd_companion_busy(&C));
+
+    /* ---- 9b. fail-closed activation (the owner's condition, 2026-11-25) ------------------ *
+     * An activation that does not finish never leaves the gateway switched on:
+     * not when its time limit stops it after GATEWAYD_ENABLE=1, not when sysd
+     * restarts in the middle, not when a rollback could not be written. */
+    setup();
+    put(p_shadow, "root:$6$x$y:::::::\n", 0600);
+    put(p_sshdc, "PermitRootLogin no\n", 0644);
+    put(p_def, "GATEWAYD_ENABLE=0\n", 0644);
+    init_start_fails = 1;
+    r = sysd_companion_set_enabled(&C, true, word, sizeof(word), msg, sizeof(msg));
+    wait_job();
+    check("a start that fails: the switch back off and no activation record left",
+          strcmp(status_str("error"), "start_failed") == 0 && has(p_def, "GATEWAYD_ENABLE=0") &&
+              access(p_marker, F_OK) != 0);
+    /* Stopped by its time limit after the switch was written. */
+    setup();
+    put(p_shadow, "root:$6$x$y:::::::\n", 0600);
+    put(p_sshdc, "PermitRootLogin no\n", 0644);
+    put(p_def, "GATEWAYD_ENABLE=0\n", 0644);
+    C.job_limit_s = 1;
+    start_hangs_ms = 2500;
+    r = sysd_companion_set_enabled(&C, true, word, sizeof(word), msg, sizeof(msg));
+    wait_job();
+    check("an activation stopped by its time limit is recovered: the switch is off, the record gone",
+          r == 0 && has(p_def, "GATEWAYD_ENABLE=0") && !has(p_def, "GATEWAYD_ENABLE=1") && access(p_marker, F_OK) != 0);
+    check("the service stopped, and the start that was half way had been the activation's",
+          has(trace, "run S70gatewayd start\n  (enabled in the file)\n  (activation recorded)") &&
+              has(trace, "run S70gatewayd stop\n  (disabled in the file)"));
+    check("said: failed, recovered, why, and that it is off again",
+          strcmp(status_str("state"), "failed") == 0 && strcmp(status_str("action"), "recover") == 0 &&
+              strcmp(status_str("error"), "activation_interrupted") == 0 &&
+              strstr(status_str("message"), "ran longer than 1 s") && strstr(status_str("message"), "switched off again") &&
+              strcmp(status_str("enabled"), "false") == 0);
+    /* sysd restarted in the middle: the record and the switch it left. A
+     * process of that activation is still there (an init script half way). */
+    setup();
+    put(p_def, "GATEWAYD_ENABLE=1\n", 0644);
+    {
+        pid_t left = fork();
+        char text[128];
+        int st = 0;
+        int gone;
+
+        if (left == 0) {
+            setpgid(0, 0);
+            for (;;) {
+                pause();
+            }
+        }
+        setpgid(left, left);
+        usleep(50 * 1000);
+        mkdir(p_state, 0755);
+        {
+            char d[320];
+
+            snprintf(d, sizeof(d), "%s/companion", p_state);
+            mkdir(d, 0700);
+        }
+        snprintf(text, sizeof(text), "0f0e0d0c-boot-this %d\n", (int)left);
+        put(p_marker, text, 0600);
+        /* A new sysd: init, then what main() does next. */
+        {
+            struct sysd_companion_paths keep = C.paths;
+
+            sysd_companion_init(&C, &keep, &fake_ops);
+        }
+        C.answer_ms = 600;
+        sysd_companion_recover(&C);
+        check("sysd's start finds the interrupted activation: the switch is off at once, the record gone",
+              has(p_def, "GATEWAYD_ENABLE=0") && access(p_marker, F_OK) != 0);
+        gone = waitpid(left, &st, 0) == left && WIFSIGNALED(st) && WTERMSIG(st) == SIGKILL;
+        check("and what that activation left running in its group is ended", gone);
+        wait_job();
+        check("then the service is stopped, and the outcome said",
+              has(trace, "run S70gatewayd stop") && strcmp(status_str("error"), "activation_interrupted") == 0 &&
+                  strstr(status_str("message"), "restarted"));
+    }
+    /* A record from an earlier boot: its process group number names nothing
+     * of this boot, so nothing is signalled - but the switch still goes off. */
+    setup();
+    put(p_def, "GATEWAYD_ENABLE=1\n", 0644);
+    {
+        pid_t other = fork();
+        char text[128];
+        char d[320];
+        int st = 0;
+
+        if (other == 0) {
+            setpgid(0, 0);
+            for (;;) {
+                pause();
+            }
+        }
+        setpgid(other, other);
+        usleep(50 * 1000);
+        snprintf(d, sizeof(d), "%s/companion", p_state);
+        mkdir(d, 0700);
+        snprintf(text, sizeof(text), "aaaaaaaa-boot-before %d\n", (int)other);
+        put(p_marker, text, 0600);
+        sysd_companion_recover(&C);
+        check("a record of an earlier boot: off again, nothing of this boot signalled",
+              has(p_def, "GATEWAYD_ENABLE=0") && access(p_marker, F_OK) != 0 && kill(other, 0) == 0);
+        kill(other, SIGKILL);
+        waitpid(other, &st, 0);
+        wait_job();
+    }
+    /* Nothing to recover: nothing happens. */
+    setup();
+    put(p_def, "GATEWAYD_ENABLE=1\n", 0644);
+    sysd_companion_recover(&C);
+    check("no record: a gateway that was switched on stays on, and no job runs",
+          has(p_def, "GATEWAYD_ENABLE=1") && !sysd_companion_busy(&C) && strcmp(status_str("state"), "idle") == 0);
 
     /* ---- 10. a power action waits; the status of a running gateway ------------------------- */
     setup();

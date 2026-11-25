@@ -464,8 +464,11 @@ int main(int argc, char **argv)
     {
         struct sysd_companion_paths cp;
 
-        sysd_companion_default_paths(&cp, pocketos_log_dir());
+        sysd_companion_default_paths(&cp, pocketos_log_dir(), pocketos_state_dir());
         sysd_companion_init(&sd.companion, &cp, sysd_companion_default_ops());
+        /* An activation the previous sysd, or the previous boot, left half
+         * done is turned off before anyone asks (ADR-019 amendment 2). */
+        sysd_companion_recover(&sd.companion);
     }
 
     rc = run(&sd);

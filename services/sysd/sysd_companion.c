@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -536,24 +537,28 @@ static const struct sysd_companion_ops hook_ops = {
 };
 #endif
 
-void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *log_dir)
+void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *log_dir, const char *state_dir)
 {
     static char log[512];
+    static char marker[512];
 #ifdef SYSD_TEST_HOOKS
-    /* tests/sysd-testhooks only: every path under a test's own root. */
-    static char buf[11][512];
+    /* tests/sysd-testhooks only: every fixed path under a test's own root
+     * (the marker is under the state directory, which a test sets itself). */
+    static char buf[12][512];
     const char *root = getenv("SYSD_TEST_COMPANION_ROOT");
 #endif
-    static const char *const real[11] = {
+    static const char *const real[12] = {
         "/etc/default/gatewayd", "/etc/init.d/S70gatewayd", "/usr/sbin/gatewayd", "/run/pocketos/gatewayd.pid",
         "/etc/passwd",           "/etc/shadow",             "/etc/ssh/sshd_config", "/usr/sbin/sshd",
         "/etc/init.d/S50sshd",   "/var/run/sshd.pid",       "/proc",
+        "/proc/sys/kernel/random/boot_id",
     };
-    const char *v[11];
+    const char *v[12];
     int i;
 
     snprintf(log, sizeof(log), "%s/companion.log", log_dir);
-    for (i = 0; i < 11; i++) {
+    snprintf(marker, sizeof(marker), "%s/companion/activating", state_dir);
+    for (i = 0; i < 12; i++) {
         v[i] = real[i];
 #ifdef SYSD_TEST_HOOKS
         if (root && root[0]) {
@@ -573,6 +578,8 @@ void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *lo
     p->sshd_init = v[8];
     p->sshd_pidfile = v[9];
     p->proc = v[10];
+    p->boot_id = v[11];
+    p->marker = marker;
     p->log = log;
 }
 
@@ -855,6 +862,157 @@ static bool gateway_answers(const struct sysd_companion *c, int within_ms)
     }
 }
 
+/* ---- fail-closed activation ------------------------------------------------ *
+ *
+ * Turning the gateway on writes GATEWAYD_ENABLE=1 and then has to see it
+ * answer, and anything can stop it in between: its own time limit, sysd
+ * being killed or restarted, the unit losing power. A switch left at 1 by
+ * an activation that never finished would start the gateway at the next
+ * boot with nobody having seen it work. So the activation is recorded
+ * first, in a marker under sysd's state directory ("<boot_id> <pgid>"), and
+ * the marker goes only once gatewayd has answered or the switch is back at
+ * 0. A marker found with no activation running means one was interrupted:
+ * sysd writes the switch back to 0 and stops the service (the recover job),
+ * and S70gatewayd itself refuses to start while a marker names a boot that
+ * is over or a job that is gone, so a boot after a power cut never starts
+ * it either, whichever of sysd and S70gatewayd runs first. */
+
+static void read_boot_id(const struct sysd_companion_paths *p, char *out, size_t n)
+{
+    FILE *f = p->boot_id ? fopen(p->boot_id, "re") : NULL;
+
+    out[0] = '\0';
+    if (f) {
+        if (!fgets(out, (int)n, f)) {
+            out[0] = '\0';
+        }
+        out[strcspn(out, " \n")] = '\0';
+        fclose(f);
+    }
+}
+
+static int marker_write(const struct sysd_companion *c)
+{
+    char dir[512];
+    char text[128];
+    char boot[64];
+    char *slash;
+
+    snprintf(dir, sizeof(dir), "%s", c->paths.marker);
+    slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+            return -1;
+        }
+    }
+    read_boot_id(&c->paths, boot, sizeof(boot));
+    snprintf(text, sizeof(text), "%s %ld\n", boot[0] ? boot : "-", (long)getpgrp());
+    return write_atomic(c->paths.marker, text, 0600);
+}
+
+static void marker_clear(const struct sysd_companion *c)
+{
+    if (unlink(c->paths.marker) == 0) {
+        fsync_dir_of(c->paths.marker);
+    }
+}
+
+/* The marker's boot id and process group; false when there is none. */
+static bool marker_read(const struct sysd_companion *c, char *boot, size_t bn, long *pgid)
+{
+    char text[128] = "";
+    FILE *f = fopen(c->paths.marker, "re");
+    char *sp;
+
+    *pgid = 0;
+    boot[0] = '\0';
+    if (!f) {
+        return false;
+    }
+    if (!fgets(text, sizeof(text), f)) {
+        text[0] = '\0';
+    }
+    fclose(f);
+    text[strcspn(text, "\n")] = '\0';
+    sp = strchr(text, ' ');
+    if (sp) {
+        *sp = '\0';
+        *pgid = strtol(sp + 1, NULL, 10);
+    }
+    snprintf(boot, bn, "%s", text);
+    return true;
+}
+
+/* The recover job: the switch back to 0 (sysd wrote it already when it
+ * could; again here in case it could not), the marker gone once it is, and
+ * the service stopped. It ends "failed": the activation did not happen. */
+static void job_recover(struct job *j)
+{
+    const struct sysd_companion *c = j->c;
+    int w = write_enable(c, "0", NULL, NULL);
+    int rc = 0;
+
+    if (w == 0) {
+        marker_clear(c);
+        say(j, "recover: GATEWAYD_ENABLE=0 written");
+    }
+    if (executable(c->paths.init)) {
+        const char *const argv[] = { c->paths.init, "stop", NULL };
+
+        rc = c->ops.run(argv, j->log_fd, c->ops.user);
+    }
+    finish(j, "activation_interrupted", "turning the gateway on did not finish (%s); %s%s", c->recover_why,
+           w == 0 ? "it is switched off again" : "the switch could not be written back, but it will not start at a boot",
+           rc == 0 ? "" : ", and it did not stop (companion.log): restart the unit");
+}
+
+/* An activation was interrupted, if a marker says so and none is running:
+ * the process group it left (an init script half way, a gatewayd it
+ * started) is ended when it is of this boot, the switch goes back to 0 at
+ * once, and the recover job stops the service. */
+static int start(struct sysd_companion *c, enum sysd_companion_job what, char *password, char *word, size_t wn,
+                 char *msg, size_t mn);
+
+static void recover_after(struct sysd_companion *c, const char *why)
+{
+    char boot[64];
+    char now[64];
+    char word[32];
+    char msg[SYSD_COMPANION_MESSAGE_MAX];
+    long pgid = 0;
+
+    if (c->pid > 0 || !marker_read(c, boot, sizeof(boot), &pgid)) {
+        return;
+    }
+    read_boot_id(&c->paths, now, sizeof(now));
+    /* Only within the boot that wrote it: a process group number of an
+     * earlier boot names nothing of this one. Never sysd's own group. */
+    if (pgid > 1 && now[0] && strcmp(boot, now) == 0 && (pid_t)pgid != getpgrp()) {
+        (void)kill(-(pid_t)pgid, SIGKILL);
+    }
+    if (write_enable(c, "0", NULL, NULL) == 0) {
+        marker_clear(c);
+    }
+    LOG_WARN("companion: an activation was interrupted (%s); the gateway is switched off again", why);
+    snprintf(c->recover_why, sizeof(c->recover_why), "%s", why);
+    if (start(c, SYSD_COMPANION_RECOVER, NULL, word, sizeof(word), msg, sizeof(msg)) != 0) {
+        c->job = SYSD_COMPANION_RECOVER;
+        c->failed = true;
+        snprintf(c->error, sizeof(c->error), "activation_interrupted");
+        snprintf(c->message, sizeof(c->message),
+                 "turning the gateway on did not finish (%s); the switch is off, but the service could not be "
+                 "stopped from here: restart the unit",
+                 why);
+    }
+}
+
+void sysd_companion_recover(struct sysd_companion *c)
+{
+    sysd_companion_reap(c);
+    recover_after(c, "sysd or the unit restarted while it ran");
+}
+
 static void job_enable(struct job *j)
 {
     const struct sysd_companion *c = j->c;
@@ -868,13 +1026,20 @@ static void job_enable(struct job *j)
         finish(j, "password_required", "this unit has no device password; set one first");
     }
     harden_ssh(j);
+    /* Recorded before the switch is: from here an interruption is noticed
+     * and undone (fail-closed activation, above). */
+    if (marker_write(c) != 0) {
+        finish(j, "write_failed", "the activation could not be recorded in %s; nothing was changed", c->paths.marker);
+    }
     switch (write_enable(c, "1", &before, &had)) {
     case 0:
         break;
     case -2:
+        marker_clear(c);
         finish(j, "defaults_unsupported", "%s holds more than settings lines; switch the gateway there by hand",
                c->paths.defaults);
     default:
+        marker_clear(c);
         finish(j, "write_failed", "%s could not be written; nothing was changed", c->paths.defaults);
     }
     say(j, "GATEWAYD_ENABLE=1 written");
@@ -884,6 +1049,8 @@ static void job_enable(struct job *j)
 
         if (rc == 0 && gateway_answers(c, c->answer_ms)) {
             free(before);
+            /* It works: from now on GATEWAYD_ENABLE=1 is the unit's choice. */
+            marker_clear(c);
             finish(j, NULL, "done");
         }
         /* Back as it was, the file then the service - but never back to "on":
@@ -891,11 +1058,17 @@ static void job_enable(struct job *j)
          * off, as the message says, rather than starting it at its next boot. */
         {
             char v[8] = "";
+            int back;
 
             if (had && before && !(sysd_radio_value(before, "GATEWAYD_ENABLE", v, sizeof(v)) && strcmp(v, "1") == 0)) {
-                (void)write_atomic(c->paths.defaults, before, 0644);
+                back = write_atomic(c->paths.defaults, before, 0644);
             } else {
-                (void)write_enable(c, "0", NULL, NULL);
+                back = write_enable(c, "0", NULL, NULL);
+            }
+            /* The marker stays when the switch could not be put back: then
+             * sysd tries again, and S70gatewayd will not start it at a boot. */
+            if (back == 0) {
+                marker_clear(c);
             }
         }
         free(before);
@@ -1016,6 +1189,8 @@ static const char *job_name(enum sysd_companion_job j)
         return "disable";
     case SYSD_COMPANION_PASSWORD:
         return "password";
+    case SYSD_COMPANION_RECOVER:
+        return "recover";
     default:
         return "none";
     }
@@ -1026,6 +1201,7 @@ static int start(struct sysd_companion *c, enum sysd_companion_job what, char *p
 {
     int fds[2];
     pid_t pid;
+    pid_t parent = getpid();
 
     if (pipe2(fds, O_CLOEXEC) < 0) {
         snprintf(word, wn, "busy");
@@ -1044,6 +1220,15 @@ static int start(struct sysd_companion *c, enum sysd_companion_job what, char *p
         struct job j = { c, -1, fds[1] };
 
         close(fds[0]);
+        /* Its own process group, so that what an interrupted activation
+         * started (an init script half way, a supervisor, a gatewayd) can be
+         * ended as one; and it does not outlive sysd: an activation nobody
+         * will see finish is ended, and the next sysd undoes it. */
+        (void)setpgid(0, 0);
+        (void)prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() != parent) {
+            _exit(EXIT_FAILED);
+        }
         /* Bounded: a hung init script or sshd reload must not leave reboot,
          * power-off and every later change refused for ever. */
         alarm((unsigned)(c->job_limit_s > 0 ? c->job_limit_s : SYSD_COMPANION_JOB_LIMIT_S));
@@ -1052,6 +1237,8 @@ static int start(struct sysd_companion *c, enum sysd_companion_job what, char *p
             job_enable(&j);
         } else if (what == SYSD_COMPANION_DISABLE) {
             job_disable(&j);
+        } else if (what == SYSD_COMPANION_RECOVER) {
+            job_recover(&j);
         } else {
             job_password(&j, password);
         }
@@ -1215,6 +1402,22 @@ void sysd_companion_reap(struct sysd_companion *c)
         }
     }
     LOG_ERROR("companion: %s failed: %s: %s. See %s.", job_name(c->job), c->error, c->message, c->paths.log);
+    /* An activation that ended without finishing - stopped by its time
+     * limit, killed, or failed and unable to put the switch back - leaves its
+     * marker: the switch goes back off now (fail-closed activation). A
+     * recover job that is itself stopped is not recovered again. */
+    if (c->job == SYSD_COMPANION_ENABLE) {
+        char why[64];
+
+        if (w > 0 && WIFSIGNALED(status) && WTERMSIG(status) == SIGALRM) {
+            snprintf(why, sizeof(why), "it ran longer than %d s", c->job_limit_s);
+        } else if (w > 0 && WIFSIGNALED(status)) {
+            snprintf(why, sizeof(why), "it was killed");
+        } else {
+            snprintf(why, sizeof(why), "it could not put the switch back");
+        }
+        recover_after(c, why);
+    }
 }
 
 bool sysd_companion_busy(const struct sysd_companion *c)

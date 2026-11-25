@@ -1091,7 +1091,9 @@ static const struct {
     { "gateway state fault", "The gateway's stored state cannot be used, so it stays closed. Nothing was changed." },
     { "listen_failed", "The gateway could not open its port (TCP 47231). Restart the unit, then try again." },
     { "a pairing window is open", "A pairing code is already showing. Wait two minutes, then try again." },
-    { "timed_out", "The change took too long and was stopped part way. Restart the unit, then try again." },
+    { "timed_out", "The change took too long and was stopped. Restart the unit, then try again." },
+    { "activation_interrupted", "Turning the gateway on did not finish (it was interrupted, or took too long), so it "
+                                "was switched off again. Turn it on again; restart the unit if it keeps happening." },
     { "defaults_unsupported", "/etc/default/gatewayd holds more than settings, so it is not changed from here. "
                               "Switch the gateway there by hand." },
     { "not the phone that was confirmed", "Another phone took its place before the decision reached the gateway, "
@@ -1178,7 +1180,7 @@ void sv_companion_system(struct sv_companion *c, const cJSON *sys)
         c->switch_on = 1;
         copy(c->headline, sizeof(c->headline), "Turning on...");
         c->tone = SV_TONE_NORMAL;
-    } else if (c->busy && is(c->job, "disable")) {
+    } else if (c->busy && (is(c->job, "disable") || is(c->job, "recover"))) {
         copy(c->switch_label, sizeof(c->switch_label), "STOPPING");
         c->switch_on = 0;
         copy(c->headline, sizeof(c->headline), "Turning off...");
@@ -1242,7 +1244,7 @@ void sv_companion_system(struct sv_companion *c, const cJSON *sys)
         c->hint_tone = SV_TONE_WARN;
     }
     /* A switch change that failed says so over whatever the state says. */
-    if (failed && (is(c->job, "enable") || is(c->job, "disable"))) {
+    if (failed && (is(c->job, "enable") || is(c->job, "disable") || is(c->job, "recover"))) {
         copy(c->hint, sizeof(c->hint),
              sv_companion_error_text(c->job_error, "The change did not finish. Try again; restart the unit if it "
                                                    "keeps failing."));

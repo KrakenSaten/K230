@@ -76,6 +76,11 @@ struct sysd_companion_paths {
     const char *sshd_init;    /* /etc/init.d/S50sshd: reload */
     const char *sshd_pidfile; /* /var/run/sshd.pid */
     const char *proc;         /* /proc: an sshd whose pid file is missing is still found by name */
+    /* $POCKETOS_STATE_DIR/companion/activating: written before GATEWAYD_ENABLE=1
+     * and removed only once gatewayd has answered or the switch is back off.
+     * "<boot_id> <pgid>": an activation that left it behind was interrupted. */
+    const char *marker;
+    const char *boot_id;      /* /proc/sys/kernel/random/boot_id */
     const char *log;          /* <log dir>/companion.log */
 };
 
@@ -97,7 +102,7 @@ extern const struct sysd_companion_ops sysd_companion_real_ops;
 /* The shipped paths; under SYSD_TEST_HOOKS (tests/sysd-testhooks only) each
  * is put under $SYSD_TEST_COMPANION_ROOT when that is set, and the password
  * lock is a no-op there. */
-void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *log_dir);
+void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *log_dir, const char *state_dir);
 const struct sysd_companion_ops *sysd_companion_default_ops(void);
 
 enum sysd_ssh_state {
@@ -135,6 +140,10 @@ enum sysd_companion_job {
     SYSD_COMPANION_ENABLE,
     SYSD_COMPANION_DISABLE,
     SYSD_COMPANION_PASSWORD,
+    /* An activation was interrupted (sysd or the unit restarted, or the job
+     * ran past its limit): the switch back off and the service stopped.
+     * Reported as the action "recover". */
+    SYSD_COMPANION_RECOVER,
 };
 
 struct sysd_companion {
@@ -148,6 +157,7 @@ struct sysd_companion {
     bool failed;                   /* it did not: error and message say why */
     char error[32];                /* a word: docs/api/system.md lists them */
     char message[SYSD_COMPANION_MESSAGE_MAX];
+    char recover_why[64];          /* why the recover job runs: what interrupted the activation */
 };
 
 void sysd_companion_init(struct sysd_companion *c, const struct sysd_companion_paths *paths,
@@ -159,6 +169,10 @@ void sysd_companion_init(struct sysd_companion *c, const struct sysd_companion_p
 int sysd_companion_set_enabled(struct sysd_companion *c, bool on, char *word, size_t wn, char *msg, size_t mn);
 int sysd_companion_set_password(struct sysd_companion *c, char *password, char *word, size_t wn, char *msg,
                                 size_t mn);
+/* sysd's start: an activation a previous sysd (or boot) left unfinished is
+ * turned off - GATEWAYD_ENABLE=0 at once, then S70gatewayd stop in a job.
+ * Fail closed: an interrupted activation never leaves the gateway on. */
+void sysd_companion_recover(struct sysd_companion *c);
 /* Collect a finished job. */
 void sysd_companion_reap(struct sysd_companion *c);
 bool sysd_companion_busy(const struct sysd_companion *c);

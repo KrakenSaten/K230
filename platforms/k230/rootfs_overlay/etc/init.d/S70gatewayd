@@ -32,6 +32,12 @@ CHILD_PIDFILE=/run/pocketos/gatewayd.pid
 LOGDIR=/var/lib/pocketos/log
 LOGFILE=$LOGDIR/gatewayd.stdio.log
 STATEDIR=/var/lib/pocketos/gatewayd
+# Turning the gateway on from Settings is recorded here first, as "<boot_id>
+# <pid>", and the record goes only once gatewayd has answered (sysd, ADR-019
+# amendment 2). While it names a boot that is over, or an activation that is
+# no longer running, the activation was interrupted - a power cut, sysd
+# killed - and the gateway is not started: sysd switches it back off.
+ACTIVATING=/var/lib/pocketos/companion/activating
 
 GATEWAYD_ENABLE=0
 # The interface whose address the gateway listens on. One, never all.
@@ -62,6 +68,16 @@ start() {
 	if [ "$GATEWAYD_ENABLE" != "1" ]; then
 		echo "disabled (set GATEWAYD_ENABLE=1 in /etc/default/gatewayd)"
 		return 0
+	fi
+	if [ -e "$ACTIVATING" ]; then
+		_mb=""; _mp=""
+		read -r _mb _mp < "$ACTIVATING" 2>/dev/null
+		_now=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
+		case "$_mp" in ""|*[!0-9]*) _mp="" ;; esac
+		if [ -z "$_now" ] || [ "$_mb" != "$_now" ] || [ -z "$_mp" ] || ! kill -0 "$_mp" 2>/dev/null; then
+			echo "not started: turning it on was interrupted (Settings > Companion turns it off; turn it on there again)"
+			return 0
+		fi
 	fi
 	if [ ! -x "$DAEMON" ]; then
 		echo "FAILED: enabled, but $DAEMON is not installed or not executable"

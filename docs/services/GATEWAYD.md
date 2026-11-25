@@ -1,6 +1,6 @@
 # gatewayd: the Companion Gateway (M2 core, M4.1 mesh reading, M4.2 sending)
 
-Status: **host-tested and cross-built only.** Since ADR-019 amendment 2 (proposed 2026-11-25, branch `claude/companion-settings-2-aad748`) it is built and installed by the image's package (`ENABLE_GATEWAYD=1`), its init script is in the rootfs overlay, and the bench deploy carries both - **off by default**, switched on per unit in Settings > Companion (section "Product integration" below). Before that branch it was built by name only and in no image. M5 and M6 ran it on Unit A from temporary kits; the product integration has not run on a unit. Design: `docs/decisions/ADR-019-companion-gateway.md` (accepted 2026-11-21); protocol: `docs/api/gateway.md`; pairing: `docs/design/companion/PAIRING.md`.
+Status: **host-tested and cross-built only.** Since ADR-019 amendment 2 (accepted 2026-11-25; draft PR #190, branch `claude/companion-settings-2-aad748`) it is built and installed by the image's package (`ENABLE_GATEWAYD=1`), its init script is in the rootfs overlay, and the bench deploy carries both - **off by default**, switched on per unit in Settings > Companion (section "Product integration" below). Before that branch it was built by name only and in no image. M5 and M6 ran it on Unit A from temporary kits; the product integration has not run on a unit. Design: `docs/decisions/ADR-019-companion-gateway.md` (accepted 2026-11-21); protocol: `docs/api/gateway.md`; pairing: `docs/design/companion/PAIRING.md`.
 
 gatewayd is the one Doors service that listens on the network. A paired phone reaches it over TLS 1.3 on TCP 47231 and may call an allowlist of methods; gatewayd answers them as a pocketipc client of the services that own the data. It owns no radio, no mesh key, no Wi-Fi credential and no capture.
 
@@ -151,7 +151,7 @@ The service runs at nice 5, and does not start at all unless every capability wa
 
 ## Product integration (ADR-019 amendment 2)
 
-Proposed 2026-11-25 and implemented on branch `claude/companion-settings-2-aad748`: DOORS Companion set up on the unit's own screen, with no cable, SSH or command line.
+Accepted 2026-11-25 and implemented on branch `claude/companion-settings-2-aad748` (draft PR #190): DOORS Companion set up on the unit's own screen, with no cable, SSH or command line.
 
 | Part | Where | What it does |
 | --- | --- | --- |

@@ -96,6 +96,8 @@ grep -q '^PermitRootLogin prohibit-password$' "$3"
 write("/etc/init.d/S50sshd", '#!/bin/sh\necho "S50sshd $1" >> "%s/sshd.log"\nexit 0\n' % CR, 0o755)
 sshd = subprocess.Popen(["sleep", "600"])
 write("/var/run/sshd.pid", "%d\n" % sshd.pid)
+# The boot id sysd and the S70 stand-in read (the test-hooks sysd puts it under this root).
+write("/proc/sys/kernel/random/boot_id", "b007-0001\n")
 # S70gatewayd's contract, starting the test-hooks gatewayd.
 write("/etc/init.d/S70gatewayd", """#!/bin/sh
 CR="%(cr)s"
@@ -106,6 +108,17 @@ running() { [ -s "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; }
 case "$1" in
 start)
     [ "$GATEWAYD_ENABLE" = 1 ] || { echo "disabled"; exit 0; }
+    # The guard of the real S70gatewayd: an activation record of another boot,
+    # or of a job that is gone, starts nothing.
+    ACT="%(state)s/companion/activating"
+    if [ -e "$ACT" ]; then
+        read -r mb mp < "$ACT"; now=$(cat "$CR/proc/sys/kernel/random/boot_id")
+        case "$mp" in ""|*[!0-9]*) mp="" ;; esac
+        if [ "$mb" != "$now" ] || [ -z "$mp" ] || ! kill -0 "$mp" 2>/dev/null; then
+            echo "not started: turning it on was interrupted"; echo "refused" >> "$CR/S70.log"; exit 0
+        fi
+    fi
+    if [ -e "$CR/slow-start" ]; then echo "start-begin $$" >> "$CR/S70.log"; sleep 20; fi
     running && { echo "already running"; exit 0; }
     POCKETOS_RUNTIME_DIR="%(run)s" POCKETOS_STATE_DIR="%(state)s" POCKETOS_LOG_DIR="%(logs)s" POCKETOS_LOG_STDERR=0 \\
         "$CR/usr/sbin/gatewayd" --test-listen 127.0.0.1 --test-port %(port)d \\
@@ -374,6 +387,69 @@ def main():
           digest(os.path.join(gwdir, "paired.v1")) == paired_before)
     subprocess.run([path("/etc/init.d/S70gatewayd"), "start"], check=True, stdout=subprocess.DEVNULL)
     check("and a reboot leaves it off", not gateway_running())
+
+    # ---- 6b. fail-closed activation: sysd killed half way, a power cut half way --------
+    # The owner's condition (2026-11-25): an activation that does not finish
+    # never leaves the gateway switched on.
+    marker = os.path.join(lib.STATE, "companion", "activating")
+    open(path("/slow-start"), "w").close()
+    open(path("/S70.log"), "w").close()
+    r = sysd.call("companion.set_enabled", {"enabled": True})
+    begin = None
+    end = time.time() + 10
+    while time.time() < end and begin is None:
+        for line in (read("/S70.log") or "").splitlines():
+            if line.startswith("start-begin "):
+                begin = int(line.split()[1])
+        time.sleep(0.05)
+    check("an activation is under way: recorded, the switch written, the init script running",
+          begin is not None and os.path.exists(marker) and read("/etc/default/gatewayd").endswith("GATEWAYD_ENABLE=1\n"))
+    sysd_proc.kill()  # SIGKILL: no handler of sysd's runs
+    sysd_proc.wait()
+    time.sleep(0.5)
+    check("sysd killed half way: the record and the switch are what it left (the interrupted state)",
+          os.path.exists(marker) and read("/etc/default/gatewayd").endswith("GATEWAYD_ENABLE=1\n"))
+    sysd = sysd_start()
+    st = sysd.wait_job()
+    check("the next sysd finds it: the switch is off again and the record gone",
+          read("/etc/default/gatewayd").endswith("GATEWAYD_ENABLE=0\n") and not os.path.exists(marker))
+    alive = True
+    try:
+        os.kill(begin, 0)
+    except OSError:
+        alive = False
+    check("what that activation left running (its init script, half way) is ended", not alive)
+    check("said: the activation did not finish, it is off again",
+          st["state"] == "failed" and st["action"] == "recover" and st["error"] == "activation_interrupted" and
+          "switched off again" in st["message"] and st["enabled"] is False)
+    time.sleep(0.5)
+    check("and no gateway runs", not gateway_running() and ctl_up(1) is None)
+    os.unlink(path("/slow-start"))
+    # A power cut half way: the record of a boot that is over, the switch at 1.
+    # At the next boot S70gatewayd (whenever it runs) starts nothing, and sysd
+    # switches it back off.
+    sysd_stop()
+    write("/etc/default/gatewayd", "GATEWAYD_ENABLE=1\n")
+    os.makedirs(os.path.dirname(marker), exist_ok=True)
+    with open(marker, "w") as f:
+        f.write("b007-0000 4242\n")
+    open(path("/S70.log"), "w").close()
+    subprocess.run([path("/etc/init.d/S70gatewayd"), "start"], check=True, stdout=subprocess.DEVNULL)
+    time.sleep(0.3)
+    check("after a power cut half way, the boot's S70gatewayd starts nothing although the switch says 1",
+          read("/S70.log") == "refused\n" and not gateway_running())
+    sysd = sysd_start()
+    st = sysd.wait_job()
+    check("and sysd's start switches it back off",
+          read("/etc/default/gatewayd") == "GATEWAYD_ENABLE=0\n" and not os.path.exists(marker) and
+          st["error"] == "activation_interrupted")
+    # A clean activation after all that still works, and leaves no record.
+    r = sysd.call("companion.set_enabled", {"enabled": True})
+    st = sysd.wait_job()
+    check("a clean activation afterwards: on, answering, no record left",
+          st["state"] == "done" and st["enabled"] is True and gateway_running() and not os.path.exists(marker))
+    r = sysd.call("companion.set_enabled", {"enabled": False})
+    sysd.wait_job()
 
     # ---- 7. not installed; and no secret anywhere --------------------------------------------
     os.unlink(path("/usr/sbin/gatewayd"))

@@ -638,6 +638,39 @@ rm -f "$ROOT/gatewayd.args"
 out=$("$S70" start 2>&1)
 check "S70 switched off again starts nothing" \
       $([ "$(contains "$out" "disabled")" = 1 ] && [ ! -e "$ROOT/gatewayd.args" ] && echo 1 || echo 0)
+# Fail-closed activation (ADR-019 amendment 2): sysd records an activation
+# before it writes GATEWAYD_ENABLE=1 and removes the record once gatewayd has
+# answered. A record of a boot that is over (a power cut half way) or of an
+# activation that is gone (sysd killed) starts nothing, whatever the switch
+# says - whichever of sysd and S70gatewayd runs first at the next boot.
+printf 'GATEWAYD_ENABLE=1\n' > "$ROOT/etc/default/gatewayd"
+mkdir -p "$ROOT/var/lib/pocketos/companion"
+this_boot=$(cat /proc/sys/kernel/random/boot_id)
+printf 'aaaaaaaa-an-earlier-boot %s\n' "$$" > "$ROOT/var/lib/pocketos/companion/activating"
+rm -f "$ROOT/gatewayd.args"
+out=$("$S70" start 2>&1); rc=$?
+check "S70 does not start after an activation interrupted by a reboot (the record names another boot)" \
+      $([ "$rc" -eq 0 ] && [ "$(contains "$out" "not started: turning it on was interrupted")" = 1 ] &&
+        sleep 0.3 && [ ! -e "$ROOT/gatewayd.args" ] && [ "$(count_gw)" -eq 0 ] && echo 1 || echo 0)
+sleep 30 & gone=$!; kill "$gone"; wait "$gone" 2>/dev/null
+printf '%s %s\n' "$this_boot" "$gone" > "$ROOT/var/lib/pocketos/companion/activating"
+out=$("$S70" start 2>&1)
+check "nor after one whose activation is gone in this boot (sysd killed half way)" \
+      $([ "$(contains "$out" "not started: turning it on was interrupted")" = 1 ] && sleep 0.3 &&
+        [ ! -e "$ROOT/gatewayd.args" ] && echo 1 || echo 0)
+printf 'garbage\n' > "$ROOT/var/lib/pocketos/companion/activating"
+out=$("$S70" start 2>&1)
+check "nor after a record it cannot read" \
+      $([ "$(contains "$out" "not started")" = 1 ] && [ ! -e "$ROOT/gatewayd.args" ] && echo 1 || echo 0)
+# The activation itself: the record names this boot and a job that is running
+# (here this test's own shell, as sysd's job is S70gatewayd's parent).
+printf '%s %s\n' "$this_boot" "$$" > "$ROOT/var/lib/pocketos/companion/activating"
+out=$("$S70" start 2>&1)
+check "during sysd's own activation (this boot, its job alive) it starts" \
+      $([ "$(contains "$out" "OK")" = 1 ] && wait_for "$ROOT/gatewayd.args" && wait_gw 1 && echo 1 || echo 0)
+"$S70" stop >/dev/null 2>&1
+wait_gw 0
+rm -f "$ROOT/var/lib/pocketos/companion/activating" "$ROOT/gatewayd.args"
 rm -f "$ROOT/etc/default/gatewayd"
 
 # ---- S90doors-shell --------------------------------------------------

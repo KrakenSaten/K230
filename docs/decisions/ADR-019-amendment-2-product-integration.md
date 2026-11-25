@@ -1,6 +1,6 @@
 # ADR-019 amendment 2: Companion in the image, its Settings switch, and the device password
 
-Status: **Proposed** (2026-11-25). Written before the implementation and committed ahead of it on branch `claude/companion-settings-2-aad748`, which implements it as a draft PR for review. Host-tested and cross-built only; nothing has been deployed to a unit. Nothing here takes effect until the product owner accepts it.
+Status: **Accepted** by the product owner on 2026-11-25, as written, with the three owner decisions of the "Decision record" below. Written before the implementation and committed ahead of it on branch `claude/companion-settings-2-aad748` (draft PR #190). **Acceptance of the design does not mean the implementation is validated**: it is host-tested and cross-built only, nothing has run on a unit, and the hardware gate (`docs/hardware/COMPANION_SETTINGS_2_GATE.md`) needs its own go-ahead.
 Date: 2026-11-25
 Deciders: product owner (final), AI engineering partner (author)
 Amends: ADR-019 (accepted 2026-11-21), its "Consequences" and rule 9b. Settles open items U5, U7 and the Settings half of U12 (`docs/design/companion/README.md`) and the security prerequisites of issue #172.
@@ -96,3 +96,5 @@ Risks accepted with this amendment:
 | Date | Decision | By |
 | --- | --- | --- |
 | 2026-11-25 | Proposed, with its implementation in a draft PR | AI engineering partner |
+| 2026-11-25 | **Amendment 2 accepted as written**, and with it: new images refuse root's password over SSH (root signs in with a key only; the serial console and `su` ask for the device password once one is set); and changing the device password on the unit asks for no current password (whoever has the unlocked screen is root already, through Terminal) | Product owner |
+| 2026-11-25 | After the acceptance, an activation that is interrupted (sysd killed, the unit restarted, the change stopped by its time limit) leaves the gateway off, never on: "Fail-closed activation" below | AI engineering partner, as the owner's condition ("failed or interrupted activation must not silently leave the gateway enabled") |

@@ -77,8 +77,8 @@ tests/power_overlay_shell_test.sh  Power & Sleep, the time zone and the overlay 
 ## Companion
 
 DOORS Companion set up on the unit's own screen, with no cable, SSH or
-command line (ADR-019 amendment 2, proposed; on branch
-`claude/companion-settings-2-aad748`). Until then the page held one Vision
+command line (ADR-019 amendment 2, accepted 2026-11-25; on branch
+`claude/companion-settings-2-aad748`, draft PR #190). Until then the page held one Vision
 switch per paired phone (PR #174); that switch is now one of each phone's
 permissions.
 

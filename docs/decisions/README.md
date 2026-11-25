@@ -47,4 +47,4 @@ authoritative.
 | [018](ADR-018-fleet-link-profile-and-saves.md) | Fleet link profiles and a match save per transport | Accepted, 2026-11-20 |
 | [016-A1](ADR-016-amendment-1-companion.md) | PacketShark and a paired companion (amends rules 1 and 11 of ADR-016) | Proposed |
 | [019](ADR-019-companion-gateway.md) | An authenticated Companion Gateway (`gatewayd`) | Accepted, 2026-11-21 (`services/gatewayd`, M2 to M4.2; off by default, not in the image) |
-| [019-A2](ADR-019-amendment-2-product-integration.md) | Companion in the image, its Settings switch (sysd `companion.*`), the device password and SSH hardening | Proposed, 2026-11-25 |
+| [019-A2](ADR-019-amendment-2-product-integration.md) | Companion in the image, its Settings switch (sysd `companion.*`), the device password and SSH hardening | Accepted, 2026-11-25 (implementation on draft PR #190; not validated on a unit) |

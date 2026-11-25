@@ -11,7 +11,7 @@ DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, Packe
 | [M0-PROPOSAL.md](M0-PROPOSAL.md) | Feasibility, what exists, what is missing, alternatives, the phased plan | Direction approved 2026-11-21 with eight conditions |
 | [ADR-019](../../decisions/ADR-019-companion-gateway.md) | The gateway: service, transport, keys, pairing, what a client can never do | **Accepted 2026-11-21** |
 | [ADR-016 amendment 1](../../decisions/ADR-016-amendment-1-companion.md) | Aggregate capture figures, HOLD/STOP, START by request and a tap | Proposed |
-| [ADR-019 amendment 2](../../decisions/ADR-019-amendment-2-product-integration.md) | Product integration: gatewayd in the image (off), the Settings switch through sysd, the device password, SSH hardening, the pairing candidate in the status, Settings > Companion | Proposed 2026-11-25; implemented on branch `claude/companion-settings-2-aad748`, host-tested only |
+| [ADR-019 amendment 2](../../decisions/ADR-019-amendment-2-product-integration.md) | Product integration: gatewayd in the image (off), the Settings switch through sysd, the device password, SSH hardening, the pairing candidate in the status, Settings > Companion | **Accepted 2026-11-25**; implemented on draft PR #190, host-tested only |
 | [docs/api/gateway.md](../../api/gateway.md) | Protocol v1: envelope, versioning, scopes, every method and event | Draft |
 | [PAIRING.md](PAIRING.md) | Identities, certificates without a clock, pairing, revocation, reconnect and resume | Draft |
 | [THREAT_MODEL.md](THREAT_MODEL.md) | Assets, adversaries, threats, residual risks, required checks | Draft |
@@ -59,9 +59,9 @@ For the product owner. Each blocks the milestone named.
 | --- | --- | --- | --- |
 | U2 | Accept ADR-016 amendment 1 | Accept | the capture group only |
 | U4 | The shell hook that lets an app serve methods on `shell.sock`: not designed, and an addition to an existing API | Design it as the first step of the capture milestone; alternative: a dedicated socket owned by the app | the capture group |
-| U5 | The init order `S70` (the scope names were accepted with ADR-019 rule 24) | As written. **Proposed as settled by ADR-019 amendment 2:** `S70gatewayd` in the rootfs overlay | product integration |
+| U5 | The init order `S70` (the scope names were accepted with ADR-019 rule 24) | As written. **Settled by ADR-019 amendment 2 (accepted 2026-11-25):** `S70gatewayd` in the rootfs overlay | product integration |
 | U6 | Logs and crash reports to a phone (`system.logs`, `system.crashes`) | Not in v1; later behind its own scope, after checking what the logs can contain | nothing |
-| U7 | **How a device password is set.** Rule 9b requires one, and Doors has no way to set it today (only `passwd` on a root console). Also: what exactly counts as configured (a non-empty root password hash is proposed) | **Proposed in ADR-019 amendment 2:** Settings > Companion > Device password, through sysd's `companion.set_password` (libxcrypt SHA-512 crypt into root's `/etc/shadow` field; SSH made key-only first); "configured" is gatewayd's gate (`x` in passwd and a hash in shadow) | product integration (not the host-side gateway core) |
+| U7 | **How a device password is set.** Rule 9b requires one, and Doors has no way to set it today (only `passwd` on a root console). Also: what exactly counts as configured (a non-empty root password hash is proposed) | **Settled by ADR-019 amendment 2 (accepted 2026-11-25):** Settings > Companion > Device password, through sysd's `companion.set_password` (libxcrypt SHA-512 crypt into root's `/etc/shadow` field; SSH made key-only first); "configured" is gatewayd's gate (`x` in passwd and a hash in shadow) | product integration (not the host-side gateway core) |
 | U8 | Pairing without a camera (a typed code) | Not in v1 | nothing |
 | U9 | A discovery responder on the unit (DNS-SD) | Not in v1; the phone probes its subnet | nothing |
 | U10 | An independent security review before use on networks the owner does not control (ADR-017's precedent) | Recommended before product integration; not required for bench work | product integration |

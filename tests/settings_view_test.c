@@ -907,6 +907,24 @@ int main(void)
                   strstr(sv_companion_error_text("a pairing window is open", ""), "already showing"));
         check_str("c2: an unknown word gives the fallback", sv_companion_error_text("no_such_word", "fallback"), "fallback");
 
+        /* An interrupted activation being undone, and its outcome (fail-closed
+         * activation, ADR-019 amendment 2). */
+        sv_companion_apply(&c, NULL, NULL);
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"running\","
+                   "\"action\":\"recover\"}");
+        sv_companion_system(&c, sys);
+        check("c2: undoing an interrupted activation reads STOPPING, OFF, not tappable",
+              strcmp(c.switch_label, "STOPPING") == 0 && !c.switch_on && !c.switch_can &&
+                  strcmp(c.headline, "Turning off...") == 0);
+        cJSON_Delete(sys);
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"failed\","
+                   "\"action\":\"recover\",\"error\":\"activation_interrupted\",\"message\":\"...\"}");
+        sv_companion_system(&c, sys);
+        check("c2: and then: off, and why, as an error, with what to do",
+              c.switch_can && strcmp(c.switch_label, "OFF") == 0 && c.hint_tone == SV_TONE_ERROR &&
+                  strstr(c.hint, "did not finish") && strstr(c.hint, "switched off again") && strstr(c.hint, "Turn it on again"));
+        cJSON_Delete(sys);
+
         /* ---- permissions ---- */
         s = sv_scope_toggle(SV_SCOPES_DEFAULT, SV_SCOPE_MESH_READ);
         check("c2: reading off takes sending with it", s == SV_SCOPE_STATUS);
