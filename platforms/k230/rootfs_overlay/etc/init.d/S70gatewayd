@@ -36,7 +36,8 @@ STATEDIR=/var/lib/pocketos/gatewayd
 GATEWAYD_ENABLE=0
 # The interface whose address the gateway listens on. One, never all.
 GATEWAYD_INTERFACE=wlan0
-[ -r /etc/default/gatewayd ] && . /etc/default/gatewayd
+# The unit's own file is read by start alone: stop needs nothing from it, and
+# must work whatever it holds.
 export POCKETOS_LOG_DIR=$LOGDIR
 export POCKETOS_LOG_STDERR=0
 
@@ -56,6 +57,7 @@ wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
 }
 
 start() {
+	[ -r /etc/default/gatewayd ] && . /etc/default/gatewayd
 	printf "Starting gatewayd: "
 	if [ "$GATEWAYD_ENABLE" != "1" ]; then
 		echo "disabled (set GATEWAYD_ENABLE=1 in /etc/default/gatewayd)"

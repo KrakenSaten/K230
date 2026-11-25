@@ -50,7 +50,7 @@ static void check(const char *what, int ok)
 
 static char dir[] = "/tmp/sysd-companion-XXXXXX";
 static char p_def[300], p_init[300], p_daemon[300], p_pid[300], p_passwd[300], p_shadow[300], p_sshdc[300],
-    p_sshd[300], p_sshd_init[300], p_sshd_pid[300], p_log[300], trace[300];
+    p_sshd[300], p_sshd_init[300], p_sshd_pid[300], p_proc[300], p_log[300], trace[300];
 
 static void put(const char *path, const char *text, mode_t mode)
 {
@@ -184,7 +184,7 @@ static struct sysd_companion C;
 static void setup(void)
 {
     struct sysd_companion_paths p = { p_def, p_init, p_daemon, p_pid, p_passwd, p_shadow,
-                                      p_sshdc, p_sshd, p_sshd_init, p_sshd_pid, p_log };
+                                      p_sshdc, p_sshd, p_sshd_init, p_sshd_pid, p_proc, p_log };
     char pid[32];
 
     unlink(p_def);
@@ -272,6 +272,8 @@ int main(void)
     P(p_sshd_init, "S50sshd");
     P(p_sshd_pid, "sshd.pid");
     P(p_log, "companion.log");
+    P(p_proc, "proc");
+    mkdir(p_proc, 0755);
     P(trace, "trace");
 
     /* ---- 1. judging sshd_config ------------------------------------------------ */
@@ -431,12 +433,14 @@ int main(void)
     check("the password is in no log and no trace", !has(p_log, PW) && !has(trace, PW));
     check("the status: set, hardened", strcmp(status_str("password_set"), "true") == 0 &&
                                          strcmp(status_str("ssh"), "hardened") == 0);
-    /* Again: SSH is already hardened, so sshd is not asked again. */
+    /* Again: SSH is already hardened, so sshd -t is not asked again - but the
+     * running sshd is still told to read its file, every time. */
     unlink(trace);
     r = set_password("another one", word, msg);
     wait_job();
-    check("a second password replaces the first without touching SSH again",
-          r == 0 && strcmp(status_str("state"), "done") == 0 && !has(trace, "sshd") && has(trace, "lock"));
+    check("a second password: the file is not rewritten, the running sshd is still reloaded first",
+          r == 0 && strcmp(status_str("state"), "done") == 0 && !has(trace, "sshd -t") &&
+              has(trace, "run S50sshd reload\nlock"));
 
     /* sshd refuses the hardened file: nothing changes at all. */
     setup();
@@ -448,22 +452,65 @@ int main(void)
     check("and leaves sshd_config, shadow and the password as they were",
           strcmp(get(p_sshdc), VENDOR_SSHD) == 0 && strcmp(get(p_shadow), SHADOW_EMPTY) == 0 &&
               !gw_gate_password_set(p_passwd, p_shadow));
-    /* The reload fails while sshd runs: the password is not set. */
+    /* The reload fails while sshd runs: the password is not set - and not on
+     * the retry either, although the file on disk is hardened by then
+     * (independent review, finding 1). */
     setup();
     reload_fails = 1;
     r = set_password(PW, word, msg);
     wait_job();
     check("an SSH server that does not reload: no password (ssh_failed)",
           strcmp(status_str("error"), "ssh_failed") == 0 && !gw_gate_password_set(p_passwd, p_shadow));
-    /* No SSH server installed: nothing to harden. */
-    setup();
-    unlink(p_sshd);
-    check("no sshd installed is 'absent'", strcmp(status_str("ssh"), "absent") == 0);
+    check("the file is hardened by then, the running server may not be",
+          sysd_companion_ssh_judge(get(p_sshdc)) == SYSD_SSH_HARDENED);
+    unlink(trace);
     r = set_password(PW, word, msg);
     wait_job();
-    check("and the password is set without touching its configuration",
-          strcmp(status_str("state"), "done") == 0 && strcmp(get(p_sshdc), VENDOR_SSHD) == 0 &&
-              gw_gate_password_set(p_passwd, p_shadow));
+    check("a retry still reloads, still fails, and still sets no password",
+          has(trace, "run S50sshd reload") && strcmp(status_str("error"), "ssh_failed") == 0 &&
+              !gw_gate_password_set(p_passwd, p_shadow) && !has(trace, "lock"));
+    r = sysd_companion_set_enabled(&C, true, word, sizeof(word), msg, sizeof(msg));
+    check("nor is the gateway switched on meanwhile (no password)", r == 3);
+    reload_fails = 0;
+    r = set_password(PW, word, msg);
+    wait_job();
+    check("once the reload works, the password is set", strcmp(status_str("state"), "done") == 0 &&
+                                                          gw_gate_password_set(p_passwd, p_shadow));
+    /* An sshd whose pid file is gone is found by name in /proc. */
+    setup();
+    unlink(p_sshd_pid);
+    {
+        char d[320], comm[340];
+
+        snprintf(d, sizeof(d), "%s/4321", p_proc);
+        mkdir(d, 0755);
+        snprintf(comm, sizeof(comm), "%s/comm", d);
+        put(comm, "sshd\n", 0644);
+        r = set_password(PW, word, msg);
+        wait_job();
+        check("an sshd without its pid file is still reloaded", has(trace, "run S50sshd reload") &&
+                                                                 strcmp(status_str("state"), "done") == 0);
+        unlink(comm);
+        rmdir(d);
+    }
+    /* No SSH server and no configuration: nothing to harden. */
+    setup();
+    unlink(p_sshd);
+    unlink(p_sshdc);
+    check("neither sshd nor its configuration is 'absent'", strcmp(status_str("ssh"), "absent") == 0);
+    r = set_password(PW, word, msg);
+    wait_job();
+    check("and the password is set", strcmp(status_str("state"), "done") == 0 && gw_gate_password_set(p_passwd, p_shadow));
+    /* A configuration whose sshd is not runnable is hardened all the same. */
+    setup();
+    unlink(p_sshd);
+    unlink(p_sshd_pid);
+    check("a configuration without a runnable sshd is judged", strcmp(status_str("ssh"), "open") == 0);
+    r = set_password(PW, word, msg);
+    wait_job();
+    check("and hardened before the password, without sshd -t",
+          strcmp(status_str("state"), "done") == 0 && sysd_companion_ssh_judge(get(p_sshdc)) == SYSD_SSH_HARDENED &&
+              !has(trace, "sshd -t"));
     /* sshd not running: written, not reloaded. */
     setup();
     unlink(p_sshd_pid);
@@ -472,6 +519,25 @@ int main(void)
     check("an sshd that is not running is not reloaded; its file is hardened for its next start",
           strcmp(status_str("state"), "done") == 0 && !has(trace, "S50sshd") &&
               sysd_companion_ssh_judge(get(p_sshdc)) == SYSD_SSH_HARDENED);
+    /* Lines sshd may read otherwise than sysd: unknown, refused. */
+    check("a quoted keyword is unknown",
+          sysd_companion_ssh_judge("\"PermitRootLogin\" yes\nPermitRootLogin no\n") == SYSD_SSH_UNKNOWN);
+    check("a line that starts with '=' is unknown",
+          sysd_companion_ssh_judge("=PermitRootLogin yes\nPermitRootLogin no\n") == SYSD_SSH_UNKNOWN);
+    check("a CR before the keyword is read as sshd reads it",
+          sysd_companion_ssh_judge("PermitRootLogin no\n\rPermitRootLogin yes\n") == SYSD_SSH_OPEN);
+    check("and CRLF line ends are fine", sysd_companion_ssh_judge("PermitRootLogin no\r\nPort 22\r\n") == SYSD_SSH_HARDENED);
+    setup();
+    {
+        static const char with_nul[] = "PermitRootLogin no\n\0PermitRootLogin yes\n";
+        FILE *f = fopen(p_sshdc, "w");
+
+        fwrite(with_nul, 1, sizeof(with_nul) - 1, f);
+        fclose(f);
+    }
+    r = set_password(PW, word, msg);
+    check("a configuration with a NUL byte cannot be judged: refused",
+          r == 3 && strcmp(word, "ssh_unknown") == 0 && strcmp(status_str("ssh"), "unknown") == 0);
 
     /* ---- 8. the gateway on -------------------------------------------------------------- */
     setup();
@@ -537,6 +603,38 @@ int main(void)
     wait_job();
     check("off on a unit that never had the file: written as off", has(p_def, "GATEWAYD_ENABLE=0") &&
                                                                        strcmp(status_str("state"), "done") == 0);
+
+    /* A hand-written file with shell in it is not edited line by line. */
+    setup();
+    put(p_shadow, "root:$6$x$y:::::::\n", 0600);
+    put(p_sshdc, "PermitRootLogin no\n", 0644);
+    put(p_def, "if [ -e /tmp/x ]; then\nGATEWAYD_ENABLE=0\nfi\n", 0644);
+    r = sysd_companion_set_enabled(&C, true, word, sizeof(word), msg, sizeof(msg));
+    wait_job();
+    check("a per-unit file with shell in it: refused, and left exactly as it was",
+          strcmp(status_str("error"), "defaults_unsupported") == 0 &&
+              strcmp(get(p_def), "if [ -e /tmp/x ]; then\nGATEWAYD_ENABLE=0\nfi\n") == 0 &&
+              !has(trace, "S70gatewayd start"));
+    /* Switched on by hand, not running, and the start fails: left off. */
+    setup();
+    put(p_shadow, "root:$6$x$y:::::::\n", 0600);
+    put(p_sshdc, "PermitRootLogin no\n", 0644);
+    put(p_def, "GATEWAYD_ENABLE=1\n", 0644);
+    init_start_fails = 1;
+    r = sysd_companion_set_enabled(&C, true, word, sizeof(word), msg, sizeof(msg));
+    wait_job();
+    check("a start that fails never leaves the switch on, even when it was on before",
+          strcmp(status_str("error"), "start_failed") == 0 && has(p_def, "GATEWAYD_ENABLE=0") &&
+              strcmp(status_str("enabled"), "false") == 0);
+    /* A change that hangs is stopped. */
+    setup();
+    C.job_limit_s = 1;
+    run_sleeps_ms = 1500;
+    r = sysd_companion_set_enabled(&C, false, word, sizeof(word), msg, sizeof(msg));
+    wait_job();
+    check("a change that does not finish in its time is stopped and said (timed_out)",
+          strcmp(status_str("state"), "failed") == 0 && strcmp(status_str("error"), "timed_out") == 0 &&
+              !sysd_companion_busy(&C));
 
     /* ---- 10. a power action waits; the status of a running gateway ------------------------- */
     setup();

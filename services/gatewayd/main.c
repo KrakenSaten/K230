@@ -3196,6 +3196,25 @@ static void ctl_pair_decide(struct pocketipc_client *c, const cJSON *id, const c
         ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
         return;
     }
+    /* The key the person compared on the unit's screen (ADR-019 amendment
+     * 2). When it is given, the decision is for that phone only: another one
+     * waiting now - a window opened anew between two of the page's polls -
+     * is decided nothing about, and stays waiting. */
+    {
+        const cJSON *fpj = cJSON_GetObjectItemCaseSensitive(params, "fingerprint");
+        uint8_t want[GW_FP_LEN];
+
+        if (fpj != NULL) {
+            if (!cJSON_IsString(fpj) || gw_unhex(fpj->valuestring, want, GW_FP_LEN) != 0) {
+                ctl_error(c, id, POCKETIPC_ERR_INVALID_PARAMS, "invalid params");
+                return;
+            }
+            if (G.pair.state != GW_PAIR_WAITING || !gw_ct_eq(want, G.pair.fp, GW_FP_LEN)) {
+                ctl_error(c, id, POCKETIPC_ERR_POLICY, "not the phone that was confirmed");
+                return;
+            }
+        }
+    }
     d = gw_pair_decide(&G.pair, cJSON_IsTrue(allow), mono_ms(), &sid);
     if (d < 0) {
         ctl_error(c, id, POCKETIPC_ERR_POLICY, "no candidate is waiting");

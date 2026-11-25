@@ -325,6 +325,9 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
     sshd_include() { sshd_vendor "$1"; printf 'Include /etc/ssh/sshd_config.d/*.conf\nPermitRootLogin no\n' > "$1/etc/ssh/sshd_config"; }
     gate_refuses "an sshd_config that includes files the gate cannot read" sshd-include sshd_include \
         "/etc/ssh/sshd_config cannot be judged"
+    sshd_quoted() { sshd_vendor "$1"; printf '"PermitRootLogin" yes\nPermitRootLogin no\n' > "$1/etc/ssh/sshd_config"; }
+    gate_refuses "an sshd_config with a quoted keyword (sshd reads it; a simple reader would not)" sshd-quoted sshd_quoted \
+        "/etc/ssh/sshd_config cannot be judged"
     sshd_hard() { sshd_vendor "$1"; sed -i 's/^PermitRootLogin yes$/PermitRootLogin prohibit-password/' "$1/etc/ssh/sshd_config"; }
     if rootfs_img "${TMP}/sshd-hard.img" sshd_hard; then
         rc="$(run_gate "${TMP}/sshd-hard.img")"

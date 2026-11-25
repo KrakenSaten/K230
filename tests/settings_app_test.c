@@ -360,6 +360,14 @@ static cJSON *fake_gatewayd(const char *method, cJSON *params, char *err, size_t
             snprintf(err, errlen, "no candidate is waiting");
             return NULL;
         }
+        {
+            const cJSON *fp = cJSON_GetObjectItemCaseSensitive(params, "fingerprint");
+
+            if (fp && (!cJSON_IsString(fp) || strcmp(fp->valuestring, g_gw_phone[g_gw_cand].key) != 0)) {
+                snprintf(err, errlen, "not the phone that was confirmed");
+                return NULL;
+            }
+        }
         if (allow) {
             g_gw_phone[g_gw_cand].paired = 1;
             g_gw_phone[g_gw_cand].scopes = gw_scopes_from(cJSON_GetObjectItemCaseSensitive(params, "scopes"));
@@ -2800,13 +2808,30 @@ int main(void)
     tap("ALLOW");
     check("pair: ALLOW sends the decision once, with exactly the chosen permissions",
           count_called("gateway.pair_decide") == 1 &&
-              called("gateway.pair_decide", "{\"allow\":true,\"scopes\":[\"status\",\"vision\"]}"));
+              called("gateway.pair_decide",
+                     "{\"allow\":true,\"fingerprint\":\"" GW_KEY_C "\",\"scopes\":[\"status\",\"vision\"]}"));
     check("pair: paired, said with what is next",
           shows("Paired") && shows("Pixel 8 can now connect. Its permissions and Remove are on its page under Companion."));
     check("pair: no window is left to cancel", count_called("gateway.pair_cancel") == 0);
     shot("10-pair-done");
     tap("DONE");
     check("pair: back on Companion, the new phone listed", strcmp(g_title, "Companion") == 0 && shows("Pixel 8"));
+    /* Another phone at the door between the page's last poll and ALLOW: the
+     * decision names the key the person confirmed, so nothing is decided,
+     * and the window is closed rather than left to whoever is there. */
+    tap("PAIR A PHONE");
+    g_gw_cand = 3;
+    g_gw_pair_state = "waiting";
+    tick();
+    tap("NO");
+    g_gw_cand = 1;
+    calls_reset();
+    tap("ALLOW");
+    check("pair: a decision for a phone that is no longer the one shown decides nothing, and closes the window",
+          count_called("gateway.pair_decide") == 1 && count_called("gateway.pair_cancel") == 1 &&
+              !g_gw_phone[3].paired && shows("Not paired") &&
+              find_containing(app_body, "Another phone took its place before the decision reached the gateway"));
+    tap("BACK");
     /* REFUSE. */
     tap("PAIR A PHONE");
     g_gw_cand = 3;
@@ -2815,7 +2840,7 @@ int main(void)
     calls_reset();
     tap("REFUSE");
     check("pair: REFUSE sends allow false and nothing else",
-          called("gateway.pair_decide", "{\"allow\":false}") && shows("Refused") && !g_gw_phone[3].paired);
+          called("gateway.pair_decide", "{\"allow\":false,\"fingerprint\":\"" GW_KEY_D "\"}") && shows("Refused") && !g_gw_phone[3].paired);
     tap("BACK");
     /* Cancel, Back and closing the app each close an open window. */
     tap("PAIR A PHONE");

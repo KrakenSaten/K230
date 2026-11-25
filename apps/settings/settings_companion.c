@@ -584,6 +584,13 @@ static void decide(struct settings_app *a, int allow)
         return; /* ALLOW before the key was confirmed: nothing is sent */
     }
     res = ask("gatewayd", "gateway.pair_decide", params, COMPANION_DECIDE_TIMEOUT_MS, err, sizeof(err));
+    if (!res) {
+        char err2[96];
+
+        /* Undecided: whoever waits is not left waiting behind a page that
+         * has stopped showing it. */
+        cJSON_Delete(ask("gatewayd", "gateway.pair_cancel", NULL, SHELL_IPC_UI_TIMEOUT_MS, err2, sizeof(err2)));
+    }
     sv_pair_decided(&a->pair, allow, res, err);
     cJSON_Delete(res);
     settings_poll_companion(a);
@@ -662,7 +669,9 @@ static void build_pair(struct settings_app *a)
          * about in either shape; the permissions take the other column. */
         p = settings_panel(a, "A PHONE WANTS TO PAIR", COL_LEFT);
         settings_wrap_label(p, "ITS NAME FOR ITSELF", POS_STYLE_CAPTION);
-        settings_wrap_label(p, pr->cand_name, POS_STYLE_TITLE);
+        /* The phone's own claim, smaller than its key: a name made to look
+         * like a key is not the thing the eye goes to. */
+        settings_wrap_label(p, pr->cand_name, POS_STYLE_ROW_TITLE);
         settings_wrap_label(p, "ITS KEY", POS_STYLE_CAPTION);
         /* Mono: 0 and D, 8 and B are told apart when keys are compared. */
         settings_wrap_label(p, pr->cand_key_show, POS_STYLE_VALUE);

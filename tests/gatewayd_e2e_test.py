@@ -188,7 +188,14 @@ try:
     check("and never carries the token", token not in json.dumps(st))
     check("an invalid scope set is refused locally and decides nothing",
           err_code(ctl.call("gateway.pair_decide", {"allow": True, "scopes": ["mesh_send"]})) == 2)
-    d = ctl.call("gateway.pair_decide", {"allow": True, "scopes": ["status"]})
+    # Bound to the key the person compared (ADR-019 amendment 2): another key
+    # decides nothing, and the phone that is there still waits.
+    check("a decision for another key is refused and decides nothing",
+          err_code(ctl.call("gateway.pair_decide", {"allow": True, "fingerprint": B.fp_hex})) == 3 and
+          ctl.call("gateway.status")["result"]["pair"]["state"] == "waiting")
+    check("a fingerprint that is not one is refused",
+          err_code(ctl.call("gateway.pair_decide", {"allow": True, "fingerprint": "abc"})) == 2)
+    d = ctl.call("gateway.pair_decide", {"allow": True, "fingerprint": A.fp_hex.upper(), "scopes": ["status"]})
     reply = c.read(rid)
     check("approval pairs the candidate", d["result"]["paired"] is True and reply["result"] == {"paired": True, "scopes": ["status"]})
     st = ctl.call("gateway.status")["result"]

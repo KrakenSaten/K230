@@ -58,6 +58,11 @@
 #define SYSD_COMPANION_PASSWORD_MIN 8
 #define SYSD_COMPANION_PASSWORD_MAX 64
 #define SYSD_COMPANION_MESSAGE_MAX 200
+/* A change that has not finished in this long is stopped (SIGALRM in the job):
+ * a hung init script must not keep reboot and power-off refused for ever.
+ * Turning on waits up to SYSD_COMPANION_ANSWER_MS for gatewayd; sshd -t and
+ * a reload are seconds. */
+#define SYSD_COMPANION_JOB_LIMIT_S 90
 
 struct sysd_companion_paths {
     const char *defaults;     /* /etc/default/gatewayd */
@@ -70,6 +75,7 @@ struct sysd_companion_paths {
     const char *sshd;         /* /usr/sbin/sshd: `sshd -t -f`; not there means no SSH server */
     const char *sshd_init;    /* /etc/init.d/S50sshd: reload */
     const char *sshd_pidfile; /* /var/run/sshd.pid */
+    const char *proc;         /* /proc: an sshd whose pid file is missing is still found by name */
     const char *log;          /* <log dir>/companion.log */
 };
 
@@ -135,6 +141,7 @@ struct sysd_companion {
     struct sysd_companion_paths paths;
     struct sysd_companion_ops ops;
     int answer_ms;                 /* SYSD_COMPANION_ANSWER_MS; shorter in tests */
+    int job_limit_s;               /* SYSD_COMPANION_JOB_LIMIT_S; shorter in tests */
     pid_t pid;                     /* the running job, 0 when none */
     enum sysd_companion_job job;   /* the running or the last job */
     bool done;                     /* the last job finished as asked */

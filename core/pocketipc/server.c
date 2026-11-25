@@ -202,9 +202,14 @@ static int service_client(struct pocketipc_server *s, struct pocketipc_client *c
         return 0;
     }
     if (pocketipc_reader_feed(&c->rd, buf, (size_t)r) < 0) {
+        explicit_bzero(buf, (size_t)r);
         client_close(s, c);
         return 0;
     }
+    /* Requests carry secrets (a Wi-Fi passphrase to netd, a device password
+     * to sysd): the raw bytes do not stay on the stack once they are in the
+     * reader, which wipes its own copy. */
+    explicit_bzero(buf, (size_t)r);
     while (c->fd >= 0 && (req = pocketipc_reader_next(&c->rd, &bad)) != NULL) {
         s->handler(s, c, req, s->user);
         cJSON_Delete(req);

@@ -974,14 +974,16 @@ int main(void)
         check("c2: ALLOW waits for the keys to be compared", !sv_pair_can_allow(&p) && sv_pair_decide_params(&p, 1) == NULL);
         o = sv_pair_decide_params(&p, 0);
         out = cJSON_PrintUnformatted(o);
-        check_str("c2: REFUSE needs no comparison, and carries no scopes", out ? out : "", "{\"allow\":false}");
+        check_str("c2: REFUSE needs no comparison, and carries no scopes, only the key it is about", out ? out : "",
+                  "{\"allow\":false,\"fingerprint\":\"" VK2 "\"}");
         free(out);
         cJSON_Delete(o);
         p.keys_match = 1;
         p.scopes = sv_scope_toggle(p.scopes, SV_SCOPE_MESH_READ);
         o = sv_pair_decide_params(&p, 1);
         out = cJSON_PrintUnformatted(o);
-        check_str("c2: ALLOW carries exactly the chosen scopes", out ? out : "", "{\"allow\":true,\"scopes\":[\"status\"]}");
+        check_str("c2: ALLOW carries the confirmed key and exactly the chosen scopes", out ? out : "",
+                  "{\"allow\":true,\"fingerprint\":\"" VK2 "\",\"scopes\":[\"status\"]}");
         free(out);
         cJSON_Delete(o);
         sv_pair_poll(&p, st);

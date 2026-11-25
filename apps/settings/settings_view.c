@@ -1091,6 +1091,11 @@ static const struct {
     { "gateway state fault", "The gateway's stored state cannot be used, so it stays closed. Nothing was changed." },
     { "listen_failed", "The gateway could not open its port (TCP 47231). Restart the unit, then try again." },
     { "a pairing window is open", "A pairing code is already showing. Wait two minutes, then try again." },
+    { "timed_out", "The change took too long and was stopped part way. Restart the unit, then try again." },
+    { "defaults_unsupported", "/etc/default/gatewayd holds more than settings, so it is not changed from here. "
+                              "Switch the gateway there by hand." },
+    { "not the phone that was confirmed", "Another phone took its place before the decision reached the gateway, "
+                                          "so nothing was decided and the window was closed. Show a new code." },
 };
 
 const char *sv_companion_error_text(const char *word, const char *fallback)
@@ -1459,6 +1464,11 @@ cJSON *sv_pair_decide_params(const struct sv_pair *p, int allow)
     o = cJSON_CreateObject();
     if (o) {
         cJSON_AddBoolToObject(o, "allow", allow != 0);
+        /* The key the person saw: gatewayd decides about that phone only
+         * (ADR-019 amendment 2). */
+        if (is_key(p->cand_key)) {
+            cJSON_AddStringToObject(o, "fingerprint", p->cand_key);
+        }
         if (allow) {
             cJSON_AddItemToObject(o, "scopes", sv_scopes_json(p->scopes));
         }
@@ -1485,6 +1495,10 @@ void sv_pair_decided(struct sv_pair *p, int allow, const cJSON *res, const char 
         pair_say(p, SV_PAIR_ERROR, SV_TONE_ERROR, "Not paired",
                  "The phone left before the decision reached it, so it was not paired. Show a new code to try "
                  "again.");
+        return;
+    }
+    if (sv_companion_error_text(err, NULL)) {
+        pair_say(p, SV_PAIR_ERROR, SV_TONE_ERROR, "Not paired", sv_companion_error_text(err, NULL));
         return;
     }
     snprintf(line, sizeof(line), "The gateway could not pair the phone%s%.80s. Nothing was stored; show a new "

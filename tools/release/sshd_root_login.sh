@@ -26,15 +26,24 @@ if [ -z "${f}" ] || [ ! -r "${f}" ]; then
     echo unknown
     exit 1
 fi
+# A NUL byte: what awk reads is not what sshd reads. Unknown, as sysd says.
+if [ "$(tr -d '\000' < "${f}" | wc -c)" != "$(wc -c < "${f}")" ]; then
+    echo unknown
+    exit 1
+fi
 verdict=$(tr -d '\r' < "${f}" | awk '
 {
     line = $0
     sub(/^[ \t]+/, "", line)
     if (line == "" || substr(line, 1, 1) == "#") next
+    # What sshd may read otherwise than this does: a line with no keyword
+    # before its "=", or a quoted keyword. Judged unknown, as sysd does.
+    if (substr(line, 1, 1) == "=") { odd = 1; next }
     key = line
     sub(/[ \t=].*$/, "", key)
     val = substr(line, length(key) + 1)
     key = tolower(key)
+    if (key ~ /["\047]/) odd = 1
     sub(/^[ \t]*=?[ \t]*/, "", val)
     gsub(/"/, "", val)
     sub(/[ \t#].*$/, "", val)
@@ -47,7 +56,7 @@ verdict=$(tr -d '\r' < "${f}" | awk '
     }
 }
 END {
-    if (inc) print "unknown"
+    if (inc || odd) print "unknown"
     else if (bad || !global) print "open"
     else print "hardened"
 }')

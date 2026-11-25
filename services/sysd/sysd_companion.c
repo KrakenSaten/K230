@@ -15,6 +15,7 @@
 #include <crypt.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
@@ -58,7 +59,9 @@ static char *slurp(const char *path, bool *absent)
     buf = malloc(256 * 1024 + 1);
     if (buf) {
         len = fread(buf, 1, 256 * 1024 + 1, f);
-        if (ferror(f) || len > 256 * 1024) {
+        /* A NUL byte: the text a reader of C strings sees is not the file
+         * the program that reads it sees, so it is no file to judge. */
+        if (ferror(f) || len > 256 * 1024 || memchr(buf, 0, len)) {
             free(buf);
             buf = NULL;
         } else {
@@ -177,6 +180,7 @@ const char *sysd_companion_ssh_name(enum sysd_ssh_state s)
 struct ssh_line {
     char key[32];
     char value[64];
+    bool odd; /* a line sshd may read otherwise than this does: judged unknown */
 };
 
 static void ssh_parse(const char *line, size_t n, struct ssh_line *out)
@@ -185,13 +189,21 @@ static void ssh_parse(const char *line, size_t n, struct ssh_line *out)
     size_t k = 0;
 
     memset(out, 0, sizeof(*out));
-    while (i < n && (line[i] == ' ' || line[i] == '\t')) {
+    /* sshd's delimiters are space, tab and CR, and one '='. */
+    while (i < n && (line[i] == ' ' || line[i] == '\t' || line[i] == '\r')) {
         i++;
     }
-    if (i >= n || line[i] == '#' || line[i] == '\r') {
+    if (i >= n || line[i] == '#') {
+        return;
+    }
+    if (line[i] == '=') {
+        out->odd = true; /* no keyword before the '=' */
         return;
     }
     while (i < n && line[i] != ' ' && line[i] != '\t' && line[i] != '=' && line[i] != '\r') {
+        if (line[i] == '"' || line[i] == '\'') {
+            out->odd = true; /* sshd takes a quoted keyword; this does not try */
+        }
         if (k + 1 < sizeof(out->key)) {
             out->key[k++] = (char)tolower((unsigned char)line[i]);
         }
@@ -230,6 +242,7 @@ static bool root_login_safe(const char *v)
  * PermitRootLogin before the first Match. */
 struct ssh_scan {
     bool include;
+    bool odd;
     bool unsafe;
     bool global;
 };
@@ -245,6 +258,9 @@ static void ssh_scan(const char *text, struct ssh_scan *s)
         struct ssh_line l;
 
         ssh_parse(p, n, &l);
+        if (l.odd) {
+            s->odd = true;
+        }
         if (strcmp(l.key, "include") == 0) {
             s->include = true;
         } else if (strcmp(l.key, "match") == 0) {
@@ -272,7 +288,7 @@ enum sysd_ssh_state sysd_companion_ssh_judge(const char *text)
         return SYSD_SSH_UNKNOWN;
     }
     ssh_scan(text, &s);
-    if (s.include) {
+    if (s.include || s.odd) {
         return SYSD_SSH_UNKNOWN;
     }
     /* No line at all leaves root to sshd's compiled-in default: not relied on. */
@@ -297,7 +313,7 @@ char *sysd_companion_ssh_harden(const char *text)
         return NULL;
     }
     ssh_scan(text, &s);
-    if (s.include) {
+    if (s.include || s.odd) {
         return NULL;
     }
     /* Each line at most as long as it was or the hardened line, plus the
@@ -531,13 +547,13 @@ void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *lo
     static const char *const real[11] = {
         "/etc/default/gatewayd", "/etc/init.d/S70gatewayd", "/usr/sbin/gatewayd", "/run/pocketos/gatewayd.pid",
         "/etc/passwd",           "/etc/shadow",             "/etc/ssh/sshd_config", "/usr/sbin/sshd",
-        "/etc/init.d/S50sshd",   "/var/run/sshd.pid",       NULL,
+        "/etc/init.d/S50sshd",   "/var/run/sshd.pid",       "/proc",
     };
     const char *v[11];
     int i;
 
     snprintf(log, sizeof(log), "%s/companion.log", log_dir);
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 11; i++) {
         v[i] = real[i];
 #ifdef SYSD_TEST_HOOKS
         if (root && root[0]) {
@@ -556,6 +572,7 @@ void sysd_companion_default_paths(struct sysd_companion_paths *p, const char *lo
     p->sshd = v[7];
     p->sshd_init = v[8];
     p->sshd_pidfile = v[9];
+    p->proc = v[10];
     p->log = log;
 }
 
@@ -613,10 +630,56 @@ static void say(struct job *j, const char *what)
     }
 }
 
-/* SSH root by key only, or the job ends here. Nothing else has changed yet. */
+/* Whether an sshd may be running: the pid file names a live process, or a
+ * process called sshd is in /proc (a pid file can be missing or stale, and a
+ * reload skipped for that reason would leave the old configuration live). */
+static bool sshd_running(const struct sysd_companion_paths *p)
+{
+    struct dirent *e;
+    bool found = false;
+    DIR *d;
+
+    if (pidfile_alive(p->sshd_pidfile)) {
+        return true;
+    }
+    d = p->proc ? opendir(p->proc) : NULL;
+    if (!d) {
+        return false;
+    }
+    while (!found && (e = readdir(d)) != NULL) {
+        char path[600];
+        char comm[32] = "";
+        FILE *f;
+
+        if (e->d_name[0] < '0' || e->d_name[0] > '9') {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s/comm", p->proc, e->d_name);
+        f = fopen(path, "re");
+        if (!f) {
+            continue;
+        }
+        if (fgets(comm, sizeof(comm), f)) {
+            comm[strcspn(comm, "\n")] = '\0';
+            found = strcmp(comm, "sshd") == 0;
+        }
+        fclose(f);
+    }
+    closedir(d);
+    return found;
+}
+
+/* SSH root by key only, or the job ends here. Nothing else has changed yet.
+ *
+ * The file is made safe if it is not, and then - whether or not it had to
+ * be - a running sshd is told to read it again. That second step is what
+ * makes a retry safe: a reload that failed last time leaves a hardened file
+ * and a server still running the old one, and judging the file alone would
+ * set a password that the running server accepts. */
 static void harden_ssh(struct job *j)
 {
     const struct sysd_companion_paths *p = &j->c->paths;
+    bool have_sshd = executable(p->sshd);
     bool absent = false;
     char *text;
     char *hard;
@@ -624,66 +687,72 @@ static void harden_ssh(struct job *j)
     char orig[512];
     enum sysd_ssh_state st;
 
-    if (!executable(p->sshd)) {
+    text = slurp(p->sshd_config, &absent);
+    if (absent && !have_sshd) {
         say(j, "ssh: no SSH server installed");
         return;
     }
-    text = slurp(p->sshd_config, &absent);
     st = sysd_companion_ssh_judge(text);
+    if (st == SYSD_SSH_UNKNOWN) {
+        free(text);
+        finish(j, "ssh_unknown",
+               "%s cannot be checked (it includes other files, has lines sshd may read differently, or cannot be "
+               "read); nothing was changed",
+               p->sshd_config);
+    }
     if (st == SYSD_SSH_HARDENED) {
         free(text);
         say(j, "ssh: root already signs in with a key only");
-        return;
-    }
-    if (st == SYSD_SSH_UNKNOWN) {
-        free(text);
-        finish(j, "ssh_unknown", "%s cannot be checked (it includes other files, or cannot be read); nothing was changed",
-               p->sshd_config);
-    }
-    hard = sysd_companion_ssh_harden(text);
-    if (!hard || sysd_companion_ssh_judge(hard) != SYSD_SSH_HARDENED) {
-        free(text);
-        free(hard);
-        finish(j, "ssh_unknown", "%s could not be hardened; nothing was changed", p->sshd_config);
-    }
-    snprintf(tmp, sizeof(tmp), "%s.doors-check", p->sshd_config);
-    (void)unlink(tmp);
-    if (write_atomic(tmp, hard, 0644) != 0) {
-        free(text);
-        free(hard);
-        finish(j, "ssh_failed", "the hardened SSH configuration could not be written; nothing was changed");
-    }
-    {
-        const char *const argv[] = { p->sshd, "-t", "-f", tmp, NULL };
-
-        if (j->c->ops.run(argv, j->log_fd, j->c->ops.user) != 0) {
-            (void)unlink(tmp);
+    } else {
+        hard = sysd_companion_ssh_harden(text);
+        if (!hard || sysd_companion_ssh_judge(hard) != SYSD_SSH_HARDENED) {
             free(text);
             free(hard);
-            finish(j, "ssh_failed", "sshd refused the hardened configuration (companion.log); nothing was changed");
+            finish(j, "ssh_unknown", "%s could not be hardened; nothing was changed", p->sshd_config);
         }
-    }
-    (void)unlink(tmp);
-    /* The original once, for whoever wants it back by hand. */
-    snprintf(orig, sizeof(orig), "%s.doors-orig", p->sshd_config);
-    if (access(orig, F_OK) != 0 && write_atomic(orig, text, 0644) != 0) {
+        snprintf(tmp, sizeof(tmp), "%s.doors-check", p->sshd_config);
+        (void)unlink(tmp);
+        if (write_atomic(tmp, hard, 0644) != 0) {
+            free(text);
+            free(hard);
+            finish(j, "ssh_failed", "the hardened SSH configuration could not be written; nothing was changed");
+        }
+        /* Checked by sshd itself when it is there. A configuration whose sshd
+         * is not installed (or not executable) is made safe all the same, so
+         * an sshd made runnable later does not find root open. */
+        if (have_sshd) {
+            const char *const argv[] = { p->sshd, "-t", "-f", tmp, NULL };
+
+            if (j->c->ops.run(argv, j->log_fd, j->c->ops.user) != 0) {
+                (void)unlink(tmp);
+                free(text);
+                free(hard);
+                finish(j, "ssh_failed", "sshd refused the hardened configuration (companion.log); nothing was changed");
+            }
+        }
+        (void)unlink(tmp);
+        /* The original once, for whoever wants it back by hand. */
+        snprintf(orig, sizeof(orig), "%s.doors-orig", p->sshd_config);
+        if (access(orig, F_OK) != 0 && write_atomic(orig, text, 0644) != 0) {
+            free(text);
+            free(hard);
+            finish(j, "ssh_failed", "a copy of the SSH configuration could not be kept; nothing was changed");
+        }
         free(text);
+        if (write_atomic(p->sshd_config, hard, 0644) != 0) {
+            free(hard);
+            finish(j, "ssh_failed", "the hardened SSH configuration could not be written; nothing was changed");
+        }
         free(hard);
-        finish(j, "ssh_failed", "a copy of the SSH configuration could not be kept; nothing was changed");
+        say(j, "ssh: PermitRootLogin prohibit-password written");
     }
-    free(text);
-    if (write_atomic(p->sshd_config, hard, 0644) != 0) {
-        free(hard);
-        finish(j, "ssh_failed", "the hardened SSH configuration could not be written; nothing was changed");
-    }
-    free(hard);
-    say(j, "ssh: PermitRootLogin prohibit-password written");
-    if (pidfile_alive(p->sshd_pidfile)) {
+    if (sshd_running(p)) {
         const char *const argv[] = { p->sshd_init, "reload", NULL };
 
         if (!executable(p->sshd_init) || j->c->ops.run(argv, j->log_fd, j->c->ops.user) != 0) {
             finish(j, "ssh_failed",
-                   "the SSH server did not reload its hardened configuration; restart the unit, then try again");
+                   "the SSH server did not reload its configuration, so it may still let root in with a password; "
+                   "restart the unit, then try again");
         }
         say(j, "ssh: reloaded");
     }
@@ -691,6 +760,40 @@ static void harden_ssh(struct job *j)
 
 /* GATEWAYD_ENABLE=<value>, every other line kept; the previous text (or NULL
  * for "there was no file") into *before. */
+/* Whether text is settings lines only - blank lines, comments and NAME=value -
+ * the only kind of file this edits line by line. S70gatewayd sources it, so
+ * a hand-written file with shell in it (an if ... fi around the switch) is
+ * left to the hand that wrote it: dropping one of its lines could leave a
+ * script that no longer parses, and an init script that can stop nothing. */
+static bool defaults_simple(const char *text)
+{
+    const char *p = text;
+
+    while (p && *p) {
+        size_t n = strcspn(p, "\n");
+        size_t i = 0;
+
+        while (i < n && (p[i] == ' ' || p[i] == '\t')) {
+            i++;
+        }
+        if (i < n && p[i] != '#') {
+            if (i != 0 || !(isalpha((unsigned char)p[0]) || p[0] == '_')) {
+                return false;
+            }
+            for (i = 1; i < n && (isalnum((unsigned char)p[i]) || p[i] == '_'); i++) {
+            }
+            if (i >= n || p[i] != '=') {
+                return false;
+            }
+        }
+        p += n;
+        if (*p == '\n') {
+            p++;
+        }
+    }
+    return true;
+}
+
 static int write_enable(const struct sysd_companion *c, const char *value, char **before, bool *had)
 {
     bool absent = false;
@@ -700,6 +803,10 @@ static int write_enable(const struct sysd_companion *c, const char *value, char 
 
     if (!text && !absent) {
         return -1;
+    }
+    if (text && !defaults_simple(text)) {
+        free(text);
+        return -2;
     }
     if (before) {
         *before = text ? strdup(text) : NULL;
@@ -761,7 +868,13 @@ static void job_enable(struct job *j)
         finish(j, "password_required", "this unit has no device password; set one first");
     }
     harden_ssh(j);
-    if (write_enable(c, "1", &before, &had) != 0) {
+    switch (write_enable(c, "1", &before, &had)) {
+    case 0:
+        break;
+    case -2:
+        finish(j, "defaults_unsupported", "%s holds more than settings lines; switch the gateway there by hand",
+               c->paths.defaults);
+    default:
         finish(j, "write_failed", "%s could not be written; nothing was changed", c->paths.defaults);
     }
     say(j, "GATEWAYD_ENABLE=1 written");
@@ -773,11 +886,17 @@ static void job_enable(struct job *j)
             free(before);
             finish(j, NULL, "done");
         }
-        /* Back as it was: the file, then the service. */
-        if (had && before) {
-            (void)write_atomic(c->paths.defaults, before, 0644);
-        } else {
-            (void)write_enable(c, "0", NULL, NULL);
+        /* Back as it was, the file then the service - but never back to "on":
+         * a unit switched on by hand whose gateway would not start is left
+         * off, as the message says, rather than starting it at its next boot. */
+        {
+            char v[8] = "";
+
+            if (had && before && !(sysd_radio_value(before, "GATEWAYD_ENABLE", v, sizeof(v)) && strcmp(v, "1") == 0)) {
+                (void)write_atomic(c->paths.defaults, before, 0644);
+            } else {
+                (void)write_enable(c, "0", NULL, NULL);
+            }
         }
         free(before);
         {
@@ -796,7 +915,8 @@ static void job_enable(struct job *j)
 static void job_disable(struct job *j)
 {
     const struct sysd_companion *c = j->c;
-    bool written = write_enable(c, "0", NULL, NULL) == 0;
+    int w = write_enable(c, "0", NULL, NULL);
+    bool written = w == 0;
     int rc = 0;
 
     if (written) {
@@ -812,7 +932,8 @@ static void job_disable(struct job *j)
                written ? "; it will not start again at the next boot" : "");
     }
     if (!written) {
-        finish(j, "write_failed", "the gateway stopped, but %s could not be written: it would start again at the next boot",
+        finish(j, w == -2 ? "defaults_unsupported" : "write_failed",
+               "the gateway stopped, but %s could not be written: it would start again at the next boot",
                c->paths.defaults);
     }
     finish(j, NULL, "done");
@@ -826,7 +947,9 @@ static void job_password(struct job *j, char *password)
     char *next;
     char *pw;
 
-    harden_ssh(j);
+    /* Hashed first, so the password itself is gone before the seconds sshd
+     * -t and a reload can take; SSH is still made safe before the hash is
+     * written anywhere. */
     pw = slurp(c->paths.passwd, NULL);
     if (!sysd_companion_passwd_shadowed(pw)) {
         free(pw);
@@ -840,6 +963,7 @@ static void job_password(struct job *j, char *password)
         finish(j, "password_failed", "the password could not be hashed; nothing was changed");
     }
     explicit_bzero(password, strlen(password));
+    harden_ssh(j);
     if (c->ops.lock(c->ops.user) != 0) {
         explicit_bzero(hash, sizeof(hash));
         finish(j, "busy", "the password files are locked by another program; try again");
@@ -880,6 +1004,7 @@ void sysd_companion_init(struct sysd_companion *c, const struct sysd_companion_p
     c->paths = *paths;
     c->ops = *ops;
     c->answer_ms = SYSD_COMPANION_ANSWER_MS;
+    c->job_limit_s = SYSD_COMPANION_JOB_LIMIT_S;
 }
 
 static const char *job_name(enum sysd_companion_job j)
@@ -919,6 +1044,9 @@ static int start(struct sysd_companion *c, enum sysd_companion_job what, char *p
         struct job j = { c, -1, fds[1] };
 
         close(fds[0]);
+        /* Bounded: a hung init script or sshd reload must not leave reboot,
+         * power-off and every later change refused for ever. */
+        alarm((unsigned)(c->job_limit_s > 0 ? c->job_limit_s : SYSD_COMPANION_JOB_LIMIT_S));
         j.log_fd = open(c->paths.log, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0640);
         if (what == SYSD_COMPANION_ENABLE) {
             job_enable(&j);
@@ -951,13 +1079,16 @@ static bool installed(const struct sysd_companion *c)
 
 static enum sysd_ssh_state ssh_state(const struct sysd_companion *c)
 {
+    bool absent = false;
     char *text;
     enum sysd_ssh_state s;
 
-    if (!executable(c->paths.sshd)) {
+    text = slurp(c->paths.sshd_config, &absent);
+    /* Absent only when there is neither a server nor its configuration: a
+     * configuration without a runnable sshd is still judged (and hardened). */
+    if (absent && !executable(c->paths.sshd)) {
         return SYSD_SSH_ABSENT;
     }
-    text = slurp(c->paths.sshd_config, NULL);
     s = sysd_companion_ssh_judge(text);
     free(text);
     return s;
@@ -984,7 +1115,7 @@ int sysd_companion_set_enabled(struct sysd_companion *c, bool on, char *word, si
         }
         if (ssh_state(c) == SYSD_SSH_UNKNOWN) {
             snprintf(word, wn, "ssh_unknown");
-            snprintf(msg, mn, "%s cannot be checked (it includes other files, or cannot be read)",
+            snprintf(msg, mn, "%s cannot be checked (it includes other files, has lines sshd may read differently, or cannot be read)",
                      c->paths.sshd_config);
             return 3;
         }
@@ -1017,7 +1148,7 @@ int sysd_companion_set_password(struct sysd_companion *c, char *password, char *
     if (ssh_state(c) == SYSD_SSH_UNKNOWN) {
         explicit_bzero(password, strlen(password));
         snprintf(word, wn, "ssh_unknown");
-        snprintf(msg, mn, "%s cannot be checked (it includes other files, or cannot be read)",
+        snprintf(msg, mn, "%s cannot be checked (it includes other files, has lines sshd may read differently, or cannot be read)",
                  c->paths.sshd_config);
         return 3;
     }
@@ -1072,6 +1203,12 @@ void sysd_companion_reap(struct sysd_companion *c)
             *nl = '\0';
             snprintf(c->error, sizeof(c->error), "%.31s", text);
             snprintf(c->message, sizeof(c->message), "%s", nl + 1);
+        } else if (w > 0 && WIFSIGNALED(status) && WTERMSIG(status) == SIGALRM) {
+            snprintf(c->error, sizeof(c->error), "timed_out");
+            snprintf(c->message, sizeof(c->message),
+                     "the change took longer than %d s and was stopped part way; restart the unit, then look at "
+                     "companion.status before trying again",
+                     c->job_limit_s);
         } else {
             snprintf(c->error, sizeof(c->error), "failed");
             snprintf(c->message, sizeof(c->message), "the change did not finish (exit %d)", code);
