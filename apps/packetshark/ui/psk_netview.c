@@ -440,6 +440,7 @@ void psk_net_show(struct psk_app *a, bool on)
     a->net_view = on;
     a->net_due = on;
     if (on) {
+        a->ev_view = false; /* one face of LIVE at a time */
         a->cur = PSK_TAB_LIVE;
         lv_obj_scroll_to_y(a->nv_page, 0, LV_ANIM_OFF);
     }

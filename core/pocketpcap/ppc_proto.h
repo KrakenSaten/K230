@@ -13,7 +13,8 @@
  * pin since M5/M6, protocol 2; the view's findings, marks, save and the
  * finding line since M7/M8, protocol 3; the sixth finding, the view's
  * diagnosis, the diag and detail lines since M11.1, protocol 4; the network
- * intelligence, the net command and the net lines since M12.1, protocol 5):
+ * intelligence, the net command and the net lines since M12.1, protocol 5;
+ * marks and their evidence since N1.0, protocol 6):
  *
  *   shell -> helper
  *     start <iface> <headers|full> <promisc 0|1> <cfilter> <limit_s>
@@ -38,6 +39,10 @@
  *     save                            write the stopped capture to a file (M8)
  *     net <req>                       the devices, DHCP servers, leases and
  *                                     events as they stand (M12.1)
+ *     mark                            mark this moment (N1.0): answered at
+ *                                     once by a `mark` line
+ *     evid <req> <id>                 a mark's evidence as it stands; id 0 is
+ *                                     the newest mark
  *     stats                           one snapshot now
  *     quit
  *
@@ -82,6 +87,41 @@
  *                                     or TCP diagnosis says of the packet, not
  *                                     a fault (M11.1)
  *     marks <req> <view_id> <match> <buckets> <hex mask>
+ *     mark <id> <first> <at_ms> <state> <seq> <wall_s>
+ *                                     a mark was set (N1.0): its id, the oldest
+ *                                     id still held, when (ms since START),
+ *                                     what the capture was doing, the newest
+ *                                     packet then, and the wall clock (0 when
+ *                                     it is not set)
+ *     ev.begin <req> <id> <first> <last> <at_ms> <state> <seq> <wall_s> <now_ms>
+ *              <cfilter> <unanalyzed> <edge_lost|-> <edge_from|-> <edge_to|->
+ *                                     the head of a mark's evidence: which
+ *                                     mark of the ones held, when, and the
+ *                                     wall clock then (after STOP: at STOP);
+ *                                     the capture filter the source applied
+ *                                     (all, ip, names, noself), the classes
+ *                                     whose analysis could not start (a hex
+ *                                     mask of enum ppc_class among DHCP, ARP
+ *                                     and DNS); and when the drop counters
+ *                                     could not be read at the mark, the last
+ *                                     good reading before it, the first after
+ *                                     it, and what that one told was lost in
+ *                                     between: "0 - -" when they were read,
+ *                                     "- <from> -" while no reading has come
+ *     ev.win <side 0|1> <flags> <span_ms> <watched_s> <held_s> <shed_s> <lost>
+ *            <kept> <more> <k1..k18> <lost_near> <unknown_from|->
+ *                                     one side of the mark: the window before
+ *                                     it (0) or after it (1), how much of it was
+ *                                     watched, and every observation counted by
+ *                                     kind (enum ppc_ev_kind, in its order);
+ *                                     lost in a spell without a counter reading
+ *                                     that reaches past its far end (apart), and
+ *                                     the last good reading before a spell still
+ *                                     open in it, whose losses are not known
+ *     ev.obs <side> <kind> <flags> <t_ms> <seq> <alive> <mac|-> <ip|-> <ip2|->
+ *            <a> <b>                  one observation kept as a row; alive says
+ *                                     what the buffer still holds of its packet
+ *     ev.end <req>                    the answer to `evid`, queued whole
  *     saved <run|done|fail> <packets> <total> <bytes> <name|code>
  *                                     SAVE's progress and outcome (M8); name is
  *                                     the file's name, without its folder
@@ -106,7 +146,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PPC_PROTO_VERSION 5
+#define PPC_PROTO_VERSION 6
 #define PPC_LINE_MAX 1024
 #define PPC_IFACE_MAX 16
 #define PPC_WINDOW_MAX 48
@@ -153,6 +193,11 @@ const char *ppc_reason_name(enum ppc_reason r);
 const char *ppc_cfilter_id(enum ppc_cfilter f);
 /* -1 for an unknown id. */
 int ppc_cfilter_parse(const char *id);
+/* The classes of a mark's evidence (PPC_EV_CLASSES) a preset keeps out of
+ * the capture, read from its expression below: NAMES passes DNS and DHCP
+ * by their ports and no ARP; IP passes ARP by name; ALL and NOSELF keep
+ * every one of them. */
+uint8_t ppc_cfilter_excludes(enum ppc_cfilter f);
 /* The tcpdump expression of a preset, "" for ALL. self is this device's
  * IPv4 address in dotted form, or NULL when it has none: NOSELF then
  * excludes SSH by port alone. Returns buf. */
@@ -176,6 +221,8 @@ enum ppc_cmd_kind {
     PPC_CMD_MARKS,
     PPC_CMD_SAVE,
     PPC_CMD_NET, /* M12.1 */
+    PPC_CMD_MARK, /* N1.0 */
+    PPC_CMD_EVID, /* N1.0 */
 };
 
 /* Where a window is anchored. */
@@ -227,6 +274,8 @@ struct ppc_cmd {
     int8_t step;
     /* marks */
     uint32_t buckets;
+    /* evid (N1.0) */
+    uint32_t mark_id;  /* 0: the newest mark */
 };
 
 /* An interface name as the kernel allows it: 1..15 characters, no slash,
@@ -257,6 +306,8 @@ int ppc_cmd_format_inspect(char *buf, size_t n, uint32_t req, uint32_t seq, int 
 int ppc_cmd_format_marks(char *buf, size_t n, uint32_t req, uint32_t buckets);
 int ppc_cmd_format_pin(char *buf, size_t n, uint32_t seq, int on);
 int ppc_cmd_format_net(char *buf, size_t n, uint32_t req);
+int ppc_cmd_format_mark(char *buf, size_t n);
+int ppc_cmd_format_evid(char *buf, size_t n, uint32_t req, uint32_t id);
 
 /* ---- events ---------------------------------------------------------------------- */
 
@@ -292,6 +343,11 @@ enum ppc_evt_kind {
     PPC_EVT_NET_LEASE,
     PPC_EVT_NET_EVT,
     PPC_EVT_NET_END,   /* u.net_req */
+    PPC_EVT_MARK,      /* N1.0: a mark was set */
+    PPC_EVT_EV_BEGIN,  /* u.ev_head */
+    PPC_EVT_EV_WIN,
+    PPC_EVT_EV_OBS,
+    PPC_EVT_EV_END,    /* u.ev_req */
 };
 
 #define PPC_FIELD_NAME 24
@@ -499,6 +555,128 @@ struct ppc_evt_net_event {
     char mac2[PPC_MAC_TEXT];
 };
 
+/* ---- marks and their evidence (N1.0, docs/apps/PACKETSHARK.md §4d) ---------------- */
+
+/* What a packet stated: an observation's kind. Part of the protocol (the
+ * `ev.obs` line carries one, the `ev.win` line a count for each after the
+ * first, in this order). */
+enum ppc_ev_kind {
+    PPC_EV_NONE = 0,
+    PPC_EV_DHCP_DISCOVER,
+    PPC_EV_DHCP_OFFER,
+    PPC_EV_DHCP_REQUEST,
+    PPC_EV_DHCP_ACK,
+    PPC_EV_DHCP_NAK,
+    PPC_EV_DHCP_DECLINE,
+    PPC_EV_DHCP_RELEASE,
+    PPC_EV_DHCP_INFORM,
+    PPC_EV_ARP_REQUEST,
+    PPC_EV_ARP_REPLY,
+    PPC_EV_ARP_PROBE,    /* a request with no sender address (RFC 5227) */
+    PPC_EV_ARP_ANNOUNCE, /* sender and target address the same */
+    PPC_EV_ARP_CHANGED,  /* an address answered for by another MAC than before */
+    PPC_EV_ARP_TWO_MACS, /* two MACs claimed one address in turn, or during a probe */
+    PPC_EV_DNS_QUERY,
+    PPC_EV_DNS_RETRY,    /* the same query sent again */
+    PPC_EV_DNS_ANSWER,
+    PPC_EV_DNS_FAILURE,  /* an answer with a response code other than NOERROR */
+    PPC_EV_KINDS
+};
+
+/* An observation's flags. */
+#define PPC_EVF_OWN 0x01u        /* this device sent it, or it was addressed to this device */
+#define PPC_EVF_BCAST 0x02u      /* broadcast or multicast: every port of the segment sees it */
+#define PPC_EVF_REPLY_HERE 0x04u /* a request whose reply would pass this interface */
+#define PPC_EVF_PLAIN 0x08u      /* routine: another station's ordinary ARP request or reply */
+#define PPC_EVF_UNPAIRED 0x10u   /* a DNS answer with no matching query to time it by: never
+                                  * seen, or no longer remembered (PPC_DNS_KEEP_NS, PPC_DNS_QUERIES) */
+#define PPC_EVF_V6 0x20u         /* over IPv6: the addresses are not carried */
+#define PPC_EVF_ALL 0x3fu
+
+/* A window's flags. */
+#define PPC_EVW_CUT_START 0x01u /* the capture started inside the window */
+#define PPC_EVW_CUT_STOP 0x02u  /* the capture stopped inside it */
+#define PPC_EVW_OPEN 0x04u      /* the window is still filling */
+#define PPC_EVW_HISTORY 0x08u   /* observations had left the history: the counts are of what remained */
+#define PPC_EVW_LOSSES_DROPPED 0x10u /* the record of spells without a counter reading did not keep them all */
+#define PPC_EVW_ALL 0x1fu
+
+/* What is known of the frames lost around a mark, in neither window. */
+enum ppc_ev_edge {
+    PPC_EV_EDGE_NONE = 0, /* the counters were read at the mark: every loss is on one side */
+    PPC_EV_EDGE_COUNTED,  /* not read at the mark; the next reading told how many, not when */
+    PPC_EV_EDGE_UNKNOWN,  /* not read since before the mark: not known yet, or never (STOP) */
+};
+
+#define PPC_EV_WINDOW_MS 60000u
+#define PPC_EV_KEEP 12u      /* rows kept with a mark, each side */
+/* The classes a mark's evidence observes, as a mask of enum ppc_class. */
+#define PPC_EV_CLASSES ((uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP | 1u << PPC_CLASS_DNS))
+
+/* What the buffer still holds of an observation's packet. */
+enum ppc_ev_alive {
+    PPC_EV_GONE = 0,   /* the packet has left the buffer: its number is all that is left */
+    PPC_EV_SUMMARY,    /* its row is there, its bytes have gone */
+    PPC_EV_WHOLE,
+};
+
+struct ppc_evt_mark {
+    uint32_t id;
+    uint32_t first;    /* the oldest mark still held */
+    uint32_t at_ms;    /* since START */
+    uint8_t state;     /* enum ppc_state when it was set */
+    uint32_t seq;      /* the newest packet then; 0: none yet */
+    uint64_t wall_s;   /* the wall clock then; 0: not set */
+};
+
+struct ppc_evt_ev_head {
+    uint32_t req;
+    uint32_t id;
+    uint32_t first;
+    uint32_t last;
+    uint32_t at_ms;
+    uint8_t state;
+    uint32_t seq;
+    uint64_t wall_s;
+    uint32_t now_ms;   /* the session's clock as the answer was made */
+    uint8_t cfilter;   /* enum ppc_cfilter: the capture filter the source applied */
+    uint8_t unanalyzed; /* PPC_EV_CLASSES whose analysis could not start */
+    uint8_t edge;       /* enum ppc_ev_edge */
+    uint32_t edge_from_ms; /* PPC_EV_EDGE_COUNTED, _UNKNOWN: the last good reading before the mark */
+    uint32_t edge_to_ms;   /* PPC_EV_EDGE_COUNTED: the first after it */
+    uint64_t edge_lost;    /* PPC_EV_EDGE_COUNTED: what it told was lost in between */
+};
+
+struct ppc_evt_ev_win {
+    uint8_t side;      /* 0 before the mark, 1 after it */
+    uint8_t flags;     /* PPC_EVW_* */
+    uint32_t span_ms;
+    uint32_t watched_s;
+    uint32_t held_s;
+    uint32_t shed_s;
+    uint64_t lost;
+    uint32_t kept;
+    uint32_t more;
+    uint32_t count[PPC_EV_KINDS]; /* [0] is not sent */
+    uint64_t lost_near;  /* lost in a spell reaching past the window's far end: apart */
+    uint8_t unknown;     /* a spell without a counter reading is open in the window */
+    uint32_t unknown_from_ms; /* the last good reading before it */
+};
+
+struct ppc_evt_ev_obs {
+    uint8_t side;
+    uint8_t kind;      /* enum ppc_ev_kind */
+    uint8_t flags;     /* PPC_EVF_* */
+    uint8_t alive;     /* enum ppc_ev_alive */
+    uint32_t t_ms;
+    uint32_t seq;
+    char mac[PPC_MAC_TEXT];
+    char ip[PPC_IP_TEXT];
+    char ip2[PPC_IP_TEXT];
+    uint32_t a;
+    uint32_t b;
+};
+
 struct ppc_evt_row {
     uint32_t seq;
     uint64_t rel_us;
@@ -630,6 +808,11 @@ struct ppc_evt {
         struct ppc_evt_net_srv net_srv;
         struct ppc_evt_net_lease net_lease;
         struct ppc_evt_net_event net_evt;
+        struct ppc_evt_mark mark;
+        struct ppc_evt_ev_head ev_head;
+        struct ppc_evt_ev_win ev_win;
+        struct ppc_evt_ev_obs ev_obs;
+        uint32_t ev_req;
     } u;
 };
 
@@ -680,6 +863,13 @@ int ppc_evt_format_net_srv(char *buf, size_t n, const struct ppc_evt_net_srv *s)
 int ppc_evt_format_net_lease(char *buf, size_t n, const struct ppc_evt_net_lease *l);
 int ppc_evt_format_net_evt(char *buf, size_t n, const struct ppc_evt_net_event *e);
 int ppc_evt_format_net_end(char *buf, size_t n, uint32_t req);
+/* Marks and their evidence (N1.0). Addresses are text the helper made, as
+ * in the network intelligence's lines. */
+int ppc_evt_format_mark(char *buf, size_t n, const struct ppc_evt_mark *m);
+int ppc_evt_format_ev_begin(char *buf, size_t n, const struct ppc_evt_ev_head *h);
+int ppc_evt_format_ev_win(char *buf, size_t n, const struct ppc_evt_ev_win *w);
+int ppc_evt_format_ev_obs(char *buf, size_t n, const struct ppc_evt_ev_obs *o);
+int ppc_evt_format_ev_end(char *buf, size_t n, uint32_t req);
 int ppc_evt_format_saved(char *buf, size_t n, enum ppc_save_phase phase, uint32_t packets, uint32_t total,
                          uint64_t bytes, const char *name);
 /* A saved capture's name as the helper makes it: "capture-" then digits

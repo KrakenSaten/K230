@@ -258,6 +258,76 @@ only (DS §46), and `--audit F.json` writes the layout audit
 (`ui/pocketui/pocketui_audit.h`, also `shell.audit`) of the screen the run
 ended on.
 
+## Repository layout
+
+Where everything lives, from the repository root. The apps each have a
+guide in docs/apps/; the IPC contracts are in docs/api/.
+
+```text
+AGENTS.md                  Rules for AI agents working here
+Makefile                   First-party build (called by the Buildroot package)
+VERSION                    Doors version
+LICENSE                    Apache License 2.0, the licence of Doors' own code (ADR-013); NOTICE beside it
+THIRD_PARTY_LICENSES.md    Inventory of third-party material and how each licence sits with Apache-2.0
+MODEL_LICENSES.md          Licence status of every Vision model
+CONTRIBUTING.md            Contributions: Apache-2.0, DCO sign-off, source headers
+THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries and LVGL (generated; installed in /usr/share/doors/, linked from /usr/share/pocketos/)
+third_party/notices/       Sources of those notices: the component list and verbatim licence texts
+apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer), solitaire, blackjack and 2048 (Pocket Games, docs/apps/PG*.md), poker, rotorterror (RotorTerror), neon-outpost (Relay Nine; the internal id keeps its first name), deskbuddy (DeskBuddy, docs/apps/DESKBUDDY.md) and deskbuddy_vision (its Vision provider), terminal, vision, browser, camera, photo, video, mp3, recorder, wave, zabbix, library (opt-in prototype, not in the image), packetshark (PacketShark) (docs/apps/)
+ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
+ui/shell/                  Shell: status cluster, launcher, app host; SDL simulator or DRM target (CMake)
+ui/cards/                  Card games' shared drawing: the composed card atlas, cloth and chips (Lamplight); core/cards/ holds the cards, RNG, shoe, cloth and motion
+core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
+core/pocketlog/            Structured logging, rotation and crash reports
+core/pocketsys.c           System facts (identity, resources, storage, network) behind system.*
+core/pocketpcap/           PacketShark's core: capture sources, layer-by-layer decoder, statistics, signals, .pcap files (docs/apps/PACKETSHARK.md)
+core/pocketvision/         What Vision's helper does with a frame after the KPU: decoding, tracking, line counting, picture sharing (docs/apps/VISION.md)
+services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib)
+services/sysd/             System service: system.info and system.status over pocketipc (read-only), plus the supervisor state reader
+services/netd/             Network service: wifi.* over pocketipc (wpa_supplicant and udhcpc owned by netd, root-only credential store)
+services/meshcored/        MeshCore protocol service: mesh.* over pocketipc, on top of radiod's radio.*; owns no radio (`make ENABLE_MESHCORED=1 meshcored`, disabled in the image)
+services/gatewayd/         Companion Gateway: authenticated TLS 1.3 to paired phones (ADR-019, docs/api/gateway.md); not in the image
+services/peerd/            Authenticated datagrams between Doors devices on an IP network, for Fleet over the LAN (ADR-017); not in the image
+protocols/meshcore/        The portable MeshCore protocol core, `libmeshcore.a` (`make meshcore-core`)
+hardware/stand/            3D-printable desk stand (k230-desk-stand.stl)
+android/doors-companion/   DOORS Companion, the Android app (Kotlin, Gradle; builds on its own, not by the firmware's make)
+tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
+docs/
+  GETTING_STARTED.md       Install a released image: download, write the card, first boot, Wi-Fi, RIFT
+  ARCHITECTURE.md          How the layers, IPC, services and shell fit together
+  apps/                    One guide per app (Vision, RIFT, Relay Nine, RotorTerror, DeskBuddy, ...) with its captures
+  ROADMAP.md               Current priorities, ongoing and planned work; ROADMAP_HISTORY.md for earlier phases
+  releases/                Release notes per version (v0.0.10 on) and HISTORY.md for the earlier releases
+  KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
+  api/                     Public API contracts: pocketipc v0, radio.* v0, mesh.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
+  services/MESHCORED.md    The MeshCore service: ownership, persistence, safety and how to enable it on a unit
+  design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
+  BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
+  LICENSING.md             Licence register for vendor and third-party code (Doors itself: Apache-2.0)
+  licensing/                Apache-2.0 readiness audit and its blockers, B1 artwork questions, asset inventory, public-source exclusions
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phases 1, 2 and 3; ADR-013 licence, Apache-2.0: Accepted; all fifteen and their status: docs/decisions/README.md)
+  hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
+  hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
+  hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
+platforms/k230/            Defconfig, Buildroot package and apply/build scripts (ADR-001)
+tools/pos/                 `doors` CLI (`pos` is the same binary under its old name): system, hardware, network, radio, wifi, logs, app, shell
+tools/supervise/           `pos-supervise`: restart with backoff and crash-loop detection
+tools/capture/             `pos-capture`: PacketShark's capture helper, the only program that opens a capture socket (ADR-016)
+tools/vision/              `pos-vision`: Vision's helper, the one process that opens the camera and the detector
+tools/design/              Generators: theme table from themes.json, LVGL fonts from IBM Plex
+tools/hwcheck/             `pos-hwcheck`: first-boot hardware inventory script
+tools/legal/               `gen_notices.sh`: generates and verifies THIRD_PARTY_NOTICES.txt
+tools/meshcore-frame/      `meshcore-frame`: host-side MeshCore wire frames, built and parsed with the real protocol and crypto (`make meshcore-frame`)
+vendor/                    Read-only reference clones (git-ignored)
+  T-Display-K230/          LILYGO BSP + LVGL launcher, pinned (see platforms/k230/vendor_bsp_commit.txt)
+    k230_linux_sdk/        Kendryte K230 Linux SDK submodule, pinned
+  T-Display-K230_canmv_rt/ LILYGO RT-Smart firmware, schematic, datasheets
+  RIFT/                    MeshCore protocol source, pinned (protocols/meshcore, tools/meshcore-frame)
+  Crypto/                  rweather/arduinolibs, the crypto MeshCore uses, pinned (same two)
+```
+
+`vendor/` is reference material only. Nothing in it is edited in place.
+
 ## Build
 
 The repository root Makefile builds the C tools and services; `ui/shell`

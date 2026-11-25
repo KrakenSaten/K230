@@ -6,6 +6,9 @@
 #
 # Requires: SHELL_BIN (the CMake-built pocketos-shell) and make's
 # tools/capture/pos-capture. PACKETSHARK_SHOTS=<dir> keeps the screenshots.
+# With make's tests/ppc_evid_mkfixtures built, MARK's evidence is also shown
+# for the replayed fixtures (N1.0). PACKETSHARK_ONLY=n1 runs MARK and its
+# evidence alone, in both shapes, and nothing of the rest.
 #
 # Copyright (c) 2026 PocketOS authors.
 # SPDX-License-Identifier: Apache-2.0
@@ -21,10 +24,16 @@ if [ ! -x "$HELPER" ]; then
     exit 1
 fi
 
+# The evidence fixtures as pcap files, for the app test to replay (N1.0).
+FIX=""
+if [ -x tests/ppc_evid_mkfixtures ]; then
+    FIX=$(mktemp -d)
+    ./tests/ppc_evid_mkfixtures "$FIX" >/dev/null || FIX=""
+fi
 BIN=${PACKETSHARK_APP_TEST:-$(dirname "$SHELL_BIN")/packetshark_app_test}
 if [ -x "$BIN" ]; then
-    log=$(PACKETSHARK_HELPER="$HELPER" SDL_VIDEODRIVER=dummy timeout 600 "$BIN" 2>&1); rc=$?
-    printf '%s\n' "$log" | grep -E '^FAIL|packetshark_app_test:|^     '
+    log=$(PACKETSHARK_HELPER="$HELPER" PACKETSHARK_FIXTURES="$FIX" SDL_VIDEODRIVER=dummy timeout 900 "$BIN" 2>&1); rc=$?
+    printf '%s\n' "$log" | grep -E '^FAIL|packetshark_app_test|^note|^     '
     check "PacketShark end to end, tapped, in portrait and landscape, and every fault" \
         "$([ "$rc" = "0" ] && echo 1 || echo 0)"
     printf '%s\n' "$log" | grep -E '^\[(Warn|Error)\]' | head -3
@@ -32,6 +41,12 @@ if [ -x "$BIN" ]; then
         "$(printf '%s\n' "$log" | grep -qE '^\[(Warn|Error)\]' && echo 0 || echo 1)"
 else
     echo "FAIL packetshark_app_test binary missing: $BIN"; failed=$((failed + 1))
+fi
+[ -n "$FIX" ] && rm -rf "$FIX"
+if [ -n "${PACKETSHARK_ONLY:-}" ]; then
+    # One part of the app test was asked for: the shell's half is not it.
+    echo "packetshark_shell_test ($PACKETSHARK_ONLY): $failed failed"
+    exit $((failed > 0))
 fi
 
 if grep -aq '/usr/bin/pos-capture' "$SHELL_BIN"; then

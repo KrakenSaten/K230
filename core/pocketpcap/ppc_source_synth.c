@@ -32,6 +32,9 @@ struct synth_src {
     uint64_t crash_after;  /* 0: never */
     uint64_t step_after;   /* 0: never */
     int64_t step_ns;
+    uint64_t burst_n;      /* burst=<n>,<ms>: n frames more, all due at once */
+    uint64_t burst_ms;     /* that long after the start, stamped then */
+    uint64_t burst_made;
     uint64_t start_mono;
     uint64_t start_wall;
     uint64_t made;
@@ -675,6 +678,25 @@ static int synth_dispatch(struct ppc_source *s, int max, ppc_frame_fn fn, void *
     if (read(g->fd, &tick, sizeof(tick)) < 0 && errno != EAGAIN) {
         /* the next tick reads it */
     }
+    /* The test asked for a burst: frames that all arrive at one moment, so
+     * that the reader falls behind for a little while and recovers. */
+    if (g->burst_made < g->burst_n && clock_ns(CLOCK_MONOTONIC) - g->start_mono >= g->burst_ms * 1000000u) {
+        while (g->burst_made < g->burst_n && n < max) {
+            struct ppc_frame f;
+
+            f.data = g->buf;
+            f.cap_len = ppc_synth_frame(g->burst_made, g->seed + 1u, g->buf);
+            f.wire_len = f.cap_len;
+            f.ts_ns = g->start_wall + g->burst_ms * 1000000u;
+            f.pkttype = PPC_PKT_UNKNOWN;
+            g->burst_made++;
+            fn(ctx, &f);
+            n++;
+        }
+        if (n == max) {
+            return n;
+        }
+    }
     while (g->made < due && n < max) {
         struct ppc_frame f;
         uint64_t ts = g->start_wall + g->made * 1000000000u / g->pps;
@@ -731,7 +753,7 @@ static const struct ppc_source_ops synth_ops = {
     .close = synth_close,
 };
 
-/* synth:<pps>[:<seed>][:crash=<n>][:step=<n>,<s>] */
+/* synth:<pps>[:<seed>][:crash=<n>][:step=<n>,<s>][:burst=<n>,<ms>] */
 enum ppc_open_err ppc_source_open_synth(struct ppc_source *s, const char *arg)
 {
     char buf[128];
@@ -763,6 +785,13 @@ enum ppc_open_err ppc_source_open_synth(struct ppc_source *s, const char *arg)
             g->step_after = strtoull(tok + 5, &end, 10);
             if (end && *end == ',') {
                 g->step_ns = strtoll(end + 1, &end, 10) * 1000000000LL;
+            } else {
+                end = tok; /* refused below */
+            }
+        } else if (strncmp(tok, "burst=", 6) == 0) {
+            g->burst_n = strtoull(tok + 6, &end, 10);
+            if (end && *end == ',') {
+                g->burst_ms = strtoull(end + 1, &end, 10);
             } else {
                 end = tok; /* refused below */
             }

@@ -2,6 +2,13 @@
  * pocketpcap replay source: a .pcap through the capture pipeline, for tests,
  * the simulator and (later) opening a saved capture. See ppc_source.h.
  *
+ * A pcap file of Ethernet frames carries no direction. A replay that needs
+ * one (the evidence history's fixtures, N1.0) names this device's MAC in
+ * POCKETOS_CAPTURE_SELF_MAC ("02:00:5e:00:00:10"): frames from it are then
+ * handed over as sent by this device, frames to it as addressed to it, the
+ * rest as a live interface would call them. Without it, or when it does not
+ * parse, direction stays unknown as before.
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,7 +36,57 @@ struct file_src {
     uint64_t start_ns;  /* monotonic, for the pace */
     uint64_t sent;
     int ended;
+    int have_self;      /* POCKETOS_CAPTURE_SELF_MAC was given and parsed */
+    uint8_t self[6];
 };
+
+/* "02:00:5e:00:00:10" into six bytes. 0, or -1 when it is not a MAC. */
+static int mac_parse(const char *t, uint8_t *m)
+{
+    int i;
+
+    for (i = 0; i < 6; i++) {
+        unsigned v = 0;
+        int k;
+
+        for (k = 0; k < 2; k++) {
+            char c = t[i * 3 + k];
+
+            if (c >= '0' && c <= '9') {
+                v = v * 16u + (unsigned)(c - '0');
+            } else if (c >= 'a' && c <= 'f') {
+                v = v * 16u + (unsigned)(c - 'a') + 10u;
+            } else {
+                return -1;
+            }
+        }
+        if (t[i * 3 + 2] != (i < 5 ? ':' : '\0')) {
+            return -1;
+        }
+        m[i] = (uint8_t)v;
+    }
+    return 0;
+}
+
+/* What a live interface would call the frame, knowing this device's MAC. */
+static uint8_t direction(const struct file_src *f, const struct ppc_frame *fr)
+{
+    if (fr->cap_len < 12) {
+        return PPC_PKT_UNKNOWN;
+    }
+    if (memcmp(fr->data + 6, f->self, 6) == 0) {
+        return PPC_PKT_OUTGOING;
+    }
+    if (memcmp(fr->data, f->self, 6) == 0) {
+        return PPC_PKT_HOST;
+    }
+    if (fr->data[0] & 1u) {
+        static const uint8_t all[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+
+        return memcmp(fr->data, all, 6) == 0 ? PPC_PKT_BROADCAST : PPC_PKT_MULTICAST;
+    }
+    return PPC_PKT_OTHERHOST;
+}
 
 static uint64_t mono_ns(void)
 {
@@ -77,6 +134,9 @@ static int file_dispatch(struct ppc_source *s, int max, ppc_frame_fn fn, void *c
             snprintf(s->err, sizeof(s->err), "%s", f->rd.err);
             f->ended = 1;
             return PPC_SRC_ERR;
+        }
+        if (f->have_self) {
+            fr.pkttype = direction(f, &fr);
         }
         fn(ctx, &fr);
         f->sent++;
@@ -150,6 +210,11 @@ enum ppc_open_err ppc_source_open_file(struct ppc_source *s, const char *arg)
         return PPC_OPEN_NODEV;
     }
     f->pps = pps;
+    {
+        const char *self = getenv("POCKETOS_CAPTURE_SELF_MAC");
+
+        f->have_self = self && strlen(self) == 17 && mac_parse(self, f->self) == 0;
+    }
     if (pps) {
         struct itimerspec it = { { 0, TICK_NS }, { 0, TICK_NS } };
 
