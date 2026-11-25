@@ -2307,7 +2307,7 @@ PPC_DIR := core/pocketpcap
 PPC_APP_OBJS := $(PPC_DIR)/ppc_proto.o
 PPC_CORE_OBJS := $(PPC_APP_OBJS) $(PPC_DIR)/ppc_format.o $(PPC_DIR)/ppc_decode.o $(PPC_DIR)/ppc_pcapfile.o \
                  $(PPC_DIR)/ppc_store.o $(PPC_DIR)/ppc_stats.o $(PPC_DIR)/ppc_view.o $(PPC_DIR)/ppc_dissect.o \
-                 $(PPC_DIR)/ppc_signals.o $(PPC_DIR)/ppc_net.o
+                 $(PPC_DIR)/ppc_signals.o $(PPC_DIR)/ppc_net.o $(PPC_DIR)/ppc_evid.o
 PPC_SRC_OBJS := $(PPC_DIR)/ppc_source.o $(PPC_DIR)/ppc_source_file.o $(PPC_DIR)/ppc_source_synth.o
 ifeq ($(PACKETSHARK_PCAP),1)
 PPC_LIVE_OBJ := $(PPC_DIR)/ppc_source_pcap.o
@@ -2324,6 +2324,7 @@ PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o
 PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test \
                      tests/ppc_stats_test tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures \
                      tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test \
+                     tests/ppc_evid_test tests/ppc_evid_mkfixtures \
                      tests/psk_model_test tests/psk_net_test tests/psk_session_test tests/psk_remote_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
@@ -2340,8 +2341,11 @@ tests/psk_%.o: tests/psk_%.c
 
 tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test tests/ppc_stats_test \
 tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures tests/ppc_view_test \
-tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test: tests/%: tests/%.o $(PPC_OBJS)
+tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test tests/ppc_evid_test \
+tests/ppc_evid_mkfixtures: tests/%: tests/%.o $(PPC_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
+
+tests/ppc_evid_test.o tests/ppc_evid_mkfixtures.o: tests/ppc_evid_fixtures.h
 
 tests/psk_model_test tests/psk_net_test: tests/%: tests/%.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
@@ -2359,6 +2363,7 @@ PACKETSHARK_FUZZ_S ?= 5
 PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/ppc_store_test && ./tests/ppc_stats_test && ./tests/ppc_proto_test && \
     ./tests/ppc_view_test && ./tests/ppc_dissect_test && ./tests/ppc_signals_test && ./tests/ppc_net_test && \
+    ./tests/ppc_evid_test && \
     mkdir -p out/packetshark-fixtures && ./tests/ppc_mkfixtures out/packetshark-fixtures &&     ./tests/ppc_fuzz -seconds $(PACKETSHARK_FUZZ_S) tests/data/packetshark out/packetshark-fixtures && \
     ./tests/psk_model_test && ./tests/psk_net_test && ./tests/psk_remote_test && \
     ./tests/psk_session_test tools/capture/pos-capture && \

@@ -171,8 +171,40 @@ struct ppc_net_wait {
     uint64_t last_ns;
 };
 
+/* What one ARP or DHCP frame said, or what the tables made of one, for a
+ * listener (the evidence history, N1.0). Told as it happens; nothing of it
+ * is kept here, and what a listener does changes nothing in these tables. */
+enum ppc_net_said_what {
+    PPC_SAID_NONE = 0,
+    PPC_SAID_DHCP,         /* type: the DHCP message type (1 DISCOVER .. 8 INFORM) */
+    PPC_SAID_ARP_REQUEST,
+    PPC_SAID_ARP_REPLY,
+    PPC_SAID_ARP_PROBE,    /* a request with no sender address */
+    PPC_SAID_ARP_ANNOUNCE, /* sender and target address the same */
+    PPC_SAID_EVENT,        /* type: enum ppc_net_kind */
+};
+
+struct ppc_net_said {
+    uint8_t what;        /* enum ppc_net_said_what */
+    uint8_t type;
+    uint8_t own;         /* this device sent the frame */
+    uint8_t bcast;       /* the frame was broadcast or multicast */
+    uint8_t reply_here;  /* a request whose answer would pass this interface */
+    uint8_t mac[6];      /* DHCP: the client; ARP: the sender; an event's MAC */
+    uint8_t ip[4];       /* DHCP: the address asked for or given; ARP: the sender's; an event's */
+    uint8_t ip2[4];      /* DHCP: the server named; ARP: the address asked about; an event's second */
+    uint32_t a;          /* DHCP: the transaction id */
+    uint32_t b;          /* DHCP OFFER and ACK: the lease in seconds, 0 for none */
+    uint32_t seq;
+    uint64_t ns;         /* the frame's rel_ns */
+};
+
+typedef void (*ppc_net_said_fn)(void *ctx, const struct ppc_net_said *s);
+
 struct ppc_net {
     void *mem;           /* the one allocation the tables are in */
+    ppc_net_said_fn said; /* the listener, or NULL (ppc_net_listen) */
+    void *said_ctx;
     struct ppc_net_host *hosts;
     struct ppc_net_bind *binds;
     struct ppc_net_dhcp *dhcp;
@@ -188,6 +220,8 @@ struct ppc_net {
 /* Allocate the tables. 0, or -1 with nothing held. */
 int ppc_net_init(struct ppc_net *nt);
 void ppc_net_free(struct ppc_net *nt);
+/* Who is told what each ARP and DHCP frame said (after init; NULL: no one). */
+void ppc_net_listen(struct ppc_net *nt, ppc_net_said_fn fn, void *ctx);
 
 /* One decoded frame: r as ppc_decode() filled it (with its rel_ns), the
  * frame's bytes, where its transport payload starts (what ppc_decode()

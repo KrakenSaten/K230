@@ -514,6 +514,7 @@ static unsigned dns_track(struct ppc_signals *sg, const struct ppc_record *r, ui
     unsigned diag;
     uint32_t us;
 
+    sg->dns_last_us = 0;
     if (!sg->dns || r->l4 != 17 || (r->l3 != PPC_L3_IPV4 && r->l3 != PPC_L3_IPV6)) {
         return PPC_DIAG_NONE;
     }
@@ -556,6 +557,7 @@ static unsigned dns_track(struct ppc_signals *sg, const struct ppc_record *r, ui
     }
     us = r->rel_ns >= q->last_ns ? us_of(r->rel_ns - q->last_ns) : 0;
     timed(&st->dns_rtt_sum_us, &st->dns_rtt_max_us, &st->dns_rtt_max_seq, us, seq);
+    sg->dns_last_us = us ? us : 1u; /* an answer in the same microsecond still had its query */
     if (q->state == DNS_CALLED) {
         diag = PPC_DIAG_DNS_LATE;
         st->dns_late++;

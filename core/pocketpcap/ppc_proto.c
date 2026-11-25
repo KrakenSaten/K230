@@ -332,6 +332,13 @@ enum ppc_cmd_kind ppc_cmd_parse(const char *line, struct ppc_cmd *c)
             return c->kind;
         }
         c->kind = PPC_CMD_NET;
+    } else if (strcmp(f[0], "mark") == 0) {
+        c->kind = n == 1 ? PPC_CMD_MARK : PPC_CMD_BAD;
+    } else if (strcmp(f[0], "evid") == 0) {
+        if (n != 3 || u32(f[1], &c->req) != 0 || u32(f[2], &c->mark_id) != 0) {
+            return c->kind;
+        }
+        c->kind = PPC_CMD_EVID;
     } else if (strcmp(f[0], "save") == 0) {
         c->kind = n == 1 ? PPC_CMD_SAVE : PPC_CMD_BAD;
     } else if (strcmp(f[0], "stop") == 0) {
@@ -560,6 +567,16 @@ int ppc_cmd_format_net(char *buf, size_t n, uint32_t req)
     return fmt(buf, n, "net\t%u", (unsigned)req);
 }
 
+int ppc_cmd_format_mark(char *buf, size_t n)
+{
+    return fmt(buf, n, "mark");
+}
+
+int ppc_cmd_format_evid(char *buf, size_t n, uint32_t req, uint32_t id)
+{
+    return fmt(buf, n, "evid\t%u\t%u", (unsigned)req, (unsigned)id);
+}
+
 /* ---- events ------------------------------------------------------------------------- */
 
 /* Free text for a field: no tabs, newlines or anything else unprintable. */
@@ -773,6 +790,77 @@ int ppc_evt_format_net_evt(char *buf, size_t n, const struct ppc_evt_net_event *
     return fmt(buf, n, "net.evt\t%u\t%u\t%u\t%u\t%llu\t%llu\t%s\t%s\t%s\t%s\n", (unsigned)e->kind, (unsigned)e->sev,
                (unsigned)e->count, (unsigned)e->seq, (unsigned long long)e->first_us, (unsigned long long)e->last_us,
                dash(e->ip), dash(e->mac), dash(e->ip2), dash(e->mac2));
+}
+
+/* ---- marks and their evidence (N1.0) -------------------------------------------------- */
+
+_Static_assert(PPC_EV_KINDS == 19, "the ev.win line carries eighteen counts: a new kind is a new protocol");
+
+int ppc_evt_format_mark(char *buf, size_t n, const struct ppc_evt_mark *m)
+{
+    if (!m->id || !m->first || m->first > m->id || m->state > PPC_STATE_STOPPED) {
+        return -1;
+    }
+    return fmt(buf, n, "mark\t%u\t%u\t%u\t%s\t%u\t%llu\n", (unsigned)m->id, (unsigned)m->first, (unsigned)m->at_ms,
+               ppc_state_name((enum ppc_state)m->state), (unsigned)m->seq, (unsigned long long)m->wall_s);
+}
+
+int ppc_evt_format_ev_begin(char *buf, size_t n, const struct ppc_evt_ev_head *h)
+{
+    if (!h->id || !h->first || h->first > h->id || h->id > h->last || h->state > PPC_STATE_STOPPED) {
+        return -1;
+    }
+    return fmt(buf, n, "ev.begin\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%llu\t%u\n", (unsigned)h->req, (unsigned)h->id,
+               (unsigned)h->first, (unsigned)h->last, (unsigned)h->at_ms, ppc_state_name((enum ppc_state)h->state),
+               (unsigned)h->seq, (unsigned long long)h->wall_s, (unsigned)h->now_ms);
+}
+
+int ppc_evt_format_ev_win(char *buf, size_t n, const struct ppc_evt_ev_win *w)
+{
+    size_t o;
+    int k;
+    int i;
+
+    if (!buf || w->side > 1 || (w->flags & ~PPC_EVW_ALL) || w->kept > PPC_EV_KEEP || w->span_ms > PPC_EV_WINDOW_MS) {
+        return -1;
+    }
+    k = snprintf(buf, n, "ev.win\t%u\t%u\t%u\t%u\t%u\t%u\t%llu\t%u\t%u", (unsigned)w->side, (unsigned)w->flags,
+                 (unsigned)w->span_ms, (unsigned)w->watched_s, (unsigned)w->held_s, (unsigned)w->shed_s,
+                 (unsigned long long)w->lost, (unsigned)w->kept, (unsigned)w->more);
+    if (k < 0 || (size_t)k >= n) {
+        return -1;
+    }
+    o = (size_t)k;
+    for (i = 1; i < PPC_EV_KINDS; i++) {
+        k = snprintf(buf + o, n - o, "\t%u", (unsigned)w->count[i]);
+        if (k < 0 || (size_t)k >= n - o) {
+            return -1;
+        }
+        o += (size_t)k;
+    }
+    if (o + 2 > n || o + 1 >= PPC_LINE_MAX) {
+        return -1;
+    }
+    buf[o++] = '\n';
+    buf[o] = '\0';
+    return (int)o;
+}
+
+int ppc_evt_format_ev_obs(char *buf, size_t n, const struct ppc_evt_ev_obs *o)
+{
+    if (o->side > 1 || o->kind == PPC_EV_NONE || o->kind >= PPC_EV_KINDS || (o->flags & ~PPC_EVF_ALL) ||
+        o->alive > PPC_EV_WHOLE || !o->seq || !addr_ok(o->mac, PPC_MAC_TEXT, 1) || !addr_ok(o->ip, PPC_IP_TEXT, 0) ||
+        !addr_ok(o->ip2, PPC_IP_TEXT, 0)) {
+        return -1;
+    }
+    return fmt(buf, n, "ev.obs\t%u\t%u\t%u\t%u\t%u\t%u\t%s\t%s\t%s\t%u\t%u\n", (unsigned)o->side, (unsigned)o->kind,
+               (unsigned)o->flags, (unsigned)o->t_ms, (unsigned)o->seq, (unsigned)o->alive, dash(o->mac), dash(o->ip),
+               dash(o->ip2), (unsigned)o->a, (unsigned)o->b);
+}
+
+int ppc_evt_format_ev_end(char *buf, size_t n, uint32_t req)
+{
+    return fmt(buf, n, "ev.end\t%u\n", (unsigned)req);
 }
 
 int ppc_evt_format_bin(char *buf, size_t n, uint64_t second, const uint32_t c[PPC_CLASS_COUNT],
@@ -1349,6 +1437,90 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         copy(v->ip2, sizeof(v->ip2), f[9]);
         copy(v->mac2, sizeof(v->mac2), f[10]);
         e->kind = PPC_EVT_NET_EVT;
+    } else if (strcmp(f[0], "mark") == 0) {
+        struct ppc_evt_mark *m = &e->u.mark;
+        int st;
+
+        if (n != 7) {
+            return e->kind;
+        }
+        st = parse_state(f[4]);
+        if (u32(f[1], &m->id) != 0 || !m->id || u32(f[2], &m->first) != 0 || !m->first || m->first > m->id ||
+            u32(f[3], &m->at_ms) != 0 || st < 0 || u32(f[5], &m->seq) != 0 || u64(f[6], &m->wall_s) != 0) {
+            return e->kind;
+        }
+        m->state = (uint8_t)st;
+        e->kind = PPC_EVT_MARK;
+    } else if (strcmp(f[0], "ev.begin") == 0) {
+        struct ppc_evt_ev_head *h = &e->u.ev_head;
+        int st;
+
+        if (n != 10) {
+            return e->kind;
+        }
+        st = parse_state(f[6]);
+        if (u32(f[1], &h->req) != 0 || u32(f[2], &h->id) != 0 || !h->id || u32(f[3], &h->first) != 0 || !h->first ||
+            u32(f[4], &h->last) != 0 || h->first > h->id || h->id > h->last || u32(f[5], &h->at_ms) != 0 || st < 0 ||
+            u32(f[7], &h->seq) != 0 || u64(f[8], &h->wall_s) != 0 || u32(f[9], &h->now_ms) != 0) {
+            return e->kind;
+        }
+        h->state = (uint8_t)st;
+        e->kind = PPC_EVT_EV_BEGIN;
+    } else if (strcmp(f[0], "ev.win") == 0) {
+        struct ppc_evt_ev_win *w = &e->u.ev_win;
+        uint32_t side;
+        uint32_t flags;
+
+        if (n != 10 + (PPC_EV_KINDS - 1)) {
+            return e->kind;
+        }
+        if (u32(f[1], &side) != 0 || side > 1 || u32(f[2], &flags) != 0 || (flags & ~PPC_EVW_ALL) ||
+            u32(f[3], &w->span_ms) != 0 || w->span_ms > PPC_EV_WINDOW_MS || u32(f[4], &w->watched_s) != 0 ||
+            u32(f[5], &w->held_s) != 0 || u32(f[6], &w->shed_s) != 0 || u64(f[7], &w->lost) != 0 ||
+            u32(f[8], &w->kept) != 0 || w->kept > PPC_EV_KEEP || u32(f[9], &w->more) != 0) {
+            return e->kind;
+        }
+        for (i = 1; i < PPC_EV_KINDS; i++) {
+            if (u32(f[9 + i], &w->count[i]) != 0) {
+                return e->kind;
+            }
+        }
+        w->side = (uint8_t)side;
+        w->flags = (uint8_t)flags;
+        e->kind = PPC_EVT_EV_WIN;
+    } else if (strcmp(f[0], "ev.obs") == 0) {
+        struct ppc_evt_ev_obs *o = &e->u.ev_obs;
+        uint32_t side;
+        uint32_t kind;
+        uint32_t flags;
+        uint32_t alive;
+
+        if (n != 12) {
+            return e->kind;
+        }
+        for (i = 7; i <= 9; i++) {
+            none_dash(f[i]);
+        }
+        if (u32(f[1], &side) != 0 || side > 1 || u32(f[2], &kind) != 0 || kind == PPC_EV_NONE || kind >= PPC_EV_KINDS ||
+            u32(f[3], &flags) != 0 || (flags & ~PPC_EVF_ALL) || u32(f[4], &o->t_ms) != 0 || u32(f[5], &o->seq) != 0 ||
+            !o->seq || u32(f[6], &alive) != 0 || alive > PPC_EV_WHOLE || !addr_ok(f[7], PPC_MAC_TEXT, 1) ||
+            !addr_ok(f[8], PPC_IP_TEXT, 0) || !addr_ok(f[9], PPC_IP_TEXT, 0) || u32(f[10], &o->a) != 0 ||
+            u32(f[11], &o->b) != 0) {
+            return e->kind;
+        }
+        o->side = (uint8_t)side;
+        o->kind = (uint8_t)kind;
+        o->flags = (uint8_t)flags;
+        o->alive = (uint8_t)alive;
+        copy(o->mac, sizeof(o->mac), f[7]);
+        copy(o->ip, sizeof(o->ip), f[8]);
+        copy(o->ip2, sizeof(o->ip2), f[9]);
+        e->kind = PPC_EVT_EV_OBS;
+    } else if (strcmp(f[0], "ev.end") == 0) {
+        if (n != 2 || u32(f[1], &e->u.ev_req) != 0) {
+            return e->kind;
+        }
+        e->kind = PPC_EVT_EV_END;
     } else if (strcmp(f[0], "marks") == 0) {
         char *end = NULL;
 
