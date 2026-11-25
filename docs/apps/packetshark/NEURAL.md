@@ -1,6 +1,6 @@
 # PacketShark NEURAL
 
-**Design study for owner review · revision 2 · based on master `448327d` · 24 November 2026, K1 result 25 November 2026 · nothing implemented, nothing deployed; one owner-authorized, non-destructive bench run on Unit A (K1, without P7); Unit B untouched**
+**Design study for owner review · revision 2 · based on master `448327d` · 24 November 2026, K1 result 25 November 2026, independently reviewed and corrected 25 November 2026 · nothing implemented, nothing deployed; one owner-authorized, non-destructive bench run on Unit A (K1, without P7); Unit B untouched**
 
 **Recommendation: one witness, three lenses.** Build one intelligence engine inside the capture helper. It is an evidence ledger fed by cheap observers and guarded by a visibility gate. Present it through three lenses on the same evidence:
 
@@ -12,8 +12,8 @@ Ship WHEN first, on the CPU, with no model. Use the KPU for one thing first: a b
 
 Host-side experiments for this revision gave three results that drive the design:
 
-1. **The visibility gate is worth more than any model tried.** On a synthetic test set, rules without it raised alerts on 76 % of windows with capture loss and 90 % with one-way visibility. With it, 2–4 %.
-2. **The KPU compiles telemetry-shaped models,** but only from a narrow operator set. It pays only for batched work. On Unit A, one batch of 64 conversations took 0.13 ms p95 end to end, about 2,000 times less than the same weights in C on the CPU. The output was byte-identical to the simulator's.
+1. **The visibility gate comes first, on its logic.** A lost answer looks exactly like an unanswered query, so every number must carry how much of its interval was seen. The synthetic figures first quoted here (alerts on 76–90 % of affected windows without the gate, 2–4 % with it) are not evidence: the generator hands the gate the ground truth and never overlaps a fault with a gap (review F7). The gate's cost, faults missed under partial loss, is still unmeasured.
+2. **The KPU compiles telemetry-shaped models,** but only from a narrow operator set. On Unit A, one batch of 64 conversations took 0.13 ms p95 end to end, and the output was byte-identical to the simulator's. That shows the KPU is fast, not that this model needs it. The C reference it was compared with (270 ms) is cache-hostile; a fair CPU kernel is estimated at 2–50 ms per batch, which is enough at product rates (review F4).
 3. **The default vantage sees network plumbing far better than conversations.** This changes what the second lens can be.
 
 The first revision of this brief (`41a6f5d`) chose between three products. This one treats them as views of one engine and challenges seven of its assumptions (§2).
@@ -27,7 +27,7 @@ The first revision of this brief (`41a6f5d`) chose between three products. This 
 | [neural/ROADMAP.md](neural/ROADMAP.md) | First KPU proof of concept, GO/NO-GO criteria, phased roadmap |
 | [neural/HANDOVER.md](neural/HANDOVER.md) | Where this stands, owner decisions, what warrants independent review |
 | [neural/K1-REVIEW.md](neural/K1-REVIEW.md) | Brief for an independent review of the K1 measurements on Unit A |
-| [neural/INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md) | Independent review of this package (25 November 2026): findings, disputed verdicts, GO/NO-GO decisions and an amended P7 protocol. Its corrections have not been applied to the other documents yet |
+| [neural/INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md) | Independent review of this package (25 November 2026): findings, disputed verdicts, GO/NO-GO decisions and an amended P7 protocol. Its corrections were applied to the other documents on 25 November 2026, except one held with a private finding. Its recommendations on architecture and order are not adopted yet; they await the owner |
 
 ## 1. Evidence at the starting point
 
@@ -46,8 +46,8 @@ The first revision of this brief (`41a6f5d`) chose between three products. This 
 | Timeline, Atlas and Doctor are **alternatives**, to be chosen by field trials | They need the same parts: a per-second series keyed by packet time, an evidence ledger, a visibility gate | **One engine, three lenses.** Build the engine once. The order of the lenses is the order in which the engine can support them end to end. |
 | Atlas maps **who spoke with whom** | At the default vantage other hosts' unicast is invisible. Conversation shapes describe mostly the unit's own flows. Plumbing (DHCP, ARP, mDNS, LLMNR, NBNS) is visible from every port (R3; [PACKETSHARK.md](../PACKETSHARK.md) §2) | **WHO = presence of everyone + conversations of the unit itself.** A full conversation map waits for mirror-port capture, which needs promiscuous mode verified on hardware first. |
 | The KPU is where the intelligence runs | A per-window model is 0.07–0.7 M multiply-accumulates (MACs): trivial on the CPU. Only batched scorers reach 13–66 M MACs per call. The call overhead is undocumented (E1, E2, R1) | **The KPU accelerates one or two batched scorers,** measured first on a bench. The engine is complete without it. |
-| A small temporal model can rank multivariate shifts better than rules | Synthetic E3a: domain rules AUROC 0.88; unsupervised TCN 0.65; supervised TCN 0.90 but 0 % on a fault type it never saw. A learned fusion even learned to suppress the SERVFAIL rule. The literature agrees (R2: a boxplot rule matched Kitsune) | **Rules and statistics are v1.** A neural detector is admitted only by gate G3 on real, consented data, and may only reorder evidence, never suppress it. |
-| A traffic shape can be called "unclassified" when short or ambiguous | E3b: the encoder beat hand-crafted features (93 % vs 89 % on known classes) but rejected only **0.2 %** of two unseen classes at 95 % known-acceptance | **Show resemblance within the capture, not labels.** Names come only from deterministic evidence: the DNS answer that resolved the address. |
+| A small temporal model can rank multivariate shifts better than rules | Synthetic E3a could not settle this (review F8): the rules were written knowing every generator fault, two baselines could not alert, and it is one seed. The supervised TCN beat the rules on two of three held-out faults and found none of the third, whose channel no training fault moved. A learned fusion gave that channel's rule a negative weight. The literature favours simple rules (R2: a boxplot rule matched Kitsune) | **Rules and statistics are v1,** because they can be explained and there are no real labels yet, not because E3a proved them better. A neural detector is admitted only by gate G3 on real, consented data, and may only reorder evidence, never suppress it. |
+| A traffic shape can be called "unclassified" when short or ambiguous | E3b: the encoder beat untrained hand-crafted features (93 % vs 89 % on known classes; 93.2 vs 90.6 with kNN). One global similarity threshold rejected one flow of about 455 from two unseen classes. That does not show open-set rejection is impossible: the threshold was calibrated on test flows, and the margin and length rules R3 specified were not implemented (review F9) | **Show resemblance within the capture, not labels.** It is the prudent choice until rejection is tested properly on real data. Names come only from deterministic evidence: the DNS answer that resolved the address. |
 | "Never turn endpoint names or addresses into model inputs" | Right for learned weights (identifiers are the documented shortcut). Too broad as a rule: names are already stored and shown, and binding a DNS name to a conversation is the best header-only label (R3) | **Narrower rule (decision D1):** raw identifiers never enter training data or weights. They may be joined and shown session-locally. A name-shape scorer is a named exception. |
 | The symptom's own traffic is there to compare ("DNS replies slowed · 8 / 6 pairs" in 20 s) | The person's symptom usually happens on another device, whose DNS and TCP are invisible here. The unit's own DNS and TCP come only from its own services, cannot be provoked by PacketShark, and may be sparse. Plumbing, by contrast, reaches every port | **WHEN leads with shared-infrastructure and plumbing evidence** (DHCP, ARP, the resolver and router the unit shares). On the unit's own DNS/TCP it abstains honestly ("this unit asked 2 questions in that minute"). How sparse the unit's own traffic really is gets measured first (N1); G2 includes quiet captures. |
 
@@ -73,16 +73,16 @@ The unit's own conversations are **named by the DNS answers that resolved them**
 **WHY — and how sure?** The Doctor holds competing explanations and shows the evidence and counter-evidence for each. When it cannot decide, it says what would settle it:
 
 - **Verdicts.** Four states: OK, MARGINAL, PROBLEM and **CAN'T TELL**, always with a reason ("12 % of frames were lost in that minute").
-- **"Do this now."** When the missing observation is something a person can cause, the Doctor asks for it: "Reconnect the phone's Wi-Fi now — I'll watch its DHCP exchange." That exchange is broadcast, so the unit can see it without sending a byte.
+- **"Do this now."** When the missing observation is something a person can cause, the Doctor asks for it: "Reconnect the phone's Wi-Fi now — I'll watch it join." The client's half of that exchange is broadcast: its DISCOVER, its REQUEST naming the server it chose, and the ARP probe and announcements that follow a successful join. The unit can see those without sending a byte. The server's OFFER and ACK are usually unicast to the client and are not visible from another port ([PACKETSHARK.md](../PACKETSHARK.md) §4c).
 - **Integrity.** It checks the unit's own connections for signs of interference. Example: unrelated servers answering with identical TCP option sets and hop counts suggest a terminating proxy. Other signs are MSS clamping, NXDOMAIN answers rewritten into addresses, and a second DHCP server.
 
 **An example.** A technician plugs DOORS into a wall jack in a meeting room where "the Wi-Fi is bad", and starts a capture. The `SEEING: OWN + BROADCAST` chip says what kind of evidence this will be.
 
-1. **WHO lists 31 devices.** One of them answers DHCP with a different router address than the others.
+1. **WHO lists 31 devices.** Their broadcast DHCP REQUESTs name two different servers.
 2. **A laptop on the table fails to join.** The technician taps MARK.
-3. **WHEN shows the laptop's DHCP DISCOVER repeated five times.** Two different servers offered addresses in the same 20 seconds.
+3. **WHEN shows the laptop's DHCP DISCOVER repeated five times.** Its REQUESTs named one server, then the other, within the same 20 seconds. The servers' own OFFERs are usually unicast to the laptop and are not visible from this jack.
 4. **WHY names two explanations.** The second server is either a misconfigured travel router or a planned failover pair. As a discriminating observation it asks for one more join, so the technician reconnects the laptop.
-5. **The second server answers first again.** The Doctor marks the explanation PROBLEM, states the evidence, and leaves the judgement about intent to the person who knows the network.
+5. **The laptop's next REQUEST names the second server again,** and no ARP announcement follows. The Doctor marks the explanation PROBLEM, states the evidence, and leaves the judgement about intent to the person who knows the network.
 
 No model was needed for any of it. The engine, the gate and the ledger did the work.
 
@@ -155,16 +155,22 @@ Observers in `pos-capture` keep a per-second series keyed by packet time, the un
 
 Otherwise conversation resemblance runs on the CPU reference at a lower rate, and the KPU stays with Vision. Full protocol, criteria and the roadmap: [ROADMAP.md](neural/ROADMAP.md).
 
-**Result, 25 November 2026 (Unit A, owner-authorized, P7 skipped).** These pass:
+**Result, 25 November 2026 (Unit A, owner-authorized, P7 skipped; verdicts revised after the independent review).** These pass:
 
-- p95 132 µs per batch, against 270 ms for the CPU reference;
+- p95 132 µs per batch back to back, and 191 µs at one call a second;
 - 221 µs p95 under CPU load;
 - output byte-identical to the simulator;
-- no CMA loss detectable after normal exits, at the meters' 1–3 MB resolution;
-- no drift over a 10-minute duty cycle;
-- a second instance refused by the lock.
+- no RSS growth over a 10-minute duty cycle;
+- a second bench instance refused by the lock.
 
-The SIGKILL measurement is still open, so G4 has not passed yet. Details: [ROADMAP §1](neural/ROADMAP.md#result-on-unit-a-25-november-2026); independent review brief: [K1-REVIEW.md](neural/K1-REVIEW.md).
+These are open:
+
+- **Memory after a normal exit is inconclusive.** The meter used cannot resolve one process's 76–84 kB.
+- **The SIGKILL measurement was not run.**
+- **Sharing the KPU with Vision is untested.** Vision does not take the lock yet.
+- **Need.** The CPU reference it was compared with (270 ms) is cache-hostile, so nothing here shows that this model needs the KPU.
+
+G4 has not passed. Details: [ROADMAP §1](neural/ROADMAP.md#result-on-unit-a-25-november-2026). The review: [INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md).
 
 ## 8. What stays exactly as it is
 

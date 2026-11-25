@@ -9,6 +9,7 @@ Scripts, result JSON and the desk research are on the branch `research/packetsha
 - *Compiler time* is the compiler's own ideal roofline estimate: 800 MHz, 0.6 TFLOP/s, 3.2 GB/s off chip, 25.6 GB/s on chip. It leaves out the runtime's per-call overhead. It is **not a measurement**.
 - *Simulator agreement* is VERIFIED functional equivalence. The simulator is not timed.
 - E3 accuracy figures come from **generators written for this study**. They show whether a mechanism works (shapes, masks, quantization, abstention, evaluation protocol). They are **not** accuracy on real networks.
+- An independent review on 25 November 2026 found several E3 and K1 conclusions weaker than first stated. The sections below carry its corrections, each marked "revised". The findings are in [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) F4–F11.
 
 Each experiment was chosen to settle one architectural uncertainty:
 
@@ -76,7 +77,7 @@ Trained models from E3 were compiled in u8 and a16w8, with calibration from trai
 | Same encoder, one conversation per call (`dna_h1`) | u8 | KPU + CPU | 29 KB | 0.33 ms | agreement 100 % on 512 conversations |
 
 **What it settles.**
-- PTQ in u8 does not change any decision these models feed, so a16w8 is unnecessary here. That contrasts with YOLOX, which needed a16w8 (`docs/apps/VISION.md`). Telemetry inputs that are log-scaled and normalised on the host quantize well.
+- On generator inputs, PTQ in u8 changes at most 0.3 % of the class-level decisions these models feed: 5 of 2,368 nearest prototypes flip, and window AUROC moves by at most 0.0003. So a16w8 is not needed for class-level decisions here. That contrasts with YOLOX, which needed a16w8 (`docs/apps/VISION.md`). Under the finer nearest-conversation decision, u8 changes 6.6 % of neighbours (see the K1 section). Per-window agreement with the float model was not computed, and the calibration data came from the same generator.
 - Batching is where the KPU's time goes furthest. In the compiler's estimate, 64 conversations in one call cost 0.0016 ms each, against 0.33 ms for one conversation per call. That is about 200 times less per conversation, before the unmeasured call overhead.
 
 ## E3a: window detectors and the visibility gate (`synth_telemetry.py`, `exp_window.py`)
@@ -126,13 +127,15 @@ True-positive rate per fault type at 1 % benign alerts:
 
 Fault types in italics were never seen in training.
 
-**What it settles, within the limits of a generator.**
+**What it settles, within the limits of a generator** (revised on 25 November 2026 after the independent review, [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) F7 and F8).
 
-1. **"Something changed" is the wrong question.** Benign traffic changes all the time. Generic change detectors (B1–B3, N1) separate faults from benign change barely better than chance. What works is knowing which direction of which ratio is harmful (B4).
-2. **The visibility gate is the most valuable single component.** Without it, the same rules raise alerts on 76 % of capture-loss windows and 90 % of one-way windows, because a lost answer looks exactly like an unanswered query. With it, 2–4 %. This answers the first brief's experiment 1 on the generator. It also shows that the gate still leaks: rates whose denominator spans a lossy bin. Fixing that is G0 work.
-3. **A supervised model learns its catalogue.** N2 wins on fault types similar to its training (upstream latency 0.96, subtle mix 0.64 against the rules' 0.44 and 0.26). It finds **none** of the SERVFAIL windows, which the rules catch at 0.74.
-4. **Learned fusion can suppress evidence.** The logistic regression gave the failure rule a negative weight (−0.43) because no training fault used it, and so missed every SERVFAIL. Learned weights over rules must therefore be non-negative, and a model may reorder evidence but never veto it.
+1. **The generic detectors were weak comparators.** B1 and B2 could not alert at all, because their thresholds equal the value their scores are clipped to. The autoencoder scored every channel two-sided on a generator where most benign windows contain a volume event. What the experiment does show is narrower: on this generator a detector must know which direction of which ratio is harmful (B4).
+2. **The gate's figures are constructed, not measured.** Without the gate, the rules raise alerts on 65 of 86 capture-loss windows and 71 of 79 one-way windows; with it, on 2 and 3. But the generator writes the coverage value in the same branch that injects the artifact, with loss between 15 and 60 %, and a window is either a gap or a fault, never both. So the result shows only that removing bins known to be corrupt returns alerts to the benign rate. The gate's cost, faults missed under partial loss, is invisible here: fault detection is identical with and without it. The gate is still the right first component on its logic. The experiment to redo uses coverage from a lagged, noisy drop counter with loss from 0.1 %, one-way visibility inferred from packet counts, and faults inside gaps.
+3. **A supervised model ignores a channel no training fault moved.** N2 found none of the 156 SERVFAIL windows, whose channel no training fault used. On the other two held-out faults it beat the rules (upstream latency 0.96, subtle mix 0.64, against 0.44 and 0.26). The comparison is not like for like: the rules were written knowing all eight generator faults, including the three "unseen" ones. 0.904 against 0.879 AUROC is inside noise.
+4. **Learned fusion can suppress evidence.** The logistic regression gave two rules negative weights (failures per answer at −0.43, and resets per SYN) because no training fault moved them, and so missed every SERVFAIL. This follows from a catalogue that leaves a channel unexercised. Learned weights over rules must be non-negative, and every rule channel needs at least one training fault.
 5. **There is a learnable residual on multi-signal faults** (N2 on the subtle mix). Whether it survives real data is G3's question, and it is the only reason to keep a neural detector on the research track.
+
+All E3a figures come from one seed, with no confidence intervals. The realised benign alert rate at the "1 %" threshold was 1.2–2.8 %.
 
 ## E3b: Traffic DNA (`exp_dna.py`)
 
@@ -141,9 +144,19 @@ Fault types in italics were never seen in training.
 | Representation | Accuracy, known classes (prototype) | kNN-5 | Short flows (< 16 packets) | Full 32 packets | Open-set AUROC | Unknown rejected at 95 % known acceptance |
 | --- | --- | --- | --- | --- | --- | --- |
 | Hand-crafted, 24 dimensions | 0.889 | 0.906 | 0.713 | 0.973 | 0.652 | 0.0 % |
-| **1-D CNN, 32-d (`dna-b64` weights)** | **0.933** | **0.932** | **0.793** | **1.000** | 0.704 | **0.2 %** |
+| **1-D CNN, 32-d (`dna-b64` weights)** | **0.933** | **0.932** | **0.793** | **1.000** | 0.704 | 0.2 % (1 flow of about 455) |
 
-**What it settles.** A small encoder beats hand-crafted features on the same information, most of all on short flows. Training took 14 s on the CPU. **Neither representation can say "unclassified" by a similarity threshold.** The unseen classes land confidently near known ones: gaming near voice, SSH near small API calls. So the product shows resemblance within the capture ("these four look alike"), and labels come only from deterministic evidence. A future labelled mode would need distance plus margin rejection calibrated on real data (R3). The same encoder runs 64 conversations per call on the KPU (E2).
+**What it settles** (revised on 25 November 2026 after the independent review, F9). A small encoder beats hand-crafted features that received no training beyond scaling, most of all on short flows. With kNN the lead is 93.2 against 90.6. Training took 14 s on the CPU.
+
+**One global similarity threshold did not reject the two unseen classes.** That is a weaker finding than "open-set rejection fails":
+
+- the threshold was calibrated on the test flows and pooled over flow lengths;
+- the embedding was trained with cross-entropy;
+- the margin and length eligibility that R3 specified were not implemented;
+- the generator builds gaming much like voice, and SSH shares its opening with IoT telemetry;
+- it is one split and one seed.
+
+Showing resemblance within the capture ("these four look alike") and taking labels only from deterministic evidence is still the prudent product choice. Whether a labelled mode is possible needs margin and ensemble rejection, tested on real data. The same encoder runs 64 conversations per call on the KPU (E2).
 
 ## E3c: rhythm (`exp_rhythm.py`)
 
@@ -188,11 +201,17 @@ This is the first measurement on a unit, authorized by the owner, non-destructiv
 | Peak RSS | 5.1 MiB | 5.1 MiB |
 | Explicit CMA per process | 4 allocations, 19 pages | 5 allocations, 21 pages |
 
-**What it settles.** The compiler's roofline estimate held within 5 % for the KPU section. Call overhead outside it is about 18 µs. The simulator reproduces the device byte for byte, so it can serve as the golden reference in host tests. The C reference costs about 2,000 times more per batch than the KPU path.
+**What it settles** (revised on 25 November 2026 after the independent review, F4 and F5). The compiler's roofline estimate held within 5 % for the KPU section, at this one model size. Call overhead outside it is about 18 µs. The simulator reproduces the device byte for byte, so it can serve as the golden reference in host tests.
 
-**Quantization judged on resemblance** (host analysis of the device outputs, generated data, 10 classes). u8 changes the exact nearest neighbour of 6.6 % of conversations against the float model, but the neighbour's class changes for only 1.0 %. Precision at 1 is 0.875 against 0.876 for float. a16w8 gives 3.1 % and 0.4 % with unchanged precision. This refines E2's nearest-prototype agreement (99.79 %): exact in-batch neighbours are more fragile than prototypes, but the flips stay within the class.
+The C reference took about 2,000 times longer per batch, but it is a cache-hostile baseline: 19.3 ns per multiply-accumulate, because its loop order makes successive loads alias in the L1 cache. A fair CPU kernel is estimated at 2–50 ms per batch (ASSUMED), which puts the ratio at roughly 16–400 times. The run shows the KPU is fast. It does not show that this model needs it.
 
-**Limits.** P7 was not run. `CmaFree` resolves only about 1–3 MB because of the kernel's per-CPU page lists, so a sub-MB loss per run is neither shown nor excluded. CPU time during a call, a real capture as load, CPU frequency and energy were not measured.
+**Quantization judged on resemblance** (host analysis of the device outputs, generated data, 10 classes; revised after the review, F10). Against the float model, u8 changes the exact nearest neighbour of 136 of 2,048 conversations (6.6 %). 21 of those land in a different class: 15.4 %, against 12.4 % expected by chance. So the flips are not class-preserving. Net precision at 1 changes by 2 of 2,048 (0.875 against 0.876), which is inside noise. a16w8 changes 64 neighbours, 9 of them to another class. Exact in-batch neighbours are more fragile than E2's nearest prototypes (99.79 % agreement). The a16w8 latency difference comes from one run in a fixed order and is not cleanly attributable to the mode.
+
+**Limits.**
+- P7 was not run.
+- P6 is inconclusive. `CmaFree` cannot resolve a per-process loss of 76–84 kB: per-process deltas had a standard deviation of 379 kB. The exact meter, CMA debugfs, was not used.
+- P9's output was checked by cosine, not byte-compared.
+- CPU time during a call, an optimized CPU kernel, a real capture as load, sharing with Vision and energy were not measured.
 
 ## Reproduce
 

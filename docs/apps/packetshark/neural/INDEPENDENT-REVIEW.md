@@ -137,6 +137,8 @@ Not worth more compute: a neural window detector on telemetry (latency was never
 
 ## 10. Corrections the PR text needs
 
+**Status:** applied on 25 November 2026, except the last one. The changed passages are marked "revised" in each document. The recommendations in §5, §8 and §9 are not adopted; they await the owner.
+
 - "About 2,000 times" (NEURAL.md, EXPERIMENTS, ROADMAP): state the baseline's nature or give the fair range.
 - "P6 PASS at the available resolution": make it INCONCLUSIVE.
 - "u8 does not change any decision" and "the neighbour's class changes for only 1.0 %": see F10.

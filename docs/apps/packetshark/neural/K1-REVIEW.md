@@ -1,5 +1,7 @@
 # K1 on Unit A: brief for independent review (Fabel 5.2)
 
+**Status: reviewed on 25 November 2026.** The review is [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md). It answers the questions below in its §2 (F4–F6, F10, F11), §3 and §7. This brief is kept as the record of what was asked.
+
 **25 November 2026.** This is a handover for an independent technical review of the first KPU measurement for PacketShark NEURAL. It gives the question, the material and what to challenge. The author's verdicts are in [ROADMAP §1](ROADMAP.md#result-on-unit-a-25-november-2026). Please form your own reading of the raw data before you read them.
 
 ## 1. The question
