@@ -607,16 +607,13 @@ static lv_obj_t *pair_words(struct settings_app *a, lv_obj_t *p, int headline)
         return a->w.gw_hint;
     }
     a->w.gw_headline = settings_wrap_label(p, a->pair.headline, POS_STYLE_TITLE);
-    /* A title stays a title: the tone colours it (a tone role would bring
-     * the body font with it). The sheet is built again on every change of
-     * phase, and Appearance is another page, so the colour is never stale. */
-    if (a->pair.tone != SV_TONE_NORMAL) {
-        enum pos_color_token t = a->pair.tone == SV_TONE_OK     ? POS_COLOR_STATUS_OK
-                                 : a->pair.tone == SV_TONE_WARN ? POS_COLOR_STATUS_WARN
-                                 : a->pair.tone == SV_TONE_ERROR ? POS_COLOR_STATUS_ERROR
-                                                                 : POS_COLOR_TEXT_MUTED;
-
-        lv_obj_set_style_text_color(a->w.gw_headline, lv_color_hex(pos_theme_rgb(t)), 0);
+    /* A title stays a title: the status roles are colour alone, so the
+     * title's font is kept (settings_set_tone would bring the body font). */
+    if (a->pair.tone == SV_TONE_OK || a->pair.tone == SV_TONE_WARN || a->pair.tone == SV_TONE_ERROR) {
+        pos_style_add(a->w.gw_headline, a->pair.tone == SV_TONE_OK     ? POS_STYLE_STATUS_OK_TEXT
+                                        : a->pair.tone == SV_TONE_WARN ? POS_STYLE_STATUS_WARN_TEXT
+                                                                       : POS_STYLE_STATUS_ERROR_TEXT,
+                      0);
     }
     a->w.gw_hint = settings_wrap_label(p, a->pair.text, POS_STYLE_TEXT_SECONDARY);
     return a->w.gw_hint;

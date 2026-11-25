@@ -250,7 +250,15 @@ for d in $deps; do
         # (docs/apps/PACKETSHARK.md), in the image and its sysroot already
         # (the toolbox's tcpdump), BSD-3-Clause with its own licence metadata;
         # linked dynamically, nothing of it is compiled into Doors.
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|libpcap|host-*) ;;
+        # openssl: OpenSSL 3.4.1 (libssl, libcrypto) for gatewayd, the Companion
+        # gateway (ADR-019; in the image since its amendment 2), in the image
+        # already (libcurl, sshd), Apache-2.0 with its own licence metadata;
+        # linked dynamically, nothing of it is compiled into Doors.
+        # libxcrypt: libxcrypt 4.4.38 for sysd's device-password hash (ADR-019
+        # amendment 2), in the image already (sshd links it), LGPL-2.1-or-later
+        # with its own licence metadata; linked dynamically, nothing of it is
+        # compiled into Doors.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|libpcap|openssl|libxcrypt|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         # gsl-lite: header-only, included by the nncase headers pos-vision
         # compiles against; selected by the package since 0.3.5.
