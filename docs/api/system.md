@@ -568,7 +568,8 @@ there and executable. `enabled`: `GATEWAYD_ENABLE=1`. `running`: the daemon
 `password_set`: root has a password hash, by gatewayd's own rule (sysd compiles
 `services/gatewayd/gw_gate.c`). `ssh`: `hardened`, `open`, `unknown` or
 `absent` (neither sshd nor its configuration), as above. `state`: `idle`, `running`, `done` or `failed`, for the
-running or last change, which `action` names (`enable`, `disable`, `password`).
+running or last change, which `action` names (`enable`, `disable`, `password`,
+or `recover`: sysd switching off an activation that did not finish, below).
 `error` and `message` are there when it failed.
 
 #### companion.set_enabled
@@ -590,6 +591,23 @@ once with `{"state": "running"}`; `companion.status` follows the change.
 - `false` is always accepted. `GATEWAYD_ENABLE=0` is written **before**
   `S70gatewayd stop`, so a stop that fails (`stop_failed`) still leaves a unit
   that does not start the gateway at its next boot.
+
+**An activation that does not finish leaves the gateway off** (the owner's
+condition of 2026-11-25). Before `GATEWAYD_ENABLE=1` is written, the activation
+is recorded in `$POCKETOS_STATE_DIR/companion/activating` (mode 0600: the boot's
+`boot_id` and the change's process group), and the record is removed only once
+gatewayd answered, or the switch is back at 0. The change runs in its own
+process group and dies with sysd (`PR_SET_PDEATHSIG`). When it ends any other
+way (its 90 s limit, killed, a rollback that could not be written), and when
+sysd starts and finds a record (sysd killed or restarted half way, the unit
+restarted or lost power): the record's process group is ended if it is of this
+boot, `GATEWAYD_ENABLE=0` is written at once, and a change with `action`
+`recover` runs `S70gatewayd stop` and reports `activation_interrupted`. The
+record goes once 0 is written; a record whose 0 cannot be written stays, and is
+tried again at sysd's next start. `S70gatewayd start` starts nothing while a
+record names another boot, or a process group that is gone, so a boot after a
+power cut does not start the gateway, whether sysd or the init script runs
+first. Switching it on again is a new activation.
 
 The gateway's own state (`$POCKETOS_STATE_DIR/gatewayd`: the unit's key and
 the paired phones) is never touched: off and on again, it is the same unit to
@@ -617,7 +635,7 @@ into its own words) and the sentence for a person at `doors call`:
 `not_installed`, `password_required`, `ssh_unknown`, `ssh_failed`,
 `write_failed`, `defaults_unsupported`, `start_failed`, `no_answer`,
 `stop_failed`, `busy`, `timed_out`, `invalid_password`, `password_layout`,
-`password_failed`. A change that runs
+`password_failed`, `activation_interrupted`. A change that runs
 reports the same words in `companion.status`.
 
 ### Trust model
