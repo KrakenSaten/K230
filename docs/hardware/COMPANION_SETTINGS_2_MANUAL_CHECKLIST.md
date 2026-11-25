@@ -4,15 +4,25 @@ The tests that need the owner's hands, eyes and phone. Everything that could
 be done remotely is in `COMPANION_SETTINGS_2_GATE.md` section 11. Mark each
 PASS, FAIL or NOT TESTED, with the time. Unit A stays untouched.
 
-**Where Unit B starts:** see the "Remote session" note at the end of
-section 11 of the gate.
-- If the validation build is installed, Companion has been reset to a fresh
-  install: gateway off, no switch file, no unit key, no phones, root's
-  password and `sshd_config` as found.
-- If PR #188 had not merged, nothing was installed. Start with section 3 of
-  the gate: sync, build, kit, BACKUP, INSTALL.
+**Where Unit B starts:** unchanged, Doors 0.5.0 `b37b644a`. On the owner's
+instruction of 2026-11-25, nothing was installed overnight, and root's
+password, SSH, the gateway and pairing were left alone. The build, the image
+and the kit are ready (section 11 of the gate).
 
-## Before
+## 0. Install, with you there (about 5 minutes, over SSH)
+
+- [ ] Key-only SSH works, and COM3 shows `canaan login:` (no login).
+- [ ] Copy the kit to `/root/companion-settings-2-<build>/` and run
+      `sha256sum -c KIT.sha256`.
+- [ ] Run `sh BACKUP.sh` and copy `before/` to the PC.
+- [ ] Run `INSTALL.sh`, detached; `install.status` must be 0.
+- [ ] `companion.status`: installed, off, no password, SSH open. No gatewayd
+      runs, and 47231 is closed.
+- [ ] The rollback, exercised once before anything else: run `RESTORE.sh`
+      (status 0: binaries, shadow, sshd and paths back as found), then
+      `INSTALL.sh` again. About 3 minutes; it proves the way back works.
+
+## Before the tests at the unit
 
 - [ ] Choose the device password and write it down outside the unit. From
       step 2 on, the serial console asks for it.
@@ -41,6 +51,22 @@ section 11 of the gate.
 | 12 | REMOVE PHONE (confirm) | The phone says the unit removed it; it can't get back in without pairing again |
 | 13 | Optional: show a code and let it expire (120 s); show one and CANCEL; REFUSE a phone | Each ends in words; an old code no longer works |
 | 14 | At COM3 (optional): `canaan login:`, then root | It asks for the device password |
+
+## Over SSH while you are there (after step 2, no hands needed)
+
+These were held back overnight because they need a device password or the
+gateway on. Results go in section 11 of the gate.
+
+| # | Check | Expect |
+|---|---|---|
+| S1 | After step 2: `sshd_config`, `sshd_config.doors-orig`, `sshd -T`, root's shadow field (first 3 characters only), a **new** key-only SSH connection | `prohibit-password`; the original kept; `$6$`; key login works |
+| S2 | After step 3: `netstat -ltn`; `gateway.status` | Nothing listens with no phone and no window open (`no_clients`). During a pairing window: 172.16.5.126:47231 only, never .220 or 0.0.0.0 |
+| S3 | During a window, from the PC: `openssl s_client -tls1_2`; TLS 1.3 without a client key | Both refused; the window stays open |
+| S4 | The emulator (bench PC) pairs during a window | The unit shows the emulator's name and key, equal to the app's "This phone's key". **You** decide on the unit: REFUSE, or let it expire |
+| S5 | Reboot with the gateway on | On again, with the same unit key and phones; the password and SSH as set |
+| S6 | Interrupted activation at boot (gate U7): with the gateway on, a record from another boot, then a reboot | S70 starts nothing; sysd switches it off (`activation_interrupted`); Settings says why |
+| S7 | Interrupted activation, sysd killed (gate U8): a record of this boot with a process group that is gone, then sysd killed | pos-supervise restarts sysd; it is switched off; no gatewayd is left |
+| S8 | An in-place upgrade: `INSTALL.sh` again | The switch, unit key, phones, password and `sshd_config` byte for byte as before |
 
 ## After
 

@@ -652,7 +652,10 @@ out=$("$S70" start 2>&1); rc=$?
 check "S70 does not start after an activation interrupted by a reboot (the record names another boot)" \
       $([ "$rc" -eq 0 ] && [ "$(contains "$out" "not started: turning it on was interrupted")" = 1 ] &&
         sleep 0.3 && [ ! -e "$ROOT/gatewayd.args" ] && [ "$(count_gw)" -eq 0 ] && echo 1 || echo 0)
-sleep 30 & gone=$!; kill "$gone"; wait "$gone" 2>/dev/null
+# A pid that has exited, taken as the stale pid files above take theirs: a
+# background job killed before it has exec'd is still this shell and would
+# run the EXIT trap, removing $ROOT (it did, under load, twice).
+gone=$(sh -c 'echo $$')
 printf '%s %s\n' "$this_boot" "$gone" > "$ROOT/var/lib/pocketos/companion/activating"
 out=$("$S70" start 2>&1)
 check "nor after one whose activation is gone in this boot (sysd killed half way)" \
