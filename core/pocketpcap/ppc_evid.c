@@ -157,16 +157,9 @@ static void after_refresh(const struct ppc_evid *ev, struct ppc_ev_mark *m, uint
     if (m->loss_done) {
         return;
     }
-    /* Losses read from the mark's second to the second of `to` (its
-     * readings up to `to` told what was lost before it), less what the
-     * mark's second had before the mark (the window before's); and those of
-     * the spells closed inside the window. */
-    s->lost = s->lost_spells;
-    if (to > m->at_ms) {
-        uint64_t all = lost_in(ev, m->at_ms / 1000u, to / 1000u);
-
-        s->lost += all > m->lost_split ? all - m->lost_split : 0;
-    }
+    /* What it lost is counted as each reading is told and each spell closes
+     * (ppc_evid_counters, spell_to_mark), never again from the ring of
+     * seconds: that turns over within 64 s, and a spell can outlast it. */
     /* A spell still open that reaches into the window: its losses are not
      * known. One that began before the mark is the mark's own (m->edge). */
     s->unknown = 0;
@@ -276,7 +269,8 @@ static void spell_to_mark(const struct ppc_evid *ev, struct ppc_ev_mark *m, cons
         }
     } else if (sp->from_ms < end) {
         if (sp->to_ms <= end) {
-            m->side[1].lost_spells += sp->lost; /* counted by the refresh that follows */
+            m->side[1].lost_spells += sp->lost;
+            m->side[1].lost += sp->lost;
         } else {
             m->side[1].lost_near += sp->lost;
         }
@@ -349,12 +343,17 @@ void ppc_evid_counters(struct ppc_evid *ev, uint32_t now_ms, int ok, uint64_t lo
             struct ppc_ev_mark *m = &ev->marks[i];
             uint32_t end = m->at_ms + PPC_EV_WINDOW_MS;
 
-            if (m->id && !m->loss_done && now_ms > end) {
+            if (!m->id || m->loss_done) {
+                continue;
+            }
+            if (now_ms > end) {
                 after_refresh(ev, m, end);
                 m->loss_done = 1;
                 if (ev->read_ms < end) {
                     m->side[1].lost_near += lost;
                 }
+            } else if (now_ms >= m->at_ms) {
+                m->side[1].lost += lost; /* read inside the window: its own */
             }
         }
         if (lost) {

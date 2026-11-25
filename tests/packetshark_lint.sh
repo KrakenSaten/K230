@@ -164,6 +164,12 @@ check "a window's count of lost frames is final only after a reading at or past 
        cbody ppc_evid_counters | grep -n 'after_refresh(ev, m, end);\|m->side\[1\].lost_near += lost;\|second(ev, now_ms / 1000u)' |
        cut -d: -f2- | tr '\n' ' ' | grep -q 'after_refresh(ev, m, end);.*lost_near += lost;.*second(ev, now_ms / 1000u)' &&
        echo 1 || echo 0)"
+# And it is counted as each reading is told, never again from the 64-second
+# ring of seconds, which a spell of failed readings can outlast.
+check "the window after's count of lost frames is kept as readings are told, never taken again from the ring of seconds" \
+    "$(! cbody after_refresh | code /dev/stdin | grep -q 'lost_in(\|s->lost = ' &&
+       cbody ppc_evid_counters | grep -q 'm->side\[1\].lost += lost;' &&
+       cbody spell_to_mark | grep -q 'm->side\[1\].lost += sp->lost;' && echo 1 || echo 0)"
 check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
        grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&

@@ -1214,9 +1214,60 @@ static void closure(void)
     check("closure, STOP while failing: the window's losses stay not known, nothing is counted after STOP",
           after_is(m, 23, 0, 1, 70100));
     ppc_evid_free(&ev);
-    /* STOP inside the window: the reading at STOP is the window's. */
+    /* Failing on long past the end: the 64-second ring of seconds turns over
+     * (the 23 were read at 40 s and 70.1 s), and what is known stays. */
+    {
+        uint32_t t;
+        int kept = 1;
+
+        m = to_the_end(&ev);
+        for (t = 70350; t < 140000; t += 250) {
+            read_fail(&ev, t, PPC_EVS_WATCHED);
+            kept = kept && m->side[1].lost == 23 && m->side[1].unknown && m->side[1].unknown_from_ms == 70100;
+        }
+        check("closure, failing for 70 s past the end: the 23 known stay, at every tick, while the ring turns over",
+              kept && after_is(m, 23, 0, 1, 70100));
+        tick_read(&ev, 140000, PPC_EVS_WATCHED, 40);
+        check("closure, recovered at 140 s: the 23 still the window's, the spell's 17 told apart near its end, known",
+              after_is(m, 23, 17, 0, 0));
+        tick_read(&ev, 140250, PPC_EVS_WATCHED, 45);
+        read_fail(&ev, 140500, PPC_EVS_WATCHED);
+        tick_read(&ev, 141000, PPC_EVS_WATCHED, 60);
+        check("closure, recovered at 140 s: settled once, nothing later added", after_is(m, 23, 17, 0, 0));
+        ppc_evid_free(&ev);
+
+        m = to_the_end(&ev);
+        for (t = 70350; t < 140000; t += 250) {
+            read_fail(&ev, t, PPC_EVS_WATCHED);
+        }
+        ppc_evid_stop(&ev, 140000, 0);
+        ppc_evid_tick(&ev, 150000, PPC_EVS_WATCHED);
+        ppc_evid_counters(&ev, 150000, 1, 99);
+        check("closure, STOP at 140 s in the same failure: the 23 stay, the rest not known for good",
+              after_is(m, 23, 0, 1, 70100));
+        ppc_evid_free(&ev);
+    }
+    /* The boundary settles once, whatever the order of tick and reading. */
     m = to_the_end(&ev);
+    read_tick(&ev, 70300, PPC_EVS_WATCHED, 28);
+    check("closure, a reading at the end before its tick: its 5 are the window's, once", after_is(m, 28, 0, 0, 0));
+    tick_read(&ev, 70550, PPC_EVS_WATCHED, 30);
+    check("closure, a reading at the end before its tick: nothing after it", after_is(m, 28, 0, 0, 0));
     ppc_evid_free(&ev);
+    m = to_the_end(&ev);
+    read_fail(&ev, 70200, PPC_EVS_WATCHED);
+    tick_read(&ev, 70300, PPC_EVS_WATCHED, 31);
+    check("closure, a spell ended by the reading at the end: its 8 are the window's, once", after_is(m, 31, 0, 0, 0));
+    tick_read(&ev, 70550, PPC_EVS_WATCHED, 33);
+    check("closure, a spell ended at the end: nothing after it", after_is(m, 31, 0, 0, 0));
+    ppc_evid_free(&ev);
+    m = to_the_end(&ev);
+    read_fail(&ev, 70200, PPC_EVS_WATCHED);
+    read_tick(&ev, 70300, PPC_EVS_WATCHED, 31);
+    check("closure, the same, the reading before its tick: 8, once", after_is(m, 31, 0, 0, 0));
+    ppc_evid_free(&ev);
+
+    /* STOP inside the window: the reading at STOP is the window's. */
     ppc_evid_init(&ev);
     tick_read(&ev, 10300, PPC_EVS_WATCHED, 0);
     m = ppc_evid_mark(&ev, 10300, PPC_STATE_CAPTURING, 7, 0);
