@@ -154,6 +154,16 @@ check "the counter-failure switch is in the test build alone: read once, inside 
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_STATS_FAIL")' &&
        [ "$(code $H | grep -c 'h->test_fail')" = "$(sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | code /dev/stdin | grep -c 'h->test_fail')" ] &&
        echo 1 || echo 0)"
+# The window after's count of lost frames closes with a reading, not with a
+# tick (the closure check of PR #188): final only after a reading at or past
+# its end, or STOP; a reading past it closes the count before it is booked.
+cbody() { sed -n -E "/^(static )?[a-z ]+\*?$1\(/,/^}/p" $C/ppc_evid.c; }
+check "a window's count of lost frames is final only after a reading at or past its end, or STOP; a reading past it closes the count before it is booked" \
+    "$([ "$(code $C/ppc_evid.c | grep -c 'loss_done = 1;')" = "2" ] &&
+       cbody after_refresh | grep -q 'if (ev->stopped || ev->read_ms >= end) {' &&
+       cbody ppc_evid_counters | grep -n 'after_refresh(ev, m, end);\|m->side\[1\].lost_near += lost;\|second(ev, now_ms / 1000u)' |
+       cut -d: -f2- | tr '\n' ' ' | grep -q 'after_refresh(ev, m, end);.*lost_near += lost;.*second(ev, now_ms / 1000u)' &&
+       echo 1 || echo 0)"
 check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
        grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&

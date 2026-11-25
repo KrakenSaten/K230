@@ -960,8 +960,8 @@ static void readings(void)
           strstr(b, "(0 before, 3 after)") &&
               strstr(b, "40 frames were lost while the counters could not be read, in a spell that began before the "
                         "window before the mark: they may be from before it, so they are told apart.") &&
-              strstr(b, "1 frame was lost while the counters could not be read, in a spell that ended after the window "
-                        "after the mark"));
+              strstr(b, "1 frame was lost between the last good reading of the counters inside the window after the "
+                        "mark and the first after its end: they may be from after it, so they are told apart."));
     psk_ev_nothing(&E, b, sizeof(b));
     check("lost near a window's far end, nothing seen: not fully watched, no quiet minute",
           strstr(b, "Part of the time was not fully watched, so this is not proof that none was sent.") && !strstr(b, "quiet"));

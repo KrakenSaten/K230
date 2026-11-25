@@ -796,8 +796,9 @@ const char *psk_ev_limits(const struct psk_evidence *ev, char *buf, size_t bufle
                  psk_fmt_count(b->lost_near, a, sizeof(a)), b->lost_near == 1 ? " was" : "s were");
         }
         if (f->lost_near) {
-            line(buf, buflen, "%s frame%s lost while the counters could not be read, in a spell that ended after the "
-                              "window after the mark: they may be from after it, so they are told apart.",
+            /* A reading across the end, after a spell or not. */
+            line(buf, buflen, "%s frame%s lost between the last good reading of the counters inside the window after "
+                              "the mark and the first after its end: they may be from after it, so they are told apart.",
                  psk_fmt_count(f->lost_near, a, sizeof(a)), f->lost_near == 1 ? " was" : "s were");
         }
         if ((b->flags | f->flags) & PPC_EVW_LOSSES_DROPPED) {

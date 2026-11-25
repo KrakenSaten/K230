@@ -123,14 +123,16 @@ static uint32_t lost_of_sec(const struct ppc_evid *ev, uint32_t sec)
 }
 
 /* The window after a mark as it stands at now_ms: still filling, full, or
- * cut where the capture stopped. */
+ * cut where the capture stopped. What it saw closes with the clock; what it
+ * lost only with a reading at or past its end, or with STOP: a tick past
+ * the end comes before the reading that tells the end's losses. */
 static void after_refresh(const struct ppc_evid *ev, struct ppc_ev_mark *m, uint32_t now_ms)
 {
     struct ppc_ev_side *s = &m->side[1];
     uint32_t end = m->at_ms + PPC_EV_WINDOW_MS;
     uint32_t to = now_ms;
 
-    if (!(s->flags & PPC_EVW_OPEN)) {
+    if (!(s->flags & PPC_EVW_OPEN) && m->loss_done) {
         return;
     }
     if (ev->stopped && ev->stop_ms < to) {
@@ -139,15 +141,22 @@ static void after_refresh(const struct ppc_evid *ev, struct ppc_ev_mark *m, uint
     if (to < m->at_ms) {
         to = m->at_ms;
     }
-    if (to >= end) {
+    if (to > end) {
         to = end;
-        s->flags &= (uint8_t)~PPC_EVW_OPEN;
-    } else if (ev->stopped) {
-        s->flags &= (uint8_t)~PPC_EVW_OPEN;
-        s->flags |= PPC_EVW_CUT_STOP;
     }
-    s->span_ms = to - m->at_ms;
-    side_seen(ev, s, m->at_ms, to);
+    if (s->flags & PPC_EVW_OPEN) {
+        if (to >= end) {
+            s->flags &= (uint8_t)~PPC_EVW_OPEN;
+        } else if (ev->stopped) {
+            s->flags &= (uint8_t)~PPC_EVW_OPEN;
+            s->flags |= PPC_EVW_CUT_STOP;
+        }
+        s->span_ms = to - m->at_ms;
+        side_seen(ev, s, m->at_ms, to);
+    }
+    if (m->loss_done) {
+        return;
+    }
     /* Losses read from the mark's second to the second of `to` (its
      * readings up to `to` told what was lost before it), less what the
      * mark's second had before the mark (the window before's); and those of
@@ -168,6 +177,11 @@ static void after_refresh(const struct ppc_evid *ev, struct ppc_ev_mark *m, uint
             s->unknown = 1;
             s->unknown_from_ms = sp->from_ms;
         }
+    }
+    /* Final once a good reading at or past the end is told (one past it is
+     * set apart before it is booked: ppc_evid_counters), or at STOP. */
+    if (ev->stopped || ev->read_ms >= end) {
+        m->loss_done = 1;
     }
 }
 
@@ -262,10 +276,7 @@ static void spell_to_mark(const struct ppc_evid *ev, struct ppc_ev_mark *m, cons
         }
     } else if (sp->from_ms < end) {
         if (sp->to_ms <= end) {
-            m->side[1].lost_spells += sp->lost;
-            if (!(m->side[1].flags & PPC_EVW_OPEN)) {
-                m->side[1].lost += sp->lost; /* closed at this same moment: not refreshed again */
-            }
+            m->side[1].lost_spells += sp->lost; /* counted by the refresh that follows */
         } else {
             m->side[1].lost_near += sp->lost;
         }
@@ -329,11 +340,29 @@ void ppc_evid_counters(struct ppc_evid *ev, uint32_t now_ms, int ok, uint64_t lo
                 spell_to_mark(ev, &ev->marks[i], sp);
             }
         }
-    } else if (lost) {
-        /* A reading a period after the last: lost in its second. */
-        struct ppc_ev_sec *e = second(ev, now_ms / 1000u);
+    } else {
+        /* A reading past the end of a window after whose count is still
+         * open ends that count before it is booked. What it tells was lost
+         * since the reading before, inside the window: from either side of
+         * the end, so it is told apart. Nothing read later is the window's. */
+        for (i = 0; i < PPC_EV_MARKS; i++) {
+            struct ppc_ev_mark *m = &ev->marks[i];
+            uint32_t end = m->at_ms + PPC_EV_WINDOW_MS;
 
-        e->lost = lost > 0xffffffffu - e->lost ? 0xffffffffu : e->lost + (uint32_t)lost;
+            if (m->id && !m->loss_done && now_ms > end) {
+                after_refresh(ev, m, end);
+                m->loss_done = 1;
+                if (ev->read_ms < end) {
+                    m->side[1].lost_near += lost;
+                }
+            }
+        }
+        if (lost) {
+            /* A reading a period after the last: lost in its second. */
+            struct ppc_ev_sec *e = second(ev, now_ms / 1000u);
+
+            e->lost = lost > 0xffffffffu - e->lost ? 0xffffffffu : e->lost + (uint32_t)lost;
+        }
     }
     ev->read_ms = now_ms;
     refresh_all(ev, now_ms);

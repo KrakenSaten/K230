@@ -1087,6 +1087,148 @@ static void post_stop_wall(void)
     ppc_evid_free(&ev);
 }
 
+/* ---- the window after's end (the closure check of PR #188, 2026-11-25) --------------------
+ * The helper reads the counters as `read_drops` does: a tick first, then the
+ * reading at the same time. A tick past the end of the window after closes
+ * what it saw; its count of lost frames must still wait for the reading. */
+
+/* A reading, then the tick: the other order, which must give the same. */
+static void read_tick(struct ppc_evid *ev, uint32_t t_ms, unsigned flags, uint64_t lost)
+{
+    ppc_evid_counters(ev, t_ms, 1, lost);
+    ppc_evid_tick(ev, t_ms, flags);
+}
+
+/* Readings every 250 ms from 10.0 s, a mark at 10.3 s (window after to
+ * 70.3 s), 20 lost read at 40.0 s, 3 more at 70.1 s: the last reading inside
+ * the window. Returns the mark. */
+static const struct ppc_ev_mark *to_the_end(struct ppc_evid *ev)
+{
+    const struct ppc_ev_mark *m;
+    uint32_t t;
+
+    ppc_evid_init(ev);
+    for (t = 10000; t <= 10300; t += 100) {
+        tick_read(ev, t, PPC_EVS_WATCHED, 0);
+    }
+    m = ppc_evid_mark(ev, 10300, PPC_STATE_CAPTURING, 7, 0);
+    for (t = 10550; t < 70100; t += 250) {
+        tick_read(ev, t, PPC_EVS_WATCHED, t >= 40000 ? 20 : 0);
+    }
+    tick_read(ev, 70100, PPC_EVS_WATCHED, 23);
+    return m;
+}
+
+static int after_is(const struct ppc_ev_mark *m, uint64_t lost, uint64_t near, int unknown, uint32_t from)
+{
+    const struct ppc_ev_side *a = &m->side[1];
+    int ok = a->lost == lost && a->lost_near == near && a->unknown == unknown && (!unknown || a->unknown_from_ms == from) &&
+             !(a->flags & PPC_EVW_OPEN) && a->span_ms == PPC_EV_WINDOW_MS;
+
+    if (!ok) {
+        printf("     after: lost %llu near %llu unknown %u from %u flags %u span %u\n", (unsigned long long)a->lost,
+               (unsigned long long)a->lost_near, (unsigned)a->unknown, (unsigned)a->unknown_from_ms, (unsigned)a->flags,
+               (unsigned)a->span_ms);
+    }
+    return ok;
+}
+
+static void closure(void)
+{
+    struct ppc_evid ev;
+    const struct ppc_ev_mark *m;
+
+    /* The tick of the helper's own 250 ms clock passes the end before the
+     * next reading: 7 more read at 70.35 s, lost between 70.1 and 70.35 s. */
+    m = to_the_end(&ev);
+    ppc_evid_tick(&ev, 70310, PPC_EVS_WATCHED);
+    check("closure: a tick past the end closes what the window saw", !(m->side[1].flags & PPC_EVW_OPEN) &&
+                                                                     m->side[1].span_ms == PPC_EV_WINDOW_MS);
+    tick_read(&ev, 70350, PPC_EVS_WATCHED, 30);
+    check("closure: the reading after the end is not omitted: its 7, lost between a reading inside the window and one "
+          "after it, are told apart (near its end), the window keeps its 23",
+          after_is(m, 23, 7, 0, 0));
+    check("closure: every frame lost by then is told once: 0 before + 23 after + 7 near its end = 30",
+          m->side[0].lost + m->edge_lost + m->side[1].lost + m->side[1].lost_near == 30);
+    /* Later readings, in the end's own second and after, and a spell begun
+     * after the end: none of it is the window's. */
+    tick_read(&ev, 70750, PPC_EVS_WATCHED, 41);
+    tick_read(&ev, 71500, PPC_EVS_WATCHED, 54);
+    read_fail(&ev, 71750, PPC_EVS_WATCHED);
+    read_fail(&ev, 72000, PPC_EVS_WATCHED);
+    check("closure: a spell begun after the end does not make the closed window's losses unknown",
+          after_is(m, 23, 7, 0, 0));
+    tick_read(&ev, 73000, PPC_EVS_WATCHED, 74);
+    check("closure: a closed window takes nothing read later: 11 in the end's own second, 13, 20 after a spell",
+          after_is(m, 23, 7, 0, 0));
+    ppc_evid_free(&ev);
+
+    /* The helper's order alone (read_drops: the tick, then the reading). */
+    m = to_the_end(&ev);
+    tick_read(&ev, 70350, PPC_EVS_WATCHED, 30);
+    check("closure, the tick at the reading itself: the 7 are not omitted", after_is(m, 23, 7, 0, 0));
+    ppc_evid_free(&ev);
+    m = to_the_end(&ev);
+    read_tick(&ev, 70350, PPC_EVS_WATCHED, 30);
+    check("closure, the reading before the tick: the same", after_is(m, 23, 7, 0, 0));
+    ppc_evid_free(&ev);
+
+    /* A reading at the end itself reports what was lost inside the window. */
+    m = to_the_end(&ev);
+    tick_read(&ev, 70300, PPC_EVS_WATCHED, 28);
+    check("closure: a reading at the end itself: its 5 are the window's", after_is(m, 28, 0, 0, 0));
+    tick_read(&ev, 70550, PPC_EVS_WATCHED, 30);
+    tick_read(&ev, 70800, PPC_EVS_WATCHED, 35);
+    check("closure: and the readings after it, from it on, are not the window's, nor near it", after_is(m, 28, 0, 0, 0));
+    ppc_evid_free(&ev);
+
+    /* The reading at closure fails: what was lost after the last good one
+     * is not known, however the window was closed. */
+    m = to_the_end(&ev);
+    read_fail(&ev, 70350, PPC_EVS_WATCHED);
+    check("closure, the reading fails: the window's losses are not known since the last good reading (70.1 s)",
+          after_is(m, 23, 0, 1, 70100));
+    read_fail(&ev, 70600, PPC_EVS_WATCHED);
+    read_fail(&ev, 71000, PPC_EVS_WATCHED);
+    ppc_evid_tick(&ev, 71250, PPC_EVS_WATCHED);
+    check("closure, failing on: still not known, nothing counted for it", after_is(m, 23, 0, 1, 70100));
+    tick_read(&ev, 72000, PPC_EVS_WATCHED, 40);
+    check("closure, recovered at 72 s: the 17 of the spell across the end are told apart, the window known again",
+          after_is(m, 23, 17, 0, 0));
+    tick_read(&ev, 72250, PPC_EVS_WATCHED, 45);
+    check("closure, recovered: and nothing later is added", after_is(m, 23, 17, 0, 0));
+    ppc_evid_free(&ev);
+    /* The same with a tick past the end first, as the helper's clock may. */
+    m = to_the_end(&ev);
+    ppc_evid_tick(&ev, 70310, PPC_EVS_WATCHED);
+    read_fail(&ev, 70350, PPC_EVS_WATCHED);
+    check("closure, a tick past the end, then the reading fails: not known either", after_is(m, 23, 0, 1, 70100));
+    ppc_evid_free(&ev);
+    /* STOP before any reading succeeds: not known for good. */
+    m = to_the_end(&ev);
+    read_fail(&ev, 70350, PPC_EVS_WATCHED);
+    read_fail(&ev, 70600, PPC_EVS_WATCHED);
+    ppc_evid_stop(&ev, 70700, 0);
+    ppc_evid_counters(&ev, 71000, 1, 99);
+    ppc_evid_tick(&ev, 71000, PPC_EVS_WATCHED);
+    check("closure, STOP while failing: the window's losses stay not known, nothing is counted after STOP",
+          after_is(m, 23, 0, 1, 70100));
+    ppc_evid_free(&ev);
+    /* STOP inside the window: the reading at STOP is the window's. */
+    m = to_the_end(&ev);
+    ppc_evid_free(&ev);
+    ppc_evid_init(&ev);
+    tick_read(&ev, 10300, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 10300, PPC_STATE_CAPTURING, 7, 0);
+    tick_read(&ev, 20000, PPC_EVS_WATCHED, 4);
+    tick_read(&ev, 30100, PPC_EVS_WATCHED, 10);
+    ppc_evid_stop(&ev, 30100, 0);
+    check("closure, STOP inside the window: the reading at STOP is counted in it, cut there",
+          m->side[1].lost == 10 && m->side[1].lost_near == 0 && (m->side[1].flags & PPC_EVW_CUT_STOP) &&
+              m->side[1].span_ms == 19800);
+    ppc_evid_free(&ev);
+}
+
 int main(int argc, char **argv)
 {
     verbose = argc > 1 && strcmp(argv[1], "-v") == 0;
@@ -1101,6 +1243,7 @@ int main(int argc, char **argv)
     bursts();
     boundary_losses();
     readings();
+    closure();
     dns_eviction();
     post_stop_wall();
     printf("ppc_evid_test: %d failure(s)\n", failures);

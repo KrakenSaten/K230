@@ -95,6 +95,7 @@ struct ppc_ev_mark {
     uint64_t wall_s; /* the wall clock at the mark, after STOP at STOP; 0: not set */
     uint32_t lost_split; /* frames lost in the mark's second up to the mark */
     uint8_t edge;        /* enum ppc_ev_edge */
+    uint8_t loss_done;   /* the window after's count of lost frames is final: a reading at or past its end, or STOP */
     uint32_t edge_from_ms; /* the last good reading before the mark */
     uint32_t edge_to_ms;   /* the first good reading after it (PPC_EV_EDGE_COUNTED) */
     uint64_t edge_lost;    /* what that reading told: lost around the mark, in neither window */
