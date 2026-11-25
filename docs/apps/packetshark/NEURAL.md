@@ -1,6 +1,6 @@
 # PacketShark NEURAL
 
-**Design study for owner review · revision 2 · based on master `448327d` · 24 November 2026 · nothing implemented, nothing deployed, Unit A and Unit B untouched**
+**Design study for owner review · revision 2 · based on master `448327d` · 24 November 2026, K1 result 25 November 2026 · nothing implemented, nothing deployed; one owner-authorized, non-destructive bench run on Unit A (K1, without P7); Unit B untouched**
 
 **Recommendation: one witness, three lenses.** Build one intelligence engine inside the capture helper. It is an evidence ledger fed by cheap observers and guarded by a visibility gate. Present it through three lenses on the same evidence:
 
@@ -13,7 +13,7 @@ Ship WHEN first, on the CPU, with no model. Use the KPU for one thing first: a b
 Host-side experiments for this revision gave three results that drive the design:
 
 1. **The visibility gate is worth more than any model tried.** On a synthetic test set, rules without it raised alerts on 76 % of windows with capture loss and 90 % with one-way visibility. With it, 2–4 %.
-2. **The KPU compiles telemetry-shaped models,** but only from a narrow operator set. It pays only for batched work.
+2. **The KPU compiles telemetry-shaped models,** but only from a narrow operator set. It pays only for batched work. On Unit A, one batch of 64 conversations took 0.13 ms p95 end to end, about 2,000 times less than the same weights in C on the CPU. The output was byte-identical to the simulator's.
 3. **The default vantage sees network plumbing far better than conversations.** This changes what the second lens can be.
 
 The first revision of this brief (`41a6f5d`) chose between three products. This one treats them as views of one engine and challenges seven of its assumptions (§2).
@@ -26,6 +26,7 @@ The first revision of this brief (`41a6f5d`) chose between three products. This 
 | [neural/EXPERIMENTS.md](neural/EXPERIMENTS.md) | What was run on the host, the results, how to reproduce them |
 | [neural/ROADMAP.md](neural/ROADMAP.md) | First KPU proof of concept, GO/NO-GO criteria, phased roadmap |
 | [neural/HANDOVER.md](neural/HANDOVER.md) | Where this stands, owner decisions, what warrants independent review |
+| [neural/K1-REVIEW.md](neural/K1-REVIEW.md) | Brief for an independent review of the K1 measurements on Unit A |
 
 ## 1. Evidence at the starting point
 
@@ -152,6 +153,17 @@ Observers in `pos-capture` keep a per-second series keyed by packet time, the un
 - the loss after SIGKILL is measured and under 4 MiB.
 
 Otherwise conversation resemblance runs on the CPU reference at a lower rate, and the KPU stays with Vision. Full protocol, criteria and the roadmap: [ROADMAP.md](neural/ROADMAP.md).
+
+**Result, 25 November 2026 (Unit A, owner-authorized, P7 skipped).** These pass:
+
+- p95 132 µs per batch, against 270 ms for the CPU reference;
+- 221 µs p95 under CPU load;
+- output byte-identical to the simulator;
+- no CMA loss detectable after normal exits, at the meters' 1–3 MB resolution;
+- no drift over a 10-minute duty cycle;
+- a second instance refused by the lock.
+
+The SIGKILL measurement is still open, so G4 has not passed yet. Details: [ROADMAP §1](neural/ROADMAP.md#result-on-unit-a-25-november-2026); independent review brief: [K1-REVIEW.md](neural/K1-REVIEW.md).
 
 ## 8. What stays exactly as it is
 

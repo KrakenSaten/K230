@@ -1,18 +1,19 @@
 # PacketShark NEURAL: handover
 
-**24 November 2026.** Concise state of the research, the decisions that belong to the owner, and the decisions that warrant an independent Astra or Fabel review before anyone builds on them.
+**24 November 2026; K1 result added 25 November 2026.** Concise state of the research, the decisions that belong to the owner, and the decisions that warrant an independent Astra or Fabel review before anyone builds on them.
 
 ## 1. Where this stands
 
 | Item | State |
 | --- | --- |
-| Design documents | This PR (#186, draft, branch `docs/packetshark-neural-concepts`): [NEURAL.md](../NEURAL.md) (revision 2), [ENGINE.md](ENGINE.md), [MODELS.md](MODELS.md), [EXPERIMENTS.md](EXPERIMENTS.md), [ROADMAP.md](ROADMAP.md), this file. Documentation only. |
-| Experiments | Branch `research/packetshark-neural-lab` at [`29e1e8c`](https://github.com/KrakenSaten/K230/tree/29e1e8cc/research/packetshark-neural) (pushed, not for merging), directory `research/packetshark-neural/`: scripts, JSON results, the K1 kit (`poc/`), desk research notes R1–R6 with sources. Larger run outputs (kmodels, simulator outputs, dumps) are in WSL `~/work/psk-neural/runs` and copied to `C:\K230-artifacts\packetshark-neural\` with SHA-256 sums. |
+| Design documents | This PR (#186, draft, branch `docs/packetshark-neural-concepts`): [NEURAL.md](../NEURAL.md) (revision 2), [ENGINE.md](ENGINE.md), [MODELS.md](MODELS.md), [EXPERIMENTS.md](EXPERIMENTS.md), [ROADMAP.md](ROADMAP.md), [K1-REVIEW.md](K1-REVIEW.md), this file. Documentation only. |
+| Experiments | Branch `research/packetshark-neural-lab` at [`9b790069`](https://github.com/KrakenSaten/K230/tree/9b790069/research/packetshark-neural) (pushed, not for merging), directory `research/packetshark-neural/`: scripts, JSON results, the K1 kit and its hardware report (`poc/`, `poc/K1-UNIT-A.md`, `results/k1_unit_a/`), desk research notes R1–R6 with sources. Larger run outputs (kmodels, simulator outputs, dumps, K1 console logs) are in WSL `~/work/psk-neural/runs` and in `C:\K230-artifacts\packetshark-neural\` with SHA-256 sums. |
 | Code in DOORS | None. Nothing under `core/`, `tools/`, `apps/` or `tests/` changed on either branch. |
-| Units | Neither Unit A nor Unit B was touched. Nothing was deployed or merged. |
+| Units | **K1 ran on Unit A on 25 November 2026** with the owner's authorization: non-destructive, P7 skipped, kit in `/tmp/k1` only. Afterwards the same processes ran with the same PIDs, the binaries were unchanged, `/tmp/k1` was gone, and `CmaFree` was 2.86 MB above the as-found value. Unit B was not touched. Nothing was deployed or merged. |
 | Validation repeated | None. M11.1/M12.1 and Vision results were taken from their documents, not re-run. |
-| Built | `infer-bench` for riscv64 against the pinned SDK's nncase 2.11 runtime, and for the host. All E1–E3 runs on the build host. No DOORS build was needed, because the PR changes only Markdown. |
-| Not tested | Anything on a K230: KPU latency, call overhead, CMA behaviour of a tiny model, device vs simulator agreement. Any real traffic. Any person using the proposed screens. The C reference's speed on the C908. |
+| Built | `infer-bench` for riscv64 against the pinned SDK's nncase 2.11 runtime, and for the host. It was rebuilt on 25 November with `--dump` and the nearest-neighbour check, and that build ran on Unit A. All E1–E3 runs were on the build host. No DOORS build was needed, because the PR changes only Markdown. |
+| Measured on Unit A (K1) | `dna_b64` u8: 123.6 / 132.4 µs p50 / p95 per 64-conversation batch end to end. The C reference took 257 / 270 ms. Device output byte-identical to the simulator (u8 and a16w8). RSS peak 5.1 MiB. Six of seven G4 criteria pass ([ROADMAP §1](ROADMAP.md#result-on-unit-a-25-november-2026)). |
+| Not tested | P7 (CMA stranded by SIGKILL). CMA loss below about 1 MB per run (the meters cannot resolve it). CPU time spent during a KPU call. A real capture running beside the scorer. Unit B. Any real traffic. Any person using the proposed screens. |
 
 ## 2. Owner decisions
 
@@ -23,7 +24,7 @@ Each has a recommendation. None is assumed by the documents.
 | **D1** | Replace the brief's "never turn endpoint names or addresses into model inputs" with a narrower rule. Raw identifiers never enter training data, learned weights or embeddings. They may be joined and shown session-locally (DNS name binding). A name-shape scorer may read a name string and emit only a score. | Accept the narrower rule. Defer the name-shape scorer itself until G3 and G4. |
 | **D2** | Features computed from payload the HEADERS rule does not keep (TLS ClientHello fields, JA4) | **No.** At this vantage it would fingerprint mostly the unit itself. JA4+ (all but JA4) is under a non-commercial, patent-pending licence that conflicts with Apache-2.0 (R3). ADR-016 rule 7 stays as it is. |
 | **D3** | Opening a saved capture on the unit for replay through the helper's file source | Not yet. Host-only virtual-clock replay for fixtures needs no decision (N1). Revisit after G5. It changes ADR-016 rule 10 and `tests/packetshark_lint.sh`. |
-| **D4** | Let `pos-capture` start one scorer child (`pos-infer`: no capabilities, no files but its model, numeric tensors only), and a KPU lock that Vision's helper takes too | Defer until K1 passes G4. Then write an ADR-016 amendment and a Vision ADR note. If G4 fails, never. |
+| **D4** | Let `pos-capture` start one scorer child (`pos-infer`: no capabilities, no files but its model, numeric tensors only), and a KPU lock that Vision's helper takes too | Defer until K1 passes G4. Then write an ADR-016 amendment and a Vision ADR note. If G4 fails, never. **Status 25 Nov:** six of seven G4 criteria pass on Unit A; P7 is open. |
 | **D5** | Retention beyond the session (per-network baselines, saved evidence cards) | No for v1. Everything is session-local. Revisit after G2, with a separate retention decision. |
 | **D6** | Policy for shipping model weights: a licence allowlist (CC0, CC BY, MIT, MIT-0, explicit grants), a NOTICE entry and a model card per weight file | Adopt the policy now, ship nothing before G3/G4. Legal review for CIC "for researchers" wording, IEEE OUI, legacy Fingerbank ODbL. |
 | **D7** | A new Companion aggregate (for example, the number of open episodes) | Defer. Propose only after N1, through the ADR-016 amendment 1 allowlist review. |
@@ -41,21 +42,22 @@ Give the reviewer the code and the documents, not this page's conclusions.
 | **B. Experiment validity** | E3a and E3b use generators written by the same author as the baselines. Are the conclusions limited enough? The conclusions are: gated rules beat the tested neural models; the gate cuts false alerts on visibility artifacts from 76–90 % to 2–4 %; threshold-based open-set rejection fails. Which would survive real data? | EXPERIMENTS.md; `synth_telemetry.py`, `exp_window.py`, `exp_dna.py` |
 | **C. Gates and statistics** | Are G0, G3, G6 and G7 the right bars? Is "≥ 15 benign hours for ≤ 0.2 false alerts per hour" achievable with a consented bench corpus? Is LR ≥ 10 the right acceptance margin for the Doctor? | ROADMAP §2; R2 |
 | **D. Scorer security (D4)** | Attack surface of a child of the capture helper that loads a closed runtime and opens `/dev/mmz` and `/dev/k230-gnne` as uid 0 without capabilities. Is the lock sufficient given the driver's missing arbitration? Is the CMA loss on kill a denial-of-service vector? | ENGINE §5; R1; docs/vision/KPU_CMA_LEAK.md |
-| **E. K1 protocol** | Measurement validity (CMA noise after drop_caches, profiling overhead), and safety of the SIGKILL test on Unit B | ROADMAP §1; `poc/README.md` |
+| **E. K1 measurements (Fabel 5.2)** | Do the Unit A measurements support G4 apart from P7? Challenge the CMA resolution argument, the release path, the fairness of the CPU baseline, the load model and the changes made on the day. Is the SIGKILL test safe, and where should it run? | **[K1-REVIEW.md](K1-REVIEW.md)** (self-contained brief); `poc/K1-UNIT-A.md` and `results/k1_unit_a/` on the research branch |
 | **F. Privacy rules (D1, D10)** | The narrowed identifier rule against ADR-016. mDNS and DHCP host names are personal data (R3: IMC 2023). Is display without learning enough? | NEURAL §2; MODELS §1; ENGINE §9 |
 | **G. Licences (D6)** | The dataset and weights allowlist, JA4/JA4+, the legacy Fingerbank file, the IEEE OUI list | MODELS §3; R4 |
 
 ## 4. Biggest risks
 
 1. **Sparse evidence.** If the unit's own traffic is thin, WHEN will mostly say CAN'T TELL on DNS and TCP. Measure the unit's own DNS pairs and handshakes per minute during an ordinary capture before N1 design closes.
-2. **Call overhead.** Unknown overhead per KPU call could erase the 100× ideal advantage the compiler estimates. K1 settles this.
+2. **Call overhead: retired for batched calls.** K1 measured about 18 µs outside the KPU section, which took 106 µs against an estimate of 101 µs. What remains open is what a call costs in CPU time (only wall time was measured) and the latency of unbatched calls.
 3. **Generator circularity.** A detector tuned on generated data may learn the generator (R4). Accuracy claims wait for the consented corpus (G3).
 4. **The gate leaks rates.** The gated rules still raised alerts on 2–4 % of visibility-artifact windows, short of G0's 99 % abstention. The likely cause is rates whose denominator spans a lossy bin. It must be fixed and re-measured in N1.
 5. **KPU sharing.** Exclusivity with Vision relies on a lock that both helpers honour. The driver will not enforce it.
+6. **CMA blind spot.** `CmaFree` cannot resolve less than about 1 MB, because of the kernel's per-CPU page lists. K1 could therefore not show whether `shrink_memory_pool()` and `kd_mpi_mmz_deinit()` return a small model's 76–84 kB. If they do not, a scorer started once per session strands that much per session until reboot. A decisive meter (debugfs `cma/*/used`, or a counter in the MMZ driver) needs an owner decision, because it changes the system.
 
 ## 5. Resume here
 
 1. Read NEURAL.md §2 and HANDOVER §2. Collect the owner's answers to D1–D10.
 2. Commission reviews A and B first. They can change the order of the roadmap.
-3. If K1 is authorized, follow `research/packetshark-neural/poc/README.md` on Unit B, with Vision closed and no capture, from `/tmp`. Record the results against ROADMAP §1.
+3. K1 has run on Unit A except P7 (ROADMAP §1). Send [K1-REVIEW.md](K1-REVIEW.md) to Fabel 5.2. To close G4, P7 needs its own authorization: Unit B is preferred, and on Unit A any stranded CMA stays until reboot. The kit and the recipe are in `poc/K1-UNIT-A.md` §8. Do not start K2 before G4 passes and D4 is decided.
 4. Otherwise start N1 with fixtures before code. First come the four replay cases of the first brief as scripted scenarios with expected ledgers, then the measurement of the unit's own background traffic.

@@ -1,6 +1,6 @@
 # PacketShark NEURAL: host-side experiments
 
-**Run on 24 November 2026 on the build host** (Intel i7-1265U, WSL Ubuntu 22.04). The pinned Vision AI environment was used unchanged: nncase 2.11.0 with nncase-kpu 2.11.0, torch 2.1.2+cpu, onnx 1.16.2, onnxruntime 1.18.1. No unit was touched, no dataset was downloaded and no package was added.
+**Run on 24 November 2026 on the build host** (Intel i7-1265U, WSL Ubuntu 22.04). The pinned Vision AI environment was used unchanged: nncase 2.11.0 with nncase-kpu 2.11.0, torch 2.1.2+cpu, onnx 1.16.2, onnxruntime 1.18.1. No unit was touched, no dataset was downloaded and no package was added. The one exception is the K1 section at the end: an owner-authorized run on Unit A on 25 November 2026.
 
 Scripts, result JSON and the desk research are on the branch `research/packetshark-neural-lab` at [`29e1e8c`](https://github.com/KrakenSaten/K230/tree/29e1e8cc/research/packetshark-neural), under `research/packetshark-neural/`. Kmodels, ONNX files, bench inputs and binaries are in `C:\K230-artifacts\packetshark-neural\`, with `SHA256SUMS.txt`.
 
@@ -20,6 +20,7 @@ Each experiment was chosen to settle one architectural uncertainty:
 | **E3b** Traffic DNA | Does a learned embedding beat hand-crafted features? Can it say "unclassified"? |
 | **E3c** rhythm | How many repetitions does a periodicity claim need inside one session? |
 | **K1 kit** | Does the host-tensor runtime path compile and link for the device? Is the C reference exact? |
+| **K1 on Unit A** (25 November 2026, hardware) | What a batched call really costs, whether the device matches the simulator, and what memory it leaves behind |
 
 ## E1: operator placement (`probe_ops.py`)
 
@@ -161,16 +162,37 @@ A periodic source with relative jitter (uniform ± j of the period) and missed e
 
 **What it settles.** A rhythm needs at least 5 repetitions, and 10–30 once timing is loose. The default capture stops after 15 minutes. That is enough for a 30-s keepalive or a 120-s mDNS announcement. It is not enough for a 5-minute rhythm with any jitter. The rhythm lens must therefore show "needs N more repetitions" instead of guessing. No neural method is needed for this.
 
-## K1 kit: built, not run (`poc/`)
+## K1 kit (`poc/`)
 
 | Check | Result |
 | --- | --- |
-| `infer-bench` for riscv64, `-DWITH_NNCASE` | Compiles and links (2026-11-24) against the pinned SDK's `libNncase.Runtime.Native`, `libnncase.rt_modules.k230`, `libfunctional_k230` and `libmmz` (nncase runtime 2.11.0, `k230_pocketos_defconfig` output). Host-tensor API only, no AI2D. Dynamic dependencies are the C/C++ runtime only. **Never run on a K230.** |
+| `infer-bench` for riscv64, `-DWITH_NNCASE` | Compiles and links (2026-11-24) against the pinned SDK's `libNncase.Runtime.Native`, `libnncase.rt_modules.k230`, `libfunctional_k230` and `libmmz` (nncase runtime 2.11.0, `k230_pocketos_defconfig` output). Host-tensor API only, no AI2D. Dynamic dependencies are the C/C++ runtime only. Run on Unit A on 2026-11-25 (next section). |
 | C reference vs the PyTorch float model | cosine **1.000000** over 2,048 conversation embeddings (32 batches) |
 | C reference vs the u8 simulator | cosine min 0.9947, mean 0.99976 |
 | C reference speed on the x86 host (single thread, scalar, -O2) | 8.1 ms p50, 11.0 ms p95 per 64-conversation batch (13.3 M MACs). This is not a C908 figure. On the C908 it is ASSUMED to be several times slower. |
 
-So the comparison K1 must make on the unit is between roughly 0.1 ms (the compiler's ideal KPU time, without overhead) and several to tens of milliseconds (the C reference on the C908, ASSUMED). The answer depends on the call overhead no document gives (R1).
+Before the hardware run, the comparison was between roughly 0.1 ms (the compiler's ideal KPU time, without overhead) and several to tens of milliseconds (the C reference on the C908, ASSUMED). The hardware run replaced both assumptions.
+
+## K1 on Unit A: hardware (25 November 2026)
+
+This is the first measurement on a unit, authorized by the owner, non-destructive, with P7 (SIGKILL) skipped. The verdicts against the GO/NO-GO criteria are in [ROADMAP §1](ROADMAP.md#result-on-unit-a-25-november-2026). The full report is `poc/K1-UNIT-A.md` on the research branch at [`9b790069`](https://github.com/KrakenSaten/K230/blob/9b790069/research/packetshark-neural/poc/K1-UNIT-A.md).
+
+| Measurement (`dna_b64`, 64 conversations per call) | u8 | a16w8 |
+| --- | --- | --- |
+| Call end to end, p50 / p95 (1,000 calls) | **123.6 / 132.4 µs** | 155.3 / 173.4 µs |
+| Of which the KPU section (`EXTCALL`, profiled), p50 | 106.0 µs (compiler estimate 101 µs) | not profiled |
+| Copy in + cache sync + copy out, p50 | 8.7 + 1.9 + 3.6 µs | 8.7 + 1.9 + 3.6 µs |
+| C reference on the C908, p50 / p95 | 256.9 / 269.9 ms | 290.3 / 299.9 ms (a separate run of the same code) |
+| Device vs simulator | byte-identical | byte-identical |
+| Load, first call | 1.2–1.4 ms, 0.6–0.9 ms | 1.6 ms, 0.6 ms |
+| Peak RSS | 5.1 MiB | 5.1 MiB |
+| Explicit CMA per process | 4 allocations, 19 pages | 5 allocations, 21 pages |
+
+**What it settles.** The compiler's roofline estimate held within 5 % for the KPU section. Call overhead outside it is about 18 µs. The simulator reproduces the device byte for byte, so it can serve as the golden reference in host tests. The C reference costs about 2,000 times more per batch than the KPU path.
+
+**Quantization judged on resemblance** (host analysis of the device outputs, generated data, 10 classes). u8 changes the exact nearest neighbour of 6.6 % of conversations against the float model, but the neighbour's class changes for only 1.0 %. Precision at 1 is 0.875 against 0.876 for float. a16w8 gives 3.1 % and 0.4 % with unchanged precision. This refines E2's nearest-prototype agreement (99.79 %): exact in-batch neighbours are more fragile than prototypes, but the flips stay within the class.
+
+**Limits.** P7 was not run. `CmaFree` resolves only about 1–3 MB because of the kernel's per-CPU page lists, so a sub-MB loss per run is neither shown nor excluded. CPU time during a call, a real capture as load, CPU frequency and energy were not measured.
 
 ## Reproduce
 
@@ -184,6 +206,7 @@ python $L/probe_ops.py $R/probe_e1                          # E1
 python $L/compile_eval.py ae $R/e3a/ae.onnx $R/e3a/calib_x.npy $R/e2 $R/e3a/val_x.npy $R/e3a/test_x.npy
 ~/work/k230-ai/venv-train/bin/python $L/eval_quant.py $R     # E2
 bash $L/poc/build.sh                                        # K1 kit
+# K1 on a unit: poc/K1-UNIT-A.md §8 (needs the owner's authorization)
 ```
 
 Seeds are fixed. A full run takes about 25 minutes on the build host, most of it in the simulator.
