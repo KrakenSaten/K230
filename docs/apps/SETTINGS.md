@@ -21,7 +21,7 @@ Since DS §52 it opens on a short list of categories, each a page of its own:
 | Power & Sleep | screen off after, lock after, lock when Doors starts; what sleep is not | the shell (`power_policy.h`, `shell_power.c`) |
 | Time & Region | the time zone (one level further: the list of zones), whether the clock is set | the shell (`tz_zones.h`) |
 | Network | Wi-Fi, its networks, the join sheet (one level further) | netd (`docs/api/network.md`) |
-| Companion | the Companion gateway's state; the paired phones, each with its Vision switch | gatewayd (`docs/api/gateway.md` section 10) |
+| Companion | the Companion gateway's switch, the device password, the paired phones (each with its permissions and Remove), pairing | sysd (`companion.*`) and gatewayd (`docs/api/gateway.md` section 10) |
 | System | opens System, Settings' page (DS §47) | sysd and the System app |
 | Developer | the debug overlay | the shell (`shell_overlay.h`) |
 
@@ -62,10 +62,11 @@ apps/settings/settings_app.c       the list of categories, moving between pages,
 apps/settings/settings_pages.c     Display, Appearance, Sound, Keyboard, Power & Sleep,
                                    Time & Region (and its zone list), Developer
 apps/settings/settings_wifi.c      Network: Wi-Fi, the list, the join sheet
-apps/settings/settings_companion.c Companion: gatewayd's paired phones and each one's Vision switch
-tests/settings_view_test.c         210 checks (Makefile)
-tests/settings_app_test.c          1660 checks under a real LVGL pointer device and the key
-                                   stream, with netd, gatewayd and the shell scripted, hosted as the shell
+apps/settings/settings_companion.c Companion: the gateway switch and the device password (sysd), the phones,
+                                   their permissions and Remove, pairing (gatewayd)
+tests/settings_view_test.c         298 checks (Makefile)
+tests/settings_app_test.c          1986 checks under a real LVGL pointer device and the key
+                                   stream, with netd, gatewayd, sysd and the shell scripted, hosted as the shell
                                    hosts it: the hierarchy and every way back, every page at
                                    Small, Medium and Large in portrait and landscape (CMake, host)
 tests/settings_shell_test.sh       the app test, registration, opening it in the real shell
@@ -75,38 +76,88 @@ tests/power_overlay_shell_test.sh  Power & Sleep, the time zone and the overlay 
 
 ## Companion
 
-The phones paired with this unit through the Companion gateway (ADR-019),
-and which of them is shown Vision's picture (ADR-019 amendment 1: one scope,
-`vision`, "granted by one switch per phone on the unit", off unless switched
-on). Added in PR #174 (2026-11-24); it closes the part of issue #172 that
-asked for a way to grant a scope to a phone that is already paired.
+DOORS Companion set up on the unit's own screen, with no cable, SSH or
+command line (ADR-019 amendment 2, proposed; on branch
+`claude/companion-settings-2-aad748`). Until then the page held one Vision
+switch per paired phone (PR #174); that switch is now one of each phone's
+permissions.
 
-- **COMPANION GATEWAY**: what `gateway.status` says, in words: `On` with the
-  address it listens on, `Off` with the reason (`no phone is paired`, `this
-  unit has no password set`, `no network`, `not on a private network`), a
-  fault, or `Not running` when gatewayd does not answer (it is off by default
-  and then not started at all).
-- **SHOW VISION ON**: one row per paired phone, from `gateway.clients`: the
-  name the phone gave at pairing, the first eight bytes of its key in fours
-  and capitals (exactly what the phone shows as "This phone's key", so the
-  two can be compared), `connected` while it is, and a switch. A tap sends
-  `gateway.scope {client: <the whole key>, scope: "vision", on}`; the switch
-  then shows what gatewayd holds, asked again, never what was hoped for. A
-  refusal is said in gatewayd's words under the rows. Taking the scope away
-  ends that phone's preview in the same call (gatewayd's rule).
-- The page is read again once a second while it shows; a phone paired,
-  revoked or renamed meanwhile builds the rows again, and a tap on a row
-  whose list has changed under it sends nothing.
+Nothing is decided or stored here. The switch and the password are sysd's
+(`companion.*`, `docs/api/system.md`); the phones, their permissions and
+pairing are gatewayd's (its local socket, `docs/api/gateway.md` section 10).
+Every control shows what its owner says after the tap, asked again, and a
+refusal is said as what happened and what to do (`sv_companion_error_text`).
 
-What makes the switch safe is where it is: a tap on the unit's own screen
-behind the lock. The page serves no IPC method, gatewayd's control socket is
-root's and local, and a phone cannot raise its own scopes (ADR-019 rule 24;
-`gateway.scope` is not a method a phone can call). A phone's name is drawn
-only as printable ASCII and Latin-1 letters; anything else is a `?`.
+**Companion** (left column, or above when tall):
 
-Not on this page yet (issue #172): pairing with its code and the candidate's
-key shown before the decision, revoking a phone, and the capture scopes.
-Those stay on the unit's command line (`docs/services/GATEWAYD.md`).
+- **COMPANION GATEWAY**: the switch (`ON`, `OFF`, `STARTING`, `STOPPING`)
+  and the gateway's state in words: `Off`; `On · 192.168.1.20:47231`; `On:
+  waiting for a phone to be paired`; `On, but closed: no Wi-Fi address`, `not
+  a private network`, `no device password`; `On, but not answering`; `Fault:
+  its stored state cannot be used`; `Not installed on this unit`. Under it
+  this unit's key, as phones show it, and a hint that says what to do next.
+  The switch cannot be tapped until the unit has a device password (rule 9b).
+  A change sysd could not make is said in words: "The gateway started but
+  did not answer in time, so it is off again. Try again; restart the unit if
+  it keeps happening."
+- **DEVICE PASSWORD**: `Set` or `Not set`, what SSH allows (`root signs in
+  with a key only`, or that setting the password here changes that), and SET
+  PASSWORD or CHANGE PASSWORD.
+- **PAIRED PHONES** (right column, or below): one row per phone, its name, the
+  first eight bytes of its key in fours (what the phone shows as "This phone's
+  key"), `connected` while it is, and what it may do in words ("Status, RIFT,
+  sending, Vision"); a tap opens its page. PAIR A PHONE under them, with why
+  not when it cannot (gateway off, no password, eight phones paired, the
+  gateway's state damaged). While the gateway is off the list is not shown:
+  it is gatewayd's.
+
+**Companion > a phone**: its name, key, `Connected now` or `Not connected`,
+the date it was paired when the unit's clock was set then; WHAT IT MAY DO,
+one switch per scope with what each means (Device status, Read RIFT, Send RIFT
+messages, PacketShark figures, PacketShark control, Vision picture). Their
+dependencies are kept by the switches: sending on brings reading, reading off
+takes sending, likewise PacketShark's control and its figures. A tap sends the
+whole set (`gateway.set_scopes`), and a connected phone is held to it from its
+next request. REMOVE PHONE asks first ("Remove Flip8? It is disconnected now,
+and can connect again only if it is paired again.", CANCEL accented), then
+`gateway.revoke`. A phone removed elsewhere leaves the page within a second.
+
+**Companion > Pair a phone**: `gateway.pair_begin`, and the URI it returns
+drawn as a QR code by LVGL (ADR-007), at whole modules with a four-module
+quiet zone, as large as the panel allows up to 456 px. It is 6 px per module
+in landscape, beside the words; in portrait the width decides. With it are
+what to do, this unit's key, `Closes in 1:47` and CANCEL. The page reads
+`gateway.status` once a second. A phone at the door is "A phone is
+connecting...". One that presented the code shows its name for itself and its
+key in mono (0 and D, 8 and B told apart), with "Same key on the phone" NO/YES.
+**ALLOW cannot be tapped until that is YES**, and a different phone's key
+sets it back to NO. Beside the decision: "It will get: Status, RIFT, sending"
+and the six switches (status and RIFT reading and sending on, PacketShark and
+Vision off, as PAIRING.md §4 says). REFUSE and ALLOW send `gateway.pair_decide`
+with the chosen scopes. The window ends in words: paired, refused, the code
+expired, closed after wrong codes, the phone left. Each but paired offers SHOW
+A NEW CODE.
+
+The URI carries the window's one-time token. It is never drawn as text, lives
+in this app's memory only while the window is open, and is wiped when the
+window ends. CANCEL, Back, Home and the app closing all cancel an open window
+(`gateway.pair_cancel`).
+
+**Companion > Device password**: one card in two sides, as the Wi-Fi sheet:
+what the password is for, the rule (8 to 64 characters: letters, digits,
+spaces and the symbols on the keyboard), two masked fields with SHOW, CANCEL
+and SET PASSWORD. The keyboard's Done moves from the first field to the
+second, and from the second sets the password. Too short, too long, other
+characters and two different passwords are said under the fields, and nothing
+is sent. The fields are cleared **before** `companion.set_password` is sent,
+and when the sheet or the app goes. The page then shows "Setting the
+password...", and "Password set. The serial console asks for it from now on."
+to the person who set it.
+
+What makes all this safe is where it is: taps on the unit's own screen behind
+its lock. Settings serves no IPC method; a phone reaches neither socket and
+cannot raise its own scopes (ADR-019 rule 24). `tests/settings_lint.sh` holds
+the methods Settings may call and the password and token rules above.
 
 ## Power & Sleep
 

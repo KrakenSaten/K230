@@ -1,6 +1,6 @@
 # gatewayd: the Companion Gateway (M2 core, M4.1 mesh reading, M4.2 sending)
 
-Status: **host-tested and cross-built only.** Built by name (`make gatewayd`), not in `make all`, not in any image, not in the rootfs overlay. **No part of it has run on a K230, and no phone app exists yet.** Design: `docs/decisions/ADR-019-companion-gateway.md` (accepted 2026-11-21); protocol: `docs/api/gateway.md`; pairing: `docs/design/companion/PAIRING.md`.
+Status: **host-tested and cross-built only.** Since ADR-019 amendment 2 (proposed 2026-11-25, branch `claude/companion-settings-2-aad748`) it is built and installed by the image's package (`ENABLE_GATEWAYD=1`), its init script is in the rootfs overlay, and the bench deploy carries both - **off by default**, switched on per unit in Settings > Companion (section "Product integration" below). Before that branch it was built by name only and in no image. M5 and M6 ran it on Unit A from temporary kits; the product integration has not run on a unit. Design: `docs/decisions/ADR-019-companion-gateway.md` (accepted 2026-11-21); protocol: `docs/api/gateway.md`; pairing: `docs/design/companion/PAIRING.md`.
 
 gatewayd is the one Doors service that listens on the network. A paired phone reaches it over TLS 1.3 on TCP 47231 and may call an allowlist of methods; gatewayd answers them as a pocketipc client of the services that own the data. It owns no radio, no mesh key, no Wi-Fi credential and no capture.
 
@@ -23,7 +23,7 @@ gatewayd is the one Doors service that listens on the network. A paired phone re
 | Paired clients | `gw_store.c` | `paired.v1`: load, save, find |
 | Password gate | `gw_gate.c` | ADR-019 rule 9b |
 | Framing | `gw_frame.c` | The bounded frame reader |
-| Init | `services/gatewayd/S70gatewayd` | Supervised start and stop; `GATEWAYD_ENABLE=0` |
+| Init | `platforms/k230/rootfs_overlay/etc/init.d/S70gatewayd` | Supervised start and stop; `GATEWAYD_ENABLE=0` unless the unit's `/etc/default/gatewayd` says 1 (written by sysd for Settings) |
 
 Served to a paired client in M2: `gateway.hello`, `gateway.ping`, `gateway.unpair`, and with the `status` scope `system.info`, `system.status`, `wifi.status`, `radio.status`, `mesh.status`. `gateway.pair` is for a pairing candidate only. `capabilities` is `["status"]`.
 
@@ -96,9 +96,9 @@ Never by default. Every one of these must hold, and each is re-evaluated when it
 
 Losing any of them closes the listener and every session. It binds that one address, never the wildcard, and closes connections from any other kind of source address before TLS.
 
-**The password gate reads only whether root has a password hash.** Root's entry in `/etc/passwd` must hold a hash itself, or say `x` with a hash in `/etc/shadow`. An empty field in either place, a locked field (`!`, `*`, or a hash behind `!`) and an unreadable file all count as no password; an empty field in `/etc/passwd` counts as none whatever the shadow file holds. Doors has no way to set a device password yet (open item U7): on the bench it is `passwd` on a root console.
+**The password gate reads only whether root has a password hash.** Root's entry in `/etc/passwd` must hold a hash itself, or say `x` with a hash in `/etc/shadow`. An empty field in either place, a locked field (`!`, `*`, or a hash behind `!`) and an unreadable file all count as no password; an empty field in `/etc/passwd` counts as none whatever the shadow file holds. Since ADR-019 amendment 2 the password is set on the unit in Settings > Companion > Device password, through sysd's `companion.set_password` (`docs/api/system.md`), which writes root's `/etc/shadow` field and reads it back through this same gate (`gw_gate.c` is compiled into sysd too). By hand it is still `passwd` on a root console.
 
-**Setting that password opens root SSH by password on a stock image.** The 0.4.0 image runs OpenSSH on `0.0.0.0:22` and `[::]:22` with `PermitRootLogin yes` and `PasswordAuthentication yes`, and the empty root password it ships with is what keeps that login shut. Meeting the password gate on such a unit therefore makes root reachable over SSH with that password from the LAN and from any global IPv6 address. Before enabling the gateway on a unit, set `PermitRootLogin prohibit-password` in `/etc/ssh/sshd_config` and restart sshd; image integration and the device-password flow (U7) must ship that setting (or stronger). VERIFIED in M5 on Unit A, 2026-11-21: with the line changed, root's real password was refused over IPv4; a refusal over IPv6 was not observed (the attempt ended before authentication).
+**Setting that password opens root SSH by password on a stock image.** The 0.4.0 image runs OpenSSH on `0.0.0.0:22` and `[::]:22` with `PermitRootLogin yes` and `PasswordAuthentication yes`, and the empty root password it ships with is what keeps that login shut. Meeting the password gate on such a unit therefore makes root reachable over SSH with that password from the LAN and from any global IPv6 address. Before enabling the gateway on a unit, set `PermitRootLogin prohibit-password` in `/etc/ssh/sshd_config` and restart sshd; image integration and the device-password flow (U7) must ship that setting (or stronger). **Both now do (ADR-019 amendment 2):** an image built from this branch ships `PermitRootLogin prohibit-password` (`apply_to_sdk.sh` [3c]; `verify_image.sh` refuses an image that lets root in by password), and on a unit with an older `sshd_config` sysd makes root's SSH login key-only - checked with `sshd -t`, the original kept as `sshd_config.doors-orig`, sshd reloaded - before it sets a password or switches the gateway on, and refuses both when it cannot judge the file. VERIFIED in M5 on Unit A, 2026-11-21: with the line changed, root's real password was refused over IPv4; a refusal over IPv6 was not observed (the attempt ended before authentication).
 
 ## Trust
 
@@ -119,7 +119,7 @@ Losing any of them closes the listener and every session. It binds that one addr
 
 Replacing the identity is deliberate and manual: stop the service, remove both files, start it. Every phone then has to forget the unit and pair again.
 
-## Pairing on the bench (until the Settings page exists)
+## Pairing on the bench (the command line; Settings > Companion is the product's way)
 
 The local socket is root-only, so these are actions on the unit. The token is in the URI: do not paste it anywhere but the phone.
 
@@ -131,7 +131,7 @@ doors call gatewayd gateway.clients           # compare the new fingerprint with
 doors call gatewayd gateway.revoke client=<64 hex>
 ```
 
-**The candidate's fingerprint is not shown before the decision on the bench.** The service announces a candidate only as the `gateway.candidate` event, which a client subscribed with `gateway.subscribe` that stays connected receives. `doors call` sends one request and exits, so it never sees the event, and `gateway.status` does not carry the candidate. On the bench the decision therefore rests on the 120 s window, a single candidate and the one-time token. Check it straight after `pair_decide`: the fingerprint `gateway.clients` lists for the new client must match "This phone's key" on the phone's pairing screen; if it does not, revoke that client. Showing the candidate before the tap is the Settings page's job (`docs/design/companion/PAIRING.md`). VERIFIED in M5 on Unit A, 2026-11-21.
+**Settings > Companion > Pair a phone shows the candidate's key before the decision** (since ADR-019 amendment 2: `gateway.status` carries the waiting candidate, docs/api/gateway.md section 10), with a "same key on the phone" confirmation that ALLOW waits for, and sends `scopes` as chosen. What follows is the command line's limit. **The candidate's fingerprint is not shown before the decision on the bench.** The service announces a candidate only as the `gateway.candidate` event, which a client subscribed with `gateway.subscribe` that stays connected receives. `doors call` sends one request and exits, so it never sees the event, and `gateway.status` does not carry the candidate. On the bench the decision therefore rests on the 120 s window, a single candidate and the one-time token. Check it straight after `pair_decide`: the fingerprint `gateway.clients` lists for the new client must match "This phone's key" on the phone's pairing screen; if it does not, revoke that client. Showing the candidate before the tap is the Settings page's job (`docs/design/companion/PAIRING.md`). VERIFIED in M5 on Unit A, 2026-11-21.
 
 Read `device_id` from `gateway.status` immediately before opening a window when it is compared by hand with the phone's view of the unit: removing the state directory gives the unit a new key on the next start (M5 compared against a stale value this way; the QR carried the correct key).
 
@@ -149,6 +149,22 @@ The service runs at nice 5, and does not start at all unless every capability wa
 
 `gatewayd.log` in the Doors log directory: lifecycle lines only. A client is named by the first 16 hex digits of its fingerprint and its source address. Never a token, a pairing URI, a client's name, a request, a result or key material.
 
+## Product integration (ADR-019 amendment 2)
+
+Proposed 2026-11-25 and implemented on branch `claude/companion-settings-2-aad748`: DOORS Companion set up on the unit's own screen, with no cable, SSH or command line.
+
+| Part | Where | What it does |
+| --- | --- | --- |
+| In the image | `platforms/k230/package/pocketos/pocketos.mk` (`ENABLE_GATEWAYD=1`), `platforms/k230/rootfs_overlay/etc/init.d/S70gatewayd` | Built and installed with every image, off. `tools/release/check_rootfs.sh` treats it as a service (binary and init script, one build stamp) and refuses an image or tree that ships `/etc/default/gatewayd` |
+| In the bench deploy | `platforms/k230/scripts/deploy.sh`, `deploy_unit.sh` | Carried with every deploy; stopped first, started after meshcored. The archive never holds `/etc/default/gatewayd`, `$POCKETOS_STATE_DIR/gatewayd`, `/etc/shadow` or `/etc/ssh` (`tests/deploy_staging_test.sh`), so an upgrade keeps the switch, the unit's key, its phones and the password |
+| The switch | sysd `companion.set_enabled` (`docs/api/system.md`) | Writes `GATEWAYD_ENABLE` and runs `S70gatewayd start` or `stop` in a child; refuses "on" without gatewayd installed or a device password; hardens SSH first; writes "off" before it stops |
+| The device password | sysd `companion.set_password` | SHA-512 crypt with libxcrypt into root's `/etc/shadow` field under `lckpwdf()`; read back through `gw_gate.c` |
+| SSH | `apply_to_sdk.sh` [3c], `verify_image.sh`, sysd | Root by key only in the image; on an older unit made so by sysd before a password or the gateway |
+| The candidate on the unit | `gateway.status` `pair` and `pair_closed` | Settings, which polls, shows the waiting phone's key before the decision |
+| Settings > Companion | `apps/settings/settings_companion.c` (`docs/apps/SETTINGS.md`) | The switch, the password, the phones and their permissions, Remove, Pair a phone with a QR code |
+
+Tests: `tests/sysd_companion_test.c` (75), `tests/sysd_companion_lint.sh` (9), `tests/companion_settings_integration_test.py` (39: the real sysd and gatewayd and a TLS phone, then a sysd restart and a "reboot" with a new binary), `tests/settings_view_test.c` (88 new), `tests/settings_app_test.c` (the Companion section), `tests/initscript_test.sh` (S70gatewayd under the real pos-supervise, the deploy order), the release-gate suites. **Not run on a unit**: the hash and the shadow write on the board, `sshd -t` and the reload there, sysd running S70gatewayd, the QR code read from the panel by a phone (README H10).
+
 ## Building and testing
 
 ```sh
@@ -157,7 +173,8 @@ make gatewayd-test       # unit suites (plain, ASan/UBSan), fuzzer, the real ser
                          # against TLS clients (plain, ASan/UBSan), the lint
 make gatewayd-send-test  # the sending suite alone (gatewayd-mesh-test: the reading suite)
 make CC=riscv64-unknown-linux-gnu-gcc gatewayd      # with the SDK's host/bin on PATH
-make ENABLE_GATEWAYD=1 install                      # also installs it and S70gatewayd
+make ENABLE_GATEWAYD=1 install                      # also installs it (S70gatewayd comes with the rootfs overlay)
+make companion-integration-test                     # Settings' path end to end: real sysd and gatewayd, a TLS phone
 ```
 
 The service suite runs a build with `-DGATEWAYD_TEST_HOOKS=1`, the only one that accepts `--test-listen`, `--test-port` and `--test-shadow`; the shipped binary does not contain those options (the lint checks its strings).
@@ -176,7 +193,7 @@ Classes as in AGENTS.md. Measured 2026-11-21 on the build host (x86-64, WSL Ubun
 | **M4.2.** That the real meshcored reads a connection's requests in order, records an outgoing message the moment it accepts it, hands out ids in order, keeps 64 messages of each kind and loses the oldest first, and sends nothing when it answers with an error | DOCUMENTED (read in `services/meshcored/api.c`, `mesh_runtime.cpp`, `core/pocketipc/server.c`; the ring sizes are held by the lint). Not run against |
 | **M4.2.** A message actually on the air, and a phone as the client | **not tested** |
 | **M4.1.** The real meshcored | **not tested**: the suite's meshcored is a fake written from `docs/api/mesh.md` and `services/meshcored/api.c`. That the real service's results and events have the documented shape, that it writes an event before the answer to a later request, and its 200 ms backpressure rule against this client are ASSUMED |
-| The real service against TLS clients: gate, closed until asked, pairing, failed handshakes (no certificate, TLS 1.2, RSA, P-384, unknown key, two certificates, plaintext), no resumption, scopes, revocation, malformed and oversized frames, limits, upstream failures, restart, damaged and missing state, log contents: 190 checks | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_e2e_test.py`) |
+| The real service against TLS clients: gate, closed until asked, pairing, failed handshakes (no certificate, TLS 1.2, RSA, P-384, unknown key, two certificates, plaintext), no resumption, scopes, revocation, malformed and oversized frames, limits, upstream failures, restart, damaged and missing state, log contents: 198 checks (190 before ADR-019 amendment 2; the 8 added hold the pairing window and its candidate in `gateway.status`, and that the token is never there) | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_e2e_test.py`) |
 | The fingerprint equals the SHA-256 of the SubjectPublicKeyInfo as the `openssl` tool writes it | VERIFIED host (unit and service suites) |
 | riscv64 build: warning-free with `-Werror`, Xuantie GCC 14.1.1, against the v0.4.0 release build's sysroot; links `libssl.so.3`, `libcrypto.so.3`, `libcjson.so.1`, all present in that build's target tree | VERIFIED (cross-build only) |
 | The v0.4.0 sysroot's OpenSSL is 3.4.1 with none of `OPENSSL_NO_TLS1_3`, `_EC`, `_ECDSA`, `_ECDH` defined | VERIFIED (headers); the library's behaviour on a unit is not |

@@ -112,7 +112,8 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | alsa-lib 1.2.13 | pos-wave, pos-record, pos-mp3, pos-video | LGPL-2.1-or-later | SEPARATE LICENSE (dynamic; offer source) |
 | libdrm 2.4.124, libevdev 1.13.1 | doors-shell (via LVGL) | MIT | OK WITH ATTRIBUTION |
 | libcurl 8.12.1 | pos-zabbix, pos-browser | curl | OK WITH ATTRIBUTION |
-| OpenSSL 3.4.1 | via libcurl | Apache-2.0 | OK WITH ATTRIBUTION |
+| OpenSSL 3.4.1 | via libcurl; directly by gatewayd (TLS 1.3, ADR-019) | Apache-2.0 | OK WITH ATTRIBUTION |
+| libxcrypt 4.4.38 | sysd (the device password's hash, ADR-019 amendment 2); also the image's sshd | LGPL-2.1-or-later | SEPARATE LICENSE (dynamic; offer source) |
 | libjpeg 9f | pos-camera, pos-browser | IJG | OK WITH ATTRIBUTION |
 | libpng 1.6.46 | pos-browser | Libpng-2.0 | OK WITH ATTRIBUTION |
 | libpcap 1.10.5 | pos-capture (PacketShark); also the toolbox's tcpdump | BSD-3-Clause | OK WITH ATTRIBUTION |

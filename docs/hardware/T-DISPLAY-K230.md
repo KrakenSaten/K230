@@ -98,7 +98,12 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
   reboot.
 - sshd accepts root with an empty password (`PermitRootLogin yes`,
   `PermitEmptyPasswords yes`, vendor sshd_config): anyone on the LAN has
-  root until a password is set. VERIFIED.
+  root until a password is set. VERIFIED. Doors images patch it: `PermitEmptyPasswords no`
+  since v0.0.2, and `PermitRootLogin prohibit-password` since ADR-019
+  amendment 2 (ASSUMED until an image is built: the patch is in
+  apply_to_sdk.sh [3c] and verify_image.sh refuses an image without it; not on a flashed
+  unit). The 0.5.0 image still has `PermitRootLogin yes` (VERIFIED on its
+  rootfs, 2026-11-25).
 - Wi-Fi driver is loaded by a generated `S40<conf>` script running
   `modprobe 8189fs` (and aic8800 modules, which will fail harmlessly without
   that hardware). DOCUMENTED.

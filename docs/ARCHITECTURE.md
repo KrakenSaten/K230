@@ -210,8 +210,10 @@ no secret in logs, results, command lines or the environment. Two later
 ADRs each add one key under the same protection: peerd's identity
 (docs/decisions/ADR-017-peer-datagrams.md) and the Companion Gateway's
 private key (docs/decisions/ADR-019-companion-gateway.md, accepted
-2026-11-21; not implemented). No other Doors component may persist a
-secret.
+2026-11-21). No other Doors component may persist a secret. The device
+password Settings > Companion sets (ADR-019 amendment 2, proposed) is not
+kept by Doors: sysd hashes it and writes the hash into /etc/shadow, the
+system's own store, where passwd would; the password itself is never stored.
 
 ## netd
 

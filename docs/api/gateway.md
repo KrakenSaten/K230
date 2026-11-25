@@ -263,11 +263,11 @@ Limits: `vision.share {on: true}`, `vision.mode`, `vision.set` and `vision.reset
 
 ## 10. The local control surface (`gatewayd.sock`)
 
-pocketipc, root only, for Settings and `doors`. Never reachable from the network.
+pocketipc, root only, for Settings and `doors`. Never reachable from the network. Settings > Companion is its client on the unit (`docs/apps/SETTINGS.md`): `gateway.status` and `gateway.clients` once a second, `gateway.pair_begin`, `gateway.pair_cancel` and `gateway.pair_decide {allow, scopes[]}` for pairing, `gateway.set_scopes` and `gateway.revoke` on a phone's page. Switching the gateway on and off is not here: it is sysd's `companion.set_enabled` (`docs/api/system.md`).
 
 | Method | Meaning |
 | --- | --- |
-| `gateway.info`, `gateway.status` | version, `api_version`; enabled, listening address, sessions, and why it is closed if it is: `disabled`, `no_clients`, `password_required` (ADR-019 rule 9b), `identity_fault` |
+| `gateway.info`, `gateway.status` | version, `api_version`; enabled, listening address, sessions, and why it is closed if it is: `disabled`, `no_clients`, `password_required` (ADR-019 rule 9b), `identity_fault`. Since ADR-019 amendment 2 the status also carries the pairing window as the unit's Settings page shows it: while one is open, `pair {state, left_ms}`, `state` being `open` (nobody at the door), `candidate` (a phone with an unknown key is connected and has not shown the token) or `waiting` (it has: a person decides), and when waiting `pair.candidate {name, fingerprint}`, the two values of the `gateway.candidate` event. Otherwise, after a window, `pair_closed` says why it closed: `paired`, `refused`, `expired`, `failed` (three wrong tokens), `candidate_left`, `cancelled`. Settings polls this once a second and holds no subscription, so the candidate's key is on the unit's screen before the decision (issue #172). The token is never in the status: it is in `gateway.pair_begin`'s answer alone |
 | `gateway.pair_begin` | opens a window; returns the pairing URI for the QR code and the time left |
 | `gateway.pair_cancel` | closes it |
 | `gateway.pair_decide` `{allow, scopes[]}` | the person's decision about the waiting candidate |

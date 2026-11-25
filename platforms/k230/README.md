@@ -78,12 +78,15 @@ The root account ships without a password, as in the vendor image, so the
 serial console (UART0, 115200) always gives a root shell for recovery. From
 v0.0.2 the network side is closed by default: sshd runs with
 `PermitEmptyPasswords no` (apply_to_sdk.sh patches the vendor sshd_config)
-and telnetd listens on 127.0.0.1 only (`/etc/default/telnet`). Nothing
-secret is embedded in the image. To enable SSH, on the serial console:
+and telnetd listens on 127.0.0.1 only (`/etc/default/telnet`). Since ADR-019
+amendment 2 (DOORS Companion) sshd also runs with `PermitRootLogin
+prohibit-password`: root signs in over SSH with a key only, and a password
+set with `passwd` or in Settings > Companion is for the serial console and
+`su` (`verify_image.sh` refuses an image without it). Nothing secret is
+embedded in the image. To enable SSH, on the serial console:
 
 ```sh
-passwd                      # sets the root password; SSH password login works from now on
-# or, key only:
+# root signs in over SSH with a key (PermitRootLogin prohibit-password):
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 cat >> /root/.ssh/authorized_keys      # paste the public key, Ctrl-D
 chmod 600 /root/.ssh/authorized_keys

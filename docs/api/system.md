@@ -522,6 +522,92 @@ question; without it the call is refused (code 3). Replies at once with
 `{"state": "running"}`. Refused with code 3 when the unit is already set up,
 code 5 while a setup runs, code 4 when it could not start.
 
+### Companion (ADR-019 amendment 2)
+
+gatewayd, the Companion gateway, is in every image and off unless a unit says
+otherwise in `/etc/default/gatewayd` (`GATEWAYD_ENABLE`, ADR-019 rule 1). Its
+rule 9b allows it only on a unit whose root account has a password. Settings >
+Companion switches it and sets that password through these three methods, so
+neither needs a shell (`services/sysd/sysd_companion.h`). The control is
+narrow: one service whose init script and binary are compiled into sysd, a
+boolean, or one password; a request names no path, command or other service,
+and the scripts run from a fixed argv, with no shell. The work runs in a child,
+as the radio setup's does; the scripts' output goes to `companion.log` in the
+log directory. `system.reboot` and `system.poweroff` are refused (code 5) while
+a change runs.
+
+**SSH first.** Before it sets a password or switches the gateway on, sysd
+makes root's SSH login key-only. Every `PermitRootLogin` in
+`/etc/ssh/sshd_config` must be `prohibit-password`, `without-password`,
+`forced-commands-only` or `no`, with one before the first `Match`. If not,
+the unsafe lines become `prohibit-password`, or one is added at the top when
+there is none. The result is checked with `sshd -t -f`; the original is kept
+once as `sshd_config.doors-orig`; the new file replaces the old by rename; and
+sshd is reloaded (`S50sshd reload`) if it runs. A file sysd cannot judge (an
+`Include` line, or unreadable) is refused. Any failure ends the change before
+the password or the switch is touched. No sshd installed: nothing to harden.
+
+#### companion.status
+
+No parameters. Returns:
+
+```json
+{"installed": true, "enabled": false, "running": false, "password_set": false, "ssh": "open",
+ "state": "idle", "action": "password", "error": "ssh_failed", "message": "..."}
+```
+
+`installed`: `/usr/sbin/gatewayd` and `/etc/init.d/S70gatewayd` are both
+there and executable. `enabled`: `GATEWAYD_ENABLE=1`. `running`: the daemon
+`pos-supervise` records in `/run/pocketos/gatewayd.pid` is alive.
+`password_set`: root has a password hash, by gatewayd's own rule (sysd compiles
+`services/gatewayd/gw_gate.c`). `ssh`: `hardened`, `open`, `unknown` or
+`absent`, as above. `state`: `idle`, `running`, `done` or `failed`, for the
+running or last change, which `action` names (`enable`, `disable`, `password`).
+`error` and `message` are there when it failed.
+
+#### companion.set_enabled
+
+Params `{"enabled": true|false}` and nothing else (code 2 otherwise). Replies at
+once with `{"state": "running"}`; `companion.status` follows the change.
+
+- `true` is refused with code 3 when gatewayd is not installed
+  (`not_installed`), when root has no password (`password_required`), or when
+  SSH cannot be judged (`ssh_unknown`). Otherwise SSH is hardened if it has to
+  be, `GATEWAYD_ENABLE=1` is written with the file's other lines kept (the file
+  is created if there is none), `S70gatewayd start` runs, and gatewayd must
+  answer `gateway.status` within 10 s. If it does not, the file is put back
+  as it was and `S70gatewayd stop` runs (`start_failed`, `no_answer`).
+- `false` is always accepted. `GATEWAYD_ENABLE=0` is written **before**
+  `S70gatewayd stop`, so a stop that fails (`stop_failed`) still leaves a unit
+  that does not start the gateway at its next boot.
+
+The gateway's own state (`$POCKETOS_STATE_DIR/gatewayd`: the unit's key and
+the paired phones) is never touched: off and on again, it is the same unit to
+every phone.
+
+#### companion.set_password
+
+Params `{"password": "..."}` and nothing else: 8 to 64 printable ASCII
+characters (code 2, `invalid_password`, otherwise). Refused with code 3 when SSH
+cannot be judged (`ssh_unknown`), or when root's `/etc/passwd` field is not
+`x`: the password is not kept in `/etc/shadow` (`password_layout`). Otherwise
+it replies `{"state": "running"}` and the change runs in a child. SSH is
+hardened first. The password is then hashed with libxcrypt as SHA-512 crypt
+(`$6$`, a 16-character salt from `getrandom`). Root's field in `/etc/shadow`
+is replaced under `lckpwdf()`: temp file, fsync, rename, directory fsync, mode
+0600, every other line and field kept. Last, gatewayd's own gate must read it
+back as set (`password_failed` otherwise). The password is never logged. sysd
+wipes its copy when the child is started; the child wipes its copy once it is
+hashed. No current password is asked for: whoever has the unit's unlocked
+screen is root already (Terminal).
+
+Errors carry `"<word>: <sentence>"`, the word for a program (Settings turns it
+into its own words) and the sentence for a person at `doors call`:
+`not_installed`, `password_required`, `ssh_unknown`, `ssh_failed`,
+`write_failed`, `start_failed`, `no_answer`, `stop_failed`, `busy`,
+`invalid_password`, `password_layout`, `password_failed`. A change that runs
+reports the same words in `companion.status`.
+
 ### Trust model
 
 There is no authorization layer in v0, and the socket permissions are the
@@ -542,10 +628,10 @@ the methods that change the machine will need a real answer.
 | Code | Meaning |
 | --- | --- |
 | 1 | `POCKETIPC_ERR_UNKNOWN_METHOD`: no such method |
-| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes` / `storage.eject`, which take none, or a bad `system.logs` parameter |
-| 3 | `POCKETIPC_ERR_POLICY`: `storage.eject` with no USB drive mounted; `radio_setup.start` without `antenna_confirmed`, or on a unit already set up |
+| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes` / `storage.eject`, which take none, or a bad `system.logs` parameter; `companion.set_enabled` or `companion.set_password` with anything but its one member, or a password outside the rules |
+| 3 | `POCKETIPC_ERR_POLICY`: `storage.eject` with no USB drive mounted; `radio_setup.start` without `antenna_confirmed`, or on a unit already set up; `companion.set_enabled {enabled: true}` without gatewayd or a password, or with SSH that cannot be judged; `companion.set_password` with SSH that cannot be judged or a passwd layout it does not write |
 | 4 | `POCKETIPC_ERR_BACKEND`: the eject could not be started |
-| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending, or an eject, a storage expansion or a radio setup is running |
+| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending, or an eject, a storage expansion, a radio setup or a Companion change is running |
 
 `system.info` and `system.status` take no parameters and ignore any that are
 sent. `system.reboot` and `system.poweroff` take none and refuse any, because
