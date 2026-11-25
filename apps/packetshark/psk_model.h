@@ -59,6 +59,8 @@ enum psk_exit {
 #define PSK_CHANGED_DIAG 0x1000u /* the DNS and TCP diagnosis (M11.1) */
 #define PSK_CHANGED_NET 0x2000u  /* the network intelligence's totals (M12.1) */
 #define PSK_CHANGED_NETLIST 0x4000u /* its devices, servers, leases and events arrived whole */
+#define PSK_CHANGED_MARK 0x8000u    /* a mark was set (N1.0) */
+#define PSK_CHANGED_EVID 0x10000u   /* a mark's evidence arrived whole (N1.0) */
 
 /* The inspector's packet, as text (M6). */
 struct psk_layer {
@@ -116,6 +118,16 @@ struct psk_net_lists {
     struct ppc_evt_net_lease lease[PPC_NET_WIRE_LEASES];
     uint32_t nevents;
     struct ppc_evt_net_event evt[PPC_NET_WIRE_EVENTS];
+};
+
+/* A mark's evidence as the helper last told it (N1.0, docs/apps/
+ * PACKETSHARK.md §4d): one whole answer to `evid`. Figures and the helper's
+ * own address text only, like the rest of the model. */
+struct psk_evidence {
+    struct ppc_evt_ev_head head;
+    struct ppc_evt_ev_win win[2];             /* before the mark, after it */
+    uint32_t nobs[2];
+    struct ppc_evt_ev_obs obs[2][PPC_EV_KEEP]; /* oldest first */
 };
 
 /* SAVE as the app shows it (M8). */
@@ -210,6 +222,20 @@ struct psk_model {
     bool have_net_lists;
     struct psk_net_lists net;
     struct psk_net_lists net_next;
+
+    /* marks and their evidence (N1.0): how many marks this capture has and
+     * which are still held, the newest one and when the app heard of it;
+     * and the evidence of the newest request's answer, filled in ev_next
+     * while its lines come and copied when the last one has */
+    uint32_t nmarks;          /* marks set in this capture: the newest id */
+    uint32_t first_mark;      /* the oldest still held */
+    struct ppc_evt_mark last_mark;
+    int64_t last_mark_ms;
+    uint32_t want_ev;
+    bool ev_open;
+    bool have_ev;
+    struct psk_evidence ev;
+    struct psk_evidence ev_next;
 };
 
 void psk_model_init(struct psk_model *m);

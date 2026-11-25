@@ -47,7 +47,8 @@ hits=$(code $C/ppc_decode.c $C/ppc_stats.c $C/ppc_store.c | grep -nE 'ppc_dissec
 check "the capture path calls neither the view nor the dissector" "$([ -z "$hits" ] && echo 1 || echo 0)"
 
 # ---- layering --------------------------------------------------------------------
-hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] $A/psk_net.[ch] 2>/dev/null)
+hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] $A/psk_net.[ch] \
+       $A/psk_ev.[ch] 2>/dev/null)
 check "the library, the helper, the session, the model and its words are free of LVGL" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(code $A/*.c $A/*.h $A/ui/*.c $A/ui/*.h | grep -nE '#include "(pocketpcap/)?(ppc_decode|ppc_store|ppc_stats|ppc_source|ppc_pcapfile|ppc_format)\.h"')
 check "the app includes nothing of the capture library but the protocol" "$([ -z "$hits" ] && echo 1 || echo 0)"
@@ -95,6 +96,41 @@ hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_net\(')
 check "its lists are asked for in one place, while the overview or its sheet shows (psk_session.c's definition aside)" \
     "$([ "$hits" = "2" ] && sed -n -E '/^static void net_poll\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_net(a->session, a->model)' &&
        sed -n -E '/^static void net_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if (!wanted || !psk_capture_present(a)) {' && echo 1 || echo 0)"
+# Marks and their evidence (N1.0, docs/apps/PACKETSHARK.md §4d) by the same
+# rules: one allocation, no text, no loop without a bound, nothing of a
+# socket; and it keeps figures and addresses, never a packet's bytes or a
+# name it carried (HEADERS).
+hits=$(code $C/ppc_evid.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf)\(')
+check "the evidence history allocates once, at init, and formats nothing (N1.0)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'ev->mem = calloc(1, ' && echo 1 || echo 0)"
+hits=$(code $C/ppc_evid.c | grep -nE '\bwhile *\(1\)|\bfor *\(;;\)|goto|#include <(sys/socket|netinet|arpa|unistd|time)')
+check "it has no unbounded loop, no goto, no clock of its own and nothing of a socket in it" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(sed -n '/^struct ppc_ev_obs {/,/^};/p' $C/ppc_evid.h | grep -E ';' |
+       grep -vE '^[[:space:]]*uint(8|32)_t [a-z0-9_]+(\[[0-9]\])?;[[:space:]]*(/\*.*)?$|^};')
+check "an observation is 32 bytes of figures and addresses: no text, no bytes of the packet" \
+    "$([ -z "$hits" ] && code $C/ppc_evid.h | grep -q "sizeof(struct ppc_ev_obs) == 32" && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $C/ppc_evid.c | grep -nE 'qname|->name\b|payload|->data\b|ppc_store_copy|ppc_dissect')
+check "nothing of a DNS name or a payload reaches the history" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_evid\(')
+check "a mark's evidence is asked for in one function, and never while its page does not show" \
+    "$([ "$hits" = "2" ] && sed -n -E '/^static void ev_ask\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_evid(a->session, a->model, a->ev_id)' &&
+       sed -n -E '/^static void ev_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if ((!psk_evp_shown(a) && !a->mark_wait) || !psk_capture_present(a)) {' &&
+       echo 1 || echo 0)"
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_mark\(')
+check "a mark is set in one function, which sends the helper nothing else" \
+    "$([ "$hits" = "2" ] && sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_mark(a->session)' &&
+       ! sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -qE 'psk_session_(hold|stop|capture|save|discard|view)|capture_command|psk_do\(' &&
+       echo 1 || echo 0)"
+# What the page says is made in one file, and that file scores nothing.
+hits=$(code $A/psk_ev.c | grep -oE '"[^"]*"' | grep -niE 'missing|unanswered|not answered|no reply|no answer|fault|score|confidence|health|likely|probably|diagnos|%%')
+check "the evidence's words name no missing reply, no fault, no score and no percentage" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $A/ui/psk_evidence.c | grep -oE '"[^"]*"' | grep -vE '^"(psk_app\.h|psk_ev\.h|%s|%u|! %s|%s" DOT "PACKET %s|)"$' |
+       grep -viE '^"(Mark|BACK|BEFORE|AFTER|WHAT WAS WATCHED|OBSERVED|MESSAGES COUNTED|OBSERVATIONS|TAP FOR THE PACKET|THE MARK|PACKET %s|DHCP, ARP AND DNS IN PACKETS|WHAT THIS CAN AND CANNOT TELL|Reading what the capture has seen\.| \\xc2\\xb7 |%s)"$')
+check "the page itself adds headings and no sentence of its own to them" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -8
 # The one mention of /tmp is the refusal to save there (ppc_captures_dir).
 hits=$(code $H $C/*.c $A/*.c | grep -nE '"/tmp' | grep -vF 'strncmp(buf, "/tmp", 4) == 0')
 check "nothing goes to /tmp, and a captures folder there is refused" "$([ -z "$hits" ] && echo 1 || echo 0)"

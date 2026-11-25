@@ -52,6 +52,13 @@ void psk_model_clear_packets(struct psk_model *m)
     m->net_open = false;
     m->have_net_lists = false;
     memset(&m->net, 0, sizeof(m->net));
+    /* And the marks: they are moments of that capture. */
+    m->nmarks = 0;
+    m->first_mark = 0;
+    memset(&m->last_mark, 0, sizeof(m->last_mark));
+    m->want_ev = 0;
+    m->ev_open = false;
+    m->have_ev = false;
 }
 
 void psk_model_helper_stopped(struct psk_model *m, enum psk_exit why, int value, int64_t now_ms)
@@ -289,6 +296,45 @@ unsigned psk_model_apply(struct psk_model *m, const struct ppc_evt *e, int64_t n
             return PSK_CHANGED_NETLIST;
         }
         m->net_open = false;
+        return 0;
+    case PPC_EVT_MARK:
+        m->last_mark = e->u.mark;
+        m->nmarks = e->u.mark.id;
+        m->first_mark = e->u.mark.first;
+        m->last_mark_ms = now_ms;
+        return PSK_CHANGED_MARK;
+    case PPC_EVT_EV_BEGIN:
+        if (e->u.ev_head.req != m->want_ev || m->want_ev == 0) {
+            m->ev_open = false; /* stale: an answer to an older request */
+            return 0;
+        }
+        memset(&m->ev_next, 0, sizeof(m->ev_next));
+        m->ev_next.head = e->u.ev_head;
+        m->ev_open = true;
+        return 0;
+    case PPC_EVT_EV_WIN:
+        if (m->ev_open) {
+            m->ev_next.win[e->u.ev_win.side] = e->u.ev_win;
+        }
+        return 0;
+    case PPC_EVT_EV_OBS:
+        if (m->ev_open && m->ev_next.nobs[e->u.ev_obs.side] < PPC_EV_KEEP) {
+            m->ev_next.obs[e->u.ev_obs.side][m->ev_next.nobs[e->u.ev_obs.side]++] = e->u.ev_obs;
+        }
+        return 0;
+    case PPC_EVT_EV_END:
+        if (m->ev_open && e->u.ev_req == m->want_ev) {
+            m->ev_open = false;
+            m->ev = m->ev_next;
+            m->have_ev = true;
+            /* The answer says which marks are held now. */
+            m->first_mark = m->ev.head.first;
+            if (m->ev.head.last > m->nmarks) {
+                m->nmarks = m->ev.head.last;
+            }
+            return PSK_CHANGED_EVID;
+        }
+        m->ev_open = false;
         return 0;
     case PPC_EVT_MARKS:
         if (e->u.marks.req != m->want_marks || m->want_marks == 0) {

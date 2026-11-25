@@ -190,6 +190,27 @@ int psk_session_net(struct psk_session *s, struct psk_model *m)
     return 0;
 }
 
+int psk_session_mark(struct psk_session *s)
+{
+    char line[16];
+    int n = ppc_cmd_format_mark(line, sizeof(line));
+
+    return n < 0 || send_raw(s, line, n) != 0 ? -1 : 0;
+}
+
+int psk_session_evid(struct psk_session *s, struct psk_model *m, uint32_t id)
+{
+    char line[48];
+    uint32_t req = ++s->next_req ? s->next_req : ++s->next_req;
+    int n = ppc_cmd_format_evid(line, sizeof(line), req, id);
+
+    if (n < 0 || send_raw(s, line, n) != 0) {
+        return -1;
+    }
+    m->want_ev = req;
+    return 0;
+}
+
 int psk_session_save(struct psk_session *s)
 {
     return send_word(s, "save");
