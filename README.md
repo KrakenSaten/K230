@@ -146,8 +146,12 @@ the unit's gateway service, `gatewayd`, and no APK is published
   <img src="android/doors-companion/docs/screens/22-rift-room.png" width="30%" alt="DOORS Companion RIFT room: this node's last minute of heard and sent frames, counts of nodes and stored messages, and the thread list">
   <img src="android/doors-companion/docs/screens/21-rift-thread.png" width="30%" alt="DOORS Companion RIFT direct thread: messages from the unit and from the phone marked Delivered, and the newest Accepted and awaiting acknowledgement">
 </p>
+<p align="center">
+  <img src="android/doors-companion/docs/screens/23-packetshark.png" width="30%" alt="DOORS Companion PacketShark room: the unit capturing on synth0, 200 packets per second, a full 120-second traffic graph stacked by protocol and the protocol shares, with HOLD and STOP">
+  <img src="android/doors-companion/docs/screens/24-vision.png" width="30%" alt="DOORS Companion Vision room: the unit's shared live picture, here the fake camera's colour-bar test pattern with a scripted person box, the mode picker and the detector's figures">
+</p>
 
-<sub>Android emulator captures of the app against the reference `gatewayd` and the fake services of the host test harness; unit, people and traffic are the harness's own.
+<sub>Android emulator captures of the app against the reference `gatewayd` and the host test harness; the unit, people and mesh traffic are the harness's own. PacketShark: a real capture by the simulator shell and `pos-capture` on its synthetic source (200 packets per second). Vision: real frames through `pos-vision`, the shell and the gateway, but the picture is the fake camera's test pattern and the "person" box is scripted by the harness, not a detection.
 [Companion app](android/doors-companion/README.md) · [Gateway](docs/services/GATEWAYD.md)</sub>
 
 ## All apps
