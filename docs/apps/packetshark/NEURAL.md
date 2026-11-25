@@ -27,6 +27,7 @@ The first revision of this brief (`41a6f5d`) chose between three products. This 
 | [neural/ROADMAP.md](neural/ROADMAP.md) | First KPU proof of concept, GO/NO-GO criteria, phased roadmap |
 | [neural/HANDOVER.md](neural/HANDOVER.md) | Where this stands, owner decisions, what warrants independent review |
 | [neural/K1-REVIEW.md](neural/K1-REVIEW.md) | Brief for an independent review of the K1 measurements on Unit A |
+| [neural/INDEPENDENT-REVIEW.md](neural/INDEPENDENT-REVIEW.md) | Independent review of this package (25 November 2026): findings, disputed verdicts, GO/NO-GO decisions and an amended P7 protocol. Its corrections have not been applied to the other documents yet |
 
 ## 1. Evidence at the starting point
 

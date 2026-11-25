@@ -6,7 +6,8 @@
 
 | Item | State |
 | --- | --- |
-| Design documents | This PR (#186, draft, branch `docs/packetshark-neural-concepts`): [NEURAL.md](../NEURAL.md) (revision 2), [ENGINE.md](ENGINE.md), [MODELS.md](MODELS.md), [EXPERIMENTS.md](EXPERIMENTS.md), [ROADMAP.md](ROADMAP.md), [K1-REVIEW.md](K1-REVIEW.md), this file. Documentation only. |
+| Design documents | This PR (#186, draft, branch `docs/packetshark-neural-concepts`): [NEURAL.md](../NEURAL.md) (revision 2), [ENGINE.md](ENGINE.md), [MODELS.md](MODELS.md), [EXPERIMENTS.md](EXPERIMENTS.md), [ROADMAP.md](ROADMAP.md), [K1-REVIEW.md](K1-REVIEW.md), [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md), this file. Documentation only. |
+| Independent review | Done on 25 November 2026: [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md). It disputes several verdicts in this package: the memory criterion P6, the KPU-to-CPU ratio, the visibility-gate figures, and K2 as the next accelerator milestone. It also amends the P7 protocol. The corrections it lists in its §10 have **not** been applied to these documents yet. One security finding (F1) is held privately. |
 | Experiments | Branch `research/packetshark-neural-lab` at [`9b790069`](https://github.com/KrakenSaten/K230/tree/9b790069/research/packetshark-neural) (pushed, not for merging), directory `research/packetshark-neural/`: scripts, JSON results, the K1 kit and its hardware report (`poc/`, `poc/K1-UNIT-A.md`, `results/k1_unit_a/`), desk research notes R1–R6 with sources. Larger run outputs (kmodels, simulator outputs, dumps, K1 console logs) are in WSL `~/work/psk-neural/runs` and in `C:\K230-artifacts\packetshark-neural\` with SHA-256 sums. |
 | Code in DOORS | None. Nothing under `core/`, `tools/`, `apps/` or `tests/` changed on either branch. |
 | Units | **K1 ran on Unit A on 25 November 2026** with the owner's authorization: non-destructive, P7 skipped, kit in `/tmp/k1` only. Afterwards the same processes ran with the same PIDs, the binaries were unchanged, `/tmp/k1` was gone, and `CmaFree` was 2.86 MB above the as-found value. Unit B was not touched. Nothing was deployed or merged. |
@@ -57,7 +58,7 @@ Give the reviewer the code and the documents, not this page's conclusions.
 
 ## 5. Resume here
 
-1. Read NEURAL.md §2 and HANDOVER §2. Collect the owner's answers to D1–D10.
+1. Read [INDEPENDENT-REVIEW.md](INDEPENDENT-REVIEW.md) first. It re-orders the next steps (its §8 and §9) and replaces the P7 protocol (its §7). Then read NEURAL.md §2 and HANDOVER §2, and collect the owner's answers to D1–D10.
 2. Commission reviews A and B first. They can change the order of the roadmap.
 3. K1 has run on Unit A except P7 (ROADMAP §1). Send [K1-REVIEW.md](K1-REVIEW.md) to Fabel 5.2. To close G4, P7 needs its own authorization: Unit B is preferred, and on Unit A any stranded CMA stays until reboot. The kit and the recipe are in `poc/K1-UNIT-A.md` §8. Do not start K2 before G4 passes and D4 is decided.
 4. Otherwise start N1 with fixtures before code. First come the four replay cases of the first brief as scripted scenarios with expected ledgers, then the measurement of the unit's own background traffic.
