@@ -1070,7 +1070,7 @@ void sysd_companion_reap(struct sysd_companion *c)
 
         if (nl) {
             *nl = '\0';
-            snprintf(c->error, sizeof(c->error), "%s", text);
+            snprintf(c->error, sizeof(c->error), "%.31s", text);
             snprintf(c->message, sizeof(c->message), "%s", nl + 1);
         } else {
             snprintf(c->error, sizeof(c->error), "failed");
