@@ -69,7 +69,7 @@ static void side_add(struct ppc_ev_side *s, const struct ppc_ev_obs *o)
 /* What the seconds that touch [from_ms, to_ms) were, as far as the ring
  * still holds them: a window that is not on a second's edge counts the
  * second it begins in, so a HOLD inside a short window is still told. At
- * most PPC_EV_SECONDS turns. */
+ * most PPC_EV_SECONDS turns. Frames lost are not counted here: lost_in. */
 static void side_seen(const struct ppc_evid *ev, struct ppc_ev_side *s, uint32_t from_ms, uint32_t to_ms)
 {
     uint32_t first = from_ms / 1000u;
@@ -78,7 +78,6 @@ static void side_seen(const struct ppc_evid *ev, struct ppc_ev_side *s, uint32_t
     s->watched_s = 0;
     s->held_s = 0;
     s->shed_s = 0;
-    s->lost = 0;
     if (to_ms <= from_ms) {
         return; /* a window of no length touches no second */
     }
@@ -95,8 +94,32 @@ static void side_seen(const struct ppc_evid *ev, struct ppc_ev_side *s, uint32_t
         s->watched_s += (e->flags & PPC_EVS_WATCHED) != 0;
         s->held_s += (e->flags & PPC_EVS_HELD) != 0;
         s->shed_s += (e->flags & PPC_EVS_SHED) != 0;
-        s->lost += e->lost;
     }
+}
+
+/* Frames reported lost in the seconds first..last, as far as the ring
+ * still holds them. A second's losses are those read at its ticks. */
+static uint64_t lost_in(const struct ppc_evid *ev, uint32_t first, uint32_t last)
+{
+    uint64_t n = 0;
+    uint32_t i;
+
+    for (i = 0; i < PPC_EV_SECONDS && first + i <= last && first + i >= first; i++) {
+        uint32_t sec = first + i;
+        const struct ppc_ev_sec *e = &ev->secs[sec & SEC_MASK];
+
+        if (e->used && e->sec == sec) {
+            n += e->lost;
+        }
+    }
+    return n;
+}
+
+static uint32_t lost_of_sec(const struct ppc_evid *ev, uint32_t sec)
+{
+    const struct ppc_ev_sec *e = &ev->secs[sec & SEC_MASK];
+
+    return e->used && e->sec == sec ? e->lost : 0;
 }
 
 /* The window after a mark as it stands at now_ms: still filling, full, or
@@ -125,6 +148,16 @@ static void after_refresh(const struct ppc_evid *ev, struct ppc_ev_mark *m, uint
     }
     s->span_ms = to - m->at_ms;
     side_seen(ev, s, m->at_ms, to);
+    /* Losses from the mark's second to the second of `to`, whose ticks up
+     * to `to` read what was lost before it; less what the mark's second had
+     * before the mark (the window before's) and what could not be placed. */
+    s->lost = 0;
+    if (to > m->at_ms) {
+        uint64_t all = lost_in(ev, m->at_ms / 1000u, to / 1000u);
+        uint64_t not_after = (uint64_t)m->lost_split + m->edge_lost;
+
+        s->lost = all > not_after ? all - not_after : 0;
+    }
 }
 
 static void refresh_all(struct ppc_evid *ev, uint32_t now_ms)
@@ -157,6 +190,7 @@ void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_
     uint32_t sec = now_ms / 1000u;
     uint64_t lost = 0;
     struct ppc_ev_sec *e;
+    unsigned i;
 
     if (!ev->mem || ev->stopped) {
         return;
@@ -169,7 +203,6 @@ void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_
         return; /* a clock that went back: nothing is rewritten */
     } else {
         uint32_t gap = sec - ev->cur_sec;
-        uint32_t i;
 
         lost = lost_total > ev->lost_total ? lost_total - ev->lost_total : 0;
         ev->lost_total = lost_total;
@@ -191,17 +224,92 @@ void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_
         e->lost += (uint32_t)lost;
     }
     ev->cur_flags = (uint8_t)flags;
+    /* A mark whose counters could not be read when it was set: what is
+     * read just after it may have been lost on either side of it. */
+    for (i = 0; lost && i < PPC_EV_MARKS; i++) {
+        struct ppc_ev_mark *m = &ev->marks[i];
+
+        if (m->id && !m->exact && (m->side[1].flags & PPC_EVW_OPEN) && now_ms >= m->at_ms &&
+            now_ms - m->at_ms < PPC_EV_EDGE_MS) {
+            m->edge_lost += lost;
+        }
+    }
     refresh_all(ev, now_ms);
 }
 
-void ppc_evid_stop(struct ppc_evid *ev, uint32_t now_ms)
+void ppc_evid_stop(struct ppc_evid *ev, uint32_t now_ms, uint64_t wall_s)
 {
     if (!ev->mem || ev->stopped) {
         return;
     }
     ev->stopped = 1;
     ev->stop_ms = now_ms;
+    ev->stop_wall_s = wall_s;
     refresh_all(ev, now_ms);
+}
+
+/* ---- what the capture can observe -------------------------------------------------------- */
+
+void ppc_evid_coverage(struct ppc_evid *ev, unsigned cfilter, unsigned unanalyzed)
+{
+    ev->cfilter = (uint8_t)(cfilter < PPC_CFILTER_COUNT ? cfilter : PPC_CFILTER_ALL);
+    ev->unanalyzed = (uint8_t)(unanalyzed & PPC_EV_CLASSES);
+}
+
+uint8_t ppc_evid_unanalyzed(int dns_ready, int net_ready)
+{
+    return (uint8_t)((dns_ready ? 0u : 1u << PPC_CLASS_DNS) |
+                     (net_ready ? 0u : (1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP)));
+}
+
+static unsigned class_of_kind(unsigned kind)
+{
+    if (kind >= PPC_EV_DHCP_DISCOVER && kind <= PPC_EV_DHCP_INFORM) {
+        return 1u << PPC_CLASS_DHCP;
+    }
+    if (kind >= PPC_EV_ARP_REQUEST && kind <= PPC_EV_ARP_TWO_MACS) {
+        return 1u << PPC_CLASS_ARP;
+    }
+    if (kind >= PPC_EV_DNS_QUERY && kind <= PPC_EV_DNS_FAILURE) {
+        return 1u << PPC_CLASS_DNS;
+    }
+    return 0;
+}
+
+void ppc_evid_bypass(struct ppc_evid *ev, uint32_t t_ms)
+{
+    uint32_t sec = t_ms / 1000u;
+    struct ppc_ev_sec *e;
+    unsigned i;
+
+    if (!ev->mem || ev->stopped || (ev->bypass_any && sec == ev->bypass_sec)) {
+        return;
+    }
+    /* Older than the ring, or ahead of the clock: no second to write. */
+    if (ev->ticking && (sec + PPC_EV_SECONDS <= ev->cur_sec || sec > ev->cur_sec + 1u)) {
+        return;
+    }
+    ev->bypass_any = 1;
+    ev->bypass_sec = sec;
+    e = second(ev, sec);
+    if (e->flags & PPC_EVS_SHED) {
+        return;
+    }
+    e->flags |= PPC_EVS_SHED;
+    /* A window before a mark already set learns it as a late observation
+     * would (ppc_evid_note); a window after reads it at its next refresh. */
+    for (i = 0; i < PPC_EV_MARKS; i++) {
+        struct ppc_ev_mark *m = &ev->marks[i];
+        uint32_t from;
+
+        if (!m->id || !(m->side[1].flags & PPC_EVW_OPEN)) {
+            continue;
+        }
+        from = m->at_ms > PPC_EV_WINDOW_MS ? m->at_ms - PPC_EV_WINDOW_MS : 0;
+        if ((uint64_t)sec * 1000u < m->at_ms && (uint64_t)sec * 1000u + 1000u > from) {
+            m->side[0].shed_s++;
+        }
+    }
 }
 
 /* ---- observations ------------------------------------------------------------------------ */
@@ -212,6 +320,9 @@ void ppc_evid_note(struct ppc_evid *ev, const struct ppc_ev_obs *o)
 
     if (!ev->mem || o->kind == PPC_EV_NONE || o->kind >= PPC_EV_KINDS) {
         return;
+    }
+    if (class_of_kind(o->kind) & (ppc_cfilter_excludes((enum ppc_cfilter)ev->cfilter) | ev->unanalyzed)) {
+        return; /* a class this capture cannot see (a replay applies no filter) */
     }
     if (ev->count == PPC_EV_HISTORY) {
         ev->gone = 1;
@@ -311,17 +422,28 @@ static void before_fill(const struct ppc_evid *ev, struct ppc_ev_mark *m)
     }
     s->more = total - s->nkept;
     side_seen(ev, s, from, m->at_ms);
+    /* Losses of the seconds before the mark's, and of the mark's own up to
+     * the mark: they were read before it, so they happened before it. */
+    s->lost = (m->at_ms / 1000u > from / 1000u ? lost_in(ev, from / 1000u, m->at_ms / 1000u - 1u) : 0) +
+              m->lost_split;
 }
 
-const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, unsigned state, uint32_t last_seq)
+const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, unsigned state, uint32_t last_seq,
+                                        uint64_t wall_s, int exact)
 {
     struct ppc_ev_mark *m;
 
     if (!ev->mem) {
         return NULL;
     }
-    if (ev->stopped && now_ms > ev->stop_ms) {
-        now_ms = ev->stop_ms; /* nothing is observed after the capture stopped */
+    if (ev->stopped) {
+        /* Nothing is observed after the capture stopped: a mark set later
+         * stands where it stopped, on the session's clock and the wall's. */
+        if (now_ms > ev->stop_ms) {
+            now_ms = ev->stop_ms;
+        }
+        wall_s = ev->stop_wall_s;
+        exact = 1; /* the counters were read at STOP, and nothing follows */
     }
     m = &ev->marks[(ev->next_id - 1u) % PPC_EV_MARKS];
     memset(m, 0, sizeof(*m));
@@ -329,6 +451,9 @@ const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, un
     m->at_ms = now_ms;
     m->seq = last_seq;
     m->state = (uint8_t)state;
+    m->wall_s = wall_s;
+    m->exact = (uint8_t)(exact != 0);
+    m->lost_split = lost_of_sec(ev, now_ms / 1000u);
     before_fill(ev, m);
     m->side[1].flags = PPC_EVW_OPEN;
     after_refresh(ev, m, now_ms);

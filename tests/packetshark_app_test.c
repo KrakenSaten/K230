@@ -3826,6 +3826,70 @@ static void n1_replays(bool portrait)
         CHECK("nothing clipped", audit_page() + dots_wrapped(part("evpage")) == 0);
         shot("n1-silence");
     }
+    {
+        /* What the capture could not see (the review of PR #188): a filter
+         * that kept ARP out (DNS AND DHCP), a DNS analysis that could not
+         * start, and frames lost too close to the mark to place. */
+        struct ppc_evt_ev_head head = { .req = 4244, .id = 3, .first = 1, .last = 3, .at_ms = 300000,
+                                        .state = PPC_STATE_CAPTURING, .seq = 90, .now_ms = 330000,
+                                        .cfilter = PPC_CFILTER_NAMES, .unanalyzed = 1u << PPC_CLASS_DNS,
+                                        .edge_lost = 40 };
+        struct ppc_evt_ev_win win[2];
+        struct ppc_evt_ev_obs obs[1];
+        unsigned bad = 0;
+        unsigned t;
+
+        memset(win, 0, sizeof(win));
+        memset(obs, 0, sizeof(obs));
+        win[0].span_ms = 60000;
+        win[0].watched_s = 60;
+        win[0].kept = 1;
+        win[0].count[PPC_EV_DHCP_DISCOVER] = 1;
+        win[1].flags = PPC_EVW_OPEN;
+        win[1].span_ms = 30000;
+        win[1].watched_s = 30;
+        obs[0].kind = PPC_EV_DHCP_DISCOVER;
+        obs[0].flags = PPC_EVF_BCAST;
+        obs[0].alive = PPC_EV_WHOLE;
+        obs[0].t_ms = 299000;
+        obs[0].seq = 88;
+        snprintf(obs[0].mac, sizeof(obs[0].mac), "02:00:5e:00:00:21");
+
+        CHECK("an answer from a capture that could not see ARP or analyse DNS is shown", show_answer(&head, win, obs, 1));
+        CHECK("its page is the words module's", page_is_models());
+        CHECK("the counts say ARP NOT CAPTURED and DNS NOT ANALYZED, and NONE SEEN of neither",
+              containing_in(part("evcounts"), "NOT CAPTURED") && containing_in(part("evcounts"), "NOT ANALYZED") &&
+                  !containing_in(part("evcounts"), "NONE SEEN"));
+        CHECK("neither window says every frame was seen; both name what could not be seen",
+              !containing_in(part("evwin0"), "EVERY") && !containing_in(part("evwin1"), "EVERY") &&
+                  containing_in(part("evwin0"), "FRAMES LOST AT THE MARK") &&
+                  containing_in(part("evwin0"), "ARP NOT CAPTURED") && containing_in(part("evwin1"), "DNS NOT ANALYZED"));
+        CHECK("the limits name the filter, the analysis that could not start and the 40 frames, once",
+              strstr(label_of("evlimits"), "The capture filter (DNS AND DHCP) kept ARP out") &&
+                  strstr(label_of("evlimits"), "The DNS analysis could not be set up") &&
+                  strstr(label_of("evlimits"), "40 frames were lost so close to the mark"));
+        CHECK("no verdict on it", verdict_words(part("evpage")) == 0);
+        for (t = 0; t < POS_TEXT_SIZE_COUNT; t++) {
+            unsigned n;
+
+            pos_theme_select_text_size((enum pos_text_size)t);
+            pump(250);
+            lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+            n = (unsigned)(audit_page() + dots_wrapped(part("evpage")));
+            if (n) {
+                printf("     what could not be seen, at %s: %u issue(s)\n", pos_text_size_name((enum pos_text_size)t), n);
+            }
+            bad += n;
+            if (t == POS_TEXT_SIZE_LARGE) {
+                shot("n1-coverage-large");
+            }
+        }
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(250);
+        lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+        shot("n1-coverage");
+        CHECK("nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
+    }
     app_stop();
     unsetenv("POCKETOS_CAPTURE_SELF_MAC");
     CHECK("and no helper is left", no_child());

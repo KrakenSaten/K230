@@ -147,6 +147,54 @@ static uint32_t total(const struct ppc_evt_ev_win *w)
     return n;
 }
 
+/* ---- what the capture could see ---------------------------------------------------------- */
+
+static const uint8_t ev_order[3] = { PPC_CLASS_DHCP, PPC_CLASS_ARP, PPC_CLASS_DNS };
+
+/* The protocols the capture filter kept out of the capture. */
+static uint8_t excluded_of(const struct psk_evidence *ev)
+{
+    return (uint8_t)(ppc_cfilter_excludes((enum ppc_cfilter)ev->head.cfilter) & PPC_EV_CLASSES);
+}
+
+/* The protocols captured but not analysed. */
+static uint8_t unanalyzed_of(const struct psk_evidence *ev)
+{
+    return (uint8_t)(ev->head.unanalyzed & PPC_EV_CLASSES & ~excluded_of(ev));
+}
+
+static uint8_t blind_of(const struct psk_evidence *ev)
+{
+    return (uint8_t)(excluded_of(ev) | unanalyzed_of(ev));
+}
+
+/* "DHCP, ARP OR DNS", "DHCP OR DNS", "DNS": the protocols of mask, in their
+ * order, joined by word ("OR", "AND"; "or", "and" inside a sentence). */
+static const char *class_list(uint8_t mask, const char *word, char *buf, size_t buflen)
+{
+    unsigned n = 0;
+    unsigned k = 0;
+    unsigned i;
+
+    buf[0] = '\0';
+    for (i = 0; i < 3; i++) {
+        n += (mask >> ev_order[i]) & 1u;
+    }
+    for (i = 0; i < 3; i++) {
+        if (!((mask >> ev_order[i]) & 1u)) {
+            continue;
+        }
+        k++;
+        if (k > 1 && k == n) {
+            more(buf, buflen, " %s ", word);
+        } else if (k > 1) {
+            more(buf, buflen, ", ");
+        }
+        more(buf, buflen, "%s", psk_class_word(ev_order[i]));
+    }
+    return buf;
+}
+
 uint8_t psk_ev_classes(void)
 {
     return (uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP | 1u << PPC_CLASS_DNS);
@@ -196,7 +244,11 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
 {
     const struct ppc_evt_ev_win *w = &ev->win[side ? 1 : 0];
     uint32_t whole = w->span_ms < 1000u ? 1u : (w->span_ms + 500u) / 1000u; /* as its length is said */
+    uint8_t excluded = excluded_of(ev);
+    uint8_t unanalyzed = unanalyzed_of(ev);
+    unsigned sev;
     char a[24];
+    char c[40];
 
     head[0] = '\0';
     why[0] = '\0';
@@ -228,6 +280,11 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
     if (w->lost) {
         part(seen, seenlen, "%s FRAME%s LOST", psk_fmt_count(w->lost, a, sizeof(a)), w->lost == 1 ? "" : "S");
     }
+    /* Frames lost too close to the mark to place: both windows touch them.
+     * Their number is told once, in the limits. */
+    if (ev->head.edge_lost) {
+        part(seen, seenlen, "FRAMES LOST AT THE MARK");
+    }
     /* Seconds are counted whole, so a window that is not on a second's edge
      * touches one more than it is long: never said as more than the length
      * the window's own heading gives. */
@@ -241,10 +298,24 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
         part(seen, seenlen, "OLDEST NOT KEPT");
     }
     if (seen[0]) {
-        return w->lost || w->shed_s ? PSK_SEV_WARN : PSK_SEV_NOTE;
+        sev = w->lost || w->shed_s || ev->head.edge_lost ? PSK_SEV_WARN : PSK_SEV_NOTE;
+    } else {
+        /* Every frame there was to see: under a capture filter, every frame
+         * it let in. */
+        snprintf(seen, seenlen, "%s", ev->head.cfilter != PPC_CFILTER_ALL ? "EVERY CAPTURED FRAME SEEN" : "EVERY FRAME SEEN");
+        sev = PSK_SEV_OK;
     }
-    snprintf(seen, seenlen, "EVERY FRAME SEEN");
-    return PSK_SEV_OK;
+    /* And what the capture could not see, whatever the frames. */
+    if (excluded) {
+        part(seen, seenlen, "%s NOT CAPTURED", class_list(excluded, "AND", c, sizeof(c)));
+    }
+    if (unanalyzed) {
+        part(seen, seenlen, "%s NOT ANALYZED", class_list(unanalyzed, "AND", c, sizeof(c)));
+    }
+    if ((excluded || unanalyzed) && sev == PSK_SEV_OK) {
+        sev = PSK_SEV_NOTE;
+    }
+    return sev;
 }
 
 /* ---- the counts -------------------------------------------------------------------------- */
@@ -276,17 +347,34 @@ static const struct {
 
 unsigned psk_ev_counts(const struct psk_evidence *ev, struct psk_ev_count *out, unsigned max)
 {
-    static const uint8_t order[] = { PPC_CLASS_DHCP, PPC_CLASS_ARP, PPC_CLASS_DNS };
+    uint8_t excluded = excluded_of(ev);
+    uint8_t unanalyzed = unanalyzed_of(ev);
     unsigned n = 0;
     unsigned g;
     unsigned k;
 
-    for (g = 0; g < sizeof(order) / sizeof(order[0]); g++) {
+    for (g = 0; g < sizeof(ev_order) / sizeof(ev_order[0]); g++) {
+        uint8_t bit = (uint8_t)(1u << ev_order[g]);
         uint32_t seen = 0;
         unsigned lines = 0;
 
+        if ((excluded | unanalyzed) & bit) {
+            /* Not a count of none: the capture could not see it. */
+            if (n < max) {
+                struct psk_ev_count *o = &out[n++];
+
+                memset(o, 0, sizeof(*o));
+                o->cls = ev_order[g];
+                o->first = 1;
+                o->blind = 1;
+                snprintf(o->name, sizeof(o->name), "%s", (excluded & bit) ? "NOT CAPTURED" : "NOT ANALYZED");
+                snprintf(o->before, sizeof(o->before), "-");
+                snprintf(o->after, sizeof(o->after), "-");
+            }
+            continue;
+        }
         for (k = 1; k < PPC_EV_KINDS; k++) {
-            if (kinds[k].cls == order[g]) {
+            if (kinds[k].cls == ev_order[g]) {
                 seen += ev->win[0].count[k] + ev->win[1].count[k];
             }
         }
@@ -296,11 +384,11 @@ unsigned psk_ev_counts(const struct psk_evidence *ev, struct psk_ev_count *out, 
             struct psk_ev_count *o = &out[n];
             char a[24];
 
-            if (kinds[k].cls != order[g] || (!kinds[k].core && b == 0 && f == 0)) {
+            if (kinds[k].cls != ev_order[g] || (!kinds[k].core && b == 0 && f == 0)) {
                 continue;
             }
             memset(o, 0, sizeof(*o));
-            o->cls = order[g];
+            o->cls = ev_order[g];
             o->first = lines == 0;
             snprintf(o->name, sizeof(o->name), "%s", kinds[k].word);
             snprintf(o->before, sizeof(o->before), "%s", psk_fmt_count(b, a, sizeof(a)));
@@ -312,7 +400,7 @@ unsigned psk_ev_counts(const struct psk_evidence *ev, struct psk_ev_count *out, 
             struct psk_ev_count *o = &out[n++];
 
             memset(o, 0, sizeof(*o));
-            o->cls = order[g];
+            o->cls = ev_order[g];
             o->first = 1;
             o->none = 1;
             snprintf(o->name, sizeof(o->name), "NONE SEEN");
@@ -508,7 +596,7 @@ static void row_of(const struct psk_evidence *ev, const struct ppc_evt_ev_obs *o
             more(r->sub, sizeof(r->sub), "%s ", rcode_meaning(o->a >> 16));
         }
         if (has(o, PPC_EVF_UNPAIRED)) {
-            more(r->sub, sizeof(r->sub), "Its question was not seen in this capture, so it has no response time.");
+            more(r->sub, sizeof(r->sub), "No matching question is available to calculate response time.");
         } else if (o->b) {
             more(r->sub, sizeof(r->sub), "Answered %s after the question.", ms_lower(o->b, a, sizeof(a)));
         } else {
@@ -547,12 +635,21 @@ const char *psk_ev_side(const struct psk_evidence *ev, unsigned side, char *buf,
     const struct ppc_evt_ev_win *w = &ev->win[side ? 1 : 0];
     uint32_t all = total(w);
     uint32_t rows = ev->nobs[side ? 1 : 0];
+    uint8_t blind = blind_of(ev);
+    uint8_t visible = (uint8_t)(PPC_EV_CLASSES & ~blind);
+    const char *yet = (side && (w->flags & PPC_EVW_OPEN)) ? " YET" : "";
     char a[24];
-    char c[24];
+    char c[40];
 
     snprintf(buf, buflen, "%s", side ? "AFTER THE MARK" : "BEFORE THE MARK");
     if (all == 0) {
-        part(buf, buflen, "%s", (side && (w->flags & PPC_EVW_OPEN)) ? "NONE SEEN YET" : "NONE SEEN");
+        if (!visible) {
+            part(buf, buflen, "NOTHING COULD BE OBSERVED");
+        } else if (blind) {
+            part(buf, buflen, "NO %s SEEN%s", class_list(visible, "OR", c, sizeof(c)), yet);
+        } else {
+            part(buf, buflen, "NONE SEEN%s", yet);
+        }
     } else if (rows < all) {
         part(buf, buflen, "%s OF %s", psk_fmt_count(rows, a, sizeof(a)), psk_fmt_count(all, c, sizeof(c)));
         part(buf, buflen, "NEAREST THE MARK");
@@ -568,15 +665,27 @@ const char *psk_ev_limits(const struct psk_evidence *ev, char *buf, size_t bufle
 {
     const struct ppc_evt_ev_win *b = &ev->win[0];
     const struct ppc_evt_ev_win *f = &ev->win[1];
+    uint8_t excluded = excluded_of(ev);
+    uint8_t unanalyzed = unanalyzed_of(ev);
     int unseen = 0;
     char a[24];
-    char c[24];
+    char c[40];
     unsigned side;
     unsigned i;
 
     buf[0] = '\0';
     line(buf, buflen, "This is what one interface saw: this device's own traffic and what is sent to every station. "
                       "Traffic between other devices never arrives at a switch port or a Wi-Fi station.");
+    if (excluded) {
+        line(buf, buflen, "The capture filter (%s) kept %s out of this capture: no such message was captured, so "
+                          "none is counted or listed, and nothing is said of it.",
+             psk_cfilter_label((enum ppc_cfilter)ev->head.cfilter), class_list(excluded, "and", c, sizeof(c)));
+    }
+    if (unanalyzed) {
+        line(buf, buflen, "The %s analysis could not be set up for this capture: those packets were captured and "
+                          "are in PACKETS, but none was examined, so none is counted or listed here.",
+             class_list(unanalyzed, "and", c, sizeof(c)));
+    }
     for (side = 0; side < 2; side++) {
         for (i = 0; i < ev->nobs[side] && i < PPC_EV_KEEP; i++) {
             const struct ppc_evt_ev_obs *o = &ev->obs[side][i];
@@ -594,6 +703,11 @@ const char *psk_ev_limits(const struct psk_evidence *ev, char *buf, size_t bufle
         line(buf, buflen, "Frames were lost while this was captured (%s before, %s after). What is listed was seen; "
                           "a request or a reply may be among what was lost.",
              psk_fmt_count(b->lost, a, sizeof(a)), psk_fmt_count(f->lost, c, sizeof(c)));
+    }
+    if (ev->head.edge_lost) {
+        line(buf, buflen, "%s frame%s lost so close to the mark that it cannot be told whether before or after it: "
+                          "counted once, here, in neither window.",
+             psk_fmt_count(ev->head.edge_lost, a, sizeof(a)), ev->head.edge_lost == 1 ? " was" : "s were");
     }
     if (b->held_s || f->held_s) {
         line(buf, buflen, "The capture was on HOLD for part of this time. Nothing was looked at then, so nothing "
@@ -628,17 +742,30 @@ const char *psk_ev_nothing(const struct psk_evidence *ev, char *buf, size_t bufl
 {
     const struct ppc_evt_ev_win *b = &ev->win[0];
     const struct ppc_evt_ev_win *f = &ev->win[1];
-    int limited = b->lost || f->lost || b->held_s || f->held_s || b->shed_s || f->shed_s;
+    int limited = b->lost || f->lost || b->held_s || f->held_s || b->shed_s || f->shed_s || ev->head.edge_lost;
+    uint8_t blind = blind_of(ev);
+    uint8_t visible = (uint8_t)(PPC_EV_CLASSES & ~blind);
+    char c[40];
+    char d[40];
 
     buf[0] = '\0';
     if (total(b) + total(f) != 0) {
         return buf;
     }
-    snprintf(buf, buflen, "No DHCP, ARP or DNS message was seen in either window.");
+    if (!visible) {
+        /* No conclusion at all: the limits say why. */
+        snprintf(buf, buflen, "Nothing of DHCP, ARP or DNS could be observed in this capture.");
+        return buf;
+    }
+    snprintf(buf, buflen, "No %s message was seen in either window.", class_list(visible, "or", c, sizeof(c)));
     if (b->span_ms == 0 && f->span_ms == 0) {
         more(buf, buflen, " Neither window has any length yet.");
     } else if (limited) {
         more(buf, buflen, " Part of the time was not fully watched, so this is not proof that none was sent.");
+    } else if (blind) {
+        more(buf, buflen, " The capture was watching throughout: for %s the segment was quiet. %s could not be seen "
+                          "in this capture, so nothing is said of it, nor of what other devices sent to each other.",
+             class_list(visible, "and", c, sizeof(c)), class_list(blind, "and", d, sizeof(d)));
     } else {
         more(buf, buflen, " The capture was watching throughout: for these protocols the segment was quiet. It "
                           "says nothing of what other devices sent to each other.");

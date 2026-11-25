@@ -15,12 +15,18 @@
 #     after STOP stands where the capture stopped, a mark that is not held
 #     is refused, and the ninth mark replaces the first;
 #   - evidence rows name packets the list can still show;
-#   - the log names no address the fixtures carry.
+#   - the log names no address the fixtures carry;
+#   - what the review of PR #188 found (2026-11-25): a count-only burst far
+#     shorter than a tick is told in its window; a mark set after STOP has
+#     the wall clock of STOP; a capture filter a source does not apply is
+#     not reported as applied; and, with tests/pos-capture-testhooks, an
+#     analysis that could not start is reported and nothing of its classes
+#     is observed, while the shipped helper has no such switch.
 #
 # A pcap file holds frames and times only: a fixture's own mark, its HOLD and
 # the frames it reports lost are played by tests/ppc_evid_test.c, not here.
 #
-# Usage: pos_capture_evid_test.sh <pos-capture> <ppc_evid_mkfixtures>
+# Usage: pos_capture_evid_test.sh <pos-capture> <ppc_evid_mkfixtures> [<pos-capture-testhooks>]
 # PACKETSHARK_UPDATE_EXPECTED=1 rewrites the expected files instead of
 # comparing (for a reviewed change of output).
 #
@@ -30,6 +36,8 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 HELPER=$(readlink -f "${1:?pos-capture}")
 MKFIX=$(readlink -f "${2:?ppc_evid_mkfixtures}")
+HOOKS=""
+[ -n "${3:-}" ] && HOOKS=$(readlink -f "$3")
 DATA=tests/data/packetshark
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
@@ -200,6 +208,101 @@ check "the ninth mark replaces the first: mark 9 says the oldest held is 2, and 
 { printf 'mark\nevid 1 0\nquit\n'; } | "$HELPER" session --source synth:100:1 > "$T/idle" 2>&1
 check "before START there is nothing to mark: both are refused, and nothing is captured" \
     "$([ "$(grep -cP '^error\tstate\t' "$T/idle")" = "2" ] && ! grep -qP '^state\tcapturing' "$T/idle" && echo 1 || echo 0)"
+
+# ---- the review of PR #188 (2026-11-25) ------------------------------------------------------
+# Fields of ev.begin: 2 req 3 id 4 first 5 last 6 at 7 state 8 seq 9 wall 10 now
+#   11 filter 12 unanalysed (hex mask: 4 DNS, 8 DHCP, 10 ARP) 13 lost at the mark
+# Counts in ev.win: DHCP 11-18, ARP 19-24, DNS 25-28.
+win_sum() { # <evidence> <side> <from> <to>: the counts of fields from..to
+    awk -F'\t' -v s="$2" -v a="$3" -v b="$4" '$1 == "ev.win" && $2 == s { for (i = a; i <= b; i++) n += $i } END { print n + 0 }' "$1"
+}
+
+# P1, shedding: 20,000 frames due at once 1.5 s in. The helper falls behind
+# (50 full batches), only counts for a few milliseconds and recovers; the
+# window before a mark at 3 s must say a second was counted only.
+{
+    printf 'start synth0 headers 0 all 0\n'; sleep 3.0
+    printf 'mark\nevid 1 0\n'; sleep 0.3
+    printf 'quit\n'
+} | "$HELPER" session --source synth:2000:1:burst=20000,1500 > "$T/burst" 2>&1
+ev_of "$T/burst" 1 > "$T/eb"
+on=$(grep -nP '^note\tshed\t1$' "$T/burst" | head -1 | cut -d: -f1)
+off=$(grep -nP '^note\tshed\t0$' "$T/burst" | head -1 | cut -d: -f1)
+check "burst: the helper fell behind and recovered (note shed 1, then shed 0)" \
+    "$([ -n "$on" ] && [ -n "$off" ] && [ "$off" -gt "$on" ] && echo 1 || echo 0)"
+[ -n "$on" ] && [ -n "$off" ] &&
+    echo "     $(sed -n "${on},${off}p" "$T/burst" | grep -cP '^stats\t') stats line(s), sent every 250 ms, fell inside the burst"
+shed0=$(awk -F'\t' '$1 == "ev.win" && $2 == 0 { print $7 }' "$T/eb")
+check "burst: the window before the mark tells a second counted only (${shed0:-?}), not every frame seen" \
+    "$([ "${shed0:-0}" -ge 1 ] && echo 1 || echo 0)"
+
+# P2, the wall clock of a mark set after STOP: the one of STOP, seconds
+# later as minutes later (tests/ppc_evid_test.c sets one five minutes on).
+{
+    printf 'start synth0 headers 0 all 0\n'; sleep 1.2
+    printf 'stop\n'; sleep 0.3
+    date +%s > "$T/stop_at"; sleep 3.1; date +%s > "$T/mark_at"
+    printf 'mark\nevid 1 0\n'; sleep 0.3
+    printf 'quit\n'
+} | "$HELPER" session --source synth:2000:1 > "$T/late" 2>&1
+ev_of "$T/late" 1 > "$T/el"
+wall=$(awk -F'\t' '$1 == "mark" { print $7 }' "$T/late")
+stop_at=$(cat "$T/stop_at"); mark_at=$(cat "$T/mark_at")
+check "after STOP: a mark set ${mark_at:-?}-${stop_at:-?} s later has the wall clock of STOP (${wall:-?}), on both lines" \
+    "$([ -n "$wall" ] && [ "$wall" -ge $((stop_at - 2)) ] && [ "$wall" -le "$stop_at" ] && [ $((mark_at - wall)) -ge 3 ] &&
+       [ "$(awk -F'\t' '$1 == "ev.begin" { print $9 }' "$T/el")" = "$wall" ] && echo 1 || echo 0)"
+check "after STOP: and stands where the capture stopped on the session's clock" \
+    "$(grep -qP '^mark\t1\t1\t\d+\tstopped\t' "$T/late" &&
+       [ "$(awk -F'\t' '$1 == "mark" { print $4 }' "$T/late")" = "$(awk -F'\t' '$1 == "ev.begin" { print $10 }' "$T/el")" ] &&
+       echo 1 || echo 0)"
+
+# P1, the capture filter: only a live source applies one. The synthetic
+# source asked for DNS AND DHCP passes ARP all the same: the evidence must
+# not claim ARP was kept out, and counts it.
+{
+    printf 'start synth0 headers 0 names 0\n'; sleep 2.0
+    printf 'mark\nevid 1 0\n'; sleep 0.3
+    printf 'quit\n'
+} | "$HELPER" session --source synth:2000:1 > "$T/names" 2>&1
+ev_of "$T/names" 1 > "$T/en"
+check "filter: asked of a source that applies none, it is reported as all (field 11), and ARP is counted" \
+    "$([ "$(awk -F'\t' '$1 == "ev.begin" { print $11 }' "$T/en")" = "all" ] && [ "$(win_sum "$T/en" 0 19 24)" -gt 0 ] &&
+       echo 1 || echo 0)"
+check "filter: every analysis running is reported as such (field 12 is 0), with nothing lost at the mark (field 13)" \
+    "$(awk -F'\t' '$1 == "ev.begin" && $12 == "0" && $13 == "0" { ok = 1 } END { exit !ok }' "$T/en" && echo 1 || echo 0)"
+
+# P1, an analysis that could not start: the test-hooks helper runs without
+# the DNS table, the network's tables, or both.
+if [ -n "$HOOKS" ] && [ -x "$HOOKS" ]; then
+    for no in dns net dns,net; do
+        {
+            printf 'start synth0 headers 0 all 0\n'; sleep 2.0
+            printf 'mark\nevid 1 0\n'; sleep 0.3
+            printf 'quit\n'
+        } | POS_CAPTURE_TEST_NO_ANALYZER=$no "$HOOKS" session --source synth:2000:1 > "$T/no-$no" 2>&1
+        ev_of "$T/no-$no" 1 > "$T/eno-$no"
+    done
+    mask() { awk -F'\t' '$1 == "ev.begin" { print $12 }' "$1"; }
+    check "no DNS analysis: reported as 4 (DNS); no DNS observed; DHCP and ARP observed as ever" \
+        "$([ "$(mask "$T/eno-dns")" = "4" ] && [ "$(win_sum "$T/eno-dns" 0 25 28)" = "0" ] &&
+           [ "$(win_sum "$T/eno-dns" 0 11 24)" -gt 0 ] && echo 1 || echo 0)"
+    check "no DHCP and ARP analysis: reported as 18 (DHCP, ARP); none of them observed; DNS observed" \
+        "$([ "$(mask "$T/eno-net")" = "18" ] && [ "$(win_sum "$T/eno-net" 0 11 24)" = "0" ] &&
+           [ "$(win_sum "$T/eno-net" 0 25 28)" -gt 0 ] && echo 1 || echo 0)"
+    check "no analysis at all: reported as 1c (all three), nothing observed, and the capture and its mark go on" \
+        "$([ "$(mask "$T/eno-dns,net")" = "1c" ] && [ "$(win_sum "$T/eno-dns,net" 0 11 28)" = "0" ] &&
+           grep -qP '^mark\t1\t1\t' "$T/no-dns,net" && grep -qP '^ev\.end\t1$' "$T/no-dns,net" && echo 1 || echo 0)"
+    {
+        printf 'start synth0 headers 0 all 0\n'; sleep 1.5
+        printf 'mark\nevid 1 0\n'; sleep 0.3
+        printf 'quit\n'
+    } | POS_CAPTURE_TEST_NO_ANALYZER=dns,net "$HELPER" session --source synth:2000:1 > "$T/no-shipped" 2>&1
+    ev_of "$T/no-shipped" 1 > "$T/eno-shipped"
+    check "the shipped helper has no such switch: the same environment changes nothing (field 12 is 0)" \
+        "$([ "$(mask "$T/eno-shipped")" = "0" ] && [ "$(win_sum "$T/eno-shipped" 0 25 28)" -gt 0 ] && echo 1 || echo 0)"
+else
+    echo "note: no pos-capture-testhooks given: the analyses that could not start are not tried here"
+fi
 
 check "the helper's log names no address or name the fixtures carry, and says a mark was set" \
     "$([ -s "$T/log/pos-capture.log" ] && ! grep -qE '192\.0\.2\.|02:00:5e|example\.net' "$T/log/pos-capture.log" &&

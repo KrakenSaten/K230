@@ -1621,14 +1621,6 @@ void psk_paint_ifaces(struct psk_app *a)
     psk_set_hidden(a->if_none, a->nifs > 0);
 }
 
-const char *psk_cfilter_label(enum ppc_cfilter f)
-{
-    static const char *const words[PPC_CFILTER_COUNT] = { "EVERYTHING", "IP AND ARP", "DNS AND DHCP",
-                                                          "NOT MY SSH" };
-
-    return (unsigned)f < PPC_CFILTER_COUNT ? words[f] : "EVERYTHING";
-}
-
 void psk_paint_options(struct psk_app *a)
 {
     char lim[24];

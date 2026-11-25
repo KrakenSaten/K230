@@ -501,6 +501,14 @@ const char *psk_fmt_bits(uint64_t bps, char *buf, size_t buflen)
     return scaled(bps, units, 4, buf, buflen);
 }
 
+const char *psk_cfilter_label(enum ppc_cfilter f)
+{
+    static const char *const words[PPC_CFILTER_COUNT] = { "EVERYTHING", "IP AND ARP", "DNS AND DHCP",
+                                                          "NOT MY SSH" };
+
+    return (unsigned)f < PPC_CFILTER_COUNT ? words[f] : "EVERYTHING";
+}
+
 const char *psk_fmt_elapsed(uint64_t ms, char *buf, size_t buflen)
 {
     uint64_t s = ms / 1000u;

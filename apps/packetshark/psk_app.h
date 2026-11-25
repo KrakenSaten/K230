@@ -637,7 +637,6 @@ bool psk_mark_offered(const struct psk_app *a);
  * buttons and the marks' button as wide as the third, so the two rows line
  * up. Compares before it sets: called at every poll. */
 void psk_mark_fit(struct psk_app *a);
-const char *psk_cfilter_label(enum ppc_cfilter f);
 
 /* ui/psk_sheets.c */
 void psk_sheet_build(struct psk_app *a);

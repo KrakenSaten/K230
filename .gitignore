@@ -226,6 +226,7 @@ BUILD_ID
 /tests/ppc_evid_test
 /tests/ppc_evid_mkfixtures
 /tests/psk_ev_test
+/tests/pos-capture-testhooks
 /packetshark-app-captures-*
 /psk-session-captures-*
 # Browser (docs/apps/BROWSER.md)

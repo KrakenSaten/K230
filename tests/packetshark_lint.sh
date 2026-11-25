@@ -123,6 +123,30 @@ check "a mark is set in one function, which sends the helper nothing else" \
     "$([ "$hits" = "2" ] && sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_mark(a->session)' &&
        ! sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -qE 'psk_session_(hold|stop|capture|save|discard|view)|capture_command|psk_do\(' &&
        echo 1 || echo 0)"
+# What a mark's evidence may claim (the review of PR #188, 2026-11-25). The
+# helper's body of a function, as the app's above.
+hbody() { sed -n -E "/^(static )?[a-z ]+\*?$1\(/,/^}/p" $H; }
+check "shedding is told to the evidence at both of its edges, not left to the 250 ms tick" \
+    "$(hbody ingest | grep -B1 -A1 'h->shed = 1;' | grep -c 'ev_tick(h);' | grep -qx 2 &&
+       hbody ingest | grep -B1 -A1 'h->shed = 0;' | grep -c 'ev_tick(h);' | grep -qx 2 && echo 1 || echo 0)"
+check "and every frame that is only counted marks its own second" \
+    "$(hbody on_frame | grep -A6 'if (h->shed) {' | grep -q 'ppc_evid_bypass(&h->ev, t_ms);' && echo 1 || echo 0)"
+check "the evidence reports the capture filter only a live source applies, and the analyses that could not start" \
+    "$(hbody cmd_start | grep -q 'ppc_evid_coverage(&h->ev, h->src.live ? c->cfilter : PPC_CFILTER_ALL,' &&
+       hbody cmd_start | grep -q 'ppc_evid_unanalyzed(h->sig_ready, h->net_ready));' && echo 1 || echo 0)"
+check "the lost-frame counters are read at the mark, before it is set" \
+    "$(hbody cmd_mark | grep -n 'h->src.ops->stats(&h->src, &kd, &ifd)\|ppc_evid_mark(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'if (h->src.ops->stats.*ppc_evid_mark(' && echo 1 || echo 0)"
+check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
+       grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&
+       grep -q '^tests/pos_capture_hooks.o: tools/capture/pos_capture.c$' Makefile &&
+       ! grep -rq 'POS_CAPTURE_TEST_HOOKS' platforms ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+# The page never calls a protocol it could not see quiet.
+check "a protocol the capture could not see is said as NOT CAPTURED or NOT ANALYZED, never as NONE SEEN" \
+    "$(sed -n -E '/^unsigned psk_ev_counts\(/,/^}/p' $A/psk_ev.c | grep -q '"NOT CAPTURED" : "NOT ANALYZED"' &&
+       sed -n -E '/^unsigned psk_ev_counts\(/,/^}/p' $A/psk_ev.c | grep -B12 'NOT CAPTURED' | grep -q 'continue;\|if ((excluded | unanalyzed) & bit)' &&
+       echo 1 || echo 0)"
 # The page's objects are off the active screen while it does not show: a
 # layout pass walks every object of the active screen, hidden or not.
 hits=$(code $A/*.c $A/ui/*.c | grep -cE 'lv_obj_set_parent\(a->ev_page,')

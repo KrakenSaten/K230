@@ -73,6 +73,19 @@ int ppc_cfilter_parse(const char *id)
     return -1;
 }
 
+uint8_t ppc_cfilter_excludes(enum ppc_cfilter f)
+{
+    switch (f) {
+    case PPC_CFILTER_NAMES:
+        return (uint8_t)(1u << PPC_CLASS_ARP);
+    case PPC_CFILTER_IP:
+    case PPC_CFILTER_NOSELF:
+    case PPC_CFILTER_ALL:
+    default:
+        return 0;
+    }
+}
+
 const char *ppc_cfilter_expr(enum ppc_cfilter f, const char *self, char *buf, size_t buflen)
 {
     switch (f) {
@@ -807,12 +820,15 @@ int ppc_evt_format_mark(char *buf, size_t n, const struct ppc_evt_mark *m)
 
 int ppc_evt_format_ev_begin(char *buf, size_t n, const struct ppc_evt_ev_head *h)
 {
-    if (!h->id || !h->first || h->first > h->id || h->id > h->last || h->state > PPC_STATE_STOPPED) {
+    if (!h->id || !h->first || h->first > h->id || h->id > h->last || h->state > PPC_STATE_STOPPED ||
+        h->cfilter >= PPC_CFILTER_COUNT || (h->unanalyzed & ~PPC_EV_CLASSES)) {
         return -1;
     }
-    return fmt(buf, n, "ev.begin\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%llu\t%u\n", (unsigned)h->req, (unsigned)h->id,
-               (unsigned)h->first, (unsigned)h->last, (unsigned)h->at_ms, ppc_state_name((enum ppc_state)h->state),
-               (unsigned)h->seq, (unsigned long long)h->wall_s, (unsigned)h->now_ms);
+    return fmt(buf, n, "ev.begin\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%llu\t%u\t%s\t%x\t%llu\n", (unsigned)h->req,
+               (unsigned)h->id, (unsigned)h->first, (unsigned)h->last, (unsigned)h->at_ms,
+               ppc_state_name((enum ppc_state)h->state), (unsigned)h->seq, (unsigned long long)h->wall_s,
+               (unsigned)h->now_ms, ppc_cfilter_id((enum ppc_cfilter)h->cfilter), (unsigned)h->unanalyzed,
+               (unsigned long long)h->edge_lost);
 }
 
 int ppc_evt_format_ev_win(char *buf, size_t n, const struct ppc_evt_ev_win *w)
@@ -1453,18 +1469,27 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         e->kind = PPC_EVT_MARK;
     } else if (strcmp(f[0], "ev.begin") == 0) {
         struct ppc_evt_ev_head *h = &e->u.ev_head;
+        unsigned long mask;
+        char *end = NULL;
         int st;
+        int cf;
 
-        if (n != 10) {
+        if (n != 13) {
             return e->kind;
         }
         st = parse_state(f[6]);
+        cf = ppc_cfilter_parse(f[10]);
+        mask = strtoul(f[11], &end, 16);
         if (u32(f[1], &h->req) != 0 || u32(f[2], &h->id) != 0 || !h->id || u32(f[3], &h->first) != 0 || !h->first ||
             u32(f[4], &h->last) != 0 || h->first > h->id || h->id > h->last || u32(f[5], &h->at_ms) != 0 || st < 0 ||
-            u32(f[7], &h->seq) != 0 || u64(f[8], &h->wall_s) != 0 || u32(f[9], &h->now_ms) != 0) {
+            u32(f[7], &h->seq) != 0 || u64(f[8], &h->wall_s) != 0 || u32(f[9], &h->now_ms) != 0 || cf < 0 ||
+            !f[11][0] || f[11][0] == '-' || f[11][0] == '+' || !end || *end || (mask & ~(unsigned long)PPC_EV_CLASSES) ||
+            u64(f[12], &h->edge_lost) != 0) {
             return e->kind;
         }
         h->state = (uint8_t)st;
+        h->cfilter = (uint8_t)cf;
+        h->unanalyzed = (uint8_t)mask;
         e->kind = PPC_EVT_EV_BEGIN;
     } else if (strcmp(f[0], "ev.win") == 0) {
         struct ppc_evt_ev_win *w = &e->u.ev_win;

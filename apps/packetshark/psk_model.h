@@ -266,6 +266,9 @@ const char *psk_fmt_count(uint64_t n, char *buf, size_t buflen);
 const char *psk_fmt_bytes(uint64_t n, char *buf, size_t buflen);
 const char *psk_fmt_bits(uint64_t bps, char *buf, size_t buflen);
 const char *psk_fmt_elapsed(uint64_t ms, char *buf, size_t buflen);
+/* A capture-filter preset as the setup screen and the evidence name it:
+ * "EVERYTHING", "IP AND ARP", "DNS AND DHCP", "NOT MY SSH". */
+const char *psk_cfilter_label(enum ppc_cfilter f);
 
 /* ---- the graph and the protocol distribution (M4, DS §59.2, §59.5) -------- */
 

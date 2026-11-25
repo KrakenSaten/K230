@@ -141,13 +141,13 @@ static void play(struct play *p, const struct fx *f, uint32_t cadence_ms)
             ppc_evid_tick(&p->ev, s->t_ms, p->state, p->lost);
             if (p->nmarks < 4) {
                 p->mark_id[p->nmarks++] =
-                    ppc_evid_mark(&p->ev, s->t_ms, p->state == PPC_EVS_HELD ? PPC_STATE_HOLD : PPC_STATE_CAPTURING, p->seq)
+                    ppc_evid_mark(&p->ev, s->t_ms, p->state == PPC_EVS_HELD ? PPC_STATE_HOLD : PPC_STATE_CAPTURING, p->seq, 0, 1)
                         ->id;
             }
             break;
         case FX_STOP:
             ppc_evid_tick(&p->ev, s->t_ms, p->state, p->lost);
-            ppc_evid_stop(&p->ev, s->t_ms);
+            ppc_evid_stop(&p->ev, s->t_ms, 0);
             break;
         default:
             break;
@@ -495,7 +495,7 @@ static void edges(void)
     check("no mark is held before one is set", ppc_evid_get(&ev, 0) == NULL && ppc_evid_ids(&ev, &first, &last) == 0);
     ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
     ppc_evid_tick(&ev, 1000, PPC_EVS_WATCHED, 0);
-    m = ppc_evid_mark(&ev, 1500, PPC_STATE_CAPTURING, 0);
+    m = ppc_evid_mark(&ev, 1500, PPC_STATE_CAPTURING, 0, 0, 1);
     check("a mark 1.5 s after START: the window before is 1.5 s, cut at START, empty, no packet yet",
           m && m->id == 1 && m->side[0].span_ms == 1500 && (m->side[0].flags & PPC_EVW_CUT_START) && m->seq == 0 &&
               total_of(&m->side[0]) == 0 && (m->side[1].flags & PPC_EVW_OPEN) && m->side[1].span_ms == 0);
@@ -518,7 +518,7 @@ static void edges(void)
     for (t = 11000; t <= 20000; t += 1000) {
         ppc_evid_tick(&ev, t, PPC_EVS_HELD, 0);
     }
-    m = ppc_evid_mark(&ev, 20500, PPC_STATE_HOLD, 2);
+    m = ppc_evid_mark(&ev, 20500, PPC_STATE_HOLD, 2, 0, 1);
     check("a mark on HOLD records the state and the 10 s held before it",
           m && m->id == 2 && m->state == PPC_STATE_HOLD && m->side[0].held_s == 10 && m->side[0].watched_s >= 10);
     for (t = 21000; t <= 25000; t += 1000) {
@@ -535,13 +535,13 @@ static void edges(void)
     /* STOP: open windows close where the capture stopped; a mark after STOP
      * is set at the stop. */
     ppc_evid_tick(&ev, 31000, PPC_EVS_WATCHED, 40);
-    ppc_evid_stop(&ev, 31200);
+    ppc_evid_stop(&ev, 31200, 0);
     m = ppc_evid_get(&ev, 2);
     check("STOP closes the window after: cut, 10.7 s",
           !(m->side[1].flags & PPC_EVW_OPEN) && (m->side[1].flags & PPC_EVW_CUT_STOP) && m->side[1].span_ms == 10700);
     note_at(&ev, 31300, PPC_EV_DHCP_ACK, 0, 3);
     check("nothing is counted into a closed window", m->side[1].count[PPC_EV_DHCP_ACK] == 0);
-    m = ppc_evid_mark(&ev, 40000, PPC_STATE_STOPPED, 3);
+    m = ppc_evid_mark(&ev, 40000, PPC_STATE_STOPPED, 3, 0, 1);
     check("a mark after STOP is set where the capture stopped, its window after empty and cut",
           m && m->id == 3 && m->at_ms == 31200 && m->state == PPC_STATE_STOPPED && m->side[1].span_ms == 0 &&
               (m->side[1].flags & PPC_EVW_CUT_STOP) && !(m->side[1].flags & PPC_EVW_OPEN));
@@ -555,7 +555,7 @@ static void edges(void)
     }
     note_at(&ev, 126000, PPC_EV_DHCP_NAK, PPC_EVF_BCAST, 9001);
     ppc_evid_tick(&ev, 126000, PPC_EVS_WATCHED, 0);
-    m = ppc_evid_mark(&ev, 126100, PPC_STATE_CAPTURING, 9001);
+    m = ppc_evid_mark(&ev, 126100, PPC_STATE_CAPTURING, 9001, 0, 1);
     check("more observations than the history holds: the mark says so, and counts what remained",
           m && (m->side[0].flags & PPC_EVW_HISTORY) && total_of(&m->side[0]) == PPC_EV_HISTORY &&
               m->side[0].count[PPC_EV_DHCP_NAK] == 1);
@@ -580,15 +580,306 @@ static void edges(void)
 
     /* Nine marks: the first is gone, ids are never reused. */
     for (i = 0; i < PPC_EV_MARKS; i++) {
-        ppc_evid_mark(&ev, 127000u + i * 100u, PPC_STATE_CAPTURING, 9300);
+        ppc_evid_mark(&ev, 127000u + i * 100u, PPC_STATE_CAPTURING, 9300, 0, 1);
     }
     check("the ninth mark replaces the first: eight are held, 2 to 9",
           ppc_evid_ids(&ev, &first, &last) == PPC_EV_MARKS && first == 2 && last == 9 && ppc_evid_get(&ev, 1) == NULL &&
               ppc_evid_get(&ev, 2) && ppc_evid_get(&ev, 9)->id == 9 && ppc_evid_get(&ev, 0)->id == 9 &&
               ppc_evid_get(&ev, 10) == NULL);
     ppc_evid_free(&ev);
-    check("freed: nothing is held and nothing is taken", ev.mem == NULL && ppc_evid_mark(&ev, 0, 0, 0) == NULL &&
+    check("freed: nothing is held and nothing is taken", ev.mem == NULL && ppc_evid_mark(&ev, 0, 0, 0, 0, 1) == NULL &&
                                                              ppc_evid_get(&ev, 0) == NULL);
+}
+
+/* ---- the review of PR #188 (2026-11-25) ---------------------------------------------------- *
+ *
+ * Five findings, each with the case that would have shown it: what the
+ * capture could not see; a count-only burst between two ticks; frames lost
+ * either side of a mark in its own second; a DNS answer whose question the
+ * tracker no longer holds; a mark set minutes after STOP. */
+
+#define BIT(c) (1u << (c))
+
+static void late_none(void *ctx, uint32_t seq, uint16_t bit)
+{
+    (void)ctx;
+    (void)seq;
+    (void)bit;
+}
+
+/* P1: what the capture can observe. */
+static void coverage(void)
+{
+    struct ppc_evid ev;
+    uint32_t i;
+
+    check("coverage: no DNS table is DNS unanalysed; no network tables, DHCP and ARP; both missing, all three",
+          ppc_evid_unanalyzed(0, 1) == BIT(PPC_CLASS_DNS) &&
+              ppc_evid_unanalyzed(1, 0) == (BIT(PPC_CLASS_DHCP) | BIT(PPC_CLASS_ARP)) &&
+              ppc_evid_unanalyzed(0, 0) == PPC_EV_CLASSES && ppc_evid_unanalyzed(1, 1) == 0);
+    check("coverage: the DNS AND DHCP preset keeps ARP out, and only ARP; IP AND ARP, NOT MY SSH and ALL keep none",
+          ppc_cfilter_excludes(PPC_CFILTER_NAMES) == BIT(PPC_CLASS_ARP) && ppc_cfilter_excludes(PPC_CFILTER_IP) == 0 &&
+              ppc_cfilter_excludes(PPC_CFILTER_NOSELF) == 0 && ppc_cfilter_excludes(PPC_CFILTER_ALL) == 0);
+    {
+        /* The table above is read from the presets' own expressions. */
+        char names[160];
+        char ip[160];
+
+        ppc_cfilter_expr(PPC_CFILTER_NAMES, NULL, names, sizeof(names));
+        ppc_cfilter_expr(PPC_CFILTER_IP, NULL, ip, sizeof(ip));
+        check("coverage: as the expressions say: NAMES has ports 53, 67 and 68 and no arp; IP names arp",
+              strstr(names, "port 53") && strstr(names, "port 67") && strstr(names, "port 68") && !strstr(names, "arp") &&
+                  strstr(ip, "arp") != NULL);
+    }
+    /* A capture filtered to DNS and DHCP: an ARP observation cannot be
+     * there (a replay applies no filter, so one could come): not taken. */
+    ppc_evid_init(&ev);
+    ppc_evid_coverage(&ev, PPC_CFILTER_NAMES, 0);
+    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
+    note_at(&ev, 100, PPC_EV_ARP_REQUEST, 0, 1);
+    note_at(&ev, 200, PPC_EV_DHCP_DISCOVER, PPC_EVF_BCAST, 2);
+    note_at(&ev, 300, PPC_EV_DNS_QUERY, PPC_EVF_OWN, 3);
+    check("coverage: under DNS AND DHCP an ARP observation is not taken; DHCP and DNS are",
+          ev.count == 2 && ev.hist[0].kind == PPC_EV_DHCP_DISCOVER && ev.hist[1].kind == PPC_EV_DNS_QUERY);
+    ppc_evid_free(&ev);
+    ppc_evid_init(&ev);
+    ppc_evid_coverage(&ev, PPC_CFILTER_ALL, BIT(PPC_CLASS_DNS));
+    note_at(&ev, 100, PPC_EV_DNS_ANSWER, 0, 1);
+    note_at(&ev, 200, PPC_EV_ARP_REPLY, 0, 2);
+    check("coverage: with DNS unanalysed a DNS observation is not taken; ARP is", ev.count == 1 &&
+                                                                               ev.hist[0].kind == PPC_EV_ARP_REPLY &&
+                                                                               ev.unanalyzed == BIT(PPC_CLASS_DNS));
+    ppc_evid_coverage(&ev, 99, 0xff);
+    check("coverage: a filter out of range is ALL, a mask is cut to DHCP, ARP and DNS",
+          ev.cfilter == PPC_CFILTER_ALL && ev.unanalyzed == PPC_EV_CLASSES);
+    ppc_evid_free(&ev);
+    /* Every kind belongs to one of the three. */
+    ppc_evid_init(&ev);
+    ppc_evid_coverage(&ev, PPC_CFILTER_ALL, PPC_EV_CLASSES);
+    for (i = 1; i < PPC_EV_KINDS; i++) {
+        note_at(&ev, 100 + i, i, 0, i);
+    }
+    check("coverage: with all three unanalysed no observation of any kind is taken", ev.count == 0);
+    ppc_evid_free(&ev);
+}
+
+/* P1: a burst that only counted, shorter than the tick. */
+static void bursts(void)
+{
+    struct ppc_evid ev;
+    const struct ppc_ev_mark *m;
+    uint32_t t;
+
+    /* Ticks every 250 ms say WATCHED; frames between 1100 and 1180 ms were
+     * only counted. Told as frames (ppc_evid_bypass), the second knows. */
+    ppc_evid_init(&ev);
+    for (t = 0; t <= 2500; t += 250) {
+        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+        if (t == 1000) {
+            uint32_t f;
+
+            for (f = 1100; f <= 1180; f += 2) {
+                ppc_evid_bypass(&ev, f);
+            }
+        }
+    }
+    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0, 1);
+    check("burst: 80 ms counted between two ticks: the window before has a second counted only",
+          m && m->side[0].shed_s == 1 && m->side[0].watched_s == 3);
+    ppc_evid_free(&ev);
+    /* The same burst told at its edges, as the helper does when it starts
+     * and stops shedding, and no frame told: the second knows too. */
+    ppc_evid_init(&ev);
+    for (t = 0; t <= 2500; t += 250) {
+        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+        if (t == 1000) {
+            ppc_evid_tick(&ev, 1100, PPC_EVS_WATCHED, 0);
+            ppc_evid_tick(&ev, 1100, PPC_EVS_SHED, 0);
+            ppc_evid_tick(&ev, 1180, PPC_EVS_SHED, 0);
+            ppc_evid_tick(&ev, 1180, PPC_EVS_WATCHED, 0);
+        }
+    }
+    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0, 1);
+    check("burst: told at its two edges alone, the second is counted only as well", m && m->side[0].shed_s == 1);
+    ppc_evid_free(&ev);
+    /* Neither: what the 250 ms tick alone would say. The helper may not
+     * leave it at that (tests/packetshark_lint.sh). */
+    ppc_evid_init(&ev);
+    for (t = 0; t <= 2500; t += 250) {
+        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+    }
+    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0, 1);
+    check("burst: the tick alone cannot see it (why the helper tells the frames and the edges)",
+          m && m->side[0].shed_s == 0);
+    /* A frame of the window before, counted only and handed over after the
+     * mark (a backlog): the window before learns it. */
+    ppc_evid_bypass(&ev, 1900);
+    check("burst: a frame counted only after the mark, stamped before it, reaches the window before",
+          m->side[0].shed_s == 1);
+    ppc_evid_bypass(&ev, 1950);
+    check("burst: the same second is written once", m->side[0].shed_s == 1);
+    ppc_evid_tick(&ev, 3000, PPC_EVS_WATCHED, 0);
+    ppc_evid_bypass(&ev, 3100);
+    ppc_evid_tick(&ev, 3250, PPC_EVS_WATCHED, 0);
+    check("burst: one after the mark is in the window after", m->side[1].shed_s == 1);
+    ppc_evid_tick(&ev, 200000, PPC_EVS_WATCHED, 0);
+    ppc_evid_bypass(&ev, 1000);
+    ppc_evid_bypass(&ev, 500000);
+    check("burst: a stamp older than the ring or ahead of the clock writes nothing",
+          ev.secs[1 & (PPC_EV_SECONDS - 1)].sec != 1 && ev.secs[500 & (PPC_EV_SECONDS - 1)].sec != 500);
+    ppc_evid_free(&ev);
+}
+
+/* P2: frames lost either side of a mark in its own second. */
+static void boundary_losses(void)
+{
+    struct ppc_evid ev;
+    const struct ppc_ev_mark *m;
+    int exact;
+
+    for (exact = 1; exact >= 0; exact--) {
+        ppc_evid_init(&ev);
+        ppc_evid_tick(&ev, 9000, PPC_EVS_WATCHED, 0);
+        ppc_evid_tick(&ev, 10100, PPC_EVS_WATCHED, 0);
+        ppc_evid_tick(&ev, 10300, PPC_EVS_WATCHED, 100); /* 100 read before the mark */
+        ppc_evid_tick(&ev, 10500, PPC_EVS_WATCHED, 150); /* 50 more, read at the mark */
+        m = ppc_evid_mark(&ev, 10500, PPC_STATE_CAPTURING, 5, 0, exact);
+        ppc_evid_tick(&ev, 10700, PPC_EVS_WATCHED, 230); /* 80 read just after it, the same second */
+        ppc_evid_tick(&ev, 11200, PPC_EVS_WATCHED, 230);
+        ppc_evid_tick(&ev, 12000, PPC_EVS_WATCHED, 260); /* 30 well after it */
+        if (exact) {
+            check("losses, counters read at the mark: 150 before it, 110 after it, none left over, 260 in all",
+                  m->side[0].lost == 150 && m->side[1].lost == 110 && m->edge_lost == 0 &&
+                      m->side[0].lost + m->side[1].lost + m->edge_lost == 260);
+        } else {
+            check("losses, counters not read at the mark: 150 before it, the 80 read within a second of it told "
+                  "apart, 30 after it, 260 in all",
+                  m->side[0].lost == 150 && m->edge_lost == 80 && m->side[1].lost == 30 &&
+                      m->side[0].lost + m->side[1].lost + m->edge_lost == 260);
+        }
+        ppc_evid_free(&ev);
+    }
+    /* Before the fix the window after counted the mark's second whole. */
+    ppc_evid_init(&ev);
+    ppc_evid_tick(&ev, 10000, PPC_EVS_WATCHED, 0);
+    ppc_evid_tick(&ev, 10400, PPC_EVS_WATCHED, 70);
+    m = ppc_evid_mark(&ev, 10400, PPC_STATE_CAPTURING, 5, 0, 1);
+    ppc_evid_tick(&ev, 10600, PPC_EVS_WATCHED, 70);
+    ppc_evid_tick(&ev, 11000, PPC_EVS_WATCHED, 70);
+    check("losses: 70 lost before a mark in its own second are counted before it and not after it as well",
+          m->side[0].lost == 70 && m->side[1].lost == 0);
+    ppc_evid_free(&ev);
+    /* A mark on a second's edge: what was read at it is still before it. */
+    ppc_evid_init(&ev);
+    ppc_evid_tick(&ev, 10500, PPC_EVS_WATCHED, 0);
+    ppc_evid_tick(&ev, 11000, PPC_EVS_WATCHED, 40);
+    m = ppc_evid_mark(&ev, 11000, PPC_STATE_CAPTURING, 5, 0, 1);
+    ppc_evid_tick(&ev, 11300, PPC_EVS_WATCHED, 55);
+    check("losses: a mark on a second's edge keeps what was read at it before it (40) and what came after after (15)",
+          m->side[0].lost == 40 && m->side[1].lost == 15 && m->edge_lost == 0);
+    ppc_evid_free(&ev);
+    /* After STOP the counters were read at STOP: a later mark has them all. */
+    ppc_evid_init(&ev);
+    ppc_evid_tick(&ev, 1000, PPC_EVS_WATCHED, 0);
+    ppc_evid_tick(&ev, 2200, PPC_EVS_WATCHED, 12);
+    ppc_evid_stop(&ev, 2200, 0);
+    m = ppc_evid_mark(&ev, 90000, PPC_STATE_STOPPED, 7, 0, 0);
+    check("losses: a mark after STOP has all 12 before it, none after, none left over",
+          m->side[0].lost == 12 && m->side[1].lost == 0 && m->edge_lost == 0 && m->exact == 1);
+    ppc_evid_free(&ev);
+}
+
+/* P2: a DNS answer whose question the tracker no longer holds. */
+static void dns_eviction(void)
+{
+    static struct fx f; /* one frame at a time */
+    struct play p;
+    struct fx empty;
+    const struct ppc_ev_obs *o;
+    uint64_t unjudged;
+    uint32_t i;
+
+    memset(&empty, 0, sizeof(empty));
+    /* By capacity: a question, then 20,000 others; the table keeps 1,024,
+     * and the oldest waiting one gives way. Its answer then has no question
+     * to be timed by. */
+    play(&p, &empty, 1000);
+    p.have_lead = 1;
+    p.lead_ms = 0;
+    memset(&f, 0, sizeof(f));
+    fx_dns(&f, 1000, 0, FX_SELF, 0x4242, 0, "a.example.net");
+    play_frame(&p, &f.step[0]);
+    for (i = 0; i < 20000; i++) {
+        f.nsteps = 0;
+        fx_dns(&f, 1001 + i / 100u, 0, 0x40u + i % 150u, 0x1000u + i, 0, "b.example.net");
+        play_frame(&p, &f.step[0]);
+    }
+    unjudged = p.sig.st.dns_unjudged;
+    f.nsteps = 0;
+    fx_dns(&f, 1300, 1, FX_SELF, 0x4242, 0, "a.example.net");
+    play_frame(&p, &f.step[0]);
+    o = &p.ev.hist[(p.ev.head - 1u) & (PPC_EV_HISTORY - 1u)];
+    check("dns eviction by capacity: questions gave way, and the answer to the first has no question to time it by",
+          unjudged > 0 && o->kind == PPC_EV_DNS_ANSWER && (o->flags & PPC_EVF_UNPAIRED) && o->b == 0 &&
+              (o->flags & PPC_EVF_OWN));
+    play_end(&p);
+
+    /* By age: a question unanswered for 5 s is called so, and forgotten at
+     * 30 s; an answer after that has none. Before that it is late, timed. */
+    play(&p, &empty, 1000);
+    p.have_lead = 1;
+    p.lead_ms = 0;
+    f.nsteps = 0;
+    fx_dns(&f, 1000, 0, FX_SELF, 0x5151, 0, "c.example.net");
+    play_frame(&p, &f.step[0]);
+    f.nsteps = 0;
+    fx_dns(&f, 1000, 0, FX_SELF, 0x6161, 0, "d.example.net");
+    play_frame(&p, &f.step[0]);
+    ppc_signals_expire(&p.sig, 7000000000ull, late_none, NULL);
+    f.nsteps = 0;
+    fx_dns(&f, 20000, 1, FX_SELF, 0x6161, 0, "d.example.net");
+    play_frame(&p, &f.step[0]);
+    o = &p.ev.hist[(p.ev.head - 1u) & (PPC_EV_HISTORY - 1u)];
+    check("dns, late but remembered: the answer at 20 s is timed by its question (19 s)",
+          o->kind == PPC_EV_DNS_ANSWER && !(o->flags & PPC_EVF_UNPAIRED) && o->b == 19000000u);
+    ppc_signals_expire(&p.sig, 32000000000ull, late_none, NULL);
+    f.nsteps = 0;
+    fx_dns(&f, 32500, 1, FX_SELF, 0x5151, 3, "c.example.net");
+    play_frame(&p, &f.step[0]);
+    o = &p.ev.hist[(p.ev.head - 1u) & (PPC_EV_HISTORY - 1u)];
+    check("dns eviction by age: after 30 s the question is forgotten, and its answer is a failure with no response time",
+          o->kind == PPC_EV_DNS_FAILURE && (o->flags & PPC_EVF_UNPAIRED) && o->b == 0 && (o->a >> 16) == 3);
+    play_end(&p);
+}
+
+/* P2: a mark set minutes after STOP. */
+static void post_stop_wall(void)
+{
+    struct ppc_evid ev;
+    const struct ppc_ev_mark *m;
+
+    ppc_evid_init(&ev);
+    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
+    ppc_evid_tick(&ev, 31000, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 30500, PPC_STATE_CAPTURING, 3, 1700000000u - 31u, 1);
+    check("wall: a mark while capturing has the wall clock it was given", m && m->wall_s == 1700000000u - 31u);
+    ppc_evid_stop(&ev, 31200, 1700000000u);
+    /* Five minutes later, on both clocks. */
+    m = ppc_evid_mark(&ev, 31200u + 300000u, PPC_STATE_STOPPED, 9, 1700000000u + 300u, 1);
+    check("wall: a mark five minutes after STOP stands at STOP on both clocks (31.2 s, the wall clock then)",
+          m && m->at_ms == 31200u && m->wall_s == 1700000000u && m->side[1].span_ms == 0);
+    ppc_evid_stop(&ev, 999999, 1800000000u);
+    m = ppc_evid_mark(&ev, 31200u + 600000u, PPC_STATE_STOPPED, 9, 1700000600u, 1);
+    check("wall: a second STOP changes nothing, and a later mark is the same", m && m->at_ms == 31200u &&
+                                                                              m->wall_s == 1700000000u);
+    ppc_evid_free(&ev);
+    ppc_evid_init(&ev);
+    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
+    ppc_evid_stop(&ev, 5000, 0);
+    m = ppc_evid_mark(&ev, 400000, PPC_STATE_STOPPED, 1, 1700000400u, 1);
+    check("wall: with the clock not set at STOP, a later mark has none (0), not the time it was set",
+          m && m->wall_s == 0 && m->at_ms == 5000u);
+    ppc_evid_free(&ev);
 }
 
 int main(int argc, char **argv)
@@ -601,6 +892,11 @@ int main(int argc, char **argv)
     fixture_silence();
     replay();
     edges();
+    coverage();
+    bursts();
+    boundary_losses();
+    dns_eviction();
+    post_stop_wall();
     printf("ppc_evid_test: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

@@ -603,9 +603,11 @@ static void built(void)
           n == 4 && strcmp(rows[0].when, "+0.5 S") == 0 && rows[0].side == 1 &&
               strcmp(rows[0].what, "FAILURE" DOT "NXDOMAIN" DOT "FROM 192.0.2.50") == 0 &&
               strncmp(rows[0].sub, "The resolver says the name does not exist.", 42) == 0);
-    check("an answer whose question was not seen has no response time, and says why",
+    check("an answer with no matching question says so, and claims nothing of whether its question was seen",
           strcmp(rows[1].what, "FAILURE" DOT "SERVFAIL" DOT "FROM 192.0.2.50") == 0 &&
-              strstr(rows[1].sub, "Its question was not seen in this capture, so it has no response time."));
+              strcmp(rows[1].sub, "The resolver could not get an answer itself. No matching question is available to "
+                                  "calculate response time.") == 0 &&
+              !strstr(rows[1].sub, "not seen"));
     check("another device's repeated question says its answer may never pass this port",
           strcmp(rows[2].what, "QUERY AGAIN" DOT "TO 192.0.2.50") == 0 &&
               strcmp(rows[2].sub, "The same question again. Another device's question: its answer goes to that device "
@@ -644,6 +646,185 @@ static void built(void)
     check("a kind this build does not know is not a row", psk_ev_rows(&E, rows, PSK_EV_ROWS) == 0);
 }
 
+/* ---- the review of PR #188 (2026-11-25): what is said of what the capture could not see -- */
+
+static unsigned occurrences(const char *hay, const char *needle)
+{
+    unsigned n = 0;
+    const char *p;
+
+    for (p = strstr(hay, needle); p; p = strstr(p + 1, needle)) {
+        n++;
+    }
+    return n;
+}
+
+static int has_line(const struct psk_ev_count *c, unsigned n, unsigned cls, const char *name)
+{
+    return count_of(c, n, cls, name) != NULL;
+}
+
+static void review(void)
+{
+    struct psk_ev_row rows[PSK_EV_ROWS];
+    struct psk_ev_count counts[PSK_EV_COUNTS];
+    char b[1024];
+    char c[64];
+    char d[96];
+    unsigned n;
+    unsigned sev;
+    unsigned i;
+
+    /* The DNS AND DHCP preset: ARP never reached the capture. */
+    fresh();
+    E.head.cfilter = PPC_CFILTER_NAMES;
+    add(0, PPC_EV_DHCP_DISCOVER, PPC_EVF_BCAST, 250000, 1);
+    n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
+    check("filter DNS AND DHCP: ARP is one line, NOT CAPTURED, with no figure; never NONE SEEN",
+          has_line(counts, n, PPC_CLASS_ARP, "NOT CAPTURED") && !has_line(counts, n, PPC_CLASS_ARP, "NONE SEEN") &&
+              count_is(counts, n, PPC_CLASS_ARP, "NOT CAPTURED", "-", "-") &&
+              count_of(counts, n, PPC_CLASS_ARP, "NOT CAPTURED")->blind &&
+              count_is(counts, n, PPC_CLASS_DHCP, "DISCOVER", "1", "0") && has_line(counts, n, PPC_CLASS_DNS, "NONE SEEN"));
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    check("filter DNS AND DHCP: the window says every captured frame was seen and that ARP was not captured, a note",
+          sev == PSK_SEV_NOTE && strcmp(d, "EVERY CAPTURED FRAME SEEN" DOT "ARP NOT CAPTURED") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("filter DNS AND DHCP: the limits name the filter and what it kept out",
+          strstr(b, "The capture filter (DNS AND DHCP) kept ARP out of this capture: no such message was captured, so "
+                    "none is counted or listed, and nothing is said of it.") != NULL);
+    check("filter DNS AND DHCP: no sentence of it is cut, and no verdict", sound(&E));
+    fresh();
+    E.head.cfilter = PPC_CFILTER_NAMES;
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("filter DNS AND DHCP, a quiet minute: quiet is said of DHCP and DNS only, ARP is said to be unseen",
+          strcmp(b, "No DHCP or DNS message was seen in either window. The capture was watching throughout: for DHCP and "
+                    "DNS the segment was quiet. ARP could not be seen in this capture, so nothing is said of it, nor "
+                    "of what other devices sent to each other.") == 0);
+    check("filter DNS AND DHCP: an empty side names what it could see", strcmp(psk_ev_side(&E, 0, b, 64),
+                                                                               "BEFORE THE MARK" DOT "NO DHCP OR DNS SEEN") == 0);
+    n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
+    check("filter DNS AND DHCP, a quiet minute: DHCP and DNS NONE SEEN, ARP NOT CAPTURED",
+          n == 3 && has_line(counts, n, PPC_CLASS_DHCP, "NONE SEEN") && has_line(counts, n, PPC_CLASS_DNS, "NONE SEEN") &&
+              has_line(counts, n, PPC_CLASS_ARP, "NOT CAPTURED"));
+    check("filter DNS AND DHCP, quiet: no cut sentence, no verdict", sound(&E));
+
+    /* The IP AND ARP preset keeps every one of the three. */
+    fresh();
+    E.head.cfilter = PPC_CFILTER_IP;
+    add(0, PPC_EV_ARP_REQUEST, PPC_EVF_OWN, 250000, 1);
+    n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    check("filter IP AND ARP: ARP is counted as ever; the window qualifies its frames as captured ones, and nothing is "
+          "said missing",
+          count_is(counts, n, PPC_CLASS_ARP, "REQUEST", "1", "0") && sev == PSK_SEV_OK &&
+              strcmp(d, "EVERY CAPTURED FRAME SEEN") == 0 && !has_line(counts, n, PPC_CLASS_ARP, "NOT CAPTURED"));
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("filter IP AND ARP: something was seen, so there is no nothing-seen sentence", b[0] == '\0');
+
+    /* Analyses that could not start. */
+    fresh();
+    E.head.unanalyzed = (uint8_t)(1u << PPC_CLASS_DNS);
+    add(0, PPC_EV_ARP_REQUEST, PPC_EVF_OWN, 250000, 1);
+    n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
+    sev = psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
+    check("DNS analysis failed: DNS is NOT ANALYZED with no figure, never NONE SEEN; the window says so, a note",
+          count_is(counts, n, PPC_CLASS_DNS, "NOT ANALYZED", "-", "-") && !has_line(counts, n, PPC_CLASS_DNS, "NONE SEEN") &&
+              sev == PSK_SEV_NOTE && strcmp(d, "EVERY FRAME SEEN" DOT "DNS NOT ANALYZED") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("DNS analysis failed: the limits say its packets were captured but not examined",
+          strstr(b, "The DNS analysis could not be set up for this capture: those packets were captured and are in "
+                    "PACKETS, but none was examined, so none is counted or listed here.") != NULL);
+    check("DNS analysis failed: no cut sentence, no verdict", sound(&E));
+    fresh();
+    E.head.unanalyzed = (uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP);
+    n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
+    psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("DHCP and ARP analysis failed: both NOT ANALYZED; the window names them together; quiet is said of DNS alone",
+          has_line(counts, n, PPC_CLASS_DHCP, "NOT ANALYZED") && has_line(counts, n, PPC_CLASS_ARP, "NOT ANALYZED") &&
+              has_line(counts, n, PPC_CLASS_DNS, "NONE SEEN") && strcmp(d, "EVERY FRAME SEEN" DOT "DHCP AND ARP NOT ANALYZED") == 0 &&
+              strstr(b, "No DNS message was seen in either window.") && strstr(b, "for DNS the segment was quiet") &&
+              strstr(b, "DHCP and ARP could not be seen in this capture"));
+    check("DHCP and ARP analysis failed: an empty side names DNS", strcmp(psk_ev_side(&E, 1, b, 64),
+                                                                          "AFTER THE MARK" DOT "NO DNS SEEN") == 0);
+    /* Nothing could be seen: the filter kept ARP out, DHCP and DNS were not
+     * analysed. No quiet conclusion, not even a partial one. */
+    fresh();
+    E.head.cfilter = PPC_CFILTER_NAMES;
+    E.head.unanalyzed = PPC_EV_CLASSES;
+    n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("nothing could be seen: ARP NOT CAPTURED (the filter first), DHCP and DNS NOT ANALYZED, and no NONE SEEN",
+          n == 3 && has_line(counts, n, PPC_CLASS_ARP, "NOT CAPTURED") && has_line(counts, n, PPC_CLASS_DHCP, "NOT ANALYZED") &&
+              has_line(counts, n, PPC_CLASS_DNS, "NOT ANALYZED"));
+    check("nothing could be seen: no quiet conclusion at all",
+          strcmp(b, "Nothing of DHCP, ARP or DNS could be observed in this capture.") == 0 && !strstr(b, "quiet") &&
+              strcmp(psk_ev_side(&E, 0, c, 64), "BEFORE THE MARK" DOT "NOTHING COULD BE OBSERVED") == 0);
+    for (i = 0; i < n; i++) {
+        if (counts[i].none) {
+            break;
+        }
+    }
+    check("nothing could be seen: no line is a count of none", i == n);
+    check("nothing could be seen: no cut sentence, no verdict", sound(&E));
+
+    /* Frames lost so close to the mark that neither window can claim them. */
+    fresh();
+    E.head.edge_lost = 80;
+    E.win[0].lost = 150;
+    E.win[1].lost = 30;
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    check("losses at the mark: the window before has its 150 and says frames were lost at the mark, a warning",
+          sev == PSK_SEV_WARN && strcmp(d, "150 FRAMES LOST" DOT "FRAMES LOST AT THE MARK") == 0);
+    psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
+    check("losses at the mark: the window after has its 30, the 80 in neither", strcmp(d, "30 FRAMES LOST" DOT "FRAMES LOST AT THE MARK") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("losses at the mark: the 80 are told once, with their timing said to be uncertain",
+          strstr(b, "(150 before, 30 after)") &&
+              strstr(b, "80 frames were lost so close to the mark that it cannot be told whether before or after it: "
+                        "counted once, here, in neither window.") != NULL &&
+              occurrences(b, "80 frame") == 1);
+    psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    check("losses at the mark: no window line carries the 80", !strstr(d, "80"));
+    psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
+    check("losses at the mark: nor the other", !strstr(d, "80"));
+    fresh();
+    E.head.edge_lost = 1;
+    psk_ev_nothing(&E, b, sizeof(b));
+    {
+        char head[64];
+        char why[64];
+        char seen0[96];
+        char seen1[96];
+
+        psk_ev_window(&E, 0, head, sizeof(head), why, sizeof(why), seen0, sizeof(seen0));
+        psk_ev_window(&E, 1, head, sizeof(head), why, sizeof(why), seen1, sizeof(seen1));
+        check("one frame lost at the mark and nothing seen: not a quiet minute; neither window says every frame was seen",
+              strstr(b, "Part of the time was not fully watched, so this is not proof that none was sent.") &&
+                  !strstr(b, "quiet") && !strstr(seen0, "EVERY") && !strstr(seen1, "EVERY"));
+    }
+    psk_ev_limits(&E, b, sizeof(b));
+    check("one frame lost at the mark: said in the singular", strstr(b, "1 frame was lost so close to the mark") != NULL);
+    check("losses at the mark: no cut sentence, no verdict", sound(&E));
+
+    /* A burst that only counted, inside one second. */
+    fresh();
+    E.win[1].shed_s = 1;
+    E.win[1].span_ms = 900;
+    sev = psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("a count-only burst in a short window: COUNTING ONLY, a warning, and not a quiet minute",
+          sev == PSK_SEV_WARN && strcmp(d, "COUNTING ONLY 1 S") == 0 && strstr(b, "not proof that none was sent"));
+
+    /* The unmatched answer, as a row. */
+    fresh();
+    add(1, PPC_EV_DNS_ANSWER, PPC_EVF_UNPAIRED | PPC_EVF_OWN, 254000, 30);
+    n = psk_ev_rows(&E, rows, PSK_EV_ROWS);
+    check("an answer whose question the tracker no longer holds: no response time, and only that is said",
+          n == 1 && strcmp(rows[0].what, "ANSWER" DOT "FROM 192.0.2.50") == 0 &&
+              strcmp(rows[0].sub, "No matching question is available to calculate response time.") == 0);
+}
+
 /* ---- the model ----------------------------------------------------------------------------- */
 
 static void model(void)
@@ -658,11 +839,14 @@ static void model(void)
                                                               M.last_mark.state == PPC_STATE_HOLD && M.last_mark.wall_s == 1700000000u);
     M.want_ev = 7;
     check("an answer to an older request is not taken",
-          feed("ev.begin\t6\t9\t2\t9\t64000\thold\t5000\t0\t65000") == 0 && feed("ev.end\t6") == 0 && !M.have_ev);
-    feed("ev.begin\t7\t9\t2\t9\t64000\thold\t5000\t0\t65000");
+          feed("ev.begin\t6\t9\t2\t9\t64000\thold\t5000\t0\t65000\tall\t0\t0") == 0 && feed("ev.end\t6") == 0 &&
+              !M.have_ev);
+    feed("ev.begin\t7\t9\t2\t9\t64000\thold\t5000\t0\t65000\tnames\t4\t17");
     check("an answer is not shown until its last line", !M.have_ev);
-    check("the answer asked for is taken whole at its last line", (feed("ev.end\t7") & PSK_CHANGED_EVID) && M.have_ev &&
-                                                                      M.ev.head.id == 9 && M.ev.head.first == 2);
+    check("the answer asked for is taken whole at its last line, with what the capture could see",
+          (feed("ev.end\t7") & PSK_CHANGED_EVID) && M.have_ev && M.ev.head.id == 9 && M.ev.head.first == 2 &&
+              M.ev.head.cfilter == PPC_CFILTER_NAMES && M.ev.head.unanalyzed == (1u << PPC_CLASS_DNS) &&
+              M.ev.head.edge_lost == 17);
     psk_model_clear_packets(&M);
     check("a new capture has no mark and no evidence", M.nmarks == 0 && !M.have_ev && psk_ev_held(&M) == 0 && M.want_ev == 0);
     check("the list of a mark's packets is DHCP, ARP and DNS",
@@ -677,6 +861,7 @@ int main(int argc, char **argv)
     tzset();
     fixtures();
     built();
+    review();
     model();
     printf("psk_ev_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

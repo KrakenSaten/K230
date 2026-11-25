@@ -94,6 +94,17 @@
  *                                     packet then, and the wall clock (0 when
  *                                     it is not set)
  *     ev.begin <req> <id> <first> <last> <at_ms> <state> <seq> <wall_s> <now_ms>
+ *              <cfilter> <unanalyzed> <edge_lost>
+ *                                     the head of a mark's evidence: which
+ *                                     mark of the ones held, when, and the
+ *                                     wall clock then (after STOP: at STOP);
+ *                                     the capture filter the source applied
+ *                                     (all, ip, names, noself), the classes
+ *                                     whose analysis could not start (a hex
+ *                                     mask of enum ppc_class among DHCP, ARP
+ *                                     and DNS), and the frames lost so close
+ *                                     to the mark that neither window can
+ *                                     claim them
  *     ev.win <side 0|1> <flags> <span_ms> <watched_s> <held_s> <shed_s> <lost>
  *            <kept> <more> <k1..k18>  one side of the mark: the window before
  *                                     it (0) or after it (1), how much of it was
@@ -174,6 +185,11 @@ const char *ppc_reason_name(enum ppc_reason r);
 const char *ppc_cfilter_id(enum ppc_cfilter f);
 /* -1 for an unknown id. */
 int ppc_cfilter_parse(const char *id);
+/* The classes of a mark's evidence (PPC_EV_CLASSES) a preset keeps out of
+ * the capture, read from its expression below: NAMES passes DNS and DHCP
+ * by their ports and no ARP; IP passes ARP by name; ALL and NOSELF keep
+ * every one of them. */
+uint8_t ppc_cfilter_excludes(enum ppc_cfilter f);
 /* The tcpdump expression of a preset, "" for ALL. self is this device's
  * IPv4 address in dotted form, or NULL when it has none: NOSELF then
  * excludes SSH by port alone. Returns buf. */
@@ -564,7 +580,8 @@ enum ppc_ev_kind {
 #define PPC_EVF_BCAST 0x02u      /* broadcast or multicast: every port of the segment sees it */
 #define PPC_EVF_REPLY_HERE 0x04u /* a request whose reply would pass this interface */
 #define PPC_EVF_PLAIN 0x08u      /* routine: another station's ordinary ARP request or reply */
-#define PPC_EVF_UNPAIRED 0x10u   /* a DNS answer whose query this capture did not see */
+#define PPC_EVF_UNPAIRED 0x10u   /* a DNS answer with no matching query to time it by: never
+                                  * seen, or no longer remembered (PPC_DNS_KEEP_NS, PPC_DNS_QUERIES) */
 #define PPC_EVF_V6 0x20u         /* over IPv6: the addresses are not carried */
 #define PPC_EVF_ALL 0x3fu
 
@@ -577,6 +594,8 @@ enum ppc_ev_kind {
 
 #define PPC_EV_WINDOW_MS 60000u
 #define PPC_EV_KEEP 12u      /* rows kept with a mark, each side */
+/* The classes a mark's evidence observes, as a mask of enum ppc_class. */
+#define PPC_EV_CLASSES ((uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP | 1u << PPC_CLASS_DNS))
 
 /* What the buffer still holds of an observation's packet. */
 enum ppc_ev_alive {
@@ -604,6 +623,9 @@ struct ppc_evt_ev_head {
     uint32_t seq;
     uint64_t wall_s;
     uint32_t now_ms;   /* the session's clock as the answer was made */
+    uint8_t cfilter;   /* enum ppc_cfilter: the capture filter the source applied */
+    uint8_t unanalyzed; /* PPC_EV_CLASSES whose analysis could not start */
+    uint64_t edge_lost; /* frames lost around the mark, in neither window */
 };
 
 struct ppc_evt_ev_win {

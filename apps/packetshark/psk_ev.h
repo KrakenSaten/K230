@@ -7,8 +7,10 @@
  * said as that and with the packet's number. What it may mean comes after,
  * as a sentence that says "may". A reply that was not seen is never called
  * missing: a request says whether its reply could pass this interface at
- * all, and a window says how much of it was watched. There is no score, no
- * percentage and no verdict.
+ * all, and a window says how much of it was watched. A protocol the capture
+ * filter kept out, or whose analysis could not start, is said as that and
+ * never as one that was quiet. There is no score, no percentage and no
+ * verdict.
  *
  * Pure C over the model, no LVGL, no allocation (tests/psk_ev_test.c).
  *
@@ -35,13 +37,17 @@ const char *psk_ev_when(const struct psk_evidence *ev, char *buf, size_t buflen)
 
 /* One window (0 before the mark, 1 after it), in three short lines. head:
  * its length, "60 S BEFORE", "19 S AFTER"; "NOTHING BEFORE" or "NOTHING
- * AFTER" for one that has none, "0 S AFTER" for one that has just begun. why: what ended it short of a minute, or keeps it open - "THE CAPTURE
+ * AFTER" for one that has none, "0 S AFTER" for one that has just begun.
+ * why: what ended it short of a minute, or keeps it open - "THE CAPTURE
  * STARTED THEN", "STILL OPEN", "THE CAPTURE STOPPED THEN" - or "".
- * seen: "EVERY FRAME SEEN", or what was not: "312 FRAMES LOST", "ON HOLD
- * 14 S". Returns PSK_SEV_OK when every frame of the window was seen;
- * PSK_SEV_WARN when frames were lost or only counted, so something may be
- * absent from it; PSK_SEV_NOTE when a HOLD took part of it, the history
- * holds less than it, or it has no length. */
+ * seen: "EVERY FRAME SEEN" ("EVERY CAPTURED FRAME SEEN" under a capture
+ * filter), or what was not: "312 FRAMES LOST", "ON HOLD 14 S", "FRAMES LOST
+ * AT THE MARK"; then the protocols it could not see: "ARP NOT CAPTURED",
+ * "DNS NOT ANALYZED". Returns PSK_SEV_OK when every frame of the window was
+ * seen and every protocol could be; PSK_SEV_WARN when frames were lost or
+ * only counted, so something may be absent from it; PSK_SEV_NOTE when a
+ * HOLD took part of it, the history holds less than it, a protocol could
+ * not be seen, or it has no length. */
 unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head, size_t headlen, char *why,
                        size_t whylen, char *seen, size_t seenlen);
 
@@ -50,12 +56,16 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
  * that was seen at all lists the messages of its ordinary exchange even at
  * zero - DISCOVER, OFFER, REQUEST and ACK; an ARP request and reply; a DNS
  * query and answer - so a count of none is on the page, not left to be
- * noticed missing. A protocol never seen has one line, "NONE SEEN". The
- * figures are counts of what passed this interface and no more. */
+ * noticed missing. A protocol never seen has one line, "NONE SEEN". One the
+ * capture could not see has one line, "NOT CAPTURED" (its filter kept it
+ * out) or "NOT ANALYZED" (its analysis could not start), and "-" for its
+ * figures. The figures are counts of what passed this interface and no
+ * more. */
 struct psk_ev_count {
     uint8_t cls;    /* PPC_CLASS_DHCP, PPC_CLASS_ARP or PPC_CLASS_DNS */
     uint8_t first;  /* the first line of its protocol */
     uint8_t none;   /* the protocol was not seen in either window */
+    uint8_t blind;  /* the capture could not see the protocol at all */
     char name[28];
     char before[12];
     char after[12];
@@ -82,15 +92,20 @@ unsigned psk_ev_rows(const struct psk_evidence *ev, struct psk_ev_row *out, unsi
 /* A side's heading over its rows: "BEFORE THE MARK · 5 SEEN", "BEFORE THE
  * MARK · 12 OF 43 · NEAREST THE MARK" when not every observation is a row,
  * "AFTER THE MARK · NONE SEEN YET" while its window is filling, "AFTER THE
- * MARK · NONE SEEN". */
+ * MARK · NONE SEEN". When the capture could not see a protocol, the empty
+ * heading names the ones it could ("NO DHCP OR DNS SEEN"), or says "NOTHING
+ * COULD BE OBSERVED". */
 const char *psk_ev_side(const struct psk_evidence *ev, unsigned side, char *buf, size_t buflen);
 
 /* What this evidence can and cannot tell, in plain sentences, a line each:
- * what one interface sees, and whatever limited these two windows (frames
- * lost, HOLD, a capture that started or stopped inside them, a window still
- * filling). */
+ * what one interface sees, the protocols this capture could not see and
+ * why, and whatever limited these two windows (frames lost, some of them
+ * too close to the mark to place, HOLD, a capture that started or stopped
+ * inside them, a window still filling). */
 const char *psk_ev_limits(const struct psk_evidence *ev, char *buf, size_t buflen);
-/* What to say when neither window holds an observation. */
+/* What to say when neither window holds an observation: of the protocols
+ * the capture could see, and a quiet segment only when every second of
+ * both windows was watched. */
 const char *psk_ev_nothing(const struct psk_evidence *ev, char *buf, size_t buflen);
 
 /* How many marks the capture holds now: it keeps its newest eight. */

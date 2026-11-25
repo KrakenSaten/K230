@@ -476,12 +476,41 @@ static void test_evidence(void)
           ppc_evt_format_ev_begin(line, sizeof(line), &h) > 0 && ppc_evt_parse(line, &e) == PPC_EVT_EV_BEGIN &&
               e.u.ev_head.req == 11 && e.u.ev_head.id == 2 && e.u.ev_head.first == 1 && e.u.ev_head.last == 3 &&
               e.u.ev_head.at_ms == 50000 && e.u.ev_head.state == PPC_STATE_CAPTURING && e.u.ev_head.seq == 5 &&
-              e.u.ev_head.wall_s == 0 && e.u.ev_head.now_ms == 61234 && ppc_evt_format_ev_end(line, sizeof(line), 11) > 0 &&
-              ppc_evt_parse(line, &e) == PPC_EVT_EV_END && e.u.ev_req == 11);
+              e.u.ev_head.wall_s == 0 && e.u.ev_head.now_ms == 61234 && e.u.ev_head.cfilter == PPC_CFILTER_ALL &&
+              e.u.ev_head.unanalyzed == 0 && e.u.ev_head.edge_lost == 0 &&
+              ppc_evt_format_ev_end(line, sizeof(line), 11) > 0 && ppc_evt_parse(line, &e) == PPC_EVT_EV_END &&
+              e.u.ev_req == 11);
+    /* What the capture could see travels with the head (PR #188 review). */
+    h.cfilter = PPC_CFILTER_NAMES;
+    h.unanalyzed = (uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP);
+    h.edge_lost = 123456789012ull;
+    h.wall_s = 1700000000u;
+    check("ev.begin carries the filter applied, the classes not analysed and the losses at the mark",
+          ppc_evt_format_ev_begin(line, sizeof(line), &h) > 0 && strstr(line, "\tnames\t18\t123456789012\n") &&
+              ppc_evt_parse(line, &e) == PPC_EVT_EV_BEGIN && e.u.ev_head.cfilter == PPC_CFILTER_NAMES &&
+              e.u.ev_head.unanalyzed == h.unanalyzed && e.u.ev_head.edge_lost == 123456789012ull &&
+              e.u.ev_head.wall_s == 1700000000u);
+    h.cfilter = PPC_CFILTER_COUNT;
+    ok = ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0;
+    h.cfilter = PPC_CFILTER_ALL;
+    h.unanalyzed = 1u << PPC_CLASS_TCP;
+    check("a filter out of range, or a class other than DHCP, ARP and DNS, is not put on a line",
+          ok && ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0);
+    h.unanalyzed = 0;
+    check("damaged heads are refused: the old ten fields, an unknown filter, a mask beyond the three, a signed or "
+          "empty mask, a negative loss",
+          ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\teverything\t0\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t1\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t-4\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t1c\t-1", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tnoself\t1c\t0", &e) == PPC_EVT_EV_BEGIN &&
+              e.u.ev_head.cfilter == PPC_CFILTER_NOSELF && e.u.ev_head.unanalyzed == PPC_EV_CLASSES);
     h.id = 4;
     check("a mark outside the held range is not put on a line, nor taken from one",
           ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0 &&
-              ppc_evt_parse("ev.begin\t1\t4\t1\t3\t0\tcapturing\t0\t0\t0", &e) == PPC_EVT_BAD);
+              ppc_evt_parse("ev.begin\t1\t4\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t0", &e) == PPC_EVT_BAD);
 
     memset(&w, 0, sizeof(w));
     w.side = 1;
