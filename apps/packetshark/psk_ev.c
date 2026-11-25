@@ -195,7 +195,7 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
                        size_t whylen, char *seen, size_t seenlen)
 {
     const struct ppc_evt_ev_win *w = &ev->win[side ? 1 : 0];
-    uint32_t whole = (w->span_ms + 999u) / 1000u;
+    uint32_t whole = w->span_ms < 1000u ? 1u : (w->span_ms + 500u) / 1000u; /* as its length is said */
     char a[24];
 
     head[0] = '\0';
@@ -229,7 +229,8 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
         part(seen, seenlen, "%s FRAME%s LOST", psk_fmt_count(w->lost, a, sizeof(a)), w->lost == 1 ? "" : "S");
     }
     /* Seconds are counted whole, so a window that is not on a second's edge
-     * touches one more than it is long: never said as longer than it is. */
+     * touches one more than it is long: never said as more than the length
+     * the window's own heading gives. */
     if (w->shed_s) {
         part(seen, seenlen, "COUNTING ONLY %u S", (unsigned)(w->shed_s < whole ? w->shed_s : whole));
     }

@@ -123,6 +123,13 @@ check "a mark is set in one function, which sends the helper nothing else" \
     "$([ "$hits" = "2" ] && sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_mark(a->session)' &&
        ! sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -qE 'psk_session_(hold|stop|capture|save|discard|view)|capture_command|psk_do\(' &&
        echo 1 || echo 0)"
+# The page's objects are off the active screen while it does not show: a
+# layout pass walks every object of the active screen, hidden or not.
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'lv_obj_set_parent\(a->ev_page,')
+check "the evidence page is put on and taken off the active screen in one function, and its own screen goes with the app" \
+    "$([ "$hits" = "1" ] && sed -n -E '/^void psk_evp_place\(/,/^}/p' $A/ui/psk_evidence.c | grep -q 'lv_obj_t \*home = shown ? a->content : a->ev_park;' &&
+       code $A/ui/psk_live.c | grep -q 'psk_evp_place(a);' &&
+       sed -n -E '/^static void psk_destroy\(/,/^}/p' $A/psk_app.c | grep -q 'psk_evp_destroy(a);' && echo 1 || echo 0)"
 # What the page says is made in one file, and that file scores nothing.
 hits=$(code $A/psk_ev.c | grep -oE '"[^"]*"' | grep -niE 'missing|unanswered|not answered|no reply|no answer|fault|score|confidence|health|likely|probably|diagnos|%%')
 check "the evidence's words name no missing reply, no fault, no score and no percentage" "$([ -z "$hits" ] && echo 1 || echo 0)"

@@ -1365,7 +1365,7 @@ void psk_shape(struct psk_app *a)
     lv_obj_set_height(a->marks_btn, w ? PSK_TOP_H : PSK_MARK_H);
     if (w) {
         lv_obj_set_width(a->mark_btn, LV_SIZE_CONTENT);
-        lv_obj_set_style_min_width(a->mark_btn, 104, 0);
+        lv_obj_set_style_min_width(a->mark_btn, 88, 0);
         lv_obj_set_style_pad_hor(a->mark_btn, 14, 0);
         lv_obj_set_width(a->marks_btn, LV_SIZE_CONTENT);
         lv_obj_set_style_min_width(a->marks_btn, 64, 0);
@@ -1496,7 +1496,7 @@ void psk_paint_tabs(struct psk_app *a)
         psk_set_hidden(a->page[i], !shown);
     }
     psk_set_hidden(a->nv_page, !psk_net_shown(a));
-    psk_set_hidden(a->ev_page, !psk_evp_shown(a));
+    psk_evp_place(a);
 }
 
 void psk_mark_fit(struct psk_app *a)
@@ -1897,6 +1897,16 @@ static void paint_status(struct psk_app *a, enum psk_view v)
 
             bool ended = m->state == PPC_STATE_STOPPED || m->state == PPC_STATE_SAVING;
             char head[64];
+
+            if (room > 0 && a->reading) {
+                /* The companion's mark is written before the line (below,
+                 * rule 20): the line is fitted to what is left beside it,
+                 * so neither is cut. */
+                room -= pocketui_text_width(a->status_text, "COMPANION \xc2\xb7 ");
+                if (room < 1) {
+                    room = 1;
+                }
+            }
 
             /* A stopped capture says why first, as the tall shape does. */
             if (ended) {

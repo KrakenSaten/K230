@@ -453,6 +453,7 @@ struct psk_app {
     bool ev_asked;       /* asked, and no answer yet: asked again after a second */
     int64_t ev_sent_ms;
     lv_obj_t *ev_page;
+    lv_obj_t *ev_park;   /* a screen that is never loaded: the page waits on it while it is not shown */
     lv_obj_t *ev_title;
     lv_obj_t *ev_prev;
     lv_obj_t *ev_next;
@@ -653,6 +654,11 @@ bool psk_net_shown(const struct psk_app *a);
 /* ui/psk_evidence.c: a mark's evidence (N1.0), LIVE's third face. */
 void psk_evp_build(struct psk_app *a, lv_obj_t *page);
 void psk_evp_shape(struct psk_app *a);
+/* Puts the page in LIVE's place while it shows and takes it off the screen
+ * altogether while it does not (psk_paint_tabs). */
+void psk_evp_place(struct psk_app *a);
+/* The page's own screen, deleted with the app (the page may be on it). */
+void psk_evp_destroy(struct psk_app *a);
 void psk_evp_paint(struct psk_app *a);
 void psk_evp_show(struct psk_app *a, bool on);
 bool psk_evp_shown(const struct psk_app *a);

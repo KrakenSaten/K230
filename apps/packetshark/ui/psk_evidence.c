@@ -12,6 +12,12 @@
  * evidence is asked for while the page shows and never otherwise
  * (psk_app.c). Every word on it comes from psk_ev.c, where it is tested.
  *
+ * The page is some 350 objects, and a layout pass walks every object of the
+ * active screen, hidden or not: LIVE and PACKETS force one at each poll that
+ * changed something. So the page waits on a screen of its own, which is
+ * never loaded, and is on the active screen only while it shows
+ * (psk_evp_place). A capture that is never marked pays nothing for it.
+ *
  * Copyright (c) 2026 PocketOS authors.
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -306,6 +312,29 @@ void psk_evp_build(struct psk_app *a, lv_obj_t *page)
     lv_obj_set_style_pad_bottom(p, 14, 0);
     a->ev_limits = wrapping(p, POS_STYLE_TEXT_SECONDARY);
     lv_obj_add_flag(page, LV_OBJ_FLAG_HIDDEN);
+    /* Off the active screen until it shows. */
+    a->ev_park = lv_obj_create(NULL);
+    lv_obj_remove_style_all(a->ev_park);
+    lv_obj_set_parent(page, a->ev_park);
+}
+
+void psk_evp_place(struct psk_app *a)
+{
+    bool shown = psk_evp_shown(a);
+    lv_obj_t *home = shown ? a->content : a->ev_park;
+
+    if (lv_obj_get_parent(a->ev_page) != home) {
+        lv_obj_set_parent(a->ev_page, home);
+    }
+    psk_set_hidden(a->ev_page, !shown);
+}
+
+void psk_evp_destroy(struct psk_app *a)
+{
+    if (a->ev_park) {
+        lv_obj_delete(a->ev_park);
+        a->ev_park = NULL;
+    }
 }
 
 /* Tall: one column. Wide: the windows, the counts and the limits beside the

@@ -428,7 +428,7 @@ static void built(void)
     E.win[1].flags = PPC_EVW_OPEN;
     psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
     check("HOLD: seconds on HOLD are never said as more than the window is long",
-          strcmp(b, "2 S AFTER") == 0 && strcmp(c, "STILL OPEN") == 0 && strcmp(d, "ON HOLD 3 S") == 0);
+          strcmp(b, "2 S AFTER") == 0 && strcmp(c, "STILL OPEN") == 0 && strcmp(d, "ON HOLD 2 S") == 0);
     check("HOLD: no verdict word, no cut sentence", sound(&E));
 
     /* A window still open, one cut by STOP, one by START, one with no length. */

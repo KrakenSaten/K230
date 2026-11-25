@@ -1904,6 +1904,8 @@ static void psk_destroy(void *priv)
         LOG_INFO("packetshark: closed, the capture helper is ended");
     }
     psk_session_abandon(a->session, PSK_DESTROY_GRACE_MS);
+    /* The evidence page's own screen is not under the app's root. */
+    psk_evp_destroy(a);
     free(a->session);
     free(a->model);
     free(a);

@@ -987,8 +987,12 @@ static void capture_journey(void)
     CHECK("Back from PACKETS returns to LIVE", app_packetshark.back(app_priv) == 1 && shown("TRAFFIC"));
     tap("STOP");
     /* (The wide shape's line begins with the mark that a companion is
-     * reading while the checks above are fresh, so it is looked for whole.) */
-    CHECK("STOP: stopped by you", wait_has("SYNTH0 · BY YOU", 2000) && hint_is("STOPPED · SYNTH0"));
+     * reading while the checks above are fresh, so it is looked for whole.
+     * Since N1.0 MARK shares the wide top row: beside the companion's mark
+     * the line keeps why the capture ended and gives up the interface,
+     * which the shell's hint still carries; it is never cut by dots.) */
+    CHECK("STOP: stopped by you", wait_has(landscape() ? "COMPANION · BY YOU" : "SYNTH0 · BY YOU", 2000) &&
+                                      hint_is("STOPPED · SYNTH0") && !containing_in(psk_app_part(app_priv, "top"), "..."));
     CHECK("SAVE is offered on a stopped capture", shown("SAVE") && enabled("SAVE") && enabled("DISCARD"));
     pump(300);
     CHECK("capture.status when stopped: by the user, and the screen's figures",
@@ -4165,6 +4169,32 @@ static void n1(bool portrait)
     CHECK("and no helper is left", no_child());
 }
 
+/* The poll's cost at 8,000 pps on LIVE and on PACKETS, as figures: no
+ * check, so a branch can be measured beside master on the same host
+ * (PACKETSHARK_ONLY=cost). */
+static void cost_once(void)
+{
+    int64_t poll_us = 0;
+    int64_t frame_us = 0;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:8000:1", 1);
+    app_start();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(1500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll_us, &frame_us, 0);
+    printf("cost: LIVE at 8,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll_us, (long long)frame_us);
+    tap("PACKETS");
+    pump(1500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll_us, &frame_us, 0);
+    printf("cost: PACKETS at 8,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll_us, (long long)frame_us);
+    app_stop();
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -4209,9 +4239,32 @@ int main(void)
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     {
         /* PACKETSHARK_ONLY=n1: MARK and its evidence alone, both shapes
-         * (make packetshark-n1-test). */
+         * (make packetshark-n1-test). PACKETSHARK_ONLY=journey: the
+         * capture's journey alone. PACKETSHARK_ONLY=cost: the poll's cost
+         * at 8,000 pps on LIVE and PACKETS, five times, as figures. */
         const char *only = getenv("PACKETSHARK_ONLY");
 
+        if (only && strcmp(only, "cost") == 0) {
+            int r;
+
+            for (r = 0; r < 5; r++) {
+                cost_once();
+            }
+            return 0;
+        }
+        if (only && strcmp(only, "journey") == 0) {
+            /* The capture's journey alone (START to DISCARD), both shapes. */
+            capture_journey();
+            shot_orientation = "landscape";
+            use_display(POS_ROTATION_90);
+            capture_journey();
+            snprintf(cmd, sizeof(cmd), "rm -rf '%s' '%s'", root, captures_dir);
+            if (system(cmd) != 0) {
+                printf("note: could not remove %s\n", root);
+            }
+            printf("packetshark_app_test (journey): %d checks, %d failed\n", checks, failed);
+            return failed ? 1 : 0;
+        }
         if (only && strcmp(only, "n1") == 0) {
             /* PACKETSHARK_SHAPE=portrait or landscape: that shape alone. */
             const char *shape = getenv("PACKETSHARK_SHAPE");
