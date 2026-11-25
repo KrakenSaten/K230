@@ -541,11 +541,17 @@ makes root's SSH login key-only. Every `PermitRootLogin` in
 `/etc/ssh/sshd_config` must be `prohibit-password`, `without-password`,
 `forced-commands-only` or `no`, with one before the first `Match`. If not,
 the unsafe lines become `prohibit-password`, or one is added at the top when
-there is none. The result is checked with `sshd -t -f`; the original is kept
-once as `sshd_config.doors-orig`; the new file replaces the old by rename; and
-sshd is reloaded (`S50sshd reload`) if it runs. A file sysd cannot judge (an
-`Include` line, or unreadable) is refused. Any failure ends the change before
-the password or the switch is touched. No sshd installed: nothing to harden.
+there is none. The result is checked with `sshd -t -f` when sshd is installed;
+the original is kept once as `sshd_config.doors-orig`; the new file replaces
+the old by rename. Then, whether or not the file changed, a running sshd (found
+by `/var/run/sshd.pid` or by name in `/proc`) is reloaded (`S50sshd reload`), and
+a reload that fails ends the change: a file hardened by an earlier run whose
+reload failed is not proof that the running server reads it. A file sysd cannot
+judge as sshd reads it (an `Include` line, a quoted keyword, a line with no
+keyword before its `=`, a NUL byte, or unreadable) is refused. Any failure ends
+the change before the password or the switch is touched. Neither sshd nor its
+configuration: nothing to harden. A change that has not finished in 90 s is
+stopped (`timed_out`).
 
 #### companion.status
 
@@ -561,7 +567,7 @@ there and executable. `enabled`: `GATEWAYD_ENABLE=1`. `running`: the daemon
 `pos-supervise` records in `/run/pocketos/gatewayd.pid` is alive.
 `password_set`: root has a password hash, by gatewayd's own rule (sysd compiles
 `services/gatewayd/gw_gate.c`). `ssh`: `hardened`, `open`, `unknown` or
-`absent`, as above. `state`: `idle`, `running`, `done` or `failed`, for the
+`absent` (neither sshd nor its configuration), as above. `state`: `idle`, `running`, `done` or `failed`, for the
 running or last change, which `action` names (`enable`, `disable`, `password`).
 `error` and `message` are there when it failed.
 
@@ -576,7 +582,11 @@ once with `{"state": "running"}`; `companion.status` follows the change.
   be, `GATEWAYD_ENABLE=1` is written with the file's other lines kept (the file
   is created if there is none), `S70gatewayd start` runs, and gatewayd must
   answer `gateway.status` within 10 s. If it does not, the file is put back
-  as it was and `S70gatewayd stop` runs (`start_failed`, `no_answer`).
+  as it was - or set to 0 if it said 1: a failed start never leaves the switch
+  on - and `S70gatewayd stop` runs (`start_failed`, `no_answer`). sysd edits
+  only a file of blank lines, comments and `NAME=value` lines
+  (`S70gatewayd` sources it); any other is left to the hand that wrote it
+  (`defaults_unsupported`).
 - `false` is always accepted. `GATEWAYD_ENABLE=0` is written **before**
   `S70gatewayd stop`, so a stop that fails (`stop_failed`) still leaves a unit
   that does not start the gateway at its next boot.
@@ -596,16 +606,18 @@ hardened first. The password is then hashed with libxcrypt as SHA-512 crypt
 (`$6$`, a 16-character salt from `getrandom`). Root's field in `/etc/shadow`
 is replaced under `lckpwdf()`: temp file, fsync, rename, directory fsync, mode
 0600, every other line and field kept. Last, gatewayd's own gate must read it
-back as set (`password_failed` otherwise). The password is never logged. sysd
-wipes its copy when the child is started; the child wipes its copy once it is
-hashed. No current password is asked for: whoever has the unit's unlocked
+back as set (`password_failed` otherwise). The password is never logged.
+pocketipc wipes the request's bytes; sysd wipes its copy when the child is
+started; the child hashes it first and wipes it before it hardens SSH. No
+current password is asked for: whoever has the unit's unlocked
 screen is root already (Terminal).
 
 Errors carry `"<word>: <sentence>"`, the word for a program (Settings turns it
 into its own words) and the sentence for a person at `doors call`:
 `not_installed`, `password_required`, `ssh_unknown`, `ssh_failed`,
-`write_failed`, `start_failed`, `no_answer`, `stop_failed`, `busy`,
-`invalid_password`, `password_layout`, `password_failed`. A change that runs
+`write_failed`, `defaults_unsupported`, `start_failed`, `no_answer`,
+`stop_failed`, `busy`, `timed_out`, `invalid_password`, `password_layout`,
+`password_failed`. A change that runs
 reports the same words in `companion.status`.
 
 ### Trust model

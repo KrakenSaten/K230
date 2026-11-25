@@ -65,7 +65,7 @@ apps/settings/settings_wifi.c      Network: Wi-Fi, the list, the join sheet
 apps/settings/settings_companion.c Companion: the gateway switch and the device password (sysd), the phones,
                                    their permissions and Remove, pairing (gatewayd)
 tests/settings_view_test.c         298 checks (Makefile)
-tests/settings_app_test.c          1986 checks under a real LVGL pointer device and the key
+tests/settings_app_test.c          1987 checks under a real LVGL pointer device and the key
                                    stream, with netd, gatewayd, sysd and the shell scripted, hosted as the shell
                                    hosts it: the hierarchy and every way back, every page at
                                    Small, Medium and Large in portrait and landscape (CMake, host)
@@ -129,12 +129,15 @@ in landscape, beside the words; in portrait the width decides. With it are
 what to do, this unit's key, `Closes in 1:47` and CANCEL. The page reads
 `gateway.status` once a second. A phone at the door is "A phone is
 connecting...". One that presented the code shows its name for itself and its
-key in mono (0 and D, 8 and B told apart), with "Same key on the phone" NO/YES.
+key in mono (0 and D, 8 and B told apart; the name, the phone's own claim, is
+the smaller of the two), with "Same key on the phone" NO/YES.
 **ALLOW cannot be tapped until that is YES**, and a different phone's key
 sets it back to NO. Beside the decision: "It will get: Status, RIFT, sending"
 and the six switches (status and RIFT reading and sending on, PacketShark and
 Vision off, as PAIRING.md §4 says). REFUSE and ALLOW send `gateway.pair_decide`
-with the chosen scopes. The window ends in words: paired, refused, the code
+with the key that was compared and the chosen scopes: gatewayd decides about
+that phone only, and if another has taken its place the page says so and
+closes the window. The window ends in words: paired, refused, the code
 expired, closed after wrong codes, the phone left. Each but paired offers SHOW
 A NEW CODE.
 
@@ -150,7 +153,8 @@ and SET PASSWORD. The keyboard's Done moves from the first field to the
 second, and from the second sets the password. Too short, too long, other
 characters and two different passwords are said under the fields, and nothing
 is sent. The fields are cleared **before** `companion.set_password` is sent,
-and when the sheet or the app goes. The page then shows "Setting the
+and when the sheet or the app goes (LVGL's own freed text buffers are not
+wiped, as for the Wi-Fi passphrase). The page then shows "Setting the
 password...", and "Password set. The serial console asks for it from now on."
 to the person who set it.
 

@@ -163,7 +163,7 @@ Proposed 2026-11-25 and implemented on branch `claude/companion-settings-2-aad74
 | The candidate on the unit | `gateway.status` `pair` and `pair_closed` | Settings, which polls, shows the waiting phone's key before the decision |
 | Settings > Companion | `apps/settings/settings_companion.c` (`docs/apps/SETTINGS.md`) | The switch, the password, the phones and their permissions, Remove, Pair a phone with a QR code |
 
-Tests: `tests/sysd_companion_test.c` (75), `tests/sysd_companion_lint.sh` (9), `tests/companion_settings_integration_test.py` (39: the real sysd and gatewayd and a TLS phone, then a sysd restart and a "reboot" with a new binary), `tests/settings_view_test.c` (88 new), `tests/settings_app_test.c` (the Companion section), `tests/initscript_test.sh` (S70gatewayd under the real pos-supervise, the deploy order), the release-gate suites. **Not run on a unit**: the hash and the shadow write on the board, `sshd -t` and the reload there, sysd running S70gatewayd, the QR code read from the panel by a phone (README H10).
+Tests: `tests/sysd_companion_test.c` (90), `tests/sysd_companion_lint.sh` (9), `tests/companion_settings_integration_test.py` (39: the real sysd and gatewayd and a TLS phone, then a sysd restart and a "reboot" with a new binary), `tests/settings_view_test.c` (88 new), `tests/settings_app_test.c` (the Companion section), `tests/initscript_test.sh` (S70gatewayd under the real pos-supervise, the deploy order), the release-gate suites. **Not run on a unit**: the hash and the shadow write on the board, `sshd -t` and the reload there, sysd running S70gatewayd, the QR code read from the panel by a phone (README H10).
 
 ## Building and testing
 
@@ -193,7 +193,7 @@ Classes as in AGENTS.md. Measured 2026-11-21 on the build host (x86-64, WSL Ubun
 | **M4.2.** That the real meshcored reads a connection's requests in order, records an outgoing message the moment it accepts it, hands out ids in order, keeps 64 messages of each kind and loses the oldest first, and sends nothing when it answers with an error | DOCUMENTED (read in `services/meshcored/api.c`, `mesh_runtime.cpp`, `core/pocketipc/server.c`; the ring sizes are held by the lint). Not run against |
 | **M4.2.** A message actually on the air, and a phone as the client | **not tested** |
 | **M4.1.** The real meshcored | **not tested**: the suite's meshcored is a fake written from `docs/api/mesh.md` and `services/meshcored/api.c`. That the real service's results and events have the documented shape, that it writes an event before the answer to a later request, and its 200 ms backpressure rule against this client are ASSUMED |
-| The real service against TLS clients: gate, closed until asked, pairing, failed handshakes (no certificate, TLS 1.2, RSA, P-384, unknown key, two certificates, plaintext), no resumption, scopes, revocation, malformed and oversized frames, limits, upstream failures, restart, damaged and missing state, log contents: 198 checks (190 before ADR-019 amendment 2; the 8 added hold the pairing window and its candidate in `gateway.status`, and that the token is never there) | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_e2e_test.py`) |
+| The real service against TLS clients: gate, closed until asked, pairing, failed handshakes (no certificate, TLS 1.2, RSA, P-384, unknown key, two certificates, plaintext), no resumption, scopes, revocation, malformed and oversized frames, limits, upstream failures, restart, damaged and missing state, log contents: 200 checks (190 before ADR-019 amendment 2; the 10 added hold the pairing window and its candidate in `gateway.status`, that the token is never there, and that a decision bound to another key decides nothing) | VERIFIED host, plain and ASan/UBSan (`tests/gatewayd_e2e_test.py`) |
 | The fingerprint equals the SHA-256 of the SubjectPublicKeyInfo as the `openssl` tool writes it | VERIFIED host (unit and service suites) |
 | riscv64 build: warning-free with `-Werror`, Xuantie GCC 14.1.1, against the v0.4.0 release build's sysroot; links `libssl.so.3`, `libcrypto.so.3`, `libcjson.so.1`, all present in that build's target tree | VERIFIED (cross-build only) |
 | The v0.4.0 sysroot's OpenSSL is 3.4.1 with none of `OPENSSL_NO_TLS1_3`, `_EC`, `_ECDSA`, `_ECDH` defined | VERIFIED (headers); the library's behaviour on a unit is not |
@@ -201,6 +201,31 @@ Classes as in AGENTS.md. Measured 2026-11-21 on the build host (x86-64, WSL Ubun
 | A phone client | **not tested against**: every client in these suites is the Python reference client |
 
 Not tested on the host either: the 10 s handshake and hello deadlines, the 90 s idle timeout and the 120 s window in real time (the pairing deadlines are tested with the state machine's own clock); an address change of the interface; `S70gatewayd` beyond parsing and the disabled default.
+
+## Independent review of the product integration (2026-11-25)
+
+A second reviewer, given the change and the specification and not the author's conclusions, read sysd's `companion.*`, the gatewayd status change, Settings > Companion and the packaging for paths from a phone or the network to the switch or the password, injection, fail-open behaviour, secret handling, the shadow rewrite, the status's new fields, the candidate confirmation, and contradictions with ADR-019. It built and ran nothing.
+
+**No blocker:** no path from a phone or the network to `companion.*` (served on `sysd.sock` alone; gatewayd's only sysd rows are `system.info` and `system.status`), no command injection (fixed argv, `execv`, no shell), no logging of the password, no way past the ALLOW confirmation (it is enforced where the decision is built, not only by the button).
+
+Fixed before the PR:
+
+| Finding | Fix |
+| --- | --- |
+| **A retry after a failed sshd reload could set the password** while the running sshd still let root in by password: the file on disk was hardened by then, the job judged it alone and skipped the reload. Also: an sshd whose pid file is missing was not reloaded | Every password and enable job reloads a running sshd whatever the file says; a running sshd is found by its pid file or by name in `/proc`. Tested: a failed reload, a retry (still no password, and no gateway), the reload working (password set); an sshd without its pid file |
+| Lines sshd reads otherwise than sysd's parser (a quoted keyword, no keyword before `=`, a NUL byte) | Judged unknown and refused, in sysd and the image gate; CR read as whitespace, as sshd does |
+| A configuration whose sshd is merely not executable was left open | Hardened all the same; "absent" is neither sshd nor its configuration |
+| Plaintext copies of the password: pocketipc's server read buffer, the client's printed request, the job holding it through `sshd -t` and the reload | Both pocketipc buffers wiped; the job hashes first. LVGL's own freed text buffers are not wiped (as for the Wi-Fi passphrase), and the documents say so |
+| A hung init script or reload would keep reboot, power-off and every later change refused | A change is stopped after 90 s (`timed_out`) |
+| A failed start restored `GATEWAYD_ENABLE=1` when it had been set by hand, while saying "off again" | A failed start never leaves the switch on |
+| `gateway.pair_decide` was not bound to the key the person compared (only a local process could swap the candidate) | It takes the confirmed `fingerprint`; another phone is decided nothing about, and Settings closes the window. Tested in the service suite and the Settings suite |
+| `S70gatewayd stop` sourced a file sysd edits line by line: a hand-written `if ... fi` around the switch could have been broken, and with it stop | The file is read on start alone; sysd edits only a file of settings lines (`defaults_unsupported` otherwise) |
+| The candidate's self-chosen name, in title type, could imitate key groups | The name is smaller than the key, which is in mono |
+| The amendment named the wrong lint for the `companion.` check | Corrected (`tests/sysd_companion_lint.sh`) |
+
+Left as they are, said in the amendment: `lckpwdf()` does not exclude BusyBox `passwd` at the same moment (the last rename wins; nothing is corrupted); the pairing token stays in freed heap and in the QR code's canvas until reused or deleted (one-time, at most 120 s); a pre-authentication SSH connection accepted before the reload keeps the old configuration for its login grace time (it still needs the new password).
+
+The reviewer could not assess, and nobody has: what `S50sshd reload` does on older cards, sshd started with another `PidFile`, other daemons on the image that might accept root's password, `lckpwdf` on the image's libc, and anything at run time on a unit.
 
 ## Independent review (2026-11-21)
 
