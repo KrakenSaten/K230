@@ -4,6 +4,22 @@ First run of the K1 proof of concept on hardware (`docs/apps/packetshark/neural/
 
 Evidence classes: every number below is VERIFIED (measured on Unit A or computed on the host from the pulled outputs) unless it is marked otherwise.
 
+**Revised on 25 November 2026 after an independent review.** Every measurement, table value and raw result is unchanged. Interpretations the review corrected are marked **Post-review correction**, and §9 lists each one beside its original wording. The original text is at commit [`9b790069`](https://github.com/KrakenSaten/K230/blob/9b790069/research/packetshark-neural/poc/K1-UNIT-A.md). The review is [`INDEPENDENT-REVIEW.md`](https://github.com/KrakenSaten/K230/blob/463ad7d8/docs/apps/packetshark/neural/INDEPENDENT-REVIEW.md) in draft PR #186.
+
+## Status after the independent review
+
+| Criterion | Status | Basis |
+| --- | --- | --- |
+| P2/P4 end to end | **PASS on latency** | 132.4 µs p95 back to back, 190.6 µs p95 at one call a second. The ratio to the C reference supports no claim of need (§2). |
+| P8 under load | **PASS** | 221.4 µs p95 |
+| P5 agreement | **PASS** | byte-identical to the simulator in both modes |
+| P6 memory after a normal exit | **INCONCLUSIVE** | RSS passes (5.1 MiB peak). Whether a process returns its CMA is unanswered (§4). |
+| P7 SIGKILL | **NOT TESTED** | skipped by the owner's decision |
+| P9 duty cycle | **PASS for RSS only** | CMA is not assessable with the meter used (§4) |
+| P10 exclusivity | **PASS for the bench only** | `flock` between two bench instances. Sharing with Vision is untested (§5). |
+
+**G4 has not passed.** Five of seven criteria pass, two of them in a narrowed sense. P6 is inconclusive and P7 was not tested. The measurements show that the KPU is fast. They do not show that this model needs the KPU.
+
 ## 1. Setup
 
 | Item | Value |
@@ -33,9 +49,15 @@ One call = one batch of 64 conversations through the whole host-tensor path. 1,0
 - **P3 profile.** The interpreter program is one `EXTCALL` (the KPU section) plus `LDARG`, two `LDC_I4` and `RET`, each under 1 µs. No operator runs on the CPU. `EXTCALL` over 233 calls: min 97.2, p50 106.0, p95 126.2, p99 184.3, max 486.3 µs. The compiler's roofline estimate was 101 µs (E2).
 - **Overhead.** Outside the KPU section, one call costs about 18 µs at p50: copy in 8.7, sync 1.9, copy out 3.6, and interpreter and output-tensor handling about 3. Inside `EXTCALL` the measured median exceeds the compiler's ideal estimate by about 5 µs.
 - **Profiling is not free.** `--profile` raised the run step from 109 to 279 µs at p50, because the runtime prints a timeline on every call. Timed runs (P2, P8, P9) were made without it.
-- **The C reference** is a direct convolution compiled with `-O2`. GCC 14 targets RVV by default here, but the convolution loop holds only 9 vector instructions. It is a simple baseline, not an optimized CPU kernel. The ratio to the KPU path is about 2,000× at p95. A CPU kernel 100× faster than this reference would still take about 2.7 ms per batch.
-- **Spread between runs.** The C reference's p50 was 257 ms in the u8 run, 290 ms in the a16w8 run and 261 ms in the reference-only run. The cause was not investigated: CPU frequency and temperature were not recorded.
-- **Tail under load.** The P8 p99 and max (2.2 ms and 3.4 ms) and the single P9 max (3.5 ms) match one scheduler slice lost to another task. The KPU's own time did not change: the p50 run step was 117 µs under load against 109 µs idle.
+- **The C reference** is a direct convolution compiled with `-O2`. GCC 14 targets RVV by default here, but the convolution loop holds only 9 vector instructions. It is a simple baseline, not an optimized CPU kernel. It took 256.9 ms at p50 for 13,303,808 multiply-accumulates: 19.3 ns each, about 31 cycles at the documented 1.6 GHz.
+- **Post-review correction: the CPU comparison.** The measured ratio of the C reference to the KPU path is 2,038 at p95. It must not be read as the KPU's advantage over the CPU.
+  - **Why the baseline is unfair.** Channels are the innermost loop over planar data, so successive loads sit 8 KiB apart and alias in the L1 cache, and the accumulator is serial.
+  - **A fair kernel (ASSUMED, not measured).** 15–50 ms per batch for a cache-friendly scalar kernel, and 2–10 ms for int8 RVV. That puts the ratio at roughly 16–400 times.
+  - **Per conversation.** The CPU estimate is 0.03–0.8 ms, which is comparable to one KPU call.
+  - **Conclusion.** K1 shows that the KPU is fast. It does not show that this model needs the KPU.
+- **Post-review correction: which latency matters.** P9, at one call a second, is the product's rate: 169.1 / 190.6 µs at p50 / p95, which is 37 % above the back-to-back figure. Every segment of the call is slower, which points to cold caches after a second of idleness (ASSUMED).
+- **Spread between runs.** The C reference's p50 was 257 ms in the u8 run, 290 ms in the a16w8 run and 261 ms in the reference-only run. The cause was not investigated. **Post-review correction:** frequency scaling is not the cause, because it is not built into this kernel (`CONFIG_CPU_FREQ` is not set). The 13 % offset covered a whole run, and the CPU-side segments of the KPU call in that process were unchanged. It is unexplained. Physical page placement interacting with the reference's cache aliasing is a candidate (ASSUMED).
+- **Tail under load.** The P8 p99 and max (2.2 ms and 3.4 ms) and the single P9 max (3.5 ms) match one scheduler slice lost to another task. The KPU's own time did not change: the p50 run step was 117 µs under load against 109 µs idle. **Post-review correction:** under the hog the C reference slowed 3.56 times at p50, where one extra equal-weight task predicts 2.0. That is unexplained, and the hog was never characterised.
 
 ## 3. Agreement (P5, P4)
 
@@ -53,11 +75,17 @@ Host analysis of the pulled outputs (`poc/k1_analyze.py`, labels from E3b, 10 cl
 | u8 (device = simulator) | 0.9947 / 0.9985 | 93.4 % | 99.95 % | **99.0 %** | 0.8755 |
 | a16w8 (device = simulator) | 0.9992 / 0.9997 | 96.9 % | 100 % | **99.6 %** | 0.8765 |
 
-So u8 quantization changes the exact nearest neighbour of 6.6 % of conversations, but nearly always to another conversation of the same class. Retrieval quality is unchanged within 0.1 point. On generated data, a16w8 buys fewer flips for 26 % more latency.
+**Post-review correction: quantization and nearest neighbours.** The tables above are unchanged. Two conclusions drawn from them were wrong (§9):
+
+- **The flips are not class-preserving.** u8 changes the nearest neighbour of 136 of 2,048 conversations (6.6 %). 21 of those land in a different class: 15.4 %, against 12.4 % expected by chance, which is the float model's own rate of wrong-class neighbours.
+- **Retrieval quality is unchanged, but individual neighbours are not stable.** Net precision at 1 changes by 2 of 2,048 (0.8755 against 0.8765), which is inside noise.
+- **a16w8** changes 64 neighbours, 9 of them to another class.
+- **The a16w8 latency difference is not cleanly attributable to the mode.** 155.3 against 123.6 µs p50 comes from one run in a fixed order, in the process whose C reference also ran 13 % slow.
+- **What byte identity shows.** The device computes what the simulator computes on these 2,048 inputs. It says nothing about quantization quality. u8 must be re-judged on real data.
 
 ## 4. Memory (P6, P9)
 
-**RSS.** The highest `VmHWM` of any run was 5,248 kB. In P9, RSS read 4,480 kB at every minute and 4,608 kB at exit.
+**RSS.** The highest `VmHWM` of any run was 5,248 kB. In P9, RSS read 4,480 kB at every minute and 4,608 kB at exit. **Post-review correction:** P9 passes for RSS only. Its `CmaFree` readings were flat from minute 2 to 10, but that meter cannot carry a verdict (below).
 
 **CMA.** `CmaFree` after `sync; echo 1 > /proc/sys/vm/drop_caches`, with the kernel's explicit CMA allocation counters (`cma_alloc_success` in `/proc/vmstat`, `/sys/kernel/mm/cma/reserved/alloc_pages_success`):
 
@@ -80,12 +108,24 @@ Reading it:
 - Each KPU process made 4–5 explicit CMA allocations of 19–21 pages (76–84 kB) in total: the model's buffers and tensors.
 - The in-process readings at `before_release` and `released` were equal in every run. On Linux 6.6, pages freed by `cma_release` go to the per-CPU page lists first and are not counted in `CmaFree` until those lists drain. So this reading cannot show whether `shrink_memory_pool()` and `kd_mpi_mmz_deinit()` returned the pages.
 - The per-CPU lists held 705 pages (2.8 MB) during the run and 261 pages (1.0 MB) after cleanup (`/proc/zoneinfo`). Readings moved by −756 kB in a run without the KPU and by +684 kB in a KPU run. So `CmaFree` resolves about 1–3 MB here, not tens of kilobytes.
-- **After cleanup, `CmaFree` was 2.86 MB above the as-found value.** No CMA loss is detectable. A loss below about 1 MB per run is neither shown nor excluded by these meters. A decisive meter would be `cma/reserved/used` in debugfs, which is not mounted on the image; mounting it would have changed the system.
-- **For P7.** If the explicit allocations are a process's whole device footprint, a SIGKILL could strand at most about 84 kB, far under the 4 MiB criterion. This is ASSUMED: single-page DMA allocations bypass CMA and are not counted. P7 must measure it.
+- **After cleanup, `CmaFree` was 2.86 MB above the as-found value.**
+- **Post-review correction: P6 is INCONCLUSIVE.** The readings above do not answer whether a process returns its CMA.
+  - **Signal against noise.** The signal sought is 76–84 kB per process. Per-process deltas of the dropped readings average −129 kB with a standard deviation of 379 kB, and the run without the KPU moved the reading by −756 kB.
+  - **The counters count allocations only,** never frees.
+  - **The +2.86 MB does not show recovery.** The per-CPU lists held 705 pages mid-run and 261 after cleanup, and their size as found was not recorded. Their limit computes to about 1,240 pages (4.9 MB) on this unit.
+  - **What is excluded.** A leak of a page per call (3,351 calls would have cost about 13 MB) and a loss of megabytes per process.
+  - **An exact meter exists and was not used.** The kernel is built with `CONFIG_CMA_DEBUGFS=y`, so `/sys/kernel/debug/cma/reserved/used` counts held CMA pages once debugfs is mounted. Mounting it changes the system until the next reboot, so it needs the owner's OK.
+- **P7 was NOT TESTED. Post-review correction:** no bound on what a SIGKILL strands can be given from these data. The review verified in the kernel source that buffers of one page or less bypass CMA. They are invisible to `CmaFree` and to both counters, and a kill strands them like any other buffer. With `CmaFree` alone, three kills would also be lost in the noise. P7 should follow the amended protocol in the review's §7.
 
 ## 5. Exclusivity (P10)
 
-While P9 held `/tmp/k1/kpu.lock` and ran its duty cycle, a second instance with the same lock printed `{"what":"lock","ok":false,"errno":11}` and exited with code 3. It made no CMA allocation. P9 continued and completed its 600 calls with exit code 0 and byte-identical output. This tests `flock` between two bench instances only. Vision's helper does not take this lock today.
+While P9 held `/tmp/k1/kpu.lock` and ran its duty cycle, a second instance with the same lock printed `{"what":"lock","ok":false,"errno":11}` and exited with code 3. It made no CMA allocation. P9 continued and completed its 600 calls with exit code 0. This tests `flock` between two bench instances only. Vision's helper does not take this lock today.
+
+**Post-review correction: what P10 does and does not validate.**
+
+- **P9's output was not byte-compared.** P9 ran without `--dump`. Its `agree` line gives cosine 1.000000 and nearest neighbour 100 % against the simulator for its last 32 batches.
+- **The check is limited to the bench.** It shows that a second instance of the same program, using the same advisory lock file, is refused. It does not show that the KPU is shared safely with Vision, which does not take the lock.
+- **The lock is needed for correctness, not only for sharing.** The review found in the driver source that the KPU driver's completion flag is global and zeroed by any open or close, and that the runtime waits without a timeout. Every KPU client must therefore take the lock before it opens the device.
 
 ## 6. Unit A afterwards
 
@@ -103,11 +143,14 @@ The serial console was root-logged-in when found and was left that way. Nothing 
 
 ## 7. Not tested and limits
 
-- **P7 (SIGKILL)** was not run, by the owner's decision. G4 cannot pass without it.
+- **P7 (SIGKILL)** was not run, by the owner's decision. It is NOT TESTED, and G4 cannot pass without it.
+- **P6 is inconclusive** (post-review, §4). It needs the exact meter or an amplified run.
+- **An optimized CPU kernel** was not measured (post-review, §2). Without it, the KPU's real advantage is unknown.
+- **Sharing the KPU with Vision** was not tested (post-review, §5).
 - **Unit A, not Unit B.** Unit A runs the full stack (radio, mesh, Wi-Fi, idle shell). Those services shared the hart with the bench; the load average was near 0 before every idle step.
-- **CPU time of a KPU call** was not measured (wall time only). Whether the hart spins during the 109 µs run step matters for G1 with a scorer. K2 should record `getrusage` around the calls.
+- **CPU time of a KPU call** was not measured (wall time only). Whether the hart spins during the 109 µs run step matters for G1 with a scorer. A later session should record `getrusage` around the calls. Post-review: the runtime's disassembly shows it waiting in `poll()`, so the hart should be asleep, but that is still unmeasured.
 - **The P8 load** was a shell loop that calls `stat`, not a capture. A real capture load was not tested.
-- **CPU frequency and temperature** were not recorded. They may explain the 13 % spread of the C reference between runs.
+- **Temperature** was not recorded. Post-review: frequency scaling is not built into this kernel, so the 13 % spread of the C reference between runs is unexplained (§2).
 - **One model, one batch size, generated inputs.** Latency is data-independent for a fixed graph. Accuracy figures on generated data are not accuracy on real traffic.
 - **Energy** was not measured.
 
@@ -132,3 +175,23 @@ python poc/k1_analyze.py <dir with float/sim/kpu .f32> results/k1_unit_a results
 ```
 
 Outputs here: `results/k1_unit_a/*.jsonl` (every line the unit printed, including the P3 operator timelines) and `results/k1_unit_a.json` (host analysis and all steps). Console logs, the device dumps and the kit are in `C:\K230-artifacts\packetshark-neural\k1-unit-a\` with `SHA256SUMS.txt`. The console logs stay out of Git because they contain the unit's MAC address.
+
+Post-review: this recipe reproduces the run as it was made. P7, and a repeat of P6, should follow the amended protocol in the review's §7 instead.
+
+## 9. Revision record (25 November 2026)
+
+This revision changes interpretations only. Not changed: every number in the tables of §1–§6, the raw results under `results/k1_unit_a/`, `results/k1_unit_a.json`, the scripts and the bench.
+
+| Section | Original wording (commit `9b790069`) | Correction |
+| --- | --- | --- |
+| §2 | "The ratio to the KPU path is about 2,000× at p95. A CPU kernel 100× faster than this reference would still take about 2.7 ms per batch." | The baseline is cache-hostile. A fair CPU kernel is estimated at 2–50 ms per batch, a ratio of roughly 16–400 times. No claim that the model needs the KPU is supported. |
+| §2 | "The cause was not investigated: CPU frequency and temperature were not recorded." | Frequency scaling is not built into the kernel. The spread is unexplained. |
+| §2 | (not stated) | P9's latency, 169.1 / 190.6 µs, is the product-relevant figure. The hog's 3.56× slowdown of the reference is unexplained. |
+| §3 | "… but nearly always to another conversation of the same class." | 21 of 136 flips change class: 15.4 %, against 12.4 % by chance. Not class-preserving. |
+| §3 | "On generated data, a16w8 buys fewer flips for 26 % more latency." | The latency difference comes from one run in a fixed order and is not attributable to the mode. |
+| §4 | "No CMA loss is detectable." | P6 is INCONCLUSIVE. A per-process loss of 76–84 kB is neither shown nor excluded, and an exact meter was available but not used. |
+| §4 | "… a SIGKILL could strand at most about 84 kB, far under the 4 MiB criterion." | The bound is withdrawn. Single-page buffers bypass CMA and are invisible to the meters. P7 is NOT TESTED. |
+| §4 | (P9's memory result not qualified) | P9 passes for RSS only. |
+| §5 | "… completed its 600 calls with exit code 0 and byte-identical output." | P9's output was checked by cosine, not byte-compared. P10 validates the lock between two bench instances only. |
+| §7 | "K2 should record `getrusage` around the calls." | "A later session should …": the review rates K2 as specified NO-GO, pending the owner. |
+| top | (verdicts deferred to ROADMAP §1) | A status table was added. G4 has not passed. |
