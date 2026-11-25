@@ -25,6 +25,7 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketpaths.h"
 #include "pocketsys.h"
+#include "sysd_companion.h"
 #include "sysd_expand.h"
 #include "sysd_logs.h"
 #include "sysd_power.h"
@@ -65,6 +66,7 @@ struct sysd {
     struct sysd_storage storage;
     struct sysd_expand expand;
     struct sysd_radio radio; /* radio_setup.*: RIFT without a shell */
+    struct sysd_companion companion; /* companion.*: the gateway's switch, the device password */
 };
 
 /* storage.* take no parameters; like the power actions, eject does not act on
@@ -134,6 +136,15 @@ static void on_power(struct pocketipc_server *s, struct pocketipc_client *c, con
     sysd_radio_reap(&sd->radio);
     if (sysd_radio_busy(&sd->radio)) {
         snprintf(msg, sizeof(msg), "the radio setup is running; %s when it has finished", name);
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
+        return;
+    }
+    /* Nor while /etc/shadow, sshd_config or the gateway's switch is being
+     * written (companion.*): it takes seconds, and a file half way through
+     * a rename is not what a reboot should find. */
+    sysd_companion_reap(&sd->companion);
+    if (sysd_companion_busy(&sd->companion)) {
+        snprintf(msg, sizeof(msg), "a Companion change is running; %s when it has finished", name);
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
         return;
     }
@@ -267,6 +278,46 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         /* Accepted, not finished: storage.status says when it is. */
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "state", sysd_storage_state_name(sd->storage.state));
+    } else if (strcmp(method, "companion.status") == 0) {
+        if (!no_params(params)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "companion.status takes no parameters"));
+            return;
+        }
+        result = sysd_companion_status(&sd->companion);
+    } else if (strcmp(method, "companion.set_enabled") == 0 || strcmp(method, "companion.set_password") == 0) {
+        /* One member, of one type, and nothing else: the switch does not
+         * act on a request it does not fully understand. The password is
+         * taken from the request itself so that it can be wiped there. */
+        bool pw = strcmp(method, "companion.set_password") == 0;
+        cJSON *pp = cJSON_GetObjectItemCaseSensitive(req, "params");
+        cJSON *v = cJSON_IsObject(pp) ? cJSON_GetObjectItemCaseSensitive(pp, pw ? "password" : "enabled") : NULL;
+        char word[32] = "";
+        char text[SYSD_COMPANION_MESSAGE_MAX] = "";
+        char reply[sizeof(word) + sizeof(text) + 4];
+        int r;
+
+        if (!cJSON_IsObject(pp) || cJSON_GetArraySize(pp) != 1 || (pw ? !cJSON_IsString(v) : !cJSON_IsBool(v))) {
+            if (cJSON_IsString(v)) {
+                explicit_bzero(v->valuestring, strlen(v->valuestring));
+            }
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  pw ? "companion.set_password takes {\"password\": \"...\"}"
+                                                                     : "companion.set_enabled takes {\"enabled\": true|false}"));
+            return;
+        }
+        r = pw ? sysd_companion_set_password(&sd->companion, v->valuestring, word, sizeof(word), text, sizeof(text))
+               : sysd_companion_set_enabled(&sd->companion, cJSON_IsTrue(v), word, sizeof(word), text, sizeof(text));
+        if (r != 0) {
+            /* "<word>: <sentence>": the word for a program (Settings turns
+             * it into its own words), the sentence for a person at `doors`. */
+            snprintf(reply, sizeof(reply), "%s: %s", word, text);
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, r, reply));
+            return;
+        }
+        /* Accepted, not finished: companion.status says when it is. */
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "state", "running");
     } else {
         snprintf(msg, sizeof(msg), "unknown method %s", method);
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD, msg));
@@ -284,7 +335,7 @@ static int run(struct sysd *sd)
         int uevent = 0;
         int timeout = sd->pending != SYSD_POWER_NONE ? SYSD_POWER_POLL_MS
                       : sysd_storage_busy(&sd->storage) || sysd_expand_busy(&sd->expand) ||
-                                sysd_radio_busy(&sd->radio)
+                                sysd_radio_busy(&sd->radio) || sysd_companion_busy(&sd->companion)
                           ? SYSD_EJECT_POLL_MS
                                                                                           : SYSD_CPU_SAMPLE_MS / 4;
 
@@ -300,6 +351,7 @@ static int run(struct sysd *sd)
         }
         sysd_expand_reap(&sd->expand);
         sysd_radio_reap(&sd->radio);
+        sysd_companion_reap(&sd->companion);
         now = mono_ms();
         /* The pending action is consumed before it is run, so it runs at most
          * once whatever the command does or how long it takes.
@@ -338,7 +390,8 @@ static void usage(FILE *out)
             "usage: sysd [--socket-name NAME] [--verbose]\n"
             "Serves system.info, system.status, system.logs, system.crashes,\n"
             "system.reboot, system.poweroff, storage.status, storage.eject, storage.expand,\n"
-            "radio_setup.status and radio_setup.start\n"
+            "radio_setup.status, radio_setup.start, companion.status,\n"
+            "companion.set_enabled and companion.set_password\n"
             "(docs/api/system.md).\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
             POCKETIPC_DEFAULT_DIR);
@@ -407,6 +460,12 @@ int main(int argc, char **argv)
          * RF_STATE_FILE), named in docs/api/radio.md. */
         snprintf(radio_state, sizeof(radio_state), "%s/radiod/radio.conf", pocketos_state_dir());
         sysd_radio_init(&sd.radio, &rp, &sysd_radio_real_ops);
+    }
+    {
+        struct sysd_companion_paths cp;
+
+        sysd_companion_default_paths(&cp, pocketos_log_dir());
+        sysd_companion_init(&sd.companion, &cp, sysd_companion_default_ops());
     }
 
     rc = run(&sd);

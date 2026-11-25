@@ -171,6 +171,11 @@ static struct {
     char state_dir[GW_STORE_PATH_MAX];
     struct gw_store store;
     struct gw_pair pair;
+    /* Why the last pairing window closed ("expired", "paired", ...), for
+     * gateway.status: Settings asks once a second and holds no
+     * subscription, so the gateway.pairing event alone would not reach it.
+     * Empty while a window is open and before the first one. */
+    char pair_closed[24];
     struct sess s[SESS_SLOTS];
     uint64_t next_id;
     struct gw_bucket handshakes;
@@ -340,6 +345,7 @@ static void pairing_closed_event(const char *reason)
     cJSON_AddStringToObject(d, "state", "closed");
     cJSON_AddStringToObject(d, "reason", reason);
     ctl_event("gateway.pairing", d);
+    snprintf(G.pair_closed, sizeof(G.pair_closed), "%s", reason);
     /* A window that closed may have been the only reason to listen. Done
      * from the loop, not from here: this runs inside a session's own
      * handling, and closing the listener closes sessions. */
@@ -3067,6 +3073,29 @@ static cJSON *status_json(void)
     cJSON_AddNumberToObject(r, "clients", G.store.n);
     cJSON_AddNumberToObject(r, "sessions", count_state(S_OPEN, true));
     cJSON_AddBoolToObject(r, "pairing", gw_pair_open(&G.pair));
+    /* The window as the unit's own pairing page shows it (ADR-019
+     * amendment 2, decision 6): its time, and the phone waiting for the
+     * person's decision by the name it gave and its key's fingerprint - the
+     * two values of the gateway.candidate event. Never the token. */
+    if (gw_pair_open(&G.pair)) {
+        cJSON *pr = cJSON_AddObjectToObject(r, "pair");
+        int64_t left = G.pair.until_ms - mono_ms();
+
+        cJSON_AddStringToObject(pr, "state", G.pair.state == GW_PAIR_WAITING     ? "waiting"
+                                             : G.pair.state == GW_PAIR_CANDIDATE ? "candidate"
+                                                                                 : "open");
+        cJSON_AddNumberToObject(pr, "left_ms", (double)(left > 0 ? left : 0));
+        if (G.pair.state == GW_PAIR_WAITING) {
+            cJSON *cand = cJSON_AddObjectToObject(pr, "candidate");
+            char fp[GW_FP_HEX + 1];
+
+            gw_hex(G.pair.fp, GW_FP_LEN, fp);
+            cJSON_AddStringToObject(cand, "name", G.pair.name);
+            cJSON_AddStringToObject(cand, "fingerprint", fp);
+        }
+    } else if (G.pair_closed[0] != '\0') {
+        cJSON_AddStringToObject(r, "pair_closed", G.pair_closed);
+    }
     /* The mesh behind the gateway: counts and flags, nothing of a message. */
     mesh = cJSON_AddObjectToObject(r, "mesh");
     cJSON_AddBoolToObject(mesh, "wanted", mesh_wanted());
@@ -3148,6 +3177,7 @@ static void ctl_pair_begin(struct pocketipc_client *c, const cJSON *id)
     ctl_reply(c, id, r);
     memset(uri, 0, sizeof(uri));
     memset(t64, 0, sizeof(t64));
+    G.pair_closed[0] = '\0';
     LOG_INFO("pairing: window opened");
 }
 

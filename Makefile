@@ -56,10 +56,14 @@ RADIOD_CORE_OBJS := services/radiod/tx.o services/radiod/lease.o \
                     services/radiod/radio_time.o services/radiod/backend_mock.o \
                     services/radiod/airtime.o
 RADIOD_OBJS := services/radiod/main.o services/radiod/rf_state.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
-# Everything sysd is except the power actions, which exist twice: once as
+# Everything sysd is except the power actions and companion.* (ADR-019
+# amendment 2), which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
-SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o services/sysd/sysd_logs.o services/sysd/sysd_storage.o services/sysd/sysd_expand.o services/sysd/sysd_radio.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
-SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o
+SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o services/sysd/sysd_logs.o services/sysd/sysd_storage.o services/sysd/sysd_expand.o services/sysd/sysd_radio.o services/gatewayd/gw_gate.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o services/sysd/sysd_companion.o
+# companion.set_password hashes with libxcrypt, the library the image's sshd
+# already links (ADR-019 amendment 2): a build dependency, not a package.
+SYSD_LIBS := -lcrypt
 # netd: wifi.* (docs/api/network.md). As with sysd, the one object that touches
 # the machine (netd_sys) exists twice: as shipped, and with the test hooks
 # tests/netd_test.sh needs to run it against a fake supplicant.
@@ -215,9 +219,10 @@ tests/drmtest_test: tests/drmtest_test.o $(DRMTEST_OBJS)
 services/radiod/radiod: $(RADIOD_OBJS)
 	$(RADIOD_LINK) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(RADIOD_LIBS)
 
-# sysd: system.* from core/pocketsys (docs/api/system.md). C only, cJSON only.
+# sysd: system.* from core/pocketsys (docs/api/system.md). C, cJSON, and
+# libxcrypt for companion.set_password.
 services/sysd/sysd: $(SYSD_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS) $(SYSD_LIBS)
 
 services/netd/netd: $(NETD_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
@@ -320,8 +325,24 @@ tests/sysd_radio_test: tests/sysd_radio_test.o services/sysd/sysd_radio.o $(IPC_
 tests/sysd_power_hooks.o: services/sysd/sysd_power.c services/sysd/sysd_power.h
 	$(CC) $(ALL_CFLAGS) -Iservices/sysd -DSYSD_TEST_HOOKS=1 -c -o $@ $<
 
-tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
-	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+# companion.*: the same, with every path under $SYSD_TEST_COMPANION_ROOT
+# when that is set (tests/companion_settings_integration_test.py). The shipped
+# sysd does not contain the variable's name (tests/sysd_companion_lint.sh).
+tests/sysd_companion_hooks.o: services/sysd/sysd_companion.c services/sysd/sysd_companion.h
+	$(CC) $(ALL_CFLAGS) -Iservices/sysd -DSYSD_TEST_HOOKS=1 -c -o $@ $<
+
+tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o tests/sysd_companion_hooks.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS) $(SYSD_LIBS)
+
+# companion.*: SSH judged and hardened, the password checked, hashed and
+# written into a shadow file, the gateway's switch, every refusal, with the
+# init scripts, sshd and gatewayd faked; the jobs run in real children
+# (ADR-019 amendment 2).
+tests/sysd_companion_test.o: tests/sysd_companion_test.c services/sysd/sysd_companion.h
+	$(CC) $(ALL_CFLAGS) -Iservices/sysd -c -o $@ $<
+
+tests/sysd_companion_test: tests/sysd_companion_test.o services/sysd/sysd_companion.o services/sysd/sysd_radio.o services/gatewayd/gw_gate.o $(IPC_OBJS) $(LOG_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS) $(SYSD_LIBS)
 
 %.o: %.c
 	$(CC) $(ALL_CFLAGS) -c -o $@ $<
@@ -2585,7 +2606,7 @@ library-test: tools/library/pos-library $(LIBRARY_TESTS)
 TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant tests/wifi_parse_test \
              tests/wifi_store_test tests/airtime_test tests/rf_state_test tests/radiod_tx_test \
              tests/pocketlog_test tests/pocketipc_test \
-             tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/sysd_radio_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
+             tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/sysd_storage_test tests/sysd_expand_test tests/sysd_radio_test tests/sysd_companion_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
              tests/power_policy_test tests/power_key_test tests/tz_zones_test tests/overlay_model_test \
              tests/theme_test tests/text_size_test \
              tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test tests/hold_follow_test \
@@ -2610,6 +2631,7 @@ test: all $(TEST_BINS)
 	./tests/sysd_storage_test 2>/dev/null
 	./tests/sysd_expand_test 2>/dev/null
 	./tests/sysd_radio_test 2>/dev/null
+	./tests/sysd_companion_test 2>/dev/null
 	./tests/wifi_parse_test
 	./tests/wifi_store_test
 	./tests/system_view_test
@@ -2751,6 +2773,7 @@ test: all $(TEST_BINS)
 	bash tests/radiod_async_test.sh
 	bash tests/radiod_power_test.sh
 	bash tests/sysd_test.sh
+	bash tests/sysd_companion_lint.sh
 	bash tests/netd_test.sh
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
@@ -2889,7 +2912,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 clean:
 	rm -f tests/poker_engine_test-asan
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd_storage_test tests/sysd_storage_test.o tests/sysd_expand_test tests/sysd_expand_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o apps/fleet/link/fleet_link_peer.o tests/fake_peerd.o tests/fake_peerd_main.o tests/fleet_link_peer_real tests/fleet_link_peer_real.o tests/fleet_lan_player tests/fleet_lan_player.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/text_size_test tests/text_size_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) $(PHOTO_TESTS) $(PHOTO_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o tests/hub_layout_test tests/hub_layout_test.o ui/shell/hub_layout.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POS_MP3_OBJS) $(MP3_DEC_WAV_OBJS) $(MP3_TOOL_DIR)/mp3_decoder_ffmpeg.o $(MP3_APP_OBJS) $(MP3_TESTS) $(MP3_TESTS:=.o) tests/pos_mp3_hooks.o $(POS_VIDEO_OBJS) $(VIDEO_TOOL_DIR)/video_backend_ffmpeg.o $(VIDEO_APP_OBJS) $(VIDEO_TESTS) $(VIDEO_TESTS:=.o) tests/pos_video_hooks.o $(TERMINAL_OBJS) $(TERMINAL_TESTS) $(TERMINAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o) $(DB_CORE_OBJS) $(DB_DIR)/db_store.o $(DESKBUDDY_TESTS) $(DESKBUDDY_TESTS:=.o) $(HWCTL_OBJS) $(HWCTL_TESTS) $(HWCTL_TESTS:=.o) $(LIBRARY_TESTS) $(LIBRARY_TESTS:=.o) $(WEB_DIR)/web_image_lib.o tools/library/pos_library.o tools/library/pos-library $(PPC_OBJS) $(PPC_DIR)/ppc_source_pcap.o $(PPC_DIR)/ppc_source_none.o tools/capture/pos_capture.o $(PSK_OBJS) $(PACKETSHARK_TESTS) $(PACKETSHARK_TESTS:=.o)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd_storage_test tests/sysd_storage_test.o tests/sysd_expand_test tests/sysd_expand_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/sysd_companion_hooks.o tests/sysd_companion_test tests/sysd_companion_test.o services/gatewayd/gw_gate.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o apps/fleet/link/fleet_link_peer.o tests/fake_peerd.o tests/fake_peerd_main.o tests/fleet_link_peer_real tests/fleet_link_peer_real.o tests/fleet_lan_player tests/fleet_lan_player.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/text_size_test tests/text_size_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) $(PHOTO_TESTS) $(PHOTO_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o tests/hub_layout_test tests/hub_layout_test.o ui/shell/hub_layout.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POS_MP3_OBJS) $(MP3_DEC_WAV_OBJS) $(MP3_TOOL_DIR)/mp3_decoder_ffmpeg.o $(MP3_APP_OBJS) $(MP3_TESTS) $(MP3_TESTS:=.o) tests/pos_mp3_hooks.o $(POS_VIDEO_OBJS) $(VIDEO_TOOL_DIR)/video_backend_ffmpeg.o $(VIDEO_APP_OBJS) $(VIDEO_TESTS) $(VIDEO_TESTS:=.o) tests/pos_video_hooks.o $(TERMINAL_OBJS) $(TERMINAL_TESTS) $(TERMINAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o) $(DB_CORE_OBJS) $(DB_DIR)/db_store.o $(DESKBUDDY_TESTS) $(DESKBUDDY_TESTS:=.o) $(HWCTL_OBJS) $(HWCTL_TESTS) $(HWCTL_TESTS:=.o) $(LIBRARY_TESTS) $(LIBRARY_TESTS:=.o) $(WEB_DIR)/web_image_lib.o tools/library/pos_library.o tools/library/pos-library $(PPC_OBJS) $(PPC_DIR)/ppc_source_pcap.o $(PPC_DIR)/ppc_source_none.o tools/capture/pos_capture.o $(PSK_OBJS) $(PACKETSHARK_TESTS) $(PACKETSHARK_TESTS:=.o)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.
