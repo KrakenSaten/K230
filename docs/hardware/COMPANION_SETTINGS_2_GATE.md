@@ -1,18 +1,21 @@
 # Companion Settings 2.0: hardware gate (Unit B)
 
-**Status: prepared, not run.** Nothing has been deployed, started, stopped or
-changed on any unit. Unit B was only read, over key-only SSH and its serial
-console, on 2026-11-25. Unit A and PR #186 are out of scope and must stay
-untouched.
+**Status: build, image and kit ready (`d189c2c1`, section 11); the tests on
+the unit wait for the owner.** Nothing has been installed, started, stopped
+or changed on any unit; the kit is staged on Unit B. Unit B was otherwise
+only read, over key-only SSH and its serial console, on 2026-11-25. Unit A
+and PR #186 are out of scope and must stay untouched.
 
 - **What is under test:** draft PR #190 (`claude/companion-settings-2-aad748`),
   ADR-019 amendment 2. The owner accepted it on 2026-11-25 with its three
   decisions and one condition: an activation that does not finish must not
   leave the gateway on.
-- **Blocked on:** PR #188 (PacketShark N1.0), which was open on 2026-11-25. Once
-  it merges, master is merged into the branch, the focused suites run again,
-  and the validation binaries are built from that head (section 3). Until then
-  no binary, kit or APK in this document exists.
+- **Build:** PR #188 (PacketShark N1.0) merged on 2026-11-25. Master
+  `ff95ab99` is merged into the branch, and the validation build is
+  `d189c2c1` (section 11.1).
+- **Not to be done without the owner present** (owner, 2026-11-25): changing
+  Unit B's password or SSH configuration, switching the gateway on, or
+  approving a pairing.
 - **Evidence classes** are as in docs/hardware/T-DISPLAY-K230.md: VERIFIED
   (seen on the unit or the image), DOCUMENTED (an earlier report or the
   repository says so), ASSUMED (expected, not yet seen).
@@ -398,4 +401,98 @@ go and the owner's choice of unit (Unit A is out of scope now).
 
 ## 11. Results
 
-Not run. To be filled in by the session that runs this gate.
+### 11.1 Remote preparation, 2026-11-25 (no change to any unit)
+
+PR #188 merged at 19:28Z. Master `ff95ab99` was merged into the branch
+(`6b47a760`): the only conflict was the Makefile's `clean` line, and both
+sides were kept. Two fixes followed, `469dd1dd` (a test) and `d189c2c1` (the
+notices). On the owner's instruction, nothing was installed on Unit B, and
+its password, SSH configuration, gateway and pairing were not touched.
+
+**The validation build: `d189c2c1361e0c47e10bd21e49f84262e7b7726b`.**
+`apply_to_sdk.sh`, `build_image.sh` and `verify_image.sh` were run in WSL:
+- the pinned vendor tree (BSP `bb831ab`, SDK `22d02c6`), clean;
+- RadioLib, ggwave, MeshCore and Crypto at their pins, clean;
+- the R0 model with the pinned hash;
+- `Source worktree : clean`, no override.
+
+The first build, of `6636908d`, was a full one from an empty SDK output, and
+took 44 min with one stall: the Kendryte mirror accepted the strace download
+and sent nothing. I fetched strace upstream and checked it against
+Buildroot's hash, and `~/.wgetrc` now sets `read_timeout = 60`. The builds
+of `469dd1dd` and `d189c2c1` reused that output: `apply_to_sdk.sh` removes
+the Doors package's build directory, so Doors was rebuilt and the image
+reassembled. The kernel and device trees are carried over unchanged.
+
+| Artefact | sha256 |
+|---|---|
+| `sysimage-sdcard.img` (763,363,328 bytes) | `ed8fc013df5f4981560ea63f1294f34ebfe9cb9aca216e5ffa1ce8b8fd6f7377` |
+| `doors-0.5.0-tdisplay-k230-d189c2c1.img.gz` (122,317,610 bytes; VERSION is still 0.5.0, so this is not a release) | `896f4ccf87a432bd0adeb64163547aef854457a28b80e74382e4fe99053589a2` |
+| `/usr/sbin/sysd`, `/usr/sbin/gatewayd`, `/usr/bin/doors-shell` in the image (first 16 hex digits) | `d50b867f5848f236`, `eac3b235868889d0`, `131460491af446da` |
+| Validation APK (`android/doors-companion`, debug; the app's sources are identical from `6636908d` to `d189c2c1`) | `ebadca8eb3e5c5b1f32290c61f83b1a075779d930793dae1faa432c8788a1e10` |
+
+Everything is in `C:\K230-artifacts\companion-settings-2\`: `image-d189c2c1\`
+(image, BUILD_INFO, the gate's output, the packaging check, provenance),
+`kit-d189c2c1\` and the APK.
+
+**Image gate (`verify_image.sh`): PASS.** It found:
+- the boot files present;
+- one shell service, on by default, and no vendor launcher;
+- SSH root by key only (`PermitRootLogin prohibit-password`);
+- no `/var/lib/pocketos/gatewayd` or `/companion`, no `sshd_config.doors-orig`;
+- root's shadow field empty;
+- R0 as pinned, and the five refused models absent;
+- every service whole and from build `d189c2c1`, gatewayd and S70gatewayd included;
+- no `/etc/default/gatewayd` or `/etc/default/meshcored`;
+- every library each Doors binary asks for, in the image.
+
+**Packaging, by hand (10.2): PASS.**
+- `S70gatewayd` is 0755, carries the interrupted-activation guard, and is
+  off unless the unit says otherwise.
+- The shipped sysd and gatewayd carry no test-hook strings.
+- `readelf -V`: every symbol version sysd and gatewayd need is defined by
+  the image's own libraries **and** by Unit B's (`XCRYPT_2.0`,
+  `OPENSSL_3.0.0` from OpenSSL 3.4.1, `GLIBC_2.27`, `GLIBC_2.33`).
+- `img.gz` unpacks to the image byte for byte.
+- One finding, fixed in `d189c2c1`: the notices' list of the Buildroot
+  libraries Doors loads named neither libxcrypt (sysd) nor libpcap
+  (pos-capture).
+
+**The focused suites on the merged head:** all PASS.
+- sysd companion 100 (plus radio 43); gatewayd e2e 200, capture e2e 90;
+  companion integration 48; settings_view 300, settings_app 1987; pocketipc.
+- `make packetshark-test`.
+- image_contents, deploy_staging, package_sync, notices, license_audit,
+  build_provenance, splash_image; the settings, gatewayd, sysd_companion and
+  packetshark lints.
+- `initscript_test`: only the failure already on master (four fleet/peerd
+  scripts at 0644).
+
+Found and fixed in `469dd1dd`: the 89-failure `initscript_test` run. The
+guard test killed a background job that had not yet exec'd, which ran the
+test's EXIT trap and removed its root. Six runs in a row passed after the fix.
+
+**The kit:** `/root/companion-settings-2-d189c2c1/` on Unit B, staged and
+checked there (`KIT.sha256`, `new/SHA256SUMS`).
+- Payload: deploy.sh's 36 entries from the build's target tree (99 paths,
+  96 files, 28.7 MB, the same bytes as the image's), plus the build's LVGL
+  libraries, which differ in their bytes from Unit B's.
+- RESTORE uses 0.5.0's own `deploy_unit.sh`, sha256 `d3ec0378...` as in the
+  0.5.0 kit.
+- BACKUP.sh was dry-run once on Unit B: 97 paths saved, gatewayd and
+  S70gatewayd recorded as added, 9 Companion paths recorded as absent, exact
+  copies of shadow (0600) and sshd_config, and `before/` verifies. It was then
+  deleted, so tomorrow's BACKUP is fresh. Unit B's `sshd_config` is 0755 (the
+  vendor's) and sysd writes 0644, so the kit puts back and checks mode and
+  owner as well as content.
+- INSTALL, RESTORE and RESET_COMPANION have not run yet: they change the unit.
+
+**The emulator:** `doors-companion-readme` (Android 16), headless, has the
+APK and reaches 172.16.5.126 and .220. Nothing was tried against a gateway,
+because none runs.
+
+### 11.2 With the owner present
+
+The install, the rollback test, the checks over SSH after the password is
+set (S1 to S8), and the hands-on tests are in
+`COMPANION_SETTINGS_2_MANUAL_CHECKLIST.md`. Their results go here.

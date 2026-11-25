@@ -6,14 +6,17 @@ PASS, FAIL or NOT TESTED, with the time. Unit A stays untouched.
 
 **Where Unit B starts:** unchanged, Doors 0.5.0 `b37b644a`. On the owner's
 instruction of 2026-11-25, nothing was installed overnight, and root's
-password, SSH, the gateway and pairing were left alone. The build, the image
-and the kit are ready (section 11 of the gate).
+password, SSH, the gateway and pairing were left alone. The validation build
+is `d189c2c1` (image gate PASS, gate 11.1). Its kit is staged and verified
+on the unit at `/root/companion-settings-2-d189c2c1/`. The APK is
+`C:\K230-artifacts\companion-settings-2\doors-companion-debug-d189c2c1.apk`
+(sha256 `ebadca8e...`).
 
 ## 0. Install, with you there (about 5 minutes, over SSH)
 
 - [ ] Key-only SSH works, and COM3 shows `canaan login:` (no login).
-- [ ] Copy the kit to `/root/companion-settings-2-<build>/` and run
-      `sha256sum -c KIT.sha256`.
+- [ ] Unit B still says `BUILD_ID=b37b644a`; in the kit,
+      `sha256sum -c KIT.sha256` passes again.
 - [ ] Run `sh BACKUP.sh` and copy `before/` to the PC.
 - [ ] Run `INSTALL.sh`, detached; `install.status` must be 0.
 - [ ] `companion.status`: installed, off, no password, SSH open. No gatewayd
@@ -29,7 +32,7 @@ and the kit are ready (section 11 of the gate).
 - [ ] The Flip8: its Companion app is paired with Unit A, and the app holds
       one unit. Forgetting Unit A in the app is your decision (gate 8.0, b).
       Keep the installed APK first: `adb pull`, as on 2026-11-24.
-- [ ] Install the validation APK. Its sha256 is in section 11 of the gate.
+- [ ] Install the validation APK (above).
 - [ ] Before each step that changes something on the unit, a key-only SSH
       connection to 172.16.5.126 works.
 
