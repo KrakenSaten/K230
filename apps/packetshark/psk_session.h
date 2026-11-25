@@ -116,6 +116,11 @@ int psk_session_marks(struct psk_session *s, struct psk_model *m, uint32_t bucke
 /* The network intelligence's lists as they stand (M12.1); the model takes
  * only the answer to the newest request. */
 int psk_session_net(struct psk_session *s, struct psk_model *m);
+/* Mark this moment (N1.0): the helper answers with a `mark` line at once. */
+int psk_session_mark(struct psk_session *s);
+/* Ask for a mark's evidence as it stands; id 0 is the newest mark. The
+ * answer comes whole, as the network intelligence's lists do. */
+int psk_session_evid(struct psk_session *s, struct psk_model *m, uint32_t id);
 /* Write the stopped capture to a file in the captures folder (M8). */
 int psk_session_save(struct psk_session *s);
 int psk_session_pin(struct psk_session *s, uint32_t seq, bool on);

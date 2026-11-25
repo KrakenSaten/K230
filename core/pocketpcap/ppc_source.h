@@ -5,11 +5,17 @@
  *                        ppc_source_none.c in a build without libpcap)
  *   file:<path>[:<pps>]  a .pcap replayed through the same pipeline, as fast
  *                        as the loop takes it, or at pps frames a second
- *   synth:<pps>[:<seed>][:crash=<n>][:step=<n>,<s>]
+ *   synth:<pps>[:<seed>][:crash=<n>][:step=<n>,<s>][:burst=<n>,<ms>]
  *                        a deterministic generator: benchmarks, the simulator,
  *                        UI tests. crash=n makes the helper die by SIGSEGV
  *                        after n frames, step=n,s steps the wall clock by s
- *                        seconds after n frames (tests only)
+ *                        seconds after n frames, burst=n,ms hands over n frames
+ *                        more ms after the start, all stamped then and all due
+ *                        at once, so the reader falls behind briefly (tests
+ *                        only)
+ *
+ * Only a live source applies a capture filter (enum ppc_cfilter): a replay
+ * and the generator pass every frame they have.
  *
  * Every source is receive-only: none of them has a way to send a frame
  * (tests/packetshark_lint.sh). Each one gives the helper a descriptor to

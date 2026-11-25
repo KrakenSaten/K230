@@ -2307,7 +2307,7 @@ PPC_DIR := core/pocketpcap
 PPC_APP_OBJS := $(PPC_DIR)/ppc_proto.o
 PPC_CORE_OBJS := $(PPC_APP_OBJS) $(PPC_DIR)/ppc_format.o $(PPC_DIR)/ppc_decode.o $(PPC_DIR)/ppc_pcapfile.o \
                  $(PPC_DIR)/ppc_store.o $(PPC_DIR)/ppc_stats.o $(PPC_DIR)/ppc_view.o $(PPC_DIR)/ppc_dissect.o \
-                 $(PPC_DIR)/ppc_signals.o $(PPC_DIR)/ppc_net.o
+                 $(PPC_DIR)/ppc_signals.o $(PPC_DIR)/ppc_net.o $(PPC_DIR)/ppc_evid.o
 PPC_SRC_OBJS := $(PPC_DIR)/ppc_source.o $(PPC_DIR)/ppc_source_file.o $(PPC_DIR)/ppc_source_synth.o
 ifeq ($(PACKETSHARK_PCAP),1)
 PPC_LIVE_OBJ := $(PPC_DIR)/ppc_source_pcap.o
@@ -2320,11 +2320,14 @@ endif
 PPC_OBJS := $(PPC_CORE_OBJS) $(PPC_SRC_OBJS) $(PPC_LIVE_OBJ)
 POS_CAPTURE_OBJS := tools/capture/pos_capture.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 PSK_DIR := apps/packetshark
-PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PSK_DIR)/psk_saves.o
+PSK_OBJS := $(PSK_DIR)/psk_session.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PSK_DIR)/psk_saves.o \
+            $(PSK_DIR)/psk_ev.o
 PACKETSHARK_TESTS := tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test \
                      tests/ppc_stats_test tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures \
                      tests/ppc_view_test tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test \
-                     tests/psk_model_test tests/psk_net_test tests/psk_session_test tests/psk_remote_test
+                     tests/ppc_evid_test tests/ppc_evid_mkfixtures tests/pos-capture-testhooks \
+                     tests/psk_model_test tests/psk_net_test tests/psk_ev_test tests/psk_session_test \
+                     tests/psk_remote_test
 
 tools/capture/pos-capture: $(POS_CAPTURE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
@@ -2340,10 +2343,26 @@ tests/psk_%.o: tests/psk_%.c
 
 tests/ppc_decode_test tests/ppc_pcapfile_test tests/ppc_store_test tests/ppc_stats_test \
 tests/ppc_proto_test tests/ppc_fuzz tests/ppc_mkfixtures tests/ppc_view_test \
-tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test: tests/%: tests/%.o $(PPC_OBJS)
+tests/ppc_dissect_test tests/ppc_signals_test tests/ppc_net_test tests/ppc_evid_test \
+tests/ppc_evid_mkfixtures: tests/%: tests/%.o $(PPC_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
+
+tests/ppc_evid_test.o tests/ppc_evid_mkfixtures.o: tests/ppc_evid_fixtures.h
+
+# A pos-capture that can be told to run without an analyser, as a capture
+# whose table could not be allocated does (POS_CAPTURE_TEST_NO_ANALYZER=dns,
+# net), for tests/pos_capture_evid_test.sh. Only this object carries the
+# hook; the shipped helper has none (tests/packetshark_lint.sh).
+tests/pos_capture_hooks.o: tools/capture/pos_capture.c
+	$(CC) $(ALL_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pos-capture-testhooks: tests/pos_capture_hooks.o $(PPC_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(PPC_LIBS)
 
 tests/psk_model_test tests/psk_net_test: tests/%: tests/%.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/psk_ev_test: tests/psk_ev_test.o $(PSK_DIR)/psk_ev.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 tests/psk_remote_test: tests/psk_remote_test.o $(PSK_DIR)/psk_remote.o $(PSK_DIR)/psk_model.o $(PSK_DIR)/psk_net.o $(PPC_APP_OBJS)
@@ -2359,13 +2378,28 @@ PACKETSHARK_FUZZ_S ?= 5
 PACKETSHARK_TEST_RUN = ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
     ./tests/ppc_store_test && ./tests/ppc_stats_test && ./tests/ppc_proto_test && \
     ./tests/ppc_view_test && ./tests/ppc_dissect_test && ./tests/ppc_signals_test && ./tests/ppc_net_test && \
+    ./tests/ppc_evid_test && \
     mkdir -p out/packetshark-fixtures && ./tests/ppc_mkfixtures out/packetshark-fixtures &&     ./tests/ppc_fuzz -seconds $(PACKETSHARK_FUZZ_S) tests/data/packetshark out/packetshark-fixtures && \
-    ./tests/psk_model_test && ./tests/psk_net_test && ./tests/psk_remote_test && \
+    ./tests/psk_model_test && ./tests/psk_net_test && ./tests/psk_ev_test tests/data/packetshark && \
+    ./tests/psk_remote_test && \
     ./tests/psk_session_test tools/capture/pos-capture && \
     bash tests/pos_capture_test.sh tools/capture/pos-capture tests/ppc_mkfixtures && \
+    bash tests/pos_capture_evid_test.sh tools/capture/pos-capture tests/ppc_evid_mkfixtures tests/pos-capture-testhooks && \
     bash tests/packetshark_lint.sh
 packetshark-test: tools/capture/pos-capture $(PACKETSHARK_TESTS)
 	$(PACKETSHARK_TEST_RUN)
+
+# MARK and its evidence alone (N1.0, docs/apps/PACKETSHARK.md §4d): the
+# evidence history against its fixtures, the protocol's lines, the words of
+# the evidence page, the helper's marks on replays and on the synthetic
+# source, and the boundaries. The page itself is the n1 part of
+# tests/packetshark_app_test.c: PACKETSHARK_ONLY=n1 tests/packetshark_shell_test.sh.
+packetshark-n1-test: tools/capture/pos-capture tests/ppc_evid_test tests/ppc_evid_mkfixtures tests/ppc_proto_test \
+                     tests/psk_ev_test tests/pos-capture-testhooks
+	./tests/ppc_evid_test && ./tests/ppc_proto_test && ./tests/psk_ev_test tests/data/packetshark && \
+	    bash tests/pos_capture_evid_test.sh tools/capture/pos-capture tests/ppc_evid_mkfixtures \
+	        tests/pos-capture-testhooks && \
+	    bash tests/packetshark_lint.sh
 
 # The same suites built from source under the address and undefined-
 # behaviour sanitizers, into out/packetshark-san, with the fuzz target run
@@ -2382,12 +2416,14 @@ packetshark-san-test:
 	rm -rf $(PSK_SAN_DIR) && mkdir -p $(PSK_SAN_DIR)/tests/data $(PSK_SAN_DIR)/tools/capture
 	cp -r tests/data/packetshark $(PSK_SAN_DIR)/tests/data/
 	set -e; for t in ppc_decode_test ppc_pcapfile_test ppc_store_test ppc_stats_test ppc_proto_test ppc_fuzz ppc_mkfixtures \
-	    ppc_view_test ppc_dissect_test ppc_signals_test ppc_net_test; do \
+	    ppc_view_test ppc_dissect_test ppc_signals_test ppc_net_test ppc_evid_test ppc_evid_mkfixtures; do \
 	    $(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/$$t tests/$$t.c $(PPC_SAN_SRCS); done
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_model_test tests/psk_model_test.c \
 	    $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_net_test tests/psk_net_test.c \
 	    $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lm
+	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_ev_test tests/psk_ev_test.c \
+	    $(PSK_DIR)/psk_ev.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_remote_test tests/psk_remote_test.c \
 	    $(PSK_DIR)/psk_remote.c $(PSK_DIR)/psk_model.c $(PSK_DIR)/psk_net.c $(PPC_DIR)/ppc_proto.c -lcjson -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tests/psk_session_test tests/psk_session_test.c \
@@ -2395,17 +2431,21 @@ packetshark-san-test:
 	    $(PPC_DIR)/ppc_proto.c -lm
 	$(CC) $(PSK_SAN_CFLAGS) -o $(PSK_SAN_DIR)/tools/capture/pos-capture tools/capture/pos_capture.c \
 	    $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
+	$(CC) $(PSK_SAN_CFLAGS) -DPOS_CAPTURE_TEST_HOOKS=1 -o $(PSK_SAN_DIR)/tests/pos-capture-testhooks \
+	    tools/capture/pos_capture.c $(PPC_SAN_SRCS) core/pocketpaths.c core/pocketlog/pocketlog.c
 	cd $(PSK_SAN_DIR) && ./tests/ppc_decode_test && ./tests/ppc_pcapfile_test && \
 	    ASAN_OPTIONS=allocator_may_return_null=1 ./tests/ppc_store_test && \
 	    ./tests/ppc_stats_test && ./tests/ppc_proto_test && ./tests/ppc_view_test && ./tests/ppc_dissect_test && \
-	    ./tests/ppc_signals_test && ./tests/ppc_net_test && ./tests/psk_model_test && ./tests/psk_net_test && \
-	    ./tests/psk_remote_test && \
+	    ./tests/ppc_signals_test && ./tests/ppc_net_test && ./tests/ppc_evid_test && ./tests/psk_model_test && \
+	    ./tests/psk_net_test && ./tests/psk_ev_test tests/data/packetshark && ./tests/psk_remote_test && \
 	    mkdir -p fixtures && ./tests/ppc_mkfixtures fixtures && 	    ./tests/ppc_fuzz -seconds $(PACKETSHARK_SAN_FUZZ_S) tests/data/packetshark fixtures
 	cd $(PSK_SAN_DIR) && ASAN_OPTIONS=handle_segv=0 ./tests/psk_session_test tools/capture/pos-capture
 	ASAN_OPTIONS=handle_segv=0 bash tests/pos_capture_test.sh $(PSK_SAN_DIR)/tools/capture/pos-capture \
 	    $(PSK_SAN_DIR)/tests/ppc_mkfixtures
+	ASAN_OPTIONS=handle_segv=0 bash tests/pos_capture_evid_test.sh $(PSK_SAN_DIR)/tools/capture/pos-capture \
+	    $(PSK_SAN_DIR)/tests/ppc_evid_mkfixtures $(PSK_SAN_DIR)/tests/pos-capture-testhooks
 
-.PHONY: packetshark-test packetshark-san-test
+.PHONY: packetshark-test packetshark-n1-test packetshark-san-test
 
 # Browser (docs/apps/BROWSER.md, ADR-009 accepted).
 #
@@ -2889,7 +2929,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 clean:
 	rm -f tests/poker_engine_test-asan
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd_storage_test tests/sysd_storage_test.o tests/sysd_expand_test tests/sysd_expand_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o apps/fleet/link/fleet_link_peer.o tests/fake_peerd.o tests/fake_peerd_main.o tests/fleet_link_peer_real tests/fleet_link_peer_real.o tests/fleet_lan_player tests/fleet_lan_player.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/text_size_test tests/text_size_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) $(PHOTO_TESTS) $(PHOTO_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o tests/hub_layout_test tests/hub_layout_test.o ui/shell/hub_layout.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POS_MP3_OBJS) $(MP3_DEC_WAV_OBJS) $(MP3_TOOL_DIR)/mp3_decoder_ffmpeg.o $(MP3_APP_OBJS) $(MP3_TESTS) $(MP3_TESTS:=.o) tests/pos_mp3_hooks.o $(POS_VIDEO_OBJS) $(VIDEO_TOOL_DIR)/video_backend_ffmpeg.o $(VIDEO_APP_OBJS) $(VIDEO_TESTS) $(VIDEO_TESTS:=.o) tests/pos_video_hooks.o $(TERMINAL_OBJS) $(TERMINAL_TESTS) $(TERMINAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o) $(DB_CORE_OBJS) $(DB_DIR)/db_store.o $(DESKBUDDY_TESTS) $(DESKBUDDY_TESTS:=.o) $(HWCTL_OBJS) $(HWCTL_TESTS) $(HWCTL_TESTS:=.o) $(LIBRARY_TESTS) $(LIBRARY_TESTS:=.o) $(WEB_DIR)/web_image_lib.o tools/library/pos_library.o tools/library/pos-library $(PPC_OBJS) $(PPC_DIR)/ppc_source_pcap.o $(PPC_DIR)/ppc_source_none.o tools/capture/pos_capture.o $(PSK_OBJS) $(PACKETSHARK_TESTS) $(PACKETSHARK_TESTS:=.o)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd_storage_test tests/sysd_storage_test.o tests/sysd_expand_test tests/sysd_expand_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o apps/fleet/link/fleet_link_peer.o tests/fake_peerd.o tests/fake_peerd_main.o tests/fleet_link_peer_real tests/fleet_link_peer_real.o tests/fleet_lan_player tests/fleet_lan_player.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/text_size_test tests/text_size_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) $(PHOTO_TESTS) $(PHOTO_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o tests/hub_layout_test tests/hub_layout_test.o ui/shell/hub_layout.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POS_MP3_OBJS) $(MP3_DEC_WAV_OBJS) $(MP3_TOOL_DIR)/mp3_decoder_ffmpeg.o $(MP3_APP_OBJS) $(MP3_TESTS) $(MP3_TESTS:=.o) tests/pos_mp3_hooks.o $(POS_VIDEO_OBJS) $(VIDEO_TOOL_DIR)/video_backend_ffmpeg.o $(VIDEO_APP_OBJS) $(VIDEO_TESTS) $(VIDEO_TESTS:=.o) tests/pos_video_hooks.o $(TERMINAL_OBJS) $(TERMINAL_TESTS) $(TERMINAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o) $(DB_CORE_OBJS) $(DB_DIR)/db_store.o $(DESKBUDDY_TESTS) $(DESKBUDDY_TESTS:=.o) $(HWCTL_OBJS) $(HWCTL_TESTS) $(HWCTL_TESTS:=.o) $(LIBRARY_TESTS) $(LIBRARY_TESTS:=.o) $(WEB_DIR)/web_image_lib.o tools/library/pos_library.o tools/library/pos-library $(PPC_OBJS) $(PPC_DIR)/ppc_source_pcap.o $(PPC_DIR)/ppc_source_none.o tools/capture/pos_capture.o $(PSK_OBJS) $(PACKETSHARK_TESTS) $(PACKETSHARK_TESTS:=.o) tests/pos_capture_hooks.o
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

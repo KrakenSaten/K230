@@ -85,7 +85,11 @@ keys (pull request #141), Wi-Fi capture in managed mode (M10, #146), DNS
 and TCP diagnosis (M11.1, #149) and network intelligence (M12.1, #185:
 devices, DHCP exchanges, servers and leases, ARP pairs and conflicts,
 findings with their evidence). All are host-tested; M5 to M12.1 were run on
-Unit B. The line-rate gate on Unit A is not started.
+Unit B. The line-rate gate on Unit A is not started. N1.0, MARK and a
+mark's evidence (one tap marks a moment; the page says what was seen of
+DHCP, ARP and DNS in the minute either side of it, PACKETSHARK.md §4d), is
+on a draft pull request: host-tested only, not run on a unit, not in an
+image.
 
 ## History
 

@@ -141,6 +141,7 @@ struct ppc_signals {
     uint32_t dns_live;     /* entries in use */
     uint32_t dns_waiting;  /* entries waiting for an answer */
     struct ppc_diag st;    /* the running totals (M11.1); the scan fills the rest */
+    uint32_t dns_last_us;  /* the response time of the DNS message judged last; 0: not an answer to a query seen (N1.0) */
 };
 
 /* Allocate a table of `flows` connections (a power of two) and the DNS
