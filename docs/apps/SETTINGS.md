@@ -154,6 +154,9 @@ and when the sheet or the app goes. The page then shows "Setting the
 password...", and "Password set. The serial console asks for it from now on."
 to the person who set it.
 
+Screens (simulator, from `SETTINGS_SHOTS_DIR=<dir> settings_app_test`; the
+scripted gatewayd and sysd of the test, not a unit): `docs/apps/settings/companion/`.
+
 What makes all this safe is where it is: taps on the unit's own screen behind
 its lock. Settings serves no IPC method; a phone reaches neither socket and
 cannot raise its own scopes (ADR-019 rule 24). `tests/settings_lint.sh` holds
