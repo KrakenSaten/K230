@@ -987,12 +987,8 @@ static void capture_journey(void)
     CHECK("Back from PACKETS returns to LIVE", app_packetshark.back(app_priv) == 1 && shown("TRAFFIC"));
     tap("STOP");
     /* (The wide shape's line begins with the mark that a companion is
-     * reading while the checks above are fresh, so it is looked for whole.
-     * Since N1.0 MARK shares the wide top row: beside the companion's mark
-     * the line keeps why the capture ended and gives up the interface,
-     * which the shell's hint still carries; it is never cut by dots.) */
-    CHECK("STOP: stopped by you", wait_has(landscape() ? "COMPANION · BY YOU" : "SYNTH0 · BY YOU", 2000) &&
-                                      hint_is("STOPPED · SYNTH0") && !containing_in(psk_app_part(app_priv, "top"), "..."));
+     * reading while the checks above are fresh, so it is looked for whole.) */
+    CHECK("STOP: stopped by you", wait_has("SYNTH0 · BY YOU", 2000) && hint_is("STOPPED · SYNTH0"));
     CHECK("SAVE is offered on a stopped capture", shown("SAVE") && enabled("SAVE") && enabled("DISCARD"));
     pump(300);
     CHECK("capture.status when stopped: by the user, and the screen's figures",
@@ -3449,6 +3445,17 @@ static bool wait_state(enum ppc_state want, int ms)
     return app()->model->state == want;
 }
 
+/* The inspector has this packet (an earlier one may be there already). */
+static bool wait_seq(uint32_t seq, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end && !(app()->model->have_pkt && app()->model->pkt.head.seq == seq)) {
+        pump(20);
+    }
+    return app()->model->have_pkt && app()->model->pkt.head.seq == seq;
+}
+
 /* The first row of a side (0 before the mark, 1 after) that is shown, and
  * opens a packet (can) or says its packet is gone (!can); -1 when none. */
 static int ev_row_of(unsigned side, bool can)
@@ -3571,7 +3578,23 @@ static bool replay_marked(const char *name)
         return false;
     }
     pump(200);
-    tap_obj(part("mark"));
+    if (!landscape()) {
+        tap_obj(part("mark"));
+    } else {
+        /* Wide: a replay has stopped by now, and MARK is not offered on a
+         * stopped capture there (owner, 2026-11-25). The mark is set
+         * through the same client, as the tall shape sets it before the
+         * unit is turned, and opened by the count of marks, which stays. */
+        int64_t end = mono_ms() + 1500;
+
+        if (part_shown("mark") || psk_session_mark(app()->session) != 0) {
+            return false;
+        }
+        while (mono_ms() < end && !part_shown("marks")) {
+            pump(20);
+        }
+        tap_obj(part("marks"));
+    }
     return wait_evidence(1, 1500);
 }
 
@@ -4068,14 +4091,77 @@ static void n1(bool portrait)
           wait_evidence(3, 1500) && !(m->ev.win[1].flags & PPC_EVW_OPEN) && (m->ev.win[1].flags & PPC_EVW_CUT_STOP) &&
               containing_in(part("evwin1"), "THE CAPTURE STOPPED THEN") &&
               strstr(label_of("evlimits"), "nothing later was seen"));
-    CHECK("a stopped capture still has MARK, and SAVE, NEW CAPTURE and DISCARD as before",
-          part_shown("mark") && shown("SAVE") && shown("NEW CAPTURE") && shown("DISCARD"));
-    tap_obj(part("mark"));
-    CHECK("a mark on a stopped capture stands where it stopped: nothing after, and it says why",
-          wait_evidence(4, 1000) && strstr(label_of("evwhen"), "CAPTURE STOPPED") &&
-              containing_in(part("evwin1"), "NOTHING AFTER") && containing_in(part("evwin1"), "THE CAPTURE HAD STOPPED"));
-    CHECK("the page is the words module's", page_is_models());
-    shot("n1-stopped");
+    if (portrait) {
+        CHECK("tall: a stopped capture still has MARK, and SAVE, NEW CAPTURE and DISCARD as before",
+              part_shown("mark") && shown("SAVE") && shown("NEW CAPTURE") && shown("DISCARD"));
+        tap_obj(part("mark"));
+        CHECK("a mark on a stopped capture stands where it stopped: nothing after, and it says why",
+              wait_evidence(4, 1000) && strstr(label_of("evwhen"), "CAPTURE STOPPED") &&
+                  containing_in(part("evwin1"), "NOTHING AFTER") && containing_in(part("evwin1"), "THE CAPTURE HAD STOPPED"));
+        CHECK("the page is the words module's", page_is_models());
+        shot("n1-stopped");
+    } else {
+        uint32_t held = m->nmarks;
+        bool fits;
+
+        /* Wide (owner, 2026-11-25): MARK leaves the top row once the
+         * capture has stopped, and the state's line has its room back; the
+         * count of marks stays, and the evidence with it. */
+        CHECK("wide: after STOP the top row has no MARK, the count of marks, and SAVE, NEW CAPTURE and DISCARD",
+              !part_shown("mark") && part_shown("marks") && containing_in(part("marks"), "3") &&
+                  target_ok(part("marks"), 56, "the count of marks") && shown("SAVE") && shown("NEW CAPTURE") &&
+                  shown("DISCARD"));
+        fits = containing_in(part("top"), "SYNTH0 · BY YOU · ") != NULL && !containing_in(part("top"), "...");
+        if (!fits) {
+            dump_in(part("top"));
+        }
+        CHECK("and the state's line has its room back: where, why and how long, not cut", fits);
+        CHECK("M marks nothing there", !psk_key(a, 'm') && (pump(300), m->nmarks == held) && !a->mark_wait);
+        shot("n1-stopped");
+        psk_evp_show(a, false);
+        pump(100);
+        tap_obj(part("marks"));
+        CHECK("the count opens the newest mark's evidence after STOP", wait_evidence(3, 1500) &&
+                                                                     strcmp(label_of("evtitle"), "Mark 3 of 3") == 0);
+        tap_obj(part("evprev"));
+        CHECK("and the arrows step to the earlier marks", wait_evidence(2, 1500) &&
+                                                          strcmp(label_of("evtitle"), "Mark 2 of 3") == 0);
+        k = ev_row_of(0, true);
+        seq = k >= 0 ? a->ev_row_seq[k] : 0;
+        CHECK("a row of a stopped capture's evidence still has a packet to open", k >= 0 && seq != 0);
+        if (k >= 0) {
+            tap_obj(a->ev_row[k]);
+            CHECK("it opens in the inspector beside the list", wait_seq(seq, 1500) &&
+                                                                  a->cur == PSK_TAB_PACKETS && psk_inspect_visible(a));
+            psk_select_tab(a, PSK_TAB_LIVE);
+            pump(150);
+            CHECK("and LIVE shows the evidence again, MARK still not in the row", psk_evp_shown(a) && !part_shown("mark") &&
+                                                                                   part_shown("marks"));
+        }
+        /* While the capture is written, the same: the state as the helper
+         * reports it during SAVE, which on a capture this small is over
+         * before a poll could see it. */
+        a->model->state = PPC_STATE_SAVING;
+        psk_live_paint(a, PSK_CHANGED_STATE);
+        pump(60);
+        CHECK("wide, while SAVING: no MARK, the count of marks stays", !part_shown("mark") && part_shown("marks") &&
+                                                                          !psk_key(a, 'm'));
+        a->model->state = PPC_STATE_STOPPED;
+        psk_live_paint(a, PSK_CHANGED_STATE);
+        pump(60);
+        /* The unit turned with the capture stopped: the tall shape offers
+         * MARK again at once, the wide one takes it away again. */
+        use_display(POS_ROTATION_0);
+        pump(250);
+        CHECK("turned tall after STOP: MARK THIS MOMENT is back, beside the count", part_shown("mark") &&
+                                                                                    containing_in(part("mark"), "MARK THIS MOMENT") &&
+                                                                                    part_shown("marks") && psk_evp_shown(a));
+        use_display(POS_ROTATION_90);
+        pump(250);
+        CHECK("turned wide again: no MARK, the count stays", !part_shown("mark") && part_shown("marks") &&
+                                                             containing_in(part("top"), "SYNTH0 \xc2\xb7 BY YOU") &&
+                                                             !containing_in(part("top"), "..."));
+    }
     {
         /* The Back action: the page, then the capture's own question. */
         CHECK("Back closes the evidence", app_packetshark.back(app_priv) == 1 && !psk_evp_shown(a) && part_shown("traffic"));
@@ -4157,7 +4243,14 @@ static void n1(bool portrait)
     tap_last("DISCARD");
     {
         bool setup = wait_for("START CAPTURE", 2500);
+        int64_t end = mono_ms() + 2500;
 
+        /* The setup returns at once; the helper's leaving, which takes the
+         * capture and its marks from the model, is seen a poll or two
+         * later. Nothing of the capture shows meanwhile (it is discarding). */
+        while (mono_ms() < end && (a->discarding || m->nmarks)) {
+            pump(20);
+        }
         if (!setup || part_shown("mark") || part_shown("evpage") || m->nmarks) {
             printf("     setup %d, MARK shown %d, evidence shown %d, marks %u, state %d, sheet %d\n", setup,
                    part_shown("mark"), part_shown("evpage"), (unsigned)m->nmarks, (int)m->state, (int)a->sheet_kind);

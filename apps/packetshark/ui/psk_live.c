@@ -1528,18 +1528,32 @@ void psk_mark_fit(struct psk_app *a)
     }
 }
 
+bool psk_mark_offered(const struct psk_app *a)
+{
+    enum ppc_state s = a->model->state;
+
+    return psk_capture_present(a) && !(a->wide && (s == PPC_STATE_STOPPED || s == PPC_STATE_SAVING));
+}
+
 /* MARK and the way to the marks (N1.0): on LIVE while a capture is on the
- * screen, whatever its state and whichever face LIVE shows. A capture that
- * is being written takes no mark. */
+ * screen, whichever face LIVE shows. A capture that is being written takes
+ * no mark. Wide, MARK leaves the top row once the capture has stopped or is
+ * being saved (psk_mark_offered); the count stays while there are marks. */
 static void paint_mark(struct psk_app *a, enum psk_view v)
 {
     const struct psk_model *m = a->model;
-    bool on = v == PSK_VIEW_LIVE && a->cur == PSK_TAB_LIVE && psk_capture_present(a);
+    bool live = v == PSK_VIEW_LIVE && a->cur == PSK_TAB_LIVE && psk_capture_present(a);
     uint32_t held = psk_ev_held(m);
+    bool mark = live && psk_mark_offered(a);
+    bool on = mark || (live && held > 0);
     char b[24];
 
     if (on == lv_obj_has_flag(a->mark_strip, LV_OBJ_FLAG_HIDDEN)) {
         psk_set_hidden(a->mark_strip, !on);
+        a->top_moved = true;
+    }
+    if (on && mark == lv_obj_has_flag(a->mark_btn, LV_OBJ_FLAG_HIDDEN)) {
+        psk_set_hidden(a->mark_btn, !mark);
         a->top_moved = true;
     }
     if (on) {

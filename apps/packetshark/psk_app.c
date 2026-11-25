@@ -722,7 +722,7 @@ static void ev_ask(struct psk_app *a)
  * an empty page. The capture goes on as it was: nothing else is sent. */
 void psk_mark(struct psk_app *a)
 {
-    if (!psk_capture_present(a) || a->mark_wait || a->model->state == PPC_STATE_SAVING) {
+    if (!psk_mark_offered(a) || a->mark_wait || a->model->state == PPC_STATE_SAVING) {
         return;
     }
     if (psk_session_mark(a->session) != 0) {
@@ -1577,6 +1577,10 @@ static void layout(struct psk_app *a)
         a->wide = wide;
         a->shaped = true;
         psk_shape(a);
+        /* What LIVE offers depends on the shape (MARK is not in the wide top
+         * row of a stopped capture, N1.0): painted for the new one now, not
+         * at the capture's next change, which a stopped capture never has. */
+        psk_live_paint(a, PSK_CHANGED_STATE);
     } else if (a->wide) {
         lv_obj_set_style_pad_left(a->top, a->top_inset_l, 0);
         lv_obj_set_style_pad_right(a->top, a->top_inset_r, 0);
@@ -1609,7 +1613,7 @@ static void on_frame_size(lv_event_t *e)
  *   Enter          PACKETS: open the selected packet in INSPECT;
  *                  INSPECT: FILTER BY the selected field
  *   P              PIN or unpin the inspected packet
- *   M              LIVE: MARK this moment (N1.0)
+ *   M              LIVE: MARK this moment, where MARK is offered (N1.0)
  */
 
 /* The packet before or after the inspected one in the list's order; with
@@ -1717,7 +1721,8 @@ bool psk_key(struct psk_app *a, uint32_t key)
         }
         return capture;
     case 'm':
-        if (capture && a->cur == PSK_TAB_LIVE) {
+        /* Only where the screen offers MARK. */
+        if (a->cur == PSK_TAB_LIVE && psk_mark_offered(a)) {
             psk_mark(a);
             return true;
         }

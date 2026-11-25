@@ -627,6 +627,12 @@ void psk_paint_tabs(struct psk_app *a);
 /* Puts the parts where the shape has them: tall (the shell's header above,
  * the tabs, a page, the capture bar at the foot) or wide (M9). */
 void psk_shape(struct psk_app *a);
+/* Whether MARK is offered now: a capture is on the screen and, in the wide
+ * shape, it is neither stopped nor being saved. There MARK leaves the top
+ * row once the capture has ended, so the state's line has its room back
+ * (owner, 2026-11-25); the count of marks stays, and with it the evidence.
+ * The tall shape offers MARK on a stopped capture too. */
+bool psk_mark_offered(const struct psk_app *a);
 /* MARK's strip in the tall shape: MARK as wide as two of the capture bar's
  * buttons and the marks' button as wide as the third, so the two rows line
  * up. Compares before it sets: called at every poll. */
