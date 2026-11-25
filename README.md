@@ -130,6 +130,20 @@ bedside clock. The character voice is off unless you choose it.
 <sub>SDL simulator capture, Carbon theme, with camera presence switched off.
 [DeskBuddy guide](docs/apps/DESKBUDDY.md)</sub>
 
+### Themes · from Carbon to Neon
+
+Seven themes restyle the whole system through one theme engine, from the
+quiet Carbon at the top of this page to Neon, an arcade look with a yellow
+clock, violet frames and colourful app families. Choose one under
+**Settings → Appearance**; the Doors theme is the default.
+
+<p align="center">
+  <img src="docs/images/launcher-landscape-neon.png" width="80%" alt="The DOORS launcher in landscape, Neon theme: yellow clock, magenta headings, violet frames and brightly coloured app tiles for Favorites, Essentials and the folders">
+</p>
+
+<sub>The same launcher in the Neon theme. SDL simulator capture.
+[Neon theme gallery](docs/design/neon/arcade-selected/README.md)</sub>
+
 ### DOORS Companion for Android · in development
 
 The DOORS Companion app pairs an Android phone with one unit over the local
@@ -148,10 +162,10 @@ the unit's gateway service, `gatewayd`, and no APK is published
 </p>
 <p align="center">
   <img src="android/doors-companion/docs/screens/23-packetshark.png" width="30%" alt="DOORS Companion PacketShark room: the unit capturing on synth0, 200 packets per second, a full 120-second traffic graph stacked by protocol and the protocol shares, with HOLD and STOP">
-  <img src="android/doors-companion/docs/screens/24-vision.png" width="30%" alt="DOORS Companion Vision room: the unit's shared live picture, here the fake camera's colour-bar test pattern with a scripted person box, the mode picker and the detector's figures">
+  <img src="android/doors-companion/docs/screens/24-vision-simulated.png" width="30%" alt="DOORS Companion Vision room in TRAFFIC mode on the app's simulated viewfinder, marked SIMULATED: a drawn night street with three tracked cars, their confidence and speed, and crossing counts of 4 and 6">
 </p>
 
-<sub>Android emulator captures of the app against the reference `gatewayd` and the host test harness; the unit, people and mesh traffic are the harness's own. PacketShark: a real capture by the simulator shell and `pos-capture` on its synthetic source (200 packets per second). Vision: real frames through `pos-vision`, the shell and the gateway, but the picture is the fake camera's test pattern and the "person" box is scripted by the harness, not a detection.
+<sub>Android emulator captures of the app against the reference `gatewayd` and the host test harness; the unit, people and mesh traffic are the harness's own. PacketShark: a real capture by the simulator shell and `pos-capture` on its synthetic source (200 packets per second). Vision: the app's built-in simulated viewfinder, a street drawn on the phone and marked as simulated; no camera or unit is involved.
 [Companion app](android/doors-companion/README.md) · [Gateway](docs/services/GATEWAYD.md)</sub>
 
 ## All apps
