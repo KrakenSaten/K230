@@ -3401,5 +3401,17 @@ gatewayd-send-test:
 	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks
 	python3 tests/gatewayd_send_e2e_test.py $(GATEWAYD_OUT)/gatewayd-testhooks
 
+# Companion Settings 2.0 end to end on the host (ADR-019 amendment 2): the real
+# sysd (test hooks: every Companion path under the test's own root) switches
+# the real gatewayd (test hooks) on and off through an S70gatewayd stand-in,
+# sets the device password, hardens a fake sshd's configuration, and a TLS
+# phone pairs; then sysd restarts, the unit "reboots" with a new binary, and
+# everything a unit holds must be as it was.
+.PHONY: companion-integration-test
+companion-integration-test: tests/sysd-testhooks
+	mkdir -p $(GATEWAYD_OUT)
+	$(CC) $(CFLAGS) -O2 $(GATEWAYD_CFLAGS) -DGATEWAYD_TEST_HOOKS=1 $(GATEWAYD_SERVICE) $(LDFLAGS) $(GATEWAYD_LIBS) $(LDLIBS) -o $(GATEWAYD_OUT)/gatewayd-testhooks
+	python3 tests/companion_settings_integration_test.py $(GATEWAYD_OUT)/gatewayd-testhooks tests/sysd-testhooks
+
 gatewayd-test: gatewayd-unit-test gatewayd-fuzz gatewayd-service-test
 	bash tests/gatewayd_lint.sh
