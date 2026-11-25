@@ -1536,19 +1536,18 @@ static void paint_mark(struct psk_app *a, enum psk_view v)
     const struct psk_model *m = a->model;
     bool on = v == PSK_VIEW_LIVE && a->cur == PSK_TAB_LIVE && psk_capture_present(a);
     uint32_t held = psk_ev_held(m);
-    bool moved = false;
     char b[24];
 
     if (on == lv_obj_has_flag(a->mark_strip, LV_OBJ_FLAG_HIDDEN)) {
         psk_set_hidden(a->mark_strip, !on);
-        moved = true;
+        a->top_moved = true;
     }
     if (on) {
         psk_text(lv_obj_get_child(a->mark_btn, 0), a->mark_wait ? "MARKING" : a->wide ? "MARK" : "MARK THIS MOMENT");
         psk_button_look(a->mark_btn, false, !a->mark_wait && m->state != PPC_STATE_SAVING);
         if ((held == 0) != lv_obj_has_flag(a->marks_btn, LV_OBJ_FLAG_HIDDEN)) {
             psk_set_hidden(a->marks_btn, held == 0);
-            moved = true;
+            a->top_moved = true;
         }
         if (a->wide) {
             snprintf(b, sizeof(b), "%u", (unsigned)held);
@@ -1557,11 +1556,6 @@ static void paint_mark(struct psk_app *a, enum psk_view v)
         }
         psk_text(a->marks_text, b);
         psk_mark_fit(a);
-    }
-    if (moved && a->wide) {
-        /* The top row has more or less room for the state's line, which is
-         * fitted to what it has (paint_status). */
-        lv_obj_update_layout(a->top);
     }
 }
 
@@ -1684,6 +1678,11 @@ static void set_bar(struct psk_app *a, int n, const enum psk_action *acts, const
     int i;
 
     for (i = 0; i < 3; i++) {
+        enum psk_action act = i < n ? acts[i] : PSK_ACT_NONE;
+
+        /* Other buttons are other widths: in the wide shape the state's
+         * line beside them is fitted again (psk_live_paint). */
+        a->top_moved |= act != a->act[i];
         psk_set_hidden(a->btn[i], i >= n);
         if (i >= n) {
             a->act[i] = PSK_ACT_NONE;
@@ -2100,9 +2099,18 @@ void psk_live_paint(struct psk_app *a, unsigned changed)
     psk_set_hidden(a->setup, v != PSK_VIEW_SETUP);
     psk_set_hidden(a->live, v != PSK_VIEW_LIVE);
     psk_set_hidden(a->error, v != PSK_VIEW_ERROR);
+    /* The buttons first: in the wide shape they share the top row with the
+     * state's line, which is fitted to the room they leave. When MARK, the
+     * marks' count or the capture's buttons changed, that room is measured
+     * anew before the line is written (never inside a layout pass: this is
+     * called from the poll and from taps). */
     paint_mark(a, v);
-    paint_status(a, v);
     paint_bar(a, v);
+    if (a->top_moved && a->wide) {
+        lv_obj_update_layout(a->top);
+    }
+    a->top_moved = false;
+    paint_status(a, v);
     paint_hint(a, v);
     if (v == PSK_VIEW_LIVE) {
         paint_counters(a);

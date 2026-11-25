@@ -442,6 +442,7 @@ struct psk_app {
     lv_obj_t *mark_btn;
     lv_obj_t *marks_btn; /* the way to the marks there are */
     lv_obj_t *marks_text;
+    bool top_moved;      /* wide: the top row's buttons changed, so the state's line has other room */
     bool mark_wait;      /* MARK was tapped: its page opens when its evidence is here */
     bool mark_got;       /* the helper has said the mark is set */
     int64_t mark_sent_ms;
