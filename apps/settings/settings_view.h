@@ -217,12 +217,40 @@ void sv_battery_compact(const struct sv_battery *b, char *first, size_t first_n,
 /* The phone's key as gatewayd names it: 64 hex digits. */
 #define SV_PHONE_KEY 65
 
+/* The six scopes of ADR-019 rule 24 and amendment 1, as bits. */
+enum sv_scope_bit {
+    SV_SCOPE_STATUS = 1u << 0,
+    SV_SCOPE_MESH_READ = 1u << 1,
+    SV_SCOPE_MESH_SEND = 1u << 2,
+    SV_SCOPE_CAPTURE_VIEW = 1u << 3,
+    SV_SCOPE_CAPTURE_CONTROL = 1u << 4,
+    SV_SCOPE_VISION = 1u << 5,
+};
+#define SV_SCOPES 6
+/* What a new pairing gets unless the person changes it (PAIRING.md §4). */
+#define SV_SCOPES_DEFAULT (SV_SCOPE_STATUS | SV_SCOPE_MESH_READ | SV_SCOPE_MESH_SEND)
+
+/* One permission as the unit shows it: the API's word, the switch's title,
+ * the line under it, and the one it needs (0: none). */
+struct sv_scope_info {
+    const char *name;
+    unsigned bit;
+    const char *title;
+    const char *caption;
+    unsigned needs;
+};
+extern const struct sv_scope_info sv_scope_table[SV_SCOPES];
+
 struct sv_phone {
     char name[SV_PHONE_NAME]; /* as the phone gave it, made safe to draw; "Unnamed phone" when it gave none */
     char key[SV_PHONE_KEY];   /* what gateway.scope is sent; never drawn whole */
     char detail[64];          /* "Key 1A2B 3C4D 5E6F 7A8B, connected": the start of the key as the phone shows its own */
+    char key_show[24];        /* "1A2B 3C4D 5E6F 7A8B" */
+    char perms[SV_TEXT];      /* "Status, RIFT, sending, Vision": what it may do, in words */
+    long long paired_wall_s;  /* when it was paired by the wall clock, 0: unknown */
     int connected;
     int vision;               /* holds the scope `vision` */
+    unsigned scopes;          /* every scope it holds, SV_SCOPE_* */
 };
 
 struct sv_companion {
@@ -233,6 +261,40 @@ struct sv_companion {
     char summary[SV_TEXT];    /* the line under Companion in the list of categories */
     int count;
     struct sv_phone phones[SV_MAX_PHONES];
+    /* gatewayd's own words, kept for sv_companion_system() */
+    int listening;
+    char closed[24];          /* why it does not listen: no_clients, password_required, ... */
+    char device_key[24];      /* this unit's key as phones show it, or "" */
+    int max;                  /* how many phones there can be (gateway.clients' max) */
+
+    /* ---- sysd's companion.status, folded in by sv_companion_system() ---- */
+    int sys_known;            /* sysd answered companion.status */
+    int installed;
+    int enabled;              /* GATEWAYD_ENABLE=1: what the switch shows */
+    int password_set;
+    char ssh[12];             /* hardened, open, unknown, absent */
+    int busy;                 /* a change runs */
+    char job[12];             /* enable, disable, password: the running or the last one */
+    char job_state[12];       /* idle, running, done, failed */
+    char job_error[32];       /* its word, when it failed */
+    /* The gateway panel */
+    int switch_on;            /* the switch reads ON */
+    int switch_can;           /* and can be tapped */
+    char switch_label[16];    /* "ON", "OFF", "STARTING", "STOPPING" */
+    char hint[2 * SV_TEXT];   /* what to do next, or why it is off; empty when nothing */
+    enum sv_tone hint_tone;
+    /* The device password panel */
+    char pw_headline[SV_TEXT];
+    enum sv_tone pw_tone;
+    char pw_ssh[2 * SV_TEXT];
+    enum sv_tone pw_ssh_tone;
+    char pw_button[24];       /* "SET PASSWORD", "CHANGE PASSWORD" */
+    int pw_can;
+    char pw_note[2 * SV_TEXT]; /* the last password change's result, or empty */
+    enum sv_tone pw_note_tone;
+    /* The phones panel */
+    int pair_can;
+    char pair_hint[SV_TEXT];
 };
 
 /* status: gatewayd's gateway.status result; clients: its gateway.clients
@@ -247,5 +309,89 @@ cJSON *sv_companion_vision_params(const struct sv_phone *p, int on);
  * are still right: names, keys, order. Not the switches' states, which are
  * repainted in place. */
 void sv_companion_signature(const struct sv_companion *c, char *out, size_t n);
+
+/* sysd's companion.status (NULL: sysd did not answer) folded into what
+ * sv_companion_apply() made: the gateway switch and its words, the device
+ * password panel, whether a phone can be paired, and the list's line.
+ * Call after sv_companion_apply() with the same poll's answers. */
+void sv_companion_system(struct sv_companion *c, const cJSON *sys);
+/* The sentence for a word sysd or gatewayd refused with ("password_required",
+ * "ssh_unknown", ...), for a person: what happened and what to do. Unknown
+ * words give the fallback. */
+const char *sv_companion_error_text(const char *word, const char *fallback);
+/* "<word>: <sentence>" (sysd's error message) -> the word, into out. */
+void sv_companion_error_word(const char *message, char *out, size_t n);
+
+/* ---- permissions ----------------------------------------------------------- */
+
+/* The scope bits of a JSON list of names; unknown names are left out. */
+unsigned sv_scopes_from_json(const cJSON *list);
+/* The JSON list of names of bits, in the table's order. */
+cJSON *sv_scopes_json(unsigned scopes);
+/* One switch tapped: the set with that scope turned over, and what it needs
+ * or what needs it with it (sending on turns reading on; reading off turns
+ * sending off; likewise PacketShark's control and its figures). */
+unsigned sv_scope_toggle(unsigned scopes, unsigned bit);
+/* "Status, RIFT, sending" - what a set allows, in words; "Nothing" for none. */
+void sv_scopes_words(unsigned scopes, char *out, size_t n);
+/* gateway.set_scopes {client: <whole key>, scopes: [...]} */
+cJSON *sv_companion_set_scopes_params(const struct sv_phone *p, unsigned scopes);
+/* gateway.revoke {client: <whole key>} */
+cJSON *sv_companion_revoke_params(const struct sv_phone *p);
+/* The phone with this whole key in the list, or NULL. */
+const struct sv_phone *sv_companion_find(const struct sv_companion *c, const char *key);
+/* "Paired 24 Nov 2026", or "" when the unit's clock was not set then. */
+void sv_phone_paired_text(const struct sv_phone *p, char *out, size_t n);
+
+/* ---- pairing a phone ------------------------------------------------------------ */
+
+enum sv_pair_phase {
+    SV_PAIR_SHOWING = 0, /* the code is on screen, nobody has come */
+    SV_PAIR_CONNECTING,  /* a phone is at the door, it has not shown the code yet */
+    SV_PAIR_DECIDE,      /* a phone showed the code: the person decides */
+    SV_PAIR_DONE,        /* it is paired */
+    SV_PAIR_CLOSED,      /* the window closed without a pairing: why is in text */
+    SV_PAIR_ERROR,       /* the window could not be opened, or the decision failed */
+};
+
+/* A pairing URI is about 150 characters (README H10); room for a long host name. */
+#define SV_PAIR_URI 400
+
+struct sv_pair {
+    enum sv_pair_phase phase;
+    char uri[SV_PAIR_URI];     /* the QR code's content: holds the one-time token, wiped when done */
+    long long left_ms;         /* the window's time left, as gatewayd last said */
+    char countdown[32];        /* "Closes in 1:47" */
+    char cand_name[SV_PHONE_NAME];
+    char cand_key[SV_PHONE_KEY];
+    char cand_key_show[24];    /* "3F2A 91C4 0B7E D115": what the phone shows as "This phone's key" */
+    int keys_match;            /* the person said the keys are the same */
+    unsigned scopes;           /* what it will get: SV_SCOPES_DEFAULT until changed */
+    char headline[SV_TEXT];
+    char text[2 * SV_TEXT];
+    enum sv_tone tone;
+};
+
+/* gateway.pair_begin's answer (NULL with err: refused). */
+void sv_pair_begin(struct sv_pair *p, const cJSON *res, const char *err);
+/* gateway.status, once a second while the sheet shows (NULL: no answer). */
+void sv_pair_poll(struct sv_pair *p, const cJSON *status);
+/* ALLOW may be tapped: a phone waits and the person confirmed its key. */
+int sv_pair_can_allow(const struct sv_pair *p);
+/* gateway.pair_decide {allow, scopes[]}. NULL when allow and !can_allow. */
+cJSON *sv_pair_decide_params(const struct sv_pair *p, int allow);
+/* The decision's answer. */
+void sv_pair_decided(struct sv_pair *p, int allow, const cJSON *res, const char *err);
+/* The window is ours to cancel when the sheet goes: open and not decided. */
+int sv_pair_open(const struct sv_pair *p);
+/* The token goes: the URI is wiped. */
+void sv_pair_wipe(struct sv_pair *p);
+
+/* ---- the device password ------------------------------------------------------- */
+
+/* The two fields as typed: 0 when they may be sent, or -1 with a sentence. */
+int sv_device_password_check(const char *first, const char *second, char *why, size_t n);
+/* companion.set_password {password} */
+cJSON *sv_device_password_params(const char *password);
 
 #endif

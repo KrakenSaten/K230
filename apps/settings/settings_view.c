@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /* "·" is U+00B7, inside the Latin-1 range the product fonts carry. */
 #define SEP " \xc2\xb7 "
@@ -732,6 +733,27 @@ static int is_key(const char *k)
     return 1;
 }
 
+/* The first eight bytes of a key in fours and capitals, as a phone shows
+ * "This phone's key" (Fingerprint.display in the app): "1A2B 3C4D 5E6F 7A8B". */
+static void key_groups(const char *key, char *out, size_t n)
+{
+    size_t o = 0;
+    int i;
+
+    if (n == 0) {
+        return;
+    }
+    for (i = 0; key && i < 16 && key[i] && o + 2 < n; i++) {
+        char ch = key[i];
+
+        if (i > 0 && i % 4 == 0) {
+            out[o++] = ' ';
+        }
+        out[o++] = ch >= 'a' && ch <= 'f' ? (char)(ch - 'a' + 'A') : ch;
+    }
+    out[o] = '\0';
+}
+
 static int holds(const cJSON *scopes, const char *scope)
 {
     const cJSON *el;
@@ -776,6 +798,14 @@ void sv_companion_apply(struct sv_companion *c, const cJSON *status, const cJSON
         phone_name(p->name, sizeof(p->name), str(el, "name"));
         p->connected = flag(el, "connected");
         p->vision = holds(cJSON_GetObjectItemCaseSensitive(el, "scopes"), "vision");
+        p->scopes = sv_scopes_from_json(cJSON_GetObjectItemCaseSensitive(el, "scopes"));
+        sv_scopes_words(p->scopes, p->perms, sizeof(p->perms));
+        {
+            const cJSON *w = cJSON_GetObjectItemCaseSensitive(el, "paired_wall_s");
+
+            p->paired_wall_s = cJSON_IsNumber(w) && w->valuedouble > 0 ? (long long)w->valuedouble : 0;
+        }
+        key_groups(key, p->key_show, sizeof(p->key_show));
         /* The first eight bytes in fours and capitals, as the phone shows
          * "This phone's key" (Fingerprint.display in the app). */
         o += (size_t)snprintf(p->detail + o, sizeof(p->detail) - o, "Key");
@@ -790,6 +820,12 @@ void sv_companion_apply(struct sv_companion *c, const cJSON *status, const cJSON
         snprintf(p->detail + o, sizeof(p->detail) - o, "%s", p->connected ? SEP "connected" : "");
         allowed += p->vision;
         c->count++;
+    }
+    c->listening = flag(status, "listening");
+    c->max = num(clients, "max", SV_MAX_PHONES);
+    copy(c->closed, sizeof(c->closed), str(status, "closed"));
+    if (is_key(str(status, "device_id"))) {
+        key_groups(str(status, "device_id"), c->device_key, sizeof(c->device_key));
     }
     if (flag(status, "listening")) {
         const char *addr = str(status, "address");
@@ -858,4 +894,642 @@ void sv_companion_signature(const struct sv_companion *c, char *out, size_t n)
     for (i = 0; i < c->count && o < n; i++) {
         o += (size_t)snprintf(out + o, n - o, "|%s/%s", c->phones[i].key, c->phones[i].name);
     }
+}
+
+/* ---- Companion 2.0: the switch, the password, the permissions, pairing ------ *
+ *
+ * ADR-019 amendment 2. sysd's companion.status says whether the gateway is
+ * installed and switched on, whether root has a password, what SSH allows,
+ * and how the last change it made went; gatewayd's gateway.status says why
+ * it does or does not listen. Every sentence a person reads about it is made
+ * here, so tests/settings_view_test.c can hold each one to what it promises:
+ * what happened, and what to do. */
+
+const struct sv_scope_info sv_scope_table[SV_SCOPES] = {
+    { "status", SV_SCOPE_STATUS, "Device status", "Battery, Wi-Fi, radio and mesh service state.", 0 },
+    { "mesh_read", SV_SCOPE_MESH_READ, "Read RIFT", "Nodes, channels, messages and activity.", 0 },
+    { "mesh_send", SV_SCOPE_MESH_SEND, "Send RIFT messages", "Sends as this node, on the air. Needs Read RIFT.",
+      SV_SCOPE_MESH_READ },
+    { "capture_view", SV_SCOPE_CAPTURE_VIEW, "PacketShark figures", "Capture counters only, never packets.", 0 },
+    { "capture_control", SV_SCOPE_CAPTURE_CONTROL, "PacketShark control",
+      "HOLD and STOP; START still needs a tap here. Needs PacketShark figures.", SV_SCOPE_CAPTURE_VIEW },
+    { "vision", SV_SCOPE_VISION, "Vision picture",
+      "The camera's picture whenever Vision is open here. Vision names the phone and has STOP.", 0 },
+};
+
+/* Short words for the line under a phone, in the table's order. */
+static const char *const scope_words[SV_SCOPES] = { "status", "RIFT", "sending", "PacketShark", "control", "Vision" };
+
+unsigned sv_scopes_from_json(const cJSON *list)
+{
+    const cJSON *el;
+    unsigned s = 0;
+    int i;
+
+    cJSON_ArrayForEach(el, list) {
+        for (i = 0; cJSON_IsString(el) && i < SV_SCOPES; i++) {
+            if (strcmp(el->valuestring, sv_scope_table[i].name) == 0) {
+                s |= sv_scope_table[i].bit;
+            }
+        }
+    }
+    return s;
+}
+
+cJSON *sv_scopes_json(unsigned scopes)
+{
+    cJSON *a = cJSON_CreateArray();
+    int i;
+
+    for (i = 0; a && i < SV_SCOPES; i++) {
+        if (scopes & sv_scope_table[i].bit) {
+            cJSON_AddItemToArray(a, cJSON_CreateString(sv_scope_table[i].name));
+        }
+    }
+    return a;
+}
+
+unsigned sv_scope_toggle(unsigned scopes, unsigned bit)
+{
+    int i;
+
+    if (scopes & bit) {
+        scopes &= ~bit;
+        /* What needs it goes with it. */
+        for (i = 0; i < SV_SCOPES; i++) {
+            if (sv_scope_table[i].needs & bit) {
+                scopes &= ~sv_scope_table[i].bit;
+            }
+        }
+    } else {
+        scopes |= bit;
+        /* And what it needs comes with it. */
+        for (i = 0; i < SV_SCOPES; i++) {
+            if (sv_scope_table[i].bit == bit) {
+                scopes |= sv_scope_table[i].needs;
+            }
+        }
+    }
+    return scopes;
+}
+
+void sv_scopes_words(unsigned scopes, char *out, size_t n)
+{
+    size_t o = 0;
+    int i;
+
+    if (n == 0) {
+        return;
+    }
+    out[0] = '\0';
+    for (i = 0; i < SV_SCOPES; i++) {
+        if ((scopes & sv_scope_table[i].bit) && o < n) {
+            o += (size_t)snprintf(out + o, n - o, "%s%s", o ? ", " : "", scope_words[i]);
+        }
+    }
+    if (!out[0]) {
+        copy(out, n, "nothing");
+    }
+    /* A capital for the start of the line. */
+    if (out[0] >= 'a' && out[0] <= 'z') {
+        out[0] = (char)(out[0] - 'a' + 'A');
+    }
+}
+
+cJSON *sv_companion_set_scopes_params(const struct sv_phone *p, unsigned scopes)
+{
+    cJSON *o;
+
+    if (!p || !is_key(p->key)) {
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    if (o) {
+        cJSON_AddStringToObject(o, "client", p->key);
+        cJSON_AddItemToObject(o, "scopes", sv_scopes_json(scopes));
+    }
+    return o;
+}
+
+cJSON *sv_companion_revoke_params(const struct sv_phone *p)
+{
+    cJSON *o;
+
+    if (!p || !is_key(p->key)) {
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    if (o) {
+        cJSON_AddStringToObject(o, "client", p->key);
+    }
+    return o;
+}
+
+const struct sv_phone *sv_companion_find(const struct sv_companion *c, const char *key)
+{
+    int i;
+
+    for (i = 0; key && key[0] && i < c->count; i++) {
+        if (strcmp(c->phones[i].key, key) == 0) {
+            return &c->phones[i];
+        }
+    }
+    return NULL;
+}
+
+void sv_phone_paired_text(const struct sv_phone *p, char *out, size_t n)
+{
+    static const char *const months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    time_t t;
+    struct tm tm;
+
+    if (!p || p->paired_wall_s <= 0) {
+        copy(out, n, "");
+        return;
+    }
+    t = (time_t)p->paired_wall_s;
+    if (!localtime_r(&t, &tm)) {
+        copy(out, n, "");
+        return;
+    }
+    snprintf(out, n, "Paired %d %s %d", tm.tm_mday, months[tm.tm_mon % 12], tm.tm_year + 1900);
+}
+
+/* ---- the words for a refusal ---------------------------------------------------- */
+
+static const struct {
+    const char *word;
+    const char *text;
+} error_texts[] = {
+    { "not_installed", "This DOORS image has no Companion gateway. Update DOORS to use DOORS Companion." },
+    { "password_required", "Set a device password first (below). The gateway never runs on a unit without one." },
+    { "ssh_unknown", "SSH's settings cannot be checked here: /etc/ssh/sshd_config includes other files. "
+                     "Nothing was changed. Simplify that file, then try again." },
+    { "ssh_failed", "SSH could not be set to accept root with a key only, so nothing was changed. "
+                    "Restart the unit, then try again." },
+    { "write_failed", "A setting could not be saved: the card may be full or read-only. Nothing was changed." },
+    { "start_failed", "The gateway did not start, so it is off again. Try again; if it keeps failing, restart "
+                      "the unit (companion.log in the log folder says why)." },
+    { "no_answer", "The gateway started but did not answer in time, so it is off again. Try again; restart the "
+                   "unit if it keeps happening." },
+    { "stop_failed", "The gateway did not stop. It will not start again when the unit restarts: restart it now "
+                     "to be sure it is off." },
+    { "busy", "Another change is still running. Wait a moment, then try again." },
+    { "invalid_password", "That password cannot be used." },
+    { "password_layout", "This unit keeps root's password in an unusual way, so it cannot be set here. Nothing "
+                         "was changed." },
+    { "password_failed", "The password could not be saved, so it is unchanged. The card may be full or "
+                         "read-only." },
+    /* gatewayd's own refusals of a pairing window */
+    { "client list full", "8 phones are paired, the most there can be. Remove one first." },
+    { "no_address", "This unit has no Wi-Fi address. Connect to Wi-Fi in Settings > Network, then try again." },
+    { "public_address", "This network is not a private one (home, office or phone hotspot), and the gateway only "
+                        "listens on private networks." },
+    { "identity_fault", "The gateway's stored key cannot be used, so it stays closed. Nothing was changed." },
+    { "state_fault", "The gateway's list of phones cannot be read, so it stays closed. Nothing was changed." },
+    { "gateway state fault", "The gateway's stored state cannot be used, so it stays closed. Nothing was changed." },
+    { "listen_failed", "The gateway could not open its port (TCP 47231). Restart the unit, then try again." },
+    { "a pairing window is open", "A pairing code is already showing. Wait two minutes, then try again." },
+};
+
+const char *sv_companion_error_text(const char *word, const char *fallback)
+{
+    size_t i;
+
+    for (i = 0; word && i < sizeof(error_texts) / sizeof(error_texts[0]); i++) {
+        if (strcmp(error_texts[i].word, word) == 0) {
+            return error_texts[i].text;
+        }
+    }
+    return fallback;
+}
+
+void sv_companion_error_word(const char *message, char *out, size_t n)
+{
+    size_t len = message ? strcspn(message, ":") : 0;
+
+    if (n == 0) {
+        return;
+    }
+    if (!message || !message[len]) {
+        /* No word in front: the whole message is the word (gatewayd's). */
+        copy(out, n, message);
+        return;
+    }
+    snprintf(out, n, "%.*s", (int)len, message);
+}
+
+/* ---- sysd folded in ------------------------------------------------------------ */
+
+static int is(const char *a, const char *b)
+{
+    return a && b && strcmp(a, b) == 0;
+}
+
+void sv_companion_system(struct sv_companion *c, const cJSON *sys)
+{
+    const char *why = c->closed;
+    int failed;
+
+    c->hint[0] = '\0';
+    c->hint_tone = SV_TONE_MUTED;
+    c->pw_note[0] = '\0';
+    c->pw_note_tone = SV_TONE_MUTED;
+    c->sys_known = cJSON_IsObject(sys);
+    if (!c->sys_known) {
+        /* An older sysd, or none: the gateway's own words stand, and there
+         * is no switch to offer. */
+        c->switch_can = 0;
+        c->switch_on = c->reachable;
+        copy(c->switch_label, sizeof(c->switch_label), c->reachable ? "ON" : "OFF");
+        copy(c->hint, sizeof(c->hint), "The system service does not answer, so the gateway cannot be switched here.");
+        c->hint_tone = SV_TONE_WARN;
+        copy(c->pw_headline, sizeof(c->pw_headline), "Unknown");
+        c->pw_tone = SV_TONE_MUTED;
+        c->pw_ssh[0] = '\0';
+        copy(c->pw_button, sizeof(c->pw_button), "SET PASSWORD");
+        c->pw_can = 0;
+        c->pair_can = 0;
+        copy(c->pair_hint, sizeof(c->pair_hint), "Pairing needs the gateway on.");
+        return;
+    }
+    c->installed = flag(sys, "installed");
+    c->enabled = flag(sys, "enabled");
+    c->password_set = flag(sys, "password_set");
+    copy(c->ssh, sizeof(c->ssh), str(sys, "ssh"));
+    copy(c->job, sizeof(c->job), str(sys, "action"));
+    copy(c->job_state, sizeof(c->job_state), str(sys, "state"));
+    copy(c->job_error, sizeof(c->job_error), str(sys, "error"));
+    c->busy = is(c->job_state, "running");
+    failed = is(c->job_state, "failed");
+
+    /* ---- the switch and the gateway's headline ---- */
+    c->switch_on = c->enabled;
+    c->switch_can = !c->busy && c->installed && (c->enabled || c->password_set);
+    copy(c->switch_label, sizeof(c->switch_label), c->enabled ? "ON" : "OFF");
+    if (c->busy && is(c->job, "enable")) {
+        copy(c->switch_label, sizeof(c->switch_label), "STARTING");
+        c->switch_on = 1;
+        copy(c->headline, sizeof(c->headline), "Turning on...");
+        c->tone = SV_TONE_NORMAL;
+    } else if (c->busy && is(c->job, "disable")) {
+        copy(c->switch_label, sizeof(c->switch_label), "STOPPING");
+        c->switch_on = 0;
+        copy(c->headline, sizeof(c->headline), "Turning off...");
+        c->tone = SV_TONE_NORMAL;
+    } else if (!c->installed) {
+        copy(c->headline, sizeof(c->headline), "Not installed on this unit");
+        c->tone = SV_TONE_MUTED;
+        copy(c->hint, sizeof(c->hint), sv_companion_error_text("not_installed", ""));
+    } else if (!c->enabled) {
+        copy(c->headline, sizeof(c->headline), "Off");
+        c->tone = SV_TONE_MUTED;
+        if (!c->password_set) {
+            copy(c->hint, sizeof(c->hint), "Set a device password below to turn the gateway on.");
+            c->hint_tone = SV_TONE_WARN;
+        } else {
+            copy(c->hint, sizeof(c->hint), "No phone can reach this unit while it is off.");
+        }
+    } else if (!c->reachable) {
+        copy(c->headline, sizeof(c->headline), "On, but not answering");
+        c->tone = SV_TONE_ERROR;
+        copy(c->hint, sizeof(c->hint),
+             "The gateway is switched on but does not answer. Turn it off and on again; restart the unit if that "
+             "does not help.");
+        c->hint_tone = SV_TONE_ERROR;
+    } else if (c->listening) {
+        /* apply()'s "On · <address>:<port>" stands. */
+        copy(c->hint, sizeof(c->hint), "Paired phones on this network can connect.");
+    } else if (is(why, "no_clients")) {
+        copy(c->headline, sizeof(c->headline), "On: waiting for a phone to be paired");
+        c->tone = SV_TONE_NORMAL;
+        copy(c->hint, sizeof(c->hint), "Nothing listens until a phone is paired. Pair one below.");
+    } else if (is(why, "password_required")) {
+        copy(c->headline, sizeof(c->headline), "On, but closed: no device password");
+        c->tone = SV_TONE_WARN;
+        copy(c->hint, sizeof(c->hint), "Set a device password below; the gateway opens by itself once it is set.");
+        c->hint_tone = SV_TONE_WARN;
+    } else if (is(why, "no_address")) {
+        copy(c->headline, sizeof(c->headline), "On, but closed: no Wi-Fi address");
+        c->tone = SV_TONE_WARN;
+        copy(c->hint, sizeof(c->hint), "Connect to Wi-Fi in Settings > Network; the gateway opens by itself.");
+        c->hint_tone = SV_TONE_WARN;
+    } else if (is(why, "public_address")) {
+        copy(c->headline, sizeof(c->headline), "On, but closed: not a private network");
+        c->tone = SV_TONE_WARN;
+        copy(c->hint, sizeof(c->hint), sv_companion_error_text("public_address", ""));
+        c->hint_tone = SV_TONE_WARN;
+    } else if (is(why, "identity_fault") || is(why, "state_fault")) {
+        copy(c->headline, sizeof(c->headline), "Fault: its stored state cannot be used");
+        c->tone = SV_TONE_ERROR;
+        copy(c->hint, sizeof(c->hint),
+             is(why, "identity_fault")
+                 ? "The gateway's stored key is missing or damaged, so it stays closed and nothing was replaced. "
+                   "Its files are in /var/lib/pocketos/gatewayd (docs/services/GATEWAYD.md, State)."
+                 : "The gateway's list of phones is damaged, so it stays closed and nothing was replaced. Its "
+                   "files are in /var/lib/pocketos/gatewayd (docs/services/GATEWAYD.md, State).");
+        c->hint_tone = SV_TONE_ERROR;
+    } else {
+        copy(c->headline, sizeof(c->headline), "On, but closed");
+        c->tone = SV_TONE_WARN;
+        copy(c->hint, sizeof(c->hint), sv_companion_error_text(why, "The gateway could not open; it tries again."));
+        c->hint_tone = SV_TONE_WARN;
+    }
+    /* A switch change that failed says so over whatever the state says. */
+    if (failed && (is(c->job, "enable") || is(c->job, "disable"))) {
+        copy(c->hint, sizeof(c->hint),
+             sv_companion_error_text(c->job_error, "The change did not finish. Try again; restart the unit if it "
+                                                   "keeps failing."));
+        c->hint_tone = SV_TONE_ERROR;
+    }
+
+    /* ---- the device password ---- */
+    if (c->busy && is(c->job, "password")) {
+        copy(c->pw_headline, sizeof(c->pw_headline), "Setting the password...");
+        c->pw_tone = SV_TONE_NORMAL;
+    } else if (c->password_set) {
+        copy(c->pw_headline, sizeof(c->pw_headline), "Set");
+        c->pw_tone = SV_TONE_OK;
+    } else {
+        copy(c->pw_headline, sizeof(c->pw_headline), "Not set");
+        c->pw_tone = SV_TONE_WARN;
+    }
+    copy(c->pw_button, sizeof(c->pw_button), c->password_set ? "CHANGE PASSWORD" : "SET PASSWORD");
+    c->pw_can = !c->busy && !is(c->ssh, "unknown");
+    c->pw_ssh_tone = SV_TONE_MUTED;
+    if (is(c->ssh, "hardened")) {
+        copy(c->pw_ssh, sizeof(c->pw_ssh), "SSH: root signs in with a key only.");
+    } else if (is(c->ssh, "open")) {
+        copy(c->pw_ssh, sizeof(c->pw_ssh),
+             "SSH: root can still sign in with a password. Setting the password here, or turning the gateway on, "
+             "changes that to a key only.");
+        c->pw_ssh_tone = SV_TONE_WARN;
+    } else if (is(c->ssh, "absent")) {
+        copy(c->pw_ssh, sizeof(c->pw_ssh), "SSH: no SSH server on this unit.");
+    } else {
+        copy(c->pw_ssh, sizeof(c->pw_ssh), sv_companion_error_text("ssh_unknown", ""));
+        c->pw_ssh_tone = SV_TONE_ERROR;
+    }
+    if (is(c->job, "password") && failed) {
+        copy(c->pw_note, sizeof(c->pw_note),
+             sv_companion_error_text(c->job_error, "The password was not set. Try again."));
+        c->pw_note_tone = SV_TONE_ERROR;
+    } else if (is(c->job, "password") && is(c->job_state, "done")) {
+        copy(c->pw_note, sizeof(c->pw_note), "Password set. The serial console asks for it from now on.");
+        c->pw_note_tone = SV_TONE_OK;
+    }
+
+    /* ---- pairing ---- */
+    c->pair_can = 0;
+    if (!c->enabled || c->busy) {
+        copy(c->pair_hint, sizeof(c->pair_hint), "Turn the gateway on to pair a phone.");
+    } else if (!c->reachable) {
+        copy(c->pair_hint, sizeof(c->pair_hint), "The gateway does not answer.");
+    } else if (!c->password_set) {
+        copy(c->pair_hint, sizeof(c->pair_hint), "Set a device password first.");
+    } else if (c->count >= (c->max > 0 ? c->max : SV_MAX_PHONES)) {
+        copy(c->pair_hint, sizeof(c->pair_hint), "8 phones are paired, the most there can be. Remove one first.");
+    } else if (is(why, "identity_fault") || is(why, "state_fault")) {
+        copy(c->pair_hint, sizeof(c->pair_hint), "Not while the gateway's stored state cannot be used.");
+    } else {
+        c->pair_can = 1;
+        c->pair_hint[0] = '\0';
+    }
+
+    /* ---- the list's line ---- */
+    if (!c->installed) {
+        copy(c->summary, sizeof(c->summary), "Not installed");
+    } else if (!c->enabled) {
+        copy(c->summary, sizeof(c->summary), c->password_set ? "Off" : "Off" SEP "no device password");
+    } else if (c->count == 0) {
+        copy(c->summary, sizeof(c->summary), "On" SEP "no phone paired");
+    } else {
+        int on = 0;
+        int i;
+
+        for (i = 0; i < c->count; i++) {
+            on += c->phones[i].connected;
+        }
+        snprintf(c->summary, sizeof(c->summary), "On" SEP "%d phone%s paired%s", c->count, c->count == 1 ? "" : "s",
+                 on ? SEP "connected" : "");
+    }
+}
+
+/* ---- pairing --------------------------------------------------------------------- */
+
+static void countdown(struct sv_pair *p)
+{
+    long long s = (p->left_ms + 999) / 1000;
+
+    if (s < 0) {
+        s = 0;
+    }
+    snprintf(p->countdown, sizeof(p->countdown), "Closes in %lld:%02lld", s / 60, s % 60);
+}
+
+void sv_pair_wipe(struct sv_pair *p)
+{
+    explicit_bzero(p->uri, sizeof(p->uri));
+}
+
+static void pair_say(struct sv_pair *p, enum sv_pair_phase phase, enum sv_tone tone, const char *headline,
+                     const char *text)
+{
+    p->phase = phase;
+    p->tone = tone;
+    copy(p->headline, sizeof(p->headline), headline);
+    copy(p->text, sizeof(p->text), text);
+    if (phase == SV_PAIR_DONE || phase == SV_PAIR_CLOSED || phase == SV_PAIR_ERROR) {
+        /* The code means nothing any more; the token goes from memory. */
+        sv_pair_wipe(p);
+    }
+}
+
+#define PAIR_SHOW_TEXT                                                                                               \
+    "Open DOORS Companion on the phone, choose to pair a unit, and point the camera at the code. The phone must be " \
+    "on the same network."
+
+void sv_pair_begin(struct sv_pair *p, const cJSON *res, const char *err)
+{
+    const char *uri = str(res, "uri");
+    char word[48];
+
+    memset(p, 0, sizeof(*p));
+    p->scopes = SV_SCOPES_DEFAULT;
+    if (!uri || strncmp(uri, "doors-pair:", 11) != 0 || strlen(uri) >= sizeof(p->uri)) {
+        sv_companion_error_word(err, word, sizeof(word));
+        pair_say(p, SV_PAIR_ERROR, SV_TONE_ERROR, "No pairing code",
+                 sv_companion_error_text(word, err && err[0] ? "The gateway refused to open a pairing window."
+                                                             : "The gateway did not answer. Try again."));
+        return;
+    }
+    copy(p->uri, sizeof(p->uri), uri);
+    p->left_ms = num(res, "expires_in_ms", 120000);
+    countdown(p);
+    pair_say(p, SV_PAIR_SHOWING, SV_TONE_NORMAL, "Scan with DOORS Companion", PAIR_SHOW_TEXT);
+}
+
+void sv_pair_poll(struct sv_pair *p, const cJSON *status)
+{
+    const cJSON *pr = cJSON_GetObjectItemCaseSensitive(status, "pair");
+    const char *state = str(pr, "state");
+    const char *closed = str(status, "pair_closed");
+
+    if (!sv_pair_open(p) || !status) {
+        return; /* decided, closed or never opened; or a missed poll: as it was */
+    }
+    if (!cJSON_IsObject(pr)) {
+        if (is(closed, "expired")) {
+            pair_say(p, SV_PAIR_CLOSED, SV_TONE_WARN, "The code expired",
+                     "No phone paired in time. Show a new code to try again.");
+        } else if (is(closed, "failed")) {
+            pair_say(p, SV_PAIR_CLOSED, SV_TONE_ERROR, "Closed after wrong codes",
+                     "A phone presented a wrong code, so the window closed. If that was not your phone, someone "
+                     "else on this network tried. Show a new code to try again.");
+        } else if (is(closed, "candidate_left")) {
+            pair_say(p, SV_PAIR_CLOSED, SV_TONE_WARN, "The phone left",
+                     "The phone disconnected before you decided, so it was not paired. Show a new code to try "
+                     "again.");
+        } else if (is(closed, "paired")) {
+            pair_say(p, SV_PAIR_DONE, SV_TONE_OK, "Paired", "The phone can now connect to this unit.");
+        } else {
+            pair_say(p, SV_PAIR_CLOSED, SV_TONE_WARN, "Pairing closed",
+                     "The window closed without a pairing. Show a new code to try again.");
+        }
+        return;
+    }
+    {
+        const cJSON *l = cJSON_GetObjectItemCaseSensitive(pr, "left_ms");
+
+        if (cJSON_IsNumber(l)) {
+            p->left_ms = (long long)l->valuedouble;
+            countdown(p);
+        }
+    }
+    if (is(state, "waiting")) {
+        const cJSON *cand = cJSON_GetObjectItemCaseSensitive(pr, "candidate");
+        const char *key = str(cand, "fingerprint");
+
+        if (!is_key(key)) {
+            return;
+        }
+        /* Another phone than the one confirmed: the confirmation was not for it. */
+        if (strcmp(key, p->cand_key) != 0) {
+            p->keys_match = 0;
+            copy(p->cand_key, sizeof(p->cand_key), key);
+            key_groups(key, p->cand_key_show, sizeof(p->cand_key_show));
+        }
+        phone_name(p->cand_name, sizeof(p->cand_name), str(cand, "name"));
+        pair_say(p, SV_PAIR_DECIDE, SV_TONE_NORMAL, "A phone wants to pair",
+                 "Check that this key is the one DOORS Companion shows as This phone's key, and allow only a "
+                 "phone you know.");
+    } else if (is(state, "candidate")) {
+        pair_say(p, SV_PAIR_CONNECTING, SV_TONE_NORMAL, "A phone is connecting...",
+                 "Waiting for it to present the code.");
+    } else {
+        pair_say(p, SV_PAIR_SHOWING, SV_TONE_NORMAL, "Scan with DOORS Companion", PAIR_SHOW_TEXT);
+    }
+}
+
+int sv_pair_open(const struct sv_pair *p)
+{
+    return p->phase == SV_PAIR_SHOWING || p->phase == SV_PAIR_CONNECTING || p->phase == SV_PAIR_DECIDE;
+}
+
+int sv_pair_can_allow(const struct sv_pair *p)
+{
+    return p->phase == SV_PAIR_DECIDE && p->keys_match && is_key(p->cand_key);
+}
+
+cJSON *sv_pair_decide_params(const struct sv_pair *p, int allow)
+{
+    cJSON *o;
+
+    if (allow && !sv_pair_can_allow(p)) {
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    if (o) {
+        cJSON_AddBoolToObject(o, "allow", allow != 0);
+        if (allow) {
+            cJSON_AddItemToObject(o, "scopes", sv_scopes_json(p->scopes));
+        }
+    }
+    return o;
+}
+
+void sv_pair_decided(struct sv_pair *p, int allow, const cJSON *res, const char *err)
+{
+    char line[2 * SV_TEXT];
+
+    if (!allow) {
+        pair_say(p, SV_PAIR_CLOSED, SV_TONE_MUTED, "Refused", "The phone was not paired and cannot connect.");
+        return;
+    }
+    if (res && flag(res, "paired")) {
+        snprintf(line, sizeof(line), "%s can now connect. Its permissions and Remove are on its page under "
+                                     "Companion.",
+                 p->cand_name[0] ? p->cand_name : "The phone");
+        pair_say(p, SV_PAIR_DONE, SV_TONE_OK, "Paired", line);
+        return;
+    }
+    if (res) {
+        pair_say(p, SV_PAIR_ERROR, SV_TONE_ERROR, "Not paired",
+                 "The phone left before the decision reached it, so it was not paired. Show a new code to try "
+                 "again.");
+        return;
+    }
+    snprintf(line, sizeof(line), "The gateway could not pair the phone%s%.80s. Nothing was stored; show a new "
+                                 "code to try again.",
+             err && err[0] ? ": " : "", err && err[0] ? err : "");
+    pair_say(p, SV_PAIR_ERROR, SV_TONE_ERROR, "Not paired", line);
+}
+
+/* ---- the device password ---------------------------------------------------------- */
+
+int sv_device_password_check(const char *first, const char *second, char *why, size_t n)
+{
+    size_t len = first ? strlen(first) : 0;
+    size_t i;
+
+    if (len == 0) {
+        copy(why, n, "Type a password.");
+        return -1;
+    }
+    if (len < 8) {
+        copy(why, n, "The password needs at least 8 characters.");
+        return -1;
+    }
+    if (len > 64) {
+        copy(why, n, "The password can have at most 64 characters.");
+        return -1;
+    }
+    for (i = 0; i < len; i++) {
+        unsigned char ch = (unsigned char)first[i];
+
+        if (ch < 0x20 || ch > 0x7e) {
+            copy(why, n, "Use letters, digits, spaces and the symbols on the keyboard only.");
+            return -1;
+        }
+    }
+    if (!second || strcmp(first, second) != 0) {
+        copy(why, n, "The two passwords are not the same.");
+        return -1;
+    }
+    return 0;
+}
+
+cJSON *sv_device_password_params(const char *password)
+{
+    cJSON *o;
+
+    if (!password || !password[0]) {
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    if (o) {
+        cJSON_AddStringToObject(o, "password", password);
+    }
+    return o;
 }
