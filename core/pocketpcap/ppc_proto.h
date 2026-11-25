@@ -94,7 +94,7 @@
  *                                     packet then, and the wall clock (0 when
  *                                     it is not set)
  *     ev.begin <req> <id> <first> <last> <at_ms> <state> <seq> <wall_s> <now_ms>
- *              <cfilter> <unanalyzed> <edge_lost>
+ *              <cfilter> <unanalyzed> <edge_lost|-> <edge_from|-> <edge_to|->
  *                                     the head of a mark's evidence: which
  *                                     mark of the ones held, when, and the
  *                                     wall clock then (after STOP: at STOP);
@@ -102,14 +102,22 @@
  *                                     (all, ip, names, noself), the classes
  *                                     whose analysis could not start (a hex
  *                                     mask of enum ppc_class among DHCP, ARP
- *                                     and DNS), and the frames lost so close
- *                                     to the mark that neither window can
- *                                     claim them
+ *                                     and DNS); and when the drop counters
+ *                                     could not be read at the mark, the last
+ *                                     good reading before it, the first after
+ *                                     it, and what that one told was lost in
+ *                                     between: "0 - -" when they were read,
+ *                                     "- <from> -" while no reading has come
  *     ev.win <side 0|1> <flags> <span_ms> <watched_s> <held_s> <shed_s> <lost>
- *            <kept> <more> <k1..k18>  one side of the mark: the window before
+ *            <kept> <more> <k1..k18> <lost_near> <unknown_from|->
+ *                                     one side of the mark: the window before
  *                                     it (0) or after it (1), how much of it was
  *                                     watched, and every observation counted by
- *                                     kind (enum ppc_ev_kind, in its order)
+ *                                     kind (enum ppc_ev_kind, in its order);
+ *                                     lost in a spell without a counter reading
+ *                                     that reaches past its far end (apart), and
+ *                                     the last good reading before a spell still
+ *                                     open in it, whose losses are not known
  *     ev.obs <side> <kind> <flags> <t_ms> <seq> <alive> <mac|-> <ip|-> <ip2|->
  *            <a> <b>                  one observation kept as a row; alive says
  *                                     what the buffer still holds of its packet
@@ -590,7 +598,15 @@ enum ppc_ev_kind {
 #define PPC_EVW_CUT_STOP 0x02u  /* the capture stopped inside it */
 #define PPC_EVW_OPEN 0x04u      /* the window is still filling */
 #define PPC_EVW_HISTORY 0x08u   /* observations had left the history: the counts are of what remained */
-#define PPC_EVW_ALL 0x0fu
+#define PPC_EVW_LOSSES_DROPPED 0x10u /* the record of spells without a counter reading did not keep them all */
+#define PPC_EVW_ALL 0x1fu
+
+/* What is known of the frames lost around a mark, in neither window. */
+enum ppc_ev_edge {
+    PPC_EV_EDGE_NONE = 0, /* the counters were read at the mark: every loss is on one side */
+    PPC_EV_EDGE_COUNTED,  /* not read at the mark; the next reading told how many, not when */
+    PPC_EV_EDGE_UNKNOWN,  /* not read since before the mark: not known yet, or never (STOP) */
+};
 
 #define PPC_EV_WINDOW_MS 60000u
 #define PPC_EV_KEEP 12u      /* rows kept with a mark, each side */
@@ -625,7 +641,10 @@ struct ppc_evt_ev_head {
     uint32_t now_ms;   /* the session's clock as the answer was made */
     uint8_t cfilter;   /* enum ppc_cfilter: the capture filter the source applied */
     uint8_t unanalyzed; /* PPC_EV_CLASSES whose analysis could not start */
-    uint64_t edge_lost; /* frames lost around the mark, in neither window */
+    uint8_t edge;       /* enum ppc_ev_edge */
+    uint32_t edge_from_ms; /* PPC_EV_EDGE_COUNTED, _UNKNOWN: the last good reading before the mark */
+    uint32_t edge_to_ms;   /* PPC_EV_EDGE_COUNTED: the first after it */
+    uint64_t edge_lost;    /* PPC_EV_EDGE_COUNTED: what it told was lost in between */
 };
 
 struct ppc_evt_ev_win {
@@ -639,6 +658,9 @@ struct ppc_evt_ev_win {
     uint32_t kept;
     uint32_t more;
     uint32_t count[PPC_EV_KINDS]; /* [0] is not sent */
+    uint64_t lost_near;  /* lost in a spell reaching past the window's far end: apart */
+    uint8_t unknown;     /* a spell without a counter reading is open in the window */
+    uint32_t unknown_from_ms; /* the last good reading before it */
 };
 
 struct ppc_evt_ev_obs {

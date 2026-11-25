@@ -20,10 +20,15 @@
  * could have been seen at all travels with the request (PPC_EVF_REPLY_HERE);
  * what a window lacks is told by its visibility, not guessed.
  *
- * Every frame counts once: frames lost before a mark are in the window
- * before it, after it in the window after, and those that cannot be placed
- * on either side (the counters could not be read at the mark) are told once,
- * apart, as lost around the mark.
+ * Frames lost are known only where the counters were read (ppc_evid_counters):
+ * each successful reading tells what was lost since the one before. Readings
+ * every 250 ms are booked to their second; a reading after one or more that
+ * failed closes a spell, from the last good reading to it, whose losses are
+ * placed by those two readings alone: in a window when the spell lies inside
+ * it, around the mark when the spell spans the mark, apart when it reaches
+ * past a window's far end. A spell not closed yet - or never, the capture
+ * stopped first - leaves what was lost in it unknown, and says so. Every
+ * frame counts once.
  *
  * Time is the session's own: milliseconds since START, given by the caller.
  * One allocation, at init. No text, no clock, no socket, no loop without a
@@ -43,11 +48,7 @@
 #define PPC_EV_MARKS 8u
 #define PPC_EV_PLAIN_KEEP 3u /* of the PPC_EV_KEEP rows a side keeps, routine ARP at most */
 #define PPC_EV_SECONDS 64u   /* seconds of visibility remembered, a power of two */
-/* When the counters of lost frames could not be read at a mark, what they
- * report within this long after it may have been lost before it or after:
- * the helper reads them every 250 ms and the history learns of a reading at
- * its next tick, 250 ms later at most. */
-#define PPC_EV_EDGE_MS 1000u
+#define PPC_EV_SPELLS 16u    /* spells without a counter reading remembered, for marks set later */
 
 /* An observation's kind (enum ppc_ev_kind) and flags (PPC_EVF_*), a
  * window's flags (PPC_EVW_*), its length and the rows a side keeps are part
@@ -78,6 +79,10 @@ struct ppc_ev_side {
     uint32_t held_s;              /* seconds on HOLD */
     uint32_t shed_s;              /* seconds frames were counted and not judged */
     uint64_t lost;                /* frames the kernel or the interface reported lost */
+    uint64_t lost_spells;         /* of them, those read at the end of a spell inside the window */
+    uint64_t lost_near;           /* lost in a spell that reaches past the window's far end: apart */
+    uint8_t unknown;              /* a spell not closed overlaps it: its losses are not known */
+    uint32_t unknown_from_ms;     /* the last good reading before that spell */
     uint8_t flags;                /* PPC_EVW_* */
     struct ppc_ev_obs kept[PPC_EV_KEEP]; /* oldest first */
 };
@@ -87,11 +92,23 @@ struct ppc_ev_mark {
     uint32_t at_ms;  /* since START */
     uint32_t seq;    /* the newest packet when it was set; 0: none yet */
     uint8_t state;   /* what the capture was doing (enum ppc_state) */
-    uint8_t exact;   /* the lost-frame counters were read at the mark */
     uint64_t wall_s; /* the wall clock at the mark, after STOP at STOP; 0: not set */
     uint32_t lost_split; /* frames lost in the mark's second up to the mark */
-    uint64_t edge_lost;  /* frames lost around the mark, in neither window */
+    uint8_t edge;        /* enum ppc_ev_edge */
+    uint32_t edge_from_ms; /* the last good reading before the mark */
+    uint32_t edge_to_ms;   /* the first good reading after it (PPC_EV_EDGE_COUNTED) */
+    uint64_t edge_lost;    /* what that reading told: lost around the mark, in neither window */
     struct ppc_ev_side side[2];
+};
+
+/* A spell without a counter reading: from the last successful reading to
+ * the first after one or more failed. */
+struct ppc_ev_spell {
+    uint32_t from_ms;
+    uint32_t to_ms;  /* while !open */
+    uint64_t lost;   /* what the reading that closed it told */
+    uint8_t open;
+    uint8_t used;
 };
 
 /* What a second was. */
@@ -123,7 +140,13 @@ struct ppc_evid {
     uint8_t stopped;
     uint32_t stop_ms;
     uint64_t stop_wall_s;
-    uint64_t lost_total;
+    uint64_t lost_total;  /* as the last successful reading told it */
+    uint32_t read_ms;     /* when that was; 0 and lost_total 0: START, when nothing was lost */
+    uint8_t failing;      /* the last reading failed: a spell is open */
+    struct ppc_ev_spell spells[PPC_EV_SPELLS]; /* a ring */
+    uint32_t nspells;     /* spells ever opened */
+    uint32_t dropped_to_ms; /* a spell up to this was dropped from the ring */
+    uint8_t dropped;
     uint8_t cfilter;    /* enum ppc_cfilter the source applied */
     uint8_t unanalyzed; /* PPC_EV_CLASSES whose analysis could not start */
     uint8_t bypass_any; /* a frame has bypassed analysis */
@@ -153,9 +176,13 @@ void ppc_evid_note(struct ppc_evid *ev, const struct ppc_ev_obs *o);
 void ppc_evid_bypass(struct ppc_evid *ev, uint32_t t_ms);
 
 /* The session's clock and what the capture is doing (PPC_EVS_*: one of
- * them), at least once a second while a capture runs; lost_total is the
- * running count of frames reported lost. */
-void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_t lost_total);
+ * them), at least once a second while a capture runs. */
+void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags);
+
+/* A reading of the lost-frame counters at now_ms, every one the helper
+ * makes: ok, with lost_total the running count they gave; or not, when the
+ * source could not be read. */
+void ppc_evid_counters(struct ppc_evid *ev, uint32_t now_ms, int ok, uint64_t lost_total);
 
 /* The capture stopped: windows still filling are closed here. wall_s is
  * the wall clock then (0: not set), which a mark set later takes. */
@@ -164,11 +191,11 @@ void ppc_evid_stop(struct ppc_evid *ev, uint32_t now_ms, uint64_t wall_s);
 /* Set a mark now. Never fails once init has: the oldest mark is replaced
  * when all are taken. state is the capture's (enum ppc_state), last_seq the
  * newest packet's number, wall_s the wall clock now (0: not set). After
- * STOP the mark stands where the capture stopped, on both clocks. exact:
- * the lost_total of the tick just given was read at the mark; when not,
- * the frames reported lost in the PPC_EV_EDGE_MS after it are told apart. */
+ * STOP the mark stands where the capture stopped, on both clocks. The
+ * counters are read just before (ppc_evid_counters): if that failed, what
+ * was lost from the last good reading to the next is around the mark. */
 const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, unsigned state, uint32_t last_seq,
-                                        uint64_t wall_s, int exact);
+                                        uint64_t wall_s);
 
 /* The mark of an id, or the newest for id 0; NULL when it is not held. */
 const struct ppc_ev_mark *ppc_evid_get(const struct ppc_evid *ev, uint32_t id);

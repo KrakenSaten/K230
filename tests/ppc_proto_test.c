@@ -477,19 +477,40 @@ static void test_evidence(void)
               e.u.ev_head.req == 11 && e.u.ev_head.id == 2 && e.u.ev_head.first == 1 && e.u.ev_head.last == 3 &&
               e.u.ev_head.at_ms == 50000 && e.u.ev_head.state == PPC_STATE_CAPTURING && e.u.ev_head.seq == 5 &&
               e.u.ev_head.wall_s == 0 && e.u.ev_head.now_ms == 61234 && e.u.ev_head.cfilter == PPC_CFILTER_ALL &&
-              e.u.ev_head.unanalyzed == 0 && e.u.ev_head.edge_lost == 0 &&
-              ppc_evt_format_ev_end(line, sizeof(line), 11) > 0 && ppc_evt_parse(line, &e) == PPC_EVT_EV_END &&
-              e.u.ev_req == 11);
-    /* What the capture could see travels with the head (PR #188 review). */
+              e.u.ev_head.unanalyzed == 0 && e.u.ev_head.edge == PPC_EV_EDGE_NONE && e.u.ev_head.edge_lost == 0 &&
+              strstr(line, "\tall\t0\t0\t-\t-\n") && ppc_evt_format_ev_end(line, sizeof(line), 11) > 0 &&
+              ppc_evt_parse(line, &e) == PPC_EVT_EV_END && e.u.ev_req == 11);
+    /* What the capture could see travels with the head (PR #188 review), and
+     * the losses at the mark with the readings around them (its follow-up). */
     h.cfilter = PPC_CFILTER_NAMES;
     h.unanalyzed = (uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP);
+    h.edge = PPC_EV_EDGE_COUNTED;
     h.edge_lost = 123456789012ull;
+    h.edge_from_ms = 750;
+    h.edge_to_ms = 3000;
     h.wall_s = 1700000000u;
-    check("ev.begin carries the filter applied, the classes not analysed and the losses at the mark",
-          ppc_evt_format_ev_begin(line, sizeof(line), &h) > 0 && strstr(line, "\tnames\t18\t123456789012\n") &&
+    check("ev.begin carries the filter applied, the classes not analysed, and the losses at the mark between readings",
+          ppc_evt_format_ev_begin(line, sizeof(line), &h) > 0 && strstr(line, "\tnames\t18\t123456789012\t750\t3000\n") &&
               ppc_evt_parse(line, &e) == PPC_EVT_EV_BEGIN && e.u.ev_head.cfilter == PPC_CFILTER_NAMES &&
-              e.u.ev_head.unanalyzed == h.unanalyzed && e.u.ev_head.edge_lost == 123456789012ull &&
-              e.u.ev_head.wall_s == 1700000000u);
+              e.u.ev_head.unanalyzed == h.unanalyzed && e.u.ev_head.edge == PPC_EV_EDGE_COUNTED &&
+              e.u.ev_head.edge_lost == 123456789012ull && e.u.ev_head.edge_from_ms == 750 &&
+              e.u.ev_head.edge_to_ms == 3000 && e.u.ev_head.wall_s == 1700000000u);
+    h.edge = PPC_EV_EDGE_UNKNOWN;
+    h.edge_lost = 0;
+    h.edge_to_ms = 0;
+    check("and losses not known at the mark as a dash, with the last good reading before it",
+          ppc_evt_format_ev_begin(line, sizeof(line), &h) > 0 && strstr(line, "\tnames\t18\t-\t750\t-\n") &&
+              ppc_evt_parse(line, &e) == PPC_EVT_EV_BEGIN && e.u.ev_head.edge == PPC_EV_EDGE_UNKNOWN &&
+              e.u.ev_head.edge_lost == 0 && e.u.ev_head.edge_from_ms == 750 && e.u.ev_head.edge_to_ms == 0);
+    h.edge = PPC_EV_EDGE_UNKNOWN + 1u;
+    ok = ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0;
+    h.edge = PPC_EV_EDGE_COUNTED;
+    h.edge_to_ms = 750;
+    check("a state of the mark's losses out of range, or readings not in order, is not put on a line",
+          ok && ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0);
+    h.edge = PPC_EV_EDGE_NONE;
+    h.edge_from_ms = 0;
+    h.edge_to_ms = 0;
     h.cfilter = PPC_CFILTER_COUNT;
     ok = ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0;
     h.cfilter = PPC_CFILTER_ALL;
@@ -497,20 +518,31 @@ static void test_evidence(void)
     check("a filter out of range, or a class other than DHCP, ARP and DNS, is not put on a line",
           ok && ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0);
     h.unanalyzed = 0;
-    check("damaged heads are refused: the old ten fields, an unknown filter, a mask beyond the three, a signed or "
-          "empty mask, a negative loss",
+    check("damaged heads are refused: the old ten and thirteen fields, an unknown filter, a mask beyond the three, a "
+          "signed or empty mask, a negative loss",
           ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0", &e) == PPC_EVT_BAD &&
-              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\teverything\t0\t0", &e) == PPC_EVT_BAD &&
-              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t1\t0", &e) == PPC_EVT_BAD &&
-              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t-4\t0", &e) == PPC_EVT_BAD &&
-              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t\t0", &e) == PPC_EVT_BAD &&
-              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t1c\t-1", &e) == PPC_EVT_BAD &&
-              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tnoself\t1c\t0", &e) == PPC_EVT_EV_BEGIN &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t0", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\teverything\t0\t0\t-\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t1\t0\t-\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t-4\t0\t-\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t\t0\t-\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t1c\t-1\t750\t3000", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tnoself\t1c\t0\t-\t-", &e) == PPC_EVT_EV_BEGIN &&
               e.u.ev_head.cfilter == PPC_CFILTER_NOSELF && e.u.ev_head.unanalyzed == PPC_EV_CLASSES);
+    check("damaged losses at the mark are refused: a loss without readings, readings out of order or equal, a dash "
+          "without the reading before, or with one after",
+          ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t5\t-\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t5\t3000\t750", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t5\t750\t750", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t-\t-\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t-\t750\t3000", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t0\t750\t-", &e) == PPC_EVT_BAD &&
+              ppc_evt_parse("ev.begin\t1\t2\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t0\t750\t3000", &e) == PPC_EVT_EV_BEGIN &&
+              e.u.ev_head.edge == PPC_EV_EDGE_COUNTED && e.u.ev_head.edge_lost == 0);
     h.id = 4;
     check("a mark outside the held range is not put on a line, nor taken from one",
           ppc_evt_format_ev_begin(line, sizeof(line), &h) < 0 &&
-              ppc_evt_parse("ev.begin\t1\t4\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t0", &e) == PPC_EVT_BAD);
+              ppc_evt_parse("ev.begin\t1\t4\t1\t3\t0\tcapturing\t0\t0\t0\tall\t0\t0\t-\t-", &e) == PPC_EVT_BAD);
 
     memset(&w, 0, sizeof(w));
     w.side = 1;
@@ -532,7 +564,35 @@ static void test_evidence(void)
     for (i = 1; i < PPC_EV_KINDS; i++) {
         ok = ok && e.u.ev_win.count[i] == 4000000000u + i;
     }
-    check("ev.win: every figure in its place, the largest line fits", ok && strlen(line) < PPC_LINE_MAX);
+    ok = ok && e.u.ev_win.lost_near == 0 && e.u.ev_win.unknown == 0 && strstr(line, "\t0\t-\n");
+    check("ev.win: every figure in its place, losses known as a dash", ok);
+    /* What a window lost near its far end and since when its losses are not
+     * known (the follow-up review of PR #188). */
+    w.lost_near = 6000000000ull;
+    w.unknown = 1;
+    w.unknown_from_ms = 4294967295u;
+    ok = ppc_evt_format_ev_win(line, sizeof(line), &w) > 0 && strstr(line, "\t6000000000\t4294967295\n") &&
+         ppc_evt_parse(line, &e) == PPC_EVT_EV_WIN && e.u.ev_win.lost_near == 6000000000ull &&
+         e.u.ev_win.unknown == 1 && e.u.ev_win.unknown_from_ms == 4294967295u;
+    check("ev.win: lost near its end and not known since, the largest line fits", ok && strlen(line) < PPC_LINE_MAX);
+    {
+        char bad[PPC_LINE_MAX];
+        char *t;
+
+        snprintf(bad, sizeof(bad), "%s", line);
+        t = strrchr(bad, '\t');
+        snprintf(t, sizeof(bad) - (size_t)(t - bad), "\tsoon\n");
+        ok = ppc_evt_parse(bad, &e) == PPC_EVT_BAD;
+        *t = '\0';
+        ok = ok && ppc_evt_parse(bad, &e) == PPC_EVT_BAD; /* the old line, without it */
+        t = strrchr(bad, '\t');
+        snprintf(t, sizeof(bad) - (size_t)(t - bad), "\t-\t-\n");
+        check("damaged windows are refused: a time not a number, a line without the new fields, a dash for a count",
+              ok && ppc_evt_parse(bad, &e) == PPC_EVT_BAD);
+    }
+    w.lost_near = 0;
+    w.unknown = 0;
+    w.unknown_from_ms = 0;
     w.span_ms = PPC_EV_WINDOW_MS + 1u;
     ok = ppc_evt_format_ev_win(line, sizeof(line), &w) < 0;
     w.span_ms = 1;

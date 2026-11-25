@@ -3493,15 +3493,17 @@ static bool page_is_models(void)
     const struct psk_evidence *ev = &a->model->ev;
     struct psk_ev_row rows[PSK_EV_ROWS];
     unsigned used[2] = { 0, 0 };
-    char b[1024];
+    char b[2048];
     char c[64];
-    char d[96];
+    char d[256];
     unsigned n;
     unsigned i;
     unsigned s;
     bool ok = true;
 
     ok = ok && strcmp(label_of("evtitle"), psk_ev_title(ev, b, sizeof(b))) == 0;
+    ok = ok && strcmp(label_of("evfilter"), psk_ev_filter(ev, b, sizeof(b))) == 0 &&
+         !lv_obj_has_flag(part("evfilter"), LV_OBJ_FLAG_HIDDEN);
     ok = ok && strcmp(label_of("evwhen"), psk_ev_when(ev, b, sizeof(b))) == 0;
     ok = ok && strcmp(label_of("evlimits"), psk_ev_limits(ev, b, sizeof(b))) == 0;
     for (s = 0; s < 2 && ok; s++) {
@@ -3829,11 +3831,13 @@ static void n1_replays(bool portrait)
     {
         /* What the capture could not see (the review of PR #188): a filter
          * that kept ARP out (DNS AND DHCP), a DNS analysis that could not
-         * start, and frames lost too close to the mark to place. */
+         * start, and frames lost while the counters could not be read over
+         * the mark (its follow-up). */
         struct ppc_evt_ev_head head = { .req = 4244, .id = 3, .first = 1, .last = 3, .at_ms = 300000,
                                         .state = PPC_STATE_CAPTURING, .seq = 90, .now_ms = 330000,
                                         .cfilter = PPC_CFILTER_NAMES, .unanalyzed = 1u << PPC_CLASS_DNS,
-                                        .edge_lost = 40 };
+                                        .edge = PPC_EV_EDGE_COUNTED, .edge_lost = 40, .edge_from_ms = 299250,
+                                        .edge_to_ms = 301500 };
         struct ppc_evt_ev_win win[2];
         struct ppc_evt_ev_obs obs[1];
         unsigned bad = 0;
@@ -3867,7 +3871,10 @@ static void n1_replays(bool portrait)
         CHECK("the limits name the filter, the analysis that could not start and the 40 frames, once",
               strstr(label_of("evlimits"), "The capture filter (DNS AND DHCP) kept ARP out") &&
                   strstr(label_of("evlimits"), "The DNS analysis could not be set up") &&
-                  strstr(label_of("evlimits"), "40 frames were lost so close to the mark"));
+                  strstr(label_of("evlimits"), "40 frames were lost between 04:59 and 05:01, while the counters could "
+                                               "not be read"));
+        CHECK("the page names its capture filter, shown",
+              strcmp(label_of("evfilter"), "CAPTURE FILTER · DNS AND DHCP") == 0 && part_shown("evfilter"));
         CHECK("no verdict on it", verdict_words(part("evpage")) == 0);
         for (t = 0; t < POS_TEXT_SIZE_COUNT; t++) {
             unsigned n;
@@ -3888,6 +3895,63 @@ static void n1_replays(bool portrait)
         pump(250);
         lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
         shot("n1-coverage");
+        CHECK("nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
+    }
+    {
+        /* The counters of lost frames could not be read since 04:57, over
+         * the mark at 05:00 and since (the follow-up review of PR #188), on
+         * a capture filtered NOT MY SSH that saw nothing of the three. */
+        struct ppc_evt_ev_head head = { .req = 4245, .id = 3, .first = 1, .last = 3, .at_ms = 300000,
+                                        .state = PPC_STATE_CAPTURING, .seq = 90, .now_ms = 330000,
+                                        .cfilter = PPC_CFILTER_NOSELF, .edge = PPC_EV_EDGE_UNKNOWN,
+                                        .edge_from_ms = 297750 };
+        struct ppc_evt_ev_win win[2];
+        unsigned bad = 0;
+        unsigned t;
+
+        memset(win, 0, sizeof(win));
+        win[0].span_ms = 60000;
+        win[0].watched_s = 60;
+        win[0].unknown = 1;
+        win[0].unknown_from_ms = 297750;
+        win[1].flags = PPC_EVW_OPEN;
+        win[1].span_ms = 30000;
+        win[1].watched_s = 30;
+        win[1].unknown = 1;
+        win[1].unknown_from_ms = 297750;
+
+        CHECK("an answer whose losses are not known since before the mark is shown", show_answer(&head, win, NULL, 0));
+        CHECK("its page is the words module's", page_is_models());
+        CHECK("neither window says every frame was seen: both say their losses are not known, a warning",
+              !containing_in(part("evwin0"), "EVERY") && !containing_in(part("evwin1"), "EVERY") &&
+                  containing_in(part("evwin0"), "! LOSSES UNKNOWN") && containing_in(part("evwin1"), "! LOSSES UNKNOWN"));
+        CHECK("a quiet minute is not concluded: what was lost is not known, so it is no proof",
+              part_shown("evnothing") &&
+                  strstr(label_of("evnothing"), "Whether frames were lost for part of the time is not known, so this "
+                                                "is not proof that none was sent.") &&
+                  !strstr(label_of("evnothing"), "quiet"));
+        CHECK("the limits say since when, and that it is counted in neither window",
+              strstr(label_of("evlimits"), "Since 04:57 the counters of lost frames could not be read: what was lost "
+                                           "from then on is not known, and is counted in neither window.") != NULL);
+        CHECK("the page names its capture filter, shown",
+              strcmp(label_of("evfilter"), "CAPTURE FILTER · NOT MY SSH") == 0 && part_shown("evfilter"));
+        CHECK("no verdict on it", verdict_words(part("evpage")) == 0);
+        for (t = 0; t < POS_TEXT_SIZE_COUNT; t++) {
+            unsigned n;
+
+            pos_theme_select_text_size((enum pos_text_size)t);
+            pump(250);
+            lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+            n = (unsigned)(audit_page() + dots_wrapped(part("evpage")));
+            if (n) {
+                printf("     losses not known, at %s: %u issue(s)\n", pos_text_size_name((enum pos_text_size)t), n);
+            }
+            bad += n;
+        }
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(250);
+        lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+        shot("n1-unknown");
         CHECK("nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
     }
     app_stop();

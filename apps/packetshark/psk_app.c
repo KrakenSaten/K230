@@ -2141,6 +2141,9 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     if (strncmp(name, "evwin", 5) == 0 && (i = name[5] - '0') >= 0 && i < 2) {
         return a->ev_win[i];
     }
+    if (strcmp(name, "evfilter") == 0) {
+        return a->ev_filter;
+    }
     if (strcmp(name, "evcounts") == 0) {
         return a->ev_counts_panel;
     }

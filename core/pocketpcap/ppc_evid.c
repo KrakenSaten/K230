@@ -148,15 +148,26 @@ static void after_refresh(const struct ppc_evid *ev, struct ppc_ev_mark *m, uint
     }
     s->span_ms = to - m->at_ms;
     side_seen(ev, s, m->at_ms, to);
-    /* Losses from the mark's second to the second of `to`, whose ticks up
-     * to `to` read what was lost before it; less what the mark's second had
-     * before the mark (the window before's) and what could not be placed. */
-    s->lost = 0;
+    /* Losses read from the mark's second to the second of `to` (its
+     * readings up to `to` told what was lost before it), less what the
+     * mark's second had before the mark (the window before's); and those of
+     * the spells closed inside the window. */
+    s->lost = s->lost_spells;
     if (to > m->at_ms) {
         uint64_t all = lost_in(ev, m->at_ms / 1000u, to / 1000u);
-        uint64_t not_after = (uint64_t)m->lost_split + m->edge_lost;
 
-        s->lost = all > not_after ? all - not_after : 0;
+        s->lost += all > m->lost_split ? all - m->lost_split : 0;
+    }
+    /* A spell still open that reaches into the window: its losses are not
+     * known. One that began before the mark is the mark's own (m->edge). */
+    s->unknown = 0;
+    if (ev->failing) {
+        const struct ppc_ev_spell *sp = &ev->spells[(ev->nspells - 1u) % PPC_EV_SPELLS];
+
+        if (sp->from_ms < to) {
+            s->unknown = 1;
+            s->unknown_from_ms = sp->from_ms;
+        }
     }
 }
 
@@ -185,10 +196,9 @@ static struct ppc_ev_sec *second(struct ppc_evid *ev, uint32_t sec)
     return e;
 }
 
-void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_t lost_total)
+void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags)
 {
     uint32_t sec = now_ms / 1000u;
-    uint64_t lost = 0;
     struct ppc_ev_sec *e;
     unsigned i;
 
@@ -198,14 +208,11 @@ void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_
     if (!ev->ticking) {
         ev->ticking = 1;
         ev->cur_sec = sec;
-        ev->lost_total = lost_total;
     } else if (sec < ev->cur_sec) {
         return; /* a clock that went back: nothing is rewritten */
     } else {
         uint32_t gap = sec - ev->cur_sec;
 
-        lost = lost_total > ev->lost_total ? lost_total - ev->lost_total : 0;
-        ev->lost_total = lost_total;
         /* The seconds passed over since the last tick were what the capture
          * was doing then. A gap longer than the ring keeps its newest end. */
         if (gap > PPC_EV_SECONDS) {
@@ -218,22 +225,117 @@ void ppc_evid_tick(struct ppc_evid *ev, uint32_t now_ms, unsigned flags, uint64_
     }
     e = second(ev, sec);
     e->flags |= (uint8_t)flags;
-    if (lost > 0xffffffffu - e->lost) {
-        e->lost = 0xffffffffu;
-    } else {
-        e->lost += (uint32_t)lost;
-    }
     ev->cur_flags = (uint8_t)flags;
-    /* A mark whose counters could not be read when it was set: what is
-     * read just after it may have been lost on either side of it. */
-    for (i = 0; lost && i < PPC_EV_MARKS; i++) {
-        struct ppc_ev_mark *m = &ev->marks[i];
+    refresh_all(ev, now_ms);
+}
 
-        if (m->id && !m->exact && (m->side[1].flags & PPC_EVW_OPEN) && now_ms >= m->at_ms &&
-            now_ms - m->at_ms < PPC_EV_EDGE_MS) {
-            m->edge_lost += lost;
+/* ---- the lost-frame counters ------------------------------------------------------------- */
+
+/* Where a closed spell's losses go for one mark: the window it lies in;
+ * around the mark when it spans the mark; apart when it reaches past a
+ * window's far end; nowhere when it lies outside both. */
+static void spell_to_mark(const struct ppc_evid *ev, struct ppc_ev_mark *m, const struct ppc_ev_spell *sp)
+{
+    uint32_t from = m->at_ms > PPC_EV_WINDOW_MS ? m->at_ms - PPC_EV_WINDOW_MS : 0;
+    uint32_t end = m->at_ms + PPC_EV_WINDOW_MS;
+
+    if (ev->stopped && ev->stop_ms < end) {
+        end = ev->stop_ms;
+    }
+    /* A window closed while this spell was open said its losses were not
+     * known: they are now, and placed below. */
+    if (m->side[1].unknown && m->side[1].unknown_from_ms == sp->from_ms) {
+        m->side[1].unknown = 0;
+    }
+    if (sp->from_ms < m->at_ms && sp->to_ms > m->at_ms) {
+        /* A mark has one such spell at most: the one it was set in. */
+        m->edge = PPC_EV_EDGE_COUNTED;
+        m->edge_from_ms = sp->from_ms;
+        m->edge_to_ms = sp->to_ms;
+        m->edge_lost = sp->lost;
+    } else if (sp->to_ms <= m->at_ms) {
+        if (sp->from_ms >= from) {
+            m->side[0].lost_spells += sp->lost;
+            m->side[0].lost += sp->lost;
+        } else if (sp->to_ms > from) {
+            m->side[0].lost_near += sp->lost;
+        }
+    } else if (sp->from_ms < end) {
+        if (sp->to_ms <= end) {
+            m->side[1].lost_spells += sp->lost;
+            if (!(m->side[1].flags & PPC_EVW_OPEN)) {
+                m->side[1].lost += sp->lost; /* closed at this same moment: not refreshed again */
+            }
+        } else {
+            m->side[1].lost_near += sp->lost;
         }
     }
+}
+
+void ppc_evid_counters(struct ppc_evid *ev, uint32_t now_ms, int ok, uint64_t lost_total)
+{
+    struct ppc_ev_spell *sp;
+    uint64_t lost;
+    unsigned i;
+
+    if (!ev->mem || ev->stopped) {
+        return;
+    }
+    if (now_ms < ev->read_ms) {
+        now_ms = ev->read_ms; /* a clock that went back: readings keep their order */
+    }
+    if (!ok) {
+        if (!ev->failing) {
+            /* A spell opens at the last good reading. One that pushes an
+             * old spell out of the ring says so to marks set later. */
+            sp = &ev->spells[ev->nspells % PPC_EV_SPELLS];
+            if (sp->used && !sp->open) {
+                ev->dropped = 1;
+                if (sp->to_ms > ev->dropped_to_ms) {
+                    ev->dropped_to_ms = sp->to_ms;
+                }
+            }
+            memset(sp, 0, sizeof(*sp));
+            sp->used = 1;
+            sp->open = 1;
+            sp->from_ms = ev->read_ms;
+            ev->nspells++;
+            ev->failing = 1;
+            /* A mark set since the last good reading without one of its own
+             * is inside this spell. */
+            for (i = 0; i < PPC_EV_MARKS; i++) {
+                struct ppc_ev_mark *m = &ev->marks[i];
+
+                if (m->id && m->edge == PPC_EV_EDGE_NONE && m->at_ms > sp->from_ms) {
+                    m->edge = PPC_EV_EDGE_UNKNOWN;
+                    m->edge_from_ms = sp->from_ms;
+                }
+            }
+        }
+        refresh_all(ev, now_ms);
+        return;
+    }
+    lost = lost_total > ev->lost_total ? lost_total - ev->lost_total : 0;
+    ev->lost_total = lost_total;
+    if (ev->failing) {
+        /* The reading that ends a spell: how many, not when. */
+        sp = &ev->spells[(ev->nspells - 1u) % PPC_EV_SPELLS];
+        sp->open = 0;
+        sp->to_ms = now_ms;
+        sp->lost = lost;
+        ev->failing = 0;
+        for (i = 0; i < PPC_EV_MARKS; i++) {
+            if (ev->marks[i].id) {
+                spell_to_mark(ev, &ev->marks[i], sp);
+            }
+        }
+    } else if (lost) {
+        /* A reading a period after the last: lost in its second. */
+        struct ppc_ev_sec *e = second(ev, now_ms / 1000u);
+
+        e->lost = lost > 0xffffffffu - e->lost ? 0xffffffffu : e->lost + (uint32_t)lost;
+    }
+    ev->read_ms = now_ms;
     refresh_all(ev, now_ms);
 }
 
@@ -423,13 +525,24 @@ static void before_fill(const struct ppc_evid *ev, struct ppc_ev_mark *m)
     s->more = total - s->nkept;
     side_seen(ev, s, from, m->at_ms);
     /* Losses of the seconds before the mark's, and of the mark's own up to
-     * the mark: they were read before it, so they happened before it. */
+     * the mark: they were read before it, so they happened before it. Then
+     * the spells closed before it, by where they lie. */
     s->lost = (m->at_ms / 1000u > from / 1000u ? lost_in(ev, from / 1000u, m->at_ms / 1000u - 1u) : 0) +
               m->lost_split;
+    for (i = 0; i < PPC_EV_SPELLS; i++) {
+        const struct ppc_ev_spell *sp = &ev->spells[i];
+
+        if (sp->used && !sp->open && sp->to_ms <= m->at_ms) {
+            spell_to_mark(ev, m, sp);
+        }
+    }
+    if (ev->dropped && ev->dropped_to_ms > from) {
+        s->flags |= PPC_EVW_LOSSES_DROPPED;
+    }
 }
 
 const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, unsigned state, uint32_t last_seq,
-                                        uint64_t wall_s, int exact)
+                                        uint64_t wall_s)
 {
     struct ppc_ev_mark *m;
 
@@ -443,7 +556,6 @@ const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, un
             now_ms = ev->stop_ms;
         }
         wall_s = ev->stop_wall_s;
-        exact = 1; /* the counters were read at STOP, and nothing follows */
     }
     m = &ev->marks[(ev->next_id - 1u) % PPC_EV_MARKS];
     memset(m, 0, sizeof(*m));
@@ -452,8 +564,18 @@ const struct ppc_ev_mark *ppc_evid_mark(struct ppc_evid *ev, uint32_t now_ms, un
     m->seq = last_seq;
     m->state = (uint8_t)state;
     m->wall_s = wall_s;
-    m->exact = (uint8_t)(exact != 0);
     m->lost_split = lost_of_sec(ev, now_ms / 1000u);
+    /* Not read since before the mark (the reading at it failed, or STOP came
+     * while none could be made): what was lost from the last good reading on
+     * is around the mark, until a reading tells how many. */
+    if (ev->failing) {
+        const struct ppc_ev_spell *sp = &ev->spells[(ev->nspells - 1u) % PPC_EV_SPELLS];
+
+        if (sp->from_ms < now_ms || (sp->from_ms == now_ms && ev->stopped)) {
+            m->edge = PPC_EV_EDGE_UNKNOWN;
+            m->edge_from_ms = sp->from_ms;
+        }
+    }
     before_fill(ev, m);
     m->side[1].flags = PPC_EVW_OPEN;
     after_refresh(ev, m, now_ms);

@@ -75,8 +75,12 @@
 
 /* A build for the tests alone (tests/pos-capture-testhooks) can be told to
  * run without an analyser, as a capture whose table could not be allocated
- * does: POS_CAPTURE_TEST_NO_ANALYZER=dns, net or dns,net. The shipped helper
- * has no such switch. */
+ * does: POS_CAPTURE_TEST_NO_ANALYZER=dns, net or dns,net; and to fail every
+ * reading of the drop counters from <from> ms after START until <to> ms (0:
+ * to the end), as a source that cannot be read does, the readings after it
+ * <lost> higher, as if that many frames had been dropped meanwhile:
+ * POS_CAPTURE_TEST_STATS_FAIL=<from>,<to>[,<lost>]. The shipped helper has
+ * neither switch. */
 #ifndef POS_CAPTURE_TEST_HOOKS
 #define POS_CAPTURE_TEST_HOOKS 0
 #endif
@@ -159,6 +163,12 @@ struct helper {
     uint32_t ev_lead_ms;      /* the session time of the first packet */
     uint32_t ev_last_ms;      /* the session time last told to the history */
     uint64_t next_ev_ms;
+#if POS_CAPTURE_TEST_HOOKS
+    uint64_t test_fail_from_ms; /* POS_CAPTURE_TEST_STATS_FAIL */
+    uint64_t test_fail_to_ms;
+    uint64_t test_fail_lost;
+    int test_fail;
+#endif
     uint8_t self_mac[6];
     int self_known;
     /* SAVE (M8): one file, written a batch a turn so the helper keeps answering */
@@ -625,11 +635,40 @@ static uint32_t ev_tick(struct helper *h)
     }
     h->ev_last_ms = t;
     if (h->ev_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
-        ppc_evid_tick(&h->ev, t,
-                      h->state == PPC_STATE_HOLD ? PPC_EVS_HELD : h->shed ? PPC_EVS_SHED : PPC_EVS_WATCHED,
-                      h->st.kdrop + h->st.ifdrop);
+        ppc_evid_tick(&h->ev, t, h->state == PPC_STATE_HOLD ? PPC_EVS_HELD : h->shed ? PPC_EVS_SHED : PPC_EVS_WATCHED);
     }
     return t;
+}
+
+/* Read the source's drop counters, and tell the history whether that could
+ * be done (N1.0): every reading, wherever it is made - the periodic one, at
+ * a MARK, for an answer to `evid`, at STOP - so that what was lost is
+ * placed by the readings that actually happened. 1 when read. */
+static int read_drops(struct helper *h)
+{
+    uint64_t kd = 0;
+    uint64_t ifd = 0;
+    int ok = h->src_open && h->src.ops->stats && h->src.ops->stats(&h->src, &kd, &ifd) == 0;
+
+#if POS_CAPTURE_TEST_HOOKS
+    if (ok && h->test_fail) {
+        uint64_t el = mono_ms() - h->start_ms;
+
+        if (el >= h->test_fail_from_ms && (h->test_fail_to_ms == 0 || el < h->test_fail_to_ms)) {
+            ok = 0;
+        } else if (h->test_fail_to_ms && el >= h->test_fail_to_ms) {
+            kd += h->test_fail_lost;
+        }
+    }
+#endif
+    if (ok) {
+        h->st.kdrop = kd;
+        h->st.ifdrop = ifd;
+    }
+    if (h->ev_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
+        ppc_evid_counters(&h->ev, ev_tick(h), ok, h->st.kdrop + h->st.ifdrop);
+    }
+    return ok;
 }
 
 /* What the network intelligence says of an ARP or DHCP frame, as it says
@@ -720,14 +759,8 @@ static void on_frame(void *ctx, const struct ppc_frame *f)
 
 static void stop_capture(struct helper *h, enum ppc_reason why, const char *detail)
 {
-    uint64_t kd;
-    uint64_t ifd;
-
     if (h->src_open) {
-        if (h->src.ops->stats && h->src.ops->stats(&h->src, &kd, &ifd) == 0) {
-            h->st.kdrop = kd;
-            h->st.ifdrop = ifd;
-        }
+        read_drops(h); /* the last reading, or the last that could not be made */
         /* The history's windows close where the capture stops. */
         if (h->ev_ready && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
             ppc_evid_stop(&h->ev, ev_tick(h), wall_s_now());
@@ -839,6 +872,17 @@ static void cmd_start(struct helper *h, const struct ppc_cmd *c)
     /* The same of the network intelligence and its tables. */
     h->net_ready = ppc_net_init(&h->net) == 0;
 #if POS_CAPTURE_TEST_HOOKS
+    {
+        const char *fail = getenv("POS_CAPTURE_TEST_STATS_FAIL");
+        char *end = NULL;
+
+        if (fail && *fail) {
+            h->test_fail_from_ms = strtoull(fail, &end, 10);
+            h->test_fail_to_ms = end && *end == ',' ? strtoull(end + 1, &end, 10) : 0;
+            h->test_fail_lost = end && *end == ',' ? strtoull(end + 1, NULL, 10) : 0;
+            h->test_fail = 1;
+        }
+    }
     {
         const char *no = getenv("POS_CAPTURE_TEST_NO_ANALYZER");
 
@@ -2054,24 +2098,15 @@ static void cmd_mark(struct helper *h)
     struct ppc_evt_mark e;
     uint32_t first;
     uint32_t last;
-    int exact = 1;
 
     if (!h->ev_ready || h->state == PPC_STATE_IDLE) {
         say_error(h, "state", "nothing has been captured");
         return;
     }
     if (h->src_open && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
-        uint64_t kd;
-        uint64_t ifd;
-
-        if (h->src.ops->stats && h->src.ops->stats(&h->src, &kd, &ifd) == 0) {
-            h->st.kdrop = kd;
-            h->st.ifdrop = ifd;
-        } else {
-            exact = 0;
-        }
+        read_drops(h);
     }
-    m = ppc_evid_mark(&h->ev, ev_tick(h), h->state, h->store_ready ? h->store.last_seq : 0, wall_s_now(), exact);
+    m = ppc_evid_mark(&h->ev, ev_tick(h), h->state, h->store_ready ? h->store.last_seq : 0, wall_s_now());
     if (!m) {
         say_error(h, "state", "nothing has been captured");
         return;
@@ -2130,6 +2165,11 @@ static void cmd_evid(struct helper *h, const struct ppc_cmd *c)
         return;
     }
     memset(&hd, 0, sizeof(hd));
+    /* Read now, so that an open window's losses are told up to now, or are
+     * said not to be known. */
+    if (h->src_open && (h->state == PPC_STATE_CAPTURING || h->state == PPC_STATE_HOLD)) {
+        read_drops(h);
+    }
     hd.now_ms = ev_tick(h); /* a window still filling is told up to now */
     m = ppc_evid_get(&h->ev, c->mark_id);
     if (!m) {
@@ -2147,6 +2187,9 @@ static void cmd_evid(struct helper *h, const struct ppc_cmd *c)
     hd.wall_s = m->wall_s;
     hd.cfilter = h->ev.cfilter;
     hd.unanalyzed = h->ev.unanalyzed;
+    hd.edge = m->edge;
+    hd.edge_from_ms = m->edge_from_ms;
+    hd.edge_to_ms = m->edge_to_ms;
     hd.edge_lost = m->edge_lost;
 #define EV_ADD(expr)                                                                                                   \
     do {                                                                                                               \
@@ -2172,6 +2215,15 @@ static void cmd_evid(struct helper *h, const struct ppc_cmd *c)
         e.kept = s->nkept;
         e.more = s->more;
         memcpy(e.count, s->count, sizeof(e.count));
+        e.lost_near = s->lost_near;
+        e.unknown = s->unknown;
+        e.unknown_from_ms = s->unknown_from_ms;
+        /* The window before, of a mark set while no reading could be made:
+         * unknown from the last good one (its window after says it too). */
+        if (w == 0 && m->edge == PPC_EV_EDGE_UNKNOWN) {
+            e.unknown = 1;
+            e.unknown_from_ms = m->edge_from_ms;
+        }
         EV_ADD(ppc_evt_format_ev_win(line, sizeof(line), &e));
         for (i = 0; i < s->nkept; i++) {
             const struct ppc_ev_obs *o = &s->kept[i];
@@ -2370,13 +2422,9 @@ static void tick(struct helper *h, uint64_t now)
         }
     }
     if (now >= h->next_stats_ms) {
-        uint64_t kd;
-        uint64_t ifd;
-
         h->next_stats_ms = now + STATS_EVERY_MS;
-        if (h->src_open && h->src.ops->stats && h->src.ops->stats(&h->src, &kd, &ifd) == 0) {
-            h->st.kdrop = kd;
-            h->st.ifdrop = ifd;
+        if (h->src_open) {
+            read_drops(h);
         }
         if (h->state != PPC_STATE_IDLE) {
             say_stats(h, 1);
@@ -2708,9 +2756,9 @@ static int run_bench(uint64_t frames)
             ppc_net_frame(&net, &r, f.data, f.cap_len, pay, (uint32_t)i + 1u);
             if ((i & 1023u) == 0) {
                 ppc_net_expire(&net, r.rel_ns);
-                ppc_evid_tick(&be.ev, (uint32_t)(r.rel_ns / 1000000u), PPC_EVS_WATCHED, 0);
+                ppc_evid_tick(&be.ev, (uint32_t)(r.rel_ns / 1000000u), PPC_EVS_WATCHED);
                 if (i == 1024u || (i & 0xfffffu) == 0) {
-                    ppc_evid_mark(&be.ev, (uint32_t)(r.rel_ns / 1000000u), PPC_STATE_CAPTURING, (uint32_t)i + 1u, 0, 1);
+                    ppc_evid_mark(&be.ev, (uint32_t)(r.rel_ns / 1000000u), PPC_STATE_CAPTURING, (uint32_t)i + 1u, 0);
                 }
             }
         }

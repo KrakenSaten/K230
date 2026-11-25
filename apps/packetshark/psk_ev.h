@@ -41,8 +41,9 @@ const char *psk_ev_when(const struct psk_evidence *ev, char *buf, size_t buflen)
  * why: what ended it short of a minute, or keeps it open - "THE CAPTURE
  * STARTED THEN", "STILL OPEN", "THE CAPTURE STOPPED THEN" - or "".
  * seen: "EVERY FRAME SEEN" ("EVERY CAPTURED FRAME SEEN" under a capture
- * filter), or what was not: "312 FRAMES LOST", "ON HOLD 14 S", "FRAMES LOST
- * AT THE MARK"; then the protocols it could not see: "ARP NOT CAPTURED",
+ * filter), or what was not: "312 FRAMES LOST", "ON HOLD 14 S", "40 LOST NEAR
+ * ITS START", "FRAMES LOST AT THE MARK", "LOSSES UNKNOWN" (since when is in
+ * the limits), "LOSS RECORD INCOMPLETE"; then the protocols it could not see: "ARP NOT CAPTURED",
  * "DNS NOT ANALYZED". Returns PSK_SEV_OK when every frame of the window was
  * seen and every protocol could be; PSK_SEV_WARN when frames were lost or
  * only counted, so something may be absent from it; PSK_SEV_NOTE when a
@@ -50,6 +51,10 @@ const char *psk_ev_when(const struct psk_evidence *ev, char *buf, size_t buflen)
  * not be seen, or it has no length. */
 unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head, size_t headlen, char *why,
                        size_t whylen, char *seen, size_t seenlen);
+
+/* The capture filter the evidence was gathered under, always:
+ * "CAPTURE FILTER \u00b7 EVERYTHING", "CAPTURE FILTER \u00b7 DNS AND DHCP". */
+const char *psk_ev_filter(const struct psk_evidence *ev, char *buf, size_t buflen);
 
 /* What was observed, counted: a line for a kind of message, with how many
  * were seen before the mark and after it ("DISCOVER", "4", "1"). A protocol
@@ -105,7 +110,9 @@ const char *psk_ev_side(const struct psk_evidence *ev, unsigned side, char *buf,
 const char *psk_ev_limits(const struct psk_evidence *ev, char *buf, size_t buflen);
 /* What to say when neither window holds an observation: of the protocols
  * the capture could see, and a quiet segment only when every second of
- * both windows was watched. */
+ * both windows was watched and its losses are known - and then of the
+ * traffic the capture filter let in, naming it. A protocol kept out by the
+ * filter and one not analysed are said apart. */
 const char *psk_ev_nothing(const struct psk_evidence *ev, char *buf, size_t buflen);
 
 /* How many marks the capture holds now: it keeps its newest eight. */

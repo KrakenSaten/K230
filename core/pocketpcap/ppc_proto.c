@@ -820,15 +820,25 @@ int ppc_evt_format_mark(char *buf, size_t n, const struct ppc_evt_mark *m)
 
 int ppc_evt_format_ev_begin(char *buf, size_t n, const struct ppc_evt_ev_head *h)
 {
+    char edge[64];
+
     if (!h->id || !h->first || h->first > h->id || h->id > h->last || h->state > PPC_STATE_STOPPED ||
-        h->cfilter >= PPC_CFILTER_COUNT || (h->unanalyzed & ~PPC_EV_CLASSES)) {
+        h->cfilter >= PPC_CFILTER_COUNT || (h->unanalyzed & ~PPC_EV_CLASSES) || h->edge > PPC_EV_EDGE_UNKNOWN ||
+        (h->edge == PPC_EV_EDGE_COUNTED && h->edge_to_ms <= h->edge_from_ms)) {
         return -1;
     }
-    return fmt(buf, n, "ev.begin\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%llu\t%u\t%s\t%x\t%llu\n", (unsigned)h->req,
+    if (h->edge == PPC_EV_EDGE_COUNTED) {
+        snprintf(edge, sizeof(edge), "%llu\t%u\t%u", (unsigned long long)h->edge_lost, (unsigned)h->edge_from_ms,
+                 (unsigned)h->edge_to_ms);
+    } else if (h->edge == PPC_EV_EDGE_UNKNOWN) {
+        snprintf(edge, sizeof(edge), "-\t%u\t-", (unsigned)h->edge_from_ms);
+    } else {
+        snprintf(edge, sizeof(edge), "0\t-\t-");
+    }
+    return fmt(buf, n, "ev.begin\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%llu\t%u\t%s\t%x\t%s\n", (unsigned)h->req,
                (unsigned)h->id, (unsigned)h->first, (unsigned)h->last, (unsigned)h->at_ms,
                ppc_state_name((enum ppc_state)h->state), (unsigned)h->seq, (unsigned long long)h->wall_s,
-               (unsigned)h->now_ms, ppc_cfilter_id((enum ppc_cfilter)h->cfilter), (unsigned)h->unanalyzed,
-               (unsigned long long)h->edge_lost);
+               (unsigned)h->now_ms, ppc_cfilter_id((enum ppc_cfilter)h->cfilter), (unsigned)h->unanalyzed, edge);
 }
 
 int ppc_evt_format_ev_win(char *buf, size_t n, const struct ppc_evt_ev_win *w)
@@ -854,6 +864,15 @@ int ppc_evt_format_ev_win(char *buf, size_t n, const struct ppc_evt_ev_win *w)
         }
         o += (size_t)k;
     }
+    if (w->unknown) {
+        k = snprintf(buf + o, n - o, "\t%llu\t%u", (unsigned long long)w->lost_near, (unsigned)w->unknown_from_ms);
+    } else {
+        k = snprintf(buf + o, n - o, "\t%llu\t-", (unsigned long long)w->lost_near);
+    }
+    if (k < 0 || (size_t)k >= n - o) {
+        return -1;
+    }
+    o += (size_t)k;
     if (o + 2 > n || o + 1 >= PPC_LINE_MAX) {
         return -1;
     }
@@ -1474,7 +1493,7 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         int st;
         int cf;
 
-        if (n != 13) {
+        if (n != 15) {
             return e->kind;
         }
         st = parse_state(f[6]);
@@ -1483,8 +1502,19 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         if (u32(f[1], &h->req) != 0 || u32(f[2], &h->id) != 0 || !h->id || u32(f[3], &h->first) != 0 || !h->first ||
             u32(f[4], &h->last) != 0 || h->first > h->id || h->id > h->last || u32(f[5], &h->at_ms) != 0 || st < 0 ||
             u32(f[7], &h->seq) != 0 || u64(f[8], &h->wall_s) != 0 || u32(f[9], &h->now_ms) != 0 || cf < 0 ||
-            !f[11][0] || f[11][0] == '-' || f[11][0] == '+' || !end || *end || (mask & ~(unsigned long)PPC_EV_CLASSES) ||
-            u64(f[12], &h->edge_lost) != 0) {
+            !f[11][0] || f[11][0] == '-' || f[11][0] == '+' || !end || *end || (mask & ~(unsigned long)PPC_EV_CLASSES)) {
+            return e->kind;
+        }
+        /* The counters at the mark: read ("0 - -"), not read and told later
+         * ("<lost> <from> <to>", to after from), or not known ("- <from> -"). */
+        if (strcmp(f[12], "0") == 0 && strcmp(f[13], "-") == 0 && strcmp(f[14], "-") == 0) {
+            h->edge = PPC_EV_EDGE_NONE;
+        } else if (strcmp(f[12], "-") == 0 && strcmp(f[14], "-") == 0 && u32(f[13], &h->edge_from_ms) == 0) {
+            h->edge = PPC_EV_EDGE_UNKNOWN;
+        } else if (u64(f[12], &h->edge_lost) == 0 && u32(f[13], &h->edge_from_ms) == 0 &&
+                   u32(f[14], &h->edge_to_ms) == 0 && h->edge_to_ms > h->edge_from_ms) {
+            h->edge = PPC_EV_EDGE_COUNTED;
+        } else {
             return e->kind;
         }
         h->state = (uint8_t)st;
@@ -1496,7 +1526,7 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
         uint32_t side;
         uint32_t flags;
 
-        if (n != 10 + (PPC_EV_KINDS - 1)) {
+        if (n != 10 + (PPC_EV_KINDS - 1) + 2) {
             return e->kind;
         }
         if (u32(f[1], &side) != 0 || side > 1 || u32(f[2], &flags) != 0 || (flags & ~PPC_EVW_ALL) ||
@@ -1509,6 +1539,15 @@ enum ppc_evt_kind ppc_evt_parse(const char *line, struct ppc_evt *e)
             if (u32(f[9 + i], &w->count[i]) != 0) {
                 return e->kind;
             }
+        }
+        if (u64(f[9 + PPC_EV_KINDS], &w->lost_near) != 0) {
+            return e->kind;
+        }
+        if (strcmp(f[10 + PPC_EV_KINDS], "-") != 0) {
+            if (u32(f[10 + PPC_EV_KINDS], &w->unknown_from_ms) != 0) {
+                return e->kind;
+            }
+            w->unknown = 1;
         }
         w->side = (uint8_t)side;
         w->flags = (uint8_t)flags;

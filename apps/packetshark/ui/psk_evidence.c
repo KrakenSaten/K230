@@ -259,6 +259,9 @@ void psk_evp_build(struct psk_app *a, lv_obj_t *page)
         a->ev_win_why[s] = wrapping(c, POS_STYLE_CAPTION);
         a->ev_win_seen[s] = wrapping(c, POS_STYLE_CAPTION);
     }
+    /* What the capture let in: every claim above and below is of that. */
+    a->ev_filter = wrapping(p, POS_STYLE_CAPTION);
+    lv_obj_set_style_pad_top(a->ev_filter, 6, 0);
 
     /* What was observed, counted: a table of three protocols. */
     p = psk_panel(a->ev_l, "OBSERVED" DOT "MESSAGES COUNTED");
@@ -430,9 +433,9 @@ void psk_evp_paint(struct psk_app *a)
     struct psk_ev_row rows[PSK_EV_ROWS];
     struct psk_ev_count counts[PSK_EV_COUNTS];
     unsigned used[2] = { 0, 0 };
-    char b[1024];
+    char b[2048];
     char c[64];
-    char d[96];
+    char d[256];
     unsigned n;
     unsigned i;
     unsigned s;
@@ -482,6 +485,7 @@ void psk_evp_paint(struct psk_app *a)
                                     : sev == PSK_SEV_OK ? (int)POS_STYLE_STATUS_OK_TEXT : -1,
                  false);
     }
+    psk_text(a->ev_filter, psk_ev_filter(ev, b, sizeof(b)));
 
     /* The counts, or the one sentence for windows that hold nothing. */
     psk_ev_nothing(ev, b, sizeof(b));

@@ -134,14 +134,41 @@ check "and every frame that is only counted marks its own second" \
 check "the evidence reports the capture filter only a live source applies, and the analyses that could not start" \
     "$(hbody cmd_start | grep -q 'ppc_evid_coverage(&h->ev, h->src.live ? c->cfilter : PPC_CFILTER_ALL,' &&
        hbody cmd_start | grep -q 'ppc_evid_unanalyzed(h->sig_ready, h->net_ready));' && echo 1 || echo 0)"
+# What is lost is known only where the counters were read (the follow-up
+# review of PR #188): one function reads them, and tells the history every
+# reading, made or not.
+check "the drop counters are read in one function, which tells the history whether each reading was made" \
+    "$([ "$(code $H | grep -c 'ops->stats(')" = "1" ] && hbody read_drops | grep -q 'h->src.ops->stats(&h->src, &kd, &ifd) == 0' &&
+       hbody read_drops | grep -q 'ppc_evid_counters(&h->ev, ev_tick(h), ok, h->st.kdrop + h->st.ifdrop);' &&
+       ! hbody read_drops | grep -q 'return 0;' && echo 1 || echo 0)"
 check "the lost-frame counters are read at the mark, before it is set" \
-    "$(hbody cmd_mark | grep -n 'h->src.ops->stats(&h->src, &kd, &ifd)\|ppc_evid_mark(' | cut -d: -f2 | tr '\n' ' ' |
-       grep -q 'if (h->src.ops->stats.*ppc_evid_mark(' && echo 1 || echo 0)"
+    "$(hbody cmd_mark | grep -n 'read_drops(h);\|ppc_evid_mark(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'read_drops(h);.*ppc_evid_mark(' && echo 1 || echo 0)"
+check "and for every answer of evidence, at STOP before the windows close, and on the 250 ms tick" \
+    "$(hbody cmd_evid | grep -n 'read_drops(h);\|hd.now_ms = ev_tick(h);' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'read_drops(h);.*hd.now_ms = ev_tick(h);' &&
+       hbody stop_capture | grep -n 'read_drops(h);\|ppc_evid_stop(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'read_drops(h);.*ppc_evid_stop(' && hbody tick | grep -q 'read_drops(h);' && echo 1 || echo 0)"
+check "the counter-failure switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS" \
+    "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_STATS_FAIL")')" = "1" ] &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_STATS_FAIL")' &&
+       [ "$(code $H | grep -c 'h->test_fail')" = "$(sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | code /dev/stdin | grep -c 'h->test_fail')" ] &&
+       echo 1 || echo 0)"
 check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
        sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
        grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&
        grep -q '^tests/pos_capture_hooks.o: tools/capture/pos_capture.c$' Makefile &&
        ! grep -rq 'POS_CAPTURE_TEST_HOOKS' platforms ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+# A window whose losses are not known never says every frame was seen; the
+# page names its capture filter every time it is painted.
+check "a window says its losses are not known before it may say every frame was seen" \
+    "$(sed -n -E '/^unsigned psk_ev_window\(/,/^}/p' $A/psk_ev.c | grep -n '"LOSSES UNKNOWN"\|EVERY FRAME SEEN' | cut -d: -f2- |
+       tr '\n' ' ' | grep -q '"LOSSES UNKNOWN".*EVERY FRAME SEEN' &&
+       sed -n -E '/^unsigned psk_ev_window\(/,/^}/p' $A/psk_ev.c | grep -q 'sev = w->shed_s || loss_limited(ev, side)' &&
+       echo 1 || echo 0)"
+check "the evidence page names its capture filter on every paint, never hidden" \
+    "$(sed -n -E '/^void psk_evp_paint\(/,/^}/p' $A/ui/psk_evidence.c | grep -q 'psk_text(a->ev_filter, psk_ev_filter(ev, b, sizeof(b)));' &&
+       ! grep -q 'psk_set_hidden(a->ev_filter' $A/ui/psk_evidence.c && echo 1 || echo 0)"
 # The page never calls a protocol it could not see quiet.
 check "a protocol the capture could not see is said as NOT CAPTURED or NOT ANALYZED, never as NONE SEEN" \
     "$(sed -n -E '/^unsigned psk_ev_counts\(/,/^}/p' $A/psk_ev.c | grep -q '"NOT CAPTURED" : "NOT ANALYZED"' &&

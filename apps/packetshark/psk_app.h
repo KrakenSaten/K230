@@ -467,6 +467,7 @@ struct psk_app {
     lv_obj_t *ev_win_head[2];
     lv_obj_t *ev_win_why[2];
     lv_obj_t *ev_win_seen[2];
+    lv_obj_t *ev_filter; /* the capture filter, always named */
     lv_obj_t *ev_counts_panel;
     lv_obj_t *ev_nothing;
     lv_obj_t *ev_counts;

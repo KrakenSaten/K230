@@ -212,7 +212,10 @@ check "before START there is nothing to mark: both are refused, and nothing is c
 # ---- the review of PR #188 (2026-11-25) ------------------------------------------------------
 # Fields of ev.begin: 2 req 3 id 4 first 5 last 6 at 7 state 8 seq 9 wall 10 now
 #   11 filter 12 unanalysed (hex mask: 4 DNS, 8 DHCP, 10 ARP) 13 lost at the mark
-# Counts in ev.win: DHCP 11-18, ARP 19-24, DNS 25-28.
+#   (- not known) 14 from 15 to: the readings around it (- none)
+# Fields of ev.win: 2 side 3 flags 4 span 5 watched 6 held 7 shed 8 lost; counts
+#   DHCP 11-18, ARP 19-24, DNS 25-28; 29 lost near its far end 30 losses not
+#   known since (- known).
 win_sum() { # <evidence> <side> <from> <to>: the counts of fields from..to
     awk -F'\t' -v s="$2" -v a="$3" -v b="$4" '$1 == "ev.win" && $2 == s { for (i = a; i <= b; i++) n += $i } END { print n + 0 }' "$1"
 }
@@ -296,10 +299,77 @@ if [ -n "$HOOKS" ] && [ -x "$HOOKS" ]; then
         printf 'start synth0 headers 0 all 0\n'; sleep 1.5
         printf 'mark\nevid 1 0\n'; sleep 0.3
         printf 'quit\n'
-    } | POS_CAPTURE_TEST_NO_ANALYZER=dns,net "$HELPER" session --source synth:2000:1 > "$T/no-shipped" 2>&1
+    } | POS_CAPTURE_TEST_NO_ANALYZER=dns,net POS_CAPTURE_TEST_STATS_FAIL=0,0 "$HELPER" session --source synth:2000:1 \
+        > "$T/no-shipped" 2>&1
     ev_of "$T/no-shipped" 1 > "$T/eno-shipped"
-    check "the shipped helper has no such switch: the same environment changes nothing (field 12 is 0)" \
-        "$([ "$(mask "$T/eno-shipped")" = "0" ] && [ "$(win_sum "$T/eno-shipped" 0 25 28)" -gt 0 ] && echo 1 || echo 0)"
+    check "the shipped helper has no such switches: the same environment changes nothing (field 12 is 0, losses known)" \
+        "$([ "$(mask "$T/eno-shipped")" = "0" ] && [ "$(win_sum "$T/eno-shipped" 0 25 28)" -gt 0 ] &&
+           awk -F'\t' '$1 == "ev.begin" && $13 == "0" && $14 == "-" { ok = 1 } END { exit !ok }' "$T/eno-shipped" &&
+           [ "$(awk -F'\t' '$1 == "ev.win" && $30 != "-"' "$T/eno-shipped" | wc -l)" = "0" ] && echo 1 || echo 0)"
+
+    # The follow-up review of PR #188 (2026-11-25): what is lost is known only
+    # where the counters were read. The test-hooks helper fails the readings
+    # from <from> ms after START to <to> ms, the ones after <lost> higher.
+    # Those times are on the monotonic clock from START; the evidence's are
+    # on the capture's own clock, from its first frame, a few milliseconds
+    # later (more under the sanitizers): the bounds below allow 100 ms.
+    hd() { awk -F'\t' -v k="$2" '$1 == "ev.begin" { print $k }' "$1"; }
+    wn() { awk -F'\t' -v s="$2" -v k="$3" '$1 == "ev.win" && $2 == s { print $k }' "$1"; }
+    # Failing over the mark, and back a second after it.
+    {
+        printf 'start synth0 headers 0 all 0\n'; sleep 2.0
+        printf 'mark\nevid 1 0\n'; sleep 1.7
+        printf 'evid 2 1\n'; sleep 0.3
+        printf 'quit\n'
+    } | POS_CAPTURE_TEST_STATS_FAIL=1000,3000,40 "$HOOKS" session --source synth:2000:1 > "$T/sf" 2>&1
+    ev_of "$T/sf" 1 > "$T/esf1"; ev_of "$T/sf" 2 > "$T/esf2"
+    sf_from=$(hd "$T/esf1" 14); sf_to=$(hd "$T/esf2" 15); sf_at=$(hd "$T/esf1" 6)
+    check "stats failing at the mark: its losses are not known (field 13 -) since the last good reading (${sf_from:-?} ms)" \
+        "$([ "$(hd "$T/esf1" 13)" = "-" ] && [ "${sf_from:-0}" -ge 400 ] && [ "$sf_from" -le 1000 ] &&
+           [ "$(hd "$T/esf1" 15)" = "-" ] && grep -qP '^mark\t1\t1\t\d+\tcapturing\t' "$T/sf" && echo 1 || echo 0)"
+    check "and neither window counts a loss or says its losses are known: both not known since then (field 30)" \
+        "$([ "$(wn "$T/esf1" 0 30)" = "$sf_from" ] && [ "$(wn "$T/esf1" 1 30)" = "$sf_from" ] &&
+           [ "$(wn "$T/esf1" 0 8)" = "0" ] && [ "$(wn "$T/esf1" 1 8)" = "0" ] && echo 1 || echo 0)"
+    check "recovered a second later: the 40 are counted at the mark, between the readings (${sf_from:-?} < ${sf_at:-?} < ${sf_to:-?} ms)" \
+        "$([ "$(hd "$T/esf2" 13)" = "40" ] && [ "$(hd "$T/esf2" 14)" = "$sf_from" ] && [ "${sf_at:-0}" -gt "$sf_from" ] &&
+           [ "${sf_to:-0}" -gt "$sf_at" ] && [ "$sf_to" -ge 2900 ] && [ "$sf_to" -le 3700 ] && echo 1 || echo 0)"
+    check "and in neither window: both count none, both now known" \
+        "$([ "$(wn "$T/esf2" 0 8)" = "0" ] && [ "$(wn "$T/esf2" 1 8)" = "0" ] && [ "$(wn "$T/esf2" 0 30)" = "-" ] &&
+           [ "$(wn "$T/esf2" 1 30)" = "-" ] && [ "$(wn "$T/esf2" 0 29)" = "0" ] && [ "$(wn "$T/esf2" 1 29)" = "0" ] &&
+           echo 1 || echo 0)"
+    # Three readings in a row failing, all before the mark.
+    {
+        printf 'start synth0 headers 0 all 0\n'; sleep 2.5
+        printf 'mark\nevid 1 0\n'; sleep 0.3
+        printf 'quit\n'
+    } | POS_CAPTURE_TEST_STATS_FAIL=500,1200,25 "$HOOKS" session --source synth:2000:1 > "$T/sr" 2>&1
+    ev_of "$T/sr" 1 > "$T/esr"
+    check "repeated failures over before the mark: their 25 are the window before's, nothing at the mark, all known" \
+        "$([ "$(hd "$T/esr" 13)" = "0" ] && [ "$(hd "$T/esr" 14)" = "-" ] && [ "$(wn "$T/esr" 0 8)" = "25" ] &&
+           [ "$(wn "$T/esr" 1 8)" = "0" ] && [ "$(wn "$T/esr" 0 30)" = "-" ] && [ "$(wn "$T/esr" 1 30)" = "-" ] &&
+           echo 1 || echo 0)"
+    # STOP while the counters cannot be read: never known, nor later.
+    {
+        printf 'start synth0 headers 0 all 0\n'; sleep 1.8
+        printf 'mark\n'; sleep 0.6
+        printf 'stop\n'; sleep 0.3
+        printf 'evid 1 1\n'; sleep 1.2
+        printf 'mark\nevid 2 1\nevid 3 2\n'; sleep 0.3
+        printf 'quit\n'
+    } | POS_CAPTURE_TEST_STATS_FAIL=1000,0 "$HOOKS" session --source synth:2000:1 > "$T/ss" 2>&1
+    ev_of "$T/ss" 1 > "$T/ess1"; ev_of "$T/ss" 2 > "$T/ess2"; ev_of "$T/ss" 3 > "$T/ess3"
+    ss_from=$(hd "$T/ess1" 14)
+    check "STOP while failing: the mark's losses stay not known (since ${ss_from:-?} ms), its window after cut and not known" \
+        "$([ "$(hd "$T/ess1" 13)" = "-" ] && [ "${ss_from:-0}" -ge 400 ] && [ "$ss_from" -le 1000 ] &&
+           [ "$(wn "$T/ess1" 1 3)" = "2" ] && [ "$(wn "$T/ess1" 1 30)" = "$ss_from" ] &&
+           [ "$(wn "$T/ess1" 0 30)" = "$ss_from" ] && echo 1 || echo 0)"
+    check "and so they stay after STOP: no reading is made, none is invented" \
+        "$(diff <(grep -vP '^ev\.begin' "$T/ess1" | sed 's/^\(ev\.[a-z]*\)\t[0-9]*/\1/') \
+                <(grep -vP '^ev\.begin' "$T/ess2" | sed 's/^\(ev\.[a-z]*\)\t[0-9]*/\1/') > /dev/null &&
+           [ "$(hd "$T/ess2" 13)" = "-" ] && [ "$(hd "$T/ess2" 14)" = "$ss_from" ] && echo 1 || echo 0)"
+    check "a mark set after STOP stands in the same spell: its losses are not known either" \
+        "$(grep -qP '^mark\t2\t1\t\d+\tstopped\t' "$T/ss" && [ "$(hd "$T/ess3" 13)" = "-" ] &&
+           [ "$(hd "$T/ess3" 14)" = "$ss_from" ] && [ "$(wn "$T/ess3" 0 30)" = "$ss_from" ] && echo 1 || echo 0)"
 else
     echo "note: no pos-capture-testhooks given: the analyses that could not start are not tried here"
 fi

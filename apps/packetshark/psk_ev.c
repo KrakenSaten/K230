@@ -195,6 +195,53 @@ static const char *class_list(uint8_t mask, const char *word, char *buf, size_t 
     return buf;
 }
 
+/* What is not known of a window's losses: a spell without a counter
+ * reading still open in it (or around its mark), or spells the record did
+ * not keep. */
+static int loss_unknown(const struct psk_evidence *ev, unsigned side, uint32_t *from)
+{
+    const struct ppc_evt_ev_win *w = &ev->win[side ? 1 : 0];
+
+    if (w->unknown) {
+        *from = w->unknown_from_ms;
+        return 1;
+    }
+    if (ev->head.edge == PPC_EV_EDGE_UNKNOWN && w->span_ms) {
+        *from = ev->head.edge_from_ms;
+        return 1;
+    }
+    return 0;
+}
+
+/* Whether anything limits what a window says of its frames. */
+static int loss_limited(const struct psk_evidence *ev, unsigned side)
+{
+    const struct ppc_evt_ev_win *w = &ev->win[side ? 1 : 0];
+    uint32_t from;
+
+    return w->lost || w->lost_near || (w->flags & PPC_EVW_LOSSES_DROPPED) || loss_unknown(ev, side, &from) ||
+           (ev->head.edge == PPC_EV_EDGE_COUNTED && ev->head.edge_lost) ||
+           (ev->head.edge == PPC_EV_EDGE_UNKNOWN);
+}
+
+/* When the counters stopped being read, in a sentence: "04:10", or "the
+ * start" when they never were. A window's own line says only LOSSES
+ * UNKNOWN: a clock time in a narrow caption would break at its colon. */
+static const char *since_text(uint32_t from, char *buf, size_t buflen)
+{
+    if (from == 0) {
+        snprintf(buf, buflen, "the start");
+        return buf;
+    }
+    return psk_fmt_elapsed(from, buf, buflen);
+}
+
+const char *psk_ev_filter(const struct psk_evidence *ev, char *buf, size_t buflen)
+{
+    snprintf(buf, buflen, "CAPTURE FILTER" DOT "%s", psk_cfilter_label((enum ppc_cfilter)ev->head.cfilter));
+    return buf;
+}
+
 uint8_t psk_ev_classes(void)
 {
     return (uint8_t)(1u << PPC_CLASS_DHCP | 1u << PPC_CLASS_ARP | 1u << PPC_CLASS_DNS);
@@ -280,10 +327,25 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
     if (w->lost) {
         part(seen, seenlen, "%s FRAME%s LOST", psk_fmt_count(w->lost, a, sizeof(a)), w->lost == 1 ? "" : "S");
     }
-    /* Frames lost too close to the mark to place: both windows touch them.
-     * Their number is told once, in the limits. */
-    if (ev->head.edge_lost) {
+    /* Lost in a spell that reaches past the window's far end: apart. */
+    if (w->lost_near) {
+        part(seen, seenlen, "%s LOST NEAR ITS %s", psk_fmt_count(w->lost_near, a, sizeof(a)), side ? "END" : "START");
+    }
+    /* Frames lost while no reading could be made over the mark: both windows
+     * touch them. Their number is told once, in the limits. */
+    if (ev->head.edge == PPC_EV_EDGE_COUNTED && ev->head.edge_lost) {
         part(seen, seenlen, "FRAMES LOST AT THE MARK");
+    }
+    {
+        uint32_t from;
+
+        /* Since when is told in the limits. */
+        if (loss_unknown(ev, side, &from)) {
+            part(seen, seenlen, "LOSSES UNKNOWN");
+        }
+    }
+    if (w->flags & PPC_EVW_LOSSES_DROPPED) {
+        part(seen, seenlen, "LOSS RECORD INCOMPLETE");
     }
     /* Seconds are counted whole, so a window that is not on a second's edge
      * touches one more than it is long: never said as more than the length
@@ -298,7 +360,7 @@ unsigned psk_ev_window(const struct psk_evidence *ev, unsigned side, char *head,
         part(seen, seenlen, "OLDEST NOT KEPT");
     }
     if (seen[0]) {
-        sev = w->lost || w->shed_s || ev->head.edge_lost ? PSK_SEV_WARN : PSK_SEV_NOTE;
+        sev = w->shed_s || loss_limited(ev, side) ? PSK_SEV_WARN : PSK_SEV_NOTE;
     } else {
         /* Every frame there was to see: under a capture filter, every frame
          * it let in. */
@@ -704,10 +766,44 @@ const char *psk_ev_limits(const struct psk_evidence *ev, char *buf, size_t bufle
                           "a request or a reply may be among what was lost.",
              psk_fmt_count(b->lost, a, sizeof(a)), psk_fmt_count(f->lost, c, sizeof(c)));
     }
-    if (ev->head.edge_lost) {
-        line(buf, buflen, "%s frame%s lost so close to the mark that it cannot be told whether before or after it: "
-                          "counted once, here, in neither window.",
-             psk_fmt_count(ev->head.edge_lost, a, sizeof(a)), ev->head.edge_lost == 1 ? " was" : "s were");
+    /* The counters of lost frames, where they could not be read. */
+    {
+        int stopped = !(f->flags & PPC_EVW_OPEN) && ((f->flags & PPC_EVW_CUT_STOP) || f->span_ms == 0);
+        char t1[24];
+        char t2[24];
+        uint32_t from;
+
+        if (ev->head.edge == PPC_EV_EDGE_COUNTED && ev->head.edge_lost) {
+            line(buf, buflen, "%s frame%s lost between %s and %s, while the counters could not be read: whether before "
+                              "or after the mark is not known. Counted once, here, in neither window.",
+                 psk_fmt_count(ev->head.edge_lost, a, sizeof(a)), ev->head.edge_lost == 1 ? " was" : "s were",
+                 psk_fmt_elapsed(ev->head.edge_from_ms, t1, sizeof(t1)), psk_fmt_elapsed(ev->head.edge_to_ms, t2, sizeof(t2)));
+        } else if (ev->head.edge == PPC_EV_EDGE_UNKNOWN) {
+            line(buf, buflen, "%s %s the counters of lost frames could not be read%s: what was lost %s is not known, "
+                              "and is counted in neither window.",
+                 stopped ? "From" : "Since", since_text(ev->head.edge_from_ms, t1, sizeof(t1)),
+                 stopped ? " until the capture stopped" : "", stopped ? "then" : "from then on");
+        } else if (f->unknown) {
+            from = f->unknown_from_ms;
+            line(buf, buflen, "%s %s the counters of lost frames could not be read%s: what the window after the mark "
+                              "lost %s is not known.",
+                 stopped ? "From" : "Since", since_text(from, t1, sizeof(t1)),
+                 stopped ? " until the capture stopped" : "", stopped ? "then" : "from then on");
+        }
+        if (b->lost_near) {
+            line(buf, buflen, "%s frame%s lost while the counters could not be read, in a spell that began before the "
+                              "window before the mark: they may be from before it, so they are told apart.",
+                 psk_fmt_count(b->lost_near, a, sizeof(a)), b->lost_near == 1 ? " was" : "s were");
+        }
+        if (f->lost_near) {
+            line(buf, buflen, "%s frame%s lost while the counters could not be read, in a spell that ended after the "
+                              "window after the mark: they may be from after it, so they are told apart.",
+                 psk_fmt_count(f->lost_near, a, sizeof(a)), f->lost_near == 1 ? " was" : "s were");
+        }
+        if ((b->flags | f->flags) & PPC_EVW_LOSSES_DROPPED) {
+            line(buf, buflen, "The counters could not be read more often than the record of such spells holds: the "
+                              "count of frames lost before the mark may be short.");
+        }
     }
     if (b->held_s || f->held_s) {
         line(buf, buflen, "The capture was on HOLD for part of this time. Nothing was looked at then, so nothing "
@@ -742,9 +838,15 @@ const char *psk_ev_nothing(const struct psk_evidence *ev, char *buf, size_t bufl
 {
     const struct ppc_evt_ev_win *b = &ev->win[0];
     const struct ppc_evt_ev_win *f = &ev->win[1];
-    int limited = b->lost || f->lost || b->held_s || f->held_s || b->shed_s || f->shed_s || ev->head.edge_lost;
+    int limited = b->held_s || f->held_s || b->shed_s || f->shed_s || loss_limited(ev, 0) || loss_limited(ev, 1);
+    /* Only what was lost is not known: nothing says part was unwatched. */
+    int unknown = !(b->held_s || f->held_s || b->shed_s || f->shed_s || b->lost || f->lost || b->lost_near ||
+                    f->lost_near || (ev->head.edge == PPC_EV_EDGE_COUNTED && ev->head.edge_lost));
+    uint8_t excluded = excluded_of(ev);
+    uint8_t unanalyzed = unanalyzed_of(ev);
     uint8_t blind = blind_of(ev);
     uint8_t visible = (uint8_t)(PPC_EV_CLASSES & ~blind);
+    const char *filter = psk_cfilter_label((enum ppc_cfilter)ev->head.cfilter);
     char c[40];
     char d[40];
 
@@ -760,16 +862,33 @@ const char *psk_ev_nothing(const struct psk_evidence *ev, char *buf, size_t bufl
     snprintf(buf, buflen, "No %s message was seen in either window.", class_list(visible, "or", c, sizeof(c)));
     if (b->span_ms == 0 && f->span_ms == 0) {
         more(buf, buflen, " Neither window has any length yet.");
-    } else if (limited) {
-        more(buf, buflen, " Part of the time was not fully watched, so this is not proof that none was sent.");
-    } else if (blind) {
-        more(buf, buflen, " The capture was watching throughout: for %s the segment was quiet. %s could not be seen "
-                          "in this capture, so nothing is said of it, nor of what other devices sent to each other.",
-             class_list(visible, "and", c, sizeof(c)), class_list(blind, "and", d, sizeof(d)));
-    } else {
-        more(buf, buflen, " The capture was watching throughout: for these protocols the segment was quiet. It "
-                          "says nothing of what other devices sent to each other.");
+        return buf;
     }
+    if (limited) {
+        more(buf, buflen, " %s, so this is not proof that none was sent.",
+             unknown ? "Whether frames were lost for part of the time is not known"
+                     : "Part of the time was not fully watched");
+        return buf;
+    }
+    /* Quiet, of what the capture could see and of what its filter let in. */
+    if (ev->head.cfilter != PPC_CFILTER_ALL) {
+        more(buf, buflen, " The capture was watching throughout: for %s, the traffic its filter (%s) let in was quiet.",
+             blind ? class_list(visible, "and", c, sizeof(c)) : "these protocols", filter);
+    } else {
+        more(buf, buflen, " The capture was watching throughout: for %s the segment was quiet.",
+             blind ? class_list(visible, "and", c, sizeof(c)) : "these protocols");
+    }
+    if (excluded) {
+        more(buf, buflen, " %s %s kept out by the filter.", class_list(excluded, "and", d, sizeof(d)),
+             (excluded & (excluded - 1u)) ? "were" : "was");
+    }
+    if (unanalyzed) {
+        more(buf, buflen, " %s %s not analyzed.", class_list(unanalyzed, "and", d, sizeof(d)),
+             (unanalyzed & (unanalyzed - 1u)) ? "were" : "was");
+    }
+    more(buf, buflen, " %s", blind ? "Nothing is said of what could not be seen, nor of what other devices sent to "
+                                     "each other."
+                                   : "It says nothing of what other devices sent to each other.");
     return buf;
 }
 

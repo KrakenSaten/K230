@@ -43,6 +43,14 @@ static void check(const char *what, int ok)
     }
 }
 
+/* A tick, and a successful reading of the drop counters at it, as the
+ * helper makes one every 250 ms. */
+static void tick_read(struct ppc_evid *ev, uint32_t t_ms, unsigned flags, uint64_t lost)
+{
+    ppc_evid_tick(ev, t_ms, flags);
+    ppc_evid_counters(ev, t_ms, 1, lost);
+}
+
 /* ---- the player ---------------------------------------------------------------------------- */
 
 struct play {
@@ -121,7 +129,7 @@ static void play(struct play *p, const struct fx *f, uint32_t cadence_ms)
         const struct fx_step *s = &f->step[i];
 
         while (next <= s->t_ms) {
-            ppc_evid_tick(&p->ev, next, p->state, p->lost);
+            tick_read(&p->ev, next, p->state, p->lost);
             next += cadence_ms;
         }
         switch (s->op) {
@@ -133,20 +141,20 @@ static void play(struct play *p, const struct fx *f, uint32_t cadence_ms)
             break;
         case FX_HOLD_ON:
         case FX_HOLD_OFF:
-            ppc_evid_tick(&p->ev, s->t_ms, p->state, p->lost);
+            tick_read(&p->ev, s->t_ms, p->state, p->lost);
             p->state = s->op == FX_HOLD_ON ? PPC_EVS_HELD : PPC_EVS_WATCHED;
-            ppc_evid_tick(&p->ev, s->t_ms, p->state, p->lost);
+            tick_read(&p->ev, s->t_ms, p->state, p->lost);
             break;
         case FX_MARK:
-            ppc_evid_tick(&p->ev, s->t_ms, p->state, p->lost);
+            tick_read(&p->ev, s->t_ms, p->state, p->lost);
             if (p->nmarks < 4) {
                 p->mark_id[p->nmarks++] =
-                    ppc_evid_mark(&p->ev, s->t_ms, p->state == PPC_EVS_HELD ? PPC_STATE_HOLD : PPC_STATE_CAPTURING, p->seq, 0, 1)
+                    ppc_evid_mark(&p->ev, s->t_ms, p->state == PPC_EVS_HELD ? PPC_STATE_HOLD : PPC_STATE_CAPTURING, p->seq, 0)
                         ->id;
             }
             break;
         case FX_STOP:
-            ppc_evid_tick(&p->ev, s->t_ms, p->state, p->lost);
+            tick_read(&p->ev, s->t_ms, p->state, p->lost);
             ppc_evid_stop(&p->ev, s->t_ms, 0);
             break;
         default:
@@ -493,15 +501,15 @@ static void edges(void)
     check("init: one allocation, sized as documented",
           ppc_evid_init(&ev) == 0 && ppc_evid_bytes() == PPC_EV_HISTORY * 32u + PPC_EV_MARKS * sizeof(struct ppc_ev_mark));
     check("no mark is held before one is set", ppc_evid_get(&ev, 0) == NULL && ppc_evid_ids(&ev, &first, &last) == 0);
-    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
-    ppc_evid_tick(&ev, 1000, PPC_EVS_WATCHED, 0);
-    m = ppc_evid_mark(&ev, 1500, PPC_STATE_CAPTURING, 0, 0, 1);
+    tick_read(&ev, 0, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 1000, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 1500, PPC_STATE_CAPTURING, 0, 0);
     check("a mark 1.5 s after START: the window before is 1.5 s, cut at START, empty, no packet yet",
           m && m->id == 1 && m->side[0].span_ms == 1500 && (m->side[0].flags & PPC_EVW_CUT_START) && m->seq == 0 &&
               total_of(&m->side[0]) == 0 && (m->side[1].flags & PPC_EVW_OPEN) && m->side[1].span_ms == 0);
     /* The window after fills as the clock is told. */
     note_at(&ev, 2000, PPC_EV_DHCP_DISCOVER, PPC_EVF_BCAST, 1);
-    ppc_evid_tick(&ev, 2500, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 2500, PPC_EVS_WATCHED, 0);
     m = ppc_evid_get(&ev, 1);
     check("the window after is open and grows: 1 s, one observation", m->side[1].span_ms == 1000 &&
                                                                          (m->side[1].flags & PPC_EVW_OPEN) &&
@@ -513,19 +521,19 @@ static void edges(void)
 
     /* HOLD: a mark on HOLD says so, and both windows tell the seconds held. */
     for (t = 3000; t <= 10000; t += 1000) {
-        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+        tick_read(&ev, t, PPC_EVS_WATCHED, 0);
     }
     for (t = 11000; t <= 20000; t += 1000) {
-        ppc_evid_tick(&ev, t, PPC_EVS_HELD, 0);
+        tick_read(&ev, t, PPC_EVS_HELD, 0);
     }
-    m = ppc_evid_mark(&ev, 20500, PPC_STATE_HOLD, 2, 0, 1);
+    m = ppc_evid_mark(&ev, 20500, PPC_STATE_HOLD, 2, 0);
     check("a mark on HOLD records the state and the 10 s held before it",
           m && m->id == 2 && m->state == PPC_STATE_HOLD && m->side[0].held_s == 10 && m->side[0].watched_s >= 10);
     for (t = 21000; t <= 25000; t += 1000) {
-        ppc_evid_tick(&ev, t, PPC_EVS_HELD, 0);
+        tick_read(&ev, t, PPC_EVS_HELD, 0);
     }
     for (t = 26000; t <= 30000; t += 1000) {
-        ppc_evid_tick(&ev, t, PPC_EVS_SHED, 40);
+        tick_read(&ev, t, PPC_EVS_SHED, 40);
     }
     m = ppc_evid_get(&ev, 2);
     /* 20.5 s to 30 s touches seconds 20 to 29: six held, four shed. */
@@ -534,14 +542,14 @@ static void edges(void)
 
     /* STOP: open windows close where the capture stopped; a mark after STOP
      * is set at the stop. */
-    ppc_evid_tick(&ev, 31000, PPC_EVS_WATCHED, 40);
+    tick_read(&ev, 31000, PPC_EVS_WATCHED, 40);
     ppc_evid_stop(&ev, 31200, 0);
     m = ppc_evid_get(&ev, 2);
     check("STOP closes the window after: cut, 10.7 s",
           !(m->side[1].flags & PPC_EVW_OPEN) && (m->side[1].flags & PPC_EVW_CUT_STOP) && m->side[1].span_ms == 10700);
     note_at(&ev, 31300, PPC_EV_DHCP_ACK, 0, 3);
     check("nothing is counted into a closed window", m->side[1].count[PPC_EV_DHCP_ACK] == 0);
-    m = ppc_evid_mark(&ev, 40000, PPC_STATE_STOPPED, 3, 0, 1);
+    m = ppc_evid_mark(&ev, 40000, PPC_STATE_STOPPED, 3, 0);
     check("a mark after STOP is set where the capture stopped, its window after empty and cut",
           m && m->id == 3 && m->at_ms == 31200 && m->state == PPC_STATE_STOPPED && m->side[1].span_ms == 0 &&
               (m->side[1].flags & PPC_EVW_CUT_STOP) && !(m->side[1].flags & PPC_EVW_OPEN));
@@ -549,13 +557,13 @@ static void edges(void)
 
     /* The history's bound. */
     ppc_evid_init(&ev);
-    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 0, PPC_EVS_WATCHED, 0);
     for (i = 0; i < PPC_EV_HISTORY + 500u; i++) {
         note_at(&ev, 100000u + i * 10u, PPC_EV_ARP_REQUEST, PPC_EVF_PLAIN | PPC_EVF_BCAST, i + 1u);
     }
     note_at(&ev, 126000, PPC_EV_DHCP_NAK, PPC_EVF_BCAST, 9001);
-    ppc_evid_tick(&ev, 126000, PPC_EVS_WATCHED, 0);
-    m = ppc_evid_mark(&ev, 126100, PPC_STATE_CAPTURING, 9001, 0, 1);
+    tick_read(&ev, 126000, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 126100, PPC_STATE_CAPTURING, 9001, 0);
     check("more observations than the history holds: the mark says so, and counts what remained",
           m && (m->side[0].flags & PPC_EVW_HISTORY) && total_of(&m->side[0]) == PPC_EV_HISTORY &&
               m->side[0].count[PPC_EV_DHCP_NAK] == 1);
@@ -580,14 +588,14 @@ static void edges(void)
 
     /* Nine marks: the first is gone, ids are never reused. */
     for (i = 0; i < PPC_EV_MARKS; i++) {
-        ppc_evid_mark(&ev, 127000u + i * 100u, PPC_STATE_CAPTURING, 9300, 0, 1);
+        ppc_evid_mark(&ev, 127000u + i * 100u, PPC_STATE_CAPTURING, 9300, 0);
     }
     check("the ninth mark replaces the first: eight are held, 2 to 9",
           ppc_evid_ids(&ev, &first, &last) == PPC_EV_MARKS && first == 2 && last == 9 && ppc_evid_get(&ev, 1) == NULL &&
               ppc_evid_get(&ev, 2) && ppc_evid_get(&ev, 9)->id == 9 && ppc_evid_get(&ev, 0)->id == 9 &&
               ppc_evid_get(&ev, 10) == NULL);
     ppc_evid_free(&ev);
-    check("freed: nothing is held and nothing is taken", ev.mem == NULL && ppc_evid_mark(&ev, 0, 0, 0, 0, 1) == NULL &&
+    check("freed: nothing is held and nothing is taken", ev.mem == NULL && ppc_evid_mark(&ev, 0, 0, 0, 0) == NULL &&
                                                              ppc_evid_get(&ev, 0) == NULL);
 }
 
@@ -635,7 +643,7 @@ static void coverage(void)
      * there (a replay applies no filter, so one could come): not taken. */
     ppc_evid_init(&ev);
     ppc_evid_coverage(&ev, PPC_CFILTER_NAMES, 0);
-    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 0, PPC_EVS_WATCHED, 0);
     note_at(&ev, 100, PPC_EV_ARP_REQUEST, 0, 1);
     note_at(&ev, 200, PPC_EV_DHCP_DISCOVER, PPC_EVF_BCAST, 2);
     note_at(&ev, 300, PPC_EV_DNS_QUERY, PPC_EVF_OWN, 3);
@@ -674,7 +682,7 @@ static void bursts(void)
      * only counted. Told as frames (ppc_evid_bypass), the second knows. */
     ppc_evid_init(&ev);
     for (t = 0; t <= 2500; t += 250) {
-        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+        tick_read(&ev, t, PPC_EVS_WATCHED, 0);
         if (t == 1000) {
             uint32_t f;
 
@@ -683,7 +691,7 @@ static void bursts(void)
             }
         }
     }
-    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0, 1);
+    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0);
     check("burst: 80 ms counted between two ticks: the window before has a second counted only",
           m && m->side[0].shed_s == 1 && m->side[0].watched_s == 3);
     ppc_evid_free(&ev);
@@ -691,24 +699,24 @@ static void bursts(void)
      * and stops shedding, and no frame told: the second knows too. */
     ppc_evid_init(&ev);
     for (t = 0; t <= 2500; t += 250) {
-        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+        tick_read(&ev, t, PPC_EVS_WATCHED, 0);
         if (t == 1000) {
-            ppc_evid_tick(&ev, 1100, PPC_EVS_WATCHED, 0);
-            ppc_evid_tick(&ev, 1100, PPC_EVS_SHED, 0);
-            ppc_evid_tick(&ev, 1180, PPC_EVS_SHED, 0);
-            ppc_evid_tick(&ev, 1180, PPC_EVS_WATCHED, 0);
+            tick_read(&ev, 1100, PPC_EVS_WATCHED, 0);
+            tick_read(&ev, 1100, PPC_EVS_SHED, 0);
+            tick_read(&ev, 1180, PPC_EVS_SHED, 0);
+            tick_read(&ev, 1180, PPC_EVS_WATCHED, 0);
         }
     }
-    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0, 1);
+    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0);
     check("burst: told at its two edges alone, the second is counted only as well", m && m->side[0].shed_s == 1);
     ppc_evid_free(&ev);
     /* Neither: what the 250 ms tick alone would say. The helper may not
      * leave it at that (tests/packetshark_lint.sh). */
     ppc_evid_init(&ev);
     for (t = 0; t <= 2500; t += 250) {
-        ppc_evid_tick(&ev, t, PPC_EVS_WATCHED, 0);
+        tick_read(&ev, t, PPC_EVS_WATCHED, 0);
     }
-    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0, 1);
+    m = ppc_evid_mark(&ev, 2500, PPC_STATE_CAPTURING, 9, 0);
     check("burst: the tick alone cannot see it (why the helper tells the frames and the edges)",
           m && m->side[0].shed_s == 0);
     /* A frame of the window before, counted only and handed over after the
@@ -718,11 +726,11 @@ static void bursts(void)
           m->side[0].shed_s == 1);
     ppc_evid_bypass(&ev, 1950);
     check("burst: the same second is written once", m->side[0].shed_s == 1);
-    ppc_evid_tick(&ev, 3000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 3000, PPC_EVS_WATCHED, 0);
     ppc_evid_bypass(&ev, 3100);
-    ppc_evid_tick(&ev, 3250, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 3250, PPC_EVS_WATCHED, 0);
     check("burst: one after the mark is in the window after", m->side[1].shed_s == 1);
-    ppc_evid_tick(&ev, 200000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 200000, PPC_EVS_WATCHED, 0);
     ppc_evid_bypass(&ev, 1000);
     ppc_evid_bypass(&ev, 500000);
     check("burst: a stamp older than the ring or ahead of the clock writes nothing",
@@ -730,63 +738,260 @@ static void bursts(void)
     ppc_evid_free(&ev);
 }
 
-/* P2: frames lost either side of a mark in its own second. */
+/* P2: frames lost either side of a mark in its own second, all read. */
 static void boundary_losses(void)
 {
     struct ppc_evid ev;
     const struct ppc_ev_mark *m;
-    int exact;
 
-    for (exact = 1; exact >= 0; exact--) {
-        ppc_evid_init(&ev);
-        ppc_evid_tick(&ev, 9000, PPC_EVS_WATCHED, 0);
-        ppc_evid_tick(&ev, 10100, PPC_EVS_WATCHED, 0);
-        ppc_evid_tick(&ev, 10300, PPC_EVS_WATCHED, 100); /* 100 read before the mark */
-        ppc_evid_tick(&ev, 10500, PPC_EVS_WATCHED, 150); /* 50 more, read at the mark */
-        m = ppc_evid_mark(&ev, 10500, PPC_STATE_CAPTURING, 5, 0, exact);
-        ppc_evid_tick(&ev, 10700, PPC_EVS_WATCHED, 230); /* 80 read just after it, the same second */
-        ppc_evid_tick(&ev, 11200, PPC_EVS_WATCHED, 230);
-        ppc_evid_tick(&ev, 12000, PPC_EVS_WATCHED, 260); /* 30 well after it */
-        if (exact) {
-            check("losses, counters read at the mark: 150 before it, 110 after it, none left over, 260 in all",
-                  m->side[0].lost == 150 && m->side[1].lost == 110 && m->edge_lost == 0 &&
-                      m->side[0].lost + m->side[1].lost + m->edge_lost == 260);
-        } else {
-            check("losses, counters not read at the mark: 150 before it, the 80 read within a second of it told "
-                  "apart, 30 after it, 260 in all",
-                  m->side[0].lost == 150 && m->edge_lost == 80 && m->side[1].lost == 30 &&
-                      m->side[0].lost + m->side[1].lost + m->edge_lost == 260);
-        }
-        ppc_evid_free(&ev);
-    }
-    /* Before the fix the window after counted the mark's second whole. */
     ppc_evid_init(&ev);
-    ppc_evid_tick(&ev, 10000, PPC_EVS_WATCHED, 0);
-    ppc_evid_tick(&ev, 10400, PPC_EVS_WATCHED, 70);
-    m = ppc_evid_mark(&ev, 10400, PPC_STATE_CAPTURING, 5, 0, 1);
-    ppc_evid_tick(&ev, 10600, PPC_EVS_WATCHED, 70);
-    ppc_evid_tick(&ev, 11000, PPC_EVS_WATCHED, 70);
+    tick_read(&ev, 9000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 10100, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 10300, PPC_EVS_WATCHED, 100); /* 100 read before the mark */
+    tick_read(&ev, 10500, PPC_EVS_WATCHED, 150); /* 50 more, read at the mark */
+    m = ppc_evid_mark(&ev, 10500, PPC_STATE_CAPTURING, 5, 0);
+    tick_read(&ev, 10700, PPC_EVS_WATCHED, 230); /* 80 read just after it, the same second */
+    tick_read(&ev, 11200, PPC_EVS_WATCHED, 230);
+    tick_read(&ev, 12000, PPC_EVS_WATCHED, 260); /* 30 well after it */
+    check("losses, counters read at the mark: 150 before it, 110 after it, none around it, 260 in all",
+          m->side[0].lost == 150 && m->side[1].lost == 110 && m->edge == PPC_EV_EDGE_NONE &&
+              m->side[0].lost + m->side[1].lost == 260);
+    ppc_evid_free(&ev);
+    /* Before the fix of the first review the window after counted the
+     * mark's second whole. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 10000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 10400, PPC_EVS_WATCHED, 70);
+    m = ppc_evid_mark(&ev, 10400, PPC_STATE_CAPTURING, 5, 0);
+    tick_read(&ev, 10600, PPC_EVS_WATCHED, 70);
+    tick_read(&ev, 11000, PPC_EVS_WATCHED, 70);
     check("losses: 70 lost before a mark in its own second are counted before it and not after it as well",
           m->side[0].lost == 70 && m->side[1].lost == 0);
     ppc_evid_free(&ev);
     /* A mark on a second's edge: what was read at it is still before it. */
     ppc_evid_init(&ev);
-    ppc_evid_tick(&ev, 10500, PPC_EVS_WATCHED, 0);
-    ppc_evid_tick(&ev, 11000, PPC_EVS_WATCHED, 40);
-    m = ppc_evid_mark(&ev, 11000, PPC_STATE_CAPTURING, 5, 0, 1);
-    ppc_evid_tick(&ev, 11300, PPC_EVS_WATCHED, 55);
+    tick_read(&ev, 10500, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 11000, PPC_EVS_WATCHED, 40);
+    m = ppc_evid_mark(&ev, 11000, PPC_STATE_CAPTURING, 5, 0);
+    tick_read(&ev, 11300, PPC_EVS_WATCHED, 55);
     check("losses: a mark on a second's edge keeps what was read at it before it (40) and what came after after (15)",
-          m->side[0].lost == 40 && m->side[1].lost == 15 && m->edge_lost == 0);
+          m->side[0].lost == 40 && m->side[1].lost == 15 && m->edge == PPC_EV_EDGE_NONE);
     ppc_evid_free(&ev);
     /* After STOP the counters were read at STOP: a later mark has them all. */
     ppc_evid_init(&ev);
-    ppc_evid_tick(&ev, 1000, PPC_EVS_WATCHED, 0);
-    ppc_evid_tick(&ev, 2200, PPC_EVS_WATCHED, 12);
+    tick_read(&ev, 1000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 2200, PPC_EVS_WATCHED, 12);
     ppc_evid_stop(&ev, 2200, 0);
-    m = ppc_evid_mark(&ev, 90000, PPC_STATE_STOPPED, 7, 0, 0);
-    check("losses: a mark after STOP has all 12 before it, none after, none left over",
-          m->side[0].lost == 12 && m->side[1].lost == 0 && m->edge_lost == 0 && m->exact == 1);
+    m = ppc_evid_mark(&ev, 90000, PPC_STATE_STOPPED, 7, 0);
+    check("losses: a mark after STOP, the counters read at STOP, has all 12 before it, none after, none around it",
+          m->side[0].lost == 12 && m->side[1].lost == 0 && m->edge == PPC_EV_EDGE_NONE);
     ppc_evid_free(&ev);
+}
+
+/* ---- the follow-up review (2026-11-25): readings that fail -------------------------------- */
+
+static void read_fail(struct ppc_evid *ev, uint32_t t_ms, unsigned flags)
+{
+    ppc_evid_tick(ev, t_ms, flags);
+    ppc_evid_counters(ev, t_ms, 0, 0);
+}
+
+/* The reading at the mark fails, and every one after it for `fail_s`
+ * seconds; the first good one then tells 130 more. */
+static void failed_at_mark(uint32_t fail_s)
+{
+    struct ppc_evid ev;
+    const struct ppc_ev_mark *m;
+    uint32_t back = 10500u + fail_s * 1000u;
+    uint32_t t;
+    char what[200];
+
+    ppc_evid_init(&ev);
+    tick_read(&ev, 9000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 10100, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 10300, PPC_EVS_WATCHED, 100);
+    read_fail(&ev, 10500, PPC_EVS_WATCHED); /* the reading at the mark */
+    m = ppc_evid_mark(&ev, 10500, PPC_STATE_CAPTURING, 5, 0);
+    snprintf(what, sizeof(what), "reading at the mark failed, %u s to recover: the mark knows it at once: around it "
+             "from the last good reading (10.3 s), not known yet, both windows unknown from then", (unsigned)fail_s);
+    check(what, m->edge == PPC_EV_EDGE_UNKNOWN && m->edge_from_ms == 10300 && m->side[0].lost == 100 &&
+                    m->side[1].unknown && m->side[1].unknown_from_ms == 10300);
+    for (t = 10750; t < back; t += 250) {
+        read_fail(&ev, t, PPC_EVS_WATCHED);
+    }
+    snprintf(what, sizeof(what), "%u s of failed readings later it is still not known, and nothing was counted for "
+             "it in either window", (unsigned)fail_s);
+    check(what, m->edge == PPC_EV_EDGE_UNKNOWN && m->side[1].lost == 0 && m->side[1].unknown);
+    tick_read(&ev, back, PPC_EVS_WATCHED, 230); /* the first good reading: 130 since 10.3 s */
+    tick_read(&ev, back + 500u, PPC_EVS_WATCHED, 260); /* 30 more, well after */
+    snprintf(what, sizeof(what), "recovered after %u s: the 130 are around the mark, from 10.3 s to the reading "
+             "that told them, in neither window; 100 before, 30 after, 260 in all", (unsigned)fail_s);
+    check(what, m->edge == PPC_EV_EDGE_COUNTED && m->edge_lost == 130 && m->edge_from_ms == 10300 &&
+                    m->edge_to_ms == back && m->side[0].lost == 100 && m->side[1].lost == 30 && !m->side[1].unknown &&
+                    m->side[0].lost + m->side[1].lost + m->edge_lost == 260);
+    ppc_evid_free(&ev);
+}
+
+static void readings(void)
+{
+    struct ppc_evid ev;
+    const struct ppc_ev_mark *m;
+    const struct ppc_ev_mark *late;
+    uint32_t t;
+    unsigned i;
+    int ok;
+
+    /* The first review's fixed second is gone: a spell is placed by its two
+     * readings, however long it lasts. */
+    failed_at_mark(3);
+    failed_at_mark(20);
+
+    /* Repeated failures inside the window before, recovered before the
+     * mark: the spell lies in the window, and its losses are its own. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 5000, PPC_EVS_WATCHED, 0);
+    for (t = 5250; t < 8000; t += 250) {
+        read_fail(&ev, t, PPC_EVS_WATCHED);
+    }
+    tick_read(&ev, 8000, PPC_EVS_WATCHED, 25);
+    for (t = 8250; t <= 20000; t += 250) {
+        tick_read(&ev, t, PPC_EVS_WATCHED, 25);
+    }
+    m = ppc_evid_mark(&ev, 20000, PPC_STATE_CAPTURING, 9, 0);
+    check("repeated failures recovered before the mark: the 25 of the spell are the window before's; nothing around "
+          "the mark, nothing unknown",
+          m->side[0].lost == 25 && m->side[0].lost_spells == 25 && m->edge == PPC_EV_EDGE_NONE && !m->side[1].unknown &&
+              m->side[0].lost_near == 0);
+    ppc_evid_free(&ev);
+
+    /* A spell reaching past the start of the window before: apart. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 2000, PPC_EVS_WATCHED, 0);
+    for (t = 2250; t < 6000; t += 250) {
+        read_fail(&ev, t, PPC_EVS_WATCHED);
+    }
+    tick_read(&ev, 6000, PPC_EVS_WATCHED, 40);
+    for (t = 6250; t <= 64000; t += 250) {
+        tick_read(&ev, t, PPC_EVS_WATCHED, 40);
+    }
+    m = ppc_evid_mark(&ev, 64000, PPC_STATE_CAPTURING, 9, 0);
+    check("a spell from 2 s to 6 s, the window before from 4 s: its 40 are apart, not in the window's count",
+          m->side[0].lost_near == 40 && m->side[0].lost == 0);
+    ppc_evid_free(&ev);
+
+    /* A spell after the mark, past the end of the window after: apart. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 10000, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 10000, PPC_STATE_CAPTURING, 9, 0);
+    for (t = 10250; t <= 65000; t += 250) {
+        tick_read(&ev, t, PPC_EVS_WATCHED, 0);
+    }
+    for (t = 65250; t < 75000; t += 250) {
+        read_fail(&ev, t, PPC_EVS_WATCHED);
+    }
+    check("a spell open as the window after closes (70 s): the closed window says its losses are not known from 65 s",
+          !(m->side[1].flags & PPC_EVW_OPEN) && m->side[1].unknown && m->side[1].unknown_from_ms == 65000);
+    tick_read(&ev, 75000, PPC_EVS_WATCHED, 30);
+    check("a spell from 65 s to 75 s, the window after to 70 s: its 30 are apart, not in the window's count, and the "
+          "window is no longer unknown",
+          m->side[1].lost_near == 30 && m->side[1].lost == 0 && m->edge == PPC_EV_EDGE_NONE && !m->side[1].unknown);
+    ppc_evid_free(&ev);
+
+    /* A spell after the mark that is still open while its window is. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 10000, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 10000, PPC_STATE_CAPTURING, 9, 0);
+    tick_read(&ev, 12000, PPC_EVS_WATCHED, 0);
+    read_fail(&ev, 12250, PPC_EVS_WATCHED);
+    read_fail(&ev, 12500, PPC_EVS_WATCHED);
+    check("a spell after the mark, open: the window after is unknown from the last good reading (12 s); the one "
+          "before and the mark are not",
+          m->side[1].unknown && m->side[1].unknown_from_ms == 12000 && m->edge == PPC_EV_EDGE_NONE);
+    ppc_evid_free(&ev);
+
+    /* STOP while no reading can be made: never recovered. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 9000, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 10000, PPC_EVS_WATCHED, 40);
+    read_fail(&ev, 10250, PPC_EVS_WATCHED);
+    read_fail(&ev, 10500, PPC_EVS_WATCHED);
+    m = ppc_evid_mark(&ev, 10500, PPC_STATE_CAPTURING, 5, 0);
+    read_fail(&ev, 11000, PPC_EVS_WATCHED);
+    read_fail(&ev, 12000, PPC_EVS_WATCHED); /* the reading STOP makes, failed too */
+    ppc_evid_stop(&ev, 12000, 0);
+    ppc_evid_counters(&ev, 13000, 1, 99); /* nothing is read after STOP */
+    check("STOP while the counters could not be read: the mark's losses since 10 s are never known; 40 before it "
+          "stay; the window after is cut and unknown; nothing after STOP is taken",
+          m->edge == PPC_EV_EDGE_UNKNOWN && m->edge_from_ms == 10000 && m->side[0].lost == 40 &&
+              (m->side[1].flags & PPC_EVW_CUT_STOP) && m->side[1].unknown && m->side[1].lost == 0 &&
+              m->edge_lost == 0);
+    late = ppc_evid_mark(&ev, 90000, PPC_STATE_STOPPED, 7, 0);
+    check("a mark after that STOP stands at STOP, its losses since 10 s not known either",
+          late && late->at_ms == 12000 && late->edge == PPC_EV_EDGE_UNKNOWN && late->edge_from_ms == 10000 &&
+              late->side[0].lost == 40);
+    ppc_evid_free(&ev);
+
+    /* The counters never read at all: unknown from START. */
+    ppc_evid_init(&ev);
+    for (t = 0; t <= 5000; t += 250) {
+        read_fail(&ev, t, PPC_EVS_WATCHED);
+    }
+    m = ppc_evid_mark(&ev, 5000, PPC_STATE_CAPTURING, 3, 0);
+    check("counters never read: around the mark from START (0), not known, nothing counted",
+          m->edge == PPC_EV_EDGE_UNKNOWN && m->edge_from_ms == 0 && m->side[0].lost == 0);
+    ppc_evid_free(&ev);
+
+    /* A spell over the mark with nothing lost: known, and nothing to tell. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 1000, PPC_EVS_WATCHED, 0);
+    read_fail(&ev, 1500, PPC_EVS_WATCHED);
+    m = ppc_evid_mark(&ev, 1500, PPC_STATE_CAPTURING, 3, 0);
+    tick_read(&ev, 2500, PPC_EVS_WATCHED, 0);
+    check("a spell over the mark that lost nothing: counted, 0, both windows known",
+          m->edge == PPC_EV_EDGE_COUNTED && m->edge_lost == 0 && !m->side[1].unknown);
+    ppc_evid_free(&ev);
+
+    /* A mark set without a reading of its own (the API alone): a spell that
+     * opens after it from an earlier reading spans it. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 1000, PPC_EVS_WATCHED, 0);
+    ppc_evid_tick(&ev, 1400, PPC_EVS_WATCHED);
+    m = ppc_evid_mark(&ev, 1400, PPC_STATE_CAPTURING, 3, 0);
+    read_fail(&ev, 1500, PPC_EVS_WATCHED);
+    check("a spell from a reading before a mark that had none of its own is around that mark",
+          m->edge == PPC_EV_EDGE_UNKNOWN && m->edge_from_ms == 1000);
+    tick_read(&ev, 1750, PPC_EVS_WATCHED, 6);
+    check("and its losses, when read, are around it, not after it", m->edge == PPC_EV_EDGE_COUNTED &&
+                                                                     m->edge_lost == 6 && m->side[1].lost == 0);
+    ppc_evid_free(&ev);
+
+    /* More spells than the ring holds within a minute: a mark set then
+     * says its record of them is incomplete. */
+    ppc_evid_init(&ev);
+    tick_read(&ev, 1000, PPC_EVS_WATCHED, 0);
+    for (i = 0; i < PPC_EV_SPELLS + 4u; i++) {
+        read_fail(&ev, 2000u + i * 1000u, PPC_EVS_WATCHED);
+        tick_read(&ev, 2500u + i * 1000u, PPC_EVS_WATCHED, i + 1u);
+    }
+    m = ppc_evid_mark(&ev, 2500u + (PPC_EV_SPELLS + 4u) * 1000u, PPC_STATE_CAPTURING, 3, 0);
+    check("20 spells in 20 s, a ring of 16: the window before says its record of them is incomplete",
+          (m->side[0].flags & PPC_EVW_LOSSES_DROPPED) != 0);
+    ppc_evid_free(&ev);
+    ppc_evid_init(&ev);
+    tick_read(&ev, 1000, PPC_EVS_WATCHED, 0);
+    for (i = 0; i < 4; i++) {
+        read_fail(&ev, 2000u + i * 1000u, PPC_EVS_WATCHED);
+        tick_read(&ev, 2500u + i * 1000u, PPC_EVS_WATCHED, i + 1u);
+    }
+    m = ppc_evid_mark(&ev, 8000, PPC_STATE_CAPTURING, 3, 0);
+    check("4 spells: every one kept, nothing said incomplete, their 4 in the window before",
+          !(m->side[0].flags & PPC_EVW_LOSSES_DROPPED) && m->side[0].lost == 4);
+    ppc_evid_free(&ev);
+
+    /* Memory stays as it was told: the ring is part of the struct, not the
+     * allocation, and has a fixed size. */
+    ok = sizeof(ev.spells) == PPC_EV_SPELLS * sizeof(struct ppc_ev_spell) && PPC_EV_SPELLS <= 16u;
+    check("the spells are a fixed ring of 16", ok);
 }
 
 /* P2: a DNS answer whose question the tracker no longer holds. */
@@ -859,24 +1064,24 @@ static void post_stop_wall(void)
     const struct ppc_ev_mark *m;
 
     ppc_evid_init(&ev);
-    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
-    ppc_evid_tick(&ev, 31000, PPC_EVS_WATCHED, 0);
-    m = ppc_evid_mark(&ev, 30500, PPC_STATE_CAPTURING, 3, 1700000000u - 31u, 1);
+    tick_read(&ev, 0, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 31000, PPC_EVS_WATCHED, 0);
+    m = ppc_evid_mark(&ev, 30500, PPC_STATE_CAPTURING, 3, 1700000000u - 31u);
     check("wall: a mark while capturing has the wall clock it was given", m && m->wall_s == 1700000000u - 31u);
     ppc_evid_stop(&ev, 31200, 1700000000u);
     /* Five minutes later, on both clocks. */
-    m = ppc_evid_mark(&ev, 31200u + 300000u, PPC_STATE_STOPPED, 9, 1700000000u + 300u, 1);
+    m = ppc_evid_mark(&ev, 31200u + 300000u, PPC_STATE_STOPPED, 9, 1700000000u + 300u);
     check("wall: a mark five minutes after STOP stands at STOP on both clocks (31.2 s, the wall clock then)",
           m && m->at_ms == 31200u && m->wall_s == 1700000000u && m->side[1].span_ms == 0);
     ppc_evid_stop(&ev, 999999, 1800000000u);
-    m = ppc_evid_mark(&ev, 31200u + 600000u, PPC_STATE_STOPPED, 9, 1700000600u, 1);
+    m = ppc_evid_mark(&ev, 31200u + 600000u, PPC_STATE_STOPPED, 9, 1700000600u);
     check("wall: a second STOP changes nothing, and a later mark is the same", m && m->at_ms == 31200u &&
                                                                               m->wall_s == 1700000000u);
     ppc_evid_free(&ev);
     ppc_evid_init(&ev);
-    ppc_evid_tick(&ev, 0, PPC_EVS_WATCHED, 0);
+    tick_read(&ev, 0, PPC_EVS_WATCHED, 0);
     ppc_evid_stop(&ev, 5000, 0);
-    m = ppc_evid_mark(&ev, 400000, PPC_STATE_STOPPED, 1, 1700000400u, 1);
+    m = ppc_evid_mark(&ev, 400000, PPC_STATE_STOPPED, 1, 1700000400u);
     check("wall: with the clock not set at STOP, a later mark has none (0), not the time it was set",
           m && m->wall_s == 0 && m->at_ms == 5000u);
     ppc_evid_free(&ev);
@@ -895,6 +1100,7 @@ int main(int argc, char **argv)
     coverage();
     bursts();
     boundary_losses();
+    readings();
     dns_eviction();
     post_stop_wall();
     printf("ppc_evid_test: %d failure(s)\n", failures);

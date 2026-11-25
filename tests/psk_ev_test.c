@@ -127,9 +127,9 @@ static int sound(const struct psk_evidence *ev)
 {
     struct psk_ev_row rows[PSK_EV_ROWS];
     struct psk_ev_count counts[PSK_EV_COUNTS];
-    char b[1024];
+    char b[2048];
     char c[64];
-    char d[96];
+    char d[256];
     const char *v;
     unsigned n;
     unsigned i;
@@ -696,10 +696,11 @@ static void review(void)
     fresh();
     E.head.cfilter = PPC_CFILTER_NAMES;
     psk_ev_nothing(&E, b, sizeof(b));
-    check("filter DNS AND DHCP, a quiet minute: quiet is said of DHCP and DNS only, ARP is said to be unseen",
+    check("filter DNS AND DHCP, a quiet minute: quiet is said of DHCP and DNS only, of what the filter let in; ARP "
+          "is said to be kept out by it",
           strcmp(b, "No DHCP or DNS message was seen in either window. The capture was watching throughout: for DHCP and "
-                    "DNS the segment was quiet. ARP could not be seen in this capture, so nothing is said of it, nor "
-                    "of what other devices sent to each other.") == 0);
+                    "DNS, the traffic its filter (DNS AND DHCP) let in was quiet. ARP was kept out by the filter. "
+                    "Nothing is said of what could not be seen, nor of what other devices sent to each other.") == 0);
     check("filter DNS AND DHCP: an empty side names what it could see", strcmp(psk_ev_side(&E, 0, b, 64),
                                                                                "BEFORE THE MARK" DOT "NO DHCP OR DNS SEEN") == 0);
     n = psk_ev_counts(&E, counts, PSK_EV_COUNTS);
@@ -744,7 +745,7 @@ static void review(void)
           has_line(counts, n, PPC_CLASS_DHCP, "NOT ANALYZED") && has_line(counts, n, PPC_CLASS_ARP, "NOT ANALYZED") &&
               has_line(counts, n, PPC_CLASS_DNS, "NONE SEEN") && strcmp(d, "EVERY FRAME SEEN" DOT "DHCP AND ARP NOT ANALYZED") == 0 &&
               strstr(b, "No DNS message was seen in either window.") && strstr(b, "for DNS the segment was quiet") &&
-              strstr(b, "DHCP and ARP could not be seen in this capture"));
+              strstr(b, "DHCP and ARP were not analyzed.") && !strstr(b, "filter") && !strstr(b, "kept out"));
     check("DHCP and ARP analysis failed: an empty side names DNS", strcmp(psk_ev_side(&E, 1, b, 64),
                                                                           "AFTER THE MARK" DOT "NO DNS SEEN") == 0);
     /* Nothing could be seen: the filter kept ARP out, DHCP and DNS were not
@@ -768,9 +769,13 @@ static void review(void)
     check("nothing could be seen: no line is a count of none", i == n);
     check("nothing could be seen: no cut sentence, no verdict", sound(&E));
 
-    /* Frames lost so close to the mark that neither window can claim them. */
+    /* Frames lost while the counters could not be read over the mark:
+     * neither window can claim them. */
     fresh();
+    E.head.edge = PPC_EV_EDGE_COUNTED;
     E.head.edge_lost = 80;
+    E.head.edge_from_ms = 252250;
+    E.head.edge_to_ms = 254500;
     E.win[0].lost = 150;
     E.win[1].lost = 30;
     sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
@@ -779,17 +784,20 @@ static void review(void)
     psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
     check("losses at the mark: the window after has its 30, the 80 in neither", strcmp(d, "30 FRAMES LOST" DOT "FRAMES LOST AT THE MARK") == 0);
     psk_ev_limits(&E, b, sizeof(b));
-    check("losses at the mark: the 80 are told once, with their timing said to be uncertain",
+    check("losses at the mark: the 80 are told once, between the readings around the mark, their side not known",
           strstr(b, "(150 before, 30 after)") &&
-              strstr(b, "80 frames were lost so close to the mark that it cannot be told whether before or after it: "
-                        "counted once, here, in neither window.") != NULL &&
+              strstr(b, "80 frames were lost between 04:12 and 04:14, while the counters could not be read: whether "
+                        "before or after the mark is not known. Counted once, here, in neither window.") != NULL &&
               occurrences(b, "80 frame") == 1);
     psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
     check("losses at the mark: no window line carries the 80", !strstr(d, "80"));
     psk_ev_window(&E, 1, b, 64, c, sizeof(c), d, sizeof(d));
     check("losses at the mark: nor the other", !strstr(d, "80"));
     fresh();
+    E.head.edge = PPC_EV_EDGE_COUNTED;
     E.head.edge_lost = 1;
+    E.head.edge_from_ms = 252250;
+    E.head.edge_to_ms = 254500;
     psk_ev_nothing(&E, b, sizeof(b));
     {
         char head[64];
@@ -804,7 +812,7 @@ static void review(void)
                   !strstr(b, "quiet") && !strstr(seen0, "EVERY") && !strstr(seen1, "EVERY"));
     }
     psk_ev_limits(&E, b, sizeof(b));
-    check("one frame lost at the mark: said in the singular", strstr(b, "1 frame was lost so close to the mark") != NULL);
+    check("one frame lost at the mark: said in the singular", strstr(b, "1 frame was lost between 04:12") != NULL);
     check("losses at the mark: no cut sentence, no verdict", sound(&E));
 
     /* A burst that only counted, inside one second. */
@@ -825,6 +833,217 @@ static void review(void)
               strcmp(rows[0].sub, "No matching question is available to calculate response time.") == 0);
 }
 
+/* ---- the follow-up review of PR #188 (2026-11-25): what is lost is known only where the
+ * counters were read; the capture filter is always named --------------------------------- */
+
+static void readings(void)
+{
+    char b[2048];
+    char c[64];
+    char d[256];
+    char d1[256];
+    char e[1024];
+    unsigned sev;
+    unsigned sev1;
+
+    /* The counters could not be read since 04:10, over the mark at 04:13,
+     * and the capture goes on. */
+    fresh();
+    E.head.edge = PPC_EV_EDGE_UNKNOWN;
+    E.head.edge_from_ms = 250250;
+    E.win[0].unknown = 1;
+    E.win[0].unknown_from_ms = 250250;
+    E.win[1].flags = PPC_EVW_OPEN;
+    E.win[1].unknown = 1;
+    E.win[1].unknown_from_ms = 250250;
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    sev1 = psk_ev_window(&E, 1, b, 64, c, sizeof(c), d1, sizeof(d1));
+    check("not read at the mark: both windows say their losses are not known, warnings, never EVERY",
+          sev == PSK_SEV_WARN && sev1 == PSK_SEV_WARN && strcmp(d, "LOSSES UNKNOWN") == 0 &&
+              strcmp(d1, "LOSSES UNKNOWN") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("not read at the mark: the limits say since when, from then on, and counted in neither window",
+          strstr(b, "Since 04:10 the counters of lost frames could not be read: what was lost from then on is not "
+                    "known, and is counted in neither window.") != NULL &&
+              !strstr(b, "Frames were lost while"));
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("not read at the mark, nothing seen: no quiet minute, and why",
+          strcmp(b, "No DHCP, ARP or DNS message was seen in either window. Whether frames were lost for part of the time "
+                    "is not known, so this is not proof that none was sent.") == 0);
+    check("not read at the mark: no cut sentence, no verdict", sound(&E));
+    /* The head alone says it: a window without its own flag is not known
+     * either. */
+    E.win[0].unknown = 0;
+    E.win[1].unknown = 0;
+    psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    psk_ev_window(&E, 1, b, 64, c, sizeof(c), d1, sizeof(d1));
+    check("not read at the mark, said by the head alone: both windows still not known",
+          strcmp(d, "LOSSES UNKNOWN") == 0 && strcmp(d1, "LOSSES UNKNOWN") == 0);
+
+    /* Never read since START. */
+    fresh();
+    E.head.edge = PPC_EV_EDGE_UNKNOWN;
+    E.head.edge_from_ms = 0;
+    E.win[0].flags = PPC_EVW_CUT_START;
+    E.win[0].span_ms = 12000;
+    E.win[0].unknown = 1;
+    E.win[1].flags = PPC_EVW_OPEN;
+    E.win[1].span_ms = 3000;
+    E.win[1].unknown = 1;
+    psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    psk_ev_limits(&E, b, sizeof(b));
+    check("never read: since the start, not since 00:00",
+          strcmp(d, "LOSSES UNKNOWN") == 0 && strstr(b, "Since the start the counters of lost frames could not be read") &&
+              !strstr(b, "00:00"));
+    check("never read: no cut sentence, no verdict", sound(&E));
+
+    /* STOP while they could not be read: never recovered. */
+    fresh();
+    E.head.edge = PPC_EV_EDGE_UNKNOWN;
+    E.head.edge_from_ms = 250250;
+    E.win[0].unknown = 1;
+    E.win[0].unknown_from_ms = 250250;
+    E.win[1].flags = PPC_EVW_CUT_STOP;
+    E.win[1].span_ms = 7000;
+    E.win[1].unknown = 1;
+    E.win[1].unknown_from_ms = 250250;
+    sev1 = psk_ev_window(&E, 1, b, 64, c, sizeof(c), d1, sizeof(d1));
+    check("STOP while not read: the window after is cut and its losses not known, a warning",
+          sev1 == PSK_SEV_WARN && strcmp(c, "THE CAPTURE STOPPED THEN") == 0 &&
+              strcmp(d1, "LOSSES UNKNOWN") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("STOP while not read: from then until the capture stopped, not known, in neither window",
+          strstr(b, "From 04:10 the counters of lost frames could not be read until the capture stopped: what was lost "
+                    "then is not known, and is counted in neither window.") != NULL);
+    check("STOP while not read: no cut sentence, no verdict", sound(&E));
+    /* A mark set after STOP, inside the same spell: nothing after it. */
+    E.win[1].flags = PPC_EVW_CUT_STOP;
+    E.win[1].span_ms = 0;
+    E.win[1].unknown = 0;
+    psk_ev_limits(&E, b, sizeof(b));
+    psk_ev_window(&E, 0, c, 64, d1, sizeof(d1), d, sizeof(d));
+    check("a mark after STOP in the spell: until the capture stopped, and the window before not known",
+          strstr(b, "From 04:10 the counters of lost frames could not be read until the capture stopped") != NULL &&
+              strcmp(d, "LOSSES UNKNOWN") == 0);
+    check("a mark after STOP in the spell: no cut sentence, no verdict", sound(&E));
+
+    /* Read at the mark; a spell begun after it, still open. */
+    fresh();
+    E.win[1].flags = PPC_EVW_OPEN;
+    E.win[1].span_ms = 20000;
+    E.win[1].unknown = 1;
+    E.win[1].unknown_from_ms = 262000;
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    sev1 = psk_ev_window(&E, 1, b, 64, c, sizeof(c), d1, sizeof(d1));
+    check("a spell after the mark: the window before saw every frame; the one after's losses not known",
+          sev == PSK_SEV_OK && strcmp(d, "EVERY FRAME SEEN") == 0 && sev1 == PSK_SEV_WARN &&
+              strcmp(d1, "LOSSES UNKNOWN") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("a spell after the mark: the limits say what the window after lost since then is not known",
+          strstr(b, "Since 04:22 the counters of lost frames could not be read: what the window after the mark lost "
+                    "from then on is not known.") != NULL);
+    check("a spell after the mark: no cut sentence, no verdict", sound(&E));
+
+    /* Losses counted after a delay, in a spell reaching past a window's far
+     * end: told apart, never as every frame seen. */
+    fresh();
+    E.win[0].lost_near = 40;
+    E.win[1].lost_near = 1;
+    E.win[1].lost = 3;
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    sev1 = psk_ev_window(&E, 1, b, 64, c, sizeof(c), d1, sizeof(d1));
+    check("lost near a window's far end: said apart from its own, warnings",
+          sev == PSK_SEV_WARN && strcmp(d, "40 LOST NEAR ITS START") == 0 && sev1 == PSK_SEV_WARN &&
+              strcmp(d1, "3 FRAMES LOST" DOT "1 LOST NEAR ITS END") == 0);
+    psk_ev_limits(&E, b, sizeof(b));
+    check("lost near a window's far end: the limits say why they are apart, in the singular where one",
+          strstr(b, "(0 before, 3 after)") &&
+              strstr(b, "40 frames were lost while the counters could not be read, in a spell that began before the "
+                        "window before the mark: they may be from before it, so they are told apart.") &&
+              strstr(b, "1 frame was lost while the counters could not be read, in a spell that ended after the window "
+                        "after the mark"));
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("lost near a window's far end, nothing seen: not fully watched, no quiet minute",
+          strstr(b, "Part of the time was not fully watched, so this is not proof that none was sent.") && !strstr(b, "quiet"));
+    check("lost near a window's far end: no cut sentence, no verdict", sound(&E));
+
+    /* More spells than the record holds. */
+    fresh();
+    E.win[0].flags = PPC_EVW_LOSSES_DROPPED;
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    psk_ev_limits(&E, b, sizeof(b));
+    check("spells the record could not keep: LOSS RECORD INCOMPLETE, a warning, and the limits say the count may be short",
+          sev == PSK_SEV_WARN && strcmp(d, "LOSS RECORD INCOMPLETE") == 0 &&
+              strstr(b, "The counters could not be read more often than the record of such spells holds: the count of "
+                        "frames lost before the mark may be short.") != NULL);
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("spells the record could not keep, nothing seen: no quiet minute", strstr(b, "is not known") && !strstr(b, "quiet"));
+
+    /* Read late, and nothing was lost: known, every frame seen. */
+    fresh();
+    E.head.edge = PPC_EV_EDGE_COUNTED;
+    E.head.edge_from_ms = 252250;
+    E.head.edge_to_ms = 254500;
+    sev = psk_ev_window(&E, 0, b, 64, c, sizeof(c), d, sizeof(d));
+    psk_ev_limits(&E, b, sizeof(b));
+    psk_ev_nothing(&E, e, sizeof(e));
+    check("read late over the mark, none lost: known; every frame seen, no sentence of it, and quiet may be said",
+          sev == PSK_SEV_OK && strcmp(d, "EVERY FRAME SEEN") == 0 && !strstr(b, "counters") && strstr(e, "quiet"));
+
+    /* All at once: the seen line fits the page's. */
+    fresh();
+    E.head.cfilter = PPC_CFILTER_NAMES;
+    E.head.unanalyzed = 1u << PPC_CLASS_DNS;
+    E.head.edge = PPC_EV_EDGE_UNKNOWN;
+    E.head.edge_from_ms = 4000000;
+    E.head.at_ms = 4010000;
+    E.win[0].lost = 4000000000u;
+    E.win[0].lost_near = 4000000000u;
+    E.win[0].unknown = 1;
+    E.win[0].unknown_from_ms = 4000000;
+    E.win[0].flags = PPC_EVW_LOSSES_DROPPED | PPC_EVW_HISTORY;
+    E.win[0].shed_s = 20;
+    E.win[0].held_s = 30;
+    E.win[1].flags = PPC_EVW_OPEN;
+    E.win[1].lost = 4000000000u;
+    E.win[1].lost_near = 4000000000u;
+    E.head.first = 2;
+    E.head.id = 3;
+    E.head.last = 9;
+    add(0, PPC_EV_DHCP_REQUEST, PPC_EVF_BCAST, 4009000, 1);
+    check("every limit at once, an hour in: no line is cut on the page's buffers, no verdict", sound(&E));
+
+    /* The capture filter, always named; quiet only of what it let in. */
+    fresh();
+    check("the filter is named when there is none: CAPTURE FILTER · EVERYTHING",
+          strcmp(psk_ev_filter(&E, b, sizeof(b)), "CAPTURE FILTER" DOT "EVERYTHING") == 0);
+    E.head.cfilter = PPC_CFILTER_NOSELF;
+    check("and when there is one: CAPTURE FILTER · NOT MY SSH",
+          strcmp(psk_ev_filter(&E, b, sizeof(b)), "CAPTURE FILTER" DOT "NOT MY SSH") == 0);
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("a quiet minute under NOT MY SSH: quiet of the traffic its filter let in, nothing kept out of the three",
+          strcmp(b, "No DHCP, ARP or DNS message was seen in either window. The capture was watching throughout: for "
+                    "these protocols, the traffic its filter (NOT MY SSH) let in was quiet. It says nothing of what "
+                    "other devices sent to each other.") == 0);
+    E.head.cfilter = PPC_CFILTER_IP;
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("a quiet minute under IP AND ARP: the same, naming it", strstr(b, "the traffic its filter (IP AND ARP) let in was quiet.") != NULL);
+    E.head.cfilter = PPC_CFILTER_ALL;
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("a quiet minute with no filter: of the segment, and no filter is spoken of",
+          strstr(b, "for these protocols the segment was quiet.") != NULL && !strstr(b, "filter"));
+    /* Kept out and not analysed, at once: said apart. */
+    E.head.cfilter = PPC_CFILTER_NAMES;
+    E.head.unanalyzed = 1u << PPC_CLASS_DNS;
+    psk_ev_nothing(&E, b, sizeof(b));
+    check("ARP kept out and DNS not analyzed: quiet of DHCP alone, under the filter; each said for what it is",
+          strcmp(b, "No DHCP message was seen in either window. The capture was watching throughout: for DHCP, the "
+                    "traffic its filter (DNS AND DHCP) let in was quiet. ARP was kept out by the filter. DNS was not "
+                    "analyzed. Nothing is said of what could not be seen, nor of what other devices sent to each "
+                    "other.") == 0);
+    check("kept out and not analyzed: no cut sentence, no verdict", sound(&E));
+}
+
 /* ---- the model ----------------------------------------------------------------------------- */
 
 static void model(void)
@@ -839,14 +1058,15 @@ static void model(void)
                                                               M.last_mark.state == PPC_STATE_HOLD && M.last_mark.wall_s == 1700000000u);
     M.want_ev = 7;
     check("an answer to an older request is not taken",
-          feed("ev.begin\t6\t9\t2\t9\t64000\thold\t5000\t0\t65000\tall\t0\t0") == 0 && feed("ev.end\t6") == 0 &&
+          feed("ev.begin\t6\t9\t2\t9\t64000\thold\t5000\t0\t65000\tall\t0\t0\t-\t-") == 0 && feed("ev.end\t6") == 0 &&
               !M.have_ev);
-    feed("ev.begin\t7\t9\t2\t9\t64000\thold\t5000\t0\t65000\tnames\t4\t17");
+    feed("ev.begin\t7\t9\t2\t9\t64000\thold\t5000\t0\t65000\tnames\t4\t17\t63750\t66000");
     check("an answer is not shown until its last line", !M.have_ev);
     check("the answer asked for is taken whole at its last line, with what the capture could see",
           (feed("ev.end\t7") & PSK_CHANGED_EVID) && M.have_ev && M.ev.head.id == 9 && M.ev.head.first == 2 &&
               M.ev.head.cfilter == PPC_CFILTER_NAMES && M.ev.head.unanalyzed == (1u << PPC_CLASS_DNS) &&
-              M.ev.head.edge_lost == 17);
+              M.ev.head.edge == PPC_EV_EDGE_COUNTED && M.ev.head.edge_lost == 17 && M.ev.head.edge_from_ms == 63750 &&
+              M.ev.head.edge_to_ms == 66000);
     psk_model_clear_packets(&M);
     check("a new capture has no mark and no evidence", M.nmarks == 0 && !M.have_ev && psk_ev_held(&M) == 0 && M.want_ev == 0);
     check("the list of a mark's packets is DHCP, ARP and DNS",
@@ -862,6 +1082,7 @@ int main(int argc, char **argv)
     fixtures();
     built();
     review();
+    readings();
     model();
     printf("psk_ev_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
