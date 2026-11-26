@@ -51,12 +51,14 @@
  * room, not from the orientation. */
 #define PSK_WIDE_MIN_W 900
 #define PSK_TOP_H 56
-/* The wide top row's strip under its 56 px controls, where the back slab
- * reaches (H6, the finger test on Unit A, 2026-11-26): the slab answers
- * this far around it, a target of at least POCKETUI_TOUCH_MIN each way.
- * The pages give up as much of their top padding, so nothing they show
- * moves. No more than PSK_GAP, so the reach never lies under the LIVE tab,
- * and no more than LIVE's own top padding in the wide shape (8). */
+/* The wide back slab, and how far around it a tap is Back (H6, the finger
+ * test on Unit A, 2026-11-26): its target, at least POCKETUI_TOUCH_MIN each
+ * way. No more than PSK_GAP, so it never lies over the LIVE tab, and no
+ * more than the least top padding of a page in the wide shape (LIVE's 8),
+ * so it lies over no control a page shows at its top (a panel's title
+ * reaches up into that padding; nothing is drawn over it, and a title
+ * takes no tap). */
+#define PSK_BACK_W 72
 #define PSK_TOP_REACH 8
 #define PSK_ROW_H_WIDE 40
 #define PSK_INSPECT_W 452
@@ -203,7 +205,9 @@ struct psk_app {
     int32_t top_inset_l; /* the top row's own insets at the display's top edge */
     int32_t top_inset_r;
     lv_obj_t *top;       /* the row holding the tabs (and, wide, back, status and bar) */
-    lv_obj_t *back;
+    lv_obj_t *back;       /* wide: the back slab, in back_reach */
+    lv_obj_t *back_reach; /* wide: the slab's holder, its target, PSK_TOP_REACH around it (H6) */
+    lv_obj_t *back_space; /* wide: the slab's place in the top row */
     lv_obj_t *tabs;
     lv_obj_t *status_row;
     lv_obj_t *content;
@@ -558,7 +562,8 @@ struct psk_app {
  * "row0".."row9", "filter", "sort", "follow", "prev", "next", "pin",
  * "end0", "end1", "hex", "layer0".."layer7", "field0".."field9"; M7-M9:
  * "signals", "sig0".."sig5", "saves", "save0".."save5", "top", "back",
- * "inspect", "finding0".."finding7"; M11.1: "diag0" (DNS), "diag1" (TCP),
+ * "back_reach" (H6), "inspect", "finding0".."finding7"; M11.1: "diag0"
+ * (DNS), "diag1" (TCP),
  * "dsheet", "dline0".."dline9", "detail0".."detail7"; M12.1: "diag2" (the
  * network's line on LIVE), "netpage", "netclose", "netnote", "netcell0"..
  * "netcell3", "netfind0".."netfind5", "netdiag0".."netdiag3" (DHCP, ARP,
@@ -635,6 +640,9 @@ void psk_paint_tabs(struct psk_app *a);
 /* Puts the parts where the shape has them: tall (the shell's header above,
  * the tabs, a page, the capture bar at the foot) or wide (M9). */
 void psk_shape(struct psk_app *a);
+/* The back slab and its target over the top row's spacer, where the row's
+ * inset at the display's edge has put it (wide; layout and psk_shape). */
+void psk_back_reach_place(struct psk_app *a);
 /* Whether MARK is offered now: a capture is on the screen and, in the wide
  * shape, it is neither stopped nor being saved. There MARK leaves the top
  * row once the capture has ended, so the state's line has its room back
