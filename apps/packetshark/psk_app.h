@@ -51,6 +51,13 @@
  * room, not from the orientation. */
 #define PSK_WIDE_MIN_W 900
 #define PSK_TOP_H 56
+/* The wide top row's strip under its 56 px controls, where the back slab
+ * reaches (H6, the finger test on Unit A, 2026-11-26): the slab answers
+ * this far around it, a target of at least POCKETUI_TOUCH_MIN each way.
+ * The pages give up as much of their top padding, so nothing they show
+ * moves. No more than PSK_GAP, so the reach never lies under the LIVE tab,
+ * and no more than LIVE's own top padding in the wide shape (8). */
+#define PSK_TOP_REACH 8
 #define PSK_ROW_H_WIDE 40
 #define PSK_INSPECT_W 452
 #define PSK_LIVE_LEFT_W 528

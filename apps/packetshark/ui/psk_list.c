@@ -702,6 +702,8 @@ void psk_list_shape(struct psk_app *a)
     int i;
 
     a->row_h = a->wide ? PSK_ROW_H_WIDE : PSK_ROW_H;
+    /* Mockup 02's 12 px, less the wide top row's strip (PSK_TOP_REACH). */
+    lv_obj_set_style_pad_top(a->page[PSK_TAB_PACKETS], a->wide ? 12 - PSK_TOP_REACH : 12, 0);
     for (i = 0; i < PSK_LIST_ROWS; i++) {
         struct psk_listrow *r = &a->lrow[i];
 

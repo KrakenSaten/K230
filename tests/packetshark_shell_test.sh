@@ -8,7 +8,8 @@
 # tools/capture/pos-capture. PACKETSHARK_SHOTS=<dir> keeps the screenshots.
 # With make's tests/ppc_evid_mkfixtures built, MARK's evidence is also shown
 # for the replayed fixtures (N1.0). PACKETSHARK_ONLY=n1 runs MARK and its
-# evidence alone, in both shapes, and nothing of the rest.
+# evidence alone, in both shapes, and nothing of the rest;
+# PACKETSHARK_ONLY=back the wide back slab's reach alone (H6).
 #
 # Copyright (c) 2026 PocketOS authors.
 # SPDX-License-Identifier: Apache-2.0

@@ -290,7 +290,7 @@ void psk_net_shape(struct psk_app *a)
         lv_obj_set_width(a->nv_l, LV_PCT(100));
         lv_obj_set_width(a->nv_r, LV_PCT(100));
     }
-    lv_obj_set_style_pad_top(a->nv_page, w ? 8 : 14, 0);
+    lv_obj_set_style_pad_top(a->nv_page, w ? 8 - PSK_TOP_REACH : 14, 0); /* less the top row's strip */
 }
 
 /* A one-line label is as high as its role's line at the text size in force:

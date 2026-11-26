@@ -364,7 +364,7 @@ void psk_evp_shape(struct psk_app *a)
     if (lv_obj_get_parent(a->ev_limits_panel) != home) {
         lv_obj_set_parent(a->ev_limits_panel, home);
     }
-    lv_obj_set_style_pad_top(a->ev_page, w ? 8 : 14, 0);
+    lv_obj_set_style_pad_top(a->ev_page, w ? 8 - PSK_TOP_REACH : 14, 0); /* less the top row's strip */
 }
 
 /* ---- painting --------------------------------------------------------------------------- */

@@ -30,7 +30,9 @@
  *     both orientations; the tabs are 56 px navigation rows;
  *   - twenty opens and closes with a capture running leave no helper, no
  *     timer and no object behind (I4);
- *   - MARK and a mark's evidence (N1.0): n1(), alone with PACKETSHARK_ONLY=n1.
+ *   - MARK and a mark's evidence (N1.0): n1(), alone with PACKETSHARK_ONLY=n1;
+ *   - the wide back slab's reach (H6): back_reach(), alone with
+ *     PACKETSHARK_ONLY=back.
  * PACKETSHARK_SHOTS=<dir> keeps a picture of each state (mockups 04, 05, 07).
  *
  * Needs: PACKETSHARK_HELPER, the path of tools/capture/pos-capture.
@@ -44,6 +46,7 @@
 #include "chrome.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "platform.h"
 #include "pocketui_audit.h"
 #include "pos_theme.h"
 #include "psk_app.h"
@@ -575,12 +578,12 @@ static pid_t child_pid(void)
 
 /* ---- the app, hosted ------------------------------------------------------------------ */
 
-static void use_display(enum pos_rotation rotation)
+static void use_panel(enum pos_rotation rotation, struct pos_corners corners)
 {
     struct pos_panel panel = {
         .width = PANEL_W,
         .height = PANEL_H,
-        .corners = { PANEL_CORNER, PANEL_CORNER, PANEL_CORNER, PANEL_CORNER },
+        .corners = corners,
     };
     struct pos_display_geometry g;
 
@@ -592,6 +595,21 @@ static void use_display(enum pos_rotation rotation)
     lv_obj_set_size(g_content, g.width, g.height - STATUS_H);
     lv_obj_set_pos(g_content, 0, STATUS_H);
     pump(20);
+}
+
+/* The reference panel: 30 px at every corner. */
+static void use_display(enum pos_rotation rotation)
+{
+    use_panel(rotation, (struct pos_corners){ PANEL_CORNER, PANEL_CORNER, PANEL_CORNER, PANEL_CORNER });
+}
+
+/* Unit A's panel in landscape as the shell resolves it (shell_display.c):
+ * the two native left corners, which a quarter turn puts at the top, take
+ * POCKETOS_PANEL_CORNER_LANDSCAPE_TOP (platform.h). */
+static void use_unit_landscape(enum pos_rotation rotation)
+{
+    use_panel(rotation, (struct pos_corners){ POCKETOS_PANEL_CORNER_LANDSCAPE_TOP, POCKETOS_PANEL_CORNER,
+                                              POCKETOS_PANEL_CORNER, POCKETOS_PANEL_CORNER_LANDSCAPE_TOP });
 }
 
 /* Landscape: the display is wider than it is tall. */
@@ -3023,6 +3041,247 @@ static void m7_m9(bool portrait)
     CHECK("closing leaves no helper", no_child());
 }
 
+/* ---- H6: the wide back slab's reach --------------------------------------------------------- *
+ *
+ * The finger test on Unit A (2026-11-26) found the wide shape's back slab,
+ * drawn 72 x 56 against the display's top edge beside its rounded corner,
+ * hard to hit. It answers PSK_TOP_REACH around it: into the gap before LIVE,
+ * toward the side and down into a strip the top row keeps under its
+ * controls, which the pages give up from their top padding. Pinned with
+ * real taps, on the reference panel and on Unit A's landscape (rotation 270,
+ * 50 px top corners), at every text size; the tall shape as it was. Run
+ * alone with PACKETSHARK_ONLY=back. */
+
+static void tap_point(int32_t x, int32_t y)
+{
+    finger_point.x = x;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+/* Whether a tap at x, y is Back: on setup, with nothing captured, Back
+ * leaves the app and the shell goes home. The poll answers the slab, after
+ * the event. */
+static bool back_at(int32_t x, int32_t y)
+{
+    int before = g_home;
+
+    tap_point(x, y);
+    pump(60);
+    return g_home != before;
+}
+
+/* Where the content of a page starts. */
+static int32_t content_top(lv_obj_t *page)
+{
+    lv_area_t c;
+
+    lv_obj_get_content_coords(page, &c);
+    return c.y1;
+}
+
+static void back_reach_wide(const char *panel)
+{
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    struct psk_app *a;
+    char what[160];
+    int bad_drawn = 0;
+    int bad_reach = 0;
+    int bad_taps = 0;
+    int bad_past = 0;
+    int i;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "", 1);
+    g_link = 1;
+    app_start();
+    a = app();
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        lv_area_t s;
+        lv_area_t c;
+        lv_area_t t;
+        lv_area_t live;
+        lv_area_t content;
+        lv_area_t r;
+        int32_t mx;
+        int32_t my;
+
+        pos_theme_select_text_size((enum pos_text_size)i);
+        pump(80);
+        lv_obj_update_layout(a->frame);
+        lv_obj_get_coords(a->back, &s);
+        lv_obj_get_click_area(a->back, &c);
+        lv_obj_get_coords(a->top, &t);
+        lv_obj_get_coords(a->tab[PSK_TAB_LIVE], &live);
+        lv_obj_get_coords(a->content, &content);
+        /* Where a finger finds the slab: its click area, inside the row (LVGL
+         * looks for an object inside its parent's area only), on the display. */
+        r.x1 = LV_MAX(LV_MAX(c.x1, t.x1), 0);
+        r.y1 = LV_MAX(LV_MAX(c.y1, t.y1), 0);
+        r.x2 = LV_MIN(LV_MIN(c.x2, t.x2), g->width - 1);
+        r.y2 = LV_MIN(LV_MIN(c.y2, t.y2), g->height - 1);
+        mx = s.x1 + lv_area_get_width(&s) / 2;
+        my = s.y1 + lv_area_get_height(&s) / 2;
+        printf("     %s, %s: slab %d,%d-%d,%d, reach %d,%d-%d,%d (%dx%d), row to %d, LIVE from x %d, pages from y %d\n",
+               panel, pos_text_size_name((enum pos_text_size)i), (int)s.x1, (int)s.y1, (int)s.x2, (int)s.y2,
+               (int)r.x1, (int)r.y1, (int)r.x2, (int)r.y2, (int)lv_area_get_width(&r), (int)lv_area_get_height(&r),
+               (int)t.y2, (int)live.x1, (int)content.y1);
+
+        /* Drawn as before: 72 x 56 at the display's top edge, clear of the corner. */
+        if (!(a->wide && lv_area_get_width(&s) == 72 && lv_area_get_height(&s) == PSK_TOP_H && s.y1 == t.y1 &&
+              t.y1 <= 0 && target_ok(a->back, PSK_TOP_H, "back"))) {
+            bad_drawn++;
+        }
+        /* A target of POCKETUI_TOUCH_MIN each way, reaching past the slab away
+         * from the corner (right and down), a full POCKETUI_TOUCH_MIN square of
+         * it from the slab's own left edge clear of the corner; and under no
+         * other control: short of LIVE, and the strip all the row's. */
+        if (!(lv_area_get_width(&r) >= POCKETUI_TOUCH_MIN && lv_area_get_height(&r) >= POCKETUI_TOUCH_MIN &&
+              r.x2 > s.x2 && r.y2 > s.y2 && r.x2 - s.x1 + 1 >= POCKETUI_TOUCH_MIN &&
+              r.y1 + POCKETUI_TOUCH_MIN - 1 <= r.y2 &&
+              pos_display_rect_is_safe(g, s.x1, r.y1, s.x1 + POCKETUI_TOUCH_MIN - 1, r.y1 + POCKETUI_TOUCH_MIN - 1) &&
+              r.x2 < live.x1 && r.y2 == t.y2 && c.y2 == t.y2 && content.y1 > r.y2)) {
+            bad_reach++;
+        }
+        /* Real taps: the middle, and the reach's edges away from the corner. */
+        if (!(back_at(mx, my) && back_at(mx, r.y2) && back_at(r.x2, my) && back_at(r.x2, r.y2) &&
+              back_at(r.x1, r.y2))) {
+            bad_taps++;
+        }
+        /* And no further: under the strip, past it toward LIVE, past its side,
+         * and LIVE itself. */
+        if (back_at(mx, r.y2 + 1) || back_at(r.x2 + 1, r.y2) || back_at(live.x1 + 4, my) ||
+            (r.x1 > t.x1 && back_at(r.x1 - 1, r.y2))) {
+            bad_past++;
+        }
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(80);
+    snprintf(what, sizeof(what), "wide, %s, every text size: the back slab drawn 72 x 56 at the top edge, "
+             "clear of the corner", panel);
+    CHECK(what, bad_drawn == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: its reach at least %d px each way, out of the "
+             "corner, under no other control", panel, POCKETUI_TOUCH_MIN);
+    CHECK(what, bad_reach == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: a tap anywhere in the reach is Back", panel);
+    CHECK(what, bad_taps == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: and a tap past it is not", panel);
+    CHECK(what, bad_past == 0);
+    app_stop();
+}
+
+/* With a capture on the screen: what the pages show starts where it did
+ * under the row's 56 px controls (LIVE, the network overview and a mark's
+ * evidence 8, PACKETS 12 as mockup 02, INSPECT 14), and the reach's far
+ * corner, right of the slab and under it, is Back from PACKETS, from a
+ * mark's evidence and on LIVE. */
+static void back_reach_capture(const char *panel)
+{
+    struct psk_app *a;
+    lv_area_t s;
+    lv_area_t t;
+    int32_t under;
+    int32_t at[5];
+    int32_t fx;
+    int32_t fy;
+    char what[160];
+    int home;
+    int w;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:200:1", 1);
+    app_start();
+    a = app();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    lv_obj_update_layout(a->frame);
+    lv_obj_get_coords(a->back, &s);
+    lv_obj_get_coords(a->top, &t);
+    under = t.y1 + PSK_TOP_H;
+    fx = s.x2 + PSK_TOP_REACH;
+    fy = s.y2 + PSK_TOP_REACH;
+
+    at[0] = content_top(a->page[PSK_TAB_LIVE]);
+    psk_key(a, '2');
+    pump(100);
+    lv_obj_update_layout(a->frame);
+    at[1] = a->cur == PSK_TAB_PACKETS ? content_top(a->page[PSK_TAB_PACKETS]) : -1;
+    at[2] = a->cur == PSK_TAB_PACKETS ? content_top(a->page[PSK_TAB_INSPECT]) : -1;
+    tap_point(fx, fy);
+    snprintf(what, sizeof(what), "wide, %s, capturing: from PACKETS the reach is Back to LIVE", panel);
+    CHECK(what, at[1] >= 0 && a->cur == PSK_TAB_LIVE);
+
+    psk_net_show(a, true);
+    pump(100);
+    lv_obj_update_layout(a->frame);
+    at[3] = psk_net_shown(a) ? content_top(a->nv_page) : -1;
+    psk_net_show(a, false);
+    pump(100);
+    psk_key(a, 'm');
+    for (w = 0; w < 60 && !psk_evp_shown(a); w++) {
+        pump(50);
+    }
+    lv_obj_update_layout(a->frame);
+    at[4] = psk_evp_shown(a) ? content_top(a->ev_page) : -1;
+    tap_point(fx, fy);
+    pump(60);
+    snprintf(what, sizeof(what), "wide, %s, capturing: from a mark's evidence the reach is Back to LIVE", panel);
+    CHECK(what, at[4] >= 0 && !psk_evp_shown(a) && a->cur == PSK_TAB_LIVE);
+    home = g_home;
+    tap_point(fx, fy);
+    pump(60);
+    snprintf(what, sizeof(what), "wide, %s, capturing: on LIVE the reach is Back: it asks before leaving", panel);
+    CHECK(what, shown("Leave PacketShark?") && g_home == home);
+    tap("STAY");
+
+    if (!(at[0] == under + 8 && at[1] == under + 12 && at[2] == under + 14 && at[3] == under + 8 &&
+          at[4] == under + 8)) {
+        printf("     under the controls from y %d: LIVE %d, PACKETS %d, INSPECT %d, network %d, evidence %d\n",
+               (int)under, (int)at[0], (int)at[1], (int)at[2], (int)at[3], (int)at[4]);
+    }
+    snprintf(what, sizeof(what), "wide, %s: every page shows what it did where it did, 8, 12, 14, 8 and 8 px "
+             "under the row's controls", panel);
+    CHECK(what, at[0] == under + 8 && at[1] == under + 12 && at[2] == under + 14 && at[3] == under + 8 &&
+                    at[4] == under + 8);
+    app_stop();
+    CHECK("closing leaves no helper", no_child());
+}
+
+static void back_reach(bool portrait)
+{
+    struct psk_app *a;
+
+    if (portrait) {
+        lv_area_t s;
+        lv_area_t c;
+
+        setenv("POCKETOS_CAPTURE_SOURCE", "", 1);
+        g_link = 1;
+        app_start();
+        a = app();
+        lv_obj_get_coords(a->back, &s);
+        lv_obj_get_click_area(a->back, &c);
+        CHECK("tall, as before H6: a 56 px top row with no strip, no back slab, the pages' 14, 12 and 14",
+              !a->wide && lv_obj_get_height(a->top) == PSK_TAB_H &&
+                  lv_obj_get_style_pad_bottom(a->top, LV_PART_MAIN) == 0 &&
+                  lv_obj_has_flag(a->back, LV_OBJ_FLAG_HIDDEN) && lv_area_get_width(&c) == lv_area_get_width(&s) &&
+                  lv_obj_get_style_pad_top(a->page[PSK_TAB_LIVE], LV_PART_MAIN) == 14 &&
+                  lv_obj_get_style_pad_top(a->page[PSK_TAB_PACKETS], LV_PART_MAIN) == 12 &&
+                  lv_obj_get_style_pad_top(a->page[PSK_TAB_INSPECT], LV_PART_MAIN) == 14 &&
+                  lv_obj_get_style_pad_top(a->nv_page, LV_PART_MAIN) == 14 &&
+                  lv_obj_get_style_pad_top(a->ev_page, LV_PART_MAIN) == 14);
+        app_stop();
+        return;
+    }
+    back_reach_wide("reference panel");
+    back_reach_capture("reference panel");
+    use_unit_landscape(POS_ROTATION_270);
+    back_reach_wide("Unit A's landscape");
+    back_reach_capture("Unit A's landscape");
+    use_display(POS_ROTATION_90);
+}
+
 /* ---- M12.1: the network intelligence ------------------------------------------------------ */
 
 static lv_obj_t *net_page(void)
@@ -4486,6 +4745,15 @@ int main(void)
             printf("packetshark_app_test (journey): %d checks, %d failed\n", checks, failed);
             return failed ? 1 : 0;
         }
+        if (only && strcmp(only, "back") == 0) {
+            /* H6: the wide back slab's reach, and the tall shape as it was. */
+            back_reach(true);
+            shot_orientation = "landscape";
+            use_display(POS_ROTATION_90);
+            back_reach(false);
+            printf("packetshark_app_test (back): %d checks, %d failed\n", checks, failed);
+            return failed ? 1 : 0;
+        }
         if (only && strcmp(only, "n1") == 0) {
             /* PACKETSHARK_SHAPE=portrait or landscape: that shape alone. */
             const char *shape = getenv("PACKETSHARK_SHAPE");
@@ -4514,6 +4782,7 @@ int main(void)
     m4_live(true);
     m5_m6(true);
     m7_m9(true);
+    back_reach(true);
     m12(true);
     n1(true);
     faults();
@@ -4527,6 +4796,7 @@ int main(void)
     m4_live(false);
     m5_m6(false);
     m7_m9(false);
+    back_reach(false);
     m12(false);
     n1(false);
     shot_orientation = "portrait";

@@ -650,7 +650,9 @@ static void build_tabs(struct psk_app *a)
     int i;
 
     /* The top row: the tabs, and in the wide shape a back slab before them
-     * and the state and the capture's buttons after (psk_shape). */
+     * and the state and the capture's buttons after (psk_shape). The slab
+     * is drawn 72 x 56 like the row's other controls; it answers taps
+     * PSK_TOP_REACH around it (psk_shape). */
     a->top = row(a->frame, PSK_GAP);
     lv_obj_set_height(a->top, PSK_TAB_H);
     a->back = psk_box(a->top);
@@ -1336,6 +1338,16 @@ void psk_shape(struct psk_app *a)
     lv_obj_set_style_pad_left(a->top, w ? a->top_inset_l : 0, 0);
     lv_obj_set_style_pad_right(a->top, w ? a->top_inset_r : 0, 0);
     psk_set_hidden(a->back, !w);
+    /* Wide, the back slab sits against the display's top edge beside its
+     * rounded corner, where a finger missed it at 72 x 56 (H6). It answers
+     * PSK_TOP_REACH around it: into the gap before LIVE, toward the side,
+     * and down into a strip the row keeps under its controls, which shows
+     * nothing and which the pages give up from their top padding (below),
+     * so nothing they show moves. LVGL looks for a tap's object inside its
+     * parent's area only, so the strip has to be the row's. */
+    lv_obj_set_height(a->top, w ? PSK_TOP_H + PSK_TOP_REACH : PSK_TAB_H);
+    lv_obj_set_style_pad_bottom(a->top, w ? PSK_TOP_REACH : 0, 0);
+    lv_obj_set_ext_click_area(a->back, w ? PSK_TOP_REACH : 0);
     psk_set_hidden(a->tab[PSK_TAB_INSPECT], w);
     lv_obj_set_width(a->tabs, w ? 2 * 128 + PSK_GAP : LV_PCT(100));
     /* The state: beside the tabs on every tab (ADR-016 rule 13), or the
@@ -1454,9 +1466,12 @@ void psk_shape(struct psk_app *a)
     }
     psk_net_shape(a);
     psk_evp_shape(a);
-    /* Wide: LIVE's three panels and the top row fit the body's height. */
+    /* Wide: LIVE's three panels and the top row fit the body's height. The
+     * pages' top padding, less the top row's strip (PSK_TOP_REACH), so what
+     * they show starts where it did. */
     lv_obj_set_style_pad_row(a->live_r, w ? 12 : PSK_PANEL_GAP, 0);
-    lv_obj_set_style_pad_top(a->page[PSK_TAB_LIVE], w ? 8 : 14, 0);
+    lv_obj_set_style_pad_top(a->page[PSK_TAB_LIVE], w ? 8 - PSK_TOP_REACH : 14, 0);
+    lv_obj_set_style_pad_top(a->page[PSK_TAB_INSPECT], w ? 14 - PSK_TOP_REACH : 14, 0);
     psk_list_shape(a);
     psk_paint_tabs(a);
     a->window_due = true;
