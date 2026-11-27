@@ -145,9 +145,11 @@ All E3a figures come from one seed, with no confidence intervals. The realised b
 
 Method, results and limits: [N1.1.md](N1.1.md) §3; script and results: `research/packetshark-neural/e3a-r/` on the N1.1 branch. In brief, synthetic only:
 
-- The binary gate keeps false alerts under loss near the clean rate (0.4 % of windows against 2.5 % without it) but decides fewer faults that overlap loss (48 % against 60 %). Loss-aware estimation keeps the gate's false-alert rate (0.3 %) and decides 57 %.
-- One-sided visibility that starts inside a window defeats a whole-window rule (about 39 % false alerts for both gates). The N1.1 silent-spell rule brings it to 2.9 %, at the cost of abstaining on faults that overlap it.
-- With 2–9 own DNS questions a minute, DNS comparisons decide about 4 % of faults. ARP and DHCP decide 97–99 %.
+- These windows are G0's development set; G0's frozen criteria are in [G0.md](G0.md). Only the loss-aware rule passes them there: false problem claims in every healthy visibility-artifact category stay below 1 % (worst, burst loss: 0.40 %, 95 % upper bound 0.90 %), and recall for material faults overlapping loss is 65.8 % (lower bound 63.8 %).
+- The binary gate keeps false alerts under loss low but decides 44 % of faults that overlap loss, against 59 % for no handling; loss-aware estimation decides 56.5 %.
+- One-sided visibility that starts inside a window defeats a whole-window rule (about 42 % false alerts for both gates). The N1.1 one-way rules and the return-path witness bring it to 0.1 %, at the cost of abstaining on faults that overlap it.
+- Selective (burst) loss biases the answers seen toward fast ones; the engine counts unseen answers as the slowest, so no material slowdown was falsely reassured.
+- With 2-9 own DNS questions a minute, DNS comparisons decide about 4.5 % of faults. ARP and DHCP decide 96-99 %.
 
 ## E3b: Traffic DNA (`exp_dna.py`)
 

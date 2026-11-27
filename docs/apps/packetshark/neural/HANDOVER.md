@@ -31,7 +31,7 @@
 | **D5** | Retention beyond the session (per-network baselines, saved evidence cards) | No for v1. Everything is session-local. Revisit after G2, with a separate retention decision. | No for v1. N1.0's marks are session-local too. |
 | **D6** | Policy for shipping model weights: a licence allowlist (CC0, CC BY, MIT, MIT-0, explicit grants), a NOTICE entry and a model card per weight file | Adopt the policy now, ship nothing before G3/G4. Legal review for CIC "for researchers" wording, IEEE OUI, legacy Fingerbank ODbL. | The policy is adopted. Nothing ships before G3 (and G4 for a KPU backend). The legal reviews are still to do, and no dataset download is authorized. |
 | **D7** | A new Companion aggregate (for example, the number of open episodes) | Defer. Propose only after N1, through the ADR-016 amendment 1 allowlist review. | Deferred. N1.0 added none: `capture.status` is unchanged. |
-| **D8** | DS §59 amendment: MARK on the capture bar, the INSIGHT face of LIVE, four verdict states including CAN'T TELL | Review mockups during N1 before code. | Mockups before code. N1.0's MARK control and evidence page were accepted with N1.0's merge (pull request #188) and are recorded in DS §59.11; the INSIGHT face and the four verdict states still need mockups and review. |
+| **D8** | DS §59 amendment: MARK on the capture bar, the INSIGHT face of LIVE, four verdict states including CAN'T TELL | Review mockups during N1 before code. | Mockups before code. N1.0's MARK control and evidence page were accepted with N1.0's merge (pull request #188) and are recorded in DS §59.11; the INSIGHT face and the four verdict states still need mockups and review. **27 November 2026: the seven INSIGHT and WHEN mockups of N1.1 ([N1.1.md](N1.1.md) §6) were approved as drawn**, with the comparison vocabulary WORSE, BETTER, NO CHANGE, SMALL CHANGE and CAN'T TELL; the DS §59 amendment follows. |
 | **D9** | Schedule the promiscuous-mode reversion test on hardware (ADR-016 rule 3) | Yes, as its own small authorized test. It is the single biggest unlock for WHO (mirror-port conversations) and is independent of this work. | Yes, as its own small test. It is not scheduled or authorized by this record. |
 | **D10** | Opt-in, session-local linking of randomised MACs in Presence DNA | No for v1. It undoes a privacy feature of the devices around the unit. | No for v1. |
 
@@ -62,8 +62,8 @@ Give the reviewer the code and the documents, not this page's conclusions.
 
 The owner adopted the review's order on 27 November 2026 (INDEPENDENT-REVIEW §9). It sets priorities; every step that runs an experiment, touches a unit, downloads data, trains a model or adds code needs its own authorization.
 
-1. Decide F1 (privately; outside this record).
-2. Measure the unit's own evidence per minute in an ordinary capture, and schedule D9 as its own test.
+1. Decide F1 (privately; outside this record). Briefed to the owner privately on 27 November 2026 with a recommended mitigation; the decision is pending.
+2. Measure the unit's own evidence per minute in an ordinary capture, and schedule D9 as its own test. **Measured on Unit A on 27 November 2026** ([N1.1.md](N1.1.md) §10): at rest no DNS questions of its own in 15 minutes on Wi-Fi or Ethernet, ARP about 150 frames a minute, nothing lost. D9 not scheduled.
 3. Run the amended P7 session on Unit B (INDEPENDENT-REVIEW §7; kit and base recipe in `poc/K1-UNIT-A.md` §8 on the research branch).
 4. Host: redo E3a with a noisy, lagged coverage signal, faults inside gaps and 10 seeds. Until then no document cites the gate figures. **Done on 27 November 2026 (E3a-R, [N1.1.md](N1.1.md) §3), synthetic only.**
 5. Host: the CESNET study for Traffic DNA, with the ensemble open-set protocol (the download needs the owner's approval under D6).
