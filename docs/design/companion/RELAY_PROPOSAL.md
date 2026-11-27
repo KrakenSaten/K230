@@ -822,6 +822,13 @@ The answers:
 The 27 wire decisions and their resolution are in `docs/api/relay.md` §14.
 The tests and measurements that phase 1 now requires are listed in §16.
 
+**The record:**
+- the review itself, verbatim: `RELAY_REVIEW_CODEX_2026-11-27.md`;
+- the contract it was resolved to: `RELAY_REVIEW_RESOLUTION.md` §1-§14;
+- the independent re-review of the result, at `3d05c05c` and `ca450707`: `RELAY_REVIEW_RESOLUTION.md` §15-§17.
+
+**The re-review:** this design is GO, with one wording fix. §8.3's "declined" must not let the helper's declines exceed the relay's frame limit (finding F2, an owner decision). Phase 1 is NO-GO until F1 is fixed. The open findings and next steps are there.
+
 ## 16. Phases (each with its own go-ahead)
 
 | Phase | What | Done when |
