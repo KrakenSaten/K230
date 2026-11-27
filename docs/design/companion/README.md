@@ -88,13 +88,7 @@ Everything about the repository in this package is DOCUMENTED (read from source 
 | H9 | Android Keystore P-256 keys work for TLS 1.3 client authentication on min SDK 29 and accept the fixed certificate dates | Instrumented test on a phone and an emulator | no |
 | H10 | The pairing URI (about 150 characters) is readable as a QR code on the panel at a comfortable size | Simulator screenshot, then the panel | simulator first |
 | H11 | `/run/pocketos` is not world-accessible on a unit (init scripts create it before the library's 0770 applies) | `ls -ld` on a unit, read-only | yes (read-only) |
-| H12 | Android routes as expected on the owner's phones: (a) a socket bound to a joined Wi-Fi network without internet; (b) a socket bound to no network, to a client of the phone's own hotspot, through netd's local network and never mobile data (CONTRACTS.md §2). For (b), the platform behaviour is DOCUMENTED from AOSP source: netd `addLocalNetworkRules`, tethering `IpServer`, and on Android 15 and later an optional local network agent. (b) is **VERIFIED 2026-11-27** on the Flip8 (Android 17, One UI):
-- mode a: netd's local network, with no local network agent;
-- every gateway socket from the hotspot address;
-- no mobile data in `netstats`;
-- the link found under both of One UI's names (`swlan0`, `ap_br_swlan0`).
-
-Not on hardware: the probe over a hotspot, the local agent mode, and (a) | Manual test; for (b), PR #193's Flip8 checklist | (a) no; (b) done for the Flip8 |
+| H12 | Android routes as expected on the owner's phones: (a) a socket bound to a joined Wi-Fi network without internet; (b) a socket bound to no network, to a client of the phone's own hotspot, through netd's local network and never mobile data (CONTRACTS.md §2). For (b), the platform behaviour is DOCUMENTED from AOSP source: netd `addLocalNetworkRules`, tethering `IpServer`, and on Android 15 and later an optional local network agent. (b) is **VERIFIED 2026-11-27** on the Flip8 (Android 17, One UI): mode a (netd's local network, no local network agent); every gateway socket from the hotspot address; no mobile data in `netstats`; the link found under both of One UI's names (`swlan0`, `ap_br_swlan0`). Not on hardware: the probe over a hotspot, the local agent mode, and (a) | Manual test; for (b), PR #193's Flip8 checklist | (a) no; (b) done for the Flip8 |
 
 ## Remaining blockers before implementation
 
