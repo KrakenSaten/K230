@@ -582,7 +582,7 @@ private fun VisionGate(view: VisionView, link: LinkState) {
     val (title, body) = when (view.access) {
         VisionAccess.OFFLINE -> "The unit is away" to
             "Nothing of Vision is stored on the phone, so there is nothing to show until the session is back." +
-            if (link is LinkState.NoWifi) " The unit is reached over Wi-Fi only." else ""
+            if (link is LinkState.NoWifi) " The unit is reached over Wi-Fi or this phone's hotspot only." else ""
         VisionAccess.NOT_SERVED -> "Not served by this unit" to
             "This unit's gateway does not serve Vision. Showing Vision on a paired phone needs a Doors that has it, and this unit's does not."
         VisionAccess.NOT_GRANTED -> "Not granted to this phone" to
