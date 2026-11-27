@@ -3,7 +3,8 @@
 Status: **draft. Phase 1 is built and host-tested only: the Go relay in `relay/`, against Go stand-ins of the unit and the phone.**
 - Nothing is deployed, and no relay host exists.
 - The unit's side (gatewayd and its helper) and the app's side are phases 2 and 3, and neither exists yet.
-- This revision answers the Codex review of 2026-11-27. It follows its resolution (`RESOLUTION-review-1.md`, outside the repository; the same contract is in `RELAY_PROPOSAL.md` §15.3 and the threat model).
+- This revision answers the Codex review of 2026-11-27. The resolution it follows is `docs/design/companion/RELAY_REVIEW_RESOLUTION.md` §1-§14, committed on PR #192 at `78a25848`. The same contract is in `RELAY_PROPOSAL.md` §15.3 and the threat model.
+- **Phase 1 sign-off: NO-GO, narrowly**, after the independent re-review of `ca450707`. One open finding blocks it (F1, §15.5). Development stopped there at the owner's request; §15.5 lists the open findings and the next steps.
 
 This is the wire protocol of ADR-019 amendment 3 (rules 28 to 42, accepted 2026-11-27), as specified by `docs/design/companion/RELAY_PROPOSAL.md` §4, §5, §6.1, §8.3 and §13.
 - Where the proposal was silent, the first revision made the smallest decision consistent with the amendment and marked it **[Q*n*]**.
@@ -482,4 +483,38 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 - **No real network:** no relay host and no VPS. Restrictive networks were simulated with a local `CONNECT` proxy, a local TLS interceptor and a local delaying proxy only.
 - **One Go version:** built and tested with Go 1.27.4 only. `go.mod` says `go 1.24.0`, the first release with `crypto/hkdf`, and `go vet`'s stdversion check passed. Go 1.24.0 is not installed here, and was not installed for this.
 - **The fake unit's two-file rule** (T9) is the contract's reference behaviour in Go, not gatewayd's C, and it has no production sandbox. Its `paired.v1` holds each key with a count of its pairings, which stands for the name and scopes gatewayd rewrites when a known key pairs again.
-- **Threat model items left to later phases:** 3 (beyond the Go phone), 7 (beyond the relay), 8, 9, 11, 12's C fuzzers, and 13.
+- **Threat model items left to later phases:** 3 (beyond the Go phone), 7 (beyond the relay), 8, 9, 11, 12's C fuzzers, and 14 (hardware). Check 13, the relay's own resources, is this phase's: T13 and M1-M3.
+
+### 15.5 The independent re-review (2026-11-27): open findings and next steps
+
+**Verdicts** at `ca450707` (this PR) and `3d05c05c` (#192), from a reviewer that wrote neither:
+
+| Gate | Verdict |
+| --- | --- |
+| #192 | GO, with one wording fix (F2) |
+| Phase 1 sign-off (this PR) | **NO-GO, narrowly.** All five findings of the Codex review are resolved. After an F1 fix with a regression test, GO without another full review |
+| Phase 2 | NO-GO until F1 is fixed and F2 is decided |
+
+**Open findings:**
+- **F1 (medium): `invite` can come before `registered`.** `register` makes the new control routable at commit (`u.ctl = k` in `state.go`), and sends `registered` only after the effects and the old control's close. A listed phone admitted in that window gets its `invite` queued first.
+  - It reproduces on the unmodified code. A throwaway test held `register` at the existing `register-committed` hook and then connected a listed phone; it failed 3 of 3 times. It was not committed.
+  - The fake unit treats such an early frame as `ErrUnexpected` (from reading the code).
+- **F2 (low-medium):** more than 10 `decline`s a second exceed the relay's control frame limit and close the control. The re-review's probe showed 12 do. Proposal §8.3 tells the helper to decline invitations beyond 1 a second. With M3b, this calls for an owner decision on a per-unit invitation limit.
+- **F3 (medium-low, there before this work):** 16 sources × 64 unauthenticated connections fill the global cap of 1024. 16 IPv6 /64s fit in one /60. Q17 is only partly met.
+- **F4 (low): test gaps.** Mutations MD (ending a pending `pair` invitation on a slot change) and MP (`setAdmit`'s current-control check) survived.
+- **F5 (low):** a byte-identical `paired.v1` rewritten by a rollback gatewayd can match the recorded digest. Fix: record the inode. Also add a test of "a grant only for a key in `paired.v1`".
+- **F6 (low):** `admitted` is sent outside the lock, so it can reach a control replaced in between. gatewayd ignores it by generation, but §7.2 says it is "neither applied nor acknowledged".
+- **F7 (low):** §15.2's limits: loopback on a fast machine, M4 above 2.85 s RTT, and the host size not measured.
+
+**Next steps**, each with the owner's go-ahead (`RELAY_REVIEW_RESOLUTION.md` §17 on #192):
+1. F1: a per-control `routable` flag, set under `s.mu` after `registered` is queued. `admitSplice` requires it. A regression test T19 built from the re-review's probe.
+2. F2: the owner's decision. Recommended: a per-unit invitation limit at the relay, and the helper dropping excess invitations silently.
+3. F4: tests that catch MD and MP.
+4. F6: check the generation under the send's lock, or reword §7.2.
+5. F5: the inode in the two-file rule, with a direct test.
+6. F3: the owner's decision on a pre-authentication cap, IPv6 grouping and a ClientHello deadline.
+7. Then `go vet` and `go test -race -count=1` once under each umask, and a focused re-review of F1 and F2.
+
+**Validation at `ca450707`:**
+- `go vet ./...` and `go test -race -count=1 ./...` pass on Go 1.27.4 under umask 022 and 077: 75 pass and 5 measurement tests skip, with no data race. This was confirmed independently from a `git archive` of the commit.
+- The re-review's mutation batch: 22 mutations, of which 17 were killed, 2 were equivalent, 2 were real gaps (F4), and 1 did not compile, with 1 more not applied. A second batch was not run, at the owner's request.
