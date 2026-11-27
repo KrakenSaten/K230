@@ -84,13 +84,16 @@ func TestT19NoInviteBeforeRegistered(t *testing.T) {
 // control by its frame limit nor fill its queue; one second later the
 // phone is invited again.
 func TestT20InvitationLimit(t *testing.T) {
+	// A frozen clock that only the test moves: the attempts below do not
+	// have to fit in a real second (focused review's note on F2).
 	var skew atomic.Int64
+	base := time.Now()
 	tm := slowTiming()
 	tm.invite = time.Second
 	e, to, us := rawRelay(t, opts{
 		timing: tm,
 		limits: Limits{PerSourceRate: 1000},
-		now:    func() time.Time { return time.Now().Add(time.Duration(skew.Load())) },
+		now:    func() time.Time { return base.Add(time.Duration(skew.Load())) },
 	}, 1)
 	u, p := us[0], newPhone(e.to)
 	k := ctlRegister(t, to, u, p.FP)

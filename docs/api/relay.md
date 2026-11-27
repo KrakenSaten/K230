@@ -533,7 +533,7 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 | F3 | **Open: a mandatory gate before any public deployment.** 16 sources × 64 unauthenticated connections still reach the global cap of 1024, and 16 IPv6 /64s fit in one /60 (Q17 partly met). It needs a global pre-authentication cap that leaves room for authenticated connections, IPv6 grouping at /56, and a shorter deadline before the ClientHello. Until then: owner-operated, non-public relays only | none |
 | F4 | **Fixed.** MD: T3 requires the slot change itself to answer the phone within 1 s, before the cookie is tried. MP: T21 | `review_test.go`, `rereview_test.go` |
 | F5 | **Fixed**, fail-closed (two-file rule above): `relay.v1` seals `paired.v1`'s identity; a doubt drops grants and never revives one | `fake/unit.go`, `fake/fileid_*.go`; T9 adds a grant for a key not in `paired.v1` (never counts), a byte-identical rewrite and a crash before the seal (both drop every grant) |
-| F6 | **Fixed.** `admitted` is queued under the lock that saw the control current (§7.2) | `setAdmit`; T6, T21 |
+| F6 | **Fixed** by construction: `admitted` is queued under the lock that saw the control current (§7.2). No deterministic test can tell the send inside the lock from just after it; T6 and T21 cover the surrounding behaviour only | `setAdmit` |
 | F7 | **Documented limits**, below | none |
 
 **Each new test fails without its fix** (one check per fix, not a mutation batch): T19 without the routable check, T20 without the limit, T3 without the slot change's end of the invitation (MD), T21 without `setAdmit`'s current-control check (MP), and T9 without the seal check and without the `paired.v1` filter (FD).
@@ -542,4 +542,10 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 - every measurement ran over loopback on one fast machine; none on a real network, NAT or relay host;
 - M4: above about 2.85 s RTT the provisional path misses the 10 s deadline. Accepted; the app should say so (phase 3);
 - M1 cost 0.63 cores for about 600 TLS handshakes a second, so a 1-vCPU host may saturate near 1000 a second. The host size stays ASSUMED;
+- the fake unit's two-file rule (T9) runs on Linux only: elsewhere it cannot read a file's identity and refuses every change;
 - M1 to M4 were recorded before the invitation limit and the routable flag, and were not re-run. With the limit, a legitimate phone that reconnects within a second of the unit's previous invitation is refused once and retries.
+
+**Validation at `0ab5cfe8`** (Go 1.27.4, WSL Ubuntu 22.04, kernel 6.18.58.1, 8 threads): `gofmt` clean; `go vet ./...` and `go test -race -count=1 ./...` pass under umask 022 and 077, every package ok, no data race. The later commit that freezes T20's clock and corrects two comments was re-run: `go vet` (also `GOOS=windows` for the fake), T20 three times under `-race`, and `go test -race -count=1 ./...` under umask 022 and 077, all ok.
+
+**The focused independent review** (F1, F2, F4, F5, F6 only; `RELAY_REVIEW_RESOLUTION.md` §18): F1 and F4 resolved; F2, F5 and F6 resolved with notes, all addressed (T20 on a frozen clock; the proposal's operation order aligned with the sealed rule; the non-Linux limit and the F6 test attribution stated here). **Phase 1 sign-off: GO.** F3 stays open as the gate before any public deployment.
+
