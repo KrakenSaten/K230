@@ -157,6 +157,14 @@ This is a Phase 2 contract. **Pairing and remote admission are separate states:*
 
 In every case **a grant counts only for a key present in `paired.v1`**. So revocation followed by re-pairing never revives a grant: a re-pairing without "Through the relay" switched on records no grant.
 
+*Amended for re-review finding F5 (2026-11-27), superseding the table above:* a digest alone does not prove that `paired.v1` is the file gatewayd wrote, because a rollback gatewayd can rewrite the same bytes. Recovery now **fails closed** (`RELAY_PROPOSAL.md` §6.1):
+- a change of `paired.v1` is three writes: `relay.v1` unsealed (grants and digests before and after, and `paired.v1`'s identity before), `paired.v1`, then `relay.v1` **sealed** with `paired.v1`'s identity as written. The identity is the digest together with device, inode, size, change time and modification time;
+- the grants after count only when the seal is intact and names the file found;
+- an unsealed record whose "before" identity still matches keeps only grants present both before and after (an interrupted revocation now takes the grant away);
+- anything else, including a byte-identical rewrite and a crash between `paired.v1` and its seal, drops every grant.
+
+The inode is one field of several, not the proof; a doubt always costs a grant, never revives one.
+
 **Approval with "Through the relay" on:**
 1. Write `relay.v1` (the grant and the digests), then `paired.v1`. **Pairing is now committed.**
 2. Send the **full admission snapshot**: the paired keys with a grant, at most 8. Send it as `admit` with `n` + 1 on the current control generation.
@@ -454,7 +462,7 @@ The reviewer agreed with the owner's Q9, Q22 and Q27 decisions.
 
 ## 17. Exact next steps
 
-Each step needs the owner's go-ahead. Development stopped at the owner's request on 2026-11-27.
+Each step needs the owner's go-ahead. Development stopped at the owner's request on 2026-11-27. The owner's go-ahead for steps 1-5 and 7 came later that day; what was done is in §18.
 
 1. **F1, in #194.** Make a control routable only once `registered` is queued:
    - in `register`, after `k.send(&wire.Registered{})`, set a per-control `routable` flag under `s.mu`;
@@ -481,3 +489,24 @@ Each step needs the owner's go-ahead. Development stopped at the owner's request
    - a focused re-review of F1 and F2 only (the reviewer said no full review is needed);
    - update §15 here.
 8. **Phase 2** only after #194's GO, and with the owner's go-ahead.
+
+## 18. Resolution of the re-review findings (2026-11-27, later session)
+
+The owner approved the per-unit invitation limit of one a second (F2), asked for F5 to be resolved by fail-closed recovery rather than by the inode alone, kept F3 as a gate before public deployment, and asked for F7's limits to be documented.
+
+| Finding | Resolution | Where |
+| --- | --- | --- |
+| F1 | A control is routable only once `registered` is queued: `register` sets a per-control `routable` flag under `s.mu` in the same critical section that queues `registered`; `admitSplice` refuses a unit whose control is not routable | #194 `state.go`, `control.go`; test T19 (both a first control and a replacement) |
+| F2 | The relay invites a unit at most once a second and refuses further connects with `unavailable` **before** inviting (a refused connect does not use the budget). The helper acts on one a second and drops the rest silently (proposal §8.3) | #194 `state.go`, `server.go`; `relay.md` §7.2, §10; test T20 (12 quick attempts, the re-review's probe RR2, no longer close the control) |
+| F3 | **Open. Mandatory before any public deployment** (proposal §16, phase 5; threat model R-T52; `relay.md` §15.6). Nothing changed in code | - |
+| F4 | MD: T3 now requires the slot change itself to answer the phone within 1 s, before the cookie is tried (its expiry is 5 s), then refuses the join. MP: T21 applies an `admit` of a superseded control directly and requires the new control's list unchanged and no acknowledgement | #194 `review_test.go`, `rereview_test.go` |
+| F5 | Fail-closed two-file rule with a seal of `paired.v1`'s identity (proposal §6.1, §5 above). A direct test that a grant for a key not in `paired.v1` never counts (catches FD); a byte-identical rewrite and a crash before the seal both drop every grant | #194 `fake/unit.go`, `fake/fileid_*.go`; T9 |
+| F6 | `admitted` is queued in the same critical section that finds the control current, so an update is acknowledged only on the control it was applied for | #194 `state.go`; T6, T21 |
+| F7 | Documented as limits, not resolved: loopback on one fast machine; M4 above about 2.85 s RTT misses the 10 s deadline (the app should say so); a 1-vCPU host may saturate near 1000 TLS handshakes a second; the host size stays ASSUMED; M1 to M4 were recorded before the invitation limit | `relay.md` §15.6 |
+
+**Each new test was checked against its finding:** with the fix taken out, T19 fails (F1), T20 fails (F2), T3 fails (MD), T21 fails (MP), and T9 fails both without the seal check and without the `paired.v1` filter (F5, FD). This was one check per fix, not a new mutation batch.
+
+**Validation:** `go vet ./...` and `go test -race -count=1 ./...` on Go 1.27.4 (WSL, Ubuntu 22.04) under umask 022 and 077: recorded in `relay.md` §15.6 at #194's head.
+
+**Review:** a focused independent review of F1, F2, F5 and F6 only, by a reviewer that wrote none of it, as the re-review asked (no full review, no mutation batch). Its verdict is recorded in `relay.md` §15.6.
+
