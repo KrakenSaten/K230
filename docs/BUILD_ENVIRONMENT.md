@@ -362,7 +362,10 @@ go test -run='^$' -fuzz='^FuzzFrames$' -fuzztime=60s ./internal/wire/   # and Fu
 go build -o doors-relay ./cmd/doors-relay
 ```
 
-`-race` needs cgo and the WSL `gcc` (11.4). From Git Bash, pipe a script into
+`-race` needs cgo and the WSL `gcc` (11.4).
+
+- **Under both umasks:** run the full suite under `umask 022` and `umask 077`. The tests must not depend on it (T14).
+- **Measurements M1 to M4:** `RELAY_MEASURE=1 go test -run '^TestM[1-4]' -v ./internal/server/` (about four minutes). The figures are recorded in `docs/api/relay.md` §15. From Git Bash, pipe a script into
 `wsl.exe -- bash -s` rather than passing `bash -lc '...'`: the latter loses
 `$VAR` expansions (a download landed in the working directory that way).
 

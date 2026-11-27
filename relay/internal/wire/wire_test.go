@@ -52,6 +52,7 @@ func allMessages(t testing.TB) []Msg {
 		&Backup{SPKIA: spki, SPKIHashB: h32(4), Sig: sig},
 		&Register{Admit: [][32]byte{h32(5), h32(6)}, Endorsement: SignedEndorsement{E: e, Sig: sig}},
 		&Register{Admit: [][32]byte{}, Endorsement: SignedEndorsement{E: e, Sig: sig}},
+		&Registered{},
 		&Admit{Admit: [][32]byte{h32(7)}, N: 4294967295},
 		&Admitted{N: 0},
 		&PairSlot{Slot: &slot},
@@ -223,7 +224,7 @@ func TestContextsAreDistinct(t *testing.T) {
 }
 
 func TestEndorsement(t *testing.T) {
-	e := Endorsement{ConfigID: 1<<63 + 5, Seq: 9, Name: strings.Repeat("a", 64), Port: 65535, KeyHash: h32(3)}
+	e := Endorsement{ConfigID: 1<<63 + 5, Seq: 9, Name: strings.Repeat("a", 31) + "." + strings.Repeat("b", 32), Port: 65535, KeyHash: h32(3)}
 	b, err := e.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -235,13 +236,37 @@ func TestEndorsement(t *testing.T) {
 	if err != nil || got != e {
 		t.Fatalf("round trip: %v %+v", err, got)
 	}
-	for _, n := range []string{"", strings.Repeat("a", 65), "Relay.example", "relay_x", "relay example", "réla"} {
-		if _, err := (Endorsement{Name: n, Port: 1}).Marshal(); err == nil {
+	// Q14: canonical dialable DNS names only.
+	for _, n := range []string{"", strings.Repeat("a", 65), "Relay.example", "relay_x", "relay example", "réla",
+		"-relay.example", "relay-.example", "relay.-example", "relay..example", ".relay", "relay.",
+		strings.Repeat("a", 64), "a." + strings.Repeat("b", 64)} {
+		if ValidName(n) {
 			t.Errorf("name %q accepted", n)
 		}
+		if _, err := (Endorsement{Name: n, Port: 1, Seq: 1}).Marshal(); err == nil {
+			t.Errorf("endorsement with name %q accepted", n)
+		}
 	}
-	if _, err := (Endorsement{Name: "a", Port: 0}).Marshal(); err == nil {
+	for _, n := range []string{"a", "relay.example.org", "r-1.x-y.z", strings.Repeat("a", 62) + ".b", strings.Repeat("a", 63), "1.2.3.4"} {
+		if !ValidName(n) {
+			t.Errorf("name %q refused", n)
+		}
+	}
+	if _, err := (Endorsement{Name: "a", Port: 0, Seq: 1}).Marshal(); err == nil {
 		t.Error("port 0 accepted")
+	}
+	for _, s := range []uint64{0, MaxSeq + 1, 1<<64 - 1} {
+		if _, err := (Endorsement{Name: "a", Port: 1, Seq: s}).Marshal(); err == nil {
+			t.Errorf("seq %d accepted", s)
+		}
+		raw := append([]byte(CtxEndorsement), 0)
+		raw = append(raw, make([]byte, 8)...)
+		raw = append(raw, byte(s>>56), byte(s>>48), byte(s>>40), byte(s>>32), byte(s>>24), byte(s>>16), byte(s>>8), byte(s))
+		raw = append(raw, 1, 'a', 0, 1)
+		raw = append(raw, make([]byte, 32)...)
+		if _, err := ParseEndorsement(raw); err == nil {
+			t.Errorf("parsed seq %d", s)
+		}
 	}
 	for i := 0; i < len(b); i++ {
 		if _, err := ParseEndorsement(b[:i]); err == nil {

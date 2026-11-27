@@ -188,7 +188,7 @@ func TestReplacement(t *testing.T) {
 	waitFor(t, "slot released", func() bool {
 		w.s.mu.Lock()
 		defer w.s.mu.Unlock()
-		return w.s.units[w.u.ID].session == nil
+		return w.s.units[w.u.ID].place == nil
 	})
 	s3, err := q.Connect(ctx(t), recQ, nil)
 	if err != nil {

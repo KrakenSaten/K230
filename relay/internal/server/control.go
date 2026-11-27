@@ -27,9 +27,14 @@ type ctl struct {
 	writerDone chan struct{}
 	once       sync.Once
 	replaced   atomic.Bool
+	ended      atomic.Pointer[string] // why the writer side ended it, if it did
 	in, sent   atomic.Int64
 
-	registered, proved, backedUp bool // reader goroutine only
+	gen uint64 // this connection's control generation; set under Server.mu at register
+
+	registered, proved, backedUp bool   // reader goroutine only
+	lastN                        uint32 // reader goroutine only: the last admit n
+	haveN                        bool
 }
 
 func (k *ctl) close() {
@@ -46,6 +51,7 @@ func (k *ctl) queue(b []byte) {
 	case <-k.done:
 	case k.out <- b:
 	default:
+		k.ended.CompareAndSwap(nil, &endQueue)
 		k.close()
 	}
 }
@@ -74,11 +80,15 @@ func (k *ctl) writer() {
 		case <-t.C:
 			n++
 			if !k.write(wire.Encode(&wire.Ping{N: n})) {
+				k.ended.CompareAndSwap(nil, &endWrite)
 				k.close()
 				return
 			}
 		case b := <-k.out:
-			if b == nil || !k.write(b) {
+			if b != nil && !k.write(b) {
+				k.ended.CompareAndSwap(nil, &endWrite)
+			}
+			if b == nil || k.ended.Load() != nil {
 				k.close()
 				return
 			}
@@ -113,6 +123,9 @@ func (s *Server) serveControl(c *rconn, login *wire.UnitLogin) {
 	<-k.writerDone
 	k.close()
 	s.ctlGone(k)
+	if r := k.ended.Load(); r != nil {
+		reason = *r
+	}
 	if k.replaced.Load() {
 		reason = reasonReplaced
 	}
@@ -203,8 +216,18 @@ func (k *ctl) readLoop() string {
 			if !k.registered {
 				return reasonOutOfOrder
 			}
-			s.setAdmit(k, m.Admit)
-			k.send(&wire.Admitted{N: m.N})
+			// n rises on each control connection (RESOLUTION §4).
+			if k.haveN && m.N <= k.lastN {
+				return reasonNotRising
+			}
+			k.lastN, k.haveN = m.N, true
+			// Acknowledged only once applied, with both legs of a
+			// dropped phone's splice closed, on the current control.
+			acked := s.setAdmit(k, m.Admit)
+			s.at("admit-acked", acked)
+			if acked {
+				k.send(&wire.Admitted{N: m.N})
+			}
 		case *wire.PairSlot:
 			if !k.registered {
 				return reasonOutOfOrder

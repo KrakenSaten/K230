@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KrakenSaten/K230/relay/internal/fake"
@@ -83,7 +84,13 @@ type Liar struct {
 	closed  bool
 	wg      sync.WaitGroup
 	seen    []string
+
+	withhold atomic.Bool // Lies.WithholdAdmitted, switchable while running
 }
+
+// SetWithholdAdmitted switches the withholding of `admitted` while the
+// relay runs.
+func (l *Liar) SetWithholdAdmitted(on bool) { l.withhold.Store(on) }
 
 type lunit struct {
 	id       [32]byte
@@ -126,6 +133,7 @@ func Start(addr string, key *ecdsa.PrivateKey, lies Lies) (*Liar, error) {
 		units: map[[32]byte]*lunit{}, cookies: map[[16]byte]*lsplice{}, conns: map[net.Conn]struct{}{},
 	}
 	l.keyHash = wire.Fingerprint(wire.SPKI(&key.PublicKey))
+	l.withhold.Store(lies.WithholdAdmitted)
 	cert := fake.SelfSigned(key, "doors-relay")
 	if lies.Cert != nil {
 		cert = *lies.Cert
@@ -296,6 +304,7 @@ func (l *Liar) control(c *lconn, login *wire.UnitLogin) {
 			u.endo = &wire.EndorsementFrame{SPKI: u.spki, E: m.Endorsement.E, Sig: m.Endorsement.Sig}
 			l.units[u.id] = u
 			l.mu.Unlock()
+			send(&wire.Registered{})
 			l.afterRegister(c, u)
 		case *wire.Admit:
 			l.mu.Lock()
@@ -316,7 +325,7 @@ func (l *Liar) control(c *lconn, login *wire.UnitLogin) {
 			for _, sp := range end {
 				sp.end()
 			}
-			if !l.Lies.WithholdAdmitted {
+			if !l.withhold.Load() {
 				send(&wire.Admitted{N: m.N})
 			}
 		case *wire.PairSlot:

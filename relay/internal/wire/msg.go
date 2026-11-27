@@ -5,11 +5,14 @@ package wire
 
 import (
 	"bytes"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"math/big"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -56,6 +59,8 @@ type (
 		Admit       [][32]byte
 		Endorsement SignedEndorsement
 	}
+	// Registered confirms a Register: routing to the unit is available.
+	Registered struct{}
 	// Admit replaces the admission list; the relay confirms with Admitted.
 	Admit struct {
 		Admit [][32]byte
@@ -104,6 +109,7 @@ func (*KeyProof) Type() string         { return "key_proof" }
 func (*GetBackup) Type() string        { return "get_backup" }
 func (*Backup) Type() string           { return "backup" }
 func (*Register) Type() string         { return "register" }
+func (*Registered) Type() string       { return "registered" }
 func (*Admit) Type() string            { return "admit" }
 func (*Admitted) Type() string         { return "admitted" }
 func (*PairSlot) Type() string         { return "pair_slot" }
@@ -129,6 +135,7 @@ var members = map[string]struct{ req, opt []string }{
 	"get_backup":  {req: []string{"nonce"}},
 	"backup":      {req: []string{"spki_a", "spki_hash_b", "sig"}},
 	"register":    {req: []string{"admit", "endorsement"}},
+	"registered":  {},
 	"admit":       {req: []string{"admit", "n"}},
 	"admitted":    {req: []string{"n"}},
 	"pair_slot":   {req: []string{"slot"}},
@@ -226,7 +233,7 @@ func Encode(m Msg) []byte {
 		if m.Slot != nil {
 			o["slot"] = B64(m.Slot[:])
 		}
-	case *Ready, *Unavailable:
+	case *Ready, *Unavailable, *Registered:
 	case *Join:
 		o["cookie"] = B64(m.Cookie[:])
 	default:
@@ -319,13 +326,52 @@ func (f *fields) hex32(k string) [32]byte {
 	return v
 }
 
+// u32 accepts exactly an unsigned decimal: "0", or a non-zero digit
+// followed by digits, at most 4294967295. No sign, fraction or exponent.
 func (f *fields) u32(k string) uint32 {
 	raw, ok := f.obj[k]
-	var n uint32
-	if !ok || isNull(raw) || json.Unmarshal(raw, &n) != nil {
+	if !ok || len(raw) == 0 || len(raw) > 10 || raw[0] == '0' && len(raw) > 1 {
+		f.err = true
+		return 0
+	}
+	for _, c := range raw {
+		if c < '0' || c > '9' {
+			f.err = true
+			return 0
+		}
+	}
+	n, err := strconv.ParseUint(string(raw), 10, 32)
+	if err != nil {
 		f.err = true
 	}
-	return n
+	return uint32(n)
+}
+
+// spki reads a key: the canonical 91-byte DER SubjectPublicKeyInfo of a
+// P-256 point (ParseSPKI).
+func (f *fields) spki(k string) []byte {
+	b := f.b64(k, SPKILen, SPKILen)
+	if !f.err {
+		if _, err := ParseSPKI(b); err != nil {
+			f.err = true
+		}
+	}
+	return b
+}
+
+// sig reads a signature: one DER SEQUENCE of two positive INTEGERs, with
+// nothing after it. Whether it verifies is the receiver's check.
+func (f *fields) sig(k string) []byte {
+	b := f.b64(k, 8, MaxSig)
+	if f.err {
+		return b
+	}
+	var v struct{ R, S *big.Int }
+	rest, err := asn1.Unmarshal(b, &v)
+	if err != nil || len(rest) != 0 || v.R.Sign() <= 0 || v.S.Sign() <= 0 {
+		f.err = true
+	}
+	return b
 }
 
 func (f *fields) hexList(k string) [][32]byte {
@@ -406,19 +452,19 @@ func Decode(b []byte) (Msg, error) {
 		f.b64n("nonce", x.Nonce[:])
 		m = x
 	case "unit":
-		m = &UnitLogin{SPKI: f.b64("spki", SPKILen, SPKILen), Sig: f.b64("sig", 1, MaxSig)}
+		m = &UnitLogin{SPKI: f.spki("spki"), Sig: f.sig("sig")}
 	case "prove":
 		x := &Prove{}
 		f.b64n("nonce", x.Nonce[:])
 		m = x
 	case "key_proof":
-		m = &KeyProof{SPKI: f.b64("spki", SPKILen, SPKILen), Sig: f.b64("sig", 1, MaxSig)}
+		m = &KeyProof{SPKI: f.spki("spki"), Sig: f.sig("sig")}
 	case "get_backup":
 		x := &GetBackup{}
 		f.b64n("nonce", x.Nonce[:])
 		m = x
 	case "backup":
-		m = &Backup{SPKIA: f.b64("spki_a", SPKILen, SPKILen), SPKIHashB: f.hex32("spki_hash_b"), Sig: f.b64("sig", 1, MaxSig)}
+		m = &Backup{SPKIA: f.spki("spki_a"), SPKIHashB: f.hex32("spki_hash_b"), Sig: f.sig("sig")}
 	case "register":
 		x := &Register{Admit: f.hexList("admit")}
 		inner, err := parseObject(obj["endorsement"])
@@ -426,7 +472,7 @@ func Decode(b []byte) (Msg, error) {
 			return nil, ErrMalformed
 		}
 		g := &fields{obj: inner}
-		x.Endorsement = SignedEndorsement{E: g.b64("e", minE, maxE), Sig: g.b64("sig", 1, MaxSig)}
+		x.Endorsement = SignedEndorsement{E: g.b64("e", minE, maxE), Sig: g.sig("sig")}
 		if g.err {
 			return nil, ErrMalformed
 		}
@@ -455,13 +501,15 @@ func Decode(b []byte) (Msg, error) {
 	case "which":
 		m = &Which{Lookup: f.hex32("lookup")}
 	case "endorsement":
-		m = &EndorsementFrame{SPKI: f.b64("spki", SPKILen, SPKILen), E: f.b64("e", minE, maxE), Sig: f.b64("sig", 1, MaxSig)}
+		m = &EndorsementFrame{SPKI: f.spki("spki"), E: f.b64("e", minE, maxE), Sig: f.sig("sig")}
 	case "client":
-		m = &ClientLogin{SPKI: f.b64("spki", SPKILen, SPKILen), DeviceID: f.hex32("device_id"), Sig: f.b64("sig", 1, MaxSig)}
+		m = &ClientLogin{SPKI: f.spki("spki"), DeviceID: f.hex32("device_id"), Sig: f.sig("sig")}
 	case "connect":
 		m = &Connect{Slot: f.slot("slot", false)}
 	case "ready":
 		m = &Ready{}
+	case "registered":
+		m = &Registered{}
 	case "unavailable":
 		m = &Unavailable{}
 	case "join":

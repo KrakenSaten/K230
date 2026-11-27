@@ -239,6 +239,10 @@ func TestControlPingAndSilence(t *testing.T) {
 	c.Send(&wire.Register{Endorsement: w.u.Endorse()})
 	c.TLS.SetReadDeadline(time.Now().Add(2 * time.Second))
 	m, err := wire.ReadMsg(c.BR)
+	if _, ok := m.(*wire.Registered); err != nil || !ok {
+		t.Fatalf("no registered: %T %v", m, err)
+	}
+	m, err = wire.ReadMsg(c.BR)
 	if _, ok := m.(*wire.Ping); err != nil || !ok {
 		t.Fatalf("no ping: %T %v", m, err)
 	}

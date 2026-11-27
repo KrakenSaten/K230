@@ -39,7 +39,9 @@ doors-relay serve  -config /etc/doors-relay/relay.json
 ```
 
 - **The relay key:** a person compares the sixteen digits that `keygen` printed with the ones the unit shows at set-up.
-- **Enrolling a unit:** `enroll` takes the unit's `device_id`, its 64-hex fingerprint, and prints it in both forms for comparison with the unit's Settings. The relay reads the configuration at start only, so restart it after enrolling.
+- **Enrolling a unit:** `enroll` takes the unit's `device_id`, its 64-hex fingerprint, and prints it in both forms for comparison with the unit's Settings.
+  - **Restart to apply:** the relay reads the configuration at start only. A restart disconnects every unit and phone; units reconnect and register again with their back-off, and phones start their sessions again.
+  - **One writer:** run `enroll` once at a time. If the file changed while it ran, it writes nothing and says so; run it again.
 - **Logs** go to standard error, as `key=value` lines (rule 41: fingerprint prefixes and truncated addresses only).
 
 `relay.json`:
@@ -52,7 +54,7 @@ doors-relay serve  -config /etc/doors-relay/relay.json
   "key_file": "relay.key",
   "backup_hash": "<64 hex from backup-keygen>",
   "units": ["<device_id, 64 hex>"],
-  "limits": { "per_source_rate": 10, "per_source_unauth": 64, "max_conns": 1024, "session_idle_s": 90 }
+  "limits": { "per_source_rate": 10, "per_source_unauth": 64, "max_conns": 1024, "max_sources": 4096, "session_idle_s": 90 }
 }
 ```
 
@@ -66,6 +68,11 @@ doors-relay serve  -config /etc/doors-relay/relay.json
 3. Restart the relay.
 
 Each unit proves the promotion through the relay alone, and phones follow by the unit's endorsement (`RELAY_PROPOSAL.md` §4.4).
+
+**What a new backup does not do:**
+- Publishing a new `backup_hash` does not install it on any unit. Each unit takes a new backup only at set-up, by a person at that unit.
+- Until then, a promoted unit has no backup pin. If its only key is then lost, it must be set up again at the unit.
+- After a new set-up (a new configuration id), phones cannot follow through the relay. They need an authenticated session on the LAN, or a new pairing.
 
 ## Layout
 

@@ -51,14 +51,14 @@ func TestRelayPairingWithRemote(t *testing.T) {
 	if rec.ConfigID == nil || rec.Pin == nil || *rec.Pin != w.s.KeyHash() {
 		t.Fatal("first pairing did not store the relay's pin and configuration id")
 	}
-	if got, err := s.Pair(token); err != nil || got != "paired remote" {
+	if got, err := s.Pair(token); err != nil || got != "paired remote admitted" {
 		t.Fatalf("pair: %q %v", got, err)
 	}
 	s.Close()
 	waitFor(t, "candidate released", func() bool {
 		w.s.mu.Lock()
 		defer w.s.mu.Unlock()
-		return w.s.units[w.u.ID].candidate == nil
+		return w.s.units[w.u.ID].place == nil
 	})
 	s, err = p.Connect(ctx(t), rec, nil)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestPairingSlotRules(t *testing.T) {
 	waitFor(t, "candidate released", func() bool {
 		w.s.mu.Lock()
 		defer w.s.mu.Unlock()
-		return w.s.units[w.u.ID].candidate == nil
+		return w.s.units[w.u.ID].place == nil
 	})
 	s, err = q.Connect(ctx(t), recQ, &good)
 	if err != nil {
@@ -166,7 +166,7 @@ func TestTokenNeverReachesRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.Pair(token); got != "paired remote" {
+	if got, _ := s.Pair(token); got != "paired remote admitted" {
 		t.Fatalf("pair: %q", got)
 	}
 	sent := s.Relay.Written()

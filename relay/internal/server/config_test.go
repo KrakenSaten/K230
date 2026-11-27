@@ -25,7 +25,7 @@ func TestParseConfig(t *testing.T) {
 	}
 	if c.Listen != ":443" || c.Port != 443 || c.KeyFile != filepath.Join("/etc/doors-relay", "relay.key") ||
 		c.Limits.PerSourceRate != 10 || c.Limits.PerSourceUnauth != 64 || c.Limits.MaxConns != 1024 ||
-		c.Limits.SessionIdleSeconds != 90 {
+		c.Limits.MaxSources != 4096 || c.Limits.SessionIdleSeconds != 90 {
 		t.Fatalf("defaults: %+v", c)
 	}
 	for name, bad := range map[string]string{
@@ -46,10 +46,17 @@ func TestParseConfig(t *testing.T) {
 	}
 }
 
+// T14: the fixture's mode is set with chmod, not through open under the
+// umask, so the test holds under umask 022 and 077 alike.
 func TestEnroll(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "relay.json")
-	os.WriteFile(path, []byte(`{"name":"relay.example.org","key_file":"relay.key","units":[],"limits":{"max_conns":50}}`), 0o640)
+	if err := os.WriteFile(path, []byte(`{"name":"relay.example.org","key_file":"relay.key","units":[],"limits":{"max_conns":50}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
 	u := fake.NewUnit("relay.example.org", 443, nil)
 	id := strings.ToUpper(wire.Hex(u.ID[:]))
 	fp, already, err := Enroll(path, id)

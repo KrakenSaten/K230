@@ -66,17 +66,32 @@ type Server struct {
 	lookups map[[32]byte]*unit // Lookup(keyHash, device_id); fixed at start
 	lim     *limiter
 	log     *logger
+	lines   *lineQueue
 	count   counters
+
+	// now is the monotonic clock of invitation deadlines; hook, nil in
+	// production, lets a test stop the relay at a named race point. Both
+	// are set before Serve.
+	now  func() time.Time
+	hook func(point string, v any)
 
 	mu      sync.Mutex // guards every unit's mutable state, splices and cookies
 	cookies map[[16]byte]*splice
 
-	cmu    sync.Mutex
-	closed bool
-	lns    map[net.Listener]struct{}
-	conns  map[net.Conn]struct{}
-	wg     sync.WaitGroup
-	stop   chan struct{}
+	cmu     sync.Mutex
+	closed  bool
+	lns     map[net.Listener]struct{}
+	conns   map[net.Conn]struct{}
+	wg      sync.WaitGroup
+	stop    chan struct{}
+	houseWG sync.WaitGroup
+}
+
+// at is a named race point (state.go, client.go): nothing in production.
+func (s *Server) at(point string, v any) {
+	if s.hook != nil {
+		s.hook(point, v)
+	}
 }
 
 // New loads the key (and chain) the configuration names. Logs go to logOut.
@@ -114,12 +129,14 @@ func newServer(cfg *Config, key *ecdsa.PrivateKey, cert tls.Certificate, logOut 
 		units:   make(map[[32]byte]*unit),
 		lookups: make(map[[32]byte]*unit),
 		lim:     newLimiter(cfg.Limits),
-		log:     newLogger(logOut),
+		now:     time.Now,
 		cookies: make(map[[16]byte]*splice),
 		lns:     make(map[net.Listener]struct{}),
 		conns:   make(map[net.Conn]struct{}),
 		stop:    make(chan struct{}),
 	}
+	s.lines = newLineQueue(logOut)
+	s.log = newLogger(s.lines)
 	s.keyHash = wire.Fingerprint(s.spki)
 	if cfg.BackupHash != "" {
 		b, _ := wire.ParseHex32(cfg.BackupHash)
@@ -140,6 +157,7 @@ func newServer(cfg *Config, key *ecdsa.PrivateKey, cert tls.Certificate, logOut 
 		ClientAuth:             tls.NoClientCert,
 	}
 	s.logStart()
+	s.houseWG.Add(1)
 	go s.housekeeping()
 	return s
 }
@@ -148,6 +166,7 @@ func newServer(cfg *Config, key *ecdsa.PrivateKey, cert tls.Certificate, logOut 
 func (s *Server) KeyHash() [32]byte { return s.keyHash }
 
 func (s *Server) housekeeping() {
+	defer s.houseWG.Done()
 	sweep := time.NewTicker(10 * time.Second)
 	summary := time.NewTicker(time.Minute)
 	defer sweep.Stop()
@@ -261,7 +280,9 @@ func (s *Server) Close() error {
 	}
 	s.cmu.Unlock()
 	s.wg.Wait()
+	s.houseWG.Wait()
 	s.logStop()
+	s.lines.close(time.Second)
 	return nil
 }
 

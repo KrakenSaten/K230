@@ -70,6 +70,9 @@ type opts struct {
 	limits Limits
 	timing *timing
 	units  [][32]byte
+	hook   func(point string, v any) // the relay's race points
+	now    func() time.Time          // the relay's monotonic clock
+	logOut interface{ Write([]byte) (int, error) }
 }
 
 type env struct {
@@ -121,7 +124,15 @@ func start(t *testing.T, ln net.Listener, o opts) *env {
 		cert = *o.cert
 	}
 	logs := &syncBuf{}
-	s := newServer(cfg, o.key, cert, logs, tm)
+	var out interface{ Write([]byte) (int, error) } = logs
+	if o.logOut != nil {
+		out = o.logOut
+	}
+	s := newServer(cfg, o.key, cert, out, tm)
+	s.hook = o.hook
+	if o.now != nil {
+		s.now = o.now
+	}
 	go s.Serve(ln)
 	e := &env{t: t, s: s, addr: ln.Addr().String(), key: o.key, backup: o.backup, logs: logs, to: newTarget(ln.Addr().String())}
 	t.Cleanup(func() { s.Close() })

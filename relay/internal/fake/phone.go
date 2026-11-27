@@ -75,6 +75,10 @@ func CheckEndorsement(rec *Record, presented [32]byte, ef *wire.EndorsementFrame
 		return e, &EndorsementError{"config id"}
 	case rec.ConfigID != nil && e.Seq < rec.Seq:
 		return e, &EndorsementError{"sequence"}
+	case rec.ConfigID != nil && rec.Pin != nil && e.KeyHash != *rec.Pin && e.Seq <= rec.Seq:
+		// Q14: adopting another key in the same configuration needs a
+		// strictly higher sequence.
+		return e, &EndorsementError{"sequence"}
 	}
 	return e, nil
 }
@@ -85,6 +89,7 @@ type Session struct {
 	Inner       *tls.Conn
 	R           *bufio.Reader
 	Role        string // "paired" or "candidate"
+	RelayState  string // for a paired phone: "admitted" or "pending" (gateway.hello)
 	Provisional bool
 	// BeforeAccept is every byte the phone sent before it accepted the
 	// endorsement, on the provisional path.
@@ -170,6 +175,9 @@ func (p *Phone) Connect(ctx context.Context, rec *Record, slot *[16]byte) (*Sess
 		return nil, ErrUnexpected
 	}
 	s.Inner, s.R, s.Role = inner, r, line[6:]
+	if role, state, found := strings.Cut(s.Role, " relay="); found {
+		s.Role, s.RelayState = role, state
+	}
 	ok = true
 	return s, nil
 }

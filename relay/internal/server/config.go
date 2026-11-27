@@ -54,16 +54,20 @@ type Limits struct {
 	PerSourceUnauth int `json:"per_source_unauth,omitempty"`
 	// MaxConns is connections in all (default 1024).
 	MaxConns int `json:"max_conns,omitempty"`
+	// MaxSources caps the per-source table (default 4096). A new source
+	// beyond it is refused at accept while no entry can be removed.
+	MaxSources int `json:"max_sources,omitempty"`
 	// SessionIdleSeconds ends a splice in which no byte moved (default 90).
 	SessionIdleSeconds int `json:"session_idle_s,omitempty"`
 }
 
-// Defaults (RELAY_PROPOSAL.md §13).
+// Defaults (RELAY_PROPOSAL.md §13; RESOLUTION §6).
 const (
 	DefaultPort            = 443
 	DefaultPerSourceRate   = 10
 	DefaultPerSourceUnauth = 64
 	DefaultMaxConns        = 1024
+	DefaultMaxSources      = 4096
 	DefaultSessionIdle     = 90
 )
 
@@ -76,6 +80,9 @@ func (l *Limits) fill() {
 	}
 	if l.MaxConns == 0 {
 		l.MaxConns = DefaultMaxConns
+	}
+	if l.MaxSources == 0 {
+		l.MaxSources = DefaultMaxSources
 	}
 	if l.SessionIdleSeconds == 0 {
 		l.SessionIdleSeconds = DefaultSessionIdle
@@ -125,7 +132,7 @@ func ParseConfig(data []byte, dir string) (*Config, error) {
 		seen[u] = true
 	}
 	l := &c.Limits
-	if l.PerSourceRate < 0 || l.PerSourceUnauth < 0 || l.MaxConns < 0 || l.SessionIdleSeconds < 0 {
+	if l.PerSourceRate < 0 || l.PerSourceUnauth < 0 || l.MaxConns < 0 || l.MaxSources < 0 || l.SessionIdleSeconds < 0 {
 		return nil, errors.New("config: limits must be positive")
 	}
 	l.fill()
@@ -147,9 +154,18 @@ func LoadConfig(path string) (*Config, error) {
 	return ParseConfig(data, filepath.Dir(path))
 }
 
+// ErrConfigChanged is a configuration file that changed between enroll's
+// read and its write (Q26): nothing is written, and enroll can be run again.
+var ErrConfigChanged = errors.New("enroll: the configuration file changed while enrolling; nothing written, run it again")
+
+// enrollHook runs between enroll's read and its write (tests).
+var enrollHook func()
+
 // Enroll adds a device_id (64 hex, either case) to the configuration file
 // at path, written by temp-flush-rename. It reports whether the unit was
-// already enrolled. The relay reads the file at start only.
+// already enrolled. The relay reads the file at start only. If the file
+// changed since it was read, Enroll writes nothing (a lost-update check);
+// one operator writer at a time is still the rule.
 func Enroll(path, deviceID string) (fp [32]byte, already bool, err error) {
 	id := strings.ToLower(strings.TrimSpace(deviceID))
 	fp, ok := wire.ParseHex32(id)
@@ -187,10 +203,15 @@ func Enroll(path, deviceID string) (fp [32]byte, already bool, err error) {
 		return fp, false, err
 	}
 	out = append(out, '\n')
-	return fp, false, writeFileAtomic(path, out)
+	if enrollHook != nil {
+		enrollHook()
+	}
+	return fp, false, writeFileAtomic(path, out, data)
 }
 
-func writeFileAtomic(path string, data []byte) error {
+// writeFileAtomic writes data by temp-flush-rename, keeping the mode, and
+// only if path still holds expect just before the rename.
+func writeFileAtomic(path string, data, expect []byte) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -216,5 +237,19 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	now, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(now, expect) {
+		return ErrConfigChanged
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	if d, err := os.Open(filepath.Dir(path)); err == nil {
+		d.Sync()
+		d.Close()
+	}
+	return nil
 }

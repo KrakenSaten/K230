@@ -94,20 +94,43 @@ type Endorsement struct {
 // MaxName is the longest relay name a unit accepts (rule 28).
 const MaxName = 64
 
-// ValidName reports whether s is a relay name as the protocol carries it:
-// 1 to 64 characters of lower-case a-z, digits, '-' and '.'.
+// ValidName reports whether s is a relay name as the protocol carries it,
+// a canonical dialable DNS name (Q14): 1 to 64 characters in all; labels of
+// 1 to 63 characters of a-z, 0-9 and '-', with no '-' at either end of a
+// label; no empty label, so no '.' at either end.
 func ValidName(s string) bool {
 	if len(s) == 0 || len(s) > MaxName {
 		return false
 	}
+	label := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.') {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			label++
+		case c == '-':
+			if label == 0 || i+1 == len(s) || s[i+1] == '.' {
+				return false
+			}
+			label++
+		case c == '.':
+			if label == 0 {
+				return false
+			}
+			label = 0
+			continue
+		default:
+			return false
+		}
+		if label > 63 {
 			return false
 		}
 	}
-	return true
+	return label > 0
 }
+
+// MaxSeq is the highest endorsement sequence number; 0 is never valid (Q14).
+const MaxSeq = 1<<63 - 1
 
 var errEndorsement = errors.New("wire: malformed endorsement")
 
@@ -121,7 +144,7 @@ const endorsementFixed = len(CtxEndorsement) + 1 + 8 + 8 + 1 + 2 + 32
 //
 // with big-endian integers.
 func (e Endorsement) Marshal() ([]byte, error) {
-	if !ValidName(e.Name) || e.Port == 0 {
+	if !ValidName(e.Name) || e.Port == 0 || e.Seq == 0 || e.Seq > MaxSeq {
 		return nil, errEndorsement
 	}
 	b := make([]byte, 0, endorsementFixed+len(e.Name))
@@ -157,7 +180,7 @@ func ParseEndorsement(b []byte) (Endorsement, error) {
 	e.Name = string(p[:n])
 	e.Port = binary.BigEndian.Uint16(p[n : n+2])
 	copy(e.KeyHash[:], p[n+2:])
-	if !ValidName(e.Name) || e.Port == 0 {
+	if !ValidName(e.Name) || e.Port == 0 || e.Seq == 0 || e.Seq > MaxSeq {
 		return Endorsement{}, errEndorsement
 	}
 	return e, nil

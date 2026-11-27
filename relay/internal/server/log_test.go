@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/KrakenSaten/K230/relay/internal/fake"
 	"github.com/KrakenSaten/K230/relay/internal/wire"
@@ -37,15 +36,16 @@ func TestLogsRule41(t *testing.T) {
 	nonce := s.Relay.Nonce
 	s.Close()
 	w.u.Set(func(u *fake.Unit) { u.Manual = true })
+	drain(w.u)
 	go p.Connect(ctx(t), rec, nil)
 	inv := <-w.u.Invites()
-	time.Sleep(2500 * time.Millisecond) // the invitation expires
+	w.u.SendRaw(&wire.Decline{Cookie: inv.Cookie}) // the invitation ends
+	waitFor(t, "the decline logged", func() bool { return strings.Contains(w.logs.String(), "reason=declined") })
 	w.u.Disconnect()
-	time.Sleep(100 * time.Millisecond)
-
+	w.s.Close() // drains the log queue
 	logs := w.logs.String()
 	if !contains(logs, "control up", "session up", "session down", "127.0.0.0/24",
-		"unit="+wire.Prefix(w.u.ID), "phone="+wire.Prefix(p.FP), "in=", "out=") {
+		"unit="+wire.Prefix(w.u.ID), "phone="+wire.Prefix(p.FP), "in=", "out=", "control down", "relay down") {
 		t.Fatalf("lifecycle missing:\n%s", logs)
 	}
 	for what, s := range map[string]string{

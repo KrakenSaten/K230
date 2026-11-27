@@ -59,26 +59,39 @@ const (
 	refusedGlobal = iota
 	refusedRate
 	refusedUnauth
+	refusedSources // the source table is full
 	nRefused
 )
 
-// limiter holds the per-source and global connection limits.
+// evictProbe is the most source entries one accept examines for removal
+// when the table is full: the work per accept is bounded (RESOLUTION §6).
+const evictProbe = 8
+
+// limiter holds the per-source and global connection limits. The source
+// table has a hard cap; it is never scanned whole on an accept.
 type limiter struct {
-	mu        sync.Mutex
-	rate      float64
-	unauthMax int
-	maxConns  int
-	live      int
-	srcs      map[netip.Prefix]*source
+	mu         sync.Mutex
+	rate       float64
+	unauthMax  int
+	maxConns   int
+	maxSources int
+	live       int
+	srcs       map[netip.Prefix]*source
+	examined   int64 // entries examined by accepts (tests)
 }
 
 func newLimiter(l Limits) *limiter {
 	return &limiter{
-		rate:      float64(l.PerSourceRate),
-		unauthMax: l.PerSourceUnauth,
-		maxConns:  l.MaxConns,
-		srcs:      make(map[netip.Prefix]*source),
+		rate:       float64(l.PerSourceRate),
+		unauthMax:  l.PerSourceUnauth,
+		maxConns:   l.MaxConns,
+		maxSources: l.MaxSources,
+		srcs:       make(map[netip.Prefix]*source),
 	}
+}
+
+func removable(s *source, now time.Time) bool {
+	return s.live <= 0 && now.Sub(s.rate.last) >= time.Second
 }
 
 // admit counts a new connection, or says why it is refused.
@@ -88,11 +101,24 @@ func (l *limiter) admit(src netip.Prefix, now time.Time) (ok bool, why int) {
 	if l.live >= l.maxConns {
 		return false, refusedGlobal
 	}
-	if len(l.srcs) > 2*l.maxConns {
-		l.sweepLocked(now)
-	}
 	s := l.srcs[src]
 	if s == nil {
+		if len(l.srcs) >= l.maxSources {
+			n := 0
+			for k, e := range l.srcs { // map order: a different start each time
+				if n == evictProbe {
+					break
+				}
+				n++
+				if removable(e, now) {
+					delete(l.srcs, k)
+				}
+			}
+			l.examined += int64(n)
+			if len(l.srcs) >= l.maxSources {
+				return false, refusedSources
+			}
+		}
 		s = &source{}
 		l.srcs[src] = s
 	}
@@ -132,17 +158,20 @@ func (l *limiter) release(src netip.Prefix, wasAuthed bool) {
 	s.live--
 }
 
-// sweepLocked forgets sources with no connection whose bucket is full again.
-func (l *limiter) sweepLocked(now time.Time) {
+// sweep forgets sources with no connection whose bucket is full again. It
+// runs every 10 s, over a table of at most max_sources entries.
+func (l *limiter) sweep(now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	for k, s := range l.srcs {
-		if s.live <= 0 && now.Sub(s.rate.last) >= time.Second {
+		if removable(s, now) {
 			delete(l.srcs, k)
 		}
 	}
 }
 
-func (l *limiter) sweep(now time.Time) {
+func (l *limiter) size() int {
 	l.mu.Lock()
-	l.sweepLocked(now)
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	return len(l.srcs)
 }

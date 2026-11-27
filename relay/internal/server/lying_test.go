@@ -129,7 +129,8 @@ func TestLyingEndorsements(t *testing.T) {
 		"port":      signed(u, func(e *wire.Endorsement) { e.Port = 8443 }),
 		"key":       signed(u, func(e *wire.Endorsement) { e.KeyHash = [32]byte{7} }),
 		"config id": signed(u, func(e *wire.Endorsement) { e.ConfigID++; e.Seq += 100 }),
-		"sequence":  signed(u, func(e *wire.Endorsement) { e.Seq = 0 }),
+		// Q14: another key in the same configuration at the same sequence.
+		"sequence": signed(u, func(e *wire.Endorsement) { e.Seq-- }),
 	}
 	for field, ef := range cases {
 		l, err := liar.Start("127.0.0.1:0", relayKey, liar.Lies{Endorsement: ef, AdmitAnyone: true})

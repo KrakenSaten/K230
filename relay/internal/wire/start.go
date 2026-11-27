@@ -93,6 +93,46 @@ func crlfOnly(b []byte) bool {
 	return true
 }
 
+// rawLinesOK holds the raw-line rules of the start (Q13): the request line
+// is exactly "GET /doors-relay/1 HTTP/1.1"; each header line is a token,
+// ':', at most one space, and a value of printable ASCII with no
+// whitespace; no obs-fold. head ends with the empty line.
+func rawLinesOK(head []byte) bool {
+	lines := bytes.Split(bytes.TrimSuffix(head, []byte("\r\n\r\n")), []byte("\r\n"))
+	if string(lines[0]) != "GET "+Path+" HTTP/1.1" {
+		return false
+	}
+	for _, l := range lines[1:] {
+		colon := bytes.IndexByte(l, ':')
+		if colon <= 0 {
+			return false
+		}
+		for _, c := range l[:colon] {
+			if !isTokenChar(c) {
+				return false
+			}
+		}
+		v := l[colon+1:]
+		if len(v) > 0 && v[0] == ' ' {
+			v = v[1:]
+		}
+		if len(v) == 0 {
+			return false
+		}
+		for _, c := range v {
+			if c < 0x21 || c > 0x7e {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isTokenChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+		bytes.IndexByte([]byte("!#$%&'*+-.^_`|~"), c) >= 0
+}
+
 // StartRequest is the exact request a unit or a phone sends. The port is
 // written in Host only when it is not 443.
 func StartRequest(name string, port uint16) []byte {
@@ -112,7 +152,7 @@ func StartRequest(name string, port uint16) []byte {
 // and Upgrade: doors-relay/1. Header names and these values compare without
 // regard to ASCII case. TLS (SNI, ALPN) is checked by the caller.
 func CheckStart(head []byte, name string, port uint16) bool {
-	if len(head) > MaxHead || !crlfOnly(head) {
+	if len(head) > MaxHead || !crlfOnly(head) || !bytes.HasSuffix(head, []byte("\r\n\r\n")) || !rawLinesOK(head) {
 		return false
 	}
 	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(head)))

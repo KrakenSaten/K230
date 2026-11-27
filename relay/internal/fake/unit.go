@@ -5,15 +5,22 @@ package fake
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +34,10 @@ import (
 // key_proof, unit login only for pinned keys, the control connection, and
 // a tiny inner "gateway" on each data connection that applies the pins and
 // the remote check of ADR-019 and its amendment 3.
+//
+// With Dir set it also keeps paired.v1 and relay.v1 on disk by the
+// two-file rule of RESOLUTION §5, and Load reads them back as gatewayd
+// does at start.
 type Unit struct {
 	Key  *ecdsa.PrivateKey
 	SPKI []byte
@@ -35,24 +46,40 @@ type Unit struct {
 	Port uint16
 	Dial Dialer
 
+	// Dir, if set, holds paired.v1 and relay.v1.
+	Dir string
+	// CrashAfterRelayWrite stops a state change after its relay.v1 write,
+	// as a crash would (tests of the two-file rule).
+	CrashAfterRelayWrite bool
+	// Notice is what Settings would say after Load dropped every grant.
+	Notice string
+
 	mu        sync.Mutex
 	A, B      *[32]byte
 	ConfigID  uint64
 	Seq       uint64
 	Paired    map[[32]byte]bool
-	Remote    map[[32]byte]bool
-	Decline   bool // decline every invitation
-	Manual    bool // record invitations only; the test joins
-	Promoted  int  // promotions done (at most one per configuration)
+	Remote    map[[32]byte]bool // the remote grants
+	Decline   bool              // decline every invitation
+	Manual    bool              // record invitations only; the test joins
+	Promoted  int               // promotions done (at most one per configuration)
 	token     []byte
 	approveRm bool
 	n         uint32
 	ctl       *Conn
+	ctlGen    uint64 // +1 per registered control connection
+	ackGen    uint64 // the generation the last confirmed snapshot was on
+	acked     map[[32]byte]bool
 	ctlWmu    sync.Mutex
-	admitted  chan uint32
+	admitted  chan ack
 	sessions  map[[32]byte]net.Conn
 	invites   chan wire.Invite
 	ctlDone   chan struct{}
+}
+
+type ack struct {
+	gen uint64
+	n   uint32
 }
 
 // NewUnit makes a unit with a fresh device key.
@@ -62,7 +89,7 @@ func NewUnit(name string, port uint16, dial Dialer) *Unit {
 	return &Unit{
 		Key: k, SPKI: spki, ID: wire.Fingerprint(spki), Name: name, Port: port, Dial: dial,
 		Paired: map[[32]byte]bool{}, Remote: map[[32]byte]bool{},
-		admitted: make(chan uint32, 8), sessions: map[[32]byte]net.Conn{},
+		admitted: make(chan ack, 8), sessions: map[[32]byte]net.Conn{},
 		invites: make(chan wire.Invite, 16),
 	}
 }
@@ -72,6 +99,9 @@ var ErrBackup = errors.New("fake: backup refused")
 
 // ErrProof is a key_proof the unit does not accept.
 var ErrProof = errors.New("fake: key proof refused")
+
+// ErrCrash is a state change stopped by CrashAfterRelayWrite.
+var ErrCrash = errors.New("fake: crashed after the relay.v1 write")
 
 // Probe connects and reports the relay key presented (set-up step 2).
 func (u *Unit) Probe(ctx context.Context) ([32]byte, error) {
@@ -84,9 +114,9 @@ func (u *Unit) Probe(ctx context.Context) ([32]byte, error) {
 }
 
 // Setup is set-up steps 3 to 6 once a person confirmed key confirmed: over
-// a connection presenting it, the unit logs in and takes the backup pin,
-// accepting it only with a valid signature by the confirmed key over its
-// own nonce. A new configuration id is drawn and seq set to 1.
+// a fresh connection pinned to it, the unit logs in and takes the backup
+// pin, accepting it only with a valid signature by the confirmed key over
+// its own nonce. A new configuration id is drawn and seq set to 1.
 func (u *Unit) Setup(ctx context.Context, confirmed [32]byte) error {
 	c, err := DialRelay(ctx, u.Dial, u.Name, func(h [32]byte) bool { return h == confirmed })
 	if err != nil {
@@ -157,6 +187,7 @@ func (u *Unit) Endorse() wire.SignedEndorsement {
 	return wire.SignedEndorsement{E: b, Sig: sig}
 }
 
+// remoteList is the admission snapshot: paired keys with a grant.
 func (u *Unit) remoteList() [][32]byte {
 	var l [][32]byte
 	for fp := range u.Remote {
@@ -170,7 +201,9 @@ func (u *Unit) remoteList() [][32]byte {
 // Connect opens the control connection: the relay must present A or B.
 // If it presents B, the unit asks for key_proof, and promotes B only when
 // the proof verifies (once per configuration), then endorses it with
-// seq+1. Then it logs in and registers.
+// seq+1. Then it logs in and registers, and treats the relay as available
+// only after `registered`. Its first act then is the full admission
+// snapshot (RESOLUTION §5); whether the relay confirms it is recorded.
 func (u *Unit) Connect(ctx context.Context) error {
 	c, err := DialRelay(ctx, u.Dial, u.Name, u.isPin)
 	if err != nil {
@@ -200,11 +233,30 @@ func (u *Unit) Connect(ctx context.Context) error {
 		c.Close()
 		return err
 	}
+	for {
+		m, err := c.Recv()
+		if err != nil {
+			c.Close()
+			return err
+		}
+		if _, ok := m.(*wire.Registered); ok {
+			break
+		}
+		if p, ok := m.(*wire.Ping); ok {
+			c.Send(&wire.Pong{N: p.N})
+			continue
+		}
+		c.Close()
+		return ErrUnexpected
+	}
 	done := make(chan struct{})
 	u.mu.Lock()
+	u.ctlGen++
+	gen := u.ctlGen
 	u.ctl, u.ctlDone = c, done
 	u.mu.Unlock()
-	go u.control(c, done)
+	go u.control(c, gen, done)
+	u.SendAdmit()
 	return nil
 }
 
@@ -252,7 +304,7 @@ func (u *Unit) send(m wire.Msg) error {
 	return c.Send(m)
 }
 
-func (u *Unit) control(c *Conn, done chan struct{}) {
+func (u *Unit) control(c *Conn, gen uint64, done chan struct{}) {
 	defer close(done)
 	defer c.Close()
 	for {
@@ -269,7 +321,7 @@ func (u *Unit) control(c *Conn, done chan struct{}) {
 		case *wire.Pong:
 		case *wire.Admitted:
 			select {
-			case u.admitted <- m.N:
+			case u.admitted <- ack{gen, m.N}:
 			default:
 			}
 		case *wire.Invite:
@@ -306,12 +358,13 @@ func (u *Unit) ControlDone() <-chan struct{} {
 	return u.ctlDone
 }
 
-// SendAdmit sends the admission list and waits for the relay's
-// confirmation (at most 3 s, as gatewayd waits).
+// SendAdmit sends the full admission snapshot with the next n, and waits
+// at most 3 s for `admitted` with that n on the same control generation;
+// any other acknowledgement is ignored (RESOLUTION §5 step 3).
 func (u *Unit) SendAdmit() (bool, error) {
 	u.mu.Lock()
 	u.n++
-	n := u.n
+	n, gen, done := u.n, u.ctlGen, u.ctlDone
 	l := u.remoteList()
 	u.mu.Unlock()
 	if err := u.send(&wire.Admit{Admit: l, N: n}); err != nil {
@@ -321,28 +374,232 @@ func (u *Unit) SendAdmit() (bool, error) {
 	defer t.Stop()
 	for {
 		select {
-		case got := <-u.admitted:
-			if got == n {
+		case a := <-u.admitted:
+			if a.gen == gen && a.n == n {
+				u.mu.Lock()
+				if u.ctlGen == gen {
+					u.ackGen, u.acked = gen, toSet(l)
+				}
+				u.mu.Unlock()
 				return true, nil
 			}
+		case <-done:
+			return false, nil
 		case <-t.C:
 			return false, nil
 		}
 	}
 }
 
-// SetRemote gives or takes `remote`. Taking it closes the phone's session
-// at the gateway as well as at the relay (rule 33).
+func toSet(l [][32]byte) map[[32]byte]bool {
+	m := make(map[[32]byte]bool, len(l))
+	for _, v := range l {
+		m[v] = true
+	}
+	return m
+}
+
+// RelayState is what gateway.hello reports for a phone (RESOLUTION §5):
+// "off" without a grant; "admitted" if the current relay confirmed it on
+// the current control generation; else "pending".
+func (u *Unit) RelayState(phone [32]byte) string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.relayStateLocked(phone)
+}
+
+func (u *Unit) relayStateLocked(phone [32]byte) string {
+	switch {
+	case !u.Paired[phone] || !u.Remote[phone]:
+		return "off"
+	case u.ctl != nil && u.ackGen == u.ctlGen && u.acked[phone]:
+		return "admitted"
+	}
+	return "pending"
+}
+
+// The two-file rule (RESOLUTION §5). paired.v1 is the sorted list of
+// paired keys. relay.v1 holds the grants as they will be after a change,
+// and the SHA-256 of paired.v1 before and after it.
+
+type relayFile struct {
+	Grants []string `json:"grants"`
+	Before string   `json:"paired_before"`
+	After  string   `json:"paired_after"`
+}
+
+func hexList(set map[[32]byte]bool) []string {
+	l := []string{}
+	for k := range set {
+		l = append(l, hex.EncodeToString(k[:]))
+	}
+	sort.Strings(l)
+	return l
+}
+
+func pairedBytes(set map[[32]byte]bool) []byte {
+	b, _ := json.Marshal(map[string][]string{"paired": hexList(set)})
+	return append(b, '\n')
+}
+
+func digest(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// writeSync is temp, flush, rename, flush of the directory.
+func writeSync(dir, name string, data []byte) error {
+	f, err := os.CreateTemp(dir, "."+name+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+func (u *Unit) readPaired() []byte {
+	b, err := os.ReadFile(filepath.Join(u.Dir, "paired.v1"))
+	if err != nil {
+		return pairedBytes(nil)
+	}
+	return b
+}
+
+// changeLocked moves to paired and grants: relay.v1 first, then paired.v1
+// if the list changed. A grant counts only for a paired key. u.mu is held.
+func (u *Unit) changeLocked(paired, grants map[[32]byte]bool) error {
+	for k := range grants {
+		if !paired[k] {
+			delete(grants, k)
+		}
+	}
+	if u.Dir != "" {
+		before := u.readPaired()
+		after := pairedBytes(paired)
+		rf, _ := json.Marshal(relayFile{Grants: hexList(grants), Before: digest(before), After: digest(after)})
+		if err := writeSync(u.Dir, "relay.v1", rf); err != nil {
+			return err
+		}
+		if u.CrashAfterRelayWrite {
+			return ErrCrash
+		}
+		if !bytes.Equal(before, after) {
+			if err := writeSync(u.Dir, "paired.v1", after); err != nil {
+				return err
+			}
+		}
+	}
+	u.Paired, u.Remote = paired, grants
+	return nil
+}
+
+func clone(m map[[32]byte]bool) map[[32]byte]bool {
+	c := make(map[[32]byte]bool, len(m))
+	for k, v := range m {
+		if v {
+			c[k] = true
+		}
+	}
+	return c
+}
+
+// Load reads paired.v1 and relay.v1 as gatewayd does at start: if the
+// digest of paired.v1 is relay.v1's "after" or "before", the grants
+// recorded count, for keys present in paired.v1; if it is neither, every
+// grant is dropped and Notice says so.
+func (u *Unit) Load() error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	pb := u.readPaired()
+	var pf struct{ Paired []string }
+	if err := json.Unmarshal(pb, &pf); err != nil {
+		return err
+	}
+	paired := map[[32]byte]bool{}
+	for _, h := range pf.Paired {
+		k, ok := wire.ParseHex32(h)
+		if !ok {
+			return errors.New("fake: paired.v1")
+		}
+		paired[k] = true
+	}
+	grants := map[[32]byte]bool{}
+	u.Notice = ""
+	if rb, err := os.ReadFile(filepath.Join(u.Dir, "relay.v1")); err == nil {
+		var rf relayFile
+		if err := json.Unmarshal(rb, &rf); err != nil {
+			return err
+		}
+		if d := digest(pb); d == rf.After || d == rf.Before {
+			for _, h := range rf.Grants {
+				if k, ok := wire.ParseHex32(h); ok && paired[k] {
+					grants[k] = true
+				}
+			}
+		} else {
+			u.Notice = "Remote access was turned off for every phone because the paired list changed"
+		}
+	}
+	u.Paired, u.Remote = paired, grants
+	return nil
+}
+
+// SetRemote gives or takes `remote` (relay.v1 only). Taking it closes the
+// phone's session at the gateway itself before the snapshot (rule 33).
 func (u *Unit) SetRemote(phone [32]byte, on bool) (bool, error) {
 	u.mu.Lock()
+	grants := clone(u.Remote)
 	if on {
-		u.Remote[phone] = true
+		grants[phone] = true
 	} else {
-		delete(u.Remote, phone)
+		delete(grants, phone)
 	}
+	err := u.changeLocked(clone(u.Paired), grants)
 	s := u.sessions[phone]
 	u.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
 	if !on && s != nil {
+		s.Close()
+	}
+	return u.SendAdmit()
+}
+
+// Revoke removes a phone: relay.v1 drops its grant, paired.v1 drops the
+// key, every session of it closes, then the snapshot goes out.
+func (u *Unit) Revoke(phone [32]byte) (bool, error) {
+	u.mu.Lock()
+	paired, grants := clone(u.Paired), clone(u.Remote)
+	delete(paired, phone)
+	delete(grants, phone)
+	err := u.changeLocked(paired, grants)
+	s := u.sessions[phone]
+	u.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	if s != nil {
 		s.Close()
 	}
 	return u.SendAdmit()
@@ -399,6 +656,42 @@ func (u *Unit) Set(f func(u *Unit)) {
 // SendRaw sends any frame on the control connection (tests).
 func (u *Unit) SendRaw(m wire.Msg) error { return u.send(m) }
 
+// approve is the tap on ALLOW (RESOLUTION §5): the pairing is committed
+// by the two-file rule, then the snapshot goes out, and the answer says
+// whether the relay confirmed it in 3 s. A retry by the same key creates
+// no second entry.
+func (u *Unit) approve(phone [32]byte) (string, bool) {
+	u.mu.Lock()
+	remote := u.approveRm
+	paired, grants := clone(u.Paired), clone(u.Remote)
+	paired[phone] = true
+	delete(grants, phone)
+	if remote {
+		grants[phone] = true
+	}
+	changed := remote != u.Remote[phone]
+	err := u.changeLocked(paired, grants)
+	if err == nil {
+		u.token = nil
+	}
+	u.mu.Unlock()
+	if err != nil {
+		return "", false // a crash: no answer
+	}
+	confirmed := false
+	if changed || remote {
+		confirmed, _ = u.SendAdmit()
+	}
+	u.send(&wire.PairSlot{})
+	switch {
+	case !remote:
+		return "paired", true
+	case confirmed:
+		return "paired remote admitted", true
+	}
+	return "paired remote pending", true
+}
+
 func (u *Unit) handleInvite(inv wire.Invite) {
 	u.mu.Lock()
 	decline, manual := u.Decline, u.Manual
@@ -448,24 +741,24 @@ func (u *Unit) handleInvite(inv wire.Invite) {
 	}
 	inner.SetDeadline(time.Time{})
 	u.mu.Lock()
-	role := ""
+	hello := ""
 	switch {
 	case u.Paired[phone] && u.Remote[phone]:
-		role = "paired"
+		hello = "hello paired relay=" + u.relayStateLocked(phone)
 	case u.Paired[phone]:
 		// A relay session of a paired phone without remote: whatever the
 		// relay admitted, the gateway closes it (rule 32).
 	case u.token != nil:
-		role = "candidate"
+		hello = "hello candidate"
 	}
-	if role != "" {
+	if hello != "" {
 		if old := u.sessions[phone]; old != nil {
 			old.Close() // a phone's new session replaces its older one
 		}
 		u.sessions[phone] = inner
 	}
 	u.mu.Unlock()
-	if role == "" {
+	if hello == "" {
 		inner.Close()
 		return
 	}
@@ -477,7 +770,7 @@ func (u *Unit) handleInvite(inv wire.Invite) {
 		u.mu.Unlock()
 		inner.Close()
 	}()
-	if _, err := inner.Write([]byte("hello " + role + "\n")); err != nil {
+	if _, err := inner.Write([]byte(hello + "\n")); err != nil {
 		return
 	}
 	r := bufio.NewReader(inner)
@@ -491,33 +784,19 @@ func (u *Unit) handleInvite(inv wire.Invite) {
 			if _, err := inner.Write([]byte(line[5:] + "\n")); err != nil {
 				return
 			}
-		case role == "candidate" && strings.HasPrefix(line, "pair "):
+		case hello == "hello candidate" && strings.HasPrefix(line, "pair "):
 			tok, err := base64.RawURLEncoding.DecodeString(line[5:])
 			u.mu.Lock()
 			ok := err == nil && u.token != nil && subtle.ConstantTimeCompare(tok, u.token) == 1
-			remote := u.approveRm
-			if ok {
-				u.Paired[phone] = true
-				if remote {
-					u.Remote[phone] = true
-				}
-				u.token = nil
-			}
 			u.mu.Unlock()
 			if !ok {
 				inner.Write([]byte("refused\n"))
 				return
 			}
-			answer := "paired\n"
-			if remote {
-				// The phone is told it is paired with remote only after the
-				// relay confirmed the new list.
-				if ok, _ := u.SendAdmit(); ok {
-					answer = "paired remote\n"
-				}
+			answer, ok := u.approve(phone)
+			if ok {
+				inner.Write([]byte(answer + "\n"))
 			}
-			u.send(&wire.PairSlot{})
-			inner.Write([]byte(answer))
 			return
 		default:
 			return
