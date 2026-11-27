@@ -41,15 +41,19 @@ data class PairedUnit(
         copy(host = newHost, knownHosts = (listOf(host) + knownHosts).filter { it != newHost }.distinct().take(3))
 }
 
-/** How sockets reach the unit. On the phone: bound to the Wi-Fi network, never mobile data. */
+/**
+ * How sockets reach the unit. On the phone ([LocalTransport]): bound to the
+ * Wi-Fi network it joined, or, inside the subnet of a hotspot it hosts itself,
+ * from its own address there once the route is confirmed. Never mobile data.
+ */
 interface Transport {
     /** A connected TCP socket, or an IOException. */
     suspend fun connect(host: String, port: Int, timeoutMs: Int): Socket
 
-    /** Addresses on the phone's own Wi-Fi subnet (at most a /24) where the port answers. Called only by [GatewaySession.locate]. */
+    /** Addresses on the phone's own subnets (the joined Wi-Fi's and each own hotspot's, each at most a /24) where the port answers. Called only by [GatewaySession.locate]. */
     suspend fun probe(port: Int): List<String>
 
-    /** False while there is no Wi-Fi network to use. */
+    /** False while there is neither a joined Wi-Fi network nor a hotspot of the phone's own to use. */
     fun available(): Boolean
 }
 
@@ -413,8 +417,8 @@ class GatewaySession(
     }
 
     /**
-     * Looks for the unit on the phone's own Wi-Fi subnet. Only ever on a
-     * person's request, once per request: the loop never sweeps. TLS is tried
+     * Looks for the unit on the phone's own subnets: the joined Wi-Fi's and
+     * its own hotspot's. Only ever on a person's request, once per request: the loop never sweeps. TLS is tried
      * only where the port answers, at a bounded number of hosts, and only the
      * pinned key is accepted, so the answer is the same unit at a new address
      * or nothing. The pin itself cannot change here.
