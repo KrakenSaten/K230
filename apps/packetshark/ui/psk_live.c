@@ -650,23 +650,14 @@ static void build_tabs(struct psk_app *a)
     int i;
 
     /* The top row: the tabs, and in the wide shape a back slab before them
-     * and the state and the capture's buttons after (psk_shape). */
+     * and the state and the capture's buttons after (psk_shape). The slab
+     * itself lies over the row, in its target (build_back_reach); the row
+     * keeps its place. */
     a->top = row(a->frame, PSK_GAP);
     lv_obj_set_height(a->top, PSK_TAB_H);
-    a->back = psk_box(a->top);
-    lv_obj_set_size(a->back, 72, PSK_TOP_H);
-    pos_style_add(a->back, POS_STYLE_BUTTON_SECONDARY, 0);
-    pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_style_pad_all(a->back, 0, 0);
-    lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
-    {
-        lv_obj_t *chev = pocketui_label(a->back, LV_SYMBOL_LEFT, POS_STYLE_SYMBOL);
-
-        pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
-        lv_obj_center(chev);
-    }
-    lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
+    a->back_space = psk_box(a->top);
+    lv_obj_set_size(a->back_space, PSK_BACK_W, PSK_TOP_H);
+    lv_obj_add_flag(a->back_space, LV_OBJ_FLAG_HIDDEN);
     /* Full width, not a grow item: this LVGL takes a gap from the space for
      * every grow item, the only one in a row included. */
     strip = row(a->top, PSK_GAP);
@@ -696,6 +687,48 @@ static void build_tabs(struct psk_app *a)
         lv_obj_set_size(a->tab_rule[i], 46, 2);
         lv_obj_set_style_opa(a->tab_rule[i], LV_OPA_TRANSP, 0);
     }
+}
+
+/* The back slab and its target (H6, the finger test on Unit A, 2026-11-26).
+ * Wide, the slab sits against the display's top edge beside its rounded
+ * corner, where a finger missed it at 72 x 56. It is drawn as before and
+ * answers PSK_TOP_REACH around it (its extended click area): into the gap
+ * before LIVE, toward the side and down over the page's top padding, where
+ * no control is. LVGL finds a tapped object inside its parent's area only,
+ * so the slab cannot be the 56 px row's: it lies in a holder of the frame,
+ * as large as that target, laid over the pages and under the sheets, and a
+ * spacer keeps its place in the row (build_tabs). The holder is neither
+ * drawn nor tapped itself, so the pages and their panel titles, which reach
+ * up into that padding, show as before (5920f5a4 took the padding from the
+ * pages instead, and the page's edge cut the titles on Unit A). */
+static void build_back_reach(struct psk_app *a)
+{
+    lv_obj_t *chev;
+
+    a->back_reach = psk_box(a->frame);
+    lv_obj_add_flag(a->back_reach, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_size(a->back_reach, PSK_BACK_W + 2 * PSK_TOP_REACH, PSK_TOP_H + PSK_TOP_REACH);
+    lv_obj_add_flag(a->back_reach, LV_OBJ_FLAG_HIDDEN);
+    a->back = psk_box(a->back_reach);
+    lv_obj_set_pos(a->back, PSK_TOP_REACH, 0);
+    lv_obj_set_size(a->back, PSK_BACK_W, PSK_TOP_H);
+    pos_style_add(a->back, POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_pad_all(a->back, 0, 0);
+    lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
+    chev = pocketui_label(a->back, LV_SYMBOL_LEFT, POS_STYLE_SYMBOL);
+    pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
+    lv_obj_center(chev);
+    lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Where the row's spacer is: the row's inset in from the frame's content
+ * box, at its top (a floating child is placed from that same box), with
+ * the holder PSK_TOP_REACH further out. */
+void psk_back_reach_place(struct psk_app *a)
+{
+    lv_obj_set_pos(a->back_reach, a->top_inset_l - PSK_TOP_REACH, 0);
 }
 
 static lv_obj_t *page(lv_obj_t *parent)
@@ -1288,6 +1321,7 @@ void psk_live_build(struct psk_app *a)
         a->page[i] = page(content);
         psk_set_hidden(a->page[i], i != PSK_TAB_LIVE);
     }
+    build_back_reach(a); /* after the pages, before the bar and the sheets */
     build_status(a, a->page[PSK_TAB_LIVE]);
     build_setup(a, a->page[PSK_TAB_LIVE]);
     build_live(a, a->page[PSK_TAB_LIVE]);
@@ -1335,7 +1369,11 @@ void psk_shape(struct psk_app *a)
     /* The top row. */
     lv_obj_set_style_pad_left(a->top, w ? a->top_inset_l : 0, 0);
     lv_obj_set_style_pad_right(a->top, w ? a->top_inset_r : 0, 0);
+    psk_set_hidden(a->back_space, !w);
+    psk_set_hidden(a->back_reach, !w); /* the slab and its target (H6) */
     psk_set_hidden(a->back, !w);
+    lv_obj_set_ext_click_area(a->back, w ? PSK_TOP_REACH : 0);
+    psk_back_reach_place(a);
     psk_set_hidden(a->tab[PSK_TAB_INSPECT], w);
     lv_obj_set_width(a->tabs, w ? 2 * 128 + PSK_GAP : LV_PCT(100));
     /* The state: beside the tabs on every tab (ADR-016 rule 13), or the

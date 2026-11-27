@@ -1584,6 +1584,7 @@ static void layout(struct psk_app *a)
     } else if (a->wide) {
         lv_obj_set_style_pad_left(a->top, a->top_inset_l, 0);
         lv_obj_set_style_pad_right(a->top, a->top_inset_r, 0);
+        psk_back_reach_place(a);
     }
     a->fit_due = true; /* a new size: the fits follow at the next poll */
 }
@@ -2077,6 +2078,9 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     }
     if (strcmp(name, "back") == 0) {
         return a->back;
+    }
+    if (strcmp(name, "back_reach") == 0) {
+        return a->back_reach;
     }
     if (strcmp(name, "inspect") == 0) {
         return a->page[PSK_TAB_INSPECT];
