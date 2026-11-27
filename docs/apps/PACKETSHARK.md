@@ -39,6 +39,7 @@ The design package these milestones implement (product spec, architecture, UI/UX
 | M11.1 | Protocol intelligence: DNS transactions (query and answer paired, response time, NXDOMAIN and SERVFAIL, unanswered queries) and TCP connections (handshake and its time, resets by kind, retransmissions by kind), in SIGNALS, a diagnosis sheet and INSPECT (§4b) | Done, host-tested; on Unit B (not installed) see §9.8. Protocol 4. Draft pull request |
 | M12.1 | Network intelligence: the devices seen, DHCP exchanges, servers and leases, ARP pairs, conflicts and moves, and a list of findings each with its evidence, on a network overview reached from LIVE (§4c) | Done, host-tested; on Unit B (not installed) see §9.9. Protocol 5. Draft pull request |
 | N1.0 | MARK: one tap on LIVE marks a moment; the evidence page says what the capture saw of DHCP, ARP and DNS in the minute before and after it, how much of each window was watched, and links each observation to its packet (§4d). CPU only; no model, no score | Done, host-tested (§9.1); **not run on a device**. Protocol 6. Draft pull request |
+| N1.1 | The intelligence engine's first slice ([neural/N1.1.md](packetshark/neural/N1.1.md)): deterministic before/after comparisons around a mark on packet time, loss-aware, with quality and abstention reasons; six replay fixtures; INSIGHT and WHEN mockups. Fed by N1.0's observations | Host only: `core/pocketpcap/ppc_intel.[ch]` and its test; **not linked into the helper or the shell**, no protocol or screen change. Draft pull request |
 | Line-rate gate | Unit A at line rate (numbered M10 until 2026-11-18; unnumbered since, owner's decision) | Not started |
 
 Out of scope for PacketShark v0.1 altogether: Wi-Fi monitor mode (the driver does not offer it, §2a), LoRa, any transmit path.
@@ -365,6 +366,7 @@ The key table is this milestone's reading of "keyboard keys": the design package
 make tools/capture/pos-capture packetshark-test
 make packetshark-san-test                  # ASan + UBSan, fuzz 60 s
 make tools/capture/pos-capture packetshark-n1-test   # MARK and its evidence alone (N1.0)
+make packetshark-intel-test                  # the intelligence engine's first slice (N1.1, host only)
 # host build with a live source: point it at libpcap headers and a library
 make PACKETSHARK_PCAP=1 PACKETSHARK_PCAP_CFLAGS=-I<dir with pcap/pcap.h> \
      PACKETSHARK_PCAP_LIBS=<path to libpcap.so> tools/capture/pos-capture
