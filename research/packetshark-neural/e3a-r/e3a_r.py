@@ -57,6 +57,8 @@ import sys
 import time
 from pathlib import Path
 
+import os
+
 import numpy as np
 
 T_BASE, T_WIN, WAIT = 60, 60, 5
@@ -70,6 +72,8 @@ SLOWER_PCT, SLOWER_US = 150, 20000
 ONE_WAY_MIN_OUT = 8
 ONE_WAY_LOG_P = 6.907755
 GATE_COV = 0.98
+OLD_TIME = os.environ.get("E3AR_OLD_TIME") == "1"    # the answer-time rule before the selective-loss correction
+OLD_SPELL = os.environ.get("E3AR_OLD_SPELL") == "1"  # the silent-spell rate over both windows, as first written
 
 METRICS = ["dns.time", "dns.answered", "dns.failed", "dhcp.discover", "arp.request"]
 FAULTS = {"dns_down": "dns.answered", "dns_slow": "dns.time", "servfail": "dns.failed",
@@ -249,18 +253,35 @@ def decide_rate(c0, w0, c1, w1, f, known):
                   pois_le(c1, scaled(alt * w1, f[0][0], f[1][1])))
 
 
-def decide_time(r0, r1):
+def slower(p, m0, m1):
+    return p < ALPHA_E6 and m1 * 100 >= m0 * SLOWER_PCT and m1 >= m0 + SLOWER_US
+
+
+def decide_time(r0, r1, miss0=0, miss1=0):
+    """As ppc_intel.c decide_time(): the answers not seen (a decided question
+    with no answer: lost, or slower than the wait) count as the slowest, so
+    a verdict survives selective loss. E3AR_OLD_TIME=1: the rule before that
+    correction, for comparison on the same windows."""
     m0, m1 = median_us(r0), median_us(r1)
     gt, lt = mann_whitney(r0, r1)
     bound = max(m0 * SLOWER_PCT // 100, m0 + SLOWER_US)
     above = sum(1 for v in r1 if v > bound)
-    if gt < ALPHA_E6 and m1 * 100 >= m0 * SLOWER_PCT and m1 >= m0 + SLOWER_US:
+    if OLD_TIME:
+        miss0 = miss1 = 0
+    a0 = sorted(r0) + [0xffffffff] * miss0
+    a1 = sorted(r1) + [0xffffffff] * miss1
+    cm0, cm1 = median_us(a0), median_us(a1)
+    cgt, _ = mann_whitney(a0, r1)
+    _, clt = mann_whitney(r0, a1)
+    if slower(cgt, cm0, m1):
         return WORSE, "-"
-    if lt < ALPHA_E6 and m0 * 100 >= m1 * SLOWER_PCT and m0 >= m1 + SLOWER_US:
+    if cm1 != 0xffffffff and slower(clt, cm1, m0):
         return BETTER, "-"
-    if gt < ALPHA_E6 or lt < ALPHA_E6:
+    if slower(gt, m0, m1) or slower(lt, m1, m0):
+        return CANT, "unseen"
+    if cgt < ALPHA_E6 or clt < ALPHA_E6:
         return SMALL, "-"
-    if binom_le(above, len(r1), 0.5) >= ALPHA_E6:
+    if binom_le(above + miss1, len(r1) + miss1, 0.5) >= ALPHA_E6:
         return CANT, "weak"
     return NO_CHANGE, "-"
 
@@ -325,6 +346,8 @@ def simulate(r, p, fault, art_win, art_base):
     f = np.zeros(T)
     watched = np.ones(T, bool)
     silent = np.zeros(T, bool)  # one-way: nothing reaches this device; an artifact stays in its own minute
+    selective = np.zeros(T, bool)  # selective loss: burst seconds, busy and slow, frames dropped
+    bc_rate = np.full(T, p["bc"])
     for kind, lo, hi in ((art_base, 0, T_BASE), (art_win, T_BASE, T)):
         if not kind:
             continue
@@ -332,6 +355,22 @@ def simulate(r, p, fault, art_win, art_base):
         if kind == "loss":
             ln = int(r.integers(8, 61))
             f[a:min(a + ln, T)] = loguni(r, 0.001, 0.6)
+            if r.random() < 0.5:
+                # Selective (time-correlated) loss: the path is busy in bursts.
+                # In a burst second traffic triples, the kernel drops frames of
+                # every kind at a high rate, and answers are slow. Answers that
+                # are slow are therefore lost more often than the window's loss
+                # share says - by time, not by kind, as a ring overflow drops.
+                fb = r.uniform(0.3, 0.8)
+                k = r.uniform(2.0, 5.0)
+                for s_ in range(a, min(a + ln, T)):
+                    if r.random() < 0.3:
+                        selective[s_] = True
+                        f[s_] = fb
+                        bc_rate[s_] *= 3.0
+                        rtt_mult[s_] *= k
+                if selective[max(a, T_BASE):min(a + ln, T)].any():
+                    rose.add("dns.time")  # a slowdown in the window: a claim of it is never false
         elif kind == "hold":
             ln = int(r.integers(5, 31))
             watched[a:min(a + ln, T)] = False
@@ -373,7 +412,7 @@ def simulate(r, p, fault, art_win, art_base):
     ki[silent] = 0
     own_in[:] += arrive_all(ki)
     own_out[:] += arrive_all(r.poisson(p["kout"], T))
-    arrive_all(r.poisson(p["bc"], T))
+    arrive_all(r.poisson(bc_rate))
     arp_seen[:] = arrive_all(r.poisson(arp))
     dhcp_seen[:] = arrive_all(r.poisson(dhcp))
     # questions
@@ -397,9 +436,15 @@ def simulate(r, p, fault, art_win, art_base):
                     own_in_dns[sa] += 1
                     failed = r.random() < fail[s]
             wait_ok = all(watched[int(tq):int(tq + WAIT) + 1])
-            qs.append((tq, seen_ans, failed, int(rtt_ms * 1000), wait_ok))
+            qs.append((tq, seen_ans, failed, int(rtt_ms * 1000), wait_ok, answered))
+    # the truth for answer time: medians over every answer the network sent, seen or not
+    tb = sorted(x[3] for x in qs if x[0] < T_BASE and x[5])
+    tw = sorted(x[3] for x in qs if T_BASE <= x[0] < T_BASE + T_WIN and x[5])
+    material = bool(tb and tw and median_us(tw) * 100 >= median_us(tb) * SLOWER_PCT and
+                    median_us(tw) >= median_us(tb) + SLOWER_US)
     return dict(f=f, watched=watched, frames=frames, own_in=own_in, own_in_dns=own_in_dns, own_out=own_out, arp=arp_seen,
-                dhcp=dhcp_seen, lost_slot=lost_slot, qs=qs, rose=rose)
+                dhcp=dhcp_seen, lost_slot=lost_slot, qs=qs, rose=rose, selective=bool(selective[T_BASE:].any()),
+                material_slow=material)
 
 
 def readings(r, lost_slot):
@@ -423,7 +468,7 @@ def readings(r, lost_slot):
                 out.append((last, tr, acc))
             last = tr
             acc = 0
-    return out, last
+    return out, last, bool(fail[T_BASE * SLOTS:(T_BASE + T_WIN + WAIT) * SLOTS].any())
 
 
 def bounds(intervals, last_good, a, b, frames):
@@ -463,19 +508,27 @@ def one_way(oi, oo):
     return oo >= ONE_WAY_MIN_OUT and oi == 0
 
 
-def one_way_spell(own_in, own_in_dns, own_out, watched, a, b, f_hi):
+def one_way_spell(own_in, own_in_dns, own_out, watched, a, m, b, f_hi):
     """As ppc_intel.c one_way_spell(): a silent run of watched seconds, with
-    at least 8 frames sent, that the inbound rate seen over [a, b), thinned by
-    the window's loss bound, makes less likely than 1/1000."""
-    w = watched[a:b]
+    at least 8 frames sent, that the busier window's inbound rate ([a, m) or
+    [m, b)), thinned by the window's loss bound, makes less likely than
+    1/1000."""
     other_in = own_in - own_in_dns
+    w = watched[a:b]
     tother = int(other_in[a:b][w].sum())
     src = other_in if tother > 0 else own_in  # as ppc_intel.c: inbound other than DNS answers, where there is any
-    tin = int(src[a:b][w].sum())
-    ws = int(w.sum())
-    if not ws or not tin or f_hi >= 1.0:
+    if OLD_SPELL:
+        ws = int(w.sum())
+        lam = src[a:b][w].sum() / ws if ws else 0.0
+    else:
+        rates = []
+        for x, y in ((a, m), (m, b)):
+            ww = watched[x:y]
+            rates.append(src[x:y][ww].sum() / ww.sum() if ww.sum() else 0.0)
+        lam = max(rates)
+    if not lam > 0.0 or f_hi >= 1.0:
         return False
-    lam = tin / ws * (1.0 - f_hi)
+    lam *= 1.0 - f_hi
     run = out = 0
     for s in range(a, b):
         if not watched[s]:
@@ -508,7 +561,10 @@ def judge(sim, intervals, last_good, method):
         if method == "naive":
             dec = [x for x in qa if x[0] + WAIT <= T]
         elif method == "loss-aware":
-            dec = [x for x in qa if x[1] or x[4]]
+            # as ppc_intel.c wait_watched(): watched whole, and the way back
+            # witnessed by a frame other than a DNS answer during the wait
+            back = sim["own_in"] - sim["own_in_dns"]
+            dec = [x for x in qa if x[1] or (x[4] and back[int(x[0]):int(x[0] + WAIT) + 1].sum() > 0)]
         else:
             dec = [x for x in qa if all(keep[int(x[0]):int(x[0] + WAIT) + 1])]
         und = len(qa) - len(dec)
@@ -524,7 +580,7 @@ def judge(sim, intervals, last_good, method):
     s0, s1 = side
     ow = method != "naive" and (one_way(s0["oi"], s0["oo"]) or one_way(s1["oi"], s1["oo"]))
     if method == "loss-aware" and not ow:
-        ow = one_way_spell(sim["own_in"], sim["own_in_dns"], sim["own_out"], watched, W[0][0], W[1][1],
+        ow = one_way_spell(sim["own_in"], sim["own_in_dns"], sim["own_out"], watched, W[0][0], W[1][0], W[1][1],
                            s1["f_win"][1])
     unwatched = method != "naive" and (s0["w"] * 2 < s0["span"] or s1["w"] * 2 < s1["span"])
     zero = ((0.0, 0.0), (0.0, 0.0))
@@ -540,7 +596,7 @@ def judge(sim, intervals, last_good, method):
             if len(s0["rtt"]) < MIN_PAIRS or len(s1["rtt"]) < MIN_PAIRS:
                 out[m] = (CANT, "too-few")
             else:
-                out[m] = decide_time(s0["rtt"], s1["rtt"])
+                out[m] = decide_time(s0["rtt"], s1["rtt"], s0["n"] - s0["k"], s1["n"] - s1["k"])
         elif m == "dns.answered":
             if s0["n"] < MIN_Q or s1["n"] < MIN_Q:
                 out[m] = (CANT, "too-few")
@@ -580,9 +636,10 @@ def run_seed(seed, n_sites, per_site):
             art_win = ARTIFACTS[int(r.integers(0, 3))] if r.random() < 0.5 else None
             art_base = ARTIFACTS[int(r.integers(0, 3))] if r.random() < 0.2 else None
             sim = simulate(r, p, fault, art_win, art_base)
-            intervals, last_good = readings(r, sim["lost_slot"])
+            intervals, last_good, read_fail = readings(r, sim["lost_slot"])
             v = {m: judge(sim, intervals, last_good, m) for m in METHODS}
-            rows.append(dict(fault=fault, art=art_win, art_base=art_base, q=p["q"], v=v, rose=sim["rose"]))
+            rows.append(dict(fault=fault, art=art_win, art_base=art_base, q=p["q"], v=v, rose=sim["rose"],
+                             selective=sim["selective"], material_slow=sim["material_slow"], read_fail=read_fail))
     return rows
 
 
@@ -600,7 +657,16 @@ def score(rows, method):
     per_fault = {k: [0, 0, 0, 0, 0] for k in FAULTS}   # hit, n, cant-tell, no-change, small
     dens = {k: [0, 0] for k in ("sparse", "medium", "busy")}  # DNS faults by this device's question rate
     reasons = {}
+    # answer time in windows with selective (burst) loss and no fault, split by whether the
+    # true median (every answer the network sent) slowed materially (1.5x and 20 ms)
+    sel = {k: {"n": 0, "worse": 0, "no-change": 0, "cant-tell": 0, "small": 0, "better": 0}
+           for k in ("material", "not_material")}
     for x in rows:
+        if x.get("selective") and not x["fault"]:
+            d = sel["material" if x["material_slow"] else "not_material"]
+            d["n"] += 1
+            vt = x["v"][method]["dns.time"][0]
+            d[vt if vt in d else "no-change"] += 1
         v = x["v"][method]
         art = x["art"] or "none"
         target = FAULTS.get(x["fault"]) if x["fault"] else None
@@ -653,7 +719,98 @@ def score(rows, method):
                    for k, v in per_fault.items()},
         dns_recall_by_density={k: rate(*v) for k, v in dens.items()},
         miss_reasons=reasons,
+        selective_time=sel,
     )
+
+
+# ---- G0 (docs/apps/packetshark/neural/G0.md, frozen 27 November 2026) -------------------
+
+G0_FALSE_MAX = 0.01      # false problem claims in each healthy visibility-artifact category, at most
+G0_RECALL_MIN = 0.50     # recall for material faults overlapping capture loss, at least
+G0_CATEGORIES = ("clean", "loss-uniform", "loss-burst", "hold", "one-way", "counters-failed")
+MATERIAL_FAULTS = ("dns_down", "dns_slow", "servfail", "arp_storm", "dhcp_trouble")  # subtle_latency is not material
+
+
+def wilson_bounds(k, n, z=1.645):
+    """One-sided 95 % Wilson bounds."""
+    if n == 0:
+        return float("nan"), float("nan")
+    ph = k / n
+    d = 1 + z * z / n
+    c = ph + z * z / (2 * n)
+    w = z * math.sqrt(ph * (1 - ph) / n + z * z / (4 * n * n))
+    return max(0.0, (c - w) / d), min(1.0, (c + w) / d)
+
+
+def g0_categories(x):
+    """The healthy visibility-artifact categories a window belongs to (it may be in two)."""
+    cats = []
+    if x["art"] == "loss":
+        cats.append("loss-burst" if x.get("selective") else "loss-uniform")
+    elif x["art"] == "hold":
+        cats.append("hold")
+    elif x["art"] == "oneway":
+        cats.append("one-way")
+    if x.get("read_fail"):
+        cats.append("counters-failed")
+    if not cats and not x["art_base"]:
+        cats.append("clean")
+    return cats
+
+
+def g0(rows, method):
+    """Counts for G0 over the given windows (pool seeds by summing)."""
+    fc = {c: [0, 0] for c in G0_CATEGORIES}
+    rec = [0, 0]
+    reassure = [0, 0]
+    abstain = [0, 0]
+    pf = {f: [0, 0, 0, 0] for f in FAULTS}  # hit, n, abstained, no-change
+    for x in rows:
+        v = x["v"][method]
+        if not x["fault"]:
+            false = any(v[m][0] == WORSE for m in METRICS if m not in x["rose"])
+            for c in g0_categories(x):
+                fc[c][0] += false
+                fc[c][1] += 1
+            continue
+        t = FAULTS[x["fault"]]
+        d = pf[x["fault"]]
+        d[0] += v[t][0] == WORSE
+        d[1] += 1
+        d[2] += v[t][0] == CANT
+        d[3] += v[t][0] == NO_CHANGE
+        if x["fault"] in MATERIAL_FAULTS:
+            reassure[0] += v[t][0] == NO_CHANGE
+            reassure[1] += 1
+            abstain[0] += v[t][0] == CANT
+            abstain[1] += 1
+            if x["art"] == "loss":
+                rec[0] += v[t][0] == WORSE
+                rec[1] += 1
+    return dict(false_claims=fc, recall_material_under_loss=rec, false_reassurance_material=reassure,
+                abstention_material=abstain, per_fault=pf)
+
+
+def g0_verdict(counts):
+    out = {"false_claims": {}, "pass": True}
+    for c, (k, n) in counts["false_claims"].items():
+        lo, hi = wilson_bounds(k, n)
+        ok = n > 0 and hi <= G0_FALSE_MAX
+        out["false_claims"][c] = dict(k=k, n=n, rate=round(k / n, 5) if n else None, upper95=round(hi, 5), pass_=ok)
+        out["pass"] &= ok
+    k, n = counts["recall_material_under_loss"]
+    lo, hi = wilson_bounds(k, n)
+    out["recall_material_under_loss"] = dict(k=k, n=n, rate=round(k / n, 4) if n else None, lower95=round(lo, 4),
+                                             pass_=n > 0 and lo >= G0_RECALL_MIN)
+    out["pass"] &= out["recall_material_under_loss"]["pass_"]
+    for key in ("false_reassurance_material", "abstention_material"):
+        k, n = counts[key]
+        out[key] = dict(k=k, n=n, rate=round(k / n, 4) if n else None)
+    out["per_fault"] = {f: dict(n=v[1], recall=round(v[0] / v[1], 3) if v[1] else None,
+                                abstained=round(v[2] / v[1], 3) if v[1] else None,
+                                no_change=round(v[3] / v[1], 3) if v[1] else None)
+                        for f, v in counts["per_fault"].items()}
+    return out
 
 
 def summarize(per_seed):
@@ -682,6 +839,9 @@ def summarize(per_seed):
             for k, v in sd[method]["miss_reasons"].items():
                 rs[k] = rs.get(k, 0) + v
         out[method]["miss_reasons"] = rs
+        out[method]["selective_time"] = {g: {k: int(sum(sd[method]["selective_time"][g][k] for sd in per_seed))
+                                             for k in per_seed[0][method]["selective_time"][g]}
+                                         for g in ("material", "not_material")}
     return out
 
 
@@ -706,18 +866,35 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     per_seed = []
+    g0_pool = {m: None for m in METHODS}
     for s in range(seeds):
         rows = run_seed(s, sites, per)
         sc = {m: score(rows, m) for m in METHODS}
+        for m in METHODS:
+            c = g0(rows, m)
+            if g0_pool[m] is None:
+                g0_pool[m] = c
+            else:
+                for c_ in G0_CATEGORIES:
+                    g0_pool[m]["false_claims"][c_] = [a + b for a, b in zip(g0_pool[m]["false_claims"][c_],
+                                                                            c["false_claims"][c_])]
+                for key in ("recall_material_under_loss", "false_reassurance_material", "abstention_material"):
+                    g0_pool[m][key] = [a + b for a, b in zip(g0_pool[m][key], c[key])]
+                for f in FAULTS:
+                    g0_pool[m]["per_fault"][f] = [a + b for a, b in zip(g0_pool[m]["per_fault"][f],
+                                                                        c["per_fault"][f])]
         sc["n_windows"] = len(rows)
         per_seed.append(sc)
         print("seed %d: %d windows, %.0f s" % (s, len(rows), time.time() - t0), flush=True)
     res = dict(
         what="E3a-R, synthetic only; see the module docstring",
+        rule=dict(old_time=OLD_TIME, old_spell=OLD_SPELL),
         config=dict(seeds=seeds, sites=sites, windows_per_site=per, alpha=ALPHA_E6 / 1e6, gate_coverage=GATE_COV,
                     fault_share=0.5, artifact_share_window=0.5, artifact_share_base=0.2,
                     loss_range=[0.001, 0.6], readings_per_s=SLOTS, read_fail_window_share=0.35),
         summary=summarize(per_seed),
+        g0={m: g0_verdict(g0_pool[m]) for m in METHODS},
+        seeds_used=[1000 + s_ for s_ in range(seeds)],
         per_seed=per_seed,
         seconds=round(time.time() - t0, 1),
     )
@@ -732,10 +909,20 @@ def main():
             m, fc["mean"], fc["sd"], fa["none"]["mean"], fa["loss"]["mean"], fa["hold"]["mean"],
             fa["oneway"]["mean"], rc["all"]["mean"], rc["alone"]["mean"], rc["overlap"]["mean"],
             rc["overlap_loss"]["mean"], s[m]["misses"]))
+    print("\nG0 (frozen criteria, development set):")
+    for m in METHODS:
+        g = res["g0"][m]
+        print("  %-12s %s  false claims upper95: %s  recall material under loss %.3f (lower95 %.3f)  "
+              "false reassurance %.3f  abstention %.3f" % (
+                  m, "PASS" if g["pass"] else "FAIL",
+                  {c: v["upper95"] for c, v in g["false_claims"].items()},
+                  g["recall_material_under_loss"]["rate"], g["recall_material_under_loss"]["lower95"],
+                  g["false_reassurance_material"]["rate"], g["abstention_material"]["rate"]))
     for m in METHODS:
         print(m, "per fault", {f: (v["recall"], v["cant_tell"], v["no_change"], v["small"])
                                for f, v in s[m]["per_fault"].items()})
         print(m, "DNS recall by density", s[m]["dns_recall_by_density"], "abstain reasons", s[m]["miss_reasons"])
+        print(m, "answer time under selective loss (true slowdown, no fault)", s[m]["selective_time"])
 
 
 if __name__ == "__main__":
