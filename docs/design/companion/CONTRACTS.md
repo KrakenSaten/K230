@@ -50,7 +50,7 @@ Identity (owner's decision, 2026-11-21): application id `app.doors.companion`, A
 
   A link is the phone's own when it is up, is not loopback, point-to-point or Wi-Fi Direct, is the interface of no network the platform reports to the app (other than one with `NET_CAPABILITY_LOCAL_NETWORK`), and its subnet overlaps no reported network's.
 
-  Why: Android gives an app no joined network for its own hotspot. Tethering puts the link in netd's local network, which is looked up first for a socket bound to no network (DOCUMENTED, AOSP source). Not yet tested on a phone (README.md H12).
+  Why: Android gives an app no joined network for its own hotspot. Tethering puts the link in netd's local network, which is looked up first for a socket bound to no network (DOCUMENTED, AOSP source). VERIFIED on one phone on 2026-11-27: the Flip8 (SM-F776B, Android 17, One UI, mode a): pairing, the session and reconnects over its hotspot, every socket from the hotspot address, no mobile data. Not on hardware: the probe over a hotspot, and the Android 15+ local network mode (README.md H12).
 - Without a joined Wi-Fi network, connect to nothing outside such a subnet. Send nothing over mobile data or a VPN.
 - Make no process-wide network binding.
 - Reconnect, probe and back off as PAIRING.md §7; run no reconnect loop in the background without the optional connection service.

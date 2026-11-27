@@ -55,8 +55,10 @@ section 2.
       `core/OwnLinks.kt`).
 
   Nothing else is tried without a joined Wi-Fi network, and nothing goes over
-  mobile data or a VPN. The hotspot way is host-tested only, **not yet on a
-  physical phone**.
+  mobile data or a VPN. The hotspot way was **verified on one physical phone**
+  on 2026-11-27: the Flip8 (Android 17, One UI), with pairing, the session,
+  reconnects, and no mobile data. The sweep over a hotspot has not run on
+  hardware.
 - A waiting loop never ends a pairing. Only the unit's own word over an
   authenticated connection (`gateway.revoked`, or `paired: false` in hello) is
   shown as a removal; no answer, a timeout, a lost session and a door closed
