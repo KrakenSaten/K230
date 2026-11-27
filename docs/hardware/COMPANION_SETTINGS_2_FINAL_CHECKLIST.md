@@ -19,14 +19,30 @@ here, not repeated. Mark each check PASS or FAIL with the time (UTC).
 
 ## F0. Build host, before the hardware (not a repeat: the merged head is new)
 
-- [ ] At `0d1174d5` on the build host:
-  - `make packetshark-test`;
-  - `tests/settings_view_test` and `tests/settings_app_test`;
-  - the riscv64 cross-build of doors-shell (`-Werror`).
+This is the one binary in which master's #191 meets this PR's Settings
+pages. The Android app needs nothing: its tree is identical to PR #193's,
+built and tested there.
 
-  This is the one binary in which master's #191 meets this PR's Settings
-  pages. The Android app needs nothing: its tree is identical to PR #193's,
-  built and tested there.
+- [x] **PASS, 2026-11-27, 13:13 to 13:22Z,** at `83c7e8a1` (the code of
+  `0d1174d5`):
+  - **Where:** a fresh `git archive` in WSL (`~/work/cs2-f0`), with the same
+    toolchain, sysroot, host dependencies and LVGL as the 2026-11-25 runs.
+    Logs are in `C:\K230-artifacts\companion-settings-2\f0-83c7e8a1\`.
+  - `make packetshark-test`: rc 0. Every suite has 0 failures, `packetshark_lint` included.
+  - `tests/settings_view_test`: 300 checks, 0 failures; built with
+    `-Wall -Wextra`, no warnings.
+  - Simulator build of `settings_app_test`, `packetshark_app_test` and
+    `pocketos-shell`: rc 0.
+  - `settings_app_test`: 1987 checks, 0 failures.
+  - `tests/packetshark_shell_test.sh` (the PacketShark app test and the real
+    shell; #191 extended it): 0 failures.
+  - riscv64 cross-build of doors-shell (DRM, sysroot LVGL, configured as for
+    `d189c2c1`): rc 0. The binary carries build id `83c7e8a1`, sha256
+    `54d4b85c…a034`.
+  - **Warnings:** none in a file changed since `d189c2c1`, and none in
+    `apps/settings` or `apps/packetshark`'s changed files. The only warning in
+    a file of this PR is `tests/settings_app_test.c:1718`
+    (`-Wformat-truncation`, test code). It was already there on 2026-11-25.
 
 ## F1. Reboot with a paired phone (gate A9 and U5)
 

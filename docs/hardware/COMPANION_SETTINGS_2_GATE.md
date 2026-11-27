@@ -6,9 +6,11 @@
 - Pairing, an authenticated session and reconnects with the Flip8, over the
   phone's own hotspot: **PASS**. That evidence came from PR #193's test on the
   same Unit B.
-- **Four checks are still mandatory before merge:** reboot with a paired
-  phone, taking a permission away, removal, and the key confirmation's NO.
-  So is a build of the merged head. All are in
+- The merged head (`83c7e8a1`) is built and its focused suites PASS (F0,
+  section 11.4).
+- **Four hardware checks are still mandatory before merge:** reboot with a
+  paired phone, taking a permission away, removal, and the key
+  confirmation's NO. They are in
   [`COMPANION_SETTINGS_2_FINAL_CHECKLIST.md`](COMPANION_SETTINGS_2_FINAL_CHECKLIST.md)
   (sections 11.3 and 11.4).
 - Unit A was not touched.
@@ -565,19 +567,24 @@ because none runs.
 | The phone's app | APK `ec50c2c1…` from PR #193 `81b3d329` | The app tree at `0d1174d5` is identical to that APK's code (`fa9ff613`). This PR changes no Android file |
 
 So the unit evidence of 11.2 holds for every file of this PR's code at the
-current head, and the phone evidence holds for the app at the head. Two
-things have not been checked:
-- the merged combination has not been built;
-- Unit B does not run #191's PacketShark change.
-
-The second matters to no check of this gate.
+current head, and the phone evidence holds for the app at the head. The
+merged combination has been built and its focused suites pass on the build
+host (F0, 11.4). Unit B does not run #191's PacketShark change, and that
+matters to no check of this gate.
 
 ### 11.4 What is still mandatory
 
 Only these, in
 [`COMPANION_SETTINGS_2_FINAL_CHECKLIST.md`](COMPANION_SETTINGS_2_FINAL_CHECKLIST.md):
-- F0, the build of the merged head. This is not hardware and not a repeat:
-  the combination is new.
+- F0, the build of the merged head. **PASS on 2026-11-27 at `83c7e8a1`:**
+  - `make packetshark-test`;
+  - `settings_view_test` (300 checks);
+  - `settings_app_test` (1987 checks);
+  - `packetshark_shell_test.sh`;
+  - the riscv64 cross-build of doors-shell.
+
+  None of them failed, and no new warning appeared. The logs are in
+  `C:\K230-artifacts\companion-settings-2\f0-83c7e8a1\`.
 - F1, a reboot with a paired phone (A9, U5).
 - F2, taking a permission away from a connected phone (A7).
 - F3, removal (A8).
