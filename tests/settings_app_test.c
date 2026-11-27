@@ -36,6 +36,9 @@
 #include "pocketui_audit.h"
 #include "pos_keyboard.h"
 #include "shell_ipc.h"
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+#include "src/libs/lodepng/lodepng.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,35 +92,384 @@ static const char *g_networks;
 static const char *g_connect_error;
 /* sysd's system.status, for Power & Sleep's battery; NULL: sysd does not answer. */
 static const char *g_sysd_status;
-/* The scripted gatewayd (Companion). g_gw_status NULL: it is not running.
- * Its paired list is two phones, the second there only while g_gw_two; each
- * holds `vision` or not, and gateway.scope changes that unless
- * g_gw_scope_error is what it answers instead. */
+/* ---- the scripted gatewayd and sysd (Companion, ADR-019 amendment 2) ------------ *
+ *
+ * gatewayd: g_gw_up 0 is a gatewayd that is not running (it is off by
+ * default). It holds up to four phones - two paired, two that may come to
+ * pair - each with its scopes, and one pairing window whose state the test
+ * moves as a phone would (open, a phone at the door, a phone waiting for the
+ * decision). Every changing request is recorded with its parameters, and
+ * g_gw_error makes the next one be refused with those words.
+ *
+ * sysd: companion.status, set_enabled and set_password, as services/sysd
+ * answers them. A change is "running" for the first status read after it
+ * and done (or failed with g_sys_fail) at the second, so the page is seen in
+ * both states. Turning the gateway on brings the scripted gatewayd up. */
 #define GW_KEY_A "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
 #define GW_KEY_B "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
-#define GW_ON "{\"listening\":true,\"address\":\"192.168.10.171\",\"port\":47231}"
-static const char *g_gw_status;
-static int g_gw_two = 1;
-static int g_gw_first = 1; /* 0: the first phone is gone, and the second is the list's first */
-static int g_gw_miss;      /* this many calls from now are not answered */
-static int g_gw_vision[2];
-static const char *g_gw_scope_error;
+#define GW_KEY_C "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
+#define GW_KEY_D "d00dfeed11223344556677889900aabbccddeeff00112233445566778899aabb"
+#define GW_DEVICE "3f2a91c40b7ed115a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70819"
+/* What gatewayd's pair_begin gives: about 150 characters, as on a unit. */
+#define GW_TOKEN "Q2hlY2tUaGVUb2tlbjEyMw"
+#define GW_URI "doors-pair:1?h=192.168.10.171&p=47231&fp=PyqRxAt-0RWqu8zd7v8AESIzRFVmd4iZqrvM3e7_ABE&t=" GW_TOKEN \
+               "&n=Doors-aa90"
+#define GW_PHONES 4
+static const char *const gw_scope_names[6] = { "status", "mesh_read", "mesh_send", "capture_view", "capture_control",
+                                               "vision" };
+static struct {
+    const char *key;
+    const char *name;
+    unsigned scopes; /* bits in gw_scope_names' order */
+    int connected;
+    int paired;
+    double wall;
+} g_gw_phone[GW_PHONES];
+static int g_gw_up;
+static int g_gw_miss;               /* this many gatewayd calls from now are not answered */
+static const char *g_gw_closed;     /* why it does not listen; NULL: it listens */
+static const char *g_gw_error;      /* the next changing request is refused with this */
+static const char *g_gw_pair_state; /* NULL: no window; "open", "candidate", "waiting" */
+static int g_gw_cand = 2;           /* who is at the door: a phone's index */
+static const char *g_gw_pair_closed;
+static int g_gw_left_ms = 120000;
+
+static struct {
+    int up;
+    int installed;
+    int enabled;
+    int password;
+    const char *ssh;
+    const char *action; /* the running or last job */
+    const char *state;  /* idle, running, done, failed */
+    const char *error;
+    int running_reads;  /* status reads still to answer "running" */
+} g_sys;
+static const char *g_sys_refuse; /* set_enabled and set_password are refused with this message */
+static const char *g_sys_fail;   /* the next job fails with this word */
+
+static void gw_reset(void)
+{
+    static const char *const names[GW_PHONES] = { "Flip8", "A phone with a rather long name!", "Pixel 8", "Stranger" };
+    static const char *const keys[GW_PHONES] = { GW_KEY_A, GW_KEY_B, GW_KEY_C, GW_KEY_D };
+    int i;
+
+    for (i = 0; i < GW_PHONES; i++) {
+        g_gw_phone[i].key = keys[i];
+        g_gw_phone[i].name = names[i];
+        g_gw_phone[i].scopes = i == 1 ? (1u | 32u) : 1u; /* the second shown Vision */
+        g_gw_phone[i].connected = i == 0;
+        g_gw_phone[i].paired = i < 2;
+        /* 2026-11-24 12:00 UTC for the first; the second paired with no clock */
+        g_gw_phone[i].wall = i == 0 ? 1795521600.0 : 0;
+    }
+    g_gw_up = 1;
+    g_gw_miss = 0;
+    g_gw_closed = NULL;
+    g_gw_error = NULL;
+    g_gw_pair_state = NULL;
+    g_gw_pair_closed = NULL;
+    g_gw_left_ms = 120000;
+    g_gw_cand = 2;
+    g_sys.up = 1;
+    g_sys.installed = 1;
+    g_sys.enabled = 1;
+    g_sys.password = 1;
+    g_sys.ssh = "hardened";
+    g_sys.action = NULL;
+    g_sys.state = "idle";
+    g_sys.error = NULL;
+    g_sys.running_reads = 0;
+    g_sys_refuse = NULL;
+    g_sys_fail = NULL;
+}
+
+static cJSON *gw_scopes_json(unsigned s)
+{
+    cJSON *a = cJSON_CreateArray();
+    int i;
+
+    for (i = 0; i < 6; i++) {
+        if (s & (1u << i)) {
+            cJSON_AddItemToArray(a, cJSON_CreateString(gw_scope_names[i]));
+        }
+    }
+    return a;
+}
+
+static unsigned gw_scopes_from(const cJSON *list)
+{
+    const cJSON *el;
+    unsigned s = 0;
+    int i;
+
+    cJSON_ArrayForEach(el, list) {
+        for (i = 0; i < 6; i++) {
+            if (cJSON_IsString(el) && strcmp(el->valuestring, gw_scope_names[i]) == 0) {
+                s |= 1u << i;
+            }
+        }
+    }
+    return s;
+}
+
+static int gw_paired_count(void)
+{
+    int i, n = 0;
+
+    for (i = 0; i < GW_PHONES; i++) {
+        n += g_gw_phone[i].paired;
+    }
+    return n;
+}
+
+static cJSON *gw_status(void)
+{
+    cJSON *r = cJSON_CreateObject();
+    const char *why = g_gw_closed;
+
+    if (!why && gw_paired_count() == 0 && !g_gw_pair_state) {
+        why = "no_clients";
+    }
+    cJSON_AddBoolToObject(r, "listening", why == NULL);
+    if (!why) {
+        cJSON_AddStringToObject(r, "address", "192.168.10.171");
+        cJSON_AddNumberToObject(r, "port", 47231);
+    } else {
+        cJSON_AddStringToObject(r, "closed", why);
+    }
+    cJSON_AddStringToObject(r, "device_id", GW_DEVICE);
+    cJSON_AddBoolToObject(r, "pairing", g_gw_pair_state != NULL);
+    if (g_gw_pair_state) {
+        cJSON *p = cJSON_AddObjectToObject(r, "pair");
+
+        cJSON_AddStringToObject(p, "state", g_gw_pair_state);
+        cJSON_AddNumberToObject(p, "left_ms", g_gw_left_ms);
+        if (strcmp(g_gw_pair_state, "waiting") == 0) {
+            cJSON *c = cJSON_AddObjectToObject(p, "candidate");
+
+            cJSON_AddStringToObject(c, "name", g_gw_phone[g_gw_cand].name);
+            cJSON_AddStringToObject(c, "fingerprint", g_gw_phone[g_gw_cand].key);
+        }
+    } else if (g_gw_pair_closed) {
+        cJSON_AddStringToObject(r, "pair_closed", g_gw_pair_closed);
+    }
+    return r;
+}
 
 static cJSON *gw_clients(void)
 {
-    char text[640];
+    cJSON *r = cJSON_CreateObject();
+    cJSON *a = cJSON_AddArrayToObject(r, "clients");
+    int i;
 
-    char first[240] = "";
+    for (i = 0; i < GW_PHONES; i++) {
+        cJSON *o;
 
-    if (g_gw_first) {
-        snprintf(first, sizeof(first),
-                 "{\"fingerprint\":\"" GW_KEY_A "\",\"name\":\"Flip8\",\"scopes\":[\"status\"%s],\"connected\":true}%s",
-                 g_gw_vision[0] ? ",\"vision\"" : "", g_gw_two ? "," : "");
+        if (!g_gw_phone[i].paired) {
+            continue;
+        }
+        o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "fingerprint", g_gw_phone[i].key);
+        cJSON_AddStringToObject(o, "name", g_gw_phone[i].name);
+        cJSON_AddItemToObject(o, "scopes", gw_scopes_json(g_gw_phone[i].scopes));
+        cJSON_AddNumberToObject(o, "paired_wall_s", g_gw_phone[i].wall);
+        cJSON_AddBoolToObject(o, "connected", g_gw_phone[i].connected);
+        cJSON_AddItemToArray(a, o);
     }
-    snprintf(text, sizeof(text), "{\"clients\":[%s%s%s%s],\"max\":8}", first,
-             g_gw_two ? "{\"fingerprint\":\"" GW_KEY_B "\",\"name\":\"A phone with a rather long name!\",\"scopes\":[\"status\"" : "",
-             g_gw_two ? (g_gw_vision[1] ? ",\"vision\"" : "") : "", g_gw_two ? "],\"connected\":false}" : "");
-    return cJSON_Parse(text);
+    cJSON_AddNumberToObject(r, "max", 8);
+    return r;
+}
+
+static int gw_phone_by(const cJSON *params)
+{
+    const cJSON *who = cJSON_GetObjectItemCaseSensitive(params, "client");
+    int i;
+
+    for (i = 0; cJSON_IsString(who) && i < GW_PHONES; i++) {
+        if (g_gw_phone[i].paired && strcmp(g_gw_phone[i].key, who->valuestring) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void record_call(const char *method, const cJSON *params)
+{
+    char *text;
+
+    if (call_count >= CALLS_MAX) {
+        return;
+    }
+    text = params ? cJSON_PrintUnformatted(params) : NULL;
+    snprintf(calls[call_count].method, sizeof(calls[0].method), "%s", method);
+    snprintf(calls[call_count].params, sizeof(calls[0].params), "%s", text ? text : "null");
+    free(text);
+    call_count++;
+}
+
+static cJSON *fake_gatewayd(const char *method, cJSON *params, char *err, size_t errlen)
+{
+    int i;
+
+    if (strcmp(method, "gateway.status") != 0 && strcmp(method, "gateway.clients") != 0) {
+        record_call(method, params);
+    }
+    if (!g_gw_up) {
+        snprintf(err, errlen, "gatewayd is not answering (No such file or directory)");
+        return NULL;
+    }
+    if (g_gw_miss > 0) {
+        g_gw_miss--;
+        snprintf(err, errlen, "timed out");
+        return NULL;
+    }
+    if (strcmp(method, "gateway.status") == 0) {
+        return gw_status();
+    }
+    if (strcmp(method, "gateway.clients") == 0) {
+        return gw_clients();
+    }
+    if (g_gw_error) {
+        snprintf(err, errlen, "%s", g_gw_error);
+        g_gw_error = NULL;
+        return NULL;
+    }
+    if (strcmp(method, "gateway.pair_begin") == 0) {
+        cJSON *r = cJSON_CreateObject();
+
+        g_gw_pair_state = "open";
+        g_gw_pair_closed = NULL;
+        g_gw_left_ms = 120000;
+        cJSON_AddStringToObject(r, "uri", GW_URI);
+        cJSON_AddNumberToObject(r, "expires_in_ms", 120000);
+        return r;
+    }
+    if (strcmp(method, "gateway.pair_cancel") == 0) {
+        if (g_gw_pair_state) {
+            g_gw_pair_closed = "cancelled";
+        }
+        g_gw_pair_state = NULL;
+        return cJSON_CreateObject();
+    }
+    if (strcmp(method, "gateway.pair_decide") == 0) {
+        cJSON *r;
+        int allow = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "allow"));
+
+        if (!g_gw_pair_state || strcmp(g_gw_pair_state, "waiting") != 0) {
+            snprintf(err, errlen, "no candidate is waiting");
+            return NULL;
+        }
+        {
+            const cJSON *fp = cJSON_GetObjectItemCaseSensitive(params, "fingerprint");
+
+            if (fp && (!cJSON_IsString(fp) || strcmp(fp->valuestring, g_gw_phone[g_gw_cand].key) != 0)) {
+                snprintf(err, errlen, "not the phone that was confirmed");
+                return NULL;
+            }
+        }
+        if (allow) {
+            g_gw_phone[g_gw_cand].paired = 1;
+            g_gw_phone[g_gw_cand].scopes = gw_scopes_from(cJSON_GetObjectItemCaseSensitive(params, "scopes"));
+        }
+        g_gw_pair_state = NULL;
+        g_gw_pair_closed = allow ? "paired" : "refused";
+        r = cJSON_CreateObject();
+        cJSON_AddBoolToObject(r, "paired", allow);
+        return r;
+    }
+    if (strcmp(method, "gateway.set_scopes") == 0 && (i = gw_phone_by(params)) >= 0) {
+        cJSON *r = cJSON_CreateObject();
+
+        g_gw_phone[i].scopes = gw_scopes_from(cJSON_GetObjectItemCaseSensitive(params, "scopes"));
+        cJSON_AddItemToObject(r, "scopes", gw_scopes_json(g_gw_phone[i].scopes));
+        return r;
+    }
+    if (strcmp(method, "gateway.revoke") == 0 && (i = gw_phone_by(params)) >= 0) {
+        g_gw_phone[i].paired = 0;
+        return cJSON_CreateObject();
+    }
+    snprintf(err, errlen, "invalid params");
+    return NULL;
+}
+
+static void sys_finish(void)
+{
+    if (g_sys_fail) {
+        g_sys.state = "failed";
+        g_sys.error = g_sys_fail;
+        g_sys_fail = NULL;
+        return;
+    }
+    if (strcmp(g_sys.action, "enable") == 0) {
+        g_sys.enabled = 1;
+        g_gw_up = 1;
+    } else if (strcmp(g_sys.action, "disable") == 0) {
+        g_sys.enabled = 0;
+        g_gw_up = 0;
+    } else {
+        g_sys.password = 1;
+    }
+    if (g_sys.ssh && strcmp(g_sys.ssh, "open") == 0 && strcmp(g_sys.action, "disable") != 0) {
+        g_sys.ssh = "hardened"; /* sysd hardens SSH before either */
+    }
+    g_sys.state = "done";
+    g_sys.error = NULL;
+}
+
+static cJSON *fake_sysd_companion(const char *method, cJSON *params, char *err, size_t errlen)
+{
+    cJSON *r;
+
+    if (strcmp(method, "companion.status") != 0) {
+        record_call(method, params);
+    }
+    if (!g_sys.up) {
+        snprintf(err, errlen, "sysd is not answering");
+        return NULL;
+    }
+    if (strcmp(method, "companion.status") == 0) {
+        if (strcmp(g_sys.state, "running") == 0) {
+            if (g_sys.running_reads > 0) {
+                g_sys.running_reads--;
+            } else {
+                sys_finish();
+            }
+        }
+        r = cJSON_CreateObject();
+        cJSON_AddBoolToObject(r, "installed", g_sys.installed);
+        cJSON_AddBoolToObject(r, "enabled", g_sys.enabled);
+        cJSON_AddBoolToObject(r, "running", g_gw_up);
+        cJSON_AddBoolToObject(r, "password_set", g_sys.password);
+        cJSON_AddStringToObject(r, "ssh", g_sys.ssh);
+        cJSON_AddStringToObject(r, "state", g_sys.state);
+        if (g_sys.action) {
+            cJSON_AddStringToObject(r, "action", g_sys.action);
+        }
+        if (g_sys.error) {
+            cJSON_AddStringToObject(r, "error", g_sys.error);
+            cJSON_AddStringToObject(r, "message", "see the log");
+        }
+        return r;
+    }
+    if (g_sys_refuse) {
+        snprintf(err, errlen, "%s", g_sys_refuse);
+        return NULL;
+    }
+    if (strcmp(method, "companion.set_enabled") == 0) {
+        g_sys.action = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "enabled")) ? "enable" : "disable";
+    } else if (strcmp(method, "companion.set_password") == 0) {
+        g_sys.action = "password";
+    } else {
+        snprintf(err, errlen, "unknown method %s", method);
+        return NULL;
+    }
+    g_sys.state = "running";
+    g_sys.error = NULL;
+    g_sys.running_reads = 1;
+    r = cJSON_CreateObject();
+    cJSON_AddStringToObject(r, "state", "running");
+    return r;
 }
 
 static void calls_reset(void)
@@ -137,6 +489,16 @@ static int called(const char *method, const char *params)
     return 0;
 }
 
+static int count_called(const char *method)
+{
+    int i, n = 0;
+
+    for (i = 0; i < call_count; i++) {
+        n += strcmp(calls[i].method, method) == 0;
+    }
+    return n;
+}
+
 cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *params, int timeout_ms,
                               char *err, size_t errlen)
 {
@@ -150,35 +512,10 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
         cJSON_Delete(params);
         return cJSON_Parse(g_sysd_status);
     }
-    if (strcmp(service, "gatewayd") == 0) {
-        const cJSON *who = cJSON_GetObjectItemCaseSensitive(params, "client");
-        cJSON *r = NULL;
+    if (strcmp(service, "gatewayd") == 0 || (strcmp(service, "sysd") == 0 && strncmp(method, "companion.", 10) == 0)) {
+        cJSON *r = strcmp(service, "gatewayd") == 0 ? fake_gatewayd(method, params, err, errlen)
+                                                    : fake_sysd_companion(method, params, err, errlen);
 
-        if (strcmp(method, "gateway.scope") == 0 && call_count < CALLS_MAX) {
-            char *text = cJSON_PrintUnformatted(params);
-
-            snprintf(calls[call_count].method, sizeof(calls[0].method), "%s", method);
-            snprintf(calls[call_count].params, sizeof(calls[0].params), "%s", text ? text : "null");
-            free(text);
-            call_count++;
-        }
-        if (!g_gw_status) {
-            r = NULL;
-        } else if (g_gw_miss > 0) {
-            g_gw_miss--;
-            snprintf(err, errlen, "timed out");
-        } else if (strcmp(method, "gateway.status") == 0) {
-            r = cJSON_Parse(g_gw_status);
-        } else if (strcmp(method, "gateway.clients") == 0) {
-            r = gw_clients();
-        } else if (strcmp(method, "gateway.scope") == 0 && g_gw_scope_error) {
-            snprintf(err, errlen, "%s", g_gw_scope_error);
-        } else if (strcmp(method, "gateway.scope") == 0 && cJSON_IsString(who)) {
-            int i = strcmp(who->valuestring, GW_KEY_B) == 0;
-
-            g_gw_vision[i] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "on"));
-            r = cJSON_Parse("{\"scopes\":[\"status\"]}");
-        }
         cJSON_Delete(params);
         return r;
     }
@@ -652,6 +989,146 @@ static void tick(void)
 {
     app_settings.tick(app_priv);
     pump(60);
+}
+
+/* ---- Companion helpers: screenshots, a row's switch, the QR code ------------------------ *
+ *
+ * $SETTINGS_SHOTS_DIR: one PNG per Companion screen this test reaches, from
+ * the same fixtures every run, so the images are reproducible. The shell's
+ * header is not in them: the shell is not here. */
+static const char *shots_dir;
+
+static void shot(const char *name)
+{
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+    char path[512];
+    lv_draw_buf_t *snap;
+    unsigned char *rgb;
+    uint32_t y;
+
+    if (!shots_dir) {
+        return;
+    }
+    pump(120);
+    snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB888);
+    if (!snap) {
+        check("a screenshot could be taken", 0);
+        return;
+    }
+    rgb = malloc((size_t)snap->header.w * snap->header.h * 3);
+    if (rgb) {
+        for (y = 0; y < snap->header.h; y++) {
+            const unsigned char *src = (const unsigned char *)snap->data + (size_t)y * snap->header.stride;
+            unsigned char *dst = rgb + (size_t)y * snap->header.w * 3;
+            uint32_t x;
+
+            /* LVGL keeps RGB888 as B,G,R; PNG wants R,G,B. */
+            for (x = 0; x < snap->header.w; x++) {
+                dst[x * 3 + 0] = src[x * 3 + 2];
+                dst[x * 3 + 1] = src[x * 3 + 1];
+                dst[x * 3 + 2] = src[x * 3 + 0];
+            }
+        }
+        snprintf(path, sizeof(path), "%s/%s.png", shots_dir, name);
+        if (lodepng_encode24_file(path, rgb, snap->header.w, snap->header.h) != 0) {
+            check("a screenshot could be written", 0);
+        }
+        free(rgb);
+    }
+    lv_draw_buf_destroy(snap);
+#else
+    (void)name;
+#endif
+}
+
+/* The switch on the right of the row whose title is `title`: the row is the
+ * title's column's parent, and the switch its last child. */
+static lv_obj_t *switch_of(const char *title)
+{
+    lv_obj_t *lb = find_visible(app_body, title);
+    lv_obj_t *row = lb ? lv_obj_get_parent(lv_obj_get_parent(lb)) : NULL;
+
+    return row && lv_obj_get_child_count(row) > 0 ? lv_obj_get_child(row, -1) : NULL;
+}
+
+static const char *switch_text(const char *title)
+{
+    lv_obj_t *b = switch_of(title);
+
+    return b && lv_obj_get_child_count(b) > 0 ? lv_label_get_text(lv_obj_get_child(b, 0)) : "";
+}
+
+static void tap_obj(const char *what, lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        printf("FAIL tap on %s: not on screen\n", what);
+        failed++;
+        checks++;
+        return;
+    }
+    lv_obj_scroll_to_view_recursive(obj, LV_ANIM_OFF);
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
+    finger_point.y = a.y1 + lv_area_get_height(&a) / 2;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+}
+
+static void tap_switch(const char *title)
+{
+    tap_obj(title, switch_of(title));
+}
+
+/* A QR code is on screen, drawn: a visible lv_qrcode whose canvas has a
+ * size. */
+static lv_obj_t *find_qr(lv_obj_t *obj)
+{
+    uint32_t i;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return NULL;
+    }
+    if (lv_obj_check_type(obj, &lv_qrcode_class)) {
+        return obj;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *hit = find_qr(lv_obj_get_child(obj, i));
+
+        if (hit) {
+            return hit;
+        }
+    }
+    return NULL;
+}
+
+static int qr_shown(void)
+{
+    lv_obj_t *qr = find_qr(app_body);
+    lv_draw_buf_t *buf = qr ? lv_canvas_get_draw_buf(qr) : NULL;
+
+    return qr && buf && buf->header.w >= 45 * 2 && buf->header.w == buf->header.h;
+}
+
+/* Every recorded request that carries the device password is the one
+ * companion.set_password, and there is exactly one. */
+static int password_only_in_set_password(const char *pw)
+{
+    int i, n = 0;
+
+    for (i = 0; i < call_count; i++) {
+        if (strstr(calls[i].params, pw)) {
+            if (strcmp(calls[i].method, "companion.set_password") != 0) {
+                return 0;
+            }
+            n++;
+        }
+    }
+    return n == 1;
 }
 
 /* Every visible clickable object is a finger's size (DS §7, 64 px). */
@@ -1279,7 +1756,12 @@ static const struct {
     { "Time & Region", NULL, "CHANGE TIME ZONE", 0 },
     { "Time & Region", "CHANGE TIME ZONE", "CHOOSE A TIME ZONE", 1 },
     { "Network", NULL, "WI-FI", 1 },
-    { "Companion", NULL, "SHOW VISION ON", 0 },
+    /* Companion holds the paired list, as long as it is; its three pages
+     * one level further scroll as lists do at the larger sizes. */
+    { "Companion", NULL, "PAIRED PHONES", 1 },
+    { "Companion", "Flip8", "WHAT IT MAY DO", 1 },
+    { "Companion", "PAIR A PHONE", "PAIRING CODE", 1 },
+    { "Companion", "CHANGE PASSWORD", "DEVICE PASSWORD", 1 },
     { "Developer", NULL, "DEBUG OVERLAY", 0 },
 };
 #define PAGE_CASES (sizeof(pages) / sizeof(pages[0]))
@@ -1301,6 +1783,8 @@ static void check_pages(enum pos_rotation rotation, enum pos_text_size size)
 
     pos_theme_select_text_size(size);
     use_display(rotation, PANEL_CORNER);
+    /* Companion on, with a password and two phones (section 17b). */
+    gw_reset();
     /* A current reading, so Power & Sleep is measured with every battery
      * value filled in: the longest status word, volts, signed amps. */
     g_sysd_status = "{\"power\":{\"source\":\"battery\",\"battery\":{\"present\":true,"
@@ -1556,6 +2040,14 @@ int main(void)
     g_keyboard = pos_keyboard_create(lv_screen_active());
     /* The unit's panel, as the shell opens it in portrait. */
     use_display(POS_ROTATION_0, PANEL_CORNER);
+    shots_dir = getenv("SETTINGS_SHOTS_DIR");
+    /* Companion as a unit comes: gateway installed and off, no device
+     * password, SSH as an older image left it (section 17b changes it). */
+    gw_reset();
+    g_gw_up = 0;
+    g_sys.enabled = 0;
+    g_sys.password = 0;
+    g_sys.ssh = "open";
 
     /* ---- 1. the list of categories, and where each one leads ------------------------------ */
     g_status = STATUS_CONN;
@@ -2055,105 +2547,425 @@ int main(void)
               pos_theme_apply(getenv("SETTINGS_THEME"), "normal", why, sizeof(why)) == 0);
     }
 
-    /* ---- 17b. Companion: the paired phones and each one's Vision switch (DS §52.8) --------------- */
-    g_gw_status = NULL;
+    /* ---- 17b. Companion: the gateway, the device password, the phones, pairing (ADR-019 amendment 2) ---- */
+#define DEVPW "tangerine harbor 42"
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    gw_reset();
+    /* A unit as it comes: the gateway installed and off, no device password,
+     * SSH as an older image left it. */
+    g_gw_up = 0;
+    g_sys.enabled = 0;
+    g_sys.password = 0;
+    g_sys.ssh = "open";
     app_start();
     tick();
-    check("companion: gatewayd not running is said on the list", shows("Not running"));
+    check("companion: a unit as it comes says so on the list", shows("Off \xc2\xb7 no device password"));
     open_category("Companion");
     tick();
-    check("companion: and on its page, with no switch to tap",
-          shows("Not running") && shows("The Companion gateway is not running on this unit, so no phone can connect.") &&
-              !shows("OFF") && !shows("ON"));
-    /* It comes up while the page shows: the rows are built from its list. */
-    g_gw_status = GW_ON;
-    g_gw_two = 1;
-    g_gw_vision[0] = 0;
-    g_gw_vision[1] = 1;
-    g_gw_scope_error = NULL;
-    tick();
-    tick();
-    check("companion: the gateway's state", shows("On \xc2\xb7 192.168.10.171:47231"));
-    check("companion: both phones by name and key",
-          shows("Flip8") && shows("Key 0A1B 2C3D 4E5F 6071 \xc2\xb7 connected") &&
-              shows("A phone with a rather long name!") && shows("Key FFEE DDCC BBAA 9988"));
-    check("companion: one switch OFF, one ON, as gatewayd holds them", shows("OFF") && shows("ON"));
+    check("companion: the gateway is off, in words", shows("Off"));
+    check("companion: its switch reads OFF and cannot be tapped without a password", shows("OFF") && disabled("OFF"));
+    check("companion: and the page says what to do", shows("Set a device password below to turn the gateway on."));
+    check("companion: no password, said", shows("Not set"));
+    check("companion: SSH as it is, and what setting a password changes",
+          find_containing(app_body, "SSH: root can still sign in with a password.") != NULL);
+    check("companion: pairing waits for the gateway, and says so",
+          disabled("PAIR A PHONE") && shows("Turn the gateway on to pair a phone."));
+    check("companion: no list while it is off, and why", shows("The paired phones are listed while the gateway is on."));
     check("companion: every target is a finger's size", small_targets(app_body) == 0);
-    check_page("Companion, two phones");
+    check_page("Companion, a unit as it comes");
+    shot("01-companion-off");
     calls_reset();
     tap("OFF");
-    check("companion: a tap on OFF asks gatewayd for vision for exactly that phone",
-          call_count == 1 && called("gateway.scope", "{\"client\":\"" GW_KEY_A "\",\"scope\":\"vision\",\"on\":true}"));
-    check("companion: and shows what gatewayd then holds: both ON", !shows("OFF") && shows("ON") && g_gw_vision[0] == 1);
-    /* A refusal: said, and the switch stays what gatewayd holds. */
-    g_gw_vision[0] = 0;
+    check("companion: a tap on the switch without a password sends nothing", call_count == 0);
+
+    /* ---- the device password ---- */
+    tap("SET PASSWORD");
+    check("password: a page of its own, the keyboard up, the first field focused",
+          strcmp(g_title, "Device password") == 0 && kb_shown && focused_text() && !focused_text()[0]);
+    check_page("Device password");
+    type("short");
+    if (kb_done) {
+        kb_done(kb_user);
+    }
+    pump(40);
+    check("password: the keyboard's Done goes to the second field", focused_text() && !focused_text()[0]);
+    type("short");
+    calls_reset();
+    tap("SET PASSWORD");
+    check("password: too short is said, and nothing is sent",
+          shows("The password needs at least 8 characters.") && call_count == 0);
+    tap("CANCEL");
+    check("password: CANCEL goes back to Companion, keyboard down",
+          strcmp(g_title, "Companion") == 0 && !kb_shown && shows("Not set"));
+    tap("SET PASSWORD");
+    check("password: the fields start empty again", focused_text() && !focused_text()[0]);
+    type(DEVPW);
+    kb_done(kb_user);
+    pump(40);
+    type("another sentence");
+    tap("SET PASSWORD");
+    check("password: two different passwords are said, and nothing is sent",
+          shows("The two passwords are not the same.") && call_count == 0);
+    shot("02-password-mismatch");
+    back_to_root();
+    open_category("Companion");
+    /* A refusal from sysd, in words, on the sheet. */
+    tap("SET PASSWORD");
+    type(DEVPW);
+    kb_done(kb_user);
+    pump(40);
+    type(DEVPW);
+    g_sys_refuse = "busy: a Companion change is already running";
+    calls_reset();
+    kb_done(kb_user);
+    pump(40);
+    check("password: sysd's refusal is said in words, on the sheet",
+          shows("Another change is still running. Wait a moment, then try again.") &&
+              strcmp(g_title, "Device password") == 0);
+    check("password: and the fields were cleared before the request went",
+          focused_text() && !focused_text()[0] && count_called("companion.set_password") == 1);
+    g_sys_refuse = NULL;
+    /* The right way. */
+    type(DEVPW);
+    kb_done(kb_user);
+    pump(40);
+    type(DEVPW);
+    calls_reset();
+    tap("SET PASSWORD");
+    check("password: sent once, to sysd, as typed",
+          count_called("companion.set_password") == 1 && called("companion.set_password", "{\"password\":\"" DEVPW "\"}"));
+    check("password: in that request and in no other", password_only_in_set_password(DEVPW));
+    check("password: back on Companion, keyboard down, the change running",
+          strcmp(g_title, "Companion") == 0 && !kb_shown && shows("Setting the password..."));
     tick();
-    check("companion: a change made elsewhere is shown within a second", shows("OFF"));
-    g_gw_scope_error = "invalid params";
+    check("password: set, said once to the person who set it",
+          shows("Set") && shows("Password set. The serial console asks for it from now on."));
+    check("password: SSH lets root in with a key only now", shows("SSH: root signs in with a key only."));
+    check("password: the button offers to change it", shows("CHANGE PASSWORD"));
+    check("companion: and the gateway's switch can now be tapped", shows("OFF") && !disabled("OFF"));
+    shot("03-companion-password-set");
+    /* A password job that fails says why. */
+    g_sys_fail = "ssh_failed";
+    tap("CHANGE PASSWORD");
+    type(DEVPW);
+    kb_done(kb_user);
+    pump(40);
+    type(DEVPW);
+    kb_done(kb_user);
+    pump(40);
+    tick();
+    check("password: a job that failed says what happened and what to do",
+          shows("SSH could not be set to accept root with a key only, so nothing was changed. Restart the unit, "
+                "then try again."));
+
+    /* ---- the gateway on ---- */
+    gw_reset();
+    g_gw_up = 0;
+    g_sys.enabled = 0;
+    tick();
     calls_reset();
     tap("OFF");
-    check("companion: a refused change is said in the gateway's words",
-          call_count == 1 && shows("The gateway answered: invalid params"));
-    check("companion: and the switch still reads OFF", shows("OFF") && g_gw_vision[0] == 0);
-    g_gw_scope_error = NULL;
-    /* Taking it away: the other phone's switch. */
-    g_gw_vision[0] = 1;
-    g_gw_vision[1] = 1;
+    check("gateway: a tap asks sysd to switch it on, and nothing else",
+          call_count == 1 && called("companion.set_enabled", "{\"enabled\":true}"));
+    check("gateway: STARTING while sysd works, the switch not tappable",
+          shows("STARTING") && disabled("STARTING") && shows("Turning on..."));
     tick();
-    g_gw_vision[0] = 0;
+    check("gateway: on and listening, where, and this unit's key",
+          shows("On \xc2\xb7 192.168.10.171:47231") && shows("This unit's key 3F2A 91C4 0B7E D115") && shows("ON"));
+    check("gateway: both phones by name, key and what they may do",
+          shows("Flip8") && shows("Key 0A1B 2C3D 4E5F 6071 \xc2\xb7 connected") && shows("Status") &&
+              shows("A phone with a rather long name!") && shows("Key FFEE DDCC BBAA 9988") && shows("Status, Vision"));
+    check("gateway: pairing can start", !disabled("PAIR A PHONE"));
+    check("companion: every target is a finger's size, gateway on", small_targets(app_body) == 0);
+    check_page("Companion, on, two phones");
+    shot("04-companion-on");
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check_page("Companion, on, two phones, landscape");
+    shot("05-companion-on-landscape");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    /* Why it does not listen, in words a person can act on. */
+    g_gw_phone[0].paired = g_gw_phone[1].paired = 0;
     tick();
+    check("gateway: nobody paired: waiting, and what to do",
+          shows("On: waiting for a phone to be paired") && shows("Nothing listens until a phone is paired. Pair one below."));
+    g_gw_phone[0].paired = g_gw_phone[1].paired = 1;
+    g_gw_closed = "no_address";
+    tick();
+    check("gateway: no address: said, with where to fix it",
+          shows("On, but closed: no Wi-Fi address") && shows("Connect to Wi-Fi in Settings > Network; the gateway opens by itself."));
+    g_gw_closed = "public_address";
+    tick();
+    check("gateway: a public network: said", shows("On, but closed: not a private network"));
+    g_gw_closed = "identity_fault";
+    tick();
+    check("gateway: a damaged key: a fault, nothing replaced, and no pairing",
+          shows("Fault: its stored state cannot be used") &&
+              find_containing(app_body, "stored key is missing or damaged, so it stays closed and nothing was replaced") &&
+              disabled("PAIR A PHONE") && shows("Not while the gateway's stored state cannot be used."));
+    g_gw_closed = NULL;
+    /* Off, and a start that fails. */
     calls_reset();
     tap("ON");
-    check("companion: a tap on ON takes vision from exactly that phone",
-          call_count == 1 && called("gateway.scope", "{\"client\":\"" GW_KEY_B "\",\"scope\":\"vision\",\"on\":false}"));
-    check("companion: both read OFF, and the refusal's words are gone",
-          !shows("ON") && shows("OFF") && !shows("The gateway answered: invalid params"));
-    /* The list changes under the rows: the first phone is revoked, so the
-     * second is now the list's first. A tap on the first row before the page
-     * has built its rows again must send nothing: the row still reads Flip8,
-     * and the list's first phone is another. (The tap's own asking again is
-     * what tells the page; the rows are built again on the next tick.) */
-    g_gw_first = 0;
-    settings_poll_companion(app_priv);
-    calls_reset();
-    tap("OFF");
-    check("companion: a tap on a row whose list changed under it sends nothing", call_count == 0);
+    check("gateway: a tap on ON asks sysd to switch it off",
+          call_count == 1 && called("companion.set_enabled", "{\"enabled\":false}") && shows("STOPPING"));
     tick();
-    check("companion: the phone that was revoked leaves the page within a second",
-          !shows("Flip8") && shows("A phone with a rather long name!"));
-    calls_reset();
+    check("gateway: off again; the phones are not listed while it is off",
+          shows("Off") && shows("OFF") && !shows("Flip8") && shows("The paired phones are listed while the gateway is on."));
+    g_sys_fail = "no_answer";
     tap("OFF");
-    check("companion: and the row that is left names its own phone",
-          call_count == 1 && called("gateway.scope", "{\"client\":\"" GW_KEY_B "\",\"scope\":\"vision\",\"on\":true}"));
+    tick();
+    check("gateway: a start that failed says what happened and what to do",
+          shows("OFF") && shows("The gateway started but did not answer in time, so it is off again. Try again; "
+                                "restart the unit if it keeps happening."));
+    g_sys_refuse = "password_required: this unit has no device password; set one first";
+    tap("OFF");
+    check("gateway: sysd's refusal is turned into what to do",
+          shows("Set a device password first (below). The gateway never runs on a unit without one."));
+    g_sys_refuse = NULL;
+    tap("OFF");
+    tick();
+    check("gateway: on again", shows("On \xc2\xb7 192.168.10.171:47231"));
     /* A gatewayd that misses a poll or two is busy, not gone: the rows stay. */
     g_gw_miss = 2;
     tick();
     tick();
-    check("companion: two polls it does not answer leave the list as it was",
-          shows("A phone with a rather long name!") && !shows("Not running") && shows("ON"));
+    check("gateway: two polls it does not answer leave the list as it was",
+          shows("Flip8") && shows("On \xc2\xb7 192.168.10.171:47231"));
     tick();
-    check("companion: and it is read again when it answers", shows("On \xc2\xb7 192.168.10.171:47231"));
-    g_gw_first = 1;
-    g_gw_two = 0;
+    check("gateway: and it is read again when it answers", shows("Flip8"));
+    /* sysd silent: nothing to switch with, and said. */
+    g_sys.up = 0;
     tick();
-    /* The gateway stops while the page shows. */
-    g_gw_status = NULL;
+    check("gateway: without sysd there is no switch, and the page says why",
+          disabled("ON") && shows("The system service does not answer, so the gateway cannot be switched here."));
+    g_sys.up = 1;
     tick();
+
+    /* ---- pairing ---- */
+    calls_reset();
+    tap("PAIR A PHONE");
+    check("pair: a tap opens one window, on gatewayd", count_called("gateway.pair_begin") == 1 && strcmp(g_title, "Pair a phone") == 0);
+    check("pair: the code is drawn", qr_shown() && !shows("The code cannot be drawn. Cancel, then try again."));
+    check("pair: with what to do, this unit's key and the time left",
+          shows("Scan with DOORS Companion") && shows("This unit's key 3F2A 91C4 0B7E D115") && shows("Closes in 2:00"));
+    check("pair: the token is drawn only as the code, never as text", !find_containing(app_body, GW_TOKEN));
+    check("pair: every target is a finger's size", small_targets(app_body) == 0);
+    check_page("Pair a phone, the code");
+    shot("06-pair-code");
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check("pair: landscape, the code beside the words, still drawn", qr_shown());
+    check_page("Pair a phone, the code, landscape");
+    shot("07-pair-code-landscape");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    check("pair: drawn again for portrait", qr_shown());
+    g_gw_pair_state = "candidate";
+    g_gw_left_ms = 61000;
     tick();
-    check("companion: one more it does not answer: the rows are still there", shows("Flip8"));
+    check("pair: a phone at the door is said, with the time left",
+          shows("A phone is connecting...") && shows("Closes in 1:01") && qr_shown());
+    g_gw_pair_state = "waiting";
     tick();
+    check("pair: the phone that presented the code, by its name and key",
+          shows("A PHONE WANTS TO PAIR") && shows("Pixel 8") && shows("C0C1 C2C3 C4C5 C6C7") && !qr_shown());
+    check("pair: what it will get, in words, beside the decision", shows("It will get: Status, RIFT, sending"));
+    check("pair: ALLOW waits for the keys to be compared", disabled("ALLOW") && shows("Compare the keys first: ALLOW waits for YES."));
+    check("pair: what it will get unless changed: status and RIFT, reading and sending",
+          strcmp(switch_text("Device status"), "ON") == 0 && strcmp(switch_text("Read RIFT"), "ON") == 0 &&
+              strcmp(switch_text("Send RIFT messages"), "ON") == 0 && strcmp(switch_text("PacketShark figures"), "OFF") == 0 &&
+              strcmp(switch_text("PacketShark control"), "OFF") == 0 && strcmp(switch_text("Vision picture"), "OFF") == 0);
+    calls_reset();
+    tap("ALLOW");
+    check("pair: ALLOW before the keys were compared sends nothing", call_count == 0);
+    check("pair: every target is a finger's size, deciding", small_targets(app_body) == 0);
+    check_page("Pair a phone, deciding");
+    shot("08-pair-decide");
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check_page("Pair a phone, deciding, landscape");
+    shot("09-pair-decide-landscape");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    tap("NO");
+    check("pair: YES once the person says the keys match, and ALLOW can be tapped", shows("YES") && !disabled("ALLOW"));
+    /* Another phone takes the door: the confirmation was not for it. */
+    g_gw_cand = 3;
     tick();
-    check("companion: the gateway staying silent takes the rows away", shows("Not running") && !shows("Flip8") && !shows("ON"));
-    back_to_root();
+    check("pair: another phone's key resets the comparison",
+          shows("Stranger") && shows("D00D FEED 1122 3344") && shows("NO") && disabled("ALLOW"));
+    g_gw_cand = 2;
+    tick();
+    tap("NO");
+    /* Its permissions, with what each needs. */
+    tap_switch("Read RIFT");
+    check("pair: reading off takes sending with it",
+          strcmp(switch_text("Read RIFT"), "OFF") == 0 && strcmp(switch_text("Send RIFT messages"), "OFF") == 0);
+    tap_switch("PacketShark control");
+    check("pair: PacketShark control brings its figures",
+          strcmp(switch_text("PacketShark control"), "ON") == 0 && strcmp(switch_text("PacketShark figures"), "ON") == 0);
+    tap_switch("PacketShark figures");
+    tap_switch("Vision picture");
+    check("pair: the person sees what it will get, beside ALLOW", shows("It will get: Status, Vision"));
+    calls_reset();
+    tap("ALLOW");
+    check("pair: ALLOW sends the decision once, with exactly the chosen permissions",
+          count_called("gateway.pair_decide") == 1 &&
+              called("gateway.pair_decide",
+                     "{\"allow\":true,\"fingerprint\":\"" GW_KEY_C "\",\"scopes\":[\"status\",\"vision\"]}"));
+    check("pair: paired, said with what is next",
+          shows("Paired") && shows("Pixel 8 can now connect. Its permissions and Remove are on its page under Companion."));
+    check("pair: no window is left to cancel", count_called("gateway.pair_cancel") == 0);
+    shot("10-pair-done");
+    tap("DONE");
+    check("pair: back on Companion, the new phone listed", strcmp(g_title, "Companion") == 0 && shows("Pixel 8"));
+    /* Another phone at the door between the page's last poll and ALLOW: the
+     * decision names the key the person confirmed, so nothing is decided,
+     * and the window is closed rather than left to whoever is there. */
+    tap("PAIR A PHONE");
+    g_gw_cand = 3;
+    g_gw_pair_state = "waiting";
+    tick();
+    tap("NO");
+    g_gw_cand = 1;
+    calls_reset();
+    tap("ALLOW");
+    check("pair: a decision for a phone that is no longer the one shown decides nothing, and closes the window",
+          count_called("gateway.pair_decide") == 1 && count_called("gateway.pair_cancel") == 1 &&
+              !g_gw_phone[3].paired && shows("Not paired") &&
+              find_containing(app_body, "Another phone took its place before the decision reached the gateway"));
+    tap("BACK");
+    /* REFUSE. */
+    tap("PAIR A PHONE");
+    g_gw_cand = 3;
+    g_gw_pair_state = "waiting";
+    tick();
+    calls_reset();
+    tap("REFUSE");
+    check("pair: REFUSE sends allow false and nothing else",
+          called("gateway.pair_decide", "{\"allow\":false,\"fingerprint\":\"" GW_KEY_D "\"}") && shows("Refused") && !g_gw_phone[3].paired);
+    tap("BACK");
+    /* Cancel, Back and closing the app each close an open window. */
+    tap("PAIR A PHONE");
+    calls_reset();
+    tap("CANCEL");
+    check("pair: CANCEL closes the window", count_called("gateway.pair_cancel") == 1 && strcmp(g_title, "Companion") == 0);
+    tap("PAIR A PHONE");
+    calls_reset();
+    app_settings.back(app_priv);
+    pump(40);
+    check("pair: Back closes the window too", count_called("gateway.pair_cancel") == 1 && strcmp(g_title, "Companion") == 0);
+    tap("PAIR A PHONE");
+    calls_reset();
     app_stop();
-    g_gw_status = GW_ON;
-    g_gw_two = 1;
-    g_gw_vision[0] = 1;
-    g_gw_vision[1] = 0;
+    check("pair: closing the app closes the window", count_called("gateway.pair_cancel") == 1);
     app_start();
+    open_category("Companion");
     tick();
-    check("companion: the list's line counts the phones and who is shown Vision", shows("2 phones \xc2\xb7 Vision shown to 1"));
+    /* The window ends by itself. */
+    tap("PAIR A PHONE");
+    g_gw_pair_state = NULL;
+    g_gw_pair_closed = "expired";
+    tick();
+    check("pair: an expired code is said, and the code is gone",
+          shows("The code expired") && !qr_shown() && shows("SHOW A NEW CODE"));
+    calls_reset();
+    tap("SHOW A NEW CODE");
+    check("pair: a new code on one tap", count_called("gateway.pair_begin") == 1 && qr_shown());
+    g_gw_pair_state = NULL;
+    g_gw_pair_closed = "failed";
+    tick();
+    check("pair: wrong codes close it, said with what that may mean", shows("Closed after wrong codes"));
+    calls_reset();
+    app_settings.back(app_priv);
+    pump(40);
+    check("pair: leaving a closed window sends no cancel", count_called("gateway.pair_cancel") == 0);
+    g_gw_error = "client list full";
+    tap("PAIR A PHONE");
+    check("pair: gatewayd's refusal to open a window, in words",
+          shows("No pairing code") && shows("8 phones are paired, the most there can be. Remove one first."));
+    tap("BACK");
+
+    /* ---- a phone's page ---- */
+    calls_reset();
+    tap("Flip8");
+    check("phone: its own page, by name and key, connected, and when it was paired",
+          strcmp(g_title, "Phone") == 0 && shows("Flip8") && shows("Key 0A1B 2C3D 4E5F 6071") &&
+              shows("Connected now") && shows("Paired 24 Nov 2026"));
+    check("phone: its permissions as gatewayd holds them",
+          strcmp(switch_text("Device status"), "ON") == 0 && strcmp(switch_text("Read RIFT"), "OFF") == 0 &&
+              strcmp(switch_text("Vision picture"), "OFF") == 0);
+    check("phone: opening it changed nothing", call_count == 0);
+    check("phone: every target is a finger's size", small_targets(app_body) == 0);
+    check_page("Phone");
+    shot("11-phone");
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check_page("Phone, landscape");
+    shot("12-phone-landscape");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    calls_reset();
+    tap_switch("Send RIFT messages");
+    check("phone: sending on asks for reading with it, for exactly this phone",
+          call_count == 1 &&
+              called("gateway.set_scopes", "{\"client\":\"" GW_KEY_A "\",\"scopes\":[\"status\",\"mesh_read\",\"mesh_send\"]}"));
+    check("phone: and shows what gatewayd then holds",
+          strcmp(switch_text("Read RIFT"), "ON") == 0 && strcmp(switch_text("Send RIFT messages"), "ON") == 0);
+    calls_reset();
+    tap_switch("Read RIFT");
+    check("phone: reading off takes sending off too",
+          called("gateway.set_scopes", "{\"client\":\"" GW_KEY_A "\",\"scopes\":[\"status\"]}") &&
+              strcmp(switch_text("Send RIFT messages"), "OFF") == 0);
+    tap_switch("Vision picture");
+    check("phone: Vision on its own", strcmp(switch_text("Vision picture"), "ON") == 0 && (g_gw_phone[0].scopes & 32u));
+    g_gw_error = "changed, but not durable";
+    tap_switch("PacketShark figures");
+    check("phone: gatewayd's words when it could not store the change",
+          shows("The gateway answered: changed, but not durable"));
+    /* Remove, asked twice. */
+    calls_reset();
+    tap("REMOVE PHONE");
+    check("phone: Remove asks first, and sends nothing yet",
+          call_count == 0 &&
+              shows("Remove Flip8? It is disconnected now, and can connect again only if it is paired again."));
+    shot("13-phone-remove");
+    tap("CANCEL");
+    check("phone: CANCEL keeps it", shows("REMOVE PHONE") && call_count == 0);
+    tap("REMOVE PHONE");
+    tap("REMOVE");
+    check("phone: REMOVE revokes exactly this phone", call_count == 1 && called("gateway.revoke", "{\"client\":\"" GW_KEY_A "\"}"));
+    check("phone: and the page goes back to a list without it", strcmp(g_title, "Companion") == 0 && !shows("Flip8"));
+    /* Removed elsewhere while its page shows. */
+    tap("A phone with a rather long name!");
+    g_gw_phone[1].paired = 0;
+    tick();
+    check("phone: a phone removed elsewhere leaves its page within a second", strcmp(g_title, "Companion") == 0);
+    back_to_root();
+    check("companion: the list's line counts the phones", shows("On \xc2\xb7 1 phone paired"));
+    /* SSH that cannot be judged: no password from here. */
+    g_sys.ssh = "unknown";
+    open_category("Companion");
+    tick();
+    check("password: an SSH configuration sysd cannot judge stops the password here, and says why",
+          disabled("CHANGE PASSWORD") && find_containing(app_body, "/etc/ssh/sshd_config includes other files"));
+    /* Large text, both ways up, for the record (section 18 measures them). */
     app_stop();
+    gw_reset();
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    app_start();
+    open_category("Companion");
+    tick();
+    shot("14-companion-large");
+    tap("PAIR A PHONE");
+    g_gw_pair_state = "waiting";
+    tick();
+    shot("15-pair-decide-large");
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    shot("16-pair-decide-large-landscape");
+    app_settings.back(app_priv);
+    pump(40);
+    tap("Flip8");
+    shot("17-phone-large-landscape");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    gw_reset();
 
     /* ---- 18. every page, both ways up, every text size (DS §46, §52) ---------------------------- */
     g_status = STATUS_CONN;

@@ -30,7 +30,8 @@ const char *settings_page_title(enum settings_page page)
         [PAGE_SOUND] = "Sound",         [PAGE_KEYBOARD] = "Keyboard",     [PAGE_POWER] = "Power & Sleep",
         [PAGE_TIME] = "Time & Region",  [PAGE_NETWORK] = "Network",       [PAGE_SYSTEM] = "System",
         [PAGE_DEVELOPER] = "Developer", [PAGE_ZONES] = "Time zone",       [PAGE_SHEET] = "Wi-Fi network",
-        [PAGE_COMPANION] = "Companion",
+        [PAGE_COMPANION] = "Companion",      [PAGE_PHONE] = "Phone",
+        [PAGE_PAIR] = "Pair a phone",    [PAGE_PASSWORD] = "Device password",
     };
 
     return page >= 0 && page < PAGE_COUNT && titles[page] ? titles[page] : "Settings";
@@ -697,6 +698,8 @@ void settings_page_build(struct settings_app *a)
         build_developer(a);
         break;
     case PAGE_COMPANION:
+    case PAGE_PHONE:
+    case PAGE_PAIR:
         settings_companion_build(a);
         break;
     default:
@@ -729,6 +732,8 @@ void settings_page_repaint(struct settings_app *a)
         repaint_developer(a);
         break;
     case PAGE_COMPANION:
+    case PAGE_PHONE:
+    case PAGE_PAIR:
         settings_companion_repaint(a);
         break;
     default:
@@ -749,6 +754,8 @@ void settings_page_shape(struct settings_app *a)
     int32_t w = LV_PCT(100);
     uint32_t i;
 
+    /* The pairing sheet's QR code, at whole modules for the shape in force. */
+    settings_companion_shape(a);
     /* Power & Sleep's battery: five lines when tall, two when wide, where
      * five would make the page scroll (DS §52.2). */
     if (a->page == PAGE_POWER && a->w.battery_compact[0]) {

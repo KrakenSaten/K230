@@ -80,5 +80,34 @@ check "the corner clearance is PocketUI's one rule, taken through the shared lay
 check "the wide shape keeps both columns at least portrait-wide" \
     "$(code "$APP" | grep -q 'w > h && w >= 2 \* SETTINGS_COLUMN_W + SETTINGS_PANEL_GAP' && echo 1 || echo 0)"
 
+# Companion (ADR-019 amendment 2): what Settings asks, of whom, and what it
+# never does with a password or a pairing token.
+COMP=apps/settings/settings_companion.c
+methods=$(code "$COMP" | grep -oE '"(gateway|companion|system|shell|mesh|capture|vision|wifi)\.[a-z_]+"' | sort -u | tr '\n' ' ')
+check "Companion asks only for these: gatewayd's local status, clients, pairing, scopes and revoke; sysd's companion.*" \
+    "$([ "$methods" = '"companion.set_enabled" "companion.set_password" "companion.status" "gateway.clients" "gateway.pair_begin" "gateway.pair_cancel" "gateway.pair_decide" "gateway.revoke" "gateway.set_scopes" "gateway.status" ' ] && echo 1 || echo 0)"
+[ "$methods" != '"companion.set_enabled" "companion.set_password" "companion.status" "gateway.clients" "gateway.pair_begin" "gateway.pair_cancel" "gateway.pair_decide" "gateway.revoke" "gateway.set_scopes" "gateway.status" ' ] && echo "     found: $methods"
+check "and of no service but gatewayd and sysd" \
+    "$(code "$COMP" | grep -oE 'ask\("[a-z]+"' | sort -u | tr '\n' ' ' | grep -qx 'ask("gatewayd" ask("sysd" ' && echo 1 || echo 0)"
+check "the device password fields are masked" \
+    "$(code "$COMP" | grep -q 'lv_textarea_set_password_mode(a->w.field, true)' &&
+       code "$COMP" | grep -q 'lv_textarea_set_password_mode(a->w.field2, true)' && echo 1 || echo 0)"
+check "they are cleared before the request is sent" \
+    "$(sed -n '/^static void submit_password/,/^}/p' "$COMP" | awk '/clear_password_fields\(a\)/{c=NR} /companion.set_password/{s=NR} END{exit !(c && s && c < s)}' && echo 1 || echo 0)"
+check "and when the page or the app goes" \
+    "$(sed -n '/^static void go_companion/,/^}/p' "$COMP" | grep -q 'clear_password_fields(a)' &&
+       sed -n '/^void settings_companion_teardown/,/^}/p' "$COMP" | grep -q 'clear_password_fields(a)' &&
+       sed -n '/^static void settings_destroy/,/^}/p' "$APP" | grep -q 'settings_companion_teardown(a);' && echo 1 || echo 0)"
+check "a pairing window this app opened is cancelled when the sheet or the app goes" \
+    "$(sed -n '/^void settings_companion_back/,/^}/p' "$COMP" | grep -q 'cancel_pairing(a)' &&
+       sed -n '/^void settings_companion_teardown/,/^}/p' "$COMP" | grep -q 'cancel_pairing(a)' && echo 1 || echo 0)"
+check "the pairing URI (the token) is wiped when the window ends" \
+    "$(code "$VIEW" | grep -q 'explicit_bzero(p->uri' && code "$COMP" | grep -q 'sv_pair_wipe(&a->pair)' && echo 1 || echo 0)"
+check "the token is never put in a label: the URI reaches only the QR code" \
+    "$(code "$COMP" | grep -E 'pair\.uri|pr->uri' | grep -vE 'lv_qrcode_update|strlen\(a->pair\.uri\)' | grep -q . && echo 0 || echo 1)"
+check "ALLOW sends nothing until the person has compared the keys" \
+    "$(code "$VIEW" | grep -q 'p->phase == SV_PAIR_DECIDE && p->keys_match' &&
+       code "$VIEW" | grep -q 'if (allow && !sv_pair_can_allow(p))' && echo 1 || echo 0)"
+
 echo "settings_lint: $failed failure(s)"
 exit $((failed > 0))

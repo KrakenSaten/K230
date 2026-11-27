@@ -26,7 +26,10 @@
 #     describes something it is not running.
 #  3. NO PER-UNIT SETTINGS. /etc/default/meshcored decides whether a unit runs
 #     a radio service and is written on the unit; shipped in a tree it would
-#     decide that for every unit at once.
+#     decide that for every unit at once. /etc/default/gatewayd likewise
+#     decides whether a unit runs the Companion gateway (Settings > Companion
+#     writes it through sysd, ADR-019 amendment 2): shipped, it would switch
+#     the gateway on or off for every unit the image or a deploy reaches.
 #
 # Exit 0 when every check passes, 1 when any fails, 2 on usage.
 #
@@ -47,12 +50,13 @@ SERVICES="sysd|usr/sbin/sysd|etc/init.d/S50sysd
 netd|usr/sbin/netd|etc/init.d/S55netd
 radiod|usr/sbin/radiod|etc/init.d/S60radiod
 meshcored|usr/sbin/meshcored|etc/init.d/S65meshcored
+gatewayd|usr/sbin/gatewayd|etc/init.d/S70gatewayd
 doors-shell|usr/bin/doors-shell|etc/init.d/S90doors-shell"
 SUPERVISE=usr/bin/pos-supervise
 # The binaries that carry a build stamp. pos-wave and pos-spixfer link no
 # pocketlog and print no build; pos-supervise and pos-hwcheck are scripts.
-STAMPED="usr/bin/doors usr/bin/doors-shell usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored"
-PER_UNIT="etc/default/meshcored"
+STAMPED="usr/bin/doors usr/bin/doors-shell usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/sbin/gatewayd"
+PER_UNIT="etc/default/meshcored etc/default/gatewayd"
 
 if [ "${1:-}" = "--list" ]; then
     {

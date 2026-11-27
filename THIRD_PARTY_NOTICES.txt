@@ -15,11 +15,12 @@ model itself is the Doors project's, licensed under the Apache License 2.0
 (NOTICE); MODEL_LICENSES.md in the project repository says more.
 
 Not reproduced here: the other libraries Doors and LVGL load - cJSON,
-libgpiod, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libjpeg, libpng,
-FreeType and FFmpeg - are separate Buildroot packages whose licences and
-sources Buildroot's `make legal-info` collects. The C and C++ runtime
-libraries come with the external toolchain, which legal-info does not
-collect, so their licences are reproduced below with where their source is.
+libgpiod, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libxcrypt, libpcap,
+libjpeg, libpng, FreeType and FFmpeg - are separate Buildroot packages
+whose licences and sources Buildroot's `make legal-info` collects. The C
+and C++ runtime libraries come with the external toolchain, which
+legal-info does not collect, so their licences are reproduced below with
+where their source is.
 Of the vendor's nncase runtime linked into pos-vision, the generic runtime is
 Apache-2.0 (below); its K230 modules state no licence. See docs/LICENSING.md
 and docs/licensing/APACHE_2_READINESS.md in the project repository.

@@ -39,16 +39,19 @@ case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 # file missing here would otherwise be discovered after they were down. An
 # init script new to the overlay reaches the target tree only when Buildroot
 # finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
-for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-capture usr/bin/pos-browser usr/bin/pos-audio-effects usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-mp3 usr/bin/pos-video usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
+for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-capture usr/bin/pos-browser usr/bin/pos-audio-effects usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-mp3 usr/bin/pos-video usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/sbin/gatewayd usr/bin/doors-shell etc/doors-release etc/pocketos-release \
          usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt usr/share/doors/LICENSE usr/share/doors/NOTICE usr/share/doors/ui \
-         etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
+         etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S70gatewayd etc/init.d/S90doors-shell; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
 done
 # meshcored is part of every image since its third-party notices landed
 # (docs/LICENSING.md item 9), so it is required like the others: a tree without
 # it is an old or incomplete build, and deploying from one would leave the unit
 # with an init script and no service - or, on a unit that had it, a service
-# from another build.
+# from another build. gatewayd likewise since ADR-019 amendment 2: it travels
+# with every deploy, and a unit's /etc/default/gatewayd and its paired phones
+# ($POCKETOS_STATE_DIR/gatewayd) are never in the archive, so an upgrade keeps
+# the switch, the key and the pairings as they were.
 #
 # The whole tree is then checked the way verify_image.sh checks an image: every
 # service a binary and its init script together, and every binary the build its
@@ -66,7 +69,7 @@ bash "${REPO_DIR}/tools/release/check_rootfs.sh" "${T}" || {
 # apply_to_sdk.sh applied - what the next image would carry - and a tree still
 # holding an older one is refused rather than sent.
 OVL="${VENDOR_DIR}/k230_linux_sdk/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay"
-for s in S50sysd S55netd S60radiod S65meshcored S90doors-shell; do
+for s in S50sysd S55netd S60radiod S65meshcored S70gatewayd S90doors-shell; do
     cmp -s "${T}/etc/init.d/${s}" "${OVL}/etc/init.d/${s}" || {
         echo "deploy: ${T}/etc/init.d/${s} is not the applied overlay's ${OVL}/etc/init.d/${s};" >&2
         echo "        the target tree has not been finalised since apply_to_sdk.sh. Run a full" >&2
@@ -99,10 +102,10 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf "${WORK}/payload.tar" \
     usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-capture usr/bin/pos-browser usr/bin/pos-audio-effects usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-mp3 usr/bin/pos-video usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod \
-    usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
+    usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/sbin/gatewayd usr/bin/doors-shell etc/doors-release etc/pocketos-release \
     usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt usr/share/doors/LICENSE usr/share/doors/NOTICE usr/share/doors/ui \
     etc/init.d/S50sysd \
-    etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell
+    etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S70gatewayd etc/init.d/S90doors-shell
 
 # ---- the unit side runs without this connection ---------------------------
 #

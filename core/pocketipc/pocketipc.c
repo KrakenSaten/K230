@@ -438,7 +438,11 @@ cJSON *pocketipc_call_timeout(int fd, const char *method, cJSON *params, int tim
         int rc = -1;
 
         if (text) {
-            rc = write_frame_until(fd, text, strlen(text), deadline);
+            size_t len = strlen(text);
+
+            rc = write_frame_until(fd, text, len, deadline);
+            /* As pocketipc_send: a request can carry a secret. */
+            explicit_bzero(text, len);
             free(text);
         } else {
             errno = ENOMEM;

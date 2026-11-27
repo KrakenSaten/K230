@@ -9,7 +9,9 @@
  *   Power & Sleep   screen off, lock, lock at start; what sleep is not
  *   Time & Region   the time zone (and its list), whether the clock is set
  *   Network         Wi-Fi, its networks and the join sheet
- *   Companion       the paired phones; which of them is shown Vision
+ *   Companion       the gateway's switch, the device password, the paired
+ *                   phones and their permissions, pairing (and three pages
+ *                   one level further: a phone, Pair a phone, the password)
  *   System          the System app, Settings' page (DS §47)
  *   Developer       the debug overlay
  *
@@ -382,14 +384,18 @@ static void repaint_root(struct settings_app *a)
 
 void settings_go(struct settings_app *a, enum settings_page page)
 {
+    /* A refusal said on a Companion page outlives moving between them, not
+     * coming in from the list. */
+    if (page == PAGE_COMPANION && a->page == PAGE_ROOT) {
+        a->companion_error[0] = 0;
+    }
     a->page = page;
     a->tick = 0;
     if (page == PAGE_NETWORK) {
         settings_poll_status(a);
         settings_poll_networks(a);
     }
-    if (page == PAGE_COMPANION) {
-        a->companion_error[0] = '\0';
+    if (page == PAGE_COMPANION || page == PAGE_PHONE) {
         settings_poll_companion(a);
     }
     pocketos_shell_set_title(page == PAGE_ROOT ? NULL : settings_page_title(page));
@@ -406,6 +412,7 @@ void settings_repaint(struct settings_app *a)
         settings_network_repaint(a);
         break;
     case PAGE_SHEET:
+    case PAGE_PASSWORD:
         break;
     default:
         settings_page_repaint(a);
@@ -458,7 +465,7 @@ void settings_shape(struct settings_app *a)
     if (!a->body) {
         return;
     }
-    if (a->page == PAGE_SHEET) {
+    if (a->page == PAGE_SHEET || a->page == PAGE_PASSWORD) {
         settings_sheet_shape(a);
         return;
     }
@@ -497,7 +504,7 @@ static void layout(struct settings_app *a)
     a->full_w = w;
     a->half_w = (w - SETTINGS_PANEL_GAP) / 2;
     settings_shape(a);
-    if (a->page == PAGE_SHEET) {
+    if (a->page == PAGE_SHEET || a->page == PAGE_PASSWORD) {
         settings_sheet_after_layout(a);
     }
 }
@@ -545,6 +552,10 @@ void settings_rebuild(struct settings_app *a)
 
     if (a->page == PAGE_SHEET) {
         settings_sheet_build(a);
+        return;
+    }
+    if (a->page == PAGE_PASSWORD) {
+        settings_password_build(a);
         return;
     }
     /* The two columns: boxes as tall as what they hold, which the page
@@ -633,8 +644,12 @@ static void settings_tick(void *priv)
         }
         break;
     case PAGE_COMPANION:
+    case PAGE_PHONE:
+    case PAGE_PAIR:
         settings_companion_tick(a);
         break;
+    case PAGE_PASSWORD:
+        return; /* nothing to ask: the fields are the page */
     case PAGE_DISPLAY:
         settings_poll_brightness(a);
         settings_poll_rotation(a);
@@ -663,7 +678,9 @@ static void settings_destroy(void *priv)
     /* The frame outlives this by a moment, until the shell deletes the app's
      * objects; nothing may call back into a freed app in between. */
     lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
-    /* The shell deletes the objects after this; the passphrase goes first. */
+    /* The shell deletes the objects after this; the passphrase, the device
+     * password and an open pairing window go first. */
+    settings_companion_teardown(a);
     settings_wifi_teardown(a);
     free(a);
 }
@@ -686,6 +703,8 @@ static int settings_back(void *priv)
         settings_sheet_close(a);
     } else if (a->page == PAGE_ZONES) {
         settings_go(a, PAGE_TIME);
+    } else if (a->page == PAGE_PHONE || a->page == PAGE_PAIR || a->page == PAGE_PASSWORD) {
+        settings_companion_back(a);
     } else {
         settings_go(a, PAGE_ROOT);
     }

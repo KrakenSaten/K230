@@ -7,8 +7,10 @@
  *   settings_pages.c  every other page: Display, Appearance, Sound,
  *                     Keyboard, Power & Sleep, Time & Region (and its zone
  *                     list), Developer
- *   settings_companion.c  Companion: the paired phones and each one's
- *                     Vision switch (gatewayd's, over pocketipc)
+ *   settings_companion.c  Companion: the gateway's switch and the device
+ *                     password (sysd's companion.*), the paired phones,
+ *                     each one's permissions and removal, and pairing
+ *                     (gatewayd's local socket)
  *
  * The page on show is rebuilt whenever it changes and repainted in place
  * every tick otherwise, so a scroll position survives a poll (as before).
@@ -66,6 +68,9 @@ enum settings_page {
     PAGE_DEVELOPER,
     PAGE_ZONES, /* Time & Region > Time zone */
     PAGE_SHEET, /* Network > a network */
+    PAGE_PHONE, /* Companion > a paired phone */
+    PAGE_PAIR,  /* Companion > Pair a phone */
+    PAGE_PASSWORD, /* Companion > Device password */
     PAGE_COUNT
 };
 
@@ -138,12 +143,33 @@ struct settings_widgets {
     lv_obj_t *zone_chip[SETTINGS_ZONES_MAX];
     /* Developer */
     lv_obj_t *overlay_btn;
-    /* Companion */
+    /* Companion: the gateway, the device password, the phones */
+    lv_obj_t *gw_switch;
     lv_obj_t *gw_headline;
-    lv_obj_t *gw_note;
+    lv_obj_t *gw_detail;  /* this unit's key */
+    lv_obj_t *gw_hint;    /* what to do next, or why it is off */
+    lv_obj_t *gw_note;    /* the phone list's note when it has no rows */
     lv_obj_t *phone_error;
-    lv_obj_t *phone_switch[SV_MAX_PHONES];
     lv_obj_t *phone_detail[SV_MAX_PHONES];
+    lv_obj_t *phone_perms[SV_MAX_PHONES];
+    lv_obj_t *pw_headline;
+    lv_obj_t *pw_ssh;
+    lv_obj_t *pw_note;
+    lv_obj_t *pw_btn;
+    lv_obj_t *pair_btn;
+    lv_obj_t *pair_hint;
+    /* Companion > a phone, and the pairing sheet's permissions */
+    lv_obj_t *scope_btn[SV_SCOPES];
+    lv_obj_t *phone_state;
+    /* Companion > Pair a phone */
+    lv_obj_t *qr_border;
+    lv_obj_t *qr;
+    lv_obj_t *qr_error;
+    lv_obj_t *pair_countdown;
+    lv_obj_t *match_btn;
+    lv_obj_t *allow_btn;
+    /* Companion > Device password: the second field (the first is `field`) */
+    lv_obj_t *field2;
 };
 
 struct settings_app {
@@ -177,7 +203,12 @@ struct settings_app {
     int companion_tick;
     int companion_missed; /* polls in a row gatewayd did not answer, after it had */
     char phone_sig[SV_MAX_PHONES * (SV_PHONE_KEY + SV_PHONE_NAME + 2) + 16];
-    char companion_error[SV_TEXT];
+    char companion_error[2 * SV_TEXT];
+    int pw_sent;                     /* this app set the password: its result is said */
+    char phone_key[SV_PHONE_KEY];     /* Companion > a phone: whose page, by its whole key */
+    int remove_confirm;               /* that page asks "Remove?" */
+    struct sv_pair pair;              /* Companion > Pair a phone; the URI holds the token */
+    int qr_scale;                     /* the QR code's module size as last laid out, 0: not yet */
 };
 
 /* ---- settings_app.c: builders shared by the pages ---- */
@@ -227,13 +258,24 @@ void settings_sheet_after_layout(struct settings_app *a);
 void settings_wifi_teardown(struct settings_app *a);
 
 /* ---- settings_companion.c ---- */
-/* gatewayd's gateway.status and gateway.clients, into a->companion. */
+/* gatewayd's gateway.status and gateway.clients and sysd's
+ * companion.status, into a->companion. */
 void settings_poll_companion(struct settings_app *a);
+/* Companion, a phone's page and the pairing sheet (the cols layout). */
 void settings_companion_build(struct settings_app *a);
 void settings_companion_repaint(struct settings_app *a);
-/* The page's second: the list read again, the rows built again when it is
- * no longer the list they were built from. */
+/* The page's second, whichever of the three shows: read again, built again
+ * when what it was built from has changed. */
 void settings_companion_tick(struct settings_app *a);
+/* The pairing sheet's QR code sized to the shape in force. */
+void settings_companion_shape(struct settings_app *a);
+/* Back from a page under Companion: a pairing window this app opened is
+ * cancelled, typed passwords are wiped. */
+void settings_companion_back(struct settings_app *a);
+/* Device password: one card in two sides, as the Wi-Fi sheet. */
+void settings_password_build(struct settings_app *a);
+/* The app is going: the window cancelled, the token and the fields wiped. */
+void settings_companion_teardown(struct settings_app *a);
 
 /* ---- settings_pages.c ---- */
 const char *settings_page_title(enum settings_page page);

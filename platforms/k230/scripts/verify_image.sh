@@ -171,6 +171,50 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 bad "/etc/init.d/S90doors-shell is not on by default: a fresh card would leave the panel to nobody"
             fi
         fi
+        # SSH lets root in by key only (issue #172, ADR-019 amendment 2): the
+        # device password Companion needs must never also open root over SSH
+        # to the network. apply_to_sdk.sh [3c] patches the vendor file; this
+        # is the image's own word for it, judged by the rule sysd uses on a
+        # unit (tools/release/sshd_root_login.sh).
+        if rootfs_has /usr/sbin/sshd; then
+            rootfs_cat /etc/ssh/sshd_config > "${WORK}/sshd_config" 2>/dev/null
+            if ! rootfs_has /etc/ssh/sshd_config; then
+                bad "/usr/sbin/sshd is installed and /etc/ssh/sshd_config is not"
+            else
+                verdict=$(bash "${SCRIPT_DIR}/../../../tools/release/sshd_root_login.sh" "${WORK}/sshd_config")
+                case "${verdict}" in
+                hardened) note "ok  /etc/ssh/sshd_config: root signs in with a key only" ;;
+                open) bad "/etc/ssh/sshd_config lets root sign in with a password (PermitRootLogin); a device password would open root to the network" ;;
+                *) bad "/etc/ssh/sshd_config cannot be judged (an Include line?); root's SSH login is unknown" ;;
+                esac
+            fi
+        else
+            note "ok  /usr/sbin/sshd absent: no SSH server"
+        fi
+        # Nothing of one unit's Companion (ADR-019 amendment 2). gatewayd makes
+        # the unit's key and its list of phones at its first start, on the
+        # unit: shipped, every unit made from the image would be one and the
+        # same unit to a phone. Likewise sysd's record of an activation, and
+        # the vendor sshd_config it keeps when it hardens SSH.
+        for path in /var/lib/pocketos/gatewayd /var/lib/pocketos/companion /etc/ssh/sshd_config.doors-orig; do
+            if rootfs_has "${path}"; then
+                bad "${path}: one unit's Companion state must not be in the image"
+            else
+                note "ok  ${path} absent (made on the unit)"
+            fi
+        done
+        # Root's password is set on the unit (Settings > Companion), never in
+        # the image (platforms/k230/README.md): a hash shipped would be every
+        # unit's password, and the serial console's.
+        if rootfs_has /etc/shadow; then
+            root_pw="$(rootfs_cat /etc/shadow | awk -F: '$1 == "root" { print "[" $2 "]"; exit }')"
+            case "${root_pw}" in
+            "[]") note "ok  /etc/shadow: root has no password in the image" ;;
+            "[*]"|"[!]") note "ok  /etc/shadow: root's password is locked in the image" ;;
+            "") bad "/etc/shadow has no line for root" ;;
+            *) bad "/etc/shadow gives root a password in the image: every unit made from it would share it" ;;
+            esac
+        fi
         # Vision's detector (0.3.6 on, MODEL_LICENSES.md): the R0 beta, and
         # exactly the bytes tools/vision/r0-model.sha256 pins; neither the
         # Ultralytics YOLOv8n Vision used to open by default nor the upstream
@@ -230,6 +274,66 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
         elif ! bash "${CHECK_ROOTFS}" "${MINI}" | sed 's/^/  /'; then
             failed=$((failed + 1))
         fi
+        # The shared libraries every Doors binary asks for, read from its own
+        # dynamic section (readelf -d) and looked up where the image's loader
+        # looks: /lib and /usr/lib (on the K230 /lib64, /lib64/lp64d,
+        # /usr/lib64 and /usr/lib64/lp64d are links to those two). Companion
+        # (ADR-019 amendment 2) gave sysd libcrypt.so.2 and put gatewayd, with
+        # libssl.so.3, libcrypto.so.3 and libcjson.so.1, in the image. A binary
+        # whose library is missing does not start, and without sysd the unit
+        # has no power key, no Settings > System and no way to switch the
+        # gateway off. A link has to lead to a file that is there and not empty.
+        if ! command -v readelf >/dev/null 2>&1; then
+            bad "readelf (binutils) is needed to read which libraries the binaries ask for; refusing to call them startable unread"
+        else
+            rootfs_stat() { debugfs -R "stat \"$1\"" "${P2}" 2>/dev/null; }
+            lib_in_image() { # <name>: 0 when /lib/<name> or /usr/lib/<name> leads to a non-empty file
+                local dir path hops st dest sz
+                for dir in /lib /usr/lib; do
+                    path="${dir}/$1"; hops=0
+                    while [ "${hops}" -lt 8 ]; do
+                        st="$(rootfs_stat "${path}")"
+                        case "${st}" in
+                        *"Type: regular"*)
+                            sz="$(printf '%s\n' "${st}" | sed -n 's/.*[[:space:]]Size: \([0-9][0-9]*\).*/\1/p' | head -1)"
+                            [ "${sz:-0}" -gt 0 ] && return 0
+                            break ;;
+                        *"Type: symlink"*)
+                            dest="$(printf '%s\n' "${st}" | sed -n 's/^Fast link dest: "\(.*\)"$/\1/p' | head -1)"
+                            # A target too long for the inode is in a block.
+                            [ -n "${dest}" ] || dest="$(debugfs -R "cat \"${path}\"" "${P2}" 2>/dev/null | tr -d '\0')"
+                            [ -n "${dest}" ] || break
+                            case "${dest}" in
+                            /*) path="${dest}" ;;
+                            *) path="${path%/*}/${dest}" ;;
+                            esac
+                            hops=$((hops + 1)) ;;
+                        *) break ;;
+                        esac
+                    done
+                done
+                return 1
+            }
+            for path in $(cd "${MINI}" && find . -type f | sed 's#^\./##' | sort); do
+                [ "$(head -c 4 "${MINI}/${path}" | od -An -c | tr -d ' ')" = '177ELF' ] || continue
+                if ! dyn="$(readelf -d "${MINI}/${path}" 2>&1)"; then
+                    bad "/${path}: readelf cannot read it, so the libraries it needs are unknown"
+                    continue
+                fi
+                needed="$(printf '%s\n' "${dyn}" | sed -n 's/.*(NEEDED).*Shared library: \[\(.*\)\]$/\1/p')"
+                absent=""
+                for lib in ${needed}; do
+                    lib_in_image "${lib}" || absent="${absent} ${lib}"
+                done
+                if [ -n "${absent}" ]; then
+                    bad "/${path} needs${absent}, not in the image's /lib or /usr/lib: it would not start"
+                elif [ -n "${needed}" ]; then
+                    note "ok  /${path}: its $(printf '%s\n' ${needed} | wc -l | tr -d ' ') libraries are in the image"
+                else
+                    note "ok  /${path}: asks for no shared library"
+                fi
+            done
+        fi
         ROOTFS_CHECKED=1
     else
         echo "  note: partition 2 is not a readable ext filesystem; rootfs identity not checked"
@@ -246,7 +350,7 @@ if [ "${failed}" -ne 0 ]; then
 fi
 
 if [ "${ROOTFS_CHECKED}" = 1 ]; then
-    echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, the root partition carries exactly one shell service and the pinned R0 detector, and every service is whole and from one build."
+    echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, the root partition carries exactly one shell service and the pinned R0 detector, every service is whole and from one build, and every library the binaries ask for is in the image."
 else
     # Said, not implied: a pass that never read the root partition is a pass
     # about the boot partition only.

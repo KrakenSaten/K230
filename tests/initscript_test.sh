@@ -32,6 +32,7 @@ S50_SRC=$OVERLAY/etc/init.d/S50sysd
 S55_SRC=$OVERLAY/etc/init.d/S55netd
 S60_SRC=$OVERLAY/etc/init.d/S60radiod
 S65_SRC=$OVERLAY/etc/init.d/S65meshcored
+S70_SRC=$OVERLAY/etc/init.d/S70gatewayd
 S90_SRC=$OVERLAY/etc/init.d/S90doors-shell
 failed=0
 
@@ -176,13 +177,14 @@ rewrite "$REPO/$S50_SRC" "$ROOT/etc/init.d/S50sysd"
 rewrite "$REPO/$S55_SRC" "$ROOT/etc/init.d/S55netd"
 rewrite "$REPO/$S60_SRC" "$ROOT/etc/init.d/S60radiod"
 rewrite "$REPO/$S65_SRC" "$ROOT/etc/init.d/S65meshcored"
+rewrite "$REPO/$S70_SRC" "$ROOT/etc/init.d/S70gatewayd"
 rewrite "$REPO/$S90_SRC" "$ROOT/etc/init.d/S90doors-shell"
 
 # The rewrite must be complete: any surviving system path would make the test
 # lie about what it exercised (or touch the host).
 leaked=$(grep -nE '(^|[^A-Za-z0-9_/])/(etc|var|usr|run)/' "$ROOT/etc/init.d/S50sysd" \
                   "$ROOT/etc/init.d/S55netd" "$ROOT/etc/init.d/S60radiod" \
-                  "$ROOT/etc/init.d/S65meshcored" \
+                  "$ROOT/etc/init.d/S65meshcored" "$ROOT/etc/init.d/S70gatewayd" \
                   "$ROOT/etc/init.d/S90doors-shell" | grep -v "$ROOT" | grep -v '^\s*#')
 check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || echo 0)
 [ -n "$leaked" ] && echo "$leaked" | head -5
@@ -190,7 +192,7 @@ check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || 
 # A rule that matches inside an already-rewritten path produces "$ROOT/var$ROOT/run/..."
 doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S50sysd" "$ROOT/etc/init.d/S55netd" \
                "$ROOT/etc/init.d/S60radiod" \
-               "$ROOT/etc/init.d/S65meshcored" \
+               "$ROOT/etc/init.d/S65meshcored" "$ROOT/etc/init.d/S70gatewayd" \
                "$ROOT/etc/init.d/S90doors-shell")
 check "path rewrite did not nest one prefix inside another" $([ -z "$doubled" ] && echo 1 || echo 0)
 [ -n "$doubled" ] && echo "$doubled" | head -5
@@ -198,6 +200,7 @@ check "path rewrite did not nest one prefix inside another" $([ -z "$doubled" ] 
 S50="$ROOT/etc/init.d/S50sysd"
 S60="$ROOT/etc/init.d/S60radiod"
 S65="$ROOT/etc/init.d/S65meshcored"
+S70="$ROOT/etc/init.d/S70gatewayd"
 S90="$ROOT/etc/init.d/S90doors-shell"
 
 alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
@@ -573,6 +576,105 @@ out=$("$S65" stop 2>&1); rc=$?
 check "S65 stop after a crash loop is safe" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
 make_meshcored
 rm -f "$ROOT/etc/default/meshcored" "$ROOT/meshcored.env" "$ROOT/meshcored.args" "$ROOT/mcd.crashed"
+
+# ---- S70gatewayd (ADR-019 amendment 2) -------------------------------------
+#
+# In every image since amendment 2, disabled, and run by sysd for Settings >
+# Companion (companion.set_enabled writes GATEWAYD_ENABLE and runs this
+# script's start or stop). Its whole lifecycle through the real pos-supervise:
+# the default, the switch, a refused interface name, start, stop, restart.
+cat > "$ROOT/usr/sbin/gatewayd" <<EOD
+#!/bin/sh
+echo "\$*" > "$ROOT/gatewayd.args"
+trap 'exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/gatewayd"
+count_gw() { pgrep -af "$ROOT/usr/sbin/gatewayd" 2>/dev/null | grep -vc 'pos-supervise'; }
+wait_gw() { # <expected count> - up to 5 s
+    n=0
+    while [ "$(count_gw)" -ne "$1" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$(count_gw)" -eq "$1" ]
+}
+GW_SUP_PIDFILE="$ROOT/var/run/gatewayd-supervise.pid"
+rm -f "$ROOT/etc/default/gatewayd"
+
+out=$("$S70" start 2>&1); rc=$?
+check "S70 is disabled by default" $(contains "$out" "disabled (set GATEWAYD_ENABLE=1")
+check "S70 disabled start exits 0 and starts nothing" \
+      $([ "$rc" -eq 0 ] && [ ! -e "$ROOT/gatewayd.args" ] && [ ! -s "$GW_SUP_PIDFILE" ] && echo 1 || echo 0)
+printf 'GATEWAYD_ENABLE=1\nGATEWAYD_INTERFACE="wlan0; touch %s/pwned"\n' "$ROOT" > "$ROOT/etc/default/gatewayd"
+out=$("$S70" start 2>&1); rc=$?
+check "S70 refuses an interface that is not a name, and runs nothing" \
+      $([ "$rc" -ne 0 ] && [ "$(contains "$out" "GATEWAYD_INTERFACE is not an interface name")" = 1 ] &&
+        [ ! -e "$ROOT/pwned" ] && [ "$(count_gw)" -eq 0 ] && echo 1 || echo 0)
+# What sysd writes (sysd_radio_set: other lines kept, the switch last).
+printf '# Doors: written by sysd for Settings > Companion (ADR-019 amendment 2).\n# GATEWAYD_INTERFACE=wlan0\nGATEWAYD_ENABLE=1\n' \
+    > "$ROOT/etc/default/gatewayd"
+out=$("$S70" start 2>&1); rc=$?
+check "S70 enabled start reports OK and exits 0" $([ "$rc" -eq 0 ] && [ "$(contains "$out" "OK")" = 1 ] && echo 1 || echo 0)
+GWSUP=$(pidof_file "$GW_SUP_PIDFILE")
+check "S70 runs gatewayd under a supervisor" $(alive "$GWSUP" && wait_for "$ROOT/gatewayd.args" && echo 1 || echo 0)
+check "S70 runs exactly one gatewayd, on the one interface" \
+      $(wait_gw 1 && grep -qx -- '--interface wlan0' "$ROOT/gatewayd.args" && echo 1 || echo 0)
+check "S70 records the daemon pid where sysd reads whether it runs" \
+      $([ -s "$ROOT/run/pocketos/gatewayd.pid" ] && echo 1 || echo 0)
+check "S70 makes the state directory 0700 (it holds the unit's key)" \
+      $([ "$(stat -c %a "$ROOT/var/lib/pocketos/gatewayd" 2>/dev/null)" = "700" ] && echo 1 || echo 0)
+out=$("$S70" start 2>&1)
+check "S70 start is idempotent" $([ "$(contains "$out" "already running")" = 1 ] && wait_gw 1 && echo 1 || echo 0)
+out=$("$S70" stop 2>&1); rc=$?
+check "S70 stop ends the supervisor and gatewayd, and its pid files" \
+      $([ "$rc" -eq 0 ] && wait_gone "$GWSUP" && wait_gw 0 && [ ! -e "$GW_SUP_PIDFILE" ] &&
+        [ ! -e "$ROOT/run/pocketos/gatewayd.pid" ] && echo 1 || echo 0)
+out=$("$S70" stop 2>&1); rc=$?
+check "S70 stop when stopped is safe" $([ "$rc" -eq 0 ] && [ "$(contains "$out" "not running")" = 1 ] && echo 1 || echo 0)
+"$S70" restart >/dev/null 2>&1
+check "S70 restart leaves exactly one gatewayd" $(wait_gw 1 && echo 1 || echo 0)
+"$S70" stop >/dev/null 2>&1
+wait_gw 0
+printf 'GATEWAYD_ENABLE=0\n' > "$ROOT/etc/default/gatewayd"
+rm -f "$ROOT/gatewayd.args"
+out=$("$S70" start 2>&1)
+check "S70 switched off again starts nothing" \
+      $([ "$(contains "$out" "disabled")" = 1 ] && [ ! -e "$ROOT/gatewayd.args" ] && echo 1 || echo 0)
+# Fail-closed activation (ADR-019 amendment 2): sysd records an activation
+# before it writes GATEWAYD_ENABLE=1 and removes the record once gatewayd has
+# answered. A record of a boot that is over (a power cut half way) or of an
+# activation that is gone (sysd killed) starts nothing, whatever the switch
+# says - whichever of sysd and S70gatewayd runs first at the next boot.
+printf 'GATEWAYD_ENABLE=1\n' > "$ROOT/etc/default/gatewayd"
+mkdir -p "$ROOT/var/lib/pocketos/companion"
+this_boot=$(cat /proc/sys/kernel/random/boot_id)
+printf 'aaaaaaaa-an-earlier-boot %s\n' "$$" > "$ROOT/var/lib/pocketos/companion/activating"
+rm -f "$ROOT/gatewayd.args"
+out=$("$S70" start 2>&1); rc=$?
+check "S70 does not start after an activation interrupted by a reboot (the record names another boot)" \
+      $([ "$rc" -eq 0 ] && [ "$(contains "$out" "not started: turning it on was interrupted")" = 1 ] &&
+        sleep 0.3 && [ ! -e "$ROOT/gatewayd.args" ] && [ "$(count_gw)" -eq 0 ] && echo 1 || echo 0)
+# A pid that has exited, taken as the stale pid files above take theirs: a
+# background job killed before it has exec'd is still this shell and would
+# run the EXIT trap, removing $ROOT (it did, under load, twice).
+gone=$(sh -c 'echo $$')
+printf '%s %s\n' "$this_boot" "$gone" > "$ROOT/var/lib/pocketos/companion/activating"
+out=$("$S70" start 2>&1)
+check "nor after one whose activation is gone in this boot (sysd killed half way)" \
+      $([ "$(contains "$out" "not started: turning it on was interrupted")" = 1 ] && sleep 0.3 &&
+        [ ! -e "$ROOT/gatewayd.args" ] && echo 1 || echo 0)
+printf 'garbage\n' > "$ROOT/var/lib/pocketos/companion/activating"
+out=$("$S70" start 2>&1)
+check "nor after a record it cannot read" \
+      $([ "$(contains "$out" "not started")" = 1 ] && [ ! -e "$ROOT/gatewayd.args" ] && echo 1 || echo 0)
+# The activation itself: the record names this boot and a job that is running
+# (here this test's own shell, as sysd's job is S70gatewayd's parent).
+printf '%s %s\n' "$this_boot" "$$" > "$ROOT/var/lib/pocketos/companion/activating"
+out=$("$S70" start 2>&1)
+check "during sysd's own activation (this boot, its job alive) it starts" \
+      $([ "$(contains "$out" "OK")" = 1 ] && wait_for "$ROOT/gatewayd.args" && wait_gw 1 && echo 1 || echo 0)
+"$S70" stop >/dev/null 2>&1
+wait_gw 0
+rm -f "$ROOT/var/lib/pocketos/companion/activating" "$ROOT/gatewayd.args"
+rm -f "$ROOT/etc/default/gatewayd"
 
 # ---- S90doors-shell --------------------------------------------------
 
@@ -1177,7 +1279,7 @@ deploy_remote() { # <dir>: writes <dir>/remote.sh, and the archive it is given
 }
 deploy_root() { # <dir> <payload dir>: stop/start stubs that record, and a tar that unpacks <payload>
     mkdir -p "$1/etc/init.d" "$1/bin" "$1/run/pocketos" "$1/var/run"
-    for svc in S50sysd S55netd S60radiod S65meshcored S90doors-shell; do
+    for svc in S50sysd S55netd S60radiod S65meshcored S70gatewayd S90doors-shell; do
         printf '#!/bin/sh\necho "$1 %s" >> "%s/calls.log"\nexit 0\n' "$svc" "$1" > "$1/etc/init.d/$svc"
         chmod 0755 "$1/etc/init.d/$svc"
     done
@@ -1186,9 +1288,9 @@ deploy_root() { # <dir> <payload dir>: stop/start stubs that record, and a tar t
 }
 deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive carries it
     mkdir -p "$1/usr/sbin" "$1/usr/bin" "$1/etc/init.d"
-    for f in usr/sbin/sysd usr/sbin/netd usr/sbin/radiod usr/sbin/meshcored usr/bin/doors-shell \
+    for f in usr/sbin/sysd usr/sbin/netd usr/sbin/radiod usr/sbin/meshcored usr/sbin/gatewayd usr/bin/doors-shell \
              usr/bin/pos-supervise etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod \
-             etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
+             etc/init.d/S65meshcored etc/init.d/S70gatewayd etc/init.d/S90doors-shell; do
         printf '#!/bin/sh\necho "$1 %s" >> "%s/calls.log"\nexit 0\n' "${f##*/}" "$2" > "$1/$f"
         chmod 0755 "$1/$f"
     done
@@ -1245,6 +1347,14 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     check "meshcored stops before radiod on the way down" \
           $(awk '/^stop S65meshcored/{m=NR} /^stop S60radiod/{r=NR} END{exit !(m && r && m < r)}' \
             "$d/calls.log" && echo 1 || echo 0)
+    # Companion (ADR-019 amendment 2): gatewayd, a client of every other
+    # service, is the first to stop and starts after meshcored.
+    check "gatewayd stops first, before the shell" \
+          $(awk '/^stop S70gatewayd/{g=NR} /^stop S90doors-shell/{s=NR} END{exit !(g && s && g < s)}' \
+            "$d/calls.log" && echo 1 || echo 0)
+    check "and starts after meshcored, before the shell" \
+          $(awk '/^start S65meshcored/{m=NR} /^start S70gatewayd/{g=NR} /^start S90doors-shell/{s=NR} END{exit !(m && g && s && m < g && g < s)}' \
+            "$d/calls.log" && echo 1 || echo 0)
 
     # meshcored failing to start is reported, and does not keep the shell down.
     d=$ROOT/deploy-mcdfail; p=$ROOT/payload-mcdfail
@@ -1257,6 +1367,19 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     check "a meshcored that will not start fails the deploy" \
           $([ "$rc" -ne 0 ] && [ "$(contains "$out" "S65meshcored did not start")" = 1 ] && echo 1 || echo 0)
     check "but the shell is started all the same" \
+          $(grep -q '^start S90doors-shell' "$d/calls.log" && echo 1 || echo 0)
+
+    # Nor does a gatewayd that will not start.
+    d=$ROOT/deploy-gwfail; p=$ROOT/payload-gwfail
+    deploy_payload "$p" "$d"
+    printf '#!/bin/sh\necho "$1 S70gatewayd" >> "%s/calls.log"\n[ "$1" = start ] && exit 1\nexit 0\n' "$d" \
+        > "$p/etc/init.d/S70gatewayd"
+    chmod 0755 "$p/etc/init.d/S70gatewayd"
+    mkdir -p "$d"; deploy_remote "$d"; deploy_root "$d" "$p"
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/payload.tar" 2>&1 </dev/null); rc=$?
+    check "a gatewayd that will not start fails the deploy, and says so" \
+          $([ "$rc" -ne 0 ] && [ "$(contains "$out" "S70gatewayd did not start")" = 1 ] && echo 1 || echo 0)
+    check "but the shell is started all the same (gatewayd)" \
           $(grep -q '^start S90doors-shell' "$d/calls.log" && echo 1 || echo 0)
 }
 

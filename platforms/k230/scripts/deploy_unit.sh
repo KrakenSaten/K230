@@ -68,7 +68,9 @@ stop_unsupervised_meshcored() {
 		fi
 	done
 }
-for s in S90doors-shell S90pocketos-shell S65meshcored S60radiod S55netd S50sysd; do
+# gatewayd goes first: it is a client of every other service and the only one
+# a phone is talking to, so it is the first to leave and the last to return.
+for s in S70gatewayd S90doors-shell S90pocketos-shell S65meshcored S60radiod S55netd S50sysd; do
 	if [ "$s" = S60radiod ]; then stop_unsupervised_meshcored; fi
 	[ -x /etc/init.d/$s ] || continue
 	if ! /etc/init.d/$s stop; then
@@ -119,6 +121,7 @@ rm -f /run/pocketos/pocketos-shell.pid /run/pocketos/pocketos-shell.state \
 incomplete=0
 for f in /usr/sbin/sysd /etc/init.d/S50sysd /usr/sbin/netd /etc/init.d/S55netd \
          /usr/sbin/radiod /etc/init.d/S60radiod /usr/sbin/meshcored /etc/init.d/S65meshcored \
+         /usr/sbin/gatewayd /etc/init.d/S70gatewayd \
          /usr/bin/doors-shell /etc/init.d/S90doors-shell /usr/bin/pos-supervise; do
 	[ -x "$f" ] || { echo "deploy: $f is missing or not executable after unpacking" >&2; incomplete=1; }
 done
@@ -136,6 +139,13 @@ fi
 # starting: a unit left without a screen is worse than one left without mesh.
 mcd_failed=0
 /etc/init.d/S65meshcored start || mcd_failed=1
+# Disabled unless the unit was switched on in Settings > Companion (or by hand):
+# GATEWAYD_ENABLE in /etc/default/gatewayd, which this deploy never writes, so
+# the switch, the unit's key and its paired phones survive the upgrade
+# (ADR-019 amendment 2). Disabled, it prints "disabled" and returns. Like
+# meshcored, a failure is reported and does not keep the shell from starting.
+gw_failed=0
+/etc/init.d/S70gatewayd start || gw_failed=1
 /etc/init.d/S90doors-shell start
 # One shell, and the unit says so itself rather than the deploy assuming it.
 shells=0
@@ -152,6 +162,10 @@ if [ "$shells" -gt 1 ] || [ "$scripts" -gt 1 ] || [ "$states" -gt 1 ]; then
 fi
 if [ "$mcd_failed" -ne 0 ]; then
 	echo "deploy: S65meshcored did not start (above); every other service is up" >&2
+	exit 1
+fi
+if [ "$gw_failed" -ne 0 ]; then
+	echo "deploy: S70gatewayd did not start (above); every other service is up" >&2
 	exit 1
 fi
 doors version; pos version; doors radio info | head -5; doors call sysd system.info | head -4

@@ -709,6 +709,379 @@ int main(void)
         cJSON_Delete(cl);
     }
 
+
+    /* ---- Companion 2.0: sysd folded in, permissions, pairing, the password (ADR-019 amendment 2) ---- */
+    {
+#define VK1 "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+#define VK2 "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
+        struct sv_companion c;
+        struct sv_pair p;
+        cJSON *st;
+        cJSON *cl;
+        cJSON *sys;
+        cJSON *o;
+        char *out;
+        char text[256];
+        unsigned s;
+
+        /* A unit as it comes: off, no password, SSH open. */
+        sv_companion_apply(&c, NULL, NULL);
+        sys = json("{\"installed\":true,\"enabled\":false,\"running\":false,\"password_set\":false,\"ssh\":\"open\","
+                   "\"state\":\"idle\"}");
+        sv_companion_system(&c, sys);
+        check_str("c2: off", c.headline, "Off");
+        check("c2: the switch reads OFF and cannot be tapped without a password",
+              !c.switch_on && !c.switch_can && strcmp(c.switch_label, "OFF") == 0);
+        check_str("c2: and says what to do", c.hint, "Set a device password below to turn the gateway on.");
+        check("c2: as a warning", c.hint_tone == SV_TONE_WARN);
+        check_str("c2: no password", c.pw_headline, "Not set");
+        check_str("c2: set, not change", c.pw_button, "SET PASSWORD");
+        check("c2: the password can be set", c.pw_can);
+        check("c2: SSH open is a warning that says what setting a password does",
+              c.pw_ssh_tone == SV_TONE_WARN && strstr(c.pw_ssh, "changes that to a key only") != NULL);
+        check("c2: no pairing while off", !c.pair_can && strcmp(c.pair_hint, "Turn the gateway on to pair a phone.") == 0);
+        check_str("c2: no list while off, and why", c.note, "The paired phones are listed while the gateway is on.");
+        check_str("c2: the list's line", c.summary, "Off \xc2\xb7 no device password");
+        cJSON_Delete(sys);
+
+        /* Password set, still off: the switch can be tapped. */
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"idle\"}");
+        sv_companion_system(&c, sys);
+        check("c2: with a password the switch can be tapped", c.switch_can && !c.switch_on);
+        check_str("c2: change, not set", c.pw_button, "CHANGE PASSWORD");
+        check_str("c2: SSH hardened", c.pw_ssh, "SSH: root signs in with a key only.");
+        check_str("c2: off with a password", c.summary, "Off");
+        cJSON_Delete(sys);
+
+        /* Starting. */
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"running\","
+                   "\"action\":\"enable\"}");
+        sv_companion_system(&c, sys);
+        check("c2: STARTING, ON, not tappable while sysd works",
+              strcmp(c.switch_label, "STARTING") == 0 && c.switch_on && !c.switch_can && strcmp(c.headline, "Turning on...") == 0);
+        check("c2: nothing else can be started meanwhile", !c.pw_can && !c.pair_can);
+        cJSON_Delete(sys);
+        sys = json("{\"installed\":true,\"enabled\":true,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"running\","
+                   "\"action\":\"disable\"}");
+        sv_companion_system(&c, sys);
+        check("c2: STOPPING reads OFF", strcmp(c.switch_label, "STOPPING") == 0 && !c.switch_on);
+        cJSON_Delete(sys);
+
+        /* On, listening, two phones. */
+        st = json("{\"listening\":true,\"address\":\"192.168.1.20\",\"port\":47231,\"device_id\":\"" VK2 "\"}");
+        cl = json("{\"clients\":[{\"fingerprint\":\"" VK1 "\",\"name\":\"Flip8\",\"scopes\":[\"status\",\"mesh_read\","
+                  "\"mesh_send\",\"vision\"],\"connected\":true,\"paired_wall_s\":1795521600},"
+                  "{\"fingerprint\":\"" VK2 "\",\"name\":\"B\",\"scopes\":[],\"connected\":false}],\"max\":8}");
+        sv_companion_apply(&c, st, cl);
+        sys = json("{\"installed\":true,\"enabled\":true,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"done\","
+                   "\"action\":\"enable\"}");
+        sv_companion_system(&c, sys);
+        check_str("c2: on, listening, where", c.headline, "On \xc2\xb7 192.168.1.20:47231");
+        check_str("c2: this unit's key as phones show it", c.device_key, "C0C1 C2C3 C4C5 C6C7");
+        check("c2: pairing can start", c.pair_can && !c.pair_hint[0]);
+        check_str("c2: what a phone may do, in words", c.phones[0].perms, "Status, RIFT, sending, Vision");
+        check_str("c2: and one that may do nothing", c.phones[1].perms, "Nothing");
+        check("c2: the scopes as bits", c.phones[0].scopes == (SV_SCOPE_STATUS | SV_SCOPE_MESH_READ | SV_SCOPE_MESH_SEND |
+                                                               SV_SCOPE_VISION));
+        check_str("c2: its key in fours", c.phones[0].key_show, "0A1B 2C3D 4E5F 6071");
+        sv_phone_paired_text(&c.phones[0], text, sizeof(text));
+        check("c2: when it was paired, by the date", strncmp(text, "Paired ", 7) == 0 && strstr(text, "Nov 2026") != NULL);
+        sv_phone_paired_text(&c.phones[1], text, sizeof(text));
+        check_str("c2: and nothing when the clock was not set then", text, "");
+        check_str("c2: the list's line", c.summary, "On \xc2\xb7 2 phones paired \xc2\xb7 connected");
+        check("c2: a phone found by its whole key, and nothing by a prefix",
+              sv_companion_find(&c, VK1) == &c.phones[0] && sv_companion_find(&c, "0a1b2c3d") == NULL);
+        cJSON_Delete(st);
+        cJSON_Delete(sys);
+
+        /* Why it does not listen. */
+        {
+            static const struct {
+                const char *closed;
+                const char *headline;
+                const char *hint_part;
+            } cases[] = {
+                { "no_clients", "On: waiting for a phone to be paired", "Pair one below." },
+                { "password_required", "On, but closed: no device password", "Set a device password below" },
+                { "no_address", "On, but closed: no Wi-Fi address", "Settings > Network" },
+                { "public_address", "On, but closed: not a private network", "only listens on private networks" },
+                { "identity_fault", "Fault: its stored state cannot be used", "nothing was replaced" },
+                { "state_fault", "Fault: its stored state cannot be used", "list of phones is damaged" },
+                { "listen_failed", "On, but closed", "TCP 47231" },
+            };
+            size_t k;
+
+            sys = json("{\"installed\":true,\"enabled\":true,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"idle\"}");
+            for (k = 0; k < sizeof(cases) / sizeof(cases[0]); k++) {
+                char name[160];
+
+                snprintf(text, sizeof(text), "{\"listening\":false,\"closed\":\"%s\"}", cases[k].closed);
+                st = json(text);
+                sv_companion_apply(&c, st, cl);
+                sv_companion_system(&c, sys);
+                snprintf(name, sizeof(name), "c2: closed by %s: said, with what to do", cases[k].closed);
+                check(name, strcmp(c.headline, cases[k].headline) == 0 && strstr(c.hint, cases[k].hint_part) != NULL);
+                cJSON_Delete(st);
+            }
+            st = json("{\"listening\":false,\"closed\":\"identity_fault\"}");
+            sv_companion_apply(&c, st, cl);
+            sv_companion_system(&c, sys);
+            check("c2: an identity fault: no pairing, said", !c.pair_can && strstr(c.pair_hint, "stored state") != NULL);
+            cJSON_Delete(st);
+            cJSON_Delete(sys);
+        }
+        /* Switched on, gatewayd silent. */
+        sv_companion_apply(&c, NULL, NULL);
+        sys = json("{\"installed\":true,\"enabled\":true,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"idle\"}");
+        sv_companion_system(&c, sys);
+        check("c2: on but silent is an error with what to do",
+              c.tone == SV_TONE_ERROR && strcmp(c.headline, "On, but not answering") == 0 &&
+                  strstr(c.hint, "Turn it off and on again") != NULL && !c.pair_can);
+        check_str("c2: and the list says why it is empty", c.note, "The gateway does not answer, so its phones cannot be listed.");
+        cJSON_Delete(sys);
+        /* A failed change says so over the state. */
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"failed\","
+                   "\"action\":\"enable\",\"error\":\"no_answer\",\"message\":\"...\"}");
+        sv_companion_system(&c, sys);
+        check("c2: a failed start: what happened and what to do, as an error",
+              c.hint_tone == SV_TONE_ERROR && strstr(c.hint, "did not answer in time, so it is off again") != NULL);
+        cJSON_Delete(sys);
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"open\",\"state\":\"failed\","
+                   "\"action\":\"password\",\"error\":\"ssh_failed\"}");
+        sv_companion_system(&c, sys);
+        check("c2: a failed password: on the password panel, not the gateway's",
+              c.pw_note_tone == SV_TONE_ERROR && strstr(c.pw_note, "SSH could not be set") != NULL &&
+                  c.hint_tone != SV_TONE_ERROR);
+        cJSON_Delete(sys);
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"unknown\",\"state\":\"idle\"}");
+        sv_companion_system(&c, sys);
+        check("c2: SSH that cannot be judged stops the password here, said as an error",
+              !c.pw_can && c.pw_ssh_tone == SV_TONE_ERROR && strstr(c.pw_ssh, "includes other files") != NULL);
+        cJSON_Delete(sys);
+        sys = json("{\"installed\":false,\"enabled\":false,\"password_set\":false,\"ssh\":\"open\",\"state\":\"idle\"}");
+        sv_companion_system(&c, sys);
+        check("c2: not installed: said, and no switch",
+              !c.switch_can && strcmp(c.headline, "Not installed on this unit") == 0 && strcmp(c.summary, "Not installed") == 0);
+        cJSON_Delete(sys);
+        sv_companion_system(&c, NULL);
+        check("c2: no sysd: no switch, and the page says why",
+              !c.switch_can && !c.pw_can && strstr(c.hint, "system service does not answer") != NULL);
+        /* Eight phones: no ninth. */
+        {
+            char big[4096];
+            size_t o = (size_t)snprintf(big, sizeof(big), "{\"clients\":[");
+            int i;
+
+            for (i = 0; i < 8; i++) {
+                o += (size_t)snprintf(big + o, sizeof(big) - o, "%s{\"fingerprint\":\"%02x%.62s\",\"name\":\"p\",\"scopes\":[]}",
+                                      i ? "," : "", i, VK1);
+            }
+            snprintf(big + o, sizeof(big) - o, "],\"max\":8}");
+            st = json("{\"listening\":true}");
+            cJSON_Delete(cl);
+            cl = json(big);
+            sv_companion_apply(&c, st, cl);
+            sys = json("{\"installed\":true,\"enabled\":true,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"idle\"}");
+            sv_companion_system(&c, sys);
+            check("c2: eight phones: no ninth, and why", !c.pair_can && strstr(c.pair_hint, "Remove one first") != NULL);
+            cJSON_Delete(st);
+            cJSON_Delete(sys);
+        }
+        cJSON_Delete(cl);
+
+        /* The words for refusals. */
+        sv_companion_error_word("password_required: this unit has no device password; set one first", text, sizeof(text));
+        check_str("c2: sysd's word is the part before the colon", text, "password_required");
+        sv_companion_error_word("client list full", text, sizeof(text));
+        check_str("c2: gatewayd's whole message is its word", text, "client list full");
+        check("c2: every word sysd and gatewayd refuse with has a sentence",
+              strstr(sv_companion_error_text("not_installed", ""), "Update DOORS") &&
+                  strstr(sv_companion_error_text("ssh_failed", ""), "Restart the unit") &&
+                  strstr(sv_companion_error_text("start_failed", ""), "companion.log") &&
+                  strstr(sv_companion_error_text("stop_failed", ""), "restart it now") &&
+                  strstr(sv_companion_error_text("write_failed", ""), "Nothing was changed") &&
+                  strstr(sv_companion_error_text("password_layout", ""), "Nothing was changed") &&
+                  strstr(sv_companion_error_text("password_failed", ""), "unchanged") &&
+                  strstr(sv_companion_error_text("busy", ""), "Wait a moment") &&
+                  strstr(sv_companion_error_text("client list full", ""), "Remove one first") &&
+                  strstr(sv_companion_error_text("a pairing window is open", ""), "already showing"));
+        check_str("c2: an unknown word gives the fallback", sv_companion_error_text("no_such_word", "fallback"), "fallback");
+
+        /* An interrupted activation being undone, and its outcome (fail-closed
+         * activation, ADR-019 amendment 2). */
+        sv_companion_apply(&c, NULL, NULL);
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"running\","
+                   "\"action\":\"recover\"}");
+        sv_companion_system(&c, sys);
+        check("c2: undoing an interrupted activation reads STOPPING, OFF, not tappable",
+              strcmp(c.switch_label, "STOPPING") == 0 && !c.switch_on && !c.switch_can &&
+                  strcmp(c.headline, "Turning off...") == 0);
+        cJSON_Delete(sys);
+        sys = json("{\"installed\":true,\"enabled\":false,\"password_set\":true,\"ssh\":\"hardened\",\"state\":\"failed\","
+                   "\"action\":\"recover\",\"error\":\"activation_interrupted\",\"message\":\"...\"}");
+        sv_companion_system(&c, sys);
+        check("c2: and then: off, and why, as an error, with what to do",
+              c.switch_can && strcmp(c.switch_label, "OFF") == 0 && c.hint_tone == SV_TONE_ERROR &&
+                  strstr(c.hint, "did not finish") && strstr(c.hint, "switched off again") && strstr(c.hint, "Turn it on again"));
+        cJSON_Delete(sys);
+
+        /* ---- permissions ---- */
+        s = sv_scope_toggle(SV_SCOPES_DEFAULT, SV_SCOPE_MESH_READ);
+        check("c2: reading off takes sending with it", s == SV_SCOPE_STATUS);
+        s = sv_scope_toggle(SV_SCOPE_STATUS, SV_SCOPE_MESH_SEND);
+        check("c2: sending on brings reading", s == (SV_SCOPE_STATUS | SV_SCOPE_MESH_READ | SV_SCOPE_MESH_SEND));
+        s = sv_scope_toggle(0, SV_SCOPE_CAPTURE_CONTROL);
+        check("c2: PacketShark control on brings its figures", s == (SV_SCOPE_CAPTURE_VIEW | SV_SCOPE_CAPTURE_CONTROL));
+        s = sv_scope_toggle(s, SV_SCOPE_CAPTURE_VIEW);
+        check("c2: figures off takes control with them", s == 0);
+        check("c2: control off leaves the figures",
+              sv_scope_toggle(SV_SCOPE_CAPTURE_VIEW | SV_SCOPE_CAPTURE_CONTROL, SV_SCOPE_CAPTURE_CONTROL) == SV_SCOPE_CAPTURE_VIEW);
+        check("c2: Vision needs nothing and takes nothing", sv_scope_toggle(0, SV_SCOPE_VISION) == SV_SCOPE_VISION &&
+                                                                sv_scope_toggle(SV_SCOPES_DEFAULT | SV_SCOPE_VISION, SV_SCOPE_VISION) ==
+                                                                    SV_SCOPES_DEFAULT);
+        o = sv_scopes_json(SV_SCOPE_VISION | SV_SCOPE_STATUS | SV_SCOPE_CAPTURE_VIEW);
+        out = cJSON_PrintUnformatted(o);
+        check_str("c2: scopes as gatewayd names them, in its order", out ? out : "", "[\"status\",\"capture_view\",\"vision\"]");
+        check("c2: and read back", sv_scopes_from_json(o) == (SV_SCOPE_VISION | SV_SCOPE_STATUS | SV_SCOPE_CAPTURE_VIEW));
+        free(out);
+        cJSON_Delete(o);
+        o = json("[\"status\",\"root\",7,\"vision\"]");
+        check("c2: an unknown or a non-string scope is left out", sv_scopes_from_json(o) == (SV_SCOPE_STATUS | SV_SCOPE_VISION));
+        cJSON_Delete(o);
+        {
+            struct sv_phone ph;
+
+            memset(&ph, 0, sizeof(ph));
+            snprintf(ph.key, sizeof(ph.key), "%s", VK1);
+            o = sv_companion_set_scopes_params(&ph, SV_SCOPE_STATUS | SV_SCOPE_MESH_READ);
+            out = cJSON_PrintUnformatted(o);
+            check_str("c2: set_scopes names the whole key and the whole set", out ? out : "",
+                      "{\"client\":\"" VK1 "\",\"scopes\":[\"status\",\"mesh_read\"]}");
+            free(out);
+            cJSON_Delete(o);
+            o = sv_companion_revoke_params(&ph);
+            out = cJSON_PrintUnformatted(o);
+            check_str("c2: revoke names the whole key and nothing else", out ? out : "", "{\"client\":\"" VK1 "\"}");
+            free(out);
+            cJSON_Delete(o);
+            snprintf(ph.key, sizeof(ph.key), "0a1b");
+            check("c2: nothing is sent for a phone without a whole key",
+                  sv_companion_set_scopes_params(&ph, 1) == NULL && sv_companion_revoke_params(&ph) == NULL);
+        }
+
+        /* ---- pairing ---- */
+        o = json("{\"uri\":\"doors-pair:1?h=192.168.1.20&p=47231&fp=AAAA&t=SECRETTOKEN&n=Doors\",\"expires_in_ms\":120000}");
+        sv_pair_begin(&p, o, "");
+        cJSON_Delete(o);
+        check("c2: a window: the code, two minutes, the default permissions",
+              p.phase == SV_PAIR_SHOWING && strstr(p.uri, "SECRETTOKEN") && strcmp(p.countdown, "Closes in 2:00") == 0 &&
+                  p.scopes == SV_SCOPES_DEFAULT && sv_pair_open(&p));
+        check("c2: no decision can be sent with no phone waiting", sv_pair_decide_params(&p, 1) == NULL);
+        st = json("{\"pairing\":true,\"pair\":{\"state\":\"candidate\",\"left_ms\":61000}}");
+        sv_pair_poll(&p, st);
+        cJSON_Delete(st);
+        check("c2: a phone at the door, and the time from gatewayd",
+              p.phase == SV_PAIR_CONNECTING && strcmp(p.countdown, "Closes in 1:01") == 0);
+        sv_pair_poll(&p, NULL);
+        check("c2: a missed poll changes nothing", p.phase == SV_PAIR_CONNECTING);
+        st = json("{\"pairing\":true,\"pair\":{\"state\":\"waiting\",\"left_ms\":50000,\"candidate\":{\"name\":\"Pixel\\u0007 8\","
+                  "\"fingerprint\":\"" VK2 "\"}}}");
+        sv_pair_poll(&p, st);
+        check("c2: the waiting phone by its name (made safe) and its key",
+              p.phase == SV_PAIR_DECIDE && strcmp(p.cand_name, "Pixel? 8") == 0 && strcmp(p.cand_key_show, "C0C1 C2C3 C4C5 C6C7") == 0);
+        check("c2: ALLOW waits for the keys to be compared", !sv_pair_can_allow(&p) && sv_pair_decide_params(&p, 1) == NULL);
+        o = sv_pair_decide_params(&p, 0);
+        out = cJSON_PrintUnformatted(o);
+        check_str("c2: REFUSE needs no comparison, and carries no scopes, only the key it is about", out ? out : "",
+                  "{\"allow\":false,\"fingerprint\":\"" VK2 "\"}");
+        free(out);
+        cJSON_Delete(o);
+        p.keys_match = 1;
+        p.scopes = sv_scope_toggle(p.scopes, SV_SCOPE_MESH_READ);
+        o = sv_pair_decide_params(&p, 1);
+        out = cJSON_PrintUnformatted(o);
+        check_str("c2: ALLOW carries the confirmed key and exactly the chosen scopes", out ? out : "",
+                  "{\"allow\":true,\"fingerprint\":\"" VK2 "\",\"scopes\":[\"status\"]}");
+        free(out);
+        cJSON_Delete(o);
+        sv_pair_poll(&p, st);
+        check("c2: the same phone polled again keeps the comparison", p.keys_match);
+        cJSON_Delete(st);
+        st = json("{\"pairing\":true,\"pair\":{\"state\":\"waiting\",\"left_ms\":40000,\"candidate\":{\"name\":\"Other\","
+                  "\"fingerprint\":\"" VK1 "\"}}}");
+        sv_pair_poll(&p, st);
+        cJSON_Delete(st);
+        check("c2: another phone's key undoes the comparison", !p.keys_match && !sv_pair_can_allow(&p) &&
+                                                                 strcmp(p.cand_key_show, "0A1B 2C3D 4E5F 6071") == 0);
+        p.keys_match = 1;
+        o = json("{\"paired\":true}");
+        sv_pair_decided(&p, 1, o, "");
+        cJSON_Delete(o);
+        check("c2: paired: said, and the token wiped",
+              p.phase == SV_PAIR_DONE && strstr(p.text, "Other can now connect") && !p.uri[0] && !sv_pair_open(&p));
+        /* Every way a window ends without a pairing. */
+        {
+            static const struct {
+                const char *closed;
+                const char *headline;
+            } ends[] = {
+                { "expired", "The code expired" },
+                { "failed", "Closed after wrong codes" },
+                { "candidate_left", "The phone left" },
+                { "cancelled", "Pairing closed" },
+            };
+            size_t k;
+
+            for (k = 0; k < sizeof(ends) / sizeof(ends[0]); k++) {
+                char name[120];
+
+                o = json("{\"uri\":\"doors-pair:1?t=SECRET\",\"expires_in_ms\":120000}");
+                sv_pair_begin(&p, o, "");
+                cJSON_Delete(o);
+                snprintf(text, sizeof(text), "{\"pairing\":false,\"pair_closed\":\"%s\"}", ends[k].closed);
+                st = json(text);
+                sv_pair_poll(&p, st);
+                cJSON_Delete(st);
+                snprintf(name, sizeof(name), "c2: closed by %s: said, and the token wiped", ends[k].closed);
+                check(name, p.phase == SV_PAIR_CLOSED && strcmp(p.headline, ends[k].headline) == 0 && !p.uri[0]);
+            }
+        }
+        sv_pair_begin(&p, NULL, "client list full");
+        check("c2: a window refused: why, in words", p.phase == SV_PAIR_ERROR && strstr(p.text, "Remove one first"));
+        sv_pair_begin(&p, NULL, "");
+        check("c2: no answer: said", p.phase == SV_PAIR_ERROR && strstr(p.text, "did not answer"));
+        o = json("{\"uri\":\"https://example.com/\",\"expires_in_ms\":1}");
+        sv_pair_begin(&p, o, "");
+        cJSON_Delete(o);
+        check("c2: anything but a doors-pair URI is never drawn", p.phase == SV_PAIR_ERROR && !p.uri[0]);
+        o = json("{\"uri\":\"doors-pair:1?t=SECRET\"}");
+        sv_pair_begin(&p, o, "");
+        cJSON_Delete(o);
+        p.phase = SV_PAIR_DECIDE;
+        sv_pair_decided(&p, 1, NULL, "could not pair");
+        check("c2: a pairing gatewayd could not store: said, nothing stored", p.phase == SV_PAIR_ERROR &&
+                                                                               strstr(p.text, "Nothing was stored") && !p.uri[0]);
+
+        /* ---- the device password ---- */
+        check("c2: no password", sv_device_password_check("", "", text, sizeof(text)) < 0);
+        check_str("c2: too short", sv_device_password_check("1234567", "1234567", text, sizeof(text)) < 0 ? text : "",
+                  "The password needs at least 8 characters.");
+        check("c2: 64 is the most", sv_device_password_check("0123456789012345678901234567890123456789012345678901234567890123",
+                                                             "0123456789012345678901234567890123456789012345678901234567890123",
+                                                             text, sizeof(text)) == 0);
+        check("c2: a letter outside ASCII is refused", sv_device_password_check("abcdefg\xc3\xa9", "abcdefg\xc3\xa9", text,
+                                                                                sizeof(text)) < 0);
+        check_str("c2: two different ones", sv_device_password_check("abcdefgh", "abcdefgH", text, sizeof(text)) < 0 ? text : "",
+                  "The two passwords are not the same.");
+        check("c2: the same twice is taken", sv_device_password_check("abc defgh", "abc defgh", text, sizeof(text)) == 0);
+        o = sv_device_password_params("abc defgh");
+        out = cJSON_PrintUnformatted(o);
+        check_str("c2: one member, the password", out ? out : "", "{\"password\":\"abc defgh\"}");
+        free(out);
+        cJSON_Delete(o);
+        check("c2: no params for no password", sv_device_password_params("") == NULL);
+    }
+
     printf("settings_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

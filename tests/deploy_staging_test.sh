@@ -152,6 +152,16 @@ check "every file travels owned by root" \
     "$(awk '{print $2}' "$TMP/list.txt" | grep -qv '^0/0$' && echo 0 || echo 1)"
 check "no per-unit settings file travels" \
     "$(grep -q ' etc/default/' "$TMP/list.txt" && echo 0 || echo 1)"
+# Companion (ADR-019 amendment 2): the gateway travels with every deploy, and
+# nothing a unit decided or holds for it does - not its switch
+# (/etc/default/gatewayd, above), not its key or paired phones
+# (/var/lib/pocketos/gatewayd), not the device password or the SSH
+# configuration sysd hardened. An upgrade keeps all of them.
+check "the gateway travels: gatewayd and S70gatewayd, both executable" \
+    "$(grep " usr/sbin/gatewayd\$" "$TMP/list.txt" | grep -q '^-rwxr-xr-x' &&
+       grep " etc/init.d/S70gatewayd\$" "$TMP/list.txt" | grep -q '^-rwxr-xr-x' && echo 1 || echo 0)"
+check "no state, password or SSH configuration travels" \
+    "$(grep -qE ' (var/|etc/shadow|etc/passwd|etc/ssh/)' "$TMP/list.txt" && echo 0 || echo 1)"
 
 # ---- the hand-over: the unit's deploy does not need this connection ----------
 check "the unit side is deploy_unit.sh as committed, checked on the unit" \

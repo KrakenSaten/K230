@@ -19,6 +19,7 @@ check below is what stands in for it (ssl has no hook for a custom verifier).
 Copyright (c) 2026 Doors authors.
 SPDX-License-Identifier: Apache-2.0
 """
+import json
 import os
 import sys
 
@@ -98,6 +99,9 @@ try:
         c.close()
     ev = ctl.wait_event("gateway.pairing")
     check("three wrong tokens close the window", ev is not None and ev["data"]["state"] == "closed")
+    st = ctl.call("gateway.status")["result"]
+    check("the status says why the window closed, and holds no window",
+          st.get("pair_closed") == "failed" and "pair" not in st and st["pairing"] is False)
     time.sleep(0.3)
     check("and the port with it", not port_open())
     check("nobody was paired", ctl.call("gateway.clients")["result"]["clients"] == [])
@@ -106,6 +110,17 @@ try:
     # Candidates that connect and leave without a token do not use the window
     # up: a stranger on the network cannot close it for the owner.
     r = ctl.call("gateway.pair_begin")
+    st = ctl.call("gateway.status")["result"]
+    check("an open window is in the status with its time, nobody at the door, and no reason yet",
+          st["pair"]["state"] == "open" and 100000 < st["pair"]["left_ms"] <= 120000 and
+          "candidate" not in st["pair"] and "pair_closed" not in st)
+    c = Client(STRANGER, pin=unit_fp)
+    c.hello()
+    st = ctl.call("gateway.status")["result"]
+    check("a phone at the door without a token is a candidate with no name or key shown",
+          st["pair"]["state"] == "candidate" and "candidate" not in st["pair"])
+    c.close()
+    time.sleep(0.2)
     for _ in range(5):
         c = Client(STRANGER, pin=unit_fp)
         c.hello()
@@ -142,6 +157,7 @@ try:
     ctl.call("gateway.pair_cancel")
     check("cancel drops the candidate", c.closed())
     c.close()
+    check("a cancelled window says so in the status", ctl.call("gateway.status")["result"].get("pair_closed") == "cancelled")
     time.sleep(0.3)
     check("cancel closes the port", not port_open())
     # A right token, then the candidate leaves before the decision.
@@ -166,11 +182,25 @@ try:
     ev = ctl.wait_event("gateway.candidate")
     check("the candidate event carries the phone's own fingerprint and name",
           ev is not None and ev["data"] == {"fingerprint": A.fp_hex, "name": "Phone A"})
+    st = ctl.call("gateway.status")["result"]
+    check("the status names the waiting candidate as the event does, for a page that only polls",
+          st["pair"]["state"] == "waiting" and st["pair"]["candidate"] == {"fingerprint": A.fp_hex, "name": "Phone A"})
+    check("and never carries the token", token not in json.dumps(st))
     check("an invalid scope set is refused locally and decides nothing",
           err_code(ctl.call("gateway.pair_decide", {"allow": True, "scopes": ["mesh_send"]})) == 2)
-    d = ctl.call("gateway.pair_decide", {"allow": True, "scopes": ["status"]})
+    # Bound to the key the person compared (ADR-019 amendment 2): another key
+    # decides nothing, and the phone that is there still waits.
+    check("a decision for another key is refused and decides nothing",
+          err_code(ctl.call("gateway.pair_decide", {"allow": True, "fingerprint": B.fp_hex})) == 3 and
+          ctl.call("gateway.status")["result"]["pair"]["state"] == "waiting")
+    check("a fingerprint that is not one is refused",
+          err_code(ctl.call("gateway.pair_decide", {"allow": True, "fingerprint": "abc"})) == 2)
+    d = ctl.call("gateway.pair_decide", {"allow": True, "fingerprint": A.fp_hex.upper(), "scopes": ["status"]})
     reply = c.read(rid)
     check("approval pairs the candidate", d["result"]["paired"] is True and reply["result"] == {"paired": True, "scopes": ["status"]})
+    st = ctl.call("gateway.status")["result"]
+    check("after the decision the window is gone and the status says paired",
+          "pair" not in st and st.get("pair_closed") == "paired")
     check("the pairing connection ends", c.closed())
     c.close()
     lst = ctl.call("gateway.clients")["result"]["clients"]

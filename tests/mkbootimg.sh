@@ -93,6 +93,7 @@ mkbootimg_rootfs_doors() {
     printf '0.0.10\nBUILD_ID=%s\n' "${id}" > "${d}/etc/doors-release"
     for entry in sysd:usr/sbin/sysd:S50sysd netd:usr/sbin/netd:S55netd \
                  radiod:usr/sbin/radiod:S60radiod meshcored:usr/sbin/meshcored:S65meshcored \
+                 gatewayd:usr/sbin/gatewayd:S70gatewayd \
                  doors-shell:usr/bin/doors-shell:S90doors-shell; do
         name="${entry%%:*}"; bin="${entry#*:}"; bin="${bin%%:*}"; init="${entry##*:}"
         mkbootimg_stamped "${d}/${bin}" "${id}"
@@ -117,10 +118,58 @@ mkbootimg_r0_pin() {
     printf '%s  det-r0-traffic6-yolox-tiny-416.kmodel\n' "$(printf 'R0 stand-in\n' | sha256sum | cut -d' ' -f1)" > "$1"
 }
 
-# mkbootimg_stamped <file> <build> - a stand-in binary carrying a build stamp.
+# mkbootimg_stamped <file> <build> - a stand-in binary carrying a build stamp:
+# a 64-bit RISC-V ELF header with nothing after it but the stamp, so that
+# readelf reads it (verify_image.sh asks it for the libraries) and finds no
+# dynamic section, as for a static binary.
 mkbootimg_stamped() {
-    printf '\177ELF stand-in\000DOORS_BUILD_ID=%s\000' "$2" > "$1"
+    { _mkbootimg_ehdr 0; printf 'DOORS_BUILD_ID=%s\000' "$2"; } > "$1"
     chmod 0755 "$1"
+}
+
+# mkbootimg_dynamic <file> <build> <library>... - the same, asking for the
+# libraries named: a PT_LOAD over the whole file and a PT_DYNAMIC whose NEEDED
+# entries name them, which is all readelf -d needs. No section headers.
+mkbootimg_dynamic() {
+    local f="$1" id="$2" n i strsz=1 dyn_off dyn_n total
+    local strtab_off=176 offs=()
+    shift 2
+    for n in "$@"; do offs+=("${strsz}"); strsz=$((strsz + ${#n} + 1)); done
+    dyn_off=$(( (strtab_off + strsz + 7) / 8 * 8 ))
+    dyn_n=$(( $# + 3 ))
+    total=$(( dyn_off + dyn_n * 16 ))
+    {
+        _mkbootimg_ehdr 2
+        _mkbootimg_phdr 1 0 "${total}"
+        _mkbootimg_phdr 2 "${dyn_off}" $(( dyn_n * 16 ))
+        printf '\000'
+        for n in "$@"; do printf '%s\000' "${n}"; done
+        head -c $(( dyn_off - strtab_off - strsz )) /dev/zero
+        i=0
+        for n in "$@"; do _mkbootimg_le 8 1; _mkbootimg_le 8 "${offs[$i]}"; i=$((i + 1)); done
+        _mkbootimg_le 8 5; _mkbootimg_le 8 "${strtab_off}"     # DT_STRTAB
+        _mkbootimg_le 8 10; _mkbootimg_le 8 "${strsz}"         # DT_STRSZ
+        _mkbootimg_le 8 0; _mkbootimg_le 8 0                   # DT_NULL
+        printf 'DOORS_BUILD_ID=%s\000' "${id}"
+    } > "${f}"
+    chmod 0755 "${f}"
+}
+
+_mkbootimg_le() { # <bytes> <value>: little-endian
+    local i out=""
+    for ((i = 0; i < $1; i++)); do out+="$(printf '\\x%02x' $(( ($2 >> (8 * i)) & 255 )))"; done
+    printf "${out}"
+}
+_mkbootimg_ehdr() { # <program headers>: ELF64, little-endian, ET_DYN, EM_RISCV
+    printf '\177ELF\002\001\001\000\000\000\000\000\000\000\000\000'
+    _mkbootimg_le 2 3; _mkbootimg_le 2 243; _mkbootimg_le 4 1; _mkbootimg_le 8 0
+    _mkbootimg_le 8 $(( $1 > 0 ? 64 : 0 )); _mkbootimg_le 8 0; _mkbootimg_le 4 0
+    _mkbootimg_le 2 64; _mkbootimg_le 2 56; _mkbootimg_le 2 "$1"; _mkbootimg_le 2 64
+    _mkbootimg_le 2 0; _mkbootimg_le 2 0
+}
+_mkbootimg_phdr() { # <type> <offset = address> <size>
+    _mkbootimg_le 4 "$1"; _mkbootimg_le 4 4; _mkbootimg_le 8 "$2"; _mkbootimg_le 8 "$2"
+    _mkbootimg_le 8 "$2"; _mkbootimg_le 8 "$3"; _mkbootimg_le 8 "$3"; _mkbootimg_le 8 8
 }
 
 # mkbootimg_complete <out.img> - the common case: a valid, complete image.
