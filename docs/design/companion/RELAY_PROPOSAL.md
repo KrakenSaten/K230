@@ -289,7 +289,9 @@ measurement that LAN service stays available.
    usual scope switches, and "Through the relay", **shown off**.
 5. **Approved with "Through the relay" on:**
    1. **The pairing is committed** by the two-file rule (§6.1): `relay.v1`
-      with the new grant and the digests, then `paired.v1`.
+      unsealed with the new grant, the digests and `paired.v1`'s identity,
+      then `paired.v1`, then `relay.v1` sealed with `paired.v1`'s new
+      identity. The grant is durable only once the seal is written.
    2. gatewayd sends the full admission snapshot as `admit {.., n}` on the
       current control generation, and waits at most 3 s for `admitted {n}`
       on that same generation.
@@ -356,17 +358,19 @@ revocation followed by re-pairing never revives an old one. Every doubt
 costs the owner a tap per phone to give `remote` again, never a grant that
 should be gone. The residual: a rewrite that keeps the inode, the size, the
 bytes and both times to the nanosecond, which needs root on the unit
-(threat model R-T45).
+(threat model R-T45). On a file system with coarse timestamps and a unit
+without a real-time clock, an inode reused within the same timestamp tick
+is conceivable; it still needs identical bytes and size (ASSUMED residual).
 
 **The order of each operation:**
 
 | Operation | Order |
 | --- | --- |
-| Pair, `remote` on | `relay.v1` (grants before and after, with the grant; digests); `paired.v1`; snapshot `admit`; wait up to 3 s; answer `admitted` or `pending` |
-| Pair, `remote` off (also a known key pairing again) | `relay.v1` (grants before and after, without one for the key; digests); `paired.v1`; answer without `remote` |
-| Give `remote` | `relay.v1`; snapshot `admit` |
-| Take `remote` | `relay.v1`; close the phone's relay session; snapshot `admit` |
-| Revoke | `relay.v1` (grants before and after, the phone's dropped; digests); `paired.v1`; close every session of the phone, LAN and relay; acknowledge the person; snapshot `admit` |
+| Pair, `remote` on | `relay.v1` unsealed (grants before and after, with the grant; digests; identity before); `paired.v1`; `relay.v1` sealed; snapshot `admit`; wait up to 3 s; answer `admitted` or `pending` |
+| Pair, `remote` off (also a known key pairing again) | `relay.v1` unsealed (grants before and after, without one for the key; digests; identity before); `paired.v1`; `relay.v1` sealed; answer without `remote` |
+| Give `remote` | `relay.v1` (one sealed write); snapshot `admit` |
+| Take `remote` | `relay.v1` (one sealed write); close the phone's relay session; snapshot `admit` |
+| Revoke | `relay.v1` unsealed (grants before and after, the phone's dropped; digests; identity before); `paired.v1`; `relay.v1` sealed; close every session of the phone, LAN and relay; acknowledge the person; snapshot `admit` |
 
 **The snapshot** is the set of paired keys with a grant, at most 8, sent as
 a whole. After every `registered`, gatewayd sends it before anything else,

@@ -166,7 +166,7 @@ In every case **a grant counts only for a key present in `paired.v1`**. So revoc
 The inode is one field of several, not the proof; a doubt always costs a grant, never revives one.
 
 **Approval with "Through the relay" on:**
-1. Write `relay.v1` (the grant and the digests), then `paired.v1`. **Pairing is now committed.**
+1. Write `relay.v1` unsealed (the grant, the digests, `paired.v1`'s identity before), then `paired.v1`, then `relay.v1` sealed (F5). **Pairing is now committed**; the grant counts once the seal is written.
 2. Send the **full admission snapshot**: the paired keys with a grant, at most 8. Send it as `admit` with `n` + 1 on the current control generation.
 3. Wait at most 3 s for `admitted` with that `n` on the same generation. An acknowledgement for another generation or another `n` is ignored.
 4. Answer the phone with `{paired: true, scopes: [.., "remote"], relay: "admitted" | "pending"}`.
@@ -186,15 +186,16 @@ The inode is one field of several, not the proof; a doubt always costs a grant, 
 - it retries through the relay twice within 10 s, then with PAIRING.md's back-off.
 
 **Taking `remote` away:**
-1. Write `relay.v1`.
+1. Write `relay.v1` (one sealed write).
 2. gatewayd closes that phone's relay session itself.
 3. Send the snapshot. Its `admitted` is information only.
 
 **Revoking a phone:**
-1. Write `relay.v1`, which drops the grant.
+1. Write `relay.v1` unsealed, which drops the grant.
 2. Write `paired.v1`.
-3. Close every session of that phone, LAN and relay.
-4. Send the snapshot.
+3. Write `relay.v1` sealed.
+4. Close every session of that phone, LAN and relay.
+5. Send the snapshot.
 
 **Tests in #194:** the fake unit implements this, and a test drives it through the real pairing flow against a relay that withholds `admitted`. That is §11, T9.
 
@@ -508,5 +509,17 @@ The owner approved the per-unit invitation limit of one a second (F2), asked for
 
 **Validation:** `go vet ./...` and `go test -race -count=1 ./...` on Go 1.27.4 (WSL, Ubuntu 22.04) under umask 022 and 077: recorded in `relay.md` §15.6 at #194's head.
 
-**Review:** a focused independent review of F1, F2, F5 and F6 only, by a reviewer that wrote none of it, as the re-review asked (no full review, no mutation batch). Its verdict is recorded in `relay.md` §15.6.
+**Validation:** at #194 `0ab5cfe8`, `go vet ./...` and `go test -race -count=1 ./...` pass under umask 022 and 077 on Go 1.27.4 (WSL Ubuntu 22.04, kernel 6.18.58.1, 8 threads): every package ok, no data race.
+
+**The focused independent review (2026-11-27)** of F1, F2, F4, F5 and F6 only, by a reviewer that wrote none of it (no full review, no mutation batch). It ran `go test -race -count=3` on T19, T20, T21, T3 and T9, and confirmed T19 and T20 fail without their fixes.
+
+| Finding | Verdict |
+| --- | --- |
+| F1 | Resolved. Mutex ordering puts `registered` ahead of any `invite`; a control lost or replaced before the final section never becomes routable; no lock-order problem (sends never block) |
+| F2 | Resolved, with notes: only T20 exercises the 1 s default; T20 depended on 12 TLS connects finishing within a real second (now fixed: T20 runs on a frozen clock) |
+| F4 | Resolved |
+| F5 | Resolved, with notes: the operation-order table and §6 step 5.1 of the proposal, and §5's steps here, still read two writes (now fixed); the fake's two-file rule needs Linux (comment corrected); a coarse-timestamp inode-reuse residual (now in proposal §6.1 and R-T45) |
+| F6 | Resolved by construction; no test can catch moving the send back outside the lock, so `relay.md` §15.6 no longer claims T6 and T21 cover it |
+
+**Verdicts:** #194 phase 1 sign-off **GO** (F3 stays the gate before any public deployment). #192 as the phase 2 contract **GO with a condition**: the operation order aligned with the sealed rule, done in the commit that records this.
 
