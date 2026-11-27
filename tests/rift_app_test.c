@@ -156,8 +156,20 @@ static void (*notice_open)(void *user);
 static void *notice_user;
 static int notice_hold_ms;
 static int notice_hold_queued_ms;
+/* Set by the banner burst check alone: the notice also goes to the shell's
+ * real banner (ui/shell/shell_notice.c, linked into this test), so a tap on
+ * the banner on screen is the shell's own tap. Off everywhere else, where a
+ * banner on the top layer would take the taps meant for the strip. */
+static int notice_to_shell;
+bool shell_lock_is_locked(void)
+{
+    return false;
+}
 void pocketos_shell_notify(const struct pocketos_notice *n)
 {
+    if (notice_to_shell) {
+        shell_notice_post(n);
+    }
     notice_calls++;
     notice_hold_ms = n ? n->hold_ms : 0;
     notice_hold_queued_ms = n ? n->hold_queued_ms : 0;
@@ -165,7 +177,16 @@ void pocketos_shell_notify(const struct pocketos_notice *n)
     snprintf(notice_title, sizeof(notice_title), "%s", n && n->title ? n->title : "");
     snprintf(notice_body, sizeof(notice_body), "%s", n && n->body ? n->body : "");
     notice_open = n ? n->on_open : NULL;
-    notice_user = n ? n->user : NULL;
+    /* As the shell does: arg, when given, is copied and is what a tap hands
+     * to on_open (ui/shell/shell_notice.c). */
+    if (n && n->arg) {
+        static char arg_copy[NOTICE_ARG_MAX];
+
+        snprintf(arg_copy, sizeof(arg_copy), "%s", n->arg);
+        notice_user = arg_copy;
+    } else {
+        notice_user = n ? n->user : NULL;
+    }
 }
 int pocketos_shell_reduced_motion(void)
 {
@@ -8310,6 +8331,58 @@ static void ux_tropo_checks(const char *tag)
     check(what, captions_clipped(frame()) == 0);
 }
 
+/* A burst of message banners through the shell's real banner (in a session
+ * of its own: ten unread peers would change every list after it). */
+static void ux_banner_burst_session(void)
+{
+    int i;
+
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    /* A burst: ten direct messages from ten peers, one a pass, through the
+     * shell's real banner. The first stays on screen while the other nine
+     * queue behind it (four kept, the rest dropped as the shell drops
+     * them); a tap on it must open its own conversation, whatever the
+     * burst has raised since. */
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(60);
+    notice_to_shell = 1;
+    {
+        char first[RIFT_KEY_HEX];
+        char title[64];
+        lv_obj_t *banner;
+
+        char keys[10][RIFT_KEY_HEX];
+
+        /* Ten peers whose banners are told apart by their first bytes. */
+        for (i = 0; i < 10; i++) {
+            snprintf(keys[i], sizeof(keys[i]), "%02x%02x%060d", 0x60 + i, 0x11 * i, 0);
+        }
+        snprintf(first, sizeof(first), "%s", keys[0]);
+        for (i = 0; i < 10; i++) {
+            live_dm(920 + i, "in", keys[i], 1790000010 + i, "burst");
+            pump(200);
+        }
+        snprintf(title, sizeof(title), "%s", shell_notice_title());
+        banner = find_text(lv_layer_top(), title);
+        check("ux: a burst of ten raises ten banners, the first still on screen",
+              shell_notice_visible() && banner != NULL && shell_notice_posted() >= 10);
+        tap(banner);
+        pump(120);
+        check("ux: a tap on it opens its own conversation, not the burst's latest",
+              app->section == RIFT_SEC_COMMS && app->have_conv && strcmp(app->conv, first) == 0);
+        shell_notice_dismiss_all();
+        pump(400);
+    }
+    notice_to_shell = 0;
+    printf("     burst: visible %d, posted %u, dropped %u, title '%s'\n", shell_notice_visible(),
+           shell_notice_posted(), shell_notice_dropped(), shell_notice_title());
+    app_stop();
+}
+
 static void ux_session(void)
 {
     enum pos_text_size was = pos_theme_current_text_size();
@@ -8799,6 +8872,7 @@ int main(void)
     /* $RIFT_APP_TEST_ONLY=ux: the message banners' holds, TROPO, COMMS'
      * groups and CONTACTS' favourites alone (feature/rift-ux-tropo). */
     if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "ux") == 0) {
+        ux_banner_burst_session();
         ux_session();
         if (shots_dir) {
             printf("rift_app_test: %d screenshot(s) in %s\n", shots_taken, shots_dir);
@@ -10215,6 +10289,7 @@ int main(void)
     /* feat/meshscope: MAP's TRAFFIC, live. */
     traffic_session();
     /* feature/rift-ux-tropo: banners, TROPO, COMMS' groups, favourites. */
+    ux_banner_burst_session();
     ux_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed

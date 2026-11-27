@@ -33,6 +33,8 @@ struct notice {
     void *user;
     int hold_ms;        /* alone on screen */
     int hold_queued_ms; /* with another waiting behind it */
+    bool has_arg;       /* on_open is given arg, the notice's own copy */
+    char arg[NOTICE_ARG_MAX];
 };
 
 static struct {
@@ -98,7 +100,9 @@ static void open_async(void *unused)
     }
     nt.open_pending = false;
     if (nt.opening.on_open) {
-        nt.opening.on_open(nt.opening.user);
+        /* The tapped notice's own copy (nt.opening is one), never a pointer
+         * into the app that a later notice may have reused. */
+        nt.opening.on_open(nt.opening.has_arg ? (void *)nt.opening.arg : nt.opening.user);
     } else if (nt.opening.app_id[0]) {
         (void)pocketos_shell_open_app(nt.opening.app_id);
     }
@@ -317,6 +321,10 @@ void shell_notice_post(const struct pocketos_notice *in)
     n.body_style = in->body_style;
     n.on_open = in->on_open;
     n.user = in->user;
+    if (in->arg) {
+        n.has_arg = true;
+        copy(n.arg, sizeof(n.arg), in->arg);
+    }
     shell_notice_holds(in->hold_ms, in->hold_queued_ms, &n.hold_ms, &n.hold_queued_ms);
     nt.posted++;
     LOG_INFO("notice: %s (%s)", n.source[0] ? n.source : "-", n.app_id[0] ? n.app_id : "-");

@@ -42,6 +42,7 @@
 #define NOTICE_SOURCE_MAX 48
 #define NOTICE_TITLE_MAX 64
 #define NOTICE_BODY_MAX 200
+#define NOTICE_ARG_MAX 96
 
 /* The holds a notice is shown with: what the app asked for (0 for the
  * default), kept within the bounds, and the queued one never longer than the

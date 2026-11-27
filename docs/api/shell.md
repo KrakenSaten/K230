@@ -175,7 +175,8 @@ developer tooling, not for applications.
   one shown. `pos call shell shell.notify title="Backup finished" source=SYSD`.
   A notice from `shell.notify` keeps the shell's holds (five seconds, 2.2 s
   with another waiting); an app may ask for its own through app.h
-  (`hold_ms`, `hold_queued_ms`, kept within 1 to 15 s). RIFT raises one for a
+  (`hold_ms`, `hold_queued_ms`, kept within 1 to 15 s), and give it an `arg`
+  string the shell copies and passes to the tap's callback. RIFT raises one for a
   new direct or channel message and asks for 10 s and 4.4 s
   (docs/apps/RIFT.md, "Message banners").
 

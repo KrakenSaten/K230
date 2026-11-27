@@ -405,6 +405,93 @@ static void test_through_the_reader(void)
           g_log.evicted > 0 && t->openings == 1);
 }
 
+/* The bounded ring of counted hashes, and what a copy of a packet whose hash
+ * has left it can and cannot do. */
+static void test_eviction(void)
+{
+    struct rift_tropo t;
+    struct rift_tropo_view v;
+    uint8_t first[RIFT_TROPO_HASH_LEN];
+    int64_t now = T0;
+    int i;
+
+    /* The ring alone: a copy of the first packet after 64 others is new to
+     * it. That is the whole of the risk, and its bound: one more piece of
+     * evidence, only after RIFT_TROPO_SEEN other distinct deep packets. */
+    rift_tropo_init(&t);
+    memcpy(first, hash_of(0), sizeof(first));
+    deep(&t, now, 30, 0, now);
+    for (i = 1; i <= RIFT_TROPO_SEEN; i++) {
+        uint8_t h[RIFT_TROPO_HASH_LEN] = { 0x22, 0, 0, 0, 0, 0, (uint8_t)(i >> 8), (uint8_t)i };
+
+        now += 20 * MIN; /* spread thin: no opening */
+        rift_tropo_step(&t, now, 30, 1, 1, 0, h, now);
+    }
+    check("sixty-four thin deep packets later, no opening and the first has left the ring",
+          !t.have_opening && t.seen_count == RIFT_TROPO_SEEN);
+    check("told nothing by the service, the ring alone takes a copy of it as new",
+          rift_tropo_step(&t, now + 1000, 30, 1, 1, 0, first, now + 1000) == RIFT_TROPO_CANDIDATE);
+    check("but the service's word that it is a repeat is enough",
+          rift_tropo_step_seen(&t, now + 2000, 30, 1, 1, 0, first, 1, now + 2000) ==
+              RIFT_TROPO_REPEAT);
+
+    /* A replay after an opening has closed: five old deep packets heard
+     * again, every one evicted from the ring, every one a repeat to the
+     * service. No second opening, and the first keeps its age. */
+    rift_tropo_init(&t);
+    now = T0;
+    for (i = 0; i < 5; i++) {
+        deep(&t, now + i * MIN, 28, 1000 + (unsigned)i, now + i * MIN);
+    }
+    check("an opening to replay", t.openings == 1);
+    now += 4 * MIN;
+    for (i = 0; i < RIFT_TROPO_SEEN; i++) {
+        uint8_t h[RIFT_TROPO_HASH_LEN] = { 0x33, 0, 0, 0, 0, 0, (uint8_t)(i >> 8), (uint8_t)i };
+
+        rift_tropo_step(&t, now + 1000 + i, 25, 1, 1, 0, h, now + 1000 + i);
+    }
+    now += 2 * HOUR;
+    check("closed, with the five replayed hashes gone from the ring",
+          !rift_tropo_active(&t, now) && !t.cand_count);
+    for (i = 0; i < 5; i++) {
+        check("each replayed copy is a repeat to the service, so to TROPO",
+              rift_tropo_step_seen(&t, now + i * 1000, 28, 1, 1, 0, hash_of(1000 + (unsigned)i), 1,
+                                   now + i * 1000) == RIFT_TROPO_REPEAT);
+    }
+    rift_tropo_read(&t, now + 5000, &v);
+    check("and they open nothing: one opening, aged from its own evidence",
+          t.openings == 1 && v.level == RIFT_TROPO_RECENT && v.candidates == 0);
+}
+
+/* The service's two words on a frame, as the reader takes them. */
+static void test_service_repeats(void)
+{
+    struct rift_tropo *t = &g_log.tropo;
+    int64_t now = T0;
+    long seq = 5000;
+    int i;
+
+    rift_rxlog_init(&g_log);
+    /* Sixty-four deep floods an hour apart: the ring full, no opening. */
+    for (i = 0; i < RIFT_TROPO_SEEN + 1; i++) {
+        now += HOUR;
+        rx(seq++, now, "flood", 30, 0x4000 + (unsigned)i, "", now);
+    }
+    check("through the reader: the ring is full and nothing opened",
+          t->seen_count == RIFT_TROPO_SEEN && !t->have_opening && t->cand_count == 1);
+    rx(seq++, now + 1, "flood", 30, 0x4000, ",\"dup\":2", now + 1);
+    check("a copy whose hash left the ring, with dup 2, is a repeat", t->cand_count == 1);
+    rx(seq++, now + 2, "flood", 30, 0x4000, ",\"verdict\":\"duplicate\"", now + 2);
+    check("and with MeshCore's duplicate verdict too", t->cand_count == 1);
+    rx(seq++, now + 3, "flood", 30, 0x9999, ",\"dup\":2", now + 3);
+    check("a deep copy of a packet first heard shallow is not new deep evidence",
+          t->cand_count == 1 && t->repeats == 3);
+    rx(seq++, now + 4, "flood", 30, 0x4000, "", now + 4);
+    check("with neither word - a service that started again - the ring's bound is what "
+          "remains: one candidate more, not an opening",
+          t->cand_count == 2 && !t->have_opening);
+}
+
 int main(void)
 {
     test_what_is_evidence();
@@ -413,6 +500,8 @@ int main(void)
     test_hold_and_lifecycle();
     test_clock();
     test_through_the_reader();
+    test_eviction();
+    test_service_repeats();
     printf("rift_tropo_test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

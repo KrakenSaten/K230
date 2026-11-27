@@ -30,8 +30,15 @@
  *   - not this node's own packet heard repeated back (`own`);
  *   - once per packet: MeshCore's packet hash is the packet, so a second
  *     copy of a deep packet - over another route, or the same one again -
- *     is a repeat and adds nothing. A frame with no hash cannot be told
- *     apart from its copies and is not counted;
+ *     is a repeat and adds nothing. Two memories say so, and either is
+ *     enough: this detector's own ring of the last RIFT_TROPO_SEEN deep
+ *     hashes, and the service's own word on the frame - mesh.rx `dup` above
+ *     1 (its log met the hash among the last 256 packets of any depth) or
+ *     verdict `duplicate` (MeshCore's seen table matched it). So a copy
+ *     whose hash has left the ring is still a repeat while the service
+ *     remembers it, and a frame whose first copy was shallow is not new deep
+ *     evidence either. A frame with no hash cannot be told apart from its
+ *     copies and is not counted;
  *   - received in the last window: a reception older than that (a late
  *     report, a clock that stepped) is not evidence of now.
  *
@@ -170,10 +177,15 @@ enum rift_tropo_verdict rift_tropo_observe(struct rift_tropo *t, const struct ri
                                            int64_t now_mono);
 /* The same decision on bare fields, for the tests and for observe: hops is
  * the relay count, flood whether the route was a flood, handled whether
- * MeshCore handled it, hash NULL when the frame carried none. */
+ * MeshCore handled it, hash NULL when the frame carried none. step knows
+ * nothing of the service's repeat count; step_seen is told whether the
+ * service already said the frame is a repeat (observe's dup / verdict). */
 enum rift_tropo_verdict rift_tropo_step(struct rift_tropo *t, int64_t rx_mono, int hops, int flood,
                                         int handled, int own, const uint8_t *hash,
                                         int64_t now_mono);
+enum rift_tropo_verdict rift_tropo_step_seen(struct rift_tropo *t, int64_t rx_mono, int hops,
+                                             int flood, int handled, int own, const uint8_t *hash,
+                                             int service_repeat, int64_t now_mono);
 /* Whether an opening is active at now: false once its hold has run out,
  * whether or not anything was received since. */
 int rift_tropo_active(const struct rift_tropo *t, int64_t now_mono);

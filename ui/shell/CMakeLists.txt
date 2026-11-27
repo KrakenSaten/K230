@@ -1543,6 +1543,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/rift_app_test.c
         ${REPO_DIR}/tests/rift_test_clock.c
         chrome.c
+        shell_notice.c
         ${REPO_DIR}/apps/rift/rift_app.c
         ${REPO_DIR}/apps/rift/rift_section.c
         ${REPO_DIR}/apps/rift/rift_focus.c

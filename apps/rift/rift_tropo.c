@@ -132,6 +132,13 @@ enum rift_tropo_verdict rift_tropo_step(struct rift_tropo *t, int64_t rx_mono, i
                                         int handled, int own, const uint8_t *hash,
                                         int64_t now_mono)
 {
+    return rift_tropo_step_seen(t, rx_mono, hops, flood, handled, own, hash, 0, now_mono);
+}
+
+enum rift_tropo_verdict rift_tropo_step_seen(struct rift_tropo *t, int64_t rx_mono, int hops,
+                                             int flood, int handled, int own, const uint8_t *hash,
+                                             int service_repeat, int64_t now_mono)
+{
     int64_t rx;
 
     if (!t) {
@@ -163,7 +170,10 @@ enum rift_tropo_verdict rift_tropo_step(struct rift_tropo *t, int64_t rx_mono, i
     if (!hash) {
         return RIFT_TROPO_NO_HASH;
     }
-    if (seen(t, hash)) {
+    /* A repeat if either memory says so: this ring, or the service's (its
+     * own log's count, MeshCore's seen table). The ring is bounded, and a
+     * hash that has left it would otherwise be new evidence again. */
+    if (service_repeat || seen(t, hash)) {
         t->repeats++;
         return RIFT_TROPO_REPEAT;
     }
@@ -210,8 +220,9 @@ enum rift_tropo_verdict rift_tropo_observe(struct rift_tropo *t, const struct ri
     flood = (e->flags & RIFT_RXF_HAVE_HEADER) &&
             (e->route == RIFT_RXRT_FLOOD || e->route == RIFT_RXRT_TRANSPORT_FLOOD);
     own = (e->flags & RIFT_RXF_OWN) || e->state == RIFT_RXS_ECHO;
-    return rift_tropo_step(t, e->mono_ms, e->path_hops, flood, 1, own,
-                           (e->flags & RIFT_RXF_HAVE_HASH) ? e->hash : NULL, now_mono);
+    return rift_tropo_step_seen(t, e->mono_ms, e->path_hops, flood, 1, own,
+                                (e->flags & RIFT_RXF_HAVE_HASH) ? e->hash : NULL,
+                                e->dup > 1 || (e->flags & RIFT_RXF_MC_DUPLICATE), now_mono);
 }
 
 int rift_tropo_active(const struct rift_tropo *t, int64_t now_mono)

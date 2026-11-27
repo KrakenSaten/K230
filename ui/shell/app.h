@@ -218,6 +218,12 @@ void pocketos_shell_set_background(const char *app_id, const char *label, const 
  * own event - or, when on_open is NULL, opens the app named by app_id; while
  * the lock is engaged a tap does nothing.
  *
+ * `arg`, when not NULL, is a short string (NOTICE_ARG_MAX - 1 bytes kept)
+ * that the shell copies with the notice and hands to on_open in place of
+ * `user`: what the tap is about - a conversation's key - travels with the
+ * notice itself, so a burst of later notices cannot change what an earlier
+ * one opens. `user` is then not used.
+ *
  * `accent` is an identity accent (pos_identity_hue, a hash may be passed) for
  * the rule down its edge, so a sender is the colour here that they are in
  * the app; -1 is the theme's accent. title_style and body_style, when not
@@ -246,6 +252,7 @@ struct pocketos_notice {
     void *user;
     int hold_ms;
     int hold_queued_ms;
+    const char *arg;
 };
 void pocketos_shell_notify(const struct pocketos_notice *notice);
 
