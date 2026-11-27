@@ -145,6 +145,7 @@ All E3a figures come from one seed, with no confidence intervals. The realised b
 
 Method, results and limits: [N1.1.md](N1.1.md) §3; script and results: `research/packetshark-neural/e3a-r/` on the N1.1 branch. In brief, synthetic only:
 
+- **Held-out (28 November 2026, [G0.md](G0.md) §6):** the loss-aware rule passes on new E3a-R seeds but fails on an independent generator (false "more ARP requests" claims under burst loss and with a hidden receive path in the base minute); G0 is not passed.
 - These windows are G0's development set; G0's frozen criteria are in [G0.md](G0.md). Only the loss-aware rule passes them there: false problem claims in every healthy visibility-artifact category stay below 1 % (worst, burst loss: 0.40 %, 95 % upper bound 0.90 %), and recall for material faults overlapping loss is 65.8 % (lower bound 63.8 %).
 - The binary gate keeps false alerts under loss low but decides 44 % of faults that overlap loss, against 59 % for no handling; loss-aware estimation decides 56.5 %.
 - One-sided visibility that starts inside a window defeats a whole-window rule (about 42 % false alerts for both gates). The N1.1 one-way rules and the return-path witness bring it to 0.1 %, at the cost of abstaining on faults that overlap it.
