@@ -42,6 +42,13 @@
  * "no change". Loss is assumed to strike frames independently of their kind
  * (ASSUMED, documented in N1.1.md).
  *
+ * Answer times are guarded against selective loss: the answers not seen (a
+ * question decided unanswered: lost, or slower than the wait) are counted as
+ * the slowest, and every verdict must survive that (PPC_INR_UNSEEN when only
+ * the answers seen support it). A question is decided unanswered only when
+ * its wait was watched whole and some frame other than a DNS answer reached
+ * this device during it: the way back was seen working.
+ *
  * One-sided visibility (this device sends and nothing comes back) is told
  * from its own frames in and out: a window in which nothing came back, or a
  * silent run its inbound rate makes implausible. DNS comparisons then
@@ -115,6 +122,7 @@ enum ppc_in_reason {
     PPC_INR_LOSS_EXPLAINS, /* only the loss bound's end that favours a change rejects: the frames lost
                             * could account for the change, or hide one */
     PPC_INR_WEAK,          /* nothing rejected, and too little evidence to rule out a material worsening */
+    PPC_INR_UNSEEN,        /* answer times: the answers not seen could undo the difference the seen ones show */
     PPC_INR_COUNT
 };
 
@@ -124,7 +132,8 @@ enum ppc_in_reason {
 #define PPC_INN_UNDECIDED 0x04u  /* questions left out: their wait was not watched whole */
 #define PPC_INN_RETRIES 0x08u    /* questions were asked again */
 #define PPC_INN_STOPPED 0x10u    /* the capture stopped inside the window after */
-#define PPC_INN_ALL 0x1fu
+#define PPC_INN_UNSEEN 0x20u     /* answer times: answers not seen were counted as the slowest */
+#define PPC_INN_ALL 0x3fu
 
 #define PPC_IN_MIN_PAIRS 5u      /* answer times a window needs */
 #define PPC_IN_MIN_QUESTIONS 5u  /* decided questions a window needs */

@@ -575,10 +575,16 @@ static void loss_share(const struct ppc_in_vis *v, double *lo, double *hi)
     *hi = !v->loss_known ? 1.0 : v->lost_hi ? v->lost_hi / (v->lost_hi + f) : 0.0;
 }
 
-/* A question's wait was watched whole: every second from it to its end. */
+/* A question whose answer was not seen is called unanswered only when its
+ * wait was watched whole, every second from it to its end, and the way back
+ * to this device was seen working in it: some frame other than a DNS answer
+ * reached this device. Without that witness, a resolver that did not answer
+ * and replies that took another path look the same, and the question is
+ * left undecided (E3a-R: one-sided visibility starting inside a window). */
 static int wait_watched(const struct ppc_intel *in, uint32_t t_ms)
 {
     uint32_t s;
+    int back = 0;
 
     for (s = t_ms / 1000u; s <= (t_ms + PPC_IN_WAIT_MS) / 1000u; s++) {
         const struct ppc_in_sec *x = sec_slot(in, s);
@@ -586,8 +592,9 @@ static int wait_watched(const struct ppc_intel *in, uint32_t t_ms)
         if (!x || x->flags != PPC_EVS_WATCHED) {
             return 0;
         }
+        back |= x->own_in > x->dns_ans;
     }
-    return 1;
+    return back;
 }
 
 struct qside {
@@ -839,23 +846,59 @@ static void decide_rate(struct ppc_in_cmp *c, const double f[2][2])
            ppc_in_poisson_le_e6(c1, scaled(alt * w1, f[0][0], f[1][1])));
 }
 
-/* Answer times: medians and Mann-Whitney. A significant difference smaller
- * than PPC_IN_SLOWER_PCT and PPC_IN_SLOWER_US is a small change, never "no
- * change"; "no change" needs the window's answers to be credibly below that
- * bound (fewer than half of them above it, sign test). */
+/* Answer times: medians and Mann-Whitney over the answers seen. The answers
+ * not seen - a question decided unanswered: its answer lost, or slower than
+ * the wait - may be exactly the slow ones (selective loss: frames drop when
+ * the path is busiest; a slow resolver times out). So every verdict must
+ * survive counting them as slower than anything seen:
+ *   slower   the base's unseen answers count as slow (it cannot have been
+ *            faster than its seen answers say);
+ *   faster   the window's unseen answers count as slow;
+ *   no change  fewer than half the window's answers above the practical
+ *            bound, its unseen answers counted above it (sign test).
+ * A difference the answers seen show but the unseen ones could undo is
+ * CAN'T TELL with PPC_INR_UNSEEN. A significant difference below the
+ * practical bound is a small change, never "no change". */
+static uint32_t augment(const uint32_t *seen, uint32_t n, uint32_t missing, uint32_t *out)
+{
+    uint32_t i;
+
+    memcpy(out, seen, n * sizeof(*out));
+    for (i = 0; i < missing && n + i < PPC_IN_QUESTIONS; i++) {
+        out[n + i] = 0xffffffffu; /* slower than any answer seen */
+    }
+    return n + i;
+}
+
+static int slower(uint32_t gt, uint64_t m0, uint64_t m1)
+{
+    return gt < PPC_IN_ALPHA_E6 && m1 * 100u >= m0 * PPC_IN_SLOWER_PCT && m1 >= m0 + PPC_IN_SLOWER_US;
+}
+
 static void decide_time(struct ppc_in_cmp *c, struct qside q[2])
 {
-    uint32_t gt, lt;
-    uint32_t m0, m1;
+    static uint32_t a0[PPC_IN_QUESTIONS], a1[PPC_IN_QUESTIONS];
+    uint32_t miss0 = q[0].decided - q[0].answered;
+    uint32_t miss1 = q[1].decided - q[1].answered;
+    uint32_t gt, lt, cgt, clt, dummy;
+    uint32_t m0, m1, n0, n1, cm0, cm1;
     uint64_t bound;
     uint32_t above = 0;
     uint32_t i;
 
-    m0 = median(q[0].rtt, q[0].npairs);
+    m0 = median(q[0].rtt, q[0].npairs); /* sorts both */
     m1 = median(q[1].rtt, q[1].npairs);
     c->stat[0] = m0;
     c->stat[1] = m1;
     mann_whitney(q[0].rtt, q[0].npairs, q[1].rtt, q[1].npairs, &gt, &lt);
+    /* conservative: slower against the base with its unseen answers slow */
+    n0 = augment(q[0].rtt, q[0].npairs, miss0, a0);
+    cm0 = n0 % 2u ? a0[n0 / 2u] : (uint32_t)(((uint64_t)a0[n0 / 2u - 1u] + a0[n0 / 2u]) / 2u);
+    mann_whitney(a0, n0, q[1].rtt, q[1].npairs, &cgt, &dummy);
+    /* conservative: faster with the window's unseen answers slow */
+    n1 = augment(q[1].rtt, q[1].npairs, miss1, a1);
+    cm1 = n1 % 2u ? a1[n1 / 2u] : (uint32_t)(((uint64_t)a1[n1 / 2u - 1u] + a1[n1 / 2u]) / 2u);
+    mann_whitney(q[0].rtt, q[0].npairs, a1, n1, &dummy, &clt);
     bound = (uint64_t)m0 * PPC_IN_SLOWER_PCT / 100u;
     if (bound < (uint64_t)m0 + PPC_IN_SLOWER_US) {
         bound = (uint64_t)m0 + PPC_IN_SLOWER_US;
@@ -863,30 +906,32 @@ static void decide_time(struct ppc_in_cmp *c, struct qside q[2])
     for (i = 0; i < q[1].npairs; i++) {
         above += q[1].rtt[i] > bound;
     }
-    if (gt < PPC_IN_ALPHA_E6 && (uint64_t)m1 * 100u >= (uint64_t)m0 * PPC_IN_SLOWER_PCT &&
-        m1 >= m0 + PPC_IN_SLOWER_US) {
+    if (miss0 || miss1) {
+        c->notes |= PPC_INN_UNSEEN;
+    }
+    if (slower(cgt, cm0, m1)) {
         c->verdict = PPC_INV_WORSE;
-        c->p_e6 = gt;
-    } else if (lt < PPC_IN_ALPHA_E6 && (uint64_t)m0 * 100u >= (uint64_t)m1 * PPC_IN_SLOWER_PCT &&
-               m0 >= m1 + PPC_IN_SLOWER_US) {
+        c->p_e6 = cgt;
+    } else if (cm1 != 0xffffffffu && slower(clt, cm1, m0)) {
         c->verdict = PPC_INV_BETTER;
-        c->p_e6 = lt;
-    } else if (gt < PPC_IN_ALPHA_E6 || lt < PPC_IN_ALPHA_E6) {
-        c->verdict = PPC_INV_SMALL;
+        c->p_e6 = clt;
+    } else if (slower(gt, m0, m1) || slower(lt, m1, m0)) {
+        c->verdict = PPC_INV_CANT_TELL;
+        c->reason = PPC_INR_UNSEEN;
         c->p_e6 = gt < lt ? gt : lt;
-    } else if (ppc_in_binom_le_e6(above, q[1].npairs, 0.5) >= PPC_IN_ALPHA_E6) {
+    } else if (cgt < PPC_IN_ALPHA_E6 || clt < PPC_IN_ALPHA_E6) {
+        c->verdict = PPC_INV_SMALL;
+        c->p_e6 = cgt < clt ? cgt : clt;
+    } else if (ppc_in_binom_le_e6(above + miss1, q[1].npairs + miss1, 0.5) >= PPC_IN_ALPHA_E6) {
         c->verdict = PPC_INV_CANT_TELL;
         c->reason = PPC_INR_WEAK;
-        c->p_e6 = ppc_in_binom_le_e6(above, q[1].npairs, 0.5);
+        c->p_e6 = ppc_in_binom_le_e6(above + miss1, q[1].npairs + miss1, 0.5);
     } else {
         c->verdict = PPC_INV_NO_CHANGE;
         c->p_e6 = gt < lt ? gt : lt;
     }
 }
 
-/* A window in which this device sent and nothing at all came back to it.
- * (A ratio of in to out would also fire on a device that simply sends far
- * more than it receives; E3a-R measured that cost, N1.1.md.) */
 static int one_way(const struct ppc_in_vis *v)
 {
     return v->own_out >= ONE_WAY_MIN_OUT && v->own_in == 0;
@@ -894,41 +939,50 @@ static int one_way(const struct ppc_in_vis *v)
 
 /* One-sided visibility that starts inside a window: a run of watched
  * seconds in which this device sent at least ONE_WAY_MIN_OUT frames and
- * received none, longer than its own inbound rate over [a, b), thinned by
- * the most the window may have lost, makes plausible (P(no frame) <= 1/1000).
- * E3a-R found the whole-window ratio alone misses this (N1.1.md). */
-static int one_way_spell(const struct ppc_intel *in, uint32_t a, uint32_t b, double f_hi)
+ * received none, longer than its own inbound rate makes plausible
+ * (P(no frame) <= 1/1000). The rate is the busier window's of [a, m) and
+ * [m, b), so a silence that fills much of one window does not lower its own
+ * yardstick, thinned by the most the window may have lost. E3a-R found the
+ * whole-window ratio alone misses this, and a rate over both windows too
+ * (N1.1.md). */
+static int one_way_spell(const struct ppc_intel *in, uint32_t a, uint32_t m, uint32_t b, double f_hi)
 {
     uint32_t s1 = sec_ceil(b);
-    uint64_t tin = 0;
-    uint32_t ws = 0;
+    uint32_t sm = sec_ceil(m);
+    uint64_t tin[2] = { 0, 0 };
+    uint64_t tother[2] = { 0, 0 };
+    uint32_t ws[2] = { 0, 0 };
     uint32_t run = 0;
     uint32_t out = 0;
-    double lam;
+    double lam = 0.0;
     uint32_t s;
-
-    uint64_t tother = 0;
     int other;
+    unsigned w;
 
     for (s = sec_ceil(a); s < s1; s++) {
         const struct ppc_in_sec *x = sec_slot(in, s);
 
         if (x && x->flags == PPC_EVS_WATCHED) {
-            tin += x->own_in;
-            tother += x->own_in > x->dns_ans ? x->own_in - x->dns_ans : 0u;
-            ws++;
+            w = s >= sm;
+            tin[w] += x->own_in;
+            tother[w] += x->own_in > x->dns_ans ? x->own_in - x->dns_ans : 0u;
+            ws[w]++;
         }
     }
     /* Inbound other than DNS answers, where there is any, so that a resolver
      * that stops answering is not taken for a path that stops delivering. */
-    other = tother > 0;
-    if (other) {
-        tin = tother;
+    other = tother[0] + tother[1] > 0;
+    for (w = 0; w < 2; w++) {
+        double r = ws[w] ? (double)(other ? tother[w] : tin[w]) / ws[w] : 0.0;
+
+        if (r > lam) {
+            lam = r;
+        }
     }
-    if (!ws || !tin || f_hi >= 1.0) {
+    if (!(lam > 0.0) || f_hi >= 1.0) {
         return 0;
     }
-    lam = (double)tin / ws * (1.0 - f_hi);
+    lam *= 1.0 - f_hi;
     for (s = sec_ceil(a); s < s1; s++) {
         const struct ppc_in_sec *x = sec_slot(in, s);
         uint32_t got;
@@ -1047,7 +1101,7 @@ static void compute(const struct ppc_intel *in, const struct ppc_in_mark *m, uns
         c->reason = PPC_INR_HISTORY;
     } else if (c->vis[0].watched_s * 2u < span_s(&c->vis[0]) || c->vis[1].watched_s * 2u < span_s(&c->vis[1])) {
         c->reason = PPC_INR_NOT_WATCHED;
-    } else if (dns && (one_way(&c->vis[0]) || one_way(&c->vis[1]) || one_way_spell(in, w[0][0], w[1][1], f[1][1]))) {
+    } else if (dns && (one_way(&c->vis[0]) || one_way(&c->vis[1]) || one_way_spell(in, w[0][0], w[1][0], w[1][1], f[1][1]))) {
         c->reason = PPC_INR_ONE_WAY;
     } else if (metric == PPC_INM_DNS_TIME && (c->n[0] < PPC_IN_MIN_PAIRS || c->n[1] < PPC_IN_MIN_PAIRS)) {
         c->reason = PPC_INR_TOO_FEW;
@@ -1249,7 +1303,7 @@ const char *ppc_in_reason_id(unsigned r)
 {
     static const char *const id[PPC_INR_COUNT] = { "-",        "not-captured", "not-analyzed", "cut",
                                                    "history",  "not-watched",  "one-way",      "loss-unknown",
-                                                   "too-few",  "loss-explains", "weak" };
+                                                   "too-few",  "loss-explains", "weak",        "unseen" };
 
     return r < PPC_INR_COUNT ? id[r] : "?";
 }

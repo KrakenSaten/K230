@@ -327,11 +327,11 @@ static size_t put(char *buf, size_t cap, size_t at, const char *fmt, ...)
 
 static const char *notes_text(unsigned notes, char *b)
 {
-    static const char *const w[] = { "unwatched", "loss", "undecided", "retries", "stopped" };
+    static const char *const w[] = { "unwatched", "loss", "undecided", "retries", "stopped", "unseen" };
     unsigned i;
 
     b[0] = 0;
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < 6; i++) {
         if (notes & (1u << i)) {
             if (b[0]) {
                 strcat(b, ",");
@@ -883,6 +883,79 @@ static void loss_bound(void)
     ppc_intel_free(&in);
 }
 
+/* ---- selective loss in answer times ------------------------------------------------------- */
+
+/* A question at t; answered rtt_ms later, or never (its answer lost, or
+ * slower than the wait). Other inbound frames keep the window two-sided. */
+static void ask(struct ppc_intel *in, uint32_t t, uint32_t k, int answered, uint32_t rtt_ms)
+{
+    struct ppc_ev_obs o;
+
+    memset(&o, 0, sizeof(o));
+    o.kind = PPC_EV_DNS_QUERY;
+    o.flags = PPC_EVF_OWN | PPC_EVF_REPLY_HERE;
+    o.t_ms = t;
+    o.seq = 2u * k + 1u;
+    o.a = k & 0xffffu;
+    ppc_intel_note(in, &o);
+    ppc_intel_frame(in, t, PPC_PKT_OUTGOING, 0);
+    ppc_intel_frame(in, t + 100u, PPC_PKT_HOST, 0);
+    if (answered) {
+        o.kind = PPC_EV_DNS_ANSWER;
+        o.flags = PPC_EVF_OWN;
+        o.t_ms = t + rtt_ms;
+        o.seq = 2u * k + 2u;
+        o.b = rtt_ms * 1000u;
+        ppc_intel_frame(in, o.t_ms, PPC_PKT_HOST, 0);
+        ppc_intel_note(in, &o);
+    }
+}
+
+static unsigned selective_case(int base_missing)
+{
+    struct ppc_intel in;
+    struct ppc_in_cmp c;
+    uint32_t t;
+    unsigned v;
+
+    if (ppc_intel_init(&in) != 0) {
+        exit(2);
+    }
+    for (t = 0; t <= 140000; t += 250) {
+        ppc_intel_tick(&in, t, PPC_EVS_WATCHED);
+        ppc_intel_counters(&in, t, 1, 0);
+        if (t % 1000u == 0 && t >= 1000u && t < 120000u) {
+            uint32_t k = t / 1000u;
+            int base = t < 61000u;
+
+            if (base_missing) {
+                /* base: every other answer never seen; window: all seen, twice as slow */
+                ask(&in, t, k, base ? (int)(k % 2u) : 1, base ? 30u : 60u);
+            } else {
+                /* base: all seen at 30 ms; window: half never seen, the other half as before */
+                ask(&in, t, k, base ? 1 : (int)(k % 2u), 30u);
+            }
+        }
+        if (t == 61000u) {
+            ppc_intel_mark(&in, 1, 61000u);
+        }
+    }
+    ppc_intel_compare(&in, 1, 1, PPC_INM_DNS_TIME, &c);
+    v = (unsigned)c.verdict << 8 | c.reason;
+    printf("     selective %d: %s %s n=%u|%u stat=%u|%u und=%u|%u\n", base_missing, ppc_in_verdict_id(c.verdict),
+           ppc_in_reason_id(c.reason), c.n[0], c.n[1], c.stat[0], c.stat[1], c.undecided[0], c.undecided[1]);
+    ppc_intel_free(&in);
+    return v;
+}
+
+static void selective(void)
+{
+    check("selective loss: half the window's answers never seen - not 'no change' (they count as slow)",
+          selective_case(0) == ((unsigned)PPC_INV_CANT_TELL << 8 | PPC_INR_WEAK));
+    check("selective loss: seen answers twice as slow, half the base's never seen - can't tell, 'unseen'",
+          selective_case(1) == ((unsigned)PPC_INV_CANT_TELL << 8 | PPC_INR_UNSEEN));
+}
+
 /* ---- the bounds ---------------------------------------------------------------------------- */
 
 static void bounds(void)
@@ -1025,6 +1098,7 @@ int main(int argc, char **argv)
     loss_bound();
     scenes();
     without_loss_signal();
+    selective();
     bounds();
     cost();
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
