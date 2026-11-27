@@ -128,6 +128,9 @@ Scopes per phone, granted on the panel at pairing:
 
 - **Same Wi-Fi:** works with netd as it is.
 - **Phone hotspot:** the K230 joins the phone's hotspot as an ordinary station; no device change. ASSUMED to work like any WPA2 network; to be checked at the hardware gate.
+  - *Note, 2026-11-27:* §9's rule that sockets are bound to the Wi-Fi network does not cover this case. The phone hosting a hotspot has joined no Wi-Fi network, so the M3 app reached nothing there.
+  - The app's path for it is the one in CONTRACTS.md §2 (Network), accepted that day: a socket bound to no network, kept to the hotspot's subnet, after a route check.
+  - Not yet tested on a phone (README.md H3, H12).
 - **K230 as access point:** not available (netd is station only) and not proposed.
 - **Discovery, v1:** no device-side discovery service. The QR code gives the first address; the phone remembers it; when it fails, the phone probes its own Wi-Fi subnet for the port and accepts only a host that proves the pinned key. No unauthenticated responder on the device, no multicast.
 - **Discovery, later:** a minimal DNS-SD responder (`_doors._tcp`) if the probe proves too slow. It would be a second, unauthenticated parser of hostile input on UDP 5353, so it is deferred and needs its own decision.

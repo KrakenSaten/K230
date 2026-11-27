@@ -23,8 +23,9 @@ section 2.
 | `app/src/main/java/app/doors/companion/core` | No Android imports: the fingerprint, the pairing code, the pinned trust manager, the TLS handshake, framing, and the session loop (pair, reconnect, back-off, revocation). Runs on a host JVM, which is how it is tested against a real gatewayd |
 | `.../core/Mesh.kt`, `MeshSync.kt` | The mesh as the gateway passes it on, and the reader: subscription, cursor, pages, events, breaks in continuity. Runs inside an open session and ends with it |
 | `.../core/MeshSend.kt` | Sending: the text rules, the states of a send, the request, and what is done about a send without an answer. Runs inside an open session and ends with it |
+| `.../core/LocalTransport.kt`, `OwnLinks.kt` | Which way a socket goes: bound to the joined Wi-Fi network, or, for a client of the phone's own hotspot, unbound and kept to that hotspot's subnet after a route check (CONTRACTS.md §2) |
 | `.../data` | The mesh history on Room: messages, nodes, channels, the cursor, the breaks; and what the phone sent (`outbox`) and has not sent (`drafts`) |
-| `.../device` | The Android Keystore identity, the Wi-Fi-bound socket transport, the stored pin |
+| `.../device` | The Android Keystore identity, the transport's Android side (the joined Wi-Fi network, the phone's own hotspot links), the stored pin |
 | `.../ui` | The Doors theme and the screens |
 | `harness/` | The host gateway test environment: builds the reference `gatewayd` test-hooks binary and runs it between fake services (WSL). Not part of the app |
 
@@ -39,14 +40,30 @@ section 2.
 - `device/KeystoreIdentity.kt`: the phone's P-256 key is generated in the
   Android Keystore, signing only, not exportable; StrongBox when the phone has
   one.
-- `device/WifiTransport.kt`: every socket is made by the Wi-Fi network's own
-  factory. Addresses are IPv4 literals on private ranges; nothing is resolved.
+- Sockets (CONTRACTS.md §2, Network, with the hotspot rules accepted
+  2026-11-27). Addresses are IPv4 literals on private ranges; nothing is
+  resolved. A socket goes one of two ways:
+  - to the Wi-Fi network the phone joined: made by that network's own factory
+    (`device/WifiTransport.kt`);
+  - to a client of a hotspot or tethering link the phone hosts itself:
+    - bound to no network and no proxy, from the phone's address on that
+      link;
+    - only inside the link's subnet (RFC 1918, never wider than the phone's
+      /24);
+    - only once a UDP connect, which sends nothing, shows that the kernel's
+      route leaves from that address (`core/LocalTransport.kt`,
+      `core/OwnLinks.kt`).
+
+  Nothing else is tried without a joined Wi-Fi network, and nothing goes over
+  mobile data or a VPN. The hotspot way is host-tested only, **not yet on a
+  physical phone**.
 - A waiting loop never ends a pairing. Only the unit's own word over an
   authenticated connection (`gateway.revoked`, or `paired: false` in hello) is
   shown as a removal; no answer, a timeout, a lost session and a door closed
   after the handshake are retried with back-off. Another key at the address
   stops the loop and leaves the pin as it was.
-- The loop tries the saved addresses only. Looking across the phone's /24 is
+- The loop tries the saved addresses only. Looking across the phone's own
+  subnets (the joined Wi-Fi's /24, and each own hotspot's, at most a /24) is
   a button on the Connection screen: one sweep, at most 8 TLS attempts, the
   pinned key only. A stored pin is never replaced; forgetting comes first.
 - `SecurityLintTest` fails the build's tests if a second trust manager, a name

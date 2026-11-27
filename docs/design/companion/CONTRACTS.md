@@ -40,8 +40,19 @@ Identity (owner's decision, 2026-11-21): application id `app.doors.companion`, A
 - Contain no accept-all trust manager, no hostname verifier that returns true, no "insecure" build variant or developer switch, and no cleartext fallback. A lint (or a unit test over the dependency graph and sources) holds that.
 - Never accept a changed key for a known unit. Show the unit's name and fingerprint before storing a pin.
 
-**Network**
-- Bind its sockets to the Wi-Fi network explicitly.
+**Network** (the hotspot rules accepted by the product owner on 2026-11-27: ADR-019 amendment 3, phase 0, F1; PR #193)
+- Bind its sockets to the Wi-Fi network the phone joined, explicitly.
+- Reach a unit on a hotspot or tethering link the phone hosts itself only:
+  - with a socket bound to no network and no proxy;
+  - to an address inside that link's IPv4 subnet: RFC 1918, never wider than the phone's own /24, and neither the phone's address nor the subnet's first or last;
+  - from the phone's own address on that link;
+  - after the kernel's route to that address was confirmed to leave from that address.
+
+  A link is the phone's own when it is up, is not loopback, point-to-point or Wi-Fi Direct, is the interface of no network the platform reports to the app (other than one with `NET_CAPABILITY_LOCAL_NETWORK`), and its subnet overlaps no reported network's.
+
+  Why: Android gives an app no joined network for its own hotspot. Tethering puts the link in netd's local network, which is looked up first for a socket bound to no network (DOCUMENTED, AOSP source). Not yet tested on a phone (README.md H12).
+- Without a joined Wi-Fi network, connect to nothing outside such a subnet. Send nothing over mobile data or a VPN.
+- Make no process-wide network binding.
 - Reconnect, probe and back off as PAIRING.md §7; run no reconnect loop in the background without the optional connection service.
 
 **Protocol**

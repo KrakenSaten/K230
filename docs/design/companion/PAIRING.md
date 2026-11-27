@@ -88,9 +88,9 @@ Chosen on the approval sheet; defaults `status`, `mesh_read`, `mesh_send` on, `c
 
 **Find the unit again** when the last address fails:
 
-1. Wait for a Wi-Fi network (the socket is bound to the Wi-Fi network explicitly, so a hotspot or a LAN without internet is not bypassed over mobile data).
+1. Wait for a Wi-Fi network the phone joined, or a hotspot of its own (CONTRACTS.md §2, Network; accepted 2026-11-27). A socket to the joined network is bound to it explicitly, so a LAN without internet is not bypassed over mobile data. A socket to a client of the phone's own hotspot is bound to no network, goes only to that hotspot's subnet, and is made only after the kernel's route was confirmed to leave from the hotspot's address.
 2. Try the last address.
-3. Probe the phone's own Wi-Fi subnet, at most a /24, for the port; attempt TLS only where the port answers; accept only the pinned key. The phone's certificate is sent only after the unit's key has been verified, so a stranger on that port learns nothing about the phone.
+3. Probe the phone's own subnets, the joined Wi-Fi's and each own hotspot's, each at most a /24, for the port; attempt TLS only where the port answers; accept only the pinned key. The phone's certificate is sent only after the unit's key has been verified, so a stranger on that port learns nothing about the phone.
 4. If nothing answers: "not on this network", and retry on the next network change or by hand.
 
 **Back off.** 1 s doubling to 60 s with jitter, reset by a network change or by the person. No reconnect loop runs without either the app in front or the optional connection service.

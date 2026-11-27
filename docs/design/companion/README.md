@@ -50,6 +50,8 @@ DOORS Companion is an Android app for a paired Doors unit: RIFT messaging, Packe
 | Application id | `app.doors.companion` | CONTRACTS.md §2 |
 | Licence | Apache-2.0, as the repository (ADR-013) | CONTRACTS.md §2 |
 
+Later: on 2026-11-27 the product owner accepted the rules for a unit on the phone's own hotspot (CONTRACTS.md §2, Network; PAIRING.md §7). This is ADR-019 amendment 3, phase 0, F1, in PR #193. The rules are DOCUMENTED from AOSP source and not yet tested on a phone (H3, H12).
+
 ## Unresolved decisions
 
 For the product owner. Each blocks the milestone named.
@@ -77,7 +79,7 @@ Everything about the repository in this package is DOCUMENTED (read from source 
 | --- | --- | --- | --- |
 | H1 | The image's OpenSSL 3.4.1 has TLS 1.3 and P-256 (ECDSA and ECDHE) enabled | **Partly checked 2026-11-21, read-only:** one SDK sysroot on the build host (`~/work/neon-p98/f398ecb/sysroot`, OpenSSL 3.4.1) defines none of `OPENSSL_NO_TLS1_3`, `OPENSSL_NO_EC`, `OPENSSL_NO_ECDSA`, `OPENSSL_NO_ECDH` in `openssl/configuration.h`. **2026-11-21, M2:** the v0.4.0 release build's sysroot says the same, and `gatewayd` cross-builds and links against its `libssl.so.3`. Not checked: the library's behaviour on a unit | the rest: yes |
 | H2 | A full mutual P-256 handshake is cheap enough on the one hart that the shell keeps its frame time, with no resumption | Measure handshake time and shell frame time during a connect and during a flood | yes, with go-ahead |
-| H3 | The unit reaches, and is reached by, a phone whose hotspot it joined (no client isolation between hotspot host and client) | Join a hotspot, connect | yes |
+| H3 | The unit reaches, and is reached by, a phone whose hotspot it joined (no client isolation between hotspot host and client). The app side exists since PR #193 (CONTRACTS.md §2, accepted 2026-11-27); not yet tried | Join the Flip8's hotspot, pair or connect (PR #193's Flip8 checklist) | yes |
 | H4 | TCP 47231 is unused on the image | `netstat -ltn` on a unit, read-only | yes (read-only) |
 | H5 | The kernel's random source is ready when the key is first generated, on a board with no RTC and little boot entropy | As ADR-017's entropy check | yes |
 | H6 | `$POCKETOS_STATE_DIR` survives a power cut after temp-flush-rename | As ADR-017's state-directory check | yes |
@@ -86,7 +88,7 @@ Everything about the repository in this package is DOCUMENTED (read from source 
 | H9 | Android Keystore P-256 keys work for TLS 1.3 client authentication on min SDK 29 and accept the fixed certificate dates | Instrumented test on a phone and an emulator | no |
 | H10 | The pairing URI (about 150 characters) is readable as a QR code on the panel at a comfortable size | Simulator screenshot, then the panel | simulator first |
 | H11 | `/run/pocketos` is not world-accessible on a unit (init scripts create it before the library's 0770 applies) | `ls -ld` on a unit, read-only | yes (read-only) |
-| H12 | Android routes a socket bound to a hotspot's or an internet-less Wi-Fi network as expected on the owner's phones | Manual test | no |
+| H12 | Android routes as expected on the owner's phones: (a) a socket bound to a joined Wi-Fi network without internet; (b) a socket bound to no network, to a client of the phone's own hotspot, through netd's local network and never mobile data (CONTRACTS.md §2). For (b), the platform behaviour is DOCUMENTED from AOSP source: netd `addLocalNetworkRules`, tethering `IpServer`, and on Android 15 and later an optional local network agent. Which mode One UI uses on the Flip8 is unknown | Manual test; for (b), PR #193's Flip8 checklist | (a) no; (b) yes, or any device on the hotspot |
 
 ## Remaining blockers before implementation
 
