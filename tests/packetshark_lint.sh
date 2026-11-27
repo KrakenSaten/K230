@@ -118,6 +118,24 @@ check "a mark's evidence is asked for in one function, and never while its page 
     "$([ "$hits" = "2" ] && sed -n -E '/^static void ev_ask\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_evid(a->session, a->model, a->ev_id)' &&
        sed -n -E '/^static void ev_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if ((!psk_evp_shown(a) && !a->mark_wait) || !psk_capture_present(a)) {' &&
        echo 1 || echo 0)"
+# The intelligence engine's first slice (N1.1, docs/apps/packetshark/neural/N1.1.md)
+# by the same rules: one allocation, no text, no clock, no loop without a
+# bound, nothing of a socket, no byte of a packet; and host-only until its
+# hook, protocol and screen are approved.
+hits=$(code $C/ppc_intel.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf|fprintf|puts)\(')
+check "the intelligence engine allocates once, at init, and formats nothing (N1.1)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'in->mem = calloc(1, ppc_intel_bytes());' &&
+       echo 1 || echo 0)"
+hits=$(code $C/ppc_intel.c | grep -nE '\bwhile *\(1\)|\bfor *\(;;\)|goto|#include <(sys/socket|netinet|arpa|unistd|time)|\b(clock_gettime|gettimeofday|time)\(')
+check "it has no unbounded loop, no goto, no clock of its own and nothing of a socket in it" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $C/ppc_intel.c | grep -nE 'qname|->name\b|payload|->data\b|ppc_store_copy|ppc_dissect|->mac\b|->ip2?\b')
+check "nothing of a packet's bytes, a name or an address reaches the engine: counts, times and packet numbers" \
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(grep -lE 'ppc_intel' $H $A/*.c $A/*.h $A/ui/*.c ui/shell/CMakeLists.txt 2>/dev/null | tr '\n' ' ')
+check "the engine is not in the helper or the shell yet: its hook, protocol and screen wait for approval ($hits)" \
+    "$([ -z "$hits" ] && ! sed -n '/^PPC_CORE_OBJS/,/^PPC_SRC_OBJS/p' Makefile | grep -q ppc_intel && echo 1 || echo 0)"
 hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_mark\(')
 check "a mark is set in one function, which sends the helper nothing else" \
     "$([ "$hits" = "2" ] && sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_mark(a->session)' &&
