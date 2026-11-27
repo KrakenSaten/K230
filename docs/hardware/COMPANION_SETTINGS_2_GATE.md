@@ -1,10 +1,17 @@
 # Companion Settings 2.0: hardware gate (Unit B)
 
-**Status: build, image and kit ready (`d189c2c1`, section 11); the tests on
-the unit wait for the owner.** Nothing has been installed, started, stopped
-or changed on any unit; the kit is staged on Unit B. Unit B was otherwise
-only read, over key-only SSH and its serial console, on 2026-11-25. Unit A
-and PR #186 are out of scope and must stay untouched.
+**Status (2026-11-27): the hardware session ran on Unit B with build
+`d189c2c1`.**
+- Install, rollback, and every check without a phone: **PASS** (section 11.2).
+- Pairing, an authenticated session and reconnects with the Flip8, over the
+  phone's own hotspot: **PASS**. That evidence came from PR #193's test on the
+  same Unit B.
+- **Four checks are still mandatory before merge:** reboot with a paired
+  phone, taking a permission away, removal, and the key confirmation's NO.
+  So is a build of the merged head. All are in
+  [`COMPANION_SETTINGS_2_FINAL_CHECKLIST.md`](COMPANION_SETTINGS_2_FINAL_CHECKLIST.md)
+  (sections 11.3 and 11.4).
+- Unit A was not touched.
 
 - **What is under test:** draft PR #190 (`claude/companion-settings-2-aad748`),
   ADR-019 amendment 2. The owner accepted it on 2026-11-25 with its three
@@ -491,8 +498,91 @@ checked there (`KIT.sha256`, `new/SHA256SUMS`).
 APK and reaches 172.16.5.126 and .220. Nothing was tried against a gateway,
 because none runs.
 
-### 11.2 With the owner present
+### 11.2 With the owner present, 2026-11-27 (times UTC)
 
-The install, the rollback test, the checks over SSH after the password is
-set (S1 to S8), and the hands-on tests are in
-`COMPANION_SETTINGS_2_MANUAL_CHECKLIST.md`. Their results go here.
+**Who did what:**
+- The owner set the password, used the switch and pairing by finger, and ran
+  the phone.
+- The checks over SSH and the serial console were scripted; the password was
+  never typed by anyone but the owner.
+- Raw evidence is in `C:\K230-artifacts\companion-settings-2\hw\` (this
+  section) and `C:\K230-artifacts\companion-hotspot-f1\` (the phone).
+- Everything below is VERIFIED unless it says otherwise.
+
+**Install and rollback:**
+
+| Step | Result | Seen |
+| --- | --- | --- |
+| Before | as found | Unit B on 0.5.0 `b37b644a`; `KIT.sha256` and `new/` verified; root's shadow field empty; `PermitRootLogin yes`; nothing on 47231 (08:12Z) |
+| BACKUP | **PASS** | 08:13:30Z: 97 paths saved; `before/` verifies on the unit and its PC copy verifies |
+| INSTALL | **PASS** | 08:13:45 to 08:14:06Z: rc 0; all 96 installed files match the build; shadow, passwd, sshd_config and the switch untouched |
+| RESTORE, exercised once | **PASS** | 08:14:33 to 08:14:48Z: gatewayd and S70gatewayd removed; 21 binaries are the backed-up ones; shadow, passwd, sshd_config and authorized_keys back by content, mode and owner; `sshd -T` `permitrootlogin yes`; BUILD_ID `b37b644a` |
+| INSTALL again | **PASS** | 08:15:19Z: BUILD_ID `d189c2c1`; `companion.status` installed, off, no password, SSH open; no gatewayd |
+
+**At the unit (section 7) and over SSH (the manual checklist's S1 to S8):**
+
+| # | Result | Seen |
+| --- | --- | --- |
+| U1 | NOT TESTED as written | The portrait, landscape and Large set was not photographed. The panel was seen in four shell screenshots, at U3, after a cancel, while pairing, and after S7 (`hw/*.png`) |
+| U2, S1 | **PASS** | 08:29Z, the owner set the password on the screen. `companion.status` reports `password_set`, ssh `hardened`. `sshd_config` has `PermitRootLogin prohibit-password`; `sshd_config.doors-orig` is the original byte for byte; both are 0644 root. `sshd -T` gives `permitrootlogin without-password` (OpenSSH's name for the same). The shadow field begins `$6$`. A new key-only SSH connection works, and COM3 asks for the password. The mismatch and short-password texts were not recorded |
+| U3 | **PASS** | 08:33:20Z on: gatewayd 0.5.0 `d189c2c1`, capabilities dropped, unit key `7810 B639 41A1 1FE9` |
+| U4 | **PASS** | 08:33:18Z off and 08:33:20Z on again, by finger; the unit key is the same (`identity.v1` hash `96f2dc6a…` throughout the day) |
+| S2 | **PASS** | No phone and no window: nothing listens (`no_clients`). During a window (08:39:12Z): `172.16.5.126:47231` only. The eth0 address refuses |
+| S3 | **PASS** | During that window: TLS 1.2 refused (alert 70); TLS 1.3 without a client certificate refused (alert 116, certificate required) |
+| A5, unit side | **PASS** | 08:39:33Z cancel: the listener closes, `pair_closed: cancelled`. Whether a phone with the old code is let in was not tried |
+| A4, unit side | **PASS** | 08:43:32Z code shown; at 08:45:33Z `pair_closed: expired`. Not tried with a phone |
+| New Wi-Fi address | **PASS** | gatewayd listened on wlan0's new address `10.0.2.143` (Skullerud Park) at 09:03:08Z, and on `10.129.188.199` (the Flip8's hotspot) by 12:29Z. How it follows a change *while* listening was not isolated (PR #193) |
+| U9, S8 | **PASS** | 09:05:13 to 09:05:30Z, INSTALL again over itself: rc 0; 96 files match; unit key, `/etc/default/gatewayd`, shadow and sshd_config hashes unchanged; switch on. No phone was paired then |
+| U8, S7 | **PASS** | 09:05:47Z: a record of this boot naming a gone process group, then sysd killed. pos-supervise restarted sysd, which reported `action: recover`, `error: activation_interrupted`, wrote `GATEWAYD_ENABLE=0` and left no gatewayd. Settings said why (screenshot 09:06Z); on again by finger at 09:07:50Z |
+| U5, S5 | **PASS** with no phone | 09:11Z after a reboot: on, running, the same key, `$6$`, `prohibit-password`. With no phone paired nothing listens (`no_clients`), so **a phone reconnecting after a reboot is still to be seen** (final checklist F1) |
+| U7, S6 | **PASS** | 09:12Z, a record from another boot, then a reboot. After boot the gateway is off, `recover` / `activation_interrupted`, `GATEWAYD_ENABLE=0`, no gatewayd. sysd recovered before S70 ran, so S70 printed `disabled` (`hw/s6-boot.txt`), not its own guard text. That guard is host-tested (`initscript_test.sh`) |
+| U6 | **PASS** | The same boot: with the switch at 0, S70gatewayd started nothing (`disabled`) |
+| U10 | NOT TESTED | By design (section 7) |
+
+**With the Flip8** (12:22 to 12:43Z, during PR #193's test; Unit B on
+`d189c2c1`, the phone on the app at PR #193 `81b3d329`):
+
+| # | Result | Seen |
+| --- | --- | --- |
+| Phone | as used | Galaxy Z Flip8 SM-F776B, Android 17 / SDK 37. The APK was installed fresh, which lost its Unit A pairing (the owner's choice). The phone's key starts `C5D4 DCF0 CC0D 6E4D` |
+| Network | as used | The Flip8's own hotspot, 10.129.188.0/24: the phone at .125, Unit B at .199. Skullerud Park could not be used (no frame from the phone reached Unit B, 08:4x to 09:2xZ; the cause is still not proven) |
+| A1 | **PASS** | PAIR A PHONE on the unit; the Flip8 scanned the code and connected to 10.129.188.199. The orientation was not recorded |
+| A2 | **PASS**, the YES path | The owner compared the keys and allowed. The NO state was not tried (final checklist F4). The unit's list was not read |
+| Session | **PASS** | "OPEN · 10.129.188.199 · TLS 1.3 · key pinned", with live status |
+| A7, granting | **PASS**, inferred | The unit took the phone's capture start requests (12:32:00Z and 12:38:51Z, "CAPTURING… ASKED FROM A PHONE") and held them to one per 30 s. That needs `capture_control` (gateway.md §9), which a new pairing does not get (PAIRING.md §4), so the switch was given on the unit. When that happened was not recorded. **Taking a scope away is untested** (F2) |
+| A12, in part | **PASS** | RIFT rooms loaded through the gateway. Live traffic and the history marks were not checked |
+| A15, in part | **PASS** | The first PacketShark start request from the app against a real gatewayd, as above. HOLD, STOP, figures and the timeout were not checked |
+| A10-like | **PASS** | The phone's hotspot went off at 12:33:34Z: the app showed "AWAY", not "removed". It reconnected by itself at 12:37:09Z, with the same pin and no new pairing. That was the network going, not the gateway switch |
+| A3, A6, A8, A9, A11, A13, A14 | NOT TESTED | A8 and A9 are mandatory (F1, F3). A13, each RIFT send, is only on the owner's word |
+
+### 11.3 The tested build and the current head
+
+| | Commit | Relation to what was tested |
+| --- | --- | --- |
+| Unit B ran | `d189c2c1` (image gate PASS, 11.1) | The build tested above |
+| PR head before the sync | `6a8ef974` | `d189c2c1` plus two documents (this one and the manual checklist). No code |
+| PR head after the sync | `0d1174d5`, merging master `1fef813b` | `d189c2c1` plus docs and master's three PRs. None of them touches a file of this PR's code: <br>- #191: `apps/packetshark` padding and its tests, which are linked into **doors-shell**, so the shipped shell binary differs from `d189c2c1`'s; <br>- #186: docs; <br>- #193: the Android app and docs. <br>Only `docs/design/companion/README.md` was changed on both sides, and it merged by itself |
+| The phone's app | APK `ec50c2c1…` from PR #193 `81b3d329` | The app tree at `0d1174d5` is identical to that APK's code (`fa9ff613`). This PR changes no Android file |
+
+So the unit evidence of 11.2 holds for every file of this PR's code at the
+current head, and the phone evidence holds for the app at the head. Two
+things have not been checked:
+- the merged combination has not been built;
+- Unit B does not run #191's PacketShark change.
+
+The second matters to no check of this gate.
+
+### 11.4 What is still mandatory
+
+Only these, in
+[`COMPANION_SETTINGS_2_FINAL_CHECKLIST.md`](COMPANION_SETTINGS_2_FINAL_CHECKLIST.md):
+- F0, the build of the merged head. This is not hardware and not a repeat:
+  the combination is new.
+- F1, a reboot with a paired phone (A9, U5).
+- F2, taking a permission away from a connected phone (A7).
+- F3, removal (A8).
+- F4, the key confirmation's NO, as part of pairing again (A2).
+
+Everything else NOT TESTED above is optional for the merge. The reasons are
+in that checklist. The fresh-card test (10.3) belongs before a release, not
+before this merge.

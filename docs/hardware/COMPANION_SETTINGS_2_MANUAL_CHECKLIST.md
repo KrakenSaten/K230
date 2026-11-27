@@ -1,5 +1,9 @@
 # Companion Settings 2.0: manual tests at the unit (Unit B)
 
+> **Run on 2026-11-27.** The results are in `COMPANION_SETTINGS_2_GATE.md`
+> section 11.2. What is left is in `COMPANION_SETTINGS_2_FINAL_CHECKLIST.md`.
+> This list is kept as the plan that was followed.
+
 The tests that need the owner's hands, eyes and phone. Everything that could
 be done remotely is in `COMPANION_SETTINGS_2_GATE.md` section 11. Mark each
 PASS, FAIL or NOT TESTED, with the time. Unit A stays untouched.
