@@ -241,7 +241,7 @@ private fun Gate(view: CaptureView, link: LinkState) {
     val (title, body) = when (view.access) {
         CaptureAccess.OFFLINE -> "The unit is away" to
             "Capture figures are read live and never stored on the phone, so there is nothing to show until the session is back." +
-            if (link is LinkState.NoWifi) " The unit is reached over Wi-Fi only." else ""
+            if (link is LinkState.NoWifi) " The unit is reached over Wi-Fi or this phone's hotspot only." else ""
         CaptureAccess.NOT_SERVED -> "Not served by this unit" to
             "This unit's gateway does not serve capture. Reading PacketShark from a phone is a proposed change to the capture rules (ADR-016, amendment 1) and is in no released Doors yet."
         CaptureAccess.NOT_GRANTED -> "Not granted to this phone" to

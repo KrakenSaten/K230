@@ -11,7 +11,8 @@ import java.io.File
  * The lint CONTRACTS.md section 2 asks for, as a test over the sources: no
  * accept-all trust manager, no permissive name check, no TLS below 1.3, no
  * platform trust store, no cleartext, no "insecure" variant or switch, no
- * cloud or telemetry dependency, no permission beyond the contract's.
+ * cloud or telemetry dependency, no permission beyond the contract's, no
+ * socket made outside the transport.
  *
  * It reads text, so it holds the wording of the rules, not their meaning: the
  * unit tests of PinnedTrustManager and the suite against a real gatewayd hold
@@ -52,6 +53,26 @@ class SecurityLintTest {
         assertEquals("no other server entry point", 3, Regex("fun checkServerTrusted").findAll(tm).count())
         val tls = sources.single { it.name == "GatewayTls.kt" }.readText()
         assertTrue(tls.contains("const val PROTOCOL = \"TLSv1.3\"") && tls.contains("enabledProtocols = arrayOf(PROTOCOL)"))
+    }
+
+    @Test
+    fun socketsAreMadeOnlyWhereTheirWayIsChecked() {
+        // A socket of its own is made by the transport only: bound to the
+        // joined Wi-Fi network (WifiTransport), or left unbound from an own
+        // link's address once the kernel's route was confirmed (LocalTransport).
+        val makers = Regex("\\bSocket\\(|DatagramSocket\\(|SocketChannel|DatagramChannel|ServerSocket|socketFactory\\.createSocket\\(\\)")
+        assertEquals(listOf("LocalTransport.kt", "WifiTransport.kt"), offenders(sources, makers).sorted())
+        val wifi = sources.single { it.name == "WifiTransport.kt" }.readText()
+        assertEquals("WifiTransport makes sockets from the joined network's factory only", 0, Regex("\\bSocket\\(|DatagramSocket\\(").findAll(wifi).count())
+        val local = sources.single { it.name == "LocalTransport.kt" }.readText()
+        assertEquals("one unbound TCP socket", 1, Regex("\\bSocket\\(").findAll(local).count())
+        assertTrue("with no proxy", local.contains("Socket(Proxy.NO_PROXY)"))
+        assertTrue(
+            "the own-link socket waits for the route",
+            Regex("routeSource\\(to, port\\) != path\\.link\\.own\\) \\{\\s*throw IOException[^\\n]*\\n\\s*}\\s*platform\\.connectFrom\\(").containsMatchIn(local),
+        )
+        // A process bound to one network would take every socket off the local network's lookup.
+        assertEquals(emptyList<String>(), offenders(sources, Regex("bindProcessToNetwork|setProcessDefaultNetwork")))
     }
 
     @Test

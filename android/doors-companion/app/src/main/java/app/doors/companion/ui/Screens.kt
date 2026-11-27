@@ -75,7 +75,7 @@ private fun look(state: LinkState, unit: PairedUnit): Look = when (state) {
         Trouble.UNREACHABLE -> Look("Away", Doors.Warn, false, 0f, "No answer on this network. Trying again shortly")
         Trouble.LOST -> Look("Away", Doors.Warn, false, 0f, "The connection was lost. Trying again shortly")
     }
-    LinkState.NoWifi -> Look("No Wi-Fi", Doors.Muted, false, 0f, "The unit is reached over Wi-Fi only")
+    LinkState.NoWifi -> Look("No Wi-Fi", Doors.Muted, false, 0f, "The unit is reached over Wi-Fi or this phone's hotspot only")
     LinkState.Idle -> Look("Idle", Doors.Muted, false, 0f, "Not connected")
     is LinkState.Stopped -> when (state.why) {
         Stop.REVOKED -> Look("Removed", Doors.Error, false, 0f, "The unit says this phone was removed")
