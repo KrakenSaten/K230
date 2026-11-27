@@ -6,7 +6,8 @@
  * service's, or this session's, and docs/apps/RIFT.md says why. What it does
  * keep is what a reader chose and would be annoyed to choose again: whether
  * a new direct message makes a sound, whether a new channel message does,
- * which channels are muted, and whether MAP draws its basemap. (The map
+ * which channels are muted, which contacts are favourites, and whether MAP
+ * draws its basemap. (The map
  * tiles themselves are the tile helper's cache, rift/tiles beside this
  * file - core/web/web_tiles.h - and RIFT writes none of them.)
  *
@@ -62,9 +63,20 @@
  * fetched over the network. Off unless the reader turned it on. */
 #define RIFT_PREF_BASEMAP "basemap" /* 0|1 */
 #define RIFT_PREF_BASEMAP_DEFAULT 0
-/* The longest line this build writes, and the whole file. */
+/* CONTACTS' favourites (rift_contacts.h): one line per contact, its whole
+ * public key as 64 lowercase hex characters - the one identity a node keeps
+ * through a rename, a new route or being forgotten and heard again, where a
+ * name or the node hash would not. A favourite whose node the table does not
+ * hold now stays one, and is a favourite again when its advert is heard. At
+ * most RIFT_PREF_FAV_MAX; nothing about the contact itself is stored, and
+ * MeshCore's contact table is not touched. */
+#define RIFT_PREF_FAVORITE "favorite"
+#define RIFT_PREF_FAV_MAX 64
+#define RIFT_PREF_FAV_KEY 65
+/* The longest line this build writes, and the whole file: the favourites
+ * alone are 64 lines of 74 bytes. */
 #define RIFT_STORE_TEXT_MAX 256
-#define RIFT_STORE_FILE_MAX 2048
+#define RIFT_STORE_FILE_MAX 8192
 
 struct rift_prefs {
     int dm_sound; /* 0 or 1 */
@@ -73,14 +85,16 @@ struct rift_prefs {
     int mute_count;
     char emoji_recent[RIFT_PREF_EMOJI_RECENT_LEN]; /* "" when none */
     int basemap;  /* 0 or 1 */
+    char fav[RIFT_PREF_FAV_MAX][RIFT_PREF_FAV_KEY]; /* oldest first */
+    int fav_count;
 };
 
 void rift_prefs_defaults(struct rift_prefs *p);
 
 /* Read the file's text into p, over whatever p held. Returns a mask of the
  * known keys whose value was unusable (1: dm_sound, 2: channel_sound, 4: a
- * channel_mute line, 8: emoji_recent, 16: basemap), which keep what p had; 0 when
- * everything present was usable. Pure: no I/O. */
+ * channel_mute line, 8: emoji_recent, 16: basemap, 32: a favorite line), which
+ * keep what p had; 0 when everything present was usable. Pure: no I/O. */
 int rift_prefs_parse(struct rift_prefs *p, const char *text);
 /* The file's text. Returns the length, or -1 when out is too small. */
 int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len);
@@ -89,6 +103,13 @@ int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len);
  * set returns 0, or -1 when the key is not a channel's or the list is full. */
 int rift_prefs_channel_muted(const struct rift_prefs *p, const char *conv_key);
 int rift_prefs_set_channel_muted(struct rift_prefs *p, const char *conv_key, int muted);
+
+/* Whether this contact (a whole public key, either case) is a favourite,
+ * and making it one or not. set returns 0, or -1 when the key is not 64 hex
+ * characters or the list is full; making a favourite of one already is
+ * nothing, and so is unmaking one that is not. */
+int rift_prefs_favorite(const struct rift_prefs *p, const char *public_key);
+int rift_prefs_set_favorite(struct rift_prefs *p, const char *public_key, int on);
 
 const char *rift_store_dir(void);
 const char *rift_store_path(void);

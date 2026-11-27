@@ -57,6 +57,10 @@ const char *rift_comms_open_peer(const struct rift_app *app);
 /* Conversation rows in the pool (rift_conv_list.h), for the test: bounded
  * by the pane, not by the count. */
 int rift_comms_rows_built(const struct rift_app *app);
+/* The list's order as last drawn (groups and all), for the test: how many
+ * rows, and the key of the i-th; NULL past the end. */
+int rift_comms_order_count(const struct rift_app *app);
+const char *rift_comms_order_key(const struct rift_app *app, int i);
 /* What the landscape command line should say it is addressing, for its
  * placeholder and its right-hand hint. Writes "" when nothing is open. */
 void rift_comms_target_label(const struct rift_app *app, char *out, size_t out_len);

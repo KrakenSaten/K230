@@ -173,8 +173,12 @@ developer tooling, not for applications.
   stored and not replayed: one at a time, at most four waiting. Result, and
   `shell.info.notice`: `{visible, posted, dropped, title, body}` - the newest
   one shown. `pos call shell shell.notify title="Backup finished" source=SYSD`.
-  RIFT raises one for a new direct or channel message (docs/apps/RIFT.md,
-  "Message banners").
+  A notice from `shell.notify` keeps the shell's holds (five seconds, 2.2 s
+  with another waiting); an app may ask for its own through app.h
+  (`hold_ms`, `hold_queued_ms`, kept within 1 to 15 s), and give it an `arg`
+  string the shell copies and passes to the tap's callback. RIFT raises one for a
+  new direct or channel message and asks for 10 s and 4.4 s
+  (docs/apps/RIFT.md, "Message banners").
 
 - `shell.info` also carries `title` with an app open: the header's title, the
   app's name or the page it is on (app.h `pocketos_shell_set_title`).

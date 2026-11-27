@@ -580,6 +580,9 @@ int rift_rxlog_apply(struct rift_rxlog *log, const cJSON *data, int64_t now_mono
     if (now_wall >= WALL_SET_MS) {
         e.flags |= RIFT_RXF_HAVE_WALL;
     }
+    /* Before it is filed, so a reception the full ring has no room for is
+     * still heard by TROPO. */
+    rift_tropo_observe(&log->tropo, &e, now_mono);
     added = insert(log, &e);
     if (added) {
         share_text(log, added);

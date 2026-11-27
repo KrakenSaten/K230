@@ -55,6 +55,75 @@ int rift_prefs_channel_muted(const struct rift_prefs *p, const char *conv_key)
     return 0;
 }
 
+/* A whole public key, lowercased into out: 0, or -1 when it is not one. */
+static int fav_key(const char *key, char out[RIFT_PREF_FAV_KEY])
+{
+    int i;
+
+    if (!key) {
+        return -1;
+    }
+    for (i = 0; i < RIFT_PREF_FAV_KEY - 1; i++) {
+        char c = key[i];
+
+        if (c >= 'A' && c <= 'F') {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return -1;
+        }
+        out[i] = c;
+    }
+    if (key[i] != '\0') {
+        return -1;
+    }
+    out[i] = '\0';
+    return 0;
+}
+
+int rift_prefs_favorite(const struct rift_prefs *p, const char *public_key)
+{
+    char k[RIFT_PREF_FAV_KEY];
+    int i;
+
+    if (!p || fav_key(public_key, k) != 0) {
+        return 0;
+    }
+    for (i = 0; i < p->fav_count; i++) {
+        if (strcmp(p->fav[i], k) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int rift_prefs_set_favorite(struct rift_prefs *p, const char *public_key, int on)
+{
+    char k[RIFT_PREF_FAV_KEY];
+    int i;
+
+    if (!p || fav_key(public_key, k) != 0) {
+        return -1;
+    }
+    for (i = 0; i < p->fav_count; i++) {
+        if (strcmp(p->fav[i], k) == 0) {
+            if (!on) {
+                memmove(&p->fav[i], &p->fav[i + 1], sizeof(p->fav[0]) * (size_t)(p->fav_count - i - 1));
+                p->fav_count--;
+            }
+            return 0;
+        }
+    }
+    if (!on) {
+        return 0;
+    }
+    if (p->fav_count >= RIFT_PREF_FAV_MAX) {
+        return -1;
+    }
+    memcpy(p->fav[p->fav_count++], k, sizeof(k));
+    return 0;
+}
+
 int rift_prefs_set_channel_muted(struct rift_prefs *p, const char *conv_key, int muted)
 {
     int i;
@@ -129,6 +198,11 @@ static int parse_line(struct rift_prefs *p, char *line)
         /* A channel's key, or not kept; a list already full keeps what it
          * has, and a repeat is one entry. */
         return rift_prefs_set_channel_muted(p, value, 1) == 0 ? 0 : 4;
+    }
+    if (strcmp(key, RIFT_PREF_FAVORITE) == 0) {
+        /* A whole key, or not kept; a full list keeps what it has, and a
+         * repeat is one entry. */
+        return rift_prefs_set_favorite(p, value, 1) == 0 ? 0 : 32;
     }
     if (strcmp(key, RIFT_PREF_BASEMAP) == 0) {
         if (strcmp(value, "0") == 0 || strcmp(value, "1") == 0) {
@@ -216,6 +290,13 @@ int rift_prefs_format(const struct rift_prefs *p, char *out, size_t out_len)
      * is the file it always was. */
     if (p->basemap) {
         n = snprintf(out + at, out_len - at, "%s=1\n", RIFT_PREF_BASEMAP);
+        if (n < 0 || (size_t)n >= out_len - at) {
+            return -1;
+        }
+        at += (size_t)n;
+    }
+    for (i = 0; i < p->fav_count; i++) {
+        n = snprintf(out + at, out_len - at, "%s=%s\n", RIFT_PREF_FAVORITE, p->fav[i]);
         if (n < 0 || (size_t)n >= out_len - at) {
             return -1;
         }

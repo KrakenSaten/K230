@@ -30,13 +30,13 @@
 #include <string.h>
 
 /* The conversation the last tapped banner was about. One is enough: a tap
- * is acted on at once (shell_notice.c), before another can be tapped. */
+ * is acted on at once (shell_notice.c), before another can be tapped.
+ *
+ * Each banner's own key travels with it as the notice's `arg`, which the
+ * shell copies (app.h): a ring of keys here was overwritten by a burst of
+ * eight more banners while an earlier one was still on screen, and a tap on
+ * it then opened the burst's conversation instead of its own. */
 static char open_key[RIFT_KEY_HEX];
-/* The keys of the banners raised lately, for their taps: a ring, so one
- * still waiting its turn keeps its own conversation. */
-#define BANNER_KEYS 8
-static char pending_key[BANNER_KEYS][RIFT_KEY_HEX];
-static unsigned pending_at;
 
 static void on_open(void *user)
 {
@@ -117,8 +117,6 @@ static void banner_for(struct rift_app *a, const char *key)
             *p = ' ';
         }
     }
-    pending_at = (pending_at + 1) % BANNER_KEYS;
-    snprintf(pending_key[pending_at], sizeof(pending_key[pending_at]), "%s", key);
     n.app_id = RIFT_APP_ID;
     n.source = source;
     n.title = title;
@@ -126,7 +124,9 @@ static void banner_for(struct rift_app *a, const char *key)
     n.title_style = rift_emoji_style(POS_STYLE_ROW_TITLE);
     n.body_style = rift_emoji_style(POS_STYLE_TEXT_SECONDARY);
     n.on_open = on_open;
-    n.user = pending_key[pending_at];
+    n.arg = key;
+    n.hold_ms = RIFT_BANNER_HOLD_MS;
+    n.hold_queued_ms = RIFT_BANNER_HOLD_QUEUED_MS;
     pocketos_shell_notify(&n);
 }
 

@@ -16,6 +16,7 @@
 #define RIFT_CONV_LIST_H
 
 #include "rift_app.h"
+#include "rift_comms_group.h"
 
 struct rift_conv_list;
 
@@ -32,6 +33,13 @@ void rift_conv_list_shape(struct rift_conv_list *l, int wide);
  * because a scroll binds rows between refreshes. */
 void rift_conv_list_refresh(struct rift_conv_list *l, const struct rift_conv *conv, int count,
                             const char *open, int64_t now, int reveal);
+/* The next refresh's rows are in groups (rift_comms_group.h): counts[g]
+ * rows of group g, in group order, each run under its label - with how many
+ * of its messages are unread (unread may be NULL). NULL counts is one plain
+ * run with no labels. Counts that do not add up to the rows given are
+ * ignored, and the rows are drawn as one run. */
+void rift_conv_list_set_groups(struct rift_conv_list *l, const int counts[RIFT_GROUP_COUNT],
+                               const int unread[RIFT_GROUP_COUNT]);
 /* Rows in the pool, for the test: bounded by the pane, not by the count. */
 int rift_conv_list_rows_built(const struct rift_conv_list *l);
 /* The height every row would take laid out, for the portrait pane. */

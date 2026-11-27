@@ -218,11 +218,24 @@ void pocketos_shell_set_background(const char *app_id, const char *label, const 
  * own event - or, when on_open is NULL, opens the app named by app_id; while
  * the lock is engaged a tap does nothing.
  *
+ * `arg`, when not NULL, is a short string (NOTICE_ARG_MAX - 1 bytes kept)
+ * that the shell copies with the notice and hands to on_open in place of
+ * `user`: what the tap is about - a conversation's key - travels with the
+ * notice itself, so a burst of later notices cannot change what an earlier
+ * one opens. `user` is then not used.
+ *
  * `accent` is an identity accent (pos_identity_hue, a hash may be passed) for
  * the rule down its edge, so a sender is the colour here that they are in
  * the app; -1 is the theme's accent. title_style and body_style, when not
  * NULL, are added over the two lines' own roles - an app's colour-emoji
  * font - and must outlive the notice (a static style).
+ *
+ * `hold_ms` is how long it stays when nothing waits behind it, and
+ * `hold_queued_ms` how long when something does; 0 (a zeroed notice) is the
+ * shell's own for both (shell_notice.h, NOTICE_HOLD_MS and
+ * NOTICE_HOLD_QUEUED_MS), so an app that says nothing keeps the default. A
+ * value is kept within NOTICE_HOLD_MIN_MS..NOTICE_HOLD_MAX_MS, and a queued
+ * hold never outlasts the plain one: a notice only gives way sooner.
  *
  * The strings are copied. Notices are not stored and not replayed: what
  * arrives while one is showing waits its turn, a few at most. Called on the
@@ -237,6 +250,9 @@ struct pocketos_notice {
     lv_style_t *body_style;
     void (*on_open)(void *user);
     void *user;
+    int hold_ms;
+    int hold_queued_ms;
+    const char *arg;
 };
 void pocketos_shell_notify(const struct pocketos_notice *notice);
 

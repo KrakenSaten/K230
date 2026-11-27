@@ -310,11 +310,15 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_banner.c
     ${REPO_DIR}/apps/rift/rift_rxlog.c
     ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
+    ${REPO_DIR}/apps/rift/rift_tropo.c
+    ${REPO_DIR}/apps/rift/rift_comms_group.c
     ${REPO_DIR}/apps/rift/rift_strip.c
     ${REPO_DIR}/apps/rift/ui/rift_widgets.c
     ${REPO_DIR}/apps/rift/ui/rift_fit.c
     ${REPO_DIR}/apps/rift/ui/rift_graph.c
     ${REPO_DIR}/apps/rift/ui/rift_activity.c
+    ${REPO_DIR}/apps/rift/ui/rift_tropo_view.c
+    ${REPO_DIR}/apps/rift/ui/rift_marks.c
     ${REPO_DIR}/apps/rift/ui/rift_rxlog_view.c
     ${REPO_DIR}/apps/rift/ui/rift_rxlog_input.c
     ${REPO_DIR}/apps/rift/ui/rift_nodes.c
@@ -1539,6 +1543,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/rift_app_test.c
         ${REPO_DIR}/tests/rift_test_clock.c
         chrome.c
+        shell_notice.c
         ${REPO_DIR}/apps/rift/rift_app.c
         ${REPO_DIR}/apps/rift/rift_section.c
         ${REPO_DIR}/apps/rift/rift_focus.c
@@ -1577,11 +1582,15 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_banner.c
         ${REPO_DIR}/apps/rift/rift_rxlog.c
         ${REPO_DIR}/apps/rift/rift_rxlog_fmt.c
+        ${REPO_DIR}/apps/rift/rift_tropo.c
+        ${REPO_DIR}/apps/rift/rift_comms_group.c
         ${REPO_DIR}/apps/rift/rift_strip.c
         ${REPO_DIR}/apps/rift/ui/rift_widgets.c
         ${REPO_DIR}/apps/rift/ui/rift_fit.c
         ${REPO_DIR}/apps/rift/ui/rift_graph.c
         ${REPO_DIR}/apps/rift/ui/rift_activity.c
+        ${REPO_DIR}/apps/rift/ui/rift_tropo_view.c
+        ${REPO_DIR}/apps/rift/ui/rift_marks.c
         ${REPO_DIR}/apps/rift/ui/rift_rxlog_view.c
         ${REPO_DIR}/apps/rift/ui/rift_rxlog_input.c
         ${REPO_DIR}/apps/rift/ui/rift_nodes.c

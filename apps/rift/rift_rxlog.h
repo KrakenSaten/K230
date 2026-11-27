@@ -28,6 +28,8 @@
 #ifndef RIFT_RXLOG_H
 #define RIFT_RXLOG_H
 
+#include "rift_tropo.h"
+
 #include <cjson/cJSON.h>
 
 #include <stddef.h>
@@ -172,6 +174,14 @@ struct rift_rxlog {
     int paused;
     uint32_t top_uid;
     uint32_t selected_uid;
+
+    /* TROPO (rift_tropo.h), fed from every reception this reader accepts,
+     * before it is filed: the same frames, the same session, nothing asked
+     * of the service that RX LOG does not already ask. It lives beside the
+     * ring for the reason it did on the T-Deck (RiftRxLog.h): it is derived
+     * from the same path of every packet heard. CLEAR does not touch it -
+     * emptying the inspector is not forgetting that an opening was seen. */
+    struct rift_tropo tropo;
 };
 
 void rift_rxlog_init(struct rift_rxlog *log);

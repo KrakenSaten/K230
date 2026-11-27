@@ -9,6 +9,7 @@
 #include "pos_styles.h"
 #include "rift_graph.h"
 #include "rift_scan.h"
+#include "rift_tropo_view.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,6 +74,10 @@ struct rift_activity_view {
     lv_obj_t *svc_fault;
 
     lv_obj_t *svc_traffic;
+
+    /* TROPO (ui/rift_tropo_view.h): the warning sign over the graph. */
+    lv_obj_t *tropo;
+    lv_obj_t *graph_panel;
 
     lv_obj_t *heard_note;
     struct heard_row heard[HEARD_ROWS];
@@ -270,6 +275,8 @@ static void build_graph(struct rift_activity_view *v, lv_obj_t *parent)
     lv_obj_t *actions;
     int i;
 
+    v->graph_panel = panel;
+
     /* What the graph counts, alone on its line so the value at its end is
      * never cut (DS §46): it gives up the span first, then the words. */
     v->graph_caption = rift_cell(panel, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
@@ -392,7 +399,10 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
      * node hears directly under it; the feed and what was heard are beside
      * them in landscape. In portrait the feed moves up under the graph it
      * is the detail of (rift_activity_shape). Everything that changes a
-     * setting is on SYSTEM (ui/rift_system.c). */
+     * setting is on SYSTEM (ui/rift_system.c). Over the graph, before
+     * anything else, the one thing on this page that can be a warning:
+     * TROPO. */
+    v->tropo = rift_tropo_view_create(app, v->col[0]);
     build_graph(v, v->col[0]);
     build_service(v, v->col[0]);
     rift_scan_build(app, v->col[0]);
@@ -432,7 +442,8 @@ void rift_activity_shape(struct rift_app *app)
          * portrait: only when the shape turned, not on every layout. */
         v->feed_wide = app->wide ? 1 : 0;
         lv_obj_set_parent(v->feed_panel, v->col[app->wide ? 1 : 0]);
-        lv_obj_move_to_index(v->feed_panel, app->wide ? 0 : 1);
+        lv_obj_move_to_index(v->feed_panel,
+                             app->wide ? 0 : (int32_t)lv_obj_get_index(v->graph_panel) + 1);
     }
     for (i = 0; i < TILE_COUNT; i++) {
         int per_row = app->wide ? TILES_PER_ROW_WIDE : TILES_PER_ROW;
@@ -813,6 +824,7 @@ void rift_activity_refresh(struct rift_app *app)
         return;
     }
     now = rift_app_now(app);
+    rift_tropo_view_refresh(v->tropo, app, now);
     refresh_service(v);
     rift_scan_refresh(app);
     refresh_heard(v, now);
@@ -822,6 +834,11 @@ void rift_activity_refresh(struct rift_app *app)
 lv_obj_t *rift_activity_graph(const struct rift_app *app)
 {
     return (app && app->activity) ? app->activity->graph : NULL;
+}
+
+lv_obj_t *rift_activity_tropo(const struct rift_app *app)
+{
+    return (app && app->activity) ? app->activity->tropo : NULL;
 }
 
 lv_obj_t *rift_activity_rxlog_button(const struct rift_app *app)

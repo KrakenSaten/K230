@@ -31,6 +31,10 @@ struct notice {
     lv_style_t *body_style;
     void (*on_open)(void *user);
     void *user;
+    int hold_ms;        /* alone on screen */
+    int hold_queued_ms; /* with another waiting behind it */
+    bool has_arg;       /* on_open is given arg, the notice's own copy */
+    char arg[NOTICE_ARG_MAX];
 };
 
 static struct {
@@ -96,7 +100,9 @@ static void open_async(void *unused)
     }
     nt.open_pending = false;
     if (nt.opening.on_open) {
-        nt.opening.on_open(nt.opening.user);
+        /* The tapped notice's own copy (nt.opening is one), never a pointer
+         * into the app that a later notice may have reused. */
+        nt.opening.on_open(nt.opening.has_arg ? (void *)nt.opening.arg : nt.opening.user);
     } else if (nt.opening.app_id[0]) {
         (void)pocketos_shell_open_app(nt.opening.app_id);
     }
@@ -280,7 +286,7 @@ static void present(const struct notice *n)
         lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
         lv_anim_start(&a);
     }
-    lv_timer_set_period(nt.timer, nt.queued > 0 ? NOTICE_HOLD_QUEUED_MS : NOTICE_HOLD_MS);
+    lv_timer_set_period(nt.timer, (uint32_t)(nt.queued > 0 ? n->hold_queued_ms : n->hold_ms));
     lv_timer_reset(nt.timer);
     lv_timer_resume(nt.timer);
 }
@@ -315,6 +321,11 @@ void shell_notice_post(const struct pocketos_notice *in)
     n.body_style = in->body_style;
     n.on_open = in->on_open;
     n.user = in->user;
+    if (in->arg) {
+        n.has_arg = true;
+        copy(n.arg, sizeof(n.arg), in->arg);
+    }
+    shell_notice_holds(in->hold_ms, in->hold_queued_ms, &n.hold_ms, &n.hold_queued_ms);
     nt.posted++;
     LOG_INFO("notice: %s (%s)", n.source[0] ? n.source : "-", n.app_id[0] ? n.app_id : "-");
     if (!nt.visible) {
@@ -328,9 +339,9 @@ void shell_notice_post(const struct pocketos_notice *in)
         nt.dropped++;
     }
     nt.queue[nt.queued++] = n;
-    /* The one on screen gives way sooner. */
+    /* The one on screen gives way sooner, by its own measure. */
     if (!nt.leaving && nt.timer) {
-        lv_timer_set_period(nt.timer, NOTICE_HOLD_QUEUED_MS);
+        lv_timer_set_period(nt.timer, (uint32_t)nt.now.hold_queued_ms);
     }
 }
 
