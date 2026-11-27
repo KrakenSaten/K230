@@ -79,6 +79,45 @@ void ppc_net_free(struct ppc_net *nt)
     memset(nt, 0, sizeof(*nt));
 }
 
+void ppc_net_listen(struct ppc_net *nt, ppc_net_said_fn fn, void *ctx)
+{
+    nt->said = fn;
+    nt->said_ctx = ctx;
+}
+
+/* Tell the listener what a frame said: r is the frame's record, NULL when
+ * what is told is an event; an address is NULL when there is none. */
+static void say(struct ppc_net *nt, unsigned what, unsigned type, const struct ppc_record *r, int reply_here,
+                const uint8_t *mac, const uint8_t *ip, const uint8_t *ip2, uint32_t a, uint32_t b, uint64_t now,
+                uint32_t seq)
+{
+    struct ppc_net_said s;
+
+    if (!nt->said) {
+        return;
+    }
+    memset(&s, 0, sizeof(s));
+    s.what = (uint8_t)what;
+    s.type = (uint8_t)type;
+    s.own = (uint8_t)(r && (r->flags & PPC_F_OUT));
+    s.bcast = (uint8_t)(r && (r->flags & (PPC_F_BROADCAST | PPC_F_MULTICAST)));
+    s.reply_here = (uint8_t)(reply_here != 0);
+    if (mac) {
+        memcpy(s.mac, mac, 6);
+    }
+    if (ip) {
+        memcpy(s.ip, ip, 4);
+    }
+    if (ip2) {
+        memcpy(s.ip2, ip2, 4);
+    }
+    s.a = a;
+    s.b = b;
+    s.seq = seq;
+    s.ns = now;
+    nt->said(nt->said_ctx, &s);
+}
+
 /* ---- events ----------------------------------------------------------------------------- */
 
 /* Whether an event of this kind is one per client or station (its MAC is
@@ -120,6 +159,7 @@ static void event(struct ppc_net *nt, unsigned kind, unsigned sev, const uint8_t
     uint8_t kmac[6];
     unsigned i;
 
+    say(nt, PPC_SAID_EVENT, kind, NULL, 0, mac, ip, ip2, 0, 0, now, seq);
     put(kip, ip, 4);
     put(kmac, mac, 6);
     for (i = 0; i < PPC_NET_EVENTS; i++) {
@@ -368,6 +408,20 @@ static void arp(struct ppc_net *nt, const struct ppc_record *r, const uint8_t *d
 
     if (!mac_ok(sha)) {
         return; /* not ARP for IPv4 over Ethernet, or nothing a station sends */
+    }
+    if (nt->said && (r->a == 1 || r->a == 2)) {
+        /* What this frame is, as the counters below name it. A reply to a
+         * request goes to the asker alone: it passes here only when this
+         * device asked. */
+        unsigned what = r->a == 2 ? PPC_SAID_ARP_REPLY : PPC_SAID_ARP_REQUEST;
+        int out = (r->flags & PPC_F_OUT) != 0;
+
+        if (r->a == 1 && no_sender) {
+            what = PPC_SAID_ARP_PROBE;
+        } else if (!no_sender && memcmp(spa, tpa, 4) == 0) {
+            what = PPC_SAID_ARP_ANNOUNCE;
+        }
+        say(nt, what, 0, r, what == PPC_SAID_ARP_REQUEST && out, sha, no_sender ? NULL : spa, tpa, 0, 0, now, seq);
     }
     if (r->a == 1) {
         nt->st.arp_requests++;
@@ -706,6 +760,24 @@ static void dhcp(struct ppc_net *nt, const struct ppc_record *r, const uint8_t *
 
     if (dh_parse(d, n, pay_off, &m) != 0) {
         return;
+    }
+    if (nt->said && m.type >= 1 && m.type <= 8) {
+        /* The address the message is about and the server it names, where
+         * it carries them. Only a client's DISCOVER and REQUEST are waited
+         * on, and only when their answer would pass here. */
+        int server = m.type == 2 || m.type == 5 || m.type == 6;
+        const uint8_t *ip = NULL;
+        const uint8_t *sid = m.has_sid ? m.sid : (server ? r->src : NULL);
+
+        if (m.type == 2 || m.type == 5) {
+            ip = m.yiaddr;
+        } else if (m.has_req) {
+            ip = m.req;
+        } else if (!server && memcmp(m.ciaddr, none, 4) != 0) {
+            ip = m.ciaddr;
+        }
+        say(nt, PPC_SAID_DHCP, m.type, r, (m.type == 1 || m.type == 3) && answer_seen_here(&m, own), m.chaddr, ip,
+            sid, m.xid, server && m.has_lease ? m.lease : 0, now, seq);
     }
     switch (m.type) {
     case 1: /* DISCOVER */

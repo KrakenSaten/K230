@@ -221,6 +221,12 @@ BUILD_ID
 /tests/ppc_view_test
 /tests/ppc_dissect_test
 /tests/ppc_signals_test
+/tests/ppc_net_test
+/tests/psk_net_test
+/tests/ppc_evid_test
+/tests/ppc_evid_mkfixtures
+/tests/psk_ev_test
+/tests/pos-capture-testhooks
 /packetshark-app-captures-*
 /psk-session-captures-*
 # Browser (docs/apps/BROWSER.md)
@@ -272,6 +278,7 @@ BUILD_ID
 /tests/vision_swatch_test
 /tests/vision_geom_test
 /tests/vision_model_test
+/tests/vision_remote_test
 /tests/vision_session_test
 /tests/vision_settings_test
 /tests/vision_range_test

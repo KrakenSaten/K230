@@ -29,7 +29,10 @@
  *   - the capture bar's buttons are full targets inside the safe area in
  *     both orientations; the tabs are 56 px navigation rows;
  *   - twenty opens and closes with a capture running leave no helper, no
- *     timer and no object behind (I4).
+ *     timer and no object behind (I4);
+ *   - MARK and a mark's evidence (N1.0): n1(), alone with PACKETSHARK_ONLY=n1;
+ *   - the wide back slab's reach (H6): back_reach(), alone with
+ *     PACKETSHARK_ONLY=back.
  * PACKETSHARK_SHOTS=<dir> keeps a picture of each state (mockups 04, 05, 07).
  *
  * Needs: PACKETSHARK_HELPER, the path of tools/capture/pos-capture.
@@ -43,6 +46,7 @@
 #include "chrome.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "platform.h"
 #include "pocketui_audit.h"
 #include "pos_theme.h"
 #include "psk_app.h"
@@ -52,6 +56,9 @@
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
 #include "src/libs/lodepng/lodepng.h"
 #endif
+/* lv_obj_get_ext_draw_size, how far an OVERFLOW_VISIBLE box lets its
+ * children draw (as tests/pocketui_layout_test.c reaches lv_obj_private.h). */
+#include "src/core/lv_obj_draw_private.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -574,12 +581,12 @@ static pid_t child_pid(void)
 
 /* ---- the app, hosted ------------------------------------------------------------------ */
 
-static void use_display(enum pos_rotation rotation)
+static void use_panel(enum pos_rotation rotation, struct pos_corners corners)
 {
     struct pos_panel panel = {
         .width = PANEL_W,
         .height = PANEL_H,
-        .corners = { PANEL_CORNER, PANEL_CORNER, PANEL_CORNER, PANEL_CORNER },
+        .corners = corners,
     };
     struct pos_display_geometry g;
 
@@ -591,6 +598,21 @@ static void use_display(enum pos_rotation rotation)
     lv_obj_set_size(g_content, g.width, g.height - STATUS_H);
     lv_obj_set_pos(g_content, 0, STATUS_H);
     pump(20);
+}
+
+/* The reference panel: 30 px at every corner. */
+static void use_display(enum pos_rotation rotation)
+{
+    use_panel(rotation, (struct pos_corners){ PANEL_CORNER, PANEL_CORNER, PANEL_CORNER, PANEL_CORNER });
+}
+
+/* Unit A's panel in landscape as the shell resolves it (shell_display.c):
+ * the two native left corners, which a quarter turn puts at the top, take
+ * POCKETOS_PANEL_CORNER_LANDSCAPE_TOP (platform.h). */
+static void use_unit_landscape(enum pos_rotation rotation)
+{
+    use_panel(rotation, (struct pos_corners){ POCKETOS_PANEL_CORNER_LANDSCAPE_TOP, POCKETOS_PANEL_CORNER,
+                                              POCKETOS_PANEL_CORNER, POCKETOS_PANEL_CORNER_LANDSCAPE_TOP });
 }
 
 /* Landscape: the display is wider than it is tall. */
@@ -3022,6 +3044,451 @@ static void m7_m9(bool portrait)
     CHECK("closing leaves no helper", no_child());
 }
 
+/* ---- H6: the wide back slab's reach --------------------------------------------------------- *
+ *
+ * The finger test on Unit A (2026-11-26) found the wide shape's back slab,
+ * drawn 72 x 56 against the display's top edge beside its rounded corner,
+ * hard to hit. An invisible target over it answers PSK_TOP_REACH around it:
+ * into the gap before LIVE, toward the side and down over the page's top
+ * padding. Pinned with real taps, on the reference panel and on Unit A's
+ * landscape (rotation 270, 50 px top corners), at every text size; with
+ * every label whole (5920f5a4 took the reach from the pages' padding and
+ * the page's edge cut LIVE's panel titles on Unit A); the tall shape as it
+ * was. Run alone with PACKETSHARK_ONLY=back. */
+
+static void tap_point(int32_t x, int32_t y)
+{
+    finger_point.x = x;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+/* Whether a tap at x, y is Back: on setup, with nothing captured, Back
+ * leaves the app and the shell goes home. The poll answers the slab, after
+ * the event. */
+static bool back_at(int32_t x, int32_t y)
+{
+    int before = g_home;
+
+    tap_point(x, y);
+    pump(60);
+    return g_home != before;
+}
+
+/* Where a label's text is inked: its content box, from the top of its
+ * tallest letter on the first line down. A line's box has room above the
+ * capitals: the panel titles' boxes reach 1 to 4 px past the page's top on
+ * master, where Unit A shows them whole. */
+static void ink_area(lv_obj_t *lb, lv_area_t *ink)
+{
+    const lv_font_t *f = lv_obj_get_style_text_font(lb, LV_PART_MAIN);
+    const char *s = lv_label_get_text(lb);
+    int32_t top = INT32_MAX;
+
+    lv_obj_get_content_coords(lb, ink);
+    /* As lv_draw_label places a letter: its top is the line's top plus
+     * (line_height - base_line) - box_h - ofs_y. The first line's letters;
+     * a byte beyond ASCII (the middle dot, an arrow) never stands taller. */
+    for (; f && *s && *s != '\n'; s++) {
+        lv_font_glyph_dsc_t g;
+
+        if ((unsigned char)*s > ' ' && (unsigned char)*s < 0x80 &&
+            lv_font_get_glyph_dsc(f, &g, (uint32_t)(unsigned char)*s, 0) && g.box_h > 0) {
+            top = LV_MIN(top, f->line_height - f->base_line - (int32_t)g.box_h - g.ofs_y);
+        }
+    }
+    if (top != INT32_MAX && top > 0) {
+        ink->y1 += top;
+    }
+}
+
+/* Labels cut by a box around them. LVGL draws a child inside its parent's
+ * area, or inside the parent's extended draw area where the parent lets its
+ * children out (OVERFLOW_VISIBLE), at every level up. The audit sees a label
+ * cut by its own box; this sees its ink cut by an ancestor, as LIVE's panel
+ * titles were at 5920f5a4: the page's top edge took their upper half on
+ * Unit A. A scrollable ancestor's foot is where its content scrolls on, so
+ * a label past it is not cut, and neither is it at the boxes around that
+ * ancestor; the pages are at their top when this is asked. Counts the
+ * labels under obj, up to stop, printing the first few. */
+static int cut_labels(lv_obj_t *obj, lv_obj_t *stop, const char *where)
+{
+    static int printed;
+    int n = 0;
+    uint32_t i;
+
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && lv_label_get_text(obj)[0]) {
+        lv_area_t l;
+        lv_obj_t *p;
+        bool scrolled_on = false;
+
+        ink_area(obj, &l);
+        for (p = lv_obj_get_parent(obj); p; p = lv_obj_get_parent(p)) {
+            lv_area_t c;
+            bool scrolls = lv_obj_has_flag(p, LV_OBJ_FLAG_SCROLLABLE);
+
+            lv_obj_get_coords(p, &c);
+            if (lv_obj_has_flag(p, LV_OBJ_FLAG_OVERFLOW_VISIBLE)) {
+                int32_t e = lv_obj_get_ext_draw_size(p);
+
+                c.x1 -= e;
+                c.y1 -= e;
+                c.x2 += e;
+                c.y2 += e;
+            }
+            if (l.y1 < c.y1 || l.x1 < c.x1 || l.x2 > c.x2 || (!scrolled_on && !scrolls && l.y2 > c.y2)) {
+                if (printed++ < 8) {
+                    printf("     %s: '%.40s' inked at %d,%d-%d,%d, cut by an ancestor at %d,%d-%d,%d\n", where,
+                           lv_label_get_text(obj), (int)l.x1, (int)l.y1, (int)l.x2, (int)l.y2, (int)c.x1, (int)c.y1,
+                           (int)c.x2, (int)c.y2);
+                }
+                n++;
+                break;
+            }
+            if (scrolls && l.y2 > c.y2) {
+                scrolled_on = true;
+            }
+            if (p == stop) {
+                break;
+            }
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += cut_labels(lv_obj_get_child(obj, i), stop, where);
+    }
+    return n;
+}
+
+/* The labels of what the frame shows now, its pages at their top. */
+static int cut_on_screen(struct psk_app *a, const char *where)
+{
+    int i;
+
+    for (i = 0; i < PSK_TAB_COUNT; i++) {
+        lv_obj_scroll_to_y(a->page[i], 0, LV_ANIM_OFF);
+    }
+    lv_obj_scroll_to_y(a->nv_page, 0, LV_ANIM_OFF);
+    lv_obj_scroll_to_y(a->ev_page, 0, LV_ANIM_OFF);
+    lv_obj_update_layout(a->frame);
+    return cut_labels(a->frame, a->frame, where);
+}
+
+/* Where the content of a page starts. */
+static int32_t content_top(lv_obj_t *page)
+{
+    lv_area_t c;
+
+    lv_obj_get_content_coords(page, &c);
+    return c.y1;
+}
+
+static void back_reach_wide(const char *panel)
+{
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    struct psk_app *a;
+    char what[160];
+    int bad_drawn = 0;
+    int bad_reach = 0;
+    int bad_taps = 0;
+    int bad_past = 0;
+    int bad_press = 0;
+    int bad_cut = 0;
+    int i;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "", 1);
+    g_link = 1;
+    app_start();
+    a = app();
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        lv_area_t s;
+        lv_area_t c;
+        lv_area_t t;
+        lv_area_t live;
+        lv_area_t r;
+        lv_obj_t *p;
+        int32_t page_top;
+        int32_t mx;
+        int32_t my;
+
+        pos_theme_select_text_size((enum pos_text_size)i);
+        pump(80);
+        lv_obj_update_layout(a->frame);
+        lv_obj_get_coords(a->back, &s);
+        lv_obj_get_click_area(a->back, &c);
+        lv_obj_get_coords(a->top, &t);
+        lv_obj_get_coords(a->tab[PSK_TAB_LIVE], &live);
+        page_top = content_top(a->page[PSK_TAB_LIVE]);
+        /* Where a finger finds Back: the slab's click area, inside each box
+         * around it up to the frame (LVGL looks for an object inside its
+         * parent's area only: the row's at master and 5920f5a4, a holder's
+         * now), on the display. */
+        r = c;
+        for (p = lv_obj_get_parent(a->back); p; p = lv_obj_get_parent(p)) {
+            lv_area_t o;
+
+            lv_obj_get_coords(p, &o);
+            r.x1 = LV_MAX(r.x1, o.x1);
+            r.y1 = LV_MAX(r.y1, o.y1);
+            r.x2 = LV_MIN(r.x2, o.x2);
+            r.y2 = LV_MIN(r.y2, o.y2);
+            if (p == a->frame) {
+                break;
+            }
+        }
+        r.x1 = LV_MAX(r.x1, 0);
+        r.y1 = LV_MAX(r.y1, 0);
+        r.x2 = LV_MIN(r.x2, g->width - 1);
+        r.y2 = LV_MIN(r.y2, g->height - 1);
+        mx = s.x1 + lv_area_get_width(&s) / 2;
+        my = s.y1 + lv_area_get_height(&s) / 2;
+        printf("     %s, %s: slab %d,%d-%d,%d, reach %d,%d-%d,%d (%dx%d), LIVE from x %d, LIVE's content from y %d\n",
+               panel, pos_text_size_name((enum pos_text_size)i), (int)s.x1, (int)s.y1, (int)s.x2, (int)s.y2,
+               (int)r.x1, (int)r.y1, (int)r.x2, (int)r.y2, (int)lv_area_get_width(&r), (int)lv_area_get_height(&r),
+               (int)live.x1, (int)page_top);
+
+        /* Drawn as before: 72 x 56 at the display's top edge, clear of the corner. */
+        if (!(a->wide && lv_area_get_width(&s) == 72 && lv_area_get_height(&s) == PSK_TOP_H && s.y1 == t.y1 &&
+              t.y1 <= 0 && target_ok(a->back, PSK_TOP_H, "back"))) {
+            bad_drawn++;
+        }
+        /* A target of POCKETUI_TOUCH_MIN each way, the whole slab in it,
+         * reaching past the slab away from the corner (right and down), a full
+         * POCKETUI_TOUCH_MIN square of it from the slab's own left edge clear
+         * of the corner; and over no other control: short of LIVE, and above
+         * where the page under it shows anything (LIVE's is the least top
+         * padding of the pages, 8 px). */
+        if (!(lv_area_get_width(&r) >= POCKETUI_TOUCH_MIN && lv_area_get_height(&r) >= POCKETUI_TOUCH_MIN &&
+              r.x1 <= s.x1 && r.y1 <= s.y1 && r.x2 > s.x2 && r.y2 > s.y2 &&
+              r.x2 - s.x1 + 1 >= POCKETUI_TOUCH_MIN && r.y1 + POCKETUI_TOUCH_MIN - 1 <= r.y2 &&
+              pos_display_rect_is_safe(g, s.x1, r.y1, s.x1 + POCKETUI_TOUCH_MIN - 1, r.y1 + POCKETUI_TOUCH_MIN - 1) &&
+              r.x2 < live.x1 && r.y2 < page_top)) {
+            bad_reach++;
+        }
+        /* Real taps: the middle, and the reach's edges away from the corner. */
+        if (!(back_at(mx, my) && back_at(mx, r.y2) && back_at(r.x2, my) && back_at(r.x2, r.y2) &&
+              back_at(r.x1, r.y2))) {
+            bad_taps++;
+        }
+        /* And no further: under it, past it toward LIVE, past its side, and
+         * LIVE itself. */
+        if (back_at(mx, r.y2 + 1) || back_at(r.x2 + 1, r.y2) || back_at(live.x1 + 4, my) ||
+            (r.x1 > t.x1 && back_at(r.x1 - 1, r.y2))) {
+            bad_past++;
+        }
+        /* A finger on the reach's far corner presses the slab, as on the
+         * slab itself, and lets it go. */
+        finger_point.x = r.x2;
+        finger_point.y = r.y2;
+        finger_state = LV_INDEV_STATE_PRESSED;
+        pump(40);
+        if (!lv_obj_has_state(a->back, LV_STATE_PRESSED)) {
+            bad_press++;
+        }
+        finger_state = LV_INDEV_STATE_RELEASED;
+        pump(140);
+        if (lv_obj_has_state(a->back, LV_STATE_PRESSED)) {
+            bad_press++;
+        }
+        /* Setup's panel titles (INTERFACE, PRIVACY, ...) whole: no box around
+         * them cuts them. */
+        snprintf(what, sizeof(what), "%s, setup, %s", panel, pos_text_size_name((enum pos_text_size)i));
+        bad_cut += cut_on_screen(a, what);
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(80);
+    snprintf(what, sizeof(what), "wide, %s, every text size: the back slab drawn 72 x 56 at the top edge, "
+             "clear of the corner", panel);
+    CHECK(what, bad_drawn == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: its reach at least %d px each way, out of the "
+             "corner, under no other control", panel, POCKETUI_TOUCH_MIN);
+    CHECK(what, bad_reach == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: a tap anywhere in the reach is Back", panel);
+    CHECK(what, bad_taps == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: and a tap past it is not", panel);
+    CHECK(what, bad_past == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: a finger on the reach shows the slab pressed", panel);
+    CHECK(what, bad_press == 0);
+    snprintf(what, sizeof(what), "wide, %s, every text size: setup's labels whole, its panel titles too (no box "
+             "around them cuts them)", panel);
+    CHECK(what, bad_cut == 0);
+    app_stop();
+}
+
+/* With a capture on the screen: what the pages show starts where it did
+ * under the row's 56 px controls (LIVE, the network overview and a mark's
+ * evidence 8, PACKETS 12 as mockup 02, INSPECT 14), and the reach's far
+ * corner, right of the slab and under it, is Back from PACKETS, from a
+ * mark's evidence and on LIVE. */
+static void back_reach_capture(const char *panel)
+{
+    struct psk_app *a;
+    lv_area_t s;
+    lv_area_t t;
+    int32_t under;
+    int32_t at[5];
+    int32_t fx;
+    int32_t fy;
+    char what[160];
+    int home;
+    int w;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:200:1", 1);
+    app_start();
+    a = app();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    lv_obj_update_layout(a->frame);
+    lv_obj_get_coords(a->back, &s);
+    lv_obj_get_coords(a->top, &t);
+    under = t.y1 + PSK_TOP_H;
+    fx = s.x2 + PSK_TOP_REACH;
+    fy = s.y2 + PSK_TOP_REACH;
+
+    at[0] = content_top(a->page[PSK_TAB_LIVE]);
+    psk_key(a, '2');
+    pump(100);
+    lv_obj_update_layout(a->frame);
+    at[1] = a->cur == PSK_TAB_PACKETS ? content_top(a->page[PSK_TAB_PACKETS]) : -1;
+    at[2] = a->cur == PSK_TAB_PACKETS ? content_top(a->page[PSK_TAB_INSPECT]) : -1;
+    tap_point(fx, fy);
+    snprintf(what, sizeof(what), "wide, %s, capturing: from PACKETS the reach is Back to LIVE", panel);
+    CHECK(what, at[1] >= 0 && a->cur == PSK_TAB_LIVE);
+
+    psk_net_show(a, true);
+    pump(100);
+    lv_obj_update_layout(a->frame);
+    at[3] = psk_net_shown(a) ? content_top(a->nv_page) : -1;
+    psk_net_show(a, false);
+    pump(100);
+    psk_key(a, 'm');
+    for (w = 0; w < 60 && !psk_evp_shown(a); w++) {
+        pump(50);
+    }
+    lv_obj_update_layout(a->frame);
+    at[4] = psk_evp_shown(a) ? content_top(a->ev_page) : -1;
+    tap_point(fx, fy);
+    pump(60);
+    snprintf(what, sizeof(what), "wide, %s, capturing: from a mark's evidence the reach is Back to LIVE", panel);
+    CHECK(what, at[4] >= 0 && !psk_evp_shown(a) && a->cur == PSK_TAB_LIVE);
+    home = g_home;
+    tap_point(fx, fy);
+    pump(60);
+    snprintf(what, sizeof(what), "wide, %s, capturing: on LIVE the reach is Back: it asks before leaving", panel);
+    CHECK(what, shown("Leave PacketShark?") && g_home == home);
+    tap("STAY");
+
+    if (!(at[0] == under + 8 && at[1] == under + 12 && at[2] == under + 14 && at[3] == under + 8 &&
+          at[4] == under + 8)) {
+        printf("     under the controls from y %d: LIVE %d, PACKETS %d, INSPECT %d, network %d, evidence %d\n",
+               (int)under, (int)at[0], (int)at[1], (int)at[2], (int)at[3], (int)at[4]);
+    }
+    snprintf(what, sizeof(what), "wide, %s: every page shows what it did where it did, 8, 12, 14, 8 and 8 px "
+             "under the row's controls", panel);
+    CHECK(what, at[0] == under + 8 && at[1] == under + 12 && at[2] == under + 14 && at[3] == under + 8 &&
+                    at[4] == under + 8);
+
+    /* Every face at every text size: no label cut by a box around it (LIVE's
+     * TRAFFIC and PROTOCOLS titles lost their upper half at 5920f5a4). */
+    {
+        int cut[4] = { 0, 0, 0, 0 };
+        int k;
+
+        for (k = 0; k < POS_TEXT_SIZE_COUNT; k++) {
+            const char *size = pos_text_size_name((enum pos_text_size)k);
+
+            pos_theme_select_text_size((enum pos_text_size)k);
+            pump(80);
+            psk_key(a, '1');
+            pump(100);
+            snprintf(what, sizeof(what), "%s, LIVE capturing, %s", panel, size);
+            cut[0] += a->cur == PSK_TAB_LIVE && !psk_evp_shown(a) && !psk_net_shown(a) ? cut_on_screen(a, what) : 1;
+            psk_key(a, '2');
+            pump(100);
+            snprintf(what, sizeof(what), "%s, PACKETS and INSPECT, %s", panel, size);
+            cut[1] += a->cur == PSK_TAB_PACKETS ? cut_on_screen(a, what) : 1;
+            psk_net_show(a, true);
+            pump(150);
+            snprintf(what, sizeof(what), "%s, network overview, %s", panel, size);
+            cut[2] += psk_net_shown(a) ? cut_on_screen(a, what) : 1;
+            psk_net_show(a, false);
+            psk_evp_show(a, true);
+            pump(150);
+            snprintf(what, sizeof(what), "%s, a mark's evidence, %s", panel, size);
+            cut[3] += psk_evp_shown(a) ? cut_on_screen(a, what) : 1;
+            psk_evp_show(a, false);
+            pump(60);
+        }
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(80);
+        snprintf(what, sizeof(what), "wide, %s, every text size: LIVE's labels whole while capturing, TRAFFIC's and "
+                 "PROTOCOLS' titles too", panel);
+        CHECK(what, cut[0] == 0);
+        snprintf(what, sizeof(what), "wide, %s, every text size: and PACKETS', INSPECT's, the network overview's "
+                 "and a mark's evidence's", panel);
+        CHECK(what, cut[1] == 0 && cut[2] == 0 && cut[3] == 0);
+    }
+    app_stop();
+    CHECK("closing leaves no helper", no_child());
+}
+
+static void back_reach(bool portrait)
+{
+    struct psk_app *a;
+
+    if (portrait) {
+        lv_area_t s;
+        lv_area_t c;
+
+        setenv("POCKETOS_CAPTURE_SOURCE", "", 1);
+        g_link = 1;
+        app_start();
+        a = app();
+        lv_obj_get_coords(a->back, &s);
+        lv_obj_get_click_area(a->back, &c);
+        CHECK("tall, as before H6: a 56 px top row, no back slab and no target, the pages' 14, 12 and 14",
+              !a->wide && lv_obj_get_height(a->top) == PSK_TAB_H &&
+                  lv_obj_get_style_pad_bottom(a->top, LV_PART_MAIN) == 0 &&
+                  lv_obj_has_flag(a->back, LV_OBJ_FLAG_HIDDEN) && lv_area_get_width(&c) == lv_area_get_width(&s) &&
+                  (!psk_app_part(app_priv, "back_reach") ||
+                   lv_obj_has_flag(psk_app_part(app_priv, "back_reach"), LV_OBJ_FLAG_HIDDEN)) &&
+                  lv_obj_get_style_pad_top(a->page[PSK_TAB_LIVE], LV_PART_MAIN) == 14 &&
+                  lv_obj_get_style_pad_top(a->page[PSK_TAB_PACKETS], LV_PART_MAIN) == 12 &&
+                  lv_obj_get_style_pad_top(a->page[PSK_TAB_INSPECT], LV_PART_MAIN) == 14 &&
+                  lv_obj_get_style_pad_top(a->nv_page, LV_PART_MAIN) == 14 &&
+                  lv_obj_get_style_pad_top(a->ev_page, LV_PART_MAIN) == 14);
+        {
+            int cut = 0;
+            int k;
+
+            for (k = 0; k < POS_TEXT_SIZE_COUNT; k++) {
+                char where[64];
+
+                pos_theme_select_text_size((enum pos_text_size)k);
+                pump(80);
+                snprintf(where, sizeof(where), "tall setup, %s", pos_text_size_name((enum pos_text_size)k));
+                cut += cut_on_screen(a, where);
+            }
+            pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+            pump(80);
+            CHECK("tall, every text size: setup's labels whole, its panel titles too", cut == 0);
+        }
+        app_stop();
+        return;
+    }
+    back_reach_wide("reference panel");
+    back_reach_capture("reference panel");
+    use_unit_landscape(POS_ROTATION_270);
+    back_reach_wide("Unit A's landscape");
+    back_reach_capture("Unit A's landscape");
+    use_display(POS_ROTATION_90);
+}
+
 /* ---- M12.1: the network intelligence ------------------------------------------------------ */
 
 static lv_obj_t *net_page(void)
@@ -3363,6 +3830,1058 @@ static void m12(bool portrait)
     CHECK("closing leaves no helper", no_child());
 }
 
+/* ---- N1.0: MARK and a mark's evidence (docs/apps/PACKETSHARK.md §4d) --------------------- *
+ *
+ * Two parts. The fixtures of tests/ppc_evid_fixtures.h replayed through the
+ * real helper and marked: what the page says of them is what the words
+ * module says of the helper's answer, and the accuracy rules hold on the
+ * glass (a request whose reply cannot be seen is never called unanswered;
+ * no score, no percentage, no verdict). Then the synthetic source, live:
+ * MARK near START, on HOLD, near STOP and on a stopped capture; the page's
+ * rows to INSPECT and PACKETS and back; a packet that has left the buffer;
+ * the three text sizes; and what it all costs the poll.
+ *
+ * PACKETSHARK_FIXTURES=<dir> is where tests/ppc_evid_mkfixtures wrote the
+ * replays; without it the first part is skipped and says so. */
+
+static lv_obj_t *part(const char *name)
+{
+    return psk_app_part(app_priv, name);
+}
+
+static const char *label_of(const char *name)
+{
+    lv_obj_t *o = part(name);
+
+    return o && lv_obj_check_type(o, &lv_label_class) ? lv_label_get_text(o) : "";
+}
+
+/* On the screen: neither it nor anything holding it is hidden. */
+static bool part_shown(const char *name)
+{
+    lv_obj_t *o = part(name);
+
+    if (!o) {
+        return false;
+    }
+    for (; o && o != app_body; o = lv_obj_get_parent(o)) {
+        if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The page shows the evidence of mark `id` (0: of any). */
+static bool wait_evidence(uint32_t id, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    for (;;) {
+        const struct psk_app *a = app();
+
+        if (psk_evp_shown(a) && a->model->have_ev && a->ev_fresh && (id == 0 || a->model->ev.head.id == id) &&
+            !lv_obj_has_flag(a->ev_cols, LV_OBJ_FLAG_HIDDEN)) {
+            return true;
+        }
+        if (mono_ms() >= end) {
+            return false;
+        }
+        pump(10);
+    }
+}
+
+/* A part of the evidence page, scrolled to where it can be seen. */
+static lv_obj_t *in_view(lv_obj_t *obj)
+{
+    if (obj) {
+        lv_obj_scroll_to_view_recursive(obj, LV_ANIM_OFF);
+        pump(80);
+    }
+    return obj;
+}
+
+static bool wait_state(enum ppc_state want, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end && app()->model->state != want) {
+        pump(20);
+    }
+    return app()->model->state == want;
+}
+
+/* The inspector has this packet (an earlier one may be there already). */
+static bool wait_seq(uint32_t seq, int ms)
+{
+    int64_t end = mono_ms() + ms;
+
+    while (mono_ms() < end && !(app()->model->have_pkt && app()->model->pkt.head.seq == seq)) {
+        pump(20);
+    }
+    return app()->model->have_pkt && app()->model->pkt.head.seq == seq;
+}
+
+/* The first row of a side (0 before the mark, 1 after) that is shown, and
+ * opens a packet (can) or says its packet is gone (!can); -1 when none. */
+static int ev_row_of(unsigned side, bool can)
+{
+    const struct psk_app *a = app();
+    unsigned i;
+
+    for (i = 0; i < PPC_EV_KEEP; i++) {
+        unsigned k = side * PPC_EV_KEEP + i;
+
+        if (!lv_obj_has_flag(a->ev_row[k], LV_OBJ_FLAG_HIDDEN) && (a->ev_row_seq[k] != 0) == can) {
+            return (int)k;
+        }
+    }
+    return -1;
+}
+
+static int ev_rows_on(unsigned side)
+{
+    const struct psk_app *a = app();
+    unsigned i;
+    int n = 0;
+
+    for (i = 0; i < PPC_EV_KEEP; i++) {
+        n += !lv_obj_has_flag(a->ev_row[side * PPC_EV_KEEP + i], LV_OBJ_FLAG_HIDDEN);
+    }
+    return n;
+}
+
+/* Every word of the page is the words module's for the evidence the model
+ * holds: the page adds nothing of its own to what was observed. */
+static bool page_is_models(void)
+{
+    const struct psk_app *a = app();
+    const struct psk_evidence *ev = &a->model->ev;
+    struct psk_ev_row rows[PSK_EV_ROWS];
+    unsigned used[2] = { 0, 0 };
+    char b[2048];
+    char c[64];
+    char d[256];
+    unsigned n;
+    unsigned i;
+    unsigned s;
+    bool ok = true;
+
+    ok = ok && strcmp(label_of("evtitle"), psk_ev_title(ev, b, sizeof(b))) == 0;
+    ok = ok && strcmp(label_of("evfilter"), psk_ev_filter(ev, b, sizeof(b))) == 0 &&
+         !lv_obj_has_flag(part("evfilter"), LV_OBJ_FLAG_HIDDEN);
+    ok = ok && strcmp(label_of("evwhen"), psk_ev_when(ev, b, sizeof(b))) == 0;
+    ok = ok && strcmp(label_of("evlimits"), psk_ev_limits(ev, b, sizeof(b))) == 0;
+    for (s = 0; s < 2 && ok; s++) {
+        psk_ev_window(ev, s, b, 64, c, sizeof(c), d, sizeof(d));
+        ok = ok && containing_in(part(s ? "evwin1" : "evwin0"), b) && (!c[0] || containing_in(part(s ? "evwin1" : "evwin0"), c)) &&
+             (!d[0] || containing_in(part(s ? "evwin1" : "evwin0"), d));
+        ok = ok && strcmp(label_of(s ? "evside1" : "evside0"), psk_ev_side(ev, s, b, sizeof(b))) == 0;
+    }
+    n = psk_ev_rows(ev, rows, PSK_EV_ROWS);
+    for (i = 0; i < n && ok; i++) {
+        unsigned k;
+
+        s = rows[i].side ? 1 : 0;
+        k = s * PPC_EV_KEEP + used[s]++;
+        ok = ok && !lv_obj_has_flag(a->ev_row[k], LV_OBJ_FLAG_HIDDEN) && containing_in(a->ev_row[k], rows[i].what) &&
+             (!rows[i].sub[0] || containing_in(a->ev_row[k], rows[i].sub)) && containing_in(a->ev_row[k], rows[i].when);
+    }
+    ok = ok && ev_rows_on(0) == (int)used[0] && ev_rows_on(1) == (int)used[1];
+    if (!ok) {
+        printf("     the page: '%s' / '%s'; rows %d+%d of %u\n", label_of("evtitle"), label_of("evwhen"), ev_rows_on(0),
+               ev_rows_on(1), n);
+    }
+    return ok;
+}
+
+/* A word the evidence page must never use: it tells what was seen, and a
+ * reply that was not seen is not called missing; nothing is scored. */
+static int verdict_words(lv_obj_t *obj)
+{
+    static const char *const never[] = { "MISSING",    "UNANSWERED", "NOT ANSWERED", "NO REPLY",  "NO ANSWER", "FAULT",
+                                         "BROKEN",     "FAILED TO",  "SCORE",        "CONFIDENCE", "HEALTH",   "%",
+                                         "LIKELY",     "PROBABLY",   "DIAGNOS" };
+    int n = 0;
+    uint32_t i;
+
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        char up[1024];
+        const char *t = lv_label_get_text(obj);
+        size_t k;
+
+        for (k = 0; t[k] && k + 1 < sizeof(up); k++) {
+            up[k] = (char)(t[k] >= 'a' && t[k] <= 'z' ? t[k] - 'a' + 'A' : t[k]);
+        }
+        up[k] = '\0';
+        for (i = 0; i < sizeof(never) / sizeof(never[0]); i++) {
+            if (strstr(up, never[i])) {
+                printf("     '%s' on the evidence page: '%s'\n", never[i], t);
+                n++;
+            }
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += verdict_words(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+/* A fixture replayed to its end through the helper, then marked. */
+static bool replay_marked(const char *name)
+{
+    const char *dir = getenv("PACKETSHARK_FIXTURES");
+    char spec[420];
+
+    snprintf(spec, sizeof(spec), "file:%s/evid-%s.pcap", dir, name);
+    setenv("POCKETOS_CAPTURE_SOURCE", spec, 1);
+    /* The replay's own station, so its frames have a direction. */
+    setenv("POCKETOS_CAPTURE_SELF_MAC", "02:00:5e:00:00:10", 1);
+    app_start();
+    tap("START CAPTURE");
+    if (!wait_for("STOPPED", 3500)) {
+        return false;
+    }
+    pump(200);
+    if (!landscape()) {
+        tap_obj(part("mark"));
+    } else {
+        /* Wide: a replay has stopped by now, and MARK is not offered on a
+         * stopped capture there (owner, 2026-11-25). The mark is set
+         * through the same client, as the tall shape sets it before the
+         * unit is turned, and opened by the count of marks, which stays. */
+        int64_t end = mono_ms() + 1500;
+
+        if (part_shown("mark") || psk_session_mark(app()->session) != 0) {
+            return false;
+        }
+        while (mono_ms() < end && !part_shown("marks")) {
+            pump(20);
+        }
+        tap_obj(part("marks"));
+    }
+    return wait_evidence(1, 1500);
+}
+
+/* An answer to `evid` as the helper would send it, put into the model: the
+ * page of a state the synthetic source does not make (frames lost, a quiet
+ * minute). The capture is stopped, so nothing else is asked for or comes. */
+static bool show_answer(const struct ppc_evt_ev_head *head, const struct ppc_evt_ev_win win[2],
+                        const struct ppc_evt_ev_obs *obs, unsigned nobs)
+{
+    struct psk_app *a = app();
+    struct ppc_evt e;
+    unsigned changed = 0;
+    unsigned i;
+
+    /* Whatever was asked of the helper has been answered by now, and a
+     * stopped capture is asked nothing more. */
+    pump(700);
+    a->ev_due = false;
+    a->ev_asked = false;
+    a->model->want_ev = head->req;
+    memset(&e, 0, sizeof(e));
+    e.kind = PPC_EVT_EV_BEGIN;
+    e.u.ev_head = *head;
+    changed |= psk_model_apply(a->model, &e, mono_ms());
+    for (i = 0; i < 2; i++) {
+        memset(&e, 0, sizeof(e));
+        e.kind = PPC_EVT_EV_WIN;
+        e.u.ev_win = win[i];
+        e.u.ev_win.side = (uint8_t)i;
+        changed |= psk_model_apply(a->model, &e, mono_ms());
+    }
+    for (i = 0; i < nobs; i++) {
+        memset(&e, 0, sizeof(e));
+        e.kind = PPC_EVT_EV_OBS;
+        e.u.ev_obs = obs[i];
+        changed |= psk_model_apply(a->model, &e, mono_ms());
+    }
+    memset(&e, 0, sizeof(e));
+    e.kind = PPC_EVT_EV_END;
+    e.u.ev_req = head->req;
+    changed |= psk_model_apply(a->model, &e, mono_ms());
+    if (!(changed & PSK_CHANGED_EVID)) {
+        return false;
+    }
+    a->ev_fresh = true;
+    a->ev_id = a->model->ev.head.id;
+    psk_evp_paint(a);
+    pump(120);
+    return true;
+}
+
+static void n1_replays(bool portrait)
+{
+    const char *dir = getenv("PACKETSHARK_FIXTURES");
+    struct psk_app *a;
+    char b[1024];
+    int bad;
+
+    if (!dir || !*dir) {
+        printf("note: PACKETSHARK_FIXTURES is not set: the replayed fixtures are skipped\n");
+        return;
+    }
+
+    /* Repeated DHCP discovery: three DISCOVERs of another device, none of
+     * whose replies could pass this port. */
+    CHECK("a replay of the repeated DISCOVER, marked: its evidence opens", replay_marked("dhcp-repeat"));
+    a = app();
+    CHECK("the page says what the words module says of the helper's answer, and no more", page_is_models());
+    {
+        lv_obj_t *row = a->ev_count[0];
+
+        CHECK("the counts list DISCOVER 3 before the mark, and OFFER, REQUEST and ACK at none",
+              containing_in(row, "DHCP") && containing_in(row, "DISCOVER") &&
+                  strcmp(lv_label_get_text(a->ev_count_b[0]), "3") == 0 &&
+                  strcmp(lv_label_get_text(a->ev_count_a[0]), "0") == 0 && containing_in(a->ev_count[1], "OFFER") &&
+                  strcmp(lv_label_get_text(a->ev_count_b[1]), "0") == 0 && containing_in(a->ev_count[2], "REQUEST") &&
+                  containing_in(a->ev_count[3], "ACK") && strcmp(lv_label_get_text(a->ev_count_b[3]), "0") == 0);
+    }
+    CHECK("each DISCOVER is a row with its packet's number, and says its reply would not be seen here",
+          ev_rows_on(0) == 4 && containing_in(a->ev_row[0], "DISCOVER") && containing_in(a->ev_row[0], "PACKET 4") &&
+              containing_in(a->ev_row[0], "not seeing one here says nothing") &&
+              containing_in(a->ev_row[2], "PACKET 6"));
+    CHECK("what it cannot tell is said in plain words: another device's OFFER and ACK are not seen here",
+          strstr(label_of("evlimits"), "This is what one interface saw") &&
+              strstr(label_of("evlimits"), "A DHCP server answers the device that asked") &&
+              strstr(label_of("evlimits"), "nothing follows it"));
+    CHECK("the window after a mark on a stopped capture is NOTHING AFTER, and says why",
+          containing_in(part("evwin1"), "NOTHING AFTER") && containing_in(part("evwin1"), "THE CAPTURE HAD STOPPED") &&
+              containing_in(part("evwin0"), "60 S BEFORE") && containing_in(part("evwin0"), "EVERY FRAME SEEN"));
+    CHECK("no verdict, score or percentage is on the page, and no reply is called missing",
+          verdict_words(part("evpage")) == 0);
+    bad = audit_page() + dots_wrapped(part("evpage"));
+    CHECK("nothing on it is clipped or overlapping", bad == 0);
+    shot("n1-dhcp-repeat");
+    {
+        /* The observation to its packet, and the way back to the page. */
+        uint32_t seq = a->ev_row_seq[0];
+
+        tap_obj(a->ev_row[0]);
+        CHECK("a row opens its packet in INSPECT: the DISCOVER, packet 4",
+              wait_model_packet(0, 1500) && a->model->pkt.head.seq == seq && seq == 4 &&
+                  (portrait ? a->cur == PSK_TAB_INSPECT : a->cur == PSK_TAB_PACKETS) &&
+                  strcmp(a->model->pkt.head.word, "DHCP") == 0);
+        shot("n1-dhcp-repeat-inspect");
+        psk_select_tab(a, PSK_TAB_PACKETS);
+        wait_rows(1500);
+        pump(300);
+        {
+            uint32_t seqs[PSK_LIST_ROWS];
+            int n = rows_shown(seqs, PSK_LIST_ROWS);
+            int i;
+            bool there = false;
+
+            for (i = 0; i < n && i < PSK_LIST_ROWS; i++) {
+                there |= seqs[i] == seq;
+            }
+            CHECK("PACKETS shows every packet and has that one among its rows, outlined", there && a->sel_seq == seq &&
+                                                                                           a->classes == PPC_CLASSES_ALL);
+        }
+        psk_select_tab(a, PSK_TAB_LIVE);
+        pump(120);
+        CHECK("back on LIVE the evidence is still what it shows", psk_evp_shown(a) && part_shown("evpage"));
+    }
+    app_stop();
+
+    /* A complete local DNS transaction: this device's own question and its
+     * answer, with the time between them. */
+    CHECK("a replay of this device's DNS question and answer, marked", replay_marked("dns-local"));
+    a = app();
+    CHECK("its page is the words module's", page_is_models());
+    CHECK("the question is this device's own and its answer has its response time",
+          containing_in(part("evobs"), "THIS DEVICE ASKS 192.0.2.53") && containing_in(part("evobs"), "31 MS") &&
+              containing_in(part("evobs"), "Answered 31 ms after the question."));
+    CHECK("no verdict on it either", verdict_words(part("evpage")) == 0);
+    CHECK("nothing clipped", audit_page() + dots_wrapped(part("evpage")) == 0);
+    shot("n1-dns-local");
+    app_stop();
+
+    /* An invisible third-party reply: a REQUEST whose ACK went to the
+     * device alone; only what passed this port is on the page. */
+    CHECK("a replay of another device's REQUEST whose ACK this port never saw, marked", replay_marked("unseen-reply"));
+    a = app();
+    CHECK("its page is the words module's", page_is_models());
+    CHECK("REQUEST 1 and ACK 0 are counted, and the row says the reply would not be seen here",
+          containing_in(a->ev_count[2], "REQUEST") && strcmp(lv_label_get_text(a->ev_count_b[2]), "1") == 0 &&
+              containing_in(a->ev_count[3], "ACK") && strcmp(lv_label_get_text(a->ev_count_b[3]), "0") == 0 &&
+              containing_in(part("evobs"), "not seeing one here says nothing"));
+    CHECK("the limits say another device's OFFER and ACK are not seen here, and no row or count gives a verdict",
+          strstr(label_of("evlimits"), "Another device's OFFER and ACK are not seen here") &&
+              verdict_words(part("evobs")) + verdict_words(part("evcounts")) == 0);
+    shot("n1-unseen-reply");
+
+    /* States the replays cannot make, shown from an answer as the helper
+     * words it. An observed event while frames were being lost: what was
+     * seen stays on the page, and the loss is said beside it. */
+    {
+        struct ppc_evt_ev_head head = { .req = 4242, .id = 1, .first = 1, .last = 1, .at_ms = 45000,
+                                        .state = PPC_STATE_CAPTURING, .seq = 9, .now_ms = 48000 };
+        struct ppc_evt_ev_win win[2];
+        struct ppc_evt_ev_obs obs[2];
+
+        memset(win, 0, sizeof(win));
+        memset(obs, 0, sizeof(obs));
+        win[0].flags = PPC_EVW_CUT_START;
+        win[0].span_ms = 45000;
+        win[0].watched_s = 42;
+        win[0].lost = 312;
+        win[0].kept = 2;
+        win[0].more = 4;
+        win[0].count[PPC_EV_DHCP_NAK] = 1;
+        win[0].count[PPC_EV_ARP_ANNOUNCE] = 3;
+        win[0].count[PPC_EV_ARP_CHANGED] = 1;
+        win[0].count[PPC_EV_ARP_TWO_MACS] = 1;
+        win[1].flags = PPC_EVW_OPEN;
+        win[1].span_ms = 3000;
+        win[1].watched_s = 3;
+        obs[0].kind = PPC_EV_ARP_CHANGED;
+        obs[0].alive = PPC_EV_WHOLE;
+        obs[0].t_ms = 43700;
+        obs[0].seq = 5;
+        snprintf(obs[0].mac, sizeof(obs[0].mac), "02:00:5e:00:00:42");
+        snprintf(obs[0].ip, sizeof(obs[0].ip), "192.0.2.77");
+        obs[1].kind = PPC_EV_DHCP_NAK;
+        obs[1].flags = PPC_EVF_BCAST;
+        obs[1].alive = PPC_EV_WHOLE;
+        obs[1].t_ms = 44500;
+        obs[1].seq = 6;
+        snprintf(obs[1].mac, sizeof(obs[1].mac), "02:00:5e:00:00:44");
+        snprintf(obs[1].ip2, sizeof(obs[1].ip2), "192.0.2.1");
+
+        CHECK("an answer with frames lost in the window before the mark is shown", show_answer(&head, win, obs, 2));
+        CHECK("the page is the words module's", page_is_models());
+        CHECK("the window says ! 312 FRAMES LOST, and the observations made in it are still listed",
+              containing_in(part("evwin0"), "! 312 FRAMES LOST") && containing_in(part("evobs"), "ADDRESS CHANGED MAC") &&
+                  containing_in(part("evobs"), "NAK") && ev_rows_on(0) == 2);
+        CHECK("and the limits say a request or a reply may be among what was lost",
+              strstr(label_of("evlimits"), "What is listed was seen; a request or a reply may be among what was lost") != NULL);
+        CHECK("the window after it is still filling and says so",
+              containing_in(part("evwin1"), "3 S AFTER") && containing_in(part("evwin1"), "STILL OPEN") &&
+                  strstr(label_of("evside1"), "NONE SEEN YET"));
+        CHECK("nothing clipped", audit_page() + dots_wrapped(part("evpage")) == 0);
+        shot("n1-loss");
+    }
+    {
+        /* A mark followed by silence: both windows watched whole, nothing
+         * of these protocols in either. */
+        struct ppc_evt_ev_head head = { .req = 4243, .id = 2, .first = 1, .last = 2, .at_ms = 200000,
+                                        .state = PPC_STATE_CAPTURING, .seq = 40, .now_ms = 270000 };
+        struct ppc_evt_ev_win win[2];
+
+        memset(win, 0, sizeof(win));
+        win[0].span_ms = 60000;
+        win[0].watched_s = 60;
+        win[1].span_ms = 60000;
+        win[1].watched_s = 60;
+
+        CHECK("an answer for a mark with a quiet minute either side is shown", show_answer(&head, win, NULL, 0));
+        psk_ev_nothing(&a->model->ev, b, sizeof(b));
+        CHECK("it says no DHCP, ARP or DNS message was seen, that the capture watched throughout, and what that does "
+              "not cover",
+              part_shown("evnothing") && strcmp(label_of("evnothing"), b) == 0 &&
+                  strstr(b, "No DHCP, ARP or DNS message was seen in either window.") &&
+                  strstr(b, "The capture was watching throughout") &&
+                  strstr(b, "It says nothing of what other devices sent to each other."));
+        CHECK("both windows say EVERY FRAME SEEN, there is no row and nothing to list",
+              containing_in(part("evwin0"), "EVERY FRAME SEEN") && containing_in(part("evwin1"), "EVERY FRAME SEEN") &&
+                  ev_rows_on(0) + ev_rows_on(1) == 0 && !part_shown("evlist") &&
+                  strstr(label_of("evside0"), "NONE SEEN") && strstr(label_of("evside1"), "NONE SEEN"));
+        CHECK("nothing clipped", audit_page() + dots_wrapped(part("evpage")) == 0);
+        shot("n1-silence");
+    }
+    {
+        /* What the capture could not see (the review of PR #188): a filter
+         * that kept ARP out (DNS AND DHCP), a DNS analysis that could not
+         * start, and frames lost while the counters could not be read over
+         * the mark (its follow-up). */
+        struct ppc_evt_ev_head head = { .req = 4244, .id = 3, .first = 1, .last = 3, .at_ms = 300000,
+                                        .state = PPC_STATE_CAPTURING, .seq = 90, .now_ms = 330000,
+                                        .cfilter = PPC_CFILTER_NAMES, .unanalyzed = 1u << PPC_CLASS_DNS,
+                                        .edge = PPC_EV_EDGE_COUNTED, .edge_lost = 40, .edge_from_ms = 299250,
+                                        .edge_to_ms = 301500 };
+        struct ppc_evt_ev_win win[2];
+        struct ppc_evt_ev_obs obs[1];
+        unsigned bad = 0;
+        unsigned t;
+
+        memset(win, 0, sizeof(win));
+        memset(obs, 0, sizeof(obs));
+        win[0].span_ms = 60000;
+        win[0].watched_s = 60;
+        win[0].kept = 1;
+        win[0].count[PPC_EV_DHCP_DISCOVER] = 1;
+        win[1].flags = PPC_EVW_OPEN;
+        win[1].span_ms = 30000;
+        win[1].watched_s = 30;
+        obs[0].kind = PPC_EV_DHCP_DISCOVER;
+        obs[0].flags = PPC_EVF_BCAST;
+        obs[0].alive = PPC_EV_WHOLE;
+        obs[0].t_ms = 299000;
+        obs[0].seq = 88;
+        snprintf(obs[0].mac, sizeof(obs[0].mac), "02:00:5e:00:00:21");
+
+        CHECK("an answer from a capture that could not see ARP or analyse DNS is shown", show_answer(&head, win, obs, 1));
+        CHECK("its page is the words module's", page_is_models());
+        CHECK("the counts say ARP NOT CAPTURED and DNS NOT ANALYZED, and NONE SEEN of neither",
+              containing_in(part("evcounts"), "NOT CAPTURED") && containing_in(part("evcounts"), "NOT ANALYZED") &&
+                  !containing_in(part("evcounts"), "NONE SEEN"));
+        CHECK("neither window says every frame was seen; both name what could not be seen",
+              !containing_in(part("evwin0"), "EVERY") && !containing_in(part("evwin1"), "EVERY") &&
+                  containing_in(part("evwin0"), "FRAMES LOST AT THE MARK") &&
+                  containing_in(part("evwin0"), "ARP NOT CAPTURED") && containing_in(part("evwin1"), "DNS NOT ANALYZED"));
+        CHECK("the limits name the filter, the analysis that could not start and the 40 frames, once",
+              strstr(label_of("evlimits"), "The capture filter (DNS AND DHCP) kept ARP out") &&
+                  strstr(label_of("evlimits"), "The DNS analysis could not be set up") &&
+                  strstr(label_of("evlimits"), "40 frames were lost between 04:59 and 05:01, while the counters could "
+                                               "not be read"));
+        CHECK("the page names its capture filter, shown",
+              strcmp(label_of("evfilter"), "CAPTURE FILTER · DNS AND DHCP") == 0 && part_shown("evfilter"));
+        CHECK("no verdict on it", verdict_words(part("evpage")) == 0);
+        for (t = 0; t < POS_TEXT_SIZE_COUNT; t++) {
+            unsigned n;
+
+            pos_theme_select_text_size((enum pos_text_size)t);
+            pump(250);
+            lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+            n = (unsigned)(audit_page() + dots_wrapped(part("evpage")));
+            if (n) {
+                printf("     what could not be seen, at %s: %u issue(s)\n", pos_text_size_name((enum pos_text_size)t), n);
+            }
+            bad += n;
+            if (t == POS_TEXT_SIZE_LARGE) {
+                shot("n1-coverage-large");
+            }
+        }
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(250);
+        lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+        shot("n1-coverage");
+        CHECK("nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
+    }
+    {
+        /* The counters of lost frames could not be read since 04:57, over
+         * the mark at 05:00 and since (the follow-up review of PR #188), on
+         * a capture filtered NOT MY SSH that saw nothing of the three. */
+        struct ppc_evt_ev_head head = { .req = 4245, .id = 3, .first = 1, .last = 3, .at_ms = 300000,
+                                        .state = PPC_STATE_CAPTURING, .seq = 90, .now_ms = 330000,
+                                        .cfilter = PPC_CFILTER_NOSELF, .edge = PPC_EV_EDGE_UNKNOWN,
+                                        .edge_from_ms = 297750 };
+        struct ppc_evt_ev_win win[2];
+        unsigned bad = 0;
+        unsigned t;
+
+        memset(win, 0, sizeof(win));
+        win[0].span_ms = 60000;
+        win[0].watched_s = 60;
+        win[0].unknown = 1;
+        win[0].unknown_from_ms = 297750;
+        win[1].flags = PPC_EVW_OPEN;
+        win[1].span_ms = 30000;
+        win[1].watched_s = 30;
+        win[1].unknown = 1;
+        win[1].unknown_from_ms = 297750;
+
+        CHECK("an answer whose losses are not known since before the mark is shown", show_answer(&head, win, NULL, 0));
+        CHECK("its page is the words module's", page_is_models());
+        CHECK("neither window says every frame was seen: both say their losses are not known, a warning",
+              !containing_in(part("evwin0"), "EVERY") && !containing_in(part("evwin1"), "EVERY") &&
+                  containing_in(part("evwin0"), "! LOSSES UNKNOWN") && containing_in(part("evwin1"), "! LOSSES UNKNOWN"));
+        CHECK("a quiet minute is not concluded: what was lost is not known, so it is no proof",
+              part_shown("evnothing") &&
+                  strstr(label_of("evnothing"), "Whether frames were lost for part of the time is not known, so this "
+                                                "is not proof that none was sent.") &&
+                  !strstr(label_of("evnothing"), "quiet"));
+        CHECK("the limits say since when, and that it is counted in neither window",
+              strstr(label_of("evlimits"), "Since 04:57 the counters of lost frames could not be read: what was lost "
+                                           "from then on is not known, and is counted in neither window.") != NULL);
+        CHECK("the page names its capture filter, shown",
+              strcmp(label_of("evfilter"), "CAPTURE FILTER · NOT MY SSH") == 0 && part_shown("evfilter"));
+        CHECK("no verdict on it", verdict_words(part("evpage")) == 0);
+        for (t = 0; t < POS_TEXT_SIZE_COUNT; t++) {
+            unsigned n;
+
+            pos_theme_select_text_size((enum pos_text_size)t);
+            pump(250);
+            lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+            n = (unsigned)(audit_page() + dots_wrapped(part("evpage")));
+            if (n) {
+                printf("     losses not known, at %s: %u issue(s)\n", pos_text_size_name((enum pos_text_size)t), n);
+            }
+            bad += n;
+        }
+        pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+        pump(250);
+        lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+        shot("n1-unknown");
+        CHECK("nothing of it clipped or overlapping at Small, Medium and Large", bad == 0);
+    }
+    app_stop();
+    unsetenv("POCKETOS_CAPTURE_SELF_MAC");
+    CHECK("and no helper is left", no_child());
+}
+
+static void n1(bool portrait)
+{
+    struct psk_app *a;
+    const struct psk_model *m;
+    int64_t poll = 0;
+    int64_t frame = 0;
+    int64_t t0;
+    uint64_t seen;
+    uint32_t seq;
+    unsigned i;
+    int k;
+    int bad;
+    int n;
+
+    n1_replays(portrait);
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:2000:1", 1);
+    app_start();
+    a = app();
+    m = a->model;
+    CHECK("the setup screen has no MARK", !part_shown("mark"));
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(700);
+
+    /* MARK on LIVE: a strip of its own, and nothing else moved. */
+    CHECK("LIVE has MARK, a full target inside the safe area", part_shown("mark") && target_ok(part("mark"), 56, "MARK") &&
+                                                                    containing_in(part("mark"), portrait ? "MARK THIS MOMENT" : "MARK"));
+    if (portrait) {
+        CHECK("MARK is a strip above the capture bar, as wide as the bar", box_ok("mark", 20, 1070, 528, 56));
+        CHECK("LIVE's panels and the capture bar are where the mockup has them", box_ok("status", 20, 166, 528, 36) &&
+                                                                                    box_ok("traffic", 20, 228, 528, 374) &&
+                                                                                    box_ok("bar0", 20, 1138, 170, 64) &&
+                                                                                    box_ok("bar2", 377, 1138, 171, 64));
+    } else {
+        lv_area_t mk;
+        lv_area_t b0;
+
+        lv_obj_get_coords(part("mark"), &mk);
+        lv_obj_get_coords(part("bar0"), &b0);
+        CHECK("wide: MARK is in the top row, before the capture's buttons", mk.y1 == b0.y1 && mk.x2 < b0.x1 &&
+                                                                                lv_area_get_height(&mk) == 56);
+    }
+    CHECK("FILTER, HOLD and STOP are there as before", shown("FILTER") && shown("HOLD") && shown("STOP") &&
+                                                           target_ok(part("bar1"), button_h(), "HOLD") &&
+                                                           target_ok(part("bar2"), button_h(), "STOP"));
+    CHECK("a capture without a mark offers no way to the marks, and has asked for no evidence", !part_shown("marks") &&
+                                                                                                    m->nmarks == 0 && m->want_ev == 0);
+    CHECK("nothing on LIVE is clipped with MARK", audit_live() + dots_wrapped(app_body) == 0);
+    shot("n1-live");
+
+    /* A mark near START: one tap, answered with the evidence. */
+    seen = m->c.seen;
+    t0 = mono_ms();
+    tap_obj(part("mark"));
+    CHECK("one tap on MARK opens the mark's evidence", wait_evidence(1, 1000));
+    t0 = mono_ms() - t0;
+    printf("     MARK to its evidence on the screen: %lld ms (the tap itself is 100)\n", (long long)t0);
+    CHECK("within a quarter of a second of the tap", t0 < 250 + 100);
+    CHECK("the page is headed Mark, with when it was set", strcmp(label_of("evtitle"), "Mark") == 0 &&
+                                                               strstr(label_of("evwhen"), "INTO THE CAPTURE"));
+    CHECK("the window before it is cut by the capture's own start, and says so",
+          containing_in(part("evwin0"), "S BEFORE") && containing_in(part("evwin0"), "THE CAPTURE STARTED THEN") &&
+              strstr(label_of("evlimits"), "there is no earlier evidence"));
+    CHECK("the window after it has begun and is still filling", containing_in(part("evwin1"), "S AFTER") &&
+                                                                    containing_in(part("evwin1"), "STILL OPEN") &&
+                                                                    strstr(label_of("evlimits"), "still filling"));
+    CHECK("the capture went on: still CAPTURING, HOLD and STOP offered, MARK still there",
+          m->state == PPC_STATE_CAPTURING && psk_action_offered(a, PSK_ACT_HOLD) &&
+              psk_action_offered(a, PSK_ACT_STOP) && shown("HOLD") && shown("STOP") && part_shown("mark"));
+    pump(2600);
+    CHECK("and counted on while the page shows", m->c.seen > seen + 2000 && m->state == PPC_STATE_CAPTURING);
+    CHECK("the window after the mark fills as the capture watches", wait_evidence(1, 500) && m->ev.win[1].span_ms >= 2000 &&
+                                                                        (m->ev.win[1].flags & PPC_EVW_OPEN) &&
+                                                                        ev_rows_on(1) > 0);
+    CHECK("the page is the words module's, row for row", page_is_models());
+    CHECK("no verdict, score or percentage on it", verdict_words(part("evpage")) == 0);
+    CHECK("the way to the marks is beside MARK now", part_shown("marks") &&
+                                                         target_ok(part("marks"), 56, "the marks' button") &&
+                                                         containing_in(part("marks"), portrait ? "1 MARK" : "1"));
+    if (portrait) {
+        CHECK("MARK and the marks' button line up with the capture bar under them", box_ok("mark", 20, 1070, 349, 56) &&
+                                                                                       box_ok("marks", 377, 1070, 171, 56));
+    }
+    lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+    CHECK("nothing on the page is clipped or overlapping", audit_page() + dots_wrapped(part("evpage")) == 0);
+    shot("n1-evidence");
+
+    /* Cost with the page showing: its evidence once a second. */
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(4000);
+    psk_app_cost(app_priv, &poll, &frame, 0);
+    printf("     evidence page at 2,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll, (long long)frame);
+    CHECK("the evidence page's poll stays under 4 ms at 2,000 pps", poll > 0 && poll < 4000);
+    CHECK("and nothing was dropped or shed for it", m->c.kdrop + m->c.ifdrop == 0 && !m->shed);
+
+    /* Every text size: nothing clipped (Unit B runs at Large). */
+    bad = 0;
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        pos_theme_select_text_size((enum pos_text_size)i);
+        pump(250);
+        lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+        n = audit_page() + dots_wrapped(part("evpage"));
+        if (n) {
+            printf("     the evidence at %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), n);
+        }
+        bad += n;
+        n = !target_ok(part("mark"), 56, "MARK") + !target_ok(part("marks"), 56, "the marks' button") +
+            !target_ok(part("evclose"), 56, "BACK");
+        bad += n;
+        if (i == POS_TEXT_SIZE_LARGE) {
+            shot("n1-evidence-large");
+            in_view(part("evlimits"));
+            shot("n1-evidence-large-end");
+        }
+    }
+    CHECK("Small, Medium and Large: nothing on the evidence clipped, its buttons full targets", bad == 0);
+    bad = 0;
+    psk_evp_show(a, false);
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        pos_theme_select_text_size((enum pos_text_size)i);
+        pump(250);
+        n = audit_live() + dots_wrapped(app_body);
+        if (n) {
+            printf("     LIVE with MARK at %s: %d issue(s)\n", pos_text_size_name((enum pos_text_size)i), n);
+        }
+        bad += n;
+        if (i == POS_TEXT_SIZE_LARGE) {
+            shot("n1-live-large");
+        }
+    }
+    CHECK("and LIVE with MARK and the marks' button at every text size", bad == 0);
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    pump(250);
+    CHECK("BACK left the evidence: LIVE is LIVE, and asks for no evidence while it shows",
+          !psk_evp_shown(a) && part_shown("traffic") && !part_shown("evpage"));
+    {
+        uint32_t want = m->want_ev;
+
+        pump(2300);
+        CHECK("two seconds of LIVE: no evidence was asked for", m->want_ev == want);
+    }
+    shot("n1-live-marked");
+
+    /* The marks' button: back to the newest mark's evidence. */
+    tap_obj(part("marks"));
+    CHECK("the marks' button reopens the evidence", wait_evidence(1, 1000) && part_shown("evpage"));
+
+    /* An observation to its packet in INSPECT, to its neighbours in PACKETS,
+     * and back to the page. */
+    k = ev_row_of(1, true);
+    if (k < 0) {
+        k = ev_row_of(0, true);
+    }
+    seq = k >= 0 ? a->ev_row_seq[k] : 0;
+    CHECK("a row of the page is a full target with a packet to open", k >= 0 && seq &&
+                                                                          target_ok(in_view(a->ev_row[k]), 56, "a row"));
+    if (k >= 0) {
+        char word[16];
+
+        snprintf(word, sizeof(word), "%s", lv_label_get_text(a->ev_row_cls[k]));
+        tap_obj(a->ev_row[k]);
+        CHECK("it opens that packet in INSPECT", wait_model_packet(0, 1500) && m->pkt.head.seq == seq &&
+                                                     (portrait ? a->cur == PSK_TAB_INSPECT : a->cur == PSK_TAB_PACKETS));
+        CHECK("and the packet is of the row's protocol", strcmp(m->pkt.head.word, word) == 0);
+        if (!m->have_pkt || strcmp(m->pkt.head.word, word) != 0) {
+            printf("     the row said %s, the packet is %s\n", word, m->have_pkt ? m->pkt.head.word : "(none)");
+        }
+        shot("n1-inspect");
+        if (portrait) {
+            CHECK("Back from INSPECT is PACKETS", app_packetshark.back(app_priv) == 1 && a->cur == PSK_TAB_PACKETS);
+        }
+        wait_rows(1500);
+        pump(700);
+        {
+            uint32_t seqs[PSK_LIST_ROWS];
+            int rows = rows_shown(seqs, PSK_LIST_ROWS);
+            bool there = false;
+
+            for (n = 0; n < rows && n < PSK_LIST_ROWS; n++) {
+                there |= seqs[n] == seq;
+            }
+            CHECK("PACKETS stands at the packet among its neighbours, not following", there && !a->follow &&
+                                                                                        a->classes == PPC_CLASSES_ALL);
+        }
+        CHECK("Back from PACKETS is LIVE, and LIVE still shows the evidence",
+              app_packetshark.back(app_priv) == 1 && a->cur == PSK_TAB_LIVE && psk_evp_shown(a) && part_shown("evpage"));
+    }
+
+    /* Every DHCP, ARP and DNS packet, from where the evidence begins. */
+    wait_evidence(1, 1500);
+    CHECK("the page offers the packets of its three protocols", part_shown("evlist") &&
+                                                                   target_ok(in_view(part("evlist")), 56, "the list button"));
+    tap_obj(part("evlist"));
+    wait_rows(1500);
+    pump(700);
+    {
+        int rows = rows_shown(NULL, 0);
+        bool only = rows > 0;
+
+        for (n = 0; n < PSK_LIST_ROWS; n++) {
+            if (!lv_obj_has_flag(a->lrow[n].row, LV_OBJ_FLAG_HIDDEN) && a->lrow[n].seq) {
+                const char *w = row_text(n, 0);
+
+                only = only && (strcmp(w, "DHCP") == 0 || strcmp(w, "ARP") == 0 || strcmp(w, "DNS") == 0);
+            }
+        }
+        CHECK("PACKETS lists DHCP, ARP and DNS alone, and says so", a->cur == PSK_TAB_PACKETS && only &&
+                                                                       a->classes == psk_ev_classes() &&
+                                                                       containing_in(app_body, "DHCP"));
+        shot("n1-packets");
+    }
+    psk_set_view(a, PPC_CLASSES_ALL, "", 0, false);
+    psk_select_tab(a, PSK_TAB_LIVE);
+    pump(150);
+
+    /* A mark on HOLD: the capture's own buttons work from the page, and the
+     * seconds on HOLD are told as not watched. */
+    tap("HOLD");
+    CHECK("HOLD from the evidence page holds the capture", wait_state(PPC_STATE_HOLD, 1500) && wait_for("RESUME", 500) &&
+                                                               psk_evp_shown(a));
+    pump(300);
+    tap_obj(part("mark"));
+    CHECK("a mark on HOLD: its evidence opens as Mark 2 of 2, and says ON HOLD",
+          wait_evidence(2, 1000) && strcmp(label_of("evtitle"), "Mark 2 of 2") == 0 &&
+              strstr(label_of("evwhen"), "ON HOLD"));
+    pump(2600);
+    wait_evidence(2, 500);
+    CHECK("the seconds on HOLD after it are told, and nothing is listed from them",
+          m->ev.win[1].held_s >= 2 && containing_in(part("evwin1"), "ON HOLD") && ev_rows_on(1) == 0 &&
+              strstr(label_of("evlimits"), "on HOLD for part of this time"));
+    CHECK("the page is the words module's", page_is_models());
+    shot("n1-hold");
+    lv_obj_scroll_to_y(part("evpage"), 0, LV_ANIM_OFF);
+    pump(80);
+    CHECK("the arrows are full targets, and the later one has nowhere to go", target_ok(part("evprev"), 56, "the earlier mark") &&
+                                                                                  target_ok(part("evnext"), 56, "the later mark") &&
+                                                                                  !lv_obj_has_flag(part("evnext"), LV_OBJ_FLAG_CLICKABLE));
+    tap_obj(part("evprev"));
+    CHECK("the earlier arrow shows Mark 1 of 2", wait_evidence(1, 1000) && strcmp(label_of("evtitle"), "Mark 1 of 2") == 0);
+    tap_obj(part("evnext"));
+    CHECK("the later arrow shows Mark 2 of 2 again", wait_evidence(2, 1000) && strcmp(label_of("evtitle"), "Mark 2 of 2") == 0);
+    CHECK("the marks' button counts two", containing_in(part("marks"), portrait ? "2 MARKS" : "2") != NULL);
+    tap("RESUME");
+    CHECK("RESUME from the page resumes", wait_state(PPC_STATE_CAPTURING, 1500) && psk_evp_shown(a));
+
+    /* A key marks too: M, on LIVE. */
+    psk_evp_show(a, false);
+    pump(100);
+    CHECK("M on LIVE is MARK", psk_key(a, 'm') && wait_evidence(3, 1000) && strcmp(label_of("evtitle"), "Mark 3 of 3") == 0);
+
+    /* A mark near STOP: the window after it ends where the capture stopped. */
+    pump(1200);
+    tap("STOP");
+    CHECK("STOP from the page stops the capture", wait_state(PPC_STATE_STOPPED, 2500) && psk_evp_shown(a));
+    pump(400);
+    CHECK("the window after the mark ends where the capture stopped, and says so",
+          wait_evidence(3, 1500) && !(m->ev.win[1].flags & PPC_EVW_OPEN) && (m->ev.win[1].flags & PPC_EVW_CUT_STOP) &&
+              containing_in(part("evwin1"), "THE CAPTURE STOPPED THEN") &&
+              strstr(label_of("evlimits"), "nothing later was seen"));
+    if (portrait) {
+        CHECK("tall: a stopped capture still has MARK, and SAVE, NEW CAPTURE and DISCARD as before",
+              part_shown("mark") && shown("SAVE") && shown("NEW CAPTURE") && shown("DISCARD"));
+        tap_obj(part("mark"));
+        CHECK("a mark on a stopped capture stands where it stopped: nothing after, and it says why",
+              wait_evidence(4, 1000) && strstr(label_of("evwhen"), "CAPTURE STOPPED") &&
+                  containing_in(part("evwin1"), "NOTHING AFTER") && containing_in(part("evwin1"), "THE CAPTURE HAD STOPPED"));
+        CHECK("the page is the words module's", page_is_models());
+        shot("n1-stopped");
+    } else {
+        uint32_t held = m->nmarks;
+        bool fits;
+
+        /* Wide (owner, 2026-11-25): MARK leaves the top row once the
+         * capture has stopped, and the state's line has its room back; the
+         * count of marks stays, and the evidence with it. */
+        CHECK("wide: after STOP the top row has no MARK, the count of marks, and SAVE, NEW CAPTURE and DISCARD",
+              !part_shown("mark") && part_shown("marks") && containing_in(part("marks"), "3") &&
+                  target_ok(part("marks"), 56, "the count of marks") && shown("SAVE") && shown("NEW CAPTURE") &&
+                  shown("DISCARD"));
+        fits = containing_in(part("top"), "SYNTH0 · BY YOU · ") != NULL && !containing_in(part("top"), "...");
+        if (!fits) {
+            dump_in(part("top"));
+        }
+        CHECK("and the state's line has its room back: where, why and how long, not cut", fits);
+        CHECK("M marks nothing there", !psk_key(a, 'm') && (pump(300), m->nmarks == held) && !a->mark_wait);
+        shot("n1-stopped");
+        psk_evp_show(a, false);
+        pump(100);
+        tap_obj(part("marks"));
+        CHECK("the count opens the newest mark's evidence after STOP", wait_evidence(3, 1500) &&
+                                                                     strcmp(label_of("evtitle"), "Mark 3 of 3") == 0);
+        tap_obj(part("evprev"));
+        CHECK("and the arrows step to the earlier marks", wait_evidence(2, 1500) &&
+                                                          strcmp(label_of("evtitle"), "Mark 2 of 3") == 0);
+        k = ev_row_of(0, true);
+        seq = k >= 0 ? a->ev_row_seq[k] : 0;
+        CHECK("a row of a stopped capture's evidence still has a packet to open", k >= 0 && seq != 0);
+        if (k >= 0) {
+            tap_obj(a->ev_row[k]);
+            CHECK("it opens in the inspector beside the list", wait_seq(seq, 1500) &&
+                                                                  a->cur == PSK_TAB_PACKETS && psk_inspect_visible(a));
+            psk_select_tab(a, PSK_TAB_LIVE);
+            pump(150);
+            CHECK("and LIVE shows the evidence again, MARK still not in the row", psk_evp_shown(a) && !part_shown("mark") &&
+                                                                                   part_shown("marks"));
+        }
+        /* While the capture is written, the same: the state as the helper
+         * reports it during SAVE, which on a capture this small is over
+         * before a poll could see it. */
+        a->model->state = PPC_STATE_SAVING;
+        psk_live_paint(a, PSK_CHANGED_STATE);
+        pump(60);
+        CHECK("wide, while SAVING: no MARK, the count of marks stays", !part_shown("mark") && part_shown("marks") &&
+                                                                          !psk_key(a, 'm'));
+        a->model->state = PPC_STATE_STOPPED;
+        psk_live_paint(a, PSK_CHANGED_STATE);
+        pump(60);
+        /* The unit turned with the capture stopped: the tall shape offers
+         * MARK again at once, the wide one takes it away again. */
+        use_display(POS_ROTATION_0);
+        pump(250);
+        CHECK("turned tall after STOP: MARK THIS MOMENT is back, beside the count", part_shown("mark") &&
+                                                                                    containing_in(part("mark"), "MARK THIS MOMENT") &&
+                                                                                    part_shown("marks") && psk_evp_shown(a));
+        use_display(POS_ROTATION_90);
+        pump(250);
+        CHECK("turned wide again: no MARK, the count stays", !part_shown("mark") && part_shown("marks") &&
+                                                             containing_in(part("top"), "SYNTH0 \xc2\xb7 BY YOU") &&
+                                                             !containing_in(part("top"), "..."));
+    }
+    {
+        /* The Back action: the page, then the capture's own question. */
+        CHECK("Back closes the evidence", app_packetshark.back(app_priv) == 1 && !psk_evp_shown(a) && part_shown("traffic"));
+    }
+    app_stop();
+    CHECK("and no helper is left", no_child());
+
+    /* Evidence whose packet has left the buffer: at 8,000 pps the buffer
+     * turns in seconds. The row stays, says so, and takes no tap. */
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:8000:1", 1);
+    app_start();
+    a = app();
+    m = a->model;
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(2500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll, &frame, 0);
+    printf("     LIVE at 8,000 pps, before any mark: worst poll %lld us, worst frame %lld us\n", (long long)poll,
+           (long long)frame);
+    tap_obj(part("mark"));
+    CHECK("a mark at 8,000 pps: its evidence opens", wait_evidence(1, 1000) && ev_rows_on(0) > 0);
+    k = ev_row_of(0, true);
+    seq = k >= 0 ? a->ev_row_seq[k] : 0;
+    {
+        int64_t end = mono_ms() + 40000;
+
+        while (mono_ms() < end && !(m->c.first_seq > seq + 1u && ev_row_of(0, false) >= 0)) {
+            pump(200);
+        }
+    }
+    k = ev_row_of(0, false);
+    CHECK("when the buffer has turned, the row of a packet that left it says so in words", seq && m->c.first_seq > seq && k >= 0 &&
+                                                                                              containing_in(a->ev_row[k], "! ITS PACKET HAS LEFT THE BUFFER"));
+    if (k >= 0) {
+        in_view(a->ev_row[k]);
+        shot("n1-expired");
+        CHECK("it has no chevron and takes no tap", !lv_obj_has_flag(a->ev_row[k], LV_OBJ_FLAG_CLICKABLE) &&
+                                                        lv_obj_get_style_opa(a->ev_row_chev[k], LV_PART_MAIN) == LV_OPA_TRANSP);
+        tap_obj(a->ev_row[k]);
+        pump(200);
+        CHECK("a tap on it opens nothing: the page stays", psk_evp_shown(a) && a->cur == PSK_TAB_LIVE && a->insp_seq == 0);
+        CHECK("its counts and its words are still on the page", page_is_models());
+    }
+    /* Eight marks are kept; the ninth replaces the oldest, and the page says so. */
+    for (i = 0; i < 8; i++) {
+        tap_obj(part("mark"));
+        wait_evidence(2 + i, 1000);
+    }
+    CHECK("nine marks set: eight are held, and the page is Mark 8 of 8", m->nmarks == 9 && m->first_mark == 2 &&
+                                                                         wait_evidence(9, 1000) &&
+                                                                         strcmp(label_of("evtitle"), "Mark 8 of 8") == 0 &&
+                                                                         containing_in(part("marks"), portrait ? "8 MARKS" : "8"));
+    CHECK("it says earlier ones were replaced", strstr(label_of("evlimits"), "Earlier ones were replaced") != NULL);
+    /* What it costs. A new mark's page is two dozen rows of new text, laid
+     * out once: one poll, measured apart. After it the page is asked for
+     * once a second and only what changed is written. */
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    tap_obj(part("mark"));
+    wait_evidence(10, 1000);
+    pump(1500);
+    psk_app_cost(app_priv, &poll, &frame, 0);
+    printf("     a new mark's page at 8,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll,
+           (long long)frame);
+    CHECK("a new mark's page is laid out within one poll of 30 ms", poll > 0 && poll < 30000);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll, &frame, 0);
+    printf("     evidence page at 8,000 pps, eight marks held: worst poll %lld us, worst frame %lld us\n", (long long)poll,
+           (long long)frame);
+    CHECK("at 8,000 pps with eight marks held the page's poll stays under 4 ms and nothing is dropped",
+          poll > 0 && poll < 4000 && m->c.kdrop + m->c.ifdrop == 0);
+    tap("STOP");
+    wait_state(PPC_STATE_STOPPED, 2500);
+    pump(200);
+    tap("DISCARD");
+    pump(200);
+    tap_last("DISCARD");
+    {
+        bool setup = wait_for("START CAPTURE", 2500);
+        int64_t end = mono_ms() + 2500;
+
+        /* The setup returns at once; the helper's leaving, which takes the
+         * capture and its marks from the model, is seen a poll or two
+         * later. Nothing of the capture shows meanwhile (it is discarding). */
+        while (mono_ms() < end && (a->discarding || m->nmarks)) {
+            pump(20);
+        }
+        if (!setup || part_shown("mark") || part_shown("evpage") || m->nmarks) {
+            printf("     setup %d, MARK shown %d, evidence shown %d, marks %u, state %d, sheet %d\n", setup,
+                   part_shown("mark"), part_shown("evpage"), (unsigned)m->nmarks, (int)m->state, (int)a->sheet_kind);
+        }
+        CHECK("DISCARD ends it: setup again, no MARK, no mark", setup && !part_shown("mark") && !part_shown("evpage") &&
+                                                                    m->nmarks == 0);
+    }
+    app_stop();
+    CHECK("and no helper is left", no_child());
+}
+
+/* The poll's cost at 8,000 pps on LIVE and on PACKETS, as figures: no
+ * check, so a branch can be measured beside master on the same host
+ * (PACKETSHARK_ONLY=cost). */
+static void cost_once(void)
+{
+    int64_t poll_us = 0;
+    int64_t frame_us = 0;
+
+    setenv("POCKETOS_CAPTURE_SOURCE", "synth:8000:1", 1);
+    app_start();
+    tap("START CAPTURE");
+    wait_for("CAPTURING", 3500);
+    pump(1500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll_us, &frame_us, 0);
+    printf("cost: LIVE at 8,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll_us, (long long)frame_us);
+    tap("PACKETS");
+    pump(1500);
+    psk_app_cost(app_priv, NULL, NULL, 1);
+    pump(3000);
+    psk_app_cost(app_priv, &poll_us, &frame_us, 0);
+    printf("cost: PACKETS at 8,000 pps: worst poll %lld us, worst frame %lld us\n", (long long)poll_us, (long long)frame_us);
+    app_stop();
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -3405,6 +4924,63 @@ int main(void)
 
     use_display(POS_ROTATION_0);
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
+    {
+        /* PACKETSHARK_ONLY=n1: MARK and its evidence alone, both shapes
+         * (make packetshark-n1-test). PACKETSHARK_ONLY=journey: the
+         * capture's journey alone. PACKETSHARK_ONLY=cost: the poll's cost
+         * at 8,000 pps on LIVE and PACKETS, five times, as figures. */
+        const char *only = getenv("PACKETSHARK_ONLY");
+
+        if (only && strcmp(only, "cost") == 0) {
+            int r;
+
+            for (r = 0; r < 5; r++) {
+                cost_once();
+            }
+            return 0;
+        }
+        if (only && strcmp(only, "journey") == 0) {
+            /* The capture's journey alone (START to DISCARD), both shapes. */
+            capture_journey();
+            shot_orientation = "landscape";
+            use_display(POS_ROTATION_90);
+            capture_journey();
+            snprintf(cmd, sizeof(cmd), "rm -rf '%s' '%s'", root, captures_dir);
+            if (system(cmd) != 0) {
+                printf("note: could not remove %s\n", root);
+            }
+            printf("packetshark_app_test (journey): %d checks, %d failed\n", checks, failed);
+            return failed ? 1 : 0;
+        }
+        if (only && strcmp(only, "back") == 0) {
+            /* H6: the wide back slab's reach, and the tall shape as it was. */
+            back_reach(true);
+            shot_orientation = "landscape";
+            use_display(POS_ROTATION_90);
+            back_reach(false);
+            printf("packetshark_app_test (back): %d checks, %d failed\n", checks, failed);
+            return failed ? 1 : 0;
+        }
+        if (only && strcmp(only, "n1") == 0) {
+            /* PACKETSHARK_SHAPE=portrait or landscape: that shape alone. */
+            const char *shape = getenv("PACKETSHARK_SHAPE");
+
+            if (!shape || strcmp(shape, "portrait") == 0) {
+                n1(true);
+            }
+            if (!shape || strcmp(shape, "landscape") == 0) {
+                shot_orientation = "landscape";
+                use_display(POS_ROTATION_90);
+                n1(false);
+            }
+            snprintf(cmd, sizeof(cmd), "rm -rf '%s' '%s'", root, captures_dir);
+            if (system(cmd) != 0) {
+                printf("note: could not remove %s\n", root);
+            }
+            printf("packetshark_app_test (n1): %d checks, %d failed\n", checks, failed);
+            return failed ? 1 : 0;
+        }
+    }
     setup_screens();
     wifi_screens();
     capture_journey();
@@ -3413,7 +4989,9 @@ int main(void)
     m4_live(true);
     m5_m6(true);
     m7_m9(true);
+    back_reach(true);
     m12(true);
+    n1(true);
     faults();
     setenv("POCKETOS_CAPTURE_HELPER", helper, 1);
     shot_orientation = "landscape";
@@ -3425,7 +5003,9 @@ int main(void)
     m4_live(false);
     m5_m6(false);
     m7_m9(false);
+    back_reach(false);
     m12(false);
+    n1(false);
     shot_orientation = "portrait";
     use_display(POS_ROTATION_0);
     cycles();

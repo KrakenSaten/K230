@@ -246,6 +246,14 @@ static void reset_list(struct psk_app *a)
     if (a->cur == PSK_TAB_INSPECT) {
         a->cur = PSK_TAB_PACKETS;
     }
+    /* And no mark: they are moments of the capture that was (N1.0). */
+    a->ev_view = false;
+    a->ev_id = 0;
+    a->ev_fresh = false;
+    a->ev_due = false;
+    a->ev_asked = false;
+    a->mark_wait = false;
+    a->mark_got = false;
 }
 
 static void send_view(struct psk_app *a)
@@ -695,6 +703,147 @@ static void net_poll(struct psk_app *a)
     }
 }
 
+/* ---- marks and their evidence (N1.0, docs/apps/PACKETSHARK.md §4d) ----------------------- */
+
+static void ev_ask(struct psk_app *a)
+{
+    if (psk_session_evid(a->session, a->model, a->ev_id) == 0) {
+        a->ev_due = false;
+        a->ev_asked = true;
+        a->ev_sent_ms = psk_now();
+    } else {
+        a->ev_due = true;
+    }
+}
+
+/* MARK: this moment of the capture. The helper sets the mark and says so at
+ * once; its evidence is asked for in the same breath, and the page opens
+ * when that is here, so the tap is answered with what was seen and not with
+ * an empty page. The capture goes on as it was: nothing else is sent. */
+void psk_mark(struct psk_app *a)
+{
+    if (!psk_mark_offered(a) || a->mark_wait || a->model->state == PPC_STATE_SAVING) {
+        return;
+    }
+    if (psk_session_mark(a->session) != 0) {
+        return;
+    }
+    a->mark_wait = true;
+    a->mark_got = false;
+    a->mark_sent_ms = psk_now();
+    a->ev_id = 0; /* the newest: the one being set */
+    a->ev_fresh = false;
+    ev_ask(a);
+    psk_live_paint(a, PSK_CHANGED_STATE);
+}
+
+void psk_ev_go(struct psk_app *a, uint32_t id)
+{
+    if (!psk_capture_present(a) || a->model->nmarks == 0) {
+        return;
+    }
+    /* What the page last showed stays until the answer is here, a poll or
+     * two later: no empty page in between. */
+    a->ev_id = id;
+    ev_ask(a);
+    if (psk_evp_shown(a)) {
+        lv_obj_scroll_to_y(a->ev_page, 0, LV_ANIM_OFF);
+    } else {
+        psk_evp_show(a, true);
+    }
+}
+
+/* A mark that was just set, with its evidence or without: on the screen.
+ * Its page may be what LIVE shows already (MARK is on it too): then it is
+ * that page, from its top. */
+static void mark_opens(struct psk_app *a)
+{
+    a->mark_wait = false;
+    if (psk_evp_shown(a)) {
+        lv_obj_scroll_to_y(a->ev_page, 0, LV_ANIM_OFF);
+        psk_evp_paint(a);
+        psk_live_paint(a, PSK_CHANGED_STATE);
+    } else {
+        psk_evp_show(a, true);
+    }
+}
+
+/* The list stands at a packet: not following, that packet at its top. */
+static void list_at(struct psk_app *a, uint32_t seq)
+{
+    if (!seq) {
+        return;
+    }
+    a->follow = false;
+    a->top_seq = seq;
+    a->jump = PSK_JUMP_SEQ;
+    a->window_due = true;
+    a->window_inflight = false;
+}
+
+void psk_ev_packet(struct psk_app *a, uint32_t seq)
+{
+    if (!seq || !psk_capture_present(a)) {
+        return;
+    }
+    /* The packet alone, in the inspector; the list shows everything and
+     * stands at it, so the arrows walk its neighbours. */
+    psk_set_view_diag(a, PPC_CLASSES_ALL, "", 0, false, 0, 0);
+    list_at(a, seq);
+    psk_open_packet(a, seq, 0);
+}
+
+void psk_ev_packets(struct psk_app *a)
+{
+    const struct psk_evidence *ev = &a->model->ev;
+    uint32_t seq;
+
+    if (!psk_capture_present(a) || !a->model->have_ev) {
+        return;
+    }
+    /* Where the evidence shown begins: its oldest observation, or the mark
+     * itself when it has none before. */
+    seq = ev->nobs[0] ? ev->obs[0][0].seq : ev->nobs[1] ? ev->obs[1][0].seq : ev->head.seq;
+    psk_set_view_diag(a, psk_ev_classes(), "", 0, false, 0, 0);
+    list_at(a, seq);
+    psk_select_tab(a, PSK_TAB_PACKETS);
+}
+
+/* A mark's evidence is asked for while its page shows: each second while
+ * the window after the mark is filling, then at a slower beat for what the
+ * buffer still holds of its packets, and once when the capture changes
+ * state. Never otherwise. A tap on MARK that is still waiting is settled
+ * here too: the page opens without its evidence when that is late, and MARK
+ * is offered again when the helper never answered. */
+static void ev_poll(struct psk_app *a)
+{
+    const struct psk_model *m = a->model;
+    int64_t now = psk_now();
+    bool running = m->state == PPC_STATE_CAPTURING || m->state == PPC_STATE_HOLD;
+    bool filling;
+
+    if (a->mark_wait && a->mark_got && now - a->mark_sent_ms >= PSK_MARK_OPEN_MS) {
+        mark_opens(a);
+    } else if (a->mark_wait && !a->mark_got && now - a->mark_sent_ms >= PSK_MARK_WAIT_MS) {
+        a->mark_wait = false;
+        psk_live_paint(a, PSK_CHANGED_STATE);
+    }
+    if ((!psk_evp_shown(a) && !a->mark_wait) || !psk_capture_present(a)) {
+        return;
+    }
+    filling = !a->ev_fresh || !m->have_ev || (m->ev.win[1].flags & PPC_EVW_OPEN) != 0;
+    if (a->ev_asked && now - a->ev_sent_ms >= PSK_EV_REFRESH_MS) {
+        a->ev_due = true; /* the helper had no room for the answer then */
+    }
+    if (!a->ev_due && !(running && now - a->ev_sent_ms >= (filling ? PSK_EV_REFRESH_MS : PSK_EV_SLOW_MS))) {
+        return;
+    }
+    if (now - a->ev_sent_ms < 200) {
+        return; /* one asked for a moment ago is on its way */
+    }
+    ev_ask(a);
+}
+
 /* What the poll brought, beyond painting. */
 static void start_failed(struct psk_app *a);
 
@@ -745,6 +894,36 @@ static void react(struct psk_app *a, unsigned changed)
             snprintf(a->insp_note, sizeof(a->insp_note), "! THE PACKET HAS LEFT THE BUFFER");
         } else if (strcmp(m->err_code, "pins") == 0) {
             snprintf(a->insp_note, sizeof(a->insp_note), "! EVERY PIN IS TAKEN · UNPIN ONE FIRST");
+        } else if (strcmp(m->err_code, "nomark") == 0) {
+            /* The mark asked for is no longer held (a capture keeps its
+             * newest eight): the newest one instead. */
+            a->ev_id = 0;
+            a->ev_asked = false;
+            a->ev_due = true;
+        } else if (strcmp(m->err_code, "state") == 0 && a->mark_wait && !a->mark_got) {
+            a->mark_wait = false; /* no mark was set: MARK is offered again */
+        }
+    }
+    if (changed & PSK_CHANGED_MARK) {
+        if (a->mark_wait) {
+            /* The app's own: its evidence was asked for with it. */
+            a->mark_got = true;
+            a->ev_id = m->last_mark.id;
+        } else {
+            a->ev_due = true; /* which mark of how many: the page's head follows */
+        }
+    }
+    if (changed & PSK_CHANGED_EVID) {
+        a->ev_asked = false;
+        a->ev_fresh = true;
+        if (a->ev_id == 0) {
+            a->ev_id = m->ev.head.id; /* the newest, by its number from here on */
+        }
+        if (a->mark_wait && a->mark_got && m->ev.head.id == a->ev_id) {
+            /* The mark just set, with what was seen around it. */
+            mark_opens(a);
+        } else if (psk_evp_shown(a)) {
+            psk_evp_paint(a);
         }
     }
     if (changed & PSK_CHANGED_ROWS) {
@@ -771,6 +950,7 @@ static void react(struct psk_app *a, unsigned changed)
     }
     if (changed & PSK_CHANGED_STATE) {
         a->net_due = true; /* a capture that stopped: its last word */
+        a->ev_due = true;  /* and its windows close where it stopped */
     }
     if (changed & PSK_CHANGED_NETLIST) {
         a->net_asked = false;
@@ -1032,6 +1212,8 @@ static void on_poll(lv_timer_t *t)
     psk_list_fit(a);
     list_poll(a);
     net_poll(a);
+    ev_poll(a);
+    psk_mark_fit(a);
     if (psk_net_shown(a) && a->nv_line_h != pocketui_role_line_height(POS_STYLE_VALUE)) {
         psk_net_paint(a); /* a new text size: its lines' heights follow */
     }
@@ -1054,12 +1236,17 @@ void psk_select_tab(struct psk_app *a, enum psk_tab t)
     }
     if (t == PSK_TAB_LIVE && a->cur == PSK_TAB_LIVE) {
         a->net_view = false; /* LIVE tapped on LIVE: its first face */
+        a->ev_view = false;
     }
     a->cur = t;
     psk_paint_tabs(a);
     if (psk_net_shown(a)) {
         a->net_due = true;
         psk_net_paint(a);
+    }
+    if (psk_evp_shown(a)) {
+        a->ev_due = true;
+        psk_evp_paint(a);
     }
     if (t == PSK_TAB_PACKETS) {
         a->window_due = true;
@@ -1390,9 +1577,14 @@ static void layout(struct psk_app *a)
         a->wide = wide;
         a->shaped = true;
         psk_shape(a);
+        /* What LIVE offers depends on the shape (MARK is not in the wide top
+         * row of a stopped capture, N1.0): painted for the new one now, not
+         * at the capture's next change, which a stopped capture never has. */
+        psk_live_paint(a, PSK_CHANGED_STATE);
     } else if (a->wide) {
         lv_obj_set_style_pad_left(a->top, a->top_inset_l, 0);
         lv_obj_set_style_pad_right(a->top, a->top_inset_r, 0);
+        psk_back_reach_place(a);
     }
     a->fit_due = true; /* a new size: the fits follow at the next poll */
 }
@@ -1422,6 +1614,7 @@ static void on_frame_size(lv_event_t *e)
  *   Enter          PACKETS: open the selected packet in INSPECT;
  *                  INSPECT: FILTER BY the selected field
  *   P              PIN or unpin the inspected packet
+ *   M              LIVE: MARK this moment, where MARK is offered (N1.0)
  */
 
 /* The packet before or after the inspected one in the list's order; with
@@ -1528,6 +1721,13 @@ bool psk_key(struct psk_app *a, uint32_t key)
             psk_do(a, PSK_ACT_FILTER);
         }
         return capture;
+    case 'm':
+        /* Only where the screen offers MARK. */
+        if (a->cur == PSK_TAB_LIVE && psk_mark_offered(a)) {
+            psk_mark(a);
+            return true;
+        }
+        return false;
     case 'p':
         if (capture && psk_inspect_visible(a)) {
             psk_toggle_pin(a);
@@ -1710,6 +1910,8 @@ static void psk_destroy(void *priv)
         LOG_INFO("packetshark: closed, the capture helper is ended");
     }
     psk_session_abandon(a->session, PSK_DESTROY_GRACE_MS);
+    /* The evidence page's own screen is not under the app's root. */
+    psk_evp_destroy(a);
     free(a->session);
     free(a->model);
     free(a);
@@ -1746,6 +1948,10 @@ static int psk_back(void *priv)
     }
     if (psk_net_shown(a)) {
         psk_net_show(a, false); /* the network overview: back to LIVE */
+        return 1;
+    }
+    if (psk_evp_shown(a)) {
+        psk_evp_show(a, false); /* a mark's evidence: back to LIVE */
         return 1;
     }
     if (a->cur == PSK_TAB_INSPECT) {
@@ -1873,6 +2079,9 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     if (strcmp(name, "back") == 0) {
         return a->back;
     }
+    if (strcmp(name, "back_reach") == 0) {
+        return a->back_reach;
+    }
     if (strcmp(name, "inspect") == 0) {
         return a->page[PSK_TAB_INSPECT];
     }
@@ -1904,6 +2113,68 @@ lv_obj_t *psk_app_part(void *priv, const char *name)
     }
     if (strncmp(name, "nethost", 7) == 0 && (i = name[7] - '0') >= 0 && i < PSK_NV_HOSTS) {
         return a->nv_host[i];
+    }
+    /* N1.0 */
+    if (strcmp(name, "mark") == 0) {
+        return a->mark_btn;
+    }
+    if (strcmp(name, "marks") == 0) {
+        return a->marks_btn;
+    }
+    if (strcmp(name, "markstrip") == 0) {
+        return a->mark_strip;
+    }
+    if (strcmp(name, "evpage") == 0) {
+        return a->ev_page;
+    }
+    if (strcmp(name, "evtitle") == 0) {
+        return a->ev_title;
+    }
+    if (strcmp(name, "evwhen") == 0) {
+        return a->ev_when;
+    }
+    if (strcmp(name, "evprev") == 0) {
+        return a->ev_prev;
+    }
+    if (strcmp(name, "evnext") == 0) {
+        return a->ev_next;
+    }
+    if (strcmp(name, "evclose") == 0) {
+        return a->ev_close;
+    }
+    if (strncmp(name, "evwin", 5) == 0 && (i = name[5] - '0') >= 0 && i < 2) {
+        return a->ev_win[i];
+    }
+    if (strcmp(name, "evfilter") == 0) {
+        return a->ev_filter;
+    }
+    if (strcmp(name, "evcounts") == 0) {
+        return a->ev_counts_panel;
+    }
+    if (strcmp(name, "evnothing") == 0) {
+        return a->ev_nothing;
+    }
+    if (strncmp(name, "evcount", 7) == 0 && name[7] >= '0' && name[7] <= '9' && (i = atoi(name + 7)) >= 0 &&
+        i < (int)PSK_EV_COUNTS) {
+        return a->ev_count[i];
+    }
+    if (strcmp(name, "evobs") == 0) {
+        return a->ev_obs_panel;
+    }
+    if (strncmp(name, "evside", 6) == 0 && (i = name[6] - '0') >= 0 && i < 2) {
+        return a->ev_side_cap[i];
+    }
+    if (strcmp(name, "evat") == 0) {
+        return a->ev_at;
+    }
+    if (strncmp(name, "evrow", 5) == 0 && (i = atoi(name + 5)) >= 0 && i < (int)PSK_EV_ROWS) {
+        return a->ev_row[i];
+    }
+    if (strcmp(name, "evlist") == 0) {
+        return a->ev_list;
+    }
+    if (strcmp(name, "evlimits") == 0) {
+        return a->ev_limits;
     }
     if (strcmp(name, "dsheet") == 0) {
         return a->dsheet;

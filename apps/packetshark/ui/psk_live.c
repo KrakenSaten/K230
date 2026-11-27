@@ -602,6 +602,17 @@ static void on_diag(lv_event_t *e)
     }
 }
 
+/* MARK (N1.0): this moment; and the marks there are, the newest first. */
+static void on_mark(lv_event_t *e)
+{
+    psk_mark(lv_event_get_user_data(e));
+}
+
+static void on_marks(lv_event_t *e)
+{
+    psk_ev_go(lv_event_get_user_data(e), 0);
+}
+
 static void on_saves(lv_event_t *e)
 {
     psk_ssheet_show(lv_event_get_user_data(e));
@@ -639,23 +650,14 @@ static void build_tabs(struct psk_app *a)
     int i;
 
     /* The top row: the tabs, and in the wide shape a back slab before them
-     * and the state and the capture's buttons after (psk_shape). */
+     * and the state and the capture's buttons after (psk_shape). The slab
+     * itself lies over the row, in its target (build_back_reach); the row
+     * keeps its place. */
     a->top = row(a->frame, PSK_GAP);
     lv_obj_set_height(a->top, PSK_TAB_H);
-    a->back = psk_box(a->top);
-    lv_obj_set_size(a->back, 72, PSK_TOP_H);
-    pos_style_add(a->back, POS_STYLE_BUTTON_SECONDARY, 0);
-    pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_style_pad_all(a->back, 0, 0);
-    lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
-    {
-        lv_obj_t *chev = pocketui_label(a->back, LV_SYMBOL_LEFT, POS_STYLE_SYMBOL);
-
-        pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
-        lv_obj_center(chev);
-    }
-    lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
+    a->back_space = psk_box(a->top);
+    lv_obj_set_size(a->back_space, PSK_BACK_W, PSK_TOP_H);
+    lv_obj_add_flag(a->back_space, LV_OBJ_FLAG_HIDDEN);
     /* Full width, not a grow item: this LVGL takes a gap from the space for
      * every grow item, the only one in a row included. */
     strip = row(a->top, PSK_GAP);
@@ -685,6 +687,48 @@ static void build_tabs(struct psk_app *a)
         lv_obj_set_size(a->tab_rule[i], 46, 2);
         lv_obj_set_style_opa(a->tab_rule[i], LV_OPA_TRANSP, 0);
     }
+}
+
+/* The back slab and its target (H6, the finger test on Unit A, 2026-11-26).
+ * Wide, the slab sits against the display's top edge beside its rounded
+ * corner, where a finger missed it at 72 x 56. It is drawn as before and
+ * answers PSK_TOP_REACH around it (its extended click area): into the gap
+ * before LIVE, toward the side and down over the page's top padding, where
+ * no control is. LVGL finds a tapped object inside its parent's area only,
+ * so the slab cannot be the 56 px row's: it lies in a holder of the frame,
+ * as large as that target, laid over the pages and under the sheets, and a
+ * spacer keeps its place in the row (build_tabs). The holder is neither
+ * drawn nor tapped itself, so the pages and their panel titles, which reach
+ * up into that padding, show as before (5920f5a4 took the padding from the
+ * pages instead, and the page's edge cut the titles on Unit A). */
+static void build_back_reach(struct psk_app *a)
+{
+    lv_obj_t *chev;
+
+    a->back_reach = psk_box(a->frame);
+    lv_obj_add_flag(a->back_reach, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_size(a->back_reach, PSK_BACK_W + 2 * PSK_TOP_REACH, PSK_TOP_H + PSK_TOP_REACH);
+    lv_obj_add_flag(a->back_reach, LV_OBJ_FLAG_HIDDEN);
+    a->back = psk_box(a->back_reach);
+    lv_obj_set_pos(a->back, PSK_TOP_REACH, 0);
+    lv_obj_set_size(a->back, PSK_BACK_W, PSK_TOP_H);
+    pos_style_add(a->back, POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_pad_all(a->back, 0, 0);
+    lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
+    chev = pocketui_label(a->back, LV_SYMBOL_LEFT, POS_STYLE_SYMBOL);
+    pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
+    lv_obj_center(chev);
+    lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Where the row's spacer is: the row's inset in from the frame's content
+ * box, at its top (a floating child is placed from that same box), with
+ * the holder PSK_TOP_REACH further out. */
+void psk_back_reach_place(struct psk_app *a)
+{
+    lv_obj_set_pos(a->back_reach, a->top_inset_l - PSK_TOP_REACH, 0);
 }
 
 static lv_obj_t *page(lv_obj_t *parent)
@@ -1215,6 +1259,38 @@ static void build_error(struct psk_app *a, lv_obj_t *p)
     tone(a->last[3], POS_STYLE_STATUS_WARN_TEXT);
 }
 
+/* MARK (N1.0, DS §59.11): a strip of its own above the capture bar, so the
+ * bar's buttons stay where the mockups have them and MARK is under the same
+ * thumb. Beside it, once the capture has a mark, the way to the marks: a
+ * slab with a chevron, as every way to another page is. */
+static void build_mark(struct psk_app *a)
+{
+    lv_obj_t *chev;
+
+    a->mark_strip = row(a->frame, PSK_GAP);
+    lv_obj_set_height(a->mark_strip, PSK_MARK_H);
+    lv_obj_set_style_margin_top(a->mark_strip, 12, 0);
+    a->mark_btn = psk_button(a->mark_strip, "MARK THIS MOMENT", false, on_mark, a);
+    lv_obj_set_height(a->mark_btn, PSK_MARK_H);
+    a->marks_btn = psk_box(a->mark_strip);
+    lv_obj_set_size(a->marks_btn, LV_SIZE_CONTENT, PSK_MARK_H);
+    pos_style_add(a->marks_btn, POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(a->marks_btn, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_pad_ver(a->marks_btn, 0, 0);
+    lv_obj_set_style_pad_hor(a->marks_btn, 12, 0);
+    lv_obj_set_flex_flow(a->marks_btn, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(a->marks_btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(a->marks_btn, 8, 0);
+    lv_obj_add_flag(a->marks_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(a->marks_btn, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(a->marks_btn, on_marks, LV_EVENT_CLICKED, a);
+    a->marks_text = pocketui_label(a->marks_btn, "", POS_STYLE_BUTTON_LABEL);
+    chev = pocketui_label(a->marks_btn, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL);
+    pos_style_add(chev, POS_STYLE_ACCENT_TEXT, 0);
+    lv_obj_add_flag(a->marks_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(a->mark_strip, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void build_bar(struct psk_app *a)
 {
     int i;
@@ -1245,6 +1321,7 @@ void psk_live_build(struct psk_app *a)
         a->page[i] = page(content);
         psk_set_hidden(a->page[i], i != PSK_TAB_LIVE);
     }
+    build_back_reach(a); /* after the pages, before the bar and the sheets */
     build_status(a, a->page[PSK_TAB_LIVE]);
     build_setup(a, a->page[PSK_TAB_LIVE]);
     build_live(a, a->page[PSK_TAB_LIVE]);
@@ -1252,6 +1329,8 @@ void psk_live_build(struct psk_app *a)
     psk_list_build(a, a->page[PSK_TAB_PACKETS]);
     psk_inspect_build(a, a->page[PSK_TAB_INSPECT]);
     psk_net_build(a, page(content));
+    psk_evp_build(a, page(content));
+    build_mark(a);
     build_bar(a);
     lv_obj_set_style_margin_top(a->bar, 12, 0);
 }
@@ -1290,7 +1369,11 @@ void psk_shape(struct psk_app *a)
     /* The top row. */
     lv_obj_set_style_pad_left(a->top, w ? a->top_inset_l : 0, 0);
     lv_obj_set_style_pad_right(a->top, w ? a->top_inset_r : 0, 0);
+    psk_set_hidden(a->back_space, !w);
+    psk_set_hidden(a->back_reach, !w); /* the slab and its target (H6) */
     psk_set_hidden(a->back, !w);
+    lv_obj_set_ext_click_area(a->back, w ? PSK_TOP_REACH : 0);
+    psk_back_reach_place(a);
     psk_set_hidden(a->tab[PSK_TAB_INSPECT], w);
     lv_obj_set_width(a->tabs, w ? 2 * 128 + PSK_GAP : LV_PCT(100));
     /* The state: beside the tabs on every tab (ADR-016 rule 13), or the
@@ -1309,6 +1392,28 @@ void psk_shape(struct psk_app *a)
         lv_obj_set_style_pad_left(a->status_row, 0, 0);
     }
     psk_set_hidden(a->elapsed, w);
+    /* MARK (N1.0): a strip above the capture bar, or in the top row before
+     * the capture's buttons, where it is a word and the marks a figure. */
+    lv_obj_set_parent(a->mark_strip, w ? a->top : a->frame);
+    lv_obj_move_to_index(a->mark_strip, -1);
+    lv_obj_set_style_margin_top(a->mark_strip, w ? 0 : 12, 0);
+    lv_obj_set_height(a->mark_strip, w ? PSK_TOP_H : PSK_MARK_H);
+    lv_obj_set_width(a->mark_strip, w ? LV_SIZE_CONTENT : LV_PCT(100));
+    lv_obj_set_height(a->mark_btn, w ? PSK_TOP_H : PSK_MARK_H);
+    lv_obj_set_height(a->marks_btn, w ? PSK_TOP_H : PSK_MARK_H);
+    if (w) {
+        lv_obj_set_width(a->mark_btn, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_width(a->mark_btn, 88, 0);
+        lv_obj_set_style_pad_hor(a->mark_btn, 14, 0);
+        lv_obj_set_width(a->marks_btn, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_width(a->marks_btn, 64, 0);
+    } else {
+        lv_obj_set_style_min_width(a->mark_btn, 0, 0);
+        lv_obj_remove_local_style_prop(a->mark_btn, LV_STYLE_PAD_LEFT, 0);
+        lv_obj_remove_local_style_prop(a->mark_btn, LV_STYLE_PAD_RIGHT, 0);
+        lv_obj_set_width(a->mark_btn, LV_PCT(100));
+        lv_obj_set_style_min_width(a->marks_btn, 0, 0);
+    }
     /* The capture bar: at the foot, or the top row's right end. */
     lv_obj_set_parent(a->bar, w ? a->top : a->frame);
     lv_obj_move_to_index(a->bar, -1);
@@ -1386,6 +1491,7 @@ void psk_shape(struct psk_app *a)
         lv_obj_set_width(a->diag_row[i], w && i < PSK_DIAG_KINDS ? LV_PCT(49) : LV_PCT(100));
     }
     psk_net_shape(a);
+    psk_evp_shape(a);
     /* Wide: LIVE's three panels and the top row fit the body's height. */
     lv_obj_set_style_pad_row(a->live_r, w ? 12 : PSK_PANEL_GAP, 0);
     lv_obj_set_style_pad_top(a->page[PSK_TAB_LIVE], w ? 8 : 14, 0);
@@ -1408,8 +1514,9 @@ void psk_paint_tabs(struct psk_app *a)
         /* Wide: the inspector is beside the list, on PACKETS. */
         bool shown = a->wide ? (i == PSK_TAB_LIVE) == (a->cur == PSK_TAB_LIVE) : active;
 
-        /* LIVE's second face, the network overview, in LIVE's place. */
-        if (i == PSK_TAB_LIVE && a->net_view) {
+        /* LIVE's other faces, the network overview and a mark's evidence,
+         * in LIVE's place. */
+        if (i == PSK_TAB_LIVE && (a->net_view || a->ev_view)) {
             shown = false;
         }
 
@@ -1427,6 +1534,81 @@ void psk_paint_tabs(struct psk_app *a)
         psk_set_hidden(a->page[i], !shown);
     }
     psk_set_hidden(a->nv_page, !psk_net_shown(a));
+    psk_evp_place(a);
+}
+
+void psk_mark_fit(struct psk_app *a)
+{
+    int32_t w;
+    int32_t third;
+    int32_t rest;
+
+    if (a->wide || lv_obj_has_flag(a->mark_strip, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_has_flag(a->marks_btn, LV_OBJ_FLAG_HIDDEN)) {
+        if (lv_obj_get_style_width(a->mark_btn, LV_PART_MAIN) != LV_PCT(100)) {
+            lv_obj_set_width(a->mark_btn, LV_PCT(100));
+        }
+        return;
+    }
+    w = lv_obj_get_content_width(a->mark_strip);
+    if (w <= 3 * PSK_GAP) {
+        return; /* not laid out yet: at the next poll */
+    }
+    third = (w - 2 * PSK_GAP + 2) / 3;
+    rest = w - PSK_GAP - third;
+    if (lv_obj_get_style_width(a->mark_btn, LV_PART_MAIN) != rest) {
+        lv_obj_set_width(a->mark_btn, rest);
+    }
+    if (lv_obj_get_style_width(a->marks_btn, LV_PART_MAIN) != third) {
+        lv_obj_set_width(a->marks_btn, third);
+    }
+}
+
+bool psk_mark_offered(const struct psk_app *a)
+{
+    enum ppc_state s = a->model->state;
+
+    return psk_capture_present(a) && !(a->wide && (s == PPC_STATE_STOPPED || s == PPC_STATE_SAVING));
+}
+
+/* MARK and the way to the marks (N1.0): on LIVE while a capture is on the
+ * screen, whichever face LIVE shows. A capture that is being written takes
+ * no mark. Wide, MARK leaves the top row once the capture has stopped or is
+ * being saved (psk_mark_offered); the count stays while there are marks. */
+static void paint_mark(struct psk_app *a, enum psk_view v)
+{
+    const struct psk_model *m = a->model;
+    bool live = v == PSK_VIEW_LIVE && a->cur == PSK_TAB_LIVE && psk_capture_present(a);
+    uint32_t held = psk_ev_held(m);
+    bool mark = live && psk_mark_offered(a);
+    bool on = mark || (live && held > 0);
+    char b[24];
+
+    if (on == lv_obj_has_flag(a->mark_strip, LV_OBJ_FLAG_HIDDEN)) {
+        psk_set_hidden(a->mark_strip, !on);
+        a->top_moved = true;
+    }
+    if (on && mark == lv_obj_has_flag(a->mark_btn, LV_OBJ_FLAG_HIDDEN)) {
+        psk_set_hidden(a->mark_btn, !mark);
+        a->top_moved = true;
+    }
+    if (on) {
+        psk_text(lv_obj_get_child(a->mark_btn, 0), a->mark_wait ? "MARKING" : a->wide ? "MARK" : "MARK THIS MOMENT");
+        psk_button_look(a->mark_btn, false, !a->mark_wait && m->state != PPC_STATE_SAVING);
+        if ((held == 0) != lv_obj_has_flag(a->marks_btn, LV_OBJ_FLAG_HIDDEN)) {
+            psk_set_hidden(a->marks_btn, held == 0);
+            a->top_moved = true;
+        }
+        if (a->wide) {
+            snprintf(b, sizeof(b), "%u", (unsigned)held);
+        } else {
+            snprintf(b, sizeof(b), "%u MARK%s", (unsigned)held, held == 1 ? "" : "S");
+        }
+        psk_text(a->marks_text, b);
+        psk_mark_fit(a);
+    }
 }
 
 void psk_paint_ifaces(struct psk_app *a)
@@ -1475,14 +1657,6 @@ void psk_paint_ifaces(struct psk_app *a)
         lv_obj_add_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
     }
     psk_set_hidden(a->if_none, a->nifs > 0);
-}
-
-const char *psk_cfilter_label(enum ppc_cfilter f)
-{
-    static const char *const words[PPC_CFILTER_COUNT] = { "EVERYTHING", "IP AND ARP", "DNS AND DHCP",
-                                                          "NOT MY SSH" };
-
-    return (unsigned)f < PPC_CFILTER_COUNT ? words[f] : "EVERYTHING";
 }
 
 void psk_paint_options(struct psk_app *a)
@@ -1548,6 +1722,11 @@ static void set_bar(struct psk_app *a, int n, const enum psk_action *acts, const
     int i;
 
     for (i = 0; i < 3; i++) {
+        enum psk_action act = i < n ? acts[i] : PSK_ACT_NONE;
+
+        /* Other buttons are other widths: in the wide shape the state's
+         * line beside them is fitted again (psk_live_paint). */
+        a->top_moved |= act != a->act[i];
         psk_set_hidden(a->btn[i], i >= n);
         if (i >= n) {
             a->act[i] = PSK_ACT_NONE;
@@ -1763,6 +1942,16 @@ static void paint_status(struct psk_app *a, enum psk_view v)
             bool ended = m->state == PPC_STATE_STOPPED || m->state == PPC_STATE_SAVING;
             char head[64];
 
+            if (room > 0 && a->reading) {
+                /* The companion's mark is written before the line (below,
+                 * rule 20): the line is fitted to what is left beside it,
+                 * so neither is cut. */
+                room -= pocketui_text_width(a->status_text, "COMPANION \xc2\xb7 ");
+                if (room < 1) {
+                    room = 1;
+                }
+            }
+
             /* A stopped capture says why first, as the tall shape does. */
             if (ended) {
                 snprintf(head, sizeof(head), "%s · %s · %s", iface, reason_word(m->reason), el);
@@ -1781,6 +1970,21 @@ static void paint_status(struct psk_app *a, enum psk_view v)
             }
             if (room > 0 && pocketui_text_width(a->status_text, text) > room) {
                 snprintf(text, sizeof(text), "%s", head);
+            }
+            /* With MARK in the row (N1.0) there is less of it. A line cut by
+             * dots loses its end, which is what matters most, so the line
+             * is shortened from what matters least instead: a stopped
+             * capture keeps where and why, then why alone; a running one
+             * keeps how long it has run. */
+            if (room > 0 && pocketui_text_width(a->status_text, text) > room) {
+                if (ended) {
+                    snprintf(text, sizeof(text), "%s \xc2\xb7 %s", iface, reason_word(m->reason));
+                } else {
+                    snprintf(text, sizeof(text), "%s", el);
+                }
+            }
+            if (ended && room > 0 && pocketui_text_width(a->status_text, text) > room) {
+                snprintf(text, sizeof(text), "%s", reason_word(m->reason));
             }
         } else if (m->state == PPC_STATE_STOPPED || m->state == PPC_STATE_SAVING) {
             snprintf(text, sizeof(text), "%s · %s", iface, reason_word(m->reason));
@@ -1939,16 +2143,28 @@ void psk_live_paint(struct psk_app *a, unsigned changed)
     enum psk_view v = view_of(a);
 
     a->view = v;
-    if (a->net_view && (v != PSK_VIEW_LIVE || !psk_capture_present(a))) {
-        /* The network overview is of a capture: with none, LIVE is LIVE. */
+    if ((a->net_view || a->ev_view) && (v != PSK_VIEW_LIVE || !psk_capture_present(a))) {
+        /* The network overview and a mark's evidence are of a capture: with
+         * none, LIVE is LIVE. */
         a->net_view = false;
+        a->ev_view = false;
         psk_paint_tabs(a);
     }
     psk_set_hidden(a->setup, v != PSK_VIEW_SETUP);
     psk_set_hidden(a->live, v != PSK_VIEW_LIVE);
     psk_set_hidden(a->error, v != PSK_VIEW_ERROR);
-    paint_status(a, v);
+    /* The buttons first: in the wide shape they share the top row with the
+     * state's line, which is fitted to the room they leave. When MARK, the
+     * marks' count or the capture's buttons changed, that room is measured
+     * anew before the line is written (never inside a layout pass: this is
+     * called from the poll and from taps). */
+    paint_mark(a, v);
     paint_bar(a, v);
+    if (a->top_moved && a->wide) {
+        lv_obj_update_layout(a->top);
+    }
+    a->top_moved = false;
+    paint_status(a, v);
     paint_hint(a, v);
     if (v == PSK_VIEW_LIVE) {
         paint_counters(a);

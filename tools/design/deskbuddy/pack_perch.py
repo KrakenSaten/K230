@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Doors authors.
+# SPDX-License-Identifier: Apache-2.0
 """Regenerate DeskBuddy's two-ink illustration. Host tools: Inkscape and Pillow."""
 from pathlib import Path
 import subprocess

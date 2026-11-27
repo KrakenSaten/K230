@@ -47,7 +47,8 @@ hits=$(code $C/ppc_decode.c $C/ppc_stats.c $C/ppc_store.c | grep -nE 'ppc_dissec
 check "the capture path calls neither the view nor the dissector" "$([ -z "$hits" ] && echo 1 || echo 0)"
 
 # ---- layering --------------------------------------------------------------------
-hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] $A/psk_net.[ch] 2>/dev/null)
+hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $C/*.[ch] $H $A/psk_session.[ch] $A/psk_model.[ch] $A/psk_net.[ch] \
+       $A/psk_ev.[ch] 2>/dev/null)
 check "the library, the helper, the session, the model and its words are free of LVGL" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(code $A/*.c $A/*.h $A/ui/*.c $A/ui/*.h | grep -nE '#include "(pocketpcap/)?(ppc_decode|ppc_store|ppc_stats|ppc_source|ppc_pcapfile|ppc_format)\.h"')
 check "the app includes nothing of the capture library but the protocol" "$([ -z "$hits" ] && echo 1 || echo 0)"
@@ -95,6 +96,115 @@ hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_net\(')
 check "its lists are asked for in one place, while the overview or its sheet shows (psk_session.c's definition aside)" \
     "$([ "$hits" = "2" ] && sed -n -E '/^static void net_poll\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_net(a->session, a->model)' &&
        sed -n -E '/^static void net_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if (!wanted || !psk_capture_present(a)) {' && echo 1 || echo 0)"
+# Marks and their evidence (N1.0, docs/apps/PACKETSHARK.md §4d) by the same
+# rules: one allocation, no text, no loop without a bound, nothing of a
+# socket; and it keeps figures and addresses, never a packet's bytes or a
+# name it carried (HEADERS).
+hits=$(code $C/ppc_evid.c | grep -nE '\b(malloc|calloc|realloc|printf|snprintf|sprintf)\(')
+check "the evidence history allocates once, at init, and formats nothing (N1.0)" \
+    "$([ "$(echo "$hits" | grep -c .)" = "1" ] && echo "$hits" | grep -q 'ev->mem = calloc(1, ' && echo 1 || echo 0)"
+hits=$(code $C/ppc_evid.c | grep -nE '\bwhile *\(1\)|\bfor *\(;;\)|goto|#include <(sys/socket|netinet|arpa|unistd|time)')
+check "it has no unbounded loop, no goto, no clock of its own and nothing of a socket in it" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(sed -n '/^struct ppc_ev_obs {/,/^};/p' $C/ppc_evid.h | grep -E ';' |
+       grep -vE '^[[:space:]]*uint(8|32)_t [a-z0-9_]+(\[[0-9]\])?;[[:space:]]*(/\*.*)?$|^};')
+check "an observation is 32 bytes of figures and addresses: no text, no bytes of the packet" \
+    "$([ -z "$hits" ] && code $C/ppc_evid.h | grep -q "sizeof(struct ppc_ev_obs) == 32" && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $C/ppc_evid.c | grep -nE 'qname|->name\b|payload|->data\b|ppc_store_copy|ppc_dissect')
+check "nothing of a DNS name or a payload reaches the history" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_evid\(')
+check "a mark's evidence is asked for in one function, and never while its page does not show" \
+    "$([ "$hits" = "2" ] && sed -n -E '/^static void ev_ask\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_evid(a->session, a->model, a->ev_id)' &&
+       sed -n -E '/^static void ev_poll\(/,/^}/p' $A/psk_app.c | grep -q 'if ((!psk_evp_shown(a) && !a->mark_wait) || !psk_capture_present(a)) {' &&
+       echo 1 || echo 0)"
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'psk_session_mark\(')
+check "a mark is set in one function, which sends the helper nothing else" \
+    "$([ "$hits" = "2" ] && sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -q 'psk_session_mark(a->session)' &&
+       ! sed -n -E '/^void psk_mark\(/,/^}/p' $A/psk_app.c | grep -qE 'psk_session_(hold|stop|capture|save|discard|view)|capture_command|psk_do\(' &&
+       echo 1 || echo 0)"
+# What a mark's evidence may claim (the review of PR #188, 2026-11-25). The
+# helper's body of a function, as the app's above.
+hbody() { sed -n -E "/^(static )?[a-z ]+\*?$1\(/,/^}/p" $H; }
+check "shedding is told to the evidence at both of its edges, not left to the 250 ms tick" \
+    "$(hbody ingest | grep -B1 -A1 'h->shed = 1;' | grep -c 'ev_tick(h);' | grep -qx 2 &&
+       hbody ingest | grep -B1 -A1 'h->shed = 0;' | grep -c 'ev_tick(h);' | grep -qx 2 && echo 1 || echo 0)"
+check "and every frame that is only counted marks its own second" \
+    "$(hbody on_frame | grep -A6 'if (h->shed) {' | grep -q 'ppc_evid_bypass(&h->ev, t_ms);' && echo 1 || echo 0)"
+check "the evidence reports the capture filter only a live source applies, and the analyses that could not start" \
+    "$(hbody cmd_start | grep -q 'ppc_evid_coverage(&h->ev, h->src.live ? c->cfilter : PPC_CFILTER_ALL,' &&
+       hbody cmd_start | grep -q 'ppc_evid_unanalyzed(h->sig_ready, h->net_ready));' && echo 1 || echo 0)"
+# What is lost is known only where the counters were read (the follow-up
+# review of PR #188): one function reads them, and tells the history every
+# reading, made or not.
+check "the drop counters are read in one function, which tells the history whether each reading was made" \
+    "$([ "$(code $H | grep -c 'ops->stats(')" = "1" ] && hbody read_drops | grep -q 'h->src.ops->stats(&h->src, &kd, &ifd) == 0' &&
+       hbody read_drops | grep -q 'ppc_evid_counters(&h->ev, ev_tick(h), ok, h->st.kdrop + h->st.ifdrop);' &&
+       ! hbody read_drops | grep -q 'return 0;' && echo 1 || echo 0)"
+check "the lost-frame counters are read at the mark, before it is set" \
+    "$(hbody cmd_mark | grep -n 'read_drops(h);\|ppc_evid_mark(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'read_drops(h);.*ppc_evid_mark(' && echo 1 || echo 0)"
+check "and for every answer of evidence, at STOP before the windows close, and on the 250 ms tick" \
+    "$(hbody cmd_evid | grep -n 'read_drops(h);\|hd.now_ms = ev_tick(h);' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'read_drops(h);.*hd.now_ms = ev_tick(h);' &&
+       hbody stop_capture | grep -n 'read_drops(h);\|ppc_evid_stop(' | cut -d: -f2 | tr '\n' ' ' |
+       grep -q 'read_drops(h);.*ppc_evid_stop(' && hbody tick | grep -q 'read_drops(h);' && echo 1 || echo 0)"
+check "the counter-failure switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS" \
+    "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_STATS_FAIL")')" = "1" ] &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_STATS_FAIL")' &&
+       [ "$(code $H | grep -c 'h->test_fail')" = "$(sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | code /dev/stdin | grep -c 'h->test_fail')" ] &&
+       echo 1 || echo 0)"
+# The window after's count of lost frames closes with a reading, not with a
+# tick (the closure check of PR #188): final only after a reading at or past
+# its end, or STOP; a reading past it closes the count before it is booked.
+cbody() { sed -n -E "/^(static )?[a-z ]+\*?$1\(/,/^}/p" $C/ppc_evid.c; }
+check "a window's count of lost frames is final only after a reading at or past its end, or STOP; a reading past it closes the count before it is booked" \
+    "$([ "$(code $C/ppc_evid.c | grep -c 'loss_done = 1;')" = "2" ] &&
+       cbody after_refresh | grep -q 'if (ev->stopped || ev->read_ms >= end) {' &&
+       cbody ppc_evid_counters | grep -n 'after_refresh(ev, m, end);\|m->side\[1\].lost_near += lost;\|second(ev, now_ms / 1000u)' |
+       cut -d: -f2- | tr '\n' ' ' | grep -q 'after_refresh(ev, m, end);.*lost_near += lost;.*second(ev, now_ms / 1000u)' &&
+       echo 1 || echo 0)"
+# And it is counted as each reading is told, never again from the 64-second
+# ring of seconds, which a spell of failed readings can outlast.
+check "the window after's count of lost frames is kept as readings are told, never taken again from the ring of seconds" \
+    "$(! cbody after_refresh | code /dev/stdin | grep -q 'lost_in(\|s->lost = ' &&
+       cbody ppc_evid_counters | grep -q 'm->side\[1\].lost += lost;' &&
+       cbody spell_to_mark | grep -q 'm->side\[1\].lost += sp->lost;' && echo 1 || echo 0)"
+check "the analysis-off switch is in the test build alone: read once, inside #if POS_CAPTURE_TEST_HOOKS, which is 0 unless the test object sets it"     "$([ "$(code $H | grep -c 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")')" = "1" ] &&
+       sed -n '/^#if POS_CAPTURE_TEST_HOOKS$/,/^#endif$/p' $H | grep -q 'getenv("POS_CAPTURE_TEST_NO_ANALYZER")' &&
+       grep -q '^#define POS_CAPTURE_TEST_HOOKS 0$' $H && [ "$(grep -c 'DPOS_CAPTURE_TEST_HOOKS=1' Makefile)" = "2" ] &&
+       grep -q '^tests/pos_capture_hooks.o: tools/capture/pos_capture.c$' Makefile &&
+       ! grep -rq 'POS_CAPTURE_TEST_HOOKS' platforms ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+# A window whose losses are not known never says every frame was seen; the
+# page names its capture filter every time it is painted.
+check "a window says its losses are not known before it may say every frame was seen" \
+    "$(sed -n -E '/^unsigned psk_ev_window\(/,/^}/p' $A/psk_ev.c | grep -n '"LOSSES UNKNOWN"\|EVERY FRAME SEEN' | cut -d: -f2- |
+       tr '\n' ' ' | grep -q '"LOSSES UNKNOWN".*EVERY FRAME SEEN' &&
+       sed -n -E '/^unsigned psk_ev_window\(/,/^}/p' $A/psk_ev.c | grep -q 'sev = w->shed_s || loss_limited(ev, side)' &&
+       echo 1 || echo 0)"
+check "the evidence page names its capture filter on every paint, never hidden" \
+    "$(sed -n -E '/^void psk_evp_paint\(/,/^}/p' $A/ui/psk_evidence.c | grep -q 'psk_text(a->ev_filter, psk_ev_filter(ev, b, sizeof(b)));' &&
+       ! grep -q 'psk_set_hidden(a->ev_filter' $A/ui/psk_evidence.c && echo 1 || echo 0)"
+# The page never calls a protocol it could not see quiet.
+check "a protocol the capture could not see is said as NOT CAPTURED or NOT ANALYZED, never as NONE SEEN" \
+    "$(sed -n -E '/^unsigned psk_ev_counts\(/,/^}/p' $A/psk_ev.c | grep -q '"NOT CAPTURED" : "NOT ANALYZED"' &&
+       sed -n -E '/^unsigned psk_ev_counts\(/,/^}/p' $A/psk_ev.c | grep -B12 'NOT CAPTURED' | grep -q 'continue;\|if ((excluded | unanalyzed) & bit)' &&
+       echo 1 || echo 0)"
+# The page's objects are off the active screen while it does not show: a
+# layout pass walks every object of the active screen, hidden or not.
+hits=$(code $A/*.c $A/ui/*.c | grep -cE 'lv_obj_set_parent\(a->ev_page,')
+check "the evidence page is put on and taken off the active screen in one function, and its own screen goes with the app" \
+    "$([ "$hits" = "1" ] && sed -n -E '/^void psk_evp_place\(/,/^}/p' $A/ui/psk_evidence.c | grep -q 'lv_obj_t \*home = shown ? a->content : a->ev_park;' &&
+       code $A/ui/psk_live.c | grep -q 'psk_evp_place(a);' &&
+       sed -n -E '/^static void psk_destroy\(/,/^}/p' $A/psk_app.c | grep -q 'psk_evp_destroy(a);' && echo 1 || echo 0)"
+# What the page says is made in one file, and that file scores nothing.
+hits=$(code $A/psk_ev.c | grep -oE '"[^"]*"' | grep -niE 'missing|unanswered|not answered|no reply|no answer|fault|score|confidence|health|likely|probably|diagnos|%%')
+check "the evidence's words name no missing reply, no fault, no score and no percentage" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(code $A/ui/psk_evidence.c | grep -oE '"[^"]*"' | grep -vE '^"(psk_app\.h|psk_ev\.h|%s|%u|! %s|%s" DOT "PACKET %s|)"$' |
+       grep -viE '^"(Mark|BACK|BEFORE|AFTER|WHAT WAS WATCHED|OBSERVED|MESSAGES COUNTED|OBSERVATIONS|TAP FOR THE PACKET|THE MARK|PACKET %s|DHCP, ARP AND DNS IN PACKETS|WHAT THIS CAN AND CANNOT TELL|Reading what the capture has seen\.| \\xc2\\xb7 |%s)"$')
+check "the page itself adds headings and no sentence of its own to them" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -8
 # The one mention of /tmp is the refusal to save there (ppc_captures_dir).
 hits=$(code $H $C/*.c $A/*.c | grep -nE '"/tmp' | grep -vF 'strncmp(buf, "/tmp", 4) == 0')
 check "nothing goes to /tmp, and a captures folder there is refused" "$([ -z "$hits" ] && echo 1 || echo 0)"

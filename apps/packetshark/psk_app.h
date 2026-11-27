@@ -21,6 +21,7 @@
 
 #include "app.h"
 #include "pocketui.h"
+#include "psk_ev.h"
 #include "psk_model.h"
 #include "psk_net.h"
 #include "psk_remote.h"
@@ -50,6 +51,15 @@
  * room, not from the orientation. */
 #define PSK_WIDE_MIN_W 900
 #define PSK_TOP_H 56
+/* The wide back slab, and how far around it a tap is Back (H6, the finger
+ * test on Unit A, 2026-11-26): its target, at least POCKETUI_TOUCH_MIN each
+ * way. No more than PSK_GAP, so it never lies over the LIVE tab, and no
+ * more than the least top padding of a page in the wide shape (LIVE's 8),
+ * so it lies over no control a page shows at its top (a panel's title
+ * reaches up into that padding; nothing is drawn over it, and a title
+ * takes no tap). */
+#define PSK_BACK_W 72
+#define PSK_TOP_REACH 8
 #define PSK_ROW_H_WIDE 40
 #define PSK_INSPECT_W 452
 #define PSK_LIVE_LEFT_W 528
@@ -76,6 +86,16 @@
 #define PSK_NV_DIAGS 4
 #define PSK_NV_HOSTS 8
 #define PSK_NET_REFRESH_MS 1000
+/* Marks and their evidence (N1.0): MARK's strip on LIVE; how often a mark's
+ * evidence is asked for while its page shows - each second while the window
+ * after the mark is filling, then only for what the buffer still holds of
+ * its packets; how long a tap on MARK waits for its evidence before the
+ * page opens without it, and for the helper's word at all. */
+#define PSK_MARK_H 56
+#define PSK_EV_REFRESH_MS 1000
+#define PSK_EV_SLOW_MS 5000
+#define PSK_MARK_OPEN_MS 400
+#define PSK_MARK_WAIT_MS 1500
 #define PSK_CLIENT_TEXT 28
 #define PSK_TOKEN_TEXT 33
 
@@ -185,7 +205,9 @@ struct psk_app {
     int32_t top_inset_l; /* the top row's own insets at the display's top edge */
     int32_t top_inset_r;
     lv_obj_t *top;       /* the row holding the tabs (and, wide, back, status and bar) */
-    lv_obj_t *back;
+    lv_obj_t *back;       /* wide: the back slab, in back_reach */
+    lv_obj_t *back_reach; /* wide: the slab's holder, its target, PSK_TOP_REACH around it (H6) */
+    lv_obj_t *back_space; /* wide: the slab's place in the top row */
     lv_obj_t *tabs;
     lv_obj_t *status_row;
     lv_obj_t *content;
@@ -426,6 +448,61 @@ struct psk_app {
     int nv_host_share[PSK_NV_HOSTS];
     int32_t nv_line_h;   /* the value role's line when its one-line labels were last sized */
 
+    /* marks and their evidence (N1.0): MARK on LIVE, and LIVE's third face */
+    lv_obj_t *mark_strip;
+    lv_obj_t *mark_btn;
+    lv_obj_t *marks_btn; /* the way to the marks there are */
+    lv_obj_t *marks_text;
+    bool top_moved;      /* wide: the top row's buttons changed, so the state's line has other room */
+    bool mark_wait;      /* MARK was tapped: its page opens when its evidence is here */
+    bool mark_got;       /* the helper has said the mark is set */
+    int64_t mark_sent_ms;
+    bool ev_view;        /* the evidence is what LIVE shows */
+    uint32_t ev_id;      /* the mark it shows; 0: the newest */
+    bool ev_fresh;       /* the model's evidence is of a mark asked for since the last MARK */
+    bool ev_due;         /* it is to be asked for */
+    bool ev_asked;       /* asked, and no answer yet: asked again after a second */
+    int64_t ev_sent_ms;
+    lv_obj_t *ev_page;
+    lv_obj_t *ev_park;   /* a screen that is never loaded: the page waits on it while it is not shown */
+    lv_obj_t *ev_title;
+    lv_obj_t *ev_prev;
+    lv_obj_t *ev_next;
+    lv_obj_t *ev_close;
+    lv_obj_t *ev_when;
+    lv_obj_t *ev_wait;
+    lv_obj_t *ev_cols;
+    lv_obj_t *ev_l;
+    lv_obj_t *ev_r;
+    lv_obj_t *ev_win[2]; /* before the mark, after it */
+    lv_obj_t *ev_win_head[2];
+    lv_obj_t *ev_win_why[2];
+    lv_obj_t *ev_win_seen[2];
+    lv_obj_t *ev_filter; /* the capture filter, always named */
+    lv_obj_t *ev_counts_panel;
+    lv_obj_t *ev_nothing;
+    lv_obj_t *ev_counts;
+    lv_obj_t *ev_count[PSK_EV_COUNTS];
+    lv_obj_t *ev_count_cls[PSK_EV_COUNTS];
+    lv_obj_t *ev_count_name[PSK_EV_COUNTS];
+    lv_obj_t *ev_count_b[PSK_EV_COUNTS];
+    lv_obj_t *ev_count_a[PSK_EV_COUNTS];
+    lv_obj_t *ev_obs_panel;
+    lv_obj_t *ev_side_cap[2];
+    lv_obj_t *ev_at;
+    lv_obj_t *ev_row[PSK_EV_ROWS]; /* a side's rows together: PPC_EV_KEEP before, then after */
+    lv_obj_t *ev_row_cls[PSK_EV_ROWS];
+    lv_obj_t *ev_row_when[PSK_EV_ROWS];
+    lv_obj_t *ev_row_what[PSK_EV_ROWS];
+    lv_obj_t *ev_row_sub[PSK_EV_ROWS];
+    lv_obj_t *ev_row_held[PSK_EV_ROWS];
+    lv_obj_t *ev_row_chev[PSK_EV_ROWS];
+    uint32_t ev_row_seq[PSK_EV_ROWS]; /* the packet a tap opens; 0: none, it has left the buffer */
+    bool ev_row_can[PSK_EV_ROWS];
+    lv_obj_t *ev_list;
+    lv_obj_t *ev_limits_panel;
+    lv_obj_t *ev_limits;
+
     /* state */
     struct psk_session *session;
     struct psk_model *model;
@@ -485,11 +562,16 @@ struct psk_app {
  * "row0".."row9", "filter", "sort", "follow", "prev", "next", "pin",
  * "end0", "end1", "hex", "layer0".."layer7", "field0".."field9"; M7-M9:
  * "signals", "sig0".."sig5", "saves", "save0".."save5", "top", "back",
- * "inspect", "finding0".."finding7"; M11.1: "diag0" (DNS), "diag1" (TCP),
+ * "back_reach" (H6), "inspect", "finding0".."finding7"; M11.1: "diag0"
+ * (DNS), "diag1" (TCP),
  * "dsheet", "dline0".."dline9", "detail0".."detail7"; M12.1: "diag2" (the
  * network's line on LIVE), "netpage", "netclose", "netnote", "netcell0"..
  * "netcell3", "netfind0".."netfind5", "netdiag0".."netdiag3" (DHCP, ARP,
- * DNS, TCP), "nethost0".."nethost7"), and the measured costs. */
+ * DNS, TCP), "nethost0".."nethost7"; N1.0: "mark", "marks", "markstrip",
+ * "evpage", "evtitle", "evwhen", "evprev", "evnext", "evclose", "evwin0",
+ * "evwin1", "evcounts", "evnothing", "evcount0".."evcount17", "evobs",
+ * "evside0", "evside1", "evat", "evrow0".."evrow23" (a side's twelve
+ * together), "evlist", "evlimits"), and the measured costs. */
 lv_obj_t *psk_app_part(void *priv, const char *name);
 void psk_app_cost(void *priv, int64_t *worst_poll_us, int64_t *worst_frame_us, int reset);
 
@@ -534,6 +616,15 @@ void psk_select_field(struct psk_app *a, int index);
 void psk_filter_by(struct psk_app *a, const char *token);
 void psk_toggle_pin(struct psk_app *a);
 bool psk_capture_present(const struct psk_app *a);
+/* Marks and their evidence (N1.0, docs/apps/PACKETSHARK.md §4d). MARK: this
+ * moment of the capture; its evidence opens when the helper has answered. */
+void psk_mark(struct psk_app *a);
+/* The evidence of a mark on LIVE; 0 is the newest. */
+void psk_ev_go(struct psk_app *a, uint32_t id);
+/* An observation's packet in INSPECT, and every DHCP, ARP and DNS packet in
+ * PACKETS from where the evidence shown begins. */
+void psk_ev_packet(struct psk_app *a, uint32_t seq);
+void psk_ev_packets(struct psk_app *a);
 
 /* ui/psk_live.c */
 void psk_live_build(struct psk_app *a);
@@ -549,7 +640,19 @@ void psk_paint_tabs(struct psk_app *a);
 /* Puts the parts where the shape has them: tall (the shell's header above,
  * the tabs, a page, the capture bar at the foot) or wide (M9). */
 void psk_shape(struct psk_app *a);
-const char *psk_cfilter_label(enum ppc_cfilter f);
+/* The back slab and its target over the top row's spacer, where the row's
+ * inset at the display's edge has put it (wide; layout and psk_shape). */
+void psk_back_reach_place(struct psk_app *a);
+/* Whether MARK is offered now: a capture is on the screen and, in the wide
+ * shape, it is neither stopped nor being saved. There MARK leaves the top
+ * row once the capture has ended, so the state's line has its room back
+ * (owner, 2026-11-25); the count of marks stays, and with it the evidence.
+ * The tall shape offers MARK on a stopped capture too. */
+bool psk_mark_offered(const struct psk_app *a);
+/* MARK's strip in the tall shape: MARK as wide as two of the capture bar's
+ * buttons and the marks' button as wide as the third, so the two rows line
+ * up. Compares before it sets: called at every poll. */
+void psk_mark_fit(struct psk_app *a);
 
 /* ui/psk_sheets.c */
 void psk_sheet_build(struct psk_app *a);
@@ -569,6 +672,17 @@ void psk_net_shape(struct psk_app *a);
 void psk_net_paint(struct psk_app *a);
 void psk_net_show(struct psk_app *a, bool on);
 bool psk_net_shown(const struct psk_app *a);
+/* ui/psk_evidence.c: a mark's evidence (N1.0), LIVE's third face. */
+void psk_evp_build(struct psk_app *a, lv_obj_t *page);
+void psk_evp_shape(struct psk_app *a);
+/* Puts the page in LIVE's place while it shows and takes it off the screen
+ * altogether while it does not (psk_paint_tabs). */
+void psk_evp_place(struct psk_app *a);
+/* The page's own screen, deleted with the app (the page may be on it). */
+void psk_evp_destroy(struct psk_app *a);
+void psk_evp_paint(struct psk_app *a);
+void psk_evp_show(struct psk_app *a, bool on);
+bool psk_evp_shown(const struct psk_app *a);
 /* The diagnosis sheet (M11.1): DNS or TCP (enum psk_diag_kind); DHCP, ARP,
  * or one finding - a->ds_event - and its evidence (M12.1). */
 void psk_dsheet_build(struct psk_app *a);
