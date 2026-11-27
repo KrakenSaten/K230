@@ -9,6 +9,10 @@ Status: **Accepted** by the product owner on 2026-11-27, as revised (rules
   reviewer's re-check of the revision, are answered in `RELAY_PROPOSAL.md`
   §15. The first pass found 2 blockers, 6 major and 11 minor points; the
   re-check found 4 more major problems and 3 minor ones.
+- A second independent review (Codex, 2026-11-27) found the architecture GO
+  and asked that the capacity, pairing-commit and recovery semantics be
+  settled before phase 2. The owner accepted its findings. Rules 28, 29,
+  31 to 34, 37 and 38 were tightened accordingly (`RELAY_PROPOSAL.md` §15.3).
 - **Acceptance of the design does not mean an implementation exists or is
   validated.** Nothing is built or deployed. Each phase of
   `RELAY_PROPOSAL.md` §16 needs its own go-ahead, and the independent
@@ -83,21 +87,26 @@ section:
       on (so with a device password, rule 9b).
     - **Setting up the relay:**
       1. The person types its DNS name (at most 64 characters) and port.
-      2. The unit connects, and shows the key the relay presents as sixteen
-         hex digits in groups of four.
+      2. The unit opens a probe connection, and shows the key the relay
+         presents as sixteen hex digits in groups of four.
       3. The person compares them with what the relay printed at install,
          and confirms. The confirmed key becomes the active pin.
-      4. The relay's backup key fingerprint is taken from the relay over that
-         confirmed connection, signed by the confirmed key over a nonce of
-         gatewayd's. gatewayd verifies that signature itself, and accepts a
-         backup only during set-up.
+      4. The relay's backup key fingerprint is taken from the relay over a
+         fresh connection presenting the confirmed key (checked against its
+         full SHA-256, not the sixteen digits). It is signed by the
+         confirmed key over a nonce of gatewayd's. gatewayd verifies that
+         signature itself, and accepts a backup only during set-up.
+      5. The backup check and the durable write of the set-up happen on that
+         connection before it registers, within the relay's deadline. If the
+         deadline passes, the unit dials again with what it has written.
     - No QR decoder is added. No relay is built in, and Doors operates none.
 29. **Outbound only, closed until asked, and independent of the LAN.**
     - The gateway listens nowhere but rule 5's address. Relay traffic
       arrives only over connections the unit opens to the configured relay
       on TCP 443.
     - The unit holds a relay connection only while a paired phone holds
-      `remote`, or while a pairing window allows the relay (rule 34).
+      `remote`, while a pairing window allows the relay (rule 34), or while
+      the person sets up the relay at the unit (rule 28).
     - **Only reasons of address spare relay sessions.** A change of address,
       or an interface without private IPv4 (CGNAT, a public address, IPv6
       only, wlan0 down), closes the LAN listener but leaves relay sessions
@@ -122,8 +131,11 @@ section:
     - **Promotion to the backup is one-way:**
       - it happens only after the relay proves it holds the backup key, by
         signing a nonce of gatewayd's under its own context string;
-      - it is written durably; the old active pin is removed in the same
-        write;
+      - it is written durably: the new active pin, the removal of the old
+        one and the next sequence number are one write, and a restart at any
+        point leaves the old state or the new one, never a mix;
+      - every connection presenting the old key is closed, and nothing is
+        signed for it again;
       - it happens at most once per configuration.
 
       A new backup is added only by a person at the unit.
@@ -154,9 +166,14 @@ section:
       - A new id, and with it a sequence starting again at 1, reaches a phone
         only over an authenticated gateway session or a new pairing code. So
         old endorsements of a reconfigured unit stay refused.
-    - Phones therefore follow a rotation through the relay alone. Only the
-      unit's pins need a person at the unit: to add a backup, or to recover
-      when both keys are lost.
+    - Phones therefore follow a rotation (the promotion of the backup)
+      through the relay alone. Only the unit's pins need a person at the
+      unit: to add a backup, or to recover when both keys are lost.
+    - **After both keys are lost, or a new set-up,** the unit has a new
+      configuration id, and a phone cannot adopt it on the provisional path.
+      It recovers only through an authenticated `gateway.hello` on a path it
+      can still use (the LAN), or by pairing again at the unit. Publishing a
+      new backup key at the relay installs nothing on a unit.
     - **Rule 13 is amended** with exactly one exception: the provisional
       acceptance of a relay's certificate above. It is confined to the app's
       relay transport by its lint, and is never used for a gateway
@@ -172,16 +189,30 @@ section:
     - The relay connects a phone to a unit only if that unit lists the
       phone's fingerprint, or as the relay-path candidate of a window that
       allows the relay (rule 34).
-    - The unit lists only paired phones that hold `remote`.
+    - The unit lists only paired phones that hold `remote`. It sends the
+      whole list, never a change to it: after every registration, which the
+      relay acknowledges, and after every change.
+    - The relay acknowledges a list only once it is in force and the
+      sessions of phones taken off it have stopped forwarding. An
+      acknowledgement is matched to its update and to the current control
+      connection, and means only that this relay says so.
     - The gateway closes, after the handshake, a relay session from a paired
-      phone without `remote`, whatever the relay admitted.
+      phone without `remote`, whatever the relay admitted. Its own check and
+      its own close stay authoritative.
 33. **A scope `remote`, never a default** (owner's decision 3).
     - It is given or taken per phone on the unit: as its own switch on the
       approval sheet, shown off, or later on the phone's page.
     - It is kept in the relay's state file, not in the paired list, so an
       older gatewayd that does not know it is unaffected by a rollback.
-    - Taking it away, or revoking the phone, updates the relay's list at
-      once and ends that phone's relay session; the gateway closes it as well.
+    - **A grant counts only for a key in the paired list.** The two files
+      are written in a fixed order, and the relay's file records the paired
+      list before and after each change to it. At start, a paired list that
+      matches neither (a rollback, or an edit) drops every grant. So a
+      revocation followed by a new pairing never revives a grant
+      (`RELAY_PROPOSAL.md` §6.1).
+    - Taking it away, or revoking the phone, is written first, then ends
+      that phone's relay session at the gateway, then updates the relay's
+      list.
 34. **First pairing through the relay** (owner's decision 4; concern 2).
     - **Opening the window.** A window still opens only on the unit (rule
       20), for at most 120 s. The pairing page has a switch, **"Also through
@@ -201,8 +232,17 @@ section:
     - **The approval sheet** says the phone is connecting **through the
       relay**, and has a "Through the relay" switch shown off. The person
       compares keys and approves, exactly as on a LAN.
-    - **With `remote` switched on there:** the unit updates the relay's list
-      and waits for its confirmation before the phone is told it is paired.
+    - **Pending invitations end when the window closes or changes.** A
+      candidate whose session already runs is left to the gateway, which
+      owns its answer, timeout and teardown.
+    - **One relay place per unit in v1.** Relay pairing can be busy while a
+      remote phone's relay session runs, and the other way round. The LAN
+      is never affected.
+    - **With `remote` switched on there:** the pairing is committed first.
+      The unit then updates the relay's list and waits a few seconds for its
+      acknowledgement. The phone is told it is paired, with remote access
+      either confirmed or **pending**. Pending is not a failure: the pairing
+      stands, and the list is sent again whenever the unit registers.
     - **Without it:** the phone is told it is paired without remote access.
       It tries the relay again only when the person asks, and is then
       admitted once `remote` has been given at the unit.
@@ -229,6 +269,13 @@ section:
       session limits are counted.
     - The helper and the relay do the same: a new session of a phone that
       already has one replaces it, and is not refused by their limit of one.
+      The relay replaces when the new request is admitted; if that new
+      session then fails, the phone has none through the relay.
+    - **A relay session displaces nothing until it is authenticated and
+      eligible.** The gateway decides by the inner key and the channel the
+      session actually arrived on. A relay session of a phone without
+      `remote`, or outside a relay window, never replaces that phone's LAN
+      session.
     - A relay candidate's slot is released when its session ends, so the
       phone's reconnect after pairing is not refused.
 38. **Isolation from a hostile relay** (concern 4: CPU and event-loop
@@ -247,9 +294,16 @@ section:
       gatewayd asks for one (rule 29).
     - **It never exits because a relay misbehaved**: it closes and backs off.
       So the network cannot drive it into `pos-supervise`'s crash-loop stop.
-    - **The line to gatewayd** is an abstract-namespace Unix socket. gatewayd
-      admits only a peer whose `SO_PEERCRED` uid is the helper's.
+    - **The line to gatewayd** is an abstract-namespace Unix socket. Each end
+      checks the other's `SO_PEERCRED` uid: gatewayd the helper's, and the
+      helper gatewayd's, since any local process can take an abstract name.
       - It carries a fixed set of small frames, at a bounded rate.
+      - Every frame carries the generation of the relay connection it is
+        about, and the operation it answers. gatewayd acts only on the
+        current generation and an outstanding operation, with the expected
+        pin.
+      - gatewayd bounds its own work per loop turn on this line and on relay
+        handshakes, so a compromised helper cannot make it do more.
       - gatewayd reads it without a control buffer, so a descriptor sent to
         gatewayd is discarded.
       - gatewayd writes to it non-blocking, through a bounded queue.
@@ -257,9 +311,11 @@ section:
       non-blocking socketpair, keeps its end, and sends the other to the
       helper. gatewayd never receives a descriptor.
     - The helper holds no private key.
-    - **Relay budget inside ADR-019 §6:** 1 relay session, 1 relay handshake
-      pending, 1 relay handshake per second, and back-off after failures. A
-      LAN phone always finds a slot.
+    - **Relay budget inside ADR-019 §6:** at most one relay socket (a
+      session or its handshake), 1 relay handshake per second, and back-off
+      after failures. The relay and the helper keep the same single place.
+      A LAN phone always finds a slot. That LAN service stays responsive
+      during a relay flood is to be measured, not assumed.
     - **Byte limits.** The helper limits the bytes it reads on every relay
       connection before decrypting them.
     - **Consequence:** a relay, or a compromised helper, can stop remote
@@ -345,6 +401,12 @@ Risks accepted with this amendment:
   relay key: metadata and denial, never content.
 - A prober that already knows a unit's 256-bit `device_id` and the relay's
   key can learn from the relay whether that unit is online.
+- With one relay place per unit, a remote phone's session makes relay
+  pairing busy for its duration, and the other way round.
+- The relay's acknowledgement of a list is its own word. A lying relay can
+  claim a list is in force; the gateway's own checks decide.
+- After a rollback, or any change to the paired list made without the
+  relay's file, every phone loses `remote` until it is given again.
 
 ## Decision record
 
@@ -355,3 +417,5 @@ Risks accepted with this amendment:
 | 2026-11-27 | Independent architecture and security review: 2 blockers (helper privilege; descriptor direction), 6 major, 11 minor. All answered in this revision (`RELAY_PROPOSAL.md` §15) | Reviewer; author |
 | 2026-11-27 | The reviewer's re-check of the revision: both blockers and majors 5, 6, 8 resolved; 3, 4, 7 partly. 4 new problems (an unverified backup pin, replacement not carried to the helper and relay, relay sessions outliving a closed gateway, rollback after reconfiguration) and 3 minor. All answered here (§15.2) | Reviewer; author |
 | 2026-11-27 | **ADR-019 amendment 3 accepted as revised** (rules 28 to 42), with the answers to the review and its re-check. Each phase of `RELAY_PROPOSAL.md` §16 still needs its own go-ahead | Product owner |
+| 2026-11-27 | Second independent review (Codex) of this design (PR #192, `e00a3ba1`) and of phase 1 (PR #194, `81e19918`): architecture GO; phase 1 NO-GO (invitations, revocation acknowledgement); phase 2 NO-GO until capacity, acknowledgement and IPC contracts are settled. Five material findings, and a disposition for each of the 27 open wire questions | Reviewer |
+| 2026-11-27 | **Accepted the review's findings and dispositions**, with: one relay place per unit in v1 (Q9); an explicit registration acknowledgement (Q22); pending invitations ended when the pairing window closes or changes (Q27). Rules 28, 29, 31 to 34, 37 and 38 tightened (`RELAY_PROPOSAL.md` §15.3). Phase 2 still needs its own go-ahead | Product owner |
