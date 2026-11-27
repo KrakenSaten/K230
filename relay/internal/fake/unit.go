@@ -51,7 +51,10 @@ type Unit struct {
 	// CrashAfterRelayWrite stops a state change after its relay.v1 write,
 	// as a crash would (tests of the two-file rule).
 	CrashAfterRelayWrite bool
-	// Notice is what Settings would say after Load dropped every grant.
+	// CrashAfterPairedWrite stops a change of paired.v1 after that write,
+	// before relay.v1 seals it.
+	CrashAfterPairedWrite bool
+	// Notice is what Settings would say after Load dropped grants.
 	Notice string
 
 	mu        sync.Mutex
@@ -102,8 +105,9 @@ var ErrBackup = errors.New("fake: backup refused")
 // ErrProof is a key_proof the unit does not accept.
 var ErrProof = errors.New("fake: key proof refused")
 
-// ErrCrash is a state change stopped by CrashAfterRelayWrite.
-var ErrCrash = errors.New("fake: crashed after the relay.v1 write")
+// ErrCrash is a state change stopped by CrashAfterRelayWrite or
+// CrashAfterPairedWrite.
+var ErrCrash = errors.New("fake: crashed during a two-file change")
 
 // Probe connects and reports the relay key presented (set-up step 2).
 func (u *Unit) Probe(ctx context.Context) ([32]byte, error) {
@@ -420,17 +424,58 @@ func (u *Unit) relayStateLocked(phone [32]byte) string {
 	return "pending"
 }
 
-// The two-file rule (RESOLUTION §5; RELAY_PROPOSAL.md §6.1). paired.v1 is
-// the sorted list of paired keys, each with the count of its pairings,
-// which stands for the name and scopes gatewayd rewrites when a known key
-// pairs again. relay.v1 holds the grants before and after a change, and
-// the SHA-256 of paired.v1 before and after it.
+// The two-file rule (RESOLUTION §5 as amended for re-review F5;
+// RELAY_PROPOSAL.md §6.1). paired.v1 is the sorted list of paired keys,
+// each with the count of its pairings, which stands for the name and scopes
+// gatewayd rewrites when a known key pairs again. relay.v1 holds the grants
+// before and after a change, the SHA-256 of paired.v1 before and after it,
+// paired.v1's identity before the change and, once paired.v1 is written,
+// the seal: its identity as written. Recovery fails closed: the grants
+// after count only under an intact seal.
 
 type relayFile struct {
 	GrantsBefore []string `json:"grants_before"`
 	GrantsAfter  []string `json:"grants_after"`
 	Before       string   `json:"paired_before"`
 	After        string   `json:"paired_after"`
+	BeforeID     fileID   `json:"paired_before_id"`
+	Seal         *fileID  `json:"paired_seal,omitempty"`
+}
+
+// fileID identifies one version of paired.v1: its content and the file
+// that holds it. A rewrite, even of the same bytes, changes the change time
+// (and, with gatewayd's temp-and-rename, the inode), so it does not match.
+type fileID struct {
+	Exists  bool   `json:"exists"`
+	Digest  string `json:"digest,omitempty"`
+	Dev     uint64 `json:"dev,omitempty"`
+	Ino     uint64 `json:"ino,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	CtimeNs int64  `json:"ctime_ns,omitempty"`
+	MtimeNs int64  `json:"mtime_ns,omitempty"`
+}
+
+// pairedID is paired.v1's identity now; ok is false when it cannot be
+// told, and then nothing recorded matches it.
+func (u *Unit) pairedID() (fileID, bool) {
+	path := filepath.Join(u.Dir, "paired.v1")
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fileID{}, true
+	}
+	if err != nil {
+		return fileID{}, false
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fileID{}, false
+	}
+	id, ok := statID(fi)
+	if !ok {
+		return fileID{}, false
+	}
+	id.Exists, id.Digest = true, digest(b)
+	return id, true
 }
 
 type pairedEntry struct {
@@ -507,9 +552,12 @@ func (u *Unit) readPaired() []byte {
 	return b
 }
 
-// changeLocked moves to paired, grants and pairings: relay.v1 first, with
-// the grants before and after, then paired.v1 if it changed. A grant
-// counts only for a paired key. u.mu is held.
+// changeLocked moves to paired, grants and pairings. A change of grants
+// alone is one relay.v1 write, sealed with paired.v1's identity as it is. A
+// change of paired.v1 is three writes: relay.v1 unsealed (grants before and
+// after, digests, paired.v1's identity before), paired.v1, then relay.v1
+// sealed with paired.v1's new identity. A grant counts only for a paired
+// key. u.mu is held.
 func (u *Unit) changeLocked(paired, grants map[[32]byte]bool, pairings map[[32]byte]int) error {
 	for k := range grants {
 		if !paired[k] {
@@ -525,16 +573,37 @@ func (u *Unit) changeLocked(paired, grants map[[32]byte]bool, pairings map[[32]b
 				delete(was, k)
 			}
 		}
-		rf, _ := json.Marshal(relayFile{GrantsBefore: hexList(was), GrantsAfter: hexList(grants),
-			Before: digest(before), After: digest(after)})
-		if err := writeSync(u.Dir, "relay.v1", rf); err != nil {
+		bid, ok := u.pairedID()
+		if !ok {
+			return errors.New("fake: paired.v1 identity")
+		}
+		rf := relayFile{GrantsBefore: hexList(was), GrantsAfter: hexList(grants),
+			Before: digest(before), After: digest(after), BeforeID: bid}
+		changed := !bytes.Equal(before, after)
+		if !changed {
+			rf.Seal = &bid
+		}
+		b, _ := json.Marshal(rf)
+		if err := writeSync(u.Dir, "relay.v1", b); err != nil {
 			return err
 		}
 		if u.CrashAfterRelayWrite {
 			return ErrCrash
 		}
-		if !bytes.Equal(before, after) {
+		if changed {
 			if err := writeSync(u.Dir, "paired.v1", after); err != nil {
+				return err
+			}
+			if u.CrashAfterPairedWrite {
+				return ErrCrash
+			}
+			aid, ok := u.pairedID()
+			if !ok {
+				return errors.New("fake: paired.v1 identity")
+			}
+			rf.Seal = &aid
+			b, _ := json.Marshal(rf)
+			if err := writeSync(u.Dir, "relay.v1", b); err != nil {
 				return err
 			}
 		}
@@ -561,11 +630,19 @@ func cloneCounts(m map[[32]byte]int) map[[32]byte]int {
 	return c
 }
 
-// Load reads paired.v1 and relay.v1 as gatewayd does at start. If the
-// digest of paired.v1 is relay.v1's "after", the grants after count; if it
-// is "before", the change was interrupted and did not happen, and the
-// grants before count; if it is neither, every grant is dropped and Notice
-// says so. Grants count only for keys present in paired.v1.
+// Load reads paired.v1 and relay.v1 as gatewayd does at start, failing
+// closed (re-review F5):
+//   - sealed, and paired.v1 is the file the seal names (same content,
+//     device, inode, size and times): the grants after count;
+//   - not sealed, and paired.v1 is still the file recorded before the
+//     change: the change was interrupted before paired.v1 was written, and
+//     only grants both before and after count (an interrupted pairing
+//     grants nothing; an interrupted revocation takes the grant away);
+//   - anything else (paired.v1 rewritten by a rollback gatewayd or an edit,
+//     even byte for byte, or a crash between paired.v1 and the seal): every
+//     grant is dropped and Notice says so.
+//
+// Grants count only for keys present in paired.v1.
 func (u *Unit) Load() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -589,12 +666,24 @@ func (u *Unit) Load() error {
 		if err := json.Unmarshal(rb, &rf); err != nil {
 			return err
 		}
+		now, known := u.pairedID()
 		var use []string
-		switch d := digest(pb); d {
-		case rf.After:
+		switch {
+		case known && rf.Seal != nil && *rf.Seal == now && digest(pb) == rf.After:
 			use = rf.GrantsAfter
-		case rf.Before:
-			use = rf.GrantsBefore
+		case known && rf.Seal == nil && rf.BeforeID == now && digest(pb) == rf.Before:
+			after := map[string]bool{}
+			for _, h := range rf.GrantsAfter {
+				after[h] = true
+			}
+			for _, h := range rf.GrantsBefore {
+				if after[h] {
+					use = append(use, h)
+				}
+			}
+			if len(use) != len(rf.GrantsBefore) {
+				u.Notice = "Remote access was turned off for a phone whose change was interrupted"
+			}
 		default:
 			u.Notice = "Remote access was turned off for every phone because the paired list changed"
 		}

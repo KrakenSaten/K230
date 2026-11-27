@@ -24,6 +24,7 @@ type unit struct {
 	slot    *[16]byte         // pairing slot, while a window allows the relay
 	slotGen uint64            // +1 at every change of the slot, and with gen
 	place   *splice           // the one relay place: an invitation or a splice (RESOLUTION §1)
+	invited time.Time         // monotonic: when the relay last invited this unit (F2)
 }
 
 // Splice states (RESOLUTION §4, the ready transition).
@@ -199,14 +200,23 @@ func (s *Server) register(k *ctl, admit [][32]byte, endo []byte) {
 		old.close()
 	}
 	s.at("register-effects-done", k)
+	// Routing starts only now (Q22, re-review F1): `registered` is queued
+	// first, so no `invite` can be queued ahead of it on k.
+	s.mu.Lock()
 	k.send(&wire.Registered{})
+	if u.ctl == k {
+		k.routable = true
+	}
+	s.mu.Unlock()
 }
 
 // setAdmit replaces the admission list (RESOLUTION §4): under the lock,
 // only for the current control; a dropped phone's invitation ends and its
 // splice stops; then both legs close and forwarding ends; and only then,
-// if k is still current, does it report true, for `admitted`.
-func (s *Server) setAdmit(k *ctl, admit [][32]byte) bool {
+// if k is still current, is `admitted` queued, in the same critical section
+// as that check (re-review F6), so an update of a control replaced before
+// it is neither applied nor acknowledged. It reports whether it was.
+func (s *Server) setAdmit(k *ctl, admit [][32]byte, n uint32) bool {
 	s.mu.Lock()
 	u := k.u
 	if u.ctl != k {
@@ -223,7 +233,11 @@ func (s *Server) setAdmit(k *ctl, admit [][32]byte) bool {
 	finish(st, true)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return u.ctl == k
+	if u.ctl != k {
+		return false
+	}
+	k.send(&wire.Admitted{N: n})
+	return true
 }
 
 // setSlot sets or clears the pairing slot. A change ends a pending `pair`
@@ -313,7 +327,8 @@ func (s *Server) admitSplice(deviceID, phone [32]byte, slot *[16]byte, c *rconn)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if u.ctl == nil {
+	// Routable only once `registered` is queued on the control (F1).
+	if u.ctl == nil || !u.ctl.routable {
 		return nil, nil
 	}
 	via := wire.ViaAdmit
@@ -328,6 +343,13 @@ func (s *Server) admitSplice(deviceID, phone [32]byte, slot *[16]byte, c *rconn)
 	if p := u.place; p != nil && p.phone != phone {
 		return nil, nil
 	}
+	// At most one invitation per unit per s.t.invite (re-review F2, the
+	// owner's decision: one a second). Below the control's frame limit, so
+	// neither the invitations nor the unit's answers to them can close it.
+	now := s.now()
+	if s.t.invite > 0 && !u.invited.IsZero() && now.Sub(u.invited) < s.t.invite {
+		return nil, nil
+	}
 	for _, ok := s.cookies[cookie]; ok; _, ok = s.cookies[cookie] {
 		if _, err := rand.Read(cookie[:]); err != nil {
 			return nil, nil
@@ -339,11 +361,12 @@ func (s *Server) admitSplice(deviceID, phone [32]byte, slot *[16]byte, c *rconn)
 	}
 	sp := &splice{
 		s: s, u: u, phone: phone, via: via, ctl: u.ctl, gen: u.gen, slotGen: u.slotGen,
-		cookie: cookie, deadline: s.now().Add(s.t.join), client: c, state: invited,
+		cookie: cookie, deadline: now.Add(s.t.join), client: c, state: invited,
 		joinedCh: make(chan struct{}), done: make(chan struct{}), fwdDone: make(chan struct{}),
 	}
 	s.cookies[cookie] = sp
 	u.place = sp
+	u.invited = now
 	return sp, st
 }
 

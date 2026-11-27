@@ -34,6 +34,7 @@ type timing struct {
 	write       time.Duration // one frame write
 	sessionIdle time.Duration // a splice in which no byte moved
 	linger      time.Duration // reading after a refusal, before closing
+	invite      time.Duration // the shortest interval between one unit's invitations (F2)
 }
 
 func defaultTiming(l Limits) timing {
@@ -45,6 +46,7 @@ func defaultTiming(l Limits) timing {
 		write:       10 * time.Second,
 		sessionIdle: time.Duration(l.SessionIdleSeconds) * time.Second,
 		linger:      500 * time.Millisecond,
+		invite:      time.Second,
 	}
 }
 

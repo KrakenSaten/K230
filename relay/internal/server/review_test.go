@@ -334,9 +334,15 @@ func TestT3SlotChangeAndClear(t *testing.T) {
 	if inv.Via != wire.ViaPair {
 		t.Fatalf("via %q", inv.Via)
 	}
+	t0 := time.Now()
 	k.Send(&wire.PairSlot{Slot: slot(2)}) // a new window
-	if !isType(answer(t, pc), "unavailable") {
-		t.Fatal("slot change kept the invitation")
+	syncCtl(t, k)
+	// Re-review F4 (mutation MD): the change itself ends the invitation and
+	// answers the phone, before anyone tries the cookie and long before the
+	// invitation's 5 s expiry; a join after it is refused.
+	pc.TLS.SetReadDeadline(time.Now().Add(time.Second))
+	if m, err := wire.ReadMsg(pc.BR); err != nil || !isType(m, "unavailable") {
+		t.Fatalf("slot change kept the invitation (%v after the change): %v", time.Since(t0), err)
 	}
 	if got := joinRaw(t, to, inv.Cookie); !bytes.Equal(got, unavailable) {
 		t.Fatalf("join after a slot change: %q", got)
@@ -696,15 +702,17 @@ func TestT9PairingCommitPendingRecovery(t *testing.T) {
 	if v := load(); v.Paired[q.FP] || v.Remote[q.FP] || !v.Remote[p.FP] || v.Notice != "" {
 		t.Fatal(`"before", interrupted pairing: the grants before, nothing for the new key`)
 	}
+	// Fail-closed (re-review F5): an interrupted change keeps only grants
+	// that were there both before and after it.
 	u.Revoke(p.FP)
-	if v := load(); !v.Paired[p.FP] || !v.Remote[p.FP] || v.Notice != "" {
-		t.Fatal(`"before", interrupted revocation: the phone as it was, paired, with its grant`)
+	if v := load(); !v.Paired[p.FP] || v.Remote[p.FP] || !strings.Contains(v.Notice, "interrupted") {
+		t.Fatal(`"before", interrupted revocation: still paired, its grant taken away`)
 	}
 	if _, err := pairAgain(p, rec, false); err == nil {
 		t.Fatal("a crashed pairing again answered")
 	}
-	if v := load(); !v.Paired[p.FP] || !v.Remote[p.FP] || v.Notice != "" {
-		t.Fatal(`"before", interrupted pairing again of a known key: its grant before`)
+	if v := load(); !v.Paired[p.FP] || v.Remote[p.FP] {
+		t.Fatal(`"before", interrupted pairing again of a known key without remote: no grant`)
 	}
 	crashing(false)
 	if got, err := pairAgain(p, rec, false); err != nil || got != "paired" {
@@ -720,6 +728,42 @@ func TestT9PairingCommitPendingRecovery(t *testing.T) {
 	if ok, _ := u.SetRemote(p.FP, true); !ok || !load().Remote[p.FP] {
 		t.Fatal("grant not given back")
 	}
+	// Re-review F5: a grant counts only for a key in paired.v1, checked on
+	// its own: relay.v1 (not covered by the seal) grants a key that is not
+	// paired, and the seal is intact.
+	rp := filepath.Join(dir, "relay.v1")
+	rb, _ := os.ReadFile(rp)
+	stranger := newPhone(lw.to).FP
+	rb = bytes.Replace(rb, []byte(`"grants_after":[`), []byte(`"grants_after":["`+wire.Hex(stranger[:])+`",`), 1)
+	os.WriteFile(rp, rb, 0o600)
+	if v := load(); v.Remote[stranger] || !v.Remote[p.FP] || v.Notice != "" {
+		t.Fatal("a grant for a key not in paired.v1 counted, or the seal broke")
+	}
+
+	// Re-review F5: a rollback gatewayd rewrites paired.v1 with the very
+	// bytes recorded as "after" (revoke and pair again within one boot).
+	// The digest matches; the seal does not, so every grant is dropped.
+	pb, _ := os.ReadFile(filepath.Join(dir, "paired.v1"))
+	tmp := filepath.Join(dir, ".rollback")
+	os.WriteFile(tmp, pb, 0o600)
+	os.Rename(tmp, filepath.Join(dir, "paired.v1"))
+	if v := load(); len(v.Remote) != 0 || !v.Paired[p.FP] || !strings.Contains(v.Notice, "turned off for every phone") {
+		t.Fatal(`byte-identical rewrite: every grant dropped`)
+	}
+
+	// A crash between paired.v1 and its seal: not provable, so fail-closed.
+	if ok, _ := u.SetRemote(p.FP, true); !ok || !load().Remote[p.FP] {
+		t.Fatal("grant not given back")
+	}
+	u.Set(func(x *fake.Unit) { x.CrashAfterPairedWrite = true })
+	if _, err := pairAgain(newPhone(lw.to), firstPairing(u), false); err == nil {
+		t.Fatal("a pairing that crashed before its seal answered")
+	}
+	u.Set(func(x *fake.Unit) { x.CrashAfterPairedWrite = false })
+	if v := load(); len(v.Remote) != 0 || !strings.Contains(v.Notice, "turned off for every phone") {
+		t.Fatal(`crash before the seal: every grant dropped`)
+	}
+
 	os.WriteFile(filepath.Join(dir, "paired.v1"), []byte(`{"paired":[{"key":"`+pFP+`","pairings":9},{"key":"`+wire.Hex(q.FP[:])+`","pairings":1}]}`+"\n"), 0o600)
 	if v := load(); len(v.Remote) != 0 || !strings.Contains(v.Notice, "turned off for every phone") {
 		t.Fatal(`"neither": every grant dropped`)

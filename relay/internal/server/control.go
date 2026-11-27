@@ -30,7 +30,8 @@ type ctl struct {
 	ended      atomic.Pointer[string] // why the writer side ended it, if it did
 	in, sent   atomic.Int64
 
-	gen uint64 // this connection's control generation; set under Server.mu at register
+	gen      uint64 // this connection's control generation; set under Server.mu at register
+	routable bool   // guarded by Server.mu: set once `registered` is queued (F1)
 
 	registered, proved, backedUp bool   // reader goroutine only
 	lastN                        uint32 // reader goroutine only: the last admit n
@@ -223,11 +224,8 @@ func (k *ctl) readLoop() string {
 			k.lastN, k.haveN = m.N, true
 			// Acknowledged only once applied, with both legs of a
 			// dropped phone's splice closed, on the current control.
-			acked := s.setAdmit(k, m.Admit)
+			acked := s.setAdmit(k, m.Admit, m.N)
 			s.at("admit-acked", acked)
-			if acked {
-				k.send(&wire.Admitted{N: m.N})
-			}
 		case *wire.PairSlot:
 			if !k.registered {
 				return reasonOutOfOrder

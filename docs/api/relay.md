@@ -188,19 +188,20 @@ register ──►            ◄── registered    within 10 s of the TCP acc
   4. a candidate's splice ends;
   5. a listed phone's splice ends unless the new list names it.
 
-  After that section, the sockets of the ended splices close and their forwarding stops, and the earlier control connection closes. **Only then** does the relay send `registered`. From `registered` on, routing to the unit is available. The unit treats the relay as available only after it, and sends its full admission snapshot (an `admit`) before anything else, including before its first `pair_slot` (`RELAY_PROPOSAL.md` §6.1).
+  After that section, the sockets of the ended splices close and their forwarding stops, and the earlier control connection closes. **Only then** does the relay send `registered`. From `registered` on, routing to the unit is available: the control becomes routable in the same critical section that queues `registered`, so no `invite` can precede it on the connection, and a phone that connects in between is refused `unavailable` (re-review F1, test T19). The unit treats the relay as available only after it, and sends its full admission snapshot (an `admit`) before anything else, including before its first `pair_slot` (`RELAY_PROPOSAL.md` §6.1).
 - **Admission list (finding 2).** `n` must be greater than every earlier `n` on this control connection; the first may be any value, and a non-increasing `n` ends the connection. The list `register` carries is confirmed by `registered`, not `admitted`. On `admit`:
   1. **Under the lock:** check that this connection is still the unit's current control, replace the list, end a dropped phone's pending invitation (its phone gets `unavailable`), and stop a dropped phone's splice.
   2. **Close both legs** of a stopped splice at once, and wait until its copy goroutines have returned. Closing the sockets unblocks any read or write in progress, so the wait is bounded.
-  3. **Only then**, and only if this connection is still the current control, send `admitted {n}`.
+  3. **Only then**, and only if this connection is still the current control, send `admitted {n}`. The check and the queueing of `admitted` are one critical section (re-review F6), so `admitted` is queued only on the control the update was applied for.
 
-  A superseded control's `admit` is neither applied nor acknowledged.
+  A superseded control's `admit` is neither applied nor acknowledged. (A frame already queued when the control is replaced may still be written before that connection closes; gatewayd ignores it by generation.)
 - **What an acknowledgement means:** `registered` and `admitted` mean only that this relay reports the update applied. A hostile relay can lie. gatewayd's own `remote` check, and its own close of a revoked phone's sessions, stay authoritative (rule 32).
 - **Pairing slot (Q27).**
   - `pair_slot` sets or clears the unit's one slot.
   - A **change** (a new slot, or a clear) ends a pending `pair` invitation, and its phone gets `unavailable`. Setting the same slot again changes nothing.
   - A **running** candidate splice is not ended by a slot change. gatewayd owns its final response, timeout, expiry, revocation and teardown.
 - **Decline.** `decline` counts only for a pending invitation issued on this connection's control generation. Anything else is ignored without an answer: a race with expiry or cancellation is normal.
+- **Invitations (re-review F2, the owner's decision of 2026-11-27):** the relay invites a unit at most once a second (§10). A unit therefore never receives more than one `invite` a second and never needs more than one `decline` a second, far below the 10 frames a second that close a control. The helper acts on one invitation a second and drops any excess silently, with no `decline` (`RELAY_PROPOSAL.md` §8.3).
 - **Pings (Q6).** The relay sends `ping` every 25 s and answers every `ping` with a `pong` of the same `n`; the unit must do the same. A `pong` is telemetry: it is not matched, and a stray one is ignored. Liveness is any valid frame, and either end closes after 75 s in which it received none.
 - **Prove and backup** are answered only between `unit` and `register`, once each per connection. If no backup key is configured, `get_backup` is answered `unavailable` and the connection ends.
 - **Queue:** the relay queues at most 32 frames to a unit. A unit whose queue is full, or whose frame write takes more than 10 s, is disconnected (Q19).
@@ -225,6 +226,7 @@ connect ──►        ◄── ready | unavailable+end
   4. **Without `slot`:** the phone's fingerprint must be on the unit's admission list.
   5. **With `slot`:** the unit must have a pairing slot, equal to `slot` in constant time.
   6. **The place:** the unit's one place must be free, or held by this same phone (Q9).
+  7. **The invitation limit:** the unit's last invitation must be at least 1 s old by the monotonic clock (§10, F2). Only a connect that passes 1 to 6 is counted, so a refused one does not use the unit's budget.
 - If all of that holds, the relay **replaces** the place's earlier holder if it is this phone (Q10), as a listed phone or as a candidate. It then issues an invitation: cookie, unit, control generation, the slot generation for `pair`, a monotonic deadline of now + 5 s, and the waiting client. It sends `invite {cookie, client, via}` on the unit's current control connection and waits for the `join`.
   - If the `join` comes, both ends get `ready` and the splice begins.
   - Otherwise the phone gets `unavailable`: a `decline`, the deadline, the unit going offline, a replacement, or a slot change.
@@ -317,11 +319,11 @@ The relay cannot enforce these checks; phases 2 and 3 must implement them. `rela
   3. It then registers with an endorsement of the new A, and closes every connection presenting the old A.
 - **After `registered`:** the full admission snapshot first, then a `pair_slot` if a window allows the relay. Acknowledgements are matched to the control generation and the outstanding `n`.
 - **Pairing commit and recovery:** `RELAY_PROPOSAL.md` §6.1, the two-file rule for `paired.v1` and `relay.v1`.
-  - **The write:** every change to `paired.v1` (a pairing, a known key pairing again, a revocation) is preceded by a `relay.v1` write that records the grants before and after the change, and the SHA-256 of `paired.v1` before and after it.
-  - **At start:**
-    - a digest equal to "after" uses the grants after;
-    - a digest equal to "before" means the change was interrupted and did not happen, so it uses the grants before. An interrupted pairing grants nothing, and an interrupted revocation leaves the phone as it was;
-    - a digest equal to neither drops every grant.
+  - **The write** (amended for re-review F5): every change to `paired.v1` (a pairing, a known key pairing again, a revocation) is three writes: `relay.v1` unsealed (the grants and the SHA-256 of `paired.v1` before and after the change, and `paired.v1`'s identity before it), then `paired.v1`, then `relay.v1` sealed with `paired.v1`'s identity as written. The identity is the digest with device, inode, size, change time and modification time. A change of `remote` alone is one sealed `relay.v1` write.
+  - **At start, fail-closed:**
+    - an intact seal that names the `paired.v1` found uses the grants after;
+    - an unsealed record whose "before" identity still matches (interrupted before `paired.v1` was written) uses only grants present both before and after: an interrupted pairing grants nothing, and an interrupted revocation takes the grant away;
+    - anything else, a byte-identical rewrite and a crash before the seal included, drops every grant.
 
     A grant counts only for a key present in `paired.v1`.
   - **The answer:** a relay pairing approved with "Through the relay" is answered with `relay: "admitted"` or `relay: "pending"`. `pending` is an outcome, not an error: the pairing stands. A pairing without it is answered before the snapshot that may drop the key's old grant.
@@ -358,6 +360,7 @@ The relay cannot enforce these checks; phases 2 and 3 must implement them. `rela
 | Pings on control | every 25 s; 75 s without a frame closes | protocol (Q6) |
 | Frames from a unit on control | 10 per second (burst 10); more closes | relay (Q19) |
 | Frames queued to a unit | 32; a full queue disconnects it | relay (Q19) |
+| Invitations per unit | 1 per second (monotonic); a `connect` beyond it is refused `unavailable` before any `invite` | relay (re-review F2, the owner's decision) |
 | One frame write | 10 s | relay |
 | New connections per source | 10 per second (configurable) | relay; a source is an IPv4 address or an IPv6 /64 (Q16) |
 | Unauthenticated connections per source | 64 (configurable); a connection counts until its login (control: until `register`) is accepted | relay |
@@ -444,7 +447,7 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 
 ### 15.1 Tests
 
-- **The review's T1 to T18** are in `relay/internal/server/review_test.go`, plus T14 (`TestEnroll` under any umask) and T16 (`wire.TestFrameVectors`).
+- **The review's T1 to T18** are in `relay/internal/server/review_test.go`, plus T14 (`TestEnroll` under any umask) and T16 (`wire.TestFrameVectors`). The re-review's regressions T19 to T21 are in `rereview_test.go`, and T3 and T9 were extended (§15.6).
   - **Deterministic:** an injected monotonic clock decides invitation deadlines. Named race points (`register-committed`, `register-effects-done`, `admit-committed`, `joined`, `ready-sent`) let a test hold the relay between two steps. No test sleeps in the hope of a schedule.
 - **Mutation check:** each fix was undone by hand, one at a time, and the suite run.
   - 20 of 22 such mutations fail a test. Three of them undo the two-file rule's start cases in the fake unit, among them the earlier reading that an interrupted change uses the grants after; T9 catches each.
@@ -474,7 +477,7 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 - **M3b, burst:**
   - **What it shows:** a phone that holds a unit's place, or a candidate with the slot, can close that unit's control connection, by reconnecting fast enough to fill the 32-frame queue. Each reconnect needs a full TLS handshake and a valid login.
   - **What it costs:** remote access for that unit until the helper reconnects, a denial the threat model already grants such a phone (P3) and a hostile relay (R1).
-  - **What it needs:** an owner decision on whether the relay should also limit invitations per unit, for example the helper's 1 a second. It is not changed here: Q19's defaults were accepted.
+  - **What it needs:** an owner decision on whether the relay should also limit invitations per unit, for example the helper's 1 a second. **Decided 2026-11-27:** one a second per unit (§10). A burst of connects now yields at most one invitation a second, so it can no longer fill the queue; M3b was recorded before this limit and was not re-run.
 - **M4:** above about 2.85 s RTT, the provisional path cannot reach `connect` within 10 s. The 10 s stays as Q24 accepted it.
 
 ### 15.4 Not validated
@@ -518,3 +521,25 @@ The owner accepted every disposition of the Codex review (2026-11-27), with Q9, 
 **Validation at `ca450707`:**
 - `go vet ./...` and `go test -race -count=1 ./...` pass on Go 1.27.4 under umask 022 and 077: 75 pass and 5 measurement tests skip, with no data race. This was confirmed independently from a `git archive` of the commit.
 - The re-review's mutation batch: 22 mutations, of which 17 were killed, 2 were equivalent, 2 were real gaps (F4), and 1 did not compile, with 1 more not applied. A second batch was not run, at the owner's request.
+
+### 15.6 Resolution of the re-review findings (2026-11-27, later session)
+
+`RELAY_REVIEW_RESOLUTION.md` §18 on #192 is the record. In this PR:
+
+| Finding | State | Code and tests |
+| --- | --- | --- |
+| F1 | **Fixed.** Routable only once `registered` is queued (§7.2) | `ctl.routable`, `register`, `admitSplice`; T19, for a first control and a replacement |
+| F2 | **Fixed** as the owner decided: one invitation per unit per second (§7.2, §7.3 step 7, §10) | `timing.invite`, `unit.invited`; T20 (12 quick attempts after an invitation: none invited and the control stays open; a second later the phone is invited again; a refused connect uses no budget) |
+| F3 | **Open: a mandatory gate before any public deployment.** 16 sources × 64 unauthenticated connections still reach the global cap of 1024, and 16 IPv6 /64s fit in one /60 (Q17 partly met). It needs a global pre-authentication cap that leaves room for authenticated connections, IPv6 grouping at /56, and a shorter deadline before the ClientHello. Until then: owner-operated, non-public relays only | none |
+| F4 | **Fixed.** MD: T3 requires the slot change itself to answer the phone within 1 s, before the cookie is tried. MP: T21 | `review_test.go`, `rereview_test.go` |
+| F5 | **Fixed**, fail-closed (two-file rule above): `relay.v1` seals `paired.v1`'s identity; a doubt drops grants and never revives one | `fake/unit.go`, `fake/fileid_*.go`; T9 adds a grant for a key not in `paired.v1` (never counts), a byte-identical rewrite and a crash before the seal (both drop every grant) |
+| F6 | **Fixed.** `admitted` is queued under the lock that saw the control current (§7.2) | `setAdmit`; T6, T21 |
+| F7 | **Documented limits**, below | none |
+
+**Each new test fails without its fix** (one check per fix, not a mutation batch): T19 without the routable check, T20 without the limit, T3 without the slot change's end of the invitation (MD), T21 without `setAdmit`'s current-control check (MP), and T9 without the seal check and without the `paired.v1` filter (FD).
+
+**F7, the limits of §15.2's figures:**
+- every measurement ran over loopback on one fast machine; none on a real network, NAT or relay host;
+- M4: above about 2.85 s RTT the provisional path misses the 10 s deadline. Accepted; the app should say so (phase 3);
+- M1 cost 0.63 cores for about 600 TLS handshakes a second, so a 1-vCPU host may saturate near 1000 a second. The host size stays ASSUMED;
+- M1 to M4 were recorded before the invitation limit and the routable flag, and were not re-run. With the limit, a legitimate phone that reconnects within a second of the unit's previous invitation is refused once and retries.
