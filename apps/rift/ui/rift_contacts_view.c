@@ -11,9 +11,11 @@
 #include "rift_contacts_view.h"
 
 #include "app.h"
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pos_styles.h"
 #include "rift_contacts.h"
+#include "rift_marks.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,11 +26,16 @@
 #define COL_TYPE 96
 #define COL_KEY 96
 #define COL_HEARD 48
-#define FILTER_W 120
+#define FILTER_W 168
 #define FIELD_H_WIDE 36
+/* The star's column: the star centred in a whole row's height, and the
+ * touch target grown past it to a 56 px square (RIFT_TOUCH_H). */
+#define COL_STAR 40
+#define STAR_REACH ((RIFT_TOUCH_H - RIFT_ROW_H) / 2)
 
 struct contact_row {
     lv_obj_t *slot;
+    lv_obj_t *star;
     lv_obj_t *name;
     lv_obj_t *type;
     lv_obj_t *key;
@@ -46,8 +53,8 @@ struct rift_contacts_view {
     lv_obj_t *count;
     lv_obj_t *bar;
     lv_obj_t *field;
-    lv_obj_t *all;
-    lv_obj_t *recent;
+    lv_obj_t *filters;
+    lv_obj_t *button[RIFT_CONTACTS_FILTERS]; /* by enum rift_contacts_filter */
     lv_obj_t *list;
     lv_obj_t *spacer;
     lv_obj_t *note;
@@ -59,6 +66,7 @@ struct rift_contacts_view {
     int n;
     int sel;       /* the selected item, -1 for none */
     int filter_drawn;
+    int full;      /* the last favourite asked for did not fit the list */
 };
 
 static struct rift_contacts_view *view_of(const struct rift_app *app)
@@ -95,6 +103,41 @@ static void on_row(lv_event_t *e)
     open_item(r->v, r->item);
 }
 
+/* A contact made a favourite or not: the reader's choice, kept in RIFT's
+ * preferences by the whole public key and written at once. Nothing is asked
+ * of the service and the contact table is not touched. */
+static void toggle_favorite(struct rift_contacts_view *v, int i)
+{
+    struct rift_app *a = v->app;
+    const struct rift_node *n;
+    int on;
+
+    if (i < 0 || i >= v->n) {
+        return;
+    }
+    n = v->item[i];
+    on = !rift_prefs_favorite(&a->prefs, n->key);
+    if (rift_prefs_set_favorite(&a->prefs, n->key, on) != 0) {
+        v->full = 1; /* said under the list */
+        a->refresh_pending = 1;
+        return;
+    }
+    v->full = 0;
+    a->prefs_saved = rift_store_save(&a->prefs) == 0;
+    if (!a->prefs_saved) {
+        LOG_WARN("rift: %s could not be written; the favourite holds for this session",
+                 rift_store_path());
+    }
+    a->refresh_pending = 1;
+}
+
+static void on_star(lv_event_t *e)
+{
+    struct contact_row *r = lv_event_get_user_data(e);
+
+    toggle_favorite(r->v, r->item);
+}
+
 static lv_obj_t *cell(lv_obj_t *parent, enum pos_style_role role, int32_t w, lv_text_align_t al)
 {
     lv_obj_t *c = rift_cell(parent, role, w, al);
@@ -122,6 +165,14 @@ static void build_row(struct rift_contacts_view *v)
     pos_style_add(r->slot, POS_STYLE_DIVIDER, 0);
     pos_style_add(r->slot, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
     lv_obj_add_event_cb(r->slot, on_row, LV_EVENT_CLICKED, r);
+    /* The star first, where the eye starts a row: a tap on it is the toggle
+     * and nothing else, a tap anywhere else on the row opens the contact. */
+    r->star = rift_star_create(r->slot, COL_STAR, RIFT_ROW_H);
+    if (r->star) {
+        lv_obj_add_flag(r->star, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(r->star, STAR_REACH);
+        lv_obj_add_event_cb(r->star, on_star, LV_EVENT_CLICKED, r);
+    }
     r->name = cell(r->slot, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(r->name, 1);
     lv_obj_set_width(r->name, 1);
@@ -149,6 +200,7 @@ static void bind_row(struct contact_row *r, int item, int64_t now)
     n = v->item[item];
     lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_y(r->slot, (int32_t)item * RIFT_ROW_H);
+    rift_star_set(r->star, rift_prefs_favorite(&v->app->prefs, n->key));
     {
         char name[RIFT_NAME_MAX + 8];
 
@@ -299,7 +351,16 @@ static void on_filter(lv_event_t *e)
     if (!v) {
         return;
     }
-    a->contacts_recent = (lv_event_get_target_obj(e) == v->recent);
+    {
+        lv_obj_t *pressed = lv_event_get_target_obj(e);
+        int f;
+
+        for (f = 0; f < RIFT_CONTACTS_FILTERS; f++) {
+            if (pressed == v->button[f]) {
+                a->contacts_filter = f;
+            }
+        }
+    }
     v->sel = -1;
     a->contacts_sel[0] = '\0';
     lv_obj_scroll_to_y(v->list, 0, LV_ANIM_OFF);
@@ -372,12 +433,27 @@ lv_obj_t *rift_contacts_view_create(struct rift_app *app, lv_obj_t *parent)
         lv_obj_add_event_cb(v->field, on_field_ready, LV_EVENT_READY, app);
         lv_obj_add_event_cb(v->field, on_field_key, LV_EVENT_KEY, app);
     }
-    v->all = rift_action(v->bar, "ALL", 1, 1, on_filter, app);
-    lv_obj_set_flex_grow(v->all, 0);
-    lv_obj_set_width(v->all, FILTER_W);
-    v->recent = rift_action(v->bar, "RECENT", 0, 1, on_filter, app);
-    lv_obj_set_flex_grow(v->recent, 0);
-    lv_obj_set_width(v->recent, FILTER_W);
+    /* The three filters, in the order a reader narrows by: everyone, the
+     * ones they chose, the ones they spoke with lately. Their own row, so
+     * portrait can give them the whole width under the field. */
+    v->filters = lv_obj_create(v->bar);
+    lv_obj_remove_style_all(v->filters);
+    lv_obj_set_height(v->filters, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(v->filters, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(v->filters, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(v->filters, 12, 0);
+    lv_obj_remove_flag(v->filters, LV_OBJ_FLAG_SCROLLABLE);
+    {
+        static const enum rift_contacts_filter order[RIFT_CONTACTS_FILTERS] = {
+            RIFT_CONTACTS_ALL, RIFT_CONTACTS_FAVORITES, RIFT_CONTACTS_RECENT
+        };
+        int i;
+
+        for (i = 0; i < RIFT_CONTACTS_FILTERS; i++) {
+            v->button[order[i]] = rift_action(v->filters, rift_contacts_filter_word(order[i]),
+                                              order[i] == RIFT_CONTACTS_ALL, 1, on_filter, app);
+        }
+    }
 
     v->list = lv_obj_create(v->root);
     lv_obj_remove_style_all(v->list);
@@ -415,18 +491,72 @@ void rift_contacts_view_destroy(struct rift_app *app)
 void rift_contacts_view_shape(struct rift_app *app)
 {
     struct rift_contacts_view *v = view_of(app);
+    lv_obj_t *box;
     int32_t h;
+    int f;
 
     if (!v) {
         return;
     }
     h = app->wide ? RIFT_ROW_H : RIFT_TOUCH_H;
     lv_obj_set_style_pad_ver(v->bar, app->wide ? 2 : 6, 0);
-    lv_obj_set_height(v->all, h);
-    lv_obj_set_height(v->recent, h);
+    /* Landscape: the field and the three filters on one line. Portrait: the
+     * field across the width, and the filters sharing the width under it -
+     * three words that a 568 px row beside a field would cut. */
+    lv_obj_set_flex_flow(v->bar, app->wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(v->bar, 8, 0);
+    box = v->field ? lv_obj_get_parent(v->field) : NULL;
+    if (box) {
+        lv_obj_set_flex_grow(box, app->wide ? 1 : 0);
+        lv_obj_set_width(box, app->wide ? 1 : LV_PCT(100));
+    }
+    lv_obj_set_width(v->filters, app->wide ? LV_SIZE_CONTENT : LV_PCT(100));
+    for (f = 0; f < RIFT_CONTACTS_FILTERS; f++) {
+        lv_obj_set_height(v->button[f], h);
+        lv_obj_set_flex_grow(v->button[f], app->wide ? 0 : 1);
+        lv_obj_set_width(v->button[f], app->wide ? FILTER_W : 1);
+    }
     if (v->field) {
         lv_obj_set_height(v->field, app->wide ? FIELD_H_WIDE : 64);
         lv_obj_set_style_pad_ver(v->field, app->wide ? 4 : 16, 0);
+    }
+}
+
+/* The line under the list: only what the rows cannot say themselves. */
+static void paint_note(struct rift_contacts_view *v, const struct rift_app *app)
+{
+    const struct rift_model *m = &app->model;
+    const struct rift_node *s = v->sel >= 0 ? v->item[v->sel] : NULL;
+    const char *why = s ? rift_node_no_message_why(s) : NULL;
+    int absent = rift_contacts_favorites_absent(m, &app->prefs);
+
+    if (v->full) {
+        lv_label_set_text_fmt(v->note, "%d favourites is the most RIFT keeps: take the star off "
+                                       "one to make room.", RIFT_PREF_FAV_MAX);
+    } else if (why) {
+        lv_label_set_text(v->note, why);
+    } else if (v->n == 0 && app->contacts_query[0]) {
+        lv_label_set_text(v->note, "No contact answers that: a name, or two or more hex "
+                                   "characters of a key.");
+    } else if (v->n == 0 && app->contacts_filter == RIFT_CONTACTS_RECENT) {
+        lv_label_set_text(v->note, "No direct conversation held yet.");
+    } else if (v->n == 0 && app->contacts_filter == RIFT_CONTACTS_FAVORITES && absent == 0) {
+        lv_label_set_text(v->note, "No favourites yet: tap the star beside a contact in ALL "
+                                   "(or press F) to keep it here.");
+    } else if (app->contacts_filter == RIFT_CONTACTS_FAVORITES && absent > 0) {
+        /* A favourite is kept by its key while the table does not hold the
+         * node, and is listed again when its advert is next heard. */
+        lv_label_set_text_fmt(v->note, "%d favourite%s not in the contact table now; listed "
+                                       "again when %s advert is heard.",
+                              absent, absent == 1 ? " is" : "s are", absent == 1 ? "its" : "their");
+    } else if (v->n == 0) {
+        lv_label_set_text(v->note, "No contacts yet: a node becomes one when its advert is "
+                                   "heard. Repeaters and sensors are in NODES.");
+    } else if (rift_model_unretained_recent(m) > 0) {
+        lv_label_set_text(v->note, "The contact table is full: new nodes are not being "
+                                   "kept. Forget one in NODES to make room.");
+    } else {
+        lv_label_set_text(v->note, "");
     }
 }
 
@@ -440,7 +570,10 @@ void rift_contacts_view_refresh(struct rift_app *app)
         return;
     }
     m = &app->model;
-    v->n = rift_contacts_list(m, app->contacts_recent ? RIFT_CONTACTS_RECENT : RIFT_CONTACTS_ALL,
+    if (app->contacts_filter < 0 || app->contacts_filter >= RIFT_CONTACTS_FILTERS) {
+        app->contacts_filter = RIFT_CONTACTS_ALL;
+    }
+    v->n = rift_contacts_list(m, &app->prefs, (enum rift_contacts_filter)app->contacts_filter,
                               app->contacts_query, v->item, RIFT_MAX_NODES);
     /* The selection follows its contact, not its place: a node heard again
      * does not move it, and one filtered out loses it. */
@@ -451,47 +584,30 @@ void rift_contacts_view_refresh(struct rift_app *app)
             break;
         }
     }
-    if (v->filter_drawn != app->contacts_recent) {
-        v->filter_drawn = app->contacts_recent;
-        /* The filter in force is the primary button; the other is not. */
-        rift_action_set_enabled(v->all, 1, 0);
-        rift_action_set_enabled(v->all, !app->contacts_recent, 1);
-        rift_action_set_enabled(v->recent, 1, 0);
-        rift_action_set_enabled(v->recent, app->contacts_recent, 1);
+    if (v->filter_drawn != app->contacts_filter) {
+        int f;
+
+        v->filter_drawn = app->contacts_filter;
+        /* The filter in force is the primary button; the others are not. */
+        for (f = 0; f < RIFT_CONTACTS_FILTERS; f++) {
+            rift_action_set_enabled(v->button[f], 1, 0);
+            rift_action_set_enabled(v->button[f], f == app->contacts_filter, 1);
+        }
     }
     if (v->field && strcmp(lv_textarea_get_text(v->field), app->contacts_query) != 0 &&
         !lv_obj_has_state(v->field, LV_STATE_FOCUSED)) {
         lv_textarea_set_text(v->field, app->contacts_query);
     }
-    /* How many the table holds, and how many of them are shown: the
-     * service's own count where it has said, which is the stored table. */
+    /* How many are shown, and how many contacts the table holds: the
+     * service's own count where it has said, which is the stored table
+     * (repeaters and sensors included - they are in it, if not here). */
     if (m->have_nodes_reported) {
         lv_label_set_text_fmt(v->count, "%d OF %d", v->n, m->nodes_reported);
     } else {
         lv_label_set_text_fmt(v->count, "%d", v->n);
     }
     lv_obj_set_height(v->spacer, (int32_t)v->n * RIFT_ROW_H);
-    {
-        const struct rift_node *s = v->sel >= 0 ? v->item[v->sel] : NULL;
-        const char *why = s ? rift_node_no_message_why(s) : NULL;
-
-        if (why) {
-            lv_label_set_text(v->note, why);
-        } else if (v->n == 0 && app->contacts_query[0]) {
-            lv_label_set_text(v->note, "No contact answers that: a name, or two or more hex "
-                                       "characters of a key.");
-        } else if (v->n == 0) {
-            lv_label_set_text(v->note, app->contacts_recent
-                                           ? "No direct conversation held yet."
-                                           : "No contacts yet: a node becomes one when its "
-                                             "advert is heard.");
-        } else if (rift_model_unretained_recent(m) > 0) {
-            lv_label_set_text(v->note, "The contact table is full: new nodes are not being "
-                                       "kept. Forget one in NODES to make room.");
-        } else {
-            lv_label_set_text(v->note, "");
-        }
-    }
+    paint_note(v, app);
     lv_obj_update_layout(v->root);
     bind_visible(v);
 }
@@ -532,6 +648,15 @@ int rift_contacts_view_key(struct rift_app *app, uint32_t key)
     case LV_KEY_ENTER:
         open_item(v, v->sel < 0 ? 0 : v->sel);
         return 1;
+    case 'f':
+    case 'F':
+    case '*':
+        /* The selected contact's star, from the keys. */
+        if (v->sel < 0) {
+            return 0;
+        }
+        toggle_favorite(v, v->sel);
+        return 1;
     default:
         return 0;
     }
@@ -565,11 +690,24 @@ lv_obj_t *rift_contacts_view_field(const struct rift_app *app)
     return v ? v->field : NULL;
 }
 
-lv_obj_t *rift_contacts_view_filter_button(const struct rift_app *app, int recent)
+lv_obj_t *rift_contacts_view_filter_button(const struct rift_app *app, int filter)
 {
     const struct rift_contacts_view *v = view_of(app);
 
-    return v ? (recent ? v->recent : v->all) : NULL;
+    return (v && filter >= 0 && filter < RIFT_CONTACTS_FILTERS) ? v->button[filter] : NULL;
+}
+
+lv_obj_t *rift_contacts_view_star(const struct rift_app *app, int i)
+{
+    const struct rift_contacts_view *v = view_of(app);
+    int k;
+
+    for (k = 0; v && k < v->rows; k++) {
+        if (v->row[k].item == i) {
+            return v->row[k].star;
+        }
+    }
+    return NULL;
 }
 
 const char *rift_contacts_view_note(const struct rift_app *app)

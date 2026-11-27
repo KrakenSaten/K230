@@ -127,6 +127,8 @@ static void banner_for(struct rift_app *a, const char *key)
     n.body_style = rift_emoji_style(POS_STYLE_TEXT_SECONDARY);
     n.on_open = on_open;
     n.user = pending_key[pending_at];
+    n.hold_ms = RIFT_BANNER_HOLD_MS;
+    n.hold_queued_ms = RIFT_BANNER_HOLD_QUEUED_MS;
     pocketos_shell_notify(&n);
 }
 

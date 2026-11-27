@@ -501,15 +501,18 @@ void rift_comms_shape(struct rift_app *app)
  * thread is open, or up to all but THREAD_MIN_H of the section when none
  * is. What does not fit scrolls, and the selected row is scrolled into
  * view as it always was. */
-static void size_portrait_list(struct rift_comms *v, int count, int open)
+static void size_portrait_list(struct rift_comms *v, int count, int open, int labels)
 {
-    /* What every row laid out takes: a row each, and the open one's slab 8
-     * px more (the list lays them out the same way, rift_conv_list.c). */
-    int32_t rows_h = (int32_t)count * RIFT_ROW_H + (open && count > 0 ? SELECTED_EXTRA : 0);
+    /* What every row laid out takes: a row each, the open one's slab 8 px
+     * more, and a label over each group (the list lays them out the same
+     * way, rift_conv_list.c). */
+    int32_t rows_h = (int32_t)count * RIFT_ROW_H + (open && count > 0 ? SELECTED_EXTRA : 0) +
+                     (int32_t)labels * rift_group_h();
     int32_t cap;
 
     if (open && count > 0) {
-        cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + SELECTED_EXTRA;
+        /* Room for the open row's group to be named over it as well. */
+        cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + SELECTED_EXTRA + rift_group_h();
     } else {
         cap = lv_obj_get_height(v->root) - rift_header_row_h() - 1 - THREAD_MIN_H;
         if (cap < RIFT_ROW_H) {
@@ -630,6 +633,9 @@ void rift_comms_refresh(struct rift_app *app)
     int64_t now;
     int count;
     int reveal;
+    int groups[RIFT_GROUP_COUNT];
+    int group_unread[RIFT_GROUP_COUNT];
+    int labels;
     int i;
 
     if (!v) {
@@ -729,12 +735,18 @@ void rift_comms_refresh(struct rift_app *app)
         }
     }
 
-    /* MeshCore's Public channel is the first row, always: it is the one
-     * channel every node is expected to hold, and a reader should not have
-     * to look for it among whatever spoke last. Which row that is, is the
-     * service's word about the key (rift_channel.is_public), not a name.
-     * Everything else keeps the order it had. */
-    (void)rift_conv_public_first(m, conv, count);
+    /* Three groups in the one list (rift_comms_group.h): CHANNELS, with
+     * MeshCore's Public channel first, always - it is the one channel every
+     * node is expected to hold, and a reader should not have to look for it
+     * among whatever spoke last; which row that is, is the service's word
+     * about the key (rift_channel.is_public), not a name - then DIRECT
+     * MESSAGES and CHAT ROOMS, unread first and then the most recent. */
+    count = rift_conv_group_sort(m, conv, count, groups, group_unread);
+    labels = 0;
+    for (i = 0; i < RIFT_GROUP_COUNT; i++) {
+        labels += groups[i] > 0;
+    }
+    rift_conv_list_set_groups(v->rows, groups, group_unread);
 
     v->order_count = count;
     for (i = 0; i < count; i++) {
@@ -776,7 +788,7 @@ void rift_comms_refresh(struct rift_app *app)
         note_shown(v->note, 0);
     }
     if (!app->wide) {
-        size_portrait_list(v, count, peer != NULL);
+        size_portrait_list(v, count, peer != NULL, labels);
     }
     /* The pane laid out first, so the list has the height its rows are
      * bound against; then the rows, from the pool, for what is on screen. */
@@ -856,4 +868,18 @@ int rift_comms_key(struct rift_app *app, uint32_t key)
 lv_obj_t *rift_comms_field(const struct rift_app *app)
 {
     return (app && app->comms) ? rift_thread_field(app->comms->thread) : NULL;
+}
+
+int rift_comms_order_count(const struct rift_app *app)
+{
+    const struct rift_comms *v = app ? app->comms : NULL;
+
+    return v ? v->order_count : 0;
+}
+
+const char *rift_comms_order_key(const struct rift_app *app, int i)
+{
+    const struct rift_comms *v = app ? app->comms : NULL;
+
+    return (v && i >= 0 && i < v->order_count) ? v->order_key[i] : NULL;
 }

@@ -1308,7 +1308,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
              $(RIFT_DIR)/rift_route.o $(RIFT_DIR)/rift_ipc_path.o \
              $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_sound_helper.o \
              $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o $(RIFT_DIR)/rift_air.o core/pocketwav/pocketwav.o \
-             $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o
+             $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o $(RIFT_DIR)/rift_tropo.o $(RIFT_DIR)/rift_comms_group.o
 # The model is several translation units over one struct: rift_model.c
 # dispatches mesh.message and mesh.channel events into rift_messages.c (and
 # rift_arrivals.c, which says which direct messages just arrived) and
@@ -1321,13 +1321,14 @@ RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_map.o \
                    $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o $(RIFT_DIR)/rift_air.o \
-                   $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o \
+                   $(RIFT_DIR)/rift_rxlog.o $(RIFT_DIR)/rift_rxlog_fmt.o $(RIFT_DIR)/rift_tropo.o $(RIFT_DIR)/rift_comms_group.o \
                    $(RIFT_DIR)/rift_emoji.o $(RIFT_DIR)/rift_emoji_seq.o \
                    $(RIFT_DIR)/rift_repeater.o $(RIFT_DIR)/rift_route.o \
                    $(RIFT_DIR)/rift_scope.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test tests/rift_reliability_test \
               tests/rift_ipc_test tests/rift_notify_test tests/rift_rxlog_test tests/rift_tiles_test \
-              tests/rift_route_test tests/rift_scope_test tests/rift_autocap_test tests/fake-meshcored
+              tests/rift_route_test tests/rift_scope_test tests/rift_autocap_test tests/fake-meshcored \
+              tests/rift_tropo_test tests/rift_organize_test
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -1363,6 +1364,17 @@ tests/rift_autocap_test: tests/rift_autocap_test.o $(RIFT_DIR)/rift_autocap.o
 
 # RX LOG's ring, its mesh.rx reader and its words (rift_rxlog.h).
 tests/rift_rxlog_test: tests/rift_rxlog_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# TROPO: deep floods, the window, the hold, repeats and what is not
+# evidence, fed through the mesh.rx reader as the app feeds it (rift_tropo.h).
+tests/rift_tropo_test: tests/rift_tropo_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# COMMS' three groups and CONTACTS' favourites, filters and their file
+# (rift_comms_group.h, rift_contacts.h, rift_store.h).
+tests/rift_organize_test: tests/rift_organize_test.o $(RIFT_MODEL_OBJS) $(RIFT_DIR)/rift_store.o \
+                          $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # Delivery states and attempts, the unacknowledged messages kept across a
@@ -2771,6 +2783,8 @@ test: all $(TEST_BINS)
 	./tests/rift_comms_test
 	./tests/rift_reliability_test
 	./tests/rift_rxlog_test
+	./tests/rift_tropo_test
+	./tests/rift_organize_test
 	./tests/rift_notify_test
 	./tests/rift_tiles_test tools/browser/pos-browser
 	./tests/rift_ipc_test

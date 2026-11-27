@@ -480,27 +480,26 @@ static void test_contacts(void)
     add_node(&m, KEY_B, "oslo-01", 1, 1);
     add_node(&m, KEY_A, "Anna", 1, 1);
     add_node(&m, KEY_R, "HYTTA RPT", 2, 1);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "", out, RIFT_MAX_NODES);
-    check("ALL is every stored contact", n == 3);
-    check("A to Z, case not counted", n == 3 && strcmp(out[0]->name, "Anna") == 0 &&
-                                          strcmp(out[1]->name, "HYTTA RPT") == 0 &&
-                                          strcmp(out[2]->name, "oslo-01") == 0);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "OSLO", out, RIFT_MAX_NODES);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "", out, RIFT_MAX_NODES);
+    check("ALL is every stored contact that is not a repeater or a sensor", n == 2);
+    check("A to Z, case not counted", n == 2 && strcmp(out[0]->name, "Anna") == 0 &&
+                                          strcmp(out[1]->name, "oslo-01") == 0);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "OSLO", out, RIFT_MAX_NODES);
     check("search by name", n == 1 && strcmp(out[0]->key, KEY_B) == 0);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "cc33", out, RIFT_MAX_NODES);
-    check("search by public key prefix", n == 1 && strcmp(out[0]->key, KEY_R) == 0);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "aa", out, RIFT_MAX_NODES);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "bb22", out, RIFT_MAX_NODES);
+    check("search by public key prefix", n == 1 && strcmp(out[0]->key, KEY_B) == 0);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "aa", out, RIFT_MAX_NODES);
     check("the node hash is a key prefix", n == 1 && strcmp(out[0]->key, KEY_A) == 0);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "  ", out, RIFT_MAX_NODES);
-    check("an empty search is everything", n == 3);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "zzz", out, RIFT_MAX_NODES);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "  ", out, RIFT_MAX_NODES);
+    check("an empty search is everything", n == 2);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "zzz", out, RIFT_MAX_NODES);
     check("a search nothing answers is nothing", n == 0);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "hytta", out, RIFT_MAX_NODES);
-    check("a repeater is a contact, and stays a repeater",
-          n == 1 && rift_node_is_repeater(out[0]) && !rift_node_can_message(out[0]) &&
-              rift_node_no_message_why(out[0]) != NULL);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "hytta", out, RIFT_MAX_NODES);
+    check("a repeater is not a contact, by name or by key (it is NODES')",
+          n == 0 && rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "cc33", out, RIFT_MAX_NODES) == 0 &&
+              rift_node_is_repeater(rift_model_find(&m, KEY_R)) && m.node_count == 3);
 
-    n = rift_contacts_list(&m, RIFT_CONTACTS_RECENT, "", out, RIFT_MAX_NODES);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_RECENT, "", out, RIFT_MAX_NODES);
     check("RECENT is empty with no conversation", n == 0);
     apply_messages(&m, "{\"messages\":["
                        "{\"id\":1,\"direction\":\"in\",\"kind\":\"direct\",\"peer_public_key\":\"" KEY_A
@@ -513,10 +512,10 @@ static void test_contacts(void)
                        "44444444444444444444444444444444444444444444444444444444444444"
                        "\",\"text\":\"a stranger\",\"state\":\"received\",\"mono_ms\":4000}"
                        "],\"count\":4,\"total\":4,\"persistent\":false}");
-    n = rift_contacts_list(&m, RIFT_CONTACTS_RECENT, "", out, RIFT_MAX_NODES);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_RECENT, "", out, RIFT_MAX_NODES);
     check("RECENT is the contacts spoken with, the latest first, each once",
           n == 2 && strcmp(out[0]->key, KEY_A) == 0 && strcmp(out[1]->key, KEY_B) == 0);
-    n = rift_contacts_list(&m, RIFT_CONTACTS_RECENT, "oslo", out, RIFT_MAX_NODES);
+    n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_RECENT, "oslo", out, RIFT_MAX_NODES);
     check("and is searched the same way", n == 1 && strcmp(out[0]->key, KEY_B) == 0);
     check("nothing about listing changed the table", m.node_count == 3);
 
@@ -533,21 +532,21 @@ static void test_contacts(void)
         for (i = 0; i < RIFT_MAX_NODES; i++) {
             snprintf(key, sizeof(key), "%08x%056d", (unsigned)(i * 2654435761u), 0);
             snprintf(name, sizeof(name), "node-%04d", (i * 7919) % RIFT_MAX_NODES);
-            add_node(&m, key, name, (i % 10) == 0 ? 2 : 1, 1);
+            add_node(&m, key, name, (i % 10) == 0 ? 3 : 1, 1);
         }
         check("the cache holds the service's 1000", m.node_count == RIFT_MAX_NODES);
         clock_gettime(CLOCK_MONOTONIC, &t0);
-        n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "", out, RIFT_MAX_NODES);
-        n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "node-09", out, RIFT_MAX_NODES);
+        n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "", out, RIFT_MAX_NODES);
+        n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "node-09", out, RIFT_MAX_NODES);
         clock_gettime(CLOCK_MONOTONIC, &t1);
         ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6;
         printf("     1000 contacts: sorted list and a search together took %.2f ms\n", ms);
         check("a search near capacity finds every match", n == 100);
-        n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "", out, RIFT_MAX_NODES);
+        n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "", out, RIFT_MAX_NODES);
         check("ALL lists all 1000, in order",
               n == RIFT_MAX_NODES && strcmp(out[0]->name, "node-0000") == 0 &&
                   strcmp(out[RIFT_MAX_NODES - 1]->name, "node-0999") == 0);
-        n = rift_contacts_list(&m, RIFT_CONTACTS_ALL, "", out, 10);
+        n = rift_contacts_list(&m, NULL, RIFT_CONTACTS_ALL, "", out, 10);
         check("and never writes past what it was given", n == 10);
     }
 }

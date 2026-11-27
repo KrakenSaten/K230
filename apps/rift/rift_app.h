@@ -277,10 +277,12 @@ struct rift_app {
      * nothing more - neither changes a node, and neither is stored. */
     char node_query[RIFT_QUERY_MAX];
     int node_zero_hop;
-    /* CONTACTS (ui/rift_contacts_view.c): the search, RECENT rather than
-     * ALL, and the contact selected - a view, never stored. */
+    /* CONTACTS (ui/rift_contacts_view.c): the search, the filter (enum
+     * rift_contacts_filter: ALL, RECENT or FAVORITES), and the contact
+     * selected - a view, never stored. The favourites themselves are the
+     * reader's and are stored, in prefs below. */
     char contacts_query[RIFT_QUERY_MAX];
-    int contacts_recent;
+    int contacts_filter;
     char contacts_sel[RIFT_KEY_HEX];
 
     struct rift_model model;
@@ -399,7 +401,16 @@ void rift_app_notify_pass(struct rift_app *a, int64_t now);
  * genuinely just arrived (rift_arrivals.c) - who, where and the first words.
  * None for the conversation the reader is looking at. A tap opens RIFT on
  * that conversation. start reads the counters as they stand, so nothing
- * from before the session is news. */
+ * from before the session is news.
+ *
+ * A RIFT banner stays twice the shell's default: a sender, a channel and two
+ * lines of someone's words are more to read than a one-line notice, and on
+ * the mesh the next message may be minutes away. With another notice waiting
+ * behind it, it gives way after RIFT_BANNER_HOLD_QUEUED_MS - again twice the
+ * default - so a burst still moves. Other apps' notices keep the shell's
+ * holds (app.h, hold_ms). */
+#define RIFT_BANNER_HOLD_MS 10000
+#define RIFT_BANNER_HOLD_QUEUED_MS 4400
 void rift_app_banner_start(struct rift_app *a);
 void rift_app_banner_pass(struct rift_app *a);
 

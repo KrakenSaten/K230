@@ -30,5 +30,8 @@ lv_obj_t *rift_activity_graph(const struct rift_app *app);
 /* The RX LOG action under the feed, for tests; NULL before the screen
  * exists. */
 lv_obj_t *rift_activity_rxlog_button(const struct rift_app *app);
+/* The TROPO line over the graph (ui/rift_tropo_view.h), for tests; NULL
+ * before the screen exists. */
+lv_obj_t *rift_activity_tropo(const struct rift_app *app);
 
 #endif

@@ -50,9 +50,12 @@ status and traffic only; every setting is on SYSTEM. The strip fits its tabs
 to the row: their padding gives way first, then ACTIVITY and SYSTEM shorten
 to ACT and SYS (portrait at a larger text size).
 
-- **ACTIVITY** — led by **MESH ACTIVITY**, the live picture of what this
-  node hears (below, "Heard on air, live"): six figures, the live graph by
-  packet type, the mix and its legend; then the **LIVE FEED** frame by frame.
+- **ACTIVITY** — over everything, **TROPO**: a warning sign and one line
+  that say whether packets are arriving over far more relays than this mesh
+  ordinarily has (below, "TROPO"). Then **MESH ACTIVITY**, the live picture
+  of what this node hears (below, "Heard on air, live"): six figures, the
+  live graph by packet type, the mix and its legend; then the **LIVE FEED**
+  frame by frame.
   Under them the radio service's state and the reason for it in the
   service's own words; on one line, whether radiod is connected and what
   state it reported, whether the lease is held and whether the node can
@@ -283,8 +286,9 @@ column.
   delivered. While a request is in flight the thread says "Sending", which
   claims only that.
 - **Not a contact manager.** It finds a node and forgets a node, or its
-  route, when a reader asks; it does not add, import, export, favourite or
-  rename one.
+  route, when a reader asks, and keeps the reader's favourites in its own
+  preferences file (CONTACTS, below); it does not add, import, export or
+  rename one, and a favourite changes nothing in MeshCore's contact table.
 - NET is rings of observed hop count and nothing more: no relay load, no
   inferred links, no geography.
 - No command parser. The approved design makes the command line permanent
@@ -293,9 +297,10 @@ column.
   or to say the service is not answering, and the section has the room the
   rest of the time. The commands are a later phase, and would bring the line
   back as what the design meant it to be.
-- It stores the reader's own choices and nothing else - today one, the DM
-  sound - opens no device, links no radio or protocol library, plays no
-  sound itself, and owns no colour.
+- It stores the reader's own choices and nothing else - the sounds, muted
+  channels, the emoji picked lately, the basemap and the favourite contacts
+  (`rift_store.h`) - opens no device, links no radio or protocol library,
+  plays no sound itself, and owns no colour.
 
 ## What it shows, and what it refuses to show
 
@@ -737,6 +742,30 @@ body; the stored and sent text is unchanged. A client that knows neither
 convention shows the whole line. The prefix costs channel room: at most
 73 bytes (a 31-byte name and a cut quotation) of a channel's 140-odd.
 
+## COMMS: three groups
+
+`feature/rift-ux-tropo` (`rift_comms_group.c`, `ui/rift_conv_list.c`): the one
+COMMS list, still one virtual list of the same rows, in three runs, each
+under a group label with a hairline (`CHANNELS · 3`, `DIRECT MESSAGES · 4 · 1
+UNREAD`, `CHAT ROOMS · 1`; the label gives up the unread count, then the
+count, where the landscape list is too narrow). A group with no rows has no
+label.
+
+- **CHANNELS** — every channel. MeshCore's Public channel first, known by the
+  service's word about its key as before; the others in the order they had.
+- **DIRECT MESSAGES** — every peer that is not known to be a room server:
+  a chat node, and a node whose type the table has not said (never a room on
+  a guess). Unread conversations first, then the most recent.
+- **CHAT ROOMS** — a peer whose advertised type is a room server
+  (`ADV_TYPE_ROOM`, 3), by type and never by name; ordered as the direct
+  messages. The room's login, its thread and its composer are what they
+  were.
+
+A conversation is one row however it reaches the list (the model's, a joined
+channel with nothing said, the one being written to); selection, drafts,
+unread, previews, mute and the keys are keyed by conversation as before, and
+Up and Down walk the one list across the groups.
+
 ## CONTACTS
 
 `‹ COMMS` · `CONTACTS` - reached from COMMS (the header's `CONTACTS ›` in
@@ -753,10 +782,11 @@ CONTACTS are two questions asked of the same stored contacts:
 
 | | NODES | CONTACTS |
 |---|---|---|
-| order | heard most recently first | A to Z (ALL), or the latest spoken with first (RECENT: a direct conversation in RIFT's window) |
-| a row | glyph, name, hops, hop strip, RSSI, SNR, heard | name, kind (`CHAT`, `REPEATER`, `ROOM`, `SENSOR`), key prefix, heard |
+| holds | every stored node | the stored nodes that are not repeaters or sensors (by advertised type) |
+| order | heard most recently first | the favourites A to Z, then the rest A to Z (ALL); the favourites alone (FAVORITES); or the latest spoken with first (RECENT: a direct conversation in RIFT's window) |
+| a row | glyph, name, hops, hop strip, RSSI, SNR, heard | the favourite star, name, kind (`CHAT`, `ROOM`, `?` when the table has not said), key prefix, heard |
 | for | topology: routes, signal, NET, MAP | finding someone and writing to them |
-| a tap | selects; DETAIL, MESSAGE | opens the conversation; on a repeater or a sensor says why not |
+| a tap | selects; DETAIL, MESSAGE | on the star: a favourite or not; anywhere else: opens the conversation |
 
 The search narrows either list by name (case and Æ Ø Å not counted) or by
 public key prefix of two hex characters or more (the node hash is the first
@@ -777,11 +807,39 @@ false): a new node's advert is counted as `nodes_unretained`, it is not a
 contact and cannot be written to, and CONTACTS says the table is full until a
 node is forgotten in NODES. Nothing is configurable at run time.
 
-**No favourites, no import or export.** Upstream's `ContactInfo.flags` has a
-favourite bit (companion_radio: "LSB used as 'favourite' bit") and `state.v1`
-stores the byte, but meshcored has no method that reads or sets it, and
-contact import and export are not in this API (mesh.md, "Not in v0"); adding
-or removing a contact is an advert heard or a FORGET in NODES.
+**Repeaters and sensors are NODES'.** A node whose advertised type is a
+repeater (2) or a sensor (4) is in none of CONTACTS' lists, by name or by key
+- it is infrastructure, and everything that administers it (DETAIL, the
+repeater session, FORGET) stays in NODES, untouched. A room server (3) is a
+contact and says `ROOM`; a node whose type the table has not said is listed,
+not left out on a guess. The count beside the title is how many are shown
+against how many nodes the service stores, repeaters included.
+
+**Favourites** (`feature/rift-ux-tropo`). A star leads every row: a tap on it
+(a 56 px target around the 22 px star) makes the contact a favourite or not,
+and a tap anywhere else on the row still opens the conversation; on the keys,
+`F` (or `*`) does the same for the selected row. ALL lists the favourites
+first, then everyone else, each A to Z; FAVORITES lists them alone; RECENT is
+unchanged. The three filters are one row under the search field in portrait
+(sharing its width) and beside it in landscape.
+
+A favourite is the reader's, not MeshCore's: one line `favorite=<64 hex>` per
+contact in RIFT's preferences file (`rift_store.h`), the **whole public key**,
+lowercase - the one identity a node keeps through a rename, a new route, or
+being forgotten and heard again, where a name or the one-byte node hash would
+not. It is written at once (the file's usual temp-file, fsync, rename), read
+back on the next session, and at most 64 are kept (`64 favourites is the most
+RIFT keeps` says so). Upstream's `ContactInfo.flags` has a favourite bit and
+`state.v1` stores the byte, but meshcored has no method that reads or sets
+it, and RIFT does not change the contact table for a reader's bookmark: no
+node is deleted, renamed or altered. A favourite whose node the table does
+not hold now (forgotten in NODES) stays a favourite, is counted under
+FAVORITES ("1 favourite is not in the contact table now"), and is listed
+again when its advert is heard.
+
+**No import or export.** Contact import and export are not in this API
+(mesh.md, "Not in v0"); adding or removing a contact is an advert heard or a
+FORGET in NODES.
 
 ## Emoji and other text
 
@@ -1056,6 +1114,59 @@ brought up to date when a frame is heard and once a second. Its captions are
 the caption role at Small whatever the text size (DS §46.4): the graph's
 height is fixed.
 
+### TROPO
+
+`feature/rift-ux-tropo`: an indication of unusual mesh propagation, over the
+MESH ACTIVITY graph (`rift_tropo.c`, `ui/rift_tropo_view.c`). Ported from
+RIFT on the T-Deck (`vendor/RIFT`, `RiftLogic.h` "tropospheric opening
+detector", `RiftRxLog.h` `riftTropoState`, its `Tropo` tests), with its three
+numbers kept: a flood path of **20 hops or more** is deep; **five** distinct
+deep packets within **15 minutes** is an opening; it stays **active for 20
+minutes** after the last.
+
+What is counted is decided on the receive log RIFT already subscribes to
+(`mesh.rx`, "RX LOG"), in the session's one reader, before an entry is
+filed: no other subscription, daemon or timer. A reception counts only when
+MeshCore handled it (`new` or `duplicate`, never `rejected` or
+`unresolved`); it is a flood or transport flood (a direct packet's path is
+the hops it still has to take); its path is hops (never a TRACE's SNRs) and
+below 62 (the no-path sentinel reads as 63); it is not this node's own packet
+heard back (`own`); and its packet hash has not been counted already - every
+copy of one packet, over any route, is one piece of evidence, and a frame
+with no hash is not counted at all. A report older than the window is not
+evidence of now. Unlike the original the window slides: any five within
+fifteen minutes, not five that land in the same fixed quarter hour.
+
+Everything is on the shared monotonic clock and bounded (64 packet hashes, 5
+candidates, one opening). Whether an opening is still active is a function of
+its last evidence and now, never of when a timer ran. Evidence during an
+opening extends it; once its hold has run out, one deep packet is a candidate
+for a new opening and nothing more. CLEAR in RX LOG, the service going away
+and coming back, and leaving and reopening RIFT keep what was seen; CLOSE
+RIFT ends it with the session.
+
+The line, by the age of the opening's **latest** evidence:
+
+| | sign | headline | when |
+|---|---|---|---|
+| red, red outline | filled, `status_error` | `TROPO DETECTED` | the first hour (active, or ended) |
+| yellow | filled, `status_warn` | `RECENT TROPO` | one to five hours |
+| grey | filled, `text_muted` | `LAST TROPO` | after five hours |
+| neutral | outline, `text_muted` | `NO TROPO SEEN` | no opening since RIFT's session began |
+
+Under the headline: `ACTIVE`, or `ENDED · LAST DEEP PACKET 2h AGO`; the peak
+hop count, how many distinct deep packets and over how long, the usual depth
+here (the deepest ordinary flood path this quarter hour and the last), and,
+after the first, how many openings since RIFT opened; the age at the right.
+With nothing detected it says what it is watching for and how many deep
+floods it has so far. A meshcored that keeps no receive log, or none
+answering, is said in words (`THIS MESHCORED KEEPS NO RECEIVE LOG: TROPO
+CANNOT WATCH`, `NOT LISTENING: MESHCORED IS NOT ANSWERING`) rather than read
+as a quiet mesh. While it is news, one more line: *Unusual mesh propagation:
+an indication, not proof of weather or distance.* A repeater loop or a
+bridged mesh can produce the same deep paths; nothing here measures the
+atmosphere or a distance.
+
 ### Message banners
 
 A direct message, or a message on a channel this node holds, that has just
@@ -1063,7 +1174,9 @@ arrived raises a **notice** on whatever Doors is showing - RIFT, another app,
 Home, the lock (`rift_banner.c`, app.h `pocketos_shell_notify`,
 `ui/shell/shell_notice.c`): `RIFT · DIRECT MESSAGE`, the sender and the first
 words; or `RIFT · <channel>`, the name the sender claimed and the words. Its
-rule is the sender's identity accent. It goes by itself after five seconds;
+rule is the sender's identity accent. It goes by itself after ten seconds,
+or after 4.4 s when another notice is waiting behind it (twice the shell's
+5 s and 2.2 s, which every other app keeps: `hold_ms` in app.h);
 a tap opens RIFT on that conversation (not while the lock is engaged).
 
 - "Just arrived" is the model's answer, the one the sounds use
@@ -1488,7 +1601,9 @@ RIFT started. Two things that are not malformed are kept out of it
 | `rift_model.c/.h` | what is known and how sure it is: the bounded node cache, the activity ring, the service state and its counters. No LVGL |
 | `rift_threads.c` | a conversation's name and its thread in reading order, and a message taken to be sent again (RESEND). No LVGL |
 | `rift_reply.c/.h` | a reply as message text: the `@[name] "quotation" ` prefix written, and read back. No LVGL |
-| `rift_contacts.c/.h` | CONTACTS' lists: ALL A to Z, RECENT by conversation, searched. No LVGL |
+| `rift_contacts.c/.h` | CONTACTS' lists: ALL (favourites first) A to Z, FAVORITES, RECENT by conversation, searched; repeaters and sensors left out. No LVGL |
+| `rift_comms_group.c/.h` | COMMS' three groups: which a conversation is in, and the list put in group order. No LVGL |
+| `rift_tropo.c/.h` | TROPO: deep floods, the sliding window, the hold, repeats, and the lifecycle by age. No LVGL, no clock of its own |
 | `rift_messages.c` | the model's second translation unit, over the same struct: the message window, the conversations, how far each has been read, the submission in flight, and which run of the service the ids in all of it came from. No LVGL |
 | `rift_channels.c` | the channel table mesh.channels reports and the mesh.channel events that change it. No LVGL |
 | `rift_actions.c` | an advert, forgetting a node, forgetting a route: asked, then answered or refused. No LVGL |
@@ -1529,7 +1644,9 @@ RIFT started. Two things that are not malformed are kept out of it
 | `ui/rift_thread.c` | the open conversation: the header, the messages and the portrait composer. One builder for both orientations, as `rift_detail.c` is for NODES |
 | `ui/rift_thread_note.c` | the words under the thread: why the composer cannot send, what became of the last send |
 | `ui/rift_msgact.c/.h` | the actions on one message - RESEND, REPLY, COPY, CLOSE - by touch and by key, and a reply's quotation drawn above its answer |
-| `ui/rift_contacts_view.c/.h` | CONTACTS: the search, ALL and RECENT, the virtual list |
+| `ui/rift_contacts_view.c/.h` | CONTACTS: the search, ALL / FAVORITES / RECENT, the star on each row, the virtual list |
+| `ui/rift_tropo_view.c/.h` | ACTIVITY's TROPO line: the sign, the headline, the evidence |
+| `ui/rift_marks.c/.h` | the warning sign and the favourite star, drawn in the theme's tokens |
 | `ui/rift_find.c` | NODES' find bar: the search field, CLEAR and ZERO-HOP |
 | `ui/rift_netview.c` | NET: the PATH panel and the rings |
 | `ui/rift_scope_view.c/.h` | MAP's TRAFFIC: its button, its panel (built on first use) and the observed path over MAP's canvas |
@@ -1550,6 +1667,9 @@ RIFT started. Two things that are not malformed are kept out of it
 | `tests/rift_reliability_test.c` | 78 checks: every delivery caption (SENT is never delivered, TRY n, an orphan's NO ACK), what may be resent and what may not, a RESEND by id that stays one message, a late ACK, orphans kept across a restart in order and bounded, an orphan's RESEND replacing it only once accepted, the reply prefix and its parse (names with brackets, quotes and newlines, emoji sequences and flags never cut), and CONTACTS: A to Z, by name, by key prefix, the empty search, RECENT, repeaters, 1000 contacts and the time a search takes |
 | `tests/rift_ipc_test.c` | 240 checks against a real socket and a scripted service in a child process: joining a channel (the derived key checked byte for byte in the request, and absent from the model and the client afterwards), a duplicate key refused, leaving, renaming, the path hash size, a pinned name, a service without the setting, a change nobody answered; and connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
 | `tests/rift_app_test.c` | 814 checks under a real LVGL pointer device: RIFT kept behind other screens (DS §51) - left, the session, its timer and its connection stay and the screen's half is empty, a message arriving while left is filed unread and unsounded, reopened in the same place with no second timer, Back and Home, twenty leaves and reopens with one timer and less than one screen's memory kept, CLOSE RIFT through its confirmation and a new session after it, the status cluster's mark set and cleared, the navigation row's five faces (size, look, gaps, targets, fit at S/M/L) in both orientations, and against the scripted service one subscription for six opens, a message taken in while left, the subscription given back on CLOSE RIFT and meshcored still running; a channel's sender before its message in both orientations (long, unnamed, own); the NODES search and ZERO-HOP view; NET from no snapshot to a real mesh, advert-placed nodes, MESSAGE and DETAIL, landscape columns; the CHANNELS and THIS DEVICE controls with no service (every refusal said before asking, every confirmation) and, given `RIFT_FAKE_MESHCORED`, live against the scripted service (a private channel joined and its key shown once, left, a rename, a path hash size); the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a 64 px row of 56 px faces with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 16 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
+| `tests/rift_tropo_test.c` | 69 checks: what is evidence and what is not (shallow, 62 and 63, direct, rejected, own, no hash, no path), five in fifteen and the sliding window, repeats over one and two routes, the bounded hash ring, the hold to the millisecond, the red / yellow / grey lifecycle by the last evidence's age, a lone deep packet after closure, a second opening, late and future stamps, the baseline; then through the mesh.rx reader: transport floods, TRACE, verdicts, a reconnect and a CLEAR, and a full ring |
+| `tests/rift_organize_test.c` | 119 checks: COMMS' groups (Public first, unread then recency, a room by type, an unknown type never a room, a duplicate key one row, a type learned later); CONTACTS' favourites (whole keys either case, refused prefixes, ALL with favourites first, FAVORITES, RECENT, repeaters and sensors out by name and key, a forgotten favourite kept and listed again); the preferences file (written, parsed, a bad line refused, 64 at most with everything else at its most still fitting, saved and loaded by the next session) |
+| `tests/rift_app_test.c` (`RIFT_APP_TEST_ONLY=ux`) | 90 checks: the banner's 10 s and 4.4 s and the shell's bounds, none for the open conversation; TROPO from waiting and blind through watching, detected, ended, recent and last, with the service gone and a second opening, over the graph and whole in portrait, landscape and Large; COMMS' three groups in all four shapes, Public first, unread first, the room last, no duplicate, the keys across groups; CONTACTS' star by tap and by `F`, the file, FAVORITES, a row tap still opening, and the favourites read back by a new session in all four shapes. Writes the PR's screenshots |
 | `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |
 | `tests/rift_route_test.c` | 100 checks: the chosen route's draft and stage - what may be a relay and what is refused, whole keys in the order tapped, UNDO / CLEAR / cut, a preview answer applied only for the request and the route it was asked about (stale, edited-since, transmitted, not explicit, wrong count refused), a waypoint leaving the node list counted and never remapped, staging, AUTO, an empty route that is not AUTO, the capabilities taken only when true, and an explicit message never offered RESEND |
 | `tests/rift_ipc_test.c` (explicit route) | against the scripted service: a preview writes no `mesh.send`; a SEND on a staged route carries exactly the chosen keys in order, once, after its check; AUTO has no `via`; `via: []`; the service's refusal at preview and at SEND; an older service never asked for a preview nor given `via`; a restart into one; the service going away mid-check |
@@ -1694,6 +1814,17 @@ them, one after the other, are two runs of a service and not one.
     box. See "Colour emoji".
 
 ## What needs hardware
+
+For `feature/rift-ux-tropo` (banners, TROPO, COMMS groups, favourites):
+simulator and host tests only. On a unit: a RIFT banner stays about ten
+seconds and a second one queued behind it about four; a real room server
+heard on the mesh lands under CHAT ROOMS and its login still works; a star
+tapped by finger on the glass toggles without opening the conversation, and
+survives a reboot (`/var/lib/pocketos/rift/prefs.v1` holds `favorite=`
+lines); TROPO stays `NO TROPO SEEN` on the bench mesh (whose floods are
+shallow), and its line is whole at Large in both orientations. A real
+opening cannot be staged on the bench; the detector's timing is proven on
+the host.
 
 For the route builder (`feat/rift-visual-path-builder`): simulator and
 scripted-service validation, and a non-transmitting owner UI check on unit B

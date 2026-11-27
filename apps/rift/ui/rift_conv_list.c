@@ -7,6 +7,7 @@
 #include "rift_conv_list.h"
 
 #include "pos_styles.h"
+#include "rift_comms_group.h"
 #include "rift_widgets.h"
 #include "rift_emoji_style.h"
 
@@ -63,6 +64,14 @@ struct rift_conv_list {
     int32_t total_h;
     int wide;
     int binding;
+
+    /* The groups (rift_comms_group.h): how many rows each has, in order,
+     * and the label over each that has any. grouped is 0 for one plain run
+     * of rows with no labels. */
+    int grouped;
+    int group_count[RIFT_GROUP_COUNT];
+    int group_unread[RIFT_GROUP_COUNT];
+    lv_obj_t *head[RIFT_GROUP_COUNT];
 };
 
 static lv_obj_t *dense_row(lv_obj_t *parent, int32_t height)
@@ -266,9 +275,47 @@ static void update_row(struct rift_conv_list *l, struct conv_row *r, const struc
 
 /* ---- the virtual list --------------------------------------------------------- */
 
+/* Where group g's rows start in the order, and whether row i is the first
+ * of its group (and so has the group's label over it). */
+static int group_start(const struct rift_conv_list *l, int g)
+{
+    int start = 0;
+    int k;
+
+    for (k = 0; k < g; k++) {
+        start += l->group_count[k];
+    }
+    return start;
+}
+
+static int labels_through(const struct rift_conv_list *l, int i)
+{
+    int n = 0;
+    int g;
+
+    for (g = 0; l->grouped && g < RIFT_GROUP_COUNT; g++) {
+        if (l->group_count[g] > 0 && group_start(l, g) <= i) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static int opens_group(const struct rift_conv_list *l, int i)
+{
+    int g;
+
+    for (g = 0; l->grouped && g < RIFT_GROUP_COUNT; g++) {
+        if (l->group_count[g] > 0 && group_start(l, g) == i) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int32_t item_y(const struct rift_conv_list *l, int i)
 {
-    int32_t y = (int32_t)i * RIFT_ROW_H;
+    int32_t y = (int32_t)i * RIFT_ROW_H + (int32_t)labels_through(l, i) * rift_group_h();
 
     if (l->sel >= 0 && i > l->sel) {
         y += SELECTED_H - RIFT_ROW_H;
@@ -421,6 +468,11 @@ static void reveal_selected(struct rift_conv_list *l)
     }
     iy = item_y(l, l->sel);
     ih = item_h(l, l->sel);
+    /* The first row of a group is revealed with its label. */
+    if (opens_group(l, l->sel)) {
+        iy -= rift_group_h();
+        ih += rift_group_h();
+    }
     if (iy < y) {
         lv_obj_scroll_to_y(l->list, iy, LV_ANIM_OFF);
     } else if (iy + ih > y + h) {
@@ -458,7 +510,69 @@ struct rift_conv_list *rift_conv_list_create(struct rift_app *app, lv_obj_t *par
     lv_obj_set_size(l->spacer, 1, 1);
     lv_obj_remove_flag(l->spacer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(l->spacer, LV_OBJ_FLAG_CLICKABLE);
+    /* The three group labels, built once and placed over their first row:
+     * NODES' group label (rift_group_label) with a hairline under it, so a
+     * group reads as a run of its own. */
+    for (int g = 0; g < RIFT_GROUP_COUNT; g++) {
+        l->head[g] = rift_group_label(l->list, rift_conv_group_word((enum rift_conv_group)g));
+        pos_style_add(l->head[g], POS_STYLE_DIVIDER, 0);
+        lv_obj_remove_flag(l->head[g], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(l->head[g], LV_OBJ_FLAG_HIDDEN);
+    }
     return l;
+}
+
+void rift_conv_list_set_groups(struct rift_conv_list *l, const int counts[RIFT_GROUP_COUNT],
+                               const int unread[RIFT_GROUP_COUNT])
+{
+    int g;
+
+    if (!l) {
+        return;
+    }
+    l->grouped = counts != NULL;
+    for (g = 0; g < RIFT_GROUP_COUNT; g++) {
+        l->group_count[g] = counts ? counts[g] : 0;
+        l->group_unread[g] = unread ? unread[g] : 0;
+    }
+}
+
+/* Each label over its group's first row, saying how many rows it holds and
+ * how many messages in them are unread; the label of an empty group is not
+ * drawn, and neither is its room. */
+static void place_labels(struct rift_conv_list *l)
+{
+    int g;
+
+    for (g = 0; g < RIFT_GROUP_COUNT; g++) {
+        lv_obj_t *h = l->head[g];
+        const char *word = rift_conv_group_word((enum rift_conv_group)g);
+        char full[96];
+        char some[64];
+        const char *candidate[3];
+        int start;
+
+        if (!h) {
+            continue;
+        }
+        if (!l->grouped || l->group_count[g] == 0) {
+            lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        start = group_start(l, g);
+        lv_obj_set_pos(h, 0, item_y(l, start) - rift_group_h());
+        lv_obj_remove_flag(h, LV_OBJ_FLAG_HIDDEN);
+        snprintf(some, sizeof(some), "%s" RIFT_SEP "%d", word, l->group_count[g]);
+        if (l->group_unread[g] > 0) {
+            snprintf(full, sizeof(full), "%s" RIFT_SEP "%d UNREAD", some, l->group_unread[g]);
+        } else {
+            snprintf(full, sizeof(full), "%s", some);
+        }
+        candidate[0] = full;
+        candidate[1] = some;
+        candidate[2] = word;
+        rift_cell_set_text_first_fit(h, candidate, 3);
+    }
 }
 
 void rift_conv_list_destroy(struct rift_conv_list *l)
@@ -517,8 +631,22 @@ void rift_conv_list_refresh(struct rift_conv_list *l, const struct rift_conv *co
             break;
         }
     }
+    if (l->grouped) {
+        int sum = 0;
+        int g;
+
+        /* Counts that do not add up to the rows given are not a grouping
+         * the rows can be laid out by: one plain run instead. */
+        for (g = 0; g < RIFT_GROUP_COUNT; g++) {
+            sum += l->group_count[g];
+        }
+        if (sum != count) {
+            l->grouped = 0;
+        }
+    }
     l->total_h = count > 0 ? item_y(l, count - 1) + item_h(l, count - 1) : 0;
     lv_obj_set_pos(l->spacer, 0, l->total_h > 0 ? l->total_h - 1 : 0);
+    place_labels(l);
     lv_obj_update_layout(l->list);
     l->binding = 1;
     clamp_scroll(l);

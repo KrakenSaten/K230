@@ -29,6 +29,7 @@
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
+#include "rift_contacts.h"
 #include "rift_contacts_view.h"
 #include "rift_device.h"
 #include "rift_emoji_pick.h"
@@ -57,6 +58,9 @@
 #include "rift_strip.h"
 #include "rift_test_clock.h"
 #include "rift_thread.h"
+#include "rift_marks.h"
+#include "rift_tropo_view.h"
+#include "shell_notice.h"
 
 #include <math.h>
 #include <malloc.h>
@@ -150,9 +154,13 @@ static char notice_title[64];
 static char notice_body[200];
 static void (*notice_open)(void *user);
 static void *notice_user;
+static int notice_hold_ms;
+static int notice_hold_queued_ms;
 void pocketos_shell_notify(const struct pocketos_notice *n)
 {
     notice_calls++;
+    notice_hold_ms = n ? n->hold_ms : 0;
+    notice_hold_queued_ms = n ? n->hold_queued_ms : 0;
     snprintf(notice_source, sizeof(notice_source), "%s", n && n->source ? n->source : "");
     snprintf(notice_title, sizeof(notice_title), "%s", n && n->title ? n->title : "");
     snprintf(notice_body, sizeof(notice_body), "%s", n && n->body ? n->body : "");
@@ -2087,8 +2095,9 @@ static void scale_session(void)
     shot("portrait-comms-many");
     rift_app_open_conversation(app, key_of(10, 0x40));
     pump(120);
+    /* Five rows and the label of the group the open one is in. */
     check("opening one gives the thread the height back",
-          list && lv_obj_get_height(list) <= 5 * RIFT_ROW_H + 8 &&
+          list && lv_obj_get_height(list) <= 5 * RIFT_ROW_H + 8 + rift_group_h() &&
               lv_obj_get_height(thread_pane()) > lv_obj_get_height(content()) / 2);
     check("with the open conversation in view", within(ancestor(find_exact(content(), "PEER-10"), 2),
                                                       list));
@@ -2117,9 +2126,10 @@ static void scale_session(void)
          * not while the open conversation was revealed near the foot. */
         lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
         pump(80);
+        /* Under DIRECT MESSAGES' label: the first row of the list. */
         check("and its conversation is the top row now",
               find_exact(list, "PEER-40") &&
-                  lv_obj_get_y(ancestor(find_exact(list, "PEER-40"), 2)) <= 2);
+                  lv_obj_get_y(ancestor(find_exact(list, "PEER-40"), 2)) <= rift_group_h() + 2);
     }
 
     /* A long history with one peer: 200 messages, the window at its end. */
@@ -3126,7 +3136,9 @@ static void comms_usability_session(void)
                      "%s, %s: it is the first row - above newer talk, and above a channel only "
                      "called Public",
                      size, shape);
-            check(what, first && seen >= 1 && top_of(line) - top_of(list) < row_h / 2);
+            /* The first row, under the CHANNELS label. */
+            check(what, first && seen >= 1 &&
+                            top_of(line) - top_of(list) < row_h / 2 + rift_group_h());
             if (!app->wide) {
                 snprintf(what, sizeof(what),
                          "%s, %s: and every other row is there under it, the namesake too",
@@ -6758,13 +6770,16 @@ static void reliability_session(void)
         pump(200);
         snprintf(what, sizeof(what), "%s: CONTACTS opens from COMMS, with COMMS still lit", shape);
         check(what, app->section == RIFT_SEC_CONTACTS && rift_tab_of(app->section) == RIFT_SEC_COMMS);
-        snprintf(what, sizeof(what), "%s: every stored contact, A to Z - not NODES' heard order",
+        /* The fixture's repeater (KEY_D) is NODES', not a contact. */
+        snprintf(what, sizeof(what),
+                 "%s: every stored contact but the repeater, A to Z - not NODES' heard order",
                  shape);
-        check(what, rift_contacts_view_count(app) == 5 &&
+        check(what, rift_contacts_view_count(app) == 4 &&
                         strcmp(rift_contacts_view_key_at(app, 0), KEY_B) == 0 &&
                         strcmp(rift_contacts_view_key_at(app, 3), KEY_A) == 0);
         snprintf(what, sizeof(what), "%s: a row says what kind of node and its key", shape);
-        check(what, find_text(content(), "REPEATER") && find_text(content(), "B2CAFE1E"));
+        check(what, find_text(content(), "CHAT") && find_text(content(), "B2CAFE1E") &&
+                        !find_text(content(), "REPEATER"));
         snprintf(what, sizeof(what), "%s: the rows are a pool, not one per contact", shape);
         check(what, rift_contacts_view_rows_built(app) > 0 && rift_contacts_view_rows_built(app) <= 32);
         snprintf(what, sizeof(what), "%s: CONTACTS' captions are whole", shape);
@@ -6775,19 +6790,23 @@ static void reliability_session(void)
                         strcmp(rift_contacts_view_key_at(app, 0), KEY_A) == 0);
         lv_textarea_set_text(rift_contacts_view_field(app), "");
         pump(60);
-        type_into(rift_contacts_view_field(app), "d4de");
+        type_into(rift_contacts_view_field(app), "c3be");
         snprintf(what, sizeof(what), "%s: and by key prefix", shape);
         check(what, rift_contacts_view_count(app) == 1 &&
-                        strcmp(rift_contacts_view_key_at(app, 0), KEY_D) == 0);
+                        strcmp(rift_contacts_view_key_at(app, 0), KEY_C) == 0);
+        lv_textarea_set_text(rift_contacts_view_field(app), "");
+        pump(60);
+        type_into(rift_contacts_view_field(app), "d4de");
         pos_input_focus(app->keysink);
         pump(200);
         key(LV_KEY_DOWN);
         key(LV_KEY_ENTER);
         snprintf(what, sizeof(what),
-                 "%s: a repeater is not written to: it says why, and stays (section %d, %d listed)",
+                 "%s: a repeater is not a contact, by key either: nothing is listed, nothing opens, "
+                 "and the line says so (section %d, %d listed)",
                  shape, (int)app->section, rift_contacts_view_count(app));
-        check(what, app->section == RIFT_SEC_CONTACTS && rift_contacts_view_note(app) &&
-                        rift_contacts_view_note(app)[0]);
+        check(what, app->section == RIFT_SEC_CONTACTS && rift_contacts_view_count(app) == 0 &&
+                        rift_contacts_view_note(app) && rift_contacts_view_note(app)[0]);
         if (pass == 0) {
             shot("portrait-contacts-repeater");
         } else {
@@ -6798,7 +6817,7 @@ static void reliability_session(void)
         tap(rift_contacts_view_filter_button(app, 1));
         pump(120);
         snprintf(what, sizeof(what), "%s: RECENT is who was spoken with, the latest first (%d, query '%s', recent %d)",
-                 shape, rift_contacts_view_count(app), app->contacts_query, app->contacts_recent);
+                 shape, rift_contacts_view_count(app), app->contacts_query, app->contacts_filter);
         check(what, rift_contacts_view_count(app) == 2 &&
                         strcmp(rift_contacts_view_key_at(app, 0), KEY_A) == 0 &&
                         strcmp(rift_contacts_view_key_at(app, 1), KEY_B) == 0);
@@ -8156,6 +8175,565 @@ static void autocap_send_session(void)
     pump(100);
 }
 
+/* ---- feature/rift-ux-tropo ------------------------------------------------------
+ *
+ * The message banners' longer holds; TROPO over ACTIVITY's graph through its
+ * whole lifecycle, fed through the same mesh.rx reader the session feeds;
+ * COMMS in three groups; CONTACTS with favourites - each in portrait, turned,
+ * and at Large, with the screenshots the PR shows. */
+
+/* The service's word that it is up, and nothing else: after hours on the
+ * virtual clock, without adding give_service's frames to the feed again. */
+static void ux_service_up(void)
+{
+    cJSON *o = cJSON_Parse("{\"state\":\"online\",\"reason\":\"receiving\","
+                           "\"state_since_mono_ms\":100,\"radio\":{\"connected\":true,"
+                           "\"lease_held\":true,\"online\":true,\"radio_state\":\"rx\"},"
+                           "\"nodes\":5,\"counters\":{\"rx_events\":12,\"rx_delivered\":11,"
+                           "\"nodes_unretained\":0,\"contacts_full\":0,\"tx_ok\":3,"
+                           "\"tx_failed\":1,\"tx_unknown\":0,\"tx_rx_resume_failed\":0}}");
+
+    rift_model_apply_status(&app->model, o, rift_mono_ms());
+    cJSON_Delete(o);
+}
+
+#define KEY_ROOM_X "f7a0000000000000000000000000000000000000000000000000000000000007"
+
+/* A room server, by its advertised type, and a post from it. */
+static void give_room(void)
+{
+    char json[768];
+    cJSON *o;
+    int64_t now = rift_mono_ms();
+
+    snprintf(json, sizeof(json),
+             "{\"node\":{\"public_key\":\"" KEY_ROOM_X "\",\"node_hash\":\"f7\","
+             "\"name\":\"Hytta Room\",\"type\":3,\"path_known\":true,\"hops\":1,"
+             "\"direct\":false,\"path_hex\":\"a1\",\"last_heard_mono_ms\":%lld},"
+             "\"reason\":\"discovered\"}",
+             (long long)(now - 120000));
+    o = cJSON_Parse(json);
+    check("ux: the room fixture is valid JSON", o != NULL);
+    rift_model_apply_event(&app->model, "mesh.node", o);
+    cJSON_Delete(o);
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":40,\"direction\":\"in\",\"peer_public_key\":\"" KEY_ROOM_X "\","
+             "\"peer_name\":\"Hytta Room\",\"text\":\"Road to the cabin is open\","
+             "\"state\":\"received\",\"mono_ms\":%lld}}",
+             (long long)(now - 100000));
+    o = cJSON_Parse(json);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+}
+
+/* SITE and OPS as give_channels joins them, and MeshCore's Public channel
+ * under a local name, marked by the service. */
+static void give_three_channels(void)
+{
+    cJSON *o = cJSON_Parse("{\"count\":3,\"max\":8,\"persistent\":true,\"channels\":["
+                           "{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\","
+                           "\"key_bits\":256,\"text_limit\":147,\"ack_expected\":false},"
+                           "{\"channel\":1,\"name\":\"Public\",\"channel_hash\":\"11\","
+                           "\"key_bits\":128,\"well_known\":\"public\",\"text_limit\":150,"
+                           "\"ack_expected\":false},"
+                           "{\"channel\":2,\"name\":\"OPS\",\"channel_hash\":\"4d\","
+                           "\"key_bits\":128,\"text_limit\":147,\"ack_expected\":false}]}");
+
+    check("ux: the channel fixture is taken", o && rift_model_apply_channels(&app->model, o) == 0);
+    cJSON_Delete(o);
+}
+
+/* One reception, as meshcored's mesh.rx carries it, into the session's own
+ * reader: hops one-byte relays on a flood, received `ago` ms before now. */
+static unsigned ux_rx_seq;
+static void ux_give_rx(int hops, const char *route, unsigned id, int64_t ago)
+{
+    char path[2 * 63 + 1];
+    char json[1024];
+    cJSON *o;
+    int i;
+
+    for (i = 0; i < hops; i++) {
+        snprintf(path + 2 * i, 3, "%02x", (unsigned)(0x20 + i));
+    }
+    path[2 * hops] = '\0';
+    snprintf(json, sizeof(json),
+             "{\"v\":1,\"seq\":%u,\"mono_ms\":%lld,\"bytes\":64,\"rssi_dbm\":-112,\"snr_db\":-9.5,"
+             "\"verdict\":\"new\",\"type\":\"group_text\",\"type_code\":5,\"route\":\"%s\","
+             "\"path_kind\":\"hops\",\"path_hash_size\":1,\"path_hops\":%d%s%s%s,"
+             "\"hash\":\"7e7e7e7e7e7e%04x\",\"dup\":1}",
+             ++ux_rx_seq, (long long)(rift_mono_ms() - ago), route, hops,
+             hops ? ",\"path_hex\":\"" : "", hops ? path : "", hops ? "\"" : "", id);
+    o = cJSON_Parse(json);
+    rift_rxlog_apply(&app->rxlog, o, rift_mono_ms(), rift_rxlog_wall_now());
+    cJSON_Delete(o);
+}
+
+/* Is the whole of obj inside the screen, left to right and top to bottom? */
+static int on_screen(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        return 0;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    return a.x1 >= 0 && a.y1 >= 0 && a.x2 < lv_display_get_horizontal_resolution(disp) &&
+           a.y2 < lv_display_get_vertical_resolution(disp);
+}
+
+/* TROPO's line as drawn now. */
+static int tropo_says(const char *headline, const char *detail_part)
+{
+    lv_obj_t *t = rift_activity_tropo(app);
+
+    return t && strcmp(rift_tropo_view_headline(t), headline) == 0 &&
+           (!detail_part || strstr(rift_tropo_view_detail(t), detail_part) != NULL);
+}
+
+static void ux_tropo_checks(const char *tag)
+{
+    lv_obj_t *t = rift_activity_tropo(app);
+    lv_obj_t *g = rift_activity_graph(app);
+    lv_area_t ta;
+    lv_area_t ga;
+    char what[200];
+
+    lv_obj_scroll_to_y(lv_obj_get_parent(lv_obj_get_parent(lv_obj_get_parent(t))), 0, LV_ANIM_OFF);
+    pump(80);
+    lv_obj_get_coords(t, &ta);
+    lv_obj_get_coords(g, &ga);
+    snprintf(what, sizeof(what), "%s: the warning is over the ACTIVITY graph, on screen", tag);
+    check(what, t && g && ta.y2 < ga.y1 && on_screen(t) && on_screen(rift_tropo_view_sign(t)));
+    snprintf(what, sizeof(what), "%s: and every caption on the page is whole", tag);
+    check(what, captions_clipped(frame()) == 0);
+}
+
+static void ux_session(void)
+{
+    enum pos_text_size was = pos_theme_current_text_size();
+    char state_dir[] = "/tmp/rift-ux-XXXXXX";
+    lv_obj_t *t;
+    int calls;
+    int i;
+    int pass;
+
+    if (!mkdtemp(state_dir)) {
+        check("ux: a state directory for the preferences", 0);
+        return;
+    }
+    setenv("POCKETOS_STATE_DIR", state_dir, 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pos_theme_select_text_size(POS_TEXT_SIZE_MEDIUM);
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    give_messages();
+
+    /* ---- message banners: ten seconds, 4.4 with another waiting -------- */
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(60);
+    calls = notice_calls;
+    live_dm(900, "in", KEY_A, 1790000000, "banner hold");
+    pump(120);
+    check("ux: a direct message that arrives raises one banner", notice_calls == calls + 1);
+    check("ux: RIFT's banner stays ten seconds, twice the shell's five",
+          notice_hold_ms == RIFT_BANNER_HOLD_MS && RIFT_BANNER_HOLD_MS == 10000);
+    check("ux: and 4.4 s with another waiting, twice the shell's 2.2",
+          notice_hold_queued_ms == RIFT_BANNER_HOLD_QUEUED_MS && RIFT_BANNER_HOLD_QUEUED_MS == 4400);
+    check("ux: its tap opens that conversation", notice_open != NULL && notice_user &&
+                                                     strcmp((const char *)notice_user, KEY_A) == 0);
+    rift_app_open_conversation(app, KEY_A);
+    pump(120);
+    calls = notice_calls;
+    live_dm(901, "in", KEY_A, 1790000001, "in view");
+    pump(120);
+    check("ux: none for the conversation open in front of the reader", notice_calls == calls);
+    {
+        int h;
+        int q;
+
+        shell_notice_holds(0, 0, &h, &q);
+        check("ux: an app that says nothing keeps the shell's holds",
+              h == NOTICE_HOLD_MS && q == NOTICE_HOLD_QUEUED_MS && h == 5000 && q == 2200);
+        shell_notice_holds(RIFT_BANNER_HOLD_MS, RIFT_BANNER_HOLD_QUEUED_MS, &h, &q);
+        check("ux: RIFT's are taken as asked", h == 10000 && q == 4400);
+        shell_notice_holds(600000, 600000, &h, &q);
+        check("ux: and no app's hold is furniture", h == NOTICE_HOLD_MAX_MS && q == h);
+        shell_notice_holds(10, 5, &h, &q);
+        check("ux: nor too short to read", h == NOTICE_HOLD_MIN_MS && q == NOTICE_HOLD_MIN_MS);
+        shell_notice_holds(3000, 9000, &h, &q);
+        check("ux: a queued hold never outlasts the plain one", h == 3000 && q == 3000);
+    }
+
+    /* ---- TROPO ---------------------------------------------------------- */
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(80);
+    t = rift_activity_tropo(app);
+    check("ux: ACTIVITY has the TROPO line", t != NULL);
+    if (!t) {
+        app_stop();
+        return;
+    }
+    check("ux: with no receive log answered yet it says it is waiting, not that all is quiet",
+          tropo_says("NO TROPO SEEN", "WAITING FOR MESHCORED") &&
+              rift_warn_get(rift_tropo_view_sign(t)) == RIFT_WARN_NEUTRAL);
+    app->rxlog.supported = 0;
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: a meshcored with no receive log is said to leave TROPO blind",
+          tropo_says("NO TROPO SEEN", "KEEPS NO RECEIVE LOG"));
+    app->rxlog.supported = 1;
+    for (i = 0; i < 12; i++) {
+        ux_give_rx(3 + i % 5, "flood", 0x100 + (unsigned)i, 600000 - i * 30000);
+    }
+    ux_give_rx(26, "flood", 0x200, 200000);
+    ux_give_rx(24, "flood", 0x201, 160000);
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: watching, with the deep floods so far and the usual depth here",
+          tropo_says("NO TROPO SEEN", "WATCHING FOR 5 DEEP FLOODS") &&
+              tropo_says("NO TROPO SEEN", "2 SO FAR") && tropo_says("NO TROPO SEEN", "USUAL DEPTH 7 HOPS") &&
+              rift_warn_get(rift_tropo_view_sign(t)) == RIFT_WARN_NEUTRAL);
+    shot("portrait-activity-tropo-watching");
+    /* Copies of one deep packet, and a deep direct route: nothing. */
+    ux_give_rx(29, "flood", 0x201, 150000);
+    ux_give_rx(29, "flood", 0x201, 140000);
+    ux_give_rx(40, "direct", 0x202, 130000);
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: repeats of one packet and a direct route add nothing",
+          tropo_says("NO TROPO SEEN", "2 SO FAR"));
+    ux_give_rx(31, "flood", 0x203, 120000);
+    ux_give_rx(22, "transport_flood", 0x204, 60000);
+    ux_give_rx(27, "flood", 0x205, 30000);
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: five distinct deep floods in fifteen minutes: TROPO DETECTED, red",
+          tropo_says("TROPO DETECTED", "ACTIVE") && tropo_says("TROPO DETECTED", "PEAK 31 HOPS") &&
+              tropo_says("TROPO DETECTED", "5 DEEP PACKETS") &&
+              rift_warn_get(rift_tropo_view_sign(t)) == RIFT_WARN_ERROR);
+    ux_tropo_checks("ux, portrait, detected");
+    shot("portrait-activity-tropo-detected");
+
+    /* Hours pass on the virtual clock. The parked client would try the
+     * absent service again when its hour is up: parked again, and the
+     * service's word given again, so the screens show a mesh that is up. */
+    rift_test_clock_advance(35 * 60 * 1000LL);
+    quiet_client();
+    ux_service_up();
+    pump(RIFT_REPAINT_MS + 60);
+    check("ux: its hold run out, ended - and still red in its first hour",
+          tropo_says("TROPO DETECTED", "ENDED") &&
+              rift_warn_get(rift_tropo_view_sign(t)) == RIFT_WARN_ERROR);
+    ux_give_rx(44, "flood", 0x206, 0);
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: one deep packet after it closed does not open another",
+          tropo_says("TROPO DETECTED", "ENDED") && app->rxlog.tropo.openings == 1);
+    rift_test_clock_advance(90 * 60 * 1000LL);
+    quiet_client();
+    ux_service_up();
+    pump(RIFT_REPAINT_MS + 60);
+    check("ux: RECENT TROPO, yellow, from its last evidence's hour",
+          tropo_says("RECENT TROPO", "PEAK 31 HOPS") &&
+              rift_warn_get(rift_tropo_view_sign(t)) == RIFT_WARN_WARN);
+    shot("portrait-activity-tropo-recent");
+    rift_test_clock_advance(4 * 60 * 60 * 1000LL);
+    quiet_client();
+    ux_service_up();
+    pump(RIFT_REPAINT_MS + 60);
+    check("ux: LAST TROPO, grey, after five hours",
+          tropo_says("LAST TROPO", "LAST DEEP PACKET") &&
+              rift_warn_get(rift_tropo_view_sign(t)) == RIFT_WARN_MUTED);
+    /* The service goes away: what was seen stays, and the line says it is
+     * not listening now. */
+    app->rxlog.lost = 1;
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: with the service gone the last opening stays, and the line says why it is blind",
+          tropo_says("LAST TROPO", "NOT LISTENING"));
+    app->rxlog.lost = 0;
+    /* A second opening, now: red again, measured from its own evidence. */
+    for (i = 0; i < 5; i++) {
+        ux_give_rx(23 + i, "flood", 0x300 + (unsigned)i, 240000 - i * 40000);
+    }
+    rift_app_refresh(app);
+    pump(60);
+    check("ux: a second opening is red again, and counted",
+          tropo_says("TROPO DETECTED", "ACTIVE") && tropo_says("TROPO DETECTED", "2 SINCE RIFT OPENED"));
+
+    /* Turned, and at Large: the app built again over the same session. */
+    for (pass = 0; pass < 2; pass++) {
+        char tag[64];
+
+        app_leave();
+        use_display(POS_ROTATION_270, PANEL_CORNER);
+        pos_theme_select_text_size(pass ? POS_TEXT_SIZE_LARGE : POS_TEXT_SIZE_MEDIUM);
+        app_start();
+        quiet_client();
+        ux_service_up();
+        rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+        pump(160);
+        snprintf(tag, sizeof(tag), "ux, landscape%s", pass ? ", large" : "");
+        ux_tropo_checks(tag);
+        check("ux: the session kept the opening across leaving and coming back",
+              tropo_says("TROPO DETECTED", "ACTIVE"));
+        shot(pass ? "landscape-activity-tropo-large" : "landscape-activity-tropo");
+    }
+    app_leave();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pos_theme_select_text_size(POS_TEXT_SIZE_LARGE);
+    app_start();
+    quiet_client();
+    ux_service_up();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(160);
+    ux_tropo_checks("ux, portrait, large");
+    shot("portrait-activity-tropo-large");
+
+    /* ---- COMMS: CHANNELS, DIRECT MESSAGES, CHAT ROOMS ------------------- */
+    give_three_channels();
+    give_room();
+    /* An unread message from NO-3241 FO, then a newer one of ours to HYTTA:
+     * by recency alone HYTTA would lead, and the unread one has to. */
+    live_dm(910, "in", KEY_C, 1790000100, "unread and older");
+    pump(40);
+    live_dm(911, "out", KEY_B, 1790000101, "newer and read");
+    pump(40);
+    for (pass = 0; pass < 4; pass++) {
+        static const char *const tags[4] = { "portrait", "portrait, large", "landscape",
+                                             "landscape, large" };
+        char pub[RIFT_KEY_HEX];
+        char what[200];
+        int n;
+        int room_at = -1;
+        int first_dm = -1;
+        int last_dm = -1;
+
+        app_leave();
+        use_display(pass < 2 ? POS_ROTATION_0 : POS_ROTATION_270, PANEL_CORNER);
+        pos_theme_select_text_size(pass % 2 ? POS_TEXT_SIZE_LARGE : POS_TEXT_SIZE_MEDIUM);
+        app_start();
+        quiet_client();
+        ux_service_up();
+        /* No thread open: the list has the height, and every group shows. */
+        app->have_conv = 0;
+        app->conv[0] = '\0';
+        rift_app_show_section(app, RIFT_SEC_COMMS);
+        pump(200);
+        rift_channel_key(1, "11", "Public", pub, sizeof(pub));
+        n = rift_comms_order_count(app);
+        for (i = 0; i < n; i++) {
+            const char *k = rift_comms_order_key(app, i);
+            const struct rift_node *node = rift_model_find(&app->model, k);
+
+            if (strcmp(k, KEY_ROOM_X) == 0) {
+                room_at = i;
+            } else if (k[0] != '#' && !(node && node->have_type && node->type == 3)) {
+                if (first_dm < 0) {
+                    first_dm = i;
+                }
+                last_dm = i;
+            }
+        }
+        snprintf(what, sizeof(what), "%s: the three groups are labelled", tags[pass]);
+        check(what, find_text(content(), "CHANNELS") && find_text(content(), "DIRECT MESSAGES") &&
+                        find_text(content(), "CHAT ROOMS"));
+        snprintf(what, sizeof(what), "%s: Public first, by the service's mark, then the channels",
+                 tags[pass]);
+        check(what, n >= 6 && strcmp(rift_comms_order_key(app, 0), pub) == 0 &&
+                        rift_comms_order_key(app, 1)[0] == '#' &&
+                        rift_comms_order_key(app, 2)[0] == '#' && first_dm == 3);
+        snprintf(what, sizeof(what), "%s: unread direct messages lead their group", tags[pass]);
+        {
+            int ordered = first_dm >= 0 &&
+                          strcmp(rift_comms_order_key(app, first_dm), KEY_C) == 0 &&
+                          rift_model_unread(&app->model, KEY_C) > 0 &&
+                          strcmp(rift_comms_order_key(app, first_dm + 1), KEY_B) == 0;
+            int seen_read = 0;
+
+            for (i = first_dm; first_dm >= 0 && i <= last_dm; i++) {
+                int u = rift_model_unread(&app->model, rift_comms_order_key(app, i)) > 0;
+
+                ordered = ordered && !(seen_read && u);
+                seen_read = seen_read || !u;
+            }
+            check(what, ordered);
+            if (!ordered) {
+                for (i = 0; i < n; i++) {
+                    printf("     row %d: %.12s unread %d\n", i, rift_comms_order_key(app, i),
+                           rift_model_unread(&app->model, rift_comms_order_key(app, i)));
+                }
+            }
+        }
+        snprintf(what, sizeof(what), "%s: the room server is under CHAT ROOMS, after every DM",
+                 tags[pass]);
+        check(what, room_at > last_dm && room_at == n - 1);
+        snprintf(what, sizeof(what), "%s: each conversation is one row", tags[pass]);
+        {
+            int dup = 0;
+            int j;
+
+            for (i = 0; i < n; i++) {
+                for (j = i + 1; j < n; j++) {
+                    dup += strcmp(rift_comms_order_key(app, i), rift_comms_order_key(app, j)) == 0;
+                }
+            }
+            check(what, dup == 0);
+        }
+        snprintf(what, sizeof(what), "%s: the list's captions are whole", tags[pass]);
+        check(what, captions_clipped(frame()) == 0);
+        if (pass == 0) {
+            shot("portrait-comms-groups");
+            /* The keys walk the one list, across the groups. */
+            rift_app_open_conversation(app, rift_comms_order_key(app, last_dm));
+            pump(120);
+            rift_comms_step(app, 1);
+            pump(120);
+            check("ux: DOWN from the last direct message opens the room",
+                  rift_comms_open_peer(app) && strcmp(rift_comms_open_peer(app), KEY_ROOM_X) == 0);
+            check("ux: the room's thread is open with its post",
+                  find_text(content(), "Road to the cabin is open") != NULL);
+            shot("portrait-comms-room-open");
+            rift_comms_step(app, -1);
+            pump(120);
+            check("ux: and UP goes back", rift_comms_open_peer(app) &&
+                                              strcmp(rift_comms_open_peer(app),
+                                                     rift_comms_order_key(app, last_dm)) == 0);
+        } else if (pass == 1) {
+            shot("portrait-comms-groups-large");
+        } else if (pass == 2) {
+            shot("landscape-comms-groups");
+        } else {
+            shot("landscape-comms-groups-large");
+        }
+    }
+
+    /* ---- CONTACTS: favourites --------------------------------------------- */
+    for (pass = 0; pass < 4; pass++) {
+        static const char *const tags[4] = { "portrait", "portrait, large", "landscape",
+                                             "landscape, large" };
+        char what[200];
+        lv_obj_t *star;
+        int n;
+
+        app_leave();
+        use_display(pass < 2 ? POS_ROTATION_0 : POS_ROTATION_270, PANEL_CORNER);
+        pos_theme_select_text_size(pass % 2 ? POS_TEXT_SIZE_LARGE : POS_TEXT_SIZE_MEDIUM);
+        app_start();
+        quiet_client();
+        ux_service_up();
+        rift_app_show_section(app, RIFT_SEC_CONTACTS);
+        app->contacts_filter = RIFT_CONTACTS_ALL;
+        app->contacts_query[0] = '\0';
+        rift_app_refresh(app);
+        pump(200);
+        n = rift_contacts_view_count(app);
+        snprintf(what, sizeof(what), "%s: ALL, FAVORITES and RECENT are there, whole", tags[pass]);
+        check(what, find_exact(content(), "ALL") && find_exact(content(), "FAVORITES") &&
+                        find_exact(content(), "RECENT") &&
+                        on_screen(rift_contacts_view_filter_button(app, RIFT_CONTACTS_RECENT)) &&
+                        captions_clipped(frame()) == 0);
+        snprintf(what, sizeof(what), "%s: the room server is a contact and says ROOM; the repeater is not",
+                 tags[pass]);
+        check(what, find_exact(content(), "ROOM") != NULL && n == 5 &&
+                        find_text(content(), "S\xC3\xB8rlandet") == NULL);
+        if (pass == 0) {
+            const char *third = rift_contacts_view_key_at(app, 3);
+            char fav_key[RIFT_KEY_HEX];
+
+            snprintf(fav_key, sizeof(fav_key), "%s", third ? third : "");
+            star = rift_contacts_view_star(app, 3);
+            check("ux: every row has its star, off", star && !rift_star_get(star));
+            tap(star);
+            pump(120);
+            check("ux: a tap on the star makes it a favourite, and opens nothing",
+                  rift_prefs_favorite(&app->prefs, fav_key) && app->section == RIFT_SEC_CONTACTS);
+            check("ux: which goes to the top of ALL, starred",
+                  strcmp(rift_contacts_view_key_at(app, 0), fav_key) == 0 &&
+                      rift_star_get(rift_contacts_view_star(app, 0)));
+            {
+                char path[256];
+                char text[RIFT_STORE_FILE_MAX];
+                FILE *f;
+                size_t got = 0;
+
+                snprintf(path, sizeof(path), "%s", rift_store_path());
+                f = fopen(path, "r");
+                if (f) {
+                    got = fread(text, 1, sizeof(text) - 1, f);
+                    fclose(f);
+                }
+                text[got] = '\0';
+                check("ux: and is in the preferences file by its whole key, at once",
+                      strstr(text, "favorite=") && strstr(text, fav_key));
+            }
+            /* By key: F on the selected row. */
+            pos_input_focus(app->keysink);
+            pump(60);
+            key(LV_KEY_DOWN);
+            key(LV_KEY_DOWN);
+            key('f');
+            pump(120);
+            check("ux: F stars the selected contact too", app->prefs.fav_count == 2);
+            tap(rift_contacts_view_filter_button(app, RIFT_CONTACTS_FAVORITES));
+            pump(120);
+            check("ux: FAVORITES lists the two, A to Z",
+                  rift_contacts_view_count(app) == 2 && app->contacts_filter == RIFT_CONTACTS_FAVORITES);
+            shot("portrait-contacts-favorites-filter");
+            tap(rift_contacts_view_filter_button(app, RIFT_CONTACTS_ALL));
+            pump(120);
+            shot("portrait-contacts-favorites");
+            /* A tap on the row itself still opens the conversation. */
+            tap(ancestor(find_exact(content(), "OSLO-01"), 1));
+            pump(160);
+            check("ux: a tap beside the star opens the contact's conversation",
+                  app->section == RIFT_SEC_COMMS && app->have_conv && strcmp(app->conv, KEY_A) == 0);
+            rift_app_show_section(app, RIFT_SEC_CONTACTS);
+            pump(120);
+        } else {
+            snprintf(what, sizeof(what), "%s: the favourites outlived the app's session, first in ALL",
+                     tags[pass]);
+            check(what, app->prefs.fav_count == 2 && rift_contacts_view_star(app, 0) &&
+                            rift_star_get(rift_contacts_view_star(app, 0)) &&
+                            rift_star_get(rift_contacts_view_star(app, 1)) &&
+                            !rift_star_get(rift_contacts_view_star(app, 2)));
+            shot(pass == 1 ? "portrait-contacts-favorites-large"
+                           : pass == 2 ? "landscape-contacts-favorites"
+                                       : "landscape-contacts-favorites-large");
+        }
+        if (pass == 0) {
+            /* A new session reads them back from the file. */
+            app_stop();
+            app_start();
+            quiet_client();
+            give_nodes();
+            ux_service_up();
+            give_messages();
+            give_three_channels();
+            give_room();
+            give_unread();
+        }
+    }
+    check("ux: nothing here changed the contact table", app->model.node_count == 6 &&
+                                                            rift_model_find(&app->model, KEY_D) != NULL);
+
+    app_stop();
+    pos_theme_select_text_size(was);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    unlink(rift_store_path());
+    {
+        char sub[sizeof(state_dir) + 16];
+
+        snprintf(sub, sizeof(sub), "%s/%s", state_dir, RIFT_STORE_SUBDIR);
+        rmdir(sub);
+    }
+    rmdir(state_dir);
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -8212,6 +8790,16 @@ int main(void)
         autocap_send_session();
         emoji_picker_session();
         emoji_picker_layout_session();
+        if (shots_dir) {
+            printf("rift_app_test: %d screenshot(s) in %s\n", shots_taken, shots_dir);
+        }
+        printf("rift_app_test: %d checks, %d failure(s)\n", checks, failed);
+        return failed ? 1 : 0;
+    }
+    /* $RIFT_APP_TEST_ONLY=ux: the message banners' holds, TROPO, COMMS'
+     * groups and CONTACTS' favourites alone (feature/rift-ux-tropo). */
+    if (getenv("RIFT_APP_TEST_ONLY") && strcmp(getenv("RIFT_APP_TEST_ONLY"), "ux") == 0) {
+        ux_session();
         if (shots_dir) {
             printf("rift_app_test: %d screenshot(s) in %s\n", shots_taken, shots_dir);
         }
@@ -9626,6 +10214,8 @@ int main(void)
     route_builder_session();
     /* feat/meshscope: MAP's TRAFFIC, live. */
     traffic_session();
+    /* feature/rift-ux-tropo: banners, TROPO, COMMS' groups, favourites. */
+    ux_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */
